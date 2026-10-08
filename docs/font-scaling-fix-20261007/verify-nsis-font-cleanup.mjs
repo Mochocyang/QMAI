@@ -14,6 +14,13 @@
  * ① **编译**：从**真实模板**里抽出那段代码（不是抄一份），用真正的 makensis
  *    编一遍，于是任何语法/宏名/标签错误都会当场失败。
  *
+ *    ⚠️ 骨架必须是 `Section Uninstall`，**不能**是普通 `Section`。
+ *    这条是本轮血泪教训：清理段在真实模板里位于卸载区，而 NSIS 禁止在卸载区
+ *    `Call` 不以 `un.` 开头的函数。早先的骨架用的是普通 `Section`，
+ *    于是 `${StrTrimNewLines}`（非 Un 变体）在这里"编译通过"，
+ *    真实的安装包却因它**完全打不出来**（`Call must be used with function
+ *    names starting with "un."`）。骨架不复现生产上下文，编译检查就是假绿。
+ *
  * ② **执行**（`--e2e`，需要先构建过 Rust）：把同一段代码放进一个**一次性注册表键**
  *    与临时目录里真跑一遍，然后用 `reg query` / 文件系统核对结果。
  *
@@ -70,7 +77,8 @@ const REQUIRED_TOKENS = [
   "FileRead",
   "DeleteRegValue",
   "Delete /REBOOTOK",
-  "${StrTrimNewLines}",
+  // 必须是 Un 变体：清理段在 Section Uninstall 里，非 Un 变体会让 makensis 失败
+  "${UnStrTrimNewLines}",
   "qmai_fonts_loop:",
   "qmai_fonts_close:",
   "qmai_fonts_done:",
@@ -104,6 +112,25 @@ if (/\$R2\s*\(TrueType\)/.test(block)) {
     "清理块里仍在拼接「 (TrueType)」后缀 —— 记录文件里已经是完整值名，" +
       "再拼一次会去删一个不存在的键（DeleteRegValue 对不存在的值静默成功），" +
       "卸载后会留下悬空注册表值。请直接删 $R2。",
+  )
+}
+/*
+ * ── 反向断言：不得使用 StrFunc 的非 `Un` 变体 ──
+ *
+ * `Section Uninstall` 里 `Call` 不以 `un.` 开头的函数会被 NSIS 拒绝：
+ *   `Call must be used with function names starting with "un." in the uninstall section.`
+ * 一旦用错，makensis 直接失败 —— 不是"清理不生效"，而是**整个安装包打不出来**。
+ * 这个缺陷真实存在过（由 67153fb 引入），且因为骨架用的是普通 `Section` 而被藏住。
+ *
+ * 注意 `${StrTrimNewLines}` 是 `${UnStrTrimNewLines}` 的**子串**，
+ * 所以必须带上 `${` 前缀来区分，不能用 includes。
+ */
+if (/\$\{Str(TrimNewLines|Case|Loc)\}/.test(block)) {
+  fail(
+    "清理块里用了 StrFunc 的非 `Un` 变体（如 ${StrTrimNewLines}）。" +
+      "该块位于 `Section Uninstall`，NSIS 只允许 `Call un.*`；" +
+      "用非 Un 变体会让 makensis 编译失败、整个安装包打不出来。" +
+      "请改用 ${UnStrTrimNewLines} 这类 Un 变体。",
   )
 }
 // 行数下限：一个能真正干活的清理块不可能只有几行
@@ -152,10 +179,12 @@ const nsiPath = (p) => p
  * 覆盖成一次性键与临时目录后，整段清理代码可以被**真跑一遍**而不碰用户环境。
  * 生产默认值由下面的静态断言钉住。
  */
-function buildScaffold({ outExe, fontKey, fontDir, recordDir }) {
+function buildScaffold({ outExe, fontKey, fontDir, recordDir, uninstallerPath }) {
   return `Unicode true
 ; 自动化：不要 UI，也不要提权（提权会弹 UAC 把脚本挂死）
 SilentInstall silent
+; 卸载器也要静默，否则阶段二会卡在确认对话框上
+SilentUnInstall silent
 RequestExecutionLevel user
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
@@ -163,7 +192,8 @@ RequestExecutionLevel user
 !include "StrFunc.nsh"
 \${StrCase}
 \${StrLoc}
-\${StrTrimNewLines}
+; 与生产模板一致：清理段在卸载区，用的是 Un 变体
+\${UnStrTrimNewLines}
 
 Name "qmai-font-cleanup-check"
 ; 绝对路径：OutFile 相对的是 **makensis 进程的 cwd**（下面为了找头文件把它设成了
@@ -182,7 +212,20 @@ Var PassiveMode
 ; 注意：$R0–$R9 与 $0–$9 是 NSIS 内置寄存器，**不能** Var 声明
 ; （声明会报 "variable already declared"）。清理段用的正是 $R0–$R4。
 
-Section
+; ── 必须是 Section Uninstall，不能是普通 Section ──
+; 这是本轮实测出来的关键点：同一段代码在**普通 Section** 里编译完全合法，
+; 所以"抽出来编译一遍"曾给出假绿 —— 真实的模板里它在 Section Uninstall，
+; 而 NSIS 禁止在卸载区 Call 不以 un. 开头的函数。
+; 于是 \${StrTrimNewLines}（非 Un 变体）在普通 Section 里编得过、
+; 在真实安装包里直接让 makensis 失败，**整个安装包都打不出来**。
+; 骨架必须复现生产上下文，否则这类错误永远测不到。
+; 另需一个普通 Section：只有 Section Uninstall 时 makensis 会报
+; "invalid script: no sections specified"。
+Section "placeholder"
+${uninstallerPath ? `  ; 让阶段二能真正调到 Section Uninstall：清理段只在**卸载器**里执行，\n  ; 直接运行安装器 exe 是不会跑到的（这也是先前"编译通过"却从未真跑过的原因之一）。\n  WriteUninstaller "${nsiPath(uninstallerPath)}"` : ""}
+SectionEnd
+
+Section Uninstall
   StrCpy $UpdateMode 0
 ${block}
 SectionEnd
@@ -452,9 +495,10 @@ try {
   if (!valueExists(TEST_KEY, CANARY_NAME)) throw new Error("canary 值没建出来")
   console.log(`  前置条件已确认：${expected.length} 个文件 + ${expected.length + 1} 个注册表值都在`)
 
-  // 4) 编译并运行清理段
+  // 4) 编译，并**真正执行卸载器**里的清理段
   const e2eScaffold = join(e2eWork, "e2e.nsi")
   const e2eExe = join(e2eWork, "e2e.exe")
+  const e2eUninst = join(e2eWork, "e2e-uninst.exe")
   writeFileSync(
     e2eScaffold,
     "\uFEFF" +
@@ -464,22 +508,57 @@ try {
         // 指向**含中文的目录**：这是本测试的核心（复现"中文用户名"）
         fontDir: e2eFonts,
         recordDir: e2eRecordDir,
+        uninstallerPath: e2eUninst,
       }),
     "utf8",
   )
   compileNsi(e2eScaffold, e2eWork)
   if (!existsSync(e2eExe)) throw new Error(`makensis 没有产出 ${e2eExe}`)
 
-  const runExe = () => {
+  const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+
+  /**
+   * 跑一次卸载器。
+   *
+   * ── 为什么要走卸载器，而不是直接跑安装器 exe ──
+   * 清理段位于 `Section Uninstall`，**只有卸载器**会执行它；直接跑安装器
+   * 只会跑普通 Section。"编译通过"曾长期掩盖这一点：片段在普通 Section 里
+   * 编译合法，于是看起来一切正常。
+   *
+   * 先跑安装器让它 `WriteUninstaller` 落盘，再跑卸载器（`/S` 静默）。
+   * 卸载器会把自己复制到 %TEMP% 再重启，因此**不能在返回后立刻断言** ——
+   * 下面用轮询等待实际状态，而不是盲目 sleep 一个魔法值。
+   */
+  const runUninstaller = () => {
     try {
       execFileSync(e2eExe, [], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
     } catch (e) {
-      // NSIS 的 Section 即使出错也常返回 0；这里只报告异常，判定交给下面的实际状态
-      console.log(`  ⓘ 安装器返回非 0（${e?.status ?? "?"}），继续按实际状态判定`)
+      console.log(`  ⓘ 安装器返回非 0（${e?.status ?? "?"}），继续`)
+    }
+    if (!existsSync(e2eUninst)) throw new Error(`安装器没有写出卸载器：${e2eUninst}`)
+    try {
+      execFileSync(e2eUninst, ["/S"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true })
+    } catch (e) {
+      // NSIS 的 Section 即使出错也常返回 0；判定一律交给下面的实际状态
+      console.log(`  ⓘ 卸载器返回非 0（${e?.status ?? "?"}），继续按实际状态判定`)
     }
   }
-  runExe()
-  console.log("  已执行清理段")
+
+  /** 等到所有目标文件与注册表值都消失（或超时）。返回是否在时限内达成。 */
+  const waitForCleanup = (timeoutMs = 20000) => {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const filesGone = expected.every((e) => !existsSync(e.dest))
+      const valuesGone = expected.every((e) => !valueExists(TEST_KEY, e.valueName))
+      if (filesGone && valuesGone) return true
+      if (Date.now() > deadline) return false
+      sleep(200)
+    }
+  }
+
+  runUninstaller()
+  const cleaned = waitForCleanup()
+  console.log(cleaned ? "  已执行卸载器，清理段生效" : "  已执行卸载器，但等待超时")
 
   // 5) 核对：文件没了、值没了、canary 还在
   for (const e of expected) {
@@ -499,14 +578,36 @@ try {
     console.log("  ✓ 记录之外的 canary 值未被误删")
   }
 
-  // 6) 幂等：再跑一次不应出错，也不应删掉别的什么
-  //    卸载器可能被连跑两次（用户重复点卸载、或先卸载再更新）
-  runExe()
+  /*
+   * 6) 幂等与两个"记录状态"分支。
+   *
+   * 卸载器可能被连跑两次（用户重复点卸载、卸载后重装再卸载），而记录文件
+   * 只有两种状态，两个分支都要真跑一遍：
+   *   (a) 记录还在、目标已消失 —— 第一次跑完的真实状态（NSIS 侧只删字体文件与
+   *       注册表值，**不删记录文件**；记录由 Rust 的 remove_installed_fonts 删）。
+   *       必须不报错、不误删。
+   *   (b) 记录已不在 —— 再跑一次前先删掉记录，走 IfFileExists 的跳过分支。
+   *       必须不报错、不误删。
+   *
+   * 两轮都要盯 canary：它是"清理段删了记录之外的东西"的唯一探测器。
+   */
+  runUninstaller()
+  sleep(1000)
   for (const e of expected) {
-    if (existsSync(e.dest)) failE2e(`第二次执行后又出现了文件（不应发生）：${e.dest}`)
+    if (existsSync(e.dest)) failE2e(`(a) 记录仍在时重跑又出现了文件：${e.dest}`)
   }
-  if (!valueExists(TEST_KEY, CANARY_NAME)) failE2e("第二次执行把 canary 值删了")
-  if (!e2eFailed) console.log("  ✓ 重复执行是幂等的（第二次仍不误删）")
+  if (!valueExists(TEST_KEY, CANARY_NAME)) failE2e("(a) 记录仍在时重跑把 canary 值删了")
+  if (!e2eFailed) console.log("  ✓ (a) 记录仍在时重跑：不报错、不误删")
+
+  rmSync(recordPath, { force: true })
+  if (existsSync(recordPath)) throw new Error("没能删掉记录文件，无法测 (b) 分支")
+  runUninstaller()
+  sleep(1000)
+  if (!valueExists(TEST_KEY, CANARY_NAME)) failE2e("(b) 记录不存在时把 canary 值删了")
+  for (const e of expected) {
+    if (existsSync(e.dest)) failE2e(`(b) 记录不存在时出现了文件：${e.dest}`)
+  }
+  if (!e2eFailed) console.log("  ✓ (b) 记录不存在时：直接跳过，且不误删")
 } catch (e) {
   failE2e(`阶段二异常：${e?.message ?? e}`)
   if (e?.stdout) console.error(String(e.stdout).trim())

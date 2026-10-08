@@ -29,11 +29,29 @@
 | 10 | 朱雀仿宋 | `ZhuqueFangsong-Regular.ttf` | 400 | 8.42 | OFL-1.1 | `v0.212` |
 | 11 | 更纱黑体 | `SarasaGothicSC-Regular.ttf` | 400 | 22.93 | OFL-1.1 | `v1.0.42` |
 
-体积对安装包的影响：现有便携版 exe 约 203.69 MiB，加上字体
-（209,720,176 字节 = 200.00 MiB）后合计约 **404 MiB**。
-NSIS 用 LZMA 压缩，但字体本身已是压缩过的二进制，实际增幅接近原始大小。
-**含 exe 的总安装包体积超出用户原话里的"100–200MB"**，见 §6.1；
-其中字体本身 200.00 MiB 恰好落在该区间上限。
+体积：**必须区分两个不同的量**，早先把它们混为一谈，得出了错误结论。
+
+| 量 | 实测值 | 说明 |
+|---|---|---|
+| **安装包**（用户下载的那一个 .exe） | **147.26 MiB**（154,410,649 B） | **在用户原话的 100–200MB 之内** |
+| 安装后磁盘占用 | ≈ 406.58 MiB | 便携版目录实测 626 个文件，**不是**"安装包体积" |
+| 未压缩原始合计 | 403.68 MiB | `qmai.exe` 203.67 + `fonts/` 200.01 |
+| NSIS 固实 LZMA 压缩比 | **2.74×** | 403.68 → 147.26 |
+
+早先的文档只看"exe + 字体"的**原始**大小（≈404 MiB）就断言"安装包超出
+100–200MB 上限"，并据此提出删减约 96 MiB 字体。那个断言是错的：
+NSIS 用固实 LZMA 打包，实际交付的安装包只有 **147.26 MiB**。
+字体本体 200.00 MiB 是磁盘占用的一部分，与下载体积不是同一个量。
+结论：**不需要为了体积删减字体**（见 §6）。
+
+实测命令（Tauri 打包完成后）：
+
+```powershell
+# 安装包体积
+Get-Item src-tauri\target\release\bundle\nsis\*_x64-setup.exe | % Length
+# 装到磁盘后的占用
+(Get-ChildItem release-portable -Recurse -File | Measure-Object Length -Sum).Sum
+```
 
 ---
 
@@ -300,15 +318,15 @@ cargo test --offline --lib 诊断_随包字体对探针的覆盖 -- --ignored --
 
 ## 6. 与用户约定的两处偏差（需知悉）
 
-1. **安装包总体积超出约定上限**：用户原话是"体积可增至 100–200MB"。
-   本次**字体**为 **200.00 MiB（209,720,176 字节 = 9 款族 / 11 个文件）**，
-   恰好落在该区间上限；但加上现有 exe（约 203.69 MiB）后，
-   **安装包总体积约 404 MiB**，超出该上限。
-   偏差原因是清单里含寒蝉正楷体（33.40）、霞鹜文楷（24.39）、
-   思源宋体 Regular + Bold（23.41 + 24.34）几款大字体。
-   **若需把字体压回 100 MiB 以内**，最省事的三项删减建议（按"性价比"排序）：
-   去掉寒蝉正楷体（−33.40）、思源宋体 Regular + Bold（−47.75）、
-   更纱黑体（−22.93），合计可回到约 95.92 MiB。请确认取舍。
+1. ~~**安装包总体积超出约定上限**~~ **已澄清：并未超出，原判断有误。**
+   用户原话是"体积可增至 100–200MB"。早先只把"exe + 字体"的**原始**大小
+   相加（203.67 + 200.01 ≈ 404 MiB）就断言超出上限，并建议删减约 96 MiB 字体。
+   实际打包后实测：**安装包 147.26 MiB**（NSIS 固实 LZMA，压缩比 2.74×），
+   **落在 100–200MB 之内**；404 MiB 那个数字是**未压缩的磁盘占用**，
+   与下载体积不是同一个量（见 §1 的两量对照表）。
+   因此**不需要为体积删减字体**，先前那份删减建议作废。
+   实施说明：本结论由一次**真实 `npx tauri build --bundles nsis`**得出 ——
+   在那之前，安装包根本打不出来（见下面第 5 条），所以"体积"从未被真正测量过。
 2. ~~**思源系列未含 Bold**~~ **已按用户决定补上**：思源宋体 + 思源黑体的 Bold
    合计 +42,485,160 字节 ≈ +40.52 MiB，现为 9 款族 / 11 个文件。
    加 Bold 的过程暴露了一个真实缺陷（同族字重撞注册表值名），
@@ -322,6 +340,41 @@ cargo test --offline --lib 诊断_随包字体对探针的覆盖 -- --ignored --
    因此本次新增两个 Bold 不影响既有 9 个文件的值名，
    升级时不会留下指向旧名字的孤儿键。这是选择"Regular 不带后缀"
    这条命名规则（而非"一律带后缀"）的一个实际收益。
+5. **安装包曾长期完全打不出来（已修复，本轮实测发现）**。
+   真实执行 `npx tauri build --bundles nsis` 时，makensis 直接失败：
+
+   ```
+   Call must be used with function names starting with "un." in the uninstall section.
+   Error in macro STRFUNC_CALL on macroline 7
+   Error in script "...\installer.nsi" on line 2572 -- aborting creation process
+   ```
+
+   根因：清理段位于 `Section Uninstall`，而 NSIS **禁止**在卸载区 `Call`
+   不以 `un.` 开头的函数。模板用的是 `${StrTrimNewLines}`
+   （生成 `Function StrTrimNewLines`），必须改用 `${UnStrTrimNewLines}`
+   （生成 `Function un.StrTrimNewLines`）。由 `67153fb` 引入，**从未成功打包过**。
+
+   为什么一直没被发现，两条原因缺一不可：
+   - `npm run build:portable` 走的是 `tauri build --no-bundle`，**根本不跑 NSIS**；
+   - 验收脚本把这段代码抽出来放进一个**普通 `Section`** 里编译 —— 而同一段代码
+     在普通 Section 里完全合法。实测 2×2 矩阵（`makensis` 真跑）：
+
+     | section 类型 | StrFunc 变体 | 结果 |
+     |---|---|---|
+     | 普通 `Section` | `${StrTrimNewLines}` | **编译通过** ← 旧脚本所在的格子，纯假绿 |
+     | 普通 `Section` | `${UnStrTrimNewLines}` | 失败：`Error in macro STRFUNC_CALL` |
+     | `Section Uninstall` | `${StrTrimNewLines}` | **失败：只能在卸载区 Call un.***（真实故障） |
+     | `Section Uninstall` | `${UnStrTrimNewLines}` | 编译通过 ← 正确 |
+
+   修复后 `npx tauri build --bundles nsis` 成功，产出
+   `青幕AI写作_4.1.2_x64-setup.exe`（147.26 MiB），并已核对生成的
+   `installer.nsi` 里 11 个字体 + `fonts-manifest.json` + 9 个许可证
+   全部通过 `File` 指令打进 `$INSTDIR\fonts\`。
+
+   验收脚本同时加固：骨架改用 `Section Uninstall`（复现生产上下文）、
+   加正向 token 断言 `${UnStrTrimNewLines}`、加反向断言禁止非 `Un` 变体、
+   并且阶段二改成**运行真正的卸载器**（`WriteUninstaller` + `/S`）——
+   清理段只在卸载器里执行，直接跑安装器 exe 是跑不到的。
 
 ---
 
@@ -352,7 +405,17 @@ node docs/font-scaling-fix-20261007/verify-real-exe-fonts.mjs
 
 # 7) 真实机器上的清理（会真的删掉本机已安装的随包字体，仅手动执行）
 cd src-tauri; cargo test --offline --lib 手动_在真实机器上清理随包字体 -- --ignored --nocapture
+
+# 8) **真正把安装包打出来**（唯一能发现 NSIS 上下文相关错误的检查）
+#    约 6 分钟（其中 cargo release 5.5 分钟）。产出体积应约 147 MiB。
+npx tauri build --bundles nsis
+Get-Item src-tauri\target\release\bundle\nsis\*_x64-setup.exe | Select-Object Name, Length
 ```
+
+> ⚠️ **第 8 步不可省略。** 第 5 步的骨架虽然已改成 `Section Uninstall`，
+> 但它仍是**抽出来的片段**，测不到与模板其余部分的交互。
+> 而 `npm run build:portable` **不跑 NSIS**（`--no-bundle`），
+> 所以它不能替代第 8 步 —— 安装包曾经因此长期完全打不出来而无人察觉（见 §6 第 5 条）。
 
 ### 卸载记录文件为什么只存**文件名**
 

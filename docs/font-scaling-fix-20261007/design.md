@@ -640,8 +640,7 @@ CoreText，其他应用与文档无法解析。两者应共存：`@font-face` �
 （NSIS 不再自行拼 `" (TrueType)"`）。三层防回归：清单生成脚本查重、
 纯数据测试查重、DirectWrite 实测字重比对。
 
-**与 §9 初稿的三处偏离**
-
+**与 §9 初稿的五处偏离**
 1. **卸载记录改用"交替两行"而不是 `族名<TAB>路径`。** 初稿未规定格式。
    NSIS 核心指令里没有"查找子串"，一行两项就得引 `StrFunc.nsh` 的
    `${StrLoc}` 做下标运算。交替两行只需 `FileRead` 两次，全用核心指令 ——
@@ -679,6 +678,42 @@ CoreText，其他应用与文档无法解析。两者应共存：`@font-face` �
    另注意第 2 行**绝不能为空**：NSIS 用 `StrCmp $R3 ""` 判断"读完了"，
    一个空文件名会让它**提前结束整个清理循环**，后面所有字体都不清理；
    由 `记录第二行在任何损坏输入下都不得为空或含分隔符` 钉住。
+4. **卸载区里必须用 StrFunc 的 `Un` 变体；安装包曾因此完全打不出来。**
+   清理段位于 `Section Uninstall`，而 NSIS 禁止在卸载区 `Call` 不以 `un.`
+   开头的函数。模板原先用 `${StrTrimNewLines}`（生成 `Function StrTrimNewLines`），
+   必须改为 `${UnStrTrimNewLines}`（生成 `Function un.StrTrimNewLines`）。
+   由 `67153fb` 引入，**安装包从未成功打包过**，直到本轮真跑
+   `npx tauri build --bundles nsis` 才暴露：
+
+   ```
+   Call must be used with function names starting with "un." in the uninstall section.
+   Error in macro STRFUNC_CALL on macroline 7
+   Error in script "...\installer.nsi" on line 2572 -- aborting creation process
+   ```
+
+   两条掩盖原因缺一不可：① `npm run build:portable` 走
+   `tauri build --no-bundle`，根本不跑 NSIS；② 验收脚本的骨架用的是
+   **普通 `Section`**，而同一段代码在那里完全合法。实测 2×2 矩阵：
+
+   | section 类型 | StrFunc 变体 | 结果 |
+   |---|---|---|
+   | 普通 `Section` | `${StrTrimNewLines}` | **编译通过** ← 旧脚本所在的格子，纯假绿 |
+   | 普通 `Section` | `${UnStrTrimNewLines}` | 失败：`Error in macro STRFUNC_CALL` |
+   | `Section Uninstall` | `${StrTrimNewLines}` | **失败：只能在卸载区 Call un.***（真实故障） |
+   | `Section Uninstall` | `${UnStrTrimNewLines}` | 编译通过 ← 正确 |
+
+   教训与"不变式一/二"同源：**验收骨架必须复现生产上下文**，
+   否则"编译通过"本身就是一种假绿。现已加三层防护：
+   骨架改用 `Section Uninstall`、正向 token 断言 `${UnStrTrimNewLines}`、
+   反向断言禁止非 `Un` 变体（注意 `${StrTrimNewLines}` 是
+   `${UnStrTrimNewLines}` 的子串，必须带 `${` 前缀才区分得开）。
+   另外阶段二改为**运行真正的卸载器**（`WriteUninstaller` + `/S`）：
+   清理段只在卸载器里执行，直接跑安装器 exe 是跑不到的。
+5. **安装包体积曾被算错。** 早先把"exe + 字体"的**未压缩**大小相加
+   （≈404 MiB）就断言超出用户给的 100–200MB 上限，并提议删减约 96 MiB 字体。
+   实际打包后安装包是 **147.26 MiB**（NSIS 固实 LZMA，压缩比 2.74×），
+   **在区间之内**；404 MiB 是磁盘占用，与下载体积不是同一个量。
+   该错误之所以能存在，正是因为安装包打不出来（见上一条），体积从未被真正测量过。
 
 **族名一致性（本轮抓到的真实缺陷之一）**
 

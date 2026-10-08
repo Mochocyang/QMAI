@@ -32,9 +32,25 @@ ManifestDPIAwareness PerMonitorV2
 ${StrCase}
 ${StrLoc}
 ; 卸载时清理随包字体要用到（读记录文件后剥掉行尾 CRLF）。
-; 注意是 StrFunc 的 `StrTrimNewLines`（大写 N/L），不是 TextFunc 的
-; `TrimNewLines` —— 后者签名是文件级的、且 TextFunc.nsh 没被 include。
-${StrTrimNewLines}
+;
+; ── 必须用 `Un` 前缀的那个变体 ──
+; StrFunc 每个函数都生成两份，调用方式不同：
+;   ${StrTrimNewLines}   → Function StrTrimNewLines   + `Call StrTrimNewLines`
+;   ${UnStrTrimNewLines} → Function un.StrTrimNewLines + `Call un.StrTrimNewLines`
+; 而 NSIS **禁止**在 `Section Uninstall` 里 `Call` 不以 `un.` 开头的函数：
+;   `Call must be used with function names starting with "un." in the
+;    uninstall section.`
+; 清理段完全位于卸载区，所以必须用 `Un` 变体。
+;
+; 这个缺陷曾经真实存在：模板用了非 `Un` 变体，`makensis` 直接编译失败，
+; 于是**整个安装包都打不出来**。一直没被发现是因为：
+;   ① `npm run build:portable` 走 `tauri build --no-bundle`，根本不跑 NSIS；
+;   ② 原先的验收脚本把这段代码抽出来放进一个**普通 `Section`** 编译 ——
+;      同一片段在普通 Section 里完全合法，"编译通过"于是成了假绿。
+; 现在验收脚本的骨架改用 `Section Uninstall`（见 verify-nsis-font-cleanup.mjs），
+; 与生产上下文一致，这类错误不会再被隐藏。
+; 另注意与 TextFunc 的 `TrimNewlines` 无关 —— 那是文件级的，且 TextFunc.nsh 没被 include。
+${UnStrTrimNewLines}
 
 {{#if installer_hooks}}
 !include "{{installer_hooks}}"
@@ -923,11 +939,11 @@ Section Uninstall
   qmai_fonts_loop:
     FileRead $R1 $R2 ; 第 1 行：完整注册表值名（已含后缀与字重）
     IfErrors qmai_fonts_close
-    ${StrTrimNewLines} $R2 $R2
+    ${UnStrTrimNewLines} $R2 $R2
     StrCmp $R2 "" qmai_fonts_close ; 空行 = 读完了
     FileRead $R1 $R3 ; 第 2 行：纯文件名（不含目录，全 ASCII）
     IfErrors qmai_fonts_close
-    ${StrTrimNewLines} $R3 $R3
+    ${UnStrTrimNewLines} $R3 $R3
     StrCmp $R3 "" qmai_fonts_close
     ; 目录在这里拼，而不是用记录里的绝对路径：$LOCALAPPDATA 是原生 Unicode，
     ; 中文用户名不会像"按 ANSI 解码 UTF-8 记录"那样被读成乱码。
