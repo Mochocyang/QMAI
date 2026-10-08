@@ -368,45 +368,68 @@ const GOOD_EDITOR = `
 .ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) ol > li::marker { font-size: var(--qmai-body-font-list); }
 `
 
-export function selftest() {
+/*
+ * 夹具清单单独导出，而不是写在 selftest() 里面。
+ *
+ * ── 为什么（代码质量审查 F1 的根因）──
+ * 审查实测出一个**系统性**盲区：19 条反例全部只断言"红/不红"，
+ * 从不断言"**红在哪一条 rule**"。只要一条夹具一次改动多个分量，
+ * 或者某条判据被另一条顺带挡下，分量级鉴别力就成了摆设 ——
+ * 实测有 7 条独立判据、行高默认值判据、以及 5 个 App 独占变量里的 3 个，
+ * 在被改成"永不触发"之后 **--selftest 仍然全绿**。
+ *
+ * 修法照审查的建议：把断言从"红了没"升级为"**红了哪些 rule**"。
+ * 要做到这一点，夹具清单必须能被外部读到（测量实际 rule 名、
+ * 再由夹具声明期望），所以这里把它抽成独立导出。
+ */
+export function selftestCases() {
   const cases = []
-  const add = (name, css, css2, expectClean) => cases.push({ name, css, css2, expectClean })
+  /*
+   * ⚠ 第 5 个参数的名字必须是 `expect`，与 selftest() 里的判据一致。
+   *
+   * 这里踩过一次坑、而且正是靠反向控制才发现的：本函数第一次写成了
+   * `expectRules`（存进 `c.expectRules`），而 selftest() 读的是 `c.expect` ——
+   * 于是**所有 count/includes 判据一条都没生效**，自检照样打印 27/27 全绿。
+   * 把子判据逐条改成"永不触发"的实验立刻暴露了它（8 处仍是全绿）。
+   * 名字不一致不会有任何编译期报错，因为这是个普通对象属性。
+   */
+  const add = (name, css, css2, expectClean, expect) => cases.push({ name, css, css2, expectClean, expect })
   const mut = (from, to) => GOOD_EDITOR.replace(from, to)
 
   add("正例：完整合规片段", GOOD_EDITOR, ROOT_OK, true)
   add("反例①：正文仍是硬编码 18px",
     mut(".ui-test-root .ui-test-editor-body { font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); }",
-      ".ui-test-root .ui-test-editor-body { font: 400 18px/1.95 var(--serif); }"), ROOT_OK, false)
+      ".ui-test-root .ui-test-editor-body { font: 400 18px/1.95 var(--serif); }"), ROOT_OK, false, { count: 3, includes: ["font 简写的字号仍是绝对单位：18px","的字号应为 var(--qmai-body-font-size)，实际 18px","的行高应为 var(--qmai-body-line-height)，实际 1.95"] })
   add("反例②：正文未引用变量（仍是 codemod 的 rem）",
     mut("font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); }",
-      "font: 400 1.125rem/1.95 var(--serif); }"), ROOT_OK, false)
+      "font: 400 1.125rem/1.95 var(--serif); }"), ROOT_OK, false, { count: 2, includes: ["的字号应为 var(--qmai-body-font-size)，实际 1.125rem","的行高应为 var(--qmai-body-line-height)，实际 1.95"] })
   add("反例③：高亮层与输入层表达式不同（字号写死）",
     mut("font-size: var(--qmai-body-font-size); line-height: var(--qmai-body-line-height); }",
-      "font-size: 1.125rem; line-height: 1.95; }"), ROOT_OK, false)
+      "font-size: 1.125rem; line-height: 1.95; }"), ROOT_OK, false, { count: 4, includes: ["查找高亮层","输入层字号表达式","输入层行高表达式"] })
   add("反例④：marker 用 em（比例基准错）",
     mut("li::marker { font-size: var(--qmai-body-font-marker); }",
-      "li::marker { font-size: 0.6667em; }"), ROOT_OK, false)
+      "li::marker { font-size: 0.6667em; }"), ROOT_OK, false, { count: 2, includes: ["font-size 使用了 em：0.6667em","应为 var(--qmai-body-font-marker)"] })
   add("反例⑤：marker 少乘倍数（直接用 rem）",
     mut("li::marker { font-size: var(--qmai-body-font-marker); }",
-      "li::marker { font-size: 0.75rem; }"), ROOT_OK, false)
+      "li::marker { font-size: 0.75rem; }"), ROOT_OK, false, { count: 1, includes: ["应为 var(--qmai-body-font-marker)（即 calc(var(--qmai-body-font-size) * 2 / 3)），实际 0.75rem"] })
   add("反例⑥：六条规则缺一条（有序标记）",
     mut(".ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) ol > li::marker { font-size: var(--qmai-body-font-list); }", ""),
-    ROOT_OK, false)
+    ROOT_OK, false, { count: 1, includes: ["ol > li::marker 缺少 font-size 声明"] })
   add("反例⑦：文档标题字体被误改成正文字体",
-    mut("font: 600 var(--qmai-body-font-size)/1.6 var(--ui);", "font: 600 var(--qmai-body-font-size)/1.6 var(--serif);"), ROOT_OK, false)
+    mut("font: 600 var(--qmai-body-font-size)/1.6 var(--ui);", "font: 600 var(--qmai-body-font-size)/1.6 var(--serif);"), ROOT_OK, false, { count: 1, includes: ["字体应保持 var(--ui)"] })
   add("反例⑧：变量定义里漏掉 px 间接层（写成裸 18px）",
-    GOOD_EDITOR, ROOT_OK.replace("var(--qmai-body-font-px, 18px)", "18px"), false)
+    GOOD_EDITOR, ROOT_OK.replace("var(--qmai-body-font-px, 18px)", "18px"), false, { count: 1, includes: ["应为 var(--qmai-body-font-px, 18px)"] })
   add("反例⑨：变量派生比例写错（2/3 写成 3/4）",
-    GOOD_EDITOR, ROOT_OK.replace("calc(var(--qmai-body-font-size) * 2 / 3)", "calc(var(--qmai-body-font-size) * 3 / 4)"), false)
+    GOOD_EDITOR, ROOT_OK.replace("calc(var(--qmai-body-font-size) * 2 / 3)", "calc(var(--qmai-body-font-size) * 3 / 4)"), false, { count: 1, includes: ["不是由字号按 2/3 派生：calc(var(--qmai-body-font-size) * 3 / 4)"] })
   add("反例⑩：编辑器文件里重复定义变量（单一来源被破坏）",
-    GOOD_EDITOR + "\n.ui-test-root { --qmai-body-font-size: 18px; }\n", ROOT_OK, false)
+    GOOD_EDITOR + "\n.ui-test-root { --qmai-body-font-size: 18px; }\n", ROOT_OK, false, { count: 1, includes: ["ui-test-editor.css 里也定义了 --qmai-body-font-size"] })
   add("反例⑪：px 行高漏网",
     mut("font-size: var(--qmai-body-font-list); line-height: var(--qmai-body-line-height); }\n.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li {",
-      "font-size: var(--qmai-body-font-list); line-height: 26px; }\n.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li {"), ROOT_OK, false)
+      "font-size: var(--qmai-body-font-list); line-height: 26px; }\n.ui-test-root .ui-test-editor-body :is(.ProseMirror, [dir][lang]) li {"), ROOT_OK, false, { count: 1, includes: ["line-height 仍是绝对单位：26px"] })
   add("反例⑫：变量定义到全局 :root（会污染正式版）",
-    GOOD_EDITOR, ROOT_OK.replace(".ui-test-root, html[data-ui-test-skin]", ":root"), false)
+    GOOD_EDITOR, ROOT_OK.replace(".ui-test-root, html[data-ui-test-skin]", ":root"), false, { count: 1, includes: ["变量宿主规则的选择器是「:root」"] })
   add("反例⑬：变量被定义两处（单一来源名存实亡）",
-    GOOD_EDITOR, ROOT_OK + "\n.ui-test-root { --qmai-body-font-marker: calc(var(--qmai-body-font-size) * 3 / 4); }", false)
+    GOOD_EDITOR, ROOT_OK + "\n.ui-test-root { --qmai-body-font-marker: calc(var(--qmai-body-font-size) * 3 / 4); }", false, { count: 5, includes: ["分散在 2 处规则里","--qmai-body-font-size 未在 ui-test.css 中定义","--qmai-body-font-list 未定义","--qmai-body-font-marker 未定义","--qmai-body-line-height 未定义"] })
 
   /* 新增：App 独占变量被重复声明时必须报红 ——
      这是本次改造新引入的失败模式，必须有负向夹具证明守卫有效。
@@ -414,13 +437,13 @@ export function selftest() {
      mut 只返回一个字符串、不注册任何用例，写成 mut 会静默不跑且自检照样打印通过。 */
   add("反例⑭：正文字号间接层被重复声明",
     GOOD_EDITOR,
-    ROOT_OK + "\n.ui-test-root { --qmai-body-font-px: 18px; }", false)
+    ROOT_OK + "\n.ui-test-root { --qmai-body-font-px: 18px; }", false, { count: 1, includes: ["--qmai-body-font-px 是 App 独占变量"] })
   add("反例⑮：行高间接层被重复声明",
     GOOD_EDITOR,
-    ROOT_OK + "\n.ui-test-root { --qmai-body-leading: 1.95; }", false)
+    ROOT_OK + "\n.ui-test-root { --qmai-body-leading: 1.95; }", false, { count: 1, includes: ["--qmai-body-leading 是 App 独占变量"] })
   add("反例⑯：从属尺寸不再是按比例派生",
     GOOD_EDITOR,
-    ROOT_OK.replace("calc(var(--qmai-body-font-size) * 8 / 9)", "16px"), false)
+    ROOT_OK.replace("calc(var(--qmai-body-font-size) * 8 / 9)", "16px"), false, { count: 1, includes: ["不是由字号按 8/9 派生：16px"] })
   /*
    * 反例⑰ 是变异验证补出来的，不属于计划里原来那三条。
    *
@@ -432,7 +455,7 @@ export function selftest() {
    */
   add("反例⑰：字号间接层的默认 px 写错（18px 写成 20px）",
     GOOD_EDITOR,
-    ROOT_OK.replace("var(--qmai-body-font-px, 18px)", "var(--qmai-body-font-px, 20px)"), false)
+    ROOT_OK.replace("var(--qmai-body-font-px, 18px)", "var(--qmai-body-font-px, 20px)"), false, { count: 1, includes: ["应为 var(--qmai-body-font-px, 18px)","实际 var(--qmai-body-font-px, 20px)"] })
   /*
    * 反例⑱/⑲ 也是变异验证补出来的，同样不属于计划里的三条。
    *
@@ -461,19 +484,117 @@ export function selftest() {
    */
   add("反例⑱：派生比例的**分母**写错（8/9 写成 8/10，分子仍对）",
     GOOD_EDITOR,
-    ROOT_OK.replace("calc(var(--qmai-body-font-size) * 8 / 9)", "calc(var(--qmai-body-font-size) * 8 / 10)"), false)
+    ROOT_OK.replace("calc(var(--qmai-body-font-size) * 8 / 9)", "calc(var(--qmai-body-font-size) * 8 / 10)"), false, { count: 1, includes: ["不是由字号按 8/9 派生：calc(var(--qmai-body-font-size) * 8 / 10)"] })
   add("反例⑲：派生比例的**分子**写错（8/9 写成 7/9，分母仍对）",
     GOOD_EDITOR,
-    ROOT_OK.replace("calc(var(--qmai-body-font-size) * 8 / 9)", "calc(var(--qmai-body-font-size) * 7 / 9)"), false)
+    ROOT_OK.replace("calc(var(--qmai-body-font-size) * 8 / 9)", "calc(var(--qmai-body-font-size) * 7 / 9)"), false, { count: 1, includes: ["不是由字号按 8/9 派生：calc(var(--qmai-body-font-size) * 7 / 9)"] })
 
+  /*
+   * ── 反例⑳㉑㉒：代码质量审查 F1 实测出来的三处剩余盲区 ──
+   *
+   * 审查把每条判据逐个改成"永不触发"，发现自检仍然全绿，其中三处
+   * 与**本次改造新引入的失败模式**直接相关，必须有夹具：
+   *
+   * ⑳ 行高默认值 1.95 的**数值**判据。
+   *    实测：把 `Number(m[1]) !== 1.95` 改成永不触发 → 自检 20/20 全绿。
+   *    为什么最该补：1.95 是"默认观感零变化"的锚点之一
+   *    （列表 1.9 → 1.95 那 +2.6% 的观感变化就是靠它描述的），
+   *    而且这是**唯一一处此前没有任何人登记**的缺口。
+   *    真机上守卫抓得住（真实 CSS 1.95 → 1.9 立即报红），
+   *    缺的只是"证明校验器自己抓得住"这一层。
+   *    注意 ⑮ 抓的是 `--qmai-body-leading` 被**重复声明**，
+   *    和"默认值写错"是两条不同的判据，⑮ 覆盖不到它。
+   *
+   * ㉑ ㉒ ㉓ App 独占变量的**另外三个**。
+   *    实测：把 APP_OWNED_VARS 从 5 个缩到只剩 font-px 与 leading
+   *    → 自检 20/20 全绿。也就是 letter-spacing / margin-x / safe-bottom
+   *    这三个只靠"真 CSS 恰好没写错"兜着，没有任何夹具证明守卫抓得住它们。
+   *    （⑭⑮ 已覆盖 font-px 与 leading 两个。）
+   *
+   * 判据是**收紧**：三处都只补夹具，不动任何既有判据。
+   */
+  add("反例⑳：行高间接层的默认值写错（1.95 写成 1.9）",
+    GOOD_EDITOR,
+    ROOT_OK.replace("var(--qmai-body-leading, 1.95)", "var(--qmai-body-leading, 1.9)"), false, { count: 1, includes: ["--qmai-body-line-height 的默认值应为 1.95","实际 1.9"] })
+  add("反例㉑：字间距独占变量被重复声明",
+    GOOD_EDITOR,
+    ROOT_OK + "\n.ui-test-root { --qmai-body-letter-spacing: 0; }", false, { count: 1, includes: ["--qmai-body-letter-spacing 是 App 独占变量"] })
+  add("反例㉒：左右边距独占变量被重复声明",
+    GOOD_EDITOR,
+    ROOT_OK + "\n.ui-test-root { --qmai-body-margin-x: 48px; }", false, { count: 1, includes: ["--qmai-body-margin-x 是 App 独占变量"] })
+  add("反例㉓：底部安全距离独占变量被重复声明",
+    GOOD_EDITOR,
+    ROOT_OK + "\n.ui-test-root { --qmai-body-safe-bottom: 51px; }", false, { count: 1, includes: ["--qmai-body-safe-bottom 是 App 独占变量"] })
+
+  /*
+   * ── 反例㉔㉕㉖：三条**此前没有任何夹具**的子判据（审查 F1 实测）──
+   *
+   * 审查把每条子判据逐个改成"永不触发"，发现自检仍然全绿，其中这三条
+   * 连一条碰它们的反例都没有：
+   *   · 输入层（.ProseMirror / [dir][lang] / textarea）的字号
+   *   · 段落（> p）的字号
+   *   · 文档标题的字号
+   * 真机上三条都有效（改坏立即报红），缺的只是"证明校验器自己抓得住"。
+   *
+   * 注意三条都刻意用 rem 而不是 px：用 px 会**顺带**触发那条
+   * "font 简写的字号仍是绝对单位"的位置判据（反例① 里出现过），
+   * 于是问题条数变成 2 而不是 1，"只动一个分量"就不成立了。
+   * 这正是本轮反复强调的纪律：**一条夹具只动一个分量**。
+   */
+  add("反例㉔：输入层的字号写死（不动行高）",
+    mut("textarea { font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); }",
+      "textarea { font: 400 1.125rem/var(--qmai-body-line-height) var(--serif); }"),
+    ROOT_OK, false, { count: 2, includes: ["输入层字号应为", "输入层字号表达式"] })
+  add("反例㉕：段落的字号写死",
+    mut("> p { font-size: var(--qmai-body-font-size); }",
+      "> p { font-size: 1.125rem; }"),
+    ROOT_OK, false, { count: 1, includes: ["段落", "字号应为 var(--qmai-body-font-size)，实际 1.125rem"] })
+  add("反例㉖：文档标题的字号写死（不动字体）",
+    mut("font: 600 var(--qmai-body-font-size)/1.6 var(--ui);",
+      "font: 600 1.5rem/1.6 var(--ui);"),
+    ROOT_OK, false, { count: 1, includes: ["文档标题", "字号应跟随正文字号"] })
+
+  return cases
+}
+
+/* ─────────────────────────── 自检 ─────────────────────────── */
+
+export function selftest() {
+  const cases = selftestCases()
   let pass = 0
   const lines = []
   for (const c of cases) {
     const problems = verify(c.css, c.css2)
     const clean = problems.length === 0
-    const ok = clean === c.expectClean
+    let ok = clean === c.expectClean
+    let extra = ""
+
+    /*
+     * ── 根因修复（审查 F1）：不只问"红了没"，还问"**红了几条、红在哪**" ──
+     *
+     * 只断言红/不红时，一条夹具若同时命中多条判据，任一判据失效它都还能
+     * 靠别的判据报红 —— 分量级鉴别力被掩盖。实测有 7 条子判据在被改成
+     * "永不触发"后自检**仍然全绿**。夹具现在必须声明 expect：
+     *   · count    = 问题**条数**必须精确相符。这一条专治"多判据互相掩盖"：
+     *                即使两条判据耦合、总是同时命中，任一条失效条数也会降。
+     *   · includes = 每条片段都必须出现在某条问题的文本里（防止条数对、内容串了）。
+     */
+    if (ok && c.expect) {
+      const text = problems.map((p) => `${p.rule} ${p.detail}`).join("\n")
+      const missing = c.expect.includes.filter((s) => !text.includes(s))
+      if (problems.length !== c.expect.count) {
+        ok = false
+        extra = `  → 期望报出 ${c.expect.count} 条问题，实际 ${problems.length} 条`
+      } else if (missing.length > 0) {
+        ok = false
+        extra = `  → 期望问题文本里含 ${JSON.stringify(missing)}，实际报出的是 ${JSON.stringify(problems.map((p) => `${p.rule} ${p.detail}`))}`
+      } else {
+        extra = `  → ${problems.length} 条问题，内容与期望相符`
+      }
+    }
+
     if (ok) pass++
-    lines.push(`    ${ok ? "✓" : "✗"} ${c.name}${ok ? "" : `  → 期望${c.expectClean ? "通过" : "报错"}，实际${clean ? "通过" : `报错 ${problems.length} 条: ${problems[0]?.detail}`}`}`)
+    lines.push(`    ${ok ? "✓" : "✗"} ${c.name}${ok ? extra : extra || `  → 期望${c.expectClean ? "通过" : "报错"}，实际${clean ? "通过" : `报错 ${problems.length} 条: ${problems[0]?.detail}`}`}`)
   }
   lines.push(`    自检结果: ${pass} 通过 / ${cases.length - pass} 失败（共 ${cases.length} 例）`)
   return { pass, total: cases.length, lines }
