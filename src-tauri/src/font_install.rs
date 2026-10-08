@@ -1260,4 +1260,56 @@ mod tests {
         assert_eq!(report.outcomes.len(), 1);
         let _ = fs::remove_dir_all(&root);
     }
+
+    /*
+     * ── 在**真实**机器上跑一次清理（手动触发的诊断工具）──
+     *
+     * `remove_installed_fonts` 的语义已在上面用临时目录覆盖，但它真正的风险
+     * 只有在真实机器上才暴露：注册表删不干净、文件被占用删不掉、
+     * 记录文件删不掉导致下次"确保安装"误判。这些都不是临时目录能验证的。
+     *
+     * 默认 `#[ignore]`：它会**真的删掉本机已安装的随包字体**，
+     * 不能作为常规测试自动执行。需要时手动跑：
+     *
+     *   cargo test --offline --lib 手动_在真实机器上清理随包字体 -- --ignored --nocapture
+     *
+     * 跑完再次启动应用即可重新安装（启动时的"确保安装"是幂等的）。
+     */
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "会真的删除本机已安装的随包字体，仅手动执行"]
+    fn 手动_在真实机器上清理随包字体() {
+        let app_data = std::env::var("APPDATA")
+            .map(|p| PathBuf::from(p).join("com.qingmuai.writer"))
+            .expect("需要 APPDATA 环境变量");
+        let record = read_install_record(&app_data);
+        match &record {
+            None => {
+                println!("ⓘ {} 没有安装记录，无需清理", app_data.display());
+                return;
+            }
+            Some(r) => println!("  记录里有 {} 款", r.installed.len()),
+        }
+        let report = remove_installed_fonts(&app_data);
+        println!("  已注销注册表值 {} 个", report.unregistered.len());
+        println!("  已删除文件 {} 个", report.deleted.len());
+        for p in &report.problems {
+            println!("  ⚠ {p}");
+        }
+        // 清理后记录必须消失，否则下次启动会读到陈旧记录
+        assert!(!app_data.join(INSTALL_RECORD_FILE).exists(), "安装记录应被删除");
+        assert!(!app_data.join(UNINSTALL_RECORD_FILE).exists(), "卸载记录应被删除");
+        // 文件必须真的不在了（记录里列出的每一个）
+        if let Some(r) = record {
+            for f in &r.installed {
+                assert!(
+                    !PathBuf::from(&f.dest).exists(),
+                    "{} 的文件仍在：{}",
+                    f.family,
+                    f.dest
+                );
+            }
+        }
+        println!("  ✓ 清理完成且无残留");
+    }
 }
