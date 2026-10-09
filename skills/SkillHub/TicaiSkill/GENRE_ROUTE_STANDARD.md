@@ -132,11 +132,25 @@
 | 短篇 + 重生复仇 | `short-rebirth-revenge` | `DagangSkill`、`ZhanggangSkill`、`JueseSkill/character-design`、`SheDingSkill/foreshadowing-suspense` |
 | 短篇 + 公开审判式打脸 | `short-public-trial-face-slap` | `DagangSkill`、`ZhanggangSkill`、`JueseSkill/supporting-cast`、`SheDingSkill/foreshadowing-suspense` |
 | 短篇 + 灵魂视角/死后旁观 | `short-soul-perspective` | `DagangSkill`、`ZhanggangSkill`、`SheDingSkill/world-rules`、`SheDingSkill/foreshadowing-suspense`、`JueseSkill/relationship-emotion` |
+| 同人（任意受众/篇幅） | `fanfic-derivative` | 对应题材 Skill、`DagangSkill`、`ZhanggangSkill`、`JueseSkill/character-design`、`JueseSkill/relationship-emotion`、`SheDingSkill/foreshadowing-suspense` |
+
+### 同人的特殊路由
+
+同人不是「再加一个题材」，而是一种**创作类型**。路由时：
+
+1. 先确认**创作类型 = 同人**，并取得同人模式（`canon` / `au` / `ooc` / `cp` / 自定义）与「容许偏离」清单。
+2. 再取**原作正典**（`.novel/fanfic-canon.md`）。**没有正典不得进入生成**，只能先追问原作素材。
+3. 然后按受众 + 题材取对应题材 Skill，与 `fanfic-derivative` **叠加**加载。
+4. 输出顺序：**原作正典卡 → 题材卡 → 总纲/卷纲/章纲/人物/设定**。
+5. 正典与题材规则冲突时，以**正典**为准；确需改动原作既成事实时，必须列入「容许偏离」。
 
 ## 7. 质量检查
 
 - 是否已同时确认篇幅、男频/女频、题材分类和用户灵感。
 - 是否已输出题材卡，而不是直接生成大纲正文。
+- 同人类型是否已先输出**原作正典卡**，并核对了出场角色在该时间点的**已知信息**。
+- 同人类型是否存在与正典冲突的设定、能力、身份或关系；如有，是否已列入「容许偏离」。
+- 同人类型是否在复读原作场景，而不是建立新的戏剧线。
 - 是否区分了男频玄幻和女频玄幻、男频复仇和女频复仇。
 - 是否把用户灵感改造成核心梗、情绪缺口和读者承诺。
 - 是否为大纲、章纲、人物、设定分别给出生成重点。

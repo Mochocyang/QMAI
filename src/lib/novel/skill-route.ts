@@ -42,7 +42,7 @@ const ROUTE_KEYWORDS: Record<SkillRoute, string[]> = {
   faction: ["势力", "组织", "阵营", "门派", "家族"],
   foreshadowing: ["伏笔", "线索", "回收"],
   map: ["地图", "地点", "换地图", "新地图"],
-  topic: ["题材", "男频", "女频", "玄幻", "修仙", "都市", "系统流", "规则怪谈", "悬疑", "世情", "知乎短篇", "豪门", "总裁", "追妻"],
+  topic: ["题材", "男频", "女频", "玄幻", "修仙", "都市", "系统流", "规则怪谈", "悬疑", "世情", "知乎短篇", "豪门", "总裁", "追妻", "同人", "二创", "衍生", "原作", "正典", "AU", "OOC", "CP", "番外", "穿书"],
 }
 
 const FUZZY_ROUTE_ORDER: SkillRoute[] = [
@@ -76,8 +76,17 @@ export function resolveOutlineTopicSkillRoutes(input: {
   if (/女频|豪门|总裁|追妻|婚恋|甜宠|世情|知乎短篇|言情|宅斗|宫斗/.test(text)) {
     routes.push("character", "foreshadowing", "setting")
   }
+  // 同人：角色还原与关系线是主战场，伏笔要避开原作已写死的部分
+  if (isFanficTopicText(text)) {
+    routes.push("character", "setting", "foreshadowing")
+  }
 
   return Array.from(new Set(routes))
+}
+
+/** 判断一段路由文本是否指向同人创作。 */
+export function isFanficTopicText(text: string): boolean {
+  return /同人|二创|衍生|原作|正典|番外|穿书|fanfic|\bAU\b|\bOOC\b|\bCP\b/.test(text)
 }
 
 export function inferSkillRoute(skill: UserSkill): SkillRoute | null {

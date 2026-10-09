@@ -1,4 +1,4 @@
-﻿# SkillHub 路由记忆
+# SkillHub 路由记忆
 
 这是 AI 大纲路由使用的记忆清单。用户选择固定生成流程后，系统可按“篇幅类型 + 受众方向 + 题材 + 任务”加载对应 Skill。
 
@@ -49,6 +49,19 @@ AI 大纲阶段只默认联动 `DagangSkill`、`ZhanggangSkill`、`JueseSkill`�
 | 短篇 + 重生复仇 | `TicaiSkill/short-rebirth-revenge` | `DagangSkill`、`ZhanggangSkill`、`JueseSkill/character-design`、`SheDingSkill/foreshadowing-suspense` |
 | 短篇 + 公开审判式打脸 | `TicaiSkill/short-public-trial-face-slap` | `DagangSkill`、`ZhanggangSkill`、`JueseSkill/supporting-cast`、`SheDingSkill/foreshadowing-suspense` |
 | 短篇 + 灵魂视角/死后旁观 | `TicaiSkill/short-soul-perspective` | `DagangSkill`、`ZhanggangSkill`、`SheDingSkill/world-rules`、`SheDingSkill/foreshadowing-suspense`、`JueseSkill/relationship-emotion` |
+| 同人（任意受众/篇幅） | `TicaiSkill/fanfic-derivative` | 对应题材 Skill、`DagangSkill`、`ZhanggangSkill`、`JueseSkill/character-design`、`JueseSkill/relationship-emotion`、`SheDingSkill/foreshadowing-suspense` |
+
+## 同人路由（创作类型，不是题材）
+
+同人是一种**创作类型**：`creation = fanfic`。它与受众/题材**叠加**，不互相替代。
+
+1. 取同人模式：`canon`（正典延续）/ `au`（架空世界）/ `ooc`（性格重塑）/ `cp`（CP 向）/ 用户自定义一句话。
+2. 取「容许偏离」清单；**未列入清单的原作既成事实一律不可动**。
+3. 取原作正典 `.novel/fanfic-canon.md`。**没有正典不得进入生成**，只能先追问原作素材。
+4. 输出顺序：**原作正典卡 → 题材卡 → 总纲/卷纲/章纲/人物/设定**。
+5. 正典与题材规则冲突时以**正典**为准。
+
+同人写作硬规则：正典是权威；服从所选模式；写新线不复读原作；靠动机/认知/节奏保留角色声音而非抄句；无证据就留空或发问；压缩资料包是证据不是臆造许可。
 
 ## 大纲任务追加规则
 
