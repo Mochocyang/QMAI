@@ -8,7 +8,7 @@ const CATEGORY_TO_FIELDS: Record<DataSourceCategory, Array<keyof ContextPack>> =
   character_states: ["characterStates", "characterAuras", "cognitionStates"],
   foreshadowing: ["foreshadowingStates"],
   timeline: ["timeline"],
-  settings: ["relatedSettings", "canonRules"],
+  settings: ["relatedSettings", "canonRules", "sourceCanon"],
   soul: ["soulDoc"],
   memory: ["searchResults"],
   graph: ["graphSearchResults"],

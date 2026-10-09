@@ -93,6 +93,7 @@ import {
 } from "@/lib/novel/outline-wizard";
 import {
   compileFanficCanon,
+  fanficCanonPath,
   stripFanficCanonFrontmatter,
 } from "@/lib/novel/fanfic-canon";
 import {
@@ -5122,6 +5123,21 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       }
       const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
       const fastMode = outlineMode === "fast";
+      // 原创作品如果还留着上一轮同人创作的正典，它仍会参与正文生成，
+      // 让模型把一部外部原作当成权威。这里只提示、不擅自删文件。
+      if (!isFanficRequest(request) && project?.path) {
+        const canonPath = fanficCanonPath(normalizePath(project.path));
+        try {
+          if (await fileExists(canonPath)) {
+            toast.info(
+              `本项目已存在同人正典，它仍会参与正文生成。若本作是原创作品，请删除 ${canonPath}`,
+              { dedupeKey: "outline-stale-fanfic-canon" },
+            );
+          }
+        } catch {
+          // 探测失败不影响生成
+        }
+      }
       if (outlineMode === "discuss") {
         // 共创模式把向导需求当讨论起点：先对齐方案再产出，不直接开写
         const capturedConvId = activeConversationId ?? createConversation();

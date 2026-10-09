@@ -1061,6 +1061,24 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("自动回退为单 Agent")
   })
 
+  it("同人提交前编译原作正典，并用编译结果替换原始素材", () => {
+    expect(source).toContain("compileFanficCanon({")
+    expect(source).toContain("stripFanficCanonFrontmatter(compiled.document)")
+    // 编译失败必须中断提交，而不是拿没编译的原文继续
+    expect(source).toContain("原作正典编译失败，请重试。")
+    // 超长原作分片编译时长，进度要透出
+    expect(source).toContain("onProgress:")
+  })
+
+  it("原创作品残留同人正典时给出提示，但不擅自删文件", () => {
+    // 残留正典仍会参与正文生成，会让模型把外部原作当权威
+    expect(source).toContain("本项目已存在同人正典，它仍会参与正文生成")
+    expect(source).toContain("fanficCanonPath(")
+    expect(source).toContain("!isFanficRequest(request)")
+    // 只提示，不调用删除
+    expect(source).not.toContain("clearFanficCanon(")
+  })
+
   it("快速模式系统提示去掉工作流强制段，仍保留保存协议和 Markdown 约束", () => {
     const prompt = buildOutlineAgentSystemPrompt({ projectName: "测试项目", mode: "fast" })
 
