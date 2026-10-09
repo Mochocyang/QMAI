@@ -23,6 +23,20 @@ export interface DebouncedPersist {
   /** 立刻执行待落盘动作（若有），并取消定时器。 */
   flush(): void
   /**
+   * 同 `flush()`，但**等那次落盘真正写完**才 resolve。
+   *
+   * ── 为什么必须有这个异步版本 ──
+   * `flush()` 内部是 `void task()`：它只保证动作**被启动**，不保证写完。
+   * 对"关浮层"这类场景够了（进程还在，写盘会自己跑完），
+   * 但对**关窗口**不够 —— 紧随其后的是 `window.destroy()`，
+   * webview 一销毁，那次还没写完的异步落盘就被切断，
+   * 结果依然是"用户调了、下次开又变回去"。
+   *
+   * 所以关窗流程必须 `await flushAsync()`；两者并存而不是把 flush 改成异步，
+   * 是为了不动既有的一堆同步调用点。
+   */
+  flushAsync(): Promise<void>
+  /**
    * 丢弃待落盘动作，不再触发。
    *
    * ⛔ **不要在组件卸载时用它** —— 那会丢掉最后一次改动。
@@ -68,6 +82,12 @@ export function createDebouncedPersist(delayMs = 400): DebouncedPersist {
     flush() {
       clearTimer()
       runPending()
+    },
+    async flushAsync() {
+      clearTimer()
+      const task = pending
+      pending = null
+      if (task) await task()
     },
     dispose() {
       clearTimer()

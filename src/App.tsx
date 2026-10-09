@@ -11,6 +11,7 @@ import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } fr
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
 import { flushAppState } from "@/lib/web-store"
+import { runPreCloseFlushes } from "@/lib/pre-close-flush"
 import { checkForAppUpdate } from "@/lib/app-updater"
 import { confirmAppQuit } from "@/components/uitest/models/model-draft-guard"
 import { restoreUiTestWorkspace, readUiTestWorkspacePreference } from "@/lib/ui-test-workspace-preferences"
@@ -207,6 +208,21 @@ function App() {
           if (isClosing) return
           if (!(await confirmAppQuit())) return
           isClosing = true
+
+          /*
+           * 各模块自己声明的「关窗前必须落盘」（见 src/lib/pre-close-flush.ts）。
+           *
+           * ⚠ 单靠下面那句 `flushAppState()` 不够 —— 它只 flush **app-state 那一层**
+           * 的 store。正文排版的去抖在**组件层**（preview-panel 的
+           * bodyTypographyPersist，400ms），任务没到点时 `saveUiBody*` 一次都没调过，
+           * app-state 里没有任何待写的东西可 flush。
+           * 而再往下的 `destroy()` 是销毁 webview，**React 不走 unmount**，
+           * 所以 preview-panel 卸载 effect 里的 flush 也救不了这条路。
+           * 结果是：拖完滑块 400ms 内关窗口 → 下次开软件设置变回去。
+           *
+           * 必须 `await`：这些动作里是真写盘，紧随其后的 destroy 会把没写完的切断。
+           */
+          await runPreCloseFlushes().catch((err) => console.error("关闭前保存排版设置失败:", err))
 
           // LLM 模型配置走 app-state 防抖写入；关窗前必须立刻 flush，否则自定义模型会丢失。
           await flushAppState().catch((err) => console.error("关闭前保存应用配置失败:", err))

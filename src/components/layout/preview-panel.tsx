@@ -17,6 +17,7 @@ import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { chapterHasLaterChapter, chapterOrdersFromTree, resolveDraftMemoryHint, type DraftMemoryHintArrival } from "@/lib/draft-memory-hint"
 import { saveNovelConfig, saveUiBodyFontFamily, saveUiBodyFontPx, saveUiBodyLineHeight, saveUiBodyLetterSpacing, saveUiBodyMarginX, saveUiBodySafeBottom } from "@/lib/project-store"
+import { registerPreCloseFlush } from "@/lib/pre-close-flush"
 import { isChapterPage, isFinalChapter, parseChapterMeta, syncChapterFrontmatterFromBody, updateChapterStatus, updateChapterTitle } from "@/lib/novel/chapter-meta"
 import { resolveReviewModel } from "@/lib/novel/review-model"
 import { CognitionPanel } from "@/components/novel/cognition-panel"
@@ -318,28 +319,43 @@ export function PreviewPanel() {
   }, [])
 
   /*
-   * 卸载时**必须 flush，不能 dispose**。
+   * 卸载时**必须落盘，不能 dispose**；而"关窗口"还要靠注册表。
    *
-   * ⚠ 这里原本写的是 dispose()，那是一个真实的丢数据缺陷（代码质量审查 I1 发现）。
-   * 两者的语义天差地别（见 debounced-persist.ts）：
+   * ⚠ 这个 effect 原来写的是 dispose()，那是一个真实的丢数据缺陷
+   * （代码质量审查 I1 发现）。两者语义天差地别（见 debounced-persist.ts）：
    *   · flush()   立刻执行待落盘动作并取消定时器 —— **保住**最后一次改动
    *   · dispose() 直接丢弃待落盘动作（pending = null）—— **丢掉**最后一次改动
    *
-   * 为什么"卸载"这条路径上真的会丢：用户调完设置后最常见的做法是直接关掉
-   * 写作视图或关窗口。关浮层那条路径是安全的（document 的 mousedown 会先
-   * 触发 closeBodyFontPopover，它里面就是 flush）—— 但**不经过 mousedown 的
-   * 卸载**没有这个保护：
-   *   ① 拖完滑块 400ms 内直接关窗口 / Alt+F4（走 Tauri 的关闭，没有 mousedown）
-   *   ② 键盘导航切走视图，导致写作现场整个卸载
+   * 关浮层那条路径本来就是安全的（document 的 mousedown 会先触发
+   * closeBodyFontPopover，它里面就是 flush）。真正会丢的是**不经过 mousedown
+   * 的卸载**，只有这一种：
+   *   键盘导航切走视图 → 写作现场整个卸载
+   * （拖完滑块 400ms 内直接关窗口 / Alt+F4 也属于这一类，但它**不走这里**，
+   *  见下一段 —— 旧注释把这条路径错列在本 effect 的覆盖范围里，
+   *  那是一句说谎的注释，已纠正。）
    * 而启动读回是 **app-state 优先**的，丢一次 app-state 写入就等于
-   * 「下次开软件，我刚调的设置又变回去了」—— 正是这套去抖逻辑本来要防的那件事。
+   * 「下次开软件，我刚调的设置又变回去了」—— 正是这套去抖本来要防的那件事。
    *
    * 卸载后组件不再存在，所以"立刻写一次"没有重复渲染的代价；
-   * 而"少写一次"的代价是一个用户可见的设置丢失。两者不对称，选 flush。
+   * 而"少写一次"的代价是一个用户可见的设置丢失。两者不对称，选落盘。
+   *
+   * ⚠ **关窗口那条路径这个 effect 救不了**（最终整体代码审查查出）：
+   * App 的关闭流程是 `onCloseRequested` → `flushAppState()` → `window.destroy()`，
+   * 而 `destroy()` 是销毁 webview，**React 不走 unmount 生命周期** ——
+   * 所以「拖完滑块 400ms 内关窗口」在这里根本不会被触发，
+   * 而且 `flushAppState()` 只 flush app-state 那一层，去抖没到点时它没有东西可写。
+   * 因此这里额外把自己注册进「关窗前落盘」注册表，由 App 在 destroy 之前逐个 await
+   * （完整链路说明见 src/lib/pre-close-flush.ts）。
+   * 用 `flushAsync()` 而不是 `flush()`：后者内部是 `void task()`，只启动不等待，
+   * 紧随其后的 destroy 会把没写完的写盘切断，等于白做。
    */
   useEffect(() => {
     const persist = bodyTypographyPersist.current
-    return () => { persist.flush() }
+    const unregister = registerPreCloseFlush(() => persist.flushAsync())
+    return () => {
+      unregister()
+      void persist.flushAsync()
+    }
   }, [])
 
   /*
