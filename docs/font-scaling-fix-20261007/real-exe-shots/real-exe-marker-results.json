@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-10-09T09:02:12.216Z",
+  "capturedAt": "2026-10-09T10:29:46.776Z",
   "exe": "src-tauri/target/release/qmai.exe",
   "opened": {
     "ok": true,
@@ -16,9 +16,9 @@
     "ulInBody": 0,
     "olInBody": 0,
     "liInBody": 0,
-    "anyUl": 0,
+    "anyUl": 1,
     "anyOl": 0,
-    "anyLi": 0,
+    "anyLi": 4,
     "textareaInBody": 1,
     "editorKind": "chapter",
     "navItems": [

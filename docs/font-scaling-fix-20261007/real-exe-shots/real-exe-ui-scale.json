@@ -1,16 +1,16 @@
 {
-  "capturedAt": "2026-10-09T09:02:14.328Z",
+  "capturedAt": "2026-10-09T10:29:48.856Z",
   "rootAt150": "24px",
-  "total": 4957,
-  "texty": 2567,
+  "total": 4955,
+  "texty": 2565,
   "minTexty": 500,
   "controlTexty": 0,
-  "scaled": 2516,
+  "scaled": 2514,
   "unscaled": 51,
   "byOwner": {
     "chrome": {
-      "total": 2516,
-      "scaled": 2516,
+      "total": 2514,
+      "scaled": 2514,
       "same": 0,
       "other": 0
     },

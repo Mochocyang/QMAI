@@ -117,7 +117,7 @@ const OPEN_LIST_DOC = () => {
   const rows = [...document.querySelectorAll("[data-page-path]")]
   const cand = rows.map((r) => ({ row: r, path: r.getAttribute("data-page-path") ?? "" }))
     .filter((c) => c.path.toLowerCase().endsWith(".md"))
-  // 这些是实测同时含无序与有序列表的真实大纲文件；按体积从小到大试
+  // 这些是实测同时含无序与有序列表的真实大纲文件；按大小从小到大试
   const prefer = ["开篇方向", "设定总索引", "章纲-第002章", "总纲", "十年动乱史"]
   for (const key of prefer) {
     const found = cand.find((c) => c.path.includes(key))
@@ -130,7 +130,33 @@ const OPEN_LIST_DOC = () => {
     }
   }
   if (cand[0]) { const b = cand[0].row.querySelector("button") ?? cand[0].row; b.click(); return { ok: true, path: cand[0].path, by: "first" } }
-  return { ok: false, available: cand.map((c) => c.path).slice(0, 30) }
+  /*
+   * ── 失败信息必须把「前提」和「观察到的数据」都报出来 ──
+   *
+   * 本判据有一个**数据前提**：当前打开的项目里得**真的有 markdown 大纲**。
+   * 它靠 `[data-page-path]` 找文件行，而知识树只把 `.md` 当大纲
+   * （`QM/outlines/` 下的 `.html` 不计入，实测如此）。
+   *
+   * 这里曾经只打印文件行：`可见: ` —— 一个**空列表**。
+   * 于是「项目里没有 .md 大纲」看起来跟「树没渲染」一模一样，
+   * 排查时极难分辨（我为此先后猜错过两次：先猜"查得太早"，再猜"文件夹折叠了"，
+   * 都不是 —— 真相是那个项目 `QM/outlines` 下**一个 .md 都没有**，只有 .html）。
+   *
+   * 现在把三件事一起报出来，让读日志的人一眼看出是哪一类：
+   *   · 文件行候选（为空 ⇒ 前提没满足，多半是数据问题，不是产品缺陷）
+   *   · 文件夹行（有文件夹但里面没有 .md，指向"文档不是 markdown"）
+   *   · 提示语本身写明这是**前提**问题，且给出可执行的下一步。
+   */
+  const folders = [...document.querySelectorAll('[data-ui-tree-row="folder"]')]
+    .map((r) => r.getAttribute("data-folder-path") ?? "").slice(0, 30)
+  return {
+    ok: false,
+    available: cand.map((c) => c.path).slice(0, 30),
+    folders,
+    hint: "本判据需要当前项目里存在 markdown 大纲（.md）。"
+      + "文件行为空时请先确认该项目 QM/outlines（或 wiki/outlines）下有 .md —— "
+      + "若只有 .html，换个有 .md 大纲的项目再跑；这不是产品缺陷。",
+  }
 }
 
 /** 编辑器里是否已出现可在其上读 ::marker 的结构。 */
@@ -374,7 +400,9 @@ async function main() {
         while (Date.now() < vd) { if ((await page.evaluate(PROBE)).view === "sources") break; await wait(500) }
         await wait(1500)
         const opened0 = await page.evaluate(OPEN_LIST_DOC)
-        if (!opened0.ok) { fails.push(`大纲视图里找不到可点开的 .md（可见: ${(opened0.available ?? []).join(", ")}）`) } else {
+        if (!opened0.ok) {
+          fails.push(`大纲视图里找不到可点开的 .md（文件行: ${(opened0.available ?? []).join(", ") || "(无)"}；文件夹: ${(opened0.folders ?? []).join(", ") || "(无)"}）—— ${opened0.hint ?? ""}`)
+        } else {
           console.log(`  已点开: ${opened0.path}（${opened0.by}）`)
           const wd = Date.now() + 60_000
           let st = null
