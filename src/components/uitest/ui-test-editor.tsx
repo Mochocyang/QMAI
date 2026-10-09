@@ -65,8 +65,16 @@ function withDraftMemoryHint(actions: ReactNode, hint: { onDismiss: () => void; 
   return visit(actions)
 }
 
+/**
+ * 底部保存状态文案。
+ *
+ * `pending`（等待自动保存）与 `saved` 刻意**没有**文案：例行自动保存
+ * （间隔 3 分钟）不该在写作时冒提示 —— 用户反馈每按一次回车都弹保存提示很干扰。
+ * 例行落盘因此连 `saving` 都不上报（见 preview-panel 的 runPendingChapterSave），
+ * 所以还留在这里的 `saving` 只会来自**显式操作**（保存正式章节、一键排版、改标题），
+ * 那些确实值得给一句反馈。失败与冲突任何时候都要显示。
+ */
 const SAVE_LABELS: Partial<Record<UiTestEditorSaveState["phase"], string>> = {
-  pending: "等待自动保存…",
   saving: "正在保存…",
   error: "保存失败，修改尚未保存",
   conflict: "文件已在外部修改，当前内容尚未保存；请核对原文件",

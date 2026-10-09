@@ -5,6 +5,7 @@ import type { ContextTrace } from "@/lib/agent/context-trace"
 import type { ContextHubSnapshotRef, SessionContextSummary } from "@/lib/context-hub/types"
 import type { ChapterRef } from "@/lib/context-hub/chapter-body-injection"
 import type { ContextUsageSnapshot } from "@/lib/context-usage"
+import { deriveConversationTitle } from "@/lib/conversation-title"
 import i18n from "@/i18n"
 import {
   canStartConversationRun as canStartRun,
@@ -251,15 +252,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
         conversationId: activeConversationId,
       }
 
-      // Auto-set title from first user message (first 50 chars)
+      // 用本地规则从首条用户消息派生短标题（详见 lib/conversation-title.ts）。
+      // 派生不出内容时保留原标题，不要写入空字符串。
       const convMessages = state.messages.filter(
         (m) => m.conversationId === activeConversationId && m.role === "user"
       )
+      const derivedTitle = role === "user" && convMessages.length === 0
+        ? deriveConversationTitle(content)
+        : ""
       const updatedConversations =
-        role === "user" && convMessages.length === 0
+        derivedTitle
           ? conversations.map((c) =>
               c.id === activeConversationId
-                ? { ...c, title: content.slice(0, 50), updatedAt: Date.now() }
+                ? { ...c, title: derivedTitle, updatedAt: Date.now() }
                 : c
             )
           : conversations.map((c) =>

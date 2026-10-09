@@ -55,6 +55,7 @@ interface DataSourceCacheStats {
 
 const STATIC_SOURCES = new Set([
   "canonRules",
+  "sourceCanon",
   "writingStyle",
   "soulDoc",
   "storyFrameworkBinding",
@@ -96,7 +97,10 @@ const SOURCE_CACHE_VERSIONS: Partial<Record<string, number>> = {
   outline: 3,
   chapterOutline: 3,
   volumeContext: 2,
-  sectionBriefing: 2,
+  // 2 → 3：sectionBriefing 现在会额外输出「相关道具」小节。旧缓存条目是
+  // 用不含物品的代码算出来的，而它的依赖戳（大纲 + 快照）并没有变，
+  // 不bump 就会一直命中旧值，表现为「改了代码但提示词里始终没有道具」。
+  sectionBriefing: 3,
 }
 
 function canonicalize(value: unknown): unknown {

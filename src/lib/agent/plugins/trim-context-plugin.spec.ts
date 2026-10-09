@@ -29,6 +29,62 @@ const mockContextPack: ContextPack = {
 }
 
 describe("TrimContextPlugin", () => {
+  it("生产默认路径遇到正典溢出时停机，而不是静默丢掉正典继续生成", async () => {
+    // 生产装配（novel-pre-plugin-chain）两个 fn 依赖都不传，会走 mod.trimContextPack，
+    // 那条路径没有守卫，必须由插件自己兜住。
+    const canon = "原作正典：" + "斗气分九段。".repeat(80)
+    const errors: Error[] = []
+    const plugin = createTrimContextPlugin({
+      tokenBudget: 200,
+      onError: (error) => errors.push(error),
+    })
+
+    const result = await plugin.run({
+      userMessage: "写第2章",
+      projectPath: "/test-project",
+      agentConfig: {} as any,
+      novelMode: true,
+      contextPack: { ...mockContextPack, sourceCanon: canon },
+    })
+
+    expect(result.shouldStop).toBe(true)
+    expect(result.stopReason).toBe("source_canon_overflow")
+    // 不能让提示词带着「没有正典」的内容流下去
+    expect(result.novelSystemPrompt).toBeUndefined()
+    expect(errors[0]?.message).toContain("原作正典")
+  })
+
+  it("预算充足时正典完整保留且不停机", async () => {
+    const canon = "原作正典：斗气分九段；萧炎曾跌为废物。"
+    const plugin = createTrimContextPlugin({ tokenBudget: 60000 })
+
+    const result = await plugin.run({
+      userMessage: "写第2章",
+      projectPath: "/test-project",
+      agentConfig: {} as any,
+      novelMode: true,
+      contextPack: { ...mockContextPack, sourceCanon: canon },
+    })
+
+    expect(result.shouldStop).toBeFalsy()
+    expect(result.novelSystemPrompt).toContain(canon)
+  })
+
+  it("原创项目（无正典）在极小预算下照常裁剪，不触发停机", async () => {
+    const plugin = createTrimContextPlugin({ tokenBudget: 200 })
+
+    const result = await plugin.run({
+      userMessage: "写第2章",
+      projectPath: "/test-project",
+      agentConfig: {} as any,
+      novelMode: true,
+      contextPack: mockContextPack,
+    })
+
+    expect(result.shouldStop).toBeFalsy()
+    expect(result.novelSystemPrompt).toBeTruthy()
+  })
+
   it("trims context pack to prompt string", async () => {
     const mockToPrompt = vi.fn().mockReturnValue("裁剪后的上下文")
     const plugin = createTrimContextPlugin({ contextPackToPromptFn: mockToPrompt })

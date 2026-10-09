@@ -280,6 +280,64 @@ export function buildOutlineDiscussPhaseSystemRules(module: string): string {
   ].join("\n")
 }
 
+/** 共创协议修复用的输出 token 上限：只要一个协议块，不需要长正文。 */
+export const OUTLINE_DISCUSS_REPAIR_MAX_TOKENS = 1_600
+
+/**
+ * 是否值得为这段回复发起一次「补协议」修复。
+ *
+ * 模型偶发只写正文不写协议块（实测：直接吐了整卷大纲 + 写回清单），
+ * 这时内容本身是有价值的判断，值得多花一次便宜的调用把它转成协议；
+ * 但如果回复本来就是空的、或只有一句「好的」，重试也不会变出分歧点，
+ * 就不该白花这次调用。
+ */
+export function hasOutlineDiscussRepairableContent(text: string): boolean {
+  const trimmed = text.trim()
+  if (trimmed.length < 80) return false
+  // 已经带了协议块就不用修（交给正常解析路径处理，让闸门报更准确的原因）。
+  return !OPEN_PATTERN.test(trimmed)
+}
+
+/**
+ * 「补协议」修复轮的提示词。
+ *
+ * 关键约束：**只让模型补协议，不许它重写或补充正文**。否则很容易变成
+ * 又生成一遍大纲 —— 那正是本轮出问题的原因。文末必须重新输出完整可见回复，
+ * 保证用户看到的内容不会因为修复而变少。
+ */
+export function buildOutlineDiscussRepairMessages(input: {
+  content: string
+  module: string
+}): Array<{ role: "user"; content: string }> {
+  return [{
+    role: "user",
+    content: [
+      `下面是对「${input.module || "大纲"}」的一轮共创讨论回复，但它漏掉了 outline_discuss 协议块，系统无法据此生成待拍板卡片。`,
+      "请只做一件事：读完这段回复，把它已经表达出的判断与分歧点，转写成要求的协议块。",
+      "硬性要求：",
+      "- 不要重写、扩写或继续生成大纲正文；只提炼回复里**已经出现**的判断与分歧。",
+      "- 如果回复里确实没有可拍板的分歧，就用 status=ready，并在 judgment 里说明为什么可以开写。",
+      "- 输出顺序：先原样保留这段回复的正文，再在末尾追加协议块。",
+      "协议格式（严格遵守）：",
+      OUTLINE_DISCUSS_MARKER_OPEN,
+      '{"status":"needs_decision|ready","module":"模块名","judgment":"关键判断","nextStep":"下一步建议","decisions":[{"id":"d1","question":"分歧点","options":[{"id":"A","label":"方案","description":"说明"}],"preferenceId":"A","preferenceReason":"倾向理由"}],"agreed":[{"id":"a1","question":"已拍板问题","value":"已确认方案"}]}',
+      OUTLINE_DISCUSS_MARKER_CLOSE,
+      "开闭标记必须成对出现，JSON 必须完整可解析。needs_decision 时 decisions 放 1-3 个分歧，每个至少 2 个真实可选项，并填 preferenceId 与 preferenceReason。",
+      "",
+      "## 需要补协议的回复",
+      input.content,
+    ].join("\n"),
+  }]
+}
+
+/** 修复轮用确定性采样：这是格式转写，不是创作。 */
+export function buildOutlineDiscussRepairRequestOverrides(maxTokens = OUTLINE_DISCUSS_REPAIR_MAX_TOKENS): {
+  temperature: number
+  max_tokens: number
+} {
+  return { temperature: 0, max_tokens: maxTokens }
+}
+
 function formatAgreed(agreed: OutlineDiscussAgreed[]): string[] {
   return agreed
     .filter((item) => item.question && item.value)

@@ -1,6 +1,18 @@
 import type { Tool } from "../types"
 import { readFile, writeFile, fileExists, createDirectory } from "@/commands/fs"
 import { writeDraft } from "@/lib/novel/draft-manager"
+import { useWritingStatsStore } from "@/stores/writing-stats-store"
+
+/**
+ * AI 直接写章节正文（非草稿路径）：内容整份记到「今日 AI 生成」。
+ *
+ * 但**只在文件此前不存在时**才是「整份」。这个工具的说明书写着「会覆盖已有文件」，
+ * 覆盖一份几万字的旧稿时，把整份都算成今天 AI 新写的会严重虚报——所以覆盖前
+ * 先把旧正文读出来交给记账层差分，只有真正被换掉的字才算今天产出。
+ */
+function recordAiChapterWrite(path: string, content: string, previousMarkdown?: string): void {
+  useWritingStatsStore.getState().recordChapter(path, content, "ai", previousMarkdown)
+}
 
 interface WriteChapterOptions {
   draftMode?: boolean
@@ -49,7 +61,11 @@ export function createWriteChapterTool(chaptersDir: string, options: WriteChapte
         if (!await fileExists(dir)) {
           await createDirectory(dir)
         }
+        // 覆盖已有文件前先取旧正文：文件不存在时是 `undefined`，
+        // 记账层据此判定「这是新章」，整份算 AI。
+        const previousMarkdown = await readFile(path).catch(() => undefined)
         await writeFile(path, content)
+        recordAiChapterWrite(path, content, previousMarkdown)
         const verified = await readFile(path)
         if (verified !== content) {
           return `已写入章节「${name}」，警告：写入后读回验证失败，请手动检查文件内容。`

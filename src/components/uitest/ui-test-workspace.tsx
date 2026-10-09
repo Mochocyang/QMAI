@@ -5,6 +5,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { getUiTestAiMaxWidth, getUiTestPanelLayout, resizeUiTestAiByKey, UI_TEST_AI_DEFAULT_WIDTH, UI_TEST_AI_MIN_WIDTH } from "@/lib/ui-test-layout"
 import { useUiTestWidth } from "./use-ui-test-width"
+import { WritingStatusBar } from "./ui-test-statusbar"
 
 const ChatPanel = lazy(async () => ({ default: (await import("@/components/chat/chat-panel")).ChatPanel }))
 const OutlineChatPanel = lazy(async () => ({ default: (await import("@/components/sources/outline-chat-panel")).OutlineChatPanel }))
@@ -58,7 +59,19 @@ export function UiTestWorkspace({ mode, requestedWidth, viewportWidth, onWidthCh
       )}
       <div className="ui-test-writing-panes" ref={containerRef} data-layout={layout.mode}>
         <div id="ui-test-editor-pane" className="ui-test-editor-pane" hidden={assistantOpen && layout.mode === "tabs" && mobilePage === "ai"}>
-          <PreviewPanel />
+          {/* ⚠️ 这个类名**不能**叫 ui-test-editor-body。那个类属于编辑器内部
+              （ui-test-editor.tsx 的正文容器），而 ui-test-editor.css 里有一条
+              `.ui-test-editor-body > div { height: auto; overflow: visible }`
+              —— 用来让编辑器内部正文不被限高。若这层也叫这个名字，
+              那条规则会命中 PreviewPanel 的根 div（`flex h-full flex-col`），
+              把 height:100% 改写成 auto，整条高度链塌掉：
+              .ui-test-editor-scroll 不再溢出 → 没有滚动条、滚轮也滚不动。
+              实测症状就是「加了状态栏之后正文滚不动了」。 */}
+          <div className="ui-test-editor-slot"><PreviewPanel /></div>
+          {/* 写作字数状态栏只挂**章节正文**栏底部（用户要求）：
+              目录栏与 AI 对话栏下面不出现，大纲视图也不出现 ——
+              它统计的是章节正文字数，挂到别处会指向错误的统计对象。 */}
+          {mode === "chapter" && <WritingStatusBar />}
         </div>
         {assistantOpen && (
           <>

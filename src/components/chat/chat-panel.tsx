@@ -23,6 +23,7 @@ import { useChatStore, type DisplayMessage } from "@/stores/chat-store"
 import { useShallow } from "zustand/react/shallow"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
+import { useWritingStatsStore } from "@/stores/writing-stats-store"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { ReferenceInput, type InsertReferenceTokens } from "@/components/reference/ReferenceInput"
 import { ReferencePickerDialog } from "@/components/reference/ReferencePickerDialog"
@@ -58,7 +59,7 @@ import {
 import type { AgentMessage, AgentRunRecord } from "@/lib/agent/types"
 import type { AgentToolEvent } from "@/lib/agent/types"
 import { skillDisplayName, skillDisplayNameByName, type UserSkill } from "@/lib/novel/skill-library"
-import type { ContextPack } from "@/lib/novel/context-engine"
+import { SourceCanonOverflowError, type ContextPack } from "@/lib/novel/context-engine"
 import type { PrePluginChainResult } from "@/lib/agent/pipeline"
 import { applyAgentToolActivityEvent, applyAgentToolEvent } from "@/lib/agent/tool-events"
 import { applyAgentActivityEvent, createAgentActivityEvent, settleRunningAgentStages } from "@/lib/agent/activity-trace"
@@ -67,7 +68,7 @@ import { resolveContextPackTokenBudget } from "@/lib/context-budget"
 import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts"
 import { executeIngestWrites } from "@/lib/ingest"
 import { routeTask, buildTaskDirective, isChapterWritingIntent, type TaskRouteResult } from "@/lib/novel/task-router"
-import { writeFile, createDirectory, deleteFile } from "@/commands/fs"
+import { writeFile, readFile, createDirectory, deleteFile } from "@/commands/fs"
 import {
   detectLastGeneratedChapterNumber,
   findChapterFileByNumber,
@@ -284,6 +285,8 @@ function buildChapterPlanSelfCheckContext(pack: ContextPack | null): ChapterPlan
     foreshadowingStates: pack.foreshadowingStates,
     timeline: pack.timeline,
     canonRules: pack.canonRules,
+    // 同人项目：章节计划自检也必须拿到原作正典，否则「原作正典」核对行恒为空。
+    sourceCanon: pack.sourceCanon ?? "",
     mustAvoid: pack.mustAvoid,
   }
 }
@@ -1314,7 +1317,12 @@ export function ChatPanel() {
       await createDirectory(chapterDir)
       const chapterPath = `${chapterDir}/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
       const chapterMarkdown = buildDraftContent(targetChapterNumber, chapterTitle, cleanedContent)
+      // 目标路径通常还是空的（新章），但也可能撞上一份已存在的同号文件；
+      // 有旧正文就交给记账层差分，否则整份覆盖会被算成今天 AI 新写的。
+      const previousMarkdown = await readFile(chapterPath).catch(() => undefined)
       await writeFile(chapterPath, chapterMarkdown)
+      // 聊天里生成并保存的章节：内容由模型产出，记进「今日 AI 生成」。
+      useWritingStatsStore.getState().recordChapter(chapterPath, chapterMarkdown, "ai", previousMarkdown)
       useChatStore.getState().setMessageChapterRef(messageId, {
         chapterNumber: targetChapterNumber,
         path: chapterPath,
@@ -1808,6 +1816,14 @@ export function ChatPanel() {
           }
         } catch (error) {
           console.warn("上下文中控准备失败，继续使用原有流程：", error)
+          // 正典溢出必须让用户看到并停下：继续生成等于在没有任何原作约束的
+          // 情况下写同人正文。不可与其它「中控失败」一样静默降级。
+          if (error instanceof SourceCanonOverflowError) {
+            markError(error)
+            showRunErrorToast(error)
+            finishAgentSession()
+            return
+          }
         }
       }
 
@@ -1915,6 +1931,7 @@ export function ChatPanel() {
             timeline: "",
             relatedSettings: "",
             canonRules: "",
+            sourceCanon: "",
             writingStyle: "",
             searchResults: "",
             graphSearchResults: "",
@@ -1935,6 +1952,15 @@ export function ChatPanel() {
           }
         } catch (error) {
           console.warn("构建Agent小说上下文失败:", error)
+          // 同人正典溢出是硬失败：继续下去会让模型在完全没有小说上下文
+          // （既没有正典，也没有人物状态与大纲）的情况下写作。必须停机并告知用户，
+          // 而不是只留一条控制台警告。
+          if (error instanceof SourceCanonOverflowError) {
+            markError(error)
+            showRunErrorToast(error)
+            finishAgentSession()
+            return
+          }
         }
       }
 

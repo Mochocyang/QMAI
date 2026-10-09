@@ -199,11 +199,15 @@ describe("旧版正式界面已删除：只剩统一的新版输入框", () => {
 })
 // 两种助手共用面板留白，大纲不能再叠加第二层横向内边距。
 describe("写作布局间距契约", () => {
-  it("大纲输入区去除额外横向内边距，需求行允许换行", () => {
+  it("大纲输入区去除额外横向内边距，且不再承载需求说明行", () => {
     const css = readFileSync(resolve(__dirname, "ui-test-ai.css"), "utf8")
     const panel = readFileSync(resolve(__dirname, "../sources/outline-chat-panel.tsx"), "utf8")
     expect(panel).toContain("data-ui-ai-input-area")
-    expect(panel).toContain('className="mb-2 flex flex-wrap items-center justify-between gap-2"')
+    // 用户要求删掉输入区上方那两段文案（固定选项说明 + 重复的「选择生成你想要的小说」），
+    // 于是这里不再有那条 mb-2 的需求行；横向内边距的契约仍然是 0。
+    expect(panel).not.toContain("通过固定选项")
+    expect(panel).not.toContain("选择生成你想要的小说")
+    expect(panel).not.toContain('className="mb-2 flex flex-wrap items-center justify-between gap-2"')
     expect(css).toMatch(/\[data-ui-ai-panel="outline"\] > \[data-ui-ai-input-area\]\s*\{[^}]*padding-inline:\s*0/)
   })
 })

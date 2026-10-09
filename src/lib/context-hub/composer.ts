@@ -1,5 +1,5 @@
 import { resolveContextPackTokenBudget } from "@/lib/context-budget"
-import type { ContextPack } from "@/lib/novel/context-engine"
+import { SourceCanonOverflowError, type ContextPack } from "@/lib/novel/context-engine"
 import { estimateContextTokens } from "./token-estimator"
 import {
   type ContextFragmentDisposition,
@@ -7,6 +7,9 @@ import {
   type ContextHubStats,
   type DependencyStamp,
 } from "./types"
+
+/** 正典片段标题；必须与 stableFragments 里的标题逐字一致。 */
+const SOURCE_CANON_TITLE = "原作正典"
 
 interface ComposeContextInput {
   contextPack: ContextPack
@@ -55,6 +58,8 @@ function stableFragments(pack: ContextPack): ContextFragment[] {
   return [
     { title: "作品灵魂", text: pack.soulDoc, layer: "stable" },
     { title: "故事框架绑定", text: pack.storyFrameworkBinding, layer: "stable" },
+    // 同人正典排在自有设定之前：原作的既成事实优先于本作新设定。
+    { title: "原作正典", text: pack.sourceCanon ?? "", layer: "stable" },
     { title: "硬性世界规则", text: pack.canonRules, layer: "stable" },
     { title: "核心设定", text: pack.relatedSettings, layer: "stable" },
     { title: "写作风格", text: pack.writingStyle, layer: "stable" },
@@ -246,6 +251,17 @@ export function composeContext(input: ComposeContextInput): ComposedContext {
     stableBudget,
   )
   const stableCore = joinSections(fittedStable)
+
+  // 同人正典是硬约束，不接受「按比例截断」或「整体丢弃」。
+  // 这条管线（AI 对话 / AI 大纲）的预算分配会把正典压缩到 5% 却不报错，
+  // 与正文链路的停机语义不一致；这里显式拒绝，让调用方把原因告知用户。
+  const sourceCanonText = (input.contextPack.sourceCanon ?? "").trim()
+  if (sourceCanonText) {
+    const injectedCanon = fittedStable.find((fragment) => fragment.title === SOURCE_CANON_TITLE)
+    if (!injectedCanon || !injectedCanon.text.includes(sourceCanonText)) {
+      throw new SourceCanonOverflowError()
+    }
+  }
 
   const summaryCandidateText = input.sessionSummary?.trim() ?? ""
   const sessionSummary = fitPlainText(summaryCandidateText, summaryBudget)

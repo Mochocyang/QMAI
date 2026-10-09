@@ -12,6 +12,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
 import type { ConversationRunStates } from "@/lib/conversation-run-state"
 import { getUiTestAiMenuStyle } from "./ui-test-ai-parts"
+import { getConversationTabTitle } from "@/lib/workspace-layout"
 
 const build = vi.hoisted(() => ({ enabled: true }))
 vi.mock("@/lib/ui-test", async (importOriginal) => ({
@@ -203,7 +204,12 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     const panel = container.querySelector(`[data-ui-ai-panel="${kind}"]`)
     expect(panel).not.toBeNull()
     const header = panel?.querySelector("[data-ui-ai-header]")
-    expect(header?.querySelector(".ui-test-ai-title strong")?.textContent).toBe(title)
+    // 头部标题按显示上限截短（用户要求：标题几个字就够，不要挂一整段正文）。
+    // 完整标题保留在 title 属性里，悬停仍可看全。
+    const heading = header?.querySelector(".ui-test-ai-title strong")
+    expect(heading?.textContent).toBe(getConversationTabTitle(title, 16))
+    expect(Array.from(heading?.textContent ?? "").length).toBeLessThan(Array.from(title).length)
+    expect(heading?.parentElement?.getAttribute("title")).toBe(title)
     expect(header?.textContent).not.toContain("当前对话")
     expect(header?.textContent).not.toContain("写作助手")
     if (kind === "outline") expect(header?.querySelector('[aria-label="大纲会话历史"]')).not.toBeNull()
@@ -286,7 +292,7 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     expect(container.textContent).not.toMatch(/黑雨之下|雨停之前|28%/)
   })
 
-  it("大纲说明在输入框上方，共创与上下文统计回到 @ 左侧", async () => {
+  it("大纲输入区上方不再有说明文字与重复入口，共创与上下文统计回到 @ 左侧", async () => {
     if (kind !== "outline") return
     seed(kind)
     const container = await mount(kind)
@@ -296,14 +302,11 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     const mode = footer?.querySelector('[aria-label="AI 大纲执行模式"]')
     const usage = footer?.querySelector('[aria-label="上下文用量"]')
     const reference = footer?.querySelector('[aria-label="引用内容"]')
-    // 该期望于 26f80ee（随 4.0.0「旧版界面已移除，只保留新版」）变更：
-    // data-ui-ai-composer 收窄为输入框本体，说明与「选择生成你想要的小说」
-    // 随输入区外框 [data-ui-ai-input-area] 上移，用输入区断言二者仍在输入框上方。
-    const note = inputArea?.querySelector("p")
-    expect(note).not.toBeNull()
-    expect(inputArea?.textContent).toContain("通过固定选项生成大纲需求")
-    expect(inputArea?.textContent).toContain("选择生成你想要的小说")
-    expect(inputArea && composer && (note!.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    // 用户要求删掉这两处文案（只是 UI 显示）：固定选项说明与重复的
+    // 「选择生成你想要的小说」。空会话里的「生成小说大纲」是唯一入口。
+    expect(inputArea?.textContent).not.toContain("通过固定选项")
+    expect(inputArea?.textContent).not.toContain("选择生成你想要的小说")
+    expect(inputArea?.querySelector("p")).toBeNull()
     expect(mode).not.toBeNull()
     expect(usage).not.toBeNull()
     expect(reference).not.toBeNull()

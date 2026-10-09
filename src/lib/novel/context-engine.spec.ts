@@ -5,6 +5,7 @@ import { personality } from "@/test-helpers/portable-personality-fixture"
 import { charsPerTokenForLanguage } from "@/lib/context-budget"
 import {
   annotateChapterOutlineStatus,
+  buildMustAvoid,
   contextPackToPrompt,
   pickChapterOutlineByNumber,
   selectWritingEntitySearchOutline,
@@ -281,6 +282,73 @@ describe("trimContextPack 两级裁剪", () => {
       expect(
         cjk.trimmedFields.length + (cjk.partiallyTrimmedField ? 1 : 0),
       ).toBeGreaterThan(0)
+    })
+  })
+
+  describe("同人原作正典", () => {
+    it("正典独立成「原作正典」段，与项目自有正史分开", () => {
+      const pack: ContextPack = {
+        ...basePack,
+        task: "写同人",
+        canonRules: "死者不能复活",
+        sourceCanon: "原作：斗气分九段；萧炎曾跌为废物。",
+      }
+      const prompt = contextPackToPrompt(pack, 12000)
+
+      expect(prompt).toContain("## 原作正典（不可违背）")
+      expect(prompt).toContain("斗气分九段")
+      expect(prompt).toContain("## 禁止违背")
+      expect(prompt).toContain("死者不能复活")
+    })
+
+    it("原创项目没有正典时不产生多余段落", () => {
+      const prompt = contextPackToPrompt(basePack, 12000)
+      expect(prompt).not.toContain("原作正典")
+    })
+
+    it("正典作为硬约束写进「本章避免违背」", () => {
+      const mustAvoid = buildMustAvoid("", "", "", "原作：斗气分九段")
+
+      expect(mustAvoid).toContain("不得违背「原作正典」")
+      expect(mustAvoid).toContain("既成人物的性格、能力边界、已知信息与关系")
+
+      const prompt = contextPackToPrompt({ ...basePack, mustAvoid, sourceCanon: "原作：斗气分九段" }, 12000)
+      expect(prompt).toContain("## 本章避免违背")
+      expect(prompt).toContain("不得违背「原作正典」")
+    })
+
+    it("原创项目不产生正典硬约束条目", () => {
+      const mustAvoid = buildMustAvoid("死者不能复活", "第二天清晨", "林默：怀疑", undefined)
+
+      expect(mustAvoid).not.toContain("原作正典")
+      expect(mustAvoid).toContain("死者不能复活")
+      expect(mustAvoid).toContain("第二天清晨")
+      expect(mustAvoid).toContain("林默：怀疑")
+    })
+
+    it("正典不被静默裁掉：预算不足时报错而不是丢字段", () => {
+      const sourceCanon = "原作正典内容。".repeat(200)
+      const pack: ContextPack = {
+        ...basePack,
+        task: "写同人",
+        sourceCanon,
+      }
+
+      expect(() => contextPackToPrompt(pack, 200)).toThrow("原作正典")
+      expect(contextPackToPrompt(pack, 20000)).toContain(sourceCanon)
+    })
+
+    it("正典优先级高于人物状态，预算紧张时先保住硬约束", () => {
+      const pack: ContextPack = {
+        ...basePack,
+        task: "写同人",
+        sourceCanon: "原作正典：斗气分九段。",
+        characterStates: "萧炎：当前三段。",
+      }
+      const result = trimContextPack(pack, 100000)
+
+      expect(result.prompt).toContain("斗气分九段")
+      expect(result.trimmedFields).not.toContain("sourceCanon")
     })
   })
 })

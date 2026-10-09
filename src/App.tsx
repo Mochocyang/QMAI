@@ -5,13 +5,14 @@ import { useReviewStore } from "@/stores/review-store"
 import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
-import { openProject, fileExists, listDirectory, readFile } from "@/commands/fs"
+import { openProject, fileExists } from "@/commands/fs"
 import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAiWorkflowMode, loadDefaultLlmModel, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadUiBodyFontFamily, loadUiBodyFontPx, loadUiBodyLineHeight, loadUiBodyLetterSpacing, loadUiBodyMarginX, loadUiBodySafeBottom, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadSearchApiConfig, loadOutlineWorkflowMode, loadAiChatReasoningDepth, loadAiOutlineReasoningDepth } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
 import { flushAppState } from "@/lib/web-store"
 import { runPreCloseFlushes } from "@/lib/pre-close-flush"
+import { flushPendingChapterSave } from "@/lib/chapter-save-flush"
 import { checkForAppUpdate } from "@/lib/app-updater"
 import { confirmAppQuit } from "@/components/uitest/models/model-draft-guard"
 import { restoreUiTestWorkspace, readUiTestWorkspacePreference } from "@/lib/ui-test-workspace-preferences"
@@ -26,8 +27,7 @@ import { applyTheme, watchSystemTheme } from "@/lib/theme-utils"
 import { applyBodyTypography, applyBodyFontFamily, applyUiFontFamily } from "@/lib/font-settings"
 import { applyVisualStyle } from "@/lib/visual-style-settings"
 import { isChapterPathInProject, normalizePath } from "@/lib/path-utils"
-import { countChapterBodyWords } from "@/lib/chapter-word-count"
-import { flattenMdFiles } from "@/lib/novel/chapter-utils"
+import { useWritingStatsStore } from "@/stores/writing-stats-store"
 import { runUserMemoryMaintenance } from "@/lib/user-memory/maintenance"
 import { initializeProjectContextCache } from "@/lib/context-hub/context-hub"
 import { useEnsureAiChatModel } from "@/lib/ensure-ai-chat-model"
@@ -51,9 +51,10 @@ function App() {
   const communitySummaryError = useWikiStore((s) => s.communitySummaryError)
   const setCommunitySummaryError = useWikiStore((s) => s.setCommunitySummaryError)
   const dataVersion = useWikiStore((s) => s.dataVersion)
+  /** 全书正文字数由 writingStatsStore 统一维护（窗口标题与底部状态栏共用）。 */
+  const appTitleTotalWordCount = useWritingStatsStore((s) => s.totalChars)
   const [, setShowCreateDialog] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [appTitleTotalWordCount, setAppTitleTotalWordCount] = useState<number | null>(null)
 
   useEffect(() => {
     runUserMemoryMaintenance()
@@ -246,6 +247,23 @@ function App() {
 
           // LLM 模型配置走 app-state 防抖写入；关窗前必须立刻 flush，否则自定义模型会丢失。
           await flushAppState().catch((err) => console.error("关闭前保存应用配置失败:", err))
+
+          /*
+           * 章节正文自动保存间隔是 3 分钟；关窗前必须把待落盘的那一份写下去，
+           * 否则最后几分钟写的字会随窗口一起消失。
+           *
+           * ⚠ 这一句与上面那句 `runPreCloseFlushes()` **不是重复的，别合并它们**：
+           * 两条分支各自独立引入了各自的机制，覆盖面不重叠 ——
+           *   · `runPreCloseFlushes()`（注册表）服务于**组件级去抖**：
+           *     排版设置的 400ms 去抖没到点时，app-state 层没有待写内容可 flush，
+           *     由模块自己声明要做什么；
+           *   · `flushPendingChapterSave()`（单一登记处）服务于**长间隔定时器**：
+           *     正文自动保存是 3 分钟一次的定时器，不在任何 store 的去抖队列里，
+           *     注册表里也没有它。
+           * 谁把后者"顺手"挪进注册表，就得同时在 preview-panel 里注册；
+           * 谁把这一句删掉当作"已经 flush 过了"，正文最后几分钟的字就会丢。
+           */
+          await flushPendingChapterSave().catch((err) => console.error("关闭前保存章节正文失败:", err))
 
           // 关闭前执行最终保存，防止丢失最后几秒的数据
           const project = useWikiStore.getState().project
@@ -451,30 +469,23 @@ function App() {
 
   useEffect(() => {
     if (!project?.path) {
-      setAppTitleTotalWordCount(null)
+      useWritingStatsStore.getState().reset()
       return
     }
 
     let cancelled = false
 
-    const loadAppTitleTotalWordCount = async () => {
-      try {
-        const chapterNodes = await listDirectory(`${normalizePath(project.path)}/wiki/chapters`)
-        const files = flattenMdFiles(chapterNodes)
-        const contents = await Promise.all(
-          files.map((file) => readFile(file.path).catch(() => "")),
-        )
-        const total = contents.reduce(
-          (sum, markdown) => sum + countChapterBodyWords(markdown),
-          0,
-        )
-        if (!cancelled) setAppTitleTotalWordCount(total)
-      } catch {
-        if (!cancelled) setAppTitleTotalWordCount(null)
-      }
+    // 全书字数与今日写作统计都收在 writingStatsStore 里：窗口标题、目录里的
+    // 字数、底部状态栏读的是同一个数字，不再各算一遍（此前是三份独立实现，
+    // 口径一旦漂移，三处会显示三个不同的总字数）。
+    const loadWritingStats = async () => {
+      const stats = useWritingStatsStore.getState()
+      await stats.initializeProject(project.path)
+      if (cancelled) return
+      await stats.refreshTotalChars()
     }
 
-    void loadAppTitleTotalWordCount()
+    void loadWritingStats()
 
     return () => {
       cancelled = true

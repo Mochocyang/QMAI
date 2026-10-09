@@ -19,7 +19,13 @@ export function buildScopedOutlineSubAgentContext(
   kind: OutlineSubAgentKind,
   maxChars = 8_000,
 ): string {
-  const common = [section("本轮任务", pack.task), section("作品灵魂", pack.soulDoc), section("主线大纲", pack.outline)]
+  const common = [
+    section("本轮任务", pack.task),
+    section("作品灵魂", pack.soulDoc),
+    // 同人正典进公共段：所有子 Agent 都必须受原作既成事实约束。
+    section("原作正典", pack.sourceCanon ?? ""),
+    section("主线大纲", pack.outline),
+  ]
   const specific: Record<OutlineSubAgentKind, string[]> = {
     outline: [
       section("最近摘要", pack.recentSummaries.slice(-3).join("\n")),

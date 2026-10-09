@@ -9,6 +9,7 @@
 
 import { readFile, writeFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { useWritingStatsStore } from "@/stores/writing-stats-store"
 import type { FileEditAction } from "./agent-parser"
 
 export interface FileEditResult {
@@ -61,6 +62,10 @@ async function applyFileEdit(
     // 替换所有匹配项（如果有多处相同内容）
     const newContent = originalContent.split(edit.search).join(edit.replace)
     await writeFile(normalizedPath, newContent)
+    // 这是模型给出的 search/replace 结果：改动部分算 AI，未被触及的部分归属不变。
+    // 大纲不是正文，`recordChapter` 内部只对 `wiki/chapters/` 记账。
+    // 旧正文一并交上去：这一章未必在内存账本里，没有它就只能把整章算成 AI 新写的。
+    useWritingStatsStore.getState().recordChapter(normalizedPath, newContent, "ai", originalContent)
 
     return {
       filePath: edit.filePath,

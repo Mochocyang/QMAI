@@ -5,7 +5,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, resolveNovelModel, formatResolvedModelLabel } from "@/lib/novel/model-resolver"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
 import { deleteFile, fileExists, readFile, writeFileAtomic, writeFileIfAbsent, listDirectory } from "@/commands/fs"
-import { normalizePath } from "@/lib/path-utils"
+import { isChapterPath, normalizePath } from "@/lib/path-utils"
 import { getFileCategory, isBinary } from "@/lib/file-types"
 import { WikiEditor, type WikiEditorHandle } from "@/components/editor/wiki-editor"
 import { WikiReader } from "@/components/editor/wiki-reader"
@@ -59,10 +59,13 @@ import {
 } from "@/lib/chapter-selection"
 import { shouldApplyDiskToEditor } from "@/lib/editor-disk-sync"
 import { registerEditorExternalUpdateHandler } from "@/lib/editor-external-update-session"
+import { registerChapterSaveFlush, CHAPTER_AUTOSAVE_INTERVAL_MS } from "@/lib/chapter-save-flush"
 import { createChapterExternalUpdateCoordinator } from "@/lib/chapter-external-update-coordinator"
 import { applyOpenChapterBodyUpdate, createDeAiBatchChapterApplier } from "@/lib/novel/de-ai-batch/chapter-apply"
 import { acquireDeAiChapterSlot } from "@/lib/novel/de-ai-batch/chapter-concurrency"
 import { toast } from "@/lib/toast"
+import { useWritingStatsStore } from "@/stores/writing-stats-store"
+import type { WritingSource } from "@/lib/writing-stats"
 import { selectProjectDeAiReview, selectProjectDeAiTasks, useDeAiTaskStore } from "@/stores/de-ai-task-store"
 import { DeAiBatchReviewDialog } from "@/components/novel/de-ai-batch-review-dialog"
 import type { DeAiBatchChapter, DeAiBatchTaskRecord } from "@/lib/novel/de-ai-batch/types"
@@ -126,10 +129,6 @@ function inferEditorMode(path: string): "read" | "edit" {
     return "edit"
   }
   return "read"
-}
-
-function isChapterPath(path: string): boolean {
-  return path.replace(/\\/g, "/").includes("/wiki/chapters/")
 }
 
 function isOutlinePath(path: string): boolean {
@@ -579,6 +578,14 @@ export function PreviewPanel() {
     }
 
     rememberLoadedChapter(normalizedPath, diskContent)
+    // 磁盘上的正文被带外改动并同步进来了（另一个编辑器、外部同步、去重改写
+    // 交叉引用…）。把它按 `unknown` 记一笔：差额既不算用户手写也不算 AI，
+    // 但账本文本会跟上磁盘，于是**此后**用户敲的字仍然归属正确。
+    // 不做这一步的话，这次带外改动会累积在账本里，等用户下次敲一个字时
+    // 被整笔算成「他的手写」。
+    if (isChapterPath(normalizedPath)) {
+      useWritingStatsStore.getState().recordChapter(normalizedPath, diskContent, "unknown")
+    }
     fileContentRef.current = diskContent
     if (selectedFileRef.current && normalizePath(selectedFileRef.current) === normalizedPath) {
       const scrollTop = uiTestScrollRef.current?.scrollTop
@@ -691,7 +698,7 @@ export function PreviewPanel() {
   const syncChapterToCanonicalPath = useCallback(async (
     path: string,
     markdown: string,
-    options?: { renameToCanonical?: boolean },
+    options?: { renameToCanonical?: boolean; source?: WritingSource },
   ) => {
     const normalized = normalizeChapterWriting(markdown)
     const chapterNumber = extractChapterNumberFromMarkdown(normalized)
@@ -701,6 +708,13 @@ export function PreviewPanel() {
       : path
 
     await writeFileAtomic(targetPath, normalized)
+    if (isChapterPath(targetPath)) {
+      const stats = useWritingStatsStore.getState()
+      // 改名时先把归属账本搬到新路径，再把这份正文记一次账。
+      // 重复记账是安全的：`recordChapter` 是差分口径，正文没变就是空增量。
+      if (targetPath !== path) stats.transferChapter(path, targetPath)
+      stats.recordChapter(targetPath, normalized, options?.source ?? "human")
+    }
     if (renameToCanonical && targetPath !== path) {
       if (useWikiStore.getState().selectedFile === path) {
         selectedFileRef.current = targetPath
@@ -805,6 +819,11 @@ export function PreviewPanel() {
         console.log("[PreviewPanel][debug] readFile success", { selectedFile, contentLength: content?.length, cancelled, storeSelectedFile: useWikiStore.getState().selectedFile })
         if (cancelled || useWikiStore.getState().selectedFile !== selectedFile) return
         rememberLoadedChapter(normalizePath(selectedFile), content)
+        // 打开章节时先打归属基线：此后敲下的字才算「今天新写的」，
+        // 否则用户敲的第一个字会把整章已有正文都算进今日手写。
+        if (isChapterPath(selectedFile)) {
+          useWritingStatsStore.getState().primeChapter(selectedFile, content)
+        }
         setFileContent(content)
         setSaveStatus("")
         setLoadedFilePath(selectedFile)
@@ -859,8 +878,82 @@ export function PreviewPanel() {
     }
   }, [flushChapterBeforeLeave])
 
+  /**
+   * 待落盘的章节正文。
+   *
+   * 只留**一份**（编辑器每次只会打开一个章节），后一次输入覆盖前一次 ——
+   * 落盘的是最新正文，不是排队写历史版本。
+   */
+  const pendingChapterSaveRef = useRef<{
+    pathAtSave: string
+    normalizedPath: string
+    persistedMarkdown: string
+    generation: number
+  } | null>(null)
+
+  /**
+   * 立刻把待落盘的正文写下去（不等自动保存间隔）。
+   *
+   * 三条路径要靠它兜底，否则「间隔没到就离开」会丢字：
+   * 关窗（`App.tsx` 的 `onCloseRequested` → `flushPendingChapterSave`）、
+   * 切章节（`flushChapterBeforeLeave`）、组件卸载。
+   */
+  const runPendingChapterSave = useCallback(async (): Promise<void> => {
+    const pending = pendingChapterSaveRef.current
+    if (!pending) return
+    pendingChapterSaveRef.current = null
+    const { pathAtSave, normalizedPath, persistedMarkdown, generation } = pending
+    try {
+      if (generation !== saveGenerationRef.current) return
+      if (pathAtSave !== selectedFileRef.current) return
+
+      let diskContent: string
+      try {
+        diskContent = await readFile(normalizedPath)
+      } catch (err) {
+        console.error("保存前读取磁盘失败:", err)
+        reportUiTestSave(pathAtSave, "error", persistedMarkdown, generation)
+        return
+      }
+
+      const currentLastLoaded = lastLoadedByPathRef.current.get(normalizedPath) ?? lastLoadedRef.current
+      const normalize = getDiskSyncNormalize(normalizedPath)
+      if (normalize(diskContent) !== normalize(currentLastLoaded)) {
+        await applyDiskSyncIfSafe(normalizedPath)
+        reportUiTestSave(pathAtSave, "conflict", persistedMarkdown, generation)
+        return
+      }
+
+      // 刻意**不**报 "saving"：这是用户每打几个字就会走一次的例行落盘，
+      // 弹「正在保存」只会干扰写作（用户明确反馈过）。出错与冲突仍然会报，
+      // 那两种状态需要用户处理，不能沉默。
+      await writeFileAtomic(pathAtSave, persistedMarkdown)
+      reportUiTestSave(pathAtSave, "saved", persistedMarkdown, generation)
+      rememberLoadedChapter(normalizedPath, persistedMarkdown)
+      bumpDataVersion()
+    } catch (err) {
+      console.error("保存失败:", err)
+      reportUiTestSave(pathAtSave, "error", persistedMarkdown, generation)
+    }
+  }, [applyDiskSyncIfSafe, bumpDataVersion, rememberLoadedChapter, reportUiTestSave])
+
+  // 关窗时 App.tsx 拿不到上面的定时器，靠这个登记处触发一次落盘。
+  useEffect(() => registerChapterSaveFlush(runPendingChapterSave), [runPendingChapterSave])
+
   const handleSave = useCallback(
-    (markdown: string) => {
+    /**
+     * 编辑器写盘的总入口（沉浸式 textarea 与 Milkdown 都走这里）。
+     *
+     * `opts.source` 标明这一份正文是**谁**产生的，供写作统计归因：
+     * 省略即视为用户手动输入（打字、粘贴、剪切、撤销），AI 改写路径必须显式标 `"ai"`。
+     * 默认值刻意选「人写」而不是「不可知」——这是绝大多数调用者的事实，
+     * 而漏标一处 AI 只会让 AI 那一栏偏少，标反了才会污染手写那一栏。
+     *
+     * 已知边界：用户**手工粘贴**外部（含 AI）文本时，这里记的是 `human`。
+     * 应用无从判断剪贴板里的字是谁写的——那是用户的动作，不是本软件的产出。
+     * 要区分它只能靠猜测，而猜错会把真正手写的字算进 AI，比少算更糟。
+     */
+    (markdown: string, opts?: { source?: WritingSource; immediate?: boolean }) => {
       const pathAtSave = selectedFileRef.current
       if (!pathAtSave) return
       const persistedMarkdown = isChapterPath(pathAtSave)
@@ -869,50 +962,50 @@ export function PreviewPanel() {
       setFileContent(markdown)
       fileContentRef.current = markdown
       const normalizedPath = normalizePath(pathAtSave)
+      // 记账必须发生在下面的「与磁盘一致就返回」之前。
+      // 否则「打字 → 落盘 → 退格回到原样」这一段里，退格那一下会被提前 return
+      // 吞掉，界面上的手写字数就永远只增不减。
+      if (isChapterPath(pathAtSave)) {
+        useWritingStatsStore
+          .getState()
+          .recordChapter(pathAtSave, persistedMarkdown, opts?.source ?? "human")
+      }
       const lastLoadedForPath = lastLoadedByPathRef.current.get(normalizedPath) ?? lastLoadedRef.current
-      if (persistedMarkdown === lastLoadedForPath) return
-      reportUiTestSave(pathAtSave, "pending")
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      const generation = saveGenerationRef.current
+      if (persistedMarkdown === lastLoadedForPath) {
+        // 内容回到与磁盘一致：撤掉待落盘的那一份，别再白写一次。
+        pendingChapterSaveRef.current = null
+        if (saveTimerRef.current) {
+          clearTimeout(saveTimerRef.current)
+          saveTimerRef.current = null
+        }
+        return
+      }
+      pendingChapterSaveRef.current = {
+        pathAtSave,
+        normalizedPath,
+        persistedMarkdown,
+        generation: saveGenerationRef.current,
+      }
+      // 离散动作（改标题、应用 AI 改写、重试保存）要立刻落盘：它们是「用户
+      // 明确做完了一件事」，等 3 分钟才写进去会让人以为没生效。
+      // 连续输入才走下面的周期落盘。
+      if (opts?.immediate) {
+        if (saveTimerRef.current) {
+          clearTimeout(saveTimerRef.current)
+          saveTimerRef.current = null
+        }
+        void runPendingChapterSave()
+        return
+      }
+      // 刻意**不**在每次输入时重置定时器：那会退化成「停止输入才保存」，
+      // 一直连着写的人反而永远等不到落盘。这里要的是「每 N 分钟一次」。
+      if (saveTimerRef.current) return
       saveTimerRef.current = setTimeout(() => {
-        void (async () => {
-          try {
-            if (generation !== saveGenerationRef.current) return
-            if (pathAtSave !== selectedFileRef.current) return
-            if (normalizePath(pathAtSave) !== normalizedPath) return
-
-            reportUiTestSave(pathAtSave, "saving", persistedMarkdown, generation)
-            let diskContent: string
-            try {
-              diskContent = await readFile(normalizedPath)
-            } catch (err) {
-              console.error("保存前读取磁盘失败:", err)
-              reportUiTestSave(pathAtSave, "error", persistedMarkdown, generation)
-              return
-            }
-
-            const currentLastLoaded = lastLoadedByPathRef.current.get(normalizedPath) ?? lastLoadedRef.current
-            const normalize = getDiskSyncNormalize(normalizedPath)
-            if (normalize(diskContent) !== normalize(currentLastLoaded)) {
-              await applyDiskSyncIfSafe(normalizedPath)
-              reportUiTestSave(pathAtSave, "conflict", persistedMarkdown, generation)
-              return
-            }
-
-            await writeFileAtomic(pathAtSave, persistedMarkdown)
-            reportUiTestSave(pathAtSave, "saved", persistedMarkdown, generation)
-            rememberLoadedChapter(normalizedPath, persistedMarkdown)
-            bumpDataVersion()
-          } catch (err) {
-            console.error("保存失败:", err)
-            reportUiTestSave(pathAtSave, "error", persistedMarkdown, generation)
-          } finally {
-            saveTimerRef.current = null
-          }
-        })()
-      }, 1000)
+        saveTimerRef.current = null
+        void runPendingChapterSave()
+      }, CHAPTER_AUTOSAVE_INTERVAL_MS)
     },
-    [rememberLoadedChapter, setFileContent, bumpDataVersion, applyDiskSyncIfSafe, reportUiTestSave]
+    [rememberLoadedChapter, setFileContent, bumpDataVersion, applyDiskSyncIfSafe, reportUiTestSave, runPendingChapterSave]
   )
 
   const chapterFrontmatter = useMemo(() => {
@@ -1636,9 +1729,13 @@ export function PreviewPanel() {
     }
 
     const replacedMarkdown = rawBlock + rebuildChapterBody(heading, replaced.body)
-    handleSave(selectionTransformAction === "de-ai"
-      ? normalizeChapterWriting(replacedMarkdown)
-      : replacedMarkdown)
+    // 替换进去的是模型产出，整段记到「今日 AI 生成」；未选中的部分归属不变。
+    handleSave(
+      selectionTransformAction === "de-ai"
+        ? normalizeChapterWriting(replacedMarkdown)
+        : replacedMarkdown,
+      { source: "ai", immediate: true },
+    )
     setSelectionTransformOpen(false)
     setSelectionTransformAction(null)
     setSelectionTransformSelection(null)
@@ -1659,9 +1756,15 @@ export function PreviewPanel() {
 
   useEffect(() => {
     return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current)
+        saveTimerRef.current = null
+      }
+      // 卸载时**必须落盘**，不能只清定时器：自动保存间隔是 3 分钟，
+      // 直接丢掉待保存的正文等于把用户最后几分钟写的内容扔了。
+      void runPendingChapterSave()
     }
-  }, [])
+  }, [runPendingChapterSave])
 
   // Check if we're showing a trash item
   if (selectedTrashItem) {
@@ -1747,7 +1850,8 @@ export function PreviewPanel() {
       path={selectedFile}
       title={isSelectedChapter ? chapterDisplayTitle : uiTestHeading?.heading || getOutlineFileName(selectedFile)}
       onTitleCommit={isSelectedChapter ? commitChapterTitleDraft : (title) => {
-        if (uiTestParsed && uiTestHeading) handleSave(uiTestParsed.rawBlock + rebuildChapterBody(title, uiTestHeading.body))
+        // 改大纲标题是离散动作，立刻落盘，别等自动保存周期。
+        if (uiTestParsed && uiTestHeading) handleSave(uiTestParsed.rawBlock + rebuildChapterBody(title, uiTestHeading.body), { immediate: true })
       }}
       statusLabel={isSelectedChapter ? chapterHeader?.statusLabel ?? "草稿" : isOutlineIngesting ? "正在提取记忆" : outlineIngested ? "已提取记忆" : "待提取记忆"}
       wordCount={countChapterBodyWords(fileContent)}
@@ -1757,7 +1861,7 @@ export function PreviewPanel() {
         if (uiTestSaveState?.retryAction === "format") void handleFormatWriting()
         else if (uiTestSaveState?.retryAction === "title") void commitChapterTitleDraft()
         else if (uiTestSaveState?.retryAction === "final") void handleSaveAsFinal()
-        else handleSave(wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current)
+        else handleSave(wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current, { immediate: true })
       }}
       onClose={() => setSelectedFile(null)}
       scrollRef={uiTestScrollRef}

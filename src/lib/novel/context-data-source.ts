@@ -162,6 +162,7 @@ export class DataSourceRegistry {
       fallbackTimeline: "",
       relatedSettings: "",
       canonRules: "",
+      sourceCanon: "",
       writingStyle: "",
       bookAnalysisReferences: "",
       searchResults: "",

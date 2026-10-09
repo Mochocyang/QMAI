@@ -21,6 +21,7 @@ import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "
 import { useImportProgressStore, type ImportProgressTask } from "@/stores/import-progress-store"
 import { selectProjectDeAiTasks, useDeAiTaskStore } from "@/stores/de-ai-task-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
+import { useWritingStatsStore } from "@/stores/writing-stats-store"
 import { getOutlineFileName, outlineSnapshotExists } from "@/lib/novel/outline-ingest-utils"
 import { saveLastReadChapter } from "@/lib/project-store"
 import { mapWithConcurrency } from "@/lib/async-pool"
@@ -1260,6 +1261,9 @@ export function KnowledgeTree({
 
       await writeFile(targetPath, nextContent)
       if (targetPath !== renamingPath) {
+        // 章节改名/换目录：把写作归属账本一起搬到新路径，
+        // 否则新路径会从零打基线，用户此前手写的归属会凭空消失。
+        useWritingStatsStore.getState().transferChapter(renamingPath, targetPath)
         await deleteFile(renamingPath)
         if (selectedFile === renamingPath) setSelectedFile(targetPath)
         onRemovePendingPage?.(renamingPath)

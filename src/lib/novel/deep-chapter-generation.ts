@@ -2653,6 +2653,7 @@ async function safeBuildChapterContextPack(
       timeline: "",
       relatedSettings: "",
       canonRules: "",
+      sourceCanon: "",
       writingStyle: "",
       searchResults: "",
       graphSearchResults: "",

@@ -267,6 +267,7 @@ export class ContextHubController implements ContextHub {
       confidence: confidenceFor(request, contextPack),
       tokenBudget: request.tokenBudget,
       maxContextSize: request.maxContextSize,
+      // 正典溢出时 composer 会抛错，交由调用方停机并告知用户。
     })
     const cacheStats = cacheAdapter.getStats()
     const cacheItems = cacheAdapter.getTraceItems()

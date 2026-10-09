@@ -1,6 +1,7 @@
 import { create } from "zustand"
 import { readFile, writeFile, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { deriveConversationTitle } from "@/lib/conversation-title"
 import type { AgentRunRecord } from "@/lib/agent/types"
 import type { ReferenceToken } from "@/lib/reference/types"
 import type { ContextHubSnapshotRef, SessionContextSummary } from "@/lib/context-hub/types"
@@ -324,8 +325,10 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
           msgs.push({ id: crypto.randomUUID(), role: "assistant", content, sources })
         }
         const firstUser = msgs.find((m) => m.role === "user")
-        const title = firstUser ? firstUser.content.slice(0, 50) : c.title
-        return { ...c, messages: msgs, title, updatedAt: now }
+        // 首条用户消息不变，派生结果也就稳定（本 store 没有重命名动作）。
+        // 派生不出内容时保留原标题，不要写入空字符串。
+        const derived = firstUser ? deriveConversationTitle(firstUser.content) : ""
+        return { ...c, messages: msgs, title: derived || c.title, updatedAt: now }
       }),
     }))
     scheduleSave()

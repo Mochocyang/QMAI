@@ -102,6 +102,7 @@ describe("route-applier", () => {
     timeline: "时间线",
     relatedSettings: "相关设定",
     canonRules: "正史规则",
+    sourceCanon: "原作正典",
     soulDoc: "作品灵魂",
     searchResults: [],
     graphSearchResults: [],
@@ -202,6 +203,37 @@ describe("route-applier", () => {
     expect(result.keptSources).toContain("character_states")
     expect(result.keptSources).toContain("foreshadowing")
     expect(result.blockedSources).toContain("revision")
+  })
+
+  it("同人原作正典随 settings 分类一起保留或清除，不会绕过分组门闩", () => {
+    const kept = applyRouteRules(createFullPack(), {
+      intent: "write_chapter",
+      required: ["settings"],
+      optional: [],
+      forbidden: [],
+    } as RouteRule)
+    expect(kept.keptSources).toContain("settings")
+    expect(kept.pack.sourceCanon).toBe("原作正典")
+
+    const blocked = applyRouteRules(createFullPack(), {
+      intent: "general_chat",
+      required: [],
+      optional: [],
+      forbidden: ["settings"],
+    } as RouteRule)
+    expect(blocked.blockedSources).toContain("settings")
+    // 禁载设定时正典必须一并清掉，否则原作事实会泄漏进明确禁止设定的请求
+    expect(blocked.pack.sourceCanon).toBe("")
+    expect(blocked.pack.canonRules).toBe("")
+    expect(blocked.pack.relatedSettings).toBe("")
+  })
+
+  it("getCategoryFields 把正典归到设定与正史", () => {
+    expect(getCategoryFields("settings")).toEqual([
+      "relatedSettings",
+      "canonRules",
+      "sourceCanon",
+    ])
   })
 })
 

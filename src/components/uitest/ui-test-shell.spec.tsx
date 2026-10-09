@@ -202,6 +202,19 @@ describe("独立UI测试版外壳", () => {
       expect(button.disabled).toBe(true)
     }
   })
+  it("外壳不再横跨整窗渲染写作字数状态栏", async () => {
+    await render()
+    const app = host.querySelector(".ui-test-app")!
+    // 状态栏此前挂在 .ui-test-app 下，于是横跨整窗、并出现在目录栏与 AI 对话栏
+    // 下方。用户要求它只显示在章节正文栏底部，因此外壳自己不再渲染它。
+    expect(app.querySelector(":scope > footer.ui-test-statusbar")).toBeNull()
+    expect(host.querySelector(".ui-test-workspace > .ui-test-statusbar")).toBeNull()
+    expect(host.querySelector(".ui-test-statusbar")).toBeNull()
+  })
+  it("书架页不显示写作字数状态栏（没有可统计的对象，全 0 会被误读成空书）", async () => {
+    await render(false)
+    expect(host.querySelector(".ui-test-statusbar")).toBeNull()
+  })
   it("设置页的三皮肤选择同步外壳与Portal作用域", async () => {
     await render()
     await act(async () => window.dispatchEvent(new CustomEvent("qmai-ui-test-skin-change", { detail: "xing" })))

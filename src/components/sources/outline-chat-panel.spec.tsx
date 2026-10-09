@@ -104,6 +104,23 @@ function getNewConversationButton(container: HTMLElement): HTMLButtonElement {
   return button as HTMLButtonElement
 }
 
+/**
+ * 打开「生成小说大纲」向导。
+ *
+ * 用户要求删掉输入区上方那条常驻的「选择生成你想要的小说」按钮之后，
+ * 向导唯一入口是**空会话**中央的「生成小说大纲」按钮
+ * （`ui-test-ai-parts.tsx` 的 `UiTestAiEmpty`，由 `activeMessages.length === 0` 决定）。
+ * 因此调用它的用例必须让当前会话保持空消息 —— 曾有两个用例还在找那个已删除的按钮，
+ * 结果 `wizardTrigger` 是 undefined、`?.click()` 静默什么都不做，
+ * 表现为「子 Agent 一次都没被调用」这种和真实原因毫不相干的失败。
+ */
+async function openOutlineWizard(container: HTMLElement): Promise<void> {
+  const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+    .find((button) => button.textContent?.includes("\u751f\u6210\u5c0f\u8bf4\u5927\u7eb2"))
+  expect(trigger, "空会话应提供「生成小说大纲」按钮作为向导入口").toBeDefined()
+  await act(async () => { trigger?.click() })
+}
+
 beforeEach(() => {
   ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
     .IS_REACT_ACT_ENVIRONMENT = true
@@ -1061,6 +1078,37 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("自动回退为单 Agent")
   })
 
+  it("同人提交前编译原作正典，并用编译结果替换原始素材", () => {
+    expect(source).toContain("compileFanficCanon({")
+    expect(source).toContain("stripFanficCanonFrontmatter(compiled.document)")
+    // 编译失败必须中断提交，而不是拿没编译的原文继续
+    expect(source).toContain("原作正典编译失败，请重试。")
+    // 超长原作分片编译时长，进度要透出
+    expect(source).toContain("onProgress:")
+  })
+
+  it("同人提交支持复用已落盘正典，不再重复编译", () => {
+    // 首次提交：编译并落盘
+    expect(source).toContain("compileFanficCanon({")
+    // 后续提交：勾选复用后直接读正典正文，跳过编译
+    expect(source).toContain("request.fanficReuseCanon && !material")
+    expect(source).toContain("loadFanficCanon(fanficProjectPath)")
+    expect(source).toContain("已复用项目里已有的原作正典。")
+    // 复用读的是完整正文，不是给上下文包用的 8000 字截断版
+    expect(source).toContain("await loadFanficCanon(fanficProjectPath)")
+    expect(source).toContain("const existing = stripFanficCanonFrontmatter(")
+    expect(source).not.toContain("loadFanficCanonBody(")
+  })
+
+  it("原创作品残留同人正典时给出提示，但不擅自删文件", () => {
+    // 残留正典仍会参与正文生成，会让模型把外部原作当权威
+    expect(source).toContain("本项目已存在同人正典，它仍会参与正文生成")
+    expect(source).toContain("fanficCanonPath(")
+    expect(source).toContain("!isFanficRequest(request)")
+    // 只提示，不调用删除
+    expect(source).not.toContain("clearFanficCanon(")
+  })
+
   it("快速模式系统提示去掉工作流强制段，仍保留保存协议和 Markdown 约束", () => {
     const prompt = buildOutlineAgentSystemPrompt({ projectName: "测试项目", mode: "fast" })
 
@@ -1099,7 +1147,10 @@ describe("OutlineChatPanel controls", () => {
   })
 
   it("快速模式源码跳过意图分析和多 Agent，人物小传不再降级为 analysis 预算", () => {
-    expect(source).toContain('outlineWorkflowMode === "fast"')
+    // 这里原本还断言源码含 `outlineWorkflowMode === "fast"`，但那个表达式当时只用于
+    // 挑选输入区上方那句说明文案的措辞；该文案已按用户要求删除，表达式随之消失。
+    // 快速模式真正的门禁在生成路径上（下面两条 `outlineMode !== "fast"`），
+    // 所以去掉那条只剩 UI 措辞意义的断言，不降低对本用例目标（跳过意图分析与多 Agent）的覆盖。
     expect(source).toMatch(
       /enableMultiAgent = Boolean\(options\.enableMultiAgent\)\s*\n\s*&& outlineMode !== "fast"/,
     )
@@ -1152,7 +1203,11 @@ describe("OutlineChatPanel controls", () => {
     const trigger = container.querySelector<HTMLButtonElement>('[aria-label="AI 大纲执行模式"]')
     expect(trigger).not.toBeNull()
     expect(trigger?.textContent).toContain("标准")
-    expect(container.textContent).toContain("再交给 AI 分析和追问")
+    // 用户要求删掉输入区上方那两段文案（固定选项说明与重复的「选择生成你想要的小说」）；
+    // 模式本身仍由下拉切换，所以下面继续验下拉的行为。
+    expect(container.textContent).not.toContain("再交给 AI 分析和追问")
+    expect(container.textContent).not.toContain("通过固定选项")
+    expect(container.textContent).not.toContain("选择生成你想要的小说")
 
     await act(async () => {
       trigger?.click()
@@ -1170,8 +1225,11 @@ describe("OutlineChatPanel controls", () => {
     expect(useWikiStore.getState().outlineWorkflowMode).toBe("fast")
     expect(outlineModelPreferenceMocks.saveOutlineWorkflowMode).toHaveBeenCalledWith("fast")
     expect(container.querySelector('[aria-label="AI 大纲执行模式"]')?.textContent).toContain("快速")
-    expect(container.textContent).toContain("直接生成大纲正文")
+    // 切模式后那段说明也不再出现（它已被整体删除）。
     expect(container.textContent).not.toContain("再交给 AI 分析和追问")
+    // 显式还原成标准模式：这个用例会切到 fast，而下面共用同一份 wiki store 的
+    // 用例假设的是标准模式 —— 不还原就会把它们一起带红（实测过一次）。
+    await act(async () => { useWikiStore.getState().setOutlineWorkflowMode("standard") })
   })
 
   it("执行模式下拉里有互斥的计划模式选项", async () => {
@@ -1513,6 +1571,55 @@ describe("OutlineChatPanel controls", () => {
     expect(generationPrompt).toContain("作者已经确认定稿")
     expect(generationPrompt).toContain("outlineSaveRequest")
     expect(generationPrompt).not.toContain("## 本轮阶段：共创讨论")
+  })
+
+  /**
+   * 回归：讨论轮提示词里**不能**再出现「生成并保存正文」的契约。
+   *
+   * 实测故障：这两套契约同时出现时，模型挑了生成那套照做 ——
+   * 直接返回完整卷纲 + 写回清单，一个 outline_discuss 标记都没有，
+   * 于是被协议闸门判成「共创协议格式无效，尚未开始生成」，整轮作废。
+   *
+   * 起因有两处：①「## AI大纲生成工作流」整段（含「生成章纲后必须列出新增设定
+   * 写回清单」，正是模型输出的那个「写回清单」）被讨论轮沿用；
+   * ②「## Markdown 格式强制要求」只把**标题**放进了排除数组，
+   * 正文与整段大纲示例留在外面，等于一边禁止输出正文、一边给了正文格式与范例。
+   */
+  it("讨论轮不得携带任何生成/保存契约，否则模型会直接产出正文而不给协议", () => {
+    const discussPrompt = buildOutlineAgentSystemPrompt({
+      projectName: "测试项目",
+      mode: "discuss",
+      discussModule: "卷纲",
+    })
+
+    const generationOnlyRules = [
+      "## AI大纲生成工作流",
+      "生成章纲后必须列出新增设定写回清单",
+      "生成章纲时必须使用章纲标准结构",
+      "结构节点必须包含 CBN、CPNs、CEN",
+      "## Markdown 格式强制要求",
+      "所有大纲正文必须使用标准 Markdown 格式输出",
+      "# 五、主要人物设定",
+      "当本轮要交付可保存的大纲正文时",
+      "需要保存大纲时只输出 outlineSaveRequest",
+    ]
+    for (const rule of generationOnlyRules) {
+      expect(discussPrompt, `讨论轮不该出现生成契约：「${rule}」`).not.toContain(rule)
+    }
+
+    // 反过来：讨论轮该有的都在，删干净不能连带把协议要求删掉
+    expect(discussPrompt).toContain("必须输出 outline_discuss 协议块")
+    expect(discussPrompt).toContain("## 本轮阶段：共创讨论")
+    expect(discussPrompt).toContain("## AI大纲固定分析流程")
+    // 讨论轮排除生成工作流，但不能连「先读资料」的纪律一起删掉
+    expect(discussPrompt).toContain("list_outlines")
+
+    // 生成轮必须原样保留这些契约（排除逻辑只能作用于讨论轮）
+    const generationTurn = buildOutlineAgentSystemPrompt({ projectName: "测试项目", mode: "discuss" })
+    expect(generationTurn).toContain("## AI 大纲输出协议")
+    expect(generationTurn).toContain("## Markdown 格式强制要求")
+    expect(generationTurn).toContain("生成章纲后必须列出新增设定写回清单")
+    expect(generationTurn).toContain("当本轮要交付可保存的大纲正文时")
   })
 
   it("讨论轮不再被「只输出正文」规则压制，且质疑必须带替代方案", () => {
@@ -2050,11 +2157,8 @@ describe("OutlineChatPanel controls", () => {
       pendingReferenceTokens: [reference],
     })
     const container = await renderOutlineChatPanel()
-    const wizardTrigger = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-      .find((button) => button.textContent?.includes("\u9009\u62e9\u751f\u6210\u4f60\u60f3\u8981\u7684\u5c0f\u8bf4"))
-    expect(wizardTrigger).toBeDefined()
+    await openOutlineWizard(container)
 
-    await act(async () => wizardTrigger?.click())
     // 该期望于 26f80ee（全新界面统一、旧版界面移除）随之变更：旧版向导的
     // #outline-wizard-inspiration / 「确定生成」分支被删除，只留新版向导的
     // aria-label="故事灵感/处理要求" 与「提交需求」按钮。
@@ -2145,9 +2249,7 @@ describe("OutlineChatPanel controls", () => {
     })
     setOutlineConversations([{ ...conversation(), modelId: "openai/gpt-4o" }], "outline-active")
     const container = await renderOutlineChatPanel()
-    const wizardTrigger = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-      .find((button) => button.textContent?.includes("\u9009\u62e9\u751f\u6210\u4f60\u60f3\u8981\u7684\u5c0f\u8bf4"))
-    await act(async () => wizardTrigger?.click())
+    await openOutlineWizard(container)
     const inspiration = document.querySelector<HTMLTextAreaElement>('[aria-label="故事灵感/处理要求"]')
     await act(async () => {
       const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set

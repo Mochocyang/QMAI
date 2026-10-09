@@ -1,4 +1,4 @@
-﻿{
+{
   "version": 1,
   "scope": "ai-outline",
   "protocols": {
@@ -378,12 +378,33 @@
       "primarySkill": "TicaiSkill/short-soul-perspective",
       "skills": ["DagangSkill", "ZhanggangSkill", "SheDingSkill/world-rules", "SheDingSkill/foreshadowing-suspense", "JueseSkill/relationship-emotion"],
       "defaultOutputs": ["outline", "chapter-outline", "character", "setting", "foreshadowing"]
+    },
+    {
+      "id": "fanfic-derivative",
+      "lengthTypes": ["long", "short"],
+      "audiences": ["male", "female"],
+      "labels": ["同人", "同人衍生", "二创", "衍生文", "原作续写", "原作番外", "AU", "架空世界", "OOC", "性格重塑", "CP 向", "穿书", "动漫同人", "影视同人", "小说同人", "游戏同人"],
+      "primarySkill": "TicaiSkill/fanfic-derivative",
+      "skills": ["DagangSkill", "ZhanggangSkill", "JueseSkill/character-design", "JueseSkill/relationship-emotion", "SheDingSkill/foreshadowing-suspense"],
+      "defaultOutputs": ["outline", "volume-outline", "chapter-outline", "character", "setting", "foreshadowing"]
     }
   ],
   "plannedCoverage": {
     "male": [],
     "female": [],
     "short": []
+  },
+  "creationKinds": {
+    "original": {
+      "note": "从零构建原创作品，走受众 + 题材路由。"
+    },
+    "fanfic": {
+      "note": "基于外部原作的同人创作。必须先有原作正典，再生成大纲；本类型强制追加 fanfic-derivative。",
+      "requiredSkill": "TicaiSkill/fanfic-derivative",
+      "requiresSourceCanon": true,
+      "canonPath": ".novel/fanfic-canon.md",
+      "supportedModes": ["canon", "au", "ooc", "cp", "custom"]
+    }
   },
   "bodyGeneration": {
     "enabledInAiOutline": false,

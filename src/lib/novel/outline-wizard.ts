@@ -1,4 +1,13 @@
 import { getMainGenreLabel } from "@/lib/novel/outline-genres"
+import {
+  FANFIC_MODE_OPTIONS,
+  FANFIC_REFERENCE_SCOPE_NOTE,
+  FANFIC_SOURCE_MATERIAL_MAX_CHARS,
+  FANFIC_WRITING_RULES,
+  formatFanficModeLabel,
+  getFanficModeRequirement,
+  type FanficModeKey,
+} from "@/lib/novel/fanfic-canon"
 
 export type OutlineWizardTask =
   | "newBook"
@@ -17,6 +26,15 @@ export type OutlineWizardNarrative =
   | "auto"
 export type OutlineWizardMaterialSource = "none" | "project" | "pasteLater"
 
+/**
+ * 创作类型。
+ *
+ * `original` 是从零构建原创作品；`fanfic` 是贴着一部**外部原作**的既成事实
+ * 写新线。这不是一个题材标签——它决定「原作正典」是否参与生成，
+ * 以及走哪套题材 Skill、哪套写作硬规则。
+ */
+export type OutlineWizardCreation = "original" | "fanfic"
+
 export interface OutlineWizardOption<T extends string> {
   value: T
   label: string
@@ -27,7 +45,7 @@ interface OutlineWizardGenreOption {
   label: string
 }
 
-export type OutlineWizardExplicitField = "task" | "length" | "channel" | "genre" | "customGenre" | "inspiration" | "sellingPoints" | "targets" | "scale" | "narrative" | "materialSource"
+export type OutlineWizardExplicitField = "task" | "length" | "channel" | "genre" | "customGenre" | "inspiration" | "sellingPoints" | "targets" | "scale" | "narrative" | "materialSource" | "creation" | "fanficMode" | "fanficCustomMode" | "fanficSourceName" | "fanficSourceMaterial" | "fanficAllowedDeviations" | "fanficReuseCanon"
 
 export interface OutlineWizardRequest {
   task: OutlineWizardTask
@@ -41,7 +59,65 @@ export interface OutlineWizardRequest {
   scale: string
   narrative: OutlineWizardNarrative
   materialSource: OutlineWizardMaterialSource
+  /** 原创还是同人。省略视为 original，保证既有调用点不受影响。 */
+  creation?: OutlineWizardCreation
+  /** 同人模式：canon / au / ooc / cp，或用户自定义文本。 */
+  fanficMode?: string
+  /** `fanficMode === "custom"` 时的用户描述。 */
+  fanficCustomMode?: string
+  /** 原作名称，用于正典文档标题与提示词。 */
+  fanficSourceName?: string
+  /** 用户粘贴/导入的原作素材。 */
+  fanficSourceMaterial?: string
+  /**
+   * 复用项目里已有的 `.novel/fanfic-canon.md`，不再重新编译。
+   *
+   * 正典是持久化资产：第二次生成大纲时重复粘贴几十万字、再跑几十次 LLM
+   * 编译同一份素材，既慢又浪费额度。勾选后直接用落盘正典。
+   */
+  fanficReuseCanon?: boolean
+  /** 显式允许偏离的原作事实；其余一律视为不可动。 */
+  fanficAllowedDeviations?: string[]
   explicit?: Partial<Record<OutlineWizardExplicitField, boolean>>
+}
+
+/** 创作类型选项。 */
+export const OUTLINE_WIZARD_CREATION_OPTIONS: OutlineWizardOption<OutlineWizardCreation>[] = [
+  { value: "original", label: "原创作品" },
+  { value: "fanfic", label: "同人创作（基于已有原作）" },
+]
+
+/** 同人模式选项，直接复用正典模块的定义，避免两处漂移。 */
+export const OUTLINE_WIZARD_FANFIC_MODE_OPTIONS: OutlineWizardOption<FanficModeKey>[] =
+  FANFIC_MODE_OPTIONS.map((option) => ({ value: option.value, label: option.label }))
+
+/** 建议的容许偏离条目，用户可以自由增删。 */
+export const OUTLINE_WIZARD_FANFIC_DEVIATIONS = [
+  "时间线调整",
+  "改写原作结局",
+  "更换主角视角",
+  "颠覆原作角色关系",
+  "新增原创角色",
+  "弱化/移除原作力量体系",
+]
+
+/** 判断一次请求是否走同人链路。 */
+export function isFanficRequest(
+  request: Pick<OutlineWizardRequest, "creation">,
+): boolean {
+  return request.creation === "fanfic"
+}
+
+/** 解析最终生效的同人模式文本（自定义模式取用户输入）。 */
+export function resolveFanficMode(request: OutlineWizardRequest): string {
+  const mode = (request.fanficMode ?? "").trim()
+  if (mode === "custom") return (request.fanficCustomMode ?? "").trim()
+  return mode
+}
+
+/** 解析生效的容许偏离清单。 */
+export function resolveFanficDeviations(request: OutlineWizardRequest): string[] {
+  return (request.fanficAllowedDeviations ?? []).map((item) => item.trim()).filter(Boolean)
 }
 
 export const OUTLINE_WIZARD_TASK_OPTIONS: OutlineWizardOption<OutlineWizardTask>[] = [
@@ -155,6 +231,8 @@ const GENRE_SKILL_NAMES: Record<string, string> = {
   minguoyanqing: "female-mystery-republic",
   shiqing: "family-drama-short",
   zhihuduanpian: "zhihu-short",
+  tongren: "fanfic-derivative",
+  fanfic: "fanfic-derivative",
 }
 
 const SUPPORT_SKILLS_BY_TOPIC: Record<string, string[]> = {
@@ -177,6 +255,8 @@ const SUPPORT_SKILLS_BY_TOPIC: Record<string, string[]> = {
   "female-mystery-republic": ["foreshadowing-suspense", "relationship-emotion"],
   "family-drama-short": ["short-form-drafting", "character-design"],
   "zhihu-short": ["short-form-drafting", "foreshadowing-suspense"],
+  // 同人：需要把原作角色写准、把原作设定当硬约束、并管理「原作未交代」的空白
+  "fanfic-derivative": ["character-design", "relationship-emotion", "foreshadowing-suspense"],
 }
 
 const MALE_GENRES: OutlineWizardGenreOption[] = [
@@ -206,6 +286,7 @@ const MALE_GENRES: OutlineWizardGenreOption[] = [
   { value: "heian", label: "黑暗题材" },
   { value: "niandai", label: "年代" },
   { value: "kangzhandiezhan", label: "抗战谍战" },
+  { value: "tongren", label: "同人衍生" },
   { value: "custom", label: "其他，由我输入" },
 ]
 
@@ -225,6 +306,7 @@ const FEMALE_GENRES: OutlineWizardGenreOption[] = [
   { value: "minguoyanqing", label: "民国言情" },
   { value: "shiqing", label: "世情" },
   { value: "zhihuduanpian", label: "知乎短篇" },
+  { value: "tongren", label: "同人衍生" },
   { value: "custom", label: "其他，由我输入" },
 ]
 
@@ -271,6 +353,23 @@ export function getOutlineWizardValidationError(
   if (request.genre === "custom" && !request.customGenre.trim()) {
     return "请选择题材或填写自定义题材。"
   }
+  if (isFanficRequest(request)) {
+    if (!resolveFanficMode(request)) {
+      return request.fanficMode === "custom"
+        ? "请用自己的话描述本作与原作的关系边界。"
+        : "请选择同人模式。"
+    }
+    if (!(request.fanficSourceName ?? "").trim()) {
+      return "请填写原作名称，同人创作需要它来标识正典来源。"
+    }
+    // 复用已落盘正典时不需要重新粘贴素材（否则持久化正典等于白存）。
+    if (!(request.fanficSourceMaterial ?? "").trim() && !request.fanficReuseCanon) {
+      return "请粘贴或导入原作素材，或勾选复用项目里已有的原作正典。"
+    }
+    if ((request.fanficSourceMaterial ?? "").length > FANFIC_SOURCE_MATERIAL_MAX_CHARS) {
+      return `原作素材过长，请分批导入（上限 ${FANFIC_SOURCE_MATERIAL_MAX_CHARS} 字符）。`
+    }
+  }
   if (request.targets.length === 0) return "请至少选择一个生成目标。"
   return null
 }
@@ -289,6 +388,15 @@ export function getOutlineWizardSkillNames(request: OutlineWizardRequest): strin
     names.add("character-design")
   }
 
+  // 同人创作即使选了别的题材（例如「同人 + 玄幻」），也必须带上同人 Skill，
+  // 否则模型会拿到一套「从零设计卖点和人物」的原创技能，把原作既成事实写飞。
+  if (isFanficRequest(request)) {
+    names.add("fanfic-derivative")
+    for (const skillName of SUPPORT_SKILLS_BY_TOPIC["fanfic-derivative"] ?? []) {
+      names.add(skillName)
+    }
+  }
+
   if (request.targets.some((target) => target.includes("章纲"))) {
     names.add("outline-final-assembler")
     names.add("protagonist-plot-fit")
@@ -298,6 +406,68 @@ export function getOutlineWizardSkillNames(request: OutlineWizardRequest): strin
   }
 
   return Array.from(names)
+}
+
+/**
+ * 同人专属需求段。
+ *
+ * 原作的既成事实必须以**权威位**进入提示词，而不是当成一句「参考灵感」。
+ * 导出以便 `novel-generation-request-package` 与测试复用同一份文本。
+ */
+export function buildFanficDemandSection(
+  request: OutlineWizardRequest,
+  options?: { includeCanon?: boolean },
+): string {
+  if (!isFanficRequest(request)) return ""
+  const mode = resolveFanficMode(request)
+  const sourceName = (request.fanficSourceName ?? "").trim()
+  const deviations = resolveFanficDeviations(request)
+  const requirement = getFanficModeRequirement(mode)
+  const sourceMaterial = (request.fanficSourceMaterial ?? "").trim()
+  const includeCanon = options?.includeCanon ?? true
+
+  // 复用已有正典时提示词不带原文，但要明确告诉模型正典已就位、由上下文包注入，
+  // 否则模型会以为「没有给原作信息」而拒绝生成正典卡。
+  const canonSection: Array<string | null> =
+    includeCanon && sourceMaterial
+      ? ["", "### 原作素材（正典来源）", "", sourceMaterial]
+      : includeCanon && request.fanficReuseCanon
+        ? [
+            "",
+            "### 原作正典",
+            "",
+            "原作的既成事实已编译并保存在项目的 `.novel/fanfic-canon.md`，",
+            "本轮会由上下文包自动注入，无需再向用户索取。",
+          ]
+        : []
+
+  // 注意：这里只能过滤 null/undefined，不能 filter(Boolean)——
+  // 空串正是段与段之间的空行，过滤掉会让标题和正文挤在一起。
+  return [
+    "## 同人创作约束（优先级高于原创度要求）",
+    "",
+    "本次不是原创作品，而是基于已有原作的同人创作。原作已确立的事实是**权威**，不得为了戏剧性而改写。",
+    "",
+    `- 同人模式：${formatFanficModeLabel(mode) || mode}`,
+    requirement ? `- 本模式必须交代：${requirement}` : null,
+    `- 原作：${sourceName || "（未填写）"}`,
+    `- 容许偏离：${deviations.length ? deviations.join("；") : "无（除所选模式本身外，一切按原作正典处理）"}`,
+    "",
+    "### 同人写作硬规则",
+    ...FANFIC_WRITING_RULES.map((rule, index) => `${index + 1}. ${rule}`),
+    "",
+    "### 本次必须做到",
+    "- 先输出**原作正典卡**：世界观硬规则、主要人物的身份/性格/语言习惯/能力边界/已知信息、关键关系、时间线、标志性限制与禁忌。",
+    "- 正典卡只写**有原作证据**的内容；原作没交代的写「原作未交代」，不要填猜测。",
+    "- 在正典卡之上设计**新的戏剧线**，不要复读原作已写过的场景。",
+    "- 新增配角与事件必须服务新线，并能与原作正典明确区分。",
+    "- 大纲、卷纲、章纲、人物小传、设定都必须与正典卡自洽；与正典冲突时以正典为准。",
+    "",
+    FANFIC_REFERENCE_SCOPE_NOTE,
+    ...canonSection,
+  ]
+    .filter((line): line is string => line !== null && line !== undefined)
+    .join("\n")
 }
 
 export function buildOutlineWizardPrompt(
@@ -316,9 +486,12 @@ export function buildOutlineWizardPrompt(
     request.materialSource,
   )
   const genre = getOutlineWizardGenreLabel(request)
+  const creation = optionLabel(OUTLINE_WIZARD_CREATION_OPTIONS, request.creation ?? "original")
+  const fanficSection = buildFanficDemandSection(request)
   const demand = [
     "用户已提交小说生成需求：",
     "",
+    `- 创作类型：${creation}`,
     `- 任务：${task}`,
     `- 篇幅：${length}`,
     `- 频道：${channel}`,
@@ -338,22 +511,29 @@ export function buildOutlineWizardPrompt(
   if (options?.mode === "fast") {
     return [
       ...demand,
+      // 段前换行：空串会被下面的 filter(Boolean) 删掉，所以靠前置换行留出空行。
+      fanficSection ? `\n${fanficSection}` : "",
       "",
-      "请根据以上需求直接生成可保存的大纲正文，不要进入需求分析、意图分析或多 Agent 编排，不要等待用户确认后再写。",
-    ].join("\n")
+      "\n请根据以上需求直接生成可保存的大纲正文，不要进入需求分析、意图分析或多 Agent 编排，不要等待用户确认后再写。",
+    ]
+      .filter(Boolean)
+      .join("\n")
   }
 
   const skillNames = getOutlineWizardSkillNames(request)
   return [
     ...demand,
+    fanficSection ? `\n${fanficSection}` : "",
     "",
-    "## 本次优先调用 Skill",
+    "\n## 本次优先调用 Skill",
     "请优先使用以下 SkillHub Skill 进行需求分析、题材判断和大纲生成，不要输出 Skill 说明：",
     ...skillNames.map((name, index) => `${index + 1}. ${name}`),
-    "",
-    "## 固定工作流",
+    // 前置换行保证与 Skill 列表之间留出空行（空串会被 filter(Boolean) 删掉）。
+    "\n## 固定工作流",
     "请先分析该需求，判断还缺少哪些必要信息。",
-    "1. 充分性闸门：先判断是否已经具备篇幅、频道、题材、故事灵感、核心卖点、作品规模、主要人物方向、世界观/背景方向、预期章节结构这些必要信息。",
+    isFanficRequest(request)
+      ? "1. 充分性闸门：先判断是否已经具备篇幅、频道、题材、原作名称、同人模式、原作正典信息、故事灵感、核心卖点、作品规模、预期章节结构这些必要信息。"
+      : "1. 充分性闸门：先判断是否已经具备篇幅、频道、题材、故事灵感、核心卖点、作品规模、主要人物方向、世界观/背景方向、预期章节结构这些必要信息。",
     "2. 信息不足时，只追问最关键的缺失项，不要生成完整大纲，不要调用保存工具。",
     "3. 如果信息足够，请给出生成方案并询问用户是否确认开始生成。",
     "4. 方案阶段只输出生成方案、文件清单、保存位置和生成顺序；用户确认前不得生成完整文件，不得写入文件。",
@@ -361,5 +541,7 @@ export function buildOutlineWizardPrompt(
     "6. 章纲采用滚动章纲方式生成：优先生成前 10 章或用户指定范围，后续根据已确认内容继续补齐，不一次性强行铺完整本。",
     "7. 章纲生成后必须进行质量检查，检查核心事件、场景顺序、CBN/CPNs/CEN、时间承接、钩子、伏笔、人物状态、必须覆盖节点和本章禁区。",
     "8. 生成过程中新增的人物、势力、世界观规则、伏笔、地图地点和状态变化，先进入新增设定写回清单，等待用户确认后再分类保存。",
-  ].join("\n")
+  ]
+    .filter(Boolean)
+    .join("\n")
 }

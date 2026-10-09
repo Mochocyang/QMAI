@@ -93,7 +93,10 @@
 [data-ui-ai-panel] .ui-test-ai-empty > svg { width: 28px; height: 28px; color: var(--ui-accent); }
 [data-ui-ai-panel] .ui-test-ai-empty h3 { margin: 0; font: 500 1.25rem/1.6 var(--serif); color: var(--ui-ink); }
 [data-ui-ai-panel] .ui-test-ai-empty p { max-width: 260px; margin: 0; font-size: 0.8125rem; line-height: 1.85; }
-[data-ui-ai-panel] .ui-test-ai-empty button { padding: 7px 12px; border-radius: 8px; background: var(--ui-soft); color: var(--ui-accent); font-size: 0.8125rem; }
+/* 「生成小说大纲」是空会话里唯一的主行动，必须看起来就是个按钮。
+   此前用 --ui-soft 底 + --ui-accent 字，观感接近一段说明文字，用户不知道能点。 */
+[data-ui-ai-panel] .ui-test-ai-empty button { padding: 0.5rem 1rem; border-radius: 0.5rem; background: var(--ui-accent); color: var(--ui-on-accent); font-size: 0.8125rem; font-weight: 500; cursor: pointer; }
+[data-ui-ai-panel] .ui-test-ai-empty button:hover:not(:disabled) { background: color-mix(in srgb, var(--ui-accent) 86%, var(--ui-ink)); }
 
 [data-ui-ai-panel="outline"] > [data-ui-ai-input-area] { min-width: 0; padding-inline: 0; }
 

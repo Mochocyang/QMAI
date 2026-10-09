@@ -1,8 +1,17 @@
 import { buildCharacterFileName } from "./character-save-extractor"
 
-const VALID_ROLE_TYPES = new Set([
+/**
+ * 角色定位枚举。
+ *
+ * 导出是为了让**物品分类**能复用同一份词汇表：判断「这件道具是主角/配角/反派在用」
+ * 必须先知道谁是主角。此前这份枚举在本文件与 `character-save-extractor.ts`
+ * 里各有一份字面量，再加第三份就是「只改了一处」的经典来源。
+ */
+export const CHARACTER_ROLE_TYPES = [
   "男主", "女主", "男配", "女配", "反派", "导师", "盟友", "配角", "主角",
-])
+] as const
+
+const VALID_ROLE_TYPES = new Set<string>(CHARACTER_ROLE_TYPES)
 
 export interface CharacterAgentPlan {
   id: string
