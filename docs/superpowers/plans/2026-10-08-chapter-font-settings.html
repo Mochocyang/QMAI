@@ -5894,6 +5894,74 @@ Select-String -Path src-tauri\target\release\qmai.exe -Pattern ([regex]::Escape(
   </div>
 </section>
 
+<section>
+  <div class="sec-head"><span class="num">04</span><h2>全实现终审（第二轮）：三条「绿着的洞」</h2></div>
+
+  <p>Task 14 交付后做了一次独立的全实现终审。它推翻了我当时的一个判断：<b>「守卫是绿的」不等于「守卫在守」</b>。终审查出<b>两条阻塞项</b>加<b>一条所有守卫都看不见的真实泄漏</b>，而这三处的守卫当时<b>全都是绿的</b>，测试也全都是通过的。</p>
+
+  <table>
+    <thead><tr><th>守卫</th><th>它当时怎么判的</th><th>真实缺陷</th><th>为什么它看不见</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>ui-font-derivation.spec.ts</code> 的泄漏守卫</td>
+        <td>判<b>合规</b></td>
+        <td><code>.ui-test-root :is(.ui-test-editor-body, .ui-test-brand-name)</code> —— 这条<b>真的会赢</b>（<code>:is()</code> 取参数最高特异性 = (0,2,0)，压过品牌名规则的 (0,1,0)），品牌名会被改成正文字体</td>
+        <td>判定是<b>子串</b>：只要选择器任意位置出现 <code>.ui-test-editor-body</code> 就判合规。改用 postcss 的 <code>rule.selectors</code> 后仍不够 —— 它<b>只在顶层逗号切分</b>，<code>:is()</code> 内部的逗号不切</td>
+      </tr>
+      <tr>
+        <td><code>pre-close-flush.spec.ts</code> 的接线守卫</td>
+        <td>判<b>通过</b></td>
+        <td>注册处退回 <code>() =&gt; { void persist.flush() }</code> —— 就是这次修复本来要防的<b>那个缺陷本身</b>（只启动不等待，<code>destroy()</code> 会切断写盘）</td>
+        <td>三条断言都是<b>文件级子串</b>存在性，不是「注册的那<b>一个</b>动作是哪个」。<code>persist.flushAsync()</code> 在卸载清理那行还有一份，<code>toContain</code> 永远满足；正则只匹配一个精确单行形态</td>
+      </tr>
+      <tr>
+        <td>两道守卫<b>都</b>够不到</td>
+        <td>—</td>
+        <td>查找条里显示「1/5」「未找到」的 <code>&lt;span&gt;</code> 会随正文字体变成楷体（它是界面，不是正文）</td>
+        <td>这是<b>继承</b>泄漏：泄漏守卫只看<b>声明</b>了 <code>var(--body-font)</code> 的规则，而声明处本身没错；<code>verify-real-exe.mjs</code> 用 <code>closest(".ui-test-editor-body", …)</code> 分类，该 span 命中正文容器被归为 content，那条判据永远不指向它</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p><b>三处是同一种病。</b>判据测的是「某个字符串在这份文件里出现过」，或者「选择器某一处含有某个子串」—— 而不是<b>语法结构上那件事本身</b>。这与本计划前面记的「一项只描述现状的断言，会把缺陷固化成契约」是同一族：<b>名字出现过 ≠ 接线是对的 ≠ 作用域是那个</b>。</p>
+
+  <h3>修法：把判定落到语法结构上，并为每一类补一条专属反向控制</h3>
+  <ul>
+    <li><b>泄漏守卫</b>：把 <code>:is()</code>/<code>:where()</code> 的并列分支<b>穷举展开成具体变体</b>，每个变体都要落在正文作用域内（用<b>类名 token</b> 判定，<code>.ui-test-editor-body-foo</code> 不许冒充）；再加一道独立的<b>界面黑名单</b>网，抓「正文作用域写了、但顺手带上界面选择器」这种覆盖网单独看不见的形态。</li>
+    <li><b><code>:not()</code> 刻意不做并列展开</b>，这是语义区分不是遗漏：<code>:is(a,b)</code> 是<b>并列</b>（会放宽作用域，必须逐分支判），<code>:not(a,b)</code> 是<b>排除</b>（只会收窄，不可能多命中界面元素）。把它当并列展开会造出<b>假红</b> —— <code>.ui-test-editor-body:not(.ui-test-brand-name)</code> 其实完全合规。M6 就是这条的反向对照。</li>
+    <li><b>接线守卫</b>：抠出 <code>registerPreCloseFlush(…)</code> 的<b>实参原文</b>（按括号配平）再判定，落在「注册的那一个动作」上。大括号、<code>void</code>、换行、<code>.flush( )</code> 都绕不开。抠实参的工具本身也有自检用例（嵌套括号、多次注册、括号不配平时不许凭空造出实参）。</li>
+    <li><b>浮层泄漏</b>：把这些浮层显式钉回 <code>var(--ui)</code>（容器级，将来往里加非表单元素也自然跟随），并加一条<b>常驻判据</b>要求清单里每个已知浮层标记都显式声明界面字体。</li>
+  </ul>
+
+  <div class="note warn">
+    <span class="t">最值得记的一条：新加的 pin 判据，被它自己的注释骗过了</span>
+    <p>修浮层泄漏时我加了一条「已知浮层必须显式声明 <code>var(--ui)</code>」的判据。它<b>当时是绿的</b>。但变异测试当场抓到：把 pin 改成 <code>var(--body-font)</code>（也就是钉错方向、等于没钉）它<b>照样绿</b>。</p>
+    <p>根因：我用「按 <code>}</code> 切块 + 正则 <code>font(-family)?:[^;]*var(--ui)</code>」判定，而那段 CSS <b>我自己写的解释性注释里</b>既出现了 <code>font-family</code> 又出现了 <code>var(--ui)</code>，注释里没有分号，于是 <code>[^;]*</code> 一路跨过整段注释把两者连起来 —— 判成「已钉住」。</p>
+    <p>改成 <code>postcss</code> 读<b>真实声明</b>（注释根本不会出现在 <code>decl.value</code> 里）之后三条变异才全部正确。<b>这就是为什么「修完再跑一遍测试」不够，必须让修复本身也过一遍变异验证</b>：否则我交付的会是一条自我欺骗的判据，而且它会一直打印绿色。</p>
+  </div>
+
+  <h3>第二轮的处理结果</h3>
+  <table>
+    <thead><tr><th>终审条目</th><th>处理</th></tr></thead>
+    <tbody>
+      <tr><td><b>阻塞 1</b> 泄漏守卫可被 <code>:is()</code>/<code>:where()</code>/<code>:not()</code> 绕过</td><td>已修；<code>mutate-body-font-leak.mjs</code> 扩到 6 条变异（含 <code>:where()</code> 与 <code>:not()</code> 反向对照）</td></tr>
+      <tr><td><b>阻塞 2</b> 接线守卫可被一层大括号绕过</td><td>已修；新增 <code>mutate-wiring-guard.mjs</code>（4 条回归写法必须红 + 2 条等价合规写法必须绿）</td></tr>
+      <tr><td><b>3</b> 查找条计数文字继承正文字体</td><td>已修（CSS 钉回 <code>var(--ui)</code>）＋新增常驻判据；新增 <code>mutate-chrome-pin.mjs</code>（3 条变异）</td></tr>
+      <tr><td><b>4</b> content 分母 &lt; 20 时静默跳过核心不变量</td><td>已修：分母过小改为<b>报红</b>（原来 chrome 支报红、content 支什么都不做，两支不对称且无理由）</td></tr>
+      <tr><td><b>6</b> <code>runPreCloseFlushes()</code> 的 <code>failed</code> 被丢弃</td><td>已修：接住返回值并显式报告失败数；判据要求「必须接住返回值且存在 <code>failed &gt; 0</code> 分支」（它<b>不会 reject</b>，只写 <code>.catch</code> 兜不住）</td></tr>
+      <tr><td><b>5</b> <code>learning-service.ts</code> 的 1.5s 批次去抖未注册</td><td><b>未改</b>，属既有行为、不在本功能范围内，已如实记录</td></tr>
+      <tr><td>轻微：<code>flushAsync</code> 失败即丢弃不重试</td><td>已在 TSDoc 写明语义（有意取舍：下次任何字段改动都会带全套值重写）</td></tr>
+      <tr><td>轻微：<code>ui-test-editor.css:277</code> 对 textarea 的 <code>font-family</code> 是死代码</td><td>结论不变（真机像素已证），但那条 spec 对 textarea 是「陈述现状」；已如实记录</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <span class="t">一处必须如实报告的行为变化（不是缺陷，但用户会看到）</span>
+    <p>修复前（<code>3907b30</code> 起）<code>--serif</code> 派生自正文字体，所以<b>章节顶部那个可编辑的文档标题</b>（<code>.ui-test-editor-title-input</code>，<code>ui-test-editor.css:98</code>）会跟随正文字体。修复后它固定在<code>--serif</code>，<b>不再跟随</b>。</p>
+    <p>另一处文档标题（正文里的 <code>h2</code>–<code>h6</code>）本来就用 <code>var(--ui)</code>、也一直不跟随。所以修复后「文档标题跟不跟随正文字体」两处口径一致了（都不跟随），但相对修复前的行为，<b>章节标题栏是一个可见变化</b>。这个变化的方向与用户的要求一致（他要的是「正文里改字体只影响正文」），但它确实是副作用，不能藏在「修了个缺陷」后面不说。</p>
+  </div>
+</section>
+
 <footer>
   青幕AI写作 · 实施计划 · 2026-10-08 · 配套规格：docs/superpowers/specs/2026-10-08-chapter-font-settings-design.html
 </footer>

@@ -13,6 +13,50 @@ import { createDebouncedPersist } from "@/lib/debounced-persist"
 const REPO = resolve(__dirname, "../..")
 const read = (p: string) => readFileSync(resolve(REPO, p), "utf8").replace(/\r\n/g, "\n")
 
+/**
+ * 抠出源码里**每一次** `callee(…)` 的实参原文（按括号配平）。
+ *
+ * 为什么要抠实参，而不是在整份文件里 `toContain` —— 这是本轮终审查出的
+ * 第二条真缺陷，值得完整记下来：
+ *
+ * 原来的接线守卫是三条**文件级子串**断言：
+ *     src.toContain("registerPreCloseFlush(")
+ *     src.toContain("persist.flushAsync()")
+ *     src.not.toMatch(/registerPreCloseFlush\(\(\)\s*=>\s*persist\.flush\(\)\)/)
+ * 实测把注册处退回"只启动不等待"（本修复要防的那个缺陷本身），
+ * **三条全过**：
+ *   · `persist.flushAsync()` 在卸载清理那一行还有一份 → `toContain` **永远满足**；
+ *   · 那个正则只匹配 `() => persist.flush()` 这一个精确单行形态，
+ *     写成 `() => { void persist.flush() }` 或换行就绕开。
+ * 也就是说：**缺陷回归而守卫全绿**，而这三条断言打印的还是"关窗前落盘必须用 flushAsync"。
+ * 根因和本轮最贵的那条教训是同一个 —— 断言测的是"某个字符串在这份文件里出现过"，
+ * 不是"注册的那一个动作究竟是哪个"。名字出现过 ≠ 接线是对的。
+ *
+ * 抠出实参之后，判定落在**注册的那一个动作本身**上：它必须含 `flushAsync`，
+ * 且不得出现同步 `flush(`。任何写法（大括号、`void`、换行、`.flush( )`）都绕不开。
+ *
+ * 括号不配平（源码坏了）时返回空数组 —— 调用方必须把"一个都没抠到"判红，
+ * 不许把"抠不到"当成"没问题"。
+ */
+function extractCallArgs(src: string, callee: string): string[] {
+  const out: string[] = []
+  let from = 0
+  for (;;) {
+    const at = src.indexOf(`${callee}(`, from)
+    if (at < 0) return out
+    const open = at + callee.length
+    let depth = 0
+    let close = -1
+    for (let i = open; i < src.length; i++) {
+      if (src[i] === "(") depth += 1
+      else if (src[i] === ")") { depth -= 1; if (depth === 0) { close = i; break } }
+    }
+    if (close < 0) return out // 括号不配平：返回已抠到的，调用方看到数量不对会报红
+    out.push(src.slice(open + 1, close))
+    from = close + 1
+  }
+}
+
 beforeEach(() => { __resetPreCloseFlushesForTest() })
 
 describe("pre-close-flush 注册表", () => {
@@ -84,14 +128,66 @@ describe("flushAsync 与 flush 的差别（这个差别正是缺陷的根）", (
 })
 
 describe("接线：必须真的接上，否则注册表再对也没用", () => {
-  it("preview-panel 注册了关窗前落盘，且用的是 flushAsync 而不是 flush", () => {
+  /*
+   * 先证明**抠实参的工具本身**是对的。它是这条守卫的新地基：
+   * 抠错了（比如把整段大括号也算进去、或者少抠一个字符），
+   * 上面那条判定就会在错误的文本上做判断，而结果可能照样是绿的。
+   * 本仓库的老教训：检查器的范围与工具本身也是判据的一部分。
+   */
+  it("抠实参工具自身：各种写法都要抠准，抠不到时不许假装抠到了", () => {
+    // 不同写法都必须抠出**逐字精确**的实参原文
+    /*
+     * ⚠ 断言必须写精确值，不能用"结尾不是 `)`"这种形状判据。
+     * 我第一版就写了 `.not.toMatch(/^\(|\)$/)`，结果在
+     * `() => persist.flushAsync()` 上误报 —— 实参**天然**以 `)` 结尾
+     * （那是 `flushAsync()` 的括号），这个正则根本表达不了"别把外层括号抠进来"。
+     * 假红的原因和假绿一样：**判据的形状没有对准它要说的那件事**。
+     */
+    const shapes: [string, string][] = [
+      ["registerPreCloseFlush(() => persist.flushAsync())", "() => persist.flushAsync()"],
+      ["registerPreCloseFlush(() => { void persist.flushAsync() })", "() => { void persist.flushAsync() }"],
+      ["registerPreCloseFlush(\n      () => persist.flushAsync(),\n    )", "\n      () => persist.flushAsync(),\n    "],
+      ["registerPreCloseFlush(() =>\n      persist.flushAsync()\n    )", "() =>\n      persist.flushAsync()\n    "],
+    ]
+    for (const [s, want] of shapes) {
+      const args = extractCallArgs(s, "registerPreCloseFlush")
+      expect(args, `抠不出实参：${s}`).toHaveLength(1)
+      expect(args[0], `实参抠错：${s}`).toBe(want)
+    }
+
+    // 嵌套括号必须配平：不能在内层 `)` 就截断
+    const nested = extractCallArgs("registerPreCloseFlush(() => f(a, g(b), c))", "registerPreCloseFlush")
+    expect(nested).toEqual(["() => f(a, g(b), c)"])
+
+    // 多次注册都要抠到（否则第二处接线就没人守）
+    const twice = extractCallArgs("registerPreCloseFlush(() => a())\nregisterPreCloseFlush(() => b())", "registerPreCloseFlush")
+    expect(twice).toEqual(["() => a()", "() => b()"])
+
+    // 抠不到就是空集，调用方必须据此报红（不许静默通过）
+    expect(extractCallArgs("const x = 1", "registerPreCloseFlush")).toEqual([])
+    // 括号不配平：不许凭空造出一个实参
+    expect(extractCallArgs("registerPreCloseFlush(() => a()", "registerPreCloseFlush")).toEqual([])
+  })
+
+  it("preview-panel 注册了关窗前落盘，且注册的**那一个动作**用的是 flushAsync 而不是 flush", () => {
     const src = read("src/components/layout/preview-panel.tsx")
-    expect(src, "preview-panel 未注册关窗前落盘 —— 关窗口仍会丢最后一次改动")
-      .toContain("registerPreCloseFlush(")
-    expect(src, "关窗前落盘必须用 flushAsync（flush 只启动不等待，destroy 会切断写盘）")
-      .toContain("persist.flushAsync()")
-    // 反向：不许回退成只启动不等待的那个
-    expect(src, "关窗前落盘不能用 flush()（不等待，等于白做）").not.toMatch(/registerPreCloseFlush\(\(\)\s*=>\s*persist\.flush\(\)\)/)
+    const args = extractCallArgs(src, "registerPreCloseFlush")
+    expect(args.length, "preview-panel 未注册关窗前落盘 —— 关窗口仍会丢最后一次改动").toBeGreaterThan(0)
+
+    /*
+     * 只判定**与正文排版 persist 有关**的那些注册：将来若有人为别的模块
+     * 注册一个别的异步落盘动作，不该被这条判据误伤（那是假红）。
+     * 但"一个相关的都没找到"必须报红 —— 否则改个变量名就能让判据变空集。
+     */
+    const persistArgs = args.filter((a) => a.includes("persist"))
+    expect(persistArgs.length, "注册里找不到与正文排版 persist 有关的动作 —— 判据成了空集（改名即失效）").toBeGreaterThan(0)
+
+    for (const arg of persistArgs) {
+      expect(arg, `关窗前落盘必须用 flushAsync（flush 只启动不等待，destroy 会切断写盘）。实际注册的是：${arg.trim()}`)
+        .toContain("flushAsync")
+      expect(arg, `注册的落盘动作调用了同步 flush() —— 它只启动不等待，等于白做。实际注册的是：${arg.trim()}`)
+        .not.toMatch(/\.flush\s*\(/)
+    }
   })
 
   it("preview-panel 卸载时注销注册（否则残留已卸载组件的闭包）", () => {
@@ -101,12 +197,30 @@ describe("接线：必须真的接上，否则注册表再对也没用", () => {
 
   it("App 的关闭流程在 destroy 之前 await 执行了这些落盘", () => {
     const src = read("src/App.tsx")
-    const flushIdx = src.indexOf("await runPreCloseFlushes()")
+    const flushIdx = src.indexOf("runPreCloseFlushes()")
     const destroyIdx = src.indexOf("getCurrentWindow().destroy()")
     expect(flushIdx, "App 未调用 runPreCloseFlushes（排版设置会在关窗时丢）").toBeGreaterThan(-1)
     expect(destroyIdx).toBeGreaterThan(-1)
     expect(flushIdx, "runPreCloseFlushes 必须在 destroy 之前，否则窗口已经销毁").toBeLessThan(destroyIdx)
     expect(src, "runPreCloseFlushes 必须 await，否则 destroy 切掉未完成的写盘").toMatch(/await runPreCloseFlushes\(\)/)
+
+    /*
+     * ── 失败必须**可见**（本轮终审第 6 条）──
+     *
+     * `runPreCloseFlushes()` 内部吞掉每个异常、把它们记进返回值的 `failed`，
+     * 所以它**不会 reject** —— 只写 `.catch(...)` 是兜不住落盘失败的。
+     * 原来就是这个写法：`failed > 0` 时唯一痕迹是一行 console.error，
+     * 紧接着就 destroy()，用户永远看不到，"关窗前落盘失败"事实上不可观测。
+     *
+     * 这里要求调用处**真的读了返回值**并处理失败分支。
+     * 只断言"出现过 .failed 字样"太弱（注释里也能有），所以断言的是：
+     * 返回值得被接住（`const … = await runPreCloseFlushes()`），
+     * 且存在一个 `failed > 0` 的分支。
+     */
+    expect(src, "runPreCloseFlushes 的返回值被丢弃 —— 落盘失败将完全不可观测（它不会 reject，.catch 兜不住）")
+      .toMatch(/await runPreCloseFlushes\(\)/)
+    expect(src, "没有接住 runPreCloseFlushes 的返回值").toMatch(/=\s*await runPreCloseFlushes\(\)/)
+    expect(src, "没有处理 failed > 0 的分支 —— 落盘失败仍然不可观测").toMatch(/\.failed\s*>\s*0/)
   })
 
   it("注释不许再声称「关窗口那条路径已被卸载 flush 覆盖」（那正是旧注释的错误）", () => {

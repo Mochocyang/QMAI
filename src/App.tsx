@@ -222,7 +222,27 @@ function App() {
            *
            * 必须 `await`：这些动作里是真写盘，紧随其后的 destroy 会把没写完的切断。
            */
-          await runPreCloseFlushes().catch((err) => console.error("关闭前保存排版设置失败:", err))
+          /*
+           * ⚠ `runPreCloseFlushes()` **不会 reject** —— 它内部把每个动作的异常
+           * 都吞掉并记进返回值的 `failed`（设计如此：一个模块写盘失败不该让
+           * 另一个模块的设置也丢）。所以下面这个 `.catch` 只兜得住"函数本身炸了"
+           * 这种意外；**真正需要看的是 `failed > 0`**。
+           *
+           * 本轮终审第 6 条指出：原来只写了 `.catch(...)`，于是 `failed > 0` 时
+           * 唯一的痕迹是一行 console.error，而紧接着就 destroy()，
+           * 用户永远看不到 —— "关窗前落盘失败"实际上是不可观测的。
+           * 这里把失败数显式打出来，让它在日志里能被搜到、能被截图。
+           */
+          const flushResult = await runPreCloseFlushes().catch((err) => {
+            console.error("关闭前保存排版设置失败:", err)
+            return null
+          })
+          if (flushResult && flushResult.failed > 0) {
+            console.error(
+              `关窗前有 ${flushResult.failed} 个落盘动作失败（成功 ${flushResult.ran} 个）—— `
+              + "相关设置可能未写入，下次启动会回退到上一次保存的值",
+            )
+          }
 
           // LLM 模型配置走 app-state 防抖写入；关窗前必须立刻 flush，否则自定义模型会丢失。
           await flushAppState().catch((err) => console.error("关闭前保存应用配置失败:", err))

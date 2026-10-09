@@ -23,6 +23,182 @@ const CSS_FILES = [
   "models/model-settings.css",
 ]
 
+/* ────────────────────────────────────────────────────────────────────────
+ * 正文作用域判定（放在模块级，好让反向控制直接测**这一个**函数本身）
+ *
+ * 判据要回答的问题是：*这条规则的**全部**命中目标里，有没有一个是界面元素？*
+ * 只要有一个，正文字体就会漏到界面上 —— 正是用户报的那条缺陷。
+ *
+ * ── 为什么不能用 `selector.includes(".ui-test-editor-body")` 一票判定 ──
+ *
+ * 这个写法被证伪过两次，两次都是**真实泄漏**而判定为合规：
+ *
+ *   ① 顶层逗号（最终整体审查第 4 条）：
+ *        `.ui-test-editor-body .x, .ui-test-root .ui-test-brand-name`
+ *      整串含 DOC_SCOPE → 判绿；而第二个分支会把正文字体打到品牌名上。
+ *      当时的修法是改用 postcss 的 `rule.selectors` 逐个分支判定。
+ *
+ *   ② `:is()` / `:where()` 的内部逗号（本轮终审第 1 条）：
+ *        `.ui-test-root :is(.ui-test-editor-body, .ui-test-brand-name)`
+ *      `rule.selectors` **只在顶层逗号切分**，`:is()` 里的逗号不切，
+ *      于是整串仍然含 DOC_SCOPE → 又判绿。
+ *      而这条是**真的会赢**的：`:is(...)` 取参数里最高的特异性，
+ *      `.ui-test-root` + `:is(类, 类)` = (0,2,0)，压过
+ *      `ui-test.css` 里 `.ui-test-brand-name { font: … var(--serif) }` 的 (0,1,0)。
+ *      品牌名真的会被改成 var(--body-font)。
+ *
+ * 教训：**"整串里出现过某个子串"永远不等于"这条规则只作用于那个作用域"。**
+ * 所以判定必须一直在做**语义展开**，而不是字符串包含。
+ *
+ * ── 两道互相独立的网 ──
+ *
+ *   A. 覆盖网：把 `:is()` / `:where()` 的并列分支**展开成具体变体**，
+ *      **每一个**变体都必须落在正文作用域内（用类名 token 判定，不是子串 ——
+ *      `.ui-test-editor-body-foo` 这种别的类名不许冒充）。
+ *   B. 黑名单网：任何变体里出现**已知界面表面**的类名/属性即违规。
+ *      它独立于 A：A 抓"根本没有正文作用域"的越界，
+ *      B 抓"有正文作用域、但顺手把界面元素也写进去"的越界
+ *      （`.ui-test-editor-body .ui-test-brand-name`），
+ *      后者 A 单独看是合规的。
+ *
+ * `:not()` **不参与并列展开**，这是刻意的语义区分，不是遗漏：
+ *   · `:is(a, b)` / `:where(a, b)` = **并列**（命中任一即生效）→ 会**放宽**作用域，
+ *     所以每个分支都必须单独判定；
+ *   · `:not(a, b)` = **排除**（命中任一即不生效）→ 只会**收窄**作用域，
+ *     不可能让它多命中一个界面元素。
+ * 把 `:not()` 也当并列展开会造出**假红**：`.ui-test-editor-body:not(.ui-test-brand-name)`
+ * 其实完全合规（"正文里、但不是品牌名"，而品牌名本来就不在正文里）。
+ * 所以黑名单扫描前必须先把 `:not(…)` 整段摘掉。
+ * ──────────────────────────────────────────────────────────────────────── */
+
+/** 正文作用域的类名 token。用负向先行断言挡住 `.ui-test-editor-body-foo` 这类同前缀的别的类。 */
+const DOC_SCOPE_RE = /\.ui-test-editor-body(?![\w-])/
+
+/**
+ * 已知的**界面表面**标记：只出现在界面 chrome 上，任何消费 `var(--body-font)`
+ * 的规则都不许把目标指到这里。
+ *
+ * 这是一份黑名单，天然不可能完备 —— 但它是**第二道**网，作用是在
+ * "正文作用域确实写了、却顺手带上界面选择器"这种 A 网看不见的形态上报警。
+ * 新增界面标题类时不需要维护它（A 网仍在守），
+ * 但若某人把正文字体挂到一个新的界面类上，这里会缺一条 —— 属于**已知边界**。
+ */
+const UI_ONLY_MARKERS = [
+  ".ui-test-brand-name",
+  ".ui-test-page-title",
+  ".ui-test-cover-title",
+  ".ui-test-editor-title",
+  ".ui-test-ai-empty",
+  ".model-empty",
+  '[data-ui="tool-title"]',
+  '[data-ui-reference="dialog"]',
+  '[data-slot="dialog-title"]',
+]
+
+/** 按**顶层**逗号切分（括号/方括号里的逗号不算）。 */
+function splitTopLevel(input: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let start = 0
+  for (let i = 0; i < input.length; i++) {
+    const c = input[i]
+    if (c === "(" || c === "[") depth += 1
+    else if (c === ")" || c === "]") depth -= 1
+    else if (c === "," && depth === 0) { out.push(input.slice(start, i)); start = i + 1 }
+  }
+  out.push(input.slice(start))
+  return out.map((s) => s.trim()).filter((s) => s.length > 0)
+}
+
+/**
+ * 把选择器里所有 `:is()` / `:where()` 的并列分支**穷举展开**成具体变体。
+ *
+ * 展开是"删掉构造、留下参数"：`:is(a, b)` 在 `X :is(a, b) Y` 里
+ * 等价于 `X a Y` 或 `X b Y` —— 两条都要判。
+ * 递归处理嵌套（`:is(:where(a, b), c)`），因为嵌套同样能藏越界分支。
+ *
+ * 括号不配平（语法坏了）时**返回 null**，由调用方报红 —— 不许静默当成合规。
+ * 超过步数上限同样返回 null（防构造出指数爆炸的选择器把测试挂死）。
+ */
+function expandAlternatives(selector: string, budget = { left: 64 }): string[] | null {
+  const re = /:(?:is|where)\(/g
+  const m = re.exec(selector)
+  if (!m) return [selector]
+  if (budget.left-- <= 0) return null
+
+  const open = m.index + m[0].length - 1
+  let depth = 0
+  let close = -1
+  for (let i = open; i < selector.length; i++) {
+    if (selector[i] === "(") depth += 1
+    else if (selector[i] === ")") { depth -= 1; if (depth === 0) { close = i; break } }
+  }
+  if (close < 0) return null
+
+  const args = splitTopLevel(selector.slice(open + 1, close))
+  if (args.length === 0) return null
+
+  const out: string[] = []
+  for (const arg of args) {
+    const replaced = selector.slice(0, m.index) + arg + selector.slice(close + 1)
+    const sub = expandAlternatives(replaced, budget)
+    if (sub === null) return null
+    out.push(...sub)
+  }
+  return out
+}
+
+/** 摘掉所有 `:not(…)` 整段（含嵌套），因为排除只会收窄作用域，不该触发黑名单。 */
+function stripNegations(selector: string): string {
+  let out = selector
+  for (let guard = 0; guard < 32; guard++) {
+    const m = /:not\(/.exec(out)
+    if (!m) return out
+    const open = m.index + m[0].length - 1
+    let depth = 0
+    let close = -1
+    for (let i = open; i < out.length; i++) {
+      if (out[i] === "(") depth += 1
+      else if (out[i] === ")") { depth -= 1; if (depth === 0) { close = i; break } }
+    }
+    if (close < 0) return out // 括号坏了：原样返回，交给覆盖网报红
+    out = out.slice(0, m.index) + out.slice(close + 1)
+  }
+  return out
+}
+
+/**
+ * 一个**已展开的具体变体**是否只作用于文档正文。
+ * 注意是"类名 token"判定（`DOC_SCOPE_RE`），不是子串包含。
+ */
+function variantIsDocContentOnly(variant: string): boolean {
+  if (!DOC_SCOPE_RE.test(variant)) return false
+  const bare = stripNegations(variant)
+  return !UI_ONLY_MARKERS.some((marker) => bare.includes(marker))
+}
+
+/** 一条规则是否**整体**只作用于文档正文：展开后每个变体都必须满足。 */
+function ruleIsDocContentOnly(rule: { selectors: string[] }): boolean {
+  for (const selector of rule.selectors) {
+    const variants = expandAlternatives(selector)
+    if (variants === null) return false // 展开不了 = 判不了 = 不许放过
+    if (variants.length === 0) return false
+    if (!variants.every(variantIsDocContentOnly)) return false
+  }
+  return true
+}
+
+/** 报错时用：列出这条规则里具体哪些变体越界，省得人眼在长选择器里找。 */
+function offenderVariants(rule: { selectors: string[] }): string[] {
+  const bad: string[] = []
+  for (const selector of rule.selectors) {
+    const variants = expandAlternatives(selector)
+    if (variants === null) { bad.push(`${selector} （:is()/:where() 括号不配平，无法判定）`); continue }
+    for (const v of variants) if (!variantIsDocContentOnly(v)) bad.push(v)
+  }
+  return bad
+}
+
 /**
  * 界面字体（--ui）的生效链路回归防线。
  *
@@ -94,29 +270,13 @@ describe("界面字体生效链路", () => {
      * 用户缺陷的防回归线：在章节里改正文字体，**只能**改到文档正文，
      * 不能改到界面（品牌名 / 页面标题 / 书封标题 / 对话框标题 / 空状态标题）。
      *
-     * 判据做成"白名单 + 反向控制"，而不是"数一数有几个"：
-     *   · 每个消费 --body-font 的选择器都必须落在文档正文作用域内
-     *     （即必须包含 `.ui-test-editor-body`）；新增一条漏到界面的规则会立刻红。
-     *   · 白名单本身可能因为变量改名而变成**空集**，那时"没有违规"是假绿 ——
-     *     所以另加一条"必须真的有人在用"的下限。
-     *   · 反向控制：把一条已知的界面选择器喂给同一个判定函数，必须被判违规。
-     *     否则"没报违规"可能只是判定函数恒不返回违规。
+     * 判据与它的两道网、以及"为什么不能拿整串 includes"的完整推演，
+     * 都写在文件上方的 `ruleIsDocContentOnly` 注释里 —— 那里是判定本身，
+     * 这里是它在**真实样式表**上的应用。
      *
-     * ⚠ **必须按逗号逐个判定，不能拿整串 `rule.selector` 去 includes**
-     * （最终整体审查第 4 条查出的真实漏洞）：
-     *   `.ui-test-editor-body .x, .ui-test-root .ui-test-brand-name { font-family: var(--body-font) }`
-     * 整串里含 `.ui-test-editor-body`，用 `includes` 会判成合规 → 漏检。
-     * 而"在一条已有规则后面顺手追加一个界面选择器"恰恰是这条缺陷最可能的复发姿势，
-     * 因为把两条选择器合并成一条是最省事的写法。
-     * PostCSS 的 `rule.selectors` 已经帮我们分好了，用它逐个判即可。
-     * 反向控制也因此必须**专门喂一条逗号列表** —— 只喂单选择器永远碰不到这个洞，
-     * 会给"判定函数是活的"一种虚假的安心。
+     * 白名单本身可能因为变量改名而变成**空集**，那时"没有违规"是假绿 ——
+     * 所以另加一条"必须真的有人在用"的下限。
      */
-    const DOC_SCOPE = ".ui-test-editor-body"
-    const isDocContentSelector = (selector: string) => selector.includes(DOC_SCOPE)
-    /** 一条规则是否**整体**落在文档正文作用域内：每个逗号分支都必须满足。 */
-    const ruleIsDocContentOnly = (rule: { selectors: string[] }) => rule.selectors.every(isDocContentSelector)
-
     const offenders: { file: string; selector: string; bad: string[] }[] = []
     let consumers = 0
     for (const file of CSS_FILES) {
@@ -128,8 +288,7 @@ describe("界面字体生效链路", () => {
         if (!usesBodyFont) return
         consumers += 1
         if (!ruleIsDocContentOnly(rule)) {
-          // 记下具体是哪几个分支越界 —— 只报整串的话，长选择器里要人眼自己找
-          offenders.push({ file, selector: rule.selector, bad: rule.selectors.filter((s) => !isDocContentSelector(s)) })
+          offenders.push({ file, selector: rule.selector, bad: offenderVariants(rule) })
         }
       })
     }
@@ -137,25 +296,66 @@ describe("界面字体生效链路", () => {
     expect(consumers, "没有任何规则消费 --body-font —— 正文字体设置会完全失效（白名单成了空集）").toBeGreaterThanOrEqual(2)
     expect(offenders, `以下规则消费了 --body-font 但带有界面选择器分支，会把正文字体漏到界面上：${JSON.stringify(offenders, null, 2)}`).toEqual([])
 
-    // 反向控制：同一判定必须能识破界面选择器
-    expect(isDocContentSelector(".ui-test-root .ui-test-brand-name")).toBe(false)
-    expect(isDocContentSelector(".ui-test-root [data-ui='tool-title']")).toBe(false)
-    expect(isDocContentSelector(".ui-test-root .ui-test-editor-body .ProseMirror")).toBe(true)
     /*
-     * 反向控制（针对上面那个洞本身）：逗号列表里只要**有一个**分支越界，
-     * 整条规则就必须被判违规。分号后两段是断言的两个方向 ——
-     * 纯正文的列表仍须合规，否则这条判据会变成"凡列表皆红"。
+     * ── 反向控制：判定函数必须能识破每一类越界写法 ──
+     *
+     * ⚠ 这里的**每一条**都是一次真实漏检换来的，不是凑数：
+     *   · 单选择器：证判定不是恒 false 也不是恒 true；
+     *   · 顶层逗号列表：第 4 条审查查出的洞；
+     *   · `:is()` 并列：本轮终审查出的洞（`rule.selectors` 不切内部逗号）；
+     *   · `:where()` 并列：与 `:is()` 同源，单独列是因为"只修了 :is()"是常见半修；
+     *   · 正文作用域内嵌界面类：只有黑名单那道网能抓，覆盖网单独看是合规的。
+     * 若只喂单选择器，这个洞会**永远**碰不到 —— 那就是"守卫恒绿"。
      */
-    const mixed = postcss.parse(
-      ".ui-test-root .ui-test-editor-body .x, .ui-test-root .ui-test-brand-name { font-family: var(--body-font); }",
-    )
-    let sawRule = false
-    mixed.walkRules((rule) => { sawRule = true; expect(ruleIsDocContentOnly(rule), `逗号列表混入界面选择器却判为合规：${rule.selector}`).toBe(false) })
-    expect(sawRule, "反向控制的前提：上面那段 CSS 必须能解析出一条规则").toBe(true)
-    const pureList = postcss.parse(
-      ".ui-test-root .ui-test-editor-body .x, .ui-test-root .ui-test-editor-body .y { font-family: var(--body-font); }",
-    )
-    pureList.walkRules((rule) => { expect(ruleIsDocContentOnly(rule)).toBe(true) })
+    const parsed = (css: string) => {
+      let rule: { selectors: string[] } | null = null
+      postcss.parse(css).walkRules((r) => { rule = r as unknown as { selectors: string[] } })
+      if (!rule) throw new Error(`反向控制的 CSS 没解析出规则：${css}`)
+      return rule
+    }
+
+    // 合规侧（先证明判定**不是**"凡列表皆红"、也不是"凡伪类皆红"）
+    expect(ruleIsDocContentOnly(parsed(".ui-test-root .ui-test-editor-body .ProseMirror { font-family: var(--body-font); }")))
+      .toBe(true)
+    expect(ruleIsDocContentOnly(parsed(".ui-test-root .ui-test-editor-body .x, .ui-test-root .ui-test-editor-body .y { font-family: var(--body-font); }")),
+      "纯正文的逗号列表必须仍判合规，否则这条判据会退化成「凡列表皆红」").toBe(true)
+    expect(ruleIsDocContentOnly(parsed(".ui-test-root :is(.ui-test-editor-body, .ui-test-editor-body) .p { font-family: var(--body-font); }")),
+      "两个分支都在正文作用域内的 :is() 必须判合规，否则会误伤合法写法").toBe(true)
+    expect(ruleIsDocContentOnly(parsed(".ui-test-root .ui-test-editor-body:not(.ui-test-brand-name) { font-family: var(--body-font); }")),
+      ":not() 只会收窄作用域（排除界面类反而更安全），必须判合规 —— 把 :not() 当并列展开是假红").toBe(true)
+
+    // 违规侧（每一类都必须被抓）
+    const violations: [string, string][] = [
+      ["单选择器：界面元素", ".ui-test-root .ui-test-brand-name { font-family: var(--body-font); }"],
+      ["顶层逗号：正文 + 界面", ".ui-test-root .ui-test-editor-body .x, .ui-test-root .ui-test-brand-name { font-family: var(--body-font); }"],
+      ["★ :is() 并列界面选择器（本轮终审的洞）", ".ui-test-root :is(.ui-test-editor-body, .ui-test-brand-name) { font-family: var(--body-font); }"],
+      ["★ :where() 并列界面选择器", ".ui-test-root :where(.ui-test-editor-body, .ui-test-brand-name) { font-family: var(--body-font); }"],
+      ["★ :is() 把界面选择器写在前面", ".ui-test-root:is(.ui-test-brand-name, .ui-test-editor-body) { font-family: var(--body-font); }"],
+      ["★ 嵌套 :is(:where(…)）", ".ui-test-root :is(:where(.ui-test-editor-body), .ui-test-brand-name) { font-family: var(--body-font); }"],
+      ["★ 正文作用域内嵌界面类（只有黑名单网能抓）", ".ui-test-root .ui-test-editor-body .ui-test-brand-name { font-family: var(--body-font); }"],
+      ["★ 同前缀的别的类名不许冒充正文作用域", ".ui-test-root .ui-test-editor-body-wide { font-family: var(--body-font); }"],
+    ]
+    /*
+     * ⚠ 每一项都必须先能被 postcss 解析出**一条规则**，然后才谈得上判定。
+     * 否则"没被漏检"可能只是因为压根没解析出东西（假绿）。
+     */
+    const missed = violations.filter(([, css]) => ruleIsDocContentOnly(parsed(css)))
+    expect(missed, `以下越界写法被判定为合规 —— 守卫有洞：${JSON.stringify(missed)}`).toEqual([])
+    expect(violations.length).toBeGreaterThanOrEqual(8)
+
+    /*
+     * 括号不配平的 `:is(` **不能**放进上面那张表：postcss 自己就会拒绝它
+     * （`Unclosed bracket`），走 `parsed()` 会抛在解析阶段，
+     * 于是这条"断言"测的是 postcss 而不是我的判定 —— 我第一版就是这么写的，
+     * 报错在 `postcss.parse` 上。所以直接测判定函数：
+     * 展开不了就必须判 false（判不了 ≠ 可以放过）。
+     */
+    expect(expandAlternatives(".ui-test-root :is(.ui-test-editor-body")).toBeNull()
+    expect(expandAlternatives(".ui-test-root :is(.ui-test-editor-body) .p")).toEqual([".ui-test-root .ui-test-editor-body .p"])
+    expect(
+      ruleIsDocContentOnly({ selectors: [".ui-test-root :is(.ui-test-editor-body"] }),
+      "括号不配平（判不了）时必须判违规，不许因为「判不了」而放过",
+    ).toBe(false)
   })
 
   it("index.css 的 :root 默认值与 font-settings 的默认选项逐字一致", () => {

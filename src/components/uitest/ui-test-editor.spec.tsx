@@ -2,6 +2,7 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join, relative, resolve } from "node:path"
+import postcss from "postcss"
 import { act, createRef, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -1083,6 +1084,133 @@ describe("测试版正文样式边界", () => {
     // 且表格与标题都不许改跟行高变量（那会让"固定"这个决定被悄悄推翻）
     expect(css).not.toMatch(/:is\(th, td\) \{[^}]*line-height: var\(--qmai-body-line-height\)/)
     expect(css).not.toMatch(/:is\(h2, h3, h4, h5, h6\) \{[^}]*\/var\(--qmai-body-line-height\)/)
+  })
+
+  /**
+   * 覆盖在正文之上的**界面浮层**必须显式钉回界面字体。
+   *
+   * ── 这条守的是一类既有守卫**结构上**看不见的缺陷 ──
+   *
+   * `.ui-test-editor-body` 那条 `font:` 简写把 font-family 也设成了
+   * `var(--body-font)`，而 font-family 会**继承**。于是在正文容器里渲染、
+   * 却属于界面 chrome 的**非表单元素**会静默继承正文字体。
+   *
+   * 本轮终审查出一个真实例子：查找条里显示「1/5」「未找到」的 `<span>`。
+   * `ui-test.css` 的兜底只覆盖 `button, input, textarea, select`，
+   * 这个 span 不在其中 —— 用户把正文字体改成楷体后，连查找条的计数文字
+   * 都变成楷体。而它是界面，不是正文，正是用户报的那一类缺陷。
+   *
+   * 两道既有守卫都够不到它：
+   *   · `ui-font-derivation.spec.ts` 扫的是**声明**了 `var(--body-font)` 的规则，
+   *     而这是**继承**泄漏（声明处 :268/:277 本身没错）；
+   *   · `verify-real-exe.mjs` 用 `closest(".ui-test-editor-body, …")` 分类，
+   *     这个 span 命中正文容器被归为 content，"它该跟随界面字号"那条判据
+   *     永远不会指向它。
+   *
+   * ── 为什么用"标记清单"这种写法，以及它的**已知边界** ──
+   *
+   * 这里列出**已知**的正文内界面浮层标记，要求每一个都显式声明
+   * `font-family: var(--ui)`。新增一个已知标记而忘了声明会立刻红 ——
+   * 这正是它比"修一次就完了"强的地方。
+   *
+   * 诚实标注边界：它**发现不了**一个全新标记的浮层（要靠人往清单里加）。
+   * 但它把"静默继承"变成了"必须显式声明"，且清单本身是可选可审的。
+   * 想要完全自动，需要遍历真实 DOM 逐个判"这个元素是正文还是界面"，
+   * 而那正是 `verify-real-exe.mjs` 的 inContent 判据在做、并且在 span 上判错的事。
+   */
+  it("正文容器内的已知界面浮层都显式声明了界面字体（防继承泄漏）", () => {
+    /*
+     * 清单 → 该浮层是什么。加新标记时这里和 CSS 一起改；
+     * 只加标记不改 CSS 就会红。
+     *
+     * `attr` 是裸属性名，用于"这个标记是否真的存在"的**前提检查**。
+     * 用裸属性名而不是完整选择器，是因为同一个标记在 JSX 里写
+     * `data-find-bar="true"`、在 querySelector 里写 `[data-find-bar='true']`，
+     * 引号风格不一致 —— 拿完整选择器去 toContain 会**因为引号**而假红。
+     * 我第一版就是这么写的。判据的形状必须对准它要说的那件事。
+     */
+    const KNOWN_IN_BODY_CHROME: { marker: string; attr: string; what: string }[] = [
+      { marker: '[data-find-bar="true"]', attr: "data-find-bar", what: "查找/替换条（其中的计数文字是 span，不在表单兜底里，曾静默继承正文字体）" },
+      { marker: '[data-selection-toolbar="true"]', attr: "data-selection-toolbar", what: "选中文字后的浮动工具条" },
+      { marker: '[data-editor-context-menu="true"]', attr: "data-editor-context-menu", what: "编辑器右键菜单" },
+    ]
+    expect(KNOWN_IN_BODY_CHROME.length, "清单成了空集 —— 这条判据会恒真").toBeGreaterThanOrEqual(3)
+
+    /*
+     * 前提检查：这些标记必须**真的**渲染在正文容器内，否则"钉回界面字体"
+     * 是在防一个不存在的东西（幽灵判据）。
+     * 扫 editor/ 整个目录，而不是只扫 wiki-editor.tsx ——
+     * `data-editor-context-menu` 定义在 editor-context-menu.tsx 里，
+     * 只扫 wiki-editor.tsx 会假红（我第一版又踩了这个）。
+     */
+    const editorDir = resolve(__dirname, "../editor")
+    const editorSources = readdirSync(editorDir)
+      .filter((f) => f.endsWith(".tsx") || f.endsWith(".ts"))
+      .map((f) => readFileSync(join(editorDir, f), "utf8"))
+      .join("\n")
+    for (const { marker, attr } of KNOWN_IN_BODY_CHROME) {
+      expect(editorSources, `清单里的 ${marker} 在 editor/ 下已经不存在了 —— 清单该更新（否则这条判据守的是幽灵）`)
+        .toContain(attr)
+    }
+
+    /*
+     * 逐条要求 CSS 里有一条把它钉回 var(--ui) 的规则。
+     *
+     * ⚠ 必须用 postcss 读**真实声明**，不能对原始文本跑正则。
+     * 我第一版就是那么写的：把 CSS 按 `}` 切成块、在块里找
+     * `font(-family)?:[^;]*var(--ui)`。结果它**被自己上面那段注释骗了** ——
+     * 注释里既出现了 `font-family` 又出现了 `var(--ui)`，而注释里没有分号，
+     * 于是 `[^;]*` 一路跨过整段注释把两者连起来，判成"已钉住"。
+     * 变异测试当场抓到：把 pin 改成 `var(--body-font)` 它照样报绿（M2）。
+     *
+     * 这与本仓库那条老教训是同一类：**判定必须落在语法结构上，不能落在文本上**。
+     * postcss 已经帮我们分好了 rule / decl，注释根本不会出现在 `decl.value` 里。
+     */
+    const parsed = postcss.parse(css)
+    /** 该规则是否把 font-family 钉成了 var(--ui)（`font:` 简写也算）。 */
+    const rulePinsUiFont = (rule: postcss.Rule) => {
+      let pinned = false
+      rule.walkDecls((decl) => {
+        if (decl.prop !== "font" && decl.prop !== "font-family") return
+        if (decl.value.includes("var(--ui)")) pinned = true
+      })
+      return pinned
+    }
+
+    for (const { marker, what } of KNOWN_IN_BODY_CHROME) {
+      const mentioning: postcss.Rule[] = []
+      parsed.walkRules((rule) => {
+        if (rule.selector.includes(marker)) mentioning.push(rule)
+      })
+      expect(mentioning.length, `CSS 里找不到任何提到 ${marker} 的规则`).toBeGreaterThan(0)
+      expect(
+        mentioning.some(rulePinsUiFont),
+        `${marker}（${what}）没有显式声明 font-family: var(--ui) —— `
+        + "它会继承 .ui-test-editor-body 的 var(--body-font)，改正文字体时跟着变，"
+        + "而它是界面、不是正文（用户报过的同类缺陷）",
+      ).toBe(true)
+    }
+
+    /*
+     * 反向控制：判定必须能识破"没有钉回界面字体"的规则，否则它可能恒真。
+     * 每个反例都**真的过一遍 postcss**，而不是在字符串上做假设 ——
+     * 这正是上面被注释骗到的根因。
+     */
+    const pinsIn = (source: string, marker: string) => {
+      let found = false
+      postcss.parse(source).walkRules((rule) => {
+        if (rule.selector.includes(marker) && rulePinsUiFont(rule)) found = true
+      })
+      return found
+    }
+    expect(pinsIn('[data-find-bar="true"] { color: red; }', '[data-find-bar="true"]'),
+      "反向控制：没写 font-family 的规则必须判为未钉住").toBe(false)
+    expect(pinsIn('[data-find-bar="true"] { font-family: var(--body-font); }', '[data-find-bar="true"]'),
+      "反向控制：钉成 var(--body-font) 必须判为未钉住（那正是泄漏本身）").toBe(false)
+    expect(pinsIn('[data-find-bar="true"] { font-family: var(--ui); }', '[data-find-bar="true"]'),
+      "反向控制：确凿合规的写法必须判为已钉住，否则这条判据会退化成恒红").toBe(true)
+    expect(pinsIn('[data-find-bar="true"] { font: 400 0.75rem/1.6 var(--ui); }', '[data-find-bar="true"]'),
+      "反向控制：font: 简写里以 var(--ui) 收尾也必须算钉住，否则会误伤合法写法").toBe(true)
   })
 
   it("底部安全距离与左右边距都是变量，没有写死的数字残留", () => {

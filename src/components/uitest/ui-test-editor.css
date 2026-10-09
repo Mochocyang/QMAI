@@ -268,6 +268,37 @@
 .ui-test-root .ui-test-editor-body { min-width: 0; font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--body-font); letter-spacing: var(--qmai-body-letter-spacing, 0); overflow-wrap: anywhere; }
 /* 让旧编辑器参与正文排版，不再叠加文档卡片和第二个滚动容器。 */
 .ui-test-root .ui-test-editor-body > div { height: auto; overflow: visible; }
+/*
+ * ── 覆盖在正文之上的**界面浮层**必须显式钉回界面字体 ──
+ *
+ * 为什么需要这一段（本轮终审查出的真实泄漏，而它**所有既有守卫都看不见**）：
+ *
+ *   `.ui-test-editor-body` 上那条 `font:` 简写会把 font-family 也设成
+ *   `var(--body-font)`，而 font-family 是**继承**属性 ——
+ *   凡是渲染在正文容器内、但本身属于界面 chrome 的**非表单元素**，
+ *   都会静默继承正文字体。
+ *
+ *   `ui-test.css` 里有一条兜底只覆盖 `button, input, textarea, select`，
+ *   所以查找条的输入框和按钮是对的，而它们旁边那个显示「1/5」「未找到」的
+ *   `<span>` 不在兜底里 —— 用户把正文字体改成楷体后，查找条的计数文字
+ *   会跟着变楷体，而它显然是界面，不是正文。用户报的正是这一类缺陷。
+ *
+ * 为什么既有守卫看不见它：
+ *   · `ui-font-derivation.spec.ts` 的泄漏守卫扫的是**声明**了 `var(--body-font)`
+ *     的规则；这是**继承**泄漏，声明处（:268/:277）本身没问题，结构上不可见；
+ *   · `verify-real-exe.mjs` 的 inContent 判据用
+ *     `closest(".ProseMirror, .ui-test-editor-body, .ui-test-editor, textarea")`
+ *     分类，这个 span 命中 `.ui-test-editor-body` 被归为 content，
+ *     于是"它跟随界面字号 = 违规"那条判据永远不会指向它。
+ *
+ * 所以这条不能靠"守卫会发现"，只能靠**把这些浮层显式钉回 var(--ui)**，
+ * 并由 ui-test-editor.spec.tsx 里那条"已知界面浮层必须显式声明界面字体"的
+ * 判据把它变成**持续要求**（新增一个浮层标记就会红）。
+ *
+ * 用容器级而不是逐个元素：将来往查找条里加任何非表单元素都会自然跟随界面字体，
+ * 不必记得再加一条规则。
+ */
+.ui-test-root .ui-test-editor-body :is([data-find-bar="true"], [data-selection-toolbar="true"], [data-editor-context-menu="true"]) { font-family: var(--ui); }
 .ui-test-root .ui-test-editor-body .immersive-scroll-container { height: auto; overflow: visible; }
 .ui-test-root .ui-test-editor-body .immersive-scroll-container > div { max-width: 100%; padding: 0; }
 .ui-test-root .ui-test-editor-body .prose { padding: 0; overflow: visible; }

@@ -1,13 +1,13 @@
 {
-  "capturedAt": "2026-10-09T03:39:42.071Z",
+  "capturedAt": "2026-10-09T04:43:01.854Z",
   "exe": "C:\\QMAI_C\\QMAI-main\\src-tauri\\target\\release\\qmai.exe",
   "opened": {
     "ok": true,
-    "path": "D:/QM-BOOK/楚白/wiki/outlines/00-设定集.md"
+    "path": "D:/QM-BOOK/楚白/wiki/outlines/01-逐章修改清单.md"
   },
   "probe": {
     "url": "http://tauri.localhost/",
-    "title": "青幕AI写作｜楚白｜总字数：694字",
+    "title": "青幕AI写作｜楚白｜总字数：1761字",
     "view": "wiki",
     "rootCount": 1,
     "bodyCount": 1,

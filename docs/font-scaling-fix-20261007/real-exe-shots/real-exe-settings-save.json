@@ -6,12 +6,12 @@
     "doc": "开篇方向"
   },
   "provenance": {
-    "capturedAt": "2026-10-09T04:13:46.867Z",
+    "capturedAt": "2026-10-09T04:43:44.837Z",
     "script": "C:\\QMAI_C\\QMAI-main\\docs\\font-scaling-fix-20261007\\verify-real-exe-settings-save.mjs",
     "scriptSha256": "9f23a8b25cbba2be91732065bcae075b12002b5515819c1c5d4dbd61fac0d574",
     "cdpPort": 9333,
     "exe": "C:\\QMAI_C\\QMAI-main\\src-tauri\\target\\release\\qmai.exe",
-    "exeSha256": "c37d8a82e77dda4d4ee5dc9ba6639816a96d9850bba99afe0951c7647f4806c0",
+    "exeSha256": "873318a78171737ec389bb406bb49239dcc48dcfa3fce64d88b6dc23f2425735",
     "node": "v24.9.0"
   },
   "initial": {

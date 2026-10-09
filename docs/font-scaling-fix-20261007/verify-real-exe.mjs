@@ -654,11 +654,25 @@ async function main() {
   } else if (chromePct < 95) {
     fails.push(`界面自身（chrome）跟随率仅 ${chromePct.toFixed(1)}%（<95%，${byOwner.chrome.scaled}/${byOwner.chrome.total}）—— 用户最初的抱怨仍未解决`)
   }
-  /* ② 文档内容不得跟随 —— 本次改造的核心不变量（与判定 2 独立的一道） */
-  if (byOwner.content.total >= 20 && contentPct > 2) {
+  /*
+   * ② 文档内容不得跟随 —— 本次改造的核心不变量（与判定 2 独立的一道）。
+   *
+   * ⚠ 分母过小时必须**报红**，不能什么都不做（本轮终审第 4 条）。
+   * 原来这里写成 `if (byOwner.content.total >= 20 && contentPct > 2)`：
+   * 分母塌到 20 以下时，这条"核心不变量"既不入 fails 也不留 note，
+   * 而 verdict 仍然可以是 pass —— 判据**静默地把自己调弱了**，还照样报绿。
+   * 上面 chrome 那一支对分母过小是报红的，两支不对称且没有任何理由。
+   * 这正是本仓库记录过的最危险的一类判据：不报错、不变红、但不再检查任何东西。
+   *
+   * 分母小的成因可能是"编辑器 DOM 没挂载"（本仓库已知盲区），
+   * 那时正确的结论是"这次测不出核心不变量"，而不是"通过"。
+   */
+  if (byOwner.content.total < 20) {
+    fails.push(`content 层参与元素仅 ${byOwner.content.total} 个（<20）—— 分母过小，"正文不跟随界面字号"这条核心不变量此次**无从判定**，不能算通过`)
+  } else if (contentPct > 2) {
     fails.push(`文档内容（content）跟随率 ${contentPct.toFixed(1)}%（>2%，${byOwner.content.scaled}/${byOwner.content.total}）—— 正文应使用绝对 px、不随界面字号变化`)
   }
-  if (chromePct >= 95 && contentPct <= 2 && byOwner.chrome.total >= 20) {
+  if (chromePct >= 95 && contentPct <= 2 && byOwner.chrome.total >= 20 && byOwner.content.total >= 20) {
     notes.push(`分层跟随率：界面自身 ${chromePct.toFixed(1)}%（${byOwner.chrome.scaled}/${byOwner.chrome.total}）、文档内容 ${contentPct.toFixed(1)}%（${byOwner.content.scaled}/${byOwner.content.total}，应不跟随）`)
   }
 
