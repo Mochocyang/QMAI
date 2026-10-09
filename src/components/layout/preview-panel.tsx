@@ -495,6 +495,14 @@ export function PreviewPanel() {
     }
 
     rememberLoadedChapter(normalizedPath, diskContent)
+    // 磁盘上的正文被带外改动并同步进来了（另一个编辑器、外部同步、去重改写
+    // 交叉引用…）。把它按 `unknown` 记一笔：差额既不算用户手写也不算 AI，
+    // 但账本文本会跟上磁盘，于是**此后**用户敲的字仍然归属正确。
+    // 不做这一步的话，这次带外改动会累积在账本里，等用户下次敲一个字时
+    // 被整笔算成「他的手写」。
+    if (isChapterPath(normalizedPath)) {
+      useWritingStatsStore.getState().recordChapter(normalizedPath, diskContent, "unknown")
+    }
     fileContentRef.current = diskContent
     if (selectedFileRef.current && normalizePath(selectedFileRef.current) === normalizedPath) {
       const scrollTop = uiTestScrollRef.current?.scrollTop

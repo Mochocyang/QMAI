@@ -243,6 +243,28 @@ describe("状态栏与记账同源", () => {
   })
 })
 
+describe("带外改动", () => {
+  it("外部改动的差额不算到用户头上，但此后用户敲的字仍归属正确", async () => {
+    await mount()
+    await type("他推开门。")
+    expect(stats().humanChars).toBe(5)
+
+    // 模拟另一个编辑器/外部同步把正文改了，并经由磁盘同步进编辑器。
+    // 走的是 recordChapter(..., "unknown") 这条路。
+    const foreignBody = `${originalBody}他推开门。外部工具塞进来的一整段。`
+    stats().recordChapter(chapterPath, chapter.replace(originalBody, foreignBody), "unknown")
+
+    // 带外内容既不进手写也不进 AI
+    expect(stats().humanChars).toBe(5)
+    expect(stats().aiChars).toBe(0)
+
+    // 关键：账本已跟上磁盘，所以用户接下来敲的那一个字仍然只算 1
+    stats().recordChapter(chapterPath, chapter.replace(originalBody, `${foreignBody}新`), "human")
+    expect(stats().humanChars).toBe(6)
+    expect(stats().aiChars).toBe(0)
+  })
+})
+
 describe("落盘与恢复", () => {
   it("打字后落盘的摘要含长度、哈希与游程", async () => {
     await mount()

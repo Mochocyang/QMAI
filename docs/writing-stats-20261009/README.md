@@ -71,13 +71,34 @@ type WritingSource = "human" | "ai" | "unknown"
 - 累计净增减恒等于「当前字数 − 起始字数」，可以逐笔对账。
 - 重复记账是安全的（差分口径，内容没变就是空增量）。
 
-### 3.3 已知边界：手工粘贴
+### 3.3 带外改动：吸收成 `unknown`，不当成用户的字
+
+编辑器有一条磁盘同步通路（`applyDiskSyncIfSafe`）：文件被**应用之外**的东西改了
+（另一个编辑器、外部同步、去重改写交叉引用…）时会把新内容同步进编辑器。
+
+那一刻会记一笔 `recordChapter(path, diskContent, "unknown")`：
+
+- 差额既不进手写也不进 AI —— 那些字不是用户敲的；
+- 但**账本文本跟上了磁盘**，所以用户接下来敲的每一个字仍然归属正确。
+
+不做这一步的后果很隐蔽：带外改动会一直累积在账本与磁盘之间，
+等用户下次敲一个字时被整笔算成「他的手写」。
+
+### 3.4 已知边界：手工粘贴
 
 用户在编辑器里**手工粘贴**外部（含 AI 产出的）文本时，记的是 `human`。
 
 应用无从判断剪贴板里的字是谁写的 —— 那是用户的动作，不是本软件的产出。
 要区分它只能靠猜测，而**猜错会把真正手写的字算进 AI，比少算更糟**。
 所以这条边界是刻意接受并写进代码注释的，不是遗漏。
+
+### 3.5 已知边界：超大替换退化成整段口径
+
+`diffChars` 超限（`maxEditLength` 或 `timeout`）时，整个变更段按「全删 + 全加」算。
+对最主流的用法（整章去 AI 味、整章被 AI 重写）这**恰好是正确**的口径。
+真正的误差场景是「变更段很大、但真实改动很小」——那时会高估新增量。
+不改成「一律记 unknown」是因为那会让整章去 AI 味全部记成 0 字，
+把一个核心功能的统计直接打没；两害相权取其轻。
 
 ---
 
@@ -206,11 +227,11 @@ type WritingSource = "human" | "ai" | "unknown"
 
 | 命令 | 结果 |
 |---|---|
-| `npm run test:mocks` | **708 文件 / 6799 通过**，6 todo，0 失败 |
+| `npm run test:mocks` | **708 文件 / 6800 通过**，6 todo，0 失败 |
 | `npm run typecheck` | 通过 |
 | `npm run typecheck:tests` | 通过 |
 
-本次新增 5 个测试文件 / 91 个用例：
+本次新增 5 个测试文件 / 92 个用例：
 
 - `src/lib/writing-stats.spec.ts`（28）—— 差分引擎：逐字输入、退格扣减、
   删 AI 内容只扣 AI、替换保留未动字符、游程往返、长度错位重打基线、日计数夹 0。
@@ -220,9 +241,10 @@ type WritingSource = "human" | "ai" | "unknown"
   恢复往返、节流不每击键落盘。
 - `src/components/uitest/ui-test-statusbar.spec.tsx`（13）—— 四项常显、
   圆环几何（`dashoffset` = 周长一半 @ 50%）、就地改目标、Esc 放弃、越界夹取。
-- `src/components/uitest/ui-test-statusbar-integration.spec.tsx`（15）——
+- `src/components/uitest/ui-test-statusbar-integration.spec.tsx`（16）——
   **真实编辑器的端到端通路**：敲字加、退格减、删到 0 不为负、AI 栏不被手写污染、
-  落盘摘要内容、重启后恢复、磁盘对不上时重打基线，以及三条源码/接线的守卫测试。
+  带外改动吸收成 `unknown` 后仍归属正确、落盘摘要内容、重启后恢复、
+  磁盘对不上时重打基线，以及三条源码/接线的守卫测试。
 - `src/components/uitest/ui-test-shell.spec.tsx`（既有文件，+3）——
   状态栏真的挂上了、是 `.ui-test-app` 的**最后一个直接子节点**（贴底且横跨整窗）、
   且**不是** `.ui-test-workspace` 的子节点；书架页（无书）不渲染它。
