@@ -13,6 +13,9 @@ import {
   BODY_MARGIN_X_VIEWPORT_MAX,
   BODY_MARGIN_X_VIEWPORT_MIN,
   BODY_MARGIN_X_VIEWPORT_VW,
+  DEFAULT_BODY_FONT_PX,
+  DEFAULT_BODY_LINE_HEIGHT,
+  DEFAULT_BODY_SAFE_BOTTOM,
   defaultBodyMarginXForViewport,
 } from "@/lib/font-settings"
 import { UiTestEditor } from "./ui-test-editor"
@@ -937,7 +940,17 @@ describe("测试版正文样式边界", () => {
      * 各写一份取值 —— 今天相同、改一处就错位（高亮框与文字偏移）。
      * 新断言比原来更强：它同时钉住"引用变量"与"不得再出现字面量"。
      */
-    expect(css).toMatch(/font:\s*400\s+var\(--qmai-body-font-size\)\/var\(--qmai-body-line-height\)\s+var\(--serif\)/)
+    /*
+     * 第 940 行原来断言正文容器用 `var(--serif)`。
+     * 那把**界面**衬线层与**文档正文**层混成了一个变量，导致用户在章节里
+     * 改正文字体时品牌名/页面标题/书封标题一起变（用户报过的缺陷）。
+     * 现在正文必须用专属的 `var(--body-font)`；`--serif` 保持固定、只管界面。
+     * 下面第 932 行仍要求「章节标题栏」用 var(--serif) —— 标题不属于正文，
+     * 与文档内 h2-h6 用 var(--ui) 是同一条约定。
+     */
+    expect(css).toMatch(/font:\s*400\s+var\(--qmai-body-font-size\)\/var\(--qmai-body-line-height\)\s+var\(--body-font\)/)
+    // 正文容器**不得**再消费界面衬线层（否则用户的缺陷会复发）
+    expect(css).not.toMatch(/var\(--qmai-body-line-height\)\s+var\(--serif\)/)
     expect(css).not.toMatch(/1\.125rem\/1\.95\s+var\(--serif\)/)
     expect(css).toContain("text-indent: 2em")
     expect(css).toMatch(/:is\(h1, h2, h3, h4, h5, h6, li/)
@@ -1074,12 +1087,43 @@ describe("测试版正文样式边界", () => {
 
   it("底部安全距离与左右边距都是变量，没有写死的数字残留", () => {
     // 改造前是 padding-bottom: 36px（窄屏另有 28px），两处独立数字正是"不可调"的根源
-    expect(css).toMatch(/\.ui-test-editor-scroll \{[^}]*padding-bottom:\s*var\(--qmai-body-safe-bottom, 51px\)/)
+    /*
+     * 兜底值用**常量拼串**，不抄字面量（最终整体代码审查第 6 条）。
+     * 抄的话，改 DEFAULT_BODY_SAFE_BOTTOM 而忘改 CSS 时这条照样绿，
+     * 于是首屏/无 JS 场景下的安全距离与用户确认的 51px 不一致且没有红灯。
+     */
+    expect(css).toMatch(
+      new RegExp(`\\.ui-test-editor-scroll \\{[^}]*padding-bottom:\\s*var\\(--qmai-body-safe-bottom, ${DEFAULT_BODY_SAFE_BOTTOM}px\\)`),
+    )
     expect(css).not.toContain("padding-bottom: 36px")
     expect(css).not.toContain("padding-bottom: 28px")
     // 左右边距挂在正文容器上：挂在外层的话，800px 上限会让滑块在宽窗口下看起来没反应
     expect(css).toMatch(/\.ui-test-editor-document \{[^}]*padding:\s*0 var\(--qmai-body-margin-x, var\(--qmai-body-margin-x-fallback\)\)/)
     expect(css).toMatch(/\.ui-test-root \.ui-test-editor \{[^}]*padding:\s*0;/)
+  })
+
+  /**
+   * 正文字号与行间距的 CSS 兜底值也必须与常量绑死（审查第 6 条）。
+   *
+   * 这两个兜底值原来**没有任何断言**：`--qmai-body-font-px` 与
+   * `--qmai-body-leading` 的行内值只在 App 跑起来之后才存在，
+   * 所以兜底值恰好作用在「首屏第一帧」与「脚本没跑起来」两种场景上 ——
+   * 正是最容易没人看、也最容易改一处忘一处的地方。
+   * 与上面安全距离那条同理：拿常量拼串，让漂移变成失败的测试。
+   */
+  it("正文字号与行间距的 CSS 兜底值与 font-settings 的常量一致", () => {
+    const themeCss = readFileSync(resolve(__dirname, "ui-test.css"), "utf8")
+    expect(
+      themeCss,
+      `--qmai-body-font-size 的兜底值必须是 DEFAULT_BODY_FONT_PX（${DEFAULT_BODY_FONT_PX}px）—— `
+      + `它是首屏第一帧的字号，改了常量却忘改这里不会有任何红灯`,
+    ).toContain(`var(--qmai-body-font-px, ${DEFAULT_BODY_FONT_PX}px)`)
+    expect(
+      themeCss,
+      `--qmai-body-line-height 的兜底值必须是 DEFAULT_BODY_LINE_HEIGHT（${DEFAULT_BODY_LINE_HEIGHT}）`,
+    ).toContain(`var(--qmai-body-leading, ${DEFAULT_BODY_LINE_HEIGHT})`)
+    // 反向：兜底值不许再是改造前的旧字面量（1.125rem = 18px 的老写法）
+    expect(themeCss, "兜底值里还残留旧的 rem 字面量写法").not.toMatch(/--qmai-body-font-px,\s*1\.125rem/)
   })
 
   /**

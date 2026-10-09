@@ -8,9 +8,6 @@ import {
   BODY_FONT_PX_MAX,
   BODY_FONT_PX_MIN,
   BODY_FONT_PX_PRESETS,
-  BODY_FONT_SIZE_MAX,
-  BODY_FONT_SIZE_MIN,
-  BODY_FONT_SIZE_PRESETS,
   BODY_LETTER_SPACING_MAX,
   BODY_LETTER_SPACING_MIN,
   BODY_LINE_HEIGHT_MAX,
@@ -24,7 +21,6 @@ import {
   BODY_SAFE_BOTTOM_MIN,
   DEFAULT_BODY_FONT_FAMILY,
   DEFAULT_BODY_FONT_PX,
-  DEFAULT_BODY_FONT_SIZE_SCALE,
   DEFAULT_BODY_LETTER_SPACING,
   DEFAULT_BODY_LINE_HEIGHT,
   DEFAULT_BODY_MARGIN_X,
@@ -39,7 +35,6 @@ import {
   applyBodyTypography,
   bodyFontPxFromScale,
   clampBodyFontPx,
-  clampBodyFontSizeScale,
   clampBodyLetterSpacing,
   clampBodyLineHeight,
   clampBodyMarginX,
@@ -396,59 +391,20 @@ describe("正文字体（与界面字体相互独立）", () => {
   })
 })
 
-describe("正文字号（独立于界面字号）", () => {
-  it("范围是 85%–150%，默认 100%", () => {
-    expect(BODY_FONT_SIZE_MIN).toBe(0.85)
-    expect(BODY_FONT_SIZE_MAX).toBe(1.5)
-    expect(DEFAULT_BODY_FONT_SIZE_SCALE).toBe(1)
-    // 上限 1.5 与界面字号上限 1.5 相乘 = 2.25 倍（约 40.5px），
-    // 这是设计里确认过的最大文档字号，已实测无裁切
-    expect(UI_FONT_SIZE_MAX * BODY_FONT_SIZE_MAX).toBeCloseTo(2.25, 10)
-  })
-
-  it("无效输入退回默认 1，而不是被隐式转换为下限", () => {
-    // Number(null) === 0 会把"没有存过值"钳成 0.85，
-    // 于是首次启动的正文就比设计值小 —— 必须退回 1
-    expect(clampBodyFontSizeScale(null)).toBe(1)
-    expect(clampBodyFontSizeScale(undefined)).toBe(1)
-    expect(clampBodyFontSizeScale("")).toBe(1)
-    expect(clampBodyFontSizeScale("abc")).toBe(1)
-    expect(clampBodyFontSizeScale(Number.NaN)).toBe(1)
-    expect(clampBodyFontSizeScale(Number.POSITIVE_INFINITY)).toBe(1)
-  })
-
-  it("钳制到 85%–150% 且保留两位小数", () => {
-    expect(clampBodyFontSizeScale(0.1)).toBe(BODY_FONT_SIZE_MIN)
-    expect(clampBodyFontSizeScale(9)).toBe(BODY_FONT_SIZE_MAX)
-    expect(clampBodyFontSizeScale(1.234)).toBe(1.23)
-    expect(clampBodyFontSizeScale("1.25")).toBe(1.25)
-    expect(clampBodyFontSizeScale(1)).toBe(1)
-  })
-
-  it("钳制幂等（反复保存不会漂移）", () => {
-    for (const v of [0.8, 0.85, 1, 1.25, 1.5, 2]) {
-      const once = clampBodyFontSizeScale(v)
-      expect(clampBodyFontSizeScale(once)).toBe(once)
-    }
-  })
-
-  it("预设全部落在范围内且钳制后原样通过（否则选中态永远匹配不上）", () => {
-    expect(BODY_FONT_SIZE_PRESETS.map((p) => p.value)).toEqual([0.85, 1, 1.25, 1.5])
-    for (const preset of BODY_FONT_SIZE_PRESETS) {
-      expect(preset.value).toBeGreaterThanOrEqual(BODY_FONT_SIZE_MIN)
-      expect(preset.value).toBeLessThanOrEqual(BODY_FONT_SIZE_MAX)
-      expect(clampBodyFontSizeScale(preset.value)).toBe(preset.value)
-    }
-  })
-
-  it("与界面字号是两个独立的范围（不能共用同一份常量）", () => {
-    // 界面字号下限 80%、正文下限 85%，上限都是 150%：
-    // 若哪天有人图省事让两者共用常量，这条会提醒他先想清楚
-    expect(UI_FONT_SIZE_MIN).not.toBe(BODY_FONT_SIZE_MIN)
-    expect(UI_FONT_SIZE_MAX).toBe(BODY_FONT_SIZE_MAX)
-    expect(BODY_FONT_SIZE_PRESETS).not.toBe(UI_FONT_SIZE_PRESETS)
-  })
-})
+/*
+ * 这里原来有一组 BODY_FONT_SIZE_MIN/MAX、DEFAULT_BODY_FONT_SIZE_SCALE、
+ * clampBodyFontSizeScale、BODY_FONT_SIZE_PRESETS 的用例。
+ *
+ * 它们测的是**正文字号的百分比（倍数）模型** —— 那个模型在本分支已被
+ * 「正文字号 = 绝对 px」取代，旧持久化函数也从 project-store 删掉了，
+ * 但这组常量一直留在生产文件里，且注释还在讲
+ * 「文档最终字号 = 界面字号 × 正文字号」这句**已经废掉**的语义
+ * （最终整体代码审查第 5 条：死代码 + 说谎注释）。
+ * 生产代码零引用、只被自己的用例养着，于是整组删除。
+ *
+ * 真正还有意义的是**一次性历史迁移**：`resolveMigratedBodyFontPx`
+ * 负责把旧倍数换成 px，它的用例在下面「旧倍数迁移」一节里。
+ */
 
 /* ────────────────────────── 界面字体选项（只列中文字体） ────────────────────────── */
 

@@ -274,33 +274,6 @@ export const UI_FONT_SIZE_PRESETS = [
   { label: "特大", value: 1.5 },
 ] as const
 
-/**
- * 正文字号倍率的允许范围（与界面字号**独立**的一份定义）。
- *
- * 为什么不能与界面字号共用常量：下限不同 —— 界面下限 80% 是为了
- * 让想缩小界面的用户能更小；正文下限 85% 是因为正文再小就影响阅读，
- * 而正文是写作软件的核心内容。共用会让其中一个被迫迁就另一个。
- *
- * 上下限相乘的语义：文档最终字号 = 界面字号 × 正文字号。
- * 上限 1.5 × 1.5 = 2.25 倍（正文 18px → 约 40.5px），
- * 该组合已实测无裁切、无溢出（见 overflow 报告）。
- */
-export const BODY_FONT_SIZE_MIN = 0.85
-export const BODY_FONT_SIZE_MAX = 1.5
-export const DEFAULT_BODY_FONT_SIZE_SCALE = 1
-
-export function clampBodyFontSizeScale(value: unknown): number {
-  return clampScale(value, BODY_FONT_SIZE_MIN, BODY_FONT_SIZE_MAX)
-}
-
-/** 正文字号预设。85% 是下限档，故没有单独的"小"档位。 */
-export const BODY_FONT_SIZE_PRESETS = [
-  { label: "小", value: 0.85 },
-  { label: "默认", value: 1 },
-  { label: "大", value: 1.25 },
-  { label: "特大", value: 1.5 },
-] as const
-
 /* ────────────────────────── 正文字体（独立于界面字体） ────────────────────────── */
 
 export const DEFAULT_BODY_FONT_FAMILY = "serif-default" as const
@@ -409,7 +382,15 @@ export function getBodyFontFamilyCss(value: unknown): string {
 
 /**
  * 只写 `--qmai-body-font-family`，**绝不触碰** `--qmai-ui-font-family`。
- * 两者互不干扰是用户明确确认的边界（`ui-test.css` 的 `--serif` 从前者派生）。
+ *
+ * `--qmai-body-font-family` 的**唯一**消费者是 ui-test.css 的 `--body-font`，
+ * 而 `--body-font` 只被"文档正文层"使用（章节 textarea 与大纲 Milkdown 的
+ * 正文段落 / 列表）。界面自身的衬线层 `--serif` 是**固定**取值、与这里无关。
+ *
+ * ⚠ 这一点曾被写错：`--serif` 一度派生于本变量，于是改正文字体会连带改掉
+ * 品牌名、工具页标题、书封标题、对话框标题的字形，用户报为
+ * "整个界面的字体都变了"。改动见 ui-test.css 里 `--serif` / `--body-font`
+ * 的注释，以及 ui-font-derivation.spec.ts 的防回归断言。
  */
 export function applyBodyFontFamily(value: unknown, root?: HTMLElement): void {
   if (typeof document === "undefined" && !root) return

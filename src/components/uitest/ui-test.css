@@ -18,14 +18,31 @@
      --qmai-ui-font-family 由 index.css 的 :root 提供默认值，
      并由 applyUiFontFamily 写到 documentElement 行内样式（可继承、优先级最高）。 */
   --ui: var(--qmai-ui-font-family);
-  /* --serif 是「正文衬线层」，由用户在「外观与界面 → 正文字体」中决定，
-     同样必须派生而不是硬编码，否则那个设置会重演 --ui 的老毛病（设了没效果）。
-     第二个参数是回退栈，与改造前的取值逐字一致：
-     未设置时（含首屏、以及任何不经过 JS 的场景）行为与改造前完全相同。
-     注意 --serif 不止正文在用（工具页标题、对话框标题、参考对话框 h3、
-     模型设置空状态标题），用户主动改字体时它们会一起变 —— 这是有意接受的，
-     因为它们同属"书卷感"衬线层。 */
-  --serif: var(--qmai-body-font-family, "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif);
+  /* --serif 是**界面**的衬线层：品牌名、工具页标题、对话框标题、
+     参考对话框 h3、书封标题、模型设置 / 去AI味空状态标题。
+     它的取值**固定**，**不**跟随「正文字体」。
+
+     ⚠ 这里曾经写成 `var(--qmai-body-font-family, <回退栈>)`，即让整个界面
+     衬线层跟随正文字体。当时的理由是"必须派生而不是硬编码，否则会重演
+     --ui 设了没效果的老毛病"—— 但那个担心用错了办法：「正文字体」
+     **本来就不该**作用于界面。实测后果：用户在写作现场（章节浮层）改一下
+     正文字体，品牌名、工具页标题、书封标题、对话框标题会**一起**换字形，
+     用户报为"整个界面的字体都变了"。
+     正确的分法是**两层各自一个变量**：界面看 --serif（固定），
+     文档正文看 --body-font（派生）。 */
+  --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif;
+  /* --body-font 是**文档正文**层：章节与大纲（Milkdown）的正文段落与列表。
+     **只有它**跟随「外观与界面 → 正文字体」（App 写 --qmai-body-font-family）。
+
+     回退栈与改造前 --serif 的取值**逐字一致**：未设置时（首屏、以及任何
+     不经过 JS 的场景）正文观感与改造前完全相同 —— 这与正文字号的
+     「缺省 18px 等于改造前 100% 档」是同一条不变量的两个面。
+
+     与 --ui、正文字号一样写成"读一个从 html 继承下来的变量"而不是让 App
+     直接写使用点变量：本规则块的宿主 .ui-test-root 比 html **更近**，
+     App 写在 html 上的同名变量会被本块盖掉（理由详见下面
+     --qmai-body-font-size 的注释）。 */
+  --body-font: var(--qmai-body-font-family, "Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif);
   /* 正文字号：**绝对像素**，由 App 写 --qmai-body-font-px（documentElement 行内样式）。
      改造前是 calc(1.125rem * var(--qmai-body-font-scale, 1))，语义是
      「正文字号 = 界面字号 × 倍数」；现在正文与界面字号彻底解耦
