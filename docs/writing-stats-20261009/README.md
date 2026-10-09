@@ -206,7 +206,7 @@ type WritingSource = "human" | "ai" | "unknown"
 
 | 命令 | 结果 |
 |---|---|
-| `npm run test:mocks` | **708 文件 / 6796 通过**，6 todo，0 失败 |
+| `npm run test:mocks` | **708 文件 / 6799 通过**，6 todo，0 失败 |
 | `npm run typecheck` | 通过 |
 | `npm run typecheck:tests` | 通过 |
 
@@ -223,3 +223,6 @@ type WritingSource = "human" | "ai" | "unknown"
 - `src/components/uitest/ui-test-statusbar-integration.spec.tsx`（15）——
   **真实编辑器的端到端通路**：敲字加、退格减、删到 0 不为负、AI 栏不被手写污染、
   落盘摘要内容、重启后恢复、磁盘对不上时重打基线，以及三条源码/接线的守卫测试。
+- `src/components/uitest/ui-test-shell.spec.tsx`（既有文件，+3）——
+  状态栏真的挂上了、是 `.ui-test-app` 的**最后一个直接子节点**（贴底且横跨整窗）、
+  且**不是** `.ui-test-workspace` 的子节点；书架页（无书）不渲染它。
