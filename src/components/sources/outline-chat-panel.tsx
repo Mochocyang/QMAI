@@ -809,6 +809,29 @@ export function buildOutlineAgentSystemPrompt(options: {
     .join("\n");
 }
 
+/**
+ * 共创讨论轮里，模型偶尔不按讨论协议走，而是**直接交付一份完整大纲**
+ * （MD 正文 + ```json 的 volumeOutlineData/chapterOutlineData + outlineSaveRequest）。
+ *
+ * 这时不能把整轮判成「未返回 outline_discuss 协议块」作废：那份正文和结构化数据
+ * 是模型真正生成的内容，判死等于把它们一起丢掉，用户只能在气泡里看到一坨 JSON 源码
+ * （结构化数据既没被提取成折叠树/卡片，也没进保存确认链路）。
+ *
+ * 所以先判定「本轮是否其实已经交付了可保存大纲」：
+ * - 带 outlineSaveRequest(s) → 是交付；
+ * - 解析得出 volumeOutlineData（卷纲结构化数据）→ 是交付；
+ * - 正文本身像一份可保存大纲（isSaveableOutlineDeliverable）→ 是交付。
+ *
+ * 命中则按生成轮处理（正文照常显示、结构化数据进保存链路），
+ * 只有真的只是讨论而没有交付内容时，才继续要求 outline_discuss 协议。
+ */
+function isDiscussDeliveredOutline(content: string): boolean {
+  if (!content.trim()) return false;
+  if (parseOutlineSaveRequests(content).requests.length > 0) return true;
+  if (extractVolumeOutlineData(content)) return true;
+  return isSaveableOutlineDeliverable(content);
+}
+
 function getOutlineSectionOutputRules(title: string): string {
   if (title.includes("卷纲")) {
     return [
@@ -3894,13 +3917,20 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 ? `计划协议不满足计划模式要求，尚未开始生成：${planValidation.error}`
                 : undefined
           : undefined;
+        // 共创讨论轮里模型有时会直接交付完整大纲而不是讨论协议。命中「已交付」时
+        // 按生成轮处理：不要求 outline_discuss、正文照常显示、结构化数据进保存链路
+        // （提取折叠树 + 弹保存确认），而不是把整轮判成「未返回协议块」连内容一起丢掉。
+        const discussDeliveredOutline = discussPhase
+          ? isDiscussDeliveredOutline(rawFinalContent)
+          : false;
+        const discussProtocolRequired = discussPhase && !discussDeliveredOutline;
         // 共创讨论轮：模型偶发只给正文不给协议块。先尝试一次「补协议」修复，
         // 把这一轮从「格式无效、整轮作废」救回来；修复失败才走原来的报错路径。
-        let discussProtocolOutcome: OutlineDiscussParseOutcome = discussPhase
+        let discussProtocolOutcome: OutlineDiscussParseOutcome = discussProtocolRequired
           ? parseOutlineDiscussProtocol(rawFinalContent)
           : { kind: "none" as const };
         if (
-          discussPhase
+          discussProtocolRequired
           && discussProtocolOutcome.kind !== "valid"
           && hasOutlineDiscussRepairableContent(rawFinalContent)
         ) {
@@ -3926,7 +3956,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         const discussValidation = discussProtocolOutcome.kind === "valid"
           ? validateOutlineDiscussProtocol(discussProtocolOutcome.protocol)
           : null;
-        const discussProtocolError = discussPhase
+        const discussProtocolError = discussProtocolRequired
           ? discussProtocolOutcome.kind === "invalid"
             ? `共创协议格式无效，尚未开始生成：${discussProtocolOutcome.error}`
             : discussProtocolOutcome.kind === "none"
@@ -3998,10 +4028,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               )
             : [],
           isAgentRunning: false,
-          nextStepRecommendation: intentProtocolError || options.planPhase || discussPhase
+          nextStepRecommendation: intentProtocolError || options.planPhase || discussProtocolRequired
             ? null
             : nextStepExtraction.recommendation,
           intentProtocolError,
+          // 直接交付了大纲的共创轮按生成轮处理：不带讨论标，正文走正常显示路径。
+          outlineDiscussPhase: discussProtocolRequired ? discussPhase : undefined,
           outlinePlanProtocol: planValidation && planValidation.kind !== "invalid"
             ? planValidation.protocol
             : null,
@@ -4028,7 +4060,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             ]);
           }
         }
-        if (discussPhase && discussValidation) {
+        if (discussProtocolRequired && discussValidation) {
           if (discussValidation.kind === "needs_decision") {
             advanceCapturedWorkflowStages(["collecting_requirements"]);
           } else if (discussValidation.kind === "ready") {
@@ -4114,13 +4146,16 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             sessionKey: capturedConvId,
           });
         }
-        // 计划盘点轮和共创讨论轮只产出协议块，没有可保存正文，不能进保存链路
+        // 计划盘点轮、以及「只做讨论」的共创轮只产出协议块，没有可保存正文，不能进保存链路。
+        // 但共创轮若其实直接交付了大纲（discussDeliveredOutline），必须放行——
+        // 否则那份卷纲/章纲的结构化数据既不会被提取成折叠树，也弹不出保存确认，
+        // 用户只能在气泡里看到一坨源码。
         if (
           intentProtocol.kind === "none"
           && !intentProtocolError
           && !deliverableTruncated
           && !options.planPhase
-          && !discussPhase
+          && !discussProtocolRequired
         ) {
           await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
         }
@@ -5719,12 +5754,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           throw new Error(OUTLINE_REASONING_ONLY_ERROR_MESSAGE);
         }
         const rawRegenerationContent = filteredRegenerationContent.content || "AI大纲未返回内容。";
+        // 与首轮一致：共创轮若直接交付了完整大纲，按已交付处理，不要求讨论协议。
+        const regenerationDeliveredOutline = regenerationDiscussPhase
+          ? isDiscussDeliveredOutline(rawRegenerationContent)
+          : false;
+        const regenerationProtocolRequired = regenerationDiscussPhase && !regenerationDeliveredOutline;
         // 与首轮一致：续跑/重新生成也先尝试一次「补协议」，避免整轮作废。
-        let regenerationDiscussOutcome: OutlineDiscussParseOutcome = regenerationDiscussPhase
+        let regenerationDiscussOutcome: OutlineDiscussParseOutcome = regenerationProtocolRequired
           ? parseOutlineDiscussProtocol(rawRegenerationContent)
           : { kind: "none" as const };
         if (
-          regenerationDiscussPhase
+          regenerationProtocolRequired
           && regenerationDiscussOutcome.kind !== "valid"
           && hasOutlineDiscussRepairableContent(rawRegenerationContent)
         ) {
@@ -5750,7 +5790,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         const regenerationDiscussValidation = regenerationDiscussOutcome.kind === "valid"
           ? validateOutlineDiscussProtocol(regenerationDiscussOutcome.protocol)
           : null;
-        const regenerationDiscussError = regenerationDiscussPhase
+        const regenerationDiscussError = regenerationProtocolRequired
           ? regenerationDiscussOutcome.kind === "invalid"
             ? `共创协议格式无效，尚未开始生成：${regenerationDiscussOutcome.error}`
             : regenerationDiscussOutcome.kind === "none"
@@ -5798,11 +5838,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             sources,
             agentToolCalls: settleRunningAgentToolCalls(record.toolCalls.length ? record.toolCalls : message.agentToolCalls),
             isAgentRunning: false,
-            nextStepRecommendation: regenerationIntentProtocolError || regenerationDiscussPhase
+            nextStepRecommendation: regenerationIntentProtocolError || regenerationProtocolRequired
               ? null
               : nextStepExtraction.recommendation,
             intentProtocolError: regenerationIntentProtocolError,
-            outlineDiscussPhase: regenerationDiscussPhase,
+            // 直接交付了大纲的共创轮按生成轮处理：不带讨论标，正文走正常显示路径。
+            outlineDiscussPhase: regenerationProtocolRequired ? regenerationDiscussPhase : undefined,
             outlineDiscussProtocol: regenerationDiscussValidation && regenerationDiscussValidation.kind !== "invalid"
               ? regenerationDiscussValidation.protocol
               : null,
@@ -5821,7 +5862,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         if (
           regenerationIntentProtocol.kind === "none"
           && !regenerationIntentProtocolError
-          && !regenerationDiscussPhase
+          && !regenerationProtocolRequired
         ) {
           await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
         }

@@ -1708,6 +1708,73 @@ describe("OutlineChatPanel controls", () => {
     expect(document.body.textContent).not.toContain("请确认要保存的大纲文件")
   })
 
+  it("共创轮直接交付卷纲时不再判「未返回 outline_discuss」作废", async () => {
+    useWikiStore.setState({ outlineWorkflowMode: "discuss" })
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+      // 模型没走讨论协议，而是直接交付了卷纲：MD 正文 + volumeOutlineData + outlineSaveRequest。
+      const output = [
+        "# 修真界卷级架构",
+        "",
+        "## 总体定位",
+        "整体基调先抑后扬，围绕守护展开。",
+        "",
+        "```json",
+        JSON.stringify({ volumeOutlineData: { position: { level: "volume-outline", scope: "修真界部分（共三卷）" }, subVolumes: ["卷一"] } }),
+        "```",
+        "```json",
+        JSON.stringify({ outlineSaveRequest: { targetFolder: "卷纲", fileName: "修真界卷级架构.md", fileType: "volume-outline", writeMode: "create", referencedSkills: [], sourceIntent: "生成完成后自动保存", content: "# 修真界卷级架构\n\n## 总体定位\n\n整体基调先抑后扬。" } }),
+        "```",
+      ].join("\n")
+      callbacks.onText(output)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: output }
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+
+    await submitOutlineInput(container, "帮我把修真界的卷级架构定下来")
+
+    const assistant = useOutlineChatStore.getState().conversations[0].messages
+      .findLast((message) => message.role === "assistant")
+    // 回归核心：直接交付的卷纲不得被判成「模型未返回 outline_discuss 协议块」而整轮作废
+    expect(assistant?.outlineDiscussError).toBeUndefined()
+    expect(container.textContent).not.toContain("模型未返回 outline_discuss 协议块")
+    // 内容没有被藏起来：正文可见
+    expect(container.textContent).toContain("修真界卷级架构")
+    expect(container.textContent).toContain("整体基调先抑后扬")
+  })
+
+  it("共创轮直接交付可保存大纲时进入保存确认链路（内容未丢）", async () => {
+    useWikiStore.setState({ outlineWorkflowMode: "discuss" })
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+      const output = [
+        "# 修真界卷级架构",
+        "",
+        "## 总体定位",
+        "整体基调先抑后扬，三卷递进。",
+        "",
+        "```json",
+        JSON.stringify({ outlineSaveRequest: { targetFolder: "大纲", fileName: "修真界卷级架构.md", fileType: "outline", writeMode: "create", referencedSkills: [], sourceIntent: "生成完成后自动保存", content: "# 修真界卷级架构\n\n## 总体定位\n\n整体基调先抑后扬。" } }),
+        "```",
+      ].join("\n")
+      callbacks.onText(output)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: output }
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+
+    await submitOutlineInput(container, "把这版卷级架构整理出来")
+
+    const assistant = useOutlineChatStore.getState().conversations[0].messages
+      .findLast((message) => message.role === "assistant")
+    expect(assistant?.outlineDiscussError).toBeUndefined()
+    // 交付物被真正产出：弹出保存确认（而不是只把源码截断/隐藏）
+    expect(document.body.textContent).toContain("请确认要保存的大纲文件")
+    // 气泡里能看到正文
+    expect(container.textContent).toContain("三卷递进")
+  })
+
   it("共创模式定稿后才进入正文生成", async () => {
     useWikiStore.setState({ outlineWorkflowMode: "discuss" })
     const calls: Array<{ system: string; user: string }> = []
