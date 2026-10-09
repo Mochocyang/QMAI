@@ -223,7 +223,8 @@ describe("独立UI测试版外壳", () => {
     await act(async () => { root.render(<UiTestShell project={null} {...callbacks} />) })
     expect(host.querySelector(".ui-test-statusbar")).toBeNull()
   })
-  it("设置页的三皮肤选择同步外壳与Portal作用域", async () => {    await render()
+  it("设置页的三皮肤选择同步外壳与Portal作用域", async () => {
+    await render()
     await act(async () => window.dispatchEvent(new CustomEvent("qmai-ui-test-skin-change", { detail: "xing" })))
     expect(host.querySelector(".ui-test-root")?.getAttribute("data-skin")).toBe("xing")
     expect(document.documentElement.dataset.uiTestSkin).toBe("xing")

@@ -64,7 +64,23 @@ interface WritingStatsState {
    */
   primeChapter(chapterPath: string, markdown: string): void
   /** 记账的唯一入口：编辑器改动、AI 写盘、外部同步都从这里过。 */
-  recordChapter(chapterPath: string, markdown: string, source: WritingSource): void
+  recordChapter(
+    chapterPath: string,
+    markdown: string,
+    source: WritingSource,
+    /**
+     * 这次写入**覆盖掉的旧正文**（调用方读盘时手上就有的话，一定要传）。
+     *
+     * 不传的后果很严重：一份「已经存在、被 AI 整章重写」的正文，在内存里没有
+     * 账本、落盘摘要又因内容变了而校验不过时，应用就无从知道旧文有多长，
+     * 只能退化成「整章都是今天 AI 新写的」——批量去 AI 味 30 章会把「今日 AI
+     * 生成」直接顶到九万字（目标 3000 → 完成率 3000%）。
+     *
+     * 传了就能精确差分：旧正文按 `unknown` 打基线（来路本来就不可知），
+     * 只有模型真正换掉的那些字才算今天的 AI 产出。
+     */
+    previousMarkdown?: string,
+  ): void
   /**
    * 章节改名 / 归位到规范路径时把归属账本一起搬过去。
    *
@@ -194,7 +210,7 @@ export const useWritingStatsStore = create<WritingStatsState>((set, get) => ({
     }))
   },
 
-  recordChapter(chapterPath, markdown, source) {
+  recordChapter(chapterPath, markdown, source, previousMarkdown) {
     const state = get()
     const path = state.projectPath
     // 只统计章节正文（用户选定的口径）。大纲、设定、笔记写得再多也不进这个账。
@@ -231,9 +247,18 @@ export const useWritingStatsStore = create<WritingStatsState>((set, get) => ({
       const restored = restoreProvenance(state.chapters[key], markdown)
       if (restored) {
         provenance = restored
+      } else if (previousMarkdown !== undefined) {
+        // 调用方把被覆盖掉的旧正文交上来了 —— 精确差分。
+        // 旧正文在打基线时一律记 `unknown`：它是什么时候、由谁写的，这里
+        // 无从知道，但**长度**能确定，所以「模型换掉了多少字」可以算准。
+        provenance = rebaselineProvenance(previousMarkdown, "unknown")
       } else if (source === "ai") {
         // 明确的「这一整份就是 AI 刚写出来的」——例如聊天里生成并保存的新章。
         // 这种情况必须从零开始记账，否则 AI 生成的字数永远是 0。
+        //
+        // 注意这条分支**必须**是「无从得知旧正文」时的最后手段：一旦用错，
+        // 一份早已存在的几万字旧稿会被整份算成今天 AI 新写的。会覆盖已有
+        // 正文的调用方有义务把 `previousMarkdown` 传进来。
         const fresh = rebaselineProvenance(markdown, "ai")
         commit(fresh, { ...emptyWritingDelta(), aiAdded: fresh.text.length })
         return

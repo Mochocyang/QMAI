@@ -268,6 +268,60 @@ describe("applyWritingChange — 替换与粘贴", () => {
   })
 })
 
+describe("applyWritingChange — 纯换序（章内移动文字）", () => {
+  it("把一段拖到别处：总字数没变，就不该凭空产生手写字数", () => {
+    // 这是回归：此前 diffChars 只会报「删了一整段又加了一整段」，
+    // 用户一个键都没敲，手写却 +6、原归属还被削掉 6。
+    const before = provenanceOf(markdown("他推开门。屋里很暗。他点起了灯。"), "human")
+    const moved = "他点起了灯。他推开门。屋里很暗。"
+    const result = applyWritingChange(before, markdown(moved), "human")
+    const net = netDailyChange(result.delta)
+    expect(net.human, "拖动段落不是「今天新写的字」").toBe(0)
+    expect(net.ai).toBe(0)
+    expect(result.provenance.text).toBe(moved)
+    expect(result.provenance.sources.length).toBe(moved.length)
+    // 归属集合原样保留（合计分毫不差）
+    expect(result.provenance.sources.filter((s) => s === "human").length)
+      .toBe(moved.length)
+  })
+
+  it("搬动 AI 写的一段，不会把 AI 那一栏削掉", () => {
+    const aiPart = "斗气分九段。"
+    const humanPart = "他推开门。"
+    const before = provenanceOf(markdown(`${humanPart}${aiPart}树枝断了。`), "human")
+    // 先把中间那段标成 AI
+    const withAi = applyWritingChange(before, markdown(`${humanPart}${aiPart}树枝断了。`), "human")
+    expect(withAi.provenance.sources.length).toBe(withAi.provenance.text.length)
+
+    const mixed: WritingProvenance = {
+      text: `${humanPart}${aiPart}${humanPart}`,
+      sources: [
+        ...new Array(humanPart.length).fill("human"),
+        ...new Array(aiPart.length).fill("ai"),
+        ...new Array(humanPart.length).fill("human"),
+      ] as WritingSource[],
+    }
+    // 把 AI 那段搬到最前面（纯换序，字符一样）
+    const moved = `${aiPart}${humanPart}${humanPart}`
+    const result = applyWritingChange(mixed, markdown(moved), "human")
+    const net = netDailyChange(result.delta)
+    expect(net.ai, "搬位置不该扣掉 AI 的字数").toBe(0)
+    expect(net.human, "搬位置不该算成手写").toBe(0)
+    // 两栏合计与搬动前一致
+    expect(result.provenance.sources.filter((s) => s === "ai").length).toBe(aiPart.length)
+    expect(result.provenance.sources.filter((s) => s === "human").length)
+      .toBe(humanPart.length * 2)
+  })
+
+  it("换序同时还有真实增删时，仍按真实增删记账", () => {
+    // 多重集不同 → 不能被误判成换序
+    const before = provenanceOf(markdown("他推开门。"), "human")
+    const result = applyWritingChange(before, markdown("开门他推。了"), "human")
+    const net = netDailyChange(result.delta)
+    expect(net.human, "新增了一个「了」就该 +1").toBe(1)
+  })
+})
+
 describe("applyWritingChange — 一致性不变量", () => {
   it("任何一次变更后，sources 长度恒等于 text 长度", () => {
     const steps = ["", "他", "他们", "他们走", "他们走进", "他", "他推开门。"]

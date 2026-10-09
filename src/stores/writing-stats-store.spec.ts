@@ -129,6 +129,56 @@ describe("recordChapter — AI 与手写分开记账", () => {
     expect(stats().humanChars).toBe(0)
   })
 
+  it("AI 覆盖一份已有旧稿时只把换掉的字算今天产出，绝不整份算成新写的", async () => {
+    await openProject()
+    const oldBody = "斗气大陆，斗气分九段。萧炎曾是天才，后跌为废物。"
+    const newBody = "斗气大陆，斗气分十段。萧炎曾是天才，后沦为废物。"
+    // 关键前提：这一章在内存里没有账本（用户没打开过），落盘摘要也因为
+    // 内容变了而校验不过 —— 这正是批量去 AI 味时绝大多数章节的处境。
+    stats().recordChapter(CHAPTER, markdown(newBody), "ai", markdown(oldBody))
+
+    // 整份旧稿 23 字，其中只有少数几个字被换掉，不能全算今天写的。
+    expect(stats().aiChars).toBeGreaterThan(0)
+    expect(stats().aiChars).toBeLessThan(oldBody.length)
+    // 旧正文一律按 unknown 打基线：既不进 AI 也不进手写。
+    expect(stats().humanChars).toBe(0)
+  })
+
+  it("批量覆盖 30 章不会把「今日 AI 生成」顶成几十万字（回归：曾整章累加）", async () => {
+    await openProject()
+    const body = "斗气大陆，斗气分九段。萧炎曾是天才，后跌为废物。"
+    for (let i = 1; i <= 30; i += 1) {
+      const path = `E:/Novel/wiki/chapters/第${i}章.md`
+      // 内容一字未改地重写一遍 —— 最极端的「原样覆盖」。
+      stats().recordChapter(path, markdown(body), "ai", markdown(body))
+    }
+    expect(stats().aiChars).toBe(0)
+  })
+
+  it("同一章被 AI 反复重写不会线性累加（第二次改写只算第二次的差额）", async () => {
+    await openProject()
+    const v1 = "斗气分九段。"
+    const v2 = "斗气分十段。"
+    const v3 = "斗气分十一段。"
+    stats().recordChapter(CHAPTER, markdown(v2), "ai", markdown(v1))
+    const afterFirst = stats().aiChars
+    expect(afterFirst).toBeGreaterThan(0)
+    // 第二次：账本已在内存里，走差分，只算这一次真正换掉的字。
+    stats().recordChapter(CHAPTER, markdown(v3), "ai", markdown(v2))
+    expect(stats().aiChars).toBe(afterFirst + 1)
+  })
+
+  it("旧正文交给记账层后，此后用户手写的字仍然只算他敲的那些", async () => {
+    await openProject()
+    const oldBody = "斗气大陆，斗气分九段。"
+    const newBody = "斗气大陆，斗气分十段。"
+    stats().recordChapter(CHAPTER, markdown(newBody), "ai", markdown(oldBody))
+    const aiAfterRewrite = stats().aiChars
+    stats().recordChapter(CHAPTER, markdown(`${newBody}他忽然笑了。`), "human")
+    expect(stats().humanChars).toBe("他忽然笑了。".length)
+    expect(stats().aiChars).toBe(aiAfterRewrite)
+  })
+
   it("手写与 AI 混排时各记各的，合计等于正文字数", async () => {
     await openProject()
     const aiBody = "斗气分九段。"

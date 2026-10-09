@@ -118,6 +118,28 @@ export function decodeWritingSources(
 }
 
 /**
+ * 两段文本的字符多重集是否完全相同。
+ *
+ * 用来识别「纯换序」：把一段文字拖到别处、或剪切粘贴到另一个位置时，字符集合
+ * 一字不差，`diffChars` 却只会报「删了一段又加了一段」。判定成换序后就能保住
+ * 原归属，不会凭空给用户记上几百字。
+ *
+ * 只对**变更段**跑（打字/退格的快路径根本不经过这里），代价是 O(n)。
+ */
+function sameCharacterMultiset(a: string, b: string): boolean {
+  if (a === b) return true
+  const counts = new Map<string, number>()
+  for (const char of a) counts.set(char, (counts.get(char) ?? 0) + 1)
+  for (const char of b) {
+    const remaining = counts.get(char)
+    if (remaining === undefined) return false
+    if (remaining === 1) counts.delete(char)
+    else counts.set(char, remaining - 1)
+  }
+  return counts.size === 0
+}
+
+/**
  * 章节的归属账本：`text` 是**计数口径**下的正文，`sources` 与它逐字符对齐。
  *
  * 刻意存计数后的文本而不是原始 markdown：这样「归属」与「字数」永远同一把尺子，
@@ -227,11 +249,24 @@ export function applyWritingChange(
   // `maxEditLength` + `timeout` 是必须的：这两个上限一旦触发，`diffChars` 返回
   // `undefined`，我们退化成「整段替换」。没有它们的话，用户在几千字的章节里
   // 做一次大范围改写就会在**每次击键**上跑一次二次方级的 diff，输入框直接卡死。
-  const parts = removedText.length > 0 && addedText.length > 0
+  //
+  // 先挡掉「纯换序」：把一段文字拖到别处 / 剪切粘贴到另一个位置时，字符多重集
+  // 完全相同，`diffChars` 却只会报「删了一整段、又加了一整段」，于是用户一个键
+  // 都没敲，手写却 +500、原本的 AI 归属还被削掉 500。多重集相同就说明没有任何
+  // 新字产生，此时**保留原归属、只改顺序**（合计分毫不差）。
+  const isPureReorder = removedText.length === addedText.length
+    && removedText.length > 0
+    && sameCharacterMultiset(removedText, addedText)
+
+  const parts = !isPureReorder && removedText.length > 0 && addedText.length > 0
     ? diffChars(removedText, addedText, { maxEditLength: 4000, timeout: 120 })
     : undefined
 
-  if (parts) {
+  if (isPureReorder) {
+    // 块的归属集合不变，只是位置换了。逐字符的归属可能被重排，但每一栏的
+    // 合计与变更前完全一致 —— 不会凭空造出「今天写的字」。
+    insertedSources.push(...removedSources)
+  } else if (parts) {
     // `diffChars` 按顺序吐出分段：未变段与删除段依次消耗 removedText，
     // 所以一个从 0 开始推进的游标就能把每段对回原归属，不需要再搜索定位。
     let removedCursor = 0

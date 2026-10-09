@@ -68,7 +68,7 @@ import { resolveContextPackTokenBudget } from "@/lib/context-budget"
 import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts"
 import { executeIngestWrites } from "@/lib/ingest"
 import { routeTask, buildTaskDirective, isChapterWritingIntent, type TaskRouteResult } from "@/lib/novel/task-router"
-import { writeFile, createDirectory, deleteFile } from "@/commands/fs"
+import { writeFile, readFile, createDirectory, deleteFile } from "@/commands/fs"
 import {
   detectLastGeneratedChapterNumber,
   findChapterFileByNumber,
@@ -1317,9 +1317,12 @@ export function ChatPanel() {
       await createDirectory(chapterDir)
       const chapterPath = `${chapterDir}/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
       const chapterMarkdown = buildDraftContent(targetChapterNumber, chapterTitle, cleanedContent)
+      // 目标路径通常还是空的（新章），但也可能撞上一份已存在的同号文件；
+      // 有旧正文就交给记账层差分，否则整份覆盖会被算成今天 AI 新写的。
+      const previousMarkdown = await readFile(chapterPath).catch(() => undefined)
       await writeFile(chapterPath, chapterMarkdown)
-      // 聊天里生成并保存的新章：整份都是模型产出，直接记进「今日 AI 生成」。
-      useWritingStatsStore.getState().recordChapter(chapterPath, chapterMarkdown, "ai")
+      // 聊天里生成并保存的章节：内容由模型产出，记进「今日 AI 生成」。
+      useWritingStatsStore.getState().recordChapter(chapterPath, chapterMarkdown, "ai", previousMarkdown)
       useChatStore.getState().setMessageChapterRef(messageId, {
         chapterNumber: targetChapterNumber,
         path: chapterPath,

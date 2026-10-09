@@ -84,7 +84,20 @@ type WritingSource = "human" | "ai" | "unknown"
 不做这一步的后果很隐蔽：带外改动会一直累积在账本与磁盘之间，
 等用户下次敲一个字时被整笔算成「他的手写」。
 
-### 3.4 已知边界：手工粘贴
+### 3.5 章内移动文字：识别成「纯换序」，不记账
+
+把一段文字拖到别处、或剪切粘贴到另一个位置时，字符**多重集完全相同**，
+但 `diffChars` 只会报「删了一整段、又加了一整段」。照单全收的话，用户一个键
+都没敲，手写却 +500，原本那段 AI 的归属还被削掉 500。
+
+所以差分前先比一次多重集（只对变更段跑，打字/退格的快路径根本不经过）：
+相同就判定为纯换序，**保留原归属、只改顺序**，各栏合计分毫不差。
+
+逐字符的归属在块内可能被重排（块的归属集合不变），且「删掉 AI 的一段落、
+再手打一遍一模一样的字」会被算成 0 增 0 删。这两点都是刻意换来的：
+**宁可少算，也不凭空造出「今天写的字」。**
+
+### 3.6 已知边界：手工粘贴
 
 用户在编辑器里**手工粘贴**外部（含 AI 产出的）文本时，记的是 `human`。
 
@@ -92,7 +105,7 @@ type WritingSource = "human" | "ai" | "unknown"
 要区分它只能靠猜测，而**猜错会把真正手写的字算进 AI，比少算更糟**。
 所以这条边界是刻意接受并写进代码注释的，不是遗漏。
 
-### 3.5 已知边界：超大替换退化成整段口径
+### 3.7 已知边界：超大替换退化成整段口径
 
 `diffChars` 超限（`maxEditLength` 或 `timeout`）时，整个变更段按「全删 + 全加」算。
 对最主流的用法（整章去 AI 味、整章被 AI 重写）这**恰好是正确**的口径。
@@ -100,21 +113,47 @@ type WritingSource = "human" | "ai" | "unknown"
 不改成「一律记 unknown」是因为那会让整章去 AI 味全部记成 0 字，
 把一个核心功能的统计直接打没；两害相权取其轻。
 
+### 3.8 已知边界：`timeout` 是同步预算
+
+`diffChars({ timeout: 120 })` 是**同步**时间预算，所以大段替换时主线程在这一次
+击键上最多阻塞 120ms；是否退化成整段口径也取决于机器快慢，归因因此有轻微的
+机器相关性。改成 worker 是更彻底的解法，但会引入异步记账，与「每次击键立刻
+反映到状态栏」冲突，收益不抵复杂度。
+
 ---
 
 ## 4. AI 写入的接线清单
 
-「AI 生成」这一栏要准，取决于**每一个 AI 写正文的入口都标了 `"ai"`**：
+「AI 生成」这一栏要准，取决于**每一个 AI 写正文的入口都标了 `"ai"`，并且在覆盖
+已有正文时把旧正文一并交给记账层**（`recordChapter(path, next, "ai", previous)`）：
 
-| # | 入口 | 位置 | 说明 |
+| # | 入口 | 位置 | 旧正文 |
 |---|---|---|---|
-| 1 | AI 工具直接写章节 | `src/lib/agent/tools/write-chapter.ts` | 非草稿路径，整份记 AI |
-| 2 | 聊天里生成并保存的章节 | `src/components/chat/chat-panel.tsx` | 整份记 AI |
-| 3 | AI 的 search/replace 改文件 | `src/lib/novel/agent-tools.ts` | 只记改动部分 |
-| 4 | 选区润色 / 去 AI 味 | `src/components/layout/preview-panel.tsx` `handleApplySelectionTransform` | `handleSave(..., { source: "ai" })` |
-| 5 | 整章去 AI 味（单章 + 批量） | `src/lib/novel/de-ai-batch/chapter-apply.ts` | 两个分支都记 |
+| 1 | AI 工具直接写章节 | `src/lib/agent/tools/write-chapter.ts` | 覆盖前先读，文件不存在则为 `undefined`（判为新章） |
+| 2 | 聊天里生成并保存的章节 | `src/components/chat/chat-panel.tsx` | 同上（目标路径可能撞上已存在的同号文件） |
+| 3 | AI 的 search/replace 改文件 | `src/lib/novel/agent-tools.ts` | 手上就有 `originalContent` |
+| 4 | 选区润色 / 去 AI 味 | `src/components/layout/preview-panel.tsx` | 编辑器账本本来就在内存里 |
+| 5 | 整章去 AI 味（单章 + 批量） | `src/lib/novel/de-ai-batch/chapter-apply.ts` | 两条分支都传（批量分支刚 `readFile` 过） |
 
-**刻意不接的入口**：
+### 4.1 为什么「旧正文」是必须的参数（一类严重虚报的根因）
+
+记账层在内存里没有账本时，只能靠落盘摘要恢复；而摘要要求**长度 + 哈希都对得上**。
+AI 改写必然改内容 → 校验不过 → 此时若不知道旧正文，唯一能做的就是
+「整份算成今天 AI 新写的」。
+
+后果在批量去 AI 味上极其夸张：**30 章 × 3000 字 → 「今日 AI 生成」直接 +90,000**
+（目标 3000 → 完成率 3000%），而模型可能总共只改了几千字；对结果不满意再跑一遍
+就再 +90,000。更糟的是不对称：**恰好开着的那一章**走编辑器差分只加真实改动量，
+于是同一次批量任务，数字取决于哪一章被打开。
+
+传了旧正文就没有这个问题：旧正文按 `unknown` 打基线（来路本来就不可知），
+只有模型真正换掉的那些字才算今天产出。实测「原样覆盖 30 章」的增量精确为 0。
+
+**已知边界**：`source === "ai"` 且**没有**旧正文时仍会整份记 AI（新章必须如此，
+否则 AI 生成的字数永远是 0）。每一个会覆盖已有正文的调用方都有义务传
+`previousMarkdown`；新增这类入口时必须一起补上。
+
+### 4.2 刻意不接的入口
 
 - **草稿区**（`.qm-drafts/`，`src/lib/novel/draft-manager.ts`）。
   只有 `writeDraft`，全仓库**没有任何读取方** —— 写进去的草稿不会被提升到
@@ -189,9 +228,15 @@ type WritingSource = "human" | "ai" | "unknown"
 | `src/components/uitest/ui-test-shell.tsx` | 挂载点（`.ui-test-app` 的最后一个子节点）。 |
 | `src/components/uitest/ui-test.css` | `.ui-test-statusbar` 样式，**尺寸一律用 rem**。 |
 
-全书字数收在 store 里（`refreshTotalChars()`）。改造前有**三份独立实现**
-（`App.tsx` 窗口标题、`knowledge-tree.tsx` 目录字数、加上状态栏就是第三份），
-口径一旦漂移，三处会显示三个不同的总字数。现在它们读同一个数字。
+全书字数收在 store 里（`refreshTotalChars()`）。改造前是**两份独立实现**
+（`App.tsx` 窗口标题一处、`knowledge-tree.tsx` 目录字数一处），再加底部状态栏
+就是第三处；口径一旦漂移，三处会显示三个不同的总字数。
+现在 `App.tsx` 与状态栏读 store 的同一个 `totalChars`。
+
+**`knowledge-tree.tsx` 仍是自己 `reduce` 每页的 `countChapterBodyWords` 求和**
+（`refreshTotalChars()` 面向整本书、目录只算子集，两者的统计范围本来就不同）。
+两处数值一致靠的是它们都走 `chapter-word-count.ts` 这一层薄封装，
+而不是靠共享同一个已算好的数字 —— 改口径时要注意这两条路。
 
 ---
 
@@ -221,30 +266,68 @@ type WritingSource = "human" | "ai" | "unknown"
    `core.autocrlf=true` 让盘上文件是 CRLF，`readFileSync` 拿到的字符串里
    `\n` 是 `\r\n`，按 `\n` 拼的断言会静默失败。
 
+6. **别断言带具体缩进的源码字面量。**
+   第一版守卫断言过 `"</div>\n        {/* …"`：排版一动就红，而对真正要防的事
+   （状态栏被塞进主区）并不更灵敏。要么断言结构关系（`indexOf` 先后），
+   要么**真实渲染**后断言 DOM。渲染层面的挂载位置现在由
+   `ui-test-shell.spec.tsx` 用真 `createRoot` 钉住。
+
+7. **守卫测试必须是「删掉实现就红」的。**
+   本功能有两处测试曾经是自证式的：
+   - 「AI 生成的那部分不因为手写而变成手写」用了**另一章**记 AI，两章账本键
+     不相交，对「同章内 AI/手写混排」零覆盖；
+   - 「带外改动」直接调 store 的 `recordChapter(..., "unknown")`，断言的是
+     store API（单测早已覆盖），把 `applyDiskSyncIfSafe` 里那三行删掉它照样绿。
+   两处都已改成走真机通路。**改完的实现，要临时改坏一次、确认测试真的红。**
+
+8. **编辑器有未保存改动时，磁盘同步会被（正确地）拒绝。**
+   `shouldApplyDiskToEditor` 见 `hasUnsavedLocalEdits` 为真就返回 false，
+   否则会用磁盘内容盖掉用户刚敲的字。写「外部改动被同步进来」的测试时，
+   必须先把章节保存的 1s 防抖推过去（`vi.useFakeTimers()` +
+   `advanceTimersByTimeAsync(1200)`），否则同步根本不会发生，
+   而 `expect(editor).toContain(外部内容)` 会直接失败得让人摸不着头脑。
+
 ---
 
 ## 8. 验证
 
 | 命令 | 结果 |
 |---|---|
-| `npm run test:mocks` | **708 文件 / 6800 通过**，6 todo，0 失败 |
+| `npm run test:mocks` | **708 文件 / 6809 通过**，6 todo，0 失败 |
 | `npm run typecheck` | 通过 |
 | `npm run typecheck:tests` | 通过 |
 
-本次新增 5 个测试文件 / 92 个用例：
+本次新增 5 个测试文件 / 101 个用例（另在既有的 `ui-test-shell.spec.tsx` 里加 3 个）：
 
-- `src/lib/writing-stats.spec.ts`（28）—— 差分引擎：逐字输入、退格扣减、
-  删 AI 内容只扣 AI、替换保留未动字符、游程往返、长度错位重打基线、日计数夹 0。
+- `src/lib/writing-stats.spec.ts`（31）—— 差分引擎：逐字输入、退格扣减、
+  删 AI 内容只扣 AI、替换保留未动字符、**纯换序不产生任何增减**、
+  游程往返、长度错位重打基线、日计数夹 0。
 - `src/lib/writing-stats-persistence.spec.ts`（15）—— 坏 JSON/坏字段容错、
   历史裁剪、本地时区日期、全书字数口径。
-- `src/stores/writing-stats-store.spec.ts`（20）—— 跨天归档、AI 新章记账、
-  恢复往返、节流不每击键落盘。
+- `src/stores/writing-stats-store.spec.ts`（24）—— 跨天归档、AI 新章记账、
+  **AI 覆盖旧稿只算换掉的字**、恢复往返、节流不每击键落盘。
 - `src/components/uitest/ui-test-statusbar.spec.tsx`（13）—— 四项常显、
   圆环几何（`dashoffset` = 周长一半 @ 50%）、就地改目标、Esc 放弃、越界夹取。
-- `src/components/uitest/ui-test-statusbar-integration.spec.tsx`（16）——
-  **真实编辑器的端到端通路**：敲字加、退格减、删到 0 不为负、AI 栏不被手写污染、
-  带外改动吸收成 `unknown` 后仍归属正确、落盘摘要内容、重启后恢复、
-  磁盘对不上时重打基线，以及三条源码/接线的守卫测试。
+- `src/components/uitest/ui-test-statusbar-integration.spec.tsx`（18）——
+  **真实编辑器的端到端通路**：敲字加、退格减、删到 0 不为负、
+  同章内 AI 与手写互不污染（含删 AI 只扣 AI）、
+  带外改动经**真实的 `focus` → `applyDiskSyncIfSafe`** 吸收成 `unknown`、
+  落盘摘要内容、重启后恢复、磁盘对不上时重打基线，以及三条接线守卫。
 - `src/components/uitest/ui-test-shell.spec.tsx`（既有文件，+3）——
   状态栏真的挂上了、是 `.ui-test-app` 的**最后一个直接子节点**（贴底且横跨整窗）、
   且**不是** `.ui-test-workspace` 的子节点；书架页（无书）不渲染它。
+
+### 8.1 对抗式审查（本功能完成后所做）
+
+对本功能跑了一轮独立的对抗式审查，发现并修掉了两处会导致**数字撒谎**的缺陷：
+
+| 缺陷 | 症状 | 修法 |
+|---|---|---|
+| AI 覆盖已有正文时整份记 AI | 批量去 AI 味 30 章 → 「今日 AI 生成」+90,000，重跑再 +90,000；且开着的那一章数字还不一样 | `recordChapter` 新增 `previousMarkdown`，五个 AI 写入方全部传旧正文（§4.1） |
+| 磁盘同步贴入的正文不更新账本 | 外部追加 2000 字后用户敲一个「，」，手写 +2001 | 同步时记一笔 `unknown`（§3.3） |
+
+两处都补了「删掉实现就红」的回归测试（其中一处实测过：去掉修复后断言 246 ≠ 6）。
+审查同时确认了几件**没有**问题的事：没有任何路径让用户打字进 AI 栏、
+`sources.length === text.length` 恒等式成立、`diffChars` 超限返回 `undefined`
+而不抛异常、状态栏无 render 期 setState、布局不会被顶出视口
+（`.ui-test-workspace` 是 `flex:1; min-height:0`，状态栏 `flex-shrink:0`）。

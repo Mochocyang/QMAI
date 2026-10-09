@@ -218,18 +218,49 @@ describe("手动写作逐字统计", () => {
     expect(stats().humanChars).toBe("推开门。".length + "他慢慢".length)
   })
 
-  it("AI 生成的那部分不因为手写而变成手写", async () => {
+  it("同一章里 AI 写过的字，不因为用户接着手写就变成手写", async () => {
     await mount()
-    // 先在别处记一笔 AI（模拟聊天里生成并保存的一章）
-    const otherPath = `${project.path}/wiki/chapters/第2章.md`
-    const aiBody = "斗气分九段，萧炎曾是天才。"
-    stats().recordChapter(otherPath, `---\ntype: chapter\n---\n\n# 第2章\n\n${aiBody}`, "ai")
-    expect(stats().aiChars).toBe(aiBody.length)
+    vi.useFakeTimers()
+    await type("他推开门。")
+    await act(async () => { await vi.advanceTimersByTimeAsync(1200) })
+    expect(stats().humanChars).toBe(5)
 
+    // 同一章、同一个账本键上追加一段 AI 产出（模拟 AI 改写这一章），
+    // 并让编辑器内容跟着磁盘同步过来 —— 这是真实的「AI 写完用户接着写」。
+    const aiChunk = "斗气分九段，萧炎曾是天才。"
+    const aiChapter = `${fixture.files.get(chapterPath)!}\n\n　　${aiChunk}`
+    stats().recordChapter(chapterPath, aiChapter, "ai")
+    fixture.files.set(chapterPath, aiChapter)
+    await act(async () => { window.dispatchEvent(new Event("focus")) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    expect(stats().aiChars, "纯追加的 AI 正文整段记 AI").toBe(aiChunk.length)
+    expect(stats().humanChars, "AI 写的字不能算成手写").toBe(5)
+
+    // 在 AI 正文之后接着手写
     await type("新写的一句。")
-    // 手写增加，AI 那一栏一分不动
-    expect(stats().humanChars).toBe("新写的一句。".length)
-    expect(stats().aiChars).toBe(aiBody.length)
+    expect(stats().humanChars, "手写只加自己敲的那些").toBe(5 + "新写的一句。".length)
+    expect(stats().aiChars, "AI 那一栏一分不动").toBe(aiChunk.length)
+  })
+
+  it("同章里删掉 AI 写的字，只扣 AI 那一栏、不动手写", async () => {
+    await mount()
+    vi.useFakeTimers()
+    await type("他推开门。")
+    await act(async () => { await vi.advanceTimersByTimeAsync(1200) })
+
+    const aiChunk = "斗气分九段，萧炎曾是天才。"
+    const aiChapter = `${fixture.files.get(chapterPath)!}\n\n　　${aiChunk}`
+    stats().recordChapter(chapterPath, aiChapter, "ai")
+    fixture.files.set(chapterPath, aiChapter)
+    await act(async () => { window.dispatchEvent(new Event("focus")) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(stats().aiChars).toBe(aiChunk.length)
+
+    // 用户在编辑器里把 AI 那段删掉
+    await backspace(aiChunk.length)
+    expect(stats().aiChars, "删 AI 的字从 AI 那一栏扣").toBe(0)
+    expect(stats().humanChars, "删 AI 的字不该动用户手写的那 5 个字").toBe(5)
   })
 })
 
@@ -244,23 +275,54 @@ describe("状态栏与记账同源", () => {
 })
 
 describe("带外改动", () => {
-  it("外部改动的差额不算到用户头上，但此后用户敲的字仍归属正确", async () => {
+  it("真机通路：磁盘被外部改过 → 同步进编辑器后敲一个字，手写只加 1（不是整段）", async () => {
     await mount()
+    // 必须先让这次击键**保存落盘**：磁盘同步只在「本地没有未保存改动」时才会
+    // 把外部内容贴进编辑器（`shouldApplyDiskToEditor`），这本身就是正确的保护——
+    // 否则会用磁盘内容盖掉用户刚敲的字。所以这里先推进章节保存的 1s 防抖。
+    vi.useFakeTimers()
     await type("他推开门。")
+    await act(async () => { await vi.advanceTimersByTimeAsync(1200) })
     expect(stats().humanChars).toBe(5)
 
-    // 模拟另一个编辑器/外部同步把正文改了，并经由磁盘同步进编辑器。
-    // 走的是 recordChapter(..., "unknown") 这条路。
-    const foreignBody = `${originalBody}他推开门。外部工具塞进来的一整段。`
-    stats().recordChapter(chapterPath, chapter.replace(originalBody, foreignBody), "unknown")
+    // 模拟另一个编辑器 / 外部同步 / git 往盘上的文件追加一大段。
+    // 这是真实场景：本功能的存在前提之一就是支持外部编辑。
+    const onDisk = fixture.files.get(chapterPath)!
+    fixture.files.set(chapterPath, `${onDisk}\n\n　　${"外部工具塞进来的一整段。".repeat(20)}`)
 
-    // 带外内容既不进手写也不进 AI
-    expect(stats().humanChars).toBe(5)
+    // 触发 `applyDiskSyncIfSafe`：真实通路是 2s 轮询 / window focus /
+    // visibilitychange（preview-panel.tsx 的 syncNow）。走 focus，不去赌轮询时序。
+    await act(async () => { window.dispatchEvent(new Event("focus")) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    // 同步确实把外部正文贴进了编辑器。若这条不成立，下面的断言就是空的。
+    expect(textarea().value, "外部正文应已同步进编辑器").toContain("外部工具塞进来的一整段。")
+    // 但带外内容一个字都不进手写
+    expect(stats().humanChars, "外部改动不能被算成用户手写").toBe(5)
     expect(stats().aiChars).toBe(0)
 
-    // 关键：账本已跟上磁盘，所以用户接下来敲的那一个字仍然只算 1
-    stats().recordChapter(chapterPath, chapter.replace(originalBody, `${foreignBody}新`), "human")
-    expect(stats().humanChars).toBe(6)
+    // 关键：账本已跟上磁盘，所以用户接着敲的那一个字只算 1。
+    // 若 applyDiskSyncIfSafe 里那句 recordChapter(..., "unknown") 被删掉，
+    // 这里会把整段外部文本 + 这 1 个字全部算成手写。
+    await type("新")
+    expect(stats().humanChars, "外部正文不能因为用户敲一个字就被整段算成手写").toBe(6)
+    expect(stats().aiChars).toBe(0)
+  })
+
+  it("带外改动本身不计账（来源不可知就哪一栏都不进）", async () => {
+    await mount()
+    vi.useFakeTimers()
+    await type("他推开门。")
+    await act(async () => { await vi.advanceTimersByTimeAsync(1200) })
+    const before = stats().humanChars
+    expect(before).toBe(5)
+
+    const onDisk = fixture.files.get(chapterPath)!
+    fixture.files.set(chapterPath, `${onDisk}\n\n　　外来的一段。`)
+    await act(async () => { window.dispatchEvent(new Event("focus")) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+
+    expect(stats().humanChars).toBe(before)
     expect(stats().aiChars).toBe(0)
   })
 })
@@ -352,11 +414,15 @@ describe("接线守卫", () => {
 
   it("状态栏挂在 shell 的 .ui-test-app 里（写作与非写作两条渲染路径都覆盖）", () => {
     const shell = readSource("src/components/uitest/ui-test-shell.tsx")
-    // 必须是 workspace 的兄弟节点而不是子节点，否则状态栏只会出现在主区右侧、不横跨整窗
-    expect(
-      shell,
-      "状态栏应紧跟在 .ui-test-workspace 之后、作为 .ui-test-app 的直接子节点",
-    ).toContain("</div>\n        {/* 未打开小说时不显示")
+    // 只断言「状态栏在 workspace 之后」这个**结构关系**，不用逐字符缩进：
+    // 第一版断言过 "</div>\n        {/* …" 这种带具体缩进的字面量，
+    // 排版一动就红，而对真正要防的事（状态栏被塞进主区）并不更灵敏。
+    // 渲染层面的挂载位置由 ui-test-shell.spec.tsx 真实渲染后断言。
+    const workspaceEnd = shell.indexOf('className="ui-test-workspace"')
+    const barAt = shell.indexOf("<WritingStatusBar")
+    expect(workspaceEnd, "shell 应有 .ui-test-workspace").toBeGreaterThan(-1)
+    expect(barAt, "shell 应渲染 WritingStatusBar").toBeGreaterThan(-1)
+    expect(barAt, "状态栏必须排在 workspace 之后（贴底）").toBeGreaterThan(workspaceEnd)
     expect(shell, "状态栏应只在打开小说后渲染").toContain("{project && <WritingStatusBar />}")
   })
 

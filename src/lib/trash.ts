@@ -7,8 +7,9 @@ import {
   readFile,
   writeFile,
 } from "@/commands/fs"
-import { normalizePath } from "@/lib/path-utils"
+import { isChapterPath, normalizePath } from "@/lib/path-utils"
 import { makeChapterFileStem, makeSafeFileSlug } from "@/lib/wiki-filename"
+import { useWritingStatsStore } from "@/stores/writing-stats-store"
 
 export type TrashItemKind = "chapter" | "outline" | "page" | "file" | "history" | "skill" | "storymap"
 
@@ -263,6 +264,12 @@ export async function restoreTrashItem(
     await copyDirectory(item.trashPath, restoreTarget.path)
   } else {
     await writeFile(restoreTarget.path, content)
+  }
+  // 还原到**改名后**的新路径时，把写作归属账本一起搬过去。
+  // 不搬的话旧键成了孤儿、新路径从零打基线，用户此前手写的归属会静默消失
+  // （自己敲了几百字 → 删掉 → 还原，那几百字就凭空不算了）。
+  if (restoreTarget.renamed && isChapterPath(restoreTarget.path)) {
+    useWritingStatsStore.getState().transferChapter(item.originalPath, restoreTarget.path)
   }
   await deleteFile(item.trashPath)
   await writeTrashItems(pp, items.filter((candidate) => candidate.id !== itemId))
