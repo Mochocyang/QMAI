@@ -6,12 +6,12 @@
     "doc": "开篇方向"
   },
   "provenance": {
-    "capturedAt": "2026-10-09T14:05:04.298Z",
+    "capturedAt": "2026-10-09T15:03:37.440Z",
     "script": "C:\\QMAI_C\\QMAI-main\\docs\\font-scaling-fix-20261007\\verify-real-exe-settings-save.mjs",
     "scriptSha256": "a73b3d93e2247b862c3092166d522f34e2c4b2a442d7a3b55a6f227e58a29829",
     "cdpPort": 9333,
-    "exe": "release-portable/QMaiWrite.exe",
-    "exeSha256": "f628a9fa440aa3815bf53b3a3b79280ed34b8d74c52d1437a7ac5261c1db9da0",
+    "exe": "C:\\QMAI_C\\QMAI-main\\src-tauri\\target\\release\\qmai.exe",
+    "exeSha256": "0d788923bdd4e1469305f9f9f75c84daf63bdeb3b675f910f891588fee457cd7",
     "node": "v24.9.0"
   },
   "initial": {
@@ -361,8 +361,8 @@
         "sys:yyb"
       ]
     },
-    "bodyPixelHashBefore": "9f337cc96330a06897568f9de2b7d54f2a2c46caa8b44acfad39b82f8495de4e",
-    "bodyPixelHashAfter": "2643127ff418357b3fcf44102be7dbc872ae443cefa1743e727dbbf50b075554",
+    "bodyPixelHashBefore": "c358fae959e3e70823f78134da1452eddcd73805ee5eb708ce7578e7e8d919d6",
+    "bodyPixelHashAfter": "f6837c3cf5ddd1491bd38e03e7fd502464733fe1f7ea5d30ac1ad0ea94031307",
     "bodyPixelMoved": true,
     "brandPixelHashBefore": "58007a28d2cd407b78e5f91d3e0da730fb0f9c48442aeade5eba645c56269827",
     "brandPixelHashAfter": "58007a28d2cd407b78e5f91d3e0da730fb0f9c48442aeade5eba645c56269827",
@@ -429,8 +429,8 @@
     "backup": {
       "statePath": "C:\\Users\\Administrator\\AppData\\Roaming\\com.qingmuai.writer\\app-state.json",
       "backupPath": "C:\\QMAI_C\\QMAI-main\\.codex-temp\\app-state-before-settings-save.json",
-      "sha256": "4954cdf81d7744cc436831f4451d9eaaa71d0a68e69f21fb3bb47110e3c6ad28",
-      "bytes": 27319
+      "sha256": "b94a6b3e8047e36ca24ff7b89e8779d1a73f4d42de95f85a76735aa9d5d05033",
+      "bytes": 27321
     }
   },
   "fails": [],
@@ -439,7 +439,7 @@
   "userStateBackup": {
     "statePath": "C:\\Users\\Administrator\\AppData\\Roaming\\com.qingmuai.writer\\app-state.json",
     "backupPath": "C:\\QMAI_C\\QMAI-main\\.codex-temp\\app-state-before-settings-save.json",
-    "sha256": "4954cdf81d7744cc436831f4451d9eaaa71d0a68e69f21fb3bb47110e3c6ad28",
-    "bytes": 27319
+    "sha256": "b94a6b3e8047e36ca24ff7b89e8779d1a73f4d42de95f85a76735aa9d5d05033",
+    "bytes": 27321
   }
 }
