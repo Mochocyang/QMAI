@@ -1,0 +1,90 @@
+{
+  "capturedAt": "2026-10-09T02:10:48.778Z",
+  "note": "verify-body-font-scale.mjs 的证据（跑 dist + playwright 自带 chromium；不碰真实 exe、不碰用户数据）",
+  "dist": "C:\\QMAI_C\\QMAI-main\\dist",
+  "distIndexMtime": "2026-10-08T18:25:53.797Z",
+  "defaultCase": {
+    "checkedPoints": 10,
+    "matched": 10,
+    "rows": [
+      {
+        "name": "正文 .ProseMirror p",
+        "want": 18,
+        "actualRaw": "18px",
+        "actual": 18,
+        "ok": true
+      },
+      {
+        "name": "正文 .ui-test-editor-body",
+        "want": 18,
+        "actualRaw": "18px",
+        "actual": 18,
+        "ok": true
+      },
+      {
+        "name": "文档标题 h2",
+        "want": 18,
+        "actualRaw": "18px",
+        "actual": 18,
+        "ok": true
+      },
+      {
+        "name": "查找高亮层",
+        "want": 18,
+        "actualRaw": "18px",
+        "actual": 18,
+        "ok": true
+      },
+      {
+        "name": "输入层 textarea",
+        "want": 18,
+        "actualRaw": "18px",
+        "actual": 18,
+        "ok": true
+      },
+      {
+        "name": "列表容器 ul",
+        "want": 16,
+        "actualRaw": "16px",
+        "actual": 16,
+        "ok": true
+      },
+      {
+        "name": "列表项 li",
+        "want": 16,
+        "actualRaw": "16px",
+        "actual": 16,
+        "ok": true
+      },
+      {
+        "name": "无序标记 ::marker",
+        "want": 12,
+        "actualRaw": "12px",
+        "actual": 12,
+        "ok": true
+      },
+      {
+        "name": "有序列表项 li",
+        "want": 16,
+        "actualRaw": "16px",
+        "actual": 16,
+        "ok": true
+      },
+      {
+        "name": "有序标记 ::marker",
+        "want": 16,
+        "actualRaw": "16px",
+        "actual": 16,
+        "ok": true
+      }
+    ],
+    "liDisplay": "list-item"
+  },
+  "guards": [],
+  "guardsFailed": 0,
+  "verdict": "pass",
+  "fonts": {
+    "paragraph": "Noto Serif SC",
+    "heading": "Microsoft YaHei UI"
+  }
+}

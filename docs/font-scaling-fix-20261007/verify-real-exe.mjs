@@ -365,6 +365,65 @@ async function main() {
       console.log(`  Chromium 报告正文真实字体: ${cdpBody ?? "(取不到)"}`)
 
       /*
+       * ── 5 个 App 独占变量必须**断言**，不能只打印（代码质量审查 I-5）──
+       *
+       * 这一段原来只有上面那行 console.log。审查的判词很准：
+       * 这 5 个变量在全文里只出现在"采集"和"打印"两处，**没有任何 fails.push**，
+       * 而注释（上面那段）明确写着它们是"本次改造新引入的失败模式"、
+       * 需要真机确认"有没有真的写进去"。**只打印不断言 = 把判定推给人眼扫一行长输出**，
+       * 而人眼对一长串 `${x || "(未设置)"}` 的分辨力极低 —— 真出问题时
+       * 恰恰是那串 "(未设置)" 被看漏。
+       *
+       * 判据分两类，因为它们的"正确值"来源不同：
+       *   · --qmai-body-font-px 是**用户设置**驱动的最外层输入，
+       *     App 一定会写（applyBodyTypography 无条件写这一条）→ 必须非空且形如 "<数字>px"；
+       *   · 其余 4 条只有在用户**设过**对应项时才由 App 写入
+       *     （marginX 未拖过时 App 会 removeProperty）→ 只要求"若存在则必须是合法数值"，
+       *     不要求非空。把它们也要求非空会制造假红：全新用户本来就没有这几个值。
+       * 这里**默认档**跑的是 page.evaluate(SET_BODY_PX, {bodyPx:null,rootPct:null})，
+       * 即清掉 App 行内样式、回落到 CSS 兜底 —— 所以此刻读到的值来自 CSS 或用户设置，
+       * 正是我们想确认"没有被 ui-test.css 偷偷声明一份盖掉"的时刻。
+       */
+      {
+        const isPx = (v) => /^-?\d+(\.\d+)?px$/.test(v)
+        const isNumber = (v) => /^-?\d+(\.\d+)?$/.test(v)
+        // 字号：必须存在且是合法 px（CSS 兜底 chain 里 --qmai-body-font-px 有 18px 默认，
+        // 若这里读不到，说明兜底链断了 —— 那是真缺陷）
+        if (!isPx(base.vars.bodyFontPx)) {
+          fails.push(`I-5/--qmai-body-font-px 读不到合法 px（实际 ${JSON.stringify(base.vars.bodyFontPx)}）—— 字号兜底链断了`)
+        }
+        // 派生尺寸：由字号派生，必须与上面同源
+        if (!isPx(base.vars.bodyFontSize)) {
+          fails.push(`I-5/--qmai-body-font-size 读不到合法 px（实际 ${JSON.stringify(base.vars.bodyFontSize)}）`)
+        }
+        // 行高：必须是无单位数字（带单位会让行高不随字号变化）
+        if (base.vars.bodyLeading && !isNumber(base.vars.bodyLeading)) {
+          fails.push(`I-5/--qmai-body-leading 不是无单位数字（实际 ${JSON.stringify(base.vars.bodyLeading)}）`)
+        }
+        // 字间距 / 左右边距 / 底部安全距离：存在则必须是合法数值
+        for (const [name, v, unit] of [
+          ["--qmai-body-letter-spacing", base.vars.bodyLetterSpacing, "number"],
+          ["--qmai-body-margin-x", base.vars.bodyMarginX, "px"],
+          ["--qmai-body-safe-bottom", base.vars.bodySafeBottom, "px"],
+        ]) {
+          if (!v) continue // 未设置是合法状态（全新用户），见上面的理由
+          const ok = unit === "px" ? isPx(v) : isNumber(v)
+          if (!ok) fails.push(`I-5/${name} 存在但不是合法 ${unit}（实际 ${JSON.stringify(v)}）`)
+        }
+        /*
+         * 反向控制（本段的自我鉴别力）：故意喂一个坏值，上面那组判据必须能抓住。
+         * 不做这一步的话，"没报 fail"既可能是"值都对"，也可能是"判据恒不触发" ——
+         * 而这一整段的起因恰恰就是"判据根本不存在"。
+         */
+        const probeBad = [{ v: "", why: "空" }, { v: "abc", why: "非数值" }, { v: "24", why: "缺 px" }]
+        const caught = probeBad.filter((p) => !isPx(p.v)).length
+        if (caught !== probeBad.length) {
+          fails.push(`I-5/自检失效：判据没能识破全部 ${probeBad.length} 个坏值（只识破 ${caught} 个）`)
+        }
+        console.log(`  ✓ 5 个 App 独占变量已断言（字号/派生/行高必查格式，其余存在则查格式；判据自检 ${caught}/${probeBad.length}）`)
+      }
+
+      /*
        * 组合表：尺子由「倍数」改成「绝对 px」。
        *
        * 「界面150%」与「24px+界面150%」这两档**必须保留** —— 它们证明的是

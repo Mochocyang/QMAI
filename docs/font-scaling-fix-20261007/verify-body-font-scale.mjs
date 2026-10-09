@@ -38,13 +38,24 @@
  */
 
 import { createServer } from "node:http"
-import { readFileSync, existsSync, statSync } from "node:fs"
+import { readFileSync, existsSync, statSync, writeFileSync, mkdirSync } from "node:fs"
 import { join, extname, resolve, dirname } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const REPO = resolve(HERE, "..", "..")
 const DIST = join(REPO, "dist")
+/*
+ * 证据落盘目录 —— 与 verify-real-exe.mjs 用同一个约定（同名目录、同名 --shot-dir 开关），
+ * 这样"本任务的验收产物"集中在一处，读者不必记住两套路径。
+ * 注意它与真实 exe 的产物**混在同一个目录**里，但文件名不同
+ * （body-font-scale.json vs real-exe-*.json），且本文件头部会写明它不碰真实 exe。
+ */
+const argvScale = process.argv.slice(2)
+const SHOT_DIR = (() => {
+  const i = argvScale.indexOf("--shot-dir")
+  return i >= 0 ? argvScale[i + 1] : join(HERE, "real-exe-shots")
+})()
 
 const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -350,6 +361,51 @@ async function main() {
     console.log("       结构，证明真实 CSS 规则对真实变量有正确反应；不替代真实 exe 目视。")
     for (const g of guards) console.log(`  ✗ GUARD-FAIL [${g.code}] ${g.detail}`)
     console.log(`  结论: 默认档 ${baseOk}/${expectBase.length} 逐位还原、字号生效、界面与正文解耦，守卫 ${guards.length} 项未通过 → ${guards.length === 0 ? "✓ 通过" : "✗ 未通过"}`)
+
+    /*
+     * ── 落一份证据文件（代码质量审查 M-6）──
+     *
+     * 本仓库自己已经在 verify-real-exe-settings-save.mjs:53-60 里论证过：
+     * 「引用一个只存在于终端里的数字，等于引用一个无法复核的断言」。
+     * 按同一标准，本脚本之前**不写任何产物** —— 于是"默认档 10/10 逐位还原"
+     * 这句结论只活在终端回滚缓冲里，谁都没法复查（连我自己复核时也只能重跑一遍）。
+     * 而重跑依赖 dist 与 chromium，条件会变。
+     *
+     * 这里写 JSON：把关口判定用到的读数原样存下来，让"当时到底看到了什么"可复核。
+     * 与 `dist/index.html` 的 mtime 一起存，以区分"前端变了"和"行为变了"。
+     * 只写**已经在作用域里**的量（expectBase / at1 / baseOk / guards），
+     * 不新造变量 —— 编造一个不存在的 `baseValues` 会让这一整段在运行期直接
+     * ReferenceError，把一次通过的验证变成崩溃。
+     */
+    const evidence = {
+      capturedAt: new Date().toISOString(),
+      note: "verify-body-font-scale.mjs 的证据（跑 dist + playwright 自带 chromium；不碰真实 exe、不碰用户数据）",
+      dist: DIST,
+      distIndexMtime: (() => { try { return statSync(join(DIST, "index.html")).mtime.toISOString() } catch { return null } })(),
+      defaultCase: {
+        checkedPoints: expectBase.length,
+        matched: baseOk,
+        rows: expectBase.map(([name, rec, want]) => ({
+          name, want,
+          actualRaw: rec ? rec.fontSizeRaw : null,
+          actual: rec ? rec.fontSize : null,
+          ok: rec ? close(rec.fontSize, want) : false,
+        })),
+        liDisplay: at1.liDisplay,
+      },
+      guards,
+      guardsFailed: guards.length,
+      verdict: guards.length === 0 ? "pass" : "fail",
+      fonts: { paragraph: paraFont, heading: headFont },
+    }
+    try {
+      mkdirSync(SHOT_DIR, { recursive: true })
+      writeFileSync(join(SHOT_DIR, "body-font-scale.json"), JSON.stringify(evidence, null, 2), "utf8")
+      console.log(`  证据已写入: ${join(SHOT_DIR, "body-font-scale.json")}`)
+    } catch (error) {
+      /* 写证据失败不该把一次通过的验证变成失败 —— 但必须说出来，不能静默 */
+      console.log(`  ⚠ 证据写入失败（结论仍然有效）：${error?.message ?? error}`)
+    }
     process.exit(guards.length === 0 ? 0 : 1)
   } finally {
     await browser.close()

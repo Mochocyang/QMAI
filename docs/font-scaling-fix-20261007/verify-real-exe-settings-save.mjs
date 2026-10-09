@@ -130,12 +130,31 @@ const READ_STATE = () => {
     /* App 独占的 5 个变量里，本用例最关心字号这一个 ——
        它由 applyBodyTypography 写成 `<N>px`。旧名 domBodyScale（倍数）已废弃。 */
     domBodyPx: r.style.getPropertyValue("--qmai-body-font-px") || null,
+    /*
+     * ── 另外 4 个 App 独占变量（代码质量审查 M-1）──
+     *
+     * 原来这里只读字号一个，于是「行间距 / 字间距 / 左右边距 / 底部安全距离」
+     * 这 4 个**新增参数**在整条保存链路上没有任何 e2e 断言 ——
+     * 只在 vitest 单测层被覆盖，而 vitest 不在 CI 里（已实测 .github/workflows 不跑它）。
+     * 用户报的原始症状恰恰是「保存了但界面不变」，那对任何**单个**参数
+     * 都可能发生（例如某个 saveUiBody* 忘了接线、或某个变量被 ui-test.css 盖掉）。
+     * 只验字号一个，等于默认其余 4 个不会单独坏 —— 而它们各自是独立的一条线。
+     */
+    domBodyLeading: r.style.getPropertyValue("--qmai-body-leading") || null,
+    domBodyLetterSpacing: r.style.getPropertyValue("--qmai-body-letter-spacing") || null,
+    domBodyMarginX: r.style.getPropertyValue("--qmai-body-margin-x") || null,
+    domBodySafeBottom: r.style.getPropertyValue("--qmai-body-safe-bottom") || null,
     domUiFamilyVar: r.style.getPropertyValue("--qmai-ui-font-family") || null,
     domBodyFamilyVar: r.style.getPropertyValue("--qmai-body-font-family") || null,
     storedUi: parse("qmai-ui-font-size-scale"),
     /* 正文字号落盘在 qmai-body-font-px（px 数字，无单位）。
        旧的 qmai-ui-body-font-scale 只剩迁移用途，不再被写入。 */
     storedBody: parse("qmai-body-font-px"),
+    /* 4 个新参数的落盘键（用于核对"DOM 变了但没落盘"这条反向失败） */
+    storedLeading: (() => { const v = str("qmai-body-line-height"); return v == null ? null : Number(v) })(),
+    storedLetterSpacing: (() => { const v = str("qmai-body-letter-spacing"); return v == null ? null : Number(v) })(),
+    storedMarginX: (() => { const v = str("qmai-body-margin-x"); return v == null ? null : Number(v) })(),
+    storedSafeBottom: (() => { const v = str("qmai-body-safe-bottom"); return v == null ? null : Number(v) })(),
     storedUiFont: str("qmai-ui-font-family"),
     storedBodyFont: str("qmai-body-font-family"),
     settingsOpen: !!document.querySelector('[data-ui="settings-navigation"]'),
@@ -144,6 +163,11 @@ const READ_STATE = () => {
       bodySize: (() => { const e = document.querySelector('input[aria-label="正文字号"]'); return e ? Number(e.value) : null })(),
       uiFont: (() => { const e = document.querySelector('select[aria-label="界面字体"]'); return e ? e.value : null })(),
       bodyFont: (() => { const e = document.querySelector('select[aria-label="正文字体"]'); return e ? e.value : null })(),
+      /* 4 个新控件的当前值 —— 用例 2 会把它们一起改掉 */
+      lineHeight: (() => { const e = document.querySelector('input[aria-label="行间距"]'); return e ? Number(e.value) : null })(),
+      letterSpacing: (() => { const e = document.querySelector('input[aria-label="字间距"]'); return e ? Number(e.value) : null })(),
+      marginX: (() => { const e = document.querySelector('input[aria-label="左右边距"]'); return e ? Number(e.value) : null })(),
+      safeBottom: (() => { const e = document.querySelector('input[aria-label="底部安全距离"]'); return e ? Number(e.value) : null })(),
     },
   }
 }
@@ -288,6 +312,36 @@ await wait(300)
 const set2 = await page.evaluate(SET_CONTROL, { tag: "input", label: "正文字号", value: BODY_PX_TO_TRY })
 console.log(`  拖滑块: 正文写入 ${set2.value}（min=${set2.min} max=${set2.max} step=${set2.step}）`)
 if (set2.value !== String(BODY_PX_TO_TRY)) fails.push(`尺子失效：正文字号滑块写入 ${BODY_PX_TO_TRY} 但读到 ${set2.value}（单位应为 px）`)
+
+/*
+ * ── 代码质量审查 M-1：4 个新增参数必须在保存链路上被真的验一次 ──
+ *
+ * 原来本用例只动「正文字号」一个滑块。于是「行间距 / 字间距 / 左右边距 /
+ * 底部安全距离」这 4 条**各自独立**的接线在真实 exe 上从未被走过：
+ * 只要其中某一条（例如某个 saveUiBody* 忘了接、或某个变量被 ui-test.css
+ * 盖掉）坏了，本脚本照样全绿。
+ *
+ * 四个期望值刻意取成与默认值**互不相同**，否则"写入 == 没写"分不出来：
+ * 行间距默认 1.95 → 取 2.2；字间距默认 0 → 取 0.4；
+ * 左右边距默认跟随窗口（App 不写行内样式）→ 取 44px；
+ * 底部安全距离默认 51 → 取 55。
+ * 另外 4 个值两两不同，这样"串味"（把 A 的值写到 B 的键上）也能被抓住。
+ */
+const FOUR = [
+  { label: "行间距", key: "domBodyLeading", storedKey: "storedLeading", want: 2.2, unit: "" },
+  { label: "字间距", key: "domBodyLetterSpacing", storedKey: "storedLetterSpacing", want: 0.4, unit: "" },
+  { label: "左右边距", key: "domBodyMarginX", storedKey: "storedMarginX", want: 44, unit: "px" },
+  { label: "底部安全距离", key: "domBodySafeBottom", storedKey: "storedSafeBottom", want: 55, unit: "px" },
+]
+const fourSet = []
+for (const f of FOUR) {
+  const r = await page.evaluate(SET_CONTROL, { tag: "input", label: f.label, value: f.want })
+  fourSet.push({ ...f, read: r.value })
+  /* 尺子：滑块自己得先写对，否则后面"保存没生效"可能是滑块的问题 */
+  if (Number(r.value) !== f.want) fails.push(`尺子失效：${f.label} 滑块写入 ${f.want} 但读到 ${r.value}`)
+}
+console.log(`  另外 4 个参数：${fourSet.map((f) => `${f.label}=${f.read}`).join("  ")}`)
+
 await wait(600)
 console.log(`  点保存: ${JSON.stringify(await page.evaluate(CLICK_SAVE))}`)
 await wait(2500)
@@ -297,13 +351,29 @@ const ok2 = (a2.domRootPct === "100%" || a2.domRootPct === null)
   && a2.domBodyPx === `${BODY_PX_TO_TRY}px`
   && effBodyPx(a2.storedBody) === BODY_PX_TO_TRY
   && effUi(a2.storedUi) === 1
+
+/* 逐条核对 4 个新参数：DOM 行内样式与落盘两侧都要对 */
+const fourChecks = []
+for (const f of FOUR) {
+  const wantStr = `${f.want}${f.unit}`
+  const domOk = a2[f.key] === wantStr
+  const storedOk = a2[f.storedKey] === f.want
+  fourChecks.push({ label: f.label, want: wantStr, dom: a2[f.key], stored: a2[f.storedKey], domOk, storedOk })
+  if (!domOk) fails.push(`M-1/${f.label} 保存后 DOM --qmai-body-* 应为 ${wantStr}，实际 ${JSON.stringify(a2[f.key])}`)
+  if (!storedOk) fails.push(`M-1/${f.label} 保存后落盘应为 ${f.want}，实际 ${JSON.stringify(a2[f.storedKey])}`)
+  console.log(`    ${domOk && storedOk ? "✓" : "✗"} ${f.label.padEnd(7)} DOM=${a2[f.key] ?? "(未写)"} 落盘=${a2[f.storedKey] ?? "(未写)"}  （期望 ${wantStr}）`)
+}
+const fourOk = fourChecks.every((c) => c.domOk && c.storedOk)
+if (!fourOk) fails.push(`M-1/4 个新增参数里至少一个保存后未生效（见上逐条）`)
+
 evidence.cases.push({
-  label: `正文→${BODY_PX_TO_TRY}px（界面回100%）`, slider: { written: BODY_PX_TO_TRY, read: set2.value, min: set2.min, max: set2.max, step: set2.step },
+  label: `正文→${BODY_PX_TO_TRY}px（界面回100%）+ 4 个新参数`, slider: { written: BODY_PX_TO_TRY, read: set2.value, min: set2.min, max: set2.max, step: set2.step },
   after: a2, domBodyPx: a2.domBodyPx, domRootPct: a2.domRootPct,
-  storedBody: a2.storedBody, storedUi: a2.storedUi, ok: ok2,
+  storedBody: a2.storedBody, storedUi: a2.storedUi, fourChecks, ok: ok2 && fourOk,
 })
 console.log(`    ${ok2 ? "✓" : "✗"} 正文字号：DOM(${a2.domBodyPx}) 落盘(${a2.storedBody}) 界面字号回(${a2.storedUi})`)
 if (!ok2) fails.push(`正文字号保存未生效：DOM --qmai-body-font-px=${a2.domBodyPx} 落盘 正文=${a2.storedBody} 界面=${a2.storedUi}`)
+if (!fourOk) console.log(`    ✗ 4 个新参数未全部生效 —— 这条例外原先没有任何断言（审查 M-1）`)
 
 // ── 用例 3：正文字号必须在真实文档上量出**设定的绝对 px** ──
 console.log("")

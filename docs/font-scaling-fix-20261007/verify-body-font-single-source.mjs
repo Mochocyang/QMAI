@@ -53,7 +53,16 @@ export const BODY_SIZE_VAR = "--qmai-body-font-size"
 export const BODY_LINE_VAR = "--qmai-body-line-height"
 export const BODY_LIST_VAR = "--qmai-body-font-list"
 export const BODY_MARKER_VAR = "--qmai-body-font-marker"
-export const BODY_SCALE_VAR = "--qmai-body-font-scale"
+/*
+ * ⚠ 这里曾导出 `BODY_SCALE_VAR = "--qmai-body-font-scale"`，已删除（代码质量审查 M-5）。
+ *
+ * 它是改造前百分比模型留下的常量。`git show e473dd6` 显示：本次 px 改造
+ * 删掉了它的**最后一处使用**，却把 `export const` 留了下来 ——
+ * 于是成了一个"看起来像契约的一部分、实际没有任何代码读它"的遗物。
+ * 后果不是报错，而是**误导读代码的人**：他会以为守卫还在管
+ * `--qmai-body-font-scale` 这个变量（px 模型下它已不该存在）。
+ * 这类"删了用途、留下名字"的残留会让契约的边界看起来比实际宽。
+ */
 
 /* ─────────────────────────── 解析辅助 ─────────────────────────── */
 
@@ -211,7 +220,18 @@ export function verify(editorCss, uitestCss) {
       const m = flat.match(/^var\(--qmai-body-leading,(-?\d*\.?\d+)\)$/)
       if (!m) bad("变量定义", `${BODY_LINE_VAR} 应为 var(--qmai-body-leading, 1.95)，实际 ${d.value}`)
       else if (Number(m[1]) !== 1.95) bad("变量定义", `${BODY_LINE_VAR} 的默认值应为 1.95（改造前的取值），实际 ${m[1]}`)
-      else if (hasPx(d.value)) bad("变量定义", `${BODY_LINE_VAR} 不能带单位（带单位会让行高不随字号变化）`)
+      /*
+       * ⚠ 这里原本还有一条 `else if (hasPx(d.value))`，已删除（代码质量审查 F3/M-4）。
+       *
+       * 它是**不可达的死分支**：能走到这一行的前提是上面的正则命中了，
+       * 而那个正则的固定部分（`var(--qmai-body-leading,` 与 `)`）不含字母 x，
+       * 捕获组只能填数字与小数点 —— 命中时 `d.value` 里不可能出现 "px"，
+       * 所以 `hasPx` 恒为 false。（构造性证明，不是"看着像"。）
+       *
+       * 带 px 的形态会落到上一条 `if (!m)` 报错，功能没有丢失 ——
+       * 有夹具为证：反例⑳（默认值写成 1.9）。
+       * 留着它的害处不是少报，而是让后来的人以为"带单位"这条路径已被单独覆盖。
+       */
     }
   }
 
@@ -378,9 +398,20 @@ const GOOD_EDITOR = `
  * 实测有 7 条独立判据、行高默认值判据、以及 5 个 App 独占变量里的 3 个，
  * 在被改成"永不触发"之后 **--selftest 仍然全绿**。
  *
- * 修法照审查的建议：把断言从"红了没"升级为"**红了哪些 rule**"。
- * 要做到这一点，夹具清单必须能被外部读到（测量实际 rule 名、
- * 再由夹具声明期望），所以这里把它抽成独立导出。
+ * 修法照审查的建议：把断言从"红了没"升级为"**红了几条、红在哪**"。
+ * 要做到这一点，判据本身（count/includes）就够了，并不需要外部读夹具。
+ *
+ * ── 关于这个导出（代码质量审查 M-5 的更正）──
+ * 原注释说「夹具清单必须能被外部读到（测量实际 rule 名、再由夹具声明期望），
+ * 所以这里把它抽成独立导出」。那句话与实际不符：**全仓没有任何模块 import
+ * 这个守卫**（另外 3 个脚本只在注释里提到它的文件名）。
+ *
+ * 保留导出的真实理由是**本机的本机探针在用**：
+ *   · .codex-temp/measure-selftest-rules.mjs  打印每条夹具实际报出的 rule+detail
+ *   · .codex-temp/measure-new-fixtures.mjs    量候选新夹具的 count/includes
+ *   · .codex-temp/verify-t12-fixture-gap-closed.mjs  逐条把子判据改坏、看自检是否变红
+ * 它的价值是"让夹具的期望可以被**量出来**而不是猜出来" ——
+ * 这正是本轮补 ㉗–㊲ 时用的办法。若哪天没人再这么用，这个导出可以删。
  */
 export function selftestCases() {
   const cases = []
@@ -554,6 +585,86 @@ export function selftestCases() {
       "font: 600 1.5rem/1.6 var(--ui);"),
     ROOT_OK, false, { count: 1, includes: ["文档标题", "字号应跟随正文字号"] })
 
+  /*
+   * ── 反例㉗–㊲：代码质量审查实测出的**第二批**夹具盲区 ──
+   *
+   * 审查把守卫里**全部 40 个 bad() 调用点**逐个改成「永不触发」，
+   * 结果有 **13 处**自检仍然全绿（其中 1 处是不可达的死分支，见下面 M-4 的修复）。
+   * 剩下 **12 处可达**、且与上一轮已修的 10 处**不重叠**。
+   *
+   * 为什么这 12 处要紧（不是"凑覆盖率"）：
+   *   · L248「编辑器里出现字面 px font-size」是这类回归的**唯一**防线 ——
+   *     动态脚本发现不了它（我把它整条规则删掉，动态守卫 B 仍判"两者相等"，
+   *     因为元素从 .ui-test-editor-body 继承了同一个字号）。静态这一条若被
+   *     改坏而没人知道，这条回归就是**双侧失明**。
+   *   · L254「font 简写的行高写成 px」与 L212「行高间接层漏兜底值」同类：
+   *     漏兜底值会让 var() 在计算值阶段失效、行高静默退回 normal。
+   *   · 7 处"结构缺失"分支（没有 font / 没有 font-size / 无法解析）是
+   *     改错选择器时最先响的那批 —— 选择器写错是最常见的改动失误。
+   *
+   * 每条的 count 与 includes 都是**量出来的**（.codex-temp/measure-new-fixtures.mjs
+   * 直接 import verify() 跑候选变异、打印全部 rule+detail），不是猜的。
+   * 写法上坚持"一次只动一个分量"：㉗ 与 ㊱ 之所以改选择器/属性而不是改用 px，
+   * 是为了避免同时触发位置判据（px 会多报一条 "绝对单位"）。
+   */
+  add("反例㉗：编辑器里新出现一条字面 px 字号（不碰任何既有规则）",
+    GOOD_EDITOR + "\n.ui-test-root .ui-test-editor-body blockquote { font-size: 20px; }\n",
+    ROOT_OK, false, { count: 1, includes: ["font-size 仍是绝对单位：20px"] })
+  add("反例㉘：正文基准 font 简写里的**行高**写成 px（字号仍对）",
+    mut(".ui-test-editor-body { font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); }",
+      ".ui-test-editor-body { font: 400 var(--qmai-body-font-size)/26px var(--serif); }"),
+    ROOT_OK, false, { count: 2, includes: ["font 简写的行高仍是绝对单位：26px", "的行高应为 var(--qmai-body-line-height)，实际 26px"] })
+  add("反例㉙：行高间接层漏掉兜底值（var() 会失效、行高退回 normal）",
+    GOOD_EDITOR,
+    ROOT_OK.replace("var(--qmai-body-leading, 1.95)", "var(--qmai-body-leading)"), false, { count: 1, includes: ["--qmai-body-line-height 应为 var(--qmai-body-leading, 1.95)，实际 var(--qmai-body-leading)"] })
+  add("反例㉚：删掉查找高亮层整条规则（字号与行高一起丢）",
+    GOOD_EDITOR.split("\n").filter((l) => !l.includes("[data-find-highlights]")).join("\n"),
+    ROOT_OK, false, { count: 2, includes: ["[data-find-highlights] 没有 font-size 声明", "[data-find-highlights] 没有 line-height 声明"] })
+  add("反例㉛：正文基准整条 font 声明缺失（选择器写错的典型后果）",
+    mut(".ui-test-editor-body { font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); }",
+      ".ui-test-editor-body { color: red; }"),
+    ROOT_OK, false, { count: 1, includes: ["没有 font 声明（找不到字号来源）"] })
+  add("反例㉜：输入层整条 font 声明缺失",
+    mut("textarea { font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); }",
+      "textarea { color: red; }"),
+    ROOT_OK, false, { count: 1, includes: ["输入层（.ProseMirror / [dir][lang] / textarea 三条）没有 font 声明"] })
+  add("反例㉝：段落 font-size 声明缺失",
+    mut("> p { font-size: var(--qmai-body-font-size); }", "> p { color: red; }"),
+    ROOT_OK, false, { count: 1, includes: ["没有 font-size 声明"] })
+  add("反例㉞：文档标题整条 font 声明缺失",
+    mut("{ font: 600 var(--qmai-body-font-size)/1.6 var(--ui); }", "{ color: red; }"),
+    ROOT_OK, false, { count: 1, includes: [":is(h2, h3, h4, h5, h6) 没有 font 声明"] })
+  add("反例㉟：正文基准的 font 简写无法解析（只写一个变量）",
+    mut(".ui-test-editor-body { font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); }",
+      ".ui-test-editor-body { font: var(--qmai-body-font-size); }"),
+    ROOT_OK, false, { count: 1, includes: ["无法解析 .ui-test-root .ui-test-editor-body 的 font 简写：var(--qmai-body-font-size)"] })
+  add("反例㊱：文档标题的 font 简写无法解析",
+    mut("font: 600 var(--qmai-body-font-size)/1.6 var(--ui);", "font: var(--qmai-body-font-size);"),
+    ROOT_OK, false, { count: 1, includes: ["无法解析文档标题的 font 简写：var(--qmai-body-font-size)"] })
+  add("反例㊲：输入层的 font 简写无法解析",
+    mut("textarea { font: 400 var(--qmai-body-font-size)/var(--qmai-body-line-height) var(--serif); }",
+      "textarea { font: var(--qmai-body-font-size); }"),
+    ROOT_OK, false, { count: 1, includes: ["无法解析输入层的 font 简写：var(--qmai-body-font-size)"] })
+  /*
+   * ㊳ 是本轮新写的 meta 守卫（.codex-temp/check-fixture-coverage.mjs）扫出来的，
+   * **两轮人工审查都漏了它**。它覆盖"变量宿主整块消失"这条早期返回分支：
+   * 变量一个都没定义时，后面四条"未定义"判据会各自补一条 ——
+   * 所以这一条夹具一次证明 5 处判据都活着（第 173 行的分支 + 四条变量判据）。
+   * 这也是"用脚本扫覆盖度"胜过"人工扫两轮"的直接证据。
+   */
+  add("反例㊳：变量宿主整块消失（四个尺寸变量都没定义）",
+    GOOD_EDITOR,
+    ".ui-test-root, html[data-ui-test-skin] {\n  color: red;\n}", false, {
+      count: 5,
+      includes: [
+        "四个正文尺寸变量都没有定义（应在 ui-test.css 的 .ui-test-root 规则里）",
+        "--qmai-body-font-size 未在 ui-test.css 中定义（应为 var(--qmai-body-font-px, 18px)）",
+        "--qmai-body-font-list 未定义（应为 calc(var(--qmai-body-font-size) * 8 / 9)，即改造前的列表 16px）",
+        "--qmai-body-font-marker 未定义（应为 calc(var(--qmai-body-font-size) * 2 / 3)，即改造前的标记 12px）",
+        "--qmai-body-line-height 未定义（应为 var(--qmai-body-leading, 1.95)）",
+      ],
+    })
+
   return cases
 }
 
@@ -591,6 +702,27 @@ export function selftest() {
       } else {
         extra = `  → ${problems.length} 条问题，内容与期望相符`
       }
+    }
+
+    /*
+     * ── 反例**必须**声明 expect，否则判失败 ──
+     *
+     * 这是"守卫守卫自己"的那一层，补的是一个真实踩过的坑：
+     * 上一轮加 count/includes 时把 add() 的第 5 个参数写成 `expectRules`，
+     * 而这里读的是 `c.expect` —— 判据**一条都没执行**，自检照样打印
+     * 「27/27 全绿」。当时是靠反向对照（把判据改坏后仍全绿）才发现的。
+     *
+     * 修完之后，那个修法本身**没有被任何东西守着**：删掉任一反例的 expect
+     * 参数，它只是静默退回"只判红/不红"，自检仍然全绿 —— 同一个盲区
+     * 会在下一条新夹具上原样复发。所以必须把"缺 expect"本身做成失败，
+     * 而不是允许它退化。**反例的唯一价值就是精确说明它期望报出什么。**
+     *
+     * 只对反例（expectClean === false）要求：正例没有 problems，count 恒为 0，
+     * 声明 expect 没有信息量，强制它只会制造噪声。
+     */
+    if (c.expectClean === false && !c.expect) {
+      ok = false
+      extra = "  → 反例未声明 expect（count/includes）：会退化成只判红/不红，必须补上"
     }
 
     if (ok) pass++
