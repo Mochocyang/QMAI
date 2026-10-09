@@ -1,0 +1,195 @@
+/*
+ * 章节「字体设置」浮层的**专属**样式。
+ *
+ * ── 为什么它必须是一份独立的、与预览面板同时加载的样式表 ──
+ *
+ * 这个浮层原先借用设置页的样式：控件根节点写 `data-ui="interface-fields"`，
+ * 而那一套两列栅格 / 下拉 / 滑块的外观全部定义在
+ * `src/components/uitest/ui-test-tools.css` 里
+ * （`.ui-test-root [data-ui="interface-fields"] …` 一族后代选择器）。
+ *
+ * 问题是那份 CSS **不在首屏**：它只被 settings-view / search-view / soul-view
+ * 这类**路由级懒 chunk** import。而浮层住在 preview-panel（章节编辑器）里，
+ * 那条路径**从来不会** import 它。于是「从没进过设置页就打开章节字体设置」时：
+ *
+ *   浮层的 DOM 已经渲染 → 那份 CSS 还没到 → 控件退回 display:block
+ *   → 标签挤在控件上方、左右边距那一行错位（用户截图里的"没有美感"那一帧）；
+ *   等某个懒 chunk 加载完（Vite 的 modulepreload 或用户点进设置页），
+ *   样式突然到位，同一屏内容"跳"成两列（用户说的"等一会儿之后才有边框"）。
+ *
+ * 这不是"样式写得不好看"，而是**浮层依赖了一份它无权假设已经加载的 CSS**。
+ * 实测证据（.codex-temp/probe-popover-fouc.mjs）：
+ *   · `.ui-test-interface-row` 在 ui-test-tools CSS 里出现 2 次；
+ *   · 首屏 index CSS 里出现 **0** 次；
+ *   · entry chunk 只在动态 import 的依赖清单里提到那份 CSS（不是启动即注入）。
+ *
+ * 所以修法不是在 ui-test-tools.css 里改好看一点，而是**把浮层的样式搬到自己家**：
+ * 本文件由 preview-panel.tsx 静态 import，与浮层同生共死 ——
+ * 浮层能渲染，这份样式就一定已经生效，结构上不可能再出现首帧无样式。
+ *
+ * 这条约束由两处守住（**注意不是本目录的 .spec 文件；本文件没有同名 spec**）：
+ *   · 单测：src/components/settings/sections/body-typography-fields.spec.tsx 的
+ *     「浮层样式与渲染它的模块同生共死——不再依赖懒加载 chunk（首帧即有样式）」
+ *     （断言 preview-panel.tsx 里是静态 import，且带反向对照）；
+ *   · 产物：.codex-temp/probe-popover-fouc.mjs（读 dist/ 字节，证明这 7 个类名
+ *     真的出现在**首帧 CSS** 里）。
+ * 为什么守卫住在控件 spec 而不是这里：那个 spec 本来就负责这个组件的样式契约，
+ * 新建一个同名 spec 会让"守卫在哪"变成两处答案。
+ *
+ * ── 视觉设计要点（对应用户逐条要求）──
+ *   · 数值显示在**滑块左侧**，不放在上方（用户第 2 条）；
+ *   · 「底部安全距离」标签**单行**不折行，且排在最后一个（用户第 3 条）；
+ *   · 三列轨道用固定 em 宽度，所以六行的数值与滑块**逐行对齐** ——
+ *     对齐本身就是这个面板看起来"有美感"的主要来源，
+ *     比加阴影或换配色有效得多。
+ */
+
+.body-font-popover {
+  /* 位置由 preview-panel 的行内 style 提供（left/right + top），这里只钉定位方式 */
+  position: fixed;
+  z-index: 50;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--ui-line);
+  border-radius: 12px;
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  font: 0.8125rem/1.5 var(--ui);
+  box-shadow: 0 14px 44px color-mix(in srgb, var(--ui-ink) 18%, transparent);
+}
+
+/* 标题栏：标题在左，「默认设置 + 关闭」在右 */
+.body-font-popover__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 0 9px;
+  border-bottom: 1px solid var(--ui-line);
+}
+
+.body-font-popover__title {
+  font: 600 0.8125rem/1.4 var(--ui);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.body-font-popover__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.body-font-popover__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ui-muted);
+  font: 500 0.75rem/1.4 var(--ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.body-font-popover__action:hover {
+  background: var(--ui-soft);
+  color: var(--ui-ink);
+}
+
+.body-font-popover__action:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 1px;
+}
+
+/* 关闭按钮只放图标，所以横向内边距收窄成正方形观感 */
+.body-font-popover__action.is-icon-only {
+  padding: 3px 5px;
+}
+
+/*
+ * 控件区：三列固定轨道。
+ *
+ * 用「行内三列固定 em」而不是 subgrid，是为了不依赖 subgrid 支持，
+ * 同时仍然保证六个字段的数值列与滑块列**逐行对齐**。
+ * 轨道宽度按网格容器的字号（0.8125rem = 13px）解析：
+ *   · 标签列 6.4em ≈ 83px ≥ 六个汉字（「底部安全距离」= 6em = 78px）→ 单行不折行；
+ *   · 数值列 4.4em ≈ 57px ≥ 「跟随窗口」/「0.5px」/「2.20」。
+ * 两列都留了一点余量，因为界面字体是用户可换的、字宽并不完全一致。
+ */
+.body-font-fields {
+  display: grid;
+  grid-template-columns: 6.4em 4.4em minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 9px;
+  align-items: center;
+}
+
+.body-font-field {
+  display: grid;
+  grid-template-columns: 6.4em 4.4em minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 7px;
+  align-items: center;
+  grid-column: 1 / -1;
+}
+
+.body-font-field__label {
+  grid-column: 1;
+  color: var(--ui-ink);
+  font: 500 0.8125rem/1.5 var(--ui);
+  /* 「底部安全距离」必须单行显示（用户第 3 条）*/
+  white-space: nowrap;
+}
+
+/*
+ * 当前值：紧贴滑块的**左侧**，右对齐。
+ * tabular-nums 让「2.20 → 2.15」这类变化不会让数字整体左右跳动 ——
+ * 拖动过程中数值列宽度稳定，视觉上才不会"抖"。
+ */
+.body-font-field__value {
+  grid-column: 2;
+  color: var(--ui-muted);
+  font: 0.75rem/1.5 var(--ui);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* 下拉横跨数值列与滑块列（正文字体、正文字号预设）*/
+.body-font-field__select {
+  grid-column: 2 / -1;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--ui-panel);
+  color: var(--ui-ink);
+  font: 0.8125rem/1.4 var(--ui);
+}
+
+.body-font-field__range {
+  grid-column: 3;
+  width: 100%;
+  min-width: 0;
+  height: 18px;
+  accent-color: var(--ui-accent);
+}
+
+/*
+ * 本机字体枚举失败时的说明。它是**错误态**，不是设计元素，
+ * 所以只在真的失败时出现（组件里按 systemFontError 条件渲染）。
+ */
+.body-font-popover__error {
+  margin: 0;
+  color: var(--ui-muted);
+  font: 0.75rem/1.6 var(--ui);
+}

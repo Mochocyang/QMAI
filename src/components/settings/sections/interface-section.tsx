@@ -1,12 +1,8 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react"
+import { useEffect, useId, useMemo, useState } from "react"
 import { Check } from "lucide-react"
 import { UI_TEST_SKINS, readUiTestSkin, writeUiTestSkin, type UiTestSkin } from "@/lib/ui-test"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
-import {
-  BodyTypographyFields,
-  useSystemFonts,
-  type BodyTypographyValue,
-} from "./body-typography-fields"
+import { useSystemFonts } from "./body-typography-fields"
 import {
   UI_FONT_OPTIONS,
   UI_FONT_SIZE_MAX,
@@ -74,50 +70,16 @@ function UiTestInterfaceSection({ draft, setDraft }: Props) {
   }
 
   /*
-   * 共享控件的键 → 设置草稿的字段。
-   * 写成显式 switch 而不是「键名相同就直接拼字符串」：
-   * 拼字符串的写法在草稿字段改名后会静默写到一个不存在的键上，
-   * 而 switch 会让 tsc 立刻报错。
+   * ⚠ 正文字体与 5 个排版参数（字号 / 行间距 / 字间距 / 左右边距 / 底部安全距离）
+   * **已经从这个页面移走**，见下方 <div data-ui="interface-fields"> 里的注释。
    *
-   * ⚠ `default` 里那句 `const _never: never = key` 不是装饰，它是**必需的**。
-   *
-   * 原先这里写的是 `default: break`，而它会让**共享控件新增参数**这件事
-   * 完全静默：`BodyTypographyValue` 加第 7 个键时，switch 没覆盖它，
-   * `default: break` 把它吸收掉，函数返回 undefined，界面上表现为
-   * 「这一项怎么拖都没反应」—— 而 `tsc` 报 **0 个错**。
-   * 上面那句"switch 会让 tsc 立刻报错"只对**改名**成立，对**新增键**不成立。
-   *
-   * 实测（用仓库自带 typescript 5.9.3 在内存里编译最小复现，
-   * 见 .codex-temp/probe-b1-exhaustive-switch.mjs）：
-   *   6 键 + default:break → 0 错（当前，基线）
-   *   7 键 + default:break → 0 错（← 漏洞：新增参数静默丢写）
-   *   6 键 + never 收尾    → 0 错（修法不误报）
-   *   7 键 + never 收尾    → 1 错 TS2322（修法抓住了）
-   *   7 键 + 删掉 default  → 0 错（所以"删掉 default"修不好）
-   *
-   * 为什么这个洞值得专门堵：任务 11 要在写作现场浮层里接同一个共享组件，
-   * 那正是最可能给它加参数的时刻。没有这道防线，漏一个 case
-   * 不会有任何红灯，只能靠人眼比对两份 switch。
+   * 这里原先有一个 6 分支的穷尽 switch（`setBodyTypography`），把共享控件的键
+   * 映射到设置草稿字段，并用 `const _never: never = key` 兜住"新增第 7 个参数时
+   * 静默丢写"。那套守卫随控件一起搬去了写作现场浮层 —— 现在映射在
+   * preview-panel.tsx 的 `applyBodyTypographyChange` 里，**同样**带 never 收尾
+   * （不要以为这里的守卫被削弱了：换了个位置，规则没变）。
+   * 本页面不再持有这 6 个字段，所以此处也不该再有到它们的写入路径。
    */
-  const setBodyTypography = useCallback(<K extends keyof BodyTypographyValue>(
-    key: K,
-    next: BodyTypographyValue[K],
-  ) => {
-    switch (key) {
-      case "fontFamily": setDraft("uiBodyFontFamily", next as SettingsDraft["uiBodyFontFamily"]); break
-      case "fontPx": setDraft("uiBodyFontPx", next as number); break
-      case "lineHeight": setDraft("uiBodyLineHeight", next as number); break
-      case "letterSpacing": setDraft("uiBodyLetterSpacing", next as number); break
-      case "marginX": setDraft("uiBodyMarginX", next as number | null); break
-      case "safeBottom": setDraft("uiBodySafeBottom", next as number); break
-      default: {
-        // 走到这里说明上面漏了一个 case。赋给 never 会让 tsc 报 TS2322。
-        // 全部 case 都覆盖时 key 收窄成 never，这一句是合法的（不误报）。
-        const _never: never = key
-        void _never
-      }
-    }
-  }, [setDraft])
 
   return (
     <div data-ui="interface-settings">
@@ -164,22 +126,26 @@ function UiTestInterfaceSection({ draft, setDraft }: Props) {
           </p>
         )}
         {/*
-          正文字体与 5 个排版参数由共享组件渲染。
-          为什么必须共用：设置页与写作现场浮层是两个入口，
-          各写一套 JSX 的话，改了一处忘了另一处，用户就得到两套行为。
+          ── 正文字体与 5 个排版参数**不在这里**（用户明确要求）──
+
+          用户原话：「设置当中显示的『正文字体、正文字号、行间距、字间距、
+          左右边距、底部安全距离』这些内容，完全不需要放在这里。这些是在
+          章节当中显示的，不应该放在设置当中。」
+
+          这不是单纯的"挪个位置"：这 6 项是**章节正文的排版**，作用域是当前
+          文档的正文观感，用户调它的时机是"正在写这一章的时候"。
+          放进全局设置页有两个实际害处：
+            · 心智模型错位 —— 在"外观与界面"里改，会以为改的是整个软件的外观，
+              而它只影响正文；
+            · 改了不生效的错觉 —— 设置页要先点「保存」才写盘，
+              而写作现场是边拖边看、立即生效，同一个参数在两处行为不同。
+
+          它们现在只由章节工具栏的「字体设置」浮层提供
+          （preview-panel.tsx 里渲染那个共享控件）。
+          本页面因此**不得**再渲染那个共享控件 ——
+          这条由 interface-sidebar-nav.spec.ts 的正向+反向断言钉住。
+          该页面保留的只有界面自己的字体与字号。
         */}
-        <BodyTypographyFields
-          idPrefix={id}
-          value={{
-            fontFamily: draft.uiBodyFontFamily,
-            fontPx: draft.uiBodyFontPx,
-            lineHeight: draft.uiBodyLineHeight,
-            letterSpacing: draft.uiBodyLetterSpacing,
-            marginX: draft.uiBodyMarginX,
-            safeBottom: draft.uiBodySafeBottom,
-          }}
-          onChange={setBodyTypography}
-        />
         <div className="ui-test-interface-row">
           <div><label htmlFor={`${id}-size`}>界面字号</label><p>当前 {scalePercent}%；保留字号预设和细调，保存后生效。</p></div>
           <div className="ui-test-interface-size">
@@ -221,22 +187,40 @@ function UiTestInterfaceSection({ draft, setDraft }: Props) {
 function BundledFontLicenses() {
   return (
     <section aria-label="第三方字体许可" data-ui="bundled-font-licenses">
-      <p className="ui-test-interface-label">第三方字体许可</p>
+      {/*
+        ⚠ 这一句**必须保持默认可见**，不许折进下面的 <details>。
+
+        用户要求「这些不需要显示出来，隐藏起来」，指的是那一长串版权行。
+        但 HarmonyOS 的许可第 2 条第 1 项是**强制**的：
+          `YOU shall make a prominent notice in the software to state that
+           HarmonyOS Sans Fonts are used.`
+        折进默认收起的 <details> 就等于"用户看不到"，那条义务不再满足 ——
+        这不是审美取舍，是许可合规问题，所以它单独留在折叠之外。
+        用户已知悉并选择了这个方案（保留显著声明 + 折叠版权清单）。
+      */}
       <p className="ui-test-interface-description" data-ui="harmonyos-notice">
         {HARMONYOS_PROMINENT_NOTICE}
       </p>
-      <ul className="ui-test-interface-description" data-ui="bundled-font-license-list">
-        {BUNDLED_FONT_LICENSES.map((font) => (
-          <li key={font.family}>
-            <span>{font.display}</span>
-            <span> · {font.license}</span>
-            <span> · {font.copyright}</span>
-          </li>
-        ))}
-      </ul>
-      <p className="ui-test-interface-description">
-        以上字体的完整许可证原文随安装包提供，位于安装目录的 {BUNDLED_FONT_LICENSES_DIR} 文件夹下。
-      </p>
+      {/*
+        版权清单默认收起。它仍需**在界面里可达**：各款 OFL 字体要求保留版权声明，
+        而随包的 fonts/licenses/ 满足的是"保留"，界面上给一个可展开的入口
+        满足的是"用户能看到"。
+      */}
+      <details data-ui="bundled-font-license-details">
+        <summary className="ui-test-interface-label">第三方字体许可</summary>
+        <ul className="ui-test-interface-description" data-ui="bundled-font-license-list">
+          {BUNDLED_FONT_LICENSES.map((font) => (
+            <li key={font.family}>
+              <span>{font.display}</span>
+              <span> · {font.license}</span>
+              <span> · {font.copyright}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="ui-test-interface-description">
+          以上字体的完整许可证原文随安装包提供，位于安装目录的 {BUNDLED_FONT_LICENSES_DIR} 文件夹下。
+        </p>
+      </details>
     </section>
   )
 }

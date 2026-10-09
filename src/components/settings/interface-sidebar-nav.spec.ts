@@ -8,6 +8,12 @@ const settingsTypesSource = readFileSync(resolve(__dirname, "settings-types.ts")
 const settingsViewSource = readFileSync(resolve(__dirname, "settings-view.tsx"), "utf8")
 const bodyTypographySource = readFileSync(resolve(__dirname, "sections/body-typography-fields.tsx"), "utf8")
 const wikiStoreSource = readFileSync(resolve(__dirname, "../../stores/wiki-store.ts"), "utf8")
+/*
+ * 正文字体/字号那 6 项的**接线**本轮从设置页搬到了章节浮层所在的
+ * preview-panel.tsx（用户要求：这 6 项属于章节，不属于全局设置）。
+ * 所以"控件接上了没有"这个问题现在必须问这个文件。
+ */
+const previewPanelSource = readFileSync(resolve(__dirname, "../layout/preview-panel.tsx"), "utf8")
 
 describe("settings sidebar nav preferences", () => {
   it("stores sidebar nav config in the settings draft and saves it through the wiki store", () => {
@@ -68,20 +74,37 @@ describe("settings sidebar nav preferences", () => {
   })
 
   /**
-   * 正文字体（独立设置）的接线防线。
+   * 正文字体接成完整一条链路：控件、草稿字段、store、持久化。
    *
    * 计划的任务 6 只列了 font-settings.ts / ui-test.css / spec 三个文件，
    * **漏掉了让用户真正能用上它的那一段接线**（设置项、草稿字段、store、
    * 持久化、启动应用）。只改那三个文件的话：字体选项存在、CSS 也派生好了，
    * 但界面上没有地方可选 —— 功能等于没做。
    * 故在此把整条链路钉住，任何一环断掉都会变红。
+   *
+   * ⚠ 判据在本轮被**搬迁**过一次，值得说清楚为什么不是"削弱"。
+   *
+   * 原先这里断言 `interfaceSectionSource` 含 `setDraft("uiBodyFontFamily"`，
+   * 因为正文控件渲染在设置页里、由设置页接线。用户要求把那 6 项从设置页移除后，
+   * 控件只剩章节浮层一个入口，接线也随之搬到 preview-panel.tsx 的
+   * `applyBodyTypographyChange`。所以"控件接线"这一环的宿主**变了**，
+   * 但它必须仍然存在 —— 于是断言换成问 preview-panel。
+   *
+   * 反过来，新增了**反向**断言：设置页**不得**再出现这 6 项。
+   * 一正一反合起来比原来强：原来只要求设置页有，现在既要求浮层有、
+   * 又要求设置页没有，"搬了一半"这种状态会被抓住。
    */
   it("正文字体接成完整一条链路：控件、草稿字段、store、持久化", () => {
-    // 1) 控件在**共享组件**里（Task 9 把正文字体那一行搬进了 BodyTypographyFields：
-    //    设置页与写作现场浮层共用同一份 JSX），接线仍要问设置页
+    // 1) 控件在**共享组件**里，接线在**渲染它的那个模块**里
+    //    （本轮从设置页搬到了章节浮层所在的 preview-panel.tsx）
     expect(bodyTypographySource).toContain("BODY_FONT_OPTIONS")
     expect(bodyTypographySource).toContain('aria-label="正文字体"')
-    expect(interfaceSectionSource).toContain('setDraft("uiBodyFontFamily"')
+    expect(previewPanelSource).toContain('applyBodyTypographyChange("fontFamily"')
+    // 反向：设置页不许再接线这 6 项（用户明确要求移走）
+    expect(
+      interfaceSectionSource,
+      "设置页不得再给正文字体接线——这 6 项属于章节浮层",
+    ).not.toContain('setDraft("uiBodyFontFamily"')
     // 2) 草稿类型里有该字段（否则 setDraft 的类型对不上，tsc 会先报错）
     expect(settingsTypesSource).toContain("uiBodyFontFamily")
     // 3) store 有状态与 setter，且用**独立**的 localStorage 键
@@ -100,12 +123,19 @@ describe("settings sidebar nav preferences", () => {
   /**
    * 正文字号的接线防线 —— 与正文字体同样的整条链路。
    *
-   * 上半段（1) 与 2)）钉的是控件位置：控件在共享组件里、设置页只做接线。
-   * 下半段（3)–6)）钉的是数据链路：草稿类型里有这 6 个字段、store 有
-   * 5 个新状态与 setter，保存时 **5 个排版参数各自 setUiBodyXxx +
+   * ── 本轮的变化（判据搬迁，不是削弱）──
+   * 上半段原先问设置页 `setDraft("uiBodyFontPx"` 等 5 个字段，因为控件在那里。
+   * 用户把那 6 项移出设置页后，接线搬到 preview-panel.tsx 的
+   * `applyBodyTypographyChange`（同样带 `const _never: never = key` 穷尽守卫，
+   * 见该文件注释）。所以这里改问 preview-panel，并**反向**要求设置页不得再有它们。
+   *
+   * 下半段（3)–6)）钉的是数据链路，一个字没改：草稿类型里有这 6 个字段、
+   * store 有 5 个新状态与 setter，保存时 **5 个排版参数各自 setUiBodyXxx +
    * saveUiBodyXxx** —— 写 store（界面立刻生效）与落盘（下次启动还在）
    * 一个都不能少；只做一个就会出现「这次生效、下次启动丢失」或反之，
    * 这是本仓库已经踩过的坑，也正是 5) 那两条断言的来历。
+   * 保存链路仍在 settings-view，它读的草稿字段始终**由 store 派生**
+   * （见该文件的 useMemo 依赖表），所以浮层改的值不会被保存覆盖回去。
    *
    * 旧字段 `uiBodyFontSizeScale`（"倍数"时代）已不再被这条用例钉住：
    * 正文字号现在是绝对值 `uiBodyFontPx`。
@@ -117,10 +147,10 @@ describe("settings sidebar nav preferences", () => {
    * 只是形式从"两个百分比范围"变成"百分比 vs 绝对 px"。
    */
   it("正文字号接成完整一条链路，且与界面字号各自独立", () => {
-    // 1) 控件在**共享组件**里，且绑定到草稿字段
+    // 1) 控件在**共享组件**里，接线在渲染它的 preview-panel 里
     //
-    // 为什么必须看共享组件：设置页与写作现场用的是同一个组件。
-    // 只看设置页会漏掉"控件搬走了但接线没跟上"这种情况。
+    // 为什么必须看共享组件：控件只有这一个实现，接线只有这一处。
+    // 只看设置页会漏掉"接线搬到浮层了"这种情况（本轮就是）。
     expect(bodyTypographySource).toContain("BODY_FONT_OPTIONS")
     expect(bodyTypographySource).toContain('aria-label="正文字体"')
     expect(bodyTypographySource).toContain('aria-label="正文字号预设"')
@@ -133,21 +163,35 @@ describe("settings sidebar nav preferences", () => {
     for (const label of ["行间距", "字间距", "左右边距", "底部安全距离"]) {
       expect(bodyTypographySource).toContain(`label="${label}"`)
     }
-    // 2) 设置页通过共享组件接线，而不是自己再写一套控件
-    //
-    // ⚠ 必须断言 `<BodyTypographyFields`（带尖括号），不能只断言 `BodyTypographyFields`。
-    //
-    // 后者是**空转**的：那个串在 interface-section.tsx 里出现两次 ——
-    // import 说明符与 JSX。只删 JSX、留下 import 时，整文件文本里它照样在，
-    // 断言照样绿。Task 9 的实现者用变异实测发现了这一点
-    // （M7：删掉整块 JSX 而保留 import，本文件 0 条 FAIL 全绿），我独立复核后收紧。
-    // 这是"源码文本断言必须钉到**使用点**，不能钉到**名字出现过**"的又一例。
-    expect(interfaceSectionSource).toContain("<BodyTypographyFields")
-    expect(interfaceSectionSource).toContain('setDraft("uiBodyFontPx"')
-    expect(interfaceSectionSource).toContain('setDraft("uiBodyLineHeight"')
-    expect(interfaceSectionSource).toContain('setDraft("uiBodyLetterSpacing"')
-    expect(interfaceSectionSource).toContain('setDraft("uiBodyMarginX"')
-    expect(interfaceSectionSource).toContain('setDraft("uiBodySafeBottom"')
+    // 2) 接线在 preview-panel，且**穷尽**覆盖 6 个键；
+    //    设置页必须一个都不再有（用户要求：它们属于章节，不属于全局设置）
+    for (const key of ["fontFamily", "fontPx", "lineHeight", "letterSpacing", "marginX", "safeBottom"]) {
+      expect(
+        previewPanelSource,
+        `preview-panel 的 applyBodyTypographyChange 必须覆盖 ${key}`,
+      ).toContain(`case "${key}"`)
+    }
+    /*
+     * 穷尽守卫必须在**新宿主**里也在。
+     * 为什么单列一条：它是"新增第 7 个参数时静默丢写"的唯一防线，
+     * 很容易在搬迁时被顺手丢掉（丢掉之后 tsc 依旧 0 错）。
+     */
+    expect(
+      previewPanelSource,
+      "preview-panel 的接线必须保留 never 收尾的穷尽守卫（新增参数不得静默丢写）",
+    ).toContain("const _never: never = key")
+    for (const field of [
+      'setDraft("uiBodyFontPx"',
+      'setDraft("uiBodyLineHeight"',
+      'setDraft("uiBodyLetterSpacing"',
+      'setDraft("uiBodyMarginX"',
+      'setDraft("uiBodySafeBottom"',
+    ]) {
+      expect(
+        interfaceSectionSource,
+        `设置页不得再接线 ${field} —— 这 6 项已移到章节浮层`,
+      ).not.toContain(field)
+    }
     // 3) 草稿类型里有这 6 个字段
     for (const field of ["uiBodyFontFamily", "uiBodyFontPx", "uiBodyLineHeight", "uiBodyLetterSpacing", "uiBodyMarginX", "uiBodySafeBottom"]) {
       expect(settingsTypesSource).toContain(field)
@@ -515,16 +559,20 @@ describe("settings sidebar nav preferences", () => {
   })
 
   /**
-   * 写作现场必须也能改这 6 个参数，且与设置页共用同一个组件。
+   * 写作现场必须能改这 6 个参数，且**只有这一个入口**。
    * 用户原话：「大纲当中也要有这个设置功能」。
    *
    * 为什么单独立一条：这条守的是"两个入口都存在"。
    * 只留章节、漏掉大纲是很自然的疏漏（两处工具栏长得几乎一样），
    * 而且漏掉之后在界面上不容易看出来。
+   *
+   * ⚠ 标题从「与设置页共用同一个控件组件」改掉了：用户要求把设置页那些
+   * 删掉，所以现在**没有**第二个消费者。标题留着旧说法会让下一个人
+   * 以为设置页还渲染它，进而把"已移除"当成"漏做"。
    */
-  it("写作现场浮层与设置页共用同一个控件组件", () => {
-    const previewSource = readFileSync(resolve(__dirname, "../layout/preview-panel.tsx"), "utf8")
-    // ⚠ 带尖括号 —— 与 Task 9 同一理由：不带的话 import 那行就能满足它，
+  it("写作现场浮层（章节 + 大纲两个入口）是这 6 个参数的唯一入口", () => {
+    const previewSource = previewPanelSource
+    // ⚠ 带尖括号 —— 不带的话 import 那行就能满足它，
     // 于是"导入了但没渲染"这个最可能的疏漏反而是恒绿的。
     expect(previewSource).toContain("<BodyTypographyFields")
     expect(previewSource).toContain('aria-label="字体设置"')
@@ -532,5 +580,17 @@ describe("settings sidebar nav preferences", () => {
     expect(previewSource.match(/openBodyFontPopover\(event\.currentTarget\)/g)?.length).toBe(2)
     // 关浮层必须 flush，否则「拖完就关」会丢掉最后一次改动
     expect(previewSource).toContain("bodyTypographyPersist.current.flush()")
+    /*
+     * 唯一的入口 ⇒ 唯一的消费者。
+     * 这条反向断言（设置页不再渲染它）与上面「正文字体接成完整一条链路」
+     * 里那几条是**同一个意图**，但用不同判据表达：
+     * 那边查 setDraft 接线，这边查 JSX 渲染点。
+     * 两者都留着，是因为"接线删了但 JSX 还在"（或反之）都会让用户看到
+     * 一屏点了没反应的控件 —— 只查一边会漏掉另一边。
+     */
+    expect(
+      interfaceSectionSource,
+      "设置页不得再渲染 <BodyTypographyFields——用户要求这 6 项只出现在章节浮层",
+    ).not.toContain("<BodyTypographyFields")
   })
 })

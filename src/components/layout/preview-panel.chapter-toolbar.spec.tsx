@@ -335,3 +335,142 @@ describe("字体设置浮层的值接线（三处手抄必须各自配对）", (
     }
   })
 })
+
+/**
+ * ── 标题栏的「默认设置」按钮（用户第 4 条要求）──
+ *
+ * 用户原话：「在字体设置的右侧，也就是关闭按钮旁边，增加一个『默认设置』。」
+ *
+ * 这个按钮同时承担了另一件事：它是**回到「跟随窗口」的唯一入口**。
+ * 原先左右边距下面有一个「改回跟随窗口」按钮可单独把 marginX 设回 null，
+ * 用户要求删掉它（见 body-typography-fields.spec.tsx 里那条反向断言），
+ * 于是现在只有「默认设置」能把 marginX 复位到 null。
+ * 两件事合在一起，让这个按钮成了"设置回不去"的唯一出路 ——
+ * 它一旦失灵，用户只能手改配置文件。所以它必须被钉住。
+ *
+ * ── 为什么用结构切分而不是逐行文本断言 ──
+ * 与同文件 `caseBodies()` 同一理由：`resetBodyTypographyToDefaults` 里的
+ * 6 行写成什么排版都合法（一行一句 / 块体 / 换行方式），
+ * 逐行断言会因为**格式**假红，那会逼人去放宽判据。
+ * 这里只要求"这 6 个键各被复位一次、且值取自 DEFAULT_* 常量"。
+ */
+describe("字体设置浮层的「默认设置」按钮", () => {
+  /** 切出 `resetBodyTypographyToDefaults` 的函数体（按花括号配平）。 */
+  function resetBody(): string {
+    const src = source.replace(/\r\n/g, "\n")
+    const fnIdx = src.indexOf("const resetBodyTypographyToDefaults")
+    if (fnIdx < 0) throw new Error("找不到 resetBodyTypographyToDefaults —— 守卫的定位逻辑可能失效了")
+    const open = src.indexOf("{", fnIdx)
+    if (open < 0) throw new Error("resetBodyTypographyToDefaults 后面找不到 {")
+    let depth = 0
+    for (let i = open; i < src.length; i++) {
+      if (src[i] === "{") depth += 1
+      else if (src[i] === "}") {
+        depth -= 1
+        // 深度归零的那个 `}` 是 useCallback 的箭头函数体收尾
+        if (depth === 0) return src.slice(open + 1, i)
+      }
+    }
+    throw new Error("resetBodyTypographyToDefaults 的花括号没配平")
+  }
+
+  it("按钮存在、带可访问名，且排在关闭按钮**之前**（在它左边）", () => {
+    // 按钮本体：有 aria-label 才可被读屏与自动化找到
+    expect(source, "浮层里应有 aria-label=\"默认设置\" 的按钮").toContain('aria-label="默认设置"')
+
+    /*
+     * "在关闭按钮旁边"——断言两者在**同一个容器**里且默认设置在左。
+     * 只断言"两个字符串都存在"是空转的：把默认设置丢到面板最底下
+     * （值也照样复位）同样会绿，但用户看到的位置就不是他要求的那个了。
+     */
+    const headIdx = source.indexOf('className="body-font-popover__head"')
+    expect(headIdx, "找不到浮层标题栏容器").toBeGreaterThan(-1)
+    const actionsIdx = source.indexOf('className="body-font-popover__actions"', headIdx)
+    expect(actionsIdx, "找不到标题栏右侧的动作区容器").toBeGreaterThan(headIdx)
+
+    const resetIdx = source.indexOf('aria-label="默认设置"', actionsIdx)
+    const closeIdx = source.indexOf('aria-label="关闭字体设置"', actionsIdx)
+    expect(resetIdx, "「默认设置」必须在标题栏的动作区里（关闭按钮旁边）").toBeGreaterThan(actionsIdx)
+    expect(closeIdx, "找不到关闭按钮").toBeGreaterThan(actionsIdx)
+    expect(resetIdx, "「默认设置」必须排在关闭按钮之前（即显示在它的左侧）").toBeLessThan(closeIdx)
+  })
+
+  it("一次复位全部 6 个参数，且值取自 font-settings 的默认常量", () => {
+    const body = resetBody()
+
+    /*
+     * ① 6 个键一个都不能少。
+     * 漏一个的后果很隐蔽：按钮"看起来能用"，只是那一项没回去 ——
+     * 用户会以为是自己没点中。所以逐个断言，而不是数一下调用次数。
+     */
+    const keys = ["fontFamily", "fontPx", "lineHeight", "letterSpacing", "marginX", "safeBottom"] as const
+    for (const key of keys) {
+      expect(body, `「默认设置」必须复位 ${key}`).toContain(`applyBodyTypographyChange("${key}"`)
+    }
+    // 反向：不许夹带第 7 个键（真加了应当先更新这里，而不是默默多写）
+    const called = [...body.matchAll(/applyBodyTypographyChange\(\s*"([A-Za-z0-9_]+)"/g)].map((m) => m[1])
+    expect(
+      called.sort(),
+      "「默认设置」复位的键集合必须恰好是这 6 个（多一个少一个都要先改这条判据）",
+    ).toEqual([...keys].sort())
+
+    /*
+     * ② 值必须来自 DEFAULT_* 常量。
+     * 写 18 / 1.95 / 51 这种字面量的后果：日后改默认档只改了控件初值，
+     * 改不到这个按钮 —— 出现"点『默认设置』得到的不是默认值"。
+     */
+    for (const constName of [
+      "DEFAULT_BODY_FONT_FAMILY",
+      "DEFAULT_BODY_FONT_PX",
+      "DEFAULT_BODY_LINE_HEIGHT",
+      "DEFAULT_BODY_LETTER_SPACING",
+      "DEFAULT_BODY_MARGIN_X",
+      "DEFAULT_BODY_SAFE_BOTTOM",
+    ]) {
+      expect(body, `「默认设置」必须用 ${constName} 而不是写字面量`).toContain(constName)
+    }
+    // 反向：函数体里不许出现裸数字/裸字符串当参数
+    expect(
+      body,
+      "「默认设置」的函数体里不该出现数字字面量（默认值必须只有一个来源）",
+    ).not.toMatch(/applyBodyTypographyChange\(\s*"[A-Za-z0-9_]+"\s*,\s*[\d"']/)
+
+    /*
+     * ③ `marginX` 的默认值必须是 null（= 跟随窗口），否则
+     * "回到跟随窗口"这条唯一的出路就断了。
+     * 断言的是**常量本身**而不是这里的用法，因为判据属于 font-settings。
+     *
+     * ⚠ 正则要容忍类型标注：真实声明是
+     * `export const DEFAULT_BODY_MARGIN_X: number | null = null`
+     * —— 只写 `=\s*null` 会假红（我第一版就这么写的，实测确实红了）。
+     */
+    const fontSettings = readFileSync(resolve(__dirname, "../../lib/font-settings.ts"), "utf8")
+    expect(
+      fontSettings,
+      "DEFAULT_BODY_MARGIN_X 必须是 null —— 它是「回到跟随窗口」的唯一来源",
+    ).toMatch(/export const DEFAULT_BODY_MARGIN_X\s*(?::[^=]+)?=\s*null/)
+  })
+
+  it("「改回跟随窗口」按钮已删除，且不再是任何地方的复位路径", () => {
+    /*
+     * 用户第 5 条：「改回跟随窗口删除了」。
+     *
+     * ⚠ 这条断言必须**先去掉注释**。源码里正解释着"那个按钮已经删掉了、
+     * 现在靠默认设置复位"，注释里就写着「改回跟随窗口」这几个字 ——
+     * 直接对原文 toContain 会因为说明文字而报红（我第一版就是这样）。
+     */
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/[^\n]*/g, "$1")
+    expect(code, "「改回跟随窗口」按钮必须已删除").not.toContain("改回跟随窗口")
+    expect(code, "它的 aria-label 也必须一并删掉").not.toContain("左右边距跟随窗口")
+
+    // 反向控制：清洗不能把真代码也吃掉
+    expect(
+      ('.a { x: 1 } // 改回跟随窗口\n<button aria-label="左右边距跟随窗口" />')
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:])\/\/[^\n]*/g, "$1"),
+      "反向控制：清洗只该去掉注释，真按钮必须留下",
+    ).toContain("左右边距跟随窗口")
+  })
+})

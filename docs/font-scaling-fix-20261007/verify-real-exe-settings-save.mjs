@@ -532,6 +532,48 @@ async function waitForDoc(timeoutMs = 60_000) {
 
 /* ── 开始 ── */
 console.log("  ══ 真实 exe：设置界面改字号与字体 → 保存 → 生效？落盘？真实渲染变了吗？══")
+
+/*
+ * ── 改任何东西之前，先按**字节**留一份用户设置的备份 ──
+ *
+ * 为什么必须有这一步（本轮恢复逻辑搬家之后尤其重要）：
+ * 本脚本会往**用户真实的 app-state.json** 里写测试值，然后靠"再写回去"来恢复。
+ * 而"恢复"这件事本身可能失败 —— 它依赖 CDP 连得上、浮层打得开、
+ * aria-label 没漂。一旦恢复失败，用户打开软件会发现自己的排版设置
+ * 被改成了一组测试值（18 / 2.2 / 0.5 / 44 / 55），而且脚本已经退出，
+ * 没人再把它们改回来。
+ *
+ * 备份存在 `.codex-temp/`（已 gitignore，不进仓库），并在下面打印它的
+ * SHA-256 与**确切的恢复命令** —— 恢复动作故意留给人来做：
+ * 此刻 exe 还开着、内存里有它自己的一份状态，脚本在它背后改文件
+ * 很可能被应用退出时覆盖回去，那种"看起来恢复了"比不做更危险。
+ */
+{
+  const statePath = join(process.env.APPDATA ?? "", "com.qingmuai.writer", "app-state.json")
+  try {
+    const bytes = readFileSync(statePath)
+    const backupPath = join(HERE, "..", "..", ".codex-temp", "app-state-before-settings-save.json")
+    writeFileSync(backupPath, bytes)
+    const sha = createHash("sha256").update(bytes).digest("hex")
+    console.log(`\n  ── 用户设置已备份 ──`)
+    console.log(`     ${statePath}`)
+    console.log(`     → ${backupPath}`)
+    console.log(`     SHA-256 ${sha}（${bytes.length} 字节）`)
+    console.log(`     ⚠ 若本脚本报「未能恢复初始设置」，请**先退出青幕**，再跑：`)
+    console.log(`        node .codex-temp/restore-user-typography.mjs`)
+    evidence.userStateBackup = { statePath, backupPath, sha256: sha, bytes: bytes.length }
+  } catch (e) {
+    /*
+     * 备份失败**不能**静默放过：那意味着"恢复失败就没退路"。
+     * 但也不该直接中止（可能只是路径不存在，脚本其余部分仍有价值），
+     * 所以记进 fails 并大声打印。
+     */
+    fails.push(`无法备份用户 app-state.json（${e.message}）—— 本次跑完后若恢复失败将没有退路`)
+    console.log(`\n  ✗ 备份用户设置失败：${e.message}`)
+    console.log(`    请先手动复制该文件，再重跑本脚本（否则恢复失败就没有退路）`)
+  }
+}
+
 const before = await page.evaluate(READ_STATE)
 evidence.initial = before
 console.log(`  初始：DOM root=${before.domRootPct ?? "(未设置)"} computed=${before.domComputedRoot}  --qmai-body-font-px=${before.domBodyPx ?? "(未设置)"}`)
@@ -566,22 +608,71 @@ evidence.cases.push({
 console.log(`    ${indep1 ? "✓" : "✗"} 独立性：正文字号有效值未被动（${effBodyPx(before.storedBody)}px → ${effBodyPx(a1.storedBody)}px）`)
 if (!indep1) fails.push(`改界面字号顺带改了正文字号（${effBodyPx(before.storedBody)}px → ${effBodyPx(a1.storedBody)}px）`)
 
-// ── 用例 2：界面字号回 100，正文字号 → 24px（改造后滑块单位是 px，范围 12–32）──
+// ── 用例 2：界面字号回 100%（设置页）+ 核对设置页已不再出现那 6 项 ──
+/*
+ * ⚠ 本轮改造：这个用例原先还在这里改「正文字号」与另外 4 个排版参数。
+ * 用户要求把这 6 项**从设置页移除**（它们属于章节，不属于全局设置），
+ * 于是这些控件在本页面已经不存在 —— 继续在这里写只会得到一串
+ * "控件未找到"的**假红**，把"用户要的移除"报成"产品坏了"。
+ *
+ * 那 5 个参数改到下面的**用例 2b**，走它们现在真实的入口
+ * （章节「字体设置」浮层）。判据一条没少，只是换了宿主用例。
+ */
 console.log("")
-console.log("  ── 用例 2：界面字号回 100%，正文字号拖到 24px，一起保存 ──")
+console.log("  ── 用例 2：界面字号回 100%，并核对设置页已不再出现那 6 个正文排版项 ──")
 await page.evaluate(SET_CONTROL, { tag: "input", label: "界面字号", value: 100 })
 await wait(300)
-const set2 = await page.evaluate(SET_CONTROL, { tag: "input", label: "正文字号", value: BODY_PX_TO_TRY })
-console.log(`  拖滑块: 正文写入 ${set2.value}（min=${set2.min} max=${set2.max} step=${set2.step}）`)
-if (set2.value !== String(BODY_PX_TO_TRY)) fails.push(`尺子失效：正文字号滑块写入 ${BODY_PX_TO_TRY} 但读到 ${set2.value}（单位应为 px）`)
 
 /*
- * ── 代码质量审查 M-1：4 个新增参数必须在保存链路上被真的验一次 ──
+ * ── 本轮新增的判据：设置页**不得**再有这 6 个正文排版控件 ──
  *
- * 原来本用例只动「正文字号」一个滑块。于是「行间距 / 字间距 / 左右边距 /
- * 底部安全距离」这 4 条**各自独立**的接线在真实 exe 上从未被走过：
- * 只要其中某一条（例如某个 saveUiBody* 忘了接、或某个变量被 ui-test.css
- * 盖掉）坏了，本脚本照样全绿。
+ * 为什么要在真实 exe 上再核一遍（单测已经有一条）：单测渲染的 DOM 是
+ * 我们自己在 jsdom 里造的，真机的 DOM 才是用户看到的东西。
+ * 而且这条判据的失效方式很安静 —— 控件"还在"不会报错，只会让用户
+ * 在两个地方看到同一组设置、并以为设置页改了会立即生效（其实要按保存）。
+ *
+ * 同时必须核对"只移走正文那 6 项"：把界面字体/界面字号一起删掉，
+ * 是把"移除"做成了"整块删掉"，同样要红。
+ */
+const goneControls = await page.evaluate(() => {
+  const labels = ["正文字体", "正文字号预设", "正文字号", "行间距", "字间距", "左右边距", "底部安全距离"]
+  return {
+    found: labels.filter((l) => document.querySelector(`[aria-label="${l}"]`)),
+    hasBodyFields: !!document.querySelector(".body-font-fields"),
+    uiSize: !!document.querySelector('input[aria-label="界面字号"]'),
+    uiFont: !!document.querySelector('select[aria-label="界面字体"]'),
+  }
+})
+console.log(`  设置页残留的正文排版控件：${goneControls.found.length ? goneControls.found.join("/") : "（无）"}`)
+if (goneControls.found.length) {
+  fails.push(`设置页仍有这些正文排版控件：${goneControls.found.join(", ")}`
+    + ` —— 用户要求它们只出现在章节的「字体设置」浮层里`)
+}
+if (!goneControls.uiSize || !goneControls.uiFont) {
+  fails.push(`设置页的界面字体/界面字号被一起删掉了（界面字号=${goneControls.uiSize} 界面字体=${goneControls.uiFont}）`
+    + ` —— 本轮只该移除正文那 6 项，界面自己的字体与字号必须留下`)
+}
+
+await wait(600)
+console.log(`  点保存: ${JSON.stringify(await page.evaluate(CLICK_SAVE))}`)
+await wait(2500)
+const a2 = await page.evaluate(READ_STATE)
+console.log(`  保存后：DOM root=${a2.domRootPct ?? "(清除)"}  落盘 界面=${a2.storedUi}`)
+const ok2 = (a2.domRootPct === "100%" || a2.domRootPct === null) && effUi(a2.storedUi) === 1
+console.log(`    ${ok2 ? "✓" : "✗"} 界面字号：DOM(${a2.domRootPct ?? "(清除)"}) 落盘(${a2.storedUi})`)
+if (!ok2) fails.push(`界面字号保存未生效：DOM root=${a2.domRootPct} 落盘=${a2.storedUi}`)
+evidence.cases.push({
+  label: "界面字号→100%（设置页）+ 核对 6 项已移出设置页",
+  after: a2, goneControls, ok: ok2 && goneControls.found.length === 0,
+})
+
+// ── 用例 2b：6 个排版参数走**它们现在唯一的入口** —— 章节「字体设置」浮层 ──
+/*
+ * ── 为什么这 5 个参数必须逐个在真实 exe 上验一次（原审查 M-1）──
+ *
+ * 「行间距 / 字间距 / 左右边距 / 底部安全距离」这 4 条**各自独立**的接线
+ * 只要有一条坏了（某个 saveUiBody* 忘了接、或某个变量被 ui-test.css 盖掉），
+ * 脚本原本照样全绿。所以它们必须在保存链路上被真的走一遍。
  *
  * 四个期望值刻意取成与默认值**互不相同**，否则"写入 == 没写"分不出来：
  * 行间距默认 1.95 → 取 2.2；字间距默认 0 → 取 0.5；
@@ -589,13 +680,18 @@ if (set2.value !== String(BODY_PX_TO_TRY)) fails.push(`尺子失效：正文字�
  * 底部安全距离默认 51 → 取 55。
  * 另外 4 个值两两不同，这样"串味"（把 A 的值写到 B 的键上）也能被抓住。
  *
+ * ── ⚠ 本轮的**关键差异**：浮层没有「保存」按钮 ──
+ * 设置页是"改草稿 → 点保存 → 落盘"；浮层是"边拖边生效 → 400ms 防抖自动落盘"。
+ * 所以这里**不能**点保存（也点不到：章节视图下没有 settings-footer）。
+ * 这一点本身要被断言：如果哪天有人把浮层改成"也要点保存才生效"，
+ * 用户会以为拖了没用 —— 所以下面显式核对"章节视图下没有保存页脚"，
+ * 并靠**等待防抖**后落盘来证明自动保存这条路是通的。
+ *
  * ⚠ 期望值必须**从滑块自己的 step 推出来**，不能凭直觉硬写。
  * 我第一版给字间距写的是 0.4，真机第一次跑就报红：
  *   尺子失效：字间距 滑块写入 0.4 但读到 0.5
- *   然后 M-1 又跟着报了两条"保存后应为 0.4，实际 0.5px"
- * 根因在 `body-typography-fields.tsx:268`：字间距滑块的 **`step={0.5}`**，
- * 而 range 控件只能取到 `min + n*step`，0.4 **根本不可表示** ——
- * 浏览器把它吸附到 0.5。这是**夹具缺陷**，不是产品缺陷；
+ * 根因是字间距滑块的 **`step={0.5}`**，而 range 控件只能取到 `min + n*step`，
+ * 0.4 **根本不可表示** —— 浏览器把它吸附到 0.5。这是**夹具缺陷**，不是产品缺陷；
  * 把一个夹具缺陷报成两条产品缺陷，会让人去"修"一个并不存在的 bug。
  * 所以现在先读每个滑块的 min/max/step，再把目标**吸附到可表示值**。
  *
@@ -603,7 +699,7 @@ if (set2.value !== String(BODY_PX_TO_TRY)) fails.push(`尺子失效：正文字�
  * 不再重复计入产品失败 —— 否则同一个夹具缺陷被数成 3 条红，噪声比信号多。
  */
 /*
- * `unit` 必须与 `font-settings.ts:676-682` 的实际写法一致：
+ * `unit` 必须与 `font-settings.ts` 的实际写法一致：
  *   --qmai-body-font-px      → `${n}px`
  *   --qmai-body-leading      → `String(n)`   ← **唯一一个无单位的**
  *   --qmai-body-letter-spacing → `${n}px`
@@ -613,83 +709,125 @@ if (set2.value !== String(BODY_PX_TO_TRY)) fails.push(`尺子失效：正文字�
  * 真机报红 `应为 0.5，实际 "0.5px"` 才改过来。同一个错误犯两次，
  * 说明"凭直觉写期望值"这个习惯必须用"先读源码"替代。
  */
-const FOUR = [
-  { label: "行间距", key: "domBodyLeading", storedKey: "storedLeading", want: 2.2, unit: "" },
-  { label: "字间距", key: "domBodyLetterSpacing", storedKey: "storedLetterSpacing", want: 0.5, unit: "px" },
-  { label: "左右边距", key: "domBodyMarginX", storedKey: "storedMarginX", want: 44, unit: "px" },
-  { label: "底部安全距离", key: "domBodySafeBottom", storedKey: "storedSafeBottom", want: 55, unit: "px" },
-]
-const fourSet = []
-for (const f of FOUR) {
-  const r = await page.evaluate(SET_CONTROL, { tag: "input", label: f.label, value: f.want })
-  /*
-   * 尺子：滑块自己得先写对，否则后面"保存没生效"可能是滑块的问题。
-   * 期望值先按滑块自己的 step 吸附 —— 这样即使将来有人改了 step，
-   * 这里也只会温和地跟随，而不是报一条假的"产品缺陷"。
-   */
-  const step = Number(r.step)
-  const snapped = Number.isFinite(step) && step > 0
-    ? Math.round(((f.want - Number(r.min)) / step)) * step + Number(r.min)
-    : f.want
-  if (Math.abs(snapped - f.want) > 1e-9) {
-    console.log(`    · ${f.label} 期望 ${f.want} 按 step=${r.step} 吸附为 ${snapped}`)
-    f.want = Number(snapped.toFixed(4))
+console.log("")
+console.log("  ── 用例 2b：在章节「字体设置」浮层里改 5 个排版参数，等防抖自动落盘 ──")
+{
+  const env2b = await ensureNovelOpen()
+  console.log(`  环境：${JSON.stringify(env2b)}`)
+  const nav2b = await page.evaluate(GO_TO_CHAPTER)
+  console.log(`  切到「章节」: ${JSON.stringify(nav2b)}`)
+  await wait(2500)
+  const clicked2b = await page.evaluate(CLICK_BODY_FONT_ENTRY)
+  console.log(`  点「字体设置」入口: ${JSON.stringify(clicked2b)}`)
+  // 点击与判定必须分开：同一次 evaluate 里 click 后立刻查询会读到重渲染前的 DOM
+  await wait(1000)
+  const pop2b = await page.evaluate(IS_POPOVER_OPEN)
+  console.log(`  浮层状态: ${JSON.stringify(pop2b)}`)
+
+  const FOUR = [
+    { label: "行间距", key: "domBodyLeading", storedKey: "storedLeading", want: 2.2, unit: "" },
+    { label: "字间距", key: "domBodyLetterSpacing", storedKey: "storedLetterSpacing", want: 0.5, unit: "px" },
+    { label: "左右边距", key: "domBodyMarginX", storedKey: "storedMarginX", want: 44, unit: "px" },
+    { label: "底部安全距离", key: "domBodySafeBottom", storedKey: "storedSafeBottom", want: 55, unit: "px" },
+  ]
+
+  if (!pop2b.open) {
+    fails.push(`用例 2b 打不开章节「字体设置」浮层（${JSON.stringify(pop2b.dialogs)}）—— `
+      + `这 5 个参数现在只有这一个入口，打不开就等于它们完全不可调`)
+  } else {
+    /*
+     * 前提：章节视图下**没有**保存页脚。
+     * 这一条既是"浮层不靠保存按钮"的证据，也是防止"哪天给浮层也加个保存"
+     * 这类改动的哨兵（那会让用户以为拖了不生效）。
+     */
+    const noSaveFooter = await page.evaluate(() => !document.querySelector('[data-ui="settings-footer"]'))
+    console.log(`  ${noSaveFooter ? "✓" : "✗"} 章节浮层路径上没有「保存」页脚（落盘只能靠防抖自动保存）`)
+    if (!noSaveFooter) {
+      notes.push("章节视图下出现了 settings-footer —— 浮层的落盘路径可能已经不是纯自动保存，请人工确认")
+    }
+
+    const set2b = await page.evaluate(SET_CONTROL, { tag: "input", label: "正文字号", value: BODY_PX_TO_TRY })
+    console.log(`  拖滑块: 正文写入 ${set2b.value}（min=${set2b.min} max=${set2b.max} step=${set2b.step}）`)
+    if (set2b.value !== String(BODY_PX_TO_TRY)) {
+      fails.push(`尺子失效：正文字号滑块写入 ${BODY_PX_TO_TRY} 但读到 ${set2b.value}（单位应为 px）`)
+    }
+
+    const fourSet = []
+    for (const f of FOUR) {
+      const r = await page.evaluate(SET_CONTROL, { tag: "input", label: f.label, value: f.want })
+      /*
+       * 尺子：滑块自己得先写对，否则后面"保存没生效"可能是滑块的问题。
+       * 期望值先按滑块自己的 step 吸附 —— 这样即使将来有人改了 step，
+       * 这里也只会温和地跟随，而不是报一条假的"产品缺陷"。
+       */
+      const step = Number(r.step)
+      const snapped = Number.isFinite(step) && step > 0
+        ? Math.round(((f.want - Number(r.min)) / step)) * step + Number(r.min)
+        : f.want
+      if (Math.abs(snapped - f.want) > 1e-9) {
+        console.log(`    · ${f.label} 期望 ${f.want} 按 step=${r.step} 吸附为 ${snapped}`)
+        f.want = Number(snapped.toFixed(4))
+      }
+      f.rulerOk = Number(r.value) === f.want
+      if (!f.rulerOk) fails.push(`尺子失效：${f.label} 滑块写入 ${f.want}（step=${r.step}）但读到 ${r.value}`)
+      /*
+       * ⚠ 必须在**算完 want/rulerOk 之后**再快照。
+       * 我第一版把 `{...f, read}` 放在前面，于是 fourSet 里存的是**吸附前**的 want
+       * 且**没有 rulerOk** 字段 → 打印时 4 条全部显示"(尺子失效)"，而实际 4 条都是好的。
+       * 一个只为"打印诊断信息"而存在的副本，把诊断方向指反了。
+       */
+      fourSet.push({ ...f, read: r.value })
+    }
+    console.log(`  另外 4 个参数：${fourSet.map((f) => `${f.label}=${f.read}${f.rulerOk ? "" : "(尺子失效)"}`).join("  ")}`)
+
+    /*
+     * 等防抖落盘：createDebouncedPersist(400) 是**替换式**的，
+     * 所以从最后一次改动算起 400ms 左右就会写盘。给 1800ms 余量
+     * （要覆盖 React 重渲染 + Tauri 写文件的实际耗时）。
+     * 这里**不点保存** —— 浮层没有保存按钮，这正是要验的那条差异。
+     */
+    await wait(1800)
+    const b2 = await page.evaluate(READ_STATE)
+    console.log(`  防抖落盘后：DOM --qmai-body-font-px=${b2.domBodyPx}  落盘 正文=${b2.storedBody}`)
+    const okBody = b2.domBodyPx === `${BODY_PX_TO_TRY}px` && effBodyPx(b2.storedBody) === BODY_PX_TO_TRY
+    console.log(`    ${okBody ? "✓" : "✗"} 正文字号：DOM(${b2.domBodyPx}) 落盘(${b2.storedBody})`)
+    if (!okBody) {
+      fails.push(`浮层里改「正文字号」后未生效（未点保存，靠防抖）：`
+        + `DOM --qmai-body-font-px=${b2.domBodyPx} 落盘=${b2.storedBody}`)
+    }
+
+    /* 逐条核对 4 个新参数：DOM 行内样式与落盘两侧都要对 */
+    const fourChecks = []
+    for (const f of FOUR) {
+      const wantStr = `${f.want}${f.unit}`
+      /*
+       * 尺子已失效的条目**跳过断言**：此刻"保存后不等于期望值"只能说明
+       * 滑块没写进去，无法区分"产品没保存"与"夹具没写入"。
+       * 仍记录事实，但不计入产品失败 —— 同一个夹具缺陷不该被数成 3 条红。
+       */
+      if (!f.rulerOk) {
+        fourChecks.push({ label: f.label, want: wantStr, dom: b2[f.key], stored: b2[f.storedKey], domOk: null, storedOk: null, skipped: "尺子失效，无法判定" })
+        console.log(`    – ${f.label.padEnd(7)} DOM=${b2[f.key] ?? "(未写)"} 落盘=${b2[f.storedKey] ?? "(未写)"}  （尺子失效，跳过判定）`)
+        continue
+      }
+      const domOk = b2[f.key] === wantStr
+      const storedOk = b2[f.storedKey] === f.want
+      fourChecks.push({ label: f.label, want: wantStr, dom: b2[f.key], stored: b2[f.storedKey], domOk, storedOk })
+      if (!domOk) fails.push(`M-1/${f.label} 浮层改后 DOM --qmai-body-* 应为 ${wantStr}，实际 ${JSON.stringify(b2[f.key])}`)
+      if (!storedOk) fails.push(`M-1/${f.label} 浮层改后落盘应为 ${f.want}，实际 ${JSON.stringify(b2[f.storedKey])}`)
+      console.log(`    ${domOk && storedOk ? "✓" : "✗"} ${f.label.padEnd(7)} DOM=${b2[f.key] ?? "(未写)"} 落盘=${b2[f.storedKey] ?? "(未写)"}  （期望 ${wantStr}）`)
+    }
+    const fourOk = fourChecks.every((c) => c.domOk !== false && c.storedOk !== false)
+    if (!fourOk) fails.push(`M-1/浮层改的 4 个参数里至少一个未生效（见上逐条）`)
+
+    evidence.cases.push({
+      label: `浮层内：正文→${BODY_PX_TO_TRY}px + 4 个新参数（无保存按钮，靠防抖落盘）`,
+      slider: { written: BODY_PX_TO_TRY, read: set2b.value, min: set2b.min, max: set2b.max, step: set2b.step },
+      after: b2, fourChecks, noSaveFooter, popover: pop2b, ok: okBody && fourOk,
+    })
+    await page.evaluate(CLOSE_POPOVER)
   }
-  f.rulerOk = Number(r.value) === f.want
-  if (!f.rulerOk) fails.push(`尺子失效：${f.label} 滑块写入 ${f.want}（step=${r.step}）但读到 ${r.value}`)
-  /*
-   * ⚠ 必须在**算完 want/rulerOk 之后**再快照。
-   * 我第一版把 `{...f, read}` 放在前面，于是 fourSet 里存的是**吸附前**的 want
-   * 且**没有 rulerOk** 字段 → 上面那行 map 读 `f.rulerOk` 恒为 undefined →
-   * 4 条全部打印"(尺子失效)"，而实际 4 条尺子都是好的。
-   * 一个只为"打印诊断信息"而存在的副本，把诊断方向指反了。
-   */
-  fourSet.push({ ...f, read: r.value })
 }
-console.log(`  另外 4 个参数：${fourSet.map((f) => `${f.label}=${f.read}${f.rulerOk ? "" : "(尺子失效)"}`).join("  ")}`)
-
-await wait(600)
-console.log(`  点保存: ${JSON.stringify(await page.evaluate(CLICK_SAVE))}`)
-await wait(2500)
-const a2 = await page.evaluate(READ_STATE)
-console.log(`  保存后：DOM root=${a2.domRootPct ?? "(清除)"}  --qmai-body-font-px=${a2.domBodyPx}  落盘 界面=${a2.storedUi} 正文=${a2.storedBody}`)
-const ok2 = (a2.domRootPct === "100%" || a2.domRootPct === null)
-  && a2.domBodyPx === `${BODY_PX_TO_TRY}px`
-  && effBodyPx(a2.storedBody) === BODY_PX_TO_TRY
-  && effUi(a2.storedUi) === 1
-
-/* 逐条核对 4 个新参数：DOM 行内样式与落盘两侧都要对 */
-const fourChecks = []
-for (const f of FOUR) {
-  const wantStr = `${f.want}${f.unit}`
-  /*
-   * 尺子已失效的条目**跳过断言**：此刻"保存后不等于期望值"只能说明
-   * 滑块没写进去，无法区分"产品没保存"与"夹具没写入"。
-   * 仍记录事实，但不计入产品失败 —— 同一个夹具缺陷不该被数成 3 条红。
-   */
-  if (!f.rulerOk) {
-    fourChecks.push({ label: f.label, want: wantStr, dom: a2[f.key], stored: a2[f.storedKey], domOk: null, storedOk: null, skipped: "尺子失效，无法判定" })
-    console.log(`    – ${f.label.padEnd(7)} DOM=${a2[f.key] ?? "(未写)"} 落盘=${a2[f.storedKey] ?? "(未写)"}  （尺子失效，跳过判定）`)
-    continue
-  }
-  const domOk = a2[f.key] === wantStr
-  const storedOk = a2[f.storedKey] === f.want
-  fourChecks.push({ label: f.label, want: wantStr, dom: a2[f.key], stored: a2[f.storedKey], domOk, storedOk })
-  if (!domOk) fails.push(`M-1/${f.label} 保存后 DOM --qmai-body-* 应为 ${wantStr}，实际 ${JSON.stringify(a2[f.key])}`)
-  if (!storedOk) fails.push(`M-1/${f.label} 保存后落盘应为 ${f.want}，实际 ${JSON.stringify(a2[f.storedKey])}`)
-  console.log(`    ${domOk && storedOk ? "✓" : "✗"} ${f.label.padEnd(7)} DOM=${a2[f.key] ?? "(未写)"} 落盘=${a2[f.storedKey] ?? "(未写)"}  （期望 ${wantStr}）`)
-}
-const fourOk = fourChecks.every((c) => c.domOk !== false && c.storedOk !== false)
-if (!fourOk) fails.push(`M-1/4 个新增参数里至少一个保存后未生效（见上逐条）`)
-
-evidence.cases.push({
-  label: `正文→${BODY_PX_TO_TRY}px（界面回100%）+ 4 个新参数`, slider: { written: BODY_PX_TO_TRY, read: set2.value, min: set2.min, max: set2.max, step: set2.step },
-  after: a2, domBodyPx: a2.domBodyPx, domRootPct: a2.domRootPct,
-  storedBody: a2.storedBody, storedUi: a2.storedUi, fourChecks, ok: ok2 && fourOk,
-})
-console.log(`    ${ok2 ? "✓" : "✗"} 正文字号：DOM(${a2.domBodyPx}) 落盘(${a2.storedBody}) 界面字号回(${a2.storedUi})`)
-if (!ok2) fails.push(`正文字号保存未生效：DOM --qmai-body-font-px=${a2.domBodyPx} 落盘 正文=${a2.storedBody} 界面=${a2.storedUi}`)
-if (!fourOk) console.log(`    ✗ 4 个新参数未全部生效 —— 这条例外原先没有任何断言（审查 M-1）`)
 
 // ── 用例 3：正文字号必须在真实文档上量出**设定的绝对 px** ──
 console.log("")
@@ -1013,87 +1151,156 @@ console.log("  ── 用例 6：用户的原始路径 —— 章节里用「字
  */
 console.log("")
 console.log("  ── 恢复原始设置 ──")
-if (!(await goToSettings())) { fails.push("恢复阶段无法回到设置页") } else {
-  /*
-   * 每一项：
-   *   write       —— 写进**控件**的值（单位随控件，例如界面字号滑块是百分比）
-   *   expect(s)   —— 从落盘快照里取出**同一语义**的值
-   *   expectValue —— 期望的落盘值（与 expect 同单位）
-   *
-   * ⚠ `write` 与 `expectValue` **必须分开**：界面字号写进滑块是 100（%），
-   * 而落盘是 1（倍数）。上一版把两者合成一个 `want`，于是恢复明明成功了
-   * （落盘 1 == 原本的 1），却因为拿 1 去比 100 而报红 —— 一条自己造出来的假红。
-   * 单位不同就得有两个字段，不能靠"看起来像同一个数"。
-   *
-   * `nullWant` 的必要性：左右边距的 `null` 有明确语义 —— 「跟随窗口宽度」，
-   * 而不是"没设过"。若把 null 直接塞给滑块，`String(null)` 会写成字面量 "null"，
-   * 反而把用户的设置改坏。这种情况必须走专门的「改回跟随窗口」按钮。
-   */
-  const restore = [
-    {
-      tag: "input", label: "界面字号",
-      write: Math.round(effUi(before.storedUi) * 100),
-      expect: (s) => effUi(s.storedUi), expectValue: effUi(before.storedUi),
-    },
-    {
-      tag: "input", label: "正文字号",
-      write: effBodyPx(before.storedBody),
-      expect: (s) => effBodyPx(s.storedBody), expectValue: effBodyPx(before.storedBody),
-    },
-    {
-      tag: "input", label: "行间距",
-      write: numOr(before.storedLeading, 2.2),
-      expect: (s) => s.storedLeading, expectValue: numOr(before.storedLeading, 2.2),
-    },
-    {
-      tag: "input", label: "字间距",
-      write: numOr(before.storedLetterSpacing, 0.5),
-      expect: (s) => s.storedLetterSpacing, expectValue: numOr(before.storedLetterSpacing, 0.5),
-    },
-    {
-      tag: "input", label: "左右边距",
-      write: before.storedMarginX,
-      expect: (s) => s.storedMarginX, expectValue: before.storedMarginX,
-      // null = 跟随窗口：用专门按钮恢复，不能写进滑块
-      nullWant: { clickLabel: "左右边距跟随窗口" },
-    },
-    {
-      tag: "input", label: "底部安全距离",
-      write: numOr(before.storedSafeBottom, 51),
-      expect: (s) => s.storedSafeBottom, expectValue: numOr(before.storedSafeBottom, 51),
-    },
-    {
-      tag: "select", label: "界面字体",
-      write: before.storedUiFont ?? "system",
-      expect: (s) => s.storedUiFont, expectValue: before.storedUiFont ?? "system",
-    },
-    {
-      tag: "select", label: "正文字体",
-      write: before.storedBodyFont ?? "serif-default",
-      expect: (s) => s.storedBodyFont, expectValue: before.storedBodyFont ?? "serif-default",
-    },
-  ]
-  for (const r of restore) {
-    if (r.write === null || r.write === undefined) {
-      if (r.nullWant?.clickLabel) {
-        const c = await page.evaluate((lbl) => {
+/*
+ * ⚠⚠ 本轮最容易踩的坑：**恢复的控件搬家了**。
+ *
+ * 这段代码原来是"回到设置页 → 按 aria-label 把 8 个控件逐个写回"。
+ * 用户要求把那 6 项移出设置页之后，`行间距 / 字间距 / 左右边距 /
+ * 底部安全距离 / 正文字号 / 正文字体` 在设置页里**已经不存在**，
+ * 于是旧写法会：
+ *   ① 6 个 `SET_CONTROL` 全部 `{ok:false}` → 只推一条 notes 就继续；
+ *   ② 那 6 个字段**根本没被恢复**，测试值留在用户的真实设置里；
+ *   ③ 最后核对时它们当然对不上 —— 于是一次真机跑完，
+ *      用户的排版设置被改成测试值，而脚本还报了一堆"恢复失败"。
+ * 也就是说：**恢复这件事必须跟着控件一起搬家**，不能只搬用例不搬恢复。
+ *
+ * 所以每个字段现在显式标注它住在哪个视图，并分两阶段恢复：
+ *   阶段 1（浮层）：正文字体 + 5 个排版参数 —— 它们现在只在这里；
+ *   阶段 2（设置页）：界面字号 + 界面字体 —— 这两个仍在设置页。
+ * 最后点一次「保存」把设置页那两项落盘（浮层那几项靠防抖自动落盘）。
+ */
+const restore = [
+  /* ── 阶段 1：只在章节「字体设置」浮层里 ── */
+  {
+    where: "popover", tag: "input", label: "左右边距",
+    write: before.storedMarginX,
+    expect: (s) => s.storedMarginX, expectValue: before.storedMarginX,
+    /*
+     * null = 「跟随窗口宽度」，不是"没设过"。若把 null 塞给滑块，
+     * `String(null)` 会写成字面量 "null"，反而把用户的设置改坏。
+     *
+     * ⚠ 恢复 null 的手段**变了**（本轮）：原先左右边距下面有一个
+     * 「改回跟随窗口」按钮可单独把这一项设回 null；用户要求删掉它，
+     * 于是现在唯一能回到跟随窗口的入口是浮层标题栏的**「默认设置」**。
+     * 那个按钮会把 **6 项一起**复位，所以它必须在写其余值**之前**点，
+     * 否则会把刚恢复好的值冲掉 —— 恢复就成了"看起来跑了"。
+     * 顺序由下面 `needDefault` 那一段保证（不是靠数组顺序，见其注释）。
+     */
+    defaultWant: { clickLabel: "默认设置" },
+  },
+  {
+    where: "popover", tag: "input", label: "正文字号",
+    write: effBodyPx(before.storedBody),
+    expect: (s) => effBodyPx(s.storedBody), expectValue: effBodyPx(before.storedBody),
+  },
+  {
+    where: "popover", tag: "input", label: "行间距",
+    write: numOr(before.storedLeading, 2.2),
+    expect: (s) => s.storedLeading, expectValue: numOr(before.storedLeading, 2.2),
+  },
+  {
+    where: "popover", tag: "input", label: "字间距",
+    write: numOr(before.storedLetterSpacing, 0.5),
+    expect: (s) => s.storedLetterSpacing, expectValue: numOr(before.storedLetterSpacing, 0.5),
+  },
+  {
+    where: "popover", tag: "input", label: "底部安全距离",
+    write: numOr(before.storedSafeBottom, 51),
+    expect: (s) => s.storedSafeBottom, expectValue: numOr(before.storedSafeBottom, 51),
+  },
+  {
+    where: "popover", tag: "select", label: "正文字体",
+    write: before.storedBodyFont ?? "serif-default",
+    expect: (s) => s.storedBodyFont, expectValue: before.storedBodyFont ?? "serif-default",
+  },
+  /* ── 阶段 2：仍在设置页 ── */
+  {
+    where: "settings", tag: "input", label: "界面字号",
+    write: Math.round(effUi(before.storedUi) * 100),
+    expect: (s) => effUi(s.storedUi), expectValue: effUi(before.storedUi),
+  },
+  {
+    where: "settings", tag: "select", label: "界面字体",
+    write: before.storedUiFont ?? "system",
+    expect: (s) => s.storedUiFont, expectValue: before.storedUiFont ?? "system",
+  },
+]
+
+const popoverItems = restore.filter((r) => r.where === "popover")
+const settingsItems = restore.filter((r) => r.where === "settings")
+
+/* 写一个值；null/undefined 由调用方另行处理（走「默认设置」） */
+async function writeOne(r, view) {
+  if (r.write === null || r.write === undefined) return { skippedNull: true }
+  const res = await page.evaluate(SET_CONTROL, { tag: r.tag, label: r.label, value: r.write })
+  if (!res.ok) {
+    /* 控件找不到 = 恢复没做成，必须进 fails（notes 会被忽略掉） */
+    fails.push(`恢复「${r.label}」时在${view}里找不到控件（aria-label 漂了？）—— 该字段会留有测试值`)
+  }
+  await wait(250)
+  return res
+}
+
+// ── 阶段 1：浮层（正文字体 + 5 个排版参数）──
+{
+  const envR = await ensureNovelOpen()
+  console.log(`  阶段 1 环境：${JSON.stringify(envR)}`)
+  const navR = await page.evaluate(GO_TO_CHAPTER)
+  console.log(`  切到「章节」: ${JSON.stringify(navR)}`)
+  await wait(2500)
+  const clickedR = await page.evaluate(CLICK_BODY_FONT_ENTRY)
+  console.log(`  点「字体设置」入口: ${JSON.stringify(clickedR)}`)
+  await wait(1000)
+  const stR = await page.evaluate(IS_POPOVER_OPEN)
+  if (!stR.open) {
+    fails.push(`恢复阶段打不开章节「字体设置」浮层（${JSON.stringify(stR.dialogs)}）—— `
+      + `那 6 项现在只在这里，打不开就**无法恢复**，用户的排版设置会留在测试值上`)
+  } else {
+    /*
+     * 顺序保证（不依赖数组顺序）：先决定要不要点「默认设置」，
+     * 而且必须在写任何值**之前**点。若哪天有人往 restore 前面插一条，
+     * 数组顺序会变，但这段逻辑不受影响。
+     */
+    const needDefault = before.storedMarginX === null || before.storedMarginX === undefined
+    if (needDefault) {
+      const lbl = popoverItems.find((r) => r.defaultWant)?.defaultWant.clickLabel
+      if (!lbl) {
+        fails.push("左右边距原为「跟随窗口」(null)，但没有可用的复位按钮 —— 该字段会留有测试值")
+      } else {
+        const c = await page.evaluate((label) => {
           const b = [...document.querySelectorAll("button")]
-            .find((x) => `${x.getAttribute("aria-label") ?? ""} ${x.getAttribute("title") ?? ""} ${x.textContent ?? ""}`.includes(lbl))
+            .find((x) => `${x.getAttribute("aria-label") ?? ""} ${x.getAttribute("title") ?? ""} ${x.textContent ?? ""}`.includes(label))
           if (!b) return { ok: false }
           b.click(); return { ok: true }
-        }, r.nullWant.clickLabel)
-        if (c.ok) console.log(`    · 「${r.label}」原为「跟随窗口」，已点「${r.nullWant.clickLabel}」恢复`)
-        else notes.push(`恢复「${r.label}」需要点「${r.nullWant.clickLabel}」按钮，但没找到 —— 该字段可能留有测试值`)
-      } else {
-        notes.push(`「${r.label}」原值为 null 且无对应的恢复手段 —— 该字段可能留有测试值`)
+        }, lbl)
+        if (c.ok) {
+          console.log(`  「左右边距」原为「跟随窗口」，已点「${lbl}」复位（该按钮会一并复位其余 5 项，下面按序写回用户原值）`)
+        } else {
+          fails.push(`恢复「左右边距」需要点浮层里的「${lbl}」按钮，但没找到 —— 该字段会留有测试值`)
+        }
+        // 等复位真的落盘再写其余值，否则两者会互相覆盖
+        await wait(1200)
       }
-      await wait(250)
-      continue
     }
-    const res = await page.evaluate(SET_CONTROL, { tag: r.tag, label: r.label, value: r.write })
-    if (!res.ok) notes.push(`恢复「${r.label}」时控件未找到（可能该字段在本视图中不存在）`)
-    await wait(250)
+    for (const r of popoverItems) {
+      const res = await writeOne(r, "章节浮层")
+      if (res.skippedNull) {
+        console.log(`    · ${r.label} 原为「跟随窗口」，已由上面的复位按钮处理`)
+      }
+    }
+    /*
+     * 浮层没有保存按钮，落盘靠 createDebouncedPersist(400)。
+     * 从最后一次改动算起给它 1500ms，确保写盘真的发生；
+     * 不等就可能"关掉浮层再回设置页点保存"时把旧值又写回去。
+     */
+    await wait(1500)
+    console.log(`  浮层内恢复后：${JSON.stringify(await page.evaluate(CLOSE_POPOVER))}`)
   }
+}
+
+// ── 阶段 2：设置页（界面字号 + 界面字体）──
+if (!(await goToSettings())) { fails.push("恢复阶段无法回到设置页") } else {
+  for (const r of settingsItems) await writeOne(r, "设置页")
   await wait(600)
   console.log(`  点保存: ${JSON.stringify(await page.evaluate(CLICK_SAVE))}`)
   await wait(2500)
@@ -1118,9 +1325,18 @@ if (!(await goToSettings())) { fails.push("恢复阶段无法回到设置页") }
     notes.push("正文字号原为「从未设置」(null)，保存后落为显式默认值 18 —— 语义相同（都是默认 18px），非串改")
   }
   evidence.restore = {
-    expected: { uiSize: effUi(before.storedUi), bodySizePx: effBodyPx(before.storedBody), uiFont: before.storedUiFont ?? "system", bodyFont: before.storedBodyFont ?? "serif-default" },
-    actual: { uiSize: a3.storedUi, bodySize: a3.storedBody, uiFont: a3.storedUiFont, bodyFont: a3.storedBodyFont, domRootPct: a3.domRootPct, domBodyPx: a3.domBodyPx },
+    /*
+     * ⚠ 这里必须收**全部 8 个**字段，不能只收其中 4 个。
+     * 上一版只收了界面/正文的字号与字体，于是"那 4 个排版参数没被恢复"
+     * 这件事在归档里**看不出来** —— 证据自己就把盲区复制了一份。
+     * 逐字段的 where/diff 让归档能直接回答"哪个字段、住在哪个视图、差多少"。
+     */
+    fields: restore.map((r) => {
+      const a = r.expect(a3), w = r.expectValue
+      return { label: r.label, where: r.where, expected: w, actual: a }
+    }),
     ok: restored,
+    backup: evidence.userStateBackup ?? null,
   }
 }
 

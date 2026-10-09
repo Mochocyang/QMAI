@@ -1910,6 +1910,31 @@
   accent-color: var(--ui-accent);
 }
 
+/*
+ * 「第三方字体许可」的版权清单默认收起（用户要求：这些不需要显示出来）。
+ *
+ * ⚠ 显著声明那一句（data-ui="harmonyos-notice"）**不在**这个 <details> 里，
+ * 它必须始终可见 —— HarmonyOS 许可第 2 条第 1 项强制要求软件界面出现该声明。
+ * 所以这里只折叠版权清单，不折叠声明本身。
+ * 理由与用户确认过程见 interface-section.tsx 的 BundledFontLicenses 注释。
+ */
+.ui-test-root [data-ui="bundled-font-license-details"] > summary {
+  display: list-item;
+  cursor: pointer;
+  color: var(--ui-muted);
+  font: 500 0.875rem/1.6 var(--ui);
+}
+
+.ui-test-root [data-ui="bundled-font-license-details"] > summary:focus-visible {
+  outline: 2px solid var(--ui-accent);
+  outline-offset: 3px;
+}
+
+/* 展开后的清单缩进一级，读起来才像"挂在标题下面"而不是又一段正文 */
+.ui-test-root [data-ui="bundled-font-license-details"] > *:not(summary) {
+  margin-left: 14px;
+}
+
 .ui-test-root [data-ui="interface-compatibility"] {
   margin-top: 32px;
   border-top: 1px solid var(--ui-soft);

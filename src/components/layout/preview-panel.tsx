@@ -72,7 +72,35 @@ import { FrontmatterPanel } from "@/components/editor/frontmatter-panel"
 import { UiTestOutlineTools } from "@/components/uitest/ui-test-outline-tools"
 import { createDebouncedPersist } from "@/lib/debounced-persist"
 import { BodyTypographyFields, type BodyTypographyValue } from "@/components/settings/sections/body-typography-fields"
-import type { BodyFontFamily } from "@/lib/font-settings"
+/*
+ * ⚠ 这个 CSS 必须**静态** import 在渲染浮层的这个模块里，不能挪走。
+ *
+ * 「字体设置」浮层原先借用设置页的 ui-test-tools.css（靠控件根节点的
+ * data-ui="interface-fields"），而那份 CSS 只被路由级**懒 chunk** 加载。
+ * 结果是：没进过设置页就直接开章节浮层时，浮层先以无样式状态显示
+ * （标签挤在控件上方、错位），过一会儿样式才到、内容突然跳成两列 ——
+ * 用户报的"刚开始没有美感，等一会儿才有边框"。
+ *
+ * 静态 import 让这份样式与浮层同生共死：浮层能渲染，样式就一定已生效。
+ * 实测根因与证据见 body-font-popover.css 顶部注释与
+ * .codex-temp/probe-popover-fouc.mjs。
+ *
+ * 防回归守卫在
+ * src/components/settings/sections/body-typography-fields.spec.tsx
+ * 的「浮层样式与渲染它的模块同生共死——不再依赖懒加载 chunk（首帧即有样式）」。
+ * （**没有** body-font-popover.spec.ts 这个文件 —— 我先前在这里写过它，
+ *  那是一条指向空文件的指路，会让下一个人以为这块没人守。）
+ */
+import "./body-font-popover.css"
+import {
+  DEFAULT_BODY_FONT_FAMILY,
+  DEFAULT_BODY_FONT_PX,
+  DEFAULT_BODY_LETTER_SPACING,
+  DEFAULT_BODY_LINE_HEIGHT,
+  DEFAULT_BODY_MARGIN_X,
+  DEFAULT_BODY_SAFE_BOTTOM,
+  type BodyFontFamily,
+} from "@/lib/font-settings"
 
 const SnapshotViewer = lazy(async () => {
   const mod = await import("@/components/novel/snapshot-viewer")
@@ -430,17 +458,55 @@ export function PreviewPanel() {
         setUiBodySafeBottom(next as number)
         break
       default: {
-        // ⚠ 与 Task 9 的 setBodyTypography 同一个道理，也必须写成穷尽收尾。
-        // 任务 11 的键 → store 映射是**第二处**同样的 switch：
-        // 写成 default: break 的话，"共享控件新增第 7 个参数"会在这里静默丢写
-        // —— 表现是"设置页能改、写作现场浮层改不动"，比单点漏更难排查。
-        // 收窄的是 key，不是 next：写成 `never = next` 会直接 TS2322（实测）。
+        /*
+         * ⚠ 必须写成穷尽收尾，不能写成 `default: break`。
+         *
+         * 这是一个**键 → store 字段**的手写映射。写成 `default: break` 的话，
+         * "共享控件新增第 7 个参数"会在这里**静默丢写** ——
+         * 表现是"那一项怎么拖都不生效"，而 `tsc` 报 0 个错。
+         *
+         * 这条守卫原先在设置页的 `setBodyTypography` 上（那里也有同样的收尾）。
+         * 用户要求把这 6 项移出设置页之后，那个函数删掉了、映射只此一处，
+         * 于是守在这里就是守卫的全部 —— 由
+         * `.codex-temp/check-exhaustive-typography-switch.mjs` 钉住
+         * （它同时自证"有 never 才抓得住、没 never 抓不住"）。
+         *
+         * 收窄的是 key，不是 next：写成 `never = next` 会直接 TS2322（实测）。
+         */
         const _never: never = key
         void _never
       }
     }
     bodyTypographyPersist.current.schedule(persistAllBodyTypography)
   }, [persistAllBodyTypography, setUiBodyFontFamily, setUiBodyFontPx, setUiBodyLineHeight, setUiBodyLetterSpacing, setUiBodyMarginX, setUiBodySafeBottom])
+
+  /*
+   * 标题栏的「默认设置」：把 6 个参数一次性恢复成 font-settings 里的默认值。
+   *
+   * ── 为什么逐个调用 applyBodyTypographyChange 而不是直接 setState ──
+   * 那个函数同时负责"写 store"和"排一次落盘"。逐个调用意味着
+   * 落盘只排一次（createDebouncedPersist 的 schedule 语义是**替换**，
+   * 后一次顶掉前一次），而且最后那次读到的 store 已经是 6 个默认值齐全的状态
+   * —— 见 persistAllBodyTypography 顶部关于"为什么一次落全套"的说明。
+   *
+   * ── 默认值必须来自 font-settings，不能在这里写字面量 ──
+   * 写 18 / 1.95 / 51 这种数字，日后改默认档就只改了控件初值、
+   * 改不到这个按钮，出现"点默认设置得到的不是默认值"。
+   *
+   * ── 它同时是「回到跟随窗口」的唯一入口 ──
+   * 原先左右边距下面有一个「改回跟随窗口」按钮，可单独把 marginX 设回 null。
+   * 用户要求删除它，于是现在只有这个按钮能回到跟随窗口
+   * （DEFAULT_BODY_MARGIN_X 就是 null）。这是一处真实的能力收缩，
+   * 不是被忽略的副作用。
+   */
+  const resetBodyTypographyToDefaults = useCallback(() => {
+    applyBodyTypographyChange("fontFamily", DEFAULT_BODY_FONT_FAMILY)
+    applyBodyTypographyChange("fontPx", DEFAULT_BODY_FONT_PX)
+    applyBodyTypographyChange("lineHeight", DEFAULT_BODY_LINE_HEIGHT)
+    applyBodyTypographyChange("letterSpacing", DEFAULT_BODY_LETTER_SPACING)
+    applyBodyTypographyChange("marginX", DEFAULT_BODY_MARGIN_X)
+    applyBodyTypographyChange("safeBottom", DEFAULT_BODY_SAFE_BOTTOM)
+  }, [applyBodyTypographyChange])
 
   // 点击浮层外或按 Esc 关闭（与去AI味选择器同一套交互）
   useEffect(() => {
@@ -2139,30 +2205,47 @@ export function PreviewPanel() {
       {bodyFontOpen ? (
         <div
           ref={bodyFontRef}
-          className="fixed z-50 rounded-md border bg-popover p-3 text-sm text-popover-foreground shadow-lg"
+          /*
+           * 样式全部来自 body-font-popover.css（与本模块同时加载）。
+           * 这里只留定位与宽度：位置由 getFloatingPanelPosition 算好后放进行内 style。
+           * 不再用 data-ui="interface-fields" 去借设置页的懒加载样式 —— 那正是
+           * "首帧无样式"的成因，见文件顶部那段 import 注释。
+           */
+          className="body-font-popover"
           style={{ ...bodyFontPosition, width: BODY_TYPOGRAPHY_PANEL_WIDTH_PX }}
           role="dialog"
           aria-label="字体设置"
         >
-          <div className="mb-2 flex items-center justify-between gap-2 px-1">
-            <div className="truncate text-sm font-medium">字体设置</div>
-            <button
-              type="button"
-              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-              onClick={closeBodyFontPopover}
-              aria-label="关闭字体设置"
-              title="关闭字体设置"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+          <div className="body-font-popover__head">
+            <div className="body-font-popover__title">字体设置</div>
+            <div className="body-font-popover__actions">
+              {/*
+                「默认设置」——用户要求放在关闭按钮旁边。
+                逐项恢复默认值的理由与"它同时是回到跟随窗口的唯一入口"
+                见 resetBodyTypographyToDefaults 上方注释。
+              */}
+              <button
+                type="button"
+                className="body-font-popover__action"
+                onClick={resetBodyTypographyToDefaults}
+                aria-label="默认设置"
+                title="恢复为默认的正文排版"
+              >
+                默认设置
+              </button>
+              <button
+                type="button"
+                className="body-font-popover__action is-icon-only"
+                onClick={closeBodyFontPopover}
+                aria-label="关闭字体设置"
+                title="关闭字体设置"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
-          {/*
-            与设置页共用同一个组件、同一份 store 取值。
-            dense 只影响说明段落，不影响任何数值语义。
-          */}
           <BodyTypographyFields
             idPrefix="chapter-body-typography"
-            dense
             value={{
               fontFamily: uiBodyFontFamily,
               fontPx: uiBodyFontPx,

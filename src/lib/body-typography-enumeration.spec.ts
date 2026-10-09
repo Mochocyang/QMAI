@@ -5,14 +5,25 @@
  * ── 为什么需要它 ──
  *
  * 正文字体设置这一组参数（字体/字号/行间距/字间距/左右边距/底部安全距离）
- * 在仓库里有 **6 层**各自按名字手抄了一遍：
+ * 在仓库里有 **5 层**各自按名字手抄了一遍：
  *
- *   1. preview-panel.tsx        现场改值 + 落全套
- *   2. interface-section.tsx    设置页草稿 switch
- *   3. settings-view.tsx        设置页保存
- *   4. project-store.ts         app-state 的 save / load
- *   5. wiki-store.ts            初值 + 6 个 setter
- *   6. App.tsx                  启动读回
+ *   1. preview-panel.tsx        现场改值 + 落全套（**含唯一的草稿映射 switch**）
+ *   2. settings-view.tsx        设置页保存
+ *   3. project-store.ts         app-state 的 save / load
+ *   4. wiki-store.ts            初值 + 6 个 setter
+ *   5. App.tsx                  启动读回
+ *
+ * ── 为什么从 6 层变成 5 层 ──
+ *
+ * 原先第 2 层是 `interface-section.tsx` 的「设置页草稿 switch」。
+ * 用户要求把这 6 项**从设置页移除**（它们属于章节，不属于全局设置），
+ * 那个 switch 随之搬到 preview-panel.tsx 的 `applyBodyTypographyChange`
+ * —— 也就是并进了第 1 层，而不是凭空消失。
+ * 所以层数减少是**真实的合并**，不是有人把守卫绕过去了；
+ * 这一点必须写在这里，否则下一个人看到 5 会以为是漏登记。
+ *
+ * ⚠ 搬走之后新增了一条**反向**不变量：interface-section.tsx 不得再出现
+ * 这 6 个 store 字段名。理由与判据见文件末尾那条用例。
  *
  * 其中两处 switch 已经被 TypeScript 的 `default: { const _never: never = key }`
  * 钉死（新增字段或漏 case 都会编译错），`body-typography-fields.tsx` 则是
@@ -25,7 +36,7 @@
  *
  * ── 这个守卫做什么 ──
  *
- * 对上述 6 层逐个断言"6 个字段名一个都不缺"。
+ * 对上述各层逐个断言"6 个字段名一个都不缺"。
  * 它不能替你写出第 7 个参数的正确逻辑，但能让"漏了一层"从静默变成失败。
  *
  * ⚠ 它**不能**自动发现"新增了第 7 层"。这一层靠 LAYERS 的条数下限断言：
@@ -48,13 +59,18 @@ const STORE_FIELDS = [
 
 /** 按名字手抄了这 6 个字段的层。新增一层时必须加进这里（见文件头的已知边界）。 */
 const LAYERS: { label: string; file: string }[] = [
-  { label: "preview-panel：现场改值 + 落全套", file: "src/components/layout/preview-panel.tsx" },
-  { label: "interface-section：设置页草稿 switch", file: "src/components/settings/sections/interface-section.tsx" },
+  { label: "preview-panel：现场改值 + 落全套 + 草稿 switch", file: "src/components/layout/preview-panel.tsx" },
   { label: "settings-view：设置页保存", file: "src/components/settings/settings-view.tsx" },
   { label: "project-store：app-state save/load", file: "src/lib/project-store.ts" },
   { label: "wiki-store：初值 + 6 个 setter", file: "src/stores/wiki-store.ts" },
   { label: "App：启动读回", file: "src/App.tsx" },
 ]
+
+/** 本轮被移出设置页的那一层（它现在**不该**再出现这些字段名）。 */
+const REMOVED_LAYER = {
+  label: "interface-section：设置页草稿 switch（已移出）",
+  file: "src/components/settings/sections/interface-section.tsx",
+}
 
 const REPO = resolve(__dirname, "..", "..")
 const read = (p: string) => readFileSync(resolve(REPO, p), "utf8").replace(/\r\n/g, "\n")
@@ -64,7 +80,7 @@ function missingFields(source: string, fields: readonly string[]): string[] {
   return fields.filter((f) => !source.includes(f))
 }
 
-describe("6 参数 × 6 层：枚举不许漏层", () => {
+describe("6 参数 × 各层：枚举不许漏层", () => {
   it.each(LAYERS.map((l) => [l.label, l.file]))("%s 提到了全部 6 个字段", (_label, file) => {
     const missing = missingFields(read(file), STORE_FIELDS)
     expect(
@@ -74,11 +90,45 @@ describe("6 参数 × 6 层：枚举不许漏层", () => {
     ).toEqual([])
   })
 
-  it("层数下限：这个清单本身要覆盖全部 6 层（少了说明有人把层搬走却没更新守卫）", () => {
-    // 6 是当前实际层数。若有人把某一层删掉/合并，这个数字要一起改 ——
-    // 强制一次"你是真的合并了，还是把守卫绕过去了"的决策。
-    expect(LAYERS.length, "登记的层数变了：新增或删除层时请同步更新 LAYERS 与文件头说明").toBe(6)
+  it("层数下限：这个清单必须与真实层数一致（层搬走/合并时要显式改这里）", () => {
+    /*
+     * 5 是当前实际层数（原为 6，interface-section 那一层并进了 preview-panel，
+     * 见文件头的说明）。若有人再搬走或合并一层，这个数字要一起改 ——
+     * 强制一次"你是真的合并了，还是把守卫绕过去了"的决策。
+     */
+    expect(
+      LAYERS.length,
+      "登记的层数变了：新增/删除/合并层时请同步更新 LAYERS 与文件头说明",
+    ).toBe(5)
     expect(STORE_FIELDS.length).toBe(6)
+  })
+
+  /**
+   * ── 反向不变量：被移走的那一层不得复活 ──
+   *
+   * 用户要求把这 6 项从设置页移除。上面那些用例只保证"该有的层都提到了
+   * 这些字段名"，**不保证**"不该有的层没提到" —— 把 switch 原样加回去，
+   * 上面 5 条依旧全绿。
+   *
+   * 这条与 interface-sidebar-nav.spec.ts 里那几条是同一个意图，
+   * 但落在不同的判据上（那边查 setDraft 调用点与 JSX，这边查字段名）。
+   * 两处都留着是有意的：只查一边的话，"字段名还在但没人用"这类
+   * 半拉子状态会从两边都漏过去。
+   */
+  it("被移出设置页的那一层，不得再出现这 6 个字段名", () => {
+    const src = read(REMOVED_LAYER.file)
+    const back = STORE_FIELDS.filter((f) => src.includes(f))
+    expect(
+      back,
+      `${REMOVED_LAYER.file} 又出现了这些字段：${back.join(", ")}。\n` +
+      `这 6 项已移到章节工具栏的「字体设置」浮层（属于章节，不属于全局设置）——`,
+    ).toEqual([])
+
+    // 反向控制：判定函数必须能识破"字段回来了"的输入，否则上面那条恒真
+    expect(
+      missingFields(`const x = ${STORE_FIELDS[0]}`, STORE_FIELDS),
+      "反向控制：字段真的回来时必须被报出来",
+    ).toEqual([...STORE_FIELDS.slice(1)])
   })
 
   it("反向控制：判定函数必须能识破缺字段的输入", () => {
