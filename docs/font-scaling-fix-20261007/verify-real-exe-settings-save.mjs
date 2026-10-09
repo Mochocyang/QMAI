@@ -35,7 +35,8 @@
 
 import { join, dirname } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
-import { writeFileSync } from "node:fs"
+import { writeFileSync, readFileSync } from "node:fs"
+import { createHash } from "node:crypto"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
@@ -59,12 +60,97 @@ const BODY_PX_TO_TRY = Number(argOf("--body-px") ?? 24)
  * 写成 JSON 后，文档里的每个数字都能在这一份产物里找到。
  */
 const OUT = argOf("--out") ?? join(HERE, "real-exe-shots", "real-exe-settings-save.json")
+
+/**
+ * 证据的来源信息：**没有这些就无法判断这份 JSON 对应哪次构建**。
+ *
+ * 为什么必须补上（最终整体代码审查第 3 条）：
+ * 那份 JSON 原来只有 note/capture，于是它**既证明不了自己属于哪个 exe**，
+ * 也证明不了"由当前脚本产出"。审查据此指出一个自相矛盾的归档状态：
+ * HEAD 的脚本会必然报出「字间距 应为 0.4，实际 "0.4px"」（夹具的 unit 写错），
+ * 而同一提交里的 JSON 却是 `"fails": []`、`"verdict": "pass"` ——
+ * 即那份绿证据**不可能由它自己那份脚本产出**。
+ *
+ * 所以每次运行都记下：脚本自身的 SHA-256（判据变了没）、
+ * 被验证的 exe 路径与 SHA-256（产品变了没）、时间戳（何时测得）。
+ * 这三者齐了，"归档的绿是否还算数"就变成一个可判定的问题。
+ */
+function fileSha256(p) {
+  try { return createHash("sha256").update(readFileSync(p)).digest("hex") } catch { return null }
+}
+const scriptSha256 = fileSha256(fileURLToPath(import.meta.url))
+const exePath = argOf("--exe") ?? null
+const provenance = {
+  capturedAt: new Date().toISOString(),
+  script: fileURLToPath(import.meta.url),
+  scriptSha256,
+  cdpPort: PORT,
+  exe: exePath,
+  exeSha256: exePath ? fileSha256(exePath) : null,
+  node: process.version,
+}
+
 const evidence = {
   note: "真实 exe：设置界面改字号/字体 → 点保存 → 生效、落盘、真实渲染族。由 verify-real-exe-settings-save.mjs 每次运行覆盖写入。",
   capture: { uiFontTried: UI_FONT_TO_TRY, bodyFontTried: BODY_FONT_TO_TRY, doc: OUTLINE_KEY },
-  initial: null, sliders: null, cases: [], docCase: null, fontCase: null, restore: null, fails: [], notes: [], verdict: null,
+  provenance,
+  initial: null, sliders: null, cases: [], docCase: null, fontCase: null, chapterPopoverCase: null, restore: null, fails: [], notes: [], verdict: null,
 }
 
+/*
+ * ── `--check-evidence`：这份归档的绿，还算不算数？ ──
+ *
+ * 由来（最终整体代码审查第 3 条）：审查发现 HEAD 里那份 `"verdict": "pass"`
+ * 的 JSON **不可能由同一提交的脚本产出** —— 脚本当时会把字间距的期望值写成
+ * `"0.4"` 而 DOM 实际是 `"0.4px"`，必然多一条失败。也就是说那份绿证据
+ * 要么来自更早的脚本版本，要么根本不能反映当前判据。
+ * 一份无法判断"是否仍然成立"的证据，比没有证据更危险：它会被引用。
+ *
+ * 这个模式做的事很小，但正好堵住那个缺口：**把归档记下的
+ * scriptSha256 与当前脚本比对**。不一致就说明判据在归档之后被改过，
+ * 这份绿不能再直接引用（必须重跑）。没有 scriptSha256 的旧归档同样报出来。
+ *
+ * 它**不能**证明"重跑一定还是绿"（那需要真机），但能把
+ * "拿一份过期判据产出的绿当验收依据"变成一个显式的失败。
+ */
+if (argv.includes("--check-evidence")) {
+  const target = argOf("--check-evidence") || OUT
+  console.log(`  ══ 校验归档证据是否仍由当前脚本判据产出 ══`)
+  console.log(`  归档: ${target}`)
+  let archive
+  try {
+    archive = JSON.parse(readFileSync(target, "utf8"))
+  } catch (err) {
+    console.log(`  ✗ 读不出归档 JSON: ${err.message}`)
+    process.exit(1)
+  }
+  const problems = []
+  const arch = archive.provenance?.scriptSha256 ?? null
+  if (!arch) {
+    problems.push("归档没有 provenance.scriptSha256 —— 无法判断它由哪版判据产出（旧格式归档，必须重跑后才能引用）")
+  } else if (arch !== scriptSha256) {
+    problems.push(`判据已变：归档记录 scriptSha256=${arch.slice(0, 12)}…，当前脚本=${scriptSha256.slice(0, 12)}… —— 必须重跑，旧绿不可引用`)
+  }
+  if (archive.verdict !== "pass") problems.push(`归档 verdict=${archive.verdict}，不是 pass`)
+  if ((archive.fails ?? []).length > 0) problems.push(`归档仍有 ${archive.fails.length} 条 fails`)
+  if (!archive.provenance?.capturedAt) problems.push("归档没有 provenance.capturedAt —— 不知道何时测得")
+  if (!archive.provenance?.exeSha256) problems.push("归档没有 provenance.exeSha256 —— 不知道验证的是哪个 exe（可用 --exe 指定后重跑补上）")
+
+  if (problems.length) {
+    console.log(`  ✗ 这份归档不能再作为验收依据（${problems.length} 项）`)
+    for (const p of problems) console.log(`    · ${p}`)
+    process.exit(1)
+  }
+  console.log(`  ✓ 归档与当前判据一致（scriptSha256=${scriptSha256.slice(0, 12)}…，${archive.provenance.capturedAt}）`)
+  console.log(`    注意：这只证明"判据没变过"，**不证明**重跑仍会绿 —— 结论引用仍需真机重跑。`)
+  process.exit(0)
+}
+
+/*
+ * playwright 只在**真的要去连浏览器**时才加载。
+ * 放在 `--check-evidence` 之后，那个只读归档的模式才能在没装/没起
+ * 浏览器环境里独立运行 —— 它本来就不需要浏览器。
+ */
 const mod = await import(pathToFileURL(join(process.env.APPDATA, "npm/node_modules/playwright/index.js")).href)
 const chromium = mod.chromium ?? mod.default?.chromium
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -246,6 +332,49 @@ const READ_DOC = () => {
   }
 }
 
+/**
+ * 第一步：切到「章节」视图。用户的原始操作路径。
+ *
+ * 只认主导航的可见文字（`.ui-test-nav-item`），不靠类名或按钮位置 ——
+ * 工具栏按钮顺序会变。返回诊断字段，失败时能直接看出是哪一步断的；
+ * 否则"浮层打不开"会退化成一个不知道去哪查的布尔值。
+ */
+const GO_TO_CHAPTER = () => {
+  const nav = [...document.querySelectorAll(".ui-test-nav-item")]
+  const chap = nav.find((x) => (x.textContent ?? "").trim() === "章节")
+  if (!chap) return { ok: false, why: "no-chapter-nav", nav: nav.map((x) => (x.textContent ?? "").trim()) }
+  chap.click()
+  return { ok: true }
+}
+
+/**
+ * 第二步：章节视图渲染完成后，点开工具栏上的「字体设置」入口，确认浮层出现。
+ * 必须与切视图分两次 `page.evaluate`（中间留时间让 React 重建 DOM），
+ * 合成一次会在旧 DOM 上找按钮，必然找不到。
+ */
+const CLICK_BODY_FONT_ENTRY = () => {
+  if (document.querySelector('[role="dialog"][aria-label="字体设置"]')) return { popover: true, already: true }
+  const cands = [...document.querySelectorAll("button, [role='button']")]
+  const entry = cands.find((b) => {
+    const label = `${b.getAttribute("aria-label") ?? ""} ${b.getAttribute("title") ?? ""} ${b.textContent ?? ""}`.trim()
+    return /字体设置/.test(label)
+  })
+  if (!entry) {
+    return {
+      popover: false, why: "no-entry",
+      buttons: cands.map((b) => `${b.getAttribute("aria-label") ?? ""}|${b.getAttribute("title") ?? ""}|${(b.textContent ?? "").trim().slice(0, 12)}`).slice(0, 40),
+    }
+  }
+  entry.click()
+  return { popover: !!document.querySelector('[role="dialog"][aria-label="字体设置"]'), clicked: true }
+}
+
+const CLOSE_POPOVER = () => {
+  const btn = document.querySelector('button[aria-label="关闭字体设置"]')
+  if (btn) { btn.click(); return { closed: true } }
+  return { closed: false }
+}
+
 async function goToSettings() {
   for (let i = 0; i < 8; i++) {
     const step = await page.evaluate(STEP_TO_SETTINGS)
@@ -322,25 +451,69 @@ if (set2.value !== String(BODY_PX_TO_TRY)) fails.push(`尺子失效：正文字�
  * 盖掉）坏了，本脚本照样全绿。
  *
  * 四个期望值刻意取成与默认值**互不相同**，否则"写入 == 没写"分不出来：
- * 行间距默认 1.95 → 取 2.2；字间距默认 0 → 取 0.4；
+ * 行间距默认 1.95 → 取 2.2；字间距默认 0 → 取 0.5；
  * 左右边距默认跟随窗口（App 不写行内样式）→ 取 44px；
  * 底部安全距离默认 51 → 取 55。
  * 另外 4 个值两两不同，这样"串味"（把 A 的值写到 B 的键上）也能被抓住。
+ *
+ * ⚠ 期望值必须**从滑块自己的 step 推出来**，不能凭直觉硬写。
+ * 我第一版给字间距写的是 0.4，真机第一次跑就报红：
+ *   尺子失效：字间距 滑块写入 0.4 但读到 0.5
+ *   然后 M-1 又跟着报了两条"保存后应为 0.4，实际 0.5px"
+ * 根因在 `body-typography-fields.tsx:268`：字间距滑块的 **`step={0.5}`**，
+ * 而 range 控件只能取到 `min + n*step`，0.4 **根本不可表示** ——
+ * 浏览器把它吸附到 0.5。这是**夹具缺陷**，不是产品缺陷；
+ * 把一个夹具缺陷报成两条产品缺陷，会让人去"修"一个并不存在的 bug。
+ * 所以现在先读每个滑块的 min/max/step，再把目标**吸附到可表示值**。
+ *
+ * 另一处改进：某条滑块的"尺子"失效时，后续针对它的 DOM/落盘断言**跳过并标注**，
+ * 不再重复计入产品失败 —— 否则同一个夹具缺陷被数成 3 条红，噪声比信号多。
+ */
+/*
+ * `unit` 必须与 `font-settings.ts:676-682` 的实际写法一致：
+ *   --qmai-body-font-px      → `${n}px`
+ *   --qmai-body-leading      → `String(n)`   ← **唯一一个无单位的**
+ *   --qmai-body-letter-spacing → `${n}px`
+ *   --qmai-body-safe-bottom  → `${n}px`
+ *   --qmai-body-margin-x     → `${n}px`
+ * 我在这一处**又**把字间距猜成无单位（与 verify-real-exe.mjs 的 I-5 同一个错），
+ * 真机报红 `应为 0.5，实际 "0.5px"` 才改过来。同一个错误犯两次，
+ * 说明"凭直觉写期望值"这个习惯必须用"先读源码"替代。
  */
 const FOUR = [
   { label: "行间距", key: "domBodyLeading", storedKey: "storedLeading", want: 2.2, unit: "" },
-  { label: "字间距", key: "domBodyLetterSpacing", storedKey: "storedLetterSpacing", want: 0.4, unit: "" },
+  { label: "字间距", key: "domBodyLetterSpacing", storedKey: "storedLetterSpacing", want: 0.5, unit: "px" },
   { label: "左右边距", key: "domBodyMarginX", storedKey: "storedMarginX", want: 44, unit: "px" },
   { label: "底部安全距离", key: "domBodySafeBottom", storedKey: "storedSafeBottom", want: 55, unit: "px" },
 ]
 const fourSet = []
 for (const f of FOUR) {
   const r = await page.evaluate(SET_CONTROL, { tag: "input", label: f.label, value: f.want })
+  /*
+   * 尺子：滑块自己得先写对，否则后面"保存没生效"可能是滑块的问题。
+   * 期望值先按滑块自己的 step 吸附 —— 这样即使将来有人改了 step，
+   * 这里也只会温和地跟随，而不是报一条假的"产品缺陷"。
+   */
+  const step = Number(r.step)
+  const snapped = Number.isFinite(step) && step > 0
+    ? Math.round(((f.want - Number(r.min)) / step)) * step + Number(r.min)
+    : f.want
+  if (Math.abs(snapped - f.want) > 1e-9) {
+    console.log(`    · ${f.label} 期望 ${f.want} 按 step=${r.step} 吸附为 ${snapped}`)
+    f.want = Number(snapped.toFixed(4))
+  }
+  f.rulerOk = Number(r.value) === f.want
+  if (!f.rulerOk) fails.push(`尺子失效：${f.label} 滑块写入 ${f.want}（step=${r.step}）但读到 ${r.value}`)
+  /*
+   * ⚠ 必须在**算完 want/rulerOk 之后**再快照。
+   * 我第一版把 `{...f, read}` 放在前面，于是 fourSet 里存的是**吸附前**的 want
+   * 且**没有 rulerOk** 字段 → 上面那行 map 读 `f.rulerOk` 恒为 undefined →
+   * 4 条全部打印"(尺子失效)"，而实际 4 条尺子都是好的。
+   * 一个只为"打印诊断信息"而存在的副本，把诊断方向指反了。
+   */
   fourSet.push({ ...f, read: r.value })
-  /* 尺子：滑块自己得先写对，否则后面"保存没生效"可能是滑块的问题 */
-  if (Number(r.value) !== f.want) fails.push(`尺子失效：${f.label} 滑块写入 ${f.want} 但读到 ${r.value}`)
 }
-console.log(`  另外 4 个参数：${fourSet.map((f) => `${f.label}=${f.read}`).join("  ")}`)
+console.log(`  另外 4 个参数：${fourSet.map((f) => `${f.label}=${f.read}${f.rulerOk ? "" : "(尺子失效)"}`).join("  ")}`)
 
 await wait(600)
 console.log(`  点保存: ${JSON.stringify(await page.evaluate(CLICK_SAVE))}`)
@@ -356,6 +529,16 @@ const ok2 = (a2.domRootPct === "100%" || a2.domRootPct === null)
 const fourChecks = []
 for (const f of FOUR) {
   const wantStr = `${f.want}${f.unit}`
+  /*
+   * 尺子已失效的条目**跳过断言**：此刻"保存后不等于期望值"只能说明
+   * 滑块没写进去，无法区分"产品没保存"与"夹具没写入"。
+   * 仍记录事实，但不计入产品失败 —— 同一个夹具缺陷不该被数成 3 条红。
+   */
+  if (!f.rulerOk) {
+    fourChecks.push({ label: f.label, want: wantStr, dom: a2[f.key], stored: a2[f.storedKey], domOk: null, storedOk: null, skipped: "尺子失效，无法判定" })
+    console.log(`    – ${f.label.padEnd(7)} DOM=${a2[f.key] ?? "(未写)"} 落盘=${a2[f.storedKey] ?? "(未写)"}  （尺子失效，跳过判定）`)
+    continue
+  }
   const domOk = a2[f.key] === wantStr
   const storedOk = a2[f.storedKey] === f.want
   fourChecks.push({ label: f.label, want: wantStr, dom: a2[f.key], stored: a2[f.storedKey], domOk, storedOk })
@@ -363,7 +546,7 @@ for (const f of FOUR) {
   if (!storedOk) fails.push(`M-1/${f.label} 保存后落盘应为 ${f.want}，实际 ${JSON.stringify(a2[f.storedKey])}`)
   console.log(`    ${domOk && storedOk ? "✓" : "✗"} ${f.label.padEnd(7)} DOM=${a2[f.key] ?? "(未写)"} 落盘=${a2[f.storedKey] ?? "(未写)"}  （期望 ${wantStr}）`)
 }
-const fourOk = fourChecks.every((c) => c.domOk && c.storedOk)
+const fourOk = fourChecks.every((c) => c.domOk !== false && c.storedOk !== false)
 if (!fourOk) fails.push(`M-1/4 个新增参数里至少一个保存后未生效（见上逐条）`)
 
 evidence.cases.push({
@@ -446,9 +629,23 @@ if (!(await goToSettings())) { fails.push("无法回到设置页（用例 4）")
     realRenderedBody: null, realRenderedUiControl: null, realRenderedSerifLayer: null,
   }
 
-  // ── 用例 5：正文字体只影响正文与「正文衬线层」，界面控件不受影响 ──
+  // ── 用例 5：正文字体只影响文档正文；界面（含界面衬线层）都不受影响 ──
+  /*
+   * ⚠ 本用例**曾经断言的是相反的**：它要求 `.ui-test-brand-name`（品牌名）
+   * 随正文字体一起变成楷体，并打印「设计一致 ✓」。
+   * 即：这条断言把用户随后报的缺陷**认证成了正确行为** ——
+   * 真机输出当时是
+   *   「正文衬线层(brand): KaiTi（按设计跟随正文字体 = KaiTi）」
+   *   「✓ 设计一致：正文衬线层随正文字体变为「KaiTi」」
+   * 而用户的原话是「在章节正文中调整字体，整个界面的字体都会发生变化。这是不对的」。
+   *
+   * 根因：`--serif` 一个变量同时承担了「界面衬线层」与「文档正文层」两个角色。
+   * 现在拆成两层：界面看 `--serif`（固定），正文看 `--body-font`（派生）。
+   * 因此品牌名这条断言**必须反过来** —— 它现在是"界面没被带偏"的证据，
+   * 而不是"设计一致"的证据。品牌名应始终是那一套宋体系。
+   */
   console.log("")
-  console.log("  ── 用例 5：正文用楷体，「界面控件」应仍是黑体，而「正文衬线层」应跟着变楷体 ──")
+  console.log("  ── 用例 5：正文用楷体，界面控件应仍是黑体，品牌名（界面衬线层）应保持宋体系不变 ──")
   await page.evaluate(GO_TO_OUTLINE)
   await wait(2000)
   await page.evaluate(OPEN_DOC, OUTLINE_KEY)
@@ -456,23 +653,91 @@ if (!(await goToSettings())) { fails.push("无法回到设置页（用例 4）")
   const docFont = await platformFont(".ui-test-editor-body .ProseMirror p")
   // 界面控件：.ui-test-nav-item 不自己设 font-family，继承 .ui-test-root 的 var(--ui)
   const uiFontNow = await platformFont(".ui-test-nav-item")
-  // 正文衬线层：.ui-test-brand-name 由 ui-test.css 明确写成 var(--serif)，**按设计**跟随正文字体
+  // 界面衬线层：.ui-test-brand-name 用 var(--serif)，而 --serif 是**固定**取值、不跟随正文字体
   const serifConsumer = await platformFont(".ui-test-brand-name")
   console.log(`  正文段落真实渲染族  : ${docFont ? docFont.main + "  [" + docFont.all.join(" ") + "]" : "(取不到)"}`)
   console.log(`  界面控件(nav-item)  : ${uiFontNow ? uiFontNow.main + "  [" + uiFontNow.all.join(" ") + "]" : "(取不到)"}（应为本机界面字体 = SimHei）`)
-  console.log(`  正文衬线层(brand)   : ${serifConsumer ? serifConsumer.main + "  [" + serifConsumer.all.join(" ") + "]" : "(取不到)"}（按设计跟随正文字体 = KaiTi）`)
+  console.log(`  界面衬线层(brand)   : ${serifConsumer ? serifConsumer.main + "  [" + serifConsumer.all.join(" ") + "]" : "(取不到)"}（界面层固定，**不应**变成 KaiTi）`)
   const docIsKai = docFont && /KaiTi|楷体|Kaiti/i.test(docFont.main)
   console.log(`    ${docIsKai ? "✓" : "✗"} 正文字体：正文渲染为「${docFont?.main}」${docIsKai ? "（楷体系）" : "（期望楷体系）"}`)
   if (!docIsKai) fails.push(`正文字体选楷体后正文真实渲染族为「${docFont?.main}」，不是楷体系`)
   const uiIsSimHei = uiFontNow && /SimHei|黑体/i.test(uiFontNow.main)
   console.log(`    ${uiIsSimHei ? "✓" : "✗"} 独立性：界面控件仍是界面字体「${uiFontNow?.main}」（未被正文字体带偏）`)
   if (!uiIsSimHei) fails.push(`正文字体改了界面控件字体（nav-item 渲染为「${uiFontNow?.main}」，期望 SimHei）`)
+  /*
+   * 品牌名**不得**变成楷体。判据同时给出正向期望（宋体系），
+   * 因为"不是楷体"太弱：若品牌名被别的东西带偏成黑体，只断言"不是楷体"也会通过。
+   */
   const brandIsKai = serifConsumer && /KaiTi|楷体|Kaiti/i.test(serifConsumer.main)
-  console.log(`    ${brandIsKai ? "✓" : "✗"} 设计一致：正文衬线层随正文字体变为「${serifConsumer?.main}」（ui-test.css:118 明确用 var(--serif)）`)
-  if (!brandIsKai) fails.push(`正文衬线层未跟随正文字体（brand-name 渲染为「${serifConsumer?.main}」）`)
+  const brandIsSong = serifConsumer && /Noto Serif SC|Source Han Serif SC|Songti|SimSun|宋/i.test(serifConsumer.main)
+  console.log(`    ${!brandIsKai && brandIsSong ? "✓" : "✗"} 界面衬线层未被带偏：品牌名保持「${serifConsumer?.main}」（应为宋体系，不得为 KaiTi）`)
+  if (brandIsKai) {
+    fails.push(`正文字体漏到界面衬线层：品牌名（.ui-test-brand-name）被改成「${serifConsumer?.main}」`
+      + ` —— 这正是用户报过的缺陷（"整个界面的字体都变了"）；界面层 --serif 必须固定`)
+  } else if (!brandIsSong) {
+    fails.push(`界面衬线层既不是楷体也不是宋体系（品牌名渲染为「${serifConsumer?.main}」）—— 期望保持默认宋体系`)
+  }
   evidence.fontCase.realRenderedBody = { selector: ".ui-test-editor-body .ProseMirror p", main: docFont?.main ?? null, all: docFont?.all ?? [] }
   evidence.fontCase.realRenderedUiControl = { selector: ".ui-test-nav-item", main: uiFontNow?.main ?? null, all: uiFontNow?.all ?? [] }
   evidence.fontCase.realRenderedSerifLayer = { selector: ".ui-test-brand-name", main: serifConsumer?.main ?? null, all: serifConsumer?.all ?? [] }
+}
+
+// ── 用例 6：用户的**原始操作路径** —— 在章节里用浮层改字体，界面不得跟着变 ──
+/*
+ * 为什么必须单独走一遍：用例 5 是在**设置页**改的「正文字体」，而用户报的是
+ * 「在**章节正文当中**调整字体设置的功能」。两条路径确实汇聚到同一个 store
+ * 字段（设置页 → settings-view → store；浮层 → applyBodyTypographyChange → store），
+ * 但"汇聚"是**读代码得出的推断**，不是实测。用户的操作路径必须被真的走一遍 ——
+ * 这正是本轮教训的延伸：不要用推断替代证据。
+ *
+ * 断言（对应用户的原话）：
+ *   · 在浮层里把正文字体改成仿宋 → 章节正文的渲染字体必须变成仿宋（设置有效）
+ *   · 同一时刻界面衬线层（品牌名）必须仍是宋体系（**不**跟着变）
+ *   · 界面字体元素必须仍是界面字体
+ */
+console.log("")
+console.log("  ── 用例 6：用户的原始路径 —— 章节里用「字体设置」浮层改正文字体 ──")
+{
+  const beforeBrand = await platformFont(".ui-test-brand-name")
+  const beforeUi = await platformFont(".ui-test-nav-item")
+  const navRes = await page.evaluate(GO_TO_CHAPTER)
+  console.log(`  切到「章节」: ${JSON.stringify(navRes)}`)
+  await wait(2500)
+  const opened = await page.evaluate(CLICK_BODY_FONT_ENTRY)
+  console.log(`  打开「字体设置」浮层: ${JSON.stringify(opened)}`)
+  if (!opened.popover) {
+    fails.push(`章节「字体设置」浮层打不开（${opened.why ?? "未知"}）—— 用户最主要的操作入口不可用`)
+  } else {
+    /* 在浮层里改「正文字体」（浮层与设置页共用同一个控件组件与同一份 store 取值） */
+    const set = await page.evaluate(SET_CONTROL, { tag: "select", label: "正文字体", value: "fangsong" })
+    console.log(`  浮层内改正文字体 → fangsong: ${JSON.stringify(set)}`)
+    await wait(1200)
+    const chapFont = await platformFont(".ui-test-editor-body textarea, .ui-test-editor-body .ProseMirror p")
+    const brand = await platformFont(".ui-test-brand-name")
+    const uiNow = await platformFont(".ui-test-nav-item")
+    console.log(`  章节正文字体: ${chapFont ? chapFont.main : "(取不到)"}（期望仿宋系）`)
+    console.log(`  界面衬线层   : ${brand ? brand.main : "(取不到)"}（此前 ${beforeBrand?.main ?? "?"}，**必须不变**）`)
+    console.log(`  界面字体     : ${uiNow ? uiNow.main : "(取不到)"}（此前 ${beforeUi?.main ?? "?"}，必须不变）`)
+    const chapOk = chapFont && /FangSong|仿宋/i.test(chapFont.main)
+    console.log(`    ${chapOk ? "✓" : "✗"} 浮层改字体后章节正文确实变为「${chapFont?.main}」`)
+    if (!chapOk) fails.push(`浮层里改正文字体后章节正文渲染为「${chapFont?.main}」，不是仿宋系 —— 浮层→正文的通路没接上`)
+    const brandLeak = brand && beforeBrand && brand.main !== beforeBrand.main
+    const brandIsKaiOrFang = brand && /KaiTi|楷体|FangSong|仿宋|SimHei|黑体/i.test(brand.main)
+    console.log(`    ${!brandLeak && !brandIsKaiOrFang ? "✓" : "✗"} 界面衬线层未被带偏（品牌名 ${brand?.main}）`)
+    if (brandLeak || brandIsKaiOrFang) {
+      fails.push(`【用户报的缺陷】在章节浮层里改「正文字体」把界面也改了：品牌名 ${beforeBrand?.main} → ${brand?.main}`
+        + ` —— 正文字体必须只作用于文档正文（--body-font），界面衬线层 --serif 必须固定`)
+    }
+    const uiLeak = uiNow && beforeUi && uiNow.main !== beforeUi.main
+    console.log(`    ${!uiLeak ? "✓" : "✗"} 界面字体未被动（${uiNow?.main}）`)
+    if (uiLeak) fails.push(`在章节浮层里改「正文字体」把界面字体也改了：${beforeUi?.main} → ${uiNow?.main}`)
+    evidence.chapterPopoverCase = {
+      opened, set, chapFont: chapFont?.main ?? null,
+      brandBefore: beforeBrand?.main ?? null, brandAfter: brand?.main ?? null,
+      uiBefore: beforeUi?.main ?? null, uiAfter: uiNow?.main ?? null,
+    }
+    await page.evaluate(CLOSE_POPOVER)
+  }
 }
 
 // ── 恢复 ──

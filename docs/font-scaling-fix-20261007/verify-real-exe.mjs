@@ -231,6 +231,17 @@ const CENSUS_COLLECT = () => {
       cls: (typeof el.className === "string" ? el.className : "").slice(0, 90),
       aria: el.getAttribute?.("aria-label") ?? null,
       inSvg: !!el.closest("svg"),
+      /*
+       * 归属分层：这个元素是**文档内容**还是**界面自身**？
+       *
+       * 必须在采集时算好并存下来 —— 元素可能在两档之间被 React 重建，
+       * 到回读时再算 `closest()` 有可能算在另一个节点上。
+       *
+       * 为什么需要这个分层见第四节的长注释：改造后文档内容用绝对 px、
+       * **不该**跟界面字号变，而界面自身**必须**跟。两者混进同一个分母时，
+       * 任何阈值都同时是"太高"和"太低"。
+       */
+      inContent: !!el.closest(".ProseMirror, .ui-test-editor-body, .ui-test-editor, textarea"),
       ownText: [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim().slice(0, 24),
       /*
        * 表单控件的"文字"不在文本节点里 —— `<textarea>` 的内容是 `.value`，
@@ -257,7 +268,7 @@ const CENSUS_READBACK = () => {
   return els.map((e) => {
     let fs = "", lh = ""
     try { const cs = getComputedStyle(e.el); fs = cs.fontSize; lh = cs.lineHeight } catch { /* 已卸载 */ }
-    return { tag: e.tag, cls: e.cls, aria: e.aria, inSvg: e.inSvg, ownText: e.ownText, ctrlText: e.ctrlText, childEls: e.childEls, before: e.fs, beforeLh: e.lh, after: fs, afterLh: lh }
+    return { tag: e.tag, cls: e.cls, aria: e.aria, inSvg: e.inSvg, inContent: e.inContent, ownText: e.ownText, ctrlText: e.ctrlText, childEls: e.childEls, before: e.fs, beforeLh: e.lh, after: fs, afterLh: lh }
   })
 }
 
@@ -374,53 +385,77 @@ async function main() {
        * 而人眼对一长串 `${x || "(未设置)"}` 的分辨力极低 —— 真出问题时
        * 恰恰是那串 "(未设置)" 被看漏。
        *
-       * 判据分两类，因为它们的"正确值"来源不同：
-       *   · --qmai-body-font-px 是**用户设置**驱动的最外层输入，
-       *     App 一定会写（applyBodyTypography 无条件写这一条）→ 必须非空且形如 "<数字>px"；
-       *   · 其余 4 条只有在用户**设过**对应项时才由 App 写入
-       *     （marginX 未拖过时 App 会 removeProperty）→ 只要求"若存在则必须是合法数值"，
-       *     不要求非空。把它们也要求非空会制造假红：全新用户本来就没有这几个值。
-       * 这里**默认档**跑的是 page.evaluate(SET_BODY_PX, {bodyPx:null,rootPct:null})，
-       * 即清掉 App 行内样式、回落到 CSS 兜底 —— 所以此刻读到的值来自 CSS 或用户设置，
-       * 正是我们想确认"没有被 ui-test.css 偷偷声明一份盖掉"的时刻。
+       * ⚠ 我第一版写这段时**两条判据是错的**，真机第一次跑就报了两条假红。
+       * 完整记下来，因为出错的方向很有代表性 —— 我凭"想当然"猜了格式，没去读源码：
+       *
+       *   ① `--qmai-body-font-px`：我要求"必须存在且是合法 px"。
+       *      但默认档跑的是 `SET_BODY_PX {bodyPx:null}`，**脚本自己把这个行内属性删掉了**；
+       *      而且这个变量**本来就不该在 CSS 里声明** —— App 独占变量只能由
+       *      applyBodyTypography 写成行内样式，CSS 里只允许 `var(--x, 兜底)` 读它，
+       *      这正是本任务的核心约定（verify-body-font-single-source.mjs 守着它）。
+       *      所以读回 "" 是**正确**行为。
+       *      → 改为"缺失**或**合法 px"，并把"兜底链有没有断"交给**派生变量**承担。
+       *
+       *   ② `--qmai-body-letter-spacing`：我按"字间距应该是无单位数"猜，要求纯数字。
+       *      实际 `font-settings.ts:678` 写的是 `` `${clampBodyLetterSpacing(…)}px` `` —— **带 px**。
+       *      → 改为按 px 校验。
+       *
+       * 教训与本次多处一致：**判据的期望值必须从源码读出来，不能凭直觉写**。
+       * 凭直觉写的期望值一旦与实现不符，产出的就是假红 ——
+       * 而假红比没有判据更糟：它会让人去"修"一个并不存在的缺陷。
+       * 下面每条格式都对应 `font-settings.ts:676-682` 的实际写法。
+       *
+       * 分类依据（为什么不是全部要求非空）：
+       *   · 输入变量 --qmai-body-font-px：用户没设过时缺失是合法的（走 CSS 兜底）；
+       *   · marginX 为 null 时源码**主动 removeProperty** → 缺失是合法状态；
+       *   · 派生变量 --qmai-body-font-size：定义为 `var(--qmai-body-font-px, 18px)`，
+       *     任何情况下都必须是合法 px —— **它是兜底链的哨兵**。
        */
       {
         const isPx = (v) => /^-?\d+(\.\d+)?px$/.test(v)
         const isNumber = (v) => /^-?\d+(\.\d+)?$/.test(v)
-        // 字号：必须存在且是合法 px（CSS 兜底 chain 里 --qmai-body-font-px 有 18px 默认，
-        // 若这里读不到，说明兜底链断了 —— 那是真缺陷）
-        if (!isPx(base.vars.bodyFontPx)) {
-          fails.push(`I-5/--qmai-body-font-px 读不到合法 px（实际 ${JSON.stringify(base.vars.bodyFontPx)}）—— 字号兜底链断了`)
-        }
-        // 派生尺寸：由字号派生，必须与上面同源
+        /* 哨兵：派生字号必须始终是合法 px（兜底链断了它才会空） */
         if (!isPx(base.vars.bodyFontSize)) {
-          fails.push(`I-5/--qmai-body-font-size 读不到合法 px（实际 ${JSON.stringify(base.vars.bodyFontSize)}）`)
+          fails.push(`I-5/--qmai-body-font-size 读不到合法 px（实际 ${JSON.stringify(base.vars.bodyFontSize)}）—— 字号兜底链断了`)
         }
-        // 行高：必须是无单位数字（带单位会让行高不随字号变化）
+        /* 输入变量：缺失合法（走兜底），存在则必须是合法 px */
+        if (base.vars.bodyFontPx && !isPx(base.vars.bodyFontPx)) {
+          fails.push(`I-5/--qmai-body-font-px 存在但不是合法 px（实际 ${JSON.stringify(base.vars.bodyFontPx)}）`)
+        }
+        /* 行高：必须无单位（带单位会让行高不随字号变化）—— 与源码 `String(...)` 一致 */
         if (base.vars.bodyLeading && !isNumber(base.vars.bodyLeading)) {
           fails.push(`I-5/--qmai-body-leading 不是无单位数字（实际 ${JSON.stringify(base.vars.bodyLeading)}）`)
         }
-        // 字间距 / 左右边距 / 底部安全距离：存在则必须是合法数值
-        for (const [name, v, unit] of [
-          ["--qmai-body-letter-spacing", base.vars.bodyLetterSpacing, "number"],
-          ["--qmai-body-margin-x", base.vars.bodyMarginX, "px"],
-          ["--qmai-body-safe-bottom", base.vars.bodySafeBottom, "px"],
+        /* 字间距 / 左右边距 / 底部安全距离：源码全部写 `${n}px`，存在则必须是合法 px */
+        for (const [name, v] of [
+          ["--qmai-body-letter-spacing", base.vars.bodyLetterSpacing],
+          ["--qmai-body-margin-x", base.vars.bodyMarginX],
+          ["--qmai-body-safe-bottom", base.vars.bodySafeBottom],
         ]) {
-          if (!v) continue // 未设置是合法状态（全新用户），见上面的理由
-          const ok = unit === "px" ? isPx(v) : isNumber(v)
-          if (!ok) fails.push(`I-5/${name} 存在但不是合法 ${unit}（实际 ${JSON.stringify(v)}）`)
+          if (!v) continue // 未设置是合法状态（见上面分类依据）
+          if (!isPx(v)) fails.push(`I-5/${name} 存在但不是合法 px（实际 ${JSON.stringify(v)}）`)
+        }
+        /* 默认档下派生字号应等于 CSS 兜底值 18px，否则兜底值与源码约定不一致 */
+        if (isPx(base.vars.bodyFontSize) && Math.abs(parseFloat(base.vars.bodyFontSize) - 18) > 0.01) {
+          fails.push(`I-5/默认档 --qmai-body-font-size 应为兜底 18px，实际 ${base.vars.bodyFontSize}`)
         }
         /*
-         * 反向控制（本段的自我鉴别力）：故意喂一个坏值，上面那组判据必须能抓住。
-         * 不做这一步的话，"没报 fail"既可能是"值都对"，也可能是"判据恒不触发" ——
-         * 而这一整段的起因恰恰就是"判据根本不存在"。
+         * 反向控制（本段的自我鉴别力）：拿坏值喂给**上面真正在用的**那几个判据，
+         * 必须全部被识破。没有这一步，"没报 fail"既可能是"值都对"，
+         * 也可能是"判据恒不触发" —— 而本段的起因恰恰就是"判据根本不存在"。
          */
-        const probeBad = [{ v: "", why: "空" }, { v: "abc", why: "非数值" }, { v: "24", why: "缺 px" }]
-        const caught = probeBad.filter((p) => !isPx(p.v)).length
-        if (caught !== probeBad.length) {
-          fails.push(`I-5/自检失效：判据没能识破全部 ${probeBad.length} 个坏值（只识破 ${caught} 个）`)
+        const probes = [
+          { v: "", fn: isPx, why: "空" },
+          { v: "abc", fn: isPx, why: "非数值" },
+          { v: "24", fn: isPx, why: "缺 px" },
+          { v: "1.95px", fn: isNumber, why: "行高带了单位" },
+          { v: "0px", fn: isNumber, why: "行高是 0px" },
+        ]
+        const caught = probes.filter((p) => !p.fn(p.v)).length
+        if (caught !== probes.length) {
+          fails.push(`I-5/自检失效：判据没能识破全部 ${probes.length} 个坏值（只识破 ${caught} 个）`)
         }
-        console.log(`  ✓ 5 个 App 独占变量已断言（字号/派生/行高必查格式，其余存在则查格式；判据自检 ${caught}/${probeBad.length}）`)
+        console.log(`  ✓ 5 个 App 独占变量已断言（派生字号必查格式、输入变量存在则查、行高必须无单位；判据自检 ${caught}/${probes.length}）`)
       }
 
       /*
@@ -537,7 +572,14 @@ async function main() {
     const b = px(r.before), a = px(r.after)
     // 文字元素 = 有自身文本节点 **或** 是带文字的表单控件（textarea/input/select）
     const hasText = r.ownText.length > 0 || (r.ctrlText ?? "").length > 0
-    return { ...r, b, a, ratio: b > 0 && Number.isFinite(a) ? a / b : NaN, hasText, texty: hasText && !r.inSvg }
+    return {
+      ...r, b, a, ratio: b > 0 && Number.isFinite(a) ? a / b : NaN, hasText, texty: hasText && !r.inSvg,
+      /*
+       * 归属分层（本次 px 改造后**必须**分）：见下面长注释。
+       * 采集时就存过 inContent，这里直接用。
+       */
+      owner: r.inContent ? "content" : "chrome",
+    }
   }).filter((r) => Number.isFinite(r.b) && r.b > 0 && Number.isFinite(r.a) && r.a > 0)
   const texty = rows.filter((r) => r.texty)
   const controlTexty = texty.filter((r) => r.tag === "textarea" || r.tag === "input" || r.tag === "select")
@@ -549,32 +591,76 @@ async function main() {
   console.log(`    完全没变（×1.0）         : ${unscaled.length}`)
   const unscaledByCls = new Map()
   for (const r of unscaled) { const k = `${r.tag}.${r.cls}`; unscaledByCls.set(k, (unscaledByCls.get(k) ?? 0) + 1) }
-  if (unscaled.length) {
-    console.log(`    未缩放元素归类（前 15）:`)
-    for (const [k, n] of [...unscaledByCls.entries()].sort((x, y) => y[1] - x[1]).slice(0, 15)) console.log(`      ×${String(n).padEnd(4)} ${k.slice(0, 110)}`)
-  }
+
   /*
-   * 门槛分两级（对抗性审查 P2-③）：
-   *   1. 分母下限：参与元素太少时，"100%" 不构成证据（很可能只是页面没渲染出来）。
-   *      这条必须失败，不能只打提示 —— 否则下限形同装饰。
-   *   2. 比例门槛：至少 95% 的可见文字元素必须跟着缩放（留少量固定尺寸的图标/装饰例外）。
+   * ── 判据必须**按归属分层**（本轮真机实测查出的一个过时判据）──
+   *
+   * 原来的判据是「全部文字元素的跟随率 ≥95%」，理由是"用户最初的抱怨是
+   * 改界面字号整个界面不变"。本次 px 模型下**第一次**真机执行时它报红：
+   * 跟随率 14.4%（112/778），未缩放的 666 个是 p./strong./h2./h3./code./h1./del.。
+   *
+   * 我先没有改阈值，而是写了一个只读探针
+   * （`.codex-temp/probe-followrate-by-owner.mjs`）站在**同一个视图**上
+   * 把分母按归属拆开，结论是**完全解释**了这个数字：
+   *     chrome （界面自身）  110 个，110 个跟随 = **100.0%**
+   *     content（文档内容）  668 个，**2** 个跟随 = 0.3%
+   *     110 + 2 = 112，778 − 112 = 666 —— 与上面的读数逐位对上。
+   * 那 2 个"落在内容容器里却跟随了"的元素是两个 `<button>`
+   * （文档标题按钮、《高人一等》设定集（修订版 v1）与 Done），
+   * 它们本就是界面控件，跟随界面字号是**正确**的，只是位置在编辑器容器内。
+   *
+   * 所以 14.4% 不是回归，而是**旧判据把两件相反的事混进了一个分母**：
+   * 改造后「正文用绝对 px、不跟界面字号变」是**核心不变量**，
+   * 文档内容**本就不该**跟随。把两者混在一起，阈值无论定多少都是错的 ——
+   * 定高了会把正确行为判成回归，定低了就再也发现不了界面真的不跟随。
+   *
+   * 改成分层后判据**更强**，因为它同时断言了两个相反方向：
+   *   ① chrome 必须跟随（≥95%）—— 这才是用户最初的抱怨，现在 100%；
+   *   ② content **不得**跟随（≤2%）—— 这是本次改造的核心不变量，
+   *      在这里再钉一道，与判定 2 的读数互相独立。
+   * 只看①会漏掉"正文又跟着界面字号变了"，只看②会漏掉"界面字号没生效"。
    */
-  if (texty.length < MIN_TEXTY) {
-    fails.push(`界面字号普查的参与元素仅 ${texty.length} 个（下限 ${MIN_TEXTY}）——`
-      + ` 分母过小，跟随率不构成证据（页面可能未渲染完整，或选择器失效）。若本次确实只测小页面，请显式传 --min-texty N`)
+  const byOwner = {}
+  for (const layer of ["chrome", "content"]) {
+    const g = texty.filter((r) => r.owner === layer)
+    const sc = g.filter((r) => Math.abs(r.ratio - 1.5) < 0.02)
+    const same = g.filter((r) => Math.abs(r.ratio - 1) < 0.001)
+    byOwner[layer] = { total: g.length, scaled: sc.length, same: same.length, other: g.length - sc.length - same.length }
   }
-  const ratioPct = texty.length ? (scaled.length / texty.length) * 100 : 0
-  console.log(`  文字元素跟随率 = ${ratioPct.toFixed(1)}%（${scaled.length}/${texty.length}，下限 ${MIN_TEXTY}）`)
+  const chromePct = byOwner.chrome.total ? (byOwner.chrome.scaled / byOwner.chrome.total) * 100 : 0
+  const contentPct = byOwner.content.total ? (byOwner.content.scaled / byOwner.content.total) * 100 : 0
+  console.log(`  ── 按归属分层（chrome=界面自身 / content=文档内容）──`)
+  console.log(`    chrome   共 ${String(byOwner.chrome.total).padStart(4)} 个；跟随 ${String(byOwner.chrome.scaled).padStart(4)} 个 = ${chromePct.toFixed(1)}%（应 ≥95%）`)
+  console.log(`    content  共 ${String(byOwner.content.total).padStart(4)} 个；跟随 ${String(byOwner.content.scaled).padStart(4)} 个 = ${contentPct.toFixed(1)}%（应 ≤2%，正文用绝对 px 是本次核心不变量）`)
+  const badChrome = texty.filter((r) => r.owner === "chrome" && Math.abs(r.ratio - 1) < 0.001)
+  for (const r of badChrome.slice(0, 10)) console.log(`      ✗ chrome 未跟随: <${r.tag} class="${r.cls}"> ${r.before}→${r.after} "${(r.ownText || r.ctrlText || "").slice(0, 30)}"`)
+  const badContent = texty.filter((r) => r.owner === "content" && Math.abs(r.ratio - 1.5) < 0.02)
+  for (const r of badContent.slice(0, 10)) console.log(`      ✗ content 不该跟随却跟随: <${r.tag} class="${r.cls}"> ${r.before}→${r.after} "${(r.ownText || r.ctrlText || "").slice(0, 30)}"`)
+
+  console.log(`  整体跟随率（仅参考，判据已改为分层）= ${texty.length ? ((scaled.length / texty.length) * 100).toFixed(1) : "0.0"}%（${scaled.length}/${texty.length}）`)
   await page.screenshot({ path: join(SHOT_DIR, "04-界面字号150.png") })
   writeFileSync(join(SHOT_DIR, "real-exe-ui-scale.json"), JSON.stringify({
     capturedAt: new Date().toISOString(), rootAt150: rootNow, total: rows.length, texty: texty.length,
     minTexty: MIN_TEXTY, controlTexty: controlTexty.length,
-    scaled: scaled.length, unscaled: unscaled.length, followRatePct: ratioPct,
+    scaled: scaled.length, unscaled: unscaled.length,
+    byOwner, chromeFollowPct: chromePct, contentFollowPct: contentPct,
+    badChrome: badChrome.slice(0, 40), badContent: badContent.slice(0, 40),
     unscaledTop: [...unscaledByCls.entries()].sort((x, y) => y[1] - x[1]).slice(0, 40).map(([k, n]) => ({ cls: k, n })),
     unscaledSample: unscaled.slice(0, 60),
   }, null, 2), "utf8")
-  if (ratioPct < 95) fails.push(`界面字号跟随率仅 ${ratioPct.toFixed(1)}%（<95%），说明仍有大量文字不跟界面字号变化`)
-  else if (texty.length >= MIN_TEXTY) notes.push(`界面字号跟随率 ${ratioPct.toFixed(1)}%（${scaled.length}/${texty.length} 文字元素，含 ${controlTexty.length} 个表单控件）`)
+  /* ① 界面自身必须跟随 —— 这条直接对应用户最初的抱怨 */
+  if (byOwner.chrome.total < 20) {
+    fails.push(`chrome 层参与元素仅 ${byOwner.chrome.total} 个（<20）—— 分母过小，"界面跟随"不构成证据`)
+  } else if (chromePct < 95) {
+    fails.push(`界面自身（chrome）跟随率仅 ${chromePct.toFixed(1)}%（<95%，${byOwner.chrome.scaled}/${byOwner.chrome.total}）—— 用户最初的抱怨仍未解决`)
+  }
+  /* ② 文档内容不得跟随 —— 本次改造的核心不变量（与判定 2 独立的一道） */
+  if (byOwner.content.total >= 20 && contentPct > 2) {
+    fails.push(`文档内容（content）跟随率 ${contentPct.toFixed(1)}%（>2%，${byOwner.content.scaled}/${byOwner.content.total}）—— 正文应使用绝对 px、不随界面字号变化`)
+  }
+  if (chromePct >= 95 && contentPct <= 2 && byOwner.chrome.total >= 20) {
+    notes.push(`分层跟随率：界面自身 ${chromePct.toFixed(1)}%（${byOwner.chrome.scaled}/${byOwner.chrome.total}）、文档内容 ${contentPct.toFixed(1)}%（${byOwner.content.scaled}/${byOwner.content.total}，应不跟随）`)
+  }
 
   await page.evaluate(SET_BODY_PX, { bodyPx: null, rootPct: null })
 

@@ -5763,13 +5763,62 @@ Select-String -Path src-tauri\target\release\qmai.exe -Pattern ([regex]::Escape(
 
 </section>
 
+<!-- ===================== TASK 14 ===================== -->
 <section>
-  <div class="sec-head"><span class="num">04</span><h2>自检：这份计划与规格逐条对照</h2></div>
+  <div class="task">
+    <div class="task-head"><span class="n">Task 14</span><h3>图层拆分：修掉用户报的「改正文字体，整个界面都变」</h3></div>
+    <p class="task-why">Task 1–13 交付后，用户实测报回一个 Task 12 的守卫<strong>认证为正确</strong>的缺陷。这一任务既是修缺陷，也是纠正那批判据的方向。</p>
+
+    <div class="files">
+      <div class="lbl">Files</div>
+      <div>改: src/components/uitest/ui-test.css（--serif 固定 + 新增 --body-font）</div>
+      <div>改: src/components/uitest/ui-test-editor.css（第 268、277 行正文消费点）</div>
+      <div>改: src/lib/font-settings.ts（applyBodyFontFamily 的 TSDoc 契约）</div>
+      <div>改: src/components/uitest/ui-font-derivation.spec.ts（判据反向 + 消费点白名单）</div>
+      <div>改: src/components/uitest/ui-test-editor.spec.tsx（正文容器断言）</div>
+      <div>改: docs/font-scaling-fix-20261007/verify-body-font-applies.mjs（样本重新分类、期望反转）</div>
+      <div>改: docs/font-scaling-fix-20261007/verify-real-exe-settings-save.mjs（用例 5 反向 + 新增用例 6）</div>
+      <div>提交: git commit -m "fix(字体): 正文/界面字体分层，修掉「在章节里改字体，整个界面都变」的缺陷"</div>
+    </div>
+
+    <p><b>为什么前 13 个任务没拦住它。</b>根因与实现无关：<code>--serif</code> 一个变量同时承担了「界面衬线层」（品牌名、工具页标题、书封标题、对话框标题、空状态标题）与「文档正文层」两个角色。于是「正文能拿到正文字体」这件事本身是对的，代价是界面也拿到了同一份 —— 而三处判据把这个代价写成了契约（详见本文件末「一项只描述现状的断言」一节）。</p>
+
+    <div class="step">
+      <div class="step-h"><span class="box"></span>Step 1：先让判据复现缺陷 —— 必须在修复前的构建上看到它变红</div>
+      <div class="step-body">
+        <p>在<b>修复前的 <code>dist/</code></b> 上跑 <code>verify-body-font-applies.mjs</code>（该脚本本轮被改造成漏字体检查器）。必须看到：品牌名 <code>span.ui-test-brand-name</code> 的 Chromium 真实渲染字体族随正文字体从 <code>Noto Serif SC</code> 变成 <code>KaiTi</code>／<code>FangSong</code>／<code>SimHei</code>，而界面字体恒为 <code>Microsoft YaHei UI</code>；守卫 J、M 报红，退出码 1。<b>这一步不能跳过</b> —— 否则无法区分「新判据真的抓到了」与「新判据恰好是绿的」。</p>
+      </div>
+    </div>
+
+    <h4>Step 2：拆成两层</h4>
+    <ul>
+      <li><code>ui-test.css</code>：<code>--serif</code> 改为<b>固定</b>取值（<code>"Noto Serif SC", "Source Han Serif SC", "Songti SC", SimSun, serif</code>，不含任何 <code>var()</code>）；新增 <code>--body-font: var(--qmai-body-font-family, …)</code>，回退栈与改造前逐字一致。</li>
+      <li><code>ui-test-editor.css</code> 第 268、277 行：正文容器与章节 <code>textarea</code> 改用 <code>var(--body-font)</code>。</li>
+      <li><code>font-settings.ts</code>：<code>applyBodyFontFamily</code> 的 TSDoc 改为陈述新契约（<code>--qmai-body-font-family</code> 的<b>唯一</b>消费者是 <code>--body-font</code>；<code>--serif</code> 固定）。</li>
+    </ul>
+
+    <h4>Step 3：把三处「认证过缺陷」的判据反过来</h4>
+    <ol>
+      <li><code>ui-font-derivation.spec.ts</code>：删掉「<code>--serif</code> 派生自 <code>--qmai-body-font-family</code>」，改为同时钉住两个相反方向 —— <code>--serif</code> 必须<b>不</b>派生、<code>--body-font</code> 必须派生且回退栈逐字一致；再加一条消费点白名单（任何消费 <code>--body-font</code> 的规则都必须整体落在 <code>.ui-test-editor-body</code> 之内）+ 消费点非空下限 + 反向控制。</li>
+      <li><code>verify-real-exe-settings-save.mjs</code> 用例 5：品牌名从「应随正文字体变」改为「<b>不得</b>变」，并给出正向期望（宋体系）而不是只否定楷体 —— 「不是楷体」太弱，被带偏成黑体也会通过。</li>
+      <li><code>verify-body-font-applies.mjs</code>：样本重新分类（品牌名属界面层，正文探针改用真实选择器 <code>.ui-test-editor-body</code>），期望整体反转。</li>
+    </ol>
+
+    <h4>Step 4：变异验证（三层，缺一不可）</h4>
+    <p><code>.codex-temp/mutate-body-font-leak.mjs</code>：基线绿 → M1 往界面规则 <code>.ui-test-cover-title</code> 注入 <code>var(--body-font)</code> 必须红 → M2 反向控制（正文消费点改回 <code>var(--serif)</code>，通路断掉）必须红 → M3 <b>逗号列表夹带</b>（<code>.ui-test-editor-body .x, .ui-test-brand-name { … }</code>）必须红 → 还原后按 SHA-256 校验并重新变绿。</p>
+    <p class="warn"><b>M3 的由来</b>：最终整体审查第 4 条发现白名单原先拿<b>整串</b> <code>rule.selector</code> 做 <code>includes()</code>，于是逗号列表里只要有一个分支含 <code>.ui-test-editor-body</code> 就判为合规 —— 而「在一条已有正文规则后面顺手追加一个界面选择器」正是这条缺陷最可能的复发姿势。改用 <code>rule.selectors.every()</code> 逐个分支判定，反向控制也补了逗号列表这一例（只喂单选择器永远碰不到这个洞，却会给人「判定函数是活的」的虚假安心）。</p>
+
+    <h4>Step 5：重跑门禁与真机</h4>
+    <p>4 个 tsc、<code>test:mocks</code>、<code>vite build</code>、<code>cargo test</code>；<code>verify-body-font-applies.mjs</code> 转绿；<code>verify-real-exe.mjs</code> 与 <code>verify-real-exe-settings-save.mjs</code> 在真机上重跑，且后者新增「用例 6：用户的原始操作路径」（在<b>章节浮层</b>里改正文字体，而不是在设置页）—— 因为「两条路径汇聚到同一个 store 字段」是<b>读代码得出的推断</b>，不是实测；用户的操作路径必须被真的走一遍。</p>
+  </div>
+</section>
+
+<section>
 
   <table>
     <thead><tr><th>规格要求</th><th>落在哪个任务</th></tr></thead>
     <tbody>
-      <tr><td>正文字体控制章节字体</td><td>链路本就通（<code>--serif</code> ← <code>--qmai-body-font-family</code>）；缺的是现场入口 → <b>Task 11</b>，设置页接管 → <b>Task 9</b></td></tr>
+      <tr><td>正文字体控制章节字体</td><td>现场入口 → <b>Task 11</b>，设置页接管 → <b>Task 9</b>；<b>图层拆分 → Task 14</b>（原先 <code>--serif</code> 同时充当界面衬线层与文档正文层，于是改正文字体会连带改界面，用户报为「整个界面的字体都变了」；现拆成界面 <code>--serif</code>（固定）+ 文档正文 <code>--body-font</code>（派生自 <code>--qmai-body-font-family</code>））</td></tr>
       <tr><td>一键排版图标与字体图标不能相同</td><td><b>Task 11</b>（<code>Type</code> → <code>WandSparkles</code>），守卫在 Task 11 Step 1 先红</td></tr>
       <tr><td>最后一行贴在最底层 → 底部安全距离可调</td><td><b>Task 7</b> Step 2（含删除窄屏 28px 覆盖）</td></tr>
       <tr><td>字间距设置</td><td><b>Task 1</b>（模型）+ <b>Task 7</b> Step 3（CSS，单处声明靠继承）+ <b>Task 8</b>（控件）</td></tr>
@@ -5811,6 +5860,32 @@ Select-String -Path src-tauri\target\release\qmai.exe -Pattern ([regex]::Escape(
       <tr><td><strong>变异探针的写入窗口与测试的读取窗口重叠 → 症状与真回归完全相同</strong>。本任务唯一会改写被 git 跟踪的 <code>src/</code> 文件的探针是 <code>verify-t13-review-fixes.mjs</code>（其余探针只往临时副本写），而 <code>preview-panel.chapter-toolbar.spec.tsx:19</code> 与 <code>knowledge-tree.spec.tsx:6</code> 都在<strong>模块加载时</strong><code>readFileSync</code> 把 <code>preview-panel.tsx</code> 读进内存。本轮<strong>实际踩到</strong>：<code>npm run test:mocks</code> 与探针并发运行，M3 变异（把 <code>setUiBodyLineHeight(next as number)</code> 塞进 <code>case "fontPx"</code> 体）落盘的一瞬间，spec 正好加载模块，于是拿<strong>变异后</strong>的源码做静态断言，报出「lineHeight 的 case 体应调用 setUiBodyLineHeight(next…)」</td><td>该红<strong>单独重跑该 spec 立刻 7/7 全绿</strong>，干净重跑全套 <strong>701 files / 6610 passed / 0 failed / exit 0</strong>（与 Step 1 基线逐位一致）—— 确认是探针注入而非产品回归。防线分两层：①代码层可减轻的部分——探针写入改成<strong>临时文件 + <code>renameSync</code> 原子替换</strong>，并发读者只会看到完整的旧内容或完整的新内容，不会读到写了一半的碎片（目标被占用时退回直接写<strong>并打印告警</strong>）；②<strong>操作纪律</strong>（代码层面无法根除）：探针运行期间不得并发跑 <code>test:mocks</code>。这条之所以值得单列，是因为它<strong>出在我最信的一类判据上</strong>（静态源码断言），差点让我去"修"一个并不存在的缺陷</td></tr>
     </tbody>
   </table>
+
+  <h3>一项只描述现状的断言，会把缺陷固化成契约（本轮最贵的一课）</h3>
+  <p>用户报「在章节正文里调整字体，<b>整个界面</b>的字体都会发生变化」。根因不是实现写错，而是<b>判据写反了</b>：<code>--serif</code> 这一个变量同时充当「界面衬线层」（品牌名、页面标题、书封标题、对话框标题、空状态标题）与「文档正文层」，于是改正文字体必然连带改界面。而当时有<b>三处</b>断言把这件事钉成了「正确行为」：</p>
+  <table>
+    <thead><tr><th>位置</th><th>当时它断言的</th><th>为什么这是错的</th></tr></thead>
+    <tbody>
+      <tr><td><code>src/components/uitest/ui-font-derivation.spec.ts</code></td><td>「<code>--serif</code> 派生自 <code>--qmai-body-font-family</code>，回退栈与改造前逐字一致」</td><td>把「界面衬线层跟随正文字体」写成了必须成立的契约。改对实现会让这条 spec 变红，于是它会<b>阻止</b>修复</td></tr>
+      <tr><td><code>verify-real-exe-settings-save.mjs</code> 用例 5</td><td>「✓ <b>设计一致</b>：正文衬线层随正文字体变为「KaiTi」」</td><td>真机实测的<b>权威证据</b>（Chromium 报告的渲染字体族）被用来认证这个缺陷</td></tr>
+      <tr><td><code>verify-body-font-applies.mjs</code></td><td>把品牌名 <code>span.ui-test-brand-name</code> 当作「<b>真实正文元素</b>」，并要求它随正文字体变</td><td>样本选错的后果：判据的方向整个反了 —— 该样本属于界面层，却被当成正文层</td></tr>
+    </tbody>
+  </table>
+  <p><b>为什么三处都没拦住。</b>它们全都只描述「现在是这样」，没有任何一处陈述「<b>应该</b>怎样」。前者在下一次实现变动时会变红（反而挡住修复），后者才能挡住缺陷。所以坏味道不是「断言太松」，而是<b>断言的方向来自现状而不是来自需求</b>。</p>
+  <p><b>防线（Task 14 已落地）。</b>把判据改成同时钉住<b>两个相反方向</b>，只看一边都不成立：</p>
+  <ul>
+    <li>界面衬线层 <code>--serif</code> 必须<b>不</b>随正文字体变（含「不得出现 <code>var(</code>」与逐字取值两条）；</li>
+    <li>文档正文 <code>--body-font</code> 必须<b>随</b>正文字体变，且回退栈与改造前逐字一致；</li>
+    <li>消费点白名单：任何消费 <code>--body-font</code> 的选择器都必须落在 <code>.ui-test-editor-body</code> 之内 —— 新增一条漏到界面的规则会立刻变红；同时要求消费点<b>非空</b>（否则变量改名后白名单成空集，「没有违规」就是假绿）；</li>
+    <li>白名单判据自带<b>反向控制</b>：把已知的界面选择器喂给同一判定函数，必须被判违规。</li>
+  </ul>
+  <p><b>怎么证明这些防线真的会红（而不是恒绿）。</b>三层证据，缺一不可：</p>
+  <ol>
+    <li><b>在修复前的构建上先跑新判据</b> —— 它必须复现用户的缺陷。实测 <code>dist/</code> 仍是修复前产物时：品牌名的真实渲染字体族随正文字体从 <code>Noto Serif SC</code> 变成 <code>KaiTi</code>／<code>FangSong</code>／<code>SimHei</code>，而界面字体恒为 <code>Microsoft YaHei UI</code>；守卫 <code>J</code> 与 <code>M</code> 双双报红。（这一步把「新判据只是恰好通过」排除掉。）</li>
+    <li><b>变异验证</b>（<code>.codex-temp/mutate-body-font-leak.mjs</code>）：M1 往界面规则 <code>.ui-test-cover-title</code> 注入 <code>var(--body-font)</code> → 必须红；M2 反向控制，把正文消费点改回 <code>var(--serif)</code> 使通路断掉 → 也必须红（证明判据既不是恒红也不是恒绿）。基线先绿、两个变异各自单独改一个组件、改完按 SHA-256 校验还原、收尾再绿。</li>
+    <li><b>修复后重跑</b>：正文探针仍随正文字体变（设置有效），界面衬线层与界面字体都不变 → 通过。</li>
+  </ol>
+  <p>另记一个只在变异验证里才会暴露的坑：第一版变异脚本用 <code>spawnSync("npx.cmd", …)</code>，每次拿到的 <code>status</code> 都是 <code>null</code>（Windows 上 <code>.cmd</code> 不经 shell 起不来）。<code>null !== 0</code> 于是<b>基线</b>被读成「不通过」、两个变异被读成「抓住了」—— 结论恰好全反。现在直接 <code>node node_modules/vitest/vitest.mjs</code>，并<b>显式拒绝</b> <code>status === null</code>：启动失败必须报出来，不能冒充「测试失败」。</p>
 
   <div class="note warn">
     <span class="t">两处需要实施者自行确认的细节</span>
