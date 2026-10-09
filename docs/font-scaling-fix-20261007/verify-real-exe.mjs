@@ -240,8 +240,38 @@ const CENSUS_COLLECT = () => {
        * 为什么需要这个分层见第四节的长注释：改造后文档内容用绝对 px、
        * **不该**跟界面字号变，而界面自身**必须**跟。两者混进同一个分母时，
        * 任何阈值都同时是"太高"和"太低"。
+       *
+       * ── ⚠ 选择器收窄过（本轮真机实测查出的一个过宽判据）──
+       *
+       * 原来这里是 `.ProseMirror, .ui-test-editor-body, .ui-test-editor, textarea`。
+       * 后两个是**过宽的容器**：编辑区里除了正文，还渲染着 onboarding / 面板标题 /
+       * 徽标这类**界面自身**的元素，它们一并被算进了"正文"分母。
+       *
+       * 真机实测（本轮）：content 层 55 个元素里 4 个"跟随了界面字号"被判失败，
+       *     <button class="">                       20px→30px  "开篇方向"
+       *     <button class="absolute right-3 top-3…"> 12px→18px  "Done"
+       *     <div class="truncate text-base font-semibold leading-tight…"> 16px→24px "开篇方向"
+       *     <span class="rounded px-1.5 py-0.5 … uppercase tracking-wide bg-cyan-100…"> 12px→18px "Outline"
+       * 但这 4 个**恰恰是界面自身**：两个按钮、一个面板标题、一个徽标。
+       * 它们用 Tailwind 的 rem 类（如 `text-base`），本来就该随界面字号放大 ——
+       * 同一次运行的 chrome 层跟随率正是 100%，即它们的行为符合 chrome 的期望。
+       * 把"该跟随"的东西算进"不该跟随"的分母，是**分母错了**，不是产品错了。
+       *
+       * 更隐蔽的一层：这个错误在上一轮**没有暴露**——
+       * 那次 content 分母是 918（整章正文都加载了），4 个误分类被稀释到 0.2%，
+       * 低于 2% 阈值就"绿"了；本轮分母只剩 55，同样的绝对个数变成 7.3% 才翻红。
+       * 也就是说：**判据的松紧取决于分母，而分母取决于当时打开了哪个文档**。
+       * 收窄到真正的正文容器后，分母只由正文构成，不再受这类稀释影响。
+       *
+       * 正文只有两个真实去处（见本文件顶部第 ① 条注释）：
+       *   · 章节正文 = `textarea`（沉浸写作）
+       *   · 非章节文档 = Milkdown 的 `.ProseMirror`
+       * 收窄**不是放宽**：chrome 层的要求（必须跟随 ≥95%）没有变，
+       * 这 4 个元素从"违反正文要求"变成"满足界面要求"，两侧判据都照旧执行。
+       * 由 `.codex-temp/probe-content-layer-classifier.mjs` 用真实浏览器钉住
+       * （含"旧选择器会把 chrome 误判成正文"的反向对照）。
        */
-      inContent: !!el.closest(".ProseMirror, .ui-test-editor-body, .ui-test-editor, textarea"),
+      inContent: !!el.closest(".ProseMirror, textarea"),
       ownText: [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").trim().slice(0, 24),
       /*
        * 表单控件的"文字"不在文本节点里 —— `<textarea>` 的内容是 `.value`，

@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-10-09T08:59:10.553Z",
+  "capturedAt": "2026-10-09T09:16:07.059Z",
   "note": "verify-body-font-scale.mjs 的证据（跑 dist + playwright 自带 chromium；不碰真实 exe、不碰用户数据）",
   "dist": "C:\\QMAI_C\\QMAI-main\\dist",
   "distIndexMtime": "2026-10-09T08:34:25.185Z",
