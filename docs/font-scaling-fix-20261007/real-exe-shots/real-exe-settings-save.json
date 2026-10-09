@@ -6,9 +6,9 @@
     "doc": "开篇方向"
   },
   "provenance": {
-    "capturedAt": "2026-10-09T04:00:04.819Z",
+    "capturedAt": "2026-10-09T04:13:46.867Z",
     "script": "C:\\QMAI_C\\QMAI-main\\docs\\font-scaling-fix-20261007\\verify-real-exe-settings-save.mjs",
-    "scriptSha256": "6cccf60638f77516cb5fc5525948742345873edf1d0c1a11ecf877416fea602d",
+    "scriptSha256": "9f23a8b25cbba2be91732065bcae075b12002b5515819c1c5d4dbd61fac0d574",
     "cdpPort": 9333,
     "exe": "C:\\QMAI_C\\QMAI-main\\src-tauri\\target\\release\\qmai.exe",
     "exeSha256": "c37d8a82e77dda4d4ee5dc9ba6639816a96d9850bba99afe0951c7647f4806c0",
@@ -32,16 +32,16 @@
     "storedSafeBottom": 55,
     "storedUiFont": "system",
     "storedBodyFont": "sys:LXGW WenKai",
-    "settingsOpen": true,
+    "settingsOpen": false,
     "controls": {
-      "uiSize": 100,
-      "bodySize": 19,
-      "uiFont": "system",
-      "bodyFont": "sys:LXGW WenKai",
-      "lineHeight": 2.2,
-      "letterSpacing": 0.5,
-      "marginX": 44,
-      "safeBottom": 55
+      "uiSize": null,
+      "bodySize": null,
+      "uiFont": null,
+      "bodyFont": null,
+      "lineHeight": null,
+      "letterSpacing": null,
+      "marginX": null,
+      "safeBottom": null
     }
   },
   "sliders": null,

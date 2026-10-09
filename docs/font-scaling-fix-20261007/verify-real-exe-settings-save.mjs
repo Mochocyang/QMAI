@@ -181,6 +181,12 @@ let uiFontWritten = null
 const effUi = (v) => (v == null ? 1 : v)
 const effBodyPx = (v) => (v == null ? 18 : v)
 const near = (a, b, t = 0.05) => a !== null && b !== null && Math.abs(a - b) < t
+/**
+ * 取一个 Number，若原值是 null/undefined/NaN 则用默认值。
+ * 用于"用户从未设置过该字段"（落盘为 null）时恢复成产品默认 ——
+ * 直接写 null 给滑块会变成 0 或空串，反而把设置改坏。
+ */
+const numOr = (v, dflt) => (typeof v === "number" && Number.isFinite(v) ? v : dflt)
 
 /*
  * ── 章节正文的"真实渲染"证据：像素，而不是 CDP 平台字体 ──
@@ -991,26 +997,123 @@ console.log("  ── 用例 6：用户的原始路径 —— 章节里用「字
 }
 
 // ── 恢复 ──
+/*
+ * ⚠ 恢复必须覆盖**脚本改动过的每一个字段**，一个都不能漏。
+ *
+ * 实测踩到：本段原先只恢复 4 个（界面字号 / 正文字号 / 界面字体 / 正文字体），
+ * 而用例 2 还改了行间距、字间距、左右边距、底部安全距离 ——
+ * 于是那 4 个字段的**测试值被留在用户的真实设置里**，而"恢复成功"照样报绿
+ * （因为判据只比了它自己恢复的那 4 个）。这是一条"自己给自己打分"的判据：
+ * 漏掉的字段既没被恢复、也没被检查，两边同时失明。
+ *
+ * 所以这里两件事一起做：
+ *   ① 恢复 6 个字段（与 READ_STATE / 用例 2 改动过的集合逐一对齐）；
+ *   ② 判据同时比这 6 个 —— 漏一个就会红。
+ * 下方 restore 数组是唯一事实来源，改动字段时只需改这一处。
+ */
 console.log("")
 console.log("  ── 恢复原始设置 ──")
 if (!(await goToSettings())) { fails.push("恢复阶段无法回到设置页") } else {
-  await page.evaluate(SET_CONTROL, { tag: "input", label: "界面字号", value: Math.round(effUi(before.storedUi) * 100) })
-  await wait(300)
-  // 正文字号滑块的单位是 px，直接写回有效 px 值（不再是 ×100 的百分比）
-  await page.evaluate(SET_CONTROL, { tag: "input", label: "正文字号", value: effBodyPx(before.storedBody) })
-  await wait(300)
-  await page.evaluate(SET_CONTROL, { tag: "select", label: "界面字体", value: before.storedUiFont ?? "system" })
-  await wait(300)
-  await page.evaluate(SET_CONTROL, { tag: "select", label: "正文字体", value: before.storedBodyFont ?? "serif-default" })
+  /*
+   * 每一项：
+   *   write       —— 写进**控件**的值（单位随控件，例如界面字号滑块是百分比）
+   *   expect(s)   —— 从落盘快照里取出**同一语义**的值
+   *   expectValue —— 期望的落盘值（与 expect 同单位）
+   *
+   * ⚠ `write` 与 `expectValue` **必须分开**：界面字号写进滑块是 100（%），
+   * 而落盘是 1（倍数）。上一版把两者合成一个 `want`，于是恢复明明成功了
+   * （落盘 1 == 原本的 1），却因为拿 1 去比 100 而报红 —— 一条自己造出来的假红。
+   * 单位不同就得有两个字段，不能靠"看起来像同一个数"。
+   *
+   * `nullWant` 的必要性：左右边距的 `null` 有明确语义 —— 「跟随窗口宽度」，
+   * 而不是"没设过"。若把 null 直接塞给滑块，`String(null)` 会写成字面量 "null"，
+   * 反而把用户的设置改坏。这种情况必须走专门的「改回跟随窗口」按钮。
+   */
+  const restore = [
+    {
+      tag: "input", label: "界面字号",
+      write: Math.round(effUi(before.storedUi) * 100),
+      expect: (s) => effUi(s.storedUi), expectValue: effUi(before.storedUi),
+    },
+    {
+      tag: "input", label: "正文字号",
+      write: effBodyPx(before.storedBody),
+      expect: (s) => effBodyPx(s.storedBody), expectValue: effBodyPx(before.storedBody),
+    },
+    {
+      tag: "input", label: "行间距",
+      write: numOr(before.storedLeading, 2.2),
+      expect: (s) => s.storedLeading, expectValue: numOr(before.storedLeading, 2.2),
+    },
+    {
+      tag: "input", label: "字间距",
+      write: numOr(before.storedLetterSpacing, 0.5),
+      expect: (s) => s.storedLetterSpacing, expectValue: numOr(before.storedLetterSpacing, 0.5),
+    },
+    {
+      tag: "input", label: "左右边距",
+      write: before.storedMarginX,
+      expect: (s) => s.storedMarginX, expectValue: before.storedMarginX,
+      // null = 跟随窗口：用专门按钮恢复，不能写进滑块
+      nullWant: { clickLabel: "左右边距跟随窗口" },
+    },
+    {
+      tag: "input", label: "底部安全距离",
+      write: numOr(before.storedSafeBottom, 51),
+      expect: (s) => s.storedSafeBottom, expectValue: numOr(before.storedSafeBottom, 51),
+    },
+    {
+      tag: "select", label: "界面字体",
+      write: before.storedUiFont ?? "system",
+      expect: (s) => s.storedUiFont, expectValue: before.storedUiFont ?? "system",
+    },
+    {
+      tag: "select", label: "正文字体",
+      write: before.storedBodyFont ?? "serif-default",
+      expect: (s) => s.storedBodyFont, expectValue: before.storedBodyFont ?? "serif-default",
+    },
+  ]
+  for (const r of restore) {
+    if (r.write === null || r.write === undefined) {
+      if (r.nullWant?.clickLabel) {
+        const c = await page.evaluate((lbl) => {
+          const b = [...document.querySelectorAll("button")]
+            .find((x) => `${x.getAttribute("aria-label") ?? ""} ${x.getAttribute("title") ?? ""} ${x.textContent ?? ""}`.includes(lbl))
+          if (!b) return { ok: false }
+          b.click(); return { ok: true }
+        }, r.nullWant.clickLabel)
+        if (c.ok) console.log(`    · 「${r.label}」原为「跟随窗口」，已点「${r.nullWant.clickLabel}」恢复`)
+        else notes.push(`恢复「${r.label}」需要点「${r.nullWant.clickLabel}」按钮，但没找到 —— 该字段可能留有测试值`)
+      } else {
+        notes.push(`「${r.label}」原值为 null 且无对应的恢复手段 —— 该字段可能留有测试值`)
+      }
+      await wait(250)
+      continue
+    }
+    const res = await page.evaluate(SET_CONTROL, { tag: r.tag, label: r.label, value: r.write })
+    if (!res.ok) notes.push(`恢复「${r.label}」时控件未找到（可能该字段在本视图中不存在）`)
+    await wait(250)
+  }
   await wait(600)
   console.log(`  点保存: ${JSON.stringify(await page.evaluate(CLICK_SAVE))}`)
   await wait(2500)
   const a3 = await page.evaluate(READ_STATE)
-  console.log(`  恢复后：DOM root=${a3.domRootPct ?? "(清除)"} --qmai-body-font-px=${a3.domBodyPx ?? "(清除)"} 落盘 界面字号=${a3.storedUi} 正文字号=${a3.storedBody} 界面字体=${a3.storedUiFont} 正文字体=${a3.storedBodyFont}`)
-  const restored = effUi(a3.storedUi) === effUi(before.storedUi) && effBodyPx(a3.storedBody) === effBodyPx(before.storedBody)
-    && a3.storedUiFont === (before.storedUiFont ?? "system") && a3.storedBodyFont === (before.storedBodyFont ?? "serif-default")
-  console.log(`    ${restored ? "✓" : "✗"} 已恢复初始有效值（尺寸 ${effUi(before.storedUi)} / ${effBodyPx(before.storedBody)}px，字体 ${before.storedUiFont ?? "system"}/${before.storedBodyFont ?? "serif-default"}）`)
-  if (!restored) fails.push(`未能恢复初始设置（界面=${a3.storedUi}/${a3.storedUiFont} 正文=${a3.storedBody}/${a3.storedBodyFont}）`)
+  console.log(`  恢复后：DOM root=${a3.domRootPct ?? "(清除)"} --qmai-body-font-px=${a3.domBodyPx ?? "(清除)"}`
+    + ` 落盘 界面字号=${a3.storedUi} 正文字号=${a3.storedBody} 行间距=${a3.storedLeading} 字间距=${a3.storedLetterSpacing}`
+    + ` 左右边距=${a3.storedMarginX} 底部安全距离=${a3.storedSafeBottom} 界面字体=${a3.storedUiFont} 正文字体=${a3.storedBodyFont}`)
+
+  /* 逐字段核对：任一项不符即列出具体是哪个字段，不要只给一个总的 false */
+  const bad = []
+  for (const r of restore) {
+    const a = r.expect(a3), w = r.expectValue
+    const same = (typeof w === "number" || typeof a === "number")
+      ? (a === null && w === null) || (typeof a === "number" && typeof w === "number" && Math.abs(a - w) < 1e-6)
+      : a === w
+    if (!same) bad.push(`${r.label}: 期望 ${JSON.stringify(w)} 实得 ${JSON.stringify(a)}`)
+    console.log(`    ${same ? "✓" : "✗"} ${r.label.padEnd(7)} ${JSON.stringify(a)}（期望 ${JSON.stringify(w)}）`)
+  }
+  const restored = bad.length === 0
+  if (!restored) fails.push(`未能恢复初始设置（${bad.length} 个字段不符）：${bad.join("；")}`)
   if (before.storedBody === null && a3.storedBody === 18) {
     notes.push("正文字号原为「从未设置」(null)，保存后落为显式默认值 18 —— 语义相同（都是默认 18px），非串改")
   }
