@@ -216,8 +216,14 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 /* ⚠️ 上面设了 display:flex，会盖掉 UA 样式表里 [hidden] 的 display:none ——
    tabs 模式靠 hidden 属性隐藏正文栏，漏掉这条会让切换标签失效。 */
 .ui-test-editor-pane[hidden] { display: none; }
-/* 正文自己撑满剩余高度；min-height:0 是为了让内部滚动区能真正收缩，不被内容顶高。 */
-.ui-test-editor-body { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; }
+/* 正文自己撑满剩余高度；min-height:0 是为了让内部滚动区能真正收缩，不被内容顶高。
+   ⚠️ 类名是 ui-test-editor-**slot**，不是 ui-test-editor-body。
+   `.ui-test-editor-body` 是编辑器内部的类，ui-test-editor.css 里有一条
+   `.ui-test-editor-body > div { height: auto; overflow: visible }`——
+   若这层冒用那个名字，该规则会命中 PreviewPanel 根 div（`flex h-full flex-col`），
+   把 height:100% 改写成 auto，高度链塌掉 → 正文没有滚动条、滚轮也失效。
+   （这正是「加了状态栏之后正文滚不动」的真实成因。） */
+.ui-test-editor-slot { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; }
 .ui-test-ai-pane { min-height: 0; flex-shrink: 0; background: var(--ui-panel); overflow: hidden; }
 .ui-test-resize-handle { width: 12px; flex: 0 0 12px; display: flex; align-items: center; justify-content: center; cursor: ew-resize; touch-action: none; }
 .ui-test-resize-handle span { display: block; width: 3px; height: 48px; border-radius: 3px; background: var(--ui-soft); transition: background .15s; }

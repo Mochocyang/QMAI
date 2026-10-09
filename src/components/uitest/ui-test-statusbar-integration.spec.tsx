@@ -424,7 +424,7 @@ describe("接线守卫", () => {
   it("状态栏挂在**章节正文栏**里，不再由 shell 横跨整窗渲染", () => {
     const workspace = readSource("src/components/uitest/ui-test-workspace.tsx")
     const shell = readSource("src/components/uitest/ui-test-shell.tsx")
-    const bodyAt = workspace.indexOf('className="ui-test-editor-body"')
+    const bodyAt = workspace.indexOf('className="ui-test-editor-slot"')
     const barAt = workspace.indexOf("<WritingStatusBar")
     expect(bodyAt, "正文栏应有自己的容器").toBeGreaterThan(-1)
     expect(barAt, "正文栏应渲染 WritingStatusBar").toBeGreaterThan(-1)
