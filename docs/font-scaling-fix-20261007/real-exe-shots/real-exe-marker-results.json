@@ -1,13 +1,13 @@
 {
-  "capturedAt": "2026-10-08T03:04:04.073Z",
-  "exe": "C:\\QMAI_C\\QMAI-main\\release-portable\\QMaiWrite.exe",
+  "capturedAt": "2026-10-09T03:39:42.071Z",
+  "exe": "C:\\QMAI_C\\QMAI-main\\src-tauri\\target\\release\\qmai.exe",
   "opened": {
     "ok": true,
-    "path": "C:/QM-BOOK/黑雨之下/wiki/outlines/开篇方向.md"
+    "path": "D:/QM-BOOK/楚白/wiki/outlines/00-设定集.md"
   },
   "probe": {
     "url": "http://tauri.localhost/",
-    "title": "青幕AI写作｜黑雨之下｜总字数：61665字",
+    "title": "青幕AI写作｜楚白｜总字数：694字",
     "view": "wiki",
     "rootCount": 1,
     "bodyCount": 1,
@@ -40,36 +40,36 @@
         "paragraph": {
           "fontSize": 18,
           "fontSizeRaw": "18px",
-          "lineHeight": 35.1,
-          "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+          "lineHeight": 39.6,
+          "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
           "display": "block"
         },
         "ulLi": {
           "fontSize": 16,
           "fontSizeRaw": "16px",
-          "lineHeight": 30.4,
-          "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+          "lineHeight": 35.2,
+          "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
           "display": "list-item"
         },
         "olLi": {
           "fontSize": 16,
           "fontSizeRaw": "16px",
-          "lineHeight": 30.4,
-          "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+          "lineHeight": 35.2,
+          "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
           "display": "list-item"
         },
         "ulMarker": {
           "fontSize": 12,
           "fontSizeRaw": "12px",
-          "lineHeight": 22.8,
-          "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+          "lineHeight": 26.4,
+          "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
           "display": "inline-block"
         },
         "olMarker": {
           "fontSize": 16,
           "fontSizeRaw": "16px",
-          "lineHeight": 30.4,
-          "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+          "lineHeight": 35.2,
+          "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
           "display": "inline-block"
         },
         "heading": {
@@ -82,21 +82,25 @@
         "highlight": null
       },
       "vars": {
-        "bodyFontSize": "calc(1.125rem * 1)",
-        "bodyFontMarker": "calc(.75rem * 1)",
-        "bodyFontList": "calc(1rem * 1)",
-        "bodyScale": "(未设置)",
+        "bodyFontPx": "",
+        "bodyLeading": "2.2",
+        "bodyLetterSpacing": "0.5px",
+        "bodyMarginX": "44px",
+        "bodySafeBottom": "55px",
+        "bodyFontSize": "18px",
+        "bodyFontMarker": "calc(18px * 2 / 3)",
+        "bodyFontList": "calc(18px * 8 / 9)",
         "rootFontSize": "16px",
-        "serif": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif"
+        "serif": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif"
       }
     },
     "combos": [
       {
-        "label": "正文150%",
-        "bodyScale": 1.5,
+        "label": "正文24px",
+        "bodyPx": 24,
         "rootPct": null,
         "set": {
-          "appliedScale": "1.5",
+          "appliedBodyPx": "24px",
           "appliedRoot": null,
           "computedRoot": "16px"
         },
@@ -109,65 +113,69 @@
           },
           "samples": {
             "paragraph": {
-              "fontSize": 27,
-              "fontSizeRaw": "27px",
-              "lineHeight": 52.65,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 24,
+              "fontSizeRaw": "24px",
+              "lineHeight": 52.8,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "block"
             },
             "ulLi": {
-              "fontSize": 24,
-              "fontSizeRaw": "24px",
-              "lineHeight": 45.6,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 21.3333,
+              "fontSizeRaw": "21.3333px",
+              "lineHeight": 46.9333,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "list-item"
             },
             "olLi": {
-              "fontSize": 24,
-              "fontSizeRaw": "24px",
-              "lineHeight": 45.6,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 21.3333,
+              "fontSizeRaw": "21.3333px",
+              "lineHeight": 46.9333,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "list-item"
             },
             "ulMarker": {
-              "fontSize": 18,
-              "fontSizeRaw": "18px",
-              "lineHeight": 34.2,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 16,
+              "fontSizeRaw": "16px",
+              "lineHeight": 35.2,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "inline-block"
             },
             "olMarker": {
-              "fontSize": 24,
-              "fontSizeRaw": "24px",
-              "lineHeight": 45.6,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 21.3333,
+              "fontSizeRaw": "21.3333px",
+              "lineHeight": 46.9333,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "inline-block"
             },
             "heading": {
-              "fontSize": 27,
-              "fontSizeRaw": "27px",
-              "lineHeight": 43.2,
+              "fontSize": 24,
+              "fontSizeRaw": "24px",
+              "lineHeight": 38.4,
               "fontFamily": "\"PingFang SC\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
               "display": "block"
             },
             "highlight": null
           },
           "vars": {
-            "bodyFontSize": "calc(1.125rem * 1.5)",
-            "bodyFontMarker": "calc(.75rem * 1.5)",
-            "bodyFontList": "calc(1rem * 1.5)",
-            "bodyScale": "1.5",
+            "bodyFontPx": "24px",
+            "bodyLeading": "2.2",
+            "bodyLetterSpacing": "0.5px",
+            "bodyMarginX": "44px",
+            "bodySafeBottom": "55px",
+            "bodyFontSize": "24px",
+            "bodyFontMarker": "calc(24px * 2 / 3)",
+            "bodyFontList": "calc(24px * 8 / 9)",
             "rootFontSize": "16px",
-            "serif": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif"
+            "serif": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif"
           }
         }
       },
       {
         "label": "界面150%",
-        "bodyScale": null,
+        "bodyPx": null,
         "rootPct": 150,
         "set": {
-          "appliedScale": null,
+          "appliedBodyPx": null,
           "appliedRoot": "150%",
           "computedRoot": "24px"
         },
@@ -180,65 +188,69 @@
           },
           "samples": {
             "paragraph": {
-              "fontSize": 27,
-              "fontSizeRaw": "27px",
-              "lineHeight": 52.65,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
-              "display": "block"
-            },
-            "ulLi": {
-              "fontSize": 24,
-              "fontSizeRaw": "24px",
-              "lineHeight": 45.6,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
-              "display": "list-item"
-            },
-            "olLi": {
-              "fontSize": 24,
-              "fontSizeRaw": "24px",
-              "lineHeight": 45.6,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
-              "display": "list-item"
-            },
-            "ulMarker": {
               "fontSize": 18,
               "fontSizeRaw": "18px",
-              "lineHeight": 34.2,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "lineHeight": 39.6,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
+              "display": "block"
+            },
+            "ulLi": {
+              "fontSize": 16,
+              "fontSizeRaw": "16px",
+              "lineHeight": 35.2,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
+              "display": "list-item"
+            },
+            "olLi": {
+              "fontSize": 16,
+              "fontSizeRaw": "16px",
+              "lineHeight": 35.2,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
+              "display": "list-item"
+            },
+            "ulMarker": {
+              "fontSize": 12,
+              "fontSizeRaw": "12px",
+              "lineHeight": 26.4,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "inline-block"
             },
             "olMarker": {
-              "fontSize": 24,
-              "fontSizeRaw": "24px",
-              "lineHeight": 45.6,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 16,
+              "fontSizeRaw": "16px",
+              "lineHeight": 35.2,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "inline-block"
             },
             "heading": {
-              "fontSize": 27,
-              "fontSizeRaw": "27px",
-              "lineHeight": 43.2,
+              "fontSize": 18,
+              "fontSizeRaw": "18px",
+              "lineHeight": 28.8,
               "fontFamily": "\"PingFang SC\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
               "display": "block"
             },
             "highlight": null
           },
           "vars": {
-            "bodyFontSize": "calc(1.125rem * 1)",
-            "bodyFontMarker": "calc(.75rem * 1)",
-            "bodyFontList": "calc(1rem * 1)",
-            "bodyScale": "(未设置)",
+            "bodyFontPx": "",
+            "bodyLeading": "2.2",
+            "bodyLetterSpacing": "0.5px",
+            "bodyMarginX": "44px",
+            "bodySafeBottom": "55px",
+            "bodyFontSize": "18px",
+            "bodyFontMarker": "calc(18px * 2 / 3)",
+            "bodyFontList": "calc(18px * 8 / 9)",
             "rootFontSize": "24px",
-            "serif": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif"
+            "serif": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif"
           }
         }
       },
       {
-        "label": "双150%",
-        "bodyScale": 1.5,
+        "label": "24px+界面150%",
+        "bodyPx": 24,
         "rootPct": 150,
         "set": {
-          "appliedScale": "1.5",
+          "appliedBodyPx": "24px",
           "appliedRoot": "150%",
           "computedRoot": "24px"
         },
@@ -251,65 +263,69 @@
           },
           "samples": {
             "paragraph": {
-              "fontSize": 40.5,
-              "fontSizeRaw": "40.5px",
-              "lineHeight": 78.975,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 24,
+              "fontSizeRaw": "24px",
+              "lineHeight": 52.8,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "block"
             },
             "ulLi": {
-              "fontSize": 36,
-              "fontSizeRaw": "36px",
-              "lineHeight": 68.4,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 21.3333,
+              "fontSizeRaw": "21.3333px",
+              "lineHeight": 46.9333,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "list-item"
             },
             "olLi": {
-              "fontSize": 36,
-              "fontSizeRaw": "36px",
-              "lineHeight": 68.4,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 21.3333,
+              "fontSizeRaw": "21.3333px",
+              "lineHeight": 46.9333,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "list-item"
             },
             "ulMarker": {
-              "fontSize": 27,
-              "fontSizeRaw": "27px",
-              "lineHeight": 51.3,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 16,
+              "fontSizeRaw": "16px",
+              "lineHeight": 35.2,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "inline-block"
             },
             "olMarker": {
-              "fontSize": 36,
-              "fontSizeRaw": "36px",
-              "lineHeight": 68.4,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 21.3333,
+              "fontSizeRaw": "21.3333px",
+              "lineHeight": 46.9333,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "inline-block"
             },
             "heading": {
-              "fontSize": 40.5,
-              "fontSizeRaw": "40.5px",
-              "lineHeight": 64.8,
+              "fontSize": 24,
+              "fontSizeRaw": "24px",
+              "lineHeight": 38.4,
               "fontFamily": "\"PingFang SC\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
               "display": "block"
             },
             "highlight": null
           },
           "vars": {
-            "bodyFontSize": "calc(1.125rem * 1.5)",
-            "bodyFontMarker": "calc(.75rem * 1.5)",
-            "bodyFontList": "calc(1rem * 1.5)",
-            "bodyScale": "1.5",
+            "bodyFontPx": "24px",
+            "bodyLeading": "2.2",
+            "bodyLetterSpacing": "0.5px",
+            "bodyMarginX": "44px",
+            "bodySafeBottom": "55px",
+            "bodyFontSize": "24px",
+            "bodyFontMarker": "calc(24px * 2 / 3)",
+            "bodyFontList": "calc(24px * 8 / 9)",
             "rootFontSize": "24px",
-            "serif": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif"
+            "serif": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif"
           }
         }
       },
       {
-        "label": "正文85%",
-        "bodyScale": 0.85,
+        "label": "正文15px",
+        "bodyPx": 15,
         "rootPct": null,
         "set": {
-          "appliedScale": "0.85",
+          "appliedBodyPx": "15px",
           "appliedRoot": null,
           "computedRoot": "16px"
         },
@@ -322,65 +338,69 @@
           },
           "samples": {
             "paragraph": {
-              "fontSize": 15.3,
-              "fontSizeRaw": "15.3px",
-              "lineHeight": 29.835,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 15,
+              "fontSizeRaw": "15px",
+              "lineHeight": 33,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "block"
             },
             "ulLi": {
-              "fontSize": 13.6,
-              "fontSizeRaw": "13.6px",
-              "lineHeight": 25.84,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 13.3333,
+              "fontSizeRaw": "13.3333px",
+              "lineHeight": 29.3333,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "list-item"
             },
             "olLi": {
-              "fontSize": 13.6,
-              "fontSizeRaw": "13.6px",
-              "lineHeight": 25.84,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 13.3333,
+              "fontSizeRaw": "13.3333px",
+              "lineHeight": 29.3333,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "list-item"
             },
             "ulMarker": {
-              "fontSize": 10.2,
-              "fontSizeRaw": "10.2px",
-              "lineHeight": 19.38,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 10,
+              "fontSizeRaw": "10px",
+              "lineHeight": 22,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "inline-block"
             },
             "olMarker": {
-              "fontSize": 13.6,
-              "fontSizeRaw": "13.6px",
-              "lineHeight": 25.84,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 13.3333,
+              "fontSizeRaw": "13.3333px",
+              "lineHeight": 29.3333,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "inline-block"
             },
             "heading": {
-              "fontSize": 15.3,
-              "fontSizeRaw": "15.3px",
-              "lineHeight": 24.48,
+              "fontSize": 15,
+              "fontSizeRaw": "15px",
+              "lineHeight": 24,
               "fontFamily": "\"PingFang SC\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
               "display": "block"
             },
             "highlight": null
           },
           "vars": {
-            "bodyFontSize": "calc(1.125rem * 0.85)",
-            "bodyFontMarker": "calc(.75rem * 0.85)",
-            "bodyFontList": "calc(1rem * 0.85)",
-            "bodyScale": "0.85",
+            "bodyFontPx": "15px",
+            "bodyLeading": "2.2",
+            "bodyLetterSpacing": "0.5px",
+            "bodyMarginX": "44px",
+            "bodySafeBottom": "55px",
+            "bodyFontSize": "15px",
+            "bodyFontMarker": "calc(15px * 2 / 3)",
+            "bodyFontList": "calc(15px * 8 / 9)",
             "rootFontSize": "16px",
-            "serif": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif"
+            "serif": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif"
           }
         }
       },
       {
-        "label": "双85%",
-        "bodyScale": 0.85,
+        "label": "15px+界面85%",
+        "bodyPx": 15,
         "rootPct": 85,
         "set": {
-          "appliedScale": "0.85",
+          "appliedBodyPx": "15px",
           "appliedRoot": "85%",
           "computedRoot": "13.6px"
         },
@@ -393,56 +413,60 @@
           },
           "samples": {
             "paragraph": {
-              "fontSize": 13.005,
-              "fontSizeRaw": "13.005px",
-              "lineHeight": 25.3598,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 15,
+              "fontSizeRaw": "15px",
+              "lineHeight": 33,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "block"
             },
             "ulLi": {
-              "fontSize": 11.56,
-              "fontSizeRaw": "11.56px",
-              "lineHeight": 21.964,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 13.3333,
+              "fontSizeRaw": "13.3333px",
+              "lineHeight": 29.3333,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "list-item"
             },
             "olLi": {
-              "fontSize": 11.56,
-              "fontSizeRaw": "11.56px",
-              "lineHeight": 21.964,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 13.3333,
+              "fontSizeRaw": "13.3333px",
+              "lineHeight": 29.3333,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "list-item"
             },
             "ulMarker": {
-              "fontSize": 8.67,
-              "fontSizeRaw": "8.67px",
-              "lineHeight": 16.473,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 10,
+              "fontSizeRaw": "10px",
+              "lineHeight": 22,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "inline-block"
             },
             "olMarker": {
-              "fontSize": 11.56,
-              "fontSizeRaw": "11.56px",
-              "lineHeight": 21.964,
-              "fontFamily": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+              "fontSize": 13.3333,
+              "fontSizeRaw": "13.3333px",
+              "lineHeight": 29.3333,
+              "fontFamily": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
               "display": "inline-block"
             },
             "heading": {
-              "fontSize": 13.005,
-              "fontSizeRaw": "13.005px",
-              "lineHeight": 20.808,
+              "fontSize": 15,
+              "fontSizeRaw": "15px",
+              "lineHeight": 24,
               "fontFamily": "\"PingFang SC\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
               "display": "block"
             },
             "highlight": null
           },
           "vars": {
-            "bodyFontSize": "calc(1.125rem * 0.85)",
-            "bodyFontMarker": "calc(.75rem * 0.85)",
-            "bodyFontList": "calc(1rem * 0.85)",
-            "bodyScale": "0.85",
+            "bodyFontPx": "15px",
+            "bodyLeading": "2.2",
+            "bodyLetterSpacing": "0.5px",
+            "bodyMarginX": "44px",
+            "bodySafeBottom": "55px",
+            "bodyFontSize": "15px",
+            "bodyFontMarker": "calc(15px * 2 / 3)",
+            "bodyFontList": "calc(15px * 8 / 9)",
             "rootFontSize": "13.6px",
-            "serif": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif"
+            "serif": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif"
           }
         }
       }

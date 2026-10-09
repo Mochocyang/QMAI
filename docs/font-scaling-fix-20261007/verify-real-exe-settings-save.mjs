@@ -169,12 +169,67 @@ const bye = async () => { try { await Promise.race([browser.close(), wait(4000)]
 
 const fails = [], notes = []
 /*
+ * 用例 4 亲手写入并已确认落盘的「界面字体档」。
+ * 用例 5 跑在大纲视图上、看不到设置页的下拉，所以必须靠这个变量才知道
+ * "应该匹配哪一族" —— 否则判据会静默退化成"不是楷体就算过"（见用例 5 内注释）。
+ */
+let uiFontWritten = null
+/*
  * 两种"有效值"：界面字号是倍数（null → 1），正文字号是**绝对 px**（null → 18）。
  * 共用一个 eff() 会把"未设置正文"算成 1（1px），断言会全错。
  */
 const effUi = (v) => (v == null ? 1 : v)
 const effBodyPx = (v) => (v == null ? 18 : v)
 const near = (a, b, t = 0.05) => a !== null && b !== null && Math.abs(a - b) < t
+
+/*
+ * ── 章节正文的"真实渲染"证据：像素，而不是 CDP 平台字体 ──
+ *
+ * 为什么不能用 `platformFont()`（CDP CSS.getPlatformFontsForNode）测章节正文：
+ * 实测（.codex-temp/probe-chapter-body-font.mjs）章节正文是一个
+ * `<textarea>`（挂在 [data-writing-editor] 里的沉浸写作模式），
+ * 而 CSS.getPlatformFontsForNode 对表单控件返回**空** —— 它按"这个节点
+ * 自己画了哪些字形"回答，而 textarea 的文字不由该节点绘制。
+ * 同一页面上 .ui-test-brand-name / .ui-test-editor-title 都能正常取到，
+ * 只有 textarea 取不到，所以这不是"字体没生效"，是**度量工具的边界**。
+ *
+ * 试过并否掉的两条替代度量（.codex-temp/probe-textarea-font-metric.mjs）：
+ *   · canvas measureText 宽度差分 → **无效**：KaiTi 与 FangSong 量出同为 312。
+ *     CJK 字形前进宽度相同，宽度根本区分不了中文字体。若直接采用，
+ *     会得到一条**恒绿**判据（"换字体宽度没变"永远成立），比没有判据更糟。
+ *   · document.fonts.check() → 只回答"该字体可用吗"，与"用没用上"无关。
+ *
+ * 剩下唯一"真的渲染了"的证据是像素。已实测（.codex-temp/probe-textarea-screenshot.mjs）：
+ *   · 同一字体连截两次哈希相同    → 截图方法本身可重复（不会因光标闪烁假红）
+ *   · 换字体后哈希确实不同        → 有鉴别力，能证明字形真的换了
+ * 并带一条反向对照：界面衬线层（.ui-test-brand-name）在换正文字体时
+ * 像素哈希必须**保持相同** —— 它保证我截的区域有区分意义，
+ * 而不是把整块都截进去导致"什么都变"。
+ */
+const SHOT_DIR = join(HERE, "real-exe-shots")
+/** 截一小块并返回像素字节的 SHA-256（取前 16 位，够用于比较）。 */
+async function shotHash(box, tag) {
+  if (!box || box.width < 4 || box.height < 4) return null
+  const buf = await page.screenshot({ clip: box })
+  try { writeFileSync(join(SHOT_DIR, `${tag}.png`), buf) } catch { /* 截图落盘失败不影响判定 */ }
+  return createHash("sha256").update(buf).digest("hex")
+}
+/** 章节正文文字块的截图区域（textarea 顶部一小条，避免整页噪音）。 */
+const BODY_SHOT_BOX = () => {
+  const ta = document.querySelector(".ui-test-editor-body textarea")
+  if (!ta) return null
+  const r = ta.getBoundingClientRect()
+  if (r.width < 4 || r.height < 4) return null
+  return { x: Math.round(r.x), y: Math.round(r.y + 8), width: Math.round(Math.min(r.width, 600)), height: 80 }
+}
+/** 界面衬线层的截图区域（反向对照用：它**不该**随正文字体变）。 */
+const BRAND_SHOT_BOX = () => {
+  const b = document.querySelector(".ui-test-brand-name")
+  if (!b) return null
+  const r = b.getBoundingClientRect()
+  if (r.width < 4 || r.height < 4) return null
+  return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) }
+}
 
 /** 落盘证据。放在退出前调用，通过与否都写 —— 失败的现场同样需要留证。 */
 function writeEvidence(verdict) {
@@ -306,6 +361,60 @@ const GO_TO_OUTLINE = () => {
   nav?.click()
   return { clickedNav: !!nav }
 }
+
+/*
+ * ── 确保"有一本小说是打开着的"，并且真的站在大纲视图上 ──
+ *
+ * 为什么必须显式做这件事（实测踩出来的假红）：
+ * 早先几轮脚本能跑通，是因为我在此之前用别的探针**碰巧**把一本小说打开了。
+ * 一旦实例停在书架上（没有任何小说打开），就会连锁出现两类**假红**：
+ *   · 用例 3：大纲里 `[data-page-path]` 行数为 0 → 正文一律量成 undefinedpx；
+ *   · 用例 6：点侧栏「章节」没有反应，找不到「字体设置」入口。
+ * 而根因不是产品缺陷，是**脚本对环境状态的隐含假设**。
+ *
+ * 更关键的一点：设置页是一个**覆盖层**，它会吃掉侧栏导航的点击
+ * （实测：点「大纲」后 `[data-ui="settings-footer"]` 仍在、文档行仍为 0）。
+ * 所以必须先用「返回书架」离开设置页，再按需打开一本小说，最后才去大纲。
+ *
+ * 判据本身不变，改的只是"把环境摆到位"。每一步都返回诊断信息，
+ * 失败时能直接看出是断在哪一步（设置页没关掉 / 书架没书 / 打开失败）。
+ */
+async function ensureNovelOpen() {
+  const state = () => page.evaluate(() => ({
+    settingsOpen: !!document.querySelector('[data-ui="settings-footer"]'),
+    rows: document.querySelectorAll("[data-page-path]").length,
+    bookCards: document.querySelectorAll(".ui-test-book-card").length,
+    editorBody: !!document.querySelector(".ui-test-editor-body"),
+  }))
+
+  /* 1) 若设置页开着，先离开它 —— 否则后面所有导航点击都会被吃掉 */
+  let s = await state()
+  if (s.settingsOpen) {
+    await page.evaluate(() => document.querySelector('button[aria-label="返回书架"]')?.click())
+    await wait(2000)
+    s = await state()
+  }
+
+  /* 2) 书架上有书就打开第一本（等价于用户点一下书卡） */
+  if (!s.editorBody && !s.settingsOpen && s.rows === 0) {
+    const opened = await page.evaluate(() => {
+      const card = document.querySelector(".ui-test-book-card")
+      if (!card) return { ok: false, why: "no-book-card" }
+      const title = (card.textContent ?? "").trim().slice(0, 20)
+      card.click()
+      return { ok: true, title }
+    })
+    if (!opened.ok) return { ok: false, why: opened.why, ...s }
+    await wait(3500)
+  }
+
+  /* 3) 切到大纲并确认真的出现了文档行 */
+  await page.evaluate(GO_TO_OUTLINE)
+  await wait(2500)
+  s = await state()
+  return { ok: s.rows > 0, rows: s.rows, settingsOpen: s.settingsOpen, editorBody: s.editorBody }
+}
+
 const OPEN_DOC = (docKey) => {
   const rows = [...document.querySelectorAll("[data-page-path]")]
   const t = rows.find((r) => (r.getAttribute("data-page-path") ?? "").includes(docKey))
@@ -348,25 +457,43 @@ const GO_TO_CHAPTER = () => {
 }
 
 /**
- * 第二步：章节视图渲染完成后，点开工具栏上的「字体设置」入口，确认浮层出现。
- * 必须与切视图分两次 `page.evaluate`（中间留时间让 React 重建 DOM），
- * 合成一次会在旧 DOM 上找按钮，必然找不到。
+ * 第二步：章节视图渲染完成后，点开工具栏上的「字体设置」入口。
+ *
+ * ⚠ 本函数**只负责点**，不判定浮层是否出现 —— 这是实测踩出来的：
+ * 第一版把"点"和"查"写在同一个 page.evaluate 里，于是 click() 之后
+ * 立刻 querySelector，而此刻 React 还没重渲染（浮层实际在 ~100ms 后出现），
+ * 结果 `clicked: true` 却 `popover: false`，报出「浮层打不开」这个**假红**。
+ * 真机实测（.codex-temp/probe-chapter-popover.mjs）确认浮层是正常打开的，
+ * 是我的判定太早。所以拆成两步：这里只点，由调用方 wait 之后再用
+ * IS_POPOVER_OPEN 单独查一次。
+ *
+ * 入口只认 aria-label / title（真机实测该按钮 aria="字体设置" title="字体设置"
+ * class="ui-test-editor-action is-icon-only"），不靠类名或位置 —— 按钮顺序会变。
+ * 返回诊断字段，失败时能直接看出是哪一步断的。
  */
 const CLICK_BODY_FONT_ENTRY = () => {
-  if (document.querySelector('[role="dialog"][aria-label="字体设置"]')) return { popover: true, already: true }
-  const cands = [...document.querySelectorAll("button, [role='button']")]
-  const entry = cands.find((b) => {
+  const all = [...document.querySelectorAll("button, [role='button']")]
+  const entry = all.find((b) => {
     const label = `${b.getAttribute("aria-label") ?? ""} ${b.getAttribute("title") ?? ""} ${b.textContent ?? ""}`.trim()
     return /字体设置/.test(label)
   })
   if (!entry) {
     return {
-      popover: false, why: "no-entry",
-      buttons: cands.map((b) => `${b.getAttribute("aria-label") ?? ""}|${b.getAttribute("title") ?? ""}|${(b.textContent ?? "").trim().slice(0, 12)}`).slice(0, 40),
+      found: false, why: "no-entry",
+      buttons: all.map((b) => `${b.getAttribute("aria-label") ?? ""}|${b.getAttribute("title") ?? ""}|${(b.textContent ?? "").trim().slice(0, 12)}`).slice(0, 40),
     }
   }
   entry.click()
-  return { popover: !!document.querySelector('[role="dialog"][aria-label="字体设置"]'), clicked: true }
+  return { found: true, aria: entry.getAttribute("aria-label"), title: entry.getAttribute("title") }
+}
+
+/** 浮层是否已挂上（必须与上面的点击**分开**调用，见其注释）。 */
+const IS_POPOVER_OPEN = () => {
+  const d = document.querySelector('[role="dialog"][aria-label="字体设置"]')
+  return {
+    open: !!d,
+    dialogs: [...document.querySelectorAll('[role="dialog"]')].map((x) => x.getAttribute("aria-label")),
+  }
 }
 
 const CLOSE_POPOVER = () => {
@@ -561,8 +688,11 @@ if (!fourOk) console.log(`    ✗ 4 个新参数未全部生效 —— 这条例
 // ── 用例 3：正文字号必须在真实文档上量出**设定的绝对 px** ──
 console.log("")
 console.log(`  ── 用例 3：回到大纲文档，实测正文与列表是否等于设定的 ${BODY_PX_TO_TRY}px 及其派生值 ──`)
-await page.evaluate(GO_TO_OUTLINE)
-await wait(2000)
+const env3 = await ensureNovelOpen()
+console.log(`  环境：${JSON.stringify(env3)}`)
+if (!env3.ok) {
+  fails.push(`用例 3 无法进入"有一本小说打开的大纲视图"（诊断 ${JSON.stringify(env3)}）—— 判据无从执行`)
+}
 console.log(`  打开: ${JSON.stringify(await page.evaluate(OPEN_DOC, OUTLINE_KEY))}`)
 const doc = await waitForDoc()
 console.log(`  文档实测: p=${doc.p} 无序li=${doc.ulLi} marker=${doc.ulMarker} 有序li=${doc.olLi} marker=${doc.olMarker} li.display=${doc.liDisplay}`)
@@ -596,11 +726,31 @@ if (!(await goToSettings())) { fails.push("无法回到设置页（用例 4）")
   // 基线：改动前，界面文字实际用什么字体渲染
   const baseUiFont = await platformFont("select[aria-label=\"界面字体\"]")
   console.log(`  改动前 界面文字真实渲染族: ${baseUiFont ? baseUiFont.main + "  [" + baseUiFont.all.join(" ") + "]" : "(取不到)"}`)
-  const s4a = await page.evaluate(SET_CONTROL, { tag: "select", label: "界面字体", value: UI_FONT_TO_TRY })
+  /*
+   * ⚠ 选一个**与当前不同**的档，否则"真实渲染族变了"这条会假红。
+   *
+   * 实测踩到：本脚本上一轮在用例 4 之后异常退出，界面字体留在 simhei；
+   * 重跑时"改成黑体"其实是无操作（本来就是黑体），于是
+   * 「前 SimHei 后 SimHei」被判为"未改变真实渲染族" —— 一条**假红**，
+   * 而且它会让人去查一个并不存在的产品缺陷。
+   * 所以这里按**当前值**决定目标：已经是黑体就改成 system，反之改黑体。
+   * 这样"变了"永远有可观察的差异，而且断言仍然只关心"确实变了"。
+   */
+  const uiFontSelectedNow = await page.evaluate(() => {
+    const s = [...document.querySelectorAll("select")].find((x) => /界面字体/.test(x.getAttribute("aria-label") ?? ""))
+    return s?.value ?? null
+  })
+  const uiTarget = uiFontSelectedNow === UI_FONT_TO_TRY
+    ? (UI_FONT_TO_TRY === "simhei" ? "system" : "simhei")
+    : UI_FONT_TO_TRY
+  if (uiTarget !== UI_FONT_TO_TRY) {
+    notes.push(`用例 4 的界面字体当前已是「${UI_FONT_TO_TRY}」，为避免「无变化」被误判成缺陷，本用例改为切到「${uiTarget}」；判据仍是"真实渲染族确实变了"`)
+  }
+  const s4a = await page.evaluate(SET_CONTROL, { tag: "select", label: "界面字体", value: uiTarget })
   const s4b = await page.evaluate(SET_CONTROL, { tag: "select", label: "正文字体", value: BODY_FONT_TO_TRY })
   console.log(`  下拉: 界面字体=${s4a.value} 正文字体=${s4b.value}`)
   console.log(`    界面字体可选项: ${(s4a.options ?? []).join(", ")}`)
-  if (s4a.value !== UI_FONT_TO_TRY) fails.push(`尺子失效：界面字体下拉写入 ${UI_FONT_TO_TRY} 但读到 ${s4a.value}`)
+  if (s4a.value !== uiTarget) fails.push(`尺子失效：界面字体下拉写入 ${uiTarget} 但读到 ${s4a.value}`)
   if (s4b.value !== BODY_FONT_TO_TRY) fails.push(`尺子失效：正文字体下拉写入 ${BODY_FONT_TO_TRY} 但读到 ${s4b.value}`)
   await wait(600)
   console.log(`  点保存: ${JSON.stringify(await page.evaluate(CLICK_SAVE))}`)
@@ -611,13 +761,16 @@ if (!(await goToSettings())) { fails.push("无法回到设置页（用例 4）")
   console.log(`  改动后 界面文字真实渲染族: ${afterUiFont ? afterUiFont.main + "  [" + afterUiFont.all.join(" ") + "]" : "(取不到)"}`)
   const changed = baseUiFont && afterUiFont && afterUiFont.main !== baseUiFont.main
   console.log(`    ${changed ? "✓" : "✗"} 界面字体：真实渲染族从「${baseUiFont?.main}」变为「${afterUiFont?.main}」`)
-  if (!changed) fails.push(`界面字体选择未改变真实渲染族（前「${baseUiFont?.main}」后「${afterUiFont?.main}」）`)
-  const expectFamily = UI_FONT_TO_TRY === "simhei" ? /SimHei|黑体/i : null
+  if (!changed) fails.push(`界面字体选择未改变真实渲染族（前「${baseUiFont?.main}」后「${afterUiFont?.main}」，写入的是 ${uiTarget}）`)
+  const expectFamily = uiTarget === "simhei" ? /SimHei|黑体/i : null
   if (expectFamily && afterUiFont && !expectFamily.test(afterUiFont.main)) {
     notes.push(`界面字体选「黑体」后真实渲染族为「${afterUiFont.main}」——若不是 SimHei，说明回退链命中了别的中文字体（仍有变化，但不是所选那一个）`)
   }
-  if (a4.storedUiFont !== UI_FONT_TO_TRY || a4.storedBodyFont !== BODY_FONT_TO_TRY) {
-    fails.push(`字体设置未落盘：界面=${a4.storedUiFont} 正文=${a4.storedBodyFont}`)
+  if (a4.storedUiFont !== uiTarget || a4.storedBodyFont !== BODY_FONT_TO_TRY) {
+    fails.push(`字体设置未落盘：界面=${a4.storedUiFont}（应 ${uiTarget}） 正文=${a4.storedBodyFont}（应 ${BODY_FONT_TO_TRY}）`)
+  } else {
+    // 只有确认落盘了才把它当作"当前界面字体档"给用例 5 用
+    uiFontWritten = uiTarget
   }
   evidence.fontCase = {
     options: s4a.options ?? [],
@@ -645,9 +798,10 @@ if (!(await goToSettings())) { fails.push("无法回到设置页（用例 4）")
    * 而不是"设计一致"的证据。品牌名应始终是那一套宋体系。
    */
   console.log("")
-  console.log("  ── 用例 5：正文用楷体，界面控件应仍是黑体，品牌名（界面衬线层）应保持宋体系不变 ──")
-  await page.evaluate(GO_TO_OUTLINE)
-  await wait(2000)
+  console.log("  ── 用例 5：正文用楷体，界面控件应仍用**界面字体**，品牌名（界面衬线层）应保持宋体系不变 ──")
+  /* 与用例 3 同理：先保证"有一本小说打开 + 站在大纲上"，否则正文选择器取不到 */
+  const env5 = await ensureNovelOpen()
+  if (!env5.ok) console.log(`  ⚠ 环境未摆好：${JSON.stringify(env5)}`)
   await page.evaluate(OPEN_DOC, OUTLINE_KEY)
   await waitForDoc()
   const docFont = await platformFont(".ui-test-editor-body .ProseMirror p")
@@ -656,14 +810,51 @@ if (!(await goToSettings())) { fails.push("无法回到设置页（用例 4）")
   // 界面衬线层：.ui-test-brand-name 用 var(--serif)，而 --serif 是**固定**取值、不跟随正文字体
   const serifConsumer = await platformFont(".ui-test-brand-name")
   console.log(`  正文段落真实渲染族  : ${docFont ? docFont.main + "  [" + docFont.all.join(" ") + "]" : "(取不到)"}`)
-  console.log(`  界面控件(nav-item)  : ${uiFontNow ? uiFontNow.main + "  [" + uiFontNow.all.join(" ") + "]" : "(取不到)"}（应为本机界面字体 = SimHei）`)
+  console.log(`  界面控件(nav-item)  : ${uiFontNow ? uiFontNow.main + "  [" + uiFontNow.all.join(" ") + "]" : "(取不到)"}（应为**当前界面字体**，不得是楷体/仿宋）`)
   console.log(`  界面衬线层(brand)   : ${serifConsumer ? serifConsumer.main + "  [" + serifConsumer.all.join(" ") + "]" : "(取不到)"}（界面层固定，**不应**变成 KaiTi）`)
   const docIsKai = docFont && /KaiTi|楷体|Kaiti/i.test(docFont.main)
   console.log(`    ${docIsKai ? "✓" : "✗"} 正文字体：正文渲染为「${docFont?.main}」${docIsKai ? "（楷体系）" : "（期望楷体系）"}`)
   if (!docIsKai) fails.push(`正文字体选楷体后正文真实渲染族为「${docFont?.main}」，不是楷体系`)
-  const uiIsSimHei = uiFontNow && /SimHei|黑体/i.test(uiFontNow.main)
-  console.log(`    ${uiIsSimHei ? "✓" : "✗"} 独立性：界面控件仍是界面字体「${uiFontNow?.main}」（未被正文字体带偏）`)
-  if (!uiIsSimHei) fails.push(`正文字体改了界面控件字体（nav-item 渲染为「${uiFontNow?.main}」，期望 SimHei）`)
+  /*
+   * ⚠ 这里**必须**比对"当前的界面字体"，不能写死 SimHei。
+   *
+   * 实测踩到：用例 4 现在会按当前值选一个不同的档（见其注释），
+   * 所以跑完之后界面字体可能是 simhei 也可能是 system。若此处写死 SimHei，
+   * 一旦界面字体是 system（Microsoft YaHei UI）就会报"被正文字体带偏" ——
+   * 一条**假红**，而且指向一个不存在的缺陷。
+   *
+   * 本条真正要守的是"界面控件用的是**界面字体**、没被正文字体带偏"，
+   * 所以正确判据是：nav-item 的真实渲染族 == 当前界面字体所对应的族，
+   * 且明确**不是**楷体/仿宋（即没有被正文字体带走）。
+   */
+  /*
+   * ⚠ 这里**不能**去读设置页的下拉来得知"当前界面字体档" ——
+   * 本用例跑在**大纲视图**上，那时设置页的 `select[aria-label="界面字体"]`
+   * 根本不在 DOM 里，于是读出来是 null，判据会悄悄退化成"只要不是楷体/仿宋就行"。
+   * 实测就是这么退化的（日志里打出 `当前界面字体档=?`）——
+   * 一条**自己变弱却仍然报绿**的判据，比没有更危险。
+   *
+   * 正确做法：用用例 4 **亲手写入并已确认落盘**的那个档（uiFontWritten），
+   * 它不依赖当前视图，且是这条断言真正要对照的事实。
+   */
+  const UI_FAMILY_BY_VALUE = {
+    system: /Microsoft YaHei UI|Microsoft YaHei|Segoe UI/i,
+    simhei: /SimHei|黑体/i,
+  }
+  const uiFamilySelected = uiFontWritten
+  const expectUiFamily = uiFamilySelected ? UI_FAMILY_BY_VALUE[uiFamilySelected] ?? null : null
+  if (!uiFamilySelected) {
+    fails.push("用例 5 拿不到「用例 4 到底把界面字体写成了哪一档」—— 判据会退化成弱断言，先修用例 4")
+  }
+  const uiIsSelectedUiFont = !!uiFontNow && (!expectUiFamily || expectUiFamily.test(uiFontNow.main))
+  const uiIsDocFont = !!uiFontNow && /KaiTi|楷体|FangSong|仿宋/i.test(uiFontNow.main)
+  console.log(`    ${uiIsSelectedUiFont && !uiIsDocFont ? "✓" : "✗"} 独立性：界面控件用的是界面字体「${uiFontNow?.main}」`
+    + `（用例 4 写入的档=${uiFamilySelected ?? "?"}${expectUiFamily ? `，应匹配 ${expectUiFamily}` : ""}；**不得**为楷体/仿宋）`)
+  if (uiIsDocFont) {
+    fails.push(`正文字体改了界面控件字体（nav-item 渲染为「${uiFontNow?.main}」，是正文字体那一路的楷体/仿宋，说明界面被带偏了）`)
+  } else if (!uiIsSelectedUiFont) {
+    fails.push(`界面控件渲染族「${uiFontNow?.main}」与用例 4 写入的界面字体档「${uiFamilySelected}」不符（期望匹配 ${expectUiFamily}）`)
+  }
   /*
    * 品牌名**不得**变成楷体。判据同时给出正向期望（宋体系），
    * 因为"不是楷体"太弱：若品牌名被别的东西带偏成黑体，只断言"不是楷体"也会通过。
@@ -700,41 +891,100 @@ console.log("  ── 用例 6：用户的原始路径 —— 章节里用「字
 {
   const beforeBrand = await platformFont(".ui-test-brand-name")
   const beforeUi = await platformFont(".ui-test-nav-item")
+  /*
+   * 先摆好环境：本用例要切到「章节」，而设置页是覆盖层、会吃掉侧栏导航的点击
+   * （实测：点「章节」毫无反应，于是找不到「字体设置」入口 → 一条假红）。
+   * ensureNovelOpen() 会先离开设置页、必要时打开一本小说、并切到写作视图。
+   */
+  const env6 = await ensureNovelOpen()
+  console.log(`  环境：${JSON.stringify(env6)}`)
   const navRes = await page.evaluate(GO_TO_CHAPTER)
   console.log(`  切到「章节」: ${JSON.stringify(navRes)}`)
   await wait(2500)
-  const opened = await page.evaluate(CLICK_BODY_FONT_ENTRY)
-  console.log(`  打开「字体设置」浮层: ${JSON.stringify(opened)}`)
+  const clicked = await page.evaluate(CLICK_BODY_FONT_ENTRY)
+  console.log(`  点「字体设置」入口: ${JSON.stringify(clicked)}`)
+  // 点击与判定必须分开：同一次 evaluate 里 click 后立刻 querySelector 会读到
+  // React 重渲染之前的 DOM（实测浮层约 100ms 后才挂上），从而报出假红。
+  await wait(1000)
+  const popState = await page.evaluate(IS_POPOVER_OPEN)
+  const opened = { ...clicked, popover: popState.open }
+  console.log(`  浮层状态: ${JSON.stringify(popState)}`)
   if (!opened.popover) {
     fails.push(`章节「字体设置」浮层打不开（${opened.why ?? "未知"}）—— 用户最主要的操作入口不可用`)
   } else {
+    /*
+     * 先截一张"改动前"的正文像素 —— 章节正文是 textarea，
+     * CDP 平台字体取不到（原因见 shotHash 上方注释），只能靠像素差。
+     * 没有这个基线就无法区分"改了但没生效"与"改了且生效"。
+     */
+    const bodyBox = await page.evaluate(BODY_SHOT_BOX)
+    const brandBoxBefore = await page.evaluate(BRAND_SHOT_BOX)
+    const bodyBefore = await shotHash(bodyBox, "case6-body-before")
+    const brandShotBefore = await shotHash(brandBoxBefore, "case6-brand-before")
+    console.log(`  改动前 正文像素哈希: ${bodyBefore ? bodyBefore.slice(0, 16) : "(取不到)"}`)
+
     /* 在浮层里改「正文字体」（浮层与设置页共用同一个控件组件与同一份 store 取值） */
     const set = await page.evaluate(SET_CONTROL, { tag: "select", label: "正文字体", value: "fangsong" })
     console.log(`  浮层内改正文字体 → fangsong: ${JSON.stringify(set)}`)
-    await wait(1200)
-    const chapFont = await platformFont(".ui-test-editor-body textarea, .ui-test-editor-body .ProseMirror p")
+    await wait(1400)
+    const bodyAfter = await shotHash(await page.evaluate(BODY_SHOT_BOX), "case6-body-after")
+    const brandShotAfter = await shotHash(await page.evaluate(BRAND_SHOT_BOX), "case6-brand-after")
     const brand = await platformFont(".ui-test-brand-name")
     const uiNow = await platformFont(".ui-test-nav-item")
-    console.log(`  章节正文字体: ${chapFont ? chapFont.main : "(取不到)"}（期望仿宋系）`)
+    const domFont = await page.evaluate(() => {
+      const ta = document.querySelector(".ui-test-editor-body textarea")
+      return ta ? getComputedStyle(ta).fontFamily : null
+    })
+    console.log(`  改动后 正文像素哈希: ${bodyAfter ? bodyAfter.slice(0, 16) : "(取不到)"}`)
+    console.log(`  章节正文 computed font-family: ${domFont ?? "(取不到)"}（应含 FangSong/仿宋）`)
     console.log(`  界面衬线层   : ${brand ? brand.main : "(取不到)"}（此前 ${beforeBrand?.main ?? "?"}，**必须不变**）`)
     console.log(`  界面字体     : ${uiNow ? uiNow.main : "(取不到)"}（此前 ${beforeUi?.main ?? "?"}，必须不变）`)
-    const chapOk = chapFont && /FangSong|仿宋/i.test(chapFont.main)
-    console.log(`    ${chapOk ? "✓" : "✗"} 浮层改字体后章节正文确实变为「${chapFont?.main}」`)
-    if (!chapOk) fails.push(`浮层里改正文字体后章节正文渲染为「${chapFont?.main}」，不是仿宋系 —— 浮层→正文的通路没接上`)
+
+    /*
+     * 主要判据：像素确实变了（证明"设置到达了正文的字形"）+ 声明值也对。
+     * 两者都要：computed font-family 只证明"样式写上了"，像素才证明"字真的换了"。
+     * 若只有 computed 变而像素不变，说明文字没有真的重排（例如控件被遮挡），
+     * 那时不能说"设置生效了"。
+     */
+    const pixelsMoved = !!(bodyBefore && bodyAfter && bodyBefore !== bodyAfter)
+    const declOk = !!domFont && /FangSong|仿宋/i.test(domFont)
+    console.log(`    ${pixelsMoved ? "✓" : "✗"} 浮层改正文字体后，章节正文**像素**确实变了（不只是声明值）`)
+    if (!pixelsMoved) {
+      fails.push(`浮层里改正文字体后章节正文像素**未变**（前后哈希 ${bodyBefore?.slice(0, 16)} / ${bodyAfter?.slice(0, 16)}）`
+        + ` —— 不能证明浮层→正文的通路接通了（声明值 ${domFont ?? "取不到"}）`)
+    }
+    console.log(`    ${declOk ? "✓" : "✗"} 章节正文 font-family 已是仿宋系（${domFont ?? "取不到"}）`)
+    if (!declOk) fails.push(`浮层里改正文字体后章节正文 font-family 为「${domFont ?? "取不到"}」，不是仿宋系`)
+
+    /*
+     * 反向对照：界面衬线层的**像素**必须完全不变。
+     * 这一条同时守住两件事：①用户报的缺陷（改正文→界面跟着变）；
+     * ②我这个截图判据本身有意义（若连品牌名区域都"变了"，说明截的区域不对）。
+     */
+    const brandPixelsMoved = !!(brandShotBefore && brandShotAfter && brandShotBefore !== brandShotAfter)
+    console.log(`    ${!brandPixelsMoved ? "✓" : "✗"} 反向对照：界面衬线层像素未变（哈希 ${brandShotAfter?.slice(0, 16) ?? "取不到"}）`)
+    if (brandPixelsMoved) {
+      fails.push(`【用户报的缺陷】在章节浮层里改「正文字体」后，界面衬线层的**像素**也变了`
+        + `（${brandShotBefore?.slice(0, 16)} → ${brandShotAfter?.slice(0, 16)}）—— 正文字体必须只作用于文档正文（--body-font）`)
+    }
     const brandLeak = brand && beforeBrand && brand.main !== beforeBrand.main
     const brandIsKaiOrFang = brand && /KaiTi|楷体|FangSong|仿宋|SimHei|黑体/i.test(brand.main)
-    console.log(`    ${!brandLeak && !brandIsKaiOrFang ? "✓" : "✗"} 界面衬线层未被带偏（品牌名 ${brand?.main}）`)
+    console.log(`    ${!brandLeak && !brandIsKaiOrFang ? "✓" : "✗"} 界面衬线层渲染族未被带偏（品牌名 ${brand?.main ?? "取不到"}）`)
     if (brandLeak || brandIsKaiOrFang) {
       fails.push(`【用户报的缺陷】在章节浮层里改「正文字体」把界面也改了：品牌名 ${beforeBrand?.main} → ${brand?.main}`
         + ` —— 正文字体必须只作用于文档正文（--body-font），界面衬线层 --serif 必须固定`)
     }
     const uiLeak = uiNow && beforeUi && uiNow.main !== beforeUi.main
-    console.log(`    ${!uiLeak ? "✓" : "✗"} 界面字体未被动（${uiNow?.main}）`)
+    console.log(`    ${!uiLeak ? "✓" : "✗"} 界面字体未被动（${uiNow?.main ?? "取不到"}）`)
     if (uiLeak) fails.push(`在章节浮层里改「正文字体」把界面字体也改了：${beforeUi?.main} → ${uiNow?.main}`)
     evidence.chapterPopoverCase = {
-      opened, set, chapFont: chapFont?.main ?? null,
+      opened, set,
+      bodyPixelHashBefore: bodyBefore, bodyPixelHashAfter: bodyAfter, bodyPixelMoved: pixelsMoved,
+      brandPixelHashBefore: brandShotBefore, brandPixelHashAfter: brandShotAfter, brandPixelMoved: brandPixelsMoved,
+      chapterBodyComputedFontFamily: domFont,
       brandBefore: beforeBrand?.main ?? null, brandAfter: brand?.main ?? null,
       uiBefore: beforeUi?.main ?? null, uiAfter: uiNow?.main ?? null,
+      note: "章节正文是 textarea，CDP 平台字体对其返回空，故用像素哈希作真实渲染证据（见脚本内注释）",
     }
     await page.evaluate(CLOSE_POPOVER)
   }

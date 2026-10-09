@@ -5,22 +5,43 @@
     "bodyFontTried": "kaiti",
     "doc": "开篇方向"
   },
+  "provenance": {
+    "capturedAt": "2026-10-09T04:00:04.819Z",
+    "script": "C:\\QMAI_C\\QMAI-main\\docs\\font-scaling-fix-20261007\\verify-real-exe-settings-save.mjs",
+    "scriptSha256": "6cccf60638f77516cb5fc5525948742345873edf1d0c1a11ecf877416fea602d",
+    "cdpPort": 9333,
+    "exe": "C:\\QMAI_C\\QMAI-main\\src-tauri\\target\\release\\qmai.exe",
+    "exeSha256": "c37d8a82e77dda4d4ee5dc9ba6639816a96d9850bba99afe0951c7647f4806c0",
+    "node": "v24.9.0"
+  },
   "initial": {
     "domRootPct": "100%",
     "domComputedRoot": "16px",
-    "domBodyScale": "1",
+    "domBodyPx": "19px",
+    "domBodyLeading": "2.2",
+    "domBodyLetterSpacing": "0.5px",
+    "domBodyMarginX": "44px",
+    "domBodySafeBottom": "55px",
     "domUiFamilyVar": "\"PingFang SC\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
-    "domBodyFamilyVar": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+    "domBodyFamilyVar": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
     "storedUi": 1,
-    "storedBody": 1,
+    "storedBody": 19,
+    "storedLeading": 2.2,
+    "storedLetterSpacing": 0.5,
+    "storedMarginX": 44,
+    "storedSafeBottom": 55,
     "storedUiFont": "system",
-    "storedBodyFont": "serif-default",
-    "settingsOpen": false,
+    "storedBodyFont": "sys:LXGW WenKai",
+    "settingsOpen": true,
     "controls": {
-      "uiSize": null,
-      "bodySize": null,
-      "uiFont": null,
-      "bodyFont": null
+      "uiSize": 100,
+      "bodySize": 19,
+      "uiFont": "system",
+      "bodyFont": "sys:LXGW WenKai",
+      "lineHeight": 2.2,
+      "letterSpacing": 0.5,
+      "marginX": 44,
+      "safeBottom": 55
     }
   },
   "sliders": null,
@@ -37,89 +58,150 @@
       "after": {
         "domRootPct": "150%",
         "domComputedRoot": "24px",
-        "domBodyScale": "1",
+        "domBodyPx": "19px",
+        "domBodyLeading": "2.2",
+        "domBodyLetterSpacing": "0.5px",
+        "domBodyMarginX": "44px",
+        "domBodySafeBottom": "55px",
         "domUiFamilyVar": "\"PingFang SC\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
-        "domBodyFamilyVar": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+        "domBodyFamilyVar": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
         "storedUi": 1.5,
-        "storedBody": 1,
+        "storedBody": 19,
+        "storedLeading": 2.2,
+        "storedLetterSpacing": 0.5,
+        "storedMarginX": 44,
+        "storedSafeBottom": 55,
         "storedUiFont": "system",
-        "storedBodyFont": "serif-default",
+        "storedBodyFont": "sys:LXGW WenKai",
         "settingsOpen": true,
         "controls": {
           "uiSize": 150,
-          "bodySize": 100,
+          "bodySize": 19,
           "uiFont": "system",
-          "bodyFont": "serif-default"
+          "bodyFont": "sys:LXGW WenKai",
+          "lineHeight": 2.2,
+          "letterSpacing": 0.5,
+          "marginX": 44,
+          "safeBottom": 55
         }
       },
       "domRootPct": "150%",
       "computedRoot": "24px",
       "storedUi": 1.5,
       "independence": {
-        "storedBodyBefore": 1,
-        "storedBodyAfter": 1,
+        "storedBodyBefore": 19,
+        "storedBodyAfter": 19,
         "ok": true
       },
       "ok": true
     },
     {
-      "label": "正文→125%（界面回100%）",
+      "label": "正文→24px（界面回100%）+ 4 个新参数",
       "slider": {
-        "written": 125,
-        "read": "125"
+        "written": 24,
+        "read": "24",
+        "min": "12",
+        "max": "32",
+        "step": "1"
       },
       "after": {
         "domRootPct": "100%",
         "domComputedRoot": "16px",
-        "domBodyScale": "1.25",
+        "domBodyPx": "24px",
+        "domBodyLeading": "2.2",
+        "domBodyLetterSpacing": "0.5px",
+        "domBodyMarginX": "44px",
+        "domBodySafeBottom": "55px",
         "domUiFamilyVar": "\"PingFang SC\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
-        "domBodyFamilyVar": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", SimSun, serif",
+        "domBodyFamilyVar": "\"LXGW WenKai\", \"Songti SC\", SimSun, serif",
         "storedUi": 1,
-        "storedBody": 1.25,
+        "storedBody": 24,
+        "storedLeading": 2.2,
+        "storedLetterSpacing": 0.5,
+        "storedMarginX": 44,
+        "storedSafeBottom": 55,
         "storedUiFont": "system",
-        "storedBodyFont": "serif-default",
+        "storedBodyFont": "sys:LXGW WenKai",
         "settingsOpen": true,
         "controls": {
           "uiSize": 100,
-          "bodySize": 125,
+          "bodySize": 24,
           "uiFont": "system",
-          "bodyFont": "serif-default"
+          "bodyFont": "sys:LXGW WenKai",
+          "lineHeight": 2.2,
+          "letterSpacing": 0.5,
+          "marginX": 44,
+          "safeBottom": 55
         }
       },
-      "domBodyScale": "1.25",
+      "domBodyPx": "24px",
       "domRootPct": "100%",
-      "storedBody": 1.25,
+      "storedBody": 24,
       "storedUi": 1,
+      "fourChecks": [
+        {
+          "label": "行间距",
+          "want": "2.2",
+          "dom": "2.2",
+          "stored": 2.2,
+          "domOk": true,
+          "storedOk": true
+        },
+        {
+          "label": "字间距",
+          "want": "0.5px",
+          "dom": "0.5px",
+          "stored": 0.5,
+          "domOk": true,
+          "storedOk": true
+        },
+        {
+          "label": "左右边距",
+          "want": "44px",
+          "dom": "44px",
+          "stored": 44,
+          "domOk": true,
+          "storedOk": true
+        },
+        {
+          "label": "底部安全距离",
+          "want": "55px",
+          "dom": "55px",
+          "stored": 55,
+          "domOk": true,
+          "storedOk": true
+        }
+      ],
       "ok": true
     }
   ],
   "docCase": {
-    "scale": 1.25,
+    "fontPx": 24,
     "liDisplay": "list-item",
     "checks": {
       "p": {
-        "expected": 22.5,
-        "measured": 22.5,
+        "expected": 24,
+        "measured": 24,
         "ok": true
       },
       "ulLi": {
-        "expected": 20,
-        "measured": 20,
+        "expected": 21.333333333333332,
+        "measured": 21.3333,
         "ok": true
       },
       "ulMarker": {
-        "expected": 15,
-        "measured": 15,
+        "expected": 16,
+        "measured": 16,
         "ok": true
       },
       "olLi": {
-        "expected": 20,
-        "measured": 20,
+        "expected": 21.333333333333332,
+        "measured": 21.3333,
         "ok": true
       },
       "olMarker": {
-        "expected": 20,
-        "measured": 20,
+        "expected": 21.333333333333332,
+        "measured": 21.3333,
         "ok": true
       }
     },
@@ -137,7 +219,19 @@
       "fangsong",
       "dengxian",
       "noto-sans",
-      "noto-serif"
+      "noto-serif",
+      "sys:ChillKai",
+      "sys:HarmonyOS Sans SC",
+      "sys:LXGW WenKai",
+      "sys:Microsoft JhengHei UI",
+      "sys:Microsoft YaHei UI",
+      "sys:Sarasa Gothic SC",
+      "sys:Smiley Sans",
+      "sys:Source Han Sans SC",
+      "sys:Source Han Serif SC",
+      "sys:WenJin Mincho Plane 0",
+      "sys:Zhuque Fangsong (technical preview)",
+      "sys:yyb"
     ],
     "selectWritten": {
       "ui": "simhei",
@@ -178,26 +272,75 @@
     },
     "realRenderedSerifLayer": {
       "selector": ".ui-test-brand-name",
-      "main": "KaiTi",
+      "main": "Noto Serif SC",
       "all": [
-        "KaiTi(6)"
+        "Noto Serif SC(6)"
       ]
     }
+  },
+  "chapterPopoverCase": {
+    "opened": {
+      "found": true,
+      "aria": "字体设置",
+      "title": "字体设置",
+      "popover": true
+    },
+    "set": {
+      "ok": true,
+      "value": "fangsong",
+      "options": [
+        "serif-default",
+        "follow-ui",
+        "simsun",
+        "nsimsun",
+        "kaiti",
+        "fangsong",
+        "source-han-serif",
+        "source-han-sans",
+        "microsoft-yahei",
+        "sys:ChillKai",
+        "sys:DengXian",
+        "sys:HarmonyOS Sans SC",
+        "sys:LXGW WenKai",
+        "sys:Microsoft JhengHei",
+        "sys:Microsoft JhengHei UI",
+        "sys:Microsoft YaHei UI",
+        "sys:Noto Sans SC",
+        "sys:Sarasa Gothic SC",
+        "sys:SimHei",
+        "sys:Smiley Sans",
+        "sys:WenJin Mincho Plane 0",
+        "sys:Zhuque Fangsong (technical preview)",
+        "sys:yyb"
+      ]
+    },
+    "bodyPixelHashBefore": "0d20833edac6cad8d2d1ad205b771ffb80439aa33fd3da07a8546c94043665bd",
+    "bodyPixelHashAfter": "48a8e85d92ea8985924b9b45e7fe3f48a4e75c035b53a44cfec8723d3ac49ace",
+    "bodyPixelMoved": true,
+    "brandPixelHashBefore": "58007a28d2cd407b78e5f91d3e0da730fb0f9c48442aeade5eba645c56269827",
+    "brandPixelHashAfter": "58007a28d2cd407b78e5f91d3e0da730fb0f9c48442aeade5eba645c56269827",
+    "brandPixelMoved": false,
+    "chapterBodyComputedFontFamily": "FangSong, \"Fangsong SC\", serif",
+    "brandBefore": "Noto Serif SC",
+    "brandAfter": "Noto Serif SC",
+    "uiBefore": "SimHei",
+    "uiAfter": "SimHei",
+    "note": "章节正文是 textarea，CDP 平台字体对其返回空，故用像素哈希作真实渲染证据（见脚本内注释）"
   },
   "restore": {
     "expected": {
       "uiSize": 1,
-      "bodySize": 1,
+      "bodySizePx": 19,
       "uiFont": "system",
-      "bodyFont": "serif-default"
+      "bodyFont": "sys:LXGW WenKai"
     },
     "actual": {
       "uiSize": 1,
-      "bodySize": 1,
+      "bodySize": 19,
       "uiFont": "system",
-      "bodyFont": "serif-default",
+      "bodyFont": "sys:LXGW WenKai",
       "domRootPct": "100%",
-      "domBodyScale": "1"
+      "domBodyPx": "19px"
     },
     "ok": true
   },
