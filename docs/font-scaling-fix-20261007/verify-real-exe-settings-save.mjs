@@ -891,16 +891,26 @@ if (!(await goToSettings())) { fails.push("无法回到设置页（用例 4）")
     notes.push(`用例 4 的界面字体当前已是「${UI_FONT_TO_TRY}」，为避免「无变化」被误判成缺陷，本用例改为切到「${uiTarget}」；判据仍是"真实渲染族确实变了"`)
   }
   const s4a = await page.evaluate(SET_CONTROL, { tag: "select", label: "界面字体", value: uiTarget })
-  const s4b = await page.evaluate(SET_CONTROL, { tag: "select", label: "正文字体", value: BODY_FONT_TO_TRY })
-  console.log(`  下拉: 界面字体=${s4a.value} 正文字体=${s4b.value}`)
+  /*
+   * ⚠ 正文字体**不在这里写**。
+   *
+   * 那 6 项（正文字体/正文字号/行间距/字间距/左右边距/底部安全距离）已按用户要求
+   * 移出设置页，设置页上根本没有「正文字体」这个下拉。本脚本第一版仍在这里写它，
+   * 真机跑出来的就是：
+   *     ✗ 尺子失效：正文字体下拉写入 kaiti 但读到 undefined
+   *     ✗ 字体设置未落盘：界面=simhei（应 simhei）正文=serif-default（应 kaiti）
+   *     ✗ 正文字体选楷体后正文真实渲染族为「Noto Serif SC」，不是楷体系
+   * 三条都是**同一个根因**的下游：值压根没写进去（那条下拉不存在）。
+   * 现在改到它**现在唯一住的视图**里去写：章节「字体设置」浮层（见下方第二段）。
+   */
+  console.log(`  下拉: 界面字体=${s4a.value}（正文字体在下面的浮层段单独写）`)
   console.log(`    界面字体可选项: ${(s4a.options ?? []).join(", ")}`)
   if (s4a.value !== uiTarget) fails.push(`尺子失效：界面字体下拉写入 ${uiTarget} 但读到 ${s4a.value}`)
-  if (s4b.value !== BODY_FONT_TO_TRY) fails.push(`尺子失效：正文字体下拉写入 ${BODY_FONT_TO_TRY} 但读到 ${s4b.value}`)
   await wait(600)
   console.log(`  点保存: ${JSON.stringify(await page.evaluate(CLICK_SAVE))}`)
   await wait(2500)
-  const a4 = await page.evaluate(READ_STATE)
-  console.log(`  保存后：落盘 界面字体=${a4.storedUiFont} 正文字体=${a4.storedBodyFont}`)
+  const a4settings = await page.evaluate(READ_STATE)
+  console.log(`  保存后：落盘 界面字体=${a4settings.storedUiFont}`)
   const afterUiFont = await platformFont("select[aria-label=\"界面字体\"]")
   console.log(`  改动后 界面文字真实渲染族: ${afterUiFont ? afterUiFont.main + "  [" + afterUiFont.all.join(" ") + "]" : "(取不到)"}`)
   const changed = baseUiFont && afterUiFont && afterUiFont.main !== baseUiFont.main
@@ -910,17 +920,57 @@ if (!(await goToSettings())) { fails.push("无法回到设置页（用例 4）")
   if (expectFamily && afterUiFont && !expectFamily.test(afterUiFont.main)) {
     notes.push(`界面字体选「黑体」后真实渲染族为「${afterUiFont.main}」——若不是 SimHei，说明回退链命中了别的中文字体（仍有变化，但不是所选那一个）`)
   }
-  if (a4.storedUiFont !== uiTarget || a4.storedBodyFont !== BODY_FONT_TO_TRY) {
-    fails.push(`字体设置未落盘：界面=${a4.storedUiFont}（应 ${uiTarget}） 正文=${a4.storedBodyFont}（应 ${BODY_FONT_TO_TRY}）`)
+  if (a4settings.storedUiFont !== uiTarget) {
+    fails.push(`界面字体未落盘：界面=${a4settings.storedUiFont}（应 ${uiTarget}）`)
   } else {
     // 只有确认落盘了才把它当作"当前界面字体档"给用例 5 用
     uiFontWritten = uiTarget
   }
+
+  /* ── 用例 4（第二段）：正文字体 → 楷体，走章节「字体设置」浮层 ──
+   *
+   * 为什么拆成两段：这两项现在住在**两个不同的视图**里 ——
+   * 界面字体在设置页（要按保存），正文字体在章节浮层（无保存按钮、靠防抖）。
+   * 一个用例跨两个视图写值，是本轮 UI 拆分后必须承认的事实，
+   * 而不是把断言删掉。
+   */
+  console.log(`  正文字体改在章节「字体设置」浮层里写（设置页已无此控件）…`)
+  let s4b = { value: undefined }
+  const env4 = await ensureNovelOpen()
+  console.log(`  环境：${JSON.stringify(env4)}`)
+  const nav4 = await page.evaluate(GO_TO_CHAPTER)
+  console.log(`  切到「章节」: ${JSON.stringify(nav4)}`)
+  await wait(2500)
+  const clicked4 = await page.evaluate(CLICK_BODY_FONT_ENTRY)
+  console.log(`  点「字体设置」入口: ${JSON.stringify(clicked4)}`)
+  await wait(1000)
+  const pop4 = await page.evaluate(IS_POPOVER_OPEN)
+  if (!pop4.open) {
+    fails.push(`用例 4 打不开章节「字体设置」浮层（${JSON.stringify(pop4.dialogs)}）—— `
+      + `正文字体现在只有这一个入口，打不开就等于它不可调`)
+  } else {
+    s4b = await page.evaluate(SET_CONTROL, { tag: "select", label: "正文字体", value: BODY_FONT_TO_TRY })
+    console.log(`    正文字体下拉写入 ${BODY_FONT_TO_TRY} → 读到 ${s4b.value}`)
+    if (s4b.value !== BODY_FONT_TO_TRY) fails.push(`尺子失效：正文字体下拉写入 ${BODY_FONT_TO_TRY} 但读到 ${s4b.value}`)
+    /* 浮层没有保存按钮：落盘靠 createDebouncedPersist(400)。
+     * 恢复段（阶段 1）用的是 1500ms，这里给 1800ms —— 同一种已跑通的等待方式，
+     * 只是更宽裕（多等不会错，等少了会读到旧值，把"没落盘"误报成缺陷）。 */
+    await wait(1800)
+    console.log(`    浮层内写完，关闭：${JSON.stringify(await page.evaluate(CLOSE_POPOVER))}`)
+    await wait(600)
+  }
+  const a4 = await page.evaluate(READ_STATE)
+  console.log(`  浮层写完后：落盘 正文字体=${a4.storedBodyFont}`)
+  if (a4.storedBodyFont !== BODY_FONT_TO_TRY) {
+    fails.push(`正文字体未落盘：正文=${a4.storedBodyFont}（应 ${BODY_FONT_TO_TRY}）—— `
+      + `浮层改正文字体后没有自动保存（防抖落盘这条链路断了）`)
+  }
   evidence.fontCase = {
     options: s4a.options ?? [],
-    selectWritten: { ui: UI_FONT_TO_TRY, body: BODY_FONT_TO_TRY },
+    selectWritten: { ui: uiTarget, body: BODY_FONT_TO_TRY },
     selectRead: { ui: s4a.value, body: s4b.value },
-    stored: { uiFont: a4.storedUiFont, bodyFont: a4.storedBodyFont },
+    stored: { uiFont: a4settings.storedUiFont, bodyFont: a4.storedBodyFont },
+    where: { ui: "settings", body: "chapter-popover" },
     realRenderedUI: { before: baseUiFont?.main ?? null, beforeAll: baseUiFont?.all ?? [], after: afterUiFont?.main ?? null, afterAll: afterUiFont?.all ?? [], changed: !!changed },
     // 下面三项在用例 5 里填
     realRenderedBody: null, realRenderedUiControl: null, realRenderedSerifLayer: null,
@@ -1019,12 +1069,17 @@ if (!(await goToSettings())) { fails.push("无法回到设置页（用例 4）")
 
 // ── 用例 6：用户的**原始操作路径** —— 在章节里用浮层改字体，界面不得跟着变 ──
 /*
- * 为什么必须单独走一遍：用例 5 是在**设置页**改的「正文字体」，而用户报的是
- * 「在**章节正文当中**调整字体设置的功能」。两条路径确实汇聚到同一个 store
- * 字段（设置页 → settings-view → store；浮层 → applyBodyTypographyChange → store），
- * 但"汇聚"是**读代码得出的推断**，不是实测。用户的操作路径必须被真的走一遍 ——
- * 这正是本轮教训的延伸：不要用推断替代证据。
+ * 为什么必须单独走一遍（原因本轮已经变了，别再照抄旧理由）：
  *
+ * · **旧理由（已作废）**：用例 5 是在**设置页**改的「正文字体」，与用户报的
+ *   「在章节正文当中调整字体设置」不是同一条路径，所以要补走浮层路径。
+ * · **现在的理由**：用例 5 的「正文字体」也是经**浮层**写入的（用例 4 第二段），
+ *   所以两条路径的入口已经相同；用例 6 仍然独立保留，是因为它多了一层
+ *   用例 5 没有的证据 —— **像素哈希**（改前/改后正文像素确实变了、
+ *   界面衬线层像素确实没变），以及用户实际用的那个视图（章节）而不是大纲文档。
+ *   换句话说：它现在是**更强的证据**，而不是"补一条漏掉的路径"。
+ */
+/*
  * 断言（对应用户的原话）：
  *   · 在浮层里把正文字体改成仿宋 → 章节正文的渲染字体必须变成仿宋（设置有效）
  *   · 同一时刻界面衬线层（品牌名）必须仍是宋体系（**不**跟着变）
