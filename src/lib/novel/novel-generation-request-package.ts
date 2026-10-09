@@ -1,13 +1,18 @@
 import {
   OUTLINE_WIZARD_CHANNEL_OPTIONS,
+  OUTLINE_WIZARD_CREATION_OPTIONS,
   OUTLINE_WIZARD_LENGTH_OPTIONS,
   OUTLINE_WIZARD_MATERIAL_OPTIONS,
   OUTLINE_WIZARD_NARRATIVE_OPTIONS,
   OUTLINE_WIZARD_TASK_OPTIONS,
   getOutlineWizardGenreLabel,
+  isFanficRequest,
+  resolveFanficDeviations,
+  resolveFanficMode,
   type OutlineWizardOption,
   type OutlineWizardRequest,
 } from "./outline-wizard"
+import { formatFanficModeLabel } from "./fanfic-canon"
 
 export interface NovelGenerationRequestPackage {
   version: 1
@@ -45,11 +50,20 @@ export function createNovelGenerationRequestPackage(
   const channel = label(OUTLINE_WIZARD_CHANNEL_OPTIONS, request.channel)
   const genre = getOutlineWizardGenreLabel(request)
   const explicit = request.explicit ?? {}
+  const fanfic = isFanficRequest(request)
+  const fanficMode = resolveFanficMode(request)
+  const fanficDeviations = resolveFanficDeviations(request)
   const details = [
     explicit.task ? `生成任务：${task}` : "",
+    fanfic ? `创作类型：${label(OUTLINE_WIZARD_CREATION_OPTIONS, "fanfic")}` : "",
     explicit.length ? `篇幅类型：${length}` : "",
     explicit.channel ? `频道方向：${channel}` : "",
     explicit.genre || explicit.customGenre ? `题材类型：${genre}` : "",
+    fanfic ? `原作：${(request.fanficSourceName ?? "").trim()}` : "",
+    fanfic ? `同人模式：${formatFanficModeLabel(fanficMode) || fanficMode}` : "",
+    fanfic
+      ? `容许偏离：${fanficDeviations.length ? fanficDeviations.join("；") : "无"}`
+      : "",
     request.inspiration.trim() ? `故事灵感/处理要求：${request.inspiration.trim()}` : "",
     explicit.sellingPoints && request.sellingPoints.length
       ? `核心卖点：${request.sellingPoints.join("、")}`
@@ -65,7 +79,9 @@ export function createNovelGenerationRequestPackage(
   ].filter(Boolean)
   return {
     version: 1,
-    summary: `${task} · ${genre} · ${request.targets.join("、")}`,
+    summary: fanfic
+      ? `同人 · ${(request.fanficSourceName ?? "").trim()} · ${task} · ${request.targets.join("、")}`
+      : `${task} · ${genre} · ${request.targets.join("、")}`,
     details,
     modelContent,
   }

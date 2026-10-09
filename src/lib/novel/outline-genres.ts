@@ -28,7 +28,7 @@ const FEMALE_CHANNEL: ChannelGenre = {key:"female",label:"女频",mainGenres:[{k
 const CHANNELS: ChannelGenre[] = [MALE_CHANNEL, FEMALE_CHANNEL]
 
 /** 根据频道 key 获取对应的分类列表 */
-function getMainGenresByChannel(channelKey: string): MainGenre[] {
+export function getMainGenresByChannel(channelKey: string): MainGenre[] {
   const channel = CHANNELS.find((c) => c.key === channelKey)
   return channel ? channel.mainGenres : []
 }
@@ -37,4 +37,42 @@ function getMainGenresByChannel(channelKey: string): MainGenre[] {
 export function getMainGenreLabel(channelKey: string, mainGenreKey: string): string {
   const mainGenre = getMainGenresByChannel(channelKey).find((g) => g.key === mainGenreKey)
   return mainGenre ? mainGenre.label : mainGenreKey
+}
+
+/** 获取某个题材下的子题材（用于向导里展示「同人衍生」的 14 个常见方向）。 */
+export function getSubGenresByChannel(channelKey: string, mainGenreKey: string): SubGenre[] {
+  const mainGenre = getMainGenresByChannel(channelKey).find((g) => g.key === mainGenreKey)
+  return mainGenre ? mainGenre.subGenres : []
+}
+
+/**
+ * 按子题材 key 反查它的中文标签。
+ * 同人的子题材（动漫同人 / 哈利波特 / 火影忍者 …）只用于展示与提示，
+ * 不各自建 Skill，因此这里只做标签回查。
+ */
+export function findSubGenreLabel(subGenreKey: string): string {
+  for (const channel of CHANNELS) {
+    for (const mainGenre of channel.mainGenres) {
+      const matched = mainGenre.subGenres.find((sub) => sub.key === subGenreKey)
+      if (matched) return matched.label
+    }
+  }
+  return subGenreKey
+}
+
+/**
+ * 同人相关的子题材标签（按展示顺序去重）。
+ * 供大纲向导在选择「同人衍生」时给出常见方向提示。
+ */
+export function getFanficSubGenreLabels(): string[] {
+  const keys = [
+    "tongren_dongman",
+    "tongren_yingshi",
+    "tongren_xiaoshuo",
+    "tongren_mingxing",
+    "erciyuan_tongren",
+    "qing_tongren",
+  ]
+  const labels = keys.map(findSubGenreLabel).filter((label) => label !== "")
+  return Array.from(new Set(labels))
 }

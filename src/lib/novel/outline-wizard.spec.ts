@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest"
 import {
+  buildFanficDemandSection,
   buildOutlineWizardPrompt,
   getOutlineWizardGenres,
   getOutlineWizardSkillNames,
   getOutlineWizardValidationError,
+  isFanficRequest,
   OUTLINE_WIZARD_CHANNEL_OPTIONS,
+  OUTLINE_WIZARD_CREATION_OPTIONS,
+  OUTLINE_WIZARD_FANFIC_MODE_OPTIONS,
+  resolveFanficDeviations,
+  resolveFanficMode,
   type OutlineWizardRequest,
 } from "./outline-wizard"
 
@@ -109,5 +115,180 @@ describe("AI大纲生成向导请求", () => {
       "relationship-emotion",
       "world-rules",
     ]))
+  })
+})
+
+const fanficRequest: OutlineWizardRequest = {
+  ...baseRequest,
+  creation: "fanfic",
+  genre: "tongren",
+  fanficMode: "au",
+  fanficCustomMode: "",
+  fanficSourceName: "斗破苍穹",
+  fanficSourceMaterial: "斗气大陆，斗气分九段。萧炎曾是天才，后跌为废物。",
+  fanficAllowedDeviations: ["时间线整体后移十年"],
+}
+
+describe("同人创作支持", () => {
+  it("创作类型提供原创与同人两项，且默认是原创", () => {
+    expect(OUTLINE_WIZARD_CREATION_OPTIONS.map((option) => option.value)).toEqual([
+      "original",
+      "fanfic",
+    ])
+    expect(isFanficRequest(baseRequest)).toBe(false)
+    expect(isFanficRequest({ ...baseRequest, creation: "original" })).toBe(false)
+    expect(isFanficRequest(fanficRequest)).toBe(true)
+  })
+
+  it("同人模式覆盖正典延续/架空世界/性格重塑/CP 向/自定义", () => {
+    expect(OUTLINE_WIZARD_FANFIC_MODE_OPTIONS.map((option) => option.value)).toEqual([
+      "canon",
+      "au",
+      "ooc",
+      "cp",
+      "custom",
+    ])
+  })
+
+  it("男频与女频题材都能选到同人衍生", () => {
+    expect(getOutlineWizardGenres("male").map((option) => option.value)).toContain("tongren")
+    expect(getOutlineWizardGenres("female").map((option) => option.value)).toContain("tongren")
+  })
+
+  it("同人必填原作名称、模式与原作素材", () => {
+    expect(getOutlineWizardValidationError({
+      ...fanficRequest,
+      fanficSourceName: " ",
+    })).toBe("请填写原作名称，同人创作需要它来标识正典来源。")
+
+    expect(getOutlineWizardValidationError({
+      ...fanficRequest,
+      fanficMode: "",
+    })).toBe("请选择同人模式。")
+
+    expect(getOutlineWizardValidationError({
+      ...fanficRequest,
+      fanficSourceMaterial: " ",
+    })).toBe("请粘贴或导入原作素材，同人创作需要原作事实作为正典。")
+
+    expect(getOutlineWizardValidationError(fanficRequest)).toBeNull()
+  })
+
+  it("自定义模式必须由用户描述边界，空描述被拦下", () => {
+    expect(getOutlineWizardValidationError({
+      ...fanficRequest,
+      fanficMode: "custom",
+      fanficCustomMode: "  ",
+    })).toBe("请用自己的话描述本作与原作的关系边界。")
+
+    expect(getOutlineWizardValidationError({
+      ...fanficRequest,
+      fanficMode: "custom",
+      fanficCustomMode: "原作结局十年后的低魔日后谈",
+    })).toBeNull()
+  })
+
+  it("原创作品完全不触发同人校验，既有行为不回退", () => {
+    expect(getOutlineWizardValidationError(baseRequest)).toBeNull()
+    expect(getOutlineWizardValidationError({
+      ...baseRequest,
+      genre: "tongren",
+    })).toBeNull()
+  })
+
+  it("自定义模式取用户输入，标准模式取 key", () => {
+    expect(resolveFanficMode(fanficRequest)).toBe("au")
+    expect(resolveFanficMode({ ...fanficRequest, fanficMode: "custom", fanficCustomMode: " 日后谈 " }))
+      .toBe("日后谈")
+  })
+
+  it("容许偏离会去掉空白项", () => {
+    expect(resolveFanficDeviations({ ...fanficRequest, fanficAllowedDeviations: ["改了结局", " ", ""] }))
+      .toEqual(["改了结局"])
+    expect(resolveFanficDeviations(baseRequest)).toEqual([])
+  })
+
+  it("同人强制加载同人 Skill 与其支持 Skill", () => {
+    const names = getOutlineWizardSkillNames(fanficRequest)
+    expect(names).toContain("fanfic-derivative")
+    expect(names).toContain("character-design")
+    expect(names).toContain("relationship-emotion")
+    expect(names).toContain("foreshadowing-suspense")
+  })
+
+  it("同人叠加在其它题材上仍然保留该题材 Skill，不互相替代", () => {
+    const names = getOutlineWizardSkillNames({
+      ...fanficRequest,
+      genre: "xuanhuan",
+    })
+    expect(names).toContain("fanfic-derivative")
+    expect(names).toContain("male-xuanhuan-xianxia")
+    expect(names).toContain("power-system")
+  })
+
+  it("原创请求不会误加载同人 Skill", () => {
+    expect(getOutlineWizardSkillNames(baseRequest)).not.toContain("fanfic-derivative")
+    expect(getOutlineWizardSkillNames({ ...baseRequest, genre: "xuanhuan" }))
+      .not.toContain("fanfic-derivative")
+  })
+
+  it("同人需求段把原作既成事实写成权威约束，并带上六条硬规则与模式边界", () => {
+    const section = buildFanficDemandSection(fanficRequest)
+
+    expect(section).toContain("## 同人创作约束（优先级高于原创度要求）")
+    expect(section).toContain("原作已确立的事实是**权威**")
+    expect(section).toContain("同人模式：架空世界（au）")
+    expect(section).toContain("原作：斗破苍穹")
+    expect(section).toContain("容许偏离：时间线整体后移十年")
+    expect(section).toContain("原作正典卡")
+    expect(section).toContain("原作未交代")
+    expect(section).toContain("不要复读原作已写过的场景")
+    expect(section).toContain("### 原作素材（正典来源）")
+    expect(section).toContain("斗气大陆")
+  })
+
+  it("同人需求段写明与参考拆文的分工，避免两套相反规则打架", () => {
+    const section = buildFanficDemandSection(fanficRequest)
+
+    expect(section).toContain("## 与「参考拆文」的分工")
+    expect(section).toContain("不包括本作原作")
+    expect(section).toContain("既成事实必须沿用")
+    expect(section).toContain("禁止抄录原作语句")
+  })
+
+  it("原创请求的同人需求段为空串", () => {
+    expect(buildFanficDemandSection(baseRequest)).toBe("")
+  })
+
+  it("容许偏离为空时明确写出「无」，避免模型以为可以随意改", () => {
+    const section = buildFanficDemandSection({ ...fanficRequest, fanficAllowedDeviations: [] })
+    expect(section).toContain("容许偏离：无（除所选模式本身外，一切按原作正典处理）")
+  })
+
+  it("向导 Prompt 带出创作类型，并改用包含原作信息的充分性闸门", () => {
+    const prompt = buildOutlineWizardPrompt(fanficRequest)
+
+    expect(prompt).toContain("- 创作类型：同人创作（基于已有原作）")
+    expect(prompt).toContain("同人创作约束")
+    expect(prompt).toContain("原作名称、同人模式、原作正典信息")
+    expect(prompt).toContain("fanfic-derivative")
+  })
+
+  it("原创 Prompt 不带同人内容，既有闸门文本不变", () => {
+    const prompt = buildOutlineWizardPrompt(baseRequest)
+
+    expect(prompt).toContain("- 创作类型：原创作品")
+    expect(prompt).not.toContain("同人创作约束")
+    expect(prompt).not.toContain("fanfic-derivative")
+    expect(prompt).toContain("主要人物方向、世界观/背景方向")
+  })
+
+  it("快速模式的同人 Prompt 也带同人约束，避免绕过正典", () => {
+    const prompt = buildOutlineWizardPrompt(fanficRequest, { mode: "fast" })
+
+    expect(prompt).toContain("同人创作约束")
+    expect(prompt).toContain("原作正典卡")
+    expect(prompt).toContain("直接生成可保存的大纲正文")
+    expect(prompt).not.toContain("固定工作流")
   })
 })

@@ -86,8 +86,15 @@ import { OUTLINE_SECTION_GENERATION_CONFIGS } from "@/lib/novel/outline-section-
 import {
   buildOutlineWizardPrompt,
   getOutlineWizardSkillNames,
+  isFanficRequest,
+  resolveFanficDeviations,
+  resolveFanficMode,
   type OutlineWizardRequest,
 } from "@/lib/novel/outline-wizard";
+import {
+  compileFanficCanon,
+  stripFanficCanonFrontmatter,
+} from "@/lib/novel/fanfic-canon";
 import {
   createNovelGenerationRequestPackage,
   getOutlineMessageModelContent,
@@ -5071,7 +5078,48 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   }, []);
 
   const handleSubmitOutlineWizard = useCallback(
-    (request: OutlineWizardRequest) => {
+    async (request: OutlineWizardRequest) => {
+      // 同人创作先把原作素材编译成持久正典：超长原作会被分片压缩成证据包，
+      // 而不是把几十万字原样塞进提示词。编译后的正典同时落盘到
+      // .novel/fanfic-canon.md，供后续正文生成的上下文包按固定路径读取。
+      if (isFanficRequest(request)) {
+        const fanficProjectPath = project?.path ? normalizePath(project.path) : "";
+        if (fanficProjectPath) {
+          toast.info("正在编译原作正典…", {
+            dedupeKey: "outline-fanfic-canon-compile:start",
+          });
+          try {
+            const compiled = await compileFanficCanon({
+              projectPath: fanficProjectPath,
+              sourceMaterial: request.fanficSourceMaterial ?? "",
+              sourceName: (request.fanficSourceName ?? "").trim(),
+              mode: resolveFanficMode(request),
+              allowedDeviations: resolveFanficDeviations(request),
+              // 分片编译可能持续很久，把进度透出给用户；每条进度只提示一次。
+              onProgress: (message) => {
+                toast.info(message, { dedupeKey: `outline-fanfic-canon-compile:${message}` });
+              },
+            });
+            // 用编译后的正典替换原始素材：提示词只带证据包，不带原文。
+            request = {
+              ...request,
+              fanficSourceMaterial: stripFanficCanonFrontmatter(compiled.document),
+            };
+            toast.success(
+              compiled.compiled
+                ? `原作正典已编译（${compiled.chunkCount} 个片段）并保存到 .novel/fanfic-canon.md`
+                : "原作正典已编译并保存到 .novel/fanfic-canon.md",
+              { dedupeKey: "outline-fanfic-canon-compile:done" },
+            );
+          } catch (error) {
+            toast.error(
+              error instanceof Error ? error.message : "原作正典编译失败，请重试。",
+              { dedupeKey: "outline-fanfic-canon-compile:error" },
+            );
+            return;
+          }
+        }
+      }
       const outlineMode = resolveOutlineWorkflowMode(useWikiStore.getState().outlineWorkflowMode);
       const fastMode = outlineMode === "fast";
       if (outlineMode === "discuss") {
@@ -5132,7 +5180,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         systemGenerated: true,
       });
     },
-    [activeConversationId, createConversation, handleSend, startOutlinePlanElementCheck],
+    [activeConversationId, createConversation, handleSend, startOutlinePlanElementCheck, project],
   );
 
   const handleStop = useCallback(() => {
