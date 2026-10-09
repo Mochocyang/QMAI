@@ -104,6 +104,23 @@ function getNewConversationButton(container: HTMLElement): HTMLButtonElement {
   return button as HTMLButtonElement
 }
 
+/**
+ * 打开「生成小说大纲」向导。
+ *
+ * 用户要求删掉输入区上方那条常驻的「选择生成你想要的小说」按钮之后，
+ * 向导唯一入口是**空会话**中央的「生成小说大纲」按钮
+ * （`ui-test-ai-parts.tsx` 的 `UiTestAiEmpty`，由 `activeMessages.length === 0` 决定）。
+ * 因此调用它的用例必须让当前会话保持空消息 —— 曾有两个用例还在找那个已删除的按钮，
+ * 结果 `wizardTrigger` 是 undefined、`?.click()` 静默什么都不做，
+ * 表现为「子 Agent 一次都没被调用」这种和真实原因毫不相干的失败。
+ */
+async function openOutlineWizard(container: HTMLElement): Promise<void> {
+  const trigger = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+    .find((button) => button.textContent?.includes("\u751f\u6210\u5c0f\u8bf4\u5927\u7eb2"))
+  expect(trigger, "空会话应提供「生成小说大纲」按钮作为向导入口").toBeDefined()
+  await act(async () => { trigger?.click() })
+}
+
 beforeEach(() => {
   ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean })
     .IS_REACT_ACT_ENVIRONMENT = true
@@ -2091,11 +2108,8 @@ describe("OutlineChatPanel controls", () => {
       pendingReferenceTokens: [reference],
     })
     const container = await renderOutlineChatPanel()
-    const wizardTrigger = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-      .find((button) => button.textContent?.includes("\u9009\u62e9\u751f\u6210\u4f60\u60f3\u8981\u7684\u5c0f\u8bf4"))
-    expect(wizardTrigger).toBeDefined()
+    await openOutlineWizard(container)
 
-    await act(async () => wizardTrigger?.click())
     // 该期望于 26f80ee（全新界面统一、旧版界面移除）随之变更：旧版向导的
     // #outline-wizard-inspiration / 「确定生成」分支被删除，只留新版向导的
     // aria-label="故事灵感/处理要求" 与「提交需求」按钮。
@@ -2186,9 +2200,7 @@ describe("OutlineChatPanel controls", () => {
     })
     setOutlineConversations([{ ...conversation(), modelId: "openai/gpt-4o" }], "outline-active")
     const container = await renderOutlineChatPanel()
-    const wizardTrigger = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-      .find((button) => button.textContent?.includes("\u9009\u62e9\u751f\u6210\u4f60\u60f3\u8981\u7684\u5c0f\u8bf4"))
-    await act(async () => wizardTrigger?.click())
+    await openOutlineWizard(container)
     const inspiration = document.querySelector<HTMLTextAreaElement>('[aria-label="故事灵感/处理要求"]')
     await act(async () => {
       const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
