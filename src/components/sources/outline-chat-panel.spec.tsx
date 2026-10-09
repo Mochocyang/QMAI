@@ -1708,6 +1708,52 @@ describe("OutlineChatPanel controls", () => {
     expect(document.body.textContent).not.toContain("请确认要保存的大纲文件")
   })
 
+  it("共创讨论轮夹带卷纲结构化 JSON 时，气泡不得把它漏成源码（回归）", async () => {
+    useWikiStore.setState({ outlineWorkflowMode: "discuss" })
+    const calls: Array<{ system: string; user: string }> = []
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, messages, callbacks) => {
+      calls.push({
+        system: agentMessageContentText(messages.find((message) => message.role === "system")?.content ?? ""),
+        user: agentMessageContentText(messages.findLast((message) => message.role === "user")?.content ?? ""),
+      })
+      // 讨论轮里模型违反「只给判断与协议、不出正文」的契约：正文夹带了
+      // volumeOutlineData + outlineSaveRequest 围栏，但也给了 outline_discuss。
+      // 这正是自动补协议时「先原样保留正文再追加协议块」保留下来的那坨源码。
+      const output = [
+        "对卷纲的判断：整体基调先抑后扬，围绕守护展开。",
+        "```json",
+        JSON.stringify({ volumeOutlineData: { title: "修真界卷级架构", scope: "修真界部分（共三卷）" } }),
+        "```",
+        "```json",
+        JSON.stringify({ outlineSaveRequest: { title: "卷一：立足御龙城", fileType: "volume-outline", content: "# 卷一\n\n正文" } }),
+        "```",
+        "还需要作者拍板开场位置。",
+        "<!-- outline_discuss -->",
+        JSON.stringify({ status: "needs_decision", module: "卷纲", judgment: "卷纲已成形", nextStep: "确认开写", decisions: [{ id: "d1", question: "从卷几写起？", options: [{ id: "A", label: "卷一", description: "从头" }, { id: "B", label: "卷二", description: "从中间" }], preferenceId: "A", preferenceReason: "按顺序" }], agreed: [] }),
+        "<!-- /outline_discuss -->",
+      ].join("\n")
+      callbacks.onText(output)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: output }
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+
+    await submitOutlineInput(container, "帮我共创一下卷纲")
+
+    const assistant = useOutlineChatStore.getState().conversations[0].messages
+      .findLast((message) => message.role === "assistant")
+    expect(assistant?.outlineDiscussPhase).toBe("decision")
+    // 正常判断文字仍在
+    expect(container.textContent).toContain("对卷纲的判断")
+    // 回归核心：结构化源码不得泄漏进气泡
+    expect(container.textContent).not.toContain("volumeOutlineData")
+    expect(container.textContent).not.toContain("outlineSaveRequest")
+    expect(container.textContent).not.toContain("修真界卷级架构")
+    expect(container.textContent).not.toContain("立足御龙城")
+    expect(document.body.textContent).not.toContain("请确认要保存的大纲文件")
+  })
+
   it("共创模式定稿后才进入正文生成", async () => {
     useWikiStore.setState({ outlineWorkflowMode: "discuss" })
     const calls: Array<{ system: string; user: string }> = []
