@@ -32,3 +32,26 @@ describe("chapter ingest draft boundary", () => {
     expect(saveBeforeSync).toBe(-1)
   })
 })
+
+/**
+ * 这些名字曾经每摄入一章就写一次盘，但全仓库没有任何读取方。
+ * 它们不是「暂时没人用」——查过 TS/Rust/脚本/快照查看器四条路径都没有读者，
+ * 并且唯一读 .output.json 的 story-extractor 只用 wikiUpdatePatch.entries。
+ * 这里钉死它们不会被无意中加回来（加回来等于每章多写两个没人读的文件）。
+ */
+describe("chapter ingest 不写无人读取的派生产物", () => {
+  it("不再写搜索索引 / 向量索引文件", () => {
+    expect(source).not.toContain(".search-index.json")
+    expect(source).not.toContain(".vector-index.json")
+    // 仍然写这两个：wiki-patch 被图谱与 story-extractor 读，output 被 story-extractor 读
+    expect(source).toContain(".wiki-patch.json")
+    expect(source).toContain(".output.json")
+  })
+
+  it("不再维护 entityIsNew（只写不读的逐实体标志位）", () => {
+    expect(source).not.toContain("entityIsNew")
+    expect(source).not.toContain("normalizeEntityFlags")
+    // 但「新实体」这条校验警告必须保留：它会渲染进 .snapshot.md 给人看
+    expect(source).toContain('type: "entity_new"')
+  })
+})

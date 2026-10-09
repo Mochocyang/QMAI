@@ -296,25 +296,21 @@ describe("chapter ingest output contracts", () => {
     )
   })
 
-  it("builds separated keyword search and vector index text", () => {
+  it("只产出三个真正有读者的字段，不再产出没人读的搜索/向量索引文本", () => {
     const output = buildChapterIngestOutput(snapshot, { now: "2026-05-22T08:00:00.000Z" })
 
-    expect(output.searchIndexText.documentId).toBe("chapter:12")
-    expect(output.searchIndexText.sections).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ name: "摘要", content: snapshot.summary, weight: 3 }),
-        expect.objectContaining({ name: "人物", content: "林烬\n太子", weight: 2 }),
-        expect.objectContaining({ name: "伏笔", content: "推进伏笔：黑玉令来源", weight: 3 }),
-        expect.objectContaining({ name: "冲突", content: "林烬与太子的暗线冲突升级", weight: 3 }),
-      ]),
-    )
-    expect(output.vectorIndexText.chunks).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ kind: "summary", text: snapshot.summary }),
-        expect.objectContaining({ kind: "conflict", text: "林烬与太子的暗线冲突升级" }),
-        expect.objectContaining({ kind: "canon", text: "黑塔只允许巡夜司进入" }),
-        expect.objectContaining({ kind: "timeline", text: "子夜：林烬潜入黑塔" }),
-      ]),
-    )
+    // 这三项确有下游：snapshotWikiFields → 记忆页；wikiUpdatePatch → 图谱适配器
+    // 与 story-extractor；graphDerivation → 图谱。
+    expect(Object.keys(output).sort()).toEqual([
+      "graphDerivation",
+      "snapshotWikiFields",
+      "wikiUpdatePatch",
+    ])
+    // searchIndexText / vectorIndexText 曾经挂在返回值上并各自落一个 json 文件，
+    // 但全仓库从无读取方（唯一读 .output.json 的 story-extractor 只用
+    // wikiUpdatePatch.entries），删除时连文件也不再写。这条断言防止它被无意中加回来。
+    expect(output).not.toHaveProperty("searchIndexText")
+    expect(output).not.toHaveProperty("vectorIndexText")
+    expect(output.wikiUpdatePatch.entries.length).toBeGreaterThan(0)
   })
 })

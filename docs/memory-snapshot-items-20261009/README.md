@@ -179,23 +179,23 @@ itemCategories?: Record<string, "protagonist" | "supporting" | "antagonist" | "t
 3. **落点**：分类结果随快照落盘，并在 §3.1 的「相关道具」小节里体现 ——
    `trivial` 的道具不进提示词（省 token），其余按持有者归组。
 
-### 3.4 死重清理：**核查后推翻了自己的初判**
+### 3.4 死重清理：**核查后推翻了自己的初判**（→ 后续已按核查结论单独清理，见 §8）
 
 原计划「顺手清掉 `graphNodes`、`entityIsNew`、`relationshipChanges`」。
-逐项核查读者后发现**初判有错**——前两个之外的三项其实都有下游读取方：
+逐项核查读者后发现**初判有错**——其中三项其实都有下游读取方：
 
 | 字段 | 初判 | 核查结果 |
 |---|---|---|
 | `graphNodes` | 死重 | ❌ **有读者**：`chapter-ingest-output.ts:240`、`graph-adapter.ts:122`（规范化）、`snapshot-viewer.tsx:209,230`（展示与编辑回写） |
 | `relationshipChanges` | 死重 | ❌ **有读者**：`chapter-ingest-output.ts:164,181`、`fact-snapshot.ts:343-344`（真在比对关系变化） |
 | `validationWarnings` | 死重 | ❌ **有读者**：`chapter-ingest.ts:708-712` 渲染 `.snapshot.md` 的「校验警告」段，是给人看的真输出 |
-| `entityIsNew` | 死重 | ✅ 确认只写不读（仅 `chapter-ingest.ts:1275-1291` 写、无任何读者） |
-| `.search-index.json` / `.vector-index.json` | 死重 | ✅ 确认只写不读（仅 `:1255-1256` 写；TS 与 Rust 两侧都搜过，零读者） |
+| `entityIsNew` | 死重 | ✅ 确认只写不读（仅 `chapter-ingest.ts:1275-1291` 写、无任何读者）→ §8 已删 |
+| `.search-index.json` / `.vector-index.json` | 死重 | ✅ 确认只写不读（仅 `:1255-1256` 写；TS 与 Rust 两侧都搜过，零读者）→ §8 已删 |
 
-**本次一律不删。** 理由：初判在 5 项里错了 3 项，说明这类「看起来没人用」的结论
+**本轮一律不删。** 理由：初判在 5 项里错了 3 项，说明这类「看起来没人用」的结论
 必须逐项验证，而不是靠阅读印象；而基于错误分析的删除比不删危险得多
 （`graphNodes` 若按初判删掉，会直接砍掉快照查看器的编辑能力与图谱规范化）。
-确认只写不读的两项留给后续独立改动，届时可连同 `.snapshot.md` 的对应段落一起处理。
+确认只写不读的两项已按核查结论**单独**清理，见 §8。
 
 ---
 
@@ -285,3 +285,56 @@ itemCategories?: Record<string, "protagonist" | "supporting" | "antagonist" | "t
   无上限读取会让长篇（上千章）的上下文装配成本随书长线性上涨。
 - 提取阶段的分类质量取决于模型；规则侧只保证**闭集收敛与不确定性不误判**
   （认不出的分类宁可丢掉，也不会当成主角道具注入）。
+
+---
+
+## 8. 后续清理：按 §3.4 的核查结论删掉两项确认无读者的产物
+
+§3.4 核查后确认「只写不读」的是 `entityIsNew` 与两个索引文件，它们已单独清理。
+**§3.4 里判定「有读者」的三项一个都没动。**
+
+### 8.1 删了什么
+
+| 产物 | 删除内容 |
+|---|---|
+| `entityIsNew` | `ChapterSnapshot` 字段、`normalizeEntityFlags()` 归一化器、三处写入点（章节提取路径 / 大纲路径 / 校验失败兜底）、`validateEntityReferences()` 里的逐实体标志位写入 |
+| `.search-index.json` / `.vector-index.json` | 两行落盘、`SearchIndexText`/`VectorIndexText`/`SearchIndexSection`/`VectorIndexChunk` 四个类型、`buildSearchIndexText()`/`buildVectorIndexText()` 两个构建器及其私有 `section()`/`chunk()` 辅助函数，以及 `ChapterIngestOutput` 上的两个字段 |
+
+**保留**：`validateEntityReferences()` 仍然照常产出 `type: "entity_new"` 的
+`validationWarnings` —— 那条会渲染进 `.snapshot.md` 的「校验警告」段给人看，
+是真输出。删掉的只是**顺带**维护的那份没人读的标志位映射。
+
+### 8.2 删除前又核查了一遍（这次没有翻车）
+
+- `.output.json` 的唯一读取方 `story-extractor.ts:300-302` **只取
+  `data.wikiUpdatePatch.entries`**，不碰索引字段 → 从 `.output.json` 里去掉这两个字段是安全的；
+- `SearchIndexText`/`VectorIndexText` 全仓库**没有任何外部导入方**（只在自己文件内用）；
+- `.output.json` / `.wiki-patch.json` 确实有读者（story-simulation、graph-adapter），**保留**；
+- `scripts/rebuild-novel-memory.mjs` 的清理正则 `/^(\d+)\./i` 匹配所有带章节号前缀的文件，
+  删掉这两种文件不影响它；
+- Rust 侧确认零引用。
+
+### 8.3 防回归
+
+- **行为断言**：`chapter-ingest-output.test.ts` 用 `Object.keys(output).sort()`
+  钉死返回值**恰好**是 `graphDerivation` / `snapshotWikiFields` / `wikiUpdatePatch` 三项
+  —— 少一项或多一项都会红，防止索引字段被无意加回来。
+- **源码断言**：`chapter-ingest.spec.ts` 新增一组守卫，断言
+  `chapter-ingest.ts` 里不再出现 `.search-index.json`、`.vector-index.json`、
+  `entityIsNew`、`normalizeEntityFlags`，同时**仍含** `.output.json`、`.wiki-patch.json`
+  与 `type: "entity_new"` —— 既有反向也有正向，避免「删过头」。
+
+### 8.4 遗留：磁盘上的历史孤儿文件
+
+老版本已经写下的 `NNN.search-index.json` / `NNN.vector-index.json` **仍在磁盘上**，
+新代码既不读也不写、也不会再生成。**本次没有加清理逻辑**，原因：
+
+- 清理是一件事务性迁移，不是删代码；`saveChapterIngestOutput()` 在摄取关键路径上，
+  为「删两个没人读的文件」往里加 I/O 不划算；
+- 不删的代价只是每章几 KB 的静默占用，没有任何功能影响。
+
+> 顺带发现（**既有问题，非本次引入，未改**）：TS 侧没有任何代码删除
+> `.novel/chapter-ingest-output/` 下的文件。所以删掉某章记忆后，
+> 该章的 `NNN.output.json` 会留下，而 `story-extractor` 会继续从它重建角色
+> —— 存在「已删章节的角色在推演里复活」的可能。只有
+> `scripts/rebuild-novel-memory.mjs` 会清这个目录。这值得单独修。

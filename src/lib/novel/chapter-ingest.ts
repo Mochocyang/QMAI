@@ -115,7 +115,6 @@ export interface ChapterSnapshot {
   snapshotId?: string
   supersedes?: string
   isHistorical?: boolean
-  entityIsNew?: Record<string, boolean>
   validationWarnings?: ValidationWarning[]
   memorySyncedAt?: string
   characterDetails?: Record<string, CharacterDetail>
@@ -166,15 +165,6 @@ function normalizeSnapshotAliasRecord(value: unknown): Record<string, string[]> 
   )
 
   return Object.keys(aliases).length > 0 ? aliases : undefined
-}
-
-function normalizeEntityFlags(value: unknown): Record<string, boolean> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => key.trim().length > 0)
-      .map(([key, flag]) => [key, Boolean(flag)]),
-  )
 }
 
 function normalizeValidationWarnings(value: unknown): ValidationWarning[] | undefined {
@@ -235,7 +225,6 @@ function normalizeChapterSnapshot(
     snapshotId: normalizeSnapshotText(raw.snapshotId) || undefined,
     supersedes: normalizeSnapshotText(raw.supersedes) || undefined,
     isHistorical: typeof raw.isHistorical === "boolean" ? raw.isHistorical : undefined,
-    entityIsNew: normalizeEntityFlags(raw.entityIsNew),
     validationWarnings: normalizeValidationWarnings(raw.validationWarnings),
     memorySyncedAt: normalizeSnapshotText(raw.memorySyncedAt) || undefined,
     characterDetails: normalizeSnapshotDetailRecord<CharacterDetail>(raw.characterDetails),
@@ -427,11 +416,9 @@ export async function ingestChapter(
       validateCanonConflicts(pp, snapshot),
     ])
     snapshot.validationWarnings = [...entityWarnings, ...canonWarnings]
-    snapshot.entityIsNew = snapshot.entityIsNew || {}
   } catch (err) {
     console.warn("[Chapter Ingest] Validation failed:", err instanceof Error ? err.message : err)
     snapshot.validationWarnings = []
-    snapshot.entityIsNew = {}
   }
 
   await saveChapterIngestOutput(pp, snapshot, {
@@ -632,7 +619,6 @@ async function extractSnapshotWithLLM(
       ...parsed,
       chapterId: parsed.chapterId || `chapter-${chapterNumber}`,
       chapterNumber: chapterNumber, // 强制使用代码传入的章节号，不信任LLM输出
-      entityIsNew: {},
       validationWarnings: [],
       characterDetails: parsed.characterDetails || undefined,
       locationDetails: parsed.locationDetails || undefined,
@@ -1252,8 +1238,6 @@ async function saveChapterIngestOutput(projectPath: string, snapshot: ChapterSna
   await createDirectory(outputDir)
   await writeFileAtomic(`${prefix}.output.json`, JSON.stringify(output, null, 2))
   await writeFileAtomic(`${prefix}.wiki-patch.json`, JSON.stringify(output.wikiUpdatePatch, null, 2))
-  await writeFileAtomic(`${prefix}.search-index.json`, JSON.stringify(output.searchIndexText, null, 2))
-  await writeFileAtomic(`${prefix}.vector-index.json`, JSON.stringify(output.vectorIndexText, null, 2))
 
   return output
 }
@@ -1272,10 +1256,6 @@ async function validateEntityReferences(
     { key: "items" as const, label: "物品" },
   ]
 
-  if (!snapshot.entityIsNew) {
-    snapshot.entityIsNew = {}
-  }
-
   const checks = categories.flatMap(({ key, label }) =>
     snapshot[key].map(async (name) => {
       try {
@@ -1288,7 +1268,6 @@ async function validateEntityReferences(
   )
   const results = await Promise.all(checks)
   for (const { name, exists, label } of results) {
-    snapshot.entityIsNew[name] = !exists
     if (!exists) {
       warnings.push({
         type: "entity_new",
@@ -1487,7 +1466,6 @@ export async function ingestOutline(
       chapterId,
       chapterNumber: outlineNumber,
       chapterTitle: outlineName,
-      entityIsNew: {},
       validationWarnings: [],
     }, { chapterId, chapterNumber: outlineNumber })
     if (!snapshot) {
