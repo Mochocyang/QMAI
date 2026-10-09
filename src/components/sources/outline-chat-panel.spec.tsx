@@ -1573,6 +1573,55 @@ describe("OutlineChatPanel controls", () => {
     expect(generationPrompt).not.toContain("## 本轮阶段：共创讨论")
   })
 
+  /**
+   * 回归：讨论轮提示词里**不能**再出现「生成并保存正文」的契约。
+   *
+   * 实测故障：这两套契约同时出现时，模型挑了生成那套照做 ——
+   * 直接返回完整卷纲 + 写回清单，一个 outline_discuss 标记都没有，
+   * 于是被协议闸门判成「共创协议格式无效，尚未开始生成」，整轮作废。
+   *
+   * 起因有两处：①「## AI大纲生成工作流」整段（含「生成章纲后必须列出新增设定
+   * 写回清单」，正是模型输出的那个「写回清单」）被讨论轮沿用；
+   * ②「## Markdown 格式强制要求」只把**标题**放进了排除数组，
+   * 正文与整段大纲示例留在外面，等于一边禁止输出正文、一边给了正文格式与范例。
+   */
+  it("讨论轮不得携带任何生成/保存契约，否则模型会直接产出正文而不给协议", () => {
+    const discussPrompt = buildOutlineAgentSystemPrompt({
+      projectName: "测试项目",
+      mode: "discuss",
+      discussModule: "卷纲",
+    })
+
+    const generationOnlyRules = [
+      "## AI大纲生成工作流",
+      "生成章纲后必须列出新增设定写回清单",
+      "生成章纲时必须使用章纲标准结构",
+      "结构节点必须包含 CBN、CPNs、CEN",
+      "## Markdown 格式强制要求",
+      "所有大纲正文必须使用标准 Markdown 格式输出",
+      "# 五、主要人物设定",
+      "当本轮要交付可保存的大纲正文时",
+      "需要保存大纲时只输出 outlineSaveRequest",
+    ]
+    for (const rule of generationOnlyRules) {
+      expect(discussPrompt, `讨论轮不该出现生成契约：「${rule}」`).not.toContain(rule)
+    }
+
+    // 反过来：讨论轮该有的都在，删干净不能连带把协议要求删掉
+    expect(discussPrompt).toContain("必须输出 outline_discuss 协议块")
+    expect(discussPrompt).toContain("## 本轮阶段：共创讨论")
+    expect(discussPrompt).toContain("## AI大纲固定分析流程")
+    // 讨论轮排除生成工作流，但不能连「先读资料」的纪律一起删掉
+    expect(discussPrompt).toContain("list_outlines")
+
+    // 生成轮必须原样保留这些契约（排除逻辑只能作用于讨论轮）
+    const generationTurn = buildOutlineAgentSystemPrompt({ projectName: "测试项目", mode: "discuss" })
+    expect(generationTurn).toContain("## AI 大纲输出协议")
+    expect(generationTurn).toContain("## Markdown 格式强制要求")
+    expect(generationTurn).toContain("生成章纲后必须列出新增设定写回清单")
+    expect(generationTurn).toContain("当本轮要交付可保存的大纲正文时")
+  })
+
   it("讨论轮不再被「只输出正文」规则压制，且质疑必须带替代方案", () => {
     const standardPrompt = buildOutlineAgentSystemPrompt({
       projectName: "测试项目",

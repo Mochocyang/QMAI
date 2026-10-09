@@ -322,13 +322,16 @@ import {
   buildOutlineDiscussExecutionPrompt,
   buildOutlineDiscussPhaseSystemRules,
   findLatestOutlineDiscussProtocol,
+  hasOutlineDiscussRepairableContent,
   isOutlineDiscussFinalizeRequest,
   parseOutlineDiscussProtocol,
   validateOutlineDiscussProtocol,
   type OutlineDiscussAnswer,
+  type OutlineDiscussParseOutcome,
   type OutlineDiscussPhase,
   type OutlineDiscussProtocol,
 } from "@/lib/novel/outline-discuss-protocol";
+import { repairOutlineDiscussProtocolWithAi } from "@/lib/novel/outline-discuss-repair";
 import {
   buildOutlinePlanClarifyAnswerPrompt,
   buildOutlinePlanElementCheckPrompt,
@@ -635,7 +638,8 @@ export function buildOutlineAgentSystemPrompt(options: {
   const mode = resolveOutlineWorkflowMode(options.mode);
   const discussTurn = Boolean(options.discussModule);
   const protocolTurn = Boolean(options.planModule || options.discussModule);
-  const sharedAnalysisRules = [
+  /** 只读与分析纪律：所有模式共用。 */
+  const sharedReadRules = [
     "你必须通过可用工具读取项目大纲、章节、记忆、推演结果和历史对话后，再进行分析、回答、生成或修改建议。",
     "不要假设引用内容已经注入上下文；不要跳过工具直接空泛回答。",
     "回答必须基于已读取内容进行分析，说明关键判断依据。",
@@ -644,6 +648,16 @@ export function buildOutlineAgentSystemPrompt(options: {
     "2. 再调用 read_outline、read_chapter、read_memory、read_deduction 读取用户 @ 引用和相关项目内容。",
     "3. 分析冲突、缺口、伏笔、角色动机和章节承接，明确哪些判断来自已读取资料。",
     "4. 最后再生成大纲建议；没有完成读取和分析前，不要直接给出结论。",
+  ];
+  /**
+   * 生成工作流规则：**只有真的要产出正文的模式才带上**。
+   *
+   * 共创讨论轮必须排除它 —— 这一段讲的是「先出方案、确认后生成、生成后列写回清单」，
+   * 与讨论轮「禁止生成完整正文、必须输出 outline_discuss 协议」直接冲突。
+   * 两套契约同时出现时，模型会挑生成那套照做，于是整轮被闸门判死
+   * （实测故障：模型返回了完整卷纲 + 写回清单，却没有任何 outline_discuss 块）。
+   */
+  const sharedGenerationWorkflowRules = [
     "## AI大纲生成工作流",
     "固定向导提交的小说生成需求必须先进入“需求分析/生成方案”阶段：先判断缺失信息，信息足够时只输出生成方案、文件清单、保存位置和生成顺序，并询问用户是否确认开始生成；用户确认前不得生成完整文件，不得调用保存工具。",
     "需求分析必须执行充分性闸门：缺少篇幅、频道、题材、故事灵感、核心卖点、作品规模、主要人物方向、世界观/背景方向或预期章节结构时，只追问最关键缺口。",
@@ -651,6 +665,7 @@ export function buildOutlineAgentSystemPrompt(options: {
     "章纲采用滚动章纲方式：优先生成前 10 章或用户指定范围，后续依据已确认章纲继续补齐，避免一次性生成整本导致承接断裂。",
     "生成章纲后必须列出新增设定写回清单，包含新增角色、势力、世界观规则、伏笔、地图地点和状态变化；用户确认前不得写入设定文件。",
   ];
+  const sharedAnalysisRules = [...sharedReadRules, ...sharedGenerationWorkflowRules];
   const workflowRules = mode === "fast"
     ? [
       "快速模式下像普通对话一样直接出结果。可以按需读取必要上下文，但不要主动进入需求分析、意图分析或多 Agent 编排。",
@@ -660,7 +675,7 @@ export function buildOutlineAgentSystemPrompt(options: {
     : mode === "discuss"
     ? discussTurn
       ? [
-        ...sharedAnalysisRules,
+        ...sharedReadRules,
         "## 共创讨论模式总则",
         "本模式是责编和作者围绕大纲来回讨论，不是一次性交付。未经作者确认定稿前，不要输出完整大纲正文，也不要输出 outlineSaveRequest 保存请求。",
         "禁止输出 intent_clarity 和 outline_plan 协议块。",
@@ -714,7 +729,10 @@ export function buildOutlineAgentSystemPrompt(options: {
   return [
     "你是专业小说大纲分析与创作助手。",
     "如果用户提供 @ 引用，必须优先按路径、标题或会话ID调用对应读取工具获取正文内容。",
-    "需要保存大纲时只输出 outlineSaveRequest 或 outlineSaveRequests JSON 块，禁止调用 write_outline_node；系统解析后弹出确认，用户确认后才写入文件。",
+    // 讨论轮不提保存请求：它的产出是「待拍板的分歧点」，提保存只会诱导模型直接交付正文。
+    ...(discussTurn ? [] : [
+      "需要保存大纲时只输出 outlineSaveRequest 或 outlineSaveRequests JSON 块，禁止调用 write_outline_node；系统解析后弹出确认，用户确认后才写入文件。",
+    ]),
     ...appliedWorkflowRules,
     "",
     // 协议轮只允许输出对应协议块，不能再要求附加下一步推荐
@@ -735,9 +753,17 @@ export function buildOutlineAgentSystemPrompt(options: {
       "当用户要求生成、完善或续写任何大纲分项时，必须按 PRD 3.1 主流程执行：提取请求关键词，识别用户意图，按意图读取资料，提取对小说创作有用的关键内容，结合用户要用的 skill + soul.md 约束生成内容，再做结果强约束收敛。",
     ]),
     "关键内容提取必须服务于小说创作：只保留能帮助用户继续写小说的信息，例如章节目标、冲突推进、人物动机、伏笔状态、设定限制、时间线承接和结尾钩子。",
-    "生成章纲时必须使用章纲标准结构：基础信息、上层依据、本章目标、核心事件、场景顺序、结构节点、章首钩子、爽点设计、章尾钩子、执行约束、人物状态、伏笔与追踪、待写回设定、写作约束、AI写作提示。核心事件不少于6条，场景顺序为2-4个场景。",
-    "结构节点必须包含 CBN、CPNs、CEN；CEN 必须能承接下一章 CBN。执行约束必须包含必须覆盖节点和本章禁区。基础信息必须包含时间锚点、章内时间跨度和与上章时间差。",
+    // 章纲结构硬要求属于「产出正文」的契约，讨论轮带上会让模型直接开写章纲。
+    ...(discussTurn ? [] : [
+      "生成章纲时必须使用章纲标准结构：基础信息、上层依据、本章目标、核心事件、场景顺序、结构节点、章首钩子、爽点设计、章尾钩子、执行约束、人物状态、伏笔与追踪、待写回设定、写作约束、AI写作提示。核心事件不少于6条，场景顺序为2-4个场景。",
+      "结构节点必须包含 CBN、CPNs、CEN；CEN 必须能承接下一章 CBN。执行约束必须包含必须覆盖节点和本章禁区。基础信息必须包含时间锚点、章内时间跨度和与上章时间差。",
+    ]),
     "Markdown 格式约束：结构化资料使用一级标题，** 必须成对，不要用代码围栏包裹全文，已有表格必须保留合法分隔行。",
+    // ⚠️ 整段（标题 + 正文）都要在 discussTurn 时排除。
+    // 这里曾经只把「## Markdown 格式强制要求」这个**标题**放进排除数组，
+    // 正文却留在数组外面，于是讨论轮的提示词里仍然出现
+    // 「所有大纲正文必须使用标准 Markdown 格式输出」和整段大纲示例 ——
+    // 一边要求「禁止输出完整大纲正文」，一边给了正文格式规范与范例。
     ...(discussTurn ? [] : [
     "## AI 大纲输出协议",
     "当本轮生成了可保存的大纲、卷纲、章纲、人物、设定、伏笔、组织或质量检查内容时，最终回复末尾必须附加一个 json 代码块，顶层字段为 outlineSaveRequest 或 outlineSaveRequests。",
@@ -748,7 +774,6 @@ export function buildOutlineAgentSystemPrompt(options: {
     "文件名规范：不同类型内容必须使用不同文件名，禁止多项内容写入同一文件。不同角色必须每人一个独立文件（如 角色-主角林风.md、角色-反官方傲.md），严禁将所有角色塞入「角色卡.md」或同一文件。不同势力、不同伏笔、不同卷纲、不同章纲也必须各自独立文件。",
     "内容完整性强制要求：你必须为每个生成的大纲模块都创建对应的保存请求（outlineSaveRequest），不能遗漏。如果生成了多个模块，使用 outlineSaveRequests 数组，每个模块一个请求对象。系统不会静默写入；用户确认后才会落盘。",
     "## Markdown 格式强制要求",
-    ]),
     "所有大纲正文必须使用标准 Markdown 格式输出，严格遵循以下标题层级规范：",
     "- 一级大标题（如全书核心设定、主要人物设定、分卷大纲等）使用 # 标记，独占一行",
     "- 二级分类标题（如核心主角、核心配角、第一卷、第二卷等）使用 ## 标记，独占一行",
@@ -764,8 +789,11 @@ export function buildOutlineAgentSystemPrompt(options: {
     "- **身份：** 穿越者→清水村村民→清水社首领→异姓王→隐士",
     "- **核心技能：** 高中/大学化学知识（有机/无机化学基础）、物理常识、急救知识",
     "- **性格：** 表面冷漠实则心软，前期被动应对，中后期主动布局",
+    ]),
     "## 输出边界（按本轮性质区分）",
+    ...(discussTurn ? [] : [
     "当本轮要交付可保存的大纲正文时：最终回复只输出大纲标题和大纲正文；如果内容需要保存，末尾附加 AI 大纲输出协议 JSON 保存块（含 content）。禁止输出工具调用报告、分析过程、完成报告、下一步行动、无法直接保存的大段说明。",
+    ]),
     "当本轮是讨论、答疑、方案对比、澄清或提出异议时：允许并鼓励输出你的判断、依据、疑问和方案对比，不要用「只输出正文」的规则压制讨论；此时仍然禁止输出工具调用报告和流程完成报告。",
     mode === "fast"
       ? "工具调用过程只应展示在工具调用 UI 中，不要混入最终正文。不要用流程说明冒充生成结果。"
@@ -3866,9 +3894,35 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 ? `计划协议不满足计划模式要求，尚未开始生成：${planValidation.error}`
                 : undefined
           : undefined;
-        const discussProtocolOutcome = discussPhase
+        // 共创讨论轮：模型偶发只给正文不给协议块。先尝试一次「补协议」修复，
+        // 把这一轮从「格式无效、整轮作废」救回来；修复失败才走原来的报错路径。
+        let discussProtocolOutcome: OutlineDiscussParseOutcome = discussPhase
           ? parseOutlineDiscussProtocol(rawFinalContent)
           : { kind: "none" as const };
+        if (
+          discussPhase
+          && discussProtocolOutcome.kind !== "valid"
+          && hasOutlineDiscussRepairableContent(rawFinalContent)
+        ) {
+          const repairedText = await repairOutlineDiscussProtocolWithAi({
+            content: rawFinalContent,
+            module: discussModule || "大纲",
+            llmConfig: effectiveLlmConfig,
+            signal: controller.signal,
+          }).catch((error) => {
+            console.warn(
+              "AI 大纲共创协议补全失败，按原结果继续：",
+              error instanceof Error ? error.message : error,
+            );
+            return "";
+          });
+          const repairedOutcome = repairedText
+            ? parseOutlineDiscussProtocol(repairedText)
+            : ({ kind: "none" } as const);
+          if (repairedOutcome.kind === "valid") {
+            discussProtocolOutcome = repairedOutcome;
+          }
+        }
         const discussValidation = discussProtocolOutcome.kind === "valid"
           ? validateOutlineDiscussProtocol(discussProtocolOutcome.protocol)
           : null;
@@ -5665,9 +5719,34 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           throw new Error(OUTLINE_REASONING_ONLY_ERROR_MESSAGE);
         }
         const rawRegenerationContent = filteredRegenerationContent.content || "AI大纲未返回内容。";
-        const regenerationDiscussOutcome = regenerationDiscussPhase
+        // 与首轮一致：续跑/重新生成也先尝试一次「补协议」，避免整轮作废。
+        let regenerationDiscussOutcome: OutlineDiscussParseOutcome = regenerationDiscussPhase
           ? parseOutlineDiscussProtocol(rawRegenerationContent)
           : { kind: "none" as const };
+        if (
+          regenerationDiscussPhase
+          && regenerationDiscussOutcome.kind !== "valid"
+          && hasOutlineDiscussRepairableContent(rawRegenerationContent)
+        ) {
+          const repairedText = await repairOutlineDiscussProtocolWithAi({
+            content: rawRegenerationContent,
+            module: regenerationDiscussModule || "大纲",
+            llmConfig: effectiveLlmConfig,
+            signal: controller.signal,
+          }).catch((error) => {
+            console.warn(
+              "AI 大纲共创协议补全失败，按原结果继续：",
+              error instanceof Error ? error.message : error,
+            );
+            return "";
+          });
+          const repairedOutcome = repairedText
+            ? parseOutlineDiscussProtocol(repairedText)
+            : ({ kind: "none" } as const);
+          if (repairedOutcome.kind === "valid") {
+            regenerationDiscussOutcome = repairedOutcome;
+          }
+        }
         const regenerationDiscussValidation = regenerationDiscussOutcome.kind === "valid"
           ? validateOutlineDiscussProtocol(regenerationDiscussOutcome.protocol)
           : null;
