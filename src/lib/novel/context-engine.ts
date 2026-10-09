@@ -1096,6 +1096,30 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults" },
 ]
 
+/** 正典被预算裁掉时的统一提示。 */
+export const SOURCE_CANON_OVERFLOW_MESSAGE =
+  "上下文预算不足，原作正典未完整保留。请减少本次参考内容或选择更大上下文模型，已停止生成。"
+
+/** 正典溢出错误。调用方需要据此停机，而不是继续生成。 */
+export class SourceCanonOverflowError extends Error {
+  constructor(message: string = SOURCE_CANON_OVERFLOW_MESSAGE) {
+    super(message)
+    this.name = "SourceCanonOverflowError"
+  }
+}
+
+/**
+ * 正典是硬约束：静默丢掉它会让模型凭空编造原作事实，宁可停下来报错。
+ *
+ * 提示词有**两条**构建路径（`contextPackToPrompt` 与 `trim-context-plugin` 里的
+ * `trimContextPack`），守卫必须两条都装，只装一条会留下静默丢弃的缺口。
+ */
+export function assertSourceCanonPreserved(pack: ContextPack, prompt: string): void {
+  if (pack.sourceCanon?.trim() && !prompt.includes(pack.sourceCanon)) {
+    throw new SourceCanonOverflowError()
+  }
+}
+
 export function contextPackToPrompt(
   pack: ContextPack,
   tokenBudget?: number,
@@ -1108,10 +1132,7 @@ export function contextPackToPrompt(
   if (pack.writingStyle?.startsWith("【已启用文风画像】") && !result.prompt.includes(pack.writingStyle)) {
     throw new Error("上下文预算不足，已启用的文风画像未完整保留。请减少本次参考内容或选择更大上下文模型，已停止生成。")
   }
-  // 同人正典是硬约束：静默丢掉它会让模型凭空编造原作事实，宁可停下来报错。
-  if (pack.sourceCanon?.trim() && !result.prompt.includes(pack.sourceCanon)) {
-    throw new Error("上下文预算不足，原作正典未完整保留。请减少本次参考内容或选择更大上下文模型，已停止生成。")
-  }
+  assertSourceCanonPreserved(pack, result.prompt)
   return result.prompt
 }
 

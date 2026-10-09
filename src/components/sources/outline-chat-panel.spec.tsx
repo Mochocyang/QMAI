@@ -1070,6 +1070,19 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("onProgress:")
   })
 
+  it("同人提交支持复用已落盘正典，不再重复编译", () => {
+    // 首次提交：编译并落盘
+    expect(source).toContain("compileFanficCanon({")
+    // 后续提交：勾选复用后直接读正典正文，跳过编译
+    expect(source).toContain("request.fanficReuseCanon && !material")
+    expect(source).toContain("loadFanficCanon(fanficProjectPath)")
+    expect(source).toContain("已复用项目里已有的原作正典。")
+    // 复用读的是完整正文，不是给上下文包用的 8000 字截断版
+    expect(source).toContain("await loadFanficCanon(fanficProjectPath)")
+    expect(source).toContain("const existing = stripFanficCanonFrontmatter(")
+    expect(source).not.toContain("loadFanficCanonBody(")
+  })
+
   it("原创作品残留同人正典时给出提示，但不擅自删文件", () => {
     // 残留正典仍会参与正文生成，会让模型把外部原作当权威
     expect(source).toContain("本项目已存在同人正典，它仍会参与正文生成")

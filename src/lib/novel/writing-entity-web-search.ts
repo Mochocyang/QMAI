@@ -64,6 +64,7 @@ export function buildLocalWritingCorpus(
     | "characterAuras"
     | "relatedSettings"
     | "canonRules"
+    | "sourceCanon"
     | "cognitionStates"
     | "foreshadowingStates"
     | "previousChapterEnding"
@@ -80,6 +81,9 @@ export function buildLocalWritingCorpus(
     pack.characterAuras,
     pack.relatedSettings,
     pack.canonRules,
+    // 同人项目：原作既有的人物/地点/势力属于本作已知实体，
+    // 不纳入语料会被当成「待查实体」去联网补搜，还可能搜回与正典冲突的资料。
+    pack.sourceCanon ?? "",
     pack.cognitionStates,
     pack.foreshadowingStates,
     pack.previousChapterEnding,

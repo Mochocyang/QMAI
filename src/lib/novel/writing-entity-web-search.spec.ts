@@ -113,6 +113,24 @@ describe("writing entity local lookup", () => {
       "降龙十八掌",
     ])
   })
+
+  it("把同人原作正典计入本地语料，避免原作人物被当成待查实体联网补搜", () => {
+    const fanficPack: ContextPack = {
+      ...pack,
+      sourceCanon: "- 萧炎，斗气大陆主角，曾是天才后跌为废物。\n- 药老寄居在萧炎戒指中。",
+    }
+    const corpus = buildLocalWritingCorpus(fanficPack)
+
+    expect(corpus).toContain("萧炎")
+    expect(corpus).toContain("药老")
+    // 原作既有实体不应被判定为「未解析」，否则会去联网搜，搜回的资料可能与正典冲突
+    expect(selectUnresolvedEntities(["萧炎", "药老"], corpus, [])).toEqual([])
+    // 对照：不带正典时它们会被当成待查实体
+    expect(selectUnresolvedEntities(["萧炎", "药老"], buildLocalWritingCorpus(pack), [])).toEqual([
+      "萧炎",
+      "药老",
+    ])
+  })
 })
 
 describe("writing entity extraction source", () => {

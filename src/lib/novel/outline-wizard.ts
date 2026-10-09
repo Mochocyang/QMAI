@@ -45,7 +45,7 @@ interface OutlineWizardGenreOption {
   label: string
 }
 
-export type OutlineWizardExplicitField = "task" | "length" | "channel" | "genre" | "customGenre" | "inspiration" | "sellingPoints" | "targets" | "scale" | "narrative" | "materialSource" | "creation" | "fanficMode" | "fanficCustomMode" | "fanficSourceName" | "fanficSourceMaterial" | "fanficAllowedDeviations"
+export type OutlineWizardExplicitField = "task" | "length" | "channel" | "genre" | "customGenre" | "inspiration" | "sellingPoints" | "targets" | "scale" | "narrative" | "materialSource" | "creation" | "fanficMode" | "fanficCustomMode" | "fanficSourceName" | "fanficSourceMaterial" | "fanficAllowedDeviations" | "fanficReuseCanon"
 
 export interface OutlineWizardRequest {
   task: OutlineWizardTask
@@ -69,6 +69,13 @@ export interface OutlineWizardRequest {
   fanficSourceName?: string
   /** 用户粘贴/导入的原作素材。 */
   fanficSourceMaterial?: string
+  /**
+   * 复用项目里已有的 `.novel/fanfic-canon.md`，不再重新编译。
+   *
+   * 正典是持久化资产：第二次生成大纲时重复粘贴几十万字、再跑几十次 LLM
+   * 编译同一份素材，既慢又浪费额度。勾选后直接用落盘正典。
+   */
+  fanficReuseCanon?: boolean
   /** 显式允许偏离的原作事实；其余一律视为不可动。 */
   fanficAllowedDeviations?: string[]
   explicit?: Partial<Record<OutlineWizardExplicitField, boolean>>
@@ -355,8 +362,9 @@ export function getOutlineWizardValidationError(
     if (!(request.fanficSourceName ?? "").trim()) {
       return "请填写原作名称，同人创作需要它来标识正典来源。"
     }
-    if (!(request.fanficSourceMaterial ?? "").trim()) {
-      return "请粘贴或导入原作素材，同人创作需要原作事实作为正典。"
+    // 复用已落盘正典时不需要重新粘贴素材（否则持久化正典等于白存）。
+    if (!(request.fanficSourceMaterial ?? "").trim() && !request.fanficReuseCanon) {
+      return "请粘贴或导入原作素材，或勾选复用项目里已有的原作正典。"
     }
     if ((request.fanficSourceMaterial ?? "").length > FANFIC_SOURCE_MATERIAL_MAX_CHARS) {
       return `原作素材过长，请分批导入（上限 ${FANFIC_SOURCE_MATERIAL_MAX_CHARS} 字符）。`
@@ -418,10 +426,20 @@ export function buildFanficDemandSection(
   const sourceMaterial = (request.fanficSourceMaterial ?? "").trim()
   const includeCanon = options?.includeCanon ?? true
 
+  // 复用已有正典时提示词不带原文，但要明确告诉模型正典已就位、由上下文包注入，
+  // 否则模型会以为「没有给原作信息」而拒绝生成正典卡。
   const canonSection: Array<string | null> =
     includeCanon && sourceMaterial
       ? ["", "### 原作素材（正典来源）", "", sourceMaterial]
-      : []
+      : includeCanon && request.fanficReuseCanon
+        ? [
+            "",
+            "### 原作正典",
+            "",
+            "原作的既成事实已编译并保存在项目的 `.novel/fanfic-canon.md`，",
+            "本轮会由上下文包自动注入，无需再向用户索取。",
+          ]
+        : []
 
   // 注意：这里只能过滤 null/undefined，不能 filter(Boolean)——
   // 空串正是段与段之间的空行，过滤掉会让标题和正文挤在一起。

@@ -94,6 +94,7 @@ import {
 import {
   compileFanficCanon,
   fanficCanonPath,
+  loadFanficCanon,
   stripFanficCanonFrontmatter,
 } from "@/lib/novel/fanfic-canon";
 import {
@@ -5085,7 +5086,35 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       // .novel/fanfic-canon.md，供后续正文生成的上下文包按固定路径读取。
       if (isFanficRequest(request)) {
         const fanficProjectPath = project?.path ? normalizePath(project.path) : "";
-        if (fanficProjectPath) {
+        const material = (request.fanficSourceMaterial ?? "").trim();
+        if (request.fanficReuseCanon && !material) {
+          // 复用已落盘正典：不再跑一遍分片编译，直接读文件喂给提示词。
+          // 这是持久化正典的主要收益——第二次生成大纲不必重贴几十万字、
+          // 也不必再付一次几十次 LLM 调用。
+          try {
+            // 注意用 loadFanficCanon + strip 而不是 loadFanficCanonBody：
+            // 后者会截到 8000 字给上下文包用，大纲提示词要完整的正典正文。
+            const existing = stripFanficCanonFrontmatter(
+              await loadFanficCanon(fanficProjectPath),
+            );
+            if (!existing) {
+              toast.error("没有找到可复用的原作正典，请粘贴原作素材后重试。", {
+                dedupeKey: "outline-fanfic-canon-reuse:missing",
+              });
+              return;
+            }
+            request = { ...request, fanficSourceMaterial: existing };
+            toast.success("已复用项目里已有的原作正典。", {
+              dedupeKey: "outline-fanfic-canon-reuse:done",
+            });
+          } catch (error) {
+            toast.error(
+              error instanceof Error ? error.message : "复用原作正典失败，请重试。",
+              { dedupeKey: "outline-fanfic-canon-reuse:error" },
+            );
+            return;
+          }
+        } else if (fanficProjectPath) {
           toast.info("正在编译原作正典…", {
             dedupeKey: "outline-fanfic-canon-compile:start",
           });
@@ -6463,6 +6492,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           open={outlineWizardOpen}
           onOpenChange={setOutlineWizardOpen}
           onSubmit={handleSubmitOutlineWizard}
+          projectPath={project?.path ? normalizePath(project.path) : undefined}
         />
         <ConversationDeleteConfirmDialog
           open={pendingDeleteConversationId !== null}

@@ -412,6 +412,16 @@ describe("chat-panel chapter plan confirm integration (Stage C)", () => {
     expect(source).toContain('new Promise<"confirm" | "skip" | "cancel" | { modify: string }>')
   })
 
+  it("章节计划自检上下文带上同人原作正典", () => {
+    const fnIndex = source.indexOf("function buildChapterPlanSelfCheckContext")
+    expect(fnIndex).toBeGreaterThan(-1)
+    const fnBody = source.slice(fnIndex, source.indexOf("\n}", fnIndex))
+
+    // self-check 里有一条「原作正典」核对行，构造点漏传就会恒为空
+    expect(fnBody).toContain("canonRules: pack.canonRules")
+    expect(fnBody).toContain("sourceCanon: pack.sourceCanon")
+  })
+
   it("detects chapter_plan marker inside onDone callback", () => {
     const onDoneIndex = source.indexOf("onDone: () => {")
     expect(onDoneIndex).toBeGreaterThan(-1)

@@ -208,6 +208,18 @@ describe("OutlineWizardDialog", () => {
     ).not.toBe("tongren")
   })
 
+  it("项目里没有正典时不显示复用选项", async () => {
+    await act(async () =>
+      root.render(
+        <OutlineWizardDialog open onOpenChange={() => {}} onSubmit={() => {}} projectPath="/proj" />,
+      ),
+    )
+    await selectCreationType("fanfic")
+
+    expect(document.body.querySelector('input[aria-label="复用已有正典"]')).toBeNull()
+    expect(document.body.textContent).not.toContain("复用已有正典")
+  })
+
   it("同人必填项没填全时阻止提交并给出可执行提示", async () => {
     const onSubmit = vi.fn()
     await act(async () => root.render(<OutlineWizardDialog open onOpenChange={() => {}} onSubmit={onSubmit} />))

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { computeNovelContextTokenBudget } from "@/lib/context-budget"
-import type { ContextPack } from "@/lib/novel/context-engine"
+import { SourceCanonOverflowError, type ContextPack } from "@/lib/novel/context-engine"
 import { composeContext } from "./composer"
 import { estimateContextTokens } from "./token-estimator"
 
@@ -76,6 +76,50 @@ describe("composeContext", () => {
   it("keeps original projects free of an empty canon section", () => {
     const result = composeContext({ contextPack: pack(), dependencyStamp })
     expect(result.stableCore).not.toContain("原作正典")
+  })
+
+  it("正典被预算压缩或丢弃时抛错，而不是按比例静默截断", () => {
+    const canon = "# 同人正典\n" + "原作既成事实：斗气分九段；萧炎曾跌为废物。".repeat(300)
+
+    // 预算充足：保留
+    const roomy = composeContext({
+      contextPack: pack({ sourceCanon: canon }),
+      dependencyStamp,
+      maxContextSize: 32000,
+    })
+    expect(roomy.stableCore).toContain(canon)
+
+    // 预算不足：此前是 disposition=truncated 静默压到 ~5%，现在是硬失败
+    for (const maxContextSize of [2000, 4000, 8000]) {
+      expect(
+        () => composeContext({ contextPack: pack({ sourceCanon: canon }), dependencyStamp, maxContextSize }),
+        `maxContextSize=${maxContextSize} 应抛错而不是截断`,
+      ).toThrow(SourceCanonOverflowError)
+    }
+  })
+
+  it("正典被更高优先字段挤占时同样抛错，不会整体丢弃", () => {
+    const canon = "# 同人正典\n" + "原作既成事实：斗气分九段。".repeat(300)
+    expect(() =>
+      composeContext({
+        contextPack: pack({
+          sourceCanon: canon,
+          soulDoc: "灵魂文档".repeat(1500),
+          storyFrameworkBinding: "框架绑定".repeat(1500),
+          outline: "大纲骨架".repeat(1500),
+          canonRules: "硬规则".repeat(1500),
+          relatedSettings: "核心设定".repeat(1500),
+        }),
+        dependencyStamp,
+        maxContextSize: 8000,
+      }),
+    ).toThrow(SourceCanonOverflowError)
+  })
+
+  it("没有正典时不触发守卫，原创项目行为不变", () => {
+    expect(() =>
+      composeContext({ contextPack: pack(), dependencyStamp, maxContextSize: 2000 }),
+    ).not.toThrow()
   })
 
   it("keeps candidate, injected and saved tokens conserved under one fragment pipeline", () => {

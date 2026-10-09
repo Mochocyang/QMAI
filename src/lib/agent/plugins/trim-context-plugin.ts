@@ -1,5 +1,6 @@
 import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 import type { ContextPack, TrimResult } from "@/lib/novel/context-engine"
+import { assertSourceCanonPreserved, SourceCanonOverflowError } from "@/lib/novel/context-engine"
 import { resolveContextPackTokenBudget } from "@/lib/context-budget"
 import { getEffectiveMaxContextSize } from "@/lib/llm-providers"
 
@@ -54,6 +55,10 @@ export function createTrimContextPlugin(deps: TrimContextPluginDeps = {}): PrePl
           trimmedPrompt = trimResult.prompt
         }
 
+        // 本条路径直接调 trimContextPack，绕过了 contextPackToPrompt 里的守卫。
+        // 正典被裁掉必须停机：静默丢掉会让模型凭空编造原作事实。
+        assertSourceCanonPreserved(input.contextPack, trimmedPrompt)
+
         if (onVirtualTool && callId) {
           const resultData: Record<string, unknown> = {
             tokenBudget: budget,
@@ -84,6 +89,11 @@ export function createTrimContextPlugin(deps: TrimContextPluginDeps = {}): PrePl
             result: error instanceof Error ? error.message : String(error),
             status: "error",
           })
+        }
+        // 正典溢出是硬失败：这里返回 {} 会让链路继续，等于带着「没有正典」的
+        // 系统提示词去生成同人正文。必须停机，让调用方把原因告诉用户。
+        if (error instanceof SourceCanonOverflowError) {
+          return { shouldStop: true, stopReason: "source_canon_overflow" }
         }
         return {}
       }

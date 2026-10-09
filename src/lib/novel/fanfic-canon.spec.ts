@@ -53,6 +53,71 @@ describe("fanfic canon document", () => {
     expect(doc).toContain("容许偏离：无（除所选模式本身外，一切按原作正典处理）")
   })
 
+  it("含引号与反斜杠的容许偏离能原样回读（写入端转义后读取端必须反解）", () => {
+    for (const deviations of [
+      ['改写"原作结局"'],
+      ["路径 C:\\原作\\结局"],
+      ["含双引号\"和反斜杠\\同时出现"],
+      ["含逗号,与引号\"的偏离"],
+      ["a", "b", "c"],
+    ]) {
+      const meta = parseFanficCanonMeta(
+        buildFanficCanonDocument({
+          mode: "au",
+          sourceName: "斗破苍穹",
+          allowedDeviations: deviations,
+          canonBody: "- x",
+          sourceChars: 1,
+          chunkCount: 1,
+        }),
+      )
+      expect(meta?.allowedDeviations, JSON.stringify(deviations)).toEqual(deviations)
+    }
+  })
+
+  it("原作名称含冒号、引号、反斜杠、井号也能原样回读", () => {
+    for (const sourceName of [
+      "斗破苍穹",
+      "Re:Zero 从零开始",
+      '他说"不"',
+      "反斜杠\\测试",
+      "带#井号",
+      "带：全角冒号",
+    ]) {
+      const meta = parseFanficCanonMeta(
+        buildFanficCanonDocument({
+          mode: "au",
+          sourceName,
+          canonBody: "- x",
+          sourceChars: 1,
+          chunkCount: 1,
+        }),
+      )
+      expect(meta?.sourceName, sourceName).toBe(sourceName)
+    }
+  })
+
+  it("CRLF 与 BOM 的正典也能回读与去 frontmatter", () => {
+    const crlf = baseDoc().replace(/\n/g, "\r\n")
+    expect(parseFanficCanonMeta(crlf)?.sourceName).toBe("斗破苍穹")
+    expect(parseFanficCanonMeta(`\uFEFF${baseDoc()}`)?.sourceName).toBe("斗破苍穹")
+    expect(stripFanficCanonFrontmatter(`\uFEFF${baseDoc()}`)).toContain("斗气分九段")
+  })
+
+  it("正典正文里出现 --- 分隔线不会被误当成 frontmatter 结束", () => {
+    const body = stripFanficCanonFrontmatter(
+      buildFanficCanonDocument({
+        mode: "au",
+        sourceName: "斗破苍穹",
+        canonBody: "- 上半段\n\n---\n\n- 下半段",
+        sourceChars: 1,
+        chunkCount: 1,
+      }),
+    )
+    expect(body).toContain("- 上半段")
+    expect(body).toContain("- 下半段")
+  })
+
   it("compiled 省略时按分片数推导", () => {
     const single = buildFanficCanonDocument({
       mode: "canon",

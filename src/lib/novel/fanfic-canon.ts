@@ -218,21 +218,54 @@ export function buildFanficCanonDocument(input: BuildFanficCanonInput): string {
   ].join("\n")
 }
 
+/** 按逗号切分行内数组，但逗号在引号内时不算分隔符。 */
+function splitInlineYamlList(inner: string): string[] {
+  const items: string[] = []
+  let current = ""
+  let quote: '"' | "'" | null = null
+  for (let i = 0; i < inner.length; i += 1) {
+    const char = inner[i]
+    if (quote) {
+      current += char
+      // 双引号里的 \" 是转义，不结束字符串
+      if (char === "\\" && quote === '"' && i + 1 < inner.length) {
+        current += inner[i + 1]
+        i += 1
+        continue
+      }
+      if (char === quote) quote = null
+      continue
+    }
+    if (char === '"' || char === "'") {
+      quote = char
+      current += char
+      continue
+    }
+    if (char === ",") {
+      items.push(current)
+      current = ""
+      continue
+    }
+    current += char
+  }
+  items.push(current)
+  return items.map((item) => item.trim()).filter(Boolean)
+}
+
 function readYamlListValue(raw: string): string[] {
   const inline = raw.match(/^\[(.*)\]$/)
   if (inline) {
     const inner = inline[1].trim()
     if (!inner) return []
-    return inner
-      .split(",")
-      .map((item) => item.trim().replace(/^["']|["']$/g, ""))
-      .filter(Boolean)
+    // 逐项反解转义：写入端 yamlScalar 会转义 " 和 \，读取端必须对称还原，
+    // 否则「改写"原作结局"」这类含引号的偏离会带着反斜杠回读。
+    return splitInlineYamlList(inner).map(unquoteYamlScalar).filter(Boolean)
   }
   return raw
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2).trim().replace(/^["']|["']$/g, ""))
+    .map((line) => unquoteYamlScalar(line.slice(2).trim()))
     .filter(Boolean)
 }
 

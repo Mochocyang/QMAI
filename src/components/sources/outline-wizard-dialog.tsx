@@ -31,11 +31,16 @@ import {
   type OutlineWizardExplicitField,
 } from "@/lib/novel/outline-wizard"
 import { getFanficSubGenreLabels } from "@/lib/novel/outline-genres"
+import { fanficCanonPath } from "@/lib/novel/fanfic-canon"
+import { fileExists } from "@/commands/fs"
+import { normalizePath } from "@/lib/path-utils"
 
 interface OutlineWizardDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSubmit: (request: OutlineWizardRequest) => void
+  /** 项目路径，用于探测是否已有可复用的原作正典。 */
+  projectPath?: string
 }
 
 function firstGenre(channel: OutlineWizardChannel): string {
@@ -89,11 +94,14 @@ export function OutlineWizardDialog({
   open,
   onOpenChange,
   onSubmit,
+  projectPath,
 }: OutlineWizardDialogProps) {
   const [request, setRequest] = useState<OutlineWizardRequest>(() =>
     createDefaultOutlineWizardRequest(),
   )
   const [error, setError] = useState("")
+  // 项目里是否已有落盘正典：决定要不要显示「复用已有正典」。
+  const [hasExistingCanon, setHasExistingCanon] = useState(false)
   const genreOptions = useMemo(
     () => getOutlineWizardGenres(request.channel),
     [request.channel],
@@ -103,7 +111,22 @@ export function OutlineWizardDialog({
     if (!open) return
     setRequest(createDefaultOutlineWizardRequest())
     setError("")
-  }, [open])
+    let cancelled = false
+    if (!projectPath) {
+      setHasExistingCanon(false)
+      return
+    }
+    void fileExists(fanficCanonPath(normalizePath(projectPath)))
+      .then((exists) => {
+        if (!cancelled) setHasExistingCanon(exists)
+      })
+      .catch(() => {
+        if (!cancelled) setHasExistingCanon(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, projectPath])
 
   function updateRequest(
     next: Partial<OutlineWizardRequest>,
@@ -137,6 +160,18 @@ export function OutlineWizardDialog({
       creation,
       // 同人默认落在「同人衍生」题材上；切回原创时若仍停在同人衍生，回到本频道首个题材。
       genre: creation === "fanfic" ? "tongren" : current.genre === "tongren" ? firstGenre(current.channel) : current.genre,
+      // 切回原创时清掉全部同人字段：虽然消费点都有 isFanficRequest 门控，
+      // 但残留值一旦被别处直接读取就会误判成同人，不留这个陷阱。
+      ...(creation === "fanfic"
+        ? {}
+        : {
+            fanficMode: undefined,
+            fanficCustomMode: "",
+            fanficSourceName: "",
+            fanficSourceMaterial: "",
+            fanficAllowedDeviations: [],
+            fanficReuseCanon: false,
+          }),
       explicit: { ...current.explicit, creation: true },
     }))
     setError("")
@@ -190,8 +225,23 @@ export function OutlineWizardDialog({
                     <Input aria-label="自定义同人模式" value={request.fanficCustomMode ?? ""} placeholder="用一句话写清本作与原作的关系边界" onChange={event => updateRequest({ fanficCustomMode: event.target.value }, ["fanficCustomMode"])} />
                   </label>
                 )}
+                {hasExistingCanon && (
+                  <label className="ui-test-wizard-field">
+                    <span>复用已有正典</span>
+                    <input
+                      type="checkbox"
+                      aria-label="复用已有正典"
+                      checked={request.fanficReuseCanon === true}
+                      onChange={event => updateRequest({ fanficReuseCanon: event.target.checked }, ["fanficReuseCanon"])}
+                    />
+                    <span className="ui-test-wizard-fanfic-hint">
+                      项目里已有 .novel/fanfic-canon.md。勾选后直接复用它，无需重新粘贴素材，
+                      也不会重复编译。
+                    </span>
+                  </label>
+                )}
                 <label className="ui-test-wizard-field">
-                  <span>原作素材（必填）</span>
+                  <span>原作素材{request.fanficReuseCanon ? "（复用正典时可留空）" : "（必填）"}</span>
                   <Textarea aria-label="原作素材" value={request.fanficSourceMaterial ?? ""} placeholder="粘贴原作的关键设定、人物小传、时间线，或原作正文节选。超长素材会被分片编译成正典。" onChange={event => updateRequest({ fanficSourceMaterial: event.target.value }, ["fanficSourceMaterial"])} />
                 </label>
                 <div className="ui-test-wizard-field">

@@ -169,9 +169,38 @@ describe("同人创作支持", () => {
     expect(getOutlineWizardValidationError({
       ...fanficRequest,
       fanficSourceMaterial: " ",
-    })).toBe("请粘贴或导入原作素材，同人创作需要原作事实作为正典。")
+    })).toBe("请粘贴或导入原作素材，或勾选复用项目里已有的原作正典。")
 
     expect(getOutlineWizardValidationError(fanficRequest)).toBeNull()
+  })
+
+  it("勾选复用已有正典后，原作素材可以留空（否则持久化正典等于白存）", () => {
+    expect(getOutlineWizardValidationError({
+      ...fanficRequest,
+      fanficSourceMaterial: "",
+      fanficReuseCanon: true,
+    })).toBeNull()
+
+    // 未勾选复用仍必须填素材
+    expect(getOutlineWizardValidationError({
+      ...fanficRequest,
+      fanficSourceMaterial: "",
+      fanficReuseCanon: false,
+    })).not.toBeNull()
+  })
+
+  it("复用正典时提示词说明正典已就位，避免模型以为没给原作信息", () => {
+    const section = buildFanficDemandSection({
+      ...fanficRequest,
+      fanficSourceMaterial: "",
+      fanficReuseCanon: true,
+    })
+
+    expect(section).toContain("### 原作正典")
+    expect(section).toContain(".novel/fanfic-canon.md")
+    expect(section).toContain("由上下文包自动注入")
+    // 没有原文时不得伪造素材段
+    expect(section).not.toContain("### 原作素材（正典来源）")
   })
 
   it("自定义模式必须由用户描述边界，空描述被拦下", () => {
