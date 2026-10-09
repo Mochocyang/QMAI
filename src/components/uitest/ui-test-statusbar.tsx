@@ -6,13 +6,13 @@ import { cn } from "@/lib/utils"
 /**
  * 完成率对应的环色。
  *
- * 与上下文环同用红/橙/绿三档，但阈值不同：写作目标是「每天推进」，
- * 能写够就算达标，所以不到 60% 才报警；上下文环是「别撑爆」，保守得多。
+ * 用户要求「颜色用灰色一些」：不再按完成率分档报警（此前红/橙/绿三档），
+ * 平时就是一枚安静的灰环，只有**真正达标（≥100%）**才转绿 —— 一个
+ * 一眼可辨的正反馈，而不是一路用红橙催人。灰色偏中性（不带饱和绿），
+ * 免得太监色反而抢眼。
  */
 export function writingGoalRingClass(ratio: number): string {
-  if (ratio >= 1) return "text-[#22c55e]"
-  if (ratio >= 0.6) return "text-[#f59e0b]"
-  return "text-[#ef4444]"
+  return ratio >= 1 ? "text-[#22c55e]" : "text-[#96a09a]"
 }
 
 /** 千分位。2–3 百万字的小说里「1837250」远不如「1,837,250」好读。 */
@@ -106,18 +106,6 @@ export function WritingStatusBar({ className }: WritingStatusBarProps) {
   return (
     <footer className={cn("ui-test-statusbar", className)} aria-label="写作字数">
       <div className="ui-test-statusbar-inner">
-        {/* 手机电量那种读法：小环在左，百分比紧跟在环右侧。
-            百分比刻意不放进环心 —— 环太小，字挤在里面既糊又显大。 */}
-        <span className="ui-test-statusbar-goal" title={`今日写作目标完成率 ${percent}%（${todayWritten} / ${dailyTargetChars} 字）`}>
-          <ProgressRing
-            ratio={ratio}
-            size={14}
-            strokeWidth={2}
-            className={writingGoalRingClass(ratio)}
-            title={`今日写作目标完成率 ${percent}%（${todayWritten} / ${dailyTargetChars} 字）`}
-          />
-          <span className="ui-test-statusbar-percent">{percent}%</span>
-        </span>
         <ul className="ui-test-statusbar-metrics">
           <li className="ui-test-statusbar-metric">
             <span className="ui-test-statusbar-label">总字数</span>
@@ -144,6 +132,19 @@ export function WritingStatusBar({ className }: WritingStatusBarProps) {
             </span>
           </li>
         </ul>
+        {/* 手机电量那种读法：小环在左，百分比紧跟在环右侧，而**整组**贴在
+            状态栏最右端（四项数据居中，见 .ui-test-statusbar-inner 的 grid）。
+            百分比刻意不放进环心 —— 环太小，字挤在里面既糊又显大。 */}
+        <span className="ui-test-statusbar-goal" title={`今日写作目标完成率 ${percent}%（${todayWritten} / ${dailyTargetChars} 字）`}>
+          <ProgressRing
+            ratio={ratio}
+            size={12}
+            strokeWidth={1.5}
+            className={writingGoalRingClass(ratio)}
+            title={`今日写作目标完成率 ${percent}%（${todayWritten} / ${dailyTargetChars} 字）`}
+          />
+          <span className="ui-test-statusbar-percent">{percent}%</span>
+        </span>
       </div>
     </footer>
   )

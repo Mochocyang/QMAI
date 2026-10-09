@@ -234,16 +234,19 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 
    尺寸一律用 rem：界面字号放大时状态栏必须跟着长，否则数字会被裁掉
    （见本文件顶部关于 --ui-heading-line 的同类教训）。 */
-.ui-test-statusbar { flex-shrink: 0; display: flex; justify-content: center; padding: 0.1875rem 0.5rem; border-top: 1px solid var(--ui-line); background: var(--ui-panel); color: var(--ui-muted); font-size: 0.6875rem; line-height: 1.4; }
-/* 居中靠这条内层：外层保持满宽（边框才通到两侧），内容不拉满整行。 */
-.ui-test-statusbar-inner { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0.625rem; min-width: 0; }
-/* 环 + 百分比：手机电量那种读法，百分比在环右侧而不是环心里。 */
-.ui-test-statusbar-goal { display: inline-flex; align-items: center; gap: 0.25rem; flex-shrink: 0; color: var(--ui-muted); }
-.ui-test-statusbar-percent { font-variant-numeric: tabular-nums; font-size: 0.6875rem; color: var(--ui-muted); }
-.ui-test-statusbar-metrics { display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 0.75rem; margin: 0; padding: 0; list-style: none; min-width: 0; }
-.ui-test-statusbar-metric { display: flex; align-items: baseline; gap: 0.25rem; white-space: nowrap; }
-.ui-test-statusbar-label { color: var(--ui-muted); font-size: 0.6875rem; }
-.ui-test-statusbar-value { color: var(--ui-ink); font-size: 0.6875rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.ui-test-statusbar { flex-shrink: 0; display: flex; padding: 0.15625rem 0.5rem; border-top: 1px solid var(--ui-line); background: var(--ui-panel); color: var(--ui-muted); font-size: 0.625rem; line-height: 1.35; }
+/* 三段 grid：左右两个 1fr 是**配重**，四项数据落在中间那列因而真正居中于整条栏，
+   而「环 + 百分比」靠 justify-self 贴到最右端。
+   用 flex + margin-left:auto 也能把百分比推到右边，但那样中间内容只在
+   「左边到百分比之间」居中，整条栏看过去是偏左的。 */
+.ui-test-statusbar-inner { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.5rem; width: 100%; min-width: 0; }
+/* 环 + 百分比：手机电量那种读法，百分比在环右侧而不是环心里，整组贴最右。 */
+.ui-test-statusbar-goal { grid-column: 3; justify-self: end; display: inline-flex; align-items: center; gap: 0.25rem; flex-shrink: 0; color: var(--ui-muted); }
+.ui-test-statusbar-percent { font-variant-numeric: tabular-nums; font-size: 0.625rem; color: var(--ui-muted); }
+.ui-test-statusbar-metrics { grid-column: 2; display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 0.625rem; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.ui-test-statusbar-metric { display: flex; align-items: baseline; gap: 0.1875rem; white-space: nowrap; }
+.ui-test-statusbar-label { color: var(--ui-muted); font-size: 0.625rem; }
+.ui-test-statusbar-value { color: var(--ui-ink); font-size: 0.625rem; font-weight: 500; font-variant-numeric: tabular-nums; }
 /* AI 与手写两栏用颜色区分，扫一眼就知道今天是谁在写。 */
 .ui-test-statusbar-value[data-metric="ai"] { color: var(--ui-accent); }
 .ui-test-statusbar-target { padding: 0 0.125rem; border: 0; border-radius: 3px; background: none; color: inherit; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
