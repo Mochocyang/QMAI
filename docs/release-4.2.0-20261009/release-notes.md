@@ -27,7 +27,7 @@
 
 1. 【随包中文字体】此前字体列表只能用系统里已装的字体，列表里还混着 Arial 等西文，换一台机器就可能选不出可用字体。现随软件附带 **9 款已核实可商用的中文字体**（共 11 个字重文件）：思源宋体、思源黑体（各含 Bold）、霞鹜文楷、文津宋体、寒蝉正楷体、鸿蒙黑体、得意黑、朱雀仿宋、更纱黑体
 2. 【装到当前用户即可】随包字体安装到**当前用户**，不需要管理员权限；「装完从未启动过」这个空档也补上了
-3. 【界面字体只在中文范围内列选】Arial 等西文字体已从**界面字体**选项移除
+3. 【界面字体只在中文范围内列选】Arial 等西文字体已从**界面字体**选项移除；旧配置里存着的 `"arial"` 会平滑回退到默认档，不需要你手动改
 4. 【鸿蒙黑体许可告知】按该字体许可证的强制要求在软件中显著注明
 
 ### 二、正文与界面彻底分家
@@ -106,7 +106,7 @@
 
 1. [Nine Chinese Writing Fonts Bundled] The font list previously offered only what was already installed on the system, mixed with Western faces such as Arial, so a different machine might offer no usable option. Nine commercially verified Chinese writing fonts now ship with the app (11 weight files in total): Source Han Serif and Source Han Sans (each including Bold), LXGW WenKai, WenJin Mincho, ChillKai, HarmonyOS Sans SC, Smiley Sans, Zhuque Fangsong and Sarasa Gothic SC.
 2. [Installed For The Current User] Bundled fonts install for the current user with no administrator rights needed, and the "installed but never launched" gap is covered too.
-3. [Chinese Faces Only In The Interface List] Western faces such as Arial have been removed from the interface font options.
+3. [Chinese Faces Only In The Interface List] Western faces such as Arial have been removed from the interface font options; an existing `"arial"` setting falls back smoothly to the default, so nothing needs to be changed by hand.
 4. [HarmonyOS Sans License Notice] Prominently credited in the app as that font's license requires.
 
 5. [Fixed "Changing Body Font Restyled The Whole Interface"] Changing the body font inside a chapter used to restyle the entire interface (navigation, buttons, brand name). The two are now fully independent — adjusting one never affects the other.
@@ -163,7 +163,7 @@
 
 发版时值得在 Release 正文里点明五点：
 
-1. **界面字体选项移除了 Arial 等西文字体**。如果你原来固定使用 Arial，需要重新选一个中文字体（随包字体装完即可用）。
+1. **界面字体选项移除了 Arial 等西文字体**。这不影响你现有配置：旧配置里存着的 `"arial"` 会**平滑回退**到默认档，不会报错也不会变成豆腐块。但如果你确实想要 Arial 的字形，本版之后无法再选（这是产品决定：界面字体只列中文字体）。
 2. **正文字号与界面字号解耦**。如果你原来依赖「界面调大 → 正文跟着变大」，现在需要在章节/大纲工具栏的「字体设置」里单独调正文字号。旧倍数会按当时的界面字号自动迁移，不必重设。
 3. **6 项排版参数从设置页移到了「字体设置」浮层**。设置页里不再有这些控件（「界面字号」仍在设置页）。
 4. **档案文档左侧的「分区导航」已移除**，版面为单栏。这是一次真实的元素删除，不是把元素藏起来。
