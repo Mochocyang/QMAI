@@ -5773,7 +5773,7 @@ Select-String -Path src-tauri\target\release\qmai.exe -Pattern ([regex]::Escape(
       <div class="lbl">Files</div>
       <div>改: src/components/uitest/ui-test.css（--serif 固定 + 新增 --body-font）</div>
       <div>改: src/components/uitest/ui-test-editor.css（第 268、277 行正文消费点）</div>
-      <div>改: src/lib/font-settings.ts（applyBodyFontFamily 的 TSDoc 契约）</div>
+      <div>改: src/lib/font-settings.ts（applyBodyFontFamily 的 TSDoc 契约；并删掉死代码 BODY_FONT_SIZE_MIN/MAX、DEFAULT_BODY_FONT_SIZE_SCALE、clampBodyFontSizeScale、BODY_FONT_SIZE_PRESETS —— Task 3/5 只删了它们在 wiki-store 与 interface-section 的<span>import</span>，定义本身没人删，于是留成一组只被自己的用例养着、注释还在讲已废掉的倍数模型的导出）</div>
       <div>改: src/components/uitest/ui-font-derivation.spec.ts（判据反向 + 消费点白名单）</div>
       <div>改: src/components/uitest/ui-test-editor.spec.tsx（正文容器断言）</div>
       <div>改: docs/font-scaling-fix-20261007/verify-body-font-applies.mjs（样本重新分类、期望反转）</div>

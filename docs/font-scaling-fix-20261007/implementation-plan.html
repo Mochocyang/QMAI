@@ -189,6 +189,39 @@
 
   <div class="eyebrow">青幕AI写作 · 实施计划</div>
   <h1>界面字号与界面字体修复（阶段 1+2）</h1>
+
+  <!--
+    ── 历史记录声明（后加，2026-10-09）──
+    这份图纸记录的是**更早一轮**的修复（界面字号缩放 + 界面字体生效）。
+    它当时引入的「正文字号 = 界面字号 × 正文字号倍数」百分比模型，
+    已在 docs/superpowers/plans/2026-10-08-chapter-font-settings.html
+    那一轮被「正文字号 = 绝对 px（12–32）」取代。
+
+    因此本文件里的下列名字**已经不存在于代码中**，读到它们时不要照着重建：
+      · BODY_FONT_SIZE_MIN / BODY_FONT_SIZE_MAX
+      · DEFAULT_BODY_FONT_SIZE_SCALE
+      · clampBodyFontSizeScale
+      · BODY_FONT_SIZE_PRESETS
+      · uiBodyFontSizeScale / setUiBodyFontSizeScale / saveUiBodyFontSizeScale
+    取代它们的是 BODY_FONT_PX_MIN/MAX、DEFAULT_BODY_FONT_PX、
+    clampBodyFontPx、BODY_FONT_PX_PRESETS 与 uiBodyFontPx。
+
+    旧值仍有用处，但只有一处：resolveMigratedBodyFontPx 把旧倍数
+    一次性换算成 px（localStorage 键 qmai-ui-body-font-scale 与
+    app-state 键 uiBodyFontSizeScale 作为**只读**迁移来源保留）。
+
+    同理，本文件描述的 --serif 派生关系也已被推翻：
+    现在 --serif 是**固定**的界面衬线层，文档正文改用派生的 --body-font，
+    因为「改正文字体导致整个界面都变」是一个用户报回的缺陷。
+  -->
+  <div style="margin:18px 0;padding:14px 16px;border:1px solid #D9B36C;border-left:4px solid #C9922E;background:#FDF6E7;border-radius:6px;color:#5A4415">
+    <strong>历史记录，非当前设计。</strong>
+    本图纸属更早一轮的界面字号/字体修复。它引入的「正文字号 = 界面字号 × 倍数」
+    百分比模型已被<a href="../superpowers/plans/2026-10-08-chapter-font-settings.html">2026-10-08 那一轮的图纸</a>取代为
+    <b>绝对 px（12–32）</b>；文中出现的 <code>BODY_FONT_SIZE_PRESETS</code>、
+    <code>clampBodyFontSizeScale</code>、<code>uiBodyFontSizeScale</code> 等名字
+    <b>已从代码中删除</b>，请勿照此重建（文件头部注释列了完整对照）。
+  </div>
   <p class="lede">
     让「界面字号」真正缩放文字、让「界面字体」真正生效，并扩充中文字体选项。
     本计划只覆盖阶段 1 与阶段 2；阶段 3（枚举本机中文字体）与阶段 4（捆绑字体）另行规划。
