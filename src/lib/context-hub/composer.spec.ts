@@ -56,6 +56,28 @@ describe("composeContext", () => {
     expect(result.stableCore).toContain("测试框架")
   })
 
+  it("injects fanfic source canon into the stable core ahead of self-owned settings", () => {
+    const result = composeContext({
+      contextPack: pack({
+        sourceCanon: "原作正典：斗气分九段；萧炎曾跌为废物。",
+        relatedSettings: "本作新增：主角来自地球。",
+      }),
+      dependencyStamp,
+    })
+
+    expect(result.stableCore).toContain("原作正典")
+    expect(result.stableCore).toContain("斗气分九段")
+    // 原作既成事实排在「核心设定」之前，本作新设定不得压过它
+    expect(result.stableCore.indexOf("原作正典")).toBeLessThan(
+      result.stableCore.indexOf("核心设定"),
+    )
+  })
+
+  it("keeps original projects free of an empty canon section", () => {
+    const result = composeContext({ contextPack: pack(), dependencyStamp })
+    expect(result.stableCore).not.toContain("原作正典")
+  })
+
   it("keeps candidate, injected and saved tokens conserved under one fragment pipeline", () => {
     const result = composeContext({
       contextPack: pack({

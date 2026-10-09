@@ -13,6 +13,7 @@ const DATA_SOURCE_KINDS: Record<string, ContextSourceKind[]> = {
   fallbackTimeline: ["memory"],
   relatedSettings: ["entity", "setting"],
   canonRules: ["setting"],
+  sourceCanon: ["setting"],
   writingStyle: ["setting"],
   bookAnalysisReferences: ["book-analysis"],
   searchResults: ["chapter", "outline", "memory", "setting", "entity", "snapshot"],
@@ -46,6 +47,7 @@ export function classifyContextSourcePath(projectPath: string, path: string): Co
   if (relative.startsWith("wiki/settings/") || relative === "wiki/canon.md" || relative === "wiki/writing-style.md") return "setting"
   if (relative === "soul.md" || relative === "wiki/soul.md") return "soul"
   if (relative === ".novel/cognition-state.json") return "entity"
+  if (relative === ".novel/fanfic-canon.md") return "setting"
   if (relative === ".novel/revision-feedback.json") return "snapshot"
   if (relative === ".novel/timeline.json") return "memory"
   if (relative.startsWith(".novel/snapshots/") || relative.startsWith(".novel/community-summaries/")) return "snapshot"
@@ -76,6 +78,7 @@ export const SOURCE_DEPENDENCY_PREFIXES: Record<string, string[]> = {
     "wiki/settings/", "wiki/canon.md", "wiki/writing-style.md",
     "wiki/memory/", "wiki/entities/", "wiki/characters/",
   ],
+  sourceCanon: [".novel/fanfic-canon.md"],
   storyFrameworkBinding: [
     "wiki/outlines/", "wiki/settings/", "wiki/canon.md", "wiki/writing-style.md",
     ".qmai/simulations/",

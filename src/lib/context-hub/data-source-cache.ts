@@ -55,6 +55,7 @@ interface DataSourceCacheStats {
 
 const STATIC_SOURCES = new Set([
   "canonRules",
+  "sourceCanon",
   "writingStyle",
   "soulDoc",
   "storyFrameworkBinding",

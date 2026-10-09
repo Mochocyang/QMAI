@@ -1626,6 +1626,7 @@
       "timeline": "## 时间线",
       "relatedSettings": "## 相关地点/组织/物品",
       "canonRules": "## 禁止违背",
+      "sourceCanon": "## 原作正典（不可违背）",
       "writingStyle": "## 写作风格",
       "searchResults": "## 相关搜索结果",
       "graphSearchResults": "## 图谱关联节点",
@@ -1640,6 +1641,7 @@
       },
       "mustAvoid": {
         "title": "## 本章避免违背",
+        "sourceCanon": "- 不得违背「原作正典」：既成人物的性格、能力边界、已知信息与关系，以及原作已确立的世界规则和时间线。",
         "canonRules": "- 不要违背既有设定：{{value}}",
         "timeline": "- 不要写乱当前时间线：{{value}}",
         "characterStates": "- 不要写错当前人物状态：{{value}}"

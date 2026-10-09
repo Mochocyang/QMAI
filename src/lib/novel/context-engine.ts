@@ -38,6 +38,11 @@ const FIELD_PRIORITY: Record<string, number> = {
   chapterGoal: 2,
   mustDo: 3,
   mustAvoid: 4,
+  /**
+   * 同人原作正典：硬约束，必须在「人物状态」之前保留。
+   * 用 4.5 而不是整数，避免改动任何既有字段的序号与 token 预算边界。
+   */
+  sourceCanon: 4.5,
   soulDoc: 5,
   outline: 6,
   recentSummaries: 7,
@@ -97,6 +102,16 @@ export interface ContextPack {
   timeline: string
   relatedSettings: string
   canonRules: string
+  /**
+   * 同一部**外部原作**的既成事实（同人正典）。
+   *
+   * 与 `canonRules` 的区别：`canonRules` 是本项目自己确认的正史（`wiki/canon.md`），
+   * `sourceCanon` 来自 `.novel/fanfic-canon.md`，是用户导入的原作事实，按固定路径读取、
+   * 不经模糊检索。原创项目恒为空串。
+   *
+   * 可选：手工构造的旧上下文包没有这个字段，消费方一律按「无正典」处理。
+   */
+  sourceCanon?: string
   writingStyle: string
   searchResults: string
   graphSearchResults: string
@@ -332,11 +347,12 @@ async function buildContextPackFromRawData(
     timeline,
     relatedSettings: rawData.relatedSettings,
     canonRules: rawData.canonRules,
+    sourceCanon: typeof rawData.sourceCanon === "string" ? rawData.sourceCanon : "",
     writingStyle: rawData.writingStyle,
     searchResults,
     graphSearchResults: rawData.graphSearchResults,
     mustDo: buildMustDo(chapterGoal, previousChapterEnding, foreshadowingStates),
-    mustAvoid: buildMustAvoid(rawData.canonRules, timeline, characterStates),
+    mustAvoid: buildMustAvoid(rawData.canonRules, timeline, characterStates, rawData.sourceCanon),
     nextChapterAdvice: buildNextChapterAdvice({
       chapterGoal,
       recentSummaries,
@@ -420,8 +436,17 @@ function buildMustDo(chapterGoal: string, previousChapterEnding: string, foresha
   return items.join("\n")
 }
 
-function buildMustAvoid(canonRules: string, timeline: string, characterStates: string): string {
+export function buildMustAvoid(
+  canonRules: string,
+  timeline: string,
+  characterStates: string,
+  sourceCanon?: string,
+): string {
   const items: string[] = []
+  // 同人正典可能很长，这里只放一条指针式硬约束，正文见「原作正典」段，避免重复占预算。
+  if (sourceCanon?.trim()) {
+    items.push(i18n.t("novel.contextPack.mustAvoid.sourceCanon"))
+  }
   if (canonRules.trim()) items.push(i18n.t("novel.contextPack.mustAvoid.canonRules", { value: canonRules.trim() }))
   if (timeline.trim()) items.push(i18n.t("novel.contextPack.mustAvoid.timeline", { value: timeline.trim() }))
   if (characterStates.trim()) items.push(i18n.t("novel.contextPack.mustAvoid.characterStates", { value: characterStates.trim() }))
@@ -502,6 +527,7 @@ function emptyPack(task: string): ContextPack {
     timeline: "",
     relatedSettings: "",
     canonRules: "",
+    sourceCanon: "",
     writingStyle: "",
     searchResults: "",
     graphSearchResults: "",
@@ -1064,6 +1090,7 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.timeline", fieldKey: "timeline" },
   { titleKey: "novel.contextPack.relatedSettings", fieldKey: "relatedSettings" },
   { titleKey: "novel.contextPack.canonRules", fieldKey: "canonRules" },
+  { titleKey: "novel.contextPack.sourceCanon", fieldKey: "sourceCanon" },
   { titleKey: "novel.contextPack.writingStyle", fieldKey: "writingStyle" },
   { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults" },
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults" },
@@ -1080,6 +1107,10 @@ export function contextPackToPrompt(
   }
   if (pack.writingStyle?.startsWith("【已启用文风画像】") && !result.prompt.includes(pack.writingStyle)) {
     throw new Error("上下文预算不足，已启用的文风画像未完整保留。请减少本次参考内容或选择更大上下文模型，已停止生成。")
+  }
+  // 同人正典是硬约束：静默丢掉它会让模型凭空编造原作事实，宁可停下来报错。
+  if (pack.sourceCanon?.trim() && !result.prompt.includes(pack.sourceCanon)) {
+    throw new Error("上下文预算不足，原作正典未完整保留。请减少本次参考内容或选择更大上下文模型，已停止生成。")
   }
   return result.prompt
 }

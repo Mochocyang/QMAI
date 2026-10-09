@@ -55,6 +55,8 @@ function stableFragments(pack: ContextPack): ContextFragment[] {
   return [
     { title: "作品灵魂", text: pack.soulDoc, layer: "stable" },
     { title: "故事框架绑定", text: pack.storyFrameworkBinding, layer: "stable" },
+    // 同人正典排在自有设定之前：原作的既成事实优先于本作新设定。
+    { title: "原作正典", text: pack.sourceCanon ?? "", layer: "stable" },
     { title: "硬性世界规则", text: pack.canonRules, layer: "stable" },
     { title: "核心设定", text: pack.relatedSettings, layer: "stable" },
     { title: "写作风格", text: pack.writingStyle, layer: "stable" },

@@ -1915,6 +1915,7 @@ export function ChatPanel() {
             timeline: "",
             relatedSettings: "",
             canonRules: "",
+            sourceCanon: "",
             writingStyle: "",
             searchResults: "",
             graphSearchResults: "",

@@ -13,6 +13,7 @@ import { loadCognitionState, cognitionToContextText } from "./character-cognitio
 import { readSoulDoc } from "./soul-doc"
 import { buildWritingStyleContext } from "./writing-style-store"
 import { buildSectionBriefing } from "./section-briefing"
+import { loadFanficCanonBody } from "./fanfic-canon"
 import type { DataSource, ContextLoadContext } from "./context-data-source"
 import { loadFrameworks } from "./story-simulation/framework-store"
 import { loadBinding, buildBindingContext } from "./story-simulation/framework-binding"
@@ -50,6 +51,7 @@ const DATA_SOURCE_CATEGORY_MAP: Record<string, DataSourceCategory[]> = {
   fallbackTimeline: ["timeline"],
   relatedSettings: ["settings"],
   canonRules: ["settings"],
+  sourceCanon: ["settings"],
   writingStyle: ["settings"],
   bookAnalysisReferences: ["memory", "plot_tools", "settings", "character_states"],
   searchResults: ["memory", "plot_tools"],
@@ -348,6 +350,27 @@ const canonRulesDataSource: DataSource<string> = {
 }
 
 /**
+ * 同人原作正典数据源
+ *
+ * 与 `canonRulesDataSource` 的本质区别：**按固定路径读取** `.novel/fanfic-canon.md`，
+ * 不做模糊检索。同人正典一旦被检索漏掉，模型就会凭空编造原作事实——
+ * 这正是「同人写得像原创」的直接原因。
+ *
+ * 原创项目没有这个文件，返回空串，不占预算、不影响既有行为。
+ */
+const sourceCanonDataSource: DataSource<string> = {
+  name: "sourceCanon",
+  priority: 2,
+  async load(context: ContextLoadContext): Promise<string> {
+    try {
+      return await loadFanficCanonBody(context.projectPath)
+    } catch {
+      return ""
+    }
+  },
+}
+
+/**
  * 写作风格数据源
  */
 const writingStyleDataSource: DataSource<string> = {
@@ -564,6 +587,7 @@ export function getAllDataSources(): DataSource<any>[] {
     fallbackTimelineDataSource,
     relatedSettingsDataSource,
     canonRulesDataSource,
+    sourceCanonDataSource,
     writingStyleDataSource,
     bookAnalysisReferencesDataSource,
     searchResultsDataSource,
