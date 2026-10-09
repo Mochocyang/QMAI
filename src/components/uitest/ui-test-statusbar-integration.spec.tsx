@@ -17,6 +17,7 @@ import { PreviewPanel } from "@/components/layout/preview-panel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { useWritingStatsStore } from "@/stores/writing-stats-store"
+import { CHAPTER_AUTOSAVE_INTERVAL_MS } from "@/lib/chapter-save-flush"
 
 const fixture = vi.hoisted(() => ({
   files: new Map<string, string>(),
@@ -222,7 +223,7 @@ describe("手动写作逐字统计", () => {
     await mount()
     vi.useFakeTimers()
     await type("他推开门。")
-    await act(async () => { await vi.advanceTimersByTimeAsync(1200) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
     expect(stats().humanChars).toBe(5)
 
     // 同一章、同一个账本键上追加一段 AI 产出（模拟 AI 改写这一章），
@@ -247,7 +248,7 @@ describe("手动写作逐字统计", () => {
     await mount()
     vi.useFakeTimers()
     await type("他推开门。")
-    await act(async () => { await vi.advanceTimersByTimeAsync(1200) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
 
     const aiChunk = "斗气分九段，萧炎曾是天才。"
     const aiChapter = `${fixture.files.get(chapterPath)!}\n\n　　${aiChunk}`
@@ -282,7 +283,7 @@ describe("带外改动", () => {
     // 否则会用磁盘内容盖掉用户刚敲的字。所以这里先推进章节保存的 1s 防抖。
     vi.useFakeTimers()
     await type("他推开门。")
-    await act(async () => { await vi.advanceTimersByTimeAsync(1200) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
     expect(stats().humanChars).toBe(5)
 
     // 模拟另一个编辑器 / 外部同步 / git 往盘上的文件追加一大段。
@@ -313,7 +314,7 @@ describe("带外改动", () => {
     await mount()
     vi.useFakeTimers()
     await type("他推开门。")
-    await act(async () => { await vi.advanceTimersByTimeAsync(1200) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
     const before = stats().humanChars
     expect(before).toBe(5)
 
@@ -406,24 +407,32 @@ describe("接线守卫", () => {
   it("记账发生在「与磁盘一致就返回」之前，否则退格不扣减", () => {
     const source = readSource("src/components/layout/preview-panel.tsx")
     const recordAt = source.indexOf("recordChapter(pathAtSave, persistedMarkdown")
-    const earlyReturnAt = source.indexOf("if (persistedMarkdown === lastLoadedForPath) return")
+    const earlyReturnAt = source.indexOf("if (persistedMarkdown === lastLoadedForPath) {")
     expect(recordAt, "handleSave 应调用 recordChapter 记账").toBeGreaterThan(-1)
     expect(earlyReturnAt, "handleSave 应有「与磁盘一致就返回」的短路").toBeGreaterThan(-1)
     expect(recordAt, "记账必须在短路之前，否则退格那一下会被吞掉").toBeLessThan(earlyReturnAt)
   })
 
-  it("状态栏挂在 shell 的 .ui-test-app 里（写作与非写作两条渲染路径都覆盖）", () => {
+  it("自动保存改成 3 分钟一轮，且不再在每次输入时重置定时器", () => {
+    const source = readSource("src/components/layout/preview-panel.tsx")
+    // 若在每次 handleSave 里都先 clearTimeout 再重排，就退化成「停止输入才保存」：
+    // 一直连着写的人永远等不到落盘。这里钉住「已有定时器就直接返回」这个形状。
+    expect(source, "应在已有定时器时直接返回，不重排").toContain("if (saveTimerRef.current) return")
+    expect(source).toContain("CHAPTER_AUTOSAVE_INTERVAL_MS")
+  })
+
+  it("状态栏挂在**章节正文栏**里，不再由 shell 横跨整窗渲染", () => {
+    const workspace = readSource("src/components/uitest/ui-test-workspace.tsx")
     const shell = readSource("src/components/uitest/ui-test-shell.tsx")
-    // 只断言「状态栏在 workspace 之后」这个**结构关系**，不用逐字符缩进：
-    // 第一版断言过 "</div>\n        {/* …" 这种带具体缩进的字面量，
-    // 排版一动就红，而对真正要防的事（状态栏被塞进主区）并不更灵敏。
-    // 渲染层面的挂载位置由 ui-test-shell.spec.tsx 真实渲染后断言。
-    const workspaceEnd = shell.indexOf('className="ui-test-workspace"')
-    const barAt = shell.indexOf("<WritingStatusBar")
-    expect(workspaceEnd, "shell 应有 .ui-test-workspace").toBeGreaterThan(-1)
-    expect(barAt, "shell 应渲染 WritingStatusBar").toBeGreaterThan(-1)
-    expect(barAt, "状态栏必须排在 workspace 之后（贴底）").toBeGreaterThan(workspaceEnd)
-    expect(shell, "状态栏应只在打开小说后渲染").toContain("{project && <WritingStatusBar />}")
+    const bodyAt = workspace.indexOf('className="ui-test-editor-body"')
+    const barAt = workspace.indexOf("<WritingStatusBar")
+    expect(bodyAt, "正文栏应有自己的容器").toBeGreaterThan(-1)
+    expect(barAt, "正文栏应渲染 WritingStatusBar").toBeGreaterThan(-1)
+    expect(barAt, "状态栏必须排在正文之后（贴正文栏底部）").toBeGreaterThan(bodyAt)
+    // 只统计章节视图：大纲栏下面不该出现（它统计的是章节正文字数）。
+    expect(workspace, "状态栏应只在章节模式渲染").toContain('{mode === "chapter" && <WritingStatusBar />}')
+    // shell 自己不能再挂一份，否则又会横跨整窗（此前正是这样）。
+    expect(shell, "shell 不应再直接渲染状态栏").not.toContain("<WritingStatusBar")
   })
 
   it("朗读名称用中文，且四项数据的标签不带任何英文", () => {

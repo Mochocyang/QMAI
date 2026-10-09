@@ -104,15 +104,18 @@ describe("四项数据常显", () => {
     expect(metric("ai")).toBe("4,200")
   })
 
-  it("圆环画出完成率百分比，并在 title 里给出全部数字", async () => {
+  it("圆环只画弧，百分比在环**右外侧**，title 里给出全部数字", async () => {
     useWritingStatsStore.setState({ humanChars: 500, aiChars: 1000, dailyTargetChars: 3000 })
     await mount()
     const ring = container.querySelector("svg[role='img']")
     expect(ring).not.toBeNull()
     expect(ring!.getAttribute("aria-label")).toContain("50%")
     expect(ring!.querySelector("title")?.textContent).toContain("1500 / 3000")
-    // 环内的数字
-    expect(ring!.querySelector("text")?.textContent).toBe("50")
+    // 用户要求：百分比不放在圆形中间（环太小会糊），改成像手机电量那样放在环右侧。
+    expect(ring!.querySelector("text")).toBeNull()
+    const percent = container.querySelector(".ui-test-statusbar-percent")
+    expect(percent?.textContent).toBe("50%")
+    expect(ring!.nextElementSibling).toBe(percent)
     // 进度弧：stroke-dashoffset = 周长的一半
     const arcs = ring!.querySelectorAll("circle")
     expect(arcs).toHaveLength(2)
@@ -125,9 +128,19 @@ describe("四项数据常显", () => {
     useWritingStatsStore.setState({ humanChars: 9000, dailyTargetChars: 3000 })
     await mount()
     const ring = container.querySelector("svg[role='img']")!
-    expect(ring.querySelector("text")?.textContent).toBe("300")
+    expect(container.querySelector(".ui-test-statusbar-percent")?.textContent).toBe("300%")
     const arcs = ring.querySelectorAll("circle")
     expect(Number(arcs[1]!.getAttribute("stroke-dashoffset"))).toBeCloseTo(0, 4)
+  })
+
+  it("环很小、线很细，且不出现多余的栏标题（用户要求更窄）", async () => {
+    await mount()
+    const ring = container.querySelector("svg[role='img']")!
+    expect(Number(ring.getAttribute("width"))).toBeLessThanOrEqual(16)
+    expect(Number(ring.querySelectorAll("circle")[1]!.getAttribute("stroke-width"))).toBeLessThanOrEqual(2)
+    // 「写作字数」这个栏标题已去掉：既占宽度又与栏本身重复，无障碍名留在 aria-label 上。
+    expect(container.querySelector(".ui-test-statusbar-title")).toBeNull()
+    expect(footer().getAttribute("aria-label")).toBe("写作字数")
   })
 })
 
@@ -220,6 +233,6 @@ describe("实时跟随 store", () => {
     expect(metric("human")).toBe("42")
     expect(metric("ai")).toBe("7")
     // 42 + 7 = 49 / 3000 ≈ 2%
-    expect(container.querySelector("svg[role='img'] text")?.textContent).toBe("2")
+    expect(container.querySelector(".ui-test-statusbar-percent")?.textContent).toBe("2%")
   })
 })

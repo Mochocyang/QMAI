@@ -5,6 +5,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { getUiTestAiMaxWidth, getUiTestPanelLayout, resizeUiTestAiByKey, UI_TEST_AI_DEFAULT_WIDTH, UI_TEST_AI_MIN_WIDTH } from "@/lib/ui-test-layout"
 import { useUiTestWidth } from "./use-ui-test-width"
+import { WritingStatusBar } from "./ui-test-statusbar"
 
 const ChatPanel = lazy(async () => ({ default: (await import("@/components/chat/chat-panel")).ChatPanel }))
 const OutlineChatPanel = lazy(async () => ({ default: (await import("@/components/sources/outline-chat-panel")).OutlineChatPanel }))
@@ -58,7 +59,11 @@ export function UiTestWorkspace({ mode, requestedWidth, viewportWidth, onWidthCh
       )}
       <div className="ui-test-writing-panes" ref={containerRef} data-layout={layout.mode}>
         <div id="ui-test-editor-pane" className="ui-test-editor-pane" hidden={assistantOpen && layout.mode === "tabs" && mobilePage === "ai"}>
-          <PreviewPanel />
+          <div className="ui-test-editor-body"><PreviewPanel /></div>
+          {/* 写作字数状态栏只挂**章节正文**栏底部（用户要求）：
+              目录栏与 AI 对话栏下面不出现，大纲视图也不出现 ——
+              它统计的是章节正文字数，挂到别处会指向错误的统计对象。 */}
+          {mode === "chapter" && <WritingStatusBar />}
         </div>
         {assistantOpen && (
           <>

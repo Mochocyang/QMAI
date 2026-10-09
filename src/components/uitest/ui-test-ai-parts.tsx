@@ -3,17 +3,23 @@ import { BookOpen, Sparkles } from "lucide-react"
 import type { ReferenceInput } from "@/components/reference/ReferenceInput"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getEffectiveSavedModels, getStableAvailableModelKey } from "@/lib/llm-model-keys"
+import { getConversationTabTitle } from "@/lib/workspace-layout"
+
+/** 头部标题的显示上限。比派生标题的上限（12 字 + 省略号）宽，确保新标题原样显示；
+ *  它只用来兜住旧数据——历史上标题是首条消息的 50 字前缀，盘上已存了不少。 */
+const IDENTITY_TITLE_MAX_CHARS = 16
 
 export function UiTestAiIdentity({ conversationTitle, status }: {
   title?: string
   conversationTitle?: string
   status?: ReactNode
 }) {
+  const title = getConversationTabTitle(conversationTitle?.trim() || "标题", IDENTITY_TITLE_MAX_CHARS)
   return (
     <div className="ui-test-ai-identity">
       <span className="ui-test-ai-mark"><Sparkles aria-hidden="true" /></span>
       <div className="ui-test-ai-heading">
-        <div className="ui-test-ai-title"><strong>{conversationTitle?.trim() || "标题"}</strong>{status}</div>
+        <div className="ui-test-ai-title" title={conversationTitle?.trim() || undefined}><strong>{title}</strong>{status}</div>
       </div>
     </div>
   )

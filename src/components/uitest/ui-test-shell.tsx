@@ -23,7 +23,6 @@ import { normalizePath } from "@/lib/path-utils"
 import { getUiTestDocumentPath, UI_TEST_AI_DEFAULT_WIDTH } from "@/lib/ui-test-layout"
 import type { WikiProject } from "@/types/wiki"
 import { UiTestShelf } from "./ui-test-shelf"
-import { WritingStatusBar } from "./ui-test-statusbar"
 import { ContactSupportSection } from "@/components/settings/sections/contact-support-section"
 import { confirmModelDraftLeave } from "./models/model-draft-guard"
 import { MacTrafficLights } from "./mac-traffic-lights"
@@ -410,9 +409,6 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
             </ErrorBoundary></main>
           </>}
         </div>
-        {/* 未打开小说时不显示：书架页没有可统计的对象，一条全是 0 的状态栏
-            会被误读成「这本书一个字都没有」。 */}
-        {project && <WritingStatusBar />}
       </div>
       <CreateProjectDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} onCreated={handleCreatedProject} />
       <Dialog open={showActivity} onOpenChange={setShowActivity}><DialogContent className="ui-test-activity-dialog"><DialogHeader><DialogTitle>后台活动</DialogTitle><DialogDescription>查看进度、重试错误，不必离开写作。</DialogDescription></DialogHeader><div className="ui-test-activity-body"><RawSourcesSection uiTestActivityView onCancelExtraction={() => cancelImportRef.current?.()} /><BookAnalysisActivitySection onNavigate={() => setShowActivity(false)} /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowActivity(false)}>关闭</button></DialogFooter></DialogContent></Dialog>

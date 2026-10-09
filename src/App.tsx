@@ -11,6 +11,7 @@ import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } fr
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
 import { flushAppState } from "@/lib/web-store"
+import { flushPendingChapterSave } from "@/lib/chapter-save-flush"
 import { checkForAppUpdate } from "@/lib/app-updater"
 import { confirmAppQuit } from "@/components/uitest/models/model-draft-guard"
 import { restoreUiTestWorkspace, readUiTestWorkspacePreference } from "@/lib/ui-test-workspace-preferences"
@@ -210,6 +211,10 @@ function App() {
 
           // LLM 模型配置走 app-state 防抖写入；关窗前必须立刻 flush，否则自定义模型会丢失。
           await flushAppState().catch((err) => console.error("关闭前保存应用配置失败:", err))
+
+          // 章节正文自动保存间隔是 3 分钟；关窗前必须把待落盘的那一份写下去，
+          // 否则最后几分钟写的字会随窗口一起消失。
+          await flushPendingChapterSave().catch((err) => console.error("关闭前保存章节正文失败:", err))
 
           // 关闭前执行最终保存，防止丢失最后几秒的数据
           const project = useWikiStore.getState().project

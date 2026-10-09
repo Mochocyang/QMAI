@@ -210,7 +210,14 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 [data-ui-tree-row]:hover .ui-test-tree-more, .ui-test-tree-more:focus-visible { opacity: 1; }
 .ui-test-writing-workspace { height: 100%; min-height: 0; display: flex; flex-direction: column; }
 .ui-test-writing-panes { min-height: 0; min-width: 0; flex: 1; display: flex; overflow: hidden; }
-.ui-test-editor-pane { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+/* 正文栏改成纵向 flex 容器，好让「写作字数」状态栏贴在**正文栏**底部
+   （而不是整窗底部）。这样这条栏只占正文栏宽度，不会横跨到目录栏或 AI 对话栏下面。 */
+.ui-test-editor-pane { flex: 1; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+/* ⚠️ 上面设了 display:flex，会盖掉 UA 样式表里 [hidden] 的 display:none ——
+   tabs 模式靠 hidden 属性隐藏正文栏，漏掉这条会让切换标签失效。 */
+.ui-test-editor-pane[hidden] { display: none; }
+/* 正文自己撑满剩余高度；min-height:0 是为了让内部滚动区能真正收缩，不被内容顶高。 */
+.ui-test-editor-body { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; }
 .ui-test-ai-pane { min-height: 0; flex-shrink: 0; background: var(--ui-panel); overflow: hidden; }
 .ui-test-resize-handle { width: 12px; flex: 0 0 12px; display: flex; align-items: center; justify-content: center; cursor: ew-resize; touch-action: none; }
 .ui-test-resize-handle span { display: block; width: 3px; height: 48px; border-radius: 3px; background: var(--ui-soft); transition: background .15s; }
@@ -220,20 +227,28 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 .ui-test-workspace-tabs button[aria-selected="true"] { background: var(--ui-soft); color: var(--ui-accent); }
 .ui-test-workspace-tabs svg { width: 16px; height: 16px; }
 .ui-test-loading { height: 100%; display: flex; align-items: center; justify-content: center; color: var(--ui-muted); font-size: 0.875rem; }
-/* 底部「写作字数」状态栏（.ui-test-app 是 flex column，故自动贴底、不吃 flex:1）。
+/* 底部「写作字数」状态栏。
+   用户要求：一条很窄的小字条，四项数据水平居中，边框极细，整体灰一点。
+   这条栏只挂在**章节正文栏**底部（见 ui-test-workspace.tsx），
+   不再横跨整窗、也不出现在目录栏或 AI 对话栏下面。
+
    尺寸一律用 rem：界面字号放大时状态栏必须跟着长，否则数字会被裁掉
    （见本文件顶部关于 --ui-heading-line 的同类教训）。 */
-.ui-test-statusbar { flex-shrink: 0; display: flex; align-items: center; gap: 0.75rem; padding: 0.375rem 1rem; border-top: 1px solid var(--ui-line); background: var(--ui-panel); color: var(--ui-muted); font-size: 0.75rem; line-height: 1.5; }
-.ui-test-statusbar-title { flex-shrink: 0; font-size: 0.75rem; font-weight: 500; color: var(--ui-ink); }
-.ui-test-statusbar-metrics { display: flex; align-items: center; flex-wrap: wrap; gap: 1.125rem; margin: 0; padding: 0; list-style: none; min-width: 0; }
-.ui-test-statusbar-metric { display: flex; align-items: baseline; gap: 0.375rem; white-space: nowrap; }
-.ui-test-statusbar-label { color: var(--ui-muted); font-size: 0.75rem; }
-.ui-test-statusbar-value { color: var(--ui-ink); font-size: 0.8125rem; font-weight: 500; font-variant-numeric: tabular-nums; }
+.ui-test-statusbar { flex-shrink: 0; display: flex; justify-content: center; padding: 0.1875rem 0.5rem; border-top: 1px solid var(--ui-line); background: var(--ui-panel); color: var(--ui-muted); font-size: 0.6875rem; line-height: 1.4; }
+/* 居中靠这条内层：外层保持满宽（边框才通到两侧），内容不拉满整行。 */
+.ui-test-statusbar-inner { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0.625rem; min-width: 0; }
+/* 环 + 百分比：手机电量那种读法，百分比在环右侧而不是环心里。 */
+.ui-test-statusbar-goal { display: inline-flex; align-items: center; gap: 0.25rem; flex-shrink: 0; color: var(--ui-muted); }
+.ui-test-statusbar-percent { font-variant-numeric: tabular-nums; font-size: 0.6875rem; color: var(--ui-muted); }
+.ui-test-statusbar-metrics { display: flex; align-items: center; flex-wrap: wrap; justify-content: center; gap: 0.75rem; margin: 0; padding: 0; list-style: none; min-width: 0; }
+.ui-test-statusbar-metric { display: flex; align-items: baseline; gap: 0.25rem; white-space: nowrap; }
+.ui-test-statusbar-label { color: var(--ui-muted); font-size: 0.6875rem; }
+.ui-test-statusbar-value { color: var(--ui-ink); font-size: 0.6875rem; font-weight: 500; font-variant-numeric: tabular-nums; }
 /* AI 与手写两栏用颜色区分，扫一眼就知道今天是谁在写。 */
 .ui-test-statusbar-value[data-metric="ai"] { color: var(--ui-accent); }
-.ui-test-statusbar-target { padding: 0 0.25rem; border: 0; border-radius: 4px; background: none; color: inherit; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.ui-test-statusbar-target { padding: 0 0.125rem; border: 0; border-radius: 3px; background: none; color: inherit; font: inherit; font-variant-numeric: tabular-nums; cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
 .ui-test-statusbar-target:hover, .ui-test-statusbar-target:focus-visible { background: var(--ui-soft); color: var(--ui-accent); }
-.ui-test-statusbar-target-input { width: 5.5rem; padding: 0.125rem 0.375rem; border: 1px solid var(--ui-accent); border-radius: 4px; background: var(--ui-paper); color: var(--ui-ink); font: inherit; font-variant-numeric: tabular-nums; outline: none; }
+.ui-test-statusbar-target-input { width: 4rem; padding: 0 0.1875rem; border: 1px solid var(--ui-accent); border-radius: 3px; background: var(--ui-paper); color: var(--ui-ink); font: inherit; font-variant-numeric: tabular-nums; outline: none; }
 .ui-test-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 8px 13px; border-radius: 8px; border: 0; background: var(--ui-panel); color: var(--ui-muted); white-space: nowrap; font-size: 0.8125rem; font-weight: 500; cursor: pointer; }
 .ui-test-btn svg { width: 17px; height: 17px; flex-shrink: 0; }
 .ui-test-btn.primary { background: var(--ui-accent); color: var(--ui-on-accent); }

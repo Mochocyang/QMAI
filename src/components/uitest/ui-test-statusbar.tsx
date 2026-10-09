@@ -105,41 +105,46 @@ export function WritingStatusBar({ className }: WritingStatusBarProps) {
 
   return (
     <footer className={cn("ui-test-statusbar", className)} aria-label="写作字数">
-      <ProgressRing
-        ratio={ratio}
-        size={30}
-        strokeWidth={3}
-        label={`${percent}`}
-        className={writingGoalRingClass(ratio)}
-        title={`今日写作目标完成率 ${percent}%（${todayWritten} / ${dailyTargetChars} 字）`}
-      />
-      <span className="ui-test-statusbar-title">写作字数</span>
-      <ul className="ui-test-statusbar-metrics">
-        <li className="ui-test-statusbar-metric">
-          <span className="ui-test-statusbar-label">总字数</span>
-          <span className="ui-test-statusbar-value" data-metric="total">
-            {formatWordCount(totalChars)}
-          </span>
-        </li>
-        <li className="ui-test-statusbar-metric">
-          <span className="ui-test-statusbar-label">今日目标</span>
-          <span className="ui-test-statusbar-value" data-metric="target">
-            {targetControl}
-          </span>
-        </li>
-        <li className="ui-test-statusbar-metric">
-          <span className="ui-test-statusbar-label">今日 AI 生成</span>
-          <span className="ui-test-statusbar-value" data-metric="ai">
-            {formatWordCount(aiChars)}
-          </span>
-        </li>
-        <li className="ui-test-statusbar-metric">
-          <span className="ui-test-statusbar-label">手写</span>
-          <span className="ui-test-statusbar-value" data-metric="human">
-            {formatWordCount(humanChars)}
-          </span>
-        </li>
-      </ul>
+      <div className="ui-test-statusbar-inner">
+        {/* 手机电量那种读法：小环在左，百分比紧跟在环右侧。
+            百分比刻意不放进环心 —— 环太小，字挤在里面既糊又显大。 */}
+        <span className="ui-test-statusbar-goal" title={`今日写作目标完成率 ${percent}%（${todayWritten} / ${dailyTargetChars} 字）`}>
+          <ProgressRing
+            ratio={ratio}
+            size={14}
+            strokeWidth={2}
+            className={writingGoalRingClass(ratio)}
+            title={`今日写作目标完成率 ${percent}%（${todayWritten} / ${dailyTargetChars} 字）`}
+          />
+          <span className="ui-test-statusbar-percent">{percent}%</span>
+        </span>
+        <ul className="ui-test-statusbar-metrics">
+          <li className="ui-test-statusbar-metric">
+            <span className="ui-test-statusbar-label">总字数</span>
+            <span className="ui-test-statusbar-value" data-metric="total">
+              {formatWordCount(totalChars)}
+            </span>
+          </li>
+          <li className="ui-test-statusbar-metric">
+            <span className="ui-test-statusbar-label">今日目标</span>
+            <span className="ui-test-statusbar-value" data-metric="target">
+              {targetControl}
+            </span>
+          </li>
+          <li className="ui-test-statusbar-metric">
+            <span className="ui-test-statusbar-label">今日 AI 生成</span>
+            <span className="ui-test-statusbar-value" data-metric="ai">
+              {formatWordCount(aiChars)}
+            </span>
+          </li>
+          <li className="ui-test-statusbar-metric">
+            <span className="ui-test-statusbar-label">手写</span>
+            <span className="ui-test-statusbar-value" data-metric="human">
+              {formatWordCount(humanChars)}
+            </span>
+          </li>
+        </ul>
+      </div>
     </footer>
   )
 }

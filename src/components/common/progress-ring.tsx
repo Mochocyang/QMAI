@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils"
 export interface ProgressRingProps {
   /** 完成率。大于 1 会画满一圈，负数按 0 处理。 */
   ratio: number
-  /** 直径（px）。底部状态栏用 30 左右，比 22 的上下文环更大以便看清数字。 */
+  /** 直径（px）。底部状态栏用 14 左右。 */
   size?: number
   strokeWidth?: number
   /** 环内文字。省略则不画文字。 */
@@ -15,6 +15,11 @@ export interface ProgressRingProps {
   title?: string
 }
 
+/** 环内文字是否放得下：字高超过内圈直径就干脆不画，否则会糊成一团。 */
+function labelFits(size: number, strokeWidth: number, fontSize: number): boolean {
+  return fontSize * 1.55 <= size - strokeWidth * 2
+}
+
 /**
  * 完成率圆环。
  *
@@ -22,11 +27,14 @@ export interface ProgressRingProps {
  * 调用点，而它把「画环」和「上下文业务」揉在了一起，直接照抄会出现第二份
  * `2 * Math.PI * radius`。这里只保留几何 + 文字，颜色由调用方通过 className
  * 或 `stroke` 决定，因为「多少算达标」是业务判断。
+ *
+ * 底部写作状态栏的用法是「小环 + 环外百分比」（像手机电量显示），
+ * 所以环本身不传 label；环内文字只服务上下文用量那种大一点的环。
  */
 export function ProgressRing({
   ratio,
-  size = 30,
-  strokeWidth = 3,
+  size = 14,
+  strokeWidth = 2,
   label,
   fontSize,
   className,
@@ -37,6 +45,7 @@ export function ProgressRing({
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
   const dashOffset = circumference * (1 - clamped)
+  const resolvedFontSize = fontSize ?? Math.round(size * 0.34)
 
   return (
     <svg
@@ -69,13 +78,13 @@ export function ProgressRing({
         strokeDashoffset={dashOffset}
         transform={`rotate(-90 ${size / 2} ${size / 2})`}
       />
-      {label === undefined ? null : (
+      {label === undefined || !labelFits(size, strokeWidth, resolvedFontSize) ? null : (
         <text
           x="50%"
           y="50%"
           dominantBaseline="central"
           textAnchor="middle"
-          fontSize={fontSize ?? Math.round(size * 0.34)}
+          fontSize={resolvedFontSize}
           fill="currentColor"
           // 环内数字不参与「完成率」的读屏朗读，上面已经用 title 说清楚了。
           aria-hidden="true"

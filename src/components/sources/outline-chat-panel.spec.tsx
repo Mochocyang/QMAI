@@ -1130,7 +1130,10 @@ describe("OutlineChatPanel controls", () => {
   })
 
   it("快速模式源码跳过意图分析和多 Agent，人物小传不再降级为 analysis 预算", () => {
-    expect(source).toContain('outlineWorkflowMode === "fast"')
+    // 这里原本还断言源码含 `outlineWorkflowMode === "fast"`，但那个表达式当时只用于
+    // 挑选输入区上方那句说明文案的措辞；该文案已按用户要求删除，表达式随之消失。
+    // 快速模式真正的门禁在生成路径上（下面两条 `outlineMode !== "fast"`），
+    // 所以去掉那条只剩 UI 措辞意义的断言，不降低对本用例目标（跳过意图分析与多 Agent）的覆盖。
     expect(source).toMatch(
       /enableMultiAgent = Boolean\(options\.enableMultiAgent\)\s*\n\s*&& outlineMode !== "fast"/,
     )
@@ -1183,7 +1186,11 @@ describe("OutlineChatPanel controls", () => {
     const trigger = container.querySelector<HTMLButtonElement>('[aria-label="AI 大纲执行模式"]')
     expect(trigger).not.toBeNull()
     expect(trigger?.textContent).toContain("标准")
-    expect(container.textContent).toContain("再交给 AI 分析和追问")
+    // 用户要求删掉输入区上方那两段文案（固定选项说明与重复的「选择生成你想要的小说」）；
+    // 模式本身仍由下拉切换，所以下面继续验下拉的行为。
+    expect(container.textContent).not.toContain("再交给 AI 分析和追问")
+    expect(container.textContent).not.toContain("通过固定选项")
+    expect(container.textContent).not.toContain("选择生成你想要的小说")
 
     await act(async () => {
       trigger?.click()
@@ -1201,8 +1208,11 @@ describe("OutlineChatPanel controls", () => {
     expect(useWikiStore.getState().outlineWorkflowMode).toBe("fast")
     expect(outlineModelPreferenceMocks.saveOutlineWorkflowMode).toHaveBeenCalledWith("fast")
     expect(container.querySelector('[aria-label="AI 大纲执行模式"]')?.textContent).toContain("快速")
-    expect(container.textContent).toContain("直接生成大纲正文")
+    // 切模式后那段说明也不再出现（它已被整体删除）。
     expect(container.textContent).not.toContain("再交给 AI 分析和追问")
+    // 显式还原成标准模式：这个用例会切到 fast，而下面共用同一份 wiki store 的
+    // 用例假设的是标准模式 —— 不还原就会把它们一起带红（实测过一次）。
+    await act(async () => { useWikiStore.getState().setOutlineWorkflowMode("standard") })
   })
 
   it("执行模式下拉里有互斥的计划模式选项", async () => {

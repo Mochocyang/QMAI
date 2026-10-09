@@ -1916,7 +1916,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     useWikiStore((s) => s.outlineWorkflowMode),
   );
   const setOutlineWorkflowMode = useWikiStore((s) => s.setOutlineWorkflowMode);
-  const isOutlineFastMode = outlineWorkflowMode === "fast";
   const chatConversations = useChatStore((s) => s.conversations);
 
   const conversations = useOutlineChatStore((s) => s.conversations);
@@ -6314,21 +6313,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
       {/* Input */}
       <div className="shrink-0 border-t px-3 py-2" data-ui-ai-input-area>
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-muted-foreground">
-            {isOutlineFastMode
-              ? "通过固定选项收集需求后，直接生成大纲正文"
-              : "通过固定选项生成大纲需求，再交给 AI 分析和追问"}
-          </p>
-          <button
-            type="button"
-            onClick={() => setOutlineWizardOpen(true)}
-            disabled={submitDisabled}
-            className="shrink-0 rounded-md border border-border bg-background px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            选择生成你想要的小说
-          </button>
-        </div>
         <UiTestAiComposer enabled={false}>
         <div data-ui-ai-composer>
         <ReferenceInput

@@ -9,6 +9,7 @@ import { PreviewPanel } from "@/components/layout/preview-panel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
+import { CHAPTER_AUTOSAVE_INTERVAL_MS, flushPendingChapterSave } from "@/lib/chapter-save-flush"
 import {
   BODY_MARGIN_X_VIEWPORT_MAX,
   BODY_MARGIN_X_VIEWPORT_MIN,
@@ -305,9 +306,8 @@ describe("测试版正文编辑器", () => {
     expect(container.textContent).not.toContain("已保存")
   })
 
-  it("加载文件不显示常驻底部状态，异步保存中只显示必要提示", async () => {
+  it("加载文件不显示常驻底部状态，例行自动保存全程不打扰", async () => {
     await mount()
-    const status = () => container.querySelector('[data-ui-test-save-state]')
     expect(container.querySelector(".ui-test-editor-footer")).toBeNull()
     expect(container.textContent).not.toContain("已从本地读取")
     expect(container.textContent).not.toContain("大纲字数")
@@ -316,9 +316,15 @@ describe("测试版正文编辑器", () => {
     fixture.write.mockImplementation(() => new Promise<void>((resolve) => { finishWrite = resolve }))
     const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
     await act(async () => { changeTextarea(textarea, `${textarea.value}新内容。`) })
-    expect(status()?.textContent ?? "").toContain("等待自动保存")
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
-    expect(status()?.textContent ?? "").toContain("正在保存")
+    // 用户反馈：每按一次回车都弹保存提示很吵。例行落盘全程不显示任何文案，
+    // 连「等待自动保存…」也不显示，所以底部状态区始终不存在。
+    expect(container.querySelector(".ui-test-editor-footer")).toBeNull()
+    expect(container.textContent).not.toContain("等待自动保存")
+    expect(container.textContent).not.toContain("正在保存")
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
+    expect(container.textContent).not.toContain("正在保存")
+    // 但落盘确实发生了 —— 安静不等于不保存。
+    expect(fixture.write).toHaveBeenCalled()
     await act(async () => { finishWrite() })
     expect(container.querySelector(".ui-test-editor-footer")).toBeNull()
   })
@@ -330,10 +336,35 @@ describe("测试版正文编辑器", () => {
     fixture.write.mockRejectedValue(new Error("磁盘不可写"))
     const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
     await act(async () => { changeTextarea(textarea, `${textarea.value}未落盘。`) })
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
     const status = container.querySelector('[data-ui-test-save-state]')
     expect(status?.textContent ?? "").toContain("保存失败")
     expect(status?.textContent ?? "").not.toContain("已保存")
+  })
+
+  it("自动保存间隔没到就关窗，待落盘的正文仍会写下去", async () => {
+    // 这是把间隔从 1 秒改成 3 分钟后最重要的兜底：关窗路径必须能主动落盘，
+    // 否则用户最后几分钟写的内容会留在定时器里随窗口消失。
+    await mount()
+    vi.useFakeTimers()
+    const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
+    await act(async () => { changeTextarea(textarea, `${textarea.value}关窗前最后一句。`) })
+    expect(fixture.write).not.toHaveBeenCalled()
+    // 一点时间都不推进，直接模拟 App.tsx 关窗处理器里的那一次 flush。
+    await act(async () => { await flushPendingChapterSave() })
+    expect(fixture.write).toHaveBeenCalledTimes(1)
+    expect(fixture.files.get(chapterPath)).toContain("关窗前最后一句")
+  })
+
+  it("已经落盘后再 flush 不会重复写盘", async () => {
+    await mount()
+    vi.useFakeTimers()
+    const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
+    await act(async () => { changeTextarea(textarea, `${textarea.value}写完了。`) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
+    expect(fixture.write).toHaveBeenCalledTimes(1)
+    await act(async () => { await flushPendingChapterSave() })
+    expect(fixture.write).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -396,8 +427,8 @@ describe("编辑器异常与原业务回归", () => {
     await act(async () => { input.blur() })
     expect(useWikiStore.getState().fileContent).toContain("# 新的真实大纲标题")
     expect(useWikiStore.getState().fileContent).toContain("- 不能缩进的列表")
-    expect(fixture.write).not.toHaveBeenCalled()
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    // 改标题是离散动作，走 immediate 分支立刻落盘，不必等自动保存间隔。
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(fixture.write).toHaveBeenCalledWith(outlinePath, useWikiStore.getState().fileContent)
     vi.useRealTimers()
     expect(container.querySelector('[aria-label="更多编辑器操作"]')).toBeNull()
@@ -410,10 +441,17 @@ describe("编辑器异常与原业务回归", () => {
     fixture.write.mockImplementation(() => new Promise<void>((resolve) => { finishWrite = resolve }))
     const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
     await act(async () => { changeTextarea(textarea, `${textarea.value}第一笔。`) })
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
     await act(async () => { changeTextarea(textarea, `${textarea.value}第二笔。`) })
     await act(async () => { finishWrite() })
-    expect(container.querySelector('[data-ui-test-save-state]')?.textContent).toContain("等待自动保存")
+    // 例行落盘刻意不显示任何文案（用户反馈保存提示很吵），所以这里断言
+    // 保存状态机的相位而不是文字：旧写入完成后的 "saved" 不能盖掉更新的待保存。
+    const phase = container.querySelector('[data-ui-test-save-state]')?.getAttribute("data-ui-test-save-state")
+    expect(phase).not.toBe("saved")
+    // 第二笔仍在待落盘队列里：走完间隔后会写下去。
+    fixture.write.mockResolvedValue(undefined)
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
+    expect(fixture.write).toHaveBeenCalled()
   })
 
   it("外部修改冲突不报成功，也不改变原冲突写入策略", async () => {
@@ -422,7 +460,7 @@ describe("编辑器异常与原业务回归", () => {
     const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
     await act(async () => { changeTextarea(textarea, `${textarea.value}本地修改。`) })
     fixture.files.set(chapterPath, `${chapter}外部修改。`)
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
     expect(container.querySelector('[data-ui-test-save-state]')?.textContent).toContain("文件已在外部修改")
     expect(textarea.value).toContain("本地修改。")
     expect(fixture.write).not.toHaveBeenCalled()
@@ -774,15 +812,15 @@ describe("编辑器异常与原业务回归", () => {
     const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
     await act(async () => { changeTextarea(textarea, `${textarea.value}有人推开了门。`) })
     expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
     expect(container.querySelectorAll(".ui-test-editor-draft-hint")).toHaveLength(1)
     await act(async () => { changeTextarea(textarea, `${textarea.value}又写了一句。`) })
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
     expect(container.querySelectorAll(".ui-test-editor-draft-hint")).toHaveLength(1)
     await click("知道了")
     expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
     await act(async () => { changeTextarea(textarea, `${textarea.value}再写。`) })
-    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
     expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
   })
 

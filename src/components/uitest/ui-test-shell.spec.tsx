@@ -202,25 +202,17 @@ describe("独立UI测试版外壳", () => {
       expect(button.disabled).toBe(true)
     }
   })
-  it("底部写作字数状态栏只在打开小说后出现，且是 .ui-test-app 的最后一个直接子节点", async () => {
+  it("外壳不再横跨整窗渲染写作字数状态栏", async () => {
     await render()
     const app = host.querySelector(".ui-test-app")!
-    const bar = app.querySelector(":scope > footer.ui-test-statusbar")
-    expect(bar, "打开小说后应出现底部写作字数状态栏").not.toBeNull()
-    // 必须是 .ui-test-app 的直接子节点（而不是塞在主区里）：
-    // 否则状态栏只会占住主区右侧那一条，不会横跨整窗。
-    expect(app.lastElementChild, "状态栏应是外壳的最后一个子节点（贴底）").toBe(bar)
-    // 也不能是 .ui-test-workspace 的子节点
+    // 状态栏此前挂在 .ui-test-app 下，于是横跨整窗、并出现在目录栏与 AI 对话栏
+    // 下方。用户要求它只显示在章节正文栏底部，因此外壳自己不再渲染它。
+    expect(app.querySelector(":scope > footer.ui-test-statusbar")).toBeNull()
     expect(host.querySelector(".ui-test-workspace > .ui-test-statusbar")).toBeNull()
+    expect(host.querySelector(".ui-test-statusbar")).toBeNull()
   })
   it("书架页不显示写作字数状态栏（没有可统计的对象，全 0 会被误读成空书）", async () => {
     await render(false)
-    expect(host.querySelector(".ui-test-statusbar")).toBeNull()
-  })
-  it("切换小说后状态栏跟着当前这本走", async () => {
-    await render()
-    expect(host.querySelector(".ui-test-statusbar")).not.toBeNull()
-    await act(async () => { root.render(<UiTestShell project={null} {...callbacks} />) })
     expect(host.querySelector(".ui-test-statusbar")).toBeNull()
   })
   it("设置页的三皮肤选择同步外壳与Portal作用域", async () => {
