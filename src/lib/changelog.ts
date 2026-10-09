@@ -14,7 +14,7 @@ const FOUR_POINT_TWO_ZERO_CHANGELOG: ChangelogEntry = {
     en: [
       "[Nine Chinese Writing Fonts Bundled] The font list previously offered only what was already installed on the system, mixed with Western faces such as Arial. Nine commercially verified Chinese writing fonts now ship with the app — Source Han Serif and Source Han Sans (each including Bold), LXGW WenKai, WenJin Mincho, ChillKai, HarmonyOS Sans SC, Smiley Sans, Zhuque Fangsong and Sarasa Gothic SC — and are installed for the current user, so nothing is missing even if the app has never been launched. The interface font list now offers Chinese faces only.",
       "[Body and Interface Fonts Separated] Changing the body font inside a chapter used to restyle the entire interface. The two are now fully independent: adjusting one never affects the other.",
-      "[Body Size and Typography Adjustable Independently] Body text size moves to absolute pixels (15–32px) and is no longer tied to the interface scale, and four more parameters arrive — line height, letter spacing, side margins and bottom safe distance — so the last line no longer sits against the window edge.",
+      "[Body Size and Typography Adjustable Independently] Body text size moves to absolute pixels, adjustable from 12px to 32px (presets: Small 15 / Default 18 / Large 21 / Extra large 24), and is no longer tied to the interface scale. Four more parameters arrive — line height 1.2–2.6, letter spacing −1 to 6, side margins 0–160 and bottom safe distance 0–240 — so the last line no longer sits against the window edge.",
       "[Font Settings Popover in the Writing View] Both the chapter and the outline toolbar gain a font-settings popover (Type icon, distinct from the wand used by one-click formatting), and the six typography parameters move here from the settings page. A Default button restores everything at once.",
       "[Writing Word-Count Status Bar] A permanent status bar counts hand-written and AI-generated text separately, and deleting generated content deducts it, so the number no longer overstates the work.",
       "[Fan Fiction] A new fan-fiction genre arrives together with a source-canon module: the canon is stored at a fixed path inside the project and injected whole by that path rather than through fuzzy search, so retrieval cannot miss it. Four modes are provided — canon, AU, OOC and CP — plus a free-form one-line description.",
@@ -29,7 +29,7 @@ const FOUR_POINT_TWO_ZERO_CHANGELOG: ChangelogEntry = {
     zh: [
       "【随包中文字体：9 款写作字体装完即有】此前字体列表只能用系统里已装的字体，还混着 Arial 等西文；现在随软件附带 9 款已核实可商用的中文字体（思源宋体、思源黑体，各含 Bold；霞鹜文楷、文津宋体、寒蝉正楷体、鸿蒙黑体、得意黑、朱雀仿宋、更纱黑体），并装到当前用户，装完从未启动过也不会缺字；界面字体选项只在中文范围内列选",
       "【正文与界面字体分层】此前在章节里改正文字体会把整个界面一起改掉；现在两者完全独立，调正文不影响界面、调界面也不影响正文",
-      "【正文字号与排版独立可调】正文字号改用绝对像素（15–32px），与「界面字号」解除联动；同时新增行距、字间距、左右边距、底部安全距离四项，最后一行不再贴着窗口底边",
+      "【正文字号与排版独立可调】正文字号改用绝对像素，可调 12–32px（预设：小 15 / 默认 18 / 大 21 / 特大 24），与「界面字号」解除联动；同时新增行距 1.2–2.6、字间距 −1–6、左右边距 0–160、底部安全距离 0–240 四项，最后一行不再贴着窗口底边",
       "【写作现场的「字体设置」浮层】章节与大纲的工具栏都新增「字体设置」浮层（Type 图标，与一键排版的魔法棒区分），6 项排版参数从设置页移到这里；浮层内含「默认设置」可一键还原",
       "【底部写作字数状态栏】新增常驻状态栏，「手写」与「AI 生成」分开计数，删除已生成内容会同步扣减，数字不再虚高",
       "【同人创作】新增「同人衍生」题材与「原作正典」模块：正典存放在项目内固定路径、按该路径整篇注入，不走模糊检索，因此不会被检索漏掉；支持 canon / au / ooc / cp 四种模式，也可用一句话自定义",
