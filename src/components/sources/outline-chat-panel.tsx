@@ -1574,14 +1574,8 @@ function OutlineAssistantMessage({
   }>({ textContent: "", edits: [], hasEdits: false });
   const renderedMarkdownContent = useMemo(() => {
     const rawContent = parsed.textContent || answer;
-    // 计划/共创讨论的协议块只用卡片渲染，气泡里不能漏出 JSON。
-    // 这里必须走 prepareOutlineSaveSourceContent 而不只是 stripStructuredMarkers：
-    // 共创讨论轮模型偶发违规夹带卷纲/章纲结构化 JSON 围栏（volumeOutlineData、
-    // outlineSaveRequest 等），自动补协议「先原样保留正文」时会把它一并留下；
-    // 只剥协议标记会让这些围栏原样漏成源码，必须连结构化围栏一起剥掉。
-    if (isPlanProtocolMessage || isDiscussProtocolMessage) {
-      return prepareOutlineSaveSourceContent(rawContent);
-    }
+    // 计划模式的协议块只用卡片渲染，气泡里不能漏出 JSON
+    if (isPlanProtocolMessage || isDiscussProtocolMessage) return stripStructuredMarkers(rawContent);
     if (intentProtocol.kind === "valid") return stripStructuredMarkers(rawContent);
     if (intentProtocol.kind === "invalid" || msg.intentProtocolError) return "";
     return prepareOutlineSaveSourceContent(rawContent);
