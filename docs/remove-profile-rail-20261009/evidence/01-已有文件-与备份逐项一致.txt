@@ -1,0 +1,20 @@
+﻿✓ 角色-角色-骆轻竹（本卡以其夫楚白、其女楚念念的称呼为.html
+     左栏元素 1 → 0；分区卡片 10 → 10（标题逐项一致）
+     版面：.profile-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:38px;padding:0 30px;margin:0 auto;max-width:1370px}
+✓ 人物小传·楚念念.html
+     左栏元素 1 → 0；分区卡片 8 → 8（标题逐项一致）
+     版面：.profile-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:38px;padding:0 30px;margin:0 auto;max-width:1370px}
+✓ 角色-角色-林小满.html
+     左栏元素 1 → 0；分区卡片 10 → 10（标题逐项一致）
+     版面：.profile-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:38px;padding:0 30px;margin:0 auto;max-width:1370px}
+✓ 伏笔计划-第一卷.html
+     左栏元素 1 → 0；分区卡片 12 → 12（标题逐项一致）
+     版面：.profile-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:38px;padding:0 30px;margin:0 auto;max-width:1370px}
+✓ 基因锁七重体系.html
+     左栏元素 1 → 0；分区卡片 2 → 2（标题逐项一致）
+     版面：.profile-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:38px;padding:0 30px;margin:0 auto;max-width:1370px}
+✓ 金手指-归元箓-2.html
+     左栏元素 1 → 0；分区卡片 12 → 12（标题逐项一致）
+     版面：.profile-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:38px;padding:0 30px;margin:0 auto;max-width:1370px}
+
+✓ 6 个文件：左栏已消失，正文与备份逐项一致

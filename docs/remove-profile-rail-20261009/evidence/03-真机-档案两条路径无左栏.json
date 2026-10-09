@@ -1,0 +1,29 @@
+{
+  "capturedAt": "2026-10-09T15:00:17.892Z",
+  "port": "9333",
+  "exe": "src-tauri/target/release/qmai.exe",
+  "verdict": "pass",
+  "failedSamples": 0,
+  "transcript": [
+    "  页面: http://tauri.localhost/",
+    "\n══ 样本 A：角色-角色-林小满.md ══",
+    "  目的：有同名 .html 伴生 → 读磁盘那份（已清理）",
+    "  已点开: C:/QM-BOOK/黑雨之下/wiki/outlines/人物小传/角色-角色-林小满.md",
+    "  帧: about:srcdoc",
+    "  分区卡片 10 个；首个卡片：1基本信息11 条",
+    "  .profile-rail=0  .pnav=0  .navlink=0  「分区导航」字样=无",
+    "  .profile-layout 声明: minmax(0px, 1fr)；布局后像素: minmax(0px, 1fr)",
+    "  ✓ 通过",
+    "\n══ 样本 B：角色-角色-杨寒.md ══",
+    "  目的：无同名 .html → 走内置模板即时渲染（本次改的模板）",
+    "  已点开: C:/QM-BOOK/黑雨之下/wiki/outlines/人物小传/角色-角色-杨寒.md",
+    "  帧: about:srcdoc",
+    "  分区卡片 11 个；首个卡片：1人物定位5 条",
+    "  .profile-rail=0  .pnav=0  .navlink=0  「分区导航」字样=无",
+    "  .profile-layout 声明: minmax(0px, 1fr)；布局后像素: minmax(0px, 1fr)",
+    "  ✓ 通过",
+    "\n  截图已存: C:\\QMAI_C\\QMAI-main\\.codex-temp\\rail-removed-真机.png",
+    "\n══ 汇总（2026-10-09T15:00:17.892Z）══",
+    "  ✓ 两条路径均无左侧分区导航，且版面为单栏"
+  ]
+}
