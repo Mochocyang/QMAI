@@ -147,45 +147,6 @@
 
 ---
 
-## 3.5 后续发现（同一起源的第二面）：讨论气泡把结构化 JSON 漏成源码
-
-用户在使用**修复后**的共创模式时又报了一次：生成一段正常内容之后，
-气泡里漏出一段 `volumeOutlineData` 的结构化源码。查下来**不是补协议回退了**，
-而是「补协议」只兜住了协议层，**可见内容的去渣在讨论轮漏了一步**。
-
-### 根因
-
-共创有两个轮次，气泡对可见内容用了两套清洗：
-
-| 轮次 | 消息标（`outlineDiscussPhase`） | 气泡清洗 | `volumeOutlineData` 围栏 |
-|---|---|---|---|
-| 定稿生成（`intentPhase:"generation"`） | 不标 | `prepareOutlineSaveSourceContent`（剥协议标 + `extractBodyContent`） | 被剥掉，不泄漏 |
-| 讨论轮（`intentPhase !== "generation"` → `"decision"`） | 标 | 只 `stripStructuredMarkers`（剥协议标，**提前 return**） | 留着 → 漏成源码 |
-
-链路：讨论轮里模型偶发违规、直接吐完整卷纲（卷纲正文 + `volumeOutlineData` +
-`outlineSaveRequest`，还没有 `outline_discuss`）——这正是 14a2c56 修的同款事故。
-自动补协议「**先原样保留正文再追加协议块**」，于是这些结构化围栏**原样留在可见正文里**；
-讨论轮的气泡只剥协议标记、不剥结构化围栏，于是 `volumeOutlineData` 就漏给你看了。
-
-一句话：补协议兜住了「协议层」，但「展示层」没跟着上 `extractBodyContent`，
-违规的结构化 JSON 就从气泡里露了出来。
-
-### 修法（显示层兜底，`b958402`）
-
-讨论/计划气泡的可见内容改走 `prepareOutlineSaveSourceContent`
-（= 剥协议标记 + `extractBodyContent` 一并剥掉 json/html/保存协议围栏），
-与定稿生成轮用同一套清洗。正常判断文字与分歧点卡片不受影响
-（`extractBodyContent` 只删 json/html/保存协议围栏，不碰正文）。
-
-### 验证
-
-- 回归用例「共创讨论轮夹带卷纲结构化 JSON 时，气泡不得把它漏成源码」：
-  **修复前必然失败**（气泡文本确实含 `volumeOutlineData`），修复后通过。
-- 完整门禁：**717 文件 / 6916 通过**，6 todo，exit 0；typecheck exit 0。
-- 便携版重打后按铁律重跑真机验收：分层/设置保存/浮层均通过。
-
----
-
 ## 4. 遗留（未在本轮处理）
 
 1. 磁盘上已存在的孤儿 `NNN.search-index.json` / `NNN.vector-index.json` 未做一次性清理
