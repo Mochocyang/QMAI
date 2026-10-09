@@ -7,6 +7,43 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_TWO_ZERO_CHANGELOG: ChangelogEntry = {
+  version: "4.2.0",
+  date: "2026-10-09",
+  highlights: {
+    en: [
+      "[Nine Chinese Writing Fonts Bundled] The font list previously offered only what was already installed on the system, mixed with Western faces such as Arial. Nine commercially verified Chinese writing fonts now ship with the app — Source Han Serif and Source Han Sans (each including Bold), LXGW WenKai, WenJin Mincho, ChillKai, HarmonyOS Sans SC, Smiley Sans, Zhuque Fangsong and Sarasa Gothic SC — and are installed for the current user, so nothing is missing even if the app has never been launched. The interface font list now offers Chinese faces only.",
+      "[Body and Interface Fonts Separated] Changing the body font inside a chapter used to restyle the entire interface. The two are now fully independent: adjusting one never affects the other.",
+      "[Body Size and Typography Adjustable Independently] Body text size moves to absolute pixels (15–32px) and is no longer tied to the interface scale, and four more parameters arrive — line height, letter spacing, side margins and bottom safe distance — so the last line no longer sits against the window edge.",
+      "[Font Settings Popover in the Writing View] Both the chapter and the outline toolbar gain a font-settings popover (Type icon, distinct from the wand used by one-click formatting), and the six typography parameters move here from the settings page. A Default button restores everything at once.",
+      "[Writing Word-Count Status Bar] A permanent status bar counts hand-written and AI-generated text separately, and deleting generated content deducts it, so the number no longer overstates the work.",
+      "[Fan Fiction] A new fan-fiction genre arrives together with a source-canon module: the canon is stored at a fixed path inside the project and injected whole by that path rather than through fuzzy search, so retrieval cannot miss it. Four modes are provided — canon, AU, OOC and CP — plus a free-form one-line description.",
+      "[Memory Snapshots: Four-Way Item Classification] Items are no longer an empty array: each is classified into one of four kinds with a stated rule for what counts as meaningful, and the result is actually fed into the writing prompt.",
+      "[Writing View Details] Autosave now runs every three minutes, overlong session titles are shortened automatically, the outline input area is slimmer, and a bug that made the body text un-scrollable is fixed.",
+      "[Outline and Chapter Fixes] Chapter memory dots now display correctly, a restart-after-stop entry is added, desktop files can be dragged straight into the list to import, imported setting collections no longer lose their body text, and a divider inside body text is no longer mistaken for frontmatter and swallowed together with the whole section.",
+      "[Co-Writing Outline Fixes] Content produced for a volume outline is no longer silently discarded — previously a failed validation made the whole section vanish with no message at all. Problems are now shown beneath the generated result, and the discussion round no longer carries the generation contract.",
+      "[Profile Documents] The section-navigation rail on the left of character, faction, foreshadowing and geography documents has been removed and the layout returns to a single column, giving long text a wider reading area.",
+      "[Install and Uninstall Fixes] Fixed the installer failing to build at all (a wrong function variant in the NSIS uninstall section), uninstall cleanup silently failing under Chinese user names, and bundled fonts not taking effect in two separate paths.",
+      "[Settings No Longer Lost] Fixed changes not being written to disk when the settings or font-settings popover was closed immediately after adjusting.",
+    ],
+    zh: [
+      "【随包中文字体：9 款写作字体装完即有】此前字体列表只能用系统里已装的字体，还混着 Arial 等西文；现在随软件附带 9 款已核实可商用的中文字体（思源宋体、思源黑体，各含 Bold；霞鹜文楷、文津宋体、寒蝉正楷体、鸿蒙黑体、得意黑、朱雀仿宋、更纱黑体），并装到当前用户，装完从未启动过也不会缺字；界面字体选项只在中文范围内列选",
+      "【正文与界面字体分层】此前在章节里改正文字体会把整个界面一起改掉；现在两者完全独立，调正文不影响界面、调界面也不影响正文",
+      "【正文字号与排版独立可调】正文字号改用绝对像素（15–32px），与「界面字号」解除联动；同时新增行距、字间距、左右边距、底部安全距离四项，最后一行不再贴着窗口底边",
+      "【写作现场的「字体设置」浮层】章节与大纲的工具栏都新增「字体设置」浮层（Type 图标，与一键排版的魔法棒区分），6 项排版参数从设置页移到这里；浮层内含「默认设置」可一键还原",
+      "【底部写作字数状态栏】新增常驻状态栏，「手写」与「AI 生成」分开计数，删除已生成内容会同步扣减，数字不再虚高",
+      "【同人创作】新增「同人衍生」题材与「原作正典」模块：正典存放在项目内固定路径、按该路径整篇注入，不走模糊检索，因此不会被检索漏掉；支持 canon / au / ooc / cp 四种模式，也可用一句话自定义",
+      "【记忆快照：出场物品四分类】物品不再是一行空数组，改为按四类归档并写明「有无意义」的判定口径，且真正接进写作提示词",
+      "【写作现场细节】自动保存改为每 3 分钟一次、过长的会话标题自动截短、大纲输入区精简；修复正文滚不动的问题",
+      "【大纲与章节修复】章节记忆绿点恢复正确显示、补上「停止后重新开始」入口、支持把桌面文件直接拖进列表导入；修复导入的设定集丢失正文、正文里的分隔线被误当 frontmatter 连同整节内容一起吞掉",
+      "【共创大纲修复】卷纲生成的内容不再被静默丢弃——此前校验不通过时整段内容会消失且没有任何提示；问题改为显示在生成结果下方，讨论轮也不再夹带生成契约",
+      "【档案文档】删掉人物小传、势力、伏笔、地理等档案左侧的「分区导航」，版面改回单栏，长文本获得更宽的阅读区",
+      "【安装与卸载修复】修复安装包长期完全打不出来（NSIS 卸载区用错函数变体）、中文用户名下卸载清理静默失效、以及随包字体在两处未生效的问题",
+      "【设置不再丢失】修复「调完设置立刻关窗口」时改动没有落盘的问题",
+    ],
+  },
+};
+
 const FOUR_POINT_ONE_TWO_CHANGELOG: ChangelogEntry = {
   version: "4.1.2",
   date: "2026-10-07",
@@ -1799,6 +1836,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_TWO_ZERO_CHANGELOG.version)
+    return [FOUR_POINT_TWO_ZERO_CHANGELOG];
   if (version === FOUR_POINT_ONE_TWO_CHANGELOG.version)
     return [FOUR_POINT_ONE_TWO_CHANGELOG];
   if (version === FOUR_POINT_ONE_ONE_CHANGELOG.version)
@@ -1958,6 +1997,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_TWO_ZERO_CHANGELOG,
     FOUR_POINT_ONE_TWO_CHANGELOG,
     FOUR_POINT_ONE_ONE_CHANGELOG,
     FOUR_POINT_ONE_ZERO_CHANGELOG,
