@@ -206,11 +206,11 @@ type WritingSource = "human" | "ai" | "unknown"
 
 | 命令 | 结果 |
 |---|---|
-| `npm run test:mocks` | **708 文件 / 6795 通过**，6 todo，0 失败 |
+| `npm run test:mocks` | **708 文件 / 6796 通过**，6 todo，0 失败 |
 | `npm run typecheck` | 通过 |
 | `npm run typecheck:tests` | 通过 |
 
-本次新增 5 个测试文件 / 90 个用例：
+本次新增 5 个测试文件 / 91 个用例：
 
 - `src/lib/writing-stats.spec.ts`（28）—— 差分引擎：逐字输入、退格扣减、
   删 AI 内容只扣 AI、替换保留未动字符、游程往返、长度错位重打基线、日计数夹 0。
@@ -220,6 +220,6 @@ type WritingSource = "human" | "ai" | "unknown"
   恢复往返、节流不每击键落盘。
 - `src/components/uitest/ui-test-statusbar.spec.tsx`（13）—— 四项常显、
   圆环几何（`dashoffset` = 周长一半 @ 50%）、就地改目标、Esc 放弃、越界夹取。
-- `src/components/uitest/ui-test-statusbar-integration.spec.tsx`（14）——
+- `src/components/uitest/ui-test-statusbar-integration.spec.tsx`（15）——
   **真实编辑器的端到端通路**：敲字加、退格减、删到 0 不为负、AI 栏不被手写污染、
-  落盘摘要内容、重启后恢复、以及两条源码顺序守卫。
+  落盘摘要内容、重启后恢复、磁盘对不上时重打基线，以及三条源码/接线的守卫测试。
