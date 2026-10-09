@@ -1,6 +1,6 @@
 {
-  "capturedAt": "2026-10-09T10:29:46.776Z",
-  "exe": "src-tauri/target/release/qmai.exe",
+  "capturedAt": "2026-10-09T11:57:07.469Z",
+  "exe": "release-portable/QMaiWrite.exe",
   "opened": {
     "ok": true,
     "path": "C:/QM-BOOK/黑雨之下/wiki/outlines/开篇方向.md"

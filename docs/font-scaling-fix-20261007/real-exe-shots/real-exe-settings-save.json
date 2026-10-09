@@ -6,12 +6,12 @@
     "doc": "开篇方向"
   },
   "provenance": {
-    "capturedAt": "2026-10-09T10:25:30.479Z",
+    "capturedAt": "2026-10-09T11:57:21.959Z",
     "script": "C:\\QMAI_C\\QMAI-main\\docs\\font-scaling-fix-20261007\\verify-real-exe-settings-save.mjs",
     "scriptSha256": "a73b3d93e2247b862c3092166d522f34e2c4b2a442d7a3b55a6f227e58a29829",
     "cdpPort": 9333,
-    "exe": "src-tauri/target/release/qmai.exe",
-    "exeSha256": "467788cd9d0b75a30f7115d1acbd54ea9b09b54c1a3fb4ff7fb545a880fdcc79",
+    "exe": "release-portable/QMaiWrite.exe",
+    "exeSha256": "80b83cba6a22aa0e1998fed308173795bdfc286b295dd072f8f1517311ce01e2",
     "node": "v24.9.0"
   },
   "initial": {
@@ -429,8 +429,8 @@
     "backup": {
       "statePath": "C:\\Users\\Administrator\\AppData\\Roaming\\com.qingmuai.writer\\app-state.json",
       "backupPath": "C:\\QMAI_C\\QMAI-main\\.codex-temp\\app-state-before-settings-save.json",
-      "sha256": "71072a96ca7372f1b5badb8efbd41c4b3b0940f8a594f4651635e4b0db2477f9",
-      "bytes": 27307
+      "sha256": "6bb54ac521d2c6f5e2c01b15d840aee96571be949d00559a8bf2ac524379ed48",
+      "bytes": 27319
     }
   },
   "fails": [],
@@ -439,7 +439,7 @@
   "userStateBackup": {
     "statePath": "C:\\Users\\Administrator\\AppData\\Roaming\\com.qingmuai.writer\\app-state.json",
     "backupPath": "C:\\QMAI_C\\QMAI-main\\.codex-temp\\app-state-before-settings-save.json",
-    "sha256": "71072a96ca7372f1b5badb8efbd41c4b3b0940f8a594f4651635e4b0db2477f9",
-    "bytes": 27307
+    "sha256": "6bb54ac521d2c6f5e2c01b15d840aee96571be949d00559a8bf2ac524379ed48",
+    "bytes": 27319
   }
 }
