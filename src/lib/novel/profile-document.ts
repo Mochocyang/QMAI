@@ -529,7 +529,14 @@ export const PROFILE_PLACEHOLDERS = {
   title: "__PROFILE_TITLE__",
 } as const
 
-const REQUIRED_PLACEHOLDERS = Object.values(PROFILE_PLACEHOLDERS).filter(value => value !== PROFILE_PLACEHOLDERS.diagram && value !== PROFILE_PLACEHOLDERS.title)
+/**
+ * 必填占位符 = 除图形、标题、分区导航以外的全部槽位。
+ * `overview` 已随左侧栏一起退场（见 buildOverviewHtml 的说明），
+ * 模板不再需要提供它；旧自定义模板留着也不会有占位符漏出（映射到空串）。
+ */
+const REQUIRED_PLACEHOLDERS = Object.values(PROFILE_PLACEHOLDERS).filter(
+  value => value !== PROFILE_PLACEHOLDERS.diagram && value !== PROFILE_PLACEHOLDERS.title && value !== PROFILE_PLACEHOLDERS.overview,
+)
 
 function escapeHtml(value: unknown): string {
   return String(value == null ? "" : value)
@@ -710,19 +717,22 @@ function buildChipsHtml(doc: ProfileDocument): string {
 }
 
 /**
- * 总览区：分区锚点导航（对齐卷纲/章纲的 .nav 设计）——一眼看清整卡结构，点击直达。
- * 链接里不再塞计数（卡片标题右侧已有计数徽章），避免「1 分区 1 15 条」式的噪音。
+ * 用户明确要求删掉档案文档左侧的「分区导航」：
+ * 十个分区的卡片本来就是一条从上到下、折叠展开的长条，左侧那栏既占 200px
+ * 版面，又要额外维护一套 sticky 定位与窄屏折行规则，实际用不上。
+ *
+ * 因此 `overview` 槽位**保留但不再产出内容**：
+ *   · 8 个模板里的 `<aside class="profile-rail">…</aside>` 已整块删除，
+ *     版面改成单栏，不再有左栏；
+ *   · 仍然映射占位符 → 空串，这样**用户自定义模板**（`.qmai/人物小传模板.html` 等）
+ *     里若还留着 `__PROFILE_OVERVIEW__`，也不会把占位符原文漏到页面上；
+ *   · `overview` 同时从 REQUIRED_PLACEHOLDERS 移除 —— 模板不必再提供这个槽位。
+ *
+ * 为什么不在这里塞一段 `<style>` 去隐藏左栏：那属于「藏起来」而不是「删掉」，
+ * 与本次要求相反；模板已经真的没有这个元素了。
  */
-function buildOverviewHtml(doc: ProfileDocument, editorial = false): string {
-  if (doc.sections.length === 0) return ""
-  const links = doc.sections
-    .map(
-      (section, index) =>
-        `<a class="navlink" href="#psec-${index + 1}"><b>${index + 1}</b>${escapeHtml(section.heading || `分区 ${index + 1}`)}</a>`,
-    )
-    .join("")
-  const diagramLink = editorial && doc.diagram && normalizeProfileDiagram(doc.diagram) ? `<a class="navlink" href="#profile-diagram"><b>图</b>空间总览</a>` : ""
-  return `<nav class="pnav"><span class="navt">分区导航</span><span class="pn">${doc.sections.length} 个分区</span>${diagramLink}${links}</nav>`
+function buildOverviewHtml(): string {
+  return ""
 }
 
 /** 用模板渲染档案 HTML（纯静态，0 脚本）。 */
@@ -740,7 +750,7 @@ export function renderProfileDocumentHtml(
     [PROFILE_PLACEHOLDERS.tag]: tagHtml,
     [PROFILE_PLACEHOLDERS.chips]: buildChipsHtml(doc),
     [PROFILE_PLACEHOLDERS.tagline]: hasVisibleText(doc.tagline) ? escapeHtml(doc.tagline ?? "") : "",
-    [PROFILE_PLACEHOLDERS.overview]: buildOverviewHtml(doc, editorial),
+    [PROFILE_PLACEHOLDERS.overview]: buildOverviewHtml(),
     [PROFILE_PLACEHOLDERS.sections]: buildSectionsHtml(doc, editorial),
     [PROFILE_PLACEHOLDERS.diagram]: doc.diagram ? renderProfileDiagram(doc.diagram) : "",
     [PROFILE_PLACEHOLDERS.title]: escapeHtml(`${doc.name || "未命名"} · ${eyebrow}`),

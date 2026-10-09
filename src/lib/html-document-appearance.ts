@@ -12,8 +12,9 @@ const EDITORIAL_LAYOUT_MARKER = 'data-qmai-layout="editorial-v2"'
 
 /**
  * srcdoc iframe 的文档地址是 `about:srcdoc`，但相对地址默认仍按父页面的地址解析。
- * 于是 `<a href="#psec-2">` 会被当成「跳到父级地址的 #psec-2」，把整个 iframe 换成空白页
- * ——分区导航点一下就白屏就是这么来的。显式声明基址后，锚点留在本文档内。
+ * 于是 `<a href="#story-2">` 会被当成「跳到父级地址的 #story-2」，把整个 iframe
+ * 换成空白页 —— 卷纲/章纲的「跳到故事」胶囊、档案卡片的分区锚点都踩过这个坑。
+ * 显式声明基址后，锚点留在本文档内。
  */
 const SRCDOC_BASE_TAG = '<base href="about:srcdoc">'
 

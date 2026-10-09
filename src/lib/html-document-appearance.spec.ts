@@ -6,10 +6,14 @@ import {
 
 const SOURCE = "<!DOCTYPE html><html><head><style>.chip{background:#fff}</style></head><body>折叠树</body></html>"
 
-/** 带分区锚点导航的档案文档（Preview iframe 用 srcdoc 渲染的那一类）。 */
+/**
+ * 带页内锚点的 editorial-v2 文档（Preview iframe 用 srcdoc 渲染的那一类）。
+ * 用卷纲的「跳到故事」胶囊导航作样本：档案文档的左侧分区导航已按用户要求删除，
+ * 但卷纲/章纲仍靠这类锚点在同一页内跳转，基址注入的需求不变。
+ */
 const EDITORIAL =
-  '<!DOCTYPE html><html lang="zh-CN" data-qmai-layout="editorial-v2"><head><style>.profile-rail{position:sticky}</style></head>' +
-  '<body><nav class="pnav"><a class="navlink" href="#psec-1"><b>1</b>体系概览</a><a class="navlink" href="#psec-2"><b>2</b>等级阶梯</a></nav></body></html>'
+  '<!DOCTYPE html><html lang="zh-CN" data-qmai-layout="editorial-v2"><head><style>.nav{position:sticky}</style></head>' +
+  '<body><nav class="nav"><span class="navt">跳到故事</span><a class="navlink" href="#story-1"><b>1</b>开篇</a><a class="navlink" href="#story-2"><b>2</b>转折</a></nav></body></html>'
 
 const SRCDOC_BASE = '<base href="about:srcdoc">'
 
@@ -79,7 +83,7 @@ describe("srcdoc iframe 里的分区锚点", () => {
     // 必须落在 head 内，且在任何相对地址解析之前
     expect(out.indexOf(SRCDOC_BASE)).toBeGreaterThan(out.indexOf("<head>"))
     expect(out.indexOf(SRCDOC_BASE)).toBeLessThan(out.indexOf("</head>"))
-    expect(out).toContain('href="#psec-2"')
+    expect(out).toContain('href="#story-2"')
   })
 
   it("换肤重复套用不会叠加基址", () => {
@@ -114,6 +118,11 @@ describe("srcdoc iframe 里的分区锚点", () => {
 })
 
 describe("注入样式表的合法性", () => {
+  /*
+   * `--rail-bg` 虽然已随档案模板的左侧分区导航退场（新生成的文件不再使用它），
+   * 但**历史 .html 里仍写着 `background:var(--rail-bg)`**。注入表继续声明它，
+   * 才能保证那些旧文件换肤时不会拿到空值 —— 所以它留在清单里是有意的，不是漏删。
+   */
   const TOKENS = [
     "--card", "--card-head", "--zebra", "--rail-bg", "--line-strong",
     "--tint-gold", "--tint-jade", "--tint-rose", "--tint-sand", "--shadow-1", "--shadow-2",

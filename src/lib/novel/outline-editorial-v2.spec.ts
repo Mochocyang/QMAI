@@ -72,8 +72,6 @@ function definedTokens(css: string): string[] {
 /** 分区卡片必须带底色的元素。 */
 const TINTED_ELEMENTS: Array<[string, string]> = [
   [".document-top", "background"],
-  [".profile-rail", "background"],
-  [".pnav .navlink", "background"],
   [".hero", "background"],
   [".hero .chip", "background"],
   [".pcard", "background"],
@@ -91,7 +89,6 @@ const EXTRA_TOKENS = [
   "--card",
   "--card-head",
   "--zebra",
-  "--rail-bg",
   "--line-strong",
   "--tint-gold",
   "--tint-jade",
@@ -102,11 +99,19 @@ const EXTRA_TOKENS = [
 ]
 
 describe("第二版批准方案：运行时渲染而不是硬编码样稿", () => {
-  for (const path of paths) it(`${path} 提供常驻目录、纸面版式与窄屏阅读`, () => {
+  for (const path of paths) it(`${path} 版面为单栏、保留纸面版式与窄屏阅读`, () => {
     const html = readFileSync("skills/SkillHub/" + path, "utf8")
     expect(html).toContain('data-qmai-layout="editorial-v2"')
-    expect(html).toContain('class="profile-rail"')
-    expect(html).toContain("position:sticky")
+    /*
+     * 左侧「分区导航」已按用户要求整块删除：模板里不应再出现左栏元素、
+     * 它的样式钩子或占位符，版面必须是单栏。这里同时盯这四样，
+     * 因为只删元素、留下 200px 网格或占位符，都会重新长出空白左栏。
+     */
+    expect(html).not.toContain('class="profile-rail"')
+    expect(html).not.toContain("pnav")
+    expect(html).not.toContain("__PROFILE_OVERVIEW__")
+    expect(html).toContain(".profile-layout{display:grid;grid-template-columns:minmax(0,1fr)")
+    expect(html).not.toMatch(/grid-template-columns:\s*(?:200|166)px\s+minmax\(0,1fr\)/)
     expect(html).toContain('lang="zh-CN"')
     expect(html).toContain("@media (max-width: 760px)")
     expect(html).toContain("@media print")
@@ -129,7 +134,12 @@ describe("第二版批准方案：运行时渲染而不是硬编码样稿", () =
     expect(doc.querySelector('.profile-diagram')?.textContent).not.toContain("雾海")
     for (const a of doc.querySelectorAll('a[href^="#"]')) expect(doc.getElementById(a.getAttribute("href")!.slice(1))).not.toBeNull()
     expect(doc.querySelectorAll("#psec-1")).toHaveLength(1)
-    expect(doc.querySelector(".profile-rail nav")).not.toBeNull()
+    // 左侧分区导航已删除；删的是导航，档案内容本身必须照旧
+    expect(doc.querySelector(".profile-rail")).toBeNull()
+    expect(doc.querySelector(".pnav")).toBeNull()
+    expect(doc.querySelector(".profile-main")).not.toBeNull()
+    expect(doc.body.textContent).toContain("星陨盆地")
+    expect(doc.body.textContent).toContain("冻土驮道")
     expect(doc.querySelector('title')?.textContent).toContain("星陨盆地")
   })
   it("地点图使用实际提供的房间范围，门和通路不凭空生成", () => {
@@ -164,13 +174,27 @@ describe("第二版批准方案：运行时渲染而不是硬编码样稿", () =
     expect(dom.querySelector('.profile-ranks')?.textContent).toContain("必须先撤离并重新验证")
   })
   it("旧自定义模板不被强制增加新结构，依旧无未替换占位符", () => {
+    /*
+     * 这个旧模板还留着已退场的 __PROFILE_OVERVIEW__ 槽位（以及没有 __PROFILE_DIAGRAM__）。
+     * 两者都不在必填清单里，所以必须**照常渲染**，并且把 overview 收成空串 ——
+     * 用户自己放进去的模板不能因为官方删了左栏就渲染失败或把占位符原文漏到页面上。
+     */
     const old = '<html><body>__PROFILE_EYEBROW__ __PROFILE_NAME__ __PROFILE_ROLE__ __PROFILE_TAGLINE__ __PROFILE_CHIPS__ __PROFILE_OVERVIEW__ __PROFILE_SECTIONS__</body></html>'
     const html = renderProfileDocumentHtml(normalized(),old,"地理")
     expect(html).toContain("星陨盆地")
     expect(html).not.toContain("__PROFILE_")
     expect(html).not.toContain("profile-rail")
+    expect(html).not.toContain("分区导航")
   })
-  it("浅深皮肤注入仍保留图形、目录与语义对比色", () => {
+  it("把去掉左侧导航的内置模板改回带 __PROFILE_OVERVIEW__ 也不会漏占位符", () => {
+    // 反向容忍：模板里的 overview 槽位无论留不留，输出都不该出现占位符原文
+    const withSlot = template().replace('<div class="profile-layout">', '<div class="profile-layout">__PROFILE_OVERVIEW__')
+    const html = renderProfileDocumentHtml(normalized(), withSlot, "地理")
+    expect(html).toContain("星陨盆地")
+    expect(html).not.toContain("__PROFILE_")
+    expect(html).not.toContain("分区导航")
+  })
+  it("浅深皮肤注入仍保留图形、单栏版面与语义对比色", () => {
     const html = applyDocumentAppearance(renderProfileDocumentHtml(normalized(),template(),"地理"),"xing")
     expect(html).toContain('data-profile-diagram="map"')
     expect(html).toContain("var(--brand-text)")

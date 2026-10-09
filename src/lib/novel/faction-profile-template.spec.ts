@@ -192,7 +192,8 @@ describe("faction-profile-template", () => {
     const request: FactionProfileAttachRequest = { fileType: "organization", content: "# 别的" }
     const html = attachFactionProfileHtml(request, source).htmlContent ?? ""
     expect(html).not.toContain('class="role"')
-    expect(html).toContain("1 个分区")
+    // 左侧分区导航已删除，原先借它的「N 个分区」计数改成直接数分区卡片
+    expect((html.match(/class="pcard/g) ?? []).length).toBe(1)
   })
 
   it("势力卡渲染扩充后的 11 个分区（含架构 / 人员 / 经济 / 历史）", () => {
@@ -212,7 +213,8 @@ describe("faction-profile-template", () => {
       ),
     })
     for (const heading of headings) expect(html).toContain(heading)
-    expect(html).toContain("11 个分区")
+    // 左侧分区导航已删除：直接数分区卡片，而不是读导航里的「11 个分区」
+    expect((html.match(/class="pcard/g) ?? []).length).toBe(11)
     // 组织历史走时间线首列（lore），架构/人员/派系/关系走名册调（roster）
     expect(html).toContain("pcard wide lore")
     expect(html).toContain("pcard wide roster")
