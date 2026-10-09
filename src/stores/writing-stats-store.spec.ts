@@ -52,8 +52,61 @@ describe("initializeProject", () => {
     expect(stats().hydrated).toBe(true)
   })
 
-  it("读取当天已有数字，并把今日从历史里摘出来（避免 flush 时重复计）", async () => {
-    const today = localDayKey()
+  it("内存账本超出上限时淘汰最旧的章，被淘汰的章再打开能原样恢复", async () => {
+    await openProject()
+    const first = "E:/Novel/wiki/chapters/第1章.md"
+    stats().primeChapter(first, markdown("雨停了。"))
+    stats().recordChapter(first, markdown("雨停了。他推开门。"), "human")
+    expect(stats().humanChars).toBe(5)
+
+    // 再摸 12 个章节，把第 1 章的账本挤出内存
+    for (let i = 2; i <= 13; i += 1) {
+      const path = `E:/Novel/wiki/chapters/第${i}章.md`
+      stats().primeChapter(path, markdown("新的一章。"))
+    }
+    expect(Object.keys(stats().provenance).length).toBeLessThanOrEqual(8)
+    expect(stats().provenance["wiki/chapters/第1章.md"], "第 1 章应已被淘汰").toBeUndefined()
+    // 但落盘摘要还在（淘汰账本不等于丢掉账）
+    expect(stats().chapters["wiki/chapters/第1章.md"]).toBeDefined()
+
+    // 重新打开第 1 章：摘要校验通过 → 账本原样恢复，此前手写的归属还在
+    stats().primeChapter(first, markdown("雨停了。他推开门。"))
+    expect(stats().provenance["wiki/chapters/第1章.md"]?.sources).toEqual([
+      ...new Array("雨停了。".length).fill("unknown"),
+      ...new Array("他推开门。".length).fill("human"),
+    ])
+    // 于是这一章再删掉那 5 个字，仍然精确地从手写扣
+    stats().recordChapter(first, markdown("雨停了。"), "human")
+    expect(stats().humanChars).toBe(0)
+  })
+
+  it("切换小说前把上一本待落盘的数字写掉，不丢最后几秒", async () => {    await openProject()
+    // 先打基线（打开章节），再手写 5 个字：首次见到只打基线不计账，
+    // 所以必须先 prime 一次，否则这 5 个字按设计不会进账。
+    stats().primeChapter(CHAPTER, markdown("雨停了。"))
+    stats().recordChapter(CHAPTER, markdown("雨停了。他推开门。"), "human")
+    expect(stats().humanChars).toBe(5)
+    // 此时落盘还在 2.5s 防抖里，一次盘都没写过
+    expect(mockedWriteFileAtomic).not.toHaveBeenCalled()
+
+    // 立刻切换小说
+    const other = "E:/AnotherNovel"
+    mockedFileExists.mockResolvedValue(false)
+    await stats().initializeProject(other)
+
+    // 上一本的今日数字必须已经落盘，而不是被新书的状态覆盖掉
+    const writes = mockedWriteFileAtomic.mock.calls.filter(([path]) =>
+      String(path).endsWith("writing-stats.json"))
+    expect(writes, "切换小说应先把上一本落盘").not.toHaveLength(0)
+    const first = JSON.parse(String(writes[0]![1]))
+    expect(first.days[localDayKey()]).toEqual({ humanChars: 5, aiChars: 0 })
+    expect(String(writes[0]![0])).toContain("E:/Novel")
+    // 切过去之后确实是新书的空状态
+    expect(stats().humanChars).toBe(0)
+    expect(stats().projectPath).toBe(other)
+  })
+
+  it("读取当天已有数字，并把今日从历史里摘出来（避免 flush 时重复计）", async () => {    const today = localDayKey()
     await openProject({
       dailyTargetChars: 5000,
       days: {

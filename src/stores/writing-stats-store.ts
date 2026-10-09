@@ -30,6 +30,31 @@ import { normalizeComparablePath, isChapterPath } from "@/lib/path-utils"
 /** 落盘节流：打字时每一下都写盘是不可接受的，但崩溃也不能丢掉整天的数字。 */
 const FLUSH_DEBOUNCE_MS = 2500
 
+/**
+ * 内存里最多保留几章的归属账本。
+ *
+ * 账本是逐字符数组，一本 300 万字的书若把用户这次会话翻过的每一章都常驻内存，
+ * 长会话下来就是几十 MB 的无用数组。超出上限就按插入顺序丢最早的几个 —— 
+ * **丢失是安全的**：`chapters` 里的摘要与账本永远同步更新，被丢掉的章再打开时
+ * 会由 `restoreProvenance` 按长度 + 哈希校验原样恢复。
+ */
+const MAX_CACHED_PROVENANCE_CHAPTERS = 8
+
+/** 裁掉超出上限的归属账本，`keepKey` 对应的章节永不淘汰。 */
+function capProvenanceCache(
+  provenance: Record<string, WritingProvenance>,
+  keepKey: string,
+): Record<string, WritingProvenance> {
+  const keys = Object.keys(provenance)
+  if (keys.length <= MAX_CACHED_PROVENANCE_CHAPTERS) return provenance
+  const capped = { ...provenance }
+  for (const key of keys) {
+    if (Object.keys(capped).length <= MAX_CACHED_PROVENANCE_CHAPTERS) break
+    if (key !== keepKey) delete capped[key]
+  }
+  return capped
+}
+
 interface WritingStatsState {
   projectPath: string | null
   /** 今日的本地日期键；跨天时计数自动归零并把昨天归档。 */
@@ -154,6 +179,16 @@ export const useWritingStatsStore = create<WritingStatsState>((set, get) => ({
   async initializeProject(rawPath) {
     const path = normalizeComparablePath(rawPath)
     if (get().projectPath === path && get().hydrated) return
+    // 切换小说前，先把上一本**待落盘**的数字写掉。
+    //
+    // 落盘是 2.5s 防抖的，而 `flush()` 读的是「当前」state：一旦先重置了 state
+    // 再让旧定时器触发，写出去的会是新书的数据，上一本最后那几秒凭空消失。
+    // 所以顺序必须是「清定时器 → 用旧 state 落盘 → 再换书」。
+    if (get().projectPath && get().hydrated) {
+      for (const timer of flushTimers.values()) clearTimeout(timer)
+      flushTimers.clear()
+      await get().flush()
+    }
     set({ ...emptyStatsState(), projectPath: path })
     const file = await loadWritingStats(path)
     if (get().projectPath !== path) return
@@ -202,11 +237,11 @@ export const useWritingStatsStore = create<WritingStatsState>((set, get) => ({
     const key = writingStatsChapterKey(path, chapterPath)
     const restored = restoreProvenance(get().chapters[key], markdown)
     set((state) => ({
-      provenance: {
+      provenance: capProvenanceCache({
         ...state.provenance,
         // 恢复不出来就按「来源不可知」打基线：这些字不是今天写的，不能算进今日。
         [key]: restored ?? rebaselineProvenance(markdown, "unknown"),
-      },
+      }, key),
     }))
   },
 
@@ -235,7 +270,7 @@ export const useWritingStatsStore = create<WritingStatsState>((set, get) => ({
       set({
         dayKey,
         days,
-        provenance: { ...state.provenance, [key]: provenance },
+        provenance: capProvenanceCache({ ...state.provenance, [key]: provenance }, key),
         chapters: { ...state.chapters, [key]: chapterEntryOf(provenance) },
         ...applyDeltaToDaily({ humanChars, aiChars }, delta),
       })

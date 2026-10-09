@@ -202,12 +202,25 @@ AI 改写必然改内容 → 校验不过 → 此时若不知道旧正文，唯�
 写盘失败**静默**：统计是辅助信息，绝不能因为写不了盘而打断写作。
 代价是失败时看不到错误 —— 集成测试里踩过一次这个坑（见 §7）。
 
-### 5.3 跨天
+**切换小说前会先把上一本落盘**（`initializeProject` 里「清定时器 → 用旧 state
+落盘 → 再换书」）。少了这一步，2.5s 内切书会让上一本最后那几秒凭空消失 ——
+因为 `flush()` 读的是「当前」state，定时器一触发写的已经是新书的数据了。
+
+### 5.3 内存账本的上限
+
+内存里最多保留 8 章的逐字符账本（`MAX_CACHED_PROVENANCE_CHAPTERS`）。
+一本 300 万字的书若把这次会话翻过的每一章都常驻内存，长会话下来就是几十 MB
+的无用数组。
+
+**淘汰是安全的**：`chapters` 摘要与内存账本永远同步更新，被丢掉的章再打开时
+由 `restoreProvenance` 按长度 + 哈希校验原样恢复（有测试钉住这条往返）。
+
+### 5.4 跨天
 
 按**本地时区**算 `YYYY-MM-DD`（不能用 UTC：UTC+8 的凌晨会落到前一天）。
 `recordChapter()` 发现日期变了 → 把昨天归档进 `days`、今日两栏归零。
 
-### 5.4 恢复时的校验
+### 5.5 恢复时的校验
 
 从 `chapters` 摘要恢复归属账本，要求**长度 + 哈希都对得上**，否则返回 `null`
 由调用方重打基线。这是「宁可少算，也不造假」的最后一道闸：
@@ -293,19 +306,20 @@ AI 改写必然改内容 → 校验不过 → 此时若不知道旧正文，唯�
 
 | 命令 | 结果 |
 |---|---|
-| `npm run test:mocks` | **708 文件 / 6809 通过**，6 todo，0 失败 |
+| `npm run test:mocks` | **708 文件 / 6811 通过**，6 todo，0 失败 |
 | `npm run typecheck` | 通过 |
 | `npm run typecheck:tests` | 通过 |
 
-本次新增 5 个测试文件 / 101 个用例（另在既有的 `ui-test-shell.spec.tsx` 里加 3 个）：
+本次新增 5 个测试文件 / 103 个用例（另在既有的 `ui-test-shell.spec.tsx` 里加 3 个）：
 
 - `src/lib/writing-stats.spec.ts`（31）—— 差分引擎：逐字输入、退格扣减、
   删 AI 内容只扣 AI、替换保留未动字符、**纯换序不产生任何增减**、
   游程往返、长度错位重打基线、日计数夹 0。
 - `src/lib/writing-stats-persistence.spec.ts`（15）—— 坏 JSON/坏字段容错、
   历史裁剪、本地时区日期、全书字数口径。
-- `src/stores/writing-stats-store.spec.ts`（24）—— 跨天归档、AI 新章记账、
-  **AI 覆盖旧稿只算换掉的字**、恢复往返、节流不每击键落盘。
+- `src/stores/writing-stats-store.spec.ts`（26）—— 跨天归档、AI 新章记账、
+  **AI 覆盖旧稿只算换掉的字**、**切书前先落盘**、**账本淘汰后可恢复**、
+  恢复往返、节流不每击键落盘。
 - `src/components/uitest/ui-test-statusbar.spec.tsx`（13）—— 四项常显、
   圆环几何（`dashoffset` = 周长一半 @ 50%）、就地改目标、Esc 放弃、越界夹取。
 - `src/components/uitest/ui-test-statusbar-integration.spec.tsx`（18）——
@@ -331,3 +345,9 @@ AI 改写必然改内容 → 校验不过 → 此时若不知道旧正文，唯�
 `sources.length === text.length` 恒等式成立、`diffChars` 超限返回 `undefined`
 而不抛异常、状态栏无 render 期 setState、布局不会被顶出视口
 （`.ui-test-workspace` 是 `flex:1; min-height:0`，状态栏 `flex-shrink:0`）。
+
+审查还指出三类生命周期问题，均已处理：切书丢最后几秒（§5.2）、
+内存账本无上限（§5.3）、以及 `trash.ts` 还原到改名路径时没搬账本（§4）。
+
+`diffChars({ timeout: 120 })` 是同步预算这一点**保留**为已知边界（§3.8）：
+改成 worker 会引入异步记账，与「每次击键立刻反映到状态栏」直接冲突。
