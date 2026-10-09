@@ -17,6 +17,11 @@ export interface VolumeOutlineStage {
   p: string[]
   /** 可选：该环节埋下的期待在哪里兑现（如「合①」「故事五 承②」）。 */
   pay?: string
+  /**
+   * 可选：该故事对这个环节的专属小标题（模型常写成 name，如「沐浴昏死」）。
+   * 与 STAGE_META 的固定环节名（如「常态与破口」）并存，一起渲染。
+   */
+  label?: string
 }
 
 /** 伏笔追踪：埋设位置 → 回收位置。 */
@@ -294,6 +299,16 @@ function asString(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
 }
 
+/**
+ * 12 章节拍的容错读取：模型既可能给字符串（「平升起紧落缓升紧顶缓顶悬」），
+ * 也可能给数组（["平","升",…]）。数组形态按顺序无损拼成字符串。
+ * 其余形态（数字 / 对象）返回空串，交给校验器如实报告缺失。
+ */
+function asBeatSequence(value: unknown): string {
+  if (!Array.isArray(value)) return ""
+  return value.map((item) => asString(item)).filter(Boolean).join("")
+}
+
 function escapeHtml(value: unknown): string {
   return String(value == null ? "" : value)
     .replace(/&/g, "&amp;")
@@ -373,7 +388,12 @@ function stageNode(story: VolumeOutlineStory, index: number, stage: VolumeOutlin
     index === 5 && story.mid ? `<span class="tag twist">承③ · ${escapeHtml(story.mid)}</span>` : "",
     index === 6 && story.twist ? `<span class="tag twist">转① · ${escapeHtml(story.twist)}</span>` : "",
   ].join("")
-  const summary = `<span class="body"><span class="line"><span class="k k-${meta.k}">${escapeHtml(meta.id)}</span><span class="t2">${escapeHtml(meta.name)}</span>${tags}</span></span>`
+  // 环节名 = 固定环节名（常态与破口）＋ 该故事的专属小标题（沐浴昏死）。
+  // 专属小标题是模型真正写出的内容，解析进来就必须渲染出来，不能再丢。
+  const stageTitle = stage.label && stage.label !== meta.name
+    ? (meta.name ? `${meta.name} · ${stage.label}` : stage.label)
+    : meta.name
+  const summary = `<span class="body"><span class="line"><span class="k k-${meta.k}">${escapeHtml(meta.id)}</span><span class="t2">${escapeHtml(stageTitle)}</span>${tags}</span></span>`
   const kids = [
     `<div class="leafrow"><span class="sp"></span><div class="body"><div class="who"><span class="lb">人物</span><span class="nm">${escapeHtml(stage.who)}</span><span class="ar">→</span><span>作用：${escapeHtml(stage.use)}</span></div></div></div>`,
     ...stage.p.map(leafRow),
@@ -964,29 +984,72 @@ export function normalizeVolumeOutlineData(raw: unknown): VolumeOutlineData | nu
     const daily = isRecord(line.daily) ? line.daily : {}
     const subsRaw = Array.isArray(line.sub) ? line.sub : []
     const stRaw = Array.isArray(item.st) ? item.st : []
+    /*
+     * 模型常把反转类型写在环节上（承③ reversal="认知反转"、转① reversal="身份反转"），
+     * 而不是 story 级 mid/twist。实测载荷 10/10 个故事都是这样：story 级两个字段缺失，
+     * 环节上的反转类型却一条不少 —— 结果是折叠树里「承③ · 」「转① · 」标签空着、
+     * 「反转类型分布」显示「未填」、反转覆盖数被少算。
+     * 这里把环节上的反转类型收集起来，供下方**无损**回填（同一信息，不编造）。
+     */
+    const reversalByStage = new Map<string, string>()
+    const stages = stRaw.filter(isRecord).map((stage) => {
+      /*
+       * 环节标识必须容忍别名。
+       *
+       * 实测故障（2026-10-09）：模型把 10 个环节写成 `{ "k": "起①", "name": "沐浴昏死", "p": [...], "pay": "…" }`
+       * —— 内容一条不少，只是键名用了 k。旧代码只读 stage，于是整批环节被静默丢成空串，
+       * 校验器随后报「第 N 个故事缺少环节 起①…合②」（10 故事 × 10 环节 = 100 项假警报），
+       * 折叠树里环节标题全空。**不是模型没写，是解析器没认。**
+       */
+      const stageId = asString(stage.stage)
+        || asString(stage.k)
+        || asString(stage.stageId)
+        || asString(stage.key)
+        || asString(stage.phase)
+        || asString(stage.id)
+      const reversal = asString(stage.reversal) || asString(stage.reversalType)
+      if (stageId && reversal) reversalByStage.set(stageId, reversal)
+      return {
+        stage: stageId,
+        label: asString(stage.name) || asString(stage.label) || asString(stage.title),
+        who: asString(stage.who),
+        use: asString(stage.use),
+        p: (Array.isArray(stage.p) ? stage.p : []).map(asString).filter(Boolean),
+        pay: asString(stage.pay),
+      }
+    })
+    const reversalAt = (stageId: string): string => {
+      const exact = reversalByStage.get(stageId)
+      if (exact) return exact
+      for (const [id, value] of reversalByStage) {
+        if (id.includes(stageId)) return value
+      }
+      return ""
+    }
     return {
       id: typeof item.id === "number" ? item.id : index + 1,
       range: asString(item.range),
-      title: asString(item.title),
+      title: asString(item.title) || asString(item.name),
       deliver: asString(item.deliver),
       gift: asString(item.gift),
-      mid: asString(item.mid),
-      twist: asString(item.twist),
+      // story 级优先；缺失时取对应环节上写的反转类型（模型确实给出了这个信息）。
+      mid: asString(item.mid) || reversalAt("承③"),
+      twist: asString(item.twist) || reversalAt("转①"),
       hook: asString(item.hook),
       climax: asString(item.climax),
-      beats: asString(item.beats),
+      /*
+       * 12 章节拍：契约要求字符串序列（如「平升起紧落缓升紧顶缓顶悬」），
+       * 但模型经常写成数组 ["平","升",…]。旧代码的 asString 只认字符串，
+       * 数组会被静默丢成空串 → 校验器报「缺少字段 beats」，而拍子其实都在。
+       * 数组形态无损拼回字符串（checkBeats 本来就按字符逐个读）。
+       */
+      beats: asString(item.beats) || asBeatSequence(item.beats),
       line: {
         main: asString(line.main),
         sub: subsRaw.filter(isRecord).map((sub) => ({ n: asString(sub.n), v: asString(sub.v) })),
         daily: { v: asString(daily.v), u: asString(daily.u) },
       },
-      st: stRaw.filter(isRecord).map((stage) => ({
-        stage: asString(stage.stage),
-        who: asString(stage.who),
-        use: asString(stage.use),
-        p: (Array.isArray(stage.p) ? stage.p : []).map(asString).filter(Boolean),
-        pay: asString(stage.pay),
-      })),
+      st: stages,
       link: asString(item.link),
     }
   })

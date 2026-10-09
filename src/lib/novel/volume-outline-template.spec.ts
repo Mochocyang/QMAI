@@ -420,6 +420,145 @@ describe("volume-outline-template", () => {
     expect(result.problems).toEqual([])
   })
 
+  /*
+   * 回归：模型把环节标识写成 k（而不是 stage）时，环节内容不得被丢掉。
+   *
+   * 实测故障（2026-10-09）：模型产出的 10 个故事 × 10 个环节用的是
+   *   { "k": "起①", "name": "沐浴昏死", "p": [...], "pay": "…" }
+   * 旧解析器只读 stage，整批环节被静默丢成空串，校验器于是报
+   * 「第 N 个故事缺少环节 起①…合②」—— 10 故事 × (10 环节 + 1 条环节不足)
+   * = 110 项假警报，用户看到「卷纲内容仍不完整（138 项）」。
+   * 内容其实一条不少，是解析器没认。
+   */
+  it("环节标识写成 k 时按环节认下，不再报「缺少环节」", () => {
+    const raw = {
+      title: "卷一",
+      goal: "目标",
+      stories: Array.from({ length: 10 }, (_, i) => ({
+        id: i + 1,
+        title: `故事${i + 1}`,
+        range: `第 ${i * 12 + 1}–${i * 12 + 12} 章`,
+        deliver: "交付人物",
+        gift: "获得物",
+        mid: "认知反转",
+        twist: "规则反转",
+        hook: "引线",
+        climax: "小高潮",
+        beats: "平升起紧落缓升紧顶缓顶悬",
+        line: { main: "主线", sub: [], daily: { v: "日常", u: "伏笔" } },
+        st: STAGES.map((stage) => ({
+          k: stage,
+          name: `${stage}的小标题`,
+          who: "主角（主角）",
+          use: "完成什么",
+          p: ["条目1", "条目2", "条目3"],
+          pay: "合①",
+        })),
+      })),
+    }
+
+    const data = normalizeVolumeOutlineData(raw)
+    expect(data).not.toBeNull()
+    expect(data!.stories[0].st.map((stage) => stage.stage)).toEqual(STAGES)
+
+    const problems = validateVolumeOutlineData(data, VALID_MD).problems.join("\n")
+    expect(problems).not.toContain("缺少环节")
+    expect(problems).not.toContain("环节不足 10 个")
+  })
+
+  it("环节别名同时保留模型写的环节小标题，并渲染出来", () => {
+    const raw = {
+      stories: [{
+        id: 1,
+        title: "故事一",
+        st: [{ k: "起①", name: "沐浴昏死", p: ["条目1", "条目2", "条目3"] }],
+      }],
+    }
+    const data = normalizeVolumeOutlineData(raw)
+    expect(data!.stories[0].st[0].stage).toBe("起①")
+    expect(data!.stories[0].st[0].label).toBe("沐浴昏死")
+
+    const html = renderVolumeOutlineHtml(data!, "<html>__VOLUME_TREE__</html>")
+    // 固定环节名与模型小标题并存，内容不能再被丢掉
+    expect(html).toContain("常态与破口")
+    expect(html).toContain("沐浴昏死")
+  })
+
+  it("12 章节拍写成数组时无损拼回字符串（不再报缺少 beats）", () => {
+    const beats = ["平", "升", "起", "紧", "落", "缓", "升", "紧", "顶", "缓", "顶", "悬"]
+    const data = normalizeVolumeOutlineData({
+      stories: [{
+        id: 1,
+        title: "故事一",
+        beats,
+        st: [{ stage: "起①", p: ["a", "b", "c"] }],
+      }],
+    })
+    expect(data!.stories[0].beats).toBe("平升起紧落缓升紧顶缓顶悬")
+    expect(validateVolumeOutlineData(data, VALID_MD).problems.join("\n")).not.toContain("缺少字段 beats")
+  })
+
+  it("非字符串、非数组的 beats（数字/对象）仍如实报缺失，不伪造内容", () => {
+    const data = normalizeVolumeOutlineData({
+      stories: [{ id: 1, title: "故事一", beats: 12, st: [{ stage: "起①", p: ["a", "b", "c"] }] }],
+    })
+    expect(data!.stories[0].beats).toBe("")
+    expect(validateVolumeOutlineData(data, VALID_MD).problems.join("\n")).toContain("缺少字段 beats")
+  })
+
+  /*
+   * 回归：模型把反转类型写在环节上（承③ reversal / 转① reversal），
+   * 而不是 story 级 mid/twist —— 实测载荷 10/10 个故事都是这样。
+   * 旧解析器只读 story 级字段，于是折叠树里「承③ · 」「转① · 」标签空着、
+   * 「反转类型分布」显示「未填」、反转覆盖数被少算。内容在输出里，不能再丢。
+   */
+  it("反转类型只写在承③/转① 环节上时，无损回填 story 级 mid/twist", () => {
+    const data = normalizeVolumeOutlineData({
+      stories: [{
+        id: 1,
+        title: "故事一",
+        st: [
+          { k: "承③", name: "稻草变枷锁", reversal: "认知反转", p: ["a", "b", "c"] },
+          { k: "转①", name: "旧识上门", reversal: "身份反转", p: ["a", "b", "c"] },
+        ],
+      }],
+    })
+    expect(data!.stories[0].mid).toBe("认知反转")
+    expect(data!.stories[0].twist).toBe("身份反转")
+
+    const html = renderVolumeOutlineHtml(data!, "<html>__VOLUME_TREE__</html>")
+    expect(html).toContain("承③ · 认知反转")
+    expect(html).toContain("转① · 身份反转")
+    expect(html).not.toContain("承③ · <")
+  })
+
+  it("story 级 mid/twist 已给出时优先采用，不被环节上的值覆盖", () => {
+    const data = normalizeVolumeOutlineData({
+      stories: [{
+        id: 1,
+        title: "故事一",
+        mid: "力量反转",
+        twist: "立场反转",
+        st: [
+          { k: "承③", reversal: "认知反转", p: ["a", "b", "c"] },
+          { k: "转①", reversal: "身份反转", p: ["a", "b", "c"] },
+        ],
+      }],
+    })
+    expect(data!.stories[0].mid).toBe("力量反转")
+    expect(data!.stories[0].twist).toBe("立场反转")
+  })
+
+  it("环节上没有反转类型时不编造，mid/twist 保持为空", () => {
+    const data = normalizeVolumeOutlineData({
+      stories: [{ id: 1, title: "故事一", st: [{ k: "起①", p: ["a", "b", "c"] }] }],
+    })
+    expect(data!.stories[0].mid).toBe("")
+    expect(data!.stories[0].twist).toBe("")
+    // 承③/转① 用了相同反转类型才该报警；缺字段不该被「回填」成假内容
+    expect(validateVolumeOutlineData(data, VALID_MD).problems.join("\n")).not.toContain("相同反转类型")
+  })
+
   it("台账字段全缺时逐项报出，可触发一次 AI 补全", () => {
     const result = validateVolumeOutlineData(buildData(), VALID_MD)
     expect(result.ok).toBe(false)

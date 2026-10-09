@@ -47,6 +47,7 @@ import {
   useOutlineChatStore,
   type OutlineMultiAgentRunState,
   type OutlineChatMessage,
+  type OutlineSaveReport,
 } from "@/stores/outline-chat-store";
 import { normalizePath } from "@/lib/path-utils";
 import { refreshProjectState } from "@/lib/project-refresh";
@@ -76,6 +77,7 @@ import {
 import { OutlineWizardDialog } from "@/components/sources/outline-wizard-dialog";
 import { NovelGenerationRequestMessage } from "@/components/sources/novel-generation-request-message";
 import { OutlineMultiAgentPanel } from "@/components/sources/outline-multi-agent-panel";
+import { OutlineSaveReportPanel } from "@/components/sources/outline-save-report";
 import {
   OutlineStandardWorkflowPanel,
   shouldShowOutlineToolCalls,
@@ -843,8 +845,8 @@ function getOutlineSectionOutputRules(title: string): string {
       "",
       "【完整性硬要求】",
       "1. volumeOutlineData.stories 必须写满 10 个故事对象，一个都不能少；",
-      "2. 每个故事 st 必须写满 10 个环节：起①起②起③承①承②承③转①转②合①合②，每环节必须带 stage、who（人物＋功能位）、use（这一段要完成什么）、pay（该环节埋的期待在哪里兑现，如「合①」「故事五 承②」）、p（3 条具体条目）；",
-      "3. 每个故事必须填全字段：range / deliver / gift / mid / twist / hook / link / climax / beats（12 章节拍序列）；link 说明本故事引线在下一故事起①如何被接住；",
+      "2. 每个故事 st 必须写满 10 个环节：起①起②起③承①承②承③转①转②合①合②，每环节必须带 stage（**环节标识就用 stage 这个键，值写作「起①」这种标识，不要用 k / id 代替**）、who（人物＋功能位）、use（这一段要完成什么）、pay（该环节埋的期待在哪里兑现，如「合①」「故事五 承②」）、p（3 条具体条目）；可选 name：给该环节起一句具体的小标题（如「沐浴昏死」），软件会连同环节名一起显示；",
+      "3. 每个故事必须填全字段：range（**该故事覆盖的章号范围，如「第 1–12 章」，不是卷名**） / deliver / gift / mid（承③的反转类型） / twist（转①的反转类型） / hook / link / climax / beats（12 章节拍序列，可写成字符串「平升起紧落缓升紧顶缓顶悬」）；link 说明本故事引线在下一故事起①如何被接住；",
       "4. 每个故事必须包含 line（main 主线＋sub 支线数组＋daily 日常与日常作用）；",
       "5. 顶层必须补跨故事台账字段：position（卷级定位：pitch 卷定位 / theme 主题句 / narrative 叙事形态 / structure 结构选用声明 / chapters 建议章数 / ending 卷末落点）、roles（卷级功能位总览：引路/主角/阻力/镜子/代价/预埋 各一条）、foreshadows（伏笔追踪：每条 v 内容 / seed 埋设位置 / pay 回收位置）、cast（人物出场表：每条 n 人物 / role 功能位 / stories 出场故事 / u 作用）、escalation（大高潮分解+代价阶梯：写满 10 条，每条 id 故事 / stake 赌注等级 / lose 付出的代价 / rise 抬升到什么）、debts（悬念债务：每条 q 问题 / from 起始 / plan 计划回收）、rivals（对手推进：每条 n 对手 / moves 每故事的出手目标与动作）、growth（人物成长与资源：每条 n 人物 / gains 获得物与资源演进 / state 能力与状态变化）、places（地点组织索引：每条 n 名称 / kind 类型 / stories 出场故事 / u 剧情作用）；",
       "6. position.structure 必须声明本卷选用的叙事结构：全卷 1 个 + 单故事 1 个 + 逐章 1 个，并说明为什么不用其余几种（不得叠加）；",
@@ -1127,6 +1129,52 @@ function outlineToolCallsToSources(
     }
   }
   return Array.from(new Set(sources.filter((source) => !source.endsWith(":"))));
+}
+
+/**
+ * 卷纲「自动补全」的提示词。
+ *
+ * ⚠️ 必须复用**卷纲契约本身**（getOutlineSectionOutputRules），不能手写一份精简版要求。
+ *
+ * 实测故障（2026-10-09）：这里原先手写了一份要求清单，只要 pay / p / link /
+ * position / roles / …，却漏掉了 stage / who / use / range / deliver / gift /
+ * hook / climax / beats / line —— 而紧接着的校验器（validateVolumeOutlineData）
+ * 恰恰要求这些。于是「自动补全」被要求产出的东西**永远不可能通过校验**：
+ * 补一轮 → 仍报同样的问题 → 用户看到「卷纲内容仍不完整（138 项）」。
+ * 这不是模型不听话，是提示词与校验器各说各话。
+ *
+ * 导出给测试用：防止将来又有人把这段改回手写清单。
+ */
+export function buildVolumeOutlineRepairPrompt(options: {
+  fileName: string;
+  problemsText: string;
+}): string {
+  return [
+    "系统检测到上一轮卷纲内容不完整，无法渲染折叠树，问题如下：",
+    `- ${options.fileName}：${options.problemsText}`,
+    "请按下面的卷纲契约**完整重出这一卷**（是重新产出完整内容，不是解释、不是摘要、不是只补缺的那几项）：",
+    getOutlineSectionOutputRules("卷纲"),
+    "上一轮已经写对的部分也要一并重出，保证本卷能独立成文。禁止任何省略写法。",
+  ].join("\n");
+}
+
+/**
+ * 把保存前校验的问题挂到消息上，渲染在该条生成结果的下方。
+ *
+ * 背景：卷纲/章纲的结构化校验不阻止保存（用户仍可「保存当前内容」），
+ * 但原先只弹一个持久 toast，把 100+ 条问题塞进一个带滚动条的小浮层里，
+ * 既和生成结果脱节、又读不完。改为挂在消息上，明细可就地展开。
+ */
+function attachOutlineSaveReport(
+  conversationId: string,
+  messageId: string | undefined,
+  report: OutlineSaveReport | null,
+): void {
+  if (!messageId) return;
+  updateOutlineAssistantMessage(conversationId, messageId, (message) => ({
+    ...message,
+    outlineSaveReport: report ?? undefined,
+  }));
 }
 
 function updateOutlineAssistantMessage(
@@ -1703,6 +1751,14 @@ function OutlineAssistantMessage({
           <OutlineMarkdownContent content={text} projectPath={projectPath} />
         )}
       />
+      {/*
+        * 保存前校验的问题清单：紧贴在**生成结果下方**。
+        * 这类问题不阻止保存，所以不该只弹一个和内容脱节的持久浮层 ——
+        * 用户要能看到「这段结果到底缺哪几项」，再决定补全还是照样保存。
+        */}
+      {msg.outlineSaveReport && !messageIsStreaming ? (
+        <OutlineSaveReportPanel report={msg.outlineSaveReport} />
+      ) : null}
       {/*
         * 停止生成之后的补救动作，紧贴在「已停止生成」那句提示的下方。
         * 用户停止生成常常是想换个模型再试，所以停下之后必须当场给出
@@ -2503,6 +2559,24 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }
           const names = saveResult.saved.map((item) => item.fileName).join("、");
           setSaveStatus(`已保存 ${saveResult.saved.length} 个文件：${names}`);
+          // 文件已落盘：清掉该会话里过期的校验报告，避免「已保存」旁边还挂着警告。
+          const savedConvId = useOutlineChatStore.getState().activeConversationId;
+          if (savedConvId) {
+            useOutlineChatStore.setState((state) => ({
+              conversations: state.conversations.map((conversation) =>
+                conversation.id === savedConvId
+                  ? {
+                      ...conversation,
+                      messages: conversation.messages.map((message) =>
+                        message.outlineSaveReport
+                          ? { ...message, outlineSaveReport: undefined }
+                          : message,
+                      ),
+                    }
+                  : conversation,
+              ),
+            }));
+          }
           drainNextSaveBatch();
           return;
         }
@@ -2634,8 +2708,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   );
 
   const handleAutoSaveOutlineRequests = useCallback(
-    async (conversationId: string, assistantContent: string, canApply: () => boolean) => {
+    async (
+      conversationId: string,
+      assistantContent: string,
+      canApply: () => boolean,
+      assistantId?: string,
+    ) => {
       if (!project || !canApply()) return;
+      // 新一轮校验开始：先撤掉上一条报告，内容补齐后它应当自己消失。
+      attachOutlineSaveReport(conversationId, assistantId, null);
       const filteredOutput = filterOutlineGeneratedContent(assistantContent);
       if (filteredOutput.reasoningOnly || !filteredOutput.content) return;
       const safeAssistantContent = filteredOutput.content;
@@ -2698,11 +2779,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               const result = validateVolumeOutlineData(data, volumeRequests[0].content);
               return {
                 count: result.problems.length,
+                problems: result.problems,
                 text: result.problems.join("；"),
                 fileName: volumeRequests[0].fileName,
               };
             })()
-          : { count: 0, text: "", fileName: "" };
+          : { count: 0, problems: [] as string[], text: "", fileName: "" };
         if (volumeValidation.count > 0) {
           const repairKey = outlineRepairAttemptsKey("volume", conversationId);
           const attempts = outlineRepairAttemptsRef.current.get(repairKey) ?? 0;
@@ -2711,19 +2793,25 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             setSaveStatus("检测到卷纲内容不完整，正在自动补全…");
             setPendingVolumeRepair({
               conversationId,
-              prompt: [
-                "系统检测到上一轮卷纲内容不完整，无法渲染折叠树，问题如下：",
-                `- ${volumeValidation.fileName}：${volumeValidation.text}`,
-                "请重新输出完整卷纲：1) MD 正文；2) 一个 ```json 围栏的 volumeOutlineData，stories 必须写满 10 个故事、每个故事 st 必须写满 10 个环节（起①~合②）且每环节带 pay（期待兑现位置）、每个故事带 link（引线如何被下一故事接住）、每条 p 必须 3 条具体条目、顶层必须带 position（卷级定位，其中 structure 要声明选用的叙事结构）/roles/foreshadows/cast/escalation（写满 10 条代价阶梯）/debts/rivals/growth/places、承③(mid) 与 转①(twist) 必须是不同反转类型；3) outlineSaveRequest（content 为 MD 正文即可，不要写 HTML）。禁止任何省略写法。",
-              ].join("\n"),
+              prompt: buildVolumeOutlineRepairPrompt({
+                fileName: volumeValidation.fileName,
+                problemsText: volumeValidation.text,
+              }),
             });
             return;
           }
           const shown = volumeValidation.text.length > 120
             ? `${volumeValidation.text.slice(0, 120)}…`
             : volumeValidation.text;
+          // 明细挂在生成结果下方（可逐条展开），浮层只留一句指路。
+          attachOutlineSaveReport(conversationId, assistantId, {
+            fileName: volumeValidation.fileName,
+            fileType: "volume-outline",
+            problems: volumeValidation.problems,
+            repairAttempted: true,
+          });
           showOutlineAutoSaveError(
-            `卷纲内容仍不完整（${volumeValidation.count} 项）：${shown}。可保存当前内容，或让 AI 重新生成。`,
+            `卷纲内容仍不完整（${volumeValidation.count} 项）：${shown}。明细已列在该条消息下方；可保存当前内容，或让 AI 重新生成。`,
           );
         }
 
@@ -2739,11 +2827,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               if (data) problems.push(...(await collectVolumeCrossProblems(data)));
               return {
                 count: problems.length,
+                problems,
                 text: problems.join("；"),
                 fileName: chapterRequests[0].fileName,
               };
             })()
-          : { count: 0, text: "", fileName: "" };
+          : { count: 0, problems: [] as string[], text: "", fileName: "" };
         if (chapterValidation.count > 0) {
           const repairKey = outlineRepairAttemptsKey("chapter", conversationId);
           const attempts = outlineRepairAttemptsRef.current.get(repairKey) ?? 0;
@@ -2763,8 +2852,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           const shown = chapterValidation.text.length > 120
             ? `${chapterValidation.text.slice(0, 120)}…`
             : chapterValidation.text;
+          attachOutlineSaveReport(conversationId, assistantId, {
+            fileName: chapterValidation.fileName,
+            fileType: "chapter-outline",
+            problems: chapterValidation.problems,
+            repairAttempted: true,
+          });
           showOutlineAutoSaveError(
-            `章纲内容仍不完整（${chapterValidation.count} 项）：${shown}。可保存当前内容，或让 AI 重新生成。`,
+            `章纲内容仍不完整（${chapterValidation.count} 项）：${shown}。明细已列在该条消息下方；可保存当前内容，或让 AI 重新生成。`,
           );
         }
 
@@ -4157,7 +4252,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           && !options.planPhase
           && !discussProtocolRequired
         ) {
-          await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
+          await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun, assistantId);
         }
         if (!isCurrentRun()) return { started: true, sent: false };
         const firstUser = useOutlineChatStore
@@ -5864,7 +5959,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           && !regenerationIntentProtocolError
           && !regenerationProtocolRequired
         ) {
-          await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun);
+          await handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun, assistantId);
         }
         if (!isCurrentRun()) return;
         clearStreamingContent(capturedConvId);

@@ -96,6 +96,23 @@ export interface OutlineMultiAgentRunState {
   }
 }
 
+/**
+ * 保存前的结构化校验报告（卷纲 10×10、章纲 17 节等）。
+ *
+ * 存在的意义：这类问题不阻止保存（用户可以「保存当前内容」），但必须让用户
+ * **在生成结果旁边**看见缺什么，而不是被一个和内容脱节的浮层挡住。
+ */
+export interface OutlineSaveReport {
+  /** 拟保存的文件名。 */
+  fileName: string
+  /** 结构化数据类型，用于文案（卷纲 / 章纲）。 */
+  fileType: "volume-outline" | "chapter-outline"
+  /** 校验器给出的问题清单（原文，不截断 —— 明细要能逐条看）。 */
+  problems: string[]
+  /** 是否已经自动补全过一次仍不完整（此时可强制保存）。 */
+  repairAttempted: boolean
+}
+
 export interface OutlineChatMessage {
   /** 实际发送时间；旧消息缺失时不补造时间。 */
   timestamp?: number
@@ -128,6 +145,14 @@ export interface OutlineChatMessage {
   /** 共创模式：决策点或定稿协议结果。 */
   outlineDiscussProtocol?: OutlineDiscussProtocol | null
   outlineDiscussError?: string
+  /**
+   * 保存前结构化校验发现的问题。
+   *
+   * 挂在这条消息上、显示在生成结果**下方**，而不是只弹一个持久浮层：
+   * 用户看到的应当是「这段生成结果哪里不完整」，而不是一条和内容脱节、
+   * 还带滚动条的错误提示（实测报过「卷纲内容仍不完整（138 项）」）。
+   */
+  outlineSaveReport?: OutlineSaveReport
   /** 共创模式：卡片已被使用，重载后保持置灰。 */
   outlineDiscussDecision?: OutlineDiscussDecisionState
   nextStepRecommendation?: NextStepRecommendation | null

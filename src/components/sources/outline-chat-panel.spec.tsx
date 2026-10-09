@@ -22,6 +22,7 @@ import { toast } from "@/lib/toast"
 import { useWikiStore } from "@/stores/wiki-store"
 import {
   buildOutlineAgentSystemPrompt,
+  buildVolumeOutlineRepairPrompt,
   filterOutlineGeneratedContent,
   OutlineChatPanel,
 } from "./outline-chat-panel"
@@ -180,8 +181,54 @@ describe("AI 大纲完整结果过滤", () => {
   })
 })
 
-describe("OutlineChatPanel controls", () => {
+describe("卷纲自动补全提示词与校验器同契约", () => {
+  /*
+   * 回归：补全提示词曾经手写一份精简要求，只要 pay / p / link / position / roles，
+   * 却漏掉 stage / who / use / range / deliver / gift / hook / climax / beats / line ——
+   * 而校验器（validateVolumeOutlineData）恰恰要求这些。
+   * 结果是「自动补全」被要求产出的东西永远过不了校验：补一轮 → 还是同样的
+   * 「卷纲内容仍不完整（N 项）」。修复方式是直接复用卷纲契约本身，
+   * 这条用例把它钉住：任何一项被漏掉都必须红。
+   */
+  const prompt = buildVolumeOutlineRepairPrompt({
+    fileName: "修真界卷级架构.md",
+    problemsText: "第 1 个故事缺少字段 beats。",
+  })
 
+  it("带上问题清单与待保存文件名", () => {
+    expect(prompt).toContain("修真界卷级架构.md")
+    expect(prompt).toContain("第 1 个故事缺少字段 beats。")
+  })
+
+  it("覆盖校验器要求的每一个故事级字段（漏一个就会「补了还不过」）", () => {
+    for (const field of ["range", "deliver", "gift", "mid", "twist", "hook", "link", "climax", "beats"]) {
+      expect(prompt).toContain(field)
+    }
+  })
+
+  it("覆盖环节的每一个必填项与 10 个环节名", () => {
+    for (const field of ["stage", "who", "use", "pay"]) expect(prompt).toContain(field)
+    for (const stage of ["起①", "起②", "起③", "承①", "承②", "承③", "转①", "转②", "合①", "合②"]) {
+      expect(prompt).toContain(stage)
+    }
+  })
+
+  it("覆盖 story.line 与顶层台账字段", () => {
+    expect(prompt).toContain("line")
+    for (const field of [
+      "position", "roles", "foreshadows", "cast", "escalation", "debts", "rivals", "growth", "places",
+    ]) {
+      expect(prompt).toContain(field)
+    }
+  })
+
+  it("要求完整重出、禁止省略，而不是只补缺项", () => {
+    expect(prompt).toContain("完整重出")
+    expect(prompt).toContain("禁止任何省略写法")
+  })
+})
+
+describe("OutlineChatPanel controls", () => {
   it("上下文圆环使用 AI 大纲选中模型的窗口而不是全局模型窗口", async () => {
     useWikiStore.setState({
       llmConfig: {
@@ -1169,7 +1216,11 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toMatch(
       /intentProtocol\.kind === "none"\s*\n\s*&& !intentProtocolError\s*\n\s*&& !deliverableTruncated/,
     )
-    expect(source).toContain("handleAutoSaveOutlineRequests(capturedConvId, finalContent, isCurrentRun)")
+    // 这条被截断闸门守着的调用必须存在；允许后面继续追加参数（如 assistantId），
+    // 否则每次给这个函数加参数都要来改守卫，而守卫真正要守的是「调用没有被删掉」。
+    expect(source).toMatch(
+      /handleAutoSaveOutlineRequests\(capturedConvId, finalContent, isCurrentRun[,)]/,
+    )
     expect(source).toContain("isSaveableOutlineDeliverable")
     expect(source).toContain("生成完成后自动保存")
     expect(source).toContain("if (isOutlineOutputTruncated(charRun.error)) deliverableTruncated = true")
@@ -1773,6 +1824,81 @@ describe("OutlineChatPanel controls", () => {
     expect(document.body.textContent).toContain("请确认要保存的大纲文件")
     // 气泡里能看到正文
     expect(container.textContent).toContain("三卷递进")
+  })
+
+  /*
+   * 端到端：卷纲结构化数据不完整时，
+   *   ① 校验问题必须挂在**生成结果下方**那条消息上（而不是只弹浮层）；
+   *   ② 自动补全提示词必须复用卷纲契约，否则补了也过不了校验。
+   */
+  it("卷纲不完整时，校验问题挂在生成结果下方，且补全提示词带上完整契约", async () => {
+    const repairPrompts: string[] = []
+    let callIndex = 0
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, messages, callbacks) => {
+      const lastUser = agentMessageContentText(
+        messages.findLast((message) => message.role === "user")?.content ?? "",
+      )
+      if (callIndex > 0) repairPrompts.push(lastUser)
+      callIndex += 1
+      // 两轮都返回「故事数不足 + 环节缺失」的不完整卷纲：第一轮触发自动补全，
+      // 第二轮补完仍不完整 → 挂报告 + 提示可保存当前内容。
+      const output = [
+        "# 修真界卷级架构",
+        "",
+        "## 总体定位",
+        "整体基调先抑后扬。",
+        "",
+        "```json",
+        JSON.stringify({
+          volumeOutlineData: {
+            title: "修真界卷级架构",
+            stories: [{ id: 1, title: "故事一", st: [{ stage: "起①", p: ["a", "b", "c"] }] }],
+          },
+        }),
+        "```",
+        "```json",
+        JSON.stringify({
+          outlineSaveRequest: {
+            targetFolder: "卷纲",
+            fileName: "修真界卷级架构.md",
+            fileType: "volume-outline",
+            writeMode: "create",
+            referencedSkills: [],
+            sourceIntent: "生成完成后自动保存",
+            content: "# 修真界卷级架构\n\n## 总体定位\n\n整体基调先抑后扬。",
+          },
+        }),
+        "```",
+      ].join("\n")
+      callbacks.onText(output)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: output }
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+
+    await submitOutlineInput(container, "把这一卷的卷纲写出来")
+    // 自动补全那一轮是 effect 触发的，等它跑完
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+
+    // ① 报告挂在消息上，并显示在生成结果下方
+    const reported = useOutlineChatStore.getState().conversations[0].messages
+      .filter((message) => message.role === "assistant" && message.outlineSaveReport)
+      .at(-1)
+    expect(reported?.outlineSaveReport?.fileType).toBe("volume-outline")
+    expect(reported!.outlineSaveReport!.problems.length).toBeGreaterThan(0)
+    expect(container.textContent).toContain("卷纲内容不完整（")
+    expect(container.textContent).toContain("待保存文件：修真界卷级架构.md")
+    // 明细逐条可读，且保留「照样保存」的出口
+    expect(container.textContent).toContain(reported!.outlineSaveReport!.problems[0])
+    expect(container.textContent).toContain("可以保存当前内容，或让 AI 重新生成")
+
+    // ② 补全提示词复用卷纲契约（否则「补一轮→还是同样的 N 项」）
+    expect(repairPrompts.length).toBeGreaterThan(0)
+    const repairPrompt = repairPrompts[0]
+    for (const field of ["range", "deliver", "gift", "mid", "twist", "hook", "climax", "beats", "stage", "who", "use", "line"]) {
+      expect(repairPrompt).toContain(field)
+    }
   })
 
   it("共创模式定稿后才进入正文生成", async () => {
