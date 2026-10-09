@@ -1,7 +1,11 @@
 # 记忆快照「出场物品」分析与优化方案
 
 > 分支 `work/scratch-20261009` ｜ 2026-10-09
-> 结论先行：**物品目前是「只写不读」的 —— 提取了、落盘了、但几乎从不进入写作提示词。**
+>
+> **状态：已实施。** §1–§2 记录的是**改造前**的现状与体检结论，
+> §3 是方案（§3.4 已按核查结果修正），**§7 是实施记录与实测结果**。
+>
+> 结论先行：**物品原本是「只写不读」的 —— 提取了、落盘了、但几乎从不进入写作提示词。**
 > 所以「优化之后能不能正常读取」这个问题的答案是：**必须先修可达性，否则把分类做得再细也读不到。**
 
 ---
@@ -175,11 +179,23 @@ itemCategories?: Record<string, "protagonist" | "supporting" | "antagonist" | "t
 3. **落点**：分类结果随快照落盘，并在 §3.1 的「相关道具」小节里体现 ——
    `trivial` 的道具不进提示词（省 token），其余按持有者归组。
 
-### 3.4 顺手清掉死重
+### 3.4 死重清理：**核查后推翻了自己的初判**
 
-`graphNodes`、`entityIsNew`、`relationshipChanges` 可从提示词与结构里移除；
-`itemDetails` 只保留真正被消费的 `holder`（+ 建议保留 `abilities/limitations`，
-因为 §3.1 的小节要用）。这项**要先确认没有外部读取方**再动。
+原计划「顺手清掉 `graphNodes`、`entityIsNew`、`relationshipChanges`」。
+逐项核查读者后发现**初判有错**——前两个之外的三项其实都有下游读取方：
+
+| 字段 | 初判 | 核查结果 |
+|---|---|---|
+| `graphNodes` | 死重 | ❌ **有读者**：`chapter-ingest-output.ts:240`、`graph-adapter.ts:122`（规范化）、`snapshot-viewer.tsx:209,230`（展示与编辑回写） |
+| `relationshipChanges` | 死重 | ❌ **有读者**：`chapter-ingest-output.ts:164,181`、`fact-snapshot.ts:343-344`（真在比对关系变化） |
+| `validationWarnings` | 死重 | ❌ **有读者**：`chapter-ingest.ts:708-712` 渲染 `.snapshot.md` 的「校验警告」段，是给人看的真输出 |
+| `entityIsNew` | 死重 | ✅ 确认只写不读（仅 `chapter-ingest.ts:1275-1291` 写、无任何读者） |
+| `.search-index.json` / `.vector-index.json` | 死重 | ✅ 确认只写不读（仅 `:1255-1256` 写；TS 与 Rust 两侧都搜过，零读者） |
+
+**本次一律不删。** 理由：初判在 5 项里错了 3 项，说明这类「看起来没人用」的结论
+必须逐项验证，而不是靠阅读印象；而基于错误分析的删除比不删危险得多
+（`graphNodes` 若按初判删掉，会直接砍掉快照查看器的编辑能力与图谱规范化）。
+确认只写不读的两项留给后续独立改动，届时可连同 `.snapshot.md` 的对应段落一起处理。
 
 ---
 
@@ -219,3 +235,53 @@ itemCategories?: Record<string, "protagonist" | "supporting" | "antagonist" | "t
 先按 §3.1 把它接进 `sectionBriefing`（priority 0 的保底通道），
 再用 §3.2 的旁挂字段做四分类（避开 `normalizeSnapshotList` 的静默吞数据陷阱），
 最后按 §5 用「打字到提示词」的端到端断言把通路钉死。
+
+> **以上方案已实施完毕，实施记录与实测结果见 §7。**
+
+---
+
+## 7. 实施记录（已完成）
+
+### 7.1 落地了什么
+
+| 环节 | 文件 | 说明 |
+|---|---|---|
+| 收集/分类/筛选/排版 | `src/lib/novel/item-category.ts`（新） | 纯函数，便于单测；`items` 形状**未改** |
+| 快照字段 | `src/lib/novel/chapter-ingest.ts` | 新增 `itemCategories?`；用**闭集**归一化器（认不出的分类丢掉，不落垃圾键）；`.snapshot.md` 的「出场物品」带上分类标签 |
+| 提取提示词 | `src/lib/novel/chapter-ingest-extract.ts` | 增加 `itemCategories` schema + 归类口径（「有没有故事作用」而非「贵不贵重」）；支持注入已建立设定 |
+| 已建立设定 | `src/lib/novel/extract-established-context.ts`（新） | 角色定位名册（**只列目录、不读正文**）+ 未回收伏笔；上限 1500 字 |
+| **可达性** | `src/lib/novel/section-briefing.ts` | 新增「### 相关道具」小节，只读**本章之前**的 30 份章节快照 |
+| 缓存失效 | `src/lib/context-hub/data-source-cache.ts` | `sectionBriefing: 2 → 3` |
+| 角色词汇表 | `src/lib/novel/character-multi-agent.ts` | 导出 `CHARACTER_ROLE_TYPES`（避免第三份枚举副本） |
+
+### 7.2 两个动手后才发现的关键事实
+
+1. **`sectionBriefing` 的缓存接线早就是对的**，不必像初判那样担心：
+   `source-paths.ts:98` 的依赖前缀**本来就含 `.novel/snapshots/`**，
+   且它已在 `TASK_SCOPED_SOURCES`（`data-source-cache.ts:81`）里。
+   所以「新读快照」不需要动任何缓存依赖声明——但**必须 bump 版本号**，
+   否则旧缓存（用不含物品的代码算出来的）会因为依赖戳没变而一直命中，
+   表现为「改了代码，提示词里始终没有道具」。
+2. **§3.4 的死重初判错了 3/5**。详见 §3.4 的核查表。
+
+### 7.3 实测结果
+
+- 新增 3 个 spec 文件、+43 个用例：
+  - `item-category.spec.ts` —— 归一化、跨快照合并、筛选、排版（含畸形数据防御）
+  - `item-briefing-integration.spec.ts` —— **端到端**：磁盘快照 → `buildContextPack` → `contextPackToPrompt`
+  - `extract-established-context.spec.ts` —— 角色名册解析与已建立设定构建
+- **反向验证（防假绿）**：把「相关道具」小节临时关掉（`MAX_BRIEFING_ITEMS = 0`）后，
+  端到端用例 7 条里**失败 6 条**，恢复后全绿 —— 证明这些断言真的在盯这条通路，
+  而不是恰好通过。
+- 全量：`npm run test:mocks` **714 文件 / 6874 通过**（基线 711 / 6831）；
+  `typecheck` 与 `typecheck:tests` 均 exit 0。
+- 提取提示词长度实测 **1379 字符**（预算 2402），新增分类说明后仍有充足余量。
+
+### 7.4 已知边界
+
+- **只读章节快照**，不读大纲快照（负数）。大纲快照里的 `items` 是**规划**，
+  其 `holder` 是模型对未来剧情的推测，当「当前持有者」会误导正文。
+- 往前看 30 章：再早的道具若本章未点名就找不回来。这是**有意的取舍**——
+  无上限读取会让长篇（上千章）的上下文装配成本随书长线性上涨。
+- 提取阶段的分类质量取决于模型；规则侧只保证**闭集收敛与不确定性不误判**
+  （认不出的分类宁可丢掉，也不会当成主角道具注入）。

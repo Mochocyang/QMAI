@@ -43,6 +43,8 @@ import {
   resolveChapterExtractMaxTokens,
 } from "./chapter-ingest-extract"
 import { appendChapterIngestLog, previewLlmOutput } from "./chapter-ingest-log"
+import { normalizeItemCategoryRecord, ITEM_CATEGORY_LABELS, type ItemCategory } from "./item-category"
+import { buildEstablishedContextForExtraction } from "./extract-established-context"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict"
@@ -120,6 +122,14 @@ export interface ChapterSnapshot {
   locationDetails?: Record<string, LocationDetail>
   organizationDetails?: Record<string, OrganizationDetail>
   itemDetails?: Record<string, ItemDetail>
+  /**
+   * 物品分类（旁挂，不改 `items` 的 string[] 形状）。
+   *
+   * 为什么另开一个字段而不是把 `items` 改成对象数组：`normalizeSnapshotList()`
+   * 会把非字符串元素静默丢成 `""` 再 filter 掉，改形状不会报错、只会让
+   * 已有快照里的物品凭空消失，并且污染图谱。详见 item-category.ts 顶部说明。
+   */
+  itemCategories?: Record<string, ItemCategory>
   eventDetails?: Record<string, EventDetail>
 }
 
@@ -232,6 +242,9 @@ function normalizeChapterSnapshot(
     locationDetails: normalizeSnapshotDetailRecord<LocationDetail>(raw.locationDetails),
     organizationDetails: normalizeSnapshotDetailRecord<OrganizationDetail>(raw.organizationDetails),
     itemDetails: normalizeSnapshotDetailRecord<ItemDetail>(raw.itemDetails),
+    // 用专门的归一化器而不是 normalizeSnapshotDetailRecord：分类是**闭集**，
+    // 模型偶尔会回「其他」「重要」这类词，直接落盘会在读取侧变成无意义的键。
+    itemCategories: normalizeItemCategoryRecord(raw.itemCategories),
     eventDetails: normalizeSnapshotDetailRecord<EventDetail>(raw.eventDetails),
   }
 }
@@ -388,7 +401,14 @@ export async function ingestChapter(
   const existingSnapshotPromise = readCurrentSnapshot(pp, chapterNumber)
   let extractedSnapshot: ChapterSnapshot | null
   try {
-    extractedSnapshot = await extractSnapshotWithLLM(chapterNumber, body, runtimeLlmConfig, signal)
+    // 先备好「已建立设定」：物品分类要判断归属（谁是主角/配角/反派）与有无意义
+    // （对照已埋设伏笔），只看本章正文是判不准的。读取失败会退化成空串，
+    // 提示词随之与改造前完全一致，绝不会因此中断摄取。
+    const establishedContext = await buildEstablishedContextForExtraction(pp)
+      .catch(() => "")
+    extractedSnapshot = await extractSnapshotWithLLM(
+      chapterNumber, body, runtimeLlmConfig, signal, establishedContext,
+    )
   } catch (err) {
     return logFail("extract_failed", err instanceof Error ? err.message : String(err))
   }
@@ -568,11 +588,12 @@ async function extractSnapshotWithLLM(
   chapterBody: string,
   llmConfig: LlmConfig,
   signal?: AbortSignal,
+  establishedContext = "",
 ): Promise<ChapterSnapshot | null> {
   const outputLang = getOutputLanguage()
   const langReminder = buildLanguageReminder(outputLang)
   const systemPrompt = buildChapterExtractSystemPrompt(langReminder)
-  const userPrompt = buildChapterExtractUserPrompt(chapterNumber, chapterBody)
+  const userPrompt = buildChapterExtractUserPrompt(chapterNumber, chapterBody, establishedContext)
 
   try {
     const messages: ChatMessage[] = [
@@ -617,6 +638,7 @@ async function extractSnapshotWithLLM(
       locationDetails: parsed.locationDetails || undefined,
       organizationDetails: parsed.organizationDetails || undefined,
       itemDetails: parsed.itemDetails || undefined,
+      itemCategories: parsed.itemCategories || undefined,
       eventDetails: parsed.eventDetails || undefined,
     }, { chapterId: `chapter-${chapterNumber}`, chapterNumber })
   } catch (err) {
@@ -642,7 +664,12 @@ function snapshotToMarkdown(snapshot: ChapterSnapshot): string {
     ...(snapshot.organizations.length > 0 ? snapshot.organizations.map(o => `- ${o}`) : ["（无）"]),
     "",
     `## 出场物品`,
-    ...(snapshot.items.length > 0 ? snapshot.items.map(i => `- ${i}`) : ["（无）"]),
+    ...(snapshot.items.length > 0
+      ? snapshot.items.map(i => {
+          const category = snapshot.itemCategories?.[i]
+          return category ? `- ${i}（${ITEM_CATEGORY_LABELS[category]}）` : `- ${i}`
+        })
+      : ["（无）"]),
     "",
     `## 关键事件`,
     ...(snapshot.events.length > 0 ? snapshot.events.map(e => `- ${e}`) : ["（无）"]),
