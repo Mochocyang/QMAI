@@ -1,6 +1,12 @@
 import type { Tool } from "../types"
 import { readFile, writeFile, fileExists, createDirectory } from "@/commands/fs"
 import { writeDraft } from "@/lib/novel/draft-manager"
+import { useWritingStatsStore } from "@/stores/writing-stats-store"
+
+/** AI 直接写章节正文（非草稿路径）：内容整份记到「今日 AI 生成」。 */
+function recordAiChapterWrite(path: string, content: string): void {
+  useWritingStatsStore.getState().recordChapter(path, content, "ai")
+}
 
 interface WriteChapterOptions {
   draftMode?: boolean
@@ -50,6 +56,7 @@ export function createWriteChapterTool(chaptersDir: string, options: WriteChapte
           await createDirectory(dir)
         }
         await writeFile(path, content)
+        recordAiChapterWrite(path, content)
         const verified = await readFile(path)
         if (verified !== content) {
           return `已写入章节「${name}」，警告：写入后读回验证失败，请手动检查文件内容。`

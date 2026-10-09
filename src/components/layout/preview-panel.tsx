@@ -5,7 +5,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, resolveNovelModel, formatResolvedModelLabel } from "@/lib/novel/model-resolver"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
 import { deleteFile, fileExists, readFile, writeFileAtomic, writeFileIfAbsent, listDirectory } from "@/commands/fs"
-import { normalizePath } from "@/lib/path-utils"
+import { isChapterPath, normalizePath } from "@/lib/path-utils"
 import { getFileCategory, isBinary } from "@/lib/file-types"
 import { WikiEditor, type WikiEditorHandle } from "@/components/editor/wiki-editor"
 import { WikiReader } from "@/components/editor/wiki-reader"
@@ -62,6 +62,8 @@ import { createChapterExternalUpdateCoordinator } from "@/lib/chapter-external-u
 import { applyOpenChapterBodyUpdate, createDeAiBatchChapterApplier } from "@/lib/novel/de-ai-batch/chapter-apply"
 import { acquireDeAiChapterSlot } from "@/lib/novel/de-ai-batch/chapter-concurrency"
 import { toast } from "@/lib/toast"
+import { useWritingStatsStore } from "@/stores/writing-stats-store"
+import type { WritingSource } from "@/lib/writing-stats"
 import { selectProjectDeAiReview, selectProjectDeAiTasks, useDeAiTaskStore } from "@/stores/de-ai-task-store"
 import { DeAiBatchReviewDialog } from "@/components/novel/de-ai-batch-review-dialog"
 import type { DeAiBatchChapter, DeAiBatchTaskRecord } from "@/lib/novel/de-ai-batch/types"
@@ -97,10 +99,6 @@ function inferEditorMode(path: string): "read" | "edit" {
     return "edit"
   }
   return "read"
-}
-
-function isChapterPath(path: string): boolean {
-  return path.replace(/\\/g, "/").includes("/wiki/chapters/")
 }
 
 function isOutlinePath(path: string): boolean {
@@ -609,7 +607,7 @@ export function PreviewPanel() {
   const syncChapterToCanonicalPath = useCallback(async (
     path: string,
     markdown: string,
-    options?: { renameToCanonical?: boolean },
+    options?: { renameToCanonical?: boolean; source?: WritingSource },
   ) => {
     const normalized = normalizeChapterWriting(markdown)
     const chapterNumber = extractChapterNumberFromMarkdown(normalized)
@@ -619,6 +617,13 @@ export function PreviewPanel() {
       : path
 
     await writeFileAtomic(targetPath, normalized)
+    if (isChapterPath(targetPath)) {
+      const stats = useWritingStatsStore.getState()
+      // 改名时先把归属账本搬到新路径，再把这份正文记一次账。
+      // 重复记账是安全的：`recordChapter` 是差分口径，正文没变就是空增量。
+      if (targetPath !== path) stats.transferChapter(path, targetPath)
+      stats.recordChapter(targetPath, normalized, options?.source ?? "human")
+    }
     if (renameToCanonical && targetPath !== path) {
       if (useWikiStore.getState().selectedFile === path) {
         selectedFileRef.current = targetPath
@@ -723,6 +728,11 @@ export function PreviewPanel() {
         console.log("[PreviewPanel][debug] readFile success", { selectedFile, contentLength: content?.length, cancelled, storeSelectedFile: useWikiStore.getState().selectedFile })
         if (cancelled || useWikiStore.getState().selectedFile !== selectedFile) return
         rememberLoadedChapter(normalizePath(selectedFile), content)
+        // 打开章节时先打归属基线：此后敲下的字才算「今天新写的」，
+        // 否则用户敲的第一个字会把整章已有正文都算进今日手写。
+        if (isChapterPath(selectedFile)) {
+          useWritingStatsStore.getState().primeChapter(selectedFile, content)
+        }
         setFileContent(content)
         setSaveStatus("")
         setLoadedFilePath(selectedFile)
@@ -778,7 +788,19 @@ export function PreviewPanel() {
   }, [flushChapterBeforeLeave])
 
   const handleSave = useCallback(
-    (markdown: string) => {
+    /**
+     * 编辑器写盘的总入口（沉浸式 textarea 与 Milkdown 都走这里）。
+     *
+     * `opts.source` 标明这一份正文是**谁**产生的，供写作统计归因：
+     * 省略即视为用户手动输入（打字、粘贴、剪切、撤销），AI 改写路径必须显式标 `"ai"`。
+     * 默认值刻意选「人写」而不是「不可知」——这是绝大多数调用者的事实，
+     * 而漏标一处 AI 只会让 AI 那一栏偏少，标反了才会污染手写那一栏。
+     *
+     * 已知边界：用户**手工粘贴**外部（含 AI）文本时，这里记的是 `human`。
+     * 应用无从判断剪贴板里的字是谁写的——那是用户的动作，不是本软件的产出。
+     * 要区分它只能靠猜测，而猜错会把真正手写的字算进 AI，比少算更糟。
+     */
+    (markdown: string, opts?: { source?: WritingSource }) => {
       const pathAtSave = selectedFileRef.current
       if (!pathAtSave) return
       const persistedMarkdown = isChapterPath(pathAtSave)
@@ -787,6 +809,14 @@ export function PreviewPanel() {
       setFileContent(markdown)
       fileContentRef.current = markdown
       const normalizedPath = normalizePath(pathAtSave)
+      // 记账必须发生在下面的「与磁盘一致就返回」之前。
+      // 否则「打字 → 落盘 → 退格回到原样」这一段里，退格那一下会被提前 return
+      // 吞掉，界面上的手写字数就永远只增不减。
+      if (isChapterPath(pathAtSave)) {
+        useWritingStatsStore
+          .getState()
+          .recordChapter(pathAtSave, persistedMarkdown, opts?.source ?? "human")
+      }
       const lastLoadedForPath = lastLoadedByPathRef.current.get(normalizedPath) ?? lastLoadedRef.current
       if (persistedMarkdown === lastLoadedForPath) return
       reportUiTestSave(pathAtSave, "pending")
@@ -1554,9 +1584,13 @@ export function PreviewPanel() {
     }
 
     const replacedMarkdown = rawBlock + rebuildChapterBody(heading, replaced.body)
-    handleSave(selectionTransformAction === "de-ai"
-      ? normalizeChapterWriting(replacedMarkdown)
-      : replacedMarkdown)
+    // 替换进去的是模型产出，整段记到「今日 AI 生成」；未选中的部分归属不变。
+    handleSave(
+      selectionTransformAction === "de-ai"
+        ? normalizeChapterWriting(replacedMarkdown)
+        : replacedMarkdown,
+      { source: "ai" },
+    )
     setSelectionTransformOpen(false)
     setSelectionTransformAction(null)
     setSelectionTransformSelection(null)

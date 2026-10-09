@@ -31,6 +31,16 @@ export function isChapterPathInProject(chapterPath: string, projectPath: string)
 }
 
 /**
+ * True for the chapter *body* directory regardless of which project it belongs to.
+ *
+ * 只看路径形状，不比对项目根：写作统计要在「AI 刚写完一个新的章节文件」那一刻
+ * 判断该不该记账，此时手头只有绝对路径，没有可靠的 projectPath 可比。
+ */
+export function isChapterPath(path: string): boolean {
+  return normalizePath(path).includes("/wiki/chapters/")
+}
+
+/**
  * Join path segments with forward slashes.
  */
 export function joinPath(...segments: string[]): string {

@@ -23,6 +23,7 @@ import { useChatStore, type DisplayMessage } from "@/stores/chat-store"
 import { useShallow } from "zustand/react/shallow"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
+import { useWritingStatsStore } from "@/stores/writing-stats-store"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { ReferenceInput, type InsertReferenceTokens } from "@/components/reference/ReferenceInput"
 import { ReferencePickerDialog } from "@/components/reference/ReferencePickerDialog"
@@ -1317,6 +1318,8 @@ export function ChatPanel() {
       const chapterPath = `${chapterDir}/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
       const chapterMarkdown = buildDraftContent(targetChapterNumber, chapterTitle, cleanedContent)
       await writeFile(chapterPath, chapterMarkdown)
+      // 聊天里生成并保存的新章：整份都是模型产出，直接记进「今日 AI 生成」。
+      useWritingStatsStore.getState().recordChapter(chapterPath, chapterMarkdown, "ai")
       useChatStore.getState().setMessageChapterRef(messageId, {
         chapterNumber: targetChapterNumber,
         path: chapterPath,

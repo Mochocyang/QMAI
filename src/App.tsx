@@ -5,7 +5,7 @@ import { useReviewStore } from "@/stores/review-store"
 import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
-import { openProject, fileExists, listDirectory, readFile } from "@/commands/fs"
+import { openProject, fileExists } from "@/commands/fs"
 import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAiWorkflowMode, loadDefaultLlmModel, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadUiBodyFontFamily, loadUiBodyFontPx, loadUiBodyLineHeight, loadUiBodyLetterSpacing, loadUiBodyMarginX, loadUiBodySafeBottom, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadSearchApiConfig, loadOutlineWorkflowMode, loadAiChatReasoningDepth, loadAiOutlineReasoningDepth } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
@@ -25,8 +25,7 @@ import { applyTheme, watchSystemTheme } from "@/lib/theme-utils"
 import { applyBodyTypography, applyBodyFontFamily, applyUiFontFamily } from "@/lib/font-settings"
 import { applyVisualStyle } from "@/lib/visual-style-settings"
 import { isChapterPathInProject, normalizePath } from "@/lib/path-utils"
-import { countChapterBodyWords } from "@/lib/chapter-word-count"
-import { flattenMdFiles } from "@/lib/novel/chapter-utils"
+import { useWritingStatsStore } from "@/stores/writing-stats-store"
 import { runUserMemoryMaintenance } from "@/lib/user-memory/maintenance"
 import { initializeProjectContextCache } from "@/lib/context-hub/context-hub"
 import { useEnsureAiChatModel } from "@/lib/ensure-ai-chat-model"
@@ -50,9 +49,10 @@ function App() {
   const communitySummaryError = useWikiStore((s) => s.communitySummaryError)
   const setCommunitySummaryError = useWikiStore((s) => s.setCommunitySummaryError)
   const dataVersion = useWikiStore((s) => s.dataVersion)
+  /** 全书正文字数由 writingStatsStore 统一维护（窗口标题与底部状态栏共用）。 */
+  const appTitleTotalWordCount = useWritingStatsStore((s) => s.totalChars)
   const [, setShowCreateDialog] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [appTitleTotalWordCount, setAppTitleTotalWordCount] = useState<number | null>(null)
 
   useEffect(() => {
     runUserMemoryMaintenance()
@@ -415,30 +415,23 @@ function App() {
 
   useEffect(() => {
     if (!project?.path) {
-      setAppTitleTotalWordCount(null)
+      useWritingStatsStore.getState().reset()
       return
     }
 
     let cancelled = false
 
-    const loadAppTitleTotalWordCount = async () => {
-      try {
-        const chapterNodes = await listDirectory(`${normalizePath(project.path)}/wiki/chapters`)
-        const files = flattenMdFiles(chapterNodes)
-        const contents = await Promise.all(
-          files.map((file) => readFile(file.path).catch(() => "")),
-        )
-        const total = contents.reduce(
-          (sum, markdown) => sum + countChapterBodyWords(markdown),
-          0,
-        )
-        if (!cancelled) setAppTitleTotalWordCount(total)
-      } catch {
-        if (!cancelled) setAppTitleTotalWordCount(null)
-      }
+    // 全书字数与今日写作统计都收在 writingStatsStore 里：窗口标题、目录里的
+    // 字数、底部状态栏读的是同一个数字，不再各算一遍（此前是三份独立实现，
+    // 口径一旦漂移，三处会显示三个不同的总字数）。
+    const loadWritingStats = async () => {
+      const stats = useWritingStatsStore.getState()
+      await stats.initializeProject(project.path)
+      if (cancelled) return
+      await stats.refreshTotalChars()
     }
 
-    void loadAppTitleTotalWordCount()
+    void loadWritingStats()
 
     return () => {
       cancelled = true
