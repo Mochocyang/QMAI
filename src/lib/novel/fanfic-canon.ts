@@ -188,14 +188,15 @@ export function buildFanficCanonDocument(input: BuildFanficCanonInput): string {
   ]
 
   const requirement = getFanficModeRequirement(mode)
+  // 只过滤 null，保留空串——空串是段间空行，filter(Boolean) 会让标题和正文挤在一起。
   const modeLines = [
     "## 同人模式",
     "",
     `- 模式：${formatFanficModeLabel(mode) || mode}`,
-    requirement ? `- 本模式必须交代：${requirement}` : "",
+    requirement ? `- 本模式必须交代：${requirement}` : null,
     `- 原作：${sourceName || "（未填写）"}`,
     `- 容许偏离：${deviations.length ? deviations.join("；") : "无（除所选模式本身外，一切按原作正典处理）"}`,
-  ].filter(Boolean)
+  ].filter((line): line is string => line !== null)
 
   return [
     ...frontmatter,
@@ -419,7 +420,7 @@ export function buildFanficCanonChunkPrompt(input: FanficCanonChunkPromptInput):
       content: [
         `原作：《${input.sourceName}》`,
         `同人模式：${modeLabel}`,
-        requirement ? `本模式必须交代：${requirement}` : "",
+        requirement ? `本模式必须交代：${requirement}` : null,
         `片段：${input.index + 1}/${input.total}`,
         "",
         "请从下列原作素材中，整理出对同人创作有用的正典事实，建议覆盖：",
@@ -432,7 +433,7 @@ export function buildFanficCanonChunkPrompt(input: FanficCanonChunkPromptInput):
         "## 原作素材",
         input.chunk,
       ]
-        .filter(Boolean)
+        .filter((line): line is string => line !== null)
         .join("\n"),
     },
   ]
@@ -464,14 +465,14 @@ export function buildFanficCanonMergePrompt(input: {
       content: [
         `原作：《${input.sourceName}》`,
         `同人模式：${modeLabel}`,
-        requirement ? `本模式必须交代：${requirement}` : "",
+        requirement ? `本模式必须交代：${requirement}` : null,
         `容许偏离：${input.allowedDeviations.length ? input.allowedDeviations.join("；") : "无"}`,
         "",
         "以下是逐段整理出的证据包，请合并为一份正典：",
         "",
         ...input.chunkNotes,
       ]
-        .filter(Boolean)
+        .filter((line): line is string => line !== null)
         .join("\n"),
     },
   ]

@@ -418,13 +418,20 @@ export function buildFanficDemandSection(
   const sourceMaterial = (request.fanficSourceMaterial ?? "").trim()
   const includeCanon = options?.includeCanon ?? true
 
+  const canonSection: Array<string | null> =
+    includeCanon && sourceMaterial
+      ? ["", "### 原作素材（正典来源）", "", sourceMaterial]
+      : []
+
+  // 注意：这里只能过滤 null/undefined，不能 filter(Boolean)——
+  // 空串正是段与段之间的空行，过滤掉会让标题和正文挤在一起。
   return [
     "## 同人创作约束（优先级高于原创度要求）",
     "",
     "本次不是原创作品，而是基于已有原作的同人创作。原作已确立的事实是**权威**，不得为了戏剧性而改写。",
     "",
     `- 同人模式：${formatFanficModeLabel(mode) || mode}`,
-    requirement ? `- 本模式必须交代：${requirement}` : "",
+    requirement ? `- 本模式必须交代：${requirement}` : null,
     `- 原作：${sourceName || "（未填写）"}`,
     `- 容许偏离：${deviations.length ? deviations.join("；") : "无（除所选模式本身外，一切按原作正典处理）"}`,
     "",
@@ -439,11 +446,9 @@ export function buildFanficDemandSection(
     "- 大纲、卷纲、章纲、人物小传、设定都必须与正典卡自洽；与正典冲突时以正典为准。",
     "",
     FANFIC_REFERENCE_SCOPE_NOTE,
-    includeCanon && sourceMaterial
-      ? `\n### 原作素材（正典来源）\n\n${sourceMaterial}`
-      : "",
+    ...canonSection,
   ]
-    .filter(Boolean)
+    .filter((line): line is string => line !== null && line !== undefined)
     .join("\n")
 }
 
@@ -488,9 +493,10 @@ export function buildOutlineWizardPrompt(
   if (options?.mode === "fast") {
     return [
       ...demand,
+      // 段前换行：空串会被下面的 filter(Boolean) 删掉，所以靠前置换行留出空行。
       fanficSection ? `\n${fanficSection}` : "",
       "",
-      "请根据以上需求直接生成可保存的大纲正文，不要进入需求分析、意图分析或多 Agent 编排，不要等待用户确认后再写。",
+      "\n请根据以上需求直接生成可保存的大纲正文，不要进入需求分析、意图分析或多 Agent 编排，不要等待用户确认后再写。",
     ]
       .filter(Boolean)
       .join("\n")
@@ -501,11 +507,11 @@ export function buildOutlineWizardPrompt(
     ...demand,
     fanficSection ? `\n${fanficSection}` : "",
     "",
-    "## 本次优先调用 Skill",
+    "\n## 本次优先调用 Skill",
     "请优先使用以下 SkillHub Skill 进行需求分析、题材判断和大纲生成，不要输出 Skill 说明：",
     ...skillNames.map((name, index) => `${index + 1}. ${name}`),
-    "",
-    "## 固定工作流",
+    // 前置换行保证与 Skill 列表之间留出空行（空串会被 filter(Boolean) 删掉）。
+    "\n## 固定工作流",
     "请先分析该需求，判断还缺少哪些必要信息。",
     isFanficRequest(request)
       ? "1. 充分性闸门：先判断是否已经具备篇幅、频道、题材、原作名称、同人模式、原作正典信息、故事灵感、核心卖点、作品规模、预期章节结构这些必要信息。"

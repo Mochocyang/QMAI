@@ -143,6 +143,36 @@ describe("fanfic canon meta round-trip", () => {
     expect(doc).toContain("禁止抄录原作语句")
     expect(stripFanficCanonFrontmatter(doc)).toContain(FANFIC_REFERENCE_SCOPE_NOTE)
   })
+
+  it("章节之间保留空行，标题不与正文挤在一起", () => {
+    const doc = baseDoc()
+
+    // 每个二级/三级标题前都必须是空行（frontmatter 内的除外）
+    const lines = doc.split("\n")
+    for (let i = 0; i < lines.length; i += 1) {
+      if (!/^#{1,3} /.test(lines[i])) continue
+      if (i === 0 || lines[i - 1] === "---") continue
+      expect(lines[i - 1], `「${lines[i]}」前缺少空行`).toBe("")
+    }
+  })
+
+  it("自由描述的模式没有预设交代项时，不留下空的「必须交代」行与多余空行", () => {
+    // 五种预设模式都有 requirement，只有自由描述的模式会命中空值分支
+    const doc = buildFanficCanonDocument({
+      mode: "原作结局十年后的低魔日常",
+      sourceName: "斗破苍穹",
+      allowedDeviations: [],
+      canonBody: "- 斗气分九段。",
+      sourceChars: 10,
+      chunkCount: 1,
+    })
+
+    expect(doc).not.toContain("本模式必须交代：\n")
+    expect(doc).not.toContain("本模式必须交代：")
+    // 空串是段间空行，不能被当作可过滤项删掉，否则会出现标题贴正文
+    expect(doc).not.toMatch(/\n\n\n/)
+    expect(doc).toContain("- 容许偏离：无（除所选模式本身外，一切按原作正典处理）\n\n## 创作硬规则")
+  })
 })
 
 describe("fanfic mode labels", () => {

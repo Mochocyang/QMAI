@@ -256,6 +256,17 @@ describe("同人创作支持", () => {
     expect(section).toContain("禁止抄录原作语句")
   })
 
+  it("同人段与相邻段落之间留出空行，标题不与正文挤在一起", () => {
+    const prompt = buildOutlineWizardPrompt(fanficRequest)
+    const lines = prompt.split("\n")
+
+    for (let i = 0; i < lines.length; i += 1) {
+      if (!/^#{2,3} /.test(lines[i])) continue
+      expect(lines[i - 1], `「${lines[i]}」前缺少空行`).toBe("")
+    }
+    expect(prompt).not.toMatch(/\n\n\n/)
+  })
+
   it("原创请求的同人需求段为空串", () => {
     expect(buildFanficDemandSection(baseRequest)).toBe("")
   })
