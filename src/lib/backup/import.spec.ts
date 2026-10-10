@@ -193,7 +193,7 @@ describe("V2 备份导入适配", () => {
     ) {
       if (value.includes("坏书")) throw new Error("书架索引写入失败")
       return realSetItem.call(this, key, value)
-    }) as unknown as { mock: { calls: unknown[][] } }
+    })
 
     try {
       invokeMock.mockImplementation((command: string) => {
