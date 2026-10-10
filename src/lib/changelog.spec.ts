@@ -6,7 +6,16 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 4)).toEqual(["4.2.0", "4.1.2", "4.1.1", "4.1.0"])
+    expect(versions.slice(0, 5)).toEqual(["4.2.1", "4.2.0", "4.1.2", "4.1.1", "4.1.0"])
+    const release421 = currentVersionChangelog("4.2.1")[0]
+    expect(release421.version).toBe("4.2.1")
+    expect(release421.date).toBe("2026-10-10")
+    expect(release421.highlights.zh.join("\n")).toContain("章节续写")
+    expect(release421.highlights.zh.join("\n")).toContain("续写可以中途停")
+    expect(release421.highlights.zh.join("\n")).toContain("续写不会写错章节")
+    expect(release421.highlights.en.join("\n")).toContain("Chapter Continuation")
+    expect(release421.highlights.en.join("\n")).toContain("Stop Mid-Continuation")
+    expect(release421.highlights.en).toHaveLength(release421.highlights.zh.length)
     const release420 = currentVersionChangelog("4.2.0")[0]
     expect(release420.version).toBe("4.2.0")
     expect(release420.date).toBe("2026-10-09")

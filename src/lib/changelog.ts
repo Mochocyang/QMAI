@@ -44,6 +44,25 @@ const FOUR_POINT_TWO_ZERO_CHANGELOG: ChangelogEntry = {
   },
 };
 
+const FOUR_POINT_TWO_ONE_CHANGELOG: ChangelogEntry = {
+  version: "4.2.1",
+  date: "2026-10-10",
+  highlights: {
+    en: [
+      "[Chapter Continuation] Select some text in a chapter body and the floating toolbar now leads with Continuation; right-click in the body and the context menu leads with it too. You can leave the box empty to continue straight away, or write one line describing where the story should go. Each continuation runs about 300–400 characters and reads only the current chapter's body rather than the whole book. When it finishes, Insert Into Body appends it at the caret, and the inserted part is counted separately as AI-generated text without touching your hand-written count.",
+      "[Stop Mid-Continuation] You can stop at any time while it is generating, and whatever was already produced stays in the popover and remains insertable. The same holds when the model stops at its output length limit, so previously the generated text could be lost and now it is not.",
+      "[Continuation Cannot Land In The Wrong Chapter] If you switch chapters while generating, or after it finished, the result is never written into another chapter. This holds even when two chapters have byte-identical bodies — for example two consecutive empty chapters in a new book.",
+      "[Font Licenses Completed] The license texts for the fonts distributed with the repository are now included, together with an automated guard so a license file cannot go missing again.",
+    ],
+    zh: [
+      "【章节续写】在章节正文里选中一段文字，浮层工具栏的第一项就是「续写」；在正文里点右键，右键菜单的第一项也是「续写」。输入框可以留空直接续写，也可以先写一句想让故事往哪儿走。每次续写 300–400 字左右，只读取当前章节的正文，不会把整本书一起送进去。生成完点「插入正文」就接在光标处，插入的部分单独计入「AI 生成字数」，不影响「手写」字数。",
+      "【续写可以中途停】生成过程中随时可以「停止」，已经生成的那部分会留在浮层里，仍然可以插入；内容被模型长度上限截断时也不会丢掉已经生成的部分。",
+      "【续写不会写错章节】生成期间或生成之后切换了章节，结果都不会落到别的章节里；即使两章正文完全相同（比如新建书里连着两个空章节）也会被拦住。",
+      "【字体许可补齐】补上随仓库分发字体的许可原文，并加上自动守护，避免以后漏掉许可文件。",
+    ],
+  },
+};
+
 const FOUR_POINT_ONE_TWO_CHANGELOG: ChangelogEntry = {
   version: "4.1.2",
   date: "2026-10-07",
@@ -1836,6 +1855,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_TWO_ONE_CHANGELOG.version)
+    return [FOUR_POINT_TWO_ONE_CHANGELOG];
   if (version === FOUR_POINT_TWO_ZERO_CHANGELOG.version)
     return [FOUR_POINT_TWO_ZERO_CHANGELOG];
   if (version === FOUR_POINT_ONE_TWO_CHANGELOG.version)
@@ -1997,6 +2018,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_TWO_ONE_CHANGELOG,
     FOUR_POINT_TWO_ZERO_CHANGELOG,
     FOUR_POINT_ONE_TWO_CHANGELOG,
     FOUR_POINT_ONE_ONE_CHANGELOG,
