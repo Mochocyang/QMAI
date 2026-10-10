@@ -450,6 +450,13 @@ export interface NovelConfig {
    * 但持久化语义必须各自独立。
    */
   inspirationHintEnabled: boolean
+  /**
+   * 这本书的文件夹里已经挂过一次新章节灵感气泡（丙-4a）。
+   *
+   * 与 `draftMemoryHintSeen` 同样是「每本书一次」的**显示即记**标记，
+   * 不复用后者：两个提示各自记自己的账，关掉其中一个不该影响另一个。
+   */
+  inspirationHintSeen: boolean
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
@@ -475,6 +482,7 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   draftMemoryHintEnabled: true,
   draftMemoryHintSeen: false,
   inspirationHintEnabled: true,
+  inspirationHintSeen: false,
 }
 
 export interface RevisionFeedbackWindowConfig {

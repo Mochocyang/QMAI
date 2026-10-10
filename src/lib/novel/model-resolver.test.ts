@@ -75,6 +75,7 @@ const storeState = vi.hoisted(() => {
     draftMemoryHintEnabled: true,
     draftMemoryHintSeen: false,
     inspirationHintEnabled: true,
+    inspirationHintSeen: false,
   }
 
   return {

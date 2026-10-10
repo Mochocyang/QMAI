@@ -249,6 +249,7 @@ function makeNovelConfig(overrides: Partial<NovelConfig> = {}): NovelConfig {
     draftMemoryHintEnabled: true,
     draftMemoryHintSeen: false,
     inspirationHintEnabled: true,
+    inspirationHintSeen: false,
     ...overrides,
     defaultLlmModel: overrides.defaultLlmModel ?? "",
     deAiModel: overrides.deAiModel ?? "",
@@ -437,6 +438,31 @@ describe("novelConfig — project-directory persistence", () => {
 
     const loaded = await loadNovelConfig("proj-inspiration-off", tmp.path)
     expect(loaded?.inspirationHintEnabled).toBe(false)
+  })
+
+  it("fills in inspirationHintSeen as false when loading legacy novel config", async () => {
+    const legacy = makeNovelConfig()
+    const { inspirationHintSeen: _omitted, ...withoutField } = legacy
+    await writeFileRaw(
+      `${tmp.path}/.qmai/novel-config.json`,
+      JSON.stringify(withoutField),
+    )
+
+    const loaded = await loadNovelConfig("proj-legacy-inspiration-seen", tmp.path)
+    // 默认必须是 false：写成 `?? true` 之类的实现会让「这本书已经提示过」永远为真，
+    // 气泡一次都不会出现 —— 而且界面上看不出来。
+    expect(loaded?.inspirationHintSeen).toBe(false)
+  })
+
+  it("round-trips an already-seen inspiration hint", async () => {
+    await saveNovelConfig(
+      makeNovelConfig({ inspirationHintSeen: true }),
+      "proj-inspiration-seen",
+      tmp.path,
+    )
+
+    const loaded = await loadNovelConfig("proj-inspiration-seen", tmp.path)
+    expect(loaded?.inspirationHintSeen).toBe(true)
   })
 })
 

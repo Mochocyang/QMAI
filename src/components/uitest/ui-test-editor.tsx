@@ -2,6 +2,7 @@ import { Children, Fragment, cloneElement, isValidElement, useEffect, useLayoutE
 import { Menu } from "@base-ui/react/menu"
 import { Eye, FileText, MoreHorizontal, Pencil } from "lucide-react"
 import { DRAFT_MEMORY_HINT_MESSAGE } from "@/lib/draft-memory-hint"
+import { INSPIRATION_HINT_MESSAGE } from "@/lib/inspiration-hint"
 import "./ui-test-editor.css"
 
 export interface UiTestEditorSaveState {
@@ -15,6 +16,24 @@ interface EditorAction {
   onClick: () => void
   disabled?: boolean
   icon?: ReactNode
+}
+
+/** 一枚「锚定气泡」需要知道的全部信息。 */
+interface AnchoredHint {
+  /**
+   * 锚点属性名（例如 `data-draft-memory-target`）。
+   * `actions` 里带这个属性的子元素会被包进 `.ui-test-editor-hint-anchor`。
+   */
+  targetAttr: string
+  /**
+   * 气泡的类名前缀。根节点用前缀本身，动作行用 `${prefix}-actions`，
+   * 两个关闭按钮用 `${prefix}-dismiss` —— 这样既有草稿气泡的类名
+   * （`ui-test-editor-draft-hint` / `-actions` / `-dismiss`）逐字不变。
+   */
+  classPrefix: string
+  message: string
+  onDismiss: () => void
+  onMute: () => void
 }
 
 interface UiTestEditorProps {
@@ -34,29 +53,49 @@ interface UiTestEditorProps {
   onClose: () => void
   scrollRef: RefObject<HTMLDivElement | null>
   draftMemoryHint?: { onDismiss: () => void; onMute: () => void } | null
+  /** 新章节灵感提示（丙-4a）。与 `draftMemoryHint` 各自独立，可同时传入。 */
+  inspirationHint?: { onDismiss: () => void; onMute: () => void } | null
   children: (mode: "read" | "edit") => ReactNode
 }
 
-function withDraftMemoryHint(actions: ReactNode, hint: { onDismiss: () => void; onMute: () => void } | null | undefined): ReactNode {
-  if (!hint) return actions
+/**
+ * 把 `actions` 里带锚点属性的子元素各包一层 `.ui-test-editor-hint-anchor`，
+ * 并在同一个 `<span>` 里追加一枚 `role="status"` 的说明气泡。
+ *
+ * 这是从原来的 `withDraftMemoryHint` **泛化**出来的（丙-4a）：新章节灵感气泡
+ * 与草稿气泡是同一套机制，抄第三份只会让两份实现各自漂移。
+ *
+ * ⚠️ 泛化的**唯一**硬约束是草稿气泡的 DOM 逐字节不变。`classPrefix` 这个设计
+ * 就是为了保证这点：`ui-test-editor-draft-hint` 前缀展开后仍然是
+ * `ui-test-editor-draft-hint` / `-actions` / `-dismiss`，`<span>` 包裹、
+ * `is-hint-target` 的拼法、`role="status"`、`<p>` 包裹、「知道了」/「不再提醒」
+ * 的文案与 `type="button"` 都没动过（逐字节比对的探针结果见提交说明）。
+ *
+ * ⚠️ 不存在「找到第一个匹配就收工」：每个锚点属性**各命中一次**，
+ * 所以同时传入两枚提示时两条气泡都会出现（用例在 ui-test-editor.spec.tsx）。
+ */
+function withAnchoredHint(actions: ReactNode, hints: AnchoredHint[]): ReactNode {
+  const active = hints.filter((hint) => hint != null)
+  if (active.length === 0) return actions
   const visit = (node: ReactNode): ReactNode => {
     if (!isValidElement(node)) return node
     if (node.type === Fragment) {
       const fragment = node as ReactElement<{ children?: ReactNode }>
       return cloneElement(fragment, fragment.props, Children.map(fragment.props.children, visit))
     }
-    const props = node.props as { className?: string; "data-draft-memory-target"?: string }
-    if (props["data-draft-memory-target"] == null) return node
+    const props = node.props as { className?: string } & Record<string, unknown>
+    const hint = active.find((item) => props[item.targetAttr] != null)
+    if (!hint) return node
     return (
       <span className="ui-test-editor-hint-anchor">
         {cloneElement(node as ReactElement<{ className?: string }>, {
           className: [props.className, "is-hint-target"].filter(Boolean).join(" "),
         })}
-        <div className="ui-test-editor-draft-hint" role="status">
-          <p>{DRAFT_MEMORY_HINT_MESSAGE}</p>
-          <div className="ui-test-editor-draft-hint-actions">
-            <button type="button" className="ui-test-editor-draft-hint-dismiss" onClick={hint.onDismiss}>知道了</button>
-            <button type="button" className="ui-test-editor-draft-hint-dismiss" onClick={hint.onMute}>不再提醒</button>
+        <div className={hint.classPrefix} role="status">
+          <p>{hint.message}</p>
+          <div className={`${hint.classPrefix}-actions`}>
+            <button type="button" className={`${hint.classPrefix}-dismiss`} onClick={hint.onDismiss}>知道了</button>
+            <button type="button" className={`${hint.classPrefix}-dismiss`} onClick={hint.onMute}>不再提醒</button>
           </div>
         </div>
       </span>
@@ -84,7 +123,7 @@ const SAVE_LABELS: Partial<Record<UiTestEditorSaveState["phase"], string>> = {
 /** 只承载测试版展示和交互；读写、生成、快照仍由 PreviewPanel 原处理器负责。 */
 export function UiTestEditor({
   kind, path, title, onTitleCommit, statusLabel, wordCount,
-  actions, documentDetails, auxiliaryPanel, moreActions, saveState, taskStatus, onRetrySave, onClose, scrollRef, draftMemoryHint, children,
+  actions, documentDetails, auxiliaryPanel, moreActions, saveState, taskStatus, onRetrySave, onClose, scrollRef, draftMemoryHint, inspirationHint, children,
 }: UiTestEditorProps) {
   const [mode, setMode] = useState<"read" | "edit">("edit")
   const [editingTitle, setEditingTitle] = useState(false)
@@ -180,7 +219,26 @@ export function UiTestEditor({
             ) : null}
           </div>
           <div className="ui-test-editor-toolbar" role="group" aria-label="文档操作">
-            {withDraftMemoryHint(actions, draftMemoryHint)}
+            {withAnchoredHint(actions, [
+              ...(draftMemoryHint
+                ? [{
+                    targetAttr: "data-draft-memory-target",
+                    classPrefix: "ui-test-editor-draft-hint",
+                    message: DRAFT_MEMORY_HINT_MESSAGE,
+                    onDismiss: draftMemoryHint.onDismiss,
+                    onMute: draftMemoryHint.onMute,
+                  }]
+                : []),
+              ...(inspirationHint
+                ? [{
+                    targetAttr: "data-event-outline-target",
+                    classPrefix: "ui-test-editor-inspiration-hint",
+                    message: INSPIRATION_HINT_MESSAGE,
+                    onDismiss: inspirationHint.onDismiss,
+                    onMute: inspirationHint.onMute,
+                  }]
+                : []),
+            ])}
             {false && kind === "chapter" && <Menu.Root modal={false}>
               <Menu.Trigger className="ui-test-editor-action ui-test-editor-more" aria-label="更多编辑器操作" title="更多编辑器操作">
                 <MoreHorizontal aria-hidden="true" />

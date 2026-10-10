@@ -15,6 +15,7 @@ import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
+import { resolveInspirationHint } from "@/lib/inspiration-hint"
 import { chapterHasLaterChapter, chapterOrdersFromTree, resolveDraftMemoryHint, type DraftMemoryHintArrival } from "@/lib/draft-memory-hint"
 import { saveNovelConfig, saveUiBodyFontFamily, saveUiBodyFontPx, saveUiBodyLineHeight, saveUiBodyLetterSpacing, saveUiBodyMarginX, saveUiBodySafeBottom } from "@/lib/project-store"
 import { registerPreCloseFlush } from "@/lib/pre-close-flush"
@@ -1241,6 +1242,8 @@ export function PreviewPanel() {
   }, [fileContent, selectedFile])
   const draftMemoryHintEnabled = useWikiStore((s) => s.novelConfig.draftMemoryHintEnabled)
   const draftMemoryHintSeen = useWikiStore((s) => s.novelConfig.draftMemoryHintSeen)
+  const inspirationHintEnabled = useWikiStore((s) => s.novelConfig.inspirationHintEnabled)
+  const inspirationHintSeen = useWikiStore((s) => s.novelConfig.inspirationHintSeen)
   const fileTree = useWikiStore((s) => s.fileTree)
   const setNovelConfig = useWikiStore((s) => s.setNovelConfig)
 
@@ -1747,6 +1750,77 @@ export function PreviewPanel() {
     }
     setDraftHintVisible(next)
   }, [chapterHeader, chapterNumber, draftMemoryHintEnabled, draftMemoryHintSeen, fileContent, fileTree, isFinalChapterSaving, loadedFilePath, project?.id, project?.path, selectedFile, setNovelConfig, uiTestSaveState])
+
+  /*
+   * ── 丙-4a：新章节灵感提示 ──
+   *
+   * 判据（决定 A）与草稿提示**同源**：都拿
+   * `countChapterBodyWords(fileContent)` 的实时结果去问一个纯函数。
+   * 这里刻意**不新写**「内容是否为空」的判据 —— 否则会出现
+   * 「草稿提示认为是空章节、灵感提示认为不是」的自相矛盾。
+   *
+   * ⚠️ 两条气泡**互斥**，依据是 `resolveDraftMemoryHint`（`draft-memory-hint.ts:23`）
+   * 的第一道门要求 `wordCount > 0`，而 `resolveInspirationHint` 要求
+   * `wordCount === 0`。两者互补，所以绝不会叠在同一坐标上
+   * （它们共用 `.ui-test-editor-hint-anchor` 与同一组定位属性）。
+   * 谁要放宽草稿提示那道门，必须先回来看这里。穷举证明见
+   * `src/lib/inspiration-hint.spec.ts`。
+   *
+   * ⚠️ 决定 B：气泡与向导是**并行**的两条动作。点按钮只开向导
+   * （`handleOpenEventOutlineWizard`），本 effect 不看向导状态，
+   * 所以向导打开时气泡仍在，气泡也不拦截那次点击。
+   */
+  const [inspirationHintVisible, setInspirationHintVisible] = useState(false)
+  const inspirationHintSessionRef = useRef<{ path: string | null; dismissed: boolean; visible: boolean }>({
+    path: null,
+    dismissed: false,
+    visible: false,
+  })
+  const dismissInspirationHint = useCallback(() => {
+    inspirationHintSessionRef.current.dismissed = true
+    inspirationHintSessionRef.current.visible = false
+    setInspirationHintVisible(false)
+  }, [])
+  const muteInspirationHint = useCallback(() => {
+    inspirationHintSessionRef.current.visible = false
+    setInspirationHintVisible(false)
+    const next = { ...useWikiStore.getState().novelConfig, inspirationHintEnabled: false }
+    setNovelConfig({ inspirationHintEnabled: false })
+    void saveNovelConfig(next, project?.id, project?.path).catch((error) => {
+      console.error("关闭新章节灵感提示失败:", error)
+    })
+  }, [project?.id, project?.path, setNovelConfig])
+  useEffect(() => {
+    const session = inspirationHintSessionRef.current
+    if (session.path !== selectedFile) {
+      session.path = selectedFile
+      session.dismissed = false
+      session.visible = false
+    }
+    if (!selectedFile || loadedFilePath !== selectedFile) {
+      session.visible = false
+      setInspirationHintVisible(false)
+      return
+    }
+    const next = resolveInspirationHint({
+      isChapter: isChapterPath(selectedFile),
+      // 实时内容，不是磁盘字数：刚新建一章、正在打字时它已经非空 → 气泡不出现。
+      wordCount: countChapterBodyWords(fileContent),
+      enabled: inspirationHintEnabled,
+      dismissed: session.dismissed,
+      bookHintSeen: inspirationHintSeen,
+      currentlyVisible: session.visible,
+    })
+    session.visible = next
+    if (next && !inspirationHintSeen) {
+      const config = { ...useWikiStore.getState().novelConfig, inspirationHintSeen: true }
+      setNovelConfig({ inspirationHintSeen: true })
+      void saveNovelConfig(config, project?.id, project?.path).catch((error) => {
+        console.error("记录新章节灵感提示失败:", error)
+      })
+    }
+    setInspirationHintVisible(next)
+  }, [fileContent, inspirationHintEnabled, inspirationHintSeen, loadedFilePath, project?.id, project?.path, selectedFile, setNovelConfig])
   const chapterDisplayTitle = chapterHeader
     ? chapterHeader.heading || (selectedFile ? getChapterTitleFromPath(selectedFile) : "")
     : ""
@@ -2404,6 +2478,7 @@ export function PreviewPanel() {
       onClose={() => setSelectedFile(null)}
       scrollRef={uiTestScrollRef}
       draftMemoryHint={draftHintVisible ? { onDismiss: dismissDraftMemoryHint, onMute: muteDraftMemoryHint } : null}
+      inspirationHint={inspirationHintVisible ? { onDismiss: dismissInspirationHint, onMute: muteInspirationHint } : null}
       documentDetails={uiTestParsed?.frontmatter ? <FrontmatterPanel data={uiTestParsed.frontmatter} /> : undefined}
       auxiliaryPanel={!isSelectedChapter ? <UiTestOutlineTools /> : undefined}
       actions={isSelectedChapter ? (
@@ -2430,8 +2505,13 @@ export function PreviewPanel() {
             「点击这个功能后，在章节区生成内容」）。图标用 Lightbulb ——
             Type 是字体设置、WandSparkles 是一键排版，三个动作必须在工具栏上
             一眼可分，不能复用。
+
+            `data-event-outline-target` 是**丙-4a 的锚点属性**，供
+            `withAnchoredHint`（ui-test-editor.tsx）把灵感气泡挂在这枚按钮旁。
+            ⚠️ 不能复用 `data-draft-memory-target`：那会让草稿提示的遍历
+            同时命中两枚按钮、把两枚都包起来。
           */}
-          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="生成章节细纲" title="生成章节细纲" onClick={handleOpenEventOutlineWizard}>
+          <button type="button" className="ui-test-editor-action is-icon-only" data-event-outline-target="" aria-label="生成章节细纲" title="生成章节细纲" onClick={handleOpenEventOutlineWizard}>
             <Lightbulb aria-hidden="true" />
           </button>
           {canFormatWriting ? <button type="button" className="ui-test-editor-action is-icon-only" aria-label="一键排版" title="一键排版" onClick={() => void handleFormatWriting()}><WandSparkles aria-hidden="true" /></button> : null}

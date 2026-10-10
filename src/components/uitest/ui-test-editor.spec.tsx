@@ -10,6 +10,7 @@ import { PreviewPanel } from "@/components/layout/preview-panel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
+import { DRAFT_MEMORY_HINT_MESSAGE } from "@/lib/draft-memory-hint"
 import { CHAPTER_AUTOSAVE_INTERVAL_MS, flushPendingChapterSave } from "@/lib/chapter-save-flush"
 import {
   BODY_MARGIN_X_VIEWPORT_MAX,
@@ -881,6 +882,119 @@ describe("编辑器异常与原业务回归", () => {
     expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
   })
 
+  /*
+   * ── 丙-4a：新章节灵感提示 ──
+   *
+   * 判据（决定 A）**复用草稿提示那一批输入**：`isChapterPath(selectedFile)` +
+   * `countChapterBodyWords(fileContent)`。所以这一组用例全部走真实的 PreviewPanel，
+   * 不手写第二份「内容是否为空」的判据 —— 否则会出现「草稿提示认为是空章节、
+   * 灵感提示认为不是」的自相矛盾。
+   *
+   * 与草稿提示的**互斥**由纯函数层穷举证明（src/lib/inspiration-hint.spec.ts）；
+   * 这里测的是接线：什么时候挂出来、点了两个按钮各自发生什么。
+   */
+  const emptyChapterPath = `${project.path}/wiki/chapters/第一卷/第1章.md`
+  const emptyChapter = "---\ntype: chapter\nchapter_number: 1\nchapter_status: draft\n---\n\n# 第1章 开篇\n\n"
+
+  function inspirationHint() {
+    return container.querySelector(".ui-test-editor-inspiration-hint")
+  }
+
+  it("空章节打开时把灵感气泡挂在「生成章节细纲」按钮旁，并在显示时记下 seen", async () => {
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    const hint = inspirationHint()
+    expect(hint?.textContent).toContain("点击这里生成新章节故事灵感")
+    const anchor = container.querySelector(".ui-test-editor-action.is-hint-target")
+    expect(anchor?.getAttribute("aria-label")).toBe("生成章节细纲")
+    expect(anchor?.getAttribute("data-event-outline-target")).toBe("")
+    expect(useWikiStore.getState().novelConfig.inspirationHintSeen).toBe(true)
+  })
+
+  it("已有正文的章节不出现灵感气泡", async () => {
+    await mount()
+    expect(inspirationHint()).toBeNull()
+  })
+
+  it("用的是实时正文：刚打字，气泡立刻收掉", async () => {
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    expect(inspirationHint()).not.toBeNull()
+    const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
+    await act(async () => { changeTextarea(textarea, `${textarea.value}有人推开了门。`) })
+    expect(inspirationHint(), "实时内容已非空，气泡必须立刻收掉").toBeNull()
+  })
+
+  it("「知道了」只关气泡：本次会话不再显示、不打开向导、也不写盘关闭", async () => {
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    await click("知道了")
+    expect(inspirationHint()).toBeNull()
+    expect(document.querySelector('[role="dialog"]'), "「知道了」不该打开向导").toBeNull()
+    expect(useWikiStore.getState().novelConfig.inspirationHintEnabled).toBe(true)
+  })
+
+  it("「不再提醒」写盘关掉设置项，也不打开向导", async () => {
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    await click("不再提醒")
+    expect(inspirationHint()).toBeNull()
+    expect(useWikiStore.getState().novelConfig.inspirationHintEnabled).toBe(false)
+    expect(document.querySelector('[role="dialog"]'), "「不再提醒」不该打开向导").toBeNull()
+  })
+
+  it("写作设置里关掉灵感提示后不再出现", async () => {
+    useWikiStore.setState({
+      novelConfig: { ...useWikiStore.getState().novelConfig, inspirationHintEnabled: false },
+    })
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    expect(inspirationHint()).toBeNull()
+  })
+
+  it("这本书挂过一次之后，切到另一个空章节也不再出现（照 draftMemoryHintSeen 的「每本书一次」）", async () => {
+    const secondEmptyPath = `${project.path}/wiki/chapters/第一卷/第2章.md`
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    fixture.files.set(
+      secondEmptyPath,
+      emptyChapter.replace("chapter_number: 1", "chapter_number: 2").replace("第1章 开篇", "第2章 承上"),
+    )
+    await mount(emptyChapterPath)
+    expect(inspirationHint()).not.toBeNull()
+    expect(useWikiStore.getState().novelConfig.inspirationHintSeen).toBe(true)
+    await act(async () => { useWikiStore.setState({ selectedFile: secondEmptyPath }) })
+    await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())) })
+    expect(container.textContent).toContain("第2章 承上")
+    /*
+     * ⚠️ 这一条与实施计划 §4(a) 里「切回一个空章节也会提示」那句**好处说明**
+     * 方向相反。最终按同一份计划 (5) 的明文口径实现：「持久化字段照
+     * draftMemoryHintEnabled + draftMemoryHintSeen（**每本书一次**），用新字段」。
+     * 决定 A 那句话的主语是**判据**（判据是章节自身状态，不是「刚点过新建章节」
+     * 这个一次性事件），不是「每章都提示一次」。
+     * 若日后要改成每章一次，`seen` 就得按章记录 —— 这里必须同步改。
+     */
+    expect(inspirationHint()).toBeNull()
+  })
+
+  it("决定 B：点「生成章节细纲」向导立即打开，气泡**同时**仍在（气泡不是前置关卡）", async () => {
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    expect(inspirationHint(), "点按钮之前气泡就该在（判据是章节状态，不是这次点击）").not.toBeNull()
+    await click("生成章节细纲")
+    const dialog = document.querySelector('[role="dialog"]')
+    expect(dialog, "点按钮必须立即打开向导").not.toBeNull()
+    // 钉住「弹出来的确实是向导」：`handleOpenEventOutlineWizard` 只做一件事
+    // （setEventOutlineWizardVisible(true)），而向导自己的标题就是「生成章节细纲」，
+    // 里面还有「事件数量」。没有这两句的话，任何别的弹窗都能让上面那条断言变绿。
+    expect(dialog?.textContent).toContain("生成章节细纲")
+    expect(dialog?.textContent).toContain("事件数量")
+    /*
+     * ⚠️ 这里刻意断言「两者同时存在」。反过来写（气泡出现时向导必须不存在）
+     * 与决定 B 直接相反 —— 见实施计划 §4(a) 的 (6)。
+     */
+    expect(inspirationHint(), "气泡与向导是并行的，不是二选一").not.toBeNull()
+  })
+
   it("读取失败不把错误文本当成可编辑正文或标题", async () => {
     fixture.files.delete(chapterPath)
     await mount()
@@ -938,6 +1052,100 @@ describe("图稿复核修正", () => {
   })
 })
 
+/*
+ * ── 丙-4a：把 `withDraftMemoryHint` 泛化成 `withAnchoredHint` 之后的行为 ──
+ *
+ * 泛化的**全部风险**在于「草稿气泡的 DOM 有没有被顺手改掉」：本文件里
+ * `.ui-test-editor-draft-hint` 被 ~20 处断言要求「为 null 或长度恰为 1」，
+ * 而那 20 处只看类名与文案，看不出包裹层级、`<p>` 包裹、两个按钮的类名是不是变过。
+ *
+ * 所以这里：
+ * 1. 断言两条气泡**各自**出现一次 —— 遍历必须对每个锚点属性各命中一次，
+ *    而不是「找到第一个匹配就收工」（那样第二个锚点永远不会被包）；
+ * 2. 把草稿气泡的结构逐项钉住（根类名 / role / `<p>` 包裹 / 动作行类名 /
+ *    两个按钮的类名 / 文案），让「泛化顺手改了草稿 DOM」这类事故有断言接住。
+ */
+describe("锚定气泡：两条气泡互不吞并", () => {
+  const baseProps = {
+    kind: "chapter" as const,
+    path: chapterPath,
+    title: "第16章 实际章名",
+    onTitleCommit: vi.fn(),
+    statusLabel: "草稿",
+    wordCount: 0,
+    moreActions: [] as never[],
+    saveState: null,
+    taskStatus: "",
+    onRetrySave: vi.fn(),
+    onClose: vi.fn(),
+  }
+  const twoAnchoredActions = (
+    <>
+      <button type="button" className="ui-test-editor-action is-icon-only" data-draft-memory-target="" aria-label="提取记忆">A</button>
+      <button type="button" className="ui-test-editor-action is-icon-only" data-event-outline-target="" aria-label="生成章节细纲">B</button>
+    </>
+  )
+
+  it("只给灵感提示时：只有灵感气泡，且只有被锚定的那枚按钮拿到 is-hint-target", async () => {
+    const scrollRef = createRef<HTMLDivElement>()
+    const onDismiss = vi.fn()
+    const onMute = vi.fn()
+    await act(async () => {
+      root.render(
+        <div className="ui-test-root">
+          <UiTestEditor {...baseProps} scrollRef={scrollRef} actions={twoAnchoredActions}
+            inspirationHint={{ onDismiss, onMute }}>{() => <p>正文</p>}</UiTestEditor>
+        </div>,
+      )
+    })
+    const hint = container.querySelector(".ui-test-editor-inspiration-hint")
+    expect(hint?.textContent).toContain("点击这里生成新章节故事灵感")
+    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
+    expect(
+      hint?.closest(".ui-test-editor-hint-anchor")?.querySelector("button")?.getAttribute("aria-label"),
+      "灵感气泡必须挂在「生成章节细纲」那枚按钮旁",
+    ).toBe("生成章节细纲")
+    const targets = container.querySelectorAll(".ui-test-editor-action.is-hint-target")
+    expect(targets).toHaveLength(1)
+    expect(targets[0]?.getAttribute("aria-label")).toBe("生成章节细纲")
+    await act(async () => {
+      hint?.querySelector<HTMLButtonElement>(".ui-test-editor-inspiration-hint-dismiss")?.click()
+    })
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
+
+  it("两条气泡同时传入时各出现一次，草稿气泡的结构逐项不变", async () => {
+    const scrollRef = createRef<HTMLDivElement>()
+    const onDismiss = vi.fn()
+    const onMute = vi.fn()
+    await act(async () => {
+      root.render(
+        <div className="ui-test-root">
+          <UiTestEditor {...baseProps} scrollRef={scrollRef} actions={twoAnchoredActions}
+            draftMemoryHint={{ onDismiss, onMute }}
+            inspirationHint={{ onDismiss, onMute }}>{() => <p>正文</p>}</UiTestEditor>
+        </div>,
+      )
+    })
+    expect(container.querySelectorAll(".ui-test-editor-hint-anchor")).toHaveLength(2)
+    expect(container.querySelectorAll(".ui-test-editor-action.is-hint-target")).toHaveLength(2)
+    expect(container.querySelectorAll(".ui-test-editor-draft-hint")).toHaveLength(1)
+    expect(container.querySelectorAll(".ui-test-editor-inspiration-hint")).toHaveLength(1)
+
+    const draft = container.querySelector(".ui-test-editor-draft-hint")!
+    expect(draft.getAttribute("role")).toBe("status")
+    expect(draft.querySelector("p")?.textContent).toBe(DRAFT_MEMORY_HINT_MESSAGE)
+    const actions = draft.querySelector(".ui-test-editor-draft-hint-actions")
+    expect(actions?.textContent).toBe("知道了不再提醒")
+    const dismissButtons = draft.querySelectorAll("button.ui-test-editor-draft-hint-dismiss")
+    expect(dismissButtons).toHaveLength(2)
+    expect(dismissButtons[0]?.getAttribute("type")).toBe("button")
+    expect(
+      draft.closest(".ui-test-editor-hint-anchor")?.querySelector("button")?.getAttribute("aria-label"),
+    ).toBe("提取记忆")
+  })
+})
+
 describe("测试版正文样式边界", () => {
   const cssPath = resolve(__dirname, "ui-test-editor.css")
   const css = existsSync(cssPath) ? readFileSync(cssPath, "utf8") : ""
@@ -954,6 +1162,28 @@ describe("测试版正文样式边界", () => {
     expect(css).toMatch(/\.ui-test-editor-hint-anchor\s*\{[^}]*position:\s*static/)
     expect(css).toMatch(/\.ui-test-editor-draft-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
     expect(css).toMatch(/\.ui-test-editor-header\s*\{[^}]*z-index:\s*2/)
+  })
+
+  it("灵感提示用独立类名 + 独立规则块，定位与草稿提示逐项相同", () => {
+    /*
+     * 丙-4a 选的方案是 (i)：新气泡用**独立类名**（`ui-test-editor-inspiration-hint`），
+     * 定位属性**照抄成一条独立规则块**，不用选择器分组。两条理由都是实测出来的：
+     *
+     * 1. `.ui-test-editor-draft-hint` 在本文件里被 ~20 处断言要求「为 null 或长度
+     *    恰为 1」。一旦新气泡共用这个类名，那些断言的**含义会被悄悄扩大** ——
+     *    它们将不再只描述草稿提示，而「只有一条草稿气泡」这条不变量就没人守了。
+     * 2. 上面那条正则要求
+     *    `.ui-test-editor-draft-hint { … width: min(280px, 100%) }` 形如**独立规则块**，
+     *    分组写法（`.ui-test-editor-draft-hint, .ui-test-editor-inspiration-hint { … }`）
+     *    不一定匹配。所以这里把两条规则**分别**断言：既钉住新类名，
+     *    也顺带证明草稿那条没有被改成分组而失配。
+     */
+    expect(css).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*position:\s*absolute/)
+    expect(css).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*z-index:\s*2/)
+    expect(css).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*top:\s*calc\(100% \+ 10px\)/)
+    expect(css).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*left:\s*0/)
+    expect(css).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
+    expect(css).toMatch(/\.ui-test-editor-draft-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
   })
 
   it("单独提供最大800正文容器，1.25rem/1.75rem标题与单一来源的衬线正文", () => {

@@ -74,6 +74,7 @@ const novelConfig: NovelConfig = {
   draftMemoryHintEnabled: true,
   draftMemoryHintSeen: false,
   inspirationHintEnabled: true,
+  inspirationHintSeen: false,
 }
 
 /** Matches the graph shape buildWikiGraph resolves to. */
