@@ -54,6 +54,31 @@
      但 ⚠️ 本批**不要**让技能库的选中动作去写它（用户决定 2：项目设置不得被改）。
    - 载入：`SkillGallery` 现在同时加载两库（`:409-427`），补
      `loadWritingStyleStore(projectPath)`。
+
+     #### ✅ 已实读：这段载入逻辑有一个**共享 catch**，加第三个来源时必须处理
+     ```ts
+     Promise.all([loadUserSkillConfig(project?.path), loadDeAiSkillConfig(project?.path)])
+       .then(([writing, deAi]) => { … })
+       .catch(() => { setWritingConfig(null); setDeAiConfig(null); setLoadError("技能库加载失败") })
+     ```
+     - `:412` 是 `Promise.all` + `project?.path`（**可能为 `undefined`**，两个 loader 都接受）；
+       依赖数组是 `[dataVersion, project?.path]`（`:427`）——**已正确包含 `dataVersion`**，
+       所以 `bumpDataVersion()` 能让文风库刷新，不需要额外改依赖。
+     - ⚠️ **陷阱**：`catch` 一旦触发就把**两个**配置都置 `null` 并报「技能库加载失败」。
+       若把 `loadWritingStyleStore` 直接加进同一个 `Promise.all`，
+       则**文风库读取失败会连带把写作 Skill 与去AI味技能也清空**（表现为整页报错、
+       另外两个 tab 也空了）——一个来源的故障扩散成三个。
+     - ⇒ **要求（二选一，并在报告里说明选了哪个）**：
+       - **(i) 推荐**：给文风库单独一个 `.catch`（例如
+         `loadWritingStyleStore(project?.path).catch(() => ({ version: 1, enabledStyleId: null, styles: [] }))`），
+         让「文风库缺失/损坏」退化成「文风 tab 为空」，**不影响另外两库**；
+       - **(ii)** 合进同一个 `Promise.all` 但把 `catch` 拆成按来源记录，
+         并保证只有**全部**失败才显示整库错误。
+     - ⚠️ 顺带确认：`loadWritingStyleStore`（`writing-style-store.ts:65-77`）**自身已经**
+       在 `try/catch` 里返回空 store（`:74-76`），所以它**不会**因为文件不存在而 reject；
+       真正的失败面是 `readFile` 抛出的非文件缺失错误与 `JSON.parse`。
+       即使如此，(i) 仍然更稳（未来改动不会把风险转移给另外两库）。
+
    - 分类 chips（`:442-453`，现在只在 writing tab 生成）：按需扩展；
      `UnifiedSkillCategory`（`:45`）里 `"de-ai" | "writing"` 两个成员**实际未被使用**，
      实施时先确认再决定是否复用。
@@ -180,6 +205,74 @@
      `{ ...contextPack, writingStyle: override }`。
      **不要原地改 `contextPack`**——它可能来自 context-hub 缓存，原地改会污染缓存。
    - 「本次不用文风」= `writingStyle: ""`。
+
+   #### 🔴 补漏（实施前必读）：`writingStyle` 是**恒定 key 的缓存源**，注入点**只能**在 `:782`
+   上面说「与缓存有关」时留了话没说完。已实读 `context-hub/data-source-cache.ts:56-71`：
+   ```ts
+   const STATIC_SOURCES = new Set([
+     "canonRules", "sourceCanon", "writingStyle", "soulDoc", …
+   ])
+   ```
+   ⚠️ **但决定性证据不是注释，而是缓存 key 的计算函数**（已实读 `:116-124`）：
+   ```ts
+   async function sourceRequestKey(sourceName, context) {
+     const scope = STATIC_SOURCES.has(sourceName)
+       ? {}                                          // ← writingStyle 走这一支
+       : CHAPTER_SCOPED_SOURCES.has(sourceName)
+         ? { chapterNumber: context.chapterNumber ?? null, config: context.config }
+         : { task: context.task, chapterNumber: context.chapterNumber ?? null, config: context.config }
+     const version = SOURCE_CACHE_VERSIONS[sourceName]
+     const versionSuffix = version ? `:v${version}` : ""
+     return `data-source:${sourceName}${versionSuffix}:${await sha256Text(JSON.stringify(canonicalize(scope)))}`
+   }
+   ```
+   ⇒ `writingStyle` 的 scope 是**空对象 `{}`**，缓存 key 因此退化成
+   `data-source:writingStyle:<sha256("{}")>` —— **一个常量字符串**。
+   它**不含** `task`、**不含** `chapterNumber`、**不含** `config`，
+   更**不可能含**「本次临时覆盖了哪个文风」。
+   ⚠️ 别引错注释：`:63` 那句「以下源加载的是项目级数据（不依赖章节号），
+   改用恒定 key 跨章节/跨消息复用」**只修饰它下面的那几条**（`:64-70`），
+   `writingStyle` 在 `:59`，属上一组——真正的依据是上面那个 `scope = {}` 分支。
+   而 `writingStyle` 正是由数据源层产出的：
+   `context-data-sources.ts:376-382` 的 `writingStyleDataSource`
+   → `buildWritingStyleContext(context.projectPath, { task: context.task })`
+   → 填进 `pack.writingStyle`（`composer.ts:65` 渲染成「写作风格」段）。
+
+   ⇒ **因此「本次临时覆盖」绝对不能注入数据源层**（不要去改
+   `context-data-sources.ts:382`）。恒定 key 会让**第一次**生成时的覆盖文本被永久缓存：
+   - 第 1 次生成选文风 A → 缓存存下 A 的文本；
+   - 第 2 次生成选文风 B（或**不选**）→ 缓存直接命中返回 **A**；
+   - 结果：覆盖**静默失效**，更糟的是**上一轮的文风会泄漏进之后所有生成**。
+   这是一个无声、难查、且会污染全书输出的缺陷——正是本计划反复警告的那一类。
+
+   ⇒ **结论：`deep-chapter-generation.ts:782` 不只是「更保险的位置」，而是唯一正确的位置**
+   ——它在缓存**之后**，拿到的是已返回的 `contextPack`，浅拷贝只影响本次调用。
+   实施报告里请把这条因果写出来，不要当成风格偏好。
+
+   #### 🔴 补漏（实施前必读）：覆盖文本**由谁渲染**——`buildWritingStyleContext` 现在渲染不了它
+   上面只规定了「覆盖文本怎么用」，没规定「覆盖文本怎么来」。已实读发现一个硬阻塞：
+   - `buildWritingStyleContext(projectPath, options)`（`writing-style-store.ts:238`）
+     的**第一件事**就是 `const preset = await getEnabledWritingStyle(projectPath)`（`:242`）
+     —— **它只认「当前启用」那一个预设，没有任何「渲染指定预设」的参数**。
+   - ⇒ 直接调用它**无法**产出「这次临时选的文风」的文本。必须给它加一个覆盖选项
+     （如 `styleIdOverride?: string | null`），把 `:242` 的取值从
+     「无条件读启用项」改成「有覆盖就用覆盖，否则读启用项」。
+   - ⚠️ **必须照抄 `getEnabledWritingStyle`（`:180-187`）的取值形状，尤其是
+     `:186` 的 `migrateStyleProfile(preset.profile)`**：
+     ```ts
+     const preset = store.styles.find((s) => s.id === styleIdOverride)
+     return preset ? { ...preset, profile: migrateStyleProfile(preset.profile) } : null
+     ```
+     **不要**直接 `store.styles.find(...)` 就把 preset 交给渲染器——那会**跳过 v1→v2 迁移**，
+     旧画像的 `workbenchStyle.styleFingerprint` 就不存在，于是覆盖会**莫名掉进旧画像分支**
+     （无前缀、无守卫、内容形状不同）。这是个只有存量项目才会踩的坑。
+   - ⚠️ **不得改变「不传覆盖」时的行为**：`writing-style-store.spec.ts`（361 行）是
+     逐字节级的行为契约，加参数后**必须全绿且不改任何断言**。覆盖选项应当是可选的、
+     默认 `undefined`，走原路径。
+   - 「本次不用文风」（用户显式清空）与「没有覆盖」是**两种不同状态**：
+     前者要产出 `""`（真的不注入），后者要产出启用项的文本。
+     用 `undefined` = 没覆盖、`null` = 显式不用，**不要把两者都当成 falsy 混用**
+     （否则「不用文风」会退化成「用已启用的文风」，正好相反）。
 3. **接到工具层**：照 `skillsPrompt` 的**「getter 注入」**通路形状
    （**已实测确认为一条完整链**，不是参数一路透传）：
    - 产出（pull 模型）：`chat-panel.tsx:1084` 的 `getSelectedSkillsPrompt` 回调
@@ -417,6 +510,43 @@
    ⚠️ **不要手写 md 文件**：`framework-store` 的解析较严
    （`extractSection` `:122-139`、`parseNodeHeader` 要求含「节点」`:141-160`），
    手写会**静默产出 0 个节点**。一定走 `saveFramework`。
+1.5. 🔴 **转换器产出的 `StoryFramework.id` 必须是「由来源决定的确定值」，
+   不能是新造的随机/时间戳 id**（实施前必读，否则整条路线会静默半失效）。
+
+   已实读的因果链：
+   - 消费端 `storyFrameworkBindingDataSource`（`context-data-sources.ts:516-527`）：
+     ```ts
+     const binding = await loadBinding(context.projectPath)
+     if (!binding) return ""
+     const frameworks = await loadFrameworks(context.projectPath)
+     const framework = frameworks.find((f) => f.id === binding.frameworkId)
+     if (!framework) return ""          // ← id 对不上就静默返回空串，没有报错
+     return buildBindingContext(binding, framework)
+     ```
+     即：**必须 `framework.id === binding.frameworkId` 才生效**，对不上就是**空串**（静默失效，
+     不会抛错、不会提示）。
+   - `saveBinding`（`framework-binding.ts:70-82`）写入的是 `frameworkId: framework.id`（`:77`）
+     —— 也就是说绑定记的是**用户点绑定时那个对象**的 id。
+   - `saveFramework`（`framework-store.ts:289-296`）落盘路径是
+     `frameworkFilePath(projectPath, framework.id)` = `.qmai/simulations/frameworks/<id>.md`
+     —— **id 即文件名**。
+
+   ⇒ **要求：`StoryFramework.id` 由 `PlotFramework.id` 确定性地派生**
+   （`plot-framework.ts:45` 明写它是「**稳定唯一 ID**（同项目内不可重复）」，
+   所以有可靠的来源可用）。建议加前缀避免与原生创建的框架撞名
+   （如 `` `plot:${pf.id}` ``），并写进转换器单测。
+
+   **为什么不能随手造 id**（三个具体后果）：
+   1. **重复堆积**：两个发布方（`workbench-publish.ts:245` 与
+      `story-analysis-adapter.ts:265-292`）都要桥。同一个来源经两条路发布、
+      或同一框架被重复发布时，随机 id 会**每次多一个文件**，
+      `loadFrameworks()` 列表无限膨胀；确定 id 则被 `writeFileAtomic` **覆盖**，发布是幂等的。
+   2. **绑定错版本**：列表里出现同一内容的多份副本，用户绑到的是**旧副本**；
+      之后发布的新版本永远不被读到（因为 `binding.frameworkId` 指向旧 id）。
+   3. **测试会骗你**：如果测试写成「publish 拿到返回对象 → 用同一个对象 bind」，
+      随机 id 也**必然通过**；只有「独立构造一次转换 / 重复发布两次」才暴露。
+      ⇒ 单测必须包含**发布两次只得到一个文件**，以及**绑定后数据源真能取到非空文本**。
+
 2. **在两个发布方都加桥接**（否则只做一半）：
    - `workbench-publish.ts:245`（在 `upsertPlotFramework` 旁边）；
    - ⚠️ `story-analysis-adapter.ts:265-292`（旧提取路径，同样要桥）。

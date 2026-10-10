@@ -570,3 +570,63 @@ JSON 解析出来的**（`extractEventOutlineData` ← `msg.content`），
    - 影响面有限：`基础去AI味` 只是 standard 模式下 2 个技能的其中之一，
      且本批新增的 `DE_AI_GENERATION_RULES` 是**无条件**注入的提示词层地板，
      不依赖该技能是否被修好。
+
+---
+
+## 7. ✅ 三项原始诉求的独立复核（收尾时重做一遍，以 `git grep` 为准）
+
+本批的**诉求原文**见 `docs/scratch-20261010-文风与拆书库-设计.md` §6，共三条。
+逐条给出**可复核的证据**（不是复述实现者的报告）：
+
+### 7.1 「正文 prompt 补反 AI 腔硬规则」——✅ 成立
+```
+git grep -n "DE_AI_GENERATION_RULES" -- src
+  src/lib/novel/de-ai-generation-rules.ts:33    ← 定义
+  src/lib/novel/deep-chapter-prompts.ts:195     ← 初稿
+  src/lib/novel/deep-chapter-prompts.ts:233     ← 返修（并带 DE_AI_REVISION_BOUNDARY）
+  src/lib/novel/deep-chapter-prompts.ts:274     ← 扩写
+  src/lib/novel/event-outline.ts:404           ← 事件细纲扩写
+```
+- 三处正文阶段全部覆盖；**阶段 6「最终润色」刻意不含**，并有反向断言钉住
+  （`deep-chapter-generation.spec.ts:457`、`:2158` 的 `not.toContain("## 反 AI 腔硬约束")`）。
+- 注入位置不变式由 `deep-chapter-prompts.cache.spec.ts:76-83` 钉住
+  （规则块整体排在稳定缓存前缀**之后**）。
+
+### 7.2 「接上零引用的禁用词清单」——✅ 成立（落地形态是**节选重写**，理由见 §2.1）
+- 那份清单 = `skills/de-ai-writing/references/novel-de-ai-rules.md`（**177 行**）。
+  §1.2 已实读确认它质量高，但定位是**改写手册**，从未进过正文生成。
+- 本批**没有整篇注入**（§2.1 的「类别错误」论证 + 每次调用都付 2.5k 字符的成本），
+  而是按它的**分类**重写成 `DE_AI_GENERATION_RULES` 的「词法」小节。
+  **逐类核对**（`.md` 的六类 → 实现）：
+  | `.md` 分类 | 实现行 |
+  |---|---|
+  | 总结腔 | `de-ai-generation-rules.ts:36` |
+  | 解释腔 | `:37` |
+  | 模板句首 | `:38` |
+  | 空洞形容 | `:39` |
+  | 转折滥用 | `:40` |
+  | AI 特征词 | `:41` |
+  另有套话/cliché 清单（`:42`「禁烂句」）。**六类无缺**由
+  `de-ai-generation-rules.spec.ts:22-23` 断言（用例名即「词法组点名了每一类禁用词与 cliché 清单」）。
+- ⚠️ **口径必须说清**：诉求说的「接上」，在本批的落地形态是**重写节选**，
+  不是引用同一个文件。详版 `.md` **未删**，仍是人工可编辑的出处
+  （模块头注释 `:15` 明写）。将来若想改成「整篇引用」，需重开设计，
+  不要把这个选择当成偶然产物。
+
+### 7.3 「改善只有 strict 模式才审稿返修的问题」——✅ 成立，但**是改换解法**
+- §1.5 已实测证明**字面修法没有意义**：
+  - 默认模式是 `standard`，不是 strict（`workflow-mode.ts:8` + `wiki-store.ts:1023`
+    + `workflow-mode.spec.ts:14` 三处互证）；
+  - `deep-chapter-generation.ts:1125-1167` 在 `standard` 下**硬短路**掉返修与润色
+    （`finalContent = draftContent`）；
+  - **而且连 strict 的 18 条审稿维度里，没有一条是文风/句式/词法**
+    （`review-adapter.ts:59-78`）——JSON 里那个 `"style"` 枚举没有任何维度会产出它。
+- ⇒ 本批的解法是**把质量关口前移到「所有模式都必然执行的那一次调用」**
+  （初稿 + 扩写），用提示词约束**预防**，而不是加一轮只有 strict 才走的审稿。
+  零额外 LLM 调用，对 `fast`/`standard`/`strict` 一律生效。
+- ⚠️ **这不算「把审稿维度补齐」**。若用户原意是「让 standard 也做审稿返修」，
+  那要改 `resolveChapterWorkflowProfile` 的档位语义（成本翻倍），**不在本批范围**。
+  此处如实记录，以免被误读为已做。
+- 本条的**人工验收仍未执行**（§6 第 1 条）：自动测试只能证明
+  「规则被无条件、位置正确地注入」，**不能**证明「文字变好了」。
+  需要人在 `npm run tauri dev` 里真读一段散文。
