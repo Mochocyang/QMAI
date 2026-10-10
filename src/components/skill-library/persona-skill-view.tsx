@@ -12,8 +12,8 @@ import {
   loadPersonaSkillIndex,
   readPersonaSkillDocument,
   readPersonaSkillResearch,
+  savePersonaSkillDocumentByUser,
   updatePersonaSkillIndex,
-  writePersonaSkillDocument,
 } from "@/lib/novel/persona-skill-store"
 import { regeneratePersonaSkillResearch } from "@/lib/novel/persona-skill-learning"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -144,21 +144,9 @@ export function PersonaSkillView() {
     if (!projectPath || !selected) return
     setBusy(true)
     try {
-      await writePersonaSkillDocument(projectPath, selected.id, documentText)
-      // 同样走加锁的读-改-写：保存档案不该覆盖后台学习刚写进去的别的字段。
-      const updated = await updatePersonaSkillIndex(projectPath, (current) => ({
-        version: 1,
-        skills: current.skills.map((item) =>
-          item.id === selected.id
-            ? {
-                ...item,
-                editedByUser: true,
-                skillRevision: item.skillRevision + 1,
-                updatedAt: new Date().toISOString(),
-              }
-            : item,
-        ),
-      }))
+      // 一次调用完成「写正文 + 置 editedByUser」：两者必须在同一把锁内，
+      // 否则后台学习可能正好挤在中间，按「没被改过」把刚写的正文覆盖掉。
+      const updated = await savePersonaSkillDocumentByUser(projectPath, selected.id, documentText)
       setIndex(updated)
       setDraftDirty(false)
       setMessage("已保存。之后 AI 只会在这份档案后面追加「补充」，不会覆盖你写的内容。")

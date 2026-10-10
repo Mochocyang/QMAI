@@ -4,6 +4,11 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useWikiStore } from "@/stores/wiki-store"
+import {
+  personaSkillLockKey,
+  withPersonaSkillLock,
+  __resetPersonaSkillLocksForTesting,
+} from "@/lib/novel/persona-skill-store"
 import { PersonaSkillView } from "./persona-skill-view"
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -115,6 +120,9 @@ async function click(element: HTMLElement | null) {
 describe("PersonaSkillView", () => {
   beforeEach(() => {
     io.files.clear()
+    // 占锁那条用例若在断言前失败，锁链会留在模块级 locks Map 里，
+    // 把后面所有用例一起挂死（报出来的是假失败）。每条都从干净锁表开始。
+    __resetPersonaSkillLocksForTesting()
     useWikiStore.getState().setProject({ id: "p1", name: "测试项目", path: project })
     useWikiStore.getState().setActiveView("personaSkillLibrary")
     useWikiStore.getState().setPersonaSkillLibraryDraftDirty(false)
@@ -222,6 +230,45 @@ describe("PersonaSkillView", () => {
 
     expect(container.querySelector('[data-testid="persona-skill-card-沈砚"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="persona-skill-card-林清越"]')).toBeNull()
+
+    cleanup(root, container)
+  })
+
+  it("保存档案：正文与 editedByUser 在同一把锁内写入", async () => {
+    writeIndex([meta()])
+    const docPath = `${project}/.qmai/persona-skills/林清越/SKILL.md`
+    io.files.set(docPath, "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n原始内容。\n")
+    const { container, root } = await renderView()
+
+    await click(getButton(container, "打开档案") ?? null)
+
+    const editor = container.querySelector<HTMLTextAreaElement>('[data-testid="persona-skill-editor"]')!
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setter?.call(editor, "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n用户改过的内容。\n")
+      editor.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+
+    // 先自己占住锁，模拟「后台学习正在跑」
+    let release!: () => void
+    const held = withPersonaSkillLock(
+      personaSkillLockKey(project),
+      () => new Promise<void>((resolve) => { release = () => resolve() }),
+    )
+
+    await click(getButton(container, "保存") ?? null)
+
+    // 锁还被占着 —— 正文必须一字未动，证明「写正文」也在锁内。
+    // 若实现是「先写正文、再单独取锁改标志」，这里会提前看到用户那句话。
+    expect(io.files.get(docPath)).toContain("原始内容。")
+
+    release()
+    await act(async () => { await held })
+    await flushEffects()
+
+    expect(io.files.get(docPath)).toContain("用户改过的内容。")
+    expect(readIndex().skills[0].editedByUser).toBe(true)
+    expect(readIndex().skills[0].skillRevision).toBe(2)
 
     cleanup(root, container)
   })

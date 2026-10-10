@@ -443,3 +443,35 @@ export async function updatePersonaSkillState(
     }
   })
 }
+
+/**
+ * 用户手改档案的原子保存：**写正文与置 editedByUser 必须在同一把锁内**。
+ *
+ * 分开做（先 writePersonaSkillDocument、再 updatePersonaSkillIndex）会留下一个交错窗口：
+ * 正文已经换成用户写的、索引里 editedByUser 还是 false。此时 applyPersonaSkillDrafts
+ * 正好读索引，就会按「没被用户改过」处理，把用户刚写的内容整份覆盖掉；随后 UI 再把
+ * editedByUser 置真 —— 标志说改过了、正文却是 AI 的，比不修还糟。
+ *
+ * 索引严格读失败会抛：宁可让用户看到「保存失败、草稿还在」，也不能拿空索引覆盖整库。
+ */
+export async function savePersonaSkillDocumentByUser(
+  projectPath: string,
+  id: string,
+  content: string,
+): Promise<PersonaSkillIndex> {
+  return withPersonaSkillLock(personaSkillLockKey(projectPath), async () => {
+    const index = (await loadPersonaSkillIndexStrict(projectPath)) ?? { version: 1, skills: [] }
+    await writePersonaSkillDocument(projectPath, id, content)
+    const updatedAt = new Date().toISOString()
+    const next: PersonaSkillIndex = {
+      version: 1,
+      skills: index.skills.map((item) =>
+        item.id === id
+          ? { ...item, editedByUser: true, skillRevision: item.skillRevision + 1, updatedAt }
+          : item,
+      ),
+    }
+    await savePersonaSkillIndex(projectPath, next)
+    return next
+  })
+}

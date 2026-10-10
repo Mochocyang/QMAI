@@ -5367,7 +5367,7 @@ git commit -m "feat(人物skill): 接上导航与草稿守卫"</div>
 <!-- ============================ Task 11 ============================ -->
 <section>
 <h2><span class="tnum">Task 11</span>审查修复：并发保存覆盖、确定性记账、提示词截断</h2>
-<p class="task-meta">Files: <code>src/lib/novel/persona-skill-store.ts</code>（1 处 export + 注释）、<code>src/lib/novel/persona-skill-learning.ts</code>（4 处）、<code>src/lib/novel/persona-skill-prompt.ts</code>（1 处截断）、<code>src/lib/novel/persona-skill-learning.spec.ts</code>（+3 用例，28→31）、<code>src/lib/novel/persona-skill-prompt.spec.ts</code>（+1 用例，11→12）。</p>
+<p class="task-meta">Files: <code>src/lib/novel/persona-skill-store.ts</code>（1 处 export + 1 个新函数 + 注释）、<code>src/lib/novel/persona-skill-learning.ts</code>（4 处）、<code>src/lib/novel/persona-skill-prompt.ts</code>（1 处截断）、<code>src/components/skill-library/persona-skill-view.tsx</code>（保存改为一次原子调用）、<code>src/lib/novel/persona-skill-learning.spec.ts</code>（+3 用例，28→31）、<code>src/lib/novel/persona-skill-prompt.spec.ts</code>（+1 用例，11→12）、<code>src/components/skill-library/persona-skill-view.spec.tsx</code>（+1 用例，7→8）。</p>
 
 <div class="callout bad">
   <span class="t">这四条是 Task 1–10 完成后的独立代码审查发现的真实缺陷，全部是**计划自身的缺陷**</span>
@@ -5722,15 +5722,113 @@ export function buildPersonaSkillExisting(document: string): string {
 </div>
 
 <div class="step">
-  <div class="head"><input type="checkbox"><span>Step 6：跑门禁并提交</span></div>
-  <div class="run">npx vitest run src/lib/novel/persona-skill-learning.spec.ts src/lib/novel/persona-skill-prompt.spec.ts src/lib/novel/persona-skill-store.spec.ts src/lib/novel/persona-skill-context.spec.ts src/lib/novel/persona-skill-types.spec.ts
+  <div class="head"><input type="checkbox"><span>Step 7：把「用户保存档案」也收进同一把锁（补 Step 1 留下的半个窗口）</span></div>
+  <p><b>Step 1 只关掉了一半</b>：现在 <code>applyPersonaSkillDrafts</code> 读新鲜索引，但它<b>不持有</b>那把锁去管「UI 那一侧的两次写」。<code>persona-skill-view.tsx:147-161</code> 的保存是<b>先写正文、再单独取锁改 <code>editedByUser</code></b>。这两步之间若插进一次 apply，就会：先读到 <code>editedByUser=false</code> → 按「没被改过」把正文整份重写 → 用户那句话丢；紧接着 UI 把 <code>editedByUser</code> 置真 —— 结果是<b>标志说「改过了」、正文却是 AI 的</b>，比原样更糟。</p>
+  <p>窗口从「整轮模型调用」缩到了「两次本地写之间」，量级小了三四个数量级，但没有归零。设计说这条<b>必须守住</b>，所以补完。</p>
+  <p><b>第一步</b>：在 <code>persona-skill-store.ts</code> 末尾（<code>updatePersonaSkillState</code> 之后）新增一个专供 UI 保存用的原子入口：</p>
+  <pre><code>/**
+ * 用户手改档案的原子保存：**写正文与置 editedByUser 必须在同一把锁内**。
+ *
+ * 分开做（先 writePersonaSkillDocument、再 updatePersonaSkillIndex）会留下一个交错窗口：
+ * 正文已经换成用户写的、索引里 editedByUser 还是 false。此时 applyPersonaSkillDrafts
+ * 正好读索引，就会按「没被用户改过」处理，把用户刚写的内容整份覆盖掉；随后 UI 再把
+ * editedByUser 置真 —— 标志说改过了、正文却是 AI 的，比不修还糟。
+ *
+ * 索引严格读失败会抛：宁可让用户看到「保存失败、草稿还在」，也不能拿空索引覆盖整库。
+ */
+export async function savePersonaSkillDocumentByUser(
+  projectPath: string,
+  id: string,
+  content: string,
+): Promise&lt;PersonaSkillIndex&gt; {
+  return withPersonaSkillLock(personaSkillLockKey(projectPath), async () =&gt; {
+    const index = (await loadPersonaSkillIndexStrict(projectPath)) ?? { version: 1, skills: [] }
+    await writePersonaSkillDocument(projectPath, id, content)
+    const updatedAt = new Date().toISOString()
+    const next: PersonaSkillIndex = {
+      version: 1,
+      skills: index.skills.map((item) =&gt;
+        item.id === id
+          ? { ...item, editedByUser: true, skillRevision: item.skillRevision + 1, updatedAt }
+          : item,
+      ),
+    }
+    await savePersonaSkillIndex(projectPath, next)
+    return next
+  })
+}</code></pre>
+  <p><b>第二步</b>：<code>persona-skill-view.tsx</code> 的 <code>handleSaveDocument</code>（<code>:143-172</code>）里，把「<code>writePersonaSkillDocument</code> + <code>updatePersonaSkillIndex</code>」两段换成一次 <code>savePersonaSkillDocumentByUser</code>：</p>
+  <pre><code>  async function handleSaveDocument() {
+    if (!projectPath || !selected) return
+    setBusy(true)
+    try {
+      // 一次调用完成「写正文 + 置 editedByUser」：两者必须在同一把锁内，
+      // 否则后台学习可能正好挤在中间，按「没被改过」把刚写的正文覆盖掉。
+      const updated = await savePersonaSkillDocumentByUser(projectPath, selected.id, documentText)
+      setIndex(updated)
+      setDraftDirty(false)
+      setMessage("已保存。之后 AI 只会在这份档案后面追加「补充」，不会覆盖你写的内容。")
+    } catch (err) {
+      // 严格读会抛。这一条尤其不能吞——用户以为存下来了、其实没有，
+      // 而且是「不改 draftDirty」的状态，草稿还在，可以重试。
+      setMessage(`保存失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }</code></pre>
+  <p>import 块里 <code>writePersonaSkillDocument</code> 与 <code>updatePersonaSkillIndex</code> 若因此变成未使用，<b>要一并删掉</b>（<code>noUnusedLocals</code> 会报 TS6133）。注意 <code>handleTogglePin</code> 仍用 <code>updatePersonaSkillIndex</code>，所以<b>它多半还要留着</b>——以两个 <code>tsc</code> 的输出为准，别凭猜删。</p>
+  <p><b>第三步</b>：在 <code>persona-skill-view.spec.tsx</code> 末尾加一条，用「先占住锁」证明正文写与标志写确实同在锁内。照抄同文件 <code>:171-194</code> 那条既有用例的写法（按钮文案是<b>「打开档案」</b>，不是「编辑」；改 textarea 要先取 <code>HTMLTextAreaElement.prototype</code> 的 <code>value</code> setter）：</p>
+  <pre><code>  it("保存档案：正文与 editedByUser 在同一把锁内写入", async () =&gt; {
+    writeIndex([meta()])
+    const docPath = `${project}/.qmai/persona-skills/林清越/SKILL.md`
+    io.files.set(docPath, "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n原始内容。\n")
+    const { container, root } = await renderView()
+
+    await click(getButton(container, "打开档案") ?? null)
+
+    const editor = container.querySelector&lt;HTMLTextAreaElement&gt;('[data-testid="persona-skill-editor"]')!
+    await act(async () =&gt; {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setter?.call(editor, "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n用户改过的内容。\n")
+      editor.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+
+    // 先自己占住锁，模拟「后台学习正在跑」
+    let release!: () =&gt; void
+    const held = withPersonaSkillLock(
+      personaSkillLockKey(project),
+      () =&gt; new Promise&lt;void&gt;((resolve) =&gt; { release = () =&gt; resolve() }),
+    )
+
+    await click(getButton(container, "保存") ?? null)
+
+    // 锁还被占着 —— 正文必须一字未动，证明「写正文」也在锁内。
+    // 若实现仍是「先写正文、再单独取锁改标志」，这里会提前看到用户那句话。
+    expect(io.files.get(docPath)).toContain("原始内容。")
+
+    release()
+    await act(async () =&gt; { await held })
+    await flushEffects()
+
+    expect(io.files.get(docPath)).toContain("用户改过的内容。")
+    expect(readIndex().skills[0].editedByUser).toBe(true)
+    expect(readIndex().skills[0].skillRevision).toBe(2)
+
+    cleanup(root, container)
+  })</code></pre>
+  <p>该 spec 需要 import <code>withPersonaSkillLock</code> 与 <code>personaSkillLockKey</code>（来自 <code>@/lib/novel/persona-skill-store</code>）。<b>另外必须在 <code>beforeEach</code> 里加 <code>__resetPersonaSkillLocksForTesting()</code></b>：占锁那条用例若在断言前失败，锁链会留在模块级 <code>locks</code> Map 里，<b>把后面所有用例一起挂死</b>（要等 vitest 超时，报出来的是假失败）。</p>
+</div>
+
+<div class="step">
+  <div class="head"><input type="checkbox"><span>Step 8：跑门禁并提交</span></div>
+  <div class="run">npx vitest run src/lib/novel/persona-skill-learning.spec.ts src/lib/novel/persona-skill-prompt.spec.ts src/lib/novel/persona-skill-store.spec.ts src/lib/novel/persona-skill-context.spec.ts src/lib/novel/persona-skill-types.spec.ts src/components/skill-library/persona-skill-view.spec.tsx
 npx tsc --build --pretty
 npx tsc -p tsconfig.test.json --noEmit</div>
   <div class="expect">
     <span class="t">Expected</span>
-    用例全绿（31 + 12 + 33 + 17 + 21 = <b>114</b>），两个 <code>tsc</code> 都 exit 0、无输出。<code>persona-skill-store.spec.ts</code> 必须一起跑 —— Step 1 给它加了一个 <code>export</code>，虽然不改行为，但它在 store 的公开面上。
+    用例全绿（31 + 12 + 33 + 17 + 21 + 8 = <b>122</b>），两个 <code>tsc</code> 都 exit 0、无输出。<code>persona-skill-store.spec.ts</code> 与 <code>persona-skill-view.spec.tsx</code> 必须一起跑 —— Step 1 与 Step 7 分别动了它们。
   </div>
-  <div class="run">git add src/lib/novel/persona-skill-store.ts src/lib/novel/persona-skill-learning.ts src/lib/novel/persona-skill-prompt.ts src/lib/novel/persona-skill-learning.spec.ts src/lib/novel/persona-skill-prompt.spec.ts
+  <div class="run">git add src/lib/novel/persona-skill-store.ts src/lib/novel/persona-skill-learning.ts src/lib/novel/persona-skill-prompt.ts src/components/skill-library/persona-skill-view.tsx src/lib/novel/persona-skill-learning.spec.ts src/lib/novel/persona-skill-prompt.spec.ts src/components/skill-library/persona-skill-view.spec.tsx
 git commit -m "fix(人物skill): 保住并发保存的手改正文，并让出场记账确定性地落盘"</div>
 </div>
 
