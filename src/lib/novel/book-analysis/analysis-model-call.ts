@@ -11,7 +11,16 @@ import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 /** 与既有 adapter 一致：直接取 streamChat 首参类型，不另引配置类型。 */
 type AnalysisLlmConfig = Parameters<typeof streamChat>[0]
 
-/** 关掉思考重试一次仍拿不到正文时的终态文案。 */
+/**
+ * 关掉思考重试一次仍拿不到正文时的终态文案。
+ *
+ * ⚠️ 这段文案刻意用「没有**返回**正文」，而不是「没有**输出**正文」：
+ * 它**绝不能**匹配 reasoning-retry.ts:4 的 REASONING_ONLY_RESPONSE_RE。
+ * 因为上层（agent/runner.ts:378、sources/outline-chat-panel.tsx:428）都用同一个
+ * 判定函数决定要不要再重试一次，一旦匹配上，「已经关思考重试过的终态」
+ * 会被当成可重试错误再重发一次整个 prompt，token 白白翻倍。
+ * analysis-model-call.spec.ts 有专门用例钉住这个性质，改文案前先看那条。
+ */
 export const REASONING_ONLY_ANALYSIS_MESSAGE =
   "模型只输出了思考内容，没有返回正文；已关闭思考重试一次仍未成功。请换用非推理模型，或缩小分析范围后重试。"
 
@@ -27,10 +36,15 @@ export interface AnalysisModelCallOptions {
    * 有的调用点会把半截输出落盘（workbench-adapter 的 v1 文风草案），
    * 所以不能只靠抛错把它丢掉。
    *
-   * 契约：**每次失败的尝试各回调一次**，最后一次一定是文本最新的那一版
-   * （重试也吐了半截就用重试那版）。回调只负责把文本交回给调用点，
-   * 落盘的时机由调用点自己决定 —— 重试成功时本函数会正常返回，
-   * 调用点应当以返回值为准，不要因为回调先触发过就把半截内容当成最终结果。
+   * 契约：
+   * 1. **每次失败的非取消尝试各回调一次**，最后一次一定是文本最新的那一版
+   *    （重试也吐了半截就用重试那版）。
+   * 2. **用户取消（signal 已 abort）时不回调。** 取消不算「值得留存的失败」，
+   *    这样调用点无需自己再查一遍 signal.aborted，也不会把取消写成草稿。
+   * 3. 文本**可能是空串**（模型一个正文字符都没吐），落盘前自行 trim 判空。
+   * 4. 回调只负责把文本交回给调用点，落盘时机由调用点决定 ——
+   *    重试成功时本函数会正常返回，调用点应以返回值为准，
+   *    不要因为回调先触发过就把那半截内容当成最终结果。
    */
   onPartialText?: (text: string) => void
 }
@@ -63,7 +77,7 @@ export async function callAnalysisModelText(
   let lastAttemptOutput = ""
 
   const attempt = async (reasoningOff: boolean): Promise<string> => {
-    // 每次 attempt 都从空串重新累积：上一轮收到的半截思考绝不能算进正文。
+    // 每次 attempt 都从空串重新累积：上一轮收到的半截正文绝不能算进本轮结果。
     let output = ""
     let streamError: Error | null = null
     try {
@@ -81,7 +95,8 @@ export async function callAnalysisModelText(
       )
     } finally {
       // 放在 finally 里：streamChat 既有「走 onError 回调后正常 resolve」的失败，
-      // 也有直接抛的失败（provider 配置/网络问题，见 llm-client.ts:401/479/505）。
+      // 也有直接抛的失败（本地 CLI 传输见 llm-client.ts:401；
+      // 本地 provider 拿不到 URL/headers 见 :423）。
       // 只在 await 之后赋值的话，直接抛的那条路会丢掉本轮已收到的半截正文，
       // 让 onPartialText 交出上一轮（甚至空串）的内容。
       lastAttemptOutput = output
@@ -95,7 +110,9 @@ export async function callAnalysisModelText(
     return await attempt(false)
   } catch (error) {
     const first = error instanceof Error ? error : new Error(String(error))
-    onPartialText?.(lastAttemptOutput)
+    // 用户取消不回调：取消不是「值得留存的失败」。否则调用点把 onPartialText
+    // 接到落盘上时，用户每点一次取消都会写出一份垃圾草稿。
+    if (!signal?.aborted) onPartialText?.(lastAttemptOutput)
     // 只在「确实是思考-only」且「原本没关思考」时才值得重发整个 prompt；
     // 否则就是把一模一样的请求再发一遍。
     if (
@@ -111,7 +128,8 @@ export async function callAnalysisModelText(
       const second = retryError instanceof Error ? retryError : new Error(String(retryError))
       // 重试这一轮也可能「吐了半截再失败」；把最新一版的半截文本交出去，
       // 否则调用点（workbench 的 v1 文风草案）会丢掉这份草稿。
-      onPartialText?.(lastAttemptOutput)
+      // 同样地，重试途中被取消就不回调。
+      if (!signal?.aborted) onPartialText?.(lastAttemptOutput)
       if (isReasoningOnlyResponseError(second)) throw new Error(REASONING_ONLY_ANALYSIS_MESSAGE)
       throw second
     }

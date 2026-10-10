@@ -3,6 +3,7 @@ import {
   REASONING_ONLY_ANALYSIS_MESSAGE,
   callAnalysisModelText,
 } from "@/lib/novel/book-analysis/analysis-model-call"
+import { isReasoningOnlyResponseError } from "@/lib/reasoning-retry"
 import type { ChatMessage } from "@/lib/llm-client"
 
 const mocks = vi.hoisted(() => ({ streamChat: vi.fn() }))
@@ -188,5 +189,82 @@ describe("callAnalysisModelText", () => {
       }),
     ).rejects.toThrow("streamChat 直接抛出")
     expect(seen).toEqual(["抛出前已收到的内容"])
+  })
+
+  it("终态文案不再被识别为思考-only，避免上层再重试一次", () => {
+    // 这是刻意维持的性质：agent/runner.ts:378 与 sources/outline-chat-panel.tsx:428
+    // 都用同一个判定决定要不要重试。终态一旦匹配上，就会第三次重发整个 prompt。
+    expect(isReasoningOnlyResponseError(new Error(REASONING_ONLY_ANALYSIS_MESSAGE))).toBe(false)
+    // 反向对照：真正的 llm-client 诊断文案必须仍然匹配，否则重试根本不会触发。
+    expect(isReasoningOnlyResponseError(reasoningOnlyError())).toBe(true)
+  })
+
+  it("用户取消时不回调 onPartialText，调用点不会把取消写成草稿", async () => {
+    const controller = new AbortController()
+    mocks.streamChat.mockImplementationOnce(async (_c: unknown, _m: unknown, cb: Handlers) => {
+      cb.onToken?.("取消前收到的半截")
+      controller.abort()
+      cb.onDone?.()
+    })
+    const seen: string[] = []
+    await expect(
+      callAnalysisModelText(llmConfig, messages, {
+        signal: controller.signal,
+        cancelMessage: "用户取消文风分析",
+        onPartialText: (text) => seen.push(text),
+      }),
+    ).rejects.toThrow("用户取消文风分析")
+    expect(seen).toEqual([])
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
+  })
+
+  it("重试途中被取消时也不回调 onPartialText", async () => {
+    const controller = new AbortController()
+    mocks.streamChat.mockImplementationOnce(failReasoningOnly())
+    mocks.streamChat.mockImplementationOnce(async (_c: unknown, _m: unknown, cb: Handlers) => {
+      cb.onToken?.("重试时收到的半截")
+      controller.abort()
+      cb.onDone?.()
+    })
+    const seen: string[] = []
+    await expect(
+      callAnalysisModelText(llmConfig, messages, {
+        signal: controller.signal,
+        cancelMessage: "用户取消文风分析",
+        onPartialText: (text) => seen.push(text),
+      }),
+    ).rejects.toThrow("用户取消文风分析")
+    // 第一次失败发生在取消之前，所以会回调一次（空串）；重试那次被取消则不回调。
+    expect(seen).toEqual([""])
+    expect(mocks.streamChat).toHaveBeenCalledTimes(2)
+  })
+
+  it("透传 signal、messages 与 onRequestTrace 给 streamChat", async () => {
+    // 防止「漏传 signal」这类静默退化：删掉 signal 参数时上面的用例都还是会绿，
+    // 因为本函数自己也会查 signal.aborted。
+    const controller = new AbortController()
+    const onRequestTrace = vi.fn()
+    mocks.streamChat.mockImplementationOnce(succeedWith("正文"))
+    await callAnalysisModelText(llmConfig, messages, {
+      signal: controller.signal,
+      onRequestTrace,
+    })
+    const call = mocks.streamChat.mock.calls[0]
+    expect(call[0]).toBe(llmConfig)
+    expect(call[1]).toBe(messages)
+    expect(call[3]).toBe(controller.signal)
+    expect((call[2] as Handlers & { onRequestTrace?: unknown }).onRequestTrace).toBe(onRequestTrace)
+  })
+
+  it("调用点已用 baseOverrides 关掉思考时同样不重试", async () => {
+    // 门控用的是「生效后的」reasoning（overrides 优先于 config），
+    // 所以只在 baseOverrides 里关思考也必须拦住重试，否则会重发一份逐字节相同的请求。
+    mocks.streamChat.mockImplementationOnce(failReasoningOnly())
+    await expect(
+      callAnalysisModelText(llmConfig, messages, {
+        baseOverrides: { reasoning: { mode: "off" } },
+      }),
+    ).rejects.toThrow(reasoningOnlyError())
+    expect(mocks.streamChat).toHaveBeenCalledTimes(1)
   })
 })
