@@ -452,6 +452,10 @@ describe("runDeepChapterGeneration", () => {
     expect(finalPolishPrompt).toContain("测试问题")
     expect(finalPolishPrompt).toContain("只修改清单中指出的有问题部分")
     expect(finalPolishPrompt).not.toContain("中文小说去 AI 味补充规则")
+    // 阶段 6 必须不含本批新增的反 AI 腔规则块与返修边界句：
+    // 只钉旧标题挡不住「换一段新的去 AI 味内容又加回阶段 6」这类回退（42727a9 的反向意图）。
+    expect(finalPolishPrompt).not.toContain("## 反 AI 腔硬约束")
+    expect(finalPolishPrompt).not.toContain("不引入新的 AI 腔")
     expect(planningPrompt).not.toContain("用户已确认的章节计划")
     expect(planningPrompt).toContain("章节节奏曲线")
     expect(planningPrompt).toContain("对话目标")
@@ -2150,6 +2154,9 @@ describe("runDeepChapterGeneration", () => {
     expect(stage6Prompt).toContain("结尾钩子偏弱")
     expect(stage6Prompt).toContain("只修改清单中指出的有问题部分")
     expect(stage6Prompt).not.toContain("中文小说去 AI 味补充规则")
+    // 同 :454 的理由：泛化到本批的反 AI 腔规则块，防止换标题重新塞回阶段 6。
+    expect(stage6Prompt).not.toContain("## 反 AI 腔硬约束")
+    expect(stage6Prompt).not.toContain("不引入新的 AI 腔")
   })
 
   it("automatically expands a too-short draft before review and final output", async () => {

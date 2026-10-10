@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import { DE_AI_GENERATION_RULES, DE_AI_REVISION_BOUNDARY } from "./de-ai-generation-rules"
 
@@ -28,10 +30,12 @@ describe("DE_AI_GENERATION_RULES", () => {
     }
   })
 
-  it("句式组禁掉二分对照壳、点名冒号模板与路标词配额", () => {
+  it("句式组禁掉二分对照壳与冒号模板，并给路标词加配额", () => {
     expect(DE_AI_GENERATION_RULES).toContain("不是 A，而是 B")
     expect(DE_AI_GENERATION_RULES).toContain("概念：解释")
-    expect(DE_AI_GENERATION_RULES).toContain("路标词配额")
+    // 配额必须说清是「段落结构词」用法，否则会把正常的「最后他还是走了」也判违规。
+    expect(DE_AI_GENERATION_RULES).toMatch(/路标词/)
+    expect(DE_AI_GENERATION_RULES).toContain("段落结构词")
   })
 
   it("叙事组覆盖解释动机、总结情绪、段尾结论、无效热闹与单手法循环", () => {
@@ -60,11 +64,21 @@ describe("DE_AI_GENERATION_RULES", () => {
     }
   })
 
-  it("是纯常量：模块可重复求值且逐字节相同（缓存前缀不能被它抖掉）", async () => {
-    // 重新求值一次模块：若里面混了读文件 / i18n / 随机数，这里就会不等。
-    const again = await import("./de-ai-generation-rules")
-    expect(again.DE_AI_GENERATION_RULES).toBe(DE_AI_GENERATION_RULES)
-    expect(again.DE_AI_REVISION_BOUNDARY).toBe(DE_AI_REVISION_BOUNDARY)
+  it("是纯常量：模块零依赖、无随机源", () => {
+    // 注意：`await import()` 拿到的是同一个已缓存的 ESM namespace，**不会二次求值**，
+    // 所以「再 import 一次仍然相等」是恒真的，证明不了纯净性（旧版断言即此缺陷，已替换）。
+    // 真正能证明纯净性的是「模块没有任何依赖、也没有非确定来源」：
+    // 零 import ⇒ 不可能读文件 / 用 i18n / 拿时钟；再显式挡住非确定 API。
+    const source = readFileSync(resolve(__dirname, "de-ai-generation-rules.ts"), "utf8")
+    expect(source, "规则模块必须零依赖（不得 import 任何东西）").not.toMatch(/^\s*import\s/m)
+    for (const forbidden of ["Math.random", "Date.now", "process.env", "performance.now"]) {
+      expect(source, `规则模块不应依赖 ${forbidden}`).not.toContain(forbidden)
+    }
+    // 且两个导出都是非空 string（求值确实发生且结果稳定）。
+    expect(typeof DE_AI_GENERATION_RULES).toBe("string")
+    expect(typeof DE_AI_REVISION_BOUNDARY).toBe("string")
+    expect(DE_AI_GENERATION_RULES.length).toBeGreaterThan(0)
+    expect(DE_AI_REVISION_BOUNDARY.length).toBeGreaterThan(0)
   })
 
   it("控制在 1200 字符以内", () => {
