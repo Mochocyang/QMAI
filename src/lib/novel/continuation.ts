@@ -182,3 +182,58 @@ export function clampContinuationPopoverPosition(
 
   return { left, top }
 }
+
+/** 模型一个字都没吐出来时给用户看的话。 */
+export const CONTINUATION_EMPTY_OUTPUT_MESSAGE = "续写失败：模型未返回正文"
+
+/** 一次续写流是怎么结束的。 */
+export type ContinuationFinishKind =
+  /** 流正常结束。 */
+  | "done"
+  /** 用户按了「停止」（或切走导致中止）。 */
+  | "aborted"
+  /** 输出撞上 token 上限被截断。 */
+  | "truncated"
+  /** 真的失败了：网络、鉴权、模型报错等。 */
+  | "failed"
+
+export interface ContinuationFinishState {
+  phase: "done" | "idle" | "error"
+  /** 仅在 `phase === "error"` 时非空。 */
+  errorMessage: string | null
+}
+
+/**
+ * 流结束后该进哪个相位。
+ *
+ * 单抽成纯函数，是因为这段判断在组件里根本没法被验证（preview-panel 是
+ * 两千多行的组件，没有组件测试），而它对应的两条真实路径都容易写反：
+ *
+ * 1. **用户按「停止」走的是 `onDone`，不是 `onError`。**
+ *    llm-client 在 `isUserAbortError(err, signal)` 之后调的是 `onDone()`
+ *    （见 llm-client.ts 流读取的 catch）。所以「没有正文」在中断时是正常
+ *    结果 —— 一律报「模型未返回正文」是冤枉模型，也误导用户。
+ * 2. **输出被截断走的是 `onError`（`buildOutputTruncatedError`）。**
+ *    但它不是失败：那一刻已经有半截正文，进 error 相位会让浮层不渲染候选区，
+ *    用户拿不到已经生成的内容。有半截就按 done 处理，让他自己决定插不插。
+ *
+ * 没有半截正文时，「截断」与「正常结束但为空」都算失败（模型确实没产出），
+ * 而「中止」安静退回输入态（是用户自己的选择，不是错误）。
+ */
+export function resolveContinuationFinish(
+  kind: ContinuationFinishKind,
+  hasPartial: boolean,
+  failureMessage = "",
+): ContinuationFinishState {
+  if (kind === "aborted") {
+    return hasPartial
+      ? { phase: "done", errorMessage: null }
+      : { phase: "idle", errorMessage: null }
+  }
+  if (kind === "done" || kind === "truncated") {
+    return hasPartial
+      ? { phase: "done", errorMessage: null }
+      : { phase: "error", errorMessage: CONTINUATION_EMPTY_OUTPUT_MESSAGE }
+  }
+  return { phase: "error", errorMessage: failureMessage }
+}

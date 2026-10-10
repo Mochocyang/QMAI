@@ -37,7 +37,7 @@ import {
 import { startOutlineIngestTask } from "@/lib/novel/outline-generation"
 import { renderOutlineHtmlForPath } from "@/lib/novel/outline-save-request"
 import { getOutlineIngestIdentity, getOutlineFileName, outlineSnapshotExists } from "@/lib/novel/outline-ingest-utils"
-import { streamChat } from "@/lib/llm-client"
+import { isOutputTruncatedError, streamChat } from "@/lib/llm-client"
 import { isTruncationFinishReason } from "@/lib/llm-providers"
 import { isUserAbortError } from "@/lib/user-abort"
 import {
@@ -68,7 +68,9 @@ import {
   buildContinuationMessages,
   clampContinuationPopoverPosition,
   insertContinuationBody,
+  resolveContinuationFinish,
   type ContinuationAnchor,
+  type ContinuationFinishKind,
   type PendingEditorCaret,
 } from "@/lib/novel/continuation"
 import { shouldApplyDiskToEditor } from "@/lib/editor-disk-sync"
@@ -1790,6 +1792,18 @@ export function PreviewPanel() {
     setContinuationTruncated(false)
 
     let result = ""
+    /*
+     * 收尾统一走这里：相位由纯函数判（continuation.ts 的 resolveContinuationFinish），
+     * 组件只负责把结果落到状态上。
+     *
+     * 之所以不在这里各写各的判断：用户「停止」走的是 onDone、输出被截断走的是
+     * onError，两条路径反直觉，散着写必然写错其中一条（这两条已经各错过一次）。
+     */
+    const settle = (kind: ContinuationFinishKind, failureMessage = "") => {
+      const finish = resolveContinuationFinish(kind, Boolean(result.trim()), failureMessage)
+      if (finish.errorMessage) setContinuationError(finish.errorMessage)
+      setContinuationPhase(finish.phase)
+    }
     try {
       await streamChat(
         llmConfig,
@@ -1805,24 +1819,27 @@ export function PreviewPanel() {
           },
           onDone: () => {
             if (continuationFileRef.current !== selectedFileRef.current) return
-            if (!result.trim()) {
-              setContinuationPhase("error")
-              setContinuationError("续写失败：模型未返回正文")
-              return
-            }
-            setContinuationPhase("done")
+            // 用户中止也走 onDone，所以这里要分清「他主动停下」和「模型真没吐字」。
+            settle(controller.signal.aborted ? "aborted" : "done")
           },
           onError: (error) => {
             if (continuationFileRef.current !== selectedFileRef.current) return
-            // 用户按了「停止」不是错误：把已经写出来的部分留给他决定要不要插入。
+            // 兜底：正常情况下中止已被 onDone 接走，这里再防一次。
             if (isUserAbortError(error, controller.signal)) {
-              if (result.trim()) setContinuationPhase("done")
-              else setContinuationPhase("idle")
+              settle("aborted")
+              return
+            }
+            /*
+             * 输出撞上 token 上限时走的是 onError，但它不是失败：已经有半截
+             * 正文了。按错误处理的话浮层不渲染候选区，用户就拿不到已生成的内容。
+             */
+            if (isOutputTruncatedError(error) && result.trim()) {
+              setContinuationTruncated(true)
+              settle("truncated")
               return
             }
             console.error("续写失败:", error)
-            setContinuationPhase("error")
-            setContinuationError(`续写失败：${error.message}`)
+            settle("failed", `续写失败：${error.message}`)
           },
         },
         controller.signal,
@@ -1831,14 +1848,12 @@ export function PreviewPanel() {
     } catch (err) {
       if (continuationFileRef.current !== selectedFileRef.current) return
       if (isUserAbortError(err, controller.signal)) {
-        if (result.trim()) setContinuationPhase("done")
-        else setContinuationPhase("idle")
+        settle("aborted")
         return
       }
       const message = err instanceof Error ? err.message : String(err)
       console.error("续写失败:", err)
-      setContinuationPhase("error")
-      setContinuationError(`续写失败：${message}`)
+      settle("failed", `续写失败：${message}`)
     }
   }, [continuationAnchor, continuationInstruction])
 

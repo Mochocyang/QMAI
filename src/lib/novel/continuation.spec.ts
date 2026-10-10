@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   CONTINUATION_EMPTY_INSTRUCTION,
+  CONTINUATION_EMPTY_OUTPUT_MESSAGE,
   CONTINUATION_SOURCE_HEAD_CHARS,
   CONTINUATION_SOURCE_LIMIT_CHARS,
   CONTINUATION_SOURCE_TAIL_CHARS,
@@ -12,6 +13,7 @@ import {
   clampContinuationPopoverPosition,
   countContinuationChars,
   insertContinuationBody,
+  resolveContinuationFinish,
 } from "./continuation"
 
 describe("buildContinuationSource", () => {
@@ -218,5 +220,56 @@ describe("clampContinuationPopoverPosition", () => {
   it("视口比浮层还窄时贴左边距，不出现负坐标", () => {
     const narrow = { width: 300, height: 800 }
     expect(clampContinuationPopoverPosition({ x: 150, y: 200 }, narrow, size).left).toBe(8)
+  })
+})
+
+describe("resolveContinuationFinish", () => {
+  it("正常结束且有正文 → 可插入", () => {
+    expect(resolveContinuationFinish("done", true)).toEqual({ phase: "done", errorMessage: null })
+  })
+
+  it("正常结束但模型一个字都没吐 → 失败", () => {
+    expect(resolveContinuationFinish("done", false)).toEqual({
+      phase: "error",
+      errorMessage: CONTINUATION_EMPTY_OUTPUT_MESSAGE,
+    })
+  })
+
+  it("用户中止且已有半截正文 → 仍可插入，不报错", () => {
+    // llm-client 里用户中止走的是 onDone（isUserAbortError → onDone），
+    // 不是 onError。所以这里必须按「有内容」放行。
+    expect(resolveContinuationFinish("aborted", true)).toEqual({ phase: "done", errorMessage: null })
+  })
+
+  it("用户一个 token 都没等到就中止 → 安静退回输入态，不报错", () => {
+    // 主动停止不是失败。报「模型未返回正文」既冤枉模型又误导用户。
+    expect(resolveContinuationFinish("aborted", false)).toEqual({ phase: "idle", errorMessage: null })
+  })
+
+  it("输出被截断但已有半截正文 → 仍可插入", () => {
+    // 截断走的是 onError（buildOutputTruncatedError）。若按错误处理，
+    // 浮层不渲染候选区，用户就拿不到已经生成的内容了。
+    expect(resolveContinuationFinish("truncated", true)).toEqual({ phase: "done", errorMessage: null })
+  })
+
+  it("输出被截断且一个字都没有 → 失败", () => {
+    expect(resolveContinuationFinish("truncated", false)).toEqual({
+      phase: "error",
+      errorMessage: CONTINUATION_EMPTY_OUTPUT_MESSAGE,
+    })
+  })
+
+  it("真失败原样带上失败原因", () => {
+    expect(resolveContinuationFinish("failed", false, "续写失败：网络连接中断")).toEqual({
+      phase: "error",
+      errorMessage: "续写失败：网络连接中断",
+    })
+  })
+
+  it("真失败时有半截正文也仍然算失败（失败原因不能被半截正文掩盖）", () => {
+    expect(resolveContinuationFinish("failed", true, "续写失败：鉴权失败")).toEqual({
+      phase: "error",
+      errorMessage: "续写失败：鉴权失败",
+    })
   })
 })

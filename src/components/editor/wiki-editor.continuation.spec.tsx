@@ -2,14 +2,17 @@
 
 import { act } from "react"
 import { createRoot } from "react-dom/client"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi, type Mock } from "vitest"
+import type { ContinuationAnchor } from "@/lib/novel/continuation"
 import { WikiEditor } from "./wiki-editor"
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const CHAPTER = "---\ntype: chapter\ntitle: 第一章\n---\n# 第一章\n\n　　他推开门。"
 
-function mount(onContinuationRequest: ReturnType<typeof vi.fn>) {
+type ContinuationHandler = (anchor: ContinuationAnchor, position: { x: number; y: number }) => void
+
+function mount(onContinuationRequest: Mock<ContinuationHandler>) {
   const container = document.createElement("div")
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -33,7 +36,7 @@ function mount(onContinuationRequest: ReturnType<typeof vi.fn>) {
 
 describe("章节编辑器的续写入口", () => {
   it("右键菜单第一项是「续写」，点击后上报锚点与视口坐标", () => {
-    const onContinuationRequest = vi.fn()
+    const onContinuationRequest = vi.fn<ContinuationHandler>()
     const { container, textarea, cleanup } = mount(onContinuationRequest)
 
     // 正文（不含 frontmatter、不含 # 标题行）是「　　他推开门。」
@@ -62,7 +65,7 @@ describe("章节编辑器的续写入口", () => {
   })
 
   it("选中文字后浮出工具栏也有「续写」，且排在「AI润色」之前", () => {
-    const onContinuationRequest = vi.fn()
+    const onContinuationRequest = vi.fn<ContinuationHandler>()
     const { container, textarea, cleanup } = mount(onContinuationRequest)
 
     act(() => {
@@ -237,7 +240,7 @@ describe("章节编辑器的续写入口", () => {
   })
 
   it("右键且带选区时，锚点取选区末尾而不是起点", () => {
-    const onContinuationRequest = vi.fn()
+    const onContinuationRequest = vi.fn<ContinuationHandler>()
     const { container, textarea, cleanup } = mount(onContinuationRequest)
 
     act(() => {
