@@ -191,3 +191,21 @@ async function readSelectedChapterNumber(selectedFile?: string | null): Promise<
 export async function readSelectedChapterNumberForFile(selectedFile?: string | null): Promise<number | undefined> {
   return readSelectedChapterNumber(selectedFile)
 }
+
+/**
+ * 探测「下一章」章号：章节库里最大章号 + 1。
+ *
+ * 只认文件名或路径里的章号（复用 extractChapterNumber），因此「序章」「设定」这类
+ * 不带章号的文件会被忽略；空库或全无章号时回落到第 1 章。
+ */
+export function resolveNextChapterNumber(
+  files: Array<{ name: string; path: string }>,
+): number {
+  let max = 0
+  for (const file of files) {
+    const fromName = extractChapterNumber(file.name)
+    const fromPath = fromName ?? extractChapterNumber(file.path)
+    if (fromPath !== null && fromPath > max) max = fromPath
+  }
+  return max + 1
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { detectLastGeneratedChapterNumber, resolveTargetChapterNumberForChat } from "./chapter-utils"
+import { detectLastGeneratedChapterNumber, resolveNextChapterNumber, resolveTargetChapterNumberForChat } from "./chapter-utils"
 
 vi.mock("@/commands/fs", () => ({
   listDirectory: vi.fn(async () => [
@@ -82,5 +82,51 @@ describe("detectLastGeneratedChapterNumber", () => {
     expect(detectLastGeneratedChapterNumber([
       "主角在第3章的时候已经拿到了钥匙，所以这里不冲突。",
     ])).toBeUndefined()
+  })
+})
+
+describe("resolveNextChapterNumber", () => {
+  it("空章节库返回第 1 章", () => {
+    expect(resolveNextChapterNumber([])).toBe(1)
+  })
+
+  it("取最大章号加一", () => {
+    expect(resolveNextChapterNumber([
+      { name: "第3章 令牌.md", path: "/b/chapters/第3章 令牌.md" },
+      { name: "第7章 抉择.md", path: "/b/chapters/第7章 抉择.md" },
+      { name: "第5章 中间.md", path: "/b/chapters/第5章 中间.md" },
+    ])).toBe(8)
+  })
+
+  it("乱序文件名不影响结果", () => {
+    expect(resolveNextChapterNumber([
+      { name: "第12章.md", path: "/b/chapters/第12章.md" },
+      { name: "第2章.md", path: "/b/chapters/第2章.md" },
+    ])).toBe(13)
+  })
+
+  it("非章节文件被忽略", () => {
+    expect(resolveNextChapterNumber([
+      { name: "序章.md", path: "/b/chapters/序章.md" },
+      { name: "第4章.md", path: "/b/chapters/第4章.md" },
+    ])).toBe(5)
+  })
+
+  it("全部没有章号时返回第 1 章", () => {
+    expect(resolveNextChapterNumber([
+      { name: "设定.md", path: "/b/chapters/设定.md" },
+    ])).toBe(1)
+  })
+
+  it("文件名没有章号时回落到路径里的章号", () => {
+    expect(resolveNextChapterNumber([
+      { name: "设定.md", path: "/b/chapters/第9章 设定.md" },
+    ])).toBe(10)
+  })
+
+  it("文件名与路径章号不一致时以文件名为准", () => {
+    expect(resolveNextChapterNumber([
+      { name: "第2章.md", path: "/b/chapters/第9章/第2章.md" },
+    ])).toBe(3)
   })
 })
