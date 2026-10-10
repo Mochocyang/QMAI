@@ -18,7 +18,8 @@ import type {
 } from "./types"
 import { writeFileAtomic, readFile, listDirectory, createDirectory, fileExists } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import type { ChatMessage } from "@/lib/llm-client"
+import { callAnalysisModelText } from "@/lib/novel/book-analysis/analysis-model-call"
 import { ALL_DIMENSIONS, DIMENSION_LABELS } from "./six-dimension-prompts"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { distillPersonality, selectPersonalityPassages } from "./personality-distiller"
@@ -162,12 +163,13 @@ export async function generateCharacterSkill(
   let skillContent = ""
 
   try {
-    await streamChat(llmConfig, messages, {
-      onToken: (text) => { skillContent += text },
-      onDone: () => {},
-      onError: (err) => { console.error(err) },
+    // 思考-only 失败由 callAnalysisModelText 关掉思考重试一次；仍失败则抛出，
+    // 交给外层 catch 回落到基础模板（不再像过去那样被 onError 吞掉后返回 frontmatter 空壳）。
+    skillContent = await callAnalysisModelText(llmConfig, messages, {
+      signal,
       onRequestTrace,
-    }, signal)
+      cancelMessage: "用户取消生成",
+    })
 
     // 如果生成的内容没有 frontmatter，添加一个
     if (!skillContent.startsWith("---")) {
@@ -307,17 +309,11 @@ export async function generateSkillsForCharacters(
       [character.name, ...character.aliases],
     )
     const personality = await distillPersonality(character.name, passages, async (prompt) => {
-      let content = ""
-      let failure: Error | undefined
-      await streamChat(llmConfig, [{ role: "user", content: prompt }], {
-        onToken: (token) => { content += token },
-        onDone: () => {},
-        onError: (error) => { failure = error },
+      return callAnalysisModelText(llmConfig, [{ role: "user", content: prompt }], {
+        signal,
         onRequestTrace,
-      }, signal)
-      if (signal?.aborted) throw new Error("用户取消生成")
-      if (failure) throw failure
-      return content
+        cancelMessage: "用户取消生成",
+      })
     })
     const skillContent = renderPersonalitySkill(character.name, bookMetadata.title, personality)
 
