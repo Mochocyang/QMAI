@@ -194,6 +194,29 @@
      「不作为工具参数，避免模型漏传」——即这条通道是**应用侧兜底**，
      不依赖模型在工具调用里带上它。新通道照抄这个语义。
 
+   #### ✅ 已实测：链上各点的真实状态（含一个**反面**例子，别踩）
+   - **skills 通道是活的**：产出点是**一个 ref**，不是纯计算——
+     `selectedSkillsPromptRef`（`chat-panel.tsx:1083`），
+     在**发送时**由 `:1868` 写入
+     `buildSelectedSkillsPrompt(sessionSelectedSkills)`，并在 `:1638` 清空；
+     getter（`:1084-1087`）只做 `.trim() || undefined` 转发。
+     渲染器是 `select-skills-plugin.ts:242`，它**不是** i18n、也不读 store。
+   - ⚠️⚠️ **反面例子：隔壁那个 getter 参数其实是死的。**
+     `useAgentConfig` 的**第二个**形参
+     `getPlanBlueprint?: () => string | undefined`（`use-agent-config.ts:26`）
+     在全仓**唯一**的生产调用处是
+     `chat-panel.tsx:1095`：`useAgentConfig(agentSystemPrompt, `**`undefined`**`, getSelectedSkillsPrompt)`
+     ——**显式传 `undefined`**。
+     实测：`git grep "getPlanBlueprint"` 在生产源码里**只有** `use-agent-config.ts` 的
+     形参/转交与 `chat-panel.tsx:1095` 的 `undefined`，**没有任何产出者**。
+     ⇒ **教训：不要因为「签名里有这个可选回调」就推断它已接通。**
+     丁-2 新增自己的通道时，必须**两头都接上并各写一条测试**
+     （产出点写入了什么 / 消费点读到了什么），
+     只加形参而没有产出者会得到一个**静默失效**的通道——
+     正是设计 §1.9 已经点过一次的同类缺陷。
+   - ⇒ 因此上面那条「跨批整合」的裁决（**优先用参数**）是**必须**的：
+     章节区那条链路根本没有 `chat-panel` 的 ref，也拿不到 `useAgentConfig` 的闭包。
+
    #### ⚠️ 跨批整合要求（**必须处理，否则最主流的路径不生效**）
 
    **丙-2b 会新增第二个 `runDeepChapterGeneration` 直接调用方**（章节区「确认细纲 →
