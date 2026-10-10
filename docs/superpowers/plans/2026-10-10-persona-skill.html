@@ -5353,9 +5353,14 @@ git diff --cached HEAD --name-only | Measure-Object   # 必须仍是 0，否则�
   </div>
 
   <div class="step">
-    <div class="head"><input type="checkbox"><span>Step 10：提交</span></div>
-    <div class="run">git add src/components/skill-library/unified-skill-library-view.tsx src/components/skill-library/unified-skill-library-view.spec.tsx src/components/layout/content-area.tsx src/components/layout/icon-sidebar.tsx
+    <div class="head"><input type="checkbox"><span>Step 11：提交</span></div>
+    <div class="run">git add src/components/skill-library/unified-skill-library-view.tsx src/components/skill-library/unified-skill-library-view.spec.tsx src/components/skill-library/persona-skill-routing.spec.ts src/components/layout/content-area.tsx src/components/layout/icon-sidebar.tsx
 git commit -m "feat(人物skill): 接上导航与草稿守卫"</div>
+    <div class="callout warn">
+      <span class="t">五个文件都要点名，别漏掉新建的那个 spec</span>
+      <p><code>persona-skill-routing.spec.ts</code> 是 Step 8 <b>新建</b>的文件，没被 <code>git add</code> 就会留成 untracked。它不像另外四个是「改动已跟踪文件」——漏了它 <code>git status</code> 只是多一行 <code>??</code>，很容易在收尾时被忽略，然后这条路由断言就<b>只存在于本地</b>，别人检出这个分支时拿不到。</p>
+      <p>提交后用 <code>git show --stat HEAD</code> 核对确实是 <b>5 files changed</b>。不要用 <code>git add -A</code>／<code>-u</code>：跑过 <code>test:mocks</code> 之后工作区会有约 170 个 EOL 假阳性文件，一把梭会把它们全带进来。</p>
+    </div>
   </div>
 </section>
 
