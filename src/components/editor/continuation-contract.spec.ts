@@ -65,6 +65,57 @@ describe("续写：只有章节正文才有", () => {
   })
 })
 
+describe("续写：必须接在真正会渲染的章节编辑器上", () => {
+  it("章节走的是 uiTestEditorElement 那条分支", () => {
+    const condition = /const useUiTestEditor = ([^\n]+)/.exec(previewPanelSource)
+    expect(condition).not.toBeNull()
+    // 这个前提一旦不成立，下面那条守卫的落点就要跟着重新考虑。
+    expect(condition![1]).toContain("isSelectedChapter")
+  })
+
+  it("续写 props 接在那条分支里的 WikiEditor 上，而不是只接在不可达的普通分支", () => {
+    /*
+     * 这条守卫是补一次真实事故：`useUiTestEditor` 对 chapter 恒为真，所以
+     * :2133 的三元永远渲染 `uiTestEditorElement`，「普通分支」里的 WikiEditor
+     * 对章节根本不渲染 —— 而续写最初只接在普通分支上。后果是右键菜单里
+     * 看得到「续写」、点了却毫无反应（wiki-editor 的 continue 分支拿不到
+     * 回调就直接 return），浮层工具栏也长不出「续写」。
+     *
+     * 原有的守卫全都只查 handle* / run* 的回调体与 wiki-editor 源码，没有一条
+     * 查「props 到底传给了哪个调用点」，所以整条链是死代码也没测出来。
+     */
+    const live = sliceBetween(previewPanelSource, "const uiTestEditorElement = useUiTestEditor ? (", "\n  ) : null")
+    expect(live).toContain("<WikiEditor")
+    // 润色一直能用的原因：它一开始就接在这里
+    expect(live).toContain("onSelectionAction")
+    expect(live).toContain("onContinuationRequest")
+    expect(live).toContain("caretRequest")
+  })
+})
+
+describe("续写：不跨章节写入", () => {
+  it("锚点在产生的那一刻就记下所属文件", () => {
+    const request = callbackBlock(previewPanelSource, "const handleContinuationRequest = useCallback(")
+    // 只在生成开始时记是不够的：用户可以打开浮层、不生成、直接切章。
+    expect(request).toContain("continuationFileRef.current = selectedFileRef.current")
+  })
+
+  it("插入前必须比对文件，切章后拒绝写入", () => {
+    const block = callbackBlock(previewPanelSource, "const handleInsertContinuation = useCallback(")
+    /*
+     * 只靠 bodySnapshot 拦不住跨章写入：两章正文逐字节相同时快照相等。
+     * 新建书里连着两个空章节就是这种情形 —— 已实测复现：给第 1 章生成的
+     * 续写会通过第 2 章的校验并插进去。
+     */
+    expect(block).toContain("continuationFileRef.current !== selectedFileRef.current")
+  })
+
+  it("切换章节时收起浮层，不让上一章的候选挂在当前章节上", () => {
+    const change = callbackBlock(previewPanelSource, "previousSelectedFileRef.current = selectedFile")
+    expect(change).toContain("handleCloseContinuation()")
+  })
+})
+
 describe("续写：归因与写回", () => {
   it("插入正文必须登记为 AI 生成，并且立即落盘", () => {
     const block = callbackBlock(previewPanelSource, "const handleInsertContinuation = useCallback(")

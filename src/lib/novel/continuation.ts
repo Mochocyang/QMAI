@@ -72,13 +72,25 @@ const CONTINUATION_SYSTEM_PROMPT = [
   "- 不要在结尾强行升华、总结或预告。",
 ].join("\n")
 
+/**
+ * 把切点从「代理对中间」往回挪一格。
+ *
+ * `slice` 按 UTF-16 码元切，而 emoji 这类字符占两个码元。正好切在中间会留下
+ * 一个孤立的高代理（如 `\ud83d`），它在 JSON 里是非法 Unicode —— 部分接口
+ * 直接 400。小说正文里出现 emoji 很常见，这个代价只有一格。
+ */
+function avoidSplittingSurrogate(text: string, index: number): number {
+  if (index <= 0 || index >= text.length) return index
+  const code = text.charCodeAt(index - 1)
+  // 前一个码元是高代理，说明切点落在代理对中间
+  return code >= 0xd800 && code <= 0xdbff ? index - 1 : index
+}
+
 export function buildContinuationSource(body: string): string {
   if (body.length <= CONTINUATION_SOURCE_LIMIT_CHARS) return body
-  return (
-    body.slice(0, CONTINUATION_SOURCE_HEAD_CHARS)
-    + CONTINUATION_TRUNCATION_MARK
-    + body.slice(body.length - CONTINUATION_SOURCE_TAIL_CHARS)
-  )
+  const headEnd = avoidSplittingSurrogate(body, CONTINUATION_SOURCE_HEAD_CHARS)
+  const tailStart = avoidSplittingSurrogate(body, body.length - CONTINUATION_SOURCE_TAIL_CHARS)
+  return body.slice(0, headEnd) + CONTINUATION_TRUNCATION_MARK + body.slice(tailStart)
 }
 
 export function buildContinuationMessages(body: string, instruction: string): ChatMessage[] {

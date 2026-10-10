@@ -302,10 +302,15 @@ export function PreviewPanel() {
   const [continuationCaretRequest, setContinuationCaretRequest] = useState<PendingEditorCaret | null>(null)
   const continuationAbortRef = useRef<AbortController | null>(null)
   /**
-   * 发起续写时选中的文件。
+   * 这个续写锚点属于哪个文件。
    *
-   * 与 AI润色 的 `actionFile` 同理：生成期间用户可能切了章节，回来时结果
-   * 已经不属于当前正文，必须丢掉而不是写进去。
+   * 与 AI润色 的 `actionFile` 同理，但**必须比它更早记**：润色是生成完才弹
+   * 对比窗，文件不匹配就干脆不弹，所以那个窗口永远不会挂在过期章节上；
+   * 续写浮层在生成**之前**就打开（要显示输入框），插入又是之后另一次用户动作，
+   * 于是「浮层开着 → 切章 → 点插入」是一条真实可达的路径。
+   *
+   * 只在生成开始时记是不够的：用户可以打开浮层、不生成、直接切章。
+   * 所以在 `handleContinuationRequest`（锚点产生的那一刻）就记下。
    */
   const continuationFileRef = useRef<string | null>(null)
   // ── 写作现场「字体设置」浮层 ──
@@ -1759,6 +1764,8 @@ export function PreviewPanel() {
     // 换一个插入点就换一次锚点；上一次的候选作废，不能拿旧候选插到新位置。
     continuationAbortRef.current?.abort()
     continuationAbortRef.current = null
+    // 锚点属于此刻这个文件。插入前要拿它比对，见 handleInsertContinuation。
+    continuationFileRef.current = selectedFileRef.current
     setContinuationAnchor({ ...anchor, x: position.x, y: position.y })
     setContinuationPhase("idle")
     setContinuationCandidate("")
@@ -1861,6 +1868,19 @@ export function PreviewPanel() {
     const anchor = continuationAnchor
     if (!anchor || !continuationCandidate.trim()) return
 
+    /*
+     * 锚点必须属于当前这个文件。
+     *
+     * 只靠下面 insertContinuationBody 的 bodySnapshot 校验拦不住跨章写入：
+     * 两章正文逐字节相同时快照相等 —— 新建书里连着两个空章节就是这种情形，
+     * 于是给第 1 章生成的续写会插进第 2 章。已实测复现。
+     */
+    if (continuationFileRef.current !== selectedFileRef.current) {
+      setContinuationPhase("error")
+      setContinuationError("已切换到其它章节，续写内容未插入")
+      return
+    }
+
     // 与 handleApplySelectionTransform 同一套拆解：先剥 frontmatter，
     // 再剥 `# 标题` 行 —— 因为 textarea 里的偏移与快照都不含这两段。
     const { rawBlock, body } = parseFrontmatter(fileContent)
@@ -1900,6 +1920,24 @@ export function PreviewPanel() {
   useEffect(() => {
     return () => { continuationAbortRef.current?.abort() }
   }, [])
+
+  /*
+   * 切章即收起浮层。
+   *
+   * 浮层里的候选属于上一章：留着它既容易让用户误以为那是本章的续写，也给了
+   * 「切章后点插入」可乘之机（两章正文相同时快照校验拦不住）。AI润色用「文件
+   * 不匹配就不弹窗」达到同样效果，这里换成「切了就收」。
+   *
+   * 用 previousFileRef 跳过首次挂载：挂载时并没有「上一章」，没必要多跑一次
+   * setState（会把刚发起的续写也一起清掉）。
+   */
+  const previousSelectedFileRef = useRef<string | null>(null)
+  useEffect(() => {
+    const previous = previousSelectedFileRef.current
+    previousSelectedFileRef.current = selectedFile
+    if (previous === null || previous === selectedFile) return
+    handleCloseContinuation()
+  }, [selectedFile, handleCloseContinuation])
 
   const handleCloseSelectionTransform = useCallback(() => {
     setSelectionTransformOpen(false)
@@ -2085,6 +2123,21 @@ export function PreviewPanel() {
           onHighlightHandled={() => {
             if (activeHighlightRequest) setPendingEditorHighlight(null)
           }}
+          /*
+           * 章节正文编辑器**就是这一个**。
+           *
+           * `useUiTestEditor`（:2036）对 chapter 恒为真，所以 :2133 的三元永远
+           * 走 `uiTestEditorElement`，下面那个「普通分支」里的 WikiEditor 对章节
+           * 根本不会渲染。续写最初只接在那边，结果右键菜单里能看到「续写」，
+           * 点了却没反应（wiki-editor 的 continue 分支拿不到回调就直接 return），
+           * 浮层工具栏也长不出「续写」—— 整条链是死代码。
+           *
+           * 这一行同时也是 AI润色 / 去AI味 之所以能用、而续写当初不能的原因：
+           * onSelectionAction 一直在这里传着。
+           */
+          onContinuationRequest={isSelectedChapter ? handleContinuationRequest : undefined}
+          caretRequest={isSelectedChapter ? continuationCaretRequest : null}
+          onCaretHandled={() => setContinuationCaretRequest(null)}
         />
       )}
     </UiTestEditor>

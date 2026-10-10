@@ -52,6 +52,30 @@ describe("buildContinuationSource", () => {
     )
     expect(source).toContain(CONTINUATION_TRUNCATION_MARK)
   })
+
+  it("切点落在代理对中间时不切出孤立代理（emoji 不能被劈成半个）", () => {
+    // slice 按 UTF-16 码元切，emoji 占两个码元。head 切点正好落在一个 emoji
+    // 中间时，原来的写法会留下孤立高代理 \ud83d —— 非法 Unicode，部分接口 400。
+    const head = "甲".repeat(CONTINUATION_SOURCE_HEAD_CHARS - 1)
+    const body = head + "😀" + "丙".repeat(1000) + "乙".repeat(CONTINUATION_SOURCE_TAIL_CHARS)
+    const source = buildContinuationSource(body)
+    // 孤立代理：高代理后面没跟低代理，或低代理前面没有高代理
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(source)).toBe(false)
+    expect(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(source)).toBe(false)
+    // 切点回退一格，emoji 整体要么都在要么都不在
+    expect(source).not.toContain("😀")
+  })
+
+  it("尾部切点落在代理对中间时同样不切出孤立代理", () => {
+    // tail 从 len - 6000 开始，让这个位置落在一个 emoji 中间
+    const tail = "乙".repeat(CONTINUATION_SOURCE_TAIL_CHARS - 1)
+    const body = "甲".repeat(1000) + "丙".repeat(6000) + "😀" + tail
+    const source = buildContinuationSource(body)
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(source)).toBe(false)
+    expect(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(source)).toBe(false)
+    // emoji 完整地留在尾部一侧
+    expect(source).toContain("😀")
+  })
 })
 
 describe("buildContinuationMessages", () => {
