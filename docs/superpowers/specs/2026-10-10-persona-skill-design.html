@@ -335,10 +335,12 @@ context-engine.ts
         <tr><td><code>status</code></td><td><code>active</code> / <code>dormant</code> / <code>archived</code></td></tr>
         <tr><td><code>firstChapter</code> / <code>lastChapter</code></td><td>首次／最近出场章号</td></tr>
         <tr><td><code>appearanceCount</code></td><td>累计出场次数（用于阈值判定与排序）</td></tr>
-        <tr><td><code>createdAtChapter</code></td><td>该 skill 建立时的章号</td></tr>
+        <tr><td><code>createdChapter</code></td><td>该 skill 建立时的章号</td></tr>
         <tr><td><code>lastLearnedChapter</code></td><td>最近一次学习／完善的章号（幂等守卫）</td></tr>
         <tr><td><code>skillRevision</code></td><td>正文版本号，每次完善 +1</td></tr>
         <tr><td><code>editedByUser</code></td><td class="acc-t">用户手动编辑过 → 之后 AI 不再整份覆盖</td></tr>
+        <tr><td><code>hasResearch</code></td><td>是否已有研究文件。缺失一律按<strong>已有</strong>处理——宁可漏生成，也不要用只有本章的素材覆盖累积内容（见 D6）</td></tr>
+        <tr><td><code>updatedAt</code></td><td>元数据最后修改时间（ISO 字符串）</td></tr>
       </tbody>
     </table>
 

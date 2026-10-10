@@ -1334,8 +1334,14 @@ function target(overrides: Partial&lt;PersonaSkillPromptTarget&gt; = {}): Person
 }
 
 describe("buildPersonaSkillBody", () =&gt; {
-  it("预算内原样送模", () =&gt; {
-    expect(buildPersonaSkillBody("　　他推开门。")).toBe("　　他推开门。")
+  it("预算内不改动正文，只归一化首尾空白", () =&gt; {
+    // 正文来自 markdown 解析，首尾常带换行 —— 归一化是想要的行为。
+    expect(buildPersonaSkillBody("他推开门。")).toBe("他推开门。")
+    expect(buildPersonaSkillBody("\n\n他推开门。\n")).toBe("他推开门。")
+    // ⚠️ JS 的 String.prototype.trim() 按规范剥掉所有 WhiteSpace，**包含 U+3000 表意空格**，
+    // 所以中文段首缩进也会被去掉。这是有意保留的行为（缩进是排版、不是内容，对模型无意义）。
+    // 不要把这条改回「原样保留缩进」——它与 .trim() 逻辑上不相容。
+    expect(buildPersonaSkillBody("　　他推开门。")).toBe("他推开门。")
   })
 
   it("超出预算时留开头 + 省略标记 + 结尾", () =&gt; {
@@ -1654,9 +1660,8 @@ git commit -m "feat(人物skill): 加单次多人物提示词"</div>
   <div class="callout">
     <span class="t">这一轮做什么（一张图）</span>
     <pre><code>loadCharacterRoleTypes(pp)                  # 一次目录列举，从文件名拿定位
-loadPersonaSkillIndex(pp)                   # 已建档的人
-collectChapterAppearances(...)              # 本章谁出场 + 累计次数（候选池就地更新）
-savePersonaSightings(...)                   # 候选池先落盘（不烧模型，失败也不丢计数）
+updatePersonaSkillState(pp, ...)            # 同一把锁内：读 index + 读候选池 + 计数 + 只写候选池
+                                            # （不烧模型，失败也不丢计数）
 planPersonaSkillRoundForChapter(...)        # 纯函数：谁该建档 / 谁该完善
        │
        ├─ 没有计划 → refreshPersonaSkillStatuses(pp, 章号) → 返回
@@ -2218,13 +2223,10 @@ import {
   type PersonaSkillTier,
 } from "./persona-skill-types"
 import {
-  loadPersonaSkillIndex,
-  loadPersonaSightings,
   personaSkillIdFor,
   readPersonaSkillDocument,
-  savePersonaSightings,
   updatePersonaSkillIndex,
-  updatePersonaSightings,
+  updatePersonaSkillState,
   writePersonaSkillDocument,
   writePersonaSkillResearch,
 } from "./persona-skill-store"
@@ -2711,23 +2713,28 @@ export async function applyPersonaSkillDrafts(input: ApplyPersonaSkillInput): Pr
 
   if (upserts.length === 0) return 0
 
-  await updatePersonaSkillIndex(input.projectPath, (index) =&gt; {
-    const skills = [...index.skills]
+  // 「插进 index」与「从候选池移走」必须原子：分两次写的话，中间崩溃会让人物
+  // 同时留在两个文件里，违反 D7「sightings 只记还没建档的人」。所以走一个入口。
+  await updatePersonaSkillState(input.projectPath, (state) =&gt; {
+    const skills = [...state.index.skills]
     for (const meta of upserts) {
       const position = skills.findIndex((item) =&gt; item.id === meta.id)
       if (position &gt;= 0) skills[position] = { ...skills[position], ...meta }
       else skills.push(meta)
     }
-    return { version: 1, skills }
-  })
 
-  const createdIds = new Set(upserts.map((meta) =&gt; normalizePersonaName(meta.characterName)))
-  await updatePersonaSightings(input.projectPath, (current) =&gt; {
-    const sightings = current.sightings.filter(
+    const createdIds = new Set(upserts.map((meta) =&gt; normalizePersonaName(meta.characterName)))
+    const sightings = state.sightings.sightings.filter(
       (item) =&gt; !createdIds.has(normalizePersonaName(item.characterName)),
     )
-    if (sightings.length === current.sightings.length) return undefined
-    return { version: 1, sightings }
+
+    return {
+      index: { version: 1, skills },
+      sightings:
+        sightings.length === state.sightings.sightings.length
+          ? state.sightings
+          : { version: 1, sightings },
+    }
   })
 
   return upserts.length
@@ -2748,15 +2755,15 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
 
   try {
     const roleTypes = await loadCharacterRoleTypes(pp)
-    const index = await loadPersonaSkillIndex(pp)
-    const { appearances, sightings } = collectChapterAppearances(
-      index,
-      await loadPersonaSightings(pp),
-      chapter,
-      roleTypes,
-    )
-    // 候选池是纯计数，先落盘：即使后面模型失败，下场也还能接着数
-    await savePersonaSightings(pp, sightings)
+    // 候选池是纯计数，先落盘：即使后面模型失败，下场也还能接着数。
+    // 走 updatePersonaSkillState：读两份 + 计数 + 只写 sightings 全在同一把锁内，
+    // 这样并发的另一次学习不会把这里的计数覆盖掉。
+    let appearances: PersonaChapterAppearance[] = []
+    await updatePersonaSkillState(pp, (state) =&gt; {
+      const collected = collectChapterAppearances(state.index, state.sightings, chapter, roleTypes)
+      appearances = collected.appearances
+      return { sightings: collected.sightings }
+    })
 
     const plans = planPersonaSkillRoundForChapter(appearances, chapter.chapterNumber)
     if (plans.length === 0) {
@@ -2818,7 +2825,7 @@ npx tsc -p tsconfig.test.json --noEmit</div>
     </div>
     <div class="callout warn">
       <span class="t">「次要人物第一次出场不建档」红了？</span>
-      <p>确认 <code>plans.length === 0</code> 这条早返回<b>在</b> <code>savePersonaSightings</code> <b>之后</b>。写反了就永远数不到第二次，次要人物一辈子建不了档。</p>
+      <p>确认 <code>plans.length === 0</code> 这条早返回<b>在</b>候选池落盘（<code>updatePersonaSkillState</code>）<b>之后</b>。写反了就永远数不到第二次，次要人物一辈子建不了档。</p>
     </div>
   </div>
 
@@ -4155,7 +4162,7 @@ import {
   loadPersonaSkillIndex,
   readPersonaSkillDocument,
   readPersonaSkillResearch,
-  savePersonaSkillIndex,
+  updatePersonaSkillIndex,
   writePersonaSkillDocument,
 } from "@/lib/novel/persona-skill-store"
 import { regeneratePersonaSkillResearch } from "@/lib/novel/persona-skill-learning"
@@ -4247,26 +4254,27 @@ export function PersonaSkillView() {
   async function handleTogglePin(meta: PersonaSkillMeta) {
     if (!projectPath) return
     const pinned = !meta.pinned
-    const next: PersonaSkillIndex = {
-      version: 1,
-      skills: index.skills
-        .map((item) =&gt;
-          item.id === meta.id
-            ? {
-                ...item,
-                pinned,
-                tier: resolvePersonaTier(item.roleType, pinned),
-                status: pinned ? ("active" as const) : item.status,
-                updatedAt: new Date().toISOString(),
-              }
-            : item,
-        )
-        .sort(sortMeta),
-    }
     setBusy(true)
     try {
-      await savePersonaSkillIndex(projectPath, next)
-      setIndex(next)
+      // 走 updatePersonaSkillIndex：读-改-写在同一把锁内。
+      // 否则用户点绿勾的同时后台学习正在写 index，两边各自基于旧快照写回，会互相覆盖。
+      const updated = await updatePersonaSkillIndex(projectPath, (current) =&gt; ({
+        version: 1,
+        skills: current.skills
+          .map((item) =&gt;
+            item.id === meta.id
+              ? {
+                  ...item,
+                  pinned,
+                  tier: resolvePersonaTier(item.roleType, pinned),
+                  status: pinned ? ("active" as const) : item.status,
+                  updatedAt: new Date().toISOString(),
+                }
+              : item,
+          )
+          .sort(sortMeta),
+      }))
+      setIndex(updated)
       setMessage(
         pinned
           ? `已把「${meta.characterName}」标为重要人物：每章都会重点分析，下次出场时生成研究文件。`
@@ -4282,9 +4290,10 @@ export function PersonaSkillView() {
     setBusy(true)
     try {
       await writePersonaSkillDocument(projectPath, selected.id, documentText)
-      const next: PersonaSkillIndex = {
+      // 同样走加锁的读-改-写：保存档案不该覆盖后台学习刚写进去的别的字段。
+      const updated = await updatePersonaSkillIndex(projectPath, (current) =&gt; ({
         version: 1,
-        skills: index.skills.map((item) =&gt;
+        skills: current.skills.map((item) =&gt;
           item.id === selected.id
             ? {
                 ...item,
@@ -4294,9 +4303,8 @@ export function PersonaSkillView() {
               }
             : item,
         ),
-      }
-      await savePersonaSkillIndex(projectPath, next)
-      setIndex(next)
+      }))
+      setIndex(updated)
       setDraftDirty(false)
       setMessage("已保存。之后 AI 只会在这份档案后面追加「补充」，不会覆盖你写的内容。")
     } finally {
