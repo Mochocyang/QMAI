@@ -118,6 +118,28 @@ if (pack.writingStyle?.startsWith("【已启用文风画像】") && !result.prom
   ⚠️ 它同在守门文件里，所以**本批也不要动它**，只在文档里记着。
 - 侦察还发现：仓库里**没有** `src/lib/novel/mod.ts` 或任何 `src/lib/**/mod.ts` 桶文件，
   与 `.agents/AGENTS.md` 里「经 mod.ts 导出」的描述不符（记录备查，不在本批范围）。
+- ⚠️ **新发现（本轮实测，与丁-2 直接相关，但本批不修）：
+  `getPlanBlueprint` 这条「应用侧兜底」通道在生产里根本没接上。**
+  - 设计意图（`run-chapter-workflow.ts:30`/`:33-34` 的注释）是：
+    章节计划**不作为工具参数**，而是由应用侧回调注入，**避免模型漏传**。
+  - 实际读取逻辑是 `run-chapter-workflow.ts:137`：
+    `params.planBlueprint?.trim() || options.getPlanBlueprint?.()?.trim() || undefined`
+    ——即**主来源是模型传的工具参数**，回调只是兜底。
+  - 而兜底**没有产出者**：全仓唯一的生产调用处
+    `chat-panel.tsx:1095` 显式传 `undefined`
+    （`useAgentConfig(agentSystemPrompt, undefined, getSelectedSkillsPrompt)`）。
+    `git grep getPlanBlueprint` 在生产源码里只有
+    `use-agent-config.ts:26`（形参）/`:158`/`:188`（转交）、
+    `tools/index.ts:66`/`:126`（转交）、`run-chapter-workflow.ts:30`/`:137`（读），
+    **没有任何地方提供一个实际的回调**；其余命中全在
+    `run-chapter-workflow.spec.ts:286-332`（spec 自己造的回调）。
+  - ⇒ **后果**：模型一旦漏传 `planBlueprint`，用户确认过的章节计划会**静默丢失**，
+    而注释所声称的那层保护并不存在。这正是设计想要防的「静默失效」类型。
+  - **本批处置：不修。** 理由：它属于 agent 工具链，与「文风 skill 化」无关，
+    改了会扩大本批的审查面；且 `chat-panel.tsx` 是丙/丁多批都在动的文件。
+    但 **丁-2 新增自己的通道时必须以它为戒**：加形参不等于接通，
+    两端都要有产出者/消费者，并各配一条测试。
+    （已在《实施计划》§2 步骤 3 写成硬要求。）
 
 ### 1.7 技能库 UI 的现状（决定「统一可选面」落在哪）
 
