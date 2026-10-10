@@ -1073,6 +1073,7 @@ function normalizeNovelConfig(
     draftMemoryHintSeen: config.draftMemoryHintSeen ?? DEFAULT_NOVEL_CONFIG.draftMemoryHintSeen,
     inspirationHintEnabled: config.inspirationHintEnabled ?? DEFAULT_NOVEL_CONFIG.inspirationHintEnabled,
     inspirationHintSeen: config.inspirationHintSeen ?? DEFAULT_NOVEL_CONFIG.inspirationHintSeen,
+    usageTutorialSeen: config.usageTutorialSeen ?? DEFAULT_NOVEL_CONFIG.usageTutorialSeen,
   }
 }
 

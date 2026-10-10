@@ -42,6 +42,7 @@ const baseNovelConfig: NovelConfig = {
   draftMemoryHintSeen: false,
   inspirationHintEnabled: true,
   inspirationHintSeen: false,
+  usageTutorialSeen: false,
 }
 
 describe("testNovelModel", () => {

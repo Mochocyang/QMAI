@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next"
 import { Info } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
@@ -233,6 +234,38 @@ export function NovelSection({ draft, setDraft }: Props) {
                 }`}
               />
             </button>
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Label>{t("novel.settings.usageTutorial")}</Label>
+              {settingTooltip("usageTutorialHint")}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                /*
+                 * 「重新查看教程」走与「首次进入对话自动弹」**同一个**一次性请求标记，
+                 * 所以两处不会各写一份「要不要弹」的逻辑。
+                 *
+                 * 为什么还要 setChatExpanded(true) + setActiveView("wiki")：
+                 * 教程弹窗挂在 ChatPanel 里，而 ChatPanel 只在 activeView 是
+                 * wiki/sources 且面板展开时才存在（见 ui-test-shell.tsx 的
+                 * `writing` / `assistantOpen`）。只置标记的话，用户此刻若在设置页
+                 * 会看到「点了没反应」。
+                 *
+                 * 与 `novelConfig.usageTutorialSeen` 的分工：Seen 是「这本书自动弹过
+                 * 没有」，本标记是「这一次该不该弹」。语义不同、互不覆盖 ——
+                 * 所以 Seen 已经是 true 时这里照样能重新查看。
+                 */
+                useChatStore.getState().setUsageTutorialRequested(true)
+                useWikiStore.getState().setChatExpanded(true)
+                useWikiStore.getState().setActiveView("wiki")
+              }}
+            >
+              {t("novel.settings.reviewUsageTutorialAction")}
+            </Button>
           </div>
 
           <div className="flex items-center justify-between gap-3">

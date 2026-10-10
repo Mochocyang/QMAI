@@ -8,6 +8,7 @@ import { UiTestAiIdentity, UiTestAiAuthor, UiTestAiEmpty, UiTestAiModel, getUiTe
 import "@/components/uitest/ui-test-ai.css"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { ChatMessage, StreamingMessage } from "./chat-message"
+import { UsageTutorialDialog } from "./usage-tutorial-dialog"
 import { ChatModelSelector } from "./chat-model-selector"
 import { ReasoningDepthControl } from "./reasoning-depth-control"
 import { useSourceFiles } from "./chat-shared"
@@ -1211,6 +1212,8 @@ export function ChatPanel() {
     contextPack?: ContextPack | null
   }>>({})
   const pendingChapterPlan = activeConversationId ? pendingChapterPlans[activeConversationId] : undefined
+  // 丙-4c：分步引导教程。初值 false —— 只有消费到一次性请求标记才置 true。
+  const [usageTutorialOpen, setUsageTutorialOpen] = useState(false)
   const chapterPlanResolversRef = useRef<Record<string, (action: "confirm" | "skip" | "cancel" | { modify: string }) => void>>({})
   const handleSendRef = useRef<ChatSend>(() => Promise.resolve())
   const lastWritingTaskRouteRef = useRef<Record<string, TaskRouteResult>>({})
@@ -1233,6 +1236,26 @@ export function ChatPanel() {
       Object.values(chapterPlanResolversRef.current).forEach((resolver) => resolver("cancel"))
       chapterPlanResolversRef.current = {}
     }
+  }, [])
+
+  /*
+   * ── 丙-4c：分步引导教程的「入队 + 消费即清零」 ──
+   *
+   * 判据不在本组件里：`App.tsx` 在 `await loadNovelConfig` **之后**用刚加载到的
+   * 这本书自己的配置决定要不要置位（那正是 store 里可能还残留上一本书
+   * `novelConfig` 的窗口，见 App.tsx 里的注释）。本组件只负责消费。
+   *
+   * ⚠️ 只消费一次：`consumeUsageTutorialRequest()` 读后即清零，所以后续
+   * 重挂载（切换书籍时 `chatExpanded` 可能一直是 true、面板不一定重挂）
+   * 不会重复弹。设置里的「重新查看教程」走的是**同一个**标记。
+   *
+   * ⚠️ 与 `novelConfig.usageTutorialSeen` 的分工：`Seen` 是「这本书自动弹过没有」
+   * （显示即记，在弹窗组件里落盘），本标记是「**这一次**该不该弹」。
+   * 两者语义不同、互不覆盖 —— 所以重新查看在 `Seen` 已为 true 时照样能弹。
+   */
+  useEffect(() => {
+    if (!useChatStore.getState().consumeUsageTutorialRequest()) return
+    setUsageTutorialOpen(true)
   }, [])
 
   const requestChapterPlanConfirm = useCallback(
@@ -3005,6 +3028,9 @@ export function ChatPanel() {
             onCancel={() => closeChapterPlanDialog(pendingChapterPlan.conversationId, "cancel")}
           />
         )}
+        {/* 丙-4c：分步引导教程。挂在这里是因为「进入对话」= ChatPanel 首次可用，
+            而 chat-panel 只在 wiki/sources 视图且面板展开时才存在。 */}
+        <UsageTutorialDialog open={usageTutorialOpen} onOpenChange={setUsageTutorialOpen} />
       </div>
     </div>
   )

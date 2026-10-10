@@ -7,7 +7,7 @@ import type { Conversation, DisplayMessage } from "@/stores/chat-store"
 import type { ConversationRunStates } from "@/lib/conversation-run-state"
 
 const wikiState = {
-  project: { path: "C:/QMAI_C/QMAI-main", name: "测试项目" },
+  project: { id: "mount-spec-project", path: "C:/QMAI_C/QMAI-main", name: "测试项目" },
   novelMode: true,
   dataVersion: 0,
   llmConfig: {
@@ -33,6 +33,8 @@ const wikiState = {
   setPlanExecuteEnabled: vi.fn(),
   setChatEditModeEnabled: vi.fn(),
   setSelectedFile: vi.fn(),
+  // 丙-4c：分步引导教程在「显示即记 seen」时要写 novelConfig。
+  setNovelConfig: vi.fn(),
 }
 
 const mockRegistry = {
@@ -139,6 +141,8 @@ vi.mock("@/lib/project-refresh", () => ({
 vi.mock("@/lib/project-store", () => ({
   saveAiChatModel: vi.fn(async () => {}),
   saveAiWorkflowMode: vi.fn(async () => {}),
+  // 丙-4c：分步引导教程在「显示即记 seen」时会写这一项。
+  saveNovelConfig: vi.fn(async () => {}),
 }))
 
 import { ChatPanel } from "@/components/chat/chat-panel"

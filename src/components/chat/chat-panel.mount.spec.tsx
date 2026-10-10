@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from "react"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { renderChatPanel } from "@/test/chat-panel-mount"
 import { clearTaskBreakpoint, loadTaskBreakpoint } from "@/lib/agent/task-breakpoint"
 import type { Conversation } from "@/stores/chat-store"
@@ -275,4 +275,44 @@ describe("ChatPanel mount 基础设施", () => {
   it.todo("Stage D 自检：章节写完后 PostWriteCheck 写入 trace")
   it.todo("Stage D 降级：无模型时降级到规则检查")
   it.todo("断点保存：失败时记录调试信息但不自动弹窗")
+})
+
+/*
+ * 丙-4c：教程的挂载点在 ChatPanel，而「该不该弹」的判据在 App.tsx（用刚加载到的
+ * 这本书自己的配置）。两者之间靠 chat-store 的一次性标记交接，所以这里测的是
+ * **消费端**：标记置位时 ChatPanel 挂载后必须真的把教程弹出来、并把标记清零。
+ */
+describe("ChatPanel 分步引导教程的一次性消费", () => {
+  afterEach(() => {
+    useChatStore.setState({ usageTutorialRequested: false })
+  })
+
+  it("标记置位时挂载 ChatPanel 会弹出教程，并清零标记", async () => {
+    useChatStore.setState({ usageTutorialRequested: true })
+    const view = await renderChatPanel({ activeConversation: true })
+    expect(
+      document.body.querySelector(".ui-test-usage-tutorial"),
+      "标记置位时 ChatPanel 首次可用就必须弹出教程",
+    ).not.toBeNull()
+    expect(useChatStore.getState().usageTutorialRequested, "消费即清零，避免第二次误弹").toBe(false)
+    await view.unmount()
+  })
+
+  it("标记未置位时不弹（默认路径不许误弹）", async () => {
+    useChatStore.setState({ usageTutorialRequested: false })
+    const view = await renderChatPanel({ activeConversation: true })
+    expect(document.body.querySelector(".ui-test-usage-tutorial")).toBeNull()
+    await view.unmount()
+  })
+
+  it("标记消费过一次后，重新挂载 ChatPanel 不再弹", async () => {
+    useChatStore.setState({ usageTutorialRequested: true })
+    const first = await renderChatPanel({ activeConversation: true })
+    expect(document.body.querySelector(".ui-test-usage-tutorial")).not.toBeNull()
+    await first.unmount()
+
+    const second = await renderChatPanel({ activeConversation: true })
+    expect(document.body.querySelector(".ui-test-usage-tutorial")).toBeNull()
+    await second.unmount()
+  })
 })

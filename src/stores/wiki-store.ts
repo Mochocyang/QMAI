@@ -457,6 +457,15 @@ export interface NovelConfig {
    * 不复用后者：两个提示各自记自己的账，关掉其中一个不该影响另一个。
    */
   inspirationHintSeen: boolean
+  /**
+   * 这本书的分步引导教程已经自动弹过一次（丙-4c）。
+   *
+   * 「显示即记」——弹窗显示时落盘，与 `draftMemoryHintSeen` /
+   * `draftMemoryHintEnabled` 同一套先例。**只**记录「自动弹过没有」，
+   * 不参与「这一次该不该弹」（那是 chat-store 的 `usageTutorialRequested`），
+   * 所以设置里的「重新查看教程」在它为 true 时也照样能弹。
+   */
+  usageTutorialSeen: boolean
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
@@ -483,6 +492,7 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   draftMemoryHintSeen: false,
   inspirationHintEnabled: true,
   inspirationHintSeen: false,
+  usageTutorialSeen: false,
 }
 
 export interface RevisionFeedbackWindowConfig {
