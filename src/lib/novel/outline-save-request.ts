@@ -27,6 +27,7 @@ export type OutlineSaveRequestFileType =
   | "outline"
   | "volume-outline"
   | "chapter-outline"
+  | "event-outline"
   | "character"
   | "setting"
   | "foreshadowing"
@@ -75,6 +76,7 @@ const ALLOWED_FILE_TYPES = new Set<OutlineSaveRequestFileType>([
   "outline",
   "volume-outline",
   "chapter-outline",
+  "event-outline",
   "character",
   "setting",
   "foreshadowing",
@@ -93,6 +95,10 @@ const FILE_TYPE_ALIASES: Record<string, OutlineSaveRequestFileType> = {
   "大纲": "outline",
   "卷纲": "volume-outline",
   "章纲": "chapter-outline",
+  // 「细纲」历史上一律指 17 节章纲；本分支起用户口径变了，轻量事件细纲才是用户说的「细纲」。
+  // 不加这条别名的话，模型写 fileType: "细纲" 会被白名单直接拒掉。
+  "事件细纲": "event-outline",
+  "细纲": "event-outline",
   "人物小传": "character",
   "人物": "character",
   "角色": "character",
@@ -183,7 +189,7 @@ export function attachOutlineHtml<
    *
    * 而卷纲/章纲的专用渲染器依赖可解析的结构化 JSON，拿不到时旧实现是「干脆不出 HTML」，
    * 于是「AI 只给了 MD」「结构化数据不完整被放行保存」这些**常见**情况都会永久失去 HTML 选项。
-   * 把保证放在这个唯一出口，而不是给每种类型各补一条分支：ALLOWED_FILE_TYPES 有 8 个成员，
+   * 把保证放在这个唯一出口，而不是给每种类型各补一条分支：ALLOWED_FILE_TYPES 有 9 个成员，
    * 逐个补意味着「以后新增类型时又要记得补一处」，漏一处就重新出现置灰的保存框。
    */
   const fallback = renderOutlineFallbackHtml({
@@ -222,7 +228,7 @@ function dispatchOutlineHtml<
  * 1. 先按「正文标题 → 文件名 → sourceIntent → 文件夹」嗅探**专属分项**。命中就用它 ——
  *    这正是原 `borrowSettingFamilyHtml` 的意图：被判错类型的文档（例如「全版本力量体系总纲」
  *    因正文提到「第 N 章」被误判为章纲）应当显示它**真正的样子**，而不是章纲的样子。
- * 2. 嗅不到具体分项时，用该大纲类型**自己的中性规格**（章纲 / 卷纲 / 质量检查），
+ * 2. 嗅不到具体分项时，用该大纲类型**自己的中性规格**（章纲 / 卷纲 / 质量检查 / 事件细纲），
  *    而不是一律退化成「设定 · 卡片流」。
  */
 function renderOutlineFallbackHtml(request: {
@@ -579,6 +585,19 @@ function hasChapterOutlineStructure(content: string, fileName: string): boolean 
   return /本章目标|核心事件|场景顺序|章尾钩子|章首钩子/.test(content)
 }
 
+/**
+ * 事件细纲必须真的是一份事件清单，避免「好的，我已完成本章细纲。」这类确认摘要被误放行。
+ *
+ * 事件分节标记才是闸门的关键（摘要里不会出现「事件1 / 事件序列 / 事件清单」）；
+ * 列表行数只要 ≥2 即可 —— 细节抓手本来就是自由措辞，用关键词卡「台词/神情/动作」
+ * 会把一份正常但换了写法的细纲误判成不合格。
+ */
+function hasEventOutlineStructure(content: string): boolean {
+  const hasEventSection = /事件\s*[一二三四五六七八九十\d]|事件序列|事件清单/.test(content)
+  const listLines = content.split(/\r?\n/).filter((line) => /^\s*(?:[-*·]|\d+[.、])\s*\S/.test(line))
+  return hasEventSection && listLines.length >= 2
+}
+
 function fillContentFromText(requests: OutlineSaveRequest[], text: string): OutlineSaveRequest[] {
   const body = cleanNextStepArtifacts(extractBodyContent(text))
   if (!body) return requests
@@ -633,6 +652,12 @@ export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseR
     ) {
       errors.push(
         `第 ${index + 1} 个保存请求「${request.fileName}」内容不像章纲（缺少本章目标/核心事件等），已拒绝写入。`,
+      )
+      return
+    }
+    if (request.fileType === "event-outline" && !hasEventOutlineStructure(request.content)) {
+      errors.push(
+        `第 ${index + 1} 个保存请求「${request.fileName}」内容不像事件细纲（缺少事件分节或细节抓手），已拒绝写入。`,
       )
       return
     }

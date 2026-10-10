@@ -12,6 +12,7 @@ import {
   splitConfirmRequiredSaveRequests,
   type OutlineSaveRequestFileType,
 } from "./outline-save-request"
+import { getDefaultFolderForOutlineFileType } from "./outline-save-classifier"
 
 /**
  * `attachOutlineHtml` 的入参形状，直接由生产签名推导（`Parameters<...>[0]`）。
@@ -903,11 +904,12 @@ describe("outline-save-request", () => {
       "character": "# 角色-林烬\n## 身份\n- 沉默的剑客\n## 性格\n- 寡言，记性极好",
       "organization": "# 青云门\n## 阵营目标\n- 维护正道秩序\n## 掌握资源\n- 玉虚真人",
       "foreshadowing": "# 伏笔计划\n## 埋设\n- 第一卷埋下残碑\n## 回收\n- 第三卷回收",
+      "event-outline": "# 事件细纲-第012章\n## 事件1 院子里的哭声\n- 关键台词：「夜壶里的东西是药。」\n## 事件2 夜壶里的药\n- 神情动作：念念护住屁股蛋",
       "quality-report": "# 大纲质量检查\n## 结构\n- 分卷节奏偏快\n## 建议\n- 第二卷补一条支线",
     }
-    /* 这 8 个成员必须与生产的 OutlineSaveRequestFileType 完全一致（写错/漏写会在这里报错） */
+    /* 这 9 个成员必须与生产的 OutlineSaveRequestFileType 完全一致（写错/漏写会在这里报错） */
     const fileTypes: OutlineSaveRequestFileType[] = [
-      "outline", "volume-outline", "chapter-outline", "character",
+      "outline", "volume-outline", "chapter-outline", "event-outline", "character",
       "setting", "foreshadowing", "organization", "quality-report",
     ]
     for (const fileType of fileTypes) {
@@ -1121,5 +1123,65 @@ describe("outline-save-request", () => {
       "/root/组织/青云门.md",
       "/root/组织/青云门.html",
     ])
+  })
+})
+
+describe("event-outline 保存类型", () => {
+  const eventOutlineContent = [
+    "# 第12章 · 令牌初现",
+    "",
+    "## 事件1 院子里的哭声",
+    "- 关键台词：「夜壶里的东西是药。」",
+    "- 神情动作：念念两只小手护住屁股蛋。",
+  ].join("\n")
+
+  const request = {
+    targetFolder: "事件细纲",
+    fileName: "事件细纲-第012章.md",
+    fileType: "event-outline",
+    writeMode: "create",
+    referencedSkills: [],
+    sourceIntent: "生成第12章事件细纲",
+    content: eventOutlineContent,
+  }
+
+  const parseOne = (payload: Record<string, unknown>) =>
+    parseOutlineSaveRequests(`\`\`\`json\n${JSON.stringify({ outlineSaveRequest: payload })}\n\`\`\``)
+
+  it("中文别名「事件细纲」归一化为 event-outline", () => {
+    const parsed = parseOne({ ...request, fileType: "事件细纲" })
+    expect(parsed.errors).toEqual([])
+    expect(parsed.requests[0]?.fileType).toBe("event-outline")
+  })
+
+  it("中文别名「细纲」也归一化为 event-outline", () => {
+    // 用户口径已经变了：本分支的「细纲」指轻量事件细纲，不再是 17 节章纲。
+    const parsed = parseOne({ ...request, fileType: "细纲" })
+    expect(parsed.errors).toEqual([])
+    expect(parsed.requests[0]?.fileType).toBe("event-outline")
+  })
+
+  it("事件细纲落进「事件细纲」文件夹", () => {
+    expect(getDefaultFolderForOutlineFileType("event-outline")).toBe("事件细纲")
+  })
+
+  it("内容不像事件细纲时拒绝写入", () => {
+    const parsed = parseOne({ ...request, content: "好的，我已完成本章细纲。" })
+    expect(parsed.requests).toEqual([])
+    expect(parsed.errors.join("\n")).toContain("事件细纲")
+  })
+
+  it("结构完整的事件细纲能通过闸门", () => {
+    const parsed = parseOne(request)
+    expect(parsed.errors).toEqual([])
+    expect(parsed.requests).toHaveLength(1)
+  })
+
+  it("事件细纲也会拿到 HTML 卡片流", () => {
+    const parsed = parseOne(request)
+    expect(parsed.requests[0]?.htmlContent?.trim()).toBeTruthy()
+    expect(parsed.requests[0]?.htmlContent).toContain("<html")
+    // 兜底 HTML 必须用自己的标识，不能退化成「设定」或章纲的样子
+    expect(parsed.requests[0]?.htmlContent).toContain("事件细纲 · 卡片流")
   })
 })

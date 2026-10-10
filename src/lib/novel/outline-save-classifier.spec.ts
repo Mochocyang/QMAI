@@ -118,3 +118,72 @@ describe("outline-save-classifier", () => {
     })
   })
 })
+
+describe("event-outline 路由隔离", () => {
+  /*
+   * 「事件细纲」这个字符串**包含**「细纲」，而 CHAPTER_TYPE_MARK / CHAPTER_SUBJECT 都认「细纲」。
+   * 所以只要模型漏写 fileType，事件细纲就会被按名字推断成 chapter-outline 并落进「章纲」文件夹 ——
+   * 章纲写作上下文引擎的 resolveChapterOutline 随后会把它当成真正的 17 节章纲读走。
+   * 这一组用例就是这条隔离保证的守卫：事件标记必须压过章纲标记。
+   */
+  const eventOutlineContent = [
+    "# 第12章 · 令牌初现",
+    "",
+    "## 事件1 院子里的哭声",
+    "- 关键台词：「夜壶里的东西是药。」",
+    "- 神情动作：念念两只小手护住屁股蛋。",
+  ].join("\n")
+
+  it("标题带「事件细纲」时不被「细纲」抢成章纲", () => {
+    expect(classifyOutlineSaveTarget({
+      title: "事件细纲-第012章",
+      content: eventOutlineContent,
+    })).toMatchObject({
+      fileType: "event-outline",
+      targetFolder: "事件细纲",
+    })
+  })
+
+  it("用户原话是「事件细纲」时同样走事件细纲", () => {
+    expect(classifyOutlineSaveTarget({
+      title: "令牌初现",
+      content: "## 院子里的哭声\n- 念念挨了打",
+      sourceHint: "生成第12章事件细纲",
+    })).toMatchObject({
+      fileType: "event-outline",
+      targetFolder: "事件细纲",
+    })
+  })
+
+  it("正文只出现「事件序列」而没有「细纲」二字时也判为事件细纲", () => {
+    expect(classifyOutlineSaveTarget({
+      title: "令牌初现",
+      content: "## 事件序列\n1. 院子里的哭声\n2. 夜壶里的药",
+    })).toMatchObject({
+      fileType: "event-outline",
+      targetFolder: "事件细纲",
+    })
+  })
+
+  it("没有「事件」标记的「章纲」仍然指 17 节章纲，不被新标记劫持", () => {
+    expect(classifyOutlineSaveTarget({
+      title: "第12章章纲",
+      content: "## 本章目标\n- 拾得残碑",
+    })).toMatchObject({
+      fileType: "chapter-outline",
+      targetFolder: "章纲",
+    })
+  })
+
+  it("事件细纲的文件名按章号补零，而不是照抄标题", () => {
+    // 标题不带「事件细纲-」前缀时，只有事件细纲专属的命名分支才会给出规范名（否则退化成「令牌初现.md」）
+    expect(classifyOutlineSaveTarget({
+      explicitFileType: "event-outline",
+      title: "令牌初现",
+      content: eventOutlineContent,
+    })).toMatchObject({
+      fileType: "event-outline",
+      fileName: "事件细纲-第012章.md",
+    })
+  })
+})

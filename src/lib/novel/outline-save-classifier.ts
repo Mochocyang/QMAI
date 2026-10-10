@@ -20,6 +20,7 @@ const FILE_TYPE_FOLDERS: Record<OutlineSaveRequestFileType, string> = {
   outline: "大纲",
   "volume-outline": "卷纲",
   "chapter-outline": "章纲",
+  "event-outline": "事件细纲",
   character: "人物小传",
   setting: "设定",
   foreshadowing: "伏笔",
@@ -42,6 +43,13 @@ export function inferOutlineFileTypeFromSkills(skills: string[] = []): OutlineSa
   return null
 }
 
+/*
+ * 「事件细纲」这个字符串**包含**「细纲」，而下面的 CHAPTER_TYPE_MARK / CHAPTER_SUBJECT 都认「细纲」。
+ * 事件标记必须先判：否则模型漏写 fileType 时，事件细纲会按名字被判成 chapter-outline 落进「章纲」文件夹，
+ * 章纲写作上下文引擎的 resolveChapterOutline 随后会把它当成真正的 17 节章纲读走 —— 隔离保证就此失效。
+ * CHAPTER_TYPE_MARK / CHAPTER_SUBJECT 本身不动：没有「事件」二字时，「细纲」仍然只指章纲。
+ */
+const EVENT_TYPE_MARK = /事件细纲|事件清单|事件序列/
 const CHAPTER_TYPE_MARK = /章纲|细纲|章节细纲|章节大纲/
 const VOLUME_TYPE_MARK = /卷纲|分卷大纲/
 const CHAPTER_SUBJECT = /章纲|细纲|第\s*\d{1,4}\s*章/
@@ -54,6 +62,8 @@ function extractDocumentSubject(title: string, content: string): string {
 }
 
 function resolveChapterOrVolumeType(text: string): OutlineSaveRequestFileType | null {
+  // 事件细纲优先级最高：它命中 CHAPTER_SUBJECT 的「细纲」，必须先被摘出去
+  if (EVENT_TYPE_MARK.test(text)) return "event-outline"
   const chapter = CHAPTER_SUBJECT.test(text)
   const volume = VOLUME_SUBJECT.test(text)
   if (chapter && !volume) return "chapter-outline"
@@ -70,6 +80,7 @@ function resolveChapterOrVolumeType(text: string): OutlineSaveRequestFileType | 
 function inferFileTypeFromHint(hint: string): OutlineSaveRequestFileType | null {
   const text = hint.trim()
   if (!text) return null
+  if (EVENT_TYPE_MARK.test(text)) return "event-outline"
   const chapterOrVolume = resolveChapterOrVolumeType(text)
   if (chapterOrVolume) return chapterOrVolume
   if (/人物小传|角色小传/.test(text)) return "character"
@@ -83,6 +94,8 @@ function inferFileTypeFromHint(hint: string): OutlineSaveRequestFileType | null 
 
 function inferFileTypeFromContent(title: string, content: string): OutlineSaveRequestFileType {
   const text = `${title}\n${content}`
+  // 事件标记先于章纲标记：正文里出现「事件序列 / 事件清单」就是事件细纲，别被标题的「细纲」抢走
+  if (EVENT_TYPE_MARK.test(text)) return "event-outline"
   if (CHAPTER_TYPE_MARK.test(text)) return "chapter-outline"
   if (
     /(?:^|\n)#+\s*.*(?:卷纲|分卷大纲)/.test(text)
@@ -107,6 +120,10 @@ function inferFileName(fileType: OutlineSaveRequestFileType, title: string, cont
       Number(chapter[1]),
       chapter[2]?.trim().replace(/^[：:\s-]+/, "") ?? "",
     )
+  }
+  // 事件细纲固定命名「事件细纲-第NNN章.md」，与 event-outline.ts 的提示词示例保持一致，不照抄标题
+  if (fileType === "event-outline" && chapter) {
+    return `事件细纲-第${String(Number(chapter[1])).padStart(3, "0")}章.md`
   }
 
   const safe = sanitizeOutlineFileNamePart(title.replace(/^#+\s*/, "")) || "大纲"
