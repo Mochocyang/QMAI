@@ -2741,9 +2741,18 @@ describe("需求分析浮层不被无关操作弄丢", () => {
 })
 
 describe("事件细纲接线", () => {
-  // fileTree 决定「下一章」探测结果，用例之间必须互不影响。
+  /*
+   * 用例之间必须互不影响的两样状态：
+   *   · `activeView`：交接用例（「用这份细纲写这一章」）会断言视图被切到写作面；
+   *   · 写作会话：交接用例会往里填草稿、甚至新建会话。
+   *
+   * ⚠️ 这里原本还有一行 `fileTree: []`，注释写的是「fileTree 决定『下一章』探测结果」。
+   * 那是向导还在时的事：向导与它依赖的 `resolveNextChapterNumber` / `pickChapterLibraryFiles`
+   * 已整体搬去章节区标题栏，本面板现在**一次都不读** `fileTree`（全文件 0 处引用），
+   * 本块也没有任何用例种过非空的树 —— 那行是死设置，本批删掉，注释同时更正。
+   */
   beforeEach(() => {
-    useWikiStore.setState({ fileTree: [], activeView: "wiki" })
+    useWikiStore.setState({ activeView: "wiki" })
     useChatStore.setState({ conversations: [], activeConversationId: null })
   })
 
@@ -2885,11 +2894,19 @@ describe("事件细纲接线", () => {
    * ── 丙-2c：驱动方从「向导」换成「已持久化的旧会话」──
    *
    * 此前这条用例从空会话点向导、把要求填进「本章想法/硬要求」来产生
-   * `eventOutlineRequirement`。向导删掉之后，大纲面板里**没有任何**路径会再
-   * 产生这个字段（新的产生者是章节区那条链路，它不经大纲面板、也不写大纲会话，
-   * 由 `preview-panel.event-outline.spec.tsx` 的
-   * 「提交向导会真的发起生成，并把向导里的要求原样带过去」钉住
-   * `request.requirement` 一端的传递）。
+   * `eventOutlineRequirement`。向导删掉之后，大纲面板里不再有**从输入新建**这个字段的
+   * 路径（章节区那条链路不经大纲面板、也不写大纲会话，它那一端的传递由
+   * `preview-panel.event-outline.spec.tsx` 的
+   * 「提交向导会真的发起生成，并把向导里的要求原样带过去」钉住）。
+   *
+   * ⚠️ 但「不再从输入新建」**不等于**「没有任何路径会再产生这个字段」——
+   * 最初的注释就是在这里把话说过头的，而那句话恰好掩盖了本批修掉的真缺口：
+   * 两条重发路径（`handleRegenerate`，以及 `handleContinueStopped` →
+   * `handleSendMessage` → `handleSend`）仍会把它**从旧消息抄到新消息**上，
+   * 而这两处抄写此前**一条守卫都没有**（实测：整段删掉，本文件全绿）。
+   * 它们现由本 describe 下面的
+   * 「重新生成把旧消息上的事件细纲要求抄到新消息上」与
+   * 「继续把被停止那条消息上的事件细纲要求抄到新消息上」两条**行为**用例钉住。
    *
    * 但**消费**这一端仍然完全是活代码，而且正是为老会话存在的：
    * `requirementFor(msg)` → `extractEventOutlineData(content, requirement)` →
@@ -2948,6 +2965,135 @@ describe("事件细纲接线", () => {
     expect(draft).toContain("请根据下面这份「事件细纲」写出第 1 章正文")
     expect(draft).toContain("## 用户对本章的要求")
     expect(draft).toContain(requirement)
+  })
+
+  /*
+   * ── 丙-2c 修复批：把「要求」的**产生方**重新钉住（F1）──
+   *
+   * 上面那条用例种下的消息**已经带**字段，它驱动的是**消费**端
+   * （`requirementFor` → `extractEventOutlineData` → 扩写提示词）。
+   * 它能证明「字段在 ⇒ 要求进提示词」，但**证明不了字段还在被写出来**：
+   * 实测把 `handleSend` 里盖章的那三行
+   * （`...(options.eventOutlineRequirement?.trim() ? …)`）整段删掉，
+   * 上面那条用例照样全绿；删掉 `handleRegenerate` 里的同名拷贝也照样全绿。
+   *
+   * 那两处正是用户这条硬要求在面板里的**唯一产生方**。向导删掉（丙-2c）之后，
+   * 字段不会再从任何输入框里被新建，只能靠「从旧消息抄到新消息」：
+   *   · 「重新生成」：`handleRegenerate` 读 `targetAssistantMessage` 上的字段；
+   *   · 「继续」：`onContinueStopped` 把被停止那条消息上的字段交给
+   *     `handleContinueStopped` → `handleSendMessage` → `handleSend`（盖在新助手消息上）。
+   * 所以下面两条用例的驱动一律是**一条带字段的旧助手消息**，断言一律是
+   * **新助手消息上仍有这个字段**，并各自加了两条排除性前提：
+   *   · 新消息正文里**没有**那段要求 ⇒ 断言不可能靠「模型回抄」满足；
+   *   · 新消息 id **不同**于被重发/被续写的那条 ⇒ 断言不可能靠「根本没重发」满足。
+   */
+  it("重新生成把旧消息上的事件细纲要求抄到新消息上，不靠模型回抄", async () => {
+    const requirement = "必须让骆轻竹当场问出「令牌哪来的」"
+    const regenerated = [
+      "# 事件细纲 · 第1章 雨夜令牌",
+      "",
+      "## 事件1 院子里的哭声",
+      "- 关键台词：「别回头。」",
+    ].join("\n")
+    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+      callbacks.onText(regenerated)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: regenerated }
+    })
+    setOutlineConversations([conversation([
+      { id: "u-old", role: "user", content: "生成第 1 章事件细纲" },
+      {
+        id: "a-old",
+        role: "assistant",
+        content: "# 旧事件细纲\n\n## 事件1 旧内容",
+        intentPhase: "generation",
+        eventOutlineRequirement: requirement,
+      },
+    ])], "outline-active")
+    const container = await renderOutlineChatPanel()
+
+    const button = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((item) => item.getAttribute("aria-label") === "重新生成")
+    expect(button, "带内容的助手回复上应有「重新生成」").toBeDefined()
+    await act(async () => {
+      button?.click()
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        const state = useOutlineChatStore.getState()
+        if (runSpy.mock.calls.length > 0 && state.runStates["outline-active"]?.status !== "running") break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+
+    const fresh = useOutlineChatStore.getState().conversations[0].messages.at(-1)
+    expect(fresh?.role).toBe("assistant")
+    // 前提一：真的重发了一轮（否则「字段还在」可能只是那条旧消息自己）
+    expect(fresh?.id, "重新生成必须落一条新的助手消息").not.toBe("a-old")
+    expect(fresh?.content).toContain("第1章 雨夜令牌")
+    // 前提二：正文里没有那段要求 ⇒ 下面那条断言只可能由消息字段满足
+    expect(fresh?.content).not.toContain(requirement)
+    expect(
+      fresh?.eventOutlineRequirement,
+      "「重新生成」必须把旧消息上的要求抄到新消息上（handleRegenerate 的 addMessage 分支）",
+    ).toBe(requirement)
+  })
+
+  it("继续把被停止那条消息上的事件细纲要求抄到新消息上，不靠模型回抄", async () => {
+    const requirement = "续写时也要交代骆轻竹为什么失望"
+    const continuation = [
+      "# 事件细纲 · 第1章 雨夜令牌",
+      "",
+      "## 事件2 深夜潜入后山",
+      "- 环境物件：雨夜灯笼",
+    ].join("\n")
+    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+      callbacks.onText(continuation)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: continuation }
+    })
+    setOutlineConversations([conversation([
+      { id: "u-old", role: "user", content: "生成第 1 章事件细纲" },
+      {
+        id: "a-stopped",
+        role: "assistant",
+        content: [
+          "# 事件细纲 · 第1章 雨夜令牌",
+          "",
+          "## 事件1 院子里的哭声",
+          "",
+          "---",
+          "",
+          "⚠️ 生成已停止，以上为已生成的内容。",
+        ].join("\n"),
+        intentPhase: "generation",
+        eventOutlineRequirement: requirement,
+      },
+    ])], "outline-active")
+    const container = await renderOutlineChatPanel()
+
+    const continueButton = container.querySelector<HTMLButtonElement>(
+      '[data-ui-stopped-generation-actions] button[aria-label^="继续"]',
+    )
+    expect(continueButton, "被停止的回复下方应有「继续」").not.toBeNull()
+    await act(async () => {
+      continueButton?.click()
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        const state = useOutlineChatStore.getState()
+        if (runSpy.mock.calls.length > 0 && state.runStates["outline-active"]?.status !== "running") break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+
+    const fresh = useOutlineChatStore.getState().conversations[0].messages.at(-1)
+    expect(fresh?.role).toBe("assistant")
+    // 前提一：真的续写出一轮新回复（「继续」是新一轮发送，不是改旧消息）
+    expect(fresh?.id, "「继续」必须落一条新的助手消息").not.toBe("a-stopped")
+    expect(fresh?.content).toContain("事件2")
+    // 前提二：正文里没有那段要求 ⇒ 下面那条断言只可能由消息字段满足
+    expect(fresh?.content).not.toContain(requirement)
+    expect(
+      fresh?.eventOutlineRequirement,
+      "「继续」必须把被停止那条消息上的要求带进新一轮（handleContinueStopped → handleSend 的盖章）",
+    ).toBe(requirement)
   })
 
   it("生成结果里带事件细纲保存请求时也不弹保存确认框，卡片照常渲染", async () => {

@@ -46,8 +46,10 @@ export function UiTestAiAuthor({ running = false }: { running?: boolean }) {
  * prop 只会让下一个人以为还有第二条入口。
  *
  * ⚠️ 上面的说明刻意**不写出那个 prop 的字面名**：它已经不存在了，
- * 而 `preview-panel.chapter-toolbar.spec.tsx` 那条守卫用最强的形式钉住
- * 「本文件里不出现这个名字」（声明、接线、注释都算）。想加回它的人会在那里被拦下。
+ * 而 `preview-panel.chapter-toolbar.spec.tsx` 那条守卫会钉住「本文件里不出现这个名字」。
+ * 那条守卫是**源码文本**级的（换 prop 名或换一种文案写法就能绕过去，详见那边的说明），
+ * 真正的行为背书在 `outline-chat-panel.spec.tsx` 的
+ * 「空会话只提供「生成小说大纲」一个入口，不再提供「生成章节细纲」」上。
  */
 export function UiTestAiEmpty({ kind, onGenerateOutline, generateDisabled, generateDisabledReason }: { kind: "chapter" | "outline"; onGenerateOutline?: () => void; generateDisabled?: boolean; generateDisabledReason?: string }) {
   return (

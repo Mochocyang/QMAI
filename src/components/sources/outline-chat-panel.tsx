@@ -382,11 +382,16 @@ import {
 type OutlineSendResult = { started: boolean; sent: boolean };
 
 /**
- * 某条消息所属那一轮生成里，用户在事件细纲向导中填的要求。
+ * 某条消息所属那一轮生成里，用户提的事件细纲硬要求
+ * （扩写提示词里 `## 用户对本章的要求` 那一节的来源）。
  *
  * 要求就存在消息本身上（`eventOutlineRequirement`，与消息一起写进
  * `.qmai/outline-chats.json`），所以这里既不查表也不解析提示词：
  * 「谁的要求」这个问题只有一个答案 —— 这条消息自己的。
+ *
+ * ⚠️ 别写成「事件细纲**向导**里填的要求」：向导已按用户要求删除（丙-2c）。
+ * 现在把字段写到**新**消息上的只剩两条重发路径 —— `handleRegenerate` 直接抄，
+ * 以及「继续」经 `handleContinueStopped` → `handleSendMessage` → `handleSend` 盖章。
  */
 function requirementFor(msg: OutlineChatMessage): string | undefined {
   return msg.eventOutlineRequirement;
@@ -3032,8 +3037,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         userMessageVisibility?: "visible" | "internal";
         userDisplayText?: string;
         /**
-         * 事件细纲向导里填的要求。挂在**这一轮创建的助手消息**上，
+         * 事件细纲的硬要求。挂在**这一轮创建的助手消息**上，
          * 让卡片渲染时不必依赖模型把要求回抄进 JSON（见 outline-chat-store 的同名字段）。
+         *
+         * 事件细纲向导已删（丙-2c），当前只有「继续」这条重发路径会传进来
+         * —— `handleContinueStopped` 从被停止的那条消息上把它抄过来。
          */
         eventOutlineRequirement?: string;
       } = {},
