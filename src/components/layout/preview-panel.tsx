@@ -85,6 +85,7 @@ import { selectProjectDeAiReview, selectProjectDeAiTasks, useDeAiTaskStore } fro
 import { DeAiBatchReviewDialog } from "@/components/novel/de-ai-batch-review-dialog"
 import type { DeAiBatchChapter, DeAiBatchTaskRecord } from "@/lib/novel/de-ai-batch/types"
 import { saveDeAiDraftWithoutOverwrite } from "@/lib/novel/de-ai-draft"
+import type { FileNode } from "@/types/wiki"
 import { UiTestEditor, type UiTestEditorSaveState } from "@/components/uitest/ui-test-editor"
 import { FrontmatterPanel } from "@/components/editor/frontmatter-panel"
 import { UiTestOutlineTools } from "@/components/uitest/ui-test-outline-tools"
@@ -1443,115 +1444,32 @@ export function PreviewPanel() {
     }
 
     /** 正文写进章节文件。抛错即视为「这次生成失败」，由下面的 catch 退回待确认。 */
-    const writeGeneratedChapter = async (finalContent: string) => {
-      const { content: body, title: extractedTitle } = cleanGeneratedChapterContentWithTitle(finalContent)
-      if (!body.trim()) throw new Error("模型没有返回可用的章节正文")
-      const chapterDir = `${normalizePath(projectPath)}/wiki/chapters`
-      const chapterTitle = extractedTitle || makeDefaultChapterTitle(chapterNumber)
+    const writePort: GeneratedChapterWritePort = {
+      projectChanged,
+      assertStillWritable,
+      readOpenChapterPath: () => selectedFileRef.current,
+      readEditorMarkdown: () => fileContentRef.current,
       /*
-       * 归一化后再落盘（normalizeChapterWriting = 同步 frontmatter + 全角缩进 + 段间整理）。
-       * 理由：章节区**自己**的保存路径（handleSave，`:1065-1067` 的 isChapterPath 分支）
-       * 对每一份章节正文都会做这一步，所以「磁盘内容 == 编辑器随后会写出的内容」——
-       * 用户之后改一个字保存是真正的空差分，不会出现「整份文件被静默重排」这一幕。
-       * 代价是 AI 正文在写入时就带上了全角缩进，与 chat-panel.tsx 那条不做归一化的
-       * AI 写入路径行为不一致（那是既有分歧，本批不动它）。
+       * 只丢掉与刚冲刷那个文件对应的那一份：别的路径的待落盘内容不归这次写入管。
+       * 留着它，关窗时 registerChapterSaveFlush 会把它盖回刚写好的 AI 正文上。
        */
-      const chapterMarkdown = normalizeChapterWriting(buildDraftChapterMarkdown(chapterNumber, chapterTitle, body))
-
-      /*
-       * ── 先把**当前打开的那一章**冲刷到磁盘（不管是哪一章）──
-       *
-       * 这一步与目标章号是不是同一章无关，必须无条件先做，原因有两个：
-       *
-       * 1. 紧接着就要写盘，而 `:886-888` 的「切章前自动冲刷」要等 React 提交后才跑
-       *    —— 两条链会抢同一个文件（不 await 就是「旧快照把刚生成的整章盖回去」）。
-       * 2. 下面会把 `selectedFileRef.current` 提前指到新章节（见写完那一段的注释），
-       *    于是那个 effect 会认为「没换章」而整段跳过。它本来要做的冲刷就只能由
-       *    这里代替 —— 否则用户在上一个章节里没保存的字既不在盘上，也不在编辑器里，
-       *    直接消失（N3 的第二个缺陷）。
-       *
-       * `pendingChapterSaveRef` 里那份待落盘的快照是**冲刷之前**的编辑器内容，
-       * 留着它，关窗时 `registerChapterSaveFlush` 会把它盖回刚写好的 AI 正文上
-       * （同章时尤其致命：路径与 generation 都可能还匹配）。这里只清掉与刚冲刷
-       * 那个文件对应的那一份，别的路径的待落盘内容不归这次写入管。
-       */
-      const openPath = selectedFileRef.current
-      if (openPath && isChapterPath(openPath)) {
-        await flushChapterBeforeLeave(openPath, fileContentRef.current)
+      discardPendingSaveFor: (path) => {
         const pending = pendingChapterSaveRef.current
-        if (pending && normalizePath(pending.pathAtSave) === normalizePath(openPath)) {
+        if (pending && normalizePath(pending.pathAtSave) === normalizePath(path)) {
           pendingChapterSaveRef.current = null
         }
-      }
-
-      assertStillWritable()
-
-      await createDirectory(chapterDir)
-
-      /*
-       * ── 目标路径：先认**已存在**的那一章，再谈新建 ──
-       *
-       * `findChapterFileByNumber` 按文件名章号**或** `chapter_number` frontmatter
-       * 匹配，所以「编辑器里开着的就是这一章」时它返回的正是那个文件 —— 不会为
-       * 同一章再建一份 `chapter-016.md`，也就不会出现「同一章两个文件」，
-       * 更不会把 AI 正文写进用户另开的那一份里。
-       *
-       * 只有真的没有这一章时才新建，且名字用章节区自己的规范名
-       * `makeChapterFileName(title, number)` → `第N章-标题.md`（`getCanonicalChapterPath`
-       * `:171-178`、`sidebar-panel.tsx:821`、`knowledge-tree.tsx:1258` 都是这个口径）。
-       *
-       * ⚠️ 这里**刻意不用** `getDraftChapterPath`（`chapter-NNN.md`）：那是 AI 对话
-       * 落盘的**临时草稿**名（`chapter-path-sync.ts:5-9` 的 `isDraftChapterPath` 把它
-       * 定义为 "AI / chat draft files"），章节区随后会把它改名成规范名。目标路径用
-       * 草稿名就等于**绕开**了章节区自己的命名，从而制造出上面那两个文件。
-       */
-      const existingChapterPath = await findChapterFileByNumber(normalizePath(projectPath), chapterNumber)
-      const chapterPath = existingChapterPath ?? `${chapterDir}/${makeChapterFileName(chapterTitle, chapterNumber)}`
-
-      const previousMarkdown = await readFile(chapterPath).catch(() => undefined)
-
-      // 第二道闸：上面的 createDirectory / listDirectory / readFile 都是真实 IPC 往返，
-      // 用户在这中间切项目或点「取消」都不该让这一章落盘。
-      assertStillWritable()
-
-      await writeFile(chapterPath, chapterMarkdown)
-      /*
-       * 顺序是**约定**：先记账，再选中这一章。
-       *
-       * ⚠️ 如实说明（F4）：这两句之间没有 await，而 React 的 effect 不会插进两个
-       * 同步语句之间 —— 所以在**当前实现**下把两句对调**不会**改变「今日 AI 生成」
-       * 的数值（实测：对调后本文件所有用例仍全绿，唯一变红的是专门断言次序的那条）。
-       * 它守的是「一旦有人在两者之间插入 await」时才会出现的后果：选中会触发
-       * `:876-952` 的重载 effect，它读完盘就 `primeChapter` 打归属基线（`:931`）
-       * ——基线一旦先打上，刚写进去的 AI 正文就会被当成「本来就有的正文」，
-       * 那一整章都不计入今日 AI。recordChapter 是差分口径（重复记账安全），
-       * 而漏记是永久偏差，所以约定仍然是「先记账」。
-       */
-      useWritingStatsStore.getState().recordChapter(chapterPath, chapterMarkdown, "ai", previousMarkdown)
-      rememberLoadedChapter(chapterPath, chapterMarkdown)
-      fileContentRef.current = chapterMarkdown
-      /*
-       * 提前把 `selectedFileRef.current` 指到新章节，**再**调 setSelectedFile
-       * ——这是本文件既有的写法（见 syncChapterToCanonicalPath 改名那一支，`:824-828`）。
-       * 于是重载 effect 里 `previousFile !== selectedFile` 为 false，它不会再对
-       * 「上一个打开的文件」做一次冲刷（那一次我们已经显式做过了，而且此刻
-       * `fileContentRef.current` 已经是**这一章**的正文：不拦住的话它是拿新章的
-       * 正文去冲刷旧章的文件，`chapterContentMatchesPath` 会因为章号不符而整段
-       * 抑制掉冲刷，表面上无事，但任何一次判定放宽都会变成写错文件）。
-       */
-      selectedFileRef.current = chapterPath
-      useWikiStore.getState().setSelectedFile(chapterPath)
-      // 同章时重载 effect 不会重跑，编辑器内容只能靠这一句对齐磁盘。
-      setFileContent(chapterMarkdown)
-      try {
-        const tree = await listDirectory(normalizePath(projectPath))
-        // 目录是异步读的：读的过程中项目可能被换走，这棵树就属于上一本书了。
-        if (!projectChanged()) setFileTree(tree)
-      } catch (err) {
-        // 新章节已在盘上、也已选中，刷新目录失败不影响这次写入。
-        console.error("生成章节正文后刷新文件树失败:", err)
-      }
-      bumpDataVersion()
+      },
+      flushChapterBeforeLeave,
+      rememberLoadedChapter,
+      writeEditorMarkdown: (markdown) => { fileContentRef.current = markdown },
+      markSelectedFile: (path) => {
+        // 先指 ref 再调 store：重载 effect 因此认为「没换章」而整段跳过（理由见下方注释）。
+        selectedFileRef.current = path
+        useWikiStore.getState().setSelectedFile(path)
+      },
+      setFileContent,
+      setFileTree,
+      bumpDataVersion,
     }
 
     void runDeepChapterGeneration(
@@ -1588,7 +1506,7 @@ export function PreviewPanel() {
        */
       if (projectChanged()) throw new ProjectChangedDuringWriteError()
       if (controller.signal.aborted) return
-      return writeGeneratedChapter(result.finalContent).then(() => {
+      return persistGeneratedChapter(projectPath, chapterNumber, result.finalContent, writePort).then(() => {
         // 细纲已经被扩写成磁盘上的章节文件，任务本身没有留在卡片区的理由。
         useEventOutlineTaskStore.getState().removeTask(taskId)
       })
@@ -1640,7 +1558,7 @@ export function PreviewPanel() {
   /**
    * 项目切换：上一个项目里还在写正文的生成必须停下来（N2）。
    *
-   * 正文任务的行是按项目过滤渲染的（`projectEventOutlineTasks`，`:1244-1246`），
+   * 正文任务的行是按项目过滤渲染的（`projectEventOutlineTasks`，`:1214-1216`），
    * 所以切项目后那一行**当场消失** —— 用户既看不到进度、也没有「取消」可点，
    * 而请求还在跑、还在计费。停下来能省下这笔调用；写不写盘另有一道复核
    * （`writeGeneratedChapter` 里的 `assertStillWritable`），两件事都要做：
@@ -3175,4 +3093,153 @@ export function PreviewPanel() {
       />
     </div>
   )
+}
+
+/**
+ * 落盘这一段需要的**组件侧端口**（N6）。
+ *
+ * 这些不是可以随便改成从闭包直接读的东西：写入链里有多次真实 IPC 往返，
+ * 读到的必须是「此刻」的值，而不是发起生成那一刻捕获的值。分成显式端口之后，
+ * 「哪些组件状态会被写入链读到」在类型上就是可数的。
+ */
+type GeneratedChapterWritePort = {
+  /** 这次生成捕获的项目还是当前项目吗（目录刷新前要再问一次）。 */
+  projectChanged: () => boolean
+  /** 落盘前的最后一道闸：项目复核 + abort 复核，不过就抛。 */
+  assertStillWritable: () => void
+  /** 编辑器里此刻打开的那一章（没有就是 null）。 */
+  readOpenChapterPath: () => string | null
+  /** 编辑器里此刻的正文（可能含还没落盘的改动）。 */
+  readEditorMarkdown: () => string
+  /** 丢掉与这个路径对应的待落盘快照（别的路径不归这次写入管）。 */
+  discardPendingSaveFor: (path: string) => void
+  flushChapterBeforeLeave: (path: string | null, markdown: string) => Promise<void>
+  rememberLoadedChapter: (path: string, markdown: string) => void
+  writeEditorMarkdown: (markdown: string) => void
+  /** 把章节区切到这一章（ref 与 store 一起改，理由见函数内注释）。 */
+  markSelectedFile: (path: string) => void
+  setFileContent: (markdown: string) => void
+  setFileTree: (tree: FileNode[]) => void
+  bumpDataVersion: () => void
+}
+
+/**
+ * 把一次「确认细纲 → 生成正文」的结果落进章节文件（N6：从 handleConfirmEventOutline 里抽出来）。
+ *
+ * 抽出来的理由不是行数：它原本是那个回调里一个 68 行的嵌套闭包，读代码时
+ * 「两道闸分别在什么时候跑」被埋在 `.then` 的深处；有了名字之后，调用点读起来
+ * 就是「生成 → 复核 → 落盘 → 收尾」四步，而这里只回答「落到哪个文件、按什么顺序」。
+ *
+ * 三件事必须保持现在的次序，它们是这份文件的既有约定：
+ * 1. **先冲刷当前打开的那一章**，再写盘（否则两条 promise 链抢同一个文件）；
+ * 2. **先记账、再选中**（选中会触发重载 effect 打归属基线，漏记是永久偏差）；
+ * 3. 写完自己 `setFileContent`（同章时重载 effect 不会重跑，编辑器只能靠这一句对齐）。
+ *
+ * 抛错即视为「这次生成失败」，由调用方的 catch 退回待确认 —— 这里不吞异常。
+ */
+async function persistGeneratedChapter(
+  projectPath: string,
+  chapterNumber: number,
+  finalContent: string,
+  port: GeneratedChapterWritePort,
+): Promise<void> {
+  const { content: body, title: extractedTitle } = cleanGeneratedChapterContentWithTitle(finalContent)
+  if (!body.trim()) throw new Error("模型没有返回可用的章节正文")
+  const chapterDir = `${normalizePath(projectPath)}/wiki/chapters`
+  const chapterTitle = extractedTitle || makeDefaultChapterTitle(chapterNumber)
+  /*
+   * 归一化后再落盘（normalizeChapterWriting = 同步 frontmatter + 全角缩进 + 段间整理）。
+   * 理由：章节区**自己**的保存路径（handleSave，`:1035-1037` 的 isChapterPath 分支）
+   * 对每一份章节正文都会做这一步，所以「磁盘内容 == 编辑器随后会写出的内容」——
+   * 用户之后改一个字保存是真正的空差分，不会出现「整份文件被静默重排」这一幕。
+   * 代价是 AI 正文在写入时就带上了全角缩进，与 chat-panel.tsx 那条不做归一化的
+   * AI 写入路径行为不一致（那是既有分歧，本批不动它）。
+   */
+  const chapterMarkdown = normalizeChapterWriting(buildDraftChapterMarkdown(chapterNumber, chapterTitle, body))
+
+  /*
+   * ── 先把**当前打开的那一章**冲刷到磁盘（不管是哪一章）──
+   *
+   * 这一步与目标章号是不是同一章无关，必须无条件先做，原因有两个：
+   *
+   * 1. 紧接着就要写盘，而 `:856-858` 的「切章前自动冲刷」要等 React 提交后才跑
+   *    —— 两条链会抢同一个文件（不 await 就是「旧快照把刚生成的整章盖回去」）。
+   * 2. 下面会把 `selectedFileRef.current` 提前指到新章节（见写完那一段的注释），
+   *    于是那个 effect 会认为「没换章」而整段跳过。它本来要做的冲刷就只能由
+   *    这里代替 —— 否则用户在上一个章节里没保存的字既不在盘上，也不在编辑器里，
+   *    直接消失（N3 的第二个缺陷）。
+   */
+  const openPath = port.readOpenChapterPath()
+  if (openPath && isChapterPath(openPath)) {
+    await port.flushChapterBeforeLeave(openPath, port.readEditorMarkdown())
+    port.discardPendingSaveFor(openPath)
+  }
+
+  port.assertStillWritable()
+
+  await createDirectory(chapterDir)
+
+  /*
+   * ── 目标路径：先认**已存在**的那一章，再谈新建 ──
+   *
+   * `findChapterFileByNumber` 按文件名章号**或** `chapter_number` frontmatter
+   * 匹配，所以「编辑器里开着的就是这一章」时它返回的正是那个文件 —— 不会为
+   * 同一章再建一份 `chapter-016.md`，也就不会出现「同一章两个文件」，
+   * 更不会把 AI 正文写进用户另开的那一份里。
+   *
+   * 只有真的没有这一章时才新建，且名字用章节区自己的规范名
+   * `makeChapterFileName(title, number)` → `第N章-标题.md`（`getCanonicalChapterPath`
+   * `:173-180`、`sidebar-panel.tsx:821`、`knowledge-tree.tsx:1258` 都是这个口径）。
+   *
+   * ⚠️ 这里**刻意不用** `getDraftChapterPath`（`chapter-NNN.md`）：那是 AI 对话
+   * 落盘的**临时草稿**名（`chapter-path-sync.ts:5-9` 的 `isDraftChapterPath` 把它
+   * 定义为 "AI / chat draft files"），章节区随后会把它改名成规范名。目标路径用
+   * 草稿名就等于**绕开**了章节区自己的命名，从而制造出上面那两个文件。
+   */
+  const existingChapterPath = await findChapterFileByNumber(normalizePath(projectPath), chapterNumber)
+  const chapterPath = existingChapterPath ?? `${chapterDir}/${makeChapterFileName(chapterTitle, chapterNumber)}`
+
+  const previousMarkdown = await readFile(chapterPath).catch(() => undefined)
+
+  // 第二道闸：上面的 createDirectory / listDirectory / readFile 都是真实 IPC 往返，
+  // 用户在这中间切项目或点「取消」都不该让这一章落盘。
+  port.assertStillWritable()
+
+  await writeFile(chapterPath, chapterMarkdown)
+  /*
+   * 顺序是**约定**：先记账，再选中这一章。
+   *
+   * ⚠️ 如实说明（F4）：这两句之间没有 await，而 React 的 effect 不会插进两个
+   * 同步语句之间 —— 所以在**当前实现**下把两句对调**不会**改变「今日 AI 生成」
+   * 的数值（实测：对调后本文件所有用例仍全绿，唯一变红的是专门断言次序的那条）。
+   * 它守的是「一旦有人在两者之间插入 await」时才会出现的后果：选中会触发
+   * `:846-922` 的重载 effect，它读完盘就 `primeChapter` 打归属基线（`:901`）
+   * ——基线一旦先打上，刚写进去的 AI 正文就会被当成「本来就有的正文」，
+   * 那一整章都不计入今日 AI。recordChapter 是差分口径（重复记账安全），
+   * 而漏记是永久偏差，所以约定仍然是「先记账」。
+   */
+  useWritingStatsStore.getState().recordChapter(chapterPath, chapterMarkdown, "ai", previousMarkdown)
+  port.rememberLoadedChapter(chapterPath, chapterMarkdown)
+  port.writeEditorMarkdown(chapterMarkdown)
+  /*
+   * 提前把 `selectedFileRef.current` 指到新章节，**再**调 setSelectedFile
+   * ——这是本文件既有的写法（见 syncChapterToCanonicalPath 改名那一支，`:794-798`）。
+   * 于是重载 effect 里 `previousFile !== selectedFile` 为 false，它不会再对
+   * 「上一个打开的文件」做一次冲刷（那一次我们已经显式做过了，而且此刻
+   * 编辑器里的正文已经是**这一章**的：不拦住的话它是拿新章的正文去冲刷旧章的文件，
+   * `chapterContentMatchesPath` 会因为章号不符而整段抑制掉冲刷，表面上无事，
+   * 但任何一次判定放宽都会变成写错文件）。
+   */
+  port.markSelectedFile(chapterPath)
+  // 同章时重载 effect 不会重跑，编辑器内容只能靠这一句对齐磁盘。
+  port.setFileContent(chapterMarkdown)
+  try {
+    const tree = await listDirectory(normalizePath(projectPath))
+    // 目录是异步读的：读的过程中项目可能被换走，这棵树就属于上一本书了。
+    if (!port.projectChanged()) port.setFileTree(tree)
+  } catch (err) {
+    // 新章节已在盘上、也已选中，刷新目录失败不影响这次写入。
+    console.error("生成章节正文后刷新文件树失败:", err)
+  }
+  port.bumpDataVersion()
 }
