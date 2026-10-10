@@ -38,6 +38,8 @@ import { startOutlineIngestTask } from "@/lib/novel/outline-generation"
 import { renderOutlineHtmlForPath } from "@/lib/novel/outline-save-request"
 import { getOutlineIngestIdentity, getOutlineFileName, outlineSnapshotExists } from "@/lib/novel/outline-ingest-utils"
 import { streamChat } from "@/lib/llm-client"
+import { isTruncationFinishReason } from "@/lib/llm-providers"
+import { isUserAbortError } from "@/lib/user-abort"
 import {
   extractChapterNumberFromMarkdown,
   getDraftChapterPath,
@@ -57,6 +59,18 @@ import {
   type ChapterBodySelection,
   type ChapterSelectionAction,
 } from "@/lib/chapter-selection"
+import { ContinuationPopover, type ContinuationPhase } from "@/components/editor/continuation-popover"
+import {
+  CONTINUATION_MAX_TOKENS,
+  CONTINUATION_POPOVER_MAX_HEIGHT,
+  CONTINUATION_POPOVER_WIDTH,
+  CONTINUATION_TEMPERATURE,
+  buildContinuationMessages,
+  clampContinuationPopoverPosition,
+  insertContinuationBody,
+  type ContinuationAnchor,
+  type PendingEditorCaret,
+} from "@/lib/novel/continuation"
 import { shouldApplyDiskToEditor } from "@/lib/editor-disk-sync"
 import { registerEditorExternalUpdateHandler } from "@/lib/editor-external-update-session"
 import { registerChapterSaveFlush, CHAPTER_AUTOSAVE_INTERVAL_MS } from "@/lib/chapter-save-flush"
@@ -274,6 +288,24 @@ export function PreviewPanel() {
   const [selectionTransformModelName, setSelectionTransformModelName] = useState("")
   const [deAiSkillPickerOpen, setDeAiSkillPickerOpen] = useState(false)
   const [deAiSkillPickerPosition, setDeAiSkillPickerPosition] = useState<CSSProperties>(() => getDeAiSkillPickerPosition())
+  // ── 续写 ──
+  // 锚点把视口坐标一起存下来，浮层定位就不必每帧再量 parent。
+  const [continuationOpen, setContinuationOpen] = useState(false)
+  const [continuationPhase, setContinuationPhase] = useState<ContinuationPhase>("idle")
+  const [continuationAnchor, setContinuationAnchor] = useState<(ContinuationAnchor & { x: number; y: number }) | null>(null)
+  const [continuationInstruction, setContinuationInstruction] = useState("")
+  const [continuationCandidate, setContinuationCandidate] = useState("")
+  const [continuationError, setContinuationError] = useState("")
+  const [continuationTruncated, setContinuationTruncated] = useState(false)
+  const [continuationCaretRequest, setContinuationCaretRequest] = useState<PendingEditorCaret | null>(null)
+  const continuationAbortRef = useRef<AbortController | null>(null)
+  /**
+   * 发起续写时选中的文件。
+   *
+   * 与 AI润色 的 `actionFile` 同理：生成期间用户可能切了章节，回来时结果
+   * 已经不属于当前正文，必须丢掉而不是写进去。
+   */
+  const continuationFileRef = useRef<string | null>(null)
   // ── 写作现场「字体设置」浮层 ──
   const [bodyFontOpen, setBodyFontOpen] = useState(false)
   const [bodyFontPosition, setBodyFontPosition] = useState<CSSProperties>(() => getFloatingPanelPosition(null, BODY_TYPOGRAPHY_PANEL_WIDTH_PX))
@@ -1715,6 +1747,145 @@ export function PreviewPanel() {
     setSaveStatus("")
   }, [fileContent, handleSave, selectionTransformAction, selectionTransformCandidateContent, selectionTransformSelection])
 
+  const handleContinuationRequest = useCallback((anchor: ContinuationAnchor, position: { x: number; y: number }) => {
+    const state = useWikiStore.getState()
+    const llmConfig = resolveDefaultModel(state.llmConfig)
+    if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
+      setSaveStatus("未配置可用的 AI 模型，无法续写")
+      return
+    }
+    // 换一个插入点就换一次锚点；上一次的候选作废，不能拿旧候选插到新位置。
+    continuationAbortRef.current?.abort()
+    continuationAbortRef.current = null
+    setContinuationAnchor({ ...anchor, x: position.x, y: position.y })
+    setContinuationPhase("idle")
+    setContinuationCandidate("")
+    setContinuationError("")
+    setContinuationTruncated(false)
+    setContinuationOpen(true)
+    setSaveStatus("")
+  }, [])
+
+  const runContinuation = useCallback(async () => {
+    const anchor = continuationAnchor
+    if (!anchor) return
+    const state = useWikiStore.getState()
+    const llmConfig = resolveDefaultModel(state.llmConfig)
+    if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
+      setContinuationPhase("error")
+      setContinuationError("未配置可用的 AI 模型，无法续写")
+      return
+    }
+    const fileAtStart = selectedFileRef.current
+    if (!fileAtStart) return
+
+    continuationAbortRef.current?.abort()
+    const controller = new AbortController()
+    continuationAbortRef.current = controller
+    continuationFileRef.current = fileAtStart
+
+    setContinuationPhase("streaming")
+    setContinuationCandidate("")
+    setContinuationError("")
+    setContinuationTruncated(false)
+
+    let result = ""
+    try {
+      await streamChat(
+        llmConfig,
+        buildContinuationMessages(anchor.bodySnapshot, continuationInstruction),
+        {
+          // 与润色不同，这里每个 token 都要上屏：用户要看着它写出来。
+          onToken: (token) => {
+            result += token
+            setContinuationCandidate(result)
+          },
+          onFinishReason: (reason) => {
+            if (isTruncationFinishReason(reason)) setContinuationTruncated(true)
+          },
+          onDone: () => {
+            if (continuationFileRef.current !== selectedFileRef.current) return
+            if (!result.trim()) {
+              setContinuationPhase("error")
+              setContinuationError("续写失败：模型未返回正文")
+              return
+            }
+            setContinuationPhase("done")
+          },
+          onError: (error) => {
+            if (continuationFileRef.current !== selectedFileRef.current) return
+            // 用户按了「停止」不是错误：把已经写出来的部分留给他决定要不要插入。
+            if (isUserAbortError(error, controller.signal)) {
+              if (result.trim()) setContinuationPhase("done")
+              else setContinuationPhase("idle")
+              return
+            }
+            console.error("续写失败:", error)
+            setContinuationPhase("error")
+            setContinuationError(`续写失败：${error.message}`)
+          },
+        },
+        controller.signal,
+        { max_tokens: CONTINUATION_MAX_TOKENS, temperature: CONTINUATION_TEMPERATURE },
+      )
+    } catch (err) {
+      if (continuationFileRef.current !== selectedFileRef.current) return
+      if (isUserAbortError(err, controller.signal)) {
+        if (result.trim()) setContinuationPhase("done")
+        else setContinuationPhase("idle")
+        return
+      }
+      const message = err instanceof Error ? err.message : String(err)
+      console.error("续写失败:", err)
+      setContinuationPhase("error")
+      setContinuationError(`续写失败：${message}`)
+    }
+  }, [continuationAnchor, continuationInstruction])
+
+  const handleInsertContinuation = useCallback(() => {
+    const anchor = continuationAnchor
+    if (!anchor || !continuationCandidate.trim()) return
+
+    // 与 handleApplySelectionTransform 同一套拆解：先剥 frontmatter，
+    // 再剥 `# 标题` 行 —— 因为 textarea 里的偏移与快照都不含这两段。
+    const { rawBlock, body } = parseFrontmatter(fileContent)
+    const { heading, body: currentBody } = splitChapterHeading(body)
+    const inserted = insertContinuationBody(currentBody, anchor, continuationCandidate)
+    if (!inserted.ok) {
+      setContinuationPhase("error")
+      setContinuationError(
+        inserted.reason === "empty" ? "续写内容为空，无法插入" : "正文已变化，请重新续写",
+      )
+      return
+    }
+
+    // 插进去的是模型产出，整段记到「今日 AI 生成」；原有正文归属不变。
+    handleSave(rawBlock + rebuildChapterBody(heading, inserted.body), { source: "ai", immediate: true })
+    setContinuationCaretRequest({ at: inserted.caret, nonce: Date.now() })
+    setContinuationOpen(false)
+    setContinuationPhase("idle")
+    setContinuationCandidate("")
+    setContinuationError("")
+    setContinuationTruncated(false)
+    setSaveStatus("")
+  }, [continuationAnchor, continuationCandidate, fileContent, handleSave])
+
+  const handleCloseContinuation = useCallback(() => {
+    continuationAbortRef.current?.abort()
+    continuationAbortRef.current = null
+    setContinuationOpen(false)
+    setContinuationPhase("idle")
+    setContinuationCandidate("")
+    setContinuationError("")
+    setContinuationTruncated(false)
+    // 指令一起清掉：每次续写都是一次新的意图，留着上一次的方向更容易误发。
+    setContinuationInstruction("")
+  }, [])
+
+  useEffect(() => {
+    return () => { continuationAbortRef.current?.abort() }
+  }, [])
+
   const handleCloseSelectionTransform = useCallback(() => {
     setSelectionTransformOpen(false)
     setSelectionTransformAction(null)
@@ -2218,6 +2389,9 @@ export function PreviewPanel() {
                   onHighlightHandled={() => {
                     if (activeHighlightRequest) setPendingEditorHighlight(null)
                   }}
+                  onContinuationRequest={isChapterPath(selectedFile) ? handleContinuationRequest : undefined}
+                  caretRequest={isChapterPath(selectedFile) ? continuationCaretRequest : null}
+                  onCaretHandled={() => setContinuationCaretRequest(null)}
                 />
               }
             />
@@ -2234,6 +2408,9 @@ export function PreviewPanel() {
               onHighlightHandled={() => {
                 if (activeHighlightRequest) setPendingEditorHighlight(null)
               }}
+              onContinuationRequest={isChapterPath(selectedFile) ? handleContinuationRequest : undefined}
+              caretRequest={isChapterPath(selectedFile) ? continuationCaretRequest : null}
+              onCaretHandled={() => setContinuationCaretRequest(null)}
             />
           )
         ) : (
@@ -2369,6 +2546,26 @@ export function PreviewPanel() {
             onPick={(skillId) => void handlePickedDeAiSkill(skillId)}
           />
         </div>
+      ) : null}
+      {continuationOpen && continuationAnchor ? (
+        <ContinuationPopover
+          phase={continuationPhase}
+          position={clampContinuationPopoverPosition(
+            { x: continuationAnchor.x, y: continuationAnchor.y },
+            { width: window.innerWidth, height: window.innerHeight },
+            { width: CONTINUATION_POPOVER_WIDTH, height: CONTINUATION_POPOVER_MAX_HEIGHT },
+          )}
+          instruction={continuationInstruction}
+          candidate={continuationCandidate}
+          errorMessage={continuationError}
+          truncated={continuationTruncated}
+          onInstructionChange={setContinuationInstruction}
+          onStart={() => void runContinuation()}
+          onInsert={handleInsertContinuation}
+          onRegenerate={() => void runContinuation()}
+          onStop={() => continuationAbortRef.current?.abort()}
+          onClose={handleCloseContinuation}
+        />
       ) : null}
       {(() => {
         const projectDeAiTasks = selectProjectDeAiTasks(deAiTasks, project?.path)
