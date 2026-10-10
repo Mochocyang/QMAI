@@ -326,9 +326,28 @@ tab 高亮错（`:700` 的 `aria-pressed` 会把「去AI味」标成选中）、
      const preset = store.styles.find((s) => s.id === styleIdOverride)
      return preset ? { ...preset, profile: migrateStyleProfile(preset.profile) } : null
      ```
-     **不要**直接 `store.styles.find(...)` 就把 preset 交给渲染器——那会**跳过 v1→v2 迁移**，
-     旧画像的 `workbenchStyle.styleFingerprint` 就不存在，于是覆盖会**莫名掉进旧画像分支**
-     （无前缀、无守卫、内容形状不同）。这是个只有存量项目才会踩的坑。
+     **不要**直接 `store.styles.find(...)` 就把 preset 交给渲染器 —— 理由**不是**
+     「会掉进哪个分支」（那由 `workbenchStyle` 决定，见下面的订正），
+     而是**跳过字段归一化**：`migrateStyleProfile`
+     （`book-analysis/style-profile-schema.ts:127-142`）会补齐
+     `layers`（v1 维度 → 分层）、`metrics`（缺失时给默认）、并把
+     `integratedDna` / `constitution` / `samples` / `sampledChapterIds`
+     规整成确定形状（`asText` / 数组兜底）。
+     ⇒ 不迁移就直接渲染，存量 v1 数据上的 `constitution` 可能是 `undefined`，
+     而 `:265` 的 `clip(preset.profile.constitution, …)` 内部会 `.trim()` —— **直接抛错**；
+     即便不抛，`layers`/`metrics` 的形状也与「启用该预设」时不同，
+     造成「启用它」与「本次临时选它」渲染结果不一致。
+     ⚠️ 一句话：**迁移是为了归一化字段、避免崩溃与形状漂移，不是为了切换渲染分支。**
+     （下面补漏 3 会说明分支由什么决定。）
+
+     > **✍️ 订正（自查）**：本节初稿曾写「跳过迁移 ⇒ `workbenchStyle.styleFingerprint`
+     > 不存在 ⇒ 掉进旧画像分支」。**这是错的**：`migrateStyleProfile` 只做
+     > `{...input, schemaVersion: 2, layers, metrics, integratedDna, constitution,
+     > samples, sampledChapterIds}` —— 它**从不创建也不删除 `workbenchStyle`**
+     > （`style-profile-schema.ts:132-141`，靠 `...input` 原样带过）。
+     > 所以「走哪条分支」与「是否迁移」**无关**，只取决于盘上
+     > `profile.workbenchStyle?.styleFingerprint` 是否存在（`writing-style-store.ts:258`）。
+     > 保留迁移要求的**真实**理由见上（归一化 / 防崩 / 形状一致）。
    - ⚠️ **不得改变「不传覆盖」时的行为**：`writing-style-store.spec.ts`（361 行）是
      逐字节级的行为契约，加参数后**必须全绿且不改任何断言**。覆盖选项应当是可选的、
      默认 `undefined`，走原路径。
@@ -416,19 +435,48 @@ tab 高亮错（`:700` 的 `aria-pressed` 会把「去AI味」标成选中）、
    | **结构化 DNA 分支**（`writing-style-store.ts:261` `lines.unshift("【已启用文风画像】")`） | **true** | **抛错**：`上下文预算不足，已启用的文风画像未完整保留…已停止生成` |
    | **v1 降级分支**（`:263-266` push `风格硬约束：`，**无**该前缀） | **false** | **静默丢弃**，用户本次明确选的文风**凭空消失**，无任何提示 |
 
+   ##### 两条分支**在真实项目里都存在**（不是理论情况）——已查清各自来源
+   分支判据是 `writing-style-store.ts:258`：
+   `preset.profile.workbenchStyle?.styleFingerprint ? 结构化 : v1 降级`。
+   - **结构化分支**：由 **v2 拆书工作台发布**的预设走到 ——
+     `book-analysis/workbench-publish.ts:215-231` 的 `skill === "style"` 路径，
+     `:219` 找出带 `styleFingerprint` 的条目、`:220-221` 在
+     `omitted` 为空时把它作为 `workbenchStyle`、`:227` 写进 profile。
+     （⚠️ 注意 `:220` 的三元：若**没有任何** item 带 `styleFingerprint`，
+     `item` 为 `undefined` ⇒ `workbenchStyle` 也是 `undefined` ⇒ 这份预设走**降级分支**。）
+   - **v1 降级分支**：v1 时代的文风导入 / 任何 `workbenchStyle` 为空的预设。
+   ⇒ **两条都是生产可达路径**，不能假设「一定是带前缀的那条」。
+   ⚠️ 这也是为什么选择 (i) 时**不能**简单地「加个前缀」了事：
+     v1 数据的 `workbenchStyle` 是**真的没有**，凭空造一个 fingerprint 需要
+     `compileStyleFingerprint` 所需的输入形状（`WorkbenchItem.styleFingerprint`），
+     v1 数据未必能推导出来。**若 (i) 无法低成本实现，就明确改选 (ii) 并承认**，
+     不要为了「看起来更安全」而硬造一个假的 fingerprint（那会伪造文风依据）。
+
    ⇒ 两个后果都不可接受，而**都不能靠改 `context-engine.ts` 解决**：
    `context-engine.ts` 是本批的**守门文件之一**（`git diff a5a2702 --stat` 必须为空）。
    **必须在下面三选一并写明理由（写进实施报告）：**
 
-   - **(i) 推荐 · 覆盖路径统一产出「已启用文风画像」前缀形态。**
-     即覆盖渲染时**总是**走上带 `【已启用文风画像】` 的那条分支（即使源预设是 v1 降级数据，
-     也先按 `migrateStyleProfile` 迁移后按结构化形态渲染）。
-     代价：同一份 v1 预设，「启用它」与「本次临时选它」产出的文本形状**不同**
-     （前者可能仍是 `风格硬约束：` 降级形态）。
+   - **(i) 覆盖路径统一产出「已启用文风画像」前缀形态。**
+     即覆盖渲染时**总是**走上带 `【已启用文风画像】` 的那条分支
+     （`writing-style-store.ts:261`）。
      好处：闸门对覆盖**生效** ⇒ 覆盖被挤掉时是**响亮的失败**而不是静默消失。
-     ⚠️ 必须在报告里**明确写出这个不对称**，以及它只影响「v1 降级数据的预设」。
-   - **(ii) 接受静默丢弃。** 覆盖走原分支、不强制前缀 ⇒ v1 预设的覆盖可能无声消失。
-     若选这条，必须在报告里承认，并说明为什么可接受。
+     代价 1：同一份 **v1 降级数据**的预设，「启用它」与「本次临时选它」产出的文本形状
+     **不同**（前者仍是 `风格硬约束：` 形态）。必须在报告里明确写出这个不对称，
+     并说明它只影响 `workbenchStyle` 为空的预设。
+     代价 2 ⚠️：**实现成本不低，且不能造假。** 结构化分支要求
+     `preset.profile.workbenchStyle.styleFingerprint` 存在；v1 数据**真的没有**它。
+     要走结构化分支就得用 `compileStyleFingerprint`（`writing-style-store.ts:19` 已导入）
+     造一个 —— 那需要 `WorkbenchItem.styleFingerprint` 的输入形状，v1 数据未必能推导。
+     ❌ **禁止**为了走通 (i) 而伪造一份 fingerprint 内容：那等于**伪造文风依据**
+     （`compileStyleFingerprint` 的产物是给模型看的「已核验语言习惯」）。
+     ⇒ **先花几分钟侦察 v1 数据能否推导出真实 fingerprint**：
+       能 → 选 (i)；不能 → **明确改选 (ii) 并在报告里写清「(i) 不可行的原因」**。
+       不要硬凑。
+   - **(ii) 接受静默丢弃（若 (i) 侦察后不可行，这是诚实的默认选择）。**
+     覆盖走原分支、不强制前缀 ⇒ `workbenchStyle` 为空的预设，其覆盖可能无声消失。
+     若选这条，必须在报告里承认，并说明为什么可接受
+     —— 至少要给出「用户如何察觉文风没生效」的答案（例如界面上仍显示所选文风，
+     但正文未变，属于**可察觉但无提示**）。
    - **(iii) 覆盖不放进 `pack.writingStyle`，另起一个不被闸门检查的字段。**
      ⚠️ 这会绕过 `trimContextPack` 的 `SECTION_PRIORITY` 预算记账
      （`writingStyle` 排第 19 位、整段丢弃），把文本**加在预算之外**，
