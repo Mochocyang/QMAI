@@ -1744,11 +1744,15 @@ import {
   </div>
 
   <div class="step">
-    <div class="head"><input type="checkbox"><span>Step 5：两处 WikiEditor 透传新 props</span></div>
-    <p><code>:2209-2221</code>（双栏）与 <code>:2225-2237</code>（单栏）两处，都在 <code>onHighlightHandled</code> 之后加同样三行：</p>
-    <pre><code>                  onContinuationRequest={isChapterPath(selectedFile) ? handleContinuationRequest : undefined}
-                  caretRequest={isChapterPath(selectedFile) ? continuationCaretRequest : null}
-                  onCaretHandled={() =&gt; setContinuationCaretRequest(null)}</code></pre>
+    <div class="head"><input type="checkbox"><span>Step 5：给真正会渲染的那个 WikiEditor 透传新 props</span></div>
+    <p><b>⚠️ 这里原先写的是「两处（双栏 / 单栏）」，是错的 —— 照做会让整个功能不可达。</b></p>
+    <p><code>useUiTestEditor = category === "markdown" &amp;&amp; (isSelectedChapter || isOutlinePath(selectedFile))</code> 对 chapter <b>恒为真</b>，所以三元的 <code>uiTestEditorElement</code> 那支永远胜出，而「双栏 / 单栏」那一对 <code>WikiEditor</code> 位于 else 分支里，<b>章节根本不会渲染它们</b>。</p>
+    <p>真正生效的调用点在 <code>uiTestEditorElement</code> 内部（<code>&lt;UiTestEditor&gt;</code> 的 children 里那个 <code>WikiEditor</code>，约 <code>:2113</code>）—— 也就是 <code>onSelectionAction</code> 一直在传的那个位置。这也正是 AI润色 / 去AI味 能用、而续写当初不能用的原因。</p>
+    <p>把同样三行加在 <code>onHighlightHandled</code> 之后：</p>
+    <pre><code>          onContinuationRequest={isSelectedChapter ? handleContinuationRequest : undefined}
+          caretRequest={isSelectedChapter ? continuationCaretRequest : null}
+          onCaretHandled={() => setContinuationCaretRequest(null)}</code></pre>
+    <p>else 分支里那两处也保留（防御性），但<b>不要把它们当作唯一落点</b>。已在 Task 8 补守卫锁住这一点：断言 <code>sliceBetween(previewPanelSource, "const uiTestEditorElement = useUiTestEditor ? (", "\n  ) : null")</code> 里含 <code>onContinuationRequest</code> 与 <code>caretRequest</code>。</p>
   </div>
 
   <div class="step">
