@@ -151,6 +151,23 @@ describe("writing settings still reach runtime", () => {
    * 断言的是**代码形态**而不是裸词：上面那些移除原因说明留在注释里，
    * 注释里当然会出现这个字段名；只有真把字段/开关加回来才会命中这些模式。
    */
+  /*
+   * 丙-4b：新章节灵感提示开关。
+   *
+   * 与上面 `writingWebSearchEnabled` 那条同风格：把一个新开关的五个落点
+   * （设置界面、store 字段、默认值文件、落盘归一化、中文文案）一起钉住。
+   * 只钉其中两三处，日后最容易漏的恰恰是 `normalizeNovelConfig` ——
+   * 漏了它，老配置读回来字段是 `undefined`，`if (enabled)` 这种写法
+   * 会把开关默认成**关**，而界面上开关仍显示开。
+   */
+  it("把新章节灵感提示开关的每个落点都钉住", () => {
+    expect(novelSection).toContain("inspirationHintEnabled")
+    expect(wikiStore).toContain("inspirationHintEnabled")
+    expect(projectStore).toContain("inspirationHintEnabled")
+    expect(zhI18n).toContain('"inspirationHintEnabled"')
+    expect(zhI18n).toContain('"inspirationHintEnabledHint"')
+  })
+
   it("keeps ingest-on-save deleted instead of letting the duplicate path return", () => {
     expect(previewPanel).not.toContain("novelConfig.autoIngestOnSave")
     expect(novelSection).not.toContain("novelConfig.autoIngestOnSave")

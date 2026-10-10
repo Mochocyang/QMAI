@@ -440,6 +440,16 @@ export interface NovelConfig {
   draftMemoryHintEnabled: boolean
   /** 这本书的文件夹里是否已经提示过一次。重新打开开关不会清掉。 */
   draftMemoryHintSeen: boolean
+  /**
+   * 新章节灵感提示（丙-4a）：章节正文为空时，点章节工具栏的「生成章节细纲」
+   * 会在按钮旁挂出一枚说明气泡（默认开）。
+   *
+   * ⚠️ 与 `draftMemoryHintEnabled` **是两套独立字段**，刻意不复用：
+   * 复用会让「关掉灵感提示」连带关掉草稿提示（反之亦然）。
+   * 两者在界面上互斥（见 `inspiration-hint.ts` 与 `draft-memory-hint.ts:23`），
+   * 但持久化语义必须各自独立。
+   */
+  inspirationHintEnabled: boolean
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
@@ -464,6 +474,7 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   autoGenerateChapterTitle: true,
   draftMemoryHintEnabled: true,
   draftMemoryHintSeen: false,
+  inspirationHintEnabled: true,
 }
 
 export interface RevisionFeedbackWindowConfig {

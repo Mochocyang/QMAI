@@ -1253,6 +1253,8 @@
       "chapterTargetCharsHint": "控制 AI 生成单章正文的目标字数（按去除空白后的字符数计）。章节生成、扩写补足和“继续生成下一章”的提示词都会按这个目标推算，默认 3000 字。",
       "draftMemoryHintEnabled": "草稿章节提取记忆提示",
       "draftMemoryHintEnabledHint": "开启后，每本小说只在第一次符合条件时提示一次；之后只有点开仍是草稿、且后面已经有章节时才再提示。关闭后不再弹出。提示里的「不再提醒」也会关闭此项。",
+      "inspirationHintEnabled": "新章节灵感提示",
+      "inspirationHintEnabledHint": "开启后，章节正文还是空的时候，点章节工具栏的「生成章节细纲」会在旁边挂出「点击这里生成新章节故事灵感」的说明气泡。它是与向导弹窗同时出现的提示，不是进入向导的前置条件。关闭后不再出现；气泡里的「不再提醒」也会关闭此项。默认开启。",
       "reviewBeforeSave": "保存前自动审稿",
       "reviewBeforeSaveHint": "开启后，保存正式章节前会先调用审稿模型检查连贯性、设定冲突和需要修复的问题。",
       "deepPreviousChaptersAnalysis": "前情分析（额外调用）",
