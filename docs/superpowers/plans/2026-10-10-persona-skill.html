@@ -4536,7 +4536,7 @@ git commit -m "feat(人物skill): 加人物 Skill 页与草稿守卫"</div>
     <span class="flabel">Files</span>
     <ul>
       <li>Modify: <code>src/components/skill-library/unified-skill-library-view.tsx</code>（6 处）</li>
-      <li>Modify: <code>src/components/skill-library/unified-skill-library-view.spec.tsx</code>（2 个新用例）</li>
+      <li>Modify: <code>src/components/skill-library/unified-skill-library-view.spec.tsx</code>（2 个新用例 + 补 fs mock）</li>
       <li>Modify: <code>src/components/layout/content-area.tsx</code>（1 处）</li>
       <li>Modify: <code>src/components/layout/icon-sidebar.tsx</code>（1 处）</li>
     </ul>
@@ -4548,7 +4548,15 @@ git commit -m "feat(人物skill): 加人物 Skill 页与草稿守卫"</div>
     <pre><code>vi.mock("@/lib/novel/persona-skill-learning", () =&gt; ({
   regeneratePersonaSkillResearch: vi.fn(async () =&gt; true),
 }))</code></pre>
-    <p><b>②</b> 在 <code>beforeEach</code> 里补一行重置草稿标记：</p>
+    <p><b>②</b> <b>给既有的 <code>vi.mock("@/commands/fs", …)</code> 补三个导出。</b>它现在只有 <code>readFile</code> / <code>writeFile</code> / <code>writeFileAtomic</code>，而工厂式 mock <b>会把没列出的导出变成 <code>undefined</code></b>。人物页挂载时会经 store 读索引，缺一个就是 <code>TypeError: … is not a function</code>：</p>
+    <pre><code>  createDirectory: async () =&gt; {},
+  // 加固后的 store 用 fileExists 区分「索引不存在」与「读不出来」。
+  // 这两个用例只验证「tab 切过去了、页面渲染出来了」，不需要真有索引，返回 false 最省事：
+  // store 会当成「还没建过档」→ 空列表 → 渲染空态。
+  fileExists: async () =&gt; false,
+  listDirectory: async () =&gt; [],</code></pre>
+    <p>之所以<b>必须</b>补：这两个新用例只点 tab，看似不碰文件，但 <code>PersonaSkillView</code> 用的是<b>真实</b>的 <code>useWikiStore</code>（<code>projectPath</code> = <code>s.project?.path</code>）。一旦该 store 里恰好有项目路径，挂载副作用就会真的走到 store 读盘。补上这三个导出，这个用例就与「projectPath 到底有没有值」解耦，不会变成看运气通过。</p>
+    <p><b>③</b> 在 <code>beforeEach</code> 里补一行重置草稿标记：</p>
     <pre><code>    useWikiStore.getState().setPersonaSkillLibraryDraftDirty(false)</code></pre>
     <p><b>③</b> 在 <code>describe</code> 末尾追加两个用例（照抄现有 <code>getButton</code> / <code>flushEffects</code> 辅助函数）：</p>
     <pre><code>  it("切到「人物 Skill」tab：写 activeView 并渲染人物页", async () =&gt; {
