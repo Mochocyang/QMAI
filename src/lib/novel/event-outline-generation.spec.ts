@@ -290,6 +290,10 @@ describe("generateEventOutline", () => {
      * 断言**完整字面量**而不只是子串：子串断言无法区分「这句还在被 throw」
      * 与「这句只留在注释里」。整句一起对，改文案时（无论改哪半句）都会红。
      * 注意它必须与 context-engine.ts 里抛出的那句逐字一致。
+     *
+     * ⚠️ 但这是**源码文本**断言，有它固有的极限：把整句原样搬进 context-engine.ts
+     * 的一个**注释**里，本用例照样绿（已实测），而判定其实已经失效。
+     * 它只是「防文案腐烂的哨兵」，**不是**行为证明 —— 别据此宣布「人格 fail-closed 已覆盖」。
      */
     expect(source).toContain(
       "上下文预算不足，角色人格规则未完整保留。请缩小本次章节范围或选择更大上下文模型，已停止生成。",
@@ -310,25 +314,46 @@ describe("generateEventOutline", () => {
     await expect(promise).rejects.toBe(abortError)
   })
 
-  it("取消以 Tauri 的资源失效字符串形态归来时也抛出，不会退化成「解析失败」", async () => {
-    /*
-     * 这条钉的是 catch 里那句 `if (isUserAbortError(error)) throw error` 的
-     * **独有职责**（不是与下面 `if (isUserAbortError(failure)) throw failure`
-     * 重复的死重）：plugin-http 在 abort 时的 rejection 是**字符串或对象**，
-     * 不是 Error（见 tauri-resource-error.ts 的注释）。
-     *
-     * 区别就在这里：`isUserAbortError` 认这种形态（它调
-     * isTauriInvalidResourceIdError），而下面的兜底会把非 Error 包成
-     * `new Error(String(error))` —— 包完就再也认不出来了，
-     * 于是用户自己按的取消变成一条红色「模型回复里没有找到可解析的事件细纲 JSON」。
-     * 删掉那句 throw，这条用例即变红。
-     */
+  /*
+   * 下面两条都钉 catch 里那句 `if (isUserAbortError(error)) throw error`，
+   * 但**判别力完全不同**（原注释把两者混为一谈，已订正）：
+   *
+   * - **对象形态**（下一条）才是这一行真正存在的理由。plugin-http 取消时可能是
+   *   `{ message: "The resource id 7 is invalid" }`（见 tauri-resource-error.ts）；
+   *   兜底 `new Error(String(obj))` = `Error("[object Object]")`，
+   *   `isUserAbortError` 再也认不出来（它匹配的是 `.message`）。用户自己按的取消
+   *   于是退化成 `{ outline: null, error: "[object Object]" }` —— 一条红色卡片，
+   *   内容还是垃圾。删掉那一行，这条**变红**（实测）。
+   * - **字符串形态**（这一条）：删掉那一行**行为不变**。兜底包成
+   *   `new Error("The resource id 7 is invalid")` 后，`isUserAbortError` 仍会经
+   *   `isTauriInvalidResourceIdError` 的 `.message` 分支认出它（tauri-resource-error.ts:13），
+   *   用户看到的仍是取消。所以它只钉「抛出的**就是这个值**」（原值与类型保真），
+   *   钉不住行为 —— 别把它当成本行的理由。
+   */
+  it("取消以 Tauri 的资源失效字符串形态归来时原样抛出（保真原值/类型，非行为判别）", async () => {
     const abortLike = "The resource id 7 is invalid"
     const promise = generateEventOutline("/p", request(), llmConfig, {}, undefined, deps({
       streamChat: (async () => {
         throw abortLike
       }) as unknown as EventOutlineGenerationDeps["streamChat"],
     }))
+    await expect(promise).rejects.toBe(abortLike)
+  })
+
+  /*
+   * 这条才是 catch 里那句 throw 的**行为**判别点：对象形态经兜底的
+   * `new Error(String(error))` 会变成 `Error("[object Object]")` 而认不出来，
+   * 于是 resolve 成 `{ outline: null, error: "[object Object]" }`
+   * —— 既不是取消，报错内容也是垃圾。删掉那句 throw，本用例变红（实测）。
+   */
+  it("取消以 Tauri 的资源失效**对象**形态归来时不退化成「[object Object]」红色报错", async () => {
+    const abortLike = { message: "The resource id 7 is invalid" }
+    const promise = generateEventOutline("/p", request(), llmConfig, {}, undefined, deps({
+      streamChat: (async () => {
+        throw abortLike
+      }) as unknown as EventOutlineGenerationDeps["streamChat"],
+    }))
+    // 必须 reject 且是**原对象**：resolve 出来就说明它退化成了解析失败
     await expect(promise).rejects.toBe(abortLike)
   })
 

@@ -523,6 +523,33 @@ describe("章节区生成章节细纲 · 取消", () => {
   })
 
   /*
+   * F8 的**乐观 removeTask** 的唯一行为覆盖。
+   *
+   * 上面那条「被取消的任务不会永远停在 generating」其实**钉不住**这一行：
+   * 它的 mock 在 abort 时同步 reject，于是 generateEventOutline 的 catch
+   * 本来就会 removeTask —— 删掉取消里的乐观 removeTask 照样绿（已实测）。
+   *
+   * F8 存在的那个场景是另一种传输：**忽略 abort、永不 settle**
+   * （装配期的 buildContextPack 也不吃 signal）。此时没有任何回调会收尾，
+   * 那一行只能靠取消时的乐观 removeTask 收掉；否则它会永远写着「正在生成」。
+   * 这个 mock 就照抄那种传输：abort 之后既不 resolve 也不 reject。
+   */
+  it("传输忽略 abort、永不 settle 时，「取消」仍立刻把行收掉（不靠 promise 收尾）", async () => {
+    // 永不 settle：没有 .then/.catch 会跑，removeTask 只可能来自取消本身
+    fixture.generateEventOutline.mockImplementation(() => new Promise(() => {}))
+    await mount()
+    await submitWizard("", "1")
+    expect(taskRows(), "生成中应有一行").toHaveLength(1)
+
+    await act(async () => { cancelButtonOf(taskRows()[0]).click() })
+    await act(async () => { await Promise.resolve() })
+
+    // 刻意不 settle、不 await 任何生成 promise：行必须在点击后当场消失
+    expect(taskRows(), "忽略 abort 的传输不得让那一行永远停在「正在生成」").toHaveLength(0)
+    expect(useEventOutlineTaskStore.getState().tasks).toHaveLength(0)
+  })
+
+  /*
    * F1（major 回归）：同项目 + 同章号重提时，被取代的那次生成**必须被中止**。
    *
    * startTask 会把旧任务从 store 里移除（同一章两份细纲没有语义），
