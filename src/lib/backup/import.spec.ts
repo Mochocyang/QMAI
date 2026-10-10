@@ -186,6 +186,11 @@ describe("V2 备份导入适配", () => {
      * "恢复成功了，但书架上没有书"。
      */
     const realSetItem = Storage.prototype.setItem
+    /*
+     * 不要在这里加 `as unknown as {...}` 之类的转换：它会把 spy 类型削成一个
+     * 只有 `mock.calls` 的对象，下面 finally 里的 `mockRestore()` 就不存在了
+     * （typecheck:tests 会直接红）。这里本来也没用到 `mock.calls`。
+     */
     const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
       this: Storage,
       key: string,
@@ -193,7 +198,7 @@ describe("V2 备份导入适配", () => {
     ) {
       if (value.includes("坏书")) throw new Error("书架索引写入失败")
       return realSetItem.call(this, key, value)
-    }) as unknown as { mock: { calls: unknown[][] } }
+    })
 
     try {
       invokeMock.mockImplementation((command: string) => {
