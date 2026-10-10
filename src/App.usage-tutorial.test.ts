@@ -33,6 +33,13 @@ describe("App.tsx：教程的一次性请求标记", () => {
       requestIndex,
       "置标记必须发生在 await loadNovelConfig 之后，否则读到的是上一本书的配置",
     ).toBeGreaterThan(loadIndex)
+    /*
+     * 两条 120 字切片：**各自只管一个词**，不要把它们的命题说大。
+     * ① 取值来自「刚 await 到的那本书的配置」；② 判据走 lib 里的那一份，不在 App 里另写。
+     * ⚠️ 切片里**没有** `isCurrentProject(proj)` 这一项 —— 它由下面那条精确正则钉住。
+     * （修复批 2 订正：这里原来有一段说明写成「切片同时要求出现
+     * `shouldRequestUsageTutorial` 与 `isCurrentProject(proj)`」，与代码不符。）
+     */
     expect(
       app.slice(requestIndex, requestIndex + 120),
       "标记的取值必须来自刚加载到的那本书的配置",
@@ -58,18 +65,19 @@ describe("App.tsx：教程的一次性请求标记", () => {
      *      `usage-tutorial.spec.ts` 的真值表钉住（删掉 `!isCurrentProject` 会红）；
      *   ② 调用点必须真的把项目身份传进去 —— 否则判据支持了、却没人用
      *      （把第二个实参写死成 `true` 就是这种：真值表全绿，行为却没了）。
-     *      这一条源码断言钉的就是 ②。
+     *      下面这条源码断言钉的就是 ②。
      *
-     * 断言用 `requestIndex` 起切片、取到足够长度覆盖整个调用点，
-     * 并同时要求出现 `shouldRequestUsageTutorial` 与 `isCurrentProject(proj)`：
-     * 少任何一个都会红。
-     */
-    /*
-     * 断言用一条**精确到实参**的正则，而不是「取后面 N 个字符看有没有这个词」：
-     * 后者会被紧随其后的另一句 `if (isCurrentProject(proj))`（`loadRevisionFeedbackWindowConfig`
-     * 那一处）意外满足 —— 那是同一个文件里真实存在的第二处调用，切片取长一点
-     * 就会把「调用点写死了 true」放过。这正是本仓库反复记录的
-     * 「判据的形状必须对准它要说的那件事」。
+     * 判据用**精确到实参**的正则，而不是「取后面 N 个字符看有没有这个词」。
+     *
+     * ⚠️ 修复批 2 实测的距离（`App.tsx` 里以 `setUsageTutorialRequested(` 为 0 点）：
+     *   · 调用点里那个**应当**被要到的 `isCurrentProject(proj)` 在 **delta 81**；
+     *   · 同一文件里真实存在的第二处 `if (isCurrentProject(proj))`
+     *     （`loadRevisionFeedbackWindowConfig` 那一句）在 **delta 226**。
+     * 所以这里曾经写的「紧随其后」是**不准确**的：226 已经超出 120 字切片，
+     * 一个 120 字的窗口**不会**被它骗到（那两条切片今天因此仍然成立）。
+     * 会骗到切片的是「把窗口取得足够长、覆盖到 226 字」那种写法 ——
+     * 正则法不依赖窗口长度，所以它既不会漏掉，也不会被那处第二处调用满足。
+     * 这正是本仓库反复记录的「判据的形状必须对准它要说的那件事」。
      */
     expect(
       app,

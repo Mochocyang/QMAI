@@ -75,8 +75,14 @@ interface UiTestEditorProps {
  * 所以同时传入两枚提示时两条气泡都会出现（用例在 ui-test-editor.spec.tsx）。
  */
 function withAnchoredHint(actions: ReactNode, hints: AnchoredHint[]): ReactNode {
-  const active = hints.filter((hint) => hint != null)
-  if (active.length === 0) return actions
+  /*
+   * ⚠️ 修复批 2 删掉了这里原来的 `hints.filter((hint) => hint != null)`。
+   * 它是**死代码**：调用点（本文件里 `withAnchoredHint(actions, […])` 那一处）
+   * 用条件展开拼数组，两枚提示都是非空对象字面量，
+   * 而 `AnchoredHint` 的每个字段都是必填非空 —— `hint != null` 在类型上恒真，
+   * 那个 filter 一次都不会真的过滤掉东西。（`tsc` + `锚定气泡` 那两条用例复核过。）
+   */
+  if (hints.length === 0) return actions
   const visit = (node: ReactNode): ReactNode => {
     if (!isValidElement(node)) return node
     if (node.type === Fragment) {
@@ -84,7 +90,7 @@ function withAnchoredHint(actions: ReactNode, hints: AnchoredHint[]): ReactNode 
       return cloneElement(fragment, fragment.props, Children.map(fragment.props.children, visit))
     }
     const props = node.props as { className?: string } & Record<string, unknown>
-    const hint = active.find((item) => props[item.targetAttr] != null)
+    const hint = hints.find((item) => props[item.targetAttr] != null)
     if (!hint) return node
     return (
       <span className="ui-test-editor-hint-anchor">
