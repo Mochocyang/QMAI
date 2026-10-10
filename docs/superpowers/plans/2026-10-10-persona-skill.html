@@ -1,0 +1,4628 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实施计划 — 技能库「人物 Skill」</title>
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('qmai-spec-theme');
+      var dark = saved ? saved === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    } catch (e) {}
+  })();
+</script>
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --panel:     #FFFFFF;
+    --panel-alt: #F0EEE6;
+    --ink:       #141413;
+    --ink-soft:  #3D3D3A;
+    --muted:     #87867F;
+    --line:      #D1CFC5;
+    --accent:    #D97757;
+    --ok:        #788C5D;
+    --warn:      #B5793A;
+    --danger:    #B4443A;
+    --serif: ui-serif, Georgia, 'Times New Roman', 'Songti SC', serif;
+    --sans: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei UI', Roboto, sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  html.dark {
+    --bg:        #16150F;
+    --panel:     #201F19;
+    --panel-alt: #2A2921;
+    --ink:       #F5F3EC;
+    --ink-soft:  #D8D5CA;
+    --muted:     #9A988E;
+    --line:      #3A3830;
+    --accent:    #E08966;
+    --ok:        #93A874;
+    --warn:      #D0A05E;
+    --danger:    #E08076;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--ink-soft);
+    line-height: 1.6;
+    padding: 56px 32px 120px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1120px; margin: 0 auto; }
+
+  .theme-toggle {
+    position: fixed; top: 18px; right: 20px; z-index: 10;
+    font: 500 12px/1 var(--sans);
+    color: var(--ink-soft); background: var(--panel);
+    border: 1.5px solid var(--line); border-radius: 999px;
+    padding: 9px 14px; cursor: pointer;
+  }
+  .theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+  header.page-head { margin-bottom: 40px; max-width: 940px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 12px;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 500; font-size: 38px; line-height: 1.18;
+    color: var(--ink); margin-bottom: 16px; letter-spacing: -0.01em;
+  }
+  .goal {
+    background: var(--panel); border: 1.5px solid var(--line);
+    border-radius: 12px; padding: 16px 20px; margin-bottom: 14px; font-size: 14.5px;
+  }
+  .goal .label {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted); display: block; margin-bottom: 6px;
+  }
+  .goal p + p { margin-top: 8px; }
+  .goal code { background: var(--panel-alt); }
+  .required {
+    border-left: 4px solid var(--accent); background: var(--panel-alt);
+    border-radius: 0 10px 10px 0; padding: 14px 18px; margin: 18px 0 44px;
+    font-size: 14px; max-width: 940px;
+  }
+
+  section { margin-bottom: 26px; }
+  h2 {
+    font-family: var(--serif); font-weight: 500; font-size: 24px; color: var(--ink);
+    margin: 52px 0 6px; padding-bottom: 8px; border-bottom: 1.5px solid var(--line);
+  }
+  h2 .tnum {
+    font-family: var(--mono); font-size: 12px; background: var(--panel-alt);
+    color: var(--ink); padding: 3px 9px; border-radius: 8px;
+    border: 1px solid var(--line); margin-right: 10px; vertical-align: 3px;
+  }
+  h3 { font-size: 15px; color: var(--ink); margin: 26px 0 10px; font-weight: 600; }
+  h4 { font-size: 13.5px; color: var(--ink); margin: 20px 0 8px; font-weight: 600; }
+  p { max-width: 900px; }
+  p + p { margin-top: 10px; }
+  ul, ol { margin: 10px 0 0 20px; max-width: 900px; }
+  li { margin-bottom: 6px; }
+  code {
+    font-family: var(--mono); font-size: 0.9em;
+    background: var(--panel-alt); border: 1px solid var(--line);
+    border-radius: 5px; padding: 1px 5px; color: var(--ink);
+  }
+  pre {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.62;
+    background: var(--panel); border: 1.5px solid var(--line); border-radius: 12px;
+    padding: 15px 18px; margin-top: 12px; overflow-x: auto; color: var(--ink);
+  }
+  pre code { background: none; border: none; padding: 0; font-size: 12.5px; }
+
+  table {
+    width: 100%; border-collapse: collapse; margin-top: 14px;
+    font-size: 13.5px; background: var(--panel);
+    border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden;
+  }
+  th, td { text-align: left; padding: 9px 13px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--muted); background: var(--panel-alt); font-weight: 500;
+  }
+  tr:last-child td { border-bottom: none; }
+  td.mono, .mono { font-family: var(--mono); font-size: 12.5px; }
+
+  .files {
+    background: var(--panel-alt); border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 12px 16px; margin-top: 12px; font-size: 13px;
+  }
+  .files .flabel {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted); display: block; margin-bottom: 6px;
+  }
+  .files ul { margin: 0 0 0 18px; }
+  .files li { margin-bottom: 3px; }
+
+  .step {
+    background: var(--panel); border: 1.5px solid var(--line); border-radius: 12px;
+    padding: 14px 18px; margin-top: 14px;
+  }
+  .step > .head {
+    display: flex; align-items: flex-start; gap: 10px; font-size: 14px;
+    color: var(--ink); font-weight: 600;
+  }
+  .step > .head input { margin-top: 5px; width: 14px; height: 14px; accent-color: var(--accent); flex: none; }
+  .step pre { margin-top: 10px; }
+  .step > p, .step > ul, .step > ol { font-size: 14px; }
+
+  .run {
+    font-family: var(--mono); font-size: 12.5px; background: var(--panel-alt);
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 13px; margin-top: 10px;
+    white-space: pre-wrap; color: var(--ink);
+  }
+  .expect {
+    border-left: 3px solid var(--ok); background: var(--panel-alt);
+    border-radius: 0 8px 8px 0; padding: 9px 14px; margin-top: 8px; font-size: 13px;
+  }
+  .expect .t {
+    font-family: var(--mono); font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted); display: block; margin-bottom: 3px;
+  }
+  .expect.fail { border-left-color: var(--danger); }
+  .expect.fail .t { color: var(--danger); }
+
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--panel);
+    border-radius: 0 10px 10px 0; padding: 14px 18px; margin-top: 18px; max-width: 920px;
+  }
+  .callout.warn { border-left-color: var(--warn); }
+  .callout.ok { border-left-color: var(--ok); }
+  .callout.danger { border-left-color: var(--danger); }
+  .callout .t {
+    font-size: 12px; font-family: var(--mono); text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--muted); display: block; margin-bottom: 6px;
+  }
+  .why { color: var(--warn); font-weight: 600; }
+  footer { border-top: 1.5px solid var(--line); padding-top: 20px; color: var(--muted); font-size: 13px; margin-top: 70px; }
+</style>
+</head>
+<body>
+<button class="theme-toggle" id="themeToggle" type="button">切换深浅色</button>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">QMAI · 实施计划 · 2026-10-10</div>
+  <h1>技能库「人物 Skill」实施计划</h1>
+
+  <div class="goal">
+    <span class="label">Goal</span>
+    <p>在技能库加第 4 个 tab「人物 Skill」：<b>点「提取记忆」时</b>，AI 顺带为本章出场的人物建档（说话方式、判断方式、在意什么……），同一个角色再次出场时继续完善它。用户能打开档案手改，也能用一个<b>绿色复选框</b>把某个角色手动标成「重要人物」——标了之后每章都会重点分析、并且是<b>唯一</b>会生成研究文件的一类角色。</p>
+  </div>
+  <div class="goal">
+    <span class="label">Architecture</span>
+    <p>一套与「角色灵魂」（CharacterAura）<b>完全隔离</b>的轻量旁路：<code>.qmai/persona-skills/</code> 下放一个 <code>index.json</code>（已建档人物的元数据，只有几十条）+ 一个 <code>sightings.json</code>（<b>只装还没建档的人物</b>的出场计数）+ 每人一份 <code>&lt;id&gt;/SKILL.md</code>（绿勾人物另有 <code>references/research/</code>）。学习挂在 <code>ingestChapter()</code> 末尾、后台 <code>void</code> 异步、<b>整章所有人物合并成一次 LLM 调用</b>；注入走 <code>context-engine.ts</code>，按档位裁剪后并进 <code>characterAuras</code> 字段。</p>
+  </div>
+  <div class="goal">
+    <span class="label">Tech Stack</span>
+    <p>TypeScript · React 19 · Vitest（全局 <code>environment: node</code>，组件测试用文件头 <code>// @vitest-environment jsdom</code> + <code>createRoot</code>/<code>act</code>，本仓库<b>没有</b> @testing-library）· <code>streamChat</code>（<code>src/lib/llm-client.ts</code>）· <code>@/commands/fs</code>（<code>writeFileAtomic</code> / <code>createDirectory</code> / <code>listDirectory</code>）</p>
+  </div>
+
+  <blockquote class="required">
+    <strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox-style tracking.
+    <br>设计依据：<code>docs/superpowers/specs/2026-10-10-persona-skill-design.html</code>（D1–D8 决策记录）。
+  </blockquote>
+</header>
+
+<section>
+  <h2>任务总览与依赖</h2>
+  <table>
+    <tr><th>#</th><th>任务</th><th>产出文件</th><th>依赖</th><th>提交</th></tr>
+    <tr>
+      <td>1</td><td>类型、阈值与档位判定</td>
+      <td class="mono">persona-skill-types.ts（新建）<br>persona-skill-types.spec.ts（新建）</td>
+      <td>—</td><td class="mono">feat(人物skill): 加类型阈值与档位判定</td>
+    </tr>
+    <tr>
+      <td>2</td><td>独立存储层</td>
+      <td class="mono">persona-skill-store.ts（新建）<br>persona-skill-store.spec.ts（新建）</td>
+      <td>1</td><td class="mono">feat(人物skill): 加独立存储层</td>
+    </tr>
+    <tr>
+      <td>3</td><td>单次多人物提示词</td>
+      <td class="mono">persona-skill-prompt.ts（新建）<br>persona-skill-prompt.spec.ts（新建）</td>
+      <td>1</td><td class="mono">feat(人物skill): 加单次多人物提示词</td>
+    </tr>
+    <tr>
+      <td>4</td><td>章节学习编排</td>
+      <td class="mono">persona-skill-learning.ts（新建）<br>persona-skill-learning.spec.ts（新建）</td>
+      <td>2, 3</td><td class="mono">feat(人物skill): 加章节学习编排</td>
+    </tr>
+    <tr>
+      <td>5</td><td>研究文件重新整理</td>
+      <td class="mono">persona-skill-learning.ts</td>
+      <td>4</td><td class="mono">feat(人物skill): 加研究文件重新整理</td>
+    </tr>
+    <tr>
+      <td>6</td><td>分级注入</td>
+      <td class="mono">persona-skill-context.ts（新建）<br>persona-skill-context.spec.ts（新建）</td>
+      <td>2</td><td class="mono">feat(人物skill): 加分级注入</td>
+    </tr>
+    <tr>
+      <td>7</td><td>接入章节摄取</td>
+      <td class="mono">chapter-ingest.ts<br>chapter-ingest-persona-hook.spec.ts（新建）</td>
+      <td>4</td><td class="mono">feat(人物skill): 提取记忆时后台学习</td>
+    </tr>
+    <tr>
+      <td>8</td><td>接入写作上下文</td>
+      <td class="mono">context-engine.ts<br>context-engine-persona.spec.ts（新建）</td>
+      <td>6</td><td class="mono">feat(人物skill): 写作上下文注入</td>
+    </tr>
+    <tr>
+      <td>9</td><td>状态与「人物 Skill」页</td>
+      <td class="mono">wiki-store.ts<br>persona-skill-view.tsx（新建）<br>persona-skill-view.spec.tsx（新建）<br>ui-test-tools.css</td>
+      <td>5, 6</td><td class="mono">feat(人物skill): 加人物 Skill 页与草稿守卫</td>
+    </tr>
+    <tr>
+      <td>10</td><td>接线与全量门禁</td>
+      <td class="mono">unified-skill-library-view.tsx<br>unified-skill-library-view.spec.tsx<br>content-area.tsx<br>icon-sidebar.tsx</td>
+      <td>9</td><td class="mono">feat(人物skill): 接上导航与草稿守卫</td>
+    </tr>
+  </table>
+
+  <div class="callout warn">
+    <span class="t">动手前必须先知道的四件事</span>
+    <ol>
+      <li><b>别碰 <code>character-aura.ts</code>。</b>仓库里有三套都叫「角色 skill」的东西：拆书库角色 Skill（绑别人的角色）、写作 Skill 库的「角色」分类（没有人物维度）、角色灵魂 CharacterAura（绑本作人物）。本次<b>一个字节都不改</b> CharacterAura——它是另一个功能，共用会互相污染。新体系只共享「<code>buildCharacterSoulContext</code> 已经打通注入」这个事实，不共享任何数据结构。</li>
+      <li><b>不额外加缓存层。</b>CharacterAura 那条路的 <code>hasCharacterProfile()</code> 会去扫 3000 个实体正文，所以它有指纹缓存。我们这条路只读 <code>index.json</code>（几十条元数据）做名字匹配，命中后才读那一份 SKILL.md——<b>不要</b>照抄一套缓存，那是多余机制。</li>
+      <li><b>一次调用覆盖整章。</b>D3 的硬指标是「每章 ≤ 1 次 LLM 调用，与出场人数无关」。所以阈值判定必须先在本地做完，把该处理的人物<b>拼进同一条 prompt</b>，绝不能一人一次调用。</li>
+      <li><b><code>ingestChapter</code> 的签名不能动。</b><code>src/lib/novel/chapter-ingest.spec.ts</code> 用源码字符串断言 <code>export async function ingestChapter</code>；签名一改那条测试就红。挂钩只能写在函数体里。</li>
+    </ol>
+  </div>
+
+  <div class="callout danger">
+    <span class="t">明确不做（本计划范围外）</span>
+    <ul>
+      <li><b>不改</b> <code>character-aura.ts</code>、<code>book-analysis/**</code>、<code>de-ai-skill-library.ts</code>、<code>skill-seed.ts</code> / <code>skill-hub-seed.ts</code>、<code>skill-route.ts</code>、<code>user-skill-store.ts</code>。</li>
+      <li><b>不</b>给「保存正式章节」加任何自动行为。学习只发生在用户点「提取记忆」时。</li>
+      <li><b>不</b>做沉默删除。归档只是状态，文件永远留着。</li>
+      <li><b>不</b>做拼音 / 繁简归一匹配。双向包含已够用，引 <code>pinyin-pro</code>/<code>opencc-js</code> 会把重依赖拖过 bundle 边界。</li>
+      <li><b>不</b>做同名人物消歧。v1 里同名共用一个 skill（已记录为残余风险）。</li>
+    </ul>
+  </div>
+
+  <div class="callout">
+    <span class="t">基线</span>
+    <p>本分支基点 <code>dcf8b38</code>，实测 <b>720 文件 / 6957 用例通过、6 todo、0 失败</b>（约 74 秒）。命令见 <code>AGENTS.md</code> §4；跑完测试后 <code>git status</code> 会冒出约 170 个 EOL 假阳性（<code>tests/fixtures/**</code> 与两个 <code>docs/*/dump.html</code>），判定用 <code>git diff HEAD --name-only</code> 应为 0，<b>禁止</b> <code>git checkout -- .</code>。</p>
+  </div>
+</section>
+
+<!-- ============================ TASK 1 ============================ -->
+<section>
+  <h2><span class="tnum">Task 1</span>类型、阈值与档位判定</h2>
+
+  <div class="files">
+    <span class="flabel">Files</span>
+    <ul>
+      <li>Create: <code>src/lib/novel/persona-skill-types.ts</code></li>
+      <li>Test: <code>src/lib/novel/persona-skill-types.spec.ts</code></li>
+    </ul>
+  </div>
+
+  <div class="callout warn">
+    <span class="t">本任务就是 D1 + D2 + D4 的可执行版本</span>
+    <ul>
+      <li><b>D1 分级</b>：主要定位（男主/女主/主角/反派/导师）第 1 次出场建档；次要定位（男配/女配/配角/盟友）第 2 次；没定位的名字第 3 次。</li>
+      <li><b>D2 档位来源</b>：定位来自 <code>wiki/characters/角色-&lt;定位&gt;-&lt;名&gt;.md</code> 的<b>文件名</b>（一次目录列举，不读正文、零额外 LLM）。</li>
+      <li><b>D4 生命周期</b>：连续 10 章未出场 → <code>dormant</code>，30 章 → <code>archived</code>；绿勾人物永不降级。</li>
+      <li><b>D6 绿勾</b>：<code>pinned</code> 一票升级为 <code>major</code>，且只有它 <code>withResearch = true</code>。</li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 1：先写失败测试</span></div>
+    <p>新建 <code>src/lib/novel/persona-skill-types.spec.ts</code>：</p>
+    <pre><code>import { describe, expect, it } from "vitest"
+import {
+  PERSONA_ARCHIVED_GAP_CHAPTERS,
+  PERSONA_DORMANT_GAP_CHAPTERS,
+  normalizePersonaName,
+  planPersonaSkillRound,
+  resolvePersonaStatus,
+  resolvePersonaTier,
+  type PersonaSkillPlanInput,
+} from "./persona-skill-types"
+
+function input(overrides: Partial&lt;PersonaSkillPlanInput&gt; = {}): PersonaSkillPlanInput {
+  return {
+    characterName: "林清越",
+    aliases: [],
+    roleType: "男主",
+    appearanceCount: 1,
+    hasSkill: false,
+    pinned: false,
+    lastLearnedChapter: 0,
+    ...overrides,
+  }
+}
+
+describe("resolvePersonaTier", () =&gt; {
+  it("主要定位进 major，次要定位进 minor", () =&gt; {
+    expect(resolvePersonaTier("男主", false)).toBe("major")
+    expect(resolvePersonaTier("反派", false)).toBe("major")
+    expect(resolvePersonaTier("配角", false)).toBe("minor")
+    expect(resolvePersonaTier("盟友", false)).toBe("minor")
+  })
+
+  it("没有定位时保守按 minor 处理", () =&gt; {
+    expect(resolvePersonaTier("", false)).toBe("minor")
+  })
+
+  it("绿勾一票升级成 major", () =&gt; {
+    expect(resolvePersonaTier("配角", true)).toBe("major")
+  })
+})
+
+describe("planPersonaSkillRound", () =&gt; {
+  it("主要人物第一次出场就建档", () =&gt; {
+    const plans = planPersonaSkillRound([input({ appearanceCount: 1 })], 1)
+    expect(plans).toHaveLength(1)
+    expect(plans[0].mode).toBe("create")
+    expect(plans[0].withResearch).toBe(false)
+  })
+
+  it("次要人物第一次出场不建档，第二次才建档", () =&gt; {
+    expect(planPersonaSkillRound([input({ roleType: "配角", appearanceCount: 1 })], 1)).toHaveLength(0)
+    const plans = planPersonaSkillRound([input({ roleType: "配角", appearanceCount: 2 })], 2)
+    expect(plans).toHaveLength(1)
+    expect(plans[0].mode).toBe("create")
+  })
+
+  it("没有定位的人物要第三次出场才建档", () =&gt; {
+    expect(planPersonaSkillRound([input({ roleType: "", appearanceCount: 2 })], 2)).toHaveLength(0)
+    expect(planPersonaSkillRound([input({ roleType: "", appearanceCount: 3 })], 3)).toHaveLength(1)
+  })
+
+  it("绿勾人物第一次出场就建档，并且是唯一产出研究文件的一类", () =&gt; {
+    const plans = planPersonaSkillRound([input({ roleType: "配角", pinned: true, appearanceCount: 1 })], 1)
+    expect(plans).toHaveLength(1)
+    expect(plans[0].tier).toBe("major")
+    expect(plans[0].withResearch).toBe(true)
+  })
+
+  it("已有档案的主要人物每次出场都完善", () =&gt; {
+    const plans = planPersonaSkillRound(
+      [input({ hasSkill: true, appearanceCount: 2, lastLearnedChapter: 1 })],
+      2,
+    )
+    expect(plans).toHaveLength(1)
+    expect(plans[0].mode).toBe("refine")
+  })
+
+  it("已有档案的次要人物第三次出场才完善", () =&gt; {
+    const base = { roleType: "配角", hasSkill: true, lastLearnedChapter: 1 }
+    expect(planPersonaSkillRound([input({ ...base, appearanceCount: 2 })], 2)).toHaveLength(0)
+    expect(planPersonaSkillRound([input({ ...base, appearanceCount: 3 })], 3)).toHaveLength(1)
+  })
+
+  it("同一章重复摄取不会二次烧模型（lastLearnedChapter 已到当前章）", () =&gt; {
+    const plans = planPersonaSkillRound(
+      [input({ hasSkill: true, appearanceCount: 2, lastLearnedChapter: 2 })],
+      2,
+    )
+    expect(plans).toHaveLength(0)
+  })
+
+  it("从来没有出场过的人物不产生任何计划", () =&gt; {
+    expect(planPersonaSkillRound([input({ roleType: "", appearanceCount: 0 })], 5)).toHaveLength(0)
+  })
+})
+
+describe("resolvePersonaStatus", () =&gt; {
+  it("刚出场是 active", () =&gt; {
+    expect(resolvePersonaStatus(5, 5, false)).toBe("active")
+  })
+
+  it("连续 10 章未出场转 dormant", () =&gt; {
+    expect(resolvePersonaStatus(5, 5 + PERSONA_DORMANT_GAP_CHAPTERS, false)).toBe("dormant")
+  })
+
+  it("连续 30 章未出场转 archived", () =&gt; {
+    expect(resolvePersonaStatus(5, 5 + PERSONA_ARCHIVED_GAP_CHAPTERS, false)).toBe("archived")
+  })
+
+  it("绿勾人物永远 active，不会被自动归档", () =&gt; {
+    expect(resolvePersonaStatus(5, 500, true)).toBe("active")
+  })
+})
+
+describe("normalizePersonaName", () =&gt; {
+  it("去空白与标点、折叠大小写、NFKC 归一", () =&gt; {
+    expect(normalizePersonaName(" Lin Qing-Yue ")).toBe("linqingyue")
+    expect(normalizePersonaName("林清越")).toBe("林清越")
+    expect(normalizePersonaName("林 清 越")).toBe("林清越")
+  })
+})</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 2：跑测试，确认它失败</span></div>
+    <div class="run">npx vitest run src/lib/novel/persona-skill-types.spec.ts</div>
+    <div class="expect fail">
+      <span class="t">Expected</span>
+      失败：<code>Failed to resolve import "./persona-skill-types"</code>。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 3：写实现</span></div>
+    <p>新建 <code>src/lib/novel/persona-skill-types.ts</code>：</p>
+    <pre><code>/**
+ * 「人物 Skill」的类型与阈值单点。
+ *
+ * 与「角色灵魂」CharacterAura 完全隔离：不共用 store、不共用绑定、不共用 SKILL.md 目录。
+ * 这里只放纯数据与纯判定；读写盘在 persona-skill-store.ts，编排在 persona-skill-learning.ts。
+ */
+
+export type PersonaSkillTier = "major" | "minor"
+export type PersonaSkillStatus = "active" | "dormant" | "archived"
+export type PersonaSkillMode = "create" | "refine"
+
+/** 定位 → 档位。定位取自 wiki/characters/角色-&lt;定位&gt;-&lt;名&gt;.md 的文件名。 */
+export const PERSONA_MAJOR_ROLE_TYPES = ["主角", "男主", "女主", "反派", "导师"] as const
+export const PERSONA_MINOR_ROLE_TYPES = ["男配", "女配", "配角", "盟友"] as const
+
+/** 首次建档所需的累计出场次数。 */
+export const PERSONA_MAJOR_FIRST_APPEARANCE = 1
+export const PERSONA_MINOR_FIRST_APPEARANCE = 2
+/** 没有定位的名字不进档位表，用更保守的门槛，龙套永远不会被建档。 */
+export const PERSONA_UNKNOWN_FIRST_APPEARANCE = 3
+
+/** 再次完善所需的累计出场次数。 */
+export const PERSONA_MAJOR_REFINE_APPEARANCE = 2
+export const PERSONA_MINOR_REFINE_APPEARANCE = 3
+
+/** 生命周期：连续多少章没出场算潜伏 / 归档。永不自动删除文件。 */
+export const PERSONA_DORMANT_GAP_CHAPTERS = 10
+export const PERSONA_ARCHIVED_GAP_CHAPTERS = 30
+
+/** 注入上限（D5）。 */
+export const PERSONA_INJECT_MAX_SKILLS = 12
+export const PERSONA_INJECT_CHAR_BUDGET = 4000
+export const PERSONA_INJECT_FIELD_CHARS = 260
+/** 双向包含匹配的最小长度：单字称呼（如单姓「林」）会污染匹配，只允许精确相等。 */
+export const PERSONA_MIN_SUBSTRING_MATCH_CHARS = 2
+
+/** SKILL.md 的字段名就是「## 标题」；数组顺序就是注入顺序。 */
+export const PERSONA_MAJOR_FIELDS = [
+  "怎么说话",
+  "怎么判断",
+  "在意什么",
+  "底线与逆鳞",
+  "关系网",
+  "语言标记",
+  "成长轨迹",
+] as const
+export const PERSONA_MINOR_FIELDS = ["怎么说话", "怎么判断"] as const
+/** 用户手改过的档案只在文末追加这个段落，AI 不覆盖既有内容。 */
+export const PERSONA_SUPPLEMENT_HEADING = "补充"
+/** 只有绿勾（pinned）人物才生成研究文件。 */
+export const PERSONA_RESEARCH_DOCUMENTS = [
+  "人物小传",
+  "语言习惯",
+  "关键关系",
+  "动机与弧光",
+  "名场面",
+  "禁忌与误区",
+] as const
+
+export const PERSONA_SKILLS_DIR = ".qmai/persona-skills"
+export const PERSONA_SKILL_INDEX_FILE = "index.json"
+export const PERSONA_SKILL_SIGHTINGS_FILE = "sightings.json"
+export const PERSONA_SKILL_DOCUMENT_FILE = "SKILL.md"
+export const PERSONA_SKILL_RESEARCH_DIR = "references/research"
+
+/** index.json 里一条人物 Skill 的元数据。 */
+export interface PersonaSkillMeta {
+  id: string
+  characterName: string
+  aliases: string[]
+  roleType: string
+  tier: PersonaSkillTier
+  /** 绿勾：用户手动点亮的「重要人物」，一票否决自动分档。 */
+  pinned: boolean
+  status: PersonaSkillStatus
+  firstChapter: number
+  lastChapter: number
+  appearanceCount: number
+  createdChapter: number
+  lastLearnedChapter: number
+  skillRevision: number
+  /** 用户手改过正文；之后 AI 只追加「补充」，不整篇重写。 */
+  editedByUser: boolean
+  hasResearch: boolean
+  updatedAt: string
+}
+
+export interface PersonaSkillIndex {
+  version: 1
+  skills: PersonaSkillMeta[]
+}
+
+/**
+ * sightings.json 只装「还没有档案的人物」的出场计数，用来判断有没有到门槛。
+ * 一旦建档就把它从这里移走 —— 所以这个文件的规模是「配角池」，不是全库。
+ */
+export interface PersonaSkillSighting {
+  characterName: string
+  aliases: string[]
+  roleType: string
+  appearanceCount: number
+  firstChapter: number
+  lastChapter: number
+  chapters: number[]
+}
+
+export interface PersonaSkillSightings {
+  version: 1
+  sightings: PersonaSkillSighting[]
+}
+
+export function isMajorRoleType(roleType: string): boolean {
+  return (PERSONA_MAJOR_ROLE_TYPES as readonly string[]).includes(roleType.trim())
+}
+
+export function isMinorRoleType(roleType: string): boolean {
+  return (PERSONA_MINOR_ROLE_TYPES as readonly string[]).includes(roleType.trim())
+}
+
+export function firstAppearanceThreshold(roleType: string): number {
+  if (isMajorRoleType(roleType)) return PERSONA_MAJOR_FIRST_APPEARANCE
+  if (isMinorRoleType(roleType)) return PERSONA_MINOR_FIRST_APPEARANCE
+  return PERSONA_UNKNOWN_FIRST_APPEARANCE
+}
+
+export function refineAppearanceThreshold(roleType: string): number {
+  return isMajorRoleType(roleType) ? PERSONA_MAJOR_REFINE_APPEARANCE : PERSONA_MINOR_REFINE_APPEARANCE
+}
+
+/** 绿勾一律按 major 注入；其余按定位分档。 */
+export function resolvePersonaTier(roleType: string, pinned: boolean): PersonaSkillTier {
+  if (pinned) return "major"
+  return isMajorRoleType(roleType) ? "major" : "minor"
+}
+
+/** 连续多少章未出场决定状态；绿勾永远 active。 */
+export function resolvePersonaStatus(
+  lastChapter: number,
+  currentChapter: number,
+  pinned: boolean,
+): PersonaSkillStatus {
+  if (pinned) return "active"
+  const gap = currentChapter - lastChapter
+  if (gap &gt;= PERSONA_ARCHIVED_GAP_CHAPTERS) return "archived"
+  if (gap &gt;= PERSONA_DORMANT_GAP_CHAPTERS) return "dormant"
+  return "active"
+}
+
+/** 归一化人物名：去空白与标点、折叠大小写、NFKC。匹配只在归一化空间里做。 */
+export function normalizePersonaName(value: string): string {
+  return value.normalize("NFKC").toLowerCase().replace(/[\s\p{P}\p{S}]/gu, "")
+}
+
+/** planPersonaSkillRound 的输入：一个人物在本章之后的累计状态。 */
+export interface PersonaSkillPlanInput {
+  characterName: string
+  aliases: string[]
+  roleType: string
+  appearanceCount: number
+  hasSkill: boolean
+  pinned: boolean
+  lastLearnedChapter: number
+}
+
+export interface PersonaSkillPlan {
+  characterName: string
+  aliases: string[]
+  roleType: string
+  tier: PersonaSkillTier
+  pinned: boolean
+  appearanceCount: number
+  mode: PersonaSkillMode
+  /** 本轮是否顺带产出研究文件（只有绿勾人物要）。 */
+  withResearch: boolean
+}
+
+/**
+ * 本轮该对哪些人物做什么，纯函数。
+ * 幂等：lastLearnedChapter 已经等于当前章就跳过，重复摄取同一章不会二次烧模型。
+ */
+export function planPersonaSkillRound(
+  inputs: readonly PersonaSkillPlanInput[],
+  currentChapter: number,
+): PersonaSkillPlan[] {
+  const plans: PersonaSkillPlan[] = []
+  for (const input of inputs) {
+    const tier = resolvePersonaTier(input.roleType, input.pinned)
+    if (input.hasSkill) {
+      if (input.lastLearnedChapter &gt;= currentChapter) continue
+      const threshold = input.pinned ? PERSONA_MAJOR_FIRST_APPEARANCE : refineAppearanceThreshold(input.roleType)
+      if (input.appearanceCount &lt; threshold) continue
+      plans.push({
+        characterName: input.characterName,
+        aliases: input.aliases,
+        roleType: input.roleType,
+        tier,
+        pinned: input.pinned,
+        appearanceCount: input.appearanceCount,
+        mode: "refine",
+        withResearch: input.pinned,
+      })
+      continue
+    }
+    const threshold = input.pinned ? PERSONA_MAJOR_FIRST_APPEARANCE : firstAppearanceThreshold(input.roleType)
+    if (input.appearanceCount &lt; threshold) continue
+    plans.push({
+      characterName: input.characterName,
+      aliases: input.aliases,
+      roleType: input.roleType,
+      tier,
+      pinned: input.pinned,
+      appearanceCount: input.appearanceCount,
+      mode: "create",
+      withResearch: input.pinned,
+    })
+  }
+  return plans
+}</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 4：跑测试，确认全绿</span></div>
+    <div class="run">npx vitest run src/lib/novel/persona-skill-types.spec.ts</div>
+    <div class="expect">
+      <span class="t">Expected</span>
+      <code>Test Files 1 passed (1)</code> / <code>Tests 16 passed</code>（6 个 resolvePersonaTier + plan 分组 8 个 + 状态 4 个 + 归一化 1 个 = 19；以实际数字为准，<b>0 失败</b>）。
+    </div>
+    <p>顺手过一遍类型检查：</p>
+    <div class="run">npx tsc -p tsconfig.test.json --noEmit</div>
+    <div class="expect"><span class="t">Expected</span>无输出（退出码 0）。</div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 5：提交</span></div>
+    <div class="run">git branch --show-current          # 必须是 feature/character-skill
+git add src/lib/novel/persona-skill-types.ts src/lib/novel/persona-skill-types.spec.ts
+git commit -m "feat(人物skill): 加类型阈值与档位判定"</div>
+  </div>
+</section>
+
+<!-- ============================ TASK 2 ============================ -->
+<section>
+  <h2><span class="tnum">Task 2</span>独立存储层</h2>
+
+  <div class="files">
+    <span class="flabel">Files</span>
+    <ul>
+      <li>Create: <code>src/lib/novel/persona-skill-store.ts</code></li>
+      <li>Test: <code>src/lib/novel/persona-skill-store.spec.ts</code></li>
+    </ul>
+  </div>
+
+  <div class="callout">
+    <span class="t">D7 落盘结构</span>
+    <pre><code>&lt;project&gt;/.qmai/persona-skills/
+├── index.json                     # 已建档人物的元数据（几十条）
+├── sightings.json                 # 只装「还没建档」的人物出场计数
+├── &lt;人物名&gt;/
+│   ├── SKILL.md                   # 一份档案
+│   └── references/research/       # 只有绿勾人物才有
+│       ├── 人物小传.md
+│       └── …</code></pre>
+    <p>写入统一走 <code>writeFileAtomic</code>（临时文件 + rename，避免写一半崩了留个坏 JSON）；读盘遇到「文件不存在」或「坏 JSON」一律<b>降级成空</b>，绝不抛。</p>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 1：先写失败测试</span></div>
+    <p>新建 <code>src/lib/novel/persona-skill-store.spec.ts</code>。内存 fs 只实现本模块用到的 6 个函数：</p>
+    <pre><code>import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const io = vi.hoisted(() => {
+  const files = new Map&lt;string, string&gt;()
+  const dirs = new Set&lt;string&gt;()
+  return { files, dirs }
+})
+
+vi.mock("@/commands/fs", () =&gt; ({
+  readFile: async (path: string) =&gt; {
+    if (!io.files.has(path)) throw new Error(`文件缺失：${path}`)
+    return io.files.get(path)!
+  },
+  writeFileAtomic: async (path: string, contents: string) =&gt; {
+    io.files.set(path, contents)
+  },
+  createDirectory: async (path: string) =&gt; {
+    io.dirs.add(path)
+  },
+  fileExists: async (path: string) =&gt; io.files.has(path) || io.dirs.has(path),
+  listDirectory: async (dir: string) =&gt; {
+    const prefix = dir.endsWith("/") ? dir : `${dir}/`
+    const nodes = new Map&lt;string, { name: string; path: string; is_dir: boolean }&gt;()
+    for (const path of io.files.keys()) {
+      if (!path.startsWith(prefix)) continue
+      const rest = path.slice(prefix.length)
+      const head = rest.split("/")[0]
+      const childPath = `${prefix}${head}`
+      nodes.set(childPath, { name: head, path: childPath, is_dir: rest.includes("/") })
+    }
+    return [...nodes.values()]
+  },
+}))
+
+import {
+  loadPersonaSkillIndex,
+  loadPersonaSightings,
+  personaSkillDocumentPath,
+  personaSkillIdFor,
+  personaSkillIndexPath,
+  personaSkillSightingsPath,
+  readPersonaSkillDocument,
+  readPersonaSkillResearch,
+  savePersonaSkillIndex,
+  savePersonaSightings,
+  updatePersonaSkillIndex,
+  writePersonaSkillDocument,
+  writePersonaSkillResearch,
+  __resetPersonaSkillLocksForTesting,
+} from "./persona-skill-store"
+import type { PersonaSkillMeta } from "./persona-skill-types"
+
+const projectPath = "C:/project"
+
+function meta(characterName: string, overrides: Partial&lt;PersonaSkillMeta&gt; = {}): PersonaSkillMeta {
+  return {
+    id: personaSkillIdFor(characterName),
+    characterName,
+    aliases: [],
+    roleType: "男主",
+    tier: "major",
+    pinned: false,
+    status: "active",
+    firstChapter: 1,
+    lastChapter: 1,
+    appearanceCount: 1,
+    createdChapter: 1,
+    lastLearnedChapter: 1,
+    skillRevision: 1,
+    editedByUser: false,
+    hasResearch: false,
+    updatedAt: "2026-10-10T00:00:00.000Z",
+    ...overrides,
+  }
+}
+
+describe("persona-skill-store", () =&gt; {
+  beforeEach(() =&gt; {
+    io.files.clear()
+    io.dirs.clear()
+    __resetPersonaSkillLocksForTesting()
+  })
+
+  it("没有 index.json 时返回空索引，不抛", async () =&gt; {
+    const index = await loadPersonaSkillIndex(projectPath)
+    expect(index).toEqual({ version: 1, skills: [] })
+  })
+
+  it("index.json 是坏 JSON 时降级为空索引", async () =&gt; {
+    io.files.set(personaSkillIndexPath(projectPath), "{ 这不是 JSON")
+    const index = await loadPersonaSkillIndex(projectPath)
+    expect(index.skills).toEqual([])
+  })
+
+  it("索引存下来能原样读回", async () =&gt; {
+    await savePersonaSkillIndex(projectPath, { version: 1, skills: [meta("林清越")] })
+    const index = await loadPersonaSkillIndex(projectPath)
+    expect(index.skills).toHaveLength(1)
+    expect(index.skills[0].characterName).toBe("林清越")
+  })
+
+  it("坏条目被丢掉，好条目保留", async () =&gt; {
+    io.files.set(
+      personaSkillIndexPath(projectPath),
+      JSON.stringify({ version: 1, skills: [{ characterName: "" }, meta("林清越")] }),
+    )
+    const index = await loadPersonaSkillIndex(projectPath)
+    expect(index.skills.map((item) =&gt; item.characterName)).toEqual(["林清越"])
+  })
+
+  it("sightings 存下来能原样读回；坏 JSON 降级为空", async () =&gt; {
+    await savePersonaSightings(projectPath, {
+      version: 1,
+      sightings: [{
+        characterName: "路人甲",
+        aliases: [],
+        roleType: "",
+        appearanceCount: 1,
+        firstChapter: 1,
+        lastChapter: 1,
+        chapters: [1],
+      }],
+    })
+    const loaded = await loadPersonaSightings(projectPath)
+    expect(loaded.sightings[0].characterName).toBe("路人甲")
+
+    io.files.set(personaSkillSightingsPath(projectPath), "not json")
+    expect((await loadPersonaSightings(projectPath)).sightings).toEqual([])
+  })
+
+  it("合法人物名直接当目录名，不改写", () =&gt; {
+    expect(personaSkillIdFor("林清越")).toBe("林清越")
+  })
+
+  it("名字里有路径非法字符时加稳定哈希后缀", () =&gt; {
+    const first = personaSkillIdFor("A/B:清越")
+    expect(first).not.toContain("/")
+    expect(first).not.toContain(":")
+    expect(first).toBe(personaSkillIdFor("A/B:清越"))
+    expect(first).not.toBe(personaSkillIdFor("AB清越"))
+  })
+
+  it("读不存在的 SKILL.md 返回空串", async () =&gt; {
+    expect(await readPersonaSkillDocument(projectPath, "林清越")).toBe("")
+  })
+
+  it("SKILL.md 写读往返", async () =&gt; {
+    await writePersonaSkillDocument(projectPath, "林清越", "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n句子短。\n")
+    expect(await readPersonaSkillDocument(projectPath, "林清越")).toContain("句子短。")
+    expect(await readPersonaSkillDocument(projectPath, "林清越")).toBe(
+      io.files.get(personaSkillDocumentPath(projectPath, "林清越")),
+    )
+  })
+
+  it("研究文件写读往返，空内容不落盘", async () =&gt; {
+    const written = await writePersonaSkillResearch(projectPath, "林清越", {
+      "人物小传": "他是长子。",
+      "语言习惯": "   ",
+    })
+    expect(written).toHaveLength(1)
+    const docs = await readPersonaSkillResearch(projectPath, "林清越")
+    expect(Object.keys(docs)).toEqual(["人物小传"])
+    expect(docs["人物小传"]).toBe("他是长子。")
+  })
+
+  it("研究文件目录不存在时读回空对象，不抛", async () =&gt; {
+    expect(await readPersonaSkillResearch(projectPath, "查无此人")).toEqual({})
+  })
+
+  it("并发更新索引时串行落盘，两次都生效", async () =&gt; {
+    await Promise.all([
+      updatePersonaSkillIndex(projectPath, (index) =&gt; ({
+        version: 1,
+        skills: [...index.skills, meta("甲")],
+      })),
+      updatePersonaSkillIndex(projectPath, (index) =&gt; ({
+        version: 1,
+        skills: [...index.skills, meta("乙")],
+      })),
+    ])
+    const index = await loadPersonaSkillIndex(projectPath)
+    expect(index.skills.map((item) =&gt; item.characterName).sort()).toEqual(["乙", "甲"].sort())
+  })
+
+  it("mutate 返回 undefined 时不落盘（省掉无谓写入）", async () =&gt; {
+    await updatePersonaSkillIndex(projectPath, (index) =&gt; {
+      void index
+    })
+    expect(io.files.has(personaSkillIndexPath(projectPath))).toBe(false)
+  })
+})</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 2：跑测试，确认它失败</span></div>
+    <div class="run">npx vitest run src/lib/novel/persona-skill-store.spec.ts</div>
+    <div class="expect fail">
+      <span class="t">Expected</span>
+      <code>Failed to resolve import "./persona-skill-store"</code>。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 3：写实现</span></div>
+    <p>新建 <code>src/lib/novel/persona-skill-store.ts</code>：</p>
+    <pre><code>import { createDirectory, listDirectory, readFile, writeFileAtomic } from "@/commands/fs"
+import { normalizePath } from "@/lib/path-utils"
+import {
+  PERSONA_SKILL_DOCUMENT_FILE,
+  PERSONA_SKILL_INDEX_FILE,
+  PERSONA_SKILL_RESEARCH_DIR,
+  PERSONA_SKILL_SIGHTINGS_FILE,
+  PERSONA_SKILLS_DIR,
+  type PersonaSkillIndex,
+  type PersonaSkillMeta,
+  type PersonaSkillSighting,
+  type PersonaSkillSightings,
+} from "./persona-skill-types"
+
+const UNSAFE_ID_CHARS = /[\\/:*?"&lt;&gt;|\s]/g
+
+/** 同步短哈希（FNV-1a）：只在名字含路径非法字符时用来消歧，不承担安全职责。 */
+function shortHash(value: string): string {
+  let hash = 0x811c9dc5
+  for (let i = 0; i &lt; value.length; i += 1) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193) &gt;&gt;&gt; 0
+  }
+  return hash.toString(16).padStart(8, "0")
+}
+
+/** 人物名 → 目录名。合法名原样用（便于人肉打开文件夹排查）。 */
+export function personaSkillIdFor(characterName: string): string {
+  const trimmed = characterName.trim()
+  const safe = trimmed.replace(UNSAFE_ID_CHARS, "")
+  if (safe.length &gt; 0 &amp;&amp; safe === trimmed) return safe
+  return `${safe || "persona"}-${shortHash(trimmed)}`
+}
+
+export function personaSkillRoot(projectPath: string): string {
+  return `${normalizePath(projectPath)}/${PERSONA_SKILLS_DIR}`
+}
+
+export function personaSkillIndexPath(projectPath: string): string {
+  return `${personaSkillRoot(projectPath)}/${PERSONA_SKILL_INDEX_FILE}`
+}
+
+export function personaSkillSightingsPath(projectPath: string): string {
+  return `${personaSkillRoot(projectPath)}/${PERSONA_SKILL_SIGHTINGS_FILE}`
+}
+
+export function personaSkillDirectory(projectPath: string, id: string): string {
+  return `${personaSkillRoot(projectPath)}/${id}`
+}
+
+export function personaSkillDocumentPath(projectPath: string, id: string): string {
+  return `${personaSkillDirectory(projectPath, id)}/${PERSONA_SKILL_DOCUMENT_FILE}`
+}
+
+export function personaSkillResearchDirectory(projectPath: string, id: string): string {
+  return `${personaSkillDirectory(projectPath, id)}/${PERSONA_SKILL_RESEARCH_DIR}`
+}
+
+/** 读 JSON；文件不存在 / 坏 JSON 一律返回 null，由调用方降级成空。 */
+async function readJsonOrNull(path: string): Promise&lt;unknown | null&gt; {
+  try {
+    return JSON.parse(await readFile(path))
+  } catch {
+    return null
+  }
+}
+
+function asRecord(value: unknown): Record&lt;string, unknown&gt; | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  return value as Record&lt;string, unknown&gt;
+}
+
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((item): item is string =&gt; typeof item === "string" &amp;&amp; item.trim().length &gt; 0)
+}
+
+function asNumber(value: unknown, fallback = 0): number {
+  return typeof value === "number" &amp;&amp; Number.isFinite(value) ? value : fallback
+}
+
+function sanitizeMeta(raw: unknown): PersonaSkillMeta | null {
+  const record = asRecord(raw)
+  if (!record) return null
+  const characterName = typeof record.characterName === "string" ? record.characterName.trim() : ""
+  if (!characterName) return null
+  return {
+    id: typeof record.id === "string" &amp;&amp; record.id.trim() ? record.id.trim() : personaSkillIdFor(characterName),
+    characterName,
+    aliases: asStringArray(record.aliases),
+    roleType: typeof record.roleType === "string" ? record.roleType.trim() : "",
+    tier: record.tier === "minor" ? "minor" : "major",
+    pinned: record.pinned === true,
+    status: record.status === "dormant" || record.status === "archived" ? record.status : "active",
+    firstChapter: asNumber(record.firstChapter),
+    lastChapter: asNumber(record.lastChapter),
+    appearanceCount: asNumber(record.appearanceCount),
+    createdChapter: asNumber(record.createdChapter),
+    lastLearnedChapter: asNumber(record.lastLearnedChapter),
+    skillRevision: asNumber(record.skillRevision),
+    editedByUser: record.editedByUser === true,
+    hasResearch: record.hasResearch === true,
+    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : "",
+  }
+}
+
+function sanitizeSighting(raw: unknown): PersonaSkillSighting | null {
+  const record = asRecord(raw)
+  if (!record) return null
+  const characterName = typeof record.characterName === "string" ? record.characterName.trim() : ""
+  if (!characterName) return null
+  return {
+    characterName,
+    aliases: asStringArray(record.aliases),
+    roleType: typeof record.roleType === "string" ? record.roleType.trim() : "",
+    appearanceCount: asNumber(record.appearanceCount, 1),
+    firstChapter: asNumber(record.firstChapter),
+    lastChapter: asNumber(record.lastChapter),
+    chapters: Array.isArray(record.chapters)
+      ? record.chapters.filter((item): item is number =&gt; typeof item === "number")
+      : [],
+  }
+}
+
+export async function loadPersonaSkillIndex(projectPath: string): Promise&lt;PersonaSkillIndex&gt; {
+  const raw = asRecord(await readJsonOrNull(personaSkillIndexPath(projectPath)))
+  if (!raw || !Array.isArray(raw.skills)) return { version: 1, skills: [] }
+  return {
+    version: 1,
+    skills: raw.skills
+      .map(sanitizeMeta)
+      .filter((meta): meta is PersonaSkillMeta =&gt; meta != null),
+  }
+}
+
+export async function savePersonaSkillIndex(projectPath: string, index: PersonaSkillIndex): Promise&lt;void&gt; {
+  await createDirectory(personaSkillRoot(projectPath))
+  await writeFileAtomic(
+    personaSkillIndexPath(projectPath),
+    JSON.stringify({ version: 1, skills: index.skills }, null, 2),
+  )
+}
+
+export async function loadPersonaSightings(projectPath: string): Promise&lt;PersonaSkillSightings&gt; {
+  const raw = asRecord(await readJsonOrNull(personaSkillSightingsPath(projectPath)))
+  if (!raw || !Array.isArray(raw.sightings)) return { version: 1, sightings: [] }
+  return {
+    version: 1,
+    sightings: raw.sightings
+      .map(sanitizeSighting)
+      .filter((item): item is PersonaSkillSighting =&gt; item != null),
+  }
+}
+
+export async function savePersonaSightings(
+  projectPath: string,
+  sightings: PersonaSkillSightings,
+): Promise&lt;void&gt; {
+  await createDirectory(personaSkillRoot(projectPath))
+  await writeFileAtomic(
+    personaSkillSightingsPath(projectPath),
+    JSON.stringify({ version: 1, sightings: sightings.sightings }, null, 2),
+  )
+}
+
+export async function readPersonaSkillDocument(projectPath: string, id: string): Promise&lt;string&gt; {
+  try {
+    return await readFile(personaSkillDocumentPath(projectPath, id))
+  } catch {
+    return ""
+  }
+}
+
+export async function writePersonaSkillDocument(
+  projectPath: string,
+  id: string,
+  content: string,
+): Promise&lt;void&gt; {
+  await createDirectory(personaSkillDirectory(projectPath, id))
+  await writeFileAtomic(personaSkillDocumentPath(projectPath, id), content)
+}
+
+/** 读某人的研究文件：文件名（去 .md）→ 正文。目录不存在就返回空对象。 */
+export async function readPersonaSkillResearch(
+  projectPath: string,
+  id: string,
+): Promise&lt;Record&lt;string, string&gt;&gt; {
+  let nodes
+  try {
+    nodes = await listDirectory(personaSkillResearchDirectory(projectPath, id), {
+      includeHidden: false,
+      maxDepth: 1,
+    })
+  } catch {
+    return {}
+  }
+  const docs: Record&lt;string, string&gt; = {}
+  for (const node of nodes) {
+    if (node.is_dir || !node.name.endsWith(".md")) continue
+    try {
+      docs[node.name.replace(/\.md$/, "")] = await readFile(node.path)
+    } catch {
+      // 单个研究文件读不了不影响其余
+    }
+  }
+  return docs
+}
+
+/** 写研究文件；空白内容跳过。返回真正落盘的路径。 */
+export async function writePersonaSkillResearch(
+  projectPath: string,
+  id: string,
+  docs: Record&lt;string, string&gt;,
+): Promise&lt;string[]&gt; {
+  const names = Object.keys(docs).filter((name) =&gt; docs[name]?.trim())
+  if (names.length === 0) return []
+  const dir = personaSkillResearchDirectory(projectPath, id)
+  await createDirectory(dir)
+  const paths: string[] = []
+  for (const name of names) {
+    const path = `${dir}/${name}.md`
+    await writeFileAtomic(path, docs[name].trim())
+    paths.push(path)
+  }
+  return paths
+}
+
+/**
+ * 按 key 串行的互斥锁。同一章的两次并发摄取、或「学习」与「用户在 UI 上点绿勾」
+ * 同时改 index.json 时，靠它保证读-改-写不互相覆盖。
+ */
+const locks = new Map&lt;string, Promise&lt;unknown&gt;&gt;()
+
+export function withPersonaSkillLock&lt;T&gt;(key: string, task: () =&gt; Promise&lt;T&gt;): Promise&lt;T&gt; {
+  const previous = locks.get(key) ?? Promise.resolve()
+  const next = previous.then(task, task)
+  locks.set(key, next.catch(() =&gt; undefined))
+  return next
+}
+
+export function __resetPersonaSkillLocksForTesting(): void {
+  locks.clear()
+}
+
+/** 读-改-写索引。mutate 返回 undefined 表示「没变化」，此时不落盘。 */
+export async function updatePersonaSkillIndex(
+  projectPath: string,
+  mutate: (index: PersonaSkillIndex) =&gt; PersonaSkillIndex | void,
+): Promise&lt;PersonaSkillIndex&gt; {
+  return withPersonaSkillLock(`index:${normalizePath(projectPath)}`, async () =&gt; {
+    const index = await loadPersonaSkillIndex(projectPath)
+    const next = mutate(index)
+    if (!next) return index
+    await savePersonaSkillIndex(projectPath, next)
+    return next
+  })
+}
+
+/** 读-改-写候选池。mutate 返回 undefined 表示「没变化」，此时不落盘。 */
+export async function updatePersonaSightings(
+  projectPath: string,
+  mutate: (sightings: PersonaSkillSightings) =&gt; PersonaSkillSightings | void,
+): Promise&lt;PersonaSkillSightings&gt; {
+  return withPersonaSkillLock(`sightings:${normalizePath(projectPath)}`, async () =&gt; {
+    const sightings = await loadPersonaSightings(projectPath)
+    const next = mutate(sightings)
+    if (!next) return sightings
+    await savePersonaSightings(projectPath, next)
+    return next
+  })
+}</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 4：跑测试，确认全绿</span></div>
+    <div class="run">npx vitest run src/lib/novel/persona-skill-store.spec.ts
+npx tsc -p tsconfig.test.json --noEmit</div>
+    <div class="expect">
+      <span class="t">Expected</span>
+      <code>Tests 13 passed</code>，0 失败；类型检查无输出。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 5：提交</span></div>
+    <div class="run">git add src/lib/novel/persona-skill-store.ts src/lib/novel/persona-skill-store.spec.ts
+git commit -m "feat(人物skill): 加独立存储层"</div>
+  </div>
+</section>
+
+<!-- ============================ TASK 3 ============================ -->
+<section>
+  <h2><span class="tnum">Task 3</span>单次多人物提示词</h2>
+
+  <div class="files">
+    <span class="flabel">Files</span>
+    <ul>
+      <li>Create: <code>src/lib/novel/persona-skill-prompt.ts</code></li>
+      <li>Test: <code>src/lib/novel/persona-skill-prompt.spec.ts</code></li>
+    </ul>
+  </div>
+
+  <div class="callout ok">
+    <span class="t">D3 的落地方式：一次 prompt 装整章</span>
+    <p>阈值判定在 Task 1 已经做完，这里只负责把「本章要处理的 N 个人物」拼成<b>同一条</b> user 消息。所以 <code>buildPersonaSkillMessages()</code> 永远返回 <b>2 条消息</b>（system + user），跟 N 无关——这也是「同章 5 人只 1 次调用」这条测试能成立的原因。</p>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 1：先写失败测试</span></div>
+    <p>新建 <code>src/lib/novel/persona-skill-prompt.spec.ts</code>：</p>
+    <pre><code>import { describe, expect, it } from "vitest"
+import {
+  PERSONA_SKILL_BODY_HEAD_CHARS,
+  PERSONA_SKILL_BODY_TAIL_CHARS,
+  buildPersonaSkillBody,
+  buildPersonaSkillMessages,
+  buildPersonaSkillResearchMessages,
+  type PersonaSkillPromptTarget,
+} from "./persona-skill-prompt"
+
+function target(overrides: Partial&lt;PersonaSkillPromptTarget&gt; = {}): PersonaSkillPromptTarget {
+  return {
+    characterName: "林清越",
+    aliases: [],
+    roleType: "男主",
+    tier: "major",
+    mode: "create",
+    pinned: false,
+    appearanceCount: 1,
+    ...overrides,
+  }
+}
+
+describe("buildPersonaSkillBody", () =&gt; {
+  it("预算内原样送模", () =&gt; {
+    expect(buildPersonaSkillBody("　　他推开门。")).toBe("　　他推开门。")
+  })
+
+  it("超出预算时留开头 + 省略标记 + 结尾", () =&gt; {
+    const body = "甲".repeat(PERSONA_SKILL_BODY_HEAD_CHARS + PERSONA_SKILL_BODY_TAIL_CHARS + 100)
+    const result = buildPersonaSkillBody(body)
+    expect(result.startsWith("甲".repeat(PERSONA_SKILL_BODY_HEAD_CHARS))).toBe(true)
+    expect(result.endsWith("甲".repeat(PERSONA_SKILL_BODY_TAIL_CHARS))).toBe(true)
+    expect(result).toContain("省略")
+    expect(result.length).toBeLessThan(body.length)
+  })
+})
+
+describe("buildPersonaSkillMessages", () =&gt; {
+  it("system 里写清 JSON 契约", () =&gt; {
+    const messages = buildPersonaSkillMessages({ chapterNumber: 1, chapterBody: "正文", targets: [target()] })
+    expect(messages).toHaveLength(2)
+    expect(messages[0].role).toBe("system")
+    expect(messages[0].content).toContain('"skills"')
+    expect(messages[0].content).toContain("只输出 JSON")
+  })
+
+  it("五个人物合成一条 user 消息，不是五条", () =&gt; {
+    const names = ["甲", "乙", "丙", "丁", "戊"]
+    const messages = buildPersonaSkillMessages({
+      chapterNumber: 3,
+      chapterBody: "第三章正文",
+      targets: names.map((name) =&gt; target({ characterName: name })),
+    })
+    expect(messages).toHaveLength(2)
+    expect(messages[1].content).toContain("本章要处理的人物：5 位")
+    for (const name of names) expect(messages[1].content).toContain(`### ${name}`)
+  })
+
+  it("主要人物列全 7 个字段", () =&gt; {
+    const messages = buildPersonaSkillMessages({ chapterNumber: 1, chapterBody: "正文", targets: [target()] })
+    for (const field of ["怎么说话", "怎么判断", "在意什么", "底线与逆鳞", "关系网", "语言标记", "成长轨迹"]) {
+      expect(messages[1].content).toContain(field)
+    }
+  })
+
+  it("次要人物只要 2 个字段，不出现其余字段名", () =&gt; {
+    const messages = buildPersonaSkillMessages({
+      chapterNumber: 1,
+      chapterBody: "正文",
+      targets: [target({ tier: "minor", roleType: "配角", mode: "refine" })],
+    })
+    expect(messages[1].content).toContain("怎么说话 / 怎么判断")
+    expect(messages[1].content).not.toContain("成长轨迹")
+    expect(messages[1].content).not.toContain("底线与逆鳞")
+  })
+
+  it("绿勾人物才要求研究文件", () =&gt; {
+    const plain = buildPersonaSkillMessages({ chapterNumber: 1, chapterBody: "正文", targets: [target()] })
+    expect(plain[1].content).not.toContain("人物小传")
+
+    const pinned = buildPersonaSkillMessages({
+      chapterNumber: 1,
+      chapterBody: "正文",
+      targets: [target({ pinned: true })],
+    })
+    expect(pinned[1].content).toContain("人物小传")
+    expect(pinned[1].content).toContain("名场面")
+  })
+
+  it("已有档案原文进 user 消息，并标明是补充而不是重写", () =&gt; {
+    const messages = buildPersonaSkillMessages({
+      chapterNumber: 5,
+      chapterBody: "正文",
+      targets: [target({ mode: "refine", existingSkill: "## 怎么说话\n\n句子很短。" })],
+    })
+    expect(messages[1].content).toContain("句子很短。")
+    expect(messages[1].content).toContain("不要重写")
+    expect(messages[1].content).toContain("在已有档案上补本章新增信息")
+  })
+
+  it("别名进 user 消息", () =&gt; {
+    const messages = buildPersonaSkillMessages({
+      chapterNumber: 1,
+      chapterBody: "正文",
+      targets: [target({ aliases: ["清越", "林公子"] })],
+    })
+    expect(messages[1].content).toContain("清越、林公子")
+  })
+})
+
+describe("buildPersonaSkillResearchMessages", () =&gt; {
+  it("强调只能依据既有档案，禁止引入新事实", () =&gt; {
+    const messages = buildPersonaSkillResearchMessages({
+      characterName: "林清越",
+      roleType: "男主",
+      document: "# 林清越\n\n## 怎么说话\n\n句子短。",
+    })
+    expect(messages).toHaveLength(2)
+    expect(messages[0].content).toContain("禁止引入")
+    expect(messages[0].content).toContain('"research"')
+    expect(messages[1].content).toContain("句子短。")
+    expect(messages[1].content).toContain("林清越")
+  })
+})</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 2：跑测试，确认它失败</span></div>
+    <div class="run">npx vitest run src/lib/novel/persona-skill-prompt.spec.ts</div>
+    <div class="expect fail">
+      <span class="t">Expected</span>
+      <code>Failed to resolve import "./persona-skill-prompt"</code>。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 3：写实现</span></div>
+    <p>新建 <code>src/lib/novel/persona-skill-prompt.ts</code>：</p>
+    <pre><code>import { buildLanguageReminder, getOutputLanguage } from "@/lib/output-language"
+import type { ChatMessage, RequestOverrides } from "@/lib/llm-providers"
+import {
+  PERSONA_MAJOR_FIELDS,
+  PERSONA_MINOR_FIELDS,
+  PERSONA_RESEARCH_DOCUMENTS,
+  type PersonaSkillMode,
+  type PersonaSkillTier,
+} from "./persona-skill-types"
+
+/** 单次调用的正文预算：超出只送「开头 + 省略标记 + 结尾」。 */
+export const PERSONA_SKILL_BODY_HEAD_CHARS = 4000
+export const PERSONA_SKILL_BODY_TAIL_CHARS = 2000
+
+/** 这一轮是提取任务：低温、关推理、不注入全局用户记忆。 */
+export const PERSONA_SKILL_REQUEST_OVERRIDES: RequestOverrides = {
+  temperature: 0.3,
+  reasoning: { mode: "off" },
+  skipUserMemory: true,
+}
+
+export interface PersonaSkillPromptTarget {
+  characterName: string
+  aliases: readonly string[]
+  roleType: string
+  tier: PersonaSkillTier
+  mode: PersonaSkillMode
+  pinned: boolean
+  appearanceCount: number
+  existingSkill?: string
+}
+
+export interface PersonaSkillPromptInput {
+  chapterNumber: number
+  chapterBody: string
+  targets: readonly PersonaSkillPromptTarget[]
+}
+
+export interface PersonaSkillResearchPromptInput {
+  characterName: string
+  roleType: string
+  document: string
+}
+
+export function buildPersonaSkillBody(chapterBody: string): string {
+  const body = chapterBody.trim()
+  const budget = PERSONA_SKILL_BODY_HEAD_CHARS + PERSONA_SKILL_BODY_TAIL_CHARS
+  if (body.length &lt;= budget) return body
+  return [
+    body.slice(0, PERSONA_SKILL_BODY_HEAD_CHARS),
+    "",
+    "……（中间省略）……",
+    "",
+    body.slice(-PERSONA_SKILL_BODY_TAIL_CHARS),
+  ].join("\n")
+}
+
+export function buildPersonaSkillSystemPrompt(): string {
+  return [
+    "你是长篇小说的人物档案编辑。用户会一次给你同一章里的多个人物；",
+    "你要在一次回答里为每个人物产出一份「人物 Skill」。",
+    "",
+    "硬性要求：",
+    "1. 只写本章正文里能看出来、或能直接推断的东西。看不出来的字段给空字符串，禁止编造。",
+    "2. 有人物带了「已有档案」，那只补本章新增的信息，绝不重写既有段落。",
+    "3. 每个人物只写「需要填写的字段」里列出的字段，字段名必须逐字一致。",
+    "4. 「怎么说话」要给可模仿的语言特征（口头禅、句式长短、称谓、停顿节奏），",
+    "   不要写「他很聪明」这类评价。",
+    "5. 只有标了「需要研究文件」的人物才额外产出 research；其余人物的 research 给空对象。",
+    "6. 只输出 JSON，不要解释，不要 Markdown 代码块。",
+    "",
+    "输出格式：",
+    '{"skills":[{"name":"人物名","fields":{"怎么说话":"…","怎么判断":"…"},"research":{"人物小传":"…"}}]}',
+  ].join("\n")
+}
+
+function describeTarget(target: PersonaSkillPromptTarget): string {
+  const fields = target.tier === "major" ? PERSONA_MAJOR_FIELDS : PERSONA_MINOR_FIELDS
+  const lines = [
+    `### ${target.characterName}`,
+    `- 定位：${target.roleType || "未标注"}`,
+    `- 档位：${target.tier === "major" ? "主要人物" : "次要人物"}`,
+    `- 累计出场：${target.appearanceCount} 次`,
+    `- 本轮任务：${target.mode === "create" ? "生成新档案" : "在已有档案上补本章新增信息"}`,
+    `- 需要填写的字段：${fields.join(" / ")}`,
+  ]
+  if (target.aliases.length &gt; 0) lines.push(`- 别名：${target.aliases.join("、")}`)
+  if (target.pinned) {
+    lines.push(`- 需要研究文件：${PERSONA_RESEARCH_DOCUMENTS.join(" / ")}`)
+    lines.push("- 这一位是用户手动标记的重要人物，字段要写得更细。")
+  }
+  if (target.existingSkill?.trim()) {
+    lines.push(
+      "",
+      "已有档案（在其之上补充，不要重写）：",
+      "```markdown",
+      target.existingSkill.trim(),
+      "```",
+    )
+  }
+  return lines.join("\n")
+}
+
+export function buildPersonaSkillUserPrompt(input: PersonaSkillPromptInput): string {
+  return [
+    `【第 ${input.chapterNumber} 章正文】`,
+    buildPersonaSkillBody(input.chapterBody),
+    "",
+    `【本章要处理的人物：${input.targets.length} 位】`,
+    input.targets.map(describeTarget).join("\n\n"),
+    "",
+    "请按输出格式一次返回全部人物的 JSON。",
+  ].join("\n")
+}
+
+export function buildPersonaSkillMessages(input: PersonaSkillPromptInput): ChatMessage[] {
+  const reminder = buildLanguageReminder(getOutputLanguage())
+  const system = reminder
+    ? `${buildPersonaSkillSystemPrompt()}\n\n${reminder}`
+    : buildPersonaSkillSystemPrompt()
+  return [
+    { role: "system", content: system },
+    { role: "user", content: buildPersonaSkillUserPrompt(input) },
+  ]
+}
+
+export function buildPersonaSkillResearchMessages(input: PersonaSkillResearchPromptInput): ChatMessage[] {
+  const system = [
+    "你在重新整理一份既有人物档案的研究文件。",
+    "只能依据给出的档案内容整理，禁止引入档案里没有的新事实。",
+    `研究文件清单固定为：${PERSONA_RESEARCH_DOCUMENTS.join(" / ")}`,
+    "只输出 JSON，不要解释，不要 Markdown 代码块。",
+    '输出格式：{"research":{"人物小传":"…","语言习惯":"…"}}',
+  ].join("\n")
+  const user = [
+    `【人物】${input.characterName}`,
+    `【定位】${input.roleType || "未标注"}`,
+    "",
+    "【已有档案】",
+    input.document.trim(),
+  ].join("\n")
+  return [
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ]
+}</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 4：跑测试，确认全绿</span></div>
+    <div class="run">npx vitest run src/lib/novel/persona-skill-prompt.spec.ts
+npx tsc -p tsconfig.test.json --noEmit</div>
+    <div class="expect">
+      <span class="t">Expected</span>
+      <code>Tests 10 passed</code>，0 失败；类型检查无输出。
+    </div>
+    <div class="callout warn">
+      <span class="t">如果「次要人物只要 2 个字段」这条红了</span>
+      <p>先确认 <code>describeTarget</code> 用的是 <code>target.tier</code> 而不是 <code>resolvePersonaTier(roleType, pinned)</code>——<code>planPersonaSkillRound</code> 已经把 tier 算好放进 plan 了，提示词里再算一次就会出现「绿勾的配角被当次要人物处理」的不一致。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 5：提交</span></div>
+    <div class="run">git add src/lib/novel/persona-skill-prompt.ts src/lib/novel/persona-skill-prompt.spec.ts
+git commit -m "feat(人物skill): 加单次多人物提示词"</div>
+  </div>
+</section>
+
+<!-- ============================ TASK 4 ============================ -->
+<section>
+  <h2><span class="tnum">Task 4</span>章节学习编排</h2>
+
+  <div class="files">
+    <span class="flabel">Files</span>
+    <ul>
+      <li>Create: <code>src/lib/novel/persona-skill-learning.ts</code></li>
+      <li>Test: <code>src/lib/novel/persona-skill-learning.spec.ts</code></li>
+    </ul>
+  </div>
+
+  <div class="callout">
+    <span class="t">这一轮做什么（一张图）</span>
+    <pre><code>loadCharacterRoleTypes(pp)                  # 一次目录列举，从文件名拿定位
+loadPersonaSkillIndex(pp)                   # 已建档的人
+collectChapterAppearances(...)              # 本章谁出场 + 累计次数（候选池就地更新）
+savePersonaSightings(...)                   # 候选池先落盘（不烧模型，失败也不丢计数）
+planPersonaSkillRoundForChapter(...)        # 纯函数：谁该建档 / 谁该完善
+       │
+       ├─ 没有计划 → refreshPersonaSkillStatuses(pp, 章号) → 返回
+       │
+       └─ 有计划 → 读这些人的既有 SKILL.md
+                   → buildPersonaSkillMessages  ★ 一次调用，N 个人 ★
+                   → parsePersonaSkillDrafts
+                        ├─ 解析失败 → warn 后整轮跳过（不推进 lastLearnedChapter）
+                        └─ 成功 → applyPersonaSkillDrafts（写 SKILL.md + index，并从候选池移走）
+                                  → refreshPersonaSkillStatuses(pp, 章号)</code></pre>
+  </div>
+
+  <div class="callout danger">
+    <span class="t">四个必须守住的点</span>
+    <ol>
+      <li><b>整轮绝不抛。</b>外层 <code>try/catch</code> 兜住一切，只 <code>console.warn</code>。它是被 <code>void</code> 掉的后台任务，抛出去会变成未处理的 rejection。</li>
+      <li><b>失败不能推进 <code>lastLearnedChapter</code>。</b>模型返回坏 JSON 时，候选池照常落盘（那是纯计数），但 index 一个字节都不写——下一章出场时它会重试。</li>
+      <li><b>同章并发只跑一轮。</b><code>inFlightRounds</code> 集合按 <code>&lt;项目路径&gt;#&lt;章号&gt;</code> 去重。</li>
+      <li><b>用户手改过的档案不重写。</b><code>editedByUser</code> 为真时只刷新 frontmatter + 在文末追加 <code>## 补充（第 N 章）</code>，既有正文逐字保留。</li>
+    </ol>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 1：先写失败测试</span></div>
+    <p>新建 <code>src/lib/novel/persona-skill-learning.spec.ts</code>。它是本计划最重的一个测试文件，8 个用例覆盖 D1/D3/D6 + 幂等 + 归档：</p>
+    <pre><code>import { beforeEach, describe, expect, it, vi } from "vitest"
+import type { LlmConfig } from "@/stores/wiki-store"
+import type { PersonaSkillMeta } from "./persona-skill-types"
+
+const io = vi.hoisted(() =&gt; {
+  const files = new Map&lt;string, string&gt;()
+  return { files }
+})
+
+vi.mock("@/commands/fs", () =&gt; ({
+  readFile: async (path: string) =&gt; {
+    if (!io.files.has(path)) throw new Error(`文件缺失：${path}`)
+    return io.files.get(path)!
+  },
+  writeFileAtomic: async (path: string, contents: string) =&gt; {
+    io.files.set(path, contents)
+  },
+  createDirectory: async () =&gt; {},
+  listDirectory: async (dir: string) =&gt; {
+    const prefix = dir.endsWith("/") ? dir : `${dir}/`
+    const nodes = new Map&lt;string, { name: string; path: string; is_dir: boolean }&gt;()
+    for (const path of io.files.keys()) {
+      if (!path.startsWith(prefix)) continue
+      const rest = path.slice(prefix.length)
+      const head = rest.split("/")[0]
+      const childPath = `${prefix}${head}`
+      nodes.set(childPath, { name: head, path: childPath, is_dir: rest.includes("/") })
+    }
+    return [...nodes.values()]
+  },
+}))
+
+const streamChatMock = vi.hoisted(() =&gt; vi.fn())
+
+vi.mock("@/lib/llm-client", () =&gt; ({
+  streamChat: streamChatMock,
+  DEFAULT_LLM_REQUEST_TIMEOUT_MS: 1000,
+}))
+
+vi.mock("@/lib/has-usable-llm", () =&gt; ({ hasUsableLlm: () =&gt; true }))
+
+vi.mock("@/stores/wiki-store", () =&gt; ({
+  useWikiStore: { getState: () =&gt; ({ providerConfigs: [] }) },
+}))
+
+import {
+  collectChapterAppearances,
+  learnPersonaSkillsFromChapter,
+  loadCharacterRoleTypes,
+  parsePersonaSkillDrafts,
+  renderPersonaSkillDocument,
+  __resetPersonaSkillRoundsForTesting,
+} from "./persona-skill-learning"
+
+const project = "C:/project"
+const indexFile = `${project}/.qmai/persona-skills/index.json`
+const sightingsFile = `${project}/.qmai/persona-skills/sightings.json`
+const llmConfig = {} as LlmConfig
+
+function roleFile(roleType: string, name: string) {
+  io.files.set(`${project}/wiki/characters/角色-${roleType}-${name}.md`, `# ${name}`)
+}
+
+function reply(skills: unknown) {
+  streamChatMock.mockImplementation(
+    async (_config: unknown, _messages: unknown, callbacks: { onToken: (t: string) =&gt; void; onDone: () =&gt; void }) =&gt; {
+      callbacks.onToken(JSON.stringify({ skills }))
+      callbacks.onDone()
+    },
+  )
+}
+
+function readIndex() {
+  return JSON.parse(io.files.get(indexFile) ?? "null") as { skills: PersonaSkillMeta[] } | null
+}
+
+function readSightings() {
+  return JSON.parse(io.files.get(sightingsFile) ?? "null") as { sightings: unknown[] } | null
+}
+
+function baseMeta(overrides: Partial&lt;PersonaSkillMeta&gt; = {}): PersonaSkillMeta {
+  return {
+    id: "林清越",
+    characterName: "林清越",
+    aliases: [],
+    roleType: "男主",
+    tier: "major",
+    pinned: false,
+    status: "active",
+    firstChapter: 1,
+    lastChapter: 1,
+    appearanceCount: 1,
+    createdChapter: 1,
+    lastLearnedChapter: 1,
+    skillRevision: 1,
+    editedByUser: false,
+    hasResearch: false,
+    updatedAt: "2026-10-10T00:00:00.000Z",
+    ...overrides,
+  }
+}
+
+function seedIndex(skills: Partial&lt;PersonaSkillMeta&gt;[]) {
+  io.files.set(indexFile, JSON.stringify({ version: 1, skills: skills.map(baseMeta) }))
+}
+
+describe("loadCharacterRoleTypes", () =&gt; {
+  it("从文件名读定位，不用读正文", async () =&gt; {
+    roleFile("男主", "林清越")
+    roleFile("男配", "沈砚")
+    io.files.set(`${project}/wiki/characters/角色-男主-林-九.md`, "# 名字里带连字符")
+    io.files.set(`${project}/wiki/characters/随便.md`, "# 不是角色页")
+    const roleTypes = await loadCharacterRoleTypes(project)
+    expect(roleTypes).toEqual({ 林清越: "男主", 沈砚: "男配", "林-九": "男主" })
+  })
+
+  it("目录不存在时返回空对象，不抛", async () =&gt; {
+    expect(await loadCharacterRoleTypes("C:/empty")).toEqual({})
+  })
+})
+
+describe("collectChapterAppearances", () =&gt; {
+  it("同一章里同一个人只计一次", () =&gt; {
+    const { appearances } = collectChapterAppearances(
+      { version: 1, skills: [] },
+      { version: 1, sightings: [] },
+      { chapterNumber: 2, chapterBody: "", characters: ["甲", "甲"] },
+      {},
+    )
+    expect(appearances).toHaveLength(1)
+    expect(appearances[0].appearanceCount).toBe(1)
+  })
+
+  it("别名能认回同一个人物", () =&gt; {
+    const first = collectChapterAppearances(
+      { version: 1, skills: [] },
+      { version: 1, sightings: [] },
+      { chapterNumber: 1, chapterBody: "", characters: ["林清越"] },
+      {},
+    )
+    const second = collectChapterAppearances(
+      { version: 1, skills: [] },
+      first.sightings,
+      { chapterNumber: 2, chapterBody: "", characters: ["清越"], characterAliases: { 清越: ["林清越"] } },
+      {},
+    )
+    expect(second.sightings.sightings).toHaveLength(1)
+    expect(second.appearances[0].appearanceCount).toBe(2)
+  })
+
+  it("同一章重复摄取不重复计数", () =&gt; {
+    seedIndex([{ characterName: "林清越", lastChapter: 3 }])
+    io.files.set(`${project}/.qmai/persona-skills/林清越/SKILL.md`, "# 林清越")
+    const { appearances } = collectChapterAppearances(
+      readIndex()!,
+      { version: 1, sightings: [] },
+      { chapterNumber: 3, chapterBody: "", characters: ["林清越"] },
+      {},
+    )
+    expect(appearances[0].appearanceCount).toBe(1)
+  })
+})
+
+describe("parsePersonaSkillDrafts", () =&gt; {
+  const plans = [{
+    characterName: "林清越",
+    aliases: ["清越"],
+    roleType: "男主",
+    tier: "major" as const,
+    pinned: false,
+    appearanceCount: 1,
+    mode: "create" as const,
+    withResearch: false,
+  }]
+
+  it("坏 JSON 返回 null（整轮跳过）", () =&gt; {
+    expect(parsePersonaSkillDrafts("这不是 JSON", plans)).toBeNull()
+  })
+
+  it("根对象缺 skills 数组返回 null", () =&gt; {
+    expect(parsePersonaSkillDrafts('{"foo":1}', plans)).toBeNull()
+  })
+
+  it("用别名也能认回计划里的人物，名字统一成规范名", () =&gt; {
+    const drafts = parsePersonaSkillDrafts(
+      JSON.stringify({ skills: [{ name: "清越", fields: { 怎么说话: "句子短" } }] }),
+      plans,
+    )
+    expect(drafts).toHaveLength(1)
+    expect(drafts![0].characterName).toBe("林清越")
+    expect(drafts![0].fields["怎么说话"]).toBe("句子短")
+  })
+
+  it("计划外的人物被丢掉", () =&gt; {
+    const drafts = parsePersonaSkillDrafts(
+      JSON.stringify({ skills: [{ name: "路人", fields: { 怎么说话: "x" } }] }),
+      plans,
+    )
+    expect(drafts).toEqual([])
+  })
+})
+
+describe("renderPersonaSkillDocument", () =&gt; {
+  const base = {
+    characterName: "林清越",
+    aliases: ["清越"],
+    roleType: "男主",
+    tier: "major" as const,
+    pinned: false,
+    appearanceCount: 2,
+    firstChapter: 1,
+    lastChapter: 2,
+    chapterNumber: 2,
+    fields: { 怎么说话: "句子短。", 怎么判断: "先看对方的手。", 成长轨迹: "从回避到直视。" },
+    editedByUser: false,
+  }
+
+  it("主要人物写出全部提供的字段与 frontmatter", () =&gt; {
+    const doc = renderPersonaSkillDocument(base)
+    expect(doc).toContain("## 怎么说话")
+    expect(doc).toContain("## 成长轨迹")
+    expect(doc).toContain("tier: major")
+    expect(doc).toContain("appearances: 2")
+    expect(doc).toContain("aliases: 清越")
+  })
+
+  it("次要人物只落 2 个字段，其余字段被丢掉", () =&gt; {
+    const doc = renderPersonaSkillDocument({ ...base, tier: "minor" })
+    expect(doc).toContain("## 怎么说话")
+    expect(doc).not.toContain("## 成长轨迹")
+  })
+
+  it("用户手改过：既有正文逐字保留，新内容进「补充」段", () =&gt; {
+    const existing = [
+      "---",
+      "character: 林清越",
+      "---",
+      "",
+      "# 林清越 · 人物 Skill",
+      "",
+      "## 怎么说话",
+      "",
+      "这是用户亲手写的一句。",
+      "",
+    ].join("\n")
+    const doc = renderPersonaSkillDocument({
+      ...base,
+      fields: { 怎么说话: "AI 的新观察。" },
+      existing,
+      editedByUser: true,
+      chapterNumber: 7,
+    })
+    expect(doc).toContain("这是用户亲手写的一句。")
+    expect(doc).toContain("## 补充（第 7 章）")
+    expect(doc).toContain("AI 的新观察。")
+    expect(doc.indexOf("这是用户亲手写的一句。")).toBeLessThan(doc.indexOf("## 补充（第 7 章）"))
+    expect(doc.match(/# 林清越 · 人物 Skill/g)).toHaveLength(1)
+  })
+})
+
+describe("learnPersonaSkillsFromChapter", () =&gt; {
+  beforeEach(() =&gt; {
+    io.files.clear()
+    streamChatMock.mockReset()
+    __resetPersonaSkillRoundsForTesting()
+  })
+
+  it("主要人物第一次出场就建档，并从候选池移走", async () =&gt; {
+    roleFile("男主", "林清越")
+    reply([{ name: "林清越", fields: { 怎么说话: "句子短，先问后答。", 怎么判断: "先看对方的手。" } }])
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    const index = readIndex()!
+    expect(index.skills).toHaveLength(1)
+    expect(index.skills[0]).toMatchObject({
+      characterName: "林清越",
+      roleType: "男主",
+      tier: "major",
+      appearanceCount: 1,
+      lastLearnedChapter: 1,
+    })
+    expect(io.files.get(`${project}/.qmai/persona-skills/林清越/SKILL.md`)).toContain("句子短，先问后答。")
+    expect(readSightings()!.sightings).toHaveLength(0)
+  })
+
+  it("同一章 5 个人物只调用模型 1 次", async () =&gt; {
+    const roles: [string, string][] = [
+      ["男主", "甲"], ["女主", "乙"], ["反派", "丙"], ["导师", "丁"], ["主角", "戊"],
+    ]
+    for (const [role, name] of roles) roleFile(role, name)
+    reply(roles.map(([, name]) =&gt; ({ name, fields: { 怎么说话: `${name}的语气。` } })))
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: roles.map(([, name]) =&gt; name) },
+      llmConfig,
+    })
+
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+    expect(readIndex()!.skills).toHaveLength(5)
+  })
+
+  it("次要人物第一次出场不建档，第二次才建档", async () =&gt; {
+    roleFile("配角", "沈砚")
+    reply([{ name: "沈砚", fields: { 怎么说话: "句尾常带「吧」。" } }])
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["沈砚"] },
+      llmConfig,
+    })
+    expect(io.files.has(indexFile)).toBe(false)
+    expect(streamChatMock).not.toHaveBeenCalled()
+    expect(readSightings()!.sightings).toHaveLength(1)
+
+    __resetPersonaSkillRoundsForTesting()
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 2, chapterBody: "第二章正文", characters: ["沈砚"] },
+      llmConfig,
+    })
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+    expect(readIndex()!.skills[0]).toMatchObject({ characterName: "沈砚", tier: "minor", appearanceCount: 2 })
+  })
+
+  it("没有定位的龙套一直不建档，也不烧模型", async () =&gt; {
+    reply([])
+    for (const chapterNumber of [1, 2, 3, 4]) {
+      __resetPersonaSkillRoundsForTesting()
+      await learnPersonaSkillsFromChapter({
+        projectPath: project,
+        chapter: { chapterNumber, chapterBody: "正文", characters: ["小二"] },
+        llmConfig,
+      })
+    }
+    expect(streamChatMock).not.toHaveBeenCalled()
+    expect(io.files.has(indexFile)).toBe(false)
+    expect(readSightings()!.sightings).toHaveLength(1)
+  })
+
+  it("同一章重复摄取不二次烧模型，也不重复计数", async () =&gt; {
+    roleFile("男主", "林清越")
+    reply([{ name: "林清越", fields: { 怎么说话: "句子短。" } }])
+    const chapter = { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] }
+
+    await learnPersonaSkillsFromChapter({ projectPath: project, chapter, llmConfig })
+    __resetPersonaSkillRoundsForTesting()
+    await learnPersonaSkillsFromChapter({ projectPath: project, chapter, llmConfig })
+
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+    expect(readIndex()!.skills[0].appearanceCount).toBe(1)
+    expect(readIndex()!.skills[0].lastLearnedChapter).toBe(1)
+  })
+
+  it("模型返回坏 JSON：整轮跳过、不建 index，但不抛也不丢候选池计数", async () =&gt; {
+    roleFile("男主", "林清越")
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) =&gt; void; onDone: () =&gt; void }) =&gt; {
+        callbacks.onToken("我把 JSON 忘了")
+        callbacks.onDone()
+      },
+    )
+
+    await expect(
+      learnPersonaSkillsFromChapter({
+        projectPath: project,
+        chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+        llmConfig,
+      }),
+    ).resolves.toBeUndefined()
+
+    expect(io.files.has(indexFile)).toBe(false)
+    expect(readSightings()!.sightings).toHaveLength(1)
+
+    // 下一轮换成好 JSON，必须还能补上（证明 lastLearnedChapter 没被推进）
+    reply([{ name: "林清越", fields: { 怎么说话: "句子短。" } }])
+    __resetPersonaSkillRoundsForTesting()
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 2, chapterBody: "第二章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+    expect(readIndex()!.skills).toHaveLength(1)
+  })
+
+  it("绿勾人物在完善时同时产出研究文件", async () =&gt; {
+    roleFile("配角", "沈砚")
+    seedIndex([{ characterName: "沈砚", id: "沈砚", roleType: "配角", tier: "minor", pinned: true, lastChapter: 2, appearanceCount: 2, lastLearnedChapter: 2 }])
+    io.files.set(`${project}/.qmai/persona-skills/沈砚/SKILL.md`, "# 沈砚 · 人物 Skill\n\n## 怎么说话\n\n句尾常带「吧」。\n")
+    reply([{
+      name: "沈砚",
+      fields: { 怎么说话: "句尾常带「吧」。", 怎么判断: "先算代价再开口。" },
+      research: { 人物小传: "他是账房出身。", 语言习惯: "自问自答。" },
+    }])
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 3, chapterBody: "第三章正文", characters: ["沈砚"] },
+      llmConfig,
+    })
+
+    const research = io.files.get(`${project}/.qmai/persona-skills/沈砚/references/research/人物小传.md`)
+    expect(research).toContain("他是账房出身。")
+    expect(readIndex()!.skills[0].hasResearch).toBe(true)
+    // 绿勾人物即使在 minor 定位下也按 major 注入
+    expect(readIndex()!.skills[0].tier).toBe("major")
+  })
+
+  it("用户手改过的档案只追加「补充」，既有正文逐字保留", async () =&gt; {
+    roleFile("男主", "林清越")
+    seedIndex([{ characterName: "林清越", lastChapter: 2, appearanceCount: 2, lastLearnedChapter: 2, editedByUser: true }])
+    io.files.set(
+      `${project}/.qmai/persona-skills/林清越/SKILL.md`,
+      "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n用户亲手写的句子。\n",
+    )
+    reply([{ name: "林清越", fields: { 怎么说话: "AI 本次的新观察。" } }])
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 3, chapterBody: "第三章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    const doc = io.files.get(`${project}/.qmai/persona-skills/林清越/SKILL.md`)!
+    expect(doc).toContain("用户亲手写的句子。")
+    expect(doc).toContain("AI 本次的新观察。")
+    expect(doc).toContain("## 补充（第 3 章）")
+    expect(readIndex()!.skills[0].editedByUser).toBe(true)
+  })
+
+  it("连续 30 章未出场转归档，但文件不删", async () =&gt; {
+    seedIndex([{ characterName: "林清越", lastChapter: 1, appearanceCount: 1, status: "active" }])
+    io.files.set(`${project}/.qmai/persona-skills/林清越/SKILL.md`, "# 林清越 · 人物 Skill\n")
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 31, chapterBody: "第三十一章正文", characters: ["路人"] },
+      llmConfig,
+    })
+
+    expect(readIndex()!.skills[0].status).toBe("archived")
+    expect(io.files.has(`${project}/.qmai/persona-skills/林清越/SKILL.md`)).toBe(true)
+    expect(streamChatMock).not.toHaveBeenCalled()
+  })
+
+  it("绿勾人物不会因为长期未出场被归档", async () =&gt; {
+    seedIndex([{ characterName: "林清越", lastChapter: 1, appearanceCount: 1, status: "active", pinned: true }])
+    io.files.set(`${project}/.qmai/persona-skills/林清越/SKILL.md`, "# 林清越 · 人物 Skill\n")
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 99, chapterBody: "第九十九章正文", characters: ["路人"] },
+      llmConfig,
+    })
+
+    expect(readIndex()!.skills[0].status).toBe("active")
+  })
+})</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 2：跑测试，确认它失败</span></div>
+    <div class="run">npx vitest run src/lib/novel/persona-skill-learning.spec.ts</div>
+    <div class="expect fail">
+      <span class="t">Expected</span>
+      <code>Failed to resolve import "./persona-skill-learning"</code>。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 3：写实现（第 1 段 — 纯函数）</span></div>
+    <p>新建 <code>src/lib/novel/persona-skill-learning.ts</code>：</p>
+    <pre><code>import { listDirectory } from "@/commands/fs"
+import { normalizePath } from "@/lib/path-utils"
+import { streamChat } from "@/lib/llm-client"
+import { hasUsableLlm } from "@/lib/has-usable-llm"
+import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
+import { parseLlmJsonObject } from "./book-analysis/llm-json"
+import { parseCharacterRoleFileName } from "./extract-established-context"
+import {
+  PERSONA_MAJOR_FIELDS,
+  PERSONA_MINOR_FIELDS,
+  PERSONA_SUPPLEMENT_HEADING,
+  normalizePersonaName,
+  planPersonaSkillRound,
+  resolvePersonaStatus,
+  type PersonaSkillIndex,
+  type PersonaSkillMeta,
+  type PersonaSkillPlan,
+  type PersonaSkillSighting,
+  type PersonaSkillSightings,
+  type PersonaSkillTier,
+} from "./persona-skill-types"
+import {
+  loadPersonaSkillIndex,
+  loadPersonaSightings,
+  personaSkillIdFor,
+  readPersonaSkillDocument,
+  savePersonaSightings,
+  updatePersonaSkillIndex,
+  updatePersonaSightings,
+  writePersonaSkillDocument,
+  writePersonaSkillResearch,
+} from "./persona-skill-store"
+import {
+  PERSONA_SKILL_REQUEST_OVERRIDES,
+  buildPersonaSkillMessages,
+  buildPersonaSkillResearchMessages,
+  type PersonaSkillPromptTarget,
+} from "./persona-skill-prompt"
+
+export interface PersonaChapterInput {
+  chapterNumber: number
+  chapterBody: string
+  characters: string[]
+  /** 快照里的别名表：规范名 → 别名列表。 */
+  characterAliases?: Record&lt;string, string[]&gt;
+}
+
+export interface LearnPersonaSkillsOptions {
+  projectPath: string
+  chapter: PersonaChapterInput
+  llmConfig: LlmConfig
+  signal?: AbortSignal
+}
+
+export interface PersonaSkillDraft {
+  characterName: string
+  fields: Record&lt;string, string&gt;
+  research: Record&lt;string, string&gt;
+}
+
+/** 本章出场人物的累计状态（含已有档案的人）。 */
+export interface PersonaChapterAppearance {
+  characterName: string
+  aliases: string[]
+  roleType: string
+  appearanceCount: number
+  firstChapter: number
+  hasSkill: boolean
+  pinned: boolean
+  lastLearnedChapter: number
+}
+
+export function uniqueNames(values: readonly string[]): string[] {
+  const seen = new Set&lt;string&gt;()
+  const result: string[] = []
+  for (const value of values) {
+    const trimmed = value.trim()
+    const key = normalizePersonaName(trimmed)
+    if (!trimmed || !key || seen.has(key)) continue
+    seen.add(key)
+    result.push(trimmed)
+  }
+  return result
+}
+
+/**
+ * 一次目录列举，从 wiki/characters/角色-&lt;定位&gt;-&lt;名&gt;.md 的文件名读定位。
+ * 只解析文件名、不读正文，所以零额外 LLM 成本（D2）。
+ */
+export async function loadCharacterRoleTypes(projectPath: string): Promise&lt;Record&lt;string, string&gt;&gt; {
+  const result: Record&lt;string, string&gt; = {}
+  let nodes
+  try {
+    nodes = await listDirectory(`${normalizePath(projectPath)}/wiki/characters`)
+  } catch {
+    return result
+  }
+  for (const node of nodes) {
+    if (node.is_dir) continue
+    const parsed = parseCharacterRoleFileName(node.name)
+    if (!parsed) continue
+    result[parsed.name] = parsed.role
+  }
+  return result
+}
+
+export function findPersonaSkillMeta(
+  index: PersonaSkillIndex,
+  characterName: string,
+  aliases: readonly string[] = [],
+): PersonaSkillMeta | undefined {
+  const wanted = new Set([characterName, ...aliases].map(normalizePersonaName).filter(Boolean))
+  return index.skills.find((meta) =&gt; {
+    const names = [meta.characterName, ...meta.aliases].map(normalizePersonaName)
+    return names.some((name) =&gt; wanted.has(name))
+  })
+}
+
+function findSighting(
+  sightings: PersonaSkillSightings,
+  characterName: string,
+  aliases: readonly string[],
+): PersonaSkillSighting | undefined {
+  const wanted = new Set([characterName, ...aliases].map(normalizePersonaName).filter(Boolean))
+  return sightings.sightings.find((item) =&gt;
+    [item.characterName, ...item.aliases].some((candidate) =&gt; wanted.has(normalizePersonaName(candidate))),
+  )
+}
+
+/**
+ * 把本章出场并进候选池，并汇总出每个人物的累计状态。
+ * 已建档的人走 index（不在候选池里），未建档的人走候选池。
+ */
+export function collectChapterAppearances(
+  index: PersonaSkillIndex,
+  sightings: PersonaSkillSightings,
+  chapter: PersonaChapterInput,
+  roleTypes: Record&lt;string, string&gt;,
+): { appearances: PersonaChapterAppearance[]; sightings: PersonaSkillSightings } {
+  const nextSightings: PersonaSkillSightings = {
+    version: 1,
+    sightings: sightings.sightings.map((item) =&gt; ({
+      ...item,
+      aliases: [...item.aliases],
+      chapters: [...item.chapters],
+    })),
+  }
+  const appearances = new Map&lt;string, PersonaChapterAppearance&gt;()
+
+  const put = (appearance: PersonaChapterAppearance) =&gt; {
+    const key = normalizePersonaName(appearance.characterName)
+    const current = appearances.get(key)
+    if (!current) {
+      appearances.set(key, appearance)
+      return
+    }
+    appearances.set(key, {
+      ...current,
+      aliases: uniqueNames([...current.aliases, ...appearance.aliases, appearance.characterName]),
+      appearanceCount: Math.max(current.appearanceCount, appearance.appearanceCount),
+      firstChapter: Math.min(current.firstChapter, appearance.firstChapter),
+      roleType: current.roleType || appearance.roleType,
+      hasSkill: current.hasSkill || appearance.hasSkill,
+      pinned: current.pinned || appearance.pinned,
+      lastLearnedChapter: Math.max(current.lastLearnedChapter, appearance.lastLearnedChapter),
+    })
+  }
+
+  for (const rawName of chapter.characters) {
+    const name = rawName.trim()
+    if (!name) continue
+    const aliases = uniqueNames(chapter.characterAliases?.[name] ?? [])
+    const meta = findPersonaSkillMeta(index, name, aliases)
+    if (meta) {
+      // 同一章重复摄取时 lastChapter 已经是本章，不重复加一
+      const alreadyCounted = meta.lastChapter === chapter.chapterNumber
+      put({
+        characterName: meta.characterName,
+        aliases: uniqueNames([...meta.aliases, ...aliases, name]),
+        roleType: meta.roleType || roleTypes[name] || "",
+        appearanceCount: meta.appearanceCount + (alreadyCounted ? 0 : 1),
+        firstChapter: meta.firstChapter || chapter.chapterNumber,
+        hasSkill: true,
+        pinned: meta.pinned,
+        lastLearnedChapter: meta.lastLearnedChapter,
+      })
+      continue
+    }
+
+    const sighting = findSighting(nextSightings, name, aliases)
+    if (sighting) {
+      if (!sighting.chapters.includes(chapter.chapterNumber)) {
+        sighting.appearanceCount += 1
+        sighting.chapters.push(chapter.chapterNumber)
+      }
+      sighting.firstChapter = sighting.firstChapter || chapter.chapterNumber
+      sighting.lastChapter = Math.max(sighting.lastChapter, chapter.chapterNumber)
+      sighting.aliases = uniqueNames([...sighting.aliases, ...aliases])
+      sighting.roleType = sighting.roleType || roleTypes[name] || ""
+      put({
+        characterName: sighting.characterName,
+        aliases: sighting.aliases,
+        roleType: sighting.roleType,
+        appearanceCount: sighting.appearanceCount,
+        firstChapter: sighting.firstChapter,
+        hasSkill: false,
+        pinned: false,
+        lastLearnedChapter: 0,
+      })
+      continue
+    }
+
+    const created: PersonaSkillSighting = {
+      characterName: name,
+      aliases,
+      roleType: roleTypes[name] ?? "",
+      appearanceCount: 1,
+      firstChapter: chapter.chapterNumber,
+      lastChapter: chapter.chapterNumber,
+      chapters: [chapter.chapterNumber],
+    }
+    nextSightings.sightings.push(created)
+    put({
+      characterName: name,
+      aliases: created.aliases,
+      roleType: created.roleType,
+      appearanceCount: 1,
+      firstChapter: created.firstChapter,
+      hasSkill: false,
+      pinned: false,
+      lastLearnedChapter: 0,
+    })
+  }
+
+  return { appearances: [...appearances.values()], sightings: nextSightings }
+}
+
+export function planPersonaSkillRoundForChapter(
+  appearances: readonly PersonaChapterAppearance[],
+  currentChapter: number,
+): PersonaSkillPlan[] {
+  return planPersonaSkillRound(
+    appearances.map((item) =&gt; ({
+      characterName: item.characterName,
+      aliases: item.aliases,
+      roleType: item.roleType,
+      appearanceCount: item.appearanceCount,
+      hasSkill: item.hasSkill,
+      pinned: item.pinned,
+      lastLearnedChapter: item.lastLearnedChapter,
+    })),
+    currentChapter,
+  )
+}
+
+function normalizeStringRecord(value: unknown): Record&lt;string, string&gt; {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+  const result: Record&lt;string, string&gt; = {}
+  for (const [key, entry] of Object.entries(value as Record&lt;string, unknown&gt;)) {
+    if (typeof entry === "string") result[key.trim()] = entry.trim()
+  }
+  return result
+}
+
+/** 解析模型返回的多人 JSON。根对象不可解析 / 没有 skills 数组时返回 null（整轮跳过）。 */
+export function parsePersonaSkillDrafts(
+  raw: string,
+  plans: readonly PersonaSkillPlan[],
+): PersonaSkillDraft[] | null {
+  const parsed = parseLlmJsonObject(raw)
+  if (!parsed || !Array.isArray(parsed.skills)) return null
+  const byName = new Map&lt;string, PersonaSkillPlan&gt;()
+  for (const plan of plans) {
+    byName.set(normalizePersonaName(plan.characterName), plan)
+    for (const alias of plan.aliases) byName.set(normalizePersonaName(alias), plan)
+  }
+  const drafts: PersonaSkillDraft[] = []
+  for (const entry of parsed.skills) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue
+    const record = entry as Record&lt;string, unknown&gt;
+    const plan = byName.get(normalizePersonaName(typeof record.name === "string" ? record.name : ""))
+    if (!plan) continue
+    drafts.push({
+      characterName: plan.characterName,
+      fields: normalizeStringRecord(record.fields),
+      research: normalizeStringRecord(record.research),
+    })
+  }
+  return drafts
+}
+
+function stripFrontmatter(markdown: string): string {
+  const match = markdown.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/)
+  return match ? markdown.slice(match[0].length) : markdown
+}
+
+function stripDocumentPreamble(markdown: string): string {
+  return stripFrontmatter(markdown).replace(/^\s*#\s+.*\r?\n/, "").trim()
+}
+
+function renderFieldSections(fields: Record&lt;string, string&gt;, order: readonly string[]): string {
+  const blocks: string[] = []
+  for (const name of order) {
+    const value = (fields[name] ?? "").trim()
+    if (!value) continue
+    blocks.push(`## ${name}`, "", value, "")
+  }
+  return blocks.join("\n").trimEnd()
+}
+
+export interface RenderPersonaSkillDocumentInput {
+  characterName: string
+  aliases: readonly string[]
+  roleType: string
+  tier: PersonaSkillTier
+  pinned: boolean
+  appearanceCount: number
+  firstChapter: number
+  lastChapter: number
+  chapterNumber: number
+  fields: Record&lt;string, string&gt;
+  existing?: string
+  editedByUser: boolean
+}
+
+export function renderPersonaSkillDocument(input: RenderPersonaSkillDocumentInput): string {
+  const order = input.tier === "major" ? PERSONA_MAJOR_FIELDS : PERSONA_MINOR_FIELDS
+  const frontmatter = [
+    "---",
+    `character: ${input.characterName}`,
+    `role: ${input.roleType || "未标注"}`,
+    `tier: ${input.tier}`,
+    `pinned: ${input.pinned ? "true" : "false"}`,
+    `appearances: ${input.appearanceCount}`,
+    `firstChapter: ${input.firstChapter}`,
+    `lastChapter: ${input.lastChapter}`,
+    ...(input.aliases.length &gt; 0 ? [`aliases: ${input.aliases.join("、")}`] : []),
+    "---",
+  ].join("\n")
+  const title = `# ${input.characterName} · 人物 Skill`
+  const sections = renderFieldSections(input.fields, order)
+
+  if (input.editedByUser &amp;&amp; input.existing?.trim()) {
+    return [
+      frontmatter,
+      "",
+      title,
+      "",
+      stripDocumentPreamble(input.existing),
+      "",
+      `## ${PERSONA_SUPPLEMENT_HEADING}（第 ${input.chapterNumber} 章）`,
+      "",
+      sections,
+      "",
+    ].join("\n")
+  }
+
+  return [frontmatter, "", title, "", sections, ""].join("\n")
+}</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 4：写实现（第 2 段 — 编排与落盘，接在上一个文件末尾）</span></div>
+    <pre><code>const inFlightRounds = new Set&lt;string&gt;()
+
+export function __resetPersonaSkillRoundsForTesting(): void {
+  inFlightRounds.clear()
+}
+
+/** 按当前章号刷新所有人的生命周期状态。没有变化就不落盘。 */
+export async function refreshPersonaSkillStatuses(
+  projectPath: string,
+  currentChapter: number,
+): Promise&lt;void&gt; {
+  const updatedAt = new Date().toISOString()
+  await updatePersonaSkillIndex(projectPath, (index) =&gt; {
+    let changed = false
+    const skills = index.skills.map((meta) =&gt; {
+      const status = resolvePersonaStatus(meta.lastChapter, currentChapter, meta.pinned)
+      if (status === meta.status) return meta
+      changed = true
+      return { ...meta, status, updatedAt }
+    })
+    if (!changed) return undefined
+    return { version: 1, skills }
+  })
+}
+
+async function requestPersonaSkillDrafts(input: {
+  llmConfig: LlmConfig
+  chapterNumber: number
+  chapterBody: string
+  plans: readonly PersonaSkillPlan[]
+  existing: Map&lt;string, string&gt;
+  signal?: AbortSignal
+}): Promise&lt;PersonaSkillDraft[] | null&gt; {
+  const targets: PersonaSkillPromptTarget[] = input.plans.map((plan) =&gt; ({
+    characterName: plan.characterName,
+    aliases: plan.aliases,
+    roleType: plan.roleType,
+    tier: plan.tier,
+    mode: plan.mode,
+    pinned: plan.pinned,
+    appearanceCount: plan.appearanceCount,
+    existingSkill: input.existing.get(plan.characterName),
+  }))
+
+  let result = ""
+  let streamError: Error | null = null
+  await streamChat(
+    input.llmConfig,
+    buildPersonaSkillMessages({
+      chapterNumber: input.chapterNumber,
+      chapterBody: input.chapterBody,
+      targets,
+    }),
+    {
+      onToken: (token: string) =&gt; {
+        result += token
+      },
+      onDone: () =&gt; {},
+      onError: (error: Error) =&gt; {
+        streamError = error
+      },
+    },
+    input.signal,
+    PERSONA_SKILL_REQUEST_OVERRIDES,
+  )
+  if (streamError) throw streamError
+  if (!result.trim()) throw new Error("人物 Skill 提取失败：模型返回空内容")
+  return parsePersonaSkillDrafts(result, input.plans)
+}
+
+export interface ApplyPersonaSkillInput {
+  projectPath: string
+  index: PersonaSkillIndex
+  appearances: readonly PersonaChapterAppearance[]
+  plans: readonly PersonaSkillPlan[]
+  drafts: readonly PersonaSkillDraft[]
+  chapterNumber: number
+}
+
+/** 把草稿落到 SKILL.md / 研究文件 / index，并把已建档的人从候选池移走。返回真正写入的人数。 */
+export async function applyPersonaSkillDrafts(input: ApplyPersonaSkillInput): Promise&lt;number&gt; {
+  const appearanceByName = new Map(
+    input.appearances.map((item) =&gt; [normalizePersonaName(item.characterName), item]),
+  )
+  const updatedAt = new Date().toISOString()
+  const upserts: PersonaSkillMeta[] = []
+
+  for (const plan of input.plans) {
+    const draft = input.drafts.find(
+      (item) =&gt; normalizePersonaName(item.characterName) === normalizePersonaName(plan.characterName),
+    )
+    if (!draft) continue
+    if (Object.values(draft.fields).every((value) =&gt; !value.trim())) continue
+
+    const existing = findPersonaSkillMeta(input.index, plan.characterName, plan.aliases)
+    const id = existing?.id ?? personaSkillIdFor(plan.characterName)
+    const appearance = appearanceByName.get(normalizePersonaName(plan.characterName))
+    const previousDocument = existing ? await readPersonaSkillDocument(input.projectPath, id) : ""
+
+    await writePersonaSkillDocument(
+      input.projectPath,
+      id,
+      renderPersonaSkillDocument({
+        characterName: plan.characterName,
+        aliases: existing ? uniqueNames([...existing.aliases, ...plan.aliases]) : plan.aliases,
+        roleType: plan.roleType || existing?.roleType || "",
+        tier: plan.tier,
+        pinned: plan.pinned,
+        appearanceCount: Math.max(plan.appearanceCount, existing?.appearanceCount ?? 0),
+        firstChapter: existing?.firstChapter || appearance?.firstChapter || input.chapterNumber,
+        lastChapter: input.chapterNumber,
+        chapterNumber: input.chapterNumber,
+        fields: draft.fields,
+        existing: previousDocument,
+        editedByUser: existing?.editedByUser ?? false,
+      }),
+    )
+
+    let hasResearch = existing?.hasResearch ?? false
+    if (plan.withResearch &amp;&amp; Object.keys(draft.research).length &gt; 0) {
+      const written = await writePersonaSkillResearch(input.projectPath, id, draft.research)
+      if (written.length &gt; 0) hasResearch = true
+    }
+
+    upserts.push({
+      id,
+      characterName: plan.characterName,
+      aliases: uniqueNames([...(existing?.aliases ?? []), ...plan.aliases]),
+      roleType: plan.roleType || existing?.roleType || "",
+      tier: plan.tier,
+      pinned: plan.pinned,
+      status: "active",
+      firstChapter: existing?.firstChapter || appearance?.firstChapter || input.chapterNumber,
+      lastChapter: input.chapterNumber,
+      appearanceCount: Math.max(plan.appearanceCount, existing?.appearanceCount ?? 0),
+      createdChapter: existing?.createdChapter || input.chapterNumber,
+      lastLearnedChapter: input.chapterNumber,
+      skillRevision: (existing?.skillRevision ?? 0) + 1,
+      editedByUser: existing?.editedByUser ?? false,
+      hasResearch,
+      updatedAt,
+    })
+  }
+
+  if (upserts.length === 0) return 0
+
+  await updatePersonaSkillIndex(input.projectPath, (index) =&gt; {
+    const skills = [...index.skills]
+    for (const meta of upserts) {
+      const position = skills.findIndex((item) =&gt; item.id === meta.id)
+      if (position &gt;= 0) skills[position] = { ...skills[position], ...meta }
+      else skills.push(meta)
+    }
+    return { version: 1, skills }
+  })
+
+  const createdIds = new Set(upserts.map((meta) =&gt; normalizePersonaName(meta.characterName)))
+  await updatePersonaSightings(input.projectPath, (current) =&gt; {
+    const sightings = current.sightings.filter(
+      (item) =&gt; !createdIds.has(normalizePersonaName(item.characterName)),
+    )
+    if (sightings.length === current.sightings.length) return undefined
+    return { version: 1, sightings }
+  })
+
+  return upserts.length
+}
+
+/**
+ * 章节摄取后的后台学习入口。永不抛：外层兜住一切，只 warn。
+ * 只处理「本章出场、且达到门槛」的人物，整轮只发一次 LLM 请求。
+ */
+export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsOptions): Promise&lt;void&gt; {
+  const pp = normalizePath(options.projectPath)
+  const { chapter, llmConfig, signal } = options
+  if (chapter.characters.length === 0) return
+
+  const roundKey = `${pp}#${chapter.chapterNumber}`
+  if (inFlightRounds.has(roundKey)) return
+  inFlightRounds.add(roundKey)
+
+  try {
+    const roleTypes = await loadCharacterRoleTypes(pp)
+    const index = await loadPersonaSkillIndex(pp)
+    const { appearances, sightings } = collectChapterAppearances(
+      index,
+      await loadPersonaSightings(pp),
+      chapter,
+      roleTypes,
+    )
+    // 候选池是纯计数，先落盘：即使后面模型失败，下场也还能接着数
+    await savePersonaSightings(pp, sightings)
+
+    const plans = planPersonaSkillRoundForChapter(appearances, chapter.chapterNumber)
+    if (plans.length === 0) {
+      await refreshPersonaSkillStatuses(pp, chapter.chapterNumber)
+      return
+    }
+
+    if (!hasUsableLlm(llmConfig, useWikiStore.getState().providerConfigs)) {
+      console.warn("[Persona Skill] 提取模型不可用，跳过本轮人物 Skill 学习")
+      return
+    }
+
+    const existing = new Map&lt;string, string&gt;()
+    for (const plan of plans) {
+      const meta = findPersonaSkillMeta(index, plan.characterName, plan.aliases)
+      if (!meta) continue
+      existing.set(plan.characterName, await readPersonaSkillDocument(pp, meta.id))
+    }
+
+    const drafts = await requestPersonaSkillDrafts({
+      llmConfig,
+      chapterNumber: chapter.chapterNumber,
+      chapterBody: chapter.chapterBody,
+      plans,
+      existing,
+      signal,
+    })
+    if (!drafts) {
+      console.warn("[Persona Skill] 模型没有返回可解析的 JSON，本轮跳过（不推进 lastLearnedChapter）")
+      return
+    }
+
+    const written = await applyPersonaSkillDrafts({
+      projectPath: pp,
+      index,
+      appearances,
+      plans,
+      drafts,
+      chapterNumber: chapter.chapterNumber,
+    })
+    if (written &gt; 0) console.log(`[Persona Skill] 第 ${chapter.chapterNumber} 章更新 ${written} 个人物 Skill`)
+
+    await refreshPersonaSkillStatuses(pp, chapter.chapterNumber)
+  } catch (err) {
+    console.warn("[Persona Skill] 人物 Skill 学习失败:", err instanceof Error ? err.message : err)
+  } finally {
+    inFlightRounds.delete(roundKey)
+  }
+}</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 5：跑测试，确认全绿</span></div>
+    <div class="run">npx vitest run src/lib/novel/persona-skill-learning.spec.ts
+npx tsc -p tsconfig.test.json --noEmit</div>
+    <div class="expect">
+      <span class="t">Expected</span>
+      <code>Tests 18 passed</code>（角色定位 2 + 汇总 3 + 解析 4 + 渲染 3 + 编排 8 = 20；以实际为准），0 失败；类型检查无输出。
+    </div>
+    <div class="callout warn">
+      <span class="t">「次要人物第一次出场不建档」红了？</span>
+      <p>确认 <code>plans.length === 0</code> 这条早返回<b>在</b> <code>savePersonaSightings</code> <b>之后</b>。写反了就永远数不到第二次，次要人物一辈子建不了档。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 6：提交</span></div>
+    <div class="run">git add src/lib/novel/persona-skill-learning.ts src/lib/novel/persona-skill-learning.spec.ts
+git commit -m "feat(人物skill): 加章节学习编排"</div>
+  </div>
+</section>
+
+<!-- ============================ TASK 5 ============================ -->
+<section>
+  <h2><span class="tnum">Task 5</span>研究文件重新整理</h2>
+
+  <div class="files">
+    <span class="flabel">Files</span>
+    <ul>
+      <li>Modify: <code>src/lib/novel/persona-skill-learning.ts</code></li>
+      <li>Test: <code>src/lib/novel/persona-skill-learning.spec.ts</code></li>
+    </ul>
+  </div>
+
+  <div class="callout">
+    <span class="t">为什么这是一个「整理」而不是「再提取」</span>
+    <p>D6 规定：研究文件在<b>建档那一次调用里</b>顺带产出，所以点绿勾不会增加每章调用次数。但绿勾的典型场景恰恰是「设定很重、前期一直没出场」——这种人物第一次出场时可能素材很薄。所以给 UI 一个手动的「重新整理」按钮，素材取<b>他自己现有的 SKILL.md</b>：只把已有信息拆细、补齐六个文件的骨架，<b>禁止引入档案里没有的新事实</b>。这样既不幻觉，也不需要去读章节快照。</p>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 1：先写失败测试</span></div>
+    <p>在 <code>persona-skill-learning.spec.ts</code> 的 import 里加上 <code>regeneratePersonaSkillResearch</code>：</p>
+    <pre><code>import {
+  collectChapterAppearances,
+  learnPersonaSkillsFromChapter,
+  loadCharacterRoleTypes,
+  parsePersonaSkillDrafts,
+  regeneratePersonaSkillResearch,
+  renderPersonaSkillDocument,
+  __resetPersonaSkillRoundsForTesting,
+} from "./persona-skill-learning"</code></pre>
+    <p>然后在文件末尾追加：</p>
+    <pre><code>describe("regeneratePersonaSkillResearch", () =&gt; {
+  beforeEach(() =&gt; {
+    io.files.clear()
+    streamChatMock.mockReset()
+    __resetPersonaSkillRoundsForTesting()
+  })
+
+  it("从既有档案重新整理研究文件，并回写 hasResearch", async () =&gt; {
+    seedIndex([{ characterName: "沈砚", id: "沈砚", roleType: "配角", pinned: true, hasResearch: false }])
+    io.files.set(
+      `${project}/.qmai/persona-skills/沈砚/SKILL.md`,
+      "# 沈砚 · 人物 Skill\n\n## 怎么说话\n\n句尾常带「吧」。\n",
+    )
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) =&gt; void; onDone: () =&gt; void }) =&gt; {
+        callbacks.onToken(JSON.stringify({ research: { 人物小传: "他是账房出身。", 语言习惯: "自问自答。" } }))
+        callbacks.onDone()
+      },
+    )
+
+    const ok = await regeneratePersonaSkillResearch({
+      projectPath: project,
+      characterName: "沈砚",
+      llmConfig,
+    })
+
+    expect(ok).toBe(true)
+    expect(io.files.get(`${project}/.qmai/persona-skills/沈砚/references/research/人物小传.md`)).toContain(
+      "他是账房出身。",
+    )
+    expect(readIndex()!.skills[0].hasResearch).toBe(true)
+  })
+
+  it("查无此人时返回 false，且不调模型", async () =&gt; {
+    const ok = await regeneratePersonaSkillResearch({
+      projectPath: project,
+      characterName: "查无此人",
+      llmConfig,
+    })
+    expect(ok).toBe(false)
+    expect(streamChatMock).not.toHaveBeenCalled()
+  })
+
+  it("模型返回坏 JSON 时返回 false，不写文件，也不抛", async () =&gt; {
+    seedIndex([{ characterName: "沈砚", id: "沈砚", roleType: "配角", pinned: true }])
+    io.files.set(`${project}/.qmai/persona-skills/沈砚/SKILL.md`, "# 沈砚 · 人物 Skill\n\n## 怎么说话\n\n句尾带吧。\n")
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) =&gt; void; onDone: () =&gt; void }) =&gt; {
+        callbacks.onToken("抱歉，我忘了 JSON")
+        callbacks.onDone()
+      },
+    )
+
+    await expect(
+      regeneratePersonaSkillResearch({ projectPath: project, characterName: "沈砚", llmConfig }),
+    ).resolves.toBe(false)
+    expect(readIndex()!.skills[0].hasResearch).toBe(false)
+  })
+})</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 2：跑测试，确认它失败</span></div>
+    <div class="run">npx vitest run src/lib/novel/persona-skill-learning.spec.ts</div>
+    <div class="expect fail">
+      <span class="t">Expected</span>
+      失败：<code>regeneratePersonaSkillResearch is not a function</code>（或 import 报 <code>does not provide an export named</code>）。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 3：写实现（追加到 persona-skill-learning.ts 末尾）</span></div>
+    <pre><code>/**
+ * 重新整理某人的研究文件。素材只有「他自己现有的档案」——
+ * 不读章节快照、不引入新事实，所以这是一次「整理」而不是「再提取」。
+ * 永不抛：失败返回 false，由 UI 提示。
+ */
+export async function regeneratePersonaSkillResearch(options: {
+  projectPath: string
+  characterName: string
+  llmConfig: LlmConfig
+  signal?: AbortSignal
+}): Promise&lt;boolean&gt; {
+  const pp = normalizePath(options.projectPath)
+  try {
+    const index = await loadPersonaSkillIndex(pp)
+    const meta = findPersonaSkillMeta(index, options.characterName)
+    if (!meta) return false
+    const document = await readPersonaSkillDocument(pp, meta.id)
+    if (!document.trim()) return false
+
+    let result = ""
+    let streamError: Error | null = null
+    await streamChat(
+      options.llmConfig,
+      buildPersonaSkillResearchMessages({
+        characterName: meta.characterName,
+        roleType: meta.roleType,
+        document,
+      }),
+      {
+        onToken: (token: string) =&gt; {
+          result += token
+        },
+        onDone: () =&gt; {},
+        onError: (error: Error) =&gt; {
+          streamError = error
+        },
+      },
+      options.signal,
+      PERSONA_SKILL_REQUEST_OVERRIDES,
+    )
+    if (streamError) throw streamError
+
+    const parsed = parseLlmJsonObject(result)
+    const research = parsed ? normalizeStringRecord(parsed.research) : {}
+    const written = await writePersonaSkillResearch(pp, meta.id, research)
+    if (written.length === 0) return false
+
+    await updatePersonaSkillIndex(pp, (current) =&gt; ({
+      version: 1,
+      skills: current.skills.map((item) =&gt;
+        item.id === meta.id
+          ? { ...item, hasResearch: true, updatedAt: new Date().toISOString() }
+          : item,
+      ),
+    }))
+    return true
+  } catch (err) {
+    console.warn("[Persona Skill] 研究文件重新整理失败:", err instanceof Error ? err.message : err)
+    return false
+  }
+}</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 4：跑测试，确认全绿</span></div>
+    <div class="run">npx vitest run src/lib/novel/persona-skill-learning.spec.ts
+npx tsc -p tsconfig.test.json --noEmit</div>
+    <div class="expect"><span class="t">Expected</span>全绿（比 Task 4 多 3 个用例）；类型检查无输出。</div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 5：提交</span></div>
+    <div class="run">git add src/lib/novel/persona-skill-learning.ts src/lib/novel/persona-skill-learning.spec.ts
+git commit -m "feat(人物skill): 加研究文件重新整理"</div>
+  </div>
+</section>
+
+<!-- ============================ TASK 6 ============================ -->
+<section>
+  <h2><span class="tnum">Task 6</span>分级注入</h2>
+
+  <div class="files">
+    <span class="flabel">Files</span>
+    <ul>
+      <li>Create: <code>src/lib/novel/persona-skill-context.ts</code></li>
+      <li>Test: <code>src/lib/novel/persona-skill-context.spec.ts</code></li>
+    </ul>
+  </div>
+
+  <div class="callout ok">
+    <span class="t">D5 的三条硬约束</span>
+    <ol>
+      <li><b>先匹配、后读盘。</b>只用 <code>index.json</code> 的元数据（名字 + 别名）做匹配；命中的人才去读那一份 <code>SKILL.md</code>。3000 个人物里有 2990 个没档案，这个顺序是不卡的前提。</li>
+      <li><b>排序 + 截断。</b>绿勾 → 主要 → 次要 → 出场次数降序，取前 <b>12</b> 个；拼出来的总文本超 <b>4000</b> 字就停止追加。</li>
+      <li><b>潜伏 / 归档不注入</b>（绿勾例外）。主要人物注入 7 段，次要人物只注入「怎么说话 / 怎么判断」。</li>
+    </ol>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 1：先写失败测试</span></div>
+    <p>新建 <code>src/lib/novel/persona-skill-context.spec.ts</code>：</p>
+    <pre><code>import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const io = vi.hoisted(() =&gt; ({ files: new Map&lt;string, string&gt;() }))
+
+vi.mock("@/commands/fs", () =&gt; ({
+  readFile: async (path: string) =&gt; {
+    if (!io.files.has(path)) throw new Error(`文件缺失：${path}`)
+    return io.files.get(path)!
+  },
+  writeFileAtomic: async (path: string, contents: string) =&gt; {
+    io.files.set(path, contents)
+  },
+  createDirectory: async () =&gt; {},
+  listDirectory: async () =&gt; [],
+}))
+
+import {
+  PERSONA_INJECT_CHAR_BUDGET,
+  PERSONA_INJECT_MAX_SKILLS,
+  type PersonaSkillMeta,
+} from "./persona-skill-types"
+import {
+  buildPersonaSkillContext,
+  extractPersonaSkillSections,
+  matchesPersonaName,
+  renderPersonaSkillBlock,
+  selectPersonaSkillCandidates,
+} from "./persona-skill-context"
+
+const project = "C:/project"
+const indexFile = `${project}/.qmai/persona-skills/index.json`
+
+function meta(overrides: Partial&lt;PersonaSkillMeta&gt; &amp; { characterName: string }): PersonaSkillMeta {
+  return {
+    id: overrides.characterName,
+    aliases: [],
+    roleType: "男主",
+    tier: "major",
+    pinned: false,
+    status: "active",
+    firstChapter: 1,
+    lastChapter: 1,
+    appearanceCount: 1,
+    createdChapter: 1,
+    lastLearnedChapter: 1,
+    skillRevision: 1,
+    editedByUser: false,
+    hasResearch: false,
+    updatedAt: "2026-10-10T00:00:00.000Z",
+    ...overrides,
+  }
+}
+
+function doc(fields: Record&lt;string, string&gt;): string {
+  const body = Object.entries(fields)
+    .map(([name, value]) =&gt; `## ${name}\n\n${value}\n`)
+    .join("\n")
+  return `# 人物 Skill\n\n${body}`
+}
+
+function seed(skills: PersonaSkillMeta[], documents: Record&lt;string, string&gt;) {
+  io.files.set(indexFile, JSON.stringify({ version: 1, skills }))
+  for (const [id, content] of Object.entries(documents)) {
+    io.files.set(`${project}/.qmai/persona-skills/${id}/SKILL.md`, content)
+  }
+}
+
+const majorFields = {
+  怎么说话: "句子短，先问后答。",
+  怎么判断: "先看对方的手。",
+  在意什么: "妹妹的婚事。",
+  底线与逆鳞: "不碰旧账。",
+  关系网: "与沈砚是旧识。",
+  语言标记: "「罢了」结尾。",
+  成长轨迹: "从回避到直视。",
+}
+
+describe("matchesPersonaName", () =&gt; {
+  it("完全相等命中", () =&gt; {
+    expect(matchesPersonaName("林清越", ["林清越"])).toBe(true)
+  })
+
+  it("双向包含都命中", () =&gt; {
+    expect(matchesPersonaName("林清越推开门", ["林清越"])).toBe(true)
+    expect(matchesPersonaName("清越", ["林清越"])).toBe(true)
+  })
+
+  it("单字查询不做包含匹配，避免污染", () =&gt; {
+    expect(matchesPersonaName("林", ["林清越"])).toBe(false)
+    expect(matchesPersonaName("林", ["林"])).toBe(true)
+  })
+})
+
+describe("extractPersonaSkillSections", () =&gt; {
+  it("按二级标题切段，同名标题会拼接", () =&gt; {
+    const sections = extractPersonaSkillSections(
+      "# 标题\n\n## 怎么说话\n\n甲。\n\n## 补充（第 3 章）\n\n乙。\n\n## 补充（第 9 章）\n\n丙。\n",
+    )
+    expect(sections.get("怎么说话")).toBe("甲。")
+    expect(sections.get("补充（第 3 章）")).toBe("乙。")
+    expect(sections.get("补充（第 9 章）")).toBe("丙。")
+  })
+})
+
+describe("selectPersonaSkillCandidates", () =&gt; {
+  beforeEach(() =&gt; io.files.clear())
+
+  it("绿勾排最前，其次主要人物，再按出场次数降序", () =&gt; {
+    const index = {
+      version: 1 as const,
+      skills: [
+        meta({ characterName: "甲", appearanceCount: 3 }),
+        meta({ characterName: "乙", tier: "minor", roleType: "配角", appearanceCount: 9 }),
+        meta({ characterName: "丙", pinned: true, tier: "minor", roleType: "配角", appearanceCount: 1 }),
+        meta({ characterName: "丁", appearanceCount: 7 }),
+      ],
+    }
+    const selected = selectPersonaSkillCandidates(index, "甲 乙 丙 丁 都出场了")
+    expect(selected.map((item) =&gt; item.characterName)).toEqual(["丙", "丁", "甲", "乙"])
+  })
+
+  it("归档 / 潜伏的人不入选，绿勾例外", () =&gt; {
+    const index = {
+      version: 1 as const,
+      skills: [
+        meta({ characterName: "甲", status: "archived" }),
+        meta({ characterName: "乙", status: "dormant" }),
+        meta({ characterName: "丙", status: "archived", pinned: true }),
+      ],
+    }
+    const selected = selectPersonaSkillCandidates(index, "甲 乙 丙")
+    expect(selected.map((item) =&gt; item.characterName)).toEqual(["丙"])
+  })
+
+  it("最多取 12 个", () =&gt; {
+    const skills = Array.from({ length: 20 }, (_unused, index) =&gt;
+      meta({ characterName: `人物${index}`, appearanceCount: 100 - index }),
+    )
+    const selected = selectPersonaSkillCandidates(
+      { version: 1, skills },
+      skills.map((item) =&gt; item.characterName).join(" "),
+    )
+    expect(selected).toHaveLength(PERSONA_INJECT_MAX_SKILLS)
+  })
+})
+
+describe("renderPersonaSkillBlock", () =&gt; {
+  it("主要人物写 7 段", () =&gt; {
+    const block = renderPersonaSkillBlock(meta({ characterName: "林清越" }), doc(majorFields))
+    for (const field of Object.keys(majorFields)) expect(block).toContain(field)
+    expect(block).toContain("主要人物")
+    expect(block).toContain("出场 1 次")
+  })
+
+  it("次要人物只留「怎么说话 / 怎么判断」，其余段落即使存在也不注入", () =&gt; {
+    const block = renderPersonaSkillBlock(
+      meta({ characterName: "沈砚", tier: "minor", roleType: "配角" }),
+      doc(majorFields),
+    )
+    expect(block).toContain("怎么说话")
+    expect(block).toContain("怎么判断")
+    expect(block).not.toContain("成长轨迹")
+    expect(block).not.toContain("底线与逆鳞")
+  })
+
+  it("用户手改过的「补充」段也会注入", () =&gt; {
+    const block = renderPersonaSkillBlock(
+      meta({ characterName: "林清越", editedByUser: true }),
+      doc({ 怎么说话: "句子短。", "补充（第 3 章）": "AI 本轮补的观察。" }),
+    )
+    expect(block).toContain("AI 本轮补的观察。")
+  })
+})
+
+describe("buildPersonaSkillContext", () =&gt; {
+  beforeEach(() =&gt; io.files.clear())
+
+  it("没有 index.json 时返回空串", async () =&gt; {
+    expect(await buildPersonaSkillContext(project, "林清越出场了")).toBe("")
+  })
+
+  it("matchingText 为空时返回空串，不读盘", async () =&gt; {
+    seed([meta({ characterName: "林清越" })], { 林清越: doc(majorFields) })
+    expect(await buildPersonaSkillContext(project, "   ")).toBe("")
+  })
+
+  it("没有命中任何人物时返回空串", async () =&gt; {
+    seed([meta({ characterName: "林清越" })], { 林清越: doc(majorFields) })
+    expect(await buildPersonaSkillContext(project, "完全无关的一段细纲")).toBe("")
+  })
+
+  it("命中时输出带标题的块，并包含该人物的字段", async () =&gt; {
+    seed([meta({ characterName: "林清越" })], { 林清越: doc(majorFields) })
+    const text = await buildPersonaSkillContext(project, "林清越推开门，看见沈砚。")
+    expect(text).toContain("【人物 Skill】")
+    expect(text).toContain("林清越")
+    expect(text).toContain("句子短，先问后答。")
+  })
+
+  it("别名也能命中", async () =&gt; {
+    seed([meta({ characterName: "林清越", aliases: ["清越"] })], { 林清越: doc(majorFields) })
+    expect(await buildPersonaSkillContext(project, "清越站在门口")).toContain("林清越")
+  })
+
+  it("index 里有条目但 SKILL.md 丢了时跳过它，不抛", async () =&gt; {
+    seed([meta({ characterName: "林清越" })], {})
+    expect(await buildPersonaSkillContext(project, "林清越出场了")).toBe("")
+  })
+
+  it("总长不超过 4000 字预算", async () =&gt; {
+    const long = "字".repeat(3000)
+    const fields = Object.fromEntries(
+      ["怎么说话", "怎么判断", "在意什么", "底线与逆鳞", "关系网", "语言标记", "成长轨迹"].map((name) =&gt; [name, long]),
+    )
+    const skills = [
+      meta({ characterName: "甲", appearanceCount: 100 }),
+      meta({ characterName: "乙", appearanceCount: 90 }),
+      meta({ characterName: "丙", appearanceCount: 80 }),
+    ]
+    seed(skills, {
+      甲: doc(fields),
+      乙: doc(fields),
+      丙: doc(fields),
+    })
+    const text = await buildPersonaSkillContext(project, "甲 乙 丙")
+    expect(text.length).toBeLessThanOrEqual(PERSONA_INJECT_CHAR_BUDGET + 20)
+    expect(text).toContain("甲")
+    expect(text).toContain("乙")
+    expect(text).not.toContain("丙")
+  })
+})</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 2：跑测试，确认它失败</span></div>
+    <div class="run">npx vitest run src/lib/novel/persona-skill-context.spec.ts</div>
+    <div class="expect fail">
+      <span class="t">Expected</span>
+      <code>Failed to resolve import "./persona-skill-context"</code>。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 3：写实现</span></div>
+    <p>新建 <code>src/lib/novel/persona-skill-context.ts</code>：</p>
+    <pre><code>import { normalizePath } from "@/lib/path-utils"
+import { loadPersonaSkillIndex, readPersonaSkillDocument } from "./persona-skill-store"
+import {
+  PERSONA_INJECT_CHAR_BUDGET,
+  PERSONA_INJECT_FIELD_CHARS,
+  PERSONA_INJECT_MAX_SKILLS,
+  PERSONA_MAJOR_FIELDS,
+  PERSONA_MINOR_FIELDS,
+  PERSONA_MIN_SUBSTRING_MATCH_CHARS,
+  PERSONA_SUPPLEMENT_HEADING,
+  normalizePersonaName,
+  type PersonaSkillIndex,
+  type PersonaSkillMeta,
+  type PersonaSkillTier,
+} from "./persona-skill-types"
+
+const TIER_RANK: Record&lt;PersonaSkillTier, number&gt; = { major: 0, minor: 1 }
+
+/** 注入顺序：绿勾 → 主要 → 次要 → 出场次数多的优先（D5）。 */
+export function comparePersonaSkillMeta(a: PersonaSkillMeta, b: PersonaSkillMeta): number {
+  if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+  if (TIER_RANK[a.tier] !== TIER_RANK[b.tier]) return TIER_RANK[a.tier] - TIER_RANK[b.tier]
+  if (a.appearanceCount !== b.appearanceCount) return b.appearanceCount - a.appearanceCount
+  return a.characterName.localeCompare(b.characterName, "zh-Hans-CN")
+}
+
+/**
+ * 名字匹配：精确相等 / 别名命中 / 双向包含。
+ * 包含匹配要求两边都 ≥ 2 个字，否则单姓（「林」）会把全库都匹配上。
+ * 故意不做拼音与繁简归一：那会把 pinyin-pro / opencc-js 拖过 bundle 边界。
+ */
+export function matchesPersonaName(normalizedQuery: string, names: readonly string[]): boolean {
+  for (const name of names) {
+    const normalized = normalizePersonaName(name)
+    if (!normalized) continue
+    if (normalizedQuery === normalized) return true
+    if (normalizedQuery.length &lt; PERSONA_MIN_SUBSTRING_MATCH_CHARS) continue
+    if (normalized.length &lt; PERSONA_MIN_SUBSTRING_MATCH_CHARS) continue
+    if (normalizedQuery.includes(normalized) || normalized.includes(normalizedQuery)) return true
+  }
+  return false
+}
+
+/** 从 index 里挑出本次该注入的候选：潜伏 / 归档不注入，绿勾例外。 */
+export function selectPersonaSkillCandidates(
+  index: PersonaSkillIndex,
+  matchingText: string,
+): PersonaSkillMeta[] {
+  const query = normalizePersonaName(matchingText)
+  if (!query) return []
+  return index.skills
+    .filter((meta) =&gt; meta.pinned || meta.status === "active")
+    .filter((meta) =&gt; matchesPersonaName(query, [meta.characterName, ...meta.aliases]))
+    .sort(comparePersonaSkillMeta)
+    .slice(0, PERSONA_INJECT_MAX_SKILLS)
+}
+
+/**
+ * 把 SKILL.md 拆成「## 标题 → 正文」。
+ * 同名标题会拼接：用户手改过的档案每轮都会追加一个「补充（第 N 章）」段。
+ */
+export function extractPersonaSkillSections(markdown: string): Map&lt;string, string&gt; {
+  const sections = new Map&lt;string, string&gt;()
+  let current: string | null = null
+  let buffer: string[] = []
+  const flush = () =&gt; {
+    if (current == null) return
+    const value = buffer.join("\n").trim()
+    if (!value) return
+    const previous = sections.get(current)
+    sections.set(current, previous ? `${previous}\n${value}` : value)
+  }
+  for (const line of markdown.replace(/\r\n/g, "\n").split("\n")) {
+    const heading = line.match(/^##\s+(.+?)\s*$/)
+    if (heading) {
+      flush()
+      current = heading[1].trim()
+      buffer = []
+      continue
+    }
+    if (/^#\s/.test(line)) {
+      flush()
+      current = null
+      buffer = []
+      continue
+    }
+    if (current != null) buffer.push(line)
+  }
+  flush()
+  return sections
+}
+
+function truncate(value: string, max: number): string {
+  return value.length &lt;= max ? value : `${value.slice(0, max)}…`
+}
+
+/** 按档位渲染一条注入块：主要人物 7 段，次要人物只留 2 段。 */
+export function renderPersonaSkillBlock(meta: PersonaSkillMeta, document: string): string {
+  const sections = extractPersonaSkillSections(document)
+  const order = meta.tier === "major" ? PERSONA_MAJOR_FIELDS : PERSONA_MINOR_FIELDS
+  const parts: string[] = []
+  for (const field of order) {
+    const value = (sections.get(field) ?? "").replace(/\s*\n\s*/g, " ").trim()
+    if (!value) continue
+    parts.push(`${field}：${truncate(value, PERSONA_INJECT_FIELD_CHARS)}`)
+  }
+  const supplements = [...sections.entries()]
+    .filter(([heading]) =&gt; heading.startsWith(PERSONA_SUPPLEMENT_HEADING))
+    .map(([, value]) =&gt; value.replace(/\s*\n\s*/g, " ").trim())
+    .filter(Boolean)
+  if (supplements.length &gt; 0) {
+    const joined = truncate(supplements.join(" "), PERSONA_INJECT_FIELD_CHARS)
+    parts.push(`${PERSONA_SUPPLEMENT_HEADING}：${joined}`)
+  }
+  if (parts.length === 0) return ""
+  const tags = [
+    meta.tier === "major" ? "主要人物" : "次要人物",
+    meta.pinned ? "★重点" : "",
+    `出场 ${meta.appearanceCount} 次`,
+  ].filter(Boolean)
+  return `- 【人物 Skill · ${meta.characterName}（${tags.join(" / ")}）】${parts.join(" ")}`
+}
+
+/**
+ * 写作上下文用的「人物 Skill」段；没有命中时返回空串。
+ * 先只用 index 元数据做名字匹配（几十条，很便宜），命中后才读那一份 SKILL.md。
+ */
+export async function buildPersonaSkillContext(
+  projectPath: string,
+  matchingText: string,
+): Promise&lt;string&gt; {
+  const pp = normalizePath(projectPath)
+  if (!matchingText.trim()) return ""
+
+  let index: PersonaSkillIndex
+  try {
+    index = await loadPersonaSkillIndex(pp)
+  } catch {
+    return ""
+  }
+  if (index.skills.length === 0) return ""
+
+  const candidates = selectPersonaSkillCandidates(index, matchingText)
+  if (candidates.length === 0) return ""
+
+  const blocks: string[] = []
+  let used = 0
+  for (const meta of candidates) {
+    const document = await readPersonaSkillDocument(pp, meta.id)
+    if (!document.trim()) continue
+    const block = renderPersonaSkillBlock(meta, document)
+    if (!block) continue
+    if (used + block.length &gt; PERSONA_INJECT_CHAR_BUDGET) break
+    blocks.push(block)
+    used += block.length
+  }
+  if (blocks.length === 0) return ""
+  return `【人物 Skill】\n${blocks.join("\n")}`
+}</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 4：跑测试，确认全绿</span></div>
+    <div class="run">npx vitest run src/lib/novel/persona-skill-context.spec.ts
+npx tsc -p tsconfig.test.json --noEmit</div>
+    <div class="expect"><span class="t">Expected</span>17 个用例全绿；类型检查无输出。</div>
+    <div class="callout warn">
+      <span class="t">「总长不超过 4000」红了？</span>
+      <p>检查截断的位置：预算判断必须在 <code>renderPersonaSkillBlock</code> <b>之后</b>、<code>blocks.push</code> <b>之前</b>，用块的真实长度累加。先 push 再判断就会多出一块。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 5：提交</span></div>
+    <div class="run">git add src/lib/novel/persona-skill-context.ts src/lib/novel/persona-skill-context.spec.ts
+git commit -m "feat(人物skill): 加分级注入"</div>
+  </div>
+</section>
+
+<!-- ============================ TASK 7 ============================ -->
+<section>
+  <h2><span class="tnum">Task 7</span>接入章节摄取</h2>
+
+  <div class="files">
+    <span class="flabel">Files</span>
+    <ul>
+      <li>Modify: <code>src/lib/novel/chapter-ingest.ts</code>（2 处：1 行 import + 1 个挂钩块）</li>
+      <li>Test: <code>src/lib/novel/chapter-ingest-persona-hook.spec.ts</code></li>
+    </ul>
+  </div>
+
+  <div class="callout danger">
+    <span class="t">硬约束（写在 plan 里，动手前再读一遍）</span>
+    <ol>
+      <li><b>签名一个字都不能改。</b><code>chapter-ingest.spec.ts</code> 用源码字符串断言 <code>export async function ingestChapter</code>。挂钩只能写在函数体里。</li>
+      <li><b>必须是 <code>void</code>，不能 <code>await</code>。</b>照抄同文件 <code>:463-482</code> 的 <code>communitySummaryAsync</code> + <code>void rebuildCommunitySummaries()</code> 范式。改成 <code>await</code> 就会拖慢「提取记忆」按钮。</li>
+      <li><b>必须判 <code>isReingest</code>。</b>重新提取不该重复消耗模型。</li>
+      <li><b>不要挂到「保存正式章节」上。</b><code>preview-panel.tsx</code> 有明确注释说明保存章节不自动提取记忆。</li>
+    </ol>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 1：先写失败测试（源码契约）</span></div>
+    <p>这个挂钩的运行时行为已经被 Task 4 的 8 个用例覆盖了（幂等、坏 JSON、门槛都测过）。这里测的是<b>接线是否正确</b>——签名的形状、异步的方式、守卫的位置。所以用源码字符串断言，跟同目录 <code>chapter-ingest.spec.ts</code> 的做法一致，避免为了测一行接线去 mock 整条 1500 行的摄取链。</p>
+    <p>新建 <code>src/lib/novel/chapter-ingest-persona-hook.spec.ts</code>：</p>
+    <pre><code>import { readFileSync } from "node:fs"
+import { describe, expect, it } from "vitest"
+
+const read = (relativePath: string) =&gt;
+  readFileSync(new URL(relativePath, import.meta.url), "utf8").replace(/\r\n/g, "\n")
+
+describe("章节摄取里的人物 Skill 挂钩", () =&gt; {
+  const ingest = read("./chapter-ingest.ts")
+
+  it("摄取签名不变（chapter-ingest.spec.ts 有源码字符串断言）", () =&gt; {
+    expect(ingest).toContain("export async function ingestChapter(")
+    expect(ingest).toContain("options: IngestChapterOptions = {},")
+  })
+
+  it("挂钩用的是同一条提取模型解析结果", () =&gt; {
+    expect(ingest).toContain('import { learnPersonaSkillsFromChapter } from "./persona-skill-learning"')
+    expect(ingest).toContain("llmConfig: runtimeLlmConfig,")
+  })
+
+  it("后台异步：void 调用，绝不 await（不阻塞提取记忆按钮）", () =&gt; {
+    expect(ingest).toContain("void learnPersonaSkillsFromChapter({")
+    expect(ingest).not.toContain("await learnPersonaSkillsFromChapter(")
+  })
+
+  it("挂钩在 syncSnapshotToMemory 之后（人物状态已经同步完）", () =&gt; {
+    expect(ingest.indexOf("void learnPersonaSkillsFromChapter(")).toBeGreaterThan(
+      ingest.indexOf("const syncResult = await syncSnapshotToMemory("),
+    )
+  })
+
+  it("重新提取短路：isReingest 守卫真的包住了挂钩", () =&gt; {
+    const hookAt = ingest.indexOf("void learnPersonaSkillsFromChapter(")
+    expect(hookAt).toBeGreaterThan(-1)
+    const guardAt = ingest.lastIndexOf("if (!isReingest) {", hookAt)
+    expect(guardAt).toBeGreaterThan(-1)
+    // 守卫到挂钩之间不能出现右花括号，否则守卫其实已经闭合了
+    expect(ingest.slice(guardAt, hookAt)).not.toContain("}")
+  })
+
+  it("保存正式章节那条路完全不掺和（草稿隔离）", () =&gt; {
+    const previewPanel = read("../../components/layout/preview-panel.tsx")
+    expect(previewPanel).not.toContain("persona-skill")
+    expect(previewPanel).not.toContain("learnPersonaSkillsFromChapter")
+  })
+
+  it("整章人物一次性传入（不是循环里一人调一次）", () =&gt; {
+    const hookAt = ingest.indexOf("void learnPersonaSkillsFromChapter(")
+    const block = ingest.slice(hookAt, ingest.indexOf("})", hookAt))
+    expect(block).toContain("characters: snapshot.characters,")
+    expect(block).toContain("characterAliases: snapshot.characterAliases,")
+  })
+})</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 2：跑测试，确认它失败</span></div>
+    <div class="run">npx vitest run src/lib/novel/chapter-ingest-persona-hook.spec.ts</div>
+    <div class="expect fail">
+      <span class="t">Expected</span>
+      6 个用例失败（只有「签名不变」那条通过），提示 <code>expected '' to contain 'void learnPersonaSkillsFromChapter({'</code>。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 3：改 <code>chapter-ingest.ts</code> —— 第 1 处：加 import</span></div>
+    <p>在 <code>src/lib/novel/chapter-ingest.ts</code> 第 29 行（<code>import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"</code>）之后插入一行：</p>
+    <pre><code>import { learnPersonaSkillsFromChapter } from "./persona-skill-learning"</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 4：改 <code>chapter-ingest.ts</code> —— 第 2 处：加挂钩块</span></div>
+    <p>在原第 444-454 行的 wiki-patch <code>try/catch</code> <b>之后</b>、原第 456 行 <code>if (isReingest) {</code> <b>之前</b>插入。改完这一段的顺序是：<code>syncSnapshotToMemory</code> → wiki-patch → <b>人物 Skill 挂钩</b> → <code>if (isReingest) finalizeProjectMemoryRebuild</code> → <code>await embedPromise</code>。</p>
+    <pre><code>  // 人物 Skill：提取记忆时顺带学习（首次建档 / 再次完善）。
+  // 后台异步、不阻塞「提取记忆」按钮；整章所有人物合并成一次 LLM 调用。
+  // 重新提取（isReingest）不重复学习，避免重复消耗模型。
+  // 这里刻意不 await：学习失败只 warn，绝不能影响章节摄取本身。
+  if (!isReingest) {
+    void learnPersonaSkillsFromChapter({
+      projectPath: pp,
+      chapter: {
+        chapterNumber: snapshot.chapterNumber,
+        chapterBody: body,
+        characters: snapshot.characters,
+        characterAliases: snapshot.characterAliases,
+      },
+      llmConfig: runtimeLlmConfig,
+      signal,
+    })
+  }</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 5：跑测试，确认全绿</span></div>
+    <div class="run">npx vitest run src/lib/novel/chapter-ingest-persona-hook.spec.ts src/lib/novel/chapter-ingest.spec.ts
+npx tsc --build --pretty</div>
+    <div class="expect">
+      <span class="t">Expected</span>
+      新文件 7 个用例全绿；<code>chapter-ingest.spec.ts</code> 原有的源码字符串断言<b>仍然</b>全绿（这证明签名没被动过）。类型检查无输出。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 6：提交</span></div>
+    <div class="run">git add src/lib/novel/chapter-ingest.ts src/lib/novel/chapter-ingest-persona-hook.spec.ts
+git commit -m "feat(人物skill): 提取记忆时后台学习"</div>
+  </div>
+</section>
+
+<!-- ============================ TASK 8 ============================ -->
+<section>
+  <h2><span class="tnum">Task 8</span>接入写作上下文</h2>
+
+  <div class="files">
+    <span class="flabel">Files</span>
+    <ul>
+      <li>Modify: <code>src/lib/novel/context-engine.ts</code>（3 处）</li>
+      <li>Test: <code>src/lib/novel/context-engine-persona.spec.ts</code></li>
+    </ul>
+  </div>
+
+  <div class="callout">
+    <span class="t">为什么静态 import 是安全的，而 character-aura 不行</span>
+    <p><code>src/lib/bundle-boundaries.spec.ts:27-37</code> 强制 <code>context-engine.ts</code> / <code>review-adapter.ts</code> 对 <code>./character-aura</code> 只能用动态 <code>await import()</code>——因为 <code>character-aura.ts</code> 拖着 <code>opencc-js/t2cn</code>。我们新的 <code>persona-skill-context.ts</code> 只依赖 <code>@/commands/fs</code> 和类型，<b>没有任何重依赖</b>，所以静态 import 不会破坏那条体积边界。写完顺手确认那条既有测试仍然绿。</p>
+    <p>另外：两个匹配共用<b>同一段</b> <code>matchingText</code>（章节目标 + 细纲 + 人物状态 + 认知），所以先把那段表达式提成 <code>personaMatchingText</code> 常量，避免抄两遍抄出不一致。</p>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 1：先写失败测试（源码契约）</span></div>
+    <p>新建 <code>src/lib/novel/context-engine-persona.spec.ts</code>：</p>
+    <pre><code>import { readFileSync } from "node:fs"
+import { describe, expect, it } from "vitest"
+
+const read = (relativePath: string) =&gt;
+  readFileSync(new URL(relativePath, import.meta.url), "utf8").replace(/\r\n/g, "\n")
+
+describe("写作上下文注入人物 Skill", () =&gt; {
+  const contextEngine = read("./context-engine.ts")
+
+  it("静态引入 persona-skill-context（它不拖重依赖）", () =&gt; {
+    expect(contextEngine).toContain('import { buildPersonaSkillContext } from "./persona-skill-context"')
+  })
+
+  it("character-aura 仍然只能动态 import（bundle 边界不变）", () =&gt; {
+    expect(contextEngine).not.toContain('from "./character-aura"')
+    expect(contextEngine).toContain('await import("./character-aura")')
+  })
+
+  it("两个匹配共用同一段 matchingText", () =&gt; {
+    expect(contextEngine).toContain("const personaMatchingText = joinNonEmpty([")
+    expect(contextEngine).toContain("matchingText: personaMatchingText")
+    expect(contextEngine).toContain("buildPersonaSkillContext(context.projectPath, personaMatchingText)")
+  })
+
+  it("两块文本合并进 characterAuras 字段", () =&gt; {
+    expect(contextEngine).toContain(
+      'characterAuras: joinNonEmpty([soulContext.text, personaSkillContext], "\\n\\n")',
+    )
+  })
+
+  it("注入失败不能弄挂写作", () =&gt; {
+    expect(contextEngine).toContain(
+      'buildPersonaSkillContext(context.projectPath, personaMatchingText).catch(() =&gt; "")',
+    )
+  })
+})</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 2：跑测试，确认它失败</span></div>
+    <div class="run">npx vitest run src/lib/novel/context-engine-persona.spec.ts</div>
+    <div class="expect fail">
+      <span class="t">Expected</span>
+      4 个失败（只有「character-aura 仍然动态」那条通过）。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 3：改 <code>context-engine.ts</code> —— 第 1 处：加 import</span></div>
+    <p>加在 <code>context-engine.ts</code> 顶部的相对 import 区（跟 <code>./tracking-updater</code> 之类的同级 import 放一起）：</p>
+    <pre><code>import { buildPersonaSkillContext } from "./persona-skill-context"</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 4：改 <code>context-engine.ts</code> —— 第 2 处：把 matchingText 提出来，并并发调用两个匹配</span></div>
+    <p>把原第 309-319 行整段替换成：</p>
+    <pre><code>  // 构建角色氛围上下文（依赖其他数据）。
+  // 人物 Skill 与角色灵魂共用同一段匹配文本，保证两块注入的命中口径一致。
+  const personaMatchingText = joinNonEmpty([
+    chapterGoal,
+    rawData.chapterOutline,
+    rawData.fallbackCharacterStates,
+    rawData.snapshots.characterStates,
+    rawData.cognitionText,
+  ], "\n\n")
+  const { buildCharacterSoulContext } = await import("./character-aura")
+  const [soulContext, personaSkillContext] = await Promise.all([
+    buildCharacterSoulContext(context.projectPath, context.task, { matchingText: personaMatchingText }),
+    // 注入失败绝不能弄挂写作：这里兜住一切
+    buildPersonaSkillContext(context.projectPath, personaMatchingText).catch(() =&gt; ""),
+  ])</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 5：改 <code>context-engine.ts</code> —— 第 3 处：并进 <code>characterAuras</code></span></div>
+    <pre><code>    characterAuras: joinNonEmpty([soulContext.text, personaSkillContext], "\n\n"),</code></pre>
+    <p>原行是 <code>characterAuras: soulContext.text,</code>。<b>注意</b>：并进这个既有字段而不是新加字段，是因为 <code>SECTION_PRIORITY</code>（<code>context-engine.ts:40-65</code>）里 <code>characterAuras: 10</code> 已经有明确的裁剪优先级；新加字段就得连着改优先级表和所有消费方，收益为零。</p>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 6：跑测试，确认全绿（含既有 bundle 边界测试）</span></div>
+    <div class="run">npx vitest run src/lib/novel/context-engine-persona.spec.ts src/lib/bundle-boundaries.spec.ts
+npx tsc --build --pretty</div>
+    <div class="expect">
+      <span class="t">Expected</span>
+      新文件 5 个用例全绿，<code>bundle-boundaries.spec.ts</code> 5 个用例仍全绿（这证明动态 import 那条边界没被破坏）。类型检查无输出。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 7：提交</span></div>
+    <div class="run">git add src/lib/novel/context-engine.ts src/lib/novel/context-engine-persona.spec.ts
+git commit -m "feat(人物skill): 写作上下文注入"</div>
+  </div>
+</section>
+
+<!-- ============================ TASK 9 ============================ -->
+<section>
+  <h2><span class="tnum">Task 9</span>状态与「人物 Skill」页</h2>
+
+  <div class="files">
+    <span class="flabel">Files</span>
+    <ul>
+      <li>Modify: <code>src/stores/wiki-store.ts</code>（4 处）</li>
+      <li>Create: <code>src/components/skill-library/persona-skill-view.tsx</code></li>
+      <li>Create: <code>src/components/skill-library/persona-skill-view.spec.tsx</code></li>
+      <li>Modify: <code>src/components/uitest/ui-test-tools.css</code>（追加绿勾方块与编辑区样式）</li>
+    </ul>
+  </div>
+
+  <div class="callout">
+    <span class="t">先改 store，视图才有地方放草稿脏标记</span>
+    <p>技能库已有的两个 tab 各自有一个 <code>*DraftDirty</code> 标记 + <code>setActiveView</code> 里的「切走前确认丢弃」守卫。人物页的编辑区同理必须有一个，否则用户改了一半点别的 tab，草稿<b>静默丢失</b>。所以本任务先补 store，再写视图。</p>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 1：改 <code>wiki-store.ts</code> —— 4 处</span></div>
+    <p><b>① 第 661 行</b>的 <code>activeView</code> 联合类型里加上 <code>"personaSkillLibrary"</code>：</p>
+    <pre><code>  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "personaSkillLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation" | "maintenance"</code></pre>
+    <p><b>② 第 670 行</b>（<code>writingSkillLibraryDraftDirty: boolean</code>）之后加一行：</p>
+    <pre><code>  personaSkillLibraryDraftDirty: boolean</code></pre>
+    <p><b>③ 接口里</b>（<code>:780</code> 附近的 <code>setLlmConfig</code> 那片 setter 声明区，跟 <code>setWritingSkillLibraryDraftDirty</code> 放一起）加：</p>
+    <pre><code>  setPersonaSkillLibraryDraftDirty: (dirty: boolean) =&gt; void</code></pre>
+    <p><b>④ 实现里</b>：在 <code>setActiveView</code>（<code>:905-929</code>）的守卫链上补一段，并在返回对象里补一个字段；然后在 <code>setWritingSkillLibraryDraftDirty</code>（<code>:952</code>）之后加 setter。</p>
+    <pre><code>  setActiveView: (activeView) =&gt; set((state) =&gt; {
+    if (
+      state.activeView === "skillLibrary"
+      &amp;&amp; activeView !== "skillLibrary"
+      &amp;&amp; state.skillLibraryDraftDirty
+      &amp;&amp; !confirmDiscardSkillLibraryDraft()
+    ) {
+      return {}
+    }
+    if (
+      state.activeView === "writingSkillLibrary"
+      &amp;&amp; activeView !== "writingSkillLibrary"
+      &amp;&amp; state.writingSkillLibraryDraftDirty
+      &amp;&amp; !confirmDiscardSkillLibraryDraft()
+    ) {
+      return {}
+    }
+    if (
+      state.activeView === "personaSkillLibrary"
+      &amp;&amp; activeView !== "personaSkillLibrary"
+      &amp;&amp; state.personaSkillLibraryDraftDirty
+      &amp;&amp; !confirmDiscardSkillLibraryDraft()
+    ) {
+      return {}
+    }
+    return {
+      activeView,
+      skillLibraryDraftDirty: activeView === "skillLibrary" ? state.skillLibraryDraftDirty : false,
+      writingSkillLibraryDraftDirty: activeView === "writingSkillLibrary"
+        ? state.writingSkillLibraryDraftDirty
+        : false,
+      personaSkillLibraryDraftDirty: activeView === "personaSkillLibrary"
+        ? state.personaSkillLibraryDraftDirty
+        : false,
+    }
+  }),</code></pre>
+    <pre><code>  setPersonaSkillLibraryDraftDirty: (personaSkillLibraryDraftDirty) =&gt;
+    set({ personaSkillLibraryDraftDirty }),</code></pre>
+    <p>最后给初始 state 补上 <code>personaSkillLibraryDraftDirty: false</code>（跟 <code>writingSkillLibraryDraftDirty: false</code> 同一个对象字面量里）。</p>
+    <p>改完立刻确认类型没漏：</p>
+    <div class="run">npx tsc --build --pretty</div>
+    <div class="expect"><span class="t">Expected</span>无输出。若报「缺少属性 personaSkillLibraryDraftDirty」，就是初始 state 那处漏了。</div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 2：给 <code>ui-test-tools.css</code> 追加样式</span></div>
+    <p>追加到文件末尾（<code>--ui-*</code> 变量定义在 <code>src/components/uitest/ui-test.css</code>，沿用它们才能跟着三套皮肤走）：</p>
+    <pre><code>/* 人物 Skill：绿勾 = 重要人物（D6）；勾选状态必须是「绿 + 对号」两重编码，不只靠颜色。 */
+.ui-test-root .ui-test-persona-pin {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1.5px solid color-mix(in srgb, var(--ui-ink) 22%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-persona-pin:hover {
+  border-color: #3f8f5a;
+}
+
+.ui-test-root .ui-test-persona-pin::after {
+  content: "";
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid transparent;
+  border-bottom: 2px solid transparent;
+  transform: rotate(-45deg);
+}
+
+.ui-test-root .ui-test-persona-pin.is-on {
+  border-color: #3f8f5a;
+  background: #3f8f5a;
+}
+
+.ui-test-root .ui-test-persona-pin.is-on::after {
+  border-left-color: #fff;
+  border-bottom-color: #fff;
+}
+
+.ui-test-root .ui-test-persona-editor {
+  min-height: 380px;
+  margin-top: 14px;
+  padding: 16px;
+  resize: vertical;
+  border: 1.5px solid var(--ui-line);
+  border-radius: 10px;
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  font: 0.875rem/1.85 var(--ui);
+}
+
+.ui-test-root .ui-test-persona-research {
+  margin-top: 16px;
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-persona-research pre {
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ui-ink) 5%, transparent);
+  white-space: pre-wrap;
+}</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 3：先写视图的失败测试</span></div>
+    <p>新建 <code>src/components/skill-library/persona-skill-view.spec.tsx</code>。测试骨架照抄同目录 <code>unified-skill-library-view.spec.tsx</code>（<code>createRoot</code> + <code>act</code>，本仓库没有 @testing-library）：</p>
+    <pre><code>// @vitest-environment jsdom
+
+import { act } from "react"
+import { createRoot, type Root } from "react-dom/client"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { useWikiStore } from "@/stores/wiki-store"
+import { PersonaSkillView } from "./persona-skill-view"
+
+(globalThis as typeof globalThis &amp; { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+const io = vi.hoisted(() =&gt; ({ files: new Map&lt;string, string&gt;() }))
+
+vi.mock("@/commands/fs", () =&gt; ({
+  readFile: async (path: string) =&gt; {
+    if (!io.files.has(path)) throw new Error(`文件缺失：${path}`)
+    return io.files.get(path)!
+  },
+  writeFileAtomic: async (path: string, contents: string) =&gt; {
+    io.files.set(path, contents)
+  },
+  createDirectory: async () =&gt; {},
+  listDirectory: async (dir: string) =&gt; {
+    const prefix = dir.endsWith("/") ? dir : `${dir}/`
+    const nodes = new Map&lt;string, { name: string; path: string; is_dir: boolean }&gt;()
+    for (const path of io.files.keys()) {
+      if (!path.startsWith(prefix)) continue
+      const rest = path.slice(prefix.length)
+      const head = rest.split("/")[0]
+      const childPath = `${prefix}${head}`
+      nodes.set(childPath, { name: head, path: childPath, is_dir: rest.includes("/") })
+    }
+    return [...nodes.values()]
+  },
+}))
+
+// 视图只需要「重新整理研究文件」这一个动作来自学习模块；整块 mock 掉，
+// 免得把 llm-client / Tauri 那串东西拖进 jsdom。
+vi.mock("@/lib/novel/persona-skill-learning", () =&gt; ({
+  regeneratePersonaSkillResearch: vi.fn(async () =&gt; true),
+}))
+
+const project = "C:/project"
+const indexFile = `${project}/.qmai/persona-skills/index.json`
+
+function writeIndex(skills: unknown[]) {
+  io.files.set(indexFile, JSON.stringify({ version: 1, skills }))
+}
+
+function meta(overrides: Record&lt;string, unknown&gt; = {}) {
+  return {
+    id: "林清越",
+    characterName: "林清越",
+    aliases: [],
+    roleType: "男主",
+    tier: "major",
+    pinned: false,
+    status: "active",
+    firstChapter: 1,
+    lastChapter: 3,
+    appearanceCount: 3,
+    createdChapter: 1,
+    lastLearnedChapter: 3,
+    skillRevision: 1,
+    editedByUser: false,
+    hasResearch: false,
+    updatedAt: "2026-10-10T00:00:00.000Z",
+    ...overrides,
+  }
+}
+
+function readIndex(): { skills: Array&lt;Record&lt;string, unknown&gt;&gt; } {
+  return JSON.parse(io.files.get(indexFile)!)
+}
+
+async function renderView() {
+  const container = document.createElement("div")
+  document.body.appendChild(container)
+  const root = createRoot(container)
+  await act(async () =&gt; {
+    root.render(&lt;PersonaSkillView /&gt;)
+  })
+  await flushEffects()
+  return { container, root }
+}
+
+function cleanup(root: Root, container: HTMLElement) {
+  act(() =&gt; root.unmount())
+  document.body.removeChild(container)
+}
+
+async function flushEffects() {
+  await act(async () =&gt; {
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+
+function getButton(container: HTMLElement, label: string): HTMLButtonElement | undefined {
+  return Array.from(container.querySelectorAll&lt;HTMLButtonElement&gt;("button")).find(
+    (button) =&gt; button.textContent?.trim() === label,
+  )
+}
+
+async function click(element: HTMLElement | null) {
+  await act(async () =&gt; {
+    element?.click()
+  })
+  await flushEffects()
+}
+
+describe("PersonaSkillView", () =&gt; {
+  beforeEach(() =&gt; {
+    io.files.clear()
+    useWikiStore.getState().setProject({ id: "p1", name: "测试项目", path: project })
+    useWikiStore.getState().setActiveView("personaSkillLibrary")
+    useWikiStore.getState().setPersonaSkillLibraryDraftDirty(false)
+  })
+
+  it("按 index.json 渲染卡片", async () =&gt; {
+    writeIndex([meta(), meta({ id: "沈砚", characterName: "沈砚", tier: "minor", roleType: "配角" })])
+    const { container, root } = await renderView()
+
+    expect(container.querySelector('[data-testid="persona-skill-view"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="persona-skill-card-林清越"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="persona-skill-card-沈砚"]')).not.toBeNull()
+
+    cleanup(root, container)
+  })
+
+  it("没有档案时给出「点提取记忆会自动建档」的空态", async () =&gt; {
+    const { container, root } = await renderView()
+    expect(container.textContent).toContain("提取记忆")
+    cleanup(root, container)
+  })
+
+  it("点绿勾把 pinned 写进 index.json，并把档位升成 major", async () =&gt; {
+    writeIndex([meta({ characterName: "沈砚", id: "沈砚", tier: "minor", roleType: "配角" })])
+    const { container, root } = await renderView()
+
+    const pin = container.querySelector&lt;HTMLButtonElement&gt;('[data-testid="persona-skill-pin-沈砚"]')!
+    expect(pin.getAttribute("aria-pressed")).toBe("false")
+
+    await click(pin)
+
+    const stored = readIndex().skills[0]
+    expect(stored.pinned).toBe(true)
+    expect(stored.tier).toBe("major")
+    expect(
+      container.querySelector('[data-testid="persona-skill-pin-沈砚"]')!.getAttribute("aria-pressed"),
+    ).toBe("true")
+
+    cleanup(root, container)
+  })
+
+  it("再点一次取消绿勾", async () =&gt; {
+    writeIndex([meta({ pinned: true })])
+    const { container, root } = await renderView()
+
+    await click(container.querySelector('[data-testid="persona-skill-pin-林清越"]'))
+
+    expect(readIndex().skills[0].pinned).toBe(false)
+    expect(readIndex().skills[0].tier).toBe("major") // 男主本来就是 major
+
+    cleanup(root, container)
+  })
+
+  it("打开档案后保存：写回 SKILL.md 并把 editedByUser 置真", async () =&gt; {
+    writeIndex([meta()])
+    io.files.set(`${project}/.qmai/persona-skills/林清越/SKILL.md`, "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n原始内容。\n")
+    const { container, root } = await renderView()
+
+    await click(getButton(container, "打开档案") ?? null)
+
+    const editor = container.querySelector&lt;HTMLTextAreaElement&gt;('[data-testid="persona-skill-editor"]')!
+    expect(editor.value).toContain("原始内容。")
+
+    await act(async () =&gt; {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setter?.call(editor, "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n用户改过的内容。\n")
+      editor.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+
+    await click(getButton(container, "保存") ?? null)
+
+    expect(io.files.get(`${project}/.qmai/persona-skills/林清越/SKILL.md`)).toContain("用户改过的内容。")
+    expect(readIndex().skills[0].editedByUser).toBe(true)
+    expect(readIndex().skills[0].skillRevision).toBe(2)
+
+    cleanup(root, container)
+  })
+
+  it("状态筛选：点「归档」只剩归档的人", async () =&gt; {
+    writeIndex([
+      meta(),
+      meta({ id: "路人", characterName: "路人", status: "archived" }),
+    ])
+    const { container, root } = await renderView()
+
+    await click(getButton(container, "归档 1") ?? null)
+
+    expect(container.querySelector('[data-testid="persona-skill-card-路人"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="persona-skill-card-林清越"]')).toBeNull()
+
+    cleanup(root, container)
+  })
+
+  it("搜索框按人物名过滤", async () =&gt; {
+    writeIndex([meta(), meta({ id: "沈砚", characterName: "沈砚" })])
+    const { container, root } = await renderView()
+
+    const input = container.querySelector&lt;HTMLInputElement&gt;('[data-testid="persona-skill-search-input"]')!
+    await act(async () =&gt; {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+      setter?.call(input, "沈")
+      input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "沈" }))
+    })
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="persona-skill-card-沈砚"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="persona-skill-card-林清越"]')).toBeNull()
+
+    cleanup(root, container)
+  })
+})</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 4：跑测试，确认它失败</span></div>
+    <div class="run">npx vitest run src/components/skill-library/persona-skill-view.spec.tsx</div>
+    <div class="expect fail">
+      <span class="t">Expected</span>
+      <code>Failed to resolve import "./persona-skill-view"</code>。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 5：写实现</span></div>
+    <p>新建 <code>src/components/skill-library/persona-skill-view.tsx</code>：</p>
+    <pre><code>import "@/components/uitest/ui-test-tools.css"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { ArrowLeft, RefreshCw, Search } from "lucide-react"
+import { resolveNovelModel } from "@/lib/novel/model-resolver"
+import {
+  resolvePersonaTier,
+  type PersonaSkillIndex,
+  type PersonaSkillMeta,
+  type PersonaSkillStatus,
+} from "@/lib/novel/persona-skill-types"
+import {
+  loadPersonaSkillIndex,
+  readPersonaSkillDocument,
+  readPersonaSkillResearch,
+  savePersonaSkillIndex,
+  writePersonaSkillDocument,
+} from "@/lib/novel/persona-skill-store"
+import { regeneratePersonaSkillResearch } from "@/lib/novel/persona-skill-learning"
+import { useWikiStore } from "@/stores/wiki-store"
+
+const STATUS_LABELS: Record&lt;PersonaSkillStatus, string&gt; = {
+  active: "活跃",
+  dormant: "潜伏",
+  archived: "归档",
+}
+
+const TIER_LABELS = { major: "主要人物", minor: "次要人物" } as const
+const STATUS_ORDER = ["all", "active", "dormant", "archived"] as const
+type StatusFilter = (typeof STATUS_ORDER)[number]
+
+/** 列表顺序：绿勾 → 出场次数多的 → 名字。注入用的顺序在 persona-skill-context.ts，两处口径不同是故意的。 */
+function sortMeta(a: PersonaSkillMeta, b: PersonaSkillMeta): number {
+  if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+  if (a.appearanceCount !== b.appearanceCount) return b.appearanceCount - a.appearanceCount
+  return a.characterName.localeCompare(b.characterName, "zh-Hans-CN")
+}
+
+export function PersonaSkillView() {
+  const projectPath = useWikiStore((s) =&gt; s.project?.path)
+  const setDraftDirty = useWikiStore((s) =&gt; s.setPersonaSkillLibraryDraftDirty)
+
+  const [index, setIndex] = useState&lt;PersonaSkillIndex&gt;({ version: 1, skills: [] })
+  const [selectedId, setSelectedId] = useState&lt;string | null&gt;(null)
+  const [documentText, setDocumentText] = useState("")
+  const [research, setResearch] = useState&lt;Record&lt;string, string&gt;&gt;({})
+  const [query, setQuery] = useState("")
+  const [statusFilter, setStatusFilter] = useState&lt;StatusFilter&gt;("all")
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState("")
+
+  const reload = useCallback(async () =&gt; {
+    if (!projectPath) return
+    const loaded = await loadPersonaSkillIndex(projectPath)
+    setIndex({ version: 1, skills: [...loaded.skills].sort(sortMeta) })
+  }, [projectPath])
+
+  useEffect(() =&gt; {
+    void reload()
+  }, [reload])
+
+  useEffect(() =&gt; {
+    if (!projectPath || !selectedId) {
+      setDocumentText("")
+      setResearch({})
+      return
+    }
+    let cancelled = false
+    void (async () =&gt; {
+      const [document, docs] = await Promise.all([
+        readPersonaSkillDocument(projectPath, selectedId),
+        readPersonaSkillResearch(projectPath, selectedId),
+      ])
+      if (cancelled) return
+      setDocumentText(document)
+      setResearch(docs)
+      setDraftDirty(false)
+    })()
+    return () =&gt; {
+      cancelled = true
+    }
+  }, [projectPath, selectedId, setDraftDirty])
+
+  const selected = useMemo(
+    () =&gt; index.skills.find((meta) =&gt; meta.id === selectedId) ?? null,
+    [index.skills, selectedId],
+  )
+
+  const visible = useMemo(() =&gt; {
+    const keyword = query.trim().toLowerCase()
+    return index.skills.filter((meta) =&gt; {
+      if (statusFilter !== "all" &amp;&amp; meta.status !== statusFilter) return false
+      if (!keyword) return true
+      return meta.characterName.toLowerCase().includes(keyword)
+    })
+  }, [index.skills, query, statusFilter])
+
+  const counts = useMemo(() =&gt; ({
+    all: index.skills.length,
+    active: index.skills.filter((meta) =&gt; meta.status === "active").length,
+    dormant: index.skills.filter((meta) =&gt; meta.status === "dormant").length,
+    archived: index.skills.filter((meta) =&gt; meta.status === "archived").length,
+  }), [index.skills])
+
+  async function handleTogglePin(meta: PersonaSkillMeta) {
+    if (!projectPath) return
+    const pinned = !meta.pinned
+    const next: PersonaSkillIndex = {
+      version: 1,
+      skills: index.skills
+        .map((item) =&gt;
+          item.id === meta.id
+            ? {
+                ...item,
+                pinned,
+                tier: resolvePersonaTier(item.roleType, pinned),
+                status: pinned ? ("active" as const) : item.status,
+                updatedAt: new Date().toISOString(),
+              }
+            : item,
+        )
+        .sort(sortMeta),
+    }
+    setBusy(true)
+    try {
+      await savePersonaSkillIndex(projectPath, next)
+      setIndex(next)
+      setMessage(
+        pinned
+          ? `已把「${meta.characterName}」标为重要人物：每章都会重点分析，下次出场时生成研究文件。`
+          : `已取消「${meta.characterName}」的重要标记。`,
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleSaveDocument() {
+    if (!projectPath || !selected) return
+    setBusy(true)
+    try {
+      await writePersonaSkillDocument(projectPath, selected.id, documentText)
+      const next: PersonaSkillIndex = {
+        version: 1,
+        skills: index.skills.map((item) =&gt;
+          item.id === selected.id
+            ? {
+                ...item,
+                editedByUser: true,
+                skillRevision: item.skillRevision + 1,
+                updatedAt: new Date().toISOString(),
+              }
+            : item,
+        ),
+      }
+      await savePersonaSkillIndex(projectPath, next)
+      setIndex(next)
+      setDraftDirty(false)
+      setMessage("已保存。之后 AI 只会在这份档案后面追加「补充」，不会覆盖你写的内容。")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRegenerateResearch() {
+    if (!projectPath || !selected) return
+    setBusy(true)
+    try {
+      const state = useWikiStore.getState()
+      const ok = await regeneratePersonaSkillResearch({
+        projectPath,
+        characterName: selected.characterName,
+        llmConfig: resolveNovelModel(state.llmConfig, state.novelConfig, "extract"),
+      })
+      setResearch(await readPersonaSkillResearch(projectPath, selected.id))
+      setMessage(ok ? "研究文件已重新整理。" : "研究文件整理失败：模型没有返回可整理的内容。")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function handleBack() {
+    setSelectedId(null)
+    setDocumentText("")
+    setResearch({})
+    setDraftDirty(false)
+    setMessage("")
+  }
+
+  if (!projectPath) {
+    return &lt;div className="ui-test-skills-empty"&gt;先打开一本书，再管理人物 Skill。&lt;/div&gt;
+  }
+
+  if (selected) {
+    return (
+      &lt;div data-testid="persona-skill-view" className="ui-test-skills-gallery"&gt;
+        &lt;button type="button" className="ui-test-skills-back" onClick={handleBack}&gt;
+          &lt;ArrowLeft /&gt; 返回人物 Skill 列表
+        &lt;/button&gt;
+        &lt;div className="ui-test-skills-heading-copy"&gt;
+          &lt;h3&gt;{selected.characterName}&lt;/h3&gt;
+          &lt;div className="ui-test-skill-card-badges"&gt;
+            &lt;span className="ui-test-skill-badge is-type"&gt;{TIER_LABELS[selected.tier]}&lt;/span&gt;
+            &lt;span className="ui-test-skill-badge"&gt;{STATUS_LABELS[selected.status]}&lt;/span&gt;
+            {selected.roleType ? &lt;span className="ui-test-skill-badge"&gt;{selected.roleType}&lt;/span&gt; : null}
+            &lt;span className="ui-test-skill-badge"&gt;出场 {selected.appearanceCount} 次&lt;/span&gt;
+            &lt;span className="ui-test-skill-badge"&gt;首次第 {selected.firstChapter} 章&lt;/span&gt;
+            &lt;span className="ui-test-skill-badge"&gt;最近第 {selected.lastChapter} 章&lt;/span&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+        &lt;textarea
+          data-testid="persona-skill-editor"
+          className="ui-test-persona-editor"
+          value={documentText}
+          onChange={(event) =&gt; {
+            setDocumentText(event.target.value)
+            setDraftDirty(true)
+          }}
+        /&gt;
+        &lt;div className="ui-test-skills-actions"&gt;
+          &lt;button type="button" onClick={() =&gt; void handleSaveDocument()} disabled={busy}&gt;
+            保存
+          &lt;/button&gt;
+          &lt;button type="button" onClick={handleBack} disabled={busy}&gt;
+            取消
+          &lt;/button&gt;
+        &lt;/div&gt;
+        {Object.keys(research).length &gt; 0 ? (
+          &lt;div data-testid="persona-skill-research" className="ui-test-persona-research"&gt;
+            &lt;h4&gt;研究文件&lt;/h4&gt;
+            {Object.entries(research).map(([name, content]) =&gt; (
+              &lt;details key={name}&gt;
+                &lt;summary&gt;{name}&lt;/summary&gt;
+                &lt;pre&gt;{content}&lt;/pre&gt;
+              &lt;/details&gt;
+            ))}
+            &lt;button type="button" onClick={() =&gt; void handleRegenerateResearch()} disabled={busy}&gt;
+              &lt;RefreshCw /&gt; 重新整理研究文件
+            &lt;/button&gt;
+          &lt;/div&gt;
+        ) : (
+          &lt;p className="ui-test-skills-empty"&gt;
+            {selected.pinned
+              ? "研究文件会在该人物下次出场时自动生成。"
+              : "点亮绿勾后，该人物会生成研究文件。"}
+          &lt;/p&gt;
+        )}
+        {message ? &lt;span className="ui-test-skills-message"&gt;{message}&lt;/span&gt; : null}
+      &lt;/div&gt;
+    )
+  }
+
+  return (
+    &lt;div data-testid="persona-skill-view" className="ui-test-skills-gallery"&gt;
+      &lt;div className="ui-test-skills-toolbar"&gt;
+        &lt;label className="ui-test-skills-search"&gt;
+          &lt;Search /&gt;
+          &lt;input
+            data-testid="persona-skill-search-input"
+            value={query}
+            onChange={(event) =&gt; setQuery(event.target.value)}
+            placeholder="搜索人物名"
+          /&gt;
+        &lt;/label&gt;
+        &lt;div className="ui-test-skills-chips"&gt;
+          {STATUS_ORDER.map((key) =&gt; (
+            &lt;button
+              key={key}
+              type="button"
+              aria-pressed={statusFilter === key}
+              onClick={() =&gt; setStatusFilter(key)}
+              className={`ui-test-skills-chip${statusFilter === key ? " is-active" : ""}`}
+            &gt;
+              {key === "all" ? `全部 ${counts.all}` : `${STATUS_LABELS[key]} ${counts[key]}`}
+            &lt;/button&gt;
+          ))}
+        &lt;/div&gt;
+      &lt;/div&gt;
+
+      {message ? &lt;span className="ui-test-skills-message"&gt;{message}&lt;/span&gt; : null}
+
+      {visible.length === 0 ? (
+        &lt;div className="ui-test-skills-empty"&gt;
+          {index.skills.length === 0
+            ? "还没有人物 Skill。点章节工具栏的「提取记忆」时，AI 会自动为主要人物建档。"
+            : "没有匹配的人物。"}
+        &lt;/div&gt;
+      ) : (
+        &lt;div className="ui-test-skills-grid"&gt;
+          {visible.map((meta) =&gt; (
+            &lt;article
+              key={meta.id}
+              data-testid={`persona-skill-card-${meta.id}`}
+              className="ui-test-skill-card"
+            &gt;
+              &lt;header className="ui-test-skill-card-head"&gt;
+                &lt;h3 className="ui-test-skill-card-name" title={meta.characterName}&gt;
+                  {meta.characterName}
+                &lt;/h3&gt;
+                &lt;button
+                  type="button"
+                  data-testid={`persona-skill-pin-${meta.id}`}
+                  aria-pressed={meta.pinned}
+                  aria-label={meta.pinned ? "取消重要人物标记" : "标为重要人物"}
+                  title="绿勾 = 重要人物：每章重点分析，并生成研究文件"
+                  onClick={() =&gt; void handleTogglePin(meta)}
+                  className={`ui-test-persona-pin${meta.pinned ? " is-on" : ""}`}
+                /&gt;
+              &lt;/header&gt;
+              &lt;div className="ui-test-skill-card-badges"&gt;
+                &lt;span className="ui-test-skill-badge is-type"&gt;{TIER_LABELS[meta.tier]}&lt;/span&gt;
+                &lt;span className="ui-test-skill-badge"&gt;{STATUS_LABELS[meta.status]}&lt;/span&gt;
+                {meta.roleType ? &lt;span className="ui-test-skill-badge"&gt;{meta.roleType}&lt;/span&gt; : null}
+                &lt;span className="ui-test-skill-badge"&gt;出场 {meta.appearanceCount} 次&lt;/span&gt;
+                {meta.editedByUser ? &lt;span className="ui-test-skill-badge"&gt;已手改&lt;/span&gt; : null}
+                {meta.hasResearch ? &lt;span className="ui-test-skill-badge"&gt;有研究文件&lt;/span&gt; : null}
+              &lt;/div&gt;
+              &lt;div className="ui-test-skills-actions"&gt;
+                &lt;button type="button" onClick={() =&gt; setSelectedId(meta.id)}&gt;
+                  打开档案
+                &lt;/button&gt;
+              &lt;/div&gt;
+            &lt;/article&gt;
+          ))}
+        &lt;/div&gt;
+      )}
+    &lt;/div&gt;
+  )
+}</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 6：跑测试，确认全绿</span></div>
+    <div class="run">npx vitest run src/components/skill-library/persona-skill-view.spec.tsx
+npx tsc --build --pretty
+npx tsc -p tsconfig.test.json --noEmit</div>
+    <div class="expect"><span class="t">Expected</span>8 个用例全绿；两个类型检查都无输出。</div>
+    <div class="callout warn">
+      <span class="t">「点绿勾」那条红了？</span>
+      <p>检查 pin 按钮上<b>没有</b> <code>onClick</code> 里的 <code>event.stopPropagation()</code> 依赖——这个卡片本身没有整卡 <code>onClick</code>（打开档案是独立按钮），所以不需要 stopPropagation。如果照抄了统一技能库那套「整卡可点」的结构，就会引入一个多余的冒泡问题。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 7：提交</span></div>
+    <div class="run">git add src/stores/wiki-store.ts src/components/skill-library/persona-skill-view.tsx src/components/skill-library/persona-skill-view.spec.tsx src/components/uitest/ui-test-tools.css
+git commit -m "feat(人物skill): 加人物 Skill 页与草稿守卫"</div>
+  </div>
+</section>
+
+<!-- ============================ TASK 10 ============================ -->
+<section>
+  <h2><span class="tnum">Task 10</span>接线与全量门禁</h2>
+
+  <div class="files">
+    <span class="flabel">Files</span>
+    <ul>
+      <li>Modify: <code>src/components/skill-library/unified-skill-library-view.tsx</code>（6 处）</li>
+      <li>Modify: <code>src/components/skill-library/unified-skill-library-view.spec.tsx</code>（2 个新用例）</li>
+      <li>Modify: <code>src/components/layout/content-area.tsx</code>（1 处）</li>
+      <li>Modify: <code>src/components/layout/icon-sidebar.tsx</code>（1 处）</li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 1：先给统一技能库补两个失败用例</span></div>
+    <p>在 <code>unified-skill-library-view.spec.tsx</code> 里：<b>①</b> 在 <code>vi.mock("@/commands/fs", …)</code> 之后加一个 mock，免得把学习模块那串依赖拖进 jsdom：</p>
+    <pre><code>vi.mock("@/lib/novel/persona-skill-learning", () =&gt; ({
+  regeneratePersonaSkillResearch: vi.fn(async () =&gt; true),
+}))</code></pre>
+    <p><b>②</b> 在 <code>beforeEach</code> 里补一行重置草稿标记：</p>
+    <pre><code>    useWikiStore.getState().setPersonaSkillLibraryDraftDirty(false)</code></pre>
+    <p><b>③</b> 在 <code>describe</code> 末尾追加两个用例（照抄现有 <code>getButton</code> / <code>flushEffects</code> 辅助函数）：</p>
+    <pre><code>  it("切到「人物 Skill」tab：写 activeView 并渲染人物页", async () =&gt; {
+    const { container, root } = await renderLibrary()
+
+    await act(async () =&gt; {
+      getButton(container, "人物 Skill")?.click()
+    })
+    await flushEffects()
+
+    expect(useWikiStore.getState().activeView).toBe("personaSkillLibrary")
+    expect(container.querySelector('[data-testid="persona-skill-view"]')).not.toBeNull()
+    // 人物页没有统一技能库的搜索框，说明确实换了内容区
+    expect(container.querySelector('[data-testid="unified-skill-search-input"]')).toBeNull()
+
+    cleanup(root, container)
+  })
+
+  it("人物 Skill tab 不显示去AI味的「新建技能 / 导入」按钮", async () =&gt; {
+    const { container, root } = await renderLibrary()
+
+    await act(async () =&gt; {
+      getButton(container, "人物 Skill")?.click()
+    })
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="skill-library-header-actions"]')).toBeNull()
+
+    cleanup(root, container)
+  })</code></pre>
+    <div class="run">npx vitest run src/components/skill-library/unified-skill-library-view.spec.tsx</div>
+    <div class="expect fail">
+      <span class="t">Expected</span>
+      两个新用例失败（<code>getButton(container, "人物 Skill")</code> 返回 undefined）；其余 8 个既有用例仍绿。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 2：改 <code>unified-skill-library-view.tsx</code> —— ① 加 tab</span></div>
+    <pre><code>const skillLibraryTabs = [
+  { view: "skillLibrary" as const, label: "去AI味技能" },
+  { view: "writingSkillLibrary" as const, label: "写作 Skill" },
+  { view: "personaSkillLibrary" as const, label: "人物 Skill" },
+  { view: "skillFavorites" as const, label: "收藏" },
+]</code></pre>
+    <p><code>SkillLibraryTab</code> 是从这个数组派生的，所以自动跟上，不用手改。</p>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 3：改 <code>unified-skill-library-view.tsx</code> —— ② 引入视图</span></div>
+    <p>紧跟 <code>import { FavoriteListView } from "./favorite-list-view"</code> 之后：</p>
+    <pre><code>import { PersonaSkillView } from "./persona-skill-view"</code></pre>
+    <p class="why">这里必须是「统一技能库静态 import 人物页」，不是动态 import——<code>bundle-boundaries.spec.ts</code> 检查的是 <code>content-area.tsx</code> 对统一技能库的懒加载，里面再静态引子页不影响那条边界。</p>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 4：改 <code>unified-skill-library-view.tsx</code> —— ③ activeTab 与两个派生布尔</span></div>
+    <pre><code>  const activeTab: SkillLibraryTab = activeView === "writingSkillLibrary"
+    ? "writingSkillLibrary"
+    : activeView === "personaSkillLibrary"
+    ? "personaSkillLibrary"
+    : activeView === "skillFavorites"
+    ? "skillFavorites"
+    : "skillLibrary"</code></pre>
+    <p>在 <code>const isFavorites = activeTab === "skillFavorites"</code> 旁边加：</p>
+    <pre><code>  const isPersona = activeTab === "personaSkillLibrary"</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 5：改 <code>unified-skill-library-view.tsx</code> —— ④ 草稿守卫 + ⑤ 头部按钮条件</span></div>
+    <p>在组件顶部（<code>writingDraftDirty</code> 那片）补两个 selector：</p>
+    <pre><code>  const personaDraftDirty = useWikiStore((s) =&gt; s.personaSkillLibraryDraftDirty)
+  const setPersonaDraftDirty = useWikiStore((s) =&gt; s.setPersonaSkillLibraryDraftDirty)</code></pre>
+    <p><code>handleBackToList</code> 开头加一段（人物页自己管「列表/编辑」两态，父组件只管草稿标记）：</p>
+    <pre><code>  function handleBackToList() {
+    if (activeTab === "personaSkillLibrary") {
+      if (personaDraftDirty &amp;&amp; !confirmDiscardSkillLibraryDraft()) return
+      setPersonaDraftDirty(false)
+      return
+    }
+    const dirty = activeTab === "writingSkillLibrary" ? writingDraftDirty : skillDraftDirty
+    …（余下不变）</code></pre>
+    <p>头部按钮条件从 <code>{!editing &amp;&amp; !isFavorites ? …}</code> 改成：</p>
+    <pre><code>          {!editing &amp;&amp; !isFavorites &amp;&amp; !isPersona ? (
+            &lt;SkillLibraryActions activeTab={activeTab} onAfterCreate={() =&gt; setEditing(true)} /&gt;
+          ) : null}</code></pre>
+    <p>副标题一并更新：</p>
+    <pre><code>            &lt;p&gt;管理写作 Skill、去AI味技能与人物 Skill，点开卡片即可编辑。&lt;/p&gt;</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 6：改 <code>unified-skill-library-view.tsx</code> —— ⑥ 内容区分支</span></div>
+    <pre><code>      &lt;div data-ui="skills-content"&gt;
+        {isFavorites ? (
+          &lt;FavoriteListView /&gt;
+        ) : isPersona ? (
+          &lt;PersonaSkillView /&gt;
+        ) : editing ? (
+          &lt;div className="ui-test-skills-editor"&gt;
+            &lt;button type="button" className="ui-test-skills-back" onClick={handleBackToList}&gt;
+              &lt;ArrowLeft /&gt; 返回技能库
+            &lt;/button&gt;
+            {activeTab === "writingSkillLibrary" ? &lt;WritingSkillLibraryView /&gt; : &lt;SkillLibraryView /&gt;}
+          &lt;/div&gt;
+        ) : (
+          &lt;SkillGallery activeTab={activeTab as GalleryTab} onOpen={handleOpenEntry} /&gt;
+        )}
+      &lt;/div&gt;</code></pre>
+    <p>注意 <code>GalleryTab</code> 类型是 <code>"skillLibrary" | "writingSkillLibrary"</code>，人物页走的是新分支，所以那个 <code>as GalleryTab</code> 断言不用改。</p>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 7：接线导航 —— <code>content-area.tsx</code> 与 <code>icon-sidebar.tsx</code></span></div>
+    <p><code>content-area.tsx</code> 的 <code>case</code> 组（<code>:125-133</code>）加一个分支：</p>
+    <pre><code>      case "skillLibrary":
+      case "writingSkillLibrary":
+      case "personaSkillLibrary":
+      case "skillFavorites":
+        content = (
+          &lt;Suspense fallback={&lt;LoadingView /&gt;}&gt;
+            &lt;UnifiedSkillLibraryView /&gt;
+          &lt;/Suspense&gt;
+        );
+        break;</code></pre>
+    <p><code>icon-sidebar.tsx:81</code> 的 <code>isActive</code> 也要认这个新 tab，否则侧栏图标不高亮：</p>
+    <pre><code>  const isActive = activeView === item.view
+    || (item.view === "skillLibrary"
+      &amp;&amp; (activeView === "writingSkillLibrary" || activeView === "personaSkillLibrary"))</code></pre>
+    <div class="callout warn">
+      <span class="t">只加这两个字面量，别顺手重构</span>
+      <p>侧栏那行的原表达式只认 <code>writingSkillLibrary</code>，<b>不认</b> <code>skillFavorites</code>。补上 <code>personaSkillLibrary</code> 就行；顺手把 <code>skillFavorites</code> 也加进去属于顺手改别人行为，不在本分支职责内。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 8：跑本任务的定向测试</span></div>
+    <div class="run">npx vitest run src/components/skill-library/unified-skill-library-view.spec.tsx src/components/uitest/ui-test-tools.spec.tsx src/lib/bundle-boundaries.spec.ts src/lib/ui-test-primary-nav.spec.ts</div>
+    <div class="expect">
+      <span class="t">Expected</span>
+      全部通过。<code>ui-test-tools.spec.tsx</code> 里 <code>["skills", "skill-library/unified-skill-library-view.tsx"]</code> 那条要求源码仍含 <code>data-ui-page="skills"</code> 与 <code>data-ui-state=</code>——这两个属性在根 <code>div</code> 上没动，应当照旧通过；若红了，说明整块重写时把属性删了。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 9：全量门禁</span></div>
+    <div class="run">npx tsc --build --pretty
+npx tsc -p tsconfig.test.json --noEmit
+npm run test:mocks</div>
+    <div class="expect">
+      <span class="t">Expected</span>
+      <code>tsc</code> 两次都无输出。<code>test:mocks</code> 开头会先跑 <code>node scripts/lint-character-aura.mjs</code>——它检查 <code>character-aura.ts</code> 与 <code>skills/soulskill/**</code>；本计划<b>没碰</b>这些文件，所以必然通过（如果它报错，说明你误改了 <code>character-aura.ts</code>，退回去查）。
+      <br>测试总数为「本分支基线 <b>720 文件 / 6957 用例</b>」+ 本次新增 6 个 spec 文件 + 约 <b>65 个新用例</b>，0 失败。
+    </div>
+    <div class="callout warn">
+      <span class="t">跑完看到约 170 个「已修改」？那是 EOL 假阳性，不是你的改动</span>
+      <pre><code>git diff HEAD --name-only | Measure-Object      # 必须是 0
+git add -u                                       # 只刷新索引 stat
+git diff --cached HEAD --name-only | Measure-Object   # 必须仍是 0，否则停下来查</code></pre>
+      <p><b>禁止</b> <code>git checkout -- .</code> / <code>git restore .</code>——那会真删改动。</p>
+    </div>
+    <div class="callout warn">
+      <span class="t">若出现 <code>[vitest-pool]: Failed to start forks worker for test files …</code></span>
+      <p>这是已知的 vitest 进程启动抖动，<b>不是</b>断言失败。判定方法：单独重跑那个文件——</p>
+      <pre><code>npx vitest run &lt;该文件路径&gt;</code></pre>
+      <p>单独跑通过即确认是抖动，可复跑整套确认。基线在 <code>dcf8b38</code> 上实测也是这样抖过一次（<code>item-briefing-integration.spec.ts</code>）。</p>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 10：提交</span></div>
+    <div class="run">git add src/components/skill-library/unified-skill-library-view.tsx src/components/skill-library/unified-skill-library-view.spec.tsx src/components/layout/content-area.tsx src/components/layout/icon-sidebar.tsx
+git commit -m "feat(人物skill): 接上导航与草稿守卫"</div>
+  </div>
+</section>
+
+<!-- ============================ 验收 ============================ -->
+<section>
+  <h2>验收清单</h2>
+  <p>逐条对着原始需求核对。左列是用户原话里的诉求，右列是本计划里对应它的可验证断言。</p>
+  <table>
+    <tr><th>需求</th><th>落地位置</th><th>怎么证明它成立</th></tr>
+    <tr>
+      <td>第一章出现的人物，AI 分析风格/说话方式，做一份 skill 自动进技能库</td>
+      <td class="mono">persona-skill-learning.ts<br>chapter-ingest.ts 挂钩</td>
+      <td><code>learnPersonaSkillsFromChapter</code> 里「主要人物第一次出场就建档」这个用例：index 出现 1 条 + <code>SKILL.md</code> 含 <code>## 怎么说话</code></td>
+    </tr>
+    <tr>
+      <td>第二次出现时再次完善，让人物形象饱满</td>
+      <td class="mono">planPersonaSkillRound（refine）<br>renderPersonaSkillDocument</td>
+      <td>「已有档案的主要人物每次出场都完善」→ <code>mode === "refine"</code>；<code>skillRevision</code> 递增</td>
+    </tr>
+    <tr>
+      <td>用户可以编辑 skill 内容</td>
+      <td class="mono">persona-skill-view.tsx</td>
+      <td>「打开档案后保存：写回 SKILL.md 并把 editedByUser 置真」</td>
+    </tr>
+    <tr>
+      <td>3000 个人物不能建 3000 个 skill、不能卡</td>
+      <td class="mono">D1 分级门槛<br>persona-skill-context 先匹配后读盘</td>
+      <td>「没有定位的龙套一直不建档」+「次要人物第一次出场不建档」+「最多取 12 个」+「总长不超过 4000 字预算」</td>
+    </tr>
+    <tr>
+      <td>不活跃的配角 skill 什么时候删</td>
+      <td class="mono">resolvePersonaStatus<br>D4 / D5</td>
+      <td>「连续 30 章未出场转归档，但文件不删」+「归档 / 潜伏的人不入选（注入）」+「绿勾人物不会因为长期未出场被归档」。<b>永不自动删除</b>是刻意的：用户没要求删，误判一次就永久丢设定。</td>
+    </tr>
+    <tr>
+      <td>AI 对话中生成章节是否会自动引用这些 skill</td>
+      <td class="mono">context-engine.ts<br>buildPersonaSkillContext</td>
+      <td>走 <code>buildContextPack()</code> 的正常路径并进 <code>characterAuras</code>（<code>SECTION_PRIORITY.characterAuras = 10</code>），所以写作时自动带；「角色灵魂仍动态 import」那条用例保证没绕开既有尺寸边界。</td>
+    </tr>
+    <tr>
+      <td>多个角色按什么策略注入 → 按档位分级（用户选定 A 方案）</td>
+      <td class="mono">comparePersonaSkillMeta<br>renderPersonaSkillBlock</td>
+      <td>「绿勾排最前，其次主要人物，再按出场次数降序」+「主要人物写 7 段」+「次要人物只留 2 段」</td>
+    </tr>
+    <tr>
+      <td>生成后用户可编辑，且不能被 AI 覆盖</td>
+      <td class="mono">editedByUser 守卫</td>
+      <td>「用户手改过：既有正文逐字保留，新内容进「补充」段」+「用户手改过的档案只追加「补充」」+「用户手改过的「补充」段也会注入」</td>
+    </tr>
+    <tr>
+      <td>一开始定义很重、但前期没怎么出场的角色怎么办</td>
+      <td class="mono">绿勾 pinned（D6）</td>
+      <td>「绿勾人物第一次出场就建档，并且是唯一产出研究文件的一类」+「点绿勾把 pinned 写进 index.json，并把档位升成 major」+「绿勾人物在完善时同时产出研究文件」</td>
+    </tr>
+    <tr>
+      <td>会不会拖慢「提取记忆」</td>
+      <td class="mono">chapter-ingest.ts 的 void 挂钩</td>
+      <td>「后台异步：void 调用，绝不 await」+「重新提取短路：isReingest 守卫真的包住了挂钩」+「同一章 5 个人物只调用模型 1 次」</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ============================ 残余风险 ============================ -->
+<section>
+  <h2>残余风险与后续</h2>
+  <table>
+    <tr><th>风险</th><th>本计划里的处置</th><th>后续可选动作</th></tr>
+    <tr>
+      <td><b>同名人物共用一个 skill。</b>两个人叫「小二」，会算成同一个人。</td>
+      <td>v1 接受。<code>collectChapterAppearances</code> 用归一化名字做 key，同名必然合并。</td>
+      <td>加「按章节共现歧义消解」或让用户在 UI 上手动拆分（指定两个 id）。</td>
+    </tr>
+    <tr>
+      <td><b>自动分档判错。</b>定位来源是文件名，作者可能把重要角色标成「配角」。</td>
+      <td>绿勾（D6）就是为这个盲点设计的兜底：一次手动点击即可一票升级，并且此后每章重点分析。</td>
+      <td>让 UI 支持手动改 <code>roleType</code> / <code>tier</code>（当前只读展示）。</td>
+    </tr>
+    <tr>
+      <td><b>后台学习比下一章慢。</b>用户点完「提取记忆」立刻写下一章，可能还读不到刚学到的 skill。</td>
+      <td>接受。注入端对「档案不存在」是降级而不是报错（空串），不会影响写作。</td>
+      <td>不需要动：这是一次 LLM 的固有延迟，同步等待反而会让按钮变慢。</td>
+    </tr>
+    <tr>
+      <td><b>模型返回坏 JSON。</b></td>
+      <td>整轮 <code>warn</code> 后跳过，不推进 <code>lastLearnedChapter</code>，下次出场自动重试；候选池计数照常落盘，不会白数。</td>
+      <td>若线上偏多，可把「多人一次」按 N 分批（仍 ≤ 1 次/章的前提下拆成 2 批）。</td>
+    </tr>
+    <tr>
+      <td><b>注入预算被撑满。</b>12 人 × 每段 260 字会顶到 4000 字上限，排在后面的主角可能被截。</td>
+      <td>排序把绿勾与主要人物排在前面，被截的是次要人物；没有命中就完全不注入。</td>
+      <td>可给 <code>PERSONA_INJECT_*</code> 开成项目配置项。</td>
+    </tr>
+    <tr>
+      <td><b>用户手改后档案越滚越长。</b>每轮追加一个「补充（第 N 章）」段。</td>
+      <td>注入端对「补充」做了 260 字截断，且总预算 4000 兜底。</td>
+      <td>UI 加「合并补充段」（让 AI 把补充内容并进正式字段，仍经用户确认）。</td>
+    </tr>
+  </table>
+</section>
+
+<!-- ============================ 回滚 ============================ -->
+<section>
+  <h2>回滚</h2>
+  <p>整套改动是<b>可整段摘除</b>的：除了下面 3 处一行级接线，其余全是新文件。</p>
+  <ol>
+    <li>删掉 <code>chapter-ingest.ts</code> 里的那一行 import 与那个 <code>if (!isReingest) { void … }</code> 块。</li>
+    <li>把 <code>context-engine.ts</code> 的 <code>personaMatchingText</code> / <code>Promise.all</code> 段还原成原来的 <code>soulContext</code> 单调用，并把 <code>characterAuras</code> 还原成 <code>soulContext.text</code>，删掉那一行静态 import。</li>
+    <li>把 <code>unified-skill-library-view.tsx</code> 的 tab 数组、<code>activeTab</code>、内容区分支还原，并去掉 <code>content-area.tsx</code> / <code>icon-sidebar.tsx</code> 的字面量。</li>
+  </ol>
+  <p>用户数据留在 <code>&lt;project&gt;/.qmai/persona-skills/</code>，不会被任何回滚动作删掉——下次想启用时直接读回来即可。<code>wiki-store.ts</code> 里多出的 <code>personaSkillLibraryDraftDirty</code> 留着无害（只是没人再设置它）。</p>
+  <div class="callout ok">
+    <span class="t">合并前</span>
+    <p>第三阶段：写 <code>docs/character-skill-分支说明.md</code>，并<b>删除本分支专属的 <code>AGENTS.md</code></b>（它会被 DSH 指令加载器当作项目级指令加载，合并进 main 后会影响所有工作）。见 <code>AGENTS.md</code> §8。</p>
+  </div>
+</section>
+
+<footer>
+  <p>QMAI · 技能库「人物 Skill」实施计划 · 2026-10-10 · 设计依据 <code>docs/superpowers/specs/2026-10-10-persona-skill-design.html</code></p>
+  <p>分支 <code>feature/character-skill</code> · 工作树 <code>.worktrees/character-skill</code> · 基点 <code>dcf8b38</code></p>
+  <p>执行方式：<code>superpowers:subagent-driven-development</code>（推荐）或 <code>superpowers:executing-plans</code>，按 Step 勾选推进。</p>
+</footer>
+
+</div>
+<script>
+  document.getElementById('themeToggle').addEventListener('click', function () {
+    var root = document.documentElement;
+    var dark = root.classList.toggle('dark');
+    try { localStorage.setItem('qmai-spec-theme', dark ? 'dark' : 'light'); } catch (e) {}
+  });
+</script>
+</body>
+</html>
+
