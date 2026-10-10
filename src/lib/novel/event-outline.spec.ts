@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   EVENT_OUTLINE_MAX_EVENTS,
   EVENT_OUTLINE_MIN_EVENTS,
+  buildEventOutlinePrompt,
+  eventOutlineToProsePrompt,
   extractEventOutlineData,
   normalizeEventOutlineData,
   validateEventOutlineData,
@@ -266,5 +268,71 @@ describe("extractEventOutlineData", () => {
       },
     })
     expect(extractEventOutlineData(`\`\`\`json\n${tricky}\n\`\`\``)?.events).toHaveLength(1)
+  })
+})
+
+describe("buildEventOutlinePrompt", () => {
+  const request = { chapterNumber: 12, eventCount: 6, targetWords: 3000, requirement: "让楚白第一次动用令牌" }
+
+  it("带上章号、事件数与目标字数", () => {
+    const prompt = buildEventOutlinePrompt(request)
+    expect(prompt).toContain("第 12 章")
+    expect(prompt).toContain("6 个")
+    expect(prompt).toContain("3000")
+  })
+
+  it("带上用户对本章的要求", () => {
+    expect(buildEventOutlinePrompt(request)).toContain("让楚白第一次动用令牌")
+  })
+
+  it("要求产出 eventOutlineData 与保存请求", () => {
+    const prompt = buildEventOutlinePrompt(request)
+    expect(prompt).toContain("eventOutlineData")
+    expect(prompt).toContain("outlineSaveRequest")
+    expect(prompt).toContain("event-outline")
+  })
+
+  it("明令禁止写正文", () => {
+    expect(buildEventOutlinePrompt(request)).toContain("不要写正文")
+  })
+
+  it("没有额外要求时不留下空标题", () => {
+    const prompt = buildEventOutlinePrompt({ ...request, requirement: "  " })
+    expect(prompt).not.toContain("用户对本章的要求：\n")
+  })
+
+  it("保存建议里的章号补零，与文件命名规范一致", () => {
+    expect(buildEventOutlinePrompt({ ...request, chapterNumber: 7 })).toContain("第007章")
+  })
+
+  it("每个事件的建议字数按目标字数与事件数推算", () => {
+    expect(buildEventOutlinePrompt(request)).toContain(String(Math.round(3000 / 6)))
+  })
+})
+
+describe("eventOutlineToProsePrompt", () => {
+  it("把事件流写成按顺序覆盖的硬要求", () => {
+    const prompt = eventOutlineToProsePrompt(data())
+    expect(prompt).toContain("第 12 章")
+    expect(prompt).toContain("1. 事件1")
+    expect(prompt).toContain("台词：你来啦")
+    expect(prompt).toContain("令牌上的四个字亮起时")
+  })
+
+  it("带上目标字数与只输出正文的要求", () => {
+    const prompt = eventOutlineToProsePrompt(data())
+    expect(prompt).toContain("3000")
+    expect(prompt).toContain("只输出")
+  })
+
+  it("明令不得调换事件顺序", () => {
+    expect(eventOutlineToProsePrompt(data())).toContain("顺序")
+  })
+
+  it("没有结尾钩子时不留下空标题", () => {
+    const prompt = eventOutlineToProsePrompt(data({ endingHook: "" }))
+    expect(prompt).not.toContain("## 本章结尾钩子\n")
+    // 只有空白的钩子与空字符串同待遇，否则会留下一个空标题。
+    expect(eventOutlineToProsePrompt(data({ endingHook: "   " }))).not.toContain("## 本章结尾钩子")
   })
 })

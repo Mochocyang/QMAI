@@ -257,3 +257,81 @@ export function extractEventOutlineData(content: string): EventOutlineData | nul
   }
   return null
 }
+
+/** 事件细纲的生成提示词。范围（章号 / 事件数 / 字数）由向导定死，所以不开意图分析。 */
+export function buildEventOutlinePrompt(request: EventOutlineRequest): string {
+  const requirement = request.requirement.trim()
+  const perEventWords = Math.round(request.targetWords / request.eventCount)
+  // 章号补零，与「事件细纲-第001章.md」的命名规范保持一致。
+  const fileName = `事件细纲-第${String(request.chapterNumber).padStart(3, "0")}章.md`
+  // 示例 JSON 交给 JSON.stringify 生成：手写字符串一旦漏引号或漏括号，就会教模型输出坏数据。
+  const example = JSON.stringify({
+    eventOutlineData: {
+      version: 1,
+      chapterNumber: request.chapterNumber,
+      title: "第N章 · 一句话章名",
+      targetWords: request.targetWords,
+      events: [
+        { id: 1, title: "一句话事件", points: ["关键台词：…", "神情动作：…", "环境物件：…"] },
+      ],
+      endingHook: "章尾钩子",
+    },
+  })
+  return [
+    `请为第 ${request.chapterNumber} 章生成一份「事件细纲」：把这一章拆成 ${request.eventCount} 个连续事件。`,
+    "",
+    `- 目标章号：第 ${request.chapterNumber} 章`,
+    `- 事件数量：${request.eventCount} 个（必须正好 ${request.eventCount} 个）`,
+    `- 本章目标字数：约 ${request.targetWords} 字（每个事件约 ${perEventWords} 字）`,
+    ...(requirement ? [`- 用户对本章的要求：${requirement}`] : []),
+    "",
+    "## 每个事件必须包含",
+    "1. title：一句话说清这个事件发生了什么，20 字左右，不超过 24 字；",
+    "2. points：2~5 条细节抓手，写可以直接落笔的东西，例如关键台词、人物神情与动作、环境与物件细节、这一步推进了什么或留下什么钩子。",
+    "",
+    "## 硬要求",
+    "- 事件之间必须前后连续、有因果推进，不能是并列的碎片；",
+    "- 最后一个事件之后必须留下一个能勾住读者的章尾钩子；",
+    "- **不要写正文**，不要展开描写，只给事件与抓手；",
+    "- 先读资料（list_chapters / read_chapter / list_outlines / read_outline）确认前文与已有章纲，再动笔；",
+    "- 不要输出工具调用报告和分析过程。",
+    "",
+    "## 输出格式（缺一不可）",
+    "1. 一份可直接保存的 Markdown 正文：标题形如「第N章 · 一句话章名」，下面按事件分节列出标题与抓手；",
+    "2. 一个 ```json 围栏，顶层字段为 eventOutlineData：",
+    "```json",
+    example,
+    "```",
+    "3. 一个 ```json 围栏，顶层字段为 outlineSaveRequest（content 为上一步的 Markdown 正文）：",
+    `targetFolder 填「事件细纲」，fileName 形如「${fileName}」，`
+      + "fileType 必须是 event-outline，writeMode 用 create。",
+  ].join("\n")
+}
+
+/**
+ * 把事件细纲变成写作输入框里的提示词。
+ *
+ * 走「用户指定」这一档（FIELD_PRIORITY 最前）：不新增上下文数据源、不改 token 预算，
+ * 由用户在写作现场确认后自行发送。
+ */
+export function eventOutlineToProsePrompt(data: EventOutlineData): string {
+  const lines: string[] = [
+    `请根据下面这份「事件细纲」写出第 ${data.chapterNumber} 章正文。`,
+    "",
+    "## 本章事件序列（必须按此顺序全部覆盖，不得跳过、不得调换顺序与因果）",
+  ]
+  data.events.forEach((event) => {
+    lines.push(`${event.id}. ${event.title}`)
+    event.points.forEach((point) => lines.push(`   - ${point}`))
+  })
+  if (data.endingHook.trim()) {
+    lines.push("", "## 本章结尾钩子", data.endingHook)
+  }
+  lines.push(
+    "",
+    "## 写作要求",
+    `- 目标约 ${data.targetWords} 字，允许 ±10% 浮动；每个事件都要有场景、对话、人物神情与环境细节，不要写成事件流水账；`,
+    "- 只输出可直接保存到章节库的小说正文，不要解释，不要列提纲，不要输出工具调用报告。",
+  )
+  return lines.join("\n")
+}
