@@ -586,7 +586,7 @@ export function insertContinuationBody(
   <div class="step">
     <div class="head"><input type="checkbox"><span>Step 4：跑测试，确认通过</span></div>
     <div class="run">npx vitest run src/lib/novel/continuation.spec.ts</div>
-    <div class="expect"><span class="t">Expected</span>PASS — <code>Tests  20 passed (20)</code></div>
+    <div class="expect"><span class="t">Expected</span>PASS — <code>Tests  21 passed (21)</code>（原计划写 20；实施时按 Task 1 代码审查的意见把「超过上限」那条测试改成首中尾异字符，并新增一条钉住输出硬上限的测试，故为 21）</div>
   </div>
 
   <div class="step">
@@ -715,7 +715,7 @@ export function clampContinuationPopoverPosition(
   <div class="step">
     <div class="head"><input type="checkbox"><span>Step 4：跑测试，确认通过</span></div>
     <div class="run">npx vitest run src/lib/novel/continuation.spec.ts</div>
-    <div class="expect"><span class="t">Expected</span>PASS — <code>Tests  28 passed (28)</code></div>
+    <div class="expect"><span class="t">Expected</span>PASS — <code>Tests  31 passed (31)</code>（21 条既有 + 4 条字数 + 6 条定位）</div>
   </div>
 
   <div class="step">
@@ -1217,7 +1217,8 @@ describe("章节编辑器的续写入口", () =&gt; {
     const onContinuationRequest = vi.fn()
     const { container, textarea, cleanup } = mount(onContinuationRequest)
 
-    // 正文（不含 frontmatter、不含 # 标题行）是「　　他推开门。」共 6 字
+    // 正文（不含 frontmatter、不含 # 标题行）是「　　他推开门。」
+    // 共 7 个字符（两个全角空格 + 他推开门。），所以末尾偏移是 7
     expect(textarea.value).toBe("　　他推开门。")
 
     act(() =&gt; {
@@ -1234,7 +1235,7 @@ describe("章节编辑器的续写入口", () =&gt; {
 
     expect(onContinuationRequest).toHaveBeenCalledTimes(1)
     const [anchor, position] = onContinuationRequest.mock.calls[0]
-    expect(anchor.at).toBe(6)
+    expect(anchor.at).toBe(7)
     expect(anchor.bodySnapshot).toBe("　　他推开门。")
     expect(position).toEqual({ x: 40, y: 60 })
 
