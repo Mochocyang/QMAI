@@ -66,19 +66,26 @@ export async function callAnalysisModelText(
     // 每次 attempt 都从空串重新累积：上一轮收到的半截思考绝不能算进正文。
     let output = ""
     let streamError: Error | null = null
-    await streamChat(
-      llmConfig,
-      messages,
-      {
-        onToken: (token) => { output += token },
-        onDone: () => {},
-        onError: (error) => { streamError = error },
-        onRequestTrace,
-      },
-      signal,
-      reasoningOff ? withReasoningDisabled(baseOverrides) : baseOverrides,
-    )
-    lastAttemptOutput = output
+    try {
+      await streamChat(
+        llmConfig,
+        messages,
+        {
+          onToken: (token) => { output += token },
+          onDone: () => {},
+          onError: (error) => { streamError = error },
+          onRequestTrace,
+        },
+        signal,
+        reasoningOff ? withReasoningDisabled(baseOverrides) : baseOverrides,
+      )
+    } finally {
+      // 放在 finally 里：streamChat 既有「走 onError 回调后正常 resolve」的失败，
+      // 也有直接抛的失败（provider 配置/网络问题，见 llm-client.ts:401/479/505）。
+      // 只在 await 之后赋值的话，直接抛的那条路会丢掉本轮已收到的半截正文，
+      // 让 onPartialText 交出上一轮（甚至空串）的内容。
+      lastAttemptOutput = output
+    }
     if (signal?.aborted) throw new Error(cancelMessage)
     if (streamError) throw streamError
     return output.trim()
