@@ -42,6 +42,23 @@ describe("event-outline-task-store", () => {
     expect(task?.outline?.title).toBe("第7章 · 雨夜递刀")
   })
 
+  it("finishTask 以**任务**章号为准，覆盖细纲 JSON 里模型自报的章号（F8）", () => {
+    // 向导指定第 3 章，模型却在 JSON 里自报第 7 章：将来拼提示词、定文件名、
+    // 写 frontmatter 的地方都读 task.outline.chapterNumber，必须在入 store 时就统一，
+    // 否则同一章会在三个地方说三个号（提示词 3、文件名 7、frontmatter 7）。
+    const id = useEventOutlineTaskStore.getState().startTask({
+      projectPath: "/p",
+      request: request({ chapterNumber: 3 }),
+    })
+    useEventOutlineTaskStore.getState().finishTask(id, outline(7))
+    const task = useEventOutlineTaskStore.getState().tasks.find((item) => item.id === id)
+    expect(task?.chapterNumber).toBe(3)
+    expect(task?.outline?.chapterNumber, "模型自报的 7 必须被任务章号覆盖").toBe(3)
+    // 细纲的其它字段原样保留（只改章号，不重建对象）
+    expect(task?.outline?.title).toBe("第7章 · 雨夜递刀")
+    expect(task?.outline?.events).toHaveLength(1)
+  })
+
   it("failTask 记下原因并清掉细纲", () => {
     const id = useEventOutlineTaskStore.getState().startTask({ projectPath: "/p", request: request() })
     useEventOutlineTaskStore.getState().failTask(id, "网络连接中断")

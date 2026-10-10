@@ -1437,6 +1437,14 @@ export function PreviewPanel() {
      *
      * 两道判定都必须在这里（而不是只在 `.then` 的开头）：写入链里有多个真实的
      * IPC 往返，用户完全有机会在这中间切项目或点取消。
+     *
+     * ⚠️ 项目那一道是**纵深防御**，不是唯一防线（变异测试的结论）：把它单独删掉，
+     * 本文件 38 条用例**全绿** —— 因为「切项目」那个 effect 几乎总是先跑、先 abort
+     * 掉这个 controller，随后 `aborted` 那道判定就把它拦住了；`.catch` 里
+     * `|| projectChanged()` 也兜住了收尾方式。它防的是两者之间的次序窗口：
+     * React 的被动 effect 是宏任务、promise 续体是微任务，真实 IPC 恰好先回来时
+     * 写入链会赶在 abort 之前走到这里，那时只剩它能回答「这一章属于哪个项目」。
+     * 这个次序在 jsdom + act 里造不出来（act 会在微任务排空前冲刷 effect）。
      */
     const assertStillWritable = () => {
       if (projectChanged()) throw new ProjectChangedDuringWriteError()

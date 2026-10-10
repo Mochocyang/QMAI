@@ -1314,6 +1314,50 @@ describe("丙-2b 修复批：取消 / 项目切换 / 目标路径 / 进度", () 
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("项目已切换"))
   })
 
+  it("N2：写入链抢在切项目 effect 之前恢复，也必须被项目复核拦住", async () => {
+    /*
+     * 与上一条的区别只在**时序**：这里「切项目」与「放开闸门」在同一个 act 作用域里
+     * 完成，中间不 await —— 写入链是从 createDirectory 上原地恢复的。
+     *
+     * ⚠️ 如实说明（变异测试的结论）：在 jsdom + act 这套环境里 React 的 effect
+     * **仍然**赢了这个竞争 —— 实测把 `assertStillWritable` 里那道项目复核单独删掉，
+     * 这一条与上一条**都**还是绿的（act 会在写入链的微任务排空之前把 effect 冲刷掉）。
+     * 所以这一条**不是**项目复核的判别用例；它钉住的是「同一个 tick 里切项目 +
+     * 写入链恢复」这条路径的结果（不写盘、不跨项目选中、任务收掉）。
+     *
+     * 写入链里那道项目复核在生产里的价值是另一个次序：React 的被动 effect 是宏任务，
+     * 而 promise 续体是微任务 —— 真实 IPC 恰好先回来时，写入链可能赶在 effect 发出
+     * abort 之前就走到复核点，那时只剩它了。这个次序在本测试环境里造不出来。
+     */
+    const toastModule = await import("@/lib/toast")
+    const errorSpy = vi.spyOn(toastModule.toast, "error").mockImplementation(() => {})
+    const gate = createDeferred<void>()
+    const signals: AbortSignal[] = []
+    mockProseReturnedIgnoringAbort(signals)
+    await mount()
+    fixture.createDirectory.mockImplementation(() => gate.promise)
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(1), rawContent: "", error: null })
+    await submitWizard("", "1")
+    await confirmOutline()
+    writingRow(1)
+
+    const otherProject = { id: "other-book", name: "另一本", path: "C:/other-book" }
+    const otherFile = `${otherProject.path}/wiki/notes/note.md`
+    fixture.files.set(otherFile, "---\ntype: note\n---\n\n笔记")
+    // 切项目与放开闸门在同一个 act 作用域、中间不 await：effect 还没跑，写入链先恢复
+    await act(async () => {
+      useWikiStore.setState({ project: otherProject, selectedFile: otherFile })
+      gate.resolve()
+    })
+    await settleAsync()
+
+    expect(fixture.writeFile, "写入链先恢复时，也不得往上一个项目写").not.toHaveBeenCalled()
+    expect(fixture.files.has(chapterAreaPath(1)), "上一个项目里不得出现第1章.md").toBe(false)
+    expect(useWikiStore.getState().selectedFile).toBe(otherFile)
+    expect(useEventOutlineTaskStore.getState().tasks).toHaveLength(0)
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("项目已切换"))
+  })
+
   it("N3：开着的就是这一章（章节区规范名）时，写进那一份、不产生同章的第二份文件", async () => {
     seedWritingStatsProject()
     // 章节库里这一章已经是规范名；编辑器随后也切到它上面（真正「同章」的形态）
