@@ -186,4 +186,59 @@ describe("event-outline 路由隔离", () => {
       fileName: "事件细纲-第012章.md",
     })
   })
+
+  it("提示词规定的自识别形状（# 事件细纲 · 第N章）不被「第12章」抢成章纲", () => {
+    // 这条是 C2 的回归：文档自己带「事件细纲」后，即便标题/正文里同时出现「第12章」，
+    // 也必须走事件细纲，绝不能靠调整推断链顺序来修（那会劫持合法的 17 节章纲）。
+    expect(classifyOutlineSaveTarget({
+      title: "第12章 · 令牌初现",
+      content: [
+        "# 事件细纲 · 第12章 令牌初现",
+        "",
+        "## 事件1 院子里的哭声",
+        "- 关键台词：「夜壶里的东西是药。」",
+        "- 神情动作：念念两只小手护住屁股蛋。",
+      ].join("\n"),
+    })).toMatchObject({
+      fileType: "event-outline",
+      targetFolder: "事件细纲",
+    })
+  })
+
+  it("仅标题带「事件细纲 · 第N章」、正文很泛时也走事件细纲", () => {
+    expect(classifyOutlineSaveTarget({
+      title: "事件细纲 · 第12章 令牌初现",
+      content: "## 院子里的哭声\n- 念念挨了打",
+    })).toMatchObject({
+      fileType: "event-outline",
+      targetFolder: "事件细纲",
+    })
+  })
+
+  it("正文提到「本章事件序列」的 17 节章纲仍然是章纲，不被事件标记劫持", () => {
+    // 反向守卫：修 C2 时绝不能把「事件」类检查提到 subject 之前 ——
+    // 那样一份合法章纲会因为第 5 节叫「本章事件序列」而被改判成事件细纲。
+    const seventeenSectionChapterOutline = [
+      "# 章纲-第46章：第一次冷处理",
+      "",
+      "## 1. 本章定位",
+      "- 承接第45章的摊牌余波。",
+      "## 2. 上层依据",
+      "- cause: 上级要一个交代",
+      "- action: 把男主踢出核心组",
+      "- result: 男主第一次被冷处理",
+      "- use: 铺垫离职线",
+      "## 5. 本章事件序列",
+      "- 早会被点名、工位被挪、群聊被移出",
+      "## 17. 章尾钩子",
+      "- 男主收到一条陌生短信。",
+    ].join("\n")
+    expect(classifyOutlineSaveTarget({
+      title: "章纲-第046章：第一次冷处理",
+      content: seventeenSectionChapterOutline,
+    })).toMatchObject({
+      fileType: "chapter-outline",
+      targetFolder: "章纲",
+    })
+  })
 })

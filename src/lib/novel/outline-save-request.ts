@@ -588,12 +588,14 @@ function hasChapterOutlineStructure(content: string, fileName: string): boolean 
 /**
  * 事件细纲必须真的是一份事件清单，避免「好的，我已完成本章细纲。」这类确认摘要被误放行。
  *
- * 事件分节标记才是闸门的关键（摘要里不会出现「事件1 / 事件序列 / 事件清单」）；
+ * 事件分节标记才是闸门的关键（摘要里不会出现「事件1 / 事件序列 / 事件清单 / 编号分节」）；
  * 列表行数只要 ≥2 即可 —— 细节抓手本来就是自由措辞，用关键词卡「台词/神情/动作」
  * 会把一份正常但换了写法的细纲误判成不合格。
  */
 function hasEventOutlineStructure(content: string): boolean {
-  const hasEventSection = /事件\s*[一二三四五六七八九十\d]|事件序列|事件清单/.test(content)
+  // 编号分节（`## 1. 院子里的哭声`）也算：提示词虽已强制「## 事件N」，
+  // 但模型换个写法就把一份卡片上看着合格的细纲挡在保存闸门外，用户只能看到「保存请求解析失败」。
+  const hasEventSection = /事件\s*[一二三四五六七八九十\d]|事件序列|事件清单|^#{2,4}\s*\d+[.、]/m.test(content)
   const listLines = content.split(/\r?\n/).filter((line) => /^\s*(?:[-*·]|\d+[.、])\s*\S/.test(line))
   return hasEventSection && listLines.length >= 2
 }

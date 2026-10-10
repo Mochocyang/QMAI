@@ -186,9 +186,15 @@ describe("validateEventOutlineData", () => {
     expect(result.problems.join("\n")).not.toContain("1 条，应有")
   })
 
-  it("标题过长报错", () => {
+  it("标题过长只给压缩提示，不算结构错误", () => {
+    // 设计文档口径：标题超 24 字是「超出提示压缩，不算错」。
+    // 当成硬错误会让 ok === false，卡片随即隐藏「用这份细纲写这一章」——
+    // 一个排版级别的超标逼用户多跑一整轮 LLM。
     const long = data({ events: [event(1, "这是一个被写得太长以至于超过了二十四个字上限的事件标题用来触发校验"), event(2), event(3), event(4)] })
-    expect(validateEventOutlineData(long).problems.join("\n")).toContain("超过 24 字")
+    const result = validateEventOutlineData(long)
+    expect(result.problems).toEqual([])
+    expect(result.advisories.join("\n")).toContain("超过 24 字")
+    expect(result.ok).toBe(true)
   })
 
   it("标题恰好 24 字通过", () => {
@@ -357,6 +363,16 @@ describe("buildEventOutlinePrompt", () => {
 
   it("明令禁止写正文", () => {
     expect(buildEventOutlinePrompt(request)).toContain("不要写正文")
+  })
+
+  it("规定的 Markdown 形状自带「事件细纲」并由「## 事件N」分节", () => {
+    // 保存归档靠这份 Markdown 自我识别类型：outline-save-classifier 的
+    // extractDocumentSubject 只看标题与首个 H1，两者都不含「事件细纲」时，
+    // 「第12章 · 令牌初现」会被 CHAPTER_SUBJECT 判成 chapter-outline 落进「章纲」文件夹，
+    // 章纲上下文引擎随后会把它当成真正的 17 节章纲读走。
+    const prompt = buildEventOutlinePrompt(request)
+    expect(prompt).toContain("事件细纲 · 第N章")
+    expect(prompt).toContain("## 事件1")
   })
 
   it("没有额外要求时不留下空标题", () => {

@@ -104,6 +104,36 @@ it("软性节奏提示照常提示，但不阻断扩写入口", async () => {
   host.remove()
 })
 
+// 标题超 24 字只是排版级别的超标（设计文档：超出提示压缩，不算错），
+// 不能因此把 ok 打成 false —— 那会连带抽掉「用这份细纲写这一章」这个主 CTA。
+it("事件标题超 24 字时只给压缩提示，主 CTA 照常在位", async () => {
+  const longTitle = "这是一个被写得太长的事件标题用来触发标题长度校验的用例文本三"
+  expect(longTitle.length).toBe(30)
+  const onWriteChapter = vi.fn()
+  const { root, host } = render(
+    <EventOutlineCard
+      data={data({ events: data().events.map((item, index) => (index === 0 ? { ...item, title: longTitle } : item)) })}
+      onWriteChapter={onWriteChapter}
+    />,
+  )
+  try {
+    await act(async () => {})
+    // 断言只在本卡的 host 上做：万一中途失败，泄漏到 document.body 的节点不会污染后续用例。
+    const text = host.textContent ?? ""
+    expect(text).toContain("节奏提示")
+    expect(text).toContain("超过 24 字")
+    expect(text).not.toContain("待修")
+    const button = [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((item) => item.textContent === "用这份细纲写这一章")
+    expect(button, "标题超标不应抽掉主 CTA").toBeDefined()
+    await act(async () => button!.click())
+    expect(onWriteChapter).toHaveBeenCalledTimes(1)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
 it("结构缺陷逐条列出，不顺带隐藏事件条数", async () => {
   const events = Array.from({ length: 9 }, (_, index) => ({
     id: index + 1,

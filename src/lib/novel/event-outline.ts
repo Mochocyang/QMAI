@@ -124,7 +124,7 @@ export function normalizeEventOutlineData(raw: unknown): EventOutlineData | null
  * 卡片上逐条标红 + 给修复建议，用户仍可选择「保存当前内容」。
  *
  * `problems` 只装结构性缺陷（缺字段、数量越界、序号不连续），`ok` 也随之只反映结构；
- * 字数分配一类的软性建议放 `advisories`，不参与 `ok`，避免合法细纲被误判为不可用。
+ * 字数分配、标题超长一类的软性建议放 `advisories`，不参与 `ok`，避免合法细纲被误判为不可用。
  * 契约：任何非 null 对象都只返回清单，绝不抛异常。
  */
 export function validateEventOutlineData(
@@ -158,7 +158,9 @@ export function validateEventOutlineData(
     if (!title) {
       problems.push(`第 ${index + 1} 个事件缺少一句话标题。`)
     } else if (title.length > EVENT_OUTLINE_TITLE_MAX_CHARS) {
-      problems.push(
+      // 标题超标只是排版提示，不参与 ok：当成硬错误会让卡片隐藏「用这份细纲写这一章」，
+      // 一个超几个字的标题就逼用户多跑一整轮 LLM。缺标题仍然是硬错误（上面那条）。
+      advisories.push(
         `第 ${index + 1} 个事件标题 ${title.length} 字，超过 ${EVENT_OUTLINE_TITLE_MAX_CHARS} 字，请压到 20 字左右。`,
       )
     }
@@ -326,7 +328,9 @@ export function buildEventOutlinePrompt(request: EventOutlineRequest): string {
     "- 不要输出工具调用报告和分析过程。",
     "",
     "## 输出格式（缺一不可）",
-    "1. 一份可直接保存的 Markdown 细纲内容（不是小说正文）：标题形如「第N章 · 一句话章名」，下面按事件分节列出标题与抓手；",
+    "1. 一份可直接保存的 Markdown 细纲内容（不是小说正文）：",
+    "   - 一级标题固定形如「# 事件细纲 · 第N章 一句话章名」（「事件细纲」四个字必须出现，保存归档靠它识别类型，写成「# 第N章 · 一句话章名」会被判成章纲存进「章纲」文件夹）；",
+    "   - 下面每个事件用二级标题分节，形如「## 事件1 一句话事件」，并按抓手逐条列出；",
     "2. 一个 ```json 围栏，顶层字段为 eventOutlineData：",
     "```json",
     example,

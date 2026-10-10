@@ -1184,4 +1184,68 @@ describe("event-outline 保存类型", () => {
     // 兜底 HTML 必须用自己的标识，不能退化成「设定」或章纲的样子
     expect(parsed.requests[0]?.htmlContent).toContain("事件细纲 · 卡片流")
   })
+
+  it("分节写成编号标题（## 1. …）时同样过闸门", () => {
+    // 提示词现在强制「## 事件N」，但模型仍可能写成编号分节：
+    // 那种细纲在卡片上看着合格，过去会被保存闸门拒掉 —— 没有对话框，只报「保存请求解析失败」。
+    const parsed = parseOne({
+      ...request,
+      content: [
+        "# 事件细纲 · 第12章 令牌初现",
+        "",
+        "## 1. 院子里的哭声",
+        "- 关键台词：「夜壶里的东西是药。」",
+        "- 神情动作：念念两只小手护住屁股蛋。",
+      ].join("\n"),
+    })
+    expect(parsed.errors).toEqual([])
+    expect(parsed.requests).toHaveLength(1)
+  })
+
+  it("分节写成「## 事件1」时过闸门", () => {
+    const parsed = parseOne({
+      ...request,
+      content: [
+        "# 事件细纲 · 第12章 令牌初现",
+        "",
+        "## 事件1 院子里的哭声",
+        "- 关键台词：「夜壶里的东西是药。」",
+        "- 神情动作：念念两只小手护住屁股蛋。",
+      ].join("\n"),
+    })
+    expect(parsed.errors).toEqual([])
+    expect(parsed.requests).toHaveLength(1)
+  })
+
+  it("只有列表行、没有事件分节的完成报告仍被闸门拒绝", () => {
+    // listLines ≥ 2 只说明「像清单」，不能替代事件分节：摘要里也常有项目符号。
+    const parsed = parseOne({
+      ...request,
+      content: "好的，我已完成本章细纲。\n- 已按 4 个事件排好\n- 已补全章尾钩子",
+    })
+    expect(parsed.requests).toEqual([])
+    expect(parsed.errors.join("\n")).toContain("事件细纲")
+  })
+
+  it("17 节章纲的 §N 分节骗不过事件细纲闸门", () => {
+    // 章纲模板用的是「## §5 核心事件链」这种 §N 分节（不是「## 5.」），
+    // 因此 FIX 3 放宽编号分节后，章纲正文仍然过不了事件细纲闸门。
+    const chapterOutlineBody = [
+      "# 章纲-第046章：第一次冷处理",
+      "",
+      "## §1 基础信息",
+      "- 章号：46",
+      "## §5 核心事件链",
+      "- what: 早会被点名",
+      "  cause: 上级要一个交代",
+      "  action: 把他移出核心组",
+      "  result: 第一次被冷处理",
+      "  use: 铺垫离职线",
+      "## §17 写作检查清单",
+      "- 三行内入戏",
+    ].join("\n")
+    const parsed = parseOne({ ...request, content: chapterOutlineBody })
+    expect(parsed.requests).toEqual([])
+    expect(parsed.errors.join("\n")).toContain("事件细纲")
+  })
 })
