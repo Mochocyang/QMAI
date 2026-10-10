@@ -398,17 +398,162 @@ if (pack.writingStyle?.startsWith("【已启用文风画像】") && !result.prom
 
 ---
 
-### 3.2 丁-4：角色灵魂引用的设计要点
+### 3.2 丁-4：角色灵魂引用——**已侦察定稿**
 
-（待专项侦察结论填入：按消息绑定灵魂的交互形态、是否复用 `BindingTargetDialog`、
-以及 `buildCharacterSoulContext` 的姓名匹配在「本轮临时指定」下如何表达。）
+#### ⚠️ 先订正一处**我先前写错的事实**
 
-### 3.3 丁-5：故事 skill 打通的硬约束
+§1.3/§3.1 曾写「`buildCharacterSoulContext` 由 `context-data-sources.ts` 调用」——**错**。
+实际调用点在 **`context-engine.ts:310-319`**（动态 `await import("./character-aura")`），
+即**在守门文件内部**；结果赋值在 `:340`（`characterAuras`）与 `:341`（`portablePersonalities`）。
+`context-data-sources.ts` **从不**引用 character-aura。
+→ 结论方向不变（仍然不能改守门文件），但「接缝在哪」完全不同：见下。
 
-（待专项侦察结论填入：`plot-frameworks/library.json` 的写入方与读取方、
-`framework-store.ts` / `framework-binding.ts` 的接口、
-以及在**不动 `context-engine.ts`** 的前提下把拆书故事框架接进
-`contextPack.storyFrameworkBinding` 的可行路径。）
+#### 结论一：按消息注入灵魂**可以**做到，但**只能**走「真绑定」
+
+- `characterAuras` **不是** data source，所以在 `context-data-sources.ts` 里加东西**没用**。
+- ✅ **真实接缝是存储文件本身**：`buildCharacterSoulContext` 每次调用都**重新读盘**
+  （`character-aura.ts:616` → `:304-315` 的 `loadCharacterAuraStore`，**无内存缓存**），
+  所以只要在生成前写好 `.qmai/character-aura.json`，
+  下一次 `buildContextPack` 就能看到——**不需要改守门文件，也不需要 UI 刷新**
+  （`bindCharacterAura` 在 `:505`、`unbindCharacterAura` 在 `:522`，都是导出且 `writeFileAtomic` + await）。
+- ❌ **「注入一个没有绑定行的 aura」在架构上不可能**：
+  `buildCharacterSoulContext` 只过滤 `store.bindings`（`:616-617`、`:624`），
+  连 `options.fallbackAuraId` 也过滤 `store.bindings`（`:648-650`）。
+  没有任何参数、旁路存储或任务文本约定能触达未绑定的 aura。
+- ✅ 因此**用户选的「真绑定」不仅是体验选择，还是唯一可行的实现路径**。
+  若要「只对这一条消息生效」，做法是**生成前 bind、生成后 unbind**（用完清理）。
+
+#### ✅ 已确认可用的下游第二接缝（不改守门文件）
+
+浅拷贝替换 `contextPack.characterAuras` / `portablePersonalities`，
+位置在 `deep-chapter-generation.ts`（非守门）组装 pack 之后、
+喂给提示词之前。**生产先例就在仓库里**：`review-adapter.ts:250-254`
+`contextPack = { ...baseContextPack, characterAuras: draftCharacterAuras }`。
+参数通路照**已验证的** `skillsPrompt` 通道
+（`deep-chapter-generation.ts:90` → `run-chapter-workflow.ts:138` →
+`tools/index.ts:127` → `use-agent-config.ts:159` → `chat-panel.tsx:1084-1087`）。
+⚠️ 但**走这条接缝就等于绕过绑定表**，与「真绑定」二选一，不要两套并存。
+本设计**建议**：默认走真绑定（符合用户原话与「灵魂」语义），
+浅拷贝接缝仅作为「临时预览」类需求的后备，且必须在文档里写明它绕过绑定表。
+
+#### ⚠️ 结论二：本子批最大的风险是**把能跑的生成变成硬停机**
+
+- `characterAuras` 是**优先级 10**（`context-engine.ts:51`），
+  而 `portablePersonalities` 有 **fail-closed** 断言：
+  `context-engine.ts:1129-1131` 在 `pack.characterAuras` 没完整进提示词时**抛错**；
+  `deep-chapter-generation.ts:799-808` 另有 `renderBoundPersonalities` 的包含性断言与
+  `PersonalityConstraintError`。
+- **拆书产出的 aura 几乎都带 `portablePersonality`**。
+  → 所以「按消息多绑一个灵魂」可能把一次本来正常的生成变成
+  **「上下文预算不足，角色人格规则未完整保留」的硬停机**（预算偏小时）。
+  **实施时必须**：要么在绑定前做预算检查并给出可读提示，
+  要么明确接受并把这个失败模式写进文档与测试（不能让它变成一个无解释的报错）。
+- **第二个风险：匹配是裸子串测试**（`character-aura.ts:624-647`）——
+  「李四」会命中「李四光」；拼音包含同样会误命中。
+  多绑一个灵魂会让它在**不该出现的章节**里泄漏进上下文。
+  实施时必须说明如何避免（例如绑定要求用户明确确认适用章节范围）。
+
+#### 其余已确认事实（实施时直接用）
+
+- **存在性前置**：`bindCharacterAura` 要求该人物**已有档案**
+  （`:510-511` + `hasCharacterProfile` `:733-747`，会查 `searchWiki` 的
+  「人物小传/人物设定」），否则报
+  「请先在大纲中添加人物小传或人物设定，再绑定角色灵魂」。
+  ⚠️ 但**匹配器没有存在性检查**——手写的绑定行仍会被注入。
+- **UI 反应性**：**没有** zustand 镜像绑定表。
+  `soul-sidebar-panel.tsx:26` 的 `bindings` 是局部 `useState`，
+  靠 `:31-39` 的 effect（deps `project?.path, dataVersion`）与
+  `refreshProjectBindings()`（`:49-54`）刷新。
+  → **UI 需要 `bumpDataVersion()`；生成路径什么都不需要**（每次都重读盘）。
+- **现成的、与拆书无关的绑定入口**（可直接复用交互）：
+  `soul-sidebar-panel.tsx:59`、`character-aura-view.tsx:393`、
+  `book-analysis-result-viewer.tsx:198`、`workbench-soul-actions.ts:61`。
+- `loadCharacterAuraStore`（`:304`）、`listCharacterAuras`（`:321`）、
+  `getCharacterAuraBindings`（`:539`）、`loadCharacterAuraSkillDocument`（`:554`）均已导出。
+  `saveCharacterAuraStore` **是私有的**（`:317`）——不要试图直接写文件绕过校验。
+
+### 3.3 丁-5：故事 skill 打通——**已侦察定稿**
+
+#### 结论：**可以**打通，且**首选路线不需要改任何注入代码**
+
+- `contextPack.storyFrameworkBinding` 在 `context-engine.ts:342-344`（守门文件内），
+  但它**只是 `rawData.storyFrameworkBinding` 的纯透传**；
+  真正的值由 **`context-data-sources.ts:516-527`** 的 `storyFrameworkBindingDataSource` 产出
+  （**非守门文件**）。
+- ✅ **路线 A（首选）**：让拆书的发布**额外写进已经被注入的那个存储**——
+  用**已导出**的 `saveFramework()`（`story-simulation/framework-store.ts:289-296`）
+  写 `.qmai/simulations/frameworks/<id>.md`。
+  **零新增注入代码**，且该目录已在缓存前缀里（`context-hub/source-paths.ts:82-85`）。
+- ⚠️ **不要在发布时自动 `saveBinding()`**：`saveBinding` 会**无条件覆盖唯一的活跃绑定**
+  （`framework-binding.ts:85-88`，单启用，像 `enabledStyleId`），
+  等于劫持用户已有的仿真框架。**应让用户通过既有 UI 绑定**
+  （`framework-binding-dialog.tsx:54-70`，入口在 `sidebar-panel.tsx:242`）。
+- ❌ **路线 B（改 data source 去读 library.json）不推荐**：
+  虽然 `context-data-sources.ts` 非守门文件、改起来合法，
+  但 `.qmai/plot-frameworks/` **不在** `SOURCE_DEPENDENCY_PREFIXES`
+  （`source-paths.ts:82-85`）里、会被归类为 `"other"`（`:33-57`），
+  于是 `DataSourceCacheAdapter`（`data-source-cache.ts:56-71`、`:180-185`）
+  会在 **AI 会话那条路径上发陈旧值**，直到某个无关的 `.qmai/simulations/` 文件变化才刷新。
+  ⚠️ **写作路径不受影响**：`deep-chapter-generation.ts:2635` 走的是**裸 `buildContextPack`**
+  （defaultDeps `:165-170`，且 `run-chapter-workflow.ts:167` 传 `deps = undefined`）
+  → 无 loadAdapter → 无缓存。所以路线 B 只在 AI 会话面有问题——但那也是「打通」的一部分。
+
+#### 转换是有损的——必须如实记录
+
+两个结构**都是结构化 JSON，都不带 markdown**（markdown 只是 `framework-store` 的序列化产物）：
+
+| `PlotFramework`（`plot-framework.ts:44-83`） | → | `StoryFramework`（`story-simulation/types.ts:259`） | 损失 |
+|---|---|---|---|
+| `beats.hook/buildup/payoff/endingHook` | → | `nodes[0..3]` 的 `起/承/转/合` | — |
+| — | ← | `premise` | 需**新造** |
+| `characters[{name,role}]` | → | `involvedCharacters[]` | **`role` 丢失** |
+| `foreshadowing[]` | → | — | **整个丢失** |
+| `line` / `tags` / `pacing` / `history` / `prev–nextConnector` | → | — | **全部丢失** |
+| `createdAt: number` | → | `createdAt: string` | 需 ISO 转换 |
+| — | ← | `targetWords` / `simulationMode` / `sourceChapters` | 需新造或由 `rangeChapterIds.length` 推 |
+
+`simulationMode` 必须取自 `VALID_MODES`（`framework-store.ts:37-42`，默认 `"hybrid"`）。
+⚠️ **不要手写 md 文件**：`framework-store` 的 `## 前提`/`## 故事节点` 解析较严
+（`extractSection` `:122-139`、`parseNodeHeader` 要求含「节点」`:141-160`），
+手写会静默产出 **0 个节点**。一定走 `saveFramework`。
+→ 需要写一个 ~15 行的纯函数 `PlotFramework → StoryFramework` 转换器，并**单测其有损性**。
+
+#### 必须同时覆盖**两个**发布方，否则只做一半
+
+1. `workbench-publish.ts:233-246`（`upsertPlotFramework` 是那里**唯一**的写入）。
+2. ⚠️ `story-analysis-adapter.ts:265-292`（`story-analysis-adapter.ts:69` 注入的 `upsertFramework`）
+   ——旧提取路径，同样要桥接，否则从那条路来的故事 skill 仍然不可用。
+
+#### 顺带确认的两处「其实没人用」
+
+- **`formatPlotFrameworkForOutlinePrompt`（`plot-framework.ts:307`）生产代码零调用方**
+  （只有 `plot-framework.spec.ts:253-255`）。这是现成的、写好的格式化器却没人用——
+  丁-5 若选「注入到章纲层」正好可以让它复活。
+- `DeepChapterGenerationInput.dismantlingReferenceDirective`（`:83`，用于 `:785`）
+  **无生产调用方**，且它在 `buildStableContextPrefix`（`:793`）**之前**，
+  用它装故事文本会**破坏按章缓存前缀**——不要用。
+
+#### ⚠️ 一个内容质量隐患（与「能不能用」同等重要）
+
+拆书故事维度的标签**是提示词要求但未做校验**：
+`workbench-adapter.ts:36` 告诉模型用「目标与阻力/信息投放/冲突升级/转折条件/兑现/后续悬念」，
+但 `parseWorkbenchItem` 只对 `characters` 强制 `PERSONALITY_FIELDS`
+（`workbench-core.ts:153`）；story 的 `dimension` 是**自由文本**（`:152`）。
+若模型跑偏，`pick()`（`workbench-publish.ts:235`）**匹配不到任何标签**，
+于是**四个 beat 全部退化成同一句**
+「本次没有充分依据，不固定该环节；由目标故事实际情境决定。」——
+**结构合法、内容为空**，还能通过 `normalizeBeats`（`plot-framework.ts:217`）。
+→ 丁-5 打通之后，用户可能绑定到这样一个「空框架」。
+实施时应在发布或绑定时**检测并提示**这种退化（四个 beat 相同 / 全为 fallback 句子）。
+
+#### ⚠️ 需要向用户澄清的一处范围差异
+
+本批给实现者的硬边界写的是 **`src/lib/context-hub/**` 全部只读**，
+而本分支设计文档 §4 与三项守门检查实际只钉 **`src/lib/context-hub/composer.ts`** 一个文件。
+→ 差异有实质影响：按**严格**读法，`source-paths.ts` 与 `data-source-cache.ts` 不可改，
+这正是路线 B 会发陈旧值的原因、也是路线 A 更优的原因。
+本设计**按严格读法执行**（不动 `context-hub/` 任何文件），
+因此丁-5 **必须走路线 A**。若用户希望走路线 B，需要先明确放宽该边界。
 
 ---
 
