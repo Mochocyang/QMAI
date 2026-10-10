@@ -600,6 +600,26 @@ describe("regeneratePersonaSkillResearch", () => {
     ).resolves.toBe(false)
     expect(readIndex()!.skills[0].hasResearch).toBe(false)
   })
+
+  it("非绿勾人物：即使盘上还留着研究文件，也不重新整理（D6）", async () => {
+    // 被取消绿勾的人，研究文件不会从盘上删掉 —— 视图据此以为「他有研究文件」。
+    seedIndex([{ characterName: "沈砚", id: "沈砚", roleType: "配角", pinned: false, hasResearch: true }])
+    io.files.set(`${project}/.qmai/persona-skills/沈砚/SKILL.md`, "# 沈砚 · 人物 Skill\n\n## 怎么说话\n\n句尾带吧。\n")
+    io.files.set(`${project}/.qmai/persona-skills/沈砚/references/research/人物小传.md`, "旧的小传。")
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) => void; onDone: () => void }) => {
+        callbacks.onToken(JSON.stringify({ research: { 人物小传: "新的小传。" } }))
+        callbacks.onDone()
+      },
+    )
+
+    await expect(
+      regeneratePersonaSkillResearch({ projectPath: project, characterName: "沈砚", llmConfig }),
+    ).resolves.toBe(false)
+    expect(streamChatMock).not.toHaveBeenCalled()
+    // 旧文件一字未动
+    expect(io.files.get(`${project}/.qmai/persona-skills/沈砚/references/research/人物小传.md`)).toBe("旧的小传。")
+  })
 })
 
 describe("人物 Skill 审查修复：并发保存、确定性记账、回填旧章", () => {

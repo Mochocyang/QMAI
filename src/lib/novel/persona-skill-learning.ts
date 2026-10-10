@@ -672,6 +672,11 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
 /**
  * 重新整理某人的研究文件。素材只有「他自己现有的档案」——
  * 不读章节快照、不引入新事实，所以这是一次「整理」而不是「再提取」。
+ *
+ * 只有绿勾（pinned）人物才有研究文件（D6）：一个角色被取消绿勾后，盘上那几份
+ * 文件还在，视图就会以为「他有研究文件」而露出按钮 —— 必须在这里挡住，
+ * 否则会给他重新生成一份、还把 hasResearch 又写回 true，等于绕过了 D6。
+ *
  * 永不抛：失败返回 false，由 UI 提示。
  */
 export async function regeneratePersonaSkillResearch(options: {
@@ -685,6 +690,7 @@ export async function regeneratePersonaSkillResearch(options: {
     const index = await loadPersonaSkillIndex(pp)
     const meta = findPersonaSkillMeta(index, options.characterName)
     if (!meta) return false
+    if (!meta.pinned) return false
     const document = await readPersonaSkillDocument(pp, meta.id)
     if (!document.trim()) return false
 

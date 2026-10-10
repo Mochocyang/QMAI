@@ -5820,13 +5820,46 @@ export async function savePersonaSkillDocumentByUser(
 </div>
 
 <div class="step">
-  <div class="head"><input type="checkbox"><span>Step 8：跑门禁并提交</span></div>
+  <div class="head"><input type="checkbox"><span>Step 9：非绿勾人物不得重新整理研究文件（D6）</span></div>
+  <p><b>缺陷</b>：<code>regeneratePersonaSkillResearch</code> 只查「有没有这个人」（<code>learning.ts:687</code>），<b>不查绿勾</b>。而取消绿勾时研究文件<b>不会从盘上删掉</b>（D4 规定永不硬删），视图的渲染条件又是 <code>Object.keys(research).length &gt; 0</code>（<code>persona-skill-view.tsx:225</code>）—— 于是被取消绿勾的人照样有按钮、能点、能重新生成，还会把 <code>hasResearch</code> 又写回 <code>true</code>，等于绕过 D6。</p>
+  <p><b>设计依据</b>：<code>design.html:265</code> 与 <code>:433</code> 两处都写「研究文件<b>只给绿标（pinned）角色</b>生成／维护」。</p>
+  <p><b>第一步</b>：函数里加守卫（<b>放在函数内而不是只 gate 视图</b>：API 边界更硬，将来别的调用方也绕不过去）。<code>learning.ts:687</code> 的 <code>if (!meta) return false</code> 之后补一行：</p>
+  <pre><code>    if (!meta) return false
+    // 只有绿勾人物才有研究文件（D6）。取消绿勾后盘上那几份文件还在，
+    // 视图会以为「他有研究文件」而露出按钮 —— 必须在这里挡住。
+    if (!meta.pinned) return false</code></pre>
+  <p><b>第二步</b>：视图的渲染条件一并收紧，免得用户点了才被拒：<code>persona-skill-view.tsx:225</code> 的 <code>{Object.keys(research).length &gt; 0 ? (</code> 改成 <code>{Object.keys(research).length &gt; 0 &amp;&amp; selected.pinned ? (</code>。这样非绿勾人物落进 <code>:238</code> 那条已有的分支，显示「点亮绿勾后，该人物会生成研究文件。」——文案本来就是为这个场景写的。</p>
+  <p><b>第三步</b>：<code>persona-skill-learning.spec.ts</code> 的 <code>regeneratePersonaSkillResearch</code> describe 里加一条（该 describe 现有 3 条 <b>都</b>种了 <code>pinned: true</code>，所以加守卫不会碰红它们）：</p>
+  <pre><code>  it("非绿勾人物：即使盘上还留着研究文件，也不重新整理（D6）", async () =&gt; {
+    // 被取消绿勾的人，研究文件不会从盘上删掉 —— 视图据此以为「他有研究文件」。
+    seedIndex([{ characterName: "沈砚", id: "沈砚", roleType: "配角", pinned: false, hasResearch: true }])
+    io.files.set(`${project}/.qmai/persona-skills/沈砚/SKILL.md`, "# 沈砚 · 人物 Skill\n\n## 怎么说话\n\n句尾带吧。\n")
+    io.files.set(`${project}/.qmai/persona-skills/沈砚/references/research/人物小传.md`, "旧的小传。")
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) =&gt; void; onDone: () =&gt; void }) =&gt; {
+        callbacks.onToken(JSON.stringify({ research: { 人物小传: "新的小传。" } }))
+        callbacks.onDone()
+      },
+    )
+
+    await expect(
+      regeneratePersonaSkillResearch({ projectPath: project, characterName: "沈砚", llmConfig }),
+    ).resolves.toBe(false)
+    expect(streamChatMock).not.toHaveBeenCalled()
+    // 旧文件一字未动
+    expect(io.files.get(`${project}/.qmai/persona-skills/沈砚/references/research/人物小传.md`)).toBe("旧的小传。")
+  })</code></pre>
+  <p>预期：<code>persona-skill-learning.spec.ts</code> <b>31 → 32</b>。</p>
+</div>
+
+<div class="step">
+  <div class="head"><input type="checkbox"><span>Step 10：跑门禁并提交</span></div>
   <div class="run">npx vitest run src/lib/novel/persona-skill-learning.spec.ts src/lib/novel/persona-skill-prompt.spec.ts src/lib/novel/persona-skill-store.spec.ts src/lib/novel/persona-skill-context.spec.ts src/lib/novel/persona-skill-types.spec.ts src/components/skill-library/persona-skill-view.spec.tsx
 npx tsc --build --pretty
 npx tsc -p tsconfig.test.json --noEmit</div>
   <div class="expect">
     <span class="t">Expected</span>
-    用例全绿（31 + 12 + 33 + 17 + 21 + 8 = <b>122</b>），两个 <code>tsc</code> 都 exit 0、无输出。<code>persona-skill-store.spec.ts</code> 与 <code>persona-skill-view.spec.tsx</code> 必须一起跑 —— Step 1 与 Step 7 分别动了它们。
+    用例全绿（32 + 12 + 33 + 17 + 21 + 8 = <b>123</b>），两个 <code>tsc</code> 都 exit 0、无输出。<code>persona-skill-store.spec.ts</code> 与 <code>persona-skill-view.spec.tsx</code> 必须一起跑 —— Step 1 与 Step 7 分别动了它们。
   </div>
   <div class="run">git add src/lib/novel/persona-skill-store.ts src/lib/novel/persona-skill-learning.ts src/lib/novel/persona-skill-prompt.ts src/components/skill-library/persona-skill-view.tsx src/lib/novel/persona-skill-learning.spec.ts src/lib/novel/persona-skill-prompt.spec.ts src/components/skill-library/persona-skill-view.spec.tsx
 git commit -m "fix(人物skill): 保住并发保存的手改正文，并让出场记账确定性地落盘"</div>

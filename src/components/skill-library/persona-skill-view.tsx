@@ -222,7 +222,7 @@ export function PersonaSkillView() {
             取消
           </button>
         </div>
-        {Object.keys(research).length > 0 ? (
+        {Object.keys(research).length > 0 && selected.pinned ? (
           <div data-testid="persona-skill-research" className="ui-test-persona-research">
             <h4>研究文件</h4>
             {Object.entries(research).map(([name, content]) => (
