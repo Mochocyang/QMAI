@@ -913,3 +913,133 @@ ArrowUp/Down + Enter）、`role="option"`/`aria-selected`/`aria-current`、
 - [ ] 未动丙加的那枚按钮与 `openBodyFontPopover` 的调用次数
 - [ ] 未引用 `WelcomeScreen`
 - [ ] 每条「故意改断言」都写明了理由
+
+---
+
+## 7. 丁-1 实施与审查记录（回填，2026-10-10）
+
+### 7.1 提交
+
+| SHA | subject | 文件 | ± |
+|---|---|---|---|
+| `83d09c0` | `feat(技能库): 新增「文风」tab，以引用方式列出项目文风预设` | 9 | +706 / −103 |
+| `b8dcfa1` | `fix(技能库): 修正穷尽性检查分支的类型` | 1 | +6 / −1 |
+| `f8d8700` | `docs(丁计划): 订正四处失实引用`（**本文件的修正**） | 1 | +33 / −4 |
+| `62e819e` | `fix(技能库): 让「加 tab = 编译错误」这句承诺成为事实` | 10 | +637 / −63 |
+| `ac33949` | `docs(技能库): 把「写作轴 ⇒ 列表一致」这条不变式记进 RESIDUAL GAPS` | 1（注释） | +15 / −2 |
+
+基线 733 文件 / 7335 用例 → 终态 **735 文件 / 7360 用例 / 6 todo / 0 失败**。
+
+### 7.2 三轮审查的结论（先 spec、再代码质量、最后复核修复批）
+
+| 轮 | 对象 | 结论 | must-fix |
+|---|---|---|---|
+| 1 | spec 合规 `83d09c0`+`b8dcfa1` | COMPLIANT WITH CONCERNS | 0 |
+| 2 | 代码质量 同上 | REVISE | 0（5 项 nice-to-have） |
+| 3 | 复核修复批 `62e819e`+`ac33949` | 见 §7.5 | — |
+
+**第 1、2 轮确认的真正价值**（不是「没发现问题」，而是**证伪了承诺**）：
+
+1. **「加 tab = 编译错误」这句承诺是假的。** 实测：6 张 tab 轴表里只有 **2 张**是
+   `Record<SkillLibraryTab,…>`，4 张是 `Record<GalleryTab,…>`，而
+   **`TABS_WITH_CATEGORY_CHIPS` 是一张 `Set`**，完全在承诺之外。
+   证据：把那张 Set 清空 → `typecheck` **exit 0**、**31/31 全绿**，
+   而**写作 Skill 的分类 chips 全部静默消失**；加第 5 个 tab → `TS2741 ×6` + `TS2345 ×1`，
+   **那张 Set 贡献 0 个错误**。⚠️ 这正是本分支第 **4** 次「宣称的保证 > 实际的保证」。
+2. **两处注释宣称的守卫不存在**：`handleOpenEntry` 的 style 早返回被说成「否则会渲染
+   另一个库的编辑器」（实测是**空编辑器死胡同** + 往 store 写一个不属于该库的 id）；
+   `icon-sidebar.tsx` 说「两个 spec **都**断言新视图不在侧边栏里」——对
+   `writingStyleLibrary` 而言 `sidebar-nav-preferences.spec.ts` **0 命中**。
+3. **`fullWindowViews` 全仓库零行为覆盖**，唯一「测试」是把源码里那一行找出来再
+   `toContain` 子串（**等价换行即假红**）；`icon-sidebar.test.tsx` 新增的同名用例
+   也只守字面量：把使用点破坏掉、字面量留着，**31/31 仍绿**。
+4. **一个真实的「修实例而非修类」度量**：往条目轴加第 4 种类型（补好 3 张表）时，
+   原文件只报 **4** 个错误（`entrySourceLabel` / `entrySearchValues` /
+   `handleToggleEnabled` / `onToggleFavorite`），**唯一「设计出来的」守卫只有那个 switch**；
+   而 `entryFavoriteKey`、`entryEnabled`、`handleOpenEntry` **完全静默**。
+   ⚠️ 那 4 个「受保护」的点只是**偶然**受保护（它们都碰了 `rawSkill`）——
+   一个**带 `rawSkill`** 的新类型会连这 4 个一起穿透。
+
+同时确认了一批**实质改进**（不要因为上面这些就否定这批）：
+净删 **2 个 unchecked cast**、源码零 `any`、无新增非空断言；
+`SkillLibraryContent` 用提前 return 让 TS 自然收窄出 `GalleryTab`；
+**顺手修掉一个 commit message 未提的真 bug** —— 改前 `handleBackToList` 用
+「写作 vs 去AI味」二选一取脏标记，于是在**收藏 tab** 点已激活的「收藏」会去查去AI味草稿、
+可能误弹「放弃草稿？」并把它清掉（现由 `TAB_DRAFT_KIND` 返回 `"none"` 修掉，
+⚠️ **这条无测试**）。
+
+### 7.3 计划里被实测推翻的 4 处（已在 `f8d8700` 逐条订正）
+
+1. `wiki-store.ts:661` → `activeView` 联合类型实际在 **`:690`**（base 也是 690）。
+2. 「漏 `content-area` 的 `case` 会掉进 default（**白屏**）」→ 实测
+   `content-area.tsx:182-188` 的 `default:` 渲染的是 **`<AIChatTabContainer />`**，
+   症状是**「技能库位置出现 AI 会话 tab」**（探针 `innerHTML` 打到
+   `<div data-testid="stub-ai-chat-tab">`），比白屏更隐蔽；且该变异下
+   `typecheck` **exit 0**。
+3. 计划自己写的 `loadWritingStyleStore(project?.path)` **不能编译**
+   （签名 `(projectPath: string)`）；且该 loader 自身 try/catch 吞掉一切、
+   **今天不可能 reject** ⇒ 单独 `.catch` 是**结构性防护而非当前可触发的故障面**
+   （去掉它断言全绿，只是 vitest 报 `Unhandled Rejection` 且 exit 1）。
+4. `icon-sidebar.tsx:81` 的引用把第一个操作数反写了（语义等价，非逐字）。
+
+**并且补上了计划最大的漏项**：补漏表只列了 `activeTab` 键控的 7 处，
+漏了同一形状的 **8 处 `entry.type` 二元分支**（`:86/:363/:477/`:526`/:611/:612/:622/:671`），
+其中 **`:526` 是唯一带写盘后果的一处** —— 文风条目会掉进 `else` 把 `enabled`
+写进 **`de-ai-skills.json`**（拿 preset id 当 skill id），而 **`tsc` 不报错**。
+复核者用**观测而非读码**证实了落盘目标：`expected [ 'C:/project/de-ai-skills.json' ]`；
+且 `normalizeDeAiSkillConfig` **不裁剪** `disabledSkillIds`，所以 `preset:cool`
+会**持久化**进去，还会顺带写 `de-ai-skills.backup.json`。
+
+### 7.4 修复批（`62e819e`）做了什么
+
+- **把承诺变成事实**：`TABS_WITH_CATEGORY_CHIPS: Set` → `TAB_CATEGORY_AXIS: Record<GalleryTab,…>`，
+  并让**同一张表**同时决定「显示 chips」与「按分类过滤」（原先过滤侧硬编码在 `:702`，
+  两处编码同一事实、会漂移且都无测试）。文件头注释重写成**精确列名清单**，
+  并明确写「这是**列名**承诺，不是『本文件所有分派都受保护』」，指向新增的 `RESIDUAL GAPS`。
+  变异：删表键 → `TS2741`（chips 丢失现在是编译错误，原 Set **连表达这个变异都做不到**）；
+  加第 5 个 tab → **10 个错误**（原为 7 个，且 chips 表贡献 0）。
+- **三处静默站点改成穷尽 `switch`+`never`**：`entryFavoriteTarget`（新，替代会静默给
+  `de-ai:` 前缀的那个三元，并让键与 payload 库名同源）、`entryEnabled`、`handleOpenEntry`。
+  同一 `NoteEntry` 变异从 **4 个错误 → 6 个错误**，新增的正是那三处。
+- **补上「文件落对没落对」的行为用例**（此前**完全不覆盖**）：勾选写作 Skill 断真实
+  `writeFileAtomic` 路径是 `writing-skills.json`、去AI味是 `de-ai-skills.json`、
+  点开写作卡片断写进写作库的选中槽。
+- **`fullWindowViews` 抽成纯模块** `src/lib/full-window-views.ts` + 6 条行为用例；
+  原先那条行形状断言改成**诚实的接线断言**（不再假装是行为证据）。
+- **`isNavItemActive` 抽成纯函数**、`SKILL_LIBRARY_TAB_VIEWS` 更名
+  `FOLDED_SKILL_LIBRARY_VIEWS` 并移进 `sidebar-nav-preferences.ts`；
+  新增用例**钉住**「`skillFavorites` 不点亮技能库图标」这条**既有**例外（**没有**顺手改它）。
+- **`isWritingSkillEntry` 删除**：其真值在组件层**不可观测**（写作轴的列表按构造就是写作条目），
+  说谎版全绿 ⇒ 改由 `writingSkillToEntry` 的**返回类型**承载。
+- **`resolveActiveTab` 硬化**：`?? "skillLibrary"` 兜底 → 谓词 + **显式抛错**，
+  并消掉 `as Partial<Record<…>>` 断言。
+- **读取失败不再谎报空库**：新增 `styleLoadFailed`，失败文案从
+  「文风库还是空的：…」改成「文风库读取失败：暂时列不出这个项目里的文风预设。」
+  ⚠️ **这是一条「故意改断言」**，理由写进用例；真·空库仍由另一条用例覆盖。
+
+### 7.5 复核修复批时**如实留下**的东西（不要读成「已全绿」）
+
+- **S1 / S6 存活**：把新增的穷尽 `switch` 改回二元 `if/else`，
+  对**今天这 3 种类型**是**外延相等**的（20/20 全绿）。
+  即**等价形状的变异不可杀** —— 它守的从来不是今天，而是**第 4 种类型**，
+  而那一类由「加类型」变异实测为编译错误。
+  ⚠️ 但要注意其中的**循环性**：把 switch 退回 if/else **就等于拆掉了 `never` 守卫**，
+  所以「拆守卫」这个动作本身**不被任何东西拦**。残留风险 **LOW**（后果是写错库，
+  且需同时满足多处条件），但**如实记下**，不要声称该类已被完全封闭。
+- **`ENTRY_TOGGLE_LABELS.style` 不可达**（`toggleable:false` 时渲染的是「点击选中/已选中」），
+  为 `Record` 穷尽性保留。
+- **`filteredEntries` 里「写作轴 ⇒ `entriesByTab[activeTab] === writingEntries`」这条不变式
+  无编译保护**（删谓词带来的行为差异：若将来某 tab 轴为 `"writing"` 而列表指向别库，
+  旧代码显示空列表、新代码「不筛时显示那库、一按 chips 跳到写作条目」）——
+  两者都只是**显示错乱、不写文件**，已写进 `RESIDUAL GAPS`。
+- **`RESIDUAL GAPS` 仍未覆盖的点**（实现者明确列出、故意不守）：
+  `entryExtraBadge`、`entrySourceLabel` / `entrySearchValues`
+  （仅因碰了 `rawSkill` 而**偶然**受保护）、卡片 `selected`/`onSelect`/「当前启用」徽章。
+- **实现者未捕获到名字的一次中间态全量失败（6 failed / 4 files）**，
+  归因为负载（4 个 flake 文件隔离复跑全绿、字节相同内容两次全量 0 失败）。
+  **如实记录：这 6 条的名字没有拿到。**
+- ⚠️ **方法学坑**：Windows PowerShell 5.1 把无 BOM 的 `.ps1` 当 ANSI 读，
+  **11 条变异里有 5 条因中文模式串被打乱而没生效**。脚本必须
+  `throw "PATTERN NOT FOUND"` 而不是默认「存活」——否则会**假报 SURVIVED**。
+- **未跑 `npm run build:portable`**（留到全批收尾）；**未做真机 Tauri 验证**（只有 jsdom + mock）。
+
