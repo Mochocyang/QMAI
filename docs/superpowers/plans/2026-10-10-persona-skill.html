@@ -3559,7 +3559,7 @@ describe("章节摄取里的人物 Skill 挂钩", () =&gt; {
     <div class="run">npx vitest run src/lib/novel/chapter-ingest-persona-hook.spec.ts</div>
     <div class="expect fail">
       <span class="t">Expected</span>
-      7 个用例失败（只有「签名不变」那条通过），提示 <code>expected '' to contain 'void learnPersonaSkillsFromChapter({'</code>。
+      <b>6 个用例失败、2 个通过。</b>通过的两条是「签名不变」（读的是当前源码，本来就该通过）与「保存正式章节不掺和」（<code>preview-panel.tsx</code> 此刻还没有 <code>persona-skill</code> 字样，所以「不包含」为真）。失败的 6 条以 <code>expected -1 to be greater than -1</code> 或 <code>expected '' to contain 'void learnPersonaSkillsFromChapter({'</code> 报错。
     </div>
   </div>
 
