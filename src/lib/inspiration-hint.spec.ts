@@ -31,6 +31,7 @@ describe("resolveInspirationHint —— 决定 A 的判据是章节自身状态"
     dismissed: false,
     bookHintSeen: false,
     currentlyVisible: false,
+    draftHintVisible: false,
   }
 
   it("空章节、开关开、没关过、这本书没提示过 → 显示", () => {
@@ -66,23 +67,53 @@ describe("resolveInspirationHint —— 决定 A 的判据是章节自身状态"
      */
     expect(resolveInspirationHint({ ...base, bookHintSeen: true, currentlyVisible: true })).toBe(true)
   })
+
+  it("草稿气泡挂着时不挂（`draftHintVisible` 是互斥本身，不是从 wordCount 推出来的）", () => {
+    /*
+     * ⚠️ 这一条钉的是**显式互斥**。
+     *
+     * 修复批 F1 之前，这里没有 `draftHintVisible` 这个入参，互斥被写成
+     * 「草稿提示要 `wordCount > 0`、灵感提示要 `wordCount === 0`，两者互补」
+     * —— 那个论证只在两条链喂**同一个** `wordCount` 时成立，而真实接线里
+     * 草稿链喂 `session.persistedWords`（快照）、灵感链喂实时字数。
+     * 「有正文的草稿章 + 清空编辑框」于是让两条气泡一起挂出、精确重叠。
+     *
+     * 所以这里刻意给一个 `wordCount === 0`（灵感链自己看不出问题）的输入，
+     * 只让 `draftHintVisible` 拦住它：删掉那道门，这条立刻红。
+     * 接线的证明在 `ui-test-editor.spec.tsx` 的
+     * 「草稿章有正文时清空编辑器」那条用例里（纯函数层覆盖不到接线）。
+     */
+    expect(resolveInspirationHint({ ...base, draftHintVisible: true })).toBe(false)
+    expect(
+      resolveInspirationHint({ ...base, wordCount: 0, draftHintVisible: false }),
+      "反向控制：draftHintVisible 为假时同一个输入必须仍然挂出 —— 否则上面那条会退化成恒真",
+    ).toBe(true)
+  })
 })
 
-describe("两条气泡互斥 —— 不是「碰巧没同时出现」", () => {
+describe("同一份 wordCount 喂给两个纯函数时，两条气泡互斥（**不覆盖接线**）", () => {
   /*
-   * 依据：`draft-memory-hint.ts:23` 的草稿提示第一道门就要求 `wordCount > 0`，
-   * 而灵感提示要求 `wordCount === 0`。两者是**互补**的，所以无论其余输入怎么组合，
-   * 都不可能同时为真。
+   * ⚠️ **这条穷举证明的范围必须说清**（修复批 F1 的教训）：
+   * 它把**同一个** `wordCount` 喂给 `resolveDraftMemoryHint` 与
+   * `resolveInspirationHint`，因此它证明的命题是
+   * 「给定同一个 wordCount，两条气泡不会同时为真」——
+   * 命题本身为真、也仍然承重（谁放宽 `wordCount` 这一维就会被抓住），
+   * 但它**不是**「接线后两条气泡不会同时出现」的证明：真实接线里
+   * 草稿链喂的是 `session.persistedWords` 快照、灵感链喂的是实时字数，
+   * 两者可以不同，而当时正是因为把这条穷举当成了互斥的全部依据，
+   * 才漏掉了「有正文的草稿章 + 清空编辑框」这个可达序列。
    *
-   * 为什么要把这条写成穷举断言而不是留一句注释：两条气泡共用
-   * `.ui-test-editor-hint-anchor`，定位属性也是逐字照抄的（同一个 top/left/width）。
-   * 一旦有人放宽草稿提示那道门，两条气泡会**精确重叠**在同一坐标上 ——
-   * 视觉上是一个盖住另一个，而所有既有断言仍然全绿。
+   * 接线的证明在 `ui-test-editor.spec.tsx` 的
+   * 「草稿章有正文时清空编辑器」那条用例里；互斥的**显式**来源是
+   * `resolveInspirationHint` 的 `draftHintVisible` 入参（本文件上面那条用例钉住）。
+   *
+   * 两条气泡共用 `.ui-test-editor-hint-anchor`，定位属性也是逐字照抄的
+   * （同一个 top/left/width），一旦同时挂着就会**精确重叠**在同一坐标上。
    */
   const arrivals: DraftMemoryHintArrival[] = ["select", "first-save", "stay"]
   const statuses: Array<ChapterStatus | null> = ["outline", "draft", "revised", "final", "archived", null]
 
-  it("草稿提示与灵感提示在任意输入组合下都不同时为真", () => {
+  it("同一份 wordCount 下，草稿提示与灵感提示在任意输入组合下都不同时为真", () => {
     let checked = 0
     for (const wordCount of [0, 1, 7]) {
       for (const isChapter of [true, false]) {
@@ -109,6 +140,12 @@ describe("两条气泡互斥 —— 不是「碰巧没同时出现」", () => {
                   ...shared,
                   dismissed: false,
                   currentlyVisible: false,
+                  /*
+                   * 这一维**故意**置假：本组命题是「同一个 wordCount 下互斥」，
+                   * 而 `draftHintVisible` 是接线才知道的量。把它置真会让
+                   * 灵感提示恒假、整组退化成恒真 —— 那样就什么也证明不了了。
+                   */
+                  draftHintVisible: false,
                 })
                 checked += 1
                 expect(
@@ -124,14 +161,15 @@ describe("两条气泡互斥 —— 不是「碰巧没同时出现」", () => {
     expect(checked, "穷举必须真的跑过组合，不能因为循环写错而空转").toBe(3 * 2 * 3 * 6 * 2 * 2)
   })
 
-  it("wordCount 这一维是互斥的承重来源：草稿提示要 >0，灵感提示要 ===0", () => {
-    // 上面的穷举只证明「给定实现下不会同时为真」；这一条把承重的那一维单独钉住，
-    // 让「放宽草稿提示门槛」的改动直接指向这里。
+  it("wordCount 这一维是「同一份输入」下互斥的承重来源：草稿提示要 >0，灵感提示要 ===0", () => {
+    // 上面的穷举只证明「给定同一个 wordCount 时不会同时为真」；这一条把承重的那一维
+    // 单独钉住，让「放宽草稿提示门槛」的改动直接指向这里。
+    // ⚠️ 它同样**不覆盖接线** —— 接线里两条链的 wordCount 可以不同。
     expect(resolveInspirationHint({
-      isChapter: true, wordCount: 1, enabled: true, dismissed: false, bookHintSeen: false, currentlyVisible: false,
+      isChapter: true, wordCount: 1, enabled: true, dismissed: false, bookHintSeen: false, currentlyVisible: false, draftHintVisible: false,
     })).toBe(false)
     expect(resolveInspirationHint({
-      isChapter: true, wordCount: 0, enabled: true, dismissed: false, bookHintSeen: false, currentlyVisible: false,
+      isChapter: true, wordCount: 0, enabled: true, dismissed: false, bookHintSeen: false, currentlyVisible: false, draftHintVisible: false,
     })).toBe(true)
   })
 })

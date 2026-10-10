@@ -5,8 +5,9 @@ import { join, relative, resolve } from "node:path"
 import postcss from "postcss"
 import { act, createRef, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { PreviewPanel } from "@/components/layout/preview-panel"
+import { saveNovelConfig } from "@/lib/project-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
@@ -925,6 +926,49 @@ describe("编辑器异常与原业务回归", () => {
     expect(inspirationHint(), "实时内容已非空，气泡必须立刻收掉").toBeNull()
   })
 
+  /*
+   * ── F1 回归（修复批）：两条气泡在**真实接线**下确实会同时挂出来 ──
+   *
+   * 纯函数层那 432 组合的穷举（`src/lib/inspiration-hint.spec.ts`）把**同一个**
+   * `wordCount` 喂给两个函数，所以它证明的只是「同一个 wordCount 下互斥」。
+   * 真实接线里两条链喂的**不是**同一个数：
+   *   · 草稿链 `wordCount: session.persistedWords ?? 0` —— 只在切章或
+   *     `phase === "saved"` 时刷新的**快照**，删字不会刷新它；
+   *   · 灵感链 `wordCount: countChapterBodyWords(fileContent)` —— **实时**。
+   * 于是「磁盘上还有正文、编辑框刚被清空」时，草稿链看到 >0、灵感链看到 0，
+   * 两条气泡一起挂出来 —— 而它们共用 `.ui-test-editor-hint-anchor` 与同一组
+   * top/left/width，会**精确重叠**在同一坐标上。
+   *
+   * 这条用例走的就是那个可达序列：有正文的 `chapter_status: draft` 章 → 清空编辑器。
+   * `persistedWords` 在 mount 时被捕获，正是让这个序列可达的原因。
+   */
+  it("草稿章有正文时清空编辑器：草稿气泡挂着，灵感气泡不得同时挂出，也不得烧掉 seen 预算", async () => {
+    await mount()
+    expect(
+      container.querySelector(".ui-test-editor-draft-hint"),
+      "有正文的草稿章，草稿气泡本就在",
+    ).not.toBeNull()
+    expect(inspirationHint(), "实时正文非空时不该有灵感气泡").toBeNull()
+    expect(useWikiStore.getState().novelConfig.inspirationHintSeen, "此刻还没显示过灵感气泡").toBe(false)
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
+    await act(async () => { changeTextarea(textarea, "") })
+
+    expect(
+      container.querySelector(".ui-test-editor-draft-hint"),
+      "清空的是编辑缓冲，磁盘快照仍是有正文的草稿章 —— 草稿气泡必须还在",
+    ).not.toBeNull()
+    expect(
+      container.querySelectorAll(".ui-test-editor-draft-hint, .ui-test-editor-inspiration-hint"),
+      "两条气泡共用定位属性，同时挂出会精确重叠 —— 绝不允许同时存在",
+    ).toHaveLength(1)
+    expect(inspirationHint()).toBeNull()
+    expect(
+      useWikiStore.getState().novelConfig.inspirationHintSeen,
+      "这条灵感气泡用户根本不该看到，不能顺手把「每本书一次」的预算烧掉",
+    ).toBe(false)
+  })
+
   it("「知道了」只关气泡：本次会话不再显示、不打开向导、也不写盘关闭", async () => {
     fixture.files.set(emptyChapterPath, emptyChapter)
     await mount(emptyChapterPath)
@@ -932,6 +976,102 @@ describe("编辑器异常与原业务回归", () => {
     expect(inspirationHint()).toBeNull()
     expect(document.querySelector('[role="dialog"]'), "「知道了」不该打开向导").toBeNull()
     expect(useWikiStore.getState().novelConfig.inspirationHintEnabled).toBe(true)
+  })
+
+  /*
+   * ── F7（修复批）：`session.dismissed` 的**接线**必须自己有一条用例 ──
+   *
+   * 纯函数层有一条 `dismissed: true → false`（`inspiration-hint.spec.ts`），
+   * 但它证明不了 `preview-panel.tsx` 真的把会话里的 `dismissed` 传了下去 ——
+   * 把接线改成 `dismissed: false` 或删掉那道门，只跑本文件时**全绿**：
+   * 点「知道了」的那一下不会触发重算（`dismissInspirationHint` 只改 ref 与
+   * 自己的 state，都不在本 effect 的依赖里），所以「气泡不见了」这个观察
+   * 根本不需要 `dismissed` 参与。要观察到差别，必须**再触发一次重算**。
+   *
+   * 重算的触发方式刻意选「配置被重新读了一遍」：`saveNovelConfig` 是
+   * fire-and-forget（`.catch` 只打日志），落盘失败或还没落地时，盘上的
+   * `inspirationHintSeen` 仍是 false，而 `settings-view.tsx:320-330` 会
+   * 重新 `loadNovelConfig` → `setNovelConfig` 把 store 覆盖回盘上的值。
+   * 那一刻唯一还能拦住气泡的就是**本次会话**的 `dismissed`。
+   * （用 `setNovelConfig` 这个真实 action 而不是裸 setState，免得测的是别的路径。）
+   */
+  it("点过「知道了」之后，即使 seen 又从盘上读回 false，本次会话也不再挂出来", async () => {
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    expect(inspirationHint()).not.toBeNull()
+    await click("知道了")
+    expect(inspirationHint()).toBeNull()
+
+    await act(async () => {
+      useWikiStore.getState().setNovelConfig({ inspirationHintSeen: false })
+    })
+
+    expect(
+      inspirationHint(),
+      "本次会话已经点过「知道了」—— seen 回到 false 也不能再挂出来",
+    ).toBeNull()
+    /*
+     * 第二条兼作**前提检查**：`setNovelConfig({ inspirationHintSeen: false })`
+     * 必须真的把 store 写成了 false。若它没生效（比如改成裸 setState 或写错字段），
+     * seen 会停在第一次显示时的 true —— 上面那条气泡断言就什么也证明不了，
+     * 而这一条会先红。
+     */
+    expect(
+      useWikiStore.getState().novelConfig.inspirationHintSeen,
+      "前提：配置确实被重新读成了 false（否则气泡断言证明不了 dismissed 在承重）",
+    ).toBe(false)
+  })
+
+  /*
+   * ── F3（修复批）：`isChapter` 这条接线必须有独立用例 ──
+   *
+   * 把 `preview-panel.tsx` 的 `isChapter: isChapterPath(selectedFile)`
+   * 写死成 `true`，只跑本文件时**全绿** —— 因为别的用例里非章节文件
+   * （大纲/设定）都**有正文**，实时字数非 0 本来就挂不出气泡。
+   * 所以「非章节的 markdown 不走灵感提示这条链」从没被验证过。
+   *
+   * ⚠️ 这条用例的**决定性**断言是 `inspirationHintSeen` 而不是气泡本身：
+   * 大纲的工具栏里没有 `data-event-outline-target` 那枚锚点按钮
+   * （`生成章节细纲` 只在章节分支里），所以就算判定错成 true，气泡也挂不出来
+   * —— 只看气泡会得到一条**恒绿**的用例。真正的后果是副作用：
+   * 判定错成 true 会**烧掉这本书唯一的一次**灵感提示预算，
+   * 用户之后在新章节里再也看不到它。气泡断言作为第二条一起留着。
+   */
+  it("非章节的 markdown（空大纲）不挂灵感气泡，也不烧掉这本书的 seen", async () => {
+    fixture.files.set(outlinePath, "# 空大纲\n\n")
+    await mount(outlinePath)
+    expect(
+      container.querySelector("h1")?.textContent ?? "",
+      "前提：空大纲确实被打开了（否则这条只是在测「什么都没渲染」）",
+    ).toContain("空大纲")
+    expect(inspirationHint()).toBeNull()
+    expect(
+      useWikiStore.getState().novelConfig.inspirationHintSeen,
+      "isChapter 写死 true 时，非章节文件会被当成空章节，把「每本书一次」的预算烧掉",
+    ).toBe(false)
+  })
+
+  /*
+   * ── F5（修复批）：seen 去重（`if (next && !inspirationHintSeen)`）──
+   *
+   * 显示即记 seen 会让本 effect 因为依赖变化**再跑一次**，那一次 `next` 仍是
+   * true（`currentlyVisible` 那一路）。若写成 `if (next)`，每次重算都会
+   * 多落一次盘 —— 用户看不见任何区别，只是每次 recompute 都多写一次文件。
+   * 把 `!inspirationHintSeen` 删掉，本文件其余用例**全绿**，所以要在这里数调用次数。
+   */
+  it("挂出来只落一次 seen：记完 seen 触发的那次重算不得再写盘", async () => {
+    const inspirationSeenWrites = () => (saveNovelConfig as unknown as Mock).mock.calls
+      .filter(([config]) => (config as { inspirationHintSeen?: boolean } | undefined)?.inspirationHintSeen === true)
+      .length
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    const before = inspirationSeenWrites()
+    await mount(emptyChapterPath)
+    expect(inspirationHint()).not.toBeNull()
+    expect(useWikiStore.getState().novelConfig.inspirationHintSeen).toBe(true)
+    expect(
+      inspirationSeenWrites() - before,
+      "只有在 seen 还是 false 的那一次才该落盘；记完 seen 引发的重算必须跳过（否则每次重算都多写一次文件）",
+    ).toBe(1)
   })
 
   it("「不再提醒」写盘关掉设置项，也不打开向导", async () => {
@@ -1149,19 +1289,37 @@ describe("锚定气泡：两条气泡互不吞并", () => {
 describe("测试版正文样式边界", () => {
   const cssPath = resolve(__dirname, "ui-test-editor.css")
   const css = existsSync(cssPath) ? readFileSync(cssPath, "utf8") : ""
+  /*
+   * ── 为什么要有一份「剥掉注释」的副本（修复批 F4）──
+   *
+   * 下面那些结构断言是**正则**，而正则跑在整份 CSS 文本上。CSS 注释里可以写出
+   * 和真规则一模一样的字样，于是**注释本身**就能满足断言 —— 真正的规则被改名、
+   * 被分组、甚至被删掉，红灯都不会亮。
+   *
+   * 丙-4a 就实发生了：它给灵感气泡写的说明注释里有一句形如
+   * 「草稿气泡那条规则是 `.ui-test-editor-draft-hint` 加 `{ … width: min(280px, 100%) }`」，
+   * 而正则只要 `{` 与 `width:` 之间没有 `}` 就算命中 —— 注释里没有 `}`，
+   * 于是「草稿气泡的定位规则必须存在且是独立规则块」这条**既有守卫**
+   * 被自己的新注释弄成了空转（实测：把真规则改名、或改成与灵感气泡分组，
+   * 全套测试照样全绿）。
+   *
+   * 所以凡是用正则/`toContain` 描述**规则结构**的断言，一律扫这份副本；
+   * 需要证明「注释本身」存在时才用 `css`。
+   */
+  const cssCode = css.replace(/\/\*[\s\S]*?\*\//g, "")
 
   it("固定外壳不滚动，只有正文区域滚动且头部不裁切提示", () => {
-    expect(css).toMatch(/\.ui-test-editor\s*\{[^}]*overflow:\s*hidden/)
-    expect(css).toMatch(/\.ui-test-editor-scroll\s*\{[^}]*overflow-y:\s*auto/)
-    expect(css).toMatch(/\.ui-test-editor-header\s*\{[^}]*flex-shrink:\s*0/)
-    expect(css).toMatch(/\.ui-test-editor-header\s*\{[^}]*background:\s*var\(--ui-paper\)/)
+    expect(cssCode).toMatch(/\.ui-test-editor\s*\{[^}]*overflow:\s*hidden/)
+    expect(cssCode).toMatch(/\.ui-test-editor-scroll\s*\{[^}]*overflow-y:\s*auto/)
+    expect(cssCode).toMatch(/\.ui-test-editor-header\s*\{[^}]*flex-shrink:\s*0/)
+    expect(cssCode).toMatch(/\.ui-test-editor-header\s*\{[^}]*background:\s*var\(--ui-paper\)/)
   })
 
   it("草稿提示按工具栏宽度定位，盖住正文，且不能在窄编辑区被裁掉", () => {
-    expect(css).toMatch(/\.ui-test-editor-toolbar\s*\{[^}]*position:\s*relative/)
-    expect(css).toMatch(/\.ui-test-editor-hint-anchor\s*\{[^}]*position:\s*static/)
-    expect(css).toMatch(/\.ui-test-editor-draft-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
-    expect(css).toMatch(/\.ui-test-editor-header\s*\{[^}]*z-index:\s*2/)
+    expect(cssCode).toMatch(/\.ui-test-editor-toolbar\s*\{[^}]*position:\s*relative/)
+    expect(cssCode).toMatch(/\.ui-test-editor-hint-anchor\s*\{[^}]*position:\s*static/)
+    expect(cssCode).toMatch(/\.ui-test-editor-draft-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
+    expect(cssCode).toMatch(/\.ui-test-editor-header\s*\{[^}]*z-index:\s*2/)
   })
 
   it("灵感提示用独立类名 + 独立规则块，定位与草稿提示逐项相同", () => {
@@ -1172,18 +1330,22 @@ describe("测试版正文样式边界", () => {
      * 1. `.ui-test-editor-draft-hint` 在本文件里被 ~20 处断言要求「为 null 或长度
      *    恰为 1」。一旦新气泡共用这个类名，那些断言的**含义会被悄悄扩大** ——
      *    它们将不再只描述草稿提示，而「只有一条草稿气泡」这条不变量就没人守了。
-     * 2. 上面那条正则要求
-     *    `.ui-test-editor-draft-hint { … width: min(280px, 100%) }` 形如**独立规则块**，
-     *    分组写法（`.ui-test-editor-draft-hint, .ui-test-editor-inspiration-hint { … }`）
+     * 2. 上面那条正则要求草稿气泡的 `width` 写在**独立规则块**里，分组写法
+     *    （`.ui-test-editor-draft-hint, .ui-test-editor-inspiration-hint { … }`）
      *    不一定匹配。所以这里把两条规则**分别**断言：既钉住新类名，
      *    也顺带证明草稿那条没有被改成分组而失配。
+     *
+     * ⚠️ 这一段曾经**不是**这么写的（修复批 F4）：它把命题写成
+     * 「正则跑在**整份响应文件文本**上」，而当时丙-4a 新加的注释里正好有一句
+     * 能满足它 —— 改名的变异、分组的变异都活了下来。现在全部扫 `cssCode`
+     * （已剥注释），所以「注释里有这句话」不再算数。
      */
-    expect(css).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*position:\s*absolute/)
-    expect(css).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*z-index:\s*2/)
-    expect(css).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*top:\s*calc\(100% \+ 10px\)/)
-    expect(css).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*left:\s*0/)
-    expect(css).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
-    expect(css).toMatch(/\.ui-test-editor-draft-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
+    expect(cssCode).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*position:\s*absolute/)
+    expect(cssCode).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*z-index:\s*2/)
+    expect(cssCode).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*top:\s*calc\(100% \+ 10px\)/)
+    expect(cssCode).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*left:\s*0/)
+    expect(cssCode).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
+    expect(cssCode).toMatch(/\.ui-test-editor-draft-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
   })
 
   it("单独提供最大800正文容器，1.25rem/1.75rem标题与单一来源的衬线正文", () => {

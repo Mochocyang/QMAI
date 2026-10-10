@@ -1704,67 +1704,29 @@ export function PreviewPanel() {
       console.error("关闭草稿提取记忆提示失败:", error)
     })
   }, [project?.id, project?.path, setNovelConfig])
-  useEffect(() => {
-    const session = draftHintSessionRef.current
-    if (session.path !== selectedFile) {
-      session.path = selectedFile
-      session.arrival = "select"
-      session.persistedWords = null
-      session.visible = false
-      session.dismissed = false
-    }
-    if (!selectedFile || loadedFilePath !== selectedFile) {
-      session.visible = false
-      setDraftHintVisible(false)
-      return
-    }
-    const words = countChapterBodyWords(fileContent)
-    const phase = uiTestSaveState?.path === selectedFile ? uiTestSaveState.phase : null
-    if (session.persistedWords === null && phase !== "saved") {
-      session.persistedWords = words
-      session.arrival = "select"
-    } else if (phase === "saved") {
-      const previous = session.persistedWords ?? 0
-      session.arrival = previous === 0 && words > 0 ? "first-save" : "stay"
-      session.persistedWords = words
-    }
-    const next = resolveDraftMemoryHint({
-      isChapter: isChapterPath(selectedFile),
-      status: chapterHeader?.status ?? null,
-      wordCount: session.persistedWords ?? 0,
-      arrival: session.arrival,
-      dismissed: session.dismissed,
-      extracting: isFinalChapterSaving,
-      enabled: draftMemoryHintEnabled,
-      bookHintSeen: draftMemoryHintSeen,
-      hasLaterChapter: chapterHasLaterChapter(chapterNumber, chapterOrdersFromTree(fileTree)),
-      currentlyVisible: session.visible,
-    })
-    session.visible = next
-    if (next && !draftMemoryHintSeen) {
-      const config = { ...useWikiStore.getState().novelConfig, draftMemoryHintSeen: true }
-      setNovelConfig({ draftMemoryHintSeen: true })
-      void saveNovelConfig(config, project?.id, project?.path).catch((error) => {
-        console.error("记录草稿提取记忆提示失败:", error)
-      })
-    }
-    setDraftHintVisible(next)
-  }, [chapterHeader, chapterNumber, draftMemoryHintEnabled, draftMemoryHintSeen, fileContent, fileTree, isFinalChapterSaving, loadedFilePath, project?.id, project?.path, selectedFile, setNovelConfig, uiTestSaveState])
-
   /*
-   * ── 丙-4a：新章节灵感提示 ──
+   * ── 丙-4a：新章节灵感提示 + 草稿提示的**同一次**判定 ──
    *
-   * 判据（决定 A）与草稿提示**同源**：都拿
-   * `countChapterBodyWords(fileContent)` 的实时结果去问一个纯函数。
-   * 这里刻意**不新写**「内容是否为空」的判据 —— 否则会出现
-   * 「草稿提示认为是空章节、灵感提示认为不是」的自相矛盾。
+   * 判据（决定 A）与草稿提示**同源**：都要回答「这一章有没有正文」，
+   * 而且都不新写一份判据 —— 否则会出现「草稿提示认为是空章节、
+   * 灵感提示认为不是」的自相矛盾。
    *
-   * ⚠️ 两条气泡**互斥**，依据是 `resolveDraftMemoryHint`（`draft-memory-hint.ts:23`）
-   * 的第一道门要求 `wordCount > 0`，而 `resolveInspirationHint` 要求
-   * `wordCount === 0`。两者互补，所以绝不会叠在同一坐标上
-   * （它们共用 `.ui-test-editor-hint-anchor` 与同一组定位属性）。
-   * 谁要放宽草稿提示那道门，必须先回来看这里。穷举证明见
-   * `src/lib/inspiration-hint.spec.ts`。
+   * ⚠️ 但「同源」只到**同一个计算函数**为止，**不是同一个数**：草稿链喂进
+   * 纯函数的是 `session.persistedWords`（只在切章或保存成功时刷新的**快照**，
+   * 删字不会刷新它），灵感链喂的是 `countChapterBodyWords(fileContent)`（**实时**）。
+   * 所以两条气泡的互斥**不能**靠「`wordCount > 0` 与 `wordCount === 0` 互补」
+   * 这个前提 —— 它在「磁盘上还有正文、编辑框刚被清空」时不成立：
+   * 草稿链看到 >0、灵感链看到 0，两条一起挂出来，而它们共用
+   * `.ui-test-editor-hint-anchor` 与同一组 top/left/width，会**精确重叠**
+   * 在同一坐标上（修复批 F1 实测；当时纯函数层的 432 组合穷举全绿，
+   * 因为它把同一个 `wordCount` 喂给两个函数，**覆盖不到接线**）。
+   *
+   * 互斥因此写成**显式**的：两条链在**同一个 effect 里按顺序**判定，
+   * 灵感链拿到草稿链刚算出来的 `draftNext`（`resolveInspirationHint` 的
+   * `draftHintVisible` 入参），草稿气泡挂着时灵感气泡一律不挂 ——
+   * 也顺带不写 `inspirationHintSeen`，不烧掉「每本书一次」的预算。
+   * 拆成两个 effect（让灵感链读 state 或读对方 effect 的产物）会出现
+   * 「一帧两条都挂」的窗口：state 更新要等下一次 render 才可见。
    *
    * ⚠️ 决定 B：气泡与向导是**并行**的两条动作。点按钮只开向导
    * （`handleOpenEventOutlineWizard`），本 effect 不看向导状态，
@@ -1790,37 +1752,90 @@ export function PreviewPanel() {
       console.error("关闭新章节灵感提示失败:", error)
     })
   }, [project?.id, project?.path, setNovelConfig])
+  /**
+   * 草稿气泡与灵感气泡的**唯一**判定点。
+   *
+   * 两段必须是**一个** effect：见上面的说明 —— 灵感链的 `draftHintVisible`
+   * 只能来自同一次运行里草稿链刚算出来的结果，不能来自 state（差一帧）
+   * 也不能来自另一个 effect（跨 effect 的时序保证更弱）。
+   */
   useEffect(() => {
-    const session = inspirationHintSessionRef.current
-    if (session.path !== selectedFile) {
-      session.path = selectedFile
-      session.dismissed = false
-      session.visible = false
+    const draftSession = draftHintSessionRef.current
+    if (draftSession.path !== selectedFile) {
+      draftSession.path = selectedFile
+      draftSession.arrival = "select"
+      draftSession.persistedWords = null
+      draftSession.visible = false
+      draftSession.dismissed = false
+    }
+    const inspirationSession = inspirationHintSessionRef.current
+    if (inspirationSession.path !== selectedFile) {
+      inspirationSession.path = selectedFile
+      inspirationSession.dismissed = false
+      inspirationSession.visible = false
     }
     if (!selectedFile || loadedFilePath !== selectedFile) {
-      session.visible = false
+      draftSession.visible = false
+      setDraftHintVisible(false)
+      inspirationSession.visible = false
       setInspirationHintVisible(false)
       return
     }
-    const next = resolveInspirationHint({
+    // ── 草稿链：`persistedWords` 是**快照**语义（草稿提示说的是磁盘上的草稿）──
+    const words = countChapterBodyWords(fileContent)
+    const phase = uiTestSaveState?.path === selectedFile ? uiTestSaveState.phase : null
+    if (draftSession.persistedWords === null && phase !== "saved") {
+      draftSession.persistedWords = words
+      draftSession.arrival = "select"
+    } else if (phase === "saved") {
+      const previous = draftSession.persistedWords ?? 0
+      draftSession.arrival = previous === 0 && words > 0 ? "first-save" : "stay"
+      draftSession.persistedWords = words
+    }
+    const draftNext = resolveDraftMemoryHint({
+      isChapter: isChapterPath(selectedFile),
+      status: chapterHeader?.status ?? null,
+      wordCount: draftSession.persistedWords ?? 0,
+      arrival: draftSession.arrival,
+      dismissed: draftSession.dismissed,
+      extracting: isFinalChapterSaving,
+      enabled: draftMemoryHintEnabled,
+      bookHintSeen: draftMemoryHintSeen,
+      hasLaterChapter: chapterHasLaterChapter(chapterNumber, chapterOrdersFromTree(fileTree)),
+      currentlyVisible: draftSession.visible,
+    })
+    draftSession.visible = draftNext
+    if (draftNext && !draftMemoryHintSeen) {
+      const config = { ...useWikiStore.getState().novelConfig, draftMemoryHintSeen: true }
+      setNovelConfig({ draftMemoryHintSeen: true })
+      void saveNovelConfig(config, project?.id, project?.path).catch((error) => {
+        console.error("记录草稿提取记忆提示失败:", error)
+      })
+    }
+    setDraftHintVisible(draftNext)
+
+    // ── 灵感链：显式拿到草稿链**刚算出来**的结果，而不是自己再推一遍 ──
+    const inspirationNext = resolveInspirationHint({
       isChapter: isChapterPath(selectedFile),
       // 实时内容，不是磁盘字数：刚新建一章、正在打字时它已经非空 → 气泡不出现。
-      wordCount: countChapterBodyWords(fileContent),
+      wordCount: words,
       enabled: inspirationHintEnabled,
-      dismissed: session.dismissed,
+      dismissed: inspirationSession.dismissed,
       bookHintSeen: inspirationHintSeen,
-      currentlyVisible: session.visible,
+      currentlyVisible: inspirationSession.visible,
+      // 草稿气泡挂着时灵感气泡一律不挂：两者定位属性逐项相同，会精确重叠。
+      draftHintVisible: draftNext,
     })
-    session.visible = next
-    if (next && !inspirationHintSeen) {
+    inspirationSession.visible = inspirationNext
+    if (inspirationNext && !inspirationHintSeen) {
       const config = { ...useWikiStore.getState().novelConfig, inspirationHintSeen: true }
       setNovelConfig({ inspirationHintSeen: true })
       void saveNovelConfig(config, project?.id, project?.path).catch((error) => {
         console.error("记录新章节灵感提示失败:", error)
       })
     }
-    setInspirationHintVisible(next)
-  }, [fileContent, inspirationHintEnabled, inspirationHintSeen, loadedFilePath, project?.id, project?.path, selectedFile, setNovelConfig])
+    setInspirationHintVisible(inspirationNext)
+  }, [chapterHeader, chapterNumber, draftMemoryHintEnabled, draftMemoryHintSeen, fileContent, fileTree, inspirationHintEnabled, inspirationHintSeen, isFinalChapterSaving, loadedFilePath, project?.id, project?.path, selectedFile, setNovelConfig, uiTestSaveState])
   const chapterDisplayTitle = chapterHeader
     ? chapterHeader.heading || (selectedFile ? getChapterTitleFromPath(selectedFile) : "")
     : ""
