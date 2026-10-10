@@ -349,12 +349,27 @@ describe("outline plan prompts", () => {
     }
   })
 
-  it("allowed folders and fileTypes cover the event outline", () => {
-    // AI 面向清单必须与已注册的 FILE_TYPE_FOLDERS 对齐：否则计划模式会告诉模型
-    // 「事件细纲」这个文件夹和 event-outline 这个 fileType 都不允许。
+  it("不再把 event-outline 当作可保存类型，但「事件细纲」文件夹名仍可被引用", () => {
+    // 语义在本批改了：事件细纲不再写进大纲列表，所以计划模式不能再告诉模型
+    // 「你可以把 plan.files 存成 event-outline」。
+    // 文件夹清单（folderNames，来自 DEFAULT_OUTLINE_FOLDERS）保持不动 ——
+    // 它描述的是「可读/可引用的目录」，而磁盘上可能已经有 事件细纲/ 这个目录。
     const rules = buildOutlinePlanPhaseSystemRules("章节细纲", chapterElements)
     expect(rules).toContain("事件细纲")
-    expect(rules).toContain("event-outline")
+    expect(rules).not.toContain("event-outline")
+    // 反向控制：别的 fileType 一个都没被误删。
+    for (const fileType of [
+      "outline",
+      "volume-outline",
+      "chapter-outline",
+      "character",
+      "setting",
+      "foreshadowing",
+      "organization",
+      "quality-report",
+    ]) {
+      expect(rules, `fileType 白名单不该丢掉 ${fileType}`).toContain(fileType)
+    }
   })
 
   it("builds the first round element check prompt from the module request hint", () => {

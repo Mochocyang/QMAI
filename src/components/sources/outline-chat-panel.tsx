@@ -150,6 +150,7 @@ import {
 } from "@/lib/novel/character-multi-agent";
 import {
   characterDraftsToSaveRequests,
+  excludeEventOutlineSaveRequests,
   formatOutlineSaveParseFeedback,
   mergeOutlineSaveRequests,
   type OutlineSaveRequest,
@@ -363,7 +364,7 @@ import {
 } from "@/lib/conversation-create-guard";
 import { outlineConversationRunRegistry } from "@/lib/conversation-run-registry";
 import { toast } from "@/lib/toast";
-import { buildEventOutlinePrompt, extractEventOutlineData, type EventOutlineRequest } from "@/lib/novel/event-outline";
+import { buildEventOutlinePrompt, extractEventOutlineData, type EventOutlineData, type EventOutlineRequest } from "@/lib/novel/event-outline";
 import { flattenMdFiles, pickChapterLibraryFiles, resolveNextChapterNumber } from "@/lib/novel/chapter-utils";
 import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts";
 import { finalizeStructuredMarkdownMessage } from "@/lib/novel/markdown-quality-finalizer";
@@ -1529,6 +1530,7 @@ function OutlineAssistantMessage({
   nextStepDisabledReason,
   generationContext,
   onFocusInput,
+  hasEventOutline,
 }: {
   msg: import("@/stores/outline-chat-store").OutlineChatMessage;
   index: number;
@@ -1573,6 +1575,12 @@ function OutlineAssistantMessage({
   nextStepDisabledReason?: string;
   generationContext: boolean;
   onFocusInput: () => void;
+  /**
+   * 这条消息本身是一份事件细纲。事件细纲只作为对话消息 + 卡片存在，
+   * 不再写进 wiki/outlines/事件细纲/，所以「保存为大纲」按钮对它不渲染
+   * （值由父组件按消息 id 一次算好传入，不在本组件里重复解析）。
+   */
+  hasEventOutline: boolean;
 }) {
   const [editApplied, setEditApplied] = useState(false);
   const [editResults, setEditResults] = useState<
@@ -1789,14 +1797,20 @@ function OutlineAssistantMessage({
       {/* Action buttons */}
       {actionContent && canUseAsOutlineContent && !isStreaming ? (
         <div className="mt-2 flex w-full items-center gap-1">
-          <button
-            onClick={() => void onSaveAsOutline(actionContent)}
-            className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent"
-            title="保存为大纲"
-            aria-label="保存为大纲"
-          >
-            <Save className="h-3.5 w-3.5" />
-          </button>
+          {/*
+            * 事件细纲不进大纲列表（只作消息 + 卡片存在），所以这一类消息上不出现
+            * 「保存为大纲」；复制 / 重新生成等其余按钮照旧。
+            */}
+          {!hasEventOutline ? (
+            <button
+              onClick={() => void onSaveAsOutline(actionContent)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent"
+              title="保存为大纲"
+              aria-label="保存为大纲"
+            >
+              <Save className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
           <button
             onClick={() => onCopy(actionContent, msg.id)}
             className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent"
@@ -2070,6 +2084,25 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   const activeConv = conversations.find((c) => c.id === activeConversationId);
   const activeMessages = activeConv?.messages ?? [];
+  /**
+   * 每条助手消息解析出的事件细纲（纯函数，按帧现算）。
+   *
+   * 一次算好给两处共用：气泡下方的卡片，以及「保存为大纲」按钮的显示条件。
+   * 后者必须知道这条消息是不是事件细纲 —— 事件细纲不再进大纲列表，
+   * 那个按钮对它就没有意义了（丙-1 堵住的手动保存通道）。
+   */
+  const eventOutlinesByMessageId = useMemo(() => {
+    const outlines = new Map<string, EventOutlineData | null>();
+    for (const message of activeMessages) {
+      outlines.set(
+        message.id,
+        message.role === "assistant"
+          ? extractEventOutlineData(message.content)
+          : null,
+      );
+    }
+    return outlines;
+  }, [activeMessages]);
   const hasSentUserMessage =
     activeConv?.messages.some((message) => message.role === "user") ?? false;
   const canCreateConversation = canCreateNewConversation(
@@ -2732,7 +2765,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       // 降级路径：AI 未按分批输出（直接给了整份 chapterOutlineData + outlineSaveRequest）时，
       // 仍走下面的统一校验（章节数与骨架一致、逐章 17 节、卷纲交叉校验），不会静默保存残缺章纲。
       const parsed = parseOutlineSaveRequests(safeAssistantContent);
-      if (parsed.requests.length === 0) {
+      // 事件细纲只作为对话消息 + 卡片存在，不再写进 wiki/outlines/事件细纲/。
+      // 生成侧已经不再要求模型输出 outlineSaveRequest，这里是兜底闸门：
+      // 手工或计划模式绕过来的 event-outline 请求一律丢掉，既不弹确认框也不落盘。
+      const { requests: saveRequests, droppedEventOutlineCount } =
+        excludeEventOutlineSaveRequests(parsed.requests);
+      // 有请求、但全是事件细纲：直接收工。不能掉进下面那条兜底分类 ——
+      // 它会把同一份细纲（首个 H1 带「事件细纲」）再判成 event-outline，又弹一次确认框。
+      if (droppedEventOutlineCount > 0 && saveRequests.length === 0) return;
+      if (saveRequests.length === 0) {
         if (parsed.errors.length > 0) {
           showOutlineAutoSaveError(formatOutlineSaveParseFeedback(parsed.errors));
           return;
@@ -2744,6 +2785,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           sourceHint: collectOutlineSaveSourceHint(conversationId),
         });
         if (!built || !canApply()) return;
+        // 与上面的过滤同一道闸门，只是走的是「没有保存请求、靠正文分类」这条腿：
+        // 分类结果若是事件细纲，同样不弹确认框（否则丙-1 的目标会被这条腿绕过）。
+        if (built.classification.fileType === "event-outline") return;
         if (built.classification.fileType === "character") {
           const extracted = extractCharacterSaveDrafts(built.draft.content);
           if (extracted.drafts.length === 0) return;
@@ -2768,7 +2812,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
       if (!canApply()) return;
       try {
-        const split = splitConfirmRequiredSaveRequests(parsed.requests);
+        const split = splitConfirmRequiredSaveRequests(saveRequests);
         const characterRequests = split.confirmRequired.filter(
           (request) => request.fileType === "character",
         );
@@ -6530,6 +6574,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                     ? "当前会话正在生成，请等待生成完成后再选择下一步。"
                     : submitDisabledReason}
                   onFocusInput={handleFocusInput}
+                  hasEventOutline={Boolean(eventOutlinesByMessageId.get(msg.id))}
                 />
               ) : (
                 <>
@@ -6554,7 +6599,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             {/* 事件细纲卡片挂在助手气泡下方：容器是 flex 行，靠 w-full + flex-wrap 换行占满整行，
                 否则会被 w-full 的气泡挤成半宽。 */}
             {msg.role === "assistant" ? (() => {
-              const eventOutline = extractEventOutlineData(msg.content);
+              const eventOutline = eventOutlinesByMessageId.get(msg.id) ?? null;
               return eventOutline ? (
                 <div className="w-full min-w-0">
                   <EventOutlineCard

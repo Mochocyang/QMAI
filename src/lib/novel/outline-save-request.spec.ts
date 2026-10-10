@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   attachOutlineHtml,
   characterDraftsToSaveRequests,
+  excludeEventOutlineSaveRequests,
   extractBodyContent,
   extractHtmlBlocks,
   formatOutlineSaveParseFeedback,
@@ -10,6 +11,7 @@ import {
   renderOutlineHtmlForPath,
   saveOutlineSaveRequests,
   splitConfirmRequiredSaveRequests,
+  type OutlineSaveRequest,
   type OutlineSaveRequestFileType,
 } from "./outline-save-request"
 import { getDefaultFolderForOutlineFileType } from "./outline-save-classifier"
@@ -1154,11 +1156,16 @@ describe("event-outline 保存类型", () => {
     expect(parsed.requests[0]?.fileType).toBe("event-outline")
   })
 
-  it("中文别名「细纲」也归一化为 event-outline", () => {
-    // 用户口径已经变了：本分支的「细纲」指轻量事件细纲，不再是 17 节章纲。
+  it("中文别名「细纲」不再归一化为 event-outline", () => {
+    // 丙-1 的核心修复点：「细纲」恢复历史含义（17 节章纲）。
+    // 保留别名会让模型写 fileType: "细纲" 时，一份 17 节章纲被归一化成 event-outline，
+    // 而 hasEventOutlineStructure 的闸门挡不住它（章纲的「## 1. 本章定位」本身就是
+    // 编号分节 + 大量列表行），于是章纲会被落进「事件细纲」文件夹。
     const parsed = parseOne({ ...request, fileType: "细纲" })
-    expect(parsed.errors).toEqual([])
-    expect(parsed.requests[0]?.fileType).toBe("event-outline")
+    // 白名单里没有「细纲」这个值，因此整条请求被拒（而不是被改判成事件细纲）。
+    expect(parsed.requests.map((item) => item.fileType)).not.toContain("event-outline")
+    expect(parsed.requests).toEqual([])
+    expect(parsed.errors.join("\n")).toContain("细纲")
   })
 
   it("事件细纲落进「事件细纲」文件夹", () => {
@@ -1247,5 +1254,43 @@ describe("event-outline 保存类型", () => {
     const parsed = parseOne({ ...request, content: chapterOutlineBody })
     expect(parsed.requests).toEqual([])
     expect(parsed.errors.join("\n")).toContain("事件细纲")
+  })
+})
+
+describe("excludeEventOutlineSaveRequests", () => {
+  const eventOutlineRequest: OutlineSaveRequest = {
+    targetFolder: "事件细纲",
+    fileName: "事件细纲-第012章.md",
+    fileType: "event-outline",
+    writeMode: "create",
+    referencedSkills: [],
+    sourceIntent: "生成第12章事件细纲",
+    content: "# 事件细纲 · 第12章 令牌初现\n\n## 事件1 院子里的哭声\n- 关键台词：「夜壶里的东西是药。」",
+  }
+  const chapterOutlineRequest: OutlineSaveRequest = {
+    ...eventOutlineRequest,
+    targetFolder: "章纲",
+    fileName: "章纲-第012章.md",
+    fileType: "chapter-outline",
+  }
+
+  it("摘掉事件细纲、留下其它类型（顺序不变）", () => {
+    const result = excludeEventOutlineSaveRequests([chapterOutlineRequest, eventOutlineRequest])
+    expect(result.requests.map((item) => item.fileName)).toEqual(["章纲-第012章.md"])
+    expect(result.droppedEventOutlineCount).toBe(1)
+  })
+
+  it("全是事件细纲时请求清空、且如实报出摘掉的条数", () => {
+    // 调用方靠这个条数区分「压根没有请求」与「请求全是事件细纲」：
+    // 后者必须直接收工，否则会掉进按正文推断的兜底分类，又判出一次事件细纲。
+    const result = excludeEventOutlineSaveRequests([eventOutlineRequest])
+    expect(result.requests).toEqual([])
+    expect(result.droppedEventOutlineCount).toBe(1)
+  })
+
+  it("没有事件细纲时原样返回、条数为 0", () => {
+    const result = excludeEventOutlineSaveRequests([chapterOutlineRequest])
+    expect(result.requests.map((item) => item.fileName)).toEqual(["章纲-第012章.md"])
+    expect(result.droppedEventOutlineCount).toBe(0)
   })
 })

@@ -95,10 +95,12 @@ const FILE_TYPE_ALIASES: Record<string, OutlineSaveRequestFileType> = {
   "大纲": "outline",
   "卷纲": "volume-outline",
   "章纲": "chapter-outline",
-  // 「细纲」历史上一律指 17 节章纲；本分支起用户口径变了，轻量事件细纲才是用户说的「细纲」。
-  // 不加这条别名的话，模型写 fileType: "细纲" 会被白名单直接拒掉。
+  // 「细纲」恢复历史含义：它一律指 17 节章纲，**不再**归一化成事件细纲。
+  // 本分支一度把「细纲」也当成事件细纲，后果是模型写 fileType: "细纲" 时，
+  // 一份 17 节章纲会被归一化成 event-outline（hasEventOutlineStructure 的闸门
+  // 恰好挡不住它：章纲的「## 1. 本章定位」本身就是编号分节 + 大量列表行）。
+  // 事件细纲现在只认「事件细纲」这个全称。
   "事件细纲": "event-outline",
-  "细纲": "event-outline",
   "人物小传": "character",
   "人物": "character",
   "角色": "character",
@@ -676,6 +678,26 @@ export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseR
   })
 
   return { requests: usable, errors }
+}
+
+/**
+ * 从解析结果里摘掉事件细纲请求。
+ *
+ * 事件细纲只作为大纲对话里的消息 + 卡片存在（随 `<项目>/.qmai/outline-chats.json` 持久化），
+ * 不再写进 `wiki/outlines/事件细纲/`。生成侧已经不再要求模型输出保存请求，
+ * 但手工触发、计划模式或旧会话重放仍可能把它带过来，所以落盘前统一在这里摘掉。
+ *
+ * 返回值带上「摘掉了几个」，让调用方能区分两件事：
+ * - 压根没有保存请求 → 继续走原来的「没请求」分支（含按正文推断类型的兜底）；
+ * - 有请求、但全是事件细纲 → 这一轮就是事件细纲，必须直接收工：
+ *   再走兜底分类会把同一份细纲（首个 H1 带「事件细纲」）又判成 event-outline，白弹一次确认框。
+ */
+export function excludeEventOutlineSaveRequests(requests: OutlineSaveRequest[]): {
+  requests: OutlineSaveRequest[]
+  droppedEventOutlineCount: number
+} {
+  const kept = requests.filter((request) => request.fileType !== "event-outline")
+  return { requests: kept, droppedEventOutlineCount: requests.length - kept.length }
 }
 
 export function formatOutlineSaveParseFeedback(errors: string[]): string {

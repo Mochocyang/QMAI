@@ -391,7 +391,7 @@ export function buildOutlinePlanPhaseSystemRules(
     "3. 只要还有必填要素没满足，status 必须是 needs_input，只输出追问，不要输出 plan。",
     `4. 每个追问必须给出至少 ${OUTLINE_PLAN_MIN_OPTIONS} 个具体可选项（选项要来自已读取资料或题材惯例，不要写空泛的“其它”），系统会自动追加自定义输入项。`,
     "5. 必填要素全部满足时，status 才能是 ready，并给出 plan：生成步骤、待写文件清单、生成顺序、风险和遗留问题。",
-    `6. plan.files 的 targetFolder 只能用这些文件夹名：${folderNames}；fileType 只能用 outline、volume-outline、chapter-outline、event-outline、character、setting、foreshadowing、organization、quality-report。`,
+    `6. plan.files 的 targetFolder 只能用这些文件夹名：${folderNames}；fileType 只能用 outline、volume-outline、chapter-outline、character、setting、foreshadowing、organization、quality-report。`,
     "7. 已经存在的文件必须用 append、patch 或 replace，只有新建文件才能用 create。",
     "## 要素清单",
     ...formatElementChecklist(required),

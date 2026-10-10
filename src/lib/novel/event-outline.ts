@@ -302,8 +302,6 @@ export function buildEventOutlinePrompt(request: EventOutlineRequest): string {
     ? request.eventCount
     : EVENT_OUTLINE_DEFAULT_EVENTS
   const perEventWords = request.targetWords > 0 ? Math.round(request.targetWords / eventCount) : 0
-  // 章号补零，与「事件细纲-第001章.md」的命名规范保持一致。
-  const fileName = `事件细纲-第${String(request.chapterNumber).padStart(3, "0")}章.md`
   // 示例 JSON 交给 JSON.stringify 生成：手写字符串一旦漏引号或漏括号，就会教模型输出坏数据。
   // requirement 一并写进示例（无要求时 JSON.stringify 会丢掉 undefined 键），
   // 否则用户填的要求只活在生成细纲那一次提示词里，扩写时无处可取。
@@ -320,18 +318,9 @@ export function buildEventOutlinePrompt(request: EventOutlineRequest): string {
       requirement: requirement || undefined,
     },
   })
-  // 保存请求也给一份完整示例：只在正文里描述字段，模型很容易写出缺字段的请求。
-  const saveExample = JSON.stringify({
-    outlineSaveRequest: {
-      targetFolder: "事件细纲",
-      fileName,
-      fileType: "event-outline",
-      writeMode: "create",
-      referencedSkills: [],
-      sourceIntent: `生成第${request.chapterNumber}章事件细纲`,
-      content: "（此处放上面那份 Markdown 细纲正文）",
-    },
-  })
+  // 这里**刻意不再要求 outlineSaveRequest**：事件细纲只作为大纲对话里的消息 + 卡片存在
+  // （已经随 .qmai/outline-chats.json 持久化），不再写进 wiki/outlines/事件细纲/。
+  // 提示词里留着保存请求示例的话，模型会照抄出一份保存请求，诱导用户把它当大纲归档。
   return [
     `请为第 ${request.chapterNumber} 章生成一份「事件细纲」：把这一章拆成 ${eventCount} 个连续事件。`,
     "",
@@ -353,17 +342,13 @@ export function buildEventOutlinePrompt(request: EventOutlineRequest): string {
     "",
     "## 输出格式（缺一不可）",
     "1. 一份可直接保存的 Markdown 细纲内容（不是小说正文）：",
-    "   - 一级标题固定形如「# 事件细纲 · 第N章 一句话章名」（「事件细纲」四个字必须出现，保存归档靠它识别类型，写成「# 第N章 · 一句话章名」会被判成章纲存进「章纲」文件夹）；",
+    "   - 一级标题固定形如「# 事件细纲 · 第N章 一句话章名」（「事件细纲」四个字必须出现）；",
     "   - 下面每个事件用二级标题分节，形如「## 事件1 一句话事件」，并按抓手逐条列出；",
     "2. 一个 ```json 围栏，顶层字段为 eventOutlineData：",
     "```json",
     example,
     "```",
     `（上面的 events 只演示单个事件的字段格式；实际必须按上面要求写满 ${eventCount} 个事件，用真实的 chapterNumber 与 targetWords。）`,
-    "3. 一个 ```json 围栏，顶层字段为 outlineSaveRequest（content 为上一步那份 Markdown 细纲内容）：",
-    "```json",
-    saveExample,
-    "```",
   ].join("\n")
 }
 

@@ -355,11 +355,13 @@ describe("buildEventOutlinePrompt", () => {
     expect(buildEventOutlinePrompt(request)).toContain("让楚白第一次动用令牌")
   })
 
-  it("要求产出 eventOutlineData 与保存请求", () => {
+  it("要求产出 eventOutlineData，且不再要求保存请求", () => {
     const prompt = buildEventOutlinePrompt(request)
     expect(prompt).toContain("eventOutlineData")
-    expect(prompt).toContain("outlineSaveRequest")
-    expect(prompt).toContain("event-outline")
+    // 事件细纲不再写进 wiki/outlines/事件细纲/：提示词里留着保存请求示例
+    // 会诱导模型照抄出一份，用户就会把它当大纲归档。
+    expect(prompt).not.toContain("outlineSaveRequest")
+    expect(prompt).not.toContain("event-outline")
   })
 
   it("明令禁止写正文", () => {
@@ -367,10 +369,9 @@ describe("buildEventOutlinePrompt", () => {
   })
 
   it("规定的 Markdown 形状自带「事件细纲」并由「## 事件N」分节", () => {
-    // 保存归档靠这份 Markdown 自我识别类型：outline-save-classifier 的
-    // extractDocumentSubject 只看标题与首个 H1，两者都不含「事件细纲」时，
-    // 「第12章 · 令牌初现」会被 CHAPTER_SUBJECT 判成 chapter-outline 落进「章纲」文件夹，
-    // 章纲上下文引擎随后会把它当成真正的 17 节章纲读走。
+    // 一级标题带「事件细纲」仍是本条产线的形状契约（卡片标题、以及磁盘上已有的旧文件
+    // 都靠它自我识别）。丙-1 只去掉了「保存归档靠它识别类型」这个后果，
+    // 形状本身不变。
     const prompt = buildEventOutlinePrompt(request)
     expect(prompt).toContain("事件细纲 · 第N章")
     expect(prompt).toContain("## 事件1")
@@ -381,8 +382,13 @@ describe("buildEventOutlinePrompt", () => {
     expect(prompt).not.toContain("用户对本章的要求：\n")
   })
 
-  it("保存建议里的章号补零，与文件命名规范一致", () => {
-    expect(buildEventOutlinePrompt({ ...request, chapterNumber: 7 })).toContain("第007章")
+  it("提示词里不再出现任何落盘文件名", () => {
+    // 原先这条断言的是「保存建议里的章号补零」（事件细纲-第007章.md）。保存请求示例
+    // 已按用户要求删除，补零命名随之失去载体，所以改成反向守卫：提示词不许再夹带文件名，
+    // 那正是「诱导模型输出保存请求」的同一批文本。
+    const prompt = buildEventOutlinePrompt({ ...request, chapterNumber: 7 })
+    expect(prompt).not.toContain("事件细纲-第007章.md")
+    expect(prompt).not.toContain(".md")
   })
 
   it("每个事件的建议字数按目标字数与事件数四舍五入推算", () => {
@@ -415,18 +421,13 @@ describe("buildEventOutlinePrompt", () => {
     expect(buildEventOutlinePrompt(request)).toContain("只演示单个事件的字段格式")
   })
 
-  it("两个 json 示例都是合法 JSON，保存请求字段齐全且章号补零", () => {
+  it("唯一的 json 示例是 eventOutlineData，而且是合法 JSON", () => {
+    // 只留一份围栏：保存请求那份已经按用户要求移除（事件细纲不再进大纲列表）。
     const fences = promptJsonFences(buildEventOutlinePrompt({ ...request, chapterNumber: 7 }))
-    expect(fences).toHaveLength(2)
+    expect(fences).toHaveLength(1)
     expect(fences[0].eventOutlineData?.events).toHaveLength(1)
-    const save = fences[1].outlineSaveRequest
-    expect(save?.targetFolder).toBe("事件细纲")
-    expect(save?.fileName).toBe("事件细纲-第007章.md")
-    expect(save?.fileType).toBe("event-outline")
-    expect(save?.writeMode).toBe("create")
-    expect(save?.referencedSkills).toEqual([])
-    expect(String(save?.sourceIntent)).toContain("第7章")
-    expect(typeof save?.content).toBe("string")
+    expect(fences[0].outlineSaveRequest).toBeUndefined()
+    expect(buildEventOutlinePrompt(request)).not.toContain("outlineSaveRequest")
   })
 
   it("输出格式说的是「细纲内容（不是小说正文）」，不与「不要写正文」互相矛盾", () => {

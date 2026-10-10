@@ -2817,7 +2817,7 @@ describe("事件细纲接线", () => {
       .some((button) => button.textContent === "生成细纲")).toBe(true)
   })
 
-  it("提交事件细纲向导直接进生成腿，消息里带上事件细纲与保存协议", async () => {
+  it("提交事件细纲向导直接进生成腿，消息里只带事件细纲、不再带保存协议", async () => {
     const runs: Array<{ system: string; user: string }> = []
     vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, messages, callbacks) => {
       runs.push({
@@ -2853,11 +2853,110 @@ describe("事件细纲接线", () => {
     // 发出去的必须是事件细纲提示词本身（而不是普通大纲向导的那一份）。
     expect(runs[0].user).toContain("请为第 1 章生成一份「事件细纲」")
     expect(runs[0].user).toContain("eventOutlineData")
-    expect(runs[0].user).toContain("event-outline")
+    // 丙-1：生成侧不再诱导保存请求，所以提示词里没有 event-outline / outlineSaveRequest。
+    expect(runs[0].user).not.toContain("event-outline")
+    expect(runs[0].user).not.toContain("outlineSaveRequest")
     // 范围已由向导定死：一轮就是生成腿（runs 只有 1 条即证没有先插一轮 intent_clarity 意图分析）。
     // 注意不能用 system 不含 "intent_clarity" 来断言——生成腿系统提示里本来就有
     // 「禁止再次输出 intent_clarity 标记」这句话。
     expect(runs[0].system).toContain("本轮阶段：正文生成")
+  })
+
+  /** 受控输入必须走原型上的 value setter，React 才认这次变更。 */
+  async function setWizardField(selector: string, value: string) {
+    const element = document.querySelector<HTMLTextAreaElement | HTMLInputElement>(selector)
+    expect(element, `未找到向导字段：${selector}`).not.toBeNull()
+    const prototype = element!.tagName === "TEXTAREA"
+      ? HTMLTextAreaElement.prototype
+      : HTMLInputElement.prototype
+    const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set
+    await act(async () => {
+      setter?.call(element, value)
+      element!.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+  }
+
+  /** 从空会话入口打开向导、可选地填要求、提交，并等这一轮生成跑完。 */
+  async function runEventOutlineWizard(container: HTMLElement, requirement: string) {
+    await act(async () => { getEventOutlineTrigger(container)?.click() })
+    if (requirement) await setWizardField('textarea[aria-label="本章想法/硬要求"]', requirement)
+    const submit = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "生成细纲")
+    expect(submit, "向导应提供「生成细纲」提交按钮").toBeDefined()
+    await act(async () => {
+      submit?.click()
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        const state = useOutlineChatStore.getState()
+        const finished = state.runStates["outline-active"]?.status !== "running"
+        const generated = state.conversations[0]?.messages
+          .some((message) => message.role === "assistant" && Boolean(message.content))
+        if (finished && generated) break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+  }
+
+  it("生成结果里带事件细纲保存请求时也不弹保存确认框，卡片照常渲染", async () => {
+    const outlineBody = [
+      "# 事件细纲 · 第1章 雨夜令牌",
+      "",
+      "## 事件1 院子里的哭声",
+      "- 关键台词：「别回头。」",
+      "- 神情动作：指节发白",
+    ].join("\n")
+    const generated = [
+      outlineBody,
+      "",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: {
+          targetFolder: "事件细纲",
+          fileName: "事件细纲-第001章.md",
+          fileType: "event-outline",
+          writeMode: "create",
+          referencedSkills: [],
+          sourceIntent: "生成第1章事件细纲",
+          content: outlineBody,
+        },
+      }),
+      "```",
+      "",
+      "```json",
+      JSON.stringify({
+        eventOutlineData: { ...validEventOutlineData(), chapterNumber: 1, title: "第1章 · 雨夜令牌" },
+      }),
+      "```",
+    ].join("\n")
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+      callbacks.onText(generated)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: generated }
+    })
+    setOutlineConversations([conversation()], "outline-active", {
+      streamingContents: { "outline-active": "" },
+    })
+    const container = await renderOutlineChatPanel()
+
+    await runEventOutlineWizard(container, "")
+
+    // 自动通道：模型（或旧会话重放）递来事件细纲保存请求时，不弹空的确认框。
+    expect(document.body.textContent).not.toContain("请确认要保存的大纲文件")
+    expect(document.body.textContent).not.toContain("请确认要保存的人物角色")
+    // 但内容没被丢掉：卡片照常渲染（事件细纲只作为消息 + 卡片存在）。
+    expect(Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .some((button) => button.textContent === "用这份细纲写这一章")).toBe(true)
+  })
+
+  it("事件细纲消息上不再显示「保存为大纲」按钮（手动通道）", async () => {
+    setOutlineConversations([conversation([assistantEventOutlineMessage()])], "outline-active")
+    const container = await renderOutlineChatPanel()
+
+    const labels = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .map((button) => button.getAttribute("aria-label"))
+    expect(labels, "事件细纲不进大纲列表，所以没有「保存为大纲」").not.toContain("保存为大纲")
+    // 反向控制：同一批动作按钮里的其它按钮仍在（这条用例不是靠「整块没渲染」通过的）。
+    expect(labels).toContain("复制")
+    expect(labels).toContain("重新生成")
   })
 
   it("卡片「用这份细纲写这一章」只填写作输入框并切到写作现场，不自动发送", async () => {
