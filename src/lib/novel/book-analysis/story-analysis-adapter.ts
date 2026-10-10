@@ -54,6 +54,9 @@ async function callStoryModel(
     signal,
     onRequestTrace,
     cancelMessage: "用户取消故事分析",
+    // 同 style-analysis-adapter：Gemini 的 buildGoogleBody 直接读 overrides?.reasoning，
+    // 不显式带下去会丢掉用户在设置里选的思考档位。
+    baseOverrides: { reasoning: llmConfig.reasoning },
   })
 }
 

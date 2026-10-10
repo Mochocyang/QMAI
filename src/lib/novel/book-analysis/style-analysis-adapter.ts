@@ -118,6 +118,10 @@ async function callStyleModel(
     signal,
     onRequestTrace,
     cancelMessage: "用户取消文风分析",
+    // 必须把 llmConfig.reasoning 显式带下去：buildGoogleBody 是直接读
+    // overrides?.reasoning（llm-providers.ts:1303/1305），不像其它 provider 那样
+    // 回落到 config.reasoning。不带的话，Gemini 用户在设置里选的思考档位会被忽略。
+    baseOverrides: { reasoning: llmConfig.reasoning },
   })
 }
 
