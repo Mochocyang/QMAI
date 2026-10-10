@@ -4864,6 +4864,11 @@ export function PersonaSkillView() {
           ? `已把「${meta.characterName}」标为重要人物：每章都会重点分析，下次出场时生成研究文件。`
           : `已取消「${meta.characterName}」的重要标记。`,
       )
+    } catch (err) {
+      // updatePersonaSkillIndex 内部用的是严格读：索引文件损坏或读不出来时它会抛，
+      // 目的是拒绝用空索引覆盖整库。这里必须接住并告诉用户，
+      // 否则点击只会变成一条无人处理的 Promise 拒绝，界面毫无反应。
+      setMessage(`标记没保存成功：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setBusy(false)
     }
@@ -4891,6 +4896,10 @@ export function PersonaSkillView() {
       setIndex(updated)
       setDraftDirty(false)
       setMessage("已保存。之后 AI 只会在这份档案后面追加「补充」，不会覆盖你写的内容。")
+    } catch (err) {
+      // 同上：严格读会抛。这一条尤其不能吞——用户以为存下来了、其实没有，
+      // 而且是「不改 draftDirty」的状态，草稿还在，可以重试。
+      setMessage(`保存失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setBusy(false)
     }
@@ -5184,7 +5193,7 @@ git commit -m "feat(人物skill): 加人物 Skill 页与草稿守卫"</div>
     <p>在组件顶部（<code>writingDraftDirty</code> 那片）补两个 selector：</p>
     <pre><code>  const personaDraftDirty = useWikiStore((s) =&gt; s.personaSkillLibraryDraftDirty)
   const setPersonaDraftDirty = useWikiStore((s) =&gt; s.setPersonaSkillLibraryDraftDirty)</code></pre>
-    <p><code>handleBackToList</code> 开头加一段（人物页自己管「列表/编辑」两态，父组件只管草稿标记）：</p>
+    <p><code>handleBackToList</code> 开头加一段（人物页自己管「列表/编辑」两态，父组件只管草稿标记）。<b>这是整个函数的完整体，不是片段</b>——照它整段替换原函数（原文在 <code>:660-668</code>）：</p>
     <pre><code>  function handleBackToList() {
     if (activeTab === "personaSkillLibrary") {
       if (personaDraftDirty &amp;&amp; !confirmDiscardSkillLibraryDraft()) return
@@ -5192,7 +5201,13 @@ git commit -m "feat(人物skill): 加人物 Skill 页与草稿守卫"</div>
       return
     }
     const dirty = activeTab === "writingSkillLibrary" ? writingDraftDirty : skillDraftDirty
-    …（余下不变）</code></pre>
+    if (dirty) {
+      if (!confirmDiscardSkillLibraryDraft()) return
+      if (activeTab === "writingSkillLibrary") setWritingDraftDirty(false)
+      else setSkillDraftDirty(false)
+    }
+    setEditing(false)
+  }</code></pre>
     <p>头部按钮条件从 <code>{!editing &amp;&amp; !isFavorites ? …}</code> 改成：</p>
     <pre><code>          {!editing &amp;&amp; !isFavorites &amp;&amp; !isPersona ? (
             &lt;SkillLibraryActions activeTab={activeTab} onAfterCreate={() =&gt; setEditing(true)} /&gt;
