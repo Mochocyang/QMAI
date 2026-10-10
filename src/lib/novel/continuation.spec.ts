@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
   CONTINUATION_EMPTY_INSTRUCTION,
-  CONTINUATION_POPOVER_MAX_HEIGHT,
-  CONTINUATION_POPOVER_WIDTH,
   CONTINUATION_SOURCE_HEAD_CHARS,
   CONTINUATION_SOURCE_LIMIT_CHARS,
   CONTINUATION_SOURCE_TAIL_CHARS,
@@ -191,9 +189,7 @@ describe("countContinuationChars", () => {
 
 describe("clampContinuationPopoverPosition", () => {
   const viewport = { width: 1000, height: 800 }
-  // 计划里这里写的是字面量 360/320；改用常量是为了让上面那两个 import 不被
-  // noUnusedLocals 判成 TS6133，数值与计划完全一致。
-  const size = { width: CONTINUATION_POPOVER_WIDTH, height: CONTINUATION_POPOVER_MAX_HEIGHT }
+  const size = { width: 360, height: 320 }
 
   it("视口中央时水平居中、放在锚点下方", () => {
     expect(clampContinuationPopoverPosition({ x: 500, y: 200 }, viewport, size))
