@@ -90,6 +90,69 @@
    `nav.*` / `novel.nav.*` / `novel.contextPack.*`。
    注意 `src/lib/hardcoded-ui-chinese-i18n.test.ts` 的既有约束。
 
+### 🔴🔴 补漏（实施前必读）：加一个 tab 远不止「改 :36-40 与 :43」——
+### 有 **7 处二元三元表达式**会静默走错分支，且 **`tsc` 抓不到任何一处**
+
+上面步骤 1 只写了「tab 数组加一项 + `GalleryTab` 联合类型同步 + 动作区补分支」。
+**这远远不够。** 已通读 `unified-skill-library-view.tsx`，发现关键区别：
+
+> 本文件的 tab 分派**不是查表（lookup table）**，而是一串
+> `activeTab === "writingSkillLibrary" ? A : B` 的**二元三元表达式**。
+> 给联合类型加第三个成员后，**每一个三元仍然合法编译**
+> （`"style" === "writingSkillLibrary"` 只是恒 false），于是它们**全部静默落到 else 分支**。
+> ⇒ **`npm run typecheck` 通过在这里等于零证据**，必须靠行为测试。
+
+#### (1) 最危险的一处：`activeTab` 的推导本身就是三元链（`:650-654`）
+```ts
+const activeTab: SkillLibraryTab = activeView === "writingSkillLibrary"
+  ? "writingSkillLibrary"
+  : activeView === "skillFavorites"
+  ? "skillFavorites"
+  : "skillLibrary"          // ← 兜底：任何未列出的 view 都被当成「去AI味」
+```
+⇒ 新增 `"writingStyleLibrary"` 视图时，若不同步这里，
+`activeTab` 会推导成 **`"skillLibrary"`**，于是下游**全部**按去AI味处理：
+tab 高亮错（`:700` 的 `aria-pressed` 会把「去AI味」标成选中）、
+列表错（`:457`）、空态文案错（`:545`）、脏标记错（`:661`/`:664`）、
+编辑区错（`:724`）。**首要目标视图会渲染成完全不相干的另一个库。**
+**要求**：把这条链改成显式映射（`Record<activeView, SkillLibraryTab>` 之类），
+或至少把新视图加进链里，并**加一条行为测试**：切到文风 tab 断言
+「文风」tab 的 `aria-pressed === "true"` 且出现的是文风条目。
+
+#### (2) 必须一并处理的 7 个点（逐个核对，缺一个就是静默错误）
+| # | 位置 | 现状 | 不同步的后果 |
+|---|---|---|---|
+| 1 | `:650-654` | `activeTab` 三元链，兜底 `"skillLibrary"` | 见上，**最严重** |
+| 2 | `:457` | `let list = activeTab === "writingSkillLibrary" ? writingEntries : deAiEntries` | 文风 tab 显示**去AI味技能列表** |
+| 3 | `:545-547` | `emptyCopy` 二选一 | 空态说「还没有去AI味技能」 |
+| 4 | `:661` | `dirty = activeTab === "writingSkillLibrary" ? writingDraftDirty : skillDraftDirty` | 脏标记张冠李戴 |
+| 5 | `:664` | `if (activeTab === "writingSkillLibrary") setWritingDraftDirty(false)` | 返回列表时不清脏标记 |
+| 6 | `:724` | `{activeTab === "writingSkillLibrary" ? <WritingSkillLibraryView/> : <SkillLibraryView/>}` | 编辑区渲染**去AI味编辑器** |
+| 7 | `:287` / `:443` | 动作区与分类 chips 的二分支 | 动作按钮/分类 chips 错配 |
+
+#### (3) tab 之外**还有 4 个跨文件挂点**，漏掉会有更硬的后果
+| 位置 | 为什么必须动 |
+|---|---|
+| `wiki-store.ts:661` | `activeView` 是**字面量联合类型**，新视图**必须**加进去，否则 `setActiveView("writingStyleLibrary")` 直接编译失败 |
+| `content-area.tsx:126` (`case "writingSkillLibrary":`) | 视图→内容的 `switch`。新视图不补 `case` 会掉进 default（白屏）。⚠️ `content-area.search-performance.test.tsx:23` 用源码断言钉着 `case "writingSkillLibrary"` 存在，别把它删了 |
+| `ui-test-shell.tsx:113` | `fullWindowViews` 白名单：不在里面的视图**不是全窗口渲染**，会挤在错误的容器里 |
+| `icon-sidebar.tsx:81` | `isActive = item.view === activeView \|\| (item.view === "skillLibrary" && activeView === "writingSkillLibrary")` —— 侧边栏高亮逻辑，新视图要不要折算到「技能库」图标必须**显式决定** |
+
+#### (4) ⚠️ 还有 3 条**既有源码断言**会被这次改动撞到（先读再改，别盲改）
+- `icon-sidebar.test.tsx:51-53`：断言 `iconSidebarSource` **不含** `id: "writingSkillLibrary"`，
+  且 `contentAreaSource` **含** `case "writingSkillLibrary"`；
+- `sidebar-nav-preferences.spec.ts:68-70`：`DEFAULT_SIDEBAR_NAV_ORDER` **不得含** `writingSkillLibrary`；
+- `content-area.search-performance.test.tsx:23`：含 `case "writingSkillLibrary"`。
+⇒ 结论：**新视图沿用「不在侧边栏、由技能库内部 tab 切换」的既有模式**，
+不要顺手把它加进侧边栏或导航顺序（那三条断言会红，且不是本批目的）。
+`icon-sidebar.tsx:81` 的折算要**保持**现有行为，只按需扩展。
+
+#### (5) 一句话给实施者
+> 加 tab 是**本批最容易做错的一步**：编译通过不代表接对了。
+> 落地后必须**逐条**证明 (2) 的 7 个点 + (3) 的 4 个挂点都已处理，
+> 并用**行为测试**（切 tab 后看到的是文风条目 + 文风 tab 高亮）兜住，
+> 而不是靠 `tsc` 或源码文本断言。
+
 ### 必须保持绿
 
 - `unified-skill-library-view.spec.tsx`：按**文案**点击（不计数 tab），
