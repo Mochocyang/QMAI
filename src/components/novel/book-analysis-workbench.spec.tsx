@@ -67,7 +67,11 @@ vi.mock("@/lib/novel/book-analysis/analysis-engine", () => ({ loadChapterList: a
 vi.mock("@/components/chat/chat-model-selector", () => ({ ChatModelSelector: () => <button>默认模型</button> }))
 vi.mock("@/lib/novel/book-analysis/analysis-model-resolver", () => ({ resolveTaskLlmConfig: () => ({ model: "测试模型" }) }))
 vi.mock("@/lib/novel/writing-style-store", () => ({ loadWritingStyleStore: mocks.loadStyles, setEnabledWritingStyle: mocks.setStyle }))
-vi.mock("./book-analysis-input-dialog", () => ({ BookAnalysisInputDialog: ({ open, workbenchMode }: any) => open ? <div role="dialog">{workbenchMode ? "单页导入" : "旧版导入"}</div> : null }))
+vi.mock("./book-analysis-input-dialog", () => ({
+  BookAnalysisInputDialog: ({ open, workbenchMode, defaultSkills }: any) => open
+    ? <div role="dialog">{workbenchMode ? "单页导入" : "旧版导入"}{defaultSkills?.join(",")}</div>
+    : null,
+}))
 vi.mock("./book-analysis-usage-summary", () => ({ BookAnalysisUsageSummary: () => null }))
 // StoryMapContent 会调用 listStoryMapHistory 读盘，故事页签的用例要看到「故事导图历史列表」就必须打桩。
 // 它内部对每张导图的 readFile 有自己的 .catch(() => null)，jsdom 下失败只会让 html 为空，不影响列表渲染。
@@ -452,6 +456,35 @@ describe("拆书库卡片精简", () => {
     await act(async () => button.click())
     expect(host.querySelector('[role="dialog"]')?.textContent).toBe("单页导入")
     expect(mocks.imports.createBatch).not.toHaveBeenCalled()
+  })
+  it("空态列出三张能力卡，点卡片带着对应技能打开导入弹窗", async () => {
+    mocks.load.mockResolvedValue({ books: [] })
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+
+    expect(host.textContent).toContain("角色 Skill")
+    expect(host.textContent).toContain("故事 Skill")
+    expect(host.textContent).toContain("文风 Skill")
+
+    const storyCard = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("故事 Skill"))!
+    await act(async () => storyCard.click())
+
+    // 弹窗里应预选故事技能；此时还没有选文件，绝不能触发导入。
+    expect(host.querySelector('[role="dialog"]')?.textContent).toBe("单页导入story")
+    expect(mocks.imports.createBatch).not.toHaveBeenCalled()
+  })
+
+  it("点「导入作品」不带任何预选技能，卡片预选不会残留到下一次打开", async () => {
+    mocks.load.mockResolvedValue({ books: [] })
+    await act(async () => root.render(<BookAnalysisWorkbench />))
+
+    const styleCard = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("文风 Skill"))!
+    await act(async () => styleCard.click())
+    expect(host.querySelector('[role="dialog"]')?.textContent).toBe("单页导入style")
+
+    // 关掉弹窗后改用普通入口：上一张卡片的预选必须被清掉。
+    const importButton = [...host.querySelectorAll("button")].find((b) => b.textContent === "导入作品")!
+    await act(async () => importButton.click())
+    expect(host.querySelector('[role="dialog"]')?.textContent).toBe("单页导入")
   })
 })
 
