@@ -2036,3 +2036,66 @@
   .ui-test-root [data-ui="interface-fields"] .ui-test-interface-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .ui-test-root [data-ui="interface-compatibility"] .ui-test-interface-compatibility-hint { display: block; margin-left: 0; }
 }
+
+/* 人物 Skill：绿勾 = 重要人物（D6）；勾选状态必须是「绿 + 对号」两重编码，不只靠颜色。 */
+.ui-test-root .ui-test-persona-pin {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1.5px solid color-mix(in srgb, var(--ui-ink) 22%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-persona-pin:hover {
+  border-color: #3f8f5a;
+}
+
+.ui-test-root .ui-test-persona-pin::after {
+  content: "";
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid transparent;
+  border-bottom: 2px solid transparent;
+  transform: rotate(-45deg);
+}
+
+.ui-test-root .ui-test-persona-pin.is-on {
+  border-color: #3f8f5a;
+  background: #3f8f5a;
+}
+
+.ui-test-root .ui-test-persona-pin.is-on::after {
+  border-left-color: #fff;
+  border-bottom-color: #fff;
+}
+
+.ui-test-root .ui-test-persona-editor {
+  min-height: 380px;
+  margin-top: 14px;
+  padding: 16px;
+  resize: vertical;
+  border: 1.5px solid var(--ui-line);
+  border-radius: 10px;
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  font: 0.875rem/1.85 var(--ui);
+}
+
+.ui-test-root .ui-test-persona-research {
+  margin-top: 16px;
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-persona-research pre {
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ui-ink) 5%, transparent);
+  white-space: pre-wrap;
+}

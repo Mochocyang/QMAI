@@ -658,7 +658,7 @@ interface WikiState {
   pendingScrollImageSrc: string | null
   chatExpanded: boolean
   searchPanelOpen: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation" | "maintenance"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "personaSkillLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation" | "maintenance"
   activeSettingsCategory: SettingsCategoryId | null
   activeModelSettingsTab: ModelSettingsTabId | null
   selectedSoulId: string | null
@@ -668,6 +668,7 @@ interface WikiState {
   skillLibraryDraftDirty: boolean
   selectedWritingSkillLibrarySkillId: string | null
   writingSkillLibraryDraftDirty: boolean
+  personaSkillLibraryDraftDirty: boolean
   selectedReviewDimension: string | null
   selectedReviewFilePath: string
   graphMode: string
@@ -763,6 +764,7 @@ interface WikiState {
   setSkillLibraryDraftDirty: (dirty: boolean) => void
   setSelectedWritingSkillLibrarySkillId: (id: string | null) => void
   setWritingSkillLibraryDraftDirty: (dirty: boolean) => void
+  setPersonaSkillLibraryDraftDirty: (dirty: boolean) => void
   setSelectedReviewDimension: (dimension: string | null) => void
   setSelectedReviewFilePath: (path: string) => void
   setGraphMode: (mode: string) => void
@@ -846,6 +848,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   skillLibraryDraftDirty: false,
   selectedWritingSkillLibrarySkillId: null,
   writingSkillLibraryDraftDirty: false,
+  personaSkillLibraryDraftDirty: false,
   selectedReviewDimension: null,
   selectedReviewFilePath: "",
   graphMode: "overview",
@@ -919,11 +922,22 @@ export const useWikiStore = create<WikiState>((set) => ({
     ) {
       return {}
     }
+    if (
+      state.activeView === "personaSkillLibrary"
+      && activeView !== "personaSkillLibrary"
+      && state.personaSkillLibraryDraftDirty
+      && !confirmDiscardSkillLibraryDraft()
+    ) {
+      return {}
+    }
     return {
       activeView,
       skillLibraryDraftDirty: activeView === "skillLibrary" ? state.skillLibraryDraftDirty : false,
       writingSkillLibraryDraftDirty: activeView === "writingSkillLibrary"
         ? state.writingSkillLibraryDraftDirty
+        : false,
+      personaSkillLibraryDraftDirty: activeView === "personaSkillLibrary"
+        ? state.personaSkillLibraryDraftDirty
         : false,
     }
   }),
@@ -950,6 +964,8 @@ export const useWikiStore = create<WikiState>((set) => ({
     }
   }),
   setWritingSkillLibraryDraftDirty: (writingSkillLibraryDraftDirty) => set({ writingSkillLibraryDraftDirty }),
+  setPersonaSkillLibraryDraftDirty: (personaSkillLibraryDraftDirty) =>
+    set({ personaSkillLibraryDraftDirty }),
   setSelectedReviewDimension: (selectedReviewDimension) => set({ selectedReviewDimension }),
   setSelectedReviewFilePath: (selectedReviewFilePath) => set({ selectedReviewFilePath }),
   setGraphMode: (graphMode) => set({ graphMode }),
