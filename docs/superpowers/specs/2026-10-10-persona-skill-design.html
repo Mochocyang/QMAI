@@ -428,10 +428,12 @@ context-engine.ts
     <h3>研究文件策略（对应需求追问）</h3>
     <div class="callout ok">
       <span class="label">已采纳的产品判断</span>
-      <p>研究文件<strong>只给绿标（pinned）角色生成</strong>，且在该角色<strong>创建的那一次批量调用里顺带产出</strong>——
+      <p>研究文件<strong>只给绿标（pinned）角色生成</strong>，且<strong>只生成一次</strong>：在该角色<strong>创建的那一次批量调用里顺带产出</strong>——
       LLM 在同一次响应里同时返回 SKILL.md 与 6 份研究内容。因此<strong>每章仍然只有 1 次 LLM 调用</strong>，与出场人数无关，
       也不会因为绿标而变贵。<strong>不活跃、出场很少的配角完全不生成研究文件。</strong>
-      绿标角色之后要刷新研究文件，由用户在界面上手动触发（v1 不做自动刷新）。</p>
+      如果一个角色<strong>建档之后才</strong>被点亮绿勾，则它<strong>下次出场时</strong>生成研究文件。</p>
+      <p><strong>已经有研究文件的角色，AI 不会自动重写</strong>：章节学习的提示词只看得到 <code>SKILL.md</code>，看不到那 6 份研究文件，
+      自动重写等于用只有本章的素材覆盖掉累积内容。要刷新请用界面上的<strong>「重新整理研究文件」</strong>按钮（v1 不做自动刷新）。</p>
     </div>
 
     <h3>失败策略</h3>

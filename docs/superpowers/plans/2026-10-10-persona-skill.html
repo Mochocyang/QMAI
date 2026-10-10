@@ -312,17 +312,20 @@
       <li><b>D1 分级</b>：主要定位（男主/女主/主角/反派/导师）第 1 次出场建档；次要定位（男配/女配/配角/盟友）第 2 次；没定位的名字第 3 次。</li>
       <li><b>D2 档位来源</b>：定位来自 <code>wiki/characters/角色-&lt;定位&gt;-&lt;名&gt;.md</code> 的<b>文件名</b>（一次目录列举，不读正文、零额外 LLM）。</li>
       <li><b>D4 生命周期</b>：连续 10 章未出场 → <code>dormant</code>，30 章 → <code>archived</code>；绿勾人物永不降级。</li>
-      <li><b>D6 绿勾</b>：<code>pinned</code> 一票升级为 <code>major</code>，且只有它 <code>withResearch = true</code>。</li>
+      <li><b>D6 绿勾</b>：<code>pinned</code> 一票升级为 <code>major</code>；<code>withResearch = pinned &amp;&amp; !hasResearch</code>，即只有绿勾、且还没有研究文件的人物才产出研究文件（已经有研究文件的不重写，见 Task 1 的 <code>PersonaSkillPlan</code> 注释）。</li>
     </ul>
   </div>
 
   <div class="step">
     <div class="head"><input type="checkbox"><span>Step 1：先写失败测试</span></div>
     <p>新建 <code>src/lib/novel/persona-skill-types.spec.ts</code>：</p>
-    <pre><code>import { describe, expect, it } from "vitest"
+    <pre><code>import { readFileSync } from "node:fs"
+import { describe, expect, it } from "vitest"
 import {
   PERSONA_ARCHIVED_GAP_CHAPTERS,
   PERSONA_DORMANT_GAP_CHAPTERS,
+  PERSONA_MAJOR_ROLE_TYPES,
+  PERSONA_MINOR_ROLE_TYPES,
   normalizePersonaName,
   planPersonaSkillRound,
   resolvePersonaStatus,
@@ -337,11 +340,32 @@ function input(overrides: Partial&lt;PersonaSkillPlanInput&gt; = {}): PersonaSki
     roleType: "男主",
     appearanceCount: 1,
     hasSkill: false,
+    hasResearch: false,
     pinned: false,
     lastLearnedChapter: 0,
     ...overrides,
   }
 }
+
+describe("档位表与仓库既有角色定位枚举", () =&gt; {
+  it("major ∪ minor 必须覆盖 CHARACTER_ROLE_TYPES 的全部定位（漏一个就是静默降档）", () =&gt; {
+    // 用源码字符串断言，而不是 import character-multi-agent：
+    // 那个模块拖着 character-save-extractor（Tauri 侧依赖），
+    // 而本模块是零依赖叶子，测试也不该把它拖进来。
+    const source = readFileSync(
+      new URL("./character-multi-agent.ts", import.meta.url),
+      "utf8",
+    ).replace(/\r\n/g, "\n")
+    const block = source.match(/export const CHARACTER_ROLE_TYPES = \[([\s\S]*?)\] as const/)
+    expect(block, "没找到 CHARACTER_ROLE_TYPES 字面量，枚举可能被改名或搬走了").not.toBeNull()
+    const declared = [...block![1].matchAll(/"([^"]+)"/g)].map((match) =&gt; match[1])
+    expect(declared.length).toBeGreaterThan(0)
+
+    // 我们声明的档位表必须恰好覆盖它：既不漏（静默降档），也不多（多出一个没人认识的定位）。
+    const ours = [...PERSONA_MAJOR_ROLE_TYPES, ...PERSONA_MINOR_ROLE_TYPES].sort()
+    expect(ours).toEqual([...declared].sort())
+  })
+})
 
 describe("resolvePersonaTier", () =&gt; {
   it("主要定位进 major，次要定位进 minor", () =&gt; {
@@ -385,6 +409,40 @@ describe("planPersonaSkillRound", () =&gt; {
     expect(plans).toHaveLength(1)
     expect(plans[0].tier).toBe("major")
     expect(plans[0].withResearch).toBe(true)
+  })
+
+  it("绿勾但还没有研究文件时，完善这一轮顺手生成（点亮绿勾后第一次出场）", () =&gt; {
+    const plans = planPersonaSkillRound(
+      [input({ roleType: "配角", pinned: true, hasSkill: true, hasResearch: false, appearanceCount: 2, lastLearnedChapter: 1 })],
+      2,
+    )
+    expect(plans).toHaveLength(1)
+    expect(plans[0].withResearch).toBe(true)
+  })
+
+  it("已经有研究文件的绿勾人物不再重复生成（防覆盖：章节学习看不到旧研究文件）", () =&gt; {
+    const plans = planPersonaSkillRound(
+      [input({ roleType: "配角", pinned: true, hasSkill: true, hasResearch: true, appearanceCount: 3, lastLearnedChapter: 2 })],
+      3,
+    )
+    expect(plans).toHaveLength(1)
+    expect(plans[0].mode).toBe("refine")
+    expect(plans[0].withResearch).toBe(false)
+  })
+
+  it("非绿勾人物永远不产出研究文件，哪怕没有研究文件", () =&gt; {
+    const plans = planPersonaSkillRound(
+      [input({ roleType: "配角", pinned: false, hasSkill: true, hasResearch: false, appearanceCount: 3, lastLearnedChapter: 2 })],
+      3,
+    )
+    expect(plans[0].withResearch).toBe(false)
+  })
+
+  it("产出的 aliases 是拷贝，下游 push 不会改到调用方的数组", () =&gt; {
+    const aliases = ["清越"]
+    const plans = planPersonaSkillRound([input({ aliases })], 1)
+    expect(plans[0].aliases).not.toBe(aliases)
+    expect(plans[0].aliases).toEqual(["清越"])
   })
 
   it("已有档案的主要人物每次出场都完善", () =&gt; {
@@ -614,6 +672,8 @@ export interface PersonaSkillPlanInput {
   roleType: string
   appearanceCount: number
   hasSkill: boolean
+  /** 已经生成过研究文件。研究文件只「首次生成」，之后刷新由用户在界面上手动触发。 */
+  hasResearch: boolean
   pinned: boolean
   lastLearnedChapter: number
 }
@@ -626,13 +686,22 @@ export interface PersonaSkillPlan {
   pinned: boolean
   appearanceCount: number
   mode: PersonaSkillMode
-  /** 本轮是否顺带产出研究文件（只有绿勾人物要）。 */
+  /**
+   * 本轮该「首次生成」研究文件：绿勾人物 + 还没有研究文件。
+   * 已经有研究文件的一律不重写 —— 章节学习的提示词只看得到 SKILL.md，
+   * 看不到那 6 份研究文件，重写等于用只有本章的素材覆盖掉累积内容。
+   */
   withResearch: boolean
 }
 
 /**
  * 本轮该对哪些人物做什么，纯函数。
- * 幂等：lastLearnedChapter 已经等于当前章就跳过，重复摄取同一章不会二次烧模型。
+ *
+ * 幂等：已建档的人物如果 lastLearnedChapter 已经等于当前章就跳过，重复摄取同一章不会二次烧模型。
+ * 未建档的人物不受 lastLearnedChapter 约束 —— 那是有意的 fail-open：没有档案就该建档，
+ * 万一有调用方给未建档条目填了 lastLearnedChapter，最坏也只是重复规划一次，不会永久静默跳过。
+ *
+ * 输入须已按 normalizePersonaName 去重（同名人物传两次会产出两条 plan）。
  */
 export function planPersonaSkillRound(
   inputs: readonly PersonaSkillPlanInput[],
@@ -641,19 +710,21 @@ export function planPersonaSkillRound(
   const plans: PersonaSkillPlan[] = []
   for (const input of inputs) {
     const tier = resolvePersonaTier(input.roleType, input.pinned)
+    const withResearch = input.pinned &amp;&amp; !input.hasResearch
     if (input.hasSkill) {
       if (input.lastLearnedChapter &gt;= currentChapter) continue
+      // 复用 major 首现门槛 = D6「绿勾一票升级为 major」，不是巧合。
       const threshold = input.pinned ? PERSONA_MAJOR_FIRST_APPEARANCE : refineAppearanceThreshold(input.roleType)
       if (input.appearanceCount &lt; threshold) continue
       plans.push({
         characterName: input.characterName,
-        aliases: input.aliases,
+        aliases: [...input.aliases],
         roleType: input.roleType,
         tier,
         pinned: input.pinned,
         appearanceCount: input.appearanceCount,
         mode: "refine",
-        withResearch: input.pinned,
+        withResearch,
       })
       continue
     }
@@ -661,13 +732,13 @@ export function planPersonaSkillRound(
     if (input.appearanceCount &lt; threshold) continue
     plans.push({
       characterName: input.characterName,
-      aliases: input.aliases,
+      aliases: [...input.aliases],
       roleType: input.roleType,
       tier,
       pinned: input.pinned,
       appearanceCount: input.appearanceCount,
       mode: "create",
-      withResearch: input.pinned,
+      withResearch,
     })
   }
   return plans
@@ -679,7 +750,7 @@ export function planPersonaSkillRound(
     <div class="run">npx vitest run src/lib/novel/persona-skill-types.spec.ts</div>
     <div class="expect">
       <span class="t">Expected</span>
-      <code>Test Files 1 passed (1)</code> / <code>Tests 16 passed</code>（6 个 resolvePersonaTier + plan 分组 8 个 + 状态 4 个 + 归一化 1 个 = 19；以实际数字为准，<b>0 失败</b>）。
+      <code>Test Files 1 passed (1)</code> / <code>Tests 21 passed</code>（档位表覆盖 1 + resolvePersonaTier 3 + plan 分组 12 + 状态 4 + 归一化 1 = 21；<b>0 失败</b>）。
     </div>
     <p>顺手过一遍类型检查：</p>
     <div class="run">npx tsc -p tsconfig.test.json --noEmit</div>
@@ -1244,6 +1315,7 @@ import {
   buildPersonaSkillBody,
   buildPersonaSkillMessages,
   buildPersonaSkillResearchMessages,
+  buildPersonaSkillUserPrompt,
   type PersonaSkillPromptTarget,
 } from "./persona-skill-prompt"
 
@@ -1255,6 +1327,7 @@ function target(overrides: Partial&lt;PersonaSkillPromptTarget&gt; = {}): Person
     tier: "major",
     mode: "create",
     pinned: false,
+    withResearch: false,
     appearanceCount: 1,
     ...overrides,
   }
@@ -1321,10 +1394,31 @@ describe("buildPersonaSkillMessages", () =&gt; {
     const pinned = buildPersonaSkillMessages({
       chapterNumber: 1,
       chapterBody: "正文",
-      targets: [target({ pinned: true })],
+      targets: [target({ pinned: true, withResearch: true })],
     })
     expect(pinned[1].content).toContain("人物小传")
     expect(pinned[1].content).toContain("名场面")
+  })
+
+  it("pinned 但本轮不需要研究文件时不要求 research（已有研究文件的不重复生成）", () =&gt; {
+    const prompt = buildPersonaSkillUserPrompt({
+      chapterNumber: 3,
+      chapterBody: "第三章正文",
+      targets: [
+        {
+          characterName: "沈砚",
+          aliases: [],
+          roleType: "配角",
+          tier: "major",
+          mode: "refine",
+          pinned: true,
+          withResearch: false,
+          appearanceCount: 3,
+        },
+      ],
+    })
+    expect(prompt).not.toContain("需要研究文件")
+    expect(prompt).toContain("用户手动标记的重要人物")
   })
 
   it("已有档案原文进 user 消息，并标明是补充而不是重写", () =&gt; {
@@ -1404,6 +1498,8 @@ export interface PersonaSkillPromptTarget {
   tier: PersonaSkillTier
   mode: PersonaSkillMode
   pinned: boolean
+  /** 本轮要不要顺带产出研究文件（plan.withResearch 直接透传）。 */
+  withResearch: boolean
   appearanceCount: number
   existingSkill?: string
 }
@@ -1463,10 +1559,8 @@ function describeTarget(target: PersonaSkillPromptTarget): string {
     `- 需要填写的字段：${fields.join(" / ")}`,
   ]
   if (target.aliases.length &gt; 0) lines.push(`- 别名：${target.aliases.join("、")}`)
-  if (target.pinned) {
-    lines.push(`- 需要研究文件：${PERSONA_RESEARCH_DOCUMENTS.join(" / ")}`)
-    lines.push("- 这一位是用户手动标记的重要人物，字段要写得更细。")
-  }
+  if (target.pinned) lines.push("- 这一位是用户手动标记的重要人物，字段要写得更细。")
+  if (target.withResearch) lines.push(`- 需要研究文件：${PERSONA_RESEARCH_DOCUMENTS.join(" / ")}`)
   if (target.existingSkill?.trim()) {
     lines.push(
       "",
@@ -1530,7 +1624,7 @@ export function buildPersonaSkillResearchMessages(input: PersonaSkillResearchPro
 npx tsc -p tsconfig.test.json --noEmit</div>
     <div class="expect">
       <span class="t">Expected</span>
-      <code>Tests 10 passed</code>，0 失败；类型检查无输出。
+      <code>Tests 11 passed</code>，0 失败；类型检查无输出。
     </div>
     <div class="callout warn">
       <span class="t">如果「次要人物只要 2 个字段」这条红了</span>
@@ -1587,7 +1681,7 @@ planPersonaSkillRoundForChapter(...)        # 纯函数：谁该建档 / 谁该�
 
   <div class="step">
     <div class="head"><input type="checkbox"><span>Step 1：先写失败测试</span></div>
-    <p>新建 <code>src/lib/novel/persona-skill-learning.spec.ts</code>。它是本计划最重的一个测试文件，8 个用例覆盖 D1/D3/D6 + 幂等 + 归档：</p>
+    <p>新建 <code>src/lib/novel/persona-skill-learning.spec.ts</code>。它是本计划最重的一个测试文件，11 个用例覆盖 D1/D3/D6 + 幂等 + 归档：</p>
     <pre><code>import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { PersonaSkillMeta } from "./persona-skill-types"
@@ -2001,6 +2095,43 @@ describe("learnPersonaSkillsFromChapter", () =&gt; {
     expect(readIndex()!.skills[0].tier).toBe("major")
   })
 
+  it("已有研究文件的绿勾人物再次完善时不重写研究文件（防用本章素材覆盖累积内容）", async () =&gt; {
+    roleFile("配角", "沈砚")
+    seedIndex([
+      {
+        characterName: "沈砚",
+        id: "沈砚",
+        roleType: "配角",
+        tier: "minor",
+        pinned: true,
+        hasResearch: true,
+        lastChapter: 2,
+        appearanceCount: 2,
+        lastLearnedChapter: 2,
+      },
+    ])
+    io.files.set(`${project}/.qmai/persona-skills/沈砚/SKILL.md`, "# 沈砚 · 人物 Skill\n\n## 怎么说话\n\n句尾带吧。\n")
+    io.files.set(
+      `${project}/.qmai/persona-skills/沈砚/references/research/人物小传.md`,
+      "旧的研究内容，不许被覆盖。",
+    )
+    reply([{
+      name: "沈砚",
+      fields: { 怎么说话: "句尾带吧。" },
+      research: { 人物小传: "本章新素材写的东西。" },
+    }])
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 3, chapterBody: "第三章正文", characters: ["沈砚"] },
+      llmConfig,
+    })
+
+    expect(io.files.get(`${project}/.qmai/persona-skills/沈砚/references/research/人物小传.md`)).toContain(
+      "旧的研究内容，不许被覆盖。",
+    )
+  })
+
   it("用户手改过的档案只追加「补充」，既有正文逐字保留", async () =&gt; {
     roleFile("男主", "林清越")
     seedIndex([{ characterName: "林清越", lastChapter: 2, appearanceCount: 2, lastLearnedChapter: 2, editedByUser: true }])
@@ -2133,6 +2264,7 @@ export interface PersonaChapterAppearance {
   appearanceCount: number
   firstChapter: number
   hasSkill: boolean
+  hasResearch: boolean
   pinned: boolean
   lastLearnedChapter: number
 }
@@ -2228,6 +2360,7 @@ export function collectChapterAppearances(
       firstChapter: Math.min(current.firstChapter, appearance.firstChapter),
       roleType: current.roleType || appearance.roleType,
       hasSkill: current.hasSkill || appearance.hasSkill,
+      hasResearch: current.hasResearch || appearance.hasResearch,
       pinned: current.pinned || appearance.pinned,
       lastLearnedChapter: Math.max(current.lastLearnedChapter, appearance.lastLearnedChapter),
     })
@@ -2248,6 +2381,7 @@ export function collectChapterAppearances(
         appearanceCount: meta.appearanceCount + (alreadyCounted ? 0 : 1),
         firstChapter: meta.firstChapter || chapter.chapterNumber,
         hasSkill: true,
+        hasResearch: meta.hasResearch,
         pinned: meta.pinned,
         lastLearnedChapter: meta.lastLearnedChapter,
       })
@@ -2271,6 +2405,7 @@ export function collectChapterAppearances(
         appearanceCount: sighting.appearanceCount,
         firstChapter: sighting.firstChapter,
         hasSkill: false,
+        hasResearch: false,
         pinned: false,
         lastLearnedChapter: 0,
       })
@@ -2294,6 +2429,7 @@ export function collectChapterAppearances(
       appearanceCount: 1,
       firstChapter: created.firstChapter,
       hasSkill: false,
+      hasResearch: false,
       pinned: false,
       lastLearnedChapter: 0,
     })
@@ -2313,6 +2449,7 @@ export function planPersonaSkillRoundForChapter(
       roleType: item.roleType,
       appearanceCount: item.appearanceCount,
       hasSkill: item.hasSkill,
+      hasResearch: item.hasResearch,
       pinned: item.pinned,
       lastLearnedChapter: item.lastLearnedChapter,
     })),
@@ -2468,6 +2605,7 @@ async function requestPersonaSkillDrafts(input: {
     tier: plan.tier,
     mode: plan.mode,
     pinned: plan.pinned,
+    withResearch: plan.withResearch,
     appearanceCount: plan.appearanceCount,
     existingSkill: input.existing.get(plan.characterName),
   }))
@@ -2677,7 +2815,7 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
 npx tsc -p tsconfig.test.json --noEmit</div>
     <div class="expect">
       <span class="t">Expected</span>
-      <code>Tests 18 passed</code>（角色定位 2 + 汇总 3 + 解析 4 + 渲染 3 + 编排 8 = 20；以实际为准），0 失败；类型检查无输出。
+      <code>Tests 23 passed</code>（角色定位 2 + 汇总 3 + 解析 4 + 渲染 3 + 编排 11 = 23；以实际为准），0 失败；类型检查无输出。
     </div>
     <div class="callout warn">
       <span class="t">「次要人物第一次出场不建档」红了？</span>
@@ -3375,6 +3513,17 @@ describe("章节摄取里的人物 Skill 挂钩", () =&gt; {
     )
   })
 
+  it("挂钩只在 ingestChapter 里，不许跑到 ingestOutline 里", () =&gt; {
+    // 本文件里 syncSnapshotToMemory 出现了两次：ingestChapter(:442) 与 ingestOutline(:1487)。
+    // 上面那条断言用 indexOf 取的是第一处，所以钩子即使被放进 ingestOutline 也会通过 ——
+    // 必须单独钉住函数边界。
+    const hookAt = ingest.indexOf("void learnPersonaSkillsFromChapter(")
+    const outlineAt = ingest.indexOf("export async function ingestOutline(")
+    expect(outlineAt).toBeGreaterThan(-1)
+    expect(hookAt).toBeGreaterThan(-1)
+    expect(hookAt).toBeLessThan(outlineAt)
+  })
+
   it("重新提取短路：isReingest 守卫真的包住了挂钩", () =&gt; {
     const hookAt = ingest.indexOf("void learnPersonaSkillsFromChapter(")
     expect(hookAt).toBeGreaterThan(-1)
@@ -3404,7 +3553,7 @@ describe("章节摄取里的人物 Skill 挂钩", () =&gt; {
     <div class="run">npx vitest run src/lib/novel/chapter-ingest-persona-hook.spec.ts</div>
     <div class="expect fail">
       <span class="t">Expected</span>
-      6 个用例失败（只有「签名不变」那条通过），提示 <code>expected '' to contain 'void learnPersonaSkillsFromChapter({'</code>。
+      7 个用例失败（只有「签名不变」那条通过），提示 <code>expected '' to contain 'void learnPersonaSkillsFromChapter({'</code>。
     </div>
   </div>
 
@@ -3442,7 +3591,7 @@ describe("章节摄取里的人物 Skill 挂钩", () =&gt; {
 npx tsc --build --pretty</div>
     <div class="expect">
       <span class="t">Expected</span>
-      新文件 7 个用例全绿；<code>chapter-ingest.spec.ts</code> 原有的源码字符串断言<b>仍然</b>全绿（这证明签名没被动过）。类型检查无输出。
+      新文件 8 个用例全绿；<code>chapter-ingest.spec.ts</code> 原有的源码字符串断言<b>仍然</b>全绿（这证明签名没被动过）。类型检查无输出。
     </div>
   </div>
 
@@ -3460,9 +3609,21 @@ git commit -m "feat(人物skill): 提取记忆时后台学习"</div>
   <div class="files">
     <span class="flabel">Files</span>
     <ul>
-      <li>Modify: <code>src/lib/novel/context-engine.ts</code>（3 处）</li>
+      <li>Modify: <code>src/lib/novel/context-engine.ts</code>（5 处：import、matchingText、<code>ContextPack</code> 字段、<code>FIELD_PRIORITY</code>、<code>FIELD_CONFIGS</code>、return）</li>
+      <li>Modify: <code>src/i18n/zh.json</code>（1 处：新增 <code>novel.contextPack.personaSkills</code>）</li>
       <li>Test: <code>src/lib/novel/context-engine-persona.spec.ts</code></li>
     </ul>
+  </div>
+
+  <div class="callout danger">
+    <span class="t">⚠ 绝对不能并进 <code>characterAuras</code> —— 那会引入一个误导性的生成失败</span>
+    <p><code>context-engine.ts:1129-1131</code> 有一条<b>硬失败守卫</b>：</p>
+    <pre><code>if (pack.portablePersonalities?.length &amp;&amp; (!pack.characterAuras || !result.prompt.includes(pack.characterAuras))) {
+  throw new Error("上下文预算不足，角色人格规则未完整保留。请缩小本次章节范围或选择更大上下文模型，已停止生成。")
+}</code></pre>
+    <p>含义：<b>一旦存在「人格规则」（<code>portablePersonalities</code>），<code>characterAuras</code> 字段必须原封不动地出现在裁剪后的提示词里。</b>而裁剪是<b>整段取舍 + 边界字段部分截断</b>（<code>trimContextPack</code> <code>:1237-1285</code>）——字段一被截断，<code>includes()</code> 就变假 → <b>抛错、停止生成</b>。</p>
+    <p><code>characterAuras</code> 的裁剪优先级是 <code>10</code>，前面已有约 10 个核心字段先占位，<b>它本来就坐在裁剪边界上</b>。把最高 4000 字的人物 Skill 文本 join 进去会让它从数百字涨到数千字 → <b>显著更容易放不下</b> → 更容易触发那条守卫；而报出来的错误还是「角色人格规则未完整保留」，<b>跟我们塞进去的人物 Skill 毫无关系</b>。用户看到的是写作按钮直接报错停止。</p>
+    <p><b>所以：新加一个排在 <code>characterAuras</code> 之后的可选字段 <code>personaSkills</code>。</b>它被裁掉只是降级、不触发任何守卫，而且因为它排在后面，被牺牲的也是它而不是人格规则。可选字段还意味着<b>既有 32 处 <code>ContextPack</code> 构造点一个都不用改</b>。</p>
   </div>
 
   <div class="callout">
@@ -3498,10 +3659,16 @@ describe("写作上下文注入人物 Skill", () =&gt; {
     expect(contextEngine).toContain("buildPersonaSkillContext(context.projectPath, personaMatchingText)")
   })
 
-  it("两块文本合并进 characterAuras 字段", () =&gt; {
-    expect(contextEngine).toContain(
-      'characterAuras: joinNonEmpty([soulContext.text, personaSkillContext], "\\n\\n")',
-    )
+  it("走独立的 personaSkills 字段，绝不并进 characterAuras", () =&gt; {
+    // characterAuras 有一条硬不变量：有 portablePersonalities 时必须完整进入提示词，
+    // 否则 contextPackToPrompt 直接抛错停止生成。人物 Skill 文本很长，
+    // 并进去会把它挤出预算、触发一个跟人格规则无关的误导性报错。
+    expect(contextEngine).toContain("personaSkills?: string")
+    expect(contextEngine).toContain("personaSkills: 10.5,")
+    expect(contextEngine).toContain('fieldKey: "personaSkills"')
+    expect(contextEngine).toContain("...(personaSkillContext ? { personaSkills: personaSkillContext } : {}),")
+    // 原样保留：characterAuras 仍然只装角色灵魂
+    expect(contextEngine).toContain("characterAuras: soulContext.text,")
   })
 
   it("注入失败不能弄挂写作", () =&gt; {
@@ -3548,24 +3715,41 @@ describe("写作上下文注入人物 Skill", () =&gt; {
   </div>
 
   <div class="step">
-    <div class="head"><input type="checkbox"><span>Step 5：改 <code>context-engine.ts</code> —— 第 3 处：并进 <code>characterAuras</code></span></div>
-    <pre><code>    characterAuras: joinNonEmpty([soulContext.text, personaSkillContext], "\n\n"),</code></pre>
-    <p>原行是 <code>characterAuras: soulContext.text,</code>。<b>注意</b>：并进这个既有字段而不是新加字段，是因为 <code>SECTION_PRIORITY</code>（<code>context-engine.ts:40-65</code>）里 <code>characterAuras: 10</code> 已经有明确的裁剪优先级；新加字段就得连着改优先级表和所有消费方，收益为零。</p>
+    <div class="head"><input type="checkbox"><span>Step 5：改 <code>context-engine.ts</code> —— 第 3 处：新增 <code>personaSkills</code> 字段（4 个位置）</span></div>
+    <p><b>位置 1</b>：<code>ContextPack</code> 接口里，紧跟 <code>characterAuras: string</code> 之后加一个<b>可选</b>字段（可选，所以既有的 32 处构造点一个都不用改）：</p>
+    <pre><code>  /** 「人物 Skill」段。与角色灵魂分成两档：预算紧张时先牺牲它，人格规则不受影响。 */
+  personaSkills?: string</code></pre>
+    <p><b>位置 2</b>：<code>FIELD_PRIORITY</code>（<code>context-engine.ts:40-65</code>）里，紧跟 <code>characterAuras: 10,</code> 之后加：</p>
+    <pre><code>  /** 排在 characterAuras 之后：被裁掉只是降级，绝不能反过来挤掉人格规则。 */
+  personaSkills: 10.5,</code></pre>
+    <p><b>位置 3</b>：<code>FIELD_CONFIGS</code>（<code>context-engine.ts:1073</code>）里，紧跟 <code>{ titleKey: "novel.contextPack.characterAuras", fieldKey: "characterAuras" },</code> 之后加：</p>
+    <pre><code>  { titleKey: "novel.contextPack.personaSkills", fieldKey: "personaSkills" },</code></pre>
+    <p><b>位置 4</b>：<code>return</code> 里，把那一行<b>保持原样</b>：</p>
+    <pre><code>    characterAuras: soulContext.text,</code></pre>
+    <p>在它之后加：</p>
+    <pre><code>    ...(personaSkillContext ? { personaSkills: personaSkillContext } : {}),</code></pre>
   </div>
 
   <div class="step">
-    <div class="head"><input type="checkbox"><span>Step 6：跑测试，确认全绿（含既有 bundle 边界测试）</span></div>
+    <div class="head"><input type="checkbox"><span>Step 6：给 i18n 加标题文案</span></div>
+    <p>文件 <code>src/i18n/zh.json</code>，在 <code>novel.contextPack</code> 对象里，紧跟 <code>"characterAuras": "## 角色灵魂",</code> 之后加一行：</p>
+    <pre><code>      "personaSkills": "## 人物 Skill",</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 7：跑测试，确认全绿（含既有 bundle 边界测试）</span></div>
     <div class="run">npx vitest run src/lib/novel/context-engine-persona.spec.ts src/lib/bundle-boundaries.spec.ts
-npx tsc --build --pretty</div>
+npx tsc --build --pretty
+npx tsc -p tsconfig.test.json --noEmit</div>
     <div class="expect">
       <span class="t">Expected</span>
-      新文件 5 个用例全绿，<code>bundle-boundaries.spec.ts</code> 5 个用例仍全绿（这证明动态 import 那条边界没被破坏）。类型检查无输出。
+      新文件 5 个用例全绿，<code>bundle-boundaries.spec.ts</code> 5 个用例仍全绿（这证明动态 import 那条边界没被破坏）。两个类型检查都无输出。
     </div>
   </div>
 
   <div class="step">
-    <div class="head"><input type="checkbox"><span>Step 7：提交</span></div>
-    <div class="run">git add src/lib/novel/context-engine.ts src/lib/novel/context-engine-persona.spec.ts
+    <div class="head"><input type="checkbox"><span>Step 8：提交</span></div>
+    <div class="run">git add src/lib/novel/context-engine.ts src/lib/novel/context-engine-persona.spec.ts src/i18n/zh.json
 git commit -m "feat(人物skill): 写作上下文注入"</div>
   </div>
 </section>
