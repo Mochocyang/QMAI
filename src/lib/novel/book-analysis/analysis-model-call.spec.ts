@@ -176,8 +176,9 @@ describe("callAnalysisModelText", () => {
   })
 
   it("streamChat 直接抛出（不走 onError）时也要交回本轮已收到的半截正文", async () => {
-    // llm-client 有些失败是直接 throw 的（provider 配置/网络问题，:401/479/505），
-    // 不走 onError 回调。这时若只在 await 之后记录缓冲，半截正文就会丢。
+    // llm-client 有些失败是直接 throw 的（本地 CLI 传输 :401、本地 provider
+    // 拿不到 URL/headers :423），不走 onError 回调。
+    // 这时若只在 await 之后记录缓冲，半截正文就会丢。
     mocks.streamChat.mockImplementationOnce(async (_c: unknown, _m: unknown, cb: Handlers) => {
       cb.onToken?.("抛出前已收到的内容")
       throw new Error("streamChat 直接抛出")
