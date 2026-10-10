@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   buildClassifiedOutlineSaveRequest,
+  decideOutlineAutoSaveGate,
+  isEventOutlineSaveBlocked,
   isSaveableOutlineDeliverable,
   prepareOutlineSaveDraft,
   prepareOutlineSaveSourceContent,
@@ -159,5 +161,70 @@ describe("outline save draft", () => {
     expect(built?.classification.fileType).toBe("chapter-outline")
     expect(built?.request.htmlContent).toContain("<html")
     expect(built?.request.htmlContent).toContain("<details")
+  })
+})
+
+/*
+ * 事件细纲的**保存闸门**判据。
+ *
+ * 为什么抽成纯函数并单测：这两条闸门（自动通道的兜底 + 手动「保存为大纲」）
+ * 原本是组件里的 `if (… === "event-outline") return`，而删掉那个 return
+ * 过后 295 条测试仍会全绿 —— 源码文本断言管不住「行为」。
+ * 这里直接喂一份**已分类的 event-outline** 进判据本身。
+ */
+describe("事件细纲保存闸门判据", () => {
+  it("已分类的 event-outline 一律判为拦下", () => {
+    expect(isEventOutlineSaveBlocked("event-outline")).toBe(true)
+  })
+
+  it("其余类型不被误拦（真章纲/卷纲/人物小传照常保存）", () => {
+    for (const fileType of ["outline", "chapter-outline", "volume-outline", "character", "setting"]) {
+      expect(isEventOutlineSaveBlocked(fileType)).toBe(false)
+    }
+  })
+
+  it("请求全是事件细纲：直接收工，不掉进按正文分类的兜底腿", () => {
+    expect(decideOutlineAutoSaveGate({
+      droppedEventOutlineCount: 2,
+      keptRequestCount: 0,
+      errors: [],
+      eventOutlineRejectionCount: 0,
+    })).toBe("drop-event-outline")
+  })
+
+  it("还有非事件细纲的请求：继续走确认框那条路", () => {
+    expect(decideOutlineAutoSaveGate({
+      droppedEventOutlineCount: 1,
+      keptRequestCount: 1,
+      errors: [],
+      eventOutlineRejectionCount: 0,
+    })).toBe("continue")
+  })
+
+  it("错误里混着真正的解析错误：仍必须弹「请让 AI 重新输出」", () => {
+    expect(decideOutlineAutoSaveGate({
+      droppedEventOutlineCount: 0,
+      keptRequestCount: 0,
+      errors: ["事件细纲被拒", "缺 targetFolder"],
+      eventOutlineRejectionCount: 1,
+    })).toBe("surface-parse-errors")
+  })
+
+  it("错误全是事件细纲被拒：改弹 info，不要求模型重出一遍", () => {
+    expect(decideOutlineAutoSaveGate({
+      droppedEventOutlineCount: 0,
+      keptRequestCount: 0,
+      errors: ["事件细纲被拒"],
+      eventOutlineRejectionCount: 1,
+    })).toBe("notify-event-outline-dropped")
+  })
+
+  it("没有错误也没有请求：继续（由正文分类那条腿接棒）", () => {
+    expect(decideOutlineAutoSaveGate({
+      droppedEventOutlineCount: 0,
+      keptRequestCount: 0,
+      errors: [],
+      eventOutlineRejectionCount: 0,
+    })).toBe("continue")
   })
 })

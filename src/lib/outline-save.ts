@@ -53,6 +53,49 @@ export function isSaveableOutlineDeliverable(content: string): boolean {
     && /第\s*\d{1,4}\s*章/.test(cleaned)
 }
 
+/**
+ * 事件细纲的**保存闸门**判据：分类结果不该进大纲列表。
+ *
+ * 抽成纯函数而不是散在组件里的 `if`：这条判据是丙-1 的核心保证
+ * （事件细纲只作对话消息 + 卡片存在，不写进 `wiki/outlines/事件细纲/`），
+ * 但它在组件里是**行为**、源码文本断言管不住它 —— 删掉那个 `return`
+ * 过后依然全绿。抽出来之后可以直接喂一份已分类的 event-outline 进判据。
+ */
+export function isEventOutlineSaveBlocked(fileType: string): boolean {
+  return fileType === "event-outline"
+}
+
+/**
+ * 自动保存通道在「解析出保存请求」之后要走哪条路。
+ *
+ * 三种出口都必须是**可观察**的，否则用户会碰到「点了没反应」：
+ * - 请求全是事件细纲：直接收工（不能掉进按正文分类的兜底腿，
+ *   那条腿会把同一份细纲再判一次 event-outline）；
+ * - 错误里还有非事件细纲的：那条「请让 AI 重新输出 outlineSaveRequest」必须照弹；
+ * - 错误全是事件细纲被拒：改弹 info 说明（要求模型重出一遍是自相矛盾的）。
+ */
+export type OutlineAutoSaveGateAction =
+  | "drop-event-outline"
+  | "surface-parse-errors"
+  | "notify-event-outline-dropped"
+  | "continue"
+
+export function decideOutlineAutoSaveGate(input: {
+  droppedEventOutlineCount: number
+  keptRequestCount: number
+  errors: string[]
+  eventOutlineRejectionCount: number
+}): OutlineAutoSaveGateAction {
+  if (input.droppedEventOutlineCount > 0 && input.keptRequestCount === 0) {
+    return "drop-event-outline"
+  }
+  if (input.keptRequestCount > 0) return "continue"
+  if (input.errors.length === 0) return "continue"
+  // 用 `<` 而不是 `=== 0`：混着一条真正的解析错误时仍必须让用户看到它。
+  if (input.eventOutlineRejectionCount < input.errors.length) return "surface-parse-errors"
+  return "notify-event-outline-dropped"
+}
+
 export function buildClassifiedOutlineSaveRequest(input: {
   content: string
   sourceIntent: string

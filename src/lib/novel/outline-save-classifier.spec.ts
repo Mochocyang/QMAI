@@ -155,23 +155,20 @@ describe("event-outline 路由隔离", () => {
    * 被自动通道的闸门静默丢弃，手动通道更会把它归进 wiki/outlines/事件细纲/。
    *
    * 而「事件细纲」在本批之后根本不是可保存类型，用对话措辞去路由它没有任何收益，
-   * 只有上面这个副作用。所以 event-outline 不再由 hint 判定；
-   * 这份 fixture 现在落到 :113 的兜底 "outline"（正文无章/卷/细纲线索）。
+   * 只有上面这个副作用。所以 event-outline 不再由 hint 判定。
+   *
+   * ⚠️ 只摘掉事件标记还**不够**：向导那条消息里还剩「第12章」，而
+   * `CHAPTER_SUBJECT` 的裸章号兜底 `/第\s*\d{1,4}\s*章/` 只凭这个残句就会把
+   * 文档定型成 chapter-outline（文件名退化成「令牌初现.md」+ 默认落 `章纲/`）。
+   * 所以 `inferFileTypeFromHint` 里另有一道窄门 `CHAPTER_OR_VOLUME_HINT_MARK`：
+   * 只有 hint 自己明说了章纲/卷纲这一族的词，才允许它参与章/卷定型。
+   * 本 fixture 的 hint 摘掉事件标记后既无「章纲」也无「卷纲」，不命中窄门 ⇒ 继续下沉，
+   * 由文档自身（`## 院子里的哭声` / `- 念念挨了打` 无任何类型线索）走到兜底的
+   * `outline`。断言因此钉的是**期望行为**：对话措辞不参与定类型。
    *
    * 真正的细纲识别能力一点没丢：它由**文档自身**在一级判据上完成
-   * （下面 :190 与 :208 两条钉的就是那个通道），正文那一层也仍然认事件标记。
-   */
-  /*
-   * ⚠ 残留风险（本批未修，已上报）：落到的是 chapter-outline，**不是**兜底的 outline。
-   *
-   * 原因是那条向导消息里除了「事件细纲」还带着「第12章」：摘掉事件标记后剩
-   * 「生成第12章」，而 resolveChapterOrVolumeType 认 `第\d+章`，于是 hint 这一层
-   * 仍然会把文档定型。也就是说 FIX 1 消除了「被判成事件细纲 → 被闸门静默丢弃 /
-   * 归进 wiki/outlines/事件细纲/」这条最严重的后果，但**对话措辞参与定类型**
-   * 这个根因只修了一半：同一会话里后出的「# 全书总纲」现在会落到 章纲/。
-   *
-   * 这条断言因此钉的是**真实行为**而不是期望行为 —— 若后续把 hint 层整体
-   * 降级为「只补人物/伏笔/设定这类非章节线索」，本断言应当改成 outline。
+   * （本文件下一条与「提示词规定的自识别形状」两条钉的就是那个通道），
+   * 正文那一层（inferFileTypeFromContent）也仍然认事件标记。
    */
   it("hint 里出现「事件细纲」不再把文档判成事件细纲（对话措辞不参与定类型）", () => {
     expect(classifyOutlineSaveTarget({
@@ -179,42 +176,68 @@ describe("event-outline 路由隔离", () => {
       content: "## 院子里的哭声\n- 念念挨了打",
       sourceHint: "生成第12章事件细纲",
     })).toMatchObject({
-      fileType: "chapter-outline",
-      targetFolder: "章纲",
+      fileType: "outline",
+      targetFolder: "大纲",
     })
-  })
-
-  it("hint 里的「事件细纲」不再指向事件细纲文件夹", () => {
-    // 丙-1 的要害：绝不能落到 wiki/outlines/事件细纲/
-    const result = classifyOutlineSaveTarget({
-      title: "令牌初现",
-      content: "## 院子里的哭声\n- 念念挨了打",
-      sourceHint: "生成第12章事件细纲",
-    })
-    expect(result.fileType).not.toBe("event-outline")
-    expect(result.targetFolder).not.toBe("事件细纲")
   })
 
   /*
    * FIX 1 的直接回归：事件细纲会话里后出的无关交付物，不能被那条向导消息带偏。
-   * 这是「靠正文分类」那条腿在真实会话里的样子（hint 已被污染，文档本身与细纲无关）。
+   * 这是「靠正文/标题分类」那条腿在真实会话里的样子（hint 已被污染，文档本身与细纲无关）。
+   *
+   * 期望值逐条按**实际分类通道**给，而不是只断言 `not.toBe("event-outline")`：
+   * 后者对「落到 章纲/」这种半修复状态同样通过，正是 FIX 1 只修一半时发生过的事。
+   * - 「# 全书总纲」→ inferFileTypeFromHint(标题) 命中 /故事大纲|总纲/ → outline
+   * - 「# 世界观设定」→ 命中 /世界观/ → setting
+   * - 「# 人物关系总览」→ 三条通道都推不出更具体的类型 → inferFileTypeFromContent 兜底 outline
    */
   it.each([
-    ["# 全书总纲", "## 故事一句话\n这是一个关于复仇的故事。"],
-    ["# 世界观设定", "## 力量体系\n斗气分九段。"],
-    ["# 人物关系总览", "## 主角团\n楚白与骆轻竹是同门。"],
-  ])("事件细纲会话里后出的「%s」不会因 hint 被判成事件细纲", (title, content) => {
+    ["# 全书总纲", "## 故事一句话\n这是一个关于复仇的故事。", "outline", "大纲"],
+    ["# 世界观设定", "## 力量体系\n斗气分九段。", "setting", "设定"],
+    ["# 人物关系总览", "## 主角团\n楚白与骆轻竹是同门。", "outline", "大纲"],
+  ])("事件细纲会话里后出的「%s」不会因 hint 被判成事件细纲", (title, content, fileType, targetFolder) => {
     expect(classifyOutlineSaveTarget({
       title,
       content,
       sourceHint: "生成第12章事件细纲（6 个事件）\n事件细纲",
-    }).fileType).not.toBe("event-outline")
+    })).toMatchObject({ fileType, targetFolder })
   })
 
   it("正文只出现「事件序列」而没有「细纲」二字时也判为事件细纲", () => {
     expect(classifyOutlineSaveTarget({
       title: "令牌初现",
       content: "## 事件序列\n1. 院子里的哭声\n2. 夜壶里的药",
+    })).toMatchObject({
+      fileType: "event-outline",
+      targetFolder: "事件细纲",
+    })
+  })
+
+  /*
+   * ⚠️ 这条钉的是**真实行为**而不是期望行为，别把它读成「设计想要这样」：
+   *
+   * `inferFileTypeFromContent` 里事件标记的判定**排在章/卷标记之前**（有意为之，
+   * 见该常量的注释），所以一份标题里没有「章纲」二字、正文却提到「本章事件序列」的
+   * 17 节章纲会被判成 event-outline —— 随后被大纲面板的手动闸门拒掉。
+   * 现实中合法章纲之所以不被误拦，靠的是 (a) 标题 hint 先于正文被查询，
+   * (b) 官方章纲模板里根本没有事件标记（chapter-outline-template.ts 里 grep 不到），
+   * 即**当前模板的巧合**，而不是结构性保证。这条用例把「巧合」变成「有人改优先级就会红」：
+   * 若哪天把章/卷标记提到事件标记之前，本用例立刻失败，提醒去读上面这段原因。
+   */
+  it("反向钉住真实优先级：正文里带事件标记的章纲会被判成事件细纲（已知假阳性路径）", () => {
+    const seventeenSectionWithEventSection = [
+      "# 第一次冷处理",
+      "",
+      "## 1. 本章定位",
+      "- 承接第45章的摊牌余波。",
+      "## 5. 本章事件序列",
+      "- 早会被点名、工位被挪、群聊被移出",
+      "## 17. 章尾钩子",
+      "- 男主收到一条陌生短信。",
+    ].join("\n")
+    expect(classifyOutlineSaveTarget({
+      title: "第一次冷处理",
+      content: seventeenSectionWithEventSection,
     })).toMatchObject({
       fileType: "event-outline",
       targetFolder: "事件细纲",

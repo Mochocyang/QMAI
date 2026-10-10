@@ -1150,6 +1150,43 @@ describe("event-outline 保存类型", () => {
   const parseOne = (payload: Record<string, unknown>) =>
     parseOutlineSaveRequests(`\`\`\`json\n${JSON.stringify({ outlineSaveRequest: payload })}\n\`\`\``)
 
+  const parseMany = (payloads: Array<Record<string, unknown>>) =>
+    parseOutlineSaveRequests(`\`\`\`json\n${JSON.stringify({ outlineSaveRequests: payloads })}\n\`\`\``)
+
+  /*
+   * eventOutlineRejectionCount 的**口径**测试。
+   *
+   * 调用方（大纲面板的自动通道闸门）拿它与 errors.length 比较，只有相等才敢说
+   * 「这一批错误全是事件细纲造成的」并改弹 info。所以「哪些错误算事件细纲被拒」
+   * 必须连同归一化阶段的错误一起算 —— 否则一条缺 fileName 的事件细纲请求
+   * 会让用户看到「请让 AI 重新输出 outlineSaveRequest」，而重出一次仍会被丢掉。
+   */
+  it("归一化阶段就被拒的事件细纲请求也计入拒收数（口径 = 错误条数）", () => {
+    // 文件名不是 .md：错误在 normalizeRequest 里就产生了
+    const parsed = parseOne({ ...request, fileName: "事件细纲-第012章.txt" })
+    expect(parsed.requests).toEqual([])
+    expect(parsed.errors).toHaveLength(1)
+    expect(parsed.eventOutlineRejectionCount).toBe(1)
+  })
+
+  it("混着真正的解析错误时，拒收数小于错误总数（调用方据此仍弹那条重出提示）", () => {
+    const parsed = parseMany([
+      { ...request, fileName: "事件细纲-第012章.txt" },
+      {
+        targetFolder: "章纲",
+        fileName: "章纲-第012章.md",
+        fileType: "chapter-outline",
+        writeMode: "create",
+        referencedSkills: [],
+        sourceIntent: "生成章纲",
+        content: "好的，我已完成本章细纲。",
+      },
+    ])
+    expect(parsed.requests).toEqual([])
+    expect(parsed.eventOutlineRejectionCount).toBe(1)
+    expect(parsed.errors.length).toBeGreaterThan(parsed.eventOutlineRejectionCount)
+  })
+
   it("中文别名「事件细纲」归一化为 event-outline", () => {
     const parsed = parseOne({ ...request, fileType: "事件细纲" })
     expect(parsed.errors).toEqual([])
@@ -1157,12 +1194,13 @@ describe("event-outline 保存类型", () => {
   })
 
   it("中文别名「细纲」不再归一化为 event-outline", () => {
-    // 丙-1 的核心修复点：「细纲」恢复历史含义（17 节章纲）。
+    // 丙-1 的核心修复点：不给「细纲」这个别名，让它**整条被拒**（而不是被改判成事件细纲）。
     // 保留别名会让模型写 fileType: "细纲" 时，一份 17 节章纲被归一化成 event-outline，
     // 而 hasEventOutlineStructure 的闸门挡不住它（章纲的「## 1. 本章定位」本身就是
     // 编号分节 + 大量列表行），于是章纲会被落进「事件细纲」文件夹。
+    // 注意结果不是「恢复成 17 节章纲」：白名单里没有「细纲」这个值，所以
+    // normalizeRequest 直接报「不支持的大纲文件类型」，requests 里什么都不剩。
     const parsed = parseOne({ ...request, fileType: "细纲" })
-    // 白名单里没有「细纲」这个值，因此整条请求被拒（而不是被改判成事件细纲）。
     expect(parsed.requests.map((item) => item.fileType)).not.toContain("event-outline")
     expect(parsed.requests).toEqual([])
     expect(parsed.errors.join("\n")).toContain("细纲")
@@ -1267,6 +1305,16 @@ describe("excludeEventOutlineSaveRequests", () => {
     sourceIntent: "生成第12章事件细纲",
     content: "# 事件细纲 · 第12章 令牌初现\n\n## 事件1 院子里的哭声\n- 关键台词：「夜壶里的东西是药。」",
   }
+  /*
+   * 这份 fixture 的 targetFolder **刻意不叫「事件细纲」**：排除条件键的是 fileType，
+   * 而每个事件 fixture 都带 `targetFolder: "事件细纲"` 时，一个改成键 targetFolder
+   * 的变异实现照样能通过 —— 那条用例就钉不住它声称要钉的键。
+   */
+  const eventOutlineRequestOtherFolder: OutlineSaveRequest = {
+    ...eventOutlineRequest,
+    targetFolder: "大纲",
+    fileName: "事件细纲-第013章.md",
+  }
   const chapterOutlineRequest: OutlineSaveRequest = {
     ...eventOutlineRequest,
     targetFolder: "章纲",
@@ -1287,16 +1335,18 @@ describe("excludeEventOutlineSaveRequests", () => {
   }
 
   /*
-   * 顺序**必须**用「有两个幸存者」的输入来测：只有一存一删时，
+   * 顺序**必须**用「有多个幸存者」的输入来测：只有一存一删时，
    * 输出永远只有一个元素，任何排序/反转都能通过，这条断言就没有鉴别力。
-   * 这里混入三处事件细纲、两个不同位置的幸存者，并对**完整序列**做断言。
+   * 这里混入四处事件细纲（其中一处 targetFolder 不是「事件细纲」，用来钉住
+   * 排除键是 fileType 而不是文件夹名）、三个不同位置的幸存者，
+   * 并对**完整序列**做断言。
    */
   it("摘掉全部事件细纲、留下的按原顺序（顺序不变）", () => {
     const result = excludeEventOutlineSaveRequests([
       chapterOutlineRequest,
       eventOutlineRequest,
       volumeOutlineRequest,
-      eventOutlineRequest,
+      eventOutlineRequestOtherFolder,
       characterRequest,
       eventOutlineRequest,
     ])
@@ -1307,6 +1357,17 @@ describe("excludeEventOutlineSaveRequests", () => {
       "character",
     ])
     expect(result.droppedEventOutlineCount).toBe(3)
+  })
+
+  it("只看 fileType，不靠 targetFolder 判断（改键实现会被这条抓住）", () => {
+    // 键 targetFolder 的变异实现在这里会留下 1 条（因为它是「大纲」），
+    // 而 fileType 仍是 event-outline —— 下面两条断言同时变红。
+    const result = excludeEventOutlineSaveRequests([
+      { ...eventOutlineRequestOtherFolder, targetFolder: "章纲" },
+      { ...eventOutlineRequest, targetFolder: "事件细纲", fileType: "outline" },
+    ])
+    expect(result.requests.map((item) => item.fileType)).toEqual(["outline"])
+    expect(result.droppedEventOutlineCount).toBe(1)
   })
 
   it("全是事件细纲时请求清空、且如实报出摘掉的条数", () => {

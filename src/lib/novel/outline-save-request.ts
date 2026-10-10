@@ -56,10 +56,24 @@ interface OutlineSaveRequestParseResult {
   /**
    * `errors` 里有多少条是「事件细纲被拒」造成的。
    *
-   * 为什么需要它：事件细纲请求在下面 `:662` 被拒后只进 errors、不进 requests，
+   * 为什么需要它：事件细纲请求被拒后只进 errors、不进 requests，
    * 于是调用方看到的是「保存请求解析失败」，会去提示用户「请让 AI 重新输出
    * outlineSaveRequest」—— 而本版本拿到事件细纲请求**也是要丢掉的**，
    * 这个提示等于让模型白重出一遍。
+   *
+   * 计数口径是**错误条数**（不是请求条数）：调用方拿它与 `errors.length` 比，
+   * 只有相等才说明「这一批错误全是事件细纲造成的」。一条事件细纲请求可能同时
+   * 产生多条错误（例如既进不了结构闸门、又缺 fileName），所以口径必须对齐。
+   *
+   * 覆盖范围：**凡** `raw.fileType` 归一化后等于 `event-outline` 的请求，
+   * 它在 `normalizeRequest` 阶段产生的任何错误都计入（缺 content、缺
+   * fileName/targetFolder、文件名不是 .md…），外加下文那条内容结构闸门。
+   *
+   * ⚠️ 边界：`fileType: "细纲"` **不**计入。它的 fileType 归一化后仍是「细纲」
+   * （白名单里没有它，见 FILE_TYPE_ALIASES 的注释），调用方无从判断这条请求
+   * 本意是不是事件细纲 —— 它也可能是模型把 17 节章纲的类型写错了。
+   * 那种情况下「请让 AI 重新输出 outlineSaveRequest」是**正确**的提示，
+   * 所以这里刻意不把它算成事件细纲被拒。
    *
    * 为什么是**加字段**而不是直接在 `requests` 里过滤掉：`requests.length > 0`
    * 被 `isDiscussDeliveredOutline` 当作「本轮有没有交付物」的判据。若在此处
@@ -112,7 +126,8 @@ const FILE_TYPE_ALIASES: Record<string, OutlineSaveRequestFileType> = {
   /*
    * 「细纲」在本版本里**不是**合法 fileType：它不在这张别名表里，也不在
    * ALLOWED_FILE_TYPES 里，所以 `fileType: "细纲"` 的请求会被整条拒绝
-   * （normalizeRequest 报「未知的 fileType」），而**不是**被归一化成某种类型。
+   * （normalizeRequest 报出 `不支持的大纲文件类型：细纲。`，
+   * 见 normalizeRequest 里那条 ALLOWED_FILE_TYPES 校验），而**不是**被归一化成某种类型。
    *
    * 为什么刻意不把它映射到 chapter-outline（这是本版本明确的选择，不是遗漏）：
    * classifyOutlineSaveTarget 的首个判据是 `input.explicitFileType ?? …`，
@@ -491,9 +506,14 @@ function validateRelativePath(value: string, label: string, allowSlash: boolean)
 function normalizeRequest(raw: unknown, index: number): {
   request: OutlineSaveRequest | null
   errors: string[]
+  /**
+   * 这条请求是否因「fileType 归一化后是 event-outline」而被拒。
+   * 为 true 时该请求产生的**全部** errors 都要计入 eventOutlineRejectionCount。
+   */
+  eventOutlineRejected: boolean
 } {
   if (!isRecord(raw)) {
-    return { request: null, errors: [`第 ${index + 1} 个保存请求必须是对象。`] }
+    return { request: null, errors: [`第 ${index + 1} 个保存请求必须是对象。`], eventOutlineRejected: false }
   }
 
   const errors: string[] = []
@@ -531,7 +551,9 @@ function normalizeRequest(raw: unknown, index: number): {
     errors.push(`第 ${index + 1} 个保存请求的 content 仅包含模型思考过程。`)
   }
 
-  if (errors.length > 0) return { request: null, errors }
+  if (errors.length > 0) {
+    return { request: null, errors, eventOutlineRejected: fileType === "event-outline" }
+  }
 
   return {
     request: {
@@ -547,6 +569,8 @@ function normalizeRequest(raw: unknown, index: number): {
       ...(htmlContent ? { htmlContent } : {}),
     },
     errors: [],
+    // 归一化成功就没被拒；内容结构闸门在下游另行计数。
+    eventOutlineRejected: false,
   }
 }
 
@@ -654,6 +678,9 @@ function fillContentFromText(requests: OutlineSaveRequest[], text: string): Outl
 export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseResult {
   const requests: OutlineSaveRequest[] = []
   const errors: string[] = []
+  // 只用于让调用方分辨「这堆错误里有多少条其实是事件细纲被拒」，
+  // 不改 requests 的语义（原因见 OutlineSaveRequestParseResult 的注释）。
+  let eventOutlineRejectionCount = 0
 
   for (const candidate of extractJsonCandidates(text)) {
     let payload: unknown
@@ -668,15 +695,19 @@ export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseR
       const normalized = normalizeRequest(raw, index)
       if (normalized.request) requests.push(normalized.request)
       errors.push(...normalized.errors)
+      /*
+       * 归一化阶段就被拒的事件细纲请求（缺 content / 缺 fileName / 文件名不是 .md…）
+       * 同样要计数，否则调用方会把「这一批错误全是事件细纲造成的」看成
+       * 「有真正的解析错误」，于是要求模型重出一遍 —— 重出一次还是会被丢掉。
+       * 按错误**条数**累加，与下面结构闸门的口径一致。
+       */
+      if (normalized.eventOutlineRejected) eventOutlineRejectionCount += normalized.errors.length
     })
   }
 
   const htmlBlocks = extractHtmlBlocks(text)
   const filled = fillContentFromText(requests, text)
   const usable: OutlineSaveRequest[] = []
-  // 只用于让调用方分辨「这堆错误里有多少条其实是事件细纲被拒」，
-  // 不改 requests 的语义（原因见 OutlineSaveRequestParseResult 的注释）。
-  let eventOutlineRejectionCount = 0
   filled.forEach((request, index) => {
     if (!request.content.trim()) {
       errors.push(`第 ${index + 1} 个保存请求缺少 content，且无法从正文中提取。`)
@@ -719,9 +750,15 @@ export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseR
  * 事件细纲只作为大纲对话里的消息 + 卡片存在（随 `<项目>/.qmai/outline-chats.json` 持久化），
  * 不再写进 `wiki/outlines/事件细纲/`。
  *
- * 作用范围仅限**自动保存通道**：`parseOutlineSaveRequests` 里已经被结构校验
- * 拒掉的事件细纲请求根本走不到这里（它们只进 `errors`，配 `eventOutlineRejectionCount`）；
- * 而手动通道（handleSaveAsOutline）有自己的咽喉闸门，不经过本函数。
+ * ⚠️ 本函数**不是死代码**，别删：只有**结构不合法**的事件细纲请求会在
+ * `parseOutlineSaveRequests` 里被提前拒掉（那种走不到这里，只进 errors、
+ * 配 `eventOutlineRejectionCount`）；**结构合法**的事件细纲请求
+ * （`## 事件1` + 细节抓手那些）会**完整地出现在 requests 里**，
+ * 正是由本函数在这里摘掉的 —— 旧会话重放或手工/计划模式绕过来的请求
+ * 就属于这一类。删掉它，那些请求就会直接弹确认框、写进大纲列表。
+ *
+ * 作用范围仅限**自动保存通道**；手动通道（handleSaveAsOutline）有自己的咽喉闸门，
+ * 不经过本函数。
  */
 export function excludeEventOutlineSaveRequests(requests: OutlineSaveRequest[]): {
   requests: OutlineSaveRequest[]

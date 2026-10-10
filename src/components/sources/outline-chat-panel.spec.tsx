@@ -3102,4 +3102,227 @@ describe("事件细纲接线", () => {
       .map((button) => button.textContent)
     expect(labels).toEqual(["生成小说大纲"])
   })
+
+  /*
+   * ── 事件细纲保存闸门的**行为**回归 ──
+   *
+   * 为什么必须写成行为用例：两道闸门（自动通道的兜底、手动「保存为大纲」）
+   * 原本是组件里的 `if (… === "event-outline") return`，而把 `return` 删掉之后
+   * 全仓 295 条测试仍然全绿 —— 对 `excludeEventOutlineSaveRequests` /
+   * `droppedEventOutlineCount` 的引用只落在原函数自己的 spec 上，
+   * 而本文件里原有的两条（「请确认要保存的大纲文件」源码文本断言）与本次新增的闸门
+   * 毫无关系。所以这里断言**可观察效果**：确认框不出现、该出现的 toast 出现。
+   *
+   * 判据本身另有直喂已分类 event-outline 的单测（outline-save.spec.ts 的
+   * 「事件细纲保存闸门判据」），两边合起来才既钉判据又钉接线。
+   */
+  describe("事件细纲保存闸门（行为）", () => {
+    /** 一份「结构合法」的事件细纲保存请求：它必须被自动通道摘掉，而不是弹确认框。 */
+    function eventOutlineOnlyReply(content = eventOutlineMarkdown()): string {
+      return [
+        content,
+        "",
+        "```json",
+        JSON.stringify({
+          outlineSaveRequest: {
+            targetFolder: "事件细纲",
+            fileName: "事件细纲-第001章.md",
+            fileType: "event-outline",
+            writeMode: "create",
+            referencedSkills: [],
+            sourceIntent: "生成第1章事件细纲",
+            content,
+          },
+        }),
+        "```",
+      ].join("\n")
+    }
+
+    /**
+     * 纯 markdown 的事件细纲（无任何 JSON 围栏，用于「按正文分类」那条腿）。
+     *
+     * ⚠️ 必须**够长**：`isSaveableOutlineDeliverable` 对「首行是 # 且前 400 字含
+     * 类型词」这一支要求 length ≥ 80，不达标会直接在分类之前 return ——
+     * 那样「不弹确认框」在删掉闸门后照样成立，用例就成了假绿。
+     */
+    function eventOutlineMarkdown(): string {
+      return [
+        "# 事件细纲 · 第1章 雨夜令牌",
+        "",
+        "## 事件1 院子里的哭声",
+        "- 关键台词：「别回头。」",
+        "- 神情动作：指节发白",
+        "- 环境物件：雨夜的灯笼",
+        "",
+        "## 事件2 巷口的截杀",
+        "- 关键台词：「把令牌留下。」",
+        "- 神情动作：楚白按刀后退半步",
+        "- 这一步推进：骆轻竹暴露身份",
+        "",
+        "## 事件3 令牌认主",
+        "- 关键动作：血滴落在令牌上",
+        "- 环境物件：暴雨中的断墙",
+      ].join("\n")
+    }
+
+    function confirmDialogVisible(): boolean {
+      return (document.body.textContent ?? "").includes("请确认要保存")
+    }
+
+    it("自动通道：模型递来结构合法的事件细纲保存请求时，不弹确认框、也不要求重出", async () => {
+      const errorSpy = vi.spyOn(toast, "error").mockImplementation(() => {})
+      vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+        const text = eventOutlineOnlyReply()
+        callbacks.onText(text)
+        callbacks.onDone()
+        return { toolCalls: [], roundsUsed: 1, finalText: text }
+      })
+      setOutlineConversations([conversation()], "outline-active", {
+        streamingContents: { "outline-active": "" },
+      })
+      const container = await renderOutlineChatPanel()
+
+      await runEventOutlineWizard(container, "")
+      await act(async () => { await Promise.resolve() })
+
+      expect(confirmDialogVisible(), "事件细纲不进大纲列表，不该弹确认框").toBe(false)
+      // 反向控制：也不该退化成「让模型重出一遍」——重出一次还是会被丢掉。
+      expect(errorSpy.mock.calls.map((call) => String(call[0])).join("\n"))
+        .not.toContain("重新输出 outlineSaveRequest")
+    })
+
+    it("自动通道：全是事件细纲时直接收工，连解析错误也不再往上弹（drop 优先于报错）", async () => {
+      /*
+       * 这条专门钉 `if (gateAction === "drop-event-outline") return` 那行 `return`：
+       * 上面那条「不弹确认框」的用例**删掉这行也照样绿**（请求被摘光后落进后面
+       * 零请求的路径是个 no-op）。这里让 parsed.errors 非空 —— 一旦漏掉 return，
+       * 代码会走到末尾的 `if (parsed.errors.length > 0 && …)` 并弹出解析错误，
+       * 于是这条用例变红。
+       *
+       * 顺序是**沿用旧实现**的（`droppedEventOutlineCount > 0 && saveRequests.length === 0`
+       * 的早退在报错分支之前）：只要本轮请求全是事件细纲，就不为它去要求模型重出。
+       */
+      const showErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => {})
+      const broken = {
+        targetFolder: "章纲",
+        fileName: "章纲-第001章.md",
+        fileType: "chapter-outline",
+        writeMode: "create",
+        referencedSkills: [],
+        sourceIntent: "生成章纲",
+        // 内容不像章纲 ⇒ 结构闸门拒掉，只进 errors、不进 requests
+        content: "好的，我已完成本章细纲。",
+      }
+      vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+        const text = [
+          eventOutlineMarkdown(),
+          "",
+          "```json",
+          JSON.stringify({
+            outlineSaveRequests: [
+              {
+                targetFolder: "事件细纲",
+                fileName: "事件细纲-第001章.md",
+                fileType: "event-outline",
+                writeMode: "create",
+                referencedSkills: [],
+                sourceIntent: "生成第1章事件细纲",
+                content: eventOutlineMarkdown(),
+              },
+              broken,
+            ],
+          }),
+          "```",
+        ].join("\n")
+        callbacks.onText(text)
+        callbacks.onDone()
+        return { toolCalls: [], roundsUsed: 1, finalText: text }
+      })
+      setOutlineConversations([conversation()], "outline-active", {
+        streamingContents: { "outline-active": "" },
+      })
+      const container = await renderOutlineChatPanel()
+
+      await runEventOutlineWizard(container, "")
+      await act(async () => { await Promise.resolve() })
+
+      expect(confirmDialogVisible()).toBe(false)
+      const errorText = showErrorSpy.mock.calls.map((call) => String(call[0])).join("\n")
+      expect(errorText, "全是事件细纲时不该再把解析错误顶给用户").toBe("")
+    })
+
+    it("自动通道：正文自身就是事件细纲（没有保存请求）时，也不弹确认框", async () => {
+      // 这条走的是「按正文分类」那条腿：分类结果是 event-outline 时必须同样拦下。
+      vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+        const text = eventOutlineMarkdown()
+        callbacks.onText(text)
+        callbacks.onDone()
+        return { toolCalls: [], roundsUsed: 1, finalText: text }
+      })
+      setOutlineConversations([conversation()], "outline-active", {
+        streamingContents: { "outline-active": "" },
+      })
+      const container = await renderOutlineChatPanel()
+
+      await runEventOutlineWizard(container, "")
+      await act(async () => { await Promise.resolve() })
+
+      expect(confirmDialogVisible(), "按正文分类出的 event-outline 同样不该弹确认框").toBe(false)
+    })
+
+    it("自动通道：错误全是事件细纲被拒时，给可见的 info 说明（不再是死代码）", async () => {
+      /*
+       * 内容过不了 hasEventOutlineStructure ⇒ 请求被拒、只进 errors。
+       * 这里若沿用 setSaveStatus（开头要求文案含「失败/错误/不支持/无法」），
+       * 用户会「点了没反应」——本用例钉的就是那个可见效果。
+       */
+      const infoSpy = vi.spyOn(toast, "info").mockImplementation(() => {})
+      vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+        const text = eventOutlineOnlyReply("好的，我已完成本章细纲。")
+        callbacks.onText(text)
+        callbacks.onDone()
+        return { toolCalls: [], roundsUsed: 1, finalText: text }
+      })
+      setOutlineConversations([conversation()], "outline-active", {
+        streamingContents: { "outline-active": "" },
+      })
+      const container = await renderOutlineChatPanel()
+
+      await runEventOutlineWizard(container, "")
+      await act(async () => { await Promise.resolve() })
+
+      expect(infoSpy).toHaveBeenCalledWith("事件细纲只作为对话消息保留，不写入大纲列表。")
+      expect(confirmDialogVisible()).toBe(false)
+    })
+
+    it("手动通道：JSON 围栏坏掉时不显示保存按钮的老路已被闸门堵住（点下去有反馈、不弹框）", async () => {
+      /*
+       * 复现闸门存在的那条真实路径：按钮靠 extractEventOutlineData 解析成功才隐藏，
+       * 而**JSON 围栏被截断时解析结果是 null** ⇒ 按钮照样显示。用户点下去，
+       * 手动通道的闸门必须拦下它并给出可见反馈。
+       */
+      const infoSpy = vi.spyOn(toast, "info").mockImplementation(() => {})
+      const truncated = [
+        eventOutlineMarkdown(),
+        "",
+        "```json",
+        '{"eventOutlineData": {"version": 1, "chapterNumber": 1, "title": "第1章',
+      ].join("\n")
+      setOutlineConversations([conversation([{
+        id: "a-broken-event-outline",
+        role: "assistant",
+        content: truncated,
+      }])], "outline-active")
+      const container = await renderOutlineChatPanel()
+
+      const saveButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.getAttribute("aria-label") === "保存为大纲")
+      expect(saveButton, "围栏坏掉时「保存为大纲」按钮仍会渲染（这正是要堵的路径）").toBeDefined()
+      await act(async () => { saveButton?.click() })
+      await act(async () => { await Promise.resolve() })
+
+      expect(confirmDialogVisible(), "闸门必须拦下，不弹确认框").toBe(false)
+      expect(infoSpy).toHaveBeenCalledWith("事件细纲只作为对话消息保留，不写入大纲列表。")
+    })
+  })
 })

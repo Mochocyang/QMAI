@@ -131,6 +131,8 @@ import {
 import { buildScopedOutlineSubAgentContext } from "@/lib/novel/outline-agent-context";
 import {
   buildClassifiedOutlineSaveRequest,
+  decideOutlineAutoSaveGate,
+  isEventOutlineSaveBlocked,
   isSaveableOutlineDeliverable,
   prepareOutlineSaveSourceContent,
 } from "@/lib/outline-save";
@@ -2781,26 +2783,19 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       // 手工或计划模式绕过来的 event-outline 请求一律丢掉，既不弹确认框也不落盘。
       const { requests: saveRequests, droppedEventOutlineCount } =
         excludeEventOutlineSaveRequests(parsed.requests);
-      // 有请求、但全是事件细纲：直接收工。不能掉进下面那条兜底分类 ——
-      // 它会把同一份细纲（首个 H1 带「事件细纲」）再判成 event-outline，又弹一次确认框。
-      if (droppedEventOutlineCount > 0 && saveRequests.length === 0) return;
-      if (saveRequests.length === 0) {
-        if (parsed.errors.length > 0) {
-          /*
-           * 只有当错误里**还有非事件细纲的**才弹那条「请让 AI 重新输出
-           * outlineSaveRequest」的提示。事件细纲请求在本版本里本来就要丢掉，
-           * 为它去要求模型重出一遍是自相矛盾（重出一次还是会被丢掉）。
-           *
-           * 用 `<` 而不是 `=== 0` 比较：混着一条真正的解析错误时，
-           * 仍然必须让用户看到它 —— 这正是这个比较的意义。
-           */
-          if (parsed.eventOutlineRejectionCount < parsed.errors.length) {
-            showOutlineAutoSaveError(formatOutlineSaveParseFeedback(parsed.errors));
-            return;
-          }
-          setSaveStatus("事件细纲只作为对话消息保留，不写入大纲列表。");
-          return;
-        }
+      /*
+       * 闸门的判定抽在 decideOutlineAutoSaveGate（纯函数，见 lib/outline-save.ts）：
+       * 这里只负责把判定翻成可见效果。判据本身有单测直喂已分类的 event-outline，
+       * 因为「删掉这几行 return」在组件层是看不出来的（源码文本断言管不住行为）。
+       */
+      const gateAction = decideOutlineAutoSaveGate({
+        droppedEventOutlineCount,
+        keptRequestCount: saveRequests.length,
+        errors: parsed.errors,
+        eventOutlineRejectionCount: parsed.eventOutlineRejectionCount,
+      });
+      if (gateAction === "drop-event-outline") return;
+      if (gateAction === "continue" && saveRequests.length === 0) {
         if (!isSaveableOutlineDeliverable(safeAssistantContent)) return;
         const built = buildClassifiedOutlineSaveRequest({
           content: safeAssistantContent,
@@ -2810,7 +2805,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         if (!built || !canApply()) return;
         // 与上面的过滤同一道闸门，只是走的是「没有保存请求、靠正文分类」这条腿：
         // 分类结果若是事件细纲，同样不弹确认框（否则丙-1 的目标会被这条腿绕过）。
-        if (built.classification.fileType === "event-outline") return;
+        if (isEventOutlineSaveBlocked(built.classification.fileType)) return;
         if (built.classification.fileType === "character") {
           const extracted = extractCharacterSaveDrafts(built.draft.content);
           if (extracted.drafts.length === 0) return;
@@ -2830,6 +2825,25 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           characterDrafts: [],
         });
         setSaveStatus("检测到可保存大纲，请确认后写入。");
+        return;
+      }
+      /*
+       * 只有错误里**还有非事件细纲的**才弹那条「请让 AI 重新输出
+       * outlineSaveRequest」的提示。事件细纲请求在本版本里本来就要丢掉，
+       * 为它去要求模型重出一遍是自相矛盾（重出一次还是会被丢掉）。
+       */
+      if (gateAction === "surface-parse-errors") {
+        showOutlineAutoSaveError(formatOutlineSaveParseFeedback(parsed.errors));
+        return;
+      }
+      if (gateAction === "notify-event-outline-dropped") {
+        /*
+         * 这里原本调的是 setSaveStatus，而它开头就是
+         * `if (!/(失败|错误|不支持|无法)/.test(message)) return` ——
+         * 这句话四个词一个都不含，于是**什么都不会发生**：
+         * 用户看不到任何反馈，只看到「点了没反应」。改用 toast.info。
+         */
+        toast.info("事件细纲只作为对话消息保留，不写入大纲列表。");
         return;
       }
 
@@ -6230,11 +6244,19 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
          * 最终写进 wiki/outlines/事件细纲/。也就是说：越是在 JSON 坏掉的时候，
          * 越容易从手动通道漏进去 —— 这恰恰是丙-1 要防的那件事。
          *
-         * FIX 1 之后这条分类是文档自身推出来的（hint 不再能判 event-outline），
-         * 所以合法的 17 节章纲不会被误拦。
+         * 为什么合法的 17 节章纲在实践中不会被误拦：分类链里**标题 hint 先于正文**
+         * （classifyOutlineSaveTarget 先走 inferFileTypeFromHint(title)），
+         * 标题带「章纲」就定了；而 canonical 的章纲模板里**没有**事件标记
+         * （chapter-outline-template.ts 里 grep 不到「事件细纲/事件清单/事件序列」）。
+         *
+         * ⚠️ 这是**当前模板的巧合**，不是结构性保证：`inferFileTypeFromContent` 的
+         * 事件标记判定排在章/卷标记**之前**，所以一份正文里真出现「事件序列」的
+         * 17 节章纲仍会被定型成 event-outline，然后在这里被静默拒掉
+         * —— 正因如此，被拒时必须给出可见反馈（下面的 toast.info），
+         * 不能让用户遇到「点了没反应」。这是已知的假阳性路径，记在实施计划里。
          */
-        if (built.classification.fileType === "event-outline") {
-          setSaveStatus("事件细纲只作为对话消息保留，不写入大纲列表。");
+        if (isEventOutlineSaveBlocked(built.classification.fileType)) {
+          toast.info("事件细纲只作为对话消息保留，不写入大纲列表。");
           return;
         }
 
