@@ -1686,7 +1686,7 @@ planPersonaSkillRoundForChapter(...)        # 纯函数：谁该建档 / 谁该�
 
   <div class="step">
     <div class="head"><input type="checkbox"><span>Step 1：先写失败测试</span></div>
-    <p>新建 <code>src/lib/novel/persona-skill-learning.spec.ts</code>。它是本计划最重的一个测试文件，11 个用例覆盖 D1/D3/D6 + 幂等 + 归档：</p>
+    <p>新建 <code>src/lib/novel/persona-skill-learning.spec.ts</code>。它是本计划最重的一个测试文件，共 24 个用例（角色定位 3 + 汇总 3 + 解析 4 + 渲染 3 + 编排 11）覆盖 D1/D3/D6 + 幂等 + 归档：</p>
     <pre><code>import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { PersonaSkillMeta } from "./persona-skill-types"
@@ -1739,6 +1739,7 @@ import {
   collectChapterAppearances,
   learnPersonaSkillsFromChapter,
   loadCharacterRoleTypes,
+  lookupRoleType,
   parsePersonaSkillDrafts,
   renderPersonaSkillDocument,
   __resetPersonaSkillRoundsForTesting,
@@ -1803,7 +1804,18 @@ describe("loadCharacterRoleTypes", () =&gt; {
     io.files.set(`${project}/wiki/characters/角色-男主-林-九.md`, "# 名字里带连字符")
     io.files.set(`${project}/wiki/characters/随便.md`, "# 不是角色页")
     const roleTypes = await loadCharacterRoleTypes(project)
-    expect(roleTypes).toEqual({ 林清越: "男主", 沈砚: "男配", "林-九": "男主" })
+    // 键是**归一化**过的（NFKC + 去空白与标点 + 小写）：文件名里的名字被
+    // buildCharacterFileName 净化过，与快照里 LLM 抽出的原始名不是同一种写法。
+    // 「林-九」的连字符也是净化产物，归一化后与快照里的「林九」才对得上。
+    expect(roleTypes).toEqual({ 林清越: "男主", 沈砚: "男配", 林九: "男主" })
+  })
+
+  it("文件名被净化过（去空白）也能对上快照里的原始名", async () => {
+    // 盘上是「角色-男主-LinChen.md」（sanitize 去掉了空格），
+    // 而快照里的人物名是「Lin Chen」。不归一化就会查不到定位 → 静默降成次要档。
+    roleFile("男主", "LinChen")
+    const roleTypes = await loadCharacterRoleTypes(project)
+    expect(lookupRoleType(roleTypes, "Lin Chen")).toBe("男主")
   })
 
   it("目录不存在时返回空对象，不抛", async () =&gt; {
@@ -2302,9 +2314,21 @@ export async function loadCharacterRoleTypes(projectPath: string): Promise&lt;Re
     if (node.is_dir) continue
     const parsed = parseCharacterRoleFileName(node.name)
     if (!parsed) continue
-    result[parsed.name] = parsed.role
+    // 键必须归一化：文件名里的名字已被 buildCharacterFileName 净化过
+    // （sanitizeOutlineFileNamePart 去空白、把 \ / : * ? " &lt; &gt; | 换成 -），
+    // 而快照里的 characters 是 LLM 抽出的原始规范名。不归一化的话，
+    // 一个叫「Lin Chen」的主角会因为文件里存成「LinChen」而查不到定位 → 静默降成次要档。
+    result[normalizePersonaName(parsed.name)] = parsed.role
   }
   return result
+}
+
+/**
+ * 查角色定位。必须走归一化键——`loadCharacterRoleTypes` 的键与快照里的
+ * characters 是两种写法（见那边的注释），直接下标取值会静默取不到。
+ */
+export function lookupRoleType(roleTypes: Record&lt;string, string&gt;, name: string): string {
+  return roleTypes[normalizePersonaName(name)] ?? ""
 }
 
 export function findPersonaSkillMeta(
@@ -2381,7 +2405,7 @@ export function collectChapterAppearances(
       put({
         characterName: meta.characterName,
         aliases: uniqueNames([...meta.aliases, ...aliases, name]),
-        roleType: meta.roleType || roleTypes[name] || "",
+        roleType: meta.roleType || lookupRoleType(roleTypes, name) || "",
         appearanceCount: meta.appearanceCount + (alreadyCounted ? 0 : 1),
         firstChapter: meta.firstChapter || chapter.chapterNumber,
         hasSkill: true,
@@ -2401,7 +2425,7 @@ export function collectChapterAppearances(
       sighting.firstChapter = sighting.firstChapter || chapter.chapterNumber
       sighting.lastChapter = Math.max(sighting.lastChapter, chapter.chapterNumber)
       sighting.aliases = uniqueNames([...sighting.aliases, ...aliases])
-      sighting.roleType = sighting.roleType || roleTypes[name] || ""
+      sighting.roleType = sighting.roleType || lookupRoleType(roleTypes, name) || ""
       put({
         characterName: sighting.characterName,
         aliases: sighting.aliases,
@@ -2419,7 +2443,7 @@ export function collectChapterAppearances(
     const created: PersonaSkillSighting = {
       characterName: name,
       aliases,
-      roleType: roleTypes[name] ?? "",
+      roleType: lookupRoleType(roleTypes, name),
       appearanceCount: 1,
       firstChapter: chapter.chapterNumber,
       lastChapter: chapter.chapterNumber,
@@ -2824,7 +2848,7 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
 npx tsc -p tsconfig.test.json --noEmit</div>
     <div class="expect">
       <span class="t">Expected</span>
-      <code>Tests 23 passed</code>（角色定位 2 + 汇总 3 + 解析 4 + 渲染 3 + 编排 11 = 23；以实际为准），0 失败；类型检查无输出。
+      <code>Tests 24 passed</code>（角色定位 3 + 汇总 3 + 解析 4 + 渲染 3 + 编排 11 = 24；以实际为准），0 失败；类型检查无输出。
     </div>
     <div class="callout warn">
       <span class="t">「次要人物第一次出场不建档」红了？</span>
@@ -4490,7 +4514,7 @@ export function PersonaSkillView() {
     <div class="run">npx vitest run src/components/skill-library/persona-skill-view.spec.tsx
 npx tsc --build --pretty
 npx tsc -p tsconfig.test.json --noEmit</div>
-    <div class="expect"><span class="t">Expected</span>8 个用例全绿；两个类型检查都无输出。</div>
+    <div class="expect"><span class="t">Expected</span>7 个用例全绿；两个类型检查都无输出。</div>
     <div class="callout warn">
       <span class="t">「点绿勾」那条红了？</span>
       <p>检查 pin 按钮上<b>没有</b> <code>onClick</code> 里的 <code>event.stopPropagation()</code> 依赖——这个卡片本身没有整卡 <code>onClick</code>（打开档案是独立按钮），所以不需要 stopPropagation。如果照抄了统一技能库那套「整卡可点」的结构，就会引入一个多余的冒泡问题。</p>
