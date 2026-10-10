@@ -26,8 +26,9 @@ import { useWritingStatsStore } from "@/stores/writing-stats-store"
 import { normalizeCountableText } from "@/lib/writing-stats"
 import { normalizeComparablePath } from "@/lib/path-utils"
 import { USER_ABORT_MESSAGE } from "@/lib/user-abort"
+import { flushPendingChapterSave } from "@/lib/chapter-save-flush"
 import type { EventOutlineData, EventOutlineRequest } from "@/lib/novel/event-outline"
-import type { DeepChapterGenerationResult } from "@/lib/novel/deep-chapter-generation"
+import type { ChapterWorkflowEvent, DeepChapterGenerationResult } from "@/lib/novel/deep-chapter-generation"
 
 const fixture = vi.hoisted(() => ({
   generateEventOutline: vi.fn(),
@@ -382,6 +383,21 @@ async function settleAsync(rounds = 3): Promise<void> {
 async function confirmOutline(): Promise<void> {
   await click("用这份细纲写这一章")
   await settleAsync()
+}
+
+/**
+ * 往章节区的写作 textarea 里真的敲一段字。
+ *
+ * 为什么不用 `useWikiStore.setState({ fileContent })` 直接改内存里的值：
+ * 那条路**只**改 `fileContentRef`，不会经过 `handleSave`，于是
+ * `pendingChapterSaveRef`（F5 的被测对象）永远是 null —— 用它测 F5 等于没测。
+ * 敲字这条路径才是真实用户的路径：textarea → onSave → handleSave →
+ * `pendingChapterSaveRef` + `fileContentRef` 同时更新，磁盘仍是旧内容。
+ */
+async function typeIntoWritingEditor(appended: string): Promise<void> {
+  const textarea = container.querySelector<HTMLTextAreaElement>("[data-writing-editor] textarea")
+  expect(textarea, "章节区应渲染出可写作的 textarea").not.toBeNull()
+  await act(async () => { setTextarea(textarea!, `${textarea!.value}${appended}`) })
 }
 
 /** 找一行正文生成中的行（它的文案与细纲生成那行不同，不能靠下标猜）。 */
@@ -1173,5 +1189,337 @@ describe("确认细纲后直接在章节区写出正文", () => {
     // 落盘内容是 draft，且没有任何「保存为正式章节」的副作用
     expect(markdownHandedToWriteFile(chapterAreaPath(2))).toContain("chapter_status: draft")
     expect(useWikiStore.getState().finalChapterSave).toBeNull()
+  })
+})
+
+/*
+ * ── 丙-2b 修复批 ──
+ *
+ * 上面那组用例（26 条）在缺陷存在时**全绿**，所以这一组是按「缺陷的形状」写的：
+ * 每一条都得在对应缺陷被复原时变红。用例编号沿用修复批的编号（N1/N2/N3/F2…），
+ * 便于与报告和提交信息对齐。
+ */
+describe("丙-2b 修复批：取消 / 项目切换 / 目标路径 / 进度", () => {
+  /** 让正文生成「已返回、正在写盘」的通用前置：截在 createDirectory 上的闸门。 */
+  function mockProseReturnedIgnoringAbort(signals: AbortSignal[]) {
+    fixture.runDeepChapterGeneration.mockImplementation(
+      (_i: unknown, _c: unknown, _d: unknown, signal: AbortSignal) => {
+        signals.push(signal)
+        // 不接受 signal 的传输：abort 只影响我们自己的收尾，生成照常返回（真实形态之一）
+        return Promise.resolve(deepResult(AI_PROSE))
+      },
+    )
+  }
+
+  it("N1：写入途中点「取消」必须真的 abort，且绝不落盘、任务不被静默摘掉", async () => {
+    const gate = createDeferred<void>()
+    const signals: AbortSignal[] = []
+    mockProseReturnedIgnoringAbort(signals)
+    await mount()
+    // 闸门装在 **createDirectory** 上：正文已经拿到手，正处于写入阶段的第一步。
+    fixture.createDirectory.mockImplementation(() => gate.promise)
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(1), rawContent: "", error: null })
+    await submitWizard("", "1")
+    await confirmOutline()
+
+    const row = writingRow(1)
+    expect(signals[0].aborted, "还没取消时不该是 aborted").toBe(false)
+    await act(async () => { cancelButtonOf(row).click() })
+
+    /*
+     * ① 取消必须真的落到那次生成上。
+     * 这正是缺陷 N1 的形状：settle() 在 `.then` 的开头就把 controller 从 Map 里摘了，
+     * 于是取消只改状态、不发 abort —— 界面看上去「取消成功」，写入却照跑。
+     */
+    expect(signals[0].aborted, "写入阶段点取消必须真的 abort（不能只把状态改回去）").toBe(true)
+
+    // ② 放开闸门：写入链继续跑，写盘前的 abort 复核必须拦住它
+    await act(async () => { gate.resolve() })
+    await settleAsync()
+    expect(fixture.writeFile, "取消之后绝不落盘").not.toHaveBeenCalled()
+    expect(fixture.files.has(chapterAreaPath(1))).toBe(false)
+
+    // ③ 任务不能被静默摘掉：细纲还在卡片上，用户可以直接重试
+    const tasks = useEventOutlineTaskStore.getState().tasks
+    expect(tasks, "取消不是「悄悄删掉这一行」").toHaveLength(1)
+    expect(tasks[0].status).toBe("awaiting-confirm")
+    expect(tasks[0].outline?.title).toBe("第1章 · 雨夜递刀")
+    expect(container.querySelector("[data-event-outline-card]")).not.toBeNull()
+  })
+
+  it("N1：取消落在 readFile 与 writeFile 之间时，仍然不得落盘", async () => {
+    const gate = createDeferred<void>()
+    const existing = seedExistingChapter(1)
+    let holdTargetRead = false
+    fixture.readFile.mockImplementation(async (path: string) => {
+      const content = fixture.files.get(path)
+      if (content === undefined) throw new Error(`文件不存在: ${path}`)
+      // 只卡「读目标章节旧正文」这一笔：它正是 writeFile 前的最后一次 IPC。
+      if (holdTargetRead && path === existing) await gate.promise
+      return content
+    })
+    const signals: AbortSignal[] = []
+    mockProseReturnedIgnoringAbort(signals)
+    await mount()
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(1), rawContent: "", error: null })
+    await submitWizard("", "1")
+    holdTargetRead = true
+    await confirmOutline()
+
+    const row = writingRow(1)
+    await act(async () => { cancelButtonOf(row).click() })
+    expect(signals[0].aborted).toBe(true)
+
+    await act(async () => { gate.resolve() })
+    await settleAsync()
+    /*
+     * 缺陷形状：写盘前只有**一处** abort 复核（在 readFile 之前）。取消恰好落在
+     * readFile 那一段时它已经过了，于是照样 writeFile —— 取消了却把整章写进盘。
+     */
+    expect(fixture.writeFile, "取消落在 readFile 之后也必须被写盘前的复核拦住").not.toHaveBeenCalled()
+    expect(fixture.files.get(existing), "既有章节内容不得被改写").not.toContain("雨停在子时")
+    expect(useEventOutlineTaskStore.getState().tasks[0].status).toBe("awaiting-confirm")
+  })
+
+  it("N2：生成途中切换项目，绝不写进上一个项目，选中项也不跨项目", async () => {
+    const toastModule = await import("@/lib/toast")
+    const errorSpy = vi.spyOn(toastModule.toast, "error").mockImplementation(() => {})
+    const gate = createDeferred<void>()
+    const signals: AbortSignal[] = []
+    mockProseReturnedIgnoringAbort(signals)
+    await mount()
+    fixture.createDirectory.mockImplementation(() => gate.promise)
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(1), rawContent: "", error: null })
+    await submitWizard("", "1")
+    await confirmOutline()
+    writingRow(1)
+
+    // 切到另一本书，并让章节区停在属于新项目的一份文档上
+    const otherProject = { id: "other-book", name: "另一本", path: "C:/other-book" }
+    const otherFile = `${otherProject.path}/wiki/notes/note.md`
+    fixture.files.set(otherFile, "---\ntype: note\n---\n\n笔记")
+    await act(async () => {
+      useWikiStore.setState({ project: otherProject, selectedFile: otherFile })
+    })
+    await settleAsync(2)
+    expect(signals[0].aborted, "切项目时要顺手停掉上一个项目里还在跑的正文生成（它还在计费）").toBe(true)
+
+    // 放开闸门：写入链会继续跑到写盘前的那道复核
+    await act(async () => { gate.resolve() })
+    await settleAsync()
+    expect(fixture.writeFile, "上一个项目里不得留下这次生成的任何文件").not.toHaveBeenCalled()
+    expect(fixture.files.has(chapterAreaPath(1)), "第1章.md 不得出现在上一个项目里").toBe(false)
+    expect(useWikiStore.getState().selectedFile, "选中项必须还在当前项目里").toBe(otherFile)
+    expect(useEventOutlineTaskStore.getState().tasks, "已经不适用的任务要收掉（否则切回去会诈尸）").toHaveLength(0)
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("项目已切换"))
+  })
+
+  it("N3：开着的就是这一章（章节区规范名）时，写进那一份、不产生同章的第二份文件", async () => {
+    seedWritingStatsProject()
+    // 章节库里这一章已经是规范名；编辑器随后也切到它上面（真正「同章」的形态）
+    const existing = seedExistingChapter(16, { title: "逆火第一轮" })
+    await mount()
+    // 移除夹具默认那份 第16章.md：否则「第16章」在盘上有两个文件，测不清目标解析。
+    fixture.files.delete(openChapterPath)
+    await act(async () => { useWikiStore.setState({ selectedFile: existing }) })
+    await settleAsync(2)
+
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(16), rawContent: "", error: null })
+    await submitWizard("", "16")
+    fixture.runDeepChapterGeneration.mockResolvedValue(deepResult(AI_PROSE))
+    await confirmOutline()
+
+    expect(fixture.writeFile, "只能有一笔写盘").toHaveBeenCalledTimes(1)
+    expect(fixture.writeFile.mock.calls[0][0], "必须写进已经存在的那一份").toBe(existing)
+    expect(fixture.files.has(draftChapterPath(16)), "不得再建一份 chapter-016.md（旧实现就是它）").toBe(false)
+    expect(fixture.files.has(chapterAreaPath(16)), "也不要另起一个 第16章.md").toBe(false)
+    expect(markdownHandedToWriteFile(existing)).toContain("雨停在子时")
+    expect(useWikiStore.getState().selectedFile).toBe(existing)
+  })
+
+  it("N3：换到另一章时，上一个打开章节里未保存的字必须落盘、不能被新章正文顶掉", async () => {
+    seedWritingStatsProject()
+    await mount()
+    const original = fixture.files.get(openChapterPath)!
+    await typeIntoWritingEditor("\n\n　　用户刚敲下、还没保存的一段话。")
+    // 3 分钟的例行落盘还没到（真实定时器不会在本用例里触发），盘上仍是原稿
+    expect(fixture.files.get(openChapterPath), "还没到落盘间隔，盘上应是原稿").toBe(original)
+
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(2), rawContent: "", error: null })
+    await submitWizard("", "2")
+    fixture.runDeepChapterGeneration.mockResolvedValue(deepResult(AI_PROSE))
+    await confirmOutline()
+
+    /*
+     * 缺陷形状（N3 的第二个缺陷）：写入前先把 `fileContentRef.current` 换成了**新章**的正文，
+     * 于是切章 effect 拿「新章的正文」去冲刷**旧章**的文件，`chapterContentMatchesPath`
+     * 因为章号不符把整段冲刷抑制掉 —— 用户那几句既没进盘、也没留在编辑器里，直接消失。
+     */
+    const flushed = fixture.files.get(openChapterPath)!
+    expect(flushed, "上一个章节里未保存的字必须先落盘").toContain("还没保存的一段话")
+    expect(flushed, "不得把新一章的正文写进上一个章节的文件").not.toContain("雨停在子时")
+    expect(fixture.files.get(chapterAreaPath(2)), "新一章写进自己的文件").toContain("雨停在子时")
+    expect(useWikiStore.getState().selectedFile).toBe(chapterAreaPath(2))
+  })
+
+  it("N3：全新一章用章节区的规范名（第N章-标题.md），不是 chapter-NNN.md", async () => {    // 让模型带一行 H1 标题：新文件的名字必须由它推出规范名
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(2), rawContent: "", error: null })
+    await mount()
+    await submitWizard("", "2")
+    fixture.runDeepChapterGeneration.mockResolvedValue(
+      deepResult(`# 第2章 雨夜递刀\n\n${AI_PROSE}`),
+    )
+    await confirmOutline()
+
+    const target = chapterAreaPath(2, "雨夜递刀")
+    expect(fixture.writeFile.mock.calls[0][0]).toBe(target)
+    expect(fixture.files.has(draftChapterPath(2)), "全新一章也不得用草稿名").toBe(false)
+    const written = markdownHandedToWriteFile(target)
+    expect(written).toContain('title: "第2章 雨夜递刀"')
+    expect(useWikiStore.getState().selectedFile).toBe(target)
+  })
+
+  it("F8：细纲自报的章号与任务不符时，一律以任务章号为准", async () => {
+    seedWritingStatsProject()
+    await mount()
+    // 向导指定第 2 章，模型却在 JSON 里自报第 7 章
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(7), rawContent: "", error: null })
+    await submitWizard("", "2")
+    expect(useEventOutlineTaskStore.getState().tasks[0].outline?.chapterNumber, "入 store 时就要换成任务章号").toBe(2)
+    fixture.runDeepChapterGeneration.mockResolvedValue(deepResult(AI_PROSE))
+    await confirmOutline()
+
+    const [input] = fixture.runDeepChapterGeneration.mock.calls[0] as [
+      { planBlueprint?: string; chapterNumber?: number },
+    ]
+    // 提示词、落盘文件名、frontmatter 三者必须说同一章
+    expect(input.chapterNumber).toBe(2)
+    expect(input.planBlueprint, "计划文本里的章号必须也是任务章号").toContain("第 2 章正文")
+    expect(input.planBlueprint).not.toContain("第 7 章")
+    const target = chapterAreaPath(2)
+    expect(fixture.writeFile.mock.calls[0][0]).toBe(target)
+    expect(markdownHandedToWriteFile(target)).toContain("chapter_number: 2")
+  })
+
+  it("F2：进度只来自 onWorkflowEvent 的阶段名，不把 onFinalContent 当逐字流", async () => {
+    const deferred = createDeferred<DeepChapterGenerationResult>()
+    let callbacks: {
+      onWorkflowEvent?: (event: ChapterWorkflowEvent) => void
+      onFinalContent?: (content: string) => void
+    } = {}
+    fixture.runDeepChapterGeneration.mockImplementation((_i: unknown, cb: typeof callbacks) => {
+      callbacks = cb
+      return deferred.promise
+    })
+    await mount()
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(1), rawContent: "", error: null })
+    await submitWizard("", "1")
+    await confirmOutline()
+
+    // ① 阶段推进真的会变成可见文案
+    await act(async () => {
+      callbacks.onWorkflowEvent?.({
+        type: "started",
+        id: "task-brief",
+        name: "task-brief",
+        title: "构建章节任务书",
+        timestamp: Date.now(),
+      })
+    })
+    expect(writingRow(1).textContent, "阶段名必须显示在进度行上").toContain("构建章节任务书")
+
+    /*
+     * ② 反例（规格明令禁止的做法）：这条链路的 onFinalContent 在**阶段边界**给完整
+     * 文本，不是逐字流。把它接进 `appendProgress` 就会报出「已收到 N 字」这种假进度。
+     * 这一半断言同时钉住「它没有被消费成 token 流」。
+     */
+    await act(async () => { callbacks.onFinalContent?.("x".repeat(1200)) })
+    expect(writingRow(1).textContent, "不得把 onFinalContent 的整段文本报成「已收到 N 字」").not.toContain("已收到")
+    const task = useEventOutlineTaskStore.getState().tasks[0]
+    expect(task.receivedChars, "receivedChars 只属于细纲那条链路").toBe(0)
+    expect(task.writingStage).toBe("构建章节任务书")
+
+    await act(async () => { deferred.resolve(deepResult(AI_PROSE)) })
+    await settleAsync()
+  })
+
+  it("F3：正文生成取「写作」这一档模型，不是审稿档", async () => {
+    await mount()
+    await act(async () => {
+      useWikiStore.setState({
+        aiChatModel: "gpt-4o",
+        providerConfigs: {
+          ...USABLE_PROVIDER_CONFIGS,
+          openai: {
+            ...USABLE_PROVIDER_CONFIGS.openai,
+            savedModels: [
+              ...USABLE_PROVIDER_CONFIGS.openai.savedModels,
+              { id: "gpt-4o-mini", model: "gpt-4o-mini", name: "GPT-4o mini", createdAt: 2 },
+            ],
+          },
+        },
+        novelConfig: { ...useWikiStore.getState().novelConfig, reviewModel: "gpt-4o-mini" },
+      })
+    })
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(2), rawContent: "", error: null })
+    await submitWizard("", "2")
+    fixture.runDeepChapterGeneration.mockResolvedValue(deepResult(AI_PROSE))
+    await confirmOutline()
+
+    const [input] = fixture.runDeepChapterGeneration.mock.calls[0] as [{ llmConfig: { model: string } }]
+    expect(
+      input.llmConfig.model,
+      "写作档取的是聊天模型；取到 gpt-4o-mini 说明任务档传成了 review",
+    ).toBe("gpt-4o")
+  })
+
+  it("F5：覆盖前丢掉待落盘的那份，关窗 flush 不会把旧稿盖回刚写好的正文", async () => {
+    seedWritingStatsProject()
+    const chapterThree = seedExistingChapter(3)
+    await mount()
+    await act(async () => { useWikiStore.setState({ selectedFile: chapterThree }) })
+    await settleAsync(2)
+    // 真的敲字 → 走 handleSave → 产生一份待落盘的旧快照（3 分钟后才会写盘）
+    await typeIntoWritingEditor("\n\n　　用户刚敲下、还没保存的一段话。")
+
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(3), rawContent: "", error: null })
+    await submitWizard("", "3")
+    fixture.runDeepChapterGeneration.mockResolvedValue(deepResult(AI_PROSE))
+    await confirmOutline()
+
+    const written = markdownHandedToWriteFile(chapterThree)
+    expect(written).toContain("雨停在子时")
+    // App.tsx 关窗处理器走的就是这一句（registerChapterSaveFlush 登记的是 runPendingChapterSave）
+    await act(async () => { await flushPendingChapterSave() })
+    expect(
+      fixture.files.get(chapterThree),
+      "待落盘的旧快照必须已经被丢掉，否则它会把刚写好的整章盖回去",
+    ).toBe(written)
+    expect(useWikiStore.getState().fileContent).toContain("雨停在子时")
+  })
+
+  it("F6：写完立刻打「已加载」基线，切走时不会把同一份内容再写一遍", async () => {
+    seedWritingStatsProject()
+    const chapterThree = seedExistingChapter(3)
+    await mount()
+    await act(async () => { useWikiStore.setState({ selectedFile: chapterThree }) })
+    await settleAsync(2)
+
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(3), rawContent: "", error: null })
+    await submitWizard("", "3")
+    fixture.runDeepChapterGeneration.mockResolvedValue(deepResult(AI_PROSE))
+    await confirmOutline()
+
+    const writesAfterConfirm = fixture.writeFileAtomic.mock.calls.length
+    // 切走：切章前冲刷会拿「编辑器里的内容」与「已加载基线」比，一致就不该再写
+    await act(async () => { useWikiStore.setState({ selectedFile: openChapterPath }) })
+    await settleAsync(2)
+    const redundant = fixture.writeFileAtomic.mock.calls
+      .slice(writesAfterConfirm)
+      .filter(([path]) => path === chapterThree)
+    expect(
+      redundant,
+      "rememberLoadedChapter 没打基线的话，切章会把同一份正文再写一遍",
+    ).toHaveLength(0)
   })
 })
