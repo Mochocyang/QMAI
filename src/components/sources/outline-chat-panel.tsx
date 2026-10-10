@@ -382,6 +382,17 @@ import {
 
 type OutlineSendResult = { started: boolean; sent: boolean };
 
+/**
+ * 某条消息所属那一轮生成里，用户在事件细纲向导中填的要求。
+ *
+ * 要求就存在消息本身上（`eventOutlineRequirement`，与消息一起写进
+ * `.qmai/outline-chats.json`），所以这里既不查表也不解析提示词：
+ * 「谁的要求」这个问题只有一个答案 —— 这条消息自己的。
+ */
+function requirementFor(msg: OutlineChatMessage): string | undefined {
+  return msg.eventOutlineRequirement;
+}
+
 const OUTLINE_REASONING_ONLY_ERROR_MESSAGE =
   "模型只输出了思考内容，没有输出正文。已关闭 reasoning 重试一次，仍未返回可用的大纲内容。";
 
@@ -2097,7 +2108,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       outlines.set(
         message.id,
         message.role === "assistant"
-          ? extractEventOutlineData(message.content)
+          ? extractEventOutlineData(message.content, requirementFor(message))
           : null,
       );
     }
@@ -2999,6 +3010,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         systemGenerated?: boolean;
         userMessageVisibility?: "visible" | "internal";
         userDisplayText?: string;
+        /**
+         * 事件细纲向导里填的要求。挂在**这一轮创建的助手消息**上，
+         * 让卡片渲染时不必依赖模型把要求回抄进 JSON（见 outline-chat-store 的同名字段）。
+         */
+        eventOutlineRequirement?: string;
       } = {},
     ): Promise<OutlineSendResult> => {
       let prompt = inputText.trim();
@@ -3210,6 +3226,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         outlinePlanPhase: options.planPhase,
         outlineDiscussPhase: discussPhase,
         generationTiming: { startedAt: Date.now() },
+        // 与消息在同一个对象字面量里落地：要求不会与它所属的那条回复错配。
+        ...(options.eventOutlineRequirement?.trim()
+          ? { eventOutlineRequirement: options.eventOutlineRequirement.trim() }
+          : {}),
       });
       clearStreamingContent(capturedConvId);
       userScrolledUpRef.current = false;
@@ -5483,6 +5503,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         intentPhase: "generation",
         systemGenerated: true,
         userDisplayText: `生成第 ${request.chapterNumber} 章事件细纲（${request.eventCount} 个事件）`,
+        // 要求原文随消息落盘：扩写时不必指望模型把它回抄进 eventOutlineData。
+        eventOutlineRequirement: request.requirement,
       });
     },
     [handleSend],
@@ -5684,6 +5706,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           contextHubSnapshot,
           intentPhase: regenerationIntentPhase,
           outlineDiscussPhase: regenerationDiscussPhase,
+          // 重发的是同一条请求：要求跟着新消息走，否则「重新生成」之后
+          // 扩写提示词里就再也不会出现「## 用户对本章的要求」。
+          ...(targetAssistantMessage?.eventOutlineRequirement
+            ? { eventOutlineRequirement: targetAssistantMessage.eventOutlineRequirement }
+            : {}),
         });
         assistantAdded = true;
 

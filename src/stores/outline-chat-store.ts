@@ -159,6 +159,23 @@ export interface OutlineChatMessage {
   novelGenerationRequest?: NovelGenerationRequestPackage
   contextHubSnapshot?: ContextHubSnapshotRef
   generationTiming?: { startedAt: number; finishedAt?: number }
+  /**
+   * 这一轮事件细纲生成里，用户在向导中填的「对本章的想法或硬要求」。
+   *
+   * 为什么不靠模型回抄示例 JSON：扩写那一步（eventOutlineToProsePrompt）必须**确定地**
+   * 拿到这段要求，而模型抄不抄是随机的。所以随本消息一起存下来，渲染卡片时由
+   * extractEventOutlineData(content, requirement) 就地补上。
+   *
+   * 为什么放在消息本身上、而不是「章号 -> 要求」的映射：它是**这一条消息的输入**，
+   * 与消息在同一个对象字面量里创建（见 outline-chat-panel 的 handleSend），
+   * 所以不存在「换了章号就取到别人的要求」这种错配；存量数据没有这个字段时读到
+   * undefined，行为与加字段之前完全一致。
+   *
+   * 落盘：本 store 整份 conversations 直接 JSON.stringify，加载时 messages 又是
+   * `{...message}` 展开，所以新字段无需任何序列化改动即可往返
+   * `<项目>/.qmai/outline-chats.json`。
+   */
+  eventOutlineRequirement?: string
   /** Thinking-model chain-of-thought; must be replayed on subsequent turns. */
   reasoning_content?: string
 }

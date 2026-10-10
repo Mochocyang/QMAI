@@ -2896,6 +2896,63 @@ describe("事件细纲接线", () => {
     })
   }
 
+  /**
+   * 丙-1 转交来的接线（实施计划 §1 步骤 5）：向导里填的要求必须**确定地**到达扩写提示词。
+   *
+   * 「确定地」是这条用例的全部意义：模型这次**没有**把要求回抄进 eventOutlineData，
+   * 要求仍必须出现在扩写提示词里。所以断言里同时钉住两件事 ——
+   * 生成结果里没有那段要求（证明不是模型抄回来的），而扩写提示词里有。
+   */
+  it("向导里填的要求不靠模型回抄，也确定地进入扩写提示词", async () => {
+    const requirement = "必须交代骆轻竹为什么失望"
+    const generated = [
+      "# 事件细纲 · 第1章 雨夜令牌",
+      "",
+      "## 事件1 院子里的哭声",
+      "- 关键台词：「别回头。」",
+      "",
+      "```json",
+      JSON.stringify({
+        eventOutlineData: {
+          ...validEventOutlineData(),
+          chapterNumber: 1,
+          title: "第1章 · 雨夜令牌",
+        },
+      }),
+      "```",
+    ].join("\n")
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+      callbacks.onText(generated)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: generated }
+    })
+    setOutlineConversations([conversation()], "outline-active", {
+      streamingContents: { "outline-active": "" },
+    })
+    const container = await renderOutlineChatPanel()
+
+    await runEventOutlineWizard(container, requirement)
+
+    const assistant = useOutlineChatStore.getState().conversations[0].messages
+      .findLast((message) => message.role === "assistant")
+    // 前提：模型没把要求抄进 JSON —— 否则下面那条断言就证明不了任何东西。
+    expect(assistant?.content).not.toContain(requirement)
+    // 要求跟着消息落盘（.qmai/outline-chats.json 往返靠它，见 outline-chat-store）。
+    expect(assistant?.eventOutlineRequirement).toBe(requirement)
+
+    const writeButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "用这份细纲写这一章")
+    expect(writeButton, "事件卡片应提供「用这份细纲写这一章」按钮").toBeDefined()
+    await act(async () => { writeButton?.click() })
+
+    const chat = useChatStore.getState()
+    const draft = chat.conversations.find((item) => item.id === chat.activeConversationId)?.inputDraft ?? ""
+    // 交到写作模型手上的那份提示词：要求必须已经在小节里（这条用例的真正落点）。
+    expect(draft).toContain("请根据下面这份「事件细纲」写出第 1 章正文")
+    expect(draft).toContain("## 用户对本章的要求")
+    expect(draft).toContain(requirement)
+  })
+
   it("生成结果里带事件细纲保存请求时也不弹保存确认框，卡片照常渲染", async () => {
     const outlineBody = [
       "# 事件细纲 · 第1章 雨夜令牌",
