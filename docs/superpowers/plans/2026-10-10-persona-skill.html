@@ -1704,6 +1704,9 @@ vi.mock("@/commands/fs", () =&gt; ({
   writeFileAtomic: async (path: string, contents: string) =&gt; {
     io.files.set(path, contents)
   },
+  // 加固后的 store 靠 fileExists 区分「索引不存在」（可安全当空索引）与
+  // 「存在但读不出来」（拒绝写，绝不覆盖）。不 mock 它会掉进真实 Tauri invoke。
+  fileExists: async (path: string) =&gt; io.files.has(path),
   createDirectory: async () =&gt; {},
   listDirectory: async (dir: string) =&gt; {
     const prefix = dir.endsWith("/") ? dir : `${dir}/`
@@ -3929,6 +3932,9 @@ vi.mock("@/commands/fs", () =&gt; ({
   writeFileAtomic: async (path: string, contents: string) =&gt; {
     io.files.set(path, contents)
   },
+  // 加固后的 store 靠 fileExists 区分「索引不存在」（可安全当空索引）与
+  // 「存在但读不出来」（拒绝写，绝不覆盖）。不 mock 它会掉进真实 Tauri invoke。
+  fileExists: async (path: string) =&gt; io.files.has(path),
   createDirectory: async () =&gt; {},
   listDirectory: async (dir: string) =&gt; {
     const prefix = dir.endsWith("/") ? dir : `${dir}/`
