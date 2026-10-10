@@ -142,4 +142,35 @@ describe("callAnalysisModelText", () => {
     ).rejects.toThrow("HTTP 500")
     expect(seen).toEqual(["半截内容"])
   })
+
+  it("重试那轮吐了半截再失败时，交出的是重试那版的文本", async () => {
+    mocks.streamChat.mockImplementationOnce(failReasoningOnly())
+    mocks.streamChat.mockImplementationOnce(async (_c: unknown, _m: unknown, cb: Handlers) => {
+      cb.onToken?.("重试时的半截内容")
+      cb.onError?.(new Error("HTTP 500"))
+    })
+    const seen: string[] = []
+    await expect(
+      callAnalysisModelText(llmConfig, messages, {
+        onPartialText: (text) => seen.push(text),
+      }),
+    ).rejects.toThrow("HTTP 500")
+    expect(mocks.streamChat).toHaveBeenCalledTimes(2)
+    // 两次失败各回调一次；最后一次必须是重试那版，而不是第一次的空串。
+    expect(seen).toEqual(["", "重试时的半截内容"])
+  })
+
+  it("重试成功后正常返回，回调不会污染返回值", async () => {
+    mocks.streamChat.mockImplementationOnce(async (_c: unknown, _m: unknown, cb: Handlers) => {
+      cb.onToken?.("第一次的半截")
+      cb.onError?.(reasoningOnlyError())
+    })
+    mocks.streamChat.mockImplementationOnce(succeedWith("重试后的完整正文"))
+    const seen: string[] = []
+    const text = await callAnalysisModelText(llmConfig, messages, {
+      onPartialText: (value) => seen.push(value),
+    })
+    expect(text).toBe("重试后的完整正文")
+    expect(seen).toEqual(["第一次的半截"])
+  })
 })

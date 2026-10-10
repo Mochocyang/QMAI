@@ -26,6 +26,11 @@ export interface AnalysisModelCallOptions {
    * 失败时交出「本次尝试已收到的文本」。
    * 有的调用点会把半截输出落盘（workbench-adapter 的 v1 文风草案），
    * 所以不能只靠抛错把它丢掉。
+   *
+   * 契约：**每次失败的尝试各回调一次**，最后一次一定是文本最新的那一版
+   * （重试也吐了半截就用重试那版）。回调只负责把文本交回给调用点，
+   * 落盘的时机由调用点自己决定 —— 重试成功时本函数会正常返回，
+   * 调用点应当以返回值为准，不要因为回调先触发过就把半截内容当成最终结果。
    */
   onPartialText?: (text: string) => void
 }
@@ -97,6 +102,9 @@ export async function callAnalysisModelText(
       return await attempt(true)
     } catch (retryError) {
       const second = retryError instanceof Error ? retryError : new Error(String(retryError))
+      // 重试这一轮也可能「吐了半截再失败」；把最新一版的半截文本交出去，
+      // 否则调用点（workbench 的 v1 文风草案）会丢掉这份草稿。
+      onPartialText?.(lastAttemptOutput)
       if (isReasoningOnlyResponseError(second)) throw new Error(REASONING_ONLY_ANALYSIS_MESSAGE)
       throw second
     }
