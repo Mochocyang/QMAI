@@ -1,3 +1,4 @@
+import { formatChapterWriting } from "@/lib/chapter-formatting"
 import type { ChatMessage } from "@/lib/llm-providers"
 
 /** 续写目标字数：提示词里的软目标，不做硬截断（用户原话「300 到 400 字左右」）。 */
@@ -10,6 +11,10 @@ export const CONTINUATION_TARGET_MAX_CHARS = 400
  * 超过就只送「开头 + 结尾」：用户要的是「能读到当前章节的内容，不需要读取
  * 全部内容」——整章 8000 字以内全送，超过就掐掉中段。掐中间而不是掐尾巴，
  * 是因为续写要接的是**结尾**的语气与动作，尾部绝不能丢。
+ *
+ * 注意 head + tail 正好等于本上限，而截断标记是额外加的：正文长度在
+ * 8001–8017 之间时，截断后的输出会比原文略长一点点（输出恒为 8017）。
+ * 这是刻意的 —— 标记本身必须完整可见，且输出仍被硬限制住。
  */
 export const CONTINUATION_SOURCE_LIMIT_CHARS = 8000
 export const CONTINUATION_SOURCE_HEAD_CHARS = 2000
@@ -86,4 +91,46 @@ export function buildContinuationMessages(body: string, instruction: string): Ch
     { role: "system", content: CONTINUATION_SYSTEM_PROMPT },
     { role: "user", content: `${context}\n\n【续写要求】\n${direction}` },
   ]
+}
+
+export type ContinuationInsertResult =
+  | { ok: true; body: string; caret: number }
+  | { ok: false; reason: "changed" | "empty" }
+
+/**
+ * 把续写片段插到正文的锚点上。
+ *
+ * 与润色 / 去AI味 的 `replaceChapterBodySelection` 是**两套语义**：那边替换、
+ * 这边插入。刻意不合并 —— 合并后浮层要同时承担「输入框」与「原文对比」两种
+ * 形态，谁也说不清某个字段属于哪一边。
+ *
+ * 插入规则只做一件事：让续写自成一段。刻意**不**做「把插入点所在的段落切开、
+ * 挪到续写后面再拼回来」这类聪明事 —— 那在用户眼里就是「我的字被动过了」。
+ */
+export function insertContinuationBody(
+  currentBody: string,
+  anchor: ContinuationAnchor,
+  continuation: string,
+): ContinuationInsertResult {
+  /*
+   * 先排版、再判空 —— 顺序和写法都不能改。
+   *
+   * 段首缩进是两个全角空格（U+3000），而 String.prototype.trim() 会把 U+3000
+   * 一起去掉（它属于 Unicode 空白）。所以这里**只能拿 trim() 的结果判空**，
+   * 绝不能拿它去拼正文，否则缩进会被静默吃掉。
+   */
+  const snippet = formatChapterWriting(continuation)
+  if (!snippet.trim()) return { ok: false, reason: "empty" }
+  if (anchor.bodySnapshot !== currentBody) return { ok: false, reason: "changed" }
+
+  const at = Math.max(0, Math.min(anchor.at, currentBody.length))
+  const before = currentBody.slice(0, at)
+  const after = currentBody.slice(at)
+  const lead = before && !before.endsWith("\n") ? "\n" : ""
+  const tail = after && !after.startsWith("\n") ? "\n" : ""
+  return {
+    ok: true,
+    body: `${before}${lead}${snippet}${tail}${after}`,
+    caret: before.length + lead.length + snippet.length,
+  }
 }
