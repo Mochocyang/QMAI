@@ -134,3 +134,46 @@ export function insertContinuationBody(
     caret: before.length + lead.length + snippet.length,
   }
 }
+
+/** 浮层尺寸，用来在摆放位置时判断「放不放得下」。 */
+export const CONTINUATION_POPOVER_WIDTH = 360
+export const CONTINUATION_POPOVER_MAX_HEIGHT = 320
+/** 浮层与视口边缘的最小间距。 */
+export const CONTINUATION_POPOVER_GAP = 12
+
+export interface ContinuationPopoverPosition {
+  left: number
+  top: number
+}
+
+/**
+ * 把浮层摆进视口内。
+ *
+ * 收成纯函数、由调用方传入视口尺寸，是为了能在 node 环境里直接单测 —— 否则
+ * 就得在 jsdom 里伪造 getBoundingClientRect，测的还是伪造出来的东西。
+ *
+ * 视口比浮层还小时 `max` 会拿到一个比 `min` 更大的下限：`Math.max(min, Math.min(...))`
+ * 里 `Math.min` 先算出负值，再被 `Math.max` 抬回间隙处，所以结果不会是负数。
+ */
+export function clampContinuationPopoverPosition(
+  left: number,
+  top: number,
+  viewport: { width: number; height: number },
+): ContinuationPopoverPosition {
+  const maxLeft = viewport.width - CONTINUATION_POPOVER_WIDTH - CONTINUATION_POPOVER_GAP
+  const maxTop = viewport.height - CONTINUATION_POPOVER_MAX_HEIGHT - CONTINUATION_POPOVER_GAP
+  return {
+    left: Math.max(CONTINUATION_POPOVER_GAP, Math.min(left, maxLeft)),
+    top: Math.max(CONTINUATION_POPOVER_GAP, Math.min(top, maxTop)),
+  }
+}
+
+/**
+ * 续写候选的字数。
+ *
+ * 与 `writing-stats.ts` 的计数字符口径保持一致：去掉全部空白（含全角空格
+ * U+3000 —— 它是段首缩进，不该算进字数）。
+ */
+export function countContinuationChars(text: string): number {
+  return text.replace(/\s/g, "").length
+}

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
   CONTINUATION_EMPTY_INSTRUCTION,
+  CONTINUATION_POPOVER_GAP,
+  CONTINUATION_POPOVER_MAX_HEIGHT,
+  CONTINUATION_POPOVER_WIDTH,
   CONTINUATION_SOURCE_HEAD_CHARS,
   CONTINUATION_SOURCE_LIMIT_CHARS,
   CONTINUATION_SOURCE_TAIL_CHARS,
@@ -9,6 +12,8 @@ import {
   CONTINUATION_TRUNCATION_MARK,
   buildContinuationMessages,
   buildContinuationSource,
+  clampContinuationPopoverPosition,
+  countContinuationChars,
   insertContinuationBody,
 } from "./continuation"
 
@@ -162,5 +167,58 @@ describe("insertContinuationBody", () => {
     const body = "　　甲。"
     const result = insertContinuationBody(body, anchorAt(body, 9999), "乙。")
     expect(result).toEqual({ ok: true, body: "　　甲。\n　　乙。", caret: "　　甲。\n　　乙。".length })
+  })
+})
+
+describe("clampContinuationPopoverPosition", () => {
+  const viewport = { width: 1200, height: 800 }
+
+  it("有足够空间时按期望位置摆放，不做任何挪动", () => {
+    const result = clampContinuationPopoverPosition(400, 300, viewport)
+    expect(result).toEqual({ left: 400, top: 300 })
+  })
+
+  it("右边放不下时向左收回，留出间隙", () => {
+    // 期望 left 是 1180，但 1180 + 360 超出 1200，应被收到 1200 - 360 - 12 = 828
+    const result = clampContinuationPopoverPosition(1180, 300, viewport)
+    expect(result.left).toBe(viewport.width - CONTINUATION_POPOVER_WIDTH - CONTINUATION_POPOVER_GAP)
+    expect(result.top).toBe(300)
+  })
+
+  it("下边放不下时向上收回，留出间隙", () => {
+    const result = clampContinuationPopoverPosition(400, 780, viewport)
+    expect(result.top).toBe(viewport.height - CONTINUATION_POPOVER_MAX_HEIGHT - CONTINUATION_POPOVER_GAP)
+    expect(result.left).toBe(400)
+  })
+
+  it("视口比浮层还窄时不返回负数", () => {
+    const tiny = { width: 200, height: 150 }
+    const result = clampContinuationPopoverPosition(0, 0, tiny)
+    expect(result.left).toBeGreaterThanOrEqual(0)
+    expect(result.top).toBeGreaterThanOrEqual(0)
+  })
+
+  it("负数期望位置被抬回间隙处", () => {
+    const result = clampContinuationPopoverPosition(-50, -80, viewport)
+    expect(result.left).toBe(CONTINUATION_POPOVER_GAP)
+    expect(result.top).toBe(CONTINUATION_POPOVER_GAP)
+  })
+})
+
+describe("countContinuationChars", () => {
+  it("按计数字符口径去掉所有空白（含全角空格）", () => {
+    // 雨还在下。他走了。 = 9 个计数字符，两个 　　 与那个换行都不算
+    expect(countContinuationChars("　　雨还在下。\n　　他走了。")).toBe(9)
+  })
+
+  it("中英混排里空格与换行都不计数", () => {
+    // 去掉空白后是 他打开iPhone的门。 = 12 字（他打开 3 + iPhone 6 + 的门。 3）。
+    // 原稿这里写的是 9 —— 那是漏数了「iPhone」的中英间隔与字母的误算，实数是 12。
+    expect(countContinuationChars("他打开 iPhone 的门。")).toBe(12)
+  })
+
+  it("空串与纯空白都是 0", () => {
+    expect(countContinuationChars("")).toBe(0)
+    expect(countContinuationChars("　　\n  ")).toBe(0)
   })
 })
