@@ -1281,6 +1281,50 @@ describe("丙-2b 修复批：取消 / 项目切换 / 目标路径 / 进度", () 
     expect(useEventOutlineTaskStore.getState().tasks[0].status).toBe("awaiting-confirm")
   })
 
+  it("D1：重入时旧一次的收尾不得摘掉新一次的 controller（否则第二次「取消」又成空操作）", async () => {
+    const first = createDeferred<DeepChapterGenerationResult>()
+    const second = createDeferred<DeepChapterGenerationResult>()
+    const signals: AbortSignal[] = []
+    let call = 0
+    fixture.runDeepChapterGeneration.mockImplementation(
+      (_i: unknown, _c: unknown, _d: unknown, signal: AbortSignal) => {
+        signals.push(signal)
+        return (call++ === 0 ? first : second).promise
+      },
+    )
+    await mount()
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(1), rawContent: "", error: null })
+    await submitWizard("", "1")
+
+    // ① 第一次：点取消（条目在点击时就被摘掉，但这次生成忽略 abort，promise 还挂着）
+    await confirmOutline()
+    await act(async () => { cancelButtonOf(writingRow(1)).click() })
+    expect(signals[0].aborted).toBe(true)
+    expect(useEventOutlineTaskStore.getState().tasks[0].status).toBe("awaiting-confirm")
+
+    // ② 立刻重试：正文任务**复用同一个 taskId**（不换行），新 controller 注册到同一个 id
+    await confirmOutline()
+    writingRow(1)
+
+    /*
+     * ③ 旧那次的 promise 现在才收尾。它走 `.then` 里
+     * `if (controller.signal.aborted) return` 那一支 —— **不碰 store**，
+     * 所以那一行仍停在 writing、取消按钮仍可见（这条路径可达）。
+     * 但 `.finally` 会调 `settle()`：身份无关的 `delete(taskId)` 摘掉的是**第二次**的条目。
+     */
+    await act(async () => { first.resolve(deepResult(AI_PROSE)) })
+    await settleAsync()
+
+    // ④ 对第二次点取消：条目若还在，必须真的 abort
+    await act(async () => { cancelButtonOf(writingRow(1)).click() })
+    expect(signals[1].aborted, "重入后第二次「取消」必须仍然真的 abort").toBe(true)
+
+    // ⑤ 第二次的结果也不得落盘
+    await act(async () => { second.resolve(deepResult(AI_PROSE)) })
+    await settleAsync()
+    expect(fixture.writeFile, "被取消的那一次不得落盘").not.toHaveBeenCalled()
+  })
+
   it("N2：生成途中切换项目，绝不写进上一个项目，选中项也不跨项目", async () => {
     const toastModule = await import("@/lib/toast")
     const errorSpy = vi.spyOn(toastModule.toast, "error").mockImplementation(() => {})

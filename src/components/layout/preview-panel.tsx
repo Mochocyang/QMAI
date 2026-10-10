@@ -1425,7 +1425,25 @@ export function PreviewPanel() {
      * 的 abort 复核读到的是 `aborted === false`，于是这一章照样写进盘、照样被选中、
      * 任务照样被摘掉。也就是说「取消」在整段写入期间是一个完整的 no-op（N1）。
      */
-    const settle = () => { chapterProseAbortControllers.delete(taskId) }
+    const settle = () => {
+      /*
+       * 身份判定**不能省**：正文任务复用同一个 `taskId`（取消/失败后重试走的还是那一行，
+       * 见下面的 `startWriting(taskId)`）。所以「取消 A → 立刻重试 B → A 的收尾晚到」时，
+       * 身份无关的 `delete(taskId)` 摘掉的是 **B** 的条目，而对 A 的取消在点击时就已经
+       * 把条目删掉了。条目一没，B 的「取消」就只改状态、**一个 abort 都不发**，
+       * B 的 abort 复核读到 `aborted === false` → 照写盘、照选中 —— N1 的症状在重入时复活。
+       *
+       * ⚠️ A 的收尾走的是 `.then` 里 `if (controller.signal.aborted) return` 那一支，
+       * **不碰 store**，所以那一行仍停在 writing、取消按钮仍可见 —— 这条路径是可达的，
+       * 不是理论担忧。
+       *
+       * 对比：细纲那条链路的 `settle()` 不需要这个判定 —— 它的 taskId 永不复用
+       * （同章重提走 `startTask` 造一个新 id，旧行直接消失）。
+       */
+      if (chapterProseAbortControllers.get(taskId) === controller) {
+        chapterProseAbortControllers.delete(taskId)
+      }
+    }
 
     /** 这次生成捕获的项目还是当前项目吗。比较口径复用事件细纲 store 的 projectPathKey。 */
     const projectChanged = () => (
