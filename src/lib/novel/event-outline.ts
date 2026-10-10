@@ -9,6 +9,8 @@
  * 的 chapter kind —— 详见 docs/scratch-20261010-分支说明.md 第 2.3 节。
  */
 
+import { DE_AI_GENERATION_RULES } from "./de-ai-generation-rules"
+
 export const EVENT_OUTLINE_VERSION = 1
 export const EVENT_OUTLINE_MIN_EVENTS = 4
 export const EVENT_OUTLINE_MAX_EVENTS = 8
@@ -44,6 +46,13 @@ export interface EventOutlineData {
   events: EventOutlineEvent[]
   /** 全章结尾钩子。 */
   endingHook: string
+  /**
+   * 用户在向导里填的「对本章的想法或硬要求」。
+   *
+   * 可选、且读旧数据时为 undefined —— 生成细纲时它只进提示词，以前没有被带进落库的数据，
+   * 结果扩写这一步拿不到它。加字段而不是改结构，老细纲行为完全不变。
+   */
+  requirement?: string
 }
 
 /** 一次事件细纲生成请求（向导产出）。 */
@@ -99,6 +108,8 @@ function readEventOutline(raw: Record<string, unknown>): EventOutlineData | null
     targetWords: positiveInteger(raw.targetWords, 0),
     events,
     endingHook: text(raw.endingHook),
+    // 旧细纲没有这个字段 -> undefined（不是空字符串），扩写时才不会多出一个空小节。
+    requirement: text(raw.requirement) || undefined,
   }
 }
 
@@ -241,8 +252,12 @@ function balancedJsonBlock(candidate: string, start: number): string | null {
  *
  * `balancedJsonBlock` 刻意保持私有，不与 chapter-outline-template.ts 共享：
  * 那个文件不在本分支范围内，不为它建共享模块。
+ *
+ * 第二个参数是「用户对本章的要求」：模型有时不会把向导里那段要求照抄进 JSON，
+ * 而它对本条产线是权威输入，所以在解析时就地补上（传入优先于模型自己写的那份）。
+ * 可选参数，既有调用点不传即行为不变。
  */
-export function extractEventOutlineData(content: string): EventOutlineData | null {
+export function extractEventOutlineData(content: string, requirement?: string): EventOutlineData | null {
   const fencePattern = /```(?:json)?[ \t]*\r?\n([\s\S]*?)```/gi
   const candidates: string[] = []
   for (const match of content.matchAll(fencePattern)) {
@@ -261,7 +276,7 @@ export function extractEventOutlineData(content: string): EventOutlineData | nul
       if (block) {
         try {
           const data = normalizeEventOutlineData(JSON.parse(block) as unknown)
-          if (data) return data
+          if (data) return withRequirement(data, requirement)
         } catch {
           // 该对象不是合法 JSON，继续往右找下一个
         }
@@ -270,6 +285,12 @@ export function extractEventOutlineData(content: string): EventOutlineData | nul
     }
   }
   return null
+}
+
+/** 用向导里的要求覆盖/补齐解析结果；没有要求时原样返回，行为等同现状。 */
+function withRequirement(data: EventOutlineData, requirement?: string): EventOutlineData {
+  const trimmed = requirement?.trim()
+  return trimmed ? { ...data, requirement: trimmed } : data
 }
 
 /** 事件细纲的生成提示词。范围（章号 / 事件数 / 字数）由向导定死，所以不开意图分析。 */
@@ -284,6 +305,8 @@ export function buildEventOutlinePrompt(request: EventOutlineRequest): string {
   // 章号补零，与「事件细纲-第001章.md」的命名规范保持一致。
   const fileName = `事件细纲-第${String(request.chapterNumber).padStart(3, "0")}章.md`
   // 示例 JSON 交给 JSON.stringify 生成：手写字符串一旦漏引号或漏括号，就会教模型输出坏数据。
+  // requirement 一并写进示例（无要求时 JSON.stringify 会丢掉 undefined 键），
+  // 否则用户填的要求只活在生成细纲那一次提示词里，扩写时无处可取。
   const example = JSON.stringify({
     eventOutlineData: {
       version: 1,
@@ -294,6 +317,7 @@ export function buildEventOutlinePrompt(request: EventOutlineRequest): string {
         { id: 1, title: "一句话事件", points: ["关键台词：…", "神情动作：…", "环境物件：…"] },
       ],
       endingHook: "章尾钩子",
+      requirement: requirement || undefined,
     },
   })
   // 保存请求也给一份完整示例：只在正文里描述字段，模型很容易写出缺字段的请求。
@@ -362,11 +386,17 @@ export function eventOutlineToProsePrompt(data: EventOutlineData): string {
   if (data.endingHook.trim()) {
     lines.push("", "## 本章结尾钩子", data.endingHook)
   }
+  // 用户要求为空时整节不出现：留下一个空标题会让模型去猜「要求是什么」。
+  if (data.requirement?.trim()) {
+    lines.push("", "## 用户对本章的要求", data.requirement.trim())
+  }
   lines.push(
     "",
     "## 写作要求",
     `- 目标约 ${data.targetWords} 字，允许 ±10% 浮动；每个事件都要有场景、对话、人物神情与环境细节，不要写成事件流水账；`,
     "- 只输出可直接保存到章节库的小说正文，不要解释，不要列提纲，不要输出工具调用报告。",
+    "",
+    DE_AI_GENERATION_RULES,
   )
   return lines.join("\n")
 }
