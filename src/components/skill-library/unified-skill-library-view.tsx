@@ -137,9 +137,16 @@ const EMPTY_COPY: Record<GalleryTab, string> = {
  * ⚠️ 这一张表管的是「**哪个 tab** 用哪个编辑器」，**不**管「点开某个条目该去哪里」——
  * 后者是 `handleOpenEntry`。两者是**各自独立**的两道防线：
  * 文风 tab 的 `() => null` 与 `handleOpenEntry` 的 `style` 分支互相覆盖，
- * 所以**单独去掉任一道都不会渲染成别的库的编辑器**（去掉 `handleOpenEntry`
- * 那道只会得到一个空编辑器 + 一个写错的 `selectedSkillLibrarySkillId`）。
+ * 所以**单独去掉任一道都不会渲染成别的库的编辑器**。
  * 这不是冗余代码，是两道各自成立的守卫；别把其中一道的注释说成另一道的功劳。
+ *
+ * ⚠️ 但「单独去掉 `handleOpenEntry` 那道」**今天已经不是一次静默编辑**：
+ * 那道防线是穷尽 `switch`，删掉 `case "style"` 后文风条目掉进 `default`、
+ * `entry` 被收窄成 `WritingStyleEntry` 而**不再是** `never`，于是这是**编译错误**
+ * （`TS2322: … not assignable to type 'never'`），运行时也会直接 `throw`。
+ * （改前它是二元 `if/else`，拆掉只会落得「一个空编辑器 + 一个写错的
+ * `selectedSkillLibrarySkillId`」—— 那才是本注释原先描述的后果，
+ * 现在只剩历史价值，别把它当成今天的行为。）
  */
 const SKILL_EDITORS: Record<GalleryTab, ComponentType> = {
   skillLibrary: SkillLibraryView,
@@ -674,8 +681,14 @@ function SkillCard({
  * （收藏库里落错库名，还会以错误的快照形状出现在「收藏」tab）。
  * 改成穷尽 `switch` 之后，加新类型而没在这里显式决定 = 编译错误。
  * 收藏**键**与收藏**快照**的库名出自同一个 switch，不可能再分叉。
+ *
+ * ⚠️ 导出**只为测试**（它本来就是模块级纯函数，抽出来免费）：spec 里用 `as never`
+ * 造一个「第 4 种条目类型」的输入断言它**抛错**。这条用例是必需的 ——
+ * 把 switch 退回二元 `if/else`（= 拆掉 `never` 守卫）对今天这 3 种类型是
+ * **外延相等**的，全部既有行为用例照样绿（复核批实测 S1 存活），只有它能把
+ * 那次编辑打红。没有它，「加类型必须先在这里显式决定」就只是一句注释。
  */
-function entryFavoriteTarget(
+export function entryFavoriteTarget(
   entry: UnifiedSkillEntry,
 ): { library: "writing" | "de-ai"; skill: UserSkill | DeAiSkill } | null {
   switch (entry.type) {
@@ -696,6 +709,42 @@ function entryFavoriteTarget(
 function entryFavoriteKey(entry: UnifiedSkillEntry): string | null {
   const target = entryFavoriteTarget(entry)
   return target ? `${target.library}:${entry.sourceId}` : null
+}
+
+/**
+ * 条目是否处于「启用」态。
+ *
+ * ⚠️ 原先最后一行是无条件的 `return writingConfig ? … : true`：任何**新条目类型**
+ * 都会静默掉进写作 Skill 的判定里（拿 `writingConfig.disabledSkillIds` 去查一个
+ * 不属于它的 id，结果恒为「启用」）。这条路只影响勾选态显示、不写文件，属低危；
+ * 但仍然改成穷尽 `switch`：加新类型而没在这里显式决定 = 编译错误。
+ *
+ * 三份配置原先是从 `SkillGallery` 的闭包里捕获的；为了能像 `entryFavoriteTarget`
+ * 一样被**行为**用例钉住，这里抽成模块级纯函数、配置从参数进来 —— 判定逐字未改，
+ * 只是把「捕获」换成「显式传入」（这是让那条 `as never` 断言可写的**唯一**代价）。
+ * 同 `entryFavoriteTarget`：把 switch 退回 `if/else` 对今天这 3 种类型外延相等、
+ * 全部既有用例照样绿（复核批实测 S6 存活），只有 spec 里那条 `toThrow` 能打红它。
+ */
+export function entryEnabled(
+  entry: UnifiedSkillEntry,
+  configs: {
+    styleStore: WritingStyleStore | null
+    deAiConfig: DeAiSkillConfig | null
+    writingConfig: UserSkillConfig | null
+  },
+): boolean {
+  switch (entry.type) {
+    case "style":
+      return configs.styleStore?.enabledStyleId === entry.sourceId
+    case "de-ai":
+      return configs.deAiConfig ? !configs.deAiConfig.disabledSkillIds.includes(entry.sourceId) : true
+    case "writing":
+      return configs.writingConfig ? !configs.writingConfig.disabledSkillIds.includes(entry.sourceId) : true
+    default: {
+      const unhandled: never = entry
+      throw new Error(`未知的技能条目类型：${String(unhandled)}`)
+    }
+  }
 }
 
 function entryExtraBadge(entry: UnifiedSkillEntry, writingConfig: UserSkillConfig | null): string | undefined {
@@ -725,13 +774,11 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState<UnifiedSkillCategory>("all")
   const [loadError, setLoadError] = useState("")
-  const [styleLoadFailed, setStyleLoadFailed] = useState(false)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     setLoadError("")
-    setStyleLoadFailed(false)
     Promise.all([loadUserSkillConfig(project?.path), loadDeAiSkillConfig(project?.path)])
       .then(([writing, deAi]) => {
         if (cancelled) return
@@ -747,23 +794,31 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     /*
      * 文风库走**单独**一条链，绝不并进上面那个 Promise.all：
      * 那个 catch 会把两份配置一起置 null 并显示「技能库加载失败」，
-     * 于是「文风库读取失败」会扩散成「三个库全空 + 整页报错」——
      * 一个来源的故障不该由另外两个来源承担。这里失败只影响文风 tab 自己。
      *
-     * ⚠️ 但「只影响文风 tab」不等于「可以说文风库是空的」：失败时数据退化成
-     * `EMPTY_WRITING_STYLE_STORE`，而空态文案原来说的是「文风库还是空的：
-     * 对一部作品做完文风提炼后…」——那是在把一次**读取故障**报告成
-     * 「你还没提炼过文风」，用户会去重跑一遍根本不必跑的流程。
-     * 所以这里单独记一个 `styleLoadFailed`，让空态文案如实说是读取失败。
+     * ⚠️ 已知限制（**本批不修**，如实记下，别读成已修）：
+     * 文风读取失败时，用户看到的仍然是**空库**文案 —— 本组件**没有办法**区分
+     * 「这一次读取失败了」和「这个项目还没提炼过文风」。原因是它下面的 loader
+     * `loadWritingStyleStore` 把每一次失败（读不到文件、JSON 坏了……）都在内部
+     * 吞掉，统一返回 `EMPTY_WRITING_STYLE_STORE` 那个形状，
+     * **它的 promise 永远不会 reject**。所以本文件里任何「读取失败」专用文案
+     * 或状态位都是**不可达**的：曾有一个 `styleLoadFailed` 想做这个区分，
+     * 已按此理由删除（要真的区分，得先改那个 loader）。
+     *
+     * 这条缺陷在 **loader** 里，属**既有问题**、不在本组件范围内：
+     * 它在 `src/lib/novel/writing-style-store.ts`，丁-1 刻意让那个文件零改动、
+     * 丁-2 紧接着要重构它 —— 不在本组件里绕开它做第二次加载或猜错误类型。
+     *
+     * 下面这个 `.catch` 因此是**结构性防御**，不是「已经区分了读取失败」：
+     * 今天它打不着（loader 从不 reject），但万一 loader 哪天改成会 reject，
+     * 它保证这条链仍然只退化成空文风库，而不会把拒绝抛出去（未处理的 rejection）、
+     * 也不会牵连另外两个库。别因为「今天打不着」把它删掉。
      *
      * 顺带：`loadWritingStyleStore(projectPath: string)` 不接受 undefined
      * （两个 Skill loader 接受 null/undefined，但它不接受），所以先判 project?.path。
      */
     const styleLoad = project?.path
-      ? loadWritingStyleStore(project.path).catch(() => {
-          if (!cancelled) setStyleLoadFailed(true)
-          return EMPTY_WRITING_STYLE_STORE
-        })
+      ? loadWritingStyleStore(project.path).catch(() => EMPTY_WRITING_STYLE_STORE)
       : Promise.resolve(EMPTY_WRITING_STYLE_STORE)
     styleLoad.then((store) => {
       if (!cancelled) setStyleStore(store)
@@ -849,29 +904,6 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     }
     return list
   }, [activeTab, entriesByTab, category, query])
-
-  /**
-   * 条目是否处于「启用」态。
-   *
-   * ⚠️ 原先最后一行是无条件的 `return writingConfig ? … : true`：任何**新条目类型**
-   * 都会静默掉进写作 Skill 的判定里（拿 `writingConfig.disabledSkillIds` 去查一个
-   * 不属于它的 id，结果恒为「启用」）。这条路只影响勾选态显示、不写文件，属低危；
-   * 但仍然改成穷尽 `switch`：加新类型而没在这里显式决定 = 编译错误。
-   */
-  function entryEnabled(entry: UnifiedSkillEntry): boolean {
-    switch (entry.type) {
-      case "style":
-        return styleStore?.enabledStyleId === entry.sourceId
-      case "de-ai":
-        return deAiConfig ? !deAiConfig.disabledSkillIds.includes(entry.sourceId) : true
-      case "writing":
-        return writingConfig ? !writingConfig.disabledSkillIds.includes(entry.sourceId) : true
-      default: {
-        const unhandled: never = entry
-        throw new Error(`未知的技能条目类型：${String(unhandled)}`)
-      }
-    }
-  }
 
   const activeCategoryChip = categoryChips.find(
     (chip) => chip.id === category && chip.id !== "all" && chip.id !== "recent" && chip.id !== "uncategorized",
@@ -966,11 +998,13 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     }
   }
 
-  // 读取故障 ≠ 库是空的：前者不能借用后者的文案（见 styleLoad 处的说明）。
-  const emptyCopy =
-    activeTab === "writingStyleLibrary" && styleLoadFailed
-      ? "文风库读取失败：暂时列不出这个项目里的文风预设。"
-      : EMPTY_COPY[activeTab]
+  /*
+   * ⚠️ 这里**故意**没有「读取失败」专用文案：本组件区分不了读取故障与空库
+   * （原因与本批的裁决见 `styleLoad` 处注释）。曾有一个 `styleLoadFailed` 三元，
+   * 那个分支**不可达**，已连同状态位一起删除 —— 别以「对用户更友好」为由加回来，
+   * 除非先让 loader 把「读取失败」和「空库」区分开。
+   */
+  const emptyCopy = EMPTY_COPY[activeTab]
 
   return (
     <div className="ui-test-skills-gallery">
@@ -1039,7 +1073,7 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
               <SkillCard
                 key={entry.id}
                 entry={entry}
-                enabled={entryEnabled(entry)}
+                enabled={entryEnabled(entry, { styleStore, deAiConfig, writingConfig })}
                 favorited={favoriteKey !== null && favoritedKeys.has(favoriteKey)}
                 selected={entry.type === "style" && selectedStyleId === entry.sourceId}
                 badge={entryExtraBadge(entry, writingConfig)}
@@ -1235,6 +1269,19 @@ export function UnifiedSkillLibraryView() {
  * 4. `filteredEntries` 里「写作轴 ⇒ `entriesByTab[activeTab] === writingEntries`」
  *    这个不变式（见该处注释）：轴与列表是两张表，改了一张没改另一张不会报错，
  *    后果是该 tab 的分类筛选会跳到写作条目上。只影响显示，不写文件。
+ * 5. ⚠️ 四个穷尽 `switch` 的 `never` 守卫**只在该 switch 存在时**才成立：
+ *    「把 switch 退回二元 `if/else`」这个动作本身**就等于拆掉守卫**，而对
+ *    **今天这 3 种类型**它是**外延相等**的 —— 全部行为用例照样绿
+ *    （复核批实测 S1 / S6 存活）。这是本文件保护机制最脆弱的一处。
+ *    现在它**不再静默**，两道新证据分别盖住两类站点：
+ *      - `entryFavoriteTarget` / `entryEnabled` 已抽成**模块级纯函数并导出**，
+ *        由 spec 里 `as never` 造第 4 种类型的 `toThrow` 用例钉住；
+ *      - `handleToggleEnabled` / `handleOpenEntry` 是**闭包**（依赖 project /
+ *        busy / 选中态），jsdom 里造不出第 4 种类型、没有行为入口，所以由一条
+ *        **源码级**用例兜底：`const unhandled: never = entry` 在本文件里必须
+ *        **恰好 4 处**（数字就是顶部注释承诺的穷尽 switch 数；将来真加第 5 个
+ *        穷尽 switch，请连顶部注释一起改）。
+ *    这**不是**说守卫已经不可能被删 —— 改源码当然删得掉，只是删了会有用例红。
  *
  * **有后果的两条路**已经全部受保护，且各有行为用例：
  *   - 写错库的文件 → `handleToggleEnabled` 的穷尽 `switch`

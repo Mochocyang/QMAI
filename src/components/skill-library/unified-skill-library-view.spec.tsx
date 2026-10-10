@@ -1,11 +1,18 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
-import { UnifiedSkillLibraryView, resolveActiveTab } from "./unified-skill-library-view"
+import {
+  UnifiedSkillLibraryView,
+  entryEnabled,
+  entryFavoriteTarget,
+  resolveActiveTab,
+} from "./unified-skill-library-view"
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -15,27 +22,21 @@ const writeFileAtomicMock = vi.hoisted(() => vi.fn())
 const joinMock = vi.hoisted(() => vi.fn(async (...parts: string[]) => parts.join("/")))
 const openDialogMock = vi.hoisted(() => vi.fn())
 const saveDialogMock = vi.hoisted(() => vi.fn())
-const loadWritingStyleStoreMock = vi.hoisted(() => vi.fn())
-
 vi.mock("@/commands/fs", () => ({
   readFile: readFileMock,
   writeFile: writeFileMock,
   writeFileAtomic: writeFileAtomicMock,
 }))
 
-/**
- * 只替换文风库的 loader（用于模拟「文风库读取失败」），其余导出保持真实实现。
- * 真实实现由工厂装进 `styleStoreActual`（必须走 vi.hoisted，工厂是提升执行的），
- * beforeEach 再把它装回 mock 作为默认，所以其它用例走的仍是真实 store 逻辑。
+/*
+ * ⚠️ 这里**故意不 mock** `@/lib/novel/writing-style-store`（前一版 mock 过它）。
+ * 那一版 mock 它是为了造出「文风库读取失败」这个输入；但真 loader
+ * `loadWritingStyleStore` 把每一次失败都在内部吞掉、返回空 store ——
+ * **它的 promise 永远不会 reject**。于是那个 mock 造的是**真 loader 产生不了的状态**，
+ * 用例只能证明 mock 自己（这就是复核批 MUST-FIX 1）。
+ * 现在这条路上没有 loader mock：任何「读取故障」都必须是**真的**读取故障
+ * （真 loader + 让 `readFile` 抛错）。⚠️ 别再把这个 mock 加回来。
  */
-const styleStoreActual = vi.hoisted(() => ({
-  load: undefined as unknown as (projectPath: string) => Promise<unknown>,
-}))
-vi.mock("@/lib/novel/writing-style-store", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/novel/writing-style-store")>()
-  styleStoreActual.load = actual.loadWritingStyleStore
-  return { ...actual, loadWritingStyleStore: loadWritingStyleStoreMock }
-})
 
 vi.mock("@tauri-apps/api/path", () => ({
   join: joinMock,
@@ -193,7 +194,6 @@ async function switchToTab(container: HTMLElement, label: string) {
 describe("UnifiedSkillLibraryView", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    loadWritingStyleStoreMock.mockImplementation((projectPath: string) => styleStoreActual.load(projectPath))
     readFileMock.mockImplementation(async (path: string) => {
       if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
       if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
@@ -514,28 +514,47 @@ describe("UnifiedSkillLibraryView", () => {
     cleanup(root, container)
   })
 
-  it("文风库读取失败只影响文风 tab，其余两库不受牵连", async () => {
-    loadWritingStyleStoreMock.mockImplementation(async () => {
-      throw new Error("EACCES: 文风库读取失败")
+  it("文风读取故障只让文风 tab 退化成空态，另外两个库不受牵连（**真** loader + 抛错的 readFile）", async () => {
+    /*
+     * ⚠️ 这条用例**必须**走真 loader（本文件已不再 mock `writing-style-store`）：
+     * `loadWritingStyleStore` 内部吞掉所有失败并返回空 store，它的 promise
+     * **永远不会 reject**，所以一次真实的读取故障在生产里的可观察后果**就是**
+     * 文风 tab 显示**空库**文案。前一版这里 mock loader 抛错、并断言
+     * 「文风库读取失败」文案 —— 那是在断言一个**真 loader 产生不了的状态**
+     * （复核批 MUST-FIX 1 已实测复现：真故障下用户看到的仍是空库文案）。
+     * 现在改回断言**生产真实行为**。
+     *
+     * 判别力（说清楚它能杀什么、不能杀什么）：
+     *   - 能杀：文风 tab 被接错库（显示去AI味条目 / 去AI味空态文案）、
+     *     文风 store 根本没被尝试读取（下面断言读取路径真的被请求过）、
+     *     读取故障把另外两个库一起带崩、以及故障路径上写文件。
+     *   - **不能**杀：把这条单独的链并进上面那个 `Promise.all`，或删掉那个
+     *     `.catch` 结构性防御 —— 因为 loader 从不 reject，这两种形状今天的
+     *     可观察行为**完全一致**。这是**如实记下的**边界，不是漏测。
+     *   - 也**不能**断言「读取失败 ≠ 空库」：本组件区分不了，见 tsx 里
+     *     `styleLoad` 处注释（那是 loader 的既有缺陷，本批不修）。
+     */
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
+      if (path.endsWith(".qmai/writing-style.json")) throw new Error("EACCES: 读取 .qmai/writing-style.json 失败")
+      throw new Error("missing")
     })
     const { container, root } = await renderLibrary()
 
     // 另外两库照常：没有整页错误
     expect(container.querySelector(".ui-test-skills-error")).toBeNull()
     expect(container.querySelector('[data-testid="unified-skill-entry-de-ai:project:quiet"]')).not.toBeNull()
+    // 文风那条链**确实尝试读了这个项目的那份文件**（否则「退化成空态」只是没加载）
+    expect(readFileMock.mock.calls.map((call) => String(call[0]))).toContain("C:/project/.qmai/writing-style.json")
 
     await switchToTab(container, "文风")
-    /*
-     * ⚠️ 断言被**故意**改过（原为 `toContain("文风库还是空的")`）：
-     * 读取失败时数据退化成 `EMPTY_WRITING_STYLE_STORE`，而空态文案原来说的是
-     * 「文风库还是空的：对一部作品做完文风提炼后…」——那是把一次**读取故障**
-     * 说成「你还没提炼过文风」，会把用户支去重跑一遍根本不必跑的流程。
-     * 现在文案如实区分：「读取失败」≠「库是空的」。
-     * 「真的空库」那条通路由上面「文风库为空时展示文风空态」继续覆盖。
-     */
+    expect(container.querySelector('[data-testid^="unified-skill-entry-style:"]')).toBeNull()
     const styleEmpty = container.querySelector(".ui-test-skills-empty")?.textContent ?? ""
-    expect(styleEmpty).toContain("文风库读取失败")
-    expect(styleEmpty).not.toContain("还是空的")
+    // 生产的真实行为：**空库**文案（读取故障与空库在本组件里不可区分）
+    expect(styleEmpty).toContain("文风库还是空的")
+    expect(styleEmpty).not.toContain("去AI味")
+    // 读取故障没有写任何文件
     expect(writeFileAtomicMock).not.toHaveBeenCalled()
 
     await switchToTab(container, "写作 Skill")
@@ -694,5 +713,45 @@ describe("UnifiedSkillLibraryView", () => {
     expect(() => resolveActiveTab("soul")).toThrow(/非技能库的 activeView/)
     expect(() => resolveActiveTab("settings")).toThrow(/非技能库的 activeView/)
     expect(() => resolveActiveTab("lint")).toThrow(/非技能库的 activeView/)
+  })
+
+  /*
+   * === 拆掉 `never` 守卫必须有人报警 ===
+   *
+   * 把穷尽 `switch` 退回二元 `if/else` **就等于拆掉守卫**，而对**今天这 3 种类型**
+   * 它是**外延相等**的：全部既有行为用例照样绿（复核批实测 S1 / S6 两处存活）。
+   * 守卫守的从来不是今天，而是**第 4 种条目类型** —— 所以这里用 `as never`
+   * 造一个类型系统里**不存在**的输入。这三条用例就是让那个守卫**不再静默**的东西。
+   */
+  it("entryFavoriteTarget 对未列入清单的条目类型抛错（第 4 种类型必须先在这里显式决定）", () => {
+    /*
+     * ⚠️ `as never` 是**故意**的：模拟「将来给 `UnifiedSkillEntry` 加了第 4 种类型」。
+     * 这是唯一能构造那种输入的办法（联合类型里今天只有 3 个成员）。
+     * 别因为「类型不合法」把它改成某个真实类型 —— 那样这条用例就失去全部意义。
+     */
+    expect(() => entryFavoriteTarget({ type: "note", sourceId: "n1" } as never)).toThrow()
+  })
+
+  it("entryEnabled 对未列入清单的条目类型抛错（同上；它抽成模块级纯函数后才可测）", () => {
+    const configs = { styleStore: null, deAiConfig: null, writingConfig: null }
+    expect(() => entryEnabled({ type: "note", sourceId: "n1" } as never, configs)).toThrow()
+  })
+
+  it("本文件每个穷尽 switch 都留着 `never` 守卫（源码级兜底，覆盖两个闭包 switch）", () => {
+    /*
+     * 为什么还需要一条**源码级**断言：`handleToggleEnabled` / `handleOpenEntry`
+     * 是**闭包**（依赖 project / busy / 选中态），jsdom 里造不出第 4 种条目类型，
+     * 那两处守卫**没有行为入口**；而拆掉守卫（switch → if/else）今天又是外延相等的。
+     * 只剩源码级能看见它们。
+     *
+     * ⚠️ 只匹配**构造**，不钉行号、不钉空白、不钉整行文本：
+     * 「守卫 + 紧跟其后的 `throw`」这个形状，而不是单看 `const unhandled` ——
+     * 否则连本文件里**讨论**这条守卫的注释都会被算进去（实测会多数出 1 个）。
+     * 4 = 文件顶部注释承诺的穷尽 switch 数。它是**承诺**不是实现细节 ——
+     * 将来真新增第 5 个穷尽 switch，请**同时**改这里和顶部注释（会有意红给你看）。
+     */
+    const source = readFileSync(resolve(__dirname, "unified-skill-library-view.tsx"), "utf8")
+    const guards = source.match(/const\s+unhandled\s*:\s*never\s*=\s*entry\s*\n\s*throw\s+new\s+Error\(/g) ?? []
+    expect(guards).toHaveLength(4)
   })
 })
