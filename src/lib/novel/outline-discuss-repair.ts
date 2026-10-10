@@ -1,8 +1,9 @@
 import { streamChat } from "@/lib/llm-client"
 import {
+  OUTLINE_DISCUSS_REPAIR_MAX_TOKENS,
   buildOutlineDiscussRepairMessages,
-  buildOutlineDiscussRepairRequestOverrides,
 } from "./outline-discuss-protocol"
+import { repairJsonProtocolWithAi } from "./discuss-protocol-shared"
 
 interface RepairOutlineDiscussProtocolOptions {
   content: string
@@ -22,28 +23,16 @@ interface RepairOutlineDiscussProtocolOptions {
  * （实测故障就是这样：一整卷大纲被判为「共创协议格式无效」）。
  *
  * 这里只转写、不创作；解析仍由调用方负责，修复失败不影响原有报错路径。
+ * 底层修复轮机械已抽到 discuss-protocol-shared，与章节侧共用。
  */
 export async function repairOutlineDiscussProtocolWithAi(
   options: RepairOutlineDiscussProtocolOptions,
 ): Promise<string> {
-  const stream = options.stream ?? streamChat
-  let result = ""
-  let repairError: Error | null = null
-  await stream(
-    options.llmConfig,
-    buildOutlineDiscussRepairMessages({ content: options.content, module: options.module }),
-    {
-      onToken: (token) => {
-        result += token
-      },
-      onDone: () => {},
-      onError: (error) => {
-        repairError = error
-      },
-    },
-    options.signal,
-    buildOutlineDiscussRepairRequestOverrides(options.maxTokens),
-  )
-  if (repairError) throw repairError
-  return result.trim()
+  return repairJsonProtocolWithAi({
+    messages: buildOutlineDiscussRepairMessages({ content: options.content, module: options.module }),
+    maxTokens: options.maxTokens ?? OUTLINE_DISCUSS_REPAIR_MAX_TOKENS,
+    llmConfig: options.llmConfig,
+    signal: options.signal,
+    stream: options.stream,
+  })
 }

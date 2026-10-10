@@ -9,6 +9,7 @@ import {
 } from "@/lib/context-hub/session-summary"
 import { normalizeContextUsageSnapshot } from "@/lib/context-usage"
 import { getContextHub } from "@/lib/context-hub/context-hub"
+import { isChapterDiscussProtocol } from "@/lib/novel/chapter-discuss-protocol"
 
 const MAX_RETRIES = 3
 const RETRY_DELAY_MS = 500
@@ -136,6 +137,16 @@ function normalizeConversation(conv: Conversation): Conversation {
   }
 }
 
+/** 共创协议结构不完整时一律丢弃，避免重载后渲染残缺卡片。 */
+function normalizeChatDisplayMessage(message: DisplayMessage): DisplayMessage {
+  return {
+    ...message,
+    chapterDiscussProtocol: isChapterDiscussProtocol(message.chapterDiscussProtocol)
+      ? message.chapterDiscussProtocol
+      : undefined,
+  }
+}
+
 export async function saveChatHistory(
   projectPath: string,
   conversations: Conversation[],
@@ -217,7 +228,7 @@ export async function loadChatHistory(projectPath: string): Promise<PersistedCha
     for (const conv of conversations) {
       try {
         const msgContent = await readFile(`${pp}/.qmai/chats/${conv.id}.json`)
-        const msgs = safeParseArray<DisplayMessage>(msgContent, "messages")
+        const msgs = safeParseArray<DisplayMessage>(msgContent, "messages").map(normalizeChatDisplayMessage)
         allMessages.push(...msgs)
       } catch {
         // Conversation file missing, skip
@@ -253,7 +264,7 @@ export async function loadChatHistory(projectPath: string): Promise<PersistedCha
           deAiMode: false,
           selectedDeAiSkillId: undefined,
         }
-        const migratedMessages = legacyMessages.map((m) => ({
+        const migratedMessages = legacyMessages.map((m) => normalizeChatDisplayMessage({
           ...m,
           conversationId: "default",
         }))
@@ -272,7 +283,7 @@ export async function loadChatHistory(projectPath: string): Promise<PersistedCha
           : []
         const migrated = {
           conversations,
-          messages: Array.isArray(data.messages) ? data.messages : [],
+          messages: Array.isArray(data.messages) ? data.messages.map(normalizeChatDisplayMessage) : [],
           runStates: normalizeConversationRunStates(conversations, data.runStates),
         }
         if (hasLegacyContextSummary) {

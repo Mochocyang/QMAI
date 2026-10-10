@@ -1,3 +1,10 @@
+import {
+  isPlainObject,
+  scanMarkedJsonPayload,
+  stripMarkedBlock,
+  type MarkedJsonInvalidReason,
+} from "./discuss-protocol-shared"
+
 export const OUTLINE_DISCUSS_MARKER_OPEN = "<!-- outline_discuss -->"
 export const OUTLINE_DISCUSS_MARKER_CLOSE = "<!-- /outline_discuss -->"
 /** 自定义输入项固定 id，卡片据此渲染手动输入框。 */
@@ -63,40 +70,18 @@ const OPEN_PATTERN = /<!--\s*outline_discuss\s*-->/i
 const CLOSE_PATTERN = /<!--\s*\/outline_discuss\s*-->/i
 const FINALIZE_PATTERN = /定稿|就按这个写|按这个写|开始生成|可以了|开始写/
 
-function extractLeadingJsonObject(text: string): { json: string; remainder: string } | null {
-  const start = text.indexOf("{")
-  if (start < 0) return null
-  let depth = 0
-  let inString = false
-  let escaped = false
-  for (let index = start; index < text.length; index += 1) {
-    const character = text[index]
-    if (inString) {
-      if (escaped) {
-        escaped = false
-      } else if (character === "\\") {
-        escaped = true
-      } else if (character === '"') {
-        inString = false
-      }
-      continue
-    }
-    if (character === '"') {
-      inString = true
-    } else if (character === "{") {
-      depth += 1
-    } else if (character === "}") {
-      depth -= 1
-      if (depth === 0) {
-        return { json: text.slice(start, index + 1), remainder: text.slice(index + 1) }
-      }
-    }
+/** 标记解析与 JSON 提取的通用机械见 discuss-protocol-shared。 */
+function outlineDiscussScanError(reason: MarkedJsonInvalidReason): string {
+  switch (reason) {
+    case "missing_payload":
+      return "共创协议 JSON 不完整或缺失"
+    case "trailing_content":
+      return "共创协议缺少闭合标记且 JSON 后仍有额外内容"
+    case "unparseable":
+      return "共创协议 JSON 无法解析"
+    case "not_object":
+      return "共创协议必须是 JSON 对象"
   }
-  return null
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
 
 function normalizeOptions(raw: unknown): OutlineDiscussOption[] {
@@ -159,32 +144,11 @@ function normalizeAgreed(raw: unknown): OutlineDiscussAgreed[] {
  * 并在解析阶段就把每个分歧补上自定义输入项。
  */
 export function parseOutlineDiscussProtocol(text: string): OutlineDiscussParseOutcome {
-  const openMatch = OPEN_PATTERN.exec(text)
-  if (!openMatch) return { kind: "none" }
+  const scan = scanMarkedJsonPayload(text, OPEN_PATTERN, CLOSE_PATTERN)
+  if (scan.kind === "none") return { kind: "none" }
+  if (scan.kind === "invalid") return { kind: "invalid", error: outlineDiscussScanError(scan.reason) }
 
-  const afterOpen = text.slice(openMatch.index + openMatch[0].length)
-  const closeMatch = CLOSE_PATTERN.exec(afterOpen)
-  const unclosedPayload = closeMatch ? null : extractLeadingJsonObject(afterOpen)
-  const payloadText = closeMatch
-    ? afterOpen.slice(0, closeMatch.index).trim()
-    : unclosedPayload?.json
-  if (!payloadText) {
-    return { kind: "invalid", error: "共创协议 JSON 不完整或缺失" }
-  }
-  if (!closeMatch && unclosedPayload?.remainder.trim()) {
-    return { kind: "invalid", error: "共创协议缺少闭合标记且 JSON 后仍有额外内容" }
-  }
-
-  let payload: unknown
-  try {
-    payload = JSON.parse(payloadText)
-  } catch {
-    return { kind: "invalid", error: "共创协议 JSON 无法解析" }
-  }
-  if (!isPlainObject(payload)) {
-    return { kind: "invalid", error: "共创协议必须是 JSON 对象" }
-  }
-
+  const payload = scan.payload
   const status = String(payload.status ?? "").trim()
   if (status !== "needs_decision" && status !== "ready") {
     return { kind: "invalid", error: "共创协议缺少有效的 status 字段" }
@@ -424,8 +388,5 @@ export function isOutlineDiscussProtocol(value: unknown): value is OutlineDiscus
 
 /** 剥掉 outline_discuss 协议标记，与 stripStructuredMarkers 对 plan / intent 的处理对称。 */
 export function stripOutlineDiscussMarkers(text: string): string {
-  return text
-    .replace(/<!--\s*outline_discuss\s*-->[\s\S]*?<!--\s*\/outline_discuss\s*-->/gi, "")
-    .replace(/<!--\s*outline_discuss\s*-->[\s\S]*$/gi, "")
-    .replace(/<!--\s*\/outline_discuss\s*-->/gi, "")
+  return stripMarkedBlock(text, OPEN_PATTERN, CLOSE_PATTERN)
 }

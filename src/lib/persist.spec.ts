@@ -75,6 +75,36 @@ describe("chat context summary persistence", () => {
     )
   })
 
+  it("keeps valid chapter discuss protocols and drops broken ones while loading", async () => {
+    const validProtocol = {
+      status: "needs_choice",
+      module: "第3章",
+      judgment: "需要在第三章转折",
+      directions: [{ id: "d1", storyType: "复仇线", title: "血债血偿", summary: "前".repeat(200) }],
+      preferenceId: "d1",
+      preferenceReason: "承接伏笔",
+    }
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path.endsWith("/.qmai/conversations.json")) {
+        return JSON.stringify({
+          conversations: [{ id: "chat-1", title: "会话", createdAt: 1, updatedAt: 2, deAiMode: false }],
+        })
+      }
+      if (path.endsWith("/.qmai/chats/chat-1.json")) {
+        return JSON.stringify([
+          { id: "m1", role: "assistant", content: "判断。", timestamp: 1, conversationId: "chat-1", chapterDiscussProtocol: validProtocol },
+          { id: "m2", role: "assistant", content: "坏的。", timestamp: 2, conversationId: "chat-1", chapterDiscussProtocol: { status: "ready", module: "", directions: [] } },
+        ])
+      }
+      throw new Error("文件不存在")
+    })
+
+    const loaded = await loadChatHistory("E:/Novel")
+
+    expect(loaded.messages.find((m) => m.id === "m1")?.chapterDiscussProtocol?.module).toBe("第3章")
+    expect(loaded.messages.find((m) => m.id === "m2")?.chapterDiscussProtocol).toBeUndefined()
+  })
+
   it("migrates a legacy combined chat file and removes its dependency table", async () => {
     fsMocks.readFile.mockImplementation(async (path: string) => {
       if (path.endsWith("/.qmai/chat-history.json")) {

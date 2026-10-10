@@ -97,6 +97,8 @@ export function selectSkillsForRoute(
   requestText = "",
 ): UserSkill[] {
   if (mode === "fast") return []
+  // 共创（discuss）讨论轮只做方向推演，不自动套用写作技能。
+  if (mode === "discuss") return []
 
   const modeSkills = skills.filter((skill) => skill.modes.includes(mode))
   if (modeSkills.length === 0) return []

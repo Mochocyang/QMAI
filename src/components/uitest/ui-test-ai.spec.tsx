@@ -30,6 +30,7 @@ vi.mock("@/lib/project-store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/project-store")>(),
   saveAiChatModel: vi.fn(async () => {}), saveAiOutlineModel: vi.fn(async () => {}),
   saveAiWorkflowMode: vi.fn(async () => {}), saveOutlineWorkflowMode: vi.fn(async () => {}),
+  saveAiWorkflowModeBeforeDiscuss: vi.fn(async () => {}),
 }))
 vi.mock("@/lib/llm-client", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/llm-client")>(),
@@ -352,7 +353,7 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     await click(mode ?? null)
     const menu = document.querySelector('[data-ui-ai-menu="mode"]')
     expect(menu).not.toBeNull()
-    expect(menu?.querySelectorAll('[role="option"]')).toHaveLength(kind === "chapter" ? 3 : 4)
+    expect(menu?.querySelectorAll('[role="option"]')).toHaveLength(4)
     await click(menu?.querySelector('[role="option"]') ?? null)
     expect(kind === "chapter" ? useWikiStore.getState().aiWorkflowMode : useWikiStore.getState().outlineWorkflowMode).toBe("fast")
   })

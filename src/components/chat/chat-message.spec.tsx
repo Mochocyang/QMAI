@@ -95,6 +95,29 @@ describe("chat message references", () => {
   })
 })
 
+describe("chapter co-creation rendering", () => {
+  it("hides the chapter_discuss protocol block from the assistant bubble", () => {
+    const message: DisplayMessage = {
+      id: "msg-discuss",
+      role: "assistant",
+      content: [
+        "关键判断：第三章需要一个爆发点。",
+        "<!-- chapter_discuss -->",
+        '{"status":"needs_choice","module":"第3章","directions":[]}',
+        "<!-- /chapter_discuss -->",
+      ].join("\n"),
+      timestamp: 1,
+      conversationId: "conv-1",
+      chapterDiscussPhase: "decision",
+    }
+
+    const html = renderToStaticMarkup(<ChatMessage message={message} />)
+
+    expect(html).not.toContain("chapter_discuss")
+    expect(html).toContain("关键判断")
+  })
+})
+
 describe("agent stage stream integration", () => {
   it("renders structured generation process above final assistant content", () => {
     const message: DisplayMessage = {

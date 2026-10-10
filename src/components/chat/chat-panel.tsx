@@ -92,7 +92,23 @@ import {
   canCreateNewConversation,
   EMPTY_CONVERSATION_CREATE_REASON,
 } from "@/lib/conversation-create-guard"
-import { saveAiChatModel, saveAiChatReasoningDepth, saveAiWorkflowMode } from "@/lib/project-store"
+import { saveAiChatModel, saveAiChatReasoningDepth, saveAiWorkflowMode, saveAiWorkflowModeBeforeDiscuss } from "@/lib/project-store"
+import {
+  buildChapterDiscussCustomPrompt,
+  buildChapterDiscussExecutionPrompt,
+  buildChapterDiscussPhaseSystemRules,
+  buildChapterDiscussPlanBlueprint,
+  buildChapterDiscussRegeneratePrompt,
+  hasChapterDiscussRepairableContent,
+  parseChapterDiscussProtocol,
+  stripChapterDiscussMarkers,
+  validateChapterDiscussProtocol,
+  type ChapterDiscussDirection,
+  type ChapterDiscussDecision,
+  type ChapterDiscussPhase,
+  type ChapterDiscussProtocol,
+} from "@/lib/novel/chapter-discuss-protocol"
+import { repairChapterDiscussProtocolWithAi } from "@/lib/novel/chapter-discuss-repair"
 import { resolveModelConfig } from "@/lib/novel/model-resolver"
 import {
   buildGoldenThreeChapterDirective,
@@ -216,6 +232,12 @@ const aiWorkflowModeOptions: Array<{
     label: "严格",
     description: "完整质检",
     routeDescription: "读取更完整上下文，执行审稿、返修、复审、按需局部修改和计划验收。",
+  },
+  {
+    mode: "discuss",
+    label: "共创",
+    description: "方向共创",
+    routeDescription: "读取前文推演后续走向，给出 3-4 个不同故事类型的方向供挑选；选定后再进入正文生成。",
   },
 ]
 const currentModelNotSupportMsg = "当前模型不支持工具调用，已切换为普通对话模式"
@@ -342,6 +364,8 @@ function buildChatAgentSystemPrompt(options: {
   projectName?: string
   bindingTitle?: string
   targetChapterNumber?: number
+  /** 共创（discuss）讨论轮的目标章节标识，用于拼接方向推演规则。 */
+  chapterDiscussModule?: string
   /** 仅章节写作且不会走 pre-plugin 时注入，避免与 build_system_prompt plugin 重复 */
   includeOutlineFindProtocol?: boolean
 }): string {
@@ -361,7 +385,7 @@ function buildChatAgentSystemPrompt(options: {
     lines.push("当前处于资料写入模式，用户可能希望把对话内容整理写入资料库。")
   }
   if (options.novelMode) {
-    const planPhase = Boolean(options.planExecuteEnabled) && options.aiWorkflowMode !== "fast"
+    const planPhase = Boolean(options.planExecuteEnabled) && options.aiWorkflowMode !== "fast" && options.aiWorkflowMode !== "discuss"
     if (planPhase) {
       // 计划阶段与"只输出正文/必须调 run_chapter_workflow"互斥：同时注入
       // 会让模型在两套矛盾指令之间随机选择，表现为跳过计划直接产出正文。
@@ -370,6 +394,9 @@ function buildChatAgentSystemPrompt(options: {
       lines.push("小说模式下，如果用户要求生成、续写或改写章节，只输出可直接放入章节库的正文。")
       lines.push("章节生成、续写或改写任务的最终回复必须只包含章节正文，不要把工具读取过程、写作计划或执行过程展示给用户。")
       lines.push("不要输出读取说明、执行总结、完成目标表格、章节结构、后续建议、引用来源或 Markdown 表格；章节标题和正文以外的内容都不要输出。")
+    } else if (options.aiWorkflowMode === "discuss") {
+      // 共创讨论轮：只做方向推演，不产出正文，也不得调用章节工作流。
+      lines.push(buildChapterDiscussPhaseSystemRules(options.chapterDiscussModule ?? ""))
     } else {
       // 走工作流时正文由工具直接交付，再要求模型「只输出正文」会诱导它把
       // 终稿复述一遍：既多花一次生成，又可能改坏已经定稿的正文。
@@ -382,6 +409,8 @@ function buildChatAgentSystemPrompt(options: {
     }
     if (options.aiWorkflowMode === "fast") {
       lines.push("快速模式下可以读取必要上下文；除非用户明确要求使用工作流或 Skill，否则不要主动调用 run_chapter_workflow。")
+    } else if (options.aiWorkflowMode === "discuss") {
+      lines.push("本轮不要调用 run_chapter_workflow，也不要输出章节正文；只给出方向与关键判断。")
     } else if (!planPhase) {
       lines.push("章节生成、续写、改写或润色必须调用 run_chapter_workflow 工具；未调用前禁止输出章节终稿正文。")
     }
@@ -397,6 +426,9 @@ function buildChatAgentSystemPrompt(options: {
       case "strict":
         lines.push("严格模式：读取更完整上下文，执行更严格的审稿、返修和一致性检查。")
         break
+      case "discuss":
+        lines.push("共创模式：读取前文并推演后续走向，给出 3-4 个不同故事类型的方向供作者挑选；选定方向前不产出正文。")
+        break
       }
     if (
       options.writingWebSearchEnabled
@@ -404,7 +436,7 @@ function buildChatAgentSystemPrompt(options: {
     ) {
       lines.push("会联网搜索。如果有外部搜索需求，必须使用 web_search 工具，不得声称已经搜索。未使用联网资料时，在回复末尾注明。")
     }
-    if (options.planExecuteEnabled && options.aiWorkflowMode !== "fast") {
+    if (options.planExecuteEnabled && options.aiWorkflowMode !== "fast" && options.aiWorkflowMode !== "discuss") {
       lines.push(buildPlanExecutePolicyPrompt(options.aiWorkflowMode))
     }
   }
@@ -466,6 +498,8 @@ interface ChatSendOptions {
   /** Preserve the execution policy selected for the failed request. */
   workflowMode?: AiWorkflowMode
   planExecuteActive?: boolean
+  /** 共创模式：本轮是方向推演（decision）还是选定后的正文生成（generation）。 */
+  chapterDiscussPhase?: "decision" | "generation"
 }
 
 type ChatSend = (
@@ -505,7 +539,12 @@ function resetAssistantMessageForRequiredToolRetry(message: DisplayMessage): Dis
   }
 }
 
-function appendAgentChatMessages(conversationId: string, content: string, tokens: ReferenceToken[]) {
+function appendAgentChatMessages(
+  conversationId: string,
+  content: string,
+  tokens: ReferenceToken[],
+  chapterDiscussPhase?: ChapterDiscussPhase,
+) {
   const now = Date.now()
   const userMessage: DisplayMessage = {
     id: createLocalMessageId("user"),
@@ -521,6 +560,7 @@ function appendAgentChatMessages(conversationId: string, content: string, tokens
     content: "",
     timestamp: now,
     conversationId,
+    ...(chapterDiscussPhase ? { chapterDiscussPhase } : {}),
     agentToolCalls: [],
     agentStages: [],
     isAgentRunning: true,
@@ -948,8 +988,19 @@ export function ChatPanel() {
   const [chapterSaveStatus, setChapterSaveStatus] = useState<string>("")
   const [deAiSkillWarningMessage, setDeAiSkillWarningMessage] = useState<string>("")
   const aiWorkflowMode = useWikiStore((s) => s.aiWorkflowMode)
+  // 快速与共创（discuss）模式都不支持「计划」开关：fast 直出，discuss 做方向推演。
+  const workflowModeSupportsPlan = aiWorkflowMode !== "fast" && aiWorkflowMode !== "discuss"
   const writingWebSearchEnabled = useWikiStore((s) => s.novelConfig.writingWebSearchEnabled)
   const setAiWorkflowMode = useWikiStore((s) => s.setAiWorkflowMode)
+  const selectWorkflowMode = useCallback((mode: AiWorkflowMode) => {
+    setAiWorkflowMode(mode)
+    void saveAiWorkflowMode(mode)
+    // 只在切入「共创」时持久化"上一个模式"：此时才需要它来记住选定方向后用什么强度生成。
+    // 其余切换由 setAiWorkflowMode 在内存里维护，重启后也会随当前模式重新推导。
+    if (mode === "discuss") {
+      void saveAiWorkflowModeBeforeDiscuss(useWikiStore.getState().aiWorkflowModeBeforeDiscuss).catch(() => {})
+    }
+  }, [setAiWorkflowMode])
   const [workflowModeDropdownOpen, setWorkflowModeDropdownOpen] = useState(false)
   const workflowModeTriggerRef = useRef<HTMLButtonElement>(null)
   const [workflowModeDropdownStyle, setWorkflowModeDropdownStyle] = useState<CSSProperties | null>(null)
@@ -1064,7 +1115,7 @@ export function ChatPanel() {
         chatEditModeEnabled,
         aiWorkflowMode,
         writingWebSearchEnabled,
-        planExecuteEnabled: aiWorkflowMode !== "fast" && planExecuteEnabled,
+        planExecuteEnabled: aiWorkflowMode !== "fast" && aiWorkflowMode !== "discuss" && planExecuteEnabled,
         projectName: project?.name,
         bindingTitle: activeBinding?.framework.title,
       }),
@@ -1464,7 +1515,7 @@ export function ChatPanel() {
       const planExecutionFollowup = isChapterPlanExecutionFollowup(plainText)
       const sessionWorkflowMode = sendOptions?.workflowMode ?? aiWorkflowMode
       const planExecuteActive = sendOptions?.planExecuteActive ?? (
-        sessionWorkflowMode !== "fast" && planExecuteEnabled && !planExecutionFollowup
+        sessionWorkflowMode !== "fast" && sessionWorkflowMode !== "discuss" && planExecuteEnabled && !planExecutionFollowup
       )
       setDeAiSkillWarningMessage("")
       // 新一轮对话清空上一轮的章节保存提示，避免「已保存为第X章」残留在新消息下方
@@ -1550,7 +1601,7 @@ export function ChatPanel() {
       }
 
       if (taskRoute && SIMULATION_INTENTS.has(taskRoute.intent)) {
-        const { assistantMessage } = appendAgentChatMessages(capturedConvId, userVisibleText || plainText, tokens)
+        const { assistantMessage } = appendAgentChatMessages(capturedConvId, userVisibleText || plainText, tokens, sessionWorkflowMode === "discuss" ? "decision" : undefined)
         if (!targetConversationId) {
           setConversationInputDraft(capturedConvId, "")
           setFallbackReferenceText("")
@@ -1598,7 +1649,7 @@ export function ChatPanel() {
 
       const assistantMessage = retryAssistantMessage
         ? resetAssistantMessageForRequiredToolRetry(retryAssistantMessage)
-        : appendAgentChatMessages(capturedConvId, userVisibleText || plainText, tokens).assistantMessage
+        : appendAgentChatMessages(capturedConvId, userVisibleText || plainText, tokens, sessionWorkflowMode === "discuss" ? "decision" : undefined).assistantMessage
       if (retryAssistantMessage) {
         updateAgentAssistantMessage(retryAssistantMessage.id, () => assistantMessage)
       }
@@ -1772,6 +1823,8 @@ export function ChatPanel() {
         projectName: project?.name,
         bindingTitle: activeBinding?.framework.title,
         targetChapterNumber,
+        // 共创讨论轮把目标章节标识传给方向推演规则。
+        chapterDiscussModule: targetChapterNumber ? `第${targetChapterNumber}章` : undefined,
         // pre-plugin 会注入找纲协议；仅在不会跑 pre-plugin 的章节写作路径由这里注入一次
         includeOutlineFindProtocol:
           shouldIncludeOutlineFindProtocol(effectiveTaskRoute?.intent) &&
@@ -2100,10 +2153,11 @@ export function ChatPanel() {
           planExecuteActive,
           enabledToolNames: prePluginResult?.enabledToolNames,
         })
-        // 计划阶段硬管控：不依赖任务路由/pre-plugin 是否命中，直接从本轮可用
+        // 计划阶段 / 共创讨论轮硬管控：不依赖任务路由/pre-plugin 是否命中，直接从本轮可用
         // 工具中移除正文生成与写入类工具（模型的 tools 广告和文本工具调用解析
-        // 都以 config.tools 为准），从根上阻止模型跳过计划直接产出正文。
-        const sessionTools = (planExecuteActive
+        // 都以 config.tools 为准），从根上阻止模型跳过计划或推演直接产出正文。
+        const chapterDiscussActive = sessionWorkflowMode === "discuss"
+        const sessionTools = (planExecuteActive || chapterDiscussActive
           ? agentConfig.tools.filter(
               (tool) => tool.name !== "run_chapter_workflow" && tool.category !== "write",
             )
@@ -2272,6 +2326,56 @@ export function ChatPanel() {
             console.warn("供应商缓存用量快照保存失败，继续保留本地缓存统计：", error)
           }
         }
+        // 共创（discuss）讨论轮：解析 chapter_discuss 协议（必要时补一次协议），
+        // 把方向候选写入消息供卡片渲染；气泡正文里的协议标记一律剥掉。
+        if (sessionWorkflowMode === "discuss") {
+          const discussModule = targetChapterNumber ? `第${targetChapterNumber}章` : ""
+          const rawDiscussContent = useChatStore.getState().messages
+            .find((m) => m.id === assistantMessage.id)?.content || record.finalText || ""
+          void (async () => {
+            try {
+              let outcome = parseChapterDiscussProtocol(rawDiscussContent)
+              if (
+                outcome.kind === "none"
+                && hasChapterDiscussRepairableContent(rawDiscussContent)
+              ) {
+                const repaired = await repairChapterDiscussProtocolWithAi({
+                  content: rawDiscussContent,
+                  module: discussModule,
+                  llmConfig: agentConfig.llmConfig,
+                  signal: controller.signal,
+                }).catch((error) => {
+                  console.warn("章节共创协议补全失败，按原结果继续：", error)
+                  return ""
+                })
+                const repairedOutcome = repaired
+                  ? parseChapterDiscussProtocol(repaired)
+                  : { kind: "none" as const }
+                if (repairedOutcome.kind === "valid") outcome = repairedOutcome
+              }
+              const validation = outcome.kind === "valid"
+                ? validateChapterDiscussProtocol(outcome.protocol)
+                : null
+              const protocol = validation && validation.kind !== "invalid" ? validation.protocol : null
+              const discussError = outcome.kind === "invalid"
+                ? outcome.error
+                : outcome.kind === "none"
+                  ? "模型未返回 chapter_discuss 协议块"
+                  : validation && validation.kind === "invalid"
+                    ? validation.error
+                    : undefined
+              updateAgentAssistantMessage(assistantMessage.id, (message) => ({
+                ...message,
+                content: stripChapterDiscussMarkers(message.content),
+                chapterDiscussProtocol: protocol,
+                chapterDiscussError: discussError,
+                chapterDiscussDecision: undefined,
+              }))
+            } catch (error) {
+              console.warn("章节共创协议处理失败：", error)
+            }
+          })()
+        }
         // 计划模式：markDone/getCopyableAssistantContent 会重写消息内容
         // （剥掉 HTML 注释等隐藏块），先捕获原始文本供后续计划提取使用，
         // 避免 `<!-- chapter_plan -->` 标记在提取前就被剥掉。
@@ -2340,8 +2444,9 @@ export function ChatPanel() {
               // === Stage D: 写后剧情自检 ===
               // 仅对 write_chapter / continue_chapter 任务触发，避免对普通对话误触发
               if (
-                effectiveTaskRoute.intent === "write_chapter" ||
-                effectiveTaskRoute.intent === "continue_chapter"
+                sessionWorkflowMode !== "discuss"
+                && (effectiveTaskRoute.intent === "write_chapter" ||
+                  effectiveTaskRoute.intent === "continue_chapter")
               ) {
                 const chapterContent = finalContent
                 // 排除含 chapter_plan 标记的内容（计划本身不是正文）与空内容；
@@ -2650,8 +2755,74 @@ export function ChatPanel() {
     handleSend(lastUserMsg.content, lastUserMsg.attachedReferences ?? [])
   }, [removeLastAssistantMessage, handleSend])
 
-  const handleContinueNextChapter = useCallback(() => {
-    if (isStreaming) return
+  const markChapterDiscussDecision = useCallback((messageId: string, decision: ChapterDiscussDecision) => {
+    useChatStore.getState().setMessageChapterDiscuss(messageId, { chapterDiscussDecision: decision })
+  }, [])
+
+  /** 选定一个方向：标记卡片已用，并按切入共创前的模式生成正文。 */
+  const handleChapterDiscussSelect = useCallback((
+    messageId: string,
+    protocol: ChapterDiscussProtocol,
+    direction: ChapterDiscussDirection,
+  ) => {
+    const conversationId = useChatStore.getState().activeConversationId
+    if (!conversationId) return
+    markChapterDiscussDecision(messageId, "selected")
+    const storedMode = useWikiStore.getState().aiWorkflowModeBeforeDiscuss
+    const generationMode: AiWorkflowMode = storedMode === "discuss" ? "standard" : storedMode
+    return handleSend(
+      buildChapterDiscussExecutionPrompt({ module: protocol.module, direction }),
+      [],
+      `按「${direction.title}」写这一章`,
+      buildChapterDiscussPlanBlueprint(direction),
+      conversationId,
+      { workflowMode: generationMode, planExecuteActive: false, chapterDiscussPhase: "generation" },
+    )
+  }, [handleSend, markChapterDiscussDecision])
+
+  /** 换一批：标记卡片已用，重新推演一批故事类型不同的方向。 */
+  const handleChapterDiscussRegenerate = useCallback((
+    messageId: string,
+    protocol: ChapterDiscussProtocol,
+  ) => {
+    const conversationId = useChatStore.getState().activeConversationId
+    if (!conversationId) return
+    markChapterDiscussDecision(messageId, "regenerated")
+    return handleSend(
+      buildChapterDiscussRegeneratePrompt({
+        module: protocol.module,
+        previous: protocol.directions.map((d) => ({ storyType: d.storyType, title: d.title })),
+      }),
+      [],
+      "换一批：重新推演后续方向",
+      undefined,
+      conversationId,
+      { workflowMode: "discuss", planExecuteActive: false, chapterDiscussPhase: "decision" },
+    )
+  }, [handleSend, markChapterDiscussDecision])
+
+  /** 其他想法：把作者自己的想法交给 AI，按它重新推演方向。 */
+  const handleChapterDiscussCustom = useCallback((
+    messageId: string,
+    protocol: ChapterDiscussProtocol,
+    idea: string,
+  ) => {
+    const conversationId = useChatStore.getState().activeConversationId
+    if (!conversationId) return
+    const trimmed = idea.trim()
+    if (!trimmed) return
+    markChapterDiscussDecision(messageId, "custom")
+    return handleSend(
+      buildChapterDiscussCustomPrompt({ module: protocol.module, idea: trimmed }),
+      [],
+      `我的想法：${trimmed}`,
+      undefined,
+      conversationId,
+      { workflowMode: "discuss", planExecuteActive: false, chapterDiscussPhase: "decision" },
+    )
+  }, [handleSend, markChapterDiscussDecision])
+
+  const handleContinueNextChapter = useCallback(() => {    if (isStreaming) return
     // 按设置中的单章目标字数生成提示词（issue #8）
     const lengthSpec = resolveChapterLengthSpec(useWikiStore.getState().novelConfig?.chapterTargetChars)
     const target = lengthSpec.targetChars
@@ -2742,6 +2913,9 @@ export function ChatPanel() {
                       onContinueNextChapter={isLastAssistant ? handleContinueNextChapter : undefined}
                       onContinueUnfinished={isLastAssistant ? () => handleContinueUnfinished(msg) : undefined}
                       onContinueStopped={isLastAssistant && !isStreaming ? handleContinueStopped : undefined}
+                      onSelectChapterDiscussDirection={handleChapterDiscussSelect}
+                      onRegenerateChapterDiscuss={handleChapterDiscussRegenerate}
+                      onCustomChapterDiscuss={handleChapterDiscussCustom}
                       saveStatus={isLastAssistant ? chapterSaveStatus : undefined}
                       isSaving={isSavingChapter}
                     />
@@ -2834,8 +3008,7 @@ export function ChatPanel() {
                                   aria-selected={aiWorkflowMode === mode}
                                   className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent"
                                   onClick={() => {
-                                    setAiWorkflowMode(mode)
-                                    void saveAiWorkflowMode(mode)
+                                    selectWorkflowMode(mode)
                                     setWorkflowModeDropdownOpen(false)
                                   }}
                                 >
@@ -2869,16 +3042,16 @@ export function ChatPanel() {
                               type="button"
                               variant="ghost"
                               size="sm"
-                              aria-pressed={planExecuteEnabled && aiWorkflowMode !== "fast"}
-                              disabled={aiWorkflowMode === "fast"}
+                              aria-pressed={planExecuteEnabled && workflowModeSupportsPlan}
+                              disabled={!workflowModeSupportsPlan}
                               className={`h-8 shrink-0 rounded-full border px-2.5 text-xs ${
-                                planExecuteEnabled && aiWorkflowMode !== "fast"
+                                planExecuteEnabled && workflowModeSupportsPlan
                                   ? "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground"
                                   : "border-border text-muted-foreground hover:bg-accent hover:text-foreground"
                               } disabled:cursor-not-allowed disabled:opacity-50`}
                               onClick={() => setPlanExecuteEnabled(!planExecuteEnabled)}
-                              title={aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"}
-                              aria-label={aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"}
+                              title={!workflowModeSupportsPlan ? "当前模式不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"}
+                              aria-label={!workflowModeSupportsPlan ? "当前模式不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"}
                             />
                           )}
                         >
@@ -2886,8 +3059,8 @@ export function ChatPanel() {
                           计划
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-xs leading-5">
-                          {aiWorkflowMode === "fast"
-                            ? "快速模式下不支持计划，请切换到标准或严格模式。"
+                          {!workflowModeSupportsPlan
+                            ? "快速与共创模式下不支持计划；请切换到标准或严格模式。"
                             : "开启后，本次写作会先创建计划，等待确认后再执行；可与标准、严格模式组合使用。"}
                         </TooltipContent>
                       </Tooltip>
@@ -2934,7 +3107,7 @@ export function ChatPanel() {
                             <div className="fixed inset-0" style={{ zIndex: 9998 }} onClick={() => setWorkflowModeDropdownOpen(false)} />
                             <div ref={workflowModeDropdownRef} data-ui-ai-menu="mode" role="listbox" className="fixed rounded-md border bg-popover p-1 shadow-md" style={{ ...workflowModeDropdownStyle, maxHeight: "none", overflow: "visible", zIndex: 9999 }}>
                               {aiWorkflowModeOptions.map(({ mode, label, description, routeDescription }) => (
-                                <button key={mode} type="button" role="option" aria-selected={aiWorkflowMode === mode} className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent" onClick={() => { setAiWorkflowMode(mode); void saveAiWorkflowMode(mode); setWorkflowModeDropdownOpen(false) }}>
+                                <button key={mode} type="button" role="option" aria-selected={aiWorkflowMode === mode} className="flex w-full items-start gap-2 rounded-sm px-3 py-2 text-left hover:bg-accent" onClick={() => { selectWorkflowMode(mode); setWorkflowModeDropdownOpen(false) }}>
                                   <Check className={`mt-0.5 h-4 w-4 shrink-0 ${aiWorkflowMode === mode ? "opacity-100" : "opacity-0"}`} />
                                   <span className="min-w-0 flex-1"><span className="flex items-center gap-2 text-sm font-medium"><span>{label}</span><span className="rounded border px-1.5 py-0.5 text-[0.6875rem] font-normal text-muted-foreground">{description}</span></span><span className="mt-1 block text-xs leading-5 text-muted-foreground">{routeDescription}</span></span>
                                 </button>

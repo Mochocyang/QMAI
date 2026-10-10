@@ -187,6 +187,7 @@ async function markCodexModelMigrationDone(
 const AI_CHAT_MODEL_KEY = "aiChatModel"
 const AI_OUTLINE_MODEL_KEY = "aiOutlineModel"
 const AI_WORKFLOW_MODE_KEY = "aiWorkflowMode"
+const AI_WORKFLOW_MODE_BEFORE_DISCUSS_KEY = "aiWorkflowModeBeforeDiscuss"
 const OUTLINE_WORKFLOW_MODE_KEY = "outlineWorkflowMode"
 const AI_CHAT_REASONING_DEPTH_KEY = "aiChatReasoningDepth"
 const AI_OUTLINE_REASONING_DEPTH_KEY = "aiOutlineReasoningDepth"
@@ -273,6 +274,17 @@ export async function saveAiWorkflowMode(mode: AiWorkflowMode): Promise<void> {
 export async function loadAiWorkflowMode(): Promise<AiWorkflowMode | null> {
   const store = await getStore()
   const saved = await store.get<unknown>(AI_WORKFLOW_MODE_KEY)
+  return isAiWorkflowMode(saved) ? saved : null
+}
+
+export async function saveAiWorkflowModeBeforeDiscuss(mode: AiWorkflowMode): Promise<void> {
+  const store = await getStore()
+  await store.set(AI_WORKFLOW_MODE_BEFORE_DISCUSS_KEY, resolveAiWorkflowMode(mode))
+}
+
+export async function loadAiWorkflowModeBeforeDiscuss(): Promise<AiWorkflowMode | null> {
+  const store = await getStore()
+  const saved = await store.get<unknown>(AI_WORKFLOW_MODE_BEFORE_DISCUSS_KEY)
   return isAiWorkflowMode(saved) ? saved : null
 }
 

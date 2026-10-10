@@ -181,6 +181,27 @@ describe("AI capability selector", () => {
     expect(strictSelected.map((item) => item.toolName)).toContain("run_chapter_workflow")
   })
 
+  it("keeps discuss writing mode read-only and never selects the workflow tool", () => {
+    const capabilities = buildAvailableCapabilities({
+      toolNames: ["read_chapter", "read_outline", "run_chapter_workflow", "write_chapter", "apply_skill", "load_context"],
+      selectedSkills: [],
+    })
+
+    const selected = selectCapabilities({
+      capabilities,
+      intent: "write_chapter",
+      mode: "discuss",
+      userMessage: "第三章不知道怎么写",
+    })
+
+    const names = selected.map((item) => item.toolName)
+    expect(names).toContain("read_chapter")
+    expect(names).toContain("read_outline")
+    expect(names).not.toContain("run_chapter_workflow")
+    expect(names).not.toContain("write_chapter")
+    expect(names).not.toContain("apply_skill")
+  })
+
   it("can build selected skill capabilities directly", () => {
     const capabilities = buildUserSkillCapabilities([
       normalizeUserSkill({

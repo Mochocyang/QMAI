@@ -6,6 +6,11 @@ import type { ContextHubSnapshotRef, SessionContextSummary } from "@/lib/context
 import type { ChapterRef } from "@/lib/context-hub/chapter-body-injection"
 import type { ContextUsageSnapshot } from "@/lib/context-usage"
 import { deriveConversationTitle } from "@/lib/conversation-title"
+import type {
+  ChapterDiscussDecision,
+  ChapterDiscussPhase,
+  ChapterDiscussProtocol,
+} from "@/lib/novel/chapter-discuss-protocol"
 import i18n from "@/i18n"
 import {
   canStartConversationRun as canStartRun,
@@ -51,6 +56,14 @@ export interface DisplayMessage {
   reasoning_content?: string
   /** Chapter number / path clue written when the user saves to the chapter library. */
   chapterRef?: ChapterRef
+  /** 共创模式：本轮方向候选协议（结构不完整时会被落盘校验丢弃）。 */
+  chapterDiscussProtocol?: ChapterDiscussProtocol | null
+  /** 共创模式：本轮是方向推演轮（用于渲染时隐藏协议标记）。 */
+  chapterDiscussPhase?: ChapterDiscussPhase
+  /** 共创模式：协议解析/校验失败的提示。 */
+  chapterDiscussError?: string
+  /** 共创模式：卡片已被使用过，重载后保持置灰。 */
+  chapterDiscussDecision?: ChapterDiscussDecision
 }
 
 interface ChatState {
@@ -76,6 +89,11 @@ interface ChatState {
   setConversationContextSummary: (id: string, contextSummary: SessionContextSummary | undefined) => void
   setConversationContextUsage: (id: string, lastContextUsage: ContextUsageSnapshot | undefined) => void
   setMessageChapterRef: (messageId: string, chapterRef: ChapterRef | undefined) => void
+  setMessageChapterDiscuss: (messageId: string, patch: {
+    chapterDiscussProtocol?: ChapterDiscussProtocol | null
+    chapterDiscussError?: string
+    chapterDiscussDecision?: ChapterDiscussDecision
+  }) => void
 
   // Message management
   addMessage: (role: DisplayMessage["role"], content: string) => void
@@ -236,6 +254,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => ({
       messages: state.messages.map((message) =>
         message.id === messageId ? { ...message, chapterRef } : message
+      ),
+    })),
+  setMessageChapterDiscuss: (messageId, patch) =>
+    set((state) => ({
+      messages: state.messages.map((message) =>
+        message.id === messageId ? { ...message, ...patch } : message
       ),
     })),
 

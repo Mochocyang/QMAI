@@ -46,6 +46,26 @@ describe("BuildSystemPromptPlugin selected skills", () => {
     expect(result.dynamicSystemRulesPrompt).not.toContain("base prompt")
   })
 
+  it("skips plan protocol and task directive for discuss (co-creation) mode", async () => {
+    const plugin = createBuildSystemPromptPlugin({
+      baseSystemPrompt: "base prompt",
+      buildTaskDirectiveFn: () => "task directive",
+    })
+
+    const result = await plugin.run({
+      userMessage: "第三章不知道怎么写",
+      projectPath: "/project",
+      agentConfig: {} as any,
+      novelMode: true,
+      aiWorkflowMode: "discuss",
+      planExecuteEnabled: true,
+      taskRoute: { intent: "write_chapter", confidence: 0.9, extractedParams: {} },
+    })
+
+    expect(result.finalSystemPrompt ?? "").not.toContain("章节主编策划协议")
+    expect(result.finalSystemPrompt ?? "").not.toContain("task directive")
+  })
+
   it("does not inject chapter plan protocol from standard mode unless Plan Execute is enabled", async () => {
     const plugin = createBuildSystemPromptPlugin({
       baseSystemPrompt: "base prompt",
