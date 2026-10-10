@@ -152,3 +152,29 @@ describe("buildPersonaSkillResearchMessages", () => {
     expect(messages[1].content).toContain("林清越")
   })
 })
+
+  it("既有档案过长时被截断，头尾都保留", () => {
+    const head = "头".repeat(4000)
+    const tail = "尾".repeat(4000)
+    const message = buildPersonaSkillUserPrompt({
+      chapterNumber: 7,
+      chapterBody: "正文",
+      targets: [{
+        characterName: "林清越",
+        roleType: "男主",
+        tier: "major" as const,
+        mode: "refine" as const,
+        aliases: [],
+        appearanceCount: 3,
+        pinned: false,
+        withResearch: false,
+        existingSkill: `${head}${tail}`,
+      }],
+    })
+
+    expect(message).toContain("中间省略")
+    expect(message).toContain("头".repeat(100))
+    expect(message).toContain("尾".repeat(100))
+    // 7000+ 字的档案不能整份进提示词
+    expect(message.length).toBeLessThan(8000)
+  })

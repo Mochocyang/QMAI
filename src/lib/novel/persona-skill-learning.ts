@@ -21,7 +21,13 @@ import {
 } from "./persona-skill-types"
 import {
   loadPersonaSkillIndex,
+  loadPersonaSkillIndexStrict,
+  loadPersonaSightings,
   personaSkillIdFor,
+  personaSkillLockKey,
+  savePersonaSkillIndex,
+  savePersonaSightings,
+  withPersonaSkillLock,
   readPersonaSkillDocument,
   updatePersonaSkillIndex,
   updatePersonaSkillState,
@@ -389,6 +395,11 @@ export async function refreshPersonaSkillStatuses(
   await updatePersonaSkillIndex(projectPath, (index) => {
     let changed = false
     const skills = index.skills.map((meta) => {
+      // 回填旧章时不能按旧章号重算：本章比这个人的最后一次出场还早，
+      // 说明这是一次乱序补提取，与「他最近有没有出场」无关。
+      // （若把 currentChapter 夹成 max(currentChapter, meta.lastChapter)，gap 恒为 0，
+      //   会把已归档的人一律复活 —— 方向正好反了，别那么写。）
+      if (currentChapter < meta.lastChapter) return meta
       const status = resolvePersonaStatus(meta.lastChapter, currentChapter, meta.pinned)
       if (status === meta.status) return meta
       changed = true
@@ -447,7 +458,6 @@ async function requestPersonaSkillDrafts(input: {
 
 export interface ApplyPersonaSkillInput {
   projectPath: string
-  index: PersonaSkillIndex
   appearances: readonly PersonaChapterAppearance[]
   plans: readonly PersonaSkillPlan[]
   drafts: readonly PersonaSkillDraft[]
@@ -456,96 +466,98 @@ export interface ApplyPersonaSkillInput {
 
 /** 把草稿落到 SKILL.md / 研究文件 / index，并把已建档的人从候选池移走。返回真正写入的人数。 */
 export async function applyPersonaSkillDrafts(input: ApplyPersonaSkillInput): Promise<number> {
-  const appearanceByName = new Map(
-    input.appearances.map((item) => [normalizePersonaName(item.characterName), item]),
-  )
-  const updatedAt = new Date().toISOString()
-  const upserts: PersonaSkillMeta[] = []
-
-  for (const plan of input.plans) {
-    const draft = input.drafts.find(
-      (item) => normalizePersonaName(item.characterName) === normalizePersonaName(plan.characterName),
+  // 全程在同一把锁内：从读新鲜索引到写回索引，中间不放任何别的写者进来。
+  // 关键是「新鲜」二字 —— 用户可能在整轮 LLM 调用期间（数秒到数十秒）在
+  // 「人物 Skill」页保存过手改正文。若拿外面那份快照判定 editedByUser，
+  // 会走进 renderPersonaSkillDocument 的 false 分支，把用户正文整份覆盖掉。
+  return withPersonaSkillLock(personaSkillLockKey(input.projectPath), async () => {
+    const index = (await loadPersonaSkillIndexStrict(input.projectPath)) ?? { version: 1, skills: [] }
+    const sightings = await loadPersonaSightings(input.projectPath)
+    const appearanceByName = new Map(
+      input.appearances.map((item) => [normalizePersonaName(item.characterName), item]),
     )
-    if (!draft) continue
-    if (Object.values(draft.fields).every((value) => !value.trim())) continue
+    const updatedAt = new Date().toISOString()
+    const upserts: PersonaSkillMeta[] = []
 
-    const existing = findPersonaSkillMeta(input.index, plan.characterName, plan.aliases)
-    const id = existing?.id ?? personaSkillIdFor(plan.characterName)
-    const appearance = appearanceByName.get(normalizePersonaName(plan.characterName))
-    const previousDocument = existing ? await readPersonaSkillDocument(input.projectPath, id) : ""
+    for (const plan of input.plans) {
+      const draft = input.drafts.find(
+        (item) => normalizePersonaName(item.characterName) === normalizePersonaName(plan.characterName),
+      )
+      if (!draft) continue
+      if (Object.values(draft.fields).every((value) => !value.trim())) continue
 
-    await writePersonaSkillDocument(
-      input.projectPath,
-      id,
-      renderPersonaSkillDocument({
+      const existing = findPersonaSkillMeta(index, plan.characterName, plan.aliases)
+      const id = existing?.id ?? personaSkillIdFor(plan.characterName)
+      const appearance = appearanceByName.get(normalizePersonaName(plan.characterName))
+      const previousDocument = existing ? await readPersonaSkillDocument(input.projectPath, id) : ""
+
+      await writePersonaSkillDocument(
+        input.projectPath,
+        id,
+        renderPersonaSkillDocument({
+          characterName: plan.characterName,
+          aliases: existing ? uniqueNames([...existing.aliases, ...plan.aliases]) : plan.aliases,
+          roleType: plan.roleType || existing?.roleType || "",
+          tier: plan.tier,
+          pinned: plan.pinned,
+          appearanceCount: Math.max(plan.appearanceCount, existing?.appearanceCount ?? 0),
+          firstChapter: existing?.firstChapter || appearance?.firstChapter || input.chapterNumber,
+          lastChapter: input.chapterNumber,
+          chapterNumber: input.chapterNumber,
+          fields: draft.fields,
+          existing: previousDocument,
+          editedByUser: existing?.editedByUser ?? false,
+        }),
+      )
+
+      let hasResearch = existing?.hasResearch ?? false
+      if (plan.withResearch && Object.keys(draft.research).length > 0) {
+        const written = await writePersonaSkillResearch(input.projectPath, id, draft.research)
+        if (written.length > 0) hasResearch = true
+      }
+
+      upserts.push({
+        id,
         characterName: plan.characterName,
-        aliases: existing ? uniqueNames([...existing.aliases, ...plan.aliases]) : plan.aliases,
+        aliases: uniqueNames([...(existing?.aliases ?? []), ...plan.aliases]),
         roleType: plan.roleType || existing?.roleType || "",
         tier: plan.tier,
         pinned: plan.pinned,
-        appearanceCount: Math.max(plan.appearanceCount, existing?.appearanceCount ?? 0),
+        status: "active",
         firstChapter: existing?.firstChapter || appearance?.firstChapter || input.chapterNumber,
         lastChapter: input.chapterNumber,
-        chapterNumber: input.chapterNumber,
-        fields: draft.fields,
-        existing: previousDocument,
+        appearanceCount: Math.max(plan.appearanceCount, existing?.appearanceCount ?? 0),
+        createdChapter: existing?.createdChapter || input.chapterNumber,
+        lastLearnedChapter: input.chapterNumber,
+        skillRevision: (existing?.skillRevision ?? 0) + 1,
         editedByUser: existing?.editedByUser ?? false,
-      }),
-    )
-
-    let hasResearch = existing?.hasResearch ?? false
-    if (plan.withResearch && Object.keys(draft.research).length > 0) {
-      const written = await writePersonaSkillResearch(input.projectPath, id, draft.research)
-      if (written.length > 0) hasResearch = true
+        hasResearch,
+        updatedAt,
+      })
     }
 
-    upserts.push({
-      id,
-      characterName: plan.characterName,
-      aliases: uniqueNames([...(existing?.aliases ?? []), ...plan.aliases]),
-      roleType: plan.roleType || existing?.roleType || "",
-      tier: plan.tier,
-      pinned: plan.pinned,
-      status: "active",
-      firstChapter: existing?.firstChapter || appearance?.firstChapter || input.chapterNumber,
-      lastChapter: input.chapterNumber,
-      appearanceCount: Math.max(plan.appearanceCount, existing?.appearanceCount ?? 0),
-      createdChapter: existing?.createdChapter || input.chapterNumber,
-      lastLearnedChapter: input.chapterNumber,
-      skillRevision: (existing?.skillRevision ?? 0) + 1,
-      editedByUser: existing?.editedByUser ?? false,
-      hasResearch,
-      updatedAt,
-    })
-  }
+    if (upserts.length === 0) return 0
 
-  if (upserts.length === 0) return 0
-
-  // 「插进 index」与「从候选池移走」必须原子：分两次写的话，中间崩溃会让人物
-  // 同时留在两个文件里，违反 D7「sightings 只记还没建档的人」。所以走一个入口。
-  await updatePersonaSkillState(input.projectPath, (state) => {
-    const skills = [...state.index.skills]
+    // 「插进 index」与「从候选池移走」在同一个锁内、同一个决策点完成。
+    // 注意仍是两次 writeFileAtomic，中间崩溃会留下一条冗余的 sighting ——
+    // 但顺序是 index 先、sightings 后，反过来崩会把人从候选池彻底丢掉，那更糟。
+    const skills = [...index.skills]
     for (const meta of upserts) {
       const position = skills.findIndex((item) => item.id === meta.id)
       if (position >= 0) skills[position] = { ...skills[position], ...meta }
       else skills.push(meta)
     }
+    await savePersonaSkillIndex(input.projectPath, { version: 1, skills })
 
     const createdIds = new Set(upserts.map((meta) => normalizePersonaName(meta.characterName)))
-    const sightings = state.sightings.sightings.filter(
+    const remaining = sightings.sightings.filter(
       (item) => !createdIds.has(normalizePersonaName(item.characterName)),
     )
-
-    return {
-      index: { version: 1, skills },
-      sightings:
-        sightings.length === state.sightings.sightings.length
-          ? state.sightings
-          : { version: 1, sightings },
+    if (remaining.length !== sightings.sightings.length) {
+      await savePersonaSightings(input.projectPath, { version: 1, sightings: remaining })
     }
+    return upserts.length
   })
-
-  return upserts.length
 }
 
 /**
@@ -566,8 +578,10 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
     // 候选池是纯计数，先落盘：即使后面模型失败，下场也还能接着数。
     // 走 updatePersonaSkillState：读两份 + 计数 + 只写 sightings 全在同一把锁内，
     // 这样并发的另一次学习不会把这里的计数覆盖掉。
-    // index 顺手从同一次锁内快照里捞出来，供后面查「这个人是否已建档」——
-    // 权威写入在 applyPersonaSkillDrafts 里会于锁内重读，这里只用于按名字找 id。
+    // index 顺手从同一次锁内快照里捞出来，只用于「按名字找已有 id」。
+    // applyPersonaSkillDrafts 会在自己的锁内重新读一份新鲜索引来判定
+    // editedByUser / hasResearch —— 那份快照到 apply 之间隔着整轮模型调用，
+    // 用它判定会把用户在调用期间保存的手改正文覆盖掉。
     let appearances: PersonaChapterAppearance[] = []
     let index: PersonaSkillIndex = { version: 1, skills: [] }
     await updatePersonaSkillState(pp, (state) => {
@@ -575,7 +589,36 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
       index = state.index
       const collected = collectChapterAppearances(state.index, state.sightings, chapter, roleTypes)
       appearances = collected.appearances
-      return { sightings: collected.sightings }
+
+      // 已建档人物的出场记账必须在这里落盘，不能只留在内存里等 applyPersonaSkillDrafts：
+      // 那一趟要求模型返回可用草稿，模型漏了这个人或字段全空时它会整条跳过，
+      // 而这些人的 lastChapter 就永远停在旧值 → 下一句 refresh 按旧值算 gap → 把
+      // 正在场上的人判成 dormant/archived（D5 规定不注入，等于人凭空从上下文里消失）。
+      // 这里只动「出场事实」三个字段，绝不动 lastLearnedChapter / skillRevision。
+      const skills = state.index.skills.map((meta) => {
+        const appearance = collected.appearances.find(
+          (item) => normalizePersonaName(item.characterName) === normalizePersonaName(meta.characterName),
+        )
+        if (!appearance) return meta
+        // 回填旧章：本章比这个人的最后一次出场还早，这跟「他最近有没有出场」无关。
+        // 一律不动 —— 既不把已归档的人复活（Step 4 那道守卫防的是同一件事的另一半），
+        // 也不给计数灌水：index 里没有 chapters[]，无从判断这一次是不是早就计过了。
+        if (chapter.chapterNumber < meta.lastChapter) return meta
+        return {
+          ...meta,
+          appearanceCount: Math.max(meta.appearanceCount, appearance.appearanceCount),
+          lastChapter: Math.max(meta.lastChapter, chapter.chapterNumber),
+          status: "active" as const,
+        }
+      })
+
+      // 只有真的改到了才返回 index。无条件返回的话，一个还没建档过任何人的项目
+      // 每轮都会凭空多出一个空的 index.json —— 那就把「从没建过档」和「建过档」
+      // 这两件事混掉了（既有用例正盯着这一点：次要人物第一次出场必须不建 index）。
+      const changed = skills.some((meta, position) => meta !== state.index.skills[position])
+      if (!changed) return { sightings: collected.sightings }
+
+      return { index: { version: 1, skills }, sightings: collected.sightings }
     })
 
     const plans = planPersonaSkillRoundForChapter(appearances, chapter.chapterNumber)
@@ -611,7 +654,6 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
 
     const written = await applyPersonaSkillDrafts({
       projectPath: pp,
-      index,
       appearances,
       plans,
       drafts,

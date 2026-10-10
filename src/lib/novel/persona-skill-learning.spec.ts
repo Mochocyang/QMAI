@@ -601,3 +601,95 @@ describe("regeneratePersonaSkillResearch", () => {
     expect(readIndex()!.skills[0].hasResearch).toBe(false)
   })
 })
+
+describe("人物 Skill 审查修复：并发保存、确定性记账、回填旧章", () => {
+  beforeEach(() => {
+    io.files.clear()
+    streamChatMock.mockReset()
+    __resetPersonaSkillRoundsForTesting()
+  })
+
+  it("模型调用期间用户保存了手改正文：正文保留、editedByUser 不回退", async () => {
+    seedIndex([
+      { characterName: "林清越", id: "林清越", roleType: "男主", pinned: false, appearanceCount: 1, lastChapter: 0, editedByUser: false, createdChapter: 1, skillRevision: 1 },
+    ])
+    io.files.set(
+      `${project}/.qmai/persona-skills/林清越/SKILL.md`,
+      "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n旧的内容。\n",
+    )
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) => void; onDone: () => void }) => {
+        // 模拟「整轮模型调用期间，用户在人物 Skill 页点了保存」
+        io.files.set(
+          `${project}/.qmai/persona-skills/林清越/SKILL.md`,
+          "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n用户亲手改的句子。\n",
+        )
+        const saved = JSON.parse(io.files.get(indexFile)!) as { skills: Array<Record<string, unknown>> }
+        saved.skills[0].editedByUser = true
+        io.files.set(indexFile, JSON.stringify(saved))
+        callbacks.onToken(JSON.stringify({ skills: [{ name: "林清越", fields: { 怎么说话: "本章新观察。" } }] }))
+        callbacks.onDone()
+      },
+    )
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 2, chapterBody: "第二章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    const document = io.files.get(`${project}/.qmai/persona-skills/林清越/SKILL.md`)!
+    // 用户那句话必须还在（原实现会整份丢掉，只剩「本章新观察。」）
+    expect(document).toContain("用户亲手改的句子。")
+    expect(document).toContain("## 补充（第 2 章）")
+    // 护栏不能一起丢，否则下一次还会覆盖
+    expect(readIndex()!.skills[0].editedByUser).toBe(true)
+  })
+
+  it("模型漏了已建档的人：他的 lastChapter 与状态仍然前进", async () => {
+    seedIndex([
+      { characterName: "沈砚", id: "沈砚", roleType: "配角", pinned: false, appearanceCount: 3, lastChapter: 5, createdChapter: 3, skillRevision: 1 },
+      { characterName: "林清越", id: "林清越", roleType: "男主", pinned: false, appearanceCount: 2, lastChapter: 5, createdChapter: 1, skillRevision: 1 },
+    ])
+    // 模型只回了林清越，一个字都没提沈砚
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) => void; onDone: () => void }) => {
+        callbacks.onToken(JSON.stringify({ skills: [{ name: "林清越", fields: { 怎么说话: "照旧。" } }] }))
+        callbacks.onDone()
+      },
+    )
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 45, chapterBody: "第四十五章正文", characters: ["沈砚", "林清越"] },
+      llmConfig,
+    })
+
+    const shen = readIndex()!.skills.find((item) => item.characterName === "沈砚")!
+    // 原实现里他停在 lastChapter=5 → gap=40 → archived（正在场上的人被移出注入）
+    expect(shen.lastChapter).toBe(45)
+    expect(shen.status).toBe("active")
+    expect(shen.appearanceCount).toBe(4)
+  })
+
+  it("回填旧章：已归档的人不会因为旧章号被复活", async () => {
+    seedIndex([
+      { characterName: "沈砚", id: "沈砚", roleType: "配角", pinned: false, appearanceCount: 9, lastChapter: 40, createdChapter: 3, skillRevision: 4, status: "archived" },
+    ])
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) => void; onDone: () => void }) => {
+        callbacks.onToken(JSON.stringify({ skills: [] }))
+        callbacks.onDone()
+      },
+    )
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 5, chapterBody: "第五章正文", characters: ["沈砚"] },
+      llmConfig,
+    })
+
+    // 原实现：currentChapter(5) - lastChapter(40) = -35 → 负数 gap 落进 return "active"
+    expect(readIndex()!.skills[0].status).toBe("archived")
+  })
+})

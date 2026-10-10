@@ -5364,6 +5364,378 @@ git commit -m "feat(人物skill): 接上导航与草稿守卫"</div>
   </div>
 </section>
 
+<!-- ============================ Task 11 ============================ -->
+<section>
+<h2><span class="tnum">Task 11</span>审查修复：并发保存覆盖、确定性记账、提示词截断</h2>
+<p class="task-meta">Files: <code>src/lib/novel/persona-skill-store.ts</code>（1 处 export + 注释）、<code>src/lib/novel/persona-skill-learning.ts</code>（4 处）、<code>src/lib/novel/persona-skill-prompt.ts</code>（1 处截断）、<code>src/lib/novel/persona-skill-learning.spec.ts</code>（+3 用例，28→31）、<code>src/lib/novel/persona-skill-prompt.spec.ts</code>（+1 用例，11→12）。</p>
+
+<div class="callout bad">
+  <span class="t">这四条是 Task 1–10 完成后的独立代码审查发现的真实缺陷，全部是**计划自身的缺陷**</span>
+  <p>Task 1–10 的实现与计划<b>逐字一致</b>，双 tsc 与全部用例都是绿的。这四条不是实现者写错了，而是<b>计划当初就漏了</b>。所以不要回退任何已提交的东西，只在原地补。</p>
+  <p>四条都经过逐行核实（引用行号见下），不是「可能有问题」。</p>
+</div>
+
+<div class="step">
+  <div class="head"><input type="checkbox"><span>Step 1（必修 · Critical）：让 <code>editedByUser</code> 在锁内的新鲜值下判定</span></div>
+  <p><b>缺陷</b>：<code>applyPersonaSkillDrafts</code> 用 <code>input.index</code> 判定 <code>existing?.editedByUser</code>（<code>learning.ts:492</code> 与 <code>:516</code>），而那份索引是<b>整轮 LLM 调用之前</b>从锁里捞出的快照（<code>:575</code>，到 apply 之间隔着 <code>:599-606</code> 的模型调用）。<code>persona-skill-view.tsx:143-161</code> 的「保存」正是在这个窗口里由用户触发的。</p>
+  <p><b>后果</b>：<code>renderPersonaSkillDocument</code> 的 <code>if (input.editedByUser &amp;&amp; input.existing?.trim())</code>（<code>:359</code>）走不到，落到 <code>:374</code> 那条<b>丢弃 <code>existing</code></b> 的分支 —— 用户手写的正文被整份覆盖，且 <code>editedByUser</code> 被回写成 <code>false</code>，连「以后别再覆盖」的护栏一起丢。</p>
+  <p><b>为什么必须修</b>：设计 <code>specs/2026-10-10-persona-skill-design.html</code> 原文「保存后置 <code>editedByUser = true</code>……不再整份覆盖。否则用户的手工修改会在下一次「提取记忆」时静默丢失，<b>这是必须守住的一条</b>」。</p>
+  <p><b>第一步</b>：<code>persona-skill-store.ts:197</code> 把内部严格读导出（只是加 <code>export</code>，行为不变），并补一句说明它<b>只读、不取锁</b>，供「必须在锁内读新鲜值」的调用方使用：</p>
+  <pre><code>/**
+ * 写入前用的严格读。文件不存在返回 null；坏 JSON、读失败、条目会被静默丢弃、
+ * 版本不认识 —— 一律 console.warn 后抛。抛是对的：宁可这一轮失败，
+ * 也不能把「丢过字段 / 丢过条目」的结果写回磁盘，那等于永久删除。
+ *
+ * 同时供**已经在锁内**、需要读到新鲜值的调用方使用（如 applyPersonaSkillDrafts
+ * 要按用户最新的 editedByUser 决定是否保留手改正文）。
+ * 它自己不取锁 —— 在 withPersonaSkillLock 里再调它不会死锁。
+ */
+export async function loadPersonaSkillIndexStrict(projectPath: string): Promise&lt;PersonaSkillIndex | null&gt; {</code></pre>
+  <p><b>第二步</b>：把 <code>learning.ts</code> 的 <code>applyPersonaSkillDrafts</code>（<code>:457-549</code>）整段换成下面这版。要点是<b>读新鲜索引、写正文、合并两份 json 全在同一把锁内</b>，并且顺手修掉原实现里两处小问题（<code>input.index</code> 不再需要、<code>:541-544</code> 那个「没变化就不写」的假三元）：</p>
+  <pre><code>/** 把草稿落到 SKILL.md / 研究文件 / index，并把已建档的人从候选池移走。返回真正写入的人数。 */
+export async function applyPersonaSkillDrafts(input: ApplyPersonaSkillInput): Promise&lt;number&gt; {
+  // 全程在同一把锁内：从读新鲜索引到写回索引，中间不放任何别的写者进来。
+  // 关键是「新鲜」二字 —— 用户可能在整轮 LLM 调用期间（数秒到数十秒）在
+  // 「人物 Skill」页保存过手改正文。若拿外面那份快照判定 editedByUser，
+  // 会走进 renderPersonaSkillDocument 的 false 分支，把用户正文整份覆盖掉。
+  return withPersonaSkillLock(personaSkillLockKey(input.projectPath), async () =&gt; {
+    const index = (await loadPersonaSkillIndexStrict(input.projectPath)) ?? { version: 1, skills: [] }
+    const sightings = await loadPersonaSightings(input.projectPath)
+    const appearanceByName = new Map(
+      input.appearances.map((item) =&gt; [normalizePersonaName(item.characterName), item]),
+    )
+    const updatedAt = new Date().toISOString()
+    const upserts: PersonaSkillMeta[] = []
+
+    for (const plan of input.plans) {
+      const draft = input.drafts.find(
+        (item) =&gt; normalizePersonaName(item.characterName) === normalizePersonaName(plan.characterName),
+      )
+      if (!draft) continue
+      if (Object.values(draft.fields).every((value) =&gt; !value.trim())) continue
+
+      const existing = findPersonaSkillMeta(index, plan.characterName, plan.aliases)
+      const id = existing?.id ?? personaSkillIdFor(plan.characterName)
+      const appearance = appearanceByName.get(normalizePersonaName(plan.characterName))
+      const previousDocument = existing ? await readPersonaSkillDocument(input.projectPath, id) : ""
+
+      await writePersonaSkillDocument(
+        input.projectPath,
+        id,
+        renderPersonaSkillDocument({
+          characterName: plan.characterName,
+          aliases: existing ? uniqueNames([...existing.aliases, ...plan.aliases]) : plan.aliases,
+          roleType: plan.roleType || existing?.roleType || "",
+          tier: plan.tier,
+          pinned: plan.pinned,
+          appearanceCount: Math.max(plan.appearanceCount, existing?.appearanceCount ?? 0),
+          firstChapter: existing?.firstChapter || appearance?.firstChapter || input.chapterNumber,
+          lastChapter: input.chapterNumber,
+          chapterNumber: input.chapterNumber,
+          fields: draft.fields,
+          existing: previousDocument,
+          editedByUser: existing?.editedByUser ?? false,
+        }),
+      )
+
+      let hasResearch = existing?.hasResearch ?? false
+      if (plan.withResearch &amp;&amp; Object.keys(draft.research).length &gt; 0) {
+        const written = await writePersonaSkillResearch(input.projectPath, id, draft.research)
+        if (written.length &gt; 0) hasResearch = true
+      }
+
+      upserts.push({
+        id,
+        characterName: plan.characterName,
+        aliases: uniqueNames([...(existing?.aliases ?? []), ...plan.aliases]),
+        roleType: plan.roleType || existing?.roleType || "",
+        tier: plan.tier,
+        pinned: plan.pinned,
+        status: "active",
+        firstChapter: existing?.firstChapter || appearance?.firstChapter || input.chapterNumber,
+        lastChapter: input.chapterNumber,
+        appearanceCount: Math.max(plan.appearanceCount, existing?.appearanceCount ?? 0),
+        createdChapter: existing?.createdChapter || input.chapterNumber,
+        lastLearnedChapter: input.chapterNumber,
+        skillRevision: (existing?.skillRevision ?? 0) + 1,
+        editedByUser: existing?.editedByUser ?? false,
+        hasResearch,
+        updatedAt,
+      })
+    }
+
+    if (upserts.length === 0) return 0
+
+    // 「插进 index」与「从候选池移走」在同一个锁内、同一个决策点完成。
+    // 注意仍是两次 writeFileAtomic，中间崩溃会留下一条冗余的 sighting ——
+    // 但顺序是 index 先、sightings 后，反过来崩会把人从候选池彻底丢掉，那更糟。
+    const skills = [...index.skills]
+    for (const meta of upserts) {
+      const position = skills.findIndex((item) =&gt; item.id === meta.id)
+      if (position &gt;= 0) skills[position] = { ...skills[position], ...meta }
+      else skills.push(meta)
+    }
+    await savePersonaSkillIndex(input.projectPath, { version: 1, skills })
+
+    const createdIds = new Set(upserts.map((meta) =&gt; normalizePersonaName(meta.characterName)))
+    const remaining = sightings.sightings.filter(
+      (item) =&gt; !createdIds.has(normalizePersonaName(item.characterName)),
+    )
+    if (remaining.length !== sightings.sightings.length) {
+      await savePersonaSightings(input.projectPath, { version: 1, sightings: remaining })
+    }
+    return upserts.length
+  })
+}</code></pre>
+  <p><b>第三步</b>：<code>ApplyPersonaSkillInput</code>（<code>:448</code>）删掉 <code>index</code> 字段（已不再使用），调用处 <code>:612-619</code> 去掉 <code>index,</code> 那一行。import 块补进 <code>loadPersonaSkillIndexStrict</code>、<code>loadPersonaSightings</code>、<code>savePersonaSkillIndex</code>、<code>savePersonaSightings</code>、<code>withPersonaSkillLock</code>、<code>personaSkillLockKey</code>。<b>注意 <code>updatePersonaSkillState</code> 仍在 <code>:573</code> 使用，不要从 import 里删。</b></p>
+  <p><b>第四步</b>：<code>:569-570</code> 那段注释是<b>误导</b>——它说「权威写入在 applyPersonaSkillDrafts 里会于锁内重读」，但原实现重读的是锁里那份 <code>state.index</code>、而 upsert 的 16 个字段全部来自陈旧 <code>meta</code>。改成：</p>
+  <pre><code>    // index 顺手从同一次锁内快照里捞出来，只用于「按名字找已有 id」。
+    // applyPersonaSkillDrafts 会在自己的锁内重新读一份新鲜索引来判定
+    // editedByUser / hasResearch —— 那份快照到 apply 之间隔着整轮模型调用，
+    // 用它判定会把用户在调用期间保存的手改正文覆盖掉。</code></pre>
+</div>
+
+<div class="step">
+  <div class="head"><input type="checkbox"><span>Step 2（必修 · Important）：已建档人物的出场记账要落在**零 LLM 的确定性部分**</span></div>
+  <p><b>缺陷</b>：<code>:573-579</code> 的 <code>mutate</code> <b>只返回 <code>{ sightings }</code></b>。已建档的人不在候选池里，<code>collectChapterAppearances</code> 为他在 <code>:193</code> 算出的 <code>appearanceCount + 1</code> 与 <code>lastChapter</code> <b>只活在内存</b>的 <code>appearances</code> 里。把它们写进 index 的唯一地方是 <code>applyPersonaSkillDrafts</code>，而它要求有可用草稿（<code>:469</code> 无草稿、<code>:470</code> 字段全空、<code>:522</code> <code>upserts.length === 0</code> 三条路径都跳过）。<code>:583</code> 与 <code>:622</code> 却又用<b>旧的 <code>lastChapter</code></b> 调 <code>refreshPersonaSkillStatuses</code>。</p>
+  <p><b>后果</b>：某配角上次 <code>lastChapter=5</code>，第 45 章回归但模型这次漏了他 → <code>gap=40</code> → <code>archived</code>。而 D5 规定休眠/归档<b>不注入</b>，于是「正在场上的人」不进写作上下文；<code>pinned=false</code> 时也不会自愈。同时 <code>appearanceCount</code> 永久少一次，minor 的「≥3 才完善」与注入排序都会静默偏掉。</p>
+  <p><b>设计依据</b>：<code>design.html:406</code>「已在 index 的角色<b>直接更新 index 内的计数</b>」——明确属于步骤 1–4 的<b>零 LLM 确定性部分</b>；<code>:483</code>「<b>任何一次出场</b>把 <code>status</code> 拉回 <code>active</code>，<code>lastChapter</code> 更新」。计划的图示写成「只写候选池」，与设计不一致。</p>
+  <p><b>改法</b>：把 <code>:571-579</code> 换成下面这版。<b>不要碰 <code>lastLearnedChapter</code> 与 <code>skillRevision</code></b>——前者是「本轮是否已烧过模型」的幂等闸门，后者是 LLM 产物的版本号；在这里推进它们会让下一轮误判「已经学过了」。</p>
+  <pre><code>    let appearances: PersonaChapterAppearance[] = []
+    let index: PersonaSkillIndex = { version: 1, skills: [] }
+    await updatePersonaSkillState(pp, (state) =&gt; {
+      // 注意：mutate 必须是同步的，别在这里 await（会拖住候选池落盘）。
+      index = state.index
+      const collected = collectChapterAppearances(state.index, state.sightings, chapter, roleTypes)
+      appearances = collected.appearances
+
+      // 已建档人物的出场记账必须在这里落盘，不能只留在内存里等 applyPersonaSkillDrafts：
+      // 那一趟要求模型返回可用草稿，模型漏了这个人或字段全空时它会整条跳过，
+      // 而这些人的 lastChapter 就永远停在旧值 → 下一句 refresh 按旧值算 gap → 把
+      // 正在场上的人判成 dormant/archived（D5 规定不注入，等于人凭空从上下文里消失）。
+      // 这里只动「出场事实」三个字段，绝不动 lastLearnedChapter / skillRevision。
+      const skills = state.index.skills.map((meta) =&gt; {
+        const appearance = collected.appearances.find(
+          (item) =&gt; normalizePersonaName(item.characterName) === normalizePersonaName(meta.characterName),
+        )
+        if (!appearance) return meta
+        // 回填旧章：本章比这个人的最后一次出场还早，这跟「他最近有没有出场」无关。
+        // 一律不动 —— 既不把已归档的人复活（Step 4 那道守卫防的是同一件事的另一半），
+        // 也不给计数灌水：index 里没有 chapters[]，无从判断这一次是不是早就计过了。
+        if (chapter.chapterNumber &lt; meta.lastChapter) return meta
+        return {
+          ...meta,
+          appearanceCount: Math.max(meta.appearanceCount, appearance.appearanceCount),
+          lastChapter: Math.max(meta.lastChapter, chapter.chapterNumber),
+          status: "active" as const,
+        }
+      })
+
+      // 只有真的改到了才返回 index。无条件返回的话，一个还没建档过任何人的项目
+      // 每轮都会凭空多出一个空的 index.json —— 那就把「从没建过档」和「建过档」
+      // 这两件事混掉了（既有用例正盯着这一点：次要人物第一次出场必须不建 index）。
+      const changed = skills.some((meta, position) =&gt; meta !== state.index.skills[position])
+      if (!changed) return { sightings: collected.sightings }
+
+      return { index: { version: 1, skills }, sightings: collected.sightings }
+    })</code></pre>
+  <div class="callout warn">
+    <span class="t">为什么这里不会和 apply 里那次计数双记</span>
+    <p>两处都用 <code>Math.max</code> 收口：这里的 <code>Math.max(meta.appearanceCount, appearance.appearanceCount)</code> 与 apply 里的 <code>Math.max(plan.appearanceCount, existing?.appearanceCount ?? 0)</code> 取的是<b>同一个上界</b>（<code>appearance.appearanceCount</code> 就是 <code>meta.appearanceCount + 1</code>，且 <code>:188</code> 的 <code>alreadyCounted</code> 已挡住同章重摄）。所以先写后写都得到同一个值，不是两次 <code>+1</code>。</p>
+    <p>另外这也顺带把 <code>:583</code> 那条 <code>plans.length === 0</code> 的早返回路径修好了 —— 它以前是「什么都不写就 refresh」，现在出场记账已经落盘。</p>
+    <p><b>回填旧章（<code>chapter.chapterNumber &lt; meta.lastChapter</code>）时这一整段是空操作</b>，这一点不能省：否则第 45 章建档、<code>lastChapter=40</code> 的人被回填一次第 5 章就会被写成 <code>status: "active"</code>，把 Step 4 要防的事从另一头做坏了（Step 5 的第 ③ 条用例正是钉这个）。</p>
+  </div>
+</div>
+
+<div class="step">
+  <div class="head"><input type="checkbox"><span>Step 3（必修 · Important）：<code>existingSkill</code> 必须截断</span></div>
+  <p><b>缺陷</b>：<code>learning.ts:596</code> 读<b>全量</b> SKILL.md 塞进 <code>existing</code>，<code>persona-skill-prompt.ts:97</code> 原样 <code>target.existingSkill.trim()</code> 拼进 user prompt，<b>没有任何 slice</b>。同文件只对章节正文做了预算（<code>:47-58</code> 的 <code>buildPersonaSkillBody</code>）。</p>
+  <p>而 <code>renderPersonaSkillDocument:359-372</code> 在 <code>editedByUser</code> 为真时<b>每次都新追加</b>一个 <code>## 补充（第 N 章）</code>，既有正文全量保留 → 文档随出场章数<b>线性增长</b>；<code>types.ts:204-208</code> 又让 major/pinned <b>每章都 refine</b>。</p>
+  <p><b>后果</b>：只要用户按需求原文「编辑过」一次档案（这正是本功能宣传的用法），此后每章请求都带上整部累积文档。先是成本与延迟失控，最终<b>超出上下文窗口 → 每轮 streamChat 抛错 → 被 <code>:623</code> 吞成 warn → 该人物学习永久静默失效</b>，且文档永不缩小，不会自愈。设计 §7 的 4000 字封顶走的是<b>注入</b>路径，救不了学习路径。</p>
+  <p><b>设计依据</b>：<code>design.html:414</code> 明文「提示词输入：本章正文（截断）+ 每个 refine 目标现有的 <code>SKILL.md</code>（<b>截断</b>）+……」——这一条 Task 3 与 Task 4 都没做，计划里就没有这一步。</p>
+  <p><b>改法</b>：<code>persona-skill-prompt.ts</code> 在 <code>:13</code> 之后加两个常量，并把 <code>:92-100</code> 的整段拼接收进一个截断函数。头尾都留：<b>尾部含最近的「补充」段</b>，正是增量补充最需要的上下文。</p>
+  <pre><code>export const PERSONA_SKILL_DOC_HEAD_CHARS = 3000
+export const PERSONA_SKILL_DOC_TAIL_CHARS = 3000
+
+/**
+ * 既有档案进提示词前必须截断。用户手改过的档案每章会被追加一段「补充」，
+ * 正文随出场章数线性增长；不截断的话几百章后单次请求带上整部累积文档，
+ * 最终超上下文 → streamChat 每轮抛错 → 被学习函数的 catch 吞成 warn →
+ * 这个人的学习永久静默失效（而文档不会自己缩小，不会自愈）。
+ */
+export function buildPersonaSkillExisting(document: string): string {
+  const body = document.trim()
+  const budget = PERSONA_SKILL_DOC_HEAD_CHARS + PERSONA_SKILL_DOC_TAIL_CHARS
+  if (body.length &lt;= budget) return body
+  return [
+    body.slice(0, PERSONA_SKILL_DOC_HEAD_CHARS),
+    "",
+    "……（中间省略）……",
+    "",
+    body.slice(-PERSONA_SKILL_DOC_TAIL_CHARS),
+  ].join("\n")
+}</code></pre>
+  <p>然后 <code>:92-100</code> 改成：</p>
+  <pre><code>  if (target.existingSkill?.trim()) {
+    lines.push(
+      "",
+      "已有档案（在其之上补充，不要重写）：",
+      "```markdown",
+      buildPersonaSkillExisting(target.existingSkill),
+      "```",
+    )
+  }</code></pre>
+</div>
+
+<div class="step">
+  <div class="head"><input type="checkbox"><span>Step 4（必修 · Important）：回填旧章不得重算生命周期</span></div>
+  <p><b>缺陷</b>：<code>:583</code> / <code>:622</code> 无条件用 <code>chapter.chapterNumber</code> 当「当前章」调 <code>refreshPersonaSkillStatuses</code>，<code>:388</code> 直接交给 <code>resolvePersonaStatus(meta.lastChapter, currentChapter, pinned)</code>。<b>从未提取过</b>的旧章不是 reingest（<code>chapter-ingest.ts:412</code> 的 <code>isReingest = existingSnapshot != null</code>），所以用户回填前面章节时钩子会正常运行，并用旧章号刷新全库状态。</p>
+  <p><b>后果</b>：在第 40 章已判 <code>archived</code> 的人物，只要用户回填一次第 5 章，就被写回 <code>active</code> 并进入 D5 注入 —— 写作上下文里混进早已退场的人物，要等下一次按顺序摄取更靠后的章才自愈。</p>
+  <p><b>改法</b>：<code>refreshPersonaSkillStatuses</code> 的 <code>map</code> 里加一道前置判断 —— <b>本章比这个人的最后一次出场还早，就根本不重算</b>。注意<b>不能</b>用「把 currentChapter 夹到 max(currentChapter, meta.lastChapter)」这种写法：那样 gap 恒为 0，反而会把已归档的人一律复活，方向正好反了。</p>
+  <pre><code>    const skills = index.skills.map((meta) =&gt; {
+      // 回填旧章时不能按旧章号重算：本章比这个人的最后一次出场还早，
+      // 说明这是一次乱序补提取，与「他最近有没有出场」无关。
+      // （若把 currentChapter 夹成 max(currentChapter, meta.lastChapter)，gap 恒为 0，
+      //   会把已归档的人一律复活 —— 方向正好反了，别那么写。）
+      if (currentChapter &lt; meta.lastChapter) return meta
+      const status = resolvePersonaStatus(meta.lastChapter, currentChapter, meta.pinned)
+      if (status === meta.status) return meta
+      changed = true
+      return { ...meta, status, updatedAt }
+    })</code></pre>
+</div>
+
+<div class="step">
+  <div class="head"><input type="checkbox"><span>Step 5：四条回归用例（先红后绿）</span></div>
+  <p>先只加上这些用例、跑一次确认它们<b>红</b>，再落实现。加在 <code>persona-skill-learning.spec.ts</code> 的 <code>learnPersonaSkillsFromChapter</code> describe 末尾（<b>4 条</b>），以及 <code>persona-skill-prompt.spec.ts</code> 末尾（<b>1 条</b>）。</p>
+  <p><b>① 并发保存不丢手改正文（C1）</b>——关键字是「在 <code>streamChat</code> 的 mock 内部」模拟用户保存，那正是原来出错的窗口：</p>
+  <pre><code>  it("模型调用期间用户保存了手改正文：正文保留、editedByUser 不回退", async () =&gt; {
+    seedIndex([
+      { characterName: "林清越", id: "林清越", roleType: "男主", pinned: false, appearanceCount: 1, lastChapter: 0, editedByUser: false, createdChapter: 1, skillRevision: 1 },
+    ])
+    io.files.set(
+      `${project}/.qmai/persona-skills/林清越/SKILL.md`,
+      "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n旧的内容。\n",
+    )
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) =&gt; void; onDone: () =&gt; void }) =&gt; {
+        // 模拟「整轮模型调用期间，用户在人物 Skill 页点了保存」
+        io.files.set(
+          `${project}/.qmai/persona-skills/林清越/SKILL.md`,
+          "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n用户亲手改的句子。\n",
+        )
+        const saved = JSON.parse(io.files.get(indexFile)!) as { skills: Array&lt;Record&lt;string, unknown&gt;&gt; }
+        saved.skills[0].editedByUser = true
+        io.files.set(indexFile, JSON.stringify(saved))
+        callbacks.onToken(JSON.stringify({ skills: [{ name: "林清越", fields: { 怎么说话: "本章新观察。" } }] }))
+        callbacks.onDone()
+      },
+    )
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 2, chapterBody: "第二章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    const document = io.files.get(`${project}/.qmai/persona-skills/林清越/SKILL.md`)!
+    // 用户那句话必须还在（原实现会整份丢掉，只剩「本章新观察。」）
+    expect(document).toContain("用户亲手改的句子。")
+    expect(document).toContain("## 补充（第 2 章）")
+    // 护栏不能一起丢，否则下一次还会覆盖
+    expect(readIndex()!.skills[0].editedByUser).toBe(true)
+  })</code></pre>
+  <p><b>② 模型漏掉已建档的人，其出场仍要记账（I1）</b>：</p>
+  <pre><code>  it("模型漏了已建档的人：他的 lastChapter 与状态仍然前进", async () =&gt; {
+    seedIndex([
+      { characterName: "沈砚", id: "沈砚", roleType: "配角", pinned: false, appearanceCount: 3, lastChapter: 5, createdChapter: 3, skillRevision: 1 },
+      { characterName: "林清越", id: "林清越", roleType: "男主", pinned: false, appearanceCount: 2, lastChapter: 5, createdChapter: 1, skillRevision: 1 },
+    ])
+    // 模型只回了林清越，一个字都没提沈砚
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) =&gt; void; onDone: () =&gt; void }) =&gt; {
+        callbacks.onToken(JSON.stringify({ skills: [{ name: "林清越", fields: { 怎么说话: "照旧。" } }] }))
+        callbacks.onDone()
+      },
+    )
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 45, chapterBody: "第四十五章正文", characters: ["沈砚", "林清越"] },
+      llmConfig,
+    })
+
+    const shen = readIndex()!.skills.find((item) =&gt; item.characterName === "沈砚")!
+    // 原实现里他停在 lastChapter=5 → gap=40 → archived（正在场上的人被移出注入）
+    expect(shen.lastChapter).toBe(45)
+    expect(shen.status).toBe("active")
+    expect(shen.appearanceCount).toBe(4)
+  })</code></pre>
+  <p><b>③ 回填旧章不复活已归档的人（I3）</b>：</p>
+  <pre><code>  it("回填旧章：已归档的人不会因为旧章号被复活", async () =&gt; {
+    seedIndex([
+      { characterName: "沈砚", id: "沈砚", roleType: "配角", pinned: false, appearanceCount: 9, lastChapter: 40, createdChapter: 3, skillRevision: 4, status: "archived" },
+    ])
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) =&gt; void; onDone: () =&gt; void }) =&gt; {
+        callbacks.onToken(JSON.stringify({ skills: [] }))
+        callbacks.onDone()
+      },
+    )
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 5, chapterBody: "第五章正文", characters: ["沈砚"] },
+      llmConfig,
+    })
+
+    // 原实现：currentChapter(5) - lastChapter(40) = -35 → 负数 gap 落进 return "active"
+    expect(readIndex()!.skills[0].status).toBe("archived")
+  })</code></pre>
+  <p><b>④ 提示词里既有档案被截断（I2）</b>，加在 <code>persona-skill-prompt.spec.ts</code>：</p>
+  <pre><code>  it("既有档案过长时被截断，头尾都保留", () =&gt; {
+    const head = "头".repeat(4000)
+    const tail = "尾".repeat(4000)
+    const message = buildPersonaSkillUserPrompt({
+      chapterNumber: 7,
+      chapterBody: "正文",
+      targets: [{
+        characterName: "林清越",
+        roleType: "男主",
+        tier: "major" as const,
+        mode: "refine" as const,
+        aliases: [],
+        appearanceCount: 3,
+        pinned: false,
+        withResearch: false,
+        existingSkill: `${head}${tail}`,
+      }],
+    })
+
+    expect(message).toContain("中间省略")
+    expect(message).toContain("头".repeat(100))
+    expect(message).toContain("尾".repeat(100))
+    // 7000+ 字的档案不能整份进提示词
+    expect(message.length).toBeLessThan(8000)
+  })</code></pre>
+  <p>预期计数：<code>persona-skill-learning.spec.ts</code> <b>28 → 31</b>（本任务加 3 条：①②③；<b>注意基线是 28 不是 25</b> —— Task 4 交付 25 条，Task 5 又在同一文件追加了 3 条），<code>persona-skill-prompt.spec.ts</code> <b>11 → 12</b>（第 ④ 条）。全量总数从 729/7092 变为 <b>729 文件 / 7096 用例</b>。</p>
+</div>
+
+<div class="step">
+  <div class="head"><input type="checkbox"><span>Step 6：跑门禁并提交</span></div>
+  <div class="run">npx vitest run src/lib/novel/persona-skill-learning.spec.ts src/lib/novel/persona-skill-prompt.spec.ts src/lib/novel/persona-skill-store.spec.ts src/lib/novel/persona-skill-context.spec.ts src/lib/novel/persona-skill-types.spec.ts
+npx tsc --build --pretty
+npx tsc -p tsconfig.test.json --noEmit</div>
+  <div class="expect">
+    <span class="t">Expected</span>
+    用例全绿（31 + 12 + 33 + 17 + 21 = <b>114</b>），两个 <code>tsc</code> 都 exit 0、无输出。<code>persona-skill-store.spec.ts</code> 必须一起跑 —— Step 1 给它加了一个 <code>export</code>，虽然不改行为，但它在 store 的公开面上。
+  </div>
+  <div class="run">git add src/lib/novel/persona-skill-store.ts src/lib/novel/persona-skill-learning.ts src/lib/novel/persona-skill-prompt.ts src/lib/novel/persona-skill-learning.spec.ts src/lib/novel/persona-skill-prompt.spec.ts
+git commit -m "fix(人物skill): 保住并发保存的手改正文，并让出场记账确定性地落盘"</div>
+</div>
+
+</section>
+
 <!-- ============================ 验收 ============================ -->
 <section>
   <h2>验收清单</h2>

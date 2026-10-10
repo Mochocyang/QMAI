@@ -12,6 +12,28 @@ import {
 export const PERSONA_SKILL_BODY_HEAD_CHARS = 4000
 export const PERSONA_SKILL_BODY_TAIL_CHARS = 2000
 
+export const PERSONA_SKILL_DOC_HEAD_CHARS = 3000
+export const PERSONA_SKILL_DOC_TAIL_CHARS = 3000
+
+/**
+ * 既有档案进提示词前必须截断。用户手改过的档案每章会被追加一段「补充」，
+ * 正文随出场章数线性增长；不截断的话几百章后单次请求带上整部累积文档，
+ * 最终超上下文 → streamChat 每轮抛错 → 被学习函数的 catch 吞成 warn →
+ * 这个人的学习永久静默失效（而文档不会自己缩小，不会自愈）。
+ */
+export function buildPersonaSkillExisting(document: string): string {
+  const body = document.trim()
+  const budget = PERSONA_SKILL_DOC_HEAD_CHARS + PERSONA_SKILL_DOC_TAIL_CHARS
+  if (body.length <= budget) return body
+  return [
+    body.slice(0, PERSONA_SKILL_DOC_HEAD_CHARS),
+    "",
+    "……（中间省略）……",
+    "",
+    body.slice(-PERSONA_SKILL_DOC_TAIL_CHARS),
+  ].join("\n")
+}
+
 /** 这一轮是提取任务：低温、关推理、不注入全局用户记忆。 */
 export const PERSONA_SKILL_REQUEST_OVERRIDES: RequestOverrides = {
   temperature: 0.3,
@@ -94,7 +116,7 @@ function describeTarget(target: PersonaSkillPromptTarget): string {
       "",
       "已有档案（在其之上补充，不要重写）：",
       "```markdown",
-      target.existingSkill.trim(),
+      buildPersonaSkillExisting(target.existingSkill),
       "```",
     )
   }

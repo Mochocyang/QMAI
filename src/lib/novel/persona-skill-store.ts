@@ -193,8 +193,12 @@ function sanitizeSighting(raw: unknown): PersonaSkillSighting | null {
  * 写入前用的严格读。文件不存在返回 null；坏 JSON、读失败、条目会被静默丢弃、
  * 版本不认识 —— 一律 console.warn 后抛。抛是对的：宁可这一轮失败，
  * 也不能把「丢过字段 / 丢过条目」的结果写回磁盘，那等于永久删除。
+ *
+ * 同时供**已经在锁内**、需要读到新鲜值的调用方使用（如 applyPersonaSkillDrafts
+ * 要按用户最新的 editedByUser 决定是否保留手改正文）。
+ * 它自己不取锁 —— 在 withPersonaSkillLock 里再调它不会死锁。
  */
-async function loadPersonaSkillIndexStrict(projectPath: string): Promise<PersonaSkillIndex | null> {
+export async function loadPersonaSkillIndexStrict(projectPath: string): Promise<PersonaSkillIndex | null> {
   const path = personaSkillIndexPath(projectPath)
   const read = await readJsonStrict(path)
   if (read.missing) return null
