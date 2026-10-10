@@ -336,6 +336,64 @@ tab 高亮错（`:700` 的 `aria-pressed` 会把「去AI味」标成选中）、
      前者要产出 `""`（真的不注入），后者要产出启用项的文本。
      用 `undefined` = 没覆盖、`null` = 显式不用，**不要把两者都当成 falsy 混用**
      （否则「不用文风」会退化成「用已启用的文风」，正好相反）。
+
+   #### 🔴 补漏 2（实施前必读）：`deep-chapter-generation.ts` **拿不到渲染器**，
+   #### 且 `:782` 处在**同步**表达式里 —— 三点必须照做，否则实施者会卡住或走偏
+   上面已定「注入点在 `deep-chapter-generation.ts:782`」。但只说了「在哪儿用」，
+   没说「在那儿**怎么拿到**渲染结果」。已实读确认三处硬事实：
+
+   **(a) `DeepChapterGenerationDeps`（`:145-163`）里既没有渲染器、也没有项目路径。**
+   它只有 `buildContextPack` / `contextPackToPrompt` / `reviewChapter` +
+   3 个可选 dep（`runChapterPlanComplianceCheck` / `runChapterPlanDeviationRepair` /
+   `runChapterExecutionContractBuild`）+ `streamChat` + `collectWritingEntityWebSearch`。
+   ⇒ **必须新增一个可选 dep**，例如：
+   ```ts
+   buildWritingStyleContext?: typeof buildWritingStyleContext;
+   ```
+   ⚠️ **照抄既有可选 dep 的取值形状**：`deps.x ?? 真实实现`，先例三处 ——
+   `:553` `deps.runChapterExecutionContractBuild || runChapterExecutionContractBuild`、
+   `:1765` `deps.runChapterPlanComplianceCheck || runChapterPlanComplianceCheck`、
+   `:2543` `args.deps.collectWritingEntityWebSearch ?? collectWritingEntityWebSearch`。
+   ⚠️ **不要**加进 `defaultDeps`（`:165-170`）：它刻意只放 4 个必填项，
+   3 个可选 dep 都不在里面。加进去会改变「省略 dep 时的行为」语义。
+   ⚠️ **不要**把它改成**必填** —— `deep-chapter-generation.spec.ts` 等大量测试
+   只构造部分 deps，必填会引发大面积编译失败（正是本批要避免的无谓返工）。
+
+   **(b) 项目路径现成可用，不必新增参数：`input.projectPath`（`:79`）。**
+   所以**不需要**再往 deps 里塞 projectPath，也不要去读全局 store。
+
+   **(c) ⚠️ `:778-788` 的 `contextPrompt` 是 `join` 出来的**同步**表达式**，
+   而 `buildWritingStyleContext` 是 `async`（`:238` 返回 `Promise<string>`）。
+   ⇒ **不能**在 `:782` 那一行内 `await`。必须先在上面（`runDeepChapterGeneration`
+   内部、`:778` 之前）**先把覆盖文本 await 出来**，再在构造 `contextPrompt` 时
+   用它替换 `contextPack.writingStyle`。
+   好消息：`runDeepChapterGeneration`（`:521`）本身就是 `export async function`，
+   所以多一个 `await` **合法**，不需要改函数签名或调用方。
+   推荐形状（浅拷贝 + 只改本次调用，见本文件上一段对缓存 key 的分析）：
+   ```ts
+   const styleOverrideText = input.writingStyleIdOverride === undefined
+     ? undefined
+     : await (deps.buildWritingStyleContext ?? buildWritingStyleContext)(
+         input.projectPath,
+         { task: …, styleIdOverride: input.writingStyleIdOverride },
+       )
+   const effectivePack = styleOverrideText === undefined
+     ? contextPack
+     : { ...contextPack, writingStyle: styleOverrideText }
+   ```
+   然后 `:782` 的 `contextPackToPrompt(effectivePack, …, { excludeOutline: true })`。
+   ⚠️ 注意 `undefined`（无覆盖，保持原 pack）与 `null`（显式不用 → 渲染器返回 `""`）
+   的区别要在这一层**同样保留**：`null` 走渲染器、拿到 `""`、覆盖掉原文本；
+   `undefined` 连渲染器都不调。这正是上面第 2 条要求的延续，别在这一层丢掉。
+
+   **(d) `writingStyleIdOverride` 放哪：放 `DeepChapterGenerationInput`（`:78-91`）。**
+   已确认这两个字段的先例就在同一个接口里：`planBlueprint?`（`:88`）、
+   `skillsPrompt?`（`:90`），都是「会话层选项经此接口进入生成」。
+   ⇒ 新增 `writingStyleIdOverride?: string | null`，**两个调用方都传**
+   （`chat-panel.tsx` 的正文生成、以及本批新加的章节区链路）。
+   ⚠️ `input.projectPath`/`userRequest`/`llmConfig` 是必填；新字段必须**可选**，
+   否则 `deep-chapter-generation.spec.ts` 里所有既有构造都会编译失败。
+
 3. **接到工具层**：照 `skillsPrompt` 的**「getter 注入」**通路形状
    （**已实测确认为一条完整链**，不是参数一路透传）：
    - 产出（pull 模型）：`chat-panel.tsx:1084` 的 `getSelectedSkillsPrompt` 回调
