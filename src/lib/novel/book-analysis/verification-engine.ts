@@ -12,7 +12,8 @@ import { createAnalysisStageCache, type AnalysisStageCache } from "./analysis-st
 import type { LlmConfig } from "@/stores/wiki-store"
 import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
 import { joinPath, normalizeComparablePath } from "@/lib/path-utils"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import { type ChatMessage } from "@/lib/llm-client"
+import { callAnalysisModelText } from "@/lib/novel/book-analysis/analysis-model-call"
 import type { ExtractedCharacter } from "./types"
 import { isWritingDnaProfile, migrateStyleProfile } from "./style-profile-schema"
 import type { BookStyleProfile } from "./types"
@@ -59,17 +60,11 @@ async function defaultCallModel(
   signal: AbortSignal,
   onRequestTrace?: VerificationRunOptions["onRequestTrace"],
 ): Promise<string> {
-  let output = ""
-  let streamError: Error | null = null
-  await streamChat(llmConfig, messages, {
-    onToken: (token) => { output += token },
-    onDone: () => {},
-    onError: (error) => { streamError = error },
+  return callAnalysisModelText(llmConfig, messages, {
+    signal,
     onRequestTrace,
-  }, signal, { reasoning: llmConfig.reasoning })
-  if (signal.aborted) throw new Error("用户取消验证")
-  if (streamError) throw streamError
-  return output.trim()
+    cancelMessage: "用户取消验证",
+  })
 }
 
 const defaultDependencies: VerificationEngineDependencies = {

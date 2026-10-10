@@ -1,5 +1,6 @@
 import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import { callAnalysisModelText } from "@/lib/novel/book-analysis/analysis-model-call"
 import { upsertPlotFramework } from "@/lib/novel/plot-framework-library"
 import { loadMetadata } from "./analysis-engine"
 import { llmRecognizeCharacters } from "./character-llm-recognizer"
@@ -49,17 +50,11 @@ async function callStoryModel(
   signal: AbortSignal,
   onRequestTrace?: (trace: LlmRequestCacheTrace) => void,
 ): Promise<string> {
-  let output = ""
-  let streamError: Error | null = null
-  await streamChat(llmConfig, messages, {
-    onToken: (token) => { output += token },
-    onDone: () => {},
-    onError: (error) => { streamError = error },
+  return callAnalysisModelText(llmConfig, messages, {
+    signal,
     onRequestTrace,
-  }, signal, { reasoning: llmConfig.reasoning })
-  if (signal.aborted) throw new Error("用户取消故事分析")
-  if (streamError) throw streamError
-  return output.trim()
+    cancelMessage: "用户取消故事分析",
+  })
 }
 
 const defaultDependencies: StoryAnalysisAdapterDependencies = {

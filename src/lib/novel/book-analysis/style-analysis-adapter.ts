@@ -14,6 +14,7 @@
 import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 import { createDirectory, readFile, writeFile } from "@/commands/fs"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import { callAnalysisModelText } from "@/lib/novel/book-analysis/analysis-model-call"
 import { joinPath, normalizePath } from "@/lib/path-utils"
 import { upsertWritingStylePreset } from "@/lib/novel/writing-style-store"
 import { loadMetadata } from "./analysis-engine"
@@ -113,17 +114,11 @@ async function callStyleModel(
   signal: AbortSignal,
   onRequestTrace?: (trace: LlmRequestCacheTrace) => void,
 ): Promise<string> {
-  let output = ""
-  let streamError: Error | null = null
-  await streamChat(llmConfig, messages, {
-    onToken: (token) => { output += token },
-    onDone: () => {},
-    onError: (error) => { streamError = error },
+  return callAnalysisModelText(llmConfig, messages, {
+    signal,
     onRequestTrace,
-  }, signal, { reasoning: llmConfig.reasoning })
-  if (signal.aborted) throw new Error("用户取消文风分析")
-  if (streamError) throw streamError
-  return output.trim()
+    cancelMessage: "用户取消文风分析",
+  })
 }
 
 const defaultDependencies: StyleAnalysisAdapterDependencies = {
