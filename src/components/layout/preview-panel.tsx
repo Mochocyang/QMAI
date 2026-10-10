@@ -51,6 +51,7 @@ import {
   projectPathKey,
   selectProjectEventOutlineTasks,
   useEventOutlineTaskStore,
+  type EventOutlineTask,
 } from "@/stores/event-outline-task-store"
 import { EventOutlineCard } from "@/components/sources/event-outline-card"
 import { EventOutlineWizardDialog } from "@/components/sources/event-outline-wizard-dialog"
@@ -299,6 +300,53 @@ function getFloatingPanelPosition(anchor: HTMLElement | null | undefined, widthP
 
 function getDeAiSkillPickerPosition(anchor?: HTMLElement | null): CSSProperties {
   return getFloatingPanelPosition(anchor, DE_AI_SKILL_PICKER_WIDTH_PX)
+}
+
+/**
+ * 「重新生成」要提交的请求：以任务上留存的原始请求为底，**只把卡片上真的能改的那两栏**
+ * 换成 `task.outline` 里的最新值。
+ *
+ * 为什么不能照抄 `task.request`：那个对象是 `startTask` 那一刻的快照，
+ * `updateTaskOutline` **从不回写它**（它只重建 `outline`）。所以用户在卡片表单里改过的
+ * 字段在 request 里永远是旧值 —— 照抄下来就是「用户改完、点重新生成、改动被静默回滚，
+ * 而且新细纲还把旧值回显在卡片上」。
+ *
+ * 逐字段出处（这是本函数存在的**全部**理由；将来给表单加一个可编辑字段，必须同时改这张表）：
+ * - `requirement`：取**卡片**那份（`outline.requirement`），空串是合法值（= 没有要求）。
+ *   刻意**不**写 `?? task.request.requirement`：用户把要求清空时 outline 里是 `undefined`，
+ *   回退到旧 request 等于让已经删掉的要求诈尸。`EventOutlineRequest.requirement` 是必填
+ *   string，故补 `?? ""`；对下游 `""` 与 `undefined` 完全等价（`buildEventOutlinePrompt`
+ *   与 `withRequirement` 都只认 trim 后的非空值）。
+ *   ⚠️ 这份值**不一定出自用户**：`readEventOutline`（event-outline.ts）接受**模型自撰**的
+ *   `requirement`，而 `withRequirement` 只在请求里那份 trim 后非空时才覆盖它。用户当初
+ *   没填要求时，`outline.requirement` 就是模型自己写的那段话。取它 = 把模型那段文本升格成
+ *   下一轮的显式要求（卡片上就看得到，用户可清空）；不取它 = 把**当前这份细纲里明明写着**
+ *   的要求丢掉。两种都有代价，这里选「以当前细纲为准」，并如实记下前一种代价 ——
+ *   它已经不是「纯用户输入」了，别把它说成「不是生成产物」。
+ * - `targetWords`：**只在它是正数时**才取卡片那份，否则回退 `task.request.targetWords`。
+ *   空值语义与 requirement **不同**：用户把字数框清空时 `outlineFromDraft` 存的是 0，
+ *   而 0 **不是**一个合法目标字数 —— `validateEventOutlineData` 判「缺少本章目标字数」，
+ *   `buildEventOutlinePrompt` 会写出「约 0 字」且每事件字数恒为 0。把 0 原样发出去，
+ *   等于用一条自相矛盾的请求换回一份必然要重改的细纲。此时「这一栏现在没填」才是它的
+ *   准确含义，用请求里的旧值才是信息量最大的选择，所以这里不能用同一个 `??` 写法。
+ * - `chapterNumber` / `eventCount`：取**请求**那份，因为这栏在表单里根本不存在
+ *   （`EventOutlineDraft` 只有标题 / 目标字数 / 事件标题 / 抓手 / 钩子 / 要求），
+ *   细纲里那份与请求同源，不存在「谁更新」的问题。章号另有更强的权威：
+ *   `finishTask` / `updateTaskOutline` 都以任务章号覆盖数据里的章号。
+ *
+ * 返回值是**新对象**（spread），绝不就地改 `task.request`：那个对象同时被 store 里这条
+ * 任务持有，就地改会让「第一次提交的请求」与「第二次」变成同一个值，重跑不再可分辨。
+ */
+function regenerateEventOutlineRequest(
+  task: Pick<EventOutlineTask, "request" | "outline">,
+): EventOutlineRequest {
+  const outline = task.outline
+  return {
+    ...task.request,
+    requirement: outline?.requirement ?? "",
+    // 0 / NaN 一律回退（`> 0` 对 NaN 是 false）：理由见上面 targetWords 那一条。
+    targetWords: outline && outline.targetWords > 0 ? outline.targetWords : task.request.targetWords,
+  }
 }
 
 export function PreviewPanel() {
@@ -1268,6 +1316,24 @@ export function PreviewPanel() {
       chapterProseAbortControllers.get(task.id)?.abort()
       chapterProseAbortControllers.delete(task.id)
     }
+
+    /*
+     * ⚠️ 已知、且**有意接受**的一处残留（复审任务 3 的决定，不是没想到）：
+     * 卡片正在「手动修改」时，为**同一章**重新走一遍向导会把那屏草稿连同任务一起静默丢掉
+     * —— startTask 的替换语义让旧任务行消失、卡片卸载，而 `editing` 是卡片的组件内 state。
+     *
+     * 为什么不在这里顺手修：本层看不见卡片的编辑态，要让拦截生效就必须引入一个跨组件的
+     * 「正在编辑」标志（模块级 Set 或 store 字段）。而标志本身**不解决任何事**，它只是把
+     * 决定权交回本层，于是只剩三条出口，每条都比现状差：
+     *   1. 静默不提交 —— 用户明确点了「生成细纲」却什么都没发生，比丢草稿更难懂；
+     *   2. 弹确认 —— 需要新的模态依赖，本批明确不做；`toast` 是事后通知，救不回草稿；
+     *   3. 真把草稿保住 —— 得把 `EventOutlineDraft` 提升进 store 并在重挂时恢复，
+     *      那既不是「顺手」，又正好造出 F3 有意避开的「细纲数据有两份」的形状
+     *      （`task.outline` 是唯一真相）。
+     * 暴露面也小：这条路要用户先点「手动修改」、再点工具栏「生成章节细纲」、
+     * 再填同一个章号并提交；对比 F4 修掉的那条（编辑期间一枚就在手边的「丢弃」按钮），
+     * 它不是同一个量级。**一旦将来为此新增模态确认或草稿持久化，这段注释必须一起改。**
+     */
 
     const taskId = useEventOutlineTaskStore.getState().startTask({
       projectPath: project.path,
@@ -2487,24 +2553,22 @@ export function PreviewPanel() {
                    *   且新任务拿到的是新 taskId（事件细纲那条链路的 controller 永不复用 id，
                    *   所以它那个按 id 删条目的 settle 不需要身份判定，见 handleConfirmEventOutline
                    *   里那段对比注释）。
-                   *   ⚠️ 但 `requirement` **必须取卡片当前那份**（`task.outline?.requirement`）：
-                   *   `task.request` 是 startTask 时留下的原始请求，`updateTaskOutline` 从不
-                   *   回写它，所以照抄 request 会把用户手改过的要求静默丢掉。requirement 是
-                   *   生成的**输入**（withRequirement 把它当权威值写进细纲、扩写提示词也读它），
-                   *   不是生成产物，因此不适用「重新生成就是覆盖编辑」的语义。
-                   *   刻意**不**写 `?? task.request.requirement`：用户把要求清空时
-                   *   `outline.requirement` 就是 undefined，回退到旧 request 等于让已删掉的要求诈尸。
-                   *   `EventOutlineRequest.requirement` 是必填 string，故补 `?? ""` ——
-                   *   对下游而言 `""` 与 undefined 完全等价（buildEventOutlinePrompt 与
-                   *   withRequirement 都只认 trim 后的非空值）。
-                   *   其余三个字段（章号 / 事件数 / 目标字数）照旧来自 `task.request`：
-                   *   编辑表单里没有它们，细纲生成之后也没有第二个入口能改。spread 出的是
-                   *   新对象，**不会**改动 `task.request` 本身。
+                   *   ⚠️ 但请求**不能**直接照抄 `task.request`：`task.request` 是 startTask
+                   *   时留下的快照，`updateTaskOutline` 从不回写它，所以卡片上真的能改的那两栏
+                   *   照抄下来就是把用户的手改静默丢掉。逐字段出处、以及
+                   *   「requirement 的空值是空 / targetWords 的 0 不是合法值、要回退」这处
+                   *   区别，都在 `regenerateEventOutlineRequest` 上面那张表里 ——
+                   *   **给表单加可编辑字段时必须同时改那张表**，这里不重复它。
+                   *   那里也如实记了一条：requirement 可能是**模型自撰**的（用户当初没填
+                   *   要求时 `readEventOutline` 会收下模型自己写的那段），所以这一栏是
+                   *   「以当前细纲为准」的取舍，而不是「用户的输入天然权威」。
                    * - onSaveOutline：手改写回 `task.outline`（§3b）。`data` 就是 `task.outline`，
                    *   写回后 task.outline 仍是**卡片渲染与扩写提示词**的唯一真相（两者读同一个
-                   *   对象）。但「重新生成」读的是 `task.request`（加上上面那条 requirement 修正），
-                   *   所以「task.outline 是唯一真相」这句话只覆盖扩写那半条链路，不能顺推到手改
-                   *   会改变重新生成的输入 —— 手改只影响 requirement 一个字段，其余输入不变。
+                   *   对象）。但「重新生成」读的是上面那份**拼出来的请求**，所以
+                   *   「task.outline 是唯一真相」这句话只覆盖扩写那半条链路，不能顺推到手改
+                   *   会改变重新生成的输入 —— 手改**确实会**改变重新生成的输入，
+                   *   只是能改变的只有 requirement 与 targetWords 两栏（章号、事件数在表单里
+                   *   没有对应控件，因此仍与 request 同源）。
                    * - onDiscard：把整条任务收掉。它从本文件搬进了卡片（F4）：
                    *   卡片有编辑态而本层看不见，按钮留在外面就能在用户敲了一屏草稿时
                    *   被顺手点掉、草稿无声消失。
@@ -2512,10 +2576,7 @@ export function PreviewPanel() {
                   <EventOutlineCard
                     data={task.outline}
                     onWriteChapter={(prompt) => handleConfirmEventOutline(task.id, prompt)}
-                    onRegenerate={() => handleSubmitEventOutline({
-                      ...task.request,
-                      requirement: task.outline?.requirement ?? "",
-                    })}
+                    onRegenerate={() => handleSubmitEventOutline(regenerateEventOutlineRequest(task))}
                     onSaveOutline={(next) => {
                       useEventOutlineTaskStore.getState().updateTaskOutline(task.id, next)
                     }}

@@ -292,14 +292,25 @@ function seedOutlineConversation() {
   })
 }
 
-/** 走完「点按钮 → 填向导 → 提交」这条真实路径，返回生成函数的调用参数。 */
-async function submitWizard(requirement = "", chapterNumber = ""): Promise<EventOutlineRequest> {
+/**
+ * 走完「点按钮 → 填向导 → 提交」这条真实路径，返回生成函数的调用参数。
+ *
+ * `targetWords` 是后加的**可选**参数（不传就保留向导默认值，既有调用点行为不变）：
+ * 要断言「目标字数的出处是请求还是细纲」，两者就必须能在夹具里**不同**，
+ * 否则两种实现给出同一个值，断言不具判别力。
+ */
+async function submitWizard(requirement = "", chapterNumber = "", targetWords = ""): Promise<EventOutlineRequest> {
   await click("生成章节细纲")
   const dialog = document.querySelector('[role="dialog"]')
   expect(dialog, "点「生成章节细纲」应弹出向导").not.toBeNull()
   if (chapterNumber) {
     await act(async () => {
       setInput(document.querySelector('input[aria-label="目标章节"]')!, chapterNumber)
+    })
+  }
+  if (targetWords) {
+    await act(async () => {
+      setInput(document.querySelector('input[aria-label="本章目标字数"]')!, targetWords)
     })
   }
   if (requirement) {
@@ -1640,7 +1651,7 @@ describe("丙-3 卡片「重新修改」", () => {
    * 测试里永远 undefined」—— 而「重新生成该不该带上手改后的要求」这件事，
    * 恰恰只有在它有值时才分得出真假（这正是 F1）。
    */
-  async function generate(chapterNumber: number, requirement = ""): Promise<void> {
+  async function generate(chapterNumber: number, requirement = "", targetWords = ""): Promise<void> {
     const trimmed = requirement.trim()
     const outline = trimmed
       ? { ...outlineFor(chapterNumber), requirement: trimmed }
@@ -1650,7 +1661,7 @@ describe("丙-3 卡片「重新修改」", () => {
       rawContent: "",
       error: null,
     })
-    await submitWizard(requirement, String(chapterNumber))
+    await submitWizard(requirement, String(chapterNumber), targetWords)
   }
 
   function card(): HTMLElement {
@@ -1806,7 +1817,12 @@ describe("丙-3 卡片「重新修改」", () => {
   it("【F1】手改「本章要求」后点重新生成：第二次生成带的必须是改后的要求", async () => {
     seedChapterAreaLibrary()
     await mount()
-    await generate(2, "必须交代骆轻竹为什么失望")
+    /*
+     * 向导的字数**刻意填 4000**，而 mock 回来的细纲是 3000（`outlineFor`）：
+     * 两者不同，下面是那句「目标字数取自细纲」才有判别力 —— 同值时新旧两种实现
+     * 会给出同一个数字，断言就成了摆设（这正是原先那一行的形状，见下面注释）。
+     */
+    await generate(2, "必须交代骆轻竹为什么失望", "4000")
 
     await click("手动修改")
     // 反向控制：表单里预填的确实是那份要求，否则下面改的就不是被测字段
@@ -1826,10 +1842,21 @@ describe("丙-3 卡片「重新修改」", () => {
       replayed.requirement,
       "手改后的要求必须进第二次生成（照抄 task.request 会把用户的修改静默回滚）",
     ).toBe("改成：让骆轻竹先开口，别写失败者的自怜。")
-    // 其余输入仍来自任务上留存的请求：表单里没有章号/事件数/目标字数这三个字段
-    expect(replayed.chapterNumber).toBe(original.chapterNumber)
-    expect(replayed.eventCount).toBe(original.eventCount)
-    expect(replayed.targetWords).toBe(original.targetWords)
+    /*
+     * ⚠️ 这一行原先写的是
+     *   `expect(replayed.targetWords).toBe(original.targetWords)`
+     * 上面那句注释则声称「表单里没有章号 / 事件数 / 目标字数这三个字段」——
+     * **目标字数那半是假的**：它就在编辑表单里（`aria-label="细纲目标字数"`），
+     * `outlineFromDraft` 把它写回 `outline.targetWords`。于是这条断言把
+     * 「手改的字数在重新生成时被静默回滚」钉成了正确行为 —— F1 同一类缺陷的**第二次出现**，
+     * 只是这次由测试自己守着。按新契约改写：目标字数取**当前细纲**那份（细纲是
+     * 手改落地的唯一真相），章号与事件数仍取请求（表单里确实没有这两栏）。
+     * 判别性：请求 4000、细纲 3000，照抄 `task.request` 会得到 4000。
+     */
+    expect(replayed.chapterNumber, "章号在表单里没有控件，仍取自请求").toBe(original.chapterNumber)
+    expect(replayed.eventCount, "事件数在表单里没有控件，仍取自请求").toBe(original.eventCount)
+    expect(original.targetWords, "反向控制：夹具里请求的字数确实是 4000").toBe(4000)
+    expect(replayed.targetWords, "目标字数取当前细纲那份（3000），不是请求里的 4000").toBe(3000)
     /*
      * 而且**不得就地改** `task.request`：`original` 就是第一次提交时那同一个对象
      * （startTask 存的是引用、mock 收到的也是它），写成 `task.request.requirement = …`
@@ -1864,6 +1891,89 @@ describe("丙-3 卡片「重新修改」", () => {
     expect(fixture.generateEventOutline).toHaveBeenCalledTimes(2)
     const replayed = fixture.generateEventOutline.mock.calls[1][1] as EventOutlineRequest
     expect(replayed.requirement, "清空之后重跑必须真的不带要求（旧值不得诈尸）").toBe("")
+  })
+
+  /*
+   * F1 的**第二次出现**（本批修复）：手改过的 `targetWords` 必须跟着重新生成一起走。
+   *
+   * 与 requirement 是同一类缺陷、同一个成因：目标字数**是**卡片上的可编辑字段
+   * （`aria-label="细纲目标字数"`，`outlineFromDraft` 写回 `outline.targetWords`），
+   * 而 `onRegenerate` 原先读的是陈旧的 `task.request` —— `updateTaskOutline` 从不回写它。
+   * 于是用户把字数改成 5000、点重新生成，下一份细纲带着请求里的旧字数回来，
+   * 卡片上刚改的 5000 被静默改回 3000。
+   *
+   * 断言落在**第二次 generateEventOutline 收到的 request** 上（不是卡片显示什么）：
+   * 只看「调用了两次」区分不出新旧值，旧实现照样调两次、卡片也照样显示旧值。
+   */
+  it("【F1】手改「目标字数」后点重新生成：第二次生成带的必须是改后的字数", async () => {
+    seedChapterAreaLibrary()
+    await mount()
+    await generate(2)
+
+    await click("手动修改")
+    // 反向控制：表单里预填的确实是细纲那份字数，否则下面改的就不是被测字段
+    expect(cardField<HTMLInputElement>("细纲目标字数").value).toBe("3000")
+    await act(async () => { setInput(cardField<HTMLInputElement>("细纲目标字数"), "5000") })
+    await click("保存细纲")
+    // 反向控制：手改确实落进了 task.outline（唯一真相），而不是只活在表单里
+    expect(useEventOutlineTaskStore.getState().tasks[0].outline?.targetWords).toBe(5000)
+
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(2), rawContent: "", error: null })
+    await click("重新生成")
+
+    expect(fixture.generateEventOutline).toHaveBeenCalledTimes(2)
+    const original = fixture.generateEventOutline.mock.calls[0][1] as EventOutlineRequest
+    const replayed = fixture.generateEventOutline.mock.calls[1][1] as EventOutlineRequest
+    expect(original.targetWords, "反向控制：请求里那份与手改的 5000 不同（同值就没有判别力了）").not.toBe(5000)
+    expect(
+      replayed.targetWords,
+      "手改后的目标字数必须进第二次生成（照抄 task.request 会把它静默回滚）",
+    ).toBe(5000)
+    // 若实现改成就地写 `task.request.targetWords = …`，第一次那份也会跟着变成 5000
+    expect(original.targetWords, "不得就地改 task.request（就地改会让第一次的请求也变成 5000）").not.toBe(5000)
+    expect(replayed, "必须是一个新对象").not.toBe(original)
+    expect(useEventOutlineTaskStore.getState().tasks[0].request).toEqual(replayed)
+  })
+
+  /*
+   * F1 的**边界**（本批修复里那次「不能套用 `??`」的判断）：清空目标字数之后重新生成，
+   * **不能**把 0 原样发出去。
+   *
+   * 这里与 requirement 的空值语义**不同**：用户清空要求时「空」是合法值（= 没有要求），
+   * 而清空字数时 `outlineFromDraft` 存的是 0，0 **不是**一个合法目标字数 ——
+   * `validateEventOutlineData` 判「缺少本章目标字数」，`buildEventOutlinePrompt` 会写出
+   * 「约 0 字」且每事件字数恒为 0。所以这一栏里 0 的准确含义是「现在没填」，
+   * 用请求里的旧字数才是信息量最大的选择；照抄 0 等于拿一条自相矛盾的请求去换回一份
+   * 必然要重改的细纲。也就是说这条断言钉的是**回退分支真的走到了**，不是「值为 0 也没关系」。
+   *
+   * 反向控制两处：0 确实落进了 `task.outline`（否则「回退」无从谈起），
+   * 以及回退出来的那个数**不是** 0 也不是别的什么，就是请求里那份。
+   */
+  it("【F1】手改清空「目标字数」后点重新生成：回退成请求里的字数，绝不发 0", async () => {
+    seedChapterAreaLibrary()
+    await mount()
+    await generate(2)
+
+    await click("手动修改")
+    await act(async () => { setInput(cardField<HTMLInputElement>("细纲目标字数"), "") })
+    await click("保存细纲")
+    // 反向控制：清空确实落成 0（不是保留旧值、也不是空串）
+    expect(
+      useEventOutlineTaskStore.getState().tasks[0].outline?.targetWords,
+      "清空确实落成 0，回退分支才有的可测",
+    ).toBe(0)
+    // 而 0 让细纲变成不合法：卡片上看得见这条待修项，所以它绝不是一个可以照发的值
+    expect(card().textContent).toContain("缺少本章目标字数")
+
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(2), rawContent: "", error: null })
+    await click("重新生成")
+
+    expect(fixture.generateEventOutline).toHaveBeenCalledTimes(2)
+    const original = fixture.generateEventOutline.mock.calls[0][1] as EventOutlineRequest
+    const replayed = fixture.generateEventOutline.mock.calls[1][1] as EventOutlineRequest
+    expect(original.targetWords, "反向控制：请求里确实有一个可回退的正数字数").toBeGreaterThan(0)
+    expect(replayed.targetWords, "0 不是合法目标字数，必须回退到请求里那份").toBe(original.targetWords)
+    expect(replayed.targetWords, "回退的结果绝不能是 0").not.toBe(0)
   })
 
   /*

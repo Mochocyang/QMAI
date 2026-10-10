@@ -229,8 +229,14 @@ it("同一章的两张卡片各有自己的体检 id（不能拿章号拼 id）"
  *
  * 编辑态那条 `if (editing && onSaveOutline) return <EventOutlineEditor …/>` 是
  * 本组件唯一的早退分支：把 `useId()` 挪到它下面，「只读 → 编辑 → 只读」这条
- * 用户真实会走的往返就会让 hook 数量 3 → 2 → 3，React 直接抛
- * 「Rendered more hooks than during the previous render」。这条用例就走这个往返。
+ * 用户真实会走的往返就会让 hook 数量 3 → 2 → 3，React 在 3 → 2 那一步直接抛错。
+ *
+ * ⚠️ 这里原先引的是「Rendered more hooks than during the previous render」——**引错了**，
+ * 那是**另一条**错误（hook 数量变**多**时抛的，来自 `updateWorkInProgressHook`）。
+ * 本条路径上是 render 结束得比上一次**早**（早退让 `useId` 根本没被调到），所以 React 报的是
+ * 「少」这一侧。实测（把 `useId()` 挪到上面那个早退之后、只跑本条用例）抛出的原文是：
+ *   `Error: Rendered fewer hooks than expected. This may be caused by an accidental early return statement.`
+ * 引文照抄这一条，不再凭印象写。
  */
 it("编辑开关往返一次后卡片照常工作（useId 必须在早退之前无条件调用）", async () => {
   const { root, host } = render(
@@ -537,4 +543,39 @@ it("细纲合法时不显示体检块", async () => {
   expect(document.body.textContent ?? "").not.toContain("待修")
   await act(async () => root.unmount())
   host.remove()
+})
+
+/* ── Tab 次序：破坏性入口不得排在卡片动作的最前 ── */
+
+/*
+ * 「丢弃这份细纲」是卡片上唯一的破坏性入口（它收掉**整条任务**，未保存的手改草稿
+ * 一并没）。F4 把它从上层搬进卡片时，它被排在动作行的**最左** —— 于是它成了卡片里
+ * **第一个**可聚焦控件（搬进来之前它是行尾右对齐的一个链接），Tab 一下就落在它身上。
+ * 一个破坏性操作领着 Tab 次序就是请人误点，所以它排到最后（同时也就恢复了它原来的
+ * 行尾位置）。
+ *
+ * 用 **DOM 次序**当代理：jsdom 不实现 Tab 键的焦点移动，而浏览器按 DOM 次序聚焦，
+ * `querySelectorAll` 也照 DOM 次序返回 —— 这里断言的就是那个次序依据。
+ * 这条用例只钉次序，标签/样式/`type="button"`/不挂 `aria-*` 由既有用例守着。
+ */
+it("「丢弃这份细纲」排在卡片动作的最后（破坏性入口不领 Tab 次序）", async () => {
+  const { root, host } = render(
+    <EventOutlineCard
+      data={data()}
+      onWriteChapter={() => {}}
+      onRegenerate={() => {}}
+      onSaveOutline={() => {}}
+      onDiscard={() => {}}
+    />,
+  )
+  try {
+    await act(async () => {})
+    const labels = [...host.querySelectorAll("button")].map((item) => item.textContent?.trim())
+    // 反向控制：四枚入口都在，否则「排在最后」是空话
+    expect(labels).toEqual(["手动修改", "重新生成", "用这份细纲写这一章", "丢弃这份细纲"])
+    expect(labels.at(-1), "破坏性入口必须是最后一个可聚焦控件").toBe("丢弃这份细纲")
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
 })

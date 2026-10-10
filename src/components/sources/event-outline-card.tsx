@@ -153,17 +153,11 @@ export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOut
       ) : null}
 
       <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
-        {/* 入口各自由回调是否接线决定，互不依赖：丢弃（收掉整条任务）/ 手动修改 /
-            重新生成（丙-3 的「重新修改」）/ 主 CTA。丢弃排在最左，只读视图里才有。 */}
-        {onDiscard ? (
-          <button
-            type="button"
-            className="text-xs text-muted-foreground underline"
-            onClick={onDiscard}
-          >
-            丢弃这份细纲
-          </button>
-        ) : null}
+        {/* 入口各自由回调是否接线决定，互不依赖：手动修改 / 重新生成（丙-3 的「重新修改」）/
+            主 CTA / 丢弃（收掉整条任务）。丢弃**排在最后**：F4 把它移进卡片时曾排在最左，
+            于是它成了这一行里第一个可聚焦控件（搬进来之前它是行尾右对齐的一个链接）——
+            一个破坏性入口领着 Tab 次序就是请人误点。排到最后同时也恢复了它原来的行尾位置。
+            它只在只读视图里渲染（编辑态整块替换只读视图）。 */}
         {onSaveOutline ? (
           <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
             手动修改
@@ -179,11 +173,24 @@ export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOut
             {/*
              * ⚠️ 不合法时**照样渲染**这枚按钮，只是置灰并说明原因（见组件注释最后一段）。
              *
-             * 文案里那句「结构问题改不了，需要重新生成」是**如实的**，不是随口补的：
-             * `validateEventOutlineData` 的 problems 里，事件数越界与事件序号不连续
-             * 是这个表单**做不到**的两件事（表单只能改标题/抓手/钩子/目标字数/要求，
-             * 既不能增删事件、也不重编号）。原文案「修好后才能用」会让一个 9 事件的
-             * 用户对着永远灰着的按钮找一个不存在的修法。
+             * 文案里那句「结构问题改不了，需要重新生成」是**如实的**：`validateEventOutlineData`
+             * 的 problems 里，事件数越界是这个表单**做不到**的一件事（表单只能改标题 / 抓手 /
+             * 钩子 / 目标字数 / 要求，既不能增删事件、也不重编号），原文案「修好后才能用」会让
+             * 一个 9 事件的用户对着永远灰着的按钮找一个不存在的修法。
+             *
+             * ⚠️ 但同一句里点名的**第二项「事件序号不连续」今天根本不可达**，这里不再把它
+             * 说成「另一件表单做不到的事」（复审更正：原注释那样写是把一个死分支当成了真缺陷）：
+             *   · 基础：`readEventOutline` → `normalizeEvents` **总是**按位置重编号为 1..N
+             *     （该行为由 `event-outline.spec.ts` 的「把 id 重排为从 1 起的连续序号」钉住），
+             *     而所有细纲都从这里进来；
+             *   · 归纳：`outline` 的三个写者都不重排 id —— store 的 `finishTask` 与
+             *     `updateTaskOutline` 只 `{ ...outline, chapterNumber }`，本卡片的
+             *     `outlineFromDraft` 则逐条照抄草稿里的 id（表单没有增删/重排事件的能力）。
+             *   于是「序号不连续」这个分支只能被**非**本链路构造的入参触发；校验器保留它是对的
+             *   （`validateEventOutlineData` 契约上不假设入参已归一化，草稿直传也走这里），
+             *   但卡片不必为一个不可达分支改变能力声明。
+             *   ⇒ 面向用户的文案「事件数量、事件序号这类结构问题」**不算错**（泛指这一类问题），
+             *     所以**有意不改文案**；错的只是这条注释原先的举例口径，已按上面更正。
              *
              * ⚠️ 刻意**不在这里重算**哪些问题是结构性的：同一份 problems 已被
              * `validateEventOutlineData` 判定过一次，在卡片里再判一遍就是两处判据，
@@ -207,6 +214,15 @@ export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOut
               用这份细纲写这一章
             </Button>
           </>
+        ) : null}
+        {onDiscard ? (
+          <button
+            type="button"
+            className="text-xs text-muted-foreground underline"
+            onClick={onDiscard}
+          >
+            丢弃这份细纲
+          </button>
         ) : null}
       </div>
     </div>
