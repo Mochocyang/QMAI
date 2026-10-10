@@ -255,7 +255,8 @@ if (pack.writingStyle?.startsWith("【已启用文风画像】") && !result.prom
 **方案（在下游替换，不改守门文件）**：
 1. 在 `writing-style-store.ts`（非守门文件）新增一个**按 preset id 生成注入文本**的导出，
    内部复用 `buildWritingStyleContext` 的同一段拼装逻辑（抽出公共实现，避免两套文案）。
-2. 在 `deep-chapter-generation.ts`（非守门文件）组装 `contextPrompt` 的那一处（`:778-788`），
+2. 在 `deep-chapter-generation.ts`（非守门文件）组装 `contextPrompt` 的那一处
+   （**实测确认**：`:782` `deps.contextPackToPrompt(contextPack, restContextTokenBudget, { excludeOutline: true })`），
    当本次请求带文风覆盖时，**传一个浅拷贝**给 `contextPackToPrompt`：
    `{ ...contextPack, writingStyle: overrideText }`。
    - 用**浅拷贝**而不是改原对象：pack 可能来自 context-hub 缓存，
@@ -264,6 +265,13 @@ if (pack.writingStyle?.startsWith("【已启用文风画像】") && !result.prom
      fail-closed 守卫**仍然生效**（预算不够就停机）——这比走无守卫的路径安全。
    - 「本次不用文风」= `writingStyle: ""`；此时不触发守卫（前缀不匹配），
      需**确认空 writingStyle 不会在提示词里留下一个空标题**。
+   - ✅ **可以照抄同文件里的既有先例做「真的进去了吗」断言**：
+     `:801-803` 对 `portablePersonalities` 就是
+     `if (!contextPrompt.includes(renderBoundPersonalities([binding]))) throw new PersonalityConstraintError(...)`
+     ——「注入了但没进提示词」就抛错，而不是默默生成。
+     文风覆盖应加同样一条（对 `writingStyle` 文本做 `includes` 检查），
+     这样「用户选了文风却被静默丢掉」在这个入口上不可能发生。
+     这是本设计里**代价最低、收益最高**的一处加固，务必做。
 3. 参数如何传到这一层：沿用 `skillsPrompt` 那条已被验证的通路形状
    （`run-chapter-workflow.ts:138` 的 `options.getSelectedSkillsPrompt?.()` →
    `useAgentConfig` → `chat-panel.tsx:1084-1087`），
