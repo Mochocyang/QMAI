@@ -9,8 +9,8 @@ import { createAnalysisStageCache } from "./analysis-stage-cache"
  * 缺点：依赖真实 LLM endpoint（失败时回退到 heuristicRecognizeCharacters）。
  */
 
-import { streamChat } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-client"
+import { callAnalysisModelText } from "@/lib/novel/book-analysis/analysis-model-call"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { stableCharacterId } from "./character-recognition-engine"
 import type { RecognizedCharacter, CharacterCategory } from "./types"
@@ -160,27 +160,13 @@ async function callLlmForRecognition(
   onRequestTrace?: (trace: LlmRequestCacheTrace) => void,
 ): Promise<string> {
   const messages: ChatMessage[] = [{ role: "user", content: [{ type: "text", text: prompt, cacheControl: true }] }]
-  let response = ""
-  let streamError: Error | null = null
-  await streamChat(
-    llmConfig,
-    messages,
-    {
-      onToken: (text) => {
-        response += text
-      },
-      onDone: () => {},
-      onRequestTrace,
-      onError: (err) => {
-        // 不能吞掉错误：否则 429 / 网络失败会被当成“没识别出角色”，
-        // 让用户以为是章节没人物，而不是模型调用失败。
-        streamError = err
-      },
-    },
-    signal
-  )
-  if (streamError) throw streamError
-  return response.trim()
+  // 不能吞掉错误：否则 429 / 网络失败会被当成「没识别出角色」，
+  // 让用户以为是章节没人物，而不是模型调用失败。思考-only 同理：交给共享实现重试，仍失败则抛。
+  return callAnalysisModelText(llmConfig, messages, {
+    signal,
+    onRequestTrace,
+    cancelMessage: "用户取消分析",
+  })
 }
 
 /**

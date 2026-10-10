@@ -18,7 +18,8 @@ import type {
 } from "./types"
 import { readFile, writeFile } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import type { ChatMessage } from "@/lib/llm-client"
+import { callAnalysisModelText } from "@/lib/novel/book-analysis/analysis-model-call"
 import { analyzeSixDimensions, DEPTH_DESCRIPTIONS } from "./six-dimension-engine"
 import { stableCharacterId } from "./character-recognition-engine"
 import { CHAPTER_BODY_EXCERPT_MAX_CHARS } from "@/lib/novel/chapter-excerpts"
@@ -100,17 +101,13 @@ ${chapterContent.substring(0, CHAPTER_BODY_EXCERPT_MAX_CHARS)} ${chapterContent.
   ]
 
   let response = ""
-  let streamError: Error | null = null
 
   try {
-    await streamChat(llmConfig, messages, {
-      onToken: (text) => { response += text },
-      onDone: () => {},
-      onError: (err) => { streamError = err },
+    response = await callAnalysisModelText(llmConfig, messages, {
+      signal,
       onRequestTrace,
-    }, signal)
-
-    if (streamError) throw streamError
+      cancelMessage: "用户取消分析",
+    })
 
     const data = parseLlmJsonObject(response)
     if (!data || !Array.isArray(data.characters)) throw new Error("模型返回内容缺少 characters 数组")
@@ -218,17 +215,13 @@ ${corpus}
   const messages = buildSimpleExtractionMessages(prompt, cachePrefix)
 
   let response = ""
-  let streamError: Error | null = null
 
   try {
-    await streamChat(llmConfig, messages, {
-      onToken: (text) => { response += text },
-      onDone: () => {},
-      onError: (err) => { streamError = err },
+    response = await callAnalysisModelText(llmConfig, messages, {
+      signal,
       onRequestTrace,
-    }, signal)
-
-    if (streamError) throw streamError
+      cancelMessage: "用户取消分析",
+    })
 
     const data = parseLlmJsonObject(response)
     if (!data) throw new Error("模型返回内容不是有效 JSON")
@@ -568,19 +561,11 @@ export async function extractSingleCharacter(
   // simple / six-dimension 都直接使用同一实现，six-dimension 已自带 streamChat，
   // 这里我们额外提供 simple 模式用的 LLM 闭包
   const realLlmCall = async (prompt: string, cachePrefix?: string): Promise<string> => {
-    let response = ""
-    await streamChat(
-      llmConfig,
-      buildSimpleExtractionMessages(prompt, cachePrefix),
-      {
-        onToken: (text) => { response += text },
-        onDone: () => {},
-        onError: (err) => { console.error("[single-reextract] LLM error:", err) },
-        onRequestTrace: input.onRequestTrace,
-      },
+    return callAnalysisModelText(llmConfig, buildSimpleExtractionMessages(prompt, cachePrefix), {
       signal,
-    )
-    return response.trim()
+      onRequestTrace: input.onRequestTrace,
+      cancelMessage: "用户取消分析",
+    })
   }
 
   if (mode === "simple") {

@@ -266,6 +266,38 @@ describe("extractCharactersFromChapters 角色识别失败处理", () => {
     expect(result.characters.map((item) => item.name)).toEqual(["林烬"])
     expect(result.warnings?.some((item) => item.includes("顾司玥"))).toBe(true)
   })
+
+  it("角色识别遇到思考-only 时关掉思考重试一次", async () => {
+    vi.mocked(readFile).mockResolvedValue("---\ntitle: 第一章\norder: 1\n---\n林烬推门而入。")
+    streamChatMock
+      .mockImplementationOnce(async (_cfg, _messages, handlers: any) => {
+        // 第 1 次：识别阶段「只想不写」
+        handlers.onError(new Error("模型只输出了 12,000 字符的思考内容，但没有输出正文。"))
+      })
+      .mockImplementationOnce(async (_cfg, _messages, handlers: any) => {
+        // 第 2 次：关思考后的重试，成功返回识别结果
+        handlers.onToken(JSON.stringify({ characters: [{ name: "林烬", aliases: [], importance: 9 }] }))
+        handlers.onDone()
+      })
+      .mockImplementationOnce(async (_cfg, _messages, handlers: any) => {
+        // 第 3 次：后续的角色细节提炼
+        handlers.onToken(JSON.stringify({ name: "林烬", category: "protagonist", personality: "冷静" }))
+        handlers.onDone()
+      })
+
+    const result = await extractCharactersFromChapters({
+      bookPath: "E:/Novel/book-analysis/book-1",
+      selectedChapterIds: ["chapter-1"],
+      llmConfig: fakeLlmConfig,
+      depth: "standard",
+      persistResults: false,
+    })
+
+    expect(result.characters.map((character) => character.name)).toEqual(["林烬"])
+    // 第 2 次调用必须是「关掉思考」的重试
+    const retryOverrides = streamChatMock.mock.calls[1][4] as { reasoning?: { mode?: string } }
+    expect(retryOverrides.reasoning).toEqual({ mode: "off" })
+  })
 })
 
 describe("extractSingleCharacter (fix/character-reextract-and-loading-state)", () => {
@@ -374,9 +406,12 @@ describe("simple 模式实际缓存消息", () => {
     expect(suffix).toEqual({ type: "text", text: "\n\n# 角色列表\n- Actor_A" })
     expect(secondMessages[0].content[1]).toEqual({ type: "text", text: "\n\n# 角色列表\n- Actor_B" })
     for (const call of streamChatMock.mock.calls) {
-      expect(call).toHaveLength(4)
+      // 迁移到 callAnalysisModelText 后固定为 5 个实参：第 5 位是请求覆盖项
+      // （本调用点没有 baseOverrides，因此显式为 undefined）。
+      expect(call).toHaveLength(5)
       expect(call[0]).toBe(fakeLlmConfig)
       expect(call[3]).toBe(signal)
+      expect(call[4]).toBeUndefined()
     }
   })
 
