@@ -1043,3 +1043,66 @@ ArrowUp/Down + Enter）、`role="option"`/`aria-selected`/`aria-current`、
   `throw "PATTERN NOT FOUND"` 而不是默认「存活」——否则会**假报 SURVIVED**。
 - **未跑 `npm run build:portable`**（留到全批收尾）；**未做真机 Tauri 验证**（只有 jsdom + mock）。
 
+### 7.6 复核修复批时发现的 **must-fix**（第 3 轮审查，已实测复现）
+
+⚠️ **再次印证本分支最贵的教训：修复批本身会引入新缺陷。**
+这一条恰好又落在**同一个缺陷类**上 —— **代码无法产生的行为，被注释与 commit message 当成事实宣称**。
+
+**MUST-FIX 1（C5 那条「读取失败不再谎报空库」的改动是假的）**
+
+- `src/lib/novel/writing-style-store.ts:65-77` 的 `loadWritingStyleStore` 整体包在
+  `try { … } catch { return { version: 1, enabledStyleId: null, styles: [] } }` 里
+  ⇒ **它的 promise 永远不会 reject**。
+- 因此 `unified-skill-library-view.tsx:762-767` 那个
+  `.catch(() => { setStyleLoadFailed(true); … })` **不可能触发**，
+  `styleLoadFailed` **在生产里恒为 false**，新文案
+  「文风库读取失败：暂时列不出这个项目里的文风预设。」**不可达**。
+- 复核者的复现方式（值得学）：让 spec 用**真 loader**
+  （`mockImplementation((p) => Actual.loadWritingStyleStore(p))`）+ 让 `readFile` 抛错
+  ——即一次**真实的读取故障**——用户**看到的仍是旧文案**：
+  `AssertionError: expected '文风库还是空的：…' to contain '文风库读取失败'`。
+- ⇒ 三处失实：commit message「改为如实显示读取失败」**错**；`:753-757` 的注释
+  宣称了一个未实现的区分；新用例之所以绿，是因为它把 loader mock 成了
+  **真 loader 不可能产生的状态**。并且这一批**新增了一个不可达分支**。
+
+**我的裁决（记录在此，供 丁-2 与本文件后续参考）：选 (b) 删掉死分支，不去「让它可达」。**
+理由：要让它可达就得改 `writing-style-store.ts`，而 丁-1 刻意让它**零改动**、
+且 **丁-2 紧接着要重构这个文件**（要给 `buildWritingStyleContext` 加 `styleIdOverride`）。
+更根本的是：**「读取故障与空库不可区分」是 loader 的缺陷，属既有问题、不在 丁-1 范围内** ——
+⇒ 删掉不可达分支、把注释改成**如实承认这个限制**、并把那条「故意改的断言」**改回**
+断言生产的真实行为；该缺陷**记在这里**，交给 丁-2（它本来就要动那个文件）。
+
+**其余 3 项（LOW）**：
+1. `:971 activeTab === "writingStyleLibrary" && styleLoadFailed` 是**承诺清单 7 张之外的
+   一个 tab 轴分支**，也不在 `RESIDUAL GAPS`（后者只写了 `entry.type`）。
+   缓解：它的兜底 `EMPTY_COPY[activeTab]` 是清单内的 Record，所以加第 5 个 tab 仍会编译失败
+   ⇒ **不是**原缺陷的重演。（MUST-FIX 1 会把它整个删掉。）
+2. `SKILL_EDITORS` 注释 `:139-142` 描述的是**改前**「只拆一道守卫」的后果；
+   在**已交付**的 switch 里删 `case "style"` 是**编译错误**（`TS2322 … never`），
+   运行时则会 `throw`。「两道独立对齐的防线」这个说法本身仍然成立。
+3. **C4 的「不可杀」是过度声称**。复核者证明了 S1 **可以便宜地杀掉**：
+   把 `entryFavoriteTarget`（**本来就是模块级纯函数**，只是没导出）导出，
+   加 `expect(() => entryFavoriteTarget({ type: "note", sourceId: "n1" } as never)).toThrow()`
+   → **21/21 绿**；再把 switch 换成二元 `if/else` → **1 failed**
+   （`expected [Function] to throw an error`）。
+   ⇒ 之前那位复核者建议的「抽成纯函数」**确实能杀掉 S1**；
+   在 `const unhandled: never = entry` 上做**源码形状断言**同样能杀。
+   **正确的残留表述**是「可关、且 `entryFavoriteTarget` 关起来很便宜」，
+   **不是**「不可避免」。`entryEnabled` 是闭包（需传 3 个配置），要小重构、不是免费。
+
+**第 3 轮确认通过的项**（不要因此否定整批）：承诺清单**逐条数过、完全正确**
+（7 张 tab 轴 Record + `SKILL_LIBRARY_VIEWS` + 3 张条目轴 Record + 4 个穷尽 switch）；
+chips 与过滤**同源、不可能漂移**；`TAB_CATEGORY_AXIS = {}` → `TS2739`；
+两处「写错库」用例**有真判别力**（`M-togglefile` → `expected [ 'C:/project/de-ai-skills.json' ] to deeply equal [ 'C:/project/writing-skills.json' ]`）；
+加第 4 种类型时 **4 个错误 → 6 个错误**（新增的正是那三处）；
+`resolveActiveTab` 的 throw **今天确实不可达**（唯一渲染点只路由 4 个技能库视图）；
+`fullWindowViews` 抽出的 6 个成员**与改前逐一相同**；`isNavItemActive` 与改前**语义等价**；
+**无运行时 import cycle**（`sidebar-nav-preferences.ts:1` 是 `import type`，被擦除）；
+`skillFavorites` 的**既有**例外被**钉住**而非改动。
+复核者的 10 条自有变异**全部被杀**，**未发现批次引入的新缺陷存活**。
+
+⚠️ **前提订正（给后续复核者）**：`DEFAULT_OUTLINE_FOLDERS` **并不**与 `a5a2702` 逐字节相同
+—— 丙-1 的 `d2a7a2b`/`e324d46` 给它加了 `{ id: "event-outline", name: "事件细纲" }`。
+那是**既有的分支状态**，不是本批引入；只要求「本批不改它」。
+
+
