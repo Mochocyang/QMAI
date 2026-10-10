@@ -1288,16 +1288,29 @@ export function PreviewPanel() {
     const controller = eventOutlineAbortControllers.get(taskId)
     if (!controller) {
       /*
-       * 没有活跃 controller。**不可能**是「生成已经结束」：取消按钮只在
-       * status === "generating" 时渲染，生成结束后那行显示的是「丢弃这份细纲」。
-       * 真实的剩余情形只有两种：任务刚被别的路径收尾（abort 竞态），
-       * 或者 controller 已被 settle() 摘掉而那一行还留在 store 里。
-       * 两种都只需把这一行收掉。
+       * **防御性分支**（正常情况下走不到）。
+       *
+       * 取消按钮只在 status === "generating" 时渲染，而 settle() 总是在
+       * finishTask/failTask/removeTask 之前（同一段 .then/.catch 里）把条目摘掉、
+       * 紧随其后就是一次 store 更新 —— 所以「行还渲染着取消按钮、Map 里却没有条目」
+       * 这一组合在正常时序下不成立。留着它只为兜住任何未来新增的收尾路径：
+       * 真发生时也只需把这一行收掉，绝不能什么都不做。
        */
       useEventOutlineTaskStore.getState().removeTask(taskId)
       return
     }
     controller.abort()
+    /*
+     * 顺手把条目从模块级 Map 里摘掉：settle() 只在 promise 收尾时执行，而 F8
+     * 命名的那种传输（忽略 abort）永远不会收尾 —— 不删的话这个 AbortController
+     * 会一直挂在这个 webview 的模块级 Map 上（提升到模块作用域之前，
+     * 重挂一次就随实例一起释放了，现在没有别的清理点）。
+     *
+     * 安全性：对同一个 id 再 abort() 是 no-op；而此处 removeTask 之后该任务
+     * 已经不在 store 里，同章重提的 supersede 循环是按 store 里的行找 controller 的，
+     * 不会再用到这个条目。
+     */
+    eventOutlineAbortControllers.delete(taskId)
     useEventOutlineTaskStore.getState().removeTask(taskId)
   }, [])
 
