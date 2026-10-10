@@ -38,8 +38,20 @@
      改为多值映射，**必须**为 `"style"` 给出「文风」。
    - 新增 `writingStylePresetToEntry(preset)` 映射（照 `writingSkillToEntry:72-83`
      与 `deAiSkillToEntry:59-70` 的形状），字段取自
-     `WritingStylePreset { id, name, sourceBook, profile, … }`
+     `WritingStylePreset { id, name, sourceBook, profile, sourceBookId?, evidenceIds?, createdAt, updatedAt }`
      （`writing-style-store.ts:21-30`）——**没有** tags/kind/priority，不要假装有。
+     ⚠️ **已实测的坑：`WritingStyleStore` 接口本身没有 `export`**
+     （`:32` 是 `interface WritingStyleStore`，而 `loadWritingStyleStore` 的返回类型写了它）。
+     所以**引用不到这个类型名**。两种做法选一，说明选了哪种：
+     (i) 用 `Awaited<ReturnType<typeof loadWritingStyleStore>>` 推导；
+     (ii) 给它加 `export`（改动更小更可读，但要确认没别的同名冲突）。
+     相关既有导出（`:65`/`:88`/`:129`/`:167`/`:176`/`:180`/`:238`）：
+     `loadWritingStyleStore`、`upsertWritingStylePreset`、`setEnabledWritingStyle`、
+     `removeWritingStylePreset`、`removeWritingStylePresetBySourceBook`、
+     `getEnabledWritingStyle`、`buildWritingStyleContext`。
+     store 形状是 `{ version: 1, enabledStyleId: string | null, styles: WritingStylePreset[] }`
+     （`:32-36`）——**`enabledStyleId` 可用于在条目上标出「当前启用」**，
+     但 ⚠️ 本批**不要**让技能库的选中动作去写它（用户决定 2：项目设置不得被改）。
    - 载入：`SkillGallery` 现在同时加载两库（`:409-427`），补
      `loadWritingStyleStore(projectPath)`。
    - 分类 chips（`:442-453`，现在只在 writing tab 生成）：按需扩展；
