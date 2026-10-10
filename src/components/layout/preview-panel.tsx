@@ -56,6 +56,7 @@ import { EventOutlineCard } from "@/components/sources/event-outline-card"
 import { EventOutlineWizardDialog } from "@/components/sources/event-outline-wizard-dialog"
 import { generateEventOutline } from "@/lib/novel/event-outline-generation"
 import { cleanGeneratedChapterContentWithTitle } from "@/lib/novel/chapter-content-cleanup"
+import { buildDraftChapterMarkdown } from "@/lib/novel/chapter-draft-markdown"
 import { runDeepChapterGeneration } from "@/lib/novel/deep-chapter-generation"
 import { type EventOutlineRequest } from "@/lib/novel/event-outline"
 import { isUserAbortError, USER_ABORT_MESSAGE } from "@/lib/user-abort"
@@ -245,38 +246,6 @@ const eventOutlineAbortControllers = new Map<string, AbortController>()
  * 无法被表达的地方。两张 Map 是**故意**的（代价只是一个 4 行的字段注释），不是历史遗留。
  */
 const chapterProseAbortControllers = new Map<string, AbortController>()
-
-/**
- * 拼一份新章节的 frontmatter + 正文。
- *
- * 🔴 `chapter_status` 在这里是**字面量** `draft`，没有布尔开关可翻 —— 这是草稿隔离
- * （`.agents/AGENTS.md` 核心工作流第 2/4 条）的落点：AI 刚生成的正文不得被当成
- * 可摄取的终稿。
- *
- * 刻意**不**用 `buildImportedChapterMarkdown`（chapter-import.ts）：它的必填参数
- * `finalForMemoryExtraction` 能产出 `chapter_status: final`，而 `ingestChapter`
- * 默认就接收 final —— 一条硬约束不该押在一个实参上（参数名还极具误导性）。
- *
- * 字段顺序、以及「标题只进 frontmatter、正文不放 H1」这两点，照
- * chat-panel.tsx:1300-1314 的 AI 写入路径（那是全仓既有的 AI 章节落盘口径）。
- */
-function buildDraftChapterMarkdown(chapterNumber: number, title: string, body: string): string {
-  const today = new Date().toISOString().slice(0, 10)
-  // 标题里的引号会破坏 YAML，照 chapter-meta 的 yamlEscape 口径转义。
-  const safeTitle = title.replace(/\\/g, "\\\\").replace(/"/g, "\\\"")
-  const frontmatter = [
-    "---",
-    "type: chapter",
-    `chapter_number: ${chapterNumber}`,
-    "chapter_status: draft",
-    `title: "${safeTitle}"`,
-    `created: ${today}`,
-    "---",
-    "",
-  ].join("\n")
-  // 标题只写入 frontmatter，正文只保存实际章节内容，避免重复。
-  return `${frontmatter}${body}\n`
-}
 
 function getDiskSyncNormalize(path: string): (content: string) => string {
   return isChapterPath(path) ? normalizeChapterWriting : (content) => content
