@@ -2480,22 +2480,46 @@ export function PreviewPanel() {
                    * 并给出原因，而不是消失），我们把 EventOutlineCard 已经拼好的计划文本
                    * 转交 handleConfirmEventOutline。
                    *
-                   * 卡片上另外两枚入口是丙-3 的「重新修改」：
+                   * 卡片上另外三枚入口是「手动修改」「重新生成」（即丙-3 的「重新修改」）
+                   * 与「丢弃这份细纲」：
                    * - onRegenerate：任务上留存的原始请求重跑一次提交函数（§3a）——
                    *   **不新增 store action**，startTask 的「同项目同章号替换」语义恰好正确，
                    *   且新任务拿到的是新 taskId（事件细纲那条链路的 controller 永不复用 id，
                    *   所以它那个按 id 删条目的 settle 不需要身份判定，见 handleConfirmEventOutline
                    *   里那段对比注释）。
+                   *   ⚠️ 但 `requirement` **必须取卡片当前那份**（`task.outline?.requirement`）：
+                   *   `task.request` 是 startTask 时留下的原始请求，`updateTaskOutline` 从不
+                   *   回写它，所以照抄 request 会把用户手改过的要求静默丢掉。requirement 是
+                   *   生成的**输入**（withRequirement 把它当权威值写进细纲、扩写提示词也读它），
+                   *   不是生成产物，因此不适用「重新生成就是覆盖编辑」的语义。
+                   *   刻意**不**写 `?? task.request.requirement`：用户把要求清空时
+                   *   `outline.requirement` 就是 undefined，回退到旧 request 等于让已删掉的要求诈尸。
+                   *   `EventOutlineRequest.requirement` 是必填 string，故补 `?? ""` ——
+                   *   对下游而言 `""` 与 undefined 完全等价（buildEventOutlinePrompt 与
+                   *   withRequirement 都只认 trim 后的非空值）。
+                   *   其余三个字段（章号 / 事件数 / 目标字数）照旧来自 `task.request`：
+                   *   编辑表单里没有它们，细纲生成之后也没有第二个入口能改。spread 出的是
+                   *   新对象，**不会**改动 `task.request` 本身。
                    * - onSaveOutline：手改写回 `task.outline`（§3b）。`data` 就是 `task.outline`，
-                   *   写回后 task.outline 仍是唯一真相：卡片渲染与扩写提示词读的是同一个对象。
+                   *   写回后 task.outline 仍是**卡片渲染与扩写提示词**的唯一真相（两者读同一个
+                   *   对象）。但「重新生成」读的是 `task.request`（加上上面那条 requirement 修正），
+                   *   所以「task.outline 是唯一真相」这句话只覆盖扩写那半条链路，不能顺推到手改
+                   *   会改变重新生成的输入 —— 手改只影响 requirement 一个字段，其余输入不变。
+                   * - onDiscard：把整条任务收掉。它从本文件搬进了卡片（F4）：
+                   *   卡片有编辑态而本层看不见，按钮留在外面就能在用户敲了一屏草稿时
+                   *   被顺手点掉、草稿无声消失。
                    */}
                   <EventOutlineCard
                     data={task.outline}
                     onWriteChapter={(prompt) => handleConfirmEventOutline(task.id, prompt)}
-                    onRegenerate={() => handleSubmitEventOutline(task.request)}
+                    onRegenerate={() => handleSubmitEventOutline({
+                      ...task.request,
+                      requirement: task.outline?.requirement ?? "",
+                    })}
                     onSaveOutline={(next) => {
                       useEventOutlineTaskStore.getState().updateTaskOutline(task.id, next)
                     }}
+                    onDiscard={() => handleDismissEventOutlineTask(task.id)}
                   />
                   {/*
                    * 正文生成失败：细纲还在（failWriting 不碰 outline），所以卡片原样留着，
@@ -2506,15 +2530,6 @@ export function PreviewPanel() {
                       第 {task.chapterNumber} 章正文生成失败：{task.writingError}
                     </p>
                   ) : null}
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground underline"
-                      onClick={() => handleDismissEventOutlineTask(task.id)}
-                    >
-                      丢弃这份细纲
-                    </button>
-                  </div>
                 </>
               ) : null}
             </div>

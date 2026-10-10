@@ -114,9 +114,14 @@ const OUTLINE: EventOutlineData = {
 }
 
 /**
- * 丙-2b 用的细纲：**必须能通过 `validateEventOutlineData`**（4~8 个事件、每事件
- * ≥2 条抓手、有钩子），否则 `EventOutlineCard` 的那枚确认按钮根本不会渲染
- * （它由 `onWriteChapter && validation.ok` 双条件 gate），用例就点不到确认件。
+ * 丙-2b 用的细纲：**应当能通过 `validateEventOutlineData`**（4~8 个事件、每事件
+ * ≥2 条抓手、有钩子），否则 `EventOutlineCard` 那枚确认按钮会**置灰**，点了也不会
+ * 发起正文生成，用例同样点不出结果。
+ *
+ * ⚠️ 丙-3 **推翻**了这里原来的理由：确认按钮的渲染 gate 现在只有 `onWriteChapter`
+ * 一个条件（`validation.ok` 那道 gate 被有意去掉，改成置灰 + 可见原因，见
+ * `preview-panel.tsx` 与 `event-outline-card.tsx` 的注释）。所以本夹具仍然必须合法，
+ * 但理由是「否则点不动」，不是「否则根本不渲染」—— 旧注释写的是后者，已与代码不符。
  * 上面那条 1 个事件的 `OUTLINE` 是丙-2a 的历史夹具，故意不动它。
  */
 function outlineFor(chapterNumber: number): EventOutlineData {
@@ -1625,10 +1630,23 @@ describe("丙-2b 修复批：取消 / 项目切换 / 目标路径 / 进度", () 
  * 所以「重新生成」= 用任务上留存的 `request` 再走一次生成通路，不新增 store action。
  */
 describe("丙-3 卡片「重新修改」", () => {
-  /** 生成一份能过校验的细纲（4~8 个事件），等卡片出来。 */
+  /**
+   * 生成一份能过校验的细纲（4~8 个事件），等卡片出来。
+   *
+   * ⚠️ `requirement` 必须由这里**照抄真实模块的契约**补进 outline：真实的
+   * `generateEventOutline` 在解析时就会调 `withRequirement`，把请求里的非空要求
+   * 写进细纲（`event-outline.ts:291`）。这个 mock 把整个模块换掉了，若只回一份
+   * 没有 requirement 的夹具，就变成「真实链路里 `outline.requirement` 有值、
+   * 测试里永远 undefined」—— 而「重新生成该不该带上手改后的要求」这件事，
+   * 恰恰只有在它有值时才分得出真假（这正是 F1）。
+   */
   async function generate(chapterNumber: number, requirement = ""): Promise<void> {
+    const trimmed = requirement.trim()
+    const outline = trimmed
+      ? { ...outlineFor(chapterNumber), requirement: trimmed }
+      : outlineFor(chapterNumber)
     fixture.generateEventOutline.mockResolvedValue({
-      outline: outlineFor(chapterNumber),
+      outline,
       rawContent: "",
       error: null,
     })
@@ -1771,6 +1789,112 @@ describe("丙-3 卡片「重新修改」", () => {
     const tasks = useEventOutlineTaskStore.getState().tasks
     expect(tasks).toHaveLength(1)
     expect(tasks[0].id, "取代走的是新 taskId：旧 id 不复用，身份无关的 delete 才安全").not.toBe(regeneratedId)
+  })
+
+  /*
+   * F1（本次修复）：手改过的 `requirement` 必须**跟着重新生成一起走**。
+   *
+   * 「重新生成」丢弃事件的正文细节是它的本意（细纲会被整份替换），但 `requirement`
+   * 是生成的**输入**：卡片把它做成可编辑字段、`withRequirement`（event-outline.ts）
+   * 又把它当权威值写回细纲、扩写提示词也读它。而 `onRegenerate` 原先读的是
+   * `task.request` —— `updateTaskOutline` 从不回写那个字段 —— 于是用户手改的要求
+   * 会被静默回滚成旧值，卡片上还显示回旧值。
+   *
+   * 断言落在**第二次 generateEventOutline 收到的 request** 上：只看「调用了两次」
+   * 或「卡片显示的要求是什么」都区分不出新旧值（旧实现照样调两次）。
+   */
+  it("【F1】手改「本章要求」后点重新生成：第二次生成带的必须是改后的要求", async () => {
+    seedChapterAreaLibrary()
+    await mount()
+    await generate(2, "必须交代骆轻竹为什么失望")
+
+    await click("手动修改")
+    // 反向控制：表单里预填的确实是那份要求，否则下面改的就不是被测字段
+    expect(cardField<HTMLTextAreaElement>("细纲本章要求").value).toBe("必须交代骆轻竹为什么失望")
+    await act(async () => {
+      setTextarea(cardField<HTMLTextAreaElement>("细纲本章要求"), "改成：让骆轻竹先开口，别写失败者的自怜。")
+    })
+    await click("保存细纲")
+
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(2), rawContent: "", error: null })
+    await click("重新生成")
+
+    expect(fixture.generateEventOutline).toHaveBeenCalledTimes(2)
+    const original = fixture.generateEventOutline.mock.calls[0][1] as EventOutlineRequest
+    const replayed = fixture.generateEventOutline.mock.calls[1][1] as EventOutlineRequest
+    expect(
+      replayed.requirement,
+      "手改后的要求必须进第二次生成（照抄 task.request 会把用户的修改静默回滚）",
+    ).toBe("改成：让骆轻竹先开口，别写失败者的自怜。")
+    // 其余输入仍来自任务上留存的请求：表单里没有章号/事件数/目标字数这三个字段
+    expect(replayed.chapterNumber).toBe(original.chapterNumber)
+    expect(replayed.eventCount).toBe(original.eventCount)
+    expect(replayed.targetWords).toBe(original.targetWords)
+    /*
+     * 而且**不得就地改** `task.request`：`original` 就是第一次提交时那同一个对象
+     * （startTask 存的是引用、mock 收到的也是它），写成 `task.request.requirement = …`
+     * 会让它跟着变。新任务存的则是这次 spread 出来的那份。
+     */
+    expect(original.requirement, "spread 出新对象，不得就地改 task.request").toBe("必须交代骆轻竹为什么失望")
+    expect(replayed, "必须是一个新对象").not.toBe(original)
+    expect(useEventOutlineTaskStore.getState().tasks[0].request).toEqual(replayed)
+  })
+
+  /*
+   * F1 的另一半：**清空**要求之后重新生成，必须**不带**要求。
+   *
+   * 这条专门钉死 `?? task.request.requirement` 那个写法（而不是 `?? ""`）：
+   * 用户清空时 `outline.requirement` 就是 undefined，一旦回退到旧 request，
+   * 用户删掉的要求会在下一轮生成里复活，`withRequirement` 还会把它写回细纲。
+   */
+  it("【F1】手改清空「本章要求」后点重新生成：不得把旧要求捡回来", async () => {
+    seedChapterAreaLibrary()
+    await mount()
+    await generate(2, "必须交代骆轻竹为什么失望")
+
+    await click("手动修改")
+    await act(async () => { setTextarea(cardField<HTMLTextAreaElement>("细纲本章要求"), "") })
+    await click("保存细纲")
+    // 反向控制：清空确实落成了「没有要求」（不是空串、更不是旧值）
+    expect(useEventOutlineTaskStore.getState().tasks[0].outline?.requirement).toBeUndefined()
+
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(2), rawContent: "", error: null })
+    await click("重新生成")
+
+    expect(fixture.generateEventOutline).toHaveBeenCalledTimes(2)
+    const replayed = fixture.generateEventOutline.mock.calls[1][1] as EventOutlineRequest
+    expect(replayed.requirement, "清空之后重跑必须真的不带要求（旧值不得诈尸）").toBe("")
+  })
+
+  /*
+   * F4（本次修复）：编辑期间**不能**存在「丢弃这份细纲」。
+   *
+   * 丙-3 之前卡片不持有任何输入，这枚入口挂在本文件、卡片**外面**（原 `:2510` 附近），
+   * 于是用户在表单里敲了一屏、顺手点掉它，草稿连同任务一起消失、连一句提示都没有。
+   * 现在它由卡片在**只读视图**里渲染：编辑态整块替换只读视图 ⇒ 按钮在 DOM 里不存在，
+   * 不需要任何跨组件状态同步（后面那条「取消编辑之后它回来、且仍然有效」防止
+   * 把入口改成永久消失）。
+   */
+  it("【F4】编辑期间没有「丢弃这份细纲」（草稿不会被静默连任务一起丢掉）", async () => {
+    seedChapterAreaLibrary()
+    await mount()
+    await generate(2)
+
+    // 反向控制：只读视图里它本来就在，否则「编辑期间没有」证明不了任何事
+    expect(button("丢弃这份细纲")).toBeDefined()
+
+    await click("手动修改")
+    await act(async () => { setTextarea(cardField<HTMLTextAreaElement>("细纲本章要求"), "还没保存的草稿") })
+    const discardWhileEditing = Array.from(container.querySelectorAll("button"))
+      .find((item) => item.textContent?.trim() === "丢弃这份细纲")
+    expect(discardWhileEditing, "编辑期间不得留下「丢弃」入口：一屏草稿会被静默丢掉").toBeUndefined()
+    expect(cardField<HTMLTextAreaElement>("细纲本章要求").value, "草稿还在").toBe("还没保存的草稿")
+
+    // 放弃编辑之后入口回来，而且真的还能收掉任务（不是被永久藏掉）
+    await click("取消编辑")
+    await click("丢弃这份细纲")
+    expect(useEventOutlineTaskStore.getState().tasks).toHaveLength(0)
+    expect(container.querySelector("[data-event-outline-card]")).toBeNull()
   })
 
   /*

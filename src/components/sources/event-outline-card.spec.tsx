@@ -162,6 +162,132 @@ it("未提供 onWriteChapter 时不渲染扩写入口（与校验无关）", asy
   host.remove()
 })
 
+/* ── F5：三条此前**没有任何测试保护**的断言（都被变异存活过） ── */
+
+/*
+ * 合法细纲上不该挂 `aria-describedby`。
+ *
+ * 变异「把 `validation.ok ?` 那个三元拆掉、无条件写成 problemsId」在全量测试里是
+ * **绿的**：合法卡上确实没有体检块，于是这个属性指向一个不存在的节点（悬空引用），
+ * 而唯一会读它的读屏软件不在测试里。这条用例把「合法卡上必须是 null」钉住。
+ */
+it("合法细纲上不挂 aria-describedby（合法卡没有体检块，挂了就是悬空引用）", async () => {
+  const { root, host } = render(<EventOutlineCard data={data()} onWriteChapter={() => {}} />)
+  try {
+    await act(async () => {})
+    const button = [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((item) => item.textContent === "用这份细纲写这一章")!
+    expect(button.disabled, "合法细纲不该置灰").toBe(false)
+    // 反向控制：合法卡上确实没有体检块 ⇒ 此时任何 id 都必然指向不存在的节点
+    expect(host.querySelector("[data-event-outline-problems]")).toBeNull()
+    expect(
+      button.getAttribute("aria-describedby"),
+      "合法卡挂 aria-describedby 就是悬空引用（读屏会指向不存在的节点）",
+    ).toBeNull()
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+/*
+ * 同一章的多张卡片必须各有各的体检 id。
+ *
+ * 变异「把 `useId()` 换成 `data.chapterNumber` 拼 id」在全量测试里也是**绿的**，
+ * 而碰撞是真实可发生的：大纲会话里每一条助手消息都可能挂一张卡片，同一个会话
+ * 可以为同一章重出好几轮 —— 那时 `aria-describedby` 会指到**另一张卡**的体检块上。
+ * 这条用例用同一章的两张卡把 id 的同一性逼出来。
+ */
+it("同一章的两张卡片各有自己的体检 id（不能拿章号拼 id）", async () => {
+  const first = render(<EventOutlineCard data={data({ endingHook: "" })} onWriteChapter={() => {}} />)
+  const second = render(<EventOutlineCard data={data({ endingHook: "" })} onWriteChapter={() => {}} />)
+  try {
+    await act(async () => {})
+    const describedBy = (host: HTMLElement) => {
+      const button = [...host.querySelectorAll<HTMLButtonElement>("button")]
+        .find((item) => item.textContent === "用这份细纲写这一章")!
+      return button.getAttribute("aria-describedby")
+    }
+    const firstId = describedBy(first.host)
+    const secondId = describedBy(second.host)
+    expect(firstId, "禁用按钮必须把具体原因关联进来").toBeTruthy()
+    expect(secondId).toBeTruthy()
+    expect(firstId, "同一章多张卡片的体检 id 不能相同（相同会让读屏指到另一张卡上）").not.toBe(secondId)
+    // 而且每个 id 指向的是**自己那张卡**里的体检块
+    expect(first.host.querySelector(`[id="${firstId}"]`)?.textContent).toContain("缺少全章结尾钩子")
+    expect(second.host.querySelector(`[id="${secondId}"]`)?.textContent).toContain("缺少全章结尾钩子")
+  } finally {
+    await act(async () => first.root.unmount())
+    await act(async () => second.root.unmount())
+    first.host.remove()
+    second.host.remove()
+  }
+})
+
+/*
+ * `useId()` 必须在**任何 early return 之前**调用。
+ *
+ * 编辑态那条 `if (editing && onSaveOutline) return <EventOutlineEditor …/>` 是
+ * 本组件唯一的早退分支：把 `useId()` 挪到它下面，「只读 → 编辑 → 只读」这条
+ * 用户真实会走的往返就会让 hook 数量 3 → 2 → 3，React 直接抛
+ * 「Rendered more hooks than during the previous render」。这条用例就走这个往返。
+ */
+it("编辑开关往返一次后卡片照常工作（useId 必须在早退之前无条件调用）", async () => {
+  const { root, host } = render(
+    <EventOutlineCard data={data({ endingHook: "" })} onWriteChapter={() => {}} onSaveOutline={() => {}} />,
+  )
+  try {
+    await act(async () => {})
+    const idBefore = [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((item) => item.textContent === "用这份细纲写这一章")!.getAttribute("aria-describedby")
+    expect(idBefore, "只读视图里禁用按钮应指向体检块").toBeTruthy()
+
+    await act(async () => cardButton("手动修改", host).click())
+    await act(async () => cardButton("取消编辑", host).click())
+
+    const idAfter = [...host.querySelectorAll<HTMLButtonElement>("button")]
+      .find((item) => item.textContent === "用这份细纲写这一章")!.getAttribute("aria-describedby")
+    expect(idAfter, "往返之后仍应指向体检块（hook 次序没变）").toBe(idBefore)
+    expect(host.querySelector(`[id="${idAfter}"]`)?.textContent).toContain("缺少全章结尾钩子")
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+/* ── F2：禁用原因必须如实说明「哪些问题表单改不了」 ── */
+
+/*
+ * 9 个事件是**表单做不到**的缺陷：编辑表单没有增删事件、也不重编号。
+ * 原文案「修好后才能用这份细纲写正文」等于承诺表单能修好所有待修项，
+ * 而这类用户只会对着一枚永远灰着的按钮找一个不存在的修法。
+ *
+ * ⚠️ 断言只要求文案**提到重新生成**、且不再出现「修好后才能」：
+ * 卡片刻意不在这里重算哪些问题是结构性的（那会与 validateEventOutlineData 分叉）。
+ */
+it("结构性缺陷（9 个事件）时，禁用原因指向重新生成而不是承诺表单改得动", async () => {
+  const events = Array.from({ length: 9 }, (_, index) => ({
+    id: index + 1,
+    title: `第${index + 1}个事件`,
+    points: ["关键台词：台词", "神情：神情"],
+  }))
+  const { root, host } = render(<EventOutlineCard data={data({ events })} onWriteChapter={() => {}} />)
+  try {
+    await act(async () => {})
+    const reason = host.querySelector("[data-event-outline-blocked-reason]")
+    expect(reason, "结构不合法时禁用原因必须可见").not.toBeNull()
+    expect(reason!.textContent).toContain("待修")
+    expect(reason!.textContent, "事件数/序号这类结构问题在表单里修不了，出口是重新生成").toContain("重新生成")
+    expect(
+      reason!.textContent,
+      "不得再承诺「修好后才能」——事件数与序号在表单里改不了",
+    ).not.toContain("修好后才能")
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
 /* ── 丙-3a：AI 重新生成（低风险那半，只回传一个意图，数据链路不变） ── */
 
 it("未提供 onRegenerate 时不出现「重新生成」（大纲会话里的旧卡片不凭空多出按钮）", async () => {

@@ -27,10 +27,21 @@ interface EventOutlineCardProps {
   onRegenerate?: () => void
   /** 「手动修改」保存（丙-3b）：回传整份改后的细纲，由上层写回 `task.outline`。 */
   onSaveOutline?: (outline: EventOutlineData) => void
+  /**
+   * 「丢弃这份细纲」：把**整条任务**收掉（上层 `removeTask`）。
+   *
+   * 为什么这枚入口必须由卡片渲染（F4）：它原先挂在上层、卡片**外面**，
+   * 而上层的卡片壳看不见卡片自己的编辑态 —— 用户在表单里敲了一屏，顺手点它，
+   * 草稿连同任务一起消失，连一句提示都没有。挂进卡片之后，编辑态整块替换掉
+   * 只读视图，这枚入口**在 DOM 里根本不存在**，不依赖任何跨组件状态同步
+   * （也就不会有「组件重挂后忘了把标志复位」这第二种 bug）。
+   */
+  onDiscard?: () => void
 }
 
 /**
- * 事件细纲卡片：卡片内展示 + 三枚入口（手动修改 / 重新生成 / 用这份细纲写这一章）。
+ * 事件细纲卡片：卡片内展示 + 最多四枚入口（丢弃这份细纲 / 手动修改 / 重新生成 /
+ * 用这份细纲写这一章），每枚都由对应回调是否接线决定渲染与否。
  *
  * ⚠️ 本组件**曾经刻意不做卡片内编辑**，原注释写的是「修改事件靠在大纲对话里说
  * 『第 3 个事件改成……』重出一轮，这样生成与修改走同一条链路」。用户 2026-10-10
@@ -45,14 +56,22 @@ interface EventOutlineCardProps {
  *   把新的 `task.outline` 传回来。于是卡片渲染与
  *   `onWriteChapter(eventOutlineToProsePrompt(data))` 读的是**同一个对象**，
  *   不存在「组件里一份、store 里一份」的双份真相；
- * - 编辑表单（下面 `EventOutlineEditor`）只持有**临时字符串草稿**，它不参与任何
- *   下游取值，保存后整块卸载 —— 唯一真相始终是 store 里那份。
+ * - 编辑表单（下面 `EventOutlineEditor`）只持有**临时字符串草稿**，保存后整块卸载。
+ *   它确实**能**与 store 里那份分叉：`outlineFromDraft(draft, data)` 拿的是
+ *   **表单打开那一刻**捕获的 `data` 当底稿，未改动的字段按那份底稿写回，
+ *   所以「打开表单 → outline 被别处改掉 → 保存」会把旧值写回去。
+ *   今天到不了这一步，靠的是两条**组件之外**的约束，而不是本组件自己的保证：
+ *   1. `awaiting-confirm` 期间 `outline` 的写者只有本卡片这一次保存（唯一写者）；
+ *   2. 其它路径都会把卡片整块卸掉 —— `failTask` 置 `outline: null`、`removeTask`
+ *      摘掉该行、同章 `startTask` 换一条从 `generating` 重来的新任务，卡片先退场。
+ *   将来若给卡片加了「编辑期间外部也能改 outline」的入口，上面两条就不再成立，
+ *   那时必须把底稿换成保存那一刻的最新 `data`（或干脆把编辑态提升到上层）。
  *
  * ⚠️ 校验失败时「用这份细纲写这一章」**不隐藏**，而是置灰 + 列出可见原因：
  * 手改改坏了就把主 CTA 抽掉，用户只会以为「功能没了」，也无从知道该改回什么。
  * 这是实施计划 §3b 第 3 条要求的**显式决定**，不是偶然行为。
  */
-export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOutline }: EventOutlineCardProps) {
+export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOutline, onDiscard }: EventOutlineCardProps) {
   const validation = useMemo(() => validateEventOutlineData(data), [data])
   const perEventWords = data.events.length > 0 ? Math.round(data.targetWords / data.events.length) : 0
   /*
@@ -134,7 +153,17 @@ export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOut
       ) : null}
 
       <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
-        {/* 「重新修改」的两个动作（丙-3）。各自由回调是否接线决定，互不依赖。 */}
+        {/* 入口各自由回调是否接线决定，互不依赖：丢弃（收掉整条任务）/ 手动修改 /
+            重新生成（丙-3 的「重新修改」）/ 主 CTA。丢弃排在最左，只读视图里才有。 */}
+        {onDiscard ? (
+          <button
+            type="button"
+            className="text-xs text-muted-foreground underline"
+            onClick={onDiscard}
+          >
+            丢弃这份细纲
+          </button>
+        ) : null}
         {onSaveOutline ? (
           <Button type="button" variant="outline" size="sm" onClick={() => setEditing(true)}>
             手动修改
@@ -147,10 +176,25 @@ export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOut
         ) : null}
         {onWriteChapter ? (
           <>
-            {/* ⚠️ 不合法时**照样渲染**这枚按钮，只是置灰并说明原因（见组件注释最后一段）。 */}
+            {/*
+             * ⚠️ 不合法时**照样渲染**这枚按钮，只是置灰并说明原因（见组件注释最后一段）。
+             *
+             * 文案里那句「结构问题改不了，需要重新生成」是**如实的**，不是随口补的：
+             * `validateEventOutlineData` 的 problems 里，事件数越界与事件序号不连续
+             * 是这个表单**做不到**的两件事（表单只能改标题/抓手/钩子/目标字数/要求，
+             * 既不能增删事件、也不重编号）。原文案「修好后才能用」会让一个 9 事件的
+             * 用户对着永远灰着的按钮找一个不存在的修法。
+             *
+             * ⚠️ 刻意**不在这里重算**哪些问题是结构性的：同一份 problems 已被
+             * `validateEventOutlineData` 判定过一次，在卡片里再判一遍就是两处判据，
+             * 早晚分叉。所以这里只做**能力声明**（有没有「手动修改」入口），
+             * 不对问题清单做任何分支。
+             */}
             {!validation.ok ? (
               <span data-event-outline-blocked-reason role="status" className="text-xs text-destructive">
-                细纲还有 {validation.problems.length} 项待修，修好后才能用这份细纲写正文（详见上方「细纲体检」）。
+                细纲还有 {validation.problems.length} 项待修（详见上方「细纲体检」）：
+                {onSaveOutline ? "标题、细节抓手、章尾钩子与目标字数可以点「手动修改」自己改；" : null}
+                事件数量、事件序号这类结构问题改不了，需要重新生成一份细纲。
               </span>
             ) : null}
             <Button
@@ -325,9 +369,15 @@ function patchDraftEvent(
  *   真有断号时校验会把它列进「细纲体检」，用户可以选择重新生成。
  * - 抓手按行拆、去空白、丢空行：否则多敲一个回车就变成一条空抓手，
  *   让「2~5 条」的校验无端变红。
- * - 目标字数照 `positiveInteger` 的口径扫第一段数字（「约3000字」也读得出来），
- *   一段数字都没有时**存 0** 而不是拒绝保存：卡片会把「缺少本章目标字数」列进体检，
- *   写正文入口相应置灰并说明原因 —— 用户刚敲的内容一个字都不丢。
+ * - 目标字数照 `positiveInteger` 的口径扫第一段数字（「约3000字」也读得出来）。
+ *   口径与后端保持一致是刻意的：同一段文本在卡片与 `readEventOutline` 里必须得到
+ *   同一个值。代价是它**不是**一个完整的数字解析器 —— `3.5万` 读成 3、`1e5` 读成 1、
+ *   全角 `３０００` 一段数字都扫不到、`-500` 读成 500。这是既有口径的既有行为
+ *   （`positiveInteger` 同样如此），不是本次新引入的。
+ * - 一段数字都没有时**存 0** 而不是拒绝保存：卡片会把「缺少本章目标字数」列进体检，
+ *   写正文入口相应置灰并说明原因。也就是说：用户敲的**其它字段**（标题 / 抓手 /
+ *   钩子 / 要求）会逐字保存，只有这个数字框里「第一段数字之外的部分」不会保留 ——
+ *   别把它说成「一个字都不丢」。
  * - `requirement` 为空时写回 `undefined` 而不是空串：读旧数据那一侧
  *   （`readEventOutline`）用的是 `|| undefined`，两处口径要一致，
  *   免得「空要求」与「没有要求」变成两种空值。
