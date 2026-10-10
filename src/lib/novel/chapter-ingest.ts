@@ -27,6 +27,7 @@ import {
 } from "./foreshadowing-normalize"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
+import { learnPersonaSkillsFromChapter } from "./persona-skill-learning"
 import { buildChapterIngestOutput, type ChapterIngestOutput } from "./chapter-ingest-output"
 import { mergeSnapshotTimeline, rebuildTimelineFromSnapshots } from "./timeline"
 import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-rebuild"
@@ -451,6 +452,24 @@ export async function ingestChapter(
     }
   } catch (err) {
     console.warn("[Chapter Ingest] Wiki patch fields write failed:", err instanceof Error ? err.message : err)
+  }
+
+  // 人物 Skill：提取记忆时顺带学习（首次建档 / 再次完善）。
+  // 后台异步、不阻塞「提取记忆」按钮；整章所有人物合并成一次 LLM 调用。
+  // 重新提取（isReingest）不重复学习，避免重复消耗模型。
+  // 这里刻意不 await：学习失败只 warn，绝不能影响章节摄取本身。
+  if (!isReingest) {
+    void learnPersonaSkillsFromChapter({
+      projectPath: pp,
+      chapter: {
+        chapterNumber: snapshot.chapterNumber,
+        chapterBody: body,
+        characters: snapshot.characters,
+        characterAliases: snapshot.characterAliases,
+      },
+      llmConfig: runtimeLlmConfig,
+      signal,
+    })
   }
 
   if (isReingest) {
