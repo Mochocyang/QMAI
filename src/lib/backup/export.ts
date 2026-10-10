@@ -7,8 +7,7 @@ import type {
   ExportResult,
   BackupProgressCallback,
 } from "./types"
-
-const LS_PREFIXES = ["qmai", "lk-"]
+import { backupPrefixGroupOf } from "./local-storage"
 const SENSITIVE_STORAGE_KEY = /(api[_-]?key|token|secret|password|fingerprint)/i
 
 function collectLocalStorage(includeCredentials: boolean): Record<string, string> {
@@ -16,7 +15,7 @@ function collectLocalStorage(includeCredentials: boolean): Record<string, string
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i)
     if (!key) continue
-    if (LS_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+    if (backupPrefixGroupOf(key) !== null) {
       if (!includeCredentials && SENSITIVE_STORAGE_KEY.test(key)) continue
       const value = localStorage.getItem(key)
       if (value !== null) {

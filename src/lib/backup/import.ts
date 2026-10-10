@@ -5,6 +5,8 @@ import { loadRegistry, upsertProjectInfo } from "@/lib/project-identity"
 import { refreshProjectState } from "@/lib/project-refresh"
 import { useWikiStore } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
+import { registerUiTestProjects } from "@/lib/ui-test-library"
+import { planLocalStorageReplacement } from "./local-storage"
 import type {
   ImportParams,
   ImportResult,
@@ -30,6 +32,64 @@ async function refreshCurrentProjectIfNeeded(restoredProjects: Array<{ path: str
 
   if (needsRefresh) {
     await refreshProjectState(currentPath)
+  }
+}
+
+/**
+ * 把恢复成功的项目登记进书架索引，让它们**立刻出现在书架上**。
+ *
+ * ── 为什么必须有这一步 ──
+ * 恢复出来的项目此前只写了 app-state 的 `projectRegistry`，而书架的列表来源是
+ * localStorage 里的 `qm-uitest-library`。两者是两个独立的存储：
+ * 用户导入一份「仅项目内容」备份（不含 app-state、不含 localStorage）之后，
+ * 文件确实回到了磁盘，但书架索引里没有它们 —— 界面上就是**一本书都没有**，
+ * 用户合理地认为"备份恢复失败/我的书丢了"。
+ *
+ * 名称优先用恢复结果里的（它来自 manifest / project-registry.json，
+ * 是备份时那份书名的真实记录），没有才退到 id。
+ *
+ * 单本书登记失败不能影响其它书：书架索引写坏会抛错，这里逐本兜住并给出警告，
+ * 因为项目文件已经成功落盘，此时中断会把"其实恢复好了"变成一次失败。
+ */
+function registerRestoredProjectsOnShelf(
+  restored: Array<{ id: string; path: string; name: string; success: boolean }>,
+): void {
+  const projects = restored
+    .filter((project) => project.success && project.path.trim())
+    .map((project) => ({
+      id: project.id,
+      path: project.path,
+      name: project.name.trim() || project.id,
+    }))
+  if (projects.length === 0) return
+
+  try {
+    registerUiTestProjects(projects)
+    return
+  } catch {
+    /*
+     * 整批失败时退化成"逐本登记"。
+     *
+     * 书架索引对每条记录都做校验（要求 id/书名非空、路径为绝对路径），
+     * 任何一条不合格都会让整批写入被拒绝。批量失败就放弃，会让
+     * 其余**完全正常**的书也一起上不了书架 —— 用户看到的是"恢复成功了但没有书"。
+     * 所以这里逐本重试，只把真正写不进去的那本记进控制台。
+     */
+  }
+
+  let failed = 0
+  for (const project of projects) {
+    try {
+      registerUiTestProjects([project])
+    } catch {
+      failed += 1
+    }
+  }
+  if (failed > 0) {
+    console.warn(
+      `[backup] ${projects.length - failed} 个项目已登记进书架，${failed} 个写入失败。` +
+        `这些项目已恢复到磁盘，可在书架手动重新打开一次。`,
+    )
   }
 }
 
@@ -158,16 +218,18 @@ export async function importBackup(
     }
 
     if (result.localStorageData) {
-      const prefixes = ["qmai", "lk-"]
       if (result.replaceLocalStorage !== false) {
-        const keysToRemove: string[] = []
+        /*
+         * 清除范围由 planLocalStorageReplacement 决定（按命名空间分组，
+         * 只清备份里真的带了的那几组）。不要在这里直接按前缀遍历删除：
+         * 旧版本备份不含 qm-uitest- 组，那样做会把书架索引与皮肤删掉且填不回来。
+         */
+        const currentKeys: string[] = []
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i)
-          if (key && prefixes.some((p) => key.startsWith(p))) {
-            keysToRemove.push(key)
-          }
+          if (key) currentKeys.push(key)
         }
-        for (const key of keysToRemove) {
+        for (const key of planLocalStorageReplacement(currentKeys, result.localStorageData)) {
           localStorage.removeItem(key)
         }
       }
@@ -184,6 +246,7 @@ export async function importBackup(
           await upsertProjectInfo(project.id, project.path, existing?.name ?? project.name)
         }
       }
+      registerRestoredProjectsOnShelf(result.projects)
       // 如果导入的是当前打开的项目，自动刷新
       await refreshCurrentProjectIfNeeded(result.projects)
     }

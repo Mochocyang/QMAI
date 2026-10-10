@@ -274,6 +274,15 @@ export function BackupExportDialog({
 
           <fieldset className="space-y-2">
             <legend className="text-sm font-medium">项目数据类别</legend>
+            {/*
+              这句说明是必要的：项目的身份、配置与手工记录（.qmai 下的 project.json、
+              写作/灵魂风格预设、忽略与保留清单）不受下面的勾选影响，始终随项目备份。
+              不写出来，用户会以为取消勾选「拆书、推演与 AI 工作数据」会连带丢掉这些，
+              于是被迫把体积大得多的分析数据也一起备份。
+            */}
+            <p className="text-xs text-muted-foreground">
+              项目的身份、配置和你手工建立的风格与清单始终会备份；下面的勾选只影响正文、记忆与分析数据。
+            </p>
             <div className="grid gap-2 sm:grid-cols-2">
               {ALL_SECTIONS.map((section) => (
                 <label key={section} data-backup-section className="flex cursor-pointer items-center gap-2 border px-3 py-2 text-sm hover:bg-accent/50">

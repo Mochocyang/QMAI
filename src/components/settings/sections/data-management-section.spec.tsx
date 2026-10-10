@@ -95,4 +95,30 @@ describe("数据管理备份导出入口", () => {
 
     expect(document.body.textContent).toContain("该备份不包含可恢复的项目数据")
   })
+
+  /*
+   * 含凭据的备份会产生一条"ZIP 未加密"的警告。后端已经会把它放进 warnings，
+   * 这条用例守的是**显示层**：警告必须真的渲染到界面上。
+   * 后端产出而界面吞掉，等于没有提示 —— 用户以为安全，实际把密钥发出去了。
+   */
+  it("导出的警告会显示在结果区", async () => {
+    exportMock.mockResolvedValue({
+      success: true,
+      warnings: ["此备份包含 API Key 等凭据，且 ZIP 未加密，请勿分享或上传到网盘共享目录"],
+      fileCount: 3,
+      totalSize: 64,
+      error: null,
+    })
+
+    const exportButton = [...document.querySelectorAll("button")]
+      .find((button) => button.textContent === "导出备份")!
+    await act(async () => exportButton.click())
+    await act(async () => (document.querySelector('[aria-label="自定义备份"]') as HTMLInputElement).click())
+    const confirm = [...document.querySelectorAll("button")]
+      .find((button) => button.textContent === "开始导出")!
+    await act(async () => confirm.click())
+
+    expect(document.body.textContent).toContain("ZIP 未加密")
+    expect(document.body.textContent).toContain("请勿分享")
+  })
 })

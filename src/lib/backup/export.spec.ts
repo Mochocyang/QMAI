@@ -80,4 +80,22 @@ describe("数据管理备份导出参数", () => {
       params: expect.objectContaining({ localStorageData: {} }),
     })
   })
+
+  it("皮肤与书架索引（qm-uitest-）会进入备份", async () => {
+    localStorage.setItem("qm-uitest-skin", "zhi")
+    localStorage.setItem("qm-uitest-library", '{"schemaVersion":1,"projects":[]}')
+
+    await exportBackup({
+      includeGlobalConfig: false,
+      includeUiPreferences: true,
+      includeCredentials: false,
+      projects: [],
+    })
+
+    const params = invokeMock.mock.calls[0][1].params
+    // 这两个键此前不在前缀表里 → 换机恢复后皮肤回到默认、书架为空，
+    // 而导出的结果却报告"成功"，用户无从判断丢了什么。
+    expect(params.localStorageData["qm-uitest-skin"]).toBe("zhi")
+    expect(params.localStorageData["qm-uitest-library"]).toBe('{"schemaVersion":1,"projects":[]}')
+  })
 })
