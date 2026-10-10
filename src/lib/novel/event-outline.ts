@@ -16,7 +16,12 @@ export const EVENT_OUTLINE_DEFAULT_EVENTS = 6
 export const EVENT_OUTLINE_TITLE_MAX_CHARS = 24
 export const EVENT_OUTLINE_MIN_POINTS = 2
 export const EVENT_OUTLINE_MAX_POINTS = 5
-/** 单个事件展开成正文的合理字数区间。用它挡住「3000 字分 8 个事件」这类不可能的安排。 */
+/**
+ * 单个事件展开成正文的参考字数区间。只用于软性提示（advisories），不阻断扩写：
+ * 单章目标字数设置被钳在 1000~10000（见 deep-chapter-prompts.ts），
+ * 4~8 个事件下平均字数天然可能落在区间外（如 4000/4=1000、10000/4=2500），
+ * 若当作硬性错误会让完全合法的细纲用不了「用这份细纲写这一章」。
+ */
 export const EVENT_OUTLINE_MIN_WORDS_PER_EVENT = 150
 export const EVENT_OUTLINE_MAX_WORDS_PER_EVENT = 800
 
@@ -59,8 +64,13 @@ function text(value: unknown): string {
 }
 
 function positiveInteger(value: unknown, fallback: number): number {
-  const num = typeof value === "number" ? value : Number.parseInt(text(value), 10)
-  return Number.isFinite(num) && num > 0 ? Math.round(num) : fallback
+  if (typeof value === "number") {
+    return Number.isFinite(value) && value > 0 ? Math.round(value) : fallback
+  }
+  // 不能只认开头的数字：AI 常写「约3000字」「第12章」，要扫到第一段数字。
+  const digits = text(value).match(/\d+/)?.[0]
+  const num = digits ? Number.parseInt(digits, 10) : Number.NaN
+  return Number.isFinite(num) && num > 0 ? num : fallback
 }
 
 function normalizePoints(value: unknown): string[] {
@@ -112,14 +122,22 @@ export function normalizeEventOutlineData(raw: unknown): EventOutlineData | null
 /**
  * 校验返回问题清单而不是布尔值：与 validateChapterOutlineData 同风格，
  * 卡片上逐条标红 + 给修复建议，用户仍可选择「保存当前内容」。
+ *
+ * `problems` 只装结构性缺陷（缺字段、数量越界、序号不连续），`ok` 也随之只反映结构；
+ * 字数分配一类的软性建议放 `advisories`，不参与 `ok`，避免合法细纲被误判为不可用。
+ * 契约：任何非 null 对象都只返回清单，绝不抛异常。
  */
 export function validateEventOutlineData(
   data: EventOutlineData | null,
-): { ok: boolean; problems: string[] } {
-  if (!data) return { ok: false, problems: ["未解析到事件细纲结构化数据（eventOutlineData）。"] }
+): { ok: boolean; problems: string[]; advisories: string[] } {
+  if (!data) {
+    return { ok: false, problems: ["未解析到事件细纲结构化数据（eventOutlineData）。"], advisories: [] }
+  }
 
   const problems: string[] = []
-  const { events } = data
+  const advisories: string[] = []
+  // 入参可能来自卡片上被手改过的草稿，不假设它已经归一化，逐字段做存在性兜底。
+  const events = Array.isArray(data.events) ? data.events : []
 
   if (events.length < EVENT_OUTLINE_MIN_EVENTS || events.length > EVENT_OUTLINE_MAX_EVENTS) {
     problems.push(
@@ -128,11 +146,15 @@ export function validateEventOutlineData(
   }
 
   events.forEach((event, index) => {
+    if (!isRecord(event)) {
+      problems.push(`第 ${index + 1} 个事件不是对象。`)
+      return
+    }
     if (event.id !== index + 1) {
       problems.push(`第 ${index + 1} 个事件的序号是 ${event.id}，事件序号必须从 1 起连续递增。`)
     }
     // 校验不假设入参已经归一化（用户可能在卡片上直接改过草稿），字符串一律去空白再判断。
-    const title = event.title.trim()
+    const title = text(event.title)
     if (!title) {
       problems.push(`第 ${index + 1} 个事件缺少一句话标题。`)
     } else if (title.length > EVENT_OUTLINE_TITLE_MAX_CHARS) {
@@ -140,14 +162,20 @@ export function validateEventOutlineData(
         `第 ${index + 1} 个事件标题 ${title.length} 字，超过 ${EVENT_OUTLINE_TITLE_MAX_CHARS} 字，请压到 20 字左右。`,
       )
     }
-    if (event.points.length < EVENT_OUTLINE_MIN_POINTS || event.points.length > EVENT_OUTLINE_MAX_POINTS) {
-      problems.push(
-        `第 ${index + 1} 个事件的细节抓手为 ${event.points.length} 条，应有 ${EVENT_OUTLINE_MIN_POINTS}~${EVENT_OUTLINE_MAX_POINTS} 条。`,
-      )
+    if (!Array.isArray(event.points)) {
+      // 别把非列表说成「1 条」——那会让用户以为只要再加一条。
+      problems.push(`第 ${index + 1} 个事件的细节抓手不是列表。`)
+    } else {
+      const points = event.points
+      if (points.length < EVENT_OUTLINE_MIN_POINTS || points.length > EVENT_OUTLINE_MAX_POINTS) {
+        problems.push(
+          `第 ${index + 1} 个事件的细节抓手为 ${points.length} 条，应有 ${EVENT_OUTLINE_MIN_POINTS}~${EVENT_OUTLINE_MAX_POINTS} 条。`,
+        )
+      }
     }
   })
 
-  if (!data.endingHook.trim()) {
+  if (!text(data.endingHook)) {
     problems.push("缺少全章结尾钩子（endingHook）。")
   }
 
@@ -155,15 +183,19 @@ export function validateEventOutlineData(
     problems.push("缺少目标章号（chapterNumber）。")
   }
 
+  // 用取反写法，缺失/NaN 也算缺目标字数（正向的 `<= 0` 对 undefined 不成立）。
+  if (!(data.targetWords > 0)) {
+    problems.push("缺少本章目标字数（targetWords）。")
+  }
+
   if (data.targetWords > 0 && events.length > 0) {
     const perEvent = Math.round(data.targetWords / events.length)
     if (perEvent < EVENT_OUTLINE_MIN_WORDS_PER_EVENT || perEvent > EVENT_OUTLINE_MAX_WORDS_PER_EVENT) {
-      problems.push(
-        `目标 ${data.targetWords} 字分给 ${events.length} 个事件，每个事件约 ${perEvent} 字，`
-        + `正常应在 ${EVENT_OUTLINE_MIN_WORDS_PER_EVENT}~${EVENT_OUTLINE_MAX_WORDS_PER_EVENT} 字之间。`,
+      advisories.push(
+        `目标 ${data.targetWords} 字分给 ${events.length} 个事件，每个事件约 ${perEvent} 字，展开时注意节奏。`,
       )
     }
   }
 
-  return { ok: problems.length === 0, problems }
+  return { ok: problems.length === 0, problems, advisories }
 }
