@@ -200,6 +200,24 @@ function normalizeChapterWriting(markdown: string): string {
   return formatWritingBodyWithIndent(syncChapterFrontmatterFromBody(markdown))
 }
 
+/**
+ * 每个事件细纲任务一个 AbortController，**按 taskId 存**，不是单个 ref。
+ *
+ * 为什么不能只留一个 ref：store 里允许多个任务并存（不同章号各一份细纲），
+ * 而单 ref 只记得「最后一次提交」。于是用户在 A 行点「取消」时会 abort 掉
+ * 当前 ref 指向的 B —— 恰好 abort 了他想保留的那一个，同时把 A 摘掉，
+ * B 随后也变成无人收尾的僵尸任务。按 id 存才能「哪一行取消哪一个」。
+ *
+ * 为什么必须在**模块作用域**而不是组件里的 `useRef(new Map())`：
+ * 任务 store 是全局的，而本组件会被真实重挂（ui-test-shell 在 wiki/sources
+ * 视图之间切换 ContentArea 与 UiTestWorkspace；sources-view 与 outline-workbench
+ * 也各自二选一渲染）。重挂后新实例的 Map 是空的，仍在 generating 的任务却会
+ * 从全局 store 里**照常渲染**出来 —— 用户点「取消」会走 `if (!controller)` 分支，
+ * 只把那一行摘掉、**不 abort**，请求继续计费、结果被丢。按 taskId 做键时
+ * 多个实例共用一份 Map 也没有语义问题（同一个 id 只该有一个 controller）。
+ */
+const eventOutlineAbortControllers = new Map<string, AbortController>()
+
 function getDiskSyncNormalize(path: string): (content: string) => string {
   return isChapterPath(path) ? normalizeChapterWriting : (content) => content
 }
@@ -1151,14 +1169,10 @@ export function PreviewPanel() {
     [eventOutlineTasks, project?.path],
   )
   /*
-   * 每个任务一个 AbortController，**按 taskId 存**，不是单个 ref。
-   *
-   * 为什么不能只留一个 ref：store 里允许多个任务并存（不同章号各一份细纲），
-   * 而单 ref 只记得「最后一次提交」。于是用户在 A 行点「取消」时会 abort 掉
-   * 当前 ref 指向的 B —— 恰好abort 了他想保留的那一个，同时把 A 摘掉，
-   * B 随后也变成无人收尾的僵尸任务。按 id 存才能「哪一行取消哪一个」。
+   * controller 的 Map 在**模块作用域**（eventOutlineAbortControllers，见文件上部）：
+   * 它按 taskId 键控，而任务 store 是全局的 —— 组件级 Map 会在重挂后变空，
+   * 让「取消」退化成「只丢行、不 abort」。
    */
-  const eventOutlineAbortRef = useRef<Map<string, AbortController>>(new Map())
 
   /**
    * 生成一份事件细纲，结果落在 store 里由卡片区渲染。
@@ -1179,13 +1193,31 @@ export function PreviewPanel() {
       return
     }
 
+    /*
+     * 同项目 + 同章号重提：被取代的那次生成必须**中止**。
+     *
+     * startTask 会把同项目同章号的旧任务从 store 里移除（同一章同时挂两份细纲没有语义），
+     * 但请求本身还在跑、还在计费，而它的行已经没了 —— finishTask(oldId) 按 id 匹配
+     * 会静默无用，用户既看不到那一行也没有「取消」可点。触发只要一步：
+     * 向导提交后关掉，工具栏那枚按钮仍可点。
+     *
+     * 顺序是安全的：旧任务的 catch 会对一个已被移除的 id 调 removeTask，是 no-op。
+     */
+    const superseded = selectProjectEventOutlineTasks(
+      useEventOutlineTaskStore.getState().tasks,
+      project.path,
+    ).filter((task) => task.chapterNumber === request.chapterNumber)
+    for (const task of superseded) {
+      eventOutlineAbortControllers.get(task.id)?.abort()
+    }
+
     const taskId = useEventOutlineTaskStore.getState().startTask({
       projectPath: project.path,
       request,
     })
     const controller = new AbortController()
-    eventOutlineAbortRef.current.set(taskId, controller)
-    const settle = () => { eventOutlineAbortRef.current.delete(taskId) }
+    eventOutlineAbortControllers.set(taskId, controller)
+    const settle = () => { eventOutlineAbortControllers.delete(taskId) }
 
     let lastReportedChars = 0
     let lastReportedAt = 0
@@ -1222,7 +1254,15 @@ export function PreviewPanel() {
       useEventOutlineTaskStore.getState().failTask(taskId, result.error ?? "事件细纲生成失败")
     }).catch((error) => {
       settle()
-      // 主动取消不是失败：用户自己按的取消，卡片不该留一条红色错误。
+      /*
+       * 主动取消不是失败：用户自己按的取消，卡片不该留一条红色错误。
+       *
+       * 窄竞态（**已知、不改**）：本判定会因第二参数 `signal.aborted` 为真而短路，
+       * 所以「用户点取消」与「人格守卫 fail-closed 同时抛错」撞在一起时，
+       * 「去修绑定」那条提示会被当成取消静默吞掉。两者的时间窗只有一帧，
+       * 而拆开判定就得在这里重构取消的收尾归属（取消的唯一归属点是
+       * generateEventOutline），风险大于收益 —— 故只记录。
+       */
       if (isUserAbortError(error, controller.signal)) {
         useEventOutlineTaskStore.getState().removeTask(taskId)
         return
@@ -1236,17 +1276,29 @@ export function PreviewPanel() {
    * 取消某一行的生成。
    *
    * 只 abort **这个任务自己的** controller：用户在多行之间点哪个就停哪个。
-   * abort 之后由 generateEventOutline 抛出、catch 分支负责 removeTask，
-   * 这里不重复摘 —— 保持「取消的收尾只有一个地方」。
+   *
+   * 为什么这里也**乐观地** removeTask（F8）：取消不再只是「丢掉结果」，
+   * 它还得等 generateEventOutline 收尾；而装配阶段（buildContextPack）不吃 signal，
+   * 那段时间那行会一直写着「正在生成」却没有任何反馈；若某条传输链压根不响应
+   * abort，那行就会**永远**停在 generating —— 正是本批要消除的症状。
+   * 乐观摘行的代价是零：removeTask 幂等，随后 catch 里的 removeTask
+   * 或 finishTask/failTask 对一个已移除的 id 都是无害的 no-op。
    */
   const handleCancelEventOutlineTask = useCallback((taskId: string) => {
-    const controller = eventOutlineAbortRef.current.get(taskId)
+    const controller = eventOutlineAbortControllers.get(taskId)
     if (!controller) {
-      // 没有活跃 controller（例如生成已经结束）：当作单纯的「收掉这一行」。
+      /*
+       * 没有活跃 controller。**不可能**是「生成已经结束」：取消按钮只在
+       * status === "generating" 时渲染，生成结束后那行显示的是「丢弃这份细纲」。
+       * 真实的剩余情形只有两种：任务刚被别的路径收尾（abort 竞态），
+       * 或者 controller 已被 settle() 摘掉而那一行还留在 store 里。
+       * 两种都只需把这一行收掉。
+       */
       useEventOutlineTaskStore.getState().removeTask(taskId)
       return
     }
     controller.abort()
+    useEventOutlineTaskStore.getState().removeTask(taskId)
   }, [])
 
   const handleOpenEventOutlineWizard = useCallback(() => {

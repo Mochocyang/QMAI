@@ -130,6 +130,27 @@ function seedChapterLibrary() {
   })
 }
 
+/**
+ * 种一条**非空**的大纲会话。
+ *
+ * 用途只有一个：让「生成细纲全程不碰大纲会话」那条用例的比较有判别力 ——
+ * store 初值是 `conversations: []`，不 seed 的话 `[] toEqual []` 恒真。
+ */
+function seedOutlineConversation() {
+  useOutlineChatStore.setState({
+    conversations: [{
+      id: "seeded-outline-chat",
+      title: "生成第1章事件细纲（6 个事件）",
+      createdAt: 1,
+      updatedAt: 1,
+      messages: [
+        { id: "seeded-user", role: "user", content: "生成第 1 章事件细纲（6 个事件）" },
+      ],
+    }],
+    activeConversationId: "seeded-outline-chat",
+  })
+}
+
 /** 走完「点按钮 → 填向导 → 提交」这条真实路径，返回生成函数的调用参数。 */
 async function submitWizard(requirement = "", chapterNumber = ""): Promise<EventOutlineRequest> {
   await click("生成章节细纲")
@@ -160,10 +181,14 @@ async function submitWizard(requirement = "", chapterNumber = ""): Promise<Event
  */
 function mockAbortableGeneration() {
   const resolvers = new Map<number, (value: { outline: EventOutlineData | null; rawContent: string; error: string | null }) => void>()
+  // 每次调用的 signal 都留档：F1/F2 的断言必须能直接看「第几次调用的那个 controller 被 abort 了吗」，
+  // 靠 store 行数或调用次数都推不出这件事（旧实现照样调两次、行数也照样是 1）。
+  const signals: AbortSignal[] = []
   let callIndex = 0
   fixture.generateEventOutline.mockImplementation(
     (_p: string, _r: unknown, _c: unknown, _cb: unknown, signal?: AbortSignal) => {
       const index = callIndex++
+      if (signal) signals[index] = signal
       return new Promise((resolve, reject) => {
         resolvers.set(index, resolve)
         signal?.addEventListener("abort", () => {
@@ -173,7 +198,7 @@ function mockAbortableGeneration() {
       })
     },
   )
-  return { resolvers, callIndexOf: (index: number) => resolvers.get(index) }
+  return { resolvers, signals, callIndexOf: (index: number) => resolvers.get(index) }
 }
 
 function taskRows(): HTMLElement[] {
@@ -211,6 +236,9 @@ beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} })
   useWikiStore.setState(useWikiStore.getInitialState())
   useEventOutlineTaskStore.setState({ tasks: [] })
+  // 大纲会话也归零：不 reset 的话种子会话会漏到下一条用例里
+  // （「不碰大纲会话」那条用例的 before/after 都取自这里）。
+  useOutlineChatStore.setState({ conversations: [], activeConversationId: null })
   fixture.generateEventOutline.mockReset()
   container = document.createElement("div")
   document.body.appendChild(container)
@@ -292,9 +320,17 @@ describe("章节区生成章节细纲", () => {
    * 需求原话是「不切视图、**不走大纲会话**」。前一半由上面「卡片出现在章节区」钉住，
    * 后一半需要单独钉：往 handleSubmitEventOutline 里加一句
    * useOutlineChatStore.getState().addMessage(...) 不会让任何别的用例变红。
+   *
+   * ⚠️ 这条用例过去是**空数组比较**（useOutlineChatStore 初始 conversations: []，
+   * 而 spec 既不 seed 也不 reset ⇒ `[] toEqual []` 恒真）。所以必须在 mount 前
+   * seed 一条**含消息**的会话，`afterEach` 里再清掉，否则它只证明了「0 == 0」。
    */
   it("生成细纲全程不碰大纲会话（会话数与消息数都不变）", async () => {
+    seedOutlineConversation()
     const before = useOutlineChatStore.getState().conversations
+    // 反向控制：seed 必须真的生效，否则下面两条断言又会退化成空数组比较。
+    expect(before).toHaveLength(1)
+    expect(before[0].messages.length).toBeGreaterThan(0)
     fixture.generateEventOutline.mockResolvedValue({ outline: OUTLINE, rawContent: "", error: null })
     await mount()
     await submitWizard("必须交代骆轻竹为什么失望")
@@ -486,11 +522,87 @@ describe("章节区生成章节细纲 · 取消", () => {
     expect(taskRows()).toHaveLength(0)
   })
 
-  it("生成已经结束的行再点取消，只收掉这一行、不抛错", async () => {
+  /*
+   * F1（major 回归）：同项目 + 同章号重提时，被取代的那次生成**必须被中止**。
+   *
+   * startTask 会把旧任务从 store 里移除（同一章两份细纲没有语义），
+   * 但旧请求还在跑、还在计费，而它的行已经没了 —— finishTask(oldId) 按 id
+   * 匹配会静默无用，用户既看不到那一行也没有「取消」可点。
+   * 触发只要一步：向导提交后关掉，工具栏那枚按钮仍可点。
+   *
+   * 断言必须落在 **第一个 controller 的 aborted** 上：只看「调用两次」或
+   * 「store 里剩一行」都区分不出修没修（把上面那段 abort 循环删掉，两者照样成立）。
+   */
+  it("同章重提会中止被取代的那次生成（旧请求不能继续计费）", async () => {
+    const { signals } = mockAbortableGeneration()
+    await mount()
+    await submitWizard("", "1")
+    expect(signals[0].aborted, "第一次提交时不该已经是 aborted").toBe(false)
+
+    await submitWizard("", "1")
+    await act(async () => { await Promise.resolve() })
+
+    expect(fixture.generateEventOutline).toHaveBeenCalledTimes(2)
+    expect(signals[0].aborted, "被取代的那次生成必须被 abort").toBe(true)
+    expect(signals[1].aborted, "新任务不能被误中止").toBe(false)
+    // store 里只剩新那一条
+    expect(taskRows()).toHaveLength(1)
+  })
+
+  it("跨章重提不互相中止（只有同章号才取代）", async () => {
+    const { signals } = mockAbortableGeneration()
+    await mount()
+    await submitWizard("", "1")
+    await submitWizard("", "2")
+    await act(async () => { await Promise.resolve() })
+
+    expect(signals[0].aborted, "第 2 章的重提不该中止第 1 章").toBe(false)
+    expect(signals[1].aborted).toBe(false)
+    expect(taskRows()).toHaveLength(2)
+  })
+
+  /*
+   * F2：controller 的 Map 必须是**模块级**的。
+   *
+   * PreviewPanel 会被真实重挂（ui-test-shell 在 wiki/sources 视图之间
+   * 切换 ContentArea 与 UiTestWorkspace；sources-view / outline-workbench 也各自二选一）。
+   * 重挂后新实例如果只有自己那份 Map，仍在 generating 的任务会从全局 store 里
+   * 照常渲染出来，但点「取消」走 `if (!controller)` 分支 —— 只丢行、**不 abort**，
+   * 请求继续计费。这条用例就是那次重挂。
+   */
+  it("重挂之后「取消」仍然真的中止请求（controller 不随组件实例丢失）", async () => {
+    const { signals } = mockAbortableGeneration()
+    await mount()
+    await submitWizard("", "1")
+
+    // 重挂：模拟视图切换导致 PreviewPanel 卸载重建
+    await act(async () => { root.unmount() })
+    container.remove()
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await mount()
+
+    expect(taskRows(), "重挂后仍在 generating 的任务必须照常渲染").toHaveLength(1)
+    await act(async () => { cancelButtonOf(taskRows()[0]).click() })
+    await act(async () => { await Promise.resolve() })
+
+    expect(signals[0].aborted, "重挂后点取消仍必须真的 abort 那个请求").toBe(true)
+    expect(taskRows()).toHaveLength(0)
+  })
+
+  /*
+   * 本用例**不点任何按钮**，它断言的是 store 层语义（没有活跃 controller 时
+   * removeTask 是安全的），所以标题如实写成 store 层。
+   *
+   * 原先的标题「生成已经结束的行再点取消」名不副实：awaiting-confirm 那行渲染的是
+   * 「丢弃这份细纲」，根本没有「取消」可点 —— 这个场景在 UI 上不可达。
+   */
+  it("store 层：没有活跃 controller 时 removeTask 直接收掉该行且不抛错", async () => {
     const { callIndexOf } = mockAbortableGeneration()
     await mount()
     await submitWizard("", "1")
-    // 先正常收尾（此时 controller 已从映射里摘掉），再让用户点「取消」
+    // 先正常收尾（此时 controller 已从映射里摘掉）
     await act(async () => { callIndexOf(0)?.({ outline: OUTLINE, rawContent: "", error: null }) })
     expect(useEventOutlineTaskStore.getState().tasks[0].status).toBe("awaiting-confirm")
 
