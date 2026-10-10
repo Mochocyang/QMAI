@@ -46,6 +46,37 @@ describe("App.tsx：教程的一次性请求标记", () => {
       app.slice(requestIndex, requestIndex + 120),
       "判据必须走 shouldRequestUsageTutorial，不要在 App 里另写一份",
     ).toContain("shouldRequestUsageTutorial")
+    /*
+     * ── F2（修复批）：`isCurrentProject(proj)` 必须真的被传进去 ──
+     *
+     * 评审实测：这一段原来只有一个 `&& isCurrentProject(proj)`，**删掉它
+     * 全套测试仍然全绿**（真值表只覆盖 `usageTutorialSeen` 那一维，
+     * 而挂载整个 App 去驱动 `handleProjectOpened` 的成本高到没人会写）。
+     *
+     * 修法分两处，**两处都要**、缺一不可：
+     *   ① 判据那一维搬进 `shouldRequestUsageTutorial`，由
+     *      `usage-tutorial.spec.ts` 的真值表钉住（删掉 `!isCurrentProject` 会红）；
+     *   ② 调用点必须真的把项目身份传进去 —— 否则判据支持了、却没人用
+     *      （把第二个实参写死成 `true` 就是这种：真值表全绿，行为却没了）。
+     *      这一条源码断言钉的就是 ②。
+     *
+     * 断言用 `requestIndex` 起切片、取到足够长度覆盖整个调用点，
+     * 并同时要求出现 `shouldRequestUsageTutorial` 与 `isCurrentProject(proj)`：
+     * 少任何一个都会红。
+     */
+    /*
+     * 断言用一条**精确到实参**的正则，而不是「取后面 N 个字符看有没有这个词」：
+     * 后者会被紧随其后的另一句 `if (isCurrentProject(proj))`（`loadRevisionFeedbackWindowConfig`
+     * 那一处）意外满足 —— 那是同一个文件里真实存在的第二处调用，切片取长一点
+     * 就会把「调用点写死了 true」放过。这正是本仓库反复记录的
+     * 「判据的形状必须对准它要说的那件事」。
+     */
+    expect(
+      app,
+      "调用点必须把项目身份一起传进判据（第二个实参写死 true 就等于删掉了那个守卫）",
+    ).toMatch(
+      /setUsageTutorialRequested\(\s*shouldRequestUsageTutorial\(\s*projectNovelConfig\s*,\s*isCurrentProject\(proj\)\s*\)\s*,?\s*\)/,
+    )
     expect(app).toContain('from "@/lib/usage-tutorial"')
   })
 

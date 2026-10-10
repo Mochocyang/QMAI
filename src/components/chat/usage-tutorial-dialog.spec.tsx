@@ -138,4 +138,36 @@ describe("分步引导教程弹窗", () => {
     await mount(false)
     expect(dialogEl()).toBeNull()
   })
+
+  /*
+   * ── F6（修复批）：走到最后一步 → 关掉 → 再打开，必须回到第一步 ──
+   *
+   * 这一条能被漏掉，是因为「关掉」时组件**并不卸载**：`open=false` 只是
+   * `return null`，`useState(0)` 里的 `step` 会留着。所以「重新查看教程」
+   * （设置里的入口走同一个 `open`）若没有 effect 里的 `setStep(0)` 复位，
+   * 会直接落在最后一步、「开始使用」上 —— 用户点开只看到一句话。
+   *
+   * 实测：删掉 `setStep(0)`，本文件其余用例全绿（它们每次都是新挂载，
+   * `useState(0)` 本来就给 0）。所以必须用 `remount(false)` → `remount(true)`
+   * 走「同一个实例被关掉再打开」这条路径。
+   */
+  it("走到最后一步后关掉再打开，从第一步重新开始", async () => {
+    await mount(true)
+    const total = totalSteps()
+    expect(total, "教程至少要有两步，否则「最后一步」没有意义").toBeGreaterThanOrEqual(2)
+    for (let i = 1; i < total; i += 1) await clickLabel("下一步")
+    expect(dialogEl()!.textContent, "前提：确实走到了最后一步").toContain(`第 ${total} / ${total} 步`)
+    expect(buttonIn("开始使用")).toBeDefined()
+
+    await remount(false)
+    expect(dialogEl(), "关掉之后不该还渲染着").toBeNull()
+
+    await remount(true)
+    expect(
+      dialogEl()!.textContent,
+      "重新打开必须回到第一步（组件没卸载，`step` 不复位就会停在最后一步）",
+    ).toContain(`第 1 / ${total} 步`)
+    expect(buttonLabels(), "回到第一步就该重新有「下一步」").toContain("下一步")
+    expect(buttonLabels()).not.toContain("开始使用")
+  })
 })

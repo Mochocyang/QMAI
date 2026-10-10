@@ -137,10 +137,22 @@ describe("写作设置：新章节灵感提示开关", () => {
 /*
  * 丙-4c：设置里的「重新查看教程」。
  *
- * 10 个设置分区里**没有** `usage-guide` 这一类（settings-view.tsx 的 CATEGORIES
- * 只有 model/novel/network/web-search/interface/user-memory/data-management/
- * feedback/contact-support/changelog），所以这个入口落在 `novel`（写作设置），
- * 紧邻同类的「新章节灵感提示」「草稿章节提取记忆提示」。
+ * ⚠️ 这个入口落在 `novel`（写作设置）而**不是** `usage-guide`，
+ * 但理由**不是**「设置里没有这一类」—— 丙-4 计划里那句话是错的，这里订正（修复批 F8）：
+ *
+ *   · `usage-guide` 是一个**活的** `CategoryId`（`settings-view.tsx:50`）；
+ *   · 真有一个 `UsageGuideSection`（`:37` import、`:590-591` 渲染它）；
+ *   · `i18n/zh.json` 里有一整块 `settings.sections.usageGuide.*`；
+ *   · `app-layout.tsx:231` 甚至就调用 `setActiveSettingsCategory("usage-guide")`。
+ *
+ * 它此刻**不可达**，仅仅因为左侧导航的 `CATEGORIES`（`:70-80`）没有列出它，
+ * 而 `:314` 用 `CATEGORIES.some(...)` 门控了那次跳转 —— 也就是
+ * 「`setActiveSettingsCategory("usage-guide")` 会被静默丢弃」。
+ * 把一个用户可见的入口挂到一个**只靠一条注释**保证不可达的分类上，
+ * 是不必要的耦合；教程入口留在 `novel`（紧邻同类的「新章节灵感提示」
+ * 「草稿章节提取记忆提示」）是**已经拍板接受**的取舍，
+ * 所以这里只订正理由，**不要**顺手把 `usage-guide` 加回 `CATEGORIES`，
+ * 也**不要**搬动这个入口。
  */
 describe("写作设置：重新查看教程", () => {
   let container: HTMLDivElement

@@ -87,6 +87,12 @@ export function UsageTutorialDialog({ open, onOpenChange }: UsageTutorialDialogP
    */
   useEffect(() => {
     if (!open) return
+    /*
+     * ⚠️ 这一行是承重的：`open=false` 时本组件**不卸载**（只是 `return null`），
+     * 所以 `step` 会留在上一次的位置。没有它，「开始使用」关掉之后从设置里
+     * 「重新查看教程」再打开，会直接落在最后一步（用户只看到一句话）。
+     * 用例在 `usage-tutorial-dialog.spec.tsx` 的「走到最后一步后关掉再打开」。
+     */
     setStep(0)
     const store = useWikiStore.getState()
     if (store.novelConfig.usageTutorialSeen) return

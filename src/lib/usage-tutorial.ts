@@ -22,16 +22,31 @@ export interface UsageTutorialDecisionInput {
 }
 
 /**
- * 只有「这本书还没自动弹过」才请求弹一次。
+ * 只有「这本书还没自动弹过」**且「这本书现在仍然是当前项目」**才请求弹一次。
  *
  * `null`（读取失败拿不到配置）时返回 `false`：宁可这次不弹，也不要在一本
  * 状态不明的书上弹 —— 弹错会顺手把 `usageTutorialSeen` 记成 true，
  * 用户以后再也不自动看到教程了。
  *
+ * ⚠️ `isCurrentProject` 也必须在这个判据里（丙-4 修复批 F2）。
+ * 它原来是写得离判据很远的一个 `&& isCurrentProject(proj)`，
+ * 评审实测：**把它删掉，全套测试仍然全绿** —— 也就是说那 ~18 行解释它为什么
+ * 承重的注释，没有任何东西守着。
+ *
+ * 它守的是这个竞态：用户点开书 B 时书 A 的那次 `handleProjectOpened` 可能还挂在
+ * `await loadNovelConfig` 上；它回来时会把「这次要不要弹」的**一次性请求标记**
+ * 置上。若不比对项目身份，A 的迟到结果会作用在已经切到 B 的窗口上 ——
+ * 轻则在 B 里凭空弹一次教程（并顺手把 B 的 `usageTutorialSeen` 记掉），
+ * 重则覆盖掉 B 自己那次请求。`isCurrentProject` 的判定是
+ * 「store 里现在的 project 就是本次这个 proj」（id 与 normalizePath 后的 path 都相同）。
+ *
  * 默认值方向也是承重的：`DEFAULT_NOVEL_CONFIG.usageTutorialSeen` 必须是 `false`，
  * 否则新书永远不会自动弹（`project-store` 里对应的 `?? DEFAULT` 一并守着这点）。
  */
-export function shouldRequestUsageTutorial(config: UsageTutorialDecisionInput | null | undefined): boolean {
-  if (!config) return false
+export function shouldRequestUsageTutorial(
+  config: UsageTutorialDecisionInput | null | undefined,
+  isCurrentProject: boolean,
+): boolean {
+  if (!config || !isCurrentProject) return false
   return !config.usageTutorialSeen
 }
