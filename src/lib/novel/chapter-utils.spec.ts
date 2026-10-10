@@ -124,6 +124,33 @@ describe("resolveNextChapterNumber", () => {
     ])).toBe(10)
   })
 
+  it("路径兜底不吃目录名里的数字（QMAI-main2）", () => {
+    // 面板传的是项目绝对路径：extractChapterNumber 末尾那条纯数字回退会把
+    // 目录名里的 2 当成章号，于是「下一章」直接跳到第 3 章。
+    expect(resolveNextChapterNumber([
+      { name: "设定.md", path: "/QMAI-main2/wiki/chapters/设定.md" },
+    ])).toBe(1)
+  })
+
+  it("路径兜底不吃目录名里的多位数（scratch-20261010）", () => {
+    expect(resolveNextChapterNumber([
+      { name: "设定.md", path: "/b/scratch-20261010/wiki/chapters/设定.md" },
+    ])).toBe(1)
+  })
+
+  it("路径兜底仍认显式的「第N章」目录段", () => {
+    expect(resolveNextChapterNumber([
+      { name: "设定.md", path: "/b/第9章/设定.md" },
+    ])).toBe(10)
+  })
+
+  it("文件名沿用宽松的数字回退（chapter-006.md）", () => {
+    // 纯数字回退对「文件名」是必要的，只是不能套在项目绝对路径上。
+    expect(resolveNextChapterNumber([
+      { name: "chapter-006.md", path: "/QMAI-main2/wiki/chapters/chapter-006.md" },
+    ])).toBe(7)
+  })
+
   it("文件名与路径章号不一致时以文件名为准", () => {
     expect(resolveNextChapterNumber([
       { name: "第2章.md", path: "/b/chapters/第9章/第2章.md" },
