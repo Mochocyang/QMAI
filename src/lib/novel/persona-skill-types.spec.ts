@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import {
   PERSONA_ARCHIVED_GAP_CHAPTERS,
   PERSONA_DORMANT_GAP_CHAPTERS,
+  PERSONA_MAJOR_ROLE_TYPES,
+  PERSONA_MINOR_ROLE_TYPES,
   normalizePersonaName,
   planPersonaSkillRound,
   resolvePersonaStatus,
@@ -16,11 +19,32 @@ function input(overrides: Partial<PersonaSkillPlanInput> = {}): PersonaSkillPlan
     roleType: "男主",
     appearanceCount: 1,
     hasSkill: false,
+    hasResearch: false,
     pinned: false,
     lastLearnedChapter: 0,
     ...overrides,
   }
 }
+
+describe("档位表与仓库既有角色定位枚举", () => {
+  it("major ∪ minor 必须覆盖 CHARACTER_ROLE_TYPES 的全部定位（漏一个就是静默降档）", () => {
+    // 用源码字符串断言，而不是 import character-multi-agent：
+    // 那个模块拖着 character-save-extractor（Tauri 侧依赖），
+    // 而本模块是零依赖叶子，测试也不该把它拖进来。
+    const source = readFileSync(
+      new URL("./character-multi-agent.ts", import.meta.url),
+      "utf8",
+    ).replace(/\r\n/g, "\n")
+    const block = source.match(/export const CHARACTER_ROLE_TYPES = \[([\s\S]*?)\] as const/)
+    expect(block, "没找到 CHARACTER_ROLE_TYPES 字面量，枚举可能被改名或搬走了").not.toBeNull()
+    const declared = [...block![1].matchAll(/"([^"]+)"/g)].map((match) => match[1])
+    expect(declared.length).toBeGreaterThan(0)
+
+    // 我们声明的档位表必须恰好覆盖它：既不漏（静默降档），也不多（多出一个没人认识的定位）。
+    const ours = [...PERSONA_MAJOR_ROLE_TYPES, ...PERSONA_MINOR_ROLE_TYPES].sort()
+    expect(ours).toEqual([...declared].sort())
+  })
+})
 
 describe("resolvePersonaTier", () => {
   it("主要定位进 major，次要定位进 minor", () => {
@@ -64,6 +88,40 @@ describe("planPersonaSkillRound", () => {
     expect(plans).toHaveLength(1)
     expect(plans[0].tier).toBe("major")
     expect(plans[0].withResearch).toBe(true)
+  })
+
+  it("绿勾但还没有研究文件时，完善这一轮顺手生成（点亮绿勾后第一次出场）", () => {
+    const plans = planPersonaSkillRound(
+      [input({ roleType: "配角", pinned: true, hasSkill: true, hasResearch: false, appearanceCount: 2, lastLearnedChapter: 1 })],
+      2,
+    )
+    expect(plans).toHaveLength(1)
+    expect(plans[0].withResearch).toBe(true)
+  })
+
+  it("已经有研究文件的绿勾人物不再重复生成（防覆盖：章节学习看不到旧研究文件）", () => {
+    const plans = planPersonaSkillRound(
+      [input({ roleType: "配角", pinned: true, hasSkill: true, hasResearch: true, appearanceCount: 3, lastLearnedChapter: 2 })],
+      3,
+    )
+    expect(plans).toHaveLength(1)
+    expect(plans[0].mode).toBe("refine")
+    expect(plans[0].withResearch).toBe(false)
+  })
+
+  it("非绿勾人物永远不产出研究文件，哪怕没有研究文件", () => {
+    const plans = planPersonaSkillRound(
+      [input({ roleType: "配角", pinned: false, hasSkill: true, hasResearch: false, appearanceCount: 3, lastLearnedChapter: 2 })],
+      3,
+    )
+    expect(plans[0].withResearch).toBe(false)
+  })
+
+  it("产出的 aliases 是拷贝，下游 push 不会改到调用方的数组", () => {
+    const aliases = ["清越"]
+    const plans = planPersonaSkillRound([input({ aliases })], 1)
+    expect(plans[0].aliases).not.toBe(aliases)
+    expect(plans[0].aliases).toEqual(["清越"])
   })
 
   it("已有档案的主要人物每次出场都完善", () => {

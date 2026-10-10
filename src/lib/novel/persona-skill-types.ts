@@ -158,6 +158,8 @@ export interface PersonaSkillPlanInput {
   roleType: string
   appearanceCount: number
   hasSkill: boolean
+  /** 已经生成过研究文件。研究文件只「首次生成」，之后刷新由用户在界面上手动触发。 */
+  hasResearch: boolean
   pinned: boolean
   lastLearnedChapter: number
 }
@@ -170,13 +172,22 @@ export interface PersonaSkillPlan {
   pinned: boolean
   appearanceCount: number
   mode: PersonaSkillMode
-  /** 本轮是否顺带产出研究文件（只有绿勾人物要）。 */
+  /**
+   * 本轮该「首次生成」研究文件：绿勾人物 + 还没有研究文件。
+   * 已经有研究文件的一律不重写 —— 章节学习的提示词只看得到 SKILL.md，
+   * 看不到那 6 份研究文件，重写等于用只有本章的素材覆盖掉累积内容。
+   */
   withResearch: boolean
 }
 
 /**
  * 本轮该对哪些人物做什么，纯函数。
- * 幂等：lastLearnedChapter 已经等于当前章就跳过，重复摄取同一章不会二次烧模型。
+ *
+ * 幂等：已建档的人物如果 lastLearnedChapter 已经等于当前章就跳过，重复摄取同一章不会二次烧模型。
+ * 未建档的人物不受 lastLearnedChapter 约束 —— 那是有意的 fail-open：没有档案就该建档，
+ * 万一有调用方给未建档条目填了 lastLearnedChapter，最坏也只是重复规划一次，不会永久静默跳过。
+ *
+ * 输入须已按 normalizePersonaName 去重（同名人物传两次会产出两条 plan）。
  */
 export function planPersonaSkillRound(
   inputs: readonly PersonaSkillPlanInput[],
@@ -185,19 +196,21 @@ export function planPersonaSkillRound(
   const plans: PersonaSkillPlan[] = []
   for (const input of inputs) {
     const tier = resolvePersonaTier(input.roleType, input.pinned)
+    const withResearch = input.pinned && !input.hasResearch
     if (input.hasSkill) {
       if (input.lastLearnedChapter >= currentChapter) continue
+      // 复用 major 首现门槛 = D6「绿勾一票升级为 major」，不是巧合。
       const threshold = input.pinned ? PERSONA_MAJOR_FIRST_APPEARANCE : refineAppearanceThreshold(input.roleType)
       if (input.appearanceCount < threshold) continue
       plans.push({
         characterName: input.characterName,
-        aliases: input.aliases,
+        aliases: [...input.aliases],
         roleType: input.roleType,
         tier,
         pinned: input.pinned,
         appearanceCount: input.appearanceCount,
         mode: "refine",
-        withResearch: input.pinned,
+        withResearch,
       })
       continue
     }
@@ -205,13 +218,13 @@ export function planPersonaSkillRound(
     if (input.appearanceCount < threshold) continue
     plans.push({
       characterName: input.characterName,
-      aliases: input.aliases,
+      aliases: [...input.aliases],
       roleType: input.roleType,
       tier,
       pinned: input.pinned,
       appearanceCount: input.appearanceCount,
       mode: "create",
-      withResearch: input.pinned,
+      withResearch,
     })
   }
   return plans
