@@ -75,7 +75,6 @@ import {
   type OutlineSaveConfirmPayload,
 } from "@/components/sources/outline-save-confirm-dialog";
 import { OutlineWizardDialog } from "@/components/sources/outline-wizard-dialog";
-import { EventOutlineWizardDialog } from "@/components/sources/event-outline-wizard-dialog";
 import { EventOutlineCard } from "@/components/sources/event-outline-card";
 import { NovelGenerationRequestMessage } from "@/components/sources/novel-generation-request-message";
 import { OutlineMultiAgentPanel } from "@/components/sources/outline-multi-agent-panel";
@@ -366,9 +365,7 @@ import {
 } from "@/lib/conversation-create-guard";
 import { outlineConversationRunRegistry } from "@/lib/conversation-run-registry";
 import { toast } from "@/lib/toast";
-import { buildEventOutlinePrompt, extractEventOutlineData, type EventOutlineData, type EventOutlineRequest } from "@/lib/novel/event-outline";
-import { flattenMdFiles, pickChapterLibraryFiles, resolveNextChapterNumber } from "@/lib/novel/chapter-utils";
-import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts";
+import { extractEventOutlineData, type EventOutlineData } from "@/lib/novel/event-outline";
 import { finalizeStructuredMarkdownMessage } from "@/lib/novel/markdown-quality-finalizer";
 import { repairMarkdownFormatWithAi } from "@/lib/novel/markdown-quality-ai-repair";
 import {
@@ -2055,7 +2052,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     useWikiStore((s) => s.outlineWorkflowMode),
   );
   const setOutlineWorkflowMode = useWikiStore((s) => s.setOutlineWorkflowMode);
-  const fileTree = useWikiStore((s) => s.fileTree);
   const chatConversations = useChatStore((s) => s.conversations);
 
   const conversations = useOutlineChatStore((s) => s.conversations);
@@ -2218,7 +2214,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const [forceRefreshNext, setForceRefreshNext] = useState(false);
   const [referencePickerOpen, setReferencePickerOpen] = useState(false);
   const [outlineWizardOpen, setOutlineWizardOpen] = useState(false);
-  const [eventOutlineWizardOpen, setEventOutlineWizardOpen] = useState(false);
   const [generationMenuOpen, setGenerationMenuOpen] = useState(false);
   const [localModelId, setLocalModelId] = useState(effectiveOutlineModelId);
   const insertReferenceTokensRef = useRef<InsertReferenceTokens>(null);
@@ -5377,14 +5372,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     }, 0);
   }, []);
 
-  /** 当前项目章节库里最大章号 + 1，作为事件细纲向导的默认目标章。 */
-  const nextChapterNumber = useMemo(
-    // fileTree 是整个项目树：章纲文件里的「第046章」和笔记名里的日期都会被解析成章号，
-    // 必须先筛出 wiki/chapters 再看，否则默认章号会跳到 47 甚至 2027。
-    () => resolveNextChapterNumber(pickChapterLibraryFiles(flattenMdFiles(fileTree))),
-    [fileTree],
-  );
-
   const handleSubmitOutlineWizard = useCallback(
     async (request: OutlineWizardRequest) => {
       // 同人创作先把原作素材编译成持久正典：超长原作会被分片压缩成证据包，
@@ -5532,28 +5519,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       });
     },
     [activeConversationId, createConversation, handleSend, startOutlinePlanElementCheck, project],
-  );
-
-  /**
-   * 事件细纲（轻量章细纲）：范围已由向导定死（章号 / 事件数 / 字数），
-   * 因此直接进生成腿，不走 intent_clarity 意图分析，省一轮 token，也避开
-   * 「写到第二章还要重新回答要拆哪一个故事」的摩擦。
-   */
-  const handleSubmitEventOutlineWizard = useCallback(
-    (request: EventOutlineRequest) => {
-      // hasFileTools 默认 true：这条链路走的是带工具循环的 handleSend，
-      // 模型确实要自己 list_chapters / read_chapter 去读资料。
-      void handleSend(buildEventOutlinePrompt(request), outlineReferenceTokensRef.current, {
-        disableWriteTools: true,
-        preferredSkillNames: [],
-        intentPhase: "generation",
-        systemGenerated: true,
-        userDisplayText: `生成第 ${request.chapterNumber} 章事件细纲（${request.eventCount} 个事件）`,
-        // 要求原文随消息落盘：扩写时不必指望模型把它回抄进 eventOutlineData。
-        eventOutlineRequirement: request.requirement,
-      });
-    },
-    [handleSend],
   );
 
   const handleStop = useCallback(() => {
@@ -6639,7 +6604,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           className="h-full w-full min-w-0 max-w-full space-y-3 overflow-x-hidden overflow-y-auto px-3 py-2"
         >
         {activeMessages.length === 0 && !isStreaming ? (
-          <UiTestAiEmpty kind="outline" onGenerateOutline={() => setOutlineWizardOpen(true)} onGenerateEventOutline={() => setEventOutlineWizardOpen(true)} generateDisabled={submitDisabled} generateDisabledReason={submitDisabledReason} />
+          <UiTestAiEmpty kind="outline" onGenerateOutline={() => setOutlineWizardOpen(true)} generateDisabled={submitDisabled} generateDisabledReason={submitDisabledReason} />
         ) : null}
         {activeMessages.map((msg, i) => isInternalOutlineMessage(msg) ? null : (
           <div
@@ -6917,13 +6882,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           onOpenChange={setOutlineWizardOpen}
           onSubmit={handleSubmitOutlineWizard}
           projectPath={project?.path ? normalizePath(project.path) : undefined}
-        />
-        <EventOutlineWizardDialog
-          open={eventOutlineWizardOpen}
-          onOpenChange={setEventOutlineWizardOpen}
-          onSubmit={handleSubmitEventOutlineWizard}
-          defaultChapterNumber={nextChapterNumber}
-          defaultTargetWords={resolveChapterLengthSpec(novelConfig?.chapterTargetChars).targetChars}
         />
         <ConversationDeleteConfirmDialog
           open={pendingDeleteConversationId !== null}

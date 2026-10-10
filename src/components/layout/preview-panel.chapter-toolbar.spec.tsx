@@ -203,15 +203,59 @@ describe("章节与大纲工具栏图标", () => {
   })
 
   /*
-   * 入口是**新增**，不是搬家 —— 本批之后大纲面板的空白态入口必须原样还在。
-   * 删掉它是后续单独一步（要人确认章节区那条链路真的可用），
-   * 这条守卫就是防止"顺手删掉"在没有验证的情况下发生。
+   * 丙-2c：这是一次**有意识**的删除，不是「顺手删掉」。
+   *
+   * 丙-2a 加这条守卫时的注释原文是：
+   *   「入口是**新增**，不是搬家 —— 本批之后大纲面板的空白态入口必须原样还在。
+   *     删掉它是后续单独一步（**要人确认章节区那条链路真的可用**），
+   *     这条守卫就是防止"顺手删掉"在没有验证的情况下发生。」
+   *
+   * 那句话点名的**前置条件现在已经满足**：
+   *   · 丙-2a 已把入口落到章节区标题栏（本文件上面那条灯泡图标守卫钉住图标），
+   *   · 丙-2b 已验证章节区那条链路真的可用（`preview-panel.event-outline.spec.tsx`
+   *     的行为用例覆盖：点按钮 → 弹向导 → 提交生成 → 卡片出现在章节区 →
+   *     确认后直接写出正文）。
+   * 所以按约定执行「后续单独一步」：删除大纲面板那一侧的入口与整条死链。
+   *
+   * 因此这条守卫**方向反转**：从「入口必须还在」改成「入口必须不再有」。
+   *
+   * ⚠️ 反转**不是**绕过。若为了让测试变绿而保留一个空引用（例如把
+   * `EventOutlineWizardDialog` 的 import 留着不用），那是骗测试；这里钉的是
+   * 「三个符号在面板源码里一个都不剩」。
+   *
+   * ⚠️ 同时必须留**正向对照**：`EventOutlineCard` 与 `extractEventOutlineData`
+   * 仍要在（老会话的 `.qmai/outline-chats.json` 里已有事件细纲助手消息，卡片要继续渲染）。
+   * 没有这两条，把整个文件清空也能让上面的 not.toContain 全绿。
    */
-  it("大纲面板的空白态入口在本批中保持不动", () => {
+  it("大纲面板已不再提供事件细纲入口，但仍渲染旧会话的事件细纲卡片", () => {
     const panel = readFileSync(resolve(__dirname, "../sources/outline-chat-panel.tsx"), "utf8")
-    expect(panel).toContain("onGenerateEventOutline")
-    expect(panel).toContain("setEventOutlineWizardOpen(true)")
-    expect(panel).toContain("EventOutlineWizardDialog")
+    expect(panel).not.toContain("onGenerateEventOutline")
+    expect(panel).not.toContain("setEventOutlineWizardOpen(true)")
+    expect(panel).not.toContain("EventOutlineWizardDialog")
+    // 正向对照：卡片渲染这条路必须留着（「不能新建」≠「不再渲染」）
+    expect(panel).toContain("EventOutlineCard")
+    expect(panel).toContain("extractEventOutlineData")
+
+    /*
+     * 共享组件那一侧的同一个洞也要堵上。
+     *
+     * `UiTestAiEmpty` 是**唯一**承载「生成章节细纲」按钮的组件。
+     * 只删调用点、把可选 prop 留在签名里，会得到一个没有任何调用方、
+     * 却仍能从别处接线的按钮 —— 下一个人照样能把它接回大纲面板。
+     * `tsc` 抓不到这件事（可选 prop 没人传是合法的），所以这里用源码钉。
+     *
+     * ⚠️ 断言用的是**最强形式**：整个名字在 `ui-test-ai-parts.tsx` 里一次都不出现，
+     * 声明、JSX 接线、注释都算。因此那份文件的 docblock 也刻意不写这个名字 ——
+     * 这不是笔误，是为了让这条守卫无法被"只留注释"绕过去（见该文件的说明）。
+     *
+     * 正向对照：「生成小说大纲」必须还在，否则把整个组件删空也能绿。
+     */
+    const shared = readFileSync(resolve(__dirname, "../uitest/ui-test-ai-parts.tsx"), "utf8")
+    expect(shared).not.toContain("onGenerateEventOutline")
+    // 按钮本体也得走：断言的是 JSX 文本节点（`>生成章节细纲<`），
+    // 而不是「文件里出现过这四个字」—— 上面那段说明本来就要提它。
+    expect(shared).not.toContain(">生成章节细纲<")
+    expect(shared).toContain(">生成小说大纲<")
   })
 })
 
