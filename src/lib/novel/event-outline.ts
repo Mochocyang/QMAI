@@ -179,7 +179,8 @@ export function validateEventOutlineData(
     problems.push("缺少全章结尾钩子（endingHook）。")
   }
 
-  if (data.chapterNumber <= 0) {
+  // 与 targetWords 同用取反写法：缺失/NaN 也算缺章号。
+  if (!(data.chapterNumber > 0)) {
     problems.push("缺少目标章号（chapterNumber）。")
   }
 
@@ -198,4 +199,61 @@ export function validateEventOutlineData(
   }
 
   return { ok: problems.length === 0, problems, advisories }
+}
+
+/** 从 `{` 开始配平花括号，返回一个完整 JSON 对象文本；尊重字符串与转义。 */
+function balancedJsonBlock(candidate: string, start: number): string | null {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let index = start; index < candidate.length; index += 1) {
+    const ch = candidate[index]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === "\\") escaped = true
+      else if (ch === "\"") inString = false
+      continue
+    }
+    if (ch === "\"") inString = true
+    else if (ch === "{") depth += 1
+    else if (ch === "}") {
+      depth -= 1
+      if (depth === 0) return candidate.slice(start, index + 1)
+    }
+  }
+  return null
+}
+
+/**
+ * 从 AI 回复里提取事件细纲数据（优先在 ```json 围栏内查找）。
+ * 与 extractChapterOutlineData 同构：逐个围栏试，哪个能解析成事件细纲就用哪个，
+ * 于是「模型换了个信封名」不会导致卡片渲染不出来。
+ *
+ * 信封解包不在本函数做：`normalizeEventOutlineData` 已经负责那一层，
+ * 这里只负责「从文本里找到 JSON」。两处都解包会变成两层宽容度，也会重复代码。
+ *
+ * `balancedJsonBlock` 刻意保持私有，不与 chapter-outline-template.ts 共享：
+ * 那个文件不在本分支范围内，不为它建共享模块。
+ */
+export function extractEventOutlineData(content: string): EventOutlineData | null {
+  const fencePattern = /```(?:json)?[ \t]*\r?\n([\s\S]*?)```/gi
+  const candidates: string[] = []
+  for (const match of content.matchAll(fencePattern)) {
+    if (match[1].includes("{")) candidates.push(match[1])
+  }
+  if (candidates.length === 0 && content.includes("{")) candidates.push(content)
+
+  for (const candidate of candidates) {
+    const start = candidate.indexOf("{")
+    if (start < 0) continue
+    const block = balancedJsonBlock(candidate, start)
+    if (!block) continue
+    try {
+      const data = normalizeEventOutlineData(JSON.parse(block) as unknown)
+      if (data) return data
+    } catch {
+      // 该围栏不是合法 JSON，继续下一个
+    }
+  }
+  return null
 }

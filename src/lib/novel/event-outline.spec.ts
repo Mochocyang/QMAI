@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   EVENT_OUTLINE_MAX_EVENTS,
   EVENT_OUTLINE_MIN_EVENTS,
+  extractEventOutlineData,
   normalizeEventOutlineData,
   validateEventOutlineData,
   type EventOutlineData,
@@ -129,6 +130,15 @@ describe("validateEventOutlineData", () => {
     expect(missing.problems.join("\n")).toContain("targetWords")
   })
 
+  it("缺目标章号时报错而不抛异常", () => {
+    // 与 targetWords 同一口径：整份缺字段（undefined）也要算缺章号。
+    const raw: Record<string, unknown> = { ...data() }
+    delete raw.chapterNumber
+    const result = validateEventOutlineData(raw as unknown as EventOutlineData)
+    expect(result.ok).toBe(false)
+    expect(result.problems.join("\n")).toContain("章号")
+  })
+
   it("抓手少于 2 条报错", () => {
     const thin = data({ events: [{ id: 1, title: "开场", points: ["只有一条"] }, event(2), event(3), event(4)] })
     expect(validateEventOutlineData(thin).problems.join("\n")).toContain("抓手")
@@ -196,5 +206,65 @@ describe("validateEventOutlineData", () => {
     const brokenEvent = validateEventOutlineData({ events: [null] } as unknown as EventOutlineData)
     expect(brokenEvent.ok).toBe(false)
     expect(brokenEvent.problems.join("\n")).toContain("不是对象")
+  })
+})
+
+describe("extractEventOutlineData", () => {
+  const payload = JSON.stringify({
+    eventOutlineData: {
+      version: 1,
+      chapterNumber: 12,
+      title: "第12章 · 令牌初现",
+      targetWords: 3000,
+      events: [1, 2, 3, 4].map((id) => event(id)),
+      endingHook: "院外传来脚步声。",
+    },
+  })
+
+  it("从 ```json 围栏里取出数据", () => {
+    const content = `## 第12章事件细纲\n\n正文说明\n\n\`\`\`json\n${payload}\n\`\`\``
+    expect(extractEventOutlineData(content)?.events).toHaveLength(4)
+  })
+
+  it("从没有语言标记的围栏里取出数据", () => {
+    const content = `说明\n\n\`\`\`\n${payload}\n\`\`\``
+    expect(extractEventOutlineData(content)?.chapterNumber).toBe(12)
+  })
+
+  it("从裸对象里取出数据", () => {
+    expect(extractEventOutlineData(`前文\n${payload}\n后文`)?.title).toBe("第12章 · 令牌初现")
+  })
+
+  it("跳过不是事件细纲的 JSON 围栏", () => {
+    const other = JSON.stringify({ outlineSaveRequest: { fileName: "x.md" } })
+    const content = `\`\`\`json\n${other}\n\`\`\`\n\`\`\`json\n${payload}\n\`\`\``
+    expect(extractEventOutlineData(content)?.events).toHaveLength(4)
+  })
+
+  it("没有数据时返回 null", () => {
+    expect(extractEventOutlineData("只有正文，没有结构化数据")).toBeNull()
+  })
+
+  it("不把章纲（chapterOutlineData）误当事件细纲", () => {
+    const chapterOutline = JSON.stringify({
+      chapterOutlineData: { title: "章纲", story: {}, chapters: [{ n: 1, events: [{ what: "a", cause: "b" }] }] },
+    })
+    expect(extractEventOutlineData(`\`\`\`json\n${chapterOutline}\n\`\`\``)).toBeNull()
+  })
+
+  it("围栏内 JSON 非法时继续尝试下一个围栏", () => {
+    const content = `\`\`\`json\n{ 这不是合法 JSON\n\`\`\`\n\`\`\`json\n${payload}\n\`\`\``
+    expect(extractEventOutlineData(content)?.events).toHaveLength(4)
+  })
+
+  it("JSON 字符串里的花括号不会提前截断对象", () => {
+    const tricky = JSON.stringify({
+      eventOutlineData: {
+        version: 1, chapterNumber: 3, title: "第3章 · 带 } 的标题", targetWords: 3000,
+        events: [{ id: 1, title: '引号"与}与反斜杠\\', points: ["a", "b"] }],
+        endingHook: "钩子 }\\",
+      },
+    })
+    expect(extractEventOutlineData(`\`\`\`json\n${tricky}\n\`\`\``)?.events).toHaveLength(1)
   })
 })
