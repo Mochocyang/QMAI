@@ -219,9 +219,20 @@ describe("event-outline 路由隔离", () => {
    * `inferFileTypeFromContent` 里事件标记的判定**排在章/卷标记之前**（有意为之，
    * 见该常量的注释），所以一份标题里没有「章纲」二字、正文却提到「本章事件序列」的
    * 17 节章纲会被判成 event-outline —— 随后被大纲面板的手动闸门拒掉。
-   * 现实中合法章纲之所以不被误拦，靠的是 (a) 标题 hint 先于正文被查询，
-   * (b) 官方章纲模板里根本没有事件标记（chapter-outline-template.ts 里 grep 不到），
-   * 即**当前模板的巧合**，而不是结构性保证。这条用例把「巧合」变成「有人改优先级就会红」：
+   *
+   * 现实中合法章纲之所以不被误拦，**只有一条**保护：canonical 的章纲模板里根本没有
+   * 事件标记（chapter-outline-template.ts 里 grep 不到「事件细纲/事件清单/事件序列」），
+   * 于是事件标记判定不命中，落到章/卷判定。即**当前模板的巧合**，不是结构性保证。
+   *
+   * ⚠️ 订正一处曾经的误述：这里**不是**「标题 hint 先于正文」。分类链
+   * （outline-save-classifier.ts:187-194）里 `inferFileTypeFromHint(title)`
+   * 是**第 5** 条通道；真正给标题带「章纲」的文档定型的是**第 3** 条
+   * `resolveChapterOrVolumeType(extractDocumentSubject(title, content))`
+   * （它把标题与首个 H1 一起看）。而本用例的 fixture 标题是「第一次冷处理」：
+   * `inferFileTypeFromHint(title)` 对它返回 null，第 3 条的 extractDocumentSubject
+   * 也推不出章纲 —— 所以本例只有「模板里没有事件标记」这一条保护在起作用。
+   *
+   * 这条用例把「巧合」变成「有人改优先级就会红」：
    * 若哪天把章/卷标记提到事件标记之前，本用例立刻失败，提醒去读上面这段原因。
    */
   it("反向钉住真实优先级：正文里带事件标记的章纲会被判成事件细纲（已知假阳性路径）", () => {

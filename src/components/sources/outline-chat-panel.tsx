@@ -6244,10 +6244,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
          * 最终写进 wiki/outlines/事件细纲/。也就是说：越是在 JSON 坏掉的时候，
          * 越容易从手动通道漏进去 —— 这恰恰是丙-1 要防的那件事。
          *
-         * 为什么合法的 17 节章纲在实践中不会被误拦：分类链里**标题 hint 先于正文**
-         * （classifyOutlineSaveTarget 先走 inferFileTypeFromHint(title)），
-         * 标题带「章纲」就定了；而 canonical 的章纲模板里**没有**事件标记
-         * （chapter-outline-template.ts 里 grep 不到「事件细纲/事件清单/事件序列」）。
+         * 为什么合法的 17 节章纲在实践中不会被误拦：**只有一条**保护 ——
+         * canonical 的章纲模板里**没有**事件标记
+         * （chapter-outline-template.ts 里 grep 不到「事件细纲/事件清单/事件序列」），
+         * 于是 inferFileTypeFromContent 的事件标记判定不命中，落到章/卷判定。
+         *
+         * ⚠️ 订正一处曾经的误述：这里**不是**「标题 hint 先于正文」。分类链
+         * （outline-save-classifier.ts:187-194）里 `inferFileTypeFromHint(title)`
+         * 是**第 5** 条通道；真正给标题带「章纲」的文档定型的是**第 3** 条
+         * `resolveChapterOrVolumeType(extractDocumentSubject(title, content))`
+         * （它把标题与首个 H1 一起看）。对本例这类标题（如「第一次冷处理」），
+         * 标题通道什么都推不出来（inferFileTypeFromHint 对它返回 null）。
          *
          * ⚠️ 这是**当前模板的巧合**，不是结构性保证：`inferFileTypeFromContent` 的
          * 事件标记判定排在章/卷标记**之前**，所以一份正文里真出现「事件序列」的

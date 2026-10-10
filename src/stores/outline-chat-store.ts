@@ -102,6 +102,17 @@ export interface OutlineMultiAgentRunState {
  * 存在的意义：这类问题不阻止保存（用户可以「保存当前内容」），但必须让用户
  * **在生成结果旁边**看见缺什么，而不是被一个和内容脱节的浮层挡住。
  */
+export interface OutlineSaveReport {
+  /** 拟保存的文件名。 */
+  fileName: string
+  /** 结构化数据类型，用于文案（卷纲 / 章纲）。 */
+  fileType: "volume-outline" | "chapter-outline"
+  /** 校验器给出的问题清单（原文，不截断 —— 明细要能逐条看）。 */
+  problems: string[]
+  /** 是否已经自动补全过一次仍不完整（此时可强制保存）。 */
+  repairAttempted: boolean
+}
+
 /**
  * 用户向导里填的「对本章的想法或硬要求」必须是字符串。
  *
@@ -114,17 +125,6 @@ export interface OutlineMultiAgentRunState {
  */
 function isEventOutlineRequirement(value: unknown): value is string {
   return typeof value === "string"
-}
-
-export interface OutlineSaveReport {
-  /** 拟保存的文件名。 */
-  fileName: string
-  /** 结构化数据类型，用于文案（卷纲 / 章纲）。 */
-  fileType: "volume-outline" | "chapter-outline"
-  /** 校验器给出的问题清单（原文，不截断 —— 明细要能逐条看）。 */
-  problems: string[]
-  /** 是否已经自动补全过一次仍不完整（此时可强制保存）。 */
-  repairAttempted: boolean
 }
 
 export interface OutlineChatMessage {
@@ -185,11 +185,10 @@ export interface OutlineChatMessage {
    * 所以不存在「换了章号就取到别人的要求」这种错配；存量数据没有这个字段时读到
    * undefined，行为与加字段之前完全一致。
    *
-   * 落盘：本 store 整份 conversations 直接 JSON.stringify，加载时 messages 走
-   * `{...message}` 展开，所以新字段无需任何序列化改动即可往返
-   * `<项目>/.qmai/outline-chats.json`。
+   * 落盘：本 store 整份 conversations 直接 JSON.stringify，**写入方向**不需要任何
+   * 序列化改动，新字段照原样进 `<项目>/.qmai/outline-chats.json`。
    *
-   * ⚠️ 但**加载侧要校验**（loadFromDisk 里的 messages 映射）：那里不是朴素的
+   * ⚠️ 但**加载侧要校验**（loadFromDisk 里的 messages 映射）：那里不是纯
    * `{...message}` —— 每个带渲染期 `?.` 调用的字段都要过一遍类型校验，
    * `eventOutlineRequirement` 用的是 isEventOutlineRequirement（必须是字符串），
    * 否则手改过的 json 里写成数字或对象会在 event-outline.ts 的 `requirement?.trim()`

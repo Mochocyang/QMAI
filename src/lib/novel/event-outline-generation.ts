@@ -211,6 +211,23 @@ export async function generateEventOutline(
       signal,
     )
   } catch (error) {
+    /*
+     * 用户取消要**原样抛出**，不能包成 Error —— 但真正需要这一行的是**对象形态**，
+     * 不是字符串形态（原先的注释把两者混为一谈，已订正）：
+     *
+     * - **对象**（plugin-http 取消时可能是 `{ message: "The resource id 7 is invalid" }`，
+     *   见 tauri-resource-error.ts）：下面的兜底会把它包成
+     *   `new Error(String(error))` = `Error("[object Object]")` —— 包完
+     *   `isUserAbortError` 再也认不出来（那个正则匹配的是 `.message`，而它已是
+     *   "[object Object]"）。于是用户自己按的取消变成 `{ outline: null,
+     *   error: "[object Object]" }`：卡片上一条红色报错，内容还是垃圾。
+     *   删掉本行，钉对象形态的用例即变红。
+     * - **字符串**（`throw "The resource id 7 is invalid"`）：删掉本行**行为不变** ——
+     *   兜底包成 `new Error("The resource id 7 is invalid")` 之后，
+     *   `isUserAbortError` 仍会经 `isTauriInvalidResourceIdError` 的 `.message`
+     *   分支认出它（tauri-resource-error.ts:13），用户看到的仍是取消，不是红色报错。
+     *   所以字符串形态只能钉住「原值/类型保真」，钉不住行为，别把它当成本行的理由。
+     */
     if (isUserAbortError(error)) throw error
     failure = error instanceof Error ? error : new Error(String(error))
   }

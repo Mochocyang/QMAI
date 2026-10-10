@@ -3169,6 +3169,13 @@ describe("事件细纲接线", () => {
       return (document.body.textContent ?? "").includes("请确认要保存")
     }
 
+    /*
+     * ⚠️ 这条**只**钉「结构合法的事件细纲请求会被摘掉、不弹确认框」。
+     * 它**钉不住** `if (gateAction === "drop-event-outline") return` 那行守卫：
+     * 请求被摘光后，后面的零请求路径与末尾的报错分支都要求 `parsed.errors.length > 0`，
+     * 而本 fixture 的 errors 是空的 —— 删掉那行 return 它照样绿（已实测）。
+     * 钉那行 return 的是下面那条 mix 了真实解析错误的用例。
+     */
     it("自动通道：模型递来结构合法的事件细纲保存请求时，不弹确认框、也不要求重出", async () => {
       const errorSpy = vi.spyOn(toast, "error").mockImplementation(() => {})
       vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
@@ -3191,7 +3198,7 @@ describe("事件细纲接线", () => {
         .not.toContain("重新输出 outlineSaveRequest")
     })
 
-    it("自动通道：全是事件细纲时直接收工，连解析错误也不再往上弹（drop 优先于报错）", async () => {
+    it("自动通道：事件细纲请求与真实解析错误同时出现时，drop 分支先返回（如实钉住既有顺序，非期望行为）", async () => {
       /*
        * 这条专门钉 `if (gateAction === "drop-event-outline") return` 那行 `return`：
        * 上面那条「不弹确认框」的用例**删掉这行也照样绿**（请求被摘光后落进后面
@@ -3199,8 +3206,16 @@ describe("事件细纲接线", () => {
        * 代码会走到末尾的 `if (parsed.errors.length > 0 && …)` 并弹出解析错误，
        * 于是这条用例变红。
        *
-       * 顺序是**沿用旧实现**的（`droppedEventOutlineCount > 0 && saveRequests.length === 0`
-       * 的早退在报错分支之前）：只要本轮请求全是事件细纲，就不为它去要求模型重出。
+       * ⚠️ 标题与这段注释都如实说明它钉住的是**现状**而不是期望行为：本 fixture
+       * **故意混进**一条真正解析失败的章纲请求（content 不像章纲），所以它钉的是
+       * 「合法事件细纲与真实解析错误共存时，真实错误被连坐吞掉」这条**既有顺序**
+       * （`650400f` 原文就是一字不差的
+       * `if (droppedEventOutlineCount > 0 && saveRequests.length === 0) return`）。
+       *
+       * 本批**有意不修**它（改动会改变「什么时候弹确认框/错误」的语义，是独立的
+       * 行为变更，见设计 §4.2.1）。因此这条用例是「防静默漂移」的哨兵：
+       * 删掉那行 return 后用户反而会看到那条提示（对这条错误来说是更正确的），
+       * 但用例会红 —— 它**不代表**「真实错误被吞掉是对的」。
        */
       const showErrorSpy = vi.spyOn(toast, "error").mockImplementation(() => {})
       const broken = {
@@ -3248,7 +3263,8 @@ describe("事件细纲接线", () => {
 
       expect(confirmDialogVisible()).toBe(false)
       const errorText = showErrorSpy.mock.calls.map((call) => String(call[0])).join("\n")
-      expect(errorText, "全是事件细纲时不该再把解析错误顶给用户").toBe("")
+      // 如实断言现状：这条**真实**解析错误也被 drop 分支一起吞掉了（既有顺序，非期望行为）
+      expect(errorText, "drop 分支早于报错分支：本条钉的是既有顺序，不是「错误该被吞」").toBe("")
     })
 
     it("自动通道：正文自身就是事件细纲（没有保存请求）时，也不弹确认框", async () => {
