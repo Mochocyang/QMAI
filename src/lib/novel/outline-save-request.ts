@@ -65,9 +65,12 @@ interface OutlineSaveRequestParseResult {
    * 只有相等才说明「这一批错误全是事件细纲造成的」。一条事件细纲请求可能同时
    * 产生多条错误（例如既进不了结构闸门、又缺 fileName），所以口径必须对齐。
    *
-   * 覆盖范围：**凡** `raw.fileType` 归一化后等于 `event-outline` 的请求，
-   * 它在 `normalizeRequest` 阶段产生的任何错误都计入（缺 content、缺
-   * fileName/targetFolder、文件名不是 .md…），外加下文那条内容结构闸门。
+   * 覆盖范围：**凡** `fileType` 归一化后等于 `event-outline` 的请求，它产生的
+   * **每一条**错误都计入，共三处 —— ① `normalizeRequest` 阶段的（缺 fileName /
+   * 缺 targetFolder、文件名不是 .md、文件名/目录含绝对路径…）；②
+   * `fillContentFromText` 之后仍然缺 content 的那条（`content: ""` 能通过归一化
+   * —— 归一化只在 content **非空**却只剩思考过程时报错）；③ 下文那条内容结构闸门
+   * （内容不像事件细纲）。三处都按**错误条数**累加，与调用方的比较口径一致。
    *
    * ⚠️ 边界：`fileType: "细纲"` **不**计入。它的 fileType 归一化后仍是「细纲」
    * （白名单里没有它，见 FILE_TYPE_ALIASES 的注释），调用方无从判断这条请求
@@ -696,10 +699,15 @@ export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseR
       if (normalized.request) requests.push(normalized.request)
       errors.push(...normalized.errors)
       /*
-       * 归一化阶段就被拒的事件细纲请求（缺 content / 缺 fileName / 文件名不是 .md…）
-       * 同样要计数，否则调用方会把「这一批错误全是事件细纲造成的」看成
-       * 「有真正的解析错误」，于是要求模型重出一遍 —— 重出一次还是会被丢掉。
-       * 按错误**条数**累加，与下面结构闸门的口径一致。
+       * 归一化阶段就被拒的事件细纲请求（缺 fileName / 缺 targetFolder、
+       * 文件名不是 .md、路径不合法…）同样要计数，否则调用方会把
+       * 「这一批错误全是事件细纲造成的」看成「有真正的解析错误」，
+       * 于是要求模型重出一遍 —— 重出一次还是会被丢掉。
+       * 按错误**条数**累加，与下面结构闸门（以及下面缺 content 那处）同口径。
+       *
+       * 注意缺 content **不**在这个阶段：`content: ""` 会带着空串通过
+       * normalizeRequest（那里只在 content 非空却只剩思考过程时报错），
+       * 由下面的 `!request.content.trim()` 分支负责，并且同样计数。
        */
       if (normalized.eventOutlineRejected) eventOutlineRejectionCount += normalized.errors.length
     })
@@ -711,6 +719,20 @@ export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseR
   filled.forEach((request, index) => {
     if (!request.content.trim()) {
       errors.push(`第 ${index + 1} 个保存请求缺少 content，且无法从正文中提取。`)
+      /*
+       * 缺 content 也要计数（仅对事件细纲）。
+       *
+       * 这条是**归一化之后**才发现的：`content: ""` 会带着空串通过
+       * normalizeRequest，所以漏掉这里，一份「只有事件细纲请求、而它缺 content」
+       * 的回复就会得到 `errors.length === 1 && eventOutlineRejectionCount === 0`
+       * ⇒ 调用方判成「有真正的解析错误」，弹出「请让 AI 重新输出 outlineSaveRequest」
+       * —— 而这一版拿到事件细纲请求**本来就是丢掉的**，重出一次还是会被丢掉。
+       * 正是 E8 要消除的那个症状。此处只 push 了一条错误，故 +1 与「错误条数」等价。
+       *
+       * `fileType: "细纲"` 不在此列：它归一化后仍然是「细纲」（不在别名表里），
+       * 不算事件细纲（理由见 OutlineSaveRequestParseResult 的注释）。
+       */
+      if (request.fileType === "event-outline") eventOutlineRejectionCount += 1
       return
     }
     if (

@@ -1169,6 +1169,42 @@ describe("event-outline 保存类型", () => {
     expect(parsed.eventOutlineRejectionCount).toBe(1)
   })
 
+  /*
+   * E8 的**缺 content** 路径（此前只覆盖了归一化阶段与结构闸门）。
+   *
+   * 输入刻意选成「唯一一条请求是 event-outline + content 为空 + 正文里也提不出内容」：
+   * 归一化会放过它（`content: ""` 不触发那条「仅包含模型思考过程」的报错），
+   * 拒绝发生在其后的 `!request.content.trim()` 分支。若那一支不计数，调用方拿到的是
+   * `errors.length === 1 && eventOutlineRejectionCount === 0` ⇒ 判成「有真正的解析错误」
+   * ⇒ 弹「请让 AI 重新输出 outlineSaveRequest」，而重出一次还是会被丢掉 ——
+   * 正是 E8 要消除的症状。
+   *
+   * `parseOne` 的正文部分只有 json 围栏（extractBodyContent 会把它整块删掉），
+   * 所以 fillContentFromText 确实补不出 content。
+   */
+  it("缺 content 的事件细纲请求也计入拒收数（E8：不在归一化阶段，但同样不许误报）", () => {
+    const parsed = parseOne({ ...request, content: "" })
+    // 三者的关系才是关键：调用方比的是 rejectionCount 与 errors.length
+    expect(parsed.requests).toEqual([])
+    expect(parsed.errors).toHaveLength(1)
+    expect(parsed.eventOutlineRejectionCount).toBe(parsed.errors.length)
+    expect(parsed.errors[0]).toContain("缺少 content")
+  })
+
+  it("缺 content 的**非**事件细纲请求不计入拒收数（否则会把真错误也掩盖掉）", () => {
+    const parsed = parseOne({
+      targetFolder: "章纲",
+      fileName: "章纲-第012章.md",
+      fileType: "chapter-outline",
+      writeMode: "create",
+      referencedSkills: [],
+      sourceIntent: "生成章纲",
+      content: "",
+    })
+    expect(parsed.errors).toHaveLength(1)
+    expect(parsed.eventOutlineRejectionCount).toBe(0)
+  })
+
   it("混着真正的解析错误时，拒收数小于错误总数（调用方据此仍弹那条重出提示）", () => {
     const parsed = parseMany([
       { ...request, fileName: "事件细纲-第012章.txt" },
