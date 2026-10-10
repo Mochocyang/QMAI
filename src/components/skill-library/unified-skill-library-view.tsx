@@ -37,8 +37,23 @@ import { FavoriteListView } from "./favorite-list-view"
 /**
  * 技能库 tab 的**唯一事实来源**：视图名 + 文案。
  *
- * 下面每一张分派表都是 `Record<SkillLibraryTab, …>`，所以往这里加一个 tab
- * 而忘了补某张表 = **编译错误**，不会静默走错分支。
+ * ## 加一个 tab 时，哪些分派点**会**编译报错
+ * 下列表按 `SkillLibraryTab` / `GalleryTab`（= 去掉「收藏」）建键，
+ * 少一个键即 TS2741 / TS2739：
+ *   `ACTIVE_TAB_BY_VIEW`、`TAB_DRAFT_KIND`、`TAB_ACTIONS`、
+ *   `TAB_CATEGORY_AXIS`、`EMPTY_COPY`、`SKILL_EDITORS`，
+ * 再加组件内的 `entriesByTab`（第 7 张）。
+ * `SKILL_LIBRARY_VIEWS` 另把元素类型标成 `ActiveView`，所以
+ * 「新 tab 的视图名不在 store 的 `activeView` 联合里」同样是编译错误。
+ * ⚠️ 这是**列名**承诺，不是「本文件所有分派都受保护」：
+ * 未受保护的分派点在文件末尾 `RESIDUAL GAPS` 一段逐条写明。
+ *
+ * ## 加一个**条目类型**（`entry.type`）时，哪些分派点**会**编译报错
+ * 3 张 `Record<UnifiedSkillEntry["type"], …>`：
+ *   `ENTRY_TYPE_LABELS`、`ENTRY_CAPABILITIES`、`ENTRY_TOGGLE_LABELS`；
+ * 4 个穷尽 `switch`（`default` 里取 `never`）：
+ *   `entryEnabled`、`entryFavoriteTarget`、`handleToggleEnabled`、`handleOpenEntry`。
+ * 其余 `entry.type` 分支**没有**编译保护——见 `RESIDUAL GAPS`。
  */
 const skillLibraryTabs = [
   { view: "skillLibrary" as const, label: "去AI味技能" },
@@ -92,8 +107,22 @@ const TAB_ACTIONS: Record<GalleryTab, "de-ai" | "writing" | "none"> = {
   writingStyleLibrary: "none",
 }
 
-/** 只有带分类的库显示分类 chips（目前只有写作 Skill）。 */
-const TABS_WITH_CATEGORY_CHIPS: ReadonlySet<GalleryTab> = new Set<GalleryTab>(["writingSkillLibrary"])
+/**
+ * tab 的**分类维度**。`"writing"` = 该 tab 的条目按写作 Skill 的分类维度
+ * 过滤，并显示分类 chips；`"none"` = 没有分类维度（不显示 chips、也不按分类过滤）。
+ *
+ * ⚠️「显示 chips」与「按分类过滤」必须由**同一张表**决定。改造前这是两处独立事实：
+ * chips 由 `TABS_WITH_CATEGORY_CHIPS: ReadonlySet<GalleryTab>` 决定，过滤由
+ * `activeTab === "writingSkillLibrary"` 硬编码决定。两处可以各自漂移，而且
+ * `ReadonlySet` **不在 `Record` 的编译保护里** —— 把它清成空 Set 时
+ * `typecheck` 仍 exit 0、测试仍全绿，只有写作 Skill 的分类 chips 静默消失。
+ * 现在只有一张 `Record`：漏一个 tab 是编译错误，两件事不可能再分叉。
+ */
+const TAB_CATEGORY_AXIS: Record<GalleryTab, "writing" | "none"> = {
+  skillLibrary: "none",
+  writingSkillLibrary: "writing",
+  writingStyleLibrary: "none",
+}
 
 /** 各 tab 的空态文案。显式映射，避免二元三元把新 tab 说成「还没有去AI味技能」。 */
 const EMPTY_COPY: Record<GalleryTab, string> = {
@@ -102,7 +131,16 @@ const EMPTY_COPY: Record<GalleryTab, string> = {
   writingStyleLibrary: "文风库还是空的：对一部作品做完文风提炼后，它的文风预设会出现在这里。",
 }
 
-/** 编辑器分派。显式映射：新 tab 不会静默渲染成**另一个库**的编辑器。 */
+/**
+ * tab → 编辑器分派。显式映射：新 tab 不会静默拿到**另一个库**的编辑器。
+ *
+ * ⚠️ 这一张表管的是「**哪个 tab** 用哪个编辑器」，**不**管「点开某个条目该去哪里」——
+ * 后者是 `handleOpenEntry`。两者是**各自独立**的两道防线：
+ * 文风 tab 的 `() => null` 与 `handleOpenEntry` 的 `style` 分支互相覆盖，
+ * 所以**单独去掉任一道都不会渲染成别的库的编辑器**（去掉 `handleOpenEntry`
+ * 那道只会得到一个空编辑器 + 一个写错的 `selectedSkillLibrarySkillId`）。
+ * 这不是冗余代码，是两道各自成立的守卫；别把其中一道的注释说成另一道的功劳。
+ */
 const SKILL_EDITORS: Record<GalleryTab, ComponentType> = {
   skillLibrary: SkillLibraryView,
   writingSkillLibrary: WritingSkillLibraryView,
@@ -110,10 +148,33 @@ const SKILL_EDITORS: Record<GalleryTab, ComponentType> = {
   writingStyleLibrary: () => null,
 }
 
-function resolveActiveTab(activeView: ActiveView): SkillLibraryTab {
-  // ACTIVE_TAB_BY_VIEW 的键恰好是 4 个技能库视图；其余视图不会渲染本组件，
-  // 兜底到「去AI味技能」与改动前一致。
-  return (ACTIVE_TAB_BY_VIEW as Partial<Record<ActiveView, SkillLibraryTab>>)[activeView] ?? "skillLibrary"
+/**
+ * 本组件承认的视图名，从 `skillLibraryTabs` 推导（加 tab 自动跟着长）。
+ * 元素类型标成 `ActiveView`：新 tab 的视图名若不在 store 的 `activeView`
+ * 联合里，**这一行**就是编译错误，而不是等到运行时才发现切不过去。
+ */
+const SKILL_LIBRARY_VIEWS: readonly ActiveView[] = skillLibraryTabs.map((tab) => tab.view)
+
+function isSkillLibraryTab(view: ActiveView): view is SkillLibraryTab {
+  return SKILL_LIBRARY_VIEWS.some((candidate) => candidate === view)
+}
+
+/**
+ * activeView → 列表 tab。
+ *
+ * 原先这里是 `(ACTIVE_TAB_BY_VIEW as Partial<Record<ActiveView, SkillLibraryTab>>)[activeView] ?? "skillLibrary"`：
+ * 断言把「表里没有这个视图」这件事瞒过了编译器，`?? ` 再把任何陌生视图
+ * 静默兜底成「去AI味技能」。今天唯一渲染本组件的是 `content-area.tsx:125-134`，
+ * 它的 `switch` 只把 4 个技能库视图路由过来，所以兜底实际不可达——**但没有任何
+ * 东西守着这个前提**：真到了 `activeView === "soul"` 之类的输入，用户会看到
+ * 去AI味技能库，**带着可写的「新建技能 / 导入」按钮**。
+ * 现在改成显式抛错：前提被打破时当场失败，不静默显示另一个库。
+ */
+export function resolveActiveTab(activeView: ActiveView): SkillLibraryTab {
+  if (!isSkillLibraryTab(activeView)) {
+    throw new Error(`技能库视图收到了非技能库的 activeView：${activeView}`)
+  }
+  return ACTIVE_TAB_BY_VIEW[activeView]
 }
 
 function tabDraftDirty(draftKind: "skill" | "writing" | "none", skillDirty: boolean, writingDirty: boolean): boolean {
@@ -156,10 +217,20 @@ interface WritingStyleEntry extends UnifiedSkillEntryBase {
 
 type UnifiedSkillEntry = WritingSkillEntry | DeAiSkillEntry | WritingStyleEntry
 
-/** 类型谓词：分类 / 收藏等只对写作 Skill 生效的逻辑先按它收窄。 */
-function isWritingSkillEntry(entry: UnifiedSkillEntry): entry is WritingSkillEntry {
-  return entry.type === "writing"
-}
+/**
+ * 原先这里有一个 `isWritingSkillEntry(entry): entry is WritingSkillEntry` 谓词
+ * （`return entry.type === "writing"`），在分类分支里 `list.filter(isWritingSkillEntry)`。
+ * 它**已删除**，理由是可验证性：
+ *   - 它在运行时一条都筛不掉 —— 写作轴的 tab 拿到的列表
+ *     （`entriesByTab.writingSkillLibrary = writingEntries`）按构造就是纯写作条目；
+ *   - 于是它的**真值没有任何行为测试能观察到**：把实现改成
+ *     `entry.type !== "style"` 这样的谎话，typecheck 与全部用例照样绿。
+ * 一个「谁也没法证伪、又筛不掉任何东西」的断言，只会让人以为它守住了什么。
+ * 现在这个事实由**类型**承载：`writingSkillToEntry` 的返回类型是
+ * `WritingSkillEntry`（见该函数处注释），所以分类分支可以直接用
+ * `writingEntries`，不写谓词也拿得到 `rawSkill`——一旦投影不再保证
+ * `type: "writing"`，那一行就是编译错误。
+ */
 
 /** 卡片类型徽章。显式映射，避免二元三元把新类型静默标成「去AI味」。 */
 const ENTRY_TYPE_LABELS: Record<UnifiedSkillEntry["type"], string> = {
@@ -183,7 +254,12 @@ const ENTRY_CAPABILITIES: Record<UnifiedSkillEntry["type"], {
   style: { favoritable: false, toggleable: false, openable: false },
 }
 
-/** 启用勾选框文案。显式映射，避免二元三元把新类型写成「显示在调用入口」。 */
+/**
+ * 启用勾选框文案。显式映射，避免二元三元把新类型写成「显示在调用入口」。
+ * ⚠️ `style` 那条**不可达**（文风条目 `toggleable: false`，勾选框根本不渲染）——
+ * 它留着只是为了 `Record` 的穷尽性：少写一条就是编译错误，而「因为不可达所以
+ * 可以省略」正是让下一张表也跟着漏键的开始。
+ */
 const ENTRY_TOGGLE_LABELS: Record<UnifiedSkillEntry["type"], string> = {
   writing: "参与 AI 会话",
   "de-ai": "显示在调用入口",
@@ -199,7 +275,15 @@ type WritingStyleStore = Awaited<ReturnType<typeof loadWritingStyleStore>>
 
 const EMPTY_WRITING_STYLE_STORE: WritingStyleStore = { version: 1, enabledStyleId: null, styles: [] }
 
-function deAiSkillToEntry(skill: DeAiSkill): UnifiedSkillEntry {
+/**
+ * ⚠️ 三个投影函数的返回类型**必须**写成各自的精确类型（而不是 `UnifiedSkillEntry`）。
+ * 这是「写作轴的列表里只有写作条目」这件事的**唯一**真值来源：
+ * 写成宽类型，`filteredEntries` 里的分类分支立刻取不到 `rawSkill` 而编译报错；
+ * 而靠一个 `isWritingSkillEntry` 谓词在运行时 filter 是**不可验证**的
+ * ——写作轴的列表按构造就是纯写作条目，谓词一条都筛不掉，
+ * 把实现改成谎话也没有任何行为测试能发现（该谓词已按此理由删除）。
+ */
+function deAiSkillToEntry(skill: DeAiSkill): DeAiSkillEntry {
   return {
     id: `de-ai:${skill.id}`,
     sourceId: skill.id,
@@ -212,7 +296,7 @@ function deAiSkillToEntry(skill: DeAiSkill): UnifiedSkillEntry {
   }
 }
 
-function writingSkillToEntry(skill: UserSkill): UnifiedSkillEntry {
+function writingSkillToEntry(skill: UserSkill): WritingSkillEntry {
   return {
     id: `writing:${skill.id}`,
     sourceId: skill.id,
@@ -231,7 +315,7 @@ function writingSkillToEntry(skill: UserSkill): UnifiedSkillEntry {
  *  `description` 由来源作品如实拼出，`content` 只是把画像里可检索的文本拼起来供搜索用，
  *  `kinds` 留空（不把「风格」这个 SkillKind 硬塞给它）。
  */
-function writingStylePresetToEntry(preset: WritingStylePreset): UnifiedSkillEntry {
+function writingStylePresetToEntry(preset: WritingStylePreset): WritingStyleEntry {
   const profile = preset.profile
   const samples = Array.isArray(profile?.samples) ? profile.samples : []
   const content = [profile?.integratedDna, profile?.constitution, ...samples]
@@ -582,10 +666,36 @@ function SkillCard({
   )
 }
 
-/** 收藏库只认 writing / de-ai 两种快照形状；文风条目不参与收藏。 */
+/**
+ * 收藏目标：库名 + 要快照的原始技能。文风条目不参与收藏（返回 null）。
+ *
+ * ⚠️ 这里原先是 `entry.type === "writing" ? "writing" : "de-ai"` —— **二元分支**：
+ * 任何**新条目类型**都会静默拿到 `de-ai:` 前缀、被当成去AI味技能收藏
+ * （收藏库里落错库名，还会以错误的快照形状出现在「收藏」tab）。
+ * 改成穷尽 `switch` 之后，加新类型而没在这里显式决定 = 编译错误。
+ * 收藏**键**与收藏**快照**的库名出自同一个 switch，不可能再分叉。
+ */
+function entryFavoriteTarget(
+  entry: UnifiedSkillEntry,
+): { library: "writing" | "de-ai"; skill: UserSkill | DeAiSkill } | null {
+  switch (entry.type) {
+    case "writing":
+      return { library: "writing", skill: entry.rawSkill }
+    case "de-ai":
+      return { library: "de-ai", skill: entry.rawSkill }
+    case "style":
+      return null
+    default: {
+      const unhandled: never = entry
+      throw new Error(`未知的技能条目类型：${String(unhandled)}`)
+    }
+  }
+}
+
+/** 收藏键。库名一律取自 `entryFavoriteTarget`，不另立一份判定。 */
 function entryFavoriteKey(entry: UnifiedSkillEntry): string | null {
-  if (entry.type === "style") return null
-  return `${entry.type === "writing" ? "writing" : "de-ai"}:${entry.sourceId}`
+  const target = entryFavoriteTarget(entry)
+  return target ? `${target.library}:${entry.sourceId}` : null
 }
 
 function entryExtraBadge(entry: UnifiedSkillEntry, writingConfig: UserSkillConfig | null): string | undefined {
@@ -615,11 +725,13 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState<UnifiedSkillCategory>("all")
   const [loadError, setLoadError] = useState("")
+  const [styleLoadFailed, setStyleLoadFailed] = useState(false)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     setLoadError("")
+    setStyleLoadFailed(false)
     Promise.all([loadUserSkillConfig(project?.path), loadDeAiSkillConfig(project?.path)])
       .then(([writing, deAi]) => {
         if (cancelled) return
@@ -636,13 +748,22 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
      * 文风库走**单独**一条链，绝不并进上面那个 Promise.all：
      * 那个 catch 会把两份配置一起置 null 并显示「技能库加载失败」，
      * 于是「文风库读取失败」会扩散成「三个库全空 + 整页报错」——
-     * 一个来源的故障不该由另外两个来源承担。这里失败只退化成「文风 tab 为空」。
+     * 一个来源的故障不该由另外两个来源承担。这里失败只影响文风 tab 自己。
+     *
+     * ⚠️ 但「只影响文风 tab」不等于「可以说文风库是空的」：失败时数据退化成
+     * `EMPTY_WRITING_STYLE_STORE`，而空态文案原来说的是「文风库还是空的：
+     * 对一部作品做完文风提炼后…」——那是在把一次**读取故障**报告成
+     * 「你还没提炼过文风」，用户会去重跑一遍根本不必跑的流程。
+     * 所以这里单独记一个 `styleLoadFailed`，让空态文案如实说是读取失败。
      *
      * 顺带：`loadWritingStyleStore(projectPath: string)` 不接受 undefined
      * （两个 Skill loader 接受 null/undefined，但它不接受），所以先判 project?.path。
      */
     const styleLoad = project?.path
-      ? loadWritingStyleStore(project.path).catch(() => EMPTY_WRITING_STYLE_STORE)
+      ? loadWritingStyleStore(project.path).catch(() => {
+          if (!cancelled) setStyleLoadFailed(true)
+          return EMPTY_WRITING_STYLE_STORE
+        })
       : Promise.resolve(EMPTY_WRITING_STYLE_STORE)
     styleLoad.then((store) => {
       if (!cancelled) setStyleStore(store)
@@ -684,7 +805,7 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
   )
 
   const categoryChips = useMemo(() => {
-    if (!TABS_WITH_CATEGORY_CHIPS.has(activeTab)) return []
+    if (TAB_CATEGORY_AXIS[activeTab] !== "writing") return []
     const chips: { id: UnifiedSkillCategory; label: string }[] = [
       { id: "all", label: "全部" },
       { id: "recent", label: "最近使用" },
@@ -699,9 +820,10 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
   const filteredEntries = useMemo(() => {
     const keyword = query.trim().toLowerCase()
     let list = entriesByTab[activeTab]
-    if (activeTab === "writingSkillLibrary" && category !== "all") {
-      // 分类只属于写作 Skill；先按类型收窄，文风条目没有 categoryId（也不假装有）。
-      const scoped = list.filter(isWritingSkillEntry)
+    if (TAB_CATEGORY_AXIS[activeTab] === "writing" && category !== "all") {
+      // 分类只属于写作 Skill。直接取 `writingEntries`（精确类型 `WritingSkillEntry[]`），
+      // 不从通用列表里 filter 一个谓词——理由见被删掉的 `isWritingSkillEntry` 处注释。
+      const scoped = writingEntries
       if (category === "recent") {
         list = [...scoped].sort((a, b) => (b.rawSkill.updatedAt ?? 0) - (a.rawSkill.updatedAt ?? 0))
       } else if (category === "uncategorized") {
@@ -718,12 +840,27 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     return list
   }, [activeTab, entriesByTab, category, query])
 
+  /**
+   * 条目是否处于「启用」态。
+   *
+   * ⚠️ 原先最后一行是无条件的 `return writingConfig ? … : true`：任何**新条目类型**
+   * 都会静默掉进写作 Skill 的判定里（拿 `writingConfig.disabledSkillIds` 去查一个
+   * 不属于它的 id，结果恒为「启用」）。这条路只影响勾选态显示、不写文件，属低危；
+   * 但仍然改成穷尽 `switch`：加新类型而没在这里显式决定 = 编译错误。
+   */
   function entryEnabled(entry: UnifiedSkillEntry): boolean {
-    if (entry.type === "style") return styleStore?.enabledStyleId === entry.sourceId
-    if (entry.type === "de-ai") {
-      return deAiConfig ? !deAiConfig.disabledSkillIds.includes(entry.sourceId) : true
+    switch (entry.type) {
+      case "style":
+        return styleStore?.enabledStyleId === entry.sourceId
+      case "de-ai":
+        return deAiConfig ? !deAiConfig.disabledSkillIds.includes(entry.sourceId) : true
+      case "writing":
+        return writingConfig ? !writingConfig.disabledSkillIds.includes(entry.sourceId) : true
+      default: {
+        const unhandled: never = entry
+        throw new Error(`未知的技能条目类型：${String(unhandled)}`)
+      }
     }
-    return writingConfig ? !writingConfig.disabledSkillIds.includes(entry.sourceId) : true
   }
 
   const activeCategoryChip = categoryChips.find(
@@ -771,9 +908,17 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     try {
       /*
        * 按类型**显式**分派，不用 `if (writing) … else …`：
-       * 那个 else 会把**任何新类型**（文风）静默当成去AI味，进而去写 de-ai-skills.json。
+       * 那个 else 会把**任何新类型**（文风）静默当成去AI味，进而去写
+       * `de-ai-skills.json`——**写错另一个库的文件**，本文件里后果最重的一条路。
        * 文风条目是显式 no-op —— 技能库的选中/切换动作**不得**去写
        * `.qmai/writing-style.json` 的 `enabledStyleId`（用户决定 2：项目设置不得被改）。
+       *
+       * 这个 switch 有**两道**编译保护，别只看到一道：
+       *  (a) 加新条目类型而没补 case ⇒ `default` 里的 `entry` 不是 `never`，报错；
+       *  (b) 删掉 `case "style"` ⇒ 文风条目掉进 `default`，`entry` 被收窄成
+       *      `WritingStyleEntry`（同样不是 `never`），一样报错。
+       * 行为侧由 `unified-skill-library-view.spec.tsx` 的
+       * 「勾选…只写对应那个库的 json」两条用例钉住。
        */
       switch (entry.type) {
         case "de-ai": {
@@ -811,7 +956,11 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     }
   }
 
-  const emptyCopy = EMPTY_COPY[activeTab]
+  // 读取故障 ≠ 库是空的：前者不能借用后者的文案（见 styleLoad 处的说明）。
+  const emptyCopy =
+    activeTab === "writingStyleLibrary" && styleLoadFailed
+      ? "文风库读取失败：暂时列不出这个项目里的文风预设。"
+      : EMPTY_COPY[activeTab]
 
   return (
     <div className="ui-test-skills-gallery">
@@ -892,10 +1041,11 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
                 }}
                 onToggleEnabled={(enabled) => void handleToggleEnabled(entry, enabled)}
                 onToggleFavorite={() => {
-                  if (entry.type === "style") return
+                  const target = entryFavoriteTarget(entry)
+                  if (!target) return
                   void toggleFavorite({
-                    library: entry.type === "writing" ? "writing" : "de-ai",
-                    skill: entry.rawSkill,
+                    library: target.library,
+                    skill: target.skill,
                     originProjectPath: project?.path,
                   })
                 }}
@@ -966,12 +1116,40 @@ export function UnifiedSkillLibraryView() {
     setEditing(false)
   }
 
+  /**
+   * 点开一个条目：把「选中态该写哪个库」与「要不要进编辑器」一次决定清楚。
+   *
+   * ⚠️ 这里原先写作：
+   *    `if (entry.type === "style") return` // 否则会渲染成**另一个库**的编辑器
+   * ——**这句是错的**（实测：单独去掉该行后不会渲染别的库的编辑器）。真实后果是：
+   * `else` 分支把文风条目按去AI味处理，把 `preset:cool` 这种**不属于该库的 id**
+   * 写进 `selectedSkillLibrarySkillId`，而 `SKILL_EDITORS.writingStyleLibrary = () => null`
+   * 让编辑器区渲染成**空白死胡同**。两个守卫（本分支与那张表）是**各自独立**的
+   * 两道防线，所以单独拆掉任何一道都只退化、不致命 —— 但两道都会把
+   * 选中态写脏，那才是真正要防的。
+   *
+   * 现在改成穷尽 `switch`：新条目类型必须先在这里**显式**决定去哪儿，
+   * 删掉 `case "style"` 也会因为 `default` 里拿不到 `never` 而编译报错。
+   */
   function handleOpenEntry(entry: UnifiedSkillEntry) {
-    // 文风条目本批只读：没有编辑器可进（否则会渲染成**另一个库**的编辑器）。
-    if (entry.type === "style") return
-    if (entry.type === "writing") setSelectedWritingSkillId(entry.sourceId)
-    else setSelectedSkillId(entry.sourceId)
-    setEditing(true)
+    switch (entry.type) {
+      case "writing":
+        setSelectedWritingSkillId(entry.sourceId)
+        setEditing(true)
+        return
+      case "de-ai":
+        setSelectedSkillId(entry.sourceId)
+        setEditing(true)
+        return
+      case "style":
+        // 文风条目本批只读（设计 §3 待确认项 3）：只改本组件的本地选中态，
+        // 不写任何「选中技能 id」、也不进编辑器。见上方注释。
+        return
+      default: {
+        const unhandled: never = entry
+        throw new Error(`未知的技能条目类型：${String(unhandled)}`)
+      }
+    }
   }
 
   return (
@@ -1023,3 +1201,32 @@ export function UnifiedSkillLibraryView() {
     </div>
   )
 }
+
+/* ============================================================================
+ * RESIDUAL GAPS —— 本文件里**没有**编译保护的 `entry.type` 分派
+ * ============================================================================
+ *
+ * 写这一段是因为「加了 tab 忘了补表就是编译错误」这句话很容易被读成
+ * 「本文件所有分派都受保护」。事实不是：`entry.type` 上约 10 个分派点里，
+ * 只有 3 张 `Record` 表和 4 个穷尽 `switch` 受保护（清单见文件顶部注释）。
+ * 下面这些点对**新条目类型**是静默的。逐条写明后果，读完能判断风险，
+ * 不会把一句概括当成保证：
+ *
+ * 1. `entryExtraBadge`：新类型落在最后的 `return undefined`，卡片上少一个额外
+ *    徽章。**故意不守**——缺徽章是安全默认值，为它加一个 `switch` 只是把同样的
+ *    样板再抄一遍，不减少任何风险。
+ * 2. `entrySourceLabel` / `entrySearchValues`：靠 `entry.rawSkill` **间接**受保护
+ *    ——新类型若不带 `rawSkill`，取 `entry.rawSkill` 就是编译错误；但若它**带**
+ *    `rawSkill`，两处都会静默走进写作 Skill 的分支（来源标签按 writing 的
+ *    「内置/上传/引用/项目」口径去猜）。后果是**标签可能标错**，不写文件。
+ * 3. 卡片上的三个呈现分支：`selected`（`entry.type === "style" && …`）、
+ *    `onSelect`（同前，新类型是 no-op）、以及「当前启用」徽章（同前）。
+ *    新类型一律恒 `false` / no-op —— 显示层退化，无副作用。
+ *
+ * **有后果的两条路**已经全部受保护，且各有行为用例：
+ *   - 写错库的文件 → `handleToggleEnabled` 的穷尽 `switch`
+ *     ＋「勾选…只写对应那个库的 json」用例；
+ *   - 路由错库的编辑器与选中态 → `handleOpenEntry` 的穷尽 `switch`
+ *     ＋「文风条目是引用：选中它不写任何文件，也不进入编辑器」用例。
+ * 若将来往 `UnifiedSkillEntry` 加第 4 种类型，上面 1/2/3 需要**人工**复查。
+ * ========================================================================== */

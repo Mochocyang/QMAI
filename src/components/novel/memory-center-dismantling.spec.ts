@@ -67,11 +67,17 @@ describe("记忆中心不出现拆文库", () => {
   /*
    * 技能库内部 tab 的新视图（文风库）必须与技能库一样是整窗视图：
    * 漏掉它不会报错，只会把它挤进「目录栏 + 内容区」的双栏容器里。
+   *
+   * ⚠️ 这条原来是这样找的：从源码里挑出 `const fullWindowViews =` 那一行，
+   * 再 `toContain` 两个子串。把该行**行为不变**地换一种写法（或换行）就会红，
+   * 报错信息还指着「文风库不是整窗视图」——而 `fullWindowViews` 本身
+   * 当时**全仓库零行为覆盖**。
+   * 清单与判定已抽成 `@/lib/full-window-views`，行为由
+   * `src/lib/full-window-views.spec.ts` 逐项断言。这里只保留一条**接线**
+   * 断言（壳层确实用那个纯函数、且传的是 activeView），不再假装它是行为证据。
    */
-  it("文风库视图与技能库一样是整窗视图，不占左侧目录栏", () => {
-    const line = shellSource.split("\n").find((item) => item.includes("const fullWindowViews ="))
-    expect(line).toBeDefined()
-    expect(line).toContain('activeView === "skillLibrary"')
-    expect(line).toContain('activeView === "writingStyleLibrary"')
+  it("整窗判定接到了纯函数 isFullWindowView（行为见 full-window-views.spec.ts）", () => {
+    expect(shellSource).toContain("isFullWindowView(activeView)")
+    expect(shellSource).toContain("!fullWindowViews && !memoryCenterFullWindow")
   })
 })

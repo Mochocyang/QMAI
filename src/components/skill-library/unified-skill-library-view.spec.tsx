@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
-import { UnifiedSkillLibraryView } from "./unified-skill-library-view"
+import { UnifiedSkillLibraryView, resolveActiveTab } from "./unified-skill-library-view"
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -169,6 +169,18 @@ function getButton(container: HTMLElement, label: string): HTMLButtonElement | u
 function tabStates(container: HTMLElement): [string, string | null][] {
   return Array.from(container.querySelectorAll<HTMLButtonElement>(".ui-test-skills-tab"))
     .map((tab) => [tab.textContent?.trim() ?? "", tab.getAttribute("aria-pressed")])
+}
+
+/** 当前网格里的条目 id（去掉 testid 前缀）。 */
+function entryIds(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll<HTMLElement>('[data-testid^="unified-skill-entry-"]'))
+    .map((card) => card.getAttribute("data-testid")?.replace("unified-skill-entry-", "") ?? "")
+}
+
+/** 分类 chips 的可见文案。 */
+function chipLabels(container: HTMLElement): string[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(".ui-test-skills-chip"))
+    .map((chip) => chip.textContent?.trim() ?? "")
 }
 
 async function switchToTab(container: HTMLElement, label: string) {
@@ -481,10 +493,28 @@ describe("UnifiedSkillLibraryView", () => {
     expect(container.querySelector(".ui-test-skill-card-open")).toBeNull()
     expect(container.querySelector(".ui-test-skill-toggle input")).toBeNull()
 
+    /*
+     * 逐张卡片地钉住 ENTRY_CAPABILITIES.style 的**三个**布尔：
+     * 卡片内一个 `input` / `button` 都不许有。
+     *  - `favoritable` → 收藏星按钮（button）
+     *  - `toggleable`  → 启用勾选框（input）
+     *  - `openable`    → 下面另断「编辑」入口（它是 span，不在 input/button 里）
+     * 之前只有 `toggleable` 与 `openable` 各一条断言（还都是全页查询），
+     * `favoritable` 单独改成 true 时 14/14 全绿 —— 收藏星会静默出现在一个
+     * 明确「不提供任何编辑能力」的只读 tab 上。这一条同时覆盖前两个。
+     */
+    for (const card of Array.from(container.querySelectorAll<HTMLElement>('[data-testid^="unified-skill-entry-"]'))) {
+      expect(card.querySelectorAll("input, button")).toHaveLength(0)
+      expect(card.querySelector('[aria-label="收藏"]')).toBeNull()
+      expect(card.querySelector('[aria-label="取消收藏"]')).toBeNull()
+    }
+    // 文风卡片确实渲染了（否则上面的循环在空集合上「全绿」）
+    expect(container.querySelectorAll('[data-testid^="unified-skill-entry-"]').length).toBe(2)
+
     cleanup(root, container)
   })
 
-  it("文风库读取失败只退化成「文风 tab 为空」，不牵连另外两个库", async () => {
+  it("文风库读取失败只影响文风 tab，其余两库不受牵连", async () => {
     loadWritingStyleStoreMock.mockImplementation(async () => {
       throw new Error("EACCES: 文风库读取失败")
     })
@@ -495,7 +525,17 @@ describe("UnifiedSkillLibraryView", () => {
     expect(container.querySelector('[data-testid="unified-skill-entry-de-ai:project:quiet"]')).not.toBeNull()
 
     await switchToTab(container, "文风")
-    expect(container.querySelector(".ui-test-skills-empty")?.textContent).toContain("文风库还是空的")
+    /*
+     * ⚠️ 断言被**故意**改过（原为 `toContain("文风库还是空的")`）：
+     * 读取失败时数据退化成 `EMPTY_WRITING_STYLE_STORE`，而空态文案原来说的是
+     * 「文风库还是空的：对一部作品做完文风提炼后…」——那是把一次**读取故障**
+     * 说成「你还没提炼过文风」，会把用户支去重跑一遍根本不必跑的流程。
+     * 现在文案如实区分：「读取失败」≠「库是空的」。
+     * 「真的空库」那条通路由上面「文风库为空时展示文风空态」继续覆盖。
+     */
+    const styleEmpty = container.querySelector(".ui-test-skills-empty")?.textContent ?? ""
+    expect(styleEmpty).toContain("文风库读取失败")
+    expect(styleEmpty).not.toContain("还是空的")
     expect(writeFileAtomicMock).not.toHaveBeenCalled()
 
     await switchToTab(container, "写作 Skill")
@@ -503,5 +543,156 @@ describe("UnifiedSkillLibraryView", () => {
     expect(container.querySelector(".ui-test-skills-error")).toBeNull()
 
     cleanup(root, container)
+  })
+
+  /*
+   * === 分类维度（TAB_CATEGORY_AXIS）===
+   *
+   * 「显示分类 chips」与「按分类过滤」现在由**同一张表**决定。下面两条
+   * 分别钉住这张表的两半：
+   *   - 少了 chips 的 tab 之前**没有任何测试会红**（清空原先那个
+   *     `ReadonlySet` 时 typecheck exit 0、14/14 全绿，而写作 Skill 的
+   *     分类 chips 全部静默消失）；
+   *   - 过滤那一半原本硬编码 `activeTab === "writingSkillLibrary"`，
+   *     与 chips 是两份可以各自漂移的事实。
+   */
+  it("分类 chips 只出现在写作 Skill tab（chips 消失必须有人报警）", async () => {
+    const { container, root } = await renderLibrary()
+
+    expect(chipLabels(container)).toEqual([])
+
+    await switchToTab(container, "写作 Skill")
+    // 前三条是固定项，后面跟着项目 / 内置 skillhub 的分类与「+ 新建分类」。
+    const writingChips = chipLabels(container)
+    expect(writingChips.slice(0, 3)).toEqual(["全部", "最近使用", "未分类"])
+    expect(writingChips).toContain("+ 新建分类")
+    expect(writingChips.length).toBeGreaterThan(3)
+
+    await switchToTab(container, "文风")
+    expect(chipLabels(container)).toEqual([])
+
+    cleanup(root, container)
+  })
+
+  it("分类 chips 会真的过滤列表（chips 与过滤共用同一张表）", async () => {
+    const categorizedWritingConfig = {
+      ...writingConfig,
+      categories: [{ id: "cat-pace", name: "节奏" }],
+      skills: [
+        { ...writingConfig.skills[0], id: "skill:three", name: "三翻四抖", categoryId: "cat-pace" },
+        { ...writingConfig.skills[0], id: "skill:other", name: "另一条", categoryId: undefined },
+      ],
+    }
+    readFileMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
+      if (path.endsWith("writing-skills.json")) return JSON.stringify(categorizedWritingConfig)
+      if (path.endsWith(".qmai/writing-style.json")) return JSON.stringify(writingStyleStore)
+      throw new Error("missing")
+    })
+    const { container, root } = await renderLibrary()
+    await switchToTab(container, "写作 Skill")
+
+    expect(entryIds(container)).toContain("writing:skill:three")
+    expect(entryIds(container)).toContain("writing:skill:other")
+
+    await act(async () => {
+      getButton(container, "节奏")?.click()
+    })
+    await flushEffects()
+    expect(entryIds(container)).toContain("writing:skill:three")
+    expect(entryIds(container)).not.toContain("writing:skill:other")
+
+    await act(async () => {
+      getButton(container, "未分类")?.click()
+    })
+    await flushEffects()
+    expect(entryIds(container)).toContain("writing:skill:other")
+    expect(entryIds(container)).not.toContain("writing:skill:three")
+
+    cleanup(root, container)
+  })
+
+  /*
+   * === 启用开关写哪个库的文件 ===
+   *
+   * `handleToggleEnabled` 是本文件唯一会**写库文件**的条目分派点，
+   * 原先靠 `if (writing) … else …` 的形状把任何新类型静默当成去AI味。
+   * 编译侧的穷尽 `switch` 已经补上；这里补**行为**侧的证据：
+   * 两组用例分别断言「只写了这个库的 json」——写错库时立刻红。
+   */
+  it("勾选写作 Skill 的启用框只写 writing-skills.json，不碰 de-ai-skills.json", async () => {
+    const { container, root } = await renderLibrary()
+    await switchToTab(container, "写作 Skill")
+
+    const toggle = container.querySelector<HTMLInputElement>(".ui-test-skill-toggle input")
+    expect(toggle).not.toBeNull()
+    expect(toggle!.checked).toBe(true)
+
+    await act(async () => {
+      toggle!.click()
+    })
+    await flushEffects()
+
+    expect(writeFileAtomicMock.mock.calls.map((call) => String(call[0])))
+      .toEqual(["C:/project/writing-skills.json"])
+
+    cleanup(root, container)
+  })
+
+  it("勾选去AI味技能的启用框只写 de-ai-skills.json，不碰 writing-skills.json", async () => {
+    const { container, root } = await renderLibrary()
+
+    const toggle = container.querySelector<HTMLInputElement>(".ui-test-skill-toggle input")
+    expect(toggle).not.toBeNull()
+
+    await act(async () => {
+      toggle!.click()
+    })
+    await flushEffects()
+
+    expect(writeFileAtomicMock.mock.calls.map((call) => String(call[0])))
+      .toEqual(["C:/project/de-ai-skills.json"])
+
+    cleanup(root, container)
+  })
+
+  /*
+   * 打开条目：选中的 id 必须写进**自己那个库**的状态槽。
+   * 写作 Skill 这一侧原先没有用例（只有去AI味那条），而 `handleOpenEntry`
+   * 的 `else` 正是把新类型静默路由到 `selectedSkillLibrarySkillId` 的那条路。
+   */
+  it("点开写作 Skill 卡片写的是写作库的选中 id，不是去AI味库的", async () => {
+    const { container, root } = await renderLibrary()
+    await switchToTab(container, "写作 Skill")
+
+    await act(async () => {
+      container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-writing:skill:three"]')?.click()
+    })
+    await flushEffects()
+
+    expect(useWikiStore.getState().selectedWritingSkillLibrarySkillId).toBe("skill:three")
+    expect(useWikiStore.getState().selectedSkillLibrarySkillId).toBeNull()
+    expect(container.querySelector('[data-testid="writing-skill-library-view"]')).not.toBeNull()
+
+    cleanup(root, container)
+  })
+
+  /*
+   * 兜底守卫：`resolveActiveTab` 以前对任何陌生视图静默兜底成「去AI味技能」，
+   * 那会让用户在别的视图下看到一个**带可写按钮**的去AI味技能库。
+   * 今天唯一渲染本组件的是 content-area 的 switch（只路由 4 个技能库视图），
+   * 所以这条断言守的是「前提被打破时当场失败」而不是「现在会崩」。
+   * 直接测纯函数，而不是渲染后等 React 把异常抛出来 —— 后者抛出的东西
+   * 经过 React 的包装，消息不可依赖（实测拿到的是空字符串）。
+   */
+  it("resolveActiveTab 对非技能库视图直接抛错，不静默退化成去AI味技能库", () => {
+    expect(resolveActiveTab("skillLibrary")).toBe("skillLibrary")
+    expect(resolveActiveTab("writingSkillLibrary")).toBe("writingSkillLibrary")
+    expect(resolveActiveTab("writingStyleLibrary")).toBe("writingStyleLibrary")
+    expect(resolveActiveTab("skillFavorites")).toBe("skillFavorites")
+
+    expect(() => resolveActiveTab("soul")).toThrow(/非技能库的 activeView/)
+    expect(() => resolveActiveTab("settings")).toThrow(/非技能库的 activeView/)
+    expect(() => resolveActiveTab("lint")).toThrow(/非技能库的 activeView/)
   })
 })

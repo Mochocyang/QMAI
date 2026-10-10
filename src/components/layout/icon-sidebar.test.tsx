@@ -55,15 +55,21 @@ describe("icon-sidebar", () => {
   })
 
   /*
-   * 文风库是技能库内部 tab 的视图：它必须折算到技能库图标上保持高亮，
-   * 但**不得**同时新增侧边栏条目（`id` / `labelKey` 都不能出现）。
+   * 文风库是技能库内部 tab 的视图：它必须在侧边栏里**没有**自己的入口。
+   *
+   * ⚠️ 这条原名「folds the 文风 view into the skill-library nav icon…」，
+   * 但它当时只断言源码里那行常量字面量还在 —— 把字面量原样保留、只把**使用点**
+   * 改掉（`FOLDED_SKILL_LIBRARY_VIEWS.includes(activeView)` 换成别的），
+   * 用例照样全绿。它守的是一个字面量，不是它名字说的那个行为。
+   * 现在：折算的**行为**由 `sidebar-nav-preferences.spec.ts` 里针对纯函数
+   * `isNavItemActive` 的一组断言负责（本文件只读源码文本，跑不了组件）；
+   * 这里只留「不得新增入口」——那是源码文本能诚实证明的部分。
    */
-  it("folds the 文风 view into the skill-library nav icon without adding a sidebar entry", () => {
-    expect(iconSidebarSource).toContain(
-      'const SKILL_LIBRARY_TAB_VIEWS: readonly NavView[] = ["writingSkillLibrary", "writingStyleLibrary"]',
-    )
+  it("文风视图与写作 Skill 视图都不新增侧边栏条目（id / labelKey 都不出现）", () => {
     expect(iconSidebarSource).not.toContain('id: "writingStyleLibrary"')
     expect(iconSidebarSource).not.toContain('labelKey: "novel.nav.writingStyleLibrary"')
+    expect(iconSidebarSource).not.toContain('id: "writingSkillLibrary"')
+    expect(iconSidebarSource).not.toContain('labelKey: "novel.nav.writingSkillLibrary"')
   })
 
   it("makes feature entries configurable without moving fixed bottom controls", () => {

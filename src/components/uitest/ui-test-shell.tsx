@@ -21,6 +21,7 @@ import { readUiTestWorkspacePreference as readPreference, uiTestWorkspaceKey as 
 import { availablePrimaryNav, movePrimaryNav, normalizePrimaryNav, PRIMARY_NAV_LONG_PRESS_MS, readPrimaryNav, writePrimaryNav, type PrimaryNavItem, type PrimaryNavView } from "@/lib/ui-test-primary-nav"
 import { normalizePath } from "@/lib/path-utils"
 import { getUiTestDocumentPath, UI_TEST_AI_DEFAULT_WIDTH } from "@/lib/ui-test-layout"
+import { isFullWindowView } from "@/lib/full-window-views"
 import type { WikiProject } from "@/types/wiki"
 import { UiTestShelf } from "./ui-test-shelf"
 import { ContactSupportSection } from "@/components/settings/sections/contact-support-section"
@@ -110,7 +111,9 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const assistantOpen = activeView === "sources" ? outlineExpanded : chatExpanded
   const requestedWidth = Number.isFinite(preference.aiWidth) ? preference.aiWidth! : UI_TEST_AI_DEFAULT_WIDTH
   // 技能库、灵魂改为整窗卡片画廊，不再占用左侧目录栏。
-  const fullWindowViews = activeView === "skillLibrary" || activeView === "writingSkillLibrary" || activeView === "writingStyleLibrary" || activeView === "skillFavorites" || activeView === "soul" || activeView === "bookAnalysis"
+  // 判定抽到 `@/lib/full-window-views`：这样「哪些视图是整窗」有**行为测试**
+  // （`full-window-views.spec.ts`），而不是靠源码里一行的子串比对。
+  const fullWindowViews = isFullWindowView(activeView)
   /*
    * 记忆中心同样改为整窗单页：它的分类列表现在是页面内的标签条，
    * 不再需要左侧目录栏 —— 那一栏原来是"中间栏"，与右侧内容区构成双栏。

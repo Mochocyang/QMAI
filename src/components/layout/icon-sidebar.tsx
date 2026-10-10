@@ -27,6 +27,7 @@ import { saveTheme } from "@/lib/project-store"
 import { applyTheme, type ThemeMode } from "@/lib/theme-utils"
 import { isChapterPathInProject } from "@/lib/path-utils"
 import {
+  isNavItemActive,
   isSidebarNavItemId,
   reorderSidebarNavOrder,
   type SidebarNavItemId,
@@ -75,19 +76,17 @@ interface SortableNavButtonProps {
   onClick: (item: ConfigurableNavItem) => void
 }
 
-/**
- * 由「技能库」一个侧边栏图标承载的内部视图。
- * 它们**不是**独立的导航入口（`icon-sidebar.test.tsx` 与
- * `sidebar-nav-preferences.spec.ts` 都断言它们不出现在侧边栏条目 / 默认顺序里），
- * 但在这些视图里侧边栏仍要把它折算到技能库图标上、保持高亮。
+/*
+ * 「技能库 tab 的内部视图要折算到技能库图标上、保持高亮」这条判定住在
+ * `@/lib/sidebar-nav-preferences` 的 `isNavItemActive` / `FOLDED_SKILL_LIBRARY_VIEWS`：
+ * 那是个不依赖 React 的模块，所以它能被**行为测试**（本文件的测试只读源码文本，
+ * 跑不了组件）。见该模块里关于 `skillFavorites` 例外与「测试守而非编译守」的说明。
  */
-const SKILL_LIBRARY_TAB_VIEWS: readonly NavView[] = ["writingSkillLibrary", "writingStyleLibrary"]
 
 function SortableNavButton({ item, activeView, pendingCount, label, onClick }: SortableNavButtonProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   const Icon = item.icon
-  const isActive = activeView === item.view
-    || (item.view === "skillLibrary" && SKILL_LIBRARY_TAB_VIEWS.includes(activeView))
+  const isActive = isNavItemActive(item.view, activeView)
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
