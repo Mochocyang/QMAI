@@ -134,12 +134,22 @@
 
 ### 步骤
 
-1. `src/components/reference/types.ts:3` `SkillSubtype` 加新成员（如 `"style"`）。
+1. `src/lib/reference/types.ts:3` `SkillSubtype` 加新成员（如 `"style"`）。
+   （**注意**是 `src/lib/**reference**/types.ts`，不是 `src/components/reference/`；
+   `ReferenceToken.skillSubtype` 在 `:23`。）
 2. `ReferencePickerDialog.tsx:12-15` `SKILL_SUBTABS` 加对应子 tab；
-   过滤逻辑 `:104-106` 不需改（按 `skillSubtype` 相等过滤，天然支持新值）。
+   过滤逻辑 `:105` 不需改（按 `skillSubtype` 相等过滤，天然支持新值）。
 3. Provider 注入点**两处都要改**：`chat-panel.tsx:1178-1196`、
-   `outline-chat-panel.tsx:2225`（`subtype` 现在是硬编码 `"deai"`/`"writing"`）。
-   实施前先全仓搜其它 `skillSubtype`/`skillSubtype ===` 分支，确认没有遗漏第三处。
+   `outline-chat-panel.tsx:2269-2287`（**行号会随丙批改动而漂移，以内容为准**）。
+   ⚠️ **实际形状与「硬编码 subtype 字段」不同，别找错地方**：
+   `createSkillProvider(getSkills)`（`src/lib/reference/providers.ts:273`）只在
+   `:284` 把 `skill.subtype` 透传成 `skillSubtype`；
+   真正的 `"deai"`/`"writing"` 是在**两个调用点各自的 getter 内部**拼数组时写死的
+   （`chat-panel.tsx:1183`/`:1190`、`outline-chat-panel.tsx:2274`/`:2281`）。
+   所以做法是**在这两个 getter 里再加一组**文风条目，而不是改 provider。
+   全仓生产代码里出现 `skillSubtype` 的只有 3 处
+   （`providers.ts:284`、`ReferencePickerDialog.tsx:105`、`types.ts:23`）——
+   可用这条 `git grep` 复核有没有第三处遗漏。
 4. **关键**：引用了文风后，**必须走 §2 的覆盖通道**才会对本次生成生效。
    今天「在输入框里点名文风」在生成链上**没有任何消费者**——
    所以这条不做，用户决定 1 就是空的。
