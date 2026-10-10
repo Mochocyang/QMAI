@@ -16,7 +16,11 @@ export const PERSONA_MINOR_ROLE_TYPES = ["男配", "女配", "配角", "盟友"]
 /** 首次建档所需的累计出场次数。 */
 export const PERSONA_MAJOR_FIRST_APPEARANCE = 1
 export const PERSONA_MINOR_FIRST_APPEARANCE = 2
-/** 没有定位的名字不进档位表，用更保守的门槛，龙套永远不会被建档。 */
+/**
+ * 没有定位的名字不进档位表，用更保守的门槛：出场满 3 次才按 minor 处理。
+ * 「一笔带过的路人」就是被这个门槛滤掉的——不是靠某个叫「龙套」的定位标签。
+ * 注意别把它读成「永不确定」：出场真的到了 3 次，就该建档。
+ */
 export const PERSONA_UNKNOWN_FIRST_APPEARANCE = 3
 
 /** 再次完善所需的累计出场次数。 */
