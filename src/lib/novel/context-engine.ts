@@ -13,6 +13,7 @@ import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ing
 import { buildRevisionDirectives } from "./revision-feedback"
 import { extractChapterOutlineStatus } from "./outline-quality-check"
 import { loadCognitionState, cognitionToContextText } from "./character-cognition"
+import { buildPersonaSkillContext } from "./persona-skill-context"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
 import { rerankCandidates } from "@/lib/rerank"
 import {
@@ -49,6 +50,8 @@ const FIELD_PRIORITY: Record<string, number> = {
   previousChapterEnding: 8,
   characterStates: 9,
   characterAuras: 10,
+  /** 排在 characterAuras 之后：被裁掉只是降级，绝不能反过来挤掉人格规则。 */
+  personaSkills: 10.5,
   /** Keep with stable core fields; must not share a slot with characterAuras. */
   storyFrameworkBinding: 5.5,
   foreshadowingStates: 11,
@@ -94,6 +97,8 @@ export interface ContextPack {
   characterStates: string
   soulDoc: string
   characterAuras: string
+  /** 「人物 Skill」段。与角色灵魂分成两档：预算紧张时先牺牲它，人格规则不受影响。 */
+  personaSkills?: string
   /** Active story-framework binding text; empty when unbound. */
   storyFrameworkBinding: string
   cognitionStates: string
@@ -306,17 +311,21 @@ async function buildContextPackFromRawData(
   // 构建修订指令
   const revisionDirectives = buildRevisionDirectives(rawData.revisionFeedback)
   
-  // 构建角色氛围上下文（依赖其他数据）
+  // 构建角色氛围上下文（依赖其他数据）。
+  // 人物 Skill 与角色灵魂共用同一段匹配文本，保证两块注入的命中口径一致。
+  const personaMatchingText = joinNonEmpty([
+    chapterGoal,
+    rawData.chapterOutline,
+    rawData.fallbackCharacterStates,
+    rawData.snapshots.characterStates,
+    rawData.cognitionText,
+  ], "\n\n")
   const { buildCharacterSoulContext } = await import("./character-aura")
-  const soulContext = await buildCharacterSoulContext(context.projectPath, context.task, {
-    matchingText: joinNonEmpty([
-      chapterGoal,
-      rawData.chapterOutline,
-      rawData.fallbackCharacterStates,
-      rawData.snapshots.characterStates,
-      rawData.cognitionText,
-    ], "\n\n"),
-  })
+  const [soulContext, personaSkillContext] = await Promise.all([
+    buildCharacterSoulContext(context.projectPath, context.task, { matchingText: personaMatchingText }),
+    // 注入失败绝不能弄挂写作：这里兜住一切
+    buildPersonaSkillContext(context.projectPath, personaMatchingText).catch(() => ""),
+  ])
 
   return {
     task: context.task,
@@ -338,6 +347,7 @@ async function buildContextPackFromRawData(
     soulDoc: rawData.soulDoc,
     sectionBriefing: rawData.sectionBriefing || "",
     characterAuras: soulContext.text,
+    ...(personaSkillContext ? { personaSkills: personaSkillContext } : {}),
     ...(soulContext.portablePersonalities.length ? { portablePersonalities: soulContext.portablePersonalities } : {}),
     storyFrameworkBinding: typeof rawData.storyFrameworkBinding === "string"
       ? rawData.storyFrameworkBinding
@@ -1085,6 +1095,7 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.previousChapterEnding", fieldKey: "previousChapterEnding" },
   { titleKey: "novel.contextPack.characterStates", fieldKey: "characterStates" },
   { titleKey: "novel.contextPack.characterAuras", fieldKey: "characterAuras" },
+  { titleKey: "novel.contextPack.personaSkills", fieldKey: "personaSkills" },
   { titleKey: "novel.contextPack.cognitionStates", fieldKey: "cognitionStates" },
   { titleKey: "novel.contextPack.foreshadowingStates", fieldKey: "foreshadowingStates" },
   { titleKey: "novel.contextPack.timeline", fieldKey: "timeline" },
