@@ -349,6 +349,14 @@ describe("outline plan prompts", () => {
     }
   })
 
+  it("allowed folders and fileTypes cover the event outline", () => {
+    // AI 面向清单必须与已注册的 FILE_TYPE_FOLDERS 对齐：否则计划模式会告诉模型
+    // 「事件细纲」这个文件夹和 event-outline 这个 fileType 都不允许。
+    const rules = buildOutlinePlanPhaseSystemRules("章节细纲", chapterElements)
+    expect(rules).toContain("事件细纲")
+    expect(rules).toContain("event-outline")
+  })
+
   it("builds the first round element check prompt from the module request hint", () => {
     const prompt = buildOutlinePlanElementCheckPrompt({
       module: "人物小传",

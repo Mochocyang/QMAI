@@ -9,6 +9,11 @@ export const DEFAULT_OUTLINE_FOLDERS: DefaultOutlineFolder[] = [
   { id: "story", name: "大纲" },
   { id: "volume", name: "卷纲" },
   { id: "chapter", name: "章纲" },
+  // 与 outline-save-classifier 的 FILE_TYPE_FOLDERS 对齐：缺了它，list_outlines 标注不了
+  // 落盘的事件细纲，计划模式的系统规则也会告诉模型这个文件夹不允许用。
+  // 注意它只影响「AI 面向清单」——隔离保证靠 outline-context-index 的 STANDARD_FOLDER_KINDS，
+  // 那是另一个独立常量，本数组不参与推导。
+  { id: "event-outline", name: "事件细纲" },
   { id: "characters", name: "人物小传" },
   { id: "settings", name: "设定" },
   { id: "foreshadowing", name: "伏笔" },

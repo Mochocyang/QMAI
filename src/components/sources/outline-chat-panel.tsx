@@ -6564,11 +6564,24 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                       // 误点一次就烧掉一次正文生成太贵，也让用户有机会先改两句。
                       const chat = useChatStore.getState();
                       const targetConversationId = chat.activeConversationId ?? chat.createConversation();
-                      chat.setConversationInputDraft(targetConversationId, prompt);
+                      // 写作面只在 chatExpanded 为 true 时才渲染 ChatPanel，而助手的「关闭写作助手」会把它置 false。
+                      // 不展开的话草稿落进一个看不见的输入框，toast 却还在说「已填进写作输入框」。
+                      useWikiStore.getState().setChatExpanded(true);
+                      // 不能直接覆盖：用户可能已经在写作输入框里打了半页想法，交接不该把它删掉。
+                      const existingDraft =
+                        chat.conversations.find((item) => item.id === targetConversationId)?.inputDraft ?? "";
+                      const appended = Boolean(existingDraft.trim());
+                      chat.setConversationInputDraft(
+                        targetConversationId,
+                        appended ? `${existingDraft}\n\n${prompt}` : prompt,
+                      );
                       useWikiStore.getState().setActiveView("wiki");
-                      toast.info("已把这一章的事件细纲填进写作输入框，确认后发送。", {
-                        dedupeKey: "event-outline-to-prose",
-                      });
+                      toast.info(
+                        appended
+                          ? "已把这一章的事件细纲追加到写作输入框里已有草稿的后面，确认后发送。"
+                          : "已把这一章的事件细纲填进写作输入框，确认后发送。",
+                        { dedupeKey: "event-outline-to-prose" },
+                      );
                     }}
                   />
                 </div>

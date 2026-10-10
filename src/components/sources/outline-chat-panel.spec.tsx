@@ -2899,6 +2899,40 @@ describe("事件细纲接线", () => {
     expect(source).toContain("pickChapterLibraryFiles")
   })
 
+  it("交接时展开写作面：草稿不能落进被折叠的输入框", () => {
+    // 写作面只在 chatExpanded 为 true 时渲染 ChatPanel，而助手的「关闭写作助手」会把它置 false。
+    // 不主动展开的话，草稿填进一个看不见的输入框，toast 却还在说「已填进写作输入框」。
+    expect(source).toMatch(/onWriteChapter=\{\(prompt\) => \{[\s\S]{0,1200}?setChatExpanded\(true\)/)
+  })
+
+  it("交接时追加已有草稿而不是覆盖，并如实提示「追加」", async () => {
+    const infoSpy = vi.spyOn(toast, "info").mockImplementation(() => {})
+    useWikiStore.setState({ activeView: "sources", chatExpanded: false })
+    setOutlineConversations([conversation([assistantEventOutlineMessage()])], "outline-active")
+    // 用户已经在写作输入框里打了一半的想法：交接不能把它替换掉。
+    const targetConversationId = useChatStore.getState().createConversation()
+    useChatStore.getState().setConversationInputDraft(targetConversationId, "我自己已经打了一半的想法：")
+    const container = await renderOutlineChatPanel()
+
+    const writeButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "用这份细纲写这一章")
+    expect(writeButton, "事件卡片应提供「用这份细纲写这一章」按钮").toBeDefined()
+    await act(async () => { writeButton?.click() })
+
+    const writing = useChatStore.getState().conversations.find((item) => item.id === targetConversationId)
+    const draft = writing?.inputDraft ?? ""
+    expect(draft).toContain("我自己已经打了一半的想法：")
+    expect(draft).toContain("请根据下面这份「事件细纲」写出第 2 章正文")
+    // 已有草稿在前，细纲提示词追加在后。
+    expect(draft.indexOf("我自己已经打了一半的想法："))
+      .toBeLessThan(draft.indexOf("请根据下面这份「事件细纲」"))
+    expect(useWikiStore.getState().chatExpanded).toBe(true)
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("追加"),
+      { dedupeKey: "event-outline-to-prose" },
+    )
+  })
+
   it("UiTestAiEmpty 只传 onGenerateOutline 时仍渲染「生成小说大纲」", async () => {
     const container = document.createElement("div")
     document.body.appendChild(container)
