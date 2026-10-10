@@ -14,6 +14,7 @@ import {
   type EventOutlineData,
   type EventOutlineEvent,
 } from "./event-outline"
+import { DE_AI_GENERATION_RULES } from "./de-ai-generation-rules"
 
 function event(id: number, title = `事件${id}`) {
   return { id, title, points: ["台词：你来啦", "神情：她手一抖"] }
@@ -467,5 +468,56 @@ describe("eventOutlineToProsePrompt", () => {
     expect(prompt).not.toContain("## 本章结尾钩子\n")
     // 只有空白的钩子与空字符串同待遇，否则会留下一个空标题。
     expect(eventOutlineToProsePrompt(data({ endingHook: "   " }))).not.toContain("## 本章结尾钩子")
+  })
+
+  it("带上反 AI 腔硬约束", () => {
+    // 这条路是另一条直达正文的入口，不经过 deep-chapter 的四个 builder。
+    expect(eventOutlineToProsePrompt(data())).toContain(DE_AI_GENERATION_RULES)
+  })
+
+  it("有用户要求时单独成节，为空时整节不出现", () => {
+    const withRequirement = eventOutlineToProsePrompt(data({ requirement: "让楚白第一次动用令牌" }))
+    expect(withRequirement).toContain("## 用户对本章的要求")
+    expect(withRequirement).toContain("让楚白第一次动用令牌")
+
+    for (const empty of [undefined, "", "   "]) {
+      const prompt = eventOutlineToProsePrompt(data({ requirement: empty }))
+      expect(prompt).not.toContain("## 用户对本章的要求")
+    }
+  })
+})
+
+describe("事件细纲的 requirement 不再丢失", () => {
+  it("readEventOutline / normalizeEventOutlineData 能读回该字段", () => {
+    const parsed = normalizeEventOutlineData({ ...data(), requirement: "  让楚白第一次动用令牌  " })
+    expect(parsed?.requirement).toBe("让楚白第一次动用令牌")
+  })
+
+  it("旧数据没有该字段时是 undefined，行为等同现状", () => {
+    expect(normalizeEventOutlineData(data())?.requirement).toBeUndefined()
+    expect(normalizeEventOutlineData({ ...data(), requirement: "   " })?.requirement).toBeUndefined()
+  })
+
+  it("extractEventOutlineData 用向导里的要求补齐（模型没写也拿得到）", () => {
+    const payload = `\`\`\`json\n${JSON.stringify({ eventOutlineData: data() })}\n\`\`\``
+    expect(extractEventOutlineData(payload, "让楚白第一次动用令牌")?.requirement).toBe("让楚白第一次动用令牌")
+    // 不传第二个参数时，仍是模型自己写的那份（或没有）。
+    expect(extractEventOutlineData(payload)?.requirement).toBeUndefined()
+  })
+
+  it("生成细纲的示例 JSON 里带上用户要求，否则扩写那一步无从取回", () => {
+    const request = { chapterNumber: 12, eventCount: 6, targetWords: 3000, requirement: "让楚白第一次动用令牌" }
+    const fences = promptJsonFences(buildEventOutlinePrompt(request))
+    expect(fences[0].eventOutlineData).toMatchObject({ requirement: "让楚白第一次动用令牌" })
+
+    // 没有要求时不塞空字段，避免教模型输出 requirement: ""。
+    const blank = promptJsonFences(buildEventOutlinePrompt({ ...request, requirement: "  " }))
+    expect(blank[0].eventOutlineData).not.toHaveProperty("requirement")
+  })
+
+  it("从细纲 JSON 一路带到扩写提示词（端到端）", () => {
+    const payload = `\`\`\`json\n${JSON.stringify({ eventOutlineData: data() })}\n\`\`\``
+    const dataWithRequirement = extractEventOutlineData(payload, "让楚白第一次动用令牌")
+    expect(eventOutlineToProsePrompt(dataWithRequirement!)).toContain("## 用户对本章的要求")
   })
 })

@@ -7,6 +7,7 @@ import {
   buildDeepChapterRevisionPrompt,
 } from "./deep-chapter-prompts"
 import type { NovelReviewResult } from "./review-adapter"
+import { DE_AI_GENERATION_RULES } from "./de-ai-generation-rules"
 
 /**
  * 阶段二回归护栏：深度章节生成的各阶段提示词必须以"大纲 + 上下文包"组成的
@@ -70,5 +71,23 @@ describe("deep chapter prompts share a stable cacheable prefix (stage 2)", () =>
     console.log(`[stage2] 写作侧3阶段重复携带前缀：旧 ${estTok(oldBilled)} tok 全价 → 新 ≈ ${estTok(newBilled)} tok（缓存命中价）`)
     console.log(`[stage2] 仅"重复前缀"一项每章约省 ${savedTok} 输入 tok（按 3 写作阶段、命中价 10% 估算）`)
     console.log(`[stage1] 审稿调用：旧 4 次串行 → 新 1 次（省 3 次完整审查 prompt + 1 次重复 buildContextPack）`)
+  })
+
+  it("反 AI 腔规则块整体排在公共前缀之后（加规则不得截断缓存前缀）", () => {
+    const sharedLens = stageList.slice(1).map((p) => commonPrefixLength(stageList[0], p))
+    const minShared = Math.min(...sharedLens)
+    // 初稿 / 扩写 / 返修现在都带规则块，它们必须落在阶段专属区里。
+    const withRules = ["draft", "expansion", "revision"].map((name) => [name, stages[name]] as const)
+    for (const [name, prompt] of withRules) {
+      const index = prompt.indexOf(DE_AI_GENERATION_RULES)
+      expect(index, `${name} 没有带上反 AI 腔规则块`).toBeGreaterThan(0)
+      expect(index, `${name} 的规则块落进了跨阶段公共前缀`).toBeGreaterThanOrEqual(minShared)
+    }
+    // 规则不得放进任务书与阶段 6：它们不是正文生成阶段（阶段 6 见 42727a9）。
+    expect(stages.brief).not.toContain(DE_AI_GENERATION_RULES)
+    expect(stages.polish).not.toContain(DE_AI_GENERATION_RULES)
+    // 公共前缀仍完整覆盖「大纲 + 上下文」：插入规则后它不得被截短。
+    // （它止于各阶段共用的一句开场白，与规则无关；这里只钉住下界，避免把前缀长度写成脆断言。）
+    expect(minShared).toBeGreaterThanOrEqual(stableBlock.length)
   })
 })
