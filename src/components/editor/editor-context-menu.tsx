@@ -1,16 +1,37 @@
 import { useEffect, useRef } from "react"
 
-export type EditorContextAction = "undo" | "redo" | "copy" | "cut" | "paste" | "selectAll" | "find" | "replace"
+export type EditorContextAction = "continue" | "undo" | "redo" | "copy" | "cut" | "paste" | "selectAll" | "find" | "replace"
 
-const ITEMS: Array<{ action: EditorContextAction; label: string }> = [
-  { action: "undo", label: "撤销" },
-  { action: "redo", label: "重做" },
-  { action: "copy", label: "复制" },
-  { action: "cut", label: "剪切" },
-  { action: "paste", label: "粘贴" },
-  { action: "selectAll", label: "全选" },
-  { action: "find", label: "查找" },
-  { action: "replace", label: "替换" },
+/**
+ * 「动作 → 文案」的映射。
+ *
+ * 刻意**不**做成「数组项里带 label」的一张表：那张表同时会被当成默认菜单项用，
+ * 而「续写」不能出现在默认项里 —— 大纲的 Milkdown 编辑器与章节正文共用这个
+ * 组件，它是富文本、没有「正文偏移」这个锚点概念，菜单里长出「续写」是错的。
+ * 拆成两张表后，「续写」只有调用方显式列进 `actions` 才会出现。
+ */
+const ITEM_LABELS: Record<EditorContextAction, string> = {
+  continue: "续写",
+  undo: "撤销",
+  redo: "重做",
+  copy: "复制",
+  cut: "剪切",
+  paste: "粘贴",
+  selectAll: "全选",
+  find: "查找",
+  replace: "替换",
+}
+
+/** 默认菜单项：**不含**「续写」。不传 `actions` 的调用方拿到的就是这一份。 */
+const DEFAULT_ITEMS: readonly EditorContextAction[] = [
+  "undo",
+  "redo",
+  "copy",
+  "cut",
+  "paste",
+  "selectAll",
+  "find",
+  "replace",
 ]
 
 export function EditorContextMenu({ position, disabled, onAction, onClose, actions }: {
@@ -21,7 +42,7 @@ export function EditorContextMenu({ position, disabled, onAction, onClose, actio
   onClose: () => void
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
-  const items = actions ? actions.map(action => ITEMS.find(item => item.action === action)!) : ITEMS
+  const items = (actions ?? DEFAULT_ITEMS).map((action) => ({ action, label: ITEM_LABELS[action] }))
   useEffect(() => {
     if (!position) return
     const close = (event: PointerEvent) => {
