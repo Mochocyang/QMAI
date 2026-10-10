@@ -821,8 +821,18 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     const keyword = query.trim().toLowerCase()
     let list = entriesByTab[activeTab]
     if (TAB_CATEGORY_AXIS[activeTab] === "writing" && category !== "all") {
-      // 分类只属于写作 Skill。直接取 `writingEntries`（精确类型 `WritingSkillEntry[]`），
-      // 不从通用列表里 filter 一个谓词——理由见被删掉的 `isWritingSkillEntry` 处注释。
+      /*
+       * 分类只属于写作 Skill。直接取 `writingEntries`（精确类型 `WritingSkillEntry[]`），
+       * 不从通用列表里 filter 一个谓词——理由见被删掉的 `isWritingSkillEntry` 处注释。
+       *
+       * ⚠️ 残余缺口（本文件末尾也记了一笔）：这里依赖 `TAB_CATEGORY_AXIS[activeTab]`
+       * 与 `entriesByTab[activeTab]` **说的是同一个 tab 的同一份条目**
+       * （写作轴 ⇒ `entriesByTab.writingSkillLibrary === writingEntries`）。
+       * 这个不变式**没有**编译保护：把某个 tab 的轴改成 `"writing"` 而它的
+       * `entriesByTab` 仍指向别的库，就会「不筛时显示 A 库、一按分类跳成写作条目」。
+       * 今天只有 `writingSkillLibrary` 一个写作轴、且它的列表就是 `writingEntries`，
+       * 所以不变式成立；代价仅是显示错乱（不写任何文件），故不为它加机构。
+       */
       const scoped = writingEntries
       if (category === "recent") {
         list = [...scoped].sort((a, b) => (b.rawSkill.updatedAt ?? 0) - (a.rawSkill.updatedAt ?? 0))
@@ -1222,6 +1232,9 @@ export function UnifiedSkillLibraryView() {
  * 3. 卡片上的三个呈现分支：`selected`（`entry.type === "style" && …`）、
  *    `onSelect`（同前，新类型是 no-op）、以及「当前启用」徽章（同前）。
  *    新类型一律恒 `false` / no-op —— 显示层退化，无副作用。
+ * 4. `filteredEntries` 里「写作轴 ⇒ `entriesByTab[activeTab] === writingEntries`」
+ *    这个不变式（见该处注释）：轴与列表是两张表，改了一张没改另一张不会报错，
+ *    后果是该 tab 的分类筛选会跳到写作条目上。只影响显示，不写文件。
  *
  * **有后果的两条路**已经全部受保护，且各有行为用例：
  *   - 写错库的文件 → `handleToggleEnabled` 的穷尽 `switch`
