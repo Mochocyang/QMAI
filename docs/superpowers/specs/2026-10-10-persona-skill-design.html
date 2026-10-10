@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>设计规格 — 角色 skill（技能库·持续学习）</title>
+<title>设计规格 — 人物 Skill（技能库·持续学习）</title>
 <script>
   (function () {
     try {
@@ -135,13 +135,14 @@
 <div class="page">
   <header class="page-head">
     <div class="eyebrow">QMAI · 设计规格 · feature/character-skill</div>
-    <h1>角色 skill：技能库中的可持续学习角色技能</h1>
+    <h1>人物 Skill：技能库中可持续学习的人物技能</h1>
     <p class="lead">
-      给「技能库」增加第四类技能——<strong>角色 skill</strong>。它在章节摄取时自动为人物建立性格／说话方式档案，
+      给「技能库」增加第四类技能——<strong>人物 Skill</strong>。它在章节摄取时自动为人物建立性格／说话方式档案，
       随角色反复出场持续完善，可由用户手动编辑与分级；写作装配时按档位自动引用。
     </p>
     <div class="badges">
       <span class="badge acc">已通过设计评审</span>
+      <span class="badge acc">定名：人物 Skill</span>
       <span class="badge ok">character-aura.ts 零改动</span>
       <span class="badge">基线 720 文件 / 6963 用例</span>
       <span class="badge">分支 feature/character-skill</span>
@@ -151,7 +152,7 @@
   <div class="toc">
     <div class="label">目录</div>
     <ol>
-      <li>背景：为什么不能复刻已有的「角色 skill」</li>
+      <li>背景：为什么不能复刻已有的「角色 Skill」</li>
       <li>决策记录（7 项问答结论）</li>
       <li>架构与存储</li>
       <li>学习机制</li>
@@ -168,8 +169,8 @@
 
   <!-- ============ 1 ============ -->
   <section>
-    <div class="sec-head"><span class="num">01</span><h2>背景：为什么不能复刻已有的「角色 skill」</h2></div>
-    <p class="sec-intro">仓库里存在三套都被称作「角色 skill」的东西。选错复用对象会让整个功能建立在错误的基座上，所以先厘清。</p>
+    <div class="sec-head"><span class="num">01</span><h2>背景：为什么不能复刻已有的「角色 Skill」</h2></div>
+    <p class="sec-intro">仓库里存在三套都被称作「角色 Skill」的东西。选错复用对象会让整个功能建立在错误的基座上，所以先厘清；同时这也正是本功能最终定名为「<strong>人物 Skill</strong>」的原因（见第 2 节 D8）。</p>
 
     <table>
       <thead>
@@ -275,6 +276,22 @@
         也让自动学习绕开了 <code>bindCharacterAura()</code> 的校验链（见第 6 节）。</p>
       </div>
     </div>
+
+    <div class="decision">
+      <div class="id">D8</div>
+      <div class="body">
+        <strong>定名「人物 Skill」，内部标识一并使用 <code>persona-skill-*</code></strong>
+        <p>「角色」是本仓库里被复用的过度词——拆书库角色 Skill、写作 Skill 的「角色」分类、角色灵魂、角色认知、模拟角色都叫角色。
+        而「<strong>人物</strong>」恰是仓库既有的、专指<strong>本作人物</strong>的词：<code>character-state.ts</code> ↔ UI「人物状态」、
+        <code>character-profile-template.ts</code> ↔「人物小传／人物设定」、<code>listBindableNovelCharacters()</code> ↔「可绑定人物名单」。
+        因此定名不是单纯回避重名，而是回到本作人物本来的词。</p>
+        <p><strong>内外统一</strong>：用户可见处一律「人物 Skill」；代码标识一律 <code>persona-skill-*</code>／<code>personaSkillLibrary</code>，
+        落盘目录 <code>.qmai/persona-skills/</code>。<span class="muted">刻意不在代码里继续用 <code>character-skill-*</code>：
+        那样英文前缀会与 <code>character-aura.ts</code>（角色灵魂）撞车，正是本次改名要消掉的混淆。</span></p>
+        <p class="muted">不变的部分：分支名仍为 <code>feature/character-skill</code>（本分支约定文件围绕它书写，未做分支改名），
+        因此分支说明文档按仓库约定仍取名 <code>docs/character-skill-分支说明.md</code>。</p>
+      </div>
+    </div>
   </section>
 
   <!-- ============ 3 ============ -->
@@ -287,23 +304,23 @@
 ingestChapter()                      ← 现有链路一行不动
   ├─ …（读文件 → 校验 → extractSnapshotWithLLM → canonicalize）
   ├─ syncSnapshotToMemory()          ← 现有
-  └─ void learnCharacterSkillsFromChapter({...})   ← 新增，后台异步，不阻塞
+  └─ void learnPersonaSkillsFromChapter({...})   ← 新增，后台异步，不阻塞
 
 【写作平面】生成章节
 context-engine.ts
   └─ const { buildCharacterSoulContext } = await import("./character-aura")   ← 现有
-  └─ const { buildCharacterSkillContext } = await import("./character-skill-context")  ← 新增
-     → joinNonEmpty([灵魂文本, 角色 skill 文本], "\n\n")
+  └─ const { buildPersonaSkillContext } = await import("./persona-skill-context")  ← 新增
+     → joinNonEmpty([灵魂文本, 人物 Skill 文本], "\n\n")
      → 写入同一个 characterAuras 字段（不新增上下文字段、不动 token 预算编号）</code></pre>
 
     <h3>落盘结构</h3>
-    <pre><code>.qmai/character-skills/
-├── index.json              只有「已有 skill 的」角色（预期几十条）
+    <pre><code>.qmai/persona-skills/
+├── index.json              只有「已有 skill 的」人物（预期几十条）
 │                           元数据 + 出场计数 + 档位 + 绿标 + 状态
-├── sightings.json          只记「还没建 skill 的」候选角色，纯粹数阈值
+├── sightings.json          只记「还没建 skill 的」候选人物，纯粹数阈值
 └── &lt;id&gt;/
-    ├── SKILL.md            角色 skill 正文（一人一份，可独立编辑）
-    └── references/research/  ← 仅绿标（pinned）角色才生成</code></pre>
+    ├── SKILL.md            人物 Skill 正文（一人一份，可独立编辑）
+    └── references/research/  ← 仅绿标（pinned）人物才生成</code></pre>
 
     <h3>index.json 元数据字段</h3>
     <table>
@@ -365,7 +382,7 @@ context-engine.ts
     <h3>挂钩位置</h3>
     <p>挂在 <code>chapter-ingest.ts</code> 的 <code>syncSnapshotToMemory()</code> 之后（当前实现约在第 442 行），照抄既有「社区摘要」的 <code>void rebuild…()</code> 后台异步范式：</p>
     <pre><code>if (!isReingest && snapshot) {
-  void learnCharacterSkillsFromChapter({
+  void learnPersonaSkillsFromChapter({
     projectPath: pp,
     chapterNumber: snapshot.chapterNumber,
     chapterBody: body,
@@ -419,7 +436,7 @@ context-engine.ts
 
     <h3>失败策略</h3>
     <p>全程 best-effort：每一步的异常都 <code>console.warn</code> 吞掉，<strong>绝不向外抛</strong>。
-    角色 skill 学习是「锦上添花」，不能因为它的失败把整章摄取搞失败——这也是 <code>buildEstablishedContextForExtraction()</code> 已经在用的原则。</p>
+    人物 Skill 学习是「锦上添花」，不能因为它的失败把整章摄取搞失败——这也是 <code>buildEstablishedContextForExtraction()</code> 已经在用的原则。</p>
   </section>
 
   <!-- ============ 5 ============ -->
@@ -532,7 +549,7 @@ context-engine.ts
     </table>
 
     <h3>注入位置</h3>
-    <p>沿用 <code>context-engine.ts</code> 现有的<strong>同一个 <code>matchingText</code></strong>（任务描述 + 章纲 + 人物状态 + 认知状态），与灵魂共用一次匹配时机。新模块 <code>character-skill-context.ts</code> 导出 <code>buildCharacterSkillContext()</code>，在同一个 <code>await import()</code> 区块内调用，结果<strong>拼进已有的 <code>characterAuras</code> 字段</strong>：</p>
+    <p>沿用 <code>context-engine.ts</code> 现有的<strong>同一个 <code>matchingText</code></strong>（任务描述 + 章纲 + 人物状态 + 认知状态），与灵魂共用一次匹配时机。新模块 <code>persona-skill-context.ts</code> 导出 <code>buildPersonaSkillContext()</code>，在同一个 <code>await import()</code> 区块内调用，结果<strong>拼进已有的 <code>characterAuras</code> 字段</strong>：</p>
     <pre><code>characterAuras: joinNonEmpty([soulContext.text, characterSkillContext], "\n\n")</code></pre>
     <p>不新增上下文字段、不动 <code>SECTION_PRIORITY</code> 编号与 token 预算边界。</p>
 
@@ -562,11 +579,11 @@ context-engine.ts
   <!-- ============ 8 ============ -->
   <section>
     <div class="sec-head"><span class="num">08</span><h2>技能库界面</h2></div>
-    <p class="sec-intro">技能库从 3 个 tab 扩到 4 个；角色 skill 的列表、绿标与编辑都在这里。</p>
+    <p class="sec-intro">技能库从 3 个 tab 扩到 4 个；人物 Skill 的列表、绿标与编辑都在这里。</p>
 
     <h3>新增第 4 个 tab</h3>
-    <pre><code>去AI味技能  |  写作 Skill  |  角色 skill  |  收藏</code></pre>
-    <p><code>skillLibraryTabs</code> 增加一项 → <code>activeView = "characterSkillLibrary"</code>。
+    <pre><code>去AI味技能  |  写作 Skill  |  人物 Skill  |  收藏</code></pre>
+    <p><code>skillLibraryTabs</code> 增加一项 → <code>activeView = "personaSkillLibrary"</code>。
     需要同步扩的地方：<code>src/stores/wiki-store.ts</code> 的 <code>activeView</code> 联合类型、
     <code>src/components/layout/icon-sidebar.tsx</code> 的高亮条件、<code>src/components/layout/content-area.tsx</code> 的 <code>case</code> 分支。</p>
     <div class="callout ok">
@@ -601,11 +618,11 @@ context-engine.ts
       <thead><tr><th style="width:34%">测试文件</th><th>覆盖内容</th></tr></thead>
       <tbody>
         <tr>
-          <td><code>character-skill-store.spec.ts</code></td>
+          <td><code>persona-skill-store.spec.ts</code></td>
           <td>原子读写 · 并发写不互相覆盖 · 坏 JSON 降级为空而不抛错</td>
         </tr>
         <tr>
-          <td><code>character-skill-learning.spec.ts</code></td>
+          <td><code>persona-skill-learning.spec.ts</code></td>
           <td>
             <strong>阈值判定表驱动</strong>（major 1 次建 / minor 2 次建 3 次完善 / 未标注 3 次 / pinned 立即建）·
             重提取幂等短路 · <strong>同章 5 个角色只发起 1 次 LLM</strong> · 生命周期三态流转且 pinned 豁免 ·
@@ -613,11 +630,11 @@ context-engine.ts
           </td>
         </tr>
         <tr>
-          <td><code>character-skill-context.spec.ts</code></td>
+          <td><code>persona-skill-context.spec.ts</code></td>
           <td>分级注入的内容形状 · 前 12 人 + 4000 字封顶 · dormant/archived 不注入 · 无匹配时返回空串</td>
         </tr>
         <tr>
-          <td><code>character-skill-view.spec.tsx</code></td>
+          <td><code>persona-skill-view.spec.tsx</code></td>
           <td>tab 渲染 · 绿标点击调用 store · 编辑保存后 <code>editedByUser</code> 置位</td>
         </tr>
         <tr>
@@ -642,13 +659,13 @@ npm run typecheck:tests # tsc -p tsconfig.test.json --noEmit</code></pre>
     <div class="sec-head"><span class="num">10</span><h2>文件清单与分期</h2></div>
 
     <h3>新建（8）</h3>
-    <pre><code>src/lib/novel/character-skill-types.ts        类型与常量（阈值集中在此）
-src/lib/novel/character-skill-store.ts        index/sightings/SKILL.md 的原子读写
-src/lib/novel/character-skill-learning.ts     阈值判定、生命周期、编排 LLM
-src/lib/novel/character-skill-prompt.ts       两套提示词（起始风格 / 持续完善）
-src/lib/novel/character-skill-context.ts      分级注入装配
-src/lib/novel/character-skill-*.spec.ts       对应单测
-src/components/skill-library/character-skill-view.tsx + .spec.tsx</code></pre>
+    <pre><code>src/lib/novel/persona-skill-types.ts        类型与常量（阈值集中在此）
+src/lib/novel/persona-skill-store.ts        index/sightings/SKILL.md 的原子读写
+src/lib/novel/persona-skill-learning.ts     阈值判定、生命周期、编排 LLM
+src/lib/novel/persona-skill-prompt.ts       两套提示词（起始风格 / 持续完善）
+src/lib/novel/persona-skill-context.ts      分级注入装配
+src/lib/novel/persona-skill-*.spec.ts       对应单测
+src/components/skill-library/persona-skill-view.tsx + .spec.tsx</code></pre>
 
     <h3>修改（5）</h3>
     <pre><code>src/lib/novel/chapter-ingest.ts                             函数体内加一行 void 挂钩（签名不动）
@@ -727,7 +744,7 @@ src/stores/wiki-store.ts                                    activeView 联合类
         下次摄取可重试。</li>
       <li><strong>自动分档误判</strong>：这是 D6 绿色复选框存在的理由。用户一旦标记 pinned，后续不再受自动规则影响。</li>
       <li><strong>学习落后于正文</strong>：后台异步意味着紧接下一章生成时，skill 可能还没落盘。可接受——
-        角色 skill 是渐进累积的资产，不是硬约束。</li>
+        人物 Skill 是渐进累积的资产，不是硬约束。</li>
     </ul>
   </section>
 
@@ -737,7 +754,7 @@ src/stores/wiki-store.ts                                    activeView 联合类
     <table>
       <thead><tr><th style="width:44%">需求原文</th><th>落地方式</th></tr></thead>
       <tbody>
-        <tr><td>技能库中增加「角色 skill」</td><td>技能库第 4 个 tab（第 8 节）</td></tr>
+        <tr><td>技能库中增加「角色 skill」<span class="muted">（现定名「人物 Skill」，见 D8）</span></td><td>技能库第 4 个 tab（第 8 节）</td></tr>
         <tr><td>初始生成：分析角色风格、说话方式、性格，自动加入技能库</td><td>摄取时按阈值 create，一次 LLM 批量生成 SKILL.md（第 4 节）</td></tr>
         <tr><td>持续完善：第二次出现时再次完善</td><td>每次摄取对 refine 目标完善，与 create 合并进同一次调用（第 4 节）</td></tr>
         <tr><td>人为编辑</td><td>编辑器可直接改 SKILL.md，并置 <code>editedByUser</code> 保护（第 8 节）</td></tr>
@@ -746,7 +763,7 @@ src/stores/wiki-store.ts                                    activeView 联合类
         <tr><td>这些 skill 是不是也要做分类</td><td>三个维度：档位（major/minor）、定位（沿用 <code>CHARACTER_ROLE_TYPES</code>）、状态（active/dormant/archived）</td></tr>
         <tr><td>出场配角的 skill 什么时候删除</td><td>不删除；三态归档，pinned 豁免（第 5 节）</td></tr>
         <tr><td>章节生成时是否会自动引用这些 skill</td><td>会。复用既有 <code>characterAuras</code> 注入链路，按档位分级（第 7 节）</td></tr>
-        <tr><td>角色 skill 会不断学习、提升</td><td>每次摄取出场即刷新，<code>skillRevision</code> 累积（第 4 节）</td></tr>
+        <tr><td>这个「角色 skill」会不断学习、不断提升<span class="muted">（现为「人物 Skill」）</span></td><td>每次摄取出场即刷新，<code>skillRevision</code> 累积（第 4 节）</td></tr>
       </tbody>
     </table>
   </section>
