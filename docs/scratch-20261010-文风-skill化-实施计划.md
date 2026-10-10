@@ -394,6 +394,54 @@ tab 高亮错（`:700` 的 `aria-pressed` 会把「去AI味」标成选中）、
    ⚠️ `input.projectPath`/`userRequest`/`llmConfig` 是必填；新字段必须**可选**，
    否则 `deep-chapter-generation.spec.ts` 里所有既有构造都会编译失败。
 
+   #### 🔴🔴 补漏 3（**最重要的一条**）：覆盖会撞上 `contextPackToPrompt` 自己的
+   #### 文风硬闸门，而 `context-engine.ts` 是**不可改**的守门文件
+   ⇒ 这一条决定「覆盖文本用什么形状」，必须**先决定再写代码**。
+
+   已实读 `contextPackToPrompt`（`context-engine.ts:1123-1137`），它内部有**两道**动作：
+   ```ts
+   const result = trimContextPack(pack, tokenBudget, options)      // :1128 按预算裁剪
+   …
+   if (pack.writingStyle?.startsWith("【已启用文风画像】") &&      // :1132
+       !result.prompt.includes(pack.writingStyle)) {               // :1132
+     throw new Error("上下文预算不足，已启用的文风画像未完整保留。…已停止生成。")  // :1133
+   }
+   ```
+   ⚠️ 关键：上面 (c) 的推荐形状是把覆盖文本**当作 `pack.writingStyle` 传进
+   `contextPackToPrompt`**。于是 `:1132` 的 `pack.writingStyle` **就是我们的覆盖文本**
+   —— 闸门会**看见覆盖**。由此产生两个**相反**的后果，取决于覆盖文本走哪条渲染分支：
+
+   | 覆盖文本的分支 | `:1132` 的 `startsWith` | 覆盖被裁剪丢弃时 |
+   |---|---|---|
+   | **结构化 DNA 分支**（`writing-style-store.ts:261` `lines.unshift("【已启用文风画像】")`） | **true** | **抛错**：`上下文预算不足，已启用的文风画像未完整保留…已停止生成` |
+   | **v1 降级分支**（`:263-266` push `风格硬约束：`，**无**该前缀） | **false** | **静默丢弃**，用户本次明确选的文风**凭空消失**，无任何提示 |
+
+   ⇒ 两个后果都不可接受，而**都不能靠改 `context-engine.ts` 解决**：
+   `context-engine.ts` 是本批的**守门文件之一**（`git diff a5a2702 --stat` 必须为空）。
+   **必须在下面三选一并写明理由（写进实施报告）：**
+
+   - **(i) 推荐 · 覆盖路径统一产出「已启用文风画像」前缀形态。**
+     即覆盖渲染时**总是**走上带 `【已启用文风画像】` 的那条分支（即使源预设是 v1 降级数据，
+     也先按 `migrateStyleProfile` 迁移后按结构化形态渲染）。
+     代价：同一份 v1 预设，「启用它」与「本次临时选它」产出的文本形状**不同**
+     （前者可能仍是 `风格硬约束：` 降级形态）。
+     好处：闸门对覆盖**生效** ⇒ 覆盖被挤掉时是**响亮的失败**而不是静默消失。
+     ⚠️ 必须在报告里**明确写出这个不对称**，以及它只影响「v1 降级数据的预设」。
+   - **(ii) 接受静默丢弃。** 覆盖走原分支、不强制前缀 ⇒ v1 预设的覆盖可能无声消失。
+     若选这条，必须在报告里承认，并说明为什么可接受。
+   - **(iii) 覆盖不放进 `pack.writingStyle`，另起一个不被闸门检查的字段。**
+     ⚠️ 这会绕过 `trimContextPack` 的 `SECTION_PRIORITY` 预算记账
+     （`writingStyle` 排第 19 位、整段丢弃），把文本**加在预算之外**，
+     可能超出 `planChapterRequestBudget` 算出的窗口。**不推荐**，除非另行证明预算安全。
+
+   #### 附带的一条预算事实（无论选哪条都要知道）
+   `:1128` 的 `trimContextPack` 是**整段丢弃**语义（`writingStyle` 排第 19 位，
+   见 `writing-style-store.ts:52-53` 的注释），**不是**逐字截断。
+   ⇒ 覆盖文本**越大越容易被整段丢掉**。而用户手动选文风时**无从预知**这一点。
+   「选了一条很长的文风 → 生成直接报错（(i)）或文风没生效（(ii)）」是**真实可达**的路径。
+   **要求**：实施报告里必须写明这条可达路径，并说明 UI 侧是否需要提示
+   （例如选文风时给出体量提示）。**不要**悄悄让它成为已知问题。
+
 3. **接到工具层**：照 `skillsPrompt` 的**「getter 注入」**通路形状
    （**已实测确认为一条完整链**，不是参数一路透传）：
    - 产出（pull 模型）：`chat-panel.tsx:1084` 的 `getSelectedSkillsPrompt` 回调
