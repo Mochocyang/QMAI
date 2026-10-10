@@ -364,7 +364,7 @@ import {
 import { outlineConversationRunRegistry } from "@/lib/conversation-run-registry";
 import { toast } from "@/lib/toast";
 import { buildEventOutlinePrompt, extractEventOutlineData, type EventOutlineRequest } from "@/lib/novel/event-outline";
-import { flattenMdFiles, resolveNextChapterNumber } from "@/lib/novel/chapter-utils";
+import { flattenMdFiles, pickChapterLibraryFiles, resolveNextChapterNumber } from "@/lib/novel/chapter-utils";
 import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts";
 import { finalizeStructuredMarkdownMessage } from "@/lib/novel/markdown-quality-finalizer";
 import { repairMarkdownFormatWithAi } from "@/lib/novel/markdown-quality-ai-repair";
@@ -5271,7 +5271,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   /** 当前项目章节库里最大章号 + 1，作为事件细纲向导的默认目标章。 */
   const nextChapterNumber = useMemo(
-    () => resolveNextChapterNumber(flattenMdFiles(fileTree)),
+    // fileTree 是整个项目树：章纲文件里的「第046章」和笔记名里的日期都会被解析成章号，
+    // 必须先筛出 wiki/chapters 再看，否则默认章号会跳到 47 甚至 2027。
+    () => resolveNextChapterNumber(pickChapterLibraryFiles(flattenMdFiles(fileTree))),
     [fileTree],
   );
 

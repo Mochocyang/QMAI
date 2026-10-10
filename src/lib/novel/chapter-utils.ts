@@ -206,6 +206,22 @@ function explicitChapterNumberInPath(path: string): number | null {
 }
 
 /**
+ * 从整棵项目树里挑出章节库文件（wiki/chapters）。
+ *
+ * 「下一章」探测必须只看章节库：resolveNextChapterNumber 走的是文件名解析，
+ * 而项目树里还有「章纲-第046章-….md」「事件细纲-第012章.md」「2026-10-10-灵感记录.md」
+ * 这类文件，章号/日期会被当成章节号，把默认章号顶到 47 甚至 2027。
+ *
+ * 正则靠结尾的斜杠锚住 chapters 这一段，因此 wiki/chapters-archive/、
+ * wiki/outline-chapters-notes/ 这类相邻目录名不会被误收。
+ */
+export function pickChapterLibraryFiles(
+  files: Array<{ name: string; path: string }>,
+): Array<{ name: string; path: string }> {
+  return files.filter((file) => /[\\/]wiki[\\/]chapters[\\/]/.test(file.path))
+}
+
+/**
  * 探测「下一章」章号：章节库里最大章号 + 1。
  *
  * 只认文件名或路径里的章号，因此「序章」「设定」这类不带章号的文件会被忽略；

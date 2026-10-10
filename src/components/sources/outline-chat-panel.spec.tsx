@@ -2895,6 +2895,8 @@ describe("事件细纲接线", () => {
     expect(source).toContain("EventOutlineWizardDialog")
     expect(source).toContain("extractEventOutlineData")
     expect(source).toContain("resolveNextChapterNumber")
+    // FIX 1：探测前必须先筛出章节库，否则章纲里的第046章与笔记名里的日期会把默认章号顶飞。
+    expect(source).toContain("pickChapterLibraryFiles")
   })
 
   it("UiTestAiEmpty 只传 onGenerateOutline 时仍渲染「生成小说大纲」", async () => {
