@@ -12,7 +12,8 @@ import { useBookAnalysisImportStore } from "@/stores/book-analysis-import-store"
 import { useBookAnalysisPipelineStore } from "@/stores/book-analysis-pipeline-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import type { ChatMessage } from "@/lib/llm-client"
+import { callAnalysisModelText } from "@/lib/novel/book-analysis/analysis-model-call"
 import { yieldToBrowserFrame } from "@/lib/novel/yield-to-browser"
 import {
   toBookAnalysisResult,
@@ -577,15 +578,10 @@ export function LegacyBookAnalysisView() {
         },
         { role: "user", content: prompt },
       ]
-      let output = ""
-      await new Promise<void>((resolve, reject) => {
-        void streamChat(llmConfig, messages, {
-          onToken: (token) => {
-            output += token
-          },
-          onDone: resolve,
-          onError: reject,
-        })
+      // 思考-only 的流在 HTTP 层是成功的，这里原先没有任何重试，
+      // 用户只会拿到一条 17K 字符的思考诊断 toast。交给共享实现重试一次。
+      const output = await callAnalysisModelText(llmConfig, messages, {
+        cancelMessage: "用户取消故事框架提取",
       })
       const now = Date.now()
       const framework = buildPlotFrameworkDraftFromBookStoryOutput({

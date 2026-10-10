@@ -50,6 +50,7 @@ const mocks = vi.hoisted(() => {
   const loadBookStoryFrameworkChapters = vi.fn()
   const createAwaitingRangeTask = vi.fn()
   const loadChapterList = vi.fn()
+  const streamChat = vi.fn()
 
   return {
     candidates,
@@ -108,6 +109,7 @@ const mocks = vi.hoisted(() => {
     loadBookStoryFrameworkChapters,
     createAwaitingRangeTask,
     loadChapterList,
+    streamChat,
     pipelineState: {
       tasks: [] as unknown[],
       chunks: [] as unknown[],
@@ -268,7 +270,7 @@ vi.mock("@/lib/novel/plot-framework-library", () => ({
   upsertPlotFramework: vi.fn(),
 }))
 
-vi.mock("@/lib/llm-client", () => ({ streamChat: vi.fn() }))
+vi.mock("@/lib/llm-client", () => ({ streamChat: mocks.streamChat }))
 vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: () => true }))
 vi.mock("@/lib/toast", () => ({
   toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
@@ -526,5 +528,31 @@ describe("BookAnalysisView 批量导入运行时接线", () => {
 
     await clickButton("关闭历史结果")
     expect(mocks.setShowResultViewer).toHaveBeenCalledWith(false)
+  })
+})
+
+describe("BookAnalysisView 故事框架思考-only 重试", () => {
+  it("故事框架提取遇到思考-only 时关掉思考重试一次", async () => {
+    // 第 1 次响应只回思考诊断（迁移前这里没有任何重试，用户只拿到这条 toast）。
+    mocks.streamChat.mockImplementationOnce(async (_config: unknown, _messages: unknown, callbacks: any) => {
+      callbacks.onError(new Error("模型只输出了 17,331 字符的思考内容，但没有输出正文。"))
+    })
+    // 重试那一轮正常返回正文。
+    mocks.streamChat.mockImplementation(async (_config: unknown, _messages: unknown, callbacks: any) => {
+      callbacks.onToken("## 钩子\n示例框架\n## 铺垫\n示例\n## 爽点\n示例\n## 结尾钩子\n示例")
+      callbacks.onDone()
+    })
+
+    await renderView()
+    await clickButton("旧框架入口")
+    const onConfirm = mocks.chapterPanelProps.onConfirm
+    await act(async () => {
+      await onConfirm(["chapter-1"])
+    })
+
+    expect(mocks.streamChat).toHaveBeenCalledTimes(2)
+    // 第 0 次是未关思考的原始尝试，第 1 次才是关思考的重试。
+    expect(mocks.streamChat.mock.calls[0][4]).toBeUndefined()
+    expect((mocks.streamChat.mock.calls[1][4] as { reasoning?: unknown }).reasoning).toEqual({ mode: "off" })
   })
 })

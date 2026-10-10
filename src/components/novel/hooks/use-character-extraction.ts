@@ -237,20 +237,21 @@ export function useCharacterExtraction({
       if (!hasUsableLlm(llmConfig, useWikiStore.getState().providerConfigs)) {
         throw new Error("未配置 LLM，请先在设置中配置 LLM 后再提取")
       }
-      const { streamChat } = await import("@/lib/llm-client")
+      const { callAnalysisModelText } = await import(
+        "@/lib/novel/book-analysis/analysis-model-call"
+      )
+      // onError 只打日志会把「模型只输出思考、没输出正文」变成空串，
+      // 上层据此生成 personality 为空的画像并落盘 —— 静默写坏数据。
+      // 改为交给共享实现：思考-only 时关掉思考重试一次，仍失败则抛，让上层记成失败。
       const realLlmCall = async (prompt: string, cachePrefix?: string): Promise<string> => {
-        let response = ""
-        await streamChat(
+        return callAnalysisModelText(
           llmConfig,
           buildSimpleExtractionMessages(prompt, cachePrefix),
           {
-            onToken: (text) => { response += text },
-            onDone: () => {},
-            onError: (err) => { console.error("[simple-extract] LLM error:", err) },
+            signal: abortController.signal,
+            cancelMessage: "用户取消分析",
           },
-          abortController.signal,
         )
-        return response.trim()
       }
 
       const { extractSingleProfile } = await import(
@@ -441,20 +442,20 @@ export function useCharacterExtraction({
       alert("未配置 LLM，请先在设置中配置")
       return
     }
-    const { streamChat } = await import("@/lib/llm-client")
+    const { callAnalysisModelText } = await import(
+      "@/lib/novel/book-analysis/analysis-model-call"
+    )
+    // 与简单提取主路径同一个坑：onError 只打日志 -> 思考-only 时返回空串，
+    // 上层据此把「继续生成成功」写进画像。交给共享实现重试一次再抛。
     const realLlmCall = async (prompt: string, cachePrefix?: string): Promise<string> => {
-      let response = ""
-      await streamChat(
+      return callAnalysisModelText(
         llmConfig,
         buildSimpleExtractionMessages(prompt, cachePrefix),
         {
-          onToken: (text) => { response += text },
-          onDone: () => {},
-          onError: (err) => { console.error("[resume] LLM error:", err) },
+          signal: abortController.signal,
+          cancelMessage: "用户取消分析",
         },
-        abortController.signal,
       )
-      return response.trim()
     }
 
     const sourceBook = task.bookPath || (task.metadata as any)?.sourceBook

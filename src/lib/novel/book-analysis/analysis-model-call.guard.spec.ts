@@ -3,12 +3,17 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 /**
- * 守卫：拆书库里的 LLM 调用必须走 callAnalysisModelText。
+ * 守卫：下面列出的这些已知调用点必须走 callAnalysisModelText，而不是直接调 streamChat。
  *
- * 这 8 个文件过去各自直接调 streamChat，因此「模型只输出思考、没有输出正文」
+ * 说清楚这道守卫的**实际范围**，别高估它：
+ * 它是针对一份**已知文件名单**的回归绊线（tripwire），不是「拆书库所有 LLM 调用
+ * 都鉴一遍」的强制规则。它**抓不到**：新出现的文件里直接调 streamChat、
+ * 写成 `streamChat (`（带空格）、或先取别名再调用。真要收紧只能靠代码评审 + 扩大名单。
+ *
+ * 名单里的 8 个文件过去各自直接调 streamChat，因此「模型只输出思考、没有输出正文」
  * 这条流在整条拆书链路上无处重试（用户实测：文风分析连续两次失败，
  * 报错为「模型只输出了 17,331 / 20,644 字符的思考内容，但没有输出正文」）。
- * 逐个改完之后加这道守卫，避免以后新增调用点时又绕过去。
+ * 逐个改完之后加这道守卫，避免这 8 处以后又退回直接调用。
  */
 const ANALYSIS_FILES = [
   "style-analysis-adapter.ts",
@@ -58,6 +63,27 @@ describe("拆书库 reasoning 覆盖项透传守卫", () => {
     it(`${file} 仍把 llmConfig.reasoning 作为 baseOverrides 传下去`, () => {
       const source = readFileSync(resolve(__dirname, file), "utf8")
       expect(source).toContain("baseOverrides: { reasoning: llmConfig.reasoning }")
+    })
+  }
+})
+
+/**
+ * 同一道守卫的续集：这 3 个文件也属于拆书库的 LLM 调用，但落在 src/components/ 下，
+ * 最初那轮迁移只扫了 src/lib/novel/book-analysis/，所以被漏掉了。
+ * 其中 use-character-extraction 的两处原本把 onError 吞成 console.error，
+ * 思考-only 时返回空串 -> 上层写成 personality 为空的坏画像并落盘。
+ */
+const ANALYSIS_COMPONENT_FILES = [
+  "components/novel/hooks/use-character-extraction.ts",
+  "components/novel/book-analysis-view.tsx",
+]
+
+describe("拆书库调用守卫（src/components 部分）", () => {
+  for (const file of ANALYSIS_COMPONENT_FILES) {
+    it(`${file} 不再直接调用 streamChat`, () => {
+      // 本 spec 位于 src/lib/novel/book-analysis/，所以要先退到 src/ 再拼路径。
+      const source = readFileSync(resolve(__dirname, "../../..", file), "utf8")
+      expect(source).not.toMatch(/streamChat\(/)
     })
   }
 })
