@@ -515,6 +515,15 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
           novelGenerationRequest: isNovelGenerationRequestPackage(message.novelGenerationRequest)
             ? message.novelGenerationRequest
             : undefined,
+          /*
+           * 要求必须是字符串。手改过的 outline-chats.json 里若把它写成数字或对象，
+           * 它会一路走到 event-outline.ts 的 `requirement?.trim()` —— 而那是**渲染期**
+           * 的 useMemo，抛出的 TypeError 会把整个大纲面板打白。
+           * 存量数据本来就没有这个字段，读到 undefined 即丢弃，行为与加字段前一致。
+           */
+          eventOutlineRequirement: typeof message.eventOutlineRequirement === "string"
+            ? message.eventOutlineRequirement
+            : undefined,
           // 结构不完整的计划协议一律丢弃，避免重载后渲染出残缺卡片
           outlinePlanProtocol: isOutlinePlanProtocol(message.outlinePlanProtocol)
             ? message.outlinePlanProtocol

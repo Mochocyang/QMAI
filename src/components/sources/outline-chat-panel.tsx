@@ -2786,7 +2786,19 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       if (droppedEventOutlineCount > 0 && saveRequests.length === 0) return;
       if (saveRequests.length === 0) {
         if (parsed.errors.length > 0) {
-          showOutlineAutoSaveError(formatOutlineSaveParseFeedback(parsed.errors));
+          /*
+           * 只有当错误里**还有非事件细纲的**才弹那条「请让 AI 重新输出
+           * outlineSaveRequest」的提示。事件细纲请求在本版本里本来就要丢掉，
+           * 为它去要求模型重出一遍是自相矛盾（重出一次还是会被丢掉）。
+           *
+           * 用 `<` 而不是 `=== 0` 比较：混着一条真正的解析错误时，
+           * 仍然必须让用户看到它 —— 这正是这个比较的意义。
+           */
+          if (parsed.eventOutlineRejectionCount < parsed.errors.length) {
+            showOutlineAutoSaveError(formatOutlineSaveParseFeedback(parsed.errors));
+            return;
+          }
+          setSaveStatus("事件细纲只作为对话消息保留，不写入大纲列表。");
           return;
         }
         if (!isSaveableOutlineDeliverable(safeAssistantContent)) return;
@@ -4883,7 +4895,18 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   );
 
   const handleSendMessage = useCallback(
-    async (text: string, options?: { intentPhase?: "intent_analysis" | "generation" | "waiting_user_input"; scope?: string }) => {
+    async (text: string, options?: {
+      intentPhase?: "intent_analysis" | "generation" | "waiting_user_input"
+      scope?: string
+      /**
+       * 「继续」重发时要跟着带过去的事件细纲要求。
+       *
+       * 与「重新生成」同一个理由：要求存在消息上，新消息不会自动继承。
+       * 模型续写时若不再回抄 requirement，扩写提示词里就会缺掉
+       * 「## 用户对本章的要求」—— 用户填的硬要求悄悄失效。
+       */
+      eventOutlineRequirement?: string
+    }) => {
       const capturedConvId = activeConversationId;
       if (!capturedConvId) {
         toast.info("当前没有可用的大纲会话，请先新建会话。", { dedupeKey: "outline-next-step:no-conversation" });
@@ -4938,7 +4961,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }
         } else {
           const references = outlineReferenceTokens;
-          const result = await handleSend(text, references, { conversationId: capturedConvId, intentPhase: options?.intentPhase, clearDraft: false });
+          const result = await handleSend(text, references, {
+            conversationId: capturedConvId,
+            intentPhase: options?.intentPhase,
+            clearDraft: false,
+            ...(options?.eventOutlineRequirement
+              ? { eventOutlineRequirement: options.eventOutlineRequirement }
+              : {}),
+          });
           if (result.sent) {
             if (shouldClearOutlineReferences({
               invocationConversationId: capturedConvId,
@@ -5497,6 +5527,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
    */
   const handleSubmitEventOutlineWizard = useCallback(
     (request: EventOutlineRequest) => {
+      // hasFileTools 默认 true：这条链路走的是带工具循环的 handleSend，
+      // 模型确实要自己 list_chapters / read_chapter 去读资料。
       void handleSend(buildEventOutlinePrompt(request), outlineReferenceTokensRef.current, {
         disableWriteTools: true,
         preferredSkillNames: [],
@@ -5533,10 +5565,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
    * 继续不动已有内容，只是把"接着写"作为新一轮用户请求发出去，
    * 模型在会话历史里看得到已经生成的那半截，于是从断点续写。
    * 提示词与章节面板共用同一个常量，两侧「继续」的含义一致。
+   *
+   * 要求（eventOutlineRequirement）必须从被停止的那条消息上取过来：
+   * 它挂在消息本身，新一轮不会自动继承。若续写时模型不再回抄 requirement，
+   * 卡片后续的「用这份细纲写这一章」就会缺掉「## 用户对本章的要求」——
+   * 与「重新生成」修的是同一个洞，两条重发路径都要堵。
    */
-  const handleContinueStopped = useCallback(async () => {
+  const handleContinueStopped = useCallback(async (eventOutlineRequirement?: string) => {
     if (isStreaming) return;
-    await handleSendMessage(CONTINUE_STOPPED_GENERATION_PROMPT);
+    await handleSendMessage(CONTINUE_STOPPED_GENERATION_PROMPT, {
+      ...(eventOutlineRequirement ? { eventOutlineRequirement } : {}),
+    });
   }, [handleSendMessage, isStreaming]);
 
   const handleRegenerate = useCallback(
@@ -6183,6 +6222,22 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         const lastAssistantMsg = [...(currentConv?.messages ?? [])].reverse().find((m) => m.role === "assistant");
         const characterResults = lastAssistantMsg?.characterMultiAgentResults;
 
+        /*
+         * 手动通道的咽喉闸门。必须放在这里，而不是只靠「藏起保存按钮」：
+         * 按钮是靠 extractEventOutlineData 解析成功才隐藏的，而**JSON 围栏被截断时
+         * 解析结果是 null** —— 于是按钮照样显示，用户点下去，这条消息里那个提示词
+         * 强制的「# 事件细纲 · 第N章 …」一级标题正好命中 EVENT_TYPE_MARK，
+         * 最终写进 wiki/outlines/事件细纲/。也就是说：越是在 JSON 坏掉的时候，
+         * 越容易从手动通道漏进去 —— 这恰恰是丙-1 要防的那件事。
+         *
+         * FIX 1 之后这条分类是文档自身推出来的（hint 不再能判 event-outline），
+         * 所以合法的 17 节章纲不会被误拦。
+         */
+        if (built.classification.fileType === "event-outline") {
+          setSaveStatus("事件细纲只作为对话消息保留，不写入大纲列表。");
+          return;
+        }
+
         if (built.classification.fileType === "character") {
           if (characterResults && characterResults.length > 0) {
             const characterDrafts: CharacterSaveDraft[] = characterResults.flatMap((r) => {
@@ -6592,7 +6647,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   onSubmitDiscussAnswers={handleSubmitOutlineDiscussAnswers}
                   onConfirmDiscuss={handleConfirmOutlineDiscuss}
                   onResumeMultiAgent={handleResumeMultiAgent}
-                  onContinueStopped={isStreaming ? undefined : () => void handleContinueStopped()}
+                  onContinueStopped={isStreaming ? undefined : () => void handleContinueStopped(msg.eventOutlineRequirement)}
                   resumeMultiAgentDisabled={isStreaming}
                   nextStepDisabled={submitDisabled}
                   generationContext={activeMessages.slice(0, i).some((message) => message.role === "user" && Boolean(message.novelGenerationRequest))

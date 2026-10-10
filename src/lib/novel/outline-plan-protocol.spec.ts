@@ -30,6 +30,29 @@ function threeOptions() {
 
 const chapterElements = getOutlinePlanRequiredElements("章节细纲")
 
+/**
+ * 从规则串里**精确取出**「可写文件夹」与「可保存 fileType」两份白名单。
+ *
+ * 为什么不能像原先那样用 `toContain(fileType)` 逐项断言：那样对 `outline`
+ * 是**恒真**的 —— 规则串里还有 `list_outlines` / `read_outline`（第 1 条），
+ * 甚至白名单本身也含 `volume-outline`。也就是说把 `outline` 从白名单里删掉，
+ * `expect(rules).toContain("outline")` 依然通过，「别的 fileType 一个都没被误删」
+ * 这条注释承诺的鉴别力其实并不存在。
+ *
+ * 提取整段再整体比较，才能真正守住「白名单恰好是这几个」。
+ */
+function extractPlanWriteWhitelist(rules: string): {
+  folderNames: string[]
+  fileTypes: string[]
+} {
+  const match = rules.match(/targetFolder 只能用这些文件夹名：([^；]+)；fileType 只能用 (.+?)。/)
+  if (!match) throw new Error(`规则串里找不到写入白名单那一条：\n${rules}`)
+  return {
+    folderNames: match[1].split("、").map((name) => name.trim()).filter(Boolean),
+    fileTypes: match[2].split("、").map((name) => name.trim()).filter(Boolean),
+  }
+}
+
 function satisfyAll(): OutlinePlanProtocol["elements"] {
   return chapterElements.map((spec) => ({
     key: spec.key,
@@ -349,27 +372,33 @@ describe("outline plan prompts", () => {
     }
   })
 
-  it("不再把 event-outline 当作可保存类型，但「事件细纲」文件夹名仍可被引用", () => {
-    // 语义在本批改了：事件细纲不再写进大纲列表，所以计划模式不能再告诉模型
-    // 「你可以把 plan.files 存成 event-outline」。
-    // 文件夹清单（folderNames，来自 DEFAULT_OUTLINE_FOLDERS）保持不动 ——
-    // 它描述的是「可读/可引用的目录」，而磁盘上可能已经有 事件细纲/ 这个目录。
+  it("计划模式的规则里，事件细纲既不是可保存 fileType，也不是可写文件夹", () => {
+    /*
+     * 语义在本批改了两次，最终结论是**两处都要撤**：
+     *
+     * 1. fileType 白名单：事件细纲不再写进大纲列表，所以不能再说
+     *    「你可以把 plan.files 存成 event-outline」。
+     * 2. 文件夹白名单：folderNames 在本仓**只**用于这条规则
+     *    （「plan.files 的 targetFolder 只能用这些文件夹名」），它是**写入白名单**，
+     *    不是「可读目录」。留着它等于继续告诉模型 wiki/outlines/事件细纲/
+     *    是合法写入目标 —— 而且只删 fileType 挡不住：fileType 过滤只认类型，
+     *    targetFolder: "事件细纲" 配 fileType: "chapter-outline" 照样会过。
+     *
+     * DEFAULT_OUTLINE_FOLDERS 本身不动（outline-workbench.spec 逐项钉住它，
+     * 且它有 list_outlines 标注等其它用途）；过滤只发生在规则串的拼装处。
+     */
     const rules = buildOutlinePlanPhaseSystemRules("章节细纲", chapterElements)
-    expect(rules).toContain("事件细纲")
     expect(rules).not.toContain("event-outline")
-    // 反向控制：别的 fileType 一个都没被误删。
-    for (const fileType of [
-      "outline",
-      "volume-outline",
-      "chapter-outline",
-      "character",
-      "setting",
-      "foreshadowing",
-      "organization",
-      "quality-report",
-    ]) {
-      expect(rules, `fileType 白名单不该丢掉 ${fileType}`).toContain(fileType)
-    }
+    expect(rules).not.toContain("事件细纲")
+
+    const { folderNames, fileTypes } = extractPlanWriteWhitelist(rules)
+    expect(folderNames).toEqual([
+      "大纲", "卷纲", "章纲", "人物小传", "设定", "伏笔", "组织",
+    ])
+    expect(fileTypes).toEqual([
+      "outline", "volume-outline", "chapter-outline", "character",
+      "setting", "foreshadowing", "organization", "quality-report",
+    ])
   })
 
   it("builds the first round element check prompt from the module request hint", () => {

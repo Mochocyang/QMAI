@@ -144,15 +144,71 @@ describe("event-outline 路由隔离", () => {
     })
   })
 
-  it("用户原话是「事件细纲」时同样走事件细纲", () => {
+  /*
+   * 这条原先钉的是「hint 里出现『事件细纲』就判成 event-outline」。**故意反转**。
+   *
+   * 原因：hint 装的是对话文本（collectOutlineSaveSourceHint 收的是意图原话、
+   * 意图标题、最后一条用户消息、会话标题），而事件细纲向导发的那条可见用户消息
+   * 内容就是「生成第N章事件细纲（N 个事件）」—— 它会**永久**留在这个会话的 hint 里。
+   * 于是同一会话里后出的任何交付物（「# 全书总纲」「# 世界观设定」），
+   * 只要标题与首个 H1 没有章/卷/细纲字样，就会被 hint 判成 event-outline：
+   * 被自动通道的闸门静默丢弃，手动通道更会把它归进 wiki/outlines/事件细纲/。
+   *
+   * 而「事件细纲」在本批之后根本不是可保存类型，用对话措辞去路由它没有任何收益，
+   * 只有上面这个副作用。所以 event-outline 不再由 hint 判定；
+   * 这份 fixture 现在落到 :113 的兜底 "outline"（正文无章/卷/细纲线索）。
+   *
+   * 真正的细纲识别能力一点没丢：它由**文档自身**在一级判据上完成
+   * （下面 :190 与 :208 两条钉的就是那个通道），正文那一层也仍然认事件标记。
+   */
+  /*
+   * ⚠ 残留风险（本批未修，已上报）：落到的是 chapter-outline，**不是**兜底的 outline。
+   *
+   * 原因是那条向导消息里除了「事件细纲」还带着「第12章」：摘掉事件标记后剩
+   * 「生成第12章」，而 resolveChapterOrVolumeType 认 `第\d+章`，于是 hint 这一层
+   * 仍然会把文档定型。也就是说 FIX 1 消除了「被判成事件细纲 → 被闸门静默丢弃 /
+   * 归进 wiki/outlines/事件细纲/」这条最严重的后果，但**对话措辞参与定类型**
+   * 这个根因只修了一半：同一会话里后出的「# 全书总纲」现在会落到 章纲/。
+   *
+   * 这条断言因此钉的是**真实行为**而不是期望行为 —— 若后续把 hint 层整体
+   * 降级为「只补人物/伏笔/设定这类非章节线索」，本断言应当改成 outline。
+   */
+  it("hint 里出现「事件细纲」不再把文档判成事件细纲（对话措辞不参与定类型）", () => {
     expect(classifyOutlineSaveTarget({
       title: "令牌初现",
       content: "## 院子里的哭声\n- 念念挨了打",
       sourceHint: "生成第12章事件细纲",
     })).toMatchObject({
-      fileType: "event-outline",
-      targetFolder: "事件细纲",
+      fileType: "chapter-outline",
+      targetFolder: "章纲",
     })
+  })
+
+  it("hint 里的「事件细纲」不再指向事件细纲文件夹", () => {
+    // 丙-1 的要害：绝不能落到 wiki/outlines/事件细纲/
+    const result = classifyOutlineSaveTarget({
+      title: "令牌初现",
+      content: "## 院子里的哭声\n- 念念挨了打",
+      sourceHint: "生成第12章事件细纲",
+    })
+    expect(result.fileType).not.toBe("event-outline")
+    expect(result.targetFolder).not.toBe("事件细纲")
+  })
+
+  /*
+   * FIX 1 的直接回归：事件细纲会话里后出的无关交付物，不能被那条向导消息带偏。
+   * 这是「靠正文分类」那条腿在真实会话里的样子（hint 已被污染，文档本身与细纲无关）。
+   */
+  it.each([
+    ["# 全书总纲", "## 故事一句话\n这是一个关于复仇的故事。"],
+    ["# 世界观设定", "## 力量体系\n斗气分九段。"],
+    ["# 人物关系总览", "## 主角团\n楚白与骆轻竹是同门。"],
+  ])("事件细纲会话里后出的「%s」不会因 hint 被判成事件细纲", (title, content) => {
+    expect(classifyOutlineSaveTarget({
+      title,
+      content,
+      sourceHint: "生成第12章事件细纲（6 个事件）\n事件细纲",
+    }).fileType).not.toBe("event-outline")
   })
 
   it("正文只出现「事件序列」而没有「细纲」二字时也判为事件细纲", () => {

@@ -1273,11 +1273,40 @@ describe("excludeEventOutlineSaveRequests", () => {
     fileName: "章纲-第012章.md",
     fileType: "chapter-outline",
   }
+  const volumeOutlineRequest: OutlineSaveRequest = {
+    ...eventOutlineRequest,
+    targetFolder: "卷纲",
+    fileName: "卷纲-第二卷.md",
+    fileType: "volume-outline",
+  }
+  const characterRequest: OutlineSaveRequest = {
+    ...eventOutlineRequest,
+    targetFolder: "人物小传",
+    fileName: "角色-楚白.md",
+    fileType: "character",
+  }
 
-  it("摘掉事件细纲、留下其它类型（顺序不变）", () => {
-    const result = excludeEventOutlineSaveRequests([chapterOutlineRequest, eventOutlineRequest])
-    expect(result.requests.map((item) => item.fileName)).toEqual(["章纲-第012章.md"])
-    expect(result.droppedEventOutlineCount).toBe(1)
+  /*
+   * 顺序**必须**用「有两个幸存者」的输入来测：只有一存一删时，
+   * 输出永远只有一个元素，任何排序/反转都能通过，这条断言就没有鉴别力。
+   * 这里混入三处事件细纲、两个不同位置的幸存者，并对**完整序列**做断言。
+   */
+  it("摘掉全部事件细纲、留下的按原顺序（顺序不变）", () => {
+    const result = excludeEventOutlineSaveRequests([
+      chapterOutlineRequest,
+      eventOutlineRequest,
+      volumeOutlineRequest,
+      eventOutlineRequest,
+      characterRequest,
+      eventOutlineRequest,
+    ])
+    // 三个幸存者的相对顺序必须与输入一致：章纲 → 卷纲 → 人物小传
+    expect(result.requests.map((item) => item.fileType)).toEqual([
+      "chapter-outline",
+      "volume-outline",
+      "character",
+    ])
+    expect(result.droppedEventOutlineCount).toBe(3)
   })
 
   it("全是事件细纲时请求清空、且如实报出摘掉的条数", () => {
@@ -1289,8 +1318,15 @@ describe("excludeEventOutlineSaveRequests", () => {
   })
 
   it("没有事件细纲时原样返回、条数为 0", () => {
-    const result = excludeEventOutlineSaveRequests([chapterOutlineRequest])
-    expect(result.requests.map((item) => item.fileName)).toEqual(["章纲-第012章.md"])
+    const result = excludeEventOutlineSaveRequests([chapterOutlineRequest, characterRequest])
+    expect(result.requests.map((item) => item.fileType)).toEqual(["chapter-outline", "character"])
     expect(result.droppedEventOutlineCount).toBe(0)
+  })
+
+  it("空数组返回空数组、条数为 0（不能把 0 条算成「摘掉了但是空的」）", () => {
+    expect(excludeEventOutlineSaveRequests([])).toEqual({
+      requests: [],
+      droppedEventOutlineCount: 0,
+    })
   })
 })

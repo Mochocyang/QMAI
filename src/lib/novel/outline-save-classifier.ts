@@ -50,6 +50,22 @@ export function inferOutlineFileTypeFromSkills(skills: string[] = []): OutlineSa
  * CHAPTER_TYPE_MARK / CHAPTER_SUBJECT 本身不动：没有「事件」二字时，「细纲」仍然只指章纲。
  */
 const EVENT_TYPE_MARK = /事件细纲|事件清单|事件序列/
+/**
+ * 同一个事件标记的全局版，专供 `inferFileTypeFromHint` 把标记**摘掉**用。
+ *
+ * 为什么要摘：事件细纲向导发的那条可见用户消息内容就是「生成第N章事件细纲…」，
+ * 它进 collectOutlineSaveSourceHint 之后，这个会话的 hint 会**永久**带着「事件细纲」
+ * 四个字。于是同一会话里后出的任何交付物（「# 全书总纲」「# 世界观设定」…）
+ * 只要标题与首个 H1 里没有章/卷/细纲字样，就会被 hint 判成 event-outline ——
+ * 被本批的闸门静默丢弃，手动通道更会把它归进 wiki/outlines/事件细纲/。
+ *
+ * 摘掉会不会漏判真正的细纲？不会：真正的细纲在**上一步**就已经由文档自身认出来了
+ * （classifyOutlineSaveTarget 的 :141 走 resolveChapterOrVolumeType(文档标题+首个H1)，
+ * 那里的 EVENT_TYPE_MARK 判定原样保留），正文那一层也还有 :98。hint 这一层
+ * 因此不承担识别事件细纲的职责，只负责给「正文没明说、但用户/意图模块提过」的
+ * 情况补充线索 —— 而事件细纲恰恰不该由对话措辞来定类型。
+ */
+const EVENT_TYPE_MARK_ALL = /事件细纲|事件清单|事件序列/g
 const CHAPTER_TYPE_MARK = /章纲|细纲|章节细纲|章节大纲/
 const VOLUME_TYPE_MARK = /卷纲|分卷大纲/
 const CHAPTER_SUBJECT = /章纲|细纲|第\s*\d{1,4}\s*章/
@@ -80,8 +96,17 @@ function resolveChapterOrVolumeType(text: string): OutlineSaveRequestFileType | 
 function inferFileTypeFromHint(hint: string): OutlineSaveRequestFileType | null {
   const text = hint.trim()
   if (!text) return null
-  if (EVENT_TYPE_MARK.test(text)) return "event-outline"
-  const chapterOrVolume = resolveChapterOrVolumeType(text)
+  /*
+   * 这里**刻意不认**「事件细纲」（详见 EVENT_TYPE_MARK_ALL 的注释）：
+   * hint 里装的是对话文本，而事件细纲向导自己的用户消息就含「事件细纲」；
+   * 一旦允许 hint 判定 event-outline，同一会话里后出的「# 全书总纲」
+   * 这类交付物就会被误retype。真正的细纲已由文档自身在上一步认出来。
+   *
+   * 摘标记而不是直接跳过这一步：否则下面的 resolveChapterOrVolumeType 里
+   * 那句 EVENT_TYPE_MARK 判定（:66）会把 event-outline 又带回来。
+   */
+  const withoutEventMark = text.replace(EVENT_TYPE_MARK_ALL, "")
+  const chapterOrVolume = resolveChapterOrVolumeType(withoutEventMark)
   if (chapterOrVolume) return chapterOrVolume
   if (/人物小传|角色小传/.test(text)) return "character"
   if (/伏笔计划|伏笔/.test(text) && /伏笔/.test(text)) return "foreshadowing"
@@ -121,7 +146,7 @@ function inferFileName(fileType: OutlineSaveRequestFileType, title: string, cont
       chapter[2]?.trim().replace(/^[：:\s-]+/, "") ?? "",
     )
   }
-  // 事件细纲固定命名「事件细纲-第NNN章.md」，与 event-outline.ts 的提示词示例保持一致，不照抄标题
+  // 事件细纲固定命名「事件细纲-第NNN章.md」，不照抄标题（标题常是一句话章名，不便于归档）
   if (fileType === "event-outline" && chapter) {
     return `事件细纲-第${String(Number(chapter[1])).padStart(3, "0")}章.md`
   }
