@@ -1150,7 +1150,15 @@ export function PreviewPanel() {
     () => selectProjectEventOutlineTasks(eventOutlineTasks, project?.path),
     [eventOutlineTasks, project?.path],
   )
-  const eventOutlineAbortRef = useRef<AbortController | null>(null)
+  /*
+   * 每个任务一个 AbortController，**按 taskId 存**，不是单个 ref。
+   *
+   * 为什么不能只留一个 ref：store 里允许多个任务并存（不同章号各一份细纲），
+   * 而单 ref 只记得「最后一次提交」。于是用户在 A 行点「取消」时会 abort 掉
+   * 当前 ref 指向的 B —— 恰好abort 了他想保留的那一个，同时把 A 摘掉，
+   * B 随后也变成无人收尾的僵尸任务。按 id 存才能「哪一行取消哪一个」。
+   */
+  const eventOutlineAbortRef = useRef<Map<string, AbortController>>(new Map())
 
   /**
    * 生成一份事件细纲，结果落在 store 里由卡片区渲染。
@@ -1170,16 +1178,15 @@ export function PreviewPanel() {
       toast.error("未配置可用的 AI 模型，无法生成章节细纲")
       return
     }
-    // 同一时刻只跑一个：重开向导再提交时，旧请求的回复已经没人要了，
-    // 放着不管会覆盖掉新任务的结果。
-    eventOutlineAbortRef.current?.abort()
-    const controller = new AbortController()
-    eventOutlineAbortRef.current = controller
 
     const taskId = useEventOutlineTaskStore.getState().startTask({
       projectPath: project.path,
       request,
     })
+    const controller = new AbortController()
+    eventOutlineAbortRef.current.set(taskId, controller)
+    const settle = () => { eventOutlineAbortRef.current.delete(taskId) }
+
     let lastReportedChars = 0
     let lastReportedAt = 0
     void generateEventOutline(
@@ -1199,13 +1206,22 @@ export function PreviewPanel() {
       },
       controller.signal,
     ).then((result) => {
-      if (controller.signal.aborted) return
+      settle()
+      /*
+       * 这里**不再**检查 controller.signal.aborted：取消由
+       * generateEventOutline 内部统一抛 USER_ABORT_MESSAGE（streamChat 在取消时
+       * 是正常 onDone() 返回、不 reject，所以模块自己查一次信号），
+       * 于是取消永远走下面的 catch 分支。在这里再查一次的后果是
+       * 「return 而不收尾」—— 任务会永远停在 generating 上，
+       * 既没有任何东西会再推动它，用户也看不出它在等什么。
+       */
       if (result.outline) {
         useEventOutlineTaskStore.getState().finishTask(taskId, result.outline)
         return
       }
       useEventOutlineTaskStore.getState().failTask(taskId, result.error ?? "事件细纲生成失败")
     }).catch((error) => {
+      settle()
       // 主动取消不是失败：用户自己按的取消，卡片不该留一条红色错误。
       if (isUserAbortError(error, controller.signal)) {
         useEventOutlineTaskStore.getState().removeTask(taskId)
@@ -1215,6 +1231,23 @@ export function PreviewPanel() {
       useEventOutlineTaskStore.getState().failTask(taskId, message)
     })
   }, [project?.path])
+
+  /**
+   * 取消某一行的生成。
+   *
+   * 只 abort **这个任务自己的** controller：用户在多行之间点哪个就停哪个。
+   * abort 之后由 generateEventOutline 抛出、catch 分支负责 removeTask，
+   * 这里不重复摘 —— 保持「取消的收尾只有一个地方」。
+   */
+  const handleCancelEventOutlineTask = useCallback((taskId: string) => {
+    const controller = eventOutlineAbortRef.current.get(taskId)
+    if (!controller) {
+      // 没有活跃 controller（例如生成已经结束）：当作单纯的「收掉这一行」。
+      useEventOutlineTaskStore.getState().removeTask(taskId)
+      return
+    }
+    controller.abort()
+  }, [])
 
   const handleOpenEventOutlineWizard = useCallback(() => {
     setEventOutlineWizardVisible(true)
@@ -2038,10 +2071,7 @@ export function PreviewPanel() {
                   <button
                     type="button"
                     className="ml-auto text-xs text-muted-foreground underline"
-                    onClick={() => {
-                      eventOutlineAbortRef.current?.abort()
-                      handleDismissEventOutlineTask(task.id)
-                    }}
+                    onClick={() => handleCancelEventOutlineTask(task.id)}
                   >
                     取消
                   </button>
@@ -2060,6 +2090,16 @@ export function PreviewPanel() {
 
               {task.status === "awaiting-confirm" && task.outline ? (
                 <>
+                  {/*
+                   * 刻意**不**传 onWriteChapter（丙-2a）。
+                   *
+                   * EventOutlineCard 的「用这份细纲写这一章」是按
+                   * `onWriteChapter && validation.ok` 双条件 gate 的，所以此刻卡片上
+                   * 只有「丢弃这份细纲」这一个动作 —— 看上去像少了主按钮。
+                   * 这是设计如此，不是漏接线：确认之后**直接生成正式章节正文**属于丙-2b，
+                   * 本批只交付「生成 → 展示」这一段。状态名保持 awaiting-confirm
+                   * （而不是改成「待处理」）是因为丙-2b 落地后它就会名副其实。
+                   */}
                   <EventOutlineCard data={task.outline} />
                   <div className="flex justify-end">
                     <button

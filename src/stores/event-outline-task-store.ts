@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import { normalizePath } from "@/lib/path-utils"
+import { normalizeComparablePath, normalizePath } from "@/lib/path-utils"
 import type { EventOutlineData, EventOutlineRequest } from "@/lib/novel/event-outline"
 
 /**
@@ -52,9 +52,19 @@ interface EventOutlineTaskState {
 let eventOutlineTaskCounter = 0
 
 function normalizedProjectPath(path: string): string {
-  const normalized = normalizePath(path).replace(/\/$/, "")
-  const isWindowsPath = /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("//")
-  return isWindowsPath ? normalized.toLowerCase() : normalized
+  /*
+   * 判 Windows 形态要用**剥尾斜杠之前**的串：盘符形如 `C:/`，
+   * 先 `.replace(/\/$/, "")` 再判就变成 `C:`，`/^[A-Za-z]:\//` 匹配不上，
+   * 于是同一个盘符根目录不会被小写化 —— `C:/Book` 与 `c:/Book` 就成了两个项目。
+   * 大小写归一很重要：本 store 的过滤决定了「这本书的细纲会不会出现在另一本书里」。
+   *
+   * 剥尾斜杠用 normalizeComparablePath：它去掉**全部**尾斜杠（`\/+$`），
+   * 而手写 `.replace(/\/$/, "")` 只去一个，`C:/Book//` 会与 `C:/Book` 不相等。
+   */
+  const slashNormalized = normalizePath(path)
+  const isWindowsPath = /^[A-Za-z]:\//.test(slashNormalized) || slashNormalized.startsWith("//")
+  const comparable = normalizeComparablePath(path)
+  return isWindowsPath ? comparable.toLowerCase() : comparable
 }
 
 /**

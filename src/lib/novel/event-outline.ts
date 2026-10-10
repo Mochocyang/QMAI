@@ -293,8 +293,25 @@ function withRequirement(data: EventOutlineData, requirement?: string): EventOut
   return trimmed ? { ...data, requirement: trimmed } : data
 }
 
-/** 事件细纲的生成提示词。范围（章号 / 事件数 / 字数）由向导定死，所以不开意图分析。 */
-export function buildEventOutlinePrompt(request: EventOutlineRequest): string {
+/**
+ * 事件细纲的生成提示词。范围（章号 / 事件数 / 字数）由向导定死，所以不开意图分析。
+ *
+ * `hasFileTools` 决定要不要写「先读资料（list_chapters / …）」那一条硬要求，
+ * 默认 `true` 保持大纲面板既有的逐字输出不变。
+ *
+ * 为什么必须由调用方声明，而不是在系统提示词里写「请忽略上面那条」：
+ * 章节区那条链路**没有工具循环**（资料是事先装配进 user 消息的），
+ * 系统提示词明确说了「你没有读取文件的工具，不要尝试调用任何工具」。
+ * 若 user 消息反过来要求它先调 list_chapters，两者直接冲突，
+ * 模型很可能输出一段工具调用旁白而不是细纲 —— 白烧 token 且拿不到结果。
+ * 用「请不要理会那条指令」去修补互相矛盾的提示词是脆的（顺序、措辞一变就失效），
+ * 所以按能力生成提示词本身。
+ */
+export function buildEventOutlinePrompt(
+  request: EventOutlineRequest,
+  options: { hasFileTools?: boolean } = {},
+): string {
+  const hasFileTools = options.hasFileTools ?? true
   const requirement = request.requirement.trim()
   // 事件数虽然来自向导的下拉框（固定 4~8），但这是导出 API：0 / 小数 / NaN 会让除法
   // 吐出 Infinity 或 NaN，提示词立刻变成「每个事件约 Infinity 字」这种自相矛盾的指导。
@@ -337,7 +354,10 @@ export function buildEventOutlinePrompt(request: EventOutlineRequest): string {
     "- 事件之间必须前后连续、有因果推进，不能是并列的碎片；",
     "- 最后一个事件之后必须留下一个能勾住读者的章尾钩子；",
     "- **不要写正文**，不要展开描写，只给事件与抓手；",
-    "- 先读资料（list_chapters / read_chapter / list_outlines / read_outline）确认前文与已有章纲，再动笔；",
+    // 只有真的有工具循环时才要求读资料 —— 章节区那条链路没有工具，见函数注释
+    ...(hasFileTools
+      ? ["- 先读资料（list_chapters / read_chapter / list_outlines / read_outline）确认前文与已有章纲，再动笔；"]
+      : []),
     "- 不要输出工具调用报告和分析过程。",
     "",
     "## 输出格式（缺一不可）",

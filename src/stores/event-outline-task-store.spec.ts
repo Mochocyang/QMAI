@@ -75,6 +75,35 @@ describe("event-outline-task-store", () => {
     expect(useEventOutlineTaskStore.getState().tasks).toHaveLength(2)
   })
 
+  /*
+   * 「同项目」与「同章号」是两个**都必须**成立的条件。
+   *
+   * 用两条同章号但不同项目的任务来测：若 startTask 的过滤把 && 写成 ||，
+   * 它就会把别的项目的任务一起删掉 —— 而先前的用例全是「同项目不同章」
+   * 或「同项目同章」，两种写法都能通过，这个缺陷可以完全不被发现。
+   */
+  it("不同项目的同章号任务互不相干，两个都留下", () => {
+    useEventOutlineTaskStore.getState().startTask({ projectPath: "/book-a", request: request({ chapterNumber: 3 }) })
+    useEventOutlineTaskStore.getState().startTask({ projectPath: "/book-b", request: request({ chapterNumber: 3 }) })
+    expect(useEventOutlineTaskStore.getState().tasks).toHaveLength(2)
+    const tasks = useEventOutlineTaskStore.getState().tasks
+    expect(selectProjectEventOutlineTasks(tasks, "/book-a")).toHaveLength(1)
+    expect(selectProjectEventOutlineTasks(tasks, "/book-b")).toHaveLength(1)
+  })
+
+  it("换项目重开同章号只替换本项目那一条", () => {
+    const first = useEventOutlineTaskStore.getState().startTask({ projectPath: "/book-a", request: request({ chapterNumber: 3 }) })
+    const other = useEventOutlineTaskStore.getState().startTask({ projectPath: "/book-b", request: request({ chapterNumber: 3 }) })
+    const replaced = useEventOutlineTaskStore.getState().startTask({ projectPath: "/book-a", request: request({ chapterNumber: 3 }) })
+
+    const ids = useEventOutlineTaskStore.getState().tasks.map((task) => task.id)
+    expect(ids).toHaveLength(2)
+    expect(ids).not.toContain(first)
+    expect(ids).toContain(replaced)
+    // B 书那条必须活着：这正是 && 写成 || 时会丢掉的
+    expect(ids).toContain(other)
+  })
+
   it("removeTask 摘掉任务（丢弃 / 取消 / 确认后都走它）", () => {
     const id = useEventOutlineTaskStore.getState().startTask({ projectPath: "/p", request: request() })
     useEventOutlineTaskStore.getState().removeTask(id)

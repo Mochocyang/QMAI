@@ -423,17 +423,43 @@ describe("buildEventOutlinePrompt", () => {
 
   it("唯一的 json 示例是 eventOutlineData，而且是合法 JSON", () => {
     // 只留一份围栏：保存请求那份已经按用户要求移除（事件细纲不再进大纲列表）。
+    // 「只有一份围栏」是**可失败**的判据（多回一份 outlineSaveRequest 示例就会变 2）；
+    // 原先还跟着两条 `outlineSaveRequest === undefined` 的断言，但围栏里根本
+    // 没有这个键，无论提示词怎么写都成立 —— 恒真，故删除。
     const fences = promptJsonFences(buildEventOutlinePrompt({ ...request, chapterNumber: 7 }))
     expect(fences).toHaveLength(1)
     expect(fences[0].eventOutlineData?.events).toHaveLength(1)
-    expect(fences[0].outlineSaveRequest).toBeUndefined()
-    expect(buildEventOutlinePrompt(request)).not.toContain("outlineSaveRequest")
   })
 
   it("输出格式说的是「细纲内容（不是小说正文）」，不与「不要写正文」互相矛盾", () => {
     const prompt = buildEventOutlinePrompt(request)
     expect(prompt).toContain("一份可直接保存的 Markdown 细纲内容（不是小说正文）")
     expect(prompt).not.toContain("一份可直接保存的 Markdown 正文")
+  })
+
+  /*
+   * hasFileTools=false 是给**章节区**那条链路用的：那里没有工具循环
+   * （资料由 buildContextPack 事先装配进 user 消息），系统提示词也明确说了
+   * 「你没有读取文件的工具」。此时若还要求模型「先读资料（list_chapters / …）」，
+   * user 与 system 直接互相矛盾，模型可能输出工具调用旁白而不是细纲。
+   */
+  it("无工具链路上不再要求模型调用 list_chapters 等工具", () => {
+    const prompt = buildEventOutlinePrompt(request, { hasFileTools: false })
+    expect(prompt).not.toContain("list_chapters")
+    expect(prompt).not.toContain("read_chapter")
+    expect(prompt).not.toContain("list_outlines")
+    expect(prompt).not.toContain("read_outline")
+    // 除那一条外，其余硬要求与输出格式一字不动
+    expect(prompt).toContain("不要输出工具调用报告和分析过程")
+    expect(prompt).toContain("不要写正文")
+    expect(prompt).toContain("一级标题固定形如")
+  })
+
+  it("默认（有大纲面板的工具循环）仍然要求先读资料，行为与改动前一致", () => {
+    const prompt = buildEventOutlinePrompt(request)
+    expect(prompt).toContain("先读资料（list_chapters / read_chapter / list_outlines / read_outline）确认前文与已有章纲，再动笔；")
+    // 显式传 true 与不传必须完全一致
+    expect(buildEventOutlinePrompt(request, { hasFileTools: true })).toBe(prompt)
   })
 })
 
