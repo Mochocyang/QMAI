@@ -5,12 +5,19 @@ import type { EventOutlineData, EventOutlineRequest } from "@/lib/novel/event-ou
 /**
  * 章节区「生成章节细纲」的一次任务状态。
  *
- * 状态机：generating → awaiting-confirm（等用户确认后扩写成正文）
- *         generating → error
+ * 状态机：
+ *   generating        → awaiting-confirm  细纲生成成功，等用户确认
+ *   generating        → error             细纲生成失败（failTask 会清掉 outline）
+ *   awaiting-confirm  → writing           用户确认，正在按细纲生成正文
+ *   writing           → （任务被摘掉）     正文已写进章节文件，交接完成
+ *   writing           → awaiting-confirm  正文生成失败（writingError）**或**用户取消
+ *
  * 刻意**没有** done/cancelled 这些终态：细纲一旦被确认扩写，它就是那一章的正文来源，
  * 任务本身没有留在卡片区的理由，直接从 store 摘掉（见 removeTask）。
+ * 也正因为如此，「取消正文生成」不是终态 —— 它退回 awaiting-confirm，
+ * 因为此时细纲已经是用户确认过的资产，不该连它一起丢。
  */
-export type EventOutlineTaskStatus = "generating" | "awaiting-confirm" | "error"
+export type EventOutlineTaskStatus = "generating" | "awaiting-confirm" | "writing" | "error"
 
 export interface EventOutlineTask {
   id: string
@@ -30,6 +37,22 @@ export interface EventOutlineTask {
   receivedChars: number
   /** 生成失败的原因，或「模型回复里解析不出细纲」的说明。 */
   error: string | null
+  /**
+   * **正文**生成失败的原因。刻意与 `error` 分开，不复用一个字段：
+   *
+   * `failTask` 会把 `outline` 清空（细纲都没解析出来，留着也没用），而正文失败时
+   * 用户最需要的恰恰是那份**已经确认过的细纲**留在卡片上 —— 直接点重试就行，
+   * 不必再跑一次细纲生成。所以正文失败只写这个字段、状态退回 awaiting-confirm，
+   * 绝不碰 `outline`。
+   */
+  writingError: string | null
+  /**
+   * 正文生成走到的工作流阶段名（`onWorkflowEvent` 里 `started` 事件的标题）。
+   *
+   * 不复用 `receivedChars`：正文那条链路 `onFinalContent` 只在**阶段边界**给完整
+   * 文本，不是逐字流，「已收到 N 字」在这里既不是真的、也没有进度含义。
+   */
+  writingStage: string | null
   createdAt: number
   updatedAt: number
 }
@@ -46,6 +69,19 @@ interface EventOutlineTaskState {
   appendProgress: (taskId: string, receivedChars: number) => void
   finishTask: (taskId: string, outline: EventOutlineData) => void
   failTask: (taskId: string, error: string) => void
+  /** 用户确认细纲，进入正文生成。 */
+  startWriting: (taskId: string) => void
+  /** 正文生成的工作流阶段推进（只影响进度提示）。 */
+  setWritingStage: (taskId: string, stage: string) => void
+  /**
+   * 正文生成失败：退回 awaiting-confirm 并记下原因。
+   *
+   * 退回而不是留在 writing，是让卡片上的「用这份细纲写这一章」重新出现 ——
+   * 那枚按钮同时就是「重试」。`outline` 原样保留。
+   */
+  failWriting: (taskId: string, error: string) => void
+  /** 用户主动取消正文生成：退回 awaiting-confirm，且**不**留错误（取消不是失败）。 */
+  cancelWriting: (taskId: string) => void
   removeTask: (taskId: string) => void
 }
 
@@ -108,6 +144,8 @@ export const useEventOutlineTaskStore = create<EventOutlineTaskState>((set) => (
           outline: null,
           receivedChars: 0,
           error: null,
+          writingError: null,
+          writingStage: null,
           createdAt: now,
           updatedAt: now,
         },
@@ -143,6 +181,44 @@ export const useEventOutlineTaskStore = create<EventOutlineTaskState>((set) => (
       tasks: state.tasks.map((task) => (
         task.id === taskId
           ? { ...task, status: "error" as const, outline: null, error, updatedAt: Date.now() }
+          : task
+      )),
+    }))
+  },
+
+  startWriting: (taskId) => {
+    set((state) => ({
+      tasks: state.tasks.map((task) => (
+        task.id === taskId
+          ? { ...task, status: "writing" as const, writingError: null, writingStage: null, updatedAt: Date.now() }
+          : task
+      )),
+    }))
+  },
+
+  setWritingStage: (taskId, stage) => {
+    set((state) => ({
+      tasks: state.tasks.map((task) => (
+        task.id === taskId ? { ...task, writingStage: stage, updatedAt: Date.now() } : task
+      )),
+    }))
+  },
+
+  failWriting: (taskId, error) => {
+    set((state) => ({
+      tasks: state.tasks.map((task) => (
+        task.id === taskId
+          ? { ...task, status: "awaiting-confirm" as const, writingError: error, writingStage: null, updatedAt: Date.now() }
+          : task
+      )),
+    }))
+  },
+
+  cancelWriting: (taskId) => {
+    set((state) => ({
+      tasks: state.tasks.map((task) => (
+        task.id === taskId
+          ? { ...task, status: "awaiting-confirm" as const, writingError: null, writingStage: null, updatedAt: Date.now() }
           : task
       )),
     }))

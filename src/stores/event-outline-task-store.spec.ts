@@ -111,6 +111,83 @@ describe("event-outline-task-store", () => {
   })
 
   /*
+   * ── 正文生成这一段状态机（丙-2b）──
+   *
+   * 关键差别只有一条：正文失败**不能**复用 failTask。failTask 会把 outline 清成 null，
+   * 而正文失败时用户最需要的恰恰是那份已确认的细纲（点一下按钮就能重试）。
+   * 下面的用例把这条差别钉在 store 层，组件层另有渲染断言。
+   */
+  it("startWriting 进入 writing 并清掉上一次的失败痕迹", () => {
+    const id = useEventOutlineTaskStore.getState().startTask({ projectPath: "/p", request: request() })
+    useEventOutlineTaskStore.getState().finishTask(id, outline())
+    useEventOutlineTaskStore.getState().failWriting(id, "上一次的超时")
+    useEventOutlineTaskStore.getState().startWriting(id)
+
+    const task = useEventOutlineTaskStore.getState().tasks.find((item) => item.id === id)
+    expect(task?.status).toBe("writing")
+    expect(task?.writingError).toBeNull()
+    expect(task?.writingStage).toBeNull()
+    expect(task?.outline?.title).toBe("第7章 · 雨夜递刀")
+  })
+
+  it("failWriting 退回 awaiting-confirm，**保留 outline** 并写下 writingError", () => {
+    const id = useEventOutlineTaskStore.getState().startTask({ projectPath: "/p", request: request() })
+    useEventOutlineTaskStore.getState().finishTask(id, outline())
+    useEventOutlineTaskStore.getState().startWriting(id)
+    useEventOutlineTaskStore.getState().failWriting(id, "网络连接中断")
+
+    const task = useEventOutlineTaskStore.getState().tasks.find((item) => item.id === id)
+    expect(task?.status).toBe("awaiting-confirm")
+    expect(task?.writingError).toBe("网络连接中断")
+    // 与 failTask 的分水岭：细纲必须还在，卡片与重试按钮才有东西可渲染
+    expect(task?.outline?.title).toBe("第7章 · 雨夜递刀")
+    expect(task?.error).toBeNull()
+  })
+
+  it("cancelWriting 退回 awaiting-confirm 且不留错误（取消不是失败）", () => {
+    const id = useEventOutlineTaskStore.getState().startTask({ projectPath: "/p", request: request() })
+    useEventOutlineTaskStore.getState().finishTask(id, outline())
+    useEventOutlineTaskStore.getState().startWriting(id)
+    useEventOutlineTaskStore.getState().setWritingStage(id, "写出初稿")
+    useEventOutlineTaskStore.getState().cancelWriting(id)
+
+    const task = useEventOutlineTaskStore.getState().tasks.find((item) => item.id === id)
+    expect(task?.status).toBe("awaiting-confirm")
+    expect(task?.writingError).toBeNull()
+    expect(task?.writingStage).toBeNull()
+    expect(task?.outline?.title).toBe("第7章 · 雨夜递刀")
+  })
+
+  it("setWritingStage 只改阶段名，不动状态与细纲", () => {
+    const id = useEventOutlineTaskStore.getState().startTask({ projectPath: "/p", request: request() })
+    useEventOutlineTaskStore.getState().finishTask(id, outline())
+    useEventOutlineTaskStore.getState().startWriting(id)
+    useEventOutlineTaskStore.getState().setWritingStage(id, "审稿返修")
+
+    const task = useEventOutlineTaskStore.getState().tasks.find((item) => item.id === id)
+    expect(task?.writingStage).toBe("审稿返修")
+    expect(task?.status).toBe("writing")
+    expect(task?.outline?.title).toBe("第7章 · 雨夜递刀")
+  })
+
+  /*
+   * 同章重提会把正在写正文的那条任务整行换掉（startTask 按项目+章号替换），
+   * 用户既看不到它、也没法取消 —— 所以那一步必须由调用方（preview-panel 的
+   * supersede 循环）负责中止。这里只钉住「被换掉的旧行确实不在 store 里了」，
+   * 免得日后有人改成留下僵尸行。
+   */
+  it("同章重提会把正在写正文的那条任务换掉，不留僵尸行", () => {
+    const first = useEventOutlineTaskStore.getState().startTask({ projectPath: "/p", request: request() })
+    useEventOutlineTaskStore.getState().finishTask(first, outline())
+    useEventOutlineTaskStore.getState().startWriting(first)
+    const second = useEventOutlineTaskStore.getState().startTask({ projectPath: "/p", request: request() })
+
+    const ids = useEventOutlineTaskStore.getState().tasks.map((task) => task.id)
+    expect(ids).toEqual([second])
+    expect(ids).not.toContain(first)
+  })
+
+  /*
    * 项目过滤不是可选的美化：切到另一本书之后，上一个项目的细纲卡片仍在 store 里，
    * 若不过滤，用户会在 B 书里看到 A 书的细纲，并可能把它写成 B 书的章节。
    */

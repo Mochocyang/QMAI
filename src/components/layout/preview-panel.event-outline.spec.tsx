@@ -2,6 +2,7 @@
 
 /**
  * 丙-2a：章节区「生成章节细纲」全流程。
+ * 丙-2b：确认细纲后**直接在章节区写出正文**（不切视图、不进对话、不再点「写入本章」）。
  *
  * ── 为什么是渲染断言而不是源码文本断言 ──
  * 本批的要害是**入口换了地方之后仍然真的能用**：点按钮要弹向导、提交要真的
@@ -11,7 +12,8 @@
  * 把入口包成 `{false ? … : null}` 时源码断言依然全绿）。
  *
  * 生成函数被 mock 掉：这里测的是接线（谁在什么时候调用它、结果怎么落地），
- * 不是 LLM 交互。真实解析逻辑在 event-outline-generation.spec.ts 里测。
+ * 不是 LLM 交互。真实解析逻辑在 event-outline-generation.spec.ts 里测，
+ * 真实章节工作流在 deep-chapter-generation.spec.ts 里测。
  */
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
@@ -20,23 +22,61 @@ import { PreviewPanel } from "@/components/layout/preview-panel"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useEventOutlineTaskStore } from "@/stores/event-outline-task-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
+import { useWritingStatsStore } from "@/stores/writing-stats-store"
+import { normalizeCountableText } from "@/lib/writing-stats"
+import { normalizeComparablePath } from "@/lib/path-utils"
 import { USER_ABORT_MESSAGE } from "@/lib/user-abort"
 import type { EventOutlineData, EventOutlineRequest } from "@/lib/novel/event-outline"
+import type { DeepChapterGenerationResult } from "@/lib/novel/deep-chapter-generation"
 
 const fixture = vi.hoisted(() => ({
   generateEventOutline: vi.fn(),
+  runDeepChapterGeneration: vi.fn(),
+  ingestChapter: vi.fn(),
+  /**
+   * 内存文件系统。
+   *
+   * 丙-2b 的落盘路径要「写盘 → 选中」并靠 readFile 打归属基线，用一个会说谎的
+   * readFile（永远返回同一段模板文本）测不出这些；而且新章节的 readFile 必须能
+   * **失败**（文件还不存在 → 走 `.catch(() => undefined)`）。
+   */
+  files: new Map<string, string>(),
+  readFile: vi.fn(),
+  writeFile: vi.fn(),
+  writeFileAtomic: vi.fn(),
+  createDirectory: vi.fn(),
+  listDirectory: vi.fn(),
+  fileExists: vi.fn(),
 }))
 
 vi.mock("@/lib/novel/event-outline-generation", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/novel/event-outline-generation")>(),
   generateEventOutline: fixture.generateEventOutline,
 }))
+/*
+ * 只替换这条顶层入口：它是丙-2b 唯一的正文来源，测试要断言「传了什么进去」。
+ * 不走 importOriginal —— 那个模块会拖进整条上下文/审查链，而本文件测的是接线。
+ */
+vi.mock("@/lib/novel/deep-chapter-generation", () => ({
+  runDeepChapterGeneration: fixture.runDeepChapterGeneration,
+}))
+/*
+ * 草稿隔离的另一半在这里：**没有**任何自动摄取。
+ * ingestChapter 是全仓唯一的章节摄取入口，把它换成 spy，就钉住了
+ * 「AI 刚写出来的草稿不得被摄取进记忆库」。
+ */
+vi.mock("@/lib/novel/chapter-ingest", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/novel/chapter-ingest")>(),
+  ingestChapter: fixture.ingestChapter,
+}))
 vi.mock("@/commands/fs", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/commands/fs")>(),
-  readFile: vi.fn(async (path: string) => (path.endsWith("第16章.md") ? CHAPTER : "# 大纲\n\n正文")),
-  writeFileAtomic: vi.fn(async () => {}),
-  listDirectory: vi.fn(async () => []),
-  fileExists: vi.fn(async () => true),
+  readFile: fixture.readFile,
+  writeFile: fixture.writeFile,
+  writeFileAtomic: fixture.writeFileAtomic,
+  createDirectory: fixture.createDirectory,
+  listDirectory: fixture.listDirectory,
+  fileExists: fixture.fileExists,
 }))
 vi.mock("@/components/skill-library/use-de-ai-skill-options", () => ({
   useDeAiSkillOptions: () => ({ loading: false, skills: [], effectiveName: "未启用", currentSkillId: null, defaultSkillId: null, loadError: "" }),
@@ -70,6 +110,68 @@ const OUTLINE: EventOutlineData = {
   events: [{ id: 1, title: "楚白在巷口截住骆轻竹", points: ["关键台词：别回头", "神情动作：手按刀柄"] }],
   endingHook: "刀落下的声音从身后传来。",
 }
+
+/**
+ * 丙-2b 用的细纲：**必须能通过 `validateEventOutlineData`**（4~8 个事件、每事件
+ * ≥2 条抓手、有钩子），否则 `EventOutlineCard` 的那枚确认按钮根本不会渲染
+ * （它由 `onWriteChapter && validation.ok` 双条件 gate），用例就点不到确认件。
+ * 上面那条 1 个事件的 `OUTLINE` 是丙-2a 的历史夹具，故意不动它。
+ */
+function outlineFor(chapterNumber: number): EventOutlineData {
+  const titles = [
+    "楚白在巷口截住骆轻竹",
+    "两人沿河堤追出三里地",
+    "骆轻竹抽出腰间短刀",
+    "刀落下的声音从身后传来",
+  ]
+  return {
+    version: 1,
+    chapterNumber,
+    title: `第${chapterNumber}章 · 雨夜递刀`,
+    targetWords: 3000,
+    events: titles.map((title, index) => ({
+      id: index + 1,
+      title,
+      points: ["关键台词：别回头", "神情动作：手按刀柄"],
+    })),
+    endingHook: "刀落下的声音从身后传来。",
+  }
+}
+
+/** 规范章节路径：`chapter-NNN.md`（三位补零），与生产路径同一套命名。 */
+function canonicalChapterPath(chapterNumber: number): string {
+  return `${project.path}/wiki/chapters/chapter-${String(chapterNumber).padStart(3, "0")}.md`
+}
+
+/** 往内存盘里种一个**规范命名**的既有章节。 */
+function seedCanonicalChapter(chapterNumber: number, body = "　　原本的正文。"): string {
+  const path = canonicalChapterPath(chapterNumber)
+  fixture.files.set(
+    path,
+    `---\ntype: chapter\nchapter_number: ${chapterNumber}\nchapter_status: draft\ntitle: "第${chapterNumber}章-原稿"\n---\n\n${body}`,
+  )
+  return path
+}
+
+function deepResult(finalContent: string): DeepChapterGenerationResult {
+  return {
+    finalContent,
+    taskBrief: "",
+    draftContent: finalContent,
+    reviewResults: [],
+    revised: false,
+  }
+}
+
+/** 模型产出的章节正文（不含 H1：标题只进 frontmatter）。 */
+const AI_PROSE = [
+  "雨停在子时。",
+  "",
+  "楚白在巷口截住了骆轻竹，手一直按在刀柄上。",
+  "「别回头。」他说。",
+  "",
+  "刀落下的声音从身后传来。",
+].join("\n")
 
 let container: HTMLDivElement
 let root: Root
@@ -230,6 +332,59 @@ function setInput(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event("input", { bubbles: true }))
 }
 
+/**
+ * 等异步链路跑完（生成 → 落盘 → 选中 → 刷新目录）。
+ *
+ * 用一次宏任务而不是若干个 `Promise.resolve()`：落盘链路里串了多次真实 await
+ * （createDirectory / readFile / writeFile / listDirectory 全是 mock 出来的 promise），
+ * 宏任务把它们一次性排空，逐个微任务数数只会写成对实现顺序过度敏感的脆弱断言。
+ */
+async function settleAsync(rounds = 3): Promise<void> {
+  for (let index = 0; index < rounds; index += 1) {
+    await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 0)) })
+  }
+}
+
+/** 点细纲卡片上那枚确认件（即「用这份细纲写这一章」）。 */
+async function confirmOutline(): Promise<void> {
+  await click("用这份细纲写这一章")
+  await settleAsync()
+}
+
+/** 找一行正文生成中的行（它的文案与细纲生成那行不同，不能靠下标猜）。 */
+function writingRow(chapterNumber: number): HTMLElement {
+  const row = taskRows().find((item) => item.textContent?.includes(`正在写第 ${chapterNumber} 章正文`))
+  expect(row, `应有第 ${chapterNumber} 章的正文生成行`).toBeDefined()
+  return row!
+}
+
+/**
+ * 把两个 store 动作换成**带顺序记录**的包装，用于断言相对次序。
+ *
+ * 为什么不用 `vi.spyOn(store.getState(), "recordChapter")`：zustand 每次 `set` 都
+ * `Object.assign({}, state, partial)` 造一个**新** state 对象，spy 装在旧对象上，
+ * 组件下一次 `getState()` 拿到的就已经是没有 spy 的那份了。
+ * `setState` 合并替换 + `beforeEach` 的 `setState(getInitialState())` 能干净还原。
+ */
+function trackStoreCallOrder() {
+  const order: string[] = []
+  const statsState = useWritingStatsStore.getState()
+  const wikiState = useWikiStore.getState()
+  const originalRecord = statsState.recordChapter
+  const originalSelect = wikiState.setSelectedFile
+  const record = vi.fn((...args: Parameters<typeof originalRecord>) => {
+    order.push("recordChapter")
+    return originalRecord(...args)
+  })
+  const select = vi.fn((...args: Parameters<typeof originalSelect>) => {
+    order.push("setSelectedFile")
+    return originalSelect(...args)
+  })
+  useWritingStatsStore.setState({ recordChapter: record })
+  useWikiStore.setState({ setSelectedFile: select })
+  return { order, record, select }
+}
+
 beforeEach(() => {
   vi.spyOn(console, "log").mockImplementation(() => {})
   vi.spyOn(console, "warn").mockImplementation(() => {})
@@ -239,7 +394,37 @@ beforeEach(() => {
   // 大纲会话也归零：不 reset 的话种子会话会漏到下一条用例里
   // （「不碰大纲会话」那条用例的 before/after 都取自这里）。
   useOutlineChatStore.setState({ conversations: [], activeConversationId: null })
-  fixture.generateEventOutline.mockReset()
+  /*
+   * 写作统计也要归零：丙-2b 的用例会断言 recordChapter 的差分结果，
+   * 而本文件此前从没碰过这个 store —— 不 reset 的话上一条用例的账本
+   * （provenance / chapters）会漏下来，让「今日 AI 字数」变成两条用例的和。
+   */
+  useWritingStatsStore.setState(useWritingStatsStore.getInitialState())
+  for (const spy of [
+    fixture.generateEventOutline,
+    fixture.runDeepChapterGeneration,
+    fixture.ingestChapter,
+    fixture.readFile,
+    fixture.writeFile,
+    fixture.writeFileAtomic,
+    fixture.createDirectory,
+    fixture.listDirectory,
+    fixture.fileExists,
+  ]) spy.mockReset()
+  fixture.files.clear()
+  // 磁盘上先有一份丙-2a 的既有章节（mount 会选中它）。
+  fixture.files.set(chapterPath, CHAPTER)
+  fixture.readFile.mockImplementation(async (path: string) => {
+    const content = fixture.files.get(path)
+    // 文件不存在就 reject，跟真实 Tauri 一致：落盘路径必须先经历「读不到旧正文」。
+    if (content === undefined) throw new Error(`文件不存在: ${path}`)
+    return content
+  })
+  fixture.writeFile.mockImplementation(async (path: string, contents: string) => { fixture.files.set(path, contents) })
+  fixture.writeFileAtomic.mockImplementation(async (path: string, contents: string) => { fixture.files.set(path, contents) })
+  fixture.createDirectory.mockImplementation(async () => {})
+  fixture.listDirectory.mockImplementation(async () => [])
+  fixture.fileExists.mockImplementation(async (path: string) => fixture.files.has(path))
   container = document.createElement("div")
   document.body.appendChild(container)
   root = createRoot(container)
@@ -639,5 +824,297 @@ describe("章节区生成章节细纲 · 取消", () => {
       useEventOutlineTaskStore.getState().removeTask(useEventOutlineTaskStore.getState().tasks[0].id)
     })
     expect(useEventOutlineTaskStore.getState().tasks).toHaveLength(0)
+  })
+})
+
+/*
+ * ── 丙-2b：确认之后**直接在章节区**写出正文 ──
+ *
+ * 用户原话：「点击这个功能后，在章节区生成内容。生成内容后需要用户确认，
+ * 用户确认之后，**直接在章节区当中生成最新的章节内容**。」
+ * 前半段（生成 → 可确认的细纲卡片）由上面丙-2a 那组用例钉住；这里钉最后一句：
+ * 点「用这份细纲写这一章」之后不得再有第二次手动采纳（没有聊天回合、没有
+ * 「写入本章」按钮），正文必须直接落成章节文件并在章节区显示出来。
+ */
+
+/** 规范命名的章节库（`chapter-001.md` / `chapter-003.md`）——「下一章」的唯一正确答案是 4。 */
+function seedCanonicalChapterLibrary(): void {
+  useWikiStore.setState({
+    fileTree: [
+      { name: "chapter-001.md", path: canonicalChapterPath(1), is_dir: false },
+      { name: "chapter-003.md", path: canonicalChapterPath(3), is_dir: false },
+    ],
+  })
+}
+
+/** 让写作统计「认得这个项目」：`recordChapter` 在没有 projectPath 时直接早退、不记账。 */
+function seedWritingStatsProject(): void {
+  useWritingStatsStore.setState({
+    projectPath: normalizeComparablePath(project.path),
+    hydrated: true,
+    humanChars: 0,
+    aiChars: 0,
+    provenance: {},
+    chapters: {},
+  })
+}
+
+/** **实际交给 writeFile 的那串 markdown**（断言落盘内容，而不是断言内存盘里的副本）。 */
+function markdownHandedToWriteFile(chapterNumber: number): string {
+  const call = fixture.writeFile.mock.calls.find(([path]) => path === canonicalChapterPath(chapterNumber))
+  expect(call, `应有一笔写向 ${canonicalChapterPath(chapterNumber)} 的 writeFile`).toBeDefined()
+  return call![1] as string
+}
+
+/** 手动控制的 promise：「取消之后生成才返回」这种时序只能这样造。 */
+function createDeferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+
+/** 提交向导 → 确认细纲 → 等落盘跑完。 */
+async function outlineThenConfirm(chapterNumber: number, prose = AI_PROSE): Promise<void> {
+  fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(chapterNumber), rawContent: "", error: null })
+  await submitWizard("", String(chapterNumber))
+  fixture.runDeepChapterGeneration.mockResolvedValue(deepResult(prose))
+  await confirmOutline()
+}
+
+describe("确认细纲后直接在章节区写出正文", () => {
+  it("确认即生成：计划文本原样进 planBlueprint，正文写进规范章节名并选中它", async () => {
+    seedWritingStatsProject()
+    /*
+     * 章节库种的是 001/003（下一章是 4），而向导里提交的是**第 2 章** ——
+     * 两者故意不同：目标章号必须以**任务**（用户在向导里的指定）为准，
+     * 若哪天改成 library+1，落盘路径会变成 chapter-004.md，这条用例立刻变红。
+     */
+    seedCanonicalChapterLibrary()
+    await mount()
+    await outlineThenConfirm(2)
+
+    // (1) 正文生成入口被调用**恰好一次**，且细纲真的进了 planBlueprint
+    expect(fixture.runDeepChapterGeneration).toHaveBeenCalledTimes(1)
+    const [input, , , signal] = fixture.runDeepChapterGeneration.mock.calls[0] as [
+      { planBlueprint?: string; userRequest: string; chapterNumber?: number; projectPath: string },
+      unknown,
+      unknown,
+      AbortSignal,
+    ]
+    expect(input.projectPath).toBe(project.path)
+    expect(input.chapterNumber).toBe(2)
+    expect(input.planBlueprint, "细纲必须作为计划文本传进去").toContain("楚白在巷口截住骆轻竹")
+    expect(input.planBlueprint).toContain("第 2 章正文")
+    expect(input.planBlueprint).toContain("刀落下的声音从身后传来")
+    // userRequest 只放一句短指令：完整要求已经在 planBlueprint 里，不重复一遍
+    expect(input.userRequest).not.toContain("楚白在巷口截住骆轻竹")
+    expect(input.userRequest).toContain("第 2 章")
+    expect(signal, "必须把取消信号交给正文生成").toBeInstanceOf(AbortSignal)
+
+    // (2) 写进规范章节名（不是「第2章.md」，也不是库里的 003/004）
+    expect(fixture.writeFile).toHaveBeenCalledTimes(1)
+    expect(fixture.writeFile.mock.calls[0][0]).toBe(canonicalChapterPath(2))
+    expect(markdownHandedToWriteFile(2)).toContain("chapter_number: 2")
+    expect(markdownHandedToWriteFile(2)).toContain("雨停在子时")
+    expect(fixture.createDirectory).toHaveBeenCalledWith(`${project.path}/wiki/chapters`)
+
+    // (3) 章节区就在这一章上：选中它、编辑器内容就是刚生成的正文、卡片交接完成后收掉
+    expect(useWikiStore.getState().selectedFile).toBe(canonicalChapterPath(2))
+    expect(useWikiStore.getState().fileContent).toContain("雨停在子时")
+    expect(container.querySelector("[data-event-outline-card]"), "交接完成后不该再留细纲卡片").toBeNull()
+    expect(useEventOutlineTaskStore.getState().tasks).toHaveLength(0)
+    // 没有切视图：这一整条链路都在章节区里完成
+    expect(useWikiStore.getState().activeView).toBe("wiki")
+  })
+
+  it("写进章节文件的是 draft：草稿隔离在代码里是字面量，没有开关可翻", async () => {
+    await mount()
+    await outlineThenConfirm(2)
+
+    const written = markdownHandedToWriteFile(2)
+    expect(written).toContain("chapter_status: draft")
+    expect(written).not.toMatch(/chapter_status:\s*final/)
+    // 标题只在 frontmatter，正文不带 H1（否则章节头会出现两遍章名）
+    expect(written.startsWith("---\ntype: chapter\nchapter_number: 2\nchapter_status: draft\n")).toBe(true)
+    expect(written).not.toMatch(/^#\s/m)
+  })
+
+  it("先记写作统计、再选中章节（顺序反了 AI 这一章就不算今天写的）", async () => {
+    seedWritingStatsProject()
+    const { order } = trackStoreCallOrder()
+    await mount()
+    await outlineThenConfirm(2)
+
+    expect(order, "记账与选中都必须发生").toContain("recordChapter")
+    expect(order).toContain("setSelectedFile")
+    expect(
+      order.indexOf("recordChapter"),
+      "recordChapter 必须在 setSelectedFile 之前（选中会触发重载 effect 打归属基线）",
+    ).toBeLessThan(order.indexOf("setSelectedFile"))
+    // 可观测后果：这一章的字数确实记进了「今日 AI 生成」
+    const written = markdownHandedToWriteFile(2)
+    expect(useWritingStatsStore.getState().aiChars).toBe(normalizeCountableText(written).length)
+  })
+
+  it("目标就是编辑器里当前这一章时，先把未保存改动冲刷到磁盘再覆盖", async () => {
+    seedWritingStatsProject()
+    const chapterThree = seedCanonicalChapter(3)
+    const originalDraft = fixture.files.get(chapterThree)!
+    const unsavedEdit = "---\ntype: chapter\nchapter_number: 3\nchapter_status: draft\ntitle: \"第3章-原稿\"\n---\n\n　　用户刚敲下、还没保存的一段话。"
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(3), rawContent: "", error: null })
+    fixture.runDeepChapterGeneration.mockResolvedValue(deepResult(AI_PROSE))
+    await mount()
+
+    // 切到第 3 章（磁盘上有原稿），再把编辑器内容改成「未保存的改动」：
+    // fileContent → fileContentRef 的 effect 会让落盘路径读到它，磁盘仍是原稿。
+    await act(async () => { useWikiStore.setState({ selectedFile: chapterThree }) })
+    await settleAsync(2)
+    await act(async () => { useWikiStore.setState({ fileContent: unsavedEdit }) })
+    await settleAsync(1)
+    expect(fixture.files.get(chapterThree)).toBe(originalDraft)
+
+    const atomicCallsBeforeConfirm = fixture.writeFileAtomic.mock.calls.length
+    /*
+     * 冲刷那一笔刻意做成**慢一拍**（真实 Tauri IPC 本来就不是同步的）。
+     *
+     * 只有慢下来，「没 await 冲刷就直接覆盖写」这个缺陷才会以它真正的后果暴露：
+     * AI 正文先落盘、旧编辑器快照后落盘，把刚生成的一整章盖回用户的半句草稿。
+     * 两条 promise 链在同一个微任务批次里赛跑时**恰好**会对（实测：把
+     * `await flushChapterBeforeLeave` 改成 `void`，慢下来之前全绿），
+     * 那样的用例等于没测「await」这件事。
+     */
+    fixture.writeFileAtomic.mockImplementation(async (path: string, contents: string) => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0))
+      fixture.files.set(path, contents)
+    })
+    await submitWizard("", "3")
+    await confirmOutline()
+
+    /*
+     * 断言的是**确认那一刻新发生的那一笔** writeFileAtomic（冲刷），而不是
+     * 历史上任何一笔 —— 否则「冲刷有没有跑」会被别的保存路径冒充。
+     */
+    const flushCall = fixture.writeFileAtomic.mock.calls
+      .slice(atomicCallsBeforeConfirm)
+      .find(([path, content]) => path === chapterThree && String(content).includes("用户刚敲下"))
+    expect(flushCall, "同章覆盖前必须先把这一章的未保存改动冲刷到磁盘").toBeDefined()
+    const flushIndex = fixture.writeFileAtomic.mock.calls.indexOf(flushCall!)
+    expect(
+      fixture.writeFileAtomic.mock.invocationCallOrder[flushIndex],
+      "冲刷必须早于覆盖写（不 await 就会与 writeFile 抢同一个文件）",
+    ).toBeLessThan(fixture.writeFile.mock.invocationCallOrder[0])
+    // 覆盖之后盘上、编辑器里都是 AI 正文
+    expect(markdownHandedToWriteFile(3)).toContain("雨停在子时")
+    expect(
+      fixture.files.get(chapterThree),
+      "冲刷晚于覆盖写的话，旧快照会把刚生成的整章盖回去",
+    ).toBe(markdownHandedToWriteFile(3))
+    expect(useWikiStore.getState().fileContent).toContain("雨停在子时")
+  })
+
+  it("正文生成失败：退回待确认、细纲原样保留、原因可见且可直接重试", async () => {
+    await mount()
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(2), rawContent: "", error: null })
+    await submitWizard("", "2")
+    fixture.runDeepChapterGeneration.mockRejectedValue(new Error("模型超时"))
+    await confirmOutline()
+
+    const task = useEventOutlineTaskStore.getState().tasks[0]
+    expect(task.outline?.title, "细纲要原样留着，否则用户没法重试").toBe("第2章 · 雨夜递刀")
+    expect(task.status, "失败后必须回到可确认状态").toBe("awaiting-confirm")
+    expect(task.writingError).toContain("模型超时")
+    // 卡片与主按钮都还在（那枚按钮同时就是「重试」）
+    expect(container.querySelector("[data-event-outline-card]")).not.toBeNull()
+    expect(button("用这份细纲写这一章").disabled).toBe(false)
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("模型超时")
+    // 失败不落盘
+    expect(fixture.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("正文生成中点「取消」会 abort 请求，晚到的结果也绝不落盘", async () => {
+    const deferred = createDeferred<DeepChapterGenerationResult>()
+    const signals: AbortSignal[] = []
+    // 不接受 signal 的传输：abort 只影响我们自己的收尾，生成照常返回（F8 那种形态）
+    fixture.runDeepChapterGeneration.mockImplementation((_i: unknown, _c: unknown, _d: unknown, signal: AbortSignal) => {
+      signals.push(signal)
+      return deferred.promise
+    })
+    await mount()
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(1), rawContent: "", error: null })
+    await submitWizard("", "1")
+    await confirmOutline()
+
+    const row = writingRow(1)
+    expect(signals[0].aborted, "还没取消时不该是 aborted").toBe(false)
+    await act(async () => { cancelButtonOf(row).click() })
+
+    expect(signals[0].aborted, "点取消必须真的 abort 那次请求").toBe(true)
+    const task = useEventOutlineTaskStore.getState().tasks[0]
+    expect(task.status).toBe("awaiting-confirm")
+    // 取消不是失败：不留红色错误
+    expect(task.writingError).toBeNull()
+    expect(task.outline?.title).toBe("第1章 · 雨夜递刀")
+    expect(container.querySelector("[data-event-outline-card]")).not.toBeNull()
+    expect(taskRows()[0].textContent).not.toContain("正在写第 1 章正文")
+
+    // 传输忽略 abort、生成在取消之后才返回：晚到的正文必须被丢弃
+    await act(async () => { deferred.resolve(deepResult(AI_PROSE)) })
+    await settleAsync()
+    expect(fixture.writeFile, "取消之后晚到的正文不得落盘").not.toHaveBeenCalled()
+    expect(useEventOutlineTaskStore.getState().tasks[0].status).toBe("awaiting-confirm")
+  })
+
+  it("正文生成中同章重提细纲：被取代的那次请求必须被中止", async () => {
+    const signals: AbortSignal[] = []
+    fixture.runDeepChapterGeneration.mockImplementation((_i: unknown, _c: unknown, _d: unknown, signal: AbortSignal) => {
+      signals.push(signal)
+      return new Promise(() => {})
+    })
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(1), rawContent: "", error: null })
+    await mount()
+    await submitWizard("", "1")
+    await confirmOutline()
+    expect(signals[0].aborted).toBe(false)
+
+    // 同项目同章号重提：startTask 会把那条正在写正文的任务整行换掉
+    await submitWizard("", "1")
+    await settleAsync()
+
+    expect(signals[0].aborted, "被取代的正文生成不能继续跑（还在计费）").toBe(true)
+    expect(fixture.writeFile, "被取代的生成不得再落盘").not.toHaveBeenCalled()
+    expect(useEventOutlineTaskStore.getState().tasks).toHaveLength(1)
+  })
+
+  it("没有可用模型时明确报错，不静默什么都不发生", async () => {
+    const toastModule = await import("@/lib/toast")
+    const errorSpy = vi.spyOn(toastModule.toast, "error").mockImplementation(() => {})
+    fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(2), rawContent: "", error: null })
+    await mount()
+    await submitWizard("", "2")
+    await act(async () => {
+      useWikiStore.setState({
+        llmConfig: { ...useWikiStore.getInitialState().llmConfig, apiKey: "", model: "" },
+        providerConfigs: {},
+        defaultLlmModel: "",
+        aiChatModel: "",
+      })
+    })
+    await act(async () => { button("用这份细纲写这一章").click() })
+    await settleAsync()
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("未配置可用的 AI 模型"))
+    expect(fixture.runDeepChapterGeneration).not.toHaveBeenCalled()
+    expect(fixture.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("草稿隔离：全程不摄取、不自动标记 final", async () => {
+    await mount()
+    await outlineThenConfirm(2)
+
+    expect(fixture.ingestChapter, "AI 刚写出来的草稿不得被摄取进记忆库").not.toHaveBeenCalled()
+    // 落盘内容是 draft，且没有任何「保存为正式章节」的副作用
+    expect(markdownHandedToWriteFile(2)).toContain("chapter_status: draft")
+    expect(useWikiStore.getState().finalChapterSave).toBeNull()
   })
 })
