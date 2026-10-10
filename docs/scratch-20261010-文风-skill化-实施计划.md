@@ -72,6 +72,13 @@
        - **(i) 推荐**：给文风库单独一个 `.catch`（例如
          `loadWritingStyleStore(project?.path).catch(() => ({ version: 1, enabledStyleId: null, styles: [] }))`），
          让「文风库缺失/损坏」退化成「文风 tab 为空」，**不影响另外两库**；
+         ✍️ **订正（丁-1 实测）**：上面那行**不能编译** —— `loadWritingStyleStore` 的签名是
+         `(projectPath: string)`，**不接受 `undefined`**（另外两个 loader 才接受 `null | undefined`），
+         必须先判 `project?.path`。⚠️ 另一条实测事实：`loadWritingStyleStore` 自身 try/catch 吞掉一切，
+         **今天不可能 reject** ⇒ 这个 `.catch` 是**结构性防护，不是当前可触发的故障面**
+         （丁-1 的 S3 变异：去掉 `.catch` 后断言全绿，只是 vitest 报 `Unhandled Rejection` 且 exit 1）。
+         按 (i) 做仍然正确（M7 证明合并进共享 catch 会真的把故障扩散到三库），
+         但**不要声称它挡住了今天存在的某个真实故障**。
        - **(ii)** 合进同一个 `Promise.all` 但把 `catch` 拆成按来源记录，
          并保证只有**全部**失败才显示整库错误。
      - ⚠️ 顺带确认：`loadWritingStyleStore`（`writing-style-store.ts:65-77`）**自身已经**
@@ -92,6 +99,13 @@
 
 ### 🔴🔴 补漏（实施前必读）：加一个 tab 远不止「改 :36-40 与 :43」——
 ### 有 **7 处二元三元表达式**会静默走错分支，且 **`tsc` 抓不到任何一处**
+
+> ✍️ **订正（丁-1 实施后回填）**：本节标题的「7 处」只说对了**一半**。
+> 同一个形状在 **`entry.type`** 上还有 **8 处**（含唯一带写盘后果的 `:526`），
+> 本节的 (2) 表**一处未提**。详见下面新增的 **(3b)**。
+> ⇒ 读本节时请把「7 处」理解成 **7 + 8 = 15 处**。
+> 另：本节的 4 个跨文件挂点里，`wiki-store.ts:661` 与「default 白屏」两条**是错的**，
+> 已在 (3) 表内逐条订正。
 
 上面步骤 1 只写了「tab 数组加一项 + `GalleryTab` 联合类型同步 + 动作区补分支」。
 **这远远不够。** 已通读 `unified-skill-library-view.tsx`，发现关键区别：
@@ -133,10 +147,25 @@ tab 高亮错（`:700` 的 `aria-pressed` 会把「去AI味」标成选中）、
 #### (3) tab 之外**还有 4 个跨文件挂点**，漏掉会有更硬的后果
 | 位置 | 为什么必须动 |
 |---|---|
-| `wiki-store.ts:661` | `activeView` 是**字面量联合类型**，新视图**必须**加进去，否则 `setActiveView("writingStyleLibrary")` 直接编译失败 |
-| `content-area.tsx:126` (`case "writingSkillLibrary":`) | 视图→内容的 `switch`。新视图不补 `case` 会掉进 default（白屏）。⚠️ `content-area.search-performance.test.tsx:23` 用源码断言钉着 `case "writingSkillLibrary"` 存在，别把它删了 |
+| `wiki-store.ts:661` ✍️**订正：实际在 `:690`** | `activeView` 是**字面量联合类型**，新视图**必须**加进去，否则 `setActiveView("writingStyleLibrary")` 直接编译失败 |
+| `content-area.tsx:126` (`case "writingSkillLibrary":`) | 视图→内容的 `switch`。新视图不补 `case` 会掉进 default。⚠️ `content-area.search-performance.test.tsx:23` 用源码断言钉着 `case "writingSkillLibrary"` 存在，别把它删了。✍️**订正：后果不是「白屏」** —— `content-area.tsx:182-188` 的 `default:` 渲染的是 `<AIChatTabContainer />`，症状是**「技能库位置出现 AI 会话 tab」**（丁-1 用 M8 实测确认：stub-ai-chat-tab 出现、stub-unified-skill-library 消失）。这比白屏更隐蔽 —— 界面看起来正常，内容却完全不相干 |
 | `ui-test-shell.tsx:113` | `fullWindowViews` 白名单：不在里面的视图**不是全窗口渲染**，会挤在错误的容器里 |
-| `icon-sidebar.tsx:81` | `isActive = item.view === activeView \|\| (item.view === "skillLibrary" && activeView === "writingSkillLibrary")` —— 侧边栏高亮逻辑，新视图要不要折算到「技能库」图标必须**显式决定** |
+| `icon-sidebar.tsx:81` | `isActive = item.view === activeView \|\| (item.view === "skillLibrary" && activeView === "writingSkillLibrary")` —— 侧边栏高亮逻辑，新视图要不要折算到「技能库」图标必须**显式决定**。✍️**订正**：原文把第一个操作数反着写成 `item.view === activeView`（语义等价，但不是逐字引用）。丁-1 已把折算抽成 `SKILL_LIBRARY_TAB_VIEWS: readonly NavView[] = ["writingSkillLibrary", "writingStyleLibrary"]` |
+
+#### (3b) ✍️ **订正：上面 (2) 的表只覆盖了 `activeTab` 键控，漏了同一形状的另一类**
+**丁-1 实施时实测发现**：同一个「二元分支 + 新成员静默落 else」的形状，在 `entry.type` 上还有 **8 处**
+（原 `:86` / `:363` / `:477` / **`:526`** / `:611` / `:612` / `:622` / `:671`），而本表一处未提。
+其中 **`:526` 是唯一带「写盘」后果的一处**：
+
+```ts
+if (entry.type === "writing") { 写 writing-skills.json }
+else                          { 写 de-ai-skills.json }   // ← 文风条目会掉进这里
+```
+
+⇒ 加了 `"style"` 而不改这处，文风条目一旦走到这里就会**把 `enabled` 写进 `de-ai-skills.json`**（还拿 preset id 当 skill id），而 **`tsc` 不报错**。
+**要求（照丁-1 的做法）**：`entry.type` 的分派也改成**穷尽 switch / `Record` 表**，
+让「加了类型却忘了补分支」变成**编译错误**而不是静默错误。
+⚠️ 这条比 (2) 的表更值得警惕：`activeTab` 那 7 处错了顶多**显示错**，这一处错了会**写坏另一个库的文件**。
 
 #### (4) ⚠️ 还有 3 条**既有源码断言**会被这次改动撞到（先读再改，别盲改）
 - `icon-sidebar.test.tsx:51-53`：断言 `iconSidebarSource` **不含** `id: "writingSkillLibrary"`，
@@ -616,7 +645,7 @@ ArrowUp/Down + Enter）、`role="option"`/`aria-selected`/`aria-current`、
 ——**这就是丁-1 必须新增的那个 view**。两条子批在此**必须对齐**：
 丁-1 先把 view 接通（含 §1 补漏列的 11 个挂点），丁-3 再依赖它。
 ⚠️ 若顺序反过来，`setActiveView("writingStyleLibrary")` 会**编译失败**
-（`wiki-store.ts:661` 是字面量联合类型）——这是好事，属**编译期**拦截；
+（`wiki-store.ts:690`（原写 `:661`，已订正）是字面量联合类型）——这是好事，属**编译期**拦截；
 但要意识到 `icon-sidebar.tsx:81` 的高亮折算**不会**报错，必须显式决定。
 
 **(5) `iconOnly` / `buttonLabel` / `includeDisableOption` / `showLibraryShortcut`
