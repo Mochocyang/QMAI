@@ -7,6 +7,7 @@ import {
   prepareOutlineSaveDraft,
   prepareOutlineSaveSourceContent,
 } from "./outline-save"
+import type { OutlineSaveRequestFileType } from "./novel/outline-save-request"
 
 describe("outline save draft", () => {
   it("ignores frontmatter when deriving an outline title", () => {
@@ -178,7 +179,15 @@ describe("事件细纲保存闸门判据", () => {
   })
 
   it("其余类型不被误拦（真章纲/卷纲/人物小传照常保存）", () => {
-    for (const fileType of ["outline", "chapter-outline", "volume-outline", "character", "setting"]) {
+    // 显式标注成真实类型联合：写错字面量会在编译期就报错，而不是让判据静默返回 false
+    const saveableTypes: OutlineSaveRequestFileType[] = [
+      "outline",
+      "chapter-outline",
+      "volume-outline",
+      "character",
+      "setting",
+    ]
+    for (const fileType of saveableTypes) {
       expect(isEventOutlineSaveBlocked(fileType)).toBe(false)
     }
   })
@@ -193,10 +202,30 @@ describe("事件细纲保存闸门判据", () => {
   })
 
   it("还有非事件细纲的请求：继续走确认框那条路", () => {
+    // ⚠️ 这条**没有** errors（errors: []），所以它在删掉 `keptRequestCount > 0` 那条
+    // 分支后**照样绿**（会落到下一句 `errors.length === 0 → "continue"`）。
+    // 真正钉住那条分支的是下面「有错误也照样继续」那条。
     expect(decideOutlineAutoSaveGate({
       droppedEventOutlineCount: 1,
       keptRequestCount: 1,
       errors: [],
+      eventOutlineRejectionCount: 0,
+    })).toBe("continue")
+  })
+
+  /*
+   * `keptRequestCount > 0` 那条分支的**唯一**行为覆盖。
+   *
+   * 少了它（删掉 outline-save.ts 的 `if (input.keptRequestCount > 0) return "continue"`），
+   * `kept > 0 && errors.length > 0` 会落到 `surface-parse-errors`，调用方
+   * （outline-chat-panel 的自动通道）随即 `return` —— 一条**完全有效**的保存请求
+   * 到不了确认对话框。把 errors 设为非空才区分得出来（上一条的 errors 是空数组）。
+   */
+  it("kept > 0 且同时有错误：仍必须继续，有效请求不能被别的错误挡在确认框外", () => {
+    expect(decideOutlineAutoSaveGate({
+      droppedEventOutlineCount: 0,
+      keptRequestCount: 1,
+      errors: ["缺 targetFolder"],
       eventOutlineRejectionCount: 0,
     })).toBe("continue")
   })
