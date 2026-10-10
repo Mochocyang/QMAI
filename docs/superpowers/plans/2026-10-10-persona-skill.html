@@ -5282,23 +5282,60 @@ git commit -m "feat(人物skill): 加人物 Skill 页与草稿守卫"</div>
   </div>
 
   <div class="step">
-    <div class="head"><input type="checkbox"><span>Step 8：跑本任务的定向测试</span></div>
-    <div class="run">npx vitest run src/components/skill-library/unified-skill-library-view.spec.tsx src/components/uitest/ui-test-tools.spec.tsx src/lib/bundle-boundaries.spec.ts src/lib/ui-test-primary-nav.spec.ts</div>
-    <div class="expect">
-      <span class="t">Expected</span>
-      全部通过。<code>ui-test-tools.spec.tsx</code> 里 <code>["skills", "skill-library/unified-skill-library-view.tsx"]</code> 那条要求源码仍含 <code>data-ui-page="skills"</code> 与 <code>data-ui-state=</code>——这两个属性在根 <code>div</code> 上没动，应当照旧通过；若红了，说明整块重写时把属性删了。
+    <div class="head"><input type="checkbox"><span>Step 8：补一条路由连线的源码断言</span></div>
+    <p>Step 7 改的是 <b>导航接线</b>，而接线错漏的典型症状是<b>静默的</b>：<code>content-area.tsx</code> 少一个 <code>case</code> 就是点 tab 后内容区空白；<code>icon-sidebar.tsx</code> 少一个 <code>isActive</code> 字面量就是页面出来了但侧栏图标不高亮。这两个都不会让任何既有测试变红。</p>
+    <p>所以新建 <code>src/components/skill-library/persona-skill-routing.spec.ts</code>，仿照本仓库既有的 <code>src/components/novel/book-analysis-routing.spec.ts</code>（同样是「读源码字符串断言路由连线」，见它的 19 行）：</p>
+    <pre><code>import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { describe, expect, it } from "vitest"
+
+const root = resolve(__dirname, "../../..")
+
+describe("人物 Skill 路由连线", () =&gt; {
+  it("activeView 联合类型认得 personaSkillLibrary", () =&gt; {
+    const store = readFileSync(resolve(root, "src/stores/wiki-store.ts"), "utf8")
+    expect(store).toContain('"personaSkillLibrary"')
+    expect(store).toContain("personaSkillLibraryDraftDirty")
+  })
+
+  it("内容区把 personaSkillLibrary 路由到统一技能库", () =&gt; {
+    const content = readFileSync(resolve(root, "src/components/layout/content-area.tsx"), "utf8")
+    expect(content).toContain('case "personaSkillLibrary":')
+    expect(content).toContain("UnifiedSkillLibraryView")
+  })
+
+  it("侧栏图标在人物 Skill 页保持高亮", () =&gt; {
+    const sidebar = readFileSync(resolve(root, "src/components/layout/icon-sidebar.tsx"), "utf8")
+    expect(sidebar).toContain("personaSkillLibrary")
+  })
+})</code></pre>
+    <div class="callout bad">
+      <span class="t">不要引用 src/lib/ui-test-primary-nav.spec.ts</span>
+      <p>本仓库<b>没有</b>这个文件（只有 <code>src/lib/ui-test-primary-nav.ts</code>，无配套 spec）。vitest 对传进来的不存在路径是<b>静默忽略</b>——不会报错、不会非零退出，只是那个文件根本没被验证。所以把它写进命令里会让「已跑导航相关测试」这句话变成假的。</p>
     </div>
   </div>
 
   <div class="step">
-    <div class="head"><input type="checkbox"><span>Step 9：全量门禁</span></div>
+    <div class="head"><input type="checkbox"><span>Step 9：跑本任务的定向测试</span></div>
+    <div class="run">npx vitest run src/components/skill-library/unified-skill-library-view.spec.tsx src/components/skill-library/persona-skill-routing.spec.ts src/components/uitest/ui-test-tools.spec.tsx src/lib/bundle-boundaries.spec.ts</div>
+    <div class="expect">
+      <span class="t">Expected</span>
+      全部通过——新用例 <b>10 个</b>（统一技能库 2 + 路由连线 3 + 其余既有）。<code>ui-test-tools.spec.tsx</code> 里 <code>["skills", "skill-library/unified-skill-library-view.tsx"]</code> 那条要求源码仍含 <code>data-ui-page="skills"</code> 与 <code>data-ui-state=</code>——这两个属性在根 <code>div</code> 上没动，应当照旧通过；若红了，说明整块重写时把属性删了。
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="head"><input type="checkbox"><span>Step 10：全量门禁</span></div>
     <div class="run">npx tsc --build --pretty
 npx tsc -p tsconfig.test.json --noEmit
 npm run test:mocks</div>
     <div class="expect">
       <span class="t">Expected</span>
       <code>tsc</code> 两次都无输出。<code>test:mocks</code> 开头会先跑 <code>node scripts/lint-character-aura.mjs</code>——它检查 <code>character-aura.ts</code> 与 <code>skills/soulskill/**</code>；本计划<b>没碰</b>这些文件，所以必然通过（如果它报错，说明你误改了 <code>character-aura.ts</code>，退回去查）。
-      <br>测试总数为「本分支基线 <b>720 文件 / 6957 用例通过</b>」+ 本次新增 <b>8 个 spec 文件 / 129 个新用例</b> = 约 <b>728 文件 / 7086 用例通过</b>，0 失败。
+      <br>测试总数为「本分支基线 <b>720 文件 / 6957 用例通过</b>」+ 本次新增 <b>9 个 spec 文件 / 135 个新用例</b> = 约 <b>729 文件 / 7092 用例通过</b>，0 失败。
+      <br><b>135 的来源</b>（逐文件核对过，别自己估）：8 个新 spec 文件 = types 21 + store 33 + prompt 11 + <b>learning 28</b> + context 17 + context-engine-persona 5 + chapter-ingest-persona-hook 8 + persona-skill-view 7 = <b>130</b>；本任务的 persona-skill-routing 3；以及在既有 unified-skill-library-view.spec.tsx 上加的 2 = <b>135</b>。
+      <br>⚠️ <b>learning 是 28 而不是 25</b>：Task 4 交付 25 条，Task 5 又在同一文件追加了 3 条（<code>describe("regeneratePersonaSkillResearch")</code>）。早先版本的计划把这里写成 25、总数写成 129，漏掉了 Task 5 的 3 条。
+      <br>另有 <code>src/lib/backup/import.spec.ts</code> 的 1 处修改（删掉一个多余的 <code>as</code> 断言转型），属仓库卫生、<b>不增减用例</b>，总数里不含它。
     </div>
     <div class="callout warn">
       <span class="t">跑完看到约 170 个「已修改」？那是 EOL 假阳性，不是你的改动</span>
