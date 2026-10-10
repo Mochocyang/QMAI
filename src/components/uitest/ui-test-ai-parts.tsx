@@ -35,13 +35,18 @@ export function UiTestAiAuthor({ running = false }: { running?: boolean }) {
   return <div className="ui-test-ai-author"><Sparkles aria-hidden="true" /><span>青幕{running ? " · 正在生成" : ""}</span></div>
 }
 
-export function UiTestAiEmpty({ kind, onGenerateOutline, generateDisabled, generateDisabledReason }: { kind: "chapter" | "outline"; onGenerateOutline?: () => void; generateDisabled?: boolean; generateDisabledReason?: string }) {
+export function UiTestAiEmpty({ kind, onGenerateOutline, onGenerateEventOutline, generateDisabled, generateDisabledReason }: { kind: "chapter" | "outline"; onGenerateOutline?: () => void; onGenerateEventOutline?: () => void; generateDisabled?: boolean; generateDisabledReason?: string }) {
   return (
     <div className="ui-test-ai-empty">
       <Sparkles aria-hidden="true" />
       <h3>{kind === "outline" ? "从一个想法开始" : "一起写下一段故事"}</h3>
       <p>{kind === "outline" ? "聊聊故事方向，或用 @ 引用已有大纲和章节。" : "输入写作想法，或用 @ 引用章节、大纲和记忆。"}</p>
-      {onGenerateOutline && <button type="button" onClick={onGenerateOutline} disabled={generateDisabled} title={generateDisabled ? generateDisabledReason : undefined}>生成小说大纲</button>}
+      {(onGenerateOutline || onGenerateEventOutline) && (
+        <div className="ui-test-ai-empty-actions">
+          {onGenerateOutline && <button type="button" onClick={onGenerateOutline} disabled={generateDisabled} title={generateDisabled ? generateDisabledReason : undefined}>生成小说大纲</button>}
+          {onGenerateEventOutline && <button type="button" onClick={onGenerateEventOutline} disabled={generateDisabled} title={generateDisabled ? generateDisabledReason : undefined}>生成章节细纲</button>}
+        </div>
+      )}
     </div>
   )
 }

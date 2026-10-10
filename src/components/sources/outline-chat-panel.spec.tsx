@@ -20,6 +20,8 @@ import { outlineConversationRunRegistry } from "@/lib/conversation-run-registry"
 import { AgentRunner } from "@/lib/agent/runner"
 import { toast } from "@/lib/toast"
 import { useWikiStore } from "@/stores/wiki-store"
+import { useChatStore } from "@/stores/chat-store"
+import { UiTestAiEmpty } from "@/components/uitest/ui-test-ai-parts"
 import {
   buildOutlineAgentSystemPrompt,
   buildVolumeOutlineRepairPrompt,
@@ -2735,5 +2737,177 @@ describe("需求分析浮层不被无关操作弄丢", () => {
       "重挂后的会话内容",
     )
     expect(intentDialog(second)).toBeNull()
+  })
+})
+
+describe("事件细纲接线", () => {
+  // fileTree 决定「下一章」探测结果，用例之间必须互不影响。
+  beforeEach(() => {
+    useWikiStore.setState({ fileTree: [], activeView: "wiki" })
+    useChatStore.setState({ conversations: [], activeConversationId: null })
+  })
+
+  /** 空会话中央的「生成章节细纲」按钮（与「生成小说大纲」并排）。 */
+  function getEventOutlineTrigger(container: HTMLElement): HTMLButtonElement | undefined {
+    return Array.from(container.querySelectorAll<HTMLButtonElement>(".ui-test-ai-empty button"))
+      .find((button) => button.textContent?.includes("生成章节细纲"))
+  }
+
+  /** 表头与正文都对齐的事件细纲数据：validateEventOutlineData 必须判 ok，卡片才给「用这份细纲写这一章」。 */
+  function validEventOutlineData() {
+    return {
+      version: 1,
+      chapterNumber: 2,
+      title: "第2章 · 灵石认主",
+      targetWords: 3000,
+      events: [
+        { id: 1, title: "拍卖场外偶遇", points: ["关键台词：别回头。", "神情动作：指节发白"] },
+        { id: 2, title: "深夜潜入后山", points: ["环境物件：雨夜灯笼", "这一步推进：拿到灵石"] },
+        { id: 3, title: "令牌骤然显威", points: ["关键台词：原来是你。", "神情动作：连退半步"] },
+        { id: 4, title: "断崖上的对峙", points: ["环境物件：半截断崖", "留下钩子：师父的脚步声"] },
+      ],
+      endingHook: "师父的脚步声从雨里传来。",
+    }
+  }
+
+  /** 造一条带 eventOutlineData 围栏的助手回复。 */
+  function assistantEventOutlineMessage(): OutlineChatMessage {
+    return {
+      id: "a-event-outline",
+      role: "assistant",
+      content: [
+        "第2章 · 灵石认主",
+        "",
+        "1. 拍卖场外偶遇",
+        "",
+        "```json",
+        JSON.stringify({ eventOutlineData: validEventOutlineData() }),
+        "```",
+      ].join("\n"),
+    }
+  }
+
+  it("空会话同时提供「生成小说大纲」与「生成章节细纲」两个入口", async () => {
+    const container = await renderOutlineChatPanel()
+
+    const labels = Array.from(container.querySelectorAll<HTMLButtonElement>(".ui-test-ai-empty button"))
+      .map((button) => button.textContent)
+    expect(labels).toContain("生成小说大纲")
+    expect(labels).toContain("生成章节细纲")
+  })
+
+  it("点「生成章节细纲」打开向导，目标章节默认取下一章", async () => {
+    useWikiStore.setState({
+      fileTree: [
+        { name: "第001章.md", path: "C:/Book/wiki/chapters/第001章.md", is_dir: false },
+        { name: "第003章.md", path: "C:/Book/wiki/chapters/第003章.md", is_dir: false },
+      ],
+    })
+    const container = await renderOutlineChatPanel()
+
+    const trigger = getEventOutlineTrigger(container)
+    expect(trigger, "空会话应提供「生成章节细纲」按钮作为事件细纲向导入口").toBeDefined()
+    await act(async () => { trigger?.click() })
+
+    const chapterInput = document.querySelector<HTMLInputElement>('[aria-label="目标章节"]')
+    expect(chapterInput, "应渲染事件细纲向导的「目标章节」字段").not.toBeNull()
+    // 章节库最大章号是 3，下一章应为第 4 章。
+    expect(chapterInput?.value).toBe("4")
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+      .some((button) => button.textContent === "生成细纲")).toBe(true)
+  })
+
+  it("提交事件细纲向导直接进生成腿，消息里带上事件细纲与保存协议", async () => {
+    const runs: Array<{ system: string; user: string }> = []
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, messages, callbacks) => {
+      runs.push({
+        system: agentMessageContentText(messages.find((message) => message.role === "system")?.content ?? ""),
+        user: messages
+          .filter((message) => message.role === "user")
+          .map((message) => agentMessageContentText(message.content))
+          .join("\n"),
+      })
+      const finalText = "# 第1章 · 事件细纲\n\n占位正文"
+      callbacks.onText(finalText)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText }
+    })
+    setOutlineConversations([conversation()], "outline-active", {
+      streamingContents: { "outline-active": "" },
+    })
+    const container = await renderOutlineChatPanel()
+
+    await act(async () => { getEventOutlineTrigger(container)?.click() })
+    const submit = Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "生成细纲")
+    expect(submit, "向导应提供「生成细纲」提交按钮").toBeDefined()
+    await act(async () => {
+      submit?.click()
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        if (runs.length > 0 && useOutlineChatStore.getState().runStates["outline-active"]?.status !== "running") break
+        await new Promise((resolve) => setTimeout(resolve, 5))
+      }
+    })
+
+    expect(runs).toHaveLength(1)
+    // 发出去的必须是事件细纲提示词本身（而不是普通大纲向导的那一份）。
+    expect(runs[0].user).toContain("请为第 1 章生成一份「事件细纲」")
+    expect(runs[0].user).toContain("eventOutlineData")
+    expect(runs[0].user).toContain("event-outline")
+    // 范围已由向导定死：一轮就是生成腿（runs 只有 1 条即证没有先插一轮 intent_clarity 意图分析）。
+    // 注意不能用 system 不含 "intent_clarity" 来断言——生成腿系统提示里本来就有
+    // 「禁止再次输出 intent_clarity 标记」这句话。
+    expect(runs[0].system).toContain("本轮阶段：正文生成")
+  })
+
+  it("卡片「用这份细纲写这一章」只填写作输入框并切到写作现场，不自动发送", async () => {
+    const runSpy = vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async () => ({
+      toolCalls: [],
+      roundsUsed: 1,
+      finalText: "",
+    }))
+    const infoSpy = vi.spyOn(toast, "info").mockImplementation(() => {})
+    useWikiStore.setState({ activeView: "sources" })
+    setOutlineConversations([conversation([assistantEventOutlineMessage()])], "outline-active")
+    const container = await renderOutlineChatPanel()
+
+    const writeButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "用这份细纲写这一章")
+    expect(writeButton, "事件卡片应提供「用这份细纲写这一章」按钮").toBeDefined()
+    await act(async () => { writeButton?.click() })
+
+    const chat = useChatStore.getState()
+    const targetConversationId = chat.activeConversationId
+    expect(targetConversationId, "写入前应先确保有一个写作会话").not.toBeNull()
+    const writingConversation = chat.conversations.find((item) => item.id === targetConversationId)
+    expect(writingConversation?.inputDraft ?? "").toContain("请根据下面这份「事件细纲」写出第 2 章正文")
+    expect(useWikiStore.getState().activeView).toBe("wiki")
+    // 交接的全部内容就是这两步：填草稿 + 切视图，绝不自动发车。
+    expect(runSpy).not.toHaveBeenCalled()
+    expect(infoSpy).toHaveBeenCalledWith(
+      expect.stringContaining("写作输入框"),
+      { dedupeKey: "event-outline-to-prose" },
+    )
+  })
+
+  it("面板源码接入事件细纲卡片与下一章探测", () => {
+    expect(source).toContain("EventOutlineCard")
+    expect(source).toContain("EventOutlineWizardDialog")
+    expect(source).toContain("extractEventOutlineData")
+    expect(source).toContain("resolveNextChapterNumber")
+  })
+
+  it("UiTestAiEmpty 只传 onGenerateOutline 时仍渲染「生成小说大纲」", async () => {
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    mountedRoots.push({ container, root })
+    await act(async () => {
+      root.render(<UiTestAiEmpty kind="outline" onGenerateOutline={() => {}} />)
+    })
+
+    const labels = Array.from(container.querySelectorAll<HTMLButtonElement>(".ui-test-ai-empty button"))
+      .map((button) => button.textContent)
+    expect(labels).toEqual(["生成小说大纲"])
   })
 })
