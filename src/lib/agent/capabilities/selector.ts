@@ -42,6 +42,19 @@ const STRICT_EXTRA_TOOLS = new Set([
   "list_deductions",
 ])
 
+/**
+ * 共创（discuss）讨论轮的只读工具集：读前文与设定，但**不**包含
+ * run_chapter_workflow / write_chapter / apply_skill —— 讨论轮不产出正文。
+ */
+const DISCUSS_READONLY_TOOLS = new Set([
+  "read_chapter",
+  "read_outline",
+  "read_memory",
+  "search_chapters",
+  "load_context",
+  "trim_context",
+])
+
 const ENTITY_QUERY_INTENTS = new Set<NovelTaskIntent>(["character_query", "setting_query"])
 
 interface SelectCapabilitiesInput {
@@ -92,6 +105,7 @@ function selectionReason(
   if (capability.kind === "user_skill") {
     if (!capability.intents.includes(input.intent) && !capability.intents.includes("general")) return null
     if (input.mode === "fast") return null
+    if (input.mode === "discuss") return null
     if (input.mode === "standard") return "standard mode selected lightweight skill"
     if (input.mode === "strict") return "strict mode selected preselected skill"
     return null
@@ -114,6 +128,13 @@ function builtInToolReason(capability: AiCapability, input: SelectCapabilitiesIn
 
   if (input.mode === "standard" && WRITING_INTENTS.has(input.intent)) {
     return STANDARD_WRITING_TOOLS.has(name) ? "standard mode lightweight writing workflow" : null
+  }
+
+  if (input.mode === "discuss" && WRITING_INTENTS.has(input.intent)) {
+    // 讨论轮只读上下文，显式排除 run_chapter_workflow / write_chapter / apply_skill。
+    return DISCUSS_READONLY_TOOLS.has(name) || STRICT_EXTRA_TOOLS.has(name)
+      ? "discuss mode read-only context"
+      : null
   }
 
   if (WRITING_INTENTS.has(input.intent)) {

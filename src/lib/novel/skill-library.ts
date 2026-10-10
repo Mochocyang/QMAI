@@ -84,6 +84,7 @@ export const SKILL_MODE_LABELS: Record<SkillMode, string> = {
   fast: "快速",
   standard: "标准",
   strict: "严格",
+  discuss: "共创",
 }
 
 const VALID_KINDS = new Set<SkillKind>([

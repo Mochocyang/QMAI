@@ -165,4 +165,16 @@ describe("resolveRequiredToolsOnce", () => {
       }),
     ).toBeUndefined()
   })
+
+  it("skips discuss mode like fast (co-creation round produces no prose)", () => {
+    expect(
+      resolveRequiredToolsOnce({
+        novelMode: true,
+        intent: "write_chapter",
+        mode: "discuss",
+        planExecuteActive: false,
+        enabledToolNames: ["read_chapter", "run_chapter_workflow"],
+      }),
+    ).toBeUndefined()
+  })
 })

@@ -31,6 +31,34 @@ describe("chat-store", () => {
     expect(conversation?.deAiMode).toBe(false)
   })
 
+  it("setMessageChapterDiscuss 只更新目标消息的共创字段", () => {
+    const conversationId = useChatStore.getState().createConversation()
+    useChatStore.setState({
+      messages: [
+        { id: "m1", role: "assistant", content: "判断。", timestamp: 1, conversationId },
+        { id: "m2", role: "assistant", content: "别的。", timestamp: 2, conversationId },
+      ],
+    })
+
+    const protocol = {
+      status: "needs_choice" as const,
+      module: "第3章",
+      judgment: "需要在第三章转折",
+      directions: [{ id: "d1", storyType: "复仇线", title: "血债血偿", summary: "前".repeat(200) }],
+      preferenceId: "d1",
+      preferenceReason: "承接伏笔",
+    }
+
+    useChatStore.getState().setMessageChapterDiscuss("m1", { chapterDiscussProtocol: protocol })
+    useChatStore.getState().setMessageChapterDiscuss("m2", { chapterDiscussDecision: "selected" })
+
+    const messages = useChatStore.getState().messages
+    expect(messages.find((m) => m.id === "m1")?.chapterDiscussProtocol?.module).toBe("第3章")
+    expect(messages.find((m) => m.id === "m1")?.chapterDiscussDecision).toBeUndefined()
+    expect(messages.find((m) => m.id === "m2")?.chapterDiscussProtocol).toBeUndefined()
+    expect(messages.find((m) => m.id === "m2")?.chapterDiscussDecision).toBe("selected")
+  })
+
   it("setConversationDeAiMode 只更新目标会话的 deAiMode", () => {
     const nowSpy = vi.spyOn(Date, "now")
     nowSpy.mockReturnValue(123456)

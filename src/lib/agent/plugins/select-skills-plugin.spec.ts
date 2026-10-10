@@ -51,6 +51,11 @@ describe("SelectSkillsPlugin", () => {
     ])
   })
 
+  it("selects no skills for discuss (co-creation) mode", () => {
+    expect(selectSkillsForRoute(availableSkills, "write_chapter", "discuss", "第三章不知道怎么写"))
+      .toEqual([])
+  })
+
   it("does not supplement standard lightweight writing with uploaded skills", async () => {
     const plugin = createSelectSkillsPlugin()
 

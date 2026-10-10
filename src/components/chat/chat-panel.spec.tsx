@@ -153,8 +153,10 @@ describe("chat-panel agent reference integration", () => {
     expect(source).toContain("setPlanExecuteEnabled")
     expect(source).toContain("aiSessionPlanExecuteLabel")
     expect(source).toContain("计划")
-    expect(source).toContain("aria-pressed={planExecuteEnabled && aiWorkflowMode !== \"fast\"}")
-    expect(source).toContain("disabled={aiWorkflowMode === \"fast\"}")
+    expect(source).toContain("label: \"共创\"")
+    expect(source).toContain("aria-pressed={planExecuteEnabled && workflowModeSupportsPlan}")
+    expect(source).toContain("disabled={!workflowModeSupportsPlan}")
+    expect(source).toContain("const workflowModeSupportsPlan = aiWorkflowMode !== \"fast\" && aiWorkflowMode !== \"discuss\"")
   })
 
   it("injects Plan Execute policy only when the independent switch is enabled and not in fast mode", () => {
@@ -221,7 +223,7 @@ describe("chat-panel agent reference integration", () => {
   })
 
   it("shows the sent chat message before asynchronous chapter context building", () => {
-    const appendIndex = source.indexOf("appendAgentChatMessages(capturedConvId, userVisibleText || plainText, tokens)")
+    const appendIndex = source.indexOf("appendAgentChatMessages(capturedConvId, userVisibleText || plainText, tokens")
     const prePluginIndex = source.indexOf("await runNovelPrePluginChain({")
 
     expect(appendIndex).toBeGreaterThan(-1)
@@ -254,7 +256,7 @@ describe("chat-panel agent reference integration", () => {
   })
 
   it("does not run the novel pre-plugin chain in fast mode even when Plan Execute is enabled", () => {
-    expect(source).toContain("aiWorkflowMode !== \"fast\" && planExecuteEnabled")
+    expect(source).toContain("aiWorkflowMode !== \"fast\" && aiWorkflowMode !== \"discuss\" && planExecuteEnabled")
     const planExecuteActiveMatch = source.match(/planExecuteActive\s*=/)
     expect(planExecuteActiveMatch).not.toBeNull()
     const planExecuteActiveLine = source.slice(
@@ -468,7 +470,7 @@ describe("chat-panel chapter plan confirm integration (Stage C)", () => {
 
   it("disables Plan Execute protocol for confirmed plan follow-up messages and fast mode", () => {
     expect(source).toContain("isChapterPlanExecutionFollowup")
-    expect(source).toContain("sessionWorkflowMode !== \"fast\" && planExecuteEnabled && !planExecutionFollowup")
+    expect(source).toContain("sessionWorkflowMode !== \"fast\" && sessionWorkflowMode !== \"discuss\" && planExecuteEnabled && !planExecutionFollowup")
     expect(source).toContain("planExecuteEnabled: planExecuteActive")
   })
 

@@ -77,7 +77,8 @@ export function resolveRequiredToolsOnce(
     return undefined
   }
   const mode = input.mode ?? "strict"
-  if (mode === "fast") return undefined
+  // fast 是纯对话；discuss（共创）本轮只做方向推演，都不强制调用章节工作流。
+  if (mode === "fast" || mode === "discuss") return undefined
 
   const enabled = input.enabledToolNames
   if (Array.isArray(enabled) && !enabled.includes("run_chapter_workflow")) {

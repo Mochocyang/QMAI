@@ -232,7 +232,9 @@ interface ChapterWorkflowProfile {
 function resolveChapterWorkflowProfile(
   mode: AiWorkflowMode | undefined,
 ): ChapterWorkflowProfile {
-  const resolvedMode = mode ?? "strict";
+  // 共创（discuss）讨论轮不产出正文；若误入生成链路，按标准档兜底，
+  // 避免落到默认的严格档触发完整多任务写作循环。
+  const resolvedMode = mode === "discuss" ? "standard" : (mode ?? "strict");
   if (resolvedMode === "fast") {
     return {
       mode: "fast",
@@ -272,6 +274,7 @@ function resolveChapterWorkflowProfile(
 function workflowModeLabel(profile: ChapterWorkflowProfile): string {
   if (profile.mode === "fast") return "快速模式";
   if (profile.mode === "standard") return "标准模式";
+  if (profile.mode === "discuss") return "共创模式";
   return "严格模式";
 }
 

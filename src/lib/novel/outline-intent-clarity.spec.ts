@@ -9,6 +9,22 @@ import {
   stripStructuredMarkers,
 } from "./outline-intent-clarity"
 
+describe("stripStructuredMarkers", () => {
+  it("also hides chapter co-creation protocol blocks", () => {
+    const text = "判断。\n<!-- chapter_discuss -->\n{\"status\":\"needs_choice\"}\n<!-- /chapter_discuss -->\n结尾"
+    const stripped = stripStructuredMarkers(text)
+    expect(stripped).not.toContain("chapter_discuss")
+    expect(stripped).toContain("判断。")
+    expect(stripped).toContain("结尾")
+  })
+
+  it("hides an unclosed trailing chapter_discuss block", () => {
+    const stripped = stripStructuredMarkers("判断。\n<!-- chapter_discuss -->\n{\"status\":\"needs_choice\"}")
+    expect(stripped).not.toContain("chapter_discuss")
+    expect(stripped).toContain("判断。")
+  })
+})
+
 describe("意图分析提示词的选项要求", () => {
   const prompt = buildIntentAnalysisPrompt("卷纲", "把十卷拆成折叠树卷纲")
 

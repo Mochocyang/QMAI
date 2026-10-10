@@ -51,6 +51,17 @@ export function buildPlanExecutePolicyPrompt(mode: AiWorkflowMode): string {
     ].join("\n")
   }
 
+  if (mode === "discuss") {
+    // 共创讨论轮不应走到计划注入（planExecuteActive 已被强制关闭）；保底文案避免误注入正文契约。
+    return [
+      "Plan Execute：当前已开启计划执行。",
+      "共创模式：本轮只做方向推演，先不产出正文。",
+      "计划最多 3 条，只写将要读取的上下文与推演思路。",
+      executablePlanFormat,
+      "本轮不要调用 run_chapter_workflow。",
+    ].join("\n")
+  }
+
   return [
     "Plan Execute：当前已开启计划执行。",
     "标准模式：先创建轻量计划，再快速执行。",

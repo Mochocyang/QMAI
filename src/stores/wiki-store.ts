@@ -712,6 +712,8 @@ interface WikiState {
   novelMode: boolean
   chatEditModeEnabled: boolean
   aiWorkflowMode: AiWorkflowMode
+  /** 切入「共创」前所处的模式；共创选定方向后按它生成正文（默认 standard）。 */
+  aiWorkflowModeBeforeDiscuss: AiWorkflowMode
   outlineWorkflowMode: OutlineWorkflowMode
   planExecuteEnabled: boolean
   novelConfig: NovelConfig
@@ -1021,6 +1023,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   novelMode: true,
   chatEditModeEnabled: false,
   aiWorkflowMode: DEFAULT_AI_WORKFLOW_MODE,
+  aiWorkflowModeBeforeDiscuss: DEFAULT_AI_WORKFLOW_MODE,
   outlineWorkflowMode: DEFAULT_OUTLINE_WORKFLOW_MODE,
   planExecuteEnabled: false,
   novelConfig: { ...DEFAULT_NOVEL_CONFIG },
@@ -1075,7 +1078,17 @@ export const useWikiStore = create<WikiState>((set) => ({
   setSourceWatchConfig: (sourceWatchConfig) => set({ sourceWatchConfig }),
   setNovelMode: (novelMode) => set({ novelMode }),
   setChatEditModeEnabled: (chatEditModeEnabled) => set({ chatEditModeEnabled }),
-  setAiWorkflowMode: (aiWorkflowMode) => set({ aiWorkflowMode }),
+  setAiWorkflowMode: (aiWorkflowMode) =>
+    set((state) => ({
+      aiWorkflowMode,
+      // 切到「共创」时记住切入前的模式；切到其它模式时直接刷新为当前选择。
+      aiWorkflowModeBeforeDiscuss:
+        aiWorkflowMode === "discuss"
+          ? (state.aiWorkflowMode !== "discuss"
+            ? state.aiWorkflowMode
+            : state.aiWorkflowModeBeforeDiscuss)
+          : aiWorkflowMode,
+    })),
   setOutlineWorkflowMode: (outlineWorkflowMode) => set({ outlineWorkflowMode }),
   setPlanExecuteEnabled: (planExecuteEnabled) => set({ planExecuteEnabled }),
   setNovelConfig: (config) => set((state) => ({

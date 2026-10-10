@@ -63,6 +63,12 @@ import { canContinueUnfinishedDeepChapter } from "./chat-resume";
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content";
 import { StoppedGenerationActions } from "@/components/novel/stopped-generation-actions";
 import { isStoppedGenerationMessage } from "@/lib/novel/stopped-generation";
+import { ChapterDiscussCard } from "@/components/chat/chapter-discuss-card";
+import { stripStructuredMarkers } from "@/lib/novel/outline-intent-clarity";
+import type {
+  ChapterDiscussDirection,
+  ChapterDiscussProtocol,
+} from "@/lib/novel/chapter-discuss-protocol";
 
 interface ChatMessageProps {
   message: DisplayMessage;
@@ -101,6 +107,20 @@ interface ChatMessageProps {
     chapterCount?: number;
     error?: string;
   } | null;
+  /** 共创模式：作者选定某个方向后按它生成正文。 */
+  onSelectChapterDiscussDirection?: (
+    messageId: string,
+    protocol: ChapterDiscussProtocol,
+    direction: ChapterDiscussDirection,
+  ) => void;
+  /** 共创模式：对当前一批方向都不满意，重新推演。 */
+  onRegenerateChapterDiscuss?: (messageId: string, protocol: ChapterDiscussProtocol) => void;
+  /** 共创模式：作者用自己的想法让 AI 按它重新推演方向。 */
+  onCustomChapterDiscuss?: (
+    messageId: string,
+    protocol: ChapterDiscussProtocol,
+    idea: string,
+  ) => void;
 }
 
 export function ChatMessage({
@@ -121,12 +141,23 @@ export function ChatMessage({
   retrievalIndexHasIndex,
   isRebuildingRetrievalIndex,
   lastRebuildRetrievalResult,
+  onSelectChapterDiscussDirection,
+  onRegenerateChapterDiscuss,
+  onCustomChapterDiscuss,
 }: ChatMessageProps) {
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
   const isAssistant = message.role === "assistant";
   const [hovered, setHovered] = useState(false);
   const [contextTraceExpanded] = useState(false);
+  /**
+   * 共创（discuss）轮：气泡里隐藏 chapter_discuss 协议标记。
+   * 生成过程中的正文可能已带上 `<!-- chapter_discuss -->{json}`，不剥离会让用户看到裸 JSON。
+   */
+  const displayContent =
+    message.chapterDiscussPhase || message.chapterDiscussProtocol || message.chapterDiscussError
+      ? stripStructuredMarkers(message.content)
+      : message.content;
   const canResumeUnfinished = Boolean(
     novelMode &&
     isLastAssistant &&
@@ -224,7 +255,7 @@ export function ChatMessage({
               ) : null}
               {!message.isAgentRunning || message.content ? (
                 <AgentAwareContent
-                  content={message.content}
+                  content={displayContent}
                   projectPath={projectPath}
                 />
               ) : null}
@@ -255,6 +286,39 @@ export function ChatMessage({
             savedReferences={message.references}
           />
         )}
+        {isAssistant && !message.discarded && !message.isAgentRunning && message.chapterDiscussProtocol ? (
+          <ChapterDiscussCard
+            protocol={message.chapterDiscussProtocol}
+            decided={message.chapterDiscussDecision}
+            onSelect={(direction) =>
+              onSelectChapterDiscussDirection?.(
+                message.id,
+                message.chapterDiscussProtocol as ChapterDiscussProtocol,
+                direction,
+              )
+            }
+            onRegenerate={() =>
+              onRegenerateChapterDiscuss?.(
+                message.id,
+                message.chapterDiscussProtocol as ChapterDiscussProtocol,
+              )
+            }
+            onCustom={(idea) =>
+              onCustomChapterDiscuss?.(
+                message.id,
+                message.chapterDiscussProtocol as ChapterDiscussProtocol,
+                idea,
+              )
+            }
+            disabled={!onSelectChapterDiscussDirection}
+            disabledReason="请在生成结束或打开项目后重试。"
+          />
+        ) : null}
+        {isAssistant && !message.discarded && message.chapterDiscussError ? (
+          <div className="mt-2 rounded-md border border-red-500/30 bg-red-50/40 px-2 py-1.5 text-[0.6875rem] leading-5 text-red-700 dark:bg-red-950/20 dark:text-red-300">
+            章节共创协议格式无效，尚未开始生成：{message.chapterDiscussError}
+          </div>
+        ) : null}
         {isAssistant && !message.discarded && (
           <div className="flex w-full items-center gap-1 flex-wrap">
             {canResumeUnfinished && (
@@ -301,7 +365,7 @@ export function ChatMessage({
             )}
             {(hovered || (novelMode && isLastAssistant)) && (
               <CopyButton
-                content={message.content}
+                content={displayContent}
                 toolCalls={message.agentToolCalls}
               />
             )}

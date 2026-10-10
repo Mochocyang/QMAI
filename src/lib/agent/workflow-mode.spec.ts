@@ -26,7 +26,7 @@ describe("workflow mode", () => {
   })
 
   it("accepts explicit active workflow modes without changing them", () => {
-    const modes: AiWorkflowMode[] = ["fast", "standard", "strict"]
+    const modes: AiWorkflowMode[] = ["fast", "standard", "strict", "discuss"]
 
     expect(modes.map(resolveAiWorkflowMode)).toEqual(modes)
   })
@@ -35,6 +35,7 @@ describe("workflow mode", () => {
     expect(getWorkflowModeLabel("fast")).toBe("快速")
     expect(getWorkflowModeLabel("standard")).toBe("标准")
     expect(getWorkflowModeLabel("strict")).toBe("严格")
+    expect(getWorkflowModeLabel("discuss")).toBe("共创")
   })
 
   it("keeps the default outline workflow mode at standard", () => {

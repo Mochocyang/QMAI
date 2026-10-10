@@ -2,7 +2,7 @@ import type { UserSkill } from "@/lib/novel/skill-library"
 import type { AiCapability, CapabilityIntent, CapabilityKind, CapabilityPermission } from "./types"
 import type { AiWorkflowMode } from "../workflow-mode"
 
-const ALL_MODES: AiWorkflowMode[] = ["fast", "standard", "strict"]
+const ALL_MODES: AiWorkflowMode[] = ["fast", "standard", "strict", "discuss"]
 
 const WRITING_INTENTS: CapabilityIntent[] = [
   "write_chapter",
