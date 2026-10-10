@@ -3441,11 +3441,16 @@ git commit -m "feat(人物skill): 加章节学习编排"</div>
   collectChapterAppearances,
   learnPersonaSkillsFromChapter,
   loadCharacterRoleTypes,
+  lookupRoleType,
   parsePersonaSkillDrafts,
   regeneratePersonaSkillResearch,
   renderPersonaSkillDocument,
   __resetPersonaSkillRoundsForTesting,
 } from "./persona-skill-learning"</code></pre>
+    <div class="callout warn">
+      <span class="t">别漏掉 lookupRoleType</span>
+      <p>它由 Task 4 引入（角色定位查表要过 <code>normalizePersonaName</code>），Task 4 的 spec 里有用例直接调它。<b>这里必须连同 <code>regeneratePersonaSkillResearch</code> 一起列全</b>——如果你只按「要加哪个」替换整块、把当时不在列表里的名字漏掉，spec 会以 <code>TS2304: Cannot find name 'lookupRoleType'</code> 卡在类型检查上（而 <code>npx vitest</code> 是看不到这条的，因为它只剥类型不做检查）。</p>
+    </div>
     <p>接着在<strong>实现文件</strong> <code>src/lib/novel/persona-skill-learning.ts</code> 的 <code>from "./persona-skill-prompt"</code> import 块里<strong>加上</strong> <code>buildPersonaSkillResearchMessages</code>。（它由 Task 3 导出，但 Task 4 的 import 里<strong>故意不含</strong>它——那时它还没有使用者，留着会撞 <code>noUnusedLocals</code> 的 TS6133。本任务才是它的首个使用者。）改完那个块长这样：</p>
     <pre><code>import {
   PERSONA_SKILL_REQUEST_OVERRIDES,
@@ -3453,6 +3458,22 @@ git commit -m "feat(人物skill): 加章节学习编排"</div>
   buildPersonaSkillResearchMessages,
   type PersonaSkillPromptTarget,
 } from "./persona-skill-prompt"</code></pre>
+    <div class="callout danger">
+      <span class="t">还要给 store 的 import 块补一个 loadPersonaSkillIndex（最容易漏的一处）</span>
+      <p>本任务的 <code>regeneratePersonaSkillResearch</code> 第一件事就是读索引找人（<code>loadPersonaSkillIndex</code> + <code>findPersonaSkillMeta</code>）。但 <b>Task 4 的 store import 块里没有 <code>loadPersonaSkillIndex</code></b>——Task 4 改用 <code>updatePersonaSkillState</code> 之后就不需要它了，彼时留着会撞 <code>noUnusedLocals</code>，所以当时被有意去掉。本任务才是它在这个文件里的首个使用者。</p>
+      <p>同文件的 import 块改成（在开头补一行，其余保持不动）：</p>
+      <pre><code>import {
+  loadPersonaSkillIndex,
+  personaSkillIdFor,
+  readPersonaSkillDocument,
+  updatePersonaSkillIndex,
+  updatePersonaSkillState,
+  writePersonaSkillDocument,
+  writePersonaSkillResearch,
+} from "./persona-skill-store"</code></pre>
+      <p><b>漏了会怎样</b>：<code>tsc</code> 报 <code>TS2304: Cannot find name 'loadPersonaSkillIndex'</code>；但如果只跑 <code>npx vitest</code>，它会以「<code>研究文件重新整理失败: loadPersonaSkillIndex is not defined</code>」的形式被那个 <code>try/catch</code> 吞成 <code>return false</code>——测试断言 <code>expect(ok).toBe(true)</code> 变红，而报错文本看起来像是数据问题、不像缺少 import。这就是为什么本任务<b>两个 tsc 都必须跑</b>。</p>
+      <p>其余符号（<code>findPersonaSkillMeta</code> / <code>normalizeStringRecord</code> / <code>parseLlmJsonObject</code> / <code>streamChat</code> / <code>PERSONA_SKILL_REQUEST_OVERRIDES</code> / <code>readPersonaSkillDocument</code> / <code>writePersonaSkillResearch</code> / <code>updatePersonaSkillIndex</code>）在 Task 4 落盘后<b>都已在同一文件内或已导入</b>，不用再动。</p>
+    </div>
     <p>然后在文件末尾追加：</p>
     <pre><code>describe("regeneratePersonaSkillResearch", () =&gt; {
   beforeEach(() =&gt; {

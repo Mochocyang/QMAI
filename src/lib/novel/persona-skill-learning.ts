@@ -20,6 +20,7 @@ import {
   type PersonaSkillTier,
 } from "./persona-skill-types"
 import {
+  loadPersonaSkillIndex,
   personaSkillIdFor,
   readPersonaSkillDocument,
   updatePersonaSkillIndex,
@@ -30,6 +31,7 @@ import {
 import {
   PERSONA_SKILL_REQUEST_OVERRIDES,
   buildPersonaSkillMessages,
+  buildPersonaSkillResearchMessages,
   type PersonaSkillPromptTarget,
 } from "./persona-skill-prompt"
 
@@ -622,5 +624,67 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
     console.warn("[Persona Skill] 人物 Skill 学习失败:", err instanceof Error ? err.message : err)
   } finally {
     inFlightRounds.delete(roundKey)
+  }
+}
+
+/**
+ * 重新整理某人的研究文件。素材只有「他自己现有的档案」——
+ * 不读章节快照、不引入新事实，所以这是一次「整理」而不是「再提取」。
+ * 永不抛：失败返回 false，由 UI 提示。
+ */
+export async function regeneratePersonaSkillResearch(options: {
+  projectPath: string
+  characterName: string
+  llmConfig: LlmConfig
+  signal?: AbortSignal
+}): Promise<boolean> {
+  const pp = normalizePath(options.projectPath)
+  try {
+    const index = await loadPersonaSkillIndex(pp)
+    const meta = findPersonaSkillMeta(index, options.characterName)
+    if (!meta) return false
+    const document = await readPersonaSkillDocument(pp, meta.id)
+    if (!document.trim()) return false
+
+    let result = ""
+    let streamError: Error | null = null
+    await streamChat(
+      options.llmConfig,
+      buildPersonaSkillResearchMessages({
+        characterName: meta.characterName,
+        roleType: meta.roleType,
+        document,
+      }),
+      {
+        onToken: (token: string) => {
+          result += token
+        },
+        onDone: () => {},
+        onError: (error: Error) => {
+          streamError = error
+        },
+      },
+      options.signal,
+      PERSONA_SKILL_REQUEST_OVERRIDES,
+    )
+    if (streamError) throw streamError
+
+    const parsed = parseLlmJsonObject(result)
+    const research = parsed ? normalizeStringRecord(parsed.research) : {}
+    const written = await writePersonaSkillResearch(pp, meta.id, research)
+    if (written.length === 0) return false
+
+    await updatePersonaSkillIndex(pp, (current) => ({
+      version: 1,
+      skills: current.skills.map((item) =>
+        item.id === meta.id
+          ? { ...item, hasResearch: true, updatedAt: new Date().toISOString() }
+          : item,
+      ),
+    }))
+    return true
+  } catch (err) {
+    console.warn("[Persona Skill] 研究文件重新整理失败:", err instanceof Error ? err.message : err)
+    return false
   }
 }

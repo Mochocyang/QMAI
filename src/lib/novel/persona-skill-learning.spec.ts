@@ -52,6 +52,7 @@ import {
   loadCharacterRoleTypes,
   lookupRoleType,
   parsePersonaSkillDrafts,
+  regeneratePersonaSkillResearch,
   renderPersonaSkillDocument,
   __resetPersonaSkillRoundsForTesting,
 } from "./persona-skill-learning"
@@ -538,5 +539,65 @@ describe("learnPersonaSkillsFromChapter", () => {
     })
 
     expect(readIndex()!.skills[0].status).toBe("active")
+  })
+})
+
+describe("regeneratePersonaSkillResearch", () => {
+  beforeEach(() => {
+    io.files.clear()
+    streamChatMock.mockReset()
+    __resetPersonaSkillRoundsForTesting()
+  })
+
+  it("从既有档案重新整理研究文件，并回写 hasResearch", async () => {
+    seedIndex([{ characterName: "沈砚", id: "沈砚", roleType: "配角", pinned: true, hasResearch: false }])
+    io.files.set(
+      `${project}/.qmai/persona-skills/沈砚/SKILL.md`,
+      "# 沈砚 · 人物 Skill\n\n## 怎么说话\n\n句尾常带「吧」。\n",
+    )
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) => void; onDone: () => void }) => {
+        callbacks.onToken(JSON.stringify({ research: { 人物小传: "他是账房出身。", 语言习惯: "自问自答。" } }))
+        callbacks.onDone()
+      },
+    )
+
+    const ok = await regeneratePersonaSkillResearch({
+      projectPath: project,
+      characterName: "沈砚",
+      llmConfig,
+    })
+
+    expect(ok).toBe(true)
+    expect(io.files.get(`${project}/.qmai/persona-skills/沈砚/references/research/人物小传.md`)).toContain(
+      "他是账房出身。",
+    )
+    expect(readIndex()!.skills[0].hasResearch).toBe(true)
+  })
+
+  it("查无此人时返回 false，且不调模型", async () => {
+    const ok = await regeneratePersonaSkillResearch({
+      projectPath: project,
+      characterName: "查无此人",
+      llmConfig,
+    })
+    expect(ok).toBe(false)
+    expect(streamChatMock).not.toHaveBeenCalled()
+  })
+
+  it("模型返回坏 JSON 时返回 false，不写文件，也不抛", async () => {
+    seedIndex([{ characterName: "沈砚", id: "沈砚", roleType: "配角", pinned: true }])
+    io.files.set(`${project}/.qmai/persona-skills/沈砚/SKILL.md`, "# 沈砚 · 人物 Skill\n\n## 怎么说话\n\n句尾带吧。\n")
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) => void; onDone: () => void }) => {
+        callbacks.onToken("抱歉，我忘了 JSON")
+        callbacks.onDone()
+      },
+    )
+
+    await expect(
+      regeneratePersonaSkillResearch({ projectPath: project, characterName: "沈砚", llmConfig }),
+    ).resolves.toBe(false)
+    expect(readIndex()!.skills[0].hasResearch).toBe(false)
   })
 })
