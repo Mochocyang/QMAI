@@ -1,6 +1,6 @@
 import { type CSSProperties, Suspense, lazy, useEffect, useCallback, useRef, useMemo, useState, useLayoutEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { BookOpen, Brain, Eraser, MoreHorizontal, Type, WandSparkles, X } from "lucide-react"
+import { BookOpen, Brain, Eraser, Lightbulb, MoreHorizontal, Type, WandSparkles, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel, resolveNovelModel, formatResolvedModelLabel } from "@/lib/novel/model-resolver"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
@@ -47,6 +47,17 @@ import {
 import { makeChapterFileName, makeDefaultChapterTitle } from "@/lib/wiki-filename"
 import { getPreviewContentContainerClass, shouldUseCompactChapterToolbar } from "@/lib/workspace-layout"
 import { useOutlineGenerationStore, type OutlineGenerationTask } from "@/stores/outline-generation-store"
+import {
+  selectProjectEventOutlineTasks,
+  useEventOutlineTaskStore,
+} from "@/stores/event-outline-task-store"
+import { EventOutlineCard } from "@/components/sources/event-outline-card"
+import { EventOutlineWizardDialog } from "@/components/sources/event-outline-wizard-dialog"
+import { generateEventOutline } from "@/lib/novel/event-outline-generation"
+import { type EventOutlineRequest } from "@/lib/novel/event-outline"
+import { isUserAbortError } from "@/lib/user-abort"
+import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts"
+import { flattenMdFiles, pickChapterLibraryFiles, resolveNextChapterNumber } from "@/lib/novel/chapter-utils"
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import {
   buildPolishSelectionMessages,
@@ -1119,6 +1130,99 @@ export function PreviewPanel() {
   const draftMemoryHintSeen = useWikiStore((s) => s.novelConfig.draftMemoryHintSeen)
   const fileTree = useWikiStore((s) => s.fileTree)
   const setNovelConfig = useWikiStore((s) => s.setNovelConfig)
+
+  /**
+   * 章节区「生成章节细纲」：向导的默认值是「章节库里最大章号 + 1」与项目单章目标字数。
+   *
+   * 章号探测复用大纲面板的同一对函数，保证两处对「下一章是第几章」的判断一致 ——
+   * 各自写一份正则迟早会出现「大纲面板说第 7 章、章节区说第 8 章」。
+   */
+  const [eventOutlineWizardVisible, setEventOutlineWizardVisible] = useState(false)
+  const nextEventOutlineChapterNumber = useMemo(
+    () => resolveNextChapterNumber(pickChapterLibraryFiles(flattenMdFiles(fileTree))),
+    [fileTree],
+  )
+  const eventOutlineDefaultTargetWords = resolveChapterLengthSpec(
+    useWikiStore((s) => s.novelConfig.chapterTargetChars),
+  ).targetChars
+  const eventOutlineTasks = useEventOutlineTaskStore((s) => s.tasks)
+  const projectEventOutlineTasks = useMemo(
+    () => selectProjectEventOutlineTasks(eventOutlineTasks, project?.path),
+    [eventOutlineTasks, project?.path],
+  )
+  const eventOutlineAbortRef = useRef<AbortController | null>(null)
+
+  /**
+   * 生成一份事件细纲，结果落在 store 里由卡片区渲染。
+   *
+   * 与大纲对话那条链路的关键差别：这里没有工具循环，模型读不到文件，
+   * 所以 generateEventOutline 会把前文资料一次性装配进提示词（见该模块的注释）。
+   * 生成过程不进对话、不切视图 —— 用户点了按钮就该留在章节区看到结果。
+   */
+  const handleSubmitEventOutline = useCallback((request: EventOutlineRequest) => {
+    if (!project?.path) {
+      toast.error("请先打开一个项目")
+      return
+    }
+    const state = useWikiStore.getState()
+    const llmConfig = resolveNovelModel(state.llmConfig, state.novelConfig, "writing")
+    if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
+      toast.error("未配置可用的 AI 模型，无法生成章节细纲")
+      return
+    }
+    // 同一时刻只跑一个：重开向导再提交时，旧请求的回复已经没人要了，
+    // 放着不管会覆盖掉新任务的结果。
+    eventOutlineAbortRef.current?.abort()
+    const controller = new AbortController()
+    eventOutlineAbortRef.current = controller
+
+    const taskId = useEventOutlineTaskStore.getState().startTask({
+      projectPath: project.path,
+      request,
+    })
+    let lastReportedChars = 0
+    let lastReportedAt = 0
+    void generateEventOutline(
+      project.path,
+      request,
+      llmConfig,
+      {
+        onToken: (_token, receivedChars) => {
+          // 进度节流：每 2000 字或每 1 秒才写一次 store。逐 token 写会让
+          // 整棵章节区跟着重渲染，而这些渲染对用户没有任何新信息。
+          const now = Date.now()
+          if (receivedChars - lastReportedChars < 2000 && now - lastReportedAt < 1000) return
+          lastReportedChars = receivedChars
+          lastReportedAt = now
+          useEventOutlineTaskStore.getState().appendProgress(taskId, receivedChars)
+        },
+      },
+      controller.signal,
+    ).then((result) => {
+      if (controller.signal.aborted) return
+      if (result.outline) {
+        useEventOutlineTaskStore.getState().finishTask(taskId, result.outline)
+        return
+      }
+      useEventOutlineTaskStore.getState().failTask(taskId, result.error ?? "事件细纲生成失败")
+    }).catch((error) => {
+      // 主动取消不是失败：用户自己按的取消，卡片不该留一条红色错误。
+      if (isUserAbortError(error, controller.signal)) {
+        useEventOutlineTaskStore.getState().removeTask(taskId)
+        return
+      }
+      const message = error instanceof Error ? error.message : String(error)
+      useEventOutlineTaskStore.getState().failTask(taskId, message)
+    })
+  }, [project?.path])
+
+  const handleOpenEventOutlineWizard = useCallback(() => {
+    setEventOutlineWizardVisible(true)
+  }, [])
+
+  const handleDismissEventOutlineTask = useCallback((taskId: string) => {
+    useEventOutlineTaskStore.getState().removeTask(taskId)
+  }, [])
   const dismissDraftMemoryHint = useCallback(() => {
     draftHintSessionRef.current.dismissed = true
     draftHintSessionRef.current.visible = false
@@ -1857,6 +1961,15 @@ export function PreviewPanel() {
           <button type="button" className="ui-test-editor-action is-icon-only" aria-label="字体设置" title="字体设置" onClick={(event) => openBodyFontPopover(event.currentTarget)}>
             <Type aria-hidden="true" />
           </button>
+          {/*
+            生成章节细纲：入口从大纲面板的空白态搬到章节区工具栏（用户要求
+            「点击这个功能后，在章节区生成内容」）。图标用 Lightbulb ——
+            Type 是字体设置、WandSparkles 是一键排版，三个动作必须在工具栏上
+            一眼可分，不能复用。
+          */}
+          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="生成章节细纲" title="生成章节细纲" onClick={handleOpenEventOutlineWizard}>
+            <Lightbulb aria-hidden="true" />
+          </button>
           {canFormatWriting ? <button type="button" className="ui-test-editor-action is-icon-only" aria-label="一键排版" title="一键排版" onClick={() => void handleFormatWriting()}><WandSparkles aria-hidden="true" /></button> : null}
         </>
       ) : (
@@ -1906,6 +2019,63 @@ export function PreviewPanel() {
 
   return (
     <div className="flex h-full flex-col">
+      {/*
+        待确认的事件细纲。放在整个预览面板的最上方，而不是塞进编辑器内部：
+        它属于「章节区」这个概念，不属于某一份正在打开的文档 —— 用户完全可能
+        在第 5 章上点了生成、拿到第 6 章的细纲，这时按 selectedFile 决定显不显示
+        就会把卡片藏起来。放这里还能扛住用户在章节与大纲之间来回切换。
+      */}
+      {projectEventOutlineTasks.length > 0 ? (
+        <section className="shrink-0 space-y-2 border-b bg-muted/30 px-3 py-2" aria-label="待确认的事件细纲">
+          {projectEventOutlineTasks.map((task) => (
+            <div key={task.id} data-event-outline-task={task.id}>
+              {task.status === "generating" ? (
+                <div className="flex items-center gap-2 text-sm" role="status" aria-live="polite">
+                  <span>正在生成第 {task.chapterNumber} 章事件细纲…</span>
+                  {task.receivedChars > 0 ? (
+                    <span className="text-xs text-muted-foreground">已收到 {task.receivedChars} 字</span>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="ml-auto text-xs text-muted-foreground underline"
+                    onClick={() => {
+                      eventOutlineAbortRef.current?.abort()
+                      handleDismissEventOutlineTask(task.id)
+                    }}
+                  >
+                    取消
+                  </button>
+                </div>
+              ) : null}
+
+              {task.status === "error" ? (
+                <div className="text-sm text-destructive" role="alert">
+                  <div className="font-medium">第 {task.chapterNumber} 章事件细纲生成失败</div>
+                  <p className="mt-1 text-xs">{task.error}</p>
+                  <button type="button" className="mt-1 text-xs underline" onClick={() => handleDismissEventOutlineTask(task.id)}>
+                    知道了
+                  </button>
+                </div>
+              ) : null}
+
+              {task.status === "awaiting-confirm" && task.outline ? (
+                <>
+                  <EventOutlineCard data={task.outline} />
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground underline"
+                      onClick={() => handleDismissEventOutlineTask(task.id)}
+                    >
+                      丢弃这份细纲
+                    </button>
+                  </div>
+                </>
+              ) : null}
+            </div>
+          ))}
+        </section>
+      ) : null}
       {uiTestEditorElement ? (
         effectiveCompanionHtml ? (
           <OutlineDualPreview htmlContent={effectiveCompanionHtml} mdEditor={uiTestEditorElement} label={outlineFolderLabel ? `${outlineFolderLabel}双格式` : undefined} />
@@ -2504,6 +2674,17 @@ export function PreviewPanel() {
         applyLabel="替换选中文本"
         onApply={handleApplySelectionTransform}
         onClose={handleCloseSelectionTransform}
+      />
+      {/*
+        向导挂在章节区而不是大纲面板：点按钮、填参数、生成、确认、写成正文，
+        整条链路不离开章节区（用户口径：「点击这个功能后，在章节区生成内容」）。
+      */}
+      <EventOutlineWizardDialog
+        open={eventOutlineWizardVisible}
+        onOpenChange={setEventOutlineWizardVisible}
+        onSubmit={handleSubmitEventOutline}
+        defaultChapterNumber={nextEventOutlineChapterNumber}
+        defaultTargetWords={eventOutlineDefaultTargetWords}
       />
     </div>
   )

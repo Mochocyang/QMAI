@@ -173,6 +173,46 @@ describe("章节与大纲工具栏图标", () => {
     // 两处入口都调同一个打开函数（共用同一个面板，含同一份值）
     expect(source.match(/openBodyFontPopover\(event\.currentTarget\)/g)?.length).toBe(2)
   })
+
+  /*
+   * 丙-2a：「生成章节细纲」的入口落进章节工具栏，三个动作图标必须两两不同。
+   *
+   * 用户此前已经为「字体设置 vs 一键排版」提过一次同样的要求
+   * （「一键排版的图标与正文字体的图标两个不能设置为一样」）。新增第三个
+   * 图标动作时，同样的撞车风险会以新组合再出现一次（拿 Type 或 WandSparkles
+   * 去当"生成"图标是最省事的写法），所以这里用**两两互不相同**的方式钉住，
+   * 而不是只比较新按钮与其中某一个。
+   */
+  it("生成章节细纲用灯泡图标，与字体设置、一键排版三者互不相同", () => {
+    const block = buttonBlock("生成章节细纲")
+    expect(block).toContain("Lightbulb")
+    expect(block).not.toContain("<Type")
+    expect(block).not.toContain("WandSparkles")
+
+    const generationIcon = iconNamesIn(block)
+    expect(generationIcon, "「生成章节细纲」应恰好用一个图标组件").toHaveLength(1)
+    expect(generationIcon[0]).toBe("Lightbulb")
+
+    // 两两互不相同：任何两个复用同一个组件都会红
+    const icons = {
+      字体设置: iconNamesIn(buttonBlock("字体设置"))[0],
+      一键排版: iconNamesIn(buttonBlock("一键排版"))[0],
+      生成章节细纲: generationIcon[0],
+    }
+    expect(new Set(Object.values(icons)).size, `三个图标撞车了：${JSON.stringify(icons)}`).toBe(3)
+  })
+
+  /*
+   * 入口是**新增**，不是搬家 —— 本批之后大纲面板的空白态入口必须原样还在。
+   * 删掉它是后续单独一步（要人确认章节区那条链路真的可用），
+   * 这条守卫就是防止"顺手删掉"在没有验证的情况下发生。
+   */
+  it("大纲面板的空白态入口在本批中保持不动", () => {
+    const panel = readFileSync(resolve(__dirname, "../sources/outline-chat-panel.tsx"), "utf8")
+    expect(panel).toContain("onGenerateEventOutline")
+    expect(panel).toContain("setEventOutlineWizardOpen(true)")
+    expect(panel).toContain("EventOutlineWizardDialog")
+  })
 })
 
 /*
