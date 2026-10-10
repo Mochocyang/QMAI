@@ -1822,10 +1822,27 @@ function callbackBlock(source: string, startMarker: string): string {
    * 或 `    }, [...]`（wiki-editor 的 effect 里缩进 4）。所以允许 2–6 个空格，
    * 只写死 2 个会匹配不到后者，然后一路找到别的函数的结尾 —— 断言看着通过，
    * 其实查的是另一段代码。
+   *
+   * 缩进必须写成 `[ \t]` 而不是 `\s`：`\s` 连换行一起匹配，配合 `m` 标志会
+   * 跨行凑出「行首 + 若干空白 + }, [」，于是可能提前匹配到别的函数的结尾。
    */
-  const end = /^\s{2,6}\}, \[/m.exec(source.slice(start))
+  const end = /^[ \t]{2,6}\}, \[[^\n]*/m.exec(source.slice(start))
   if (!end || end.index === undefined) throw new Error(`找不到 ${startMarker} 的依赖数组结尾`)
-  return source.slice(start, start + end.index)
+  /*
+   * 抽出来的块必须真的以 startMarker 开头、以 `}, [` 结尾。
+   *
+   * 终点行本身也要切进来（末尾那个 `+ end[0].length`）。少了它有两个后果，
+   * 而且都是**静默**失效，不会报错：
+   * ① 下面那句 `/\}, \[/.test(block)` 永远为假 —— 块切到终点行之前，所以
+   *    连正确抽取都会抛「抽取结果不合理」；
+   * ② 「依赖数组里不能有 value」那类 not.toContain 断言恒为真 —— 依赖数组
+   *    根本不在块里，改坏了也测不出来。
+   */
+  const block = source.slice(start, start + end.index + end[0].length)
+  if (!block.startsWith(startMarker) || !/\}, \[/.test(block)) {
+    throw new Error(`${startMarker} 的代码块抽取结果不合理`)
+  }
+  return block
 }
 
 describe("续写：只有章节正文才有", () =&gt; {
