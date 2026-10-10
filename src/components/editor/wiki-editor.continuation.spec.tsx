@@ -120,4 +120,98 @@ describe("章节编辑器的续写入口", () => {
     act(() => root.unmount())
     document.body.removeChild(container)
   })
+
+  it("只传 onContinuationRequest 时也能浮出工具栏（不依赖润色入口）", () => {
+    const onContinuationRequest = vi.fn()
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    act(() => {
+      root.render(
+        <WikiEditor
+          content={CHAPTER}
+          onSave={() => {}}
+          immersiveWriting
+          onContinuationRequest={onContinuationRequest}
+        />,
+      )
+    })
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea")!
+
+    act(() => {
+      textarea.focus()
+      textarea.setSelectionRange(2, 4)
+      textarea.dispatchEvent(new Event("select", { bubbles: true }))
+      textarea.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }))
+    })
+
+    // 工具栏不该因为「没传润色入口」就消失
+    const toolbar = container.querySelector('[data-selection-toolbar="true"]')
+    expect(toolbar).not.toBeNull()
+    const labels = [...toolbar!.querySelectorAll("button")].map((el) => el.textContent)
+    expect(labels).toEqual(["续写"])
+
+    act(() => root.unmount())
+    document.body.removeChild(container)
+  })
+
+  it("正文变化后光标落在新偏移上，不会被上一轮的旧长度夹回去", async () => {
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    const render = (content: string, caretRequest: { at: number; nonce: number } | null) => {
+      act(() => {
+        root.render(
+          <WikiEditor
+            content={content}
+            onSave={() => {}}
+            immersiveWriting
+            caretRequest={caretRequest}
+            onCaretHandled={() => {}}
+          />,
+        )
+      })
+    }
+
+    // 旧正文只有 2 个字符
+    render("# 第一章\n\n旧。", null)
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea")!
+    await act(async () => { await new Promise((r) => requestAnimationFrame(() => r(null))) })
+    expect(textarea.value).toBe("旧。")
+
+    // 正文变成 9 个字符，同一轮请求把光标放到第 9 位。
+    // 夹取若用「上一轮渲染的 value（2）」，光标会被压回 2；写在 rAF 里按那一刻
+    // 的 DOM 值算才对。旧 test 因为从不改 content，永远看不出这个区别。
+    render("# 第一章\n\n旧。新内容新内容。", { at: 9, nonce: 1 })
+    await act(async () => { await new Promise((r) => requestAnimationFrame(() => r(null))) })
+
+    expect(textarea.value).toBe("旧。新内容新内容。")
+    expect(textarea.selectionStart).toBe(9)
+    expect(textarea.selectionEnd).toBe(9)
+
+    act(() => root.unmount())
+    document.body.removeChild(container)
+  })
+
+  it("右键且带选区时，锚点取选区末尾而不是起点", () => {
+    const onContinuationRequest = vi.fn()
+    const { container, textarea, cleanup } = mount(onContinuationRequest)
+
+    act(() => {
+      textarea.focus()
+      textarea.setSelectionRange(2, 4)
+      textarea.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 40, clientY: 60 }))
+    })
+
+    const items = [...container.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
+    expect(items[0]?.textContent).toBe("续写")
+    act(() => { items[0]!.click() })
+
+    // 走的是 runTextAction（右键路径），锚点必须是 end=4；取 start 会得到 2。
+    expect(onContinuationRequest).toHaveBeenCalledTimes(1)
+    const [anchor] = onContinuationRequest.mock.calls[0]
+    expect(anchor.at).toBe(4)
+
+    cleanup()
+  })
 })

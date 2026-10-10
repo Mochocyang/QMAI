@@ -270,7 +270,14 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
 
     const refreshSelection = useCallback(() => {
       const el = textareaRef.current;
-      if (!el || !onSelectionAction) {
+      /*
+       * 早退条件必须同时考虑两个入口。
+       *
+       * 原来只判断 `onSelectionAction`：只传 `onContinuationRequest` 的调用方
+       * 会觉得「续写工具栏」这个接口存在，实际却永远拿不到 selection，工具栏
+       * 静默不出现 —— 接口承诺了、行为做不到，是最难查的那种 bug。
+       */
+      if (!el || (!onSelectionAction && !onContinuationRequest)) {
         setSelection(null);
         setToolbarPosition(null);
         return;
@@ -299,7 +306,7 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
         bodySnapshot: value,
       });
       setToolbarPosition(nextPosition);
-    }, [onSelectionAction, value]);
+    }, [onContinuationRequest, onSelectionAction, value]);
 
     useEffect(() => {
       if (!highlightRequest) return;
