@@ -127,4 +127,33 @@ describe("event-outline-task-store", () => {
     const tasks = useEventOutlineTaskStore.getState().tasks
     expect(selectProjectEventOutlineTasks(tasks, "C:/booka/")).toHaveLength(1)
   })
+
+  /*
+   * 上面那条用的是 `C:\BookA` vs `C:/booka/` —— **旧实现也通过**，
+   * 所以它钉不住 D8 的两处归一化。下面两条各自钉一处：
+   *
+   * - 盘根：判 Windows 形态必须在剥尾斜杠**之前**做。若先剥再判，
+   *   `C:/` 变成 `C:`，`/^[A-Za-z]:\//` 匹配不上 ⇒ 盘根不会被小写化，
+   *   同一个盘符根目录就成了两个项目。
+   * - 双尾斜杠：必须剥掉**全部**尾斜杠（normalizeComparablePath 的 `\/+$`），
+   *   手写 `.replace(/\/$/, "")` 只去一个，`C:/Book//` 与 `C:/Book` 不相等。
+   */
+  it("盘根的大小写差异不算不同项目（C:/ 与 c:/）", () => {
+    useEventOutlineTaskStore.getState().startTask({ projectPath: "C:/", request: request() })
+    const tasks = useEventOutlineTaskStore.getState().tasks
+    expect(selectProjectEventOutlineTasks(tasks, "c:/")).toHaveLength(1)
+  })
+
+  it("重复结尾斜杠不算不同项目（C:/Book// 与 C:/Book）", () => {
+    useEventOutlineTaskStore.getState().startTask({ projectPath: "C:/Book//", request: request() })
+    const tasks = useEventOutlineTaskStore.getState().tasks
+    expect(selectProjectEventOutlineTasks(tasks, "C:/Book")).toHaveLength(1)
+  })
+
+  /*
+   * 残留边界（**有意不修**，真实项目路径不可达）：
+   * `"C:"` 经 normalizeComparablePath 仍是 `"C:"`，而 `"C:/"` 变成 `"c:"` ——
+   * 前者不是 Windows 形态、不做小写化，于是两者不相等。
+   * 用户不可能把一个项目开在 `C:`（无斜杠）这种路径上，故只记录。
+   */
 })

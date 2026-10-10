@@ -445,3 +445,58 @@ describe("outline-chat-store", () => {
     expect(useOutlineChatStore.getState().conversations[0].messages.map(m=>m.timestamp)).toEqual([undefined,123456789])
   })
 })
+
+describe("eventOutlineRequirement 的落盘往返与加载校验", () => {
+  /*
+   * FIX 5 加的字段与那段 typeof 校验必须被钉住：没有负向用例，
+   * 校验就是「没人钉住的防御」，将来被删掉也不会红。
+   * 正向：整份 conversations JSON.stringify + 加载时的逐字段校验，往返后仍在。
+   * 负向：手改过的 json 里写成数字/对象/数组/布尔时一律丢弃 ——
+   * 它会被送进 event-outline.ts 渲染期的 `requirement?.trim()`，抛错会把面板打白。
+   */
+  it("字符串要求往返后仍在（写盘 → 读回）", async () => {
+    useWikiStore.setState({ project: { id: "req-project", name: "测试项目", path: "C:/ReqBook" } })
+    useOutlineChatStore.setState({
+      conversations: [{
+        ...conversation("req"),
+        messages: [{
+          id: "assistant",
+          role: "assistant",
+          content: "第2章 · 灵石认主",
+          eventOutlineRequirement: "必须有反转",
+        }],
+      }],
+    })
+
+    await useOutlineChatStore.getState().saveToDisk()
+    const saved = fsMocks.writeFile.mock.calls.at(-1)?.[1]
+    expect(saved).toContain("必须有反转")
+
+    fsMocks.readFile.mockResolvedValue(saved)
+    await useOutlineChatStore.getState().loadFromDisk()
+    expect(useOutlineChatStore.getState().conversations[0].messages[0].eventOutlineRequirement)
+      .toBe("必须有反转")
+  })
+
+  it.each([
+    ["数字", 123],
+    ["对象", { text: "藏在对象里" }],
+    ["数组", ["藏在数组里"]],
+    ["布尔", true],
+  ])("加载时丢弃非字符串要求（%s）", async (_label, invalid) => {
+    useWikiStore.setState({ project: { id: "req-project", name: "测试项目", path: "C:/ReqBook" } })
+    const stored = conversation("invalid-req")
+    stored.messages = [{
+      id: "assistant",
+      role: "assistant",
+      content: "第2章 · 灵石认主",
+      eventOutlineRequirement: invalid as never,
+    }]
+    fsMocks.readFile.mockResolvedValue(JSON.stringify({ conversations: [stored], activeConversationId: "invalid-req" }))
+
+    await useOutlineChatStore.getState().loadFromDisk()
+
+    expect(useOutlineChatStore.getState().conversations[0].messages[0].eventOutlineRequirement)
+      .toBeUndefined()
+  })
+})

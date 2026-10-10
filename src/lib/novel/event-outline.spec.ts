@@ -423,9 +423,12 @@ describe("buildEventOutlinePrompt", () => {
 
   it("唯一的 json 示例是 eventOutlineData，而且是合法 JSON", () => {
     // 只留一份围栏：保存请求那份已经按用户要求移除（事件细纲不再进大纲列表）。
-    // 「只有一份围栏」是**可失败**的判据（多回一份 outlineSaveRequest 示例就会变 2）；
-    // 原先还跟着两条 `outlineSaveRequest === undefined` 的断言，但围栏里根本
-    // 没有这个键，无论提示词怎么写都成立 —— 恒真，故删除。
+    // 「只有一份围栏」是**可失败**的判据（多回一份 outlineSaveRequest 示例就会变 2）。
+    // 原先还跟着两条 `outlineSaveRequest === undefined` 的断言：它们并非恒真
+    // （往示例里加回该键或该字面量就会红），只是**冗余** ——
+    // 「没有 outlineSaveRequest」已由上面「要求产出 eventOutlineData，且不再要求保存请求」
+    // 那两条断言钉住，而「围栏里只有 eventOutlineData」由下面的长度断言钉住，
+    // 故删除以免同一事实被钉三遍。
     const fences = promptJsonFences(buildEventOutlinePrompt({ ...request, chapterNumber: 7 }))
     expect(fences).toHaveLength(1)
     expect(fences[0].eventOutlineData?.events).toHaveLength(1)

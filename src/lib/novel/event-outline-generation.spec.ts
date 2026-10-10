@@ -286,7 +286,14 @@ describe("generateEventOutline", () => {
     // fileURLToPath 而不是手写 pathname 处理：Windows 上盘符与中文路径都会被它正确处理
     const sourcePath = fileURLToPath(new URL("./context-engine.ts", import.meta.url))
     const source = await readFile(sourcePath, "utf8")
-    expect(source).toContain("角色人格规则未完整保留")
+    /*
+     * 断言**完整字面量**而不只是子串：子串断言无法区分「这句还在被 throw」
+     * 与「这句只留在注释里」。整句一起对，改文案时（无论改哪半句）都会红。
+     * 注意它必须与 context-engine.ts 里抛出的那句逐字一致。
+     */
+    expect(source).toContain(
+      "上下文预算不足，角色人格规则未完整保留。请缩小本次章节范围或选择更大上下文模型，已停止生成。",
+    )
     // 反向控制：确认扫的确实是那份文件（否则路径写错也会「通过」）
     expect(source).toContain("assertSourceCanonPreserved")
   })
@@ -301,6 +308,28 @@ describe("generateEventOutline", () => {
     // 必须 reject：若被吞掉就会 resolve 成 { outline: null, error: "…" }，
     // 卡片上出现一条用户看不懂的红色报错（他明明是自己按的取消）。
     await expect(promise).rejects.toBe(abortError)
+  })
+
+  it("取消以 Tauri 的资源失效字符串形态归来时也抛出，不会退化成「解析失败」", async () => {
+    /*
+     * 这条钉的是 catch 里那句 `if (isUserAbortError(error)) throw error` 的
+     * **独有职责**（不是与下面 `if (isUserAbortError(failure)) throw failure`
+     * 重复的死重）：plugin-http 在 abort 时的 rejection 是**字符串或对象**，
+     * 不是 Error（见 tauri-resource-error.ts 的注释）。
+     *
+     * 区别就在这里：`isUserAbortError` 认这种形态（它调
+     * isTauriInvalidResourceIdError），而下面的兜底会把非 Error 包成
+     * `new Error(String(error))` —— 包完就再也认不出来了，
+     * 于是用户自己按的取消变成一条红色「模型回复里没有找到可解析的事件细纲 JSON」。
+     * 删掉那句 throw，这条用例即变红。
+     */
+    const abortLike = "The resource id 7 is invalid"
+    const promise = generateEventOutline("/p", request(), llmConfig, {}, undefined, deps({
+      streamChat: (async () => {
+        throw abortLike
+      }) as unknown as EventOutlineGenerationDeps["streamChat"],
+    }))
+    await expect(promise).rejects.toBe(abortLike)
   })
 
   /*
@@ -336,6 +365,25 @@ describe("generateEventOutline", () => {
 
     await expect(promise).rejects.toThrow(USER_ABORT_MESSAGE)
     // 这条是重点：不是「发了请求再丢掉」，而是根本没发
+    expect(streamChat).not.toHaveBeenCalled()
+  })
+
+  it("传进来的 signal 已经 aborted：压根不发起 streamChat", async () => {
+    /*
+     * 设计 §4.1（D1/D2）要求的就是这一条的**字面形态**：进来时 signal 已是
+     * aborted。它与下面那条「在 buildContextPack 内部 abort」覆盖等价
+     * （删掉模块里那次 throwIfAborted 两条都会红），但字面形态更贴近
+     * llm-client.ts 的 addEventListener 语义：对已经 aborted 的 signal
+     * 注册监听器永远不会触发，所以请求会真的发出去。
+     */
+    const controller = new AbortController()
+    controller.abort()
+    const streamChat = vi.fn() as unknown as EventOutlineGenerationDeps["streamChat"]
+    const promise = generateEventOutline("/p", request(), llmConfig, {}, controller.signal, deps({
+      streamChat,
+    }))
+
+    await expect(promise).rejects.toThrow(USER_ABORT_MESSAGE)
     expect(streamChat).not.toHaveBeenCalled()
   })
 

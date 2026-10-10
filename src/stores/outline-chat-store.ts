@@ -102,6 +102,20 @@ export interface OutlineMultiAgentRunState {
  * 存在的意义：这类问题不阻止保存（用户可以「保存当前内容」），但必须让用户
  * **在生成结果旁边**看见缺什么，而不是被一个和内容脱节的浮层挡住。
  */
+/**
+ * 用户向导里填的「对本章的想法或硬要求」必须是字符串。
+ *
+ * 手改过的 outline-chats.json 里若把它写成数字或对象，它会一路走到
+ * event-outline.ts 的 `requirement?.trim()` —— 而那是**渲染期**的 useMemo，
+ * 抛出的 TypeError 会把整个大纲面板打白。所以加载侧先校验、不合格即丢弃。
+ * 放在这里而不是内联 typeof：与相邻字段（isNovelGenerationRequestPackage /
+ * isOutlinePlanProtocol）的加载校验保持同一种写法，便于一眼看出
+ * 「哪些字段过校验、哪些没有」。
+ */
+function isEventOutlineRequirement(value: unknown): value is string {
+  return typeof value === "string"
+}
+
 export interface OutlineSaveReport {
   /** 拟保存的文件名。 */
   fileName: string
@@ -171,9 +185,18 @@ export interface OutlineChatMessage {
    * 所以不存在「换了章号就取到别人的要求」这种错配；存量数据没有这个字段时读到
    * undefined，行为与加字段之前完全一致。
    *
-   * 落盘：本 store 整份 conversations 直接 JSON.stringify，加载时 messages 又是
+   * 落盘：本 store 整份 conversations 直接 JSON.stringify，加载时 messages 走
    * `{...message}` 展开，所以新字段无需任何序列化改动即可往返
    * `<项目>/.qmai/outline-chats.json`。
+   *
+   * ⚠️ 但**加载侧要校验**（loadFromDisk 里的 messages 映射）：那里不是朴素的
+   * `{...message}` —— 每个带渲染期 `?.` 调用的字段都要过一遍类型校验，
+   * `eventOutlineRequirement` 用的是 isEventOutlineRequirement（必须是字符串），
+   * 否则手改过的 json 里写成数字或对象会在 event-outline.ts 的 `requirement?.trim()`
+   * 处抛 TypeError、把整个大纲面板打白。
+   *
+   * 注：同一批里 characterMultiAgentResults / agentToolCalls 等渲染期字段**没有**
+   * 这样的校验（既有状态，不属本批范围），这里的校验是就事论事、不是「全字段已校验」。
    */
   eventOutlineRequirement?: string
   /** Thinking-model chain-of-thought; must be replayed on subsequent turns. */
@@ -521,7 +544,7 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
            * 的 useMemo，抛出的 TypeError 会把整个大纲面板打白。
            * 存量数据本来就没有这个字段，读到 undefined 即丢弃，行为与加字段前一致。
            */
-          eventOutlineRequirement: typeof message.eventOutlineRequirement === "string"
+          eventOutlineRequirement: isEventOutlineRequirement(message.eventOutlineRequirement)
             ? message.eventOutlineRequirement
             : undefined,
           // 结构不完整的计划协议一律丢弃，避免重载后渲染出残缺卡片
