@@ -176,29 +176,120 @@
 → 两条路都必须在**别的**注入通道上解决。设计 §3.2 / §3.3 的专项侦察结论填入后
 再落笔；**不要**为了绕开这个约束去偷偷改守门文件。
 
-### 4.1 丁-4：角色灵魂引用
+### 4.1 丁-4：角色灵魂引用（**侦察已定稿，按此实施，不要重新设计**）
 
-- 1. 把灵魂投影到统一可选面（与 §1 同构）：`CharacterAura` → 可选项条目。
-- 2. 引用弹窗加 `character`/`soul` 子类型 + 两处 provider 注入
-  （`chat-panel.tsx:1178`、`outline-chat-panel.tsx:2258`，见设计 §1.8）。
-- 3. **可真绑定**：需要明确确认交互——**不能**因为用户点了一下 `@` 就静默写
-  `.qmai/character-aura.json`。要么复用 `BindingTargetDialog`
-  （**导出自 `book-analysis-workbench.tsx:1045`**），要么给一个等价的确认步骤。
-- 4. ⚠️ 绑定后 UI 是否立即看到：先确认 `getCharacterAuraBindings` 有没有
-  zustand 镜像；若没有，写盘后需要让消费者重新读盘（设计 §3.2 侦察项 1.3）。
-- 5. ⚠️ 若走「内联」（把 aura 的 `SKILL.md` 当作本轮技能内容注入），
-  则不写盘、无副作用，但不符合用户「作为这个人物的灵魂」的持久语义。
-  用户已选「真绑定」，所以**默认走绑定**；内联只作为「未绑定到具体人物」时的兜底。
+**核心结论**：可按消息使用灵魂，但**只能**通过**真绑定**实现——
+「注入一个没有绑定行的 aura」在架构上不可能
+（`buildCharacterSoulContext` 只过滤 `store.bindings`，`character-aura.ts:616-617`、`:624`，
+连 `fallbackAuraId` 也过滤它 `:648-650`）。
 
-### 4.2 丁-5：故事 skill 打通
+但**真绑定不意味着必须改守门文件**：
+`buildCharacterSoulContext` 每次调用都**重新读盘**（`:616` → `:304-315`，**无内存缓存**），
+所以**接缝就是存储文件** `.qmai/character-aura.json`。
 
-- 核心是**让拆书的发布结果落到已经被注入的那个存储**，或走已有的注入字段。
-  具体形态待设计 §3.3 侦察结论。
-- ⚠️ 若选择「改发布目标」，会动到既有发布路径（`workbench-publish.ts:233-246`），
-  必须**同时保留** `plot-frameworks/library.json` 的写入（`outline-editor.tsx:62-68`
-  的下拉还在读它），即**双写**或**迁移 + 兼容读取**，不能单向切断。
-- ⚠️ 故事框架是否单启用（像 `enabledStyleId`）由 `framework-binding.ts` 决定，
-  实施前先读清（设计 §3.3 侦察项 3.1）。
+#### 步骤
+
+1. **可选面投影**：把 `CharacterAura` 投影成统一可选项（与 §1 的 `style` 同构）。
+   来源：`listCharacterAuras(projectPath)`（`character-aura.ts:321`，已导出）。
+   技能库里新增「灵魂/角色」分类，徽章文案给「角色灵魂」。
+2. **引用弹窗**：加 `character`（或 `soul`）子类型到
+   `src/lib/reference/types.ts:3` 的 `SkillSubtype` + `ReferencePickerDialog.tsx:12-15`
+   的 `SKILL_SUBTABS`；两处 provider 注入点
+   （`chat-panel.tsx:1178`、`outline-chat-panel.tsx:2258`）补新类型。
+   ⚠️ **实施前先确认丙-2/丙-4 是否已改 `outline-chat-panel.tsx`**，避免并发改同一文件。
+3. **真绑定的交互**（本子批的重点，**必须有明确确认**）：
+   - 用户点 `@某人灵魂` 后，**不要**静默写盘。给出确认步骤，
+     让用户指定「把这条灵魂绑给哪个小说人物」。
+   - **可直接复用现成交互**：`BindingTargetDialog`
+     （**导出自 `book-analysis-workbench.tsx:1045`**，用法见 `:751-752`、确认处理 `:615-618`），
+     或照 `soul-sidebar-panel.tsx:59` / `character-aura-view.tsx:393` 的调用形状。
+   - 写盘用 `bindCharacterAura(projectPath, { characterName, auraId, aliases? })`
+     （`character-aura.ts:505`，**已导出、`writeFileAtomic` + await**）。
+   - ⚠️ **不要**试图直接写 `.qmai/character-aura.json`：
+     `saveCharacterAuraStore` 是**私有的**（`:317`），绕过它就会绕过 aura 存在性校验。
+   - ⚠️ **存在性前置**：`bindCharacterAura` 要求该人物**已有档案**
+     （`:510-511` + `hasCharacterProfile` `:733-747`，会查 `searchWiki` 的
+     「人物小传/人物设定」），否则报
+     「请先在大纲中添加人物小传或人物设定，再绑定角色灵魂」。
+     **这个报错必须原样呈现给用户**，不要吞掉——它是可操作的指引。
+4. **「只对这一条消息生效」**：生成前 `bindCharacterAura`，生成后
+   `unbindCharacterAura(projectPath, characterName, auraId)`（`:522`）清理。
+   ⚠️ 清理必须放在 `finally` 里，否则生成失败会把临时绑定**永久留在项目里**。
+   ⚠️ 若用户本来就有这条绑定，清理会**误删用户的原有绑定**——
+   实施前必须先读原绑定、只在「原本没有」时才解绑，并写单测覆盖这个分支。
+5. **UI 刷新**：绑定后**没有** zustand 镜像，需要 `bumpDataVersion()`
+   （先例 `soul-sidebar-panel.tsx:49-54`、`:59-61`）。
+   **生成路径不需要任何刷新**（每次都重读盘）。
+6. **⚠️ 必须处理的最大风险：fail-closed 硬停机**。
+   `characterAuras` 优先级 10（`context-engine.ts:51`），
+   而 `portablePersonalities` 有 fail-closed 断言：
+   `context-engine.ts:1129-1131` 在未完整进入提示词时**抛错**；
+   `deep-chapter-generation.ts:799-808` 另有包含性断言与 `PersonalityConstraintError`。
+   **拆书 aura 几乎都带 `portablePersonality`** →
+   「多绑一个灵魂」可能把一次本来正常的生成变成
+   「上下文预算不足，角色人格规则未完整保留」的硬停机。
+   **必须二选一并在报告里说明选了哪个**：
+   - (甲) 绑定前做预算检查，超预算时**提前**给可读提示（推荐）；
+   - (乙) 接受该失败模式，但**必须有测试**钉住它会抛出那条可读错误
+     （不能让它变成一个无解释的报错）。
+7. **⚠️ 第二个风险：子串误匹配**。
+   匹配是裸子串/拼音包含（`character-aura.ts:624-647`），
+   「李四」会命中「李四光」，多绑会让灵魂泄漏到**不该出现的章节**。
+   **必须在报告里说明如何缓解**（例如确认交互里显示"该灵魂会在提到『李四』的章节生效"，
+   让用户知道影响范围）。
+
+### 4.2 丁-5：故事 skill 打通（**侦察已定稿：走路线 A**）
+
+**路线 A（首选）**：让拆书的发布**额外写进已经被注入的那个存储**。
+- `contextPack.storyFrameworkBinding` 在 `context-engine.ts:342-344`（守门文件内），
+  但**只是纯透传**；真正的值由 `context-data-sources.ts:516-527` 产出（非守门文件）。
+- 用**已导出**的 `saveFramework(projectPath, storyFramework)`
+  （`story-simulation/framework-store.ts:289-296`）写
+  `.qmai/simulations/frameworks/<id>.md`。**零新增注入代码**，
+  且该目录已在缓存前缀里（`context-hub/source-paths.ts:82-85`）。
+
+#### 步骤
+
+1. **写转换器**（新纯函数，~15 行 + 单测）：
+   `PlotFramework`（`plot-framework.ts:44-83`）→ `StoryFramework`
+   （`story-simulation/types.ts:259`）。映射：
+   - `beats.hook/buildup/payoff/endingHook` → `nodes[0..3]` 的 `起/承/转/合`；
+   - `characters[{name,role}]` → `involvedCharacters[]`（**`role` 会丢**）；
+   - `createdAt: number` → ISO **string**；
+   - `simulationMode` 必须取自 `VALID_MODES`（`framework-store.ts:37-42`，默认 `"hybrid"`）；
+   - `premise` / `targetWords` / `sourceChapters` 需新造或由 `rangeChapterIds.length` 推。
+   **必须单测「有损字段」**（`foreshadowing` / `line` / `tags` / `pacing` / `history` /
+   `prev–nextConnector` 全部丢弃），使损失是**已知且被钉住的**，而不是悄悄发生。
+   ⚠️ **不要手写 md 文件**：`framework-store` 的解析较严
+   （`extractSection` `:122-139`、`parseNodeHeader` 要求含「节点」`:141-160`），
+   手写会**静默产出 0 个节点**。一定走 `saveFramework`。
+2. **在两个发布方都加桥接**（否则只做一半）：
+   - `workbench-publish.ts:245`（在 `upsertPlotFramework` 旁边）；
+   - ⚠️ `story-analysis-adapter.ts:265-292`（旧提取路径，同样要桥）。
+3. ⚠️ **不要在发布时自动 `saveBinding()`**：它会**无条件覆盖唯一的活跃绑定**
+   （`framework-binding.ts:85-88`，单启用），等于劫持用户已有的仿真框架。
+   **让用户通过既有 UI 绑定**（`framework-binding-dialog.tsx:54-70`，
+   入口在 `sidebar-panel.tsx:242`）。
+4. ⚠️ **不要走路线 B**（改 `context-data-sources.ts:519-526` 去读 `library.json`）：
+   `.qmai/plot-frameworks/` **不在** `SOURCE_DEPENDENCY_PREFIXES`
+   （`source-paths.ts:82-85`）、会被归类为 `"other"`（`:33-57`），
+   于是 `DataSourceCacheAdapter`（`data-source-cache.ts:56-71`、`:180-185`）
+   会在 **AI 会话那条路径上发陈旧值**；修它要改 `source-paths.ts`。
+   本批硬边界按**严格读法**（不动 `context-hub/` 任何文件），所以必须走路线 A。
+   （写作路径本身不受影响：`deep-chapter-generation.ts:2635` 走裸 `buildContextPack`。）
+5. **可选（低成本高价值）**：`formatPlotFrameworkForOutlinePrompt`
+   （`plot-framework.ts:307`）**生产代码零调用方**（只有 spec）。
+   若还想在**章纲层**让故事 skill 生效，接它到
+   `outline-chat-panel.tsx` 的系统提示词与技能装配
+   （`buildConfigForSkillNames:3316-3333`）即可。
+6. **⚠️ 内容质量隐患必须处理**：拆书故事维度的标签是**提示词要求但未校验**
+   （`workbench-adapter.ts:36` vs `workbench-core.ts:152-153`）。
+   模型跑偏时 `pick()`（`workbench-publish.ts:235`）匹配不到标签，
+   **四个 beat 会全部退化成同一句**
+   「本次没有充分依据，不固定该环节；由目标故事实际情境决定。」——
+   **结构合法、内容为空**，还能通过 `normalizeBeats`（`plot-framework.ts:217`）。
+   → 必须在**发布或绑定**时检测这种退化并提示用户
+   （判据：四个 beat 相同，或全为那句 fallback），否则用户会绑定到一个空框架却不知道。
 
 ### 4.3 必须保持绿
 
@@ -206,6 +297,16 @@
 - `workbench-publish.spec.ts`（三种产物各自的落盘断言）。
 - `context-engine.spec.ts:41-47`（文风 fail-closed）——**绝不能改**。
 - `framework-store` / `framework-binding` / `plot-framework-library` 的既有 spec。
+- `plot-framework.spec.ts:253-255`（`formatPlotFrameworkForOutlinePrompt` 的现有断言）。
+
+### 4.4 ⚠️ 需要用户澄清的一处范围差异（实施前确认）
+
+本批给实现者的硬边界写的是 **`src/lib/context-hub/**` 全部只读**，
+而本分支设计文档 §4 与三项守门检查实际只钉 **`src/lib/context-hub/composer.ts`** 一个文件。
+→ 差异有实质影响：按**严格**读法，`source-paths.ts` 与 `data-source-cache.ts` 不可改，
+这正是路线 B 会发陈旧值、而路线 A 更优的原因。
+**本计划按严格读法执行**（不动 `context-hub/` 任何文件），丁-5 因此走路线 A。
+若要保持宽松读法（允许改 `source-paths.ts`），需先明确放宽边界。
 
 ---
 
