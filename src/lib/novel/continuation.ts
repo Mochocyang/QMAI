@@ -135,45 +135,50 @@ export function insertContinuationBody(
   }
 }
 
-/** 浮层尺寸，用来在摆放位置时判断「放不放得下」。 */
 export const CONTINUATION_POPOVER_WIDTH = 360
 export const CONTINUATION_POPOVER_MAX_HEIGHT = 320
-/** 浮层与视口边缘的最小间距。 */
-export const CONTINUATION_POPOVER_GAP = 12
+const CONTINUATION_POPOVER_GAP = 12
 
 export interface ContinuationPopoverPosition {
   left: number
   top: number
 }
 
-/**
- * 把浮层摆进视口内。
- *
- * 收成纯函数、由调用方传入视口尺寸，是为了能在 node 环境里直接单测 —— 否则
- * 就得在 jsdom 里伪造 getBoundingClientRect，测的还是伪造出来的东西。
- *
- * 视口比浮层还小时 `max` 会拿到一个比 `min` 更大的下限：`Math.max(min, Math.min(...))`
- * 里 `Math.min` 先算出负值，再被 `Math.max` 抬回间隙处，所以结果不会是负数。
- */
-export function clampContinuationPopoverPosition(
-  left: number,
-  top: number,
-  viewport: { width: number; height: number },
-): ContinuationPopoverPosition {
-  const maxLeft = viewport.width - CONTINUATION_POPOVER_WIDTH - CONTINUATION_POPOVER_GAP
-  const maxTop = viewport.height - CONTINUATION_POPOVER_MAX_HEIGHT - CONTINUATION_POPOVER_GAP
-  return {
-    left: Math.max(CONTINUATION_POPOVER_GAP, Math.min(left, maxLeft)),
-    top: Math.max(CONTINUATION_POPOVER_GAP, Math.min(top, maxTop)),
-  }
+/** 浮层里显示的「N 字」：与正文计数口径一致，去掉所有空白。 */
+export function countContinuationChars(text: string): number {
+  return text.replace(/\s/g, "").length
 }
 
 /**
- * 续写候选的字数。
+ * 把浮层夹进视口。
  *
- * 与 `writing-stats.ts` 的计数字符口径保持一致：去掉全部空白（含全角空格
- * U+3000 —— 它是段首缩进，不该算进字数）。
+ * 做成纯函数（而不是在组件里量 DOM）有两个好处：能被直接单测；不必依赖
+ * jsdom 里一堆返回 0 的 getBoundingClientRect。
+ *
+ * 优先放锚点**下方**：续写浮层是从「刚写完的那句话」触发的，压在正文上会
+ * 挡住用户正要看的正文。下方放不下才翻到上方。
+ *
+ * 夹取用 `margin`（视口内缩）与 `CONTINUATION_POPOVER_GAP`（与锚点的距离）
+ * 两个量：前者决定浮层离视口边缘多近，后者决定浮层离锚点多远，混用一个值
+ * 会让「贴边」和「贴身」被迫取同一个数。
  */
-export function countContinuationChars(text: string): number {
-  return text.replace(/\s/g, "").length
+export function clampContinuationPopoverPosition(
+  anchor: { x: number; y: number },
+  viewport: { width: number; height: number },
+  size: { width: number; height: number } = {
+    width: CONTINUATION_POPOVER_WIDTH,
+    height: CONTINUATION_POPOVER_MAX_HEIGHT,
+  },
+  margin = 8,
+): ContinuationPopoverPosition {
+  const maxLeft = Math.max(margin, viewport.width - size.width - margin)
+  const left = Math.min(Math.max(anchor.x - size.width / 2, margin), maxLeft)
+
+  const below = anchor.y + CONTINUATION_POPOVER_GAP
+  const above = anchor.y - size.height - CONTINUATION_POPOVER_GAP
+  const top = below + size.height + margin <= viewport.height
+    ? below
+    : Math.max(margin, above)
+
+  return { left, top }
 }
