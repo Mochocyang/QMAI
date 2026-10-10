@@ -5277,7 +5277,7 @@ npm run test:mocks</div>
     <div class="expect">
       <span class="t">Expected</span>
       <code>tsc</code> 两次都无输出。<code>test:mocks</code> 开头会先跑 <code>node scripts/lint-character-aura.mjs</code>——它检查 <code>character-aura.ts</code> 与 <code>skills/soulskill/**</code>；本计划<b>没碰</b>这些文件，所以必然通过（如果它报错，说明你误改了 <code>character-aura.ts</code>，退回去查）。
-      <br>测试总数为「本分支基线 <b>720 文件 / 6957 用例</b>」+ 本次新增 6 个 spec 文件 + 约 <b>65 个新用例</b>，0 失败。
+      <br>测试总数为「本分支基线 <b>720 文件 / 6957 用例通过</b>」+ 本次新增 <b>8 个 spec 文件 / 129 个新用例</b> = 约 <b>728 文件 / 7086 用例通过</b>，0 失败。
     </div>
     <div class="callout warn">
       <span class="t">跑完看到约 170 个「已修改」？那是 EOL 假阳性，不是你的改动</span>
@@ -5335,7 +5335,7 @@ git commit -m "feat(人物skill): 接上导航与草稿守卫"</div>
     <tr>
       <td>AI 对话中生成章节是否会自动引用这些 skill</td>
       <td class="mono">context-engine.ts<br>buildPersonaSkillContext</td>
-      <td>走 <code>buildContextPack()</code> 新增的独立可选字段 <code>personaSkills</code>（<code>FIELD_PRIORITY.personaSkills = 10.5</code>，紧跟 <code>characterAuras</code>），所以写作时自动带；「角色灵魂仍动态 import」那条用例保证没绕开既有尺寸边界。</td>
+      <td>走 <code>buildContextPack()</code> 新增的独立可选字段 <code>personaSkills</code>（<code>FIELD_PRIORITY.personaSkills = 10.5</code>，紧跟 <code>characterAuras</code>），所以写作时自动带；<code>context-engine-persona.spec.ts</code> 的「character-aura 仍然只能动态 import（bundle 边界不变）」那条用例保证没绕开既有尺寸边界。</td>
     </tr>
     <tr>
       <td>多个角色按什么策略注入 → 按档位分级（用户选定 A 方案）</td>
