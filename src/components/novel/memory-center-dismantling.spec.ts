@@ -63,4 +63,15 @@ describe("记忆中心不出现拆文库", () => {
     expect(line).toContain('activeView === "lint"')
     expect(line).toContain("novelMode")
   })
+
+  /*
+   * 技能库内部 tab 的新视图（文风库）必须与技能库一样是整窗视图：
+   * 漏掉它不会报错，只会把它挤进「目录栏 + 内容区」的双栏容器里。
+   */
+  it("文风库视图与技能库一样是整窗视图，不占左侧目录栏", () => {
+    const line = shellSource.split("\n").find((item) => item.includes("const fullWindowViews ="))
+    expect(line).toBeDefined()
+    expect(line).toContain('activeView === "skillLibrary"')
+    expect(line).toContain('activeView === "writingStyleLibrary"')
+  })
 })

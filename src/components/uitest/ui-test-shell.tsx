@@ -110,7 +110,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const assistantOpen = activeView === "sources" ? outlineExpanded : chatExpanded
   const requestedWidth = Number.isFinite(preference.aiWidth) ? preference.aiWidth! : UI_TEST_AI_DEFAULT_WIDTH
   // 技能库、灵魂改为整窗卡片画廊，不再占用左侧目录栏。
-  const fullWindowViews = activeView === "skillLibrary" || activeView === "writingSkillLibrary" || activeView === "skillFavorites" || activeView === "soul" || activeView === "bookAnalysis"
+  const fullWindowViews = activeView === "skillLibrary" || activeView === "writingSkillLibrary" || activeView === "writingStyleLibrary" || activeView === "skillFavorites" || activeView === "soul" || activeView === "bookAnalysis"
   /*
    * 记忆中心同样改为整窗单页：它的分类列表现在是页面内的标签条，
    * 不再需要左侧目录栏 —— 那一栏原来是"中间栏"，与右侧内容区构成双栏。

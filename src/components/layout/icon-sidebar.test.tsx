@@ -54,6 +54,18 @@ describe("icon-sidebar", () => {
     expect(contentAreaSource).toContain("<UnifiedSkillLibraryView")
   })
 
+  /*
+   * 文风库是技能库内部 tab 的视图：它必须折算到技能库图标上保持高亮，
+   * 但**不得**同时新增侧边栏条目（`id` / `labelKey` 都不能出现）。
+   */
+  it("folds the 文风 view into the skill-library nav icon without adding a sidebar entry", () => {
+    expect(iconSidebarSource).toContain(
+      'const SKILL_LIBRARY_TAB_VIEWS: readonly NavView[] = ["writingSkillLibrary", "writingStyleLibrary"]',
+    )
+    expect(iconSidebarSource).not.toContain('id: "writingStyleLibrary"')
+    expect(iconSidebarSource).not.toContain('labelKey: "novel.nav.writingStyleLibrary"')
+  })
+
   it("makes feature entries configurable without moving fixed bottom controls", () => {
     expect(iconSidebarSource).toContain("sidebarNavConfig")
     expect(iconSidebarSource).toContain("setSidebarNavConfig")

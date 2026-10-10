@@ -75,10 +75,19 @@ interface SortableNavButtonProps {
   onClick: (item: ConfigurableNavItem) => void
 }
 
+/**
+ * 由「技能库」一个侧边栏图标承载的内部视图。
+ * 它们**不是**独立的导航入口（`icon-sidebar.test.tsx` 与
+ * `sidebar-nav-preferences.spec.ts` 都断言它们不出现在侧边栏条目 / 默认顺序里），
+ * 但在这些视图里侧边栏仍要把它折算到技能库图标上、保持高亮。
+ */
+const SKILL_LIBRARY_TAB_VIEWS: readonly NavView[] = ["writingSkillLibrary", "writingStyleLibrary"]
+
 function SortableNavButton({ item, activeView, pendingCount, label, onClick }: SortableNavButtonProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   const Icon = item.icon
-  const isActive = activeView === item.view || (item.view === "skillLibrary" && activeView === "writingSkillLibrary")
+  const isActive = activeView === item.view
+    || (item.view === "skillLibrary" && SKILL_LIBRARY_TAB_VIEWS.includes(activeView))
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,

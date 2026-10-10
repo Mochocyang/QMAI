@@ -124,6 +124,7 @@ export function ContentArea() {
         break;
       case "skillLibrary":
       case "writingSkillLibrary":
+      case "writingStyleLibrary":
       case "skillFavorites":
         content = (
           <Suspense fallback={<LoadingView />}>

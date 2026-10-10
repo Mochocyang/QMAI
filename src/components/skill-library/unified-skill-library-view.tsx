@@ -1,5 +1,5 @@
 import "@/components/uitest/ui-test-tools.css"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, type ComponentType } from "react"
 import { open } from "@tauri-apps/plugin-dialog"
 import { ArrowLeft, Plus, Search, Star, Upload } from "lucide-react"
 import { readFile } from "@/commands/fs"
@@ -29,32 +29,175 @@ import {
   type UserSkillConfig,
 } from "@/lib/novel/user-skill-store"
 import { SKILL_KIND_LABELS, skillDisplayName, type SkillKind, type UserSkill } from "@/lib/novel/skill-library"
+import { loadWritingStyleStore, type WritingStylePreset } from "@/lib/novel/writing-style-store"
 import { SkillLibraryView } from "./skill-library-view"
 import { WritingSkillLibraryView } from "./writing-skill-library-view"
 import { FavoriteListView } from "./favorite-list-view"
 
+/**
+ * 技能库 tab 的**唯一事实来源**：视图名 + 文案。
+ *
+ * 下面每一张分派表都是 `Record<SkillLibraryTab, …>`，所以往这里加一个 tab
+ * 而忘了补某张表 = **编译错误**，不会静默走错分支。
+ */
 const skillLibraryTabs = [
   { view: "skillLibrary" as const, label: "去AI味技能" },
   { view: "writingSkillLibrary" as const, label: "写作 Skill" },
+  { view: "writingStyleLibrary" as const, label: "文风" },
   { view: "skillFavorites" as const, label: "收藏" },
 ]
 
 type SkillLibraryTab = (typeof skillLibraryTabs)[number]["view"]
-type GalleryTab = "skillLibrary" | "writingSkillLibrary"
+/** 卡片画廊承载的 tab；「收藏」走独立的 FavoriteListView。 */
+type GalleryTab = Exclude<SkillLibraryTab, "skillFavorites">
+type ActiveView = ReturnType<typeof useWikiStore.getState>["activeView"]
 
-type UnifiedSkillCategory = "all" | "recent" | "uncategorized" | SkillKind | "de-ai" | "writing"
+/**
+ * activeView → 列表 tab 的**显式映射**。
+ *
+ * ⚠️ 不要改回 `activeView === "writingSkillLibrary" ? … : activeView === "skillFavorites" ? … : "skillLibrary"`
+ * 那种二元三元链——那是本文件原先的形状，而给联合类型加第三个成员时
+ * **每一处三元都仍然合法编译**（`"writingStyleLibrary" === "writingSkillLibrary"` 只是恒 false），
+ * 于是全部静默落到 else 兜底分支，`npm run typecheck` 抓不到任何一处。
+ * 换成 `Record` 之后，「加了 tab 没加映射」是编译错误。
+ */
+const ACTIVE_TAB_BY_VIEW: Record<SkillLibraryTab, SkillLibraryTab> = {
+  skillLibrary: "skillLibrary",
+  writingSkillLibrary: "writingSkillLibrary",
+  writingStyleLibrary: "writingStyleLibrary",
+  skillFavorites: "skillFavorites",
+}
 
-interface UnifiedSkillEntry {
+/**
+ * 草稿标记归属。显式映射，避免 `activeTab === "writingSkillLibrary" ? writing : skill`
+ * 把「文风」静默归到写作 Skill 的脏标记上。
+ */
+const TAB_DRAFT_KIND: Record<SkillLibraryTab, "skill" | "writing" | "none"> = {
+  skillLibrary: "skill",
+  writingSkillLibrary: "writing",
+  // 文风库本批只读（没有编辑器也就没有草稿）；收藏列表同样没有草稿标记。
+  writingStyleLibrary: "none",
+  skillFavorites: "none",
+}
+
+/**
+ * 头部动作区形态。显式映射：加 tab 忘了补 = 编译错误，
+ * 而不是静默显示成「新建技能 / 导入」。
+ */
+const TAB_ACTIONS: Record<GalleryTab, "de-ai" | "writing" | "none"> = {
+  skillLibrary: "de-ai",
+  writingSkillLibrary: "writing",
+  // 文风预设由拆书库 / 书库流程写入 `.qmai/writing-style.json`。
+  // 设计 §3 待确认项 3 明确本批**不新增**文风的编辑能力，所以这里没有新建/导入。
+  writingStyleLibrary: "none",
+}
+
+/** 只有带分类的库显示分类 chips（目前只有写作 Skill）。 */
+const TABS_WITH_CATEGORY_CHIPS: ReadonlySet<GalleryTab> = new Set<GalleryTab>(["writingSkillLibrary"])
+
+/** 各 tab 的空态文案。显式映射，避免二元三元把新 tab 说成「还没有去AI味技能」。 */
+const EMPTY_COPY: Record<GalleryTab, string> = {
+  skillLibrary: "还没有去AI味技能，点击右上角「新建技能」开始。",
+  writingSkillLibrary: "还没有写作 Skill，点击右上角「新建 Skill」开始。",
+  writingStyleLibrary: "文风库还是空的：对一部作品做完文风提炼后，它的文风预设会出现在这里。",
+}
+
+/** 编辑器分派。显式映射：新 tab 不会静默渲染成**另一个库**的编辑器。 */
+const SKILL_EDITORS: Record<GalleryTab, ComponentType> = {
+  skillLibrary: SkillLibraryView,
+  writingSkillLibrary: WritingSkillLibraryView,
+  // 文风条目本批只读，没有编辑器（设计 §3 待确认项 3）。
+  writingStyleLibrary: () => null,
+}
+
+function resolveActiveTab(activeView: ActiveView): SkillLibraryTab {
+  // ACTIVE_TAB_BY_VIEW 的键恰好是 4 个技能库视图；其余视图不会渲染本组件，
+  // 兜底到「去AI味技能」与改动前一致。
+  return (ACTIVE_TAB_BY_VIEW as Partial<Record<ActiveView, SkillLibraryTab>>)[activeView] ?? "skillLibrary"
+}
+
+function tabDraftDirty(draftKind: "skill" | "writing" | "none", skillDirty: boolean, writingDirty: boolean): boolean {
+  if (draftKind === "writing") return writingDirty
+  if (draftKind === "skill") return skillDirty
+  return false
+}
+
+type UnifiedSkillCategory = "all" | "recent" | "uncategorized" | SkillKind
+
+interface UnifiedSkillEntryBase {
   id: string
+  /** 底层来源对象的 id（用于启用态、收藏、选择态）。 */
   sourceId: string
-  type: "writing" | "de-ai"
   name: string
   description: string
   content: string
   kinds: SkillKind[]
-  /** toggleFavorite 需要原始技能对象（v3 新增） */
-  rawSkill: UserSkill | DeAiSkill
 }
+
+interface WritingSkillEntry extends UnifiedSkillEntryBase {
+  type: "writing"
+  rawSkill: UserSkill
+}
+
+interface DeAiSkillEntry extends UnifiedSkillEntryBase {
+  type: "de-ai"
+  rawSkill: DeAiSkill
+}
+
+/**
+ * 文风条目是**引用**：只持有项目里那份预设本身。
+ * `WritingStylePreset` 没有 tags / kind / categoryId / priority / description / content，
+ * 所以这里**不假装**它是 `UserSkill`——这正是「引用而非复制」的类型层表达。
+ */
+interface WritingStyleEntry extends UnifiedSkillEntryBase {
+  type: "style"
+  rawStylePreset: WritingStylePreset
+}
+
+type UnifiedSkillEntry = WritingSkillEntry | DeAiSkillEntry | WritingStyleEntry
+
+/** 类型谓词：分类 / 收藏等只对写作 Skill 生效的逻辑先按它收窄。 */
+function isWritingSkillEntry(entry: UnifiedSkillEntry): entry is WritingSkillEntry {
+  return entry.type === "writing"
+}
+
+/** 卡片类型徽章。显式映射，避免二元三元把新类型静默标成「去AI味」。 */
+const ENTRY_TYPE_LABELS: Record<UnifiedSkillEntry["type"], string> = {
+  writing: "写作",
+  "de-ai": "去AI味",
+  style: "文风",
+}
+
+/**
+ * 条目能力表。显式映射：新类型不会静默继承别的类型的能力。
+ * 文风条目全部为 false——选中它**不写任何文件**，尤其不写
+ * `.qmai/writing-style.json` 的 `enabledStyleId`（用户决定 2：项目设置不得被改）。
+ */
+const ENTRY_CAPABILITIES: Record<UnifiedSkillEntry["type"], {
+  favoritable: boolean
+  toggleable: boolean
+  openable: boolean
+}> = {
+  writing: { favoritable: true, toggleable: true, openable: true },
+  "de-ai": { favoritable: true, toggleable: true, openable: true },
+  style: { favoritable: false, toggleable: false, openable: false },
+}
+
+/** 启用勾选框文案。显式映射，避免二元三元把新类型写成「显示在调用入口」。 */
+const ENTRY_TOGGLE_LABELS: Record<UnifiedSkillEntry["type"], string> = {
+  writing: "参与 AI 会话",
+  "de-ai": "显示在调用入口",
+  style: "只读引用",
+}
+
+/**
+ * `writing-style-store.ts:32` 的 `interface WritingStyleStore` **没有 export**，
+ * 引用不到类型名；而本批对那个文件是只读的（落盘格式与 `buildWritingStyleContext` 都冻结），
+ * 不为一个类型名去动它，改用 `Awaited<ReturnType<…>>` 推导。
+ */
+type WritingStyleStore = Awaited<ReturnType<typeof loadWritingStyleStore>>
+
+const EMPTY_WRITING_STYLE_STORE: WritingStyleStore = { version: 1, enabledStyleId: null, styles: [] }
 
 function deAiSkillToEntry(skill: DeAiSkill): UnifiedSkillEntry {
   return {
@@ -82,18 +225,50 @@ function writingSkillToEntry(skill: UserSkill): UnifiedSkillEntry {
   }
 }
 
+/**
+ * 把项目里的文风预设投影成技能库条目（引用式：只带 `rawStylePreset`）。
+ * 预设**没有** description / content / kind / tags 字段：
+ *  `description` 由来源作品如实拼出，`content` 只是把画像里可检索的文本拼起来供搜索用，
+ *  `kinds` 留空（不把「风格」这个 SkillKind 硬塞给它）。
+ */
+function writingStylePresetToEntry(preset: WritingStylePreset): UnifiedSkillEntry {
+  const profile = preset.profile
+  const samples = Array.isArray(profile?.samples) ? profile.samples : []
+  const content = [profile?.integratedDna, profile?.constitution, ...samples]
+    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+    .join("\n")
+  return {
+    id: `style:${preset.id}`,
+    sourceId: preset.id,
+    type: "style",
+    name: preset.name?.trim() || "未命名文风",
+    description: `来源作品《${preset.sourceBook?.trim() || "未知"}》的文风预设。`,
+    content,
+    kinds: [],
+    rawStylePreset: preset,
+  }
+}
+
 function entrySourceLabel(entry: UnifiedSkillEntry): string {
+  if (entry.type === "style") return "引用"
   if (entry.type === "de-ai") {
-    const source = (entry.rawSkill as DeAiSkill).source
+    const source = entry.rawSkill.source
     if (source === "built-in") return "内置"
     if (source === "legacy") return "旧版"
     return "项目"
   }
-  const source = (entry.rawSkill as UserSkill).source
+  const source = entry.rawSkill.source
   if (source === "built-in") return "内置"
   if (source === "uploaded") return "上传"
   if (source === "linked") return "引用"
   return "项目"
+}
+
+/** 搜索用文本。文风条目没有 `rawSkill`，只能从预设自身的字段取。 */
+function entrySearchValues(entry: UnifiedSkillEntry): string[] {
+  const values = [entry.name, entry.description, entry.content]
+  if (entry.type !== "style") values.push(entry.rawSkill.name)
+  return values
 }
 
 function fileBaseName(path: string): string {
@@ -184,7 +359,7 @@ function SkillLibraryActions({ activeTab, onAfterCreate }: { activeTab: GalleryT
     }
   }
 
-  async function persistDeAiConfig(nextConfig: DeAiSkillConfig, nextSkillId: string) {
+  async function persistDeAiConfig(nextConfig: DeAiSkillConfig, nextSkillId: string | null) {
     if (!project || saving) return false
     setSaving(true)
     try {
@@ -281,10 +456,11 @@ function SkillLibraryActions({ activeTab, onAfterCreate }: { activeTab: GalleryT
 
   const buttonClass = "ui-test-skills-action"
   const disabled = !project || saving
+  const actions = TAB_ACTIONS[activeTab]
 
   return (
     <div data-testid="skill-library-header-actions" className="ui-test-skills-actions">
-      {activeTab === "skillLibrary" ? (
+      {actions === "de-ai" ? (
         <>
           <button type="button" onClick={() => void handleCreateDeAiSkill()} disabled={disabled} className={buttonClass}>
             <Plus /> 新建技能
@@ -293,7 +469,8 @@ function SkillLibraryActions({ activeTab, onAfterCreate }: { activeTab: GalleryT
             <Upload /> 导入
           </button>
         </>
-      ) : (
+      ) : null}
+      {actions === "writing" ? (
         <>
           <button type="button" onClick={() => void handleCreateWritingSkill()} disabled={disabled} className={buttonClass}>
             <Plus /> 新建 Skill
@@ -302,7 +479,7 @@ function SkillLibraryActions({ activeTab, onAfterCreate }: { activeTab: GalleryT
             <Upload /> 导入
           </button>
         </>
-      )}
+      ) : null}
       {message ? <span className="ui-test-skills-message">{message}</span> : null}
     </div>
   )
@@ -312,57 +489,70 @@ function SkillCard({
   entry,
   enabled,
   favorited,
-  categoryName,
-  toggleLabel,
+  selected,
+  badge,
   busy,
   onOpen,
+  onSelect,
   onToggleEnabled,
   onToggleFavorite,
 }: {
   entry: UnifiedSkillEntry
   enabled: boolean
   favorited: boolean
-  categoryName?: string
-  toggleLabel: string
+  selected: boolean
+  badge?: string
   busy: boolean
   onOpen: () => void
+  onSelect: () => void
   onToggleEnabled: (enabled: boolean) => void
   onToggleFavorite: () => void
 }) {
+  const capabilities = ENTRY_CAPABILITIES[entry.type]
   const kindLabels = entry.kinds.slice(0, 3).map((kind) => SKILL_KIND_LABELS[kind]).filter(Boolean)
+  const activate = () => {
+    if (capabilities.openable) onOpen()
+    else onSelect()
+  }
   return (
     <article
       data-testid={`unified-skill-entry-${entry.id}`}
       role="button"
       tabIndex={0}
-      onClick={onOpen}
+      aria-pressed={capabilities.openable ? undefined : selected}
+      onClick={activate}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault()
-          onOpen()
+          activate()
         }
       }}
-      className="ui-test-skill-card"
+      className={`ui-test-skill-card${selected ? " is-selected" : ""}`}
     >
       <header className="ui-test-skill-card-head">
         <h3 className="ui-test-skill-card-name" title={entry.name}>{entry.name}</h3>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation()
-            onToggleFavorite()
-          }}
-          aria-label={favorited ? "取消收藏" : "收藏"}
-          title={favorited ? "取消收藏" : "收藏"}
-          className={`ui-test-skill-card-star${favorited ? " is-on" : ""}`}
-        >
-          <Star fill={favorited ? "currentColor" : "none"} />
-        </button>
+        {capabilities.favoritable ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              onToggleFavorite()
+            }}
+            aria-label={favorited ? "取消收藏" : "收藏"}
+            title={favorited ? "取消收藏" : "收藏"}
+            className={`ui-test-skill-card-star${favorited ? " is-on" : ""}`}
+          >
+            <Star fill={favorited ? "currentColor" : "none"} />
+          </button>
+        ) : null}
       </header>
       <div className="ui-test-skill-card-badges">
-        <span className="ui-test-skill-badge is-type">{entry.type === "writing" ? "写作" : "去AI味"}</span>
+        <span className="ui-test-skill-badge is-type">{ENTRY_TYPE_LABELS[entry.type]}</span>
         <span className="ui-test-skill-badge">{entrySourceLabel(entry)}</span>
-        {categoryName ? <span className="ui-test-skill-badge">{categoryName}</span> : null}
+        {entry.type === "style" && enabled ? (
+          <span className="ui-test-skill-badge is-current">当前启用</span>
+        ) : null}
+        {badge ? <span className="ui-test-skill-badge">{badge}</span> : null}
       </div>
       <p className="ui-test-skill-card-desc">{entry.description || "未填写说明"}</p>
       {kindLabels.length > 0 ? (
@@ -373,19 +563,38 @@ function SkillCard({
         </div>
       ) : null}
       <footer className="ui-test-skill-card-foot">
-        <label className="ui-test-skill-toggle" onClick={(event) => event.stopPropagation()}>
-          <input
-            type="checkbox"
-            checked={enabled}
-            disabled={busy}
-            onChange={(event) => onToggleEnabled(event.target.checked)}
-          />
-          {toggleLabel}
-        </label>
-        <span className="ui-test-skill-card-open">编辑</span>
+        {capabilities.toggleable ? (
+          <label className="ui-test-skill-toggle" onClick={(event) => event.stopPropagation()}>
+            <input
+              type="checkbox"
+              checked={enabled}
+              disabled={busy}
+              onChange={(event) => onToggleEnabled(event.target.checked)}
+            />
+            {ENTRY_TOGGLE_LABELS[entry.type]}
+          </label>
+        ) : (
+          <span className="ui-test-skill-toggle">{selected ? "已选中" : "点击选中"}</span>
+        )}
+        {capabilities.openable ? <span className="ui-test-skill-card-open">编辑</span> : null}
       </footer>
     </article>
   )
+}
+
+/** 收藏库只认 writing / de-ai 两种快照形状；文风条目不参与收藏。 */
+function entryFavoriteKey(entry: UnifiedSkillEntry): string | null {
+  if (entry.type === "style") return null
+  return `${entry.type === "writing" ? "writing" : "de-ai"}:${entry.sourceId}`
+}
+
+function entryExtraBadge(entry: UnifiedSkillEntry, writingConfig: UserSkillConfig | null): string | undefined {
+  if (entry.type === "writing") {
+    return writingConfig?.categories.find((cat) => cat.id === entry.rawSkill.categoryId)?.name
+  }
+  // 文风条目把来源作品摆在卡片上：它是一条「来自某本书的引用」。
+  if (entry.type === "style") return `《${entry.rawStylePreset.sourceBook?.trim() || "未知"}》`
+  return undefined
 }
 
 function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (entry: UnifiedSkillEntry) => void }) {
@@ -401,6 +610,8 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
   )
   const [writingConfig, setWritingConfig] = useState<UserSkillConfig | null>(null)
   const [deAiConfig, setDeAiConfig] = useState<DeAiSkillConfig | null>(null)
+  const [styleStore, setStyleStore] = useState<WritingStyleStore | null>(null)
+  const [selectedStyleId, setSelectedStyleId] = useState<string | null>(null)
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState<UnifiedSkillCategory>("all")
   const [loadError, setLoadError] = useState("")
@@ -421,6 +632,21 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
         setDeAiConfig(null)
         setLoadError("技能库加载失败")
       })
+    /*
+     * 文风库走**单独**一条链，绝不并进上面那个 Promise.all：
+     * 那个 catch 会把两份配置一起置 null 并显示「技能库加载失败」，
+     * 于是「文风库读取失败」会扩散成「三个库全空 + 整页报错」——
+     * 一个来源的故障不该由另外两个来源承担。这里失败只退化成「文风 tab 为空」。
+     *
+     * 顺带：`loadWritingStyleStore(projectPath: string)` 不接受 undefined
+     * （两个 Skill loader 接受 null/undefined，但它不接受），所以先判 project?.path。
+     */
+    const styleLoad = project?.path
+      ? loadWritingStyleStore(project.path).catch(() => EMPTY_WRITING_STYLE_STORE)
+      : Promise.resolve(EMPTY_WRITING_STYLE_STORE)
+    styleLoad.then((store) => {
+      if (!cancelled) setStyleStore(store)
+    })
     return () => {
       cancelled = true
     }
@@ -438,9 +664,27 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     () => (deAiConfig ? getAllDeAiSkills(deAiConfig).map(deAiSkillToEntry) : []),
     [deAiConfig],
   )
+  const styleEntries = useMemo(
+    () => (styleStore?.styles ?? []).map(writingStylePresetToEntry),
+    [styleStore],
+  )
+
+  /**
+   * tab → 条目列表的**显式映射**。
+   * 原先 `activeTab === "writingSkillLibrary" ? writingEntries : deAiEntries`：
+   * 加第三个成员后文风 tab 会显示**去AI味技能列表**，而 `tsc` 不报错。
+   */
+  const entriesByTab = useMemo<Record<GalleryTab, UnifiedSkillEntry[]>>(
+    () => ({
+      skillLibrary: deAiEntries,
+      writingSkillLibrary: writingEntries,
+      writingStyleLibrary: styleEntries,
+    }),
+    [writingEntries, deAiEntries, styleEntries],
+  )
 
   const categoryChips = useMemo(() => {
-    if (activeTab !== "writingSkillLibrary") return []
+    if (!TABS_WITH_CATEGORY_CHIPS.has(activeTab)) return []
     const chips: { id: UnifiedSkillCategory; label: string }[] = [
       { id: "all", label: "全部" },
       { id: "recent", label: "最近使用" },
@@ -454,26 +698,28 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
 
   const filteredEntries = useMemo(() => {
     const keyword = query.trim().toLowerCase()
-    let list = activeTab === "writingSkillLibrary" ? writingEntries : deAiEntries
+    let list = entriesByTab[activeTab]
     if (activeTab === "writingSkillLibrary" && category !== "all") {
+      // 分类只属于写作 Skill；先按类型收窄，文风条目没有 categoryId（也不假装有）。
+      const scoped = list.filter(isWritingSkillEntry)
       if (category === "recent") {
-        list = [...list].sort((a, b) => (b.rawSkill.updatedAt ?? 0) - (a.rawSkill.updatedAt ?? 0))
+        list = [...scoped].sort((a, b) => (b.rawSkill.updatedAt ?? 0) - (a.rawSkill.updatedAt ?? 0))
       } else if (category === "uncategorized") {
-        list = list.filter((entry) => !(entry.rawSkill as UserSkill).categoryId)
+        list = scoped.filter((entry) => !entry.rawSkill.categoryId)
       } else {
-        list = list.filter((entry) => (entry.rawSkill as UserSkill).categoryId === category)
+        list = scoped.filter((entry) => entry.rawSkill.categoryId === category)
       }
     }
     if (keyword) {
       list = list.filter((entry) =>
-        [entry.name, entry.rawSkill.name, entry.description, entry.content]
-          .some((value) => value.toLowerCase().includes(keyword)),
+        entrySearchValues(entry).some((value) => value.toLowerCase().includes(keyword)),
       )
     }
     return list
-  }, [activeTab, writingEntries, deAiEntries, category, query])
+  }, [activeTab, entriesByTab, category, query])
 
   function entryEnabled(entry: UnifiedSkillEntry): boolean {
+    if (entry.type === "style") return styleStore?.enabledStyleId === entry.sourceId
     if (entry.type === "de-ai") {
       return deAiConfig ? !deAiConfig.disabledSkillIds.includes(entry.sourceId) : true
     }
@@ -523,18 +769,36 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     if (!project || busy) return
     setBusy(true)
     try {
-      if (entry.type === "writing") {
-        if (!writingConfig) return
-        const next = setWritingSkillEnabled(writingConfig, entry.sourceId, enabled)
-        await saveUserSkillConfig(project.path, next)
-        setWritingConfig(next)
-      } else {
-        if (!deAiConfig) return
-        const next = setDeAiSkillEnabled(deAiConfig, entry.sourceId, enabled)
-        await saveDeAiSkillConfig(project.path, next)
-        setDeAiConfig(next)
+      /*
+       * 按类型**显式**分派，不用 `if (writing) … else …`：
+       * 那个 else 会把**任何新类型**（文风）静默当成去AI味，进而去写 de-ai-skills.json。
+       * 文风条目是显式 no-op —— 技能库的选中/切换动作**不得**去写
+       * `.qmai/writing-style.json` 的 `enabledStyleId`（用户决定 2：项目设置不得被改）。
+       */
+      switch (entry.type) {
+        case "de-ai": {
+          if (!deAiConfig) return
+          const next = setDeAiSkillEnabled(deAiConfig, entry.sourceId, enabled)
+          await saveDeAiSkillConfig(project.path, next)
+          setDeAiConfig(next)
+          bumpDataVersion()
+          break
+        }
+        case "writing": {
+          if (!writingConfig) return
+          const next = setWritingSkillEnabled(writingConfig, entry.sourceId, enabled)
+          await saveUserSkillConfig(project.path, next)
+          setWritingConfig(next)
+          bumpDataVersion()
+          break
+        }
+        case "style":
+          break
+        default: {
+          const unhandled: never = entry.type
+          throw new Error(`未知的技能条目类型：${String(unhandled)}`)
+        }
       }
-      bumpDataVersion()
     } catch {
       setLoadError("保存失败")
     } finally {
@@ -542,9 +806,7 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     }
   }
 
-  const emptyCopy = activeTab === "writingSkillLibrary"
-    ? "还没有写作 Skill，点击右上角「新建 Skill」开始。"
-    : "还没有去AI味技能，点击右上角「新建技能」开始。"
+  const emptyCopy = EMPTY_COPY[activeTab]
 
   return (
     <div className="ui-test-skills-gallery">
@@ -608,29 +870,64 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
       ) : (
         <div className="ui-test-skills-grid">
           {filteredEntries.map((entry) => {
-            const library = entry.type === "writing" ? "writing" : "de-ai"
-            const categoryName = entry.type === "writing"
-              ? writingConfig?.categories.find((cat) => cat.id === (entry.rawSkill as UserSkill).categoryId)?.name
-              : undefined
+            const favoriteKey = entryFavoriteKey(entry)
             return (
               <SkillCard
                 key={entry.id}
                 entry={entry}
                 enabled={entryEnabled(entry)}
-                favorited={favoritedKeys.has(`${library}:${entry.sourceId}`)}
-                categoryName={categoryName}
-                toggleLabel={entry.type === "writing" ? "参与 AI 会话" : "显示在调用入口"}
+                favorited={favoriteKey !== null && favoritedKeys.has(favoriteKey)}
+                selected={entry.type === "style" && selectedStyleId === entry.sourceId}
+                badge={entryExtraBadge(entry, writingConfig)}
                 busy={busy}
                 onOpen={() => onOpen(entry)}
+                onSelect={() => {
+                  // 文风条目是引用：选中只改本组件的本地状态，**不落盘、不写项目设置**。
+                  if (entry.type === "style") setSelectedStyleId(entry.sourceId)
+                }}
                 onToggleEnabled={(enabled) => void handleToggleEnabled(entry, enabled)}
-                onToggleFavorite={() =>
-                  void toggleFavorite({ library, skill: entry.rawSkill, originProjectPath: project?.path })
-                }
+                onToggleFavorite={() => {
+                  if (entry.type === "style") return
+                  void toggleFavorite({
+                    library: entry.type === "writing" ? "writing" : "de-ai",
+                    skill: entry.rawSkill,
+                    originProjectPath: project?.path,
+                  })
+                }}
               />
             )
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * 内容区分派。先用 `if` 把「收藏」收窄掉，
+ * 于是下面的 `SKILL_EDITORS[activeTab]` 拿到的是 `GalleryTab`——不需要 `as` 断言，
+ * 也就不会把「新 tab 漏了编辑器」这件事藏进一个宽类型里。
+ */
+function SkillLibraryContent({
+  activeTab,
+  editing,
+  onOpen,
+  onBack,
+}: {
+  activeTab: SkillLibraryTab
+  editing: boolean
+  onOpen: (entry: UnifiedSkillEntry) => void
+  onBack: () => void
+}) {
+  if (activeTab === "skillFavorites") return <FavoriteListView />
+  const Editor = SKILL_EDITORS[activeTab]
+  if (!editing) return <SkillGallery activeTab={activeTab} onOpen={onOpen} />
+  return (
+    <div className="ui-test-skills-editor">
+      <button type="button" className="ui-test-skills-back" onClick={onBack}>
+        <ArrowLeft /> 返回技能库
+      </button>
+      <Editor />
     </div>
   )
 }
@@ -647,33 +944,30 @@ export function UnifiedSkillLibraryView() {
 
   const [editing, setEditing] = useState(false)
 
-  const activeTab: SkillLibraryTab = activeView === "writingSkillLibrary"
-    ? "writingSkillLibrary"
-    : activeView === "skillFavorites"
-    ? "skillFavorites"
-    : "skillLibrary"
+  const activeTab = resolveActiveTab(activeView)
+  const draftKind = TAB_DRAFT_KIND[activeTab]
 
   useEffect(() => {
     setEditing(false)
   }, [activeView])
 
   function handleBackToList() {
-    const dirty = activeTab === "writingSkillLibrary" ? writingDraftDirty : skillDraftDirty
+    const dirty = tabDraftDirty(draftKind, skillDraftDirty, writingDraftDirty)
     if (dirty) {
       if (!confirmDiscardSkillLibraryDraft()) return
-      if (activeTab === "writingSkillLibrary") setWritingDraftDirty(false)
-      else setSkillDraftDirty(false)
+      if (draftKind === "writing") setWritingDraftDirty(false)
+      else if (draftKind === "skill") setSkillDraftDirty(false)
     }
     setEditing(false)
   }
 
   function handleOpenEntry(entry: UnifiedSkillEntry) {
+    // 文风条目本批只读：没有编辑器可进（否则会渲染成**另一个库**的编辑器）。
+    if (entry.type === "style") return
     if (entry.type === "writing") setSelectedWritingSkillId(entry.sourceId)
     else setSelectedSkillId(entry.sourceId)
     setEditing(true)
   }
-
-  const isFavorites = activeTab === "skillFavorites"
 
   return (
     <div
@@ -688,7 +982,7 @@ export function UnifiedSkillLibraryView() {
             <h1>技能库</h1>
             <p>管理写作 Skill 与去AI味技能，点开卡片即可编辑。</p>
           </div>
-          {!editing && !isFavorites ? (
+          {!editing && activeTab !== "skillFavorites" ? (
             <SkillLibraryActions activeTab={activeTab} onAfterCreate={() => setEditing(true)} />
           ) : null}
         </div>
@@ -714,20 +1008,13 @@ export function UnifiedSkillLibraryView() {
       </header>
 
       <div data-ui="skills-content">
-        {isFavorites ? (
-          <FavoriteListView />
-        ) : editing ? (
-          <div className="ui-test-skills-editor">
-            <button type="button" className="ui-test-skills-back" onClick={handleBackToList}>
-              <ArrowLeft /> 返回技能库
-            </button>
-            {activeTab === "writingSkillLibrary" ? <WritingSkillLibraryView /> : <SkillLibraryView />}
-          </div>
-        ) : (
-          <SkillGallery activeTab={activeTab as GalleryTab} onOpen={handleOpenEntry} />
-        )}
+        <SkillLibraryContent
+          activeTab={activeTab}
+          editing={editing}
+          onOpen={handleOpenEntry}
+          onBack={handleBackToList}
+        />
       </div>
     </div>
   )
 }
-
