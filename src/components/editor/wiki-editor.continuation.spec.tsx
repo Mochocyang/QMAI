@@ -155,6 +155,49 @@ describe("章节编辑器的续写入口", () => {
     document.body.removeChild(container)
   })
 
+  it("只传 onContinuationRequest 时，滚动会重新校验收起的选区（不依赖润色入口）", () => {
+    const onContinuationRequest = vi.fn()
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    act(() => {
+      root.render(
+        <WikiEditor
+          content={CHAPTER}
+          onSave={() => {}}
+          immersiveWriting
+          onContinuationRequest={onContinuationRequest}
+        />,
+      )
+    })
+    const textarea = container.querySelector<HTMLTextAreaElement>("textarea")!
+
+    act(() => {
+      textarea.focus()
+      textarea.setSelectionRange(2, 4)
+      textarea.dispatchEvent(new Event("select", { bubbles: true }))
+      textarea.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }))
+    })
+    expect(container.querySelector('[data-selection-toolbar="true"]')).not.toBeNull()
+
+    /*
+     * 折起选区、再触发一次滚动。滚动监听会调 refreshSelection，
+     * 它看到 start === end 就收起工具栏。
+     *
+     * 若滚动监听因为「没传 onSelectionAction」而没注册，工具栏会继续挂在
+     * 原位 —— 浮在已经不对应的那行上。
+     */
+    act(() => {
+      textarea.setSelectionRange(4, 4)
+      document.dispatchEvent(new Event("scroll", { bubbles: true }))
+    })
+
+    expect(container.querySelector('[data-selection-toolbar="true"]')).toBeNull()
+
+    act(() => root.unmount())
+    document.body.removeChild(container)
+  })
+
   it("正文变化后光标落在新偏移上，不会被上一轮的旧长度夹回去", async () => {
     const container = document.createElement("div")
     document.body.appendChild(container)

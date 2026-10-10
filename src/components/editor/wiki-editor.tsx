@@ -356,7 +356,12 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
     }, [caretRequest, onCaretHandled]);
 
     useEffect(() => {
-      if (!selection || !onSelectionAction) return;
+      /*
+       * 与 refreshSelection 的早退条件保持一致：工具栏现在也可能只由
+       * onContinuationRequest 撑着。这里若仍只认 onSelectionAction，
+       * 续写-only 调用方的工具栏会在滚动 / 缩放后挂在原位不动。
+       */
+      if (!selection || (!onSelectionAction && !onContinuationRequest)) return;
       const handleWindowChange = () => refreshSelection();
       document.addEventListener("scroll", handleWindowChange, true);
       window.addEventListener("resize", handleWindowChange);
@@ -364,7 +369,7 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
         document.removeEventListener("scroll", handleWindowChange, true);
         window.removeEventListener("resize", handleWindowChange);
       };
-    }, [selection, onSelectionAction, refreshSelection]);
+    }, [selection, onContinuationRequest, onSelectionAction, refreshSelection]);
 
     const triggerSelectionAction = useCallback(
       (action: ChapterSelectionAction) => {
