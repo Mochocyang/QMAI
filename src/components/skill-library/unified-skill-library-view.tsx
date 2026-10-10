@@ -795,7 +795,12 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
         case "style":
           break
         default: {
-          const unhandled: never = entry.type
+          /*
+           * 穷尽性检查：`switch (entry.type)` 已穷尽时 `entry` 本身被收窄成 `never`，
+           * 所以取的是 `entry` 而不是 `entry.type`。
+           * 将来新增条目类型而这里没补 case，本行就是**编译错误**。
+           */
+          const unhandled: never = entry
           throw new Error(`未知的技能条目类型：${String(unhandled)}`)
         }
       }
