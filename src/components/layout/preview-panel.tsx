@@ -48,6 +48,7 @@ import { makeChapterFileName, makeDefaultChapterTitle } from "@/lib/wiki-filenam
 import { getPreviewContentContainerClass, shouldUseCompactChapterToolbar } from "@/lib/workspace-layout"
 import { useOutlineGenerationStore, type OutlineGenerationTask } from "@/stores/outline-generation-store"
 import {
+  projectPathKey,
   selectProjectEventOutlineTasks,
   useEventOutlineTaskStore,
 } from "@/stores/event-outline-task-store"
@@ -59,7 +60,7 @@ import { runDeepChapterGeneration } from "@/lib/novel/deep-chapter-generation"
 import { type EventOutlineRequest } from "@/lib/novel/event-outline"
 import { isUserAbortError, USER_ABORT_MESSAGE } from "@/lib/user-abort"
 import { resolveChapterLengthSpec } from "@/lib/novel/deep-chapter-prompts"
-import { flattenMdFiles, pickChapterLibraryFiles, resolveNextChapterNumber } from "@/lib/novel/chapter-utils"
+import { flattenMdFiles, findChapterFileByNumber, pickChapterLibraryFiles, resolveNextChapterNumber } from "@/lib/novel/chapter-utils"
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import {
   buildPolishSelectionMessages,
@@ -224,14 +225,24 @@ const eventOutlineAbortControllers = new Map<string, AbortController>()
  * 每个事件细纲任务的**正文生成** AbortController，同样按 taskId 键控、同样在模块作用域。
  *
  * 组件重挂的论证与上面那张 Map 完全一致（store 是全局的，实例级 Map 会在重挂后变空），
- * 所以这里只说**为什么必须是两张 Map、不能复用一张**：
+ * 所以这里只说**为什么是两张 Map 而不是一张**。
  *
- * 两条链路的「取消」语义不同。细纲生成被取消时，那一行整条摘掉是对的 ——
- * 细纲还没被用户确认，取消就是放弃这次生成。而正文生成的取消只把状态退回
- * `awaiting-confirm`（见 cancelWriting）：细纲是用户**已经确认过**的资产，
- * 取消正文不该连它一起丢。共用一张 Map 就没法表达「取消哪一步只收哪一步」，
- * 而且正文的取消发生在细纲生成结束之后 —— 那时那张 Map 里的条目早已被
- * settle() 摘掉，复用只会得到一个永远不存在的 controller。
+ * ⚠️ 先说清楚一个**不成立**的理由（N7）：不能说「复用一张 Map 只会得到一个永远不存在的
+ * controller」。两条链路虽然按 taskId 键控、键会撞上，但它们**在时间上不相交**：
+ * 正文的 controller 只在细纲那条链路 settle()（把细纲的条目摘掉）之后才被 set，
+ * 而且每次确认都会 set 一个**新的** controller。所以复用一张 Map 也不会读到
+ * 「不存在的条目」——它只会读到一个**属于另一个阶段**的条目。
+ *
+ * 真正的原因是两条链路的取消语义不同，而语义差异必须由**存的位置**表达：
+ * - 细纲生成被取消：那一行整条摘掉是对的（细纲还没被用户确认，取消就是放弃这次生成，
+ *   见 handleCancelEventOutlineTask 的 removeTask）。
+ * - 正文生成被取消：只把状态退回 `awaiting-confirm`（见 cancelWriting）。细纲是用户
+ *   **已经确认过**的资产，取消正文不该连它一起丢。
+ *
+ * 共用一张 Map 会怎样：`handleCancelChapterProse` 与 `handleCancelEventOutlineTask`
+ * 都以 taskId 取 controller，而两个回调对同一份状态的收尾动作正好相反 —— 一张表
+ * 里两个阶段的条目长得一模一样，谁取到谁的只取决于时序，这正是「取消哪一步只收哪一步」
+ * 无法被表达的地方。两张 Map 是**故意**的（代价只是一个 4 行的字段注释），不是历史遗留。
  */
 const chapterProseAbortControllers = new Map<string, AbortController>()
 
@@ -269,6 +280,23 @@ function buildDraftChapterMarkdown(chapterNumber: number, title: string, body: s
 
 function getDiskSyncNormalize(path: string): (content: string) => string {
   return isChapterPath(path) ? normalizeChapterWriting : (content) => content
+}
+
+/**
+ * 正文生成途中项目被换走（N2）。
+ *
+ * 为什么要有**独立的错误类型**而不是复用 USER_ABORT_MESSAGE：两者的收尾不同。
+ * 取消要把任务退回 `awaiting-confirm`（细纲是用户确认过的资产，取消不该连它一起丢），
+ * 而项目已经换掉的这条任务留着没有任何用处 —— 它在当前项目的卡片区里本来就看不见，
+ * 留着只会在用户切回旧项目时诈尸。所以它要**收掉**任务、并且让用户看到一句
+ * 说清原因的话。这个区别只能由类型来承载（`isUserAbortError` 是按消息/名字/%aborted%
+ * 匹配的，用消息区分会被它吞掉）。
+ */
+class ProjectChangedDuringWriteError extends Error {
+  constructor() {
+    super("项目已切换")
+    this.name = "ProjectChangedDuringWriteError"
+  }
 }
 
 function getChapterTitleFromPath(path: string): string {
@@ -1261,8 +1289,11 @@ export function PreviewPanel() {
       /*
        * 正在写正文的那条也要中止：startTask 会把这条任务整行换掉（同项目同章号替换），
        * 于是 in-flight 的正文请求既看不到自己的行、也没有「取消」可点，
-       * 却还在计费 —— 正是 F1 那个回归的形状。它的结果会被
-       * handleConfirmEventOutline 的 stillWriting 判定丢掉，所以只需要停掉它。
+       * 却还在计费 —— 正是 F1 那个回归的形状。
+       *
+       * 结果的作废**不靠状态**、只靠这次 abort：`.then` 里的 abort 复核读的就是
+       * 这个 signal（N4 —— 原先这里还有一道 `stillWriting` 状态判定，实测它与
+       * abort 复核完全重复，删掉后本文件 26 条用例全绿）。
        */
       chapterProseAbortControllers.get(task.id)?.abort()
       chapterProseAbortControllers.delete(task.id)
@@ -1407,76 +1438,146 @@ export function PreviewPanel() {
 
     // 章号以**任务**为准（那是用户在向导里指定、startTask 记下来的那一章），
     // 不用细纲 JSON 里模型自报的 chapterNumber —— 两者不一致时以用户的要求为准。
+    // 这一条在 store 层已经强制过一次（finishTask 会把模型自报值覆盖成任务章号，F8），
+    // 这里保留同一个取值口径只是为了本函数内不必依赖那个远端事实。
     const chapterNumber = task.chapterNumber
     const controller = new AbortController()
     chapterProseAbortControllers.set(taskId, controller)
     useEventOutlineTaskStore.getState().startWriting(taskId)
+    /*
+     * 条目只在**整条写入链**收尾后摘掉（`.finally`），绝不能放在 `.then` 的开头。
+     *
+     * 写入是一次真实的落盘流程（createDirectory → flush → readFile → writeFile →
+     * recordChapter → setSelectedFile → listDirectory），期间那一行仍然渲染着
+     * `status === "writing"` 与一枚**可见的「取消」按钮**。如果条目在这之前就被摘掉，
+     * `handleCancelChapterProse` 会走 `if (controller)` 的 false 分支 —— 只把状态
+     * 退回 awaiting-confirm（取消看上去生效了），**一个 abort 都没发**；而写入链里
+     * 的 abort 复核读到的是 `aborted === false`，于是这一章照样写进盘、照样被选中、
+     * 任务照样被摘掉。也就是说「取消」在整段写入期间是一个完整的 no-op（N1）。
+     */
     const settle = () => { chapterProseAbortControllers.delete(taskId) }
+
+    /** 这次生成捕获的项目还是当前项目吗。比较口径复用事件细纲 store 的 projectPathKey。 */
+    const projectChanged = () => (
+      projectPathKey(useWikiStore.getState().project?.path ?? "") !== projectPathKey(projectPath)
+    )
+
+    /**
+     * 落盘前的最后一道闸。
+     *
+     * 两道判定都必须在这里（而不是只在 `.then` 的开头）：写入链里有多个真实的
+     * IPC 往返，用户完全有机会在这中间切项目或点取消。
+     */
+    const assertStillWritable = () => {
+      if (projectChanged()) throw new ProjectChangedDuringWriteError()
+      if (controller.signal.aborted) throw new Error(USER_ABORT_MESSAGE)
+    }
 
     /** 正文写进章节文件。抛错即视为「这次生成失败」，由下面的 catch 退回待确认。 */
     const writeGeneratedChapter = async (finalContent: string) => {
       const { content: body, title: extractedTitle } = cleanGeneratedChapterContentWithTitle(finalContent)
       if (!body.trim()) throw new Error("模型没有返回可用的章节正文")
       const chapterDir = `${normalizePath(projectPath)}/wiki/chapters`
-      // 目标路径必须用规范名，且复用现成 helper（不要手抄模板字符串）。
-      const chapterPath = getDraftChapterPath(chapterDir, chapterNumber)
       const chapterTitle = extractedTitle || makeDefaultChapterTitle(chapterNumber)
       /*
        * 归一化后再落盘（normalizeChapterWriting = 同步 frontmatter + 全角缩进 + 段间整理）。
-       * 理由：章节区**自己**的保存路径（handleSave，:988-990）对每一份章节正文都会做这一步，
-       * 所以「磁盘内容 == 编辑器随后会写出的内容」——用户之后改一个字保存是真正的空差分，
-       * 不会出现「整份文件被静默重排」这一幕。代价是 AI 正文在写入时就带上了全角缩进，
-       * 与 chat-panel.tsx 那条不做归一化的 AI 写入路径行为不一致（那是既有分歧，本批不动它）。
+       * 理由：章节区**自己**的保存路径（handleSave，`:1065-1067` 的 isChapterPath 分支）
+       * 对每一份章节正文都会做这一步，所以「磁盘内容 == 编辑器随后会写出的内容」——
+       * 用户之后改一个字保存是真正的空差分，不会出现「整份文件被静默重排」这一幕。
+       * 代价是 AI 正文在写入时就带上了全角缩进，与 chat-panel.tsx 那条不做归一化的
+       * AI 写入路径行为不一致（那是既有分歧，本批不动它）。
        */
       const chapterMarkdown = normalizeChapterWriting(buildDraftChapterMarkdown(chapterNumber, chapterTitle, body))
+
+      /*
+       * ── 先把**当前打开的那一章**冲刷到磁盘（不管是哪一章）──
+       *
+       * 这一步与目标章号是不是同一章无关，必须无条件先做，原因有两个：
+       *
+       * 1. 紧接着就要写盘，而 `:886-888` 的「切章前自动冲刷」要等 React 提交后才跑
+       *    —— 两条链会抢同一个文件（不 await 就是「旧快照把刚生成的整章盖回去」）。
+       * 2. 下面会把 `selectedFileRef.current` 提前指到新章节（见写完那一段的注释），
+       *    于是那个 effect 会认为「没换章」而整段跳过。它本来要做的冲刷就只能由
+       *    这里代替 —— 否则用户在上一个章节里没保存的字既不在盘上，也不在编辑器里，
+       *    直接消失（N3 的第二个缺陷）。
+       *
+       * `pendingChapterSaveRef` 里那份待落盘的快照是**冲刷之前**的编辑器内容，
+       * 留着它，关窗时 `registerChapterSaveFlush` 会把它盖回刚写好的 AI 正文上
+       * （同章时尤其致命：路径与 generation 都可能还匹配）。这里只清掉与刚冲刷
+       * 那个文件对应的那一份，别的路径的待落盘内容不归这次写入管。
+       */
+      const openPath = selectedFileRef.current
+      if (openPath && isChapterPath(openPath)) {
+        await flushChapterBeforeLeave(openPath, fileContentRef.current)
+        const pending = pendingChapterSaveRef.current
+        if (pending && normalizePath(pending.pathAtSave) === normalizePath(openPath)) {
+          pendingChapterSaveRef.current = null
+        }
+      }
+
+      assertStillWritable()
 
       await createDirectory(chapterDir)
 
       /*
-       * ── 同章覆盖：这是本批唯一的真陷阱，必须显式处理 ──
+       * ── 目标路径：先认**已存在**的那一章，再谈新建 ──
        *
-       * 目标章号就是编辑器里正开着的那一章时，`:809-811` 的「切章前自动冲刷」**不会**触发
-       * （`previousFile !== selectedFile` 为 false），`setSelectedFile` 传入同一个值也不会让
-       * 重载 effect 重跑。于是用户内存里的未保存改动既不会被冲刷、也不会被读回来。
+       * `findChapterFileByNumber` 按文件名章号**或** `chapter_number` frontmatter
+       * 匹配，所以「编辑器里开着的就是这一章」时它返回的正是那个文件 —— 不会为
+       * 同一章再建一份 `chapter-016.md`，也就不会出现「同一章两个文件」，
+       * 更不会把 AI 正文写进用户另开的那一份里。
        *
-       * 处理方式（三件事一起做，缺一不可）：
-       * 1. 先 `await flushChapterBeforeLeave` —— 它自己不吃 await（调用点都是 `void`），
-       *    不 await 就会与随后的 writeFile 抢同一个文件；
-       * 2. 紧接着丢掉 `pendingChapterSaveRef` —— 那份待落盘的正文是**旧**的编辑器快照，
-       *    留着它，关窗时 registerChapterSaveFlush 会把它盖回刚刚写好的 AI 正文上；
-       * 3. 写完自己 `setFileContent`（见下）——重载 effect 不跑，编辑器内容只能由我们对齐。
+       * 只有真的没有这一章时才新建，且名字用章节区自己的规范名
+       * `makeChapterFileName(title, number)` → `第N章-标题.md`（`getCanonicalChapterPath`
+       * `:171-178`、`sidebar-panel.tsx:821`、`knowledge-tree.tsx:1258` 都是这个口径）。
        *
-       * ⚠️ 如实说明：冲刷**不能**保住这些未保存的字（它们会被这一章的 AI 正文取代，
-       * 这正是用户点「用这份细纲写这一章」的要求）。它保证的是「写入次序确定」
-       * 与「记账差分基线是用户最新的正文」，而不是「两版都留着」。
+       * ⚠️ 这里**刻意不用** `getDraftChapterPath`（`chapter-NNN.md`）：那是 AI 对话
+       * 落盘的**临时草稿**名（`chapter-path-sync.ts:5-9` 的 `isDraftChapterPath` 把它
+       * 定义为 "AI / chat draft files"），章节区随后会把它改名成规范名。目标路径用
+       * 草稿名就等于**绕开**了章节区自己的命名，从而制造出上面那两个文件。
        */
-      if (selectedFileRef.current && normalizePath(selectedFileRef.current) === normalizePath(chapterPath)) {
-        await flushChapterBeforeLeave(chapterPath, fileContentRef.current)
-        pendingChapterSaveRef.current = null
-      }
-
-      // 用户在这段等待里点了「取消」：绝不落盘（否则取消只是把卡片收回去，文件照样被写掉）。
-      if (controller.signal.aborted) throw new Error(USER_ABORT_MESSAGE)
+      const existingChapterPath = await findChapterFileByNumber(normalizePath(projectPath), chapterNumber)
+      const chapterPath = existingChapterPath ?? `${chapterDir}/${makeChapterFileName(chapterTitle, chapterNumber)}`
 
       const previousMarkdown = await readFile(chapterPath).catch(() => undefined)
+
+      // 第二道闸：上面的 createDirectory / listDirectory / readFile 都是真实 IPC 往返，
+      // 用户在这中间切项目或点「取消」都不该让这一章落盘。
+      assertStillWritable()
+
       await writeFile(chapterPath, chapterMarkdown)
       /*
-       * 顺序是硬要求：先记账，**再**选中这一章。
+       * 顺序是**约定**：先记账，再选中这一章。
        *
-       * 选中会触发 `:846-860` 的重载 effect，它读完盘就 primeChapter 打归属基线
+       * ⚠️ 如实说明（F4）：这两句之间没有 await，而 React 的 effect 不会插进两个
+       * 同步语句之间 —— 所以在**当前实现**下把两句对调**不会**改变「今日 AI 生成」
+       * 的数值（实测：对调后本文件所有用例仍全绿，唯一变红的是专门断言次序的那条）。
+       * 它守的是「一旦有人在两者之间插入 await」时才会出现的后果：选中会触发
+       * `:876-952` 的重载 effect，它读完盘就 `primeChapter` 打归属基线（`:931`）
        * ——基线一旦先打上，刚写进去的 AI 正文就会被当成「本来就有的正文」，
-       * 「今日 AI 生成」少算这一整章。recordChapter 是差分口径（重复记账安全），
-       * 而漏记是永久偏差，所以宁可在选中之前记。
+       * 那一整章都不计入今日 AI。recordChapter 是差分口径（重复记账安全），
+       * 而漏记是永久偏差，所以约定仍然是「先记账」。
        */
       useWritingStatsStore.getState().recordChapter(chapterPath, chapterMarkdown, "ai", previousMarkdown)
       rememberLoadedChapter(chapterPath, chapterMarkdown)
       fileContentRef.current = chapterMarkdown
+      /*
+       * 提前把 `selectedFileRef.current` 指到新章节，**再**调 setSelectedFile
+       * ——这是本文件既有的写法（见 syncChapterToCanonicalPath 改名那一支，`:824-828`）。
+       * 于是重载 effect 里 `previousFile !== selectedFile` 为 false，它不会再对
+       * 「上一个打开的文件」做一次冲刷（那一次我们已经显式做过了，而且此刻
+       * `fileContentRef.current` 已经是**这一章**的正文：不拦住的话它是拿新章的
+       * 正文去冲刷旧章的文件，`chapterContentMatchesPath` 会因为章号不符而整段
+       * 抑制掉冲刷，表面上无事，但任何一次判定放宽都会变成写错文件）。
+       */
+      selectedFileRef.current = chapterPath
       useWikiStore.getState().setSelectedFile(chapterPath)
       // 同章时重载 effect 不会重跑，编辑器内容只能靠这一句对齐磁盘。
       setFileContent(chapterMarkdown)
       try {
         const tree = await listDirectory(normalizePath(projectPath))
-        setFileTree(tree)
+        // 目录是异步读的：读的过程中项目可能被换走，这棵树就属于上一本书了。
+        if (!projectChanged()) setFileTree(tree)
       } catch (err) {
         // 新章节已在盘上、也已选中，刷新目录失败不影响这次写入。
         console.error("生成章节正文后刷新文件树失败:", err)
@@ -1504,28 +1605,39 @@ export function PreviewPanel() {
       undefined,
       controller.signal,
     ).then((result) => {
-      settle()
       /*
-       * 收尾前必须再确认「这次生成还算数」：
-       * - 任务已经不在 writing（用户取消 → cancelWriting 退回 awaiting-confirm，
-       *   或同章重提 → startTask 把这条任务换掉了）⇒ 结果作废，不落盘；
-       * - 信号已 abort（取消与生成完成撞在同一帧）⇒ 同样不落盘。
+       * 收尾前必须再确认「这次生成还算数」。
        *
-       * 这里与细纲那条链路的 `.then` 刻意**不**查 aborted 不同：那边查了会导致
-       * 「return 而不收尾，任务永远停在 generating」。这边的取消已经在点击时就
-       * 同步把状态退回 awaiting-confirm（乐观收尾），所以提前 return 不会留下僵尸行。
+       * 项目复核排在 abort 复核**之前**不是随手一排：项目被换走时，上面的
+       * 「项目切换」effect 同时会 abort 掉这个 controller，先判 aborted 的话
+       * 这次收尾就会被当成「用户取消」——任务退回 awaiting-confirm 静静留在
+       * 上一个项目里，用户既看不到也不知道那一章没写。先判项目才能给出
+       * 「项目已切换，这一章没写」这句能懂的话，并把这条已经不适用的任务收掉。
+       *
+       * abort 这一支仍然是 return 而不是 throw：取消已经在点击时同步把状态
+       * 退回 awaiting-confirm（乐观收尾），这里只需要丢掉结果、不留僵尸行。
        */
-      const stillWriting = useEventOutlineTaskStore
-        .getState()
-        .tasks
-        .some((item) => item.id === taskId && item.status === "writing")
-      if (!stillWriting || controller.signal.aborted) return
+      if (projectChanged()) throw new ProjectChangedDuringWriteError()
+      if (controller.signal.aborted) return
       return writeGeneratedChapter(result.finalContent).then(() => {
         // 细纲已经被扩写成磁盘上的章节文件，任务本身没有留在卡片区的理由。
         useEventOutlineTaskStore.getState().removeTask(taskId)
       })
     }).catch((error) => {
-      settle()
+      /*
+       * 项目在生成途中被换走：这次生成的正文属于上一个项目，绝不能往里写。
+       * 这不是失败、也不是「用户取消」—— 明说原因，并把这条已经不适用的任务清掉
+       * （它在当前项目的卡片区里本来就看不见，留着只会在切回旧项目时诈尸）。
+       *
+       * 第二个条件兜的是「忽略 abort 的传输」：它可能抛自己的错误（Tauri 的
+       * invalid-resource-id 甚至会被 isUserAbortError 认成取消），此时错误类型
+       * 认不出来，但「这个任务的项目已经不是当前项目」这件事仍然成立。
+       */
+      if (error instanceof ProjectChangedDuringWriteError || projectChanged()) {
+        toast.error(`项目已切换，第 ${chapterNumber} 章正文未写入`)
+        useEventOutlineTaskStore.getState().removeTask(taskId)
+        return
+      }
       // 主动取消不是失败：退回待确认、不留红色错误（与细纲那条链路同一原则）。
       if (isUserAbortError(error, controller.signal)) {
         useEventOutlineTaskStore.getState().cancelWriting(taskId)
@@ -1534,6 +1646,13 @@ export function PreviewPanel() {
       console.error("[preview-panel] 生成章节正文失败:", error)
       const message = error instanceof Error ? error.message : String(error)
       useEventOutlineTaskStore.getState().failWriting(taskId, message)
+    }).finally(() => {
+      /*
+       * 条目在**整条链**收尾后才摘（N1）：写入期间那条「取消」必须还能找到
+       * 自己的 controller。放在 `.finally` 而不是 `.then` 的开头，早退路径
+       * （abort 复核、项目复核）也照样会走到这里，不会漏摘。
+       */
+      settle()
     })
   }, [bumpDataVersion, flushChapterBeforeLeave, project?.path, rememberLoadedChapter, setFileContent, setFileTree])
 
@@ -1548,6 +1667,43 @@ export function PreviewPanel() {
     }
     useEventOutlineTaskStore.getState().cancelWriting(taskId)
   }, [])
+
+  /**
+   * 项目切换：上一个项目里还在写正文的生成必须停下来（N2）。
+   *
+   * 正文任务的行是按项目过滤渲染的（`projectEventOutlineTasks`，`:1244-1246`），
+   * 所以切项目后那一行**当场消失** —— 用户既看不到进度、也没有「取消」可点，
+   * 而请求还在跑、还在计费。停下来能省下这笔调用；写不写盘另有一道复核
+   * （`writeGeneratedChapter` 里的 `assertStillWritable`），两件事都要做：
+   * 复核保**正确性**，abort 省**调用**。
+   *
+   * 只在**真的换了项目**时动手：这里刻意不用 `useEffect(..., [project?.path])`
+   * 的清理函数，那样组件卸载（视图切换导致的重挂）也会 abort 掉正在写的正文
+   * —— 一次已经付过费的生成不该因为用户切了个视图就作废。
+   */
+  const proseProjectKeyRef = useRef(projectPathKey(project?.path ?? ""))
+  useEffect(() => {
+    const key = projectPathKey(project?.path ?? "")
+    if (proseProjectKeyRef.current === key) return
+    proseProjectKeyRef.current = key
+    const tasks = useEventOutlineTaskStore.getState().tasks
+    for (const [taskId, controller] of chapterProseAbortControllers) {
+      const task = tasks.find((item) => item.id === taskId)
+      // 属于**新**项目的正在写的那条不动：它可能是用户切回来之前就发起、现在又回来了的。
+      if (task && projectPathKey(task.projectPath) === key) continue
+      controller.abort()
+      /*
+       * 条目必须在这里摘掉：settle() 只在 promise 收尾时跑，而忽略 abort 的传输
+       * 永远不收尾 —— 不摘的话这个 controller 会一直挂在这个 webview 的模块级 Map 上。
+       *
+       * 顺带把它退回 `awaiting-confirm`：那条任务已经不属于当前项目（卡片区里看不见），
+       * 但用户切回去时应该看到那张还能重试的细纲卡片，而不是一行永远停在「正在写」、
+       * 又没有任何取消入口的僵尸行（它的 controller 已经不在 Map 里了）。
+       */
+      chapterProseAbortControllers.delete(taskId)
+      useEventOutlineTaskStore.getState().cancelWriting(taskId)
+    }
+  }, [project?.path])
 
   const handleDismissEventOutlineTask = useCallback((taskId: string) => {
     useEventOutlineTaskStore.getState().removeTask(taskId)

@@ -22,7 +22,13 @@ export type EventOutlineTaskStatus = "generating" | "awaiting-confirm" | "writin
 export interface EventOutlineTask {
   id: string
   projectPath: string
-  /** 这份细纲讲的是第几章。卡片标题与后续「扩写成哪一章」都以它为准。 */
+  /**
+   * 这份细纲讲的是第几章，取自用户在向导里的指定。
+   *
+   * 卡片标题、`eventOutlineToProsePrompt` 的章号、落盘文件名与 frontmatter
+   * 都以它为准；模型在细纲 JSON 里自报的 `chapterNumber` 一律被它覆盖
+   * （见 finishTask）—— 权威只有一个，下游才不必各自设防。
+   */
   chapterNumber: number
   request: EventOutlineRequest
   status: EventOutlineTaskStatus
@@ -87,7 +93,16 @@ interface EventOutlineTaskState {
 
 let eventOutlineTaskCounter = 0
 
-function normalizedProjectPath(path: string): string {
+/**
+ * 「哪个项目」的规范化键：本 store 内部的项目身份判定，也是调用方**外部**唯一
+ * 该复用的比较口径。
+ *
+ * 导出它的理由不是省几个字符，而是防漂移：preview-panel 要判「这次生成捕获的
+ * 项目还是不是当前项目」（丙-2b 的 N2），若那里自己写一遍 `normalizePath(a) ===
+ * normalizePath(b)`，`C:/Book` 与 `c:/Book/` 就会被判成两个项目 —— 同一个项目
+ * 在这两处得到相反答案，正是这类缺陷的常见形状。
+ */
+export function projectPathKey(path: string): string {
   /*
    * 判 Windows 形态要用**剥尾斜杠之前**的串：盘符形如 `C:/`，
    * 先 `.replace(/\/$/, "")` 再判就变成 `C:`，`/^[A-Za-z]:\//` 匹配不上，
@@ -114,8 +129,8 @@ export function selectProjectEventOutlineTasks(
   projectPath?: string | null,
 ): EventOutlineTask[] {
   if (!projectPath) return []
-  const projectKey = normalizedProjectPath(projectPath)
-  return tasks.filter((task) => normalizedProjectPath(task.projectPath) === projectKey)
+  const projectKey = projectPathKey(projectPath)
+  return tasks.filter((task) => projectPathKey(task.projectPath) === projectKey)
 }
 
 /**
@@ -132,7 +147,7 @@ export const useEventOutlineTaskStore = create<EventOutlineTaskState>((set) => (
   startTask: (input) => {
     const now = Date.now()
     const id = `event-outline-task-${++eventOutlineTaskCounter}-${now}`
-    const projectKey = normalizedProjectPath(input.projectPath)
+    const projectKey = projectPathKey(input.projectPath)
     set((state) => ({
       tasks: [
         {
@@ -150,7 +165,7 @@ export const useEventOutlineTaskStore = create<EventOutlineTaskState>((set) => (
           updatedAt: now,
         },
         ...state.tasks.filter((task) => !(
-          normalizedProjectPath(task.projectPath) === projectKey &&
+          projectPathKey(task.projectPath) === projectKey &&
           task.chapterNumber === input.request.chapterNumber
         )),
       ],
@@ -170,7 +185,23 @@ export const useEventOutlineTaskStore = create<EventOutlineTaskState>((set) => (
     set((state) => ({
       tasks: state.tasks.map((task) => (
         task.id === taskId
-          ? { ...task, status: "awaiting-confirm" as const, outline, error: null, updatedAt: Date.now() }
+          ? {
+            ...task,
+            status: "awaiting-confirm" as const,
+            /*
+             * 章号以**任务**为准（F8）。
+             *
+             * 细纲 JSON 里的 `chapterNumber` 是模型自报的，与用户在向导里指定的
+             * 那一章可以不一致；而这个字段随后要同时决定三样东西：卡片标题、
+             * `eventOutlineToProsePrompt` 的「写出第 N 章正文」、以及落盘文件的
+             * frontmatter。三者各说各的章号是最糟的形态 —— 提示词说第 7 章、
+             * 文件名与 frontmatter 说第 2 章。所以在**入 store 这一个点**上把
+             * 模型自报值换成任务的章号，下游不必各自设防。
+             */
+            outline: { ...outline, chapterNumber: task.chapterNumber },
+            error: null,
+            updatedAt: Date.now(),
+          }
           : task
       )),
     }))

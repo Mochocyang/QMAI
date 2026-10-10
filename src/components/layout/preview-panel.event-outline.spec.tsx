@@ -85,7 +85,8 @@ vi.mock("@/components/skill-library/use-de-ai-skill-options", () => ({
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const project = { id: "event-outline-spec", name: "测试书", path: "C:/test-book" }
-const chapterPath = `${project.path}/wiki/chapters/第16章.md`
+/** 编辑器里一开始打开的那一章（第 16 章，章节区的规范命名）。 */
+const openChapterPath = `${project.path}/wiki/chapters/第16章.md`
 const CHAPTER = "---\ntype: chapter\nchapter_number: 16\nchapter_status: draft\n---\n\n# 第16章 实际章名\n\n　　雨停了。"
 
 /*
@@ -138,19 +139,51 @@ function outlineFor(chapterNumber: number): EventOutlineData {
   }
 }
 
-/** 规范章节路径：`chapter-NNN.md`（三位补零），与生产路径同一套命名。 */
-function canonicalChapterPath(chapterNumber: number): string {
+/**
+ * 章节区自己的规范命名：`第N章-标题.md` / `第N章.md`（`makeChapterFileName` 的口径）。
+ *
+ * ⚠️ 这个夹具口径本身是被测对象的一部分。旧的夹具用的是 `chapter-NNN.md`，
+ * 那恰好是缺陷里那个**错的**目标名 —— 用错的名字做夹具，等于让「路径拼错了」
+ * 这件事看起来像正常。
+ */
+function chapterAreaPath(chapterNumber: number, title?: string): string {
+  const stem = title ? `第${chapterNumber}章-${title}` : `第${chapterNumber}章`
+  return `${project.path}/wiki/chapters/${stem}.md`
+}
+
+/**
+ * AI 对话那条链路落盘的**草稿**命名（`chapter-006.md`）——`isDraftChapterPath` 的定义。
+ *
+ * 丙-2b 不再往这里写（`chat-panel` 随后会把它改名成规范名）。保留这个 helper
+ * 只为一件事：断言「**没有**写到那儿去」——同一章两个文件正是缺陷 N3 的形状。
+ */
+function draftChapterPath(chapterNumber: number): string {
   return `${project.path}/wiki/chapters/chapter-${String(chapterNumber).padStart(3, "0")}.md`
 }
 
-/** 往内存盘里种一个**规范命名**的既有章节。 */
-function seedCanonicalChapter(chapterNumber: number, body = "　　原本的正文。"): string {
-  const path = canonicalChapterPath(chapterNumber)
+/** 往内存盘里种一个既有的章节区文件，返回它的路径。 */
+function seedExistingChapter(chapterNumber: number, options: { title?: string; body?: string } = {}): string {
+  const title = options.title ?? `第${chapterNumber}章-原稿`
+  const path = chapterAreaPath(chapterNumber, options.title ?? "原稿")
   fixture.files.set(
     path,
-    `---\ntype: chapter\nchapter_number: ${chapterNumber}\nchapter_status: draft\ntitle: "第${chapterNumber}章-原稿"\n---\n\n${body}`,
+    `---\ntype: chapter\nchapter_number: ${chapterNumber}\nchapter_status: draft\ntitle: "${title}"\n---\n\n${options.body ?? "　　原本的正文。"}`,
   )
   return path
+}
+
+/**
+ * 让 `listDirectory` 如实反映内存盘里 `wiki/chapters` 的内容。
+ *
+ * 这不是可有可无的仿真：`findChapterFileByNumber`（N3 的目标路径解析）就是
+ * 「列目录 + 读 frontmatter」，返回空数组等于**假装章节库是空的** ——
+ * 那样测的就只是「新建」这一半，而「同一章已经在盘上」正是缺陷所在。
+ */
+function chapterDirectoryEntries(): Array<{ name: string; path: string; is_dir: boolean }> {
+  const prefix = `${project.path}/wiki/chapters/`
+  return [...fixture.files.keys()]
+    .filter((path) => path.startsWith(prefix))
+    .map((path) => ({ name: path.slice(prefix.length), path, is_dir: false }))
 }
 
 function deepResult(finalContent: string): DeepChapterGenerationResult {
@@ -179,7 +212,7 @@ let root: Root
 async function mount() {
   useWikiStore.setState({
     project,
-    selectedFile: chapterPath,
+    selectedFile: openChapterPath,
     novelMode: true,
     activeView: "wiki",
     aiChatModel: "gpt-4o",
@@ -413,7 +446,7 @@ beforeEach(() => {
   ]) spy.mockReset()
   fixture.files.clear()
   // 磁盘上先有一份丙-2a 的既有章节（mount 会选中它）。
-  fixture.files.set(chapterPath, CHAPTER)
+  fixture.files.set(openChapterPath, CHAPTER)
   fixture.readFile.mockImplementation(async (path: string) => {
     const content = fixture.files.get(path)
     // 文件不存在就 reject，跟真实 Tauri 一致：落盘路径必须先经历「读不到旧正文」。
@@ -423,7 +456,9 @@ beforeEach(() => {
   fixture.writeFile.mockImplementation(async (path: string, contents: string) => { fixture.files.set(path, contents) })
   fixture.writeFileAtomic.mockImplementation(async (path: string, contents: string) => { fixture.files.set(path, contents) })
   fixture.createDirectory.mockImplementation(async () => {})
-  fixture.listDirectory.mockImplementation(async () => [])
+  fixture.listDirectory.mockImplementation(async (path: string) => (
+    path === `${project.path}/wiki/chapters` ? chapterDirectoryEntries() : []
+  ))
   fixture.fileExists.mockImplementation(async (path: string) => fixture.files.has(path))
   container = document.createElement("div")
   document.body.appendChild(container)
@@ -837,12 +872,12 @@ describe("章节区生成章节细纲 · 取消", () => {
  * 「写入本章」按钮），正文必须直接落成章节文件并在章节区显示出来。
  */
 
-/** 规范命名的章节库（`chapter-001.md` / `chapter-003.md`）——「下一章」的唯一正确答案是 4。 */
-function seedCanonicalChapterLibrary(): void {
+/** 章节库种下第1/第3章（章节区规范命名）——「下一章」的唯一正确答案是 4。 */
+function seedChapterAreaLibrary(): void {
   useWikiStore.setState({
     fileTree: [
-      { name: "chapter-001.md", path: canonicalChapterPath(1), is_dir: false },
-      { name: "chapter-003.md", path: canonicalChapterPath(3), is_dir: false },
+      { name: "第1章.md", path: chapterAreaPath(1), is_dir: false },
+      { name: "第3章.md", path: chapterAreaPath(3), is_dir: false },
     ],
   })
 }
@@ -859,10 +894,15 @@ function seedWritingStatsProject(): void {
   })
 }
 
-/** **实际交给 writeFile 的那串 markdown**（断言落盘内容，而不是断言内存盘里的副本）。 */
-function markdownHandedToWriteFile(chapterNumber: number): string {
-  const call = fixture.writeFile.mock.calls.find(([path]) => path === canonicalChapterPath(chapterNumber))
-  expect(call, `应有一笔写向 ${canonicalChapterPath(chapterNumber)} 的 writeFile`).toBeDefined()
+/**
+ * **实际交给 writeFile 的那串 markdown**（断言落盘内容，而不是断言内存盘里的副本）。
+ *
+ * 参数是**完整路径**而不是章号：本批的核心之一就是「写到哪个路径」（N3），
+ * 按章号再去拼一个路径会把被测代码的目标名假设复制到断言里。
+ */
+function markdownHandedToWriteFile(path: string): string {
+  const call = fixture.writeFile.mock.calls.find(([written]) => written === path)
+  expect(call, `应有一笔写向 ${path} 的 writeFile`).toBeDefined()
   return call![1] as string
 }
 
@@ -886,11 +926,11 @@ describe("确认细纲后直接在章节区写出正文", () => {
   it("确认即生成：计划文本原样进 planBlueprint，正文写进规范章节名并选中它", async () => {
     seedWritingStatsProject()
     /*
-     * 章节库种的是 001/003（下一章是 4），而向导里提交的是**第 2 章** ——
+     * 章节库种的是第1/第3章（下一章是 4），而向导里提交的是**第 2 章** ——
      * 两者故意不同：目标章号必须以**任务**（用户在向导里的指定）为准，
-     * 若哪天改成 library+1，落盘路径会变成 chapter-004.md，这条用例立刻变红。
+     * 若哪天改成 library+1，落盘路径会变成第4章.md，这条用例立刻变红。
      */
-    seedCanonicalChapterLibrary()
+    seedChapterAreaLibrary()
     await mount()
     await outlineThenConfirm(2)
 
@@ -912,15 +952,17 @@ describe("确认细纲后直接在章节区写出正文", () => {
     expect(input.userRequest).toContain("第 2 章")
     expect(signal, "必须把取消信号交给正文生成").toBeInstanceOf(AbortSignal)
 
-    // (2) 写进规范章节名（不是「第2章.md」，也不是库里的 003/004）
+    // (2) 写进章节区自己的规范名（第2章.md），**不是** chapter-002.md 那种 AI 草稿名
+    const targetPath = chapterAreaPath(2)
     expect(fixture.writeFile).toHaveBeenCalledTimes(1)
-    expect(fixture.writeFile.mock.calls[0][0]).toBe(canonicalChapterPath(2))
-    expect(markdownHandedToWriteFile(2)).toContain("chapter_number: 2")
-    expect(markdownHandedToWriteFile(2)).toContain("雨停在子时")
+    expect(fixture.writeFile.mock.calls[0][0]).toBe(targetPath)
+    expect(fixture.files.has(draftChapterPath(2)), "同一章不得再出现一份 chapter-NNN.md 的重复文件").toBe(false)
+    expect(markdownHandedToWriteFile(targetPath)).toContain("chapter_number: 2")
+    expect(markdownHandedToWriteFile(targetPath)).toContain("雨停在子时")
     expect(fixture.createDirectory).toHaveBeenCalledWith(`${project.path}/wiki/chapters`)
 
     // (3) 章节区就在这一章上：选中它、编辑器内容就是刚生成的正文、卡片交接完成后收掉
-    expect(useWikiStore.getState().selectedFile).toBe(canonicalChapterPath(2))
+    expect(useWikiStore.getState().selectedFile).toBe(targetPath)
     expect(useWikiStore.getState().fileContent).toContain("雨停在子时")
     expect(container.querySelector("[data-event-outline-card]"), "交接完成后不该再留细纲卡片").toBeNull()
     expect(useEventOutlineTaskStore.getState().tasks).toHaveLength(0)
@@ -932,7 +974,7 @@ describe("确认细纲后直接在章节区写出正文", () => {
     await mount()
     await outlineThenConfirm(2)
 
-    const written = markdownHandedToWriteFile(2)
+    const written = markdownHandedToWriteFile(chapterAreaPath(2))
     expect(written).toContain("chapter_status: draft")
     expect(written).not.toMatch(/chapter_status:\s*final/)
     // 标题只在 frontmatter，正文不带 H1（否则章节头会出现两遍章名）
@@ -940,7 +982,21 @@ describe("确认细纲后直接在章节区写出正文", () => {
     expect(written).not.toMatch(/^#\s/m)
   })
 
-  it("先记写作统计、再选中章节（顺序反了 AI 这一章就不算今天写的）", async () => {
+  /*
+   * ⚠️ 这条用例**钉的是源码次序约定，不是它的可观测后果**（F4）。
+   *
+   * 此前它的标题与注释把下面那句 aiChars 断言说成「顺序反了的可观测后果」——
+   * 那是**过度声称**：recordChapter 与 setSelectedFile 之间没有 await，React 的
+   * effect 不会插进两个同步语句之间，所以把源码里两句对调，aiChars **不会变**
+   * （实测：只关掉本用例的次序断言、保留 aiChars 断言，对调源码仍是 26/26 全绿）。
+   *
+   * 于是这里诚实地分成两半：
+   * - 次序断言：这是**约定**（下面那句 aiChars 只是「这一章确实记进了今日 AI」，
+   *   与新章、无旧正文这条路径有关，与次序无关）；
+   * - 真正会因次序出错的场景，需要有人将来在两句之间插入 await —— 那时代入
+   *   重载 effect 的 primeChapter 打基线才会发生（见组件里那段注释）。
+   */
+  it("记账与选中的相对次序是约定：recordChapter 必须排在 setSelectedFile 之前", async () => {
     seedWritingStatsProject()
     const { order } = trackStoreCallOrder()
     await mount()
@@ -950,16 +1006,17 @@ describe("确认细纲后直接在章节区写出正文", () => {
     expect(order).toContain("setSelectedFile")
     expect(
       order.indexOf("recordChapter"),
-      "recordChapter 必须在 setSelectedFile 之前（选中会触发重载 effect 打归属基线）",
+      "recordChapter 必须在 setSelectedFile 之前（约定；选中会触发重载 effect 打归属基线）",
     ).toBeLessThan(order.indexOf("setSelectedFile"))
-    // 可观测后果：这一章的字数确实记进了「今日 AI 生成」
-    const written = markdownHandedToWriteFile(2)
+    // 另一半（与次序无关）：这一章确实整章记进了「今日 AI 生成」。
+    // 新章没有旧正文，recordChapter 走的是「无从得知旧正文 + 来源是 ai」那条分支。
+    const written = markdownHandedToWriteFile(chapterAreaPath(2))
     expect(useWritingStatsStore.getState().aiChars).toBe(normalizeCountableText(written).length)
   })
 
   it("目标就是编辑器里当前这一章时，先把未保存改动冲刷到磁盘再覆盖", async () => {
     seedWritingStatsProject()
-    const chapterThree = seedCanonicalChapter(3)
+    const chapterThree = seedExistingChapter(3)
     const originalDraft = fixture.files.get(chapterThree)!
     const unsavedEdit = "---\ntype: chapter\nchapter_number: 3\nchapter_status: draft\ntitle: \"第3章-原稿\"\n---\n\n　　用户刚敲下、还没保存的一段话。"
     fixture.generateEventOutline.mockResolvedValue({ outline: outlineFor(3), rawContent: "", error: null })
@@ -1005,11 +1062,11 @@ describe("确认细纲后直接在章节区写出正文", () => {
       "冲刷必须早于覆盖写（不 await 就会与 writeFile 抢同一个文件）",
     ).toBeLessThan(fixture.writeFile.mock.invocationCallOrder[0])
     // 覆盖之后盘上、编辑器里都是 AI 正文
-    expect(markdownHandedToWriteFile(3)).toContain("雨停在子时")
+    expect(markdownHandedToWriteFile(chapterThree)).toContain("雨停在子时")
     expect(
       fixture.files.get(chapterThree),
       "冲刷晚于覆盖写的话，旧快照会把刚生成的整章盖回去",
-    ).toBe(markdownHandedToWriteFile(3))
+    ).toBe(markdownHandedToWriteFile(chapterThree))
     expect(useWikiStore.getState().fileContent).toContain("雨停在子时")
   })
 
@@ -1114,7 +1171,7 @@ describe("确认细纲后直接在章节区写出正文", () => {
 
     expect(fixture.ingestChapter, "AI 刚写出来的草稿不得被摄取进记忆库").not.toHaveBeenCalled()
     // 落盘内容是 draft，且没有任何「保存为正式章节」的副作用
-    expect(markdownHandedToWriteFile(2)).toContain("chapter_status: draft")
+    expect(markdownHandedToWriteFile(chapterAreaPath(2))).toContain("chapter_status: draft")
     expect(useWikiStore.getState().finalChapterSave).toBeNull()
   })
 })
