@@ -2476,12 +2476,26 @@ export function PreviewPanel() {
               {task.status === "awaiting-confirm" && task.outline ? (
                 <>
                   {/*
-                   * 确认件就是卡片自带的那枚「用这份细纲写这一章」（它由 validation.ok 门控），
-                   * 我们把 EventOutlineCard 已经拼好的计划文本转交 handleConfirmEventOutline。
+                   * 确认件就是卡片自带的那枚「用这份细纲写这一章」（校验不通过时它置灰
+                   * 并给出原因，而不是消失），我们把 EventOutlineCard 已经拼好的计划文本
+                   * 转交 handleConfirmEventOutline。
+                   *
+                   * 卡片上另外两枚入口是丙-3 的「重新修改」：
+                   * - onRegenerate：任务上留存的原始请求重跑一次提交函数（§3a）——
+                   *   **不新增 store action**，startTask 的「同项目同章号替换」语义恰好正确，
+                   *   且新任务拿到的是新 taskId（事件细纲那条链路的 controller 永不复用 id，
+                   *   所以它那个按 id 删条目的 settle 不需要身份判定，见 handleConfirmEventOutline
+                   *   里那段对比注释）。
+                   * - onSaveOutline：手改写回 `task.outline`（§3b）。`data` 就是 `task.outline`，
+                   *   写回后 task.outline 仍是唯一真相：卡片渲染与扩写提示词读的是同一个对象。
                    */}
                   <EventOutlineCard
                     data={task.outline}
                     onWriteChapter={(prompt) => handleConfirmEventOutline(task.id, prompt)}
+                    onRegenerate={() => handleSubmitEventOutline(task.request)}
+                    onSaveOutline={(next) => {
+                      useEventOutlineTaskStore.getState().updateTaskOutline(task.id, next)
+                    }}
                   />
                   {/*
                    * 正文生成失败：细纲还在（failWriting 不碰 outline），所以卡片原样留着，

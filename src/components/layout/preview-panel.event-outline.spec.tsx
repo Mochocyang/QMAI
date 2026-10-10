@@ -1611,3 +1611,222 @@ describe("丙-2b 修复批：取消 / 项目切换 / 目标路径 / 进度", () 
     ).toHaveLength(0)
   })
 })
+
+/*
+ * ── 丙-3：卡片「重新修改」 ──
+ *
+ * 用户原话：「用户可以手动去编辑，也可以让 AI 重新生成」⇒ **两个**动作。
+ * 这一组钉的是它们在**章节区这条链路**上的接线（谁在什么时候调用什么、
+ * 结果怎么落回 store / 提示词），卡片自己的渲染细节在
+ * `src/components/sources/event-outline-card.spec.tsx` 里。
+ *
+ * ⚠️ 与大纲面板那两条先例（消息级「重新生成」、一次性自动修复）**不同**：
+ * 那两处闭包的是未挂载面板的 ref，而这里的数据来自 `event-outline-task-store`，
+ * 所以「重新生成」= 用任务上留存的 `request` 再走一次生成通路，不新增 store action。
+ */
+describe("丙-3 卡片「重新修改」", () => {
+  /** 生成一份能过校验的细纲（4~8 个事件），等卡片出来。 */
+  async function generate(chapterNumber: number, requirement = ""): Promise<void> {
+    fixture.generateEventOutline.mockResolvedValue({
+      outline: outlineFor(chapterNumber),
+      rawContent: "",
+      error: null,
+    })
+    await submitWizard(requirement, String(chapterNumber))
+  }
+
+  function card(): HTMLElement {
+    const found = container.querySelector<HTMLElement>("[data-event-outline-card]")
+    expect(found, "章节区应有细纲卡片").not.toBeNull()
+    return found!
+  }
+
+  /** 卡片编辑表单里的字段（按 aria-label 取，不按下标）。 */
+  function cardField<T extends HTMLElement>(label: string): T {
+    const found = card().querySelector<T>(`[aria-label="${label}"]`)
+    expect(found, `编辑表单里应有「${label}」字段`).not.toBeNull()
+    return found!
+  }
+
+  /**
+   * 本子批**必答**的那一问（实施计划 §3b 第 2 条）：
+   * 「用户手改第 3 个事件后再点『用这份细纲写这一章』，扩写提示词里是改后的内容吗？」
+   *
+   * 这条用例走的是**真实链路**：向导 → 卡片 → 手改 → 保存 → store → 确认 → planBlueprint。
+   * 它不是「卡片回传了改后数据」那种组件级断言 —— 那证明不了扩写读的是改后那份；
+   * 只有一路走到底、在**真正交给正文生成的提示词**里看到改后的文本，才算答了「是」。
+   */
+  it("【必答】手改第 3 个事件后，扩写提示词里是改后的内容（不是原来那份）", async () => {
+    seedWritingStatsProject()
+    seedChapterAreaLibrary()
+    await mount()
+    await generate(2)
+    // 反向控制：改的必须是确实存在的那一条，否则下面「不含原文」是白测的
+    expect(card().textContent).toContain("骆轻竹抽出腰间短刀")
+
+    await click("手动修改")
+    await act(async () => {
+      setInput(cardField<HTMLInputElement>("事件3的一句话标题"), "骆轻竹把刀递给了楚白")
+    })
+    await act(async () => {
+      setTextarea(cardField<HTMLTextAreaElement>("事件3的细节抓手"), "关键台词：接着。\n神情动作：他没有伸手。")
+    })
+    await click("保存细纲")
+
+    // (1) 手改落在 task.outline 上 —— 唯一真相，且状态仍是「待确认」
+    const task = useEventOutlineTaskStore.getState().tasks[0]
+    expect(task.status, "手改不是确认：状态必须留在 awaiting-confirm").toBe("awaiting-confirm")
+    expect(task.outline!.events[2].title).toBe("骆轻竹把刀递给了楚白")
+    expect(task.outline!.events[2].points).toEqual(["关键台词：接着。", "神情动作：他没有伸手。"])
+
+    // (2) 卡片自己渲染的也是改后文本（渲染与扩写读的是同一份数据）
+    expect(card().textContent).toContain("骆轻竹把刀递给了楚白")
+    expect(card().textContent).not.toContain("骆轻竹抽出腰间短刀")
+
+    // (3) 扩写提示词（planBlueprint）必须是**改后**的
+    fixture.runDeepChapterGeneration.mockResolvedValue(deepResult(AI_PROSE))
+    await confirmOutline()
+    expect(fixture.runDeepChapterGeneration).toHaveBeenCalledTimes(1)
+    const [input] = fixture.runDeepChapterGeneration.mock.calls[0] as [{ planBlueprint?: string }]
+    expect(input.planBlueprint, "扩写必须读手改过的那份细纲").toContain("骆轻竹把刀递给了楚白")
+    expect(input.planBlueprint).toContain("关键台词：接着。")
+    expect(input.planBlueprint, "旧文本不得留在提示词里").not.toContain("骆轻竹抽出腰间短刀")
+    // 顺带证明它一路写进了正文文件（不是只改了内存里的一句话）
+    expect(markdownHandedToWriteFile(chapterAreaPath(2))).toContain("雨停在子时")
+  })
+
+  /*
+   * 「重新生成」= 用任务上留存的原始请求再调一次提交函数。
+   *
+   * 刻意**不**为它新增 store action（计划 §3a）：`startTask` 本身就会替换
+   * 「同项目 + 同章号」的旧任务并返回**新** taskId，语义恰好正确。
+   * 这条用例把「替换而不是并排」「新 id」「进度归零」三件事一起钉住。
+   */
+  it("「重新生成」用原请求重跑，并替换同一章那张卡片（不是并排两张）", async () => {
+    seedChapterAreaLibrary()
+    await mount()
+    await generate(2, "必须交代骆轻竹为什么失望")
+    const firstId = useEventOutlineTaskStore.getState().tasks[0].id
+    expect(fixture.generateEventOutline).toHaveBeenCalledTimes(1)
+
+    // 第二次停在 generating：这样才能看到「新行是 generating、进度归零、卡片退场」
+    let release: (value: { outline: EventOutlineData | null; rawContent: string; error: string | null }) => void = () => {}
+    fixture.generateEventOutline.mockImplementation(() => new Promise((resolve) => { release = resolve }))
+    await click("重新生成")
+
+    expect(fixture.generateEventOutline).toHaveBeenCalledTimes(2)
+    const firstRequest = fixture.generateEventOutline.mock.calls[0][1] as EventOutlineRequest
+    const replayed = fixture.generateEventOutline.mock.calls[1][1] as EventOutlineRequest
+    expect(replayed, "重跑必须原样复用卡片上留存的请求").toEqual(firstRequest)
+    expect(replayed.chapterNumber).toBe(2)
+    expect(replayed.requirement).toBe("必须交代骆轻竹为什么失望")
+
+    const tasks = useEventOutlineTaskStore.getState().tasks
+    expect(tasks, "同一章同时挂两份细纲卡片没有可用语义").toHaveLength(1)
+    expect(tasks[0].id, "新任务必须是新 taskId（旧行的 controller 已 settle，不复用 id）").not.toBe(firstId)
+    expect(tasks[0].status).toBe("generating")
+    expect(tasks[0].outline).toBeNull()
+    expect(tasks[0].receivedChars).toBe(0)
+    // 界面回到「正在生成」那一行，确认件先退场
+    expect(container.querySelector("[data-event-outline-card]")).toBeNull()
+    expect(taskRows()[0].textContent).toContain("正在生成第 2 章")
+
+    // 第二次的结果照常落地：重跑不是「走个形式」
+    await act(async () => { release({ outline: outlineFor(2), rawContent: "", error: null }) })
+    const settled = useEventOutlineTaskStore.getState().tasks[0]
+    expect(settled.status).toBe("awaiting-confirm")
+    expect(settled.outline?.events[0].title).toBe("楚白在巷口截住骆轻竹")
+    expect(container.querySelector("[data-event-outline-card]")).not.toBeNull()
+  })
+
+  /*
+   * ⚠️ 这条专门钉 abort/identity 那个陷阱：事件细纲链路的 `settle()` 是身份无关的
+   * `delete(taskId)`（对比正文那条链路在 preview-panel 里的注释），它成立的前提是
+   * **事件细纲的 taskId 永不复用**。「重新生成」走 `startTask` → 新 id，前提没有被破坏；
+   * 但它自己造出来的那次请求若被同章重提取代，仍然必须**真的被 abort**（否则旧请求继续计费，
+   * 而它的行已经从 store 里消失、用户连「取消」都没得点）。
+   *
+   * 断言落在 `signals[1].aborted` 上：只看调用次数或 store 行数都区分不出 abort 有没有发出去。
+   * in-flight 取代只有工具栏重提这一条路可达 —— 卡片只在 awaiting-confirm 渲染，
+   * 那时上一枚 controller 早已 settle 出 Map。
+   */
+  it("「重新生成」造出的请求被同章重提取代时，必须真的被 abort（新 id 不复用，前提未被破坏）", async () => {
+    const { signals, callIndexOf } = mockAbortableGeneration()
+    await mount()
+    await submitWizard("", "2")
+    // 让第一次生成落地成卡片，才有「重新生成」可点
+    await act(async () => { callIndexOf(0)!({ outline: outlineFor(2), rawContent: "", error: null }) })
+    expect(container.querySelector("[data-event-outline-card]")).not.toBeNull()
+
+    await click("重新生成")
+    const regeneratedId = useEventOutlineTaskStore.getState().tasks[0].id
+    expect(signals[1].aborted, "刚发起的重新生成不该已经是 aborted").toBe(false)
+
+    await submitWizard("", "2")
+    await act(async () => { await Promise.resolve() })
+
+    expect(fixture.generateEventOutline).toHaveBeenCalledTimes(3)
+    expect(signals[1].aborted, "被取代的「重新生成」请求必须真的被 abort，否则继续计费").toBe(true)
+    expect(signals[2].aborted, "新任务不能被误中止").toBe(false)
+    const tasks = useEventOutlineTaskStore.getState().tasks
+    expect(tasks).toHaveLength(1)
+    expect(tasks[0].id, "取代走的是新 taskId：旧 id 不复用，身份无关的 delete 才安全").not.toBe(regeneratedId)
+  })
+
+  /*
+   * ⚠️ 本条是**显式决定**，不是副作用（实施计划 §3b 第 3 条要求实施者自己定：
+   * 「是允许不合法状态保存但禁用扩写（需给出可见原因），还是保存前做校验并拒绝」）。
+   *
+   * 选择：**允许保存不合法细纲，但把「用这份细纲写这一章」置灰并说明原因**。
+   * 理由：手改的价值就在于「先记下来再慢慢修」；保存前拒绝会把用户刚敲的一整屏字丢掉，
+   * 而按钮直接消失则让他以为功能坏了。置灰 + 可见原因把「哪儿不合格」交给用户自己修。
+   */
+  it("手改出不合格细纲：保存不被拒绝，但写正文入口置灰并说明原因（不消失）", async () => {
+    seedChapterAreaLibrary()
+    await mount()
+    await generate(2)
+
+    await click("手动修改")
+    // 把第 2 个事件的两条抓手清空 ⇒ 该事件抓手 0 条（结构性缺陷，problems 而非 advisories）
+    await act(async () => { setTextarea(cardField<HTMLTextAreaElement>("事件2的细节抓手"), "") })
+    await click("保存细纲")
+
+    const task = useEventOutlineTaskStore.getState().tasks[0]
+    expect(task.status, "保存没有被拒绝，仍然是待确认").toBe("awaiting-confirm")
+    expect(task.outline!.events[1].points, "空行不得变成一条空抓手").toEqual([])
+
+    const write = button("用这份细纲写这一章")
+    expect(write, "改坏了也不能让入口消失").toBeDefined()
+    expect(write.disabled, "不合格时置灰").toBe(true)
+    const reason = container.querySelector("[data-event-outline-blocked-reason]")
+    expect(reason?.textContent, "置灰的原因必须可见").toContain("待修")
+    // 而且要说清是**哪一项**：禁用按钮用 aria-describedby 指向卡片上那份逐条体检
+    const describedBy = write.getAttribute("aria-describedby")
+    expect(describedBy, "禁用按钮必须把具体原因关联进来").toBeTruthy()
+    expect(
+      document.getElementById(describedBy!)?.textContent,
+      "原因必须具体到某一项，而不是笼统一句「有问题」",
+    ).toContain("第 2 个事件的细节抓手为 0 条")
+
+    // 点了也不会发起正文生成、更不会落盘
+    fixture.runDeepChapterGeneration.mockClear()
+    await act(async () => { write.click() })
+    expect(fixture.runDeepChapterGeneration).not.toHaveBeenCalled()
+    expect(fixture.writeFile).not.toHaveBeenCalled()
+  })
+
+  /*
+   * 「重新生成」与「手动修改」是**两条**独立入口，谁也不该把对方挤掉：
+   * 卡片上必须同时有这两枚按钮（用户原话就是「也可以让 AI 重新生成」）。
+   */
+  it("卡片上「手动修改」与「重新生成」同时在场，且都不是扩写按钮的替代品", async () => {
+    seedChapterAreaLibrary()
+    await mount()
+    await generate(2)
+    expect(button("手动修改")).toBeDefined()
+    expect(button("重新生成")).toBeDefined()
+    expect(button("用这份细纲写这一章").disabled).toBe(false)
+    // 这两枚入口不参与扩写：点了不会有什么请求跑起来
+    expect(fixture.runDeepChapterGeneration).not.toHaveBeenCalled()
+  })
+})

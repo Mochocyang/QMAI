@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { EventOutlineData, EventOutlineRequest } from "@/lib/novel/event-outline"
 import {
   selectProjectEventOutlineTasks,
@@ -57,6 +57,89 @@ describe("event-outline-task-store", () => {
     // 细纲的其它字段原样保留（只改章号，不重建对象）
     expect(task?.outline?.title).toBe("第7章 · 雨夜递刀")
     expect(task?.outline?.events).toHaveLength(1)
+  })
+
+  /*
+   * ── 丙-3b：手改细纲的落点 ──
+   *
+   * `updateTaskOutline` 是**唯一**能改 `outline` 的动作，因此它同时也是
+   * 「卡片渲染」与「用这份细纲写这一章」共用同一份数据的保证：
+   * 两者都读 `task.outline`，手改就没有第二处真相可漂移。
+   *
+   * ⚠️ 两条契约必须钉死：
+   * 1. **status 不动**（手改之后仍是 awaiting-confirm）——顺手改成别的状态会让卡片
+   *    整块消失（`preview-panel` 只在 awaiting-confirm 渲染卡片），用户以为「改坏了」；
+   * 2. **只命中一条**（按 id 匹配），不能像 startTask 那样按章号批量替换。
+   */
+  it("updateTaskOutline 只替换 outline，status 仍是 awaiting-confirm（手改后还没确认）", () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(1_000)
+      const id = useEventOutlineTaskStore.getState().startTask({ projectPath: "/p", request: request() })
+      useEventOutlineTaskStore.getState().finishTask(id, outline())
+      vi.setSystemTime(2_000)
+
+      useEventOutlineTaskStore.getState().updateTaskOutline(id, {
+        ...outline(),
+        title: "第7章 · 手改过的章名",
+        events: [{ id: 1, title: "手改后的事件", points: ["改后的抓手一", "改后的抓手二"] }],
+        endingHook: "改后的钩子",
+      })
+
+      const task = useEventOutlineTaskStore.getState().tasks.find((item) => item.id === id)
+      expect(task?.outline?.title).toBe("第7章 · 手改过的章名")
+      expect(task?.outline?.events[0].title).toBe("手改后的事件")
+      expect(task?.outline?.events[0].points).toEqual(["改后的抓手一", "改后的抓手二"])
+      expect(task?.outline?.endingHook).toBe("改后的钩子")
+      expect(task?.status, "手改不是确认，状态必须留在 awaiting-confirm").toBe("awaiting-confirm")
+      expect(task?.updatedAt, "updatedAt 要跟着动（照 finishTask 的形状）").toBe(2_000)
+      expect(task?.createdAt).toBe(1_000)
+      // 手改不碰这两处：它们各有各的语义，不是「顺手一起清掉」的东西
+      expect(task?.error).toBeNull()
+      expect(task?.writingError).toBeNull()
+      expect(task?.receivedChars).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("updateTaskOutline 只命中传入的那一条，别的任务原样不动", () => {
+    const first = useEventOutlineTaskStore.getState().startTask({ projectPath: "/p", request: request({ chapterNumber: 7 }) })
+    const second = useEventOutlineTaskStore.getState().startTask({ projectPath: "/p", request: request({ chapterNumber: 8 }) })
+    useEventOutlineTaskStore.getState().finishTask(first, outline(7))
+    useEventOutlineTaskStore.getState().finishTask(second, outline(8))
+
+    useEventOutlineTaskStore.getState().updateTaskOutline(first, { ...outline(7), title: "只改第 7 章这份" })
+
+    const tasks = useEventOutlineTaskStore.getState().tasks
+    expect(tasks.find((item) => item.id === first)?.outline?.title).toBe("只改第 7 章这份")
+    expect(tasks.find((item) => item.id === second)?.outline?.title).toBe("第8章 · 雨夜递刀")
+    expect(tasks).toHaveLength(2)
+  })
+
+  it("updateTaskOutline 以**任务**章号为准，覆盖手改数据里带来的章号（F8 同款）", () => {
+    // 与 finishTask 同一条理由：这个字段同时决定卡片标题、「写出第 N 章正文」的章号
+    // 与落盘文件名。手改表单里没有章号字段，但权威只能在入 store 这一个点上建立。
+    const id = useEventOutlineTaskStore.getState().startTask({
+      projectPath: "/p",
+      request: request({ chapterNumber: 3 }),
+    })
+    useEventOutlineTaskStore.getState().finishTask(id, outline(3))
+    useEventOutlineTaskStore.getState().updateTaskOutline(id, outline(7))
+
+    const task = useEventOutlineTaskStore.getState().tasks.find((item) => item.id === id)
+    expect(task?.chapterNumber).toBe(3)
+    expect(task?.outline?.chapterNumber, "手改数据里的 7 必须被任务章号覆盖").toBe(3)
+  })
+
+  it("updateTaskOutline 对不存在的 id 是无害的 no-op（不抛错、不动任何任务）", () => {
+    const id = useEventOutlineTaskStore.getState().startTask({ projectPath: "/p", request: request() })
+    useEventOutlineTaskStore.getState().finishTask(id, outline())
+    const before = useEventOutlineTaskStore.getState().tasks
+
+    useEventOutlineTaskStore.getState().updateTaskOutline("event-outline-task-999", { ...outline(), title: "野的" })
+
+    expect(useEventOutlineTaskStore.getState().tasks).toEqual(before)
   })
 
   it("failTask 记下原因并清掉细纲", () => {

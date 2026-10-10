@@ -74,6 +74,19 @@ interface EventOutlineTaskState {
   startTask: (input: EventOutlineTaskStartInput) => string
   appendProgress: (taskId: string, receivedChars: number) => void
   finishTask: (taskId: string, outline: EventOutlineData) => void
+  /**
+   * 用户在卡片上**手改**之后写回细纲（丙-3b）。
+   *
+   * ⚠️ 只改 `outline` 这一个字段，**不动 `status`**：手改不是确认，
+   * 这条任务仍然停在 `awaiting-confirm`（顺手改成终态会让卡片整块消失，
+   * 用户看到的是「改坏了、功能没了」）。
+   *
+   * 为什么必须由 store 承载而不是组件本地 state：`task.outline` 是这份细纲的
+   * **唯一真相**，卡片渲染与「用这份细纲写这一章」都读它。放在组件里就会有两处
+   * 值，任何一处忘了走覆盖值就会出现「界面里改过、模型不知道」——正是
+   * `event-outline-card.tsx` 原先那段注释担心的双份真相。
+   */
+  updateTaskOutline: (taskId: string, outline: EventOutlineData) => void
   failTask: (taskId: string, error: string) => void
   /** 用户确认细纲，进入正文生成。 */
   startWriting: (taskId: string) => void
@@ -200,6 +213,28 @@ export const useEventOutlineTaskStore = create<EventOutlineTaskState>((set) => (
              */
             outline: { ...outline, chapterNumber: task.chapterNumber },
             error: null,
+            updatedAt: Date.now(),
+          }
+          : task
+      )),
+    }))
+  },
+
+  updateTaskOutline: (taskId, outline) => {
+    set((state) => ({
+      tasks: state.tasks.map((task) => (
+        task.id === taskId
+          ? {
+            ...task,
+            /*
+             * 章号仍以**任务**为准，理由与 finishTask 那一段完全相同（F8）：
+             * 这个字段同时决定卡片标题、`eventOutlineToProsePrompt` 的「写出第 N 章正文」
+             * 与落盘文件名。手改表单里刻意没有章号字段，但宽容的调用方（或将来新增的
+             * 编辑入口）仍可能送来一份带旧章号的数据 —— 权威只在这一个点上建立。
+             *
+             * 只重建 outline 对象，**不碰 status / error / writingError 等任何别的字段**。
+             */
+            outline: { ...outline, chapterNumber: task.chapterNumber },
             updatedAt: Date.now(),
           }
           : task
