@@ -1251,8 +1251,6 @@
       "chatHistoryLengthCurrent": "当前 {{count}} 条消息（约 {{turns}} 轮对话）",
       "chapterTargetChars": "单章目标字数",
       "chapterTargetCharsHint": "控制 AI 生成单章正文的目标字数（按去除空白后的字符数计）。章节生成、扩写补足和“继续生成下一章”的提示词都会按这个目标推算，默认 3000 字。",
-      "autoIngestOnSave": "保存正式章节时自动提取记忆",
-      "autoIngestOnSaveHint": "开启后，章节保存为正式章节时会自动从正文中提取人物、地点、事件、关系和设定，写入小说记忆库，方便后续检索和续写。",
       "draftMemoryHintEnabled": "草稿章节提取记忆提示",
       "draftMemoryHintEnabledHint": "开启后，每本小说只在第一次符合条件时提示一次；之后只有点开仍是草稿、且后面已经有章节时才再提示。关闭后不再弹出。提示里的「不再提醒」也会关闭此项。",
       "reviewBeforeSave": "保存前自动审稿",

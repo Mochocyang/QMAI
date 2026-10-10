@@ -438,7 +438,7 @@ describe("接线守卫", () => {
   it("朗读名称用中文，且四项数据的标签不带任何英文", () => {
     const source = readSource("src/components/uitest/ui-test-statusbar.tsx")
     expect(source).toContain('aria-label="写作字数"')
-    for (const label of ["总字数", "今日目标", "今日 AI 生成", "手写"]) {
+    for (const label of ["总字数", "今日目标", "AI 生成字数", "手写"]) {
       expect(source, `状态栏应包含中文标签「${label}」`).toContain(`>${label}<`)
     }
   })

@@ -23,7 +23,6 @@ const baseNovelConfig: NovelConfig = {
   recentSummaryWindow: 8,
   searchTopK: 5,
   chapterTargetChars: 3000,
-  autoIngestOnSave: true,
   autoExtractOnImport: true,
   deepPreviousChaptersAnalysis: false,
   writingWebSearchEnabled: true,

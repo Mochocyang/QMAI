@@ -97,6 +97,21 @@
   width: 100%;
 }
 
+/*
+ * 维护工具已从设置搬到顶栏「创作工具」，自成一个视图（用户要求）。
+ *
+ * 它在设置里时，内边距由 [data-ui="settings-scroll"] 的 `px-8 py-6` 提供；
+ * 独立成页后这份内边距得自己带上 —— 否则内容会紧贴窗口边缘，
+ * 而且长列表（拆书/去重队列很长）需要自己滚动。
+ * 32px / 24px 就是上面那两个 Tailwind 值，保持与在设置里时同一观感。
+ */
+.ui-test-root [data-ui-page="maintenance"] {
+  height: 100%;
+  overflow-y: auto;
+  padding: 24px 32px 28px;
+  scrollbar-gutter: stable;
+}
+
 .ui-test-root [data-ui="settings-sidebar"] {
   width: 205px;
   border: 0;
@@ -1913,10 +1928,12 @@
 /*
  * 「第三方字体许可」的版权清单默认收起（用户要求：这些不需要显示出来）。
  *
- * ⚠ 显著声明那一句（data-ui="harmonyos-notice"）**不在**这个 <details> 里，
- * 它必须始终可见 —— HarmonyOS 许可第 2 条第 1 项强制要求软件界面出现该声明。
- * 所以这里只折叠版权清单，不折叠声明本身。
- * 理由与用户确认过程见 interface-section.tsx 的 BundledFontLicenses 注释。
+ * ⚠ 显著声明那一句（data-ui="prominent-font-notice"）**不在**这个 <details> 里：
+ * 它只在随包字体里**存在非 OFL 字体**时才渲染，而那种字体的许可要求该声明
+ * 出现在软件界面上（`make a prominent notice in the software`）——
+ * 折进默认收起的 <details> 就等于"用户看不到"，那条义务不再满足。
+ * 当前随包字体全部为 OFL-1.1，故该句不渲染；机制保留，等日后引入非 OFL 字体时生效。
+ * 理由与数据来源见 interface-section.tsx 的 BundledFontLicenses 注释。
  */
 .ui-test-root [data-ui="bundled-font-license-details"] > summary {
   display: list-item;

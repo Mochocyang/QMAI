@@ -3,15 +3,16 @@
  * 核对界面上的「第三方字体许可」告知与**事实**是否一致。
  *
  * ── 为什么需要这个脚本 ──
- * 随包的 9 款族里有一款不是 OFL：鸿蒙黑体。它的许可**强制**要求
- * "在软件中显著注明使用了 HarmonyOS Sans"。界面上那句告知一旦与随包清单脱节，
+ * 随包字体的许可**不都是 OFL**：只要清单里出现非 OFL 的字体，它的许可通常就带着
+ * "在软件中显著注明使用了该字体"这类义务。界面上那句告知一旦与随包清单脱节，
  * 后果是两选一，且都不会有任何测试失败来提醒：
- *   · 清单加了字体而告知没跟上 → **告知不完整**（许可不合规）；
- *   · 清单删了字体而告知还留着 → **告知与事实不符**（对用户误导）。
+ *   · 清单加了非 OFL 字体而告知没跟上 → **告知不完整**（许可不合规）；
+ *   · 非 OFL 字体已移除而告知还留着 → **告知与事实不符**（对用户误导）。
+ * 这里**不硬编码任何字体名**：要不要显著声明，由"声明里有没有非 OFL 字体"算出来。
  * 文件级的东西（`fonts/licenses/*`）有 `verify-bundle-licenses.mjs` 管，
  * 但"界面上说了什么"没有任何东西管 —— 这就是本脚本要补的缺口。
  *
- * ── 四类断言 ──
+ * ── 五类断言 ──
  *   ① 族名集合必须与 `src-tauri/fonts/fonts-manifest.json` **完全一致**（双向）；
  *   ② 每个 `licenseFile` 必须真实存在；
  *   ③ 每个 `copyright` 必须真的出现在对应许可证文件里（归一化空白后比较，
@@ -19,6 +20,10 @@
  *   ④ 声明的许可名称必须与文件内容自洽：
  *        声明 OFL-1.1  → 文件必须含 "SIL OPEN FONT LICENSE Version 1.1"
  *        声明非 OFL    → 文件**不得**自称 OFL（否则声明写错了）
+ *   ⑤ 显著声明与"非 OFL 集合"必须一致（双向）：
+ *        非 OFL 集合非空 → `prominentNotice` 必须非空，且逐个点名这些字体的
+ *                          family 或 display；
+ *        非 OFL 集合为空 → `prominentNotice` 必须为空（不为空即"告知与事实不符"）。
  *
  * 退出码：0 = 一致；1 = 不一致（打印每一处差异与修法）。
  */
@@ -81,15 +86,44 @@ console.log(
     (multiWeight > 0 ? `（${multiWeight} 个是同族的额外字重，告知按族合并）` : ""),
 )
 
-// ── 显著声明必须存在且点名 HarmonyOS Sans ──
+// ── ⑤ 显著声明：由「非 OFL 集合」决定，不点名任何具体字体 ──
+/*
+ * ── 为什么这条规则要泛化，而不是删掉 ──
+ * 曾经的写法是硬编码"prominentNotice 必须存在且点名 HarmonyOS Sans"。
+ * 鸿蒙黑体按产品决定移除之后，若把这段直接删掉，就等于**永久失去**这道防线：
+ * 日后有人再引入一款非 OFL 字体（它的许可同样要求显著声明），
+ * 界面上少一句话不会有任何东西报错。所以改成双向的通用规则：
+ *   非 OFL 集合 ≠ 空  ⟺  prominentNotice ≠ 空且逐个点名。
+ * 这条规则在两个方向上都会失败，且两个方向的错法后果不同（见文件头）。
+ */
+const declaredNonOfl = declared.filter((f) => !/^OFL-1\.1$/i.test(String(f.license).trim()))
 const notice = normalize(data.prominentNotice ?? "")
-if (!notice) {
+if (declaredNonOfl.length > 0) {
+  const label = (f) => `${f.display}（${f.family}）`
+  if (!notice) {
+    fail(
+      `prominentNotice 为空，但随包字体里有 ${declaredNonOfl.length} 款不是 OFL —— ` +
+        `它们的许可要求"在软件中显著注明使用了该字体"：` +
+        declaredNonOfl.map(label).join("、") +
+        `。请在 src/lib/bundled-font-licenses.json 的 prominentNotice 里写一句并逐个点名。`,
+    )
+  } else {
+    // 逐个点名：family 或 display 命中其一即算点名（许可是按字体名写的，中文显示名亦可）
+    const unnamed = declaredNonOfl.filter((f) => !notice.includes(f.family) && !notice.includes(f.display))
+    if (unnamed.length > 0) {
+      fail(
+        `prominentNotice 没有逐个点名需要显著声明的非 OFL 字体：${unnamed.map(label).join("、")}。` +
+          `实际声明：${JSON.stringify(notice)}`,
+      )
+    }
+  }
+} else if (notice) {
   fail(
-    "prominentNotice 为空 —— 鸿蒙黑体的许可**强制**要求在软件中显著注明使用了 " +
-      "HarmonyOS Sans（HarmonyOS Sans Fonts License Agreement 第 2 条第 1 项）。",
+    `prominentNotice 不为空，但随包字体里已没有需要显著声明的非 OFL 字体` +
+      `（${declared.length} 条声明全部为 OFL-1.1）—— 界面还在告知使用了某字体，` +
+      `属于「告知与事实不符」。请把 src/lib/bundled-font-licenses.json 的 ` +
+      `prominentNotice 改回空字符串。当前值：${JSON.stringify(notice)}`,
   )
-} else if (!/HarmonyOS Sans/i.test(notice)) {
-  fail(`prominentNotice 没有点名 "HarmonyOS Sans"，不满足许可的注明要求：${JSON.stringify(notice)}`)
 }
 
 // ── ②③④ 逐条核对许可文件 ──
@@ -156,5 +190,12 @@ const bytes = declared.length
 console.log(`  ✓ 界面告知覆盖全部 ${manifestFamilies.size} 个随包字体族（${bundled} 条）`)
 console.log(`  ✓ 每条版权行都能在对应许可证原文里找到`)
 console.log(`  ✓ 许可名称与文件内容自洽（OFL-1.1 与非 OFL 未混淆）`)
-console.log(`  ✓ 显著声明存在且点名 HarmonyOS Sans`)
+if (declaredNonOfl.length > 0) {
+  console.log(
+    `  ✓ 显著声明存在且逐个点名需要显著声明的非 OFL 字体` +
+      `（${declaredNonOfl.map((f) => f.family).join("、")}）`,
+  )
+} else {
+  console.log(`  ✓ 无需要显著声明的非 OFL 字体（prominentNotice 为空，界面不渲染显著声明）`)
+}
 console.log(`  许可证目录：${data.licensesDir}（随安装包提供原文）`)

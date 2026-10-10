@@ -45,6 +45,34 @@ vi.mock("@/lib/system-fonts", async (importOriginal) => ({
   },
 }))
 
+/*
+ * ── 为什么显著声明要能被测试改值 ──
+ * 数据里 `prominentNotice` 当前是空字符串（随包字体全部为 OFL-1.1），
+ * 所以真实渲染下界面上**没有**那个节点。若就此只断言"没有"，
+ * 「显著声明一旦非空就必须留在折叠区之外」这条许可义务就**无从检验**了 ——
+ * 而它正是当初把声明放在 `<details>` 之外的全部理由。
+ *
+ * 所以这里把该模块的那**一个**字符串换成可变的测试值，其余导出原样透传：
+ * 渲染的仍是真实的 `InterfaceSection`，只有这个值被替换。
+ * 默认值由 beforeEach 设回**数据文件里的真实值**，其它用例看到的仍是事实。
+ */
+const noticeHolder = vi.hoisted(() => ({ value: "" as string }))
+
+vi.mock("@/lib/bundled-font-licenses", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/bundled-font-licenses")>()
+  return {
+    ...actual,
+    get PROMINENT_FONT_NOTICE() {
+      return noticeHolder.value
+    },
+  }
+})
+
+/** 真实数据源（未被 mock 的那个 JSON 文件）：用来把默认值设回事实。 */
+const LICENSES_JSON = (await import("@/lib/bundled-font-licenses.json")).default as {
+  prominentNotice: string
+}
+
 const { InterfaceSection } = await import("@/components/settings/sections/interface-section")
 
 let root: Root
@@ -54,6 +82,8 @@ beforeEach(() => {
   sysFonts.result = []
   sysFonts.error = null
   sysFonts.calls = 0
+  // 默认按**事实**渲染：数据文件里 prominentNotice 是什么，界面就渲染什么
+  noticeHolder.value = LICENSES_JSON.prominentNotice
   container = document.createElement("div")
   document.body.appendChild(container)
   root = createRoot(container)
@@ -315,30 +345,52 @@ describe("阶段 3：本机中文字体分组", () => {
  * 界面字体下拉的对应判据仍留在这里（界面字体还在这页上）。
  */
 
-describe("随包字体的第三方许可告知（鸿蒙黑体的许可强制义务）", () => {
+describe("随包字体的第三方许可告知", () => {
   /**
-   * 鸿蒙黑体的许可要求"在软件中显著注明使用了 HarmonyOS Sans"。
-   * 这几条断言的是**界面上真的有这句话**，而不只是数据文件里有 ——
-   * 数据正确但没渲染出来，许可义务照样没履行。
+   * ── 这个区块里有两种东西，义务不同 ──
+   *   ① **版权清单**（折叠区里那一串）：OFL-1.1 要求保留版权声明，
+   *      界面上给一个可展开的入口满足"用户能看到"。
+   *   ② **显著声明**（`data-ui="prominent-font-notice"`）：只有随包字体里
+   *      **存在非 OFL 字体**时才需要 —— 那种许可强制要求
+   *      `make a prominent notice in the software to state that ... are used.`，
+   *      关键词是 **in the software**，所以它必须在界面上，而且不许折进折叠区。
+   *
+   * 当前随包字体全部为 OFL-1.1（8 款族 / 10 个字重文件），故显著声明**不渲染**：
+   * 渲染一句"本软件使用了某字体"就是「告知与事实不符」。
+   * 下面两个方向都测 —— 数据为空 ⇒ 界面上没有那个节点；
+   * 数据非空 ⇒ 那个节点必须出现且留在折叠区之外（用 mock 出的非空值做正向对照，
+   * 否则第二条会退化成 `details.contains(null) === false` 的恒真断言）。
    */
-  const notice = () => container.querySelector('[data-ui="harmonyos-notice"]')
+  const notice = () => container.querySelector('[data-ui="prominent-font-notice"]')
 
-  it("渲染了许可告知区，且显著声明出现在界面上", async () => {
+  it("渲染了许可告知区", async () => {
     await renderSection()
 
     const section = container.querySelector('[data-ui="bundled-font-licenses"]')
     expect(section, "界面上没有随包字体许可告知区").not.toBeNull()
-
-    expect(notice(), "没有渲染鸿蒙黑体的显著声明").not.toBeNull()
-    // 必须点名 HarmonyOS Sans（只说"用了鸿蒙黑体"不够，许可是按英文名写的）
-    expect(notice()!.textContent).toMatch(/HarmonyOS Sans/i)
   })
 
-  it("9 款族全部列出，且每款都带版权行", async () => {
+  it("随包字体全部为 OFL-1.1 ⇒ 界面不渲染显著声明（不出现与事实不符的告知）", async () => {
+    // 先钉住数据这一侧：数据非空时下面的界面断言无从谈起
+    expect(
+      LICENSES_JSON.prominentNotice.trim(),
+      "数据里的 prominentNotice 已非空 —— 这条用例的前提变了，请按新事实重写",
+    ).toBe("")
+
+    await renderSection()
+
+    expect(
+      notice(),
+      "随包字体里没有非 OFL 字体，界面上不该出现显著声明 —— 一句『本软件使用了某字体』"
+      + "就是告知与事实不符",
+    ).toBeNull()
+  })
+
+  it("8 款族全部列出，且每款都带版权行", async () => {
     await renderSection()
     const items = container.querySelectorAll('[data-ui="bundled-font-license-list"] li')
     expect(items).toHaveLength(BUNDLED_FONT_LICENSES.length)
-    expect(items.length).toBe(9)
+    expect(items.length).toBe(8)
 
     // 逐条核对：显示名与版权行都要真的渲染出来，不能只列个名字
     const rendered = Array.from(items).map((li) => li.textContent ?? "")
@@ -349,30 +401,21 @@ describe("随包字体的第三方许可告知（鸿蒙黑体的许可强制义�
   })
 
   it("告知的位置不依赖用户已选字体——默认设置下也必须可见", async () => {
-    // 用默认草稿（uiFontFamily = "system"）渲染，声明仍须出现。
+    // 用默认草稿（uiFontFamily = "system"）渲染，告知区仍须出现。
     // 若把它塞进某个"仅在选了随包字体时才展开"的分支里，许可义务就落空了。
     await renderSection()
-    expect(notice()).not.toBeNull()
+    expect(container.querySelector('[data-ui="bundled-font-licenses"]')).not.toBeNull()
     expect(fontSelect().value).toBe("system")
   })
 
   /**
-   * ── 版权清单默认收起，但显著声明**必须留在折叠之外**（用户第 1 条要求）──
+   * ── 版权清单默认收起（用户第 1 条要求）──
    *
-   * 用户原话：「这些不需要显示出来，隐藏起来」—— 指的是那 10 行版权文字。
-   *
-   * ⚠ 但这里有一条**不能让步**的许可义务，必须专门守住：
-   * HarmonyOS Sans 的许可第 2 条第 1 项是强制的 ——
-   *   `YOU shall make a prominent notice in the software to state that
-   *    HarmonyOS Sans Fonts are used.`
-   * 把声明折进默认收起的 `<details>` 就等于"用户看不到"，
-   * 那条义务不再满足。所以本用例断言的是**两件事同时成立**：
-   *   ① 清单在 <details> 里且**默认收起**；
-   *   ② 声明不在那个 <details> 里（无论折叠与否都可见）。
-   *
-   * 只断言 ① 是不够的 —— 把声明一起塞进去，① 照样绿。
+   * 用户原话：「这些不需要显示出来，隐藏起来」—— 指的是那串版权文字。
+   * 清单必须**仍在界面里可达**（可展开）：OFL 要求保留版权声明，
+   * 随包的 `fonts/licenses/` 满足"保留"，界面上这个入口满足"能看到"。
    */
-  it("版权清单默认收起，但鸿蒙黑体的显著声明不随折叠隐藏", async () => {
+  it("版权清单默认收起，但仍在折叠区内可达", async () => {
     await renderSection()
 
     const details = container.querySelector<HTMLDetailsElement>('[data-ui="bundled-font-license-details"]')
@@ -384,24 +427,44 @@ describe("随包字体的第三方许可告知（鸿蒙黑体的许可强制义�
       details!.querySelector('[data-ui="bundled-font-license-list"]'),
       "许可清单必须在折叠区内，否则收起的就不是这些内容",
     ).not.toBeNull()
+  })
+
+  it("正向对照：显著声明一旦非空，必须渲染，且在默认收起的折叠区之外", async () => {
+    /*
+     * 这条是上一条「不渲染」的**反向控制**，也是许可义务的形状本身。
+     *
+     * 为什么不能省：当前数据为空，界面上没有那个节点，于是
+     * 「显著声明不能被折进 <details>」只能用 `details.contains(null) === false`
+     * 来"证明" —— 那在渲染位被整个删掉时**照样为真**。所以这里把声明置为非空
+     * 再渲染一次，要求两件事同时成立：
+     *   ① 它真的出现在界面上（渲染位还在，代码没被删）；
+     *   ② 它不在那个默认收起的 <details> 里（折起来 = 用户看不到 = 义务没履行）。
+     * 只断言 ① 是不够的 —— 把声明塞进 <details>，① 照样绿。
+     */
+    noticeHolder.value = "本软件内置并使用「示例专有字体」。"
+    await renderSection()
+
+    expect(notice(), "声明非空时界面必须渲染它 —— 渲染位可能已被删掉").not.toBeNull()
+    expect(notice()!.textContent).toContain("示例专有字体")
+
+    const details = container.querySelector<HTMLDetailsElement>('[data-ui="bundled-font-license-details"]')!
+    expect(details, "版权清单的折叠区应当仍在").not.toBeNull()
 
     /*
-     * ② 声明必须在折叠区**之外**。
      * 用 contains 判包含关系，而不是"notice 存在"——后者在声明被
      * 挪进 <details> 之后照样通过，正是这条要抓的错法。
      */
     expect(
-      details!.contains(notice()),
-      "鸿蒙黑体的显著声明**不能**放进默认收起的折叠区："
-      + "HarmonyOS 许可第 2 条第 1 项强制要求该声明出现在软件中，折起来就等于没显示",
+      details.contains(notice()),
+      "显著声明**不能**放进默认收起的折叠区：非 OFL 字体的许可要求该声明"
+      + "出现在软件中，折起来就等于没显示",
     ).toBe(false)
-    expect(notice()).not.toBeNull()
 
     // 反向控制：contains 判据本身要有鉴别力 —— 折一个真实存在于折叠区内的
     // 元素进去，同一个断言必须翻转。否则"不在里面"可能是恒真的。
-    const strip = details!.querySelector('[data-ui="bundled-font-license-list"]')!
+    const strip = details.querySelector('[data-ui="bundled-font-license-list"]')!
     expect(
-      details!.contains(strip),
+      details.contains(strip),
       "反向控制：折叠区确实包含自己的清单，说明 contains 判据有鉴别力",
     ).toBe(true)
   })

@@ -75,7 +75,7 @@ vi.mock("@/components/settings/sections/contact-support-section", () => ({ Conta
 vi.mock("@/components/settings/sections/classification-section", () => ({ ClassificationSection: () => <div data-capability="classification" /> }))
 vi.mock("@/components/settings/sections/changelog-section", () => ({ ChangelogSection: () => <div data-capability="changelog" /> }))
 
-const categories = ["model", "novel", "network", "web-search", "interface", "user-memory", "maintenance", "data-management", "feedback", "contact-support", "changelog"]
+const categories = ["model", "novel", "network", "web-search", "interface", "user-memory", "data-management", "feedback", "contact-support", "changelog"]
 let container: HTMLDivElement
 let root: Root
 
@@ -117,11 +117,18 @@ async function click(selector: string) {
 }
 
 describe("测试版设置布局与正式版隔离", () => {
-  it("只保留十一个设置分类，不显示路径、导出、使用说明和意图路由", async () => {
+  it("只保留十个设置分类，不显示路径、导出、使用说明和意图路由", async () => {
     await render(<SettingsView />)
     expect(container.querySelector('[data-ui-page="settings"]')).not.toBeNull()
     expect(container.querySelectorAll('aside')).toHaveLength(1)
-    expect(container.querySelectorAll('[data-ui="settings-navigation"] button')).toHaveLength(11)
+    expect(container.querySelectorAll('[data-ui="settings-navigation"] button')).toHaveLength(10)
+    /*
+     * 「维护工具」已按用户要求从设置搬到顶栏「创作工具」（见 ui-test-shell
+     * 的 TOOL_GROUPS 与 layout/content-area 的 maintenance 视图）。
+     * 这条断言是防回归：它是**项目级**维护动作、不属于应用级配置，
+     * 不该再回到设置左侧。
+     */
+    expect(container.querySelector('[data-ui-settings-category-button="maintenance"]')).toBeNull()
     expect(container.querySelector('[data-ui-settings-category-button="export-center"]')).toBeNull()
     expect(container.querySelector('[data-ui-settings-category-button="usage-guide"]')).toBeNull()
     expect(container.querySelector('[data-ui-settings-category-button="classification"]')).toBeNull()
@@ -139,7 +146,7 @@ describe("测试版设置布局与正式版隔离", () => {
     await render(<SettingsView />)
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="设置分类"]')
     expect(select).not.toBeNull()
-    expect(select?.options).toHaveLength(11)
+    expect(select?.options).toHaveLength(10)
     await act(async () => {
       select!.value = "interface"
       select!.dispatchEvent(new Event("change", { bubbles: true }))

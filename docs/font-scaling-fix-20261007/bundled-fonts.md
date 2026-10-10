@@ -1,15 +1,34 @@
 # 随包字体交付说明（阶段 4）
 
-> **结论先行**：随包 **9 款族 / 11 个字重文件**中文字体，合计
-> **209,720,176 字节 = 200.00 MiB**。
-> 全部经一手许可原文核实为**可捆绑**（8 款族为 OFL-1.1 + 鸿蒙黑体为专有但许可
-> 明确允许 `bundle, redistribute`），且全部经 DirectWrite 实测确认
-> **能被本应用列出并选中**（见 §5.2）。逐款的来源仓库、固定 tag、下载 URL 与
+> **结论先行**：随包 **8 款族 / 10 个字重文件**中文字体，合计
+> **201,459,048 字节 = 192.13 MiB**。
+> 全部经一手许可原文核实为**可捆绑**，且**许可全部为 OFL-1.1**，全部经 DirectWrite
+> 实测确认**能被本应用列出并选中**（见 §5.2）。逐款的来源仓库、固定 tag、下载 URL 与
 > SHA-256 见 [`bundled-fonts.json`](./bundled-fonts.json)（机器可读的唯一真相）。
+>
+> **⚠ 变更记录：鸿蒙黑体已按产品决定移除（本文以下带"9 款族 / 11 个文件"的
+> 段落是移除前的记录，保留作历史取证）**
+>
+> 应产品要求（用户明确要求彻底删除），鸿蒙黑体（`HarmonyOSSansSC-Regular.ttf`，
+> 8,261,128 字节）与它的许可证 `licenses/harmonyos-sans-LICENSE.txt` 已从
+> `src-tauri/fonts/` 删除，NSIS 字体表与运行期清单同步移除。它的来源、tag、
+> SHA-256 与排除理由**留痕**在 `bundled-fonts.json` 的 `excludedAfterProbe` 里
+> （它不是许可问题 —— 华为的许可逐字允许 `embed, bundle, redistribute`，
+> 本就是产品取舍）。后果：
+>   · 随包字体**全部为 OFL-1.1**，界面上那句"本软件使用了 HarmonyOS Sans"的
+>     显著声明随之停用（`src/lib/bundled-font-licenses.json` 的 `prominentNotice`
+>     置空，组件不再渲染该 `<p>`）；
+>   · 但"非 OFL 字体必须显著声明"这条**通用机制**保留在数据、校验脚本
+>     （`scripts/check-bundled-font-licenses.mjs` 按"非 OFL 集合 ≠ 空 ⟺ 声明非空且
+>     逐个点名"双向判，不硬编码任何字体名）与组件里，日后引入非 OFL 字体时自动生效；
+>   · 本文件里"安装包 147.26 MiB""11 个文件 / 11 个注册表值"等实测数字是**移除前**
+>     测得的，本次改动后**未重新测量**（字体本体这一项已由 sync 脚本实测：
+>     `fonts/` 由 200.01 MiB 降为 192.13 MiB）。
 >
 > 选择依据：用户在「全部 23 款 / 精简核心 8–10 款 / 只打包点名的几款」中
 > 选择了**精简核心 8–10 款**；其后追加了**思源宋体 / 思源黑体的 Bold 字重**，
-> 因此文件数由 9 增至 11（族数仍为 9 —— 同一族的不同字重不新增下拉项）。
+> 因此文件数由 9 增至 11（族数仍为 9）；本次再移除鸿蒙黑体，最终为
+> **8 款族 / 10 个文件**。
 
 ---
 
@@ -24,10 +43,13 @@
 | 5 | 霞鹜文楷 | `LXGWWenKai-Regular.ttf` | 400 | 24.39 | OFL-1.1 | `v1.522` |
 | 6 | 文津宋体 | `WenJinMincho-Regular.ttf` | 400 | 20.79 | OFL-1.1 | `v2.100` |
 | 7 | 寒蝉正楷体 | `ChillKai-Regular.ttf` | 400 | 33.40 | OFL-1.1 | `v2.000` |
-| 8 | 鸿蒙黑体 | `HarmonyOSSansSC-Regular.ttf` | 400 | 7.88 | 华为专有（可捆绑） | commit `33ab3b81` |
-| 9 | 得意黑 | `SmileySans-Regular.ttf` | 400 | 2.51 | OFL-1.1 | `v2.0.1` |
-| 10 | 朱雀仿宋 | `ZhuqueFangsong-Regular.ttf` | 400 | 8.42 | OFL-1.1 | `v0.212` |
-| 11 | 更纱黑体 | `SarasaGothicSC-Regular.ttf` | 400 | 22.93 | OFL-1.1 | `v1.0.42` |
+| 8 | 得意黑 | `SmileySans-Regular.ttf` | 400 | 2.51 | OFL-1.1 | `v2.0.1` |
+| 9 | 朱雀仿宋 | `ZhuqueFangsong-Regular.ttf` | 400 | 8.42 | OFL-1.1 | `v0.212` |
+| 10 | 更纱黑体 | `SarasaGothicSC-Regular.ttf` | 400 | 22.93 | OFL-1.1 | `v1.0.42` |
+
+> 上表是**移除鸿蒙黑体之后**的清单（原第 8 行 `HarmonyOSSansSC-Regular.ttf` 已删除，
+> 见文首变更记录）。上表的 MiB 是每款字体的单独体积，逐字节的权威值以
+> `bundled-fonts.json` / `sync-fonts-manifest.mjs` 的输出为准。
 
 体积：**必须区分两个不同的量**，早先把它们混为一谈，得出了错误结论。
 
@@ -37,6 +59,11 @@
 | 安装后磁盘占用 | ≈ 406.58 MiB | 便携版目录实测 626 个文件，**不是**"安装包体积" |
 | 未压缩原始合计 | 403.68 MiB | `qmai.exe` 203.67 + `fonts/` 200.01 |
 | NSIS 固实 LZMA 压缩比 | **2.74×** | 403.68 → 147.26 |
+
+> ⚠ 上表是**移除鸿蒙黑体之前**的实测值（那一轮 `fonts/` = 200.01 MiB）。
+> 移除后 `fonts/` = **192.13 MiB**（`node scripts/sync-fonts-manifest.mjs` 的实测输出，
+> 201,459,048 字节），未压缩原始合计相应约为 395.80 MiB；
+> **安装包体积与压缩比未按本次改动重新测量**，故仍列旧值并在此标注。
 
 早先的文档只看"exe + 字体"的**原始**大小（≈404 MiB）就断言"安装包超出
 100–200MB 上限"，并据此提出删减约 96 MiB 字体。那个断言是错的：
@@ -120,11 +147,11 @@ HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts
 ```
 src-tauri/fonts/
 ├── fonts-manifest.json          ← 运行期清单（由脚本生成，勿手工编辑）
-├── licenses/                    ← 9 份许可证全文
+├── licenses/                    ← 8 份许可证全文
 │   ├── source-han-serif-OFL.txt
 │   ├── ...
-│   └── harmonyos-sans-LICENSE.txt
-└── <11 个字体文件>
+│   └── sarasa-gothic-OFL.txt
+└── <10 个字体文件>
 ```
 
 **为什么放在 `src-tauri/fonts/` 而不是仓库根**：`bundle.resources` 里位于
@@ -163,7 +190,8 @@ src-tauri/fonts/
 
 1. Rust 测试 `模板里的字体表必须与随包清单逐字一致`（进 `cargo test`，自动跑）；
 2. `verify-nsis-font-cleanup.mjs --e2e` 的**阶段三**：真编译 + 真执行安装段，
-   核对 11 个文件、11 个注册表值（含数据指向）、22 行记录，再删掉记录重跑卸载兜底；
+   核对随包清单里的全部文件、全部注册表值（含数据指向）与两倍行数的记录，
+   再删掉记录重跑卸载兜底（条数由 `fonts-manifest.json` 现场推导，不写死）；
 3. 同测试的反向自检：值名两两不同、表只出现在宏体一处、
    **两个字体段都显式 `SetShellVarContext current`**。
 
@@ -195,14 +223,20 @@ src-tauri/fonts/
 
 ### 3.2 鸿蒙黑体（唯一非 OFL，**风险最高**）
 
+> ⚠ **本节是历史记录：该字体已按产品决定从随包清单移除（见文首变更记录）。**
+> 它与许可证文件都已从 `src-tauri/fonts/` 删除，NSIS 字体表与运行期清单同步移除，
+> 来源与哈希留痕在 `bundled-fonts.json` 的 `excludedAfterProbe`。
+> 下面的许可分析保留，是因为它解释了这个字体当初为什么需要特殊对待 ——
+> 日后若有人想把它加回来，必须先满足这五条。
+
 华为许可允许 `use, copy, merge, embed, bundle, redistribute and/or sell
 unmodified copies`，但有以下必须遵守的限制：
 
 1. **绝对不能修改** —— 不许子集化、不许格式转换、不许改名。
    许可原文把 "fonts software" 排除在可修改范围之外。
    （`bundled-fonts.json` 里记录的是原始字节，未做任何处理。）
-2. **必须保留版权声明与许可协议** —— 已在 `licenses/harmonyos-sans-LICENSE.txt`。
-3. **必须显著注明使用了 HarmonyOS Sans** —— **已实施**，见 §3.3。
+2. **必须保留版权声明与许可协议** —— 原为 `licenses/harmonyos-sans-LICENSE.txt`（已删）。
+3. **必须显著注明使用了 HarmonyOS Sans** —— 机制见 §3.3。
 4. **不得单独再分发** —— 只能随本软件一起分发。
 5. **许可证不可转让，且可被撤销（revocable）** —— 这是持续风险：
    一旦华为撤销授权，后续版本必须立刻移除该字体。**建议法务登记此风险**。
@@ -211,9 +245,10 @@ unmodified copies`，但有以下必须遵守的限制：
 > **不是**字体许可 —— 这是本项目最容易踩的陷阱。真实许可是官方 ZIP 内的
 > 协议全文，已按此处理。
 
-### 3.3 界面与文档义务（已实施）
+### 3.3 界面与文档义务（**通用机制**保留，当前无字体触发）
 
-界面义务的依据是许可第 2 条第 1 项的**强制**措辞：
+界面义务的**判据**是通用规则，不是某个字体名：只要随包清单里出现非 OFL 字体，
+它的许可通常就带一句**强制**措辞（下面这句是当初触发该机制的那款字体的原文）：
 
 ```
 YOU shall make a prominent notice in the software to state that
@@ -223,17 +258,27 @@ HarmonyOS Sans Fonts are used.
 关键词是 **in the software** —— 仅把许可证文本随安装包放到磁盘上
 **不满足**这一条，那句话必须出现在用户能看到的界面上。
 
-- [x] **在「设置 → 界面」分区内**显著注明本软件包含 HarmonyOS Sans 字体，并列出
-      全部 9 款随包字体族的版权行。
+**当前状态**：随包字体 8 款族**全部为 OFL-1.1**，没有任何一款需要显著声明，
+所以 `prominentNotice` 是空字符串、界面上**不渲染**那句话
+（渲染一句"本软件使用了某字体"就是"告知与事实不符"）。
+下面的清单同时说明机制本身还在：
+
+- [x] **在「设置 → 界面」分区内**列出全部随包字体族的版权行（当前 8 条）。
       - 实现：`src/components/settings/sections/interface-section.tsx` 的
         `BundledFontLicenses`（渲染在 `[data-ui="interface-settings"]` 内，
-        锚点 `data-ui="bundled-font-licenses"` / `data-ui="harmonyos-notice"`）。
+        锚点 `data-ui="bundled-font-licenses"`；显著声明的锚点是
+        `data-ui="prominent-font-notice"`，**仅在声明非空时渲染**）。
       - 数据：`src/lib/bundled-font-licenses.json`（单一数据源）。
       - **为什么放在「界面」分区而不是新增一个设置分区**：① 字体就是在这个分区里
         选的，许可信息出现在选择处最自然；② 验收工具
         `census-computed-font.mjs` 的 `SETTINGS_SECTIONS` 写死了 **11 个分区**，
         并有一条守卫 B/分区覆盖 = 11/11 —— 新增分区会让普查**静默漏掉**它。
         放在既有分区内则分区数不变，守卫仍然有效；③ 不必改动设置保存流程。
+- [x] **显著声明机制留着**：`prominentNotice` 一旦非空，该句会自动渲染，
+      且**必须留在默认收起的 `<details>` 之外**（折起来 = 用户看不到 = 义务没履行）。
+      这条结构义务由 `interface-section.spec.tsx` 的正向对照用例钉住
+      （用非空声明渲染一次，断言它确实出现且不在 `<details>` 内）——
+      否则当前数据为空时，该断言会退化成"包含一个 null 元素"的恒真式。
 - [x] 分发 `licenses/` 目录（已随包进安装包的 `$INSTDIR\fonts\licenses\`），
       并在界面上写明该目录位置。
 - [x] 每次发版跑一次 `node docs/font-license-verification/verify-bundle-licenses.mjs`；
@@ -245,9 +290,9 @@ HarmonyOS Sans Fonts are used.
 
 | 检查 | 触发 | 覆盖 |
 |---|---|---|
-| `scripts/check-bundled-font-licenses.mjs` | 手动 | 族名集合双向比对随包清单、`licenseFile` 存在性、版权行逐字对照许可原文、OFL 声明与原文自洽 |
+| `scripts/check-bundled-font-licenses.mjs` | 手动 | 族名集合双向比对随包清单、`licenseFile` 存在性、版权行逐字对照许可原文、OFL 声明与原文自洽、**显著声明与非 OFL 集合双向一致**（不硬编码字体名） |
 | `src/lib/bundled-font-licenses.spec.ts` | **自动**（测试套件） | 同上，直接读 `src-tauri/fonts/` 的真实文件 |
-| `verify-real-exe-fonts.mjs` 的「一·补」 | 手动（需便携版） | **告知真的对用户可见**：告知区有非零尺寸、显著声明可见且点名、9 族都带版权行 |
+| `verify-real-exe-fonts.mjs` 的「一·补」 | 手动（需便携版） | **告知真的对用户可见**：告知区有非零尺寸；显著声明按非 OFL 集合双向判（当前为空 ⇒ 界面必须不渲染）；条目数 = 随包**族数**、每条都带版权行 |
 
 前两道比的是"数据与事实一致"，第三道比的是"**软件里真的看得见**"。
 许可要的是 `make a prominent notice in the software`，关键词是
@@ -257,8 +302,10 @@ HarmonyOS Sans Fonts are used.
 `getBoundingClientRect()` 的非零尺寸加 `display/visibility/opacity` 检查：
 **藏起来不算"显著"**。
 
-> 实测（`release-portable\QMaiWrite.exe`）：告知区存在且可见、9 条每条带版权行、
-> 显著声明可见并点名 HarmonyOS Sans。截图见 `real-exe-fonts-03-许可告知.png`。
+> 实测（`release-portable\QMaiWrite.exe`，**移除鸿蒙黑体之前**）：告知区存在且可见、
+> 9 条每条带版权行、显著声明可见并点名 HarmonyOS Sans。
+> 截图见 `real-exe-fonts-03-许可告知.png`（该截图与
+> `real-exe-fonts-evidence.json` 都是那一轮的记录，未按本次改动重跑）。
 
 若清单增删字体而告知没跟上 → 「告知不完整」（许可不合规）
 或「告知与事实不符」（误导用户）。
@@ -278,7 +325,7 @@ node docs/font-scaling-fix-20261007/verify-real-exe-fonts.mjs
 
 | 字体 | 结论 | 依据（原文） | 替代 |
 |---|---|---|---|
-| **小米 MiSans** | 灰区，不捆绑 | 授权动词只有"安装、使用"；条件 3) 禁止"不得**单独**…进一步分发"，但条件 1) 又要求"您应在**软件中**特别注明使用了 MiSans 字体"——**自相矛盾**，未取得小米书面确认前不打包 | 鸿蒙黑体、思源黑体 |
+| **小米 MiSans** | 灰区，不捆绑 | 授权动词只有"安装、使用"；条件 3) 禁止"不得**单独**…进一步分发"，但条件 1) 又要求"您应在**软件中**特别注明使用了 MiSans 字体"——**自相矛盾**，未取得小米书面确认前不打包 | 思源黑体、更纱黑体 |
 | **阿里巴巴普惠体 3.0** | **明确不可捆绑** | 仅 `download, install and use`；第 4 条兜底禁止 `take any other action not permitted by Alibaba`。**完全没有**再分发/嵌入授权 | 思源黑体、更纱黑体 |
 
 **唯一合规的打包路径是取得书面授权。**
@@ -303,9 +350,20 @@ node docs/font-scaling-fix-20261007/verify-real-exe-fonts.mjs
 **若日后要支持繁体写作**，正确做法是**另加一层繁体判据 + 单独的字体分组**，
 而不是把它塞回现有清单 —— 那样会让简体用户选到一款渲染不全的字体。
 
+### 许可没问题、**按产品决定**移出的一款（用户要求）
+
+| 字体 | 结论 | 原因 |
+|---|---|---|
+| **鸿蒙黑体 HarmonyOS Sans SC** | 许可**明确允许** `embed, bundle, redistribute`（条件是显著注明 / 不得修改 / 不得单独再分发 / 保留版权与协议），但**用户要求彻底删除** | **不是许可问题，是产品决定。** 字体文件与许可证已从 `src-tauri/fonts/` 删除，NSIS 字体表与运行期清单同步移除；界面上的显著声明随之停用，但那条通用机制保留。留痕见 `bundled-fonts.json` 的 `excludedAfterProbe`。 |
+
+> 与芫荽的区别值得写清楚：芫荽是**实测判据**把它挡在门外（过不了中文字体判据），
+> 鸿蒙黑体是被**产品选择**移出（判据全过）。两者的留痕格式相同，理由栏里
+> 必须区分，否则下一个人会把"产品不要了"误读成"它有问题"。
+
 ### 未纳入本次清单但许可允许的字体
 
-核实为可捆绑的共 23 款；本次按"精简核心"只取了 **9 款**。其余可随时增补：
+核实为可捆绑的共 23 款；本次按"精简核心"只取了 **8 款**（原取 9 款，鸿蒙黑体已按产品
+决定移除）。其余可随时增补：
 霞鹜文楷 GB / 屏幕阅读版 / TC、SuperHan、寒蝉全圆体、悠哉字体、
 未来荧黑、Noto Sans/Serif CJK、Noto Sans SC、Maple Mono、抖音美好体。
 
@@ -392,6 +450,10 @@ cargo test --offline --lib 诊断_随包字体对探针的覆盖 -- --ignored --
 9.01 MiB。若日后要支持繁体写作，应**另加一层繁体判据与单独的字体分组**，
 而不是把它塞回现有清单。
 
+**鸿蒙黑体的处置**（后续追加）：同样留痕在 `excludedAfterProbe`，但理由是
+**产品决定**而非实测判据 —— 它的许可本来明确允许捆绑。同一份机制同时服务两种
+排除原因，所以 `excludedReason` 里必须写清是哪一种（见 §4）。
+
 ---
 
 ## 6. 与用户约定的两处偏差（需知悉）
@@ -406,12 +468,14 @@ cargo test --offline --lib 诊断_随包字体对探针的覆盖 -- --ignored --
    实施说明：本结论由一次**真实 `npx tauri build --bundles nsis`**得出 ——
    在那之前，安装包根本打不出来（见下面第 5 条），所以"体积"从未被真正测量过。
 2. ~~**思源系列未含 Bold**~~ **已按用户决定补上**：思源宋体 + 思源黑体的 Bold
-   合计 +42,485,160 字节 ≈ +40.52 MiB，现为 9 款族 / 11 个文件。
+   合计 +42,485,160 字节 ≈ +40.52 MiB，当时为 9 款族 / 11 个文件；
+   **其后按产品决定移除鸿蒙黑体，现为 8 款族 / 10 个文件**（见文首变更记录）。
    加 Bold 的过程暴露了一个真实缺陷（同族字重撞注册表值名），
    详见 §1.1 —— 那不是"顺手加两个文件"，而是必须同时改注册与卸载两条路径。
 3. **升级时的旧字体不会自动删除**：若某个随包字体在后续版本被移出清单
-   （如本次的芫荽），它**不会被启动流程自动删除**，而是保留在安装记录里、
-   等卸载时清理，同时在启动日志里如实报告一行。这是刻意的保守选择 ——
+   （如芫荽、以及后来按产品决定移除的鸿蒙黑体），它**不会被启动流程自动删除**，
+   而是保留在安装记录里、等卸载时清理，同时在启动日志里如实报告一行。
+   这是刻意的保守选择 ——
    不让"启动应用"这条路径根据一个可被外部改写的记录文件去删文件。
    真实用户从 4.1.2（不带任何随包字体）升级不受影响。
 4. **加字重时的注册表迁移**：值名规则对 Regular **不带**后缀，

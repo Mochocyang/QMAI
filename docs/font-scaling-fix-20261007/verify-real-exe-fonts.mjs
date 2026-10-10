@@ -292,23 +292,37 @@ async function main() {
   await page.screenshot({ path: join(HERE, "real-exe-fonts-01-下拉.png") }).catch(() => {})
 
   /*
-   * ── 一·补、界面上必须有鸿蒙黑体的许可告知 ──
+   * ── 一·补、界面上的第三方字体许可告知 ──
    *
-   * 鸿蒙黑体的许可（HarmonyOS Sans Fonts License Agreement）第 2 条第 1 项是
-   * **强制**义务：
-   *   `YOU shall make a prominent notice in the software to state that
-   *    HarmonyOS Sans Fonts are used.`
+   * 为什么这一节只能在**真实 exe** 里验：许可要的是
+   *   `make a prominent notice **in the software**`，
+   * 关键词是 **in the software**。jsdom 里的 `interface-section.spec.tsx`
+   * 只能证明"组件会渲染这些节点"，证明不了"用户真的能在软件里看到它"
+   * （设置页没挂载这个分区、构建产物里丢了这段，都会让 spec 依然全绿）。
    *
-   * 关键词是 **in the software** —— 所以这条只能在**真实 exe** 里验：
-   * jsdom 里的 `interface-section.spec.tsx` 证明的是"组件会渲染这几个节点"，
-   * 证明不了"用户真的能在软件里看到它"（比如设置页根本没挂载这个分区、
-   * 或者构建产物里丢了这段）。许可义务要的正是后者。
+   * 期望值**从数据算出来，不写死**（写死一个字体名或一个数字，
+   * 正是"清单改了而验收还按旧事实判"的来源）：
+   *   · 条目数 = 随包清单的**族数**（同族多字重按族合并成一条）；
+   *   · 非 OFL 集合 ≠ 空 ⇒ 显著声明必须存在、可见，且逐个点名这些字体；
+   *   · 非 OFL 集合 = 空 ⇒ 界面**不得**渲染任何显著声明
+   *     （渲染一句"本软件使用了某字体"＝告知与事实不符）。
+   * 当前随包字体全部为 OFL-1.1，走的是第二支。
    */
+  const licenseData = JSON.parse(
+    readFileSync(join(REPO, "src/lib/bundled-font-licenses.json"), "utf8"),
+  )
+  const declaredNonOfl = (licenseData.fonts ?? []).filter((f) => !/^OFL-1\.1$/i.test(String(f.license).trim()))
+  const expectedItemCount = new Set(manifest.fonts.map((f) => f.family)).size
   console.log("")
-  console.log("  ══ 一·补、界面上的第三方字体许可告知（鸿蒙黑体的强制义务）══")
+  console.log("  ══ 一·补、界面上的第三方字体许可告知 ══")
+  console.log(
+    `  非 OFL（需要显著声明）的字体：${
+      declaredNonOfl.length ? declaredNonOfl.map((f) => `${f.display}(${f.family})`).join("、") : "（无）"
+    }`,
+  )
   const notice = await page.evaluate(() => {
     const section = document.querySelector('[data-ui="bundled-font-licenses"]')
-    const noticeEl = document.querySelector('[data-ui="harmonyos-notice"]')
+    const noticeEl = document.querySelector('[data-ui="prominent-font-notice"]')
     const items = Array.from(document.querySelectorAll('[data-ui="bundled-font-license-list"] li'))
     // 可见性：许可要求"显著"，藏起来（display:none / 0 尺寸）不算
     const visible = (el) => {
@@ -320,6 +334,7 @@ async function main() {
     return {
       hasSection: !!section,
       sectionVisible: visible(section),
+      hasNoticeEl: !!noticeEl,
       noticeText: (noticeEl?.textContent ?? "").trim(),
       noticeVisible: visible(noticeEl),
       itemCount: items.length,
@@ -331,7 +346,7 @@ async function main() {
     fails.push(`读取许可告知失败：${notice.error}`)
     console.log(`  ✗ 读取失败：${notice.error}`)
   } else {
-    evidence.steps.notice = notice
+    evidence.steps.notice = { ...notice, declaredNonOfl: declaredNonOfl.map((f) => f.family), expectedItemCount }
     console.log(`  告知区存在=${notice.hasSection} 可见=${notice.sectionVisible} 条目=${notice.itemCount}`)
     if (!notice.hasSection) {
       fails.push("界面上找不到随包字体许可告知区（data-ui=\"bundled-font-licenses\"）")
@@ -339,23 +354,47 @@ async function main() {
       // 允许出现在折页/详情里，但必须有可见尺寸 —— 完全不可见就不满足"显著"
       fails.push("许可告知区存在但不可见（尺寸为 0 或被 display:none 隐藏）—— 不满足许可的『显著注明』")
     }
-    // 显著声明必须点名 HarmonyOS Sans
-    if (!/HarmonyOS Sans/i.test(notice.noticeText)) {
-      fails.push(`显著声明没有点名 HarmonyOS Sans（实际读到：${JSON.stringify(notice.noticeText)}）`)
-    } else if (!notice.noticeVisible) {
-      fails.push("显著声明存在但不可见 —— 不满足许可的『显著注明』")
+    /*
+     * 显著声明：按「非 OFL 集合」双向判，两个方向的错法后果不同 ——
+     * 漏了是许可不合规，多了是对用户误导。都必须是硬失败。
+     */
+    if (declaredNonOfl.length > 0) {
+      if (!notice.hasNoticeEl) {
+        fails.push(
+          `随包字体里有 ${declaredNonOfl.length} 款非 OFL 字体（${declaredNonOfl.map((f) => f.family).join("、")}），` +
+            "但界面上没有显著声明（data-ui=\"prominent-font-notice\"）—— 不满足许可的『显著注明』",
+        )
+      } else if (!notice.noticeVisible) {
+        fails.push("显著声明存在但不可见 —— 不满足许可的『显著注明』")
+      } else {
+        const unnamed = declaredNonOfl.filter(
+          (f) => !notice.noticeText.includes(f.family) && !notice.noticeText.includes(f.display),
+        )
+        if (unnamed.length) {
+          fails.push(`显著声明没有逐个点名非 OFL 字体：${unnamed.map((f) => f.family).join("、")}（实际读到：${JSON.stringify(notice.noticeText)}）`)
+        } else {
+          console.log(`  ✓ 显著声明可见且逐个点名非 OFL 字体：${JSON.stringify(notice.noticeText)}`)
+        }
+      }
+    } else if (notice.hasNoticeEl) {
+      fails.push(
+        `随包字体已全部为 OFL-1.1，界面上却仍渲染显著声明 —— 告知与事实不符：${JSON.stringify(notice.noticeText)}`,
+      )
     } else {
-      console.log(`  ✓ 显著声明可见且点名 HarmonyOS Sans：${JSON.stringify(notice.noticeText)}`)
+      console.log("  ✓ 无需要显著声明的非 OFL 字体（prominentNotice 为空，界面不渲染显著声明）")
     }
-    // 9 个族都要列出来，且每条都要带版权行
-    if (notice.itemCount !== 9) {
-      fails.push(`许可告知列出的字体条目数是 ${notice.itemCount}，期望 9（9 个随包族）`)
+    // 每个随包族都要列出来，且每条都要带版权行
+    if (notice.itemCount !== expectedItemCount) {
+      fails.push(
+        `许可告知列出的字体条目数是 ${notice.itemCount}，期望 ${expectedItemCount}` +
+          `（随包清单 ${manifest.fonts.length} 个文件 / ${expectedItemCount} 个族）`,
+      )
     } else {
       const lacksCopyright = notice.items.filter((t) => !/Copyright|©/i.test(t))
       if (lacksCopyright.length) {
         fails.push(`有 ${lacksCopyright.length} 条没有版权行：${JSON.stringify(lacksCopyright)}`)
       } else {
-        console.log(`  ✓ 9 个随包族都列出且都带版权行`)
+        console.log(`  ✓ ${expectedItemCount} 个随包族都列出且都带版权行`)
       }
     }
   }
@@ -373,11 +412,11 @@ async function main() {
     /*
      * 按**族**去重，不按清单条目。
      *
-     * 清单现在是 11 个文件但只有 9 个族：思源宋体/思源黑体各有 Regular 与 Bold，
-     * 却共用同一个 `sys:<族名>` 取值 —— 下拉里是 9 项，不是 11 项。
-     * 若按条目去断言并打印"全部 11 款都能选到"，数字看着对、说法是错的：
-     * 那会让人以为下拉里有 11 项，从而在真出问题时（少了一族）
-     * 因为"11 个条目都命中"而看不出来。
+     * 清单现在是 10 个文件但只有 8 个族：思源宋体/思源黑体各有 Regular 与 Bold，
+     * 却共用同一个 `sys:<族名>` 取值 —— 下拉里是 8 项，不是 10 项。
+     * 若按条目去断言并打印"全部 10 款都能选到"，数字看着对、说法是错的：
+     * 那会让人以为下拉里有 10 项，从而在真出问题时（少了一族）
+     * 因为"10 个条目都命中"而看不出来。
      */
     const families = [...new Set(manifest.fonts.map((f) => f.family))]
     console.log(`  清单 ${manifest.fonts.length} 个文件 / ${families.length} 个族（同族多字重共用同一个取值）`)

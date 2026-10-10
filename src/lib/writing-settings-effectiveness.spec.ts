@@ -127,11 +127,10 @@ describe("writing settings still reach runtime", () => {
     expect(deepChapter).not.toContain("novelConfig.deepChapterReview")
   })
 
-  it("keeps community summary, ingest-on-save, review effort, and task models on live paths", () => {
+  it("keeps community summary, review effort, and task models on live paths", () => {
     expect(communitySummary).toContain("novelConfig.communitySummaryEnabled")
     expect(communitySummary).toContain("novelConfig.communitySummaryInterval")
     expect(chapterIngest).toContain("novelConfig.communitySummaryAsync")
-    expect(previewPanel).toContain("novelConfig.autoIngestOnSave")
     expect(reviewAdapter).toContain("reviewReasoningEffort")
     expect(modelResolver).toContain("review: novelConfig.reviewModel")
     expect(modelResolver).toContain("summary: novelConfig.summaryModel")
@@ -142,5 +141,25 @@ describe("writing settings still reach runtime", () => {
     expect(revisionFeedback).toContain("config.previousChapterCarryEnabled")
     expect(revisionFeedback).toContain("config.lookbackChapterCount")
     expect(revisionFeedback).toContain("config.lookbackIncludeMustFixOnly")
+  })
+
+  /*
+   * 保存为正式章节不再自动提取记忆（用户要求：它与章节/大纲的「提取记忆」按钮
+   * 是同一件事，重复）。这道断言是**防回归**：把四处一起钉住，
+   * 谁日后想把这个开关加回来，必须先在这里看到「它已被有意移除」。
+   *
+   * 断言的是**代码形态**而不是裸词：上面那些移除原因说明留在注释里，
+   * 注释里当然会出现这个字段名；只有真把字段/开关加回来才会命中这些模式。
+   */
+  it("keeps ingest-on-save deleted instead of letting the duplicate path return", () => {
+    expect(previewPanel).not.toContain("novelConfig.autoIngestOnSave")
+    expect(novelSection).not.toContain("novelConfig.autoIngestOnSave")
+    expect(novelSection).not.toContain("autoIngestOnSaveHint")
+    // `autoIngestOnSave:` 同时盯住 NovelConfig 的字段声明与 DEFAULT_NOVEL_CONFIG 的默认值。
+    expect(wikiStore).not.toContain("autoIngestOnSave:")
+    expect(projectStore).not.toContain("autoIngestOnSave:")
+    expect(zhI18n).not.toContain('"autoIngestOnSave"')
+    // 手动路径必须还在：删掉的是自动触发，不是「提取记忆」这个功能本身。
+    expect(previewPanel).toContain("handleReingest")
   })
 })

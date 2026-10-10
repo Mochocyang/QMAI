@@ -120,7 +120,7 @@ export function WritingStatusBar({ className }: WritingStatusBarProps) {
             </span>
           </li>
           <li className="ui-test-statusbar-metric">
-            <span className="ui-test-statusbar-label">今日 AI 生成</span>
+            <span className="ui-test-statusbar-label">AI 生成字数</span>
             <span className="ui-test-statusbar-value" data-metric="ai">
               {formatWordCount(aiChars)}
             </span>
@@ -131,20 +131,20 @@ export function WritingStatusBar({ className }: WritingStatusBarProps) {
               {formatWordCount(humanChars)}
             </span>
           </li>
+          {/* 完成率紧跟「手写」之后（用户要求），不再贴到栏最右端。
+              环仍在小字的左侧：手机电量那种读法，百分比刻意不放进环心
+              —— 环太小，字挤在里面既糊又显大。 */}
+          <li className="ui-test-statusbar-metric ui-test-statusbar-goal" title={`今日写作目标完成率 ${percent}%（${todayWritten} / ${dailyTargetChars} 字）`}>
+            <ProgressRing
+              ratio={ratio}
+              size={12}
+              strokeWidth={1.5}
+              className={writingGoalRingClass(ratio)}
+              title={`今日写作目标完成率 ${percent}%（${todayWritten} / ${dailyTargetChars} 字）`}
+            />
+            <span className="ui-test-statusbar-percent">{percent}%</span>
+          </li>
         </ul>
-        {/* 手机电量那种读法：小环在左，百分比紧跟在环右侧，而**整组**贴在
-            状态栏最右端（四项数据居中，见 .ui-test-statusbar-inner 的 grid）。
-            百分比刻意不放进环心 —— 环太小，字挤在里面既糊又显大。 */}
-        <span className="ui-test-statusbar-goal" title={`今日写作目标完成率 ${percent}%（${todayWritten} / ${dailyTargetChars} 字）`}>
-          <ProgressRing
-            ratio={ratio}
-            size={12}
-            strokeWidth={1.5}
-            className={writingGoalRingClass(ratio)}
-            title={`今日写作目标完成率 ${percent}%（${todayWritten} / ${dailyTargetChars} 字）`}
-          />
-          <span className="ui-test-statusbar-percent">{percent}%</span>
-        </span>
       </div>
     </footer>
   )

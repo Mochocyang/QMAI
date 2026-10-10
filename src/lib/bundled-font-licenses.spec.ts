@@ -8,14 +8,17 @@
  * 忘了跑脚本而漏过去。两者职责相同、触发时机不同，是互补而非重复。
  *
  * ── 漏掉会怎样 ──
- * 随包的 9 款族里有 1 款不是 OFL：鸿蒙黑体。它的许可**强制**要求
- * "在软件中显著注明使用了 HarmonyOS Sans"。所以：
- *   · 清单加了字体、告知没跟上 → **告知不完整**（许可不合规，且可被撤销）；
- *   · 清单删了字体、告知还留着 → **告知与事实不符**（对用户误导）。
+ * 随包字体的许可**不都是 OFL**：非 OFL 字体的许可通常要求
+ * "在软件中显著注明使用了该字体"（本仓库曾随包过这样一款，后来按产品决定移除）。
+ * 所以：
+ *   · 清单加了非 OFL 字体、告知没跟上 → **告知不完整**（许可不合规）；
+ *   · 非 OFL 字体已全部移除、告知还留着 → **告知与事实不符**（对用户误导）。
  * 两种都不会有任何东西报错 —— 界面照样渲染，只是内容是错的。
  *
  * 本 spec 直接读 `src-tauri/fonts/` 的真实文件，所以它是拿"事实"当基准，
  * 而不是拿"另一份手抄的期望值"当基准（后者会跟着一起错）。
+ * 判显著声明的规则是**通用**的（非 OFL 集合 ⟺ 声明非空且逐个点名），
+ * 与 `scripts/check-bundled-font-licenses.mjs` 同一口径，不硬编码字体名。
  */
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
@@ -24,7 +27,7 @@ import { describe, expect, it } from "vitest"
 import {
   BUNDLED_FONT_LICENSES,
   BUNDLED_FONT_LICENSES_DIR,
-  HARMONYOS_PROMINENT_NOTICE,
+  PROMINENT_FONT_NOTICE,
 } from "@/lib/bundled-font-licenses"
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -53,15 +56,33 @@ describe("随包字体许可告知：与随包清单一致", () => {
     expect(extra, `告知里有但已不在随包清单里的族：${extra.join(", ")}`).toEqual([])
 
     // 反向自检：这条断言不能是"两边都是空集"式的假绿
-    expect(actual.size).toBeGreaterThanOrEqual(9)
+    expect(actual.size).toBeGreaterThanOrEqual(8)
     expect(declared.size).toBe(actual.size)
   })
 
   it("告知按族合并，不随字重条数膨胀（思源宋体/黑体各 2 个字重）", () => {
-    // 清单 11 个文件 / 9 个族：告知只需 9 条，否则同族会重复列出同一份许可
+    // 清单 10 个文件 / 8 个族：告知只需 8 条，否则同族会重复列出同一份许可
     expect(manifest.fonts.length).toBeGreaterThan(BUNDLED_FONT_LICENSES.length)
     const families = BUNDLED_FONT_LICENSES.map((f) => f.family)
     expect(new Set(families).size, "告知里出现了重复族名").toBe(families.length)
+  })
+
+  it("当前事实：8 个族 / 10 个字重文件，且没有任何非 OFL 字体（增删都必须显式改本断言）", () => {
+    /*
+     * 硬钉。为什么不能只靠上面那条集合比对：那条比的是"两份数据是否一致"，
+     * 两份一起被改（例如清单与告知同时删掉一族）仍然会绿。
+     * 这里把当前事实写成字面量，任何增删都得先面对它 ——
+     * 顺便逼出"新字体的许可证原文与版权行是否真的核对过"这个问题。
+     *
+     * 「没有任何非 OFL 字体」这一项尤其要钉：它是「要不要在界面上显著声明」
+     * 的唯一判据。悄悄混进一款专有字体（或反过来，字体已移除却还以为需要声明）
+     * 都不会有任何东西报错。
+     */
+    expect(manifest.fonts.length).toBe(10)
+    expect(BUNDLED_FONT_LICENSES.length).toBe(8)
+    expect(
+      BUNDLED_FONT_LICENSES.filter((f) => !/^OFL-1\.1$/i.test(f.license.trim())).map((f) => f.family),
+    ).toEqual([])
   })
 
   it("每条都有非空的显示名、许可名、许可证文件名、版权行", () => {
@@ -117,23 +138,41 @@ describe("随包字体许可告知：与许可证原文一致", () => {
       ).toBe(claimsOfl)
     }
   })
-
-  it("恰好有一款不是 OFL，且它必须是被点名的那款（防止悄悄换成别的专有字体）", () => {
-    const nonOfl = BUNDLED_FONT_LICENSES.filter((f) => !/^OFL-1\.1$/i.test(f.license.trim()))
-    expect(nonOfl.map((f) => f.family)).toEqual(["HarmonyOS Sans SC"])
-  })
 })
 
-describe("鸿蒙黑体的显著声明（许可强制义务）", () => {
-  it("声明非空且点名 HarmonyOS Sans", () => {
-    /*
-     * HarmonyOS Sans Fonts License Agreement 第 2 条第 1 项原文：
-     *   `YOU shall make a prominent notice in the software to state that
-     *    HarmonyOS Sans Fonts are used.`
-     * "in the software" 是关键：只把许可证文本放到安装目录**不满足**这一条。
-     */
-    expect(HARMONYOS_PROMINENT_NOTICE.trim()).not.toBe("")
-    expect(HARMONYOS_PROMINENT_NOTICE).toMatch(/HarmonyOS Sans/i)
+/*
+ * ── 显著声明：通用规则，不硬编码字体名 ──
+ *
+ * 判定口径与 `scripts/check-bundled-font-licenses.mjs` 完全一致：
+ *   「非 OFL 集合 ≠ 空  ⟺  prominentNotice ≠ 空且逐个点名这些字体」。
+ * 这条等式**两个方向都要能失败**：漏了声明是许可不合规，
+ * 多了一句声明（字体已移除却还在告知）是对用户误导。
+ *
+ * ⚠ 当前随包字体全部为 OFL-1.1，所以走的是「非 OFL 集合为空 ⇒ 声明必须为空」
+ * 那一支。这不是把守卫删掉：一旦日后引入非 OFL 字体，同一个等式会立刻
+ * 转到另一支并把"必须点名"的断言激活。下面的 describe 两个分支都写了。
+ */
+const NON_OFL = BUNDLED_FONT_LICENSES.filter((f) => !/^OFL-1\.1$/i.test(f.license.trim()))
+
+describe("显著声明：随包字体里非 OFL 集合决定它是否存在", () => {
+  it("非 OFL 集合为空 ⇒ prominentNotice 必须为空（界面不得再告知使用了某字体）", () => {
+    if (NON_OFL.length === 0) {
+      expect(
+        PROMINENT_FONT_NOTICE.trim(),
+        `随包字体已全部为 OFL-1.1，界面还在告知使用了某字体 —— 告知与事实不符：` +
+          JSON.stringify(PROMINENT_FONT_NOTICE),
+      ).toBe("")
+      return
+    }
+    // 另一支：引入非 OFL 字体后，声明必须存在并逐个点名（family 或 display）
+    expect(PROMINENT_FONT_NOTICE.trim()).not.toBe("")
+    const unnamed = NON_OFL.filter(
+      (f) => !PROMINENT_FONT_NOTICE.includes(f.family) && !PROMINENT_FONT_NOTICE.includes(f.display),
+    )
+    expect(
+      unnamed.map((f) => `${f.display}（${f.family}）`),
+      "显著声明没有逐个点名需要显著声明的非 OFL 字体",
+    ).toEqual([])
   })
 
   it("指出许可证原文所在目录，且该目录名与随包资源一致", () => {

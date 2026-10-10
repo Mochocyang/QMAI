@@ -1054,7 +1054,6 @@ function normalizeNovelConfig(
       CHAPTER_TARGET_CHARS_MIN,
       Math.min(CHAPTER_TARGET_CHARS_MAX, config.chapterTargetChars ?? DEFAULT_NOVEL_CONFIG.chapterTargetChars),
     ),
-    autoIngestOnSave: config.autoIngestOnSave ?? DEFAULT_NOVEL_CONFIG.autoIngestOnSave,
     autoExtractOnImport: config.autoExtractOnImport ?? DEFAULT_NOVEL_CONFIG.autoExtractOnImport,
     deepPreviousChaptersAnalysis: config.deepPreviousChaptersAnalysis ?? DEFAULT_NOVEL_CONFIG.deepPreviousChaptersAnalysis,
     writingWebSearchEnabled: config.writingWebSearchEnabled ?? DEFAULT_NOVEL_CONFIG.writingWebSearchEnabled,

@@ -187,7 +187,6 @@ ${UnStrTrimNewLines}
   !insertmacro QMAI_FONT_ENTRY "${mode}" "LXGWWenKai-Regular.ttf" "LXGW WenKai (TrueType)"
   !insertmacro QMAI_FONT_ENTRY "${mode}" "WenJinMincho-Regular.ttf" "WenJin Mincho Plane 0 (TrueType)"
   !insertmacro QMAI_FONT_ENTRY "${mode}" "ChillKai-Regular.ttf" "ChillKai (TrueType)"
-  !insertmacro QMAI_FONT_ENTRY "${mode}" "HarmonyOSSansSC-Regular.ttf" "HarmonyOS Sans SC (TrueType)"
   !insertmacro QMAI_FONT_ENTRY "${mode}" "SmileySans-Regular.ttf" "Smiley Sans (TrueType)"
   !insertmacro QMAI_FONT_ENTRY "${mode}" "ZhuqueFangsong-Regular.ttf" "Zhuque Fangsong (technical preview) (TrueType)"
   !insertmacro QMAI_FONT_ENTRY "${mode}" "SarasaGothicSC-Regular.ttf" "Sarasa Gothic SC (TrueType)"

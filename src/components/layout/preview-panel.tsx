@@ -1099,8 +1099,6 @@ export function PreviewPanel() {
     ingest_failed: t("novel.chapter.ingestFailedRetry"),
     ingest_no_llm: t("novel.chapter.ingestNoLlmKey"),
     ingest_no_chapter_number: "章节已保存为正式章节，但快照生成失败：章节编号无效。请在章节2栏中重命名章节以修正编号。",
-    ingest_not_final: "章节已保存为正式章节，但快照生成失败：章节状态异常，请检查章节是否正确标记为终稿。",
-    ingest_extract_failed: "章节已保存为正式章节，但快照生成失败：LLM 生成超时或返回格式错误，请重试。",
   }
 
   const visibleSaveStatus = (() => {
@@ -1321,7 +1319,6 @@ export function PreviewPanel() {
     setIsSavingFinal(true)
     updatePhase(true, "saving")
 
-    const novelConfig = useWikiStore.getState().novelConfig
     let uiTestFinalFileSaved = false
     reportUiTestSave(selectedFile, "saving")
 
@@ -1351,57 +1348,16 @@ export function PreviewPanel() {
       fileContentRef.current = syncResult.markdown
       setFileContent(syncResult.markdown)
 
-      if (novelConfig.autoIngestOnSave) {
-        const state = useWikiStore.getState()
-        const llmConfig = resolveNovelModel(state.llmConfig, state.novelConfig, "extract")
-        if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
-          updatePhase(false, "ingest_no_llm")
-        } else {
-          const verifyContent = await readFile(targetPath)
-          const verifyParsed = parseFrontmatter(verifyContent)
-          const verifyFm = verifyParsed.frontmatter as Record<string, unknown> | null
-          if (!verifyFm || !isFinalChapter(verifyFm)) {
-            await writeFileAtomic(targetPath, syncResult.markdown)
-            await new Promise((resolve) => setTimeout(resolve, 100))
-          }
-          const chapterTitle = chapterFrontmatter?.title || `第${chapterFrontmatter?.chapterNumber || '?'}章`
-          const ingestAbortController = new AbortController()
-          const ingestTaskId = useImportProgressStore.getState().startTask({
-            projectPath: project.path,
-            kind: "chapter",
-            total: 1,
-            currentTitle: String(chapterTitle),
-            message: "正在提取章节记忆",
-            // 章节目录里那一行的「提取中」灰点靠这个字段点亮（按路径，不按标题）。
-            activeChapterPaths: [normalizePath(targetPath)],
-            abortController: ingestAbortController,
-          })
-          const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
-          const result = await ingestChapter(project.path, targetPath, resolveReviewModel(), ingestAbortController.signal, chapterFrontmatter?.chapterNumber as number | undefined)
-          useImportProgressStore.getState().finishTask(ingestTaskId, result.snapshot ? "done" : "error", {
-            completed: result.snapshot ? 1 : 0,
-            total: 1,
-            currentTitle: "",
-            message: result.snapshot
-              ? `${chapterTitle} 提取完成`
-              : `${chapterTitle} 提取失败：${result.error ?? result.failReason ?? "未知错误"}`,
-            error: result.error,
-          })
-          if (result.snapshot) {
-            updatePhase(false, "ingested", { chapter: result.snapshot.chapterNumber })
-          } else if (result.failReason === "invalid_chapter_number") {
-            updatePhase(false, "ingest_no_chapter_number")
-          } else if (result.failReason === "not_final") {
-            updatePhase(false, "ingest_not_final")
-          } else if (result.failReason === "extract_failed") {
-            updatePhase(false, "ingest_extract_failed")
-          } else {
-            updatePhase(false, "ingest_failed")
-          }
-        }
-      } else {
-        updatePhase(false, "saved")
-      }
+      /*
+       * 保存为正式章节**不再**顺带提取记忆（用户要求）。
+       *
+       * 原先此处按 `autoIngestOnSave` 开关自动跑一遍 ingestChapter，
+       * 而章节/大纲工具栏的「提取记忆」按钮（handleReingest）做的是同一件事 ——
+       * 同一份功能有两个入口，用户判定为重复，要求取消设置里那个开关，
+       * 并去掉这条自动行为（只保留手动按钮）。
+       * 因此这里只报告「已保存为正式章节」，是否提取由用户点按钮决定。
+       */
+      updatePhase(false, "saved")
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       updatePhase(false, "ingest_failed", { message: `快照提取异常: ${message.slice(0, 100)}` })
@@ -1417,6 +1373,20 @@ export function PreviewPanel() {
     if (!isFinalChapter(chapterFrontmatter)) {
       setSaveStatus(t("novel.chapter.reingestNotFinal"))
       return
+    }
+    /*
+     * 「没配 LLM」这道预检原本在自动提取那条路上（已按用户要求删除）。
+     * 删掉路径不等于可以丢掉诊断：否则用户点了按钮只会看到笼统的
+     * 「快照生成失败」，不知道根源是压根没有可用的模型。所以把它
+     * 移到手动按钮这里 —— 提前、明确地告诉他去配置 LLM。
+     */
+    {
+      const state = useWikiStore.getState()
+      const llmConfig = resolveNovelModel(state.llmConfig, state.novelConfig, "extract")
+      if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
+        setFinalChapterSave({ projectPath: project.path, filePath: selectedFile, saving: false, phase: "ingest_no_llm" })
+        return
+      }
     }
     const projectPath = project.path
     const filePath = selectedFile

@@ -5,7 +5,6 @@ import {
   Palette,
   Network,
   History,
-  Wrench,
   MessageCircle,
   HeartHandshake,
   Archive,
@@ -34,7 +33,6 @@ import { ClassificationSection } from "./sections/classification-section"
 import { NetworkSection } from "./sections/network-section"
 import { WebSearchSection } from "./sections/web-search-section"
 import { ChangelogSection } from "./sections/changelog-section"
-import { MaintenanceSection } from "./sections/maintenance-section"
 import { FeedbackSection } from "./sections/feedback-section"
 import { UsageGuideSection } from "./sections/usage-guide-section"
 import { ContactSupportSection } from "./sections/contact-support-section"
@@ -50,7 +48,6 @@ type CategoryId =
   | "novel"
   | "user-memory"
   | "usage-guide"
-  | "maintenance"
   | "data-management"
   | "export-center"
   | "feedback"
@@ -77,7 +74,6 @@ const CATEGORIES: Category[] = [
   { id: "web-search", labelKey: "settings.categories.webSearch", icon: Search },
   { id: "interface", labelKey: "settings.categories.interface", icon: Palette },
   { id: "user-memory", labelKey: "settings.categories.userMemory", icon: Brain },
-  { id: "maintenance", labelKey: "settings.categories.maintenance", icon: Wrench },
   { id: "data-management", labelKey: "settings.categories.dataManagement", icon: Archive },
   { id: "feedback", labelKey: "settings.categories.feedback", icon: MessageCircle },
   { id: "contact-support", labelKey: "settings.categories.contactSupport", icon: HeartHandshake },
@@ -593,8 +589,6 @@ export function SettingsView() {
         return <ClassificationSection projectPath={project?.path ?? undefined} />
       case "usage-guide":
         return <UsageGuideSection />
-      case "maintenance":
-        return <MaintenanceSection />
       case "data-management":
         return <DataManagementSection />
       case "export-center":

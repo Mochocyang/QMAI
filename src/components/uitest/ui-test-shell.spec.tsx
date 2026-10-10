@@ -294,6 +294,21 @@ describe("独立UI测试版外壳", () => {
     expect(useWikiStore.getState().activeView).toBe("soul")
     expect(host.querySelector('[role="menu"]')).toBeNull()
   })
+  /*
+   * 「维护工具」从设置搬到了创作工具（用户要求：它是项目级维护动作，
+   * 不该待在应用级设置里）。这条用例钉住两件事：入口在创作工具里，
+   * 且**确实能打开对应视图**（只断言菜单里有个名字，改坏了也测不出来）。
+   */
+  it("维护工具从创作工具打开，且不再出现在设置分类里", async () => {
+    await render()
+    await click("创作工具")
+    const entry = [...host.querySelectorAll('[aria-label="创作工具"] [role="menuitem"]')]
+      .find((button) => button.textContent?.trim() === "维护工具")
+    expect(entry, "创作工具里的维护工具入口").toBeTruthy()
+    await act(async () => { (entry as HTMLButtonElement).click() })
+    expect(useWikiStore.getState().activeView).toBe("maintenance")
+    expect(host.querySelector('[role="menu"]')).toBeNull()
+  })
   it("取消离开确认时不替换当前功能", async () => {
     draftState.dirty = true
     useWikiStore.setState({ activeView: "soul" })

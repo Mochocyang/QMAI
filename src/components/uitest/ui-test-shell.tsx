@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react"
-import { BookOpen, Brain, Check, Grid2X2, GitBranch, HeartHandshake, History, Library, Minus, Moon, PanelLeft, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, X } from "lucide-react"
+import { BookOpen, Brain, Check, Grid2X2, GitBranch, HeartHandshake, History, Library, Minus, Moon, PanelLeft, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, Wrench, X } from "lucide-react"
 import logoImg from "@/assets/QM-LOGO.png"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore, type WikiState } from "@/stores/wiki-store"
@@ -41,7 +41,7 @@ interface UiTestShellProps {
 const TOOL_GROUPS = [
   [ { view: "lint", label: "记忆中心", icon: Brain }, { view: "graph", label: "小说图谱", icon: GitBranch }, { view: "soul", label: "灵魂", icon: Sparkles }, { view: "skillLibrary", label: "技能库", icon: Sparkles }, { view: "bookAnalysis", label: "拆书库", icon: Library } ],
   [ { view: "storySimulation", label: "剧情推演室 · 测试版", icon: BookOpen }, { view: "reviewCenter", label: "审查中心", icon: ShieldCheck }, { view: "search", label: "剧情搜索", icon: Search } ],
-  [ { view: "trash", label: "回收站", icon: Trash2 }, { view: "settings", label: "设置", icon: Settings } ],
+  [ { view: "maintenance", label: "维护工具", icon: Wrench }, { view: "trash", label: "回收站", icon: Trash2 }, { view: "settings", label: "设置", icon: Settings } ],
 ] as const
 function menuKeyboard(event: KeyboardEvent<HTMLDivElement>) {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return

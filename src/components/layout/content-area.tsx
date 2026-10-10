@@ -63,6 +63,19 @@ const StorySimulationView = lazy(async () => {
   return { default: mod.StorySimulationView };
 });
 
+/**
+ * 维护工具从设置里搬到这里（用户要求：放进「创作工具」）。
+ *
+ * 它是**项目级**的维护动作（重复资料合并、伏笔清理都作用于当前打开的书），
+ * 而设置里其余分类是应用级配置 —— 之前它放在设置左侧，用户在写作时
+ * 要为了清理一本书的数据离开写作现场去"设置"，语义上也别扭。
+ * 现在它和记忆中心、拆书库一样是一个正常视图，从顶栏「创作工具」进入。
+ */
+const MaintenanceView = lazy(async () => {
+  const mod = await import("@/components/settings/sections/maintenance-section");
+  return { default: mod.MaintenanceSection };
+});
+
 function LoadingView() {
   return (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -150,6 +163,18 @@ export function ContentArea() {
         content = (
           <Suspense fallback={<LoadingView />}>
             <StorySimulationView />
+          </Suspense>
+        );
+        break;
+      case "maintenance":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            {/* data-ui-page 由外层提供：MaintenanceSection 是原设置页的区块，
+                它自己的根节点没有这个属性（见 ui-test-tools.css 里
+                [data-ui-page="maintenance"] 的内边距说明）。 */}
+            <div data-ui-page="maintenance">
+              <MaintenanceView />
+            </div>
           </Suspense>
         );
         break;

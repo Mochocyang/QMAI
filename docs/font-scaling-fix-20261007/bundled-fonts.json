@@ -105,20 +105,6 @@
       "weight": 400
     },
     {
-      "id": "harmonyos-sans",
-      "display": "鸿蒙黑体",
-      "family": "HarmonyOS Sans SC",
-      "file": "HarmonyOSSansSC-Regular.ttf",
-      "sizeBytes": 8261128,
-      "sha256": "297b088424be212207df2ce8b98e335468b782aa6b96832af0b8b773d711e2b1",
-      "sourceRepo": "huawei-fonts/HarmonyOS-Sans",
-      "sourceTag": "33ab3b81b92c01f5e340c89960872bee174d8704",
-      "sourceUrl": "https://media.githubusercontent.com/media/huawei-fonts/HarmonyOS-Sans/33ab3b81b92c01f5e340c89960872bee174d8704/HarmonyOS%20Sans.zip",
-      "licenseFile": "licenses/harmonyos-sans-LICENSE.txt",
-      "licenseName": "HarmonyOS Sans Fonts License Agreement",
-      "weight": 400
-    },
-    {
       "id": "smiley-sans",
       "display": "得意黑",
       "family": "Smiley Sans",
@@ -177,6 +163,21 @@
       "licenseFile": "licenses/iansui-OFL.txt",
       "licenseName": "OFL-1.1",
       "excludedReason": "许可完全没问题（OFL-1.1），但它**过不了中文字体判据**：实为纯繁体字体，不含简体特有的 东/龙/论/车（DirectWrite 实测）。后果有两个：① 它会被安装到用户机器上（9.01 MiB 白占），却永远不会出现在任何字体下拉里；② 就算硬列出来也是错的 —— 简体正文里的 东/车/龙/论 只能回退到别的字体，同一段文字出现两种字形，正是要根除的『选了没反应』类病症。故不随包。若日后要支持繁体写作，应单独加一层繁体判据与单独的字体分组，而不是把它塞进现有清单。"
+    },
+    {
+      "id": "harmonyos-sans",
+      "display": "鸿蒙黑体",
+      "family": "HarmonyOS Sans SC",
+      "file": "HarmonyOSSansSC-Regular.ttf",
+      "sizeBytes": 8261128,
+      "sha256": "297b088424be212207df2ce8b98e335468b782aa6b96832af0b8b773d711e2b1",
+      "sourceRepo": "huawei-fonts/HarmonyOS-Sans",
+      "sourceTag": "33ab3b81b92c01f5e340c89960872bee174d8704",
+      "sourceUrl": "https://media.githubusercontent.com/media/huawei-fonts/HarmonyOS-Sans/33ab3b81b92c01f5e340c89960872bee174d8704/HarmonyOS%20Sans.zip",
+      "licenseFile": "licenses/harmonyos-sans-LICENSE.txt",
+      "licenseName": "HarmonyOS Sans Fonts License Agreement",
+      "weight": 400,
+      "excludedReason": "**这是产品决定（用户明确要求把鸿蒙黑体从应用里移除），不是实测排除 —— 它当初是过了全部判据的。** 许可是好的：华为的 HarmonyOS Sans Fonts License Agreement 逐字允许 `use, copy, merge, embed, bundle, redistribute and/or sell unmodified copies ... with any software except for fonts software`，四项条件是①在软件中显著注明使用了 HarmonyOS Sans；②不得修改（含子集化）；③不得单独作为字体产品再分发；④保留版权声明与协议全文。用户要求彻底删除，故不再随包。保留本条的 provenance 是为了**留痕**：日后有人问『鸿蒙黑体为什么没随包』，答案（不是许可问题，是产品决定）以及它取自哪个 commit、SHA-256 是多少、许可原文原在哪，都在这里，可随时复核，不必再去翻旧提交。⚠ 它的字体文件与许可证文件**必须**从 `src-tauri/fonts/` 删除：`HarmonyOSSansSC-Regular.ttf`（8,261,128 字节）与 `licenses/harmonyos-sans-LICENSE.txt`。资源目录是整目录递归打包的 —— 文件还在就会被装进安装包，白占 7.88 MiB；而且 `scripts/sync-fonts-manifest.mjs` 对 `excludedAfterProbe` 的条目做孤儿文件检查，文件没删就直接 `exit 1`，清单也生成不出来。界面上的显著声明随之停用（`src/lib/bundled-font-licenses.json` 的 `prominentNotice` 置空），但那条通用机制保留在代码与校验脚本里，供日后引入其它非 OFL 字体时使用。"
     }
   ]
 }

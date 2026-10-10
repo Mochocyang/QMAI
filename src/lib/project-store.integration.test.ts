@@ -234,7 +234,6 @@ function makeNovelConfig(overrides: Partial<NovelConfig> = {}): NovelConfig {
     recentSummaryWindow: 16,
     searchTopK: 20,
     chapterTargetChars: 3000,
-    autoIngestOnSave: true,
     autoExtractOnImport: true,
     deepPreviousChaptersAnalysis: false,
     writingWebSearchEnabled: true,
@@ -386,6 +385,12 @@ describe("novelConfig — project-directory persistence", () => {
       contextTokenBudget: 50000,
       recentSummaryWindow: 6,
       searchTopK: 8,
+      /*
+       * 这个键**故意留着**：它已从 NovelConfig 里移除（保存为正式章节不再自动
+       * 提取记忆，用户要求），但老用户的 .qmai/novel-config.json 里还写着它。
+       * 本用例因此顺带钉住「旧配置里存在已删除的键时仍能正常加载」——
+       * 是磁盘上的 JSON，不是 NovelConfig 字面量，所以不参与类型检查。
+       */
       autoIngestOnSave: false,
       writingModel: "writer",
       reviewModel: "reviewer",

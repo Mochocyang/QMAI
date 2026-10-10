@@ -89,7 +89,6 @@ type SettingsCategoryId =
   | "interface"
   | "novel"
   | "usage-guide"
-  | "maintenance"
   | "data-management"
   | "feedback"
   | "contact-support"
@@ -406,7 +405,12 @@ export interface NovelConfig {
   searchTopK: number
   /** 单章目标字数（按去除空白后的字符数计），章节生成提示词和扩写阈值都按它推算。 */
   chapterTargetChars: number
-  autoIngestOnSave: boolean
+  /*
+   * 原先这里有 `autoIngestOnSave`：「保存为正式章节时自动提取记忆」。
+   * 用户指出它与章节/大纲工具栏的「提取记忆」按钮是同一件事，要求取消 ——
+   * 字段、开关与那条自动行为都已移除，提取记忆只由用户点按钮触发。
+   * 旧配置里存着的这个键读取时会被忽略（见 loadNovelConfig 的逐字段取值）。
+   */
   autoExtractOnImport: boolean
   /** 前情分析：读取并 LLM 分析前几章完整正文。快速模式始终跳过；标准/严格模式跟随此开关。关闭时记忆库的近期摘要与上一章结尾仍会注入（默认关）。 */
   deepPreviousChaptersAnalysis: boolean
@@ -443,7 +447,6 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   recentSummaryWindow: 8,
   searchTopK: 5,
   chapterTargetChars: 3000,
-  autoIngestOnSave: true,
   autoExtractOnImport: true,
   deepPreviousChaptersAnalysis: false,
   writingWebSearchEnabled: true,
@@ -586,8 +589,6 @@ export type FinalChapterSavePhase =
   | "ingest_failed"
   | "ingest_no_llm"
   | "ingest_no_chapter_number"
-  | "ingest_not_final"
-  | "ingest_extract_failed"
 
 interface FinalChapterSaveState extends BaseTaskState {
   filePath: string
@@ -657,7 +658,7 @@ interface WikiState {
   pendingScrollImageSrc: string | null
   chatExpanded: boolean
   searchPanelOpen: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation" | "maintenance"
   activeSettingsCategory: SettingsCategoryId | null
   activeModelSettingsTab: ModelSettingsTabId | null
   selectedSoulId: string | null

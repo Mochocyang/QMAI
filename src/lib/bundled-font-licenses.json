@@ -1,6 +1,6 @@
 {
-  "_comment": "随包字体与其许可证。这是界面「第三方字体许可」告知的唯一数据源。请勿手工改这里而不跑 scripts/check-bundled-font-licenses.mjs —— 它会对照 src-tauri/fonts/fonts-manifest.json 与实际许可证原文核对（清单增删字体而这里没跟上 = 告知不完整）。",
-  "prominentNotice": "本软件内置并使用 HarmonyOS Sans（鸿蒙黑体）字体。",
+  "_comment": "随包字体与其许可证。这是界面「第三方字体许可」告知的唯一数据源。请勿手工改这里而不跑 scripts/check-bundled-font-licenses.mjs —— 它会对照 src-tauri/fonts/fonts-manifest.json 与实际许可证原文核对：清单增删字体而这里没跟上 = 告知不完整，已移除的字体还留在这里 = 告知与事实不符。prominentNotice 也由同一条通用规则管：随包字体里**存在非 OFL 字体**时必须非空并逐个点名它们，全部为 OFL-1.1 时必须为空（当前正是后者：8 款族全部为 OFL-1.1）。",
+  "prominentNotice": "",
   "licensesDir": "fonts/licenses",
   "fonts": [
     {
@@ -37,13 +37,6 @@
       "license": "OFL-1.1",
       "licenseFile": "chillkai-OFL.txt",
       "copyright": "Copyright 2023 The ChillKai Project Authors"
-    },
-    {
-      "family": "HarmonyOS Sans SC",
-      "display": "鸿蒙黑体",
-      "license": "HarmonyOS Sans Fonts License Agreement",
-      "licenseFile": "harmonyos-sans-LICENSE.txt",
-      "copyright": "Copyright 2021 Huawei Device Co., Ltd."
     },
     {
       "family": "Smiley Sans",

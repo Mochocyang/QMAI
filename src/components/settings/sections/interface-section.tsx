@@ -16,7 +16,7 @@ import {
 import {
   BUNDLED_FONT_LICENSES,
   BUNDLED_FONT_LICENSES_DIR,
-  HARMONYOS_PROMINENT_NOTICE,
+  PROMINENT_FONT_NOTICE,
 } from "@/lib/bundled-font-licenses"
 
 interface Props {
@@ -165,22 +165,33 @@ function UiTestInterfaceSection({ draft, setDraft }: Props) {
 /**
  * 随包字体的第三方许可告知。
  *
- * ── 为什么这是**必需**的，不是"顺手加的版权页" ──
- * 随包的 9 款族里有一款不是 OFL：鸿蒙黑体（HarmonyOS Sans SC）。它的许可
- * （HarmonyOS Sans Fonts License Agreement）第 2 条第 1 项是**强制**义务：
+ * ── 这里有两件事，义务不同，别把它们混在一起 ──
+ *   · **版权清单**（折叠区里那一串）：OFL-1.1 要求保留版权声明与许可全文 ——
+ *     随包的 `fonts/licenses/` 满足"保留"，界面上给一个可展开的入口满足"能看到"。
+ *   · **显著声明**（`data-ui="prominent-font-notice"`）：只有当随包字体里
+ *     **存在非 OFL 字体**时才需要，因为那种许可通常带一句
+ *     `YOU shall make a prominent notice in the software to state that
+ *      <字体名> are used.`。关键词是 **in the software** ——
+ *     仅把许可证文本随安装包放到磁盘上**不满足**这一条，
+ *     那句话必须出现在用户能看到的界面上。
  *
- *   `YOU shall make a prominent notice in the software to state that
- *    HarmonyOS Sans Fonts are used.`
+ * ── 为什么显著声明的机制保留，但当前不渲染 ──
+ * 随包字体当前**全部为 OFL-1.1**（8 款族 / 10 个字重文件），没有任何一款
+ * 需要显著声明，所以 `prominentNotice` 是空字符串，这里**不渲染**那句话 ——
+ * 否则界面上会出现一句与事实不符的告知（说用了某字体，其实没随包）。
+ * 机制本身必须留着：日后一旦引入非 OFL 字体，只需在
+ * `src/lib/bundled-font-licenses.json` 里填上 `prominentNotice` 并点名该字体，
+ * 这里就自动出现，无需改代码。
  *
- * 注意"In the software"—— 仅仅把许可证文本随安装包放到磁盘上**不满足**这一条，
- * 那句话必须出现在用户能看到的界面上。第 4 条（保留版权声明与本协议）
- * 才由随包的 `fonts/licenses/` 满足。所以这里既有显著声明，也列出各款版权行。
- *
- * 该许可还有两个产品层面需知悉的性质：**不可转让**、且**可被撤销**。
+ * ⚠ 它一旦非空，**必须保持默认可见**，不许折进下面的 <details>：
+ * 折进默认收起的折叠区就等于"用户看不到"，那条许可义务不再满足 ——
+ * 这不是审美取舍，是许可合规问题。
  *
  * ── 数据不写在这里 ──
  * 全部来自 `src/lib/bundled-font-licenses.json`，并由
  * `scripts/check-bundled-font-licenses.mjs` 对照随包清单与许可原文核对。
+ * 该脚本与 `src/lib/bundled-font-licenses.spec.ts` 用的是同一条**通用规则**：
+ * 「非 OFL 集合非空 ⟺ prominentNotice 非空且逐个点名」，不硬编码任何字体名。
  * 清单增删字体而这里没跟上，就变成"告知不完整"或"告知与事实不符" ——
  * 两者都不会有任何测试失败来提醒，所以必须靠校验脚本。
  */
@@ -188,19 +199,17 @@ function BundledFontLicenses() {
   return (
     <section aria-label="第三方字体许可" data-ui="bundled-font-licenses">
       {/*
-        ⚠ 这一句**必须保持默认可见**，不许折进下面的 <details>。
+        ⚠ 仅当 `PROMINENT_FONT_NOTICE` 非空时才渲染。
 
-        用户要求「这些不需要显示出来，隐藏起来」，指的是那一长串版权行。
-        但 HarmonyOS 的许可第 2 条第 1 项是**强制**的：
-          `YOU shall make a prominent notice in the software to state that
-           HarmonyOS Sans Fonts are used.`
-        折进默认收起的 <details> 就等于"用户看不到"，那条义务不再满足 ——
-        这不是审美取舍，是许可合规问题，所以它单独留在折叠之外。
-        用户已知悉并选择了这个方案（保留显著声明 + 折叠版权清单）。
+        渲染一个空的 <p> 会在界面上留下一句空话，而"随包字体里没有它是事实"
+        时渲染一句"本软件使用了 X 字体"更是**告知与事实不符**（对用户误导）。
+        所以这条渲染位由数据决定出不出现。
       */}
-      <p className="ui-test-interface-description" data-ui="harmonyos-notice">
-        {HARMONYOS_PROMINENT_NOTICE}
-      </p>
+      {PROMINENT_FONT_NOTICE.trim() !== "" && (
+        <p className="ui-test-interface-description" data-ui="prominent-font-notice">
+          {PROMINENT_FONT_NOTICE}
+        </p>
+      )}
       {/*
         版权清单默认收起。它仍需**在界面里可达**：各款 OFL 字体要求保留版权声明，
         而随包的 fonts/licenses/ 满足的是"保留"，界面上给一个可展开的入口

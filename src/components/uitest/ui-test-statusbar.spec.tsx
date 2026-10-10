@@ -99,9 +99,11 @@ describe("四项数据常显", () => {
     useWritingStatsStore.setState({ totalChars: 1234567, humanChars: 800, aiChars: 4200 })
     await mount()
     const text = footer().textContent ?? ""
-    for (const label of ["总字数", "今日目标", "今日 AI 生成", "手写"]) {
+    // 「今日 AI 生成」已按用户要求改名为「AI 生成字数」（与「总字数」「手写」同一命名口径）。
+    for (const label of ["总字数", "今日目标", "AI 生成字数", "手写"]) {
       expect(text, `状态栏应常显「${label}」`).toContain(label)
     }
+    expect(text, "旧标签「今日 AI 生成」不应再出现").not.toContain("今日 AI 生成")
     expect(metric("total")).toBe("1,234,567")
     expect(metric("human")).toBe("800")
     expect(metric("ai")).toBe("4,200")
@@ -146,21 +148,30 @@ describe("四项数据常显", () => {
     expect(footer().getAttribute("aria-label")).toBe("写作字数")
   })
 
-  it("百分比贴整条状态栏最右端，四项数据居中（用户选定的排布）", async () => {
+  it("百分比紧跟在「手写」之后，整条栏居中（用户改定的排布）", async () => {
     await mount()
     const inner = container.querySelector(".ui-test-statusbar-inner")!
-    // 顺序上「环+百分比」在四项数据之后，配合 grid 第 3 列 justify-self:end
-    // 才能真正贴到栏的最右端；若仍排在前面，无论怎么调 CSS 都会落在左端。
     const metrics = inner.querySelector(".ui-test-statusbar-metrics")!
     const goal = inner.querySelector(".ui-test-statusbar-goal")!
-    expect(metrics.nextElementSibling, "百分比组应排在四项数据之后").toBe(goal)
-    expect(inner.lastElementChild, "百分比组应是内层最后一个子节点（贴最右）").toBe(goal)
+
+    /*
+     * 用户要求：百分比不再贴到栏的最右端，而是**放在「手写」后面**。
+     * 因此它成了 metrics 列表里的最后一项，而不再是一个独立的右侧分组。
+     */
+    expect(goal.parentElement, "百分比组应落在数据列表内部（紧接手写），而不是列表之外的右端分组").toBe(metrics)
+    const human = metrics.querySelector('[data-metric="human"]')!.closest("li")!
+    expect(human.nextElementSibling, "百分比应紧随「手写」那一项").toBe(goal)
+    expect(metrics.lastElementChild, "百分比组应是数据列表的最后一项").toBe(goal)
+    // 顺序：紧跟在「手写」的数值之后，也就是整行最末尾。
+    expect(goal.textContent).toContain("%")
 
     const css = readFileSync(resolve(__dirname, "ui-test.css"), "utf8").replace(/\r\n/g, "\n")
-    // 中间列居中 + 右列贴边：这两条一起才是「中间居中、百分比最右」。
-    expect(css).toMatch(/\.ui-test-statusbar-inner\s*\{[^}]*grid-template-columns:\s*1fr auto 1fr/)
-    expect(css).toMatch(/\.ui-test-statusbar-goal\s*\{[^}]*justify-self:\s*end/)
+    // 既然都排在一行里，就不再需要「左右 1fr 配重 + 右列贴边」那套 grid。
+    expect(css, "不应再保留贴最右的 grid 配重").not.toMatch(/\.ui-test-statusbar-inner\s*\{[^}]*grid-template-columns:\s*1fr auto 1fr/)
+    expect(css).toMatch(/\.ui-test-statusbar-inner\s*\{[^}]*justify-content:\s*center/)
     expect(css).toMatch(/\.ui-test-statusbar-metrics\s*\{[^}]*justify-content:\s*center/)
+    // 环是对齐的中心，不是文字基线；这条要靠两个类的选择器压过 .ui-test-statusbar-metric 的 baseline。
+    expect(css).toMatch(/\.ui-test-statusbar-metric\.ui-test-statusbar-goal\s*\{[^}]*align-items:\s*center/)
     // 字号要比上一版更小（用户说「字数要小，现在还是有些大」）。
     const footerSize = /\.ui-test-statusbar\s*\{[^}]*font-size:\s*([\d.]+)rem/.exec(css)
     expect(footerSize, "状态栏应显式给出根字号").not.toBeNull()

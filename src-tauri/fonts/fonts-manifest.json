@@ -73,16 +73,6 @@
       "licenseFile": "licenses/chillkai-OFL.txt"
     },
     {
-      "id": "harmonyos-sans",
-      "display": "鸿蒙黑体",
-      "family": "HarmonyOS Sans SC",
-      "file": "HarmonyOSSansSC-Regular.ttf",
-      "weight": 400,
-      "sizeBytes": 8261128,
-      "sha256": "297b088424be212207df2ce8b98e335468b782aa6b96832af0b8b773d711e2b1",
-      "licenseFile": "licenses/harmonyos-sans-LICENSE.txt"
-    },
-    {
       "id": "smiley-sans",
       "display": "得意黑",
       "family": "Smiley Sans",
