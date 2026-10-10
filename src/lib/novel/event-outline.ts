@@ -229,6 +229,11 @@ function balancedJsonBlock(candidate: string, start: number): string | null {
  * 与 extractChapterOutlineData 同构：逐个围栏试，哪个能解析成事件细纲就用哪个，
  * 于是「模型换了个信封名」不会导致卡片渲染不出来。
  *
+ * 三个层次的宽容都必要（都对应实测过的「卡片空白但没有任何解释」）：
+ * 1. 整段回复永远参与候选 —— 围栏可能被写坏、被吞掉，而保存请求围栏常常排在数据围栏前面；
+ * 2. 一个候选里从每个 `{` 都重试一次 —— 模型爱先输出示例对象、或在围栏正文里提到花括号；
+ * 3. 单个对象配平后仍可能不是合法 JSON（尾随逗号），解析失败就继续往右扫。
+ *
  * 信封解包不在本函数做：`normalizeEventOutlineData` 已经负责那一层，
  * 这里只负责「从文本里找到 JSON」。两处都解包会变成两层宽容度，也会重复代码。
  *
@@ -241,18 +246,25 @@ export function extractEventOutlineData(content: string): EventOutlineData | nul
   for (const match of content.matchAll(fencePattern)) {
     if (match[1].includes("{")) candidates.push(match[1])
   }
-  if (candidates.length === 0 && content.includes("{")) candidates.push(content)
+  // 整段回复永远作为最后一个候选：围栏可能被模型写坏、被吞掉，或数据就在围栏外面。
+  // 只在「一个围栏都没有」时兜底是不够的 —— 保存请求围栏常常排在数据围栏前面。
+  if (content.includes("{")) candidates.push(content)
 
   for (const candidate of candidates) {
-    const start = candidate.indexOf("{")
-    if (start < 0) continue
-    const block = balancedJsonBlock(candidate, start)
-    if (!block) continue
-    try {
-      const data = normalizeEventOutlineData(JSON.parse(block) as unknown)
-      if (data) return data
-    } catch {
-      // 该围栏不是合法 JSON，继续下一个
+    // 一个候选里可能有多个对象（附带示例、先输出别的 JSON、正文里提到花括号）。
+    // 逐个 `{` 往右试，直到配平出一个能用的对象，而不是只试第一个。
+    let start = candidate.indexOf("{")
+    while (start >= 0) {
+      const block = balancedJsonBlock(candidate, start)
+      if (block) {
+        try {
+          const data = normalizeEventOutlineData(JSON.parse(block) as unknown)
+          if (data) return data
+        } catch {
+          // 该对象不是合法 JSON，继续往右找下一个
+        }
+      }
+      start = candidate.indexOf("{", start + 1)
     }
   }
   return null
@@ -261,7 +273,12 @@ export function extractEventOutlineData(content: string): EventOutlineData | nul
 /** 事件细纲的生成提示词。范围（章号 / 事件数 / 字数）由向导定死，所以不开意图分析。 */
 export function buildEventOutlinePrompt(request: EventOutlineRequest): string {
   const requirement = request.requirement.trim()
-  const perEventWords = Math.round(request.targetWords / request.eventCount)
+  // 事件数虽然来自向导的下拉框（固定 4~8），但这是导出 API：0 / 小数 / NaN 会让除法
+  // 吐出 Infinity 或 NaN，提示词立刻变成「每个事件约 Infinity 字」这种自相矛盾的指导。
+  const eventCount = Number.isInteger(request.eventCount) && request.eventCount > 0
+    ? request.eventCount
+    : EVENT_OUTLINE_DEFAULT_EVENTS
+  const perEventWords = request.targetWords > 0 ? Math.round(request.targetWords / eventCount) : 0
   // 章号补零，与「事件细纲-第001章.md」的命名规范保持一致。
   const fileName = `事件细纲-第${String(request.chapterNumber).padStart(3, "0")}章.md`
   // 示例 JSON 交给 JSON.stringify 生成：手写字符串一旦漏引号或漏括号，就会教模型输出坏数据。
@@ -277,17 +294,29 @@ export function buildEventOutlinePrompt(request: EventOutlineRequest): string {
       endingHook: "章尾钩子",
     },
   })
+  // 保存请求也给一份完整示例：只在正文里描述字段，模型很容易写出缺字段的请求。
+  const saveExample = JSON.stringify({
+    outlineSaveRequest: {
+      targetFolder: "事件细纲",
+      fileName,
+      fileType: "event-outline",
+      writeMode: "create",
+      referencedSkills: [],
+      sourceIntent: `生成第${request.chapterNumber}章事件细纲`,
+      content: "（此处放上面那份 Markdown 细纲正文）",
+    },
+  })
   return [
-    `请为第 ${request.chapterNumber} 章生成一份「事件细纲」：把这一章拆成 ${request.eventCount} 个连续事件。`,
+    `请为第 ${request.chapterNumber} 章生成一份「事件细纲」：把这一章拆成 ${eventCount} 个连续事件。`,
     "",
     `- 目标章号：第 ${request.chapterNumber} 章`,
-    `- 事件数量：${request.eventCount} 个（必须正好 ${request.eventCount} 个）`,
-    `- 本章目标字数：约 ${request.targetWords} 字（每个事件约 ${perEventWords} 字）`,
+    `- 事件数量：${eventCount} 个（必须正好 ${eventCount} 个）`,
+    `- 本章目标字数：约 ${request.targetWords} 字${perEventWords > 0 ? `（每个事件约 ${perEventWords} 字）` : ""}`,
     ...(requirement ? [`- 用户对本章的要求：${requirement}`] : []),
     "",
     "## 每个事件必须包含",
-    "1. title：一句话说清这个事件发生了什么，20 字左右，不超过 24 字；",
-    "2. points：2~5 条细节抓手，写可以直接落笔的东西，例如关键台词、人物神情与动作、环境与物件细节、这一步推进了什么或留下什么钩子。",
+    `1. title：一句话说清这个事件发生了什么，20 字左右，不超过 ${EVENT_OUTLINE_TITLE_MAX_CHARS} 字；`,
+    `2. points：${EVENT_OUTLINE_MIN_POINTS}~${EVENT_OUTLINE_MAX_POINTS} 条细节抓手，写可以直接落笔的东西，例如关键台词、人物神情与动作、环境与物件细节、这一步推进了什么或留下什么钩子。`,
     "",
     "## 硬要求",
     "- 事件之间必须前后连续、有因果推进，不能是并列的碎片；",
@@ -297,14 +326,16 @@ export function buildEventOutlinePrompt(request: EventOutlineRequest): string {
     "- 不要输出工具调用报告和分析过程。",
     "",
     "## 输出格式（缺一不可）",
-    "1. 一份可直接保存的 Markdown 正文：标题形如「第N章 · 一句话章名」，下面按事件分节列出标题与抓手；",
+    "1. 一份可直接保存的 Markdown 细纲内容（不是小说正文）：标题形如「第N章 · 一句话章名」，下面按事件分节列出标题与抓手；",
     "2. 一个 ```json 围栏，顶层字段为 eventOutlineData：",
     "```json",
     example,
     "```",
-    "3. 一个 ```json 围栏，顶层字段为 outlineSaveRequest（content 为上一步的 Markdown 正文）：",
-    `targetFolder 填「事件细纲」，fileName 形如「${fileName}」，`
-      + "fileType 必须是 event-outline，writeMode 用 create。",
+    `（上面的 events 只演示单个事件的字段格式；实际必须按上面要求写满 ${eventCount} 个事件，用真实的 chapterNumber 与 targetWords。）`,
+    "3. 一个 ```json 围栏，顶层字段为 outlineSaveRequest（content 为上一步那份 Markdown 细纲内容）：",
+    "```json",
+    saveExample,
+    "```",
   ].join("\n")
 }
 

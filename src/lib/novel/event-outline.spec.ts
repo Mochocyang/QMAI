@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
+  EVENT_OUTLINE_DEFAULT_EVENTS,
   EVENT_OUTLINE_MAX_EVENTS,
+  EVENT_OUTLINE_MAX_POINTS,
   EVENT_OUTLINE_MIN_EVENTS,
+  EVENT_OUTLINE_MIN_POINTS,
+  EVENT_OUTLINE_TITLE_MAX_CHARS,
   buildEventOutlinePrompt,
   eventOutlineToProsePrompt,
   extractEventOutlineData,
@@ -25,6 +29,22 @@ function data(overrides: Partial<EventOutlineData> = {}): EventOutlineData {
     endingHook: "令牌上的四个字亮起时，院外传来脚步声。",
     ...overrides,
   }
+}
+
+/** 提示词里的 ```json 例子的类型：只需断言用到的字段。 */
+interface PromptJsonFence {
+  eventOutlineData?: { events: unknown[] }
+  outlineSaveRequest?: Record<string, unknown>
+}
+
+/**
+ * 抽出提示词里所有 ```json 围栏并逐个 JSON.parse。
+ * 解析本身就是断言的一部分：示例一旦不是合法 JSON，模型就会照着output坏数据。
+ */
+function promptJsonFences(prompt: string): PromptJsonFence[] {
+  return [...prompt.matchAll(/```json[ \t]*\r?\n([\s\S]*?)```/g)].map(
+    (match) => JSON.parse(match[1]) as PromptJsonFence,
+  )
 }
 
 describe("normalizeEventOutlineData", () => {
@@ -222,6 +242,15 @@ describe("extractEventOutlineData", () => {
       endingHook: "院外传来脚步声。",
     },
   })
+  // 保存请求常被模型排在数据前面，而且它本身往往是「规整」的那个（有闭合围栏）。
+  const savePayload = JSON.stringify({
+    outlineSaveRequest: {
+      targetFolder: "事件细纲",
+      fileName: "事件细纲-第012章.md",
+      fileType: "event-outline",
+      writeMode: "create",
+    },
+  })
 
   it("从 ```json 围栏里取出数据", () => {
     const content = `## 第12章事件细纲\n\n正文说明\n\n\`\`\`json\n${payload}\n\`\`\``
@@ -269,6 +298,40 @@ describe("extractEventOutlineData", () => {
     })
     expect(extractEventOutlineData(`\`\`\`json\n${tricky}\n\`\`\``)?.events).toHaveLength(1)
   })
+
+  it("同一个围栏里保存请求在前、数据在后时仍能取到数据", () => {
+    const content = `\`\`\`json\n${savePayload}\n${payload}\n\`\`\``
+    expect(extractEventOutlineData(content)?.chapterNumber).toBe(12)
+  })
+
+  it("同一个围栏里有多个 JSON 对象时只认后面那个事件细纲", () => {
+    const content = `\`\`\`json\n${JSON.stringify({ status: "ok", note: "先说明一下" })}\n${payload}\n\`\`\``
+    expect(extractEventOutlineData(content)?.events).toHaveLength(4)
+  })
+
+  it("围栏正文里出现说明用花括号（{name:value}）时不会漏掉后面的数据", () => {
+    const content = `\`\`\`json\n格式：字段用 {name:value} 表示\n${payload}\n\`\`\``
+    expect(extractEventOutlineData(content)?.events).toHaveLength(4)
+  })
+
+  it("保存请求围栏排在最前面时，仍会回头扫围栏外的整段回复", () => {
+    const content = `\`\`\`json\n${savePayload}\n\`\`\`\n\n模型漏了数据围栏，数据写在外面：\n\n${payload}`
+    expect(extractEventOutlineData(content)?.events).toHaveLength(4)
+  })
+
+  it("已闭合的保存围栏后面跟着未闭合的数据围栏时也能取到数据", () => {
+    const content = `\`\`\`json\n${savePayload}\n\`\`\`\n\`\`\`json\n${payload}`
+    expect(extractEventOutlineData(content)?.events).toHaveLength(4)
+  })
+
+  it("配平但非法的 JSON（尾随逗号）不会中断查找", () => {
+    // 分开两个围栏：覆盖 JSON.parse 抛错后继续找下一个围栏的分支。
+    const separate = `\`\`\`json\n{"a":1,}\n\`\`\`\n\`\`\`json\n${payload}\n\`\`\``
+    expect(extractEventOutlineData(separate)?.events).toHaveLength(4)
+    // 同一个围栏里先坏后好：覆盖抛错之后从下一个 `{` 重扫的分支。
+    const sameFence = `\`\`\`json\n{"a":1,}\n${payload}\n\`\`\``
+    expect(extractEventOutlineData(sameFence)?.events).toHaveLength(4)
+  })
 })
 
 describe("buildEventOutlinePrompt", () => {
@@ -305,8 +368,54 @@ describe("buildEventOutlinePrompt", () => {
     expect(buildEventOutlinePrompt({ ...request, chapterNumber: 7 })).toContain("第007章")
   })
 
-  it("每个事件的建议字数按目标字数与事件数推算", () => {
-    expect(buildEventOutlinePrompt(request)).toContain(String(Math.round(3000 / 6)))
+  it("每个事件的建议字数按目标字数与事件数四舍五入推算", () => {
+    // 3000 / 7 = 428.57…：把取整写成 floor 会得到 428，这条用例才会挂。
+    const prompt = buildEventOutlinePrompt({ ...request, targetWords: 3000, eventCount: 7 })
+    expect(prompt).toContain("429")
+    expect(prompt).not.toContain("每个事件约 428 字")
+  })
+
+  it("标题字数与抓手条数取自常量，不会与校验器脱钩", () => {
+    const prompt = buildEventOutlinePrompt(request)
+    expect(prompt).toContain(`不超过 ${EVENT_OUTLINE_TITLE_MAX_CHARS} 字`)
+    expect(prompt).toContain(`${EVENT_OUTLINE_MIN_POINTS}~${EVENT_OUTLINE_MAX_POINTS} 条`)
+  })
+
+  it("事件数为 0 时回落到默认事件数，不产生 Infinity", () => {
+    const prompt = buildEventOutlinePrompt({ ...request, eventCount: 0 })
+    expect(prompt).not.toContain("Infinity")
+    expect(prompt).toContain(`${EVENT_OUTLINE_DEFAULT_EVENTS} 个`)
+  })
+
+  it("目标字数为 0 时不产生 NaN，并省略每个事件的字数", () => {
+    const prompt = buildEventOutlinePrompt({ ...request, targetWords: 0 })
+    expect(prompt).not.toContain("NaN")
+    expect(prompt).not.toContain("每个事件约")
+  })
+
+  it("JSON 示例后说明它只演示单个事件的字段格式", () => {
+    // 否则照抄示例的模型只会输出 1 个事件，正好被 4~8 的校验拦下。
+    expect(buildEventOutlinePrompt(request)).toContain("只演示单个事件的字段格式")
+  })
+
+  it("两个 json 示例都是合法 JSON，保存请求字段齐全且章号补零", () => {
+    const fences = promptJsonFences(buildEventOutlinePrompt({ ...request, chapterNumber: 7 }))
+    expect(fences).toHaveLength(2)
+    expect(fences[0].eventOutlineData?.events).toHaveLength(1)
+    const save = fences[1].outlineSaveRequest
+    expect(save?.targetFolder).toBe("事件细纲")
+    expect(save?.fileName).toBe("事件细纲-第007章.md")
+    expect(save?.fileType).toBe("event-outline")
+    expect(save?.writeMode).toBe("create")
+    expect(save?.referencedSkills).toEqual([])
+    expect(String(save?.sourceIntent)).toContain("第7章")
+    expect(typeof save?.content).toBe("string")
+  })
+
+  it("输出格式说的是「细纲内容（不是小说正文）」，不与「不要写正文」互相矛盾", () => {
+    const prompt = buildEventOutlinePrompt(request)
+    expect(prompt).toContain("一份可直接保存的 Markdown 细纲内容（不是小说正文）")
+    expect(prompt).not.toContain("一份可直接保存的 Markdown 正文")
   })
 })
 
@@ -327,6 +436,14 @@ describe("eventOutlineToProsePrompt", () => {
 
   it("明令不得调换事件顺序", () => {
     expect(eventOutlineToProsePrompt(data())).toContain("顺序")
+  })
+
+  it("每个事件的抓手逐条列出并缩进挂在事件下面", () => {
+    const prompt = eventOutlineToProsePrompt(data())
+    // 只输出 points[0] 的实现会漏掉第二条抓手。
+    expect(prompt).toContain("神情：她手一抖")
+    expect(prompt).toContain("   - 台词：你来啦")
+    expect(prompt).toContain("2. 事件2")
   })
 
   it("没有结尾钩子时不留下空标题", () => {
