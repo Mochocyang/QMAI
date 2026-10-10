@@ -582,6 +582,47 @@ tab 高亮错（`:700` 的 `aria-pressed` 会把「去AI味」标成选中）、
 （`trim-context-plugin.ts:47-60`、context-hub `composer.ts:65`）上仍会被静默丢弃——
 **那是既有缺陷，不在本批修**，但要在文档里如实写明，不要声称「文风不会被丢了」。
 
+### ✅ 已实测：选择器**不要从零设计**，照抄 `DeAiSkillPicker` 的形状
+> 上面第 2 条的 UI（「在生成时提供『文风写作』选择」）有**现成模板**，逐项对上即可。
+> 已通读 `src/components/skill-library/de-ai-skill-picker.tsx`（257 行）确认以下五点。
+
+**(1) 三元（`string` / `null` / `undefined`）在既有类型里**已经**是惯例，不是我发明的**
+`DeAiSkillPickerProps`（`:7-16`）的签名就是：
+```ts
+onChange: (skillId: string | null | undefined) => void   // :9
+```
+- `:223-226` 选具体技能 → `onChange(skill.id)`；
+- `:229-239` 「关闭去AI味技能」按钮 → **`onChange(null)`**。
+⇒ 这正是 §2 第 2 条要求的 `undefined` = 无覆盖 / `null` = 显式不用。
+**新选择器照这个签名写**，并在注释里指向本文件第 2 条，说明 `null` 的语义是「本次不用」。
+
+**(2) 它有配套 hook，新选择器应各写一份对称的**
+`useDeAiSkillOptions`（`use-de-ai-skill-options.ts:27`，入参 `{ projectPath, selectedSkillId }`）
+返回 `{ loading, skills, effectiveName, currentSkillId, defaultSkillId, loadError }`
+（消费点 `de-ai-skill-picker.tsx:157-164`）。
+⇒ 文风版应为 `useWritingStyleOptions`，返回同形状的字段
+（`currentSkillId`/`defaultSkillId` 分别对应「本次覆盖值」与「项目启用值」）。
+
+**(3) 选项面板是**复用的独立组件**，不要内联**
+`DeAiSkillOptionsPanel`（`:47`，已 `export`）负责键盘导航（`:100-107` 的
+ArrowUp/Down + Enter）、`role="option"`/`aria-selected`/`aria-current`、
+「当前」/「默认」两枚徽章（`:124-133`）、`loading`/`errorMessage`/`emptyMessage`。
+⇒ 文风版照它的**可访问性契约**写（键盘 + `role="option"`），
+不要只做一个鼠标下拉 —— 否则 `de-ai-skill-picker.spec.tsx` 里那批交互用例没有对应物。
+
+**(4) 「打开完整技能库」跳转的先例已存在，且正是丁-1 那个新视图**
+`de-ai-skill-picker.tsx:247` 的 `setActiveView("writingSkillLibrary")`。
+⇒ 文风选择器的库内跳转应调 `setActiveView("writingStyleLibrary")`
+——**这就是丁-1 必须新增的那个 view**。两条子批在此**必须对齐**：
+丁-1 先把 view 接通（含 §1 补漏列的 11 个挂点），丁-3 再依赖它。
+⚠️ 若顺序反过来，`setActiveView("writingStyleLibrary")` 会**编译失败**
+（`wiki-store.ts:661` 是字面量联合类型）——这是好事，属**编译期**拦截；
+但要意识到 `icon-sidebar.tsx:81` 的高亮折算**不会**报错，必须显式决定。
+
+**(5) `iconOnly` / `buttonLabel` / `includeDisableOption` / `showLibraryShortcut`
+四个可选 prop 决定按钮形态**（`:144-151`）。先看真实调用点再定默认值，
+不要照抄一套用不上的开关。
+
 ---
 
 ## 3. 子批丁-3：输入框引用（用户决定 1 的「都是可以使用的」）
