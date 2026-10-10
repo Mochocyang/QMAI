@@ -198,7 +198,7 @@
   </div>
   <div class="goal">
     <span class="label">Architecture</span>
-    <p>一套与「角色灵魂」（CharacterAura）<b>完全隔离</b>的轻量旁路：<code>.qmai/persona-skills/</code> 下放一个 <code>index.json</code>（已建档人物的元数据，只有几十条）+ 一个 <code>sightings.json</code>（<b>只装还没建档的人物</b>的出场计数）+ 每人一份 <code>&lt;id&gt;/SKILL.md</code>（绿勾人物另有 <code>references/research/</code>）。学习挂在 <code>ingestChapter()</code> 末尾、后台 <code>void</code> 异步、<b>整章所有人物合并成一次 LLM 调用</b>；注入走 <code>context-engine.ts</code>，按档位裁剪后并进 <code>characterAuras</code> 字段。</p>
+    <p>一套与「角色灵魂」（CharacterAura）<b>完全隔离</b>的轻量旁路：<code>.qmai/persona-skills/</code> 下放一个 <code>index.json</code>（已建档人物的元数据，只有几十条）+ 一个 <code>sightings.json</code>（<b>只装还没建档的人物</b>的出场计数）+ 每人一份 <code>&lt;id&gt;/SKILL.md</code>（绿勾人物另有 <code>references/research/</code>）。学习挂在 <code>ingestChapter()</code> 末尾、后台 <code>void</code> 异步、<b>整章所有人物合并成一次 LLM 调用</b>；注入走 <code>context-engine.ts</code>，按档位裁剪后写入<strong>新加的独立可选字段 <code>personaSkills</code></strong>（<code>FIELD_PRIORITY = 10.5</code>，排在 <code>characterAuras</code> 之后）。</p>
   </div>
   <div class="goal">
     <span class="label">Tech Stack</span>
@@ -2231,7 +2231,6 @@ import {
 import {
   PERSONA_SKILL_REQUEST_OVERRIDES,
   buildPersonaSkillMessages,
-  buildPersonaSkillResearchMessages,
   type PersonaSkillPromptTarget,
 } from "./persona-skill-prompt"
 
@@ -2859,6 +2858,13 @@ git commit -m "feat(人物skill): 加章节学习编排"</div>
   renderPersonaSkillDocument,
   __resetPersonaSkillRoundsForTesting,
 } from "./persona-skill-learning"</code></pre>
+    <p>接着在<strong>实现文件</strong> <code>src/lib/novel/persona-skill-learning.ts</code> 的 <code>from "./persona-skill-prompt"</code> import 块里<strong>加上</strong> <code>buildPersonaSkillResearchMessages</code>。（它由 Task 3 导出，但 Task 4 的 import 里<strong>故意不含</strong>它——那时它还没有使用者，留着会撞 <code>noUnusedLocals</code> 的 TS6133。本任务才是它的首个使用者。）改完那个块长这样：</p>
+    <pre><code>import {
+  PERSONA_SKILL_REQUEST_OVERRIDES,
+  buildPersonaSkillMessages,
+  buildPersonaSkillResearchMessages,
+  type PersonaSkillPromptTarget,
+} from "./persona-skill-prompt"</code></pre>
     <p>然后在文件末尾追加：</p>
     <pre><code>describe("regeneratePersonaSkillResearch", () =&gt; {
   beforeEach(() =&gt; {
@@ -3481,7 +3487,7 @@ git commit -m "feat(人物skill): 加分级注入"</div>
 
   <div class="step">
     <div class="head"><input type="checkbox"><span>Step 1：先写失败测试（源码契约）</span></div>
-    <p>这个挂钩的运行时行为已经被 Task 4 的 8 个用例覆盖了（幂等、坏 JSON、门槛都测过）。这里测的是<b>接线是否正确</b>——签名的形状、异步的方式、守卫的位置。所以用源码字符串断言，跟同目录 <code>chapter-ingest.spec.ts</code> 的做法一致，避免为了测一行接线去 mock 整条 1500 行的摄取链。</p>
+    <p>这个挂钩的运行时行为已经被 Task 4 的 11 个用例覆盖了（幂等、坏 JSON、门槛都测过）。这里测的是<b>接线是否正确</b>——签名的形状、异步的方式、守卫的位置。所以用源码字符串断言，跟同目录 <code>chapter-ingest.spec.ts</code> 的做法一致，避免为了测一行接线去 mock 整条 1500 行的摄取链。</p>
     <p>新建 <code>src/lib/novel/chapter-ingest-persona-hook.spec.ts</code>：</p>
     <pre><code>import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
@@ -3609,7 +3615,7 @@ git commit -m "feat(人物skill): 提取记忆时后台学习"</div>
   <div class="files">
     <span class="flabel">Files</span>
     <ul>
-      <li>Modify: <code>src/lib/novel/context-engine.ts</code>（5 处：import、matchingText、<code>ContextPack</code> 字段、<code>FIELD_PRIORITY</code>、<code>FIELD_CONFIGS</code>、return）</li>
+      <li>Modify: <code>src/lib/novel/context-engine.ts</code>（6 处：import、matchingText 与并发调用、<code>ContextPack</code> 字段、<code>FIELD_PRIORITY</code>、<code>FIELD_CONFIGS</code>、return）</li>
       <li>Modify: <code>src/i18n/zh.json</code>（1 处：新增 <code>novel.contextPack.personaSkills</code>）</li>
       <li>Test: <code>src/lib/novel/context-engine-persona.spec.ts</code></li>
     </ul>
@@ -3719,7 +3725,7 @@ describe("写作上下文注入人物 Skill", () =&gt; {
     <p><b>位置 1</b>：<code>ContextPack</code> 接口里，紧跟 <code>characterAuras: string</code> 之后加一个<b>可选</b>字段（可选，所以既有的 32 处构造点一个都不用改）：</p>
     <pre><code>  /** 「人物 Skill」段。与角色灵魂分成两档：预算紧张时先牺牲它，人格规则不受影响。 */
   personaSkills?: string</code></pre>
-    <p><b>位置 2</b>：<code>FIELD_PRIORITY</code>（<code>context-engine.ts:40-65</code>）里，紧跟 <code>characterAuras: 10,</code> 之后加：</p>
+    <p><b>位置 2</b>：<code>FIELD_PRIORITY</code>（<code>context-engine.ts:35</code> 起，<code>characterAuras: 10</code> 在 <code>:51</code>）里，紧跟 <code>characterAuras: 10,</code> 之后加：</p>
     <pre><code>  /** 排在 characterAuras 之后：被裁掉只是降级，绝不能反过来挤掉人格规则。 */
   personaSkills: 10.5,</code></pre>
     <p><b>位置 3</b>：<code>FIELD_CONFIGS</code>（<code>context-engine.ts:1073</code>）里，紧跟 <code>{ titleKey: "novel.contextPack.characterAuras", fieldKey: "characterAuras" },</code> 之后加：</p>
@@ -4714,7 +4720,7 @@ git commit -m "feat(人物skill): 接上导航与草稿守卫"</div>
     <tr>
       <td>AI 对话中生成章节是否会自动引用这些 skill</td>
       <td class="mono">context-engine.ts<br>buildPersonaSkillContext</td>
-      <td>走 <code>buildContextPack()</code> 的正常路径并进 <code>characterAuras</code>（<code>SECTION_PRIORITY.characterAuras = 10</code>），所以写作时自动带；「角色灵魂仍动态 import」那条用例保证没绕开既有尺寸边界。</td>
+      <td>走 <code>buildContextPack()</code> 新增的独立可选字段 <code>personaSkills</code>（<code>FIELD_PRIORITY.personaSkills = 10.5</code>，紧跟 <code>characterAuras</code>），所以写作时自动带；「角色灵魂仍动态 import」那条用例保证没绕开既有尺寸边界。</td>
     </tr>
     <tr>
       <td>多个角色按什么策略注入 → 按档位分级（用户选定 A 方案）</td>
@@ -4783,7 +4789,7 @@ git commit -m "feat(人物skill): 接上导航与草稿守卫"</div>
   <p>整套改动是<b>可整段摘除</b>的：除了下面 3 处一行级接线，其余全是新文件。</p>
   <ol>
     <li>删掉 <code>chapter-ingest.ts</code> 里的那一行 import 与那个 <code>if (!isReingest) { void … }</code> 块。</li>
-    <li>把 <code>context-engine.ts</code> 的 <code>personaMatchingText</code> / <code>Promise.all</code> 段还原成原来的 <code>soulContext</code> 单调用，并把 <code>characterAuras</code> 还原成 <code>soulContext.text</code>，删掉那一行静态 import。</li>
+    <li>把 <code>context-engine.ts</code> 的 <code>personaMatchingText</code> / <code>Promise.all</code> 段还原成原来的 <code>soulContext</code> 单调用，删掉 <code>personaSkills</code> 字段、它在 <code>FIELD_PRIORITY</code> / <code>FIELD_CONFIGS</code> 里的两行、i18n 那一行，以及那一行静态 import。</li>
     <li>把 <code>unified-skill-library-view.tsx</code> 的 tab 数组、<code>activeTab</code>、内容区分支还原，并去掉 <code>content-area.tsx</code> / <code>icon-sidebar.tsx</code> 的字面量。</li>
   </ol>
   <p>用户数据留在 <code>&lt;project&gt;/.qmai/persona-skills/</code>，不会被任何回滚动作删掉——下次想启用时直接读回来即可。<code>wiki-store.ts</code> 里多出的 <code>personaSkillLibraryDraftDirty</code> 留着无害（只是没人再设置它）。</p>

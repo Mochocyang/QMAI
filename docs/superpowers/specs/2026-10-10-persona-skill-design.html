@@ -309,9 +309,9 @@ ingestChapter()                      ← 现有链路一行不动
 【写作平面】生成章节
 context-engine.ts
   └─ const { buildCharacterSoulContext } = await import("./character-aura")   ← 现有
-  └─ const { buildPersonaSkillContext } = await import("./persona-skill-context")  ← 新增
-     → joinNonEmpty([灵魂文本, 人物 Skill 文本], "\n\n")
-     → 写入同一个 characterAuras 字段（不新增上下文字段、不动 token 预算编号）</code></pre>
+  └─ import { buildPersonaSkillContext } from "./persona-skill-context"  ← 新增（静态导入：它不拖重依赖）
+     → 与灵魂匹配并发调用，共用同一段 matchingText
+     → 写入新加的独立可选字段 personaSkills（FIELD_PRIORITY 10.5，排在 characterAuras 之后）</code></pre>
 
     <h3>落盘结构</h3>
     <pre><code>.qmai/persona-skills/
@@ -530,7 +530,7 @@ context-engine.ts
   <!-- ============ 7 ============ -->
   <section>
     <div class="sec-head"><span class="num">07</span><h2>分级注入</h2></div>
-    <p class="sec-intro">回答「章节生成时会不会自动引用」：<strong>会</strong>，且复用既有链路，不新增上下文字段。</p>
+    <p class="sec-intro">回答「章节生成时会不会自动引用」：<strong>会</strong>。复用既有链路（同一个 <code>matchingText</code>、同一套裁剪与预算机制），但新增一个<strong>低优先级的独立上下文字段</strong>——原因见下。</p>
 
     <table>
       <thead><tr><th style="width:22%">档位</th><th>注入内容</th></tr></thead>
@@ -551,9 +551,15 @@ context-engine.ts
     </table>
 
     <h3>注入位置</h3>
-    <p>沿用 <code>context-engine.ts</code> 现有的<strong>同一个 <code>matchingText</code></strong>（任务描述 + 章纲 + 人物状态 + 认知状态），与灵魂共用一次匹配时机。新模块 <code>persona-skill-context.ts</code> 导出 <code>buildPersonaSkillContext()</code>，在同一个 <code>await import()</code> 区块内调用，结果<strong>拼进已有的 <code>characterAuras</code> 字段</strong>：</p>
-    <pre><code>characterAuras: joinNonEmpty([soulContext.text, characterSkillContext], "\n\n")</code></pre>
-    <p>不新增上下文字段、不动 <code>SECTION_PRIORITY</code> 编号与 token 预算边界。</p>
+    <p>沿用 <code>context-engine.ts</code> 现有的<strong>同一个 <code>matchingText</code></strong>（任务描述 + 章纲 + 人物状态 + 认知状态），与灵魂共用一次匹配时机。新模块 <code>persona-skill-context.ts</code> 导出 <code>buildPersonaSkillContext()</code>，与灵魂匹配<strong>并发</strong>调用，结果写入<strong>新加的独立可选字段 <code>personaSkills</code></strong>：</p>
+    <pre><code>...(personaSkillContext ? { personaSkills: personaSkillContext } : {})</code></pre>
+    <p>它 <code>FIELD_PRIORITY = 10.5</code>，<strong>紧跟 <code>characterAuras</code>（10）之后</strong>。可选字段，所以既有 32 处 <code>ContextPack</code> 构造点一处都不用改。</p>
+    <div class="callout bad">
+      <span class="label">为什么不并进 characterAuras</span>
+      <p><code>contextPackToPrompt()</code> 有一条<strong>硬失败守卫</strong>：只要存在「人格规则」（<code>portablePersonalities</code>），<code>characterAuras</code> 就必须<strong>完整</strong>出现在裁剪后的提示词里，否则直接抛错、停止生成。</p>
+      <p>而 <code>characterAuras</code> 本来就坐在裁剪边界上（优先级 10，前面已有约 10 个核心字段占位）。把最高 4000 字的「人物 Skill」文本 join 进去会让它从数百字涨到数千字 → 显著更容易放不下 → 更容易抛出一个<strong>与人格规则毫无关系</strong>的「角色人格规则未完整保留」错误，误导用户去缩小章节范围。</p>
+      <p>拆成独立字段后：预算紧张时被牺牲的是 <code>personaSkills</code>（它排在后面），人格规则不受影响；被裁掉也只是降级，<strong>不触发任何守卫</strong>。</p>
+    </div>
 
     <h3>匹配规则（v1）</h3>
     <p>归一化（NFKC + 去空白与标点 + 小写）后依次尝试：</p>
@@ -607,7 +613,7 @@ context-engine.ts
       <li>直接编辑 <code>SKILL.md</code> 正文并保存</li>
       <li><strong>保存后置 <code>editedByUser = true</code></strong>——之后 AI 自动完善改为增量补充／保留用户段落，<strong>不再整份覆盖</strong>。
         否则用户的手工修改会在下一次「提取记忆」时静默丢失，这是必须守住的一条。</li>
-      <li>操作：唤醒 / 归档 / 删除（带确认）；pinned 角色可「重新生成研究文件」</li>
+      <li>操作：唤醒 / 归档 / 删除（带确认）；pinned 角色可「重新整理研究文件」</li>
     </ul>
   </section>
 
@@ -671,7 +677,7 @@ src/components/skill-library/persona-skill-view.tsx + .spec.tsx</code></pre>
 
     <h3>修改（5）</h3>
     <pre><code>src/lib/novel/chapter-ingest.ts                             函数体内加一行 void 挂钩（签名不动）
-src/lib/novel/context-engine.ts                             动态 import + 拼接进 characterAuras
+src/lib/novel/context-engine.ts                             静态 import + 新增 personaSkills 字段
 src/components/skill-library/unified-skill-library-view.tsx 第 4 个 tab
 src/components/layout/content-area.tsx                      case 分支
 src/stores/wiki-store.ts                                    activeView 联合类型</code></pre>
@@ -764,7 +770,7 @@ src/stores/wiki-store.ts                                    activeView 联合类
         <tr><td>3000 个人物会不会生成 3000 个 skill、会不会卡</td><td>第 6 节完整分析；分级把「有 skill 的人」压到几十，独立存储避开 3000 文件全读</td></tr>
         <tr><td>这些 skill 是不是也要做分类</td><td>三个维度：档位（major/minor）、定位（沿用 <code>CHARACTER_ROLE_TYPES</code>）、状态（active/dormant/archived）</td></tr>
         <tr><td>出场配角的 skill 什么时候删除</td><td>不删除；三态归档，pinned 豁免（第 5 节）</td></tr>
-        <tr><td>章节生成时是否会自动引用这些 skill</td><td>会。复用既有 <code>characterAuras</code> 注入链路，按档位分级（第 7 节）</td></tr>
+        <tr><td>章节生成时是否会自动引用这些 skill</td><td>会。走 <code>buildContextPack()</code> 新增的独立 <code>personaSkills</code> 字段，按档位分级（第 7 节）</td></tr>
         <tr><td>这个「角色 skill」会不断学习、不断提升<span class="muted">（现为「人物 Skill」）</span></td><td>每次摄取出场即刷新，<code>skillRevision</code> 累积（第 4 节）</td></tr>
       </tbody>
     </table>
