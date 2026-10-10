@@ -1,0 +1,104 @@
+# character-skill 分支说明
+
+## 分支用途
+
+本分支为「**人物 Skill**（技能库·随章节持续学习）」功能分支。
+
+需求原文：*「关于当前小说中的人物，我们也将其定义为『技能库』。在技能库中还需要增加一个功能，我们将其称为『角色 skill』。这个『角色 skill』是会不断学习、不断提升的。」*
+
+即：
+
+1. **初始生成** —— 第一章出现的人物，AI 分析其风格、说话方式、性格，自动生成一份 skill 进技能库。
+2. **持续完善** —— 该人物后续每次出场，AI 继续完善这份 skill，让形象逐渐饱满。
+3. **人为编辑** —— 用户可以自己编辑 skill 内容。
+
+## 命名：为什么叫「人物 Skill」而不是「角色 skill」
+
+仓库里原本**已有三套**东西都叫「角色 skill」，互不相干：
+
+| 代号 | 名称 | 落盘位置 | 绑定本作人物 | 可持续完善 | 已注入写作上下文 |
+|---|---|---|---|---|---|
+| A | 拆书库角色 Skill | `book-analysis/<bookId>/skills/` | ❌ 是**别的作品**里的角色 | ⚠️ 可重新生成 | 仅通过 C 间接进入 |
+| B | 写作 Skill 库的「角色」分类 | `<project>/writing-skills.json` 内 `categoryId="skill-category:character"` | ❌ 全局通用技能 | ❌ | ✅ 走 skill-route |
+| C | 角色灵魂 CharacterAura | `.qmai/character-aura.json` + `.qmai/character-auras/<slug>-perspective/SKILL.md` | ✅ 按 characterName 绑定 | ✅ | ✅ |
+
+本功能是**第四套**。为避免歧义：
+
+- **界面上**叫「**人物 Skill**」；
+- **内部标识**一律 `persona-skill-*`（文件名、`.qmai/persona-skills/`、`activeView = "personaSkillLibrary"`、函数名 `learnPersonaSkillsFromChapter` / `buildPersonaSkillContext` 等）。
+
+**A / B / C 三套一个字都没有改动。** 本功能与它们完全隔离，只是同样接在 `ingestChapter()` 这条摄取链上。
+
+## 设计要点（详见 `docs/superpowers/specs/2026-10-10-persona-skill-design.html`）
+
+- **D1 分级建档**：角色定位读自 `wiki/characters/角色-<定位>-<名>.md` 的**文件名**（不读正文）。主角/男主/女主/反派/导师 → 首次出场即建档，之后每次出场都完善；配角/男配/女配/盟友 → 第 2 次出场建档、第 3 次起完善；**未标注定位** → 出场 ≥3 次才按 minor 处理（自动滤掉一笔带过的路人）；纯龙套永不建档。
+- **D3 一章一次调用**：整章所有待处理人物**合并为一次** LLM 请求，与出场人数无关，每章 ≤1 次。挂在「提取记忆」上、后台 `void` 异步，不拖慢按钮。
+- **D4 三态生命周期**：`active` → `dormant`（连续 10 章未出场）→ `archived`（30 章）。**永不自动硬删**文件。绿勾人物豁免。
+- **D5 分级注入**：主要人物注入 7 个字段 + 压缩后的 SKILL.md；次要人物只注入「怎么说话」「怎么判断」；休眠/归档不注入。排序 pinned → major → minor，同档按出场次数降序，最多 12 人，总量封顶 4000 字。
+- **D6 绿勾（pinned）**：用户手动标记的重要人物。一票否决：永不归档、最高档位注入、每次出场都重点分析，**并且是唯一会生成「研究文件」的角色**。
+- **D7 落盘**：`.qmai/persona-skills/index.json`（元数据）+ `sightings.json`（未建档人物的候选池）+ `<id>/SKILL.md` + `<id>/references/research/`（仅绿勾）。
+- **用户手改优先**：用户编辑过 SKILL.md 后（`editedByUser = true`），AI 后续只在文末追加 `## 补充（第 N 章）`，**逐字保留**用户既有段落，不再整份覆盖。
+
+## 不可违背的约束
+
+1. **保存正式章节不自动摄取。** 人物 Skill 学习只挂在 `ingestChapter()`（用户点「提取记忆」）里，绝不挂在「保存章节」上。
+2. **`ingestChapter` 的签名不可改。** `chapter-ingest.spec.ts` 用源码字符串断言 `export async function ingestChapter`。
+3. **打包体积边界。** `context-engine.ts` / `review-adapter.ts` 对 `character-aura` 只能动态 `await import()`（`bundle-boundaries.spec.ts` 强制）。
+4. **新增 LLM 调用**一律走 `resolveNovelModel(llmConfig, novelConfig, "extract")`。
+5. **草稿隔离**：草稿若不保存，不得进入摄取链。
+
+## 实现清单
+
+**新增（11 个文件）**
+
+| 文件 | 职责 |
+|---|---|
+| `src/lib/novel/persona-skill-types.ts` | 档位、阈值、字段表、生命周期常量、`planPersonaSkillRound`、名字归一化 |
+| `src/lib/novel/persona-skill-store.ts` | 独立存储层：索引/候选池/正文/研究文件读写、按路径串行的互斥锁、严格读 |
+| `src/lib/novel/persona-skill-prompt.ts` | 单次多人物提示词；章节正文与既有档案都做截断 |
+| `src/lib/novel/persona-skill-learning.ts` | 章节学习编排：候选池计数、建档门槛、一次调用、落盘、生命周期刷新、研究文件重新整理 |
+| `src/lib/novel/persona-skill-context.ts` | 分级注入：选人、排序、裁剪、渲染 `## 人物 Skill` 段 |
+| `src/components/skill-library/persona-skill-view.tsx` | 「人物 Skill」页：列表、搜索、状态筛选、绿勾、编辑档案、查看/重新整理研究文件 |
+| 6 个 `*.spec.ts(x)` | 共 136 条用例 |
+
+**修改（6 个文件）**
+
+| 文件 | 改动 |
+|---|---|
+| `src/lib/novel/chapter-ingest.ts` | +19 行：`ingestChapter` 内后台 `void` 挂钩（判 `isReingest`） |
+| `src/lib/novel/context-engine.ts` | 静态 import `buildPersonaSkillContext`，新增 `personaSkills` 字段（优先级 10.5） |
+| `src/components/skill-library/unified-skill-library-view.tsx` | 第 3 个 tab「人物 Skill」、草稿守卫、头部按钮条件 |
+| `src/components/layout/content-area.tsx` | `case "personaSkillLibrary"` 复用统一技能库 |
+| `src/components/layout/icon-sidebar.tsx` | `isActive` 认得新 tab |
+| `src/stores/wiki-store.ts` | `activeView` 联合类型 + `personaSkillLibraryDraftDirty` 三件套 |
+
+## 测试
+
+- 全量：`729 文件 / 7096 用例通过、6 todo、0 失败`（约 51 秒）。
+- 分支基线（`dcf8b38`）：`720 文件 / 6957 用例通过`。
+- 人物 Skill 自己的 9 个 spec 合计 **136 条**：types 21 / store 33 / prompt 12 / learning 32 / context 17 / context-engine-persona 5 / chapter-ingest-persona-hook 8 / persona-skill-view 8。
+
+### 已知的环境抖动（不是失败）
+
+整套跑时偶发 `[vitest-pool]: Failed to start forks worker for test files <某文件>`，该文件被记为 `1 failed`。这是 vitest 进程启动失败、不是断言失败。判定：单独重跑该文件，通过即为抖动。
+
+`test:mocks` 跑完 `git status` 会冒出约 170 个「已修改」，**100% 是 EOL 假阳性**（`tests/fixtures/**` 与两个 `docs/*/dump.html`，`core.autocrlf=true` 所致）。判定：`git diff HEAD --name-only | Measure-Object` 应为 0。**禁止** `git checkout -- .` / `git restore .`。
+
+## 更新记录
+
+- 2026-10-10：创建分支与设计规格（`docs/superpowers/specs/2026-10-10-persona-skill-design.html`）。
+- 2026-10-10：定名为「人物 Skill」，内部标识统一为 `persona-skill-*`。
+- 2026-10-10：写实施计划（`docs/superpowers/plans/2026-10-10-persona-skill.html`，Task 1–11）。
+- 2026-10-10：实现 Task 1–10 全部功能，并修正计划中 12 处自查发现的缺陷（含：不存在的 spec 路径、用例总数漏算、`fileExists` 未 mock、角色定位键未归一化、两处与设计冲突的表述）。
+- 2026-10-10：**独立代码审查**发现并修复 4 个真实缺陷（Task 11）：
+  1. `applyPersonaSkillDrafts` 用整轮 LLM 调用**之前**的索引快照判定 `editedByUser` —— 用户在模型运行期间（数秒到数十秒）保存的手改正文会被**整份覆盖**，护栏也一起丢。设计点名「这是必须守住的一条」。改为全程在同一把锁内读新鲜索引。
+  2. 已建档人物的**出场记账只活在内存**：模型漏掉某人或字段全空时，`lastChapter` 停在旧值，紧接着的生命周期刷新按旧值算 gap，把**正在场上的人**判成 `archived` → 按 D5 不再注入，等于人物从写作上下文里凭空消失。改为在**零 LLM 的确定性阶段**落盘。
+  3. **回填旧章**会按旧章号重算生命周期（负数 gap 直接落回 `active`），把已归档人物静默复活。
+  4. `existingSkill` **未截断**进提示词，而手改档案每章追加一段「补充」→ 文档随出场章数线性增长，最终超上下文、每轮抛错被 `catch` 吞成 warn，该人物学习永久静默失效。设计 §7 明文要求截断。
+  另修：用户保存档案的「写正文」与「置 `editedByUser`」原来分两次取锁，中间存在交错窗口（正文已换、标志还是 false）—— 已合进同一把锁；非绿勾人物仍能重新整理研究文件（D6 要求只有绿标角色有）—— 已在函数内加守卫。
+  验证：4 条新用例在未修复时全部为红（已逐一验证），修复后全量 `729 文件 / 7096 用例通过`。
+
+## 提交状态
+
+- 尚未合并进 `main`。**合并前必须删除本分支专属的 `AGENTS.md`**（见该文件 §8）。
+- 另有一条 `dd72f84 fix(备份): 删掉多余的 mock 窄化断言，修好 typecheck:tests 基线`，修的是**分支基点上就存在**的 `import.spec.ts` 类型错误，属仓库卫生、与人物 Skill 功能无关。
