@@ -89,22 +89,85 @@
 ### 步骤（顺序不能颠倒：先打通参数，再做 UI）
 
 1. **抽公共拼装逻辑**（`src/lib/novel/writing-style-store.ts`，非守门文件）：
-   `buildWritingStyleContext(projectPath, { task })`（`:238-322`）内部先取
+   `buildWritingStyleContext(projectPath, { task })`（`:238`）内部先取
    `getEnabledWritingStyle`（`:242-243`）。抽出「由 preset → 注入文本」的公共函数，
    新增按 **preset id** 生成注入文本的导出。
    ⚠️ **抽出后 `buildWritingStyleContext` 的行为必须逐字节不变**——
    `writing-style-store.spec.ts` 有 361 行断言（注入顺序、`【已启用文风画像】` 前缀、
    DNA 降级、预算截断）。这是**重构而非改行为**，测试应当全绿通过。
+
+   #### 已实测确认：这个重构是**必须**的，不是可选的
+   - **全仓只有一个渲染器，且只认「已启用」那条**：
+     `buildWritingStyleContext(projectPath, options)`（`writing-style-store.ts:238`）
+     → `getEnabledWritingStyle(projectPath)`（`:242-243`）。
+     它的导出清单里**没有**任何「按 preset 渲染」的函数
+     （`:65`/`:88`/`:129`/`:167`/`:176`/`:180`/`:238`，逐一核过）。
+     底层原语 `compileStyleFingerprint`（`book-analysis/style-fingerprint.ts:110`）
+     只渲染**结构化画像**，不含 `constitution`/`integratedDna`/样本的完整拼装，
+     单独拿它拼不出等价文本。
+   - **消费链只有两处**：`context-data-sources.ts:382`
+     （`buildWritingStyleContext(context.projectPath, { task: context.task })`
+     ——这就是填 `pack.writingStyle` 的地方）与 `context-engine.ts:835`
+     （动态 import 的兜底路径）。
+   - ⇒ 所以「选一条**不是**当前启用的文风」**今天做不到**，
+     必须新增一个接受 `preset`（或 preset id）的渲染入口。
+     ⚠️ **禁止**用 `setEnabledWritingStyle` 临时改项目设置来「实现」它——
+     用户决定 2 明确要求项目设置不得被改，而且那会写盘、并发下还会互相踩。
+
+   #### ⚠️ 覆盖文本**必须复用同一个渲染器**（否则 fail-closed 守卫静默失效）
+   `contextPackToPrompt` 的文风守卫（`context-engine.ts:1132-1134`）判的是
+   **字面前缀**：`pack.writingStyle?.startsWith("【已启用文风画像】")`。
+   - 若覆盖文本由**同一个**渲染器产出，它会带上同一个 `【已启用文风画像】` 前缀
+     → 守卫自动生效（覆盖被裁掉时**停机报错**，符合「用户明确选了就不能悄悄丢」）。
+   - 若为覆盖另写一套拼装、少了这个前缀 → `startsWith` 为假 → **守卫完全不触发**，
+     用户选的文风可能被静默裁掉而毫无提示。
+   - ⚠️ 前缀文案里的「已启用」对「本次临时覆盖」语义上已不准确，
+     但 `context-engine.ts` 是**守门文件不能改**，所以**不要**去改这个字面量，
+     也不要为覆盖另造前缀。**照用同一个前缀**，并在代码注释里写明这是为了接上守卫。
+   - 建议加一条测试：覆盖生效时最终提示词里含 `【已启用文风画像】`（钉住守卫仍生效）。
 2. **打通参数**（`src/lib/novel/deep-chapter-generation.ts`，非守门文件）：
    - `DeepChapterGenerationInput`（`:90`）加一个**独立命名**的可选参数
      （如 `styleOverridePrompt?: string`）。**不要**塞进 `skillsPrompt`。
-   - 组装 `contextPrompt` 处（`:778-788`）：当覆盖存在时，给 `contextPackToPrompt`
-     传**浅拷贝** `{ ...contextPack, writingStyle: override }`。
+   - 组装 `contextPrompt` 处（`:782` 的
+     `deps.contextPackToPrompt(contextPack, restContextTokenBudget, { excludeOutline: true })`）：
+     当覆盖存在时，给 `contextPackToPrompt` 传**浅拷贝**
+     `{ ...contextPack, writingStyle: override }`。
      **不要原地改 `contextPack`**——它可能来自 context-hub 缓存，原地改会污染缓存。
    - 「本次不用文风」= `writingStyle: ""`。
-3. **接到工具层**：照 `skillsPrompt` 的通路形状（`run-chapter-workflow.ts:138`
-   → `tools/index.ts:127` → `useAgentConfig` → `chat-panel.tsx:1084-1087`），
-   新增一个同形状的 getter/参数。**独立命名**，不要与 skills 混用。
+3. **接到工具层**：照 `skillsPrompt` 的**「getter 注入」**通路形状
+   （**已实测确认为一条完整链**，不是参数一路透传）：
+   - 产出（pull 模型）：`chat-panel.tsx:1084` 的 `getSelectedSkillsPrompt` 回调
+     → `:1095` 传给 `useAgentConfig(agentSystemPrompt, undefined, getSelectedSkillsPrompt)`
+     → `use-agent-config.ts:27`（形参）/`:159`（转交 tools）/`:189`（依赖）
+     → `tools/index.ts:67`（选项类型）/`:127`（转发）
+     → `run-chapter-workflow.ts:34`（选项）/`:138` 调 `options.getSelectedSkillsPrompt?.()`
+     → `:147` 作为 `skillsPrompt` 进 `DeepChapterGenerationInput`
+     → 消费点 `deep-chapter-generation.ts:830`/`:909`/`:1026`/`:1378`。
+   - **独立命名**，不要与 skills 混用。
+   - ⚠️ **为什么用 getter 而不是工具参数**：`run-chapter-workflow.ts:33-34` 的注释写明
+     「不作为工具参数，避免模型漏传」——即这条通道是**应用侧兜底**，
+     不依赖模型在工具调用里带上它。新通道照抄这个语义。
+
+   #### ⚠️ 跨批整合要求（**必须处理，否则最主流的路径不生效**）
+
+   **丙-2b 会新增第二个 `runDeepChapterGeneration` 直接调用方**（章节区「确认细纲 →
+   就地生成正文」，见《`docs/scratch-20261010-事件细纲流程-实施计划.md`》§2 步骤 5）。
+   那条调用**不在上面的 getter 链上**（它不经 agent 回合、不经 `useAgentConfig`）。
+
+   → 丁-2 必须**同时**覆盖两个调用方：
+   - 对话/写作助手路径：走上面的 getter 链；
+   - **章节区直接调用路径**：在构造 `DeepChapterGenerationInput` 时**直接**把覆盖文本塞进去。
+   → 否则「在章节区选了文风 → 在章节区生成正文」这条**最符合用户原话
+   （『在生成功能中新增文风写作选择』）的路径不生效**，而对话路径却生效，
+   会变成最难排查的那种「一半有用」的 bug。
+
+   **裁决（避免实现者两头猜）**：**优先用参数**（`DeepChapterGenerationInput` 上的独立可选字段），
+   两个调用方各自传值。**不要**让 `runDeepChapterGeneration` 自己去读一个全局
+   transient store —— 虽然它已经在 `:529` 读 `novelConfig`，但
+   「本次生成临时覆盖」是一次性语义，放进全局 store 极易**泄漏到下一次生成**
+   （用户下次没选文风却仍被套上上次的），且难以测试。
+   若确实要放 store，必须做成**一次性消费**（照
+   `consumePendingReferenceTokens`（`chat-store.ts:429-433`）的「读+清」先例）并写单测。
 4. **UI**：复用 `DeAiSkillPicker` 的形状（`de-ai-skill-picker.tsx:144-257`），
    在章节编辑器工具栏（先例 `preview-panel.tsx:2102-2114`）加一个「文风写作」选择器。
    - ⚠️ **不要动丙加的那枚「生成章节细纲」按钮**，也不要碰 `:174` 钉住的
