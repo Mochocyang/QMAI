@@ -217,3 +217,11 @@ git branch -d feature/scene-dialogue-simulation
 ## 10. 更新记录
 
 - 2026-10-10 21:1x：创建本文件。记录隔离边界、基线 **720/6957**（基点 `dcf8b38`）、EOL 假阳性坑、vitest worker 抖动，以及只读调查得出的「属既有剧情推演室扩展」结论与三处精确缺口。
+- 2026-10-11 12:1x：实现**「舞台情景」（人物对话模拟）**。新建 lib：`scenario-types.ts` / `scenario-participant-selector.ts` / `scenario-moderator.ts` / `scenario-engine.ts` / `scenario-store.ts` / `scenario-export.ts`（+2 个 spec，共 18 用例）；新建组件 `scenario-setup-panel.tsx` / `scenario-room-view.tsx`。修改：`story-simulation-store.ts`（新增 `scenario-setup`/`scenario-running` phase 与状态）、`story-simulation-view.tsx`（渲染分支+流程 handler）、`simulation-config-panel.tsx`（入口）、`agent-profile-builder.ts`（导出两个工具函数）、`task-router.ts`（新增 `scenario_simulate` 意图）、`chat-panel.tsx`/`context-trace-panel.tsx`/`confidence-gate-plugin.ts`（意图标签）、`zh.json`（`storySimulation.scenario*`）。
+  - 语义约定：**角色数 = 上台发言角色数（不含主持人）**，主持人默认由用户担任、也可由某角色兼任；**1 轮 = 每位角色各发言一次**，起始发言者逐轮轮转。
+  - 验证：`npm run typecheck` 通过；相关 16 文件/144 用例全绿；全套 722 文件（基线 +2），4 个失败文件单独重跑全部通过（vitest worker 抖动，非本次改动）；无 EOL 假阳性。
+- 2026-10-11 12:4x：**舞台情景第二批优化**。成本护栏（`estimateScenarioMessages` + 面板勾选确认）、结果落地（新增 `scenario-importer.ts` 导入为一章草稿；房间视图「复制全部 / 插入到章节」）、可配置性（面板暴露提取章节数与重新分析、主持人串场间隔并持久化进 `ScenarioSetup.moderatorEveryRounds`）、主持人行为说明、UI 接线测试 `scenario-ui-wiring.spec.ts`。
+  - 提取去重：视图用 `scenarioExtractedSigRef`（`章节数#nonce`）避免重复提取，首次进入复用主流程结果。
+  - 验证：相关 18 文件/154 用例全绿；**全套 726 文件 / 7003 通过 / 0 失败**；无 EOL 假阳性；仍未提交。
+
+
