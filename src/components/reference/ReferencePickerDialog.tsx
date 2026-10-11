@@ -9,10 +9,14 @@ import {
   SKILL_MODE_LABELS,
 } from "@/lib/novel/skill-library"
 
+/*
+ * 技能库下的子类型清单（**全集**，不是每次都渲染的清单）。
+ * 渲染处按「这次真的有条目」再过滤一次，见 `availableSkillSubtabs`。
+ */
 const SKILL_SUBTABS: Array<{ key: SkillSubtype; label: string }> = [
   { key: "deai", label: "去AI味技能" },
   { key: "writing", label: "写作Skill" },
-  // 丁-3：文风预设。过滤逻辑按 skillSubtype 相等判断，故这里只加一行。
+  // 丁-3：文风预设（项目里的文风库）。只有真的产出了文风条目的面板才会看到这个子 tab。
   { key: "style", label: "文风" },
 ]
 
@@ -100,15 +104,45 @@ export function ReferencePickerDialog({
     [providers],
   )
 
+  /*
+   * 子 tab 只列出**这次真的有条目**的子类型。
+   *
+   * `SKILL_SUBTABS` 是模块级共享常量，而各面板的 skill provider 覆盖的子类型并不一样：
+   * 大纲/细纲面板只吐 deai/writing（它的 agent 配置里没有文风覆盖通道，
+   * 见 `outline-chat-panel.tsx` 的说明）。无条件渲染全部子 tab，就会给它摆出一个
+   * 永远「暂无内容」的「文风」子 tab —— 用户会读成「库里没有文风」，
+   * 而不是「这个面板不支持引用文风」，这正是本批要消灭的死入口形状
+   * （只差一个层级：不是死条目，而是死子 tab）。
+   *
+   * 判据用**未经搜索过滤的** `items`：搜索是用户当下的筛选动作，
+   * 不该让子 tab 随关键词出现/消失。列表整体为空时（还没加载完，或库确实是空的）
+   * 保留全部子 tab 并显示「暂无内容」—— 那才是「库里没有」的诚实表达。
+   */
+  const availableSkillSubtabs = useMemo(
+    () => (items.length === 0
+      ? SKILL_SUBTABS
+      : SKILL_SUBTABS.filter((subtab) => items.some((item) => item.skillSubtype === subtab.key))),
+    [items],
+  )
+
+  /*
+   * 当前子 tab 若已不在可用列表里（例如项目里只有文风预设、没有去AI味技能），
+   * 落到第一个可用子 tab。否则会出现「高亮停在一个看不见的 tab 上、列表恒为空」。
+   * 列表为空时 `availableSkillSubtabs === SKILL_SUBTABS`，这里恒等于原状态。
+   */
+  const effectiveSkillSubtab = availableSkillSubtabs.some((subtab) => subtab.key === skillSubtab)
+    ? skillSubtab
+    : availableSkillSubtabs[0]?.key ?? skillSubtab
+
   const filteredItems = useMemo(() => {
     const keyword = search.trim().toLowerCase()
     let result = items
     if (activeTab === "skill") {
-      result = result.filter((item) => item.skillSubtype === skillSubtab)
+      result = result.filter((item) => item.skillSubtype === effectiveSkillSubtab)
     }
     if (!keyword) return result
     return result.filter((item) => item.title.toLowerCase().includes(keyword))
-  }, [items, search, activeTab, skillSubtab])
+  }, [items, search, activeTab, effectiveSkillSubtab])
 
   function toggleItem(item: ReferenceToken) {
     setSelected((prev) => {
@@ -175,14 +209,14 @@ export function ReferencePickerDialog({
           </div>
 
           <div className="flex min-w-0 flex-1 flex-col">
-            {activeTab === "skill" && (
+            {activeTab === "skill" && availableSkillSubtabs.length > 0 && (
               <div className="flex gap-1 border-b px-3 py-2">
-                {SKILL_SUBTABS.map((subtab) => (
+                {availableSkillSubtabs.map((subtab) => (
                   <button
                     key={subtab.key}
                     type="button"
                     className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
-                      skillSubtab === subtab.key
+                      effectiveSkillSubtab === subtab.key
                         ? "bg-primary text-primary-foreground"
                         : "text-muted-foreground hover:bg-accent hover:text-foreground"
                     }`}

@@ -37,6 +37,28 @@ import type { AgentConfig, AgentMessage } from "@/lib/agent/types"
 import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
 
 const source = readFileSync(resolve(__dirname, "outline-chat-panel.tsx"), "utf8")
+
+/*
+ * 去注释后的源码副本。
+ *
+ * ⚠️ 存在的理由是本分支反复栽过的缺陷类：**对整份源码文本做正则，会被注释满足**
+ * （丙-4 的 F4 是注释里的 CSS 片段满足了「真实规则存在」的断言；
+ * 丁-3 第一版是本文件下面那条「本面板的 agent 配置」—— 该短语全文件只出现在注释里，
+ * 于是它只可能因为**注释被改写**而失败，不可能因为行为而失败）。
+ * 所以任何源码形状断言都必须匹配去注释后的副本。
+ *
+ * ⚠️ 已知局限（此处够用即可，不追求通用）：不做词法分析，因此**字符串字面量里**
+ * 的 `//` 或 `/*` 也会被当成注释起点。对本文件够用 —— 断言只看
+ * `subtype:` 赋值与 `runDeepChapterGeneration` / `getWritingStyleIdOverride` 两个符号，
+ * 都不含这类字面量。若将来这条断言挪去别的文件，先复核这一点。
+ */
+function stripComments(text: string): string {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/[^\n]*/g, "")
+}
+
+const sourceWithoutComments = stripComments(source)
 const outlineSectionConfigsSource = readFileSync(resolve(__dirname, "../../lib/novel/outline-section-configs.ts"), "utf8")
 
 const GEMINI_OUTLINE_THOUGHT_DUMP = [
@@ -687,12 +709,24 @@ describe("OutlineChatPanel controls", () => {
    * `runDeepChapterGeneration` / `getWritingStyleIdOverride`，所以
    * `run_chapter_workflow` 不会注册，`@` 一条文风在生成链上没有任何消费者。
    * 加进去只会得到一个「弹窗里能选、选了没反应」的死条目。
-   * （这条是源码文本钉子：它钉住的是「没有第二处注入」这个决定，
-   * 不是一条行为保证。行为面的对照在 `style-reference.spec.ts` 与 `chat-panel.mount.spec.tsx`。）
+   *
+   * ⚠️ 第一版这条用例里有一句 `toContain("本面板的 agent 配置")`，**已删除**：
+   * 那个短语在 `outline-chat-panel.tsx` 全文只出现在注释里，所以它只可能因为
+   * 注释被改写而失败（实测：把注释措辞改成「本面板的 agent 设置」，语义一字未变，
+   * 用例就红了），行为保证为 0，同时是假阳性发生器。
+   *
+   * 现在钉的是**去注释后**的源码里没有第二处文风条目注入，且两个覆盖通道符号
+   * 一次都没被引入。注意这条只是「没有第二处注入」的源码钉子；
+   * 真正的**行为**保证在 `ReferencePickerDialog.spec.tsx`
+   * （没有文风条目的 provider ⇒ 弹窗里根本不会出现「文风」子 tab）
+   * 与 `chat-panel.mount.spec.tsx`（有文风条目 ⇒ 选了真的生效）。
    */
   it("does not offer writing-style entries in the outline reference picker（无消费者的入口不摆出来）", () => {
-    expect(source).not.toContain('subtype: "style"')
-    expect(source).toContain("本面板的 agent 配置")
+    expect(sourceWithoutComments).not.toMatch(/subtype:\s*(STYLE_SKILL_SUBTYPE|["']style["'])/)
+    expect(sourceWithoutComments).not.toContain("runDeepChapterGeneration")
+    expect(sourceWithoutComments).not.toContain("getWritingStyleIdOverride")
+    // 反向对照：这条断言的对象确实是「有内容的源码」，不是恒真的空串
+    expect(sourceWithoutComments).toContain('subtype: "deai"')
   })
 
   it("keeps outline generation menu in the reference input footer before model selection", () => {

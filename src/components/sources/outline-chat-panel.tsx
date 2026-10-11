@@ -2276,6 +2276,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
        * 加进去就是一个「看着接上、其实断开」的死条目，正是丁-3 存在的理由。
        * 大纲/细纲不写正文，文风覆盖对它也没有语义。
        * ⇒ 文风条目只在 `chat-panel.tsx` 的 getter 里注入（那里有覆盖通道的产出端）。
+       * 连带效果：引用弹窗只为「真有条目」的子类型摆子 tab
+       * （`ReferencePickerDialog` 的 `availableSkillSubtabs`），所以本面板里
+       * 用户看到的是**没有**「文风」子 tab，而不是一个永远「暂无内容」的空子 tab。
        */
       createSkillProvider(() => {
         const deAiSkills = deAiSkillConfig

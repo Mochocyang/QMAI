@@ -38,6 +38,25 @@ async function click(element: Element | null) {
   })
 }
 
+/*
+ * 点选工具栏「文风写作」里的一个选项（预设 / 「本次不用文风」/「跟随项目设置的文风」）。
+ *
+ * 放在模块级只此一份：丁-2 的产出端用例与丁-3 的消费端用例（含「@ 引用压过**具体**选中值」
+ * 那条）都点同一个控件，两份实现会让其中一份漂移。
+ */
+async function pickWritingStyleOption(container: HTMLElement, text: string) {
+  const trigger = container.querySelector<HTMLButtonElement>('[data-testid="writing-style-picker-trigger"]')
+  expect(trigger, "输入工具栏应有「文风写作」选择器").not.toBeNull()
+  await click(trigger)
+  const popover = container.querySelector('[data-testid="writing-style-picker-popover"]')
+  expect(popover, "浮层应已打开").not.toBeNull()
+  // 预设是 role="option"，「本次不用」/「跟随项目设置」是普通按钮 ⇒ 一起找
+  const option = Array.from(popover!.querySelectorAll<HTMLButtonElement>("button"))
+    .find((item) => item.textContent?.includes(text))
+  expect(option, `浮层里应有「${text}」`).toBeDefined()
+  await click(option!)
+}
+
 describe("ChatPanel mount 基础设施", () => {
   it("根据当前会话是否已发送用户消息控制新建对话按钮", async () => {
     const first = await renderChatPanel()
@@ -345,19 +364,6 @@ describe("ChatPanel 的「文风写作」产出端", () => {
     return args![3] as () => string | null | undefined
   }
 
-  async function pickStyle(container: HTMLElement, text: string) {
-    const trigger = container.querySelector<HTMLButtonElement>('[data-testid="writing-style-picker-trigger"]')
-    expect(trigger, "输入工具栏应有「文风写作」选择器").not.toBeNull()
-    await click(trigger)
-    const popover = container.querySelector('[data-testid="writing-style-picker-popover"]')
-    expect(popover, "浮层应已打开").not.toBeNull()
-    // 预设是 role="option"，「本次不用」/「跟随项目设置」是普通按钮 ⇒ 一起找
-    const option = Array.from(popover!.querySelectorAll<HTMLButtonElement>("button"))
-      .find((item) => item.textContent?.includes(text))
-    expect(option, `浮层里应有「${text}」`).toBeDefined()
-    await click(option!)
-  }
-
   afterEach(() => {
     vi.mocked(readFile).mockImplementation(async () => "")
   })
@@ -371,15 +377,15 @@ describe("ChatPanel 的「文风写作」产出端", () => {
     // 没有覆盖时 getter 返回 undefined（= 沿用项目启用项），不能返回 null
     expect(writingStyleGetter()()).toBeUndefined()
 
-    await pickStyle(view.container, "甲书 · 文风")
+    await pickWritingStyleOption(view.container, "甲书 · 文风")
     expect(writingStyleGetter()()).toBe("style-a")
 
     // 「本次不用文风」= null，且**不能**被抹成 undefined
-    await pickStyle(view.container, "本次不用文风")
+    await pickWritingStyleOption(view.container, "本次不用文风")
     expect(writingStyleGetter()()).toBeNull()
 
     // 「跟随项目设置」把它退回没有覆盖
-    await pickStyle(view.container, "跟随项目设置的文风")
+    await pickWritingStyleOption(view.container, "跟随项目设置的文风")
     expect(writingStyleGetter()()).toBeUndefined()
 
     await view.unmount()
@@ -414,7 +420,7 @@ describe("ChatPanel 的「文风写作」产出端", () => {
     const view = await renderChatPanel({ activeConversation: true })
     await flushEffects()
 
-    await pickStyle(view.container, "甲书 · 文风")
+    await pickWritingStyleOption(view.container, "甲书 · 文风")
 
     expect(
       atomicMock.mock.calls.filter(([path]) => String(path).includes("writing-style.json")),
@@ -618,13 +624,7 @@ describe("ChatPanel 的「@ 引用文风」消费端（丁-3）", () => {
   it("工具栏选了「本次不用文风」时，本条消息的 @ 引用仍然生效", async () => {
     const view = await renderPanel()
 
-    const trigger = view.container.querySelector<HTMLButtonElement>('[data-testid="writing-style-picker-trigger"]')
-    expect(trigger, "输入工具栏应有「文风写作」选择器").not.toBeNull()
-    await click(trigger)
-    const popover = view.container.querySelector('[data-testid="writing-style-picker-popover"]')
-    const disableOption = Array.from(popover!.querySelectorAll<HTMLButtonElement>("button"))
-      .find((button) => button.textContent?.includes("本次不用文风"))
-    await click(disableOption!)
+    await pickWritingStyleOption(view.container, "本次不用文风")
     expect(writingStyleGetter()(), "「本次不用文风」= null，且不许被抹成 undefined").toBeNull()
 
     await enqueueReferences([styleReferenceToken("ref-style-a", "style-a", "甲书 · 文风")])
@@ -634,6 +634,37 @@ describe("ChatPanel 的「@ 引用文风」消费端（丁-3）", () => {
     expect(
       writingStyleGetter()(),
       "本条消息点名的文风必须赢过工具栏的「本次不用」——否则引用被静默丢掉",
+    ).toBe("style-a")
+
+    await waitForRunSettled("conv_mount")
+  })
+
+  /*
+   * ⚠️ 这条补的是**优先级裁决里最容易漏掉的那一半**。
+   *
+   * 「@ 引用 > 工具栏选择器」有两半：选择器是 `null`（本次不用）那一半，和
+   * 选择器是**具体某一条**那一半。只钉 `null` 那一半是不够的 ——
+   * 实测把 getter 改成「**具体选中值**赢、`null` 不赢」：
+   *     () => (typeof sessionWritingStyleId === "string"
+   *       ? sessionWritingStyleId
+   *       : (ref.current !== undefined ? ref.current : sessionWritingStyleId))
+   * 加上这条用例之前，mount spec 20 passed、**全量 738 文件 / 7419 通过 / 0 失败**、
+   * typecheck exit 0 —— 也就是这个回归会全绿发布。
+   * 而「工具栏选了乙书、又在同一条消息里 @ 甲书」正是最自然的真实交互。
+   */
+  it("工具栏选到**具体**一条文风时，本条消息的 @ 引用仍然赢", async () => {
+    const view = await renderPanel()
+
+    await pickWritingStyleOption(view.container, "乙书 · 文风")
+    expect(writingStyleGetter()(), "工具栏的具体选中值应先生效").toBe("style-b")
+
+    await enqueueReferences([styleReferenceToken("ref-style-a", "style-a", "甲书 · 文风")])
+    await typePrompt(view.container, "这条消息点名改用甲书文风")
+    await sendMessage(view.container)
+
+    expect(
+      writingStyleGetter()(),
+      "工具栏选中了乙书、本条消息又 @ 了甲书 ⇒ 必须用甲书；否则用户刚敲的引用被静默丢弃",
     ).toBe("style-a")
 
     await waitForRunSettled("conv_mount")

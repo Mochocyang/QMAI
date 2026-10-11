@@ -1280,11 +1280,13 @@ export function ChatPanel() {
           modes: skill.modes,
         }))
         /*
-         * 文风预设条目：`name` 就是预设名——它同时是弹窗列表的**搜索键**
-         * （`ReferencePickerDialog` 按 `title` 过滤）与芯片上的展示名，
-         * 所以不能像其它技能那样把机器名放这里。
-         * `id` 会被 `createSkillProvider` 透传成 `token.skillId`，
-         * 也就是 `collectReferencedStylePresetIds` 读回的那个预设 id。
+         * 文风预设条目：
+         * - `name` = 预设名，它是弹窗列表的**搜索键**（`ReferencePickerDialog` 按 `title` 过滤）
+         *   与 **token 的 title**（`createSkillProvider` 的 `title: skill.name`）。
+         *   注意芯片上显示的不是它，而是 `displayTitle = truncateTitle(name)`
+         *   （超过 20 字会被截断；三种子类型一样，不是文风特有的行为）。
+         * - `id` 会被 `createSkillProvider` 透传成 `token.skillId`，
+         *   也就是 `collectReferencedStylePresetIds` 读回的那个预设 id。
          */
         const stylePresets = writingStylePresets.map((preset) => ({
           id: preset.id,
