@@ -13,6 +13,7 @@ import { GraphSidebarPanel } from "./graph-sidebar-panel"
 import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
 import { FrameworkList } from "@/components/novel/story-simulation/framework-list"
 import { useListFileDrop } from "@/components/novel/use-list-file-drop"
+import { SidebarBottomActions } from "@/components/layout/sidebar-bottom-actions"
 
 import { useWikiStore } from "@/stores/wiki-store"
 import { useChatStore } from "@/stores/chat-store"
@@ -87,6 +88,7 @@ function SearchHistoryPanel() {
           </div>
         )}
       </div>
+      <SidebarBottomActions />
     </div>
   )
 }
@@ -295,6 +297,7 @@ function StorySimulationSidebarPanel() {
           </div>
         </div>
       )}
+      <SidebarBottomActions />
     </div>
   )
 }
@@ -1096,6 +1099,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <SidebarBottomActions />
     </div>
   )
 }

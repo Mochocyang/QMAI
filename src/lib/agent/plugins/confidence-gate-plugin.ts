@@ -33,6 +33,7 @@ const INTENT_LABELS: Record<NovelTaskIntent, string> = {
   story_framework_generate: "故事框架生成",
   multi_agent_simulate: "多智能体推演",
   character_interview: "角色采访",
+  scenario_simulate: "舞台情景",
 }
 
 export function intentToLabel(intent: NovelTaskIntent): string {

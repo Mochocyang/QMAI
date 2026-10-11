@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent } from "react"
-import { BookOpen, Brain, Check, Grid2X2, GitBranch, HeartHandshake, History, Library, Minus, Moon, PanelLeft, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, Wrench, X } from "lucide-react"
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
+import { BookOpen, Brain, Grid2X2, GitBranch, HeartHandshake, History, Library, Minus, PanelLeft, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, Wrench, X } from "lucide-react"
 import logoImg from "@/assets/QM-LOGO.png"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore, type WikiState } from "@/stores/wiki-store"
@@ -16,7 +16,8 @@ import { CreateProjectDialog } from "@/components/project/create-project-dialog"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { applyTheme } from "@/lib/theme-utils"
 import { saveTheme } from "@/lib/project-store"
-import { UI_TEST_SKINS, readUiTestAiHintDismissed, readUiTestDirectoryHintDismissed, readUiTestSkin, writeUiTestAiHintDismissed, writeUiTestDirectoryHintDismissed, writeUiTestSkin, type UiTestSkin } from "@/lib/ui-test"
+import { readUiTestAiHintDismissed, readUiTestDirectoryHintDismissed, readUiTestSkin, writeUiTestAiHintDismissed, writeUiTestDirectoryHintDismissed, writeUiTestSkin, type UiTestSkin } from "@/lib/ui-test"
+import { AppearanceSkinProvider } from "@/components/layout/appearance-context"
 import { readUiTestWorkspacePreference as readPreference, uiTestWorkspaceKey as preferenceKey } from "@/lib/ui-test-workspace-preferences"
 import { availablePrimaryNav, movePrimaryNav, normalizePrimaryNav, PRIMARY_NAV_LONG_PRESS_MS, readPrimaryNav, writePrimaryNav, type PrimaryNavItem, type PrimaryNavView } from "@/lib/ui-test-primary-nav"
 import { normalizePath } from "@/lib/path-utils"
@@ -42,7 +43,7 @@ interface UiTestShellProps {
 const TOOL_GROUPS = [
   [ { view: "lint", label: "记忆中心", icon: Brain }, { view: "graph", label: "小说图谱", icon: GitBranch }, { view: "soul", label: "灵魂", icon: Sparkles }, { view: "skillLibrary", label: "技能库", icon: Sparkles }, { view: "bookAnalysis", label: "拆书库", icon: Library } ],
   [ { view: "storySimulation", label: "剧情推演室 · 测试版", icon: BookOpen }, { view: "reviewCenter", label: "审查中心", icon: ShieldCheck }, { view: "search", label: "剧情搜索", icon: Search } ],
-  [ { view: "maintenance", label: "维护工具", icon: Wrench }, { view: "trash", label: "回收站", icon: Trash2 }, { view: "settings", label: "设置", icon: Settings } ],
+  [ { view: "maintenance", label: "维护工具", icon: Wrench }, { view: "trash", label: "回收站", icon: Trash2 } ],
 ] as const
 function menuKeyboard(event: KeyboardEvent<HTMLDivElement>) {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return
@@ -87,7 +88,6 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const [showContact, setShowContact] = useState(false)
   const [libraryError, setLibraryError] = useState("")
   const [toolOpen, setToolOpen] = useState(false)
-  const [skinOpen, setSkinOpen] = useState(false)
   const [primaryNav, setPrimaryNav] = useState<PrimaryNavItem[]>(() => readPrimaryNav())
   const [navMenu, setNavMenu] = useState<PrimaryNavView | null>(null)
   const [navMenuSection, setNavMenuSection] = useState<"move" | "replace" | "add" | null>(null)
@@ -102,9 +102,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const [preference, setPreference] = useState(() => readPreference(project?.id))
   const preferenceProject = useRef(project?.id)
   const toolsRef = useRef<HTMLDivElement>(null)
-  const skinsRef = useRef<HTMLDivElement>(null)
   const toolRef = useRef<HTMLButtonElement>(null)
-  const skinRef = useRef<HTMLButtonElement>(null)
   const directoryRef = useRef<HTMLButtonElement>(null)
   const cancelImportRef = useRef<(() => void) | null>(null)
   const writing = Boolean(project && (activeView === "wiki" || activeView === "sources"))
@@ -212,22 +210,22 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
     })
   }, [activeView, chatExpanded, outlineExpanded, project?.id])
   useEffect(() => {
-    if (!toolOpen && !skinOpen) return
-    const menu = toolOpen ? toolsRef.current : skinsRef.current
+    if (!toolOpen) return
+    const menu = toolsRef.current
     menu?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus()
     const outside = (event: PointerEvent) => {
       if (menu?.contains(event.target as Node)) return
-      setToolOpen(false); setSkinOpen(false); setNavMenu(null)
+      setToolOpen(false); setNavMenu(null)
     }
     const escape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape") return
-      event.preventDefault(); setToolOpen(false); setSkinOpen(false); setNavMenu(null)
-      ;(toolOpen ? toolRef : skinRef).current?.focus()
+      event.preventDefault(); setToolOpen(false); setNavMenu(null)
+      toolRef.current?.focus()
     }
     // 捕获阶段接收外部点击，避免编辑器等子区域阻止冒泡后菜单无法关闭。
     document.addEventListener("pointerdown", outside, true); document.addEventListener("keydown", escape)
     return () => { document.removeEventListener("pointerdown", outside, true); document.removeEventListener("keydown", escape) }
-  }, [toolOpen, skinOpen])
+  }, [toolOpen])
   useEffect(() => {
     if (!navMenu) return
     if (!navMenuSection) navMenuRef.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.focus()
@@ -248,7 +246,6 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const minimizeWindow = () => { if (isTauri()) void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().minimize()).catch(() => undefined) }
   const toggleMaximizeWindow = () => { if (isTauri()) void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().toggleMaximize()).catch(() => undefined) }
   const closeWindow = () => { if (isTauri()) void import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().close()).catch(() => undefined) }
-  const chooseSkin = (next: UiTestSkin) => { setSkin(next); setSkinOpen(false); skinRef.current?.focus() }
   const toggleDirectory = () => setPreference((previous) => ({ ...previous, directory: { ...previous.directory, [activeView]: !sidebarVisible } }))
   const updatePrimaryNav = (items: PrimaryNavItem[]) => {
     const next = normalizePrimaryNav(items.map((item) => item.view))
@@ -269,7 +266,6 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
     setNavMenuSection(null)
     setNavMenu(view)
     setToolOpen(false)
-    setSkinOpen(false)
   }
   const pressNav = (event: React.PointerEvent<HTMLElement>, view: PrimaryNavView) => {
     if (event.pointerType === "mouse" && event.button !== 0) return
@@ -305,7 +301,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
     setNavMenu(null)
   }
   const navigate = async (view: NavView) => {
-    setToolOpen(false); setSkinOpen(false)
+    setToolOpen(false)
     if (!project && view !== "settings") return
     if (view === "settings") setShowGlobalSettings(true)
     if (activeView === view) return
@@ -326,7 +322,14 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   }
   const handleCreatedProject = async (created: WikiProject) => { await onProjectOpened(created); setActiveView("sources") }
 
+  /**
+   * 皮肤切换器已从顶栏移到侧栏底部（SidebarBottomActions 的「外观」）。
+   * 这里把皮肤状态通过 context 传下去，避免穿过层层侧栏面板做 prop drilling。
+   */
+  const appearanceValue = useMemo(() => ({ skin, selectSkin: setSkin }), [skin])
+
   return (
+    <AppearanceSkinProvider value={appearanceValue}>
     <div className="ui-test-root" data-skin={skin} data-view={showShelf ? "shelf" : activeView} data-platform={macOS ? "macos" : undefined} data-window-focused={windowFocused ? "true" : "false"} data-window-filled={windowFilled ? "true" : undefined} onContextMenu={(event) => event.preventDefault()}>
       {!windowFilled && (["top", "right", "bottom", "left", "nw", "ne", "sw", "se"] as const).map((edge) => <div key={edge} className={`ui-test-resize-edge ${edge}${edge.length === 2 ? " corner" : ""}`} data-resize-edge={edge} onPointerDown={(event) => {
         if (event.button !== 0 || !isTauri()) return
@@ -367,23 +370,14 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
             </>}
             <div ref={toolsRef} className="ui-test-menu-anchor">
               <Tooltip>
-                <TooltipTrigger render={<button ref={toolRef} type="button" className="ui-test-icon-btn" aria-label="创作工具" aria-haspopup="menu" aria-expanded={toolOpen} onClick={() => { setToolOpen(!toolOpen); setSkinOpen(false) }}><Grid2X2 /></button>} />
+                <TooltipTrigger render={<button ref={toolRef} type="button" className="ui-test-icon-btn" aria-label="创作工具" aria-haspopup="menu" aria-expanded={toolOpen} onClick={() => setToolOpen(!toolOpen)}><Grid2X2 /></button>} />
                 <TooltipContent>创作工具</TooltipContent>
               </Tooltip>
               {toolOpen && <div className="ui-test-menu-pop" role="menu" aria-label="创作工具" data-tauri-drag-region="false" onKeyDown={menuKeyboard}>
                 <div className="ui-test-menu-title">创作工具 · {project?.name ?? "未选择小说"}</div>
                 {TOOL_GROUPS.map((group, index) => <div className="ui-test-menu-group" key={index}>
-                  {group.map(({ view, label, icon: Icon }) => <button key={view} type="button" role="menuitem" className="ui-test-menu-item" disabled={!project && view !== "settings"} onClick={() => navigate(view)}><Icon /><span>{label}</span></button>)}
+                  {group.map(({ view, label, icon: Icon }) => <button key={view} type="button" role="menuitem" className="ui-test-menu-item" disabled={!project} onClick={() => navigate(view)}><Icon /><span>{label}</span></button>)}
                 </div>)}
-              </div>}
-            </div>
-            <div ref={skinsRef} className="ui-test-menu-anchor">
-              <Tooltip>
-                <TooltipTrigger render={<button ref={skinRef} type="button" className="ui-test-icon-btn" aria-label="外观" aria-haspopup="menu" aria-expanded={skinOpen} onClick={() => { setSkinOpen(!skinOpen); setToolOpen(false) }}><Moon /></button>} />
-                <TooltipContent>外观</TooltipContent>
-              </Tooltip>
-              {skinOpen && <div className="ui-test-menu-pop ui-test-skin-menu" role="menu" aria-label="外观" data-tauri-drag-region="false" onKeyDown={menuKeyboard}><div className="ui-test-menu-title">外观</div>
-                {UI_TEST_SKINS.map(item => <button type="button" role="menuitemradio" aria-checked={skin === item.id} className="ui-test-menu-item" key={item.id} onClick={() => chooseSkin(item.id)}><span className={`ui-test-skin-dot ui-test-skin-dot-${item.id}`} /><span className="ui-test-skin-copy"><span>{item.name}</span><small>{item.hint}</small></span>{skin === item.id && <Check />}</button>)}
               </div>}
             </div>
             <Tooltip>
@@ -417,5 +411,6 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
       <Dialog open={showActivity} onOpenChange={setShowActivity}><DialogContent className="ui-test-activity-dialog"><DialogHeader><DialogTitle>后台活动</DialogTitle><DialogDescription>查看进度、重试错误，不必离开写作。</DialogDescription></DialogHeader><div className="ui-test-activity-body"><RawSourcesSection uiTestActivityView onCancelExtraction={() => cancelImportRef.current?.()} /><BookAnalysisActivitySection onNavigate={() => setShowActivity(false)} /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowActivity(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
       <Dialog open={showContact} onOpenChange={setShowContact}><DialogContent className="ui-test-contact-dialog" aria-label="联系与支持"><DialogTitle className="sr-only">联系与支持</DialogTitle><div className="ui-test-contact-body"><ContactSupportSection /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowContact(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
     </div>
+    </AppearanceSkinProvider>
   )
 }

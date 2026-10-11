@@ -20,6 +20,10 @@ import type {
 } from "@/lib/novel/story-simulation/types";
 import type { SerializedSimulationSnapshot } from "@/lib/novel/story-simulation/simulation-serializer";
 import type { SavedInterview } from "@/lib/novel/story-simulation/interview-store";
+import type {
+  ScenarioSession,
+  ScenarioStreamingState,
+} from "@/lib/novel/story-simulation/scenario-types";
 
 export interface SavedSimulationResult {
   id: string;
@@ -46,7 +50,12 @@ type SimulationPhase =
   | "report-generating"
   | "report-viewing"
   | "draft-generating"
-  | "draft-viewing";
+  | "draft-viewing"
+  | "scenario-setup"
+  | "scenario-running";
+
+/** 舞台情景流式生成中的单条发言状态（用于房间视图实时展示）。 */
+export type { ScenarioStreamingState };
 
 export interface SimulationPreset {
   intent: string;
@@ -137,6 +146,21 @@ interface StorySimulationState {
   isPlaying: boolean;
   /** 播放速度 */
   playbackSpeed: number;
+  /** 舞台情景：当前会话 */
+  scenarioSession: ScenarioSession | null;
+  /** 舞台情景：正在流式生成的发言 */
+  scenarioStreaming: ScenarioStreamingState | null;
+  /** 舞台情景：进度（已完成 / 预估总数） */
+  scenarioProgress: { done: number; total: number } | null;
+  /** 舞台情景：是否正在提取角色 */
+  scenarioExtracting: boolean;
+
+  setScenarioSession: (session: ScenarioSession | null) => void;
+  setScenarioStreaming: (streaming: ScenarioStreamingState | null) => void;
+  setScenarioProgress: (
+    progress: { done: number; total: number } | null,
+  ) => void;
+  setScenarioExtracting: (extracting: boolean) => void;
 
   setPhase: (phase: SimulationPhase) => void;
   setMode: (mode: SimulationMode) => void;
@@ -262,6 +286,15 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   historyIndex: -1,
   isPlaying: false,
   playbackSpeed: 1,
+  scenarioSession: null,
+  scenarioStreaming: null,
+  scenarioProgress: null,
+  scenarioExtracting: false,
+
+  setScenarioSession: (scenarioSession) => set({ scenarioSession }),
+  setScenarioStreaming: (scenarioStreaming) => set({ scenarioStreaming }),
+  setScenarioProgress: (scenarioProgress) => set({ scenarioProgress }),
+  setScenarioExtracting: (scenarioExtracting) => set({ scenarioExtracting }),
 
   setPhase: (phase) => set({ phase }),
   setMode: (mode) => set({ mode }),
@@ -568,6 +601,10 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
       historyIndex: -1,
       isPlaying: false,
       playbackSpeed: 1,
+      scenarioSession: null,
+      scenarioStreaming: null,
+      scenarioProgress: null,
+      scenarioExtracting: false,
     }),
   initWithPreset: (preset) =>
     set((state) => {
@@ -582,6 +619,8 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
           preset.hasFramework && state.savedResults.length > 0
             ? "report-viewing"
             : "configuring";
+      } else if (preset.intent === "scenario_simulate") {
+        phase = "scenario-setup";
       }
 
       return {

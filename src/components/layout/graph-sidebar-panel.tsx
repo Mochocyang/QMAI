@@ -4,6 +4,7 @@ import { Filter, SlidersHorizontal, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { GRAPH_MODE_LABELS, type GraphMode } from "@/lib/graph-mode"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
+import { SidebarBottomActions } from "@/components/layout/sidebar-bottom-actions"
 
 type ColorMode = "type" | "community"
 type GraphDisplayMode = "graph" | "document" | "mindmap"
@@ -173,6 +174,7 @@ export function GraphSidebarPanel() {
           )}
         </div>
       </div>
+      <SidebarBottomActions />
     </div>
   )
 }

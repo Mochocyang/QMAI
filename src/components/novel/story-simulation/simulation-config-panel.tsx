@@ -32,9 +32,11 @@ const WORD_LABEL_KEYS: Record<number, string> = {
 
 interface SimulationConfigPanelProps {
   onStart: () => void
+  /** 进入「舞台情景」（辅助生成人物对话）。 */
+  onOpenScenario?: () => void
 }
 
-export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
+export function SimulationConfigPanel({ onStart, onOpenScenario }: SimulationConfigPanelProps) {
   const { t } = useTranslation()
   const mode = useStorySimulationStore((s) => s.mode)
   const userIdea = useStorySimulationStore((s) => s.userIdea)
@@ -232,7 +234,29 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
         </p>
       </section>
 
-      {/* 7. 开始按钮 */}
+      {/* 7. 舞台情景入口 */}
+      {onOpenScenario && (
+        <section className="flex flex-col gap-3">
+          <h3 className="text-sm font-medium">
+            {t("storySimulation.scenarioEntryTitle")}
+          </h3>
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed p-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-sm font-medium">
+                🎭 {t("storySimulation.scenarioEntryName")}
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                {t("storySimulation.scenarioEntryDesc")}
+              </p>
+            </div>
+            <Button variant="outline" onClick={onOpenScenario} className="shrink-0">
+              {t("storySimulation.scenarioEnter")}
+            </Button>
+          </div>
+        </section>
+      )}
+
+      {/* 8. 开始按钮 */}
       <div className="flex justify-end pt-2">
         <Button onClick={onStart} size="lg">
           {t("storySimulation.startExtract")}

@@ -160,13 +160,17 @@ describe("独立UI测试版外壳", () => {
     expect(dialog?.querySelectorAll("img")).toHaveLength(3)
     expect([...dialog!.querySelectorAll(".grid")].some((el) => el.className.includes("sm:grid-cols-3"))).toBe(true)
   })
-  it("外观选项点击后应用主题，Esc关闭菜单归还焦点", async () => {
+  it("外观与设置已从顶栏迁出（外观移到侧栏，设置不再进创作工具）", async () => {
     await render()
-    await click("外观")
-    const option = [...host.querySelectorAll('[role="menuitemradio"], [role="menuitem"]')].find(item => item.textContent?.includes("纸间")) as HTMLElement
-    expect(option).toBeTruthy()
-    await act(async () => { option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); option.click() })
-    expect(host.querySelector('.ui-test-root')?.getAttribute("data-skin")).toBe("zhi")
+    // 顶栏不再有「外观」图标（皮肤切换已搬到侧栏底部）
+    expect(host.querySelector('.ui-test-actions [aria-label="外观"]')).toBeNull()
+    // 创作工具菜单里不再有「设置」项
+    await click("创作工具")
+    const settingsEntry = [...host.querySelectorAll('[aria-label="创作工具"] [role="menuitem"]')].find((button) => button.textContent?.trim() === "设置")
+    expect(settingsEntry).toBeUndefined()
+  })
+  it("创作工具菜单 Esc 关闭后焦点归还触发按钮", async () => {
+    await render()
     await click("创作工具")
     await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })))
     expect(document.activeElement?.getAttribute("aria-label")).toBe("创作工具")

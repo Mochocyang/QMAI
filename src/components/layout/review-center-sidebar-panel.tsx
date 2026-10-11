@@ -6,6 +6,7 @@ import { listDirectory, readFile } from "@/commands/fs"
 import { flattenMdFiles } from "@/lib/novel/chapter-utils"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
+import { SidebarBottomActions } from "@/components/layout/sidebar-bottom-actions"
 import { SIX_REVIEW_DIMENSIONS, SIX_REVIEW_DIMENSION_ORDER } from "@/lib/novel/dimension-review-adapter"
 
 const SIX_DIMENSIONS = SIX_REVIEW_DIMENSION_ORDER.map((key) => ({
@@ -193,6 +194,7 @@ export function ReviewCenterSidebarPanel() {
           {t("reviewCenter.stats", totalBySeverity)}
         </div>
       </div>
+      <SidebarBottomActions />
     </div>
   )
 }

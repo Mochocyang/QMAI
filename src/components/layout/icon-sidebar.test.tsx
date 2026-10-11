@@ -72,7 +72,14 @@ describe("icon-sidebar", () => {
     expect(iconSidebarSource).not.toContain('labelKey: "novel.nav.writingSkillLibrary"')
   })
 
-  it("makes feature entries configurable without moving fixed bottom controls", () => {
+  /*
+   * 合并说明：本条原为「makes feature entries configurable without moving fixed
+   * bottom controls」。`feature/scene-dialogue-simulation` 把「外观 / 设置 / 切换小说
+   * 不出现在可配置特性条目里」这层语义提成了独立的名字，git 因此把**用例名那一行**
+   * 判成冲突，而两侧的断言体本就相同 —— 采用分支的重命名，语义不变。
+   * 它与上面那条文风用例是同文件的不同用例，都保留。
+   */
+  it("keeps theme / settings / switch-project out of the configurable feature entries", () => {
     expect(iconSidebarSource).toContain("sidebarNavConfig")
     expect(iconSidebarSource).toContain("setSidebarNavConfig")
     expect(iconSidebarSource).toContain("CONFIGURABLE_NAV_ITEMS")
@@ -81,6 +88,26 @@ describe("icon-sidebar", () => {
     expect(iconSidebarSource).not.toContain('id: "theme"')
     expect(iconSidebarSource).not.toContain('id: "settings"')
     expect(iconSidebarSource).not.toContain('id: "switchProject"')
+  })
+
+  it("moves 外观 / 设置 out of the icon rail into the sidebar panels", () => {
+    // 图标栏不再承载外观与设置，只保留「切换小说」
+    expect(iconSidebarSource).not.toContain("THEME_OPTIONS")
+    expect(iconSidebarSource).not.toContain('t("novel.nav.settings")')
+    expect(iconSidebarSource).toContain("nav.switchProject")
+
+    // 各侧栏面板统一在底部渲染 SidebarBottomActions
+    const panels = [
+      "sidebar-panel.tsx",
+      "graph-sidebar-panel.tsx",
+      "review-center-sidebar-panel.tsx",
+      "book-analysis-sidebar-panel.tsx",
+      "trash-panel.tsx",
+    ]
+    for (const panel of panels) {
+      const src = readFileSync(resolve(__dirname, panel), "utf8")
+      expect(src, panel).toContain("SidebarBottomActions")
+    }
   })
 
   it("uses long-press sortable behavior for sidebar feature entries", () => {

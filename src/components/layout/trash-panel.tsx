@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { RotateCcw, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { SidebarBottomActions } from "@/components/layout/sidebar-bottom-actions"
 import { listDirectory } from "@/commands/fs"
 import { useWikiStore } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
@@ -202,6 +203,7 @@ export function TrashPanel() {
           </div>
         )}
       </div>
+      <SidebarBottomActions />
     </div>
   )
 }

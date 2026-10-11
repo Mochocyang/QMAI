@@ -31,6 +31,27 @@ import {
 import { resolveDefaultModel } from "@/lib/novel/model-resolver";
 import { interviewAgent } from "@/lib/novel/story-simulation/agent-interview";
 import {
+  buildScenarioCandidates,
+} from "@/lib/novel/story-simulation/scenario-participant-selector";
+import {
+  buildScenarioSession,
+  continueScenario,
+  runScenario,
+} from "@/lib/novel/story-simulation/scenario-engine";
+import { exportScenario } from "@/lib/novel/story-simulation/scenario-export";
+import { importScenarioToChapter } from "@/lib/novel/story-simulation/scenario-importer";
+import { refreshProjectState } from "@/lib/project-refresh";
+import {
+  saveScenario,
+  loadScenarios,
+  deleteScenario,
+} from "@/lib/novel/story-simulation/scenario-store";
+import type {
+  ScenarioMessage,
+  ScenarioSession,
+  ScenarioSetup,
+} from "@/lib/novel/story-simulation/scenario-types";
+import {
   saveInterview,
   loadInterviews,
 } from "@/lib/novel/story-simulation/interview-store";
@@ -64,6 +85,8 @@ import { ClueTimelinePanel } from "./detective-board-panel";
 import { BranchManagerPanel } from "./branch-manager-panel";
 import { HistoryResultsModal } from "./history-results-modal";
 import { BranchCompareView } from "./branch-compare-view";
+import { ScenarioSetupPanel } from "./scenario-setup-panel";
+import { ScenarioRoomView } from "./scenario-room-view";
 import {
   actionTypeShortLabel,
   actionTypePhraseOnly,
@@ -179,6 +202,24 @@ export function StorySimulationView() {
   const addHistoryEntry = useStorySimulationStore((s) => s.addHistoryEntry);
   const clearHistory = useStorySimulationStore((s) => s.clearHistory);
 
+  // 舞台情景
+  const scenarioSession = useStorySimulationStore((s) => s.scenarioSession);
+  const scenarioStreaming = useStorySimulationStore((s) => s.scenarioStreaming);
+  const scenarioProgress = useStorySimulationStore((s) => s.scenarioProgress);
+  const scenarioExtracting = useStorySimulationStore(
+    (s) => s.scenarioExtracting,
+  );
+  const setScenarioSession = useStorySimulationStore((s) => s.setScenarioSession);
+  const setScenarioStreaming = useStorySimulationStore(
+    (s) => s.setScenarioStreaming,
+  );
+  const setScenarioProgress = useStorySimulationStore(
+    (s) => s.setScenarioProgress,
+  );
+  const setScenarioExtracting = useStorySimulationStore(
+    (s) => s.setScenarioExtracting,
+  );
+
   // 保存仿真后的 agents 和 state 供采访使用
   const lastAgentsRef = useRef<NovelAgent[]>([]);
   const lastSimulationStateRef = useRef<SimulationState | null>(null);
@@ -215,6 +256,20 @@ export function StorySimulationView() {
   const [chatSaving, setChatSaving] = useState(false);
   const chatStreamRef = useRef("");
   const chatLogRef = useRef<HTMLDivElement | null>(null);
+
+  // ── 舞台情景本地状态 ──
+  const [scenarioInput, setScenarioInput] = useState("");
+  const [scenarioRunning, setScenarioRunning] = useState(false);
+  const [scenarioExporting, setScenarioExporting] = useState(false);
+  const [scenarioInserting, setScenarioInserting] = useState(false);
+  const [scenarioSaved, setScenarioSaved] = useState<ScenarioSession[]>([]);
+  const [scenarioSourceChapters, setScenarioSourceChapters] =
+    useState(sourceChapters);
+  const [scenarioExtractNonce, setScenarioExtractNonce] = useState(0);
+  const scenarioExtractedSigRef = useRef<string | null>(null);
+  const scenarioAbortRef = useRef<AbortController | null>(null);
+  const scenarioStreamRef = useRef("");
+  const scenarioMessagesRef = useRef<ScenarioMessage[]>([]);
 
   // 当前阶段的进度基线
   const phaseBaseProgressRef = useRef(0);
@@ -1083,6 +1138,288 @@ export function StorySimulationView() {
     }
   };
 
+  // ── 舞台情景流程 ──
+
+  /** 候选角色（由提取结果整理）。 */
+  const scenarioCandidates = useMemo(
+    () => (extractionResult ? buildScenarioCandidates(extractionResult) : []),
+    [extractionResult],
+  );
+
+  /**
+   * 进入舞台情景设置时按需提取角色；支持「提取章节数」变更与「重新分析」。
+   * 用签名（章节数#nonce）去重，避免重复提取；首次进入若主流程已提取过则直接复用。
+   */
+  useEffect(() => {
+    if (phase !== "scenario-setup") return;
+    if (!projectPath) return;
+    const sig = `${scenarioSourceChapters}#${scenarioExtractNonce}`;
+    if (scenarioExtractedSigRef.current === sig) return;
+    if (scenarioExtractNonce === 0 && extractionResult) {
+      scenarioExtractedSigRef.current = sig;
+      return;
+    }
+    let cancelled = false;
+    scenarioExtractedSigRef.current = sig;
+    void (async () => {
+      setScenarioExtracting(true);
+      setError(null);
+      try {
+        const llmConfig = resolveDefaultModel(baseLlmConfig);
+        const extraction = await extractStoryContent(projectPath, {
+          sourceChapters: scenarioSourceChapters,
+          llmConfig,
+          onProgress: (p, label) => setProgress(p, label),
+        });
+        if (!cancelled) setExtractionResult(extraction);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      } finally {
+        if (!cancelled) setScenarioExtracting(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    phase,
+    projectPath,
+    scenarioSourceChapters,
+    scenarioExtractNonce,
+    extractionResult,
+    baseLlmConfig,
+    setError,
+    setExtractionResult,
+    setProgress,
+    setScenarioExtracting,
+  ]);
+
+  /** 变更提取章节数（自动触发重新分析）。 */
+  const handleScenarioSourceChaptersChange = (count: number) => {
+    setScenarioSourceChapters(count);
+    setScenarioExtractNonce((k) => k + 1);
+  };
+
+  /** 手动重新分析角色。 */
+  const handleScenarioReExtract = () => {
+    setScenarioExtractNonce((k) => k + 1);
+  };
+
+  /** 进入舞台情景设置时，加载已保存的历史情景。 */
+  useEffect(() => {
+    if (phase !== "scenario-setup") return;
+    if (!projectPath) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await loadScenarios(projectPath);
+        if (!cancelled) setScenarioSaved(list);
+      } catch {
+        if (!cancelled) setScenarioSaved([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, projectPath]);
+
+  const handleOpenScenario = () => {
+    setError(null);
+    setInfoMessage(null);
+    setPhase("scenario-setup");
+  };
+
+  /** 打开一条历史情景（在房间视图中只读回顾，可继续插话续写）。 */
+  const handleOpenSavedScenario = (session: ScenarioSession) => {
+    setError(null);
+    setInfoMessage(null);
+    scenarioMessagesRef.current = session.messages ?? [];
+    setScenarioSession(session);
+    setScenarioStreaming(null);
+    setScenarioProgress(null);
+    setScenarioRunning(false);
+    setPhase("scenario-running");
+  };
+
+  /** 删除一条历史情景。 */
+  const handleDeleteSavedScenario = async (id: string) => {
+    if (!projectPath) return;
+    try {
+      await deleteScenario(projectPath, id);
+      setScenarioSaved((prev) => prev.filter((s) => s.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /** 构造舞台情景引擎回调（每次生成绑定一个 setup）。 */
+  const makeScenarioCallbacks = (setup: ScenarioSetup) => ({
+    onMessageStart: (info: {
+      kind: ScenarioMessage["kind"];
+      speakerId: string;
+      speakerName: string;
+      round: number;
+    }) => {
+      scenarioStreamRef.current = "";
+      setScenarioStreaming({
+        kind: info.kind,
+        speakerName: info.speakerName,
+        content: "",
+      });
+    },
+    onToken: (token: string) => {
+      scenarioStreamRef.current += token;
+      const cur = useStorySimulationStore.getState().scenarioStreaming;
+      if (cur) {
+        setScenarioStreaming({ ...cur, content: scenarioStreamRef.current });
+      }
+    },
+    onMessage: (message: ScenarioMessage) => {
+      scenarioMessagesRef.current = [...scenarioMessagesRef.current, message];
+      setScenarioSession(
+        buildScenarioSession(setup, scenarioMessagesRef.current, "running"),
+      );
+      setScenarioStreaming(null);
+    },
+    onProgress: (done: number, total: number) =>
+      setScenarioProgress({ done, total }),
+  });
+
+  /** 启动舞台情景：从设置面板收到的 setup 开始生成。 */
+  const handleScenarioStart = async (setup: ScenarioSetup) => {
+    if (!projectPath) {
+      setError(t("storySimulation.scenarioNoProject"));
+      return;
+    }
+    setError(null);
+    setInfoMessage(null);
+    scenarioMessagesRef.current = [];
+    setScenarioSession(buildScenarioSession(setup, [], "running"));
+    setScenarioStreaming(null);
+    setScenarioProgress(null);
+    setPhase("scenario-running");
+    setScenarioRunning(true);
+    const controller = new AbortController();
+    scenarioAbortRef.current = controller;
+    try {
+      const llmConfig = resolveDefaultModel(baseLlmConfig);
+      const result = await runScenario({
+        setup,
+        llmConfig,
+        signal: controller.signal,
+        worldRules: extractionResult?.worldRules,
+        ...makeScenarioCallbacks(setup),
+      });
+      scenarioMessagesRef.current = result.messages;
+      const finalSession = buildScenarioSession(
+        setup,
+        result.messages,
+        result.cancelled ? "cancelled" : "completed",
+      );
+      setScenarioSession(finalSession);
+      try {
+        await saveScenario(projectPath, finalSession);
+      } catch {
+        // 持久化失败不影响展示
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setScenarioRunning(false);
+      setScenarioStreaming(null);
+      setScenarioProgress(null);
+      scenarioAbortRef.current = null;
+    }
+  };
+
+  /** 舞台情景：用户插话后继续生成。 */
+  const handleScenarioSend = async () => {
+    const text = scenarioInput.trim();
+    if (!text || !scenarioSession || !projectPath || scenarioRunning) return;
+    setScenarioInput("");
+    setError(null);
+    scenarioMessagesRef.current = [...scenarioSession.messages];
+    setScenarioRunning(true);
+    const controller = new AbortController();
+    scenarioAbortRef.current = controller;
+    try {
+      const llmConfig = resolveDefaultModel(baseLlmConfig);
+      const result = await continueScenario({
+        session: scenarioSession,
+        llmConfig,
+        userInput: text,
+        signal: controller.signal,
+        rounds: 1,
+        worldRules: extractionResult?.worldRules,
+        ...makeScenarioCallbacks(scenarioSession.setup),
+      });
+      scenarioMessagesRef.current = result.messages;
+      const finalSession = buildScenarioSession(
+        scenarioSession.setup,
+        result.messages,
+        result.cancelled ? "cancelled" : "completed",
+      );
+      setScenarioSession(finalSession);
+      try {
+        await saveScenario(projectPath, finalSession);
+      } catch {
+        // 持久化失败不影响展示
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setScenarioRunning(false);
+      setScenarioStreaming(null);
+      scenarioAbortRef.current = null;
+    }
+  };
+
+  const handleScenarioCancel = () => {
+    scenarioAbortRef.current?.abort();
+  };
+
+  const handleScenarioExport = async () => {
+    if (!projectPath || !scenarioSession) return;
+    setScenarioExporting(true);
+    try {
+      const path = await exportScenario(projectPath, scenarioSession);
+      setInfoMessage(t("storySimulation.scenarioExported", { path }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setScenarioExporting(false);
+    }
+  };
+
+  const handleScenarioBack = () => {
+    setPhase("scenario-setup");
+    setScenarioSession(null);
+    scenarioMessagesRef.current = [];
+  };
+
+  /** 将本场情景导入为一章草稿。 */
+  const handleScenarioInsert = async () => {
+    if (!projectPath || !scenarioSession) return;
+    setScenarioInserting(true);
+    setError(null);
+    try {
+      const result = await importScenarioToChapter(projectPath, scenarioSession);
+      setInfoMessage(
+        t("storySimulation.scenarioInserted", {
+          n: result.chapterNumber,
+          path: result.chapterPath,
+        }),
+      );
+      await refreshProjectState(projectPath);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setScenarioInserting(false);
+    }
+  };
+
   // ── 渲染 ──
 
   const isProgressPhase = (PROGRESS_PHASES as readonly string[]).includes(
@@ -1113,7 +1450,7 @@ export function StorySimulationView() {
         <header data-ui="tool-heading">
             <div>
               <nav aria-label="面包屑" className="ui-test-breadcrumb"><span>{projectName ?? "未选择项目"}</span><span aria-hidden="true">/</span><span aria-current="page">故事推演</span></nav>
-              <h1 className="ui-test-page-title">{phase === "report-viewing" ? "推演报告" : phase === "draft-viewing" ? "故事草稿" : phase === "framework-confirming" ? "确认故事框架" : "让角色先走一步。"}</h1>
+              <h1 className="ui-test-page-title">{phase === "report-viewing" ? "推演报告" : phase === "draft-viewing" ? "故事草稿" : phase === "framework-confirming" ? "确认故事框架" : phase === "scenario-setup" ? "配置舞台情景" : phase === "scenario-running" ? "舞台情景" : "让角色先走一步。"}</h1>
             </div>
           </header>
         {error && (
@@ -1529,9 +1866,44 @@ export function StorySimulationView() {
               )}
             </div>
           </div>
+        ) : phase === "scenario-setup" ? (
+          <div data-ui="scenario-setup" className="min-h-0 flex-1 overflow-y-auto">
+            <ScenarioSetupPanel
+              candidates={scenarioCandidates}
+              extracting={scenarioExtracting}
+              progress={{ progress, label: progressLabel }}
+              sourceChapters={scenarioSourceChapters}
+              onSourceChaptersChange={handleScenarioSourceChaptersChange}
+              onReExtract={handleScenarioReExtract}
+              savedScenarios={scenarioSaved}
+              onStart={(setup) => void handleScenarioStart(setup)}
+              onOpenSaved={handleOpenSavedScenario}
+              onDeleteSaved={(id) => void handleDeleteSavedScenario(id)}
+              onCancel={() => setPhase("configuring")}
+            />
+          </div>
+        ) : phase === "scenario-running" && scenarioSession ? (
+          <ScenarioRoomView
+            session={scenarioSession}
+            running={scenarioRunning}
+            streaming={scenarioStreaming}
+            progress={scenarioProgress}
+            input={scenarioInput}
+            onInputChange={setScenarioInput}
+            onSend={() => void handleScenarioSend()}
+            onExport={() => void handleScenarioExport()}
+            onInsertToChapters={() => void handleScenarioInsert()}
+            onCancel={handleScenarioCancel}
+            onBack={handleScenarioBack}
+            exporting={scenarioExporting}
+            inserting={scenarioInserting}
+          />
         ) : (
           <div data-ui="simulation-config" className="min-h-0 flex-1 overflow-y-auto">
-            <SimulationConfigPanel onStart={() => void handleStart()} />
+            <SimulationConfigPanel
+              onStart={() => void handleStart()}
+              onOpenScenario={handleOpenScenario}
+            />
           </div>
         )}
       </div>

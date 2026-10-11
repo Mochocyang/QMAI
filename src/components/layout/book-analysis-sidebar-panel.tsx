@@ -8,6 +8,7 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useBookAnalysisStore } from "@/stores/book-analysis-store"
 import { useBookAnalysisImportStore } from "@/stores/book-analysis-import-store"
 import { Button } from "@/components/ui/button"
+import { SidebarBottomActions } from "@/components/layout/sidebar-bottom-actions"
 import { BookOpen, Trash2, RefreshCw, Loader2, Square, CheckCircle2, Plus } from "lucide-react"
 import { listDirectory, readFile } from "@/commands/fs"
 import { joinPath, normalizePath } from "@/lib/path-utils"
@@ -359,6 +360,7 @@ export function BookAnalysisSidebarPanel() {
         await createBatch(files, skills)
         setInputOpen(false)
       }} />
+      <SidebarBottomActions />
     </div>
   )
 }
