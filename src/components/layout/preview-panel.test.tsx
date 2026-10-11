@@ -105,9 +105,47 @@ describe("章节区的「文风写作」接线", () => {
     expect(code).not.toMatch(/useLastChapterWritingStyle|LastChapterWritingStyleId/)
   })
 
-  it("新状态不写进草稿/项目持久化，也不出现在切换项目时的重置里", () => {
-    // 切换项目只重置去AI味那条；文风选择没有对应的持久化记忆要清
-    expect(code).not.toContain("setChapterWritingStyleId(undefined)")
+  /*
+   * ⚠️ 这条断言**方向被审查推翻了**，如实记下以免后来者再翻回去。
+   *
+   * 原先这里写的是 `expect(code).not.toContain("setChapterWritingStyleId(undefined)")`
+   * —— 意思是「章节文风选择刻意不重置」。那是把一处**静默失效**记成了设计：
+   * 若选择跟着组件实例活过一次项目切换，覆盖就仍是上一个项目的 preset id，
+   * `resolveWritingStylePreset` 对未知 id 返回 `null`（那是**生成侧**刻意且已
+   * 文档化的选择，不推翻），于是覆盖文本变成 `""`，反而把新项目**本来启用**的
+   * 文风压掉；而章节区选择器是 `iconOnly`，正文里看不出任何变化。
+   *
+   * 「不落盘」和「跨项目重置」是**两件不同的事**，前者推不出后者：
+   * 用户没碰选择器，就不该有任何覆盖。所以现在按相邻的
+   * `setChapterDeAiSkillId(undefined)` 先例**加上重置**，并把断言翻正。
+   *
+   * （可达性：当前 shell 换项目会连工作区一起卸载，所以这条在今天是
+   * 契约/防将来，不是正在发生的 bug —— 理由与出处写在
+   * `preview-panel.tsx` 那个 effect 的注释里，别在这里重复一份。）
+   */
+  it("换项目时清空本次文风选择（与相邻的去AI味 Skill 选择同一处 effect）", () => {
+    expect(code).toContain("setChapterWritingStyleId(undefined)")
+    expect(code).toContain("setChapterDeAiSkillId(undefined)")
+    // 两者共用一个以项目路径为依赖的 effect：同一个重置点，不会再漏一个
+    expect(code).toMatch(
+      /setChapterDeAiSkillId\(undefined\)\s*\n\s*setChapterWritingStyleId\(undefined\)\s*\n\s*\}, \[project\?\.path\]\)/,
+    )
+  })
+
+  /*
+   * 重置的反向守卫：依赖必须是 `project?.path`。
+   *
+   * 若依赖被写成 `[]`，effect 只在挂载时跑一次 —— 换项目不再重置，正是上面那条
+   * 要修的静默失效；若有人把依赖数组整个删掉，就变成每次渲染都重置，
+   * 把「同项目内连续生成沿用选择」变成「每次生成都重置」。
+   * 两个方向都错，所以这里单独钉住依赖。
+   */
+  it("重置只在项目路径变化时发生，不是每次生成都重置", () => {
+    const afterSetter = code.split("setChapterWritingStyleId(undefined)")[1] ?? ""
+    expect(
+      afterSetter.slice(0, 60),
+      "文风选择的重置必须挂在 [project?.path] 上",
+    ).toContain("[project?.path])")
   })
 })
 

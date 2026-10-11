@@ -417,13 +417,17 @@ export function PreviewPanel() {
    * 三态与 `chapterDeAiSkillId` 完全同构：`undefined` = 没有覆盖（用项目启用项）、
    * `null` = 本次不用文风、`string` = 这条预设。
    *
-   * ⚠️ **刻意不落盘**（与旁边 `setLastChapterDeAiSkill` 的先例不同）：
+   * ⚠️ **不落盘**（这一点**与**旁边的 `setLastChapterDeAiSkill` 先例不同）：
    * 用户决定 2 要求项目设置不得被改，而写「上次用的文风」只能写进项目级的
    * `.qmai/writing-style.json`（文风库与启用态就在那个文件里）。
    * 那不但会让一次临时选择变成跨会话的持久状态（下次打开仍生效，
    * 与「本次生成临时覆盖」的语义相反），也会让「生成过程有没有写项目设置」
    * 这件事从"一眼可判"变成"要区分是哪个字段"。
-   * ⇒ 选择只活在本次面板会话里。若将来确实要记，应另建 UI 偏好存储，不要复用文风库文件。
+   * ⇒ 选择只活在内存里。若将来确实要记，应另建 UI 偏好存储，不要复用文风库文件。
+   *
+   * ⚠️ **但「不落盘」不等于「跨项目留着」**：换项目时必须清空（见下面
+   * `[project?.path]` 那个 effect）。不然旧项目的 preset id 会在新项目里
+   * 静默把新项目启用的文风压掉。两件事互不替代，别用「反正不落盘」把重置省掉。
    */
   const [chapterWritingStyleId, setChapterWritingStyleId] = useState<string | null | undefined>(undefined)
   const [pendingSelectionForDeAi, setPendingSelectionForDeAi] = useState<ChapterBodySelection | null>(null)
@@ -819,8 +823,36 @@ export function PreviewPanel() {
 
   useEffect(() => registerEditorExternalUpdateHandler(applyExternalChapterBody), [applyExternalChapterBody])
 
+  /*
+   * 项目级选择的统一重置点：**换项目就清空**，与相邻的 DeAi Skill 选择同构。
+   *
+   * ⚠️ 这两行解决的是**两个不同**问题，别把它们并成一句话：
+   * 1. `chapterDeAiSkillId`：旧项目的 Skill 选择不该作用在新项目上（既有行为）。
+   * 2. `chapterWritingStyleId`（丁-2）：文风是**项目级**资源（每条 preset 存在
+   *    `<project>/.qmai/writing-style.json` 里）。若选择跟着组件实例活过项目切换，
+   *    新项目里这个 id 多半不存在 ⇒ `resolveWritingStylePreset` 对未知 id 返回
+   *    `null` ⇒ 覆盖文本是 `""` ⇒ 反而把新项目**本来启用**的文风压掉，
+   *    而章节区选择器是 `iconOnly`、正文里看不出任何变化（**静默**失效）。
+   *    「不重置」并不能换来任何好处：用户没碰选择器，就不该有任何覆盖。
+   *
+   * ⚠️ **可达性交代（别把它当成今天正在发生的 bug）**：实测当前 app shell 里
+   * 换项目必然经过 `setProject(null)`（`App.tsx:612-620` / `:506-511`），
+   * 而 `ui-test-shell.tsx:129` 的 `showShelf` 会把整个工作区子树（含本组件）
+   * 换成书架 ⇒ 本组件**本来就会卸载**，组件状态随之消失。
+   * 所以这两行在今天是**契约 + 防将来**：任何让 PreviewPanel 活过一次项目切换的
+   * 改动（换成 key 复用、在工作区里加项目切换器、把工作区提到 shelf 之外……）
+   * 都会立刻踩中上面那条静默链。行为用例
+   * （`preview-panel.event-outline.spec.tsx` 的「丁-2 章节区文风选择与项目绑定」）
+   * 在不卸载组件的前提下改 store 里的 project，直接钉住这个契约。
+   *
+   * 注意这两行**不等于**「不落盘」——那是另一条独立的约束（见下面
+   * `chapterWritingStyleId` 的声明注释），两条都要在。
+   * 也**不等于**「每次生成都重置」：依赖是 `[project?.path]`，
+   * 同一个项目内连续生成时这个 effect 不会再跑，选中的文风照常沿用。
+   */
   useEffect(() => {
     setChapterDeAiSkillId(undefined)
+    setChapterWritingStyleId(undefined)
   }, [project?.path])
 
   useEffect(() => {

@@ -20,11 +20,19 @@ import { useWritingStyleOptions } from "./use-writing-style-options"
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const readFileMock = vi.hoisted(() => vi.fn())
+/**
+ * 文风库写盘的两个真实入口（`writing-style-store.ts:15` 从 `@/commands/fs`
+ * import 的是 `createDirectory, readFile, writeFileAtomic`）。
+ * 提到 `vi.hoisted` 里是为了**每个用例都能查调用记录** —— 只用
+ * `writeFileAtomic: vi.fn()` 内联的话，测试里拿不到那个 mock。
+ */
+const writeFileAtomicMock = vi.hoisted(() => vi.fn())
+const createDirectoryMock = vi.hoisted(() => vi.fn())
 
 vi.mock("@/commands/fs", () => ({
   readFile: readFileMock,
-  writeFileAtomic: vi.fn(),
-  createDirectory: vi.fn(),
+  writeFileAtomic: writeFileAtomicMock,
+  createDirectory: createDirectoryMock,
   fileExists: vi.fn(),
 }))
 
@@ -140,6 +148,42 @@ describe("WritingStylePicker", () => {
     expect(onChange).toHaveBeenCalledWith("style-a")
     // 选完即关
     expect(container.querySelector('[data-testid="writing-style-picker-popover"]')).toBeNull()
+
+    cleanup(root, container)
+  })
+
+  /*
+   * 用户决定 2（项目设置不得被改）在**选择器这一层自己**也要守住。
+   *
+   * 为什么不能只靠 chat-panel 那层：那是另一个 spec 的 mock 环境，
+   * 而这里才是「有人往组件里加一行 `setEnabledWritingStyle`」最可能发生的地方。
+   * 两条断言都对着**文风库真正用的**写盘函数（`writeFileAtomic` +
+   * `createDirectory`，见 `writing-style-store.ts:15/:94-95`）——
+   * 早先 chat-panel 那条断言的是 `writeFile`，一个文风库永远不会碰的 mock。
+   *
+   * 这条是**行为**断言（真点一次、再查盘上有没有动静），不是源码正则：
+   * 正则会被注释满足（本分支栽过），而行为断言连"注释掉又加回来"都抓得住。
+   */
+  it("点选任何一项都不写盘：writeFileAtomic 与 createDirectory 零调用", async () => {
+    const { container, root, onChange } = await renderPicker()
+    await flushEffects()
+
+    for (const label of ["甲书 · 文风", "本次不用文风", "跟随项目设置的文风"]) {
+      await openPicker(container)
+      await act(async () => {
+        popoverButton(container, label).click()
+      })
+    }
+    expect(onChange).toHaveBeenCalledTimes(3)
+
+    expect(
+      writeFileAtomicMock.mock.calls.filter(([path]) => String(path).includes("writing-style.json")),
+      "选择器不得写文风库文件",
+    ).toEqual([])
+    expect(
+      createDirectoryMock.mock.calls.filter(([path]) => String(path).includes(".qmai")),
+      "选择器不得为文风库建目录",
+    ).toEqual([])
 
     cleanup(root, container)
   })

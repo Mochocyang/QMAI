@@ -53,8 +53,9 @@ interface BuildWritingStyleContextOptions {
    *
    * ⚠️ 覆盖文本**必须**由这个同一个渲染器产出（不要另写一套拼装）：
    * `contextPackToPrompt`（`context-engine.ts:1132`）的文风 fail-closed 守卫判的是
-   * **字面前缀** `【已启用文风画像】`，只有同形才能保证覆盖与「已启用」路径
-   * 要么都触发守卫、要么都不触发。详见本文件 buildWritingStyleContext 的注释。
+   * **字面前缀** `【已启用文风画像】`，只有两个分支共用同一处前缀生产点，
+   * 才能保证**同一类画像**下覆盖与「已启用」路径要么都触发守卫、要么都不触发。
+   * 详见本文件 buildWritingStyleContext 的注释。
    */
   styleIdOverride?: string | null
 }
@@ -208,7 +209,7 @@ export async function getEnabledWritingStyle(projectPath: string): Promise<Writi
  * - `null` → `null`（本次显式不用文风，调用方据此返回 `""`）；
  * - `string` → 该预设；找不到（例如选中后又被删掉）也返回 `null`。
  *
- * ⚠️ 找到预设时**必须**照 `getEnabledWritingStyle:186` 再迁移一次
+ * ⚠️ 找到预设时**必须**照 `getEnabledWritingStyle:200` 再迁移一次
  * `migrateStyleProfile`：那是字段归一化 / 防崩 / 形状一致，
  * **不是**渲染分支选择器（分支只看 `profile.workbenchStyle?.styleFingerprint`，
  * 见 `migrateStyleProfile` 从不创建也不删除该字段）。不迁移就直接渲染，
@@ -281,8 +282,10 @@ async function retrieveRelevantExcerpts(
  * 内含红线：只学写法、不借片段里的人物/地名/设定/情节。
  *
  * `options.styleIdOverride` 让本次生成临时换成另一条预设（丁-2），
- * 走的是**下面同一个** `renderWritingStylePreset`：覆盖文本与「已启用」
- * 路径逐字节同形，两者要么都带 `【已启用文风画像】` 前缀、要么都不带。
+ * 走的是**下面同一个** `renderWritingStylePreset`：覆盖文本与「已启用」路径
+ * **除首行「来源」书名那一行外**同形（换的是另一条 preset，书名必然不同 ——
+ * `writing-style-override.spec.ts` 里那条不变式就是用 `shapeOf()` 剥掉第 1 行
+ * 之后比较的），因此两者要么都带 `【已启用文风画像】` 前缀、要么都不带。
  *
  * ── ⚠️ 已确认的不对称（选择 (a)：照现状接受，不在本批改变）──
  * `contextPackToPrompt` 的文风 fail-closed 守卫判的是**字面前缀**

@@ -6,7 +6,7 @@ import { clearTaskBreakpoint, loadTaskBreakpoint } from "@/lib/agent/task-breakp
 import type { Conversation } from "@/stores/chat-store"
 import { useChatStore } from "@/stores/chat-store"
 import { chatConversationRunRegistry } from "@/lib/conversation-run-registry"
-import { deleteFile, readFile, writeFile } from "@/commands/fs"
+import { createDirectory, deleteFile, readFile, writeFileAtomic } from "@/commands/fs"
 
 const breakpoint = {
   taskId: "task_resume_1",
@@ -384,9 +384,27 @@ describe("ChatPanel 的「文风写作」产出端", () => {
     await view.unmount()
   })
 
+  /*
+   * ⚠️ 断言的对象必须是**文风库真正用的那个**写盘函数。
+   *
+   * 文风库的写盘走 `writing-style-store.ts:95` 的 `writeFileAtomic`（其 `:15`
+   * 从 `@/commands/fs` import 的是 `createDirectory, readFile, writeFileAtomic`）。
+   * 本文件原先断言的是 **`writeFile`** —— 那是**另一个** mock，文风库一辈子
+   * 都不会碰它。后果：这条用例永远观察不到任何一次文风库写盘。
+   * 实测过（M-VACUOUS）：在 picker 的 `onPick` 里真调用
+   * `setEnabledWritingStyle(project.path, styleId)` —— 也就是**每次点选都真的改写
+   * `enabledStyleId`** —— 旧断言下 7 个 spec / 211 用例**全绿**。
+   * 而这只发生在用户决定 2（项目设置不得被改）这条最重要的约束上。
+   *
+   * 所以这里连同 `createDirectory` 一起断言：真实写盘是
+   * `createDirectory(<project>/.qmai)` + `writeFileAtomic(<project>/.qmai/writing-style.json)`，
+   * 两笔都不许出现。
+   */
   it("选择只改界面状态：没有写 .qmai/writing-style.json", async () => {
-    const writeMock = vi.mocked(writeFile)
-    writeMock.mockClear()
+    const atomicMock = vi.mocked(writeFileAtomic)
+    const mkdirMock = vi.mocked(createDirectory)
+    atomicMock.mockClear()
+    mkdirMock.mockClear()
     vi.mocked(readFile).mockImplementation(async (path: string) =>
       path.includes("writing-style.json") ? styleStore : "")
     const view = await renderChatPanel({ activeConversation: true })
@@ -394,7 +412,14 @@ describe("ChatPanel 的「文风写作」产出端", () => {
 
     await pickStyle(view.container, "甲书 · 文风")
 
-    expect(writeMock.mock.calls.filter(([path]) => String(path).includes("writing-style.json"))).toEqual([])
+    expect(
+      atomicMock.mock.calls.filter(([path]) => String(path).includes("writing-style.json")),
+      "点选文风不得写文风库文件（用户决定 2）",
+    ).toEqual([])
+    expect(
+      mkdirMock.mock.calls.filter(([path]) => String(path).includes(".qmai")),
+      "一次都不该为文风库建目录",
+    ).toEqual([])
     await view.unmount()
   })
 })
