@@ -142,8 +142,7 @@
   },
   "sidebarActions": {
     "appearance": "外观",
-    "settings": "设置",
-    "switchTheme": "切换主题"
+    "settings": "设置"
   },
   "welcome": {
     "newProject": "新建小说",

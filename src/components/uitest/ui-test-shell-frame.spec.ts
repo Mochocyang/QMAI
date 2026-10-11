@@ -77,8 +77,9 @@ describe("新版 UI 最外侧窗口", () => {
     expect(shell).toContain('<header className="ui-test-header" data-tauri-drag-region="deep">')
     expect(shell).toContain('aria-label={`${item.label}功能菜单`} data-tauri-drag-region="false"')
     expect(shell).toContain('aria-label="创作工具" data-tauri-drag-region="false"')
-    expect(shell).toContain('aria-label="外观" data-tauri-drag-region="false"')
-    expect(shell.match(/data-tauri-drag-region="false"/g)).toHaveLength(3)
+    // 「外观」菜单已移到侧栏底部（components/layout/sidebar-bottom-actions.tsx），
+    // 顶栏只剩主导航菜单 + 创作工具两处。
+    expect(shell.match(/data-tauri-drag-region="false"/g)).toHaveLength(2)
   })
 })
 
