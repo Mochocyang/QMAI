@@ -3,12 +3,13 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import type { ChatMessage, StreamCallbacks } from "@/lib/llm-client"
+import type { ChatMessage, RequestOverrides, StreamCallbacks } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { RecognizedCharacter } from "@/lib/novel/book-analysis/types"
 
 const mocks = vi.hoisted(() => ({
-  streamChat: vi.fn<(config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks, signal?: AbortSignal) => Promise<void>>(),
+  // 第 5 位是请求覆盖项：callAnalysisModelText 总会显式传它（未关思考时是 undefined）。
+  streamChat: vi.fn<(config: LlmConfig, messages: ChatMessage[], callbacks: StreamCallbacks, signal?: AbortSignal, overrides?: RequestOverrides) => Promise<void>>(),
   readFile: vi.fn<(path: string) => Promise<string>>(),
   resolveDefaultModel: vi.fn(),
   persistCharacterToDisk: vi.fn(),
@@ -101,7 +102,12 @@ function queueProfile(name: string) {
 
 function expectCachedRequest(callIndex: number, chapterSamples: string, name: string) {
   const call = mocks.streamChat.mock.calls[callIndex]
-  expect(call).toHaveLength(4)
+  // 迁移到 callAnalysisModelText 之后，请求覆盖项（第 5 位）总是被显式传下去，
+  // 未关思考时是 undefined（关思考重试那一轮才是 { reasoning: { mode: "off" } }）。
+  // 前 4 位与迁移前一致，所以这里改成断言「5 位、第 5 位为空」，
+  // 而不是放宽成 ≥4 —— 否则真实调用形状变化会被漏掉。
+  expect(call).toHaveLength(5)
+  expect(call[4]).toBeUndefined()
   expect(call[0]).toBe(llmConfig)
   expect(call[1]).toHaveLength(1)
   expect(call[1][0].role).toBe("user")
@@ -235,6 +241,42 @@ describe("useCharacterExtraction 简单提取缓存请求", () => {
     expect(mocks.readFile).toHaveBeenCalledTimes(1)
   })
 
+})
+
+describe("useCharacterExtraction 思考-only 重试", () => {
+  it("首个角色只吐思考时关掉思考重试一次，画像不会静默为空", async () => {
+    await mountExtraction(1)
+    // 第 1 次响应：流在 HTTP 层干净结束，只有一条思考诊断
+    // （llm-client.ts:870-885 在真实链路上抛的就是这句）。
+    mocks.streamChat.mockImplementationOnce(async (_config, _messages, callbacks) => {
+      callbacks.onError(new Error("模型只输出了 15,000 字符的思考内容，但没有输出正文。"))
+    })
+    // 重试那一轮与第二个角色按 prompt 里的角色名正常返回。
+    mocks.streamChat.mockImplementation(async (_config, messages, callbacks) => {
+      const content = messages[0].content as Array<{ text: string }>
+      const text = content.map((block) => block.text).join("")
+      const name = ["Actor_A", "Actor_B"].find((candidate) => text.includes(`- ${candidate}`)) ?? "Actor_A"
+      callbacks.onToken(JSON.stringify([{ name, ...profile }]))
+      callbacks.onDone()
+    })
+
+    await act(async () => { await extraction.handleSimpleExtract() })
+
+    // 无失败时的基线是 2 次（Actor_A、Actor_B 各一次），所以多出来的第 2 次调用就是重试。
+    expect(mocks.streamChat).toHaveBeenCalledTimes(3)
+    expect(mocks.streamChat.mock.calls[0][4]).toBeUndefined()
+    expect((mocks.streamChat.mock.calls[1][4] as { reasoning?: unknown }).reasoning).toEqual({ mode: "off" })
+    expect(mocks.streamChat.mock.calls[2][4]).toBeUndefined()
+
+    const task = useBookAnalysisStore.getState().tasks[0]
+    expect(task.characters?.map((character) => character.name)).toEqual(["Actor_A", "Actor_B"])
+    // 关键：不是「thinking-only -> 空串 -> personality 为空的画像落盘」。
+    expect(task.characters?.[0].personality).toBe(profile.personality)
+    expect(task.characters?.[0].personalityProfile).toEqual(profile)
+    expect(task.metadata).toMatchObject({ failedCharacterNames: [] })
+    expect(mocks.persistCharacterToDisk).toHaveBeenCalledTimes(2)
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
 })
 
 describe("importanceFromScore", () => {

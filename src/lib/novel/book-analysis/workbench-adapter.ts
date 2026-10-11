@@ -1,6 +1,6 @@
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { joinPath } from "@/lib/path-utils"
-import { streamChat } from "@/lib/llm-client"
+import { callAnalysisModelText } from "@/lib/novel/book-analysis/analysis-model-call"
 import { PERSONALITY_FIELDS } from "../portable-personality"
 import { parseLlmJsonObject } from "./llm-json"
 import { loadMetadata } from "./analysis-engine"
@@ -89,11 +89,17 @@ function modelCall(context: AnalysisSkillContext, signal: AbortSignal): CallMode
     let output = ""
     let failure: Error | undefined
     try {
-      await streamChat(context.llmConfig, [{ role: "user", content: prompt }], {
-        onToken: (token) => { output += token }, onDone: () => {}, onError: (error) => { failure = error },
+      output = await callAnalysisModelText(context.llmConfig, [{ role: "user", content: prompt }], {
+        signal,
         onRequestTrace: context.onRequestTrace,
-      }, signal, context.skill === "style" && context.task.workbenchRequest?.styleProfileVersion === 1
-        ? { skipUserMemory: true, max_tokens: 8000, temperature: 0.2 } : undefined)
+        cancelMessage: "用户取消分析",
+        // 文风 v1 的既有请求覆盖项必须原样带上（关思考重试时会自动并入 reasoning）。
+        baseOverrides: context.skill === "style" && context.task.workbenchRequest?.styleProfileVersion === 1
+          ? { skipUserMemory: true, max_tokens: 8000, temperature: 0.2 }
+          : undefined,
+        // 失败时把已收到的半截文本交回来，供下面的 failureWriter 落盘草案。
+        onPartialText: (text) => { output = text },
+      })
     } catch (error) {
       failure = error instanceof Error ? error : new Error(String(error))
     }

@@ -75,6 +75,7 @@ import {
   type OutlineSaveConfirmPayload,
 } from "@/components/sources/outline-save-confirm-dialog";
 import { OutlineWizardDialog } from "@/components/sources/outline-wizard-dialog";
+import { EventOutlineCard } from "@/components/sources/event-outline-card";
 import { NovelGenerationRequestMessage } from "@/components/sources/novel-generation-request-message";
 import { OutlineMultiAgentPanel } from "@/components/sources/outline-multi-agent-panel";
 import { OutlineSaveReportPanel } from "@/components/sources/outline-save-report";
@@ -129,6 +130,8 @@ import {
 import { buildScopedOutlineSubAgentContext } from "@/lib/novel/outline-agent-context";
 import {
   buildClassifiedOutlineSaveRequest,
+  decideOutlineAutoSaveGate,
+  isEventOutlineSaveBlocked,
   isSaveableOutlineDeliverable,
   prepareOutlineSaveSourceContent,
 } from "@/lib/outline-save";
@@ -148,6 +151,7 @@ import {
 } from "@/lib/novel/character-multi-agent";
 import {
   characterDraftsToSaveRequests,
+  excludeEventOutlineSaveRequests,
   formatOutlineSaveParseFeedback,
   mergeOutlineSaveRequests,
   type OutlineSaveRequest,
@@ -239,7 +243,15 @@ import {
   memoryProvider,
   outlineProvider,
 } from "@/lib/reference/providers";
+import type { SkillSummary } from "@/lib/reference/providers";
 import type { ReferenceToken } from "@/lib/reference/types";
+import { collectReferencedSoulAuraIds, SOUL_SKILL_SUBTYPE } from "@/lib/reference/soul-reference";
+import {
+  beginMessageScopedSoulBinding,
+  releaseMessageScopedSoulBinding,
+  type MessageScopedSoulBinding,
+} from "@/lib/novel/message-scoped-soul-binding";
+import { useCharacterSoulReference, type CharacterSoulOption } from "@/components/chat/use-character-soul-reference";
 import { useChatStore } from "@/stores/chat-store";
 import { AgentRunner } from "@/lib/agent/runner";
 import {
@@ -361,6 +373,7 @@ import {
 } from "@/lib/conversation-create-guard";
 import { outlineConversationRunRegistry } from "@/lib/conversation-run-registry";
 import { toast } from "@/lib/toast";
+import { extractEventOutlineData, type EventOutlineData } from "@/lib/novel/event-outline";
 import { finalizeStructuredMarkdownMessage } from "@/lib/novel/markdown-quality-finalizer";
 import { repairMarkdownFormatWithAi } from "@/lib/novel/markdown-quality-ai-repair";
 import {
@@ -375,6 +388,22 @@ import {
 } from "@/lib/novel/outline-chat-session-state";
 
 type OutlineSendResult = { started: boolean; sent: boolean };
+
+/**
+ * 某条消息所属那一轮生成里，用户提的事件细纲硬要求
+ * （扩写提示词里 `## 用户对本章的要求` 那一节的来源）。
+ *
+ * 要求就存在消息本身上（`eventOutlineRequirement`，与消息一起写进
+ * `.qmai/outline-chats.json`），所以这里既不查表也不解析提示词：
+ * 「谁的要求」这个问题只有一个答案 —— 这条消息自己的。
+ *
+ * ⚠️ 别写成「事件细纲**向导**里填的要求」：向导已按用户要求删除（丙-2c）。
+ * 现在把字段写到**新**消息上的只剩两条重发路径 —— `handleRegenerate` 直接抄，
+ * 以及「继续」经 `handleContinueStopped` → `handleSendMessage` → `handleSend` 盖章。
+ */
+function requirementFor(msg: OutlineChatMessage): string | undefined {
+  return msg.eventOutlineRequirement;
+}
 
 const OUTLINE_REASONING_ONLY_ERROR_MESSAGE =
   "模型只输出了思考内容，没有输出正文。已关闭 reasoning 重试一次，仍未返回可用的大纲内容。";
@@ -1524,6 +1553,7 @@ function OutlineAssistantMessage({
   nextStepDisabledReason,
   generationContext,
   onFocusInput,
+  hasEventOutline,
 }: {
   msg: import("@/stores/outline-chat-store").OutlineChatMessage;
   index: number;
@@ -1568,6 +1598,12 @@ function OutlineAssistantMessage({
   nextStepDisabledReason?: string;
   generationContext: boolean;
   onFocusInput: () => void;
+  /**
+   * 这条消息本身是一份事件细纲。事件细纲只作为对话消息 + 卡片存在，
+   * 不再写进 wiki/outlines/事件细纲/，所以「保存为大纲」按钮对它不渲染
+   * （值由父组件按消息 id 一次算好传入，不在本组件里重复解析）。
+   */
+  hasEventOutline: boolean;
 }) {
   const [editApplied, setEditApplied] = useState(false);
   const [editResults, setEditResults] = useState<
@@ -1784,14 +1820,20 @@ function OutlineAssistantMessage({
       {/* Action buttons */}
       {actionContent && canUseAsOutlineContent && !isStreaming ? (
         <div className="mt-2 flex w-full items-center gap-1">
-          <button
-            onClick={() => void onSaveAsOutline(actionContent)}
-            className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent"
-            title="保存为大纲"
-            aria-label="保存为大纲"
-          >
-            <Save className="h-3.5 w-3.5" />
-          </button>
+          {/*
+            * 事件细纲不进大纲列表（只作消息 + 卡片存在），所以这一类消息上不出现
+            * 「保存为大纲」；复制 / 重新生成等其余按钮照旧。
+            */}
+          {!hasEventOutline ? (
+            <button
+              onClick={() => void onSaveAsOutline(actionContent)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent"
+              title="保存为大纲"
+              aria-label="保存为大纲"
+            >
+              <Save className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
           <button
             onClick={() => onCopy(actionContent, msg.id)}
             className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent"
@@ -1993,6 +2035,55 @@ function OutlineGenerationMenu({
   );
 }
 
+/**
+ * 大纲/细纲引用弹窗里「技能库」分类的全部条目（丁-3），含角色灵魂（丁-4）。
+ *
+ * ⚠️ **故意不产出 `subtype: "style"`（文风）条目**：本面板的 `buildAgentConfig`
+ * 调用从不提供 `runDeepChapterGeneration` / `getWritingStyleIdOverride`，
+ * 所以 `run_chapter_workflow` 这个工具根本不会被注册，`@` 一条文风在
+ * **生成链上没有任何消费者** —— 加进来就是一个「看着接上、其实断开」的死条目，
+ * 正是丁-3 存在的理由。大纲/细纲不写正文，文风覆盖对它也没有语义。
+ * ⇒ 文风条目只在 `chat-panel.tsx` 的 getter 里注入（那里有覆盖通道的产出端）。
+ *
+ * ⚠️ **与文风相反，角色灵魂在这里有消费者**（丁-4）：`contextPack.characterAuras`
+ * → `buildContextHubSystemContent` 与 `buildScopedOutlineSubAgentContext`，
+ * 所以**必须**产出灵魂条目。注意「产出条目」≠「已绑定」：
+ * 真正写盘那一步在 `handleSend` 里、用户确认之后（见 `message-scoped-soul-binding`）。
+ *
+ * 为什么抽成**具名导出**（而不是留成组件里的内联 getter）：这样「这里永远没有文风条目」
+ * 才是一条**可被行为断言**的性质（`outline-chat-panel.spec.tsx` 直接调它、只看产出）。
+ * 之前它只能靠对源码文本做正则来钉 —— 那既会因为**改注释**而假红，
+ * 又会因为**冒号空格 / 别名导入 / 中转变量**等排版变化而假绿（实测过）。
+ */
+export function buildOutlineReferenceSkillEntries(
+  deAiSkillConfig: DeAiSkillConfig | null,
+  writingSkills: UserSkill[],
+  characterSouls: CharacterSoulOption[],
+): SkillSummary[] {
+  const deAiSkills: SkillSummary[] = deAiSkillConfig
+    ? resolveAvailableDeAiSkills(deAiSkillConfig).map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        subtype: "deai" as const,
+      }))
+    : [];
+  const writingSkillList: SkillSummary[] = writingSkills.map((skill) => ({
+    id: skill.id,
+    name: skill.name,
+    displayName: skill.displayName,
+    subtype: "writing" as const,
+    kind: skill.kind,
+    stages: skill.stages,
+    modes: skill.modes,
+  }));
+  const soulEntries = characterSouls.map((soul) => ({
+    id: soul.id,
+    name: soul.name,
+    subtype: SOUL_SKILL_SUBTYPE,
+  }));
+  return [...deAiSkills, ...writingSkillList, ...soulEntries];
+}
+
 export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const project = useWikiStore((s) => s.project);
   // 卷纲 / 章纲 / 设定卡片流模板与卷纲真骨架：项目变化时预加载（项目目录覆盖 → 程序 skills 目录 → 内置模板）
@@ -2064,6 +2155,25 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   const activeConv = conversations.find((c) => c.id === activeConversationId);
   const activeMessages = activeConv?.messages ?? [];
+  /**
+   * 每条助手消息解析出的事件细纲（纯函数，按帧现算）。
+   *
+   * 一次算好给两处共用：气泡下方的卡片，以及「保存为大纲」按钮的显示条件。
+   * 后者必须知道这条消息是不是事件细纲 —— 事件细纲不再进大纲列表，
+   * 那个按钮对它就没有意义了（丙-1 堵住的手动保存通道）。
+   */
+  const eventOutlinesByMessageId = useMemo(() => {
+    const outlines = new Map<string, EventOutlineData | null>();
+    for (const message of activeMessages) {
+      outlines.set(
+        message.id,
+        message.role === "assistant"
+          ? extractEventOutlineData(message.content, requirementFor(message))
+          : null,
+      );
+    }
+    return outlines;
+  }, [activeMessages]);
   const hasSentUserMessage =
     activeConv?.messages.some((message) => message.role === "user") ?? false;
   const canCreateConversation = canCreateNewConversation(
@@ -2203,6 +2313,22 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     return routed.length > 0 ? routed : writingSkills;
   }, [writingSkills]);
 
+  /*
+   * 丁-4：角色灵魂引用。
+   *
+   * ⚠️ 与「文风」相反，本面板**有**灵魂的消费者：`contextHub.prepare` 建出的
+   * `contextPack.characterAuras` 会进 `buildContextHubSystemContent`，
+   * 也会进 `buildScopedOutlineSubAgentContext` 的 `character` 分支
+   * （那一支题名就是「角色气质」）。所以「@ 一条灵魂」在这里不是死条目，
+   * 它真的会改变本次大纲/细纲生成看到的东西 —— 代价是它同样会带上
+   * `portablePersonalities` 的 fail-closed 断言（见确认弹窗里的说明）。
+   */
+  const {
+    souls: characterSouls,
+    requestSoulBindingTarget,
+    soulBindingDialog,
+  } = useCharacterSoulReference({ projectPath: project?.path ?? undefined });
+
   useEffect(() => {
     if (pendingReferenceTokens.length === 0) return;
     const tokens = consumePendingReferenceTokens();
@@ -2215,25 +2341,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       memoryProvider,
       outlineProvider,
       deductionProvider,
-      createSkillProvider(() => {
-        const deAiSkills = deAiSkillConfig
-          ? resolveAvailableDeAiSkills(deAiSkillConfig).map((skill) => ({
-              id: skill.id,
-              name: skill.name,
-              subtype: "deai" as const,
-            }))
-          : []
-        const writingSkillList = outlineWritingSkills.map((skill) => ({
-          id: skill.id,
-          name: skill.name,
-          displayName: skill.displayName,
-          subtype: "writing" as const,
-          kind: skill.kind,
-          stages: skill.stages,
-          modes: skill.modes,
-        }))
-        return [...deAiSkills, ...writingSkillList]
-      }),
+      /*
+       * 技能库条目（丁-3 抽出具名函数 + 丁-4 的角色灵魂）：
+       * - **故意不**产出「文风」条目（见 `buildOutlineReferenceSkillEntries` 的说明）；
+       * - 角色灵魂**必须**产出 —— 它在本面板确有消费者。
+       */
+      createSkillProvider(() => buildOutlineReferenceSkillEntries(deAiSkillConfig, outlineWritingSkills, characterSouls)),
       createChatHistoryProvider(() =>
         chatConversations.map((conversation) => ({
           id: conversation.id,
@@ -2247,7 +2360,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         })),
       ),
     ],
-    [chatConversations, conversations, deAiSkillConfig, outlineWritingSkills],
+    [characterSouls, chatConversations, conversations, deAiSkillConfig, outlineWritingSkills],
   );
 
   // 加载持久化的历史记录
@@ -2725,11 +2838,24 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       // 降级路径：AI 未按分批输出（直接给了整份 chapterOutlineData + outlineSaveRequest）时，
       // 仍走下面的统一校验（章节数与骨架一致、逐章 17 节、卷纲交叉校验），不会静默保存残缺章纲。
       const parsed = parseOutlineSaveRequests(safeAssistantContent);
-      if (parsed.requests.length === 0) {
-        if (parsed.errors.length > 0) {
-          showOutlineAutoSaveError(formatOutlineSaveParseFeedback(parsed.errors));
-          return;
-        }
+      // 事件细纲只作为对话消息 + 卡片存在，不再写进 wiki/outlines/事件细纲/。
+      // 生成侧已经不再要求模型输出 outlineSaveRequest，这里是兜底闸门：
+      // 手工或计划模式绕过来的 event-outline 请求一律丢掉，既不弹确认框也不落盘。
+      const { requests: saveRequests, droppedEventOutlineCount } =
+        excludeEventOutlineSaveRequests(parsed.requests);
+      /*
+       * 闸门的判定抽在 decideOutlineAutoSaveGate（纯函数，见 lib/outline-save.ts）：
+       * 这里只负责把判定翻成可见效果。判据本身有单测直喂已分类的 event-outline，
+       * 因为「删掉这几行 return」在组件层是看不出来的（源码文本断言管不住行为）。
+       */
+      const gateAction = decideOutlineAutoSaveGate({
+        droppedEventOutlineCount,
+        keptRequestCount: saveRequests.length,
+        errors: parsed.errors,
+        eventOutlineRejectionCount: parsed.eventOutlineRejectionCount,
+      });
+      if (gateAction === "drop-event-outline") return;
+      if (gateAction === "continue" && saveRequests.length === 0) {
         if (!isSaveableOutlineDeliverable(safeAssistantContent)) return;
         const built = buildClassifiedOutlineSaveRequest({
           content: safeAssistantContent,
@@ -2737,6 +2863,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           sourceHint: collectOutlineSaveSourceHint(conversationId),
         });
         if (!built || !canApply()) return;
+        // 与上面的过滤同一道闸门，只是走的是「没有保存请求、靠正文分类」这条腿：
+        // 分类结果若是事件细纲，同样不弹确认框（否则丙-1 的目标会被这条腿绕过）。
+        if (isEventOutlineSaveBlocked(built.classification.fileType)) return;
         if (built.classification.fileType === "character") {
           const extracted = extractCharacterSaveDrafts(built.draft.content);
           if (extracted.drafts.length === 0) return;
@@ -2758,10 +2887,29 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         setSaveStatus("检测到可保存大纲，请确认后写入。");
         return;
       }
+      /*
+       * 只有错误里**还有非事件细纲的**才弹那条「请让 AI 重新输出
+       * outlineSaveRequest」的提示。事件细纲请求在本版本里本来就要丢掉，
+       * 为它去要求模型重出一遍是自相矛盾（重出一次还是会被丢掉）。
+       */
+      if (gateAction === "surface-parse-errors") {
+        showOutlineAutoSaveError(formatOutlineSaveParseFeedback(parsed.errors));
+        return;
+      }
+      if (gateAction === "notify-event-outline-dropped") {
+        /*
+         * 这里原本调的是 setSaveStatus，而它开头就是
+         * `if (!/(失败|错误|不支持|无法)/.test(message)) return` ——
+         * 这句话四个词一个都不含，于是**什么都不会发生**：
+         * 用户看不到任何反馈，只看到「点了没反应」。改用 toast.info。
+         */
+        toast.info("事件细纲只作为对话消息保留，不写入大纲列表。");
+        return;
+      }
 
       if (!canApply()) return;
       try {
-        const split = splitConfirmRequiredSaveRequests(parsed.requests);
+        const split = splitConfirmRequiredSaveRequests(saveRequests);
         const characterRequests = split.confirmRequired.filter(
           (request) => request.fileType === "character",
         );
@@ -2948,6 +3096,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         systemGenerated?: boolean;
         userMessageVisibility?: "visible" | "internal";
         userDisplayText?: string;
+        /**
+         * 事件细纲的硬要求。挂在**这一轮创建的助手消息**上，
+         * 让卡片渲染时不必依赖模型把要求回抄进 JSON（见 outline-chat-store 的同名字段）。
+         *
+         * 事件细纲向导已删（丙-2c），当前只有「继续」这条重发路径会传进来
+         * —— `handleContinueStopped` 从被停止的那条消息上把它抄过来。
+         */
+        eventOutlineRequirement?: string;
       } = {},
     ): Promise<OutlineSendResult> => {
       let prompt = inputText.trim();
@@ -3125,6 +3281,66 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       if (forceRefreshNext) {
         setForceRefreshNext(false);
       }
+      /*
+       * 丁-4：本条消息 `@` 引用的**角色灵魂** → 本条消息的临时绑定。
+       *
+       * ⚠️ 位置是本段的关键：必须在 `addMessage(convId, userMsg)` **之前**。
+       * 确认弹窗可能在用户取消时结束，那时一条消息都还没落地 ——
+       * 若放在消息之后，取消会留下「有提问、没有回复」的残局。
+       *
+       * 顺序：先问（`requestSoulBindingTarget`）→ 再写（`beginMessageScopedSoulBinding`）
+       * → 再走下面真正读盘组装上下文的 `contextHub.prepare`。
+       * 写盘晚于 `contextHub.prepare` 是无效的：那个调用就是读
+       * `.qmai/character-aura.json` 的地方，晚一步这条灵魂进不了本次上下文。
+       *
+       * 释放统一放在本函数的 `finally`（覆盖成功、抛错、中止），不去逐条 return 打补丁。
+       */
+      const referencedSoulAuraIds = collectReferencedSoulAuraIds(tokens);
+      if (referencedSoulAuraIds.length > 1) {
+        toast.info(
+          `一条消息只能引用一条角色灵魂（本次引用了 ${referencedSoulAuraIds.length} 条）。请删掉多余的灵魂引用再发送。`,
+          { dedupeKey: `outline-soul-multi:${capturedConvId}` },
+        );
+        return { started: false, sent: false };
+      }
+      let messageSoulBinding: MessageScopedSoulBinding | null = null;
+      const releaseMessageSoulBinding = async () => {
+        const binding = messageSoulBinding;
+        messageSoulBinding = null;
+        if (!binding) return;
+        try {
+          await releaseMessageScopedSoulBinding(normalizePath(project.path), binding);
+          // 绑定表没有 zustand 镜像，界面只能靠 dataVersion 触发重新读盘。
+          useWikiStore.getState().bumpDataVersion();
+        } catch (error) {
+          // 没还回去是用户必须知道的状态，不静默吞。
+          toast.error(
+            error instanceof Error && error.message ? error.message : "还原临时角色灵魂绑定失败",
+            { title: "临时角色灵魂绑定未还原", persistent: true, dedupeKey: `outline-soul-release:${capturedConvId}` },
+          );
+        }
+      };
+      if (referencedSoulAuraIds.length === 1) {
+        const referencedAuraId = referencedSoulAuraIds[0];
+        const targetCharacterName = await requestSoulBindingTarget(referencedAuraId);
+        // `null` = 用户取消：直接中止，绝不用默认人物顶上。
+        if (!targetCharacterName) return { started: false, sent: false };
+        try {
+          messageSoulBinding = await beginMessageScopedSoulBinding(normalizePath(project.path), {
+            auraId: referencedAuraId,
+            characterName: targetCharacterName,
+          });
+        } catch (error) {
+          // 「请先在大纲中添加人物小传或人物设定，再绑定角色灵魂」这类原话原样转达。
+          toast.error(
+            error instanceof Error && error.message ? error.message : "绑定角色灵魂失败，请稍后重试",
+            { title: "角色灵魂绑定失败", persistent: true, dedupeKey: `outline-soul-bind:${capturedConvId}` },
+          );
+          return { started: false, sent: false };
+        }
+        // 角色灵魂列表随项目内容变化：绑定后让弹窗列表重新读盘。
+        useWikiStore.getState().bumpDataVersion();
+      }
       const userMsg: OutlineChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
@@ -3159,6 +3375,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         outlinePlanPhase: options.planPhase,
         outlineDiscussPhase: discussPhase,
         generationTiming: { startedAt: Date.now() },
+        // 与消息在同一个对象字面量里落地：要求不会与它所属的那条回复错配。
+        ...(options.eventOutlineRequirement?.trim()
+          ? { eventOutlineRequirement: options.eventOutlineRequirement.trim() }
+          : {}),
       });
       clearStreamingContent(capturedConvId);
       userScrolledUpRef.current = false;
@@ -4339,6 +4559,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       } finally {
         outlineConversationRunRegistry.remove(capturedConvId, controller);
         resetCapturedWorkflowStageToIdle();
+        /*
+         * 丁-4：本轮大纲生成无论成功、抛错还是被中止，都要还原临时角色灵魂绑定。
+         * 绑定是在本 try **之前**写入的，所以必须在这里兜底 —— 漏掉这一句，
+         * 一条「只对这一条消息生效」的绑定会永久留在项目里，静默改变之后所有章节的上下文。
+         * `releaseMessageSoulBinding` 幂等（先把引用置空再动盘），重复调用无害。
+         */
+        await releaseMessageSoulBinding();
       }
     },
     [
@@ -4363,6 +4590,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       finishConversationRun,
       failConversationRun,
       outlineWorkflowStage,
+      requestSoulBindingTarget,
     ],
   );
 
@@ -4812,7 +5040,18 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   );
 
   const handleSendMessage = useCallback(
-    async (text: string, options?: { intentPhase?: "intent_analysis" | "generation" | "waiting_user_input"; scope?: string }) => {
+    async (text: string, options?: {
+      intentPhase?: "intent_analysis" | "generation" | "waiting_user_input"
+      scope?: string
+      /**
+       * 「继续」重发时要跟着带过去的事件细纲要求。
+       *
+       * 与「重新生成」同一个理由：要求存在消息上，新消息不会自动继承。
+       * 模型续写时若不再回抄 requirement，扩写提示词里就会缺掉
+       * 「## 用户对本章的要求」—— 用户填的硬要求悄悄失效。
+       */
+      eventOutlineRequirement?: string
+    }) => {
       const capturedConvId = activeConversationId;
       if (!capturedConvId) {
         toast.info("当前没有可用的大纲会话，请先新建会话。", { dedupeKey: "outline-next-step:no-conversation" });
@@ -4867,7 +5106,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }
         } else {
           const references = outlineReferenceTokens;
-          const result = await handleSend(text, references, { conversationId: capturedConvId, intentPhase: options?.intentPhase, clearDraft: false });
+          const result = await handleSend(text, references, {
+            conversationId: capturedConvId,
+            intentPhase: options?.intentPhase,
+            clearDraft: false,
+            ...(options?.eventOutlineRequirement
+              ? { eventOutlineRequirement: options.eventOutlineRequirement }
+              : {}),
+          });
           if (result.sent) {
             if (shouldClearOutlineReferences({
               invocationConversationId: capturedConvId,
@@ -5434,10 +5680,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
    * 继续不动已有内容，只是把"接着写"作为新一轮用户请求发出去，
    * 模型在会话历史里看得到已经生成的那半截，于是从断点续写。
    * 提示词与章节面板共用同一个常量，两侧「继续」的含义一致。
+   *
+   * 要求（eventOutlineRequirement）必须从被停止的那条消息上取过来：
+   * 它挂在消息本身，新一轮不会自动继承。若续写时模型不再回抄 requirement，
+   * 卡片后续的「用这份细纲写这一章」就会缺掉「## 用户对本章的要求」——
+   * 与「重新生成」修的是同一个洞，两条重发路径都要堵。
    */
-  const handleContinueStopped = useCallback(async () => {
+  const handleContinueStopped = useCallback(async (eventOutlineRequirement?: string) => {
     if (isStreaming) return;
-    await handleSendMessage(CONTINUE_STOPPED_GENERATION_PROMPT);
+    await handleSendMessage(CONTINUE_STOPPED_GENERATION_PROMPT, {
+      ...(eventOutlineRequirement ? { eventOutlineRequirement } : {}),
+    });
   }, [handleSendMessage, isStreaming]);
 
   const handleRegenerate = useCallback(
@@ -5607,6 +5860,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           contextHubSnapshot,
           intentPhase: regenerationIntentPhase,
           outlineDiscussPhase: regenerationDiscussPhase,
+          // 重发的是同一条请求：要求跟着新消息走，否则「重新生成」之后
+          // 扩写提示词里就再也不会出现「## 用户对本章的要求」。
+          ...(targetAssistantMessage?.eventOutlineRequirement
+            ? { eventOutlineRequirement: targetAssistantMessage.eventOutlineRequirement }
+            : {}),
         });
         assistantAdded = true;
 
@@ -6079,6 +6337,37 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         const lastAssistantMsg = [...(currentConv?.messages ?? [])].reverse().find((m) => m.role === "assistant");
         const characterResults = lastAssistantMsg?.characterMultiAgentResults;
 
+        /*
+         * 手动通道的咽喉闸门。必须放在这里，而不是只靠「藏起保存按钮」：
+         * 按钮是靠 extractEventOutlineData 解析成功才隐藏的，而**JSON 围栏被截断时
+         * 解析结果是 null** —— 于是按钮照样显示，用户点下去，这条消息里那个提示词
+         * 强制的「# 事件细纲 · 第N章 …」一级标题正好命中 EVENT_TYPE_MARK，
+         * 最终写进 wiki/outlines/事件细纲/。也就是说：越是在 JSON 坏掉的时候，
+         * 越容易从手动通道漏进去 —— 这恰恰是丙-1 要防的那件事。
+         *
+         * 为什么合法的 17 节章纲在实践中不会被误拦：**只有一条**保护 ——
+         * canonical 的章纲模板里**没有**事件标记
+         * （chapter-outline-template.ts 里 grep 不到「事件细纲/事件清单/事件序列」），
+         * 于是 inferFileTypeFromContent 的事件标记判定不命中，落到章/卷判定。
+         *
+         * ⚠️ 订正一处曾经的误述：这里**不是**「标题 hint 先于正文」。分类链
+         * （outline-save-classifier.ts:187-194）里 `inferFileTypeFromHint(title)`
+         * 是**第 5** 条通道；真正给标题带「章纲」的文档定型的是**第 3** 条
+         * `resolveChapterOrVolumeType(extractDocumentSubject(title, content))`
+         * （它把标题与首个 H1 一起看）。对本例这类标题（如「第一次冷处理」），
+         * 标题通道什么都推不出来（inferFileTypeFromHint 对它返回 null）。
+         *
+         * ⚠️ 这是**当前模板的巧合**，不是结构性保证：`inferFileTypeFromContent` 的
+         * 事件标记判定排在章/卷标记**之前**，所以一份正文里真出现「事件序列」的
+         * 17 节章纲仍会被定型成 event-outline，然后在这里被静默拒掉
+         * —— 正因如此，被拒时必须给出可见反馈（下面的 toast.info），
+         * 不能让用户遇到「点了没反应」。这是已知的假阳性路径，记在实施计划里。
+         */
+        if (isEventOutlineSaveBlocked(built.classification.fileType)) {
+          toast.info("事件细纲只作为对话消息保留，不写入大纲列表。");
+          return;
+        }
+
         if (built.classification.fileType === "character") {
           if (characterResults && characterResults.length > 0) {
             const characterDrafts: CharacterSaveDraft[] = characterResults.flatMap((r) => {
@@ -6456,7 +6745,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         {activeMessages.map((msg, i) => isInternalOutlineMessage(msg) ? null : (
           <div
             key={msg.id}
-            className={`flex w-full min-w-0 max-w-full ${msg.role === "user" ? "flex-col items-end" : "justify-start"}`}
+            className={`flex w-full min-w-0 max-w-full ${msg.role === "user" ? "flex-col items-end" : "flex-wrap justify-start"}`}
             data-ui-ai-message={msg.role}
           >
             <div
@@ -6488,7 +6777,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   onSubmitDiscussAnswers={handleSubmitOutlineDiscussAnswers}
                   onConfirmDiscuss={handleConfirmOutlineDiscuss}
                   onResumeMultiAgent={handleResumeMultiAgent}
-                  onContinueStopped={isStreaming ? undefined : () => void handleContinueStopped()}
+                  onContinueStopped={isStreaming ? undefined : () => void handleContinueStopped(msg.eventOutlineRequirement)}
                   resumeMultiAgentDisabled={isStreaming}
                   nextStepDisabled={submitDisabled}
                   generationContext={activeMessages.slice(0, i).some((message) => message.role === "user" && Boolean(message.novelGenerationRequest))
@@ -6497,6 +6786,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                     ? "当前会话正在生成，请等待生成完成后再选择下一步。"
                     : submitDisabledReason}
                   onFocusInput={handleFocusInput}
+                  hasEventOutline={Boolean(eventOutlinesByMessageId.get(msg.id))}
                 />
               ) : (
                 <>
@@ -6518,6 +6808,42 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 </>
               )}
             </div>
+            {/* 事件细纲卡片挂在助手气泡下方：容器是 flex 行，靠 w-full + flex-wrap 换行占满整行，
+                否则会被 w-full 的气泡挤成半宽。 */}
+            {msg.role === "assistant" ? (() => {
+              const eventOutline = eventOutlinesByMessageId.get(msg.id) ?? null;
+              return eventOutline ? (
+                <div className="w-full min-w-0">
+                  <EventOutlineCard
+                    data={eventOutline}
+                    onWriteChapter={(prompt) => {
+                      // 只把扩写提示词填进写作输入框，不自动发送：
+                      // 误点一次就烧掉一次正文生成太贵，也让用户有机会先改两句。
+                      const chat = useChatStore.getState();
+                      const targetConversationId = chat.activeConversationId ?? chat.createConversation();
+                      // 写作面只在 chatExpanded 为 true 时才渲染 ChatPanel，而助手的「关闭写作助手」会把它置 false。
+                      // 不展开的话草稿落进一个看不见的输入框，toast 却还在说「已填进写作输入框」。
+                      useWikiStore.getState().setChatExpanded(true);
+                      // 不能直接覆盖：用户可能已经在写作输入框里打了半页想法，交接不该把它删掉。
+                      const existingDraft =
+                        chat.conversations.find((item) => item.id === targetConversationId)?.inputDraft ?? "";
+                      const appended = Boolean(existingDraft.trim());
+                      chat.setConversationInputDraft(
+                        targetConversationId,
+                        appended ? `${existingDraft}\n\n${prompt}` : prompt,
+                      );
+                      useWikiStore.getState().setActiveView("wiki");
+                      toast.info(
+                        appended
+                          ? "已把这一章的事件细纲追加到写作输入框里已有草稿的后面，确认后发送。"
+                          : "已把这一章的事件细纲填进写作输入框，确认后发送。",
+                        { dedupeKey: "event-outline-to-prose" },
+                      );
+                    }}
+                  />
+                </div>
+              ) : null;
+            })() : null}
             {msg.role === "user" ? <UserMessageMeta content={msg.content} timestamp={msg.timestamp} /> : null}
           </div>
         ))}
@@ -6687,6 +7013,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }}
           onClose={() => setReferencePickerOpen(false)}
         />
+        {/* 丁-4：`@某人灵魂` 的确认步骤。打开时 `handleSend` 正 await 它，
+            所以在这里取消就等于中止本次发送（此时一条消息都还没落地）。 */}
+        {soulBindingDialog}
         <OutlineWizardDialog
           open={outlineWizardOpen}
           onOpenChange={setOutlineWizardOpen}

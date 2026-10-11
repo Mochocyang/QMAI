@@ -251,3 +251,39 @@ describe("chat-store", () => {
     expect(useChatStore.getState().runStates[id]).toBeUndefined()
   })
 })
+
+/*
+ * 丙-4c：分步引导教程的「一次性请求标记」。
+ *
+ * 语义照 `consumePendingReferenceTokens` 的「入队 + 消费即清零」：
+ * 置位的是「**这一次**要不要弹」，消费一次就清零，所以第二本书不会被
+ * 第一本书的残留标记误伤（`resetProjectStores` 并不清这个键）。
+ *
+ * 与 `novelConfig.usageTutorialSeen` 的分工：`Seen` 回答「这本书自动弹过没有」，
+ * 本标记回答「这一次该不该弹」。两者语义不同，互不覆盖 —— 所以设置里的
+ * 「重新查看教程」即使 `Seen` 已经是 true，也照样能弹出来。
+ */
+describe("chat-store 分步引导教程的一次性请求标记", () => {
+  beforeEach(() => {
+    useChatStore.setState({ usageTutorialRequested: false })
+  })
+
+  it("默认不请求（否则每个非首次场景都会误弹）", () => {
+    expect(useChatStore.getState().usageTutorialRequested).toBe(false)
+    expect(useChatStore.getState().consumeUsageTutorialRequest()).toBe(false)
+  })
+
+  it("置位后消费一次拿到 true，并且立刻清零", () => {
+    useChatStore.getState().setUsageTutorialRequested(true)
+    expect(useChatStore.getState().usageTutorialRequested).toBe(true)
+    expect(useChatStore.getState().consumeUsageTutorialRequest()).toBe(true)
+    expect(useChatStore.getState().usageTutorialRequested).toBe(false)
+    expect(useChatStore.getState().consumeUsageTutorialRequest()).toBe(false)
+  })
+
+  it("显式置 false 可以取消尚未消费的请求（换书时按新书自己的配置重设）", () => {
+    useChatStore.getState().setUsageTutorialRequested(true)
+    useChatStore.getState().setUsageTutorialRequested(false)
+    expect(useChatStore.getState().consumeUsageTutorialRequest()).toBe(false)
+  })
+})

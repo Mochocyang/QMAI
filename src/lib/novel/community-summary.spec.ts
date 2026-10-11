@@ -73,6 +73,9 @@ const novelConfig: NovelConfig = {
   autoGenerateChapterTitle: true,
   draftMemoryHintEnabled: true,
   draftMemoryHintSeen: false,
+  inspirationHintEnabled: true,
+  inspirationHintSeen: false,
+  usageTutorialSeen: false,
 }
 
 /** Matches the graph shape buildWikiGraph resolves to. */

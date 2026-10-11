@@ -9,6 +9,12 @@ export const DEFAULT_OUTLINE_FOLDERS: DefaultOutlineFolder[] = [
   { id: "story", name: "大纲" },
   { id: "volume", name: "卷纲" },
   { id: "chapter", name: "章纲" },
+  // 与 outline-save-classifier 的 FILE_TYPE_FOLDERS 对齐，供 list_outlines 等
+  // 「AI 面向清单」标注用。注意丙-1 之后事件细纲**不再落盘**，所以它既不是可写目标
+  // （计划模式的规则串在 buildOutlinePlanPhaseSystemRules 里单独把它滤掉），
+  // 也不是章纲上下文的一部分 —— 隔离保证靠 outline-context-index 的
+  // STANDARD_FOLDER_KINDS，那是另一个独立常量，本数组不参与推导。
+  { id: "event-outline", name: "事件细纲" },
   { id: "characters", name: "人物小传" },
   { id: "settings", name: "设定" },
   { id: "foreshadowing", name: "伏笔" },

@@ -74,6 +74,16 @@ interface ChatState {
   streamingContents: Record<string, string>
   runStates: ConversationRunStates
   pendingReferenceTokens: ReferenceToken[]
+  /**
+   * 分步引导教程的一次性请求标记（丙-4c）。
+   *
+   * 语义是「**这一次**要不要弹」，不是「有没有弹过」—— 后者是
+   * `novelConfig.usageTutorialSeen`（每本书一次）。两者分工不同、互不覆盖：
+   * 设置里的「重新查看教程」即使 `Seen` 已经是 true，也照样置位本标记。
+   *
+   * 默认必须是 `false`：任何非首次场景都不该误弹。
+   */
+  usageTutorialRequested: boolean
   mode: "chat" | "ingest"
   ingestSource: string | null
   maxHistoryMessages: number
@@ -123,6 +133,10 @@ interface ChatState {
   markLastAssistantDiscarded: () => void   // for novel draft discard
   enqueueReferenceTokens: (tokens: ReferenceToken[]) => void
   consumePendingReferenceTokens: () => ReferenceToken[]
+  /** 置位/取消「这一次要不要弹分步引导教程」。显式写 false 用来取消尚未消费的请求。 */
+  setUsageTutorialRequested: (pending: boolean) => void
+  /** 消费即清零：返回「这一次要不要弹」，并把标记清掉。第二次必定拿到 false。 */
+  consumeUsageTutorialRequest: () => boolean
 
   // Helpers
   getActiveMessages: () => DisplayMessage[]
@@ -150,6 +164,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   streamingContents: {},
   runStates: {},
   pendingReferenceTokens: [],
+  usageTutorialRequested: false,
   mode: "chat",
   ingestSource: null,
   maxHistoryMessages: 20,
@@ -454,6 +469,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const tokens = get().pendingReferenceTokens
     set({ pendingReferenceTokens: [] })
     return tokens
+  },
+
+  setUsageTutorialRequested: (pending) => {
+    set({ usageTutorialRequested: pending })
+  },
+
+  consumeUsageTutorialRequest: () => {
+    const pending = get().usageTutorialRequested
+    set({ usageTutorialRequested: false })
+    return pending
   },
 
   getActiveMessages: () => {

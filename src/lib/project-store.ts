@@ -1083,6 +1083,9 @@ function normalizeNovelConfig(
     autoGenerateChapterTitle: config.autoGenerateChapterTitle ?? DEFAULT_NOVEL_CONFIG.autoGenerateChapterTitle,
     draftMemoryHintEnabled: config.draftMemoryHintEnabled ?? DEFAULT_NOVEL_CONFIG.draftMemoryHintEnabled,
     draftMemoryHintSeen: config.draftMemoryHintSeen ?? DEFAULT_NOVEL_CONFIG.draftMemoryHintSeen,
+    inspirationHintEnabled: config.inspirationHintEnabled ?? DEFAULT_NOVEL_CONFIG.inspirationHintEnabled,
+    inspirationHintSeen: config.inspirationHintSeen ?? DEFAULT_NOVEL_CONFIG.inspirationHintSeen,
+    usageTutorialSeen: config.usageTutorialSeen ?? DEFAULT_NOVEL_CONFIG.usageTutorialSeen,
   }
 }
 

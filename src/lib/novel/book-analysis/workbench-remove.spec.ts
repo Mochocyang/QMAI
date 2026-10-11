@@ -5,6 +5,7 @@ import { loadWritingStyleStore } from "../writing-style-store"
 import { loadWorkbenchRevisions, saveWorkbenchRevision } from "./workbench-storage"
 import { confirmWorkbenchRevision, inspectWorkbenchPublication, workbenchAuraId } from "./workbench-publish"
 import { deleteCustomCharacterAura } from "../character-aura"
+import { storyFrameworkIdForPlotFramework } from "../story-simulation/plot-framework-bridge"
 import { removeWorkbenchRevisionItem, workbenchStoryFrameworkId } from "./workbench-remove"
 
 const PROJECT = "/project"
@@ -26,6 +27,9 @@ vi.mock("@/commands/fs", () => ({
   },
   writeFile: async (path: string, text: string) => { io.files.set(path, text) },
   writeFileAtomic: async (path: string, text: string) => { io.files.set(path, text) },
+  // framework-store 的 deleteFramework 走这个函数删桥接产物。缺了它调用会静默抛错
+  // 被 try/catch 吞掉（「删了但文件还在」这种断言就永远绿）。
+  deleteFile: async (path: string) => { io.files.delete(path) },
   createDirectory: async () => {},
   // 目录也要认：loadWorkbenchRevisions 先 fileExists(<bookPath>/analysis/revisions) 才继续。
   fileExists: async (path: string) =>
@@ -190,6 +194,31 @@ describe("拆书条目删除：技能页分派", () => {
     const library = await loadPlotFrameworkLibrary(PROJECT)
     expect(library.frameworks.map((framework) => framework.id)).toEqual(["other-framework"])
     expect(next.removedSubjects).toEqual(["结构机制", "悬念投放"])
+  })
+
+  it("故事页删除同时清掉桥接产物，不留「删了却还能绑定」的孤儿框架", async () => {
+    seedPlotFrameworkLibrary()
+    /*
+     * 发布时除了 library.json，还桥接了一份 .qmai/simulations/frameworks/<id>.md
+     * （storyFrameworkBinding 真正读的那份）。文件路径必须与发布侧同一个 id 推导：
+     * 这里刻意用 storyFrameworkIdForPlotFramework 而不是手写字符串，
+     * 手写的话推导一改这条用例就测不到真实路径了。
+     */
+    const bridged = `${PROJECT}/.qmai/simulations/frameworks/${storyFrameworkIdForPlotFramework(workbenchStoryFrameworkId("book-1"))}.md`
+    const otherBook = `${PROJECT}/.qmai/simulations/frameworks/${storyFrameworkIdForPlotFramework(workbenchStoryFrameworkId("book-2"))}.md`
+    const native = `${PROJECT}/.qmai/simulations/frameworks/framework-1700000000000.md`
+    io.files.set(bridged, "---\nid: \"plot-wb-story-book-1\"\n---\n")
+    io.files.set(otherBook, "---\nid: \"plot-wb-story-book-2\"\n---\n")
+    io.files.set(native, "---\nid: \"framework-1700000000000\"\n---\n")
+
+    await removeWorkbenchRevisionItem({
+      projectPath: PROJECT, bookPath: BOOK_PATH, revision: storyRevision(), subject: "悬念投放",
+    })
+
+    expect(io.files.has(bridged)).toBe(false)
+    // 反向控制：只删这一个来源的桥接产物，别的书与原生创建的框架必须原样保留。
+    expect(io.files.has(otherBook)).toBe(true)
+    expect(io.files.has(native)).toBe(true)
   })
 
   it("重复删除同一对象是幂等的：removedSubjects 不重复追加", async () => {

@@ -50,6 +50,10 @@ const mocks = vi.hoisted(() => {
   const loadBookStoryFrameworkChapters = vi.fn()
   const createAwaitingRangeTask = vi.fn()
   const loadChapterList = vi.fn()
+  const streamChat = vi.fn()
+  const bridgeStoryFramework = vi.fn()
+  const buildStoryFrameworkDraft = vi.fn()
+  const upsertStoryFramework = vi.fn()
 
   return {
     candidates,
@@ -108,6 +112,10 @@ const mocks = vi.hoisted(() => {
     loadBookStoryFrameworkChapters,
     createAwaitingRangeTask,
     loadChapterList,
+    streamChat,
+    bridgeStoryFramework,
+    buildStoryFrameworkDraft,
+    upsertStoryFramework,
     pipelineState: {
       tasks: [] as unknown[],
       chunks: [] as unknown[],
@@ -260,15 +268,22 @@ vi.mock("@/lib/novel/model-resolver", () => ({ resolveDefaultModel: () => ({}) }
 vi.mock("@/lib/novel/book-analysis/story-framework-extraction", () => ({
   loadBookStoryFrameworkChapters: mocks.loadBookStoryFrameworkChapters,
   buildBookStoryFrameworkPrompt: vi.fn(),
-  buildPlotFrameworkDraftFromBookStoryOutput: vi.fn(),
+  buildPlotFrameworkDraftFromBookStoryOutput: mocks.buildStoryFrameworkDraft,
 }))
 
 vi.mock("@/lib/novel/plot-framework-library", () => ({
   loadPlotFrameworkLibrary: vi.fn().mockResolvedValue({ frameworks: [] }),
-  upsertPlotFramework: vi.fn(),
+  upsertPlotFramework: mocks.upsertStoryFramework,
+}))
+/**
+ * 「旧框架入口」是第三个发布方：它也要把框架桥接进 storyFrameworkBinding 读的那个存储
+ * （.qmai/simulations/frameworks/）。这里打桩桥接函数，只验接线与入参。
+ */
+vi.mock("@/lib/novel/story-simulation/plot-framework-bridge", () => ({
+  bridgePlotFrameworkToStoryFramework: mocks.bridgeStoryFramework,
 }))
 
-vi.mock("@/lib/llm-client", () => ({ streamChat: vi.fn() }))
+vi.mock("@/lib/llm-client", () => ({ streamChat: mocks.streamChat }))
 vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: () => true }))
 vi.mock("@/lib/toast", () => ({
   toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
@@ -361,6 +376,9 @@ beforeEach(() => {
   mocks.loadBookStoryFrameworkChapters.mockReset().mockResolvedValue([
     { id: "chapter-1", title: "第一章", order: 1, content: "正文" },
   ])
+  mocks.bridgeStoryFramework.mockReset().mockResolvedValue(undefined)
+  mocks.buildStoryFrameworkDraft.mockReset().mockReturnValue(null)
+  mocks.upsertStoryFramework.mockReset()
   mocks.reloadLibraryState.mockReset().mockImplementation(async () => {
     const next = mocks.reloadedLibraryState
     mocks.libraryParams.setLibraryState(next)
@@ -526,5 +544,70 @@ describe("BookAnalysisView 批量导入运行时接线", () => {
 
     await clickButton("关闭历史结果")
     expect(mocks.setShowResultViewer).toHaveBeenCalledWith(false)
+  })
+})
+
+describe("BookAnalysisView 故事框架提取后的桥接落盘", () => {
+  const framework = {
+    id: "framework-book-1-1700000000000", title: "长夜 · 故事机制", line: "main" as const,
+    beats: { hook: "钩子", buildup: "铺垫", payoff: "爽点", endingHook: "结尾钩子" },
+    rangeChapterIds: ["chapter-1"], characters: [], foreshadowing: [], reusableTemplate: "",
+    directionHints: "", handcraftHints: "", createdAt: 1700000000000, updatedAt: 1700000000000,
+  }
+
+  it("提取成功后把入库后的框架桥接进仿真框架存储，否则这条入口只写了一半", async () => {
+    mocks.buildStoryFrameworkDraft.mockReturnValue(framework)
+    // 真实 upsertPlotFramework 会补默认值后返回同一份内容；这里用返回值区分「传进去的那份」。
+    const saved = { ...framework, title: "长夜 · 故事机制（已归一化）" }
+    mocks.upsertStoryFramework.mockResolvedValue(saved)
+    await renderView()
+    await clickButton("旧框架入口")
+
+    await act(async () => {
+      await mocks.chapterPanelProps.onConfirm(["chapter-1"])
+    })
+
+    expect(mocks.upsertStoryFramework).toHaveBeenCalledWith("E:/项目甲", framework)
+    // 桥接必须拿到 upsert 的返回值：id 由它派生，取错就是绑定之后静默空串。
+    expect(mocks.bridgeStoryFramework).toHaveBeenCalledWith("E:/项目甲", saved)
+  })
+
+  it("提取失败（AI 输出缺四段）时不写任何东西，也不会去桥接", async () => {
+    mocks.buildStoryFrameworkDraft.mockReturnValue(null)
+    await renderView()
+    await clickButton("旧框架入口")
+
+    await act(async () => {
+      await mocks.chapterPanelProps.onConfirm(["chapter-1"])
+    })
+
+    expect(mocks.upsertStoryFramework).not.toHaveBeenCalled()
+    expect(mocks.bridgeStoryFramework).not.toHaveBeenCalled()
+  })
+})
+
+describe("BookAnalysisView 故事框架思考-only 重试", () => {
+  it("故事框架提取遇到思考-only 时关掉思考重试一次", async () => {
+    // 第 1 次响应只回思考诊断（迁移前这里没有任何重试，用户只拿到这条 toast）。
+    mocks.streamChat.mockImplementationOnce(async (_config: unknown, _messages: unknown, callbacks: any) => {
+      callbacks.onError(new Error("模型只输出了 17,331 字符的思考内容，但没有输出正文。"))
+    })
+    // 重试那一轮正常返回正文。
+    mocks.streamChat.mockImplementation(async (_config: unknown, _messages: unknown, callbacks: any) => {
+      callbacks.onToken("## 钩子\n示例框架\n## 铺垫\n示例\n## 爽点\n示例\n## 结尾钩子\n示例")
+      callbacks.onDone()
+    })
+
+    await renderView()
+    await clickButton("旧框架入口")
+    const onConfirm = mocks.chapterPanelProps.onConfirm
+    await act(async () => {
+      await onConfirm(["chapter-1"])
+    })
+
+    expect(mocks.streamChat).toHaveBeenCalledTimes(2)
+    // 第 0 次是未关思考的原始尝试，第 1 次才是关思考的重试。
+    expect(mocks.streamChat.mock.calls[0][4]).toBeUndefined()
+    expect((mocks.streamChat.mock.calls[1][4] as { reasoning?: unknown }).reasoning).toEqual({ mode: "off" })
   })
 })

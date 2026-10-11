@@ -40,6 +40,9 @@ const baseNovelConfig: NovelConfig = {
   autoGenerateChapterTitle: true,
   draftMemoryHintEnabled: true,
   draftMemoryHintSeen: false,
+  inspirationHintEnabled: true,
+  inspirationHintSeen: false,
+  usageTutorialSeen: false,
 }
 
 describe("testNovelModel", () => {

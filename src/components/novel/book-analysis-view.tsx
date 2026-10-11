@@ -12,7 +12,8 @@ import { useBookAnalysisImportStore } from "@/stores/book-analysis-import-store"
 import { useBookAnalysisPipelineStore } from "@/stores/book-analysis-pipeline-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { resolveDefaultModel } from "@/lib/novel/model-resolver"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import type { ChatMessage } from "@/lib/llm-client"
+import { callAnalysisModelText } from "@/lib/novel/book-analysis/analysis-model-call"
 import { yieldToBrowserFrame } from "@/lib/novel/yield-to-browser"
 import {
   toBookAnalysisResult,
@@ -20,12 +21,10 @@ import {
   type BookAnalysisLibraryBook,
 } from "@/lib/novel/book-analysis/library-state"
 import { toast } from "@/lib/toast"
-import { BookOpen, Check, Loader2, Plus, X } from "lucide-react"
+import { Plus } from "lucide-react"
 import type {
   AnalysisDepth,
   ExtractedCharacter,
-  SixDimensionProgressItem,
-  SixDimensionStatus,
   RecognizedCharacter,
 } from "@/lib/novel/book-analysis/types"
 import { useCharacterExtraction, type ChapterSelectionData } from "./hooks/use-character-extraction"
@@ -38,6 +37,7 @@ import {
   loadBookStoryFrameworkChapters,
 } from "@/lib/novel/book-analysis/story-framework-extraction"
 import { loadPlotFrameworkLibrary, upsertPlotFramework } from "@/lib/novel/plot-framework-library"
+import { bridgePlotFrameworkToStoryFramework } from "@/lib/novel/story-simulation/plot-framework-bridge"
 import type { PlotFramework } from "@/lib/novel/plot-framework"
 import type { BatchImportCandidate } from "@/lib/novel/book-analysis/batch-import-types"
 import {
@@ -65,31 +65,6 @@ import { deleteStoryMapHistory } from "@/lib/novel/book-analysis/story-map-histo
 interface StoryFrameworkSelectionData {
   book: BookAnalysisLibraryBook
   chapters: ChapterSelectionData["chapters"]
-}
-
-/** 6 维度状态图标的视觉映射 */
-function DimensionStatusIcon({ status }: { status: SixDimensionStatus }) {
-  if (status === "done") {
-    return <Check className="h-3.5 w-3.5 text-emerald-500" />
-  }
-  if (status === "failed") {
-    return <X className="h-3.5 w-3.5 text-destructive" />
-  }
-  if (status === "running") {
-    return <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-  }
-  return <span className="h-3.5 w-3.5 inline-block rounded-full border border-muted-foreground/40" />
-}
-
-/** 6 维度状态文字颜色 */
-function dimensionTextClass(
-  status: SixDimensionStatus,
-  isCurrent: boolean
-): string {
-  if (status === "running" || isCurrent) return "text-foreground font-medium"
-  if (status === "done") return "text-muted-foreground"
-  if (status === "failed") return "text-destructive"
-  return "text-muted-foreground/60"
 }
 
 export function BookAnalysisView() {
@@ -307,10 +282,9 @@ export function LegacyBookAnalysisView() {
     providerConfigs,
   })
 
-  // 角色特征提取钩子
-  const {
-    handleResumeFailedExtraction,
-  } = useCharacterExtraction({
+  // 提取钩子仍要挂载（内部有副作用）；旧的「继续生成」按钮随死代码一起删除后，
+  // 返回值已无人使用，就不再解构。
+  useCharacterExtraction({
     chapterSelectionData,
     setChapterSelectionData,
     recognizedCharacters,
@@ -605,15 +579,10 @@ export function LegacyBookAnalysisView() {
         },
         { role: "user", content: prompt },
       ]
-      let output = ""
-      await new Promise<void>((resolve, reject) => {
-        void streamChat(llmConfig, messages, {
-          onToken: (token) => {
-            output += token
-          },
-          onDone: resolve,
-          onError: reject,
-        })
+      // 思考-only 的流在 HTTP 层是成功的，这里原先没有任何重试，
+      // 用户只会拿到一条 17K 字符的思考诊断 toast。交给共享实现重试一次。
+      const output = await callAnalysisModelText(llmConfig, messages, {
+        cancelMessage: "用户取消故事框架提取",
       })
       const now = Date.now()
       const framework = buildPlotFrameworkDraftFromBookStoryOutput({
@@ -627,7 +596,14 @@ export function LegacyBookAnalysisView() {
         toast.error("故事框架提取失败：AI 输出缺少钩子/铺垫/爽点/结尾钩子。")
         return
       }
-      await upsertPlotFramework(currentProject.path, framework)
+      const saved = await upsertPlotFramework(currentProject.path, framework)
+      /*
+       * 这是第三个发布方（workbench 版本确认、story-analysis-adapter 之外的那个「旧框架入口」）。
+       * 只写跨作品库的话，从这里提取的故事框架同样进不了 storyFrameworkBinding —— 也就是没打通。
+       * 桥接 id 由 framework.id 派生，而这个 id 本身带 createdAt，所以每次提取各自一份，
+       * 与跨作品库里「每次提取新增一条」的行为一致。
+       */
+      await bridgePlotFrameworkToStoryFramework(currentProject.path, saved)
       await reloadStoryFrameworks()
       useBookAnalysisStore.getState().triggerSidebarRefresh()
       toast.success("故事框架已提取并入库。")
@@ -1005,68 +981,6 @@ export function LegacyBookAnalysisView() {
     return (
       <>
         {libraryLayout}
-        {false && (
-        <div className="flex h-full items-center justify-center p-8">
-        <div className="max-w-md text-center space-y-6">
-          <div className="flex justify-center">
-            <div className="rounded-full bg-primary/10 p-6">
-              <BookOpen className="h-12 w-12 text-primary" />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold">拆书作品</h2>
-            <p className="text-muted-foreground">
-              从小说中提取角色信息，生成可复用的角色 Skill，添加到自定义灵魂库
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            <div className="text-sm text-muted-foreground space-y-2">
-              <div className="flex items-start gap-2">
-                <div className="rounded-full bg-primary/20 w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <span className="text-xs font-medium">1</span>
-                </div>
-                <div className="text-left">
-                  <div className="font-medium text-foreground">上传小说文件</div>
-                  <div>支持TXT格式，自动识别章节（可能包含500-1000章）</div>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-2">
-                <div className="rounded-full bg-primary/20 w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <span className="text-xs font-medium">2</span>
-                </div>
-                <div className="text-left">
-                  <div className="font-medium text-foreground">选择分析范围</div>
-                  <div>勾选需要分析的章节，支持全选或选择特定范围</div>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-2">
-                <div className="rounded-full bg-primary/20 w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <span className="text-xs font-medium">3</span>
-                </div>
-                <div className="text-left">
-                  <div className="font-medium text-foreground">提取角色与生成Skill</div>
-                  <div>全面分析角色信息，生成可复用技能，添加到自定义灵魂</div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <Button onClick={() => setInputDialogOpen(true)} size="lg" className="w-full">
-            <Plus className="mr-2 h-4 w-4" />
-            选择小说并拆书
-          </Button>
-
-          <div className="text-xs text-muted-foreground">
-            支持本地TXT文件，自动识别章节结构
-          </div>
-        </div>
-        </div>
-        )}
-
         <BookAnalysisInputDialog
           open={inputDialogOpen}
           onOpenChange={setInputDialogOpen}
@@ -1109,153 +1023,6 @@ export function LegacyBookAnalysisView() {
   return (
     <div className="flex h-full flex-col">
       {libraryLayout}
-      {false && (
-      <div className="hidden">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">拆书作品</h2>
-        <Button onClick={() => setInputDialogOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />
-          拆书作品
-        </Button>
-      </div>
-
-      <div className="space-y-4">
-        {tasks.map((task) => (
-          <div
-            key={task.id}
-            className="border rounded-lg p-4 space-y-3 cursor-pointer transition-colors hover:bg-muted/40 focus:bg-muted/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
-            role="button"
-            tabIndex={0}
-            onClick={() => setViewingResultPath(task.projectPath)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault()
-                setViewingResultPath(task.projectPath)
-              }
-            }}
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="font-medium">
-                  {task.metadata?.title || "未命名作品"}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  角色提取与Skill生成
-                </div>
-              </div>
-              <div className="text-sm text-muted-foreground">
-                {task.status === "running" && "进行中"}
-                {task.status === "paused" && "已暂停"}
-                {task.status === "completed" && "已完成"}
-                {task.status === "error" && "出错"}
-              </div>
-            </div>
-
-            {task.status === "running" && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">{task.progress.stageLabel}</span>
-                  <span className="font-medium">{task.progress.percentage}%</span>
-                </div>
-                <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary transition-all duration-300"
-                    style={{ width: `${task.progress.percentage}%` }}
-                  />
-                </div>
-                {task.progress.currentItem && (
-                  <div className="text-xs text-muted-foreground">
-                    {task.progress.currentItem}
-                  </div>
-                )}
-                {/* 6 维度细粒度进度清单（feature/book-analysis-6d-skill） */}
-                {task.progress.dimensions && task.progress.dimensions.length > 0 && (
-                  <div className="mt-2 rounded-md border bg-muted/30 p-2 space-y-1">
-                    <div className="text-xs text-muted-foreground">
-                      {task.progress.currentCharacter
-                        ? `角色「${task.progress.currentCharacter}」的 6 维度`
-                        : "6 维度进度"}
-                    </div>
-                    <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1">
-                      {task.progress.dimensions.map((d: SixDimensionProgressItem) => (
-                        <li
-                          key={d.key}
-                          className={`flex items-center gap-1.5 text-xs ${dimensionTextClass(
-                            d.status,
-                            d.key === task.progress.currentDimension
-                          )}`}
-                        >
-                          <DimensionStatusIcon status={d.status} />
-                          <span className="truncate">{d.label}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-                {/* 角色识别阶段状态（feature/character-recognition-and-simple-mode） */}
-                {task.progress.recognitionStatus === "heuristic" && (
-                  <p className="text-sm text-muted-foreground">正在启发式识别角色...</p>
-                )}
-                {task.progress.recognitionStatus === "llm_scoring" && (
-                  <p className="text-sm text-muted-foreground">正在用 LLM 评分角色重要度...</p>
-                )}
-                {task.progress.recognitionStatus === "done" && (
-                  <p className="text-sm text-muted-foreground">
-                    识别出 {task.progress.recognizedCharactersCount ?? 0} 个角色
-                  </p>
-                )}
-                {/* 停止按钮 */}
-                <div className="flex gap-2 mt-3">
-                  <button
-                    onClick={() => cancelTask(task.id)}
-                    className="flex-1 px-3 py-1.5 bg-destructive/10 text-destructive rounded-md hover:bg-destructive/20 transition-colors text-sm font-medium"
-                  >
-                    停止分析
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {task.status === "error" && task.error && (
-              <div className="text-sm text-destructive">
-                {task.error}
-              </div>
-            )}
-
-            {task.status === "completed" && (
-              <div className="flex gap-2 mt-3">
-                <button
-                  type="button"
-                  className="flex-1 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors text-sm font-medium"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setViewingResultPath(task.projectPath)
-                  }}
-                >
-                  查看分析结果
-                </button>
-                {/* feature/network-error-resume：失败角色时显示"继续生成"按钮 */}
-                {(() => {
-                  const failedNames = (task.metadata as any)?.failedCharacterNames as string[] | undefined
-                  if (!failedNames || failedNames.length === 0) return null
-                  return (
-                    <button
-                      onClick={() => handleResumeFailedExtraction(task.id)}
-                      className="px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors text-sm font-medium"
-                    >
-                      继续生成（{failedNames.length}）
-                    </button>
-                  )
-                })()}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      </div>
-      )}
-
       <BookAnalysisInputDialog
         open={inputDialogOpen}
         onOpenChange={setInputDialogOpen}

@@ -64,4 +64,27 @@ describe("文风工作台完整适配路径", () => {
     await expect(createWorkbenchAdapter("style").runChunk(input(true))).rejects.toThrow("没有可用服务通道")
     expect(mocks.calls).toHaveBeenCalledTimes(1)
   })
+  it("文风 v1 遇到思考-only 会关掉思考重试，且保留自定义请求覆盖项", async () => {
+    mocks.calls.mockImplementationOnce(async (_config, _messages, callbacks) => {
+      callbacks.onError(new Error("模型只输出了 20,644 字符的思考内容，但没有输出正文。"))
+    })
+
+    const result = await createWorkbenchAdapter("style").runChunk(input(true))
+
+    // 调用序列（正常 v1 路径只有 2 次：生成画像 + 核验画像）：
+    //   [0] 首次生成，带自定义覆盖项、未关思考 → 被 mockImplementationOnce 打成思考-only
+    //   [1] 关思考重试生成 → 是那次重试，自定义覆盖项必须仍在
+    //   [2] 核验画像
+    expect(mocks.calls).toHaveBeenCalledTimes(3)
+    // 第一次：带自定义覆盖项，且没有关思考（沿用调用点原样）
+    expect(mocks.calls.mock.calls[0][4]).toMatchObject({ skipUserMemory: true, max_tokens: 8000, temperature: 0.2 })
+    expect((mocks.calls.mock.calls[0][4] as { reasoning?: unknown }).reasoning).toBeUndefined()
+    // 第二次：是「关掉思考」的重试，自定义覆盖项仍在（不能被 reasoning 挤掉）
+    expect(mocks.calls.mock.calls[1][4]).toMatchObject({
+      skipUserMemory: true, max_tokens: 8000, temperature: 0.2, reasoning: { mode: "off" },
+    })
+    // 重试成功后流程照常走完，证据/统计没丢
+    expect(result.result.items[0].styleFingerprint?.lexicon[0].word).toBe("略一沉吟")
+    expect(result.result.metrics?.counts.chars).toBe(mocks.body.length)
+  })
 })

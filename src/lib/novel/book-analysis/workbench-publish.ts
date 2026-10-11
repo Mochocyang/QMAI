@@ -4,6 +4,7 @@ import { sha256Text } from "@/lib/context-hub/fingerprint"
 import { createCustomCharacterAuraFromGeneratedSkill, loadCharacterAuraStore, updateCustomCharacterAura, type CharacterAura } from "../character-aura"
 import { loadWritingStyleStore, upsertWritingStylePreset } from "../writing-style-store"
 import { loadPlotFrameworkLibrary, upsertPlotFramework } from "../plot-framework-library"
+import { EMPTY_STORY_BEAT, bridgePlotFrameworkToStoryFramework } from "../story-simulation/plot-framework-bridge"
 import { renderPersonalitySkill, parsePortablePersonality } from "../portable-personality"
 import { buildGeneratedAuraInputFromBookCharacter, importBookAnalysisSkillsAsAuras } from "./aura-adapter"
 import { isSameBookAnalysisCharacterAura } from "./aura-match"
@@ -233,8 +234,10 @@ export async function confirmWorkbenchRevision(projectPath: string, bookPath: st
     } else {
       const item = revision.items[0]
       const pick = (dimensions: string[]) => item.rules.filter((r) => dimensions.includes(r.dimension)).map((r) => `${r.condition}：${r.action}；${r.boundary}`).join("\n")
-        || "本次没有充分依据，不固定该环节；由目标故事实际情境决定。"
+        || EMPTY_STORY_BEAT
       const framework: PlotFramework = {
+        // 与 workbench-remove 的 workbenchStoryFrameworkId 必须同值；那边 import 本模块，
+        // 反向 import 会成环，所以这一处保持字面量一致（见 workbench-remove.ts 的注释）。
         id: `wb-story-${revision.bookId}`, title: `${revision.bookTitle} · 故事机制`, line: "main",
         beats: { hook: pick(["目标与阻力", "信息投放"]), buildup: pick(["冲突升级"]), payoff: pick(["转折条件", "兑现"]), endingHook: pick(["后续悬念"]) },
         rangeChapterIds: revision.selectedChapterIds, characters: [], foreshadowing: [], reusableTemplate: item.summary,
@@ -242,7 +245,25 @@ export async function confirmWorkbenchRevision(projectPath: string, bookPath: st
         sourceDismantlingProjectId: `book-analysis:${revision.bookId}`, sourceDismantlingProjectTitle: revision.bookTitle,
         createdAt: revision.createdAt, updatedAt: Date.now(),
       }
-      publishedIds.push((await upsertPlotFramework(projectPath, framework)).id)
+      const saved = await upsertPlotFramework(projectPath, framework)
+      /*
+       * 桥接：同一份内容再写进 storyFrameworkBinding 真正读的那个存储
+       * （.qmai/simulations/frameworks/<id>.md）。不写这一份，跨作品框架库里的
+       * 故事 skill 永远不会出现在提示词里——那是两个互不相通的存储。
+       * 用 upsertPlotFramework 的返回值而不是上面那个字面量：id 与 createdAt
+       * 以归一化后落盘的那份为准（桥接 id 由它派生，取错就等于绑定对不上、静默返回空串）。
+       *
+       * ⚠️ 这里**故意不 try/catch**，与 story-analysis-adapter.publish 的不对称是刻意的：
+       * 本函数的契约是「要么整批成功、要么什么都没发生」（见上面旧版角色校验那段注释），
+       * 而确认动作是**用户发起、可重试**的 —— 抛错只让本次修订保持「待确认」，
+       * 用户看到错误后重试即可，两处存储会在重试时收敛。
+       * 反过来若在这里吞掉异常，用户会以为发布成功，而绑定其实一直静默回空串 ——
+       * 那正是本次要消灭的失效模式。
+       * （对比：adapter 的桥接在「兼容产物」try 块里，主产物是 story-map.json，
+       *  详见 story-analysis-adapter.ts 里那段注释。）
+       */
+      await bridgePlotFrameworkToStoryFramework(projectPath, saved)
+      publishedIds.push(saved.id)
     }
     const confirmed = { ...revision, confirmedAt: Date.now(), publishedIds }
     await saveWorkbenchRevision(bookPath, confirmed)

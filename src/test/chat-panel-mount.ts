@@ -7,7 +7,7 @@ import type { Conversation, DisplayMessage } from "@/stores/chat-store"
 import type { ConversationRunStates } from "@/lib/conversation-run-state"
 
 const wikiState = {
-  project: { path: "C:/QMAI_C/QMAI-main", name: "测试项目" },
+  project: { id: "mount-spec-project", path: "C:/QMAI_C/QMAI-main", name: "测试项目" },
   novelMode: true,
   dataVersion: 0,
   llmConfig: {
@@ -33,6 +33,11 @@ const wikiState = {
   setPlanExecuteEnabled: vi.fn(),
   setChatEditModeEnabled: vi.fn(),
   setSelectedFile: vi.fn(),
+  // 丙-4c：分步引导教程在「显示即记 seen」时要写 novelConfig。
+  setNovelConfig: vi.fn(),
+  // 丁-4：临时角色灵魂绑定写入/还原后靠 dataVersion 触发重新读盘。
+  // chat-panel 会直接调它，缺了这个属性就是一条 TypeError（不是断言失败）。
+  bumpDataVersion: vi.fn(),
 }
 
 const mockRegistry = {
@@ -53,6 +58,15 @@ const defaultAgentSkillConfig = {
 
 let mockAgentSkillConfig: typeof defaultAgentSkillConfig | null = defaultAgentSkillConfig
 let mockTaskBreakpoint: TaskBreakpoint | null = null
+/**
+ * `useAgentConfig` 每次调用的**完整实参**（最新的在最后）。
+ *
+ * 用途：丁-2 的「产出端」用例必须能问到「chat-panel 到底把什么 getter 交出去了」——
+ * 只看界面上的标签变了证明不了 getter 的返回值也跟着变
+ * （产出方与消费方是两件事，本仓库已经有过「getter 没有产出者」的死通道）。
+ * 每次 `renderChatPanel` 会清空，避免跨用例串味。
+ */
+export const agentConfigArgs: unknown[][] = []
 
 vi.mock("react-i18next", () => ({
   initReactI18next: {
@@ -80,19 +94,23 @@ vi.mock("@/stores/outline-chat-store", () => ({
 }))
 
 vi.mock("@/hooks/use-agent-config", () => ({
-  useAgentConfig: (systemPrompt: string) => ({
-    config: {
-      maxRounds: 3,
-      tools: [],
-      systemPrompt,
-      llmConfig: wikiState.llmConfig,
-    },
-    registry: mockRegistry,
-    supportsTools: true,
-    skillConfigLoaded: true,
-    skillConfig: mockAgentSkillConfig,
-    writingSkills: [],
-  }),
+  useAgentConfig: (...args: unknown[]) => {
+    agentConfigArgs.push(args)
+    const systemPrompt = args[0] as string
+    return {
+      config: {
+        maxRounds: 3,
+        tools: [],
+        systemPrompt,
+        llmConfig: wikiState.llmConfig,
+      },
+      registry: mockRegistry,
+      supportsTools: true,
+      skillConfigLoaded: true,
+      skillConfig: mockAgentSkillConfig,
+      writingSkills: [],
+    }
+  },
 }))
 
 vi.mock("@/components/chat/chat-shared", () => ({
@@ -139,7 +157,11 @@ vi.mock("@/lib/project-refresh", () => ({
 vi.mock("@/lib/project-store", () => ({
   saveAiChatModel: vi.fn(async () => {}),
   saveAiWorkflowMode: vi.fn(async () => {}),
+  // 合并说明：两侧各自追加了自己的 mock，取并集。
+  // main（章节共创）→ saveAiWorkflowModeBeforeDiscuss
+  // scratch-20261010（丙-4c 分步引导教程）→ saveNovelConfig
   saveAiWorkflowModeBeforeDiscuss: vi.fn(async () => {}),
+  saveNovelConfig: vi.fn(async () => {}),
 }))
 
 import { ChatPanel } from "@/components/chat/chat-panel"
@@ -153,6 +175,12 @@ interface RenderChatPanelOptions {
   runStates?: ConversationRunStates
   agentSkillConfig?: typeof defaultAgentSkillConfig | null
   taskBreakpoint?: TaskBreakpoint | null
+  /**
+   * 会话执行模式。丁-3 的用例传 `"fast"`：快速模式不跑 novel pre-plugin 链
+   * （`shouldRunNovelPrePluginChain` 的第一项），用例不再依赖真实的上下文装配，
+   * 既快又不会因为磁盘 mock 的细节而变红。不传时保持 `"standard"`（原有行为）。
+   */
+  aiWorkflowMode?: "fast" | "standard" | "strict"
 }
 
 export async function renderChatPanel(options: RenderChatPanelOptions = {}) {
@@ -162,6 +190,8 @@ export async function renderChatPanel(options: RenderChatPanelOptions = {}) {
     ? defaultAgentSkillConfig
     : options.agentSkillConfig
   mockTaskBreakpoint = options.taskBreakpoint ?? null
+  wikiState.aiWorkflowMode = options.aiWorkflowMode ?? "standard"
+  agentConfigArgs.length = 0
 
   const activeConversationId = options.activeConversationId !== undefined
     ? options.activeConversationId

@@ -5,11 +5,13 @@ import { join, relative, resolve } from "node:path"
 import postcss from "postcss"
 import { act, createRef, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest"
 import { PreviewPanel } from "@/components/layout/preview-panel"
+import { saveNovelConfig } from "@/lib/project-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
+import { DRAFT_MEMORY_HINT_MESSAGE } from "@/lib/draft-memory-hint"
 import { CHAPTER_AUTOSAVE_INTERVAL_MS, flushPendingChapterSave } from "@/lib/chapter-save-flush"
 import {
   BODY_MARGIN_X_VIEWPORT_MAX,
@@ -499,8 +501,13 @@ describe("编辑器异常与原业务回归", () => {
      * 没有这个文件，13 份简报也没有任何任务认领它 —— 于是 main 上红了
      * 一条既有单测。实现者按"只碰清单内文件"的规矩**停下来上报**，
      * 没有越界改它（这是对的）。现在由我补上并修正图纸归属。
+     *
+     * 丙-2a 再次按这个既定规则更新：「生成章节细纲」这个入口从大纲面板的
+     * 空白态搬到章节区工具栏（用户口径「点击这个功能后，在章节区生成内容」），
+     * 因此这里同样红了一次、由人确认它插在「字体设置」之后、「一键排版」之前
+     * —— 与「写作动作按顺序排在设置项之后、格式化动作之前」的现有次序一致。
      */
-    expect(labels).toEqual(["去AI味", "提取记忆", "查看记忆", "字体设置", "一键排版"])
+    expect(labels).toEqual(["去AI味", "提取记忆", "查看记忆", "字体设置", "生成章节细纲", "一键排版"])
   })
 
   /*
@@ -876,6 +883,377 @@ describe("编辑器异常与原业务回归", () => {
     expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
   })
 
+  /*
+   * ── 丙-4a：新章节灵感提示 ──
+   *
+   * 判据（决定 A）**复用草稿提示那一批输入**：`isChapterPath(selectedFile)` +
+   * `countChapterBodyWords(fileContent)`。所以这一组用例全部走真实的 PreviewPanel，
+   * 不手写第二份「内容是否为空」的判据 —— 否则会出现「草稿提示认为是空章节、
+   * 灵感提示认为不是」的自相矛盾。
+   *
+   * 与草稿提示的**互斥**由纯函数层穷举证明（src/lib/inspiration-hint.spec.ts）；
+   * 这里测的是接线：什么时候挂出来、点了两个按钮各自发生什么。
+   */
+  const emptyChapterPath = `${project.path}/wiki/chapters/第一卷/第1章.md`
+  const emptyChapter = "---\ntype: chapter\nchapter_number: 1\nchapter_status: draft\n---\n\n# 第1章 开篇\n\n"
+
+  function inspirationHint() {
+    return container.querySelector(".ui-test-editor-inspiration-hint")
+  }
+
+  it("空章节打开时把灵感气泡挂在「生成章节细纲」按钮旁，并在显示时记下 seen", async () => {
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    const hint = inspirationHint()
+    expect(hint?.textContent).toContain("点击这里生成新章节故事灵感")
+    const anchor = container.querySelector(".ui-test-editor-action.is-hint-target")
+    expect(anchor?.getAttribute("aria-label")).toBe("生成章节细纲")
+    expect(anchor?.getAttribute("data-event-outline-target")).toBe("")
+    expect(useWikiStore.getState().novelConfig.inspirationHintSeen).toBe(true)
+  })
+
+  it("已有正文的章节不出现灵感气泡", async () => {
+    await mount()
+    expect(inspirationHint()).toBeNull()
+  })
+
+  it("用的是实时正文：刚打字，气泡立刻收掉", async () => {
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    expect(inspirationHint()).not.toBeNull()
+    const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
+    await act(async () => { changeTextarea(textarea, `${textarea.value}有人推开了门。`) })
+    expect(inspirationHint(), "实时内容已非空，气泡必须立刻收掉").toBeNull()
+  })
+
+  /*
+   * ── F1 回归（修复批）：两条气泡在**真实接线**下确实会同时挂出来 ──
+   *
+   * 纯函数层那 432 组合的穷举（`src/lib/inspiration-hint.spec.ts`）把**同一个**
+   * `wordCount` 喂给两个函数，所以它证明的只是「同一个 wordCount 下互斥」。
+   * 真实接线里两条链喂的**不是**同一个数：
+   *   · 草稿链 `wordCount: session.persistedWords ?? 0` —— 只在切章或
+   *     `phase === "saved"` 时刷新的**快照**，删字不会刷新它；
+   *   · 灵感链 `wordCount: countChapterBodyWords(fileContent)` —— **实时**。
+   * 于是「磁盘上还有正文、编辑框刚被清空」时，草稿链看到 >0、灵感链看到 0，
+   * 两条气泡一起挂出来 —— 而它们共用 `.ui-test-editor-hint-anchor` 与同一组
+   * top/left/width，会**精确重叠**在同一坐标上。
+   *
+   * 这条用例走的就是那个可达序列：有正文的 `chapter_status: draft` 章 → 清空编辑器。
+   * `persistedWords` 在 mount 时被捕获，正是让这个序列可达的原因。
+   */
+  it("草稿章有正文时清空编辑器：草稿气泡挂着，灵感气泡不得同时挂出，也不得烧掉 seen 预算", async () => {
+    await mount()
+    expect(
+      container.querySelector(".ui-test-editor-draft-hint"),
+      "有正文的草稿章，草稿气泡本就在",
+    ).not.toBeNull()
+    expect(inspirationHint(), "实时正文非空时不该有灵感气泡").toBeNull()
+    expect(useWikiStore.getState().novelConfig.inspirationHintSeen, "此刻还没显示过灵感气泡").toBe(false)
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
+    await act(async () => { changeTextarea(textarea, "") })
+
+    expect(
+      container.querySelector(".ui-test-editor-draft-hint"),
+      "清空的是编辑缓冲，磁盘快照仍是有正文的草稿章 —— 草稿气泡必须还在",
+    ).not.toBeNull()
+    expect(
+      container.querySelectorAll(".ui-test-editor-draft-hint, .ui-test-editor-inspiration-hint"),
+      "两条气泡共用定位属性，同时挂出会精确重叠 —— 绝不允许同时存在",
+    ).toHaveLength(1)
+    expect(inspirationHint()).toBeNull()
+    expect(
+      useWikiStore.getState().novelConfig.inspirationHintSeen,
+      "这条灵感气泡用户根本不该看到，不能顺手把「每本书一次」的预算烧掉",
+    ).toBe(false)
+  })
+
+  it("「知道了」只关气泡：本次会话不再显示、不打开向导、也不写盘关闭", async () => {
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    await click("知道了")
+    expect(inspirationHint()).toBeNull()
+    expect(document.querySelector('[role="dialog"]'), "「知道了」不该打开向导").toBeNull()
+    expect(useWikiStore.getState().novelConfig.inspirationHintEnabled).toBe(true)
+  })
+
+  /*
+   * ── F7（修复批）：`session.dismissed` 的**接线**必须自己有一条用例 ──
+   *
+   * 纯函数层有一条 `dismissed: true → false`（`inspiration-hint.spec.ts`），
+   * 但它证明不了 `preview-panel.tsx` 真的把会话里的 `dismissed` 传了下去 ——
+   * 把接线改成 `dismissed: false` 或删掉那道门，只跑本文件时**全绿**：
+   * 点「知道了」的那一下不会触发重算（`dismissInspirationHint` 只改 ref 与
+   * 自己的 state，都不在本 effect 的依赖里），所以「气泡不见了」这个观察
+   * 根本不需要 `dismissed` 参与。要观察到差别，必须**再触发一次重算**。
+   *
+   * 重算的触发方式刻意选「配置被重新读了一遍」：`saveNovelConfig` 是
+   * fire-and-forget（`.catch` 只打日志），落盘失败或还没落地时，盘上的
+   * `inspirationHintSeen` 仍是 false，而 `settings-view.tsx:320-330` 会
+   * 重新 `loadNovelConfig` → `setNovelConfig` 把 store 覆盖回盘上的值。
+   * 那一刻唯一还能拦住气泡的就是**本次会话**的 `dismissed`。
+   * （用 `setNovelConfig` 这个真实 action 而不是裸 setState，免得测的是别的路径。）
+   */
+  it("点过「知道了」之后，即使 seen 又从盘上读回 false，本次会话也不再挂出来", async () => {
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    expect(inspirationHint()).not.toBeNull()
+    await click("知道了")
+    expect(inspirationHint()).toBeNull()
+
+    await act(async () => {
+      useWikiStore.getState().setNovelConfig({ inspirationHintSeen: false })
+    })
+
+    expect(
+      inspirationHint(),
+      "本次会话已经点过「知道了」—— seen 回到 false 也不能再挂出来",
+    ).toBeNull()
+    /*
+     * 第二条兼作**前提检查**：`setNovelConfig({ inspirationHintSeen: false })`
+     * 必须真的把 store 写成了 false。若它没生效（比如改成裸 setState 或写错字段），
+     * seen 会停在第一次显示时的 true —— 上面那条气泡断言就什么也证明不了，
+     * 而这一条会先红。
+     */
+    expect(
+      useWikiStore.getState().novelConfig.inspirationHintSeen,
+      "前提：配置确实被重新读成了 false（否则气泡断言证明不了 dismissed 在承重）",
+    ).toBe(false)
+  })
+
+  /*
+   * ── F3（修复批）：`isChapter` 这条接线必须有独立用例 ──
+   *
+   * 把 `preview-panel.tsx` 的 `isChapter: isChapterPath(selectedFile)`
+   * 写死成 `true`，只跑本文件时**全绿** —— 因为别的用例里非章节文件
+   * （大纲/设定）都**有正文**，实时字数非 0 本来就挂不出气泡。
+   * 所以「非章节的 markdown 不走灵感提示这条链」从没被验证过。
+   *
+   * ⚠️ 这条用例的**决定性**断言是 `inspirationHintSeen` 而不是气泡本身：
+   * 大纲的工具栏里没有 `data-event-outline-target` 那枚锚点按钮
+   * （`生成章节细纲` 只在章节分支里），所以就算判定错成 true，气泡也挂不出来
+   * —— 只看气泡会得到一条**恒绿**的用例。真正的后果是副作用：
+   * 判定错成 true 会**烧掉这本书唯一的一次**灵感提示预算，
+   * 用户之后在新章节里再也看不到它。
+   *
+   * ⚠️ 修复批 2：原来这里还并排留了一句 `expect(inspirationHint()).toBeNull()`
+   * 当「第二条」。它**恒绿**（上面刚说了气泡在这里根本挂不出来），
+   * 本仓库的标准是「不留恒绿断言」，所以它被**替换**成下面那条**前提断言** ——
+   * 断言「这里确实没有锚点」，于是「气泡不可能出现」这条理由本身有人守：
+   * 哪天有人给大纲工具栏也加上 `data-event-outline-target`，
+   * 这条会红，提醒作者「本用例的气泡断言从此有意义了，得补一条真的」。
+   * 而**没有**替换成「大纲上气泡为 null」那种换个说法的恒绿断言。
+   */
+  it("非章节的 markdown（空大纲）不挂灵感气泡，也不烧掉这本书的 seen", async () => {
+    fixture.files.set(outlinePath, "# 空大纲\n\n")
+    await mount(outlinePath)
+    expect(
+      container.querySelector("h1")?.textContent ?? "",
+      "前提：空大纲确实被打开了（否则这条只是在测「什么都没渲染」）",
+    ).toContain("空大纲")
+    /*
+     * 前提断言（**可红**，不是恒绿）：大纲工具栏里没有灵感气泡的锚点。
+     * 它同时是「本用例不能用气泡当判据」这条结论的依据。
+     */
+    expect(
+      container.querySelector("[data-event-outline-target]"),
+      "大纲工具栏里不该有灵感气泡的锚点 —— 一旦有了，本用例就该补一条真的气泡断言"
+      + "（在此之前「气泡为 null」在这里没有任何鉴别力，正是它被删掉的原因）",
+    ).toBeNull()
+    expect(
+      useWikiStore.getState().novelConfig.inspirationHintSeen,
+      "isChapter 写死 true 时，非章节文件会被当成空章节，把「每本书一次」的预算烧掉",
+    ).toBe(false)
+  })
+
+  /*
+   * ── F5（修复批）：seen 去重（`if (next && !inspirationHintSeen)`）──
+   *
+   * 显示即记 seen 会让本 effect 因为依赖变化**再跑一次**，那一次 `next` 仍是
+   * true（`currentlyVisible` 那一路）。若写成 `if (next)`，每次重算都会
+   * 多落一次盘 —— 用户看不见任何区别，只是每次 recompute 都多写一次文件。
+   * 把 `!inspirationHintSeen` 删掉，本文件其余用例**全绿**，所以要在这里数调用次数。
+   *
+   * ⚠️ 修复批 2：计数器原来只按「配置里 `inspirationHintSeen === true`」过滤，
+   * 这**分不清是哪条链写的** —— 草稿链那次落盘是
+   * `{ ...novelConfig, draftMemoryHintSeen: true }`，展开时会把**当时的**
+   * `inspirationHintSeen` 一起带下去；只要它此刻已经是 true（本例里正是如此），
+   * 草稿链的一次写盘就会被算成灵感链的。当前夹具恰好绕开了这一点
+   * （空章节的草稿链压根不放行），但夹具一改这条断言就会**悄悄失去鉴别力**。
+   * 现在改成按「两次快照之间的**调用差值**」判定，并要求那一次落盘**只有**
+   * `inspirationHintSeen` 变了 —— 谁写的、写了什么都是显式的。
+   */
+  it("挂出来只落一次 seen：记完 seen 触发的那次重算不得再写盘", async () => {
+    const saveCalls = () => (saveNovelConfig as unknown as Mock).mock.calls as Array<[Record<string, unknown>]>
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    const configBefore = { ...useWikiStore.getState().novelConfig }
+    const before = saveCalls().length
+    await mount(emptyChapterPath)
+    expect(inspirationHint()).not.toBeNull()
+    expect(useWikiStore.getState().novelConfig.inspirationHintSeen).toBe(true)
+
+    const writes = saveCalls().slice(before).map(([config]) => config)
+    expect(
+      writes,
+      "只有在 seen 还是 false 的那一次才该落盘；记完 seen 引发的重算必须跳过（否则每次重算都多写一次文件）",
+    ).toHaveLength(1)
+    /*
+     * 落盘的**归属**：这一笔必须恰好是「灵感 chain 把 seen 记下来」——
+     * 与挂载前的配置相比只有一个键变化。草稿链的写盘会同时带上
+     * `draftMemoryHintSeen: true`，所以它在这里会以「多了一个变化的键」被抓住，
+     * 而不是像旧计数器那样被误认成灵感链那一笔。
+     */
+    const changed = Object.keys({ ...configBefore, ...writes[0] })
+      .filter((key) => !Object.is(
+        (configBefore as unknown as Record<string, unknown>)[key],
+        writes[0][key],
+      ))
+    expect(
+      changed,
+      "这一笔落盘应当**只有** inspirationHintSeen 变了 —— 多出别的键说明它其实是另一条链写的",
+    ).toEqual(["inspirationHintSeen"])
+    expect(
+      writes[0].draftMemoryHintSeen,
+      "草稿链的字段不得被灵感链的落盘顺带改写",
+    ).toBe(configBefore.draftMemoryHintSeen)
+  })
+
+  /*
+   * ── F1 修法自己**新造出来**的那个结构事实，必须有一条常驻用例 ──
+   *
+   * F1 的修法把草稿链与灵感链合进了**同一个** effect（见 preview-panel 里
+   * 「草稿气泡与灵感气泡的**唯一**判定点」那段说明），代价是那个 effect 的
+   * 依赖数组里多了 `inspirationHintEnabled` / `inspirationHintSeen`。
+   * 也就是说：改一个**只属于灵感链**的开关，会让**草稿链**也跟着重跑一遍。
+   *
+   * 这是修法带来的新结构，而此前**没有任何常驻用例**守它：F1 那条用例走的是
+   * 「有正文的草稿章 + 清空编辑框」，全程没动过灵感链独占的输入；评审验这一条
+   * 用的是一次性探针（PROBE-B，`inspAtMount=1 draftAfterSave=1 inspAfterSave=0
+   * draftAfterFlip=1 inspAfterFlip=0`），跑完就还原了。
+   *
+   * 下面这条把那条探针**永久化**，序列与它一致：
+   *   ① 空章节挂载 → 灵感气泡在（同时把 `inspirationHintSeen` 记成 true）；
+   *   ② 打字 + 走完一个自动保存间隔 → `arrival = first-save` → 草稿气泡接手；
+   *   ③ 翻转 `inspirationHintEnabled`（灵感链独占的依赖）→ 再翻回来。
+   *
+   * ⚠️ 这条红了先怀疑**实现**，不要改测试：它要报的是
+   * 「灵感链的输入扰动到了草稿链」这个新缺陷。本提交用变异复算过鉴别力 ——
+   * 把草稿链的 `enabled` 写成 `draftMemoryHintEnabled && inspirationHintEnabled`
+   * （两条链合进一个 effect 之后最像样的那种复制粘贴错），本用例红，
+   * 而 F1 那条既有用例**照样绿** —— 它才是这条覆盖缺口的守卫。
+   */
+  it("翻转灵感链独占的开关（inspirationHintEnabled）不得扰动草稿气泡，两条也不得并存", async () => {
+    const draftHint = () => container.querySelector(".ui-test-editor-draft-hint")
+    const totalHints = () => container.querySelectorAll(
+      ".ui-test-editor-draft-hint, .ui-test-editor-inspiration-hint",
+    ).length
+
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    // ① 前提：空章节 → 灵感气泡在，草稿气泡不在（磁盘字数还是 0）
+    expect(inspirationHint(), "前提：空章节挂载时灵感气泡应当在（这一步会把 seen 记成 true）").not.toBeNull()
+    expect(draftHint(), "前提：空章节没有正文，草稿气泡不该在").toBeNull()
+
+    // ② 打字 + 走完一个自动保存间隔：相变 "saved" → 草稿链 arrival = first-save
+    vi.useFakeTimers()
+    const textarea = container.querySelector<HTMLTextAreaElement>('[data-writing-editor] textarea')!
+    await act(async () => { changeTextarea(textarea, `${textarea.value}有人推开了门。`) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(CHAPTER_AUTOSAVE_INTERVAL_MS) })
+    /*
+     * ⚠️ 不能拿 `[data-ui-test-save-state]` 的相位当前提：`saved` 相位的
+     * 底部状态区**整个不渲染**（`showFooter` 只认 taskStatus 与有文案的相位），
+     * 所以在「已保存」时那个元素根本不存在。
+     * 「草稿气泡真的接手了」本身就是最硬的前提 —— 草稿链只在 `phase === "saved"`
+     * 时刷新 `persistedWords`（空章节挂载时它是 0），没有那一次 saved，
+     * 这个气泡无论如何都出不来。再补一条「落盘真的发生了」当独立佐证。
+     */
+    expect(fixture.write, "前提：自动保存必须真的落盘").toHaveBeenCalled()
+    const draftText = draftHint()?.textContent
+    expect(draftText, "前提：保存之后草稿气泡应当接手（实时正文已非空，灵感气泡同时收掉）").toBeTruthy()
+    expect(inspirationHint(), "前提：正文已非空，灵感气泡应当已经收掉").toBeNull()
+    expect(totalHints(), "两条气泡共用定位属性，任何时刻都不许并存").toBe(1)
+
+    // ③ 翻转灵感链**独占**的依赖。草稿链必须逐项不变。
+    for (const enabled of [false, true]) {
+      await act(async () => {
+        useWikiStore.getState().setNovelConfig({ inspirationHintEnabled: enabled })
+      })
+      expect(
+        useWikiStore.getState().novelConfig.inspirationHintEnabled,
+        `前提：开关真的被改成了 ${enabled}（否则下面只是重复断言同一个状态）`,
+      ).toBe(enabled)
+      expect(
+        draftHint()?.textContent,
+        `翻转 inspirationHintEnabled=${enabled} 之后草稿气泡必须原样留着 —— `
+        + "它是灵感链的输入，草稿链不该被它牵动（F1 把两条链合进了一个 effect，这是那个修法的代价）",
+      ).toBe(draftText)
+      expect(inspirationHint(), `inspirationHintEnabled=${enabled} 时不该凭空多出灵感气泡`).toBeNull()
+      expect(totalHints(), "两条气泡共用定位属性，任何时刻都不许并存").toBe(1)
+    }
+  })
+
+  it("「不再提醒」写盘关掉设置项，也不打开向导", async () => {
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    await click("不再提醒")
+    expect(inspirationHint()).toBeNull()
+    expect(useWikiStore.getState().novelConfig.inspirationHintEnabled).toBe(false)
+    expect(document.querySelector('[role="dialog"]'), "「不再提醒」不该打开向导").toBeNull()
+  })
+
+  it("写作设置里关掉灵感提示后不再出现", async () => {
+    useWikiStore.setState({
+      novelConfig: { ...useWikiStore.getState().novelConfig, inspirationHintEnabled: false },
+    })
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    expect(inspirationHint()).toBeNull()
+  })
+
+  it("这本书挂过一次之后，切到另一个空章节也不再出现（照 draftMemoryHintSeen 的「每本书一次」）", async () => {
+    const secondEmptyPath = `${project.path}/wiki/chapters/第一卷/第2章.md`
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    fixture.files.set(
+      secondEmptyPath,
+      emptyChapter.replace("chapter_number: 1", "chapter_number: 2").replace("第1章 开篇", "第2章 承上"),
+    )
+    await mount(emptyChapterPath)
+    expect(inspirationHint()).not.toBeNull()
+    expect(useWikiStore.getState().novelConfig.inspirationHintSeen).toBe(true)
+    await act(async () => { useWikiStore.setState({ selectedFile: secondEmptyPath }) })
+    await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())) })
+    expect(container.textContent).toContain("第2章 承上")
+    /*
+     * ⚠️ 这一条与实施计划 §4(a) 里「切回一个空章节也会提示」那句**好处说明**
+     * 方向相反。最终按同一份计划 (5) 的明文口径实现：「持久化字段照
+     * draftMemoryHintEnabled + draftMemoryHintSeen（**每本书一次**），用新字段」。
+     * 决定 A 那句话的主语是**判据**（判据是章节自身状态，不是「刚点过新建章节」
+     * 这个一次性事件），不是「每章都提示一次」。
+     * 若日后要改成每章一次，`seen` 就得按章记录 —— 这里必须同步改。
+     */
+    expect(inspirationHint()).toBeNull()
+  })
+
+  it("决定 B：点「生成章节细纲」向导立即打开，气泡**同时**仍在（气泡不是前置关卡）", async () => {
+    fixture.files.set(emptyChapterPath, emptyChapter)
+    await mount(emptyChapterPath)
+    expect(inspirationHint(), "点按钮之前气泡就该在（判据是章节状态，不是这次点击）").not.toBeNull()
+    await click("生成章节细纲")
+    const dialog = document.querySelector('[role="dialog"]')
+    expect(dialog, "点按钮必须立即打开向导").not.toBeNull()
+    // 钉住「弹出来的确实是向导」：`handleOpenEventOutlineWizard` 只做一件事
+    // （setEventOutlineWizardVisible(true)），而向导自己的标题就是「生成章节细纲」，
+    // 里面还有「事件数量」。没有这两句的话，任何别的弹窗都能让上面那条断言变绿。
+    expect(dialog?.textContent).toContain("生成章节细纲")
+    expect(dialog?.textContent).toContain("事件数量")
+    /*
+     * ⚠️ 这里刻意断言「两者同时存在」。反过来写（气泡出现时向导必须不存在）
+     * 与决定 B 直接相反 —— 见实施计划 §4(a) 的 (6)。
+     */
+    expect(inspirationHint(), "气泡与向导是并行的，不是二选一").not.toBeNull()
+  })
+
   it("读取失败不把错误文本当成可编辑正文或标题", async () => {
     fixture.files.delete(chapterPath)
     await mount()
@@ -933,22 +1311,193 @@ describe("图稿复核修正", () => {
   })
 })
 
+/*
+ * ── 丙-4a：把 `withDraftMemoryHint` 泛化成 `withAnchoredHint` 之后的行为 ──
+ *
+ * 泛化的**全部风险**在于「草稿气泡的 DOM 有没有被顺手改掉」：本文件里
+ * `.ui-test-editor-draft-hint` 被 ~20 处断言要求「为 null 或长度恰为 1」，
+ * 而那 20 处只看类名与文案，看不出包裹层级、`<p>` 包裹、两个按钮的类名是不是变过。
+ *
+ * 所以这里：
+ * 1. 断言两条气泡**各自**出现一次 —— 遍历必须对每个锚点属性各命中一次，
+ *    而不是「找到第一个匹配就收工」（那样第二个锚点永远不会被包）；
+ * 2. 把草稿气泡的结构逐项钉住（根类名 / role / `<p>` 包裹 / 动作行类名 /
+ *    两个按钮的类名 / 文案），让「泛化顺手改了草稿 DOM」这类事故有断言接住。
+ */
+describe("锚定气泡：两条气泡互不吞并", () => {
+  const baseProps = {
+    kind: "chapter" as const,
+    path: chapterPath,
+    title: "第16章 实际章名",
+    onTitleCommit: vi.fn(),
+    statusLabel: "草稿",
+    wordCount: 0,
+    moreActions: [] as never[],
+    saveState: null,
+    taskStatus: "",
+    onRetrySave: vi.fn(),
+    onClose: vi.fn(),
+  }
+  const twoAnchoredActions = (
+    <>
+      <button type="button" className="ui-test-editor-action is-icon-only" data-draft-memory-target="" aria-label="提取记忆">A</button>
+      <button type="button" className="ui-test-editor-action is-icon-only" data-event-outline-target="" aria-label="生成章节细纲">B</button>
+    </>
+  )
+
+  it("只给灵感提示时：只有灵感气泡，且只有被锚定的那枚按钮拿到 is-hint-target", async () => {
+    const scrollRef = createRef<HTMLDivElement>()
+    const onDismiss = vi.fn()
+    const onMute = vi.fn()
+    await act(async () => {
+      root.render(
+        <div className="ui-test-root">
+          <UiTestEditor {...baseProps} scrollRef={scrollRef} actions={twoAnchoredActions}
+            inspirationHint={{ onDismiss, onMute }}>{() => <p>正文</p>}</UiTestEditor>
+        </div>,
+      )
+    })
+    const hint = container.querySelector(".ui-test-editor-inspiration-hint")
+    expect(hint?.textContent).toContain("点击这里生成新章节故事灵感")
+    expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
+    expect(
+      hint?.closest(".ui-test-editor-hint-anchor")?.querySelector("button")?.getAttribute("aria-label"),
+      "灵感气泡必须挂在「生成章节细纲」那枚按钮旁",
+    ).toBe("生成章节细纲")
+    const targets = container.querySelectorAll(".ui-test-editor-action.is-hint-target")
+    expect(targets).toHaveLength(1)
+    expect(targets[0]?.getAttribute("aria-label")).toBe("生成章节细纲")
+    await act(async () => {
+      hint?.querySelector<HTMLButtonElement>(".ui-test-editor-inspiration-hint-dismiss")?.click()
+    })
+    expect(onDismiss).toHaveBeenCalledTimes(1)
+  })
+
+  it("两条气泡同时传入时各出现一次，草稿气泡的结构逐项不变", async () => {
+    const scrollRef = createRef<HTMLDivElement>()
+    const onDismiss = vi.fn()
+    const onMute = vi.fn()
+    await act(async () => {
+      root.render(
+        <div className="ui-test-root">
+          <UiTestEditor {...baseProps} scrollRef={scrollRef} actions={twoAnchoredActions}
+            draftMemoryHint={{ onDismiss, onMute }}
+            inspirationHint={{ onDismiss, onMute }}>{() => <p>正文</p>}</UiTestEditor>
+        </div>,
+      )
+    })
+    expect(container.querySelectorAll(".ui-test-editor-hint-anchor")).toHaveLength(2)
+    expect(container.querySelectorAll(".ui-test-editor-action.is-hint-target")).toHaveLength(2)
+    expect(container.querySelectorAll(".ui-test-editor-draft-hint")).toHaveLength(1)
+    expect(container.querySelectorAll(".ui-test-editor-inspiration-hint")).toHaveLength(1)
+
+    const draft = container.querySelector(".ui-test-editor-draft-hint")!
+    expect(draft.getAttribute("role")).toBe("status")
+    expect(draft.querySelector("p")?.textContent).toBe(DRAFT_MEMORY_HINT_MESSAGE)
+    const actions = draft.querySelector(".ui-test-editor-draft-hint-actions")
+    expect(actions?.textContent).toBe("知道了不再提醒")
+    const dismissButtons = draft.querySelectorAll("button.ui-test-editor-draft-hint-dismiss")
+    expect(dismissButtons).toHaveLength(2)
+    expect(dismissButtons[0]?.getAttribute("type")).toBe("button")
+    expect(
+      draft.closest(".ui-test-editor-hint-anchor")?.querySelector("button")?.getAttribute("aria-label"),
+    ).toBe("提取记忆")
+  })
+})
+
+/**
+ * 把 CSS 的块注释整段剥掉。
+ *
+ * ⚠ 这不是「顺手清一下文本」，而是本文件里**结构断言唯一合法的读取入口**。
+ * 完整理由见下面 `测试版正文样式边界` 开头那段（修复批 F4，评审变异 M15）。
+ */
+function stripCssComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, "")
+}
+
 describe("测试版正文样式边界", () => {
   const cssPath = resolve(__dirname, "ui-test-editor.css")
+  /**
+   * 原文。**只**喂给 `postcss.parse(css)` —— 那是读语法结构，不是读文本。
+   */
   const css = existsSync(cssPath) ? readFileSync(cssPath, "utf8") : ""
+  /*
+   * ── 为什么正则／`toContain` 必须扫「剥掉注释」的副本（修复批 F4）──
+   *
+   * 下面那些结构断言是**正则**，而正则跑在整份 CSS 文本上。CSS 注释里可以写出
+   * 和真规则一模一样的字样，于是**注释本身**就能满足断言 —— 真正的规则被改名、
+   * 被分组、甚至被删掉，红灯都不会亮。
+   *
+   * 丙-4a 就实发生了：它给灵感气泡写的说明注释里有一句形如
+   * 「草稿气泡那条规则是 `.ui-test-editor-draft-hint` 加 `{ … width: min(280px, 100%) }`」，
+   * 而正则只要 `{` 与 `width:` 之间没有 `}` 就算命中 —— 注释里没有 `}`，
+   * 于是「草稿气泡的定位规则必须存在且是独立规则块」这条**既有守卫**
+   * 被自己的新注释弄成了空转（实测：把真规则改名、或改成与灵感气泡分组，
+   * 全套测试照样全绿）。
+   *
+   * ⚠️ 修复批 1 只把**当时看得见的那三处**换成了这份副本，注释却写成「一律」。
+   * 评审用变异 M15 当场证伪：在 CSS 顶部注入一条含
+   * `padding: 0 var(--qmai-body-margin-x, …)` 的**假注释**、再把真规则
+   * `.ui-test-editor-document` 改名，「底部安全距离与左右边距都是变量」那条
+   * 仍然 `1 passed` —— 断言是被注释满足的。这正是本仓库那条老教训的第三次复发：
+   * **修了一个实例 ≠ 修了这一类缺陷**。
+   *
+   * 所以这份副本现在是**本 describe 内所有结构断言的唯一来源**：下面每一个
+   * 正则／`toContain`／`not.toContain` 都扫 `cssCode`（修复批 2 逐条核对过，
+   * 清单与理由见提交说明）。唯一的例外是 `postcss.parse(css)` —— 它读的是
+   * **语法结构**，注释根本不会出现在 `rule.selector` / `decl.value` 里
+   * （见「正文容器内的已知界面浮层都显式声明了界面字体」那条的说明），
+   * 读原文才是对的。
+   *
+   * ⚠️ 为什么不做成「全仓共用的 structuralCss() 助手」：本目录另有两套既有的
+   * 局部做法（`ui-test-memory-css.spec.ts` 的 `cssRules()` 自己剥注释、
+   * `ui-test-header-alignment.spec.ts` 与 `ui-font-derivation.spec.ts` 直接上 postcss），
+   * 全仓收敛是一次独立的、跨 6+ 个 spec 的重构；本批的职责是**把这一类缺陷在
+   * 本文件里关死**，用一个模块级纯函数 + 每个 CSS 文件一份副本就够了，
+   * 不引入一个只有一处调用方的新共享模块。
+   */
+  const cssCode = stripCssComments(css)
+  /** 另一个被本 describe 断言结构的样式表（同样只扫剥注释的副本）。 */
+  const themeCssCode = stripCssComments(readFileSync(resolve(__dirname, "ui-test.css"), "utf8"))
 
   it("固定外壳不滚动，只有正文区域滚动且头部不裁切提示", () => {
-    expect(css).toMatch(/\.ui-test-editor\s*\{[^}]*overflow:\s*hidden/)
-    expect(css).toMatch(/\.ui-test-editor-scroll\s*\{[^}]*overflow-y:\s*auto/)
-    expect(css).toMatch(/\.ui-test-editor-header\s*\{[^}]*flex-shrink:\s*0/)
-    expect(css).toMatch(/\.ui-test-editor-header\s*\{[^}]*background:\s*var\(--ui-paper\)/)
+    expect(cssCode).toMatch(/\.ui-test-editor\s*\{[^}]*overflow:\s*hidden/)
+    expect(cssCode).toMatch(/\.ui-test-editor-scroll\s*\{[^}]*overflow-y:\s*auto/)
+    expect(cssCode).toMatch(/\.ui-test-editor-header\s*\{[^}]*flex-shrink:\s*0/)
+    expect(cssCode).toMatch(/\.ui-test-editor-header\s*\{[^}]*background:\s*var\(--ui-paper\)/)
   })
 
   it("草稿提示按工具栏宽度定位，盖住正文，且不能在窄编辑区被裁掉", () => {
-    expect(css).toMatch(/\.ui-test-editor-toolbar\s*\{[^}]*position:\s*relative/)
-    expect(css).toMatch(/\.ui-test-editor-hint-anchor\s*\{[^}]*position:\s*static/)
-    expect(css).toMatch(/\.ui-test-editor-draft-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
-    expect(css).toMatch(/\.ui-test-editor-header\s*\{[^}]*z-index:\s*2/)
+    expect(cssCode).toMatch(/\.ui-test-editor-toolbar\s*\{[^}]*position:\s*relative/)
+    expect(cssCode).toMatch(/\.ui-test-editor-hint-anchor\s*\{[^}]*position:\s*static/)
+    expect(cssCode).toMatch(/\.ui-test-editor-draft-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
+    expect(cssCode).toMatch(/\.ui-test-editor-header\s*\{[^}]*z-index:\s*2/)
+  })
+
+  it("灵感提示用独立类名 + 独立规则块，定位与草稿提示逐项相同", () => {
+    /*
+     * 丙-4a 选的方案是 (i)：新气泡用**独立类名**（`ui-test-editor-inspiration-hint`），
+     * 定位属性**照抄成一条独立规则块**，不用选择器分组。两条理由都是实测出来的：
+     *
+     * 1. `.ui-test-editor-draft-hint` 在本文件里被 ~20 处断言要求「为 null 或长度
+     *    恰为 1」。一旦新气泡共用这个类名，那些断言的**含义会被悄悄扩大** ——
+     *    它们将不再只描述草稿提示，而「只有一条草稿气泡」这条不变量就没人守了。
+     * 2. 上面那条正则要求草稿气泡的 `width` 写在**独立规则块**里，分组写法
+     *    （`.ui-test-editor-draft-hint, .ui-test-editor-inspiration-hint { … }`）
+     *    不一定匹配。所以这里把两条规则**分别**断言：既钉住新类名，
+     *    也顺带证明草稿那条没有被改成分组而失配。
+     *
+     * ⚠️ 这一段曾经**不是**这么写的（修复批 F4）：它把命题写成
+     * 「正则跑在**整份响应文件文本**上」，而当时丙-4a 新加的注释里正好有一句
+     * 能满足它 —— 改名的变异、分组的变异都活了下来。现在全部扫 `cssCode`
+     * （已剥注释），所以「注释里有这句话」不再算数。
+     */
+    expect(cssCode).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*position:\s*absolute/)
+    expect(cssCode).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*z-index:\s*2/)
+    expect(cssCode).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*top:\s*calc\(100% \+ 10px\)/)
+    expect(cssCode).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*left:\s*0/)
+    expect(cssCode).toMatch(/\.ui-test-editor-inspiration-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
+    expect(cssCode).toMatch(/\.ui-test-editor-draft-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
   })
 
   it("单独提供最大800正文容器，1.25rem/1.75rem标题与单一来源的衬线正文", () => {
@@ -965,13 +1514,13 @@ describe("测试版正文样式边界", () => {
      * 所以必须把**几何关系**钉住：上限 = 800px + 两侧边距，且 padding 用的是
      * 同一个 fallback 变量。只查数字是否出现是不够的。
      */
-    expect(css).toMatch(/--qmai-body-margin-x-fallback:\s*clamp\(20px, 4vw, 48px\)/)
-    expect(css).toMatch(/max-width:\s*calc\(800px \+ 2 \* var\(--qmai-body-margin-x-fallback\)\)/)
+    expect(cssCode).toMatch(/--qmai-body-margin-x-fallback:\s*clamp\(20px, 4vw, 48px\)/)
+    expect(cssCode).toMatch(/max-width:\s*calc\(800px \+ 2 \* var\(--qmai-body-margin-x-fallback\)\)/)
     // 正文容器必须用同一个 fallback 变量做 padding 的兜底，否则上面那个上限算的不是同一边距
-    expect(css).toMatch(
+    expect(cssCode).toMatch(
       /\.ui-test-editor-document \{[^}]*padding:\s*0 var\(--qmai-body-margin-x, var\(--qmai-body-margin-x-fallback\)\)/,
     )
-    expect(css).toMatch(/1\.25rem\/1\.75rem\s+var\(--serif\)/)
+    expect(cssCode).toMatch(/1\.25rem\/1\.75rem\s+var\(--serif\)/)
     /*
      * 正文字号必须是**单一来源变量**，不再是字面量 1.125rem/1.95。
      * 原来的断言（正则直接匹配 1.125rem/1.95）在这里被有意替换：
@@ -987,28 +1536,28 @@ describe("测试版正文样式边界", () => {
      * 下面第 932 行仍要求「章节标题栏」用 var(--serif) —— 标题不属于正文，
      * 与文档内 h2-h6 用 var(--ui) 是同一条约定。
      */
-    expect(css).toMatch(/font:\s*400\s+var\(--qmai-body-font-size\)\/var\(--qmai-body-line-height\)\s+var\(--body-font\)/)
+    expect(cssCode).toMatch(/font:\s*400\s+var\(--qmai-body-font-size\)\/var\(--qmai-body-line-height\)\s+var\(--body-font\)/)
     // 正文容器**不得**再消费界面衬线层（否则用户的缺陷会复发）
-    expect(css).not.toMatch(/var\(--qmai-body-line-height\)\s+var\(--serif\)/)
-    expect(css).not.toMatch(/1\.125rem\/1\.95\s+var\(--serif\)/)
-    expect(css).toContain("text-indent: 2em")
-    expect(css).toMatch(/:is\(h1, h2, h3, h4, h5, h6, li/)
+    expect(cssCode).not.toMatch(/var\(--qmai-body-line-height\)\s+var\(--serif\)/)
+    expect(cssCode).not.toMatch(/1\.125rem\/1\.95\s+var\(--serif\)/)
+    expect(cssCode).toContain("text-indent: 2em")
+    expect(cssCode).toMatch(/:is\(h1, h2, h3, h4, h5, h6, li/)
   })
 
   it("正文保留光标而非整框焦点，列表排除段首缩进并消除主题蓝点", () => {
-    expect(css).toMatch(/\[data-writing-editor\] textarea:focus-visible[\s\S]*?outline:\s*none/)
-    expect(css).toContain('text-indent: 2em each-line')
-    expect(css).toContain('[data-ui-test-frontmatter]')
-    expect(css).toMatch(/\.ProseMirror, \[dir\]\[lang\]\) li::marker[^}]+color: var\(--ui-ink\)/)
-    expect(css).toMatch(/\.ProseMirror, \[dir\]\[lang\]\) li p[^}]+text-indent: 0/)
+    expect(cssCode).toMatch(/\[data-writing-editor\] textarea:focus-visible[\s\S]*?outline:\s*none/)
+    expect(cssCode).toContain('text-indent: 2em each-line')
+    expect(cssCode).toContain('[data-ui-test-frontmatter]')
+    expect(cssCode).toMatch(/\.ProseMirror, \[dir\]\[lang\]\) li::marker[^}]+color: var\(--ui-ink\)/)
+    expect(cssCode).toMatch(/\.ProseMirror, \[dir\]\[lang\]\) li p[^}]+text-indent: 0/)
   })
 
   it("正文查找高亮与输入层共用同一个字号与行高变量，避免样式修正后偏位", () => {
     // 原来只断言"行高是字面量 1.95"；现在两者都必须是同一个变量的引用，
     // 否则覆盖在 textarea 之上的高亮层会与输入文字错位
-    expect(css).toMatch(/\[data-find-highlights\][^{]*\{[^}]*font-size:\s*var\(--qmai-body-font-size\)/)
-    expect(css).toMatch(/\[data-find-highlights\][^{]*\{[^}]*line-height:\s*var\(--qmai-body-line-height\)/)
-    expect(css).toMatch(/data-ui-test-indent="visual"[^}]+\[data-find-highlights\][^{]*\{[^}]*text-indent:\s*2em/)
+    expect(cssCode).toMatch(/\[data-find-highlights\][^{]*\{[^}]*font-size:\s*var\(--qmai-body-font-size\)/)
+    expect(cssCode).toMatch(/\[data-find-highlights\][^{]*\{[^}]*line-height:\s*var\(--qmai-body-line-height\)/)
+    expect(cssCode).toMatch(/data-ui-test-indent="visual"[^}]+\[data-find-highlights\][^{]*\{[^}]*text-indent:\s*2em/)
   })
 
   it("字间距在正文层与输入层引用同一个变量，且全文件没有写死的字间距", () => {
@@ -1030,21 +1579,20 @@ describe("测试版正文样式边界", () => {
      */
     const VAR = "var(--qmai-body-letter-spacing, 0)"
     /*
-     * ⚠ 必须先把 CSS 的块注释挖掉再扫。
-     * 下面那条注释里就写着「UA 样式表给它声明了 letter-spacing: normal」——
+     * ⚠ 必须扫剥掉注释的副本（本 describe 顶部那份 `cssCode`）。
+     * 上面那条注释里就写着「UA 样式表给它声明了 letter-spacing: normal」——
      * 不挖注释的话，这条**注释本身**会被当成一处「写死的字间距」而报假红。
      * （同一个坑本会话在 check-css-var-contract.mjs 上已经踩过一次：
      *  它把只出现在注释里的旧变量报成「仍在被使用」。）
      */
-    const code = css.replace(/\/\*[\s\S]*?\*\//g, "")
 
     // ① 正文层：div 系（.ProseMirror / [dir][lang] / 高亮层）继承的源头
-    expect(code).toMatch(/\.ui-test-root \.ui-test-editor-body \{[^}]*letter-spacing:\s*var\(--qmai-body-letter-spacing, 0\)/)
+    expect(cssCode).toMatch(/\.ui-test-root \.ui-test-editor-body \{[^}]*letter-spacing:\s*var\(--qmai-body-letter-spacing, 0\)/)
     // ① 输入层：原生 textarea 不吃继承，必须显式写一次同一个变量
-    expect(code).toMatch(/\[data-writing-editor\] textarea[^{]*\{[^}]*letter-spacing:\s*var\(--qmai-body-letter-spacing, 0\)/)
+    expect(cssCode).toMatch(/\[data-writing-editor\] textarea[^{]*\{[^}]*letter-spacing:\s*var\(--qmai-body-letter-spacing, 0\)/)
 
     // ② 全文件不得写死字间距
-    const decls = [...code.matchAll(/letter-spacing:\s*([^;}]+)/g)].map((m) => m[1].trim())
+    const decls = [...cssCode.matchAll(/letter-spacing:\s*([^;}]+)/g)].map((m) => m[1].trim())
     expect(decls.length, "应至少在正文层与输入层各声明一次").toBeGreaterThanOrEqual(2)
     for (const d of decls) {
       expect(d, `字间距必须引用同一个变量，不能写死值（写死会让输入层与高亮层错位）：${d}`).toBe(VAR)
@@ -1078,7 +1626,12 @@ describe("测试版正文样式边界", () => {
      */
     const LIST_DECL = "font-size: var(--qmai-body-font-list)"
     const LINE_VAR = "line-height: var(--qmai-body-line-height)"
-    const listLines = css.split(/\r?\n/).filter((l) => l.includes(LIST_DECL))
+    /*
+     * ⚠️ 这一处也是**结构扫描**，所以同样扫剥注释的副本：否则 CSS 里一句
+     * 「列表字号接行高变量」的说明注释就会被当成一条候选规则行 ——
+     * 真规则被删掉、注释留下时，下面的 `hit.length === 1` 会由注释满足。
+     */
+    const listLines = cssCode.split(/\r?\n/).filter((l) => l.includes(LIST_DECL))
 
     /*
      * ⚠ 这里原来还有三条**数量**断言（共 4 条 / 接行高 3 条 / 不接 1 条）。
@@ -1110,18 +1663,18 @@ describe("测试版正文样式边界", () => {
     ).toEqual([])
 
     // 任何"列表字号 + 写死行高"的组合都不许留
-    expect(css).not.toMatch(/font-size: var\(--qmai-body-font-list\); line-height: [\d.]/)
+    expect(cssCode).not.toMatch(/font-size: var\(--qmai-body-font-list\); line-height: [\d.]/)
 
     /*
      * 已确认的边界：标题 1.6、表格 1.7 不跟随行间距（这是有意固定，不是漏改）。
      * 表格那条原来写的是裸串 /line-height: 1\.7;/ —— 全文件任何一处 1.7 都能满足它，
      * 与"表格"这个命题无关（评审点名的同型问题）。改成锚住表格选择器。
      */
-    expect(css).toMatch(/:is\(h2, h3, h4, h5, h6\) \{[^}]*font: 600 var\(--qmai-body-font-size\)\/1\.6 var\(--ui\)/)
-    expect(css).toMatch(/:is\(th, td\) \{[^}]*line-height: 1\.7;/)
+    expect(cssCode).toMatch(/:is\(h2, h3, h4, h5, h6\) \{[^}]*font: 600 var\(--qmai-body-font-size\)\/1\.6 var\(--ui\)/)
+    expect(cssCode).toMatch(/:is\(th, td\) \{[^}]*line-height: 1\.7;/)
     // 且表格与标题都不许改跟行高变量（那会让"固定"这个决定被悄悄推翻）
-    expect(css).not.toMatch(/:is\(th, td\) \{[^}]*line-height: var\(--qmai-body-line-height\)/)
-    expect(css).not.toMatch(/:is\(h2, h3, h4, h5, h6\) \{[^}]*\/var\(--qmai-body-line-height\)/)
+    expect(cssCode).not.toMatch(/:is\(th, td\) \{[^}]*line-height: var\(--qmai-body-line-height\)/)
+    expect(cssCode).not.toMatch(/:is\(h2, h3, h4, h5, h6\) \{[^}]*\/var\(--qmai-body-line-height\)/)
   })
 
   /**
@@ -1258,14 +1811,22 @@ describe("测试版正文样式边界", () => {
      * 抄的话，改 DEFAULT_BODY_SAFE_BOTTOM 而忘改 CSS 时这条照样绿，
      * 于是首屏/无 JS 场景下的安全距离与用户确认的 51px 不一致且没有红灯。
      */
-    expect(css).toMatch(
+    expect(cssCode).toMatch(
       new RegExp(`\\.ui-test-editor-scroll \\{[^}]*padding-bottom:\\s*var\\(--qmai-body-safe-bottom, ${DEFAULT_BODY_SAFE_BOTTOM}px\\)`),
     )
-    expect(css).not.toContain("padding-bottom: 36px")
-    expect(css).not.toContain("padding-bottom: 28px")
+    /*
+     * 否定式也扫剥注释的副本，且**鉴别力不变**：这两条防的是「写死的数字回到
+     * 某条真实规则里」。加回真规则 → `cssCode` 里就有 → 照样红（本提交用变异复算过）。
+     * 反过来，剥注释**只**去掉一种误报：将来有人写一句形如
+     * 「改造前这里是 padding-bottom: 36px」的**说明注释**时不该假红 ——
+     * 注释不参与层叠，它不是「写死的数字残留」。
+     * 所以剥注释让这两条从「更强但会误报」变成「恰好对准它要说的那件事」。
+     */
+    expect(cssCode).not.toContain("padding-bottom: 36px")
+    expect(cssCode).not.toContain("padding-bottom: 28px")
     // 左右边距挂在正文容器上：挂在外层的话，800px 上限会让滑块在宽窗口下看起来没反应
-    expect(css).toMatch(/\.ui-test-editor-document \{[^}]*padding:\s*0 var\(--qmai-body-margin-x, var\(--qmai-body-margin-x-fallback\)\)/)
-    expect(css).toMatch(/\.ui-test-root \.ui-test-editor \{[^}]*padding:\s*0;/)
+    expect(cssCode).toMatch(/\.ui-test-editor-document \{[^}]*padding:\s*0 var\(--qmai-body-margin-x, var\(--qmai-body-margin-x-fallback\)\)/)
+    expect(cssCode).toMatch(/\.ui-test-root \.ui-test-editor \{[^}]*padding:\s*0;/)
   })
 
   /**
@@ -1278,18 +1839,22 @@ describe("测试版正文样式边界", () => {
    * 与上面安全距离那条同理：拿常量拼串，让漂移变成失败的测试。
    */
   it("正文字号与行间距的 CSS 兜底值与 font-settings 的常量一致", () => {
-    const themeCss = readFileSync(resolve(__dirname, "ui-test.css"), "utf8")
+    /*
+     * ⚠️ 这三条也是**规则结构**断言（越界到了兄弟文件 `ui-test.css`），
+     * 所以同样扫剥注释的副本 `themeCssCode`：否则 ui-test.css 里一句
+     * 「`var(--qmai-body-font-px, 18px)` 是首屏兜底」的说明注释就能满足它们。
+     */
     expect(
-      themeCss,
+      themeCssCode,
       `--qmai-body-font-size 的兜底值必须是 DEFAULT_BODY_FONT_PX（${DEFAULT_BODY_FONT_PX}px）—— `
       + `它是首屏第一帧的字号，改了常量却忘改这里不会有任何红灯`,
     ).toContain(`var(--qmai-body-font-px, ${DEFAULT_BODY_FONT_PX}px)`)
     expect(
-      themeCss,
+      themeCssCode,
       `--qmai-body-line-height 的兜底值必须是 DEFAULT_BODY_LINE_HEIGHT（${DEFAULT_BODY_LINE_HEIGHT}）`,
     ).toContain(`var(--qmai-body-leading, ${DEFAULT_BODY_LINE_HEIGHT})`)
     // 反向：兜底值不许再是改造前的旧字面量（1.125rem = 18px 的老写法）
-    expect(themeCss, "兜底值里还残留旧的 rem 字面量写法").not.toMatch(/--qmai-body-font-px,\s*1\.125rem/)
+    expect(themeCssCode, "兜底值里还残留旧的 rem 字面量写法").not.toMatch(/--qmai-body-font-px,\s*1\.125rem/)
   })
 
   /**
@@ -1310,7 +1875,7 @@ describe("测试版正文样式边界", () => {
      * 链条是：常量 → --qmai-body-margin-x-fallback → padding 与 max-width。
      * 使用点是否引用它，由另外两条用例覆盖。
      */
-    expect(css).toContain(`--qmai-body-margin-x-fallback: ${expected};`)
+    expect(cssCode).toContain(`--qmai-body-margin-x-fallback: ${expected};`)
     // 同一个表达式在设置页算出的值必须与实际渲染一致
     expect(defaultBodyMarginXForViewport(1000)).toBe(40)
   })
@@ -1326,18 +1891,24 @@ describe("测试版正文样式边界", () => {
      * 实测确认过：删掉这条规则**没有任何红灯**。补这一条才让它变红。
      * （这与 Task 5 的依赖数组缺口同型：都是"已知但没钉住"。）
      */
-    const at = css.indexOf("@media (max-width: 640px)")
+    /*
+     * ⚠️ 块体必须从剥注释的副本里切：`indexOf` 找的是**第一次**出现的位置，
+     * 而一句形如「@media (max-width: 640px) 里曾经有 …」的说明注释如果排在
+     * 真媒体查询前面，切出来的就是注释那一段 —— 下面两条正面断言会被注释满足，
+     * 真媒体查询被删掉也不红。
+     */
+    const at = cssCode.indexOf("@media (max-width: 640px)")
     expect(at, "应还有窄屏媒体查询").toBeGreaterThan(-1)
     // 按大括号配对切出该媒体查询的块体，而不是用正则猜到哪里结束
-    const open = css.indexOf("{", at)
+    const open = cssCode.indexOf("{", at)
     let depth = 0
     let end = -1
-    for (let i = open; i < css.length; i++) {
-      if (css[i] === "{") depth++
-      else if (css[i] === "}") { depth--; if (depth === 0) { end = i; break } }
+    for (let i = open; i < cssCode.length; i++) {
+      if (cssCode[i] === "{") depth++
+      else if (cssCode[i] === "}") { depth--; if (depth === 0) { end = i; break } }
     }
     expect(end, "应能找到该媒体查询的收尾大括号").toBeGreaterThan(-1)
-    const block = css.slice(open, end)
+    const block = cssCode.slice(open, end)
     /*
      * 反面断言必须**按结构**写，不能只钉历史字面值。
      *
@@ -1362,10 +1933,9 @@ describe("测试版正文样式边界", () => {
      * 现在改成**全部组件都是 0** 才算重置（`0` / `0 0` / `0 0 0 0`），
      * 且必须先挖掉 CSS 注释，避免注释里的字样被当成规则。
      */
-    const code = css.replace(/\/\*[\s\S]*?\*\//g, "")
     const EDITOR_RULES = /\.ui-test-root \.ui-test-editor(-document|-scroll)?\s*\{([^}]*)\}/g
     const offenders: string[] = []
-    for (const m of code.matchAll(EDITOR_RULES)) {
+    for (const m of cssCode.matchAll(EDITOR_RULES)) {
       const pad = m[2].match(/padding(?:-(?:top|right|bottom|left))?:\s*([^;]+)/)
       if (!pad) continue
       const value = pad[1].trim()
@@ -1448,20 +2018,20 @@ describe("测试版正文样式边界", () => {
   it("表格/引用/代码块在编辑态有骨架，且单元格不受正文段首缩进影响", () => {
     // 导入的设定集在编辑态摊成纯文字：gfm 解析出了 <table>，但编辑态没有边框和内边距。
     // 断言按"单行片段"来写，避免依赖换行符（本文件是 CRLF）。
-    expect(css).toContain(".ui-test-root .ui-test-editor-body .ProseMirror table,")
-    expect(css).toMatch(
+    expect(cssCode).toContain(".ui-test-root .ui-test-editor-body .ProseMirror table,")
+    expect(cssCode).toMatch(
       /\.ui-test-root \.ui-test-editor-body \.milkdown table \{ width: 100%; margin: 0 0 16px; border-collapse: collapse; \}/,
     )
-    expect(css).toMatch(
+    expect(cssCode).toMatch(
       /\.ui-test-root \.ui-test-editor-body \.milkdown :is\(th, td\) \{ border: 1px solid var\(--ui-line\); padding: 6px 12px;/,
     )
-    expect(css).toMatch(
+    expect(cssCode).toMatch(
       /\.ui-test-root \.ui-test-editor-body \.milkdown th \{ background: var\(--ui-soft\); font-weight: 600; \}/,
     )
-    expect(css).toMatch(
+    expect(cssCode).toMatch(
       /\.ui-test-root \.ui-test-editor-body \.milkdown blockquote \{ margin: 0 0 16px; border-left: 3px solid var\(--ui-accent\); background: var\(--ui-panel\);/,
     )
-    expect(css).toMatch(
+    expect(cssCode).toMatch(
       /\.ui-test-root \.ui-test-editor-body \.milkdown pre \{ margin: 0 0 16px; border: 1px solid var\(--ui-line\);/,
     )
 
@@ -1474,29 +2044,29 @@ describe("测试版正文样式边界", () => {
      * 只是会被上面那条盖掉、表格里每格文字仍缩进两字，所以连 .tableWrapper
      * 与 table 两层一起钉住。
      */
-    expect(css).toContain(
+    expect(cssCode).toContain(
       ".ui-test-root .ui-test-editor-body .ProseMirror .tableWrapper table :is(th, td) > p,",
     )
-    expect(css).toMatch(
+    expect(cssCode).toMatch(
       /\.ui-test-root \.ui-test-editor-body \.milkdown \.tableWrapper table :is\(th, td\) > p \{ margin: 0; text-indent: 0; \}/,
     )
 
     // 正文段落本身的 2em 缩进不能被这次修改动到；行高必须是变量引用 ——
     // 写死 1.95 会让「行间距」这个设置对正文段落完全失效。
-    expect(css).toMatch(
+    expect(cssCode).toMatch(
       /:is\(\.ProseMirror, \[dir\]\[lang\]\) p \{ margin: 0 0 16px; line-height: var\(--qmai-body-line-height\); text-indent: 2em; \}/,
     )
   })
 
   it("全部选择器受ui-test-root约束，长标题、窄屏、菜单都不溢出", () => {
-    expect(css).toContain(".ui-test-root .ui-test-editor")
-    const selectors = css.replace(/\/\*[\s\S]*?\*\//g, "").match(/[^{}]+(?=\{)/g) ?? []
+    expect(cssCode).toContain(".ui-test-root .ui-test-editor")
+    const selectors = cssCode.match(/[^{}]+(?=\{)/g) ?? []
     expect(selectors.length).toBeGreaterThan(5)
     for (const selector of selectors.filter((item) => !item.trim().startsWith("@"))) {
       expect(selector.trim()).toMatch(/^\.ui-test-root /)
     }
-    expect(css).toContain("overflow-wrap: anywhere")
-    expect(css).toContain("min-width: 0")
-    expect(css).toContain("--available-height")
+    expect(cssCode).toContain("overflow-wrap: anywhere")
+    expect(cssCode).toContain("min-width: 0")
+    expect(cssCode).toContain("--available-height")
   })
 })

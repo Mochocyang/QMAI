@@ -27,6 +27,7 @@ import { saveTheme } from "@/lib/project-store"
 import { applyTheme, type ThemeMode } from "@/lib/theme-utils"
 import { isChapterPathInProject } from "@/lib/path-utils"
 import {
+  isNavItemActive,
   isSidebarNavItemId,
   reorderSidebarNavOrder,
   type SidebarNavItemId,
@@ -75,12 +76,23 @@ interface SortableNavButtonProps {
   onClick: (item: ConfigurableNavItem) => void
 }
 
+/*
+ * 「技能库 tab 的内部视图要折算到技能库图标上、保持高亮」这条判定住在
+ * `@/lib/sidebar-nav-preferences` 的 `isNavItemActive` / `FOLDED_SKILL_LIBRARY_VIEWS`：
+ * 那是个不依赖 React 的模块，所以它能被**行为测试**（本文件的测试只读源码文本，
+ * 跑不了组件）。见该模块里关于 `skillFavorites` 例外与「测试守而非编译守」的说明。
+ */
+
 function SortableNavButton({ item, activeView, pendingCount, label, onClick }: SortableNavButtonProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   const Icon = item.icon
-  const isActive = activeView === item.view
-    || (item.view === "skillLibrary"
-      && (activeView === "writingSkillLibrary" || activeView === "personaSkillLibrary"))
+  /*
+   * 合并说明：采用本分支的重构（判定抽到 `isNavItemActive`，可被行为测试），
+   * 但 `main` 上「人物 Skill」让 `personaSkillLibrary` 折算到技能库图标的
+   * 既有行为必须保留 —— 已把它并入 `FOLDED_SKILL_LIBRARY_VIEWS`，
+   * 否则点开人物 Skill 页时侧边栏会没有任何图标高亮。
+   */
+  const isActive = isNavItemActive(item.view, activeView)
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,

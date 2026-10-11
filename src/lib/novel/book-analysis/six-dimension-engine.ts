@@ -22,7 +22,8 @@ import type {
   SixDimensionResearch,
   SixDimensionStatus,
 } from "./types"
-import { streamChat, type ChatMessage } from "@/lib/llm-client"
+import type { ChatMessage } from "@/lib/llm-client"
+import { callAnalysisModelText } from "@/lib/novel/book-analysis/analysis-model-call"
 import {
   ALL_DIMENSIONS,
   DIMENSION_LABELS,
@@ -122,23 +123,14 @@ async function callLlmForDimension(
     { type: "text", text: cachePrefix, cacheControl: true },
     { type: "text", text: prompt },
   ] : prompt }]
-  let response = ""
-  await streamChat(
-    llmConfig,
-    messages,
-    {
-      onToken: (text) => {
-        response += text
-      },
-      onDone: () => {},
-      onRequestTrace,
-      onError: (err) => {
-        console.error("[six-dimension] LLM error:", err)
-      },
-    },
-    signal
-  )
-  return response.trim()
+  // 原实现把 onError 吞成 console.error，于是「模型只输出思考、没输出正文」会被
+  // 记成「提取失败或返回空」而且状态还是 done。改为向上抛：调用方会标成 failed
+  // 并显示真实原因，用户才知道该换模型，而不是以为这章没内容。
+  return callAnalysisModelText(llmConfig, messages, {
+    signal,
+    onRequestTrace,
+    cancelMessage: "用户取消分析",
+  })
 }
 
 /**

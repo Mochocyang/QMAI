@@ -214,6 +214,34 @@ describe("six-dimension-engine", () => {
     expect(progress[0].stage).toBe("done")
     expect(progress[0].dimensions?.every((d: any) => d.status === "done")).toBe(true)
   })
+
+  it("单维度遇到思考-only 时关掉思考重试一次，并把失败原因写进结果", async () => {
+    const { streamChat } = await import("@/lib/llm-client")
+    const overridesSeen: Array<{ reasoning?: { mode?: string } } | undefined> = []
+    vi.mocked(streamChat).mockImplementation(async (_cfg, _msgs, callbacks: any, _signal, overrides) => {
+      overridesSeen.push(overrides)
+      callbacks.onError(new Error("模型只输出了 9,999 字符的思考内容，但没有输出正文。"))
+    })
+
+    const result = await analyzeSixDimensions({
+      character: makeCharacter(),
+      corpus: "x",
+      llmConfig: makeLlmConfig(),
+      depth: "standard",
+      bookTitle: "X",
+    })
+
+    // 6 个维度 ×（首次 + 关思考重试）= 12 次
+    expect(vi.mocked(streamChat)).toHaveBeenCalledTimes(12)
+    expect(overridesSeen[1]?.reasoning).toEqual({ mode: "off" })
+    // 关键：失败要可见。改动前 onError 被吞成 console.error，
+    // 结果里只会写「（XXX 提取失败或返回空）」这种占位；现在应带真实原因。
+    const research = (result.character as any).sixDimensionResearch ?? {}
+    expect(Object.values(research).some((text) => String(text).includes("思考内容"))).toBe(true)
+    // 本文件顶层的「共享语料缓存块」用例在本 describe 之后执行，而 clearAllMocks
+    // 不会还原实现，所以这里显式把模块级默认实现装回去，避免用例顺序互相污染。
+    vi.mocked(streamChat).mockReset()
+  })
 })
 
 

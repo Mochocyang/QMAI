@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { degenerateStoryFrameworkWarning } from "@/lib/novel/story-simulation/plot-framework-bridge"
 import type { StoryFramework } from "@/lib/novel/story-simulation/types"
 
 const CHAPTER_OPTIONS = [5, 10, 20, 30, 50]
@@ -42,6 +43,12 @@ export function FrameworkBindingDialog({
   const [error, setError] = useState<string | null>(null)
 
   const isBound = binding?.frameworkId === framework.id
+  /*
+   * 内容退化提示（不是错误、不阻断绑定）：拆书故事维度的标签是提示词要求但未校验的，
+   * 模型跑偏时四个 beat 会退化成同一句占位话，bound 之后注入 AI 的框架正文等于空。
+   * 只在这里提示，因为用户正是在这一步把框架接到生成上。
+   */
+  const contentWarning = degenerateStoryFrameworkWarning(framework)
 
   useEffect(() => {
     if (!open) return
@@ -118,6 +125,11 @@ export function FrameworkBindingDialog({
             </p>
           </div>
 
+          {contentWarning && (
+            <p role="status" data-testid="framework-content-warning" className="text-xs text-amber-600">
+              {contentWarning}
+            </p>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
 

@@ -16,6 +16,8 @@ import { loadWorkbenchRevisions, saveWorkbenchRevision, withWorkbenchRevisionLoc
 import { workbenchAuraId } from "./workbench-publish"
 import { deleteCustomCharacterAura, loadCharacterAuraStore } from "../character-aura"
 import { removePlotFramework } from "../plot-framework-library"
+import { deleteFramework } from "../story-simulation/framework-store"
+import { storyFrameworkIdForPlotFramework } from "../story-simulation/plot-framework-bridge"
 import { removeWritingStylePresetBySourceBook } from "../writing-style-store"
 import { isSameBookAnalysisCharacterAura } from "./aura-match"
 
@@ -102,7 +104,15 @@ export async function removeWorkbenchRevisionItem(
       removedSubjects = base.items.map((item) => item.subject)
       dropPublished = () => true
     } else if (base.skill === "story") {
-      await removePlotFramework(projectPath, workbenchStoryFrameworkId(base.bookId))
+      const frameworkId = workbenchStoryFrameworkId(base.bookId)
+      await removePlotFramework(projectPath, frameworkId)
+      /*
+       * 发布时还额外桥接了一份 .qmai/simulations/frameworks/<id>.md
+       * （plot-framework-bridge），这里必须一起清掉：否则「删掉的框架」会
+       * 继续留在故事仿真列表里、还能被绑定到 AI 会话。
+       * id 用与发布完全相同的推导，不重新拼字符串（拼错了就是删不掉又不报错）。
+       */
+      await deleteFramework(projectPath, storyFrameworkIdForPlotFramework(frameworkId))
       removedSubjects = base.items.map((item) => item.subject)
       dropPublished = () => true
     } else {

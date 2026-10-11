@@ -1,5 +1,6 @@
 import type { NovelReviewResult } from "./review-adapter"
 import { buildGoldenThreeChapterDirective, type GoldenThreeChapterRequest } from "./golden-three-chapters"
+import { DE_AI_GENERATION_RULES, DE_AI_REVISION_BOUNDARY } from "./de-ai-generation-rules"
 
 export const DEEP_CHAPTER_TARGET_CHARS = 3000
 export const DEEP_CHAPTER_MIN_CHARS = 2200
@@ -63,6 +64,18 @@ export function buildStableContextPrefix(outline: string, contextPrompt: string)
 /** 可变 Skill 约束必须放在稳定缓存前缀之后，避免截断公共前缀。 */
 function skillsConstraintSection(skillsPrompt?: string): string {
   return skillsPrompt?.trim() ?? ""
+}
+
+/**
+ * 把一段多行文本包成**独立段落**。
+ *
+ * 本文件的 builder 都走 `[...].filter(Boolean).join("\n")`，而 `filter(Boolean)` 会**丢掉**
+ * 所有 `""` 占位符——所以想靠相邻的 `""` 造空行是**无效**的（历史写法即此误区）。
+ * 要让规则块与紧随其后的边界句自成一段（否则边界句会被读成规则列表最后一条的续行，
+ * 它本来是用来限制规则适用范围的，读错就失去意义），必须把空行**并进字符串本身**。
+ */
+function asOwnParagraph(text: string): string {
+  return `\n${text}\n`
 }
 
 export function buildDeepChapterBriefPrompt(
@@ -177,7 +190,9 @@ export function buildDeepChapterDraftPrompt(
     "9. 不要写成说明文：不解释设计、不替角色总结动机、不用旁白概括冲突；信息必须通过动作、对话、场景细节、人物反应呈现。",
     "10. 开头承接上一章并立刻给当前问题；结尾完成阶段结果，并留下下一章必须解决的动作、信息或危险。",
     "11. 对话必须有目标和攻防，通过试探、隐瞒、压迫、诱导或回避推动关系或信息状态变化，禁止无用闲聊。",
-    "",
+    // 反 AI 腔约束必须排在稳定缓存前缀之后（见文件头 buildStableContextPrefix 的说明）。
+    // asOwnParagraph：这个数组走 filter(Boolean)，靠相邻的 "" 造空行是无效的。
+    asOwnParagraph(DE_AI_GENERATION_RULES),
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
@@ -213,7 +228,9 @@ export function buildDeepChapterRevisionPrompt(
     "5. 必须继续遵守写作任务书和上下文。",
     "6. 不再强制调整到固定字数区间；只修复审稿指出的阻断问题，并保留当前章节的有效剧情容量。",
     "7. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
-    "",
+    // 返修会重写正文，所以规则之后必须跟边界句：只在点名的审稿问题范围内顺带满足。
+    // 两者合成一段（段内空行），让边界句自成一句而不是挂在上一条 bullet 后面当续行。
+    asOwnParagraph(`${DE_AI_GENERATION_RULES}\n\n${DE_AI_REVISION_BOUNDARY}`),
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
@@ -253,7 +270,8 @@ export function buildDeepChapterExpansionPrompt(
     "5. 扩写时补足场景铺陈、动作细节、对话交锋、心理变化、冲突升级和结尾钩子。",
     "6. 必须严格遵守写作任务书、上下文、人物状态、伏笔和时间线，不要新增会推翻设定的剧情。",
     "7. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
-    "",
+    // 扩写最容易堆出 AI 腔（注水、排比、空修饰），是规则块的关键落点。
+    asOwnParagraph(DE_AI_GENERATION_RULES),
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),

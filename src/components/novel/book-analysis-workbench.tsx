@@ -42,6 +42,15 @@ const statusLabels: Record<string, string> = {
 }
 const reportError = (error: unknown) => toast.error(error instanceof Error ? error.message : "操作失败，请重试")
 const skillIcons = { characters: UserRound, story: GitBranch, style: Feather }
+// 空数组要有稳定引用：每次渲染新建 [] 会让「默认勾选」的依赖比较失效。
+const NO_DEFAULT_SKILLS: AnalysisSkill[] = []
+// 空态能力卡：先让用户看清这里有哪三种 skill 可生成，再引导导入作品。
+// 说明文案与 WORKBENCH_DEFAULTS 的分工一致（角色看性格张力、故事看可复用机制、文风看语体与句法）。
+const EMPTY_SKILL_CARDS: Array<{ skill: AnalysisSkill; hint: string }> = [
+  { skill: "characters", hint: "抽取人物设定、性格与关系，生成可复用的角色技能。" },
+  { skill: "story", hint: "提炼目标与阻力、冲突升级与转折的可复用机制，生成故事结构技能。" },
+  { skill: "style", hint: "归纳叙述语气、句法标点与段落节奏，生成可直接启用的文风预设。" },
+]
 interface Draft {
   selectedIds: string[]; skills: AnalysisSkill[]; requirements: Partial<Record<AnalysisSkill, string>>; modelKey: string
 }
@@ -142,6 +151,29 @@ async function refineBindableNames(projectPath: string): Promise<string[]> {
   }
 }
 
+/** 空库时的整页引导：三张能力卡各自预选一项技能，把用户直接送进导入弹窗。 */
+function WorkbenchEmptyState({ disabled, onPick }: { disabled: boolean; onPick: (skill?: AnalysisSkill) => void }) {
+  return (
+    <section className="wb-empty">
+      <BookOpen size={32} className="mx-auto" />
+      <h2>暂无作品</h2>
+      <p className="wb-empty-hint">导入一本 TXT 小说后即可提取；也可以直接点下面任意一张卡片，先看看它能生成什么。</p>
+      <div className="wb-empty-cards">
+        {EMPTY_SKILL_CARDS.map(({ skill, hint }) => {
+          const Icon = skillIcons[skill]
+          return (
+            <button key={skill} type="button" className="wb-empty-card" disabled={disabled} onClick={() => onPick(skill)}>
+              <h3><Icon size={16} />{WORKBENCH_LABELS[skill]}</h3>
+              <p>{hint}</p>
+            </button>
+          )
+        })}
+      </div>
+      <button className="wb-primary" onClick={() => onPick()} disabled={disabled}><Plus />导入作品</button>
+    </section>
+  )
+}
+
 export function BookAnalysisWorkbench() {
   const project = useWikiStore((s) => s.project)
   const selectedBookId = useBookAnalysisStore((s) => s.selectedLibraryBookId)
@@ -151,6 +183,8 @@ export function BookAnalysisWorkbench() {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [bookSearch, setBookSearch] = useState("")
   const [inputOpen, setInputOpen] = useState(false)
+  // 从哪张能力卡进来的，就在导入弹窗里预勾选哪一项。
+  const [pendingDefaultSkills, setPendingDefaultSkills] = useState<AnalysisSkill[]>(NO_DEFAULT_SKILLS)
   const [error, setError] = useState("")
   const imports = useBookAnalysisImportStore()
   const pipeline = useBookAnalysisPipelineStore()
@@ -245,7 +279,7 @@ export function BookAnalysisWorkbench() {
       </div>
       <div className="wb-actions">
         <button className="wb-icon" aria-label="刷新作品" title="刷新作品" onClick={() => setRefresh((v) => v + 1)}><RefreshCw /></button>
-        <button onClick={() => setInputOpen(true)} disabled={!project}><Upload />导入作品</button>
+        <button onClick={() => { setPendingDefaultSkills(NO_DEFAULT_SKILLS); setInputOpen(true) }} disabled={!project}><Upload />导入作品</button>
       </div>
     </header>
     {error && <p role="alert">{error}</p>}
@@ -264,8 +298,12 @@ export function BookAnalysisWorkbench() {
       </div>)}
     </details>}
     {book ? <BookWorkspace key={`${projectPath}:${book.id}`} book={book} projectPath={projectPath} tasks={tasks} onRefresh={() => setRefresh((v) => v + 1)} />
-      : <section className="wb-empty"><BookOpen size={32} className="mx-auto" /><h2>暂无作品</h2><button className="wb-primary" onClick={() => setInputOpen(true)} disabled={!project}><Plus />导入作品</button></section>}
-    <BookAnalysisInputDialog open={inputOpen} onOpenChange={setInputOpen} workbenchMode onSubmit={async (files, analysisSkills) => {
+      : <WorkbenchEmptyState disabled={!project} onPick={(skill) => {
+        setPendingDefaultSkills(skill ? [skill] : NO_DEFAULT_SKILLS)
+        setInputOpen(true)
+      }} />}
+    <BookAnalysisInputDialog open={inputOpen} onOpenChange={setInputOpen} workbenchMode
+      defaultSkills={pendingDefaultSkills} onSubmit={async (files, analysisSkills) => {
       await imports.createBatch(files, analysisSkills)
       setInputOpen(false)
     }} />

@@ -248,6 +248,9 @@ function makeNovelConfig(overrides: Partial<NovelConfig> = {}): NovelConfig {
     autoGenerateChapterTitle: true,
     draftMemoryHintEnabled: true,
     draftMemoryHintSeen: false,
+    inspirationHintEnabled: true,
+    inspirationHintSeen: false,
+    usageTutorialSeen: false,
     ...overrides,
     defaultLlmModel: overrides.defaultLlmModel ?? "",
     deAiModel: overrides.deAiModel ?? "",
@@ -404,6 +407,84 @@ describe("novelConfig — project-directory persistence", () => {
     const loaded = await loadNovelConfig("proj-legacy", tmp.path)
     expect(loaded?.autoExtractOnImport).toBe(true)
     expect(loaded?.contextTokenBudget).toBe(0)
+  })
+
+  /*
+   * 丙-4b：新章节灵感提示开关（`inspirationHintEnabled`）。
+   *
+   * 这两条钉的是**归一化**，不是「字段能不能存」：
+   * - 老配置（写这个字段之前落盘的）必须读成**默认开**，不能是 `undefined`；
+   * - 明确关掉的值必须原样读回来，不能被默认值覆盖。
+   * 两者分开写，是因为把 `?? DEFAULT` 写成 `|| true` 之类的实现
+   * 能过第一条、过不了第二条。
+   */
+  it("fills in inspirationHintEnabled when loading legacy novel config", async () => {
+    const legacy = makeNovelConfig()
+    const { inspirationHintEnabled: _omitted, ...withoutField } = legacy
+    await writeFileRaw(
+      `${tmp.path}/.qmai/novel-config.json`,
+      JSON.stringify(withoutField),
+    )
+
+    const loaded = await loadNovelConfig("proj-legacy-inspiration", tmp.path)
+    expect(loaded?.inspirationHintEnabled).toBe(true)
+  })
+
+  it("round-trips an explicitly disabled inspirationHintEnabled", async () => {
+    await saveNovelConfig(
+      makeNovelConfig({ inspirationHintEnabled: false }),
+      "proj-inspiration-off",
+      tmp.path,
+    )
+
+    const loaded = await loadNovelConfig("proj-inspiration-off", tmp.path)
+    expect(loaded?.inspirationHintEnabled).toBe(false)
+  })
+
+  it("fills in inspirationHintSeen as false when loading legacy novel config", async () => {
+    const legacy = makeNovelConfig()
+    const { inspirationHintSeen: _omitted, ...withoutField } = legacy
+    await writeFileRaw(
+      `${tmp.path}/.qmai/novel-config.json`,
+      JSON.stringify(withoutField),
+    )
+
+    const loaded = await loadNovelConfig("proj-legacy-inspiration-seen", tmp.path)
+    // 默认必须是 false：写成 `?? true` 之类的实现会让「这本书已经提示过」永远为真，
+    // 气泡一次都不会出现 —— 而且界面上看不出来。
+    expect(loaded?.inspirationHintSeen).toBe(false)
+  })
+
+  it("round-trips an already-seen inspiration hint", async () => {
+    await saveNovelConfig(
+      makeNovelConfig({ inspirationHintSeen: true }),
+      "proj-inspiration-seen",
+      tmp.path,
+    )
+
+    const loaded = await loadNovelConfig("proj-inspiration-seen", tmp.path)
+    expect(loaded?.inspirationHintSeen).toBe(true)
+  })
+
+  it("defaults usageTutorialSeen to false so the tutorial still auto-shows", async () => {
+    const legacy = makeNovelConfig()
+    const { usageTutorialSeen: _omitted, ...withoutField } = legacy
+    await writeFileRaw(`${tmp.path}/.qmai/novel-config.json`, JSON.stringify(withoutField))
+
+    const loaded = await loadNovelConfig("proj-legacy-tutorial", tmp.path)
+    // 写成 `?? true` 会让新书的教程永远不弹 —— 界面上完全看不出来。
+    expect(loaded?.usageTutorialSeen).toBe(false)
+  })
+
+  it("round-trips an already-seen usage tutorial", async () => {
+    await saveNovelConfig(
+      makeNovelConfig({ usageTutorialSeen: true }),
+      "proj-tutorial-seen",
+      tmp.path,
+    )
+
+    const loaded = await loadNovelConfig("proj-tutorial-seen", tmp.path)
+    expect(loaded?.usageTutorialSeen).toBe(true)
   })
 })
 

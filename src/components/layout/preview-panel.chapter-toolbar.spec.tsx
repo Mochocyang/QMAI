@@ -173,6 +173,112 @@ describe("章节与大纲工具栏图标", () => {
     // 两处入口都调同一个打开函数（共用同一个面板，含同一份值）
     expect(source.match(/openBodyFontPopover\(event\.currentTarget\)/g)?.length).toBe(2)
   })
+
+  /*
+   * 丙-2a：「生成章节细纲」的入口落进章节工具栏，三个动作图标必须两两不同。
+   *
+   * 用户此前已经为「字体设置 vs 一键排版」提过一次同样的要求
+   * （「一键排版的图标与正文字体的图标两个不能设置为一样」）。新增第三个
+   * 图标动作时，同样的撞车风险会以新组合再出现一次（拿 Type 或 WandSparkles
+   * 去当"生成"图标是最省事的写法），所以这里用**两两互不相同**的方式钉住，
+   * 而不是只比较新按钮与其中某一个。
+   */
+  it("生成章节细纲用灯泡图标，与字体设置、一键排版三者互不相同", () => {
+    const block = buttonBlock("生成章节细纲")
+    expect(block).toContain("Lightbulb")
+    expect(block).not.toContain("<Type")
+    expect(block).not.toContain("WandSparkles")
+
+    const generationIcon = iconNamesIn(block)
+    expect(generationIcon, "「生成章节细纲」应恰好用一个图标组件").toHaveLength(1)
+    expect(generationIcon[0]).toBe("Lightbulb")
+
+    // 两两互不相同：任何两个复用同一个组件都会红
+    const icons = {
+      字体设置: iconNamesIn(buttonBlock("字体设置"))[0],
+      一键排版: iconNamesIn(buttonBlock("一键排版"))[0],
+      生成章节细纲: generationIcon[0],
+    }
+    expect(new Set(Object.values(icons)).size, `三个图标撞车了：${JSON.stringify(icons)}`).toBe(3)
+  })
+
+  /*
+   * 丙-2c：这是一次**有意识**的删除，不是「顺手删掉」。
+   *
+   * 丙-2a 加这条守卫时的注释原文是：
+   *   「入口是**新增**，不是搬家 —— 本批之后大纲面板的空白态入口必须原样还在。
+   *     删掉它是后续单独一步（**要人确认章节区那条链路真的可用**），
+   *     这条守卫就是防止"顺手删掉"在没有验证的情况下发生。」
+   *
+   * 那句话点名的**前置条件现在已经满足**：
+   *   · 丙-2a 已把入口落到章节区标题栏（本文件上面那条灯泡图标守卫钉住图标），
+   *   · 丙-2b 已验证章节区那条链路真的可用（`preview-panel.event-outline.spec.tsx`
+   *     的行为用例覆盖：点按钮 → 弹向导 → 提交生成 → 卡片出现在章节区 →
+   *     确认后直接写出正文）。
+   * 所以按约定执行「后续单独一步」：删除大纲面板那一侧的入口与整条死链。
+   *
+   * 因此这条守卫**方向反转**：从「入口必须还在」改成「入口必须不再有」。
+   *
+   * ⚠️ 反转**不是**绕过。若为了让测试变绿而保留一个空引用（例如把
+   * `EventOutlineWizardDialog` 的 import 留着不用），那是骗测试；这里钉的是
+   * 「三个符号在面板源码里一个都不剩」。
+   *
+   * ⚠️ 同时必须留**正向对照**：`EventOutlineCard` 与 `extractEventOutlineData`
+   * 仍要在（老会话的 `.qmai/outline-chats.json` 里已有事件细纲助手消息，卡片要继续渲染）。
+   * 没有这两条，把整个文件清空也能让上面的 not.toContain 全绿。
+   */
+  it("大纲面板已不再提供事件细纲入口，但仍渲染旧会话的事件细纲卡片", () => {
+    const panel = readFileSync(resolve(__dirname, "../sources/outline-chat-panel.tsx"), "utf8")
+    expect(panel).not.toContain("onGenerateEventOutline")
+    expect(panel).not.toContain("setEventOutlineWizardOpen(true)")
+    expect(panel).not.toContain("EventOutlineWizardDialog")
+    // 正向对照：卡片渲染这条路必须留着（「不能新建」≠「不再渲染」）
+    expect(panel).toContain("EventOutlineCard")
+    expect(panel).toContain("extractEventOutlineData")
+
+    /*
+     * 共享组件那一侧的同一个洞也要堵上。
+     *
+     * `UiTestAiEmpty` 是**空白态里唯一**承载过「生成章节细纲」按钮的组件
+     * —— 注意不是「唯一承载该按钮的组件」：章节区工具栏那枚在
+     * `preview-panel.tsx` 里，它不是空白态。原注释写成「唯一承载」与源码不符，本批更正。
+     * 只删调用点、把可选 prop 留在签名里，会得到一个没有任何调用方、
+     * 却仍能从别处接线的按钮 —— 下一个人照样能把它接回大纲面板。
+     * `tsc` 抓不到这件事（可选 prop 没人传是合法的），所以这里用源码钉。
+     *
+     * ── ⚠️ 这条守卫的效力边界（按审查的实测改写，不再自称"最强形式"）──
+     * 它钉的是**源码里的名字与字面量**，不是行为。实测过的绕过方式：
+     * 换一个 prop 名（如 `onGenerateChapterOutline`）、文案写成 **JSX 表达式**
+     * `{"生成章节细纲"}` —— `onGenerateEventOutline` 与 `>生成章节细纲<` 两条断言
+     * 都拦不住它。所以这里**补上带 ASCII 引号的字面量断言**，它正好堵住这种绕过；
+     * 但换成模板串、变量拼接仍然能绕过去 —— 源码扫描做不到"证明不存在等价入口"。
+     * 这条守卫的真实价值是**拿掉现成的接线点**，让再接线这件事必须显式发生。
+     *
+     * 真正的**行为**背书不在这里，而在 `outline-chat-panel.spec.tsx` 的
+     * 「空会话只提供「生成小说大纲」一个入口，不再提供「生成章节细纲」」：
+     * 它渲染整个面板并断言空白态的按钮文案集合，只要有人把它接回空白态
+     * （无论换成什么名字）那条用例必红。两者分工不同，都要在。
+     * 反过来说：只加一个**没有任何调用方**的可选 prop 不产生任何可观察行为，
+     * 所以不存在能拦住它的行为断言 —— 那正是这里保留源码扫描的原因。
+     *
+     * 正向对照：「生成小说大纲」必须还在，否则把整个组件删空也能绿。
+     */
+    const shared = readFileSync(resolve(__dirname, "../uitest/ui-test-ai-parts.tsx"), "utf8")
+    expect(shared).not.toContain("onGenerateEventOutline")
+    // 按钮本体也得走：断言的是 JSX 文本节点（`>生成章节细纲<`），
+    // 而不是「文件里出现过这四个字」—— 上面那段说明本来就要提它。
+    expect(shared).not.toContain(">生成章节细纲<")
+    /*
+     * 上面两条只管住了「同一个名字 + 同一种写法」。这里补上带 ASCII 引号的文案字面量：
+     * 文件里一旦出现 `"生成章节细纲"`，就说明有声明或接线在用这个文案
+     * （DOM 文本节点、title、aria-label 都一样）。
+     * ⚠️ 上面那段说明里的「生成章节细纲」用的是「」直角引号，**不算**命中；
+     * 这份文件目前只有那两处说明提过它。
+     */
+    expect(shared, "文案换一种写法（JSX 表达式标签 `{\"生成章节细纲\"}`）同样要拦住")
+      .not.toContain('"生成章节细纲"')
+    expect(shared).toContain(">生成小说大纲<")
+  })
 })
 
 /*

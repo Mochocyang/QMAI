@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import {
   attachOutlineHtml,
   characterDraftsToSaveRequests,
+  excludeEventOutlineSaveRequests,
   extractBodyContent,
   extractHtmlBlocks,
   formatOutlineSaveParseFeedback,
@@ -10,8 +11,10 @@ import {
   renderOutlineHtmlForPath,
   saveOutlineSaveRequests,
   splitConfirmRequiredSaveRequests,
+  type OutlineSaveRequest,
   type OutlineSaveRequestFileType,
 } from "./outline-save-request"
+import { getDefaultFolderForOutlineFileType } from "./outline-save-classifier"
 
 /**
  * `attachOutlineHtml` 的入参形状，直接由生产签名推导（`Parameters<...>[0]`）。
@@ -903,11 +906,12 @@ describe("outline-save-request", () => {
       "character": "# 角色-林烬\n## 身份\n- 沉默的剑客\n## 性格\n- 寡言，记性极好",
       "organization": "# 青云门\n## 阵营目标\n- 维护正道秩序\n## 掌握资源\n- 玉虚真人",
       "foreshadowing": "# 伏笔计划\n## 埋设\n- 第一卷埋下残碑\n## 回收\n- 第三卷回收",
+      "event-outline": "# 事件细纲-第012章\n## 事件1 院子里的哭声\n- 关键台词：「夜壶里的东西是药。」\n## 事件2 夜壶里的药\n- 神情动作：念念护住屁股蛋",
       "quality-report": "# 大纲质量检查\n## 结构\n- 分卷节奏偏快\n## 建议\n- 第二卷补一条支线",
     }
-    /* 这 8 个成员必须与生产的 OutlineSaveRequestFileType 完全一致（写错/漏写会在这里报错） */
+    /* 这 9 个成员必须与生产的 OutlineSaveRequestFileType 完全一致（写错/漏写会在这里报错） */
     const fileTypes: OutlineSaveRequestFileType[] = [
-      "outline", "volume-outline", "chapter-outline", "character",
+      "outline", "volume-outline", "chapter-outline", "event-outline", "character",
       "setting", "foreshadowing", "organization", "quality-report",
     ]
     for (const fileType of fileTypes) {
@@ -1121,5 +1125,305 @@ describe("outline-save-request", () => {
       "/root/组织/青云门.md",
       "/root/组织/青云门.html",
     ])
+  })
+})
+
+describe("event-outline 保存类型", () => {
+  const eventOutlineContent = [
+    "# 第12章 · 令牌初现",
+    "",
+    "## 事件1 院子里的哭声",
+    "- 关键台词：「夜壶里的东西是药。」",
+    "- 神情动作：念念两只小手护住屁股蛋。",
+  ].join("\n")
+
+  const request = {
+    targetFolder: "事件细纲",
+    fileName: "事件细纲-第012章.md",
+    fileType: "event-outline",
+    writeMode: "create",
+    referencedSkills: [],
+    sourceIntent: "生成第12章事件细纲",
+    content: eventOutlineContent,
+  }
+
+  const parseOne = (payload: Record<string, unknown>) =>
+    parseOutlineSaveRequests(`\`\`\`json\n${JSON.stringify({ outlineSaveRequest: payload })}\n\`\`\``)
+
+  const parseMany = (payloads: Array<Record<string, unknown>>) =>
+    parseOutlineSaveRequests(`\`\`\`json\n${JSON.stringify({ outlineSaveRequests: payloads })}\n\`\`\``)
+
+  /*
+   * eventOutlineRejectionCount 的**口径**测试。
+   *
+   * 调用方（大纲面板的自动通道闸门）拿它与 errors.length 比较，只有相等才敢说
+   * 「这一批错误全是事件细纲造成的」并改弹 info。所以「哪些错误算事件细纲被拒」
+   * 必须连同归一化阶段的错误一起算 —— 否则一条缺 fileName 的事件细纲请求
+   * 会让用户看到「请让 AI 重新输出 outlineSaveRequest」，而重出一次仍会被丢掉。
+   */
+  it("归一化阶段就被拒的事件细纲请求也计入拒收数（口径 = 错误条数）", () => {
+    // 文件名不是 .md：错误在 normalizeRequest 里就产生了
+    const parsed = parseOne({ ...request, fileName: "事件细纲-第012章.txt" })
+    expect(parsed.requests).toEqual([])
+    expect(parsed.errors).toHaveLength(1)
+    expect(parsed.eventOutlineRejectionCount).toBe(1)
+  })
+
+  /*
+   * E8 的**缺 content** 路径（此前只覆盖了归一化阶段与结构闸门）。
+   *
+   * 输入刻意选成「唯一一条请求是 event-outline + content 为空 + 正文里也提不出内容」：
+   * 归一化会放过它（`content: ""` 不触发那条「仅包含模型思考过程」的报错），
+   * 拒绝发生在其后的 `!request.content.trim()` 分支。若那一支不计数，调用方拿到的是
+   * `errors.length === 1 && eventOutlineRejectionCount === 0` ⇒ 判成「有真正的解析错误」
+   * ⇒ 弹「请让 AI 重新输出 outlineSaveRequest」，而重出一次还是会被丢掉 ——
+   * 正是 E8 要消除的症状。
+   *
+   * `parseOne` 的正文部分只有 json 围栏（extractBodyContent 会把它整块删掉），
+   * 所以 fillContentFromText 确实补不出 content。
+   */
+  it("缺 content 的事件细纲请求也计入拒收数（E8：不在归一化阶段，但同样不许误报）", () => {
+    const parsed = parseOne({ ...request, content: "" })
+    // 三者的关系才是关键：调用方比的是 rejectionCount 与 errors.length
+    expect(parsed.requests).toEqual([])
+    expect(parsed.errors).toHaveLength(1)
+    expect(parsed.eventOutlineRejectionCount).toBe(parsed.errors.length)
+    expect(parsed.errors[0]).toContain("缺少 content")
+  })
+
+  it("缺 content 的**非**事件细纲请求不计入拒收数（否则会把真错误也掩盖掉）", () => {
+    const parsed = parseOne({
+      targetFolder: "章纲",
+      fileName: "章纲-第012章.md",
+      fileType: "chapter-outline",
+      writeMode: "create",
+      referencedSkills: [],
+      sourceIntent: "生成章纲",
+      content: "",
+    })
+    expect(parsed.errors).toHaveLength(1)
+    expect(parsed.eventOutlineRejectionCount).toBe(0)
+  })
+
+  it("混着真正的解析错误时，拒收数小于错误总数（调用方据此仍弹那条重出提示）", () => {
+    const parsed = parseMany([
+      { ...request, fileName: "事件细纲-第012章.txt" },
+      {
+        targetFolder: "章纲",
+        fileName: "章纲-第012章.md",
+        fileType: "chapter-outline",
+        writeMode: "create",
+        referencedSkills: [],
+        sourceIntent: "生成章纲",
+        content: "好的，我已完成本章细纲。",
+      },
+    ])
+    expect(parsed.requests).toEqual([])
+    expect(parsed.eventOutlineRejectionCount).toBe(1)
+    expect(parsed.errors.length).toBeGreaterThan(parsed.eventOutlineRejectionCount)
+  })
+
+  it("中文别名「事件细纲」归一化为 event-outline", () => {
+    const parsed = parseOne({ ...request, fileType: "事件细纲" })
+    expect(parsed.errors).toEqual([])
+    expect(parsed.requests[0]?.fileType).toBe("event-outline")
+  })
+
+  it("中文别名「细纲」不再归一化为 event-outline", () => {
+    // 丙-1 的核心修复点：不给「细纲」这个别名，让它**整条被拒**（而不是被改判成事件细纲）。
+    // 保留别名会让模型写 fileType: "细纲" 时，一份 17 节章纲被归一化成 event-outline，
+    // 而 hasEventOutlineStructure 的闸门挡不住它（章纲的「## 1. 本章定位」本身就是
+    // 编号分节 + 大量列表行），于是章纲会被落进「事件细纲」文件夹。
+    // 注意结果不是「恢复成 17 节章纲」：白名单里没有「细纲」这个值，所以
+    // normalizeRequest 直接报「不支持的大纲文件类型」，requests 里什么都不剩。
+    const parsed = parseOne({ ...request, fileType: "细纲" })
+    expect(parsed.requests.map((item) => item.fileType)).not.toContain("event-outline")
+    expect(parsed.requests).toEqual([])
+    expect(parsed.errors.join("\n")).toContain("细纲")
+  })
+
+  it("事件细纲落进「事件细纲」文件夹", () => {
+    expect(getDefaultFolderForOutlineFileType("event-outline")).toBe("事件细纲")
+  })
+
+  it("内容不像事件细纲时拒绝写入", () => {
+    const parsed = parseOne({ ...request, content: "好的，我已完成本章细纲。" })
+    expect(parsed.requests).toEqual([])
+    expect(parsed.errors.join("\n")).toContain("事件细纲")
+  })
+
+  it("结构完整的事件细纲能通过闸门", () => {
+    const parsed = parseOne(request)
+    expect(parsed.errors).toEqual([])
+    expect(parsed.requests).toHaveLength(1)
+  })
+
+  it("事件细纲也会拿到 HTML 卡片流", () => {
+    const parsed = parseOne(request)
+    expect(parsed.requests[0]?.htmlContent?.trim()).toBeTruthy()
+    expect(parsed.requests[0]?.htmlContent).toContain("<html")
+    // 兜底 HTML 必须用自己的标识，不能退化成「设定」或章纲的样子
+    expect(parsed.requests[0]?.htmlContent).toContain("事件细纲 · 卡片流")
+  })
+
+  it("分节写成编号标题（## 1. …）时同样过闸门", () => {
+    // 提示词现在强制「## 事件N」，但模型仍可能写成编号分节：
+    // 那种细纲在卡片上看着合格，过去会被保存闸门拒掉 —— 没有对话框，只报「保存请求解析失败」。
+    const parsed = parseOne({
+      ...request,
+      content: [
+        "# 事件细纲 · 第12章 令牌初现",
+        "",
+        "## 1. 院子里的哭声",
+        "- 关键台词：「夜壶里的东西是药。」",
+        "- 神情动作：念念两只小手护住屁股蛋。",
+      ].join("\n"),
+    })
+    expect(parsed.errors).toEqual([])
+    expect(parsed.requests).toHaveLength(1)
+  })
+
+  it("分节写成「## 事件1」时过闸门", () => {
+    const parsed = parseOne({
+      ...request,
+      content: [
+        "# 事件细纲 · 第12章 令牌初现",
+        "",
+        "## 事件1 院子里的哭声",
+        "- 关键台词：「夜壶里的东西是药。」",
+        "- 神情动作：念念两只小手护住屁股蛋。",
+      ].join("\n"),
+    })
+    expect(parsed.errors).toEqual([])
+    expect(parsed.requests).toHaveLength(1)
+  })
+
+  it("只有列表行、没有事件分节的完成报告仍被闸门拒绝", () => {
+    // listLines ≥ 2 只说明「像清单」，不能替代事件分节：摘要里也常有项目符号。
+    const parsed = parseOne({
+      ...request,
+      content: "好的，我已完成本章细纲。\n- 已按 4 个事件排好\n- 已补全章尾钩子",
+    })
+    expect(parsed.requests).toEqual([])
+    expect(parsed.errors.join("\n")).toContain("事件细纲")
+  })
+
+  it("17 节章纲的 §N 分节骗不过事件细纲闸门", () => {
+    // 章纲模板用的是「## §5 核心事件链」这种 §N 分节（不是「## 5.」），
+    // 因此 FIX 3 放宽编号分节后，章纲正文仍然过不了事件细纲闸门。
+    const chapterOutlineBody = [
+      "# 章纲-第046章：第一次冷处理",
+      "",
+      "## §1 基础信息",
+      "- 章号：46",
+      "## §5 核心事件链",
+      "- what: 早会被点名",
+      "  cause: 上级要一个交代",
+      "  action: 把他移出核心组",
+      "  result: 第一次被冷处理",
+      "  use: 铺垫离职线",
+      "## §17 写作检查清单",
+      "- 三行内入戏",
+    ].join("\n")
+    const parsed = parseOne({ ...request, content: chapterOutlineBody })
+    expect(parsed.requests).toEqual([])
+    expect(parsed.errors.join("\n")).toContain("事件细纲")
+  })
+})
+
+describe("excludeEventOutlineSaveRequests", () => {
+  const eventOutlineRequest: OutlineSaveRequest = {
+    targetFolder: "事件细纲",
+    fileName: "事件细纲-第012章.md",
+    fileType: "event-outline",
+    writeMode: "create",
+    referencedSkills: [],
+    sourceIntent: "生成第12章事件细纲",
+    content: "# 事件细纲 · 第12章 令牌初现\n\n## 事件1 院子里的哭声\n- 关键台词：「夜壶里的东西是药。」",
+  }
+  /*
+   * 这份 fixture 的 targetFolder **刻意不叫「事件细纲」**：排除条件键的是 fileType，
+   * 而每个事件 fixture 都带 `targetFolder: "事件细纲"` 时，一个改成键 targetFolder
+   * 的变异实现照样能通过 —— 那条用例就钉不住它声称要钉的键。
+   */
+  const eventOutlineRequestOtherFolder: OutlineSaveRequest = {
+    ...eventOutlineRequest,
+    targetFolder: "大纲",
+    fileName: "事件细纲-第013章.md",
+  }
+  const chapterOutlineRequest: OutlineSaveRequest = {
+    ...eventOutlineRequest,
+    targetFolder: "章纲",
+    fileName: "章纲-第012章.md",
+    fileType: "chapter-outline",
+  }
+  const volumeOutlineRequest: OutlineSaveRequest = {
+    ...eventOutlineRequest,
+    targetFolder: "卷纲",
+    fileName: "卷纲-第二卷.md",
+    fileType: "volume-outline",
+  }
+  const characterRequest: OutlineSaveRequest = {
+    ...eventOutlineRequest,
+    targetFolder: "人物小传",
+    fileName: "角色-楚白.md",
+    fileType: "character",
+  }
+
+  /*
+   * 顺序**必须**用「有多个幸存者」的输入来测：只有一存一删时，
+   * 输出永远只有一个元素，任何排序/反转都能通过，这条断言就没有鉴别力。
+   * 这里混入四处事件细纲（其中一处 targetFolder 不是「事件细纲」，用来钉住
+   * 排除键是 fileType 而不是文件夹名）、三个不同位置的幸存者，
+   * 并对**完整序列**做断言。
+   */
+  it("摘掉全部事件细纲、留下的按原顺序（顺序不变）", () => {
+    const result = excludeEventOutlineSaveRequests([
+      chapterOutlineRequest,
+      eventOutlineRequest,
+      volumeOutlineRequest,
+      eventOutlineRequestOtherFolder,
+      characterRequest,
+      eventOutlineRequest,
+    ])
+    // 三个幸存者的相对顺序必须与输入一致：章纲 → 卷纲 → 人物小传
+    expect(result.requests.map((item) => item.fileType)).toEqual([
+      "chapter-outline",
+      "volume-outline",
+      "character",
+    ])
+    expect(result.droppedEventOutlineCount).toBe(3)
+  })
+
+  it("只看 fileType，不靠 targetFolder 判断（改键实现会被这条抓住）", () => {
+    // 键 targetFolder 的变异实现在这里会留下 1 条（因为它是「大纲」），
+    // 而 fileType 仍是 event-outline —— 下面两条断言同时变红。
+    const result = excludeEventOutlineSaveRequests([
+      { ...eventOutlineRequestOtherFolder, targetFolder: "章纲" },
+      { ...eventOutlineRequest, targetFolder: "事件细纲", fileType: "outline" },
+    ])
+    expect(result.requests.map((item) => item.fileType)).toEqual(["outline"])
+    expect(result.droppedEventOutlineCount).toBe(1)
+  })
+
+  it("全是事件细纲时请求清空、且如实报出摘掉的条数", () => {
+    // 调用方靠这个条数区分「压根没有请求」与「请求全是事件细纲」：
+    // 后者必须直接收工，否则会掉进按正文推断的兜底分类，又判出一次事件细纲。
+    const result = excludeEventOutlineSaveRequests([eventOutlineRequest])
+    expect(result.requests).toEqual([])
+    expect(result.droppedEventOutlineCount).toBe(1)
+  })
+
+  it("没有事件细纲时原样返回、条数为 0", () => {
+    const result = excludeEventOutlineSaveRequests([chapterOutlineRequest, characterRequest])
+    expect(result.requests.map((item) => item.fileType)).toEqual(["chapter-outline", "character"])
+    expect(result.droppedEventOutlineCount).toBe(0)
+  })
+
+  it("空数组返回空数组、条数为 0（不能把 0 条算成「摘掉了但是空的」）", () => {
+    expect(excludeEventOutlineSaveRequests([])).toEqual({
+      requests: [],
+      droppedEventOutlineCount: 0,
+    })
   })
 })

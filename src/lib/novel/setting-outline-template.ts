@@ -142,9 +142,9 @@ const GENERIC_OUTLINE_SPEC: SettingOutlineSpec = {
 }
 
 /*
- * 卷纲/章纲/质量检查的**中性兜底规格**。
+ * 卷纲/章纲/质量检查/事件细纲的**中性兜底规格**。
  *
- * 这三种类型各有专用渲染器（折叠树 / 17 节卡片流），但都必须依赖可解析的结构化 JSON；
+ * 卷纲/章纲/质量检查有各自的专用渲染器（折叠树 / 17 节卡片流），但都必须依赖可解析的结构化 JSON；
  * 拿不到结构化数据时，旧行为是「干脆不出 HTML」——后果是保存框的「HTML 形式」永久置灰，
  * 用户根本无法保存 HTML 版本，而「从大纲继续生成章纲」这条路径恰恰必然落在这种情况。
  *
@@ -156,6 +156,14 @@ const NEUTRAL_OUTLINE_SPECS: Record<string, SettingOutlineSpec> = {
     id: "neutral-chapter-outline",
     eyebrow: "章纲 · 卡片流",
     title: "章纲",
+    titleMatches: [],
+    sections: [],
+  },
+  // 事件细纲没有专属渲染器（它刻意不进章节细纲链路），只有 MD 时靠这条中性规格出卡片流
+  "event-outline": {
+    id: "neutral-event-outline",
+    eyebrow: "事件细纲 · 卡片流",
+    title: "事件细纲",
     titleMatches: [],
     sections: [],
   },

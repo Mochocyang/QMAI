@@ -77,6 +77,15 @@
 .book-workbench [role=alert]{color:var(--ui-danger,#a83e3e);font-size:0.8125rem;white-space:pre-wrap}
 .book-workbench pre{white-space:pre-wrap;overflow-wrap:anywhere;font:0.8125rem/1.7 inherit}
 .wb-empty{padding:38px 0;text-align:center}
+.wb-empty-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;max-width:780px;margin:22px auto 0;text-align:left}
+.wb-empty-card{display:flex;flex-direction:column;gap:6px;align-items:flex-start;width:100%;padding:16px;border:1px solid var(--ui-line,#c6d1cb);border-radius:8px;background:var(--ui-paper,#fff);font:inherit;color:inherit;text-align:left;cursor:pointer;transition:border-color .12s ease,box-shadow .12s ease}
+.wb-empty-card:hover:not(:disabled){border-color:var(--ui-accent,#496b59);box-shadow:0 0 0 2px color-mix(in srgb,var(--ui-accent,#496b59) 12%,transparent)}
+.wb-empty-card:disabled{opacity:.55;cursor:not-allowed}
+/* 必须带 .book-workbench 前缀：文件上方 .book-workbench p{margin:8px 0}（:7）特异性是 0,1,1，
+   单写 .wb-empty-card p 同为 0,1,1 只能靠顺序赢，将来插入别的规则就会失效。 */
+.book-workbench .wb-empty-card h3{display:flex;align-items:center;gap:8px;margin:0;font-size:.9375rem}
+.book-workbench .wb-empty-card p{margin:0;font-size:.75rem;line-height:1.7;color:var(--ui-muted,#687871)}
+.book-workbench .wb-empty-hint{margin:14px 0 0;font-size:.75rem;color:var(--ui-muted,#687871)}
 html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(640px,calc(100vw - 32px));max-width:640px;padding:22px;gap:14px;border-radius:8px}
 /* 页签内的旧版结果区。旧版整页区块（.wb-legacy）已不再挂载，原先那五条规则一并删除；
    注意上面 :69 的导入弹窗宽度规则紧挨着它们，别一起删掉。 */
@@ -197,7 +206,7 @@ html[data-ui-test-skin] [data-slot="dialog-content"].wb-import-dialog{width:min(
 .wb-revision-extras{min-width:0;margin-top:18px}
 .wb-revision-date{font-size:0.75rem;color:var(--ui-muted,#687871);white-space:nowrap}
 @container(max-width:900px){.wb-header>.wb-row>.wb-muted{display:none}.wb-skill-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wb-header .wb-book-picker>button{min-width:130px;max-width:250px}}
-@container(max-width:620px){.wb-header{gap:8px}.wb-header .wb-book-picker>button{min-width:100px;max-width:190px}.wb-header>.wb-row{gap:8px}.wb-skill-grid{grid-template-columns:1fr}.wb-header>.wb-actions>.wb-icon{display:none}.wb-view-switch{margin-left:auto}.wb-range .wb-selection-count{width:100%;margin-left:0}.wb-range input[type=number]{width:76px}.wb-skill-options{gap:6px}.wb-skill-option{padding-inline:7px;gap:5px}.wb-skill-option button{font-size:0.75rem}.wb-demand-toolbar>.wb-primary{margin-left:auto}.wb-skill-grid[data-view=list] .wb-skill-card{display:flex}.wb-skill-grid[data-view=list] .wb-card-footer{border-left:0;border-top:1px solid var(--ui-line,#c6d1cb);justify-content:space-between}}
+@container(max-width:620px){.wb-header{gap:8px}.wb-header .wb-book-picker>button{min-width:100px;max-width:190px}.wb-header>.wb-row{gap:8px}.wb-skill-grid{grid-template-columns:1fr}.wb-header>.wb-actions>.wb-icon{display:none}.wb-view-switch{margin-left:auto}.wb-range .wb-selection-count{width:100%;margin-left:0}.wb-range input[type=number]{width:76px}.wb-skill-options{gap:6px}.wb-skill-option{padding-inline:7px;gap:5px}.wb-skill-option button{font-size:0.75rem}.wb-demand-toolbar>.wb-primary{margin-left:auto}.wb-skill-grid[data-view=list] .wb-skill-card{display:flex}.wb-skill-grid[data-view=list] .wb-card-footer{border-left:0;border-top:1px solid var(--ui-line,#c6d1cb);justify-content:space-between}.wb-empty-cards{grid-template-columns:1fr}}
 @media(max-width:640px){.book-workbench{padding:0 16px 32px}.wb-header{padding:12px 0}.wb-header>div{max-width:100%}.wb-rule dl{grid-template-columns:54px minmax(0,1fr);gap:8px}.wb-tabs{gap:8px}.wb-chapter-row{grid-template-columns:18px 30px minmax(0,1fr) 64px}.wb-model>span:nth-child(2){max-width:190px}.wb-demand-editor textarea{height:100px}.wb-book-picker>button span{max-width:135px}}
 .wb-soul-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;padding:10px 14px;border-top:1px solid var(--ui-line,#c6d1cb)}
 .wb-soul-status{font-size:0.75rem;color:var(--ui-muted,#687871)}

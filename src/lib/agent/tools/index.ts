@@ -65,6 +65,8 @@ export interface ToolFactoryOptions {
   onToolEvent?: (event: AgentToolEvent) => void
   getPlanBlueprint?: () => string | undefined
   getSelectedSkillsPrompt?: () => string | undefined
+  /** 丁-2「文风写作」：本轮临时覆盖的文风预设 id（三态：undefined/null/string）。 */
+  getWritingStyleIdOverride?: () => string | null | undefined
   readTextFile?: (path: string) => Promise<string>
 }
 
@@ -125,6 +127,7 @@ export function registerAllBuiltInTools(registry: ToolRegistry, options: ToolFac
       onToolEvent: options.onToolEvent,
       getPlanBlueprint: options.getPlanBlueprint,
       getSelectedSkillsPrompt: options.getSelectedSkillsPrompt,
+      getWritingStyleIdOverride: options.getWritingStyleIdOverride,
     }))
   }
 

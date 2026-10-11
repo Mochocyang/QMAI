@@ -35,13 +35,33 @@ export function UiTestAiAuthor({ running = false }: { running?: boolean }) {
   return <div className="ui-test-ai-author"><Sparkles aria-hidden="true" /><span>青幕{running ? " · 正在生成" : ""}</span></div>
 }
 
+/**
+ * 空会话的中央引导区。
+ *
+ * ⚠️ 这里**只有**「生成小说大纲」一个入口。事件细纲（章节细纲）的入口
+ * 已按用户要求搬去**章节区的标题栏**（见 `preview-panel.tsx` 的「生成章节细纲」），
+ * 大纲面板不再提供它 —— 用户原话：「将『生成章节细纲』的按钮放在章节当中，
+ * 放在章节的标题栏那里」/「我们不放在大纲那里了，只用一个按钮就可以了」。
+ * 因此这里**没有**承载事件细纲那枚按钮的可选 prop：留着一个没有任何调用方的
+ * prop 只会让下一个人以为还有第二条入口。
+ *
+ * ⚠️ 上面的说明刻意**不写出那个 prop 的字面名**：它已经不存在了，
+ * 而 `preview-panel.chapter-toolbar.spec.tsx` 那条守卫会钉住「本文件里不出现这个名字」。
+ * 那条守卫是**源码文本**级的（换 prop 名或换一种文案写法就能绕过去，详见那边的说明），
+ * 真正的行为背书在 `outline-chat-panel.spec.tsx` 的
+ * 「空会话只提供「生成小说大纲」一个入口，不再提供「生成章节细纲」」上。
+ */
 export function UiTestAiEmpty({ kind, onGenerateOutline, generateDisabled, generateDisabledReason }: { kind: "chapter" | "outline"; onGenerateOutline?: () => void; generateDisabled?: boolean; generateDisabledReason?: string }) {
   return (
     <div className="ui-test-ai-empty">
       <Sparkles aria-hidden="true" />
       <h3>{kind === "outline" ? "从一个想法开始" : "一起写下一段故事"}</h3>
       <p>{kind === "outline" ? "聊聊故事方向，或用 @ 引用已有大纲和章节。" : "输入写作想法，或用 @ 引用章节、大纲和记忆。"}</p>
-      {onGenerateOutline && <button type="button" onClick={onGenerateOutline} disabled={generateDisabled} title={generateDisabled ? generateDisabledReason : undefined}>生成小说大纲</button>}
+      {onGenerateOutline && (
+        <div className="ui-test-ai-empty-actions">
+          <button type="button" onClick={onGenerateOutline} disabled={generateDisabled} title={generateDisabled ? generateDisabledReason : undefined}>生成小说大纲</button>
+        </div>
+      )}
     </div>
   )
 }

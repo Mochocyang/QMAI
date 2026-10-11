@@ -124,6 +124,10 @@ export function ContentArea() {
         break;
       case "skillLibrary":
       case "writingSkillLibrary":
+      // 合并说明：两侧各自追加了技能库的内部视图，取并集 —— 都渲染同一个
+      // UnifiedSkillLibraryView，由组件内部按 activeView 决定显示哪个 tab。
+      case "writingStyleLibrary":
+      case "characterSoulLibrary":
       case "personaSkillLibrary":
       case "skillFavorites":
         content = (

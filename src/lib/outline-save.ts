@@ -5,7 +5,12 @@ import {
   classifyOutlineSaveTarget,
   type OutlineSaveClassification,
 } from "./novel/outline-save-classifier"
-import { attachOutlineHtml, extractBodyContent, type OutlineSaveRequest } from "./novel/outline-save-request"
+import {
+  attachOutlineHtml,
+  extractBodyContent,
+  type OutlineSaveRequest,
+  type OutlineSaveRequestFileType,
+} from "./novel/outline-save-request"
 
 interface OutlineSaveDraft {
   title: string
@@ -51,6 +56,81 @@ export function isSaveableOutlineDeliverable(content: string): boolean {
   return cleaned.length >= 200
     && CHAPTER_STRUCTURE_MARK.test(cleaned)
     && /第\s*\d{1,4}\s*章/.test(cleaned)
+}
+
+/**
+ * 事件细纲的**保存闸门**判据：分类结果不该进大纲列表。
+ *
+ * 抽成纯函数而不是散在组件里的 `if`：这条判据是丙-1 的核心保证
+ * （事件细纲只作对话消息 + 卡片存在，不写进 `wiki/outlines/事件细纲/`），
+ * 但它在组件里是**行为**、源码文本断言管不住它 —— 删掉那个 `return`
+ * 过后依然全绿。抽出来之后可以直接喂一份已分类的 event-outline 进判据。
+ *
+ * 参数类型是真实的文件类型联合（`OutlineSaveRequestFileType`，定义在
+ * outline-save-request.ts、本文件已从那里引入），不是 `string`：
+ * 收 `string` 会让调用点写错一个字面量也能编译、然后**静默**返回 false
+ * （闸门悄悄失效）。调用方传的都是 `classification.fileType`，类型本就吻合，
+ * 收紧不产生任何类型断言。也没有引入循环依赖：`OutlineSaveRequestFileType`
+ * 定义在 outline-save-request.ts（它不反向 import 本文件），
+ * outline-save-classifier.ts 只是 import 使用、并未再导出。
+ */
+export function isEventOutlineSaveBlocked(fileType: OutlineSaveRequestFileType): boolean {
+  return fileType === "event-outline"
+}
+
+/**
+ * 自动保存通道在「解析出保存请求」之后要走哪条路。
+ *
+ * 四种出口按**下面的顺序**判定，顺序本身是语义的一部分：
+ * - `droppedEventOutlineCount > 0 && keptRequestCount === 0`：请求全是事件细纲，
+ *   直接收工（不能掉进按正文分类的兜底腿，那条腿会把同一份细纲再判一次
+ *   event-outline）；
+ * - `keptRequestCount > 0`：有**能保存的**请求，先去确认框，别被错误挡住；
+ * - 错误里还有非事件细纲的（`eventOutlineRejectionCount < errors.length`）：
+ *   那条「请让 AI 重新输出 outlineSaveRequest」必须照弹；
+ * - 错误全是事件细纲被拒：改弹 info 说明（要求模型重出一遍是自相矛盾的）。
+ *
+ * ⚠️ **已知边界（既有顺序，本批有意不改）**：第一道分支是**早返回**，所以
+ * `droppedEventOutlineCount > 0 && keptRequestCount === 0` 时，调用方
+ * （outline-chat-panel 的自动通道，`if (gateAction === "drop-event-outline") return`）
+ * 会在看到 `surface-parse-errors` 之前就 return —— 这一轮里**真正的解析错误
+ * 会被连坐吞掉**，用户仍然「点了没反应」。这不是本函数的疏漏：`650400f`
+ * 原文就是一字不差的 `if (droppedEventOutlineCount > 0 && saveRequests.length === 0) return`。
+ * 改它等于改变「什么时候弹确认框 / 错误」的语义，是独立的行为变更（需要单独的
+ * 设计决定与 UI 验收），故本批只把它记清楚。最小处方见
+ * docs/scratch-20261010-事件细纲流程-设计.md §4.2.1。
+ */
+export type OutlineAutoSaveGateAction =
+  | "drop-event-outline"
+  | "surface-parse-errors"
+  | "notify-event-outline-dropped"
+  | "continue"
+
+export function decideOutlineAutoSaveGate(input: {
+  droppedEventOutlineCount: number
+  keptRequestCount: number
+  errors: string[]
+  eventOutlineRejectionCount: number
+}): OutlineAutoSaveGateAction {
+  if (input.droppedEventOutlineCount > 0 && input.keptRequestCount === 0) {
+    return "drop-event-outline"
+  }
+  /*
+   * 有能保存的请求就先去确认框：**不能**因为同一批里还有别的错误而把它挡在门外。
+   * 少了这一条，`kept > 0 && errors.length > 0` 会落到下面的 `surface-parse-errors`，
+   * 调用方随即 `return` —— 有效请求根本到不了确认对话框。
+   */
+  if (input.keptRequestCount > 0) return "continue"
+  if (input.errors.length === 0) return "continue"
+  /*
+   * 用 `<` 而不是 `=== 0`：混着一条真正的解析错误时仍必须让用户看到它。
+   *
+   * ⚠️ 只对**走到这里**的情形成立 —— `keptRequestCount === 0` 且
+   * `droppedEventOutlineCount > 0` 时，上面第一道分支已经返回，这一句没有机会执行
+   * （真正的解析错误被 drop 连坐吞掉，见函数头的「已知边界」）。
+   */
+  if (input.eventOutlineRejectionCount < input.errors.length) return "surface-parse-errors"
+  return "notify-event-outline-dropped"
 }
 
 export function buildClassifiedOutlineSaveRequest(input: {

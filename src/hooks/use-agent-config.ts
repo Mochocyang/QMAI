@@ -25,6 +25,7 @@ export function useAgentConfig(
   systemPrompt: string,
   getPlanBlueprint?: () => string | undefined,
   getSelectedSkillsPrompt?: () => string | undefined,
+  getWritingStyleIdOverride?: () => string | null | undefined,
 ): UseAgentConfigResult {
   const aiChatModel = useWikiStore((s) => s.aiChatModel)
   const defaultLlmModel = useWikiStore((s) => s.defaultLlmModel)
@@ -157,6 +158,7 @@ export function useAgentConfig(
       projectPath: normalizePath(projectPath),
       getPlanBlueprint,
       getSelectedSkillsPrompt,
+      getWritingStyleIdOverride,
       disabledTools: ["write_chapter", "write_outline_node", "write_memory"],
     })
 
@@ -187,5 +189,6 @@ export function useAgentConfig(
     getOutlineConversations,
     getPlanBlueprint,
     getSelectedSkillsPrompt,
+    getWritingStyleIdOverride,
   ])
 }

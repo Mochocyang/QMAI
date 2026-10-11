@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest"
 import {
   buildClassifiedOutlineSaveRequest,
+  decideOutlineAutoSaveGate,
+  isEventOutlineSaveBlocked,
   isSaveableOutlineDeliverable,
   prepareOutlineSaveDraft,
   prepareOutlineSaveSourceContent,
 } from "./outline-save"
+import type { OutlineSaveRequestFileType } from "./novel/outline-save-request"
 
 describe("outline save draft", () => {
   it("ignores frontmatter when deriving an outline title", () => {
@@ -159,5 +162,98 @@ describe("outline save draft", () => {
     expect(built?.classification.fileType).toBe("chapter-outline")
     expect(built?.request.htmlContent).toContain("<html")
     expect(built?.request.htmlContent).toContain("<details")
+  })
+})
+
+/*
+ * 事件细纲的**保存闸门**判据。
+ *
+ * 为什么抽成纯函数并单测：这两条闸门（自动通道的兜底 + 手动「保存为大纲」）
+ * 原本是组件里的 `if (… === "event-outline") return`，而删掉那个 return
+ * 过后 295 条测试仍会全绿 —— 源码文本断言管不住「行为」。
+ * 这里直接喂一份**已分类的 event-outline** 进判据本身。
+ */
+describe("事件细纲保存闸门判据", () => {
+  it("已分类的 event-outline 一律判为拦下", () => {
+    expect(isEventOutlineSaveBlocked("event-outline")).toBe(true)
+  })
+
+  it("其余类型不被误拦（真章纲/卷纲/人物小传照常保存）", () => {
+    // 显式标注成真实类型联合：写错字面量会在编译期就报错，而不是让判据静默返回 false
+    const saveableTypes: OutlineSaveRequestFileType[] = [
+      "outline",
+      "chapter-outline",
+      "volume-outline",
+      "character",
+      "setting",
+    ]
+    for (const fileType of saveableTypes) {
+      expect(isEventOutlineSaveBlocked(fileType)).toBe(false)
+    }
+  })
+
+  it("请求全是事件细纲：直接收工，不掉进按正文分类的兜底腿", () => {
+    expect(decideOutlineAutoSaveGate({
+      droppedEventOutlineCount: 2,
+      keptRequestCount: 0,
+      errors: [],
+      eventOutlineRejectionCount: 0,
+    })).toBe("drop-event-outline")
+  })
+
+  it("还有非事件细纲的请求：继续走确认框那条路", () => {
+    // ⚠️ 这条**没有** errors（errors: []），所以它在删掉 `keptRequestCount > 0` 那条
+    // 分支后**照样绿**（会落到下一句 `errors.length === 0 → "continue"`）。
+    // 真正钉住那条分支的是下面「有错误也照样继续」那条。
+    expect(decideOutlineAutoSaveGate({
+      droppedEventOutlineCount: 1,
+      keptRequestCount: 1,
+      errors: [],
+      eventOutlineRejectionCount: 0,
+    })).toBe("continue")
+  })
+
+  /*
+   * `keptRequestCount > 0` 那条分支的**唯一**行为覆盖。
+   *
+   * 少了它（删掉 outline-save.ts 的 `if (input.keptRequestCount > 0) return "continue"`），
+   * `kept > 0 && errors.length > 0` 会落到 `surface-parse-errors`，调用方
+   * （outline-chat-panel 的自动通道）随即 `return` —— 一条**完全有效**的保存请求
+   * 到不了确认对话框。把 errors 设为非空才区分得出来（上一条的 errors 是空数组）。
+   */
+  it("kept > 0 且同时有错误：仍必须继续，有效请求不能被别的错误挡在确认框外", () => {
+    expect(decideOutlineAutoSaveGate({
+      droppedEventOutlineCount: 0,
+      keptRequestCount: 1,
+      errors: ["缺 targetFolder"],
+      eventOutlineRejectionCount: 0,
+    })).toBe("continue")
+  })
+
+  it("错误里混着真正的解析错误：仍必须弹「请让 AI 重新输出」", () => {
+    expect(decideOutlineAutoSaveGate({
+      droppedEventOutlineCount: 0,
+      keptRequestCount: 0,
+      errors: ["事件细纲被拒", "缺 targetFolder"],
+      eventOutlineRejectionCount: 1,
+    })).toBe("surface-parse-errors")
+  })
+
+  it("错误全是事件细纲被拒：改弹 info，不要求模型重出一遍", () => {
+    expect(decideOutlineAutoSaveGate({
+      droppedEventOutlineCount: 0,
+      keptRequestCount: 0,
+      errors: ["事件细纲被拒"],
+      eventOutlineRejectionCount: 1,
+    })).toBe("notify-event-outline-dropped")
+  })
+
+  it("没有错误也没有请求：继续（由正文分类那条腿接棒）", () => {
+    expect(decideOutlineAutoSaveGate({
+      droppedEventOutlineCount: 0,
+      keptRequestCount: 0,
+      errors: [],
+      eventOutlineRejectionCount: 0,
+    })).toBe("continue")
   })
 })

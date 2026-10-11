@@ -440,6 +440,32 @@ export interface NovelConfig {
   draftMemoryHintEnabled: boolean
   /** 这本书的文件夹里是否已经提示过一次。重新打开开关不会清掉。 */
   draftMemoryHintSeen: boolean
+  /**
+   * 新章节灵感提示（丙-4a）：章节正文为空时，点章节工具栏的「生成章节细纲」
+   * 会在按钮旁挂出一枚说明气泡（默认开）。
+   *
+   * ⚠️ 与 `draftMemoryHintEnabled` **是两套独立字段**，刻意不复用：
+   * 复用会让「关掉灵感提示」连带关掉草稿提示（反之亦然）。
+   * 两者在界面上互斥（见 `inspiration-hint.ts` 与 `draft-memory-hint.ts:23`），
+   * 但持久化语义必须各自独立。
+   */
+  inspirationHintEnabled: boolean
+  /**
+   * 这本书的文件夹里已经挂过一次新章节灵感气泡（丙-4a）。
+   *
+   * 与 `draftMemoryHintSeen` 同样是「每本书一次」的**显示即记**标记，
+   * 不复用后者：两个提示各自记自己的账，关掉其中一个不该影响另一个。
+   */
+  inspirationHintSeen: boolean
+  /**
+   * 这本书的分步引导教程已经自动弹过一次（丙-4c）。
+   *
+   * 「显示即记」——弹窗显示时落盘，与 `draftMemoryHintSeen` /
+   * `draftMemoryHintEnabled` 同一套先例。**只**记录「自动弹过没有」，
+   * 不参与「这一次该不该弹」（那是 chat-store 的 `usageTutorialRequested`），
+   * 所以设置里的「重新查看教程」在它为 true 时也照样能弹。
+   */
+  usageTutorialSeen: boolean
 }
 
 export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
@@ -464,6 +490,9 @@ export const DEFAULT_NOVEL_CONFIG: NovelConfig = {
   autoGenerateChapterTitle: true,
   draftMemoryHintEnabled: true,
   draftMemoryHintSeen: false,
+  inspirationHintEnabled: true,
+  inspirationHintSeen: false,
+  usageTutorialSeen: false,
 }
 
 export interface RevisionFeedbackWindowConfig {
@@ -658,7 +687,12 @@ interface WikiState {
   pendingScrollImageSrc: string | null
   chatExpanded: boolean
   searchPanelOpen: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "personaSkillLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation" | "maintenance"
+  /*
+   * 合并说明：两侧各自追加了不同的技能库内部视图，取并集。
+   *   main（人物 Skill）→ personaSkillLibrary
+   *   scratch-20261010（文风 skill 化）→ writingStyleLibrary、characterSoulLibrary
+   */
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "writingStyleLibrary" | "characterSoulLibrary" | "personaSkillLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation" | "maintenance"
   activeSettingsCategory: SettingsCategoryId | null
   activeModelSettingsTab: ModelSettingsTabId | null
   selectedSoulId: string | null

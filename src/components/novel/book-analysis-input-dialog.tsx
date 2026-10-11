@@ -10,6 +10,11 @@ import { normalizePath } from "@/lib/path-utils"
 interface BookAnalysisInputDialogProps {
   workbenchMode?: boolean
   open: boolean
+  /**
+   * 打开时预勾选的提取项（空态能力卡点进来时用）。
+   * 只在「打开」这一刻注入：用户打开后自己改的勾选不能被 props 重渲染冲掉。
+   */
+  defaultSkills?: AnalysisSkill[]
   onOpenChange: (open: boolean) => void
   onSubmit: (files: BatchImportCandidate[], analysisSkills?: AnalysisSkill[]) => Promise<void> | void
 }
@@ -34,6 +39,7 @@ function formatFileSize(bytes: number) {
 export function BookAnalysisInputDialog({
   workbenchMode = false,
   open,
+  defaultSkills,
   onOpenChange,
   onSubmit,
 }: BookAnalysisInputDialogProps) {
@@ -49,6 +55,11 @@ export function BookAnalysisInputDialog({
   const sessionTokenRef = useRef(0)
   const selectionTokenRef = useRef(0)
   openRef.current = open
+
+  // 用 ref 存最新值，而不是把它写进 effect 依赖：effect 只该在 open 翻转时跑，
+  // 否则父级每次重渲染都会把用户刚改的勾选重置回默认值。
+  const defaultSkillsRef = useRef<AnalysisSkill[] | undefined>(undefined)
+  defaultSkillsRef.current = defaultSkills
 
   const replaceFiles = (
     nextFiles: BatchImportCandidate[] | ((currentFiles: BatchImportCandidate[]) => BatchImportCandidate[]),
@@ -75,6 +86,7 @@ export function BookAnalysisInputDialog({
 
   useEffect(() => {
     if (!open) resetDialogState()
+    else setAnalysisSkills(defaultSkillsRef.current ? [...defaultSkillsRef.current] : [])
 
     return () => {
       sessionTokenRef.current += 1
@@ -266,10 +278,7 @@ export function BookAnalysisInputDialog({
             )}
           </div>
 
-          {workbenchMode ? <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={analysisSkills.length > 0} onChange={(e) => setAnalysisSkills(e.target.checked ? ["characters"] : [])} disabled={isBusy} />
-            导入后设置分析
-          </label> : <fieldset className="shrink-0 border-t pt-3" disabled={isBusy}>
+          <fieldset className="shrink-0 border-t pt-3" disabled={isBusy}>
             <legend className="text-sm font-medium">导入后提取项目</legend>
             <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-sm">
               {skillOptions.map(({ skill, label }) => (
@@ -295,7 +304,7 @@ export function BookAnalysisInputDialog({
                 全部提取
               </label>
             </div>
-          </fieldset>}
+          </fieldset>
 
           {error && (
             <div

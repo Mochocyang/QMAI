@@ -8,6 +8,7 @@ import { UiTestAiIdentity, UiTestAiAuthor, UiTestAiEmpty, UiTestAiModel, getUiTe
 import "@/components/uitest/ui-test-ai.css"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { ChatMessage, StreamingMessage } from "./chat-message"
+import { UsageTutorialDialog } from "./usage-tutorial-dialog"
 import { ChatModelSelector } from "./chat-model-selector"
 import { ReasoningDepthControl } from "./reasoning-depth-control"
 import { useSourceFiles } from "./chat-shared"
@@ -42,6 +43,14 @@ import {
   outlineProvider,
 } from "@/lib/reference/providers"
 import type { ReferenceToken } from "@/lib/reference/types"
+import { collectReferencedStylePresetIds, STYLE_SKILL_SUBTYPE } from "@/lib/reference/style-reference"
+import { collectReferencedSoulAuraIds, SOUL_SKILL_SUBTYPE } from "@/lib/reference/soul-reference"
+import {
+  beginMessageScopedSoulBinding,
+  releaseMessageScopedSoulBinding,
+  type MessageScopedSoulBinding,
+} from "@/lib/novel/message-scoped-soul-binding"
+import { useCharacterSoulReference } from "@/components/chat/use-character-soul-reference"
 import { runAiChatSession } from "@/lib/agent/ai-chat-session"
 import {
   RequiredToolFallbackError,
@@ -157,6 +166,8 @@ import { buildResultProtocolTrace } from "@/lib/novel/result-parser"
 // import { joinPath } from "@/lib/path-utils"
 // import type { AiCapability } from "@/lib/agent/capabilities/types"
 import { deAiSkillToUserSkill } from "@/lib/novel/de-ai-skill-library"
+import { WritingStylePicker } from "@/components/skill-library/writing-style-picker"
+import { useWritingStyleOptions } from "@/components/skill-library/use-writing-style-options"
 import {
   buildContextHubPromptParts,
   withContextHubTaskContent,
@@ -965,6 +976,8 @@ export function ChatPanel() {
 
   const project = useWikiStore((s) => s.project)
   const projectPath = project?.path ? normalizePath(project.path) : ""
+  // 角色灵魂绑定表没有 zustand 镜像：临时绑定写入/还原后靠它触发重新读盘（丁-4）。
+  const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const novelMode = useWikiStore((s) => s.novelMode)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const llmConfig = useWikiStore((s) => s.llmConfig)
@@ -1136,6 +1149,81 @@ export function ChatPanel() {
     const value = selectedSkillsPromptRef.current.trim()
     return value || undefined
   }, [])
+  /*
+   * 丁-2「文风写作」：本轮临时覆盖的文风预设 id。
+   *
+   * 这条通道照 `getSelectedSkillsPrompt` 的 getter 形状（pull 模型）：
+   * 它不是工具参数，所以模型漏传也照样生效；而章节区那条链路拿不到这里的闭包，
+   * 由它自己把值直接塞进 `DeepChapterGenerationInput`（两条都接上，缺一条就是"一半有用"）。
+   *
+   * ⚠️ 三态必须原样返回：`undefined` = 没有覆盖、`null` = 本次显式不用文风。
+   * 这里**不要**写 `.trim() || undefined` 之类的归一化 —— 那会把 `null` 抹成
+   * `undefined`，用户点了「本次不用文风」反而会用上项目启用的那条。
+   *
+   * ⚠️ 只进这个状态，不写项目设置（用户决定 2）。
+   *
+   * ⚠️ **这里刻意不写跨项目重置**，与 `preview-panel.tsx` 里 `chapterWritingStyleId`
+   * 那处（挂在 `[project?.path]` effect 上的 `setChapterWritingStyleId(undefined)`）
+   * **不对称**。这个不对称是**有意的**，别照着章节区"补齐"，理由两条：
+   * (i) 本组件与 PreviewPanel 一样活不过一次项目切换：换项目走
+   *     `App.tsx` 的 `handleSwitchProject` → `setProject(null)`，而
+   *     `ui-test-shell.tsx` 的 `showShelf`（`!project && !showGlobalSettings`）
+   *     会把整个工作区子树换成书架 ⇒ 本组件卸载，`useState` 随之销毁，
+   *     **不存在跨项目残留**；章节区那处是**契约 + 防将来**，不是今天在踩的 bug。
+   * (ii) ⚠️ **不要拿「registry 会随项目重建」当不做重置的理由** —— 那条推论是错的，
+   *     本注释第一版就是这么写的，复核时被推翻。事实是：registry **确实**会随
+   *     `projectPath` 重建（`use-agent-config.ts` 里 `projectPath` 既在取值处、
+   *     也在技能配置加载 effect 与构建 registry 的 `useMemo` 依赖里；
+   *     `projectPath` 为空时它直接返回全新空 `ToolRegistry`），
+   *     但重建出来的 registry 注册的是**本组件自己这个 getter**，而
+   *     `getWritingStyleIdOverride` 的身份**只随 `sessionWritingStyleId` 变
+   *     （它的 `useCallback` 依赖数组只有 `[sessionWritingStyleId]`）、不随项目变**
+   *     —— 注意它读的是 `runWritingStyleIdOverrideRef.current`，那是**引用**、
+   *     身份稳定；所以第 4 个入参的引用只随 `sessionWritingStyleId` 改
+   *     （丁-3 加了 `@` 引用通道之后依然如此，没有新增依赖）。
+   *     于是项目切换那一刻重建出来的 registry，调用它取到的**仍是旧 id**。
+   *     ⇒ 重置**不能**靠它。
+   *
+   *     所以今日不做重置的**唯一**理由是 (i)：本组件活不过项目切换，压根到不了
+   *     「带着旧 id 在新项目里生成」那一步。**(i) 一旦不成立，这里就必须补重置。**
+   *
+   * ⚠️ **前提（这条结论依赖 App shell 的结构，不是永久真理）**：上面 (i) 成立
+   * 的唯一原因是「`project === null` 时工作区被卸载」。**若将来 shell 改成工作区
+   * 跨项目常驻**（例如在工具栏里直接放项目切换器、或把 `ContentArea` 提到
+   * `showShelf` 之外），本组件就会和 `preview-panel.tsx` 一样暴露在同一个残留
+   * 风险下（旧项目的 preset id 在新项目里不存在 → 覆盖文本变 `""` → 静默压掉
+   * 新项目启用的文风）。**届时必须对称补上重置**。
+   */
+  const [sessionWritingStyleId, setSessionWritingStyleId] = useState<string | null | undefined>(undefined)
+  /*
+   * 丁-3「输入框引用」：本条消息**点名**的文风预设 id。
+   *
+   * 引用的语义是「这一条消息要用这条文风」，所以它在 `handleSend` 里**每次发送都重写**
+   * （没有文风引用时写回 `undefined`）。不能只在「有引用时」赋值：那样上一条消息的
+   * 点名会顺着这条通道漏进下一次生成，而两次生成之间隔着一次用户操作，
+   * 用户看不到任何提示 —— 正是本仓库反复出现的「临时值泄漏成持久行为」。
+   *
+   * ⚠️ **取值优先级（裁决）**：`@` 引用 > 工具栏选择器 > 项目启用项。
+   * 引用比选择器**窄**（绑定到具体消息）、也比选择器**新**（和这条消息一起敲进去的），
+   * 所以引用赢，**包括**选择器是 `null`（「本次不用文风」）的时候：
+   * 若让 `null` 赢，用户刚敲进去的引用会被静默丢掉，那正是本批要消灭的行为。
+   *
+   * ⚠️ 引用之间**不裁决**：`handleSend` 在两条**不同**预设的引用时直接拒绝发送
+   * （并给出可见提示），所以这里最多只会拿到一个 id。
+   *
+   * ⚠️ 这是**组件级、不是 run 级**的通道：同一个面板里 >1 个会话并发运行时，
+   * 后一次发送会改掉前一次仍在跑的 run 读到的值。本批**没有**把它变好，
+   * 也没有让它比既有的 `getSelectedSkillsPrompt`（同样在发送时写 ref、同样被 getter 读）
+   * 更糟；`ToolExecutionContext` 里没有会话 id，getter 也没有入参，所以今天做不了 per-run。
+   * 要如实知道这条性质，不要把它读成「每次生成都拿到自己那条」。
+   */
+  const runWritingStyleIdOverrideRef = useRef<string | undefined>(undefined)
+  const getWritingStyleIdOverride = useCallback(
+    () => (runWritingStyleIdOverrideRef.current !== undefined
+      ? runWritingStyleIdOverrideRef.current
+      : sessionWritingStyleId),
+    [sessionWritingStyleId],
+  )
   const {
     config: agentConfig,
     registry: agentRegistry,
@@ -1143,7 +1231,7 @@ export function ChatPanel() {
     skillConfigLoaded: agentSkillConfigLoaded,
     skillConfig: agentSkillConfig,
     writingSkills: agentUserWritingSkills,
-  } = useAgentConfig(agentSystemPrompt, undefined, getSelectedSkillsPrompt)
+  } = useAgentConfig(agentSystemPrompt, undefined, getSelectedSkillsPrompt, getWritingStyleIdOverride)
   const deferredReferenceText = useDeferredValue(referenceText)
   const liveContextUsage = useMemo(() => {
     const historyMessages = selectContextHistoryMessages(
@@ -1220,6 +1308,27 @@ export function ChatPanel() {
     }
     return Array.from(byId.values())
   }, [agentUserWritingSkills, agentDeAiSkills])
+  /*
+   * 丁-3：把项目里的文风预设也做成「技能库」子 tab 下的可引用条目。
+   *
+   * 复用 `useWritingStyleOptions`（文风选择器的同一个 loader）：条目形状
+   * `{id, name, description}` 正好是引用条目需要的（id = 预设 id）。
+   * 这里只传 `projectPath`，不传 `selectedSkillId` —— 本处只要「库里有哪些预设」，
+   * 选择器当前选了什么不参与引用列表。
+   */
+  const { styles: writingStylePresets } = useWritingStyleOptions({
+    projectPath: projectPath || undefined,
+  })
+  /*
+   * 丁-4：项目里的**角色灵魂**（`CharacterAura`）也做成「技能库」子 tab 下的
+   * 可引用条目。`souls` 只用于列表；真正写盘的那一步在 `handleSend` 里，
+   * 且必须经过 `requestSoulBindingTarget` 这个确认弹窗（见本组件下的使用者）。
+   */
+  const {
+    souls: characterSouls,
+    requestSoulBindingTarget,
+    soulBindingDialog,
+  } = useCharacterSoulReference({ projectPath: projectPath || undefined })
   const referenceProviders = useMemo(
     () => [
       chapterProvider,
@@ -1243,7 +1352,32 @@ export function ChatPanel() {
           stages: skill.stages,
           modes: skill.modes,
         }))
-        return [...deAiSkills, ...writingSkills]
+        /*
+         * 文风预设条目：
+         * - `name` = 预设名，它是弹窗列表的**搜索键**（`ReferencePickerDialog` 按 `title` 过滤）
+         *   与 **token 的 title**（`createSkillProvider` 的 `title: skill.name`）。
+         *   注意芯片上显示的不是它，而是 `displayTitle = truncateTitle(name)`
+         *   （超过 20 字会被截断；三种子类型一样，不是文风特有的行为）。
+         * - `id` 会被 `createSkillProvider` 透传成 `token.skillId`，
+         *   也就是 `collectReferencedStylePresetIds` 读回的那个预设 id。
+         */
+        const stylePresets = writingStylePresets.map((preset) => ({
+          id: preset.id,
+          name: preset.name,
+          subtype: STYLE_SKILL_SUBTYPE,
+        }))
+        /*
+         * 灵魂条目（丁-4）：`id` 是 aura id，经 `createSkillProvider` 透传成
+         * `token.skillId`，也就是 `collectReferencedSoulAuraIds` 读回的那个 id。
+         * ⚠️ 这里**只列条目**：点它不会写盘，写盘发生在 `handleSend` 里
+         * 用户确认了「绑给哪个小说人物」之后。
+         */
+        const soulEntries = characterSouls.map((soul) => ({
+          id: soul.id,
+          name: soul.name,
+          subtype: SOUL_SKILL_SUBTYPE,
+        }))
+        return [...deAiSkills, ...writingSkills, ...stylePresets, ...soulEntries]
       }),
       createChatHistoryProvider(() =>
         conversations.map((conversation) => ({ id: conversation.id, title: conversation.title })),
@@ -1252,7 +1386,7 @@ export function ChatPanel() {
         outlineConversations.map((conversation) => ({ id: conversation.id, title: conversation.title })),
       ),
     ],
-    [agentSkillConfig, conversations, outlineConversations],
+    [agentSkillConfig, conversations, outlineConversations, writingStylePresets, characterSouls],
   )
   // === Stage C: 章节计划确认 ===
   const [pendingChapterPlans, setPendingChapterPlans] = useState<Record<string, {
@@ -1262,6 +1396,8 @@ export function ChatPanel() {
     contextPack?: ContextPack | null
   }>>({})
   const pendingChapterPlan = activeConversationId ? pendingChapterPlans[activeConversationId] : undefined
+  // 丙-4c：分步引导教程。初值 false —— 只有消费到一次性请求标记才置 true。
+  const [usageTutorialOpen, setUsageTutorialOpen] = useState(false)
   const chapterPlanResolversRef = useRef<Record<string, (action: "confirm" | "skip" | "cancel" | { modify: string }) => void>>({})
   const handleSendRef = useRef<ChatSend>(() => Promise.resolve())
   const lastWritingTaskRouteRef = useRef<Record<string, TaskRouteResult>>({})
@@ -1284,6 +1420,26 @@ export function ChatPanel() {
       Object.values(chapterPlanResolversRef.current).forEach((resolver) => resolver("cancel"))
       chapterPlanResolversRef.current = {}
     }
+  }, [])
+
+  /*
+   * ── 丙-4c：分步引导教程的「入队 + 消费即清零」 ──
+   *
+   * 判据不在本组件里：`App.tsx` 在 `await loadNovelConfig` **之后**用刚加载到的
+   * 这本书自己的配置决定要不要置位（那正是 store 里可能还残留上一本书
+   * `novelConfig` 的窗口，见 App.tsx 里的注释）。本组件只负责消费。
+   *
+   * ⚠️ 只消费一次：`consumeUsageTutorialRequest()` 读后即清零，所以后续
+   * 重挂载（切换书籍时 `chatExpanded` 可能一直是 true、面板不一定重挂）
+   * 不会重复弹。设置里的「重新查看教程」走的是**同一个**标记。
+   *
+   * ⚠️ 与 `novelConfig.usageTutorialSeen` 的分工：`Seen` 是「这本书自动弹过没有」
+   * （显示即记，在弹窗组件里落盘），本标记是「**这一次**该不该弹」。
+   * 两者语义不同、互不覆盖 —— 所以重新查看在 `Seen` 已为 true 时照样能弹。
+   */
+  useEffect(() => {
+    if (!useChatStore.getState().consumeUsageTutorialRequest()) return
+    setUsageTutorialOpen(true)
   }, [])
 
   const requestChapterPlanConfirm = useCallback(
@@ -1538,6 +1694,47 @@ export function ChatPanel() {
         return
       }
 
+      /*
+       * 丁-3：本条消息 `@` 引用的文风 → 本次生成的临时覆盖（走丁-2 的
+       * `writingStyleIdOverride` 通道，`getWritingStyleIdOverride` 就是它的产出端）。
+       *
+       * ⚠️ **两条不同预设的引用 ⇒ 拒绝发送**，不挑一条「赢」：
+       * 覆盖通道只收一个预设，自动挑一条就等于**静默丢掉**另一条用户的明确指令
+       * （本批反复出现的缺陷形状）。拒绝发送的代价最小：输入框与芯片都原样保留
+       * （下面的清空只在真正开始生成之后），用户删掉一条即可。
+       * 设计文档 §3 曾建议「后者覆盖前者 + 提示」，这里**不采用**：芯片顺序对用户不可见，
+       * 提示又可能被忽略，而「挑赢家」一旦发生就已经生成过一次了。
+       */
+      const referencedStylePresetIds = collectReferencedStylePresetIds(tokens)
+      if (referencedStylePresetIds.length > 1) {
+        setDeAiSkillWarningMessage(
+          `一条消息只能引用一条文风（本次引用了 ${referencedStylePresetIds.length} 条）。请删掉多余的文风引用再发送。`,
+        )
+        return
+      }
+      // 无论有没有引用都要写：没有引用时写回 undefined，才不会把上一条消息的点名
+      // 漏进这一次生成（见 getWritingStyleIdOverride 的注释）。
+      runWritingStyleIdOverrideRef.current = referencedStylePresetIds[0]
+
+      /*
+       * 丁-4：本条消息 `@` 引用的**角色灵魂** → 本条消息的临时绑定。
+       *
+       * 这里先做两件不写盘的事：解析 id、拒绝「一次引用多条」。
+       * ⚠️ **两条不同的灵魂引用 ⇒ 拒绝发送**，理由与文风那条一致但不完全相同：
+       * 确认弹窗一次只问「绑给哪个人物」，两条灵魂要么串两次弹窗（用户以为只绑了一条）、
+       * 要么自动挑一条（静默丢掉另一条明确指令）。两种都不接受，所以要求用户删到一条。
+       *
+       * ⚠️ 真正的写盘**不在这里**：它在 `startConversationRun` 之前、
+       * 且必须经过 `requestSoulBindingTarget` 的用户确认（见下方 `runId` 那一段）。
+       */
+      const referencedSoulAuraIds = collectReferencedSoulAuraIds(tokens)
+      if (referencedSoulAuraIds.length > 1) {
+        setDeAiSkillWarningMessage(
+          `一条消息只能引用一条角色灵魂（本次引用了 ${referencedSoulAuraIds.length} 条）。请删掉多余的灵魂引用再发送。`,
+        )
+        return
+      }
+
       let convId = targetConversationId ?? useChatStore.getState().activeConversationId
       if (!convId) {
         convId = createConversation()
@@ -1628,6 +1825,64 @@ export function ChatPanel() {
         return
       }
 
+      /*
+       * ── 丁-4：本条消息的临时角色灵魂绑定 ──
+       *
+       * 步骤顺序是有意的，每一步都有理由：
+       *  1. 先**问**（`requestSoulBindingTarget`）：确认弹窗在 `startConversationRun`
+       *     **之前**弹，所以「取消」不会占用运行槽、不会 append 助手消息、也不会写盘
+       *     —— 取消是零代价的。
+       *  2. 再**写**（`beginMessageScopedSoulBinding`）：仍然在 `startConversationRun`
+       *     之前。写盘失败（灵魂被删 / 人物没档案 / 磁盘错误）时同样什么都还没开始，
+       *     把 `bindCharacterAura` 的原话直接显示出来即可，没有运行状态要回收。
+       *  3. 然后才抢运行槽。抢不到时绑定已经写进项目了，所以那一支必须显式释放。
+       *  4. 释放：正典溢出的两处硬停机各显式释放一次；其余路径（成功、生成中抛错）
+       *     由本轮生成块末尾的 `finally` 兜住。`releaseMessageSoulBinding` 幂等
+       *     （先把引用置空再动盘），所以「先硬停机释放、finally 再跑一次」无害。
+       *
+       * ⚠️ 不能在 `contextHub.prepare` **之后**才写：那个调用就是真正读
+       * `.qmai/character-aura.json` 组装上下文包的地方（本文件下面那个
+       * `contextHub.prepare`），晚一步这条灵魂就不会进本次上下文。
+       */
+      let messageSoulBinding: MessageScopedSoulBinding | null = null
+      const releaseMessageSoulBinding = async () => {
+        const binding = messageSoulBinding
+        messageSoulBinding = null
+        if (!binding) return
+        try {
+          await releaseMessageScopedSoulBinding(pp, binding)
+          // 绑定表**没有** zustand 镜像，界面只能靠 dataVersion 触发重新读盘
+          // （灵魂侧栏是同一口径）。生成路径不需要刷新：它每次都重读盘。
+          bumpDataVersion()
+        } catch (error) {
+          // 「临时绑定没还回去」是用户必须知道的状态：静默吞掉会让人以为项目没被改过。
+          toast.error(error instanceof Error && error.message ? error.message : "还原临时角色灵魂绑定失败", {
+            title: "临时角色灵魂绑定未还原",
+            persistent: true,
+            dedupeKey: `soul-binding-release:${capturedConvId}`,
+          })
+        }
+      }
+      if (referencedSoulAuraIds.length === 1) {
+        const referencedAuraId = referencedSoulAuraIds[0]
+        const targetCharacterName = await requestSoulBindingTarget(referencedAuraId)
+        // `null` = 用户取消。**必须**直接 return —— 拿一个默认人物顶上就是「静默挑一个」。
+        if (!targetCharacterName) return
+        try {
+          messageSoulBinding = await beginMessageScopedSoulBinding(pp, {
+            auraId: referencedAuraId,
+            characterName: targetCharacterName,
+          })
+        } catch (error) {
+          // 「请先在大纲中添加人物小传或人物设定，再绑定角色灵魂」这类原话必须原样呈现：
+          // 它是可操作指引，不是可以概括成「绑定失败」的内部错误。
+          setDeAiSkillWarningMessage(
+            error instanceof Error && error.message ? error.message : "绑定角色灵魂失败，请稍后重试",
+          )
+          return
+        }
+      }
+
       const runId = crypto.randomUUID()
       if (!useChatStore.getState().startConversationRun(capturedConvId, runId)) {
         setDeAiSkillWarningMessage(concurrencyLimitReason)
@@ -1636,6 +1891,8 @@ export function ChatPanel() {
             dedupeKey: `required-workflow-retry-running:${capturedConvId}`,
           })
         }
+        // 临时绑定已经写过盘、而本轮没有真正开始：立刻释放，否则它会永久留在项目里。
+        await releaseMessageSoulBinding()
         return
       }
 
@@ -1875,6 +2132,8 @@ export function ChatPanel() {
             markError(error)
             showRunErrorToast(error)
             finishAgentSession()
+            // 这一支在下面的生成块之外 return，走不到那个 finally：显式释放临时灵魂绑定。
+            await releaseMessageSoulBinding()
             return
           }
         }
@@ -2012,6 +2271,8 @@ export function ChatPanel() {
             markError(error)
             showRunErrorToast(error)
             finishAgentSession()
+            // 同上一处：生成块之外 return，显式释放临时灵魂绑定。
+            await releaseMessageSoulBinding()
             return
           }
         }
@@ -2649,6 +2910,13 @@ export function ChatPanel() {
           chapterNumber: effectiveTaskRoute?.chapterNumber,
           error: errorMessage,
         })
+      } finally {
+        /*
+         * 丁-4：本轮生成**无论成功、抛错还是被中止**都要把临时角色灵魂绑定还原。
+         * 放在 finally 而不是成功路径：生成失败时把一条临时绑定永久留在项目里，
+         * 是本子批后果最重的一种失败（它会静默改变之后所有章节的上下文）。
+         */
+        await releaseMessageSoulBinding()
       }
     },
     [
@@ -2673,9 +2941,11 @@ export function ChatPanel() {
       projectPath,
       referenceDraftConversationId,
       requestChapterPlanConfirm,
+      requestSoulBindingTarget,
       selectedFile,
       setConversationInputDraft,
       startStreaming,
+      bumpDataVersion,
     ],
   )
   handleSendRef.current = handleSend
@@ -3123,6 +3393,18 @@ export function ChatPanel() {
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-xs leading-5">{aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式。" : "开启后，本次写作会先创建计划，等待确认后再执行；可与标准、严格模式组合使用。"}</TooltipContent>
                       </Tooltip>
+                      {/*
+                        丁-2「文风写作」：本轮章节生成临时选一条文风。
+                        它在对话/写作助手路径上是**产出端** —— 选中的 id 经
+                        `getWritingStyleIdOverride` 交给 useAgentConfig → tools →
+                        run_chapter_workflow → DeepChapterGenerationInput.writingStyleIdOverride。
+                        只影响这一次生成，项目级 enabledStyleId 不动（用户决定 2）。
+                      */}
+                      <WritingStylePicker
+                        value={sessionWritingStyleId}
+                        onChange={setSessionWritingStyleId}
+                        showLibraryShortcut
+                      />
                     </>
                   )}
                 </>
@@ -3178,6 +3460,12 @@ export function ChatPanel() {
             onCancel={() => closeChapterPlanDialog(pendingChapterPlan.conversationId, "cancel")}
           />
         )}
+        {/* 丙-4c：分步引导教程。挂在这里是因为「进入对话」= ChatPanel 首次可用，
+            而 chat-panel 只在 wiki/sources 视图且面板展开时才存在。 */}
+        <UsageTutorialDialog open={usageTutorialOpen} onOpenChange={setUsageTutorialOpen} />
+        {/* 丁-4：`@某人灵魂` 的确认步骤（选绑给哪个小说人物）。由 hook 持有，
+            打开时 `handleSend` 正 await 它，所以关闭（取消）就等于中止本次发送。 */}
+        {soulBindingDialog}
       </div>
     </div>
   )

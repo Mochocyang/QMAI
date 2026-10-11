@@ -69,7 +69,14 @@ export function isFinalChapter(frontmatter: Record<string, unknown>): boolean {
 
 const CHAPTER_STATUS_LINE_RE = /^chapter_status:\s*["']?[\w-]+["']?\s*$/m;
 
-function yamlEscape(value: string): string {
+/**
+ * 转义写进 `title: "…"` 双引号标量里的值。
+ *
+ * 导出的理由：AI 生成正文的落盘路径（`chapter-draft-markdown.ts`）也要拼同一行
+ * frontmatter —— 同一个转义口径只能有一份实现，抄一份就会在「只改了一边」时
+ * 悄悄产出解析不回来的 YAML。
+ */
+export function yamlEscape(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 

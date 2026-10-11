@@ -170,6 +170,66 @@
   cursor: pointer;
 }
 
+/*
+ * 新章节灵感提示（丙-4a）。
+ *
+ * ⚠️ 定位属性与上面的 `.ui-test-editor-draft-hint` **逐项相同**，而且是**独立规则块**
+ * —— 刻意不用选择器分组（`.a, .b { … }`）：`ui-test-editor.spec.tsx` 里那条
+ * 结构断言要求草稿气泡的 `width` 写在**它自己的规则块**里，分组写法不一定匹配。
+ * 那条断言现在会**先剥掉 CSS 注释再匹配**（修复批 F4），所以本段注释怎么写
+ * 都不会冒充它通过 —— 在本注释改写之前，它正好能满足那条正则。
+ *
+ * ⚠️ 也不与草稿提示共用类名：那个类名在本文件对应的 spec 里被 ~20 处断言要求
+ * 「为 null 或长度恰为 1」，共用会把那些断言的含义悄悄扩大到两条气泡上。
+ *
+ * 两条气泡共用 `.ui-test-editor-hint-anchor` 与同一组 top/left/width，
+ * 所以一旦同时挂着就会**精确重叠**。
+ * ⚠️ 互斥**不是**两个纯函数各自判据的巧合后果：两条链喂进纯函数的 `wordCount`
+ * 可以不同（草稿链是持久化快照、灵感链是实时内容），修复批 F1 之前正是那样
+ * 漏掉了「有正文的草稿章 + 清空编辑框」。真正的保证在 `preview-panel.tsx` 里：
+ * 两条链在**同一个 effect** 里按顺序判定，草稿链刚算出来的结果作为
+ * `draftHintVisible` 传给 `resolveInspirationHint`。
+ * 接线证明见 `ui-test-editor.spec.tsx` 的「草稿章有正文时清空编辑器」用例。
+ */
+.ui-test-root .ui-test-editor-inspiration-hint {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + 10px);
+  left: 0;
+  width: min(280px, 100%);
+  padding: 12px 14px;
+  border: 1px solid var(--ui-line);
+  border-radius: 12px;
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  font: 400 0.8125rem/1.6 var(--ui);
+  overflow-wrap: anywhere;
+  box-shadow: 0 12px 40px color-mix(in srgb, var(--ui-ink) 16%, transparent);
+}
+.ui-test-root .ui-test-editor-inspiration-hint::before {
+  content: none;
+  position: absolute;
+  top: -6px;
+  left: 36px;
+  width: 12px;
+  height: 12px;
+  background: var(--ui-paper);
+  border-top: 1px solid var(--ui-line);
+  border-left: 1px solid var(--ui-line);
+  transform: rotate(45deg);
+}
+.ui-test-root .ui-test-editor-inspiration-hint p { margin: 0; }
+.ui-test-root .ui-test-editor-inspiration-hint-actions { display: flex; align-items: center; gap: 16px; margin-top: 8px; }
+.ui-test-root .ui-test-editor-inspiration-hint-dismiss {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-accent);
+  font: 500 0.8125rem/1.5 var(--ui);
+  cursor: pointer;
+}
+
 .ui-test-root .ui-test-editor-action {
   display: inline-flex;
   align-items: center;

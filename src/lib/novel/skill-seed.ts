@@ -1782,7 +1782,7 @@ export const DEFAULT_BUILTIN_WRITING_SKILLS: UserSkill[] = [
     kind: ["style", "rewrite"],
     stages: ["rewrite", "output"],
     modes: ["fast", "standard", "strict"],
-    content: ["输出前进行基础去AI味：","1. 删除“这说明、这意味着、由此可见”等替读者总结的句子","2. 减少段尾升华、机械排比和模板化转折","3. 对话不要替作者解释设定或心理","4. 压缩同义反复和无效热闹，空修饰落到具体动作，细节过不了三问就删","5. 保留原剧情、人设、视角和信息密度；不编新进展","6. 最终只输出正文，不说明已去AI味"].join("\\n"),
+    content: ["输出前进行基础去AI味：","1. 删除“这说明、这意味着、由此可见”等替读者总结的句子","2. 减少段尾升华、机械排比和模板化转折","3. 对话不要替作者解释设定或心理","4. 压缩同义反复和无效热闹，空修饰落到具体动作，细节过不了三问就删","5. 保留原剧情、人设、视角和信息密度；不编新进展","6. 最终只输出正文，不说明已去AI味"].join("\n"),
     source: "built-in",
   }),
   normalizeUserSkill({
@@ -1792,7 +1792,7 @@ export const DEFAULT_BUILTIN_WRITING_SKILLS: UserSkill[] = [
     kind: ["review", "rewrite"],
     stages: ["review", "rewrite"],
     modes: ["standard", "strict"],
-    content: ["返修时按以下顺序处理：","1. 先定位审稿指出的具体问题，不扩大到无关段落","2. 优先修复承接断裂、人物动机缺口、冲突不足和节奏塌陷","3. 保留已成立的剧情、设定、语气和伏笔","4. 每处修改都要服务审稿问题，不做额外润色","5. 返修后输出修正后的正文或修正片段"].join("\\n"),
+    content: ["返修时按以下顺序处理：","1. 先定位审稿指出的具体问题，不扩大到无关段落","2. 优先修复承接断裂、人物动机缺口、冲突不足和节奏塌陷","3. 保留已成立的剧情、设定、语气和伏笔","4. 每处修改都要服务审稿问题，不做额外润色","5. 返修后输出修正后的正文或修正片段"].join("\n"),
     source: "built-in",
   }),
   normalizeUserSkill({
@@ -1802,7 +1802,7 @@ export const DEFAULT_BUILTIN_WRITING_SKILLS: UserSkill[] = [
     kind: ["review", "output"],
     stages: ["review", "output"],
     modes: ["standard", "strict"],
-    content: ["返修后复审检查：","1. 审稿指出的问题是否已经修到文本里","2. 修复是否引入新的人设、设定、时间线或伏笔冲突","3. 返修段落与前后文语气是否一致","4. 是否仍有解释腔、模板句或过程说明残留","5. 若复审通过，最终只输出正文，不输出复审清单"].join("\\n"),
+    content: ["返修后复审检查：","1. 审稿指出的问题是否已经修到文本里","2. 修复是否引入新的人设、设定、时间线或伏笔冲突","3. 返修段落与前后文语气是否一致","4. 是否仍有解释腔、模板句或过程说明残留","5. 若复审通过，最终只输出正文，不输出复审清单"].join("\n"),
     source: "built-in",
   }),
   normalizeUserSkill({

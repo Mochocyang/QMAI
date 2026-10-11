@@ -26,6 +26,7 @@ import {
   USER_SKILL_CONFIG_FILE,
 } from "./user-skill-store"
 import { SKILL_ROUTE_CATEGORY_IDS } from "./skill-route"
+import { DEFAULT_BUILTIN_WRITING_SKILLS } from "./skill-seed"
 
 describe("user-skill-store", () => {
   beforeEach(() => {
@@ -253,3 +254,19 @@ it("deleteWritingSkill refuses to delete built-in skills", () => {
   expect(config.skills.length).toBeGreaterThanOrEqual(10)
   expect(config.skills[0].source).toBe("built-in")
  })
+
+describe("内置技能内容使用真换行", () => {
+  // 这三处的 join 曾写成 join("\\n")（双反斜杠），产出的是字面量「反斜杠+n」而不是换行，
+  // 经 buildSelectedSkillsPrompt 原样渲染后会压成一行夹着杂字符，提示词可读性与遵守率都会掉。
+  const seeded = ["基础去AI味", "审稿返修", "返修后复审"]
+
+  it("三条规则各自换行，不再夹字面量反斜杠 n", () => {
+    for (const name of seeded) {
+      const skill = DEFAULT_BUILTIN_WRITING_SKILLS.find((item) => item.name === name)
+      expect(skill, `没有内置技能 ${name}`).toBeDefined()
+      expect(skill!.content).toContain("\n")
+      expect(skill!.content).not.toContain("\\n")
+      expect(skill!.content.split("\n").length).toBeGreaterThan(1)
+    }
+  })
+})

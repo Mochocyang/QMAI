@@ -4,6 +4,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { BookAnalysisInputDialog } from "./book-analysis-input-dialog"
+import type { AnalysisSkill } from "@/lib/novel/book-analysis/analysis-pipeline-types"
 
 const mocks = vi.hoisted(() => ({
   openDialog: vi.fn(),
@@ -34,6 +35,22 @@ function findButton(label: string) {
 async function clickButton(label: string) {
   await act(async () => {
     findButton(label).dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    await Promise.resolve()
+  })
+}
+
+function findCheckbox(label: string) {
+  const labelElement = [...document.body.querySelectorAll("label")].find(
+    (candidate) => candidate.textContent?.trim() === label,
+  )
+  const input = labelElement?.querySelector('input[type="checkbox"]')
+  if (!input) throw new Error(`未找到勾选框：${label}`)
+  return input as HTMLInputElement
+}
+
+async function toggleCheckbox(label: string) {
+  await act(async () => {
+    findCheckbox(label).click()
     await Promise.resolve()
   })
 }
@@ -374,5 +391,100 @@ describe("BookAnalysisInputDialog", () => {
     expect(mocks.getFileSize).toHaveBeenCalledTimes(4)
     expect(document.body.textContent).toContain("重复文件“drive.TXT”，已跳过")
     expect(document.body.textContent).toContain("重复文件“unc.TXT”，已跳过")
+  })
+
+  it("workbenchMode 下同样展示三项提取选择，不再只有写死的角色", () => {
+    act(() => {
+      root.render(
+        <BookAnalysisInputDialog open workbenchMode onOpenChange={vi.fn()} onSubmit={vi.fn()} />,
+      )
+    })
+
+    expect(document.body.textContent).toContain("导入后提取项目")
+    expect(document.body.textContent).toContain("角色 Skill")
+    expect(document.body.textContent).toContain("故事 Skill")
+    expect(document.body.textContent).toContain("文风 Skill")
+    expect(document.body.textContent).toContain("全部提取")
+    // 旧的写死勾选框已删除：它只能选「角色」，是这次要修掉的缺陷。
+    expect(document.body.textContent).not.toContain("导入后设置分析")
+  })
+
+  it("打开时按 defaultSkills 预勾选，并在提交时把它们交给父级", async () => {
+    mocks.openDialog.mockResolvedValue("C:\\小说\\文风.txt")
+    mocks.getFileSize.mockResolvedValue(1024)
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+
+    act(() => {
+      root.render(
+        <BookAnalysisInputDialog
+          open
+          defaultSkills={["style"]}
+          onOpenChange={vi.fn()}
+          onSubmit={onSubmit}
+        />,
+      )
+    })
+
+    expect(findCheckbox("文风 Skill").checked).toBe(true)
+    expect(findCheckbox("角色 Skill").checked).toBe(false)
+
+    await clickButton("选择文件")
+    await clickButton("开始导入")
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      [{ sourcePath: "C:\\小说\\文风.txt", fileName: "文风.txt", fileSize: 1024 }],
+      ["style"],
+    )
+  })
+
+  it("打开后用户改的勾选不会被父级重渲染重置", async () => {
+    const renderWithDefaults = (defaultSkills?: AnalysisSkill[]) => {
+      act(() => {
+        root.render(
+          <BookAnalysisInputDialog
+            open
+            defaultSkills={defaultSkills}
+            onOpenChange={vi.fn()}
+            onSubmit={vi.fn()}
+          />,
+        )
+      })
+    }
+
+    renderWithDefaults(["style"])
+    expect(findCheckbox("文风 Skill").checked).toBe(true)
+
+    await toggleCheckbox("角色 Skill")
+    expect(findCheckbox("角色 Skill").checked).toBe(true)
+    expect(findCheckbox("文风 Skill").checked).toBe(true)
+
+    // 父级因自身状态变化重渲染同一个「已打开」的弹窗：
+    // effect 只在 open 翻转时跑，所以用户刚勾的不能被默认值覆盖。
+    renderWithDefaults(["style"])
+    expect(findCheckbox("角色 Skill").checked).toBe(true)
+    expect(findCheckbox("文风 Skill").checked).toBe(true)
+  })
+
+  it("关闭再打开时重新注入 defaultSkills", async () => {
+    const renderWithOpen = (open: boolean) => {
+      act(() => {
+        root.render(
+          <BookAnalysisInputDialog
+            open={open}
+            defaultSkills={["story"]}
+            onOpenChange={vi.fn()}
+            onSubmit={vi.fn()}
+          />,
+        )
+      })
+    }
+
+    renderWithOpen(true)
+    await toggleCheckbox("故事 Skill")
+    expect(findCheckbox("故事 Skill").checked).toBe(false)
+
+    renderWithOpen(false)
+    renderWithOpen(true)
+    expect(findCheckbox("故事 Skill").checked).toBe(true)
   })
 })

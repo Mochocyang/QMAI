@@ -191,3 +191,53 @@ async function readSelectedChapterNumber(selectedFile?: string | null): Promise<
 export async function readSelectedChapterNumberForFile(selectedFile?: string | null): Promise<number | undefined> {
   return readSelectedChapterNumber(selectedFile)
 }
+
+/**
+ * 路径兜底只认显式的「第N章」写法。
+ *
+ * 不能直接用 extractChapterNumber：它末尾有一条纯数字回退（为 chapter-006.md 这类文件名准备），
+ * 套在项目绝对路径上会把目录名里的数字（如 …/QMAI-main2/… 或 …/scratch-20261010/…）当成章号。
+ */
+function explicitChapterNumberInPath(path: string): number | null {
+  const matched = path.match(/第\s*(\d+)\s*[章节回]/)
+  if (!matched) return null
+  const parsed = Number.parseInt(matched[1], 10)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/**
+ * 从整棵项目树里挑出章节库文件（wiki/chapters）。
+ *
+ * 「下一章」探测必须只看章节库：resolveNextChapterNumber 走的是文件名解析，
+ * 而项目树里还有「章纲-第046章-….md」「事件细纲-第012章.md」「2026-10-10-灵感记录.md」
+ * 这类文件，章号/日期会被当成章节号，把默认章号顶到 47 甚至 2027。
+ *
+ * 正则靠结尾的斜杠锚住 chapters 这一段，因此 wiki/chapters-archive/、
+ * wiki/outline-chapters-notes/ 这类相邻目录名不会被误收。
+ */
+export function pickChapterLibraryFiles(
+  files: Array<{ name: string; path: string }>,
+): Array<{ name: string; path: string }> {
+  return files.filter((file) => /[\\/]wiki[\\/]chapters[\\/]/.test(file.path))
+}
+
+/**
+ * 探测「下一章」章号：章节库里最大章号 + 1。
+ *
+ * 只认文件名或路径里的章号，因此「序章」「设定」这类不带章号的文件会被忽略；
+ * 空库或全无章号时回落到第 1 章。
+ *
+ * 文件名用 extractChapterNumber（宽松，chapter-006.md 也算），路径兜底只用
+ * explicitChapterNumberInPath（严格）——面板传进来的是项目绝对路径，宽松匹配会读串目录名。
+ */
+export function resolveNextChapterNumber(
+  files: Array<{ name: string; path: string }>,
+): number {
+  let max = 0
+  for (const file of files) {
+    const fromName = extractChapterNumber(file.name)
+    const fromPath = fromName ?? explicitChapterNumberInPath(file.path)
+    if (fromPath !== null && fromPath > max) max = fromPath
+  }
+  return max + 1
+}

@@ -382,7 +382,22 @@ export function buildOutlinePlanPhaseSystemRules(
   module: string,
   required: OutlinePlanElementSpec[],
 ): string {
-  const folderNames = DEFAULT_OUTLINE_FOLDERS.map((folder) => folder.name).join("、")
+  /*
+   * 事件细纲必须从**写入白名单**里摘掉，且只能在这里摘。
+   *
+   * folderNames 在本仓只有下面第 6 条这一个用处 —— 它是「targetFolder 允许写去哪里」
+   * 的白名单，不是「可以读取/引用哪些目录」的说明。留着它等于继续告诉模型
+   * wiki/outlines/事件细纲/ 是合法写入目标，而丙-1 之后事件细纲不落盘。
+   * 只删 fileType 是不够的：fileType 过滤只认类型，targetFolder: "事件细纲"
+   * 配 fileType: "chapter-outline" 依然会过，照样落进那个目录。
+   *
+   * 过滤只作用于这里拼出来的规则串：DEFAULT_OUTLINE_FOLDERS 本身不动
+   * （outline-workbench.spec 逐项钉住它，且它有 list_outlines 标注等其它用途）。
+   */
+  const folderNames = DEFAULT_OUTLINE_FOLDERS
+    .filter((folder) => folder.id !== "event-outline")
+    .map((folder) => folder.name)
+    .join("、")
   return [
     "## 本轮阶段：计划模式要素盘点",
     `本轮目标模块：${module || "大纲"}。本轮禁止生成大纲正文，禁止调用保存工具，禁止输出 intent_clarity。`,

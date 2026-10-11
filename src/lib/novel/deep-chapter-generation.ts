@@ -74,6 +74,7 @@ import {
   buildDeepChapterRevisionPrompt,
   buildStableContextPrefix,
 } from "./deep-chapter-prompts";
+import { buildWritingStyleContext } from "./writing-style-store";
 
 export interface DeepChapterGenerationInput {
   projectPath: string;
@@ -88,6 +89,18 @@ export interface DeepChapterGenerationInput {
   planBlueprint?: string;
   /** 本轮启用的写作 Skill 约束，注入任务书/初稿/返修（稳定缓存前缀之后）。 */
   skillsPrompt?: string;
+  /**
+   * 本次生成临时覆盖的文风预设 id（丁-2「文风写作」选择器）。
+   *
+   * - `undefined`（不传）：不覆盖，沿用 contextPack 里那份项目启用文风；
+   * - `null`：本次显式不用文风（覆盖文本为 `""`，提示词里不出现这一节）；
+   * - `string`：用这条预设渲染的文本替换掉 pack 里的文风。
+   *
+   * ⚠️ **独立字段，不要塞进 `skillsPrompt`**：两者语义不同，混用会让
+   * 「本次启用 Skill」段落里出现文风文本。
+   * ⚠️ 覆盖只在**本次调用**生效，不写项目设置（`enabledStyleId` 不变）。
+   */
+  writingStyleIdOverride?: string | null;
 }
 
 export interface DeepChapterGenerationCallbacks {
@@ -150,6 +163,12 @@ export interface DeepChapterGenerationDeps {
   runChapterPlanDeviationRepair?: typeof runChapterPlanDeviationRepair;
   runChapterExecutionContractBuild?: typeof runChapterExecutionContractBuild;
   runChapterExecutionReportCheck?: typeof runChapterExecutionReportCheck;
+  /**
+   * 可选：把「本次临时覆盖的文风预设 id」渲染成注入文本。
+   * 省略时用真实实现（`deps.x ?? 真实实现`，与其余可选 dep 同形）；
+   * **不**放进 `defaultDeps` —— 那里刻意只放 4 个必填项。
+   */
+  buildWritingStyleContext?: typeof buildWritingStyleContext;
   streamChat: (
     config: LlmConfig,
     messages: ChatMessage[],
@@ -778,11 +797,51 @@ export async function runDeepChapterGeneration(
     totalContextTokenBudget -
       Math.ceil(outlineText.length / charsPerToken),
   );
+
+  /*
+   * 本次生成的临时文风覆盖（丁-2）。
+   *
+   * ── 为什么注入点**只能**在这里，不是风格偏好 ──
+   * `writingStyle` 在 context-hub 的 `STATIC_SOURCES` 里
+   * （`context-hub/data-source-cache.ts:56-71`），于是 `sourceRequestKey`（`:116-124`）
+   * 给它算出的 scope 是**空对象** `{}`、缓存 key 退化成常量
+   * `data-source:writingStyle:<sha256("{}")>` —— 不含 task、不含 chapterNumber、
+   * 更不可能含「本次覆盖了哪条文风」。所以若在数据源层
+   * （`context-data-sources.ts:382`）注入覆盖，第一次生成选的文风会被**永久缓存**：
+   * 第二次选了别的（或没选）也命中旧文本 ⇒ 覆盖静默失效，
+   * 且上一轮的文风会泄漏进之后所有生成。
+   * 这里是数据源**之后**（`contextPack` 已返回）的位置，浅拷贝只影响本次调用。
+   *
+   * ── `undefined` 与 `null` 必须分开（这一支被同类三态坑过）──
+   * `undefined` = 没有覆盖：**连渲染器都不调**，沿用 pack 里那份项目启用文风；
+   * `null` = 用户显式「本次不用文风」：走渲染器拿到 `""`，把 pack 里那份覆盖掉。
+   * 若把两者都当 falsy 混用，「不用文风」会退化成「用项目启用的文风」，正好相反。
+   *
+   * ── 覆盖文本的形状 ──
+   * 由 `buildWritingStyleContext` 同一个渲染器产出（本批选择 (a)：照现状接受不对称）。
+   * 结构化画像（`profile.workbenchStyle.styleFingerprint`）带 `【已启用文风画像】`
+   * 前缀 ⇒ 命中 `contextPackToPrompt` 的 fail-closed 守卫（预算不足则停机）；
+   * v1/旧画像不带前缀 ⇒ 与「已启用」路径一样是静默的（既有行为，本批不改变）。
+   */
+  const styleOverrideText = input.writingStyleIdOverride === undefined
+    ? undefined
+    : await (deps.buildWritingStyleContext ?? buildWritingStyleContext)(
+        input.projectPath,
+        { task: contextRequest, styleIdOverride: input.writingStyleIdOverride },
+      );
+  /*
+   * 浅拷贝，**不原地改** `contextPack`：它可能来自 context-hub 缓存，
+   * 原地改会把这次覆盖写进缓存对象，污染之后所有生成。
+   */
+  const promptContextPack = styleOverrideText === undefined
+    ? contextPack
+    : { ...contextPack, writingStyle: styleOverrideText };
+
   const contextPrompt = [
     previousChaptersAnalysis
       ? `## 前情分析\n\n${previousChaptersAnalysis}`
       : "",
-    deps.contextPackToPrompt(contextPack, restContextTokenBudget, {
+    deps.contextPackToPrompt(promptContextPack, restContextTokenBudget, {
       excludeOutline: true,
     }),
     input.dismantlingReferenceDirective,

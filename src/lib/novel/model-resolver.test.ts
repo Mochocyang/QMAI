@@ -74,6 +74,9 @@ const storeState = vi.hoisted(() => {
     autoGenerateChapterTitle: true,
     draftMemoryHintEnabled: true,
     draftMemoryHintSeen: false,
+    inspirationHintEnabled: true,
+    inspirationHintSeen: false,
+    usageTutorialSeen: false,
   }
 
   return {
