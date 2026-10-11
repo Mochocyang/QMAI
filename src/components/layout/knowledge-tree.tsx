@@ -23,6 +23,7 @@ import { selectProjectDeAiTasks, useDeAiTaskStore } from "@/stores/de-ai-task-st
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { useWritingStatsStore } from "@/stores/writing-stats-store"
 import { getOutlineFileName, outlineSnapshotExists } from "@/lib/novel/outline-ingest-utils"
+import { runBulkChapterIngest } from "@/lib/novel/chapter-bulk-ingest"
 import { saveLastReadChapter } from "@/lib/project-store"
 import { mapWithConcurrency } from "@/lib/async-pool"
 import type { ReferenceToken } from "@/lib/reference/types"
@@ -829,91 +830,31 @@ export function KnowledgeTree({
       return
     }
 
+    /*
+     * 进度任务、取消、逐章点亮「提取中」灰点全部由 lib 里的共享实现负责 ——
+     * 与侧边栏那枚「一键提取」图标是同一条代码路径。以前这里自己抄了一份
+     * 循环，两份实现的分歧正是「一键提取没反应」那类问题的温床。
+     *
+     * 这里传 mode: "all"：右键菜单的语义一直是「重新提取所有章节」，
+     * 与侧边栏默认的「只补未提取」不同，不能悄悄改掉。
+     */
     const projectPath = normalizePath(project.path)
-    const abortController = new AbortController()
-    const taskId = useImportProgressStore.getState().startTask({
-      projectPath,
-      kind: "chapter",
-      total: chapterPaths.length,
-      currentTitle: sortedChapterPages[0]?.title ?? "",
-      message: "正在一键提取所有章节记忆",
-      abortController,
-    })
-
-    let completed = 0
-    let failed = 0
-    let lastError = ""
-    const titleByPath = new Map(sortedChapterPages.map((page) => [page.path, page.title]))
-
     try {
-      const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
-      for (const chapterPath of chapterPaths) {
-        if (abortController.signal.aborted) {
-          useImportProgressStore.getState().finishTask(taskId, "cancelled", {
-            completed,
-            total: chapterPaths.length,
-            currentTitle: "",
-            message: `已取消章节记忆提取，已完成 ${completed}/${chapterPaths.length} 个章节。`,
-          })
-          return
-        }
-
-        useImportProgressStore.getState().updateTask(taskId, {
-          completed,
-          total: chapterPaths.length,
-          currentTitle: titleByPath.get(chapterPath) ?? chapterPath,
-          // 章节目录的「提取中」灰点按路径点亮：标题会重名，路径不会。
-          activeChapterPaths: [chapterPath],
-        })
-
-        const page = sortedChapterPages.find((item) => item.path === chapterPath)
-        const result = await ingestChapter(
-          projectPath,
-          chapterPath,
-          undefined,
-          abortController.signal,
-          page?.chapterNumber,
-          { allowDraft: true },
-        )
-        if (result.snapshot) {
-          completed += 1
-        } else {
-          failed += 1
-          lastError = result.error ?? result.failReason ?? lastError
-        }
-      }
-
-      useImportProgressStore.getState().finishTask(taskId, failed > 0 ? "error" : "done", {
-        completed,
-        total: chapterPaths.length,
-        currentTitle: "",
-        message: failed > 0
-          ? `章节记忆提取完成：成功 ${completed} 个，失败 ${failed} 个。${lastError ? ` 最近错误：${lastError}` : ""}`
-          : `章节记忆提取完成：成功 ${completed} 个章节。`,
+      await runBulkChapterIngest(projectPath, {
+        mode: "all",
+        chapters: sortedChapterPages.map((page) => ({
+          path: page.path,
+          title: page.title,
+          chapterNumber: page.chapterNumber,
+        })),
       })
       await loadPages()
       const tree = await listDirectory(projectPath)
       setFileTree(tree)
       bumpDataVersion()
     } catch (error) {
-      if (abortController.signal.aborted) {
-        useImportProgressStore.getState().finishTask(taskId, "cancelled", {
-          completed,
-          total: chapterPaths.length,
-          currentTitle: "",
-          message: `已取消章节记忆提取，已完成 ${completed}/${chapterPaths.length} 个章节。`,
-        })
-        return
-      }
+      // 取消不算异常；这里只剩真正的意外，共享实现已经把状态写进进度任务了。
       console.error("[KnowledgeTree] extract all chapter memories failed:", error)
-      useImportProgressStore.getState().finishTask(taskId, "error", {
-        completed,
-        total: chapterPaths.length,
-        currentTitle: "",
-        message: `章节记忆提取失败：已完成 ${completed}/${chapterPaths.length} 个章节。${
-          error instanceof Error ? ` ${error.message}` : ` ${String(error)}`
-        }`,
-      })
     } finally {
       setPageMenu(null)
     }

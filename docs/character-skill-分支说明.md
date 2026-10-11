@@ -78,7 +78,7 @@
 
 ## 测试
 
-- 全量：`729 文件 / 7111 用例通过、6 todo、0 失败`（约 49 秒）。
+- 全量：`731 文件 / 7141 用例通过、6 todo、0 失败`（约 47 秒）。
 - 分支基线（`dcf8b38`）：`720 文件 / 6957 用例通过`。
 - 人物 Skill 自己的 10 个 spec 合计 **162 条**：types 28 / store 33 / prompt 12 / learning 38 / context 17 / context-engine-persona 5 / chapter-ingest-persona-hook 8 / persona-skill-view 8 / routing 3 / unified-view 10。
 
@@ -116,6 +116,28 @@
   另按用户决定：**学习阶段一律抽全 5 个字段**（`PERSONA_STORED_FIELDS`），注入仍按档位裁剪——`PERSONA_MINOR_FIELDS` 现在只剩注入路径一个引用点。
 
   验证（全部实盘、非推测）：用真实磁盘文件跑 `resolveKnownCharacters`，杨寒/杨妙萍/林小满/小晚被认出（门槛 3→1，**4 人全部转为会建档**），而老太太/老头/小男孩/灰白制服守卫/白褂女人/地下铁门守卫/抱保温杯守卫/另一个守卫 8 个路人未被认出（门槛维持 3，仍被挡住）。新增 10 条用例，其中 2 条已验证在未修复时为红。全量 `729 文件 / 7111 用例通过、6 todo、0 失败`；`typecheck` 与 `typecheck:tests` 均 0 错误。
+- 2026-10-11：**修复用户报障「一键提取功能无法使用」（章节与大纲两条入口都要修），并把运行中的图标改成动态的**。这条与人物 Skill 无关，是本分支携带的界面缺陷。
+
+  根因经实盘取证确认（不是推测）：把组件真的渲染出来点了一遍 —— 点下确认后**整段提取期间界面一字不显示**（提取进行中 `section.textContent` 实测就是空字符串 `""`），没有 spinner、没有进度、没有「提取中」、没有取消，图标也始终是静态的 `<Sparkles />`。用户看到的就是「点了没反应」。同一轮取证还查出三处独立缺陷：
+
+  - **两套互不一致的实现。** 章节走 `chapter-bulk-ingest.ts` 里那段降级循环，**完全不创建进度任务**，所以树里的进度条、取消按钮、章节行「提取中」灰点全部没反应；大纲那边却早已有 `OutlineActionToolbar` 的完整实现（转圈、范围选择、模型未就绪可跳设置）。
+  - **两条入口都只做「仅未提取」。** 一旦全书都提取过就只回一句「都已提取过」，看上去同样像坏了，而且没有任何「全部重提取」的出口 —— 而重提取恰恰是用户唯一的补救动作。
+  - **模型没配好时静默失败。** `OutlineIngestNotReadyError` 被吞成一句面板文字，用户不知道要到哪里去配。
+
+  修复（按用户选择「两个都复用已有完整实现 + 运行中图标旋转」）：
+
+  1. `chapter-bulk-ingest.ts` 升级为**章节批量提取的唯一实现**：新增 `mode`（`all` / `pending`，默认 `pending`）与显式 `chapters` 列表；创建 `kind: "chapter"` 进度任务、逐章点亮 `activeChapterPaths`、把 `AbortController.signal` 传给 `ingestChapter`；取消时结算为 `cancelled`，且**已被 `cancelTask` 结算过的任务不被 `finishTask` 覆盖**（否则用户刚看到的「已取消」会跳回 done/error）。
+  2. `knowledge-tree.tsx` 的「一键提取所有章节」改为调用这份共享实现（`mode: "all"`，保持右键菜单「重新提取全部」的既有语义），删掉自己抄的那 100 行循环。守卫改为断言**委托**，并反向断言源码里不再出现私有进度循环。
+  3. `UiTestDirectoryHeader` 在那枚图标上直接订阅进度任务：提取期间换成 `Loader2` 旋转并置 `aria-busy`。因为读的是全局任务而不是父组件传的 prop，**走章节右键菜单发起的提取同样会让图标转起来**。
+  4. `UiTestOutlineTools` 重写：确认框改为「取消 / 仅未提取 / 提取全部」；运行中显示 `Loader2` 旋转 + `正在提取大纲记忆 0/4` + 取消按钮；`OutlineIngestNotReadyError` 改为 `toast.error(..., { onClick: openDefaultModelSettings })`。新增 `.ui-test-outline-running` 与 `.pending` 样式。
+  5. **没有新造契约**：`activeChapterPaths`、`finishTask` 结束时自清空、按 `kind` 区分任务，全部沿用原有约定。
+
+  验证：新增 2 个 spec 文件共 **29 条**（`chapter-bulk-ingest.spec.ts` 18 条、`ui-test-extract-progress.spec.tsx` 11 条），另在 `knowledge-tree.spec.tsx` 新增 1 条委托守卫。
+  - `chapter-bulk-ingest.spec.ts` 在实现前 **17 条里 9 条为红**（缺进度任务 / 缺 abort signal / 缺 `mode`、`chapters` / 取消不生效 / `formatBulkChapterIngestResult` 不认 `cancelled`）。
+  - `ui-test-extract-progress.spec.tsx` 在**旧组件**上 **9 条为红、2 条负向控制照常通过**（负向控制是「不该乱转」）。其中一条把用户看到的现象逐字钉住：*提取已经在跑了，面板却一片空白* —— 旧代码下红、修复后绿。
+  - 全量 `731 文件 / 7141 用例通过、6 todo、0 失败`；`typecheck` 与 `typecheck:tests` 均 0 错误。
+
+  另注：`npx vitest run`（不带 `--exclude`）会连带跑 `test:llm` 的 `scripts/refine-acceptance.real-llm.test.ts`，它 import 的 `hasOutlineForRefinement` 在 `src/` 里**已无任何导出**，**在 HEAD 就是红的**，与本次改动无关（`test:mocks` 已排除它）。判读全量结果请用 `npm run test:mocks`。
 
 ## 提交状态
 
