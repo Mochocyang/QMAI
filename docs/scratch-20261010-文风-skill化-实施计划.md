@@ -1273,5 +1273,171 @@ registry 重建**不会**清掉那个覆盖值 —— `getWritingStyleIdOverride
 - 选择器放在**两处**（章节工具栏 + 对话输入栏）超出计划 §2 步骤 4 的字面范围，
   但为满足「两头都接上、不造第二条 `getPlanBlueprint` 死通道」所必需 ⇒ 判为**范围内**。
 
+---
+
+## 9. 丁-3 实施与审查记录（回填，2026-10-11）
+
+### 9.1 提交链
+
+| 提交 | 内容 | 规模 |
+|---|---|---|
+| `e7cb3cd` | `feat(引用): 输入框 @ 文风引用真正接入本次生成的覆盖通道` | 10 文件，+545/−6 |
+| `95b82e0` | `fix(引用): 补 丁-3 审查的三条缺口（优先级具体值 / 伪断言 / 空子 tab）` | 7 文件，+309/−40 |
+| `49306c6` | `test(引用): 补空技能库时子 tab 不消失的断言（同批变异逼出来的）` | 1 文件，+33 |
+| `5d032993` | `fix(引用): 补 丁-3 复核的承重回退断言 + 把文风缺席钉成行为断言` | 7 文件，+247/−65 |
+| `cc3f48f6` | `docs(引用): 订正三处不准确注释（子 tab 守卫的归属 / 行号引用 / fixture 判别力）` | 4 文件，+19/−6 |
+
+**⚠️ 这条子批跑了 4 轮（1 实现 + 3 轮审查/修复），是本分支最贵的一条。** 原因见 9.3。
+
+### 9.2 通道（改前完全不存在）
+
+改前：`SkillSubtype` 只有 `"deai" | "writing"` ⇒ UI 上**产不出**文风 token；
+`chat-panel.tsx` 的 `handleSend` 把 token 只交给 select-skills-plugin（取技能 id 列表），
+整条 chat 路径上唯一的文风值是工具栏选择器的 `sessionWritingStyleId`。
+⇒ **「在输入框里点名文风」在生成链上没有任何消费者**（计划 §3 步骤 4 的原话），是彻底的死通道。
+
+改后（逐跳）：`useWritingStyleOptions` → provider getter 追加文风条目
+（`id` = 预设 id，经 `providers.ts` 落在 `ReferenceToken.skillId`）→ 子 tab「文风」→
+`collectReferencedStylePresetIds(tokens)`（新模块 `style-reference.ts`）→
+`runWritingStyleIdOverrideRef.current`（**每次发送都写**，无引用时写回 `undefined`）→
+`getWritingStyleIdOverride` → `useAgentConfig` 第 4 个入参 → `tools/index.ts` →
+`run-chapter-workflow.ts` → `deep-chapter-generation.ts` → `resolveWritingStylePreset`。
+**全链无第二个覆盖参数，也没有把临时覆盖塞进全局 store。**
+
+**两处裁决（已生效）**：
+- **优先级**：`@` 引用 > 工具栏选择器 > 项目启用项，**包括选择器为 `null`（本次不用文风）时引用仍然赢** —— 否则刚敲的引用被静默丢弃。
+- **两条不同预设的引用 ⇒ 拒绝发送**（可见提示、芯片与输入保留、不产生消息、不写覆盖值）。
+  ⚠️ 这**主动不采用**设计 §3 第 4 条的「后者覆盖前者 + 提示」：覆盖通道结构上只收一条，
+  「挑一条赢」等于静默丢掉另一条明确指令，而芯片顺序对用户不可见、提示也可能被忽略。
+  **裁决理由已写进代码注释，设计文档也据此订正。**
+
+**大纲/细纲面板有意不注入文风条目**：该面板的三处 `buildAgentConfig` 从不传
+`runDeepChapterGeneration` / `getWritingStyleIdOverride`，`tools/index.ts` 的注册守卫要求前者，
+⇒ `run_chapter_workflow` 在那里根本不注册，加了就是死条目。
+
+### 9.3 ⚠️ 四轮里发现的三条（都属同一病理：**「看着接上、其实断开」**）
+
+1. **第 1 轮（spec 审查）**：核心需求达成，但发现 **`@` 引用 > 工具栏「具体选中文风」这一半零覆盖**。
+   审查者的变异（让具体选中值赢、`null` 不赢）**带着整个 738 文件套件 + typecheck 存活**。
+   关键量测：修复后重放该变异 ⇒ `1 failed / 20 passed`，失败的**只是**新补的那条，
+   `null` 那半**照样绿** —— 精确证明了覆盖缺口的形状。
+2. **第 2 轮**：一条**钉注释的伪断言** —— `outline-chat-panel.spec.tsx` 的
+   `toContain("本面板的 agent 配置")`，该短语在源码里**只出现在注释中**，
+   把注释措辞改一个字它就红 ⇒ **行为保证为 0，且是假阳性发生器**。
+   同时发现 `ReferencePickerDialog` 的子 tab 过滤**零覆盖**（该 spec 的 fixture 根本没有 skill provider），
+   以及大纲面板会摆出一个**永远空的「文风」子 tab**（`SKILL_SUBTABS` 是模块级全集、无条件渲染）。
+3. **第 4 轮（复核第 3 轮修复）**：`effectiveSkillSubtab` 的**回退零覆盖** ——
+   变异去掉回退 ⇒ 9 passed。而该回退**承重**：生产可达路径是
+   「禁用全部去AI味技能 + 有 ≥1 文风预设 + 无写作 Skill」⇒ `items` 非空但无 `deai` 条目，
+   打开即**空列表且无高亮**。
+
+**⚠️ 本批最有价值的方法学产出：把「继续收紧正则」改成「结构性断言」。**
+第 2 轮的正则钉子有两条已实测的逃逸面（`subtype :` 冒号前多空格、`import { X as Y }` 别名导入）。
+继续收紧是**军备竞赛**。实施者改为把大纲面板 provider 的条目构造**提取成具名导出函数**
+`buildOutlineReferenceSkillEntries(deAiSkillConfig, writingSkills)`，测试**直接断言其产出**。
+效果：**两条逃逸面一次性从 SURVIVED 变成 CAUGHT**，而正则那两条**仍然绿** ——
+逃逸面真实存在，只是不再承重。正则降为第二层（它独家覆盖「在组件里 wrap」那种形态，实测互补）。
+⚠️ **仍有已知合取缺口**：在 builder **之外**注入 + 排版逃逸**同时**发生 ⇒ 两层全绿（实测 138 passed）。
+要根治需让 provider 产出本身可断言（接口改动），本批不做 —— **已在测试注释里如实记录该边界，未写成「不会漏」**。
+
+### 9.4 ⚠️ 第 4 轮复核**推翻**了实施者一条自述
+实施者声称把 fixture 的 `enabledStyleId` 从 `"style-b"` 换成 `"style-c"` 是「真的加强了判别力」。
+复核者的决定性实验：**只把 `enabledStyleId` 改回旧的 `"style-b"`（保留新增预设）⇒ 21 passed 全绿**。
+⇒ 当前**没有任何断言能区分新旧 fixture**：`toBe("style-b")` 读的是 getter 的直接返回值，
+而 getter 既不读 store、也落不到项目启用项，所以「下游回退到项目启用项」这条通道在该断言处**根本不经过**。
+**如实结论：那是一次良性的「去掉 id 撞名」卫生改动，价值是潜在的，不是可演示的判别力增强。**
+（注释已按此订正。这是本分支「宣称 > 代码」缺陷类的又一次，由复核者抓住。）
+
+### 9.5 一处**给后续审查者**的方法学修正（来自实施者）
+
+证明「纯注释改动」不能只比 `ts.transpileModule({removeComments:true})` 的 **raw emit 字节** ——
+**TS 发射器会保留被删注释所占的换行**，所以多写/少写几行注释会改变 emit 的空白，
+把一个纯注释改动**误报**成改动（本批实测误报过一次）。
+⇒ 正确口径：**`removeComments` 之后再归一化空白比 token**。raw emit 只能用来排除「代码变了」，
+**不能单独证明「代码没变」**。
+
+### 9.6 如实留下的东西（不要读成「已全绿」）
+
+- **这条覆盖通道是组件级、不是 run 级**：值存在 panel 的 ref 里，同一面板内 >1 个会话并发运行时，
+  后一次发送会改掉前一次仍在跑的 run 读到的值。它**不比既有的 `getSelectedSkillsPrompt` 更糟**
+  （同一形状：发送时写 ref、getter 读、无入参），本批没有改善也没有恶化。
+  今天做不了 per-run —— `ToolExecutionContext` 只有 `callId/toolName/onTool*` 五个字段，**没有会话 id**。
+- **未跑 `build:portable`**、未接真实 LLM ⇒ 「模型真的用那个文风写出来」无法在单测里断言；
+  能断言到的最强证据是「提示词里只有目标文风、项目启用项一个字都不出现」。
+- **`outline-chat-panel.spec.tsx` 里 283 条断言仍读原始 `source`**，其中 **3 条只可能被注释满足**
+  （`:610`、`:1750`、`:2022`）。**本批 hunk 之外、非本批引入**，但建议该文件 owner 一次性收口；
+  其中 `:610` 最该优先 —— 它长得像行为断言却只可能被注释满足，是会**误导读者**的一条。
+  最小改法是**删掉那一行断言**（相邻两条是真的行为钉）；改成 `sourceWithoutComments` 会**按构造必然失败**。
+
+---
+
+## 10. 丁-5 实施与审查记录（回填，2026-10-11）
+
+### 10.1 提交链
+
+| 提交 | 内容 | 规模 |
+|---|---|---|
+| `0027e901` | `feat(故事skill): 拆书发布桥接到 storyFrameworkBinding 真正读的存储` | 13 文件，+1079/−8 |
+| `71ac4b3e` | `test(故事skill): 钉住占位句取值、退化判据边界与桥接错误策略` | 5 文件，+193/−17（**纯测试守卫 + 注释**） |
+
+### 10.2 路线 A 与「id 即文件名」
+
+`bridgePlotFrameworkToStoryFramework(projectPath, framework)` = 纯转换 + 已导出的 `saveFramework`，
+**零新增注入代码**。消费端因果链：`storyFrameworkBindingDataSource` 做
+`frameworks.find(f => f.id === binding.frameworkId)`，**找不到就 `return ""`（静默空串，不抛错）**；
+`saveBinding` 存的是 `framework.id`；`saveFramework` 的落盘路径 = `.qmai/simulations/frameworks/<id>.md`
+—— **id 即文件名**。⇒ id 必须由来源**确定性派生**。
+
+### 10.3 🔴 计划里被实测推翻的两处（**实施者独立发现，价值很高**）
+
+1. **计划只列了 2 个发布方，实际有 3 个。** §4.2 步骤 2 只点名 `workbench-publish.ts` 与
+   `story-analysis-adapter.ts`。实施者用 `upsertPlotFramework` **反查调用方**，发现第三个生产发布方：
+   **`book-analysis-view.tsx` 的 `handleStoryFrameworkConfirm`**（侧栏「旧框架入口」）。
+   只桥两个会让这条入口复现计划自己警告的「只做一半」。**复核者反查后确认「没有第四个」。**
+2. **⚠️ 计划建议的 `plot:${pf.id}` 前缀在 Windows 上不可用 —— 冒号是 NTFS 备用数据流（ADS）语法。**
+   实施者实测（node 直接写 `plot:wb-story-book-1.md`）：
+   ```
+   write error: null
+   dir entries: ["plot", "probe.cjs"]     ← 文件真名是 `plot`，没有 .md 后缀
+   readFileSync(target) 竟然能读回 hello  ← 所以「发布成功」永远静默
+   ```
+   `loadFrameworks` 的 `.md` 过滤会**跳过**无后缀的 `plot` ⇒ **发布成功但永远读不回来**。
+   复核者用**忠实的 node/libuv 探针**独立复现（并指出 **`.NET File.WriteAllText` 不是忠实探针** ——
+   它直接 EINVAL 拒绝 `:`），还复现了 `do_write_file_atomic` 的 tmp→`fs::rename` 流程 ⇒
+   **`rename` 报 EINVAL + 残留隐藏 `.plot`**，即原子路径下是 `saveFramework` **未捕获的 Err**。
+   两种路径都永远读不回来；`do_write_file_atomic` 的文件名**零净化**（复核者读代码确认）。
+   ⇒ 改为 `` `plot-` + 定宽百分号转义 ``（非法字符 → `%` + 6 位大写十六进制）。
+   **单射性经复核者暴力验证**：对真实函数用 22 个符号 × 长度 1–3 = **10,670 个串**对拍，
+   **0 个非 `trim` 解释的碰撞**（2,949 个碰撞全是首尾空白，而 `normalizePlotFramework` 已 `trim()` id，不可达），
+   并有结构性证明（安全集排除 `%`、定宽 6）。**无数据损失。**
+
+### 10.4 三条如实记录
+
+- **`sourceChapters` 语义与原生生成器不一致**：桥接用 `rangeChapterIds.length`（章节 **id** 数），
+  原生用 `extraction.chapterContents.length`（**实际读过**的章节数）；只在 `simulation-report-agent`
+  当**散文标签**消费。计划**明确认可**由 `rangeChapterIds.length` 推，故合规 ——
+  **但「id 已不存在的章节」的高估没测**，实施者补了一条语义钉子使「改成去读真实文件」必须是一次有意识的决定。
+- **三个发布方的桥接失败处理刻意不对称**：`workbench-publish.ts` **不 catch**（契约是「要么整批成功、要么什么都没发生」，
+  确认由用户发起、**可重试**），`story-analysis-adapter.ts` **catch + console.warn**（故事导图是主产物，
+  四段框架是已标注的兼容产物）。两处均已注明「刻意的不对称，不是漏写 try/catch」。
+  ⚠️ 实施者**纠正了计划的口径**：「抛错 ⇒ 该次修订**永远**不被确认」不准确 —— 可重试即收敛。
+- **`EMPTY_STORY_BEAT` 按值钉住**：复核者发现退化检测的判据可被弱化成「首尾相同」而无人报警
+  （`["甲","乙","甲","甲"]` 会回归成**假阳性警告**），且 `EMPTY_STORY_BEAT` 的**值本身未钉**
+  —— 正是实施者为 `DEFAULT_SIMULATION_MODE` 已做过、却**漏在这里**的同一种加固。三条已补齐。
+
+### 10.5 ⚠️ 一处**我自己造成**的环境缺陷（已修复，记录备查）
+
+为了并行推进，我把 `qmai-wt-d5` / `qmai-wt-d4` 的 `node_modules` 做成**指向主工作树的 Junction**。
+后果：Vite 6+/7 把符号链接**解析成真实路径**再做 `server.fs` 允许列表判定 ⇒
+`node_modules/macos-traffic-lights/svg/close/active.svg?url` 落在项目根之外 ⇒
+**`src/components/uitest/ui-test-shell.spec.tsx` 收集阶段失败**（≈32 条用例不被计入，`test:mocks` 退出码 1）。
+- **只影响这一个文件**（该包的唯一 importer 是 `mac-traffic-lights.tsx`，9 个 svg import）。
+- **不掩盖任何回归**：实施者与复核者各自用「只 import 未改动组件的探针」复现同一 `Denied ID`，
+  报的是 `Tests no tests`（收集期，非断言期）；在主工作树（`node_modules` 是真实目录）该 spec **32/32 通过**。
+- **修复**：`robocopy /E` 到临时目录 → `cmd /c rmdir` 删 Junction → `Move-Item` 就位；`LinkType` 变空、**32/32 通过**。
+⇒ **教训：跨工作树共享 `node_modules` 不能用符号链接/Junction，必须 `npm ci` 或真实复制。**
+⚠️ 这也解释了本分支一度出现的「基线 7419 与逐文件增量对不上」的困惑：
+**无 Junction 的 HEAD = `7435 + 32 = 7467 = 7419 + 48`**，与逐文件声明**精确吻合**。
+
 
 
