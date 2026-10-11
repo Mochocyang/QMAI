@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { act } from "react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { agentConfigArgs, renderChatPanel } from "@/test/chat-panel-mount"
 import { clearTaskBreakpoint, loadTaskBreakpoint } from "@/lib/agent/task-breakpoint"
 import type { Conversation } from "@/stores/chat-store"
 import { useChatStore } from "@/stores/chat-store"
 import { chatConversationRunRegistry } from "@/lib/conversation-run-registry"
-import { createDirectory, deleteFile, readFile, writeFileAtomic } from "@/commands/fs"
+import { createDirectory, deleteFile, listDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import type { ReferenceToken } from "@/lib/reference/types"
 
 const breakpoint = {
@@ -657,4 +657,440 @@ describe("ChatPanel 的「@ 引用文风」消费端（丁-3）", () => {
 
     await waitForRunSettled("conv_mount")
   })
+})
+
+/*
+ * 丁-4「输入框引用角色灵魂」的消费端。
+ *
+ * 这组必须是**真实 UI 路径 + 真实存储层**，理由是丁-4 唯一可行的实现方式是
+ * 「生成前真绑定、生成后还原」：
+ *   - `buildCharacterSoulContext` 只过滤绑定表，没有第二条注入路径
+ *     ⇒ 只断言「调用了 bindCharacterAura」是不够的，必须断言**绑定真的落到了
+ *       上下文读取的那个文件上**，且生成结束后**真的被还原**；
+ *   - release 的三个分支里有两个（原本就有同一条绑定 / 原本是另一条）只有
+ *     在真覆盖语义下才可达 ⇒ 用 mock 掉存储层的写法根本走不到，是假绿。
+ * 所以这里把 `@/commands/fs` 换成一个**只针对 `.qmai/character-aura.json` 的
+ * 内存盘**：读盘/写盘都是真的（`loadCharacterAuraStore` / `writeFileAtomic`
+ * 都走真代码），只是落点换成内存里的一个字符串。
+ *
+ * 下游那半程（绑定后的 aura 真的进 `contextPack.characterAuras`）由
+ * `message-scoped-soul-binding.spec.ts` 与 `character-aura.spec.ts` 钉住。
+ *
+ * 用例统一用 `aiWorkflowMode: "fast"`：跳过 novel pre-plugin 链，
+ * 让每个用例只依赖被测的那条通道。
+ */
+describe("ChatPanel 的「@ 引用角色灵魂」消费端（丁-4）", () => {
+  const AURA_ID = "custom-xu"
+  const CHARACTER_NAME = "陈拾"
+  const ENTITIES_DIR = "C:/QMAI_C/QMAI-main/wiki/entities"
+
+  function entityPage(name: string): string {
+    return ["---", "type: entity", "tags: [character]", `title: "${name}"`, "---", "", `# ${name}`, ""].join("\n")
+  }
+
+  /**
+   * 内存盘上的 `.qmai/character-aura.json`。
+   * 每个用例重置；绑定/还原的断言全部读它，而不是读 mock 的调用参数。
+   */
+  let auraDisk = ""
+  /**
+   * 每一次写进 `.qmai/character-aura.json` 的**完整内容**（按发生顺序）。
+   *
+   * ⚠️ 为什么必须有它：本轮生成的 mock `streamChat` 是**同步完成**的，
+   * 所以「点确认」之后回到断言时，`finally` 里的还原**可能已经跑完** ——
+   * 只看最终盘面会把「先绑定、后还原」误读成「压根没绑过」。
+   * 写入日志让「真的绑过」和「最后还原了」成为两个各自独立可查的事实，
+   * 而不是被时序夹在中间的二选一。
+   */
+  let auraWrites: string[] = []
+
+  function bindingsOf(raw: string): Array<{ characterName: string; auraId: string }> {
+    return (JSON.parse(raw) as { bindings: Array<{ characterName: string; auraId: string }> }).bindings
+  }
+
+  function diskBindings(): Array<{ characterName: string; auraId: string }> {
+    return bindingsOf(auraDisk)
+  }
+
+  /** 写入日志里是否出现过「把 auraId 绑给 characterName」这一笔。 */
+  function wroteBinding(characterName: string, auraId: string): boolean {
+    return auraWrites.some((raw) =>
+      bindingsOf(raw).some((binding) => binding.characterName === characterName && binding.auraId === auraId),
+    )
+  }
+
+  function installDisk(characterNames: string[], initialBindings: Array<{ characterName: string; auraId: string }> = []) {
+    auraWrites = []
+    auraDisk = JSON.stringify({
+      customAuras: [{
+        id: AURA_ID,
+        builtIn: false,
+        name: "许七安",
+        category: "古装权谋",
+        sourceNote: "拆书结果",
+        corpus: "抄诗、断案、铜锣腰牌",
+        styleDescription: "先调侃后收束。",
+        behaviorRules: "遇事先问证据。",
+        boundaries: "不替角色下道德结论。",
+        notes: "",
+      }],
+      bindings: initialBindings,
+    })
+    /*
+     * 只有 `wiki/entities` 有内容：这是让 `hasCharacterProfile` 为真的**真实**路径
+     * （它会先查 `listBindableNovelCharacters`）。不 mock `character-aura` 的任何导出——
+     * 一 mock 就等于把「真绑定」这件事换成「我以为我调用了它」。
+     */
+    vi.mocked(listDirectory).mockImplementation(async (path: string) => {
+      if (String(path).replace(/\\/g, "/").endsWith("/wiki/entities")) {
+        return characterNames.map((name) => ({
+          name: `${name}.md`,
+          path: `${ENTITIES_DIR}/${name}.md`,
+          is_dir: false,
+          size: 100,
+          mtimeMs: 1,
+        })) as never
+      }
+      return [] as never
+    })
+    vi.mocked(readFile).mockImplementation(async (path: string) => {
+      const normalized = String(path).replace(/\\/g, "/")
+      if (normalized.endsWith(".qmai/character-aura.json")) return auraDisk
+      if (normalized.startsWith(`${ENTITIES_DIR}/`)) {
+        const name = normalized.slice(ENTITIES_DIR.length + 1).replace(/\.md$/, "")
+        if (characterNames.includes(name)) return entityPage(name)
+      }
+      // 其它一切（配置、风格库、技能库、缓存）都读不到 —— 逐一返回空串会让
+      // `JSON.parse("")` 抛错，但那几处 loader 都自带 try/catch、退化成空库。
+      return ""
+    })
+    vi.mocked(writeFileAtomic).mockImplementation(async (path: string, content: string) => {
+      if (String(path).replace(/\\/g, "/").endsWith(".qmai/character-aura.json")) {
+        auraDisk = content
+        auraWrites.push(content)
+      }
+    })
+  }
+
+  async function typePrompt(container: HTMLElement, text: string) {
+    const input = container.querySelector<HTMLTextAreaElement>('[aria-label="引用输入框"]')
+    expect(input, "应有引用输入框").not.toBeNull()
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value",
+      )?.set
+      valueSetter?.call(input, text)
+      input!.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+  }
+
+  async function sendMessage(container: HTMLElement) {
+    const sendButton = container.querySelector<HTMLButtonElement>('[aria-label="发送消息"]')
+    expect(sendButton, "应有发送按钮").not.toBeNull()
+    expect(sendButton?.disabled, "发送按钮应可用").toBe(false)
+    await click(sendButton)
+    await flushEffects()
+    await flushEffects()
+  }
+
+  async function waitForRunSettled(conversationId: string) {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if (useChatStore.getState().runStates[conversationId]?.status !== "running") return
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+    throw new Error(`会话 ${conversationId} 的运行没有在预期轮数内结束`)
+  }
+
+  /** 打开引用弹窗 → 「技能库」分类 → 「角色灵魂」子 tab，返回弹窗元素。 */
+  async function openSoulSubtab(container: HTMLElement) {
+    await click(container.querySelector('[aria-label="引用内容"]'))
+    await flushEffects()
+    await flushEffects()
+
+    const dialogFor = () => {
+      const dialog = container.querySelector<HTMLElement>('[data-ui-reference="dialog"]')
+      expect(dialog, "引用弹窗应已打开").not.toBeNull()
+      return dialog!
+    }
+    const findButton = (text: string) => Array.from(dialogFor().querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.trim() === text)
+
+    const skillTab = findButton("技能库")
+    expect(skillTab, "弹窗应有「技能库」分类").toBeDefined()
+    await click(skillTab!)
+    await flushEffects()
+    await flushEffects()
+
+    const soulSubtab = findButton("角色灵魂")
+    expect(soulSubtab, "技能库下应有「角色灵魂」子 tab").toBeDefined()
+    await click(soulSubtab!)
+    await flushEffects()
+    await flushEffects()
+    return dialogFor()
+  }
+
+  const soulDialog = () => document.body.querySelector<HTMLElement>('[data-testid="soul-binding-target-dialog"]')
+
+  /** 在确认弹窗里选人物名并点确认。 */
+  async function confirmSoulBinding(characterName: string) {
+    const dialog = soulDialog()
+    expect(dialog, "发送后应弹出「绑给哪个小说人物」的确认弹窗").not.toBeNull()
+    const radio = dialog!.querySelector<HTMLInputElement>(
+      `input[type="radio"][aria-label="绑定到${characterName}"]`,
+    )
+    expect(radio, `确认弹窗里应能选「${characterName}」`).not.toBeNull()
+    await click(radio)
+    const confirm = dialog!.querySelector<HTMLButtonElement>('[data-testid="soul-binding-confirm"]')
+    expect(confirm?.disabled, "选定人物后「用这条灵魂生成」应可用").toBe(false)
+    await click(confirm)
+    await flushEffects()
+    await flushEffects()
+  }
+
+  let activeView: Awaited<ReturnType<typeof renderChatPanel>> | null = null
+
+  beforeEach(() => {
+    installDisk([CHARACTER_NAME])
+  })
+
+  afterEach(async () => {
+    if (activeView) {
+      await activeView.unmount()
+      activeView = null
+    }
+    vi.mocked(readFile).mockImplementation(async () => "")
+    vi.mocked(listDirectory).mockImplementation(async () => [] as never)
+    vi.mocked(writeFileAtomic).mockImplementation(async () => {})
+    useChatStore.setState({ pendingReferenceTokens: [] })
+  })
+
+  async function renderPanel() {
+    activeView = await renderChatPanel({ activeConversation: true, aiWorkflowMode: "fast" })
+    await flushEffects()
+    await flushEffects()
+    return activeView
+  }
+
+  it("从「角色灵魂」子 tab 引用一条灵魂并发送：先真绑定到所选人物，生成结束后还原", async () => {
+    const view = await renderPanel()
+
+    // 发送前：项目里没有任何绑定
+    expect(diskBindings()).toEqual([])
+
+    const dialog = await openSoulSubtab(view.container)
+    const soulRow = Array.from(dialog.querySelectorAll("label"))
+      .find((label) => label.textContent?.includes("许七安"))
+    expect(soulRow, "「角色灵魂」子 tab 里应列出项目里的角色灵魂").toBeDefined()
+    await act(async () => {
+      soulRow!.querySelector<HTMLInputElement>("input[type='checkbox']")!.click()
+    })
+    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.includes("确认引用"))
+    await click(confirm!)
+
+    const chip = view.container.querySelector('[data-reference-category="skill"]')
+    expect(chip?.textContent, "选中后应插入引用芯片").toContain("许七安")
+
+    await typePrompt(view.container, "按许七安的口气写一段")
+    await sendMessage(view.container)
+
+    // 生成前：真的绑上了（读盘验证，而不是看调用参数）
+    await confirmSoulBinding(CHARACTER_NAME)
+
+    await waitForRunSettled("conv_mount")
+
+    /*
+     * 两件事各自独立成立，顺序也钉住了：
+     *  1. 临时绑定**真的写过盘**（否则这条灵魂进不了上下文）；
+     *  2. 最后盘面上什么都没有（这条绑定只对上面那一条消息生效）。
+     * ⚠️ 必须等运行结束再断这两条：确认之后那串异步链（读绑定表 → 校验人物档案
+     * → 写盘）要跑好几轮微任务，而 mock 的生成又快，断在中间会把「还在写」
+     * 误判成「没写」。写入日志让「写过」这件事不依赖断言的时刻。
+     */
+    expect(
+      wroteBinding(CHARACTER_NAME, AURA_ID),
+      "确认之后绑定必须真的落进 .qmai/character-aura.json —— 否则这条灵魂进不了上下文",
+    ).toBe(true)
+    expect(
+      diskBindings(),
+      "生成结束后临时绑定必须被还原，否则它会静默影响之后所有章节",
+    ).toEqual([])
+    // 第一笔是临时绑定、最后一笔把它清掉：两笔都在，说明还原不是「空转」。
+    expect(bindingsOf(auraWrites[0]), "第一笔写入应是临时绑定").toEqual([
+      { characterName: CHARACTER_NAME, auraId: AURA_ID },
+    ])
+    expect(bindingsOf(auraWrites.at(-1)!), "最后一笔写入应是还原后的空绑定表").toEqual([])
+  })
+
+  /*
+   * 用户**本来就有**这条绑定：还原不许把它删掉。
+   *
+   * ⚠️ 这一条只有走**真存储层**才可达：`bindCharacterAura` 按人物名一对一
+   * **覆盖**，所以「用完就 unbind」那种最朴素的清理会在这里把用户的绑定删掉
+   * —— 而 mock 掉存储层的写法根本遇不到这个状态。
+   */
+  it("用户本来就有这条绑定：生成结束后它必须还在（不许误删）", async () => {
+    installDisk([CHARACTER_NAME], [{ characterName: CHARACTER_NAME, auraId: AURA_ID }])
+    const view = await renderPanel()
+
+    await enqueueSoulReference(view.container)
+    await typePrompt(view.container, "按许七安的口气写一段")
+    await sendMessage(view.container)
+    await confirmSoulBinding(CHARACTER_NAME)
+    await waitForRunSettled("conv_mount")
+
+    expect(
+      diskBindings(),
+      "原本就存在的绑定不是「临时绑定」，绝不能因为本轮生成结束而被删掉",
+    ).toEqual([{ characterName: CHARACTER_NAME, auraId: AURA_ID }])
+  })
+
+  /*
+   * 用户本来绑的是**另一条**灵魂：还原必须把原值写回去，而不是解绑。
+   * 这是 release 三个分支里损失面最大的一个 —— 走错就是「用户的绑定没了，
+   * 而它原本指向哪条灵魂已经找不回来」。
+   */
+  it("用户原本绑的是另一条灵魂：生成结束后原绑定必须原样还原", async () => {
+    installDisk([CHARACTER_NAME], [{ characterName: CHARACTER_NAME, auraId: "builtin-li-si" }])
+    const view = await renderPanel()
+
+    await enqueueSoulReference(view.container)
+    await typePrompt(view.container, "按许七安的口气写一段")
+    await sendMessage(view.container)
+    await confirmSoulBinding(CHARACTER_NAME)
+    await waitForRunSettled("conv_mount")
+
+    // 覆盖确实发生过（临时那条真的写进去过），这样下面的还原才不是空转
+    expect(wroteBinding(CHARACTER_NAME, AURA_ID)).toBe(true)
+
+    expect(
+      diskBindings(),
+      "本轮结束必须把用户原本那条绑定写回原位，而不是解绑",
+    ).toEqual([{ characterName: CHARACTER_NAME, auraId: "builtin-li-si" }])
+  })
+
+  it("用户取消确认弹窗：不发送、不写盘、输入与引用原样保留", async () => {
+    const view = await renderPanel()
+
+    await enqueueSoulReference(view.container)
+    await typePrompt(view.container, "这条先不发")
+    await sendMessage(view.container)
+
+    const dialog = soulDialog()
+    expect(dialog, "应弹出确认弹窗").not.toBeNull()
+    const cancel = Array.from(dialog!.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.trim() === "取消")
+    await click(cancel!)
+    await flushEffects()
+
+    expect(diskBindings(), "取消不得写任何绑定").toEqual([])
+    expect(useChatStore.getState().messages, "取消不得产生任何消息").toHaveLength(0)
+    expect(
+      view.container.querySelectorAll('[data-reference-category="skill"]'),
+      "取消必须保留已选引用",
+    ).toHaveLength(1)
+    /*
+     * 「取消」必须走**取消**这一支，而不是掉进「绑定失败」再被 catch 吞成一句提示。
+     * 少了这条断言，把 `if (!targetCharacterName) return` 那一行删掉时
+     * （= 拿一个空人物名继续往下走）上面三条**全部仍然通过** —— 因为
+     * `beginMessageScopedSoulBinding` 会先抛「请选择要把角色灵魂绑定到哪个小说人物」，
+     * 同样不写盘、同样不产生消息。差别只在用户看到的提示：取消不该看到任何报错。
+     */
+    expect(view.container.textContent).not.toContain("请选择要把角色灵魂绑定到哪个小说人物")
+    expect(view.container.textContent).not.toContain("绑定角色灵魂失败")
+    expect(
+      useChatStore.getState().runStates["conv_mount"]?.status,
+      "取消时不该占用运行槽",
+    ).toBeUndefined()
+  })
+
+  it("人物没有档案时：把「先补人物小传」这条原话显示出来，且不写盘、不发送", async () => {
+    installDisk([]) // 没有任何人物档案
+    const view = await renderPanel()
+
+    await enqueueSoulReference(view.container)
+    await typePrompt(view.container, "按许七安的口气写一段")
+    await sendMessage(view.container)
+
+    // 没有可绑定人物 ⇒ 确认弹窗里直接给出可操作指引，确认按钮不可用
+    const dialog = soulDialog()
+    expect(dialog, "应弹出确认弹窗").not.toBeNull()
+    expect(dialog!.textContent).toContain("请先在大纲中添加人物小传或人物设定，再绑定角色灵魂")
+    expect(
+      dialog!.querySelector<HTMLButtonElement>('[data-testid="soul-binding-confirm"]')?.disabled,
+      "没有可选人物时不许确认",
+    ).toBe(true)
+
+    expect(diskBindings(), "绑定失败路径一个字都不该写").toEqual([])
+    expect(useChatStore.getState().messages, "绑定失败时不得开始生成").toHaveLength(0)
+  })
+
+  it("同时引用两条不同灵魂：拒绝发送、保留输入，且不挑一条当赢家", async () => {
+    const view = await renderPanel()
+
+    await enqueueReferences([
+      soulReferenceToken("ref-soul-xu", AURA_ID, "许七安"),
+      soulReferenceToken("ref-soul-li", "builtin-li-si", "李斯"),
+    ])
+    expect(view.container.querySelectorAll('[data-reference-category="skill"]')).toHaveLength(2)
+
+    await typePrompt(view.container, "用这两条灵魂写一段")
+    await sendMessage(view.container)
+
+    expect(view.container.textContent).toContain("一条消息只能引用一条角色灵魂")
+    expect(useChatStore.getState().messages, "拒绝发送时不得产生任何消息").toHaveLength(0)
+    expect(
+      view.container.querySelectorAll('[data-reference-category="skill"]'),
+      "拒绝发送必须保留已选引用",
+    ).toHaveLength(2)
+    expect(soulDialog(), "冲突时不该弹确认弹窗（连问都不该问）").toBeNull()
+    expect(diskBindings(), "冲突时不许静默挑一条绑定").toEqual([])
+  })
+
+  it("上一条消息的 @ 灵魂不会漏进下一次生成", async () => {
+    const view = await renderPanel()
+
+    await enqueueSoulReference(view.container)
+    await typePrompt(view.container, "第一条：用许七安")
+    await sendMessage(view.container)
+    await confirmSoulBinding(CHARACTER_NAME)
+    await waitForRunSettled("conv_mount")
+    expect(diskBindings()).toEqual([])
+
+    await typePrompt(view.container, "第二条：没有引用任何灵魂")
+    await sendMessage(view.container)
+
+    expect(soulDialog(), "第二条消息没有再引用灵魂，不许再弹确认").toBeNull()
+    expect(diskBindings(), "第二条消息不该产生任何绑定").toEqual([])
+
+    await waitForRunSettled("conv_mount")
+  })
+
+  /** 灵魂条目在 token 上的形状必须与 `createSkillProvider` 的透传一致。 */
+  function soulReferenceToken(id: string, auraId: string, name: string): ReferenceToken {
+    return {
+      id,
+      category: "skill",
+      title: name,
+      skillId: auraId,
+      skillSubtype: "soul",
+      displayTitle: name,
+    }
+  }
+
+  async function enqueueReferences(tokens: ReferenceToken[]) {
+    await act(async () => {
+      useChatStore.setState({ pendingReferenceTokens: tokens })
+    })
+    await flushEffects()
+    await flushEffects()
+  }
+
+  async function enqueueSoulReference(container: HTMLElement) {
+    await enqueueReferences([soulReferenceToken("ref-soul-xu", AURA_ID, "许七安")])
+    expect(container.querySelectorAll('[data-reference-category="skill"]')).toHaveLength(1)
+  }
 })

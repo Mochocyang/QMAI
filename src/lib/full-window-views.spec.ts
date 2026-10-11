@@ -11,10 +11,11 @@ import { FULL_WINDOW_VIEWS, isFullWindowView } from "./full-window-views"
  * 这里逐项钉住清单的成员，并钉住不该进来的视图。
  */
 describe("fullWindowViews（整窗视图清单）", () => {
-  it("技能库的四个视图都是整窗视图", () => {
+  it("技能库的五个视图都是整窗视图", () => {
     expect(isFullWindowView("skillLibrary")).toBe(true)
     expect(isFullWindowView("writingSkillLibrary")).toBe(true)
     expect(isFullWindowView("writingStyleLibrary")).toBe(true)
+    expect(isFullWindowView("characterSoulLibrary")).toBe(true)
     expect(isFullWindowView("skillFavorites")).toBe(true)
   })
 
@@ -45,7 +46,7 @@ describe("fullWindowViews（整窗视图清单）", () => {
       expect(isFullWindowView(view)).toBe(true)
     }
     const admitted = [
-      "skillLibrary", "writingSkillLibrary", "writingStyleLibrary", "skillFavorites",
+      "skillLibrary", "writingSkillLibrary", "writingStyleLibrary", "characterSoulLibrary", "skillFavorites",
       "soul", "bookAnalysis", "lint", "wiki", "sources", "graph", "search",
       "reviewCenter", "storySimulation", "settings", "trash", "maintenance",
     ].filter(isFullWindowView)

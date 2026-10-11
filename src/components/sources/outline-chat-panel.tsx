@@ -244,6 +244,13 @@ import {
   outlineProvider,
 } from "@/lib/reference/providers";
 import type { ReferenceToken } from "@/lib/reference/types";
+import { collectReferencedSoulAuraIds, SOUL_SKILL_SUBTYPE } from "@/lib/reference/soul-reference";
+import {
+  beginMessageScopedSoulBinding,
+  releaseMessageScopedSoulBinding,
+  type MessageScopedSoulBinding,
+} from "@/lib/novel/message-scoped-soul-binding";
+import { useCharacterSoulReference } from "@/components/chat/use-character-soul-reference";
 import { useChatStore } from "@/stores/chat-store";
 import { AgentRunner } from "@/lib/agent/runner";
 import {
@@ -2256,6 +2263,22 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     return routed.length > 0 ? routed : writingSkills;
   }, [writingSkills]);
 
+  /*
+   * 丁-4：角色灵魂引用。
+   *
+   * ⚠️ 与「文风」相反，本面板**有**灵魂的消费者：`contextHub.prepare` 建出的
+   * `contextPack.characterAuras` 会进 `buildContextHubSystemContent`，
+   * 也会进 `buildScopedOutlineSubAgentContext` 的 `character` 分支
+   * （那一支题名就是「角色气质」）。所以「@ 一条灵魂」在这里不是死条目，
+   * 它真的会改变本次大纲/细纲生成看到的东西 —— 代价是它同样会带上
+   * `portablePersonalities` 的 fail-closed 断言（见确认弹窗里的说明）。
+   */
+  const {
+    souls: characterSouls,
+    requestSoulBindingTarget,
+    soulBindingDialog,
+  } = useCharacterSoulReference({ projectPath: project?.path ?? undefined });
+
   useEffect(() => {
     if (pendingReferenceTokens.length === 0) return;
     const tokens = consumePendingReferenceTokens();
@@ -2294,7 +2317,18 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           stages: skill.stages,
           modes: skill.modes,
         }))
-        return [...deAiSkills, ...writingSkillList]
+        /*
+         * 灵魂条目（丁-4）：与文风不同，本面板**有**消费者
+         * （`contextPack.characterAuras` → `buildContextHubSystemContent` 与
+         * `buildScopedOutlineSubAgentContext`），所以这里必须注入。
+         * ⚠️ 注入条目 ≠ 已绑定：写盘那一步在 `handleSend` 里、用户确认之后。
+         */
+        const soulEntries = characterSouls.map((soul) => ({
+          id: soul.id,
+          name: soul.name,
+          subtype: SOUL_SKILL_SUBTYPE,
+        }))
+        return [...deAiSkills, ...writingSkillList, ...soulEntries]
       }),
       createChatHistoryProvider(() =>
         chatConversations.map((conversation) => ({
@@ -2309,7 +2343,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         })),
       ),
     ],
-    [chatConversations, conversations, deAiSkillConfig, outlineWritingSkills],
+    [characterSouls, chatConversations, conversations, deAiSkillConfig, outlineWritingSkills],
   );
 
   // 加载持久化的历史记录
@@ -3229,6 +3263,66 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       });
       if (forceRefreshNext) {
         setForceRefreshNext(false);
+      }
+      /*
+       * 丁-4：本条消息 `@` 引用的**角色灵魂** → 本条消息的临时绑定。
+       *
+       * ⚠️ 位置是本段的关键：必须在 `addMessage(convId, userMsg)` **之前**。
+       * 确认弹窗可能在用户取消时结束，那时一条消息都还没落地 ——
+       * 若放在消息之后，取消会留下「有提问、没有回复」的残局。
+       *
+       * 顺序：先问（`requestSoulBindingTarget`）→ 再写（`beginMessageScopedSoulBinding`）
+       * → 再走下面真正读盘组装上下文的 `contextHub.prepare`。
+       * 写盘晚于 `contextHub.prepare` 是无效的：那个调用就是读
+       * `.qmai/character-aura.json` 的地方，晚一步这条灵魂进不了本次上下文。
+       *
+       * 释放统一放在本函数的 `finally`（覆盖成功、抛错、中止），不去逐条 return 打补丁。
+       */
+      const referencedSoulAuraIds = collectReferencedSoulAuraIds(tokens);
+      if (referencedSoulAuraIds.length > 1) {
+        toast.info(
+          `一条消息只能引用一条角色灵魂（本次引用了 ${referencedSoulAuraIds.length} 条）。请删掉多余的灵魂引用再发送。`,
+          { dedupeKey: `outline-soul-multi:${capturedConvId}` },
+        );
+        return { started: false, sent: false };
+      }
+      let messageSoulBinding: MessageScopedSoulBinding | null = null;
+      const releaseMessageSoulBinding = async () => {
+        const binding = messageSoulBinding;
+        messageSoulBinding = null;
+        if (!binding) return;
+        try {
+          await releaseMessageScopedSoulBinding(normalizePath(project.path), binding);
+          // 绑定表没有 zustand 镜像，界面只能靠 dataVersion 触发重新读盘。
+          useWikiStore.getState().bumpDataVersion();
+        } catch (error) {
+          // 没还回去是用户必须知道的状态，不静默吞。
+          toast.error(
+            error instanceof Error && error.message ? error.message : "还原临时角色灵魂绑定失败",
+            { title: "临时角色灵魂绑定未还原", persistent: true, dedupeKey: `outline-soul-release:${capturedConvId}` },
+          );
+        }
+      };
+      if (referencedSoulAuraIds.length === 1) {
+        const referencedAuraId = referencedSoulAuraIds[0];
+        const targetCharacterName = await requestSoulBindingTarget(referencedAuraId);
+        // `null` = 用户取消：直接中止，绝不用默认人物顶上。
+        if (!targetCharacterName) return { started: false, sent: false };
+        try {
+          messageSoulBinding = await beginMessageScopedSoulBinding(normalizePath(project.path), {
+            auraId: referencedAuraId,
+            characterName: targetCharacterName,
+          });
+        } catch (error) {
+          // 「请先在大纲中添加人物小传或人物设定，再绑定角色灵魂」这类原话原样转达。
+          toast.error(
+            error instanceof Error && error.message ? error.message : "绑定角色灵魂失败，请稍后重试",
+            { title: "角色灵魂绑定失败", persistent: true, dedupeKey: `outline-soul-bind:${capturedConvId}` },
+          );
+          return { started: false, sent: false };
+        }
+        // 角色灵魂列表随项目内容变化：绑定后让弹窗列表重新读盘。
+        useWikiStore.getState().bumpDataVersion();
       }
       const userMsg: OutlineChatMessage = {
         id: crypto.randomUUID(),
@@ -4448,6 +4542,13 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       } finally {
         outlineConversationRunRegistry.remove(capturedConvId, controller);
         resetCapturedWorkflowStageToIdle();
+        /*
+         * 丁-4：本轮大纲生成无论成功、抛错还是被中止，都要还原临时角色灵魂绑定。
+         * 绑定是在本 try **之前**写入的，所以必须在这里兜底 —— 漏掉这一句，
+         * 一条「只对这一条消息生效」的绑定会永久留在项目里，静默改变之后所有章节的上下文。
+         * `releaseMessageSoulBinding` 幂等（先把引用置空再动盘），重复调用无害。
+         */
+        await releaseMessageSoulBinding();
       }
     },
     [
@@ -4472,6 +4573,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       finishConversationRun,
       failConversationRun,
       outlineWorkflowStage,
+      requestSoulBindingTarget,
     ],
   );
 
@@ -6894,6 +6996,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }}
           onClose={() => setReferencePickerOpen(false)}
         />
+        {/* 丁-4：`@某人灵魂` 的确认步骤。打开时 `handleSend` 正 await 它，
+            所以在这里取消就等于中止本次发送（此时一条消息都还没落地）。 */}
+        {soulBindingDialog}
         <OutlineWizardDialog
           open={outlineWizardOpen}
           onOpenChange={setOutlineWizardOpen}

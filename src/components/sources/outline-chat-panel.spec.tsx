@@ -695,6 +695,60 @@ describe("OutlineChatPanel controls", () => {
     expect(source).toContain("本面板的 agent 配置")
   })
 
+  /*
+   * 丁-4：与文风**相反**，角色灵魂在大纲面板**有**消费者
+   * （`contextPack.characterAuras` → `buildContextHubSystemContent` 与
+   * `buildScopedOutlineSubAgentContext`），所以这里必须注入条目。
+   *
+   * ⚠️ 同样是源码文本钉子，钉的是「注入点存在且用的是 soul 子类型」，
+   * 不是行为保证。行为面的对照在 `soul-reference.spec.ts`（产出端 ↔ 消费端契约）
+   * 与 `message-scoped-soul-binding.spec.ts`（真绑定的读写与还原）。
+   * ⚠️ 也**不能**用「含 `SOUL_SKILL_SUBTYPE`」这种弱断言：那串字面量出现在
+   * import 行上，删掉整个注入点它照样在。
+   */
+  it("在引用弹窗里注入角色灵魂条目，并把「只对这一条消息生效」的绑定接上（丁-4）", () => {
+    expect(source).toContain("const soulEntries = characterSouls.map((soul) => ({")
+    expect(source).toContain("subtype: SOUL_SKILL_SUBTYPE,")
+    expect(source).toContain("...writingSkillList, ...soulEntries")
+    // 发送前先问「绑给哪个小说人物」，并且真的写盘
+    expect(source).toContain("collectReferencedSoulAuraIds(tokens)")
+    expect(source).toContain("await requestSoulBindingTarget(referencedAuraId)")
+    expect(source).toContain("await beginMessageScopedSoulBinding(normalizePath(project.path), {")
+    // 用户取消 ⇒ 不发送（`null` 直接返回，不许拿默认人物顶上）
+    expect(source).toContain("if (!targetCharacterName) return { started: false, sent: false };")
+  })
+
+  /*
+   * 丁-4 最重的一条：临时绑定必须在 `finally` 里还原。
+   *
+   * 这条**是**行为面的缺口（大纲面板的生成链在 jsdom 里跑不通），所以用源码形状钉住。
+   * 断言的是「这一行落在 handleSend 生成块的那个 `finally` 里」这个**位置关系**：
+   * 只断言「源码含 `releaseMessageSoulBinding`」是不够的 —— 把它挪到 try 末尾
+   * （只有生成成功才还原）时那种弱断言照样通过，而生成失败就会把一条临时绑定
+   * 永久留在项目里，静默改变之后所有章节的上下文。
+   */
+  it("在大纲面板的生成块 finally 里还原临时角色灵魂绑定（丁-4）", () => {
+    const releaseIndex = source.indexOf("await releaseMessageSoulBinding();")
+    expect(releaseIndex, "应有还原临时绑定的一行").toBeGreaterThan(-1)
+
+    // 往前最近的一个 `} catch (err) {` 与 `} finally {`：二者必须成对夹住这一行，
+    // 且 catch 在前、finally 在后（否则说明这一行跑到了 try 体内）。
+    const catchIndex = source.lastIndexOf("} catch (err) {", releaseIndex)
+    const finallyIndex = source.lastIndexOf("} finally {", releaseIndex)
+    expect(catchIndex, "应有生成块的 catch").toBeGreaterThan(-1)
+    expect(finallyIndex, "应有生成块的 finally").toBeGreaterThan(catchIndex)
+    expect(finallyIndex, "finally 必须在还原那一行之前").toBeLessThan(releaseIndex)
+
+    // 认准这就是 handleSend 的生成块：它的 catch 里带着那条失败返回值。
+    expect(source.slice(catchIndex, finallyIndex)).toContain("return { started: true, sent: false };")
+    // 这个 finally 块里除了还原，还应该有本函数原有的清理（证明块的范围没被挪动）。
+    const finallyBody = source.slice(finallyIndex, releaseIndex)
+    expect(finallyBody).toContain("outlineConversationRunRegistry.remove(capturedConvId, controller)")
+    expect(finallyBody, "还原不许出现在嵌套的第二个 try 里").not.toContain("try {")
+    // 块必须在还原之后闭合，否则它还在 try 里。
+    expect(source.indexOf("\n      }", releaseIndex)).toBeGreaterThan(releaseIndex)
+  })
+
   it("keeps outline generation menu in the reference input footer before model selection", () => {
     expect(source).toContain("leftFooterControls={")
     expect(source).not.toContain("qmai-outline-bottom-left-controls")

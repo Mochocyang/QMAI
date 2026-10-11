@@ -35,6 +35,9 @@ const wikiState = {
   setSelectedFile: vi.fn(),
   // 丙-4c：分步引导教程在「显示即记 seen」时要写 novelConfig。
   setNovelConfig: vi.fn(),
+  // 丁-4：临时角色灵魂绑定写入/还原后靠 dataVersion 触发重新读盘。
+  // chat-panel 会直接调它，缺了这个属性就是一条 TypeError（不是断言失败）。
+  bumpDataVersion: vi.fn(),
 }
 
 const mockRegistry = {
