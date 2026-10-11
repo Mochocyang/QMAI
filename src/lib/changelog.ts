@@ -44,6 +44,37 @@ const FOUR_POINT_TWO_ZERO_CHANGELOG: ChangelogEntry = {
   },
 };
 
+const FOUR_POINT_THREE_ZERO_CHANGELOG: ChangelogEntry = {
+  version: "4.3.0",
+  date: "2026-10-11",
+  highlights: {
+    en: [
+      "[Chapter Co-Creation] The AI workflow mode adds a fourth option, Co-Creation, next to Fast, Standard and Strict. Before writing anything it offers three or four candidate directions for the chapter together with a discussion summary of at least 180 characters, and it produces no body text until you settle on one — useful when you know roughly what should happen but not how to open it. If the co-creation round cannot run, it falls back to Standard instead of failing.",
+      "[Character Skills] The skill library gains a Character Skills tab that builds itself from the chapters you write: as each chapter is ingested, the characters in it are learned into structured entries. A tier decides how much space a character gets in the writing prompt — leads, antagonists and mentors are filed from their very first appearance, whereas a name with no stated role has to appear three times before it is filed as a supporting character, so characters mentioned once in passing are filtered out. A character absent for ten chapters goes dormant rather than accumulating forever.",
+      "[Event Outline] A new event-outline step turns your story into four to eight concrete events, each carrying two to five points and at least 150 characters of substance, through a guided wizard. The finished outline can be turned straight into chapter body text, so a plan that used to live only in your head becomes something the writing stage can actually use.",
+      "[Stage Scenarios] The story-simulation room gains a character-dialogue aid. You pick three to five characters who already exist in your book, choose whether the moderator is you or one of them, and describe the situation — a reference point such as a specific work is allowed. The moderator opens, the characters then speak in turns and must each respond to the previous speaker, so the exchange has back-and-forth rather than a series of monologues. You can cut in at any time to steer the next round, and the whole thing is governed by a cost guardrail: once the estimated request count passes the threshold, the panel asks you to confirm before it spends anything. The result can be copied in full or inserted into a chapter.",
+      "[Style Library, Applied Per Generation] The skill library gains a Style tab, and referencing a style with @ in the input box is now genuinely wired into that generation's override channel rather than editing a global setting — the sampled style applies to the piece you are about to write and leaves your defaults untouched.",
+      "[Character Soul References] The skill library gains a Character Soul tab, and @ in the input box resolves to a character soul and truly binds it to a character in your novel, so the reference reaches the prompt as a real binding instead of plain text.",
+      "[Body Text Made To Sound Less Machine-Written] Body-text generation prompts now carry hard anti-AI-tone constraints, and the revision stage gets a companion boundary so that fixing tone cannot smuggle in new tells or touch anything outside the reported list. The constraints are verified to be present in the real generation path and in event-outline-to-prose, not merely defined in a module nobody calls.",
+      "[One Entry For The Whole Skill Library] De-AI-tone skills, writing skills, styles, character souls, character skills and favourites now live as six tabs behind the single skill-library icon in the sidebar, so the rail no longer grows a separate entry for every kind of skill.",
+      "[Sidebar Bottom] Settings and Appearance move to the bottom of the sidebar, leaving only Switch Novel in the icon rail, and the Appearance menu is no longer clipped by the bottom edge of the window.",
+      "[Step-By-Step Tutorial] The first time you open the AI chat, a step-by-step tutorial appears once and walks through the outline, the editor, draft isolation and the writing assistant; a button beside it brings it back whenever you want it again.",
+    ],
+    zh: [
+      "【章节共创】AI 工作流模式在「快速 / 标准 / 严格」之外新增「共创」。它不急着写正文，而是先给出 3 到 4 个章节方向候选和一段不少于 180 字的讨论小结，等你定下一个方向才落笔 —— 适合「知道大概要发生什么，但不知道怎么写」的情况。共创这一轮如果跑不起来，会退回标准模式，而不是直接失败。",
+      "【人物 Skill】技能库新增「人物 Skill」，它会随着你写的章节自己长出来：每摄取一章，就把这一章里的人物学成结构化条目。档位决定这个人物在写作提示词里占多少篇幅 —— 主角、反派、导师这类有明确定位的，首次出场就建档；没有定位的名字要出场满 3 次才按配角建档，所以「一笔带过的路人」会被这个门槛滤掉。连续 10 章没出场的人物转入休眠，不会一直堆积。",
+      "【事件细纲】新增事件细纲环节，通过分步向导把你的故事拆成 4 到 8 个具体事件，每个事件带 2 到 5 个要点、不少于 150 字的实质内容。定稿后的细纲可以直接转成章节正文，原先只停在脑子里的构想因此变成了写作阶段真正能用的东西。",
+      "【舞台情景】剧情推演室里新增人物对话辅助。你从书里已有的角色中挑 3 到 5 名同台，指定主持人是你自己还是其中某个角色，再描述情景 —— 还可以指定参考点（比如某部作品）。主持人开场后，角色逐一轮流发言，且必须回应上一位发言者，所以是有来有回的对白，不是各说各话的独白。你随时可以插话引导下一轮。整套流程带成本护栏：预估请求数超过阈值时，面板会先让你确认再消耗。结果可以复制全部，也可以直接插入到某一章。",
+      "【文风库与「本次生效」】技能库新增「文风」。在输入框用 @ 引用文风，现在会真正接入「本次生成」的覆盖通道，而不是去改一个全局设置 —— 采到的文风只作用于你即将写的这一篇，你自己的默认设置不受影响。",
+      "【角色灵魂 @ 引用】技能库新增「角色灵魂」。在输入框用 @ 引用角色灵魂，会真绑定到小说里的某个人物，引用是以真实绑定的形式进入提示词，而不是当成一段普通文字。",
+      "【正文去 AI 味】正文生成的提示词加入反 AI 腔硬约束，修订阶段再配一条边界，确保「去 AI 味」这件事不会顺手引入新的 AI 腔、也不会去动问题清单之外的内容。这些约束经核实确实出现在真实生成链路里（含事件细纲转正文），不是只定义在某个没人调用的模块里。",
+      "【技能库并入一个入口】去AI味技能、写作 Skill、文风、角色灵魂、人物 Skill、收藏，现在是同一个技能库图标下的六个 tab，侧栏不再为每一种技能各长一个入口。",
+      "【侧栏底栏】「设置」与「外观」移到侧栏底部，图标栏只保留「切换小说」；「外观」菜单也不再被窗口底边裁切。",
+      "【分步使用教程】首次进入 AI 对话时会自动显示一次分步使用教程，把目录、编辑器、草稿隔离和写作助手讲一遍；旁边的按钮可以随时重新查看。",
+    ],
+  },
+};
+
 const FOUR_POINT_TWO_ONE_CHANGELOG: ChangelogEntry = {
   version: "4.2.1",
   date: "2026-10-10",
@@ -1855,6 +1886,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_THREE_ZERO_CHANGELOG.version)
+    return [FOUR_POINT_THREE_ZERO_CHANGELOG];
   if (version === FOUR_POINT_TWO_ONE_CHANGELOG.version)
     return [FOUR_POINT_TWO_ONE_CHANGELOG];
   if (version === FOUR_POINT_TWO_ZERO_CHANGELOG.version)
@@ -2018,6 +2051,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_THREE_ZERO_CHANGELOG,
     FOUR_POINT_TWO_ONE_CHANGELOG,
     FOUR_POINT_TWO_ZERO_CHANGELOG,
     FOUR_POINT_ONE_TWO_CHANGELOG,

@@ -6,7 +6,21 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 5)).toEqual(["4.2.1", "4.2.0", "4.1.2", "4.1.1", "4.1.0"])
+    expect(versions.slice(0, 5)).toEqual(["4.3.0", "4.2.1", "4.2.0", "4.1.2", "4.1.1"])
+    const release430 = currentVersionChangelog("4.3.0")[0]
+    expect(release430.version).toBe("4.3.0")
+    expect(release430.date).toBe("2026-10-11")
+    expect(release430.highlights.zh.join("\n")).toContain("章节共创")
+    expect(release430.highlights.zh.join("\n")).toContain("人物 Skill")
+    expect(release430.highlights.zh.join("\n")).toContain("事件细纲")
+    expect(release430.highlights.zh.join("\n")).toContain("舞台情景")
+    expect(release430.highlights.zh.join("\n")).toContain("正文去 AI 味")
+    expect(release430.highlights.zh.join("\n")).toContain("角色灵魂 @ 引用")
+    expect(release430.highlights.en.join("\n")).toContain("Chapter Co-Creation")
+    expect(release430.highlights.en.join("\n")).toContain("Character Skills")
+    expect(release430.highlights.en.join("\n")).toContain("Event Outline")
+    expect(release430.highlights.en.join("\n")).toContain("Stage Scenarios")
+    expect(release430.highlights.en).toHaveLength(release430.highlights.zh.length)
     const release421 = currentVersionChangelog("4.2.1")[0]
     expect(release421.version).toBe("4.2.1")
     expect(release421.date).toBe("2026-10-10")
