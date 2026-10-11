@@ -26,7 +26,7 @@ export function ConversationHistoryClearDialog({
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onCancel() }}>
-      <DialogContent showCloseButton={false}>
+      <DialogContent className="sm:max-w-sm" showCloseButton={false}>
         <DialogHeader>
           <DialogTitle>{t("chat.clearHistoryTitle")}</DialogTitle>
           <DialogDescription>{t("chat.clearHistoryDescription", { count })}</DialogDescription>

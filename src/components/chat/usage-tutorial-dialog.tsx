@@ -111,7 +111,7 @@ export function UsageTutorialDialog({ open, onOpenChange }: UsageTutorialDialogP
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="ui-test-usage-tutorial">
+      <DialogContent className="ui-test-usage-tutorial sm:max-w-[440px]">
         <DialogHeader>
           <DialogTitle>{current.title}</DialogTitle>
           <DialogDescription>{current.body}</DialogDescription>

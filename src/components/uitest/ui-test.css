@@ -332,9 +332,15 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 .ui-test-btn.primary { background: var(--ui-accent); color: var(--ui-on-accent); }
 .ui-test-btn.ghost { background: none; }
 .ui-test-btn:hover { filter: brightness(.97); }
-/* Portal不在根节点内：只由测试版html标识接收皮肤，不污染正式版。 */
+/* Portal不在根节点内：只由测试版html标识接收皮肤，不污染正式版。
+   ⚠️ 本规则**不得**声明 max-width。它没有 package 进任何 @layer，而 Tailwind 宽度类都在
+   @layer utilities 里；CSS 中未分层的样式优先于任何 layer，早于特异性比较。所以此处一旦写下
+   max-width，就会压过**每一个**弹窗自己的宽度类，把全部弹窗撑成视口宽（旧值
+   `calc(100vw - 32px)` 正是如此）。宽度请写在各自的 DialogContent 上。
+   注意：UiTestShell 是正式外壳（App.tsx 恒以它渲染），因此 data-ui-test-skin 在正式版里
+   一直存在，这条规则确实作用于正式版，不是仅供测试版。 */
 html[data-ui-test-skin] [data-slot="dialog-overlay"], html[data-ui-test-skin] [data-slot="alert-dialog-overlay"] { background: #18251d2e; backdrop-filter: blur(3px); }
-html[data-ui-test-skin] [data-slot="dialog-content"], html[data-ui-test-skin] [data-slot="alert-dialog-content"] { font-family: var(--ui); color: var(--ui-ink); background: var(--ui-paper); max-height: min(88dvh, calc(100dvh - 32px)); max-width: calc(100vw - 32px); border: 0; border-radius: 18px; box-shadow: 0 24px 90px #18251d26; --tw-ring-shadow: 0 0 #0000; padding: 28px; display: flex; flex-direction: column; gap: 20px; overflow: hidden; }
+html[data-ui-test-skin] [data-slot="dialog-content"], html[data-ui-test-skin] [data-slot="alert-dialog-content"] { font-family: var(--ui); color: var(--ui-ink); background: var(--ui-paper); max-height: min(88dvh, calc(100dvh - 32px)); border: 0; border-radius: 18px; box-shadow: 0 24px 90px #18251d26; --tw-ring-shadow: 0 0 #0000; padding: 28px; display: flex; flex-direction: column; gap: 20px; overflow: hidden; }
 html[data-ui-test-skin] [data-slot="dialog-header"] { flex-shrink: 0; padding-right: 22px; }
 html[data-ui-test-skin] [data-slot="dialog-title"] { font: 500 1.375rem/1.45 var(--serif); color: var(--ui-ink); }
 html[data-ui-test-skin] [data-slot="dialog-description"] { color: var(--ui-muted); line-height: 1.7; font-size: 0.8125rem; }

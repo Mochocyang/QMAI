@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from "react"
+import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { ArrowLeft, Check, Copy, Download, FileText, BookOpen, Pencil, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -281,7 +281,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
         if (!open) handleCloseDialog()
         else setShowImportDialog(true)
       }}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-[560px]">
           <DialogHeader>
             <DialogTitle>
               {importResult ? "导入成功" : "导入草稿到章节库"}
@@ -463,7 +463,7 @@ export function StoryDraftView({ onBack }: StoryDraftViewProps) {
       <Dialog open={editingChapterIdx !== null} onOpenChange={(open) => {
         if (!open) cancelEdit()
       }}>
-        <DialogContent className="max-h-[90vh] max-w-3xl">
+        <DialogContent className="max-h-[90vh] sm:max-w-[768px]">
           <DialogHeader>
             <DialogTitle>编辑章节</DialogTitle>
             <DialogDescription>

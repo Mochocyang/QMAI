@@ -241,7 +241,7 @@ export function SavedModelsManager({
       )}
 
       <Dialog open={dialogOpen} onOpenChange={(open) => open ? setDialogOpen(true) : closeDialog()}>
-        <DialogContent className="max-w-2xl model-editor-dialog">
+        <DialogContent className="model-editor-dialog sm:max-w-[680px]">
           <DialogHeader>
             <DialogTitle>
               {editingId

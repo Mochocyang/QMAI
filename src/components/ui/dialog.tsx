@@ -45,7 +45,15 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          /*
+           * 这里**不得**写任何 Tailwind max-w 宽度类（曾经是 sm:max-w-sm）。
+           * Tailwind v4 把变体工具类排在无变体之后，而任意值 `sm:max-w-[Npx]` 又排在具名
+           * `sm:max-w-sm` 之前（同层比顺序）。所以基础类一旦带上 sm:max-w-sm，它就会恒胜，
+           * 把每个弹窗自己写的宽度类全部压成 384px —— 那些类会变成死代码。
+           * 弹窗默认宽度不设上限由基础类的 max-w-[calc(100%-2rem)] 兜底，具体宽度写在各自的
+           * DialogContent 上。守卫见 uitest/ui-test-dialog-width.spec.ts。
+           */
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}

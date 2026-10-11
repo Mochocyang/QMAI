@@ -62,7 +62,7 @@ export function CharacterSelectionPanel(props: CharacterSelectionPanelProps) {
   const selectedCount = selectedIds.length
   return (
     <Dialog open onOpenChange={(o) => !o && dismiss()}>
-      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+      <DialogContent className="max-h-[80vh] flex flex-col sm:max-w-[672px]">
         <DialogHeader>
           <DialogTitle>识别出 {characters.length} 个角色，请选择</DialogTitle>
         </DialogHeader>
