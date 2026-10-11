@@ -136,12 +136,6 @@ export function ContentArea() {
           </Suspense>
         );
         break;
-        content = (
-          <Suspense fallback={<LoadingView />}>
-            <UnifiedSkillLibraryView />
-          </Suspense>
-        );
-        break;
       case "lint":
         content = (
           <Suspense fallback={<LoadingView />}>
