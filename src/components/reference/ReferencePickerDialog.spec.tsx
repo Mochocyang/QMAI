@@ -336,6 +336,39 @@ describe("ReferencePickerDialog", () => {
   })
 
   /*
+   * 子 tab 的**逃生口**：技能列表整体为空时（还没加载完，或库确实是空的）保留全部子 tab。
+   *
+   * ⚠️ 这条是**变异逼出来的**：把 `items.length === 0 ? SKILL_SUBTABS : ...` 的逃生口去掉
+   * （恒走过滤分支），上面 8 条用例全绿 —— 因为没有任何用例跑过「空技能库」。
+   * 代价是加载中/空库时子 tab 会先消失再出现（闪一下），
+   * 而且会把「库里一条都没有」表达成「没有这个子类型」。
+   */
+  it("技能库整体为空时仍摆出全部子 tab（不闪、也不谎称「没有这个子类型」）", async () => {
+    const emptySkillProviders: ReferenceProvider[] = [
+      { category: "skill", fetchItems: vi.fn(async () => []) },
+    ]
+
+    await act(async () => {
+      root.render(
+        <ReferencePickerDialog
+          open
+          defaultTab="skill"
+          providers={emptySkillProviders}
+          projectPath="C:/Novel"
+          onConfirm={vi.fn()}
+          onClose={vi.fn()}
+        />,
+      )
+    })
+    await flush()
+
+    expect(host.textContent).toContain("暂无内容")
+    expect(host.textContent).toContain("去AI味技能")
+    expect(host.textContent).toContain("写作Skill")
+    expect(host.textContent).toContain("文风")
+  })
+
+  /*
    * 子 tab 的可用性只看**有没有条目**，与用户当前的搜索词无关：
    * 搜索是用户当下的筛选，不该让子 tab 随关键词出现/消失。
    */
