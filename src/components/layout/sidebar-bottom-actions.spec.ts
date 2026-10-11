@@ -34,10 +34,21 @@ describe("sidebar-bottom-actions", () => {
     expect(source).not.toContain("THEME_OPTIONS")
   })
 
-  it("opens the skin menu in a portal above the trigger", () => {
+  it("设置靠左、外观靠右对齐", () => {
+    expect(source).toContain("items-center justify-start")
+    expect(source).toContain("items-center justify-end")
+  })
+
+  it("opens the skin menu in a portal, anchored by its bottom above the trigger", () => {
     expect(source).toContain("createPortal")
     expect(source).toContain("document.body")
-    expect(source).toContain("rect.top - menuHeight - 6")
+    // 以底边锚定 + 覆盖 .ui-test-menu-pop 的 absolute/top/right，避免菜单被窗口底边裁掉
+    expect(source).toContain('position: "fixed"')
+    expect(source).toContain('top: "auto"')
+    expect(source).toContain('right: "auto"')
+    expect(source).toContain("bottom: menuStyle.bottom")
+    expect(source).toContain("maxHeight")
+    expect(source).not.toContain("rect.top - menuHeight")
   })
 
   it("皮肤菜单不拖动窗口（沿用顶栏那条约束）", () => {
