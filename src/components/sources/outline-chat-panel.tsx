@@ -2268,6 +2268,15 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       memoryProvider,
       outlineProvider,
       deductionProvider,
+      /*
+       * ⚠️ 这里**故意不**加「文风」子类型的条目（丁-3）：本面板的 agent 配置
+       * 从不提供 `runDeepChapterGeneration` / `getWritingStyleIdOverride`
+       * （见本文件所有 `buildAgentConfig` 调用），所以 `run_chapter_workflow`
+       * 这个工具根本不会被注册，`@` 一条文风在**生成链上没有任何消费者** ——
+       * 加进去就是一个「看着接上、其实断开」的死条目，正是丁-3 存在的理由。
+       * 大纲/细纲不写正文，文风覆盖对它也没有语义。
+       * ⇒ 文风条目只在 `chat-panel.tsx` 的 getter 里注入（那里有覆盖通道的产出端）。
+       */
       createSkillProvider(() => {
         const deAiSkills = deAiSkillConfig
           ? resolveAvailableDeAiSkills(deAiSkillConfig).map((skill) => ({

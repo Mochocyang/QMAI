@@ -43,6 +43,7 @@ import {
   setEnabledWritingStyle,
   upsertWritingStylePreset,
 } from "./writing-style-store"
+import { collectReferencedStylePresetIds } from "@/lib/reference/style-reference"
 import { contextPackToPrompt, type ContextPack } from "./context-engine"
 import {
   runDeepChapterGeneration,
@@ -530,5 +531,49 @@ describe("测量 1 + 2：覆盖生效且不并存 / 项目设置未被写盘", (
       task: expect.stringContaining("生成第三章"),
       styleIdOverride: "style-a",
     })
+  })
+})
+
+/*
+ * 丁-3：输入框 `@` 引用 → 覆盖 id → **真的进本次生成的提示词**。
+ *
+ * 上游那一半（引用弹窗里的条目、芯片、发送时写进 getter）在
+ * `chat-panel.mount.spec.tsx`；这里把 id 的来源换成**引用 token**，
+ * 于是「用户 @ 了一条文风」与「本次提示词里出现的是那条文风」之间
+ * 只剩 `collectReferencedStylePresetIds` + `writingStyleIdOverride` 两个环节，
+ * 都在这个用例里。硬写 `a.id`（本文件前面的用例）测不到解析那一环。
+ */
+describe("丁-3：@ 引用的文风经覆盖通道进入本次提示词", () => {
+  it("引用 A ⇒ 提示词里只有 A，项目启用的 B 一个字都不出现", async () => {
+    const { a } = await seedTwoStyles(makeProfile(), makeProfile())
+    const pack: ContextPack = { ...basePack, writingStyle: await buildWritingStyleContext(PROJECT) }
+    const { deps, prompts } = createDeps(pack)
+
+    // token 形状与引用弹窗产出的一致（`skillId` 是预设 id，见 style-reference.ts）
+    const referencedPresetId = collectReferencedStylePresetIds([{
+      id: "ref-1",
+      category: "skill",
+      title: "甲书 · 文风",
+      skillId: a.id,
+      skillSubtype: "style",
+      displayTitle: "甲书 · 文风",
+    }])[0]
+    expect(referencedPresetId, "引用必须解析出预设 id，否则下面测的是「没有覆盖」").toBe(a.id)
+
+    await runDeepChapterGeneration(
+      {
+        projectPath: PROJECT,
+        userRequest: "生成第三章",
+        chapterNumber: 3,
+        llmConfig,
+        writingStyleIdOverride: referencedPresetId,
+      },
+      {},
+      deps,
+    )
+
+    const allPrompts = prompts.join("\n")
+    expect(allPrompts).toContain("《甲书A》")
+    expect(allPrompts).not.toContain("《乙书B》")
   })
 })

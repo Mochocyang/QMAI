@@ -7,6 +7,7 @@ import type { Conversation } from "@/stores/chat-store"
 import { useChatStore } from "@/stores/chat-store"
 import { chatConversationRunRegistry } from "@/lib/conversation-run-registry"
 import { createDirectory, deleteFile, readFile, writeFileAtomic } from "@/commands/fs"
+import type { ReferenceToken } from "@/lib/reference/types"
 
 const breakpoint = {
   taskId: "task_resume_1",
@@ -424,5 +425,236 @@ describe("ChatPanel 的「文风写作」产出端", () => {
       "一次都不该为文风库建目录",
     ).toEqual([])
     await view.unmount()
+  })
+})
+
+/*
+ * 丁-3「输入框引用」：`@` 一条文风必须真的接上丁-2 的覆盖通道
+ * （`getWritingStyleIdOverride` → `run_chapter_workflow` → `DeepChapterGenerationInput`）。
+ *
+ * 为什么这组必须是**真实 UI 路径**：产出端（引用弹窗里的条目）和消费端
+ * （`handleSend` / getter）隔着整个 UI，任何一侧换字段都**没有编译错误**，
+ * 只会静默变成「弹窗里能选、生成时没有任何覆盖」——本仓库已经有过这种死通道。
+ * 下游那半程（getter → 生成输入、以及真的进了提示词）由
+ * `run-chapter-workflow.spec.ts` 与 `writing-style-override.spec.ts` 钉住。
+ *
+ * 用例统一用 `aiWorkflowMode: "fast"`：跳过 novel pre-plugin 链，
+ * 让每个用例只依赖被测的那条通道（快且不依赖磁盘 mock 的细节）。
+ */
+describe("ChatPanel 的「@ 引用文风」消费端（丁-3）", () => {
+  const styleStore = JSON.stringify({
+    version: 1,
+    enabledStyleId: "style-b",
+    styles: [
+      { id: "style-a", name: "甲书 · 文风", sourceBook: "甲书", profile: { schemaVersion: 1 }, createdAt: 1, updatedAt: 1 },
+      { id: "style-b", name: "乙书 · 文风", sourceBook: "乙书", profile: { schemaVersion: 1 }, createdAt: 1, updatedAt: 1 },
+    ],
+  })
+
+  /** 取最近一次 useAgentConfig 调用交出去的第 4 个参数（= 文风覆盖 getter）。 */
+  function writingStyleGetter(): () => string | null | undefined {
+    const args = agentConfigArgs.at(-1)
+    expect(args, "useAgentConfig 应已被调用").toBeDefined()
+    expect(args?.[3], "第 4 个参数应是文风覆盖 getter").toBeTypeOf("function")
+    return args![3] as () => string | null | undefined
+  }
+
+  /** 文风条目在 token 上的形状必须与 `createSkillProvider` 的透传一致。 */
+  function styleReferenceToken(id: string, presetId: string, name: string): ReferenceToken {
+    return {
+      id,
+      category: "skill",
+      title: name,
+      skillId: presetId,
+      skillSubtype: "style",
+      displayTitle: name,
+    }
+  }
+
+  async function enqueueReferences(tokens: ReferenceToken[]) {
+    await act(async () => {
+      useChatStore.setState({ pendingReferenceTokens: tokens })
+    })
+    await flushEffects()
+    await flushEffects()
+  }
+
+  async function typePrompt(container: HTMLElement, text: string) {
+    const input = container.querySelector<HTMLTextAreaElement>('[aria-label="引用输入框"]')
+    expect(input, "应有引用输入框").not.toBeNull()
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLTextAreaElement.prototype,
+        "value",
+      )?.set
+      valueSetter?.call(input, text)
+      input!.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+  }
+
+  async function sendMessage(container: HTMLElement) {
+    const sendButton = container.querySelector<HTMLButtonElement>('[aria-label="发送消息"]')
+    expect(sendButton, "应有发送按钮").not.toBeNull()
+    expect(sendButton?.disabled, "发送按钮应可用").toBe(false)
+    await click(sendButton)
+    await flushEffects()
+  }
+
+  /** 等这一次运行结束；同会话的第二次发送会被 `canStartConversationRun` 挡住。 */
+  async function waitForRunSettled(conversationId: string) {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if (useChatStore.getState().runStates[conversationId]?.status !== "running") return
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+    throw new Error(`会话 ${conversationId} 的运行没有在预期轮数内结束`)
+  }
+
+  /** 打开引用弹窗 → 「技能库」分类 → 「文风」子 tab，返回弹窗元素。 */
+  async function openStyleSubtab(container: HTMLElement) {
+    await click(container.querySelector('[aria-label="引用内容"]'))
+    await flushEffects()
+    await flushEffects()
+
+    const dialogFor = () => {
+      const dialog = container.querySelector<HTMLElement>('[data-ui-reference="dialog"]')
+      expect(dialog, "引用弹窗应已打开").not.toBeNull()
+      return dialog!
+    }
+    const findButton = (text: string) => Array.from(dialogFor().querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.trim() === text)
+
+    const skillTab = findButton("技能库")
+    expect(skillTab, "弹窗应有「技能库」分类").toBeDefined()
+    await click(skillTab!)
+    await flushEffects()
+    await flushEffects()
+
+    const styleSubtab = findButton("文风")
+    expect(styleSubtab, "技能库下应有「文风」子 tab").toBeDefined()
+    await click(styleSubtab!)
+    await flushEffects()
+    await flushEffects()
+    return dialogFor()
+  }
+
+  let activeView: Awaited<ReturnType<typeof renderChatPanel>> | null = null
+
+  afterEach(async () => {
+    // 断言失败时测试会直接抛出、跳过用例末尾的 unmount；而没卸载的面板还订阅着
+    // `pendingReferenceTokens`，会把下一条用例的引用抢走（实测：M-DEAD 变异下
+    // 冲突用例的红是这条级联造成的，不是它自己的断言）。所以统一在这里兜底卸载。
+    if (activeView) {
+      await activeView.unmount()
+      activeView = null
+    }
+    vi.mocked(readFile).mockImplementation(async () => "")
+    useChatStore.setState({ pendingReferenceTokens: [] })
+  })
+
+  async function renderPanel() {
+    vi.mocked(readFile).mockImplementation(async (path: string) =>
+      path.includes("writing-style.json") ? styleStore : "")
+    activeView = await renderChatPanel({ activeConversation: true, aiWorkflowMode: "fast" })
+    await flushEffects()
+    await flushEffects()
+    return activeView
+  }
+
+  it("从「文风」子 tab 引用一条文风并发送：getter 返回该预设 id", async () => {
+    const view = await renderPanel()
+
+    // 发送前：没有任何覆盖
+    expect(writingStyleGetter()()).toBeUndefined()
+
+    const dialog = await openStyleSubtab(view.container)
+    const styleRow = Array.from(dialog.querySelectorAll("label"))
+      .find((label) => label.textContent?.includes("甲书 · 文风"))
+    expect(styleRow, "「文风」子 tab 里应列出项目里的文风预设").toBeDefined()
+    await act(async () => {
+      styleRow!.querySelector<HTMLInputElement>("input[type='checkbox']")!.click()
+    })
+    const confirm = Array.from(dialog.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.includes("确认引用"))
+    await click(confirm!)
+
+    // 芯片必须真的进入输入框（引用不是直接发送）
+    const chip = view.container.querySelector('[data-reference-category="skill"]')
+    expect(chip?.textContent, "选中后应插入引用芯片").toContain("甲书 · 文风")
+
+    await typePrompt(view.container, "用这条文风写一段开头")
+    await sendMessage(view.container)
+
+    expect(
+      writingStyleGetter()(),
+      "@ 引用的文风必须成为本次生成的覆盖值",
+    ).toBe("style-a")
+
+    await waitForRunSettled("conv_mount")
+  })
+
+  it("同时引用两条不同文风：拒绝发送、保留输入，且不挑一条当赢家", async () => {
+    const view = await renderPanel()
+
+    await enqueueReferences([
+      styleReferenceToken("ref-style-a", "style-a", "甲书 · 文风"),
+      styleReferenceToken("ref-style-b", "style-b", "乙书 · 文风"),
+    ])
+    expect(view.container.querySelectorAll('[data-reference-category="skill"]')).toHaveLength(2)
+
+    await typePrompt(view.container, "用这两条文风写一段")
+    await sendMessage(view.container)
+
+    expect(view.container.textContent).toContain("一条消息只能引用一条文风")
+    expect(useChatStore.getState().messages, "拒绝发送时不得产生任何消息").toHaveLength(0)
+    expect(
+      view.container.querySelectorAll('[data-reference-category="skill"]'),
+      "拒绝发送必须保留已选引用（否则用户要重选一遍）",
+    ).toHaveLength(2)
+    expect(writingStyleGetter()(), "冲突时不许静默挑一条").toBeUndefined()
+  })
+
+  it("工具栏选了「本次不用文风」时，本条消息的 @ 引用仍然生效", async () => {
+    const view = await renderPanel()
+
+    const trigger = view.container.querySelector<HTMLButtonElement>('[data-testid="writing-style-picker-trigger"]')
+    expect(trigger, "输入工具栏应有「文风写作」选择器").not.toBeNull()
+    await click(trigger)
+    const popover = view.container.querySelector('[data-testid="writing-style-picker-popover"]')
+    const disableOption = Array.from(popover!.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent?.includes("本次不用文风"))
+    await click(disableOption!)
+    expect(writingStyleGetter()(), "「本次不用文风」= null，且不许被抹成 undefined").toBeNull()
+
+    await enqueueReferences([styleReferenceToken("ref-style-a", "style-a", "甲书 · 文风")])
+    await typePrompt(view.container, "这条消息点名用甲书文风")
+    await sendMessage(view.container)
+
+    expect(
+      writingStyleGetter()(),
+      "本条消息点名的文风必须赢过工具栏的「本次不用」——否则引用被静默丢掉",
+    ).toBe("style-a")
+
+    await waitForRunSettled("conv_mount")
+  })
+
+  it("上一条消息的 @ 文风不会漏进下一次生成", async () => {
+    const view = await renderPanel()
+
+    await enqueueReferences([styleReferenceToken("ref-style-a", "style-a", "甲书 · 文风")])
+    await typePrompt(view.container, "第一条：用甲书文风")
+    await sendMessage(view.container)
+    expect(writingStyleGetter()()).toBe("style-a")
+    await waitForRunSettled("conv_mount")
+
+    await typePrompt(view.container, "第二条：没有引用任何文风")
+    await sendMessage(view.container)
+    expect(
+      writingStyleGetter()(),
+      "发送时写回 undefined：上一条消息点名的文风不得成为下一次生成的覆盖",
+    ).toBeUndefined()
+
+    await waitForRunSettled("conv_mount")
   })
 })

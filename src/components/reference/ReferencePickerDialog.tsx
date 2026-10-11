@@ -12,6 +12,8 @@ import {
 const SKILL_SUBTABS: Array<{ key: SkillSubtype; label: string }> = [
   { key: "deai", label: "去AI味技能" },
   { key: "writing", label: "写作Skill" },
+  // 丁-3：文风预设。过滤逻辑按 skillSubtype 相等判断，故这里只加一行。
+  { key: "style", label: "文风" },
 ]
 
 interface ReferencePickerDialogProps {

@@ -169,6 +169,12 @@ interface RenderChatPanelOptions {
   runStates?: ConversationRunStates
   agentSkillConfig?: typeof defaultAgentSkillConfig | null
   taskBreakpoint?: TaskBreakpoint | null
+  /**
+   * 会话执行模式。丁-3 的用例传 `"fast"`：快速模式不跑 novel pre-plugin 链
+   * （`shouldRunNovelPrePluginChain` 的第一项），用例不再依赖真实的上下文装配，
+   * 既快又不会因为磁盘 mock 的细节而变红。不传时保持 `"standard"`（原有行为）。
+   */
+  aiWorkflowMode?: "fast" | "standard" | "strict"
 }
 
 export async function renderChatPanel(options: RenderChatPanelOptions = {}) {
@@ -178,6 +184,7 @@ export async function renderChatPanel(options: RenderChatPanelOptions = {}) {
     ? defaultAgentSkillConfig
     : options.agentSkillConfig
   mockTaskBreakpoint = options.taskBreakpoint ?? null
+  wikiState.aiWorkflowMode = options.aiWorkflowMode ?? "standard"
   agentConfigArgs.length = 0
 
   const activeConversationId = options.activeConversationId !== undefined

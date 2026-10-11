@@ -680,6 +680,21 @@ describe("OutlineChatPanel controls", () => {
     expect(source).not.toContain('from "@/components/chat/chat-input"')
   })
 
+  /*
+   * 丁-3：大纲面板**不**注入文风条目。
+   *
+   * 这是一条**有意的缺席**，不是漏做 —— 本面板的 `buildAgentConfig` 调用从不传
+   * `runDeepChapterGeneration` / `getWritingStyleIdOverride`，所以
+   * `run_chapter_workflow` 不会注册，`@` 一条文风在生成链上没有任何消费者。
+   * 加进去只会得到一个「弹窗里能选、选了没反应」的死条目。
+   * （这条是源码文本钉子：它钉住的是「没有第二处注入」这个决定，
+   * 不是一条行为保证。行为面的对照在 `style-reference.spec.ts` 与 `chat-panel.mount.spec.tsx`。）
+   */
+  it("does not offer writing-style entries in the outline reference picker（无消费者的入口不摆出来）", () => {
+    expect(source).not.toContain('subtype: "style"')
+    expect(source).toContain("本面板的 agent 配置")
+  })
+
   it("keeps outline generation menu in the reference input footer before model selection", () => {
     expect(source).toContain("leftFooterControls={")
     expect(source).not.toContain("qmai-outline-bottom-left-controls")

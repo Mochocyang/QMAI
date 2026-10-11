@@ -43,6 +43,7 @@ import {
   outlineProvider,
 } from "@/lib/reference/providers"
 import type { ReferenceToken } from "@/lib/reference/types"
+import { collectReferencedStylePresetIds, STYLE_SKILL_SUBTYPE } from "@/lib/reference/style-reference"
 import { runAiChatSession } from "@/lib/agent/ai-chat-session"
 import {
   RequiredToolFallbackError,
@@ -143,6 +144,7 @@ import { buildResultProtocolTrace } from "@/lib/novel/result-parser"
 // import type { AiCapability } from "@/lib/agent/capabilities/types"
 import { deAiSkillToUserSkill } from "@/lib/novel/de-ai-skill-library"
 import { WritingStylePicker } from "@/components/skill-library/writing-style-picker"
+import { useWritingStyleOptions } from "@/components/skill-library/use-writing-style-options"
 import {
   buildContextHubPromptParts,
   withContextHubTaskContent,
@@ -1130,7 +1132,35 @@ export function ChatPanel() {
    * 新项目启用的文风）。**届时必须对称补上重置**。
    */
   const [sessionWritingStyleId, setSessionWritingStyleId] = useState<string | null | undefined>(undefined)
-  const getWritingStyleIdOverride = useCallback(() => sessionWritingStyleId, [sessionWritingStyleId])
+  /*
+   * 丁-3「输入框引用」：本条消息**点名**的文风预设 id。
+   *
+   * 引用的语义是「这一条消息要用这条文风」，所以它在 `handleSend` 里**每次发送都重写**
+   * （没有文风引用时写回 `undefined`）。不能只在「有引用时」赋值：那样上一条消息的
+   * 点名会顺着这条通道漏进下一次生成，而两次生成之间隔着一次用户操作，
+   * 用户看不到任何提示 —— 正是本仓库反复出现的「临时值泄漏成持久行为」。
+   *
+   * ⚠️ **取值优先级（裁决）**：`@` 引用 > 工具栏选择器 > 项目启用项。
+   * 引用比选择器**窄**（绑定到具体消息）、也比选择器**新**（和这条消息一起敲进去的），
+   * 所以引用赢，**包括**选择器是 `null`（「本次不用文风」）的时候：
+   * 若让 `null` 赢，用户刚敲进去的引用会被静默丢掉，那正是本批要消灭的行为。
+   *
+   * ⚠️ 引用之间**不裁决**：`handleSend` 在两条**不同**预设的引用时直接拒绝发送
+   * （并给出可见提示），所以这里最多只会拿到一个 id。
+   *
+   * ⚠️ 这是**组件级、不是 run 级**的通道：同一个面板里 >1 个会话并发运行时，
+   * 后一次发送会改掉前一次仍在跑的 run 读到的值。本批**没有**把它变好，
+   * 也没有让它比既有的 `getSelectedSkillsPrompt`（同样在发送时写 ref、同样被 getter 读）
+   * 更糟；`ToolExecutionContext` 里没有会话 id，getter 也没有入参，所以今天做不了 per-run。
+   * 要如实知道这条性质，不要把它读成「每次生成都拿到自己那条」。
+   */
+  const runWritingStyleIdOverrideRef = useRef<string | undefined>(undefined)
+  const getWritingStyleIdOverride = useCallback(
+    () => (runWritingStyleIdOverrideRef.current !== undefined
+      ? runWritingStyleIdOverrideRef.current
+      : sessionWritingStyleId),
+    [sessionWritingStyleId],
+  )
   const {
     config: agentConfig,
     registry: agentRegistry,
@@ -1215,6 +1245,17 @@ export function ChatPanel() {
     }
     return Array.from(byId.values())
   }, [agentUserWritingSkills, agentDeAiSkills])
+  /*
+   * 丁-3：把项目里的文风预设也做成「技能库」子 tab 下的可引用条目。
+   *
+   * 复用 `useWritingStyleOptions`（文风选择器的同一个 loader）：条目形状
+   * `{id, name, description}` 正好是引用条目需要的（id = 预设 id）。
+   * 这里只传 `projectPath`，不传 `selectedSkillId` —— 本处只要「库里有哪些预设」，
+   * 选择器当前选了什么不参与引用列表。
+   */
+  const { styles: writingStylePresets } = useWritingStyleOptions({
+    projectPath: projectPath || undefined,
+  })
   const referenceProviders = useMemo(
     () => [
       chapterProvider,
@@ -1238,7 +1279,19 @@ export function ChatPanel() {
           stages: skill.stages,
           modes: skill.modes,
         }))
-        return [...deAiSkills, ...writingSkills]
+        /*
+         * 文风预设条目：`name` 就是预设名——它同时是弹窗列表的**搜索键**
+         * （`ReferencePickerDialog` 按 `title` 过滤）与芯片上的展示名，
+         * 所以不能像其它技能那样把机器名放这里。
+         * `id` 会被 `createSkillProvider` 透传成 `token.skillId`，
+         * 也就是 `collectReferencedStylePresetIds` 读回的那个预设 id。
+         */
+        const stylePresets = writingStylePresets.map((preset) => ({
+          id: preset.id,
+          name: preset.name,
+          subtype: STYLE_SKILL_SUBTYPE,
+        }))
+        return [...deAiSkills, ...writingSkills, ...stylePresets]
       }),
       createChatHistoryProvider(() =>
         conversations.map((conversation) => ({ id: conversation.id, title: conversation.title })),
@@ -1247,7 +1300,7 @@ export function ChatPanel() {
         outlineConversations.map((conversation) => ({ id: conversation.id, title: conversation.title })),
       ),
     ],
-    [agentSkillConfig, conversations, outlineConversations],
+    [agentSkillConfig, conversations, outlineConversations, writingStylePresets],
   )
   // === Stage C: 章节计划确认 ===
   const [pendingChapterPlans, setPendingChapterPlans] = useState<Record<string, {
@@ -1554,6 +1607,28 @@ export function ChatPanel() {
         )
         return
       }
+
+      /*
+       * 丁-3：本条消息 `@` 引用的文风 → 本次生成的临时覆盖（走丁-2 的
+       * `writingStyleIdOverride` 通道，`getWritingStyleIdOverride` 就是它的产出端）。
+       *
+       * ⚠️ **两条不同预设的引用 ⇒ 拒绝发送**，不挑一条「赢」：
+       * 覆盖通道只收一个预设，自动挑一条就等于**静默丢掉**另一条用户的明确指令
+       * （本批反复出现的缺陷形状）。拒绝发送的代价最小：输入框与芯片都原样保留
+       * （下面的清空只在真正开始生成之后），用户删掉一条即可。
+       * 设计文档 §3 曾建议「后者覆盖前者 + 提示」，这里**不采用**：芯片顺序对用户不可见，
+       * 提示又可能被忽略，而「挑赢家」一旦发生就已经生成过一次了。
+       */
+      const referencedStylePresetIds = collectReferencedStylePresetIds(tokens)
+      if (referencedStylePresetIds.length > 1) {
+        setDeAiSkillWarningMessage(
+          `一条消息只能引用一条文风（本次引用了 ${referencedStylePresetIds.length} 条）。请删掉多余的文风引用再发送。`,
+        )
+        return
+      }
+      // 无论有没有引用都要写：没有引用时写回 undefined，才不会把上一条消息的点名
+      // 漏进这一次生成（见 getWritingStyleIdOverride 的注释）。
+      runWritingStyleIdOverrideRef.current = referencedStylePresetIds[0]
 
       let convId = targetConversationId ?? useChatStore.getState().activeConversationId
       if (!convId) {
