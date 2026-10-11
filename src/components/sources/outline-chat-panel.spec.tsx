@@ -24,10 +24,13 @@ import { useChatStore } from "@/stores/chat-store"
 import { UiTestAiEmpty } from "@/components/uitest/ui-test-ai-parts"
 import {
   buildOutlineAgentSystemPrompt,
+  buildOutlineReferenceSkillEntries,
   buildVolumeOutlineRepairPrompt,
   filterOutlineGeneratedContent,
   OutlineChatPanel,
 } from "./outline-chat-panel"
+import { getAllDeAiSkills, type DeAiSkillConfig } from "@/lib/novel/de-ai-skill-library"
+import type { UserSkill } from "@/lib/novel/skill-library"
 import {
   useOutlineChatStore,
   type OutlineChatConversation,
@@ -710,18 +713,99 @@ describe("OutlineChatPanel controls", () => {
    * `run_chapter_workflow` 不会注册，`@` 一条文风在生成链上没有任何消费者。
    * 加进去只会得到一个「弹窗里能选、选了没反应」的死条目。
    *
-   * ⚠️ 第一版这条用例里有一句 `toContain("本面板的 agent 配置")`，**已删除**：
-   * 那个短语在 `outline-chat-panel.tsx` 全文只出现在注释里，所以它只可能因为
-   * 注释被改写而失败（实测：把注释措辞改成「本面板的 agent 设置」，语义一字未变，
-   * 用例就红了），行为保证为 0，同时是假阳性发生器。
-   *
-   * 现在钉的是**去注释后**的源码里没有第二处文风条目注入，且两个覆盖通道符号
-   * 一次都没被引入。注意这条只是「没有第二处注入」的源码钉子；
-   * 真正的**行为**保证在 `ReferencePickerDialog.spec.tsx`
-   * （没有文风条目的 provider ⇒ 弹窗里根本不会出现「文风」子 tab）
-   * 与 `chat-panel.mount.spec.tsx`（有文风条目 ⇒ 选了真的生效）。
+   * ⚠️ 这一条现在是**行为断言**（看 `buildOutlineReferenceSkillEntries` 的产出），
+   * 不再只依赖源码文本 —— 见下一条用例开头的理由。
    */
-  it("does not offer writing-style entries in the outline reference picker（无消费者的入口不摆出来）", () => {
+  it("大纲面板产出的技能条目里永远没有文风条目（行为断言，不看源码排版）", () => {
+    const builtInIds = getAllDeAiSkills({
+      version: 1,
+      defaultSkillId: "built-in:comprehensive",
+      disabledSkillIds: [],
+      projectSkills: [],
+      builtInSkillOverrides: [],
+      lastChapterDeAiSkillId: null,
+    }).map((skill) => skill.id)
+    const projectSkill = {
+      id: "project:quiet",
+      name: "沉浸式去AI味",
+      description: "",
+      templateId: "custom",
+      content: "删除协作口吻。",
+      source: "project" as const,
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    const writingSkill: UserSkill = {
+      id: "skill:three",
+      name: "three-turn",
+      displayName: "三翻四抖",
+      description: "",
+      kind: [],
+      stages: [],
+      modes: [],
+      content: "",
+      source: "project",
+      priority: 50,
+      tags: [],
+      categoryId: "all",
+    }
+    const makeConfig = (disabledSkillIds: string[]): DeAiSkillConfig => ({
+      version: 1,
+      defaultSkillId: "built-in:comprehensive",
+      disabledSkillIds,
+      projectSkills: [],
+      builtInSkillOverrides: [],
+      lastChapterDeAiSkillId: null,
+    })
+
+    // ① 正常配置：去AI味 + 写作Skill 都在，且两种子类型都真的出现了
+    //    （反向对照：不是「函数返回空数组」导致的恒真）
+    const normal = buildOutlineReferenceSkillEntries(makeConfig([]), [writingSkill])
+    expect(normal.some((entry) => entry.subtype === "deai"), "应产出去AI味条目").toBe(true)
+    expect(normal.some((entry) => entry.subtype === "writing"), "应产出写作Skill条目").toBe(true)
+
+    // ② 生产可达的空 deai 场景：逐技能启停把所有内置去AI味都禁用
+    //    （`skill-library-view.tsx` 提供逐技能启停 ⇒ 用户真的能到这一步）
+    const allDisabled = buildOutlineReferenceSkillEntries(makeConfig(builtInIds), [])
+    expect(allDisabled, "禁用全部去AI味且没有写作Skill ⇒ 条目为空").toEqual([])
+
+    // ③ 两者都过一遍「没有任何条目的子类型是 style」——这正是不变的性质
+    for (const entries of [normal, allDisabled, buildOutlineReferenceSkillEntries(null, [])]) {
+      expect(entries.filter((entry) => entry.subtype === "style")).toEqual([])
+    }
+
+    // ④ 项目自定义去AI味技能也在产出里（证明 ① 的 deai 不是只从内置来的巧合）
+    expect(
+      buildOutlineReferenceSkillEntries(
+        { ...makeConfig([]), projectSkills: [projectSkill] },
+        [],
+      ).map((entry) => entry.id),
+    ).toContain("project:quiet")
+  })
+
+  /*
+   * 源码文本的**第二层**钉子（第一层是上面那条行为断言）。
+   *
+   * 行为断言只覆盖 `buildOutlineReferenceSkillEntries` 的产出；若有人在**组件里**
+   * 把别处的文风条目拼到这个 provider 上（`createSkillProvider(() => [...build(…), styleEntry])`），
+   * 行为断言看不见。这条源码钉子补的就是那个位置。
+   *
+   * ⚠️ **已知逃逸面（如实记录，不要读成「不会漏」的保证）**——实测这些写法**不会**被这条抓到：
+   *   (a) `subtype : STYLE_SKILL_SUBTYPE`（冒号前多一个空格；本仓库无 prettier/eslint 配置、
+   *       `ci.yml` 只跑 `vite build` + `cargo build`，没有机器归一化会消掉它）；
+   *   (b) `import { STYLE_SKILL_SUBTYPE as STYLE_SUBTYPE }` 之类的**别名导入**；
+   *   (c) 中转变量（先把条目存进变量、再 spread 回来）。
+   * 收紧正则是军备竞赛（堵了空格还有别名，堵了别名还有中转变量），所以本批**不**继续收紧：
+   * 真正承重的是上面那条行为断言，这条只作为廉价的第二层。
+   * 会被抓到的形态（实测）：值前换行（`\s*` 含 `\n`）、`STYLE_SKILL_SUBTYPE as const`、
+   * 裸 `STYLE_SKILL_SUBTYPE`、`"style" as const`。
+   *
+   * ⚠️ 第一版这条用例里还有一句 `toContain("本面板的 agent 配置")`，**已删除**：
+   * 那个短语全文只出现在注释里，所以它只可能因为注释被改写而失败（实测：把注释措辞改成
+   * 「本面板的 agent 设置」，语义一字未变，用例就红了），行为保证为 0，是假阳性发生器。
+   * 现在断言跑在 `stripComments()` 之后，改注释不再影响任何一条。
+   */
+  it("does not offer writing-style entries in the outline reference picker（源码第二层钉子）", () => {
     expect(sourceWithoutComments).not.toMatch(/subtype:\s*(STYLE_SKILL_SUBTYPE|["']style["'])/)
     expect(sourceWithoutComments).not.toContain("runDeepChapterGeneration")
     expect(sourceWithoutComments).not.toContain("getWritingStyleIdOverride")

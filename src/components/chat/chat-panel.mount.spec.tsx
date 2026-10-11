@@ -448,12 +448,19 @@ describe("ChatPanel 的「文风写作」产出端", () => {
  * 让每个用例只依赖被测的那条通道（快且不依赖磁盘 mock 的细节）。
  */
 describe("ChatPanel 的「@ 引用文风」消费端（丁-3）", () => {
+  /*
+   * ⚠️ 项目**启用**的那条（`enabledStyleId`）刻意选 `style-c`，与任何用例里
+   * 被点选/被引用的预设（`style-a` / `style-b`）都不同。
+   * 若让 `enabledStyleId` 等于某个被点选的 id，那条 `toBe("style-x")` 就同时能被
+   * 「本次覆盖」和「下游回退到项目启用项」两种机制满足 —— 断言还在，鉴别力没了。
+   */
   const styleStore = JSON.stringify({
     version: 1,
-    enabledStyleId: "style-b",
+    enabledStyleId: "style-c",
     styles: [
       { id: "style-a", name: "甲书 · 文风", sourceBook: "甲书", profile: { schemaVersion: 1 }, createdAt: 1, updatedAt: 1 },
       { id: "style-b", name: "乙书 · 文风", sourceBook: "乙书", profile: { schemaVersion: 1 }, createdAt: 1, updatedAt: 1 },
+      { id: "style-c", name: "丙书 · 文风", sourceBook: "丙书", profile: { schemaVersion: 1 }, createdAt: 1, updatedAt: 1 },
     ],
   })
 

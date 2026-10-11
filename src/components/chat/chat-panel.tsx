@@ -1116,8 +1116,11 @@ export function ChatPanel() {
    *     也在技能配置加载 effect 与构建 registry 的 `useMemo` 依赖里；
    *     `projectPath` 为空时它直接返回全新空 `ToolRegistry`），
    *     但重建出来的 registry 注册的是**本组件自己这个 getter**，而
-   *     `getWritingStyleIdOverride = useCallback(() => sessionWritingStyleId,
-   *     [sessionWritingStyleId])` 的身份**只随 `sessionWritingStyleId` 变、不随项目变**。
+   *     `getWritingStyleIdOverride` 的身份**只随 `sessionWritingStyleId` 变
+   *     （它的 `useCallback` 依赖数组只有 `[sessionWritingStyleId]`）、不随项目变**
+   *     —— 注意它读的是 `runWritingStyleIdOverrideRef.current`，那是**引用**、
+   *     身份稳定；所以第 4 个入参的引用只随 `sessionWritingStyleId` 改
+   *     （丁-3 加了 `@` 引用通道之后依然如此，没有新增依赖）。
    *     于是项目切换那一刻重建出来的 registry，调用它取到的**仍是旧 id**。
    *     ⇒ 重置**不能**靠它。
    *

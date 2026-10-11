@@ -109,13 +109,20 @@ export function ReferencePickerDialog({
    *
    * `SKILL_SUBTABS` 是模块级共享常量，而各面板的 skill provider 覆盖的子类型并不一样：
    * 大纲/细纲面板只吐 deai/writing（它的 agent 配置里没有文风覆盖通道，
-   * 见 `outline-chat-panel.tsx` 的说明）。无条件渲染全部子 tab，就会给它摆出一个
-   * 永远「暂无内容」的「文风」子 tab —— 用户会读成「库里没有文风」，
-   * 而不是「这个面板不支持引用文风」，这正是本批要消灭的死入口形状
-   * （只差一个层级：不是死条目，而是死子 tab）。
+   * 见 `outline-chat-panel.tsx` 的 `buildOutlineReferenceSkillEntries`）。
+   * 无条件渲染全部子 tab，就会给它摆出一个永远「暂无内容」的「文风」子 tab
+   * —— 用户会读成「库里没有文风」，而不是「这个面板不支持引用文风」，
+   * 这正是本批要消灭的死入口形状（只差一个层级：不是死条目，而是死子 tab）。
    *
    * 判据用**未经搜索过滤的** `items`：搜索是用户当下的筛选动作，
-   * 不该让子 tab 随关键词出现/消失。列表整体为空时（还没加载完，或库确实是空的）
+   * 不该让子 tab 随关键词出现/消失。
+   *
+   * ⚠️ **如实说明这条逃生口的边界**（初版注释在这里说过头了）：
+   * 它只判 `items.length === 0`，**不判 `loading`**。而 `items` 在切换分类时不重置，
+   * 所以「从章节切到技能库、fetch 还没回来」的这段时间里，`items` 是**上一个分类的旧值**
+   * （非空、且没有 `skillSubtype`）⇒ 过滤结果为空 ⇒ 子 tab 条**会短暂整条消失**，
+   * 列表此时显示「加载中...」。旧代码同样如此（这是既有行为，本批没动它）。
+   * 它真正保证的是**首次打开 / 列表确实为空**时不闪：那时 `items` 是 `[]`，
    * 保留全部子 tab 并显示「暂无内容」—— 那才是「库里没有」的诚实表达。
    */
   const availableSkillSubtabs = useMemo(
@@ -210,7 +217,7 @@ export function ReferencePickerDialog({
 
           <div className="flex min-w-0 flex-1 flex-col">
             {activeTab === "skill" && availableSkillSubtabs.length > 0 && (
-              <div className="flex gap-1 border-b px-3 py-2">
+              <div data-ui-reference="skill-subtabs" className="flex gap-1 border-b px-3 py-2">
                 {availableSkillSubtabs.map((subtab) => (
                   <button
                     key={subtab.key}

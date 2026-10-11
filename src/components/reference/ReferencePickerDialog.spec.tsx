@@ -100,6 +100,20 @@ function findButton(text: string): HTMLButtonElement | undefined {
     .find((button) => button.textContent?.trim() === text)
 }
 
+/**
+ * 技能库子 tab 按钮的文本（只取子 tab 那一条，不含弹窗其它文案与条目名）。
+ *
+ * ⚠️ 不要用 `host.textContent` 做**负向**断言来判「没有某个子 tab」：
+ * 整弹窗文本里任何 copy 或 fixture 条目名只要含那两个词，就会因为**与行为无关**的原因变红
+ * —— 那正是本批 SF-2 那条假阳性的形状（一条只可能被文案满足的断言）。负向断言只针对子 tab 按钮。
+ */
+function skillSubtabButtonLabels(): string[] {
+  const bar = host.querySelector<HTMLElement>('[data-ui-reference="skill-subtabs"]')
+  if (!bar) return []
+  return Array.from(bar.querySelectorAll("button"))
+    .map((button) => button.textContent?.trim() ?? "")
+}
+
 beforeEach(() => {
   host = document.createElement("div")
   document.body.appendChild(host)
@@ -277,9 +291,7 @@ describe("ReferencePickerDialog", () => {
     await flush()
 
     // 默认子 tab 是「去AI味技能」：只能看到 deai 条目
-    expect(host.textContent).toContain("去AI味技能")
-    expect(host.textContent).toContain("写作Skill")
-    expect(host.textContent).toContain("文风")
+    expect(skillSubtabButtonLabels()).toEqual(["去AI味技能", "写作Skill", "文风"])
     expect(host.textContent).toContain("去AI味一")
     expect(host.textContent, "默认子 tab 不得混入写作Skill条目").not.toContain("写作一")
     expect(host.textContent, "默认子 tab 不得混入文风条目").not.toContain("甲书 · 文风")
@@ -328,20 +340,83 @@ describe("ReferencePickerDialog", () => {
     })
     await flush()
 
-    expect(host.textContent).toContain("去AI味技能")
-    expect(host.textContent).toContain("写作Skill")
-    expect(host.textContent, "没有文风条目的面板不得摆出「文风」子 tab").not.toContain("文风")
+    expect(skillSubtabButtonLabels()).toEqual(["去AI味技能", "写作Skill"])
     // 反向对照：列表本身有内容（不是「整体没渲染」导致的假绿）
     expect(host.textContent).toContain("去AI味一")
   })
 
   /*
-   * 子 tab 的**逃生口**：技能列表整体为空时（还没加载完，或库确实是空的）保留全部子 tab。
+   * 🔴 承重路径（丁-3 第二轮修复）：**当前子 tab 不在可用列表里时要回退**。
+   *
+   * 生产可达：`resolveAvailableDeAiSkills`（`de-ai-skill-library.ts:609`）
+   * = 内置技能 − `disabledSkillIds`，而技能库页提供**逐技能启停**
+   * ⇒「禁用全部去AI味技能 + 有 ≥1 条文风预设 + 没有写作 Skill」时，
+   * `items` 非空但**没有 deai 条目**，而默认子 tab 正是 `"deai"`。
+   * 没有 `effectiveSkillSubtab` 的回退，高亮会停在一个**已被隐藏**的 tab 上、
+   * 列表恒为「暂无内容」—— 用户看不到那条文风，也看不出为什么。
+   *
+   * ⚠️ 这条是**变异逼出来的**：把 `effectiveSkillSubtab` 换成 `skillSubtab`
+   * （去掉回退），本文件其余用例**全绿** —— 之前的 fixture 都有 deai 条目，
+   * 回退分支从没被走过。
+   */
+  it("只有文风条目时高亮落到「文风」并列出条目（而不是空列表）", async () => {
+    const onConfirm = vi.fn()
+    const onlyStyleProviders: ReferenceProvider[] = [
+      {
+        category: "skill",
+        fetchItems: vi.fn(async () => [skillToken("skill-style", "甲书 · 文风", "style")]),
+      },
+    ]
+
+    await act(async () => {
+      root.render(
+        <ReferencePickerDialog
+          open
+          defaultTab="skill"
+          providers={onlyStyleProviders}
+          projectPath="C:/Novel"
+          onConfirm={onConfirm}
+          onClose={vi.fn()}
+        />,
+      )
+    })
+    await flush()
+
+    // 只剩一个子 tab，且它就是「文风」
+    expect(skillSubtabButtonLabels()).toEqual(["文风"])
+    // 列表显示那条文风条目，而不是「暂无内容」（用户看得见的症状）
+    expect(host.textContent).not.toContain("暂无内容")
+    expect(host.textContent).toContain("甲书 · 文风")
+    // 高亮也必须落在它身上（否则用户看到的是一个没有选中项的 tab 条）
+    expect(findButton("文风")?.className, "「文风」子 tab 应是高亮态").toContain("bg-primary")
+
+    // 它是**可用入口**而不是装饰：能选中、能确认，且确认出来的 token 带着预设 id
+    const checkbox = host.querySelector("input[type='checkbox']") as HTMLInputElement
+    expect(checkbox, "列表里应有可勾选的文风条目").not.toBeNull()
+    await act(async () => {
+      checkbox.click()
+    })
+    expect(host.textContent).toContain("已选 1/10")
+
+    const confirm = Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("确认引用"))
+    await act(async () => {
+      confirm?.click()
+    })
+    expect(onConfirm).toHaveBeenCalledWith([
+      expect.objectContaining({ skillId: "style-preset-id", skillSubtype: "style" }),
+    ])
+  })
+
+  /*
+   * 子 tab 的**逃生口**：技能列表整体为空时保留全部子 tab。
    *
    * ⚠️ 这条是**变异逼出来的**：把 `items.length === 0 ? SKILL_SUBTABS : ...` 的逃生口去掉
    * （恒走过滤分支），上面 8 条用例全绿 —— 因为没有任何用例跑过「空技能库」。
-   * 代价是加载中/空库时子 tab 会先消失再出现（闪一下），
-   * 而且会把「库里一条都没有」表达成「没有这个子类型」。
+   * 它保证的是**首次打开 / 列表确实是空的**时不闪，并把「库里一条都没有」
+   * 如实表达为「暂无内容」而不是「没有这个子类型」。
+   * （切换分类时 `items` 是上一个分类的旧值，那不在这条逃生口的覆盖范围内，
+   *   `ReferencePickerDialog.tsx` 的注释里写明了这个边界。）
    */
   it("技能库整体为空时仍摆出全部子 tab（不闪、也不谎称「没有这个子类型」）", async () => {
     const emptySkillProviders: ReferenceProvider[] = [
@@ -363,9 +438,7 @@ describe("ReferencePickerDialog", () => {
     await flush()
 
     expect(host.textContent).toContain("暂无内容")
-    expect(host.textContent).toContain("去AI味技能")
-    expect(host.textContent).toContain("写作Skill")
-    expect(host.textContent).toContain("文风")
+    expect(skillSubtabButtonLabels()).toEqual(["去AI味技能", "写作Skill", "文风"])
   })
 
   /*
@@ -398,7 +471,6 @@ describe("ReferencePickerDialog", () => {
     })
 
     expect(host.textContent).toContain("暂无内容")
-    expect(host.textContent, "搜索命不中时子 tab 仍应在").toContain("文风")
-    expect(host.textContent).toContain("写作Skill")
+    expect(skillSubtabButtonLabels(), "搜索命不中时子 tab 仍应在").toEqual(["去AI味技能", "写作Skill", "文风"])
   })
 })

@@ -14,7 +14,7 @@ export interface ReferenceProvider {
   fetchItems: (projectPath: string) => Promise<ReferenceToken[]>
 }
 
-interface SkillSummary {
+export interface SkillSummary {
   id: string
   name: string
   /** 界面展示名（中文）；title 仍是路由用的机器名。 */

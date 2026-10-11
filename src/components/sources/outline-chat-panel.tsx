@@ -243,6 +243,7 @@ import {
   memoryProvider,
   outlineProvider,
 } from "@/lib/reference/providers";
+import type { SkillSummary } from "@/lib/reference/providers";
 import type { ReferenceToken } from "@/lib/reference/types";
 import { useChatStore } from "@/stores/chat-store";
 import { AgentRunner } from "@/lib/agent/runner";
@@ -2027,6 +2028,44 @@ function OutlineGenerationMenu({
   );
 }
 
+/**
+ * 大纲/细纲引用弹窗里「技能库」分类的全部条目（丁-3）。
+ *
+ * ⚠️ **故意不产出 `subtype: "style"`（文风）条目**：本面板的 `buildAgentConfig`
+ * 调用从不提供 `runDeepChapterGeneration` / `getWritingStyleIdOverride`，
+ * 所以 `run_chapter_workflow` 这个工具根本不会被注册，`@` 一条文风在
+ * **生成链上没有任何消费者** —— 加进来就是一个「看着接上、其实断开」的死条目，
+ * 正是丁-3 存在的理由。大纲/细纲不写正文，文风覆盖对它也没有语义。
+ * ⇒ 文风条目只在 `chat-panel.tsx` 的 getter 里注入（那里有覆盖通道的产出端）。
+ *
+ * 为什么抽成**具名导出**（而不是留成组件里的内联 getter）：这样「这里永远没有文风条目」
+ * 才是一条**可被行为断言**的性质（`outline-chat-panel.spec.tsx` 直接调它、只看产出）。
+ * 之前它只能靠对源码文本做正则来钉 —— 那既会因为**改注释**而假红，
+ * 又会因为**冒号空格 / 别名导入 / 中转变量**等排版变化而假绿（实测过）。
+ */
+export function buildOutlineReferenceSkillEntries(
+  deAiSkillConfig: DeAiSkillConfig | null,
+  writingSkills: UserSkill[],
+): SkillSummary[] {
+  const deAiSkills: SkillSummary[] = deAiSkillConfig
+    ? resolveAvailableDeAiSkills(deAiSkillConfig).map((skill) => ({
+        id: skill.id,
+        name: skill.name,
+        subtype: "deai" as const,
+      }))
+    : [];
+  const writingSkillList: SkillSummary[] = writingSkills.map((skill) => ({
+    id: skill.id,
+    name: skill.name,
+    displayName: skill.displayName,
+    subtype: "writing" as const,
+    kind: skill.kind,
+    stages: skill.stages,
+    modes: skill.modes,
+  }));
+  return [...deAiSkills, ...writingSkillList];
+}
+
 export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const project = useWikiStore((s) => s.project);
   // 卷纲 / 章纲 / 设定卡片流模板与卷纲真骨架：项目变化时预加载（项目目录覆盖 → 程序 skills 目录 → 内置模板）
@@ -2268,37 +2307,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       memoryProvider,
       outlineProvider,
       deductionProvider,
-      /*
-       * ⚠️ 这里**故意不**加「文风」子类型的条目（丁-3）：本面板的 agent 配置
-       * 从不提供 `runDeepChapterGeneration` / `getWritingStyleIdOverride`
-       * （见本文件所有 `buildAgentConfig` 调用），所以 `run_chapter_workflow`
-       * 这个工具根本不会被注册，`@` 一条文风在**生成链上没有任何消费者** ——
-       * 加进去就是一个「看着接上、其实断开」的死条目，正是丁-3 存在的理由。
-       * 大纲/细纲不写正文，文风覆盖对它也没有语义。
-       * ⇒ 文风条目只在 `chat-panel.tsx` 的 getter 里注入（那里有覆盖通道的产出端）。
-       * 连带效果：引用弹窗只为「真有条目」的子类型摆子 tab
-       * （`ReferencePickerDialog` 的 `availableSkillSubtabs`），所以本面板里
-       * 用户看到的是**没有**「文风」子 tab，而不是一个永远「暂无内容」的空子 tab。
-       */
-      createSkillProvider(() => {
-        const deAiSkills = deAiSkillConfig
-          ? resolveAvailableDeAiSkills(deAiSkillConfig).map((skill) => ({
-              id: skill.id,
-              name: skill.name,
-              subtype: "deai" as const,
-            }))
-          : []
-        const writingSkillList = outlineWritingSkills.map((skill) => ({
-          id: skill.id,
-          name: skill.name,
-          displayName: skill.displayName,
-          subtype: "writing" as const,
-          kind: skill.kind,
-          stages: skill.stages,
-          modes: skill.modes,
-        }))
-        return [...deAiSkills, ...writingSkillList]
-      }),
+      createSkillProvider(() => buildOutlineReferenceSkillEntries(deAiSkillConfig, outlineWritingSkills)),
       createChatHistoryProvider(() =>
         chatConversations.map((conversation) => ({
           id: conversation.id,
