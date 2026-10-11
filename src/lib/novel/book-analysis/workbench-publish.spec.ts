@@ -4,6 +4,8 @@ import { inspectWorkbenchPublication, confirmWorkbenchRevision, publishWorkbench
 import { saveWorkbenchRevision, workbenchRevisionPath } from "./workbench-storage"
 import { buildEvidenceCandidates, type WorkbenchRevision } from "./workbench-core"
 import { upsertWritingStylePreset } from "../writing-style-store"
+import { upsertPlotFramework } from "../plot-framework-library"
+import { EMPTY_STORY_BEAT } from "../story-simulation/plot-framework-bridge"
 import { renderPersonalitySkill } from "../portable-personality"
 import type { BookAnalysisLibraryBook } from "./library-state"
 import type { CharacterSkill, ExtractedCharacter, PersonalityProfile } from "./types"
@@ -158,6 +160,78 @@ describe("版本确认入库", () => {
     expect(io.createAura).toHaveBeenCalledTimes(1)
     expect(io.updateAura).toHaveBeenCalledTimes(1)
     expect(io.updateAura).toHaveBeenCalledWith("aura-1", expect.objectContaining({ name: "甲" }))
+  })
+})
+
+/**
+ * 故事 skill 的落盘：跨作品库（library.json）**与**仿真框架存储
+ * （.qmai/simulations/frameworks/*.md，即 storyFrameworkBinding 真正读的那份）。
+ *
+ * 此前这个 spec 完全没有 story 分支的用例，「三种产物各自的落盘断言」实际只覆盖了
+ * characters／style —— 于是「故事 skill 打通」这件事没有任何回归网。
+ * 仿真框架 id 是 `plot-` + 跨作品库 id，用 upsertPlotFramework 的**返回值**派生。
+ */
+describe("故事版本发布：同时桥接到仿真框架存储", () => {
+  const BRIDGED_PATH = "/project/.qmai/simulations/frameworks/plot-wb-story-book-1.md"
+
+  /**
+   * `upsertPlotFramework` 的替身：**原样透传入参，但换成一个不同的对象**，
+   * 并把 title 换成「已归一化」的版本。
+   *
+   * 两个约束缺一不可：
+   *  - 透传入参（而不是塞一份自造框架），否则桥接拿到的不是 pick() 的真实产物，
+   *    「维度标签匹配不上 → 四个 beat 退化成同一句」就测不到了；
+   *  - 必须是**不同的对象且能被观察到差异**，否则「用了返回值」和「用了上面那个
+   *    字面量」在测试里完全等价 —— 真实实现返回的是 applyAutoPacing 后的新对象，
+   *    所以「拿返回值」这件事得有一条能红的用例钉住（title 会写进 frontmatter）。
+   */
+  async function publishStory(dimension: string): Promise<string[]> {
+    revision.skill = "story"
+    revision.items = [{
+      subject: "结构机制", summary: "目标受阻", limitations: "只覆盖本章",
+      rules: [{
+        id: "R1", dimension, observation: "主角受阻", condition: "主角受阻",
+        action: "加压", boundary: "别越界", evidenceIds: [revision.evidence[0].id],
+      }],
+    }]
+    await saveWorkbenchRevision(bookPath, revision)
+    vi.mocked(upsertPlotFramework).mockImplementationOnce(async (_path, framework) => ({
+      ...framework, title: `${framework.title}（入库后）`,
+    }) as never)
+    const preview = await inspectWorkbenchPublication("/project", revision)
+    const confirmed = await confirmWorkbenchRevision("/project", bookPath, revision.id, preview.fingerprint)
+    return confirmed.publishedIds ?? []
+  }
+
+  it("确认后既入跨作品库，也落进仿真框架目录（那份才是被注入的）", async () => {
+    const publishedIds = await publishStory("目标与阻力")
+
+    // 两处都写了才算打通：只写 library.json 就是今天的断链状态。
+    expect(upsertPlotFramework).toHaveBeenCalledWith("/project", expect.objectContaining({ id: "wb-story-book-1" }))
+    expect(publishedIds).toEqual(["wb-story-book-1"])
+    const bridged = io.files.get(BRIDGED_PATH)
+    expect(bridged).toBeDefined()
+    expect(bridged).toContain("id: \"plot-wb-story-book-1\"")
+    expect(bridged).toContain("## 故事节点")
+    // 桥接必须用它拿到的那份（upsertPlotFramework 的返回值），
+    // 而不是发布方手里那个字面量 —— id/createdAt 都以归一化后落盘的那份为准。
+    expect(bridged).toContain("（入库后）")
+    // 命中的维度成为「起」的节点标题；另外三段没有对应标签，退化成占位句。
+    const nodeHeaders = bridged!.split("\n").filter((line) => line.startsWith("### 节点"))
+    expect(nodeHeaders).toHaveLength(4)
+    expect(nodeHeaders[0]).toBe("### 节点 0 【起】 主角受阻：加压；别越界")
+    expect(nodeHeaders[1]).toContain(EMPTY_STORY_BEAT)
+  })
+
+  it("维度标签匹配不上时四个 beat 退化成同一句占位话，仍会被原样落盘（供绑定时提示）", async () => {
+    await publishStory("模型跑偏的标签")
+
+    const bridged = io.files.get(BRIDGED_PATH)!
+    const nodeHeaders = bridged.split("\n").filter((line) => line.startsWith("### 节点"))
+    expect(nodeHeaders).toHaveLength(4)
+    // 四个环节全是同一句 fallback：结构合法、内容为空，
+    // 而绑定侧正是靠「节点标题全同」把这份产物认出来（plot-framework-bridge）。
+    for (const header of nodeHeaders) expect(header).toContain(EMPTY_STORY_BEAT)
   })
 })
 

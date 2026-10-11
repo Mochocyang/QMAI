@@ -1,7 +1,14 @@
 import { describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
 import type { AnalysisSkill, BookAnalysisPipelineTask } from "./analysis-pipeline-types"
+import type { StoryMap } from "./story-map-types"
 import { createStoryAnalysisAdapter } from "./story-analysis-adapter"
+
+/**
+ * 发布里会 `void scheduleVerification(...)`：真实实现会去跑审计，
+ * 在只打桩依赖的单测里会真的去碰 provider/磁盘。打桩掉，让这条用例只测桥接接线。
+ */
+vi.mock("./verification-engine", () => ({ scheduleVerification: vi.fn(async () => {}) }))
 
 /**
  * 依赖签名直接从生产工厂的 override 参数推导，避免手抄签名抄错，
@@ -243,5 +250,55 @@ describe("story analysis adapter", () => {
       },
       signal: new AbortController().signal,
     })).rejects.toThrow("缺少第 30 章")
+  })
+
+  /**
+   * 旧提取路径的发布同样要桥接：只接 workbench 那条路的话，
+   * 从这里发布的故事 skill 仍然到不了 storyFrameworkBinding（一半 = 没打通）。
+   * 入参必须是 upsertFramework 的**返回值**（bookId=book-1、now=10 → framework-book-1-10）。
+   */
+  it("发布时把归一化后的框架交给桥接函数，并把桥接用的 id 写进 resultPath", async () => {
+    const map: StoryMap = {
+      schemaVersion: 1, bookId: "book-1", bookTitle: "测试作品",
+      mainLineLabel: "成长主线", mainSummary: "主角一路推进", createdAt: 1,
+      chapters: [
+        {
+          id: "ch-0001", order: 1, title: "第一章", summary: "林远推门而入",
+          mainEvents: [{ label: "夜探老宅", beats: ["潜入"], characters: ["林远"] }],
+          branches: [{ id: "b1", kind: "foreshadow", label: "老宅秘密", triggeredBy: "夜探老宅", events: [] }],
+        },
+        {
+          id: "ch-0002", order: 2, title: "第二章", summary: "真相浮现",
+          mainEvents: [{ label: "对质", beats: ["摊牌"], characters: ["林远"], spinoff: "留下一枚木牌" }],
+          branches: [],
+        },
+      ],
+    }
+    const bridgeFramework = vi.fn(async () => ({}) as never)
+    const upsertFramework = vi.fn(async (_projectPath: string, framework: never) => framework)
+    const adapter = createStoryAnalysisAdapter({
+      loadMetadata: vi.fn(async () => metadata),
+      upsertFramework: upsertFramework as never,
+      bridgeFramework: bridgeFramework as never,
+      replaceEvidence: vi.fn(async () => ({}) as never),
+      loadManifest: vi.fn(async () => null),
+      saveManifest: vi.fn(async () => {}),
+      rebuildContextIndex: vi.fn(async () => ({}) as never),
+      writeMapFiles: vi.fn(async () => {}),
+      now: () => 10,
+    })
+    const inputTask = task()
+
+    const resultPath = await adapter.publish({
+      task: inputTask, skill: "story", bookPath: inputTask.bookPath, projectPath: inputTask.projectPath,
+      llmConfig: {} as LlmConfig, result: { map, rangeChapterIds: ["ch-0001", "ch-0002"] },
+      evidence: [], signal: new AbortController().signal,
+    })
+
+    expect(upsertFramework).toHaveBeenCalledWith("E:/Novel", expect.objectContaining({ id: "framework-book-1-10" }))
+    // 桥接拿到的必须是 upsertFramework 的返回值（id 由它派生，取错就是绑定时静默空串）。
+    expect(bridgeFramework).toHaveBeenCalledTimes(1)
+    expect(bridgeFramework).toHaveBeenCalledWith("E:/Novel", expect.objectContaining({ id: "framework-book-1-10" }))
+    expect(resultPath).toBe("plot-framework:framework-book-1-10")
   })
 })
