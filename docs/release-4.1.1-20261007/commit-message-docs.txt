@@ -1,0 +1,31 @@
+docs(发版): 4.1.1 发版清单、更新日志与校验工具
+
+区间 v4.1.0..HEAD 的差异分析与面向用户的更新日志整理，以及配套的机器校验。
+
+内容：
+- release-plan.md：区间事实（106 提交 / 355 文件 / +34587 −5689）、
+  按用户可感知结果归类的改动说明、发版前置检查结果
+- release-notes-draft.md：最初 28 条版的完整中英文（保留作对照）
+- changelog-entry-4.1.1.txt：最终 14 条，即写入 changelog.ts 的原文
+- changelog-preview.html + shots-changelog/：按 changelog-section.tsx 的真实
+  结构渲染的预览（浅色/深色/折叠态/中英切换），由条目文件**生成**而非手抄
+
+校验工具（都做了非空性证明，均以变异脚本验证会真的变红）：
+- check-condense-coverage.mjs：28 条原始事实逐条确认在 14 条精简版中有落点。
+  精简的真实失败模式不是"文字不好"而是**悄悄少一条** —— 首版精简即静默丢失
+  【角色识别可重试】，正是这个脚本发现的。5 项变异 5/5 变红。
+- check-changelog-ts-matches.mjs：条目是手工誊写进 changelog.ts 的，
+  若与已校验草稿不一致，覆盖度结论就与实际发布内容脱钩。逐字比对 + 5 处接线。
+  5 项变异 5/5 变红。
+- check-version-surface.mjs：7 处版本面 13 项断言，并反查无旧版本残留。
+  注意 Cargo.lock 里还有 fsevent-sys 与 objc2-encode 两个同名 4.1.0，
+  只有 name = "qmai" 那一处该改。
+- check-dist-version.mjs：用 instrument.ts 的 Sentry release（qmai@<version>）
+  作探针 —— 直接找 "4.1.1" 无法区分"版本已更新"与"更新日志里提到了"，
+  因为上一版条目本身就含 4.1.0。负向对照已验证会失败。
+- parse-changelog-entry.mjs：被上面三个脚本共用。changelog.ts 是 CRLF、
+  草稿是 LF，各写一份解析会因 `\r` 产生"一边 14 条一边 0 条"的假失败（已实测踩到）。
+
+另含本区间分析用的一次性脚本（dump-commits / group-commits / dump-bodies /
+dump-release-body / check-book-analysis-origin / check-line-endings /
+inspect-suite-json），记录在此以便复核结论来源。

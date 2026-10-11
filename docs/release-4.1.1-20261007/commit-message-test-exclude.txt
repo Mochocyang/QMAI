@@ -1,0 +1,29 @@
+fix(测试): 排除 .claude/ 下的 worktree 副本，让 test:mocks / test:llm 在本机可复现
+
+`npm run test:mocks` 在本机必然失败，且失败数与真实工程无关：
+
+  改前：1317 文件 / 11692 用例 / 451 失败（其中 .claude 下 638 文件、255 失败）
+  改后： 679 文件 /  6226 用例 / 196 失败（.claude 下 0 文件）
+  基线： 196 失败（688 文件）
+
+根因：排除列表写的是 `**/.worktrees/**`，而该 glob 要求路径段**恰好**叫
+`.worktrees`，匹配不到实际存在的 `.claude/worktrees/`。那里停着一个 agent
+遗留的 worktree（HEAD 216c532、分支 worktree-agent-ace3452a280eb9df5、
+src 1377 个文件 vs 主工程 1442 个）。它带自己的 package.json，
+spec 里的 `@/` 别名却解析到**主工程的新代码**，于是产生成百个错配失败 ——
+看起来像大面积回归，实际全是重复副本自身的问题。
+
+修在 `vite.config.ts` 的 `test.exclude`（规范位置，一处覆盖 test:mocks、
+test:llm 与直接 `npx vitest run`），并在两个 npm 脚本里也显式加上以保持一致
+（`.worktrees` 本来就是这种双保险写法）。
+
+`.claude` 下有 10 个 real-llm 测试，所以 `test:llm` 会踩同一个坑，一并对齐。
+`.workbuddy/` 无测试文件，不需处理。
+
+验证：
+- 剩余 196 vs 基线 197 的 1 个差异 = test:mocks 排除的 real-llm 文件，
+  已逐条归类确认（docs/release-4.1.1-20261007/classify-suite-failures.mjs）
+- 非 .claude 的新增失败文件 0 个，新转全绿 2 个（即被排除的两个 real-llm 文件）
+
+注：本提交在 v4.1.1 标签之后，不影响已发布的 4.1.1 产物；
+package.json 的 scripts 也不参与二进制编译。

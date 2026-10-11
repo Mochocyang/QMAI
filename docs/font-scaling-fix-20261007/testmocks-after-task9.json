@@ -1,0 +1,36 @@
+{
+  "note": "任务 9 全量 A/B 的原始汇总。vitest 文本报告由 PowerShell 5.1 的 Tee-Object 写出，编码为 UTF-16LE；本文件由脚本按 BOM 识别编码后用严格行首锚定提取，提取时带正对照校验。",
+  "command": "npm run test:mocks",
+  "testFiles": "29 failed | 655 passed (684)",
+  "testFilesFailed": 29,
+  "testFilesPassed": 655,
+  "tests": "192 failed | 6131 passed | 6 todo (6329)",
+  "testsFailed": 192,
+  "testsPassed": 6131,
+  "baseline": {
+    "file": "qmai-412-testmocks.json",
+    "specFiles": 681,
+    "tests": 6234,
+    "failures": 192,
+    "failedFiles": 29
+  },
+  "verdict": {
+    "addedFailedFiles": 0,
+    "removedFailedFiles": 0,
+    "note": "失败集合逐一比对文件名：两个方向都为 0，即同一批既有失败，未引入新失败。"
+  },
+  "newSpecFiles": [
+    {
+      "path": "docs/font-scaling-fix-20261007/census-guards.spec.mjs",
+      "tests": 23
+    },
+    {
+      "path": "scripts/convert-font-units-to-rem.spec.mjs",
+      "tests": 30
+    },
+    {
+      "path": "src/components/uitest/ui-font-derivation.spec.ts",
+      "tests": 5
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+refactor(记忆中心): 拆掉双层双栏，重构为整窗单页
+
+用户需求：「不再是双栏结构，而是设计为单个页面重新设计」。
+
+原来这里嵌套了两层双栏：
+  ① 外层——中间栏（8 个记忆分类列表）↔ 右侧内容区；
+  ② 内层——内容区里的「章节列表 + 区间搜索」↔ 快照详情。
+两层全部拆除，分类变成页面顶部的标签条，内容独占整幅宽度。
+
+随之消失的还有双栏赖以通信的那条全局状态 selectedMemoryCenterEntry
+（写在 wiki-store，只有中间栏写、内容区读）。两栏并成一页后它没有存在
+意义，改成页面内的 useState<MemoryTabKey>。这次是拆结构 + 拆耦合。
+
+结构
+- 新增 memory-center-tabs.ts：标签清单 / 文案键 / 图标 / 计数解析（纯配置）
+- 新增 memory-center-snapshots.tsx：SnapshotCard / SnapshotCollection（仅 props）
+- ui-test-shell.tsx：记忆中心进 fullWindowViews，不再占用左侧目录栏
+  条件必须带 novelMode——lint 由记忆中心与 LintView 共用，只看 activeView
+  会把 LintView 的章节树一起藏掉
+- sidebar-panel.tsx：删除整个记忆分类分支及其数据加载
+- wiki-store.ts：删除 selectedMemoryCenterEntry 及其 setter
+
+数据
+- 删除内存中已有的全部快照被丢弃的旧截断（原 RECENT_SNAPSHOT_CARD_LIMIT
+  = 10 不省 I/O，还把 1 章节 + 10 大纲截成只剩 9 个大纲，界面计数与实际不符）
+- 大纲快照改为按标题排序：其编号是文件名的哈希，按它排等于随机顺序
+- 快照页默认渲染 15 张 + 「显示更多」，控制 DOM 规模
+
+顺带修复
+- memory-center.ts 的 parseMemoryMarkdownPreview /
+  buildMemoryCenterSnapshotCards / buildMemoryCenterStats 丢失了 export，
+  而 memory-center.test.ts 一直在 import 它们——那 3 条测试此前一直是红的。
+  tsconfig.app.json 排除了 *.test.ts，所以类型检查也没发现。
+
+验证
+- 68 条相关用例全绿；变异校验 9/9 均如期变红（断言非恒真）
+- 真实浏览器几何 22 项通过，含 2 个负向对照（改回 wrap 标签确实折成两排、
+  改回 row 卡片确实并排），证明测量会随缺陷变化
+- 全量 A/B：新增失败文件 0；memory-center.test.ts 由 3 失败转为全绿
+- tsc -p tsconfig.app.json 通过
+
+不做的事：不碰 LintView 与 dismantling.ts，不改 loadMemoryCenterData 的读取
+策略（它本来就读全部快照），不新增任何记忆写入/提取能力。

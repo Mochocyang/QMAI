@@ -1,0 +1,24 @@
+chore(release): 升级版本至 4.1.2
+
+修复 v4.0.0 起收不到应用内更新提示的问题（详见 471a0dc）。
+
+为什么必须发这一版：已发布的 v4.1.1 本身含此缺陷，逐版核实 v4.0.0 至 v4.1.1
+的启动接线全部失效。受影响版本的用户永远收不到自动更新提示——他们的检查逻辑
+是死的，再发布多少新版本都不会被感知。因此必须发一个含修复的新版本，
+并在更新说明里明确要求这些用户手动更新一次。
+
+本版自 v4.1.1 起唯一的用户可见变更是更新检查修复，更新说明 2 条：
+1. 自动更新提示恢复（启动时自动检查、发现新版本即询问）
+2. 受影响的旧版本请手动更新一次（设置 → 更新日志 → 检查更新）
+
+发版面 7 个文件：package.json、package-lock.json、Cargo.toml、Cargo.lock、
+tauri.conf.json、changelog.ts、changelog.spec.ts。
+
+校验结果：
+- 版本面检查 13 项全过（check-version-surface.mjs 4.1.2 4.1.1）
+- release-notes.mjs 返回真实中文说明，非兜底文案
+- changelog.spec.ts + release-notes.spec.mjs 10 项通过
+- test:mocks 681 文件 / 6234 用例 / 192 失败，A/B 新增失败文件 0 个
+  （基线 679/6226/196；app-updater.test.ts 由 4 失败转为全绿）
+- npm run build 成功；产物探针 qmai@4.1.2，两条新说明均进包
+- tsc app/node 双配置通过；git diff --check 干净

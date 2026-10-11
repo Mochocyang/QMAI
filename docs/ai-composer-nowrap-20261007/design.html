@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI 输入框底栏：收窄不换行</title>
+<style>
+  :root { --ink:#273c35; --muted:#5d6e64; --line:#dfe6da; --paper:#fcfdfb; --panel:#f2f5ef; --accent:#45624f; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:32px; background:#edf1ec; color:var(--ink);
+    font:15px/1.85 "PingFang SC","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif; }
+  main { max-width:900px; margin:0 auto; padding:34px 38px 40px; background:var(--paper);
+    border:1px solid var(--line); border-radius:14px; }
+  h1 { margin:0 0 6px; font-size:23px; }
+  h2 { margin:32px 0 12px; padding-top:16px; font-size:17px; border-top:1px solid var(--line); }
+  h2:first-of-type { border-top:0; padding-top:0; }
+  p { margin:0 0 12px; }
+  code { padding:1px 5px; border-radius:4px; background:var(--panel); font-size:13px;
+    font-family:"Cascadia Mono",Consolas,monospace; }
+  table { width:100%; border-collapse:collapse; margin:6px 0 16px; font-size:14px; }
+  th,td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+  th { background:var(--panel); font-weight:600; }
+  .note { padding:12px 14px; border-left:3px solid var(--accent); background:var(--panel); font-size:14px; }
+  .bad { color:#943f36; font-weight:600; }
+  .ok { color:var(--accent); font-weight:600; }
+  footer { margin-top:34px; padding-top:14px; border-top:1px solid var(--line); color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>AI 输入框底栏：收窄时压缩模型框，而不是变成上下两排</h1>
+  <p><b>用户原话：</b>「当用户调整 AI 对话框的宽度与大小时，若进行收窄，应该将模型框进行收窄，
+    而不应该出现上下的结构。」</p>
+
+  <h2>1. 根因</h2>
+  <p>不是遗漏，是<b>上一轮有意为之的设计</b>。原 CSS 里写着：</p>
+  <table>
+    <tr><th>位置</th><th>原值</th><th>导致的后果</th></tr>
+    <tr><td>底栏容器</td><td><code>flex-wrap: wrap</code></td>
+      <td>放不下就换行 —— 这正是用户看到的上下结构</td></tr>
+    <tr><td>右组（思考深度+模型+发送）</td>
+      <td><code>flex: 1 0 auto</code><br><code>min-width: min(100%, max-content)</code></td>
+      <td><b>换行的直接根因。</b><code>flex-shrink: 0</code> 且最小宽度不小于自身内容宽：
+        空间不够时它<b>不可能</b>被压缩，flex 只能把它整组挪到下一排</td></tr>
+    <tr><td>模型那个 <code>.relative</code></td><td><code>flex: 0 0 auto</code></td>
+      <td>模型框完全不参与收缩</td></tr>
+  </table>
+  <p>原注释写的是「一行放不下时，思考深度、模型和发送整组落到第二排，避免末尾被裁切」——
+    作者是在解决「发送按钮被裁」的问题，选择了换行。用户判定这个取舍错了：
+    宁可截断模型名，也不要摆成两排。</p>
+
+  <h2>2. 设计</h2>
+  <p>三处改动，核心是<b>把「让位」的责任交给可截断的那一项</b>：</p>
+  <table>
+    <tr><th>改动</th><th>作用</th></tr>
+    <tr><td>底栏 <code>flex-wrap: nowrap</code></td><td>结构上不可能再出现两排</td></tr>
+    <tr><td>右组 <code>flex: 0 1000 auto</code>（原 <code>1 0 auto</code>）、去掉
+      <code>min-width: min(100%, max-content)</code></td>
+      <td>可以收缩了；大 shrink 权重让它在底栏这一层优先于左组让位</td></tr>
+    <tr><td>模型 <code>.relative</code> 变 flex 容器、按钮 <code>flex: 1 1 auto; min-width: 44px</code>、
+      span <code>min-width: 0; text-overflow: ellipsis</code></td>
+      <td>模型名真的被省略号截断，且留 44px 可用下限</td></tr>
+  </table>
+
+  <h2>3. 两个非显然的坑</h2>
+  <p class="note">
+    <b>坑一：收缩权重必须"每一层"都给。</b>第一版只在模型那层给了大 shrink，
+    底栏这一层左右组权重相当，于是实测<b>左组被压掉一半</b>（156px → 78.8px），
+    「计划」按钮被裁掉 —— 让位的变成了一个功能按钮，而用户要裁的是模型名。
+    flex 的收缩量是在<b>每一层各自</b>按 <code>flex-shrink × flex-basis</code> 分配的，
+    所以底栏那一层也要把权重偏向右侧。这条是截图看出来的，不是断言报出来的
+    （见下一节：几何断言当时是"全绿"的）。
+  </p>
+  <p class="note">
+    <b>坑二：有 <code>overflow:hidden</code> 的容器里，"几何位置在底栏内"测不出"被裁"。</b>
+    被裁掉的按钮 rect 仍然是它在布局里该在的位置，越界的是<b>父容器</b>的裁剪。
+    第一版断言只查了"是否落在底栏矩形内"，于是「计划」被裁时它照样通过。
+    判据改成「控件必须完整落在<b>左组自己的矩形</b>内」才抓得到。
+  </p>
+
+  <h2>4. 验证</h2>
+  <p>jsdom 不做布局、不算 flex，「同一行」与「被截断」在 jsdom 里无法观测，
+    所以主体是真实浏览器几何脚本
+    <code>docs/ai-composer-nowrap-20261007/check-composer.mjs</code>（23 项全过）。</p>
+  <p><b>真实可达宽度</b>：章节 AI 面板的拖拽下限是 <code>UI_TEST_AI_MIN_WIDTH = 400</code>
+    （<code>src/lib/ui-test-layout.ts</code>），大纲面板下限 320。所以 400 是必须过的硬线。</p>
+  <table>
+    <tr><th>宽度</th><th>底栏高</th><th>同一行</th><th>左组宽</th><th>模型宽</th><th>模型名截断</th></tr>
+    <tr><td>320（大纲下限）</td><td>54px</td><td class="ok">是</td><td>155.9</td><td>44</td><td>是</td></tr>
+    <tr><td>400（章节下限）</td><td>54px</td><td class="ok">是</td><td>155.9</td><td>50.1</td><td>是（可见 37px）</td></tr>
+    <tr><td>446（用户截图宽度）</td><td>54px</td><td class="ok">是</td><td>156</td><td>96</td><td>是</td></tr>
+    <tr><td>520 及以上</td><td>54px</td><td class="ok">是</td><td>156</td><td>136.4（完整）</td><td>否</td></tr>
+  </table>
+  <p>修复前同一组测量：<span class="bad">300–446px 全部 94px 两排</span>，模型宽恒为 136.4、
+    从不截断；520px 起才是 54px 单排。也就是说<b>用户截图里的宽度正落在缺陷区间内</b>。</p>
+  <ul>
+    <li>单排高度基准取自最宽时的实测值（54px），阈值写成 <code>&lt; 54 × 1.4</code>，
+      不写死魔数；两排是 94px，会被抓到。</li>
+    <li>3 条负向对照，每条都复算<b>与正式断言完全相同的判据</b>：
+      恢复 <code>flex-wrap:wrap</code> → 重新变两排（94px）；
+      模型不可收窄 → 模型名不再截断；
+      整条底栏都不可收缩 → 出现 72px 水平溢出。</li>
+    <li>模型宽度的<b>单调性</b>单独断言：44 → 50.1 → 96 → 136.4 随容器变宽而增，
+      证明是"跟着收窄"而不是某个固定值。</li>
+  </ul>
+  <p class="note">
+    <b>负向对照的第一版又是错的</b>（本任务连续第三次踩同一个坑）：
+    我用「发送按钮被挤出底栏」来证明"模型框不可收窄"，但 <code>nowrap</code> 下发送按钮是
+    <code>flex-shrink: 0</code>，模型再宽也挤不掉它 —— 这条对照恒真，永远"抓不到"。
+    改成用「模型名是否被截断」判定才成立。教训一致：
+    <b>负向对照必须复算与断言完全相同的判据，否则有效断言会看起来像空话。</b>
+  </p>
+
+  <h2>5. 影响面</h2>
+  <table>
+    <tr><th>文件</th><th>改动</th></tr>
+    <tr><td><code>src/components/uitest/ui-test-ai.css</code></td>
+      <td>底栏 <code>nowrap</code>、左右组与模型的可收缩性与权重、模型名省略号</td></tr>
+    <tr><td><code>src/components/uitest/ui-test-ai-input.spec.tsx</code></td>
+      <td>原来那条断言<b>明确钉住了旧行为</b>（<code>flex-wrap: wrap</code>、
+        <code>min-width: min(100%, max-content)</code>、标题就叫「放不下时整组换到第二排」），
+        已按新需求翻转，并补一条"浏览器脚本还在"的存在性检查</td></tr>
+    <tr><td><code>docs/ai-composer-nowrap-20261007/</code></td>
+      <td>新增几何脚本、查询工具、报告与截图</td></tr>
+  </table>
+  <p>同一份 CSS 由章节 AI 面板与大纲 AI 面板共用（<code>chat-panel.tsx</code> 与
+    <code>outline-chat-panel.tsx</code> 都 import 它），所以两个面板同时生效。</p>
+  <p><b>不做的事</b>：不改 <code>ReferenceInput.tsx</code> 的 DOM 结构（只改 CSS，
+    避免牵动正式版共用组件的既有测试）；不改两个面板的宽度下限
+    （400 / 320 是既有产品决策，本次只保证在这些宽度上不换行）；模型按钮的 44px 下限是
+    经验值 —— 真实使用宽度（≥400px）下是 50px 以上，44px 只是"比下限更窄时也别压成一条缝"的兜底。</p>
+
+  <footer>QMAI · 青幕AI写作 · 2026-10-07 · 依据：用户提供截图 + 文字说明（收窄应压缩模型框、不应出现上下结构）</footer>
+</main>
+</body>
+</html>

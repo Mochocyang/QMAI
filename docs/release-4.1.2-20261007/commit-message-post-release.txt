@@ -1,0 +1,32 @@
+docs(发版): 记录 4.1.2 的发布结果与发布后验证
+
+发布结果：
+- 发版提交 f08aaf304904787ca2fe3641636a879e36734fa3
+- annotated 标签 v4.1.2（对象 725066e4df）解引用指向该提交
+- 工作流 run 37595851144 completed/success，Windows/macOS/Linux 全部成功
+- 8 个资产齐全：Windows 安装包 + .sig + 便携版；macOS .dmg + .app.tar.gz；
+  Linux .deb + .AppImage；latest.json（version 4.1.2，notes 含手动更新指引）
+
+发布后验证（只有发布后才能做的一项检查）：用本地 4.1.1 修复版对真实 GitHub
+端点启动，弹出「检测到新版本 4.1.2」并展示两条说明。这是端到端的最终证据 ——
+4.1.1 在 4.1.2 发布前是"最新版"，无法触发提示，只有发布后才成为"有更新"的一方。
+
+首次运行该验证时 90 秒内没有弹出提示，应用界面完整运行。当时的两种可能
+（修复没生效 / 请求发出了但失败）仅凭"有没有弹窗"无法区分，因此做了排查：
+- 连通性探针：node fetch 连测 4 次全成功，latest 已为 4.1.2 → 发布已生效
+- 同时段 curl 与 git（schannel）连续失败、gh（Go TLS）正常 → 本机部分 TLS 栈不稳
+
+改为带连接层观测的 watch-app-network.ps1 重试后通过。
+教训：单次失败不足以判定修复无效；若直接下结论就会去改本来正确的代码。
+故补上连接层观测，使"没发起请求"与"请求失败"可区分。
+
+新增脚本：
+- probe-connectivity.mjs：连通性探针（区分"发布没生效"与"本机网络不通"）
+- watch-app-network.ps1：启动应用时同时观测窗口与该进程远端 TCP 连接
+- fetch-latest.mjs：读取 latest.json（带重试；curl 在本机 schannel 下常失败）
+- status-run.mjs：打印工作流各 job 状态（用 node 调 gh，避开 shell 引号问题）
+- post-release-verification.md：本次发布后验证的完整记录
+
+本地便携版已同步重建为 4.1.2：213,570,048 bytes，
+SHA256 6519C6731861B3FD0D72E344B48DE0F386FD30A603A4EAF6383D16CEC128C277，
+exe 内验证 52 项全过。

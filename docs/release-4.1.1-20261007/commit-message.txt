@@ -1,0 +1,32 @@
+chore(release): 升级版本至 4.1.1
+
+区间 v4.1.0..HEAD 共 106 个提交，355 个文件，+34587 / −5689。
+面向用户的更新说明整理为 14 条（上一版 21 条）—— 同类合并，不是简单截断。
+
+版本面 7 处：
+- package.json / package-lock.json（根 + packages[""]）
+- src-tauri/Cargo.toml（[package]）/ Cargo.lock（只改 name = "qmai" 那处，
+  另有 fsevent-sys 与 objc2-encode 两个同名版本号的 crate 不得改动）
+- src-tauri/tauri.conf.json
+- src/lib/changelog.ts（条目 + currentVersionChangelog 分支 + allChangelog 首位）
+- src/lib/changelog.spec.ts（首位断言与 4.1.1 内容钉住）
+
+本轮主要变化（按用户可感知结果归类）：
+拆书库结果面板精简 6 项 UI 并改为自动入库、成果对象可删除、版本合并为一份列表、
+证据索引下沉进卡片、绑定对话框加搜索、旧版角色整合；角色灵魂库修掉「打开等 3 分钟」
+与三处数据问题（精修结果被覆盖 / 「已精修」误标导致人物永不出现 / 残缺缓存致人名消失）；
+记忆中心拆掉嵌套两层双栏改整窗单页，大纲快照从「只计数不渲染」变为可查看；
+章节目录加记忆绿点；修复「HTML 形式」永久置灰、需求分析选项空白、
+档案文档分区导航跳空白页、深色皮肤正文对比度 1.17 等问题。
+
+精简过程与校验（docs/release-4.1.1-20261007/）：
+- 首次精简时静默丢失一条【角色识别可重试】，由 check-condense-coverage.mjs
+  逐条对照 28 条原始事实时发现，已补回并合并
+- check-condense-coverage.mjs：28/28 原始事实在精简版中均有落点；
+  5 项变异（删掉关键短语）5/5 如期变红
+- check-changelog-ts-matches.mjs：确认手工誊写进 changelog.ts 的条目
+  与已校验草稿逐字一致 —— 手工誊写是本轮最易出错的一步，
+  若两者不一致，覆盖度结论会与实际发布内容脱钩
+- check-version-surface.mjs：7 处版本面 13 项断言全过，并反查无 4.1.0 残留
+- 三个脚本共用 parse-changelog-entry.mjs：changelog.ts 是 CRLF、草稿是 LF，
+  各写一份解析会因 `\r` 产生「一边 14 条一边 0 条」的假失败（已实测踩到）

@@ -1,0 +1,26 @@
+﻿ .../SkillHub/JueseSkill/character-design/profile.html | 19 +++++--------------
+ .../SkillHub/SheDingSkill/faction-system/profile.html | 19 +++++--------------
+ .../SheDingSkill/foreshadowing-suspense/profile.html  | 19 +++++--------------
+ .../SheDingSkill/map-progression/location.html        | 19 +++++--------------
+ .../SheDingSkill/map-progression/profile.html         | 19 +++++--------------
+ .../SheDingSkill/power-system/golden-finger.html      | 19 +++++--------------
+ .../SkillHub/SheDingSkill/power-system/profile.html   | 19 +++++--------------
+ .../SkillHub/SheDingSkill/world-rules/background.html | 19 +++++--------------
+ 8 files changed, 40 insertions(+), 112 deletions(-)
+5df573c1f132af6991ff8a6f8c08d5e4191b44c1
+fix(档案): 删掉档案文档左侧的「分区导航」，版面改回单栏
+
+ .../JueseSkill/character-design/profile.html       | 19 +++-------
+ .../SheDingSkill/faction-system/profile.html       | 19 +++-------
+ .../foreshadowing-suspense/profile.html            | 19 +++-------
+ .../SheDingSkill/map-progression/location.html     | 19 +++-------
+ .../SheDingSkill/map-progression/profile.html      | 19 +++-------
+ .../SheDingSkill/power-system/golden-finger.html   | 19 +++-------
+ .../SheDingSkill/power-system/profile.html         | 19 +++-------
+ .../SheDingSkill/world-rules/background.html       | 19 +++-------
+ src/lib/html-document-appearance.spec.ts           | 17 ++++++---
+ src/lib/html-document-appearance.ts                |  5 +--
+ src/lib/novel/faction-profile-template.spec.ts     |  6 ++--
+ src/lib/novel/outline-editorial-v2.spec.ts         | 40 +++++++++++++++++-----
+ src/lib/novel/profile-document.ts                  | 38 ++++++++++++--------
+ 13 files changed, 116 insertions(+), 142 deletions(-)

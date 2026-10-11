@@ -1,0 +1,14 @@
+chore(发版核验): 补充 4.1.2 的标签校验与工作流跟踪脚本
+
+- verify-tag.mjs：校验 annotated 标签解引用后指向发版提交。
+  之所以要脚本：`git rev-parse v4.1.2^{}` 里的 `^` 会被 cmd 当转义符吃掉、
+  `{}` 会被 PowerShell 当脚本块解析，两层 shell 下来参数已不是原本那个
+  （本次实测报 "ambiguous argument 'v4.1.2{}'"）。execFileSync 直接传 argv 可避开。
+
+- watch-and-verify.mjs：轮询工作流到终态，再核对必需资产（三平台安装包、
+  便携版、latest.json）。按 qmai-release 不变量，工作流与资产未完成前不声称
+  发版完成，所以必须等终态而不是"启动了就报成功"。
+  同样用 node 而非 shell：`gh ... --jq ".name"` 的引号会被 shell 拆错。
+
+4.1.2 发版结果：标签对象 725066e4df 解引用指向 f08aaf3049；工作流
+run 37595851144 已针对该标签与 SHA 启动。
