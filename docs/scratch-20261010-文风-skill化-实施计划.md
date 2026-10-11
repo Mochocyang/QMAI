@@ -1439,5 +1439,206 @@ registry 重建**不会**清掉那个覆盖值 —— `getWritingStyleIdOverride
 ⚠️ 这也解释了本分支一度出现的「基线 7419 与逐文件增量对不上」的困惑：
 **无 Junction 的 HEAD = `7435 + 32 = 7467 = 7419 + 48`**，与逐文件声明**精确吻合**。
 
+---
+
+## 11. 合并与最终实测（2026-10-11）
+
+### 11.1 合并方式：三条子批并行于独立工作树，最后合并
+
+由于三批都要跑重型套件、而这个仓库**同一棵工作树同时只能有一个测试进程**（见 §5），
+丁-3 之后的剩余工作改为**平行工作树 + 子智能体**推进：
+
+| 工作树 | 分支 | 承担 |
+|---|---|---|
+| `.worktrees/scratch-20261010` | `work/scratch-20261010` | 丁-3（主树，也是最终合并目标） |
+| `C:\QMAI_C\qmai-wt-d4` | `work/scratch-20261010-d4` | 丁-4 |
+| `C:\QMAI_C\qmai-wt-d5` | `work/scratch-20261010-d5` | 丁-5 |
+
+**动手前先算了重叠面**（`git diff --name-only e7cb3cd <each>` 求交）：
+
+- 丁-3 ∩ 丁-5 = **0 文件**、丁-4 ∩ 丁-5 = **0 文件** ⇒ 丁-5 **零冲突**并入（`9f53f7e3`）。
+- 丁-3 ∩ 丁-4 = **6 文件**（`types.ts`、`ReferencePickerDialog.tsx`、`chat-panel.tsx`、
+  `outline-chat-panel.tsx` + 两个 spec）⇒ 预期冲突，实际只有 **2 处**真冲突。
+
+### 11.2 两处冲突的解决（都按「两边改动并存」，没有丢任何一边的契约）
+
+1. **`outline-chat-panel.tsx` 的 skill provider**：丁-3 把条目构造**抽成了具名导出**
+   `buildOutlineReferenceSkillEntries(deAiSkillConfig, writingSkills)`，丁-4 在**同一个位置**
+   内联注入了灵魂条目。若任选一边，都会丢掉另一边的保证（选丁-3 ⇒ 灵魂条目消失、
+   大纲面板引不到灵魂；选丁-4 ⇒ 丢掉「产出里永远没有文风条目」这条**可行为断言**的性质）。
+   **解决**：把灵魂投影**并入那个具名函数**（新增第三个入参 `characterSouls`），组件侧只留一行调用。
+   ⇒ 两边契约同时成立：丁-3 的行为断言仍直接调该函数看产出；丁-4 的 **AST** 钉子
+   （`soulEntries = characterSouls.map(...)`、且被摊进同一数组）仍落在函数体内、按结构匹配得到。
+   ⚠️ 丁-4 用 AST 而非源码文本这一点在这里**救了场**：AST 断言走的是全文件结构，
+   所以「把这条声明搬进一个具名函数」不需要改断言；若当初是文本正则钉死位置，这个合并会直接假红。
+2. **`ReferencePickerDialog.spec.tsx`**：两边在**同一位置**各加了一组「技能库子 tab 过滤」用例，
+   且各自补了收尾括号（git 把两侧共用的一行 `})` 当成了公共上下文，所以两侧各自都少一个闭括号）。
+   **解决**：两组**都保留**（互补 —— 丁-3 那组钉「过滤 + `effectiveSkillSubtab` 回退」，
+   丁-4 那组钉**第四个子 tab「角色灵魂」**的过滤与确认契约）。
+   ⚠️ 顺带订正一处**合并引入的**计数变化：丁-4 往 `SKILL_SUBTABS` **全集**加了「角色灵魂」，
+   于是「技能库整体为空」时逃出口摆出的是**四条**子 tab 而不是三条。
+   那条断言正是「逃出口 = 模块级全集」这条性质的钉子，**必须随全集一起变**
+   —— 这是本轮唯一一处「合并让既有断言必须改值」的地方，理由已写进该测试的注释。
+
+**合并后逐文件对账**：`ReferencePickerDialog.spec.tsx` = 12（丁-3 的 10 + 丁-4 的 2）；
+`outline-chat-panel.spec.tsx` = 140（基线 132 + 丁-3 的 6 + 丁-4 的 2）。
+两处都对得上，没有静默丢用例。
+
+### 11.3 最终实测结果（全部在本树实跑，未跑主检出）
+
+| 项 | 命令 | 实测 |
+|---|---|---|
+| 全量测试 | `npm run test:mocks` | **743 文件 / 7524 通过 / 6 todo / 0 失败 / exit 0** |
+| 类型检查（生产） | `npm run typecheck` | **exit 0** |
+| 类型检查（测试） | `npm run typecheck:tests` | **exit 0** |
+| 守门 ① 冻结面 | `git diff a5a2702 HEAD --` 四个守卫文件 + `context-hub/**` | **0 文件** |
+| 守门 ② `autoSaveable` | 值 | **`[]`**（`:841`），该文件相对 `a5a2702` **未改** |
+| 守门 ③ 事件细纲 | `git grep 事件细纲 -- outline-context-index.ts` | **空** |
+| App.tsx 内容 | `AppLayout` / `WelcomeScreen` / `IS_UI_TEST_BUILD` | **0 / 0 / 0** |
+| `preview.formatWriting` | 计数 | **2**（`:2931` / `:3033`） |
+| `openBodyFontPopover` | 计数 | **2**（`:2575` / `:2623`） |
+| 默认侧栏顺序 | `DEFAULT_SIDEBAR_NAV_ORDER` 是否含文风视图 | **不含** |
+| 便携构建 | `npm run build:portable` | **exit 0**，产出 `release-portable\QMaiWrite.exe` + `version-info.json` |
+| EOL 假阳性 | `git diff HEAD --name-only -- tests/fixtures 'docs/*/dump.html'` | **0** |
+
+分支总规模：`a5a2702..HEAD` = **152 文件，+31284 / −733**（含 甲 / 丙 / 丁 三批与全部文档）。
+
+### 11.4 ⚠️ 全量套件里发现的**一个既有、与本分支无关**的 property 测试失败
+
+第一次全量跑出现 **1 条**失败（第二次干净通过），**不是本分支引入**：
+
+```
+FAIL src/lib/sweep-reviews.property.test.ts > extractJsonObject — properties > extracts a fenced JSON object
+Error: Property failed after 38 tests
+{ seed: 719407758, path: "37:1:2:3:34:29:28", endOnFailure: true }
+Counterexample: [{"":{"```":null}}]
+Caused by: SyntaxError: Unterminated string in JSON at position 6 (line 1 column 7)
+```
+
+**判定为本分支无关的三条证据**：
+1. 该文件与 `src/lib/sweep-reviews*` 相对 `a5a2702` **零改动**（`git diff --name-only a5a2702 HEAD` 为空）；
+2. 单独跑 **3/3 通过**（fast-check 每次换种子 ⇒ 这是**种子相关的** property 失败，不是稳定回归）；
+3. 第二次全量跑 **0 失败**。
+
+**但它是一个真实的生产代码边界缺陷**（值得单开一批），机制已定位到确定的代码行：
+`src/lib/novel/book-analysis/llm-json.ts:9`
+```ts
+const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i)
+```
+`([\s\S]*?)` 是**非贪婪**的 ⇒ 当 JSON **载荷自身**含 ``` 时，围栏正文会在**第一个内层** ``` 处被截断。
+反例 `{"":{"```":null}}` 包成围栏后，捕获到的是 `{"":{"`，于是 `JSON.parse` 报
+**「Unterminated string at position 6」** —— 与实测报错**逐字吻合**，机制确认。
+`L11` 那条 `^…` / `…$` 锚定的兜底写法是**正确的**，但它只在 `fenced === null` 时才被走到。
+⇒ 主路径被非贪婪匹配劫持：LLM 输出的正文里只要出现 ``` （例如引用代码块、或某个字段值就是三个反引号），
+抽取就会静默截断。**同一函数被 `judgeBatch` 在生产路径调用。**
+（本批**未修** —— 它不在 丁 的范围，且属另一批的职责；此处记录以便单开。）
+
+⚠️ 另需留意该 property 测试自身的**审计线索**（测试文件头部注释已诚实写明）：
+它 import 的是 `extractJsonObjectCandidate`（`llm-json.ts`），而非 `sweep-reviews.ts` 内部那份
+`extractJsonObject` —— 后者的 `export` 在提交 `01aab5f` 被移除，测试无法再 import，
+于是在测试侧加了一层 `null → ""` 归一化适配。两者语义等价但**是两份实现**
+⇒ 这条 property 覆盖的是 `llm-json.ts` 那份，**不是** `sweep-reviews.ts` 那份。记录备查。
+
+---
+
+## 12. 丁-4 实施与审查记录（回填，2026-10-11）
+
+### 12.1 提交链
+
+| 提交 | 内容 | 规模 |
+|---|---|---|
+| `a5ef76b6` | `feat(角色灵魂): 输入框 @ 引用角色灵魂并真绑定到小说人物（丁-4）` | 22 文件，+2304/−37 |
+| `5443193e` | `fix(角色灵魂): 按快照完整还原绑定（含 aliases），并把源码钉子改成语法树（丁-4 复核修正）` | 5 文件，+333/−55 |
+
+### 12.2 「引用是**这一条消息**的临时绑定」是这条的难题
+
+灵魂与文风不同：**注入条目 ≠ 已绑定**。用户 `@` 一条灵魂之后，写盘那一步在
+`handleSend` 里、**用户确认之后**，而绑定表是 **1:1 按 `characterName`** 的
+（`bindCharacterAura` 会**覆盖**既有绑定，`character-aura.ts:513-516`）
+⇒ 必须做到「用完还原**用户原本的**绑定」，否则就是**静默改用户数据**。
+
+**实现**：先**快照**既有绑定，再在 `finally` 里按快照还原；
+并额外在两处 `SourceCanonOverflowError` 的**提前 `return`** 上显式释放（那两处在生成块之外）。
+**复核者做了穷尽枚举验证**（写盘 `chat-panel.tsx:1816` 之后窗口内的每一个出口）：
+并发上限 `return`（`:1839`，写盘后）、两处 `SourceCanonOverflowError`（`:2079` / `:2218`）、
+catch 内 aborted / session 失效（`:2779`/`:2780`，走 `try:2348` ⇒ `finally:2803`）、正常完成；
+`:1908/:1920/:1941/:2003` 在 `markDone` 箭头**内部**（非 handler 出口）、`:1826` 在写盘前。
+并逐个验证窗口内**无 throw**（`contextHub.prepare`、`saveSnapshot`、`runNovelPrePluginChain`、
+`loadEffectiveDeAiSkillSafely`（全函数 total）、`buildAgentHistoryMessages`（外层 try/catch total））
+⇒ **未发现任何可留下临时绑定的路径**。与「删掉 `finally` 释放」变异 ×3 全红互证。
+
+### 12.3 🔴 复核者的 must-fix：`aliases` 在「同一条」分支**静默丢失**（真实数据损失）
+
+实施者的三分支还原里有一条短路：**「快照里就是同一条灵魂 ⇒ 什么都不做」**。
+复核者用探针实测证明这个前提**不成立**：
+`beginMessageScopedSoulBinding` 递给 `bindCharacterAura` 的只有 `{ characterName, auraId }`，
+而后者落盘 `{ ...binding, characterName }` ⇒ **临时写入这一步就已经把原绑定的 `aliases` 抹掉了**。
+```
+afterBegin  = [{"characterName":"李四","auraId":"custom-a"}]
+afterRelease= [{"characterName":"李四","auraId":"custom-a"}]   // 原 aliases ["四哥"] 没了
+```
+⇒ 短路返回等于**把用户的别名永久删掉**；而 `buildCharacterSoulContext` 正是靠 `aliases` 认人的
+（别名命中会让这条灵魂进入上下文）⇒ **后果不只是界面显示，是上下文内容变了**。
+**修法**：有原绑定就**一律**按快照完整写回，**不设**「看着没变就跳过」的短路；
+并把「多写一次盘」这个**刻意的代价**写进注释（防「比较器漏字段」这类静默丢数据）。
+**反向验证**：「另一条」分支的 aliases 还原是真的（改成显式字段 ⇒ CAUGHT ×1）⇒ 缺口只在这一条分支上。
+新用例断言因果链**两半**（临时写入后盘上确实只剩 `characterName + auraId` ⇒ 释放后 aliases 回来）；
+把短路放回去 ⇒ **只有这 1 条红、其余 13 条全绿**，印证了「现有 13 条用例无一变红」。
+
+### 12.4 ⭐ 源码钉子改用**语法树**，而不是 strip 注释（本批最佳实践）
+
+复核者发现大纲面板的 release 钉子**可被注释满足**：把
+`await releaseMessageSoulBinding();` 改成 `// await releaseMessageSoulBinding();`
+**+ `void releaseMessageSoulBinding;`**（保持标识符被使用）⇒
+`tsc -p tsconfig.app.json --noEmit` **exit 0**，两个 spec **166 passed 全绿**。
+
+我给出的最低要求是「改成对 comment-stripped 副本断言」，实施者**主动升了一档**：
+改成用 `ts.createSourceFile(..., ScriptKind.TSX)` 解析后**按结构**断言。**为什么这比 strip 更硬**：
+strip 之后**仍然是在匹配文本**（永远要跟格式/引号/换行较劲，且 strip 正则自己还要正确理解字符串里的 `//`）；
+而 **AST 里根本没有注释这个节点** ⇒ 被注释掉的调用**不存在**，`void f;` 也变不出一个 `CallExpression`。
+钉子断的是**位置关系**：该调用必须落在某个 `try` 的 `finallyBlock` 内，且该 try 的 catch
+正是生成失败那一条，同一 finally 里还必须留着原有的运行槽清理。
+**两处变异都被抓到**：注释掉（`expected 0 to be greater than 0`）、
+挪进 `try` 体内（`expected [] to have a length of 1 but got +0`）—— 后者正是「生成失败就不还原」。
+⚠️ 它**主动放宽**了一处：断「**所有**还原调用都落在这个 finally 里」而非「**恰好一处**」，
+否则将来有人为提前 `return` 另加释放点时会**误报** —— 而那本来是**正确**的改法。
+⇒ **这条经验值得推广**：本分支三个子批**都**栽在「源码文本断言被注释满足」这同一个坑上
+（丁-1 一条、丁-3 一条、丁-4 一条、丁-5 一条），AST 是目前最好的解药；
+丁-3 那条「提取成具名函数、断言其产出」是另一种（行为断言）。
+**两者结合**：行为断言负责「产出对不对」，AST 负责「调用在不在这里」。
+
+### 12.5 另外三条订正
+
+- **注释过度声称**（`unified-skill-library-view.tsx`）：原写「写成 `entry.type !== "style"` 时…
+  **在搜索时抛错**（不是编译错误，是运行时崩溃）」。实测还原该谓词并保留 `soul` ⇒
+  **1 处 `TS2339: Property 'rawSkill' does not exist`（编译错误）**，事故等级高了一档。
+  已改成事实，并补了一句**更重要的**限定：类型系统拦得住是因为这里**恰好**取了
+  「只有部分成员才有」的字段；真正危险的是取一个**所有成员都有**的字段（如 `entry.kinds`）
+  —— 那种分支**类型系统不会报错**，只能靠人想清楚。
+- **`claim 11` 的理由不准**：实施者称「`handleOpenEntry`/`handleToggleEnabled` 运行时不可达
+  ⇒ 任何行为用例都杀不掉」，复核者实测**能力标志有行为钉**
+  （`ENTRY_CAPABILITIES.soul.openable` / `.toggleable` 改成 `true` 各 CAUGHT ×1）。
+  子句成立（那两个 `case` 确实不可达、只能靠源码形状兜底），但「这一整块没人管」是错的。
+- **实施者自己引入的 2 条 flaky 是真缺陷**（不是环境噪音）：
+  根因是 `waitForRunSettled` 在「运行还没开始」时**立刻返回**
+  （`runStates[id]` 是 `undefined`，而 `undefined?.status !== "running"` 为真），
+  于是断言跑在确认之后那串异步链之前。它**没有**接受「再跑一次就绿了」，
+  而是给存储读取注入 `setTimeout(…, 4)` 做**确定性**复现（旧写法在该延迟下**必然**红，
+  且报出与全量套件里**逐字相同**的断言；新写法同一延迟下全绿），并改成**条件等待**。
+  ⚠️ 这类「失败的是我自己新写的测试」必须与真回归区分开 —— 它的做法（确定性复现 + 反证
+  「失败的两条都不走我改的那条分支」）是正确的处理方式。
+
+### 12.6 如实留下的东西
+
+- **大纲面板的绑定行为**只有源码级/AST 级钉子 —— jsdom 跑不了它的生成链，
+  **不是行为保证**。行为面的对照在 `soul-reference.spec.ts`（产出端 ↔ 消费端契约）
+  与 `message-scoped-soul-binding.spec.ts`（真绑定的读写与还原）。
+- **风险 7 只通过 `describeSoulBlastRadius()` 提示**，且**只在选中之后**显示、**从不阻断**
+  （计划只要求「说明如何缓解」⇒ 达标，但缓解是**滞后**的）。
+- **`sourceChapters` 语义**与原生生成器不一致（见 §10.4）。
+- **junction**：丁-4 实施者选择**不**替换（代价是 robocopy 整套依赖期间无法验证任何东西，
+  而归因与数字已算清）⇒ 该树里 `ui-test-shell.spec.tsx` 仍是 fail-to-collect。
+  我按「无 junction 口径 = `+1`」记：无 junction 应为 **7468**。
+
 
 
