@@ -121,7 +121,12 @@ export function ReferencePickerDialog({
    * 它只判 `items.length === 0`，**不判 `loading`**。而 `items` 在切换分类时不重置，
    * 所以「从章节切到技能库、fetch 还没回来」的这段时间里，`items` 是**上一个分类的旧值**
    * （非空、且没有 `skillSubtype`）⇒ 过滤结果为空 ⇒ 子 tab 条**会短暂整条消失**，
-   * 列表此时显示「加载中...」。旧代码同样如此（这是既有行为，本批没动它）。
+   * 列表此时显示「加载中...」（**列表那半句**旧代码同样如此：`loading` 与 `items` 的
+   * 复位时机本批没动）。**但「子 tab 条整条消失」是本批新增的** —— 旧代码是
+   * `activeTab === "skill" && (<div>…SKILL_SUBTABS.map…</div>)`，**没有守卫**，
+   * 技能分类下子 tab 条恒在；`availableSkillSubtabs.length > 0` 这个守卫是随
+   * 按条目过滤一起加进来的（`git log -S 'availableSkillSubtabs.length > 0'` 可查）。
+   * 即：这条守卫换来「不摆死子 tab」，代价是切换分类时多了一次短暂消失。
    * 它真正保证的是**首次打开 / 列表确实为空**时不闪：那时 `items` 是 `[]`，
    * 保留全部子 tab 并显示「暂无内容」—— 那才是「库里没有」的诚实表达。
    */

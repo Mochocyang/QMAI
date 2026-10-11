@@ -449,10 +449,12 @@ describe("ChatPanel 的「文风写作」产出端", () => {
  */
 describe("ChatPanel 的「@ 引用文风」消费端（丁-3）", () => {
   /*
-   * ⚠️ 项目**启用**的那条（`enabledStyleId`）刻意选 `style-c`，与任何用例里
-   * 被点选/被引用的预设（`style-a` / `style-b`）都不同。
-   * 若让 `enabledStyleId` 等于某个被点选的 id，那条 `toBe("style-x")` 就同时能被
-   * 「本次覆盖」和「下游回退到项目启用项」两种机制满足 —— 断言还在，鉴别力没了。
+   * `enabledStyleId` 取 `style-c`（谁都没点选过的那条），只是**去掉 id 撞名的卫生改动**，
+   * **不是**可演示的判别力增强 —— 实测把它改回 `"style-b"` 仍然全绿：
+   * `toBe("style-b")` 读的是 getter 的直接返回值，而 getter 既不读 store、
+   * 也不会落到项目启用项 ⇒「下游回退到项目启用项」这条通道在该断言处**根本不经过**。
+   * 它留下的价值是**潜在**的：将来真有人把 store 的启用项泄进 getter 时，
+   * 这里的值会是 `style-c` 而不是恰好与所选项相同，那时这条断言才有鉴别力。
    */
   const styleStore = JSON.stringify({
     version: 1,

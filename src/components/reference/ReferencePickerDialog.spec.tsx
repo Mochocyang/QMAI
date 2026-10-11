@@ -348,7 +348,7 @@ describe("ReferencePickerDialog", () => {
   /*
    * 🔴 承重路径（丁-3 第二轮修复）：**当前子 tab 不在可用列表里时要回退**。
    *
-   * 生产可达：`resolveAvailableDeAiSkills`（`de-ai-skill-library.ts:609`）
+   * 生产可达：`resolveAvailableDeAiSkills`（`de-ai-skill-library.ts`）
    * = 内置技能 − `disabledSkillIds`，而技能库页提供**逐技能启停**
    * ⇒「禁用全部去AI味技能 + 有 ≥1 条文风预设 + 没有写作 Skill」时，
    * `items` 非空但**没有 deai 条目**，而默认子 tab 正是 `"deai"`。
