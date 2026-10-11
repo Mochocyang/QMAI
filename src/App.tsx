@@ -19,7 +19,6 @@ import { restoreUiTestWorkspace, readUiTestWorkspacePreference } from "@/lib/ui-
 import { UiTestShell } from "@/components/uitest/ui-test-shell"
 import { formatAppTitle } from "@/lib/app-title"
 import { resetProjectState } from "@/lib/reset-project-state"
-import { shouldRequestUsageTutorial } from "@/lib/usage-tutorial"
 import { findLlmPresetById } from "@/components/settings/llm-presets"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import { toast } from "@/lib/toast"
@@ -531,33 +530,6 @@ function App() {
     if (projectNovelConfig && isCurrentProject(proj)) {
       useWikiStore.getState().setNovelConfig(projectNovelConfig)
     }
-    /*
-     * ── 丙-4c：分步引导教程的「一次性请求标记」 ──
-     *
-     * ⚠️ 位置是承重的，不是随手放的：必须紧跟在
-     * `await loadNovelConfig` **之后**，并且用刚加载到的 `projectNovelConfig`
-     * 判断，而不是读 store。原因：`resetProjectState()`
-     * （lib/reset-project-state.ts）**完全不碰** `novelConfig`，而
-     * `setProject` → `await loadNovelConfig` → `setNovelConfig` 之间存在一个窗口，
-     * 此间 store 里还是**上一本书**的 `novelConfig`。在这个窗口里读 store
-     * 会把新书误判成「已经看过教程」。
-     *
-     * `isCurrentProject(proj)` 这一维同样承重：本次打开的那本书在
-     * `await` 期间可能已经被用户切走（书 A 的迟到结果不能作用在书 B 的窗口上，
-     * 否则会在 B 里凭空弹一次教程并把 B 的 `usageTutorialSeen` 记掉）。
-     * ⚠️ 修复批 F2 之前它只是个写在调用点的 `&&`，**删掉它全套测试全绿** ——
-     * 现在判据（含这一维）连同真值表都在 `src/lib/usage-tutorial.ts` /
-     * `usage-tutorial.spec.ts` 里；`App.usage-tutorial.test.ts` 再钉一次
-     * 「调用点真的把项目身份传了进去」，两处各管一段，别把它们并回去。
-     *
-     * 置位的是「**这一次**要不要弹」，ChatPanel 消费一次即清零
-     * （照 `consumePendingReferenceTokens` 的「入队 + 消费即清零」先例），
-     * 所以第二本书不会被第一本书的残留标记误伤。
-     * 设置里的「重新查看教程」走**同一个**标记。
-     */
-    useChatStore.getState().setUsageTutorialRequested(
-      shouldRequestUsageTutorial(projectNovelConfig, isCurrentProject(proj)),
-    )
     const projectRevisionFeedbackWindowConfig = await loadRevisionFeedbackWindowConfig(proj.id, proj.path)
     if (isCurrentProject(proj)) {
       useWikiStore.getState().setRevisionFeedbackWindowConfig(projectRevisionFeedbackWindowConfig)

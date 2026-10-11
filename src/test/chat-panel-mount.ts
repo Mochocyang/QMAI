@@ -33,8 +33,6 @@ const wikiState = {
   setPlanExecuteEnabled: vi.fn(),
   setChatEditModeEnabled: vi.fn(),
   setSelectedFile: vi.fn(),
-  // 丙-4c：分步引导教程在「显示即记 seen」时要写 novelConfig。
-  setNovelConfig: vi.fn(),
   // 丁-4：临时角色灵魂绑定写入/还原后靠 dataVersion 触发重新读盘。
   // chat-panel 会直接调它，缺了这个属性就是一条 TypeError（不是断言失败）。
   bumpDataVersion: vi.fn(),
@@ -159,9 +157,7 @@ vi.mock("@/lib/project-store", () => ({
   saveAiWorkflowMode: vi.fn(async () => {}),
   // 合并说明：两侧各自追加了自己的 mock，取并集。
   // main（章节共创）→ saveAiWorkflowModeBeforeDiscuss
-  // scratch-20261010（丙-4c 分步引导教程）→ saveNovelConfig
   saveAiWorkflowModeBeforeDiscuss: vi.fn(async () => {}),
-  saveNovelConfig: vi.fn(async () => {}),
 }))
 
 import { ChatPanel } from "@/components/chat/chat-panel"

@@ -57,8 +57,8 @@ const FOUR_POINT_THREE_ZERO_CHANGELOG: ChangelogEntry = {
       "[Character Soul References] The skill library gains a Character Soul tab, and @ in the input box resolves to a character soul and truly binds it to a character in your novel, so the reference reaches the prompt as a real binding instead of plain text.",
       "[Body Text Made To Sound Less Machine-Written] Body-text generation prompts now carry hard anti-AI-tone constraints, and the revision stage gets a companion boundary so that fixing tone cannot smuggle in new tells or touch anything outside the reported list. The constraints are verified to be present in the real generation path and in event-outline-to-prose, not merely defined in a module nobody calls.",
       "[One Entry For The Whole Skill Library] De-AI-tone skills, writing skills, styles, character souls, character skills and favourites now live as six tabs behind the single skill-library icon in the sidebar, so the rail no longer grows a separate entry for every kind of skill.",
+      "[Dialog Sizes Fixed] Small dialogs — delete confirmation, rename, knowledge-tree picking and similar — were being stretched to nearly the full window, so a couple of lines of text sat in the middle of a huge empty box. Each dialog now opens at a size that fits its own content and stays centered. The deliberately large ones (batch de-AI review, the text-transform preview, review results) keep their wide layout.",
       "[Sidebar Bottom] Settings and Appearance move to the bottom of the sidebar, leaving only Switch Novel in the icon rail, and the Appearance menu is no longer clipped by the bottom edge of the window.",
-      "[Step-By-Step Tutorial] The first time you open the AI chat, a step-by-step tutorial appears once and walks through the outline, the editor, draft isolation and the writing assistant; a button beside it brings it back whenever you want it again.",
     ],
     zh: [
       "【章节共创】AI 工作流模式在「快速 / 标准 / 严格」之外新增「共创」。它不急着写正文，而是先给出 3 到 4 个章节方向候选和一段不少于 180 字的讨论小结，等你定下一个方向才落笔 —— 适合「知道大概要发生什么，但不知道怎么写」的情况。共创这一轮如果跑不起来，会退回标准模式，而不是直接失败。",
@@ -69,8 +69,8 @@ const FOUR_POINT_THREE_ZERO_CHANGELOG: ChangelogEntry = {
       "【角色灵魂 @ 引用】技能库新增「角色灵魂」。在输入框用 @ 引用角色灵魂，会真绑定到小说里的某个人物，引用是以真实绑定的形式进入提示词，而不是当成一段普通文字。",
       "【正文去 AI 味】正文生成的提示词加入反 AI 腔硬约束，修订阶段再配一条边界，确保「去 AI 味」这件事不会顺手引入新的 AI 腔、也不会去动问题清单之外的内容。这些约束经核实确实出现在真实生成链路里（含事件细纲转正文），不是只定义在某个没人调用的模块里。",
       "【技能库并入一个入口】去AI味技能、写作 Skill、文风、角色灵魂、人物 Skill、收藏，现在是同一个技能库图标下的六个 tab，侧栏不再为每一种技能各长一个入口。",
+      "【弹窗尺寸修正】删除确认、重命名、知识树选择这类小弹窗原先会被拉成几乎整窗宽，两三行字摆在一个巨大的空白框里。现在每个弹窗都按自己的内容量取合适的尺寸并居中显示。少数本就该宽的场景（批量去 AI 味复核、文本转换预览、审稿结果）保持原来的大尺寸。",
       "【侧栏底栏】「设置」与「外观」移到侧栏底部，图标栏只保留「切换小说」；「外观」菜单也不再被窗口底边裁切。",
-      "【分步使用教程】首次进入 AI 对话时会自动显示一次分步使用教程，把目录、编辑器、草稿隔离和写作助手讲一遍；旁边的按钮可以随时重新查看。",
     ],
   },
 };

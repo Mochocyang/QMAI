@@ -250,7 +250,6 @@ function makeNovelConfig(overrides: Partial<NovelConfig> = {}): NovelConfig {
     draftMemoryHintSeen: false,
     inspirationHintEnabled: true,
     inspirationHintSeen: false,
-    usageTutorialSeen: false,
     ...overrides,
     defaultLlmModel: overrides.defaultLlmModel ?? "",
     deAiModel: overrides.deAiModel ?? "",
@@ -464,27 +463,6 @@ describe("novelConfig — project-directory persistence", () => {
 
     const loaded = await loadNovelConfig("proj-inspiration-seen", tmp.path)
     expect(loaded?.inspirationHintSeen).toBe(true)
-  })
-
-  it("defaults usageTutorialSeen to false so the tutorial still auto-shows", async () => {
-    const legacy = makeNovelConfig()
-    const { usageTutorialSeen: _omitted, ...withoutField } = legacy
-    await writeFileRaw(`${tmp.path}/.qmai/novel-config.json`, JSON.stringify(withoutField))
-
-    const loaded = await loadNovelConfig("proj-legacy-tutorial", tmp.path)
-    // 写成 `?? true` 会让新书的教程永远不弹 —— 界面上完全看不出来。
-    expect(loaded?.usageTutorialSeen).toBe(false)
-  })
-
-  it("round-trips an already-seen usage tutorial", async () => {
-    await saveNovelConfig(
-      makeNovelConfig({ usageTutorialSeen: true }),
-      "proj-tutorial-seen",
-      tmp.path,
-    )
-
-    const loaded = await loadNovelConfig("proj-tutorial-seen", tmp.path)
-    expect(loaded?.usageTutorialSeen).toBe(true)
   })
 })
 

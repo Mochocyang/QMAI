@@ -168,21 +168,6 @@ describe("writing settings still reach runtime", () => {
     expect(zhI18n).toContain('"inspirationHintEnabledHint"')
   })
 
-  it("把分步引导教程（重新查看教程 + seen）的每个落点都钉住", () => {
-    /*
-     * 与上一条同一类：`usageTutorialSeen` 漏了 `normalizeNovelConfig`，
-     * 老配置读回来是 `undefined`，`!undefined === true` ⇒ **每次打开书都弹一次**
-     * 教程；漏了 `DEFAULT_NOVEL_CONFIG` 则相反，新书永远不弹。
-     * 两个方向在界面上都看不出来，所以逐落点钉住。
-     */
-    expect(novelSection).toContain("novel.settings.reviewUsageTutorialAction")
-    expect(novelSection).toContain("setUsageTutorialRequested")
-    expect(wikiStore).toContain("usageTutorialSeen")
-    expect(projectStore).toContain("usageTutorialSeen")
-    expect(zhI18n).toContain('"reviewUsageTutorialAction"')
-    expect(zhI18n).toContain('"usageTutorialHint"')
-  })
-
   it("keeps ingest-on-save deleted instead of letting the duplicate path return", () => {
     expect(previewPanel).not.toContain("novelConfig.autoIngestOnSave")
     expect(novelSection).not.toContain("novelConfig.autoIngestOnSave")
