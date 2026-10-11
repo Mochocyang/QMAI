@@ -191,6 +191,24 @@ async function switchToTab(container: HTMLElement, label: string) {
   await flushEffects()
 }
 
+/**
+ * 去掉 TS 源码里的注释（块注释与行注释），用于「对源码形状做断言」的用例。
+ *
+ * ⚠️ 存在的理由是本分支反复栽过的一个缺陷类：**对整份源码文本做正则，
+ * 会被注释满足**（丙-4 的 F4 就是这个：一条注释里的 CSS 片段满足了
+ * 「真实规则存在」的断言）。所以任何源码形状断言都必须匹配**去注释后的副本**。
+ *
+ * ⚠️ 已知局限（此处够用即可，不追求通用）：不做词法分析，因此**字符串字面量里**
+ * 的 `//` 或 `/*` 也会被当成注释起点。对本文件够用 —— 断言只看
+ * `const unhandled: never = entry` 与紧跟的 `throw new Error(`，
+ * 两者都不含这类字面量。若将来这条断言挪去别的文件，先复核这一点。
+ */
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/[^\n]*/g, "")
+}
+
 describe("UnifiedSkillLibraryView", () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -527,10 +545,13 @@ describe("UnifiedSkillLibraryView", () => {
      * 判别力（说清楚它能杀什么、不能杀什么）：
      *   - 能杀：文风 tab 被接错库（显示去AI味条目 / 去AI味空态文案）、
      *     文风 store 根本没被尝试读取（下面断言读取路径真的被请求过）、
-     *     读取故障把另外两个库一起带崩、以及故障路径上写文件。
-     *   - **不能**杀：把这条单独的链并进上面那个 `Promise.all`，或删掉那个
-     *     `.catch` 结构性防御 —— 因为 loader 从不 reject，这两种形状今天的
-     *     可观察行为**完全一致**。这是**如实记下的**边界，不是漏测。
+     *     以及故障路径上写文件。
+     *   - **不能**杀：把这条单独的链并进上面那个 `Promise.all`、或删掉那个
+     *     `.catch` 结构性防御 —— 因为 loader 从不 reject，这几种形状今天的
+     *     可观察行为**完全一致**。⚠️ 「读取故障把另外两个库一起带崩」**也算在
+     *     这一档**：把链并进共享 `Promise.all` 正是它的成因，既然那个变异杀不掉，
+     *     下面「另外两库照常」那条断言就只是**粗粒度回归守卫**、不是这条链的判别器
+     *     （曾把它记成「能杀」，已订正）。这是**如实记下的**边界，不是漏测。
      *   - 也**不能**断言「读取失败 ≠ 空库」：本组件区分不了，见 tsx 里
      *     `styleLoad` 处注释（那是 loader 的既有缺陷，本批不修）。
      */
@@ -745,13 +766,22 @@ describe("UnifiedSkillLibraryView", () => {
      * 只剩源码级能看见它们。
      *
      * ⚠️ 只匹配**构造**，不钉行号、不钉空白、不钉整行文本：
-     * 「守卫 + 紧跟其后的 `throw`」这个形状，而不是单看 `const unhandled` ——
-     * 否则连本文件里**讨论**这条守卫的注释都会被算进去（实测会多数出 1 个）。
+     * 「守卫 + 紧跟其后的 `throw`」这个形状，而不是单看 `const unhandled`。
+     *
+     * ⚠️⚠️ 必须在**去掉注释之后**的副本上匹配。这是本分支栽过多次的同一类缺陷：
+     * 对**整份源码文本**做正则，是会被**注释**满足的。实测两种假象：
+     *   - 本文件里**讨论**这条守卫的注释（`* const unhandled: never = entry` 之类）
+     *     若被算进来，计数会多出 1；
+     *   - 反之，在守卫与 `throw` 之间插一行普通注释，计数会少 1，
+     *     而且报错信息与「真把守卫删了」**逐字节相同**（`length of 4 but got 3`），
+     *     红得无法诊断。
+     * 所以先 `stripComments` 再数 —— 注释既不产生命中、也不打断命中。
      * 4 = 文件顶部注释承诺的穷尽 switch 数。它是**承诺**不是实现细节 ——
      * 将来真新增第 5 个穷尽 switch，请**同时**改这里和顶部注释（会有意红给你看）。
      */
     const source = readFileSync(resolve(__dirname, "unified-skill-library-view.tsx"), "utf8")
-    const guards = source.match(/const\s+unhandled\s*:\s*never\s*=\s*entry\s*\n\s*throw\s+new\s+Error\(/g) ?? []
+    const code = stripComments(source)
+    const guards = code.match(/const\s+unhandled\s*:\s*never\s*=\s*entry\s*throw\s+new\s+Error\(/g) ?? []
     expect(guards).toHaveLength(4)
   })
 })

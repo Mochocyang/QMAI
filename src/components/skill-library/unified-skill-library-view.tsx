@@ -143,7 +143,14 @@ const EMPTY_COPY: Record<GalleryTab, string> = {
  * ⚠️ 但「单独去掉 `handleOpenEntry` 那道」**今天已经不是一次静默编辑**：
  * 那道防线是穷尽 `switch`，删掉 `case "style"` 后文风条目掉进 `default`、
  * `entry` 被收窄成 `WritingStyleEntry` 而**不再是** `never`，于是这是**编译错误**
- * （`TS2322: … not assignable to type 'never'`），运行时也会直接 `throw`。
+ * （`TS2322: … not assignable to type 'never'`）。
+ * ⚠️ 注意它**只是编译期**防线，运行时**到不了那里**：文风条目的
+ * `ENTRY_CAPABILITIES.style.openable === false`（见 `:261`），而 `SkillCard.activate`
+ * 是 `capabilities.openable ? onOpen() : onSelect()`（`:604-607`）——
+ * `handleOpenEntry` 唯一的入口就是 `onOpen`，所以它**从来不会**被文风条目调用，
+ * 那个 `default: throw` 在运行时不可达。
+ * ⇒ 因此说「运行时也会直接 `throw`」是**错的**（曾这样写过，已订正）；
+ * 运行时唯一兜住这类守卫被拆的是本文件末尾那条**源码级断言**。
  * （改前它是二元 `if/else`，拆掉只会落得「一个空编辑器 + 一个写错的
  * `selectedSkillLibrarySkillId`」—— 那才是本注释原先描述的后果，
  * 现在只剩历史价值，别把它当成今天的行为。）
@@ -1278,15 +1285,25 @@ export function UnifiedSkillLibraryView() {
  *        由 spec 里 `as never` 造第 4 种类型的 `toThrow` 用例钉住；
  *      - `handleToggleEnabled` / `handleOpenEntry` 是**闭包**（依赖 project /
  *        busy / 选中态），jsdom 里造不出第 4 种类型、没有行为入口，所以由一条
- *        **源码级**用例兜底：`const unhandled: never = entry` 在本文件里必须
- *        **恰好 4 处**（数字就是顶部注释承诺的穷尽 switch 数；将来真加第 5 个
+ *        **源码级**用例兜底：`const unhandled: never = entry` **紧跟**
+ *        `throw new Error(` 这个**构造**在本文件里必须**恰好 4 处**
+ *        （数字就是顶部注释承诺的穷尽 switch 数；将来真加第 5 个
  *        穷尽 switch，请连顶部注释一起改）。
+ *        ⚠️ 别去 grep `const unhandled: never = entry` 这串字面量来数：
+ *        它在文件里出现 **5** 次（4 个构造 + 这条注释自己）。用例断的是**构造**。
  *    这**不是**说守卫已经不可能被删 —— 改源码当然删得掉，只是删了会有用例红。
  *
- * **有后果的两条路**已经全部受保护，且各有行为用例：
- *   - 写错库的文件 → `handleToggleEnabled` 的穷尽 `switch`
- *     ＋「勾选…只写对应那个库的 json」用例；
- *   - 路由错库的编辑器与选中态 → `handleOpenEntry` 的穷尽 `switch`
- *     ＋「文风条目是引用：选中它不写任何文件，也不进入编辑器」用例。
+ * **有后果的两条路**已经全部受保护，但**证据形式不同**，别搞混：
+ *   - 写错库的文件 → `handleToggleEnabled` 的穷尽 `switch`（**编译期**）
+ *     ＋「勾选…只写对应那个库的 json」用例（**真行为**，断真实写入路径）；
+ *   - 路由错库的编辑器与选中态 → `handleOpenEntry` 的穷尽 `switch`（**编译期**）
+ *     ＋ 上面那条**源码级**兜底。⚠️ **没有**行为用例：文风条目的
+ *     `ENTRY_CAPABILITIES.style.openable === false`，`onOpen` 根本不会被派发
+ *     （见 `SKILL_EDITORS` 上方注释），所以 `handleOpenEntry` 在运行时**不可达**，
+ *     任何行为用例都杀不掉它的守卫被拆。
+ *     ⚠️ 曾在此处把「文风条目是引用：选中它不写任何文件，也不进入编辑器」
+ *     记成 `handleOpenEntry` 的行为证据 —— **那是错的**：该用例走的是
+ *     `onSelect` 那条路（钉的是 `openable: false` 这道能力闸门 + 引用路径），
+ *     删掉 `case "style"` 它照样绿（已实测）。两者都值得保留，但**不是一个东西**。
  * 若将来往 `UnifiedSkillEntry` 加第 4 种类型，上面 1/2/3 需要**人工**复查。
  * ========================================================================== */
