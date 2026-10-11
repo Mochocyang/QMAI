@@ -283,22 +283,39 @@ if (pack.writingStyle?.startsWith("【已启用文风画像】") && !result.prom
    `{ ...contextPack, writingStyle: overrideText }`。
    - 用**浅拷贝**而不是改原对象：pack 可能来自 context-hub 缓存，
      原地改会污染缓存 → 后续不选文风的生成也会拿到被改过的文风。
-   - 覆盖文本同样以 `【已启用文风画像】` 开头时，`contextPackToPrompt` 里那道
-     fail-closed 守卫**仍然生效**（预算不够就停机）——这比走无守卫的路径安全。
+   - 覆盖文本由**同一个渲染器**产出，所以它的守卫状态与「已启用」路径**逐条相同**
+     —— 但这**不等于**「覆盖总带前缀」（本节原先的写法会让人读成这样，2026-10-11 订正）：
+     `contextPackToPrompt` 的 fail-closed 守卫判的是**字面前缀** `【已启用文风画像】`，
+     而该前缀**只在结构化画像分支**加（`profile.workbenchStyle.styleFingerprint` 存在时）。
+     ⇒ **结构化画像**：覆盖与「已启用」都带前缀、都命中守卫（预算不够就停机）；
+       **v1/旧画像**：两者都**不带**前缀 ⇒ 预算不够时**都静默消失**。
+     即：覆盖**不会比**「已启用」路径更不安全，但也**不是**「覆盖一定受守卫保护」。
+     ⚠️ **本批刻意不给旧画像补前缀**：那会把今天能静默截断并成功出稿的项目
+     变成**硬停机**（用户可见的行为变更），需要单独评估存量项目。见实施计划 §2 的订正。
    - 「本次不用文风」= `writingStyle: ""`；此时不触发守卫（前缀不匹配），
-     需**确认空 writingStyle 不会在提示词里留下一个空标题**。
-   - ✅ **可以照抄同文件里的既有先例做「真的进去了吗」断言**：
-     `:801-803` 对 `portablePersonalities` 就是
-     `if (!contextPrompt.includes(renderBoundPersonalities([binding]))) throw new PersonalityConstraintError(...)`
-     ——「注入了但没进提示词」就抛错，而不是默默生成。
-     文风覆盖应加同样一条（对 `writingStyle` 文本做 `includes` 检查），
-     这样「用户选了文风却被静默丢掉」在这个入口上不可能发生。
-     这是本设计里**代价最低、收益最高**的一处加固，务必做。
+     需**确认空 writingStyle 不会在提示词里留下一个空标题**
+     （丁-2 已实测：`context-engine.ts` 的 `hasContent` 会跳过空字段 ⇒ 不留空标题）。
+   - ❌ **原文此处要求「对 `writingStyle` 做 `includes` 检查，务必做」——该要求已被撤销
+     （2026-10-11 订正），不要照做，原因有两条**：
+     (i) **与归口裁决 (a) 互斥**：结构化画像**已经**被 `context-engine.ts:1132` 那条
+       守卫兜住（再加一条是纯冗余）；而给旧画像加这条 `includes` 检查会
+       让它在被裁时**无条件停机**，使**覆盖比「已启用」路径更严格** ——
+       正是实施计划里明确**否定**的选项 (c)（「用户会遇到选了文风反而报错」）。
+     (ii) 交付代码**没有**这条断言，且 丁-2 的独立审查判定「不补」是对的。
+     ⇒ 正确落法：**结构化画像由既有守卫兜底；旧画像的静默丢弃是本批接受的不对称**
+       （如实记录，不新造断言）。⚠️ 注意 `portablePersonalities` 那个先例**不能**
+       直接类比：它的文本**总是**带前缀、总是受守卫，文风不是。
 3. 参数如何传到这一层：沿用 `skillsPrompt` 那条已被验证的通路形状
    （`run-chapter-workflow.ts:138` 的 `options.getSelectedSkillsPrompt?.()` →
    `useAgentConfig` → `chat-panel.tsx:1084-1087`），
-   但用**独立命名**的参数（如 `styleOverridePrompt`），**不要**塞进 `skillsPrompt`
+   但用**独立命名**的参数，**不要**塞进 `skillsPrompt`
    ——两者语义不同，混用会让「本次启用 Skill」段落出现文风文本。
+   ⚠️ 名字以实施计划 §2「三态」那一节为准：**`writingStyleIdOverride?: string | null`**。
+   这里原先举例的 `styleOverridePrompt` **装不下三态**（可选 `string` 只有「有/无」，
+   无法表达「显式不用」的 `null`），已被 丁-2 实施改为前者（2026-10-11 订正）。
+   ⚠️ 三态要在**每一个** hop 上原样透传，**不能**写 `?.() ?? undefined` /
+   `|| undefined` —— 那会把 `null`（本次不用）抹成 `undefined`（用项目启用项），
+   方向正好相反。
 
 **必须实测的三件事**（写进实施计划）：
 - 覆盖生效时不出现「两段文风并存」（项目级那条必须被替换掉，不是追加）。

@@ -289,8 +289,12 @@ else                          { 写 de-ai-skills.json }   // ← 文风条目会
      （钉住守卫仍生效）。若要连旧画像一起钉，必须**同时**钉住它**不含**前缀，
      才能如实反映 (a) 的选择。
 2. **打通参数**（`src/lib/novel/deep-chapter-generation.ts`，非守门文件）：
-   - `DeepChapterGenerationInput`（`:90`）加一个**独立命名**的可选参数
-     （如 `styleOverridePrompt?: string`）。**不要**塞进 `skillsPrompt`。
+   - `DeepChapterGenerationInput`（`:90`）加一个**独立命名**的可选参数。
+     **不要**塞进 `skillsPrompt`。
+     ⚠️ 名字以本文件后面的 `:445` 附近（「三态」那一节）给出的
+     **`writingStyleIdOverride?: string | null`** 为准 —— 这里原先随手举例写成
+     `styleOverridePrompt?: string`，那个名字**表达不了三态**（`string` 型 + 可选
+     只有「有/无」两种，装不下「显式不用」这个 `null`）。实施时按 `:445` 那份。
    - 组装 `contextPrompt` 处（`:782` 的
      `deps.contextPackToPrompt(contextPack, restContextTokenBudget, { excludeOutline: true })`）：
      当覆盖存在时，给 `contextPackToPrompt` 传**浅拷贝**
@@ -597,8 +601,9 @@ else                          { 写 de-ai-skills.json }   // ← 文风条目会
 
 ### 必须保持绿
 
-- `deep-chapter-generation.spec.ts:1389-1396`（「injects the enabled writing style into
-  the stage 3 draft prompt」）、`:51`（pack 里的 `writingStyle` 夹具）。
+- `deep-chapter-generation.spec.ts:1393`（「injects the enabled writing style into
+  the stage 3 draft prompt」的 `it(` 在 `:1393`；`:1389-1390` 是**上一条**用例的尾部断言）、
+  `:51`（pack 里的 `writingStyle` 夹具）。
 - `context-engine.spec.ts:41-47`（fail-closed 文风断言）——**绝不能改**。
 - `select-skills-plugin.spec.ts` 全部（含 fast 返回空）。
 - `deep-chapter-prompts.cache.spec.ts`（缓存前缀不变式）。
@@ -606,8 +611,15 @@ else                          { 写 de-ai-skills.json }   // ← 文风条目会
 ### ⚠️ 已知风险（必须在报告里回答）
 
 设计 §1.3：文风的 fail-closed 守卫**只覆盖 `contextPackToPrompt` 这一条路径**。
-本批的临时覆盖走的就是这条路，所以**覆盖是受保护的**；
-但项目级文风在 AI 会话的另两条路径
+⚠️ **不要写「本批的临时覆盖走的就是这条路，所以覆盖是受保护的」** —— 那句话与本文件
+§2 自己的订正（「复用同一渲染器」并不保证带上前缀）**直接矛盾**，也曾真的写在这里，
+已被 丁-2 的 spec 审查判为文档缺陷（2026-10-11 订正）。正确说法是：
+**覆盖的保护级别与「已启用」路径完全相同** ——
+`profile.workbenchStyle.styleFingerprint` 存在的**结构化画像**：两者都带
+`【已启用文风画像】` 前缀 ⇒ 都命中 `context-engine.ts:1132` 守卫（预算不足则停机）；
+`workbenchStyle` 为空的 **v1/旧画像**：两者都**不带**前缀 ⇒ 预算不足时**都静默消失**。
+即单看「走了这条路」推不出「受守卫保护」，还要看**这条预设自己是不是结构化画像**。
+而项目级文风在 AI 会话的另两条路径
 （`trim-context-plugin.ts:47-60`、context-hub `composer.ts:65`）上仍会被静默丢弃——
 **那是既有缺陷，不在本批修**，但要在文档里如实写明，不要声称「文风不会被丢了」。
 
@@ -679,7 +691,9 @@ ArrowUp/Down + Enter）、`role="option"`/`aria-selected`/`aria-current`、
    所以这条不做，用户决定 1 就是空的。
    实施时先在 `collectExplicitSkills`（`skill-route-registry.ts:288-313`）
    与 `select-skills-plugin.ts` 确认引用 token 如何流到
-   `DeepChapterGenerationInput`，再决定在哪里转成 `styleOverridePrompt`。
+   `DeepChapterGenerationInput`，再决定在哪里转成文风覆盖。
+   ⚠️ 那个参数在**丁-2** 里已定型为 **`writingStyleIdOverride?: string | null`**
+   （三态，见 §2）；本节原先写的 `styleOverridePrompt` 是早期举例，**已作废**。
 
 ### 必须保持绿
 
