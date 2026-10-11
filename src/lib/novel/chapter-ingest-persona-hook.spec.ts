@@ -39,13 +39,14 @@ describe("章节摄取里的人物 Skill 挂钩", () => {
     expect(hookAt).toBeLessThan(outlineAt)
   })
 
-  it("重新提取短路：isReingest 守卫真的包住了挂钩", () => {
+  it("重新提取也要学习：挂钩不被 isReingest 短路（幂等性由 learning 自己保证）", () => {
     const hookAt = ingest.indexOf("void learnPersonaSkillsFromChapter(")
     expect(hookAt).toBeGreaterThan(-1)
+    // 旧版这里是 `if (!isReingest) {`。短路会造成「某一轮没建出档案 → 永久放弃修复」，
+    // 因为用户唯一的补救动作（重新提取）正好被跳过。幂等性改由
+    // planPersonaSkillRound 的 lastLearnedChapter 守卫与候选池 chapters[] 去重承担。
     const guardAt = ingest.lastIndexOf("if (!isReingest) {", hookAt)
-    expect(guardAt).toBeGreaterThan(-1)
-    // 守卫到挂钩之间不能出现右花括号，否则守卫其实已经闭合了
-    expect(ingest.slice(guardAt, hookAt)).not.toContain("}")
+    expect(guardAt).toBe(-1)
   })
 
   it("保存正式章节那条路完全不掺和（草稿隔离）", () => {

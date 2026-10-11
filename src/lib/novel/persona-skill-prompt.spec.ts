@@ -72,16 +72,16 @@ describe("buildPersonaSkillMessages", () => {
     }
   })
 
-  it("次要人物只要 2 个字段，不出现其余字段名", () => {
+  it("次要人物同样要求全部 5 个字段：档位只管注入，不管学习", () => {
+    // 提示词按档位裁剪字段的话，minor 人物的卡片永远缺 3 格，只能靠后续章节
+    // 慢慢补 —— 那就没有「第一章角色一出现 skill 就成型」。学习成本与字段数无关
+    // （整章合并成一次请求），省预算的活由 renderPersonaSkillBlock 干。
     const messages = buildPersonaSkillMessages({
       chapterNumber: 1,
       chapterBody: "正文",
       targets: [target({ tier: "minor", roleType: "配角", mode: "refine" })],
     })
-    expect(messages[1].content).toContain("怎么说话 / 怎么判断")
-    expect(messages[1].content).not.toContain("怎么想")
-    expect(messages[1].content).not.toContain("什么不做")
-    expect(messages[1].content).not.toContain("知道局限")
+    expect(messages[1].content).toContain("怎么说话 / 怎么想 / 怎么判断 / 什么不做 / 知道局限")
   })
 
   it("绿勾人物才要求研究文件", () => {

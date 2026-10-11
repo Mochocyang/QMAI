@@ -32,9 +32,11 @@
 ## 设计要点（详见 `docs/superpowers/specs/2026-10-10-persona-skill-design.html`）
 
 - **D1 分级建档**：角色定位读自 `wiki/characters/角色-<定位>-<名>.md` 的**文件名**（不读正文）。主角/男主/女主/反派/导师 → 首次出场即建档，之后每次出场都完善；配角/男配/女配/盟友 → 第 2 次出场建档、第 3 次起完善；**未标注定位** → 出场 ≥3 次才按 minor 处理（自动滤掉一笔带过的路人）；纯龙套永不建档。
+  - **兜底判据（2026-10-11 线上修复）**：定位目录**只有跑过「人物」多智能体生成才存在**，真实项目里往往没有。此时若该人物在 `wiki/entities/` 下有 `tags` 含 `character` 的实体页（与既有 `character-aura.ts` 同款判据），即视为**已确认是本作真实人物**，建档门槛降回 **1**。档位仍是 minor（注入只给 2 段）。这条判据天然斩断路人——一笔带过的「老太太/老头/小男孩」不会建实体页。
 - **D3 一章一次调用**：整章所有待处理人物**合并为一次** LLM 请求，与出场人数无关，每章 ≤1 次。挂在「提取记忆」上、后台 `void` 异步，不拖慢按钮。
 - **D4 三态生命周期**：`active` → `dormant`（连续 10 章未出场）→ `archived`（30 章）。**永不自动硬删**文件。绿勾人物豁免。
 - **D5 分级注入**：主要人物注入 5 个「演技」字段 + 压缩后的 SKILL.md；次要人物只注入「怎么说话」「怎么判断」；休眠/归档不注入。排序 pinned → major → minor，同档按出场次数降序，最多 12 人，总量封顶 4000 字。
+  - **「注入」不等于「学习」（2026-10-11 澄清）**：D5 只管**写正文时注入几段**；**建档与落盘一律写全 5 个字段**（`PERSONA_STORED_FIELDS = PERSONA_MAJOR_FIELDS`）。minor 的 `SKILL.md` 在文件里是完整的 5 段，只是注入时被裁到 2 段。理由：① 用户要「第一章角色一出现 skill 就成型」，提示词只问 2 个字段的话模型连另外 3 个都不产，卡片永远缺 3 格；② 学习成本与字段数无关（整章合并成一次请求），稀缺的是注入预算。两处字段来源刻意分开（`PERSONA_STORED_FIELDS` / `PERSONA_MINOR_FIELDS`），别把其中一处改成引用另一处。
 
   字段表刻意**只答「这一场该怎么演他」**：`怎么说话 · 怎么想 · 怎么判断 · 什么不做 · 知道局限`。设计原文还列了「分类 · 摘要」，实现时确认删掉（人物名/定位/档位由区块标题行给出，SKILL.md 摘要又单独注入，重复占预算）；也刻意不装「关系网 / 成长轨迹 / 底线与逆鳞 / 在意什么」——那些归研究文件，只给绿勾人物（D6）。判定标准：*这个字段答的是「这一场该怎么演他」，还是「他这个人是怎么长成的」？只有前者进字段表。*
 - **D6 绿勾（pinned）**：用户手动标记的重要人物。一票否决：永不归档、最高档位注入、每次出场都重点分析，**并且是唯一会生成「研究文件」的角色**。
@@ -67,7 +69,7 @@
 
 | 文件 | 改动 |
 |---|---|
-| `src/lib/novel/chapter-ingest.ts` | +19 行：`ingestChapter` 内后台 `void` 挂钩（判 `isReingest`） |
+| `src/lib/novel/chapter-ingest.ts` | `ingestChapter` 内后台 `void` 挂钩（**不判 `isReingest`**，见下） |
 | `src/lib/novel/context-engine.ts` | 静态 import `buildPersonaSkillContext`，新增 `personaSkills` 字段（优先级 10.5） |
 | `src/components/skill-library/unified-skill-library-view.tsx` | 第 3 个 tab「人物 Skill」、草稿守卫、头部按钮条件 |
 | `src/components/layout/content-area.tsx` | `case "personaSkillLibrary"` 复用统一技能库 |
@@ -76,9 +78,9 @@
 
 ## 测试
 
-- 全量：`729 文件 / 7101 用例通过、6 todo、0 失败`（约 46 秒）。
+- 全量：`729 文件 / 7111 用例通过、6 todo、0 失败`（约 49 秒）。
 - 分支基线（`dcf8b38`）：`720 文件 / 6957 用例通过`。
-- 人物 Skill 自己的 10 个 spec 合计 **152 条**：types 24 / store 33 / prompt 12 / learning 32 / context 17 / context-engine-persona 5 / chapter-ingest-persona-hook 8 / persona-skill-view 8 / routing 3 / unified-view 10。
+- 人物 Skill 自己的 10 个 spec 合计 **162 条**：types 28 / store 33 / prompt 12 / learning 38 / context 17 / context-engine-persona 5 / chapter-ingest-persona-hook 8 / persona-skill-view 8 / routing 3 / unified-view 10。
 
 ### 已知的环境抖动（不是失败）
 
@@ -100,6 +102,20 @@
   另修：用户保存档案的「写正文」与「置 `editedByUser`」原来分两次取锁，中间存在交错窗口（正文已换、标志还是 false）—— 已合进同一把锁；非绿勾人物仍能重新整理研究文件（D6 要求只有绿标角色有）—— 已在函数内加守卫。
 - 2026-10-10：**字段表按设计规格对齐**。原实现的主要人物七字段里有 5 个（在意什么 / 底线与逆鳞 / 关系网 / 语言标记 / 成长轨迹）从未出现在设计规格中，是写实施计划时自创的，且与研究文件内容重复。经确认改为设计批准的 5 个「演技」字段：`怎么说话 · 怎么想 · 怎么判断 · 什么不做 · 知道局限`（设计里的「分类 · 摘要」因与区块标题、SKILL.md 摘要重复而删去）。字段表是数据驱动的，只动 1 个常量 + 8 处测试断言；另加 3 条不变量用例（与设计逐字一致 / minor 是 major 真子集 / 不含研究文件专有材料）。
   验证：4 条新用例在未修复时全部为红（已逐一验证），修复后全量 `729 文件 / 7101 用例通过`。
+- 2026-10-11：**修复线上报障「提取了记忆但技能库里没有任何人物 Skill」**。根因经实盘取证确认（非推测）：
+
+  用户在真实项目上复现。取证结果：
+  - 项目 `C:\QM-BOOK\黑雨之下` 的 `wiki/characters` **不存在** → `loadCharacterRoleTypes` 返回空表 → 所有人物 `roleType` 为空。
+  - 空定位落到「未标注」→ 门槛 3 次出场。而 `.qmai/persona-skills/sightings.json` 显示候选池里最高出场数只有 **2**（7 个人物，其中 5 个只出场 1 次）。
+  - 于是 `planPersonaSkillRound` 返回 **0 条计划**，`learnPersonaSkillsFromChapter` 在第 `plans.length === 0` 处**静默 return**：不调模型、不写 index.json、不打日志。用户侧表现就是「技能库空的、也没报错」。
+  - 旁证：该项目的 `persona-skills/` 目录里**只有 `sightings.json`、没有 `index.json`** —— 记账阶段跑了，建档阶段从没跑过。
+
+  另有一条独立缺陷：`chapter-ingest.ts` 用 `if (!isReingest)` 把整个学习短路掉。第 1 章早已成功摄取过，用户重新提取时 `isReingest` 为真 → **学习整段不执行**。这条短路把「用户唯一的补救动作」变成了「被跳过的动作」，等于永久放弃修复。
+
+  修复三项：① `resolveKnownCharacters()` 从 `wiki/entities/` 的 `tags: [character]` 实体页认人（`character-aura.ts` 同款判据），认出则门槛降回 1；② 零命中改为打 `[Persona Skill] 第 N 章无人物达标：名字(定位 已出场/门槛)`，不再静默；③ 删掉 `isReingest` 短路（幂等性由 `lastLearnedChapter` 守卫与候选池 `chapters[]` 去重承担）。
+  另按用户决定：**学习阶段一律抽全 5 个字段**（`PERSONA_STORED_FIELDS`），注入仍按档位裁剪——`PERSONA_MINOR_FIELDS` 现在只剩注入路径一个引用点。
+
+  验证（全部实盘、非推测）：用真实磁盘文件跑 `resolveKnownCharacters`，杨寒/杨妙萍/林小满/小晚被认出（门槛 3→1，**4 人全部转为会建档**），而老太太/老头/小男孩/灰白制服守卫/白褂女人/地下铁门守卫/抱保温杯守卫/另一个守卫 8 个路人未被认出（门槛维持 3，仍被挡住）。新增 10 条用例，其中 2 条已验证在未修复时为红。全量 `729 文件 / 7111 用例通过、6 todo、0 失败`；`typecheck` 与 `typecheck:tests` 均 0 错误。
 
 ## 提交状态
 

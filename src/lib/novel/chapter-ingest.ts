@@ -456,21 +456,28 @@ export async function ingestChapter(
 
   // 人物 Skill：提取记忆时顺带学习（首次建档 / 再次完善）。
   // 后台异步、不阻塞「提取记忆」按钮；整章所有人物合并成一次 LLM 调用。
-  // 重新提取（isReingest）不重复学习，避免重复消耗模型。
   // 这里刻意不 await：学习失败只 warn，绝不能影响章节摄取本身。
-  if (!isReingest) {
-    void learnPersonaSkillsFromChapter({
-      projectPath: pp,
-      chapter: {
-        chapterNumber: snapshot.chapterNumber,
-        chapterBody: body,
-        characters: snapshot.characters,
-        characterAliases: snapshot.characterAliases,
-      },
-      llmConfig: runtimeLlmConfig,
-      signal,
-    })
-  }
+  //
+  // 重新提取（isReingest）同样要学习 —— 不能短路：
+  // 旧版这里写着「重新提取不重复学习，避免重复消耗模型」，但那个理由站不住，
+  // 而且有真实代价。学习本身就是幂等的（planPersonaSkillRound 按
+  // lastLearnedChapter 跳过已学过的人；候选池按 chapters[] 去重），
+  // 所以重复摄取不会二次烧模型。反过来，一旦某一轮因为任何原因没建出档案
+  // （定位查不到、模型没返回 JSON、应用被关掉），短路就等于**永久放弃修复**：
+  // 用户手上唯一的补救动作就是重新提取，而那恰好是被跳过的那条路。
+  // 实测就踩了这个坑：第 1 章早已摄取过，重新提取时 isReingest 为真，
+  // 学习整段不执行，技能库永远是空的。
+  void learnPersonaSkillsFromChapter({
+    projectPath: pp,
+    chapter: {
+      chapterNumber: snapshot.chapterNumber,
+      chapterBody: body,
+      characters: snapshot.characters,
+      characterAliases: snapshot.characterAliases,
+    },
+    llmConfig: runtimeLlmConfig,
+    signal,
+  })
 
   if (isReingest) {
     await finalizeProjectMemoryRebuild(pp)

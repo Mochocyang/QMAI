@@ -1,8 +1,7 @@
 import { buildLanguageReminder, getOutputLanguage } from "@/lib/output-language"
 import type { ChatMessage, RequestOverrides } from "@/lib/llm-providers"
 import {
-  PERSONA_MAJOR_FIELDS,
-  PERSONA_MINOR_FIELDS,
+  PERSONA_STORED_FIELDS,
   PERSONA_RESEARCH_DOCUMENTS,
   type PersonaSkillMode,
   type PersonaSkillTier,
@@ -94,12 +93,14 @@ export function buildPersonaSkillSystemPrompt(): string {
     "6. 只输出 JSON，不要解释，不要 Markdown 代码块。",
     "",
     "输出格式：",
-    '{"skills":[{"name":"人物名","fields":{"怎么说话":"…","怎么判断":"…"},"research":{"人物小传":"…"}}]}',
+    '{"skills":[{"name":"人物名","fields":{"怎么说话":"…","怎么想":"…","怎么判断":"…","什么不做":"…","知道局限":"…"},"research":{"人物小传":"…"}}]}',
   ].join("\n")
 }
 
 function describeTarget(target: PersonaSkillPromptTarget): string {
-  const fields = target.tier === "major" ? PERSONA_MAJOR_FIELDS : PERSONA_MINOR_FIELDS
+  // 抽取字段一律给全 5 个，不按档位裁剪 —— 档位只管注入，不管学习。
+  // 详见 persona-skill-types.ts 的 PERSONA_STORED_FIELDS 注释。
+  const fields = PERSONA_STORED_FIELDS
   const lines = [
     `### ${target.characterName}`,
     `- 定位：${target.roleType || "未标注"}`,

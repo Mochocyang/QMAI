@@ -9,6 +9,21 @@ export type PersonaSkillTier = "major" | "minor"
 export type PersonaSkillStatus = "active" | "dormant" | "archived"
 export type PersonaSkillMode = "create" | "refine"
 
+/**
+ * 建档/落盘时抽取的字段：**一律是全部 5 个**，与档位无关。
+ *
+ * 这是刻意的分工：档位（major/minor）决定的是**注入写正文时给几段**
+ * （见 `renderPersonaSkillBlock`），而不是「学多少」。原因有两条：
+ * 1. 用户要的是「第一章角色一出现，他的 skill 基本就成型了」。提示词如果只问
+ *    2 个字段，模型连另外 3 个都不会产 —— 卡片永远缺 3 格，只能等后续章节补，
+ *    而那正是用户觉得「不像档案」的地方。
+ * 2. 学习成本与字段数**无关**：整章所有人物合并成一次 LLM 请求，多写 3 个字段
+ *    不多花一次调用；真正稀缺的是写正文时的上下文预算，那一层已经由档位守住了。
+ *
+ * 所以别把这里改成按档位取值 —— 那会把「省注入」和「省学习」混为一谈。
+ * 定义在 PERSONA_MAJOR_FIELDS 之后，避免 TDZ。
+ */
+
 /** 定位 → 档位。定位取自 wiki/characters/角色-<定位>-<名>.md 的文件名。 */
 export const PERSONA_MAJOR_ROLE_TYPES = ["主角", "男主", "女主", "反派", "导师"] as const
 export const PERSONA_MINOR_ROLE_TYPES = ["男配", "女配", "配角", "盟友"] as const
@@ -60,6 +75,20 @@ export const PERSONA_MAJOR_FIELDS = [
 ] as const
 /** 次要人物只给两条（设计 07 节）：这两条在 major 表里也有，必须是它的子集。 */
 export const PERSONA_MINOR_FIELDS = ["怎么说话", "怎么判断"] as const
+/**
+ * 建档/落盘时抽取的字段：**一律是全部 5 个**，与档位无关。
+ *
+ * 这是刻意的分工：档位（major/minor）决定的是**注入写正文时给几段**
+ * （见 `renderPersonaSkillBlock`），而不是「学多少」。原因有两条：
+ * 1. 用户要的是「第一章角色一出现，他的 skill 基本就成型了」。提示词如果只问
+ *    2 个字段，模型连另外 3 个都不会产 —— 卡片永远缺 3 格，只能等后续章节补，
+ *    而那正是用户觉得「不像档案」的地方。
+ * 2. 学习成本与字段数**无关**：整章所有人物合并成一次 LLM 请求，多写 3 个字段
+ *    不多花一次调用；真正稀缺的是写正文时的上下文预算，那一层已经由档位守住了。
+ *
+ * 所以别把这里改成按档位取值 —— 那会把「省注入」和「省学习」混为一谈。
+ */
+export const PERSONA_STORED_FIELDS = PERSONA_MAJOR_FIELDS
 /** 用户手改过的档案只在文末追加这个段落，AI 不覆盖既有内容。 */
 export const PERSONA_SUPPLEMENT_HEADING = "补充"
 /** 只有绿勾（pinned）人物才生成研究文件。 */
@@ -132,9 +161,27 @@ export function isMinorRoleType(roleType: string): boolean {
   return (PERSONA_MINOR_ROLE_TYPES as readonly string[]).includes(roleType.trim())
 }
 
-export function firstAppearanceThreshold(roleType: string): number {
+/**
+ * 建档门槛（首次出场）。
+ *
+ * `knownCharacter` 是「已经能确认他是本作的一个真实人物」——判据是
+ * `wiki/entities/` 下有一张 `tags` 含 `character` 的实体页（见
+ * `resolveKnownCharacters`）。这个信号的宝贵之处在于**它天然斩断了路人**：
+ * 摄取管线只会给值得追踪的实体建页，正文里一笔带过的「老太太 / 老头 /
+ * 小男孩」根本没有实体页。
+ *
+ * 为什么必须认这个信号：定位（主角/配角…）只写在
+ * `wiki/characters/角色-<定位>-<名>.md` 的文件名里，而那个目录只有跑过
+ * 「人物」多智能体生成才会出现。真实项目里它往往不存在 → 所有人 roleType
+ * 都是空 → 一律落到 `PERSONA_UNKNOWN_FIRST_APPEARANCE = 3`。实测一个 12 章
+ * 的项目里最高出场数才 2，于是**一个人都建不了档，功能整体静默失效**。
+ * 有了这道兜底，确认过的人物第一次出场就建档；档位仍是 minor（浅档、省预算），
+ * 由用户点绿勾或声明定位来升级。
+ */
+export function firstAppearanceThreshold(roleType: string, knownCharacter = false): number {
   if (isMajorRoleType(roleType)) return PERSONA_MAJOR_FIRST_APPEARANCE
   if (isMinorRoleType(roleType)) return PERSONA_MINOR_FIRST_APPEARANCE
+  if (knownCharacter) return PERSONA_MAJOR_FIRST_APPEARANCE
   return PERSONA_UNKNOWN_FIRST_APPEARANCE
 }
 
@@ -177,6 +224,11 @@ export interface PersonaSkillPlanInput {
   hasResearch: boolean
   pinned: boolean
   lastLearnedChapter: number
+  /**
+   * 已确认是本作的真实人物（`wiki/entities/` 有 `tags` 含 `character` 的实体页）。
+   * 只影响建档门槛，不影响档位 —— 档位仍由 roleType / 绿勾决定。
+   */
+  knownCharacter: boolean
 }
 
 export interface PersonaSkillPlan {
@@ -229,7 +281,9 @@ export function planPersonaSkillRound(
       })
       continue
     }
-    const threshold = input.pinned ? PERSONA_MAJOR_FIRST_APPEARANCE : firstAppearanceThreshold(input.roleType)
+    const threshold = input.pinned
+      ? PERSONA_MAJOR_FIRST_APPEARANCE
+      : firstAppearanceThreshold(input.roleType, input.knownCharacter)
     if (input.appearanceCount < threshold) continue
     plans.push({
       characterName: input.characterName,

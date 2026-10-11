@@ -24,6 +24,7 @@ function input(overrides: Partial<PersonaSkillPlanInput> = {}): PersonaSkillPlan
     hasResearch: false,
     pinned: false,
     lastLearnedChapter: 0,
+    knownCharacter: false,
     ...overrides,
   }
 }
@@ -183,6 +184,52 @@ describe("planPersonaSkillRound", () => {
 
   it("从来没有出场过的人物不产生任何计划", () => {
     expect(planPersonaSkillRound([input({ roleType: "", appearanceCount: 0 })], 5)).toHaveLength(0)
+  })
+
+  describe("已确认真实人物的兜底门槛（线上静默失效回归）", () => {
+    // 定位只写在 wiki/characters/角色-<定位>-<名>.md 的文件名里，而那个目录
+    // 只有跑过「人物」多智能体生成才有。实测项目里它不存在 → 所有人 roleType
+    // 为空 → 一律要 3 次出场，而项目摄取到第 4 章时最高出场数才 2 →
+    // 一个人都没建档。已知是真实人物（wiki/entities 有 tags:character 实体页）
+    // 时门槛降回 1，这才是「第一章角色出现时 skill 基本就成型」的前提。
+    it("未标注定位但已确认是真实人物：第一次出场就建档", () => {
+      expect(
+        planPersonaSkillRound([input({ roleType: "", knownCharacter: false, appearanceCount: 1 })], 1),
+      ).toHaveLength(0)
+      const plans = planPersonaSkillRound(
+        [input({ roleType: "", knownCharacter: true, appearanceCount: 1 })],
+        1,
+      )
+      expect(plans).toHaveLength(1)
+      expect(plans[0].mode).toBe("create")
+    })
+
+    it("认出来只降低建档门槛，不改变档位（注入预算仍按 minor 给）", () => {
+      const plans = planPersonaSkillRound(
+        [input({ roleType: "", knownCharacter: true, appearanceCount: 1 })],
+        1,
+      )
+      expect(plans[0].tier).toBe("minor")
+    })
+
+    it("未确认的路人仍然要 3 次出场（兜底不会把临时角色放进来）", () => {
+      expect(
+        planPersonaSkillRound([input({ roleType: "", knownCharacter: true, appearanceCount: 2 })], 2),
+      ).toHaveLength(1)
+      expect(
+        planPersonaSkillRound([input({ roleType: "", knownCharacter: false, appearanceCount: 2 })], 2),
+      ).toHaveLength(0)
+    })
+
+    it("已建档的人物走完善门槛，knownCharacter 不参与（不改变完善节奏）", () => {
+      const base = { hasSkill: true, lastLearnedChapter: 1, roleType: "配角" }
+      expect(
+        planPersonaSkillRound([input({ ...base, knownCharacter: true, appearanceCount: 2 })], 2),
+      ).toHaveLength(0)
+      expect(
+        planPersonaSkillRound([input({ ...base, knownCharacter: true, appearanceCount: 3 })], 3),
+      ).toHaveLength(1)
+    })
   })
 })
 

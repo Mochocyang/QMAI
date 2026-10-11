@@ -1,4 +1,4 @@
-import { listDirectory } from "@/commands/fs"
+import { listDirectory, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { streamChat } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -6,9 +6,9 @@ import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
 import { parseLlmJsonObject } from "./book-analysis/llm-json"
 import { parseCharacterRoleFileName } from "./extract-established-context"
 import {
-  PERSONA_MAJOR_FIELDS,
-  PERSONA_MINOR_FIELDS,
+  PERSONA_STORED_FIELDS,
   PERSONA_SUPPLEMENT_HEADING,
+  firstAppearanceThreshold,
   normalizePersonaName,
   planPersonaSkillRound,
   resolvePersonaStatus,
@@ -73,6 +73,8 @@ export interface PersonaChapterAppearance {
   hasResearch: boolean
   pinned: boolean
   lastLearnedChapter: number
+  /** 已确认是本作真实人物（`wiki/entities/` 里有 `tags` 含 `character` 的实体页）。 */
+  knownCharacter: boolean
 }
 
 export function uniqueNames(values: readonly string[]): string[] {
@@ -121,6 +123,99 @@ export function lookupRoleType(roleTypes: Record<string, string>, name: string):
   return roleTypes[normalizePersonaName(name)] ?? ""
 }
 
+/** 实体页 frontmatter 里的标签：支持 `tags: [a, b]`、`tags: a, b` 与 `tags:` 换行块列表。 */
+function frontmatterTags(content: string): string[] {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!match) return []
+  const lines = match[1].split(/\r?\n/)
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index]
+    if (!/^tags\s*:/.test(line.trim())) continue
+    const inline = line.slice(line.indexOf(":") + 1).trim()
+    if (inline) {
+      const body = inline.replace(/^\[/, "").replace(/\]$/, "")
+      return body
+        .split(",")
+        .map((tag) => tag.trim().replace(/^["']|["']$/g, "").toLowerCase())
+        .filter(Boolean)
+    }
+    // 块列表：紧跟着的 `- 名称` 行都算标签，遇到别的键就停
+    const collected: string[] = []
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const item = lines[next].match(/^\s*-\s+(.*)$/)
+      if (!item) break
+      collected.push(item[1].trim().replace(/^["']|["']$/g, "").toLowerCase())
+    }
+    return collected
+  }
+  return []
+}
+
+/**
+ * 判断实体页是不是人物页：`type: entity` + `tags` 含 `character`。
+ * 与仓库既有判据保持一致（`character-aura.ts` 的 `isCharacterEntityContent`
+ * 用的是同一条，角色灵魂就靠它枚举可绑定人物）。
+ */
+function isCharacterEntityPage(content: string): boolean {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!match) return false
+  if (!/^type\s*:\s*entity\s*$/m.test(match[1])) return false
+  return frontmatterTags(content).includes("character")
+}
+
+/**
+ * 从 `wiki/entities/` 认出「已确认是本作真实人物」的那一批。
+ *
+ * 只对**本章出场的名字**做探测：先列一次目录拿「归一化名 → 路径」，
+ * 再逐个读命中的实体页。不是遍历全部实体页 —— 一个两百万字的项目里
+ * `wiki/entities` 可以有几百上千个文件，每章都全读一遍太贵。
+ */
+export async function resolveKnownCharacters(
+  projectPath: string,
+  names: readonly string[],
+): Promise<Set<string>> {
+  const known = new Set<string>()
+  const wanted = new Map<string, string>()
+  for (const name of names) {
+    const key = normalizePersonaName(name)
+    if (key) wanted.set(key, name)
+  }
+  if (wanted.size === 0) return known
+
+  const candidates = new Map<string, string>()
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    if (depth > 3) return
+    let nodes
+    try {
+      nodes = await listDirectory(dir)
+    } catch {
+      return
+    }
+    for (const node of nodes) {
+      if (node.is_dir) {
+        await walk(node.path, depth + 1)
+        continue
+      }
+      if (!node.name.toLowerCase().endsWith(".md")) continue
+      const key = normalizePersonaName(node.name.replace(/\.md$/i, ""))
+      // 同归一化名有多张页时保留先出现的，避免目录顺序影响结论
+      if (key && !candidates.has(key)) candidates.set(key, node.path)
+    }
+  }
+  await walk(`${normalizePath(projectPath)}/wiki/entities`, 0)
+
+  for (const [key] of wanted) {
+    const path = candidates.get(key)
+    if (!path) continue
+    try {
+      if (isCharacterEntityPage(await readFile(path))) known.add(key)
+    } catch {
+      // 单张读不出来就当没认出来，不影响其余人物
+    }
+  }
+  return known
+}
+
 export function findPersonaSkillMeta(
   index: PersonaSkillIndex,
   characterName: string,
@@ -153,6 +248,7 @@ export function collectChapterAppearances(
   sightings: PersonaSkillSightings,
   chapter: PersonaChapterInput,
   roleTypes: Record<string, string>,
+  knownCharacters: ReadonlySet<string> = new Set(),
 ): { appearances: PersonaChapterAppearance[]; sightings: PersonaSkillSightings } {
   const nextSightings: PersonaSkillSightings = {
     version: 1,
@@ -163,6 +259,7 @@ export function collectChapterAppearances(
     })),
   }
   const appearances = new Map<string, PersonaChapterAppearance>()
+  const isKnown = (name: string) => knownCharacters.has(normalizePersonaName(name))
 
   const put = (appearance: PersonaChapterAppearance) => {
     const key = normalizePersonaName(appearance.characterName)
@@ -181,6 +278,7 @@ export function collectChapterAppearances(
       hasResearch: current.hasResearch || appearance.hasResearch,
       pinned: current.pinned || appearance.pinned,
       lastLearnedChapter: Math.max(current.lastLearnedChapter, appearance.lastLearnedChapter),
+      knownCharacter: current.knownCharacter || appearance.knownCharacter,
     })
   }
 
@@ -202,6 +300,7 @@ export function collectChapterAppearances(
         hasResearch: meta.hasResearch,
         pinned: meta.pinned,
         lastLearnedChapter: meta.lastLearnedChapter,
+        knownCharacter: isKnown(meta.characterName),
       })
       continue
     }
@@ -226,6 +325,7 @@ export function collectChapterAppearances(
         hasResearch: false,
         pinned: false,
         lastLearnedChapter: 0,
+        knownCharacter: isKnown(sighting.characterName),
       })
       continue
     }
@@ -250,6 +350,7 @@ export function collectChapterAppearances(
       hasResearch: false,
       pinned: false,
       lastLearnedChapter: 0,
+      knownCharacter: isKnown(name),
     })
   }
 
@@ -270,6 +371,7 @@ export function planPersonaSkillRoundForChapter(
       hasResearch: item.hasResearch,
       pinned: item.pinned,
       lastLearnedChapter: item.lastLearnedChapter,
+      knownCharacter: item.knownCharacter,
     })),
     currentChapter,
   )
@@ -346,7 +448,7 @@ export interface RenderPersonaSkillDocumentInput {
 }
 
 export function renderPersonaSkillDocument(input: RenderPersonaSkillDocumentInput): string {
-  const order = input.tier === "major" ? PERSONA_MAJOR_FIELDS : PERSONA_MINOR_FIELDS
+  const order = PERSONA_STORED_FIELDS
   const frontmatter = [
     "---",
     `character: ${input.characterName}`,
@@ -575,6 +677,17 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
 
   try {
     const roleTypes = await loadCharacterRoleTypes(pp)
+    // 「已确认是本作真实人物」名单：`wiki/entities/` 里有 `tags` 含 `character`
+    // 的实体页。定位（主角/配角…）只存在于 `wiki/characters/角色-<定位>-<名>.md`
+    // 的文件名里，而那个目录只有跑过「人物」多智能体生成才有 —— 真实项目里通常
+    // 不存在，于是所有人 roleType 为空、一律按「未标注」要 3 次出场才建档，
+    // 表现为功能整体静默失效。实体页这条判据天然斩断路人（正文里一笔带过的
+    // 「老太太/老头/小男孩」不会建实体页），所以拿它兜底把门槛降回 1。
+    // 名字与别名都要探测：出场可能是在别名下匹配到已建档条目的。
+    const knownCharacters = await resolveKnownCharacters(pp, [
+      ...chapter.characters,
+      ...Object.values(chapter.characterAliases ?? {}).flat(),
+    ])
     // 候选池是纯计数，先落盘：即使后面模型失败，下场也还能接着数。
     // 走 updatePersonaSkillState：读两份 + 计数 + 只写 sightings 全在同一把锁内，
     // 这样并发的另一次学习不会把这里的计数覆盖掉。
@@ -587,7 +700,13 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
     await updatePersonaSkillState(pp, (state) => {
       // 注意：mutate 必须是同步的，别在这里 await（会拖住候选池落盘）。
       index = state.index
-      const collected = collectChapterAppearances(state.index, state.sightings, chapter, roleTypes)
+      const collected = collectChapterAppearances(
+        state.index,
+        state.sightings,
+        chapter,
+        roleTypes,
+        knownCharacters,
+      )
       appearances = collected.appearances
 
       // 已建档人物的出场记账必须在这里落盘，不能只留在内存里等 applyPersonaSkillDrafts：
@@ -623,6 +742,25 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
 
     const plans = planPersonaSkillRoundForChapter(appearances, chapter.chapterNumber)
     if (plans.length === 0) {
+      // 这一支是「什么都没发生」的默认结局：没有档案、没有日志，用户只会看到
+      // 技能库是空的。以前它完全静默 —— 定位查不到、门槛没到都是走这里。
+      // 打一行 diagnosable 的日志，把「谁在门口、差多少」说清楚。
+      if (appearances.length > 0) {
+        const pending = appearances
+          .filter((item) => !item.hasSkill)
+          .map((item) => {
+            const threshold = item.pinned
+              ? 1
+              : firstAppearanceThreshold(item.roleType, item.knownCharacter)
+            const tier = item.roleType || (item.knownCharacter ? "已建实体页" : "未标注")
+            return `${item.characterName}(${tier} ${item.appearanceCount}/${threshold})`
+          })
+        if (pending.length > 0) {
+          console.log(
+            `[Persona Skill] 第 ${chapter.chapterNumber} 章无人物达标：${pending.join("、")}`,
+          )
+        }
+      }
       await refreshPersonaSkillStatuses(pp, chapter.chapterNumber)
       return
     }
