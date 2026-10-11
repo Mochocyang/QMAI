@@ -687,7 +687,7 @@ interface WikiState {
   pendingScrollImageSrc: string | null
   chatExpanded: boolean
   searchPanelOpen: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "writingStyleLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation" | "maintenance"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "writingStyleLibrary" | "characterSoulLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation" | "maintenance"
   activeSettingsCategory: SettingsCategoryId | null
   activeModelSettingsTab: ModelSettingsTabId | null
   selectedSoulId: string | null

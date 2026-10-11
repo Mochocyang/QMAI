@@ -17,7 +17,7 @@ import { ContentArea } from "./content-area"
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-async function renderWithView(activeView: "writingStyleLibrary" | "writingSkillLibrary" | "skillLibrary") {
+async function renderWithView(activeView: "writingStyleLibrary" | "writingSkillLibrary" | "characterSoulLibrary" | "skillLibrary") {
   const container = document.createElement("div")
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -60,6 +60,15 @@ describe("ContentArea 技能库视图路由", () => {
 
   it("renders the unified skill library for the existing writing-skill view", async () => {
     const { container, root } = await renderWithView("writingSkillLibrary")
+
+    expect(container.querySelector('[data-testid="stub-unified-skill-library"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="stub-ai-chat-tab"]')).toBeNull()
+
+    cleanup(root, container)
+  })
+
+  it("renders the unified skill library for the 角色灵魂 view", async () => {
+    const { container, root } = await renderWithView("characterSoulLibrary")
 
     expect(container.querySelector('[data-testid="stub-unified-skill-library"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="stub-ai-chat-tab"]')).toBeNull()

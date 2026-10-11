@@ -44,6 +44,13 @@ import {
 } from "@/lib/reference/providers"
 import type { ReferenceToken } from "@/lib/reference/types"
 import { collectReferencedStylePresetIds, STYLE_SKILL_SUBTYPE } from "@/lib/reference/style-reference"
+import { collectReferencedSoulAuraIds, SOUL_SKILL_SUBTYPE } from "@/lib/reference/soul-reference"
+import {
+  beginMessageScopedSoulBinding,
+  releaseMessageScopedSoulBinding,
+  type MessageScopedSoulBinding,
+} from "@/lib/novel/message-scoped-soul-binding"
+import { useCharacterSoulReference } from "@/components/chat/use-character-soul-reference"
 import { runAiChatSession } from "@/lib/agent/ai-chat-session"
 import {
   RequiredToolFallbackError,
@@ -929,6 +936,8 @@ export function ChatPanel() {
 
   const project = useWikiStore((s) => s.project)
   const projectPath = project?.path ? normalizePath(project.path) : ""
+  // 角色灵魂绑定表没有 zustand 镜像：临时绑定写入/还原后靠它触发重新读盘（丁-4）。
+  const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const novelMode = useWikiStore((s) => s.novelMode)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const llmConfig = useWikiStore((s) => s.llmConfig)
@@ -1259,6 +1268,16 @@ export function ChatPanel() {
   const { styles: writingStylePresets } = useWritingStyleOptions({
     projectPath: projectPath || undefined,
   })
+  /*
+   * 丁-4：项目里的**角色灵魂**（`CharacterAura`）也做成「技能库」子 tab 下的
+   * 可引用条目。`souls` 只用于列表；真正写盘的那一步在 `handleSend` 里，
+   * 且必须经过 `requestSoulBindingTarget` 这个确认弹窗（见本组件下的使用者）。
+   */
+  const {
+    souls: characterSouls,
+    requestSoulBindingTarget,
+    soulBindingDialog,
+  } = useCharacterSoulReference({ projectPath: projectPath || undefined })
   const referenceProviders = useMemo(
     () => [
       chapterProvider,
@@ -1296,7 +1315,18 @@ export function ChatPanel() {
           name: preset.name,
           subtype: STYLE_SKILL_SUBTYPE,
         }))
-        return [...deAiSkills, ...writingSkills, ...stylePresets]
+        /*
+         * 灵魂条目（丁-4）：`id` 是 aura id，经 `createSkillProvider` 透传成
+         * `token.skillId`，也就是 `collectReferencedSoulAuraIds` 读回的那个 id。
+         * ⚠️ 这里**只列条目**：点它不会写盘，写盘发生在 `handleSend` 里
+         * 用户确认了「绑给哪个小说人物」之后。
+         */
+        const soulEntries = characterSouls.map((soul) => ({
+          id: soul.id,
+          name: soul.name,
+          subtype: SOUL_SKILL_SUBTYPE,
+        }))
+        return [...deAiSkills, ...writingSkills, ...stylePresets, ...soulEntries]
       }),
       createChatHistoryProvider(() =>
         conversations.map((conversation) => ({ id: conversation.id, title: conversation.title })),
@@ -1305,7 +1335,7 @@ export function ChatPanel() {
         outlineConversations.map((conversation) => ({ id: conversation.id, title: conversation.title })),
       ),
     ],
-    [agentSkillConfig, conversations, outlineConversations, writingStylePresets],
+    [agentSkillConfig, conversations, outlineConversations, writingStylePresets, characterSouls],
   )
   // === Stage C: 章节计划确认 ===
   const [pendingChapterPlans, setPendingChapterPlans] = useState<Record<string, {
@@ -1635,6 +1665,25 @@ export function ChatPanel() {
       // 漏进这一次生成（见 getWritingStyleIdOverride 的注释）。
       runWritingStyleIdOverrideRef.current = referencedStylePresetIds[0]
 
+      /*
+       * 丁-4：本条消息 `@` 引用的**角色灵魂** → 本条消息的临时绑定。
+       *
+       * 这里先做两件不写盘的事：解析 id、拒绝「一次引用多条」。
+       * ⚠️ **两条不同的灵魂引用 ⇒ 拒绝发送**，理由与文风那条一致但不完全相同：
+       * 确认弹窗一次只问「绑给哪个人物」，两条灵魂要么串两次弹窗（用户以为只绑了一条）、
+       * 要么自动挑一条（静默丢掉另一条明确指令）。两种都不接受，所以要求用户删到一条。
+       *
+       * ⚠️ 真正的写盘**不在这里**：它在 `startConversationRun` 之前、
+       * 且必须经过 `requestSoulBindingTarget` 的用户确认（见下方 `runId` 那一段）。
+       */
+      const referencedSoulAuraIds = collectReferencedSoulAuraIds(tokens)
+      if (referencedSoulAuraIds.length > 1) {
+        setDeAiSkillWarningMessage(
+          `一条消息只能引用一条角色灵魂（本次引用了 ${referencedSoulAuraIds.length} 条）。请删掉多余的灵魂引用再发送。`,
+        )
+        return
+      }
+
       let convId = targetConversationId ?? useChatStore.getState().activeConversationId
       if (!convId) {
         convId = createConversation()
@@ -1725,6 +1774,64 @@ export function ChatPanel() {
         return
       }
 
+      /*
+       * ── 丁-4：本条消息的临时角色灵魂绑定 ──
+       *
+       * 步骤顺序是有意的，每一步都有理由：
+       *  1. 先**问**（`requestSoulBindingTarget`）：确认弹窗在 `startConversationRun`
+       *     **之前**弹，所以「取消」不会占用运行槽、不会 append 助手消息、也不会写盘
+       *     —— 取消是零代价的。
+       *  2. 再**写**（`beginMessageScopedSoulBinding`）：仍然在 `startConversationRun`
+       *     之前。写盘失败（灵魂被删 / 人物没档案 / 磁盘错误）时同样什么都还没开始，
+       *     把 `bindCharacterAura` 的原话直接显示出来即可，没有运行状态要回收。
+       *  3. 然后才抢运行槽。抢不到时绑定已经写进项目了，所以那一支必须显式释放。
+       *  4. 释放：正典溢出的两处硬停机各显式释放一次；其余路径（成功、生成中抛错）
+       *     由本轮生成块末尾的 `finally` 兜住。`releaseMessageSoulBinding` 幂等
+       *     （先把引用置空再动盘），所以「先硬停机释放、finally 再跑一次」无害。
+       *
+       * ⚠️ 不能在 `contextHub.prepare` **之后**才写：那个调用就是真正读
+       * `.qmai/character-aura.json` 组装上下文包的地方（本文件下面那个
+       * `contextHub.prepare`），晚一步这条灵魂就不会进本次上下文。
+       */
+      let messageSoulBinding: MessageScopedSoulBinding | null = null
+      const releaseMessageSoulBinding = async () => {
+        const binding = messageSoulBinding
+        messageSoulBinding = null
+        if (!binding) return
+        try {
+          await releaseMessageScopedSoulBinding(pp, binding)
+          // 绑定表**没有** zustand 镜像，界面只能靠 dataVersion 触发重新读盘
+          // （灵魂侧栏是同一口径）。生成路径不需要刷新：它每次都重读盘。
+          bumpDataVersion()
+        } catch (error) {
+          // 「临时绑定没还回去」是用户必须知道的状态：静默吞掉会让人以为项目没被改过。
+          toast.error(error instanceof Error && error.message ? error.message : "还原临时角色灵魂绑定失败", {
+            title: "临时角色灵魂绑定未还原",
+            persistent: true,
+            dedupeKey: `soul-binding-release:${capturedConvId}`,
+          })
+        }
+      }
+      if (referencedSoulAuraIds.length === 1) {
+        const referencedAuraId = referencedSoulAuraIds[0]
+        const targetCharacterName = await requestSoulBindingTarget(referencedAuraId)
+        // `null` = 用户取消。**必须**直接 return —— 拿一个默认人物顶上就是「静默挑一个」。
+        if (!targetCharacterName) return
+        try {
+          messageSoulBinding = await beginMessageScopedSoulBinding(pp, {
+            auraId: referencedAuraId,
+            characterName: targetCharacterName,
+          })
+        } catch (error) {
+          // 「请先在大纲中添加人物小传或人物设定，再绑定角色灵魂」这类原话必须原样呈现：
+          // 它是可操作指引，不是可以概括成「绑定失败」的内部错误。
+          setDeAiSkillWarningMessage(
+            error instanceof Error && error.message ? error.message : "绑定角色灵魂失败，请稍后重试",
+          )
+          return
+        }
+      }
+
       const runId = crypto.randomUUID()
       if (!useChatStore.getState().startConversationRun(capturedConvId, runId)) {
         setDeAiSkillWarningMessage(concurrencyLimitReason)
@@ -1733,6 +1840,8 @@ export function ChatPanel() {
             dedupeKey: `required-workflow-retry-running:${capturedConvId}`,
           })
         }
+        // 临时绑定已经写过盘、而本轮没有真正开始：立刻释放，否则它会永久留在项目里。
+        await releaseMessageSoulBinding()
         return
       }
 
@@ -1970,6 +2079,8 @@ export function ChatPanel() {
             markError(error)
             showRunErrorToast(error)
             finishAgentSession()
+            // 这一支在下面的生成块之外 return，走不到那个 finally：显式释放临时灵魂绑定。
+            await releaseMessageSoulBinding()
             return
           }
         }
@@ -2107,6 +2218,8 @@ export function ChatPanel() {
             markError(error)
             showRunErrorToast(error)
             finishAgentSession()
+            // 同上一处：生成块之外 return，显式释放临时灵魂绑定。
+            await releaseMessageSoulBinding()
             return
           }
         }
@@ -2692,6 +2805,13 @@ export function ChatPanel() {
           chapterNumber: effectiveTaskRoute?.chapterNumber,
           error: errorMessage,
         })
+      } finally {
+        /*
+         * 丁-4：本轮生成**无论成功、抛错还是被中止**都要把临时角色灵魂绑定还原。
+         * 放在 finally 而不是成功路径：生成失败时把一条临时绑定永久留在项目里，
+         * 是本子批后果最重的一种失败（它会静默改变之后所有章节的上下文）。
+         */
+        await releaseMessageSoulBinding()
       }
     },
     [
@@ -2716,9 +2836,11 @@ export function ChatPanel() {
       projectPath,
       referenceDraftConversationId,
       requestChapterPlanConfirm,
+      requestSoulBindingTarget,
       selectedFile,
       setConversationInputDraft,
       startStreaming,
+      bumpDataVersion,
     ],
   )
   handleSendRef.current = handleSend
@@ -3168,6 +3290,9 @@ export function ChatPanel() {
         {/* 丙-4c：分步引导教程。挂在这里是因为「进入对话」= ChatPanel 首次可用，
             而 chat-panel 只在 wiki/sources 视图且面板展开时才存在。 */}
         <UsageTutorialDialog open={usageTutorialOpen} onOpenChange={setUsageTutorialOpen} />
+        {/* 丁-4：`@某人灵魂` 的确认步骤（选绑给哪个小说人物）。由 hook 持有，
+            打开时 `handleSend` 正 await 它，所以关闭（取消）就等于中止本次发送。 */}
+        {soulBindingDialog}
       </div>
     </div>
   )

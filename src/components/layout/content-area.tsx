@@ -125,6 +125,7 @@ export function ContentArea() {
       case "skillLibrary":
       case "writingSkillLibrary":
       case "writingStyleLibrary":
+      case "characterSoulLibrary":
       case "skillFavorites":
         content = (
           <Suspense fallback={<LoadingView />}>

@@ -18,6 +18,8 @@ const SKILL_SUBTABS: Array<{ key: SkillSubtype; label: string }> = [
   { key: "writing", label: "写作Skill" },
   // 丁-3：文风预设（项目里的文风库）。只有真的产出了文风条目的面板才会看到这个子 tab。
   { key: "style", label: "文风" },
+  // 丁-4：角色灵魂（`CharacterAura`）。同一条相等过滤。
+  { key: "soul", label: "角色灵魂" },
 ]
 
 interface ReferencePickerDialogProps {

@@ -15,6 +15,7 @@ export const FULL_WINDOW_VIEWS = [
   "skillLibrary",
   "writingSkillLibrary",
   "writingStyleLibrary",
+  "characterSoulLibrary",
   "skillFavorites",
   "soul",
   "bookAnalysis",

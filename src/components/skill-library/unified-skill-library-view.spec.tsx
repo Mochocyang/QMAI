@@ -129,6 +129,34 @@ const writingStyleStore = {
   ],
 }
 
+/**
+ * 项目里的角色灵魂（`.qmai/character-aura.json`）。
+ * ⚠️ 这个文件里**没有**内置灵魂 —— 内置的那些来自
+ * `BUILT_IN_CHARACTER_AURAS` 常量，`listCharacterAuras` 无条件把它们拼在前面。
+ * 所以「灵魂 tab 至少列出内置灵魂」这件事在本用例里**必须**能看到。
+ */
+const characterAuraStore = {
+  customAuras: [
+    {
+      id: "custom-xu",
+      builtIn: false,
+      name: "许七安",
+      category: "古装权谋",
+      sourceNote: "来自《大奉打更人》的拆书结果",
+      corpus: "抄诗、断案、插科打诨、铜锣腰牌",
+      styleDescription: "先调侃后收束，破案时语速加快。",
+      behaviorRules: "遇事先问证据，再问动机。",
+      boundaries: "不替角色下道德结论。",
+      notes: "",
+    },
+  ],
+  // 「许七安」已真实绑定到小说人物「陈拾」，另一条绑定指向别的灵魂。
+  bindings: [
+    { characterName: "陈拾", auraId: "custom-xu" },
+    { characterName: "李四", auraId: "builtin-li-si" },
+  ],
+}
+
 async function renderLibrary() {
   const container = document.createElement("div")
   document.body.appendChild(container)
@@ -216,6 +244,7 @@ describe("UnifiedSkillLibraryView", () => {
       if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
       if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
       if (path.endsWith(".qmai/writing-style.json")) return JSON.stringify(writingStyleStore)
+      if (path.endsWith(".qmai/character-aura.json")) return JSON.stringify(characterAuraStore)
       throw new Error("missing")
     })
     writeFileMock.mockResolvedValue(undefined)
@@ -404,6 +433,7 @@ describe("UnifiedSkillLibraryView", () => {
       ["去AI味技能", "true"],
       ["写作 Skill", "false"],
       ["文风", "false"],
+      ["角色灵魂", "false"],
       ["收藏", "false"],
     ])
     // 初始在去AI味 tab
@@ -417,6 +447,7 @@ describe("UnifiedSkillLibraryView", () => {
       ["去AI味技能", "false"],
       ["写作 Skill", "false"],
       ["文风", "true"],
+      ["角色灵魂", "false"],
       ["收藏", "false"],
     ])
     // (b) 列表内容：是文风条目，不是去AI味/写作 Skill 条目
@@ -729,11 +760,109 @@ describe("UnifiedSkillLibraryView", () => {
     expect(resolveActiveTab("skillLibrary")).toBe("skillLibrary")
     expect(resolveActiveTab("writingSkillLibrary")).toBe("writingSkillLibrary")
     expect(resolveActiveTab("writingStyleLibrary")).toBe("writingStyleLibrary")
+    expect(resolveActiveTab("characterSoulLibrary")).toBe("characterSoulLibrary")
     expect(resolveActiveTab("skillFavorites")).toBe("skillFavorites")
 
     expect(() => resolveActiveTab("soul")).toThrow(/非技能库的 activeView/)
     expect(() => resolveActiveTab("settings")).toThrow(/非技能库的 activeView/)
     expect(() => resolveActiveTab("lint")).toThrow(/非技能库的 activeView/)
+  })
+
+  /*
+   * === 角色灵魂 tab（丁-4 步骤 1：可选面投影）===
+   *
+   * 这一组的值不在「能列出条目」本身（那是投影函数的机械结果），而在两件
+   * 容易静默做错的事：
+   *   1. 灵魂 tab 必须显示**灵魂**条目，而不是去AI味/写作条目；
+   *   2. 卡片必须把**真实绑定**摆出来 —— 「列在库里」不等于「已经在用」。
+   */
+  it("切换角色灵魂 tab：该 tab 被标记为选中，且展示的是灵魂条目而不是别的库的条目", async () => {
+    const { container, root } = await renderLibrary()
+
+    await switchToTab(container, "角色灵魂")
+
+    expect(useWikiStore.getState().activeView).toBe("characterSoulLibrary")
+    expect(tabStates(container)).toEqual([
+      ["去AI味技能", "false"],
+      ["写作 Skill", "false"],
+      ["文风", "false"],
+      ["角色灵魂", "true"],
+      ["收藏", "false"],
+    ])
+    expect(entryIds(container)).toContain("soul:custom-xu")
+    expect(entryIds(container)).not.toContain("de-ai:project:quiet")
+    expect(entryIds(container)).not.toContain("writing:skill:three")
+    expect(entryIds(container)).not.toContain("style:preset:cool")
+
+    cleanup(root, container)
+  })
+
+  it("灵魂卡片的徽章是「角色灵魂」+ 来源，并标出真实绑定数而不是「已启用」", async () => {
+    const { container, root } = await renderLibrary()
+    await switchToTab(container, "角色灵魂")
+
+    const custom = container.querySelector('[data-testid="unified-skill-entry-soul:custom-xu"]')!
+    expect(custom.querySelector(".ui-test-skill-card-name")?.textContent).toBe("许七安")
+    expect(
+      Array.from(custom.querySelectorAll(".ui-test-skill-badge")).map((badge) => badge.textContent),
+    ).toEqual(["角色灵魂", "项目", "已绑定 1 个人物"])
+    expect(custom.querySelector(".ui-test-skill-badge.is-type")?.textContent).toBe("角色灵魂")
+    expect(custom.textContent).toContain("自定义角色灵魂 · 古装权谋")
+
+    // 未被任何人物绑定的灵魂也不能显示成「已启用」之类的东西。
+    const liSi = container.querySelector('[data-testid="unified-skill-entry-soul:builtin-li-si"]')!
+    expect(
+      Array.from(liSi.querySelectorAll(".ui-test-skill-badge")).map((badge) => badge.textContent),
+    ).toEqual(["角色灵魂", "内置", "已绑定 1 个人物"])
+    const unbound = container.querySelector('[data-testid="unified-skill-entry-soul:builtin-qin-shihuang"]')!
+    expect(
+      Array.from(unbound.querySelectorAll(".ui-test-skill-badge")).map((badge) => badge.textContent),
+    ).toEqual(["角色灵魂", "内置", "未绑定"])
+
+    cleanup(root, container)
+  })
+
+  it("灵魂条目没有任何可写动作：没有勾选框、没有收藏星标、卡片上也没有「编辑」", async () => {
+    const { container, root } = await renderLibrary()
+    await switchToTab(container, "角色灵魂")
+
+    const card = container.querySelector('[data-testid="unified-skill-entry-soul:custom-xu"]')!
+    // 「启用一条灵魂」在这个架构里不存在（进不进上下文只由绑定表决定），
+    // 所以这里**不能**出现任何像开关的东西。
+    expect(card.querySelector('input[type="checkbox"]')).toBeNull()
+    expect(card.querySelector(".ui-test-skill-card-star")).toBeNull()
+    expect(card.querySelector(".ui-test-skill-card-open")).toBeNull()
+    expect(card.textContent).toContain("点击选中")
+
+    cleanup(root, container)
+  })
+
+  it("灵魂 tab 没有分类 chips、也没有新建/导入动作（本批不给灵魂库写入口）", async () => {
+    const { container, root } = await renderLibrary()
+    await switchToTab(container, "角色灵魂")
+
+    expect(chipLabels(container)).toEqual([])
+    // 动作区容器仍会渲染，但**一个按钮都不能有** —— 断按钮而不是断容器。
+    expect(
+      Array.from(
+        container.querySelectorAll('[data-testid="skill-library-header-actions"] button'),
+      ).map((button) => button.textContent?.trim()),
+    ).toEqual([])
+
+    cleanup(root, container)
+  })
+
+  it("搜索能命中灵魂条目（且不会因为灵魂没有 rawSkill 而崩）", async () => {
+    const { container, root } = await renderLibrary()
+    await switchToTab(container, "角色灵魂")
+
+    const search = container.querySelector<HTMLInputElement>('[data-testid="unified-skill-search-input"]')!
+    await setInputValue(search, "抄诗")
+
+    // 命中点只在 `content`（灵魂画像文本）里，证明搜索确实读到了 aura 自己的字段。
+    expect(entryIds(container)).toEqual(["soul:custom-xu"])
+
+    cleanup(root, container)
   })
 
   /*
