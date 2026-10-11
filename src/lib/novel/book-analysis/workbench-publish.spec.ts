@@ -231,7 +231,15 @@ describe("故事版本发布：同时桥接到仿真框架存储", () => {
     expect(nodeHeaders).toHaveLength(4)
     // 四个环节全是同一句 fallback：结构合法、内容为空，
     // 而绑定侧正是靠「节点标题全同」把这份产物认出来（plot-framework-bridge）。
-    for (const header of nodeHeaders) expect(header).toContain(EMPTY_STORY_BEAT)
+    for (const header of nodeHeaders) {
+      // 精确相等，不是 toContain：钉住「publish 产出的兜底句 === 共享常量」。
+      // 配合 bridge spec 里 EMPTY_STORY_BEAT 的**按值**断言，一旦两处取值漂移
+      // （例如常量改了而这里内联的是旧值），这条立刻变红。
+      // ⚠️ 但若有人把 EMPTY_STORY_BEAT 换成一份**等值**的内联字面量，
+      // 行为完全相同 —— 那是等价变异，本条测不到，注释里不要宣称能测到。
+      const title = header.slice(header.indexOf("】 ") + 2)
+      expect(title).toBe(EMPTY_STORY_BEAT)
+    }
   })
 })
 

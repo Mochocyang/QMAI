@@ -142,6 +142,20 @@ describe("PlotFramework → StoryFramework 转换：字段映射", () => {
     expect(converted.sourceChapters).toBe(0)
   })
 
+  /*
+   * 把 sourceChapters 的**语义**钉住：它数的是传入的章节 **id 个数**，
+   * 不是「这些章节文件现在还读得到几个」。与原生生成器的
+   * `extraction.chapterContents.length` 语义不同（见 convert 里的注释）。
+   * 这条用例保护的是「想改成去数真实文件」这个决定必须是有意识的：
+   * 真去数文件就会引入 IO，且本函数是纯函数、会当场变红。
+   */
+  it("sourceChapters 数的是传入的章节 id 个数（章节已不存在也照数，不偷偷改成读文件）", () => {
+    const converted = convertPlotFrameworkToStoryFramework(richFramework({
+      rangeChapterIds: ["已删除-0001", "已删除-0002", "已删除-0003"],
+    }))
+    expect(converted.sourceChapters).toBe(3)
+  })
+
   it("没有结构化归属的散文（可复用模板/方向指引/手搓留白/来源）落进 premise，不随转换消失", () => {
     const converted = convertPlotFrameworkToStoryFramework(richFramework())
 
@@ -261,6 +275,37 @@ describe("桥接框架 id：由来源确定性派生", () => {
       expect(storyFrameworkIdForPlotFramework(left)).not.toBe(storyFrameworkIdForPlotFramework(right))
     }
   })
+
+  /*
+   * 下面四条钉的是**边界行为**，不是「期望它优雅」。它们的价值在于：
+   * 把当前（刻意选择的）行为固定下来，使「改成别的」必须是一次有意识的决定。
+   * 每条都写明了生产可达性，避免下一个人以为这里漏了兜底。
+   */
+
+  it("空 id / 全空白 id ⇒ 产出 `plot-`（刻意不兜底：兜底就等于让 id 不确定）", () => {
+    // 生产不可达：三个发布方传入的都是 normalizePlotFramework 的产物，
+    // 那里空 id 已被换成 `framework-${now}`。真到了这里，宁可给一个可辨认的
+    // `plot-`，也不要在此新造 id —— 那会违反本函数的确定性派生不变式。
+    expect(storyFrameworkIdForPlotFramework("")).toBe("plot-")
+    expect(storyFrameworkIdForPlotFramework("   ")).toBe("plot-")
+  })
+
+  it("超长 id **不截断**（截断会让两个来源撞同一文件，比一次响亮的失败更糟）", () => {
+    const long = "b".repeat(300)
+    // 未截断 ⇒ 长度 = 前缀 + 原长。若有人「好心」加了截断，这条会红，
+    // 迫使他面对「截断可能把两个不同的书映射到同一个文件名」这个后果。
+    expect(storyFrameworkIdForPlotFramework(long).length).toBe("plot-".length + 300)
+    // 同时记录触发上限的门槛（NTFS 255 字节），让数字有出处。
+    expect(storyFrameworkIdForPlotFramework(long).length).toBeGreaterThan(255)
+  })
+
+  it("星光面字符占两个码元、产出两个转义（正则无 u 标志，按码元转义）", () => {
+    const emoji = "\u{1F600}"
+    // 单射性不受影响；这里只是把「6 位十六进制覆盖的是码元而非完整码点」钉成事实。
+    expect(storyFrameworkIdForPlotFramework(emoji)).toBe("plot-%00D83D%00DE00")
+    // 反证：若真按「完整码点」处理，这里就会是一个 %01F600，长度只有一半。
+    expect(storyFrameworkIdForPlotFramework(emoji)).not.toBe("plot-%01F600")
+  })
 })
 
 describe("节点标题的落盘 round-trip（framework-store 解析较严）", () => {
@@ -298,9 +343,12 @@ describe("节点标题的落盘 round-trip（framework-store 解析较严）", (
  * 解析器对非法/缺失 simulationMode 的兜底。
  *
  * 这一条存在的原因：本次改动把 framework-store 里那句内联的 `: "hybrid"`
- * 换成了具名的 DEFAULT_SIMULATION_MODE。framework-store 与 framework-binding
- * **没有任何既有 spec**（全仓库只有本文件 import 它们），所以「改坏了兜底」
- * 在别处不会变红 —— 必须在这里钉住，否则那句改动是无人看守的。
+ * 换成了具名的 DEFAULT_SIMULATION_MODE。而 framework-store / framework-binding
+ * **没有任何既有 spec 覆盖其解析逻辑**：
+ *  - `story-simulation-view.partial.spec.ts` 只把 framework-store.ts 当**源码文本**读
+ *    （readFileSync + toContain），并不调用它；
+ *  - `ui-test-ai.spec.tsx` 与 `test/chat-panel-mount.ts` 直接 vi.mock 掉这两个模块。
+ * 所以「改坏了兜底」在别处不会变红 —— 必须在这里钉住，否则那句改动是无人看守的。
  */
 describe("解析器的 simulationMode 兜底 = DEFAULT_SIMULATION_MODE", () => {
   /** 手写一份最小合法 md（正文形状必须满足 extractSection + parseNodeHeader）。 */
@@ -366,6 +414,13 @@ describe("发布是幂等的：重复发布只留一个文件", () => {
 })
 
 describe("端到端：绑定之后 storyFrameworkBinding 数据源真能取到非空文本", () => {
+  /*
+   * 这里两条用例都会 `await import("../context-data-sources")`，那是个很大的
+   * 模块图（实测首次 import 就要数秒）。默认 5s 超时在并行跑套件时会偶发假失败
+   * （本分支上另有两棵工作树同时跑测试）。显式放宽，避免把超时误读成回归。
+   */
+  const IMPORT_HEAVY_TIMEOUT = 30_000
+
   it("桥接 → 绑定 → 数据源返回含 beat 正文的文本", async () => {
     const converted = await bridgePlotFrameworkToStoryFramework(PROJECT, richFramework())
     const [loaded] = await loadFrameworks(PROJECT)
@@ -384,7 +439,7 @@ describe("端到端：绑定之后 storyFrameworkBinding 数据源真能取到�
     expect(text).toContain("结尾钩子丁")
     expect(converted.id).toBe(loaded.id)
     expect((await loadBinding(PROJECT))?.frameworkId).toBe(loaded.id)
-  })
+  }, IMPORT_HEAVY_TIMEOUT)
 
   it("绑定到一个不存在的 id 时数据源静默返回空串 —— 这正是 id 必须可预测的原因", async () => {
     await bridgePlotFrameworkToStoryFramework(PROJECT, richFramework())
@@ -395,7 +450,7 @@ describe("端到端：绑定之后 storyFrameworkBinding 数据源真能取到�
     const { getAllDataSources } = await import("../context-data-sources")
     const source = getAllDataSources().find((item) => item.name === "storyFrameworkBinding")!
     await expect(source.load({ projectPath: PROJECT } as never)).resolves.toBe("")
-  })
+  }, IMPORT_HEAVY_TIMEOUT)
   it("删除桥接产物后数据源回到空串（删除侧用的是同一个 id 推导）", async () => {
     const converted = await bridgePlotFrameworkToStoryFramework(PROJECT, richFramework())
     const [loaded] = await loadFrameworks(PROJECT)
@@ -408,6 +463,33 @@ describe("端到端：绑定之后 storyFrameworkBinding 数据源真能取到�
   })
 })
 
+/**
+ * 占位句的**值**必须按字面钉住。
+ *
+ * 为什么值也要钉：这个字符串有两个生产用途 ——
+ *  1. `workbench-publish` 的 `pick()` 兜底把它写进框架（于是**注入提示词**）；
+ *  2. `degenerateStoryFrameworkWarning` 拿它当「内容等于空」的判据。
+ * 只断言「等于 EMPTY_STORY_BEAT」（发布 spec 里就是这么写的）在常量值被改时
+ * **两边一起变、照样绿** —— 这正是 DEFAULT_SIMULATION_MODE 踩过的坑
+ * （见上面那条 `expect(DEFAULT_SIMULATION_MODE).toBe("hybrid")`）。
+ * 加了这条之后：改常量值必须**同时**改这里，也就必须是一次有意识的决定。
+ *
+ * 反过来，它也让「publish 内联自己的等值字面量」这种漂移**迟早**会被抓到：
+ * 一旦两处取值不同，本文件与 workbench-publish.spec.ts 里必有一处变红。
+ * （纯「内联一份等值字面量、其它都不改」是**等价变异**，行为完全相同、
+ *  任何行为断言都测不到 —— 这里不假装能测到，只保证**漂移**会被抓到。）
+ */
+describe("占位句常量：按值钉住", () => {
+  it("EMPTY_STORY_BEAT 的原文（改它必须是一次有意识的决定）", () => {
+    expect(EMPTY_STORY_BEAT).toBe("本次没有充分依据，不固定该环节；由目标故事实际情境决定。")
+  })
+
+  it("非空且不带首尾空白（它会被原样写进节点标题，空白会被 parseNodeHeader 吃掉）", () => {
+    expect(EMPTY_STORY_BEAT.length).toBeGreaterThan(0)
+    expect(EMPTY_STORY_BEAT).toBe(EMPTY_STORY_BEAT.trim())
+  })
+})
+
 describe("退化内容检测（结构合法、内容为空）", () => {
   const fallbackFramework = () => convertPlotFrameworkToStoryFramework(richFramework({
     beats: {
@@ -415,6 +497,15 @@ describe("退化内容检测（结构合法、内容为空）", () => {
       payoff: EMPTY_STORY_BEAT, endingHook: EMPTY_STORY_BEAT,
     },
   }))
+
+  /**
+   * 直接指定各节点标题。判据只看 `nodes[].title`，所以这是构造边界输入的
+   * 最直接方式（比绕着 beat 走再依赖转换器幂等更不容易同时测错两件事）。
+   */
+  const frameworkWithTitles = (titles: string[]) => {
+    const converted = convertPlotFrameworkToStoryFramework(richFramework())
+    return { ...converted, nodes: titles.map((title, index) => ({ ...converted.nodes[index], index, title })) }
+  }
 
   it("四个 beat 都是占位句时给出「等于空」的提示", () => {
     const warning = degenerateStoryFrameworkWarning(fallbackFramework())
@@ -437,16 +528,41 @@ describe("退化内容检测（结构合法、内容为空）", () => {
   })
 
   it("只有部分 beat 相同时不报警（两段同句很常见，不是退化）", () => {
-    const converted = convertPlotFrameworkToStoryFramework(richFramework({
-      beats: { hook: "甲", buildup: "乙", payoff: "甲", endingHook: "丁" },
-    }))
-    expect(degenerateStoryFrameworkWarning(converted)).toBeNull()
+    expect(degenerateStoryFrameworkWarning(frameworkWithTitles(["甲", "乙", "甲", "丁"]))).toBeNull()
+  })
+
+  /**
+   * ⚠️ 这条是上一条的**必要补充**，不是重复。
+   *
+   * 上一条用 ["甲","乙","甲","丁"]：首 ≠ 尾，所以**结构上抓不到**把判据弱化成
+   * 「首尾相同」（`titles[0] === titles.at(-1)`）的写法 —— 那种写法在这里仍返回 null，
+   * 测试照样绿。而 ["甲","乙","甲","甲"] 首 == 尾但**并非全部相同**，
+   * 真判据返回 null，弱化版会误报「同一句重复」。
+   * 两条合起来才钉住「必须**全部**相同」这个判据本身。
+   */
+  it("首尾相同但中间不同 ⇒ 不报警（判据是「全部相同」，不是「首尾相同」）", () => {
+    expect(degenerateStoryFrameworkWarning(frameworkWithTitles(["甲", "乙", "甲", "甲"]))).toBeNull()
   })
 
   it("单节点框架不报警（没有「四个环节」可退化）", () => {
-    const converted = convertPlotFrameworkToStoryFramework(richFramework())
-    const single = { ...converted, nodes: converted.nodes.slice(0, 1) }
-    expect(degenerateStoryFrameworkWarning(single)).toBeNull()
+    expect(degenerateStoryFrameworkWarning(frameworkWithTitles(["甲"]))).toBeNull()
+  })
+
+  /**
+   * 节点数下界是 `2`。这条与上面那条「1 个节点不报警」配对，把阈值夹死在 2：
+   * 上界一侧证明「≥2 且全同」确实会报（若阈值被抬到 4 就会漏报），
+   * 下界一侧证明「<2」确实不报（若阈值被降到 0 就会对单节点误报）。
+   */
+  it("恰好 2 个节点且标题相同 ⇒ 报警（仍属「各节点内容完全相同」）", () => {
+    const warning = degenerateStoryFrameworkWarning(frameworkWithTitles(["甲", "甲"]))
+    expect(warning).not.toBeNull()
+    expect(warning).toContain("同一句重复")
+  })
+
+  it("恰好 2 个节点且都是占位句 ⇒ 用「等于空」那版措辞", () => {
+    const warning = degenerateStoryFrameworkWarning(frameworkWithTitles([EMPTY_STORY_BEAT, EMPTY_STORY_BEAT]))
+    expect(warning).toContain("占位话")
+    expect(warning).toContain("等于空")
   })
 
   it("节点标题全为空时不报警（那是另一种缺陷，不该冒充内容退化）", () => {

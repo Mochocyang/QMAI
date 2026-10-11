@@ -21,7 +21,12 @@ import type { StoryFramework, StoryNode } from "./types"
  * 拆书 publisher 在四个故事维度标签全都匹配不上时用的占位句。
  *
  * 发布（workbench-publish 的 pick）与退化检测（degenerateStoryFrameworkWarning）
- * 共用这一个常量：改了一处另一处会跟着改，不会漂移成两句不同的「同一句占位话」。
+ * 共用这一个常量，且单测**按值**钉住它。
+ *
+ * 措辞注意：这**不能**声称「结构上不可能漂移」。若有人把 publish 那处改成
+ * 内联一份**等值**字面量，行为完全相同，是等价变异，任何行为断言都测不到。
+ * 能保证的只是：两处取值一旦不同，按值断言或 publish spec 里那句
+ * `toBe(EMPTY_STORY_BEAT)` 必有一处变红 —— 即**漂移**会被抓到，而不是「不会漂移」。
  */
 export const EMPTY_STORY_BEAT = "本次没有充分依据，不固定该环节；由目标故事实际情境决定。"
 
@@ -56,18 +61,38 @@ const PHASES: ReadonlyArray<StoryNode["phase"]> = ["起", "承", "转", "合"]
  *    目录里出现的是 `plot`（没有 .md 后缀），loadFrameworks 的 `.md` 过滤直接跳过它，
  *    于是「发布成功」但永远读不回来；`/`、`\` 更会写到别的目录去。
  *  - 定宽转义是单射：换成 `-` 的话 "a:b" 与 "a?b" 会撞成同一个文件名、互相覆盖。
- *    （每个被转义字符编成 `%` + 6 位十六进制，6 位足以覆盖全部 Unicode 码点，
+ *    （每个被转义字符编成 `%` + 6 位十六进制。⚠️ 正则**没有 `u` 标志**，
+ *    所以它是按 **UTF-16 码元**逐个匹配的：6 位十六进制覆盖的是码元（≤ 0xFFFF），
+ *    **不是完整码点**。星光面字符（如 `\u{1F600}`）占两个码元、会产出**两个**转义，
+ *    因此单射性不受影响，但 CJK 每个字符膨胀 7 倍、星平面字符膨胀 14 倍 ——
+ *    这是下面注释里那条文件名长度上限的由来。
  *    而字面量 `%` 必然被转义，所以解码无歧义。）
  */
 export function storyFrameworkIdForPlotFramework(plotFrameworkId: string): string {
   const escaped = plotFrameworkId
     .trim()
     .replace(/[^a-zA-Z0-9._-]/g, (ch) => {
-      const codePoint = ch.codePointAt(0) ?? 0
-      return `%${codePoint.toString(16).toUpperCase().padStart(6, "0")}`
+      // charCodeAt 而非 codePointAt：这里拿到的是**码元**（见上面注释）。
+      const codeUnit = ch.charCodeAt(0)
+      return `%${codeUnit.toString(16).toUpperCase().padStart(6, "0")}`
     })
   return `plot-${escaped}`
 }
+
+/*
+ * 上面那条「文件名长度上限」的由来与**刻意不处理**的边界：
+ *
+ *  - **空 id / 全空白 id** → 产出 `plot-`。生产不可达：三个发布方都把
+ *    `upsertPlotFramework` 的返回值交给桥接，而它内部先过 `normalizePlotFramework`
+ *    （`plot-framework.ts` 里那句 `input.id.trim() ? ... : \`framework-${now}\``），
+ *    空 id 到不了这里。**刻意不兜底**：给空 id 编一个 id 就等于让 id 不确定，
+ *    恰恰破坏本条要做到的「确定性派生」。宁可产出可辨认的 `plot-`。
+ *  - **超长 id** → `plot-` + 转义后 > 255 字节时，NTFS 会拒绝该文件名，
+ *    `writeFileAtomic` 抛错。**刻意不截断**：截断会让两个不同来源**撞到同一个
+ *    文件名、互相覆盖** —— 那正是本次要消灭的「静默丢内容」，比一次响亮的失败更糟。
+ *    触发条件：源 id 约 238 字符以上（CJK 约 34 字，因每字膨胀 7 倍）。
+ *    现实里的 id 形如 `wb-story-${bookId}` / `framework-${bookId}-${ts}`，远未及此。
+ */
 
 /**
  * 节点标题的净化。
@@ -141,6 +166,18 @@ export function convertPlotFrameworkToStoryFramework(framework: PlotFramework): 
     premise: buildPremise(framework),
     targetWords: BRIDGED_TARGET_WORDS,
     simulationMode: DEFAULT_SIMULATION_MODE,
+    /*
+     * sourceChapters：数的是**章节 id 的个数**，不是「实际读到的章节文件数」。
+     * 语义上与原生生成器**不同** —— 那边用 `extraction.chapterContents.length`
+     * （真的读进内存的章节数，story-framework-generator 里两处）。差异情形：
+     * 某个 rangeChapterIds 指向的章节已不存在时，这里会**高估**那个数字。
+     * 裁定：保持 `rangeChapterIds.length`。理由 ——
+     *  1. 计划（§4.2 步骤 1）明确认可「由 `rangeChapterIds.length` 推」；
+     *  2. 转换器是**纯函数**，去数文件就要引入 IO 与新失败模式，
+     *     而它唯一的消费者是 `simulation-report-agent` 的散文标签（不参与判定）；
+     *  3. 高估是「按收集时的范围标注」，不算说谎 —— 框架确实覆盖过那些章节。
+     * 序列化/读回两边一致，故 round-trip 不受影响。
+     */
     sourceChapters: framework.rangeChapterIds.length,
     nodes,
     // normalizePlotFramework 已把 createdAt 钳成有限数字（NaN → now），
