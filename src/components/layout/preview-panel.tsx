@@ -27,6 +27,7 @@ import { getNextChatExpanded } from "./chat-layout"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
 import { DeAiSkillOptionsPanel } from "@/components/skill-library/de-ai-skill-picker"
 import { useDeAiSkillOptions } from "@/components/skill-library/use-de-ai-skill-options"
+import { WritingStylePicker } from "@/components/skill-library/writing-style-picker"
 import { buildDeAiRewriteMessages } from "@/lib/novel/de-ai-adapter"
 import { filterDeAiOutput } from "@/lib/novel/de-ai-output"
 import {
@@ -410,6 +411,21 @@ export function PreviewPanel() {
    */
   const bodyTypographyPersist = useRef(createDebouncedPersist(400))
   const [chapterDeAiSkillId, setChapterDeAiSkillId] = useState<string | null | undefined>(undefined)
+  /*
+   * 丁-2「文风写作」：章节区本次生成要临时用的文风预设 id。
+   *
+   * 三态与 `chapterDeAiSkillId` 完全同构：`undefined` = 没有覆盖（用项目启用项）、
+   * `null` = 本次不用文风、`string` = 这条预设。
+   *
+   * ⚠️ **刻意不落盘**（与旁边 `setLastChapterDeAiSkill` 的先例不同）：
+   * 用户决定 2 要求项目设置不得被改，而写「上次用的文风」只能写进项目级的
+   * `.qmai/writing-style.json`（文风库与启用态就在那个文件里）。
+   * 那不但会让一次临时选择变成跨会话的持久状态（下次打开仍生效，
+   * 与「本次生成临时覆盖」的语义相反），也会让「生成过程有没有写项目设置」
+   * 这件事从"一眼可判"变成"要区分是哪个字段"。
+   * ⇒ 选择只活在本次面板会话里。若将来确实要记，应另建 UI 偏好存储，不要复用文风库文件。
+   */
+  const [chapterWritingStyleId, setChapterWritingStyleId] = useState<string | null | undefined>(undefined)
   const [pendingSelectionForDeAi, setPendingSelectionForDeAi] = useState<ChapterBodySelection | null>(null)
   const [chapterTitleDraft, setChapterTitleDraft] = useState("")
   const [chapterTitleEditing, setChapterTitleEditing] = useState(false)
@@ -1576,6 +1592,15 @@ export function PreviewPanel() {
         llmConfig,
         aiWorkflowMode: state.aiWorkflowMode,
         planBlueprint,
+        /*
+         * 丁-2：章节区工具栏那枚「文风写作」选择器的值，**直接**传进本次生成。
+         *
+         * 这里没有走 `run_chapter_workflow` 那条 getter 链（对话/写作助手路径才走它）：
+         * 本章正文是章节区自己发起的，不经过 agent 回合、也拿不到 chat-panel 的闭包。
+         * 两条路都各传一次，缺一条就会变成"一半有用"的 bug ——
+         * 在章节区选了文风、又在章节区生成正文，恰恰是最符合用户原话的那条路。
+         */
+        writingStyleIdOverride: chapterWritingStyleId,
       },
       {
         // 结构化阶段进度（onFinalContent 只在阶段边界给完整文本，不是逐字流）。
@@ -1636,7 +1661,7 @@ export function PreviewPanel() {
        */
       settle()
     })
-  }, [bumpDataVersion, flushChapterBeforeLeave, project?.path, rememberLoadedChapter, setFileContent, setFileTree])
+  }, [bumpDataVersion, chapterWritingStyleId, flushChapterBeforeLeave, project?.path, rememberLoadedChapter, setFileContent, setFileTree])
 
   /** 取消正文生成：abort + 乐观退回待确认（传输忽略 abort 时那行也不会永远停在 writing）。 */
   const handleCancelChapterProse = useCallback((taskId: string) => {
@@ -2530,6 +2555,20 @@ export function PreviewPanel() {
             <Lightbulb aria-hidden="true" />
           </button>
           {canFormatWriting ? <button type="button" className="ui-test-editor-action is-icon-only" aria-label="一键排版" title="一键排版" onClick={() => void handleFormatWriting()}><WandSparkles aria-hidden="true" /></button> : null}
+          {/*
+            丁-2「文风写作」：生成第 N 章正文时临时选一条文风，**只影响这一次**。
+            与旁边几枚按钮一样是图标态（toolbar 一行放不下文字），
+            选中项靠 title/aria-label 与浮层里的「当前」徽章表达。
+
+            ⚠️ 它只写 React 状态，不写 `.qmai/writing-style.json`：
+            项目级 `enabledStyleId` 一律不动（用户决定 2）。
+          */}
+          <WritingStylePicker
+            value={chapterWritingStyleId}
+            onChange={setChapterWritingStyleId}
+            iconOnly
+            showLibraryShortcut
+          />
         </>
       ) : (
         <>

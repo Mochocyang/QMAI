@@ -380,6 +380,94 @@ describe("createRunChapterWorkflowTool", () => {
     )
   })
 
+  it("passes getWritingStyleIdOverride into deep chapter generation", async () => {
+    const runDeepChapterGeneration = vi.fn(async () => ({
+      finalContent: "最终正文",
+      taskBrief: "任务书",
+      draftContent: "初稿",
+      reviewResults: [],
+      revised: false,
+    }))
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+      getWritingStyleIdOverride: () => "style-jia",
+    })
+
+    await tool.execute({
+      intent: "write_chapter",
+      userRequest: "生成第3章",
+      chapterNumber: 3,
+    })
+
+    expect(runDeepChapterGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({ writingStyleIdOverride: "style-jia" }),
+      expect.any(Object),
+      undefined,
+      undefined,
+    )
+  })
+
+  /*
+   * 三态的**另一端**必须单独钉：`null` = 用户显式「本次不用文风」。
+   *
+   * 这条不是上面那条的重复。实测过的写法 `options.getWritingStyleIdOverride?.() ?? undefined`
+   * 会让上面那条**照样全绿**（字符串两端一致），但把 `null` 抹成 `undefined`
+   * ⇒ 用户点了「本次不用文风」反而会用上项目启用的那条，方向正好相反。
+   */
+  it("preserves the null of getWritingStyleIdOverride instead of collapsing it to undefined", async () => {
+    const runDeepChapterGeneration = vi.fn(async () => ({
+      finalContent: "最终正文",
+      taskBrief: "任务书",
+      draftContent: "初稿",
+      reviewResults: [],
+      revised: false,
+    }))
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+      getWritingStyleIdOverride: () => null,
+    })
+
+    await tool.execute({
+      intent: "write_chapter",
+      userRequest: "生成第3章",
+      chapterNumber: 3,
+    })
+
+    const [input] = runDeepChapterGeneration.mock.calls[0] as unknown as [
+      { writingStyleIdOverride?: string | null },
+    ]
+    expect(input, "本次不用文风必须原样传 null").toHaveProperty("writingStyleIdOverride", null)
+  })
+
+  it("leaves writingStyleIdOverride undefined when no producer is wired", async () => {
+    const runDeepChapterGeneration = vi.fn(async () => ({
+      finalContent: "最终正文",
+      taskBrief: "任务书",
+      draftContent: "初稿",
+      reviewResults: [],
+      revised: false,
+    }))
+    const tool = createRunChapterWorkflowTool({
+      projectPath: "E:/Novel",
+      llmConfig,
+      aiWorkflowMode: "standard",
+      runDeepChapterGeneration,
+    })
+
+    await tool.execute({ intent: "write_chapter", userRequest: "生成第3章", chapterNumber: 3 })
+
+    const [input] = runDeepChapterGeneration.mock.calls[0] as unknown as [
+      { writingStyleIdOverride?: string | null },
+    ]
+    expect(input.writingStyleIdOverride, "没有产出者时必须是 undefined（= 不覆盖）").toBeUndefined()
+  })
+
   it("includes plan compliance in the tool result when available", async () => {
     const runDeepChapterGeneration = vi.fn(async () => ({
       finalContent: "最终正文",

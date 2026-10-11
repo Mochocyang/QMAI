@@ -43,6 +43,20 @@ interface BuildWritingStyleContextOptions {
   task?: string
   /** 检索原文的条数，对齐 writing-dna-skill 的「读 5 篇」。 */
   relevantChapterCount?: number
+  /**
+   * 本次生成临时覆盖的文风预设 id（丁-2：「文风写作」选择器）。
+   *
+   * 三态**不能混用**（`undefined` 与 `null` 语义相反）：
+   * - `undefined`（不传）：**没有覆盖**，照旧读项目启用的那一项；
+   * - `null`：用户显式选了「本次不用文风」，返回 `""`（真的不注入）；
+   * - `string`：用这个预设渲染。
+   *
+   * ⚠️ 覆盖文本**必须**由这个同一个渲染器产出（不要另写一套拼装）：
+   * `contextPackToPrompt`（`context-engine.ts:1132`）的文风 fail-closed 守卫判的是
+   * **字面前缀** `【已启用文风画像】`，只有同形才能保证覆盖与「已启用」路径
+   * 要么都触发守卫、要么都不触发。详见本文件 buildWritingStyleContext 的注释。
+   */
+  styleIdOverride?: string | null
 }
 
 const DEFAULT_CONSTITUTION_LIMIT = 800
@@ -186,6 +200,37 @@ export async function getEnabledWritingStyle(projectPath: string): Promise<Writi
   return { ...preset, profile: migrateStyleProfile(preset.profile) }
 }
 
+/**
+ * 按「本次是否覆盖」的三态取预设（丁-2）。
+ *
+ * 把三态收在一个函数里，是为了让 `buildWritingStyleContext` 的取值口径只有一处：
+ * - `undefined` → 项目启用项（**就是** `getEnabledWritingStyle`，不另写一份）；
+ * - `null` → `null`（本次显式不用文风，调用方据此返回 `""`）；
+ * - `string` → 该预设；找不到（例如选中后又被删掉）也返回 `null`。
+ *
+ * ⚠️ 找到预设时**必须**照 `getEnabledWritingStyle:186` 再迁移一次
+ * `migrateStyleProfile`：那是字段归一化 / 防崩 / 形状一致，
+ * **不是**渲染分支选择器（分支只看 `profile.workbenchStyle?.styleFingerprint`，
+ * 见 `migrateStyleProfile` 从不创建也不删除该字段）。不迁移就直接渲染，
+ * 存量 v1 数据上的 `constitution` 可能是 `undefined`，
+ * 而渲染里的 `clip()` 会 `.trim()` → **直接抛错**。
+ *
+ * ⚠️ 未知 id 按「本次没有可用文风」处理（返回 `null` → 文本 `""`），
+ * **不**回退到项目启用项：那会让用户以为生效的是自己刚选的那条，
+ * 实际用的却是另一条 —— 静默用错比静默不用更难发现。
+ */
+export async function resolveWritingStylePreset(
+  projectPath: string,
+  styleIdOverride?: string | null,
+): Promise<WritingStylePreset | null> {
+  if (styleIdOverride === null) return null
+  if (styleIdOverride === undefined) return getEnabledWritingStyle(projectPath)
+  const store = await loadWritingStyleStore(projectPath)
+  const preset = store.styles.find((s) => s.id === styleIdOverride)
+  if (!preset) return null
+  return { ...preset, profile: migrateStyleProfile(preset.profile) }
+}
+
 function clip(value: string, limit: number): string {
   const trimmed = value.trim()
   if (trimmed.length <= limit) return trimmed
@@ -234,13 +279,41 @@ async function retrieveRelevantExcerpts(
  * 内容优先级：整合 Writing DNA > 风格硬约束（v1 数据或整合缺失时降级）。
  * 参考片段优先级：按任务检索的原文 > 已启用 evidence > profile.samples。
  * 内含红线：只学写法、不借片段里的人物/地名/设定/情节。
+ *
+ * `options.styleIdOverride` 让本次生成临时换成另一条预设（丁-2），
+ * 走的是**下面同一个** `renderWritingStylePreset`：覆盖文本与「已启用」
+ * 路径逐字节同形，两者要么都带 `【已启用文风画像】` 前缀、要么都不带。
+ *
+ * ── ⚠️ 已确认的不对称（选择 (a)：照现状接受，不在本批改变）──
+ * `contextPackToPrompt` 的文风 fail-closed 守卫判的是**字面前缀**
+ * （`context-engine.ts:1132`），而前缀**只在结构化画像分支**加
+ * （下面 `lines.unshift("【已启用文风画像】")` 那一支）。
+ * 于是 `profile.workbenchStyle` 为空的 **v1/旧画像**预设：
+ * 无论「已启用」还是「本次临时覆盖」，都**不带**前缀、都**不触发**守卫，
+ * 被预算整段裁掉时都是静默的。
+ * 这是**既有行为**（本批没有改变它）：覆盖路径**不会比**「已启用」路径更不安全，
+ * 但也**不是**「覆盖一定受守卫保护」。
+ * ⚠️ 本批**不**给旧画像补前缀：那会把今天能静默截断并成功出稿的旧画像项目
+ * 变成硬停机（`context-engine.ts:1133` 抛错），是用户可见的行为变更。
  */
 export async function buildWritingStyleContext(
   projectPath: string,
   options: BuildWritingStyleContextOptions = {},
 ): Promise<string> {
-  const preset = await getEnabledWritingStyle(projectPath)
+  const preset = await resolveWritingStylePreset(projectPath, options.styleIdOverride)
   if (!preset) return ""
+  return renderWritingStylePreset(projectPath, preset, options)
+}
+
+/**
+ * 由**已经取好的** preset 拼注入文本。`buildWritingStyleContext` 的唯一渲染入口
+ * —— 覆盖路径与启用路径共用它，避免出现第二套文案/第二种形状。
+ */
+async function renderWritingStylePreset(
+  projectPath: string,
+  preset: WritingStylePreset,
+  options: BuildWritingStyleContextOptions,
+): Promise<string> {
   const {
     includeSamples = true,
     constitutionCharLimit = DEFAULT_CONSTITUTION_LIMIT,

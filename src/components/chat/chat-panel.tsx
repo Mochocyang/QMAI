@@ -142,6 +142,7 @@ import { buildResultProtocolTrace } from "@/lib/novel/result-parser"
 // import { joinPath } from "@/lib/path-utils"
 // import type { AiCapability } from "@/lib/agent/capabilities/types"
 import { deAiSkillToUserSkill } from "@/lib/novel/de-ai-skill-library"
+import { WritingStylePicker } from "@/components/skill-library/writing-style-picker"
 import {
   buildContextHubPromptParts,
   withContextHubTaskContent,
@@ -1086,6 +1087,21 @@ export function ChatPanel() {
     const value = selectedSkillsPromptRef.current.trim()
     return value || undefined
   }, [])
+  /*
+   * 丁-2「文风写作」：本轮临时覆盖的文风预设 id。
+   *
+   * 这条通道照 `getSelectedSkillsPrompt` 的 getter 形状（pull 模型）：
+   * 它不是工具参数，所以模型漏传也照样生效；而章节区那条链路拿不到这里的闭包，
+   * 由它自己把值直接塞进 `DeepChapterGenerationInput`（两条都接上，缺一条就是"一半有用"）。
+   *
+   * ⚠️ 三态必须原样返回：`undefined` = 没有覆盖、`null` = 本次显式不用文风。
+   * 这里**不要**写 `.trim() || undefined` 之类的归一化 —— 那会把 `null` 抹成
+   * `undefined`，用户点了「本次不用文风」反而会用上项目启用的那条。
+   *
+   * ⚠️ 只进这个状态，不写项目设置（用户决定 2）。
+   */
+  const [sessionWritingStyleId, setSessionWritingStyleId] = useState<string | null | undefined>(undefined)
+  const getWritingStyleIdOverride = useCallback(() => sessionWritingStyleId, [sessionWritingStyleId])
   const {
     config: agentConfig,
     registry: agentRegistry,
@@ -1093,7 +1109,7 @@ export function ChatPanel() {
     skillConfigLoaded: agentSkillConfigLoaded,
     skillConfig: agentSkillConfig,
     writingSkills: agentUserWritingSkills,
-  } = useAgentConfig(agentSystemPrompt, undefined, getSelectedSkillsPrompt)
+  } = useAgentConfig(agentSystemPrompt, undefined, getSelectedSkillsPrompt, getWritingStyleIdOverride)
   const deferredReferenceText = useDeferredValue(referenceText)
   const liveContextUsage = useMemo(() => {
     const historyMessages = selectContextHistoryMessages(
@@ -2973,6 +2989,18 @@ export function ChatPanel() {
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-xs leading-5">{aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式。" : "开启后，本次写作会先创建计划，等待确认后再执行；可与标准、严格模式组合使用。"}</TooltipContent>
                       </Tooltip>
+                      {/*
+                        丁-2「文风写作」：本轮章节生成临时选一条文风。
+                        它在对话/写作助手路径上是**产出端** —— 选中的 id 经
+                        `getWritingStyleIdOverride` 交给 useAgentConfig → tools →
+                        run_chapter_workflow → DeepChapterGenerationInput.writingStyleIdOverride。
+                        只影响这一次生成，项目级 enabledStyleId 不动（用户决定 2）。
+                      */}
+                      <WritingStylePicker
+                        value={sessionWritingStyleId}
+                        onChange={setSessionWritingStyleId}
+                        showLibraryShortcut
+                      />
                     </>
                   )}
                 </>

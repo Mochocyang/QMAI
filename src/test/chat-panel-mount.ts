@@ -55,6 +55,15 @@ const defaultAgentSkillConfig = {
 
 let mockAgentSkillConfig: typeof defaultAgentSkillConfig | null = defaultAgentSkillConfig
 let mockTaskBreakpoint: TaskBreakpoint | null = null
+/**
+ * `useAgentConfig` 每次调用的**完整实参**（最新的在最后）。
+ *
+ * 用途：丁-2 的「产出端」用例必须能问到「chat-panel 到底把什么 getter 交出去了」——
+ * 只看界面上的标签变了证明不了 getter 的返回值也跟着变
+ * （产出方与消费方是两件事，本仓库已经有过「getter 没有产出者」的死通道）。
+ * 每次 `renderChatPanel` 会清空，避免跨用例串味。
+ */
+export const agentConfigArgs: unknown[][] = []
 
 vi.mock("react-i18next", () => ({
   initReactI18next: {
@@ -82,19 +91,23 @@ vi.mock("@/stores/outline-chat-store", () => ({
 }))
 
 vi.mock("@/hooks/use-agent-config", () => ({
-  useAgentConfig: (systemPrompt: string) => ({
-    config: {
-      maxRounds: 3,
-      tools: [],
-      systemPrompt,
-      llmConfig: wikiState.llmConfig,
-    },
-    registry: mockRegistry,
-    supportsTools: true,
-    skillConfigLoaded: true,
-    skillConfig: mockAgentSkillConfig,
-    writingSkills: [],
-  }),
+  useAgentConfig: (...args: unknown[]) => {
+    agentConfigArgs.push(args)
+    const systemPrompt = args[0] as string
+    return {
+      config: {
+        maxRounds: 3,
+        tools: [],
+        systemPrompt,
+        llmConfig: wikiState.llmConfig,
+      },
+      registry: mockRegistry,
+      supportsTools: true,
+      skillConfigLoaded: true,
+      skillConfig: mockAgentSkillConfig,
+      writingSkills: [],
+    }
+  },
 }))
 
 vi.mock("@/components/chat/chat-shared", () => ({
@@ -165,6 +178,7 @@ export async function renderChatPanel(options: RenderChatPanelOptions = {}) {
     ? defaultAgentSkillConfig
     : options.agentSkillConfig
   mockTaskBreakpoint = options.taskBreakpoint ?? null
+  agentConfigArgs.length = 0
 
   const activeConversationId = options.activeConversationId !== undefined
     ? options.activeConversationId

@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { act } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { renderChatPanel } from "@/test/chat-panel-mount"
+import { agentConfigArgs, renderChatPanel } from "@/test/chat-panel-mount"
 import { clearTaskBreakpoint, loadTaskBreakpoint } from "@/lib/agent/task-breakpoint"
 import type { Conversation } from "@/stores/chat-store"
 import { useChatStore } from "@/stores/chat-store"
 import { chatConversationRunRegistry } from "@/lib/conversation-run-registry"
-import { deleteFile } from "@/commands/fs"
+import { deleteFile, readFile, writeFile } from "@/commands/fs"
 
 const breakpoint = {
   taskId: "task_resume_1",
@@ -314,5 +314,87 @@ describe("ChatPanel 分步引导教程的一次性消费", () => {
     const second = await renderChatPanel({ activeConversation: true })
     expect(document.body.querySelector(".ui-test-usage-tutorial")).toBeNull()
     await second.unmount()
+  })
+})
+
+/*
+ * 丁-2「文风写作」的**产出端**。
+ *
+ * run_chapter_workflow 的消费端断言（`getWritingStyleIdOverride` 的值真的进了
+ * `DeepChapterGenerationInput`）在 run-chapter-workflow.spec.ts 里。
+ * 这一条补的是另一半：**chat-panel 交出去的那个 getter 到底返回什么**。
+ * 两条都在，才不是「getter 没有产出者」的死通道
+ * （本仓库已有一个 `getPlanBlueprint` 形状的先例，那条通道必须两头都接）。
+ */
+describe("ChatPanel 的「文风写作」产出端", () => {
+  const styleStore = JSON.stringify({
+    version: 1,
+    enabledStyleId: "style-b",
+    styles: [
+      { id: "style-a", name: "甲书 · 文风", sourceBook: "甲书", profile: { schemaVersion: 1 }, createdAt: 1, updatedAt: 1 },
+      { id: "style-b", name: "乙书 · 文风", sourceBook: "乙书", profile: { schemaVersion: 1 }, createdAt: 1, updatedAt: 1 },
+    ],
+  })
+
+  /** 取最近一次 useAgentConfig 调用交出去的第 4 个参数（= 文风覆盖 getter）。 */
+  function writingStyleGetter(): () => string | null | undefined {
+    const args = agentConfigArgs.at(-1)
+    expect(args, "useAgentConfig 应已被调用").toBeDefined()
+    expect(args?.[3], "第 4 个参数应是文风覆盖 getter").toBeTypeOf("function")
+    return args![3] as () => string | null | undefined
+  }
+
+  async function pickStyle(container: HTMLElement, text: string) {
+    const trigger = container.querySelector<HTMLButtonElement>('[data-testid="writing-style-picker-trigger"]')
+    expect(trigger, "输入工具栏应有「文风写作」选择器").not.toBeNull()
+    await click(trigger)
+    const popover = container.querySelector('[data-testid="writing-style-picker-popover"]')
+    expect(popover, "浮层应已打开").not.toBeNull()
+    // 预设是 role="option"，「本次不用」/「跟随项目设置」是普通按钮 ⇒ 一起找
+    const option = Array.from(popover!.querySelectorAll<HTMLButtonElement>("button"))
+      .find((item) => item.textContent?.includes(text))
+    expect(option, `浮层里应有「${text}」`).toBeDefined()
+    await click(option!)
+  }
+
+  afterEach(() => {
+    vi.mocked(readFile).mockImplementation(async () => "")
+  })
+
+  it("选中一条文风后，交给 agent 配置的 getter 就返回它的 id（且不改项目启用项）", async () => {
+    vi.mocked(readFile).mockImplementation(async (path: string) =>
+      path.includes("writing-style.json") ? styleStore : "")
+    const view = await renderChatPanel({ activeConversation: true })
+    await flushEffects()
+
+    // 没有覆盖时 getter 返回 undefined（= 沿用项目启用项），不能返回 null
+    expect(writingStyleGetter()()).toBeUndefined()
+
+    await pickStyle(view.container, "甲书 · 文风")
+    expect(writingStyleGetter()()).toBe("style-a")
+
+    // 「本次不用文风」= null，且**不能**被抹成 undefined
+    await pickStyle(view.container, "本次不用文风")
+    expect(writingStyleGetter()()).toBeNull()
+
+    // 「跟随项目设置」把它退回没有覆盖
+    await pickStyle(view.container, "跟随项目设置的文风")
+    expect(writingStyleGetter()()).toBeUndefined()
+
+    await view.unmount()
+  })
+
+  it("选择只改界面状态：没有写 .qmai/writing-style.json", async () => {
+    const writeMock = vi.mocked(writeFile)
+    writeMock.mockClear()
+    vi.mocked(readFile).mockImplementation(async (path: string) =>
+      path.includes("writing-style.json") ? styleStore : "")
+    const view = await renderChatPanel({ activeConversation: true })
+    await flushEffects()
+
+    await pickStyle(view.container, "甲书 · 文风")
+
+    expect(writeMock.mock.calls.filter(([path]) => String(path).includes("writing-style.json"))).toEqual([])
+    await view.unmount()
   })
 })

@@ -4,6 +4,113 @@ import { describe, expect, it } from "vitest"
 
 const source = readFileSync(resolve(__dirname, "preview-panel.tsx"), "utf8")
 
+/**
+ * 剥掉注释后的源码。
+ *
+ * `not.toContain(...)` 这类**否定**断言只有对着它跑才有判别力：
+ * 原始源码里 `setLastChapterDeAiSkill` 出现在注释与代码两处，
+ * 直接断言"不含某标识符"会因为注释里的同名字符串而假红 / 假绿，
+ * 与真实行为无关。小状态机认引号，避免把字符串里的 `//` 当注释起始。
+ */
+function stripComments(text: string): string {
+  let out = ""
+  let index = 0
+  const quoteStack: string[] = []
+  while (index < text.length) {
+    const char = text[index]
+    const next = text[index + 1]
+    const quote = quoteStack[quoteStack.length - 1]
+    if (quote) {
+      if (char === "\\") {
+        out += text.slice(index, index + 2)
+        index += 2
+        continue
+      }
+      if (char === quote) quoteStack.pop()
+      out += char
+      index += 1
+      continue
+    }
+    if (char === "/" && next === "/") {
+      while (index < text.length && text[index] !== "\n") index += 1
+      continue
+    }
+    if (char === "/" && next === "*") {
+      const end = text.indexOf("*/", index + 2)
+      index = end < 0 ? text.length : end + 2
+      continue
+    }
+    if (char === '"' || char === "'" || char === "`") quoteStack.push(char)
+    out += char
+    index += 1
+  }
+  return out
+}
+
+const code = stripComments(source)
+
+/**
+ * 丁-2「文风写作」在**章节区**这条路径上的接线。
+ *
+ * 为什么这里守住源码而不是渲染：章节区生成（`runDeepChapterGeneration`）是从
+ * `preview-panel.tsx` 直接调的，**不经过** agent/getter 链，所以「选择器选了什么」
+ * 到「生成本次用哪条文风」之间没有任何别的模块可以替它担保 ——
+ * 只有这一处赋值。渲染整块 PreviewPanel 需要项目、章节树、Tauri IPC 全套假件，
+ * 而断言的对象仍是同一行文本。
+ */
+describe("章节区的「文风写作」接线", () => {
+  it("把本章临时选择的文风 id 交给生成输入（只此一次生成）", () => {
+    expect(source).toContain("writingStyleIdOverride: chapterWritingStyleId")
+    expect(source).toContain("const [chapterWritingStyleId, setChapterWritingStyleId] = useState<string | null | undefined>(undefined)")
+  })
+
+  it("选择进了生成的 useCallback 依赖，改了选择才会用新值重跑", () => {
+    /*
+     * 找**紧跟在 `writingStyleIdOverride: chapterWritingStyleId` 之后**的那个
+     * 依赖数组，而不是全局第一处 `}, [bumpDataVersion,`：文件里有多个
+     * `bumpDataVersion` 开头的依赖数组，取第一个会指向无关回调
+     * （实测：拿到的是 `chapterExternalUpdateCoordinator` 那条）。
+     */
+    const lines = code.split(/\r?\n/)
+    const assignmentAt = lines.findIndex((line) => line.includes("writingStyleIdOverride: chapterWritingStyleId"))
+    expect(assignmentAt, "应能定位到生成输入里的覆盖赋值").toBeGreaterThan(-1)
+    const depsAt = lines.findIndex((line, index) => index > assignmentAt && line.includes("}, ["))
+    expect(depsAt, "覆盖赋值之后应有该回调的依赖数组").toBeGreaterThan(-1)
+    expect(
+      lines[depsAt],
+      "依赖数组漏了 chapterWritingStyleId ⇒ 改了选择仍用闭包里的旧值",
+    ).toContain("chapterWritingStyleId")
+  })
+
+  it("工具栏里的选择器是图标态，且与状态双向绑定", () => {
+    expect(source).toContain("<WritingStylePicker")
+    expect(source).toContain("value={chapterWritingStyleId}")
+    expect(source).toContain("onChange={setChapterWritingStyleId}")
+    expect(source).toContain("iconOnly")
+  })
+
+  /*
+   * 用户决定 2 的直接守卫：项目设置不得被改。
+   *
+   * 与旁边的 `setLastChapterDeAiSkill` 先例**故意不同**：写「上次用的文风」
+   * 只能落进项目级 `.qmai/writing-style.json`（文风库与启用态同文件），
+   * 那既把临时选择变成跨会话持久状态，也让"生成有没有写项目设置"变得难判。
+   */
+  it("不把这次选择落盘：既不记住上次用的文风，也不写文风库", () => {
+    expect(code).not.toContain("setLastChapterWritingStyle")
+    expect(code).not.toContain("setEnabledWritingStyle")
+    expect(code).not.toContain("upsertWritingStylePreset")
+    expect(code).not.toContain("rememberChapterWritingStyle")
+    // 命名/调用形态的任何一种复用都要挡住（含 hook 形式）
+    expect(code).not.toMatch(/useLastChapterWritingStyle|LastChapterWritingStyleId/)
+  })
+
+  it("新状态不写进草稿/项目持久化，也不出现在切换项目时的重置里", () => {
+    // 切换项目只重置去AI味那条；文风选择没有对应的持久化记忆要清
+    expect(code).not.toContain("setChapterWritingStyleId(undefined)")
+  })
+})
+
 describe("preview-panel final chapter save state", () => {
   it("scopes saved state by projectPath and filePath", () => {
     expect(source).toContain("finalChapterSave.projectPath === project?.path")
