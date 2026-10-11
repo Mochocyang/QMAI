@@ -452,9 +452,15 @@ function entrySourceLabel(entry: UnifiedSkillEntry): string {
 
 /**
  * 搜索用文本。文风与角色灵魂条目没有 `rawSkill`，只能从自身字段取。
- * ⚠️ 这里的判断是「哪些类型**有** `rawSkill`」，不是「哪些类型不是文风」——
- * 写成 `entry.type !== "style"` 时，新增的 `soul` 会掉进去读
- * `undefined.name` 并**在搜索时抛错**（不是编译错误，是运行时崩溃）。
+ * ⚠️ 这里的判断必须是「哪些类型**有** `rawSkill`」——写成
+ * `entry.type !== "style"` 时，`soul`（以及任何后来新增的无 `rawSkill` 类型）
+ * 会掉进这一支读 `entry.rawSkill` ⇒ `TS2339: Property 'rawSkill' does not exist`，
+ * **编译不过**（实测：还原成那个谓词并保留 `soul` 类型，本文件报 1 处 TS2339）。
+ *
+ * ⚠️ 别把它读成「有类型系统兜底所以无所谓」：类型系统拦得住，是因为这里
+ * **恰好**取了一个只有部分成员才有的字段。真正危险的写法是取一个所有成员都有的
+ * 字段（比如 `entry.kinds`）—— 那种分支类型系统**不会**报错，只能靠人想清楚。
+ * 换句话说：这一处修的是「写法误导 + 编译不过」，不是「防运行时崩溃」。
  */
 function entrySearchValues(entry: UnifiedSkillEntry): string[] {
   const values = [entry.name, entry.description, entry.content]
@@ -1466,13 +1472,19 @@ export function UnifiedSkillLibraryView() {
  *      - `entryFavoriteTarget` / `entryEnabled` 已抽成**模块级纯函数并导出**，
  *        由 spec 里 `as never` 造第 4 种类型的 `toThrow` 用例钉住；
  *      - `handleToggleEnabled` / `handleOpenEntry` 是**闭包**（依赖 project /
- *        busy / 选中态），jsdom 里造不出第 4 种类型、没有行为入口，所以由一条
- *        **源码级**用例兜底：`const unhandled: never = entry` **紧跟**
- *        `throw new Error(` 这个**构造**在本文件里必须**恰好 4 处**
+ *        busy / 选中态），jsdom 里造不出第 4 种类型，所以**那两个 `case` 本身**
+ *        在运行时不可达，只能由一条**源码级**用例兜底：`const unhandled: never = entry`
+ *        **紧跟** `throw new Error(` 这个**构造**在本文件里必须**恰好 4 处**
  *        （数字就是顶部注释承诺的穷尽 switch 数；将来真加第 5 个
  *        穷尽 switch，请连顶部注释一起改）。
  *        ⚠️ 别去 grep `const unhandled: never = entry` 这串字面量来数：
  *        它在文件里出现 **5** 次（4 个构造 + 这条注释自己）。用例断的是**构造**。
+ *        ⚠️ 「那两个 case 不可达」**不**等于「没有行为证据」：真正决定它们会不会
+ *        被走到的是**能力标志**，而能力标志**有**行为钉 ——
+ *        把 `ENTRY_CAPABILITIES.soul.openable` 或 `.toggleable` 改成 `true`
+ *        都会有用例红（复核批实测各 CAUGHT ×1，走的是卡片上的
+ *        `.ui-test-skill-card-open` 那条路）。所以这里是「守卫本身只能源码级兜底」，
+ *        不是「这整块没人管」。
  *    这**不是**说守卫已经不可能被删 —— 改源码当然删得掉，只是删了会有用例红。
  *
  * **有后果的两条路**已经全部受保护，但**证据形式不同**，别搞混：

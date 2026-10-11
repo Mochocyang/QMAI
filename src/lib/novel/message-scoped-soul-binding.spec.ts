@@ -180,6 +180,40 @@ describe("releaseMessageScopedSoulBinding", () => {
     expect(await diskBindings()).toEqual([{ characterName: "李四", auraId: "custom-b" }])
   })
 
+  it("⚠️ 本来就是**同一条**灵魂、且带着 aliases：释放后 aliases 必须回来", async () => {
+    /*
+     * 这条是复核批抓出来的真缺口（探针实测），现有用例原本看不见它：
+     * 上面那条「同一条」用例的既有绑定**没有** aliases，所以
+     * 「释放时短路返回」与「按快照写回」在那里表现完全一样。
+     *
+     * 机制：`beginMessageScopedSoulBinding` 只把 `{ characterName, auraId }`
+     * 递给 `bindCharacterAura`，后者落盘 `{ ...binding, characterName }`
+     * ⇒ **临时写入这一步就已经把 aliases 抹掉了**。于是「同一条」时盘上
+     * 并不是原样，「什么都不做」= 永久删掉用户的别名。
+     * 别名不是装饰：`buildCharacterSoulContext` 靠它认人，删了就改变上下文。
+     */
+    entityNames = ["李四"]
+    auraStoreRaw = JSON.stringify({
+      customAuras: [{ id: "custom-b", name: "乙灵魂" }],
+      bindings: [{ characterName: "李四", auraId: "custom-b", aliases: ["四哥"] }],
+    })
+
+    const binding = await beginMessageScopedSoulBinding(PROJECT_PATH, { auraId: "custom-b", characterName: "李四" })
+    expect(binding.previousBinding).toEqual({ characterName: "李四", auraId: "custom-b", aliases: ["四哥"] })
+    // 因果链的第一半：临时写入之后盘上**只剩** characterName + auraId，aliases 没了。
+    expect(
+      await diskBindings(),
+      "临时写入会把 aliases 丢掉 —— 这正是「同一条」也必须写回的原因",
+    ).toEqual([{ characterName: "李四", auraId: "custom-b" }])
+
+    await releaseMessageScopedSoulBinding(PROJECT_PATH, binding)
+
+    expect(
+      await diskBindings(),
+      "同一条灵魂时也必须按快照完整写回，否则用户的别名被静默删掉",
+    ).toEqual([{ characterName: "李四", auraId: "custom-b", aliases: ["四哥"] }])
+  })
+
   it("⚠️ 用户本来有**另一条**绑定：临时覆盖后必须原样还原（含 aliases）", async () => {
     entityNames = ["李四"]
     auraStoreRaw = JSON.stringify({

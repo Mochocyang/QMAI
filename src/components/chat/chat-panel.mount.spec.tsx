@@ -804,6 +804,28 @@ describe("ChatPanel 的「@ 引用角色灵魂」消费端（丁-4）", () => {
     throw new Error(`会话 ${conversationId} 的运行没有在预期轮数内结束`)
   }
 
+  /**
+   * 等到条件成立（或超时抛错）。盘面相关的断言**一律**用它，不要用「等运行结束」代替。
+   *
+   * ⚠️ `waitForRunSettled` 在「运行还没开始」时**立刻返回**
+   * （`runStates[id]` 是 `undefined`，而 `undefined?.status !== "running"` 为真），
+   * 而点确认之后那串「读绑定表 → 校验人物档案 → 写盘 → 起运行」要跑好几轮异步，
+   * 所以「先等运行结束、再断言盘面」会把「还在写」误判成「没写」。
+   * 本机空载时它常常刚好跑完，**CPU 一忙就红** —— 实测：全量套件并行时本组
+   * 两条用例失败（一条报「临时绑定没写进去」、一条报盘上还是临时那条），
+   * 单独跑同一个文件则全绿，且失败的两条**都不走**「同一条就跳过」那条分支。
+   * ⇒ 条件等待同时也回答了「这事到底发生了没有」，比猜轮数可靠。
+   */
+  async function waitFor(condition: () => boolean, message: string, attempts = 400) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      if (condition()) return
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 1))
+      })
+    }
+    throw new Error(`等待超时：${message}`)
+  }
+
   /** 打开引用弹窗 → 「技能库」分类 → 「角色灵魂」子 tab，返回弹窗元素。 */
   async function openSoulSubtab(container: HTMLElement) {
     await click(container.querySelector('[aria-label="引用内容"]'))
@@ -900,16 +922,24 @@ describe("ChatPanel 的「@ 引用角色灵魂」消费端（丁-4）", () => {
     // 生成前：真的绑上了（读盘验证，而不是看调用参数）
     await confirmSoulBinding(CHARACTER_NAME)
 
-    await waitForRunSettled("conv_mount")
-
     /*
      * 两件事各自独立成立，顺序也钉住了：
      *  1. 临时绑定**真的写过盘**（否则这条灵魂进不了上下文）；
      *  2. 最后盘面上什么都没有（这条绑定只对上面那一条消息生效）。
-     * ⚠️ 必须等运行结束再断这两条：确认之后那串异步链（读绑定表 → 校验人物档案
-     * → 写盘）要跑好几轮微任务，而 mock 的生成又快，断在中间会把「还在写」
-     * 误判成「没写」。写入日志让「写过」这件事不依赖断言的时刻。
+     * ⚠️ 必须用**条件等待**，不能等运行结束再断言：确认之后那串异步链
+     * （读绑定表 → 校验人物档案 → 写盘）要跑好几轮，而 mock 的生成又快，
+     * 断在中间会把「还在写」误判成「没写」。写入日志让「写过」这件事不依赖断言的时刻。
      */
+    await waitFor(
+      () => wroteBinding(CHARACTER_NAME, AURA_ID),
+      "确认之后临时绑定没有写进 .qmai/character-aura.json",
+    )
+    await waitFor(
+      () => diskBindings().length === 0,
+      "生成结束后临时绑定没有被还原（它会静默影响之后所有章节）",
+    )
+
+    // 再断一次：条件等待是「发生了没有」，这两条是「最终状态对不对」。
     expect(
       wroteBinding(CHARACTER_NAME, AURA_ID),
       "确认之后绑定必须真的落进 .qmai/character-aura.json —— 否则这条灵魂进不了上下文",
@@ -940,7 +970,15 @@ describe("ChatPanel 的「@ 引用角色灵魂」消费端（丁-4）", () => {
     await typePrompt(view.container, "按许七安的口气写一段")
     await sendMessage(view.container)
     await confirmSoulBinding(CHARACTER_NAME)
-    await waitForRunSettled("conv_mount")
+
+    await waitFor(
+      () => wroteBinding(CHARACTER_NAME, AURA_ID),
+      "临时绑定没有写进 .qmai/character-aura.json",
+    )
+    await waitFor(
+      () => diskBindings().length === 1,
+      "生成结束后盘上没有回到「用户原本那条绑定」",
+    )
 
     expect(
       diskBindings(),
@@ -961,9 +999,17 @@ describe("ChatPanel 的「@ 引用角色灵魂」消费端（丁-4）", () => {
     await typePrompt(view.container, "按许七安的口气写一段")
     await sendMessage(view.container)
     await confirmSoulBinding(CHARACTER_NAME)
-    await waitForRunSettled("conv_mount")
 
     // 覆盖确实发生过（临时那条真的写进去过），这样下面的还原才不是空转
+    await waitFor(
+      () => wroteBinding(CHARACTER_NAME, AURA_ID),
+      "临时绑定没有写进 .qmai/character-aura.json",
+    )
+    await waitFor(
+      () => diskBindings().some((item) => item.auraId === "builtin-li-si"),
+      "生成结束后没有把用户原本那条绑定写回原位",
+    )
+
     expect(wroteBinding(CHARACTER_NAME, AURA_ID)).toBe(true)
 
     expect(
@@ -1057,7 +1103,11 @@ describe("ChatPanel 的「@ 引用角色灵魂」消费端（丁-4）", () => {
     await typePrompt(view.container, "第一条：用许七安")
     await sendMessage(view.container)
     await confirmSoulBinding(CHARACTER_NAME)
-    await waitForRunSettled("conv_mount")
+    await waitFor(
+      () => wroteBinding(CHARACTER_NAME, AURA_ID),
+      "第一条消息的临时绑定没有写进 .qmai/character-aura.json",
+    )
+    await waitFor(() => diskBindings().length === 0, "第一条消息的临时绑定没有被还原")
     expect(diskBindings()).toEqual([])
 
     await typePrompt(view.container, "第二条：没有引用任何灵魂")

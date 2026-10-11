@@ -17,6 +17,7 @@ vi.mock("@/lib/project-store", async (importOriginal) => ({
 }))
 
 import { outlineConversationRunRegistry } from "@/lib/conversation-run-registry"
+import * as ts from "typescript"
 import { AgentRunner } from "@/lib/agent/runner"
 import { toast } from "@/lib/toast"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -38,6 +39,98 @@ import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
 
 const source = readFileSync(resolve(__dirname, "outline-chat-panel.tsx"), "utf8")
 const outlineSectionConfigsSource = readFileSync(resolve(__dirname, "../../lib/novel/outline-section-configs.ts"), "utf8")
+
+/*
+ * === 丁-4：源码形状断言改用**语法树**（不是文本匹配）===
+ *
+ * 为什么：本分支已经栽过「源码文本断言被一行注释满足」这个坑（复核批实测
+ * `// await releaseMessageSoulBinding();` + `void releaseMessageSoulBinding;`
+ * 就能让文本钉子变绿，连 tsc 都干净）。**注释不在语法树里**，所以按 AST 找
+ * 「这里真的有一个 await 调用表达式」天然不受注释、缩进、换行影响，
+ * 也不受「保住了标识符但没真的调用」这类写法影响。这比 strip 注释更硬：
+ * strip 之后仍然是在匹配文本，而匹配文本永远要跟格式、引号、空格较劲。
+ *
+ * ⚠️ 代价说清楚：AST 钉子证明的是「这段代码**存在且长这样**」，
+ * 不是「它运行时行为正确」。行为证据在别处（`soul-reference.spec.ts` 的
+ * 产出端↔消费端契约、`message-scoped-soul-binding.spec.ts` 的真读写与还原、
+ * 以及 `chat-panel.mount.spec.tsx` 里**能跑起来**的那份等价 finally）。
+ */
+const outlineSourceFile = ts.createSourceFile(
+  "outline-chat-panel.tsx",
+  source,
+  ts.ScriptTarget.Latest,
+  /* setParentNodes */ true,
+  ts.ScriptKind.TSX,
+)
+
+/** 遍历整棵树，按顺序收集所有满足断言的节点。 */
+function collectOutlineNodes<T extends ts.Node>(predicate: (node: ts.Node) => node is T): T[] {
+  const found: T[] = []
+  const visit = (node: ts.Node) => {
+    if (predicate(node)) found.push(node)
+    node.forEachChild(visit)
+  }
+  visit(outlineSourceFile)
+  return found
+}
+
+/** 所有 `名字(...)` 形式的调用表达式。 */
+function outlineCalls(name: string): ts.CallExpression[] {
+  return collectOutlineNodes(
+    (node): node is ts.CallExpression =>
+      ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === name,
+  )
+}
+
+/** 所有 `某对象.名字(...)` 形式的调用表达式（例：`outlineConversationRunRegistry.remove(...)`）。 */
+function outlineMemberCalls(name: string): ts.CallExpression[] {
+  return collectOutlineNodes(
+    (node): node is ts.CallExpression =>
+      ts.isCallExpression(node)
+      && ts.isPropertyAccessExpression(node.expression)
+      && ts.isIdentifier(node.expression.name)
+      && node.expression.name.text === name,
+  )
+}
+
+/** `node` 是否在 `ancestor` 的子树里（自身也算）。 */
+function outlineIsInside(node: ts.Node, ancestor: ts.Node): boolean {
+  let current: ts.Node | undefined = node
+  while (current) {
+    if (current === ancestor) return true
+    current = current.parent
+  }
+  return false
+}
+
+/** 该调用是否被 `await` 了（`await f()`，而不是裸 `f()` 或 `void f`）。 */
+function outlineIsAwaited(call: ts.CallExpression): boolean {
+  return ts.isAwaitExpression(call.parent)
+}
+
+/**
+ * 该节点（语句、或块）里是否存在「返回一个带指定属性名的对象字面量」。
+ * ⚠️ 入参是 `ts.Node` 而不是 `ts.Block`：`if (x) return {...}` 这种单语句分支
+ * 没有块，直接拿 `thenStatement` 进来即可。
+ */
+function outlineReturnsObjectWith(root: ts.Node | undefined, keys: string[]): boolean {
+  if (!root) return false
+  let hit = false
+  const visit = (node: ts.Node) => {
+    if (
+      ts.isReturnStatement(node)
+      && node.expression
+      && ts.isObjectLiteralExpression(node.expression)
+    ) {
+      const names = node.expression.properties
+        .map((property) => (ts.isPropertyAssignment(property) && ts.isIdentifier(property.name) ? property.name.text : ""))
+      if (keys.every((key) => names.includes(key))) hit = true
+    }
+    node.forEachChild(visit)
+  }
+  visit(root)
+  return hit
+}
 
 const GEMINI_OUTLINE_THOUGHT_DUMP = [
   "I'm currently focused on defining the project scope and following the \"去 AI 味\" skill instructions.",
@@ -700,53 +793,119 @@ describe("OutlineChatPanel controls", () => {
    * （`contextPack.characterAuras` → `buildContextHubSystemContent` 与
    * `buildScopedOutlineSubAgentContext`），所以这里必须注入条目。
    *
-   * ⚠️ 同样是源码文本钉子，钉的是「注入点存在且用的是 soul 子类型」，
+   * ⚠️ 这**是**源码形状钉子，钉的是「注入点与调用点存在、且形状对」，
    * 不是行为保证。行为面的对照在 `soul-reference.spec.ts`（产出端 ↔ 消费端契约）
    * 与 `message-scoped-soul-binding.spec.ts`（真绑定的读写与还原）。
-   * ⚠️ 也**不能**用「含 `SOUL_SKILL_SUBTYPE`」这种弱断言：那串字面量出现在
-   * import 行上，删掉整个注入点它照样在。
+   * 用 AST 而不是文本：见文件顶部那段说明。
    */
   it("在引用弹窗里注入角色灵魂条目，并把「只对这一条消息生效」的绑定接上（丁-4）", () => {
-    expect(source).toContain("const soulEntries = characterSouls.map((soul) => ({")
-    expect(source).toContain("subtype: SOUL_SKILL_SUBTYPE,")
-    expect(source).toContain("...writingSkillList, ...soulEntries")
-    // 发送前先问「绑给哪个小说人物」，并且真的写盘
-    expect(source).toContain("collectReferencedSoulAuraIds(tokens)")
-    expect(source).toContain("await requestSoulBindingTarget(referencedAuraId)")
-    expect(source).toContain("await beginMessageScopedSoulBinding(normalizePath(project.path), {")
-    // 用户取消 ⇒ 不发送（`null` 直接返回，不许拿默认人物顶上）
-    expect(source).toContain("if (!targetCharacterName) return { started: false, sent: false };")
+    // ① 条目：`const soulEntries = characterSouls.map(...)`
+    const soulEntriesDeclarations = collectOutlineNodes(
+      (node): node is ts.VariableDeclaration =>
+        ts.isVariableDeclaration(node)
+        && ts.isIdentifier(node.name)
+        && node.name.text === "soulEntries"
+        && !!node.initializer
+        && ts.isCallExpression(node.initializer)
+        && ts.isPropertyAccessExpression(node.initializer.expression)
+        && ts.isIdentifier(node.initializer.expression.name)
+        && node.initializer.expression.name.text === "map",
+    )
+    expect(soulEntriesDeclarations, "应有 soulEntries = characterSouls.map(...)").toHaveLength(1)
+    const soulEntriesCall = soulEntriesDeclarations[0].initializer as ts.CallExpression
+    expect(
+      (soulEntriesCall.expression as ts.PropertyAccessExpression).expression.getText(outlineSourceFile),
+      "灵魂条目必须由 characterSouls 投影出来",
+    ).toBe("characterSouls")
+    expect(
+      soulEntriesCall.arguments[0].getText(outlineSourceFile),
+      "条目必须带上 soul 子类型（消费端靠它认类型）",
+    ).toContain("SOUL_SKILL_SUBTYPE")
+
+    // ② 注入：`[...deAiSkills, ...writingSkillList, ...soulEntries]`
+    const soulEntriesSpreads = collectOutlineNodes(
+      (node): node is ts.SpreadElement =>
+        ts.isSpreadElement(node) && ts.isIdentifier(node.expression) && node.expression.text === "soulEntries",
+    )
+    expect(soulEntriesSpreads, "灵魂条目必须被摊进 provider 列表").toHaveLength(1)
+    const providerArray = soulEntriesSpreads[0].parent
+    expect(ts.isArrayLiteralExpression(providerArray), "摊入点应是一个数组字面量").toBe(true)
+    expect(
+      (providerArray as ts.ArrayLiteralExpression).elements.map((element) => element.getText(outlineSourceFile)),
+      "灵魂条目必须和去AI味 / 写作 Skill 一起交给同一个列表",
+    ).toContain("...writingSkillList")
+
+    // ③ 解析 → 问 → 写：三步都必须是**被 await 的真调用**
+    expect(outlineCalls("collectReferencedSoulAuraIds"), "应解析出本条消息引用的 aura id").toHaveLength(1)
+    const requestCalls = outlineCalls("requestSoulBindingTarget")
+    expect(requestCalls, "发送前必须问「绑给哪个小说人物」").toHaveLength(1)
+    expect(outlineIsAwaited(requestCalls[0]), "问的动作必须被 await（否则拿不到结果就往下走）").toBe(true)
+    const beginCalls = outlineCalls("beginMessageScopedSoulBinding")
+    expect(beginCalls, "必须真的写临时绑定").toHaveLength(1)
+    expect(outlineIsAwaited(beginCalls[0]), "写盘必须被 await").toBe(true)
+
+    // ④ 用户取消 ⇒ 不发送（`null` 直接返回，不许拿默认人物顶上）
+    const cancelGuard = collectOutlineNodes(
+      (node): node is ts.IfStatement =>
+        ts.isIfStatement(node)
+        && node.expression.getText(outlineSourceFile) === "!targetCharacterName"
+        && outlineReturnsObjectWith(node.thenStatement, ["started", "sent"]),
+    )
+    expect(cancelGuard, "取消时必须直接返回「没开始、没发送」，不许继续发送").toHaveLength(1)
   })
 
   /*
    * 丁-4 最重的一条：临时绑定必须在 `finally` 里还原。
    *
-   * 这条**是**行为面的缺口（大纲面板的生成链在 jsdom 里跑不通），所以用源码形状钉住。
-   * 断言的是「这一行落在 handleSend 生成块的那个 `finally` 里」这个**位置关系**：
-   * 只断言「源码含 `releaseMessageSoulBinding`」是不够的 —— 把它挪到 try 末尾
-   * （只有生成成功才还原）时那种弱断言照样通过，而生成失败就会把一条临时绑定
-   * 永久留在项目里，静默改变之后所有章节的上下文。
+   * 这条**是**行为面的缺口（大纲面板的生成链在 jsdom 里跑不通），所以只能钉源码形状。
+   * ⚠️ 但**不能**用文本匹配：复核批实测把那一行改成注释
+   * （`// await releaseMessageSoulBinding();` + `void releaseMessageSoulBinding;`）
+   * 之后，文本钉子仍然绿、`tsc` 也干净。所以这里走 AST：
+   * 注释**不在**语法树里，被注释掉的调用根本不存在，钉子必然红。
+   * 断言的是**位置关系**：该调用必须落在某个 `try` 的 `finallyBlock` 里，
+   * 且那个 try 的 `catch` 正是「生成失败」那一条（返回 `{started:true, sent:false}`），
+   * 而且它的 `finally` 里还有本函数原有的运行槽清理（证明块没被缩窄）。
    */
   it("在大纲面板的生成块 finally 里还原临时角色灵魂绑定（丁-4）", () => {
-    const releaseIndex = source.indexOf("await releaseMessageSoulBinding();")
-    expect(releaseIndex, "应有还原临时绑定的一行").toBeGreaterThan(-1)
+    const releaseCalls = outlineCalls("releaseMessageSoulBinding")
+    expect(
+      releaseCalls.length,
+      "代码里应当**存在**还原临时绑定的调用（被注释掉不算 —— 注释不在语法树里）",
+    ).toBeGreaterThan(0)
+    for (const call of releaseCalls) {
+      expect(outlineIsAwaited(call), "还原必须被 await（否则本轮结束前它可能还没落盘）").toBe(true)
+    }
 
-    // 往前最近的一个 `} catch (err) {` 与 `} finally {`：二者必须成对夹住这一行，
-    // 且 catch 在前、finally 在后（否则说明这一行跑到了 try 体内）。
-    const catchIndex = source.lastIndexOf("} catch (err) {", releaseIndex)
-    const finallyIndex = source.lastIndexOf("} finally {", releaseIndex)
-    expect(catchIndex, "应有生成块的 catch").toBeGreaterThan(-1)
-    expect(finallyIndex, "应有生成块的 finally").toBeGreaterThan(catchIndex)
-    expect(finallyIndex, "finally 必须在还原那一行之前").toBeLessThan(releaseIndex)
+    // 认准生成块：它的 catch 返回「开始了、但没发送成功」。
+    const generationTries = collectOutlineNodes(
+      (node): node is ts.TryStatement =>
+        ts.isTryStatement(node)
+        && !!node.finallyBlock
+        && outlineReturnsObjectWith(node.catchClause?.block, ["started", "sent"]),
+    )
+    expect(generationTries, "应能认出唯一一个生成块的 try/catch/finally").toHaveLength(1)
+    const finallyBlock = generationTries[0].finallyBlock!
 
-    // 认准这就是 handleSend 的生成块：它的 catch 里带着那条失败返回值。
-    expect(source.slice(catchIndex, finallyIndex)).toContain("return { started: true, sent: false };")
-    // 这个 finally 块里除了还原，还应该有本函数原有的清理（证明块的范围没被挪动）。
-    const finallyBody = source.slice(finallyIndex, releaseIndex)
-    expect(finallyBody).toContain("outlineConversationRunRegistry.remove(capturedConvId, controller)")
-    expect(finallyBody, "还原不许出现在嵌套的第二个 try 里").not.toContain("try {")
-    // 块必须在还原之后闭合，否则它还在 try 里。
-    expect(source.indexOf("\n      }", releaseIndex)).toBeGreaterThan(releaseIndex)
+    /*
+     * ① 生成块的 finally 里**必须**有还原调用 —— 落在 try 体内等于「只有生成成功才还原」。
+     * ② 而且所有还原调用都必须在它里面：允许将来为提前 return 另加释放点，
+     *    但不允许出现「某个出口忘了释放」的调用布局。
+     */
+    const insideFinally = releaseCalls.filter((call) => outlineIsInside(call, finallyBlock))
+    expect(
+      insideFinally,
+      "生成块的 finally 里必须有还原调用 —— 只写在 try 体内等于「生成失败就不还原」",
+    ).toHaveLength(1)
+    expect(
+      releaseCalls.length,
+      "所有还原调用都应落在这个 finally 里（提前 return 的出口请也纳入同一处兜底）",
+    ).toBe(insideFinally.length)
+
+    // 块的范围没被缩窄成「只包住还原」：原有的运行槽清理仍在同一个 finally 里。
+    expect(
+      outlineMemberCalls("remove").some((call) => outlineIsInside(call, finallyBlock)),
+      "同一个 finally 里应保留本轮原有的运行槽清理（证明块的范围没被挪动）",
+    ).toBe(true)
   })
 
   it("keeps outline generation menu in the reference input footer before model selection", () => {

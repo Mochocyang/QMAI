@@ -15,7 +15,13 @@
  *   2. 用户**本来有另一条**绑定（同人不同灵魂）⇒ unbind 会把用户的绑定删掉，
  *      而它原本指向的灵魂已经找不回来了。
  * ⇒ 所以本模块在**写之前**先快照该人物原有的绑定，释放时按快照**精确还原**：
- *   没有原绑定 ⇒ unbind；原绑定就是这条 ⇒ 什么都不做；原绑定是别的 ⇒ 写回原值。
+ *   没有原绑定 ⇒ unbind；有原绑定 ⇒ 把快照**完整**写回（**不论**原 aura 与临时的是不是同一条）。
+ *
+ * ⚠️ 「同一条就什么都不做」是**错的**（本模块曾经那样写，探针实测丢了 `aliases`）：
+ * 临时写入那一步把 `{ characterName, auraId, aliases }` 覆盖成了
+ * `{ characterName, auraId }`（`bindCharacterAura` 只透传它收到的字段），
+ * 所以「同一条」时盘上已经不是原样了，「不动作」= 静默删掉用户的别名。
+ * 详见图下 `releaseMessageScopedSoulBinding` 的注释。
  *
  * ── 与 UI 的边界 ──
  * 本模块是纯存储层：它**不**问用户、**不**决定绑给谁，人物名由调用方
@@ -63,11 +69,13 @@ export async function beginMessageScopedSoulBinding(
 /**
  * 还原 `beginMessageScopedSoulBinding` 造成的写入。
  *
- * 三个分支各自对应一种原状态（见文件头注释），**没有任何一个分支会误删
+ * 两个分支各自对应一种原状态（见文件头注释），**没有任何一个分支会误删
  * 用户原有的绑定**：
  *   - 原本没有该人物的绑定 ⇒ 删掉临时那条；
- *   - 原本就是同一条 ⇒ 写盘内容没有变化，不做任何写入；
- *   - 原本是另一条 ⇒ 用快照写回（`aliases` 一并还原）。
+ *   - 原本有绑定（同一条或另一条都一样）⇒ 用快照**完整**写回，`aliases` 一并还原。
+ *
+ * ⚠️ 「原本就是同一条」在这里**不是**一个可以跳过的分支，理由见下面那段注释：
+ * 临时写入本身就会丢掉 `aliases`，所以「同一条」时盘上已经与原样不同了。
  *
  * ⚠️ 还原本身也可能失败（灵魂在生成期间被删、人物档案在生成期间被删）。
  * 这里**不吞**：抛出去由调用方报给用户，因为「临时绑定没还回去」
@@ -82,7 +90,22 @@ export async function releaseMessageScopedSoulBinding(
     await unbindCharacterAura(projectPath, binding.characterName, binding.auraId)
     return
   }
-  if (previous.auraId === binding.auraId) return
+  /*
+   * 有原绑定 ⇒ **一律**把快照写回，不设「看着没变就跳过」的短路。
+   *
+   * ⚠️ 这里曾经写成 `if (previous.auraId === binding.auraId) return`，那是错的
+   * （探针实测）：`beginMessageScopedSoulBinding` 递进 `bindCharacterAura` 的只有
+   * `{ characterName, auraId }`，而 `bindCharacterAura` 落盘的是
+   * `{ ...binding, characterName }` —— 也就是说**临时写入这一步就已经把原绑定的
+   * `aliases` 抹掉了**（盘上那条只剩 characterName + auraId）。
+   * 所以「同一条灵魂」时盘上**并不是**原样：短路返回等于把用户的别名永久删掉。
+   * 而 `buildCharacterSoulContext` 的匹配正是靠 `aliases` 认人的（别名命中会让
+   * 这条灵魂进入上下文）⇒ 后果不只是界面显示，是上下文内容变了。
+   * ⇒ 「按快照还原」必须是**写回**，而不是「看着一样就不动」。
+   *
+   * 代价是「本来就完全一致」时也写一次盘（内容不变）。这个多余写入是刻意的：
+   * 少写一次的收益很小，而「靠比较猜是否一致」一旦漏掉某个字段就是又一次静默丢数据。
+   */
   await bindCharacterAura(projectPath, previous)
 }
 
