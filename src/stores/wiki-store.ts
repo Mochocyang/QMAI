@@ -718,6 +718,12 @@ interface WikiState {
   novelConfig: NovelConfig
   /** 社区摘要生成错误信息（UI 层监听并弹窗提示） */
   communitySummaryError: string | null
+  /**
+   * 人物 Skill 本轮没建出档案的原因（UI 层监听并弹窗提示）。
+   * 学习是后台 `void` 调用，失败以前只写 console，用户在界面上完全看不到 ——
+   * 表现就是「提取完了技能库还是空的」，必须有个能看见的出口。
+   */
+  personaSkillLearningError: string | null
   searchHistory: string[]
   searchTrigger: { query: string; ts: number } | null
   revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig
@@ -802,6 +808,7 @@ interface WikiState {
   setPlanExecuteEnabled: (enabled: boolean) => void
   setNovelConfig: (config: Partial<NovelConfig>) => void
   setCommunitySummaryError: (error: string | null) => void
+  setPersonaSkillLearningError: (error: string | null) => void
   setSearchHistory: (history: string[]) => void
   setSearchTrigger: (trigger: { query: string; ts: number } | null) => void
   setRevisionFeedbackWindowConfig: (revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig) => void
@@ -1041,6 +1048,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   planExecuteEnabled: false,
   novelConfig: { ...DEFAULT_NOVEL_CONFIG },
   communitySummaryError: null,
+  personaSkillLearningError: null,
   searchHistory: [],
   searchTrigger: null,
   revisionFeedbackWindowConfig: {
@@ -1101,6 +1109,7 @@ export const useWikiStore = create<WikiState>((set) => ({
       : {}),
   })),
   setCommunitySummaryError: (communitySummaryError) => set({ communitySummaryError }),
+  setPersonaSkillLearningError: (personaSkillLearningError) => set({ personaSkillLearningError }),
   setSearchHistory: (searchHistory) => set({ searchHistory }),
   setSearchTrigger: (searchTrigger) => set({ searchTrigger }),
   setRevisionFeedbackWindowConfig: (revisionFeedbackWindowConfig) => set({ revisionFeedbackWindowConfig }),

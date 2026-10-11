@@ -154,6 +154,44 @@
   最终：`chapter-bulk-ingest.spec.ts` **24 条**、`ui-test-extract-progress.spec.tsx` **14 条**，全量 `731 文件 / 7150 用例通过、6 todo、0 失败`（53 秒，静置机器后一次干净通过）；`typecheck` 与 `typecheck:tests` 均 0 错误。
 
   另注两点判读经验：① `npx vitest run`（不带 `--exclude`）会连带跑 `test:llm` 的 `scripts/refine-acceptance.real-llm.test.ts`，它 import 的 `hasOutlineForRefinement` 在 `src/` 里**已无任何导出**，**在 HEAD 就是红的**，与本次改动无关（`test:mocks` 已排除它）—— 判读全量结果请用 `npm run test:mocks`。② 机器有负载时（例如刚打完包、Defender 正在扫那个 213 MB 的 exe）会连续出现 `Test timed out in 5000ms` 的假失败，且每次命中的文件不同（实测一次是 3 个文件、一次只剩 1 个，单独重跑全部 2.9 秒通过）。判定办法：单独重跑该文件 + 静置机器后重跑全量。
+- 2026-10-11：**修复用户二次报障「提取完了，技能库里人物 Skill 还是空的」**。这是上一轮修复之后**仍然存在**的独立缺陷 —— 上一轮把门槛降下来了，但门槛不再是瓶颈：那个项目的候选池里杨寒/杨妙萍已经累计出场 **4** 次、林小满 3 次，**即使按最保守的「未标注」门槛 3 也早该建档**。
+
+  实盘取证（全部来自磁盘，非推测）：
+  - `.qmai/persona-skills/` 下**仍然只有 `sightings.json`，全项目搜不到任何 `index.json`**（连别的书也没有）。
+  - `sightings.json` 的修改时间 `10:10:15` 与章节 1 的快照写入时间**精确重合**，且杨寒的 `chapters` 是 `[3,4,5,1]` —— 说明**这一轮学习确实跑了**（候选池就是它写的），失败发生在「候选池之后、写索引之前」。
+  - `.qmai/chapter-ingest.log` 里**一行 `Persona` 都没有**（人物 Skill 的日志走 `console`，不进这个文件），但同一份日志里第 2、3 章连续报 `模型没有返回可解析的 JSON`，把模型原始输出打出来一看是**字符串值里带了未转义的 ASCII 引号**（`归元箓的"引魂归墟"法术`）—— 即这个模型在结构上很不可靠。
+  - 逐一排除：`hasUsableLlm` 不可能是瓶颈（摄取用的是**同一份** `runtimeLlmConfig`，日志里第 1 章是 `ok`，说明那道门已经过了）；计划也不可能为空（出场 4 次，任何门槛都够）。
+
+  **为了定位，把真实编排 `learnPersonaSkillsFromChapter` 直接跑起来、喂各种「模型真会吐出来」的形状**（临时 spec，用完即删），结果这张表就是根因：
+
+  | 模型返回的形状 | 结果 |
+  |---|---|
+  | 完全照抄提示词的规范形状 | ✅ 4 人全部建档（**代码本身是好的**） |
+  | 字段平铺在条目顶层（没有 `fields` 子对象） | ❌ **彻底静默：一个文件不写、一行日志不打** |
+  | 字段名被改写成近义词（`说话方式`/`思维方式`） | ⚠️ 建了索引，但 SKILL.md 里 **0 个 `## ` 段** —— 库里有卡片、点开什么都没有 |
+  | 值里带未转义 ASCII 引号 | ✅ `jsonrepair` 能救回来 |
+  | 套 ```json 代码块 + 前言 | ✅ 能解析 |
+
+  即根因是**「解析器要求的形状比真实模型严格，而每一条偏离路径都完全静默」**：`parsePersonaSkillDrafts` 只认逐字一致的 `name` 与 `fields` 子对象，`fields` 取不到就退化成空对象 → 全部 skip → `applyPersonaSkillDrafts` 返回 0 → **`written === 0` 那句没有任何日志**；草稿解析成空数组也一样静默。用户侧就只能看到「技能库空的」。
+
+  修复（四层，都对着上表里实测出来的形状）：
+  1. **字段名容错**：新增 `canonicalPersonaFieldName()`（近义词表 + 关键词兜底，`不做` 排在 `想` 前面），字段值支持数组拼接；`renderPersonaSkillDocument` 因此总能拿到规范名，不再产出 0 段的空档案。
+  2. **形状容错**：字段既认 `fields` 子对象也认平铺在条目顶层；名字支持 `characterName`/`人物`/`角色` 等键、**去掉 `（男主）` 这类装饰**、以及「规范名→别名→双向包含」逐级放宽（单字名不参与包含匹配，避免污染）；研究文件键名同样容错。裸数组（模型只给 `[…]`、没给 `{"skills":…}` 外壳）走新增的 `parseLlmJsonArray()`。
+  3. **不再静默**：新增 `reportPersonaRoundFailure()`，把 `no_llm` / `unparsable_json` / `no_matching_entries` / `empty_fields` / `round_error` 五种失败连同**模型原始输出**写进 `.qmai/chapter-ingest.log`（复用已有的 `appendChapterIngestLog`，用户手上已经有这个文件）。连 `catch` 里那条「模型调用本身抛错」也补上了 —— 它以前同样只写 console。
+  4. **让人看得见**：新增 `wiki-store.personaSkillLearningError` + `App.tsx` 订阅弹 toast（照抄 `communitySummaryError` 的既有模式，新增 i18n 键 `novel.personaSkill.learningFailed`）。学习是后台 `void` 调用，没有这个出口，用户永远只能看到「空的」而不知道原因。
+
+  另修：`chapter.characters.length === 0` 这道守卫原来在 `try` **外面**，而调用点是 `void learnPersonaSkillsFromChapter(...)` —— 数据缺字段时会变成**无人处理的 rejection**，连一句 warn 都没有。已移进 `try`。
+
+  验证：新增 8 条形状容错用例 + 1 条抛错留痕用例，**其中 7 条在实现前为红**（平铺字段 / 近义词字段名 / 名字带装饰 / 数组值 / 裸数组 / 认不出时的日志 / 全认不出时不建空档案），第 8 条（抛错留痕）**单独验证过为红**：把 `catch` 换回旧版重跑，报 `expected '' to contain 'persona_round_error'` —— 日志文件确实是空的；还原后按 hash 校验逐字节一致。另在 `llm-json.spec.ts` 为 `parseLlmJsonArray` 补 4 条。
+  全量 `731 文件 / 7164 用例通过、6 todo、0 失败`；`typecheck` 与 `typecheck:tests` 均 0 错误。
+
+  | 文件 | 改动 |
+  |---|---|
+  | `src/lib/novel/persona-skill-learning.ts` | 字段/名字/形状容错、五种失败留痕、守卫移进 `try` |
+  | `src/lib/novel/book-analysis/llm-json.ts` | 新增 `extractJsonArrayCandidate` / `parseLlmJsonArray`（纯新增导出，不改既有行为） |
+  | `src/stores/wiki-store.ts` · `src/App.tsx` · `src/i18n/zh.json` | 失败可见化（toast） |
+
+  说明：这一轮把「模型输出偏离契约」的所有已知路径都修成了**要么成功、要么留下可查证据**。如果重打包后仍然为空，`.qmai/chapter-ingest.log` 里现在会有 `failReason: "persona_*"` 与模型原始返回的前 600 字，据此可以精确定位，不必再猜。
 
 ## 提交状态
 

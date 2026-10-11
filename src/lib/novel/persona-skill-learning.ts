@@ -3,9 +3,12 @@ import { normalizePath } from "@/lib/path-utils"
 import { streamChat } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
-import { parseLlmJsonObject } from "./book-analysis/llm-json"
+import { parseLlmJsonArray, parseLlmJsonObject } from "./book-analysis/llm-json"
+import { appendChapterIngestLog, previewLlmOutput } from "./chapter-ingest-log"
 import { parseCharacterRoleFileName } from "./extract-established-context"
 import {
+  PERSONA_MIN_SUBSTRING_MATCH_CHARS,
+  PERSONA_RESEARCH_DOCUMENTS,
   PERSONA_STORED_FIELDS,
   PERSONA_SUPPLEMENT_HEADING,
   firstAppearanceThreshold,
@@ -377,13 +380,192 @@ export function planPersonaSkillRoundForChapter(
   )
 }
 
-function normalizeStringRecord(value: unknown): Record<string, string> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {}
+/**
+ * 字段名容错表：模型常把 5 个规范字段名改写成近义词。
+ *
+ * 提示词里写着「字段名必须逐字一致」，但真实项目里模型不照抄：实测会出现
+ * 「说话方式」「思维方式」「判断方式」这类改写。而 `renderPersonaSkillDocument`
+ * 是**按规范名逐字取值**的 —— 差一个字，那一格就是空的；5 格全差，整份
+ * SKILL.md 就退化成一页只有 frontmatter 的空档案（技能库里有卡片、点开什么都没有），
+ * 而且**一个字的日志都不会打**。用户看到的正是「显示还是为空」。
+ *
+ * 认下来比不认好：字段内容本身就是模型写出来的真实观察，只因标题不同就丢掉不合算。
+ */
+const PERSONA_FIELD_ALIASES: Record<string, string> = {
+  说话: "怎么说话",
+  说话方式: "怎么说话",
+  语言: "怎么说话",
+  语言习惯: "怎么说话",
+  语言风格: "怎么说话",
+  口头禅: "怎么说话",
+  台词: "怎么说话",
+  想: "怎么想",
+  想法: "怎么想",
+  思维: "怎么想",
+  思维方式: "怎么想",
+  思考方式: "怎么想",
+  心理: "怎么想",
+  内心: "怎么想",
+  动机: "怎么想",
+  判断: "怎么判断",
+  判断方式: "怎么判断",
+  决策: "怎么判断",
+  决策方式: "怎么判断",
+  行事逻辑: "怎么判断",
+  不做: "什么不做",
+  不会做: "什么不做",
+  禁忌: "什么不做",
+  底线: "什么不做",
+  局限: "知道局限",
+  盲区: "知道局限",
+  弱点: "知道局限",
+  认知边界: "知道局限",
+}
+
+/** 别名表没命中时的兜底：按关键词判归属。顺序即优先级（「不做」必须先于「想」）。 */
+const PERSONA_FIELD_KEYWORDS: ReadonlyArray<readonly [string, string]> = [
+  ["不做", "什么不做"],
+  ["不会", "什么不做"],
+  ["禁忌", "什么不做"],
+  ["底线", "什么不做"],
+  ["局限", "知道局限"],
+  ["盲区", "知道局限"],
+  ["弱点", "知道局限"],
+  ["边界", "知道局限"],
+  ["判断", "怎么判断"],
+  ["决策", "怎么判断"],
+  ["说话", "怎么说话"],
+  ["语言", "怎么说话"],
+  ["口头", "怎么说话"],
+  ["语气", "怎么说话"],
+  ["台词", "怎么说话"],
+  ["思维", "怎么想"],
+  ["思考", "怎么想"],
+  ["心理", "怎么想"],
+  ["内心", "怎么想"],
+  ["想法", "怎么想"],
+  ["动机", "怎么想"],
+  ["想", "怎么想"],
+]
+
+/** 模型给的字段名 → 5 个规范名之一；认不出来返回 null（宁可丢掉，也不硬塞错格）。 */
+export function canonicalPersonaFieldName(raw: string): string | null {
+  const key = raw.trim()
+  if (!key) return null
+  if ((PERSONA_STORED_FIELDS as readonly string[]).includes(key)) return key
+  const alias = PERSONA_FIELD_ALIASES[key]
+  if (alias) return alias
+  for (const [needle, target] of PERSONA_FIELD_KEYWORDS) {
+    if (key.includes(needle)) return target
+  }
+  return null
+}
+
+/** 字段值容错：字符串直接用；数组拼成多行；其余丢弃。 */
+function flattenPersonaFieldValue(value: unknown): string {
+  if (typeof value === "string") return value.trim()
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .join("\n")
+  }
+  return ""
+}
+
+/** 把模型给的任意键值对象归一化成「规范字段名 → 正文」。同名先到先得。 */
+function canonicalPersonaFields(value: unknown): Record<string, string> {
   const result: Record<string, string> = {}
-  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof entry === "string") result[key.trim()] = entry.trim()
+  if (!value || typeof value !== "object" || Array.isArray(value)) return result
+  for (const [rawKey, rawValue] of Object.entries(value as Record<string, unknown>)) {
+    const field = canonicalPersonaFieldName(rawKey)
+    if (!field || result[field]) continue
+    const text = flattenPersonaFieldValue(rawValue)
+    if (text) result[field] = text
   }
   return result
+}
+
+/**
+ * 草稿的字段既可能挂在 `fields` 下，也可能被模型直接平铺在条目顶层（实测两者都有）。
+ * 两层都读，`fields` 优先。
+ */
+function extractPersonaDraftFields(entry: Record<string, unknown>): Record<string, string> {
+  const flat = canonicalPersonaFields(entry)
+  const nested = canonicalPersonaFields(entry.fields)
+  return Object.keys(nested).length > 0 ? { ...flat, ...nested } : flat
+}
+
+/** 6 份研究文件的键名容错：同样只按规范名写盘，差一个字就等于没写。 */
+function canonicalPersonaResearch(value: unknown): Record<string, string> {
+  const result: Record<string, string> = {}
+  if (!value || typeof value !== "object" || Array.isArray(value)) return result
+  for (const [rawKey, rawValue] of Object.entries(value as Record<string, unknown>)) {
+    const key = rawKey.trim()
+    const target = (PERSONA_RESEARCH_DOCUMENTS as readonly string[]).includes(key)
+      ? key
+      : PERSONA_RESEARCH_DOCUMENTS.find((name) => key.includes(name))
+    if (!target || result[target]) continue
+    const text = flattenPersonaFieldValue(rawValue)
+    if (text) result[target] = text
+  }
+  return result
+}
+
+const PERSONA_DRAFT_NAME_KEYS = ["name", "characterName", "character_name", "人物", "角色", "人物名"] as const
+
+function readPersonaDraftName(entry: Record<string, unknown>): string {
+  for (const key of PERSONA_DRAFT_NAME_KEYS) {
+    const value = entry[key]
+    if (typeof value === "string" && value.trim()) return value.trim()
+  }
+  return ""
+}
+
+/** 去掉「（男主）」「【反派】」这类装饰，只留名字本体。 */
+function stripPersonaNameDecoration(raw: string): string {
+  return raw
+    .replace(/[（(【[][^）)】\]]*[）)】\]]/g, "")
+    .replace(/[：:、,，。.\s]+$/g, "")
+    .trim()
+}
+
+/**
+ * 模型给的草稿名字 → 本轮计划。逐级放宽：规范名 → 去掉装饰 → 双向包含。
+ * 单字名一律不参与包含匹配（「林」会命中半个名单）。
+ */
+function matchPersonaPlan(
+  byName: ReadonlyMap<string, PersonaSkillPlan>,
+  plans: readonly PersonaSkillPlan[],
+  rawName: string,
+): PersonaSkillPlan | undefined {
+  const direct = byName.get(normalizePersonaName(rawName))
+  if (direct) return direct
+
+  const stripped = stripPersonaNameDecoration(rawName)
+  if (stripped && stripped !== rawName) {
+    const hit = byName.get(normalizePersonaName(stripped))
+    if (hit) return hit
+  }
+
+  const key = normalizePersonaName(stripped || rawName)
+  if (key.length < PERSONA_MIN_SUBSTRING_MATCH_CHARS) return undefined
+  for (const plan of plans) {
+    const planKey = normalizePersonaName(plan.characterName)
+    if (planKey.length < PERSONA_MIN_SUBSTRING_MATCH_CHARS) continue
+    if (key.includes(planKey) || planKey.includes(key)) return plan
+  }
+  return undefined
+}
+
+/** 草稿条目：优先 `{"skills":[…]}`；模型只给裸数组时也认。都拿不到返回 null（整轮跳过）。 */
+function parsePersonaSkillDraftEntries(raw: string): unknown[] | null {
+  const parsed = parseLlmJsonObject(raw)
+  if (parsed && Array.isArray(parsed.skills)) return parsed.skills
+  const array = parseLlmJsonArray(raw)
+  if (array) return array
+  return null
 }
 
 /** 解析模型返回的多人 JSON。根对象不可解析 / 没有 skills 数组时返回 null（整轮跳过）。 */
@@ -391,23 +573,23 @@ export function parsePersonaSkillDrafts(
   raw: string,
   plans: readonly PersonaSkillPlan[],
 ): PersonaSkillDraft[] | null {
-  const parsed = parseLlmJsonObject(raw)
-  if (!parsed || !Array.isArray(parsed.skills)) return null
+  const entries = parsePersonaSkillDraftEntries(raw)
+  if (!entries) return null
   const byName = new Map<string, PersonaSkillPlan>()
   for (const plan of plans) {
     byName.set(normalizePersonaName(plan.characterName), plan)
     for (const alias of plan.aliases) byName.set(normalizePersonaName(alias), plan)
   }
   const drafts: PersonaSkillDraft[] = []
-  for (const entry of parsed.skills) {
+  for (const entry of entries) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue
     const record = entry as Record<string, unknown>
-    const plan = byName.get(normalizePersonaName(typeof record.name === "string" ? record.name : ""))
+    const plan = matchPersonaPlan(byName, plans, readPersonaDraftName(record))
     if (!plan) continue
     drafts.push({
       characterName: plan.characterName,
-      fields: normalizeStringRecord(record.fields),
-      research: normalizeStringRecord(record.research),
+      fields: extractPersonaDraftFields(record),
+      research: canonicalPersonaResearch(record.research),
     })
   }
   return drafts
@@ -519,7 +701,7 @@ async function requestPersonaSkillDrafts(input: {
   plans: readonly PersonaSkillPlan[]
   existing: Map<string, string>
   signal?: AbortSignal
-}): Promise<PersonaSkillDraft[] | null> {
+}): Promise<{ drafts: PersonaSkillDraft[] | null; raw: string }> {
   const targets: PersonaSkillPromptTarget[] = input.plans.map((plan) => ({
     characterName: plan.characterName,
     aliases: plan.aliases,
@@ -555,7 +737,37 @@ async function requestPersonaSkillDrafts(input: {
   )
   if (streamError) throw streamError
   if (!result.trim()) throw new Error("人物 Skill 提取失败：模型返回空内容")
-  return parsePersonaSkillDrafts(result, input.plans)
+  // 原始输出一并交回调用方：解析失败时要靠它才能知道模型到底吐了什么。
+  return { drafts: parsePersonaSkillDrafts(result, input.plans), raw: result }
+}
+
+/**
+ * 本轮没建出档案时，必须留下可查的痕迹。
+ *
+ * 以前这条路径是**全静默**的：草稿解析成空数组不打日志、`applyPersonaSkillDrafts`
+ * 返回 0 也不打日志。用户看到的就是「提取完了技能库还是空的」，而开发者手上什么都没有
+ * —— 真实项目里就是这么查不下去的。现在原因、人数与**原始输出**一起写进
+ * `.qmai/chapter-ingest.log`（与章节提取失败同一个文件，用户手上已经有它），
+ * 同时推给界面弹一次 toast，不再让人只能猜。
+ */
+async function reportPersonaRoundFailure(input: {
+  projectPath: string
+  chapterNumber: number
+  reason: string
+  detail: string
+  raw?: string
+}): Promise<void> {
+  const message = `人物 Skill 本轮未建档（${input.reason}）：${input.detail}`
+  console.warn(`[Persona Skill] ${message}`)
+  useWikiStore.getState().setPersonaSkillLearningError?.(message)
+  await appendChapterIngestLog(input.projectPath, {
+    event: "fail",
+    chapterNumber: input.chapterNumber,
+    failReason: `persona_${input.reason}`,
+    error: message,
+    outputChars: input.raw?.length,
+    outputPreview: input.raw ? previewLlmOutput(input.raw, 600) : undefined,
+  })
 }
 
 export interface ApplyPersonaSkillInput {
@@ -669,13 +881,16 @@ export async function applyPersonaSkillDrafts(input: ApplyPersonaSkillInput): Pr
 export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsOptions): Promise<void> {
   const pp = normalizePath(options.projectPath)
   const { chapter, llmConfig, signal } = options
-  if (chapter.characters.length === 0) return
 
   const roundKey = `${pp}#${chapter.chapterNumber}`
   if (inFlightRounds.has(roundKey)) return
   inFlightRounds.add(roundKey)
 
   try {
+    // 这道守卫必须在 try 里面：它是调用方给的数据，缺字段时以前会**抛出 try 之外**，
+    // 而调用点是 `void learnPersonaSkillsFromChapter(...)` —— 变成无人处理的 rejection，
+    // 连一句 warn 都没有。
+    if (!chapter.characters || chapter.characters.length === 0) return
     const roleTypes = await loadCharacterRoleTypes(pp)
     // 「已确认是本作真实人物」名单：`wiki/entities/` 里有 `tags` 含 `character`
     // 的实体页。定位（主角/配角…）只存在于 `wiki/characters/角色-<定位>-<名>.md`
@@ -766,7 +981,12 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
     }
 
     if (!hasUsableLlm(llmConfig, useWikiStore.getState().providerConfigs)) {
-      console.warn("[Persona Skill] 提取模型不可用，跳过本轮人物 Skill 学习")
+      await reportPersonaRoundFailure({
+        projectPath: pp,
+        chapterNumber: chapter.chapterNumber,
+        reason: "no_llm",
+        detail: "提取模型没配好（缺 Key 或模型名），本轮无法学习",
+      })
       return
     }
 
@@ -777,7 +997,7 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
       existing.set(plan.characterName, await readPersonaSkillDocument(pp, meta.id))
     }
 
-    const drafts = await requestPersonaSkillDrafts({
+    const { drafts, raw } = await requestPersonaSkillDrafts({
       llmConfig,
       chapterNumber: chapter.chapterNumber,
       chapterBody: chapter.chapterBody,
@@ -786,7 +1006,27 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
       signal,
     })
     if (!drafts) {
-      console.warn("[Persona Skill] 模型没有返回可解析的 JSON，本轮跳过（不推进 lastLearnedChapter）")
+      await reportPersonaRoundFailure({
+        projectPath: pp,
+        chapterNumber: chapter.chapterNumber,
+        reason: "unparsable_json",
+        detail: `模型返回的内容里没有可用的 skills 数组（本轮计划 ${plans.length} 人）`,
+        raw,
+      })
+      return
+    }
+    // 空数组以前会一路走到 apply、拿到 0、然后**什么也不打**。
+    // 它不是「模型没返回」而是「返回了但一条都对不上」—— 这两种要分开说。
+    if (drafts.length === 0) {
+      await reportPersonaRoundFailure({
+        projectPath: pp,
+        chapterNumber: chapter.chapterNumber,
+        reason: "no_matching_entries",
+        detail: `模型返回了 JSON，但没有一条能对上本轮计划的人物（计划：${plans
+          .map((plan) => plan.characterName)
+          .join("、")}）`,
+        raw,
+      })
       return
     }
 
@@ -797,11 +1037,29 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
       drafts,
       chapterNumber: chapter.chapterNumber,
     })
-    if (written > 0) console.log(`[Persona Skill] 第 ${chapter.chapterNumber} 章更新 ${written} 个人物 Skill`)
+    if (written > 0) {
+      console.log(`[Persona Skill] 第 ${chapter.chapterNumber} 章更新 ${written} 个人物 Skill`)
+    } else {
+      await reportPersonaRoundFailure({
+        projectPath: pp,
+        chapterNumber: chapter.chapterNumber,
+        reason: "empty_fields",
+        detail: `解析出 ${drafts.length} 条草稿，但规范字段全空（模型给的字段名与 5 个规范名都对不上）`,
+        raw,
+      })
+    }
 
     await refreshPersonaSkillStatuses(pp, chapter.chapterNumber)
   } catch (err) {
-    console.warn("[Persona Skill] 人物 Skill 学习失败:", err instanceof Error ? err.message : err)
+    // 这里也必须留痕：模型调用本身抛错（鉴权、网络、参数被服务商拒）以前只写 console，
+    // 用户在界面上看到的同样是「技能库空的」。而这条路径根本走不到上面那几个 if。
+    const detail = err instanceof Error ? err.message : String(err)
+    await reportPersonaRoundFailure({
+      projectPath: pp,
+      chapterNumber: chapter.chapterNumber,
+      reason: "round_error",
+      detail: `本轮学习抛错：${detail}`,
+    })
   } finally {
     inFlightRounds.delete(roundKey)
   }
@@ -856,7 +1114,7 @@ export async function regeneratePersonaSkillResearch(options: {
     if (streamError) throw streamError
 
     const parsed = parseLlmJsonObject(result)
-    const research = parsed ? normalizeStringRecord(parsed.research) : {}
+    const research = parsed ? canonicalPersonaResearch(parsed.research) : {}
     const written = await writePersonaSkillResearch(pp, meta.id, research)
     if (written.length === 0) return false
 

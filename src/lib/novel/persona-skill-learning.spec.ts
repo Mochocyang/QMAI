@@ -42,8 +42,15 @@ vi.mock("@/lib/llm-client", () => ({
 
 vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: () => true }))
 
+// 学习失败必须能被界面看见（App.tsx 订阅这个字段弹 toast），
+// 所以这里用 spy 而不是空对象：空对象会让「静默失败」重新长回来。
+const storeMock = vi.hoisted(() => ({
+  providerConfigs: [] as unknown[],
+  setPersonaSkillLearningError: vi.fn(),
+}))
+
 vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: () => ({ providerConfigs: [] }) },
+  useWikiStore: { getState: () => storeMock },
 }))
 
 import {
@@ -853,6 +860,216 @@ describe("真实项目回归：定位查不到时靠实体页兜底", () => {
     })
 
     expect(readIndex()!.skills.map((item) => item.characterName)).toEqual(["杨寒"])
+  })
+})
+
+/**
+ * 真实项目报障回归（2026-10-11）：「提取完了，技能库里人物 Skill 还是空的」。
+ *
+ * 实盘取证：那个项目 `.qmai/persona-skills/` 下**只有 sightings.json**，
+ * 从来没有 index.json；章节提取日志里连着两章都是「模型没有返回可解析的 JSON」。
+ * 把真实编排跑起来喂各种「模型真会吐出来」的形状后发现：**规范形状是好的**，
+ * 但模型一偏离提示词的严格契约，整轮就静默什么都不写 —— 一个字的日志都没有。
+ * 这一组用例把那些静默路径逐条钉住。
+ */
+describe("模型输出形状容错：模型不会逐字照抄提示词", () => {
+  const logFile = `${project}/.qmai/chapter-ingest.log`
+  const doc = (name: string) => io.files.get(`${project}/.qmai/persona-skills/${name}/SKILL.md`) ?? ""
+  const readLog = () => io.files.get(logFile) ?? ""
+
+  function replyRaw(raw: string) {
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, cb: { onToken: (t: string) => void; onDone: () => void }) => {
+        cb.onToken(raw)
+        cb.onDone()
+      },
+    )
+  }
+
+  beforeEach(() => {
+    io.files.clear()
+    streamChatMock.mockReset()
+    __resetPersonaSkillRoundsForTesting()
+    storeMock.setPersonaSkillLearningError.mockClear()
+  })
+
+  it("对照组：完全照抄提示词的规范形状照常建档", async () => {
+    roleFile("男主", "林清越")
+    reply([{ name: "林清越", fields: { 怎么说话: "句子短，先问后答。", 怎么想: "先算代价。" } }])
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    expect(readIndex()!.skills).toHaveLength(1)
+  })
+
+  it("字段平铺在条目顶层（没有 fields 子对象）也建档", async () => {
+    // 之前这条整轮静默：fields 取不到 → 空对象 → 全部 skip → upserts 0 → 一个日志都没有
+    roleFile("男主", "林清越")
+    replyRaw(
+      JSON.stringify({
+        skills: [{ name: "林清越", 怎么说话: "句子短，先问后答。", 怎么判断: "先看对方的手。" }],
+      }),
+    )
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    expect(readIndex()!.skills.map((item) => item.characterName)).toEqual(["林清越"])
+    expect(doc("林清越")).toContain("## 怎么说话")
+    expect(doc("林清越")).toContain("句子短，先问后答。")
+  })
+
+  it("字段名被改写成近义词：落进规范段，而不是写出一页只有 frontmatter 的空档案", async () => {
+    // 之前这条会建出 index 与 SKILL.md，但文档里 0 个 `## ` 段：
+    // 库里有卡片、点开什么都没有 —— 用户看到的正是「显示还是为空」。
+    roleFile("男主", "林清越")
+    replyRaw(
+      JSON.stringify({
+        skills: [
+          {
+            name: "林清越",
+            fields: { 说话方式: "句子短，句尾带「嗯」。", 思维方式: "先算代价再动。", 判断方式: "看对方手腕。" },
+          },
+        ],
+      }),
+    )
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    const text = doc("林清越")
+    expect(text).toContain("## 怎么说话")
+    expect(text).toContain("句子短，句尾带「嗯」。")
+    expect(text).toContain("## 怎么想")
+    expect(text).toContain("## 怎么判断")
+  })
+
+  it("名字带装饰（林清越（男主））也能匹配到本轮计划", async () => {
+    // 严格按名字查表时这条整轮静默，且模型的「name」字段是最容易跑偏的一项
+    roleFile("男主", "林清越")
+    replyRaw(JSON.stringify({ skills: [{ name: "林清越（男主）", fields: { 怎么说话: "句子短。" } }] }))
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    expect(readIndex()!.skills.map((item) => item.characterName)).toEqual(["林清越"])
+  })
+
+  it("模型用别名称呼人物：认回同一个人，并统一成规范名建档", async () => {
+    roleFile("男主", "林清越")
+    replyRaw(JSON.stringify({ skills: [{ name: "清越", fields: { 怎么说话: "句子短。" } }] }))
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: {
+        chapterNumber: 1,
+        chapterBody: "第一章正文",
+        characters: ["林清越"],
+        characterAliases: { 林清越: ["清越"] },
+      },
+      llmConfig,
+    })
+
+    expect(readIndex()!.skills.map((item) => item.characterName)).toEqual(["林清越"])
+  })
+
+  it("字段值是数组时拼接进正文，而不是整格丢掉", async () => {
+    roleFile("男主", "林清越")
+    replyRaw(
+      JSON.stringify({
+        skills: [{ name: "林清越", fields: { 怎么说话: ["句子短。", "句尾常带「嗯」。"] } }],
+      }),
+    )
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    expect(doc("林清越")).toContain("句子短。")
+    expect(doc("林清越")).toContain("句尾常带「嗯」。")
+  })
+
+  it("模型直接返回裸数组（没有 skills 外壳）也能解析", async () => {
+    roleFile("男主", "林清越")
+    replyRaw(JSON.stringify([{ name: "林清越", fields: { 怎么说话: "句子短。" } }]))
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    expect(readIndex()!.skills.map((item) => item.characterName)).toEqual(["林清越"])
+  })
+
+  it("一条草稿都认不出来时：不写空档案，并把原始输出留在 .qmai/chapter-ingest.log", async () => {
+    // 这一条是「下次再出事必须能查」的保险：以前这条路径连一个字的日志都没有。
+    roleFile("男主", "林清越")
+    replyRaw("我忘了要输出 JSON，这里是林清越的性格：话少。")
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    expect(io.files.has(indexFile)).toBe(false)
+    expect(readLog()).toContain("persona")
+    expect(readLog()).toContain("我忘了要输出 JSON")
+    // 候选池计数不能丢，下一轮还要能补上
+    expect(readSightings()!.sightings).toHaveLength(1)
+  })
+
+  it("字段名全都认不出来：不建空档案，写日志并让界面能看见", async () => {
+    roleFile("男主", "林清越")
+    replyRaw(JSON.stringify({ skills: [{ name: "林清越", fields: { 他喜欢吃辣: "很能吃辣。" } }] }))
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    expect(io.files.has(indexFile)).toBe(false)
+    expect(readLog()).toContain("persona")
+    expect(storeMock.setPersonaSkillLearningError).toHaveBeenCalled()
+  })
+
+  it("模型调用本身抛错（鉴权/网络/参数被拒）也要留痕并让界面看见", async () => {
+    // 这条路径走不到上面任何一条 if：以前只有一句 console.warn，
+    // 用户看到的仍然是「技能库空的」，而开发者手上什么都没有。
+    roleFile("男主", "林清越")
+    streamChatMock.mockImplementation(async () => {
+      throw new Error("401 invalid api key")
+    })
+
+    await expect(
+      learnPersonaSkillsFromChapter({
+        projectPath: project,
+        chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+        llmConfig,
+      }),
+    ).resolves.toBeUndefined()
+
+    expect(io.files.has(indexFile)).toBe(false)
+    expect(readLog()).toContain("persona_round_error")
+    expect(readLog()).toContain("401 invalid api key")
+    expect(storeMock.setPersonaSkillLearningError).toHaveBeenCalled()
   })
 })
 
