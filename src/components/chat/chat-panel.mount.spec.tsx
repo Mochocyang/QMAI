@@ -387,8 +387,11 @@ describe("ChatPanel 的「文风写作」产出端", () => {
   /*
    * ⚠️ 断言的对象必须是**文风库真正用的那个**写盘函数。
    *
-   * 文风库的写盘走 `writing-style-store.ts:95` 的 `writeFileAtomic`（其 `:15`
-   * 从 `@/commands/fs` import 的是 `createDirectory, readFile, writeFileAtomic`）。
+   * 文风库的写盘在 `writing-style-store.ts` 的 `saveWritingStyleStore` 里，就两笔：
+   * 先 `createDirectory(<project>/.qmai)`、再 `writeFileAtomic(<project>/.qmai/writing-style.json)`
+   * —— 该文件从 `@/commands/fs` import 的正是 `createDirectory, readFile, writeFileAtomic`，
+   * **没有** `writeFile`。
+   * （这里刻意写符号名而不是行号：上一版引用的行号被我自己的注释改动带偏过一格。）
    * 本文件原先断言的是 **`writeFile`** —— 那是**另一个** mock，文风库一辈子
    * 都不会碰它。后果：这条用例永远观察不到任何一次文风库写盘。
    * 实测过（M-VACUOUS）：在 picker 的 `onPick` 里真调用

@@ -209,7 +209,7 @@ export async function getEnabledWritingStyle(projectPath: string): Promise<Writi
  * - `null` → `null`（本次显式不用文风，调用方据此返回 `""`）；
  * - `string` → 该预设；找不到（例如选中后又被删掉）也返回 `null`。
  *
- * ⚠️ 找到预设时**必须**照 `getEnabledWritingStyle:200` 再迁移一次
+ * ⚠️ 找到预设时**必须**照 `getEnabledWritingStyle` 末尾那行再迁移一次
  * `migrateStyleProfile`：那是字段归一化 / 防崩 / 形状一致，
  * **不是**渲染分支选择器（分支只看 `profile.workbenchStyle?.styleFingerprint`，
  * 见 `migrateStyleProfile` 从不创建也不删除该字段）。不迁移就直接渲染，

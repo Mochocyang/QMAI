@@ -836,9 +836,12 @@ export function PreviewPanel() {
    *    「不重置」并不能换来任何好处：用户没碰选择器，就不该有任何覆盖。
    *
    * ⚠️ **可达性交代（别把它当成今天正在发生的 bug）**：实测当前 app shell 里
-   * 换项目必然经过 `setProject(null)`（`App.tsx:612-620` / `:506-511`），
-   * 而 `ui-test-shell.tsx:129` 的 `showShelf` 会把整个工作区子树（含本组件）
-   * 换成书架 ⇒ 本组件**本来就会卸载**，组件状态随之消失。
+   * 换项目必然经过 `setProject(null)` —— 那是 `App.tsx` 的 `handleSwitchProject`
+   * 干的（旧项目由它置空）；`handleProjectOpened` 只负责**置新**（`setProject(proj)`），
+   * 不置空。两者别混为一谈，也别把「置新」读成「置空」。
+   * 而 `ui-test-shell.tsx` 的 `showShelf`（`!project && !showGlobalSettings`）
+   * 会把整个工作区子树（含本组件）换成书架 ⇒ 本组件**本来就会卸载**，
+   * 组件状态随之消失。
    * 所以这两行在今天是**契约 + 防将来**：任何让 PreviewPanel 活过一次项目切换的
    * 改动（换成 key 复用、在工作区里加项目切换器、把工作区提到 shelf 之外……）
    * 都会立刻踩中上面那条静默链。行为用例

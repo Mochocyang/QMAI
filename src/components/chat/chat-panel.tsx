@@ -1099,6 +1099,35 @@ export function ChatPanel() {
    * `undefined`，用户点了「本次不用文风」反而会用上项目启用的那条。
    *
    * ⚠️ 只进这个状态，不写项目设置（用户决定 2）。
+   *
+   * ⚠️ **这里刻意不写跨项目重置**，与 `preview-panel.tsx` 里 `chapterWritingStyleId`
+   * 那处（挂在 `[project?.path]` effect 上的 `setChapterWritingStyleId(undefined)`）
+   * **不对称**。这个不对称是**有意的**，别照着章节区"补齐"，理由两条：
+   * (i) 本组件与 PreviewPanel 一样活不过一次项目切换：换项目走
+   *     `App.tsx` 的 `handleSwitchProject` → `setProject(null)`，而
+   *     `ui-test-shell.tsx` 的 `showShelf`（`!project && !showGlobalSettings`）
+   *     会把整个工作区子树换成书架 ⇒ 本组件卸载，`useState` 随之销毁，
+   *     **不存在跨项目残留**；章节区那处是**契约 + 防将来**，不是今天在踩的 bug。
+   * (ii) ⚠️ **不要拿「registry 会随项目重建」当不做重置的理由** —— 那条推论是错的，
+   *     本注释第一版就是这么写的，复核时被推翻。事实是：registry **确实**会随
+   *     `projectPath` 重建（`use-agent-config.ts` 里 `projectPath` 既在取值处、
+   *     也在技能配置加载 effect 与构建 registry 的 `useMemo` 依赖里；
+   *     `projectPath` 为空时它直接返回全新空 `ToolRegistry`），
+   *     但重建出来的 registry 注册的是**本组件自己这个 getter**，而
+   *     `getWritingStyleIdOverride = useCallback(() => sessionWritingStyleId,
+   *     [sessionWritingStyleId])` 的身份**只随 `sessionWritingStyleId` 变、不随项目变**。
+   *     于是项目切换那一刻重建出来的 registry，调用它取到的**仍是旧 id**。
+   *     ⇒ 重置**不能**靠它。
+   *
+   *     所以今日不做重置的**唯一**理由是 (i)：本组件活不过项目切换，压根到不了
+   *     「带着旧 id 在新项目里生成」那一步。**(i) 一旦不成立，这里就必须补重置。**
+   *
+   * ⚠️ **前提（这条结论依赖 App shell 的结构，不是永久真理）**：上面 (i) 成立
+   * 的唯一原因是「`project === null` 时工作区被卸载」。**若将来 shell 改成工作区
+   * 跨项目常驻**（例如在工具栏里直接放项目切换器、或把 `ContentArea` 提到
+   * `showShelf` 之外），本组件就会和 `preview-panel.tsx` 一样暴露在同一个残留
+   * 风险下（旧项目的 preset id 在新项目里不存在 → 覆盖文本变 `""` → 静默压掉
+   * 新项目启用的文风）。**届时必须对称补上重置**。
    */
   const [sessionWritingStyleId, setSessionWritingStyleId] = useState<string | null | undefined>(undefined)
   const getWritingStyleIdOverride = useCallback(() => sessionWritingStyleId, [sessionWritingStyleId])

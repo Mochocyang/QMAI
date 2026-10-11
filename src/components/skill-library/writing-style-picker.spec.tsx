@@ -158,7 +158,8 @@ describe("WritingStylePicker", () => {
    * 为什么不能只靠 chat-panel 那层：那是另一个 spec 的 mock 环境，
    * 而这里才是「有人往组件里加一行 `setEnabledWritingStyle`」最可能发生的地方。
    * 两条断言都对着**文风库真正用的**写盘函数（`writeFileAtomic` +
-   * `createDirectory`，见 `writing-style-store.ts:15/:94-95`）——
+   * `createDirectory`，即 `writing-style-store.ts` 里 `saveWritingStyleStore`
+   * 的那两笔 —— 这里写符号名而不是行号，行号被本批自己的注释改动带偏过）——
    * 早先 chat-panel 那条断言的是 `writeFile`，一个文风库永远不会碰的 mock。
    *
    * 这条是**行为**断言（真点一次、再查盘上有没有动静），不是源码正则：
