@@ -230,14 +230,14 @@ describe("renderPersonaSkillDocument", () => {
     firstChapter: 1,
     lastChapter: 2,
     chapterNumber: 2,
-    fields: { 怎么说话: "句子短。", 怎么判断: "先看对方的手。", 成长轨迹: "从回避到直视。" },
+    fields: { 怎么说话: "句子短。", 怎么判断: "先看对方的手。", 知道局限: "不知道沈砚的真实身份。" },
     editedByUser: false,
   }
 
   it("主要人物写出全部提供的字段与 frontmatter", () => {
     const doc = renderPersonaSkillDocument(base)
     expect(doc).toContain("## 怎么说话")
-    expect(doc).toContain("## 成长轨迹")
+    expect(doc).toContain("## 知道局限")
     expect(doc).toContain("tier: major")
     expect(doc).toContain("appearances: 2")
     expect(doc).toContain("aliases: 清越")
@@ -246,7 +246,7 @@ describe("renderPersonaSkillDocument", () => {
   it("次要人物只落 2 个字段，其余字段被丢掉", () => {
     const doc = renderPersonaSkillDocument({ ...base, tier: "minor" })
     expect(doc).toContain("## 怎么说话")
-    expect(doc).not.toContain("## 成长轨迹")
+    expect(doc).not.toContain("## 知道局限")
   })
 
   it("用户手改过：既有正文逐字保留，新内容进「补充」段", () => {

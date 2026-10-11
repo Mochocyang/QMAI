@@ -539,7 +539,7 @@ context-engine.ts
       <tbody>
         <tr>
           <td class="ok-t"><strong>pinned / major</strong></td>
-          <td>7 个结构化字段（分类 · 摘要 · 怎么说话 · 怎么想 · 怎么判断 · 什么不做 · 知道局限）+ <code>SKILL.md</code> 压缩摘要</td>
+          <td>5 个结构化字段（怎么说话 · 怎么想 · 怎么判断 · 什么不做 · 知道局限）+ <code>SKILL.md</code> 压缩摘要</td>
         </tr>
         <tr>
           <td><strong>minor</strong></td>
@@ -551,6 +551,12 @@ context-engine.ts
         </tr>
       </tbody>
     </table>
+
+    <div class="callout warn">
+      <span class="label">字段表为什么只留 5 个「演技」字段</span>
+      <p>早先这一行还列了「分类」「摘要」，实现时确认删掉：人物名 / 定位 / 档位 / 出场次数由注入区块的<strong>标题行</strong>给出，整份 <code>SKILL.md</code> 的压缩摘要又<strong>单独跟着注入</strong>，再加这两个字段纯属重复占 4000 字预算。</p>
+      <p>同样刻意<strong>不</strong>把「关系网 / 成长轨迹 / 底线与逆鳞 / 在意什么」这类深度材料放进字段表 —— 那些归研究文件的「关键关系」「动机与弧光」「禁忌与误区」，<strong>只给绿勾人物生成</strong>（D6）。字段表一旦装了它们，研究文件就白生成了，非绿勾人物的注入预算还会被这些内容占满。判定标准：<em>这个字段答的是「这一场该怎么演他」，还是「他这个人是怎么长成的」？只有前者进字段表。</em></p>
+    </div>
 
     <h3>注入位置</h3>
     <p>沿用 <code>context-engine.ts</code> 现有的<strong>同一个 <code>matchingText</code></strong>（任务描述 + 章纲 + 人物状态 + 认知状态），与灵魂共用一次匹配时机。新模块 <code>persona-skill-context.ts</code> 导出 <code>buildPersonaSkillContext()</code>，与灵魂匹配<strong>并发</strong>调用，结果写入<strong>新加的独立可选字段 <code>personaSkills</code></strong>：</p>

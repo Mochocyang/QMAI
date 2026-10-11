@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest"
 import {
   PERSONA_ARCHIVED_GAP_CHAPTERS,
   PERSONA_DORMANT_GAP_CHAPTERS,
+  PERSONA_MAJOR_FIELDS,
   PERSONA_MAJOR_ROLE_TYPES,
+  PERSONA_MINOR_FIELDS,
   PERSONA_MINOR_ROLE_TYPES,
   normalizePersonaName,
   planPersonaSkillRound,
@@ -43,6 +45,38 @@ describe("档位表与仓库既有角色定位枚举", () => {
     // 我们声明的档位表必须恰好覆盖它：既不漏（静默降档），也不多（多出一个没人认识的定位）。
     const ours = [...PERSONA_MAJOR_ROLE_TYPES, ...PERSONA_MINOR_ROLE_TYPES].sort()
     expect(ours).toEqual([...declared].sort())
+  })
+})
+
+describe("字段表", () => {
+  it("major 字段表与设计规格 07 节逐字一致", () => {
+    // 字段表是数据驱动的：prompt / 渲染 / 注入三处都读这一个常量。
+    // 所以它一旦被悄悄改掉，AI 学的、落盘的、注入的就同时换了内容 —— 钉死。
+    expect([...PERSONA_MAJOR_FIELDS]).toEqual([
+      "怎么说话",
+      "怎么想",
+      "怎么判断",
+      "什么不做",
+      "知道局限",
+    ])
+  })
+
+  it("minor 字段表必须是 major 的子集（否则次要人物会写进一个不在档位里的字段）", () => {
+    for (const field of PERSONA_MINOR_FIELDS) {
+      expect(PERSONA_MAJOR_FIELDS).toContain(field)
+    }
+    // 真子集：次要人物拿到的必须更少，否则建档时按 minor 写、注入时按 major 读，
+    // 两者理解不一致。
+    expect(PERSONA_MINOR_FIELDS.length).toBeLessThan(PERSONA_MAJOR_FIELDS.length)
+  })
+
+  it("字段表不含研究文件专有的深度材料（那归 D6，只给绿勾人物）", () => {
+    // 这些是研究文件的主题（关键关系 / 动机与弧光 / 禁忌与误区）。放进字段表就等于
+    // 让所有 major 人物都免费拿到本该只给绿勾人物的内容，研究文件也白生成了。
+    const researchOnly = ["关系网", "成长轨迹", "底线与逆鳞", "在意什么"]
+    for (const field of researchOnly) {
+      expect(PERSONA_MAJOR_FIELDS).not.toContain(field)
+    }
   })
 })
 

@@ -65,9 +65,9 @@ describe("buildPersonaSkillMessages", () => {
     for (const name of names) expect(messages[1].content).toContain(`### ${name}`)
   })
 
-  it("主要人物列全 7 个字段", () => {
+  it("主要人物列全 5 个字段", () => {
     const messages = buildPersonaSkillMessages({ chapterNumber: 1, chapterBody: "正文", targets: [target()] })
-    for (const field of ["怎么说话", "怎么判断", "在意什么", "底线与逆鳞", "关系网", "语言标记", "成长轨迹"]) {
+    for (const field of ["怎么说话", "怎么想", "怎么判断", "什么不做", "知道局限"]) {
       expect(messages[1].content).toContain(field)
     }
   })
@@ -79,8 +79,9 @@ describe("buildPersonaSkillMessages", () => {
       targets: [target({ tier: "minor", roleType: "配角", mode: "refine" })],
     })
     expect(messages[1].content).toContain("怎么说话 / 怎么判断")
-    expect(messages[1].content).not.toContain("成长轨迹")
-    expect(messages[1].content).not.toContain("底线与逆鳞")
+    expect(messages[1].content).not.toContain("怎么想")
+    expect(messages[1].content).not.toContain("什么不做")
+    expect(messages[1].content).not.toContain("知道局限")
   })
 
   it("绿勾人物才要求研究文件", () => {

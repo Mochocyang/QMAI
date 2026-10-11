@@ -324,7 +324,9 @@ import { describe, expect, it } from "vitest"
 import {
   PERSONA_ARCHIVED_GAP_CHAPTERS,
   PERSONA_DORMANT_GAP_CHAPTERS,
+  PERSONA_MAJOR_FIELDS,
   PERSONA_MAJOR_ROLE_TYPES,
+  PERSONA_MINOR_FIELDS,
   PERSONA_MINOR_ROLE_TYPES,
   normalizePersonaName,
   planPersonaSkillRound,
@@ -364,6 +366,38 @@ describe("档位表与仓库既有角色定位枚举", () =&gt; {
     // 我们声明的档位表必须恰好覆盖它：既不漏（静默降档），也不多（多出一个没人认识的定位）。
     const ours = [...PERSONA_MAJOR_ROLE_TYPES, ...PERSONA_MINOR_ROLE_TYPES].sort()
     expect(ours).toEqual([...declared].sort())
+  })
+})
+
+describe("字段表", () =&gt; {
+  it("major 字段表与设计规格 07 节逐字一致", () =&gt; {
+    // 字段表是数据驱动的：prompt / 渲染 / 注入三处都读这一个常量。
+    // 所以它一旦被悄悄改掉，AI 学的、落盘的、注入的就同时换了内容 —— 钉死。
+    expect([...PERSONA_MAJOR_FIELDS]).toEqual([
+      "怎么说话",
+      "怎么想",
+      "怎么判断",
+      "什么不做",
+      "知道局限",
+    ])
+  })
+
+  it("minor 字段表必须是 major 的子集（否则次要人物会写进一个不在档位里的字段）", () =&gt; {
+    for (const field of PERSONA_MINOR_FIELDS) {
+      expect(PERSONA_MAJOR_FIELDS).toContain(field)
+    }
+    // 真子集：次要人物拿到的必须更少，否则建档时按 minor 写、注入时按 major 读，
+    // 两者理解不一致。
+    expect(PERSONA_MINOR_FIELDS.length).toBeLessThan(PERSONA_MAJOR_FIELDS.length)
+  })
+
+  it("字段表不含研究文件专有的深度材料（那归 D6，只给绿勾人物）", () =&gt; {
+    // 这些是研究文件的主题（关键关系 / 动机与弧光 / 禁忌与误区）。放进字段表就等于
+    // 让所有 major 人物都免费拿到本该只给绿勾人物的内容，研究文件也白生成了。
+    const researchOnly = ["关系网", "成长轨迹", "底线与逆鳞", "在意什么"]
+    for (const field of researchOnly) {
+      expect(PERSONA_MAJOR_FIELDS).not.toContain(field)
+    }
   })
 })
 
@@ -552,16 +586,26 @@ export const PERSONA_INJECT_FIELD_CHARS = 260
 /** 双向包含匹配的最小长度：单字称呼（如单姓「林」）会污染匹配，只允许精确相等。 */
 export const PERSONA_MIN_SUBSTRING_MATCH_CHARS = 2
 
-/** SKILL.md 的字段名就是「## 标题」；数组顺序就是注入顺序。 */
+/**
+ * SKILL.md 的字段名就是「## 标题」；数组顺序就是注入顺序。
+ *
+ * 这 5 个是设计规格 07 节批准的「演技」字段 —— 一律回答「这一场该怎么演他」。
+ * 设计原文还列了「分类 · 摘要」，实现时确认删掉：人物名/定位/档位/出场次数
+ * 由注入区块标题行给出，整份 SKILL.md 压缩摘要又单独跟着注入，纯属重复占预算。
+ *
+ * 也刻意不装「关系网 / 成长轨迹 / 底线与逆鳞 / 在意什么」这类深度材料 —— 那些
+ * 归研究文件（关键关系 / 动机与弧光 / 禁忌与误区），只给绿勾人物生成（D6）。
+ * 字段表一旦装了它们，研究文件就白生成了。加字段前先确认它答的是
+ * 「这一场该怎么演他」，而不是「他这个人是怎么长成的」。
+ */
 export const PERSONA_MAJOR_FIELDS = [
   "怎么说话",
+  "怎么想",
   "怎么判断",
-  "在意什么",
-  "底线与逆鳞",
-  "关系网",
-  "语言标记",
-  "成长轨迹",
+  "什么不做",
+  "知道局限",
 ] as const
+/** 次要人物只给两条（设计 07 节）：这两条在 major 表里也有，必须是它的子集。 */
 export const PERSONA_MINOR_FIELDS = ["怎么说话", "怎么判断"] as const
 /** 用户手改过的档案只在文末追加这个段落，AI 不覆盖既有内容。 */
 export const PERSONA_SUPPLEMENT_HEADING = "补充"
@@ -1897,9 +1941,9 @@ describe("buildPersonaSkillMessages", () =&gt; {
     for (const name of names) expect(messages[1].content).toContain(`### ${name}`)
   })
 
-  it("主要人物列全 7 个字段", () =&gt; {
+  it("主要人物列全 5 个字段", () =&gt; {
     const messages = buildPersonaSkillMessages({ chapterNumber: 1, chapterBody: "正文", targets: [target()] })
-    for (const field of ["怎么说话", "怎么判断", "在意什么", "底线与逆鳞", "关系网", "语言标记", "成长轨迹"]) {
+    for (const field of ["怎么说话", "怎么想", "怎么判断", "什么不做", "知道局限"]) {
       expect(messages[1].content).toContain(field)
     }
   })
@@ -1911,8 +1955,9 @@ describe("buildPersonaSkillMessages", () =&gt; {
       targets: [target({ tier: "minor", roleType: "配角", mode: "refine" })],
     })
     expect(messages[1].content).toContain("怎么说话 / 怎么判断")
-    expect(messages[1].content).not.toContain("成长轨迹")
-    expect(messages[1].content).not.toContain("底线与逆鳞")
+    expect(messages[1].content).not.toContain("怎么想")
+    expect(messages[1].content).not.toContain("什么不做")
+    expect(messages[1].content).not.toContain("知道局限")
   })
 
   it("绿勾人物才要求研究文件", () =&gt; {
@@ -2440,14 +2485,14 @@ describe("renderPersonaSkillDocument", () =&gt; {
     firstChapter: 1,
     lastChapter: 2,
     chapterNumber: 2,
-    fields: { 怎么说话: "句子短。", 怎么判断: "先看对方的手。", 成长轨迹: "从回避到直视。" },
+    fields: { 怎么说话: "句子短。", 怎么判断: "先看对方的手。", 知道局限: "不知道沈砚的真实身份。" },
     editedByUser: false,
   }
 
   it("主要人物写出全部提供的字段与 frontmatter", () =&gt; {
     const doc = renderPersonaSkillDocument(base)
     expect(doc).toContain("## 怎么说话")
-    expect(doc).toContain("## 成长轨迹")
+    expect(doc).toContain("## 知道局限")
     expect(doc).toContain("tier: major")
     expect(doc).toContain("appearances: 2")
     expect(doc).toContain("aliases: 清越")
@@ -2456,7 +2501,7 @@ describe("renderPersonaSkillDocument", () =&gt; {
   it("次要人物只落 2 个字段，其余字段被丢掉", () =&gt; {
     const doc = renderPersonaSkillDocument({ ...base, tier: "minor" })
     expect(doc).toContain("## 怎么说话")
-    expect(doc).not.toContain("## 成长轨迹")
+    expect(doc).not.toContain("## 知道局限")
   })
 
   it("用户手改过：既有正文逐字保留，新内容进「补充」段", () =&gt; {
@@ -3717,12 +3762,10 @@ function seed(skills: PersonaSkillMeta[], documents: Record&lt;string, string&gt
 
 const majorFields = {
   怎么说话: "句子短，先问后答。",
+  怎么想: "凡事先算退路。",
   怎么判断: "先看对方的手。",
-  在意什么: "妹妹的婚事。",
-  底线与逆鳞: "不碰旧账。",
-  关系网: "与沈砚是旧识。",
-  语言标记: "「罢了」结尾。",
-  成长轨迹: "从回避到直视。",
+  什么不做: "不碰旧账。",
+  知道局限: "不知道沈砚的真实身份。",
 }
 
 describe("matchesPersonaName", () =&gt; {
@@ -3809,8 +3852,9 @@ describe("renderPersonaSkillBlock", () =&gt; {
     )
     expect(block).toContain("怎么说话")
     expect(block).toContain("怎么判断")
-    expect(block).not.toContain("成长轨迹")
-    expect(block).not.toContain("底线与逆鳞")
+    expect(block).not.toContain("怎么想")
+    expect(block).not.toContain("什么不做")
+    expect(block).not.toContain("知道局限")
   })
 
   it("用户手改过的「补充」段也会注入", () =&gt; {
@@ -3860,7 +3904,7 @@ describe("buildPersonaSkillContext", () =&gt; {
   it("总长不超过 4000 字预算", async () =&gt; {
     const long = "字".repeat(3000)
     const fields = Object.fromEntries(
-      ["怎么说话", "怎么判断", "在意什么", "底线与逆鳞", "关系网", "语言标记", "成长轨迹"].map((name) =&gt; [name, long]),
+      ["怎么说话", "怎么想", "怎么判断", "什么不做", "知道局限"].map((name) =&gt; [name, long]),
     )
     const skills = [
       meta({ characterName: "甲", appearanceCount: 100 }),

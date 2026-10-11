@@ -67,12 +67,10 @@ function seed(skills: PersonaSkillMeta[], documents: Record<string, string>) {
 
 const majorFields = {
   怎么说话: "句子短，先问后答。",
+  怎么想: "凡事先算退路。",
   怎么判断: "先看对方的手。",
-  在意什么: "妹妹的婚事。",
-  底线与逆鳞: "不碰旧账。",
-  关系网: "与沈砚是旧识。",
-  语言标记: "「罢了」结尾。",
-  成长轨迹: "从回避到直视。",
+  什么不做: "不碰旧账。",
+  知道局限: "不知道沈砚的真实身份。",
 }
 
 describe("matchesPersonaName", () => {
@@ -162,8 +160,9 @@ describe("renderPersonaSkillBlock", () => {
     )
     expect(block).toContain("怎么说话")
     expect(block).toContain("怎么判断")
-    expect(block).not.toContain("成长轨迹")
-    expect(block).not.toContain("底线与逆鳞")
+    expect(block).not.toContain("怎么想")
+    expect(block).not.toContain("什么不做")
+    expect(block).not.toContain("知道局限")
   })
 
   it("用户手改过的「补充」段也会注入", () => {
@@ -213,7 +212,7 @@ describe("buildPersonaSkillContext", () => {
   it("总长不超过 4000 字预算", async () => {
     const long = "字".repeat(3000)
     const fields = Object.fromEntries(
-      ["怎么说话", "怎么判断", "在意什么", "底线与逆鳞", "关系网", "语言标记", "成长轨迹"].map((name) => [name, long]),
+      ["怎么说话", "怎么想", "怎么判断", "什么不做", "知道局限"].map((name) => [name, long]),
     )
     const skills = [
       meta({ characterName: "甲一", appearanceCount: 100 }),
