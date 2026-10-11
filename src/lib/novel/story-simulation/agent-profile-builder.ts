@@ -34,7 +34,7 @@ function inferGoalFromFramework(
  * 从角色 soul 和 aura 中提取性格关键词。
  * 简单策略：取 soul 文本的前若干关键词 + aura 中相关字段的关键短语。
  */
-function extractPersonalityKeywords(
+export function extractPersonalityKeywords(
   soul: string,
   aura: CharacterAura | null,
 ): string[] {
@@ -76,7 +76,10 @@ function extractPersonalityKeywords(
 /**
  * 从 aura 的表达 DNA 和风格描述中提取说话风格。
  */
-function extractSpeakingStyle(aura: CharacterAura | null, soul: string): string {
+export function extractSpeakingStyle(
+  aura: CharacterAura | null,
+  soul: string,
+): string {
   const parts: string[] = []
   if (aura?.expressionDna) {
     parts.push(aura.expressionDna.trim())

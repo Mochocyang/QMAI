@@ -456,6 +456,7 @@ const SIMULATION_INTENTS = new Set([
   "story_framework_generate",
   "multi_agent_simulate",
   "character_interview",
+  "scenario_simulate",
 ])
 
 interface ChatSendOptions {
