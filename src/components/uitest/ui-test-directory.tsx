@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react"
-import { MoreHorizontal, Plus, Sparkles, Upload, X } from "lucide-react"
+import { Loader2, MoreHorizontal, Plus, Sparkles, Upload, X } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { normalizePath } from "@/lib/path-utils"
+import { useImportProgressStore } from "@/stores/import-progress-store"
+import { useWikiStore } from "@/stores/wiki-store"
 
 interface UiTestDirectoryHeaderProps {
   kind: "chapter" | "outline"
@@ -22,6 +25,21 @@ export function UiTestDirectoryHeader({ kind, totalWordCount, busy, onCreate, on
   const importRef = useRef<HTMLButtonElement>(null)
   const moreRef = useRef<HTMLButtonElement>(null)
   const label = kind === "chapter" ? "章节" : "大纲"
+  const extractLabel = kind === "outline" ? "批量大纲提取" : "一键提取"
+  const project = useWikiStore((state) => state.project)
+  /*
+   * 提取期间图标要转起来。状态直接读全局进度任务，而不是让父组件传 prop：
+   * 这样不论是点这枚图标、还是走章节右键菜单发起的提取，图标都会亮 ——
+   * 「正在提取」必须对应一个真实存在的任务，不能是猜的。
+   */
+  const extractRunning = useImportProgressStore((state) =>
+    state.tasks.some((task) =>
+      task.status === "running" &&
+      task.kind === kind &&
+      project != null &&
+      task.projectPath === normalizePath(project.path),
+    ),
+  )
   useEffect(() => {
     if (!menu) return
     toolsRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
@@ -38,8 +56,8 @@ export function UiTestDirectoryHeader({ kind, totalWordCount, busy, onCreate, on
   return <>
     <div className="ui-test-directory-head"><h2>{label}列表</h2><div className="ui-test-directory-head-actions">
       <Tooltip>
-        <TooltipTrigger render={<button type="button" className="ui-test-icon-btn" aria-label={kind === "outline" ? "批量大纲提取" : "一键提取"} onClick={onOpenAssistant}><Sparkles /></button>} />
-        <TooltipContent>{kind === "outline" ? "批量大纲提取" : "一键提取"}</TooltipContent>
+        <TooltipTrigger render={<button type="button" className="ui-test-icon-btn" aria-label={extractLabel} aria-busy={extractRunning || undefined} data-extract-running={extractRunning ? "true" : undefined} onClick={onOpenAssistant}>{extractRunning ? <Loader2 className="animate-spin" aria-hidden="true" /> : <Sparkles />}</button>} />
+        <TooltipContent>{extractRunning ? `正在提取${label}记忆…` : extractLabel}</TooltipContent>
       </Tooltip>
       <button type="button" className="ui-test-icon-btn" aria-label="收起目录" title="收起目录" onClick={onClose}><X /></button>
     </div></div>

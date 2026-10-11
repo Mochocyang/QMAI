@@ -50,6 +50,8 @@ function App() {
   const visualStyle = useWikiStore((s) => s.visualStyle)
   const communitySummaryError = useWikiStore((s) => s.communitySummaryError)
   const setCommunitySummaryError = useWikiStore((s) => s.setCommunitySummaryError)
+  const personaSkillLearningError = useWikiStore((s) => s.personaSkillLearningError)
+  const setPersonaSkillLearningError = useWikiStore((s) => s.setPersonaSkillLearningError)
   const dataVersion = useWikiStore((s) => s.dataVersion)
   /** 全书正文字数由 writingStatsStore 统一维护（窗口标题与底部状态栏共用）。 */
   const appTitleTotalWordCount = useWritingStatsStore((s) => s.totalChars)
@@ -193,6 +195,15 @@ function App() {
       setCommunitySummaryError(null)
     }
   }, [communitySummaryError, setCommunitySummaryError])
+
+  // 监听人物 Skill 学习失败。学习是后台 void 调用，以前只写 console，
+  // 用户看到的现象是「提取完了技能库还是空的」，却完全不知道哪里出了问题。
+  useEffect(() => {
+    if (personaSkillLearningError) {
+      toast.error(i18n.t("novel.personaSkill.learningFailed", { message: personaSkillLearningError }))
+      setPersonaSkillLearningError(null)
+    }
+  }, [personaSkillLearningError, setPersonaSkillLearningError])
 
   // Set up auto-save once on mount
   useEffect(() => {

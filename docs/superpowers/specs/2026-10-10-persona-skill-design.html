@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计规格 — 人物 Skill（技能库·持续学习）</title>
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('qmai-spec-theme');
+      var dark = saved ? saved === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    } catch (e) {}
+  })();
+</script>
+<style>
+  :root {
+    --bg: #FAF9F5; --panel: #FFFFFF; --panel-alt: #F0EEE6;
+    --ink: #141413; --ink-soft: #3D3D3A; --muted: #87867F; --line: #D1CFC5;
+    --accent: #D97757; --ok: #788C5D; --warn: #B5793A; --bad: #B4523F;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei UI', Roboto, sans-serif;
+    --serif: ui-serif, Georgia, 'Times New Roman', 'Songti SC', serif;
+  }
+  html.dark {
+    --bg: #16150F; --panel: #201F19; --panel-alt: #2A2921;
+    --ink: #F5F3EC; --ink-soft: #D8D5CA; --muted: #9A988E; --line: #3A3830;
+    --accent: #E08966; --ok: #93A874; --warn: #D0A05E; --bad: #D08070;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--sans); background: var(--bg); color: var(--ink-soft);
+    line-height: 1.65; padding: 56px 32px 120px; -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1080px; margin: 0 auto; }
+  .theme-toggle {
+    position: fixed; top: 18px; right: 20px; z-index: 10;
+    font: 500 12px/1 var(--sans); color: var(--ink-soft); background: var(--panel);
+    border: 1.5px solid var(--line); border-radius: 8px; padding: 7px 11px; cursor: pointer;
+  }
+  .page-head { margin-bottom: 40px; max-width: 860px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 12px;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 500; font-size: 38px; line-height: 1.18;
+    color: var(--ink); margin-bottom: 16px; letter-spacing: -0.01em;
+  }
+  .lead { font-size: 15.5px; color: var(--muted); }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0 0; }
+  .badge {
+    font: 500 12px/1.5 var(--sans); border: 1.5px solid var(--line);
+    background: var(--panel-alt); border-radius: 999px; padding: 4px 11px; color: var(--ink-soft);
+  }
+  .badge.ok { color: var(--ok); border-color: var(--ok); }
+  .badge.acc { color: var(--accent); border-color: var(--accent); }
+
+  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 36px 0 56px; }
+  @media (max-width: 900px) { .summary { grid-template-columns: repeat(2, 1fr); } }
+  .summary .cell { background: var(--panel); border: 1.5px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+  .summary .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px; }
+  .summary .v { font-size: 16px; color: var(--ink); font-weight: 600; }
+  .summary .v.accent { color: var(--accent); }
+
+  section { margin-bottom: 56px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px; }
+  .sec-head .num {
+    font-family: var(--mono); font-size: 12px; background: var(--panel-alt);
+    color: var(--ink); padding: 3px 9px; border-radius: 8px; border: 1px solid var(--line);
+  }
+  .sec-head h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--ink); }
+  .sec-intro { font-size: 14.5px; color: var(--muted); max-width: 800px; margin-bottom: 20px; }
+
+  h3 { font-size: 15px; color: var(--ink); margin: 26px 0 10px; font-weight: 600; }
+  h4 { font-size: 13.5px; color: var(--ink); margin: 18px 0 8px; font-weight: 600; }
+  p { max-width: 840px; }
+  p + p { margin-top: 10px; }
+  ul, ol { margin: 10px 0 0 20px; max-width: 840px; }
+  li { margin-bottom: 6px; }
+  li > ul, li > ol { margin-top: 6px; }
+  code {
+    font-family: var(--mono); font-size: 0.88em; background: var(--panel-alt);
+    border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; color: var(--ink);
+  }
+  pre {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.62; background: var(--panel);
+    border: 1.5px solid var(--line); border-radius: 12px; padding: 16px 18px;
+    margin-top: 14px; overflow-x: auto; color: var(--ink);
+  }
+  pre code { background: none; border: none; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 13.5px; background: var(--panel); }
+  th, td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--panel-alt); color: var(--ink); font-weight: 600; font-size: 12.5px; }
+  .callout {
+    border: 1.5px solid var(--line); background: var(--panel);
+    border-radius: 12px; padding: 15px 18px; margin-top: 16px; font-size: 14px;
+  }
+  .callout .label {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted); display: block; margin-bottom: 7px;
+  }
+  .callout.ok { border-color: var(--ok); }
+  .callout.ok .label { color: var(--ok); }
+  .callout.warn { border-color: var(--warn); }
+  .callout.warn .label { color: var(--warn); }
+  .callout.bad { border-color: var(--bad); }
+  .callout.bad .label { color: var(--bad); }
+  .callout.acc { border-color: var(--accent); }
+  .callout.acc .label { color: var(--accent); }
+  .decision { display: grid; grid-template-columns: 34px 1fr; gap: 14px; margin-top: 18px; align-items: start; }
+  .decision .id {
+    font-family: var(--mono); font-size: 12px; background: var(--panel-alt); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px; padding: 3px 0; text-align: center;
+  }
+  .decision .body { font-size: 14px; }
+  .decision .body strong { color: var(--ink); display: block; margin-bottom: 3px; }
+  .decision + .decision { margin-top: 16px; }
+  .muted { color: var(--muted); }
+  .ok-t { color: var(--ok); font-weight: 600; }
+  .bad-t { color: var(--bad); font-weight: 600; }
+  .acc-t { color: var(--accent); font-weight: 600; }
+  .toc { background: var(--panel); border: 1.5px solid var(--line); border-radius: 12px; padding: 18px 22px; margin-bottom: 48px; }
+  .toc .label { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 10px; }
+  .toc ol { margin-left: 20px; font-size: 14px; }
+</style>
+</head>
+<body>
+<button class="theme-toggle" onclick="
+  var d = document.documentElement.classList.toggle('dark');
+  try { localStorage.setItem('qmai-spec-theme', d ? 'dark' : 'light'); } catch (e) {}
+">切换主题</button>
+
+<div class="page">
+  <header class="page-head">
+    <div class="eyebrow">QMAI · 设计规格 · feature/character-skill</div>
+    <h1>人物 Skill：技能库中可持续学习的人物技能</h1>
+    <p class="lead">
+      给「技能库」增加第四类技能——<strong>人物 Skill</strong>。它在章节摄取时自动为人物建立性格／说话方式档案，
+      随角色反复出场持续完善，可由用户手动编辑与分级；写作装配时按档位自动引用。
+    </p>
+    <div class="badges">
+      <span class="badge acc">已通过设计评审</span>
+      <span class="badge acc">定名：人物 Skill</span>
+      <span class="badge ok">character-aura.ts 零改动</span>
+      <span class="badge">基线 720 文件 / 6963 用例</span>
+      <span class="badge">分支 feature/character-skill</span>
+    </div>
+  </header>
+
+  <div class="toc">
+    <div class="label">目录</div>
+    <ol>
+      <li>背景：为什么不能复刻已有的「角色 Skill」</li>
+      <li>决策记录（7 项问答结论）</li>
+      <li>架构与存储</li>
+      <li>学习机制</li>
+      <li>档位、阈值与生命周期</li>
+      <li>规模分析：3000 个角色会不会卡</li>
+      <li>分级注入</li>
+      <li>技能库界面</li>
+      <li>测试策略</li>
+      <li>文件清单与分期</li>
+      <li>硬约束与风险</li>
+      <li>需求对照表</li>
+    </ol>
+  </div>
+
+  <!-- ============ 1 ============ -->
+  <section>
+    <div class="sec-head"><span class="num">01</span><h2>背景：为什么不能复刻已有的「角色 Skill」</h2></div>
+    <p class="sec-intro">仓库里存在三套都被称作「角色 Skill」的东西。选错复用对象会让整个功能建立在错误的基座上，所以先厘清；同时这也正是本功能最终定名为「<strong>人物 Skill</strong>」的原因（见第 2 节 D8）。</p>
+
+    <table>
+      <thead>
+        <tr><th style="width:20%">代号</th><th style="width:26%">落盘位置</th><th style="width:24%">绑定「本作人物」</th><th>已注入写作上下文</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>A</strong> 拆书库角色 Skill</td>
+          <td><code>book-analysis/&lt;bookId&gt;/skills/</code></td>
+          <td class="bad-t">✗ 绑定的是<strong>别的作品</strong>里的角色</td>
+          <td>仅通过 C 间接进入</td>
+        </tr>
+        <tr>
+          <td><strong>B</strong> 写作 Skill 的「角色」分类</td>
+          <td><code>&lt;project&gt;/writing-skills.json</code></td>
+          <td class="bad-t">✗ 全局通用技能，无人称维度</td>
+          <td>走 skill-route</td>
+        </tr>
+        <tr style="background:var(--panel-alt)">
+          <td><strong>C</strong> 角色灵魂 CharacterAura</td>
+          <td><code>.qmai/character-aura.json</code> + <code>&lt;slug&gt;-perspective/SKILL.md</code></td>
+          <td class="ok-t">✓ 按 <code>characterName</code> 绑定本作人物</td>
+          <td class="ok-t">✓ 直接注入</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>C 是唯一具备「按人物绑定 + SKILL.md 落盘 + LLM 生成 + 编辑 UI + 写作注入」的底座。但它仍不是本功能的直接复用对象，原因见第 2 节的 D1／D7 两项决策。</p>
+
+    <div class="callout">
+      <span class="label">现有注入链路（已通，本功能不重建）</span>
+      <p><code>章节生成</code> → <code>context-engine.ts</code> → 动态 <code>await import("./character-aura")</code> →
+      <code>buildCharacterSoulContext()</code> → 从「任务描述 + 章纲 + 人物状态 + 认知状态」匹配本章出场角色（含别名／拼音／简繁模糊匹配）
+      → 写入上下文包 <code>characterAuras</code> 字段 → 进写作提示词「人物气质」小节。</p>
+    </div>
+  </section>
+
+  <!-- ============ 2 ============ -->
+  <section>
+    <div class="sec-head"><span class="num">02</span><h2>决策记录</h2></div>
+    <p class="sec-intro">以下七项由逐题问答确认，构成本设计的全部自由度边界。</p>
+
+    <div class="decision">
+      <div class="id">D1</div>
+      <div class="body">
+        <strong>按重要度分级，而非全量生成</strong>
+        <p>主角／核心配角首次出场即生成并持续完善；次要角色出场 ≥2 次才生成；龙套／路人只进人物页，永不建 skill。
+        <span class="muted">「第一章有 5 个角色就生成 5 个 skill」被明确否决——这正是规模失控的源头。</span></p>
+      </div>
+    </div>
+
+    <div class="callout bad">
+      <strong>D1 补充（2026-10-11 线上修复）：定位查不到时必须有第二条判据</strong>
+      <p>D2 把定位来源定在 <code>wiki/characters/角色-&lt;定位&gt;-&lt;名&gt;.md</code> 的<strong>文件名</strong>上。
+      实测发现：那个目录只有跑过「人物」多智能体生成才会存在，而真实项目里它<b>根本不存在</b>——
+      实测项目 <code>C:\QM-BOOK\黑雨之下</code> 的 <code>wiki/characters</code> 读出来是空表，
+      于是所有人物 <code>roleType</code> 为空、一律落到「未标注要 3 次出场」，而该项目摄取到第 4 章时
+      候选池里最高出场数才 2 —— <b>一个人都没建档，技能库全空，且全程零报错零日志</b>。用户看到的
+      就是「提取了记忆，但技能库里什么都没有」。</p>
+      <p><b>修复</b>：新增第二条判据 —— 该人物在 <code>wiki/entities/</code> 下有 <code>tags</code> 含
+      <code>character</code> 的实体页（与仓库既有的 <code>character-aura.ts</code> 用的是同一条规则），
+      即视为「已确认是本作真实人物」，建档门槛降回 <strong>1</strong>。这条判据的价值在于
+      <b>天然斩断路人</b>：正文里一笔带过的「老太太／老头／小男孩」压根不会建实体页。
+      已实测验证：该项目里杨寒／杨妙萍／林小满／小晚被认出（门槛 3→1，全部建档），
+      而老太太／老头／小男孩／灰白制服守卫／白褂女人等 8 个路人仍维持门槛 3、被正确挡在门外。</p>
+      <p>另有两条配套修复：① 零命中不再静默，改为打一行
+      <code>[Persona Skill] 第 N 章无人物达标：名字(定位 已出场/门槛)</code>，把「谁在门口、差多少」说清楚；
+      ② <code>ingestChapter</code> 里原来用 <code>if (!isReingest)</code> 短路掉整个学习，
+      这等于<b>永久放弃修复</b>——用户唯一的补救动作（重新提取）恰好是被跳过的那条路。
+      学习本身已幂等（<code>lastLearnedChapter</code> 守卫 + 候选池 <code>chapters[]</code> 去重），
+      重复摄取不会二次烧模型，所以该短路被删除。</p>
+    </div>
+
+    <div class="decision">
+      <div class="id">D2</div>
+      <div class="body">
+        <strong>档位来源：读已有角色定位 + 出场次数动态升降级</strong>
+        <p>定位取自 <code>wiki/characters/角色-&lt;定位&gt;-&lt;名&gt;.md</code> 的<strong>文件名</strong>（列一次目录即得，不读正文）；
+        出场次数取自章节快照与自有计数。零额外 LLM 成本、结果可预测。
+        <span class="muted">不采用「让 LLM 打重要度分」——每章多一次调用且分数会漂移。</span></p>
+      </div>
+    </div>
+
+    <div class="decision">
+      <div class="id">D3</div>
+      <div class="body">
+        <strong>每次「提取记忆」触发，同章所有角色合并成 1 次 LLM 调用</strong>
+        <p>忠于需求原文「第二次出现时完善」，但把同一章需要新建／完善的角色合并进单次调用——
+        成本与出场人数<strong>脱钩</strong>。后台异步（<code>void</code>），不阻塞按钮。</p>
+      </div>
+    </div>
+
+    <div class="decision">
+      <div class="id">D4</div>
+      <div class="body">
+        <strong>生命周期三态：活跃 → 休眠 → 归档，永不自动硬删除</strong>
+        <p>连续 N 章未出场转休眠（不再注入，但保留可见），更久转归档（默认折叠）。
+        正文里写过的角色，用户可能几十章后突然要用，所以全程不丢数据、不删文件。</p>
+      </div>
+    </div>
+
+    <div class="decision">
+      <div class="id">D5</div>
+      <div class="body">
+        <strong>按档位分级注入</strong>
+        <p>绿标／major：结构化字段 + SKILL.md 摘要；minor：只给「怎么说话 + 怎么判断」两条；休眠／归档：不注入。</p>
+        <p class="muted"><b>注意「注入」二字的范围（2026-10-11 澄清）</b>：这条只约束
+        <b>写正文时注入几段</b>（<code>renderPersonaSkillBlock</code>），<b>不约束学习时抽几个字段</b>。
+        学习阶段一律抽全 5 个字段（<code>PERSONA_STORED_FIELDS</code>）。原因：用户要的是
+        「第一章角色一出现，他的 skill 基本就成型了」；提示词若只问 2 个字段，模型连另外 3 个都不会产，
+        卡片永远缺 3 格，只能等后续章节补——那正是「不像档案」的来源。而学习成本与字段数<b>无关</b>：
+        整章所有人物合并成一次 LLM 请求，多写 3 个字段不多花一次调用。真正稀缺的是写正文时的上下文预算，
+        那一层已经由本条守住了。把两者混为一谈会同时牺牲卡片完整度与学习质量。</p>
+      </div>
+    </div>
+
+    <div class="decision">
+      <div class="id">D6</div>
+      <div class="body">
+        <strong>绿色复选框 = 角色重要性标记，一票定档</strong>
+        <p>用户手动点击。绿色 = <strong>永不归档 · 最高档注入 · 每次出场都做重点分析更新 skill · 且只有绿色角色才生成／维护研究文件</strong>。
+        用途是解决自动分档的固有盲区：<em>一个被设定为主要角色、却在前 30 章都没怎么出现的人物</em>，只看出场次数会被误判为次要甚至龙套。</p>
+      </div>
+    </div>
+
+    <div class="decision">
+      <div class="id">D7</div>
+      <div class="body">
+        <strong>独立轻量索引 + 每角色一份 SKILL.md，与「灵魂」彻底隔离</strong>
+        <p>不复用 <code>CharacterAura</code> 的数据结构，也不共用它的 <code>bindings</code>。
+        这是本设计最重要的一个决定——它使 <code>character-aura.ts</code> <strong>零改动</strong>，
+        也让自动学习绕开了 <code>bindCharacterAura()</code> 的校验链（见第 6 节）。</p>
+      </div>
+    </div>
+
+    <div class="decision">
+      <div class="id">D8</div>
+      <div class="body">
+        <strong>定名「人物 Skill」，内部标识一并使用 <code>persona-skill-*</code></strong>
+        <p>「角色」是本仓库里被复用的过度词——拆书库角色 Skill、写作 Skill 的「角色」分类、角色灵魂、角色认知、模拟角色都叫角色。
+        而「<strong>人物</strong>」恰是仓库既有的、专指<strong>本作人物</strong>的词：<code>character-state.ts</code> ↔ UI「人物状态」、
+        <code>character-profile-template.ts</code> ↔「人物小传／人物设定」、<code>listBindableNovelCharacters()</code> ↔「可绑定人物名单」。
+        因此定名不是单纯回避重名，而是回到本作人物本来的词。</p>
+        <p><strong>内外统一</strong>：用户可见处一律「人物 Skill」；代码标识一律 <code>persona-skill-*</code>／<code>personaSkillLibrary</code>，
+        落盘目录 <code>.qmai/persona-skills/</code>。<span class="muted">刻意不在代码里继续用 <code>character-skill-*</code>：
+        那样英文前缀会与 <code>character-aura.ts</code>（角色灵魂）撞车，正是本次改名要消掉的混淆。</span></p>
+        <p class="muted">不变的部分：分支名仍为 <code>feature/character-skill</code>（本分支约定文件围绕它书写，未做分支改名），
+        因此分支说明文档按仓库约定仍取名 <code>docs/character-skill-分支说明.md</code>。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 3 ============ -->
+  <section>
+    <div class="sec-head"><span class="num">03</span><h2>架构与存储</h2></div>
+    <p class="sec-intro">三个平面严格分离：摄取平面只负责产出，写作平面只负责读取，落盘平面只被这两者接触。</p>
+
+    <h3>数据流</h3>
+    <pre><code>【摄取平面】用户点「提取记忆」
+ingestChapter()                      ← 现有链路一行不动
+  ├─ …（读文件 → 校验 → extractSnapshotWithLLM → canonicalize）
+  ├─ syncSnapshotToMemory()          ← 现有
+  └─ void learnPersonaSkillsFromChapter({...})   ← 新增，后台异步，不阻塞
+
+【写作平面】生成章节
+context-engine.ts
+  └─ const { buildCharacterSoulContext } = await import("./character-aura")   ← 现有
+  └─ import { buildPersonaSkillContext } from "./persona-skill-context"  ← 新增（静态导入：它不拖重依赖）
+     → 与灵魂匹配并发调用，共用同一段 matchingText
+     → 写入新加的独立可选字段 personaSkills（FIELD_PRIORITY 10.5，排在 characterAuras 之后）</code></pre>
+
+    <h3>落盘结构</h3>
+    <pre><code>.qmai/persona-skills/
+├── index.json              只有「已有 skill 的」人物（预期几十条）
+│                           元数据 + 出场计数 + 档位 + 绿标 + 状态
+├── sightings.json          只记「还没建 skill 的」候选人物，纯粹数阈值
+└── &lt;id&gt;/
+    ├── SKILL.md            人物 Skill 正文（一人一份，可独立编辑）
+    └── references/research/  ← 仅绿标（pinned）人物才生成</code></pre>
+
+    <h3>index.json 元数据字段</h3>
+    <table>
+      <thead><tr><th style="width:26%">字段</th><th>含义与来源</th></tr></thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>稳定标识，同时用作目录名</td></tr>
+        <tr><td><code>characterName</code></td><td>规范名（取自快照 <code>characters[]</code>，已 canonicalize）</td></tr>
+        <tr><td><code>aliases[]</code></td><td>别名／昵称，来自快照 <code>characterAliases</code>，用于注入匹配</td></tr>
+        <tr><td><code>roleType</code></td><td>主角／配角／反派／导师…，取自 <code>wiki/characters</code> 文件名解析</td></tr>
+        <tr><td><code>tier</code></td><td><code>major</code> / <code>minor</code></td></tr>
+        <tr><td><code>pinned</code></td><td class="ok-t">绿色复选框，压过所有自动分档</td></tr>
+        <tr><td><code>status</code></td><td><code>active</code> / <code>dormant</code> / <code>archived</code></td></tr>
+        <tr><td><code>firstChapter</code> / <code>lastChapter</code></td><td>首次／最近出场章号</td></tr>
+        <tr><td><code>appearanceCount</code></td><td>累计出场次数（用于阈值判定与排序）</td></tr>
+        <tr><td><code>createdChapter</code></td><td>该 skill 建立时的章号</td></tr>
+        <tr><td><code>lastLearnedChapter</code></td><td>最近一次学习／完善的章号（幂等守卫）</td></tr>
+        <tr><td><code>skillRevision</code></td><td>正文版本号，每次完善 +1</td></tr>
+        <tr><td><code>editedByUser</code></td><td class="acc-t">用户手动编辑过 → 之后 AI 不再整份覆盖</td></tr>
+        <tr><td><code>hasResearch</code></td><td>是否已有研究文件。缺失一律按<strong>已有</strong>处理——宁可漏生成，也不要用只有本章的素材覆盖累积内容（见 D6）</td></tr>
+        <tr><td><code>updatedAt</code></td><td>元数据最后修改时间（ISO 字符串）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout acc">
+      <span class="label">关键性质</span>
+      <p><code>character-aura.ts</code> <strong>一行都不用改</strong>。因为不共用 <code>bindings</code>，自动学习根本不会调用
+      <code>bindCharacterAura()</code>，也就不会撞上它内部的 <code>hasCharacterProfile()</code> 校验——
+      那 3000 个实体文件的逐份正文扫描<strong>不在本功能的路径上</strong>。
+      「灵魂」页照旧，零回归风险。</p>
+    </div>
+
+    <h3>两个文件的职责边界（重要）</h3>
+    <table>
+      <thead><tr><th style="width:24%">文件</th><th style="width:30%">装什么</th><th>规模与维护</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>index.json</code></td>
+          <td>已有 skill 的角色，<strong>出场计数存在这里</strong>（<code>appearanceCount</code> / <code>lastChapter</code>）</td>
+          <td>预期几十条。元数据单条增删，不重写正文。</td>
+        </tr>
+        <tr>
+          <td><code>sightings.json</code></td>
+          <td><strong>只记还没建 skill 的角色</strong>，纯粹为了数「够不够阈值」；一旦建了 skill 就移出，交给 index 接管</td>
+          <td>每个角色<strong>只被数一次</strong>，不存在两处计数对不上的问题。可安全修剪 <code>count=1</code> 且久未出场的路人条目，不会随篇幅无限膨胀。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <span class="label">写在设计里的修正记录</span>
+      <p>最初草案让 <code>sightings.json</code> 记录<strong>全部</strong>出场角色，那会把 3000 条记账压在每次摄取上。
+      收窄为「只装候选」后，两个文件各自只承担一个明确的规模：index = 有 skill 的人（几十），sightings = 待观察的候选。</p>
+    </div>
+  </section>
+
+  <!-- ============ 4 ============ -->
+  <section>
+    <div class="sec-head"><span class="num">04</span><h2>学习机制</h2></div>
+    <p class="sec-intro">需求的两条主机制——「初始生成」与「持续完善」——在这里落地，并共用一次 LLM 调用。</p>
+
+    <h3>挂钩位置</h3>
+    <p>挂在 <code>chapter-ingest.ts</code> 的 <code>syncSnapshotToMemory()</code> 之后（当前实现约在第 442 行），照抄既有「社区摘要」的 <code>void rebuild…()</code> 后台异步范式：</p>
+    <pre><code>if (!isReingest && snapshot) {
+  void learnPersonaSkillsFromChapter({
+    projectPath: pp,
+    chapterNumber: snapshot.chapterNumber,
+    chapterBody: body,
+    snapshot,                     // 用 snapshot.characters 与 snapshot.characterAliases
+    llmConfig, novelConfig, signal,
+  })
+}</code></pre>
+    <div class="callout warn">
+      <span class="label">两道幂等闸门</span>
+      <p>① <code>isReingest</code> 必须短路——重新提取一遍不应重复生成、重复烧 LLM；<br>
+      ② 再叠一层 <code>index/sightings</code> 的 <code>lastLearnedChapter === chapterNumber</code> 守卫，防并发或重复触发。</p>
+    </div>
+
+    <h3>每次运行的步骤</h3>
+    <p><strong>零 LLM 的确定性部分：</strong></p>
+    <ol>
+      <li>读 <code>index.json</code> + <code>sightings.json</code>。</li>
+      <li><code>listDirectory(wiki/characters)</code> 解析 <code>角色-&lt;定位&gt;-&lt;名&gt;.md</code>，得到角色→定位映射（只列目录，不读正文）。</li>
+      <li><code>sightings</code> 对本章出场角色全部记账（<code>count++</code>、<code>lastChapter</code>）；已在 index 的角色直接更新 index 内的计数。</li>
+      <li>按第 5 节阈值算出本章的 <strong>create 目标</strong> 与 <strong>refine 目标</strong>。</li>
+    </ol>
+
+    <p><strong>一次 LLM 调用：</strong></p>
+    <ol start="5">
+      <li>仅当 create 或 refine 目标非空时才发起——<strong>一章最多一次</strong>，与出场人数无关。
+        走 <code>resolveNovelModel(llmConfig, novelConfig, "extract")</code>（符合项目约定：新增 LLM 调用必须走模型解析器）。</li>
+      <li>提示词输入：本章正文（截断）+ 每个 refine 目标现有的 <code>SKILL.md</code>（截断）+ 该角色的定位与已出场信息。
+        要求返回<strong>严格 JSON</strong>：按角色名分组的 skill 正文（含起始风格／说话方式／性格）。</li>
+    </ol>
+
+    <p><strong>落盘：</strong></p>
+    <ol start="7">
+      <li>为每个 create 目标写一份 <code>SKILL.md</code>，并在 <code>index.json</code> 建条目（同时从 <code>sightings</code> 移出）。</li>
+      <li>为每个 refine 目标更新 <code>SKILL.md</code>（<code>editedByUser</code> 为真时<strong>改为增量补充／保留用户段落</strong>，不整份覆盖），<code>skillRevision++</code>、<code>lastLearnedChapter</code> 更新。</li>
+      <li><code>index.json</code> 单次原子写。</li>
+    </ol>
+
+    <p><strong>生命周期扫描：</strong></p>
+    <ol start="10">
+      <li>按 <code>当前章 − lastChapter</code> 更新 <code>status</code>（active / dormant / archived），<strong>pinned 角色豁免</strong>，不进入休眠与归档。</li>
+    </ol>
+
+    <h3>研究文件策略（对应需求追问）</h3>
+    <div class="callout ok">
+      <span class="label">已采纳的产品判断</span>
+      <p>研究文件<strong>只给绿标（pinned）角色生成</strong>，且<strong>只生成一次</strong>：在该角色<strong>创建的那一次批量调用里顺带产出</strong>——
+      LLM 在同一次响应里同时返回 SKILL.md 与 6 份研究内容。因此<strong>每章仍然只有 1 次 LLM 调用</strong>，与出场人数无关，
+      也不会因为绿标而变贵。<strong>不活跃、出场很少的配角完全不生成研究文件。</strong>
+      如果一个角色<strong>建档之后才</strong>被点亮绿勾，则它<strong>下次出场时</strong>生成研究文件。</p>
+      <p><strong>已经有研究文件的角色，AI 不会自动重写</strong>：章节学习的提示词只看得到 <code>SKILL.md</code>，看不到那 6 份研究文件，
+      自动重写等于用只有本章的素材覆盖掉累积内容。要刷新请用界面上的<strong>「重新整理研究文件」</strong>按钮（v1 不做自动刷新）。</p>
+    </div>
+
+    <h3>失败策略</h3>
+    <p>全程 best-effort：每一步的异常都 <code>console.warn</code> 吞掉，<strong>绝不向外抛</strong>。
+    人物 Skill 学习是「锦上添花」，不能因为它的失败把整章摄取搞失败——这也是 <code>buildEstablishedContextForExtraction()</code> 已经在用的原则。</p>
+  </section>
+
+  <!-- ============ 5 ============ -->
+  <section>
+    <div class="sec-head"><span class="num">05</span><h2>档位、阈值与生命周期</h2></div>
+    <p class="sec-intro">所有阈值集中在一处常量模块，便于日后调整，也便于表驱动测试。</p>
+
+    <table>
+      <thead><tr><th style="width:24%">档位</th><th style="width:30%">定位来源</th><th>建 skill / 完善条件</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>major</strong></td>
+          <td>主角 · 男主 · 女主 · 反派 · 导师</td>
+          <td>出场 <strong>1</strong> 次即建 skill，之后每次出场都完善</td>
+        </tr>
+        <tr>
+          <td><strong>minor</strong></td>
+          <td>配角 · 男配 · 女配 · 盟友</td>
+          <td>出场 <strong>≥2</strong> 次建 skill，<strong>≥3</strong> 次起完善</td>
+        </tr>
+        <tr>
+          <td><strong>未标注定位</strong><br><span class="muted">但已确认是真实人物</span></td>
+          <td>文件名解析不出定位，<br>但 <code>wiki/entities/</code> 有 <code>tags: [character]</code> 实体页</td>
+          <td>出场 <strong>1</strong> 次即建 skill（<span class="muted">D1 补充：定位目录缺失时的兜底，档位仍是 minor，注入仍只给 2 段</span>）</td>
+        </tr>
+        <tr>
+          <td><strong>未标注定位</strong><br><span class="muted">且无实体页</span></td>
+          <td>文件名解析不出定位，<br>也没有人物实体页</td>
+          <td>出场 <strong>≥3</strong> 次才按 minor 处理（自动滤掉一笔带过的路人）</td>
+        </tr>
+        <tr style="background:var(--panel-alt)">
+          <td class="ok-t"><strong>绿色 pinned</strong></td>
+          <td>用户手动标记</td>
+          <td class="ok-t"><strong>一票压过以上全部</strong>：立即建、永不归档、最高档注入、并生成研究文件</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>生命周期阈值</h3>
+    <ul>
+      <li>连续 <strong>10</strong> 章未出场 → <code>dormant</code>（不再注入写作，但保留在库中可见、可唤醒）</li>
+      <li>连续 <strong>30</strong> 章未出场 → <code>archived</code>（技能库默认折叠）</li>
+      <li>pinned 角色<strong>豁免</strong>以上两档，始终 <code>active</code></li>
+      <li>任何时刻<strong>不物理删除</strong> <code>SKILL.md</code>；删除只能由用户在界面上显式执行（带确认）</li>
+      <li>出场后自动复活：任何一次出场把 <code>status</code> 拉回 <code>active</code>，<code>lastChapter</code> 更新</li>
+    </ul>
+
+    <div class="callout">
+      <span class="label">为什么用「休眠」而不是直接归档</span>
+      <p>只看出场次数的硬阈值，会在「角色沉寂几章、剧情马上要回到他身上」时误折叠。
+      中间态让沉寂有缓坡：休眠只是不注入（省 token），成本几乎为零，但角色仍在用户的视野里。</p>
+    </div>
+  </section>
+
+  <!-- ============ 6 ============ -->
+  <section>
+    <div class="sec-head"><span class="num">06</span><h2>规模分析：3000 个角色会不会卡</h2></div>
+    <p class="sec-intro">这是需求中重点提出的疑问。结论：卡顿的成因<strong>不是 skill 数量</strong>，而是「每次写作都全量扫」与「按人名逐个读正文」。两者已分别被分级与独立存储解掉。</p>
+
+    <h3>两个规模必须分开算</h3>
+    <table>
+      <thead><tr><th style="width:22%">规模</th><th style="width:36%">分级前</th><th>分级后</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>有 skill 的人</strong><br><span class="muted">几十个</span></td>
+          <td><code>character-aura.json</code> 含全部 aura 的全部文本字段，MB 级；每次写作整份 <code>JSON.parse</code>；
+              匹配循环对<strong>每一条</strong> binding 做「正常化 + 拼音 + 简繁」三次转换；命中角色各读 7 个文件（SKILL.md + 6 份研究）</td>
+          <td class="ok-t">✓ 已解：index 只几十条元数据；研究文件不再是章节角色的默认产物；命中谁才读谁的 SKILL.md</td>
+        </tr>
+        <tr>
+          <td><strong>有名字的人</strong><br><span class="muted">3000 个</span></td>
+          <td><code>listBindableNovelCharactersLocal()</code> 逐个 <code>readFile</code> 读 <code>wiki/entities</code> 下每个 .md 的<strong>正文</strong>来判定「是不是角色」；
+              其指纹缓存含<strong>修改时间</strong>，而每章摄取都会写实体页 → mtime 变化 → 指纹失效 → 重新全读</td>
+          <td class="ok-t">✓ 已解：本功能<strong>不走</strong>这条路径。定位从 <code>wiki/characters</code> 的<strong>文件名</strong>解析（一次目录列举），匹配只在几十条 index 上做</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout ok">
+      <span class="label">结论</span>
+      <p>选择独立存储（D7）后，「谁是角色」的判定不再需要读实体页正文，也不再有「每章一次 3000 文件全读」。
+      这两个问题由架构本身免费解决，<strong>因此不额外引入索引缓存层</strong>——不造多余机制。</p>
+    </div>
+
+    <h3>内存与 I/O 的确定上界</h3>
+    <ul>
+      <li><code>index.json</code>：条目数 = 有 skill 的角色数，随剧情推进缓慢增长，量级为几十到低百位。</li>
+      <li>单次写作读取：<code>index.json</code> 一次 + 命中角色的 <code>SKILL.md</code> 各一次（≤ 12 份，见下节封顶）。</li>
+      <li>单次摄取写入：<code>index.json</code> / <code>sightings.json</code> 各一次原子写 + create/refine 目标的 <code>SKILL.md</code>。</li>
+      <li>LLM 调用：<strong>每章最多 1 次</strong>，与本章出场人数无关。</li>
+    </ul>
+  </section>
+
+  <!-- ============ 7 ============ -->
+  <section>
+    <div class="sec-head"><span class="num">07</span><h2>分级注入</h2></div>
+    <p class="sec-intro">回答「章节生成时会不会自动引用」：<strong>会</strong>。复用既有链路（同一个 <code>matchingText</code>、同一套裁剪与预算机制），但新增一个<strong>低优先级的独立上下文字段</strong>——原因见下。</p>
+
+    <div class="callout warn">
+      <strong>本节的表只管「注入」，不管「学习」</strong>
+      <p>下表决定的是<b>写正文时往上下文里塞几段</b>（<code>renderPersonaSkillBlock</code>）。
+      <b>建档与落盘一律写全 5 个字段</b>（<code>PERSONA_STORED_FIELDS = PERSONA_MAJOR_FIELDS</code>）——
+      minor 人物的 <code>SKILL.md</code> 在文件里是完整的 5 段，只是注入时被裁到 2 段。
+      这样卡片在技能库里是饱满的（用户要的「第一章就成型」），而写正文的预算不受影响。
+      两处字段来源刻意分开，别把其中一处改成引用另一处。</p>
+    </div>
+
+    <table>
+      <thead><tr><th style="width:22%">档位</th><th>注入内容</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="ok-t"><strong>pinned / major</strong></td>
+          <td>5 个结构化字段（怎么说话 · 怎么想 · 怎么判断 · 什么不做 · 知道局限）+ <code>SKILL.md</code> 压缩摘要</td>
+        </tr>
+        <tr>
+          <td><strong>minor</strong></td>
+          <td>只给两条最关键的：<strong>怎么说话</strong> + <strong>怎么判断</strong></td>
+        </tr>
+        <tr>
+          <td class="muted"><strong>dormant / archived</strong></td>
+          <td class="muted">不注入（保留在库中，可随时唤醒）</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <span class="label">字段表为什么只留 5 个「演技」字段</span>
+      <p>早先这一行还列了「分类」「摘要」，实现时确认删掉：人物名 / 定位 / 档位 / 出场次数由注入区块的<strong>标题行</strong>给出，整份 <code>SKILL.md</code> 的压缩摘要又<strong>单独跟着注入</strong>，再加这两个字段纯属重复占 4000 字预算。</p>
+      <p>同样刻意<strong>不</strong>把「关系网 / 成长轨迹 / 底线与逆鳞 / 在意什么」这类深度材料放进字段表 —— 那些归研究文件的「关键关系」「动机与弧光」「禁忌与误区」，<strong>只给绿勾人物生成</strong>（D6）。字段表一旦装了它们，研究文件就白生成了，非绿勾人物的注入预算还会被这些内容占满。判定标准：<em>这个字段答的是「这一场该怎么演他」，还是「他这个人是怎么长成的」？只有前者进字段表。</em></p>
+    </div>
+
+    <h3>注入位置</h3>
+    <p>沿用 <code>context-engine.ts</code> 现有的<strong>同一个 <code>matchingText</code></strong>（任务描述 + 章纲 + 人物状态 + 认知状态），与灵魂共用一次匹配时机。新模块 <code>persona-skill-context.ts</code> 导出 <code>buildPersonaSkillContext()</code>，与灵魂匹配<strong>并发</strong>调用，结果写入<strong>新加的独立可选字段 <code>personaSkills</code></strong>：</p>
+    <pre><code>...(personaSkillContext ? { personaSkills: personaSkillContext } : {})</code></pre>
+    <p>它 <code>FIELD_PRIORITY = 10.5</code>，<strong>紧跟 <code>characterAuras</code>（10）之后</strong>。可选字段，所以既有 32 处 <code>ContextPack</code> 构造点一处都不用改。</p>
+    <div class="callout bad">
+      <span class="label">为什么不并进 characterAuras</span>
+      <p><code>contextPackToPrompt()</code> 有一条<strong>硬失败守卫</strong>：只要存在「人格规则」（<code>portablePersonalities</code>），<code>characterAuras</code> 就必须<strong>完整</strong>出现在裁剪后的提示词里，否则直接抛错、停止生成。</p>
+      <p>而 <code>characterAuras</code> 本来就坐在裁剪边界上（优先级 10，前面已有约 10 个核心字段占位）。把最高 4000 字的「人物 Skill」文本 join 进去会让它从数百字涨到数千字 → 显著更容易放不下 → 更容易抛出一个<strong>与人格规则毫无关系</strong>的「角色人格规则未完整保留」错误，误导用户去缩小章节范围。</p>
+      <p>拆成独立字段后：预算紧张时被牺牲的是 <code>personaSkills</code>（它排在后面），人格规则不受影响；被裁掉也只是降级，<strong>不触发任何守卫</strong>。</p>
+    </div>
+
+    <h3>匹配规则（v1）</h3>
+    <p>归一化（NFKC + 去空白与标点 + 小写）后依次尝试：</p>
+    <ol>
+      <li>精确相等</li>
+      <li>别名命中（来自 <code>aliases[]</code>）</li>
+      <li><strong>双向子串包含</strong>——角色名出现在 <code>matchingText</code> 中，或反之</li>
+    </ol>
+    <div class="callout warn">
+      <span class="label">刻意不做的事</span>
+      <p><strong>不引入 pinyin-pro / opencc</strong>。那会把两个重量级 vendor 拖进本模块，而 <code>bundle-boundaries.spec.ts</code>
+      专门盯着这条体积边界（它断言 <code>character-aura.ts</code> 只能用 <code>opencc-js/t2cn</code>、
+      且 <code>context-engine.ts</code> / <code>review-adapter.ts</code> 只能用动态 <code>import()</code>）。<br>
+      别名已由快照 <code>characterAliases</code> 覆盖昵称，双向子串覆盖「小晴 / 林小晴」这类情形，代价为零。</p>
+    </div>
+
+    <h3>双重封顶</h3>
+    <ul>
+      <li>排序：<code>pinned → major → minor</code>，同级按 <code>appearanceCount</code> 降序，取前 <strong>12</strong> 人</li>
+      <li>聚合文本上限 <strong>4000</strong> 字（超出截断）</li>
+      <li>群像章节（婚宴、宗门大会）不会把上下文吃穿</li>
+    </ul>
+  </section>
+
+  <!-- ============ 8 ============ -->
+  <section>
+    <div class="sec-head"><span class="num">08</span><h2>技能库界面</h2></div>
+    <p class="sec-intro">技能库从 3 个 tab 扩到 4 个；人物 Skill 的列表、绿标与编辑都在这里。</p>
+
+    <h3>新增第 4 个 tab</h3>
+    <pre><code>去AI味技能  |  写作 Skill  |  人物 Skill  |  收藏</code></pre>
+    <p><code>skillLibraryTabs</code> 增加一项 → <code>activeView = "personaSkillLibrary"</code>。
+    需要同步扩的地方：<code>src/stores/wiki-store.ts</code> 的 <code>activeView</code> 联合类型、
+    <code>src/components/layout/icon-sidebar.tsx</code> 的高亮条件、<code>src/components/layout/content-area.tsx</code> 的 <code>case</code> 分支。</p>
+    <div class="callout ok">
+      <span class="label">不需要做的事</span>
+      <p>复用 <code>data-ui-page="skills"</code> 外壳，因此<strong>不需要</strong>往 <code>ui-test-tools.spec.tsx</code>
+      的页面注册表（<code>it.each</code> 那张「每页一条」的表）里加条目。</p>
+    </div>
+
+    <h3>列表</h3>
+    <ul>
+      <li>卡片内容：角色名 · 定位 · 档位 · 出场 N 次 · 最后第 M 章</li>
+      <li><strong>绿色复选框</strong>——点击即落盘 <code>pinned</code>，是本功能唯一的手动干预入口</li>
+      <li>筛选：按档位 / 按状态 / 关键字搜索</li>
+      <li>归档角色默认折叠，可展开查看；提供「唤醒」操作</li>
+    </ul>
+
+    <h3>编辑器</h3>
+    <ul>
+      <li>直接编辑 <code>SKILL.md</code> 正文并保存</li>
+      <li><strong>保存后置 <code>editedByUser = true</code></strong>——之后 AI 自动完善改为增量补充／保留用户段落，<strong>不再整份覆盖</strong>。
+        否则用户的手工修改会在下一次「提取记忆」时静默丢失，这是必须守住的一条。</li>
+      <li>操作：唤醒 / 归档 / 删除（带确认）；pinned 角色可「重新整理研究文件」</li>
+    </ul>
+  </section>
+
+  <!-- ============ 9 ============ -->
+  <section>
+    <div class="sec-head"><span class="num">09</span><h2>测试策略</h2></div>
+    <p class="sec-intro">按项目既有做法以 mock 测试为主（<code>npm run test:mocks</code>，不需 LLM 密钥），先写测试再实现。测试用 mock LLM，因此「同章只发起 1 次调用」这类断言可直接验证调用次数，不依赖真实模型。</p>
+
+    <table>
+      <thead><tr><th style="width:34%">测试文件</th><th>覆盖内容</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>persona-skill-store.spec.ts</code></td>
+          <td>原子读写 · 并发写不互相覆盖 · 坏 JSON 降级为空而不抛错</td>
+        </tr>
+        <tr>
+          <td><code>persona-skill-learning.spec.ts</code></td>
+          <td>
+            <strong>阈值判定表驱动</strong>（major 1 次建 / minor 2 次建 3 次完善 / 未标注 3 次 / pinned 立即建）·
+            重提取幂等短路 · <strong>同章 5 个角色只发起 1 次 LLM</strong> · 生命周期三态流转且 pinned 豁免 ·
+            <code>editedByUser</code> 时不被整份覆盖
+          </td>
+        </tr>
+        <tr>
+          <td><code>persona-skill-context.spec.ts</code></td>
+          <td>分级注入的内容形状 · 前 12 人 + 4000 字封顶 · dormant/archived 不注入 · 无匹配时返回空串</td>
+        </tr>
+        <tr>
+          <td><code>persona-skill-view.spec.tsx</code></td>
+          <td>tab 渲染 · 绿标点击调用 store · 编辑保存后 <code>editedByUser</code> 置位</td>
+        </tr>
+        <tr>
+          <td><code>chapter-ingest.spec.ts</code></td>
+          <td><strong>不修改</strong>既有断言；新增用例验证 <code>isReingest</code> 为真时学习被跳过</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>回归验证命令</h3>
+    <pre><code>npm run test:mocks      # 主测试套件（含 scripts/lint-character-aura.mjs 前置校验）
+npm run typecheck       # tsc --build
+npm run typecheck:tests # tsc -p tsconfig.test.json --noEmit</code></pre>
+    <p class="muted">基线（本分支基点 dcf8b38）：720 文件 / 6963 用例，6 todo。已知环境抖动：
+    整套跑时偶发 vitest worker 启动失败使某文件记为 1 failed，单独重跑该文件即可判定。
+    另：跑过测试后 <code>git status</code> 会冒出约 170 个 EOL 假阳性（集中在 <code>tests/fixtures/**</code> 与两个 <code>docs/*/dump.html</code>），
+    用 <code>git diff HEAD --name-only</code> 判定真实差异应为 0。</p>
+  </section>
+
+  <!-- ============ 10 ============ -->
+  <section>
+    <div class="sec-head"><span class="num">10</span><h2>文件清单与分期</h2></div>
+
+    <h3>新建（8）</h3>
+    <pre><code>src/lib/novel/persona-skill-types.ts        类型与常量（阈值集中在此）
+src/lib/novel/persona-skill-store.ts        index/sightings/SKILL.md 的原子读写
+src/lib/novel/persona-skill-learning.ts     阈值判定、生命周期、编排 LLM
+src/lib/novel/persona-skill-prompt.ts       两套提示词（起始风格 / 持续完善）
+src/lib/novel/persona-skill-context.ts      分级注入装配
+src/lib/novel/persona-skill-*.spec.ts       对应单测
+src/components/skill-library/persona-skill-view.tsx + .spec.tsx</code></pre>
+
+    <h3>修改（5）</h3>
+    <pre><code>src/lib/novel/chapter-ingest.ts                             函数体内加一行 void 挂钩（签名不动）
+src/lib/novel/context-engine.ts                             静态 import + 新增 personaSkills 字段
+src/components/skill-library/unified-skill-library-view.tsx 第 4 个 tab
+src/components/layout/content-area.tsx                      case 分支
+src/stores/wiki-store.ts                                    activeView 联合类型</code></pre>
+
+    <h3>明确不碰</h3>
+    <p><code>character-aura.ts</code> · <code>book-analysis/**</code>（别人的角色）· <code>de-ai-skill-library.ts</code> ·
+    <code>skill-seed.ts</code> / <code>skill-hub-seed.ts</code> · <code>preview-panel.tsx</code>（保存正式章节路径）。</p>
+
+    <h3>分期</h3>
+    <table>
+      <thead><tr><th style="width:16%">期</th><th style="width:32%">内容</th><th>完成判据</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>第一期</strong><br>核心闭环</td>
+          <td>types · store · learning（阈值／绿标／生命周期）· context 注入 · chapter-ingest 挂钩 + 全套单测</td>
+          <td><code>test:mocks</code> / <code>typecheck</code> 全绿，且「同章 5 角色只 1 次 LLM」有测试证据</td>
+        </tr>
+        <tr>
+          <td><strong>第二期</strong><br>界面</td>
+          <td>技能库第 4 个 tab · 列表／绿标／编辑器 · UI 测试</td>
+          <td>绿标点击落盘、编辑保存置 <code>editedByUser</code> 均有测试证据</td>
+        </tr>
+        <tr>
+          <td><strong>第三期</strong><br>收尾</td>
+          <td><code>docs/character-skill-分支说明.md</code> · 提交</td>
+          <td>文档落 <code>docs/</code>，符合项目文档放置约定</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 11 ============ -->
+  <section>
+    <div class="sec-head"><span class="num">11</span><h2>硬约束与风险</h2></div>
+    <p class="sec-intro">以下均为已核对源码的既有约定，实现时必须遵守；违反其中任何一条都会直接让测试变红或让产品行为回退。</p>
+
+    <div class="callout bad">
+      <span class="label">约束 1 · 保存正式章节不自动摄取</span>
+      <p><code>preview-panel.tsx</code> 明确写着「保存正式章节时已按用户要求不再自动提取记忆」。
+      自动学习<strong>不能</strong>挂在「保存章节」上，只能挂在 <code>ingestChapter()</code>（用户点「提取记忆」）。<span class="ok-t">✓ 设计已符合</span></p>
+    </div>
+
+    <div class="callout bad">
+      <span class="label">约束 2 · 不能改 ingestChapter 的签名</span>
+      <p><code>chapter-ingest.spec.ts</code> 用<strong>源码字符串</strong>断言 <code>export async function ingestChapter</code>。
+      改动其签名会触发该测试失败。<span class="ok-t">✓ 设计只在函数体内加一行 <code>void</code></span></p>
+    </div>
+
+    <div class="callout bad">
+      <span class="label">约束 3 · 体积边界</span>
+      <p><code>bundle-boundaries.spec.ts</code> 强制 <code>context-engine.ts</code> / <code>review-adapter.ts</code> 对 character-aura 只能用动态
+      <code>await import()</code>，且 <code>character-aura.ts</code> 不能改成 <code>from "opencc-js"</code>。
+      <span class="ok-t">✓ 新模块同样走动态 <code>import()</code>，且不碰这两个文件</span></p>
+    </div>
+
+    <div class="callout bad">
+      <span class="label">约束 4 · 新增 LLM 调用必须走模型解析器</span>
+      <p>项目约定：<code>resolveNovelModel()</code> / <code>resolveReviewModel()</code>。<span class="ok-t">✓ 学习调用走 <code>resolveNovelModel(…, "extract")</code></span></p>
+    </div>
+
+    <div class="callout bad">
+      <span class="label">约束 5 · 草稿隔离</span>
+      <p>未确认内容不得触发摄取、不得污染记忆库。本功能只挂在 <code>ingestChapter()</code> 内，
+      而该函数本身已带 <code>isFinalChapter(fm)</code> 与 <code>allowDraft</code> 校验。<span class="ok-t">✓ 天然继承</span></p>
+    </div>
+
+    <h3>残余风险</h3>
+    <ul>
+      <li><strong>同名角色</strong>：两个不同人物共用同一名字时，会共用一条 skill。v1 接受该限制（既有角色匹配同样如此），
+        用户可在技能库中手动改名或删除其一。</li>
+      <li><strong>LLM 返回不规范 JSON</strong>：解析失败即本次学习整体跳过并 warn，<code>lastLearnedChapter</code> 不推进，
+        下次摄取可重试。</li>
+      <li><strong>自动分档误判</strong>：这是 D6 绿色复选框存在的理由。用户一旦标记 pinned，后续不再受自动规则影响。</li>
+      <li><strong>学习落后于正文</strong>：后台异步意味着紧接下一章生成时，skill 可能还没落盘。可接受——
+        人物 Skill 是渐进累积的资产，不是硬约束。</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="num">12</span><h2>需求对照表</h2></div>
+    <p class="sec-intro">逐条回应原始需求，确保没有遗漏或过量实现。</p>
+    <table>
+      <thead><tr><th style="width:44%">需求原文</th><th>落地方式</th></tr></thead>
+      <tbody>
+        <tr><td>技能库中增加「角色 skill」<span class="muted">（现定名「人物 Skill」，见 D8）</span></td><td>技能库第 4 个 tab（第 8 节）</td></tr>
+        <tr><td>初始生成：分析角色风格、说话方式、性格，自动加入技能库</td><td>摄取时按阈值 create，一次 LLM 批量生成 SKILL.md（第 4 节）</td></tr>
+        <tr><td>持续完善：第二次出现时再次完善</td><td>每次摄取对 refine 目标完善，与 create 合并进同一次调用（第 4 节）</td></tr>
+        <tr><td>人为编辑</td><td>编辑器可直接改 SKILL.md，并置 <code>editedByUser</code> 保护（第 8 节）</td></tr>
+        <tr><td>第一章 5 个角色就生成 5 个 skill</td><td><span class="bad-t">已被 D1 修正</span>为按重要度分级——这是规模失控的源头</td></tr>
+        <tr><td>3000 个人物会不会生成 3000 个 skill、会不会卡</td><td>第 6 节完整分析；分级把「有 skill 的人」压到几十，独立存储避开 3000 文件全读</td></tr>
+        <tr><td>这些 skill 是不是也要做分类</td><td>三个维度：档位（major/minor）、定位（沿用 <code>CHARACTER_ROLE_TYPES</code>）、状态（active/dormant/archived）</td></tr>
+        <tr><td>出场配角的 skill 什么时候删除</td><td>不删除；三态归档，pinned 豁免（第 5 节）</td></tr>
+        <tr><td>章节生成时是否会自动引用这些 skill</td><td>会。走 <code>buildContextPack()</code> 新增的独立 <code>personaSkills</code> 字段，按档位分级（第 7 节）</td></tr>
+        <tr><td>这个「角色 skill」会不断学习、不断提升<span class="muted">（现为「人物 Skill」）</span></td><td>每次摄取出场即刷新，<code>skillRevision</code> 累积（第 4 节）</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <footer style="margin-top:64px;padding-top:22px;border-top:1.5px solid var(--line);font-size:13px;color:var(--muted)">
+    <p>QMAI · feature/character-skill · 设计规格 · 2026-10-10</p>
+    <p style="margin-top:6px">本文件为设计规格，不含实施步骤。实施计划另见 <code>docs/superpowers/plans/</code>。</p>
+  </footer>
+</div>
+</body>
+</html>

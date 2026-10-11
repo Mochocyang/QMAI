@@ -20,6 +20,16 @@ vi.mock("@/commands/fs", () => ({
   readFile: readFileMock,
   writeFile: writeFileMock,
   writeFileAtomic: writeFileAtomicMock,
+  createDirectory: async () => {},
+  // 加固后的 store 用 fileExists 区分「索引不存在」与「读不出来」。
+  // 这两个用例只验证「tab 切过去了、页面渲染出来了」，不需要真有索引，返回 false 最省事：
+  // store 会当成「还没建过档」→ 空列表 → 渲染空态。
+  fileExists: async () => false,
+  listDirectory: async () => [],
+}))
+
+vi.mock("@/lib/novel/persona-skill-learning", () => ({
+  regeneratePersonaSkillResearch: vi.fn(async () => true),
 }))
 
 vi.mock("@tauri-apps/api/path", () => ({
@@ -117,6 +127,7 @@ function getButton(container: HTMLElement, label: string): HTMLButtonElement | u
 
 describe("UnifiedSkillLibraryView", () => {
   beforeEach(() => {
+    useWikiStore.getState().setPersonaSkillLibraryDraftDirty(false)
     vi.clearAllMocks()
     readFileMock.mockImplementation(async (path: string) => {
       if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
@@ -287,6 +298,35 @@ describe("UnifiedSkillLibraryView", () => {
     )
     expect(useWikiStore.getState().activeView).toBe("skillLibrary")
     expect(container.querySelector('[data-testid="skill-library-view"]')).not.toBeNull()
+
+    cleanup(root, container)
+  })
+
+  it("切到「人物 Skill」tab：写 activeView 并渲染人物页", async () => {
+    const { container, root } = await renderLibrary()
+
+    await act(async () => {
+      getButton(container, "人物 Skill")?.click()
+    })
+    await flushEffects()
+
+    expect(useWikiStore.getState().activeView).toBe("personaSkillLibrary")
+    expect(container.querySelector('[data-testid="persona-skill-view"]')).not.toBeNull()
+    // 人物页没有统一技能库的搜索框，说明确实换了内容区
+    expect(container.querySelector('[data-testid="unified-skill-search-input"]')).toBeNull()
+
+    cleanup(root, container)
+  })
+
+  it("人物 Skill tab 不显示去AI味的「新建技能 / 导入」按钮", async () => {
+    const { container, root } = await renderLibrary()
+
+    await act(async () => {
+      getButton(container, "人物 Skill")?.click()
+    })
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="skill-library-header-actions"]')).toBeNull()
 
     cleanup(root, container)
   })

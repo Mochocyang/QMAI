@@ -658,7 +658,7 @@ interface WikiState {
   pendingScrollImageSrc: string | null
   chatExpanded: boolean
   searchPanelOpen: boolean
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation" | "maintenance"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "personaSkillLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation" | "maintenance"
   activeSettingsCategory: SettingsCategoryId | null
   activeModelSettingsTab: ModelSettingsTabId | null
   selectedSoulId: string | null
@@ -668,6 +668,7 @@ interface WikiState {
   skillLibraryDraftDirty: boolean
   selectedWritingSkillLibrarySkillId: string | null
   writingSkillLibraryDraftDirty: boolean
+  personaSkillLibraryDraftDirty: boolean
   selectedReviewDimension: string | null
   selectedReviewFilePath: string
   graphMode: string
@@ -719,6 +720,12 @@ interface WikiState {
   novelConfig: NovelConfig
   /** 社区摘要生成错误信息（UI 层监听并弹窗提示） */
   communitySummaryError: string | null
+  /**
+   * 人物 Skill 本轮没建出档案的原因（UI 层监听并弹窗提示）。
+   * 学习是后台 `void` 调用，失败以前只写 console，用户在界面上完全看不到 ——
+   * 表现就是「提取完了技能库还是空的」，必须有个能看见的出口。
+   */
+  personaSkillLearningError: string | null
   searchHistory: string[]
   searchTrigger: { query: string; ts: number } | null
   revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig
@@ -765,6 +772,7 @@ interface WikiState {
   setSkillLibraryDraftDirty: (dirty: boolean) => void
   setSelectedWritingSkillLibrarySkillId: (id: string | null) => void
   setWritingSkillLibraryDraftDirty: (dirty: boolean) => void
+  setPersonaSkillLibraryDraftDirty: (dirty: boolean) => void
   setSelectedReviewDimension: (dimension: string | null) => void
   setSelectedReviewFilePath: (path: string) => void
   setGraphMode: (mode: string) => void
@@ -802,6 +810,7 @@ interface WikiState {
   setPlanExecuteEnabled: (enabled: boolean) => void
   setNovelConfig: (config: Partial<NovelConfig>) => void
   setCommunitySummaryError: (error: string | null) => void
+  setPersonaSkillLearningError: (error: string | null) => void
   setSearchHistory: (history: string[]) => void
   setSearchTrigger: (trigger: { query: string; ts: number } | null) => void
   setRevisionFeedbackWindowConfig: (revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig) => void
@@ -848,6 +857,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   skillLibraryDraftDirty: false,
   selectedWritingSkillLibrarySkillId: null,
   writingSkillLibraryDraftDirty: false,
+  personaSkillLibraryDraftDirty: false,
   selectedReviewDimension: null,
   selectedReviewFilePath: "",
   graphMode: "overview",
@@ -921,11 +931,22 @@ export const useWikiStore = create<WikiState>((set) => ({
     ) {
       return {}
     }
+    if (
+      state.activeView === "personaSkillLibrary"
+      && activeView !== "personaSkillLibrary"
+      && state.personaSkillLibraryDraftDirty
+      && !confirmDiscardSkillLibraryDraft()
+    ) {
+      return {}
+    }
     return {
       activeView,
       skillLibraryDraftDirty: activeView === "skillLibrary" ? state.skillLibraryDraftDirty : false,
       writingSkillLibraryDraftDirty: activeView === "writingSkillLibrary"
         ? state.writingSkillLibraryDraftDirty
+        : false,
+      personaSkillLibraryDraftDirty: activeView === "personaSkillLibrary"
+        ? state.personaSkillLibraryDraftDirty
         : false,
     }
   }),
@@ -952,6 +973,8 @@ export const useWikiStore = create<WikiState>((set) => ({
     }
   }),
   setWritingSkillLibraryDraftDirty: (writingSkillLibraryDraftDirty) => set({ writingSkillLibraryDraftDirty }),
+  setPersonaSkillLibraryDraftDirty: (personaSkillLibraryDraftDirty) =>
+    set({ personaSkillLibraryDraftDirty }),
   setSelectedReviewDimension: (selectedReviewDimension) => set({ selectedReviewDimension }),
   setSelectedReviewFilePath: (selectedReviewFilePath) => set({ selectedReviewFilePath }),
   setGraphMode: (graphMode) => set({ graphMode }),
@@ -1028,6 +1051,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   planExecuteEnabled: false,
   novelConfig: { ...DEFAULT_NOVEL_CONFIG },
   communitySummaryError: null,
+  personaSkillLearningError: null,
   searchHistory: [],
   searchTrigger: null,
   revisionFeedbackWindowConfig: {
@@ -1098,6 +1122,7 @@ export const useWikiStore = create<WikiState>((set) => ({
       : {}),
   })),
   setCommunitySummaryError: (communitySummaryError) => set({ communitySummaryError }),
+  setPersonaSkillLearningError: (personaSkillLearningError) => set({ personaSkillLearningError }),
   setSearchHistory: (searchHistory) => set({ searchHistory }),
   setSearchTrigger: (searchTrigger) => set({ searchTrigger }),
   setRevisionFeedbackWindowConfig: (revisionFeedbackWindowConfig) => set({ revisionFeedbackWindowConfig }),

@@ -32,10 +32,12 @@ import { SKILL_KIND_LABELS, skillDisplayName, type SkillKind, type UserSkill } f
 import { SkillLibraryView } from "./skill-library-view"
 import { WritingSkillLibraryView } from "./writing-skill-library-view"
 import { FavoriteListView } from "./favorite-list-view"
+import { PersonaSkillView } from "./persona-skill-view"
 
 const skillLibraryTabs = [
   { view: "skillLibrary" as const, label: "去AI味技能" },
   { view: "writingSkillLibrary" as const, label: "写作 Skill" },
+  { view: "personaSkillLibrary" as const, label: "人物 Skill" },
   { view: "skillFavorites" as const, label: "收藏" },
 ]
 
@@ -644,11 +646,15 @@ export function UnifiedSkillLibraryView() {
   const writingDraftDirty = useWikiStore((s) => s.writingSkillLibraryDraftDirty)
   const setSkillDraftDirty = useWikiStore((s) => s.setSkillLibraryDraftDirty)
   const setWritingDraftDirty = useWikiStore((s) => s.setWritingSkillLibraryDraftDirty)
+  const personaDraftDirty = useWikiStore((s) => s.personaSkillLibraryDraftDirty)
+  const setPersonaDraftDirty = useWikiStore((s) => s.setPersonaSkillLibraryDraftDirty)
 
   const [editing, setEditing] = useState(false)
 
   const activeTab: SkillLibraryTab = activeView === "writingSkillLibrary"
     ? "writingSkillLibrary"
+    : activeView === "personaSkillLibrary"
+    ? "personaSkillLibrary"
     : activeView === "skillFavorites"
     ? "skillFavorites"
     : "skillLibrary"
@@ -658,6 +664,11 @@ export function UnifiedSkillLibraryView() {
   }, [activeView])
 
   function handleBackToList() {
+    if (activeTab === "personaSkillLibrary") {
+      if (personaDraftDirty && !confirmDiscardSkillLibraryDraft()) return
+      setPersonaDraftDirty(false)
+      return
+    }
     const dirty = activeTab === "writingSkillLibrary" ? writingDraftDirty : skillDraftDirty
     if (dirty) {
       if (!confirmDiscardSkillLibraryDraft()) return
@@ -674,6 +685,7 @@ export function UnifiedSkillLibraryView() {
   }
 
   const isFavorites = activeTab === "skillFavorites"
+  const isPersona = activeTab === "personaSkillLibrary"
 
   return (
     <div
@@ -686,9 +698,9 @@ export function UnifiedSkillLibraryView() {
         <div className="ui-test-skills-heading-row">
           <div className="ui-test-skills-heading-copy">
             <h1>技能库</h1>
-            <p>管理写作 Skill 与去AI味技能，点开卡片即可编辑。</p>
+            <p>管理写作 Skill、去AI味技能与人物 Skill，点开卡片即可编辑。</p>
           </div>
-          {!editing && !isFavorites ? (
+          {!editing && !isFavorites && !isPersona ? (
             <SkillLibraryActions activeTab={activeTab} onAfterCreate={() => setEditing(true)} />
           ) : null}
         </div>
@@ -716,6 +728,8 @@ export function UnifiedSkillLibraryView() {
       <div data-ui="skills-content">
         {isFavorites ? (
           <FavoriteListView />
+        ) : isPersona ? (
+          <PersonaSkillView />
         ) : editing ? (
           <div className="ui-test-skills-editor">
             <button type="button" className="ui-test-skills-back" onClick={handleBackToList}>

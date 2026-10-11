@@ -1307,6 +1307,9 @@
       "communitySummaryAsyncHint": "开启后，社区摘要在后台生成，不阻塞章节摄取。关闭则同步等待生成完成。",
       "communitySummaryFailed": "社区摘要生成失败：{{message}}。下次触发时会自动重试。"
     },
+    "personaSkill": {
+      "learningFailed": "{{message}}。模型的原始返回已记入 .qmai/chapter-ingest.log，重新提取一次即可重试；技能库不会再静默留空。"
+    },
     "soul": {
       "projectSoul": "项目灵魂",
       "characterSoul": "角色灵魂",
@@ -1617,6 +1620,7 @@
       "previousChapterEnding": "## 上一章结尾",
       "characterStates": "## 当前人物状态",
       "characterAuras": "## 角色灵魂",
+      "personaSkills": "## 人物 Skill",
       "soulDoc": "## 项目灵魂",
       "storyFrameworkBinding": "## 故事框架绑定",
       "cognitionStates": "## 角色认知状态",
