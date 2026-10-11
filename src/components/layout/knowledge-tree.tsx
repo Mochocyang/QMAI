@@ -23,7 +23,6 @@ import { selectProjectDeAiTasks, useDeAiTaskStore } from "@/stores/de-ai-task-st
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { useWritingStatsStore } from "@/stores/writing-stats-store"
 import { getOutlineFileName, outlineSnapshotExists } from "@/lib/novel/outline-ingest-utils"
-import { runBulkChapterIngest } from "@/lib/novel/chapter-bulk-ingest"
 import { saveLastReadChapter } from "@/lib/project-store"
 import { mapWithConcurrency } from "@/lib/async-pool"
 import type { ReferenceToken } from "@/lib/reference/types"
@@ -840,12 +839,18 @@ export function KnowledgeTree({
      */
     const projectPath = normalizePath(project.path)
     try {
+      // 动态 import：与原来一致，不在模块顶层把 chapter-ingest 的整个模块图
+      // 拖进这棵树（见上面 listSnapshots 那段注释）。
+      const { runBulkChapterIngest } = await import("@/lib/novel/chapter-bulk-ingest")
       await runBulkChapterIngest(projectPath, {
         mode: "all",
         chapters: sortedChapterPages.map((page) => ({
           path: page.path,
           title: page.title,
           chapterNumber: page.chapterNumber,
+          // 树算不出 chapterNumber 时靠文件名数字兜底，与绿点同源；
+          // 不传的话这类章节会被「算不出章号」整章跳过。
+          fileChapterNumber: page.fileChapterNumber,
         })),
       })
       await loadPages()

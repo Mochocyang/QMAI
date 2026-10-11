@@ -202,6 +202,55 @@ describe("一键提取：提取期间必须看得见反应", () => {
 
     const status = host.querySelector('[role="status"]')
     expect(status?.textContent?.trim(), "提取已经在跑了，面板却一片空白").toBeTruthy()
+    /*
+     * 只断言「非空」还不够：那句「正在启动…」的兜底文案本身就能让它通过，
+     * 哪怕进度压根没接上。这里必须钉住只有真读到任务才可能出现的数字。
+     */
+    expect(status?.textContent).toContain("0/4")
+  })
+
+  it("提取结束后图标不再转，如实回到静止状态", async () => {
+    await act(async () => root.render(header()))
+    await act(async () => { startRunningTask("outline", 2) })
+    expect(extractIcon("outline")!.querySelector(".animate-spin")).not.toBeNull()
+
+    const task = useImportProgressStore.getState().tasks[0]
+    await act(async () => {
+      useImportProgressStore.getState().finishTask(task.id, "done", { completed: 2, total: 2 })
+    })
+
+    expect(extractIcon("outline")!.querySelector(".animate-spin")).toBeNull()
+    expect(extractIcon("outline")!.getAttribute("aria-busy")).toBeNull()
+  })
+
+  it("章节面板跑起来时同样显示进度与取消（用户报的就是章节这条）", async () => {
+    bulkChapter.mockImplementation(async () => {
+      startRunningTask("chapter", 6)
+      return await new Promise(() => {})
+    })
+    await act(async () => root.render(<UiTestOutlineTools kind="chapter" />))
+
+    await act(async () => { clickText("提取全部").click() })
+
+    expect(host.textContent).toContain("正在提取章节记忆 0/6")
+    expect(host.querySelector(".ui-test-outline-running .animate-spin")).not.toBeNull()
+
+    await act(async () => { clickText("取消").click() })
+    expect(useImportProgressStore.getState().tasks[0]?.status).toBe("cancelled")
+  })
+
+  it("点取消之后不回退成「正在启动…」、取消按钮也不再可点（否则像又重来一遍）", async () => {
+    bulkOutline.mockImplementation(async () => {
+      startRunningTask("outline", 3)
+      return await new Promise(() => {})
+    })
+    await act(async () => root.render(<UiTestOutlineTools kind="outline" />))
+    await act(async () => { clickText("提取全部").click() })
+
+    await act(async () => { clickText("取消").click() })
+
+    expect(host.textContent).not.toContain("正在启动")
+    expect((clickText("取消") as HTMLButtonElement).disabled).toBe(true)
   })
 
   it("提取进行中显示进度文字与取消按钮（这正是原先一片空白的地方）", async () => {

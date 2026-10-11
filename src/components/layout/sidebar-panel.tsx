@@ -567,38 +567,56 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
     })
     activeImportTaskIdRef.current = taskId
 
-    const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
-    const result = await runImportedChapterMemoryExtraction({
-      projectPath,
-      chapterPaths: importedChapters.map((chapter) => chapter.path),
-      signal: abortController.signal,
-      reviewModel: undefined,
-      ingestChapter,
-      onProgress: (progress) => {
-        useImportProgressStore.getState().updateTask(taskId, {
-          completed: progress.completed,
-          total: progress.total,
-          currentTitle: progress.currentPath ? titleByPath.get(progress.currentPath) ?? progress.currentPath : "",
-          // 章节目录的「提取中」灰点按路径点亮：标题会重名，路径不会。
-          activeChapterPaths: progress.currentPath ? [normalizePath(progress.currentPath)] : [],
-        })
-      },
-    })
+    try {
+      const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
+      const result = await runImportedChapterMemoryExtraction({
+        projectPath,
+        chapterPaths: importedChapters.map((chapter) => chapter.path),
+        signal: abortController.signal,
+        reviewModel: undefined,
+        ingestChapter,
+        onProgress: (progress) => {
+          useImportProgressStore.getState().updateTask(taskId, {
+            completed: progress.completed,
+            total: progress.total,
+            currentTitle: progress.currentPath ? titleByPath.get(progress.currentPath) ?? progress.currentPath : "",
+            // 章节目录的「提取中」灰点按路径点亮：标题会重名，路径不会。
+            activeChapterPaths: progress.currentPath ? [normalizePath(progress.currentPath)] : [],
+          })
+        },
+      })
 
-    const doneMessage = result.cancelled
-      ? `已取消记忆提取，已完成 ${result.completed}/${importedChapters.length} 个章节。`
-      : result.failed > 0
-        ? `记忆提取完成：成功 ${result.completed} 个，失败 ${result.failed} 个。`
-        : `记忆提取完成：成功 ${result.completed} 个章节。`
-    useImportProgressStore.getState().finishTask(taskId, result.cancelled ? "cancelled" : "done", {
-      completed: result.completed,
-      total: importedChapters.length,
-      currentTitle: "",
-      message: doneMessage,
-    })
-    chapterImportAbortRef.current = null
-    activeImportTaskIdRef.current = null
-    await refreshTree(projectPath, importedChapters[0]?.path)
+      const doneMessage = result.cancelled
+        ? `已取消记忆提取，已完成 ${result.completed}/${importedChapters.length} 个章节。`
+        : result.failed > 0
+          ? `记忆提取完成：成功 ${result.completed} 个，失败 ${result.failed} 个。`
+          : `记忆提取完成：成功 ${result.completed} 个章节。`
+      useImportProgressStore.getState().finishTask(taskId, result.cancelled ? "cancelled" : "done", {
+        completed: result.completed,
+        total: importedChapters.length,
+        currentTitle: "",
+        message: doneMessage,
+      })
+      await refreshTree(projectPath, importedChapters[0]?.path)
+    } catch (error) {
+      /*
+       * 动态 import 或摄取本身抛错时，任务必须在这里收尾。进度任务一旦留在
+       * running，树里的进度条、章节行灰点、以及头部那枚会转的图标都会永远
+       * 停在「正在提取」—— 实际什么都没在跑，而且它挂的是别的调用点，
+       * 用户连取消都点不到。
+       */
+      const task = useImportProgressStore.getState().tasks.find((item) => item.id === taskId)
+      if (task?.status === "running") {
+        useImportProgressStore.getState().finishTask(taskId, "error", {
+          currentTitle: "",
+          message: `章节记忆提取失败：${error instanceof Error ? error.message : String(error)}`,
+        })
+      }
+      console.error("[Sidebar] extract imported chapter memories failed:", error)
+    } finally {
+      chapterImportAbortRef.current = null
+      activeImportTaskIdRef.current = null
+    }
   }
 
   async function extractImportedOutlineMemories(projectPath: string, importedPaths: string[]) {

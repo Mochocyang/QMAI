@@ -3,12 +3,21 @@ import { useImportProgressStore } from "@/stores/import-progress-store"
 
 const io = vi.hoisted(() => ({ files: new Map<string, string>() }))
 
+/**
+ * 让 `fileExists` 挂起的闸门：用来观察「筛选待提取章节」那段时间里
+ * 界面上到底有没有一条真实任务。
+ */
+const gate = vi.hoisted(() => ({ blockFileExists: null as Promise<void> | null }))
+
 vi.mock("@/commands/fs", () => ({
   readFile: async (path: string) => {
     if (!io.files.has(path)) throw new Error(`文件缺失：${path}`)
     return io.files.get(path)!
   },
-  fileExists: async (path: string) => io.files.has(path),
+  fileExists: async (path: string) => {
+    if (gate.blockFileExists) await gate.blockFileExists
+    return io.files.has(path)
+  },
   listDirectory: async (dir: string) => {
     // 目录树按路径前缀合成：真实 Rust 侧 list_directory 默认 max_depth=30 递归，
     // 会带 children。这里也带 children，否则 flattenMdFiles 看不见子目录里的章节。
@@ -88,6 +97,7 @@ function runningTasks() {
 describe("runBulkChapterIngest", () => {
   beforeEach(() => {
     io.files.clear()
+    gate.blockFileExists = null
     ingestMock.mockReset()
     ingestMock.mockImplementation(async () => ({ snapshot: { chapterNumber: 1 } }))
     useImportProgressStore.setState({ tasks: [] })
@@ -142,6 +152,7 @@ describe("runBulkChapterIngest", () => {
 describe("runBulkChapterIngest：进度任务", () => {
   beforeEach(() => {
     io.files.clear()
+    gate.blockFileExists = null
     ingestMock.mockReset()
     ingestMock.mockImplementation(async () => ({ snapshot: { chapterNumber: 1 } }))
     useImportProgressStore.setState({ tasks: [] })
@@ -211,6 +222,79 @@ describe("runBulkChapterIngest：进度任务", () => {
     expect(runningTasks().find((item) => item.kind === "chapter")?.status).toBe("cancelled")
   })
 
+  /*
+   * 上面那条只断言了 status —— 而 cancelTask 自己就会把状态写成 cancelled，
+   * 所以「任务结算文案有没有补上」它根本管不着。用户能看到的恰恰是那句文案：
+   * 少了它，任务栏会一直停在「正在一键提取章节记忆」的旧文案上。
+   */
+  it("取消时把「已完成几个」补进任务文案，不留着「正在一键提取」的旧文案", async () => {
+    chapterFile("", "第1章", 1)
+    chapterFile("", "第2章", 2)
+    let calls = 0
+    ingestMock.mockImplementation(async () => {
+      calls += 1
+      if (calls === 1) {
+        const task = runningTasks().find((item) => item.kind === "chapter")!
+        useImportProgressStore.getState().cancelTask(task.id)
+      }
+      return { snapshot: { chapterNumber: 1 } }
+    })
+
+    await runBulkChapterIngest(project)
+
+    const task = runningTasks().find((item) => item.kind === "chapter")!
+    expect(task.status).toBe("cancelled")
+    expect(task.completed).toBe(1)
+    expect(task.total).toBe(2)
+    expect(task.message).toContain("已取消")
+    expect(task.message).toContain("1/2")
+    expect(task.message).not.toContain("正在一键提取")
+    // 取消后不该留着点亮状态，否则那一行永远显示「提取中」
+    expect(task.activeChapterPaths).toEqual([])
+  })
+
+  it("筛选待提取章节期间就已经有一条真实任务（那几秒图标也该在转）", async () => {
+    chapterFile("", "第1章", 1)
+    chapterFile("", "第2章", 2)
+
+    let release = () => {}
+    gate.blockFileExists = new Promise<void>((resolve) => { release = resolve })
+
+    const running = runBulkChapterIngest(project)
+    // 让筛选循环推进到 fileExists 并挂住
+    for (let index = 0; index < 5; index += 1) await Promise.resolve()
+
+    const duringScan = runningTasks().find((item) => item.kind === "chapter")
+    expect(duringScan, "筛选阶段没有任务的话，那几秒图标是静的、取消是灰的").toBeTruthy()
+    expect(duringScan!.status).toBe("running")
+    expect(duringScan!.message).toContain("检查待提取")
+
+    release()
+    expect((await running).total).toBe(2)
+  })
+
+  it("筛选阶段取消也要收尾，不留一条永远 running 的任务", async () => {
+    chapterFile("", "第1章", 1)
+
+    let release = () => {}
+    gate.blockFileExists = new Promise<void>((resolve) => { release = resolve })
+
+    const running = runBulkChapterIngest(project)
+    for (let index = 0; index < 5; index += 1) await Promise.resolve()
+
+    const task = runningTasks().find((item) => item.kind === "chapter")!
+    useImportProgressStore.getState().cancelTask(task.id)
+    release()
+
+    const result = await running
+    expect(result.cancelled).toBe(true)
+    expect(result.succeeded).toBe(0)
+    expect(ingestMock).not.toHaveBeenCalled()
+    const settled = runningTasks().find((item) => item.kind === "chapter")!
+    expect(settled.status).toBe("cancelled")
+    expect(settled.message).toContain("已取消")
+  })
+
   it("结束后把成功/失败数量写进 message", async () => {
     chapterFile("", "第1章", 1)
     chapterFile("", "第2章", 2)
@@ -260,6 +344,7 @@ describe("runBulkChapterIngest：进度任务", () => {
 describe("runBulkChapterIngest：目标集合与空集", () => {
   beforeEach(() => {
     io.files.clear()
+    gate.blockFileExists = null
     ingestMock.mockReset()
     ingestMock.mockImplementation(async () => ({ snapshot: { chapterNumber: 1 } }))
     useImportProgressStore.setState({ tasks: [] })
@@ -282,6 +367,57 @@ describe("runBulkChapterIngest：目标集合与空集", () => {
 
     expect(result.total).toBe(0)
     expect(result.emptyReason).toBe("no_chapters")
+  })
+
+  /*
+   * 回归：算不出章号的章节以前被整章静默跳过，而 mode=all 还会回一句
+   * 「所有章节都已提取过」—— 用户明明按的是「提取全部」，却被告知没事可做，
+   * 那个文件就永远躺在那里没人提取。
+   */
+  it("算不出章号的章节不会被静默丢掉：放行让 ingestChapter 明确报错并计入失败", async () => {
+    // 文件名没有数字、frontmatter 也没有 chapter_number
+    const path = `${project}/wiki/chapters/序章.md`
+    io.files.set(path, "---\ntype: chapter\nstatus: final\n---\n\n正文\n")
+    ingestMock.mockImplementation(async () => ({ snapshot: null, failReason: "invalid_chapter_number", error: "章节号无效" }))
+
+    const result = await runBulkChapterIngest(project, {
+      mode: "all",
+      chapters: [{ path, title: "序章" }],
+    })
+
+    expect(ingestMock, "不能悄悄跳过，必须真的交给摄取去处理").toHaveBeenCalledTimes(1)
+    expect(result.total).toBe(1)
+    expect(result.failed).toBe(1)
+    expect(result.failures[0].reason).toContain("章节号无效")
+    // 按了「提取全部」就不能回「都已提取过」
+    expect(result.emptyReason).toBeUndefined()
+  })
+
+  it("调用方给了 fileChapterNumber 就用它，不必再读盘（树算不出章号时的兜底）", async () => {
+    const path = `${project}/wiki/chapters/无名.md`
+    io.files.set(path, "---\ntype: chapter\nstatus: final\n---\n\n正文\n")
+
+    const result = await runBulkChapterIngest(project, {
+      chapters: [{ path, title: "无名", fileChapterNumber: 7 }],
+    })
+
+    expect(result.total).toBe(1)
+    expect(ingestMock.mock.calls[0][4]).toBe(7)
+  })
+
+  it("mode=all 与 pending 的差别只在快照过滤：all 要连已提取的一起重来", async () => {
+    chapterFile("", "第1章", 1)
+    snapshot(1)
+
+    const pendingRun = await runBulkChapterIngest(project, { mode: "pending" })
+    expect(pendingRun.total).toBe(0)
+    expect(pendingRun.emptyReason).toBe("already_extracted")
+
+    const allRun = await runBulkChapterIngest(project, { mode: "all" })
+    expect(allRun.total).toBe(1)
+    expect(allRun.succeeded).toBe(1)
+    // all 档即使真的没有候选，也不该报 already_extracted —— 那是 pending 的说法
+    expect(allRun.emptyReason).toBeUndefined()
   })
 
   it("全部都已提取过时报 already_extracted", async () => {

@@ -27,9 +27,19 @@ describe("KnowledgeTree chapter memory extraction menu", () => {
    * 谁再自己抄一遍循环，这条就会红。
    */
   it("delegates to the shared bulk ingest used by the sidebar one-click entry", () => {
+    // 必须是动态 import：这棵树刻意不在顶层拖进 chapter-ingest 的整个模块图
+    expect(source).toContain('const { runBulkChapterIngest } = await import("@/lib/novel/chapter-bulk-ingest")')
+    expect(source).not.toContain('from "@/lib/novel/chapter-bulk-ingest"')
     expect(source).toContain("runBulkChapterIngest(projectPath, {")
+    // 右键菜单的语义是「重新提取所有章节」，不能悄悄变成「只补未提取的」
     expect(source).toContain('mode: "all"')
     expect(source).toContain("chapters: sortedChapterPages.map((page) => ({")
+    // 树算不出章号时靠文件名数字兜底，不传就会被整章跳过
+    expect(source).toContain("fileChapterNumber: page.fileChapterNumber")
+    // 提取完必须刷新列表，否则新提取的章节看不出变化
+    expect(source).toContain("await loadPages()")
+    expect(source).toContain("const tree = await listDirectory(projectPath)")
+    expect(source).toContain("bumpDataVersion()")
     // 自己抄一份进度循环的痕迹必须消失
     expect(source).not.toContain("useImportProgressStore.getState().startTask")
     expect(source).not.toContain('const { ingestChapter } = await import("@/lib/novel/chapter-ingest")')

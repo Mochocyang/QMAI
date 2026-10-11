@@ -126,18 +126,34 @@
 
   修复（按用户选择「两个都复用已有完整实现 + 运行中图标旋转」）：
 
-  1. `chapter-bulk-ingest.ts` 升级为**章节批量提取的唯一实现**：新增 `mode`（`all` / `pending`，默认 `pending`）与显式 `chapters` 列表；创建 `kind: "chapter"` 进度任务、逐章点亮 `activeChapterPaths`、把 `AbortController.signal` 传给 `ingestChapter`；取消时结算为 `cancelled`，且**已被 `cancelTask` 结算过的任务不被 `finishTask` 覆盖**（否则用户刚看到的「已取消」会跳回 done/error）。
-  2. `knowledge-tree.tsx` 的「一键提取所有章节」改为调用这份共享实现（`mode: "all"`，保持右键菜单「重新提取全部」的既有语义），删掉自己抄的那 100 行循环。守卫改为断言**委托**，并反向断言源码里不再出现私有进度循环。
+  1. `chapter-bulk-ingest.ts` 升级为**章节批量提取的唯一实现**：新增 `mode`（`all` / `pending`，默认 `pending`）与显式 `chapters` 列表；创建 `kind: "chapter"` 进度任务、逐章点亮 `activeChapterPaths`、把 `AbortController.signal` 传给 `ingestChapter`。
+  2. `knowledge-tree.tsx` 的「一键提取所有章节」改为调用这份共享实现（`mode: "all"`，保持右键菜单「重新提取全部」的既有语义），删掉自己抄的那 100 行循环。**用动态 `await import()`**：这棵树刻意不在顶层把 `chapter-ingest` 的整个模块图拖进来（文件里 `listSnapshots` 那段注释就是为此写的）。
   3. `UiTestDirectoryHeader` 在那枚图标上直接订阅进度任务：提取期间换成 `Loader2` 旋转并置 `aria-busy`。因为读的是全局任务而不是父组件传的 prop，**走章节右键菜单发起的提取同样会让图标转起来**。
   4. `UiTestOutlineTools` 重写：确认框改为「取消 / 仅未提取 / 提取全部」；运行中显示 `Loader2` 旋转 + `正在提取大纲记忆 0/4` + 取消按钮；`OutlineIngestNotReadyError` 改为 `toast.error(..., { onClick: openDefaultModelSettings })`。新增 `.ui-test-outline-running` 与 `.pending` 样式。
   5. **没有新造契约**：`activeChapterPaths`、`finishTask` 结束时自清空、按 `kind` 区分任务，全部沿用原有约定。
 
-  验证：新增 2 个 spec 文件共 **29 条**（`chapter-bulk-ingest.spec.ts` 18 条、`ui-test-extract-progress.spec.tsx` 11 条），另在 `knowledge-tree.spec.tsx` 新增 1 条委托守卫。
+  验证：新增 2 个 spec 文件，另在 `knowledge-tree.spec.tsx` 新增 1 条委托守卫。
   - `chapter-bulk-ingest.spec.ts` 在实现前 **17 条里 9 条为红**（缺进度任务 / 缺 abort signal / 缺 `mode`、`chapters` / 取消不生效 / `formatBulkChapterIngestResult` 不认 `cancelled`）。
   - `ui-test-extract-progress.spec.tsx` 在**旧组件**上 **9 条为红、2 条负向控制照常通过**（负向控制是「不该乱转」）。其中一条把用户看到的现象逐字钉住：*提取已经在跑了，面板却一片空白* —— 旧代码下红、修复后绿。
-  - 全量 `731 文件 / 7141 用例通过、6 todo、0 失败`；`typecheck` 与 `typecheck:tests` 均 0 错误。
 
-  另注：`npx vitest run`（不带 `--exclude`）会连带跑 `test:llm` 的 `scripts/refine-acceptance.real-llm.test.ts`，它 import 的 `hasOutlineForRefinement` 在 `src/` 里**已无任何导出**，**在 HEAD 就是红的**，与本次改动无关（`test:mocks` 已排除它）。判读全量结果请用 `npm run test:mocks`。
+  **独立代码审查后又修了 4 个真实缺陷**（审查方跑临时 spec 复现过，全部为已确认而非推测）：
+
+  | # | 缺陷 | 后果 | 修法 |
+  |---|---|---|---|
+  | R1 | 取消结算的守卫写成 `task?.status === "running"`，而 `cancelTask` **自己**已经把状态改成 `cancelled` | 「已取消，完成了 N 个」这句永远写不进去，任务栏停在*「正在一键提取章节记忆」0%* 的旧文案上；被删掉的旧实现本来是写对的，等于我方引入的**回归** | 只在 `done`/`error` 时才不覆盖 |
+  | R2 | 算不出章号的章节被 `continue` 静默丢掉，且 `emptyReason` 不看 `mode` | 用户按「提取全部」，那个文件没被提取，却被告知*「所有章节都已提取过」*；旧实现会把它当失败报出来 | 不再跳过：放行给 `ingestChapter` 明确报「章节号无效」并计入失败；`fileChapterNumber` 也作为兜底来源；`all` 档不再回 `already_extracted` |
+  | R3 | 进度任务在「筛选待提取章节」**之后**才创建 | 那几秒（大书要几百次磁盘往返）图标是静的、取消是灰的 —— 正是本次要修的「点了没反应」 | 任务提前到扫盘之前创建，文案「正在检查待提取章节」 |
+  | R4 | 点取消后 store 里任务立刻不再 running，而 abort 过的摄取还要一会儿才结束 | 那段空档界面退回*「正在启动…」*且取消按钮变灰，看起来像又从头开始 | 单独记 `stopping`，直到本次调用真正结束 |
+
+  同时修掉一个被本次改动**放大**的隐患：`sidebar-panel.tsx` 的导入后提取把动态 `import()` 放在 `startTask` 之后且无 `try/catch`，一旦 import 失败任务永远停在 `running` —— 图标就会**一直转**且用户取消不到。已加 `try/catch/finally` 收尾。
+
+  审查同时指出**测试本身的问题**，也已修：原「取消」用例只断言 `status === "cancelled"`（那是 `cancelTask` 自己设的），把 `settleCancelled()` 整个清空它照样绿 —— 这正是 R1 能活下来的原因；已改为断言文案与 `completed`。另一条「面板不能空白」只断言非空，靠兜底文案就能过，已加 `0/4` 这种只有真接上任务才可能出现的数字。
+
+  复核办法（都做了）：把 `chapter-bulk-ingest.ts` 换回 `942471a` 版本重跑新用例，**5 条为红**（R1/R2/R3 各命中）；把面板的 `stopping` 分支短路掉重跑，**R4 那条为红**并复现出 `正在启动大纲提取…`；改完都按 hash 校验还原成逐字节一致。
+
+  最终：`chapter-bulk-ingest.spec.ts` **24 条**、`ui-test-extract-progress.spec.tsx` **14 条**，全量 `731 文件 / 7150 用例通过、6 todo、0 失败`（53 秒，静置机器后一次干净通过）；`typecheck` 与 `typecheck:tests` 均 0 错误。
+
+  另注两点判读经验：① `npx vitest run`（不带 `--exclude`）会连带跑 `test:llm` 的 `scripts/refine-acceptance.real-llm.test.ts`，它 import 的 `hasOutlineForRefinement` 在 `src/` 里**已无任何导出**，**在 HEAD 就是红的**，与本次改动无关（`test:mocks` 已排除它）—— 判读全量结果请用 `npm run test:mocks`。② 机器有负载时（例如刚打完包、Defender 正在扫那个 213 MB 的 exe）会连续出现 `Test timed out in 5000ms` 的假失败，且每次命中的文件不同（实测一次是 3 个文件、一次只剩 1 个，单独重跑全部 2.9 秒通过）。判定办法：单独重跑该文件 + 静置机器后重跑全量。
 
 ## 提交状态
 

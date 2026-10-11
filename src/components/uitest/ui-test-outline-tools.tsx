@@ -28,6 +28,7 @@ export function UiTestOutlineTools({ kind = "outline" }: { kind?: "outline" | "c
   const project = useWikiStore((state) => state.project)
   const [open, setOpen] = useState(true)
   const [running, setRunning] = useState(false)
+  const [stopping, setStopping] = useState(false)
   const [result, setResult] = useState("")
 
   const progressTask = useImportProgressStore((state) =>
@@ -61,12 +62,19 @@ export function UiTestOutlineTools({ kind = "outline" }: { kind?: "outline" | "c
       setResult(error instanceof Error ? error.message : "批量提取失败。")
     } finally {
       setRunning(false)
+      setStopping(false)
     }
   }
 
   function cancel() {
-    if (!progressTask) return
-    useImportProgressStore.getState().cancelTask(progressTask.id)
+    /*
+     * 点下取消的那一瞬，store 里的任务立刻不再是 running，而 abort 过的
+     * 摄取还要过一会儿才 unwound。这段空档里如果只看 store，界面会退回
+     * 「正在启动…」并灰掉取消按钮 —— 看起来像又从头开始了。所以取消后
+     * 单独记一个 stopping，直到本次调用真正结束。
+     */
+    setStopping(true)
+    if (progressTask) useImportProgressStore.getState().cancelTask(progressTask.id)
   }
 
   return <section className="ui-test-outline-tools" aria-label={`${label}批量提取`}>
@@ -80,8 +88,8 @@ export function UiTestOutlineTools({ kind = "outline" }: { kind?: "outline" | "c
     </div>}
     {active && <div className="ui-test-outline-running" role="status" aria-live="polite">
       <Loader2 className="animate-spin" aria-hidden="true" />
-      <span>{progressTask ? `正在提取${label}记忆 ${progressTask.completed}/${progressTask.total}` : `正在启动${label}提取…`}</span>
-      <button type="button" className="cancel" onClick={cancel} disabled={!progressTask}>取消</button>
+      <span>{stopping ? `正在取消${label}提取…` : progressTask ? `正在提取${label}记忆 ${progressTask.completed}/${progressTask.total}` : `正在启动${label}提取…`}</span>
+      <button type="button" className="cancel" onClick={cancel} disabled={stopping || !progressTask}>取消</button>
     </div>}
     {!active && result && <p role="status" aria-live="polite">{result}</p>}
   </section>

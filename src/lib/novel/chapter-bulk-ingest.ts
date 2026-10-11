@@ -12,6 +12,12 @@ export interface BulkChapterTarget {
   path: string
   title?: string
   chapterNumber?: number
+  /**
+   * 文件名里的数字。树推不出 `chapterNumber` 时会带这个兜底
+   * （见 `WikiPageInfo.fileChapterNumber` 的说明）：不兜的话，这类章节
+   * 会因为「算不出章号」被整章跳过，用户按了「提取全部」却什么都没发生。
+   */
+  fileChapterNumber?: number
 }
 
 export interface RunBulkChapterIngestOptions {
@@ -58,6 +64,7 @@ interface ResolvedChapter {
   fileName: string
   title?: string
   chapterNumber?: number
+  fileChapterNumber?: number
 }
 
 function stripMarkdownExtension(name: string): string {
@@ -68,12 +75,16 @@ function baseName(path: string): string {
   return stripMarkdownExtension(path.slice(path.lastIndexOf("/") + 1))
 }
 
-function chapterNumberOf(fileName: string, content: string): number | null {
+function positiveNumber(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined
+}
+
+function chapterNumberOf(fileName: string, content: string): number | undefined {
   const parsed = parseFrontmatter(content)
   const value = parsed.frontmatter?.chapter_number
   const fromMeta = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN
   if (Number.isFinite(fromMeta) && fromMeta > 0) return fromMeta
-  return extractChapterNumber(fileName)
+  return extractChapterNumber(fileName) ?? undefined
 }
 
 function emptyResult(emptyReason: BulkChapterIngestResult["emptyReason"]): BulkChapterIngestResult {
@@ -101,7 +112,8 @@ export async function runBulkChapterIngest(
       name: chapter.title?.trim() || baseName(chapter.path),
       fileName: baseName(chapter.path),
       title: chapter.title,
-      chapterNumber: chapter.chapterNumber,
+      chapterNumber: positiveNumber(chapter.chapterNumber),
+      fileChapterNumber: positiveNumber(chapter.fileChapterNumber),
     }))
   } else {
     let files: Array<{ name: string; path: string }> = []
@@ -119,62 +131,101 @@ export async function runBulkChapterIngest(
     }))
   }
 
+  if (candidates.length === 0) return emptyResult("no_chapters")
+
+  const abortController = new AbortController()
+  /*
+   * 进度任务在「筛出待提取章节」之前就开。
+   *
+   * 为什么要提前：筛选要对每个候选章节 readFile + fileExists，书一大就是
+   * 几百次磁盘往返、几秒钟。那几秒同样是「用户已经按下按钮」的时间 ——
+   * 不先开任务，那段时间图标是静的、取消是灰的，正是用户报的「点了没反应」。
+   */
+  const taskId = useImportProgressStore.getState().startTask({
+    projectPath: root,
+    kind: "chapter",
+    total: candidates.length,
+    currentTitle: candidates[0].title ?? candidates[0].name,
+    message: "正在检查待提取章节",
+    abortController,
+  })
+
+  let succeeded = 0
+  const failures: BulkChapterIngestResult["failures"] = []
+  let plannedTotal = candidates.length
+  let settled = false
+
+  /*
+   * 取消有两种来源：用户点界面上的「取消」（store 的 cancelTask 已经把任务
+   * 结算成 cancelled 并 abort），或别处直接 abort。
+   *
+   * 第一种情况不能再指望「任务还在 running」这个前提：store 早就把 status
+   * 改成 cancelled 了，只在 running 时才补结算的话，恰恰会把「已取消，完成了
+   * N 个」这句话漏掉，任务栏会一直停在「正在一键提取章节记忆」的旧文案上。
+   * 只有 done / error 才是不该覆盖的终态。
+   */
+  function settleCancelled(): BulkChapterIngestResult {
+    const task = useImportProgressStore.getState().tasks.find((item) => item.id === taskId)
+    if (task && task.status !== "done" && task.status !== "error") {
+      settled = true
+      useImportProgressStore.getState().finishTask(taskId, "cancelled", {
+        completed: succeeded,
+        total: plannedTotal,
+        currentTitle: "",
+        message: `已取消章节记忆提取：已完成 ${succeeded}/${plannedTotal} 个章节。`,
+      })
+    }
+    return { total: plannedTotal, succeeded, failed: failures.length, cancelled: true, failures }
+  }
+
+  /** 章号：调用方给的 → 调用方给的「文件名数字」→ 正文 frontmatter → 文件名。 */
+  async function resolveChapterNumber(chapter: ResolvedChapter): Promise<number | undefined> {
+    if (chapter.chapterNumber) return chapter.chapterNumber
+    if (chapter.fileChapterNumber) return chapter.fileChapterNumber
+    return chapterNumberOf(chapter.fileName, await readFile(chapter.path))
+  }
+
   const pending: ResolvedChapter[] = []
   for (const chapter of candidates) {
+    if (abortController.signal.aborted) return settleCancelled()
     try {
-      let chapterNumber = chapter.chapterNumber
-      if (typeof chapterNumber !== "number" || !(chapterNumber > 0)) {
-        chapterNumber = chapterNumberOf(chapter.fileName, await readFile(chapter.path)) ?? undefined
+      const chapterNumber = await resolveChapterNumber(chapter)
+      // 算不出章号就没法查快照；这种情况仍然放行，让 ingestChapter 明确报
+      // 「章节号无效」并被计成一次失败 —— 悄悄跳过会让用户以为全书都提完了。
+      if (mode === "pending" && chapterNumber && await fileExists(chapterSnapshotJsonPath(root, chapterNumber))) {
+        continue
       }
-      if (!chapterNumber) continue
-      if (mode === "pending" && await fileExists(chapterSnapshotJsonPath(root, chapterNumber))) continue
       pending.push({ ...chapter, chapterNumber })
     } catch {
       // 单个不可读文件不阻断其余章节。
     }
   }
 
-  if (pending.length === 0) {
-    return emptyResult(candidates.length > 0 ? "already_extracted" : "no_chapters")
+  plannedTotal = pending.length
+  if (plannedTotal === 0) {
+    settled = true
+    useImportProgressStore.getState().finishTask(taskId, "done", {
+      completed: 0,
+      total: candidates.length,
+      currentTitle: "",
+      message: mode === "pending" ? "所有章节都已提取过，没有需要处理的未提取章节。" : "没有可提取的章节。",
+    })
+    // 只有 pending 档才可能因为「都已提取过」而空手而归；all 档本来就要求
+    // 连已提取的一起重来，这里再报 already_extracted 就是对用户说谎。
+    return emptyResult(mode === "pending" ? "already_extracted" : "no_chapters")
   }
 
-  const abortController = new AbortController()
-  const taskId = useImportProgressStore.getState().startTask({
-    projectPath: root,
-    kind: "chapter",
-    total: pending.length,
-    currentTitle: pending[0].title ?? pending[0].name,
+  useImportProgressStore.getState().updateTask(taskId, {
+    total: plannedTotal,
     message: "正在一键提取章节记忆",
-    abortController,
   })
-
-  let succeeded = 0
-  const failures: BulkChapterIngestResult["failures"] = []
-
-  /*
-   * 取消有两种来源：用户点界面上的「取消」（store 的 cancelTask 已经把任务
-   * 结算成 cancelled），或 AbortController 被别处 abort。第一种不能再调
-   * finishTask —— 那会把用户刚看到的「已取消」覆盖成 done/error。
-   */
-  function settleCancelled(): BulkChapterIngestResult {
-    const task = useImportProgressStore.getState().tasks.find((item) => item.id === taskId)
-    if (task?.status === "running") {
-      useImportProgressStore.getState().finishTask(taskId, "cancelled", {
-        completed: succeeded,
-        total: pending.length,
-        currentTitle: "",
-        message: `已取消章节记忆提取：已完成 ${succeeded}/${pending.length} 个章节。`,
-      })
-    }
-    return { total: pending.length, succeeded, failed: failures.length, cancelled: true, failures }
-  }
 
   for (const chapter of pending) {
     if (abortController.signal.aborted) return settleCancelled()
 
     useImportProgressStore.getState().updateTask(taskId, {
       completed: succeeded,
-      total: pending.length,
+      total: plannedTotal,
       currentTitle: chapter.title ?? chapter.name,
       // 章节目录的「提取中」灰点按路径点亮：标题会重名，路径不会。
       activeChapterPaths: [chapter.path],
@@ -193,14 +244,16 @@ export async function runBulkChapterIngest(
 
   if (abortController.signal.aborted) return settleCancelled()
 
-  useImportProgressStore.getState().finishTask(taskId, failures.length > 0 ? "error" : "done", {
-    completed: succeeded,
-    total: pending.length,
-    currentTitle: "",
-    message: failures.length > 0
-      ? `章节记忆提取完成：成功 ${succeeded} 个，失败 ${failures.length} 个。${failures[0]?.reason ? ` 最近错误：${failures[0].reason}` : ""}`
-      : `章节记忆提取完成：成功 ${succeeded} 个章节。`,
-  })
+  if (!settled) {
+    useImportProgressStore.getState().finishTask(taskId, failures.length > 0 ? "error" : "done", {
+      completed: succeeded,
+      total: plannedTotal,
+      currentTitle: "",
+      message: failures.length > 0
+        ? `章节记忆提取完成：成功 ${succeeded} 个，失败 ${failures.length} 个。${failures[0]?.reason ? ` 最近错误：${failures[0].reason}` : ""}`
+        : `章节记忆提取完成：成功 ${succeeded} 个章节。`,
+    })
+  }
 
-  return { total: pending.length, succeeded, failed: failures.length, cancelled: false, failures }
+  return { total: plannedTotal, succeeded, failed: failures.length, cancelled: false, failures }
 }
