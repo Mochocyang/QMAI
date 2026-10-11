@@ -464,6 +464,28 @@ describe("novelConfig — project-directory persistence", () => {
     const loaded = await loadNovelConfig("proj-inspiration-seen", tmp.path)
     expect(loaded?.inspirationHintSeen).toBe(true)
   })
+
+  /*
+   * `usageTutorialSeen` 随分步使用教程一起删掉了，但**用户磁盘上已有的配置文件里
+   * 还留着这个键**（真实数据，改不掉）。`normalizeNovelConfig` 是逐字段重建对象，
+   * 所以未知键必须被静默忽略 —— 如果哪天它改成「原样透传」或者加了严格校验，
+   * 老项目就会读盘失败，而这个回归在开发机（配置都是新写的）上永远看不见。
+   *
+   * 这条同时钉住「删干净了」：读回来不许再有这个键。
+   */
+  it("ignores the removed usageTutorialSeen key left in an existing on-disk config", async () => {
+    const legacy = { ...makeNovelConfig(), usageTutorialSeen: true }
+    await writeFileRaw(`${tmp.path}/.qmai/novel-config.json`, JSON.stringify(legacy))
+
+    const loaded = await loadNovelConfig("proj-legacy-tutorial-key", tmp.path)
+    expect(loaded, "带已删字段的老配置必须仍能正常读盘").not.toBeNull()
+    expect(
+      Object.prototype.hasOwnProperty.call(loaded ?? {}, "usageTutorialSeen"),
+      "已删字段不许再出现在归一化结果里（否则接口上还留着一个没人读的键）",
+    ).toBe(false)
+    // 邻字段不受影响，证明不是「整份配置被丢掉」而通过的。
+    expect(loaded?.inspirationHintEnabled).toBe(true)
+  })
 })
 
 describe("revisionFeedbackWindowConfig — project-directory persistence", () => {
