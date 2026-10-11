@@ -140,6 +140,11 @@
     "modelDisconnected": "模型连接失败，请检查设置",
     "usageGuide": "使用说明"
   },
+  "sidebarActions": {
+    "appearance": "外观",
+    "settings": "设置",
+    "switchTheme": "切换主题"
+  },
   "welcome": {
     "newProject": "新建小说",
     "openProject": "小说目录",

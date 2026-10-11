@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect, useMemo } from "react"
+import { useMemo } from "react"
 import {
-  FileText, FolderOpen, Search, Network, Brain, Settings, ArrowLeftRight, Sun, Moon, SunMoon, Check, Trash2, Sparkles, LayoutDashboard, BookOpen, Drama, WandSparkles,
+  FileText, FolderOpen, Search, Network, Brain, ArrowLeftRight, Trash2, Sparkles, LayoutDashboard, BookOpen, Drama, WandSparkles,
 } from "lucide-react"
-import { createPortal } from "react-dom"
 import {
   DndContext,
   PointerSensor,
@@ -23,8 +22,6 @@ import { useReviewStore } from "@/stores/review-store"
 import { useTranslation } from "react-i18next"
 import { BrandLogo } from "@/components/brand-logo"
 import type { WikiState } from "@/stores/wiki-store"
-import { saveTheme } from "@/lib/project-store"
-import { applyTheme, type ThemeMode } from "@/lib/theme-utils"
 import { isChapterPathInProject } from "@/lib/path-utils"
 import {
   isSidebarNavItemId,
@@ -60,12 +57,6 @@ interface IconSidebarProps {
   onOpenSidebar?: () => void
   onSwitchProject: () => void
 }
-
-const THEME_OPTIONS: { value: ThemeMode; icon: typeof Sun; labelKey: string }[] = [
-  { value: "light", icon: Sun, labelKey: "theme.light" },
-  { value: "dark", icon: Moon, labelKey: "theme.dark" },
-  { value: "system", icon: SunMoon, labelKey: "theme.system" },
-]
 
 interface SortableNavButtonProps {
   item: ConfigurableNavItem
@@ -128,16 +119,10 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
   const project = useWikiStore((s) => s.project)
   const selectedFile = useWikiStore((s) => s.selectedFile)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
-  const theme = useWikiStore((s) => s.theme)
-  const setTheme = useWikiStore((s) => s.setTheme)
   const sidebarNavConfig = useWikiStore((s) => s.sidebarNavConfig)
   const setSidebarNavConfig = useWikiStore((s) => s.setSidebarNavConfig)
   const pendingCount = useReviewStore((s) => s.items.filter((i) => !i.resolved).length)
 
-  // 主题下拉框状态
-  const [themeMenuOpen, setThemeMenuOpen] = useState(false)
-  const themeTriggerRef = useRef<HTMLButtonElement>(null)
-  const [themeMenuStyle, setThemeMenuStyle] = useState<{ left: number; top: number } | null>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 5 },
@@ -155,45 +140,6 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
     .map((id) => navItemsById.get(id))
     .filter((item): item is ConfigurableNavItem => item !== undefined && !hiddenNavIds.has(item.id))
   const visibleNavIds = visibleNavItems.map((item) => item.id)
-
-  const getThemeIcon = () => {
-    const option = THEME_OPTIONS.find((o) => o.value === theme)
-    const Icon = option?.icon ?? Sun
-    return <Icon className="h-5 w-5" />
-  }
-
-  const handleSelectTheme = (nextTheme: ThemeMode) => {
-    setTheme(nextTheme)
-    saveTheme(nextTheme)
-    applyTheme(nextTheme)
-    setThemeMenuOpen(false)
-  }
-
-  useEffect(() => {
-    if (!themeMenuOpen) {
-      setThemeMenuStyle(null)
-      return
-    }
-    const updatePosition = () => {
-      const rect = themeTriggerRef.current?.getBoundingClientRect()
-      if (!rect) return
-      const menuWidth = 180
-      const menuHeight = THEME_OPTIONS.length * 36 + 8
-      const left = Math.min(rect.right + 6, window.innerWidth - menuWidth - 4)
-      let top: number
-      const availableAbove = rect.top
-      const availableBelow = window.innerHeight - rect.bottom
-      if (availableAbove >= menuHeight + 6 || availableAbove >= availableBelow) {
-        top = Math.max(4, rect.bottom - menuHeight)
-      } else {
-        top = rect.top
-      }
-      setThemeMenuStyle({ left, top })
-    }
-    updatePosition()
-    window.addEventListener("resize", updatePosition)
-    return () => window.removeEventListener("resize", updatePosition)
-  }, [themeMenuOpen])
 
   const handleNavClick = (view: NavView) => {
     setSearchPanelOpen(false)
@@ -299,73 +245,12 @@ export function IconSidebar({ onToggleSidebar, onOpenSidebar, onSwitchProject }:
             </SortableContext>
           </DndContext>
         </div>
-        {/* Bottom: daemon status + theme toggle + settings + switch project */}
+        {/*
+          Bottom: 切换小说。
+          「外观 / 设置」已移到各侧栏面板（章节/大纲列表等）的底部，
+          见 components/layout/sidebar-bottom-actions.tsx。
+        */}
         <div className="flex flex-col items-center gap-1.5 pb-1">
-          {/* Theme selector dropdown */}
-          <Tooltip>
-            <TooltipTrigger
-              ref={themeTriggerRef}
-              onClick={() => setThemeMenuOpen(!themeMenuOpen)}
-              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors hover:bg-accent/50 hover:text-accent-foreground ${
-                themeMenuOpen ? "bg-accent/50 text-accent-foreground" : "text-muted-foreground"
-              }`}
-            >
-              {getThemeIcon()}
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t("theme.switch")}
-            </TooltipContent>
-          </Tooltip>
-          {themeMenuOpen && themeMenuStyle && createPortal(
-            <>
-              <div
-                className="fixed inset-0 z-40"
-                onClick={() => setThemeMenuOpen(false)}
-              />
-              <div
-                className="fixed z-50 rounded-md border bg-popover p-1 shadow-md"
-                style={{ left: themeMenuStyle.left, top: themeMenuStyle.top, width: 180 }}
-              >
-                {THEME_OPTIONS.map((option) => {
-                  const Icon = option.icon
-                  const isActive = theme === option.value
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => handleSelectTheme(option.value)}
-                      className={`flex w-full items-center gap-2 rounded-sm px-2.5 py-1.5 text-left text-sm transition-colors hover:bg-accent ${
-                        isActive ? "text-foreground" : "text-muted-foreground"
-                      }`}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      <span className="flex-1">{t(option.labelKey)}</span>
-                      <Check className={`h-4 w-4 shrink-0 ${isActive ? "opacity-100" : "opacity-0"}`} />
-                    </button>
-                  )
-                })}
-              </div>
-            </>,
-            document.body,
-          )}
-          <Tooltip>
-            <TooltipTrigger
-              onClick={() => {
-                setSearchPanelOpen(false)
-                setActiveView("settings")
-              }}
-              className={`relative flex h-10 w-10 items-center justify-center rounded-md transition-colors ${
-                activeView === "settings"
-                  ? "qm-selected"
-                  : "text-muted-foreground qm-hover"
-              }`}
-            >
-              <Settings className="h-5 w-5" />
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t("novel.nav.settings")}
-            </TooltipContent>
-          </Tooltip>
           <Tooltip>
             <TooltipTrigger
               onClick={() => {

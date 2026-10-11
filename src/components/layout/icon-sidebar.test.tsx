@@ -54,7 +54,7 @@ describe("icon-sidebar", () => {
     expect(contentAreaSource).toContain("<UnifiedSkillLibraryView")
   })
 
-  it("makes feature entries configurable without moving fixed bottom controls", () => {
+  it("keeps theme / settings / switch-project out of the configurable feature entries", () => {
     expect(iconSidebarSource).toContain("sidebarNavConfig")
     expect(iconSidebarSource).toContain("setSidebarNavConfig")
     expect(iconSidebarSource).toContain("CONFIGURABLE_NAV_ITEMS")
@@ -63,6 +63,26 @@ describe("icon-sidebar", () => {
     expect(iconSidebarSource).not.toContain('id: "theme"')
     expect(iconSidebarSource).not.toContain('id: "settings"')
     expect(iconSidebarSource).not.toContain('id: "switchProject"')
+  })
+
+  it("moves 外观 / 设置 out of the icon rail into the sidebar panels", () => {
+    // 图标栏不再承载外观与设置，只保留「切换小说」
+    expect(iconSidebarSource).not.toContain("THEME_OPTIONS")
+    expect(iconSidebarSource).not.toContain('t("novel.nav.settings")')
+    expect(iconSidebarSource).toContain("nav.switchProject")
+
+    // 各侧栏面板统一在底部渲染 SidebarBottomActions
+    const panels = [
+      "sidebar-panel.tsx",
+      "graph-sidebar-panel.tsx",
+      "review-center-sidebar-panel.tsx",
+      "book-analysis-sidebar-panel.tsx",
+      "trash-panel.tsx",
+    ]
+    for (const panel of panels) {
+      const src = readFileSync(resolve(__dirname, panel), "utf8")
+      expect(src, panel).toContain("SidebarBottomActions")
+    }
   })
 
   it("uses long-press sortable behavior for sidebar feature entries", () => {
