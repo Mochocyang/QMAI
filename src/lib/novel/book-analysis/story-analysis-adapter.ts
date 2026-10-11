@@ -2,6 +2,7 @@ import type { LlmRequestCacheTrace } from "@/lib/llm-request-trace"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
 import { callAnalysisModelText } from "@/lib/novel/book-analysis/analysis-model-call"
 import { upsertPlotFramework } from "@/lib/novel/plot-framework-library"
+import { bridgePlotFrameworkToStoryFramework } from "@/lib/novel/story-simulation/plot-framework-bridge"
 import { loadMetadata } from "./analysis-engine"
 import { llmRecognizeCharacters } from "./character-llm-recognizer"
 import { replaceAutomaticEvidence } from "./analysis-evidence-store"
@@ -36,6 +37,8 @@ interface StoryAnalysisAdapterDependencies {
   callModel: (messages: ChatMessage[], llmConfig: Parameters<typeof streamChat>[0], signal: AbortSignal, onRequestTrace?: (trace: LlmRequestCacheTrace) => void) => Promise<string>
   buildDraft: typeof buildPlotFrameworkDraftFromBookStoryOutput
   upsertFramework: typeof upsertPlotFramework
+  /** 桥接：把四段框架写进 storyFrameworkBinding 真正读的那个存储（见 plot-framework-bridge）。 */
+  bridgeFramework: typeof bridgePlotFrameworkToStoryFramework
   replaceEvidence: typeof replaceAutomaticEvidence
   loadManifest: typeof loadAnalysisManifest
   saveManifest: typeof saveAnalysisManifest
@@ -67,6 +70,7 @@ const defaultDependencies: StoryAnalysisAdapterDependencies = {
   callModel: callStoryModel,
   buildDraft: buildPlotFrameworkDraftFromBookStoryOutput,
   upsertFramework: upsertPlotFramework,
+  bridgeFramework: bridgePlotFrameworkToStoryFramework,
   replaceEvidence: replaceAutomaticEvidence,
   loadManifest: loadAnalysisManifest,
   saveManifest: saveAnalysisManifest,
@@ -284,6 +288,19 @@ export function createStoryAnalysisAdapter(
         })
         if (framework) {
           const saved = await dependencies.upsertFramework(projectPath, framework)
+          /*
+           * 旧提取路径同样要桥接：只接 workbench 那条路的话，从「故事分析」进来的
+           * 故事 skill 依然到不了提示词（两条路的发布方互不复用）。
+           * 与 upsertFramework 一样放在这个 try 里：它是兼容产物的第二步，
+           * 失败只告警、不让整个故事分析失败（主产物是 story-map.json）。
+           *
+           * ⚠️ 与 workbench-publish 的「不 catch、让它抛」是**刻意的不对称**，不是漏写：
+           * 那边确认动作由用户发起且可重试，抛错才保得住「整批成功或什么都没发生」；
+           * 这边故事导图才是主产物，四段框架本就是上面标注过的「兼容产物」，
+           * 为它回滚一份已经写好的导图是过度反应。桥接只是跟随所在位置**已有的**
+           * 错误策略，两处各自的契约不同。
+           */
+          await dependencies.bridgeFramework(projectPath, saved)
           resultPath = `plot-framework:${saved.id}`
         }
       } catch (error) {

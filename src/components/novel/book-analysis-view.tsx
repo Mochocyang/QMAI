@@ -37,6 +37,7 @@ import {
   loadBookStoryFrameworkChapters,
 } from "@/lib/novel/book-analysis/story-framework-extraction"
 import { loadPlotFrameworkLibrary, upsertPlotFramework } from "@/lib/novel/plot-framework-library"
+import { bridgePlotFrameworkToStoryFramework } from "@/lib/novel/story-simulation/plot-framework-bridge"
 import type { PlotFramework } from "@/lib/novel/plot-framework"
 import type { BatchImportCandidate } from "@/lib/novel/book-analysis/batch-import-types"
 import {
@@ -595,7 +596,14 @@ export function LegacyBookAnalysisView() {
         toast.error("故事框架提取失败：AI 输出缺少钩子/铺垫/爽点/结尾钩子。")
         return
       }
-      await upsertPlotFramework(currentProject.path, framework)
+      const saved = await upsertPlotFramework(currentProject.path, framework)
+      /*
+       * 这是第三个发布方（workbench 版本确认、story-analysis-adapter 之外的那个「旧框架入口」）。
+       * 只写跨作品库的话，从这里提取的故事框架同样进不了 storyFrameworkBinding —— 也就是没打通。
+       * 桥接 id 由 framework.id 派生，而这个 id 本身带 createdAt，所以每次提取各自一份，
+       * 与跨作品库里「每次提取新增一条」的行为一致。
+       */
+      await bridgePlotFrameworkToStoryFramework(currentProject.path, saved)
       await reloadStoryFrameworks()
       useBookAnalysisStore.getState().triggerSidebarRefresh()
       toast.success("故事框架已提取并入库。")

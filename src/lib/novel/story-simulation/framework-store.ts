@@ -34,12 +34,19 @@ const SIM_ROOT = ".qmai/simulations"
 const FRAMEWORKS_DIR = `${SIM_ROOT}/frameworks`
 const RESULTS_DIR = `${SIM_ROOT}/results`
 
-const VALID_MODES: SimulationMode[] = [
+export const VALID_MODES: SimulationMode[] = [
   "event-driven",
   "free-emergence",
   "decision-tree",
   "hybrid",
 ]
+
+/**
+ * 解析不到合法 simulationMode 时的回退值，也是桥接（plot-framework-bridge）
+ * 给新框架选用的模式。声明在 VALID_MODES 旁边 + 单测断言
+ * `VALID_MODES.includes(DEFAULT_SIMULATION_MODE)`，避免两处各写一个字面量后漂移。
+ */
+export const DEFAULT_SIMULATION_MODE: SimulationMode = "hybrid"
 
 // ── 路径辅助 ──
 
@@ -258,7 +265,7 @@ function markdownToFramework(
       modeValue as SimulationMode,
     )
       ? (modeValue as SimulationMode)
-      : "hybrid"
+      : DEFAULT_SIMULATION_MODE
     const userIdeaValue = fmStr(fm.userIdea)
     const userIdea = userIdeaValue || undefined
 
