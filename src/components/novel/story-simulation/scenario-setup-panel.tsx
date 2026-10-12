@@ -610,8 +610,24 @@ export function ScenarioSetupPanel({
                   className="flex items-center justify-between gap-3 rounded-lg border p-2.5"
                 >
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{s.title}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium">
+                        {s.title}
+                      </span>
+                      {s.status === "cancelled" && (
+                        <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[0.625rem] font-medium text-amber-700 dark:text-amber-300">
+                          {t("storySimulation.scenarioStatusCancelled")}
+                        </span>
+                      )}
+                    </div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
+                      {SCENARIO_FORMAT_INFO[s.setup.format]?.icon}{" "}
+                      {SCENARIO_FORMAT_INFO[s.setup.format]?.name ?? s.setup.format}
+                      {" · "}
+                      {t("storySimulation.scenarioHistoryRounds", {
+                        n: s.setup.rounds,
+                      })}
+                      {" · "}
                       {t("storySimulation.scenarioHistoryMessages", {
                         count: s.messages.length,
                       })}

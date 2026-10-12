@@ -8,9 +8,12 @@ import type { Mock } from "vitest"
 import { ScenarioSetupPanel } from "./scenario-setup-panel"
 import {
   SCENARIO_MODERATOR_INTERVAL_DEFAULT,
+  SCENARIO_MODERATOR_USER_ID,
+  SCENARIO_MODERATOR_USER_NAME,
   SCENARIO_ROUND_MAX,
   estimateScenarioMessages,
   type ScenarioCandidate,
+  type ScenarioSession,
   type ScenarioSetup,
 } from "@/lib/novel/story-simulation/scenario-types"
 
@@ -63,7 +66,10 @@ let container: HTMLDivElement
 let root: Root
 let onStart: Mock<(setup: ScenarioSetup) => void>
 
-function render(candidates: ScenarioCandidate[] = CANDIDATES) {
+function render(
+  candidates: ScenarioCandidate[] = CANDIDATES,
+  savedScenarios: ScenarioSession[] = [],
+) {
   act(() => {
     root.render(
       <ScenarioSetupPanel
@@ -73,11 +79,45 @@ function render(candidates: ScenarioCandidate[] = CANDIDATES) {
         sourceChapters={10}
         onSourceChaptersChange={() => {}}
         onReExtract={() => {}}
+        savedScenarios={savedScenarios}
         onStart={onStart}
+        onOpenSaved={() => {}}
+        onDeleteSaved={() => {}}
         onCancel={() => {}}
       />,
     )
   })
+}
+
+/** 构造一条历史情景。 */
+function savedSession(
+  over: Partial<ScenarioSession> = {},
+): ScenarioSession {
+  return {
+    id: "s1",
+    title: "论中庸",
+    setup: {
+      id: "s1",
+      title: "论中庸",
+      rules: { directive: "辩一辩" },
+      format: "debate",
+      rounds: 30,
+      participants: [
+        {
+          id: SCENARIO_MODERATOR_USER_ID,
+          name: SCENARIO_MODERATOR_USER_NAME,
+          isModerator: true,
+        },
+      ],
+      sourceChapters: 4,
+      createdAt: "2026-10-11T00:00:00.000Z",
+    },
+    messages: [],
+    status: "completed",
+    createdAt: "2026-10-11T00:00:00.000Z",
+    updatedAt: "2026-10-11T00:00:00.000Z",
+    ...over,
+  }
 }
 
 /** React 受控组件：必须走原型上的 setter，否则 value tracker 会吞掉事件。 */
@@ -347,5 +387,43 @@ describe("ScenarioSetupPanel · 候选角色不足", () => {
 
     expect(selectionCount()).toContain("total=3")
     expect(countButton(5)?.disabled).toBe(true)
+  })
+})
+
+/**
+ * 历史列表原本只说「N 条发言 · 时间」。作者真正要判断的是「这场值不值得
+ * 再打开」—— 那就需要知道它是什么形式、计划多少轮、以及有没有被中途停掉。
+ * 这些信息全都已经存在 Session 里（format / rounds / status），只是没显示。
+ */
+describe("ScenarioSetupPanel · 历史情景列表", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn<(setup: ScenarioSetup) => void>()
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it("每行显示对话形式与计划轮数", () => {
+    render(CANDIDATES, [savedSession()])
+
+    expect(container.textContent).toContain("辩论")
+    expect(container.textContent).toContain("scenarioHistoryRounds(n=30)")
+  })
+
+  it("被中止的历史情景标出「已中止」", () => {
+    render(CANDIDATES, [savedSession({ status: "cancelled" })])
+
+    expect(container.textContent).toContain("scenarioStatusCancelled")
+  })
+
+  it("没被中止的历史情景不带中止标记", () => {
+    render(CANDIDATES, [savedSession()])
+
+    expect(container.textContent).not.toContain("scenarioStatusCancelled")
   })
 })
