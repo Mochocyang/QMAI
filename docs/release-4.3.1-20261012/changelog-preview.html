@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QMAI 4.3.1 更新日志</title>
+<style>
+  :root {
+    --bg: #f4f6f2;
+    --card: #ffffff;
+    --ink: #24312a;
+    --muted: #5d6e64;
+    --accent: #45624f;
+    --line: #e2e7df;
+    --soft: #eef2ea;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 16px 64px;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.75 "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 34px 38px 40px;
+    box-shadow: 0 1px 3px rgba(36, 49, 42, .06);
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--soft); color: var(--accent);
+    border-radius: 999px; padding: 5px 14px;
+    font-size: 13px; font-weight: 600; letter-spacing: .3px;
+  }
+  h1 { font-size: 26px; margin: 14px 0 6px; letter-spacing: .5px; }
+  h2 {
+    font-size: 18px; margin: 34px 0 12px; padding-left: 11px;
+    border-left: 3px solid var(--accent); line-height: 1.4;
+  }
+  blockquote.meta {
+    margin: 0 0 22px; padding: 12px 16px;
+    background: var(--soft); border-radius: 10px;
+    color: var(--muted); font-size: 13.5px;
+  }
+  blockquote.meta p { margin: 4px 0; }
+  ol, ul { margin: 0; padding-left: 22px; }
+  ul li { color: var(--ink); }
+  li { margin: 0 0 9px; }
+  li strong { color: var(--accent); }
+  p { margin: 10px 0; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 30px 0; }
+  code {
+    background: var(--soft); border-radius: 4px;
+    padding: 1px 5px; font-size: 13px;
+  }
+  table {
+    width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px;
+  }
+  th, td { border: 1px solid var(--line); padding: 7px 12px; text-align: left; }
+  th { background: var(--soft); font-weight: 600; }
+  tr td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <span class="badge">版本 4.3.1 · 2026-10-12</span>
+    <h1>QMAI 4.3.1 更新内容</h1>
+    <blockquote class="meta"><p><strong>对比基线</strong>：v4.2.0（2026-10-09，标签 <code>v4.2.0</code>）→ v4.3.1（2026-10-12）</p><p><strong>本文件用途</strong>：可对外发布的更新日志。分节可直接作为 GitHub Release 正文使用。</p><p><strong>规模</strong>：期间共 <strong>268 个非合并提交</strong>（另有 8 个分支合并），其中 96 个是文档、</p><p>13 个是测试补充、6 个是杂项 —— 这些不影响使用，归在附录。</p><p><strong>核对说明</strong>：正文每条来自提交标题与本次会话的实测；4.2.0 那版逐条回源码复算过，</p><p>本版因提交量是上一版的 3 倍，<strong>未逐条回源码复算</strong>，如需逐条核对请对照附录的提交号。</p></blockquote><hr><h2>更新概览</h2><p>这一版的主题是<strong>「把细纲、人物、文风三条线都接进真正的写作现场」</strong>：</p><ul><li><strong>事件细纲</strong>：从「能聊」做到「能落到章节」——向导、事件卡片、正文生成、保存闸门整条链打通；</li></ul><ul><li><strong>人物 Skill</strong>：新增整个能力域，读章节学人物，学完能注入写作；</li></ul><ul><li><strong>文风</strong>：能选、能引用、能建，本轮又把入口收干净；</li></ul><ul><li><strong>续写 / 拆书库 / 共创 / 舞台情景</strong>：四条既有线各自补齐；</li></ul><ul><li><strong>修复</strong>：备份导出导入 9 项缺陷、弹窗被压成全屏、侧栏菜单被裁切等。</li></ul><hr><h2>一、事件细纲：从「能聊」到「能落到章节」</h2><ol start="1"><li><strong>【新增生成章节细纲向导】</strong>在对话里按步骤生成一份轻量章细纲（约 4~8 个事件）</li><li><strong>【新增只读事件卡片与扩写入口】</strong>细纲以卡片呈现，可从卡片直接扩写</li><li><strong>【从 AI 回复解析事件细纲数据】</strong>回复里的结构化数据能被解析出来，不再是纯文本</li><li><strong>【新增下一章章号探测】</strong>自动判断下一章是第几章；只看章节库，避免章纲与笔记顶飞章号；不再把目录名里的数字当成章号</li><li><strong>【新增事件细纲契约、归一化与校验】</strong>补齐目标字数校验；软性字数提示<strong>不再阻断</strong>扩写</li><li><strong>【独立的保存类型与文件夹】</strong>注册 <code>event-outline</code> 保存类型、内容闸门与「事件细纲」文件夹；细纲<strong>不再落进</strong>章纲文件夹，也不再存进大纲列表</li><li><strong>【入口搬进章节区】</strong>生成入口从大纲面板移到章节区，删除向导死链</li><li><strong>【确认后直接生成章节正文】</strong>细纲确认后在章节区直接产出正文；正文落盘统一走一个写入函数</li><li><strong>【卡片支持手动修改与 AI 重新生成】</strong>改完可让 AI 重生成，且<strong>带上你手改的要求</strong>与<strong>手改的目标字数</strong></li><li><strong>【交接时展开写作面并保留已有草稿】</strong>细纲交接到章节时不覆盖已有内容</li><li><strong>【首次进入对话的分步引导教程】</strong>第一次打开细纲对话有引导</li><li><strong>【空章节灵感气泡】</strong>空章节在「生成章节细纲」按钮旁挂出灵感气泡，可在写作设置里开关</li><li><strong>【取消与重入不再出错】</strong>同章重提会中止被取代的那次生成；取消后立即清掉控制器；重入时旧一次的收尾不会摘掉新一次的取消句柄；取消不再是空操作，也不再跨项目写入或产生同章重复文件</li><li><strong>【提示词加固】</strong>逐个对象重扫围栏，避免漏解析与自相矛盾；扩写接回你对本章的要求</li></ol><h2>二、人物 Skill（新增能力域）</h2><ol start="15"><li><strong>【新增人物 Skill 页与草稿守卫】</strong>独立页面，未保存的草稿不会被静默丢弃</li><li><strong>【独立存储层】</strong>人物 Skill 有自己的存储；坏索引不再被静默抹掉</li><li><strong>【提取记忆时后台学习】</strong>读章节记忆的同时在后台学人物</li><li><strong>【章节学习编排】</strong>按章节编排学习任务</li><li><strong>【研究文件】</strong>为每个人物生成研究文件，且<strong>只在首次生成</strong>，不重复写</li><li><strong>【分级注入】</strong>按档位决定注入多少，不再是全量硬塞</li><li><strong>【写作上下文注入】</strong>人物 Skill 真正进入写作提示词</li><li><strong>【单次多人物提示词】</strong>一次可带多个人物</li><li><strong>【类型阈值与档位判定】</strong>按类型阈值决定人物档位</li><li><strong>【字段表对齐为 5 个「演技」字段】</strong></li><li><strong>【修「提取了记忆但技能库里没有人物」】</strong>此前是静默失效，没有任何提示</li><li><strong>【修「提取完了技能库还是空的」】</strong>解析器比真实模型严格，且每条偏离路径都静默——现在能落地</li><li><strong>【学习完成后给出提示】</strong>学完会弹窗告知，不再无声结束</li><li><strong>【并发保存不丢手改正文】</strong>并发写入时保住你手改的内容，出场记账确定性落盘</li><li><strong>【保存加锁】</strong>把用户保存档案也收进同一把锁</li><li><strong>【非绿勾人物不得重新整理研究文件】</strong></li></ol><h2>三、文风</h2><ol start="31"><li><strong>【技能库新增「文风」tab】</strong>以引用方式列出项目里的文风预设</li><li><strong>【生成时可选「文风写作」】</strong>只对这一次生成生效，<strong>不改动项目设置</strong>；切换项目时临时选择会重置</li><li><strong>【输入框 @ 文风引用真正接入】</strong>在消息里 <code>@</code> 一条文风，会真正覆盖本次生成</li><li><strong>【文风 skill 编辑器】</strong>可以直接编辑文风 skill</li><li><strong>【文风自进化】</strong>自动分析已写章节，提取写作与用词习惯形成文风</li><li><strong>【本轮收口：下拉只剩两项】</strong>打开文风选择器只剩「当前文风」与「打开文风库」—— 「跟随项目设置的文风」「本次不用文风」已移除，<strong>启用与停用统一在文风库里做</strong></li><li><strong>【本轮收口：自进化开关改造】</strong>开关改为「文字在左（已开启 / 已关闭）、滑块在右」， 与大模型页那枚开关一致；说明文字改为讲清「会分析已写章节、会消耗 token、 结果需要你点一下才启用」</li><li><strong>【本轮收口：文风库新增「去拆书库添加文风」】</strong>文风的正经来源是拆书库的提取， 「新建文风」只能建空壳，现在两个入口并排</li></ol><h2>四、角色灵魂与故事 skill</h2><ol start="39"><li><strong>【输入框 @ 引用角色灵魂并真绑定到小说人物】</strong>引用不再只是文本，会绑定到具体人物</li><li><strong>【按快照完整还原绑定】</strong>含 aliases，还原后不再缺项</li><li><strong>【拆书发布桥接修正】</strong>桥到 <code>storyFrameworkBinding</code> 真正读的那个存储，不再是读一份写另一份</li></ol><h2>五、章节续写</h2><ol start="42"><li><strong>【右键菜单新增续写项】</strong>默认右键菜单保持不变，续写作为新增项</li><li><strong>【续写浮层】</strong>浮层内可选范围与字数，定位对齐居中并在空间不足时翻转到上方</li><li><strong>【生成、流式显示与插入写回】</strong>结果流式显示并写回正文</li><li><strong>【提示词与送模截断】</strong>超长内容按截断处理</li><li><strong>【停止与截断不再误报为失败】</strong>手动停止不再显示成出错</li><li><strong>【接上真正会渲染的编辑器】</strong>并修掉跨章写入与代理对切断</li><li><strong>【滚动重定位不再只认润色入口】</strong></li></ol><h2>六、拆书库</h2><ol start="49"><li><strong>【空态能力卡】</strong>空态展示角色 / 故事 / 文风三张能力卡，可直接预选</li><li><strong>【导入弹窗补齐三项提取选择】</strong>并支持从空态卡片预勾选</li><li><strong>【「思考-only」失败可重试】</strong>文风 / 故事 / 验证、六维 / 角色识别 / 角色抽取、 工作台与角色技能生成、简单提取 / 继续生成 / 故事框架 —— 四条链路都接上重试， 失败<strong>可见</strong>而不是静默</li><li><strong>【迁移时保留 reasoning 覆盖项】</strong>避免 Gemini 丢掉思考档位</li><li><strong>【取消时不回调半截文本】</strong>终态文案不再被判定为「可重试」而反复重跑</li><li><strong>【半截正文改用 finally 记录】</strong>即使底层直接抛错也不丢；重试那轮的半截文本也会交回调用点</li></ol><h2>七、章节共创与舞台情景</h2><ol start="55"><li><strong>【章节「共创」模式】</strong>一次给出 3~4 个方向候选，你挑一个再往下写</li><li><strong>【「舞台情景」人物对话模拟】</strong>用人物设定跑对话模拟</li></ol><h2>八、导航与界面</h2><ol start="57"><li><strong>【设置与外观移到侧栏底部】</strong>外观改为皮肤切换，并从顶栏迁出</li><li><strong>【侧栏底栏顺序调整】</strong></li><li><strong>【修「外观」菜单被窗口底边裁切】</strong>并让「设置」靠左</li><li><strong>【弹窗宽度不再被皮肤规则压成全屏】</strong>各类弹窗恢复各自合适的居中尺寸</li><li><strong>【删除分步使用教程弹窗】</strong>首次使用不再打断</li><li><strong>【技能库删掉不可达的重复渲染块】</strong>并加「只有一个渲染点」的守卫</li><li><strong>【技能库「加一个 tab = 编译错误」成为事实】</strong>此前只是注释里的承诺</li><li><strong>【删掉不可达的「文风库读取失败」分支】</strong>并让拆掉 <code>never</code> 守卫不再静默</li><li><strong>【订正多处「宣称了运行时产生不了的行为」的注释】</strong>注释不再骗过源码级兜底</li></ol><h2>九、写作质量</h2><ol start="66"><li><strong>【正文生成提示词加入反 AI 腔硬约束】</strong></li><li><strong>【事件细纲扩写接回用户对本章的要求】</strong></li><li><strong>【修正注入格式、注释与规则范围】</strong></li><li><strong>【修正内置技能内容里的字面换行符】</strong></li></ol><h2>十、其他修复</h2><ol start="70"><li><strong>【备份：修复导出 / 导入审计发现的 9 项缺陷】</strong></li><li><strong>【字体：补齐随仓库分发字体的许可原文】</strong>并加上通用守护</li><li><strong>【移除鸿蒙黑体】</strong></li><li><strong>【一键提取：消化独立审查发现的 4 个真实缺陷】</strong></li><li><strong>【一键提取两条入口都给出可见反馈】</strong>章节与大纲都能看到，运行中图标转起来</li><li><strong>【老配置兼容】</strong>已删除的 <code>usageTutorialSeen</code> 字段仍能被老配置正确忽略</li></ol><h2>十一、独立 UI 测试版</h2><ol start="76"><li><strong>【书架：封面尺寸不再随窗口变宽而缩小】</strong>此前同一档小封面，1090px 窗口是 200px、 拉到 1206px 反而只剩 95px。现在封面尺寸与窗口宽度解耦</li><li><strong>【书架：卡间距调整】</strong>小封面列距 10→18px、行距 14→24/28px；大封面列距 16→20px</li><li><strong>【书架：长书名完整向下排】</strong>不再被截断成两行，且同一行各张卡片的封面保持齐平</li><li><strong>【书架：书名不再加粗】</strong></li><li><strong>【顶栏：书名不再因窗口变窄而消失】</strong>此前窗口窄于 1179px 时书名被整段隐藏， 看起来像「打开章节或大纲时书名时有时无」</li></ol><hr><h2>附：版本与提交统计</h2><table><thead><tr><th>类别</th><th>数量</th></tr></thead><tbody><tr><td>feat（新功能）</td><td>46</td></tr><tr><td>fix（修复）</td><td>62</td></tr><tr><td>docs（文档 / 计划 / 设计记录）</td><td>96</td></tr><tr><td>test（测试补充）</td><td>13</td></tr><tr><td>chore（杂项）</td><td>6</td></tr><tr><td>refactor（重构）</td><td>3</td></tr><tr><td>revert</td><td>1</td></tr><tr><td><strong>非合并提交合计</strong></td><td><strong>268</strong></td></tr><tr><td>合并提交（分支并入）</td><td>8</td></tr></table><p>合并进来的分支：章节共创、人物 Skill、舞台情景、故事 skill、角色灵魂、</p><p><code>work/scratch-20261010</code> 多批工作、<code>fix/character-skill-memory-extract-toast</code>，</p><p>以及 <code>origin/main</code>（远端在 GitHub 网页端批量删除 docs 目录的 32 个提交）。</p><p>期间还有一次 <code>chore(release): 升级版本至 4.2.1</code>（<code>f2309abb</code>），<strong>未单独打标签发版</strong>，</p><p>其内容已并入本清单。</p><hr><h2>附：完整提交清单</h2><p>见同目录 <code>commits-4.3.1-full.txt</code>（268 条，按时间倒序，含提交号）。</p>
+  </div>
+</div>
+</body>
+</html>
