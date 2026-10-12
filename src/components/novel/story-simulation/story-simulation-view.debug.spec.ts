@@ -71,4 +71,18 @@ describe("story simulation debug process view wiring", () => {
     // 历史结果没有 agentSnapshot 时要清空内存态，避免采访用上一条推演的世界
     expect(source).toContain("lastSimulationStateRef.current = null")
   })
+
+  it("wires session persistence through the project path", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/novel/story-simulation/story-simulation-view.tsx",
+      ),
+      "utf8",
+    )
+
+    // 配置持久化必须挂在 view 上，且必须拿到 projectPath —— 没有它 hook 会
+    // 直接不读不写（见 use-simulation-session.spec.tsx 的覆盖）。
+    expect(source).toContain("useSimulationSession(projectPath)")
+  })
 })

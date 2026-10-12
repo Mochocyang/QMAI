@@ -100,6 +100,7 @@ import {
 } from "@/lib/novel/story-simulation/action-type-utils";
 import { Button } from "@/components/ui/button";
 import { StorySimulationHub } from "./story-simulation-hub";
+import { useSimulationSession } from "./use-simulation-session";
 
 const PROGRESS_PHASES = [
   "extracting",
@@ -292,6 +293,9 @@ export function StorySimulationView() {
 
   // 当前阶段的进度基线
   const phaseBaseProgressRef = useRef(0);
+
+  // 配置跨项目/重启保留（.qmai/simulations/session.json）
+  useSimulationSession(projectPath);
 
   // 采访面板打开时自动滚动到底部
   useEffect(() => {
