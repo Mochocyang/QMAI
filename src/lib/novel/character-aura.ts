@@ -225,7 +225,7 @@ const AURA_WORKFLOW_STAGES: AuraWorkflowStage[] = [
   },
 ]
 
-const CHARACTER_AURA_BINDING_BLOCK_MESSAGE = "请先在大纲中添加人物小传或人物设定，再绑定角色灵魂"
+export const CHARACTER_AURA_BINDING_BLOCK_MESSAGE = "请先在大纲中添加人物小传或人物设定，再绑定角色灵魂"
 const CHARACTER_AURA_INVALID_AURA_MESSAGE = "请选择有效的角色灵魂"
 
 export const BUILT_IN_CHARACTER_AURAS: CharacterAura[] = [
