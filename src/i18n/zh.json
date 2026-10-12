@@ -1549,9 +1549,9 @@
     "chapter": {
       "status": {
         "draft": "草稿",
-        "revised": "修订中",
         "canon": "正式章节",
-        "archived": "废弃草稿"
+        "badgeDraft": "草稿",
+        "badgeCanon": "正式"
       },
       "saveAsCanon": "保存为正式章节",
       "saveAsDraft": "保存为草稿",

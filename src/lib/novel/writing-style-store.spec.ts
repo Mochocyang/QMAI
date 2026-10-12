@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { useWikiStore } from "@/stores/wiki-store"
 import type { BookStyleProfile } from "./book-analysis/types"
 import { STYLE_FACETS, parseStyleFingerprintItem } from "./book-analysis/style-fingerprint"
 import { buildEvidenceCandidates } from "./book-analysis/workbench-core"
@@ -99,6 +100,34 @@ describe("writing-style-store", () => {
     await setEnabledWritingStyle(PROJECT, null)
     expect(await buildWritingStyleContext(PROJECT)).toBe("")
   })
+
+  /*
+   * ── 写入必须通知刷新（用户报的第四项）──
+   *
+   * 现场：在拆书库「拆出库」并启用一条新文风后，写作区那个「文风」按钮
+   * 仍显示旧状态（「未启用」/ 上一条），文风库卡片的「当前启用」徽章同理。
+   * 根因是读的那一侧只在 `dataVersion` 变化时重读
+   * （`use-writing-style-options.ts` 依赖 `[dataVersion, projectPath, selectedSkillId]`），
+   * 而写入这边只落盘、从不通知。
+   *
+   * 这条用例钉的是**漏斗**（`saveWritingStyleStore`）而不是某个调用点：
+   * 三条写入路径（新建预设 / 启用或取消 / 删除）都必须各通知一次。
+   * 判别力：把 `saveWritingStyleStore` 里那句 `bumpDataVersion()` 删掉，
+   * 三个断言同时红；把通知挪到某一个调用点上，另外两个红。
+   */
+  it("每条写入路径都通知刷新：dataVersion 各加一次", async () => {
+    const before = useWikiStore.getState().dataVersion
+
+    const preset = await upsertWritingStylePreset(PROJECT, { name: "通知", sourceBook: "通知书", profile: makeProfile() })
+    expect(useWikiStore.getState().dataVersion, "新建预设要通知").toBe(before + 1)
+
+    await setEnabledWritingStyle(PROJECT, preset.id)
+    expect(useWikiStore.getState().dataVersion, "启用/取消要通知").toBe(before + 2)
+
+    await removeWritingStylePreset(PROJECT, preset.id)
+    expect(useWikiStore.getState().dataVersion, "删除预设也要通知").toBe(before + 3)
+  })
+
   it("dedupes presets by sourceBook and overwrites the profile", async () => {
     const a = await upsertWritingStylePreset(PROJECT, { name: "凡人·文风", sourceBook: "凡人", profile: makeProfile() })
     const b = await upsertWritingStylePreset(PROJECT, {

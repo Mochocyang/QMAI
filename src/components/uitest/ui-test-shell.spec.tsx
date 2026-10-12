@@ -67,20 +67,48 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.clearAllMocks(); vi.restoreAllMocks() })
 
 describe("独立UI测试版外壳", () => {
-  it("书名保留在书架右侧原位置，切换小说同步", async () => {
+  it("书名保留在品牌区，书架固定按钮钉在主导航最左端（大纲左侧）", async () => {
     await render()
     const brand = host.querySelector(".ui-test-brand")!
     const book = host.querySelector(".ui-test-current-book")!
-    const shelf = host.querySelector('[aria-label="返回书架"]')!
+    const shelf = host.querySelector<HTMLElement>(".ui-test-nav-shelf")!
     expect(host.querySelector(".ui-test-brand-copy")).toBeNull()
     expect(book.parentElement).toBe(brand)
-    expect(book.previousElementSibling).toBe(shelf)
+    // ⚠️ 这条断言在本次改动中**方向反了**：书架原来在品牌区、书名紧跟在它右侧
+    // （旧断言是 `book.previousElementSibling === shelf`）。用户要求把书架
+    // 移到「大纲」左侧作为固定按钮，所以现在品牌区只剩「图标 + 产品名 + 书名」，
+    // 书架不再与书名相邻。这条改成钉**新**位置，并同时钉住它没留在品牌区。
+    expect(brand.querySelector(".ui-test-nav-shelf")).toBeNull()
+    /*
+     * 品牌区不许再出现「书架」。上面那条只查 `.ui-test-nav-shelf`，
+     * 而书架在品牌区时用的类名是 `.ui-test-crumb`（旧的圆角小按钮样式）——
+     * 只查一个类名，等于给「用旧类名搬回去」留了后门。两条一起查。
+     * （品牌区里合法存在的按钮只有左上角那个目录开关 `.ui-test-brand-logo-btn`。）
+     */
+    expect(brand.querySelector(".ui-test-crumb")).toBeNull()
+    expect(brand.querySelectorAll("button:not(.ui-test-brand-logo-btn):not(.ui-test-header-hint-dismiss)")).toHaveLength(0)
     expect(book.textContent).toBe(project.name)
     expect(host.querySelectorAll(".ui-test-current-book")).toHaveLength(1)
     const next = { ...project, id: "next", name: "很长的小说名称用于验证省略及悬停完整名称" }
     await act(async () => { root.render(<UiTestShell project={next} {...callbacks} />) })
     expect(host.querySelector(".ui-test-current-book")?.getAttribute("title")).toBe(next.name)
     expect(host.querySelector(".ui-test-current-book")?.textContent).toBe(next.name)
+    // 主导航 = 固定按钮 + 可配置项；书架必须是第一个，且紧挨在「大纲」左边
+    const nav = host.querySelector(".ui-test-nav")!
+    expect(nav.firstElementChild).toBe(shelf)
+    expect(shelf.textContent).toBe("书架")
+    /*
+     * ⚠️ 上面那条 `textContent === "书架"` **不足以**表达「只有两个字」：
+     * lucide 图标渲染成 `<svg>`，**不产生任何文字**，所以 `svg + 书架`
+     * 的 textContent 同样是 `"书架"` —— 这条断言对「图标又回来了」是瞎的
+     * （变异测试 M3 就是这么漏过去的）。
+     * 用户要求「不要那个图标，只留『书架』两个字」，所以必须单独钉住
+     * **没有 svg 子元素**：这一条才是那个要求的判别点。
+     */
+    expect(shelf.querySelector("svg")).toBeNull()
+    expect(shelf.children).toHaveLength(0)
+    expect(nav.querySelector(".ui-test-nav-slot")?.previousElementSibling).toBe(shelf)
+    expect(nav.querySelector(".ui-test-nav-slot button")?.textContent).toBe("大纲")
     await click("返回书架")
     expect(callbacks.onSwitchProject).toHaveBeenCalled()
   })
@@ -236,34 +264,66 @@ describe("独立UI测试版外壳", () => {
     expect(host.querySelector('[aria-label="灵魂功能菜单"]')).not.toBeNull()
     await hover("移动")
     await click("左移")
-    expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "灵魂", "章节"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "灵魂", "章节"])
     vi.useRealTimers()
     await act(async () => root.unmount())
     root = createRoot(host)
     await render()
-    expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "灵魂", "章节"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "灵魂", "章节"])
     const movedSoul = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.querySelector("button")?.textContent === "灵魂") as HTMLElement
     await act(async () => { movedSoul.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })) })
     await hover("替换为")
     await click("技能库")
-    expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节"])
     const skill = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.querySelector("button")?.textContent === "技能库") as HTMLElement
     await act(async () => { skill.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })) })
     await hover("新增功能")
     await click("小说图谱")
-    expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节", "小说图谱"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节", "小说图谱"])
     useWikiStore.setState({ activeView: "graph" })
     const graph = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.querySelector("button")?.textContent === "小说图谱") as HTMLElement
     await act(async () => { graph.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })) })
     await click("删除")
     expect(useWikiStore.getState().activeView).toBe("sources")
-    expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节"])
   })
   it("没有小说时仍可右键管理主导航", async () => {
     await render(false)
     const slot = host.querySelector(".ui-test-nav-slot") as HTMLElement
     await act(async () => { slot.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })) })
     expect(host.querySelector('[role="menu"]')).not.toBeNull()
+  })
+
+  /*
+   * 「人物 Skill」视图不得渲染左侧目录栏（用户报的缺陷）。
+   *
+   * 现象：技能库六个 tab 里，切到「人物 Skill」时左边会冒出一条**章节列表**，
+   * 其余五个 tab 都是整窗、没有目录栏。根因是 `personaSkillLibrary`
+   * 漏在 `FULL_WINDOW_VIEWS` 之外，于是 `hasDirectory` 判真。
+   *
+   * 为什么这条要写在**外壳**上，而不是只靠 `full-window-views.spec.ts`：
+   * 那边验的是纯函数 `isFullWindowView`；而用户看到的是**渲染结果**。
+   * 两者之间还隔着 `hasDirectory` 那一串条件（`activeView !== "settings"`、
+   * `!memoryCenterFullWindow`…）。这里直接钉住「DOM 里没有目录栏」，
+   * 把那串条件一起盖住。
+   *
+   * 判别力：把 `personaSkillLibrary` 从 `FULL_WINDOW_VIEWS` 删掉 ⇒ 红
+   * （aside 会重新出现）。同时对照一个**应当有**目录栏的视图（章节写作区），
+   * 证明这条断言不是恒真 —— 否则「永远查不到 aside」也会绿。
+   */
+  it("「人物 Skill」视图不渲染左侧目录栏，与技能库其余 tab 一致", async () => {
+    // 对照：章节写作区（wiki）**应该**有目录栏，证明 aside 确实会被渲染出来
+    useWikiStore.setState({ activeView: "wiki", selectedFile: null })
+    await render()
+    expect(host.querySelector("#ui-test-directory"), "章节写作区应当有目录栏（对照）").not.toBeNull()
+
+    // 正题：切到「人物 Skill」，目录栏必须消失
+    await act(async () => { useWikiStore.setState({ activeView: "personaSkillLibrary" }) })
+    expect(host.querySelector("#ui-test-directory"), "「人物 Skill」不应有左侧目录栏").toBeNull()
+
+    // 再对照技能库里一个**本来就在**整窗清单里的 tab，行为应当一致
+    await act(async () => { useWikiStore.setState({ activeView: "characterSoulLibrary" }) })
+    expect(host.querySelector("#ui-test-directory"), "「角色灵魂」不应有左侧目录栏").toBeNull()
   })
   it("替换当前功能时同步切换页面，替换其他功能时保持页面", async () => {
     await render()
@@ -272,7 +332,7 @@ describe("独立UI测试版外壳", () => {
     await hover("替换为")
     await click("技能库")
     expect(useWikiStore.getState().activeView).toBe("skillLibrary")
-    expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "章节", "技能库"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "技能库"])
 
     useWikiStore.setState({ activeView: "sources" })
     const skill = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.querySelector("button")?.textContent === "技能库") as HTMLElement
@@ -280,7 +340,7 @@ describe("独立UI测试版外壳", () => {
     await hover("替换为")
     await click("小说图谱")
     expect(useWikiStore.getState().activeView).toBe("sources")
-    expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "章节", "小说图谱"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "小说图谱"])
   })
   it("灵魂被替换成技能库后，仍可从创作工具重新打开灵魂", async () => {
     await render()
@@ -289,7 +349,7 @@ describe("独立UI测试版外壳", () => {
     await hover("替换为")
     await click("技能库")
     expect(useWikiStore.getState().activeView).toBe("skillLibrary")
-    expect([...host.querySelectorAll("nav button")].map((button) => button.textContent)).toEqual(["大纲", "章节", "技能库"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "技能库"])
     await click("创作工具")
     expect(host.querySelector('[aria-label="创作工具"]')).not.toBeNull()
     const soulEntry = [...host.querySelectorAll('[aria-label="创作工具"] [role="menuitem"]')].find((button) => button.textContent?.trim() === "灵魂")

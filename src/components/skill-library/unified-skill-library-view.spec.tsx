@@ -167,6 +167,12 @@ const characterAuraStore = {
   ],
 }
 
+/**
+ * 盘上**当前**的文风库内容（`writeFileAtomic` 会更新它）。见 beforeEach 的说明：
+ * 「选中态来自盘上状态」那条用例必须让写盘与重读闭合成一条真链路。
+ */
+let persistedWritingStyleStore = writingStyleStore
+
 async function renderLibrary() {
   const container = document.createElement("div")
   document.body.appendChild(container)
@@ -251,15 +257,26 @@ describe("UnifiedSkillLibraryView", () => {
   beforeEach(() => {
     useWikiStore.getState().setPersonaSkillLibraryDraftDirty(false)
     vi.clearAllMocks()
+    /*
+     * 盘上的文风库内容。**每个用例重置**，且 `writeFileAtomic` 会把它更新 ——
+     * 这样「点启用 → 写盘 → 重新挂载重读」这条链在用例里是**真的闭**的。
+     * 只让 `readFile` 永远返回同一份常量的话，「选中态是否来自盘上状态」
+     * 这条用例就证明不了任何事（重挂载后读回来的还是那份旧常量）。
+     */
+    persistedWritingStyleStore = structuredClone(writingStyleStore)
     readFileMock.mockImplementation(async (path: string) => {
       if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
       if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
-      if (path.endsWith(".qmai/writing-style.json")) return JSON.stringify(writingStyleStore)
+      if (path.endsWith(".qmai/writing-style.json")) return JSON.stringify(persistedWritingStyleStore)
       if (path.endsWith(".qmai/character-aura.json")) return JSON.stringify(characterAuraStore)
       throw new Error("missing")
     })
     writeFileMock.mockResolvedValue(undefined)
-    writeFileAtomicMock.mockResolvedValue(undefined)
+    writeFileAtomicMock.mockImplementation(async (path: string, content: string) => {
+      if (path.endsWith(".qmai/writing-style.json")) {
+        persistedWritingStyleStore = JSON.parse(content) as typeof writingStyleStore
+      }
+    })
     openDialogMock.mockResolvedValue(null)
     saveDialogMock.mockResolvedValue(null)
     useWikiStore.getState().setProject({
@@ -542,33 +559,171 @@ describe("UnifiedSkillLibraryView", () => {
     cleanup(root, container)
   })
 
-  it("文风条目是引用：选中它不写任何文件，也不进入编辑器", async () => {
+  /*
+   * ── 文风卡片：点击 = 启用该文风（用户要求的语义变更）──
+   *
+   * ⚠️ 这条用例的旧版本断的是「选中它**一个文件都没写**」。那条断言已被
+   * **用户明确推翻**：在文风库里点选时用户期望它生效并保持，而不是只亮一个
+   * 离开就消失的高亮（现场：选中后回到写作区，那个「文风」按钮仍显示「未启用」；
+   * 再打开「完整文风库」卡片又变回「点击选中」）。
+   *
+   * 所以这里改断**新的**不变式 —— 原用例真正要防的那件事（写错库的文件、
+   * 误开别的库的编辑器）**一条都没放松**：
+   *   · 只允许写 `.qmai/writing-style.json` 这一个文件；
+   *   · 不许写 `writing-skills.json` / `de-ai-skills.json`；
+   *   · 不许打开任何编辑器、不许写 wiki-store 的「选中技能」状态。
+   *
+   * 判别力：把 `setEnabledWritingStyle` 换成往别的库写（或换回本地 setState），
+   * 下面第一条断言就会红。
+   */
+  it("文风条目：点击启用该文风，只写 writing-style.json，不写别的库、不开编辑器", async () => {
     const { container, root } = await renderLibrary()
     await switchToTab(container, "文风")
 
-    const card = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-style:preset:cool"]')
-    expect(card).not.toBeNull()
-    expect(card!.getAttribute("aria-pressed")).toBe("false")
+    const enabledCard = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-style:preset:cool"]')
+    const otherCard = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-style:preset:warm"]')
+    expect(enabledCard).not.toBeNull()
+    expect(otherCard).not.toBeNull()
+    // 盘上 enabledStyleId 是 preset:cool，所以它在选中态、另一张不在
+    expect(enabledCard!.getAttribute("aria-pressed")).toBe("true")
+    expect(otherCard!.getAttribute("aria-pressed")).toBe("false")
     // 条目是**读项目文件**来的（引用），不是把预设复制成技能
     expect(readFileMock.mock.calls.map((call) => String(call[0]))).toContain("C:/project/.qmai/writing-style.json")
     expect(writeFileAtomicMock.mock.calls.map((call) => String(call[0]))).toEqual([])
 
     await act(async () => {
-      card!.click()
+      otherCard!.click()
     })
     await flushEffects()
 
-    // 证据链：选中后**一个文件都没写**（尤其没有 writing-skills.json / .qmai/writing-style.json）
-    expect(writeFileAtomicMock.mock.calls.map((call) => String(call[0]))).toEqual([])
+    // 只写了文风库这一个文件 —— 这是原用例「不写错库」那条防线的**新形式**
+    expect(writeFileAtomicMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      "C:/project/.qmai/writing-style.json",
+    ])
     expect(writeFileMock).not.toHaveBeenCalled()
+    // 写进去的是「启用 preset:warm」
+    const written = JSON.parse(String(writeFileAtomicMock.mock.calls[0][1])) as { enabledStyleId: string | null }
+    expect(written.enabledStyleId).toBe("preset:warm")
     // 也没有写 wiki-store 的「选中技能」状态（那会打开另一个库的编辑器）
     expect(useWikiStore.getState().selectedSkillLibrarySkillId).toBeNull()
     expect(useWikiStore.getState().selectedWritingSkillLibrarySkillId).toBeNull()
     expect(container.querySelector('[data-testid="skill-library-view"]')).toBeNull()
     expect(container.querySelector('[data-testid="writing-skill-library-view"]')).toBeNull()
-    // 但选中在界面上是可观察的
-    expect(card!.getAttribute("aria-pressed")).toBe("true")
-    expect(card!.querySelector(".ui-test-skill-card-open")).toBeNull()
+    // 选中态在界面上跟着换人：新启用项亮起，旧启用项熄灭
+    expect(otherCard!.getAttribute("aria-pressed")).toBe("true")
+    expect(enabledCard!.getAttribute("aria-pressed")).toBe("false")
+    expect(otherCard!.querySelector(".ui-test-skill-card-open")).toBeNull()
+
+    cleanup(root, container)
+  })
+
+  /*
+   * 再点一次 = 取消启用。可逆是用户选定的语义（推荐项）：
+   * 否则库里出现了「启用了却关不掉」的死角，只能绕去拆书库取消。
+   */
+  it("文风条目：再点一次取消启用", async () => {
+    const { container, root } = await renderLibrary()
+    await switchToTab(container, "文风")
+
+    const card = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-style:preset:cool"]')!
+    expect(card.getAttribute("aria-pressed")).toBe("true")
+
+    await act(async () => {
+      card.click()
+    })
+    await flushEffects()
+
+    const written = JSON.parse(String(writeFileAtomicMock.mock.calls[0][1])) as { enabledStyleId: string | null }
+    expect(written.enabledStyleId).toBeNull()
+    expect(card.getAttribute("aria-pressed")).toBe("false")
+
+    cleanup(root, container)
+  })
+
+  /*
+   * ⚠️ 这条用例直击用户报的「回到章节当中，再次打开完整文风库时还是显示
+   * 『点击选中』」：选中态来自**盘上的 enabledStyleId**，不是组件内存变量。
+   *
+   * 判别力（关键）：把实现改回 `useState` 本地选中，这条会红 —— 卸载再挂载
+   * 之后本地状态归零，aria-pressed 变回 false。为了让「写盘 → 重读」这条链
+   * 真的闭合，这里让 `writeFileAtomic` 把内容存进 `persistedWritingStyleStore`，
+   * `readFile` 从它读（见本文件 beforeEach）。
+   */
+  it("文风选中态来自盘上状态：卸载再挂载后仍保持（不是内存变量）", async () => {
+    const first = await renderLibrary()
+    await switchToTab(first.container, "文风")
+    await act(async () => {
+      first.container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-style:preset:warm"]')!.click()
+    })
+    await flushEffects()
+    expect(
+      first.container.querySelector('[data-testid="unified-skill-entry-style:preset:warm"]')!.getAttribute("aria-pressed"),
+    ).toBe("true")
+    cleanup(first.root, first.container)
+
+    // 重新挂载（等价于「切走再切回来」/ 重开面板）
+    const second = await renderLibrary()
+    await switchToTab(second.container, "文风")
+    expect(
+      second.container.querySelector('[data-testid="unified-skill-entry-style:preset:warm"]')!.getAttribute("aria-pressed"),
+    ).toBe("true")
+    expect(
+      second.container.querySelector('[data-testid="unified-skill-entry-style:preset:cool"]')!.getAttribute("aria-pressed"),
+    ).toBe("false")
+    cleanup(second.root, second.container)
+  })
+
+  /*
+   * 端到端接线：点卡片启用 → `dataVersion` 自增。
+   *
+   * 这条是**用户报的第四项**（「拆出库启用新文风后，写作区那个文风按钮也要显示」）
+   * 在文风库这一侧的证据。写作区那个「文风」按钮的读盘 effect 只依赖
+   * `[dataVersion, projectPath, selectedSkillId]`，所以「启用」这个事实
+   * 只有通过 dataVersion 变化才能传过去；少了它，用户会看到按钮仍显示「未启用」。
+   *
+   * 判别力：把 `handleToggleStyleEnabled` 里对 `setEnabledWritingStyle` 的调用
+   * 换回本地 setState（旧实现），`dataVersion` 不动，这条红。
+   */
+  it("点卡片启用会通知刷新：dataVersion 自增", async () => {
+    const { container, root } = await renderLibrary()
+    await switchToTab(container, "文风")
+    const before = useWikiStore.getState().dataVersion
+
+    await act(async () => {
+      container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-style:preset:warm"]')!.click()
+    })
+    await flushEffects()
+
+    expect(useWikiStore.getState().dataVersion).toBe(before + 1)
+
+    cleanup(root, container)
+  })
+
+  /*
+   * 页脚文案必须与真实语义一致。旧文案「点击选中 / 已选中」有两个毛病：
+   * 它既是空头承诺（改造前点了不生效、离开就丢），又与卡片徽章「当前启用」
+   * 互相矛盾（一条真启用的文风，页脚仍写「点击选中」）。
+   *
+   * ⚠️ 同时钉住**灵魂条目仍写「点击选中」**：两类条目都 `toggleable: false`，
+   * 但灵魂的点击确实是 no-op（没有全局启用态），文案不能一起被改掉。
+   */
+  it("文风卡片页脚说「点击启用 / 已启用」，与徽章一致；灵魂条目不受影响", async () => {
+    const { container, root } = await renderLibrary()
+    await switchToTab(container, "文风")
+
+    const enabledCard = container.querySelector('[data-testid="unified-skill-entry-style:preset:cool"]')!
+    const otherCard = container.querySelector('[data-testid="unified-skill-entry-style:preset:warm"]')!
+    expect(enabledCard.querySelector(".ui-test-skill-toggle")?.textContent).toBe("已启用")
+    expect(otherCard.querySelector(".ui-test-skill-toggle")?.textContent).toBe("点击启用")
+    expect(enabledCard.textContent).not.toContain("点击选中")
+    // 徽章与页脚同真：徽章说「当前启用」，页脚就说「已启用」
+    expect(
+      Array.from(enabledCard.querySelectorAll(".ui-test-skill-badge")).map((badge) => badge.textContent),
+    ).toContain("当前启用")
+
+    await switchToTab(container, "角色灵魂")
+    const soulCard = container.querySelector('[data-testid="unified-skill-entry-soul:custom-xu"]')!
+    expect(soulCard.querySelector(".ui-test-skill-toggle")?.textContent).toBe("点击选中")
 
     cleanup(root, container)
   })
@@ -958,5 +1113,60 @@ describe("UnifiedSkillLibraryView", () => {
     const code = stripComments(source)
     const guards = code.match(/const\s+unhandled\s*:\s*never\s*=\s*entry\s*throw\s+new\s+Error\(/g) ?? []
     expect(guards).toHaveLength(4)
+  })
+})
+
+/*
+ * 「文风自进化」开关面板的入口。
+ *
+ * 面板对 `.qmai/style-evolution.json` 的读取会落到 `readFileMock` 的兜底
+ * `throw new Error("missing")` 上 —— `loadStyleEvolutionState` 吞掉异常并返回
+ * `emptyState()`，这正是「文件还没生成」的真实路径（用户从没开过这个开关）。
+ */
+describe("文风 tab 的自进化入口", () => {
+  it("切到「文风」tab 能看到开关，默认关闭", async () => {
+    const { container, root } = await renderLibrary()
+    await switchToTab(container, "文风")
+
+    expect(container.querySelector('[data-testid="style-evolution-panel"]')).not.toBeNull()
+    // 默认关闭：数据文件不存在时退化成 emptyState()，而不是让整页崩掉
+    expect(
+      container.querySelector('[data-testid="style-evolution-toggle"]')?.getAttribute("aria-pressed"),
+    ).toBe("false")
+    /*
+     * 进度统计 / 上一轮结论 / 候选按钮 / 轮次历史都按用户要求去掉了。
+     * 这条断言是**需求**：只留一块说明 + 一个开关。
+     */
+    for (const id of [
+      "style-evolution-remaining",
+      "style-evolution-days",
+      "style-evolution-threshold",
+      "style-evolution-baseline",
+      "style-evolution-conclusion",
+      "style-evolution-candidate",
+      "style-evolution-round-1",
+    ]) {
+      expect(container.querySelector(`[data-testid="${id}"]`), `${id} 不该出现`).toBeNull()
+    }
+
+    cleanup(root, container)
+  })
+
+  it("开关面板只属于「文风」tab，别处不出现", async () => {
+    const { container, root } = await renderLibrary()
+    await switchToTab(container, "去AI味技能")
+    expect(container.querySelector('[data-testid="style-evolution-panel"]')).toBeNull()
+
+    await switchToTab(container, "文风")
+    expect(container.querySelector('[data-testid="style-evolution-panel"]')).not.toBeNull()
+    /*
+     * 面板与画廊并存：文风预设本身照旧列在下面。
+     *
+     * ⚠️ 条目 id 的前缀是 `style:`（如 `style:preset:cool`），**不是**
+     * `writingStyle`（那是视图名/库名）。按库名去断言会恒为 false。
+     */
+    expect(entryIds(container).some((id) => id.startsWith("style:"))).toBe(true)
+
+    cleanup(root, container)
   })
 })

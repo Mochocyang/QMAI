@@ -10,7 +10,18 @@ import { PreviewPanel } from "@/components/layout/preview-panel"
 import { saveNovelConfig } from "@/lib/project-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
-import { countChapterBodyWords } from "@/lib/chapter-word-count"
+/*
+ * ⚠️ `countChapterBodyWords` 的 import 已删除（用户要求删掉标题行的字数）。
+ *
+ * 它原来只服务一条断言：「标题行 meta 里显示 `${countChapterBodyWords(chapter)} 字`」。
+ * 那句话里的字数取自**磁盘正文**（chapter 常量），不是喂给组件的 `wordCount` ——
+ * 也就是说那条断言其实是在证明「meta 显示的是本文正文的真实字数」。
+ * meta 整个删掉之后，这个函数在本文件里没有别的用途。
+ *
+ * 字数本身没有被删掉，只是换了地方：章节列表（knowledge-tree）照旧显示，
+ * `buildChapterEditorHeader` 也照旧算 `wordCountLabel`
+ * （`chapter-editor-header.test.ts` 仍在钉它）。
+ */
 import { DRAFT_MEMORY_HINT_MESSAGE } from "@/lib/draft-memory-hint"
 import { CHAPTER_AUTOSAVE_INTERVAL_MS, flushPendingChapterSave } from "@/lib/chapter-save-flush"
 import {
@@ -28,6 +39,14 @@ const fixture = vi.hoisted(() => ({
   enabled: true,
   files: new Map<string, string>(),
   write: vi.fn(),
+  /*
+   * 磁盘上已有的章节记忆快照号（`.novel/snapshots/NNN.snapshot.json`）。
+   *
+   * 默认空 = 一章都没提取过记忆 —— 所以默认情况下每一章的徽章都是「草稿」，
+   * 这与改造前的 fixture 行为不同（那时徽章读文件里的 chapter_status）。
+   * 要表达"这一章提取过记忆"，就往这里塞号，见 `listDirectory` 的 mock。
+   */
+  snapshotChapters: [] as number[],
   /*
    * 6 个落盘函数的 spy。
    *
@@ -64,7 +83,22 @@ vi.mock("@/commands/fs", async (importOriginal) => ({
     fixture.files.set(path, markdown)
   }),
   fileExists: vi.fn(async (path: string) => fixture.files.has(path)),
-  listDirectory: vi.fn(async () => []),
+  /*
+   * ⚠️ 这里必须**按路径**回答，不能一律返回 []。
+   *
+   * 标题行徽章与侧栏绿点现在都问「`.novel/snapshots/` 里有没有这一章的快照」，
+   * 所以在测试里造出"提取过记忆的章节"只能靠这个 mock。
+   * 其它目录照旧返回 []，既有用例的行为一个字都没变。
+   */
+  listDirectory: vi.fn(async (path: string) => (
+    path.replace(/\\/g, "/").endsWith("/.novel/snapshots")
+      ? fixture.snapshotChapters.map((number) => ({
+        name: `${String(number).padStart(3, "0")}.snapshot.json`,
+        path: `${path}/${String(number).padStart(3, "0")}.snapshot.json`,
+        is_dir: false,
+      }))
+      : []
+  )),
 }))
 vi.mock("@/lib/project-store", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/project-store")>(),
@@ -156,6 +190,7 @@ function changeTextarea(textarea: HTMLTextAreaElement, value: string) {
 beforeEach(() => {
   fixture.enabled = true
   fixture.files.clear()
+  fixture.snapshotChapters = []
   fixture.files.set(chapterPath, chapter)
   fixture.files.set(outlinePath, outline)
   fixture.write.mockReset().mockImplementation(async (path: string, markdown: string) => { fixture.files.set(path, markdown) })
@@ -232,14 +267,30 @@ describe("测试版正文编辑器", () => {
     expect(container.querySelector(".h-12")).toBeNull()
   })
 
-  it("删除冗余面包屑但保留真实标题、状态和字数", async () => {
+  it("删除冗余面包屑，标题行只留状态徽章", async () => {
     await mount()
     const breadcrumb = container.querySelector('[aria-label="文档位置"]')
     expect(breadcrumb).toBeNull()
     expect(container.querySelector("h1")?.textContent ?? "").toContain("第16章 实际章名")
-    const metadata = container.querySelector(".ui-test-editor-meta")
-    expect(metadata?.textContent ?? "").toContain("草稿")
-    expect(metadata?.textContent ?? "").toContain(`${countChapterBodyWords(chapter)} 字`)
+    /*
+     * ⚠️ 这条断言**方向变了**，如实记下以免后来者翻回去。
+     *
+     * 原来它叫「删除冗余面包屑但保留真实标题、状态和字数」，并且断言
+     * `.ui-test-editor-meta` 里有「草稿」与「N 字」。用户要求
+     * 「删除标题中显示的正式章节字数」，于是整个 `.ui-test-editor-meta`
+     * 连同里面的状态文字一起删掉了 —— 状态改由标题**前面**的
+     * 直角实心徽章承担（`.ui-test-editor-badge`）。
+     *
+     * 所以现在钉的是三件事：面包屑没有了、真标题还在、
+     * **旧的字数容器与旧的状态 span 都不许复活**。
+     * 只断言"徽章在"是不够的：有人把 meta 加回来当"补充信息"，
+     * 用户看到的正是他要求删掉的那行字。
+     */
+    expect(container.querySelector(".ui-test-editor-meta")).toBeNull()
+    expect(container.querySelector(".ui-test-editor-status")).toBeNull()
+    expect(container.textContent).not.toContain(" 字")
+    const badge = container.querySelector(".ui-test-editor-badge")
+    expect(badge?.textContent).toBe("草稿")
   })
 
   it("章节显示去AI味、提取记忆、查看记忆、字体设置和一键排版", async () => {
@@ -267,11 +318,31 @@ describe("测试版正文编辑器", () => {
     expect(toolbar.textContent).not.toContain("查看文件详情")
   })
 
-  it("正式章节直接显示重新提取记忆", async () => {
+  /*
+   * 按钮文案跟**记忆**走，与标题行徽章同一口径。
+   *
+   * 改造前它读文件里的 `chapter_status`：一个写着 final、却从未提取过记忆的章节
+   * （第 6、15 章的现场）会同时呈现「草稿」徽章和「重新提取记忆」按钮 ——
+   * 同一行两个互相矛盾的信号。用户报的正是这类矛盾。
+   */
+  it("已提取记忆的章节显示重新提取记忆", async () => {
     fixture.files.set(chapterPath, chapter.replace("chapter_status: draft", "chapter_status: final"))
+    fixture.snapshotChapters = [16]
     await mount()
     expect(container.querySelector('[aria-label="更多编辑器操作"]')).toBeNull()
     button("重新提取记忆", container.querySelector(".ui-test-editor-toolbar")!)
+  })
+
+  /*
+   * 文件写着 final 但磁盘上没有快照 → 徽章与按钮都按「未提取」说话。
+   * 按钮仍必须可用（点下去走 handleReingest 直接提取），不能因为文案变了就失效。
+   */
+  it("写了 final 但没有快照的章节显示提取记忆，且按钮可用", async () => {
+    fixture.files.set(chapterPath, chapter.replace("chapter_status: draft", "chapter_status: final"))
+    await mount()
+    const target = button("提取记忆", container.querySelector(".ui-test-editor-toolbar")!)
+    // 本仓库没装 jest-dom，用原生属性断言（`toBeDisabled` 不存在）。
+    expect(target.disabled).toBe(false)
   })
 
   it("章节正文保持编辑状态，不提供预览切换", async () => {
@@ -489,25 +560,31 @@ describe("编辑器异常与原业务回归", () => {
     const labels = [...toolbar.querySelectorAll("button.ui-test-editor-action")].map((item) => item.getAttribute("aria-label"))
     /*
      * 「字体设置」是 Task 11 新加的（用户要求写作现场能调正文排版）。
-     * 它插在「查看记忆」与「一键排版」之间 —— 这条**完整列举**的断言
-     * 因此必须跟着更新，否则会报"工具栏多了个按钮"。
      *
-     * 为什么保留"完整列举"而不放宽成"包含这几项即可"：
-     * 这条断言的价值正是**冻结工具栏的组合与顺序** ——
-     * 放宽之后，误删一个按钮、或两个按钮换了位置都不会被发现。
-     * 新增按钮时让它红一次、由人确认位置合理，是它该有的行为。
+     * 这条**完整列举**的断言每次工具栏变动都会红一次，那是它的价值：
+     * 它冻结工具栏的组合与顺序。放宽成"包含这几项即可"之后，
+     * 误删一个按钮、或两个按钮换了位置都不会被发现。
      *
-     * 这条是被 Task 11 **实际打破**的既有断言：Task 11 的 Files 清单里
-     * 没有这个文件，13 份简报也没有任何任务认领它 —— 于是 main 上红了
-     * 一条既有单测。实现者按"只碰清单内文件"的规矩**停下来上报**，
-     * 没有越界改它（这是对的）。现在由我补上并修正图纸归属。
+     * ── 本次（用户定稿截图）改了两处顺序/组成 ──
+     * 1. **删掉**「文风写作」（`WritingStylePicker`）。
+     *    用户原话：「每个章节的上面不需要显示『文风』的图标，将『文风』的图标删除」。
+     * 2. 「生成章节细纲」**移到整排最右**（原话「将章节细纲移动到最右侧」）。
+     *    它原先夹在「字体设置」与「一键排版」之间，
+     *    所以这次不是简单地少一项，而是**尾三项重排**。
      *
-     * 丙-2a 再次按这个既定规则更新：「生成章节细纲」这个入口从大纲面板的
-     * 空白态搬到章节区工具栏（用户口径「点击这个功能后，在章节区生成内容」），
-     * 因此这里同样红了一次、由人确认它插在「字体设置」之后、「一键排版」之前
-     * —— 与「写作动作按顺序排在设置项之后、格式化动作之前」的现有次序一致。
+     * 现顺序 = 记忆组（去AI味 / 提取记忆 / 查看记忆）→ 设置组（字体设置）
+     * → 排版组（一键排版）→ 细纲（最右）。
      */
-    expect(labels).toEqual(["去AI味", "提取记忆", "查看记忆", "字体设置", "生成章节细纲", "一键排版"])
+    expect(labels).toEqual(["去AI味", "提取记忆", "查看记忆", "字体设置", "一键排版", "生成章节细纲"])
+    /*
+     * 补一条**位置**断言，不只是"在数组里"：
+     * 用户要的是"最右侧"，而数组末尾同时也能被下面这种写法满足 ——
+     * 用 `aria-label` 兜底排序或加个占位按钮，末位就不是细纲了。
+     * 这里直接对最后一枚按钮的 aria-label 提要求，
+     * 让"最右"这件事被钉在 DOM 顺序上。
+     */
+    const last = [...toolbar.querySelectorAll("button.ui-test-editor-action")].at(-1)
+    expect(last?.getAttribute("aria-label"), "「生成章节细纲」必须在工具栏最右").toBe("生成章节细纲")
   })
 
   /*
@@ -808,8 +885,26 @@ describe("编辑器异常与原业务回归", () => {
     expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
   })
 
-  it("正式章节不显示草稿提取提示", async () => {
+  /*
+   * ── 草稿提取提示的判据，与徽章同源 ──
+   *
+   * 提示语本身写着「这一章还是草稿。点击『提取记忆』会先保存为正式章节，
+   * 再提取这章记忆」—— 它描述的就是"记忆还没提取"这件事。
+   * 所以它读 `chapterHeader.status`（现已由快照决定）才是对的：
+   * 文件里写了 final、但磁盘上没有快照的章节**确实**还没提取过记忆，
+   * 提示在这里出现是准确的，不是误报。
+   */
+  it("写了 final 但没提取过记忆的章节：仍然提示先保存再提取", async () => {
     fixture.files.set(chapterPath, chapter.replace("chapter_status: draft", "chapter_status: final"))
+    await mount()
+    const hint = container.querySelector(".ui-test-editor-draft-hint")
+    expect(hint).not.toBeNull()
+    expect(hint!.textContent).toContain(DRAFT_MEMORY_HINT_MESSAGE)
+  })
+
+  it("已提取记忆的章节不显示草稿提取提示", async () => {
+    fixture.files.set(chapterPath, chapter.replace("chapter_status: draft", "chapter_status: final"))
+    fixture.snapshotChapters = [16]
     await mount()
     expect(container.querySelector(".ui-test-editor-draft-hint")).toBeNull()
   })
@@ -1472,6 +1567,114 @@ describe("测试版正文样式边界", () => {
     expect(cssCode).toMatch(/\.ui-test-editor-hint-anchor\s*\{[^}]*position:\s*static/)
     expect(cssCode).toMatch(/\.ui-test-editor-draft-hint\s*\{[^}]*width:\s*min\(280px, 100%\)/)
     expect(cssCode).toMatch(/\.ui-test-editor-header\s*\{[^}]*z-index:\s*2/)
+  })
+
+  /*
+   * ── 章节头部：标题与工具栏**同一行**（用户要求）──
+   *
+   * 用户口径：「这些图标太松散了，挨的近一些，放在标题右侧」。
+   * 实现用的是 **grid** 而不是把工具栏 JSX 挪进标题行 ——
+   * 因为工具栏还是两条提示气泡的定位祖先（上一条断言钉着 `position: relative`），
+   * 挪进标题行会让气泡的 `left: 0` 参考系漂到标题右端。
+   *
+   * ⚠️ 这组断言里**承重的是 `grid-column: 1 / -1` 那一条**，不是 grid 本身。
+   * header 一旦变成 grid，它下面**所有**直接子元素都进自动放置：
+   * `showPath` 打开时那块「文件详情」会被塞进第二列、和工具栏挤在同一行。
+   * 这条最容易在后续改动里被当成冗余删掉（"两列布局为什么要跨列"），
+   * 删掉之后界面上只在**打开文件详情时**出错，平时完全看不出来。
+   */
+  it("章节标题行与工具栏并排：图标靠右，文件详情仍横跨整行", () => {
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="chapter"\]\s+\.ui-test-editor-header\s*\{[^}]*display:\s*grid/,
+    )
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="chapter"\]\s+\.ui-test-editor-header\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/,
+    )
+    // 工具栏在第 2 列（= 靠右），标题行在第 1 列
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="chapter"\]\s+\.ui-test-editor-toolbar\s*\{[^}]*grid-column:\s*2/,
+    )
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="chapter"\]\s+\.ui-test-editor-title-row\s*\{[^}]*grid-column:\s*1/,
+    )
+    // 承重：详情区横跨两列
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="chapter"\]\s+\.ui-test-editor-details\s*\{[^}]*grid-column:\s*1\s*\/\s*-1/,
+    )
+    // 底部间距搬到了 header 的 padding-bottom（同一个 grid 行里不能再靠工具栏 margin 撑）
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="chapter"\]\s+\.ui-test-editor-header\s*\{[^}]*padding-bottom:\s*26px/,
+    )
+  })
+
+  /*
+   * 标题**不伸展**，图标盒收到 30px。
+   *
+   * 这两条都是用户看出来的问题，且都容易被"顺手统一"改回去：
+   *   · 标题若退回共用的 `flex: 1 1 12rem`，点击后就变成横贯整行的大输入框
+   *     （用户原话「点击之后边框太宽了」）；
+   *   · 图标盒若退回 36px，去掉底色之后字形之间又会散开
+   *     （用户原话「这些图标太松散了」）。
+   */
+  it("章节标题贴字宽（不伸展），图标盒 30px 且触屏仍放大到 44px", () => {
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="chapter"\]\s+\.ui-test-editor-title[\s\S]{0,600}?flex:\s*0\s+1\s+auto/,
+    )
+    expect(cssCode).toMatch(/\.ui-test-editor-action\.is-icon-only\s*\{[^}]*width:\s*30px/)
+    /*
+     * ⚠️ 触屏那两条**必须在**：`.is-icon-only`（(0,3,0)）比
+     * `.ui-test-editor-action`（(0,2,0)）特异度更高，所以 30px 会压过
+     * 媒体查询里那句 44px —— 不显式写 `.is-icon-only` 的 44px，
+     * 触控目标就悄悄退化成 30px。
+     */
+    const coarse = cssCode.slice(cssCode.indexOf("@media (pointer: coarse)"))
+    expect(coarse).toMatch(/\.ui-test-editor-action\.is-icon-only\s*\{[^}]*min-height:\s*44px/)
+  })
+
+  /*
+   * ── 章节标题：点进去之后文字必须**垂直居中** ──
+   *
+   * 用户报的缺陷：「点击标题，按正常来说字体应该显示在边框的最中间，
+   * 但现在字体显示的是在顶上」。
+   *
+   * 这不是对齐属性写错，是**行盒比盒子矮**：输入框有
+   * `min-height: var(--ui-heading-line)`（28px），而行高原本是 1.5×12px = 18px，
+   * textarea 的文字从内容盒顶部排起、余下 10px 全落到底部 → 看着像吊在顶上。
+   *
+   * ⚠️ 这条守卫的**形状**比它的字面值重要：它要求的不是"行高等于 28px"，
+   * 而是"行高与 min-height 引用**同一个变量**"。所以断言分两半，分别钉住
+   * 变量的两端 —— 只钉一端的话，把 28px 写死成字面量的改动照样能全绿，
+   * 而那种写法下次调行高盒时就会**复发**这个缺陷。
+   *
+   * 变异验证过：把这条 `line-height` 改回 `1.5`，本用例失败；
+   * 只把 `var(--ui-heading-line)` 换成字面量 `1.75rem`，同样失败（变量同一性被破坏）。
+   */
+  it("章节标题点击后文字垂直居中：行高与最小高度引用同一个变量", () => {
+    // 一端：共用规则用变量给出行高盒
+    expect(cssCode).toMatch(
+      /\.ui-test-editor-title-input\s*\{[^}]*min-height:\s*var\(--ui-heading-line\)/,
+    )
+    /*
+     * 另一端：章节标题把行高设成**同一个**变量。
+     * `[\s\S]{0,1400}?` 用来跨越中间那一大段说明注释 —— 上限取 1400 是因为
+     * 这段注释以后还会长，留足余量；非贪婪保证不会跨到别的规则块里去。
+     */
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="chapter"\]\s+\.ui-test-editor-title,[\s\S]{0,1400}?line-height:\s*var\(--ui-heading-line\)/,
+    )
+  })
+
+  /*
+   * 标题加粗、字号 13px（用户：「标题要加粗，当前字号再加1」）。
+   *
+   * 上一版是 `500 0.75rem`（12px / 中等）。"+1" 按字面理解为 +1px ⇒ 13px。
+   * 钉住整条简写，顺带把字重 700 一起守住 —— 只钉字号的话，
+   * 将来把 700 退回 500 会让刚提出的"加粗"要求无声消失。
+   */
+  it("章节标题加粗且字号为 13px", () => {
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="chapter"\]\s+\.ui-test-editor-title,[\s\S]{0,900}?font:\s*700\s+0\.8125rem/,
+    )
   })
 
   it("灵感提示用独立类名 + 独立规则块，定位与草稿提示逐项相同", () => {

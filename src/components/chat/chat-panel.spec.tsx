@@ -159,6 +159,44 @@ describe("chat-panel agent reference integration", () => {
     expect(source).toContain("const workflowModeSupportsPlan = aiWorkflowMode !== \"fast\" && aiWorkflowMode !== \"discuss\"")
   })
 
+  /*
+   * 计划开关的**实际渲染形态**（用户要求：常态只留图标，悬停显示「计划」两个字）。
+   *
+   * ⚠️ 这个文件里别的断言都是对整个 `source` 做 `toContain` —— 对本条要求**不够**，
+   * 因为 chat-panel.tsx 里存在**两块**计划按钮：
+   *   · 上面 `{false && novelMode && ...}` 里那块（`workflowModeSupportsPlan`，死代码）；
+   *   · 真正渲染的那块（`aiWorkflowMode !== "fast"`）。
+   * 第一轮改动就改错了块：改完毫无效果，回归测试还定位到错误的元素。
+   * 所以这里先把**活的那块**切出来，只在它内部断言，
+   * 并且钉住「活块的判据」本身 —— 免得两块哪天调换，测试还在替死代码背书。
+   */
+  it("计划开关只有图标、悬停显示「计划」：只认真正渲染的那块", () => {
+    const LIVE_MARK = 'aria-pressed={planExecuteEnabled && aiWorkflowMode !== "fast"}'
+    // 判据必须唯一，否则切片会切错块
+    expect(source.split(LIVE_MARK)).toHaveLength(2)
+
+    const start = source.indexOf(LIVE_MARK)
+    const end = source.indexOf("</Tooltip>", start)
+    expect(end, "活块后面应当有 </Tooltip> 收尾").toBeGreaterThan(start)
+    const liveBlock = source.slice(start, end)
+
+    // 1. 常态只剩图标：`ListChecks` 后必须紧跟自闭合，中间不再夹文字
+    expect(liveBlock).toContain('<ListChecks className="h-3.5 w-3.5" />')
+    expect(liveBlock).not.toContain('className="mr-1 h-3.5 w-3.5" />计划')
+    expect(liveBlock).not.toMatch(/<\/ListChecks>\s*计划/)
+
+    // 2. 悬停显示「计划」：title 就是这两个字
+    expect(liveBlock).toContain('title="计划"')
+    // 浮层第一行也是「计划」（真实渲染时才可见，这里钉源码形态）
+    expect(liveBlock).toContain('<div className="font-medium">计划</div>')
+
+    // 3. 动作语义没有被 title 挤掉：aria-label 仍随状态变化
+    expect(liveBlock).toContain('"关闭计划模式"')
+    expect(liveBlock).toContain('"开启计划模式"')
+    expect(liveBlock).toContain("快速模式下不支持计划，请切换到标准或严格模式")
+    expect(liveBlock).not.toContain('title="计划" aria-label="计划"')
+  })
+
   it("injects Plan Execute policy only when the independent switch is enabled and not in fast mode", () => {
     expect(source).toContain("buildPlanExecutePolicyPrompt")
     expect(source).toContain("options.planExecuteEnabled && options.aiWorkflowMode !== \"fast\"")

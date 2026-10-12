@@ -14,7 +14,12 @@ import { isChapterPathInProject, normalizePath } from "@/lib/path-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { scrollChapterDirectory } from "@/lib/chapter-directory-scroll"
 import { normalizeChapterStatus, type ChapterStatus } from "@/lib/novel/chapter-meta"
-import { extractChapterNumber } from "@/lib/novel/chapter-utils"
+import {
+  extractChapterNumberFromContent,
+  extractPageOrderFromTitle,
+  resolveChapterDotNumbers,
+  resolveChapterPageTitle,
+} from "@/lib/novel/chapter-utils"
 import { chapterSnapshotNumbersFrom, chapterSnapshotNumbersFromFileNames, resolveChapterMemoryDotState, type ChapterMemoryDotState } from "@/lib/novel/chapter-memory-dot"
 import { moveFileToTrash } from "@/lib/trash"
 import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
@@ -107,60 +112,16 @@ interface CreateMenuState {
 const EMPTY_PENDING_PAGES: WikiPageInfo[] = []
 const PAGE_METADATA_CONCURRENCY = 16
 
-function parseChineseNumber(input: string): number | null {
-  const digitMap: Record<string, number> = {
-    零: 0,
-    一: 1,
-    二: 2,
-    两: 2,
-    三: 3,
-    四: 4,
-    五: 5,
-    六: 6,
-    七: 7,
-    八: 8,
-    九: 9,
-  }
-
-  if (/^\d+$/.test(input)) return Number.parseInt(input, 10)
-  if (input === "十") return 10
-
-  const tenIndex = input.indexOf("十")
-  if (tenIndex >= 0) {
-    const left = input.slice(0, tenIndex)
-    const right = input.slice(tenIndex + 1)
-    const tens = left ? (digitMap[left] ?? 0) : 1
-    const units = right ? (digitMap[right] ?? 0) : 0
-    return tens * 10 + units
-  }
-
-  let value = 0
-  for (const ch of input) {
-    const digit = digitMap[ch]
-    if (digit === undefined) return null
-    value = value * 10 + digit
-  }
-  return value
-}
-
-function extractPageOrderFromTitle(title: string): number | null {
-  const titleMatch = title.match(/第\s*([0-9零一二两三四五六七八九十]+)\s*[章节卷]/)
-  if (titleMatch?.[1]) {
-    const value = parseChineseNumber(titleMatch[1])
-    if (value !== null) return value
-  }
-
-  const numberMatch = title.match(/(\d+)/)
-  if (numberMatch?.[1]) return Number.parseInt(numberMatch[1], 10)
-  return null
-}
-
-function extractChapterNumberFromContent(content: string): number | null {
-  const match = content.match(/^chapter_number:\s*(\d+)\s*$/m)
-  if (!match?.[1]) return null
-  const parsed = Number.parseInt(match[1], 10)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
-}
+/*
+ * `parseChineseNumber` / `extractPageOrderFromTitle` / `extractChapterNumberFromContent`
+ * 三个函数原先是本文件的私有实现，现已搬到 `@/lib/novel/chapter-utils`。
+ *
+ * 原因（真实缺陷，别搬回来）：编辑器标题行的「正式/草稿」徽章要判断
+ * 「这一章提取过记忆没有」，而它原先用 frontmatter 的 `chapter_number` 取号，
+ * 与这里绿点用的三级回退（内容 → 标题 → 文件名）是**两套规则**。
+ * 两者只在"恰好同号"时一致，于是出现「没有提取过记忆却显示正式」。
+ * 搬到共享模块后两边调用同一个 `resolveChapterDotNumbers`，按构造同号。
+ */
 
 function getDirName(path: string): string {
   const normalized = normalizePath(path)
@@ -265,7 +226,13 @@ function parsePageInfo(path: string, fileName: string, content: string): WikiPag
   const type = normalizedPath.includes("/wiki/chapters/") ? "chapter" : normalizedPath.includes("/wiki/outlines/") ? "outline" : null
   if (!type) return null
 
-  let title = fileName.replace(/\.md$/, "").replace(/-/g, " ")
+  /*
+   * 标题的三级回退（frontmatter `title` → 首个 `#` 标题 → 文件名去连字符）
+   * 现在只有一份实现，就在 `resolveChapterPageTitle` 里 ——
+   * 因为它同时是 `resolveChapterDotNumbers` 取号失败时的回退依据，
+   * 两处各写一份的话，绿点与徽章又会算出不同的号。
+   */
+  const title = resolveChapterPageTitle(fileName, content)
   const tags: string[] = []
   let origin: string | undefined
   let status: ChapterStatus | undefined
@@ -273,8 +240,6 @@ function parsePageInfo(path: string, fileName: string, content: string): WikiPag
   const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/)
   if (frontmatterMatch) {
     const frontmatter = frontmatterMatch[1]
-    const titleMatch = frontmatter.match(/^title:\s*["']?(.+?)["']?\s*$/m)
-    if (titleMatch?.[1]) title = titleMatch[1].trim()
 
     const tagsMatch = frontmatter.match(/^tags:\s*\[(.+?)\]/m)
     if (tagsMatch?.[1]) {
@@ -290,19 +255,14 @@ function parsePageInfo(path: string, fileName: string, content: string): WikiPag
     }
   }
 
-  if (title === fileName.replace(/\.md$/, "").replace(/-/g, " ")) {
-    const headingMatch = content.match(/^#\s+(.+)$/m)
-    if (headingMatch?.[1]) title = headingMatch[1].trim()
-  }
-
   const wordCount = type === "chapter" ? countChapterBodyWords(content) : undefined
-  const chapterNumber = type === "chapter"
-    ? (extractChapterNumberFromContent(content) ?? extractPageOrderFromTitle(title) ?? undefined)
-    : undefined
-  // 绿点专用的章号回退来源，见 WikiPageInfo.fileChapterNumber 的说明。
-  const fileChapterNumber = type === "chapter"
-    ? (extractChapterNumber(fileName.replace(/\.md$/i, "")) ?? undefined)
-    : undefined
+  /*
+   * 章号（含绿点专用的文件名回退来源）走共享解析器，见 chapter-utils 的说明。
+   * 非章节页两个号都留空 —— 与改造前逐字一致。
+   */
+  const { chapterNumber, fileChapterNumber } = type === "chapter"
+    ? resolveChapterDotNumbers({ content, filePath: normalizedPath })
+    : { chapterNumber: undefined, fileChapterNumber: undefined }
 
   return {
     path: normalizedPath,

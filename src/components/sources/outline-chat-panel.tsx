@@ -1995,7 +1995,14 @@ function OutlineGenerationMenu({
           setMenuOpen(!isOpen);
         }}
         disabled={disabled}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-md border-0 bg-transparent text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+        /*
+         * 尺寸 `h-7 w-7`（28px），不是 32px：用户反馈图标之间隔得太远。
+         * 28px 与同一行里本来就是 28px 的「上下文用量」圆环、@ 按钮统一，
+         * 配合左组 `gap-0.5`（见 ReferenceInput.tsx）把墨迹间距从约 25px 收到约 16px。
+         * 章节写作区里对应位置的按钮（计划开关）用同一组数值，两边必须一致 ——
+         * 用户明确要求「大纲当中的间距也一样」。
+         */
+        className="inline-flex h-7 w-7 items-center justify-center rounded-md border-0 bg-transparent text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         title="生成大纲模块"
         aria-label="生成大纲模块"
         aria-haspopup="menu"
@@ -6895,13 +6902,18 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   aria-haspopup="listbox"
                   aria-expanded={workflowModeDropdownOpen}
                   aria-label="AI 大纲执行模式"
-                  className="h-8 shrink-0 border-0 bg-transparent px-2 text-xs shadow-none"
+                  className="h-8 shrink-0 border-0 bg-transparent px-1.5 text-xs shadow-none"
                   onClick={() => setWorkflowModeDropdownOpen((open) => !open)}
                 >
-                  <span className="mr-1">
+                  {/*
+                    只有文字，**没有下拉箭头**（用户要求：不需要下拉图标；
+                    章节区与大纲区必须一致）。它仍是 `aria-haspopup="listbox"`
+                    + `aria-expanded` 的按钮，点开列表的行为不变 ——
+                    去掉的只是一个视觉提示，不是这个控件的语义。
+                  */}
+                  <span>
                     {OUTLINE_WORKFLOW_MODE_OPTIONS.find((option) => option.mode === outlineWorkflowMode)?.label ?? "标准"}
                   </span>
-                  <ChevronDown className={`h-3.5 w-3.5 opacity-50 transition-transform ${workflowModeDropdownOpen ? "rotate-180" : ""}`} />
                 </Button>
                 {workflowModeDropdownOpen && workflowModeDropdownStyle
                   ? createPortal(

@@ -115,12 +115,75 @@ describe("ChatPanel mount 基础设施", () => {
     await view.unmount()
   })
 
-  it("输入工具栏单独显示计划开关，可与模式下拉按钮并列使用", async () => {
+  /*
+   * ⚠️ 本条已按用户要求改写：计划开关的「计划」两个字**收进了图标**，
+   * 改为**悬停时**显示（用户原话：「只留下图标就可以了。鼠标放上去之后，
+   * 要显示『计划』这两个字」）。与「文风写作」同一处理。
+   *
+   * 钉三件互不相同的事，缺一条都会漏掉一种退化：
+   *  1. 常态**只剩图标**：文字为空 + 内含一个 svg。
+   *     （把「计划」加回去 ⇒ 红。）
+   *  2. 悬停出口是 `title="计划"`：这正是用户要的那两个字。
+   *     （把 title 删掉或改成别的 ⇒ 红。）
+   *  3. `aria-label` 仍是**带状态**的动作描述（开启/关闭/模式不支持）。
+   *     它不能跟着 title 一起退化成光秃秃的「计划」—— 图标按钮没有可见文字，
+   *     读屏用户唯一的动作线索就是它，而开关必须说清「点了会怎样」。
+   *     （把 aria-label 删掉、或改成与 title 相同的「计划」⇒ 红。）
+   */
+  it("输入工具栏的计划开关只剩图标，悬停提示是「计划」，动作仍由 aria-label 说清", async () => {
     const view = await renderChatPanel({ activeConversation: true })
 
     expect(view.container.textContent).toContain("标准")
-    expect(view.container.textContent).toContain("计划")
-    expect(view.container.querySelector('[aria-label="开启计划模式"]')).not.toBeNull()
+    const plan = view.container.querySelector<HTMLButtonElement>('[aria-label="开启计划模式"]')
+    expect(plan, "输入工具栏应有计划开关").not.toBeNull()
+
+    // 1. 常态一个字都不显示，只剩 svg 图标
+    expect((plan!.textContent ?? "").trim()).toBe("")
+    expect(plan!.textContent ?? "").not.toContain("计划")
+    expect(plan!.querySelector("svg")).not.toBeNull()
+
+    // 2. 悬停显示「计划」两个字
+    expect(plan!.title).toBe("计划")
+
+    // 3. 动作语义没有被 title 挤掉
+    expect(plan!.getAttribute("aria-label")).toBe("开启计划模式")
+    expect(plan!.getAttribute("aria-pressed")).toBe("false")
+
+    /*
+     * 4. 方块是 28px（`h-7 w-7`），不是 32px。
+     *    用户反馈图标之间隔得太远；间距 = 容器 gap + 两侧内边距之和，
+     *    只收 gap 不够。28px 与同一行本来就是 28px 的「上下文用量」圆环、@ 按钮统一。
+     *    判别力：改回 h-8 w-8 ⇒ 红。大纲面板里对应位置的那个按钮另有自己的用例。
+     */
+    expect(plan!.className).toContain("h-7")
+    expect(plan!.className).toContain("w-7")
+    expect(plan!.className).not.toContain("h-8")
+    expect(plan!.className).not.toContain("w-8")
+
+    await view.unmount()
+  })
+
+  /*
+   * 执行模式按钮**只有文字，没有下拉箭头**（用户要求：不需要下拉图标；
+   * 章节区与大纲区必须一致，大纲那边另有一条同样的守卫）。
+   *
+   * 为什么不能只断言 `textContent` 含「标准」：箭头是 `svg`、**不产生文字**，
+   * 把 `ChevronDown` 加回去，`textContent` 照样是「标准」——
+   * 那种断言对这个要求是瞎的（本轮在「书架」按钮上正是这样漏过一次）。
+   * 所以钉两条：① 没有 svg 子元素、恰好一个文字子节点；②
+   * `aria-haspopup` / `aria-expanded` 还在 —— 去掉的只是视觉提示，
+   * 「点开有列表」这个语义不能跟着丢。
+   */
+  it("执行模式按钮只有文字，没有下拉箭头，但仍是可展开的列表按钮", async () => {
+    const view = await renderChatPanel({ activeConversation: true })
+
+    const trigger = view.container.querySelector<HTMLButtonElement>('[aria-label="AI 会话执行模式"]')
+    expect(trigger, "输入工具栏应有执行模式按钮").not.toBeNull()
+    expect((trigger!.textContent ?? "").trim()).toBe("标准")
+    expect(trigger!.querySelector("svg")).toBeNull()
+    expect(trigger!.children).toHaveLength(1)
+    expect(trigger!.getAttribute("aria-haspopup")).toBe("listbox")
+    expect(trigger!.getAttribute("aria-expanded")).toBe("false")
 
     await view.unmount()
   })
@@ -326,6 +389,39 @@ describe("ChatPanel 的「文风写作」产出端", () => {
 
   afterEach(() => {
     vi.mocked(readFile).mockImplementation(async () => "")
+  })
+
+  /*
+   * ── 工具栏那个「文风」按钮的**形态**（用户要求收窄）──
+   *
+   * 用户报的现象：写作区底部常驻一个写着「文风写作」的按钮，把工具栏挤得很宽。
+   * 现在常态只留一个羽毛图标，文字收进悬停提示（「文风」/「文风：<名称>」）。
+   *
+   * ⚠️ 为什么这条必须存在（不是凑数）：实测把 chat-panel 里的 `iconOnly` 删掉，
+   * **整个 chat 目录 26 个 spec / 300+ 用例全绿**（本文件那一轮变异就是 MISSED）。
+   * 也就是说「按钮变成图标」这件事**没有任何守卫** —— 有人顺手删掉 `iconOnly`，
+   * 用户的抱怨会原样回来，而 CI 不会说一句话。
+   *
+   * 判别力：删掉 `iconOnly` ⇒ 按钮里出现「文风写作」文字 ⇒ 第一条断言红。
+   * 悬停提示那条钉的是「收起状态下仍然看得出当前用的是哪条」。
+   */
+  it("工具栏的文风按钮常态只剩图标，文字收进悬停提示", async () => {
+    vi.mocked(readFile).mockImplementation(async (path: string) =>
+      path.includes("writing-style.json") ? styleStore : "")
+    const view = await renderChatPanel({ activeConversation: true })
+    await flushEffects()
+
+    const trigger = view.container.querySelector<HTMLButtonElement>('[data-testid="writing-style-picker-trigger"]')
+    expect(trigger, "输入工具栏应有文风选择器").not.toBeNull()
+    // 常态：一个字都不显示（只剩 svg 图标）
+    expect(trigger!.textContent ?? "").not.toContain("文风写作")
+    expect((trigger!.textContent ?? "").trim()).toBe("")
+    expect(trigger!.querySelector("svg")).not.toBeNull()
+    // 收起状态下唯一的落点：悬停提示说清「文风」+ 当前生效的那条
+    expect(trigger!.title).toBe("文风：乙书 · 文风")
+    expect(trigger!.getAttribute("aria-label")).toBe("文风：乙书 · 文风")
+
+    await view.unmount()
   })
 
   it("选中一条文风后，交给 agent 配置的 getter 就返回它的 id（且不改项目启用项）", async () => {

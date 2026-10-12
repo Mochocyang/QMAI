@@ -186,6 +186,36 @@ describe("ReferenceInput", () => {
     expect(Boolean(leftControl!.compareDocumentPosition(referenceButton!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
   })
 
+  /*
+   * 左控件组必须是**紧间距**（用户实机反馈「两个图标之间相隔的距离都太大了」）。
+   *
+   * 为什么钉在这里：左组是章节写作区和大纲区**共用**的那一层，间距只有这一个定义处。
+   * 一旦有人把 `gap-0.5` 改回 `gap-2`，两边的图标会同时重新散开 —— 而单看某一个面板的
+   * 截图很容易以为只是那一边的问题（用户原话正是「大纲当中的间距也是一样」）。
+   *
+   * 判别力：改成 gap-2 / gap-1 ⇒ 红。
+   * 注意这里**只**钉住这个容器，不去数按钮尺寸 —— 尺寸在各面板自己的用例里钉
+   * （计划开关、生成大纲、文风按钮分别是三处）。
+   */
+  it("左控件组用紧间距，避免图标之间散开", async () => {
+    await act(async () => {
+      root.render(
+        <ReferenceInput
+          tokens={[]}
+          onSubmit={vi.fn()}
+          leftFooterControls={<button type="button">生成大纲</button>}
+        />,
+      )
+    })
+
+    const footer = host.querySelector("[data-reference-input-footer]")
+    const leftGroup = footer?.querySelector(":scope > div:first-child")
+    expect(leftGroup, "左控件组应当是 footer 的第一个子 div").toBeTruthy()
+    expect(leftGroup!.className).toContain("gap-0.5")
+    expect(leftGroup!.className).not.toContain("gap-2")
+    expect(leftGroup!.className).not.toContain("gap-1")
+  })
+
   it("shows a stop action in the footer while streaming", async () => {
     const onStop = vi.fn()
 

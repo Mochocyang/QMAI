@@ -213,7 +213,7 @@ describe("WritingStylePicker", () => {
     await flushEffects()
 
     expect(trigger(container).textContent).toContain("本次不用")
-    expect(trigger(container).getAttribute("aria-label")).toBe("当前文风写作：本次不用")
+    expect(trigger(container).getAttribute("aria-label")).toBe("文风：本次不用")
 
     await openPicker(container)
     expect(container.querySelector('[aria-current="true"]')).toBeNull()
@@ -311,14 +311,64 @@ describe("WritingStylePicker", () => {
     cleanup(root, container)
   })
 
-  it("iconOnly 形态不显示文字，但 title/aria-label 说清当前用的是哪条", async () => {
+  /*
+   * ── 触发按钮的文案（用户要求收窄工具栏）──
+   *
+   * 改造前常态写着「文风写作：乙书 · 文风」，把工具栏挤得很宽。现在常态只留
+   * 一个图标，文案全部退到悬停提示里：
+   *   · 没有任何文风生效 → 「文风」
+   *   · 有文风生效       → 「文风：<名称>」
+   *
+   * ⚠️ 悬停时**必须**带上名称（这是用户报的「点击后根本不显示选中的是哪一个」
+   * 那一项）：收起状态下这是唯一能看到当前生效文风的落点，
+   * 浮层里的「当前」徽章只有打开才看得到。
+   *
+   * 判别力：把 `triggerTitle` 改回固定字符串「文风」，第二条与第三条会红
+   * （一条断名称在、一条断无启用项时不冒名称）。
+   */
+  it("iconOnly 形态不显示文字，悬停提示是「文风：当前文风名」", async () => {
     const { container, root } = await renderPicker(vi.fn(), { iconOnly: true })
     await flushEffects()
 
     const button = trigger(container)
     expect(button.textContent).not.toContain("文风写作")
-    expect(button.getAttribute("aria-label")).toBe("当前文风写作：乙书 · 文风。点击选择本次使用的文风")
-    expect(button.title).toBe("当前文风写作：乙书 · 文风。点击选择本次使用的文风")
+    expect(button.getAttribute("aria-label")).toBe("文风：乙书 · 文风")
+    expect(button.title).toBe("文风：乙书 · 文风")
+
+    /*
+     * 方块是 28px（`h-7 w-7`），不是 32px。
+     * 用户反馈「两个图标之间相隔的距离都太大了」——间距是**容器 gap + 两侧内边距之和**，
+     * 只收 gap 不够，方框也得从 32px 收到 28px（16px 图标 → 每侧 6px），
+     * 与同一行本来就是 28px 的「上下文用量」圆环、@ 按钮统一。
+     * 判别力：iconOnly 改回 h-8 w-8 ⇒ 红（这条最初就是漏的，靠变异测试补上）。
+     */
+    expect(button.className).toContain("h-7")
+    expect(button.className).toContain("w-7")
+    expect(button.className).not.toContain("h-8")
+    expect(button.className).not.toContain("w-8")
+
+    cleanup(root, container)
+  })
+
+  it("iconOnly 且没有任何文风生效时，悬停提示就是「文风」两个字", async () => {
+    store = { version: 1, enabledStyleId: null, styles: [preset("style-a", "甲书 · 文风", "甲书")] }
+    const { container, root } = await renderPicker(vi.fn(), { iconOnly: true })
+    await flushEffects()
+
+    const button = trigger(container)
+    expect(button.title).toBe("文风")
+    expect(button.getAttribute("aria-label")).toBe("文风")
+    // 没有启用项时**不得**凭空冒出某个名字
+    expect(button.title).not.toContain("甲书")
+
+    cleanup(root, container)
+  })
+
+  it("iconOnly 时选择「本次不用」，悬停提示据实说「文风：本次不用」", async () => {
+    const { container, root } = await renderPicker(vi.fn(), { iconOnly: true, value: null })
+    await flushEffects()
+
+    expect(trigger(container).title).toBe("文风：本次不用")
 
     cleanup(root, container)
   })

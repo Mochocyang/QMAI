@@ -66,6 +66,13 @@ describe("测试版 AI 模型选择布局", () => {
     // 左组同样可压缩，避免极窄时把右组顶到第二排（只有在模型压无可压时才轮到它）。
     expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] > div:first-child \{[^}]*flex:\s*0 1 auto;[^}]*min-width:\s*0;/s)
     /*
+     * 底栏整体间距也是紧的（8px → 4px）：`@` 按钮在视觉上属于左边那簇图标
+     * （它紧跟在「文风」按钮后面），不跟着收紧就会孤零零地飘在图标簇外面。
+     * 左组**内部**的间距在 ReferenceInput.tsx（`gap-0.5`），由 ReferenceInput.spec.tsx 钉。
+     * 判别力：改回 gap: 8px ⇒ 红。
+     */
+    expect(css).toMatch(/\[data-ui-ai-composer\] \[data-reference-input-footer\] \{[^}]*gap:\s*4px;/s)
+    /*
      * 模型框是收窄时**优先**让步的那一项：flex-shrink 权重极大，且 .relative 变成
      * flex 容器，按钮作为 flex 项才能被压到 min-content 以下、露出省略号。
      * 按钮另有 44px 下限：收到底只剩几像素就点不中也认不出了。

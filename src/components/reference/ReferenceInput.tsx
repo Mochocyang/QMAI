@@ -323,7 +323,24 @@ export function ReferenceInput({
         className="flex items-center justify-between gap-2 border-t px-2 py-1.5"
       >
         {leftFooterControls ? (
-          <div className="flex min-w-0 shrink-0 items-center gap-2">
+          /*
+           * 左控件组的间距：`gap-0.5`（2px），不是原来的 `gap-2`（8px）。
+           *
+           * 用户实机反馈「两个图标之间相隔的距离都太大了」。8px 只是**其中一半**原因：
+           * 每个图标按钮自己还有内边距（32px 方框装 14–16px 图标 = 每侧 8–9px），
+           * 所以图标墨迹之间实际有 25–29px。两处一起收才有用：
+           *   · 这里 8px → 2px；
+           *   · 图标按钮 32px → 28px（与同一行里本来就是 28px 的
+           *     「上下文用量」圆环和 @ 按钮统一）。
+           * 结果是墨迹间距约 16px，与常见工具栏一致。
+           *
+           * 为什么留 2px 而不是 0：相邻按钮的 `hover:bg-accent` 圆角底会连成一整块，
+           * 看起来像一个按钮而不是两个。
+           *
+           * ⚠️ 这个组件是**两个** AI 面板（章节写作区、大纲区）共用的左组，
+           * 所以改这一条两边同时生效 —— 用户要的正是「大纲当中的间距也一样」。
+           */
+          <div className="flex min-w-0 shrink-0 items-center gap-0.5">
             {leftFooterControls}
           </div>
         ) : null}

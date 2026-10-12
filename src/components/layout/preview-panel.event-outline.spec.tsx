@@ -2066,95 +2066,34 @@ describe("丙-3 卡片「重新修改」", () => {
 })
 
 /*
- * ── 丁-2：章节区的「文风写作」选择必须**跟着项目走** ──
+ * ── 丁-2「章节区文风选择与项目绑定」这一组行为用例已删除 ──
  *
- * 这一组是**行为**用例，不是源码断言：它把 PreviewPanel 真挂起来、真点选择器，
- * 然后在**不卸载**组件的前提下改 `project.path`（只动 store），
- * 这正是 `[project?.path]` 那个 effect 唯一能被观察到的方式 ——
- * 靠「卸载再重挂」是测不出来的（组件状态本来就没了，重不重置都一样）。
+ * 它原来做的事：真挂起 PreviewPanel、真点章节工具栏那枚「文风写作」选择器、
+ * 在**不卸载**组件的前提下只改 store 里的 `project.path`，然后断言
+ * 新项目显示的是自己的启用文风而不是上一个项目残留的 preset id。
+ * 那是 `[project?.path]` 那个 effect 唯一能被观察到的方式 ——
+ * 靠「卸载再重挂」测不出来（组件状态本来就没了，重不重置都一样）。
  *
- * 判别器设计：新项目 B 的文风库里**没有** `style-a`。
- * - 有重置 → `selectedSkillId` 回到 `undefined` → 显示 B 自己启用的那条；
- * - 没重置 → 覆盖仍是 A 的 `style-a` → 该 id 在 B 里不存在 → 显示
- *   「所选文风已不存在」，且生成时 `writingStyle` 会被 `""` 覆盖掉，
- *   **静默压掉 B 本来启用的文风**。
- * 两种情况在界面上是不同的字符串，所以断言有判别力。
+ * 为什么删：用户要求删掉章节顶栏的「文风」图标，`chapterWritingStyleId`
+ * 状态随之消失，「选择器选了什么」这个观察点不存在了，
+ * 这组断言没有可以驱动的东西。
+ *
+ * ⚠️ 这不是"少测了一个还活着的契约"，理由要写清楚，免得后来者以为这里漏了覆盖：
+ *   · 这个 effect 当时清**两个**字段，但这组用例只驱动了**文风**那一个，
+ *     从未观察过 `chapterDeAiSkillId`。所以删掉它，去AI味那一项的覆盖
+ *     与改造前**完全一样**（都是只有源码断言），没有净损失。
+ *   · 而且那两个字段的语义本来就不同：`chapterDeAiSkillId` 的落盘走
+ *     `setLastChapterDeAiSkill`（**按项目持久化**），文风那份是**内存态**。
+ *     用例里的"换项目回落到新项目自己启用的那条"对持久化字段根本不成立，
+ *     照搬过来会写出一条因为错误理由而通过的测试。
+ *   · 剩下的重置接线由 `preview-panel.test.tsx` 的
+ *     「去AI味 Skill 的跨项目重置仍然保留」用源码正则钉住
+ *     （要求 `setChapterDeAiSkillId(undefined)` 紧接 `}, [project?.path])`），
+ *     依赖被写成 `[]`、或被整个删掉，那条守卫都会红。
+ *   · `preview-panel.tsx` 里那个 effect 的注释完整保留了可达性交代
+ *     （当前 shell 换项目会连工作区一起卸载 ⇒ 这条今天是契约/防将来）。
+ *
+ * 若将来要把文风选择加回章节工具栏：**连这组行为用例一起恢复**，
+ * 它证明的是"内存态选择不会跨项目残留"，而那个 bug 是静默的
+ * （选择器是 iconOnly，正文里看不出任何变化）。
  */
-describe("丁-2 章节区文风选择与项目绑定", () => {
-  const styleStorePath = (path: string) => `${path}/.qmai/writing-style.json`
-  const projectB = { id: "event-outline-spec-b", name: "第二本", path: "C:/test-book-b" }
-
-  function stylePreset(id: string, name: string, sourceBook: string) {
-    return {
-      id,
-      name,
-      sourceBook,
-      profile: { schemaVersion: 1, generatedAt: 1, constitution: "克制", samples: [] },
-      createdAt: 1,
-      updatedAt: 1,
-    }
-  }
-
-  function styleTrigger(): HTMLButtonElement {
-    const found = container.querySelector<HTMLButtonElement>('[data-testid="writing-style-picker-trigger"]')
-    expect(found, "章节区工具栏应有「文风写作」选择器").not.toBeNull()
-    return found!
-  }
-
-  /** 图标态选择器把当前用的是哪条放在 title/aria-label 里。 */
-  function styleTriggerText(): string {
-    return styleTrigger().getAttribute("title") ?? ""
-  }
-
-  async function pickStyle(label: string) {
-    await act(async () => { styleTrigger().click() })
-    const popover = container.querySelector('[data-testid="writing-style-picker-popover"]')
-    expect(popover, "文风浮层应已打开").not.toBeNull()
-    const option = Array.from(popover!.querySelectorAll<HTMLButtonElement>("button"))
-      .find((item) => item.textContent?.includes(label))
-    expect(option, `文风浮层里应有「${label}」`).toBeDefined()
-    await act(async () => { option!.click() })
-  }
-
-  it("换项目后不上一个项目的文风残留（同项目内连续生成仍沿用）", async () => {
-    // 项目 A：启用乙书，另有甲书可选
-    fixture.files.set(styleStorePath(project.path), JSON.stringify({
-      version: 1,
-      enabledStyleId: "style-b",
-      styles: [stylePreset("style-a", "甲书 · 文风", "甲书"), stylePreset("style-b", "乙书 · 文风", "乙书")],
-    }))
-    // 项目 B：**没有** style-a，启用丙书
-    fixture.files.set(styleStorePath(projectB.path), JSON.stringify({
-      version: 1,
-      enabledStyleId: "style-c",
-      styles: [stylePreset("style-c", "丙书 · 文风", "丙书")],
-    }))
-
-    await mount()
-    expect(styleTriggerText(), "没有覆盖时显示项目 A 启用的那条").toContain("乙书 · 文风")
-
-    await pickStyle("甲书 · 文风")
-    expect(styleTriggerText(), "选完立即生效").toContain("甲书 · 文风")
-
-    // ① 同项目内的普通重渲染**不得**把它重置掉（否则就是「每次生成都重置」）
-    await act(async () => { useWikiStore.setState({ dataVersion: useWikiStore.getState().dataVersion + 1 }) })
-    expect(
-      styleTriggerText(),
-      "同一个项目里重新渲染（切换章节/数据刷新）不得清掉本次选择",
-    ).toContain("甲书 · 文风")
-
-    // ② 换项目：必须清掉，不能让 A 的 preset id 落到 B 上
-    await act(async () => { useWikiStore.setState({ project: projectB }) })
-    await act(async () => { await Promise.resolve() })
-
-    expect(
-      styleTriggerText(),
-      "换项目后必须回到新项目自己的启用文风，而不是上一个项目的选择",
-    ).toContain("丙书 · 文风")
-    expect(
-      styleTriggerText(),
-      "不得显示「所选文风已不存在」——那正是覆盖跨项目残留的症状",
-    ).not.toContain("所选文风已不存在")
-    expect(styleTriggerText()).not.toContain("甲书")
-  })
-})

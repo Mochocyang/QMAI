@@ -1849,7 +1849,7 @@ function buildGenerationPrompt(schema: string, purpose: string, index: string, s
       "## Novel-specific frontmatter fields",
       "When the page represents a novel chapter or outline, also include:",
       "  • chapter_number — integer, sequential chapter number (e.g. 1, 2, 3)",
-      "  • chapter_status — one of: outline | draft | revised | final",
+      "  • chapter_status — one of: draft | final",
       "  • outline_type   — one of: chapter-outline | volume-outline | story-outline (only for outline pages)",
       "",
       "Example chapter frontmatter:",

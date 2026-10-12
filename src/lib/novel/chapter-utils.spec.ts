@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import { detectLastGeneratedChapterNumber, pickChapterLibraryFiles, resolveNextChapterNumber, resolveTargetChapterNumberForChat } from "./chapter-utils"
+import { resolveChapterMemoryDotState } from "./chapter-memory-dot"
+import { detectLastGeneratedChapterNumber, pickChapterLibraryFiles, resolveChapterDotNumbers, resolveNextChapterNumber, resolveTargetChapterNumberForChat } from "./chapter-utils"
 
 vi.mock("@/commands/fs", () => ({
   listDirectory: vi.fn(async () => [
@@ -203,5 +204,88 @@ describe("pickChapterLibraryFiles", () => {
     ])
     expect(picked).toHaveLength(1)
     expect(resolveNextChapterNumber(picked)).toBe(6)
+  })
+})
+
+/**
+ * ── 绿点与徽章共用的取号规则 ──
+ *
+ * 这组用例的来历是一个真实缺陷：编辑器标题行的「正式/草稿」徽章原先用
+ * frontmatter 的 `chapter_number` 取号，而侧栏绿点用「内容 → 标题 → 文件名」
+ * 三级回退。两套规则只在恰好同号时一致，于是出现
+ * 「第 6、15 章没有绿点却显示正式」。
+ *
+ * 现在两者都走 `resolveChapterDotNumbers`，所以这组用例钉的**不是**某个函数，
+ * 而是「两个消费方必然算出同一个号」这条不变量。
+ */
+describe("resolveChapterDotNumbers", () => {
+  it("内容里不加引号的 chapter_number 优先，压过标题里的号", () => {
+    // 真实文件 chapter-013.md：frontmatter 是 13、标题写着第12章。
+    // 先认内容，所以绿点亮的是「第13章」那枚快照。
+    expect(resolveChapterDotNumbers({
+      content: "---\ntitle: \"第12章 墙缝里的字\"\nchapter_number: 13\n---\n\n# 第12章 墙缝里的字\n",
+      filePath: "C:/p/wiki/chapters/chapter-013.md",
+    })).toEqual({ chapterNumber: 13, fileChapterNumber: 13 })
+  })
+
+  it("加引号的 chapter_number 取不到号，回退到标题（这是既有口径，不是缺陷）", () => {
+    expect(resolveChapterDotNumbers({
+      content: "---\ntitle: \"第12章 墙缝里的字\"\nchapter_number: '13'\n---\n\n# 第12章 墙缝里的字\n",
+      filePath: "C:/p/wiki/chapters/chapter-013.md",
+    })).toEqual({ chapterNumber: 12, fileChapterNumber: 13 })
+  })
+
+  it("标题里的中文数字也能取号", () => {
+    expect(resolveChapterDotNumbers({
+      content: "---\ntitle: \"第十章 归途\"\n---\n\n# 第十章 归途\n",
+      filePath: "C:/p/wiki/chapters/第十章-归途.md",
+    }).chapterNumber).toBe(10)
+  })
+
+  it("内容与标题都没有号时回退到文件名（chapter-003.md 这类）", () => {
+    expect(resolveChapterDotNumbers({
+      content: "正文，没有任何章号标记。\n",
+      filePath: "C:/p/wiki/chapters/chapter-003.md",
+    })).toEqual({ chapterNumber: 3, fileChapterNumber: 3 })
+  })
+
+  it("标题优先于文件名（第8章 写在标题、文件名是 015）", () => {
+    // 仓库里 chapter-memory-dot.ts 的注释记过这种三处不一致的真实文件。
+    expect(resolveChapterDotNumbers({
+      content: "---\ntitle: \"第8章 编号\"\n---\n\n# 第8章 编号\n",
+      filePath: "C:/p/wiki/chapters/chapter-015.md",
+    })).toEqual({ chapterNumber: 8, fileChapterNumber: 15 })
+  })
+
+  it("Windows 反斜杠路径也能取出文件名", () => {
+    expect(resolveChapterDotNumbers({
+      content: "---\nchapter_number: 6\n---\n\n# 第6章\n",
+      filePath: "C:\\QM-BOOK\\书\\wiki\\chapters\\第6章-把她叫回来.md",
+    }).chapterNumber).toBe(6)
+  })
+
+  /**
+   * 用户报的现场，逐步复现。
+   *
+   * 数据（黑雨之下）：快照只有 001–005、012；
+   * 而第 6、15 章的文件里写着 `chapter_status: final`。
+   * 徽章读 `chapter_status` 就会显示「正式」，读快照才是「草稿」。
+   */
+  it("第6章：文件写着 final，但没有快照 → 按记忆口径必须是「未提取」", () => {
+    const snapshotChapterNumbers = new Set([1, 2, 3, 4, 5, 12])
+    const numbers = resolveChapterDotNumbers({
+      content: "---\ntitle: \"第6章-把她叫回来\"\nchapter_number: '6'\nchapter_status: final\n---\n\n# 第6章-把她叫回来\n",
+      filePath: "C:/QM-BOOK/书/wiki/chapters/1/第6章-把她叫回来.md",
+    })
+    expect(resolveChapterMemoryDotState({ snapshotChapterNumbers, ...numbers, running: false })).toBe("none")
+  })
+
+  it("第4章：同样写着 final，但快照在 → 「已提取」，与侧栏绿点一致", () => {
+    const snapshotChapterNumbers = new Set([1, 2, 3, 4, 5, 12])
+    const numbers = resolveChapterDotNumbers({
+      content: "---\ntitle: 第4章\nchapter_number: '4'\nchapter_status: final\n---\n\n# 第4章\n",
+      filePath: "C:/QM-BOOK/书/wiki/chapters/1/第4章.md",
+    })
+    expect(resolveChapterMemoryDotState({ snapshotChapterNumbers, ...numbers, running: false })).toBe("done")
   })
 })

@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计规格 — 文风自进化（Style Evolution）</title>
+<script>
+  // 首屏前生效，避免闪白/闪黑
+  (function () {
+    try {
+      var saved = localStorage.getItem('qmai-spec-theme');
+      var dark = saved ? saved === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    } catch (e) {}
+  })();
+</script>
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --panel:     #FFFFFF;
+    --panel-alt: #F0EEE6;
+    --ink:       #141413;
+    --ink-soft:  #3D3D3A;
+    --muted:     #87867F;
+    --line:      #D1CFC5;
+    --accent:    #D97757;
+    --ok:        #788C5D;
+    --warn:      #B5793A;
+    --serif: ui-serif, Georgia, 'Times New Roman', 'Songti SC', serif;
+    --sans: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei UI', Roboto, sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  html.dark {
+    --bg:        #16150F;
+    --panel:     #201F19;
+    --panel-alt: #2A2921;
+    --ink:       #F5F3EC;
+    --ink-soft:  #D8D5CA;
+    --muted:     #9A988E;
+    --line:      #3A3830;
+    --accent:    #E08966;
+    --ok:        #93A874;
+    --warn:      #D0A05E;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--ink-soft);
+    line-height: 1.6;
+    padding: 56px 32px 120px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1120px; margin: 0 auto; }
+
+  .theme-toggle {
+    position: fixed; top: 18px; right: 20px; z-index: 10;
+    font: 500 12px/1 var(--sans);
+    color: var(--ink-soft); background: var(--panel);
+    border: 1.5px solid var(--line); border-radius: 999px;
+    padding: 9px 14px; cursor: pointer;
+  }
+  .theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+  header.page-head { margin-bottom: 44px; max-width: 840px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 12px;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 500; font-size: 38px; line-height: 1.18;
+    color: var(--ink); margin-bottom: 16px; letter-spacing: -0.01em;
+  }
+  .status {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12.5px; color: var(--warn); background: var(--panel-alt);
+    border: 1.5px solid var(--line); border-radius: 999px; padding: 5px 12px; margin-bottom: 20px;
+  }
+  .status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+
+  .prompt-box {
+    background: var(--panel-alt); border: 1.5px solid var(--line);
+    border-radius: 12px; padding: 16px 20px; font-size: 14.5px;
+  }
+  .prompt-box .label {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted); display: block; margin-bottom: 8px;
+  }
+  .prompt-box p + p { margin-top: 8px; }
+  .prompt-box em { color: var(--accent); font-style: normal; }
+
+  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 40px 0 60px; }
+  @media (max-width: 900px) { .summary { grid-template-columns: repeat(2, 1fr); } }
+  .summary .cell {
+    background: var(--panel); border: 1.5px solid var(--line);
+    border-radius: 12px; padding: 18px 20px;
+  }
+  .summary .k {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px;
+  }
+  .summary .v { font-size: 17px; color: var(--ink); font-weight: 600; }
+  .summary .v.accent { color: var(--accent); }
+
+  section { margin-bottom: 58px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px; }
+  .sec-head .num {
+    font-family: var(--mono); font-size: 12px; background: var(--panel-alt);
+    color: var(--ink); padding: 3px 9px; border-radius: 8px; border: 1px solid var(--line);
+  }
+  .sec-head h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--ink); }
+  .sec-intro { font-size: 14.5px; color: var(--muted); max-width: 780px; margin-bottom: 22px; }
+
+  h3 { font-size: 15px; color: var(--ink); margin: 26px 0 10px; font-weight: 600; }
+  p { max-width: 820px; }
+  p + p { margin-top: 10px; }
+  ul, ol { margin: 10px 0 0 20px; max-width: 820px; }
+  li { margin-bottom: 6px; }
+  code {
+    font-family: var(--mono); font-size: 0.9em;
+    background: var(--panel-alt); border: 1px solid var(--line);
+    border-radius: 5px; padding: 1px 5px; color: var(--ink);
+  }
+  pre {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.62;
+    background: var(--panel); border: 1.5px solid var(--line); border-radius: 12px;
+    padding: 16px 18px; margin-top: 14px; overflow-x: auto; color: var(--ink);
+  }
+  pre code { background: none; border: none; padding: 0; font-size: 12.5px; }
+  b, strong { color: var(--ink); }
+
+  table {
+    width: 100%; border-collapse: collapse; margin-top: 14px;
+    font-size: 14px; background: var(--panel);
+    border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden;
+  }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--muted); background: var(--panel-alt); font-weight: 500;
+  }
+  tr:last-child td { border-bottom: none; }
+  td.mono { font-family: var(--mono); font-size: 12.5px; }
+
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--panel);
+    border-radius: 0 10px 10px 0; padding: 14px 18px; margin-top: 18px; max-width: 860px;
+  }
+  .callout.warn { border-left-color: var(--warn); }
+  .callout.ok { border-left-color: var(--ok); }
+  .callout .t {
+    font-size: 12px; font-family: var(--mono); text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--muted); display: block; margin-bottom: 6px;
+  }
+  .decide { color: var(--warn); font-weight: 600; }
+  .no { color: var(--muted); }
+  footer { border-top: 1.5px solid var(--line); padding-top: 20px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<button class="theme-toggle" id="themeToggle" type="button">切换深浅色</button>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">QMAI · 设计规格 · 2026-10-11</div>
+  <h1>文风自进化<br><span style="font-size:24px;color:var(--muted)">Style Evolution —— 让「我的文风」在用户自己的正文上自主迭代</span></h1>
+  <div class="status">已批准 · 2026-10-11 · 用户已就 4 项关键决策作出选择 · <b>v2 已自审修订（19 条）</b></div>
+  <div class="prompt-box">
+    <span class="label">原始需求（用户原话，逐字保留）</span>
+    <p>https://github.com/alchaincyf/darwin-skill　这个处理之后，接下来你要做的就是对于这个“文风 skill”，让其能够自动分析用户写作的内容（比如小说的写作风格和文风）。</p>
+    <p>具体执行规则如下：<br>
+      1. 触发机制：<br>
+      当用户打开软件时，skill 会阅读用户曾经写过的小说内容，并不断完善对文风的分析。为了减少 skill 的分析压力以及 token 的消耗，我们不采用每次打开都分析的频率，而是设定为每打开 3 次、4 次或 5 次时，才进行一次自动分析。</p>
+    <p>2. 计数与时间限制：<br>
+      次数的计算要遵循时间限制，不能在同一天内频繁触发。例如，如果用户一天内打开了 5 到 6 次，不能每天都分析，这样太浪费 token 了。我们将每天的打开行为定义为 1 次。比如第一天打开算作第 1 次，第二天打开算作第 2 次；如果第二天没有打开，隔了很长时间第三天再打开，依然算作第 2 次。</p>
+    <p>3. 进化目标：<br>
+      也就是说，这个文风 skill 要以我发的“达尔文 skill”的方式，让 skill 实现自主的进化。</p>
+    <p style="margin-top:10px;color:var(--muted);font-size:13px">注：上面为逐字保留。用户提到的「达尔文 skill」已下载到 <code>C:\QMAI_C\darwin-skill-master</code>，本规格第 05 节引用的是它 <code>SKILL.md</code> 里的原话与实测结论。</p>
+  </div>
+</header>
+
+<div class="summary">
+  <div class="cell"><div class="k">新增文件</div><div class="v accent">5 个</div></div>
+  <div class="cell"><div class="k">改动文件</div><div class="v">5 个<br><span style="font-size:12px;font-weight:400;color:var(--muted)">含 1 处启动接线、1 处 Rust 白名单</span></div></div>
+  <div class="cell"><div class="k">触发频率</div><div class="v">每 3~5 个「打开日」<br><span style="font-size:12px;font-weight:400;color:var(--muted)">同一天内多次打开只算 1 次</span></div></div>
+  <div class="cell"><div class="k">每轮成本</div><div class="v">2 次模型调用<br><span style="font-size:12px;font-weight:400;color:var(--muted)">1 次分析 + 1 次探针；默认关闭</span></div></div>
+</div>
+
+<section>
+  <div class="sec-head"><span class="num">00</span><h2>v2 自审修订清单（改了什么、为什么）</h2></div>
+  <p class="sec-intro">本规格在动手前做了一次逐条到代码里核对的对抗性自审 + 一次独立评审。方式是：把原稿提到的每个文件、行号、函数名都真读一遍，再<b>构造反例状态序列</b>去打它自己写下的规则。<b>下面每一条都是原稿里真实写错的</b>，不是措辞润色；标「严重」的会直接造成花钱、静默替换或丢数据。</p>
+
+  <h3>会咬人的（严重）</h3>
+  <table>
+    <tr><th>#</th><th>原稿的问题</th><th>v2 怎么改</th></tr>
+    <tr>
+      <td>1</td>
+      <td><b>固定合成 <code>sourceBook</code> 的设计前提不成立。</b>原稿说用它就能保证「在任画像永不被碰」，但又说「每轮候选覆盖上一轮候选」——这两条<b>不可兼得</b>，且漏了主路径：<b>用户启用了候选之后</b>，<code>upsertWritingStylePreset</code>（<code>writing-style-store.ts:137-148</code>）按 <code>sourceBook</code> 命中并<b>原地覆盖 profile、保留 id</b>，而 <code>setEnabledWritingStyle</code>（<code>:166-174</code>）不因 profile 变化而失效 ⇒ 用户一次都没点，正在用的画像已被换掉。此时「候选」与「在任」还是同一个对象，回滚也失去意义</td>
+      <td>候选 <code>sourceBook</code> 改为<b>每轮唯一</b>（带轮次号），于是 <code>upsert</code> 每轮新增、<b>绝不改写已启用项</b>；清理上一轮候选时<b>先判它是否被启用</b>，被启用则不删。盘上最多同时存在「用户启用的那条 + 本轮候选」</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td><b>推荐的回滚会把用户的文风整个关掉。</b><code>removeWritingStylePresets</code>（<code>:186-201</code>）删掉当前启用项时会把 <code>enabledStyleId</code> <b>置 null</b>；接第 1 条，被回滚的恰可能是用户在用的那份 ⇒ 从「有文风」变成「完全没有文风」。而 08 节还把这条行为写成测试，等于<b>把破坏性行为钉死</b></td>
+      <td>回滚语义改为「删除本轮候选，<b>且仅当它未被启用</b>」；已被启用时面板<b>拒绝删除</b>并说明原因。08 节对应断言同步改成「断言预设仍在、<code>enabledStyleId</code> 未被置 null」</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td><b>伪码与它自己的边界规则打架。</b>04 节伪码在 <code>shouldAnalyze = true</code> 时就把 <code>openDayCount</code> 归零，而边界②要求「归零与成功绑定」；照伪码实现 ⇒ 一次<b>失败</b>的分析也消费掉 3~5 天</td>
+      <td>达到阈值时<b>只加计数、不归零</b>；归零交给新函数 <code>completeRound()</code>。计数保留在阈值之上，于是「下一个打开日自动重试」不需要额外标记</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td><b>重入窗口可让同一天被算两次、并起两个并发轮次。</b><code>hydrateDeferredProjectState</code> 是 <code>void</code>（<code>App.tsx:576</code>，不 await、无 in-flight 锁），而 <code>handleProjectOpened</code> 一天有 4 个入口；达到阈值那一轮的计数字段又只在轮末落盘</td>
+      <td>新增 <code>lastAttemptedOn</code>：同一打开日<b>最多尝试一次</b>；且它<b>必须在开始跑模型之前就落盘</b>（否则那 40 秒内重入照样发生）。补并发测试</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td><b>「进备份」不是自动的。</b>原稿把它当方案优点，但备份对 <code>.qmai/</code> 是<b>显式白名单</b>：<code>backup.rs:181-192</code> 的 <code>PROJECT_OWNED_FILES</code> 里<b>没有</b> <code>style-evolution.json</code>，不勾「拆书分析」时该文件直接被跳过 ⇒ 恢复后开关与打开日进度全丢。而 03 节文件清单<b>全是 TS</b></td>
+      <td>03 节清单加入 <code>backup.rs</code>，并写明要改<b>三处</b>（<code>PROJECT_OWNED_FILES</code> + 测试里的 <code>EXPECTED_OWNED_FILES</code> + 那条一致性测试守着）</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td><b>归一化从未定义，ε 无法取值。</b>只写了「先归一化再算差」。若按最自然的「除以目标值 <code>x/T</code>」实现，纯中文小说的 <code>latinCharRatio</code> 恒为 <b>0</b> ⇒ 除零得 <code>NaN</code> ⇒ 比较恒 false ⇒ 判定<b>静默退化且不报错</b>。而这是整个棘轮唯一的判据</td>
+      <td>改用<b>固定的每项量纲</b> <code>scale[i]</code>（不引入目标值做分母），并给出整张常量表；<code>ε</code> 定为 <b>0.01</b> 量级常量。另写明 <code>punctuationPerThousand</code> 是 <b>8 个子字段</b>、必须摊平（对象做 <code>Math.abs</code> 得 <code>NaN</code>）</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td><b>节律状态的 schema 与初值全篇没有定义。</b>03 节只说「形状与 <code>writing-style-store</code> 同构」，但后者的默认形状与节律状态毫无对应物。最自然的 <code>nextThreshold: 0</code> 会让<b>第 1 次打开就分析</b>，直接违反「每打开 3 次、4 次或 5 次时」</td>
+      <td>给出 <code>.qmai/style-evolution.json</code> 的完整形状与初值（含 <code>nextThreshold</code> 初值取 3、<code>lastOpenDate: ""</code> 视为新的一天），并对齐 <code>learning-budget.ts:16-18</code> 的显式初值写法</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td><b>「一轮完整跑完」没有定义</b>，导致 07 节两行互相打架（「模型报错」不推进，而「探针跑偏」推进），且没覆盖「分析成功但探针失败」这一格</td>
+      <td>收敛成显式枚举 <code>outcome ∈ {incomplete, kept, reverted}</code>，各自绑定计数与轮次记录。关键区分：<b>「无法判定」属于 <code>reverted</code></b>（该花的调用已花完，结果就是不采纳），只有「没跑成」才是 <code>incomplete</code>（要重试）</td>
+    </tr>
+  </table>
+
+  <h3>其余（中 / 轻）</h3>
+  <table>
+    <tr><th>#</th><th>原稿的问题</th><th>v2 怎么改</th></tr>
+    <tr>
+      <td>9</td>
+      <td>07 节写「在任 = 当前<b>启用</b>的那份」，与 05 节承诺的「从第二轮起进入棘轮」<b>互相矛盾</b>：用户若从不启用候选，每轮都停在「建立基线」，棘轮永不发生</td>
+      <td>定义基线回落链：<b>上一轮 keep 的候选 → 当前启用 → 建立基线</b>（与达尔文棘轮同构，也正是「第二轮起」能成立的前提）</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td>探针缓存只说「缓存探针结果」；若连 <code>distance()</code> 一起缓存，就是用<b>过期标尺</b>量新候选</td>
+      <td>明确<b>只缓存指标</b>（<code>baseM</code>），距离每轮用<b>当前</b> T 重算；并写明结论只在同一轮内可比</td>
+    </tr>
+    <tr>
+      <td>11</td>
+      <td>「把新引擎加进 <code>analysis-model-call.guard.spec.ts:18-27</code> 的名单」<b>会 ENOENT</b>：那张表是裸文件名、按 <code>book-analysis/</code> 解析，而新引擎在 <code>src/lib/novel/</code>。表现为「测试报错」而非「断言失败」，极易被误读成守卫生效</td>
+      <td>改走按 <code>src/</code> 解析的那张表（<code>"lib/novel/style-evolution-engine.ts"</code>）；03 节加机制说明，并写成反例 14</td>
+    </tr>
+    <tr>
+      <td>12</td>
+      <td>把 <code>App.tsx:485-508</code> 称作「项目打开钩子」<b>不准确</b>：那段只加载写作统计、<b>不</b>调用 hydrate；真实调用点只有 <code>:576</code></td>
+      <td>已更正，并说明两面：①「写盘 → <code>bumpDataVersion</code> → 重跑打开钩子」的循环<b>不存在</b>；② 但它<b>不是</b>「每次启动一次」，同日可多次进入——这正是第 4 条必需的依据</td>
+    </tr>
+    <tr>
+      <td>13</td>
+      <td><b>探针只有「一段」，而距离含段落级指标</b>：<code>paragraphs === 1</code> 时 <code>oneSentenceParagraphRatio</code> / <code>dialogueParagraphRatio</code> 只能取 0 或 1，与多章 T 比较没有统计意义，且由「模型这次分了几段」这一随机事件主导</td>
+      <td>探针改为<b>3~5 段 / 固定目标字数</b>；或把段落级指标排除出探针距离（推荐前者）</td>
+    </tr>
+    <tr>
+      <td>14</td>
+      <td>01 节的画像结构清单<b>漏了 <code>workbenchStyle</code></b>，而它正是决定注入分支的字段。更要紧的是 01 节原稿据此要求「候选<b>必须</b>产出 <code>workbenchStyle.styleFingerprint</code>（复用 <code>compileStyleFingerprint</code>）」—— 这条<b>方向搞反了</b>，照做还会帮倒忙</td>
+      <td>补进清单；并把该要求改为<b>明确不产出</b>：<code>compileStyleFingerprint</code> 是<b>消费者</b>（入参是 <code>WorkbenchItem</code>，不是画像），要真产出得让进化分析额外交付整套拆书工作台结构化产物；而 if/else 分支决定了硬塞一个空 <code>rules</code> 的 <code>workbenchStyle</code> 会让 <code>constitution</code>+<code>integratedDna</code> <b>双双不再注入</b>，注入内容反而变空。代价（无前缀、可被预算整段裁掉）如实写进 01 节，并加一条「不许携带空 <code>workbenchStyle</code>」的用例</td>
+    </tr>
+    <tr>
+      <td>15</td>
+      <td><b>模型返回垃圾 / 无效 JSON 全篇无处理</b>：<code>migrateStyleProfile</code> 是宽容的（缺字段补空），<code>upsert</code> 又原样写入 ⇒ 垃圾 profile 会被照单落盘并可被启用</td>
+      <td>新增一条失败模式：解析失败 / <code>integratedDna</code> 为空 / <code>generatedAt</code> 非有限数 ⇒ <code>incomplete</code>，作废本轮不写预设；并补用例</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td>说「参照 <code>learning-budget.ts</code> 的 <code>dayKey(now)</code>」，但那个函数<b>没有 <code>export</code></b>，直接 import 拿不到</td>
+      <td>二选一写清，并把它列入 03 节清单：导出后复用（推荐），或本地按同一算法重写 + 加一条对齐测试</td>
+    </tr>
+    <tr>
+      <td>17</td>
+      <td>07 节「写盘失败」行同时写「内存态不回滚」与「计数不推进」，<b>自相矛盾</b>；实际也没有「内存态」可回滚（每轮只读盘/写盘各一次）</td>
+      <td>删掉「内存态不回滚」，只保留「计数不归零、下一打开日重试」</td>
+    </tr>
+    <tr>
+      <td>18</td>
+      <td>09 节要求显示「下次大约还需几天」，但节律计的是<b>打开日</b>——用户不打开就永远到不了阈值</td>
+      <td>改为「还需 <b>N 次打开</b>（约等于几天）」</td>
+    </tr>
+    <tr>
+      <td>19</td>
+      <td>全文混用「在任 / 基线」指同一件东西，而第 9 条刚改了它的定义；08 节 store 行把「写入后调 <code>bumpDataVersion</code>」当合格标准，会诱导每写一次打开计数就触发全应用重读</td>
+      <td>统一用<b>基线</b>（只在描述达尔文语义与回顾原稿措辞时保留「在任」）；store 行改为断言 <code>emptyState</code> 的 <code>nextThreshold ∈ {3,4,5}</code>，节律状态走自己的通知、不进 <code>bumpDataVersion</code></td>
+    </tr>
+  </table>
+
+  <div class="callout">
+    <span class="t">顺带扩写的（不是纠错，是补漏）</span>
+    <ul>
+      <li>10 节反例从 10 条扩到 <b>19 条</b>：新增 11（除以目标值）、12（缓存距离）、13（把标点对象当一个指标）、14（裸文件名加错名单）、15（节律也调 <code>bumpDataVersion</code>）、16（固定 <code>sourceBook</code>）、17（按 <code>sourceBook</code> 回滚）、18（一段当探针）、19（不产出 <code>workbenchStyle</code>）。</li>
+      <li>08 节测试策略补：同日失败不重试、失败轮不归零、纯中文文本下距离不是 <code>NaN</code>、假 <code>callModel</code> 返回<b>原始文本</b>让「文本 → 指标 → 距离」端到端跑通、垃圾 profile ⇒ <code>incomplete</code>、并发第二次不触发、启用后回滚不得删预设。</li>
+    </ul>
+  </div>
+
+  <div class="callout ok">
+    <span class="t">核对下来<u>没有</u>问题的部分（避免误改）</span>
+    <p>原稿的锚点准确度相当高，以下都逐个读过、<b>未改动</b>：<code>computeStyleMetrics</code>（<code>style-metrics.ts:269</code>）、<code>mergeStyleMetrics</code>（<code>:330</code>）、<code>formatStyleMetricsForPrompt</code>（<code>:381</code>）、<code>storePath</code>（<code>:77</code>）、<code>upsertWritingStylePreset</code> 的去重与覆盖（<code>:137</code>、<code>:139-148</code>）、<code>setEnabledWritingStyle</code>（<code>:166</code>）、<code>removeWritingStylePresetBySourceBook</code>（<code>:213</code>）、<code>getEnabledWritingStyle</code>（<code>:217</code>）、<code>learning-budget.ts</code> 的 <code>dayKey</code> 与跨天重置（<code>:11-14</code>、<code>:24</code>）、<code>user-abort.ts</code> 的 <code>throwIfAborted</code>/<code>isUserAbortError</code>、<code>callAnalysisModelText</code>（<code>analysis-model-call.ts:64</code>）、<code>resolveTaskLlmConfig</code>（<code>analysis-model-resolver.ts:11</code>）、<code>BookStyleProfile</code>（<code>types.ts:255</code>，含 <code>constitution</code>/<code>samples</code>）、<code>hydrateDeferredProjectState</code>（<code>App.tsx:129-141</code>）、<code>analysis-chunk-planner.ts</code>（确实存在）。</p>
+    <p>另有三条原稿写对了、值得保留的判断：① <b><code>bumpDataVersion()</code> 的漏斗没有被绕过</b>（三个写入器都经 <code>saveWritingStyleStore:118</code>）；② 「<code>lastRun</code>/<code>cooldown</code>/<code>nextRunAt</code>/<code>lastAnalyzedAt</code> 全仓库 0 命中」<b>复核为真</b>；③ 「复用拆书库 prompt 组装」<b>成立</b>——<code>writing-dna-prompts.ts</code> 导出了 <code>buildLanguageAndRhythmPrompt</code> / <code>buildDnaIntegrationPrompt</code> / <code>buildLayerAggregatePrompt</code> 等 5 个可复用组装函数。</p>
+    <p><b>关于计数规则本身：</b>三条用户原话（同日只算 1 次、只比同一天不比间隔、阈值 3~5 浮动）在「无并发 + 初值正确」的前提下<b>确实被满足</b>，构造不出违反它们的常规序列——问题全部来自上面这些<b>实现层</b>缺口（第 3、4、7 条），所以每条都配了具体的反例序列而不是笼统质疑。</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">01</span><h2>起点：已经有的东西，与缺的那条链路</h2></div>
+  <p class="sec-intro">动手前先确认清楚：这套东西一半已经存在，缺的只有「分析用户自己写的」这一段。</p>
+
+  <h3>已有的（直接复用，不重造）</h3>
+  <table>
+    <tr><th>能力</th><th>位置</th><th>本方案怎么用</th></tr>
+    <tr>
+      <td><b>文风预设的存储与启用</b></td>
+      <td class="mono">writing-style-store.ts<br>落盘 &lt;项目&gt;/.qmai/writing-style.json</td>
+      <td>候选就写成一个新的 <code>WritingStylePreset</code>；<code>enabledStyleId</code> 由用户自己决定，本功能<b>不</b>自动启用</td>
+    </tr>
+    <tr>
+      <td><b>画像结构</b></td>
+      <td class="mono">BookStyleProfile（types.ts:255）<br>layers / integratedDna / constitution / samples / <b>workbenchStyle</b></td>
+      <td>进化的对象就是这个 profile；已含 <code>generatedAt</code>，可作版本时间戳。<b>v2 补漏</b>：原稿漏了 <code>workbenchStyle</code>，而它正是决定注入分支的字段——见下方提醒</td>
+    </tr>
+    <tr>
+      <td><b>确定性文风指标</b></td>
+      <td class="mono">style-metrics.ts:269<br>computeStyleMetrics(bodies)</td>
+      <td><b>本方案的棘轮判据</b>。能算出句长均值、短句/长句比、段长、一句一段比、对白段占比、标点密度、特征词与二元搭配</td>
+    </tr>
+    <tr>
+      <td><b>指标比对与呈现</b></td>
+      <td class="mono">mergeStyleMetrics:330<br>formatStyleMetricsForPrompt:381</td>
+      <td>多章合并成一份目标指标；格式化后喂给分析提示词，避免模型凭空猜量化特征</td>
+    </tr>
+    <tr>
+      <td><b>分析用户自己的章节</b></td>
+      <td class="mono"><span class="no">不存在</span></td>
+      <td><b>这就是缺口</b>：现有链路全是「别人的书 → 拆书库 → 文风预设」</td>
+    </tr>
+  </table>
+
+  <div class="callout warn">
+    <span class="t">⚠️ <code>workbenchStyle</code> 决定候选走哪条注入路径 —— v2 的结论是<b>「不产出」，且这比硬塞一个更好</b></span>
+    <p>先说清机制。<code>writing-style-store.ts:356</code> 判 <code>preset.profile.workbenchStyle?.styleFingerprint</code>：<b>有</b>则 <code>:359</code> 加 <code>【已启用文风画像】</code> 前缀并走结构化注入；<b>没有</b>则走旧画像分支——不加前缀，<code>constitution</code> 被 <code>clip(…, 800)</code>（<code>:363</code>）、<code>integratedDna</code> 正文被 <code>clip(…, 1800)</code>（<code>:371</code>）。</p>
+    <p><b>v2 自审时发现原稿这条要求写错了</b>，而且是会帮倒忙的那种错：</p>
+    <ol>
+      <li><code>compileStyleFingerprint(item: WorkbenchItem)</code> 是<b>消费者不是生产者</b>——它读 <code>item.styleFingerprint</code> 与 <code>item.rules</code> 拼注入文本，本身不产生画像。原稿写「复用 <code>compileStyleFingerprint</code> 产出 <code>styleFingerprint</code>」是把方向搞反了。</li>
+      <li>真正的产出物是一个 <b><code>WorkbenchItem</code></b>：<code>{ subject, summary, limitations, rules: WorkbenchRule[], styleFingerprint?: StyleFingerprint }</code>。要让 <code>compileStyleFingerprint</code> 拼出有用的文本，必须有一组按 <code>STYLE_FACETS</code> 分维度的 <code>rules</code>，也就是让进化分析额外交付**整个拆书工作台的结构化产物**。</li>
+      <li><b>硬塞的代价是负的</b>：两个分支是 if/else——一旦 <code>workbenchStyle</code> 存在，<code>constitution</code>（<code>:363</code>）与 <code>integratedDna</code>（<code>:367</code>）<b>都不再注入</b>。若用空 <code>rules</code> 凑一个 <code>WorkbenchItem</code>，注入内容会缩成 <code>compileStyleFingerprint</code> 的头几行 + <code>positioning</code>，等于<b>把进化出来的正文全丢掉</b>，比旧路径更糟。</li>
+    </ol>
+    <p><b>决定</b>：候选<b>不产出 <code>workbenchStyle</code></b>，走旧画像路径（<code>constitution</code> ≤800 字 + <code>integratedDna</code> 正文 ≤1800 字 + 代表片段）。这是所有 v1 拆书画像共用的路径，不是为本次新开的降级口子。</p>
+    <p><b>代价要如实认下来</b>：① 不加 <code>【已启用文风画像】</code> 前缀，故不受 <code>context-engine.ts:1143</code> 的 fail-closed 守卫保护；② <code>writingStyle</code> 在 <code>trimContextPack</code> 里排位靠后，<b>预算紧张时会被整段裁掉且不报错</b>——用户会看到「画像启用了但文风好像没生效」。这两条对<b>所有</b>旧式画像同样成立，不是本功能引入的回归。</p>
+    <p><b>代码里要挡住那个更糟的做法</b>：加一条用例断言候选<b>不会</b>携带 rules 为空 / <code>styleFingerprint</code> 为空的 <code>workbenchStyle</code>。否则将来有人「顺手补上<code>workbenchStyle</code>」时，界面一切正常，注入内容却悄悄变空。</p>
+  </div>
+
+  <div class="callout warn">
+    <span class="t">为什么不能直接把拆书库那条链路接过来跑</span>
+    <p>拆书库链路（<code>style-analysis-adapter.ts</code> / <code>workbench-publish.ts</code>）面向的是「一整本外部书」：它有分卷、章节指纹缓存、拆书库目录与工作台版本管理，输入是导入的书、产物是入库版本。用户的<b>在写正文</b>没有这些前提（章数不定、边写边变、不该占拆书库的目录），且它产出的画像<b>没有「与上一版比谁更像作者」这一步</b>。所以复用的是它的 <b>prompt 组装与 profile 形状</b>，不是它的编排。</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">02</span><h2>方案选择</h2></div>
+  <table>
+    <tr><th>方案</th><th>做法</th><th>优点</th><th>代价</th></tr>
+    <tr>
+      <td>A</td>
+      <td>把用户正文导入拆书库，复用整条拆书链路，按书的版本管理迭代画像</td>
+      <td>几乎不写新代码</td>
+      <td><b>方向错的</b>：会往用户项目里塞一个假的「拆书」目录、把在写正文当成外部书导入；章数不足时链路本身跑不起来</td>
+    </tr>
+    <tr>
+      <td><b>B ✓</b></td>
+      <td><b>新建项目级进化管线</b>：4 个新文件（纯函数节律 + 项目级状态 + 编排引擎 + 复核面板），复用「画像结构 / 确定性指标 / 拆书库的 prompt 组装」</td>
+      <td>不污染拆书库；节律是纯函数可穷举测试；编排的 IO 全部注入因而可测；落盘跟着项目走、进备份</td>
+      <td>新增 5 个文件、一处启动接线、一处 Rust 备份白名单</td>
+    </tr>
+    <tr>
+      <td>C</td>
+      <td>照搬达尔文：spawn 3 个独立 LLM 评委，对「新画像 vs 旧画像」paired 投票，多数决保留</td>
+      <td>能覆盖指标量不到的质感（幽默、留白）</td>
+      <td>每轮多调 3 次模型；且<b>与达尔文自己的实测结论冲突</b>（见 05 节）</td>
+    </tr>
+  </table>
+  <p><b>结论：采用 B。</b>A 会为「分析自己的书」造一个语义上不成立的拆书条目；C 成本高且稳定性差。B 的棘轮用<u>确定性指标</u>（用户已选定），并保留 C 的接口位置——将来若要加评委，只需在 <code>resolveVerdict</code> 里多一路输入，不必改结构。</p>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">03</span><h2>模块划分</h2></div>
+  <p class="sec-intro">四个单元各自只做一件事，边界按「能不能单独测试」来切。</p>
+
+  <pre><code>src/lib/novel/style-evolution-schedule.ts    新增  纯函数：打开日计数 + 节律判定（零 IO）
+src/lib/novel/style-evolution-metrics.ts     新增  纯函数：指标摊平 + 归一化 + 距离 + 判定（零 IO）
+src/lib/novel/style-evolution-store.ts       新增  项目级状态读写（&lt;项目&gt;/.qmai/style-evolution.json）
+src/lib/novel/style-evolution-engine.ts      新增  编排：取样 → 分析 → 校验 → 保留/回滚（IO 全部注入）
+src/lib/novel/style-evolution-runner.ts      新增  接线：读 wiki/chapters、剥 frontmatter、接 callAnalysisModelText、并发守卫（v2 补，见下）
+src/components/skill-library/
+  style-evolution-panel.tsx                  新增  复核面板：候选 vs 当前、指标距离、轮次历史、启用/回滚
+src/App.tsx                                  改    hydrateDeferredProjectState 里挂一次 tick
+src/components/skill-library/
+  unified-skill-library-view.tsx             改    「文风」tab 里挂上复核面板入口
+src/lib/novel/book-analysis/
+  analysis-model-call.guard.spec.ts          改    engine + runner 两个都加进绊线名单（**必须走 src/ 相对的那张表**，见下）
+src-tauri/src/commands/backup.rs             改    把 style-evolution.json 加进 PROJECT_OWNED_FILES（三处，见下）
+src/lib/user-memory/learning-budget.ts       改    把 dayKey 导出（原稿说"沿用"，但它没 export）
+src/components/skill-library/
+  unified-skill-library-view.spec.tsx        改    文风 tab 里出现复核面板入口</code></pre>
+
+  <div class="callout warn">
+    <span class="t">🔴 「进备份」不是自动的——要在 Rust 里白名单登记（v2 新增；原稿把这个卖点当已解决）</span>
+    <p>原稿 02 节把「落盘跟着项目走、<b>进备份</b>」写成方案 B 的优点，但 03 节的文件清单<b>全是 TS</b>——而备份对 <code>.qmai/</code> 下的文件是<b>显式白名单</b>。证据：<code>src-tauri/src/commands/backup.rs:181-192</code> 的 <code>PROJECT_OWNED_FILES</code> 里有 <code>project.json</code> / <code>writing-style.json</code> / <code>novel-config.json</code> 等，<b>没有</b> <code>style-evolution.json</code>；<code>:203-211</code> 的 <code>is_project_owned_entry</code> 只认白名单与 <code>covers</code>；非白名单条目落进「其余 = 分析/推演工作数据」，<b>不勾「拆书分析」时直接跳过、不进备份</b>。</p>
+    <p>后果：恢复后开关、<code>openDayCount</code>、<code>nextThreshold</code>、轮次历史全丢——打开日进度归零，用户「先给我看再启用」的开关也回默认关。</p>
+    <p><b>修正（三处一起改，否则自带测试会红）</b>：<code>PROJECT_OWNED_FILES</code>（<code>:181-192</code>）加 <code>"style-evolution.json"</code>；测试里的 <code>EXPECTED_OWNED_FILES</code>（约 <code>:2250-2268</code>）同步加一条；二者由 <code>project_owned_files_cover_every_irreplaceable_project_file</code>（<code>:2271-2282</code>）守着，失败信息是「{name} 必须列入 PROJECT_OWNED_FILES，否则不勾「拆书分析」时它会丢失」。</p>
+  </div>
+
+  <div class="callout warn">
+    <span class="t">🔴 节律状态的 schema 与初值必须写全（v2 新增）</span>
+    <p>原稿只在伪码里出现 4 个字段，03 节 store 一行只写「形状与 <code>writing-style-store</code> 同构」——但后者的默认形状是 <code>{ version, enabledStyleId: null, styles: [] }</code>，与节律状态<b>毫无对应物</b>，照抄不出来。最自然的写法 <code>nextThreshold: 0</code>（或漏字段取 0）会让第 1 次打开就 <code>count(1) &gt;= 0</code> 立即分析，直接违反「每打开 3 次、4 次或 5 次时」。</p>
+    <p><b>修正 —— <code>&lt;项目&gt;/.qmai/style-evolution.json</code> 的形状与初值定死为：</b></p>
+    <pre><code>{
+  version: 1,
+  enabled: false,              // 用户选定：默认关闭
+  lastOpenDate: "",            // "" = 还没有过打开日（视为"新的一天"）
+  lastAttemptedOn: "",         // 同一打开日最多尝试一次（04 节边界③）
+  openDayCount: 0,
+  nextThreshold: 3,            // ⚠️ 必须落在 {3,4,5}，初值取 3
+  lastAnalyzedOn: null,        // 从未分析过
+  probe: null,                 // { styleId, metrics } —— 只缓存指标，不缓存距离
+  rounds: []                   // 轮次历史：{ at, outcome, reason?, distanceCand?, distanceBase?, round }
+}</code></pre>
+    <p>对齐口径：<code>learning-budget.ts:16-18</code> 的 <code>emptyBudget</code> 就是这种「显式给初值」的写法，直接照它。日期口径与 <code>dayKey</code>（<code>:11-14</code>）一致（本地日期 <code>YYYY-MM-DD</code>，非 UTC）。</p>
+  </div>
+
+  <div class="callout warn">
+    <span class="t">绊线名单不是一张表，加错会直接 ENOENT（v2 新增，已核实）</span>
+    <p><code>analysis-model-call.guard.spec.ts</code> 里有<b>两张</b>文件名表，解析基准不同：<code>ANALYSIS_FILES</code>（<code>:18-27</code>）是<b>裸文件名</b>，用 <code>resolve(__dirname, file)</code> 解析——基准是 <code>src/lib/novel/book-analysis/</code>；<code>ANALYSIS_COMPONENT_FILES</code>（<code>:76-79</code>）是 <b><code>src/</code> 相对路径</b>，用 <code>resolve(__dirname, "../../..", file)</code> 解析。</p>
+    <p>本方案把引擎放在 <code>src/lib/novel/</code>（<b>不是</b> <code>book-analysis/</code>），所以<b>不能</b>把裸文件名 <code>"style-evolution-engine.ts"</code> 塞进 <code>ANALYSIS_FILES</code>——那行会去 <code>book-analysis/</code> 找这个文件，<code>readFileSync</code> 抛 <b>ENOENT</b>，测试是「报错」而不是「通过」或「断言失败」，很容易被误读成守卫生效。<b>正确做法</b>：把它加进按 <code>src/</code> 解析的那张表，例如 <code>"lib/novel/style-evolution-engine.ts"</code>。</p>
+    <p><b>v2 实施补充（已落地）：名单里加的是两个文件，而且真正非加不可的是接线层。</b>引擎 <code>style-evolution-engine.ts</code> 自己<b>不</b>发请求——它只收注入的 <code>deps.callModel</code>，所以「盯引擎」那条绊线<b>永远不会被触发</b>；真实调用点在接线层 <code>style-evolution-runner.ts</code> 的 <code>defaultCallModel()</code>（它调 <code>callAnalysisModelText</code>）。因此该表同时列入 <code>"lib/novel/style-evolution-engine.ts"</code> 与 <code>"lib/novel/style-evolution-runner.ts"</code>：前者防将来有人把注入换成直接调用，后者盯住今天的真实调用点。该 <code>describe</code> 的名字也一并从「（src/components 部分）」改为「（book-analysis 目录之外的部分）」——条目已经不在 <code>src/components/</code> 下了。</p>
+  </div>
+
+  <div class="callout warn">
+    <span class="t">接线点为什么是 App.tsx 而不是 ui-test-shell.tsx（已核实）</span>
+    <p>出厂外壳确实是 <code>UiTestShell</code>（<code>App.tsx:19</code> 导入、<code>:618</code> 渲染），但<b>启动与项目级初始化都在 App.tsx</b>：编排入口 <code>handleProjectOpened</code> 在 <code>App.tsx:520-577</code>，其中 <code>:576</code> 调 <code>hydrateDeferredProjectState</code>。<b>本功能挂在 <code>hydrateDeferredProjectState</code>（<code>:129-141</code>）</b>，因为那里已经明确是「<b>延迟</b>加载的项目级后台状态」（现有例：<code>:137</code> favorite-skill 的 <code>load(proj.path)</code>），语义正好吻合——分析要异步、不能挡启动。同一文件 <code>:106-127</code> 的 <code>hydrateProjectBackgroundServices</code> 是「恢复队列」的对应位置，可作为第二个候选点。</p>
+    <p><b>v2 更正（原稿此处说错，会影响成本判断）：</b>原稿把 <code>App.tsx:485-508</code> 称作「项目打开钩子（依赖 <code>[dataVersion, project?.path]</code>）」，暗示它会在每次 <code>dataVersion</code> 变化时重跑。<b>实际不是</b>：<code>:485-508</code> 是一个只加载写作统计的 effect，它<b>不</b>调用 <code>hydrateDeferredProjectState</code>；真正的调用点只有 <code>:576</code>，而 <code>handleProjectOpened</code> 仅由启动自动打开（<code>:445</code>）、用户打开/选择最近（<code>:582</code>、<code>:593</code>）与外壳回调（<code>:624</code>）触发。</p>
+    <p>这条更正有两面：① 好消息是「写盘 <code>bumpDataVersion()</code> → 重跑打开钩子 → 再次 tick」这条循环<b>不存在</b>；② 坏消息是它仍<b>不是</b>「每次启动一次」——同一天里切换项目 A→B→A 就会再进一次。所以 04 节边界③的「同一打开日最多尝试一次」不是可选项，而是必需的。另外，进化状态自身的写盘<b>不要</b>走 <code>bumpDataVersion()</code>（见 08 节测试策略的相应更正）。</p>
+  </div>
+
+  <div class="callout">
+    <span class="t">复用既有约定，不另发明</span>
+    <ul>
+      <li><b>按天计数</b>：参照 <code>src/lib/user-memory/learning-budget.ts</code>——它已有 <code>dayKey(now)</code> 生成 <code>YYYY-MM-DD</code>（<code>:11-14</code>）与「读盘时 <code>parsed.day !== dayKey(now)</code> 即重置」（<code>:24</code>）。本方案沿用同一日期口径。<b>v2 更正</b>：<code>dayKey</code> <b>没有 <code>export</code></b>，直接 import 拿不到；实施时要么把它导出后复用（推荐，避免两处口径漂移），要么在本地按同一算法重写并在测试里钉住「与 <code>learning-budget</code> 的 <code>dayKey</code> 结果一致」。<b>注</b>：全仓库<b>没有</b>通用「每日一次／每 N 次／冷却期」工具函数（已搜 <code>lastRun</code>/<code>cooldown</code>/<code>nextRunAt</code>/<code>lastAnalyzedAt</code>，0 命中），所以这是一个新工具，但要与它口径一致。</li>
+      <li><b>调模型</b>：走 <code>callAnalysisModelText(llmConfig, messages, options)</code>（<code>analysis-model-call.ts:64</code>）＋<code>resolveTaskLlmConfig(task)</code>（<code>analysis-model-resolver.ts:11</code>），<b>不直接调 <code>streamChat</code></b>。理由是那条绊线记录的真实事故：直接调 <code>streamChat</code> 时「模型只输出思考、没有输出正文」这条流整条链路无处重试（用户实测文风分析连续两次失败）。调用点落在新增的 <code>style-evolution-runner.ts</code> 里（引擎只收注入），两个文件都加进 <code>ANALYSIS_COMPONENT_FILES</code>（<b>不是</b> <code>ANALYSIS_FILES</code>，理由见上一条 callout）。</li>
+      <li><b>取消</b>：沿用 <code>src/lib/user-abort.ts</code> 的 <code>AbortSignal</code> 口径（<code>throwIfAborted</code> / <code>isUserAbortError</code>），<code>callAnalysisModelText</code> 的 <code>options.signal</code> 可直接透传。</li>
+    </ul>
+  </div>
+
+  <table>
+    <tr><th>单元</th><th>它做什么</th><th>怎么用</th><th>依赖什么</th></tr>
+    <tr>
+      <td class="mono">style-evolution-schedule</td>
+      <td>算「今天这次打开要不要分析」</td>
+      <td><code>advanceOpenDay(state, today)</code> → <code>{ state, shouldAnalyze }</code>；<code>completeRound(state, today, rng)</code> 才抽新阈值</td>
+      <td><b>无</b>。纯函数，连时间都不自己取（由调用方传 <code>today</code>）</td>
+    </tr>
+    <tr>
+    <tr>
+      <td class="mono">style-evolution-metrics</td>
+      <td>把两份指标折算成「离用户真实写法有多远」</td>
+      <td><code>flattenMetrics(m)</code> → <code>distance(a, b)</code> → <code>resolveVerdict(...)</code></td>
+      <td><b>无</b>。纯函数；归一化量纲是写死的常量表（05 节）</td>
+    </tr>
+      <td class="mono">style-evolution-store</td>
+      <td>读写项目级开关、节律状态、探针缓存、轮次历史</td>
+      <td><code>loadStyleEvolution(projectPath)</code> / <code>saveStyleEvolution(...)</code></td>
+      <td><code>@/commands/fs</code>；形状与 <code>writing-style-store</code> 同构</td>
+    </tr>
+    <tr>
+      <td class="mono">style-evolution-engine</td>
+      <td>跑一轮：取样、出候选、判定、落地</td>
+      <td><code>runStyleEvolutionRound({ projectPath, callModel, now, io })</code></td>
+      <td>读盘/调模型/取时间<b>全部从参数进</b>，所以测试不需要真实环境</td>
+    </tr>
+    <tr>
+      <td class="mono">style-evolution-panel</td>
+      <td>把一轮的结果摊开给人看，并允许启用或回滚</td>
+      <td>技能库「文风」tab 内的一个区块；须显式标出<b>当前基线是哪一份</b>（07 节）</td>
+      <td><code>wiki-store</code>（项目、dataVersion）、上面的 store</td>
+    </tr>
+  </table>
+
+  <div class="callout">
+    <span class="t">为什么节律要单独一个纯函数文件</span>
+    <p>「每天只算一次、跨天才 +1、到阈值重置」这种规则<b>只能靠时间流逝来在真实环境里观察</b>，一旦和 IO 混在一起就等于不可测（或者只能靠改系统时钟测）。抽成纯函数后，同一天开 6 次、连开 7 天、隔 30 天再开，全都能在一个测试里穷举。这是本方案里最便宜也最值钱的一处切分。</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">04</span><h2>计数与节律：逐条对照用户原话</h2></div>
+  <p class="sec-intro">这一节把用户第 1、2 条规则翻译成可执行判定，每条都标明对应的原话。</p>
+
+  <table>
+    <tr><th>用户原话</th><th>落成判定</th></tr>
+    <tr>
+      <td>「如果用户一天内打开了 5 到 6 次，不能每天都分析」<br>「我们将每天的打开行为定义为 1 次」</td>
+      <td><code>today === lastOpenDate</code> → <b>计数完全不动</b>（不是 +0.5，也不是记一次“忽略”）。<code>lastOpenDate</code> 用<b>本地日期</b> <code>YYYY-MM-DD</code>，不用 UTC（否则东八区晚上 8 点后就跨天了）</td>
+    </tr>
+    <tr>
+      <td>「第一天打开算作第 1 次，第二天打开算作第 2 次」</td>
+      <td><code>today !== lastOpenDate</code> → <code>openDayCount += 1</code>，<code>lastOpenDate = today</code></td>
+    </tr>
+    <tr>
+      <td>「如果第二天没有打开，隔了很长时间第三天再打开，依然算作第 2 次」</td>
+      <td>只比较<b>是否同一天</b>，不比较间隔天数。<b>没有</b>「漏一天扣一次」或「按日历天补算」的逻辑——中间空多少天都不影响计数</td>
+    </tr>
+    <tr>
+      <td>「每打开 3 次、4 次或 5 次时，才进行一次自动分析」</td>
+      <td>每轮开始时从 {3,4,5} 里取一个值作为本轮阈值；<code>openDayCount &gt;= nextThreshold</code> → <code>shouldAnalyze = true</code>，随后<b>计数归零并抽新阈值</b>。即间隔在 3~5 之间浮动，而不是「第 3、4、5 次各分析一次」（后者会让第 4、5 次几乎立刻重复分析，与「减少消耗」的目标相反）</td>
+    </tr>
+  </table>
+
+  <pre><code>advanceOpenDay(state, today):        // ⚠️ 不接 rng：它不再抽阈值，抽阈值只在 completeRound
+  if today === state.lastOpenDate:
+      // 同一天：计数完全不动（用户规则「一天内开 5~6 次只算 1 次」）。
+      // 但**不**在这里重试：同一个打开日最多尝试一次，见边界③。
+      return { state, shouldAnalyze: state.openDayCount >= state.nextThreshold
+                                     && state.lastAttemptedOn !== today }
+  count = state.openDayCount + 1
+  if count >= state.nextThreshold:
+      // ⚠️ 这里**不归零**：归零属于「一轮完整跑完」，只由 completeRound() 做。
+      //    写成归零就会让一次**失败**的分析也消费掉这 3~5 天（违反边界①）。
+      return { state: { ...state, lastOpenDate: today, openDayCount: count,
+                        lastAttemptedOn: today },
+               shouldAnalyze: true }
+  return { state: { ...state, lastOpenDate: today, openDayCount: count },
+           shouldAnalyze: false }
+
+// 只有「一轮完整跑完」才调用它 —— 归零与成功解耦的关键
+completeRound(state, today, rng):
+  return { ...state,
+           openDayCount: 0,
+           nextThreshold: pickThreshold(rng),   // 3 / 4 / 5
+           lastAnalyzedOn: today,
+           lastAttemptedOn: today }</code></pre>
+
+  <div class="callout warn">
+    <span class="t">两个必须守住的边界</span>
+    <p>① <b>分析失败不推进计数</b>：若本轮因模型未配置、章节不足、调用失败而没跑成，<b>不能</b>把计数当成「已消费」——那等于用户白等了 3~5 天却什么也没发生。所以「达到阈值」只置一个待办标记，真正归零发生在<b>一轮成功结束</b>之后。</p>
+    <p>② <b>阈值归零必须与成功绑定</b>：实现方式是 <code>advanceOpenDay</code> 达到阈值时<b>只加计数、不归零</b>，归零交给单独的 <code>completeRound()</code>。两者分开，才不会出现「失败也清零」。既然计数保留在阈值之上，<b>下一个打开日会自动再次判定为应分析</b>——重试不需要额外标记。</p>
+    <p>③ <b>同一个打开日最多尝试一次</b>（<code>lastAttemptedOn</code>）：只做到①②会漏掉一条真实的浪费路径——计数没推进 ⇒ <code>shouldAnalyze</code> 仍为真，而 <code>hydrateDeferredProjectState</code> 是 <code>void</code>（<code>App.tsx:576</code>，<b>不 await、无 in-flight 锁</b>），<code>handleProjectOpened</code> 又有一天的 4 个入口（启动 <code>:445</code>、打开/选择最近 <code>:582</code>/<code>:593</code>、外壳回调 <code>:624</code>）。于是用户切书 A→B→A、或重新打开同一本，就会再跑一次 tick，一天之内反复调用模型。这正是用户原话要避免的「同一天内频繁触发」。</p>
+    <p>所以「已尝试」与「已成功」必须分开记。而且 <code>lastAttemptedOn</code> <b>必须在开始跑模型之前就落盘</b>——否则在那一轮跑完（可能 40 秒以上）之前，盘上仍是旧值，重入照样会发生：这是③真正生效的前提，不是实现细节。</p>
+  </div>
+
+  <div class="callout warn">
+    <span class="t">🔴 一轮的结局必须是一个显式枚举（v2 新增；原稿这里两行互相打架）</span>
+    <p>原稿 07 节对「推进」的判据不一致：「模型报错」那行说不推进，而「探针生成跑偏」那行说<b>推进</b>（理由：「一轮已完整跑完」）——但<b>全篇没有定义什么算「完整跑完」</b>。分叉点很实际：分析成功但探针调用报错，算哪一类？写盘失败时轮次记录写不写？</p>
+    <p><b>修正：一轮只有三种结局，各自绑定计数行为与轮次记录：</b></p>
+    <table>
+      <tr><th>结局</th><th>含义</th><th>计数</th><th>轮次记录</th></tr>
+      <tr><td class="mono">incomplete</td><td>前置不满足（样本不足、无 holdout）或任一模型调用失败/被取消/超时，或候选 profile 未通过校验</td><td class="no">不推进</td><td><b>不写</b>（只写一条界面提示）</td></tr>
+      <tr><td class="mono">kept</td><td>探针与判定都跑完，且候选胜出</td><td>归零并抽新阈值</td><td>写，结论 <code>kept</code></td></tr>
+      <tr><td class="mono">reverted</td><td>探针与判定都跑完，但候选未胜出<b>或无法判定</b></td><td>归零并抽新阈值</td><td>写，结论 <code>reverted</code>（含 reason）</td></tr>
+    </table>
+    <p>关键区分：<b>「无法判定」属于 <code>reverted</code> 而不是 <code>incomplete</code></b>——因为它已经把该花的调用花完了，结果就是「不采纳」；而 <code>incomplete</code> 是「这次没跑成」，必须让用户下次重试。这条区分正是原稿含糊之处的答案。</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">05</span><h2>棘轮：靠什么判「进化了」</h2></div>
+  <p class="sec-intro">这是整个方案最关键的一处取舍，也是与达尔文 skill 差异最大的一处——<b>不是照搬，而是照它踩过的坑绕开</b>。</p>
+
+  <h3>达尔文 skill 自己写下的教训（原文引用）</h3>
+  <p>它 <code>SKILL.md</code> 第 8、62 行：</p>
+  <ul>
+    <li>「keep/revert 棘轮从「绝对分数 delta」改为「<b>paired 同-judge 比较 + 奇数 N 多数决</b>」（绝对分数 ±8 judge 噪音淹没保守编辑的真实增益、是 false-revert 源）」</li>
+    <li>「绝对总分只用于 triage，<b>绝不用于 keep/revert</b>」。反例黑名单第 1b 条：「拿绝对分数 delta 当 keep/revert 棘轮 → 实测一支纯加标记的 skill 单评 −8.5、全是换尺」</li>
+    <li>它的设计灵感节里更直接地点出病根：autoresearch 的 <code>val_bpb</code> 是<b>确定性</b> loss（重跑同数），而 LLM-judge 分数是<b>随机抽样</b>；把后者当可重复的 metric 用是概念错误。</li>
+  </ul>
+  <p>结论：达尔文 skill 的<b>精髓是「棘轮 + 独立验证 + 人审」这套结构</b>，而它自己已经证明「用 LLM 打分当棘轮」是错的。文风恰好有一条更好的路——本项目<b>已经有确定性指标</b>。</p>
+
+  <h3>本方案的棘轮</h3>
+  <pre><code>目标 T  = computeStyleMetrics( 用户 holdout 章节 )        // 真实写法，确定性
+基线 B  = 上一轮「保留」下来的候选；没有则取当前**启用**的预设     // 见下方「基线」
+候选 C  = 本轮分析产出的 profile
+
+探针文本：用固定提示词，喂 C.profile 与 B.profile 各生成一段（同一提示词、同长度约束）
+candM   = computeStyleMetrics([ 用 C 生成的那段 ])
+baseM   = computeStyleMetrics([ 用 B 生成的那段 ])       // 缓存的是**这份指标**
+
+归一化用固定的每项量纲 scale[i]（为什么不能除以目标值：见 10 节反例 11）：
+    norm_i(x) = x_i / scale[i]
+distance(X) = mean_i( |norm_i(X) − norm_i(T)| )
+
+保留条件：distance(candM) &lt; distance(baseM) − ε        // ε = 最小改进阈值，防噪音抖动
+否则：回滚（丢弃候选，保留 B）</code></pre>
+
+  <div class="callout warn">
+    <span class="t">🔴 首轮没有基线画像——这是一个必须单独定义的分支</span>
+    <p>若项目里<b>没有任何生效的文风预设</b>，就<b>没有可比对象</b>，距离比较无从谈起。<b>不允许</b>把它当成「距离 0、自动通过」（那等于把「没有证据」当「验证通过」）。</p>
+    <p><b>规则</b>：此分支命名为<b>建立基线</b>，与「进化」严格区分：</p>
+    <ul>
+      <li>只跑 <b>1 次</b>分析调用（<b>不跑探针</b>——没有对手可比，跑了也无法判定，纯属浪费）；</li>
+      <li>产物照常写成语料库里的候选预设，但轮次记录标记为 <code>bootstrap</code>，界面文案是「<b>已建立基线（尚未验证）</b>」，<b>不</b>声称「已进化」；</li>
+      <li>从第二轮起才进入真正的棘轮（有基线可比），此时才可能出现「保留 / 回滚」。</li>
+    </ul>
+    <p><b>基线的定义（v2 修订，原稿此处自相矛盾）：</b>本规格 07 节原来写「在任 = 当前<b>启用</b>的那份」，而上面又承诺「从第二轮起就进入棘轮」——这两句只有<b>当用户每次都启用候选</b>时才同时成立。用户不启用时，第一句会让每一轮都停在「建立基线」，棘轮<b>永不发生</b>（与用户「让 skill 实现自主的进化」的要求相反）。故明确为：</p>
+    <ul>
+      <li><code>基线 B := 上一轮判定为 keep 的候选</code>；若还没有 → 取当前<b>启用</b>的预设；若两者都没有 → 本轮走「建立基线」分支。</li>
+      <li>这与达尔文 skill 的棘轮同构（候选击败在任者后<b>接替成为在任者</b>），也正是上面「第二轮起进入棘轮」能成立的前提。</li>
+      <li><b>不</b>违反「先给我看再启用」：允许候选接替基线，只是让它成为下一轮的比照对象；<b>没有任何东西被自动启用</b>，生成仍然只跟着用户启用的那份走。</li>
+      <li>自我参照不会失控：判据始终是「离<b>用户真实正文</b>（T）更近」，T 是外部锚、不随候选漂移。</li>
+    </ul>
+    <p>这样做的代价是首版画像没有经过验证；但它是<b>用户可自行检查并决定是否启用</b>的一份候选，而不是被静默塞进生成链路的成品——与用户选定的「先给我看再启用」一致。</p>
+  </div>
+
+  <table>
+    <tr><th>要点</th><th>为什么</th></tr>
+    <tr>
+      <td>指标项用 <code>derived</code> 里的<b>比率与均值</b>（句长均值、短/长句比、段长、一句一段比、对白段占比、标点密度、拉丁字符比）</td>
+      <td>这些是<b>尺度无关</b>的，可以跨文本长度比较；<code>counts</code> 里那些绝对计数（句数、字数）随文本长短变，不能直接比，只用于校验样本量够不够</td>
+    </tr>
+    <tr>
+      <td>先归一化再算差</td>
+      <td>句长均值是「字」量级（几十），比率是 0~1 量级。不归一化的话，句长均值会单方面主导距离，等于只看了一个指标</td>
+    </tr>
+    <tr>
+      <td>引入最小改进阈值 ε</td>
+      <td>生成有随机性，两次之间天然有抖动。没有 ε 就会出现「本轮略好一点点→保留、下轮略差一点点→回滚」的来回震荡，画像永远在抖而不会真正积累</td>
+    </tr>
+    <tr>
+      <td><b>holdout 章节不参与分析</b></td>
+      <td>这是达尔文 SkillOpt 那一路的「validation-gated」：拿被分析过的章节当目标，等于用训练集考试，必然「越改越像」。所以章节要分成 fit（给分析用）与 holdout（只用来算 T）</td>
+    </tr>
+    <tr>
+      <td>基线的探针<b>指标</b>缓存到 <code>probe</code></td>
+      <td>B 的探针文本在它被替换之前不会变，所以这份<b>指标</b>可复用，每轮只需生成候选那一次，调用数从 3 降到 2。<br><b>⚠️ 只能缓存指标，不能缓存距离：</b><code>distance()</code> 依赖目标 T，而 T 随用户继续写作而变化——缓存距离就等于拿<b>过期的标尺</b>比这一轮的候选，判定会失真。每轮必须用<b>当前</b>的 T 重算 <code>distance(baseM)</code> 与 <code>distance(candM)</code>。<br>由此推论：keep/revert 的结论只在<b>同一轮内</b>可比（两个距离用的是同一个 T），<b>不</b>跨轮比较距离数值。</td>
+    </tr>
+  </table>
+
+  <div class="callout warn">
+    <span class="t">🔴 归一化必须写成一张常量表，ε 才有依据（v2 新增；原稿只写了「先归一化再算差」）</span>
+    <p>原稿从未定义 <code>归一化</code> 是什么，却在 08 节要求「去掉 ε 会红」的变异——ε 未定义时这条测试根本写不出来。而最自然的那种实现（除以目标值 <code>x_i / T_i</code>）是<b>错的</b>：纯中文小说的 <code>latinCharRatio</code> 恒为 <b>0</b>（<code>style-metrics.ts:261</code>），除零得 <code>NaN</code>，比较恒为 false，判定会静默退化且不报错。</p>
+    <p><b>修正：用固定的每项量纲 <code>scale[i]</code>，<code>norm_i(x) = x_i / scale[i]</code>，不引入目标值做分母。</b>量纲按指标的真实值域定，写死在代码里（不随数据变）：</p>
+    <table>
+      <tr><th>指标</th><th>来源</th><th><code>scale</code></th><th>理由</th></tr>
+      <tr><td>短句比 / 长句比 / 一句一段比 / 长段比 / 对白段比 / 拉丁字符比</td><td class="mono">derived 比率</td><td><code>1</code></td><td>本身就是 0~1</td></tr>
+      <tr><td>句长均值</td><td class="mono">avgSentenceChars</td><td><code>60</code></td><td>中文小说常见 10~60 字；取 60 使该维度落在 0~1</td></tr>
+      <tr><td>段长均值</td><td class="mono">avgParagraphChars</td><td><code>300</code></td><td>同上，长段阈值 <code>LONG_PARAGRAPH_MIN_CHARS=200</code></td></tr>
+      <tr><td>段均句数</td><td class="mono">avgParagraphSentences</td><td><code>8</code></td><td>同上</td></tr>
+      <tr><td>标点密度（8 个子项）</td><td class="mono">punctuationPerThousand.*</td><td><code>100</code></td><td>每千字次数，常见 0~100</td></tr>
+    </table>
+    <p>两条实现要求：① <code>punctuationPerThousand</code> 是 <b>8 个子字段</b>构成的对象（<code>:251-260</code>），必须<b>摊平成 8 个标量</b>再进距离——对象做 <code>Math.abs</code> 得 <code>NaN</code>；② 只取 <code>derived</code> 里的比率与均值，<code>counts</code> 的绝对计数随文本长短变、不参与距离（原稿这一点是对的）。</p>
+    <p><b>ε 的取值依据</b>：<code>distance()</code> 是「每项归一化差」的均值，量纲已在 0~1 附近，故 ε 取 <b>0.01</b> 量级（约为「平均每个指标改善 1%」）。它是一个<b>常量</b>，与 08 节测试里的固定随机源一起写死，使 keep/revert 在测试中完全可复现。</p>
+  </div>
+
+  <div class="callout warn">
+    <span class="t">🔴 探针必须是<b>多段</b>，不能是「一段」（v2 新增）</span>
+    <p>原稿 09 节写「探针输出长度受控（<b>一段</b>，非整章）」，但距离里含<b>段落级</b>指标 <code>oneSentenceParagraphRatio</code>（<code>:248</code>）与 <code>dialogueParagraphRatio</code>（<code>:250</code>）。只有一段时 <code>paragraphs === 1</code>，这两个比率<b>只能取 0 或 1</b>：拿它和 holdout 多章算出的 T（例如 0.37）比，差值被量化成两个台阶，且<b>完全由「模型这次分了几段」这一个随机事件决定</b>——它会成为距离里的主导抖动项，正是 ε 想压却压不住的东西。<code>avgParagraphChars</code> 同理退化成「那一段有多长」。</p>
+    <p><b>修正</b>：探针生成<b>3~5 段 / 固定目标字数</b>（提示词里明确要求分段），使段落级指标有统计意义；或把这些段落级指标排除出探针距离。推荐前者——它们是有信息量的风格特征，不该因为探针写得太短而丢掉。</p>
+  </div>
+
+  <div class="callout ok">
+    <span class="t">一个额外好处</span>
+    <p>因为判据是「指标距离更小才保留」，<b>「没有改进」是默认结果</b>（候选被判回滚），而不是需要额外理由才能拒绝。这与本轮早些时候修章节徽章时定下的原则一致：<b>拿不到证据就不采纳</b>，绝不让「无证据」被当作「通过」。</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">06</span><h2>数据流</h2></div>
+
+  <pre><code>应用启动 / 项目打开
+   │
+   ├─ 读 &lt;项目&gt;/.qmai/style-evolution.json
+   ├─ enabled === false  ────────────────────────────► 到此为止（一次模型调用都没有）
+   │
+   ├─ advanceOpenDay(state, today)
+   │     └─ shouldAnalyze === false ────────────────► 写回 state（计数 +1），结束
+   │
+   └─ shouldAnalyze === true
+         │
+         ├─ **先落盘**：把 openDayCount: count 与 lastAttemptedOn: today 写回
+         │     ⚠️ 必须在跑模型**之前**写。否则这一轮跑完（可能 40 秒以上）之前
+         │        盘上还是旧值，而 hydrateDeferredProjectState 是 void、无 in-flight 锁，
+         │        用户切书 A→B→A 就会再触发一轮 ⇒ 同一天算两次 + 两个并发轮次。
+         │
+         │   （空闲时异步跑，不挡界面）
+         ├─ 收集用户自己的章节：&lt;项目&gt;/wiki/chapters/*.md
+         │     不足 2 章 / 总字数不足 ──────────────► outcome = incomplete，**不推进计数**，结束
+         ├─ 分 fit / holdout（按章节序号稳定切分，不是随机，保证可复现）
+         ├─ T = computeStyleMetrics(holdout)
+         ├─ 分析调用：fit 章节 + T（格式化后）+ 基线 profile ──► 候选 profile
+         │
+         ├─ 有没有基线可比？（上一轮 keep 的候选 → 当前启用 → 都没有）
+         │     ├─ 没有基线（首次）─► **建立基线**：跳过探针，直接写候选预设，
+         │     │                    轮次记录标 bootstrap，界面说「尚未验证」
+         │     └─ 有 ─► 探针：用候选生成一段 ──► candM
+         │              基线画像用缓存的 **指标** baseM；距离用**当前** T 重算
+         │              resolveVerdict(distance(candM), distance(baseM), ε)
+         │                ├─ keep   ──► 写成候选预设（sourceBook 带**本轮轮次号**，每轮唯一）
+         │                │             写完后：若**上一轮**候选未被启用，删掉它
+         │                └─ revert ──► 丢弃本轮候选，只留一条轮次记录
+         │
+         └─ 一轮结束（outcome ∈ {kept, reverted}）：
+              completeRound(...) ⇒ openDayCount = 0 + 新阈值 + 追加轮次记录 + 写盘
+              （outcome === incomplete 时**不**走这里，计数保持不动，下一个打开日重试）</code></pre>
+
+  <div class="callout warn">
+    <span class="t">🔴 候选预设的 <code>sourceBook</code> 必须<b>每轮唯一</b>（v2 重做：原稿的「固定合成来源」有个致命漏洞）</span>
+    <p>先看清约束。<code>upsertWritingStylePreset</code> 的去重键是 <b><code>sourceBook</code></b>：<code>findIndex(s =&gt; s.sourceBook === input.sourceBook)</code>（<code>writing-style-store.ts:137</code>），命中时<b>原地覆盖 <code>profile</code> 并保留原 id</b>（<code>:139-148</code>）。而 <code>setEnabledWritingStyle</code>（<code>:166-174</code>）只认 id、<b>不因 profile 变化而失效</b>，<code>getEnabledWritingStyle</code>（<code>:217</code>）拿的是 id 对应的<b>当前</b> profile。</p>
+    <p><b>原稿的漏洞</b>：原稿说用一个<b>固定</b>的合成来源（如 <code>"我的文风 · 自动进化"</code>），并声称「① 用户现有画像永不被碰；② 每轮候选覆盖上一轮候选」。这两条<b>不可兼得</b>，而且漏掉了主路径——<b>用户启用了候选之后</b>：</p>
+    <ol>
+      <li>第 1 轮 bootstrap 写出候选 <code>P1</code>（固定 sourceBook，id = <code>P1</code>），未启用；</li>
+      <li>用户在文风库里点 <code>P1</code> 启用 ⇒ <code>enabledStyleId = P1</code>（这是文档设计的正常路径）；</li>
+      <li>第 2 轮判定 keep ⇒ 同 sourceBook 命中 <code>:137</code> ⇒ <b>原地覆盖 <code>P1.profile</code>，id 不变</b>；</li>
+      <li><code>enabledStyleId</code> 仍是 <code>P1</code> ⇒ 用户<b>一次都没点</b>，正在用的画像已被换掉。</li>
+    </ol>
+    <p>这正是用户明确否决的「静默替换」。更糟的是<b>回滚无从下手</b>：此时「候选」与「在任」是同一个预设，棘轮判 revert 时，「保留的」和「要删的」是同一个东西。</p>
+    <p><b>修正（两条一起才成立）：</b></p>
+    <ul>
+      <li><b>候选的 <code>sourceBook</code> 每轮唯一</b>，带上轮次号，例如 <code>"我的文风 · 自动进化 · 第 N 轮"</code>。于是 <code>upsert</code> 每轮<b>新增</b>一条而不是覆盖，<b>任何已启用的预设都不会被改写</b>。</li>
+      <li><b>清理上一轮候选时必须先检查它是否被启用</b>：仅当 <code>enabledStyleId !== 上一轮候选.id</code> 时才删除它。<br>于是盘上最多只会同时存在两条自动进化预设：<b>用户启用的那条 + 本轮候选</b>，不会堆积垃圾。</li>
+    </ul>
+    <div class="callout" style="margin-top:12px">
+      <span class="t">回滚的正确语义（v2 重做）</span>
+      <p><b>原稿错在</b>：直接推荐 <code>removeWritingStylePresetBySourceBook</code>。而 <code>removeWritingStylePresets</code>（<code>:186-201</code>）在删掉当前启用项时会把 <code>enabledStyleId</code> <b>置为 null</b>——若用户恰好启用了候选，一次「回滚」就会把项目的文风<b>整个关掉</b>（从「有文风」变成「完全没有文风」，静默降级）。</p>
+      <p><b>正确规则</b>：<code>回滚 = 删除本轮候选，且仅当它未被启用</code>。若它已被启用，面板<b>不得</b>执行删除，而要如实说明：「这是你正在使用的文风，不能作为回滚目标；如需停用，请到文风库取消启用。」——宁可让用户多点一下，也不能悄悄把他的文风关掉。</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <span class="t">为什么候选要写成「预设」而不是覆盖用户现有那一份</span>
+    <p>① 回滚变成「删掉候选预设」，不需要备份/还原 profile；② 用户可以在文风库里<b>并排比较</b>新旧两份，而不是只能信任一个被悄悄替换掉的东西；③ 与本轮刚实现的「点击文风卡片即启用」天然衔接——候选出现在库里，用户点它才生效。</p>
+    <p><b>v2 更正</b>：原稿把③写成「回滚就是『不启用它、并删掉』」，漏了「用户已经启用它」这一格——那一格<b>不允许删</b>（会连带把 <code>enabledStyleId</code> 置 null），见上方回滚语义。</p>
+    <p>写入后同样会经过 <code>saveWritingStyleStore</code>，因此自动带上 <code>bumpDataVersion()</code>——文风库与写作区那个按钮会立刻看到候选。</p>
+  </div>
+
+  <div class="callout warn">
+    <span class="t">🔴 面板必须同时跟随 <code>dataVersion</code>（v2 真机验证发现，测试曾漏掉）</span>
+    <p>原稿只写了「面板订阅 <code>subscribeStyleEvolution</code>」（那是为了节律状态，它刻意不进 <code>bumpDataVersion</code>，见 08 节），<b>漏了另一半</b>：面板就挂在文风画廊<b>上面</b>，用户完全可以先点下面的画廊把启用项换成别的文风，再回来点「回滚这份候选」。画廊是靠 <code>dataVersion</code> 刷新的（<code>unified-skill-library-view.tsx:949/:1062</code>），而面板若不跟，就会一直拿着打开时那份陈旧状态。</p>
+    <p><b>实测后果</b>（本轮构建的真机上复现）：候选早已被切走，面板却仍认为「正在使用中」，于是<b>错误地拒绝回滚</b>并显示一条自相矛盾的红色提示 —— 而同一屏下方的画廊卡片已经正确标着「当前启用」是另一份。用户无法解释这个拒绝。</p>
+    <p><b>修正</b>：面板的状态 effect 依赖 <code>[reload, dataVersion]</code>（不是只有 <code>[reload]</code>），并在每次刷新时清掉拒绝提示（它的前提刚被重新读过，前提没了就不该留着过期红字）。两条都加了用例，且都用变异验证过判别力。</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">07</span><h2>失败模式与边界条件</h2></div>
+  <p class="sec-intro">逐条写出「如果 X 失败 → 做什么」，不留「视情况而定」。</p>
+
+  <table>
+    <tr><th>触发条件</th><th>处理动作</th><th>计数是否推进</th></tr>
+    <tr><td>模型未配置 / 调用报错 / 超时</td><td>本轮作废，界面留一行「本次分析未完成」；不写任何画像</td><td class="no">不推进（下次打开重试）</td></tr>
+    <tr><td>用户正文不足（&lt; 2 章，或 fit 部分总字数低于下限）</td><td>不启动分析，界面说明「还需要更多正文」；总字数下限与<b>样本量</b>下限都从 <code>counts.chars</code>/<code>counts.sentences</code> 判断，不用「章数」单一条件</td><td class="no">不推进</td></tr>
+    <tr><td>holdout 为空（例如只有 1 章）</td><td>退化为「不校验」是<b>不允许</b>的；改为<b>跳过本轮</b>，因为无法判定改进。宁可不动，也不盲改画像</td><td class="no">不推进</td></tr>
+    <tr><td>探针生成跑偏（拒答、混入大量英文、明显截断）</td><td>判「无法判定」→ <b>按回滚处理</b>（保留基线画像）。<code>latinCharRatio</code> 与最短长度是两个现成的探测器</td><td>推进（一轮已完整跑完）</td></tr>
+    <tr><td><b>分析调用返回垃圾 / 无效 JSON / 不是合法 <code>BookStyleProfile</code></b></td><td><b>v2 新增</b>。必须做显式校验后才落盘：<code>migrateStyleProfile</code>（<code>style-profile-schema.ts:127-142</code>）是<b>宽容</b>的（缺字段补空、非字符串给 <code>""</code>），<code>upsertWritingStylePreset</code> 又原样写入（<code>writing-style-store.ts:139-160</code>），<b>垃圾 profile 不会被拒绝、会被照单落盘并可被启用</b>。故本轮要自己判：解析失败、<code>integratedDna</code> 为空、<code>generatedAt</code> 非有限数 ⇒ 结局 <code>incomplete</code>，作废本轮、不写预设</td><td class="no">不推进</td></tr>
+    <tr><td>写盘失败</td><td>如实上报（与 <code>writing-style-store</code> 同一套错误处理），<b>不</b>假装成功。计数<b>不</b>归零（与「本轮作废」一致），因此下一打开日会重试；页面上显示一条「本轮结果未能保存」<b>v2 更正</b>：原稿同时写了「内存态不回滚」与「计数不推进」，两者矛盾——经核实没有「内存态」可回滚（每轮只读盘/写盘各一次，不常驻），已删除该措辞</td><td class="no">不推进</td></tr>
+    <tr><td>同一天反复打开</td><td>计数不动（见 04 节）</td><td class="no">不推进</td></tr>
+    <tr><td>分析中途关闭软件</td><td>状态里<b>只有「已完成的一轮」</b>，没有中间态；下次打开按未完成处理，重新跑</td><td>保持上次已写盘的值</td></tr>
+    <tr><td>用户在设置里关闭功能</td><td>立即停止；<b>已有画像与已生成的预设原封不动</b>（关闭不等于回滚）</td><td>不动</td></tr>
+    <tr><td>基线画像被用户手动删除 / 停用</td><td>把 <code>probe</code> 缓存作废，并按 05 节的回落链重新取基线（上一轮 keep 的候选 → 当前启用 → 建立基线）；<b>不</b>报错，但要在面板上说清基线换成了什么</td><td>不动</td></tr>
+    <tr><td>本轮候选判定为 keep，但用户不启用</td><td>候选预设留在库里并标记「未启用」；<b>它接替成为下一轮的基线 B</b>（见 05 节「基线的定义」），面板须显式写出「当前基线：第 N 轮候选（未启用）」，否则用户会以为比较对象是自己启用的那份</td><td>推进</td></tr>
+  </table>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">08</span><h2>测试策略</h2></div>
+  <table>
+    <tr><th>对象</th><th>怎么测</th><th>判别力（能杀掉什么）</th></tr>
+    <tr>
+      <td class="mono">style-evolution-schedule</td>
+      <td>纯函数穷举：同一天开 6 次；连开 7 天；隔 30 天再开；阈值处恰好等于/大于/小于；随机源固定后阈值序列可断言。<b>v2 新增</b>：<code>nextThreshold</code> 的<b>初值</b>必须落在 {3,4,5}（若取 0，第 1 次打开就 <code>count(1) &gt;= 0</code> ⇒ 立刻分析，违反「每 3/4/5 次」）；<code>lastOpenDate</code> 为空串时视为「新的一天」</td>
+      <td>把「同日不计数」改成累加、把「比较间隔天数」写成「比较日历差」、阈值不重置、<b><code>nextThreshold</code> 初值取 0</b>——都会红</td>
+    </tr>
+    <tr>
+    <tr>
+      <td class="mono">style-evolution-metrics</td>
+      <td>纯函数：<code>flattenMetrics</code> 把 <code>punctuationPerThousand</code> 摊平成 8 个标量（不是 1 个对象）；<code>distance</code> 在<b>纯中文</b>文本下（<code>latinCharRatio === 0</code>）返回有限数而非 <code>NaN</code>，且随文本偏离目标单调增大；<code>resolveVerdict</code> 的边界：差值恰等于 ε 时不保留</td>
+      <td>把标点对象当 1 项（<code>Math.abs</code> 得 <code>NaN</code>）、归一化除以目标值（<code>latinCharRatio === 0</code> 时 <code>NaN</code>）、把 <code>&lt;</code> 写成 <code>&lt;=</code>、去掉 ε——都会红</td>
+    </tr>
+      <td class="mono">style-evolution-engine</td>
+      <td>注入假 IO 与假 <code>callModel</code>，断言三种结局：更近→<code>kept</code>、更远→<code>reverted</code>、无法判定→<code>reverted</code>、任一环节失败→<code>incomplete</code> 且不推进计数。<b>v2 新增</b>：① 假 <code>callModel</code> 返回<b>原始文本</b>（不是现成指标），让「探针文本 → <code>computeStyleMetrics</code> → distance」这段接线真正端到端跑一遍；② 返回垃圾/无效 JSON ⇒ <code>incomplete</code> 且不写预设；③ 并发两次调用同一项目，第二次不得再触发一轮</td>
+      <td>把 keep/revert 判据反向、去掉 ε、失败时也推进计数、用 fit 章节算目标（泄漏）、<b>接受垃圾 profile</b>、<b>去掉 in-flight 守卫</b>——都会红</td>
+    </tr>
+    <tr>
+      <td class="mono">style-evolution-store</td>
+      <td>与 <code>writing-style-store.spec.ts</code> 同构：坏 JSON → 退化默认值；缺字段 → 补默认；<code>emptyState</code> 的 <code>nextThreshold ∈ {3,4,5}</code></td>
+      <td><b>v2 改正</b>：原稿要求「写入后 <code>bumpDataVersion</code> 被调用」，这条是错的——<code>bumpDataVersion()</code> 的既有语义是「让文风库/写作区重读 <code>writing-style.json</code>」（见 <code>writing-style-store.ts:96-111</code> 注释），拿它当节律写入的合格标准，会诱导实现者每写一次打开计数就触发全应用重读。节律状态用<b>自己的通知</b>（面板订阅），不进 <code>bumpDataVersion</code>；而候选<b>预设</b>经 <code>saveWritingStyleStore</code> 写入，自然带上 <code>bumpDataVersion()</code>，这是对的</td>
+    </tr>
+    <tr>
+      <td class="mono">style-evolution-panel</td>
+      <td>渲染：显示轮次、距离、结论；点启用 → 调 <code>setEnabledWritingStyle</code>；点回滚 → <b>仅在候选未被启用时</b>删候选预设</td>
+      <td><b>v2 改正</b>：原稿此处写「点回滚 → 删候选预设」，会把「启用后回滚 ⇒ 连带把 <code>enabledStyleId</code> 置 null、用户文风被整个关掉」这个<b>破坏性行为钉死</b>。正确的判别力是：候选<b>已被启用</b>时点回滚 ⇒ 断言预设<b>仍在</b>、<code>enabledStyleId</code> <b>未被置 null</b>，且界面给出不能回滚的说明</td>
+    </tr>
+    <tr>
+      <td><code>style-evolution-schedule</code><br><b>v2 新增边界</b></td>
+      <td>同一打开日<b>尝试失败后不再重试</b>：同一天连续 tick 三次，只有第一次 <code>shouldAnalyze === true</code>；换到下一日则重新为 true（验证「失败只在下一个打开日重试」）</td>
+      <td>去掉 <code>lastAttemptedOn</code> 判断 ⇒ 红（否则一天内会反复烧 token）</td>
+    </tr>
+    <tr>
+      <td><code>style-evolution-engine</code><br><b>v2 新增边界</b></td>
+      <td>① 失败一轮后 <code>openDayCount</code> <b>不被归零</b>；成功一轮后才归零并抽新阈值。② 用纯中文文本（<code>latinCharRatio === 0</code>）跑完整距离计算，断言结果<b>不是 <code>NaN</code></b> 且距离随文本偏离而单调增大</td>
+      <td>① 把归零写回 <code>advanceOpenDay</code> ⇒ 红。② 改成除以目标值 ⇒ 红（NaN 会同时打挂「单调增大」与「不是 NaN」两条）</td>
+    </tr>
+    <tr>
+      <td><code>style-evolution-engine</code><br><b>v2 新增边界</b></td>
+      <td>基线取值链：没有 keep 候选时取「启用」的那份；两者都没有时走 bootstrap；keep 但不启用时，<b>下一轮的基线是那条候选</b>（而不是启用项）</td>
+      <td>把基线写死成「只看启用项」⇒ 红（这正对应原稿的自相矛盾）</td>
+    </tr>
+    <tr>
+      <td><b>变异测试</b></td>
+      <td>对本轮新增的每条守卫各做一次「故意改坏源码 → 确认测试变红 → 逐字节还原」</td>
+      <td>沿用本项目已经在用的做法（本轮早先的 6 条变异全部 CAUGHT 且 byte-identical 还原）</td>
+    </tr>
+  </table>
+
+  <div class="callout warn">
+    <span class="t">不写真实 LLM 调用测试</span>
+    <p>CI 不该花钱，也不该依赖网络。引擎的 <code>callModel</code> 是注入的，测试用假实现覆盖全部分支；真实模型行为留给人工在实机验证（与本仓库既有的 <code>*.real-llm.test.ts</code> 被 <code>test:mocks</code> 排除的做法一致）。</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">09</span><h2>成本与开关</h2></div>
+  <ul>
+    <li><b>默认关闭</b>（用户已选定）。关闭时：一次读文件、零次模型调用。</li>
+    <li>开启后：每 3~5 个「打开日」触发一轮。<b>调用次数按三种情形分别是</b>：
+      <ul>
+        <li><b>建立基线</b>（上一轮没有 keep 候选，且项目里也没有生效的文风预设）：<b>1 次</b>（只做分析，不跑探针）</li>
+        <li><b>棘轮·探针缓存已热</b>（常规情形）：<b>2 次</b>（1 次分析 + 1 次候选探针；基线的探针<b>指标</b>命中缓存）</li>
+        <li><b>棘轮·缓存未命中</b>（基线刚换过、或缓存被作废）<b>3 次</b>（多一次基线探针；该结果随即写入缓存）</li>
+      </ul>
+    </li>
+    <li>分析输入是 fit 章节的<b>抽样</b>（按现有 <code>analysis-chunk-planner</code> 的预算思路控制总字数），不是全部正文；探针输出长度受控（一段，非整章）。</li>
+    <li>界面必须显示：距离上次分析多少天、下次大约还需<b>几次打开</b>（以及约等于几天）、上一轮结论。<b>不能</b>让用户不知道它什么时候会花钱。<b>v2 更正</b>：原稿写「还需几天」，但节律计的是<b>打开日</b>——用户不打开就永远不会到阈值，「还需 N 次打开」才是准确说法。</li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">10</span><h2>不做的事（反例清单）</h2></div>
+  <p class="sec-intro">对应达尔文 rubric 的 dim9「反例与黑名单」。每条都是本方案里真实存在诱惑力的错路。</p>
+  <table>
+    <tr><th>#</th><th>不要做</th><th>为什么</th></tr>
+    <tr><td>1</td><td>用 LLM 打分当保留/回滚的棘轮</td><td>达尔文 skill 自己实测过：绝对分数 ±8 噪音，会把真实增益判成退步。本方案用确定性指标</td></tr>
+    <tr><td>2</td><td>用<b>被分析过的</b>章节算目标指标</td><td>训练集当考卷，必然「越改越像」，棘轮会一路假通过。必须留 holdout</td></tr>
+    <tr><td>3</td><td>在没有 holdout / 判定不了时「当作通过」</td><td>拿不到证据 ≠ 验证通过。判定不了就回滚</td></tr>
+    <tr><td>4</td><td>自动启用新画像</td><td>用户已明确选「改进后先给我看再启用」。且画像直接决定生成质量，静默替换不可接受</td></tr>
+    <tr><td>5</td><td>分析失败也推进计数</td><td>会让用户白等 3~5 天却什么都没发生（见 04 节边界①）</td></tr>
+    <tr><td>6</td><td>用 UTC 判「同一天」</td><td>东八区晚上 8 点后就跨天，用户会发现「同一天开了两次却算两次」</td></tr>
+    <tr><td>7</td><td>在启动路径上同步等模型返回</td><td>会卡住整个界面启动。必须空闲时异步、且失败不留痕</td></tr>
+    <tr><td>8</td><td>把用户正文复制进拆书库目录</td><td>往用户项目里塞一个假的「外部书」，语义错且会干扰拆书库的列表与缓存</td></tr>
+    <tr><td>8b</td><td><b>候选预设沿用与用户现有画像相同的 <code>sourceBook</code></b></td><td><code>upsertWritingStylePreset</code> 按 <code>sourceBook</code> 去重并<b>原地覆盖</b>（<code>writing-style-store.ts:137-148</code>）⇒ 会静默改掉用户正在用的画像、且无法回滚。必须用独立合成来源（见 06 节）</td></tr>
+    <tr><td>9</td><td>不设最小改进阈值 ε</td><td>生成有随机性，没有 ε 会导致画像在噪音里来回震荡、永不积累</td></tr>
+    <tr><td>10</td><td>首轮就自动跑（不看开关）</td><td>默认关闭是用户明确选择，涉及花钱</td></tr>
+    <tr><td>11</td><td><b>归一化时除以目标值</b> <code>x_i / T_i</code></td><td>纯中文小说里 <code>latinCharRatio</code> 恒为 <b>0</b>，除以它得到 <code>NaN</code>；<code>NaN</code> 参与比较后 <code>&lt;</code> 恒为 false，判定会静默退化成「永远回滚」或「永远保留」（取决于写法），且不报错。必须用固定量纲 <code>scale[i]</code></td></tr>
+    <tr><td>12</td><td>把 <code>distance()</code> 的结果缓存进 <code>probe</code></td><td>距离依赖目标 T，T 随笔者的正文增长而变化；缓存距离＝拿过期标尺量新候选。只缓存<b>指标</b>，每轮用当前 T 重算</td></tr>
+    <tr><td>13</td><td>把 <code>punctuationPerThousand</code> 当作<b>一个</b>指标项</td><td>它是 <b>8 个子字段</b>（dash / ellipsis / quote / exclamation / question / comma / semicolon / colon）构成的对象，对象<code>Math.abs</code> 得 <code>NaN</code>；必须先摊平成 8 个标量、或明确只取一个子集</td></tr>
+    <tr><td>14</td><td>用裸文件名把新引擎加进 <code>ANALYSIS_FILES</code></td><td>那张表按 <code>book-analysis/</code> 解析，跨目录会 <b>ENOENT</b>；见 03 节</td></tr>
+    <tr><td>15</td><td>让进化状态写盘也调 <code>bumpDataVersion()</code></td><td>它会让文风库/写作区的刷新语义与「项目数据变了」混在一起；轮次历史变化的订阅由 store 自己的通知承担</td></tr>
+    <tr><td>16</td><td><b>候选用固定 <code>sourceBook</code></b></td><td>用户一旦启用了候选，下一轮 <code>upsert</code> 就会<b>原地覆盖正在生效的画像</b>（<code>writing-style-store.ts:137-148</code> + <code>:166-174</code>）；而且此时「候选」与「在任」是同一个，回滚无从下手。必须<b>每轮唯一</b></td></tr>
+    <tr><td>17</td><td><b>回滚时直接按 <code>sourceBook</code> 删候选</b></td><td><code>removeWritingStylePresets</code>（<code>:186-201</code>）在删掉当前启用项时会把 <code>enabledStyleId</code> <b>置 null</b> ⇒ 一次「回滚」把用户的文风整个关掉。必须先判「是否被启用」，被启用则拒绝删除</td></tr>
+    <tr><td>18</td><td><b>用「一段」当探针</b></td><td><code>paragraphs === 1</code> 时 <code>oneSentenceParagraphRatio</code> / <code>dialogueParagraphRatio</code> 只能是 0 或 1，距离被「模型这次分了几段」这一随机事件主导</td></tr>
+    <tr><td>19</td><td><b>给候选硬塞一个空 <code>rules</code> 的 <code>workbenchStyle</code></b>（原稿就是这么要求的，方向反了）</td><td>结构化分支与旧分支是 if/else：<code>workbenchStyle</code> 一旦存在，<code>constitution</code>（<code>:363</code>）与 <code>integratedDna</code>（<code>:367</code>）<b>都不再注入</b>，注入文本缩成 <code>compileStyleFingerprint</code> 的头几行 —— 反而不如老路径。正确做法是不产出，并在规格里认下代价</td></tr>
+  </table>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">11</span><h2>待确认点的结论（已销账）</h2></div>
+  <p class="sec-intro">设计过程中问过四个问题，此处保留问题与结论的对应关系，便于日后回溯为什么是这样。</p>
+  <ol>
+    <li><b>「文风 skill」指哪个东西</b> → 用户选「<b>就是 App「文风库」里的文风预设</b>（<code>.qmai/writing-style.json</code> 里的一条）」。不新建 <code>skills/SkillHub</code> 下的 SKILL.md（那类 md 随软件发版，用户自己的写作数据改不了它）。</li>
+    <li><b>「3 次、4 次或 5 次」是哪种节律</b> → 用户选「<b>间隔在 3~5 之间取一个值</b>」，即每轮抽一个阈值，而非第 3、4、5 次各分析一次。</li>
+    <li><b>靠什么判定进化</b> → 用户选「<b>确定性指标</b>：用新画像生成文本 → 算指标 → 与用户真实写法比对，更接近才保留」。</li>
+    <li><b>默认开关与自主程度</b> → 用户选「<b>默认关，用户手动开启；开启后自动分析，但改进后先给我看再启用</b>」。</li>
+    <li>（附加，已确认）<b>计数按项目还是全局</b> → <b>按项目</b>：每本书自己的文风各自进化。</li>
+    <li>（v2 附加）<b>候选被用户启用后怎么回滚</b> → 见 06 节「回滚的正确语义」：<b>已被启用则拒绝删除</b>，如实告知用户去文风库取消启用。原稿那句「回滚 = 删候选预设」在启用态下会把项目文风整个关掉，已废弃。</li>
+  </ol>
+  <div class="callout">
+    <span class="t">本次 v2 自审的范围（说清它没做什么，别高估）</span>
+    <p>做的是：<b>静态核对</b>原稿每个文件/行号/函数名，并<b>构造反例状态序列</b>去打它自己写下的规则；另有一次独立评审复核。共 19 条修订，逐条列在 00 节。</p>
+    <p><b>没做</b>：没有运行测试、没有写复现脚本、没有改任何生产代码——所以 00 节里的反例序列（例如「同日切项目会被算两次」）是<b>基于代码语义推导</b>的，不是实测出来的。第 4 条、第 8 条这类与并发/落盘时机有关的结论，<b>必须在实施时先写那条测试把它坐实</b>，不要因为规格写了就当成已验证。</p>
+  </div>
+</section>
+
+<footer>
+  青幕AI写作 · 设计规格 · 2026-10-11 · 本文件仅为规格，未改动任何生产代码
+</footer>
+</div>
+<script>
+  (function () {
+    var btn = document.getElementById('themeToggle');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var dark = document.documentElement.classList.toggle('dark');
+      try { localStorage.setItem('qmai-spec-theme', dark ? 'dark' : 'light'); } catch (e) {}
+    });
+  })();
+</script>
+</body>
+</html>

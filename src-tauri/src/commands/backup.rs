@@ -177,6 +177,11 @@ const KNOWLEDGE_ZIP_NAME: &str = "wiki";
  *                            这些是**人的判断**，任何扫描都推不出来。
  *   · novel-config.json / source-watch-config.json /
  *     revision-feedback-config.json / rerank-config.json  项目级功能配置。
+ *   · style-evolution.json   文风自进化的**用户开关**与「打开日」进度。
+ *                            开关是用户显式选的（默认关），任何扫描都推不出来；
+ *                            打开日计数则是**只能靠时间积累**的进度 ——
+ *                            丢了它不会报错，只会让用户先前攒下的 3~5 个打开日
+ *                            无声归零、功能被关回默认，然后以为「它坏了」。
  */
 const PROJECT_OWNED_FILES: &[&str] = &[
     "project.json",
@@ -189,6 +194,7 @@ const PROJECT_OWNED_FILES: &[&str] = &[
     "source-watch-config.json",
     "revision-feedback-config.json",
     "rerank-config.json",
+    "style-evolution.json",
 ];
 
 /// 封面是项目的可见资产（书架靠它显示），与"分析/索引"无关，跟正文一起走。
@@ -2265,6 +2271,9 @@ mod tests {
         "source-watch-config.json",
         "revision-feedback-config.json",
         "rerank-config.json",
+        // 文风自进化的开关与「打开日」进度：丢了它，恢复后功能被关回默认、
+        // 打开日计数归零，用户先前攒的 3~5 个打开日白等
+        "style-evolution.json",
     ];
 
     #[test]

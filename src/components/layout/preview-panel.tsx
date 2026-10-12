@@ -20,6 +20,8 @@ import { chapterHasLaterChapter, chapterOrdersFromTree, resolveDraftMemoryHint, 
 import { saveNovelConfig, saveUiBodyFontFamily, saveUiBodyFontPx, saveUiBodyLineHeight, saveUiBodyLetterSpacing, saveUiBodyMarginX, saveUiBodySafeBottom } from "@/lib/project-store"
 import { registerPreCloseFlush } from "@/lib/pre-close-flush"
 import { isChapterPage, isFinalChapter, parseChapterMeta, syncChapterFrontmatterFromBody, updateChapterStatus, updateChapterTitle } from "@/lib/novel/chapter-meta"
+import { chapterSnapshotNumbersFrom, chapterSnapshotNumbersFromFileNames, resolveChapterMemoryDotState } from "@/lib/novel/chapter-memory-dot"
+import { resolveChapterDotNumbers } from "@/lib/novel/chapter-utils"
 import { resolveReviewModel } from "@/lib/novel/review-model"
 import { CognitionPanel } from "@/components/novel/cognition-panel"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
@@ -27,7 +29,6 @@ import { getNextChatExpanded } from "./chat-layout"
 import { TextTransformPreviewDialog } from "@/components/novel/text-transform-preview-dialog"
 import { DeAiSkillOptionsPanel } from "@/components/skill-library/de-ai-skill-picker"
 import { useDeAiSkillOptions } from "@/components/skill-library/use-de-ai-skill-options"
-import { WritingStylePicker } from "@/components/skill-library/writing-style-picker"
 import { buildDeAiRewriteMessages } from "@/lib/novel/de-ai-adapter"
 import { filterDeAiOutput } from "@/lib/novel/de-ai-output"
 import {
@@ -450,24 +451,33 @@ export function PreviewPanel() {
   const bodyTypographyPersist = useRef(createDebouncedPersist(400))
   const [chapterDeAiSkillId, setChapterDeAiSkillId] = useState<string | null | undefined>(undefined)
   /*
-   * 丁-2「文风写作」：章节区本次生成要临时用的文风预设 id。
+   * ── 丁-2「文风写作」状态已删除（用户要求）──
    *
-   * 三态与 `chapterDeAiSkillId` 完全同构：`undefined` = 没有覆盖（用项目启用项）、
-   * `null` = 本次不用文风、`string` = 这条预设。
+   * 这里原先有 `chapterWritingStyleId` / `setChapterWritingStyleId`，
+   * 由章节工具栏最右那枚 `WritingStylePicker`（`iconOnly`）写入，
+   * 再经下面的 `writingStyleIdOverride: chapterWritingStyleId` 传给
+   * 本次章节正文生成，语义是"这一次临时用某条文风"。用户在定稿截图里
+   * 明确要求「每个章节的上面不需要显示『文风』的图标，将『文风』的图标删除」。
    *
-   * ⚠️ **不落盘**（这一点**与**旁边的 `setLastChapterDeAiSkill` 先例不同）：
-   * 用户决定 2 要求项目设置不得被改，而写「上次用的文风」只能写进项目级的
-   * `.qmai/writing-style.json`（文风库与启用态就在那个文件里）。
-   * 那不但会让一次临时选择变成跨会话的持久状态（下次打开仍生效，
-   * 与「本次生成临时覆盖」的语义相反），也会让「生成过程有没有写项目设置」
-   * 这件事从"一眼可判"变成"要区分是哪个字段"。
-   * ⇒ 选择只活在内存里。若将来确实要记，应另建 UI 偏好存储，不要复用文风库文件。
+   * ⚠️ 删的是**这一处产出端**，不是整条文风能力：
+   *   · `WritingStylePicker` 组件本身仍在（文风库里照常可用）；
+   *   · `deep-chapter-generation.ts` 的 `writingStyleIdOverride` 入参仍在；
+   *   · 对话 / 写作助手那条路仍在产（`chat-panel.tsx` 的
+   *     `getWritingStyleIdOverride` → `run_chapter_workflow`）。
+   * 也就是说这个通道现在是"只有对话侧一个产出者"，而不是被拆掉。
    *
-   * ⚠️ **但「不落盘」不等于「跨项目留着」**：换项目时必须清空（见下面
-   * `[project?.path]` 那个 effect）。不然旧项目的 preset id 会在新项目里
-   * 静默把新项目启用的文风压掉。两件事互不替代，别用「反正不落盘」把重置省掉。
+   * 因此这里**不再传** `writingStyleIdOverride`。省掉这个键与
+   * `writingStyleIdOverride: undefined` **完全等价** ——
+   * `deep-chapter-generation.ts` 的判据是 `=== undefined` 表示"不覆盖"，
+   * `run-chapter-workflow.spec.ts` 也钉着"没有产出者时必须是 undefined"。
+   *
+   * ⚠️ 若将来要把它加回来：别只加 `useState` 和 JSX，还要一并恢复
+   * `[project?.path]` effect 里的清空（`setChapterWritingStyleId(undefined)`）。
+   * 那条不是可有可无的收尾 —— 文风是**项目级**资源，旧项目的 preset id
+   * 留在内存里换个项目就会静默把新项目启用的文风压掉，而这个选择器是
+   * `iconOnly`、正文里看不出任何变化。删除前的版本里那段推理写在
+   * `[project?.path]` 那个 effect 的注释里，git 历史可查。
    */
-  const [chapterWritingStyleId, setChapterWritingStyleId] = useState<string | null | undefined>(undefined)
   const [pendingSelectionForDeAi, setPendingSelectionForDeAi] = useState<ChapterBodySelection | null>(null)
   const [chapterTitleDraft, setChapterTitleDraft] = useState("")
   const [chapterTitleEditing, setChapterTitleEditing] = useState(false)
@@ -862,16 +872,14 @@ export function PreviewPanel() {
   useEffect(() => registerEditorExternalUpdateHandler(applyExternalChapterBody), [applyExternalChapterBody])
 
   /*
-   * 项目级选择的统一重置点：**换项目就清空**，与相邻的 DeAi Skill 选择同构。
+   * 项目级选择的统一重置点：**换项目就清空**。
    *
-   * ⚠️ 这两行解决的是**两个不同**问题，别把它们并成一句话：
-   * 1. `chapterDeAiSkillId`：旧项目的 Skill 选择不该作用在新项目上（既有行为）。
-   * 2. `chapterWritingStyleId`（丁-2）：文风是**项目级**资源（每条 preset 存在
-   *    `<project>/.qmai/writing-style.json` 里）。若选择跟着组件实例活过项目切换，
-   *    新项目里这个 id 多半不存在 ⇒ `resolveWritingStylePreset` 对未知 id 返回
-   *    `null` ⇒ 覆盖文本是 `""` ⇒ 反而把新项目**本来启用**的文风压掉，
-   *    而章节区选择器是 `iconOnly`、正文里看不出任何变化（**静默**失效）。
-   *    「不重置」并不能换来任何好处：用户没碰选择器，就不该有任何覆盖。
+   * 改造前这里清两项：`chapterDeAiSkillId` 与 `chapterWritingStyleId`（丁-2）。
+   * 后者随「文风写作」图标一起删除（用户要求，理由见上面
+   * `chapterWritingStyleId` 删除处的注释），现在只剩 DeAi Skill 一项。
+   *
+   * ⚠️ 这一行留着仍有意义：`chapterDeAiSkillId` 指向的是**项目级**的
+   * Skill 选择，旧项目的选择不该作用在新项目上。
    *
    * ⚠️ **可达性交代（别把它当成今天正在发生的 bug）**：实测当前 app shell 里
    * 换项目必然经过 `setProject(null)` —— 那是 `App.tsx` 的 `handleSwitchProject`
@@ -880,20 +888,14 @@ export function PreviewPanel() {
    * 而 `ui-test-shell.tsx` 的 `showShelf`（`!project && !showGlobalSettings`）
    * 会把整个工作区子树（含本组件）换成书架 ⇒ 本组件**本来就会卸载**，
    * 组件状态随之消失。
-   * 所以这两行在今天是**契约 + 防将来**：任何让 PreviewPanel 活过一次项目切换的
+   * 所以这一行在今天是**契约 + 防将来**：任何让 PreviewPanel 活过一次项目切换的
    * 改动（换成 key 复用、在工作区里加项目切换器、把工作区提到 shelf 之外……）
    * 都会立刻踩中上面那条静默链。行为用例
    * （`preview-panel.event-outline.spec.tsx` 的「丁-2 章节区文风选择与项目绑定」）
    * 在不卸载组件的前提下改 store 里的 project，直接钉住这个契约。
-   *
-   * 注意这两行**不等于**「不落盘」——那是另一条独立的约束（见下面
-   * `chapterWritingStyleId` 的声明注释），两条都要在。
-   * 也**不等于**「每次生成都重置」：依赖是 `[project?.path]`，
-   * 同一个项目内连续生成时这个 effect 不会再跑，选中的文风照常沿用。
    */
   useEffect(() => {
     setChapterDeAiSkillId(undefined)
-    setChapterWritingStyleId(undefined)
   }, [project?.path])
 
   useEffect(() => {
@@ -1325,10 +1327,82 @@ export function PreviewPanel() {
     }
     return label
   })()
+  /*
+   * ── 标题行徽章的判据：这一章的记忆快照是否存在 ──
+   *
+   * 用户口径：「以记忆为准：正式 = 已提取记忆」。
+   *
+   * 改造前徽章读的是文件里的 `chapter_status`，那是**另一个**概念：
+   * `handleSaveAsFinal` 只把 `chapter_status: final` 写盘，并按用户先前的要求
+   * **不**再顺带提取记忆（见那里的注释）。于是任何"标记为正式却从未提取"的章节
+   * 都会显示绿色「正式」，而侧栏同一行的绿点（快照存在）却是空的 ——
+   * 用户报的就是这个：第 6、15 章没有绿点却显示「正式」，第 19 章显示「草稿」。
+   *
+   * 现在徽章直接问「有没有快照」，并且与侧栏绿点调用**同一个**
+   * `resolveChapterDotNumbers` + `resolveChapterMemoryDotState`。
+   * 取号规则原先私有在 `knowledge-tree.tsx` 里，已搬到 `chapter-utils` 共享 ——
+   * 两处各算一遍正是这次不一致的来源。
+   *
+   * ⚠️ 只读盘、不写盘：不改动任何章节文件的 `chapter_status`。
+   * 「保存为正式章节」按钮的语义（标记定稿）也没变，变的只是徽章在说什么。
+   */
+  const [memorySnapshotNumbers, setMemorySnapshotNumbers] = useState<Set<number>>(() => new Set())
+  /*
+   * 提取完成后重读快照的**显式**信号。
+   *
+   * 为什么不能只依赖 `currentFinalChapterSave?.phase`：保存为正式章节时
+   * `syncChapterToCanonicalPath(..., { renameToCanonical: true })` 会把文件改名，
+   * `updatePhase` 记的 `filePath` 是改名后的 `targetPath`，于是
+   * `currentFinalChapterSave`（要求 `filePath === selectedFile`）变成 null，
+   * 依赖值始终不变 —— 提取成功、快照已落盘，徽章却停在「草稿」。
+   * 这条路正是用户报的 `-2` 文件那种重命名场景，所以必须用一个与路径无关的计数。
+   */
+  const [memorySnapshotVersion, setMemorySnapshotVersion] = useState(0)
+  useEffect(() => {
+    if (!project) {
+      setMemorySnapshotNumbers(new Set())
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const snapshotDir = `${normalizePath(project.path)}/.novel/snapshots`
+        const tree = await listDirectory(snapshotDir)
+        // 先解析出全部快照号（含大纲的负数），再只留章节的正数。
+        const numbers = chapterSnapshotNumbersFrom(chapterSnapshotNumbersFromFileNames(tree.map((file) => file.name)))
+        if (!cancelled) setMemorySnapshotNumbers(new Set(numbers))
+      } catch {
+        // 快照目录不存在（还没提取过任何章节）是正常状态，静默当作「一个都没有」。
+        if (!cancelled) setMemorySnapshotNumbers(new Set())
+      }
+    })()
+    return () => { cancelled = true }
+  }, [project, dataVersion, memorySnapshotVersion])
+
+  const chapterMemoryExtracted = useMemo(() => {
+    if (!selectedFile || !isChapterPath(selectedFile) || getFileCategory(selectedFile) !== "markdown") return false
+    const { chapterNumber: dotChapterNumber, fileChapterNumber } = resolveChapterDotNumbers({
+      content: fileContent,
+      filePath: selectedFile,
+    })
+    return resolveChapterMemoryDotState({
+      snapshotChapterNumbers: memorySnapshotNumbers,
+      chapterNumber: dotChapterNumber,
+      fileChapterNumber,
+      // 提取中不单独表达：快照还没落盘，此刻按「未提取」显示才是实话。
+      running: false,
+    }) === "done"
+  }, [fileContent, memorySnapshotNumbers, selectedFile])
+
   const chapterHeader = useMemo(() => {
     if (!selectedFile || !isChapterPath(selectedFile) || getFileCategory(selectedFile) !== "markdown") return null
-    return buildChapterEditorHeader(fileContent)
-  }, [fileContent, selectedFile])
+    /*
+     * 徽章与悬停提示都从这里出，所以只要把「记忆口径」交给它，
+     * 标题行的三处文案（status / statusLabel / statusBadge）自动一致 ——
+     * 不需要在 JSX 里各改一遍，也就不会出现"徽章说草稿、提示说正式章节"。
+     */
+    return buildChapterEditorHeader(fileContent, { memoryExtracted: chapterMemoryExtracted })
+  }, [chapterMemoryExtracted, fileContent, selectedFile])
   const draftMemoryHintEnabled = useWikiStore((s) => s.novelConfig.draftMemoryHintEnabled)
   const draftMemoryHintSeen = useWikiStore((s) => s.novelConfig.draftMemoryHintSeen)
   const inspirationHintEnabled = useWikiStore((s) => s.novelConfig.inspirationHintEnabled)
@@ -1665,15 +1739,6 @@ export function PreviewPanel() {
         llmConfig,
         aiWorkflowMode: state.aiWorkflowMode,
         planBlueprint,
-        /*
-         * 丁-2：章节区工具栏那枚「文风写作」选择器的值，**直接**传进本次生成。
-         *
-         * 这里没有走 `run_chapter_workflow` 那条 getter 链（对话/写作助手路径才走它）：
-         * 本章正文是章节区自己发起的，不经过 agent 回合、也拿不到 chat-panel 的闭包。
-         * 两条路都各传一次，缺一条就会变成"一半有用"的 bug ——
-         * 在章节区选了文风、又在章节区生成正文，恰恰是最符合用户原话的那条路。
-         */
-        writingStyleIdOverride: chapterWritingStyleId,
       },
       {
         // 结构化阶段进度（onFinalContent 只在阶段边界给完整文本，不是逐字流）。
@@ -1734,7 +1799,7 @@ export function PreviewPanel() {
        */
       settle()
     })
-  }, [bumpDataVersion, chapterWritingStyleId, flushChapterBeforeLeave, project?.path, rememberLoadedChapter, setFileContent, setFileTree])
+  }, [bumpDataVersion, flushChapterBeforeLeave, project?.path, rememberLoadedChapter, setFileContent, setFileTree])
 
   /** 取消正文生成：abort + 乐观退回待确认（传输忽略 abort 时那行也不会永远停在 writing）。 */
   const handleCancelChapterProse = useCallback((taskId: string) => {
@@ -2059,7 +2124,98 @@ export function PreviewPanel() {
     setChapterTitleEditing(false)
   }, [chapterDisplayTitle])
 
-  const handleSaveAsFinal = useCallback(async () => {
+  /**
+   * 章节记忆提取（落盘 `.novel/snapshots/NNN.snapshot.json`）—— **唯一**实现。
+   *
+   * 抽出来的理由：它有两个调用方，而两者的前置步骤不同：
+   *   · 「重新提取记忆」（章节已是 `chapter_status: final`）：直接提取；
+   *   · 「提取记忆」（章节还是草稿）：先把章节落成正式章节，紧接着提取。
+   * 原先两边各自抄一遍提取体；两次实现一旦分叉，标题行的「正式/草稿」徽章
+   * （判据是快照）就会时而亮、时而灭。
+   */
+  const runChapterIngest = useCallback(async ({
+    projectPath,
+    filePath,
+    chapterNumberOverride,
+    chapterTitle,
+    updatePhase,
+  }: {
+    projectPath: string
+    filePath: string
+    chapterNumberOverride?: number
+    chapterTitle: string
+    updatePhase: (saving: boolean, phase: FinalChapterSavePhase | null, params?: Record<string, string | number>) => void
+  }) => {
+    /*
+     * 「没配 LLM」这道预检原本在自动提取那条路上（已按用户要求删除）。
+     * 删掉路径不等于可以丢掉诊断：否则用户点了按钮只会看到笼统的
+     * 「快照生成失败」，不知道根源是压根没有可用的模型。
+     * 放进这个共用实现后，两条入口都能提前、明确地提示去配置 LLM。
+     */
+    {
+      const state = useWikiStore.getState()
+      const llmConfig = resolveNovelModel(state.llmConfig, state.novelConfig, "extract")
+      if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
+        updatePhase(false, "ingest_no_llm")
+        setIsSavingFinal(false)
+        return
+      }
+    }
+    setSaveStatus("")
+    const ingestAbortController = new AbortController()
+    const ingestTaskId = useImportProgressStore.getState().startTask({
+      projectPath: projectPath,
+      kind: "chapter",
+      total: 1,
+      currentTitle: String(chapterTitle),
+      message: "正在重新提取章节记忆",
+      abortController: ingestAbortController,
+    })
+    try {
+      const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
+      const result = await ingestChapter(projectPath, filePath, resolveReviewModel(), ingestAbortController.signal, chapterNumberOverride)
+      useImportProgressStore.getState().finishTask(ingestTaskId, result.snapshot ? "done" : "error", {
+        completed: result.snapshot ? 1 : 0,
+        total: 1,
+        currentTitle: "",
+        message: result.snapshot
+          ? `${chapterTitle} 提取完成`
+          : `${chapterTitle} 提取失败：${result.error ?? result.failReason ?? "未知错误"}`,
+        error: result.error,
+      })
+      if (result.snapshot) {
+        updatePhase(false, "ingested", { chapter: result.snapshot.chapterNumber })
+      } else if (result.failReason === "invalid_chapter_number") {
+        updatePhase(false, "ingest_no_chapter_number")
+      } else {
+        updatePhase(false, "ingest_failed")
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      useImportProgressStore.getState().finishTask(ingestTaskId, "error", {
+        completed: 0,
+        total: 1,
+        currentTitle: "",
+        message: `${chapterTitle} 提取失败：${message}`,
+        error: message,
+      })
+      updatePhase(false, "ingest_failed", { message: message.slice(0, 100) })
+    } finally {
+      setIsSavingFinal(false)
+      /*
+       * 无论成败都让徽章重读一次快照：
+       * 成功时它要从「草稿」翻成「正式」；失败时重读也无副作用
+       * （读的是一次目录列表），比"只在成功分支里加"更不容易漏。
+       */
+      setMemorySnapshotVersion((version) => version + 1)
+    }
+  }, [])
+
+  /**
+   * @param options.thenExtract 保存成功后**立即**提取记忆（「提取记忆」按钮在草稿章上走这条）。
+   *   不传 = 只标记定稿，不触发任何 LLM 调用（「保存为正式章节」菜单项走的仍是这条）。
+   */
+  const handleSaveAsFinal = useCallback(async (options?: { thenExtract?: boolean }) => {
     if (!project || !selectedFile || !chapterFrontmatter) return
 
     await syncDiskBeforeAction()
@@ -2104,14 +2260,29 @@ export function PreviewPanel() {
       setFileContent(syncResult.markdown)
 
       /*
-       * 保存为正式章节**不再**顺带提取记忆（用户要求）。
+       * 「保存为正式章节」本身**不**提取记忆（用户要求：同一份功能不留两个入口，
+       * 保留工具栏那个手动按钮即可）。
        *
-       * 原先此处按 `autoIngestOnSave` 开关自动跑一遍 ingestChapter，
-       * 而章节/大纲工具栏的「提取记忆」按钮（handleReingest）做的是同一件事 ——
-       * 同一份功能有两个入口，用户判定为重复，要求取消设置里那个开关，
-       * 并去掉这条自动行为（只保留手动按钮）。
-       * 因此这里只报告「已保存为正式章节」，是否提取由用户点按钮决定。
+       * ⚠️ 但「提取记忆」按钮在**草稿**章节上正是从这里进来的，它必须继续走到提取 ——
+       * 否则按钮的名字与行为对不上：点一次只把章节标成 final，标题行徽章
+       * （判据是快照）仍是「草稿」，用户会以为按钮坏了。
+       * 这正是「正式却无记忆」的历史成因：批量导入把 6–9、15 章写成 final，
+       * 而提取只跑到第 5 章就停了，于是它们永远停在"正式但无快照"。
+       *
+       * 所以按 `thenExtract` 分流：按钮带它、菜单项不带。
        */
+      if (options?.thenExtract) {
+        const updatedMeta = parseChapterMeta(parseFrontmatter(syncResult.markdown).frontmatter ?? {})
+        const updatedHeading = syncResult.markdown.match(/^#\s+(.+)$/m)?.[1]?.trim()
+        await runChapterIngest({
+          projectPath,
+          filePath: targetPath,
+          chapterNumberOverride: updatedMeta?.chapterNumber,
+          chapterTitle: updatedHeading || `第${updatedMeta?.chapterNumber ?? "?"}章`,
+          updatePhase,
+        })
+        return
+      }
       updatePhase(false, "saved")
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -2121,27 +2292,13 @@ export function PreviewPanel() {
     } finally {
       setIsSavingFinal(false)
     }
-  }, [chapterFrontmatter, project, selectedFile, setFileContent, setFinalChapterSave, syncChapterToCanonicalPath, syncDiskBeforeAction, reportUiTestSave])
+  }, [chapterFrontmatter, project, runChapterIngest, selectedFile, setFileContent, setFinalChapterSave, syncChapterToCanonicalPath, syncDiskBeforeAction, reportUiTestSave])
 
   const handleReingest = useCallback(async () => {
     if (!project || !selectedFile || !chapterFrontmatter) return
     if (!isFinalChapter(chapterFrontmatter)) {
       setSaveStatus(t("novel.chapter.reingestNotFinal"))
       return
-    }
-    /*
-     * 「没配 LLM」这道预检原本在自动提取那条路上（已按用户要求删除）。
-     * 删掉路径不等于可以丢掉诊断：否则用户点了按钮只会看到笼统的
-     * 「快照生成失败」，不知道根源是压根没有可用的模型。所以把它
-     * 移到手动按钮这里 —— 提前、明确地告诉他去配置 LLM。
-     */
-    {
-      const state = useWikiStore.getState()
-      const llmConfig = resolveNovelModel(state.llmConfig, state.novelConfig, "extract")
-      if (!hasUsableLlm(llmConfig, state.providerConfigs)) {
-        setFinalChapterSave({ projectPath: project.path, filePath: selectedFile, saving: false, phase: "ingest_no_llm" })
-        return
-      }
     }
     const projectPath = project.path
     const filePath = selectedFile
@@ -2151,50 +2308,23 @@ export function PreviewPanel() {
 
     setIsSavingFinal(true)
     updatePhase(true, "reingesting")
-    setSaveStatus("")
-    const chapterTitle = chapterFrontmatter?.title || `第${chapterFrontmatter?.chapterNumber || '?'}章`
-    const ingestAbortController = new AbortController()
-    const ingestTaskId = useImportProgressStore.getState().startTask({
-      projectPath: projectPath,
-      kind: "chapter",
-      total: 1,
-      currentTitle: String(chapterTitle),
-      message: "正在重新提取章节记忆",
-      abortController: ingestAbortController,
+    /*
+     * 提取体与「草稿章 → 提取」那条入口共用 `runChapterIngest`，
+     * 这里只负责「已经是正式章节」这个前置判断与阶段播报。
+     */
+    await runChapterIngest({
+      projectPath,
+      filePath,
+      chapterNumberOverride: chapterFrontmatter?.chapterNumber as number | undefined,
+      /*
+       * `String(...)` 不是多余的：`chapterFrontmatter` 是 `Record<string, unknown>`，
+       * `title` 是 `unknown`，直接 `||` 出来的类型会退化成 `{}` 而不是 string
+       * （原来是把它交给 `String(...)` 用的，抽成共用实现后才暴露出来）。
+       */
+      chapterTitle: String(chapterFrontmatter?.title || `第${chapterFrontmatter?.chapterNumber || '?'}章`),
+      updatePhase,
     })
-    try {
-      const { ingestChapter } = await import("@/lib/novel/chapter-ingest")
-      const result = await ingestChapter(projectPath, filePath, resolveReviewModel(), ingestAbortController.signal, chapterFrontmatter?.chapterNumber as number | undefined)
-      useImportProgressStore.getState().finishTask(ingestTaskId, result.snapshot ? "done" : "error", {
-        completed: result.snapshot ? 1 : 0,
-        total: 1,
-        currentTitle: "",
-        message: result.snapshot
-          ? `${chapterTitle} 提取完成`
-          : `${chapterTitle} 提取失败：${result.error ?? result.failReason ?? "未知错误"}`,
-        error: result.error,
-      })
-      if (result.snapshot) {
-        updatePhase(false, "ingested", { chapter: result.snapshot.chapterNumber })
-      } else if (result.failReason === "invalid_chapter_number") {
-        updatePhase(false, "ingest_no_chapter_number")
-      } else {
-        updatePhase(false, "ingest_failed")
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      useImportProgressStore.getState().finishTask(ingestTaskId, "error", {
-        completed: 0,
-        total: 1,
-        currentTitle: "",
-        message: `${chapterTitle} 提取失败：${message}`,
-        error: message,
-      })
-      updatePhase(false, "ingest_failed", { message: message.slice(0, 100) })
-    } finally {
-      setIsSavingFinal(false)
-    }
-  }, [chapterFrontmatter, project, selectedFile, setFinalChapterSave, t])
+  }, [chapterFrontmatter, project, runChapterIngest, selectedFile, setFinalChapterSave, t])
 
   const handleFormatWriting = useCallback(async () => {
     if (!selectedFile || !canFormatWriting) return
@@ -2764,7 +2894,9 @@ export function PreviewPanel() {
         if (uiTestParsed && uiTestHeading) handleSave(uiTestParsed.rawBlock + rebuildChapterBody(title, uiTestHeading.body), { immediate: true })
       }}
       statusLabel={isSelectedChapter ? chapterHeader?.statusLabel ?? "草稿" : isOutlineIngesting ? "正在提取记忆" : outlineIngested ? "已提取记忆" : "待提取记忆"}
-      wordCount={countChapterBodyWords(fileContent)}
+      statusBadge={isSelectedChapter && chapterHeader
+        ? { text: chapterHeader.statusBadge, isFinal: chapterHeader.status === "final" }
+        : null}
       saveState={uiTestSaveState}
       taskStatus={currentFinalChapterSave?.phase === "ingest_failed" && !alreadyFinal ? "正式章节保存未完成，请核对文件后重试。" : visibleSaveStatus}
       onRetrySave={() => {
@@ -2784,7 +2916,7 @@ export function PreviewPanel() {
           <button type="button" className="ui-test-editor-action is-icon-only" aria-label={chapterDeAiButtonLabel} title={`${chapterDeAiButtonLabel} · ${chapterDeAiButtonTitle}`} onClick={(event) => void openDeAiSkillPicker(null, event.currentTarget)} disabled={currentChapterDeAiProcessing || !extractDeAiChapterText(fileContent).trim()}>
             <Eraser aria-hidden="true" />
           </button>
-          <button type="button" className="ui-test-editor-action is-icon-only" data-draft-memory-target="" aria-label={isFinalChapterSaving ? "正在提取记忆…" : alreadyFinal ? "重新提取记忆" : "提取记忆"} title={isFinalChapterSaving ? "正在提取记忆…" : alreadyFinal ? "重新提取记忆" : "提取记忆"} onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal())} disabled={!canSaveAsFinal || isFinalChapterSaving}>
+          <button type="button" className="ui-test-editor-action is-icon-only" data-draft-memory-target="" aria-label={isFinalChapterSaving ? "正在提取记忆…" : chapterMemoryExtracted ? "重新提取记忆" : "提取记忆"} title={isFinalChapterSaving ? "正在提取记忆…" : chapterMemoryExtracted ? "重新提取记忆" : "提取记忆"} onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal({ thenExtract: true }))} disabled={!canSaveAsFinal || isFinalChapterSaving}>
             <Brain aria-hidden="true" />
           </button>
           <button type="button" className="ui-test-editor-action is-icon-only" aria-label="查看记忆" title="查看记忆" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
@@ -2804,29 +2936,19 @@ export function PreviewPanel() {
             Type 是字体设置、WandSparkles 是一键排版，三个动作必须在工具栏上
             一眼可分，不能复用。
 
+            ⚠️ 位置：**整排最右**（用户要求「将章节细纲移动到最右侧」）。
+            改造前它排在「字体设置」之后、「一键排版」之前，也就是夹在两组之间；
+            用户要求把它拎到最右，因此现在排在「一键排版」之后。
+
             `data-event-outline-target` 是**丙-4a 的锚点属性**，供
             `withAnchoredHint`（ui-test-editor.tsx）把灵感气泡挂在这枚按钮旁。
             ⚠️ 不能复用 `data-draft-memory-target`：那会让草稿提示的遍历
             同时命中两枚按钮、把两枚都包起来。
           */}
+          {canFormatWriting ? <button type="button" className="ui-test-editor-action is-icon-only" aria-label="一键排版" title="一键排版" onClick={() => void handleFormatWriting()}><WandSparkles aria-hidden="true" /></button> : null}
           <button type="button" className="ui-test-editor-action is-icon-only" data-event-outline-target="" aria-label="生成章节细纲" title="生成章节细纲" onClick={handleOpenEventOutlineWizard}>
             <Lightbulb aria-hidden="true" />
           </button>
-          {canFormatWriting ? <button type="button" className="ui-test-editor-action is-icon-only" aria-label="一键排版" title="一键排版" onClick={() => void handleFormatWriting()}><WandSparkles aria-hidden="true" /></button> : null}
-          {/*
-            丁-2「文风写作」：生成第 N 章正文时临时选一条文风，**只影响这一次**。
-            与旁边几枚按钮一样是图标态（toolbar 一行放不下文字），
-            选中项靠 title/aria-label 与浮层里的「当前」徽章表达。
-
-            ⚠️ 它只写 React 状态，不写 `.qmai/writing-style.json`：
-            项目级 `enabledStyleId` 一律不动（用户决定 2）。
-          */}
-          <WritingStylePicker
-            value={chapterWritingStyleId}
-            onChange={setChapterWritingStyleId}
-            iconOnly
-            showLibraryShortcut
-          />
         </>
       ) : (
         <>

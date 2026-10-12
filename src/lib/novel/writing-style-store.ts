@@ -14,6 +14,7 @@
  */
 import { createDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { joinPath, normalizePath } from "@/lib/path-utils"
+import { useWikiStore } from "@/stores/wiki-store"
 import { migrateStyleProfile } from "./book-analysis/style-profile-schema"
 import type { BookStyleProfile } from "./book-analysis/types"
 import { compileStyleFingerprint } from "./book-analysis/style-fingerprint"
@@ -91,9 +92,30 @@ export async function loadWritingStyleStore(projectPath: string): Promise<Writin
   }
 }
 
+/**
+ * 本文件**所有**写入的唯一漏斗（启用、新建预设、删除预设都经过这里）。
+ *
+ * ⚠️ 结尾那句 `bumpDataVersion()` 是**必需**的，不是顺手加的刷新。
+ *
+ * 起因是一个真实缺陷：用户在拆书库「拆出库」并启用一条新文风后，
+ * 写作区那个「文风」按钮仍然显示旧状态（「未启用」/ 上一条文风），
+ * 文风库卡片的「当前启用」徽章同理。原因是读的那一侧全部只在
+ * `dataVersion` 变化时重读 —— `use-writing-style-options.ts` 的依赖是
+ * `[dataVersion, projectPath, selectedSkillId]`，`SkillGallery` 的依赖是
+ * `[dataVersion, project?.path]` —— 而写入这边只落盘、从不通知。
+ * 于是「已启用」这个事实要等到别处偶然碰了 `dataVersion` 才被看见。
+ *
+ * 放在漏斗里而不是每个调用点各加一次：调用点有 6 处（拆书库工作台、结果页、
+ * 作品库操作钩子各若干），今天补全了，明天新增第 7 个入口照样会漏。
+ * 而 `project-refresh.ts` 已经是「lib 里 import useWikiStore 并 bump」的先例，
+ * 所以这不是给本文件引入新的架构方向。
+ *
+ * 写在 `await writeFileAtomic` **之后**：写失败时不该让界面以为状态变了。
+ */
 async function saveWritingStyleStore(projectPath: string, store: WritingStyleStore): Promise<void> {
   await createDirectory(`${normalizePath(projectPath)}/.qmai`)
   await writeFileAtomic(storePath(projectPath), JSON.stringify(store, null, 2))
+  useWikiStore.getState().bumpDataVersion()
 }
 
 /**

@@ -34,7 +34,15 @@ describe("草稿提取记忆提示", () => {
 
   it("正式章节、非章节、已关闭和提取中都不显示", () => {
     expect(hint({ status: "final" })).toBe(false)
-    expect(hint({ status: "revised" })).toBe(false)
+    /*
+     * 这一条改造前是 `status: "revised"`，用来证明"不是草稿就不提示"。
+     * 状态类型收窄成 `draft | final` 之后 `revised` 已不可达
+     * （磁盘上的老值在读盘时就被 normalizeChapterStatus 归成 draft），
+     * 所以改钉 **`null`**：它表示"状态还没解析出来"（列表尚未加载完），
+     * 与 `revised` 同属"不是 draft"这一侧，而且**今天仍可达** ——
+     * 这是原断言真正要守的那条边界（拿不准就别弹提示，而不是弹了再说）。
+     */
+    expect(hint({ status: null })).toBe(false)
     expect(hint({ isChapter: false })).toBe(false)
     expect(hint({ dismissed: true })).toBe(false)
     expect(hint({ extracting: true })).toBe(false)

@@ -72,13 +72,29 @@ describe("拆书库 reasoning 覆盖项透传守卫", () => {
  * 最初那轮迁移只扫了 src/lib/novel/book-analysis/，所以被漏掉了。
  * 其中 use-character-extraction 的两处原本把 onError 吞成 console.error，
  * 思考-only 时返回空串 -> 上层写成 personality 为空的坏画像并落盘。
+ *
+ * ⚠️ 这张表的解析基准是 **src/**（`resolve(__dirname, "../../..", file)`），
+ * 与上面 `ANALYSIS_FILES`（裸文件名、基准是 `book-analysis/`）**不同**。
+ * 跨目录的文件必须加进这一张：加进 `ANALYSIS_FILES` 会因路径不存在而
+ * **ENOENT 报错**——表现为「测试报错」而不是「断言失败」，很容易被误读成守卫生效。
  */
 const ANALYSIS_COMPONENT_FILES = [
   "components/novel/hooks/use-character-extraction.ts",
   "components/novel/book-analysis-view.tsx",
+  /*
+   * 文风自进化。这两个文件的分工是：引擎（engine）只收**注入**的 callModel，
+   * 自己不碰网络——它的测试因此能完全离线；接线层（runner）才是真正把
+   * callModel 接到 `callAnalysisModelText` 上的那一处。
+   *
+   * 两个都列进来是当**回归绊线**：将来若有人图省事在任一处改成直接调 streamChat，
+   * 「模型只输出思考、没有输出正文」这条流就会绕过 callAnalysisModelText 的
+   * 关思考重试——而这正是当初给整条拆书链路加这道守卫的原因。
+   */
+  "lib/novel/style-evolution-engine.ts",
+  "lib/novel/style-evolution-runner.ts",
 ]
 
-describe("拆书库调用守卫（src/components 部分）", () => {
+describe("拆书库调用守卫（book-analysis 目录之外的部分）", () => {
   for (const file of ANALYSIS_COMPONENT_FILES) {
     it(`${file} 不再直接调用 streamChat`, () => {
       // 本 spec 位于 src/lib/novel/book-analysis/，所以要先退到 src/ 再拼路径。

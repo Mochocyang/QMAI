@@ -32,7 +32,14 @@ def find_main_window():
 
 def capture_window(hwnd, save_path):
     win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-    win32gui.SetForegroundWindow(hwnd)
+    # SetForegroundWindow 在 Windows 前台锁定策略下会抛
+    # `pywintypes.error: (0, 'SetForegroundWindow', ...)`（没有错误消息）。
+    # 那**不影响**截图：PrintWindow 按窗口句柄取像素，不要求窗口在前台。
+    # 所以这里吞掉异常继续 —— 否则一次无关的前台竞争会让整次验证拿不到截图。
+    try:
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception as exc:
+        print(f'SetForegroundWindow failed (ignored): {exc}')
     time.sleep(1.5)
 
     rect = win32gui.GetWindowRect(hwnd)

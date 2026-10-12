@@ -42,7 +42,21 @@ interface UiTestEditorProps {
   title: string
   onTitleCommit: (title: string) => void | Promise<void>
   statusLabel: string
-  wordCount: number
+  /**
+   * 章节状态徽章（直角实心，**恰好两个字**：正式 / 草稿）。
+   *
+   * ⚠️ 与 `statusLabel` 是**两件事**，不能合并：
+   *   · `statusLabel` 是长文案（「正式章节」/「草稿」），这里当徽章的
+   *     `title` 提示用 —— 两个字放不下完整语义，悬停时要能看全；
+   *   · 徽章只承载"是正式还是草稿"这一个比特，靠底色区分。
+   * 用户口径：「用正方形的 90° 直角」「里面就两个字」「徽章尺寸12加粗」。
+   *
+   * ⚠️ 组件本身**不查表**：徽章文案由调用方（preview-panel 经
+   * chapter-editor-header）算好传进来 —— 这个组件的定位是
+   * 「只承载测试版展示和交互」，不该自己去读 i18n 或 frontmatter。
+   * 不传（如大纲）就不渲染徽章。
+   */
+  statusBadge?: { text: string; isFinal: boolean } | null
   actions: ReactNode
   documentDetails?: ReactNode
   auxiliaryPanel?: ReactNode
@@ -128,7 +142,7 @@ const SAVE_LABELS: Partial<Record<UiTestEditorSaveState["phase"], string>> = {
 
 /** 只承载测试版展示和交互；读写、生成、快照仍由 PreviewPanel 原处理器负责。 */
 export function UiTestEditor({
-  kind, path, title, onTitleCommit, statusLabel, wordCount,
+  kind, path, title, onTitleCommit, statusLabel, statusBadge,
   actions, documentDetails, auxiliaryPanel, moreActions, saveState, taskStatus, onRetrySave, onClose, scrollRef, draftMemoryHint, inspirationHint, children,
 }: UiTestEditorProps) {
   const [mode, setMode] = useState<"read" | "edit">("edit")
@@ -139,7 +153,6 @@ export function UiTestEditor({
   const [auxiliaryMounted] = useState(false)
   const titleRef = useRef<HTMLTextAreaElement>(null)
   const cancelTitleRef = useRef(false)
-  const wordCountLabel = `${wordCount.toLocaleString("zh-CN")} 字`
   const currentSaveState = saveState?.path === path ? saveState : null
   const saveLabel = currentSaveState && currentSaveState.phase !== "loaded" && currentSaveState.phase !== "saved"
     ? SAVE_LABELS[currentSaveState.phase]
@@ -173,6 +186,25 @@ export function UiTestEditor({
       <article className="ui-test-editor-document" aria-label={kind === "chapter" ? "章节编辑器" : "大纲编辑器"}>
         <header className="ui-test-editor-header">
           <div className="ui-test-editor-title-row">
+            {/*
+              状态徽章放在标题**前面**（用户要求：「在章节标题的前面加上图标样式，
+              用图标来区分章节状态」）。
+              直角实心药丸、恰好两个字、12px 加粗 —— 见 ui-test-editor.css 的
+              `.ui-test-editor-badge`。
+
+              `title`/`aria-label` 刻意用长文案 `statusLabel`（「正式章节」/「草稿」）：
+              徽章里只有两个字，鼠标悬停与读屏时要能把话说全。
+            */}
+            {kind === "chapter" && statusBadge ? (
+              <span
+                className={`ui-test-editor-badge${statusBadge.isFinal ? " is-final" : ""}`}
+                data-chapter-status={statusBadge.isFinal ? "final" : "draft"}
+                title={statusLabel}
+                aria-label={statusLabel}
+              >
+                {statusBadge.text}
+              </span>
+            ) : null}
             {editingTitle ? (
               <textarea
                 ref={titleRef}
@@ -217,12 +249,6 @@ export function UiTestEditor({
                 }}>{title}</button>
               </h1>
             )}
-            {kind === "chapter" ? (
-              <div className="ui-test-editor-meta">
-                <span className={`ui-test-editor-status${statusLabel === "正式章节" ? " is-final" : ""}`}>{statusLabel}</span>
-                <span>{wordCountLabel}</span>
-              </div>
-            ) : null}
           </div>
           <div className="ui-test-editor-toolbar" role="group" aria-label="文档操作">
             {withAnchoredHint(actions, [

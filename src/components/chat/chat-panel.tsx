@@ -3344,11 +3344,18 @@ export function ChatPanel() {
                           aria-haspopup="listbox"
                           aria-expanded={workflowModeDropdownOpen}
                           aria-label={aiSessionWorkflowModeLabel}
-                          className="h-8 shrink-0 border-0 bg-transparent px-2 text-xs shadow-none"
+                          className="h-8 shrink-0 border-0 bg-transparent px-1.5 text-xs shadow-none"
                           onClick={() => setWorkflowModeDropdownOpen(!workflowModeDropdownOpen)}
                         >
-                          <span className="mr-1">{aiWorkflowModeOptions.find((option) => option.mode === aiWorkflowMode)?.label ?? "标准"}</span>
-                          <ChevronDown className={`h-3.5 w-3.5 opacity-50 transition-transform ${workflowModeDropdownOpen ? "rotate-180" : ""}`} />
+                          {/*
+                            只有文字，**没有下拉箭头**（用户要求：不需要下拉图标）。
+                            它仍是 `aria-haspopup="listbox"` + `aria-expanded` 的按钮，
+                            所以「点开有列表」这件事对读屏与自动化仍然成立 ——
+                            去掉的只是一个视觉提示，不是这个控件的语义。
+                            ⚠️ 别再给它加回 `ChevronDown`：`role="option"` 的列表
+                            仍然存在（下面那个 portal），箭头只是被用户明确点名删掉。
+                          */}
+                          <span>{aiWorkflowModeOptions.find((option) => option.mode === aiWorkflowMode)?.label ?? "标准"}</span>
                         </Button>
                         {workflowModeDropdownOpen && workflowModeDropdownStyle && createPortal(
                           <>
@@ -3365,11 +3372,51 @@ export function ChatPanel() {
                           document.body,
                         )}
                       </div>
+                      {/*
+                        计划开关：常态只留图标，悬停显示「计划」两个字
+                        （与「文风写作」同一处理，用户要求）。
+
+                        ⚠️ 与「文风写作」那个按钮的处理**刻意不同**：
+                        文风按钮是纯图标、无描边无底色；计划按钮保留
+                        「开启时填充 primary」的激活态 —— 它是一个**开关**，
+                        去掉颜色就看不出当前是开还是关。所以只去掉文字与横向内边距，
+                        收成方正的小方块（`p-0` + 固定宽高；原来的 `px-2` 是给
+                        「图标 + 文字」留的，留着会让图标看起来偏左）。
+
+                        尺寸是 `h-7 w-7`（28px），不是 32px：用户反馈图标之间隔得太远。
+                        28px 与同一行里本来就是 28px 的「上下文用量」圆环和 @ 按钮统一，
+                        配合左组 `gap-0.5`（见 ReferenceInput.tsx）把墨迹间距从约 25px
+                        收到约 16px。大纲面板的同名按钮用同一组数值，两边必须一致。
+
+                        三个悬停/无障碍出口各司其职，缺一不可：
+                        · `title="计划"` —— 常态悬停就显示这两个字（用户明确要求）；
+                        · `aria-label` —— 随「开启 / 关闭 / 模式不支持」三态变化。
+                          它**不能**跟着 `title` 一起退化成一个光秃秃的「计划」：
+                          图标按钮没有可见文字，读屏用户唯一的动作线索就是这里，
+                          而开关必须说清「点了会怎样」。
+                        · `TooltipContent` —— 第一行是「计划」（与 title 一致），
+                          第二行随状态给出解释。
+                        ⚠️ 别把三者合并：它们分别服务「看清楚是什么」「知道点了会怎样」
+                        「了解当前是什么状态」。
+
+                        ⚠️ 上面 `{false && novelMode && ...}` 那块里有一个同名按钮，
+                        它是**死代码、从不渲染**，不要再去改它（本轮已踩过一次，
+                        改了没有任何效果，还会让回归测试定位到错误的元素）。
+                      */}
                       <Tooltip>
-                        <TooltipTrigger render={<Button type="button" variant="ghost" size="sm" aria-pressed={planExecuteEnabled && aiWorkflowMode !== "fast"} disabled={aiWorkflowMode === "fast"} className={`h-8 shrink-0 border-0 bg-transparent px-2 text-xs shadow-none ${planExecuteEnabled && aiWorkflowMode !== "fast" ? "text-primary" : "text-muted-foreground"} disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => setPlanExecuteEnabled(!planExecuteEnabled)} title={aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"} aria-label={aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"} />}>
-                          <ListChecks className="mr-1 h-3.5 w-3.5" />计划
+                        <TooltipTrigger render={<Button type="button" variant="ghost" size="sm" aria-pressed={planExecuteEnabled && aiWorkflowMode !== "fast"} disabled={aiWorkflowMode === "fast"} className={`h-7 w-7 shrink-0 border-0 bg-transparent p-0 shadow-none ${planExecuteEnabled && aiWorkflowMode !== "fast" ? "text-primary" : "text-muted-foreground"} disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => setPlanExecuteEnabled(!planExecuteEnabled)} title="计划" aria-label={aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"} />}>
+                          <ListChecks className="h-3.5 w-3.5" />
                         </TooltipTrigger>
-                        <TooltipContent side="top" className="max-w-xs leading-5">{aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式。" : "开启后，本次写作会先创建计划，等待确认后再执行；可与标准、严格模式组合使用。"}</TooltipContent>
+                        <TooltipContent side="top" className="max-w-xs leading-5">
+                          <div className="font-medium">计划</div>
+                          <div className="mt-0.5 text-muted-foreground">
+                            {aiWorkflowMode === "fast"
+                              ? "快速模式下不支持计划，请切换到标准或严格模式。"
+                              : planExecuteEnabled
+                                ? "已开启：本次写作会先创建计划，等待确认后再执行。"
+                                : "开启后，本次写作会先创建计划，等待确认后再执行；可与标准、严格模式组合使用。"}
+                          </div>
+                        </TooltipContent>
                       </Tooltip>
                       {/*
                         丁-2「文风写作」：本轮章节生成临时选一条文风。
@@ -3377,10 +3424,15 @@ export function ChatPanel() {
                         `getWritingStyleIdOverride` 交给 useAgentConfig → tools →
                         run_chapter_workflow → DeepChapterGenerationInput.writingStyleIdOverride。
                         只影响这一次生成，项目级 enabledStyleId 不动（用户决定 2）。
+
+                        ⚠️ `iconOnly`：常态只留一个图标，把「文风写作：…」那段文字
+                        收进悬停提示（用户要求收窄工具栏）。当前生效的是哪一条
+                        从悬停提示里看（「文风：甲书 · 文风」），浮层里另有「当前」徽章。
                       */}
                       <WritingStylePicker
                         value={sessionWritingStyleId}
                         onChange={setSessionWritingStyleId}
+                        iconOnly
                         showLibraryShortcut
                       />
                     </>

@@ -16,6 +16,26 @@ export const FULL_WINDOW_VIEWS = [
   "writingSkillLibrary",
   "writingStyleLibrary",
   "characterSoulLibrary",
+  /*
+   * ⚠️ `personaSkillLibrary`（「人物 Skill」）是**补进来的**，不是一开始就有。
+   *
+   * 它就是用户报的那个缺陷：技能库六个 tab 里，另外五个都在本清单中，
+   * 只有「人物 Skill」漏了 —— 于是 `hasDirectory` 判真，切到该 tab 时
+   * 左侧会冒出一条**章节列表**，而其余 tab 都是整窗、没有目录栏。
+   * 用户要求「点击『人物 Skill』时没有任何作用」，即与其余 tab 一致。
+   *
+   * 为什么容易漏：它是**唯一**会改写 `activeView` 的技能库 tab（见
+   * `unified-skill-library-view.tsx` 的 `skillLibraryTabs` 与
+   * `unified-skill-library-view.spec.tsx`「切到『人物 Skill』tab：写 activeView」）；
+   * 其余 tab 只是组件内部 `activeTab` 状态，`activeView` 不变，
+   * 所以它们只在**新 view 名**这一条路径上暴露 —— 而同一张清单里
+   * 已经漏过它一次（`content-area.tsx` 曾为它多贴一整份不可达代码，
+   * 详见 `content-area.routing.spec.tsx` 的说明）。
+   *
+   * 因此 `full-window-views.spec.ts` 里有一条**专门的**用例钉它，
+   * 且该用例的候选清单必须包含它 —— 否则「漏项检查」那条自己也会漏。
+   */
+  "personaSkillLibrary",
   "skillFavorites",
   "soul",
   "bookAnalysis",

@@ -186,9 +186,22 @@ export function WritingStylePicker({
     defaultSkillId,
     loadError,
   } = useWritingStyleOptions({ projectPath: project?.path, selectedSkillId: value })
-  const triggerTitle = `当前文风写作：${effectiveName}`
-  const iconTriggerDescription = `${triggerTitle}。点击选择本次使用的文风`
-  const triggerLabel = buttonLabel ?? (effectiveName === "未启用" ? "文风写作" : `文风写作：${effectiveName}`)
+  /*
+   * ── 触发按钮的文案（用户要求收窄）──
+   *
+   * 改造前常态写着「文风写作：甲书 · 文风」四个字起步，把工具栏挤得很宽。
+   * 现在常态只留一个图标，文字全部退到悬停提示里：
+   *   · 没有任何文风生效 → 「文风」（两个字的入口名）
+   *   · 有文风生效       → 「文风：甲书 · 文风」
+   *
+   * ⚠️ 悬停时为什么还要带上名称：只留图标之后，「点了哪个 / 现在生效的是哪个」
+   * 在界面上就没有别的落点了（这是用户报的第二项）。浮层里的「当前」徽章
+   * 只有打开时才看得到，所以悬停这一句是收起状态下的唯一出口。
+   *
+   * ⚠️ `buttonLabel` 仍然优先：调用方可以完全接管文案（现在的调用方都不传）。
+   */
+  const triggerTitle = effectiveName === "未启用" ? "文风" : `文风：${effectiveName}`
+  const triggerLabel = buttonLabel ?? `文风写作：${effectiveName}`
 
   useEffect(() => {
     if (!open) return
@@ -217,11 +230,29 @@ export function WritingStylePicker({
           }
           setOpen((next) => !next)
         }}
+        /*
+         * `iconOnly` 形态：`h-7 w-7`（28px），不是 32px。
+         *
+         * 用户反馈「两个图标之间相隔的距离都太大了」。间距 = 容器 gap + 两侧按钮的
+         * 内边距之和；只收 gap 不够，还得把方框收到 28px（16px 图标 → 每侧 6px）。
+         * 28px 与同一行里本来就是 28px 的「上下文用量」圆环、@ 按钮统一，
+         * 配合左组 `gap-0.5`（见 ReferenceInput.tsx）把墨迹间距从约 25px 收到约 16px。
+         *
+         * ⚠️ 只有 `iconOnly` 变；带文字的形态仍是 `h-8`（要装 12px 文字，28px 会挤），
+         * 它在写作区已经不使用了，但别顺手改掉。
+         */
         className={iconOnly
-          ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          ? "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
           : "flex h-8 items-center gap-1 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"}
-        title={iconOnly ? iconTriggerDescription : triggerTitle}
-        aria-label={iconOnly ? iconTriggerDescription : triggerTitle}
+        /*
+         * ⚠️ `title` 与 `aria-label` 现在是**同一句**（`triggerTitle`），
+         * 不再给图标形态拼「。点击选择本次使用的文风」那半句：
+         * 悬停提示要的就是「文风」/「文风：名称」这么短，
+         * 拼长句等于把刚收窄的文案又放回去。
+         * 「可点击」这件事由按钮本身（`<button>`）承载，不需要写进提示里。
+         */
+        title={triggerTitle}
+        aria-label={triggerTitle}
       >
         <Feather className="h-4 w-4" />
         {iconOnly ? null : (

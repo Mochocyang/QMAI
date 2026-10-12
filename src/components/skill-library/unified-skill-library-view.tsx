@@ -29,12 +29,13 @@ import {
   type UserSkillConfig,
 } from "@/lib/novel/user-skill-store"
 import { SKILL_KIND_LABELS, skillDisplayName, type SkillKind, type UserSkill } from "@/lib/novel/skill-library"
-import { loadWritingStyleStore, type WritingStylePreset } from "@/lib/novel/writing-style-store"
+import { loadWritingStyleStore, setEnabledWritingStyle, type WritingStylePreset } from "@/lib/novel/writing-style-store"
 import { getCharacterAuraBindings, listCharacterAuras, type CharacterAura, type CharacterAuraBinding } from "@/lib/novel/character-aura"
 import { SkillLibraryView } from "./skill-library-view"
 import { WritingSkillLibraryView } from "./writing-skill-library-view"
 import { FavoriteListView } from "./favorite-list-view"
 import { PersonaSkillView } from "./persona-skill-view"
+import { StyleEvolutionPanel } from "./style-evolution-panel"
 
 /**
  * 技能库 tab 的**唯一事实来源**：视图名 + 文案。
@@ -324,8 +325,15 @@ const ENTRY_TYPE_LABELS: Record<UnifiedSkillEntry["type"], string> = {
 
 /**
  * 条目能力表。显式映射：新类型不会静默继承别的类型的能力。
- * 文风条目全部为 false——选中它**不写任何文件**，尤其不写
- * `.qmai/writing-style.json` 的 `enabledStyleId`（用户决定 2：项目设置不得被改）。
+ *
+ * 文风条目三个布尔**全部为 false**，且这是**有意**保留的（用户要求下，
+ * 点击文风卡片会真的启用该文风并写 `.qmai/writing-style.json`）：
+ *   · `toggleable: false` → 卡片上**不出现勾选框**。启用动作由整张卡片的
+ *     点击承载（`onSelect` → `handleToggleStyleEnabled`）；
+ *   · `openable: false` → 不出现「编辑」入口（文风条目本批只读，没有编辑器）；
+ *   · `favoritable: false` → 不出现收藏星。
+ * 也就是说：**「点击即启用」不等于「卡片上多一个控件」**，卡片内仍然
+ * 一个 `input`/`button` 都没有 —— 这条不变量由 spec 逐张卡片钉着。
  *
  * 角色灵魂条目同样全部为 false，且理由比文风更强：
  * 「启用一条灵魂」在这个架构里根本没有意义 —— 灵魂是否进上下文只由
@@ -353,7 +361,13 @@ const ENTRY_CAPABILITIES: Record<UnifiedSkillEntry["type"], {
 const ENTRY_TOGGLE_LABELS: Record<UnifiedSkillEntry["type"], string> = {
   writing: "参与 AI 会话",
   "de-ai": "显示在调用入口",
-  style: "只读引用",
+  /*
+   * ⚠️ `style` / `soul` 两条**不可达**（`toggleable: false`，勾选框不渲染）。
+   * 文风那条的值改成了「启用该文风」：旧值「只读引用」在点击即启用之后
+   * 已经是假的（启用会写 `.qmai/writing-style.json`），留着一句和代码相反的
+   * 文案，比留空更容易误导下一个读它的人。
+   */
+  style: "启用该文风",
   soul: "只读引用",
 }
 
@@ -798,7 +812,18 @@ function SkillCard({
             {ENTRY_TOGGLE_LABELS[entry.type]}
           </label>
         ) : (
-          <span className="ui-test-skill-toggle">{selected ? "已选中" : "点击选中"}</span>
+          /*
+           * 文风条目的页脚文案必须与**新语义**一致：点击真的会启用，
+           * 所以写「点击启用 / 已启用」，不再写「点击选中 / 已选中」——
+           * 那个说法既是空头承诺（改造前点了不生效、离开就丢），
+           * 又会与卡片徽章「当前启用」互相矛盾。
+           *
+           * ⚠️ 灵魂条目仍写「点击选中」：`toggleable: false` 对两者都成立，
+           * 但灵魂的点击确实是 no-op（没有全局启用态），文案别一起改。
+           */
+          <span className="ui-test-skill-toggle">
+            {entry.type === "style" ? (selected ? "已启用" : "点击启用") : "点击选中"}
+          </span>
         )}
         {capabilities.openable ? <span className="ui-test-skill-card-open">编辑</span> : null}
       </footer>
@@ -935,7 +960,21 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
   const [styleStore, setStyleStore] = useState<WritingStyleStore | null>(null)
   const [soulAuras, setSoulAuras] = useState<CharacterAura[] | null>(null)
   const [soulBindings, setSoulBindings] = useState<CharacterAuraBinding[]>([])
-  const [selectedStyleId, setSelectedStyleId] = useState<string | null>(null)
+  /*
+   * ⚠️ 这里原先有一个 `selectedStyleId` 本地状态，**已删除**。
+   *
+   * 它只被三行用到（声明、卡片的 `selected`、`onSelect` 里 setState），
+   * 不写盘、不通知任何父组件、初始值恒为 `null` —— 于是：
+   *   · 点一张卡片只让那张卡片自己把「点击选中」改成「已选中」；
+   *   · 一旦离开这个视图（切到别处再切回来）组件卸载，`useState` 归零，
+   *     又变回「点击选中」（用户报的第三项）；
+   *   · 写作区那个「文风」选择器完全不知道你选了什么（用户报的第二项）。
+   * 而且它与卡片徽章「当前启用」互相矛盾：徽章读盘上的 `enabledStyleId`，
+   * 页脚读这个内存变量 —— 一条真的启用了的文风，页脚仍写着「点击选中」。
+   *
+   * 现在选中态**直接读盘**（`styleStore.enabledStyleId`），点击即启用/取消启用，
+   * 所以「切走再回来」与「重启软件」都保持，且与徽章不可能再互相矛盾。
+   */
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState<UnifiedSkillCategory>("all")
   const [loadError, setLoadError] = useState("")
@@ -1143,16 +1182,51 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     await persistWritingConfig(deleteSkillCategory(writingConfig, categoryId))
   }
 
+  /**
+   * 文风条目的点击动作：**切项目级启用态**（再点一次取消）。
+   *
+   * 为什么不复用下面的 `handleToggleEnabled`：那个函数收的是 `enabled: boolean`，
+   * 由勾选框的 change 事件给值。文风卡片按设计**没有勾选框**
+   * （`ENTRY_CAPABILITIES.style.toggleable === false`，卡片内零 input/button，
+   * 由 `unified-skill-library-view.spec.tsx` 逐张钉住），所以「当前是否已启用」
+   * 只能自己从 `styleStore.enabledStyleId` 读出来，不能等事件送进来。
+   *
+   * ⚠️ 用 `setEnabledWritingStyle` 而不是手写 JSON：它会在预设不存在时
+   * 把 `enabledStyleId` 归 null（见 `writing-style-store.ts:148`），
+   * 且写入后统一 `bumpDataVersion()`。绕过它手写就绕过了这两条。
+   */
+  async function handleToggleStyleEnabled(entry: WritingStyleEntry) {
+    const path = project?.path
+    if (!path || busy) return
+    setBusy(true)
+    try {
+      const enabledNow = styleStore?.enabledStyleId === entry.sourceId
+      const next = await setEnabledWritingStyle(path, enabledNow ? null : entry.sourceId)
+      setStyleStore(next)
+    } catch {
+      setLoadError("保存失败")
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function handleToggleEnabled(entry: UnifiedSkillEntry, enabled: boolean) {
     if (!project || busy) return
     setBusy(true)
     try {
       /*
        * 按类型**显式**分派，不用 `if (writing) … else …`：
-       * 那个 else 会把**任何新类型**（文风）静默当成去AI味，进而去写
+       * 那个 else 会把**任何新类型**静默当成去AI味，进而去写
        * `de-ai-skills.json`——**写错另一个库的文件**，本文件里后果最重的一条路。
-       * 文风条目是显式 no-op —— 技能库的选中/切换动作**不得**去写
-       * `.qmai/writing-style.json` 的 `enabledStyleId`（用户决定 2：项目设置不得被改）。
+       *
+       * ⚠️ `case "style"` 是**有意**的 no-op，但理由与改造前不同，别读错：
+       * 文风的启用**确实**会写 `.qmai/writing-style.json`，只是它不走这里 ——
+       * 文风卡片没有勾选框，启用动作在 `handleToggleStyleEnabled` 里
+       * （由卡片点击触发，见 `SkillCard` 的 `onSelect`）。
+       * 这里保持 no-op 是因为：**万一**将来有人给文风打开 `toggleable`，
+       * 这个函数拿到的 `enabled` 会把它送进某个具体 library 的写入分支；
+       * 让文风在这一层落空，比让它悄悄写错库安全。真正的启用只该有
+       * `handleToggleStyleEnabled` 一条路。
        *
        * 这个 switch 有**两道**编译保护，别只看到一道：
        *  (a) 加新条目类型而没补 case ⇒ `default` 里的 `entry` 不是 `never`，报错；
@@ -1179,6 +1253,9 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
           break
         }
         case "style":
+          /*
+           * 见上方注释：文风的启用走 `handleToggleStyleEnabled`，不在这里。
+           */
           break
         case "soul":
           /*
@@ -1282,13 +1359,30 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
                 entry={entry}
                 enabled={entryEnabled(entry, { styleStore, deAiConfig, writingConfig })}
                 favorited={favoriteKey !== null && favoritedKeys.has(favoriteKey)}
-                selected={entry.type === "style" && selectedStyleId === entry.sourceId}
+                selected={entry.type === "style" && styleStore?.enabledStyleId === entry.sourceId}
                 badge={entryExtraBadge(entry, writingConfig, soulBindings)}
                 busy={busy}
                 onOpen={() => onOpen(entry)}
                 onSelect={() => {
-                  // 文风条目是引用：选中只改本组件的本地状态，**不落盘、不写项目设置**。
-                  if (entry.type === "style") setSelectedStyleId(entry.sourceId)
+                  /*
+                   * 文风条目：点击 = 启用这条文风（再点一次 = 取消启用）。
+                   *
+                   * 这不是「选中一个装饰性状态」—— 它写 `.qmai/writing-style.json`
+                   * 的 `enabledStyleId`，即**项目级**启用态，生成时会真的按它注入文风。
+                   * 因此它与拆书库那个「启用 / 取消启用」按钮是同一件事，
+                   * 只是入口更近。
+                   *
+                   * ⚠️ 这推翻了本文件原先「文风条目选中不写任何文件（用户决定 2）」
+                   * 那条约束：用户在文风库里点选时**期望**它生效并保持，
+                   * 而不是只亮一个离开就消失的高亮。注意写盘函数是
+                   * `setEnabledWritingStyle`（`writing-style-store` 的公开写入器），
+                   * 它内部走 `saveWritingStyleStore`，会顺带 `bumpDataVersion()`
+                   * 通知所有读者刷新 —— 写作区那个「文风」按钮就是靠这一步更新。
+                   *
+                   * ⚠️ 与「文风写作」选择器**不同**：那个选择器只影响本次生成、
+                   * 绝不写项目设置，那条约束仍然成立（见 writing-style-picker.tsx）。
+                   */
+                  if (entry.type === "style") void handleToggleStyleEnabled(entry)
                 }}
                 onToggleEnabled={(enabled) => void handleToggleEnabled(entry, enabled)}
                 onToggleFavorite={() => {
@@ -1334,7 +1428,22 @@ function SkillLibraryContent({
   if (activeTab === "skillFavorites") return <FavoriteListView />
   if (activeTab === "personaSkillLibrary") return <PersonaSkillView />
   const Editor = SKILL_EDITORS[activeTab]
-  if (!editing) return <SkillGallery activeTab={activeTab} onOpen={onOpen} />
+  if (!editing) {
+    return (
+      <>
+        {/*
+         * 「文风」tab 额外挂一块自进化复核面板。
+         *
+         * ⚠️ 它**不是**画廊条目、也不进 `SKILL_EDITORS`：面板是「一份状态 + 两个动作」
+         * （开开关、启用/回滚候选），不随 `editing` 切换，也没有可编辑的草稿形态。
+         * 塞进编辑器表会让 `editing` 为 false 时它整个不渲染 —— 而它恰恰是
+         * 用户平时最需要看到的那块。
+         */}
+        {activeTab === "writingStyleLibrary" ? <StyleEvolutionPanel /> : null}
+        <SkillGallery activeTab={activeTab} onOpen={onOpen} />
+      </>
+    )
+  }
   return (
     <div className="ui-test-skills-editor">
       <button type="button" className="ui-test-skills-back" onClick={onBack}>
@@ -1543,5 +1652,9 @@ export function UnifiedSkillLibraryView() {
  *     记成 `handleOpenEntry` 的行为证据 —— **那是错的**：该用例走的是
  *     `onSelect` 那条路（钉的是 `openable: false` 这道能力闸门 + 引用路径），
  *     删掉 `case "style"` 它照样绿（已实测）。两者都值得保留，但**不是一个东西**。
+ *     ⚠️ 该用例后来**按新语义重写**了：文风卡片的点击现在真的会启用该文风
+ *     （写 `.qmai/writing-style.json`），所以它不再断言「一个文件都没写」，
+ *     改为断言「只写文风库这一个文件、不写别的库的文件、不开编辑器」。
+ *     这条改动是用户要求的（点击要生效并保持），不是守卫被拆。
  * 若将来往 `UnifiedSkillEntry` 加第 4 种类型，上面 1/2/3 需要**人工**复查。
  * ========================================================================== */

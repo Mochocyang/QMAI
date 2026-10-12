@@ -146,7 +146,14 @@
   flex-wrap: nowrap;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
+  /*
+   * 8px → 4px：这一条管的是**左控件组 ↔ @ 按钮 ↔ 右控件组**之间的距离。
+   * @ 按钮在视觉上属于左边那簇图标（它紧跟在「文风」按钮后面），
+   * 所以要和左组内部一样收紧，否则 @ 会孤零零地飘在图标簇外面。
+   * 右组有 margin-left:auto，它到 @ 的距离是剩余空间，不受这条影响。
+   * 详见 ReferenceInput.tsx 里左组 `gap-0.5` 那段说明。
+   */
+  gap: 4px;
   min-width: 0;
   /* 底和右侧留出圆角半径，避免发送按钮被 14px 圆角裁掉。 */
   padding: 8px 14px 14px;

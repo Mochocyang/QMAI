@@ -8,7 +8,18 @@ interface UserMemoryLearningBudget {
   inputChars: number
 }
 
-function dayKey(now: number): string {
+/**
+ * 本地日期 `YYYY-MM-DD`。
+ *
+ * 导出是刻意的：「文风自进化」的节律也按**打开日**计数，两边必须是同一个口径。
+ * 若各自实现一份，最容易出的偏差是一份用本地日期、另一份用 `toISOString()`
+ * （UTC）—— 东八区的清晨就会落在不同的「天」上，表现为「昨天刚分析过，
+ * 今天怎么又分析了」这类无从复现的偶发。见 `style-evolution-schedule.spec.ts`
+ * 里的跨模块对齐用例。
+ *
+ * ⚠️ 不要改成 UTC：这个软件面向中文网文作者，用户感知的「今天」是本地日历日。
+ */
+export function dayKey(now: number): string {
   const date = new Date(now)
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-")
 }

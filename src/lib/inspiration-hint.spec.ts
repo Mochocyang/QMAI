@@ -111,7 +111,18 @@ describe("同一份 wordCount 喂给两个纯函数时，两条气泡互斥（**
    * （同一个 top/left/width），一旦同时挂着就会**精确重叠**在同一坐标上。
    */
   const arrivals: DraftMemoryHintArrival[] = ["select", "first-save", "stay"]
-  const statuses: Array<ChapterStatus | null> = ["outline", "draft", "revised", "final", "archived", null]
+  /*
+   * 状态只剩两种（用户要求砍掉修订中 / 废弃草稿 / 大纲）。
+   * 这里**刻意保留 `null`**：`ChapterStatus | null` 里的 `null` 表示
+   * "还没解析出状态"（列表尚未加载），与"是草稿"是两件事，
+   * 砍状态类型不该把这条边界一起砍掉。
+   *
+   * 那三种被删掉的值不再列进来 —— 它们在类型上已不存在，
+   * 而"老文件写着 revised"这件事由 `normalizeChapterStatus` 在
+   * 读盘时就地归一化成 draft，走到这里时早已不是 revised 了
+   * （`chapter-meta.spec.ts` 钉的是那一层）。
+   */
+  const statuses: Array<ChapterStatus | null> = ["draft", "final", null]
 
   it("同一份 wordCount 下，草稿提示与灵感提示在任意输入组合下都不同时为真", () => {
     let checked = 0
@@ -158,7 +169,16 @@ describe("同一份 wordCount 喂给两个纯函数时，两条气泡互斥（**
         }
       }
     }
-    expect(checked, "穷举必须真的跑过组合，不能因为循环写错而空转").toBe(3 * 2 * 3 * 6 * 2 * 2)
+    /*
+     * 期望值里 status 那一维**不写字面量**，直接引用 `statuses.length`。
+     *
+     * 原来写的是 `3 * 2 * 3 * 6 * 2 * 2`，那个 6 就是当时的 `statuses.length`。
+     * 状态收窄成两种（外加 null）之后这个数字变成 3，断言就红了 ——
+     * 而它红的原因是**清单变了**，不是穷举空转了，其实并没有抓到它要抓的东西。
+     * 引用长度之后，这条断言只在"循环真的少跑/没跑"时才红，
+     * 也就是它本来的命题；以后再加一维状态也不会再假红一次。
+     */
+    expect(checked, "穷举必须真的跑过组合，不能因为循环写错而空转").toBe(3 * 2 * 3 * statuses.length * 2 * 2)
   })
 
   it("wordCount 这一维是「同一份输入」下互斥的承重来源：草稿提示要 >0，灵感提示要 ===0", () => {

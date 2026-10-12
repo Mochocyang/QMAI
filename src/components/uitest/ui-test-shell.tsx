@@ -341,10 +341,33 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
         <header className="ui-test-header" data-tauri-drag-region="deep">
           {macOS && <MacTrafficLights onClose={closeWindow} onMinimize={minimizeWindow} onZoom={toggleMaximizeWindow} />}
           <div className="ui-test-brand"><div className="ui-test-header-hint-anchor">{hasDirectory ? <button ref={directoryRef} type="button" className="ui-test-brand-logo-btn" aria-label={sidebarVisible ? "收起目录" : "展开目录"} aria-expanded={sidebarVisible} aria-controls="ui-test-directory" title={sidebarVisible ? "收起目录" : "展开目录"} onClick={toggleDirectory}><img className="ui-test-brand-logo" src={logoImg} alt="" /><PanelLeft className="ui-test-brand-logo-icon" aria-hidden="true" /></button> : <img className="ui-test-brand-logo" src={logoImg} alt="" />}{hasDirectory && !directoryHintDismissed && <div className="ui-test-header-hint" role="status"><p>目录已移到左上角：点击这个图标即可显示或隐藏目录。</p><div className="ui-test-header-hint-actions"><button type="button" className="ui-test-header-hint-dismiss" onClick={() => { writeUiTestDirectoryHintDismissed(); setDirectoryHintDismissed(true) }}>知道了</button></div></div>}</div><span className="ui-test-brand-name">青幕AI写作</span>
-            <button type="button" className="ui-test-crumb" aria-label="返回书架" title="返回书架" onClick={returnToShelf}><BookOpen />书架</button>
+            {/*
+              「书架」已从这里移到主导航最左端（见下方 nav 内的固定按钮）。
+              品牌区只保留：图标 + 产品名 + 当前书名。
+            */}
             {project && <span className="ui-test-current-book" title={project.name}>{project.name}</span>}
           </div>
           <nav className="ui-test-nav" aria-label="主模块" onContextMenu={(event) => event.preventDefault()}>
+            {/*
+              「书架」是**固定**按钮，钉在主导航最左端（用户要求：从品牌区移到「大纲」左侧）。
+              它故意**不**放进下面的 `primaryNav.map`：
+                · `primaryNav` 是用户可配置的（长按出菜单 → 移动 / 替换 / 新增 / 删除，
+                  见 `ui-test-primary-nav.ts`，上限 5 项）；
+                · 书架是回退入口，不该被删掉或换走 —— 一旦被移出「主模块」，
+                  用户就没有稳定的一键回书架了。
+              所以它在 DOM 上是 `<nav>` 的第一个子元素、**不是** `.ui-test-nav-slot`
+              （那层是给可配置项挂长按菜单用的），也不带 `aria-haspopup`。
+              类名用 `.ui-test-nav-shelf` 而不是 `.ui-test-nav-item`，好让
+              `.ui-test-nav-item` 继续精确表示「可配置的那几项」
+              （`ui-test-shell.spec.tsx` 与 `docs/.../verify-real-exe*.mjs` 都按这个口径查）。
+              与它原来的面包屑形态一样，始终渲染（未打开小说时也点得到，
+              用于从「全局设置」退回书架）。
+
+              ⚠️ 只有「书架」两个字，**没有图标**（用户要求）：
+              此前是 `<BookOpen />书架`。去掉图标后，它与右侧那几个纯文字导航项
+              在视觉上才是一组；`BookOpen` 仍被下方创作工具菜单使用，导入保留。
+            */}
+            <button type="button" className={`ui-test-nav-shelf${showShelf ? " is-active" : ""}`} aria-label="返回书架" aria-current={showShelf ? "page" : undefined} title="返回书架" onClick={() => void returnToShelf()}>书架</button>
             {primaryNav.map((item, index) => <div className="ui-test-nav-slot" key={item.view} onPointerDown={(event) => pressNav(event, item.view)} onPointerMove={moveNavPress} onPointerUp={releaseNavPress} onPointerCancel={releaseNavPress} onContextMenu={(event) => openNavMenu(event, item.view)}>
               <button type="button" disabled={!project} aria-current={project && activeView === item.view ? "page" : undefined} aria-haspopup="menu" className={`ui-test-nav-item${project && activeView === item.view ? " is-active" : ""}`} onClick={() => navigate(item.view)}>{item.label}</button>
               {navMenu === item.view && <div ref={navMenuRef} className={`ui-test-menu-pop ui-test-nav-menu${navMenuAlign === "right" ? " is-right" : ""}`} role="menu" aria-label={`${item.label}功能菜单`} data-tauri-drag-region="false" onKeyDown={menuKeyboard} onMouseLeave={hideNavSectionSoon}>

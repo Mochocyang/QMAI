@@ -81,10 +81,21 @@ const composerHtml = () => `<!doctype html><html><head><meta charset="utf-8"><st
       <div role="separator" aria-label="拖动调整输入框高度" class="flex h-2 items-center justify-center"><span class="h-0.5 w-10 rounded-full"></span></div>
       <div class="relative px-3 py-2"><textarea rows="1" style="height:48px;max-height:48px" class="w-full resize-none bg-transparent px-0 py-1 text-sm outline-none" placeholder="写下你的想法，或 @ 引用资料..."></textarea></div>
       <div data-reference-input-footer class="flex items-center justify-between gap-2 border-t px-2 py-1.5">
-        <div class="flex min-w-0 shrink-0 items-center gap-2">
+        <div class="flex min-w-0 shrink-0 items-center gap-0.5">
           <button aria-label="上下文用量" type="button" class="${BTN}">1</button>
-          <div class="relative"><button type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="工作流模式" class="${BTN} h-8 shrink-0 px-2 text-xs"><span>快速</span><svg width="14" height="14" viewBox="0 0 24 24"></svg></button></div>
-          <button type="button" aria-pressed="false" disabled aria-label="快速模式下不支持计划，请切换到标准或严格模式" title="快速模式下不支持计划" class="${BTN} h-8 shrink-0 rounded-full border px-2.5 text-xs"><svg width="14" height="14" viewBox="0 0 24 24"></svg>计划</button>
+          <div class="relative"><button type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="工作流模式" class="${BTN} h-8 shrink-0 px-1.5 text-xs"><span>快速</span></button></div>
+          <!--
+            模式按钮**没有下拉箭头**（用户要求：不需要下拉图标，只留「快速/标准/计划/共创」文字）。
+            去掉那个 14px 的 svg 会让这个按钮窄约 14px，底栏的换行阈值随之变化 ——
+            标记必须跟着真实代码走，否则这个脚本量出来的阈值就不是产品的真实表现。
+
+            计划按钮同样**没有可见文字**（用户要求「只留下图标，鼠标放上去显示『计划』」），
+            所以这里的标记也去掉了「计划」两个字。h-7 w-7 与真实代码一致
+            （紧间距，见 ReferenceInput.tsx 的 gap-0.5 说明）。
+            文风按钮也是 28px 的纯图标按钮，同在左组里占位。
+          -->
+          <button type="button" aria-pressed="false" disabled aria-label="计划" title="计划" class="${BTN} h-7 w-7 shrink-0 border-0 bg-transparent p-0"><svg width="14" height="14" viewBox="0 0 24 24"></svg></button>
+          <button type="button" aria-label="文风" title="文风" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md"><svg width="16" height="16" viewBox="0 0 24 24"></svg></button>
         </div>
         <button type="button" aria-label="引用内容" title="引用内容" class="rounded-md p-1.5"><svg width="16" height="16" viewBox="0 0 24 24"></svg></button>
         <div class="ml-auto flex min-w-0 shrink-0 items-center gap-2">

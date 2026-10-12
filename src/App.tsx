@@ -138,6 +138,29 @@ function App() {
     } catch (err) {
       console.warn("[startup] 加载技能收藏失败:", err)
     }
+
+    if (!isCurrentProject(proj)) return
+    /*
+     * 「文风自进化」的启动 tick。
+     *
+     * ⚠️ 刻意 **不 await**：一轮自进化是「一次分析 + 一到两次探针」，几十秒量级，
+     * 而本函数本身就是启动路径上的 `void hydrateDeferredProjectState(proj)`（:576）。
+     * 改成 await 会让「打开项目」一直卡着，用户看到的是软件没反应。
+     *
+     * ⚠️ 而「不 await」正是重入的来源：用户切书 A→B→A 会再进来一次。
+     * 两道防线都在被调用的那一侧（不在这一行）：
+     *   ① 同一打开日最多尝试一次（lastAttemptedOn，且引擎**在跑模型前**就落盘）；
+     *   ② 每个项目一把的进程内 in-flight 标记（`runStyleEvolutionTick` 里，同步占位）。
+     * 所以这里可以放心地 fire-and-forget。
+     */
+    if (isTauri()) {
+      try {
+        const { runStyleEvolutionTick } = await import("@/lib/novel/style-evolution-runner")
+        void runStyleEvolutionTick(proj.path)
+      } catch (err) {
+        console.warn("[startup] 文风自进化 tick 启动失败:", err)
+      }
+    }
   }
 
   useEffect(() => {

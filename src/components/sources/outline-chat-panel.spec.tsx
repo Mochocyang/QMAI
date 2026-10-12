@@ -1631,6 +1631,19 @@ describe("OutlineChatPanel controls", () => {
     const trigger = container.querySelector<HTMLButtonElement>('[aria-label="AI 大纲执行模式"]')
     expect(trigger).not.toBeNull()
     expect(trigger?.textContent).toContain("标准")
+    /*
+     * 模式按钮**只有文字，没有下拉箭头**（用户要求：不需要下拉图标）。
+     *
+     * 判别力：把 `ChevronDown` 加回去 ⇒ 第一条红（它会渲染成一个 `svg`）。
+     * 只断言 `textContent` 是**不够**的 —— 箭头是 svg、不产生文字，
+     * 加了它 textContent 照样是「标准」。（这个坑本轮在「书架」按钮上踩过一次。）
+     * 同时钉住 `aria-haspopup` / `aria-expanded` 还在：去掉的只是视觉提示，
+     * 「点开有列表」这个语义不能跟着丢。
+     */
+    expect(trigger?.querySelector("svg")).toBeNull()
+    expect(trigger?.children).toHaveLength(1)
+    expect(trigger?.getAttribute("aria-haspopup")).toBe("listbox")
+    expect(trigger?.getAttribute("aria-expanded")).toBe("false")
     // 用户要求删掉输入区上方那两段文案（固定选项说明与重复的「选择生成你想要的小说」）；
     // 模式本身仍由下拉切换，所以下面继续验下拉的行为。
     expect(container.textContent).not.toContain("再交给 AI 分析和追问")

@@ -241,3 +241,136 @@ export function resolveNextChapterNumber(
   }
   return max + 1
 }
+
+/**
+ * ── 章号的三个解析函数：从「章节树」搬到本模块（共享）──
+ *
+ * 搬家的理由是一个真实缺陷：侧栏的「已提取记忆」绿点与编辑器标题行的
+ * 「正式/草稿」徽章本应描述**同一件事**（这一章的记忆快照是否存在），
+ * 却各自算了一遍章号 —— 绿点用下面这套解析（它原先私有在
+ * `knowledge-tree.tsx` 里），徽章用 frontmatter 的 `chapter_number`。
+ * 两份实现只在「两个来源恰好都指向同一个号」时才一致，而那正是
+ * 「没有提取过记忆的章节却显示正式」这一类不一致的来源。
+ *
+ * 现在两者都调用 `resolveChapterDotNumbers`，按构造不可能算出差号。
+ * ⚠️ 这三个函数的**实现一字未改**（包括正则里的大小写与换行符口径），
+ * 因为搬家不能顺带改语义：`parsePageInfo` 里还有别的调用方依赖它们。
+ */
+export function parseChineseNumber(input: string): number | null {
+  const digitMap: Record<string, number> = {
+    零: 0,
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  }
+
+  if (/^\d+$/.test(input)) return Number.parseInt(input, 10)
+  if (input === "十") return 10
+
+  const tenIndex = input.indexOf("十")
+  if (tenIndex >= 0) {
+    const left = input.slice(0, tenIndex)
+    const right = input.slice(tenIndex + 1)
+    const tens = left ? (digitMap[left] ?? 0) : 1
+    const units = right ? (digitMap[right] ?? 0) : 0
+    return tens * 10 + units
+  }
+
+  let value = 0
+  for (const ch of input) {
+    const digit = digitMap[ch]
+    if (digit === undefined) return null
+    value = value * 10 + digit
+  }
+  return value
+}
+
+export function extractPageOrderFromTitle(title: string): number | null {
+  const titleMatch = title.match(/第\s*([0-9零一二两三四五六七八九十]+)\s*[章节卷]/)
+  if (titleMatch?.[1]) {
+    const value = parseChineseNumber(titleMatch[1])
+    if (value !== null) return value
+  }
+
+  const numberMatch = title.match(/(\d+)/)
+  if (numberMatch?.[1]) return Number.parseInt(numberMatch[1], 10)
+  return null
+}
+
+/**
+ * 只认**不加引号**的 `chapter_number: 13`。
+ *
+ * ⚠️ 这条口径是刻意保留的（不是疏漏）：`chapter_number: '13'` 取不到号，
+ * 于是回退到标题里的「第N章」。本仓库有一处注释专门记录过这种真实文件
+ * （「chapter-015.md 的 frontmatter 是 13、文件名是 15、标题写着第 8 章」）——
+ * 三处数字互不相同，**先认哪个决定了绿点亮在哪一章上**。
+ * 绿点一直认的是「内容里不加引号的号 → 标题里的号 → 文件名里的号」，
+ * 徽章现在跟它走同一条路，所以两者不会对不上。
+ */
+export function extractChapterNumberFromContent(content: string): number | null {
+  const match = content.match(/^chapter_number:\s*(\d+)\s*$/m)
+  if (!match?.[1]) return null
+  const parsed = Number.parseInt(match[1], 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+/**
+ * 页面的显示标题 —— 与 `knowledge-tree.tsx` 的 `parsePageInfo` 完全同源。
+ *
+ * 抽出来的唯一原因：`resolveChapterDotNumbers` 需要**同一个**标题去回退取号，
+ * 而「标题」在树里的推导规则是三级的（frontmatter `title` → 首个 `#` 标题 →
+ * 文件名去连字符）。若徽章那边自己写一份，就又回到"两套规则"的老问题上。
+ *
+ * ⚠️ 三级回退的第三级比较用的是**去连字符后**的文件名，且大小写敏感
+ * （`.md` 而非 `.mdx`），与树里逐字一致。
+ */
+export function resolveChapterPageTitle(fileName: string, content: string): string {
+  const stem = fileName.replace(/\.md$/, "").replace(/-/g, " ")
+  let title = stem
+
+  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/)
+  if (frontmatterMatch) {
+    const titleMatch = frontmatterMatch[1].match(/^title:\s*["']?(.+?)["']?\s*$/m)
+    if (titleMatch?.[1]) title = titleMatch[1].trim()
+  }
+
+  if (title === stem) {
+    const headingMatch = content.match(/^#\s+(.+)$/m)
+    if (headingMatch?.[1]) title = headingMatch[1].trim()
+  }
+
+  return title
+}
+
+/**
+ * 「这一章的快照会用哪个号」—— 绿点与徽章的**唯一**取号入口。
+ *
+ * 返回值直接喂给 `resolveChapterMemoryDotState`：
+ *   · `chapterNumber` 优先（`ingestChapter` 收到的就是它）；
+ *   · 取不到时才回退 `fileChapterNumber`（`chapter-003.md` 这类只在文件名里带号的）。
+ *
+ * 输入刻意只有「文件内容 + 文件路径」两项 —— 两者在章节树与编辑器里
+ * 都是同一份字符串，所以两处**必然**算出同一个号。不传 title 进来，
+ * 就是为了不给"两边各写一个标题推导"留后门。
+ */
+export function resolveChapterDotNumbers(input: {
+  content: string
+  filePath: string
+}): { chapterNumber?: number; fileChapterNumber?: number } {
+  const fileName = input.filePath.split(/[\\/]/).pop() ?? ""
+  const title = resolveChapterPageTitle(fileName, input.content)
+  return {
+    chapterNumber:
+      extractChapterNumberFromContent(input.content) ??
+      extractPageOrderFromTitle(title) ??
+      undefined,
+    fileChapterNumber: extractChapterNumber(fileName.replace(/\.md$/i, "")) ?? undefined,
+  }
+}

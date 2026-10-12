@@ -59,6 +59,60 @@
   background: var(--ui-paper);
 }
 
+/*
+ * ── 章节：标题行与工具栏**同一行**（用户要求）──
+ *
+ * 用户口径：「这些图标太松散了，挨的近一些，放在标题右侧」。
+ * 改造前工具栏是标题**下方的独立一行**：六个 36px 图标 + 6px 间距铺满整行，
+ * 既离标题远、彼此也空。
+ *
+ * ⚠️ 为什么用 grid 而不是把工具栏 JSX 挪进标题行：
+ * 工具栏是两条提示气泡的**定位祖先**（`.ui-test-editor-toolbar` 自己
+ * `position: relative`，气泡 `position: absolute`）。挪 JSX 会让它变成
+ * 标题行里的一个 flex 项，气泡的 `left: 0` 参考系跟着漂到标题右端，
+ * 窄标题下可能把 280px 宽的气泡推出内容区。
+ * grid 只改**视觉位置**，DOM 顺序与定位关系一概不动 ——
+ * 气泡的 top/left/width 三个值继续逐项有效（`ui-test-editor.spec.tsx` 钉着它们）。
+ *
+ * ⚠️ `grid-column: 1 / -1` 那两条是**必须的**，不是冗余：一旦 header 变成 grid，
+ * 它下面**所有**直接子元素都进入自动放置 —— 文件详情区（`showPath` 打开时）
+ * 会被塞进第二列、和工具栏挤在同一行。让它横跨两列即恢复"整行、在下面"。
+ *
+ * ⚠️ 底部间距从工具栏的 `margin-bottom` 挪到 header 的 `padding-bottom`：
+ * 两者现在是**同一个 grid 行**的项目，把 26px 留在标题行的 margin-bottom 上
+ * 会让该行外框变成 28+26=54px，工具栏（30px）被 `align-items: center`
+ * 垂直居中到那 54px 里 —— 图标会浮在标题与下方空白之间。
+ */
+.ui-test-root .ui-test-editor[data-kind="chapter"] .ui-test-editor-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  padding-bottom: 26px;
+}
+.ui-test-root .ui-test-editor[data-kind="chapter"] .ui-test-editor-title-row { grid-column: 1; }
+.ui-test-root .ui-test-editor[data-kind="chapter"] .ui-test-editor-toolbar { grid-column: 2; }
+.ui-test-root .ui-test-editor[data-kind="chapter"] .ui-test-editor-auxiliary,
+.ui-test-root .ui-test-editor[data-kind="chapter"] .ui-test-editor-details { grid-column: 1 / -1; }
+
+/*
+ * 章节工具栏：贴着标题右侧、图标之间收紧。
+ *
+ * 间距 6px → 2px，图标盒 36px → 30px（见 `.is-icon-only`）。
+ * 两处一起改才有用户要的效果：36px 的透明盒本身就在字形之间留了 20px 空白，
+ * 只压 gap 的话字形看上去仍然散 —— 而底色已被要求去掉（纯图标），
+ * 盒子边缘不再可见，唯一能"挨近"的手段就是把盒子本身收窄。
+ *
+ * ⚠️ 30px 的命中区**小于 44px 触控建议值**，这是有意的视觉取舍：
+ * `@media (pointer: coarse)` 会把 `.ui-test-editor-action.is-icon-only`
+ * 提回 44px，触屏设备上不会变小；桌面指针设备本来就不吃那套。
+ * 横向仍收窄，但桌面 6 个图标总宽已从 6×42=252px 降到 6×32=192px。
+ */
+.ui-test-root .ui-test-editor[data-kind="chapter"] .ui-test-editor-toolbar {
+  margin: 0;
+  gap: 2px;
+}
+
 .ui-test-root .ui-test-editor-scroll {
   flex: 1;
   min-height: 0;
@@ -99,6 +153,111 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * 标题行 = [状态徽章] [标题]。
+ *
+ * ── 章节标题为什么另立一条规则 ──
+ * 用户口径：「将正文当中的章节标题（比如"第一章 无我觉醒"）改成类似于
+ * 『伏笔双格式』这样的字体样式」。注意他点的是**章节**，不是大纲 ——
+ * 而 `.ui-test-editor-title` 这一个类**同时**服务章节与大纲
+ * （`ui-test-editor.tsx` 里 kind 为 chapter / outline 时都渲染它），
+ * 上面那条共用规则就是给大纲留的原样式，也是
+ * `ui-test-header-alignment.spec.ts` 明写「章节大纲标题」并钉住 1.25rem 的那一条。
+ *
+ * 所以这里**不覆盖共用规则**，而是用 `[data-kind="chapter"]` 限定到章节：
+ * 大纲标题保持 1.25rem 衬线不变（用户没要求改，且大纲自己那条
+ * 「伏笔双格式」标签就在它上方，两处都缩小反而分不出层级）。
+ *
+ * 目标样式逐项对齐 `outline-dual-preview.tsx` 里那个标签的
+ * `text-xs font-medium text-muted-foreground`（= 12px / 500 / muted），
+ * 并且**连字族也从 --serif 换成 --ui**：只对齐字号字重却留着衬线，
+ * 看过去仍然不像那个标签 ——「类似的字体样式」指的是整块观感，不是单个字号。
+ *
+ * ⚠️ 这是**内容让位给 chrome** 的取舍：正文 18px 衬线，章节标题 12px 无衬线灰字。
+ * 之所以接受，是因为状态已由前面的实心徽章承担可辨识度，
+ * 标题退成"这一章叫什么"的安静说明。
+ */
+.ui-test-root .ui-test-editor[data-kind="chapter"] .ui-test-editor-title,
+.ui-test-root .ui-test-editor[data-kind="chapter"] .ui-test-editor-title-input {
+  color: var(--ui-muted);
+  /*
+   * 字号 13px、加粗 —— 用户口径「标题要加粗 当前字号再加1」。
+   * 上一版是 500 / 0.75rem(12px)，"+1" 指 +1px ⇒ 13px = 0.8125rem。
+   */
+  font: 700 0.8125rem/1.5 var(--ui);
+  /*
+   * ── 行高 = 行高盒 = min-height：文字在输入框里**垂直居中** ──
+   *
+   * 用户报的缺陷：「点击标题之后，字体应该显示在边框的最中间，但现在显示在顶上」。
+   *
+   * 成因不是对齐写错，而是**行盒比盒子矮**：
+   * `.ui-test-editor-title-input`（共用规则）有 `min-height: var(--ui-heading-line)`
+   * = 28px，而上一版行高是 `0.75rem/1.5` = 18px。textarea 的内容盒是 28px、
+   * 里面只放得下一条 18px 的行盒，剩下 10px **全部落在下方**
+   * （textarea 的文字默认从内容盒顶部排起），于是聚焦框看着像把字吊在顶上。
+   *
+   * 让行高直接等于那个 28px，行盒就填满内容盒，字形由半行距（half-leading）
+   * 自动居中 —— 不写 padding、不写 `align-content`，因为：
+   *   · 写 padding（(28−19.5)/2 = 4.25px）要引出一个 0.265625rem 这种
+   *     没有来源的魔数，且字号再动就失效；
+   *   · textarea 的 `align-content` 在各版本 WebView2 上行为不一致，
+   *     而本文件已经被"判定可用却静默失效"的写法坑过一次（见 letter-spacing 那段）。
+   *
+   * 用 `var(--ui-heading-line)` 而不是字面量 1.75rem：这个值**已经**是同一个元素的
+   * `min-height`，两处引用同一个变量 ⇒ 以后调行高盒时居中**自动成立**，
+   * 不会出现"改了其一、文字又贴顶"的复发。
+   *
+   * ⚠️ 显示态（h1）与输入态共用这条规则，所以两边行盒都是 28px，
+   * 点击前后文字位置**逐像素相同**，不会跳一下。
+   * `ui-test-clipping.spec.ts` 不会因此报警：它的判据只在规则声明了**固定 `height`**
+   * 时才生效，而本元素只有 `min-height`（下限，盒子可随内容长高）。
+   *
+   * ⚠️ 放在 `font` 简写**之后**：简写会把未给出的 line-height 重置成 normal，
+   * 写在它前面会被吃掉。
+   */
+  line-height: var(--ui-heading-line);
+  /*
+   * ⚠️ `flex: 0 1 auto` 是**必须的**，别退回共用的 `1 1 12rem`。
+   *
+   * 用户点标题后反馈「点击之后边框太宽了」：标题变成 12px 之后，
+   * 共用的 `flex: 1 1 12rem` 仍让这个输入框**撑满整行**，
+   * 于是聚焦时那个矩形（2px outline + 3px offset）围出的是
+   * 一大片空白，而不是"围着这几个字"。
+   *
+   * 改成不伸展 ⇒ 显示态与输入态都只占文字宽度，
+   * 这也与它已有的 `field-sizing: content` 一致（那个属性本来就想贴内容宽，
+   * 只是被 flex-basis: 12rem + 伸展盖掉了）。
+   * 空出的一整行由工具栏接管家，图标因此贴到最右。
+   *
+   * `0 1 auto` 而不是 `0 0 auto`：保留可收缩，长标题才能在窄屏里换行 / 截断，
+   * 而不是把工具栏顶出容器。
+   */
+  flex: 0 1 auto;
+}
+
+/*
+ * 章节标题输入框的聚焦框收细。
+ *
+ * 上面那条全局 `:focus-visible` 是 `2px outline + 3px offset`，对按钮合适；
+ * 但这个输入框是**无边框文字**（`border: 0`），紧贴一行 12px 小字时，
+ * 2px+3px 的框会显得比文字本身重得多 —— 用户反馈的"边框太宽"里也有这一层。
+ *
+ * ⚠️ 选择器为什么写到这么长（必须带 `[data-kind="chapter"]`）：
+ * 全局那条的实参是
+ *   `.ui-test-root .ui-test-editor :is(button, textarea, [contenteditable]):focus-visible`
+ * 而 `:is()` 的特异度取**实参里最高**的那个 —— 是 `[contenteditable]`（0,1,0），
+ * 不是 `textarea`（0,0,1）。所以它是 (0,4,0)，不是"看起来"的 (0,3,1)。
+ *   · 写成 `.ui-test-root .ui-test-editor-title-input:focus-visible` → (0,3,0)，**输**；
+ *   · 写成 `.ui-test-root .ui-test-editor .ui-test-editor-title-input:focus-visible`
+ *     → (0,4,0)，**平** —— 而本规则在文件里**更靠前**，平局时后写的全局规则赢，仍然**输**；
+ *   · 加上 `[data-kind="chapter"]` → (0,5,0)，才真正**赢**。
+ * 别指望靠"挪到文件末尾"来解决：那会让这条规则的位置与它修饰的标题规则分家。
+ */
+.ui-test-root .ui-test-editor[data-kind="chapter"] .ui-test-editor-title-input:focus-visible {
+  outline: 1px solid var(--ui-accent);
+  outline-offset: 1px;
+}
+
 .ui-test-root .ui-test-editor-title button {
   display: block;
   width: 100%;
@@ -114,19 +273,55 @@
 
 .ui-test-root .ui-test-editor-title-input { min-height: var(--ui-heading-line); resize: none; overflow: hidden; field-sizing: content; }
 
-.ui-test-root .ui-test-editor-meta {
-  display: flex;
+/*
+ * ── 章节状态徽章：直角 · 实心 · 两个字 ──
+ *
+ * 用户三句话定死了它的形状，逐条对应：
+ *   1) 「不要圆角的，用正方形的 90° 直角」→ `border-radius: 0`
+ *      （⚠️ 刻意不写 `border-radius: 4px` 之类"接近直角"的值：
+ *       用户是对着圆角截图说"不要圆角"的，差 1px 也会被看出来。
+ *       本文件其它控件几乎都是 6–12px 圆角，所以这一条**必须显式写 0**，
+ *       否则将来有人统一"梳理圆角"时最容易被顺手改圆。）
+ *   2) 「徽章尺寸12加粗」→ `font: 700 0.75rem/1.25 var(--ui)`
+ *   3) 「里面就两个字」→ `min-width` 按两个字排布，`white-space: nowrap`
+ *      保证「正式」「草稿」都不折行
+ *
+ * ⚠️ 高度用 `min-height` 而非 `height`：徽章要跟着界面字号缩放
+ * （`ui-test-clipping.spec.ts` 的判据是"固定 px 盒高 + 可缩放行盒"会裁字）。
+ * 这里字号是 rem、行高走 `line-height: 1.25`，`min-height` 只是下限，
+ * 盒子会随内容长高 —— 与 `.ui-test-create-name` 那条已修的例子同形。
+ *
+ * ⚠️ `padding` 的上下值也必须是 rem，理由同上：80% 档下 px 内边距
+ * 不缩、可用高度缩得更快，会把两个字截掉。
+ *
+ * ⚠️ 徽章**不写字间距**：本文件有一条文件级守卫
+ * （`ui-test-editor.spec.tsx` 的「字间距在正文层与输入层引用同一个变量，
+ * 且全文件没有写死的字间距」），它会扫出所有 `letter-spacing` 声明，
+ * 要求每一处都恰好是 `var(--qmai-body-letter-spacing, 0)`。
+ * 那是为了正文层与输入层/高亮层不错位而设的**全局**不变量，
+ * 徽章想加字间距的收益远小于破坏它的代价 —— 最初写成 `.06em` 时
+ * 这条守卫确实红了，且报错信息直接指出"写死会让输入层与高亮层错位"。
+ * 两个字居中本身也不需要字间距。
+ */
+.ui-test-root .ui-test-editor-badge {
+  flex: none;
+  display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-left: auto;
-  color: var(--ui-muted);
-  font: 400 0.875rem/1.375rem var(--ui);
-  font-variant-numeric: tabular-nums;
+  justify-content: center;
+  min-width: 2.5rem;
+  min-height: 1.25rem;
+  padding: 0.125rem 0.4375rem;
+  border-radius: 0;
+  background: #8b968e;
+  color: #fff;
+  font: 700 0.75rem/1.25 var(--ui);
+  white-space: nowrap;
+  user-select: none;
+  cursor: default;
 }
 
-.ui-test-root .ui-test-editor-status { padding: 3px 8px; border-radius: 6px; background: var(--ui-soft); color: var(--ui-accent); }
-.ui-test-root .ui-test-editor-status.is-final { padding: 0; border-radius: 0; background: transparent; color: #2f9e62; font-weight: 500; }
+/* 正式：绿 */
+.ui-test-root .ui-test-editor-badge.is-final { background: #2f9e62; }
 
 .ui-test-root .ui-test-editor-toolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 18px 0 26px; }
 .ui-test-root .ui-test-editor-hint-anchor { position: static; display: inline-flex; max-width: 100%; }
@@ -230,6 +425,15 @@
   cursor: pointer;
 }
 
+/*
+ * 工具栏图标：**无常态底色**（用户要求「不要背景色，只是单纯的纯图标」）。
+ *
+ * ⚠️ 改造前这里是 `background: var(--ui-panel)`，是一层常驻的浅灰底。
+ * 去掉它之后，可点击性只能靠**悬停**表达 —— 所以下面那条
+ * `:hover { background: var(--ui-soft) }` **必须留着**，不是装饰：
+ * 常态完全透明 + 悬停也无变化 = 用户看不出这里能点。
+ * （用户在确认这一条时也同意保留悬停反馈。）
+ */
 .ui-test-root .ui-test-editor-action {
   display: inline-flex;
   align-items: center;
@@ -241,7 +445,7 @@
   padding: 7px 11px;
   border: 0;
   border-radius: 8px;
-  background: var(--ui-panel);
+  background: transparent;
   color: var(--ui-muted);
   font: 500 0.8125rem/1.5 var(--ui);
   overflow-wrap: anywhere;
@@ -251,7 +455,24 @@
 
 .ui-test-root .ui-test-editor-action svg,
 .ui-test-root .ui-test-editor-menu-item svg { width: 16px; height: 16px; flex-shrink: 0; }
-.ui-test-root .ui-test-editor-action.is-icon-only { width: 36px; padding: 7px; }
+/*
+ * 纯图标按钮：30×30 的**透明**命中区（用户要求「不要背景色，只是单纯的纯图标」，
+ * 以及「这些图标太松散了，挨的近一些」）。
+ *
+ * ⚠️ 改造前是 36×36 + `background: var(--ui-panel)`。底色还在时，
+ * 36px 的盒子有可见边缘，图标之间天然有"分块"感；底色去掉之后
+ * 只剩 16px 的字形浮在 36px 空白里，同一排看过去就是散。
+ * 收到 30px 让字形间距回到 ~14px。
+ *
+ * ⚠️ `padding: 7px` 与 `width: 30px` 是**配对**的：图标本身 16px（见上面的 svg 规则），
+ * 16 + 2×7 = 30，正好不留余量。若日后要把 width 收得更窄，
+ * 必须同时改 padding（或让 svg 缩小），否则 16px 字形会溢出 30px 的盒子。
+ *
+ * ⚠️ 这里的 `min-height: 30px` 会让下面窄屏 / 触屏媒体查询里那句
+ * `min-height: 44px` **失效**（`(0,3,0)` 压过 `(0,2,0)`），
+ * 所以那两个媒体查询里必须另写一条 `.is-icon-only` 的 44px。
+ */
+.ui-test-root .ui-test-editor-action.is-icon-only { width: 30px; min-height: 30px; padding: 7px; }
 .ui-test-root .ui-test-editor-action:hover { background: var(--ui-soft); color: var(--ui-accent); }
 .ui-test-root .ui-test-editor-action.is-primary { background: var(--ui-accent); color: var(--ui-on-accent); }
 .ui-test-root .ui-test-editor-action:disabled { cursor: not-allowed; opacity: .6; }
@@ -470,17 +691,43 @@
 
 @media (max-width: 640px) {
   .ui-test-root .ui-test-editor-header { padding-top: var(--ui-heading-top); }
-  .ui-test-root .ui-test-editor-title-row { gap: 10px; }
-  .ui-test-root .ui-test-editor-meta { margin-left: 0; }
+  .ui-test-root .ui-test-editor-title-row { gap: 8px 12px; }
   .ui-test-root .ui-test-editor-toolbar { gap: 6px; margin-bottom: 24px; }
+  /*
+   * 章节：窄屏放弃"图标并排在最右"，改为图标另起一行。
+   *
+   * ⚠️ 两条都得写，缺一个都会坏：
+   *   · 不改 `grid-template-columns` ⇒ 第二列（工具栏）仍然占位，第一列被压到
+   *     放不下标题，两边一起挤；
+   *   · 不清 `margin-bottom` ⇒ 上面那条 24px 会留在工具栏上，
+   *     而工具栏此时与标题行分属两行，那 24px 变成行内多余空白。
+   */
+  .ui-test-root .ui-test-editor[data-kind="chapter"] .ui-test-editor-header { grid-template-columns: minmax(0, 1fr); }
+  .ui-test-root .ui-test-editor[data-kind="chapter"] .ui-test-editor-title-row { grid-column: 1 / -1; }
+  .ui-test-root .ui-test-editor[data-kind="chapter"] .ui-test-editor-toolbar {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+    margin-bottom: 0;
+    gap: 2px;
+  }
   .ui-test-root .ui-test-editor-action,
   .ui-test-root .ui-test-editor-menu-item { min-height: 44px; }
+  /*
+   * ⚠️ 这条**不能省**。基础规则里的 `.ui-test-editor-action.is-icon-only`
+   * （(0,3,0)）比上面那条 `.ui-test-editor-action`（(0,2,0)）特异度更高，
+   * 光靠"写在后面"压不住它 —— 30px 的 min-height 会继续赢，
+   * 于是这个 44px 的触控提升对**纯图标按钮完全失效**（改造前它们没有
+   * 自己的 min-height，所以是吃得到的）。宽度也一并放宽：30px 宽的手指目标太小。
+   */
+  .ui-test-root .ui-test-editor-action.is-icon-only { width: 44px; min-height: 44px; }
   .ui-test-root .ui-test-editor-footer-meta { flex-basis: 100%; }
 }
 
 @media (pointer: coarse) {
   .ui-test-root .ui-test-editor-action,
   .ui-test-root .ui-test-editor-menu-item { min-height: 44px; }
+  /* 同上：触屏必须把 30px 的图标盒放大回可点尺寸。 */
+  .ui-test-root .ui-test-editor-action.is-icon-only { width: 44px; min-height: 44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
