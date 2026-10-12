@@ -1516,14 +1516,22 @@ export async function runSimulation(
         }
 
         // f. 检查节点目标是否达成
-        const goalReached = await isNodeGoalReachedWithEmbedding(
-          node,
-          nodeTimelineEvents,
-          maxRounds,
-          round,
-          llmConfig,
-          expectedEmbeddingCache,
-        )
+        //
+        // 只有声明了 strictNodeProgression 的模式才据「目标达成」提前收尾：
+        // event-driven 承诺「严格按节点目标推进剧情」，而 free-emergence 承诺
+        // 「不强制节点目标，剧情自然涌现」、hybrid 承诺「平衡推进与互动」。
+        // 此前这个字段无人读取，两类模式的行为完全一样 —— 上面的承诺是假的。
+        // 非 strict 模式改为跑满 maxRounds，同时也省掉了目标判定的 embedding。
+        const goalReached = modeConfig.strictNodeProgression
+          ? await isNodeGoalReachedWithEmbedding(
+              node,
+              nodeTimelineEvents,
+              maxRounds,
+              round,
+              llmConfig,
+              expectedEmbeddingCache,
+            )
+          : false
         if (goalReached) {
           break
         }
