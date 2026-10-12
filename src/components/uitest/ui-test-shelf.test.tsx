@@ -493,7 +493,11 @@ describe("书架图稿尺寸约束", () => {
     expect(css).toMatch(/aspect-ratio:\s*2\s*\/\s*3/)
     expect(css).toMatch(/border-radius:\s*10px/)
     expect(css).toMatch(/gap:\s*30px\s+28px/)
-    expect(css).toMatch(/font:\s*600\s+1rem\s*\/\s*1\.5rem/)
+    // 书名**不加粗**（用户要求：书架里封面下方的标题不要加粗）
+    expect(css).toMatch(/font:\s*400\s+1rem\s*\/\s*1\.5rem/)
+    // 反钉：不许有人把字重加回 600/700/bold
+    expect(css).not.toMatch(/font:\s*(6|7|8|9)00\s+1rem/)
+    expect(css).not.toMatch(/\.ui-test-book-title\s*\{[^}]*font-weight:\s*(?:bold|[6-9]00)/)
     expect(css).toMatch(/font-size:\s*0\.875rem;\s*line-height:\s*1\.375rem/)
     expect(css).toContain("1088px")
     expect(css).toContain("620px")
@@ -503,6 +507,43 @@ describe("书架图稿尺寸约束", () => {
     expect(css).toMatch(/@media\s*\(width\s*<\s*480px\)/)
     for (const color of ["#89967d", "#b28f88", "#beb08e", "#71878b", "#c5a173", "#8f9984", "#958ba8", "#7c9b96"]) {
       expect(css).toContain(color)
+    }
+  })
+
+  it("封面尺寸由档位锁定，不随窗口宽度反向变化", () => {
+    /*
+     * 用户报的缺陷：同一档「小封面」，1090px 窗口时封面是 200px 宽，
+     * 把窗口拉到 1206px 反而只剩 95px。
+     *
+     * 根因不是断点选得不巧，而是**卡片尺寸被写成了列数的函数**：
+     *   旧写法 ≥1180px：小封面 10 列 / 大封面 6 列
+     *   旧写法 < 1180px：小封面  5 列 / 大封面 3 列
+     * 窗口跨过 1180px 时列数**增加**，同一档的封面就被压小。
+     * 实测（真实 Chromium，本机 Chrome headless）：
+     *   修前 1090px 窗口 → 5 列 → 封面 200px；1206px 窗口 → 10 列 → 封面 95px
+     *   修后 1090px 窗口 → 9 列 → 封面 99.55px；1224px 窗口 → 9 列 → 封面 99.55px
+     *
+     * 所以这里钉住的不是某个具体像素，而是**"列数从哪里来"**：
+     * 列数必须由档位的基准宽度（--ui-shelf-card-min）经 auto-fill 推导，
+     * 任何按断点写死列数的写法都会让尺寸重新变成列数的函数 —— 一律判红。
+     */
+    const css = readFileSync(resolve(__dirname, "ui-test-shelf.css"), "utf8")
+    expect(css).toMatch(/grid-template-columns:\s*repeat\(\s*auto-fill,\s*minmax\(var\(--ui-shelf-card-min\),\s*1fr\)\s*\)/)
+    expect(css).toMatch(/is-large\s*\{\s*--ui-shelf-card-min:\s*\d+px/)
+    expect(css).toMatch(/is-small\s*\{\s*--ui-shelf-card-min:\s*\d+px/)
+
+    // 整份样式表里不许再出现「按固定列数」的网格定义
+    expect(
+      css,
+      "又出现了按固定列数定义的网格：这会让封面尺寸重新变成列数的函数（窗口越宽封面越小）",
+    ).not.toMatch(/grid-template-columns:\s*repeat\(\s*\d/)
+
+    // 反向控制：媒体查询里只许改行距/列距等不改变列数的属性。
+    // 列距一旦在断点处改动，列数就会跟着跳 —— 那正是本缺陷的形态。
+    const mediaBlocks = css.match(/@media[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/g) ?? []
+    expect(mediaBlocks.length, "没解析出任何媒体查询 —— 这条守卫会退化成空转").toBeGreaterThan(0)
+    for (const block of mediaBlocks) {
+      expect(block, `媒体查询里又写死了列数：\n${block}`).not.toMatch(/grid-template-columns/)
     }
   })
 })

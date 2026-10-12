@@ -99,13 +99,30 @@
 }
 
 .ui-test-root .ui-test-shelf .ui-test-cover-sizes { display: flex; gap: 4px; flex: 0 0 auto; }
+/* 列数由**卡片基准宽度**推导，而不是写死列数。
+ *
+ * 旧写法是「每档一个固定列数 + 媒体查询在 1180px 处换一套列数」：
+ *   ≥1180px：小封面 10 列、大封面 6 列   →  卡片 95px / 160px
+ *   < 1180px：小封面  5 列、大封面 3 列   →  卡片 200px / 330px
+ * 可窗口拉到 1180 以上时列数**增加**，同一档的封面反而被压小 ——
+ * 用户实测：同一档「小封面」，1090px 窗口是 200px 宽，拉到 1206px 只剩 95px。
+ * 根因不是"断点选得不好"，而是"卡片尺寸被写成了列数的函数"。
+ *
+ * 现在改成：档位只决定**卡片基准宽度**（--ui-shelf-card-min），列数交给 auto-fill
+ * 按容器宽度自己推。容器宽度（max-width 1088px）一旦触顶就不再变，
+ * 于是窗口继续拉宽只会多排一列，封面尺寸恒定不动。
+ *
+ * 用 auto-fill 而不是 auto-fit：后者会把空轨道折叠掉，书少时卡片被拉伸填满整行，
+ * 卡面尺寸又会随"书架里有几本书"变化 —— 同一档位两张窗口宽度不同的截图就对不上了。
+ * 行距/列距见各档规则，媒体查询只收行距、**绝不碰列距**（列距一动，列数就跳）。 */
 .ui-test-root .ui-test-shelf .ui-test-books-grid {
+  --ui-shelf-card-min: 180px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--ui-shelf-card-min), 1fr));
   gap: 30px 28px;
 }
-.ui-test-root .ui-test-shelf .ui-test-books-grid.is-large { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 22px 16px; }
-.ui-test-root .ui-test-shelf .ui-test-books-grid.is-small { grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 14px 10px; }
+.ui-test-root .ui-test-shelf .ui-test-books-grid.is-large { --ui-shelf-card-min: 150px; gap: 30px 20px; }
+.ui-test-root .ui-test-shelf .ui-test-books-grid.is-small { --ui-shelf-card-min: 92px; gap: 28px 18px; }
 
 .ui-test-shelf-menu { position: fixed; z-index: 80; display: grid; min-width: 148px; padding: 6px; border-radius: 10px; background: var(--ui-paper); box-shadow: 0 12px 32px #18241c24; }
 .ui-test-shelf-menu button, .ui-test-shelf-rename button { min-height: 34px; border: 0; border-radius: 7px; background: transparent; text-align: left; padding: 6px 10px; }
@@ -115,7 +132,19 @@
 .ui-test-shelf-rename-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: -2px; }
 .ui-test-shelf-rename input { min-height: 40px; border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px 10px; }
 .ui-test-root .ui-test-shelf .ui-test-book-card {
-  display: block;
+  /* 用 flex 列 + 顶部对齐，而不是 display: block。
+   *
+   * button 的匿名内容盒在 Chrome 里**默认垂直居中**（即使写了 display: block 也仍然居中），
+   * 而网格默认把卡片拉伸到「本行最高那张卡」的高度。于是：
+   *   书架里只要有一本书名很长（标题多排一行），同行其它卡片的封面就被推下去，
+   *   几张封面不再在同一条水平线上。
+   * 用户的原话是「小标题虽然小，但显示时应该与图片在同一个高度，字体可以向下排列」——
+   * 允许标题逐行往下排，但**封面必须对齐**。
+   * flex 列容器 + justify-content: flex-start 从顶部起排，卡面就永远齐平。 */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   width: 100%;
   min-width: 0;
   padding: 0;
@@ -192,15 +221,21 @@
 .ui-test-root .ui-test-shelf .is-large .ui-test-book-next,
 .ui-test-root .ui-test-shelf .is-small .ui-test-book-next { display: none; }
 .ui-test-root .ui-test-shelf .ui-test-book-info { display: block; padding: 12px 0 0; }
+/* 书名不截断：不管多长都逐行向下排，完整显示（对齐参考软件的行为）。
+   卡片宽度由网格轨道锁定，多排几行只会让这张卡更高，
+   不会撑宽卡片、也不会挤动旁边的间距。 */
+/*
+ * 封面下方的书名走**常规字重**。
+ * 用户明确要求：书架里封面下方的标题不要加粗（此前是 600）。
+ * 加粗只在小字号下制造"一排黑块"的压迫感，书名本身已经靠字号和独立成行
+ * 与下面的「字数 / 状态」区分开了，不需要再用字重强调。
+ */
 .ui-test-root .ui-test-shelf .ui-test-book-title {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  display: block;
   overflow-wrap: anywhere;
   white-space: normal;
   margin: 0 0 7px;
-  font: 600 1rem/1.5rem var(--ui);
+  font: 400 1rem/1.5rem var(--ui);
   color: var(--ui-ink);
 }
 .ui-test-root .ui-test-shelf .ui-test-book-words { display: block; color: var(--ui-muted); font-size: 0.875rem; line-height: 1.375rem; font-variant-numeric: tabular-nums; }
@@ -410,21 +445,26 @@
 .ui-test-create-project-dialog input:focus-visible { outline: 2px solid var(--ui-accent, #45624f); outline-offset: 2px; }
 
 @media (width < 1180px) {
-  .ui-test-root .ui-test-shelf .ui-test-books-grid,
-  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-large { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-small { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  /* 窄窗口下容器自己变窄、auto-fill 自己减列，这里**只收行距**。
+     列距一律保持与各档基础值相同 —— 列距一旦在断点处改动，
+     列数就会跟着跳，卡片尺寸又会被写回成「列数的函数」（本文件开头那段旧缺陷）。 */
+  .ui-test-root .ui-test-shelf .ui-test-books-grid { gap: 26px 28px; }
+  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-large { gap: 26px 20px; }
+  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-small { gap: 24px 18px; }
 }
 @media (width < 900px) {
-  .ui-test-root .ui-test-shelf .ui-test-books-grid,
-  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-large { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-small { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ui-test-root .ui-test-shelf .ui-test-books-grid { gap: 24px 28px; }
+  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-large { gap: 24px 20px; }
+  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-small { gap: 22px 18px; }
   .ui-test-root .ui-test-shelf .ui-test-shelf-hero { align-items: flex-start; }
 }
 @media (width < 640px) {
   .ui-test-root .ui-test-shelf .ui-test-shelf-hero { flex-direction: column; align-items: stretch; }
 }
 @media (width < 480px) {
-  .ui-test-root .ui-test-shelf .ui-test-books-grid { grid-template-columns: 1fr; gap: 28px; }
+  .ui-test-root .ui-test-shelf .ui-test-books-grid { gap: 22px 28px; }
+  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-large { gap: 22px 20px; }
+  .ui-test-root .ui-test-shelf .ui-test-books-grid.is-small { gap: 20px 16px; }
   .ui-test-root .ui-test-shelf .ui-test-shelf-inner { padding: 17px 20px 35px; }
   .ui-test-root .ui-test-shelf .ui-test-shelf-hero { margin: 8px 0 21px; }
   .ui-test-root .ui-test-shelf .ui-test-shelf-count > span:last-child { display: none; }
