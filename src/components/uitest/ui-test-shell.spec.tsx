@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import postcss from "postcss"
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -65,6 +68,63 @@ beforeEach(() => {
   host = document.createElement("div"); document.body.append(host); root = createRoot(host)
 })
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.clearAllMocks(); vi.restoreAllMocks() })
+
+/**
+ * 顶栏书名可见性的判别函数：找出所有会**让书名消失**的规则。
+ *
+ * 缺陷形态：`.ui-test-current-book { display: none }` 曾挂在 `@media (max-width: 1179px)` 上。
+ * 于是同一个界面：1205px 窗口显示「青幕AI写作 楚白」，把窗口拖到 1098px 书名凭空消失。
+ * 用户报的是「打开章节或大纲时书名时有时无」—— 与打开的是什么内容无关，纯粹是窗口宽度。
+ * 窄屏该做的是**收窄**（走省略号，`title` 属性仍可悬停看全名），不是**消失**。
+ *
+ * 抽成函数是为了能做反向控制：只断言真实样式表"为空"，可能是判别函数恒返回空集（假绿）。
+ */
+function findBookHiddenRules(css: string): string[] {
+  const hidden: string[] = []
+  postcss.parse(css).walkRules((rule) => {
+    if (!rule.selector.includes(".ui-test-current-book")) return
+    rule.walkDecls((decl) => {
+      const prop = decl.prop.toLowerCase()
+      const value = decl.value.trim().toLowerCase()
+      if (prop === "display" && value === "none") hidden.push(rule.selector)
+      if (prop === "visibility" && value === "hidden") hidden.push(rule.selector)
+      if (prop === "max-width" && /^0(px|rem|em)?$/.test(value)) hidden.push(rule.selector)
+    })
+  })
+  return hidden
+}
+
+describe("顶栏书名的可见性", () => {
+  it("任何窗口宽度下都不隐藏书名，只收窄走省略号", () => {
+    const css = readFileSync(resolve(__dirname, "ui-test.css"), "utf8")
+    expect(
+      findBookHiddenRules(css),
+      "顶栏书名又被某条规则藏起来了：窄屏应该收窄 max-width 走省略号，而不是让它消失",
+    ).toEqual([])
+
+    // 反向控制：判别函数必须真的抓得到隐藏写法，否则上面那条是恒绿
+    expect(findBookHiddenRules(".ui-test-current-book { display: none }")).toHaveLength(1)
+    expect(findBookHiddenRules("@media (max-width: 1179px) { .ui-test-current-book { display: none } }")).toHaveLength(1)
+    expect(findBookHiddenRules(".ui-test-current-book { visibility: hidden }")).toHaveLength(1)
+    expect(findBookHiddenRules(".ui-test-current-book { max-width: 0 }")).toHaveLength(1)
+    // 合法写法不许被误伤
+    expect(findBookHiddenRules("@media (max-width: 1179px) { .ui-test-current-book { max-width: 84px } }")).toEqual([])
+
+    // 三个窄屏断点都必须显式声明 max-width，否则窗口一窄会被更宽的同名值盖回去
+    //（同一块里 `.ui-test-current-book` 前面还有别的规则，所以要先按大括号配平切出整块）
+    const mediaBlocks = new Map(
+      [...css.matchAll(/@media\s*\(max-width:\s*(\d+)px\)\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g)]
+        .map((match) => [match[1], match[2]] as const),
+    )
+    for (const width of ["1179", "959", "767"]) {
+      const block = mediaBlocks.get(width)
+      expect(block, `找不到 @media (max-width: ${width}px) 块`).toBeTruthy()
+      const capped = /\.ui-test-current-book\s*\{[^}]*max-width:\s*(\d+)px/.exec(block!)
+      expect(capped, `断点 ${width}px 没有给 .ui-test-current-book 收窄 max-width`).toBeTruthy()
+      expect(Number(capped![1]), `断点 ${width}px 把书名宽度收成了 0`).toBeGreaterThan(0)
+    }
+  })
+})
 
 describe("独立UI测试版外壳", () => {
   it("书名保留在品牌区，书架固定按钮钉在主导航最左端（大纲左侧）", async () => {

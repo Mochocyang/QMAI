@@ -184,7 +184,21 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
  * 而非 `pointer`，去掉会让这个入口看起来不可点。
  */
 .ui-test-nav-shelf { cursor: pointer; }
-.ui-test-current-book { font-size: 0.75rem; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+/*
+ * 顶栏书名（当前打开的小说）。
+ *
+ * ⚠️ 它**永远不隐藏**。这里曾有一条 `.ui-test-current-book { display: none }` 挂在
+ * `@media (max-width: 1179px)` 上，于是同一个界面：1205px 窗口显示「青幕AI写作 楚白」，
+ * 把窗口拖到 1098px 就只剩「青幕AI写作」，书名凭空消失。
+ * 用户据此报「打开章节或大纲内容时书名时有时无」—— 那与打开的是章节还是大纲无关，
+ * 纯粹是窗口宽度踩到了断点。窄屏该做的是**收窄**，不是**消失**：
+ * 每个断点只改 max-width，长书名走省略号；`title` 属性仍然挂着全名，悬停可看完整。
+ *
+ * `min-width: 0` 不能省：它是 flex 子项，默认 `min-width: auto`，
+ * 不写这一条时 max-width 与 text-overflow 会被内容宽度顶开、形同虚设。
+ * `max-width` 在宽屏也给一个上限，否则超长书名会把品牌区撑破第一列、压到导航上。
+ */
+.ui-test-current-book { font-size: 0.75rem; min-width: 0; max-width: 260px; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .ui-test-nav { display: flex; gap: 3px; padding: 3px; background: var(--ui-panel); border-radius: 9px; }
 .ui-test-nav-slot { position: relative; }
 .ui-test-menu-pop.ui-test-nav-menu { position: absolute; top: calc(100% + 8px); right: auto; left: 0; z-index: 70; width: 168px; max-width: none; max-height: none; overflow: visible; overscroll-behavior: auto; padding: 8px; }
@@ -413,9 +427,9 @@ html[data-ui-test-skin] .ui-test-contact-dialog { width: min(920px, calc(100vw -
 /* 下面四条断点里的顶部栏数值必须与基准同向收窄（跟随上面「顶部栏收窄」那段）；
    漏改任何一条，窗口一窄就会被更宽的值盖回去，表现为"改了个寂寞"。 */
 @media (max-width: 1279px) { .ui-test-current-book { max-width: 110px; } .ui-test-nav-item, .ui-test-nav-shelf { padding-inline: 14px; } .ui-test-header { gap: 8px; padding-inline: 12px; } .ui-test-win-actions { margin-left: 4px; } }
-@media (max-width: 1179px) { .ui-test-current-book { display: none; } .ui-test-brand { gap: 6px; } .ui-test-header { padding-inline: 10px; } .ui-test-nav-item, .ui-test-nav-shelf { padding-inline: 12px; } }
-@media (max-width: 959px) { .ui-test-brand-name { font-size: 1rem; } .ui-test-header { gap: 6px; padding-inline: 9px; } .ui-test-nav-item, .ui-test-nav-shelf { padding-inline: 10px; } .ui-test-actions { gap: 2px; } .ui-test-win-btn { width: 16px; } }
-@media (max-width: 767px) { .ui-test-app { border-radius: 8px; clip-path: inset(0 round 8px); } .ui-test-root[data-platform="macos"] .ui-test-brand { padding-left: 0; } .ui-test-header { display: flex; flex-wrap: wrap; align-content: center; justify-content: space-between; height: 92px; min-height: 92px; padding: 6px 12px; row-gap: 4px; } .ui-test-nav { order: 3; width: 100%; padding: 3px; } .ui-test-nav-item, .ui-test-nav-shelf { flex: 1; padding: 6px; } .ui-test-win-actions { display: none; } .ui-test-brand { gap: 6px; } .ui-test-brand > svg { width: 16px; height: 16px; } .ui-test-icon-btn { width: 28px; min-height: 28px; } .ui-test-menu-pop:not(.ui-test-nav-menu) { position: fixed; top: 92px; right: 16px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 100px); } .ui-test-tree-more { opacity: 1; } }
+@media (max-width: 1179px) { .ui-test-current-book { max-width: 84px; } .ui-test-brand { gap: 6px; } .ui-test-header { padding-inline: 10px; } .ui-test-nav-item, .ui-test-nav-shelf { padding-inline: 12px; } }
+@media (max-width: 959px) { .ui-test-brand-name { font-size: 1rem; } .ui-test-current-book { max-width: 72px; } .ui-test-header { gap: 6px; padding-inline: 9px; } .ui-test-nav-item, .ui-test-nav-shelf { padding-inline: 10px; } .ui-test-actions { gap: 2px; } .ui-test-win-btn { width: 16px; } }
+@media (max-width: 767px) { .ui-test-app { border-radius: 8px; clip-path: inset(0 round 8px); } .ui-test-root[data-platform="macos"] .ui-test-brand { padding-left: 0; } .ui-test-header { display: flex; flex-wrap: wrap; align-content: center; justify-content: space-between; height: 92px; min-height: 92px; padding: 6px 12px; row-gap: 4px; } .ui-test-nav { order: 3; width: 100%; padding: 3px; } .ui-test-nav-item, .ui-test-nav-shelf { flex: 1; padding: 6px; } .ui-test-win-actions { display: none; } .ui-test-brand { gap: 6px; } .ui-test-current-book { max-width: 160px; } .ui-test-brand > svg { width: 16px; height: 16px; } .ui-test-icon-btn { width: 28px; min-height: 28px; } .ui-test-menu-pop:not(.ui-test-nav-menu) { position: fixed; top: 92px; right: 16px; max-width: calc(100vw - 32px); max-height: calc(100dvh - 100px); } .ui-test-tree-more { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ui-test-root *, html[data-ui-test-skin] [data-slot="dialog-content"] { transition: none !important; animation: none !important; } }
 
 /* 文档行把完整标题留给用户，低频动作在悬停/键盘焦点时原位出现。 */
