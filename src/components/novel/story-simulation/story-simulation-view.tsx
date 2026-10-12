@@ -81,6 +81,7 @@ import type {
 } from "@/lib/novel/story-simulation/types";
 
 import { SimulationConfigPanel } from "./simulation-config-panel";
+import { averageDirectorScore } from "@/lib/novel/story-simulation/result-summary";
 import { FrameworkConfirmPanel } from "./framework-confirm-panel";
 import { SimulationReportView } from "./simulation-report-view";
 import { StoryDraftView } from "./story-draft-view";
@@ -911,6 +912,16 @@ export function StorySimulationView() {
         onProgress: (label) => setProgress(phaseBaseProgressRef.current, label),
         signal: ac.signal,
       });
+
+      // 把导演评分落进报告：历史结果列表读的是磁盘上的报告，而导演评估只存在
+      // 内存分支里。不落盘的话，列表永远显示不出「导演均分」。
+      const directorEvals =
+        useStorySimulationStore.getState().directorEvaluations;
+      const directorAverageScore = averageDirectorScore(directorEvals);
+      if (directorAverageScore !== null) {
+        report.directorAverageScore = directorAverageScore;
+        report.directorEvaluationCount = directorEvals.length;
+      }
 
       if (ac.signal.aborted) {
         await savePartialSimulationResult("用户取消推演");

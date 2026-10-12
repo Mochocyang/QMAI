@@ -311,6 +311,15 @@ export interface SimulationReport {
    * 编的」必须可核对。审计把通过/未通过的条数摊开，未通过的原文也留着。
    */
   evidenceAudit?: ReportEvidenceAudit
+  /**
+   * 本次推演的导演评分均值（P2-3）。未启用导演、或旧存档没有该字段时为 undefined。
+   *
+   * 存进报告是为了让历史结果列表能显示「导演均分」—— 导演评估本身只存在内存
+   * 分支里，列表读的是磁盘上的报告，不落盘就看不到。
+   */
+  directorAverageScore?: number
+  /** 参与均值的评估次数，用于区分「没跑导演」与「跑了但均值恰好是某值」 */
+  directorEvaluationCount?: number
 }
 
 export interface ReportEvidenceAudit {
