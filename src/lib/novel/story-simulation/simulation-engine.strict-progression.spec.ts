@@ -9,6 +9,16 @@ import type {
 import { runSimulation } from "@/lib/novel/story-simulation/simulation-engine"
 
 let mockRun: any
+let mockStreamChat: any
+
+/**
+ * 主循环默认走普通路径（`agentDecideAndAct` → `streamChat`），只在可见历史超出
+ * 内联窗口时才升级到 ReAct。这些用例的轮次都很短（可见事件数远小于窗口），
+ * 因此每次「角色决策」都对应一次 streamChat 调用 —— 用它来数实际轮数。
+ */
+vi.mock("@/lib/llm-client", () => ({
+  streamChat: (...args: unknown[]) => mockStreamChat(...args),
+}))
 
 vi.mock("@/lib/agent/runner", () => ({
   AgentRunner: class {
@@ -106,6 +116,23 @@ function makeFramework(): StoryFramework {
 }
 
 async function runMode(mode: SimulationMode, maxRoundsPerNode: number) {
+  mockStreamChat = vi.fn(
+    async (
+      _config: unknown,
+      _messages: unknown,
+      callbacks: { onToken: (token: string) => void },
+    ) => {
+      callbacks.onToken(
+        JSON.stringify({
+          type: "speak",
+          content: "推进事件",
+          visibility: "all",
+          motivation: "推进剧情",
+          plot_push: "推进",
+        }),
+      )
+    },
+  )
   mockRun = vi.fn().mockResolvedValue({
     toolCalls: [],
     roundsUsed: 1,
@@ -139,7 +166,8 @@ async function runMode(mode: SimulationMode, maxRoundsPerNode: number) {
   )
 
   return {
-    agentRuns: mockRun.mock.calls.length,
+    // 普通路径的每次调用 = 一次角色决策
+    agentRuns: mockStreamChat.mock.calls.length + mockRun.mock.calls.length,
     goalChecks: vi.mocked(embed).mock.calls.filter(
       ([text]) => text === "完成开端",
     ).length,

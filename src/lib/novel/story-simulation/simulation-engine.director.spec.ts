@@ -11,6 +11,20 @@ let mockRun: any
 let mockDirectorEvaluate: any
 let mockShouldInjectEvent: any
 
+/**
+ * 2026-07 起主循环**默认走普通路径**（`agentDecideAndAct`，每轮 1 次调用），
+ * 只有角色的可见历史超出内联窗口时才升级到 ReAct（`AgentRunner`）。本用例
+ * 的开局轮次走的是普通路径，所以两条路径都要 mock，并同时收集它们的提示词。
+ */
+vi.mock("@/lib/llm-client", () => ({
+  streamChat: (...args: unknown[]) => mockStreamChat(...args),
+}))
+
+let mockStreamChat: any
+
+/** 普通路径的 user prompt 文本，供「注入事件是否出现在提示词里」断言使用。 */
+const plainUserTexts: string[] = []
+
 vi.mock("@/lib/agent/runner", () => ({
   AgentRunner: class {
     run(...args: unknown[]) {
@@ -178,6 +192,27 @@ describe("runSimulation director agent", () => {
   beforeEach(() => {
     // 0.99 高于所有模式的 randomEventChance，避免随机事件干扰断言
     vi.spyOn(Math, "random").mockReturnValue(0.99)
+    plainUserTexts.length = 0
+    mockStreamChat = vi.fn(
+      async (
+        _config: unknown,
+        messages: { role: string; content: string }[],
+        callbacks: { onToken: (token: string) => void },
+      ) => {
+        for (const message of messages ?? []) {
+          if (message?.role === "user") plainUserTexts.push(String(message.content))
+        }
+        callbacks.onToken(
+          JSON.stringify({
+            type: "speak",
+            content: "推进事件",
+            visibility: "all",
+            motivation: "推进剧情",
+            plot_push: "推进",
+          }),
+        )
+      },
+    )
     mockRun = vi.fn().mockResolvedValue({
       toolCalls: [],
       roundsUsed: 1,
@@ -231,7 +266,7 @@ describe("runSimulation director agent", () => {
 
     await run({ directorEnabled: true })
 
-    const userTexts: string[] = []
+    const userTexts: string[] = [...plainUserTexts]
     for (const call of mockRun.mock.calls as unknown[][]) {
       const messages = (call[2] as { role: string; content: string }[]) ?? []
       for (const message of messages) {

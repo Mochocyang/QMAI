@@ -40,7 +40,11 @@ import type {
   StoryNode,
   TimelineEvent,
 } from "@/lib/novel/story-simulation/types"
-import { calcMaxRoundsPerNode, getModeConfig } from "@/lib/novel/story-simulation/types"
+import {
+  INLINE_VISIBLE_EVENT_LIMIT,
+  calcMaxRoundsPerNode,
+  getModeConfig,
+} from "@/lib/novel/story-simulation/types"
 import type { ModeConfig } from "@/lib/novel/story-simulation/types"
 
 // ── 对外接口 ──
@@ -909,6 +913,25 @@ function maybeDeriveRumor(
 
 // ── 内部辅助：单个 Agent 决策并产生事件 ──
 
+/**
+ * 是否需要升级到 ReAct（工具）路径。
+ *
+ * 普通路径只把最近 `INLINE_VISIBLE_EVENT_LIMIT` 条可见事件内联进提示词，
+ * 一次调用就能出结果；ReAct 路径让它能用 `recall` 等工具主动检索，代价是
+ * 每轮 1~3 次调用。
+ *
+ * 所以判据是「普通路径看不全」：可见历史已经超出内联窗口，模型才会因为缺少
+ * 旧事件而需要主动检索。开局几轮事件很少，走普通路径即可 —— 改造前是每轮都
+ * 先走 ReAct 再按需降级，方向反了，绝大多数轮次白付 2~3 倍调用。
+ */
+export function shouldEscalateToReact(visibleEventCount: number): boolean {
+  return visibleEventCount > INLINE_VISIBLE_EVENT_LIMIT
+}
+
+// 常量定义在 types.ts（成本预估也要用，放这里会与 types 形成循环依赖）。
+// 在这里再导出一次，让「内联窗口 + 升级判据」这对概念留在同一个模块下。
+export { INLINE_VISIBLE_EVENT_LIMIT }
+
 async function agentDecideAndAct(
   agent: NovelAgent,
   node: StoryNode,
@@ -922,7 +945,11 @@ async function agentDecideAndAct(
   modeHint?: string,
 ): Promise<{ parsed: ParsedAction; tlEvent: TimelineEvent; simEvent: SimulationEvent } | null> {
   // 1. 观察：筛选该 Agent 可见的时间线事件和传闻
-  const visibleEvents = getBlackboardVisibleEvents(blackboard, agent.characterId, 10)
+  const visibleEvents = getBlackboardVisibleEvents(
+    blackboard,
+    agent.characterId,
+    INLINE_VISIBLE_EVENT_LIMIT,
+  )
   const visibleRumors = getBlackboardVisibleRumors(blackboard, agent.characterId, 5)
 
   // 2. 构建上下文（基于认知边界）
@@ -1344,27 +1371,19 @@ export async function runSimulation(
           const currentAgent = state.activeAgents.get(agent.characterId)
           if (!currentAgent) continue
 
+          // 默认走普通路径（每轮 1 次调用）。只有当该角色的可见历史已经超出
+          // 普通路径的内联窗口、确实需要主动检索时，才升级到 ReAct（1~3 次）。
+          const visibleEventCount = getBlackboardVisibleEvents(
+            blackboard,
+            currentAgent.characterId,
+            INLINE_VISIBLE_EVENT_LIMIT + 1,
+          ).length
+
           let result: Awaited<ReturnType<typeof agentDecideAndAct>> | null = null
           try {
-            try {
-              result = await agentDecideAndActWithReact(
-                currentAgent,
-                node,
-                state,
-                llmConfig,
-                extraction,
-                recentEventDescs,
-                round === 0 ? nodeInjectionEvent : undefined,
-                blackboard,
-                signal,
-                modeConfig.behaviorHint,
-              )
-            } catch (reactErr) {
-              if (reactErr instanceof ModelDoesNotSupportToolsError) {
-                console.warn(
-                  `[simulation] Agent ${currentAgent.name} ReAct 路径不支持工具调用，降级为普通路径`,
-                )
-                result = await agentDecideAndAct(
+            if (shouldEscalateToReact(visibleEventCount)) {
+              try {
+                result = await agentDecideAndActWithReact(
                   currentAgent,
                   node,
                   state,
@@ -1376,9 +1395,40 @@ export async function runSimulation(
                   signal,
                   modeConfig.behaviorHint,
                 )
-              } else {
-                throw reactErr
+              } catch (reactErr) {
+                if (reactErr instanceof ModelDoesNotSupportToolsError) {
+                  console.warn(
+                    `[simulation] Agent ${currentAgent.name} ReAct 路径不支持工具调用，降级为普通路径`,
+                  )
+                  result = await agentDecideAndAct(
+                    currentAgent,
+                    node,
+                    state,
+                    llmConfig,
+                    extraction,
+                    recentEventDescs,
+                    round === 0 ? nodeInjectionEvent : undefined,
+                    blackboard,
+                    signal,
+                    modeConfig.behaviorHint,
+                  )
+                } else {
+                  throw reactErr
+                }
               }
+            } else {
+              result = await agentDecideAndAct(
+                currentAgent,
+                node,
+                state,
+                llmConfig,
+                extraction,
+                recentEventDescs,
+                round === 0 ? nodeInjectionEvent : undefined,
+                blackboard,
+                signal,
+                modeConfig.behaviorHint,
+              )
             }
           } catch (agentErr) {
             if (signal?.aborted || (agentErr instanceof Error && agentErr.name === "AbortError")) {

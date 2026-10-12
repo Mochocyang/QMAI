@@ -496,12 +496,28 @@ export const SIMULATION_CALL_WARN_THRESHOLD = 40
 export const DEFAULT_ESTIMATED_CHARACTER_COUNT = 5
 
 /**
- * 每角色每轮的平均调用次数。
+ * 每角色每轮的平均调用次数 —— **ReAct 路径**。
  *
  * ReAct 工具循环下是 1~3 次（`simulation-engine.ts` 的 agentDecideAndActWithReact），
- * 取中点 1.5 作为期望值。
+ * 取中点 1.5 作为期望值。普通路径固定 1 次，见 `PLAIN_CALLS_PER_TURN`。
  */
-const AGENT_CALLS_PER_TURN = 1.5
+const REACT_CALLS_PER_TURN = 1.5
+
+/** 普通路径每轮固定一次调用（`agentDecideAndAct`）。 */
+const PLAIN_CALLS_PER_TURN = 1
+
+/**
+ * 普通路径内联给模型的历史事件条数上限（P1-9）。
+ *
+ * 这个数字同时决定「什么时候需要升级到 ReAct」——见 `simulation-engine.ts` 的
+ * `shouldEscalateToReact`。定义在这里（而不是引擎里）是因为成本预估
+ * `estimateSimulationCalls` 也要用它，而 `types.ts` 是被引擎 import 的一方，
+ * 反向 import 会形成循环依赖。
+ *
+ * 两者必须共用同一个常量，否则内联窗口与升级阈值会各自漂移，出现
+ * 「明明没看全却不升级」或「看全了还升级」的错配。
+ */
+export const INLINE_VISIBLE_EVENT_LIMIT = 10
 
 export interface SimulationCallEstimate {
   /** 节点数 N（`calcNodeCount`） */
@@ -512,6 +528,8 @@ export interface SimulationCallEstimate {
   activeAgents: number
   /** Agent 决策调用 */
   agentCalls: number
+  /** 其中走 ReAct（工具）路径的决策次数 */
+  reactTurns: number
   /** 节点目标判定的 embedding 调用 */
   embeddingCalls: number
   /** 导演 Agent 评估调用 */
@@ -531,7 +549,11 @@ export interface SimulationCallEstimate {
  * 基础轮数 = simulationRounds || calcMaxRoundsPerNode(字数)    types.ts
  * R = max(1, round(基础轮数 × 模式轮数乘数))                   simulation-engine.ts
  * A = max(1, ceil(角色数 × 模式活跃比例))                      multi-agent-orchestrator.ts
- * agent   = N × R × A × 1.5        （每角色每轮 1~3 次，取中点）
+ *
+ * 路径（P1-9）：第 r 轮开始时该角色可见事件约 r × A 条，
+ *   不超过内联窗口 INLINE_VISIBLE_EVENT_LIMIT 的轮次走普通路径（1 次调用），
+ *   超出的轮次升级到 ReAct（约 1.5 次调用）
+ * agent   = N × A × (普通轮数 × 1 + ReAct 轮数 × 1.5)
  * embed   = strict ? N + N×R : 0   （expectedOutcome 按节点缓存一次 + 事件文本每轮一次）
  * director= 启用 ? N-1 : 0         （引擎只评估 ni < totalNodes-1）
  * fixed   = 1（报告）+ N（逐节点草稿）
@@ -541,8 +563,9 @@ export interface SimulationCallEstimate {
  * strict 模式根本不做目标判定（0 次），P0-5 之后 `expectedOutcome` 每节点只算
  * 一次（`N` 而非 `N×R`），所以这里按实际实现写。
  *
- * 这是**量级预估**而非精确值：是否走 ReAct 工具循环、节点目标是否提前达成，
- * 都会让实际次数偏离。它的用途是让用户在点击前感知代价。
+ * 这是**量级预估**而非精确值：可见事件数的增长是按「每个活跃角色每轮各产出一条
+ * 可见事件」估的，实际还受可见性（`visibility`）与随机事件影响；模型是否真的
+ * 用满 ReAct 的轮次同样不定。它的用途是让用户在点击前感知代价。
  */
 export function estimateSimulationCalls(input: {
   targetWords: number
@@ -570,7 +593,16 @@ export function estimateSimulationCalls(input: {
     Math.ceil(characterCount * Math.max(0, modeConfig.agentSubsetRatio)),
   )
 
-  const agentCalls = nodeCount * roundsPerNode * activeAgents * AGENT_CALLS_PER_TURN
+  // 第 r 轮（0 基）开始时可见事件约 r × A 条；≤ 窗口则走普通路径。
+  const lastPlainRound = Math.floor(INLINE_VISIBLE_EVENT_LIMIT / activeAgents)
+  const plainRounds = Math.min(roundsPerNode, lastPlainRound + 1)
+  const reactRounds = Math.max(0, roundsPerNode - plainRounds)
+  const reactTurns = nodeCount * activeAgents * reactRounds
+
+  const agentCalls =
+    nodeCount *
+    activeAgents *
+    (plainRounds * PLAIN_CALLS_PER_TURN + reactRounds * REACT_CALLS_PER_TURN)
   const embeddingCalls = modeConfig.strictNodeProgression
     ? nodeCount + nodeCount * roundsPerNode
     : 0
@@ -582,6 +614,7 @@ export function estimateSimulationCalls(input: {
     roundsPerNode,
     activeAgents,
     agentCalls,
+    reactTurns,
     embeddingCalls,
     directorCalls,
     fixedCalls,

@@ -309,6 +309,9 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
           <p className="mt-2 leading-relaxed text-muted-foreground">
             {estimate.nodeCount} 个节点 × {estimate.roundsPerNode} 轮 × 约{" "}
             {estimate.activeAgents} 个活跃角色
+            {estimate.reactTurns > 0
+              ? `，其中 ${estimate.reactTurns} 次需主动检索（ReAct）`
+              : ""}
             {estimate.embeddingCalls > 0
               ? `，含 ${estimate.embeddingCalls} 次目标判定`
               : ""}
