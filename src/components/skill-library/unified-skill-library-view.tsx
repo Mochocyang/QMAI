@@ -35,6 +35,7 @@ import { WritingSkillLibraryView } from "./writing-skill-library-view"
 import { WritingStyleLibraryView } from "./writing-style-library-view"
 import { FavoriteListView } from "./favorite-list-view"
 import { PersonaSkillView } from "./persona-skill-view"
+import { PersonaSkillEvolutionPanel } from "./persona-skill-evolution-panel"
 import { StyleEvolutionPanel } from "./style-evolution-panel"
 
 /**
@@ -1236,7 +1237,17 @@ function SkillLibraryContent({
   onBack: () => void
 }) {
   if (activeTab === "skillFavorites") return <FavoriteListView />
-  if (activeTab === "personaSkillLibrary") return <PersonaSkillView />
+  if (activeTab === "personaSkillLibrary")
+    return (
+      <>
+        {/*
+         * 人物 Skill tab 顶部的自进化开关面板，同文风 tab 的 StyleEvolutionPanel：
+         * 「一块说明 + 一个开关」，挂在列表之上、不进 SKILL_EDITORS。
+         */}
+        <PersonaSkillEvolutionPanel />
+        <PersonaSkillView />
+      </>
+    )
   const Editor = SKILL_EDITORS[activeTab]
   if (!editing) {
     /*

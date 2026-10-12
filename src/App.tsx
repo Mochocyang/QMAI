@@ -162,6 +162,17 @@ function App() {
       } catch (err) {
         console.warn("[startup] 文风自进化 tick 启动失败:", err)
       }
+
+      /*
+       * 「人物 Skill 自进化」的启动 tick：节律、开关、in-flight 守卫与文风完全同构
+       * （都由被调用方把关），所以同样 fire-and-forget。
+       */
+      try {
+        const { runPersonaSkillEvolutionTick } = await import("@/lib/novel/persona-skill-evolution-runner")
+        void runPersonaSkillEvolutionTick(proj.path)
+      } catch (err) {
+        console.warn("[startup] 人物 Skill 自进化 tick 启动失败:", err)
+      }
     }
   }
 
