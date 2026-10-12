@@ -5891,6 +5891,7 @@ dependencies = [
  "encoding_rs",
  "futures",
  "image",
+ "indexmap 1.9.3",
  "keepawake",
  "lancedb",
  "md-5",

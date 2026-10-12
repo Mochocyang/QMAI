@@ -104,8 +104,8 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 30px 28px;
 }
-.ui-test-root .ui-test-shelf .ui-test-books-grid.is-large { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.ui-test-root .ui-test-shelf .ui-test-books-grid.is-small { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 22px 16px; }
+.ui-test-root .ui-test-shelf .ui-test-books-grid.is-large { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 22px 16px; }
+.ui-test-root .ui-test-shelf .ui-test-books-grid.is-small { grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 14px 10px; }
 
 .ui-test-shelf-menu { position: fixed; z-index: 80; display: grid; min-width: 148px; padding: 6px; border-radius: 10px; background: var(--ui-paper); box-shadow: 0 12px 32px #18241c24; }
 .ui-test-shelf-menu button, .ui-test-shelf-rename button { min-height: 34px; border: 0; border-radius: 7px; background: transparent; text-align: left; padding: 6px 10px; }
@@ -143,8 +143,9 @@
   color: #fffff3;
   isolation: isolate;
 }
-.ui-test-root .ui-test-shelf .is-large .ui-test-cover { padding: 28px; }
-.ui-test-root .ui-test-shelf .is-small .ui-test-cover { padding: 12px; border-radius: 8px; }
+.ui-test-root .ui-test-shelf .is-large .ui-test-cover { padding: 12px; border-radius: 8px; }
+.ui-test-root .ui-test-shelf .is-small .ui-test-cover { padding: 6px; border-radius: 6px; }
+.ui-test-root .ui-test-shelf .is-small .ui-test-cover::after { font-size: 3rem; right: 4px; }
 .ui-test-root .ui-test-shelf .ui-test-cover::before {
   content: "";
   position: absolute;
@@ -184,9 +185,11 @@
   font: 500 1.625rem/1.5 var(--serif);
   letter-spacing: 2px;
 }
-.ui-test-root .ui-test-shelf .is-large .ui-test-cover-title { font-size: 2rem; }
-.ui-test-root .ui-test-shelf .is-small .ui-test-cover-title { margin-top: 12px; font-size: 1rem; letter-spacing: 0; }
+.ui-test-root .ui-test-shelf .is-large .ui-test-cover-title { margin-top: 12px; font-size: 1rem; letter-spacing: 0; }
+.ui-test-root .ui-test-shelf .is-small .ui-test-cover-title { margin-top: 8px; font-size: 0.75rem; letter-spacing: 0; }
+.ui-test-root .ui-test-shelf .is-large .ui-test-cover small,
 .ui-test-root .ui-test-shelf .is-small .ui-test-cover small { display: none; }
+.ui-test-root .ui-test-shelf .is-large .ui-test-book-next,
 .ui-test-root .ui-test-shelf .is-small .ui-test-book-next { display: none; }
 .ui-test-root .ui-test-shelf .ui-test-book-info { display: block; padding: 12px 0 0; }
 .ui-test-root .ui-test-shelf .ui-test-book-title {

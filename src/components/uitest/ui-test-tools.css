@@ -1595,6 +1595,54 @@
   height: 15px;
 }
 
+/* 文风 skill 编辑器：整块铺满窗口的表单。
+   注意别复用 .ui-test-skills-search —— 那条规则带 max-width:420px，会把整列压成窄条。 */
+.ui-test-root .ui-test-style-hint {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: 9px;
+  background: var(--ui-soft);
+  color: var(--ui-muted);
+  font-size: 0.8125rem;
+}
+
+.ui-test-root .ui-test-style-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+.ui-test-root .ui-test-style-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.ui-test-root .ui-test-style-field > span {
+  color: var(--ui-muted);
+  font-size: 0.8125rem;
+}
+
+.ui-test-root .ui-test-style-field input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1.5px solid var(--ui-line);
+  border-radius: 9px;
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  font-size: 0.8125rem;
+}
+
+/* 表单里只留一个「文风内容」多行框，比人物档案（380px）略矮。 */
+.ui-test-root .ui-test-style-field .ui-test-persona-editor {
+  min-height: 240px;
+}
+
 /* 图谱：整块画布；筛选 / 洞察是画布内浮层，不再挤出固定第四列。 */
 .ui-test-root [data-ui-page="graph"] {
   overflow: hidden;
@@ -2075,6 +2123,8 @@
 }
 
 .ui-test-root .ui-test-persona-editor {
+  width: 100%;
+  box-sizing: border-box;
   min-height: 380px;
   margin-top: 14px;
   padding: 16px;
@@ -2087,6 +2137,7 @@
 }
 
 .ui-test-root .ui-test-persona-research {
+  width: 100%;
   margin-top: 16px;
   color: var(--ui-ink);
 }

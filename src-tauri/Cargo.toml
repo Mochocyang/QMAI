@@ -14,6 +14,12 @@ path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# 修复 E0107：indexmap 1.x 无 default 特性，其 build.rs 靠 autocfg 探测 std；
+# 某些环境探测失败会退化为 no_std 的 IndexMap<K,V,S>，使 schemars 0.8
+# （由 tauri-build 以 preserve_order 启用）的 Map<K,V> = IndexMap<K,V> 编译失败。
+# 关键：resolver 2 下构建依赖图与普通依赖图的特性**不统一**，而 schemars 是经
+# `tauri-build`（构建依赖）引入的，所以必须在这里显式开 std（普通依赖里那份不够）。
+indexmap = { version = "1", features = ["std"] }
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset"] }
@@ -63,6 +69,11 @@ walkdir = "2"
 tauri-plugin-single-instance = "2.4.4"
 tauri-plugin-notification = "2.4.0"
 keepawake = "0.6.1"
+# 修复 E0107：indexmap 1.x 无 default 特性，其 build.rs 靠 autocfg 探测 std；
+# 某些环境探测失败会退化为 no_std 的 IndexMap<K,V,S>，使 schemars 0.8
+# （由 tauri-build 以 preserve_order 启用）的 Map<K,V> = IndexMap<K,V> 编译失败。
+# 显式开启 std 会走 CARGO_FEATURE_STD 分支、绕过 autocfg 探测。
+indexmap = { version = "1", features = ["std"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"

@@ -139,34 +139,6 @@ const writingStyleStore = {
   ],
 }
 
-/**
- * 项目里的角色灵魂（`.qmai/character-aura.json`）。
- * ⚠️ 这个文件里**没有**内置灵魂 —— 内置的那些来自
- * `BUILT_IN_CHARACTER_AURAS` 常量，`listCharacterAuras` 无条件把它们拼在前面。
- * 所以「灵魂 tab 至少列出内置灵魂」这件事在本用例里**必须**能看到。
- */
-const characterAuraStore = {
-  customAuras: [
-    {
-      id: "custom-xu",
-      builtIn: false,
-      name: "许七安",
-      category: "古装权谋",
-      sourceNote: "来自《大奉打更人》的拆书结果",
-      corpus: "抄诗、断案、插科打诨、铜锣腰牌",
-      styleDescription: "先调侃后收束，破案时语速加快。",
-      behaviorRules: "遇事先问证据，再问动机。",
-      boundaries: "不替角色下道德结论。",
-      notes: "",
-    },
-  ],
-  // 「许七安」已真实绑定到小说人物「陈拾」，另一条绑定指向别的灵魂。
-  bindings: [
-    { characterName: "陈拾", auraId: "custom-xu" },
-    { characterName: "李四", auraId: "builtin-li-si" },
-  ],
-}
-
 async function renderLibrary() {
   const container = document.createElement("div")
   document.body.appendChild(container)
@@ -229,6 +201,8 @@ async function switchToTab(container: HTMLElement, label: string) {
   await flushEffects()
 }
 
+const WRITING_STYLE_TAB = "文风 skill"
+
 /**
  * 去掉 TS 源码里的注释（块注释与行注释），用于「对源码形状做断言」的用例。
  *
@@ -255,7 +229,6 @@ describe("UnifiedSkillLibraryView", () => {
       if (path.endsWith("de-ai-skills.json")) return JSON.stringify(deAiConfig)
       if (path.endsWith("writing-skills.json")) return JSON.stringify(writingConfig)
       if (path.endsWith(".qmai/writing-style.json")) return JSON.stringify(writingStyleStore)
-      if (path.endsWith(".qmai/character-aura.json")) return JSON.stringify(characterAuraStore)
       throw new Error("missing")
     })
     writeFileMock.mockResolvedValue(undefined)
@@ -459,23 +432,21 @@ describe("UnifiedSkillLibraryView", () => {
     expect(tabStates(container)).toEqual([
       ["去AI味技能", "true"],
       ["写作 Skill", "false"],
-      ["文风", "false"],
-      ["角色灵魂", "false"],
+      ["文风 skill", "false"],
       ["人物 Skill", "false"],
       ["收藏", "false"],
     ])
     // 初始在去AI味 tab
     expect(container.querySelector('[data-testid="unified-skill-entry-de-ai:project:quiet"]')).not.toBeNull()
 
-    await switchToTab(container, "文风")
+    await switchToTab(container, WRITING_STYLE_TAB)
 
     expect(useWikiStore.getState().activeView).toBe("writingStyleLibrary")
     // (a) 选中语义：只有「文风」是 pressed
     expect(tabStates(container)).toEqual([
       ["去AI味技能", "false"],
       ["写作 Skill", "false"],
-      ["文风", "true"],
-      ["角色灵魂", "false"],
+      ["文风 skill", "true"],
       ["人物 Skill", "false"],
       ["收藏", "false"],
     ])
@@ -503,7 +474,7 @@ describe("UnifiedSkillLibraryView", () => {
 
   it("把项目里的文风预设列成条目：类型徽章为「文风」、来源是「引用」、启用项标出「当前启用」", async () => {
     const { container, root } = await renderLibrary()
-    await switchToTab(container, "文风")
+    await switchToTab(container, WRITING_STYLE_TAB)
 
     const card = container.querySelector('[data-testid="unified-skill-entry-style:preset:cool"]')
     expect(card).not.toBeNull()
@@ -532,23 +503,22 @@ describe("UnifiedSkillLibraryView", () => {
       throw new Error("missing")
     })
     const { container, root } = await renderLibrary()
-    await switchToTab(container, "文风")
+    await switchToTab(container, WRITING_STYLE_TAB)
 
     expect(container.querySelector('[data-testid="unified-skill-entry-style:preset:cool"]')).toBeNull()
     const empty = container.querySelector(".ui-test-skills-empty")
-    expect(empty?.textContent).toContain("文风库还是空的")
+    expect(empty?.textContent).toContain("还没有文风 skill")
     expect(empty?.textContent).not.toContain("去AI味")
 
     cleanup(root, container)
   })
 
-  it("文风条目是引用：选中它不写任何文件，也不进入编辑器", async () => {
+  it("文风条目是引用：点开进入文风编辑器，且选中写进自己的槽位、不写盘", async () => {
     const { container, root } = await renderLibrary()
-    await switchToTab(container, "文风")
+    await switchToTab(container, WRITING_STYLE_TAB)
 
     const card = container.querySelector<HTMLElement>('[data-testid="unified-skill-entry-style:preset:cool"]')
     expect(card).not.toBeNull()
-    expect(card!.getAttribute("aria-pressed")).toBe("false")
     // 条目是**读项目文件**来的（引用），不是把预设复制成技能
     expect(readFileMock.mock.calls.map((call) => String(call[0]))).toContain("C:/project/.qmai/writing-style.json")
     expect(writeFileAtomicMock.mock.calls.map((call) => String(call[0]))).toEqual([])
@@ -558,44 +528,31 @@ describe("UnifiedSkillLibraryView", () => {
     })
     await flushEffects()
 
-    // 证据链：选中后**一个文件都没写**（尤其没有 writing-skills.json / .qmai/writing-style.json）
+    // 打开编辑器本身**一个文件都没写**
     expect(writeFileAtomicMock.mock.calls.map((call) => String(call[0]))).toEqual([])
-    expect(writeFileMock).not.toHaveBeenCalled()
-    // 也没有写 wiki-store 的「选中技能」状态（那会打开另一个库的编辑器）
+    // 选中 id 写进「文风 skill」自己的槽位，不写别的库（否则会打开另一个库的编辑器）
+    expect(useWikiStore.getState().selectedWritingStyleLibraryStyleId).toBe("preset:cool")
     expect(useWikiStore.getState().selectedSkillLibrarySkillId).toBeNull()
     expect(useWikiStore.getState().selectedWritingSkillLibrarySkillId).toBeNull()
+    expect(container.querySelector('[data-testid="writing-style-library-view"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="skill-library-view"]')).toBeNull()
-    expect(container.querySelector('[data-testid="writing-skill-library-view"]')).toBeNull()
-    // 但选中在界面上是可观察的
-    expect(card!.getAttribute("aria-pressed")).toBe("true")
-    expect(card!.querySelector(".ui-test-skill-card-open")).toBeNull()
 
     cleanup(root, container)
   })
 
-  it("文风 tab 不提供新建/导入/编辑入口（本批不新增编辑能力）", async () => {
+  it("文风 tab 提供「+ 新建文风」入口，卡片可打开编辑器、不可收藏", async () => {
     const { container, root } = await renderLibrary()
-    await switchToTab(container, "文风")
+    await switchToTab(container, WRITING_STYLE_TAB)
 
     expect(
       Array.from(container.querySelectorAll('[data-testid="skill-library-header-actions"] button'))
         .map((button) => button.textContent?.trim()),
-    ).toEqual([])
-    expect(container.querySelector(".ui-test-skill-card-open")).toBeNull()
-    expect(container.querySelector(".ui-test-skill-toggle input")).toBeNull()
+    ).toEqual(["新建文风"])
+    // openable: true → 卡片显示「编辑」入口
+    expect(container.querySelector(".ui-test-skill-card-open")).not.toBeNull()
 
-    /*
-     * 逐张卡片地钉住 ENTRY_CAPABILITIES.style 的**三个**布尔：
-     * 卡片内一个 `input` / `button` 都不许有。
-     *  - `favoritable` → 收藏星按钮（button）
-     *  - `toggleable`  → 启用勾选框（input）
-     *  - `openable`    → 下面另断「编辑」入口（它是 span，不在 input/button 里）
-     * 之前只有 `toggleable` 与 `openable` 各一条断言（还都是全页查询），
-     * `favoritable` 单独改成 true 时 14/14 全绿 —— 收藏星会静默出现在一个
-     * 明确「不提供任何编辑能力」的只读 tab 上。这一条同时覆盖前两个。
-     */
+    // favoritable: false → 卡片内没有收藏星（收藏库只认 writing / de-ai 快照形状）。
     for (const card of Array.from(container.querySelectorAll<HTMLElement>('[data-testid^="unified-skill-entry-"]'))) {
-      expect(card.querySelectorAll("input, button")).toHaveLength(0)
       expect(card.querySelector('[aria-label="收藏"]')).toBeNull()
       expect(card.querySelector('[aria-label="取消收藏"]')).toBeNull()
     }
@@ -642,11 +599,11 @@ describe("UnifiedSkillLibraryView", () => {
     // 文风那条链**确实尝试读了这个项目的那份文件**（否则「退化成空态」只是没加载）
     expect(readFileMock.mock.calls.map((call) => String(call[0]))).toContain("C:/project/.qmai/writing-style.json")
 
-    await switchToTab(container, "文风")
+    await switchToTab(container, WRITING_STYLE_TAB)
     expect(container.querySelector('[data-testid^="unified-skill-entry-style:"]')).toBeNull()
     const styleEmpty = container.querySelector(".ui-test-skills-empty")?.textContent ?? ""
     // 生产的真实行为：**空库**文案（读取故障与空库在本组件里不可区分）
-    expect(styleEmpty).toContain("文风库还是空的")
+    expect(styleEmpty).toContain("还没有文风 skill")
     expect(styleEmpty).not.toContain("去AI味")
     // 读取故障没有写任何文件
     expect(writeFileAtomicMock).not.toHaveBeenCalled()
@@ -681,7 +638,7 @@ describe("UnifiedSkillLibraryView", () => {
     expect(writingChips).toContain("+ 新建分类")
     expect(writingChips.length).toBeGreaterThan(3)
 
-    await switchToTab(container, "文风")
+    await switchToTab(container, WRITING_STYLE_TAB)
     expect(chipLabels(container)).toEqual([])
 
     cleanup(root, container)
@@ -802,7 +759,6 @@ describe("UnifiedSkillLibraryView", () => {
     expect(resolveActiveTab("skillLibrary")).toBe("skillLibrary")
     expect(resolveActiveTab("writingSkillLibrary")).toBe("writingSkillLibrary")
     expect(resolveActiveTab("writingStyleLibrary")).toBe("writingStyleLibrary")
-    expect(resolveActiveTab("characterSoulLibrary")).toBe("characterSoulLibrary")
     // 合并说明：`main` 的人物 Skill 视图也必须由这张显式 Record 承载，
     // 漏掉它就会落进 `isSkillLibraryTab` 的抛错分支（点开人物 Skill 直接崩）。
     expect(resolveActiveTab("personaSkillLibrary")).toBe("personaSkillLibrary")
@@ -811,104 +767,6 @@ describe("UnifiedSkillLibraryView", () => {
     expect(() => resolveActiveTab("soul")).toThrow(/非技能库的 activeView/)
     expect(() => resolveActiveTab("settings")).toThrow(/非技能库的 activeView/)
     expect(() => resolveActiveTab("lint")).toThrow(/非技能库的 activeView/)
-  })
-
-  /*
-   * === 角色灵魂 tab（丁-4 步骤 1：可选面投影）===
-   *
-   * 这一组的值不在「能列出条目」本身（那是投影函数的机械结果），而在两件
-   * 容易静默做错的事：
-   *   1. 灵魂 tab 必须显示**灵魂**条目，而不是去AI味/写作条目；
-   *   2. 卡片必须把**真实绑定**摆出来 —— 「列在库里」不等于「已经在用」。
-   */
-  it("切换角色灵魂 tab：该 tab 被标记为选中，且展示的是灵魂条目而不是别的库的条目", async () => {
-    const { container, root } = await renderLibrary()
-
-    await switchToTab(container, "角色灵魂")
-
-    expect(useWikiStore.getState().activeView).toBe("characterSoulLibrary")
-    expect(tabStates(container)).toEqual([
-      ["去AI味技能", "false"],
-      ["写作 Skill", "false"],
-      ["文风", "false"],
-      ["角色灵魂", "true"],
-      ["人物 Skill", "false"],
-      ["收藏", "false"],
-    ])
-    expect(entryIds(container)).toContain("soul:custom-xu")
-    expect(entryIds(container)).not.toContain("de-ai:project:quiet")
-    expect(entryIds(container)).not.toContain("writing:skill:three")
-    expect(entryIds(container)).not.toContain("style:preset:cool")
-
-    cleanup(root, container)
-  })
-
-  it("灵魂卡片的徽章是「角色灵魂」+ 来源，并标出真实绑定数而不是「已启用」", async () => {
-    const { container, root } = await renderLibrary()
-    await switchToTab(container, "角色灵魂")
-
-    const custom = container.querySelector('[data-testid="unified-skill-entry-soul:custom-xu"]')!
-    expect(custom.querySelector(".ui-test-skill-card-name")?.textContent).toBe("许七安")
-    expect(
-      Array.from(custom.querySelectorAll(".ui-test-skill-badge")).map((badge) => badge.textContent),
-    ).toEqual(["角色灵魂", "项目", "已绑定 1 个人物"])
-    expect(custom.querySelector(".ui-test-skill-badge.is-type")?.textContent).toBe("角色灵魂")
-    expect(custom.textContent).toContain("自定义角色灵魂 · 古装权谋")
-
-    // 未被任何人物绑定的灵魂也不能显示成「已启用」之类的东西。
-    const liSi = container.querySelector('[data-testid="unified-skill-entry-soul:builtin-li-si"]')!
-    expect(
-      Array.from(liSi.querySelectorAll(".ui-test-skill-badge")).map((badge) => badge.textContent),
-    ).toEqual(["角色灵魂", "内置", "已绑定 1 个人物"])
-    const unbound = container.querySelector('[data-testid="unified-skill-entry-soul:builtin-qin-shihuang"]')!
-    expect(
-      Array.from(unbound.querySelectorAll(".ui-test-skill-badge")).map((badge) => badge.textContent),
-    ).toEqual(["角色灵魂", "内置", "未绑定"])
-
-    cleanup(root, container)
-  })
-
-  it("灵魂条目没有任何可写动作：没有勾选框、没有收藏星标、卡片上也没有「编辑」", async () => {
-    const { container, root } = await renderLibrary()
-    await switchToTab(container, "角色灵魂")
-
-    const card = container.querySelector('[data-testid="unified-skill-entry-soul:custom-xu"]')!
-    // 「启用一条灵魂」在这个架构里不存在（进不进上下文只由绑定表决定），
-    // 所以这里**不能**出现任何像开关的东西。
-    expect(card.querySelector('input[type="checkbox"]')).toBeNull()
-    expect(card.querySelector(".ui-test-skill-card-star")).toBeNull()
-    expect(card.querySelector(".ui-test-skill-card-open")).toBeNull()
-    expect(card.textContent).toContain("点击选中")
-
-    cleanup(root, container)
-  })
-
-  it("灵魂 tab 没有分类 chips、也没有新建/导入动作（本批不给灵魂库写入口）", async () => {
-    const { container, root } = await renderLibrary()
-    await switchToTab(container, "角色灵魂")
-
-    expect(chipLabels(container)).toEqual([])
-    // 动作区容器仍会渲染，但**一个按钮都不能有** —— 断按钮而不是断容器。
-    expect(
-      Array.from(
-        container.querySelectorAll('[data-testid="skill-library-header-actions"] button'),
-      ).map((button) => button.textContent?.trim()),
-    ).toEqual([])
-
-    cleanup(root, container)
-  })
-
-  it("搜索能命中灵魂条目（且不会因为灵魂没有 rawSkill 而崩）", async () => {
-    const { container, root } = await renderLibrary()
-    await switchToTab(container, "角色灵魂")
-
-    const search = container.querySelector<HTMLInputElement>('[data-testid="unified-skill-search-input"]')!
-    await setInputValue(search, "抄诗")
-
-    // 命中点只在 `content`（灵魂画像文本）里，证明搜索确实读到了 aura 自己的字段。
-    expect(entryIds(container)).toEqual(["soul:custom-xu"])
-
-    cleanup(root, container)
   })
 
   /*

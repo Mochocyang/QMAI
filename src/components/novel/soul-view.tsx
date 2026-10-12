@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { ArrowLeft, BookOpen, Plus, Users } from "lucide-react"
+import { ArrowLeft, Plus } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import "@/components/uitest/ui-test-tools.css"
 import { SoulDocEditor } from "./soul-doc-editor"
@@ -107,9 +107,8 @@ export function SoulView() {
     return "暂无内置灵魂。"
   })()
 
-  function selectTab(tab: "project" | "character") {
-    if (selectedSoulTab === tab) return
-    setSelectedSoulTab(tab)
+  function backToCharacterSouls() {
+    setSelectedSoulTab("character")
     setView("gallery")
   }
 
@@ -137,21 +136,25 @@ export function SoulView() {
       <header data-ui="soul-tabs" className="ui-test-soul-heading">
         <div className="ui-test-soul-heading-row">
           <h1>灵魂</h1>
-          <nav className="ui-test-soul-tab-row" aria-label="灵魂分类">
-            <button
-              type="button"
-              className={`ui-test-soul-tab${isProjectSoul ? " is-active" : ""}`}
-              onClick={() => selectTab("project")}
-            >
-              <BookOpen /> 项目灵魂
-            </button>
-            <button
-              type="button"
-              className={`ui-test-soul-tab${!isProjectSoul ? " is-active" : ""}`}
-              onClick={() => selectTab("character")}
-            >
-              <Users /> 角色灵魂
-            </button>
+          <nav className="ui-test-soul-tab-row" aria-label="灵魂分组">
+            {isProjectSoul ? (
+              <button type="button" className="ui-test-soul-tab" onClick={backToCharacterSouls}>
+                <ArrowLeft /> 返回角色灵魂库
+              </button>
+            ) : (
+              SECTION_LABELS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={gallerySection === item.id}
+                  className={`ui-test-soul-chip${gallerySection === item.id ? " is-active" : ""}`}
+                  onClick={() => selectGallerySection(item.id)}
+                >
+                  {item.label}
+                  {item.id === "bound" && boundAuras.length > 0 ? ` ${boundAuras.length}` : ""}
+                </button>
+              ))
+            )}
           </nav>
           {!isProjectSoul && view === "gallery" && gallerySection === "custom" ? (
             <button type="button" className="ui-test-soul-action" onClick={startNewCustom}>
@@ -168,20 +171,6 @@ export function SoulView() {
         ) : view === "gallery" ? (
           <div className="ui-test-soul-gallery">
             <div className="ui-test-soul-toolbar">
-              <div className="ui-test-soul-chips" role="tablist" aria-label="灵魂分组">
-                {SECTION_LABELS.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    aria-pressed={gallerySection === item.id}
-                    className={`ui-test-soul-chip${gallerySection === item.id ? " is-active" : ""}`}
-                    onClick={() => selectGallerySection(item.id)}
-                  >
-                    {item.label}
-                    {item.id === "bound" && boundAuras.length > 0 ? ` ${boundAuras.length}` : ""}
-                  </button>
-                ))}
-              </div>
               {gallerySection === "builtIn" && builtInCategories.length > 0 ? (
                 <div className="ui-test-soul-tags" aria-label="内置灵魂分类">
                   <button

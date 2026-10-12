@@ -3,19 +3,23 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { ArrowLeft, RefreshCw, Search } from "lucide-react"
 import { resolveNovelModel } from "@/lib/novel/model-resolver"
 import {
+  PERSONA_ARCHIVED_GAP_CHAPTERS,
+  PERSONA_DORMANT_GAP_CHAPTERS,
   resolvePersonaTier,
   type PersonaSkillIndex,
   type PersonaSkillMeta,
+  type PersonaSkillSighting,
   type PersonaSkillStatus,
 } from "@/lib/novel/persona-skill-types"
 import {
   loadPersonaSkillIndex,
+  loadPersonaSightings,
   readPersonaSkillDocument,
   readPersonaSkillResearch,
   savePersonaSkillDocumentByUser,
   updatePersonaSkillIndex,
 } from "@/lib/novel/persona-skill-store"
-import { regeneratePersonaSkillResearch } from "@/lib/novel/persona-skill-learning"
+import { promotePersonaSighting, regeneratePersonaSkillResearch } from "@/lib/novel/persona-skill-learning"
 import { useWikiStore } from "@/stores/wiki-store"
 
 const STATUS_LABELS: Record<PersonaSkillStatus, string> = {
@@ -47,11 +51,17 @@ export function PersonaSkillView() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all")
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
+  const [analysisOpen, setAnalysisOpen] = useState(false)
+  const [sightings, setSightings] = useState<PersonaSkillSighting[]>([])
 
   const reload = useCallback(async () => {
     if (!projectPath) return
-    const loaded = await loadPersonaSkillIndex(projectPath)
+    const [loaded, loadedSightings] = await Promise.all([
+      loadPersonaSkillIndex(projectPath),
+      loadPersonaSightings(projectPath),
+    ])
     setIndex({ version: 1, skills: [...loaded.skills].sort(sortMeta) })
+    setSightings(loadedSightings.sightings)
   }, [projectPath])
 
   useEffect(() => {
@@ -100,6 +110,40 @@ export function PersonaSkillView() {
     dormant: index.skills.filter((meta) => meta.status === "dormant").length,
     archived: index.skills.filter((meta) => meta.status === "archived").length,
   }), [index.skills])
+
+  // 只读分析：规则只看已持久化的字段（appearanceCount / status），不引章号、
+  // 不调 resolvePersonaStatus —— 视图只展示学习侧写下的结论，绝不重算状态。
+  const analysisRows = useMemo(
+    () =>
+      index.skills.filter(
+        (meta) =>
+          meta.appearanceCount <= 1 || meta.status === "dormant" || meta.status === "archived",
+      ),
+    [index.skills],
+  )
+
+  async function handlePromote(sighting: PersonaSkillSighting) {
+    if (!projectPath) return
+    setBusy(true)
+    try {
+      const state = useWikiStore.getState()
+      const ok = await promotePersonaSighting({
+        projectPath,
+        characterName: sighting.characterName,
+        llmConfig: resolveNovelModel(state.llmConfig, state.novelConfig, "extract"),
+      })
+      if (ok) {
+        await reload()
+        setMessage(`已把「${sighting.characterName}」标为重要角色并建档。`)
+      } else {
+        setMessage(`「${sighting.characterName}」建档失败：模型没有返回可用的内容，可稍后重试。`)
+      }
+    } catch (err) {
+      setMessage(`「${sighting.characterName}」建档失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function handleTogglePin(meta: PersonaSkillMeta) {
     if (!projectPath) return
@@ -272,9 +316,56 @@ export function PersonaSkillView() {
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          data-testid="persona-skill-analysis-toggle"
+          aria-pressed={analysisOpen}
+          onClick={() => setAnalysisOpen((open) => !open)}
+          className={`ui-test-skills-chip${analysisOpen ? " is-active" : ""}`}
+        >
+          出场频次分析
+        </button>
       </div>
 
       {message ? <span className="ui-test-skills-message">{message}</span> : null}
+
+      {analysisOpen ? (
+        <section data-testid="persona-skill-analysis" className="ui-test-skills-candidates">
+          <h4 className="ui-test-skill-card-name">出场频次分析</h4>
+          <p className="ui-test-skills-message">
+            连续 {PERSONA_DORMANT_GAP_CHAPTERS} 章未出场=潜伏，{PERSONA_ARCHIVED_GAP_CHAPTERS} 章=建议归档
+          </p>
+          {analysisRows.length === 0 ? (
+            <p className="ui-test-skills-empty">没有需要关注的人物。</p>
+          ) : (
+            <div className="ui-test-skills-grid">
+              {analysisRows.map((meta) => (
+                <article
+                  key={meta.id}
+                  data-testid={`persona-skill-analysis-${meta.id}`}
+                  className="ui-test-skill-card"
+                >
+                  <header className="ui-test-skill-card-head">
+                    <h3 className="ui-test-skill-card-name" title={meta.characterName}>
+                      {meta.characterName}
+                    </h3>
+                  </header>
+                  <div className="ui-test-skill-card-badges">
+                    <span className="ui-test-skill-badge is-type">{TIER_LABELS[meta.tier]}</span>
+                    <span className="ui-test-skill-badge">出场 {meta.appearanceCount} 次</span>
+                    <span className="ui-test-skill-badge">首次第 {meta.firstChapter} 章</span>
+                    <span className="ui-test-skill-badge">最近第 {meta.lastChapter} 章</span>
+                    <span className="ui-test-skill-badge">{STATUS_LABELS[meta.status]}</span>
+                    {meta.status === "archived" ? (
+                      <span className="ui-test-skill-badge is-type">建议归档</span>
+                    ) : null}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
 
       {visible.length === 0 ? (
         <div className="ui-test-skills-empty">
@@ -321,6 +412,46 @@ export function PersonaSkillView() {
           ))}
         </div>
       )}
+
+      <section data-testid="persona-skill-candidates" className="ui-test-skills-candidates">
+        <h4 className="ui-test-skill-card-name">候选人物（未建档）</h4>
+        {sightings.length === 0 ? (
+          <p className="ui-test-skills-empty">暂无候选人物</p>
+        ) : (
+          <div className="ui-test-skills-grid">
+            {sightings.map((sighting) => (
+              <article
+                key={sighting.characterName}
+                data-testid={`persona-skill-candidate-${sighting.characterName}`}
+                className="ui-test-skill-card"
+              >
+                <header className="ui-test-skill-card-head">
+                  <h3 className="ui-test-skill-card-name" title={sighting.characterName}>
+                    {sighting.characterName}
+                  </h3>
+                  <button
+                    type="button"
+                    data-testid={`persona-skill-promote-${sighting.characterName}`}
+                    aria-label="标为重要角色并立即建档"
+                    title="标为重要角色并立即建档"
+                    onClick={() => void handlePromote(sighting)}
+                    disabled={busy}
+                    className="ui-test-persona-pin is-on"
+                  />
+                </header>
+                <div className="ui-test-skill-card-badges">
+                  {sighting.aliases.length > 0 ? (
+                    <span className="ui-test-skill-badge">别名：{sighting.aliases.join("、")}</span>
+                  ) : null}
+                  <span className="ui-test-skill-badge">出场 {sighting.appearanceCount} 章</span>
+                  <span className="ui-test-skill-badge">首次第 {sighting.firstChapter} 章</span>
+                  <span className="ui-test-skill-badge">最近第 {sighting.lastChapter} 章</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   )
 }

@@ -164,24 +164,12 @@ export function isMinorRoleType(roleType: string): boolean {
 /**
  * 建档门槛（首次出场）。
  *
- * `knownCharacter` 是「已经能确认他是本作的一个真实人物」——判据是
- * `wiki/entities/` 下有一张 `tags` 含 `character` 的实体页（见
- * `resolveKnownCharacters`）。这个信号的宝贵之处在于**它天然斩断了路人**：
- * 摄取管线只会给值得追踪的实体建页，正文里一笔带过的「老太太 / 老头 /
- * 小男孩」根本没有实体页。
- *
- * 为什么必须认这个信号：定位（主角/配角…）只写在
- * `wiki/characters/角色-<定位>-<名>.md` 的文件名里，而那个目录只有跑过
- * 「人物」多智能体生成才会出现。真实项目里它往往不存在 → 所有人 roleType
- * 都是空 → 一律落到 `PERSONA_UNKNOWN_FIRST_APPEARANCE = 3`。实测一个 12 章
- * 的项目里最高出场数才 2，于是**一个人都建不了档，功能整体静默失效**。
- * 有了这道兜底，确认过的人物第一次出场就建档；档位仍是 minor（浅档、省预算），
- * 由用户点绿勾或声明定位来升级。
+ * 只看 roleType 与绿勾（pinned）：主角类满 1 章、配角类满 2 章、无定位满 3 章。
+ * 绿勾的「一票升级」在 planPersonaSkillRound 里处理，不进这张表。
  */
-export function firstAppearanceThreshold(roleType: string, knownCharacter = false): number {
+export function firstAppearanceThreshold(roleType: string): number {
   if (isMajorRoleType(roleType)) return PERSONA_MAJOR_FIRST_APPEARANCE
   if (isMinorRoleType(roleType)) return PERSONA_MINOR_FIRST_APPEARANCE
-  if (knownCharacter) return PERSONA_MAJOR_FIRST_APPEARANCE
   return PERSONA_UNKNOWN_FIRST_APPEARANCE
 }
 
@@ -224,11 +212,6 @@ export interface PersonaSkillPlanInput {
   hasResearch: boolean
   pinned: boolean
   lastLearnedChapter: number
-  /**
-   * 已确认是本作的真实人物（`wiki/entities/` 有 `tags` 含 `character` 的实体页）。
-   * 只影响建档门槛，不影响档位 —— 档位仍由 roleType / 绿勾决定。
-   */
-  knownCharacter: boolean
 }
 
 export interface PersonaSkillPlan {
@@ -281,9 +264,7 @@ export function planPersonaSkillRound(
       })
       continue
     }
-    const threshold = input.pinned
-      ? PERSONA_MAJOR_FIRST_APPEARANCE
-      : firstAppearanceThreshold(input.roleType, input.knownCharacter)
+    const threshold = input.pinned ? PERSONA_MAJOR_FIRST_APPEARANCE : firstAppearanceThreshold(input.roleType)
     if (input.appearanceCount < threshold) continue
     plans.push({
       characterName: input.characterName,

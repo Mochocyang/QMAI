@@ -25,6 +25,9 @@ import {
   buildWritingStyleContext,
   removeWritingStylePreset,
   removeWritingStylePresetBySourceBook,
+  createWritingStylePreset,
+  updateWritingStylePreset,
+  getWritingStylePreset,
 } from "./writing-style-store"
 
 const PROJECT = "E:/Novel"
@@ -357,5 +360,64 @@ describe("文风预设删除", () => {
     const byBook = await removeWritingStylePresetBySourceBook(PROJECT, "没有这本书")
     expect(byBook).toEqual(byId)
     expect(await loadWritingStyleStore(PROJECT)).toEqual(byId)
+  })
+})
+
+describe("文风 skill：技能库手动新建 / 修改 / 读取", () => {
+  it("手动新建：空 sourceBook 落成「手动创建」，且多条并存不去重", async () => {
+    const a = await createWritingStylePreset(PROJECT, { name: "甲", constitution: "短句" })
+    const b = await createWritingStylePreset(PROJECT, { name: "乙", constitution: "长句" })
+
+    expect(a.id).not.toBe(b.id)
+    expect(a.id.startsWith("style-manual-")).toBe(true)
+    expect(a.sourceBook).toBe("手动创建")
+    expect(a.profile.schemaVersion).toBe(2)
+    expect(a.profile.constitution).toBe("短句")
+
+    const store = await loadWritingStyleStore(PROJECT)
+    expect(store.styles.map((s) => s.name)).toEqual(["甲", "乙"])
+  })
+
+  it("手工修改：浅合并 profile，保留原 profile 其它字段与形状", async () => {
+    const created = await createWritingStylePreset(PROJECT, {
+      name: "甲",
+      constitution: "短句",
+      samples: ["一"],
+    })
+    const updated = await updateWritingStylePreset(PROJECT, created.id, {
+      name: "甲改",
+      constitution: "长句",
+      samples: ["二", "三"],
+    })
+
+    expect(updated?.name).toBe("甲改")
+    expect(updated?.profile.constitution).toBe("长句")
+    expect(updated?.profile.samples).toEqual(["二", "三"])
+    expect(updated?.profile.schemaVersion).toBe(2)
+    expect(updated?.profile.generatedAt).toBe(created.profile.generatedAt)
+  })
+
+  it("更新不存在的 id 返回 null，且不写盘", async () => {
+    const before = await loadWritingStyleStore(PROJECT)
+    const result = await updateWritingStylePreset(PROJECT, "style-manual-missing", { name: "x" })
+    expect(result).toBeNull()
+    expect(await loadWritingStyleStore(PROJECT)).toEqual(before)
+  })
+
+  it("getWritingStylePreset 读回未迁移的原始 profile，找不到返回 null", async () => {
+    const created = await createWritingStylePreset(PROJECT, { name: "甲", constitution: "短句" })
+    const read = await getWritingStylePreset(PROJECT, created.id)
+    expect(read).toEqual(created)
+    expect(await getWritingStylePreset(PROJECT, "style-manual-missing")).toBeNull()
+  })
+
+  it("手动新建的可启用，删除时清理启用态", async () => {
+    const created = await createWritingStylePreset(PROJECT, { name: "甲", constitution: "短句" })
+    await setEnabledWritingStyle(PROJECT, created.id)
+    expect((await loadWritingStyleStore(PROJECT)).enabledStyleId).toBe(created.id)
+
+    const after = await removeWritingStylePreset(PROJECT, created.id)
+    expect(after.enabledStyleId).toBeNull()
+    expect(await getWritingStylePreset(PROJECT, created.id)).toBeNull()
   })
 })

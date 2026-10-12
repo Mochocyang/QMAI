@@ -29,10 +29,10 @@ import {
   type UserSkillConfig,
 } from "@/lib/novel/user-skill-store"
 import { SKILL_KIND_LABELS, skillDisplayName, type SkillKind, type UserSkill } from "@/lib/novel/skill-library"
-import { loadWritingStyleStore, type WritingStylePreset } from "@/lib/novel/writing-style-store"
-import { getCharacterAuraBindings, listCharacterAuras, type CharacterAura, type CharacterAuraBinding } from "@/lib/novel/character-aura"
+import { createWritingStylePreset, loadWritingStyleStore, setEnabledWritingStyle, type WritingStylePreset } from "@/lib/novel/writing-style-store"
 import { SkillLibraryView } from "./skill-library-view"
 import { WritingSkillLibraryView } from "./writing-skill-library-view"
+import { WritingStyleLibraryView } from "./writing-style-library-view"
 import { FavoriteListView } from "./favorite-list-view"
 import { PersonaSkillView } from "./persona-skill-view"
 
@@ -58,7 +58,7 @@ import { PersonaSkillView } from "./persona-skill-view"
  * 外加 `entrySourceLabel`（它的尾段要读 `entry.rawSkill`，而只有 `writing` /
  * `de-ai` 两种类型有这个字段 ⇒ 新类型不带 `rawSkill` 就报 TS2339）。
  *
- * ⚠️「8 处」不是照清单推的：临时往联合里塞第 5 种**不带** `rawSkill` 的类型，
+ * ⚠️「8 处」不是照清单推的：临时往联合里塞第 4 种**不带** `rawSkill` 的类型，
  * 本文件实测报 **8** 处错（`npx tsc -p tsconfig.app.json --noEmit`），
  * 与上面逐项对应；把那个临时类型改成**带** `rawSkill` 则只剩 **7** 处
  * （少掉的正是 `entrySourceLabel` 那一处）。
@@ -67,8 +67,7 @@ import { PersonaSkillView } from "./persona-skill-view"
 const skillLibraryTabs = [
   { view: "skillLibrary" as const, label: "去AI味技能" },
   { view: "writingSkillLibrary" as const, label: "写作 Skill" },
-  { view: "writingStyleLibrary" as const, label: "文风" },
-  { view: "characterSoulLibrary" as const, label: "角色灵魂" },
+  { view: "writingStyleLibrary" as const, label: "文风 skill" },
   // 合并说明：`main`（人物 Skill）的 tab，位置沿用它在 `main` 上「收藏之前」的相对次序。
   { view: "personaSkillLibrary" as const, label: "人物 Skill" },
   { view: "skillFavorites" as const, label: "收藏" },
@@ -99,7 +98,6 @@ const ACTIVE_TAB_BY_VIEW: Record<SkillLibraryTab, SkillLibraryTab> = {
   skillLibrary: "skillLibrary",
   writingSkillLibrary: "writingSkillLibrary",
   writingStyleLibrary: "writingStyleLibrary",
-  characterSoulLibrary: "characterSoulLibrary",
   personaSkillLibrary: "personaSkillLibrary",
   skillFavorites: "skillFavorites",
 }
@@ -113,8 +111,6 @@ const TAB_DRAFT_KIND: Record<SkillLibraryTab, "skill" | "writing" | "persona" | 
   writingSkillLibrary: "writing",
   // 文风库本批只读（没有编辑器也就没有草稿）；收藏列表同样没有草稿标记。
   writingStyleLibrary: "none",
-  // 角色灵魂库同样只读：绑定的写入走「@ 引用 → 确认弹窗」那条链，不在这里改草稿。
-  characterSoulLibrary: "none",
   // 合并说明：`main` 的人物 Skill 有**自己的**脏标记
   // （`personaSkillLibraryDraftDirty`），既不与写作 Skill 共用、也不与去AI味共用。
   personaSkillLibrary: "persona",
@@ -125,15 +121,12 @@ const TAB_DRAFT_KIND: Record<SkillLibraryTab, "skill" | "writing" | "persona" | 
  * 头部动作区形态。显式映射：加 tab 忘了补 = 编译错误，
  * 而不是静默显示成「新建技能 / 导入」。
  */
-const TAB_ACTIONS: Record<GalleryTab, "de-ai" | "writing" | "none"> = {
+const TAB_ACTIONS: Record<GalleryTab, "de-ai" | "writing" | "style" | "none"> = {
   skillLibrary: "de-ai",
   writingSkillLibrary: "writing",
-  // 文风预设由拆书库 / 书库流程写入 `.qmai/writing-style.json`。
-  // 设计 §3 待确认项 3 明确本批**不新增**文风的编辑能力，所以这里没有新建/导入。
-  writingStyleLibrary: "none",
-  // 角色灵魂由灵魂库 / 拆书流程写入 `.qmai/character-aura.json`，
-  // 本批不在技能库里新增编辑能力（同文风那一档）。
-  characterSoulLibrary: "none",
+  // 文风 skill 支持在技能库里手动新建（`createWritingStylePreset` 落盘到
+  // `.qmai/writing-style.json`），所以这里给出「+ 新建文风」入口。
+  writingStyleLibrary: "style",
 }
 
 /**
@@ -151,23 +144,13 @@ const TAB_CATEGORY_AXIS: Record<GalleryTab, "writing" | "none"> = {
   skillLibrary: "none",
   writingSkillLibrary: "writing",
   writingStyleLibrary: "none",
-  characterSoulLibrary: "none",
 }
 
-/**
- * 各 tab 的空态文案。显式映射，避免二元三元把新 tab 说成「还没有去AI味技能」。
- *
- * ⚠️ `characterSoulLibrary` 那条**实际上打不着**：`listCharacterAuras` 恒把
- * `BUILT_IN_CHARACTER_AURAS` 拼在前面，内置灵魂无条件存在 ⇒ 列表不可能为空。
- * 留着只为 `Record` 的穷尽性（少一条是编译错误）。**不要**把它写成
- * 「还没有角色灵魂，加入后会出现在这里」——那会让用户以为自己的灵魂不见了，
- * 而真实原因不可能是「这个项目没有灵魂」。
- */
+/** 各 tab 的空态文案。显式映射，避免二元三元把新 tab 说成「还没有去AI味技能」。 */
 const EMPTY_COPY: Record<GalleryTab, string> = {
   skillLibrary: "还没有去AI味技能，点击右上角「新建技能」开始。",
   writingSkillLibrary: "还没有写作 Skill，点击右上角「新建 Skill」开始。",
-  writingStyleLibrary: "文风库还是空的：对一部作品做完文风提炼后，它的文风预设会出现在这里。",
-  characterSoulLibrary: "没有可显示的角色灵魂。",
+  writingStyleLibrary: "还没有文风 skill，点击右上角「+ 新建文风」开始。",
 }
 
 /**
@@ -197,10 +180,8 @@ const EMPTY_COPY: Record<GalleryTab, string> = {
 const SKILL_EDITORS: Record<GalleryTab, ComponentType> = {
   skillLibrary: SkillLibraryView,
   writingSkillLibrary: WritingSkillLibraryView,
-  // 文风条目本批只读，没有编辑器（设计 §3 待确认项 3）。
-  writingStyleLibrary: () => null,
-  // 角色灵魂条目同样只读：绑定/解绑走灵魂库与 `@` 引用确认弹窗，不在这里编辑。
-  characterSoulLibrary: () => null,
+  // 文风 skill 有独立编辑器：名称 / 来源 / 硬约束 / 片段 / 整合文档 + 启用 / 删除。
+  writingStyleLibrary: WritingStyleLibraryView,
 }
 
 /**
@@ -283,21 +264,7 @@ interface WritingStyleEntry extends UnifiedSkillEntryBase {
   rawStylePreset: WritingStylePreset
 }
 
-/**
- * 角色灵魂条目是**引用**：只持有项目里那份 `CharacterAura` 本身
- * （内置灵魂 + `.qmai/character-aura.json` 的 `customAuras`）。
- *
- * `CharacterAura` 没有 tags / kind / categoryId / priority / description，
- * 所以这里同样**不假装**它是 `UserSkill`。
- * ⚠️ 「这条灵魂绑给了谁」不在条目里，而在绑定表里；卡片上的徽章由
- * `entryExtraBadge` 现算，**不**在投影时快照 —— 否则绑定变化后卡片会显示旧值。
- */
-interface CharacterSoulEntry extends UnifiedSkillEntryBase {
-  type: "soul"
-  rawAura: CharacterAura
-}
-
-type UnifiedSkillEntry = WritingSkillEntry | DeAiSkillEntry | WritingStyleEntry | CharacterSoulEntry
+type UnifiedSkillEntry = WritingSkillEntry | DeAiSkillEntry | WritingStyleEntry
 
 /**
  * 原先这里有一个 `isWritingSkillEntry(entry): entry is WritingSkillEntry` 谓词
@@ -319,19 +286,13 @@ const ENTRY_TYPE_LABELS: Record<UnifiedSkillEntry["type"], string> = {
   writing: "写作",
   "de-ai": "去AI味",
   style: "文风",
-  soul: "角色灵魂",
 }
 
 /**
  * 条目能力表。显式映射：新类型不会静默继承别的类型的能力。
- * 文风条目全部为 false——选中它**不写任何文件**，尤其不写
- * `.qmai/writing-style.json` 的 `enabledStyleId`（用户决定 2：项目设置不得被改）。
- *
- * 角色灵魂条目同样全部为 false，且理由比文风更强：
- * 「启用一条灵魂」在这个架构里根本没有意义 —— 灵魂是否进上下文只由
- * **绑定表**决定（`buildCharacterSoulContext` 只过滤 `store.bindings`），
- * 没有一个全局开关可供勾选。所以这里**不得**给出任何看着像开关的东西，
- * 否则就是在 UI 上宣称一个不存在的能力。
+ * 文风 skill 现在可**启用**（写 `.qmai/writing-style.json` 的 `enabledStyleId`，
+ * 单选）且可**打开编辑器**（改名称 / 来源 / 硬约束 / 片段 / 整合文档）；
+ * 但**不可收藏**（收藏库只认 writing / de-ai 两种快照形状）。
  */
 const ENTRY_CAPABILITIES: Record<UnifiedSkillEntry["type"], {
   favoritable: boolean
@@ -340,21 +301,14 @@ const ENTRY_CAPABILITIES: Record<UnifiedSkillEntry["type"], {
 }> = {
   writing: { favoritable: true, toggleable: true, openable: true },
   "de-ai": { favoritable: true, toggleable: true, openable: true },
-  style: { favoritable: false, toggleable: false, openable: false },
-  soul: { favoritable: false, toggleable: false, openable: false },
+  style: { favoritable: false, toggleable: true, openable: true },
 }
 
-/**
- * 启用勾选框文案。显式映射，避免二元三元把新类型写成「显示在调用入口」。
- * ⚠️ `style` 与 `soul` 那两条**不可达**（两者 `toggleable: false`，勾选框根本不渲染）——
- * 它们留着只是为了 `Record` 的穷尽性：少写一条就是编译错误，而「因为不可达所以
- * 可以省略」正是让下一张表也跟着漏键的开始。
- */
+/** 启用勾选框文案。显式映射，避免二元三元把新类型写成「显示在调用入口」。 */
 const ENTRY_TOGGLE_LABELS: Record<UnifiedSkillEntry["type"], string> = {
   writing: "参与 AI 会话",
   "de-ai": "显示在调用入口",
-  style: "只读引用",
-  soul: "只读引用",
+  style: "启用此文风",
 }
 
 /**
@@ -424,46 +378,8 @@ function writingStylePresetToEntry(preset: WritingStylePreset): WritingStyleEntr
   }
 }
 
-/**
- * 把项目里的角色灵魂投影成技能库条目（引用式：只带 `rawAura`）。
- *
- * `CharacterAura` 没有 description / kind / tags：
- *  `description` 由来源（内置 / 自定义）与灵魂分类如实拼出；
- *  `content` 只把灵魂画像里可检索的文本拼起来供搜索用（不参与任何注入路径）；
- *  `kinds` 留空（不把「风格」这个 SkillKind 硬塞给它）。
- *
- * ⚠️ 绑定对象的数量**不**进 `content`：它是会变的（临时绑定、解绑），
- * 快照进去只会让搜索结果和卡片徽章各说各话。要显示就用 `entryExtraBadge` 现算。
- */
-function characterSoulToEntry(aura: CharacterAura): CharacterSoulEntry {
-  const content = [
-    aura.corpus,
-    aura.styleDescription,
-    aura.behaviorRules,
-    aura.expressionDna,
-    aura.mentalModel,
-    aura.decisionHeuristics,
-    aura.valueAntiPatterns,
-  ]
-    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-    .join("\n")
-  const source = aura.builtIn ? "内置角色灵魂" : "自定义角色灵魂"
-  const category = aura.category?.trim()
-  return {
-    id: `soul:${aura.id}`,
-    sourceId: aura.id,
-    type: "soul",
-    name: aura.name?.trim() || "未命名角色灵魂",
-    description: category ? `${source} · ${category}` : source,
-    content,
-    kinds: [],
-    rawAura: aura,
-  }
-}
-
 function entrySourceLabel(entry: UnifiedSkillEntry): string {
   if (entry.type === "style") return "引用"
-  if (entry.type === "soul") return entry.rawAura.builtIn ? "内置" : "项目"
   if (entry.type === "de-ai") {
     const source = entry.rawSkill.source
     if (source === "built-in") return "内置"
@@ -562,6 +478,7 @@ function SkillLibraryActions({ activeTab, onAfterCreate }: { activeTab: GalleryT
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setSelectedSkillId = useWikiStore((s) => s.setSelectedSkillLibrarySkillId)
   const setSelectedWritingSkillId = useWikiStore((s) => s.setSelectedWritingSkillLibrarySkillId)
+  const setSelectedWritingStyleLibraryStyleId = useWikiStore((s) => s.setSelectedWritingStyleLibraryStyleId)
   const [message, setMessage] = useState("")
   const [saving, setSaving] = useState(false)
 
@@ -678,6 +595,27 @@ function SkillLibraryActions({ activeTab, onAfterCreate }: { activeTab: GalleryT
     }
   }
 
+  async function handleCreateWritingStyle() {
+    if (!project || saving) return
+    setSaving(true)
+    try {
+      // 直接创建一条默认名预设再进编辑器（jsdom 无 window.prompt，且避免双份创建逻辑）。
+      const preset = await createWritingStylePreset(project.path, {
+        name: "新建文风",
+        constitution: "",
+      })
+      setSelectedWritingStyleLibraryStyleId(preset.id)
+      setActiveView("writingStyleLibrary")
+      bumpDataVersion()
+      setMessage("文风已新建")
+      onAfterCreate()
+    } catch {
+      setMessage("新建文风失败")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const buttonClass = "ui-test-skills-action"
   const disabled = !project || saving
   const actions = TAB_ACTIONS[activeTab]
@@ -703,6 +641,11 @@ function SkillLibraryActions({ activeTab, onAfterCreate }: { activeTab: GalleryT
             <Upload /> 导入
           </button>
         </>
+      ) : null}
+      {actions === "style" ? (
+        <button type="button" onClick={() => void handleCreateWritingStyle()} disabled={disabled} className={buttonClass}>
+          <Plus /> 新建文风
+        </button>
       ) : null}
       {message ? <span className="ui-test-skills-message">{message}</span> : null}
     </div>
@@ -831,10 +774,6 @@ export function entryFavoriteTarget(
       return { library: "de-ai", skill: entry.rawSkill }
     case "style":
       return null
-    case "soul":
-      // 收藏库只认 `writing` / `de-ai` 两种快照形状，装不下 `CharacterAura`。
-      // 与其把灵魂硬塞进去（会以错误的快照形状出现在「收藏」tab），不如显式不参与。
-      return null
     default: {
       const unhandled: never = entry
       throw new Error(`未知的技能条目类型：${String(unhandled)}`)
@@ -877,19 +816,6 @@ export function entryEnabled(
       return configs.deAiConfig ? !configs.deAiConfig.disabledSkillIds.includes(entry.sourceId) : true
     case "writing":
       return configs.writingConfig ? !configs.writingConfig.disabledSkillIds.includes(entry.sourceId) : true
-    case "soul":
-      /*
-       * 角色灵魂**没有**「启用」这个状态：它进不进上下文只由绑定表决定
-       * （`buildCharacterSoulContext` 只过滤 `store.bindings`），三份配置里
-       * 一个都不描述它。返回 `false` 而不是 `true` 是有意的 ——
-       * ⚠️ 本函数**是**会被灵魂条目调用的（`filteredEntries` 逐条求值），
-       * 所以别把这里读成「不可达」；不可达的是**这个值的展示**：
-       * `ENTRY_CAPABILITIES.soul.toggleable === false` ⇒ 卡片渲染的是
-       * 「点击选中」而**不是**勾选框，所以这个布尔值不会被人看到。
-       * `false`（未启用）比 `true`（假装已启用）诚实：真有人把 `toggleable`
-       * 打开时，界面上不会凭空出现一个「已启用」的谎。
-       */
-      return false
     default: {
       const unhandled: never = entry
       throw new Error(`未知的技能条目类型：${String(unhandled)}`)
@@ -900,22 +826,12 @@ export function entryEnabled(
 function entryExtraBadge(
   entry: UnifiedSkillEntry,
   writingConfig: UserSkillConfig | null,
-  soulBindings: readonly CharacterAuraBinding[],
 ): string | undefined {
   if (entry.type === "writing") {
     return writingConfig?.categories.find((cat) => cat.id === entry.rawSkill.categoryId)?.name
   }
   // 文风条目把来源作品摆在卡片上：它是一条「来自某本书的引用」。
   if (entry.type === "style") return `《${entry.rawStylePreset.sourceBook?.trim() || "未知"}》`
-  /*
-   * 角色灵魂条目把**真实绑定**摆在卡片上（现算，不快照）：
-   * 「这条灵魂现在到底会不会进上下文」只由绑定表决定，用户在这里必须看得到，
-   * 否则卡片会让人以为「列在库里 = 已经在用」。
-   */
-  if (entry.type === "soul") {
-    const bound = soulBindings.filter((binding) => binding.auraId === entry.sourceId).length
-    return bound > 0 ? `已绑定 ${bound} 个人物` : "未绑定"
-  }
   return undefined
 }
 
@@ -933,8 +849,6 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
   const [writingConfig, setWritingConfig] = useState<UserSkillConfig | null>(null)
   const [deAiConfig, setDeAiConfig] = useState<DeAiSkillConfig | null>(null)
   const [styleStore, setStyleStore] = useState<WritingStyleStore | null>(null)
-  const [soulAuras, setSoulAuras] = useState<CharacterAura[] | null>(null)
-  const [soulBindings, setSoulBindings] = useState<CharacterAuraBinding[]>([])
   const [selectedStyleId, setSelectedStyleId] = useState<string | null>(null)
   const [query, setQuery] = useState("")
   const [category, setCategory] = useState<UnifiedSkillCategory>("all")
@@ -988,35 +902,6 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     styleLoad.then((store) => {
       if (!cancelled) setStyleStore(store)
     })
-    /*
-     * 角色灵魂同样走**独立**一条链，理由与文风一致：一个来源的故障不该牵连另外两个库。
-     * ⚠️ 与文风的差别要说清楚：`listCharacterAuras` = 内置灵魂 + 读盘的自定义灵魂，
-     * 而它下面的 `loadCharacterAuraStore` 把「读不到 / JSON 坏了」都吞成空 store，
-     * 所以**它今天同样不 reject**（列表至少含内置灵魂）。这个 `.catch` 因此也是
-     * **结构性防御**：真 reject 时退化成空列表，而**不是**「只有内置灵魂」。
-     *
-     * 绑定表另读一次：卡片徽章要显示「这条灵魂绑给了谁」。两处读取互不依赖，
-     * 绑定读失败退化成「未绑定」而不是让整个 tab 空掉。
-     */
-    if (project?.path) {
-      listCharacterAuras(project.path)
-        .then((auras) => {
-          if (!cancelled) setSoulAuras(auras)
-        })
-        .catch(() => {
-          if (!cancelled) setSoulAuras([])
-        })
-      getCharacterAuraBindings(project.path)
-        .then((bindings) => {
-          if (!cancelled) setSoulBindings(bindings)
-        })
-        .catch(() => {
-          if (!cancelled) setSoulBindings([])
-        })
-    } else {
-      setSoulAuras([])
-      setSoulBindings([])
-    }
     return () => {
       cancelled = true
     }
@@ -1038,11 +923,6 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     () => (styleStore?.styles ?? []).map(writingStylePresetToEntry),
     [styleStore],
   )
-  const soulEntries = useMemo(
-    () => (soulAuras ?? []).map(characterSoulToEntry),
-    [soulAuras],
-  )
-
   /**
    * tab → 条目列表的**显式映射**。
    * 原先 `activeTab === "writingSkillLibrary" ? writingEntries : deAiEntries`：
@@ -1053,9 +933,8 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
       skillLibrary: deAiEntries,
       writingSkillLibrary: writingEntries,
       writingStyleLibrary: styleEntries,
-      characterSoulLibrary: soulEntries,
     }),
-    [writingEntries, deAiEntries, styleEntries, soulEntries],
+    [writingEntries, deAiEntries, styleEntries],
   )
 
   const categoryChips = useMemo(() => {
@@ -1149,10 +1028,9 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
     try {
       /*
        * 按类型**显式**分派，不用 `if (writing) … else …`：
-       * 那个 else 会把**任何新类型**（文风）静默当成去AI味，进而去写
+       * 那个 else 会把**任何新类型**静默当成去AI味，进而去写
        * `de-ai-skills.json`——**写错另一个库的文件**，本文件里后果最重的一条路。
-       * 文风条目是显式 no-op —— 技能库的选中/切换动作**不得**去写
-       * `.qmai/writing-style.json` 的 `enabledStyleId`（用户决定 2：项目设置不得被改）。
+       * 文风 skill 的勾选**只**写 `.qmai/writing-style.json` 的 `enabledStyleId`（单选启用）。
        *
        * 这个 switch 有**两道**编译保护，别只看到一道：
        *  (a) 加新条目类型而没补 case ⇒ `default` 里的 `entry` 不是 `never`，报错；
@@ -1178,16 +1056,13 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
           bumpDataVersion()
           break
         }
-        case "style":
+        case "style": {
+          // 文风 skill：单选启用 —— 只写 `.qmai/writing-style.json` 的 `enabledStyleId`。
+          const next = await setEnabledWritingStyle(project.path, enabled ? entry.sourceId : null)
+          setStyleStore(next)
+          bumpDataVersion()
           break
-        case "soul":
-          /*
-           * 角色灵魂条目**没有**可切换的「启用」态（见 `ENTRY_CAPABILITIES.soul` 注释）：
-           * 灵魂进不进上下文只由绑定表决定。这里是显式 no-op —— 尤其**不得**
-           * 掉进下面任何一支去写 `de-ai-skills.json` / `writing-skills.json`，
-           * 那会拿 aura id 当技能 id 写错库（与文风那一档同样的后果）。
-           */
-          break
+        }
         default: {
           /*
            * 穷尽性检查：`switch (entry.type)` 已穷尽时 `entry` 本身被收窄成 `never`，
@@ -1283,7 +1158,7 @@ function SkillGallery({ activeTab, onOpen }: { activeTab: GalleryTab; onOpen: (e
                 enabled={entryEnabled(entry, { styleStore, deAiConfig, writingConfig })}
                 favorited={favoriteKey !== null && favoritedKeys.has(favoriteKey)}
                 selected={entry.type === "style" && selectedStyleId === entry.sourceId}
-                badge={entryExtraBadge(entry, writingConfig, soulBindings)}
+                badge={entryExtraBadge(entry, writingConfig)}
                 busy={busy}
                 onOpen={() => onOpen(entry)}
                 onSelect={() => {
@@ -1350,6 +1225,7 @@ export function UnifiedSkillLibraryView() {
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setSelectedSkillId = useWikiStore((s) => s.setSelectedSkillLibrarySkillId)
   const setSelectedWritingSkillId = useWikiStore((s) => s.setSelectedWritingSkillLibrarySkillId)
+  const setSelectedWritingStyleLibraryStyleId = useWikiStore((s) => s.setSelectedWritingStyleLibraryStyleId)
   const skillDraftDirty = useWikiStore((s) => s.skillLibraryDraftDirty)
   const writingDraftDirty = useWikiStore((s) => s.writingSkillLibraryDraftDirty)
   const setSkillDraftDirty = useWikiStore((s) => s.setSkillLibraryDraftDirty)
@@ -1410,13 +1286,9 @@ export function UnifiedSkillLibraryView() {
         setEditing(true)
         return
       case "style":
-        // 文风条目本批只读（设计 §3 待确认项 3）：只改本组件的本地选中态，
-        // 不写任何「选中技能 id」、也不进编辑器。见上方注释。
-        return
-      case "soul":
-        // 角色灵魂条目同样只读：不进编辑器、不写任何选中槽。
-        // 与文风一样，运行时也**到不了**这里（`ENTRY_CAPABILITIES.soul.openable`
-        // 为 false ⇒ `SkillCard.activate` 走 `onSelect` 而不是 `onOpen`）。
+        // 文风 skill：选中对应预设并进入编辑器（名称 / 来源 / 硬约束 / 片段 / 整合文档）。
+        setSelectedWritingStyleLibraryStyleId(entry.sourceId)
+        setEditing(true)
         return
       default: {
         const unhandled: never = entry
@@ -1485,21 +1357,20 @@ export function UnifiedSkillLibraryView() {
  * （清单与实测方式见文件顶部注释）。下面这些点对**新条目类型**是静默的。
  * 逐条写明后果，读完能判断风险，不会把一句概括当成保证：
  *
- * 1. `entryExtraBadge`：**分支式**，不是 `Record`。`soul` 这一支已显式写上
- *    （「已绑定 N 个人物」/「未绑定」），但**下一个**新类型仍会落在最后的
+ * 1. `entryExtraBadge`：**分支式**，不是 `Record`。**下一个**新类型会落在最后的
  *    `return undefined`，卡片上少一个额外徽章。**故意不守**——缺徽章是安全默认值，
  *    为它加一个 `switch` 只是把同样的样板再抄一遍，不减少任何风险。
  *    ⚠️ 别把这条读成「`entryExtraBadge` 加类型时什么都不用想」：它还要读
- *    `soulBindings` 这类额外入参，加类型时是**需要**人来判断的，只是判断错了不红。
+ *    `writingConfig` 这类额外入参，加类型时是**需要**人来判断的，只是判断错了不红。
  * 2. `entrySearchValues`：**分支式**，写成「枚举有 `rawSkill` 的类型」
  *    （`writing` / `de-ai`），所以新类型默认**不**进这一支 = 安全默认值（搜索少一个
  *    关键词，不会崩）。⚠️ 它原先写成 `entry.type !== "style"`，那形状下新增的
- *    `soul` 会掉进去读 `undefined.name`，**搜索时运行时崩溃**——这条已在丁-4 改掉。
- * 3. `entrySourceLabel`：分支式 `if` 链（`style` / `soul` / `de-ai` 各有显式分支），
+ *    无 `rawSkill` 类型会掉进去读 `undefined.name`，**搜索时运行时崩溃**——已在丁-4 改掉。
+ * 3. `entrySourceLabel`：分支式 `if` 链（`style` / `de-ai` 各有显式分支），
  *    但**它是受保护的**——它的最后一段要读 `entry.rawSkill`，而 `rawSkill` 只在
  *    `writing` / `de-ai` 两种类型上 ⇒ 新类型若不带 `rawSkill` 就是
  *    `TS2339: Property 'rawSkill' does not exist on type '… | NewEntry'`。
- *    （实测：临时往联合里塞第 5 种不带 `rawSkill` 的类型，本文件报 **8** 处错，
+ *    （实测：临时往联合里塞第 4 种不带 `rawSkill` 的类型，本文件报 **8** 处错，
  *    其中一处正是这一行；把那个类型改成带 `rawSkill` 就只剩 7 处。所以它
  *    **不**属于「静默」。）
  * 4. 卡片上的三个呈现分支：`selected`（`entry.type === "style" && …`）、
@@ -1525,23 +1396,17 @@ export function UnifiedSkillLibraryView() {
  *        它在文件里出现 **5** 次（4 个构造 + 这条注释自己）。用例断的是**构造**。
  *        ⚠️ 「那两个 case 不可达」**不**等于「没有行为证据」：真正决定它们会不会
  *        被走到的是**能力标志**，而能力标志**有**行为钉 ——
- *        把 `ENTRY_CAPABILITIES.soul.openable` 或 `.toggleable` 改成 `true`
- *        都会有用例红（复核批实测各 CAUGHT ×1，走的是卡片上的
- *        `.ui-test-skill-card-open` 那条路）。所以这里是「守卫本身只能源码级兜底」，
- *        不是「这整块没人管」。
+ *        把 `ENTRY_CAPABILITIES.style.toggleable` 改成 `false`（或把 `.openable`
+ *        改回 `false`）都会有用例红（走的是卡片上的勾选框 / `.ui-test-skill-card-open`
+ *        那条路）。所以这里是「守卫本身只能源码级兜底」，不是「这整块没人管」。
  *    这**不是**说守卫已经不可能被删 —— 改源码当然删得掉，只是删了会有用例红。
  *
  * **有后果的两条路**已经全部受保护，但**证据形式不同**，别搞混：
  *   - 写错库的文件 → `handleToggleEnabled` 的穷尽 `switch`（**编译期**）
  *     ＋「勾选…只写对应那个库的 json」用例（**真行为**，断真实写入路径）；
  *   - 路由错库的编辑器与选中态 → `handleOpenEntry` 的穷尽 `switch`（**编译期**）
- *     ＋ 上面那条**源码级**兜底。⚠️ **没有**行为用例：文风条目的
- *     `ENTRY_CAPABILITIES.style.openable === false`，`onOpen` 根本不会被派发
- *     （见 `SKILL_EDITORS` 上方注释），所以 `handleOpenEntry` 在运行时**不可达**，
- *     任何行为用例都杀不掉它的守卫被拆。
- *     ⚠️ 曾在此处把「文风条目是引用：选中它不写任何文件，也不进入编辑器」
- *     记成 `handleOpenEntry` 的行为证据 —— **那是错的**：该用例走的是
- *     `onSelect` 那条路（钉的是 `openable: false` 这道能力闸门 + 引用路径），
- *     删掉 `case "style"` 它照样绿（已实测）。两者都值得保留，但**不是一个东西**。
+ *     ＋ `handleOpenEntry` 的 `case "style"` 由行为用例钉住：点开一张文风卡片
+ *     会进编辑器、并把 `selectedWritingStyleLibraryStyleId` 写成该预设 id
+ *     （见 `unified-skill-library-view.spec.tsx` 的「文风条目是引用」用例）。
  * 若将来往 `UnifiedSkillEntry` 加第 4 种类型，上面 1/2/3 需要**人工**复查。
  * ========================================================================== */
