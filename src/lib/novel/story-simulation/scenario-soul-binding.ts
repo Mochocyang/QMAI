@@ -107,6 +107,9 @@ export function buildProfileDraftFromCandidate(candidate: ScenarioCandidate): st
  *   两种都让整个 frontmatter 解析失败，人物页不再被认成 entity 页，绑定
  *   永久被拒；又因为「已存在的人物页绝不覆盖」，用户再点多少次都不会修复。
  * - 名字含 `'` 时按 YAML 规则**加倍**（`林'清` → `'林''清'`）。
+ * - 已知残余：**同时**含 `'` 与 `"` / `\` 的名字会被 extractPrimaryTitle 读成多一个
+ *   `'`（它只剥首尾引号，不做单引号加倍的反转义）。仅影响下拉、图谱、搜索结果里的
+ *   显示；绑定判据 normalizeCharacterText 会抹掉引号，所以照旧命中，不影响绑定。
  * - 其余名字保持双引号：这样含 `'` 的名字能被原样取回，见下条。
  *
  * **不要**改成「双引号 + `.replace(/"/g, '\\"')`」或复用 chapter-meta.ts 的
@@ -224,17 +227,25 @@ export async function createProfilePageThenBind(
   const result = await bindScenarioSoul(projectPath, characterName, auraId)
   if (result.ok) return { ok: true, created }
   if (result.reason === "missing-profile") {
-    // 草稿里必然已经写了角色名（`# 名字` 与 `- 姓名：名字`），所以不能把责任
-    // 推给「没写名字」。实测能走到这里的只有两种情况：名字里的特殊字符把
-    // frontmatter 写坏（已在 buildProfilePageContent 用单引号标量修掉，见
-    // titleScalar），或名字超过 character-aura.ts addBindableCharacterName 的
-    // 40 字上限被可绑定名单筛掉。文案要指向这两个真实原因，否则用户照提示
-    // 改也修不好。
+    // 调用方约定 body 以 `# 名字` 开头（buildProfileDraftFromCandidate 满足），
+    // 所以不能把责任推给「没写名字」—— 这是本函数与调用方的约定，不是被类型或
+    // 测试钉死的不变量（body 是形参，本函数目前零生产调用方）。
+    //
+    // 实测能走到这里的真实原因只有两个：那份人物页的 frontmatter 不是
+    // type: entity + tags: [character]（可能是早就存在的手写笔记，也可能是被改坏了），
+    // 或名字超过 character-aura.ts addBindableCharacterName 的 40 字上限被可绑定名单
+    // 筛掉。文案要指向这两个真实原因，否则用户照提示改也修不好。
+    //
+    // 文案必须按 created 分叉：created=false 时我们一个字节都没写（见上面的
+    // 「已存在的人物页绝不覆盖」），说成「人物页已写入」会让用户以为自己的手写页面
+    // 被覆盖了。名字含特殊字符把 frontmatter 写坏的场景已由 titleScalar 修掉，
+    // 不再写进文案。
     return {
       ok: false,
       created,
-      message:
-        "人物页已写入，但绑定校验仍未通过。请打开该人物页，确认 frontmatter 里的 type: entity 与 tags: [character] 还在（名字含特殊字符时可能写坏）；若角色名过长，请改用更短的常用名后再试。",
+      message: created
+        ? "人物页已写入，但绑定校验仍未通过。请打开该人物页，确认 frontmatter 里的 type: entity 与 tags: [character] 还在；若角色名过长（超过 40 字），请改用更短的常用名后再试。"
+        : "该角色已有同名人物页，按「绝不覆盖」的策略我们没有改动它，但绑定校验仍未通过。请打开那份已有页面，补上 frontmatter 的 type: entity 与 tags: [character] 后再试；若角色名过长（超过 40 字），请改用更短的常用名。",
     }
   }
   return { ok: false, created, message: result.message }
