@@ -1,7 +1,7 @@
 import "@/components/uitest/ui-test-tools.css"
 import { useEffect, useMemo, useState, type ComponentType } from "react"
 import { open } from "@tauri-apps/plugin-dialog"
-import { ArrowLeft, Plus, Search, Star, Upload } from "lucide-react"
+import { ArrowLeft, Library, Plus, Search, Star, Upload } from "lucide-react"
 import { readFile } from "@/commands/fs"
 import { confirmDiscardSkillLibraryDraft, useWikiStore } from "@/stores/wiki-store"
 import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
@@ -151,7 +151,7 @@ const TAB_CATEGORY_AXIS: Record<GalleryTab, "writing" | "none"> = {
 const EMPTY_COPY: Record<GalleryTab, string> = {
   skillLibrary: "还没有去AI味技能，点击右上角「新建技能」开始。",
   writingSkillLibrary: "还没有写作 Skill，点击右上角「新建 Skill」开始。",
-  writingStyleLibrary: "还没有文风 skill，点击右上角「+ 新建文风」开始。",
+  writingStyleLibrary: "还没有文风 skill。点右上角「+ 新建文风」手动建一条，或「去拆书库添加文风」从一部作品里提取。",
 }
 
 /**
@@ -644,9 +644,37 @@ function SkillLibraryActions({ activeTab, onAfterCreate }: { activeTab: GalleryT
         </>
       ) : null}
       {actions === "style" ? (
-        <button type="button" onClick={() => void handleCreateWritingStyle()} disabled={disabled} className={buttonClass}>
-          <Plus /> 新建文风
-        </button>
+        <>
+          <button type="button" onClick={() => void handleCreateWritingStyle()} disabled={disabled} className={buttonClass}>
+            <Plus /> 新建文风
+          </button>
+          {/*
+           * 「去拆书库添加文风」。
+           *
+           * 文风的正经来源是**拆书库的文风提取**（拿一本真实作品跑出 9 维指标 + 风格宪法），
+           * 而旁边的「新建文风」只能建一个空壳（`name: "新建文风"` + 空 constitution，
+           * 见 `handleCreateWritingStyle`）。两个入口并排，用户才不会以为"新建"就是正路。
+           *
+           * ⚠️ 目标是**视图名** `bookAnalysis`，不是路由/URL —— 与
+           * `ui-test-shell.tsx` 顶栏「拆书库」菜单项、以及
+           * `book-analysis-activity-store.ts` 里的跳转用的是同一个字面量。
+           * 改这里等于改那两处，别只改一半。
+           */}
+          <button
+            type="button"
+            data-testid="skill-library-goto-book-analysis"
+            onClick={() => setActiveView("bookAnalysis")}
+            /*
+             * 只用 `!project`，**不带** `saving`：
+             * 这是个纯导航按钮，和「新建」「导入」不一样 —— 它不写任何数据，
+             * 没有理由在保存中把用户锁在原地。没项目时禁用（那会儿拆书库也是空的）。
+             */
+            disabled={!project}
+            className={buttonClass}
+          >
+            <Library /> 去拆书库添加文风
+          </button>
+        </>
       ) : null}
       {message ? <span className="ui-test-skills-message">{message}</span> : null}
     </div>

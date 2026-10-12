@@ -39,23 +39,16 @@ async function click(element: Element | null) {
 }
 
 /*
- * 点选工具栏「文风写作」里的一个选项（预设 / 「本次不用文风」/「跟随项目设置的文风」）。
+ * ── 这里原本有个模块级的 `pickWritingStyleOption(container, text)` 帮助函数 ──
  *
- * 放在模块级只此一份：丁-2 的产出端用例与丁-3 的消费端用例（含「@ 引用压过**具体**选中值」
- * 那条）都点同一个控件，两份实现会让其中一份漂移。
+ * 它负责「点开工具栏文风下拉，再点某个选项（预设 / 本次不用 / 跟随项目设置）」，
+ * 丁-2 产出端与丁-3 消费端共 6 处调用点。
+ *
+ * 用户把下拉收成「当前文风（只读）+ 打开文风库」两项之后，浮层里只剩一个按钮，
+ * 上述调用点全部删除（各自改写为断言「只剩两项」），帮助函数随之失去用途 —— 一并删。
+ * 下拉本身的断言现在集中在 `writing-style-picker.spec.tsx`，这里只留 chat-panel 这层
+ * 真正关心的那条：「打开下拉不产生覆盖、不写盘」。
  */
-async function pickWritingStyleOption(container: HTMLElement, text: string) {
-  const trigger = container.querySelector<HTMLButtonElement>('[data-testid="writing-style-picker-trigger"]')
-  expect(trigger, "输入工具栏应有「文风写作」选择器").not.toBeNull()
-  await click(trigger)
-  const popover = container.querySelector('[data-testid="writing-style-picker-popover"]')
-  expect(popover, "浮层应已打开").not.toBeNull()
-  // 预设是 role="option"，「本次不用」/「跟随项目设置」是普通按钮 ⇒ 一起找
-  const option = Array.from(popover!.querySelectorAll<HTMLButtonElement>("button"))
-    .find((item) => item.textContent?.includes(text))
-  expect(option, `浮层里应有「${text}」`).toBeDefined()
-  await click(option!)
-}
 
 describe("ChatPanel mount 基础设施", () => {
   it("根据当前会话是否已发送用户消息控制新建对话按钮", async () => {
@@ -424,49 +417,19 @@ describe("ChatPanel 的「文风写作」产出端", () => {
     await view.unmount()
   })
 
-  it("选中一条文风后，交给 agent 配置的 getter 就返回它的 id（且不改项目启用项）", async () => {
-    vi.mocked(readFile).mockImplementation(async (path: string) =>
-      path.includes("writing-style.json") ? styleStore : "")
-    const view = await renderChatPanel({ activeConversation: true })
-    await flushEffects()
-
-    // 没有覆盖时 getter 返回 undefined（= 沿用项目启用项），不能返回 null
-    expect(writingStyleGetter()()).toBeUndefined()
-
-    await pickWritingStyleOption(view.container, "甲书 · 文风")
-    expect(writingStyleGetter()()).toBe("style-a")
-
-    // 「本次不用文风」= null，且**不能**被抹成 undefined
-    await pickWritingStyleOption(view.container, "本次不用文风")
-    expect(writingStyleGetter()()).toBeNull()
-
-    // 「跟随项目设置」把它退回没有覆盖
-    await pickWritingStyleOption(view.container, "跟随项目设置的文风")
-    expect(writingStyleGetter()()).toBeUndefined()
-
-    await view.unmount()
-  })
-
   /*
-   * ⚠️ 断言的对象必须是**文风库真正用的那个**写盘函数。
+   * ⚠️ 这里原本有一条「选中一条文风 → getter 返回它的 id」的用例，
+   * 它靠 `pickWritingStyleOption` 点浮层里的**文风列表 + 两个覆盖入口**
+   * （甲书 / 本次不用 / 跟随项目设置）。
    *
-   * 文风库的写盘在 `writing-style-store.ts` 的 `saveWritingStyleStore` 里，就两笔：
-   * 先 `createDirectory(<project>/.qmai)`、再 `writeFileAtomic(<project>/.qmai/writing-style.json)`
-   * —— 该文件从 `@/commands/fs` import 的正是 `createDirectory, readFile, writeFileAtomic`，
-   * **没有** `writeFile`。
-   * （这里刻意写符号名而不是行号：上一版引用的行号被我自己的注释改动带偏过一格。）
-   * 本文件原先断言的是 **`writeFile`** —— 那是**另一个** mock，文风库一辈子
-   * 都不会碰它。后果：这条用例永远观察不到任何一次文风库写盘。
-   * 实测过（M-VACUOUS）：在 picker 的 `onPick` 里真调用
-   * `setEnabledWritingStyle(project.path, styleId)` —— 也就是**每次点选都真的改写
-   * `enabledStyleId`** —— 旧断言下 7 个 spec / 211 用例**全绿**。
-   * 而这只发生在用户决定 2（项目设置不得被改）这条最重要的约束上。
+   * 用户把下拉收成「当前文风（只读）+ 打开文风库」两项之后，工具栏
+   * **不再产生任何覆盖值**（`sessionWritingStyleId` 恒为 `undefined`），
+   * 那条用例的触发路径整条消失 —— 留着就是一段永远点不到的断言，所以删除。
    *
-   * 所以这里连同 `createDirectory` 一起断言：真实写盘是
-   * `createDirectory(<project>/.qmai)` + `writeFileAtomic(<project>/.qmai/writing-style.json)`，
-   * 两笔都不许出现。
+   * 注意**覆盖通道本身没拆**：`getWritingStyleIdOverride` 照旧读
+   * `runWritingStyleIdOverrideRef`（即 `@` 引用那条路），下面丁-3 组仍在钉它。
    */
-  it("选择只改界面状态：没有写 .qmai/writing-style.json", async () => {
+  it("下拉只剩两项，且打开下拉这个动作不产生覆盖、不写盘", async () => {
     const atomicMock = vi.mocked(writeFileAtomic)
     const mkdirMock = vi.mocked(createDirectory)
     atomicMock.mockClear()
@@ -476,18 +439,59 @@ describe("ChatPanel 的「文风写作」产出端", () => {
     const view = await renderChatPanel({ activeConversation: true })
     await flushEffects()
 
-    await pickWritingStyleOption(view.container, "甲书 · 文风")
+    // 没有覆盖时 getter 返回 undefined（= 沿用项目启用项），不能返回 null
+    expect(writingStyleGetter()()).toBeUndefined()
 
+    const trigger = view.container.querySelector<HTMLButtonElement>('[data-testid="writing-style-picker-trigger"]')
+    expect(trigger, "输入工具栏应有文风选择器").not.toBeNull()
+    await click(trigger)
+
+    const popover = view.container.querySelector('[data-testid="writing-style-picker-popover"]')
+    expect(popover, "浮层应已打开").not.toBeNull()
+
+    /*
+     * 需求本身：只有两项 —— 一行只读的当前文风 + 一个「打开文风库」按钮。
+     * 判别力：把列表或任一覆盖入口加回来 ⇒ 第一条断言（button 数）立刻红。
+     */
+    expect(popover!.querySelectorAll("button")).toHaveLength(1)
+    expect(
+      popover!.querySelector('[data-testid="writing-style-picker-current"]')?.textContent,
+      "只读读数要显示当前生效的那条",
+    ).toContain("乙书 · 文风")
+    for (const removed of ["跟随项目设置的文风", "本次不用文风", "打开完整文风库"]) {
+      expect(popover!.textContent, `「${removed}」不该再出现`).not.toContain(removed)
+    }
+
+    // 打开下拉这个动作本身既不该产生覆盖，也不该碰项目设置
+    expect(writingStyleGetter()()).toBeUndefined()
     expect(
       atomicMock.mock.calls.filter(([path]) => String(path).includes("writing-style.json")),
-      "点选文风不得写文风库文件（用户决定 2）",
+      "打开文风下拉不得写文风库文件（用户决定 2）",
     ).toEqual([])
     expect(
       mkdirMock.mock.calls.filter(([path]) => String(path).includes(".qmai")),
       "一次都不该为文风库建目录",
     ).toEqual([])
+
     await view.unmount()
   })
+
+  /*
+   * ── 关于上面那条「不写盘」断言的历史（留着，别删）──
+   *
+   * 断言的对象必须是**文风库真正用的那个**写盘函数：`saveWritingStyleStore` 只有两笔
+   * —— `createDirectory(<project>/.qmai)` + `writeFileAtomic(<project>/.qmai/writing-style.json)`，
+   * 从 `@/commands/fs` import 的是 `createDirectory, readFile, writeFileAtomic`，
+   * **没有** `writeFile`。
+   *
+   * 本文件早期断言的是 **`writeFile`** —— 那是**另一个** mock，文风库一辈子都不会碰它，
+   * 于是那条用例永远观察不到任何一次文风库写盘。实测过（M-VACUOUS）：在 picker 里
+   * 真调用 `setEnabledWritingStyle(project.path, styleId)`（也就是每次点选都真的改写
+   * `enabledStyleId`），旧断言下 7 个 spec / 211 用例**全绿** —— 而这只发生在
+   * 用户决定 2（项目设置不得被改）这条最重要的约束上。
+   *
+   * 所以上面那条连同 `createDirectory` 一起断言：真实写盘是这两笔，两笔都不许出现。
+   */
 })
 
 /*
@@ -686,51 +690,40 @@ describe("ChatPanel 的「@ 引用文风」消费端（丁-3）", () => {
     expect(writingStyleGetter()(), "冲突时不许静默挑一条").toBeUndefined()
   })
 
-  it("工具栏选了「本次不用文风」时，本条消息的 @ 引用仍然生效", async () => {
+  /*
+   * ⚠️ 这组原本有两条「@ 引用 vs 工具栏选择器」的优先级裁决用例
+   * （选择器是 `null` 那半、选择器是**具体某一条**那半）。
+   *
+   * 用户把工具栏下拉收成「当前文风（只读）+ 打开文风库」两项之后，
+   * **工具栏这一侧不再产生任何值**（`sessionWritingStyleId` 恒为 `undefined`），
+   * 裁决失去了对象，两条随之删除。它们当年抓的是「getter 让具体选中值赢、
+   * `null` 不赢」这种半截实现 —— 现在那类写法已不可达。
+   *
+   * 替换成下面这条：把「工具栏不再产生覆盖」钉住，并确认在没有任何工具栏覆盖时
+   * `@` 引用照常成为本次生成的覆盖值（与上面走「引用弹窗」真 UI 路径那条互补：
+   * 这条走 store 注入，顺带守住「打开下拉本身不改 getter」）。
+   */
+  it("工具栏不再产生覆盖，@ 引用照常生效", async () => {
     const view = await renderPanel()
 
-    await pickWritingStyleOption(view.container, "本次不用文风")
-    expect(writingStyleGetter()(), "「本次不用文风」= null，且不许被抹成 undefined").toBeNull()
+    const trigger = view.container.querySelector<HTMLButtonElement>('[data-testid="writing-style-picker-trigger"]')
+    expect(trigger, "输入工具栏应有文风选择器").not.toBeNull()
+    await click(trigger)
+    const popover = view.container.querySelector('[data-testid="writing-style-picker-popover"]')
+    expect(popover, "浮层应已打开").not.toBeNull()
+    expect(popover!.querySelectorAll("button")).toHaveLength(1)
+    expect(writingStyleGetter()(), "打开下拉不产生覆盖").toBeUndefined()
+
+    // Escape 关掉浮层，别让它挡住发送
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    })
 
     await enqueueReferences([styleReferenceToken("ref-style-a", "style-a", "甲书 · 文风")])
     await typePrompt(view.container, "这条消息点名用甲书文风")
     await sendMessage(view.container)
 
-    expect(
-      writingStyleGetter()(),
-      "本条消息点名的文风必须赢过工具栏的「本次不用」——否则引用被静默丢掉",
-    ).toBe("style-a")
-
-    await waitForRunSettled("conv_mount")
-  })
-
-  /*
-   * ⚠️ 这条补的是**优先级裁决里最容易漏掉的那一半**。
-   *
-   * 「@ 引用 > 工具栏选择器」有两半：选择器是 `null`（本次不用）那一半，和
-   * 选择器是**具体某一条**那一半。只钉 `null` 那一半是不够的 ——
-   * 实测把 getter 改成「**具体选中值**赢、`null` 不赢」：
-   *     () => (typeof sessionWritingStyleId === "string"
-   *       ? sessionWritingStyleId
-   *       : (ref.current !== undefined ? ref.current : sessionWritingStyleId))
-   * 加上这条用例之前，mount spec 20 passed、**全量 738 文件 / 7419 通过 / 0 失败**、
-   * typecheck exit 0 —— 也就是这个回归会全绿发布。
-   * 而「工具栏选了乙书、又在同一条消息里 @ 甲书」正是最自然的真实交互。
-   */
-  it("工具栏选到**具体**一条文风时，本条消息的 @ 引用仍然赢", async () => {
-    const view = await renderPanel()
-
-    await pickWritingStyleOption(view.container, "乙书 · 文风")
-    expect(writingStyleGetter()(), "工具栏的具体选中值应先生效").toBe("style-b")
-
-    await enqueueReferences([styleReferenceToken("ref-style-a", "style-a", "甲书 · 文风")])
-    await typePrompt(view.container, "这条消息点名改用甲书文风")
-    await sendMessage(view.container)
-
-    expect(
-      writingStyleGetter()(),
-      "工具栏选中了乙书、本条消息又 @ 了甲书 ⇒ 必须用甲书；否则用户刚敲的引用被静默丢弃",
-    ).toBe("style-a")
+    expect(writingStyleGetter()(), "@ 引用必须成为本次生成的覆盖值").toBe("style-a")
 
     await waitForRunSettled("conv_mount")
   })

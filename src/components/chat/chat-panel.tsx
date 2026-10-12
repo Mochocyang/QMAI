@@ -3419,21 +3419,25 @@ export function ChatPanel() {
                         </TooltipContent>
                       </Tooltip>
                       {/*
-                        丁-2「文风写作」：本轮章节生成临时选一条文风。
-                        它在对话/写作助手路径上是**产出端** —— 选中的 id 经
-                        `getWritingStyleIdOverride` 交给 useAgentConfig → tools →
-                        run_chapter_workflow → DeepChapterGenerationInput.writingStyleIdOverride。
-                        只影响这一次生成，项目级 enabledStyleId 不动（用户决定 2）。
+                        丁-2「文风写作」：文风入口。
+
+                        ⚠️ 浮层已按用户要求收成**两项**：「当前文风（只读）」+
+                        「打开文风库」。选文风改由文风库承担（在那里点卡片启用），
+                        所以 `sessionWritingStyleId` 不再有覆盖入口 ——
+                        `onChange` 留在组件接口里只是为了不动下面这条三态管道
+                        （见 `writing-style-picker.tsx` 文件头）。
+                        管道本身仍在：选中的 id 经 `getWritingStyleIdOverride`
+                        交给 useAgentConfig → tools → run_chapter_workflow →
+                        DeepChapterGenerationInput.writingStyleIdOverride。
 
                         ⚠️ `iconOnly`：常态只留一个图标，把「文风写作：…」那段文字
                         收进悬停提示（用户要求收窄工具栏）。当前生效的是哪一条
-                        从悬停提示里看（「文风：甲书 · 文风」），浮层里另有「当前」徽章。
+                        从悬停提示里看（「文风：甲书 · 文风」），浮层里另有一行当前文风。
                       */}
                       <WritingStylePicker
                         value={sessionWritingStyleId}
                         onChange={setSessionWritingStyleId}
                         iconOnly
-                        showLibraryShortcut
                       />
                     </>
                   )}

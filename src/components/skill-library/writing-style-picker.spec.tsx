@@ -3,18 +3,26 @@
 /**
  * 丁-2「文风写作」选择器。
  *
- * 形状照 `de-ai-skill-picker.spec.tsx`：可访问性（键盘 + `role="option"`）、
- * 三态回调（`string` / `null` / `undefined`）、空态、库内跳转。
+ * ## 本次改造后的契约（下拉**只剩两项**）
  *
- * ⚠️ 这里**不** mock `useWritingStyleOptions`：选择器的三态语义一半在 hook 里
- * （`undefined` 显示项目启用项、`null` 显示「本次不用」），mock 掉它这条用例就只剩空壳。
- * 只 mock 读盘（`@/commands/fs`）。
+ *   (a)「当前文风」—— 只读读数，直接把生效的那条名字摆出来；
+ *   (b)「打开文风库」—— 唯一的动作入口，跳 `/writingStyleLibrary`。
+ *
+ * 所以本文件里**不再**有：listbox / `role="option"` / 箭头键选单 /
+ * 「跟随项目设置的文风」/「本次不用文风」/「只影响这一次生成」提示。
+ * 那些断言连同它们的实现一起删了 —— 想加回来的话，先看组件文件头那段注释。
+ *
+ * ⚠️ 唯一还留着的"防旧版回潮"守卫是最后一条 `下拉不许再有旧入口`：
+ * 它钉的是**用户需求本身**（只要两项），不是实现细节。
+ *
+ * ⚠️ 这里**不** mock `useWritingStyleOptions`：显示名（含「未启用」/「所选文风已不存在」）
+ * 的推导就在那个 hook 里，mock 掉这条用例只剩空壳。只 mock 读盘（`@/commands/fs`）。
  */
 import { act, type ComponentProps } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useWikiStore } from "@/stores/wiki-store"
-import { WritingStyleOptionsPanel, WritingStylePicker } from "./writing-style-picker"
+import { WritingStylePicker } from "./writing-style-picker"
 import { useWritingStyleOptions } from "./use-writing-style-options"
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -88,6 +96,12 @@ function trigger(container: HTMLElement): HTMLButtonElement {
   return found!
 }
 
+function popover(container: HTMLElement): HTMLElement {
+  const found = container.querySelector<HTMLElement>('[data-testid="writing-style-picker-popover"]')
+  expect(found, "浮层应已打开").not.toBeNull()
+  return found!
+}
+
 async function openPicker(container: HTMLElement) {
   await act(async () => {
     trigger(container).click()
@@ -95,11 +109,9 @@ async function openPicker(container: HTMLElement) {
   await flushEffects()
 }
 
-/** 取浮层里某个文案的按钮（选项是 role="option"，动作按钮是普通按钮）。 */
+/** 浮层里的动作按钮（按文案找）。 */
 function popoverButton(container: HTMLElement, text: string): HTMLButtonElement {
-  const popover = container.querySelector('[data-testid="writing-style-picker-popover"]')
-  expect(popover, "浮层应已打开").not.toBeNull()
-  const found = Array.from(popover!.querySelectorAll<HTMLButtonElement>("button"))
+  const found = Array.from(popover(container).querySelectorAll<HTMLButtonElement>("button"))
     .find((item) => item.textContent?.includes(text))
   expect(found, `浮层里应有「${text}」按钮`).toBeDefined()
   return found!
@@ -120,103 +132,88 @@ beforeEach(() => {
 })
 
 describe("WritingStylePicker", () => {
-  it("没有覆盖时显示项目启用项，并同时标「当前」与「默认」", async () => {
+  it("下拉只剩两项：一个只读的「当前文风」读数 + 一个「打开文风库」按钮", async () => {
     const { container, root } = await renderPicker()
     await flushEffects()
-
-    expect(trigger(container).textContent).toContain("文风写作：乙书 · 文风")
-
     await openPicker(container)
 
-    const current = container.querySelector('[aria-current="true"]')
-    expect(current?.textContent).toContain("乙书 · 文风")
-    expect(current?.textContent).toContain("当前")
-    expect(current?.textContent).toContain("默认")
+    const panel = popover(container)
+    const current = panel.querySelector<HTMLElement>('[data-testid="writing-style-picker-current"]')
+    expect(current, "应有当前文风读数").not.toBeNull()
+    // 没有覆盖时，读数是项目启用项
+    expect(current!.textContent).toContain("乙书 · 文风")
+
+    /*
+     * 读数**不可点**：它必须是普通元素，不能是 button。
+     * 判别力：把它改成 <button> ⇒ 红。这一条钉的是需求里的「显示」二字 ——
+     * 一旦可点，用户就会以为这里还能选文风，两项的设计立刻退化。
+     */
+    expect(current!.tagName).not.toBe("BUTTON")
+    expect(current!.querySelector("button")).toBeNull()
+
+    // 整块浮层里**只有**一个按钮：打开文风库
+    const buttons = Array.from(panel.querySelectorAll<HTMLButtonElement>("button"))
+    expect(buttons).toHaveLength(1)
+    expect(buttons[0].textContent).toContain("打开文风库")
 
     cleanup(root, container)
   })
 
-  it("选中某条文风时回调拿到它的 id（string = 本次用这条）", async () => {
-    const { container, root, onChange } = await renderPicker()
+  it("「打开文风库」跳到丁-1 那个视图", async () => {
+    const { container, root } = await renderPicker()
     await flushEffects()
     await openPicker(container)
 
     await act(async () => {
-      popoverButton(container, "甲书 · 文风").click()
+      popoverButton(container, "打开文风库").click()
     })
 
-    expect(onChange).toHaveBeenCalledWith("style-a")
-    // 选完即关
+    expect(useWikiStore.getState().activeView).toBe("writingStyleLibrary")
+    // 点完即关，别把浮层留在屏幕上
     expect(container.querySelector('[data-testid="writing-style-picker-popover"]')).toBeNull()
 
     cleanup(root, container)
   })
 
   /*
-   * 用户决定 2（项目设置不得被改）在**选择器这一层自己**也要守住。
+   * ── ★ 需求守卫：旧入口一个都不许回潮 ──
    *
-   * 为什么不能只靠 chat-panel 那层：那是另一个 spec 的 mock 环境，
-   * 而这里才是「有人往组件里加一行 `setEnabledWritingStyle`」最可能发生的地方。
-   * 两条断言都对着**文风库真正用的**写盘函数（`writeFileAtomic` +
-   * `createDirectory`，即 `writing-style-store.ts` 里 `saveWritingStyleStore`
-   * 的那两笔 —— 这里写符号名而不是行号，行号被本批自己的注释改动带偏过）——
-   * 早先 chat-panel 那条断言的是 `writeFile`，一个文风库永远不会碰的 mock。
-   *
-   * 这条是**行为**断言（真点一次、再查盘上有没有动静），不是源码正则：
-   * 正则会被注释满足（本分支栽过），而行为断言连"注释掉又加回来"都抓得住。
+   * 用户明确要求「只显示以下两个内容」。改造前浮层里有 5 块，其中
+   * 「跟随项目设置的文风」「本次不用文风」是**两个覆盖入口**、
+   * 「文风列表」是一整套 listbox。留成一条断言是为了防止以后有人
+   * 「顺手把列表补回来」—— 那是需求变更，不该悄悄发生。
    */
-  it("点选任何一项都不写盘：writeFileAtomic 与 createDirectory 零调用", async () => {
-    const { container, root, onChange } = await renderPicker()
+  it("下拉不许再有旧入口：文风列表 / 跟随项目设置 / 本次不用 / 预算提示", async () => {
+    // 用「有覆盖 + 库里有两条」的真实状态，把列表和两个入口的渲染条件都满足
+    const { container, root } = await renderPicker(vi.fn(), { value: "style-a" })
     await flushEffects()
+    await openPicker(container)
 
-    for (const label of ["甲书 · 文风", "本次不用文风", "跟随项目设置的文风"]) {
-      await openPicker(container)
-      await act(async () => {
-        popoverButton(container, label).click()
-      })
+    const panel = popover(container)
+    expect(panel.querySelector('[role="listbox"]')).toBeNull()
+    expect(panel.querySelector('[role="option"]')).toBeNull()
+
+    const text = panel.textContent ?? ""
+    for (const removed of [
+      "跟随项目设置的文风",
+      "本次不用文风",
+      "打开完整文风库",
+      "只影响这一次生成",
+    ]) {
+      expect(text, `「${removed}」不该再出现`).not.toContain(removed)
     }
-    expect(onChange).toHaveBeenCalledTimes(3)
-
-    expect(
-      writeFileAtomicMock.mock.calls.filter(([path]) => String(path).includes("writing-style.json")),
-      "选择器不得写文风库文件",
-    ).toEqual([])
-    expect(
-      createDirectoryMock.mock.calls.filter(([path]) => String(path).includes(".qmai")),
-      "选择器不得为文风库建目录",
-    ).toEqual([])
 
     cleanup(root, container)
   })
 
-  it("「本次不用文风」回调 null、「跟随项目设置的文风」回调 undefined（两者不能混）", async () => {
-    const { container, root, onChange } = await renderPicker()
+  it("选中的是具体预设时，读数显示那条预设的名字", async () => {
+    const { container, root } = await renderPicker(vi.fn(), { value: "style-a" })
     await flushEffects()
-
     await openPicker(container)
-    await act(async () => {
-      popoverButton(container, "本次不用文风").click()
-    })
-    expect(onChange).toHaveBeenLastCalledWith(null)
 
-    await openPicker(container)
-    await act(async () => {
-      popoverButton(container, "跟随项目设置的文风").click()
-    })
-    expect(onChange).toHaveBeenLastCalledWith(undefined)
-
-    cleanup(root, container)
-  })
-
-  it("value=null 时触发按钮说「本次不用」，且没有任何选项被标为当前", async () => {
-    const { container, root } = await renderPicker(vi.fn(), { value: null })
-    await flushEffects()
-
-    expect(trigger(container).textContent).toContain("本次不用")
-    expect(trigger(container).getAttribute("aria-label")).toBe("文风：本次不用")
-
-    await openPicker(container)
-    expect(container.querySelector('[aria-current="true"]')).toBeNull()
+    expect(
+      popover(container).querySelector('[data-testid="writing-style-picker-current"]')?.textContent,
+    ).toContain("甲书 · 文风")
 
     cleanup(root, container)
   })
@@ -229,10 +226,32 @@ describe("WritingStylePicker", () => {
     expect(trigger(container).textContent).toContain("所选文风已不存在")
     expect(trigger(container).textContent).not.toContain("乙书 · 文风")
 
+    await openPicker(container)
+    const currentText =
+      popover(container).querySelector('[data-testid="writing-style-picker-current"]')?.textContent ?? ""
+    expect(currentText).toContain("所选文风已不存在")
+    expect(currentText).not.toContain("乙书 · 文风")
+
     cleanup(root, container)
   })
 
-  it("文风库为空时给空态，而不是一个空浮层", async () => {
+  it("value=null 时读数说「本次不用」，不回落到项目启用项", async () => {
+    const { container, root } = await renderPicker(vi.fn(), { value: null })
+    await flushEffects()
+
+    expect(trigger(container).textContent).toContain("本次不用")
+    expect(trigger(container).getAttribute("aria-label")).toBe("文风：本次不用")
+
+    await openPicker(container)
+    const currentText =
+      popover(container).querySelector('[data-testid="writing-style-picker-current"]')?.textContent ?? ""
+    expect(currentText).toContain("本次不用")
+    expect(currentText).not.toContain("乙书")
+
+    cleanup(root, container)
+  })
+
+  it("文风库为空时读数给「未启用」，浮层照样能打开（不是空浮层）", async () => {
     store = { version: 1, enabledStyleId: null, styles: [] }
     const { container, root } = await renderPicker()
     await flushEffects()
@@ -240,8 +259,12 @@ describe("WritingStylePicker", () => {
     expect(trigger(container).textContent).toContain("文风写作")
     await openPicker(container)
 
-    expect(container.textContent).toContain("文风库还是空的")
-    expect(container.querySelector('[role="listbox"]')).toBeNull()
+    const panel = popover(container)
+    expect(
+      panel.querySelector('[data-testid="writing-style-picker-current"]')?.textContent,
+    ).toContain("未启用")
+    // 空库也要能去文风库（那里才是「做一次文风提炼」的入口）
+    expect(popoverButton(container, "打开文风库")).toBeDefined()
 
     cleanup(root, container)
   })
@@ -266,47 +289,52 @@ describe("WritingStylePicker", () => {
     cleanup(root, container)
   })
 
-  it("键盘可操作：打开后焦点在列表上，ArrowDown + Enter 能选中", async () => {
-    const { container, root, onChange } = await renderPicker()
-    await flushEffects()
-    await openPicker(container)
-
-    const listbox = container.querySelector('[role="listbox"]')
-    expect(document.activeElement).toBe(listbox)
-
-    await act(async () => {
-      listbox?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }))
-    })
-    await act(async () => {
-      listbox?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
-    })
-
-    // 初始焦点在「当前」那条（乙书，列表第 2 项），ArrowDown 环绕到第 1 项
-    expect(onChange).toHaveBeenCalledWith("style-a")
-
-    cleanup(root, container)
-  })
-
-  it("「打开完整文风库」跳到丁-1 那个视图", async () => {
-    const { container, root } = await renderPicker(vi.fn(), { showLibraryShortcut: true })
-    await flushEffects()
-    await openPicker(container)
-
-    await act(async () => {
-      popoverButton(container, "打开完整文风库").click()
-    })
-
-    expect(useWikiStore.getState().activeView).toBe("writingStyleLibrary")
-
-    cleanup(root, container)
-  })
-
-  it("浮层里明说「只影响这一次生成，不改动项目设置」", async () => {
+  /*
+   * 打开即聚焦到唯一的动作按钮 —— 改造前焦点落在 listbox 上，收成两项后
+   * 若不接管，键盘用户打开浮层还得再按一次 Tab。判别力：删掉那段 useEffect ⇒ 红。
+   */
+  it("打开后焦点落在「打开文风库」上，键盘直接 Enter 就能跳", async () => {
     const { container, root } = await renderPicker()
     await flushEffects()
     await openPicker(container)
 
-    expect(container.textContent).toContain("只影响这一次生成，不改动项目设置。")
+    const openLibrary = container.querySelector('[data-testid="writing-style-picker-open-library"]')
+    expect(document.activeElement).toBe(openLibrary)
+
+    cleanup(root, container)
+  })
+
+  /*
+   * 用户决定 2（项目设置不得被改）在**选择器这一层自己**也要守住。
+   *
+   * 为什么不能只靠 chat-panel 那层：那是另一个 spec 的 mock 环境，
+   * 而这里才是「有人往组件里加一行 `setEnabledWritingStyle`」最可能发生的地方。
+   * 两条断言都对着**文风库真正用的**写盘函数（`writeFileAtomic` +
+   * `createDirectory`，即 `writing-style-store.ts` 里 `saveWritingStyleStore`
+   * 的那两笔）—— 早先 chat-panel 那条断言的是 `writeFile`，一个文风库永远不会碰的 mock。
+   *
+   * 这条是**行为**断言（真点一次、再查盘上有没有动静），不是源码正则：
+   * 正则会被注释满足（本分支栽过），而行为断言连"注释掉又加回来"都抓得住。
+   */
+  it("点「打开文风库」不写盘：writeFileAtomic 与 createDirectory 零调用", async () => {
+    const { container, root, onChange } = await renderPicker()
+    await flushEffects()
+
+    await openPicker(container)
+    await act(async () => {
+      popoverButton(container, "打开文风库").click()
+    })
+
+    // 跳转是纯导航，不该回调覆盖值（覆盖入口已移除）
+    expect(onChange).not.toHaveBeenCalled()
+    expect(
+      writeFileAtomicMock.mock.calls.filter(([path]) => String(path).includes("writing-style.json")),
+      "选择器不得写文风库文件",
+    ).toEqual([])
+    expect(
+      createDirectoryMock.mock.calls.filter(([path]) => String(path).includes(".qmai")),
+      "选择器不得为文风库建目录",
+    ).toEqual([])
 
     cleanup(root, container)
   })
@@ -314,14 +342,12 @@ describe("WritingStylePicker", () => {
   /*
    * ── 触发按钮的文案（用户要求收窄工具栏）──
    *
-   * 改造前常态写着「文风写作：乙书 · 文风」，把工具栏挤得很宽。现在常态只留
-   * 一个图标，文案全部退到悬停提示里：
+   * 常态只留一个图标，文案全部退到悬停提示里：
    *   · 没有任何文风生效 → 「文风」
    *   · 有文风生效       → 「文风：<名称>」
    *
-   * ⚠️ 悬停时**必须**带上名称（这是用户报的「点击后根本不显示选中的是哪一个」
-   * 那一项）：收起状态下这是唯一能看到当前生效文风的落点，
-   * 浮层里的「当前」徽章只有打开才看得到。
+   * ⚠️ 悬停时**必须**带上名称：收起状态下这是唯一能看到当前生效文风的落点，
+   * 浮层里那一行读数只有打开才看得到。
    *
    * 判别力：把 `triggerTitle` 改回固定字符串「文风」，第二条与第三条会红
    * （一条断名称在、一条断无启用项时不冒名称）。
@@ -364,66 +390,13 @@ describe("WritingStylePicker", () => {
     cleanup(root, container)
   })
 
-  it("iconOnly 时选择「本次不用」，悬停提示据实说「文风：本次不用」", async () => {
+  it("iconOnly 且 value=null 时，悬停提示据实说「文风：本次不用」", async () => {
     const { container, root } = await renderPicker(vi.fn(), { iconOnly: true, value: null })
     await flushEffects()
 
     expect(trigger(container).title).toBe("文风：本次不用")
 
     cleanup(root, container)
-  })
-
-  it("两个开关可以分别关掉，面板可单独复用", async () => {
-    const { container, root } = await renderPicker(vi.fn(), {
-      includeDisableOption: false,
-      includeFollowProjectOption: false,
-    })
-    await flushEffects()
-    await openPicker(container)
-
-    expect(container.textContent).not.toContain("本次不用文风")
-    expect(container.textContent).not.toContain("跟随项目设置的文风")
-
-    cleanup(root, container)
-
-    // 独立面板：加载 / 空 / 错误三态各有一份输出
-    const panelContainer = document.createElement("div")
-    document.body.appendChild(panelContainer)
-    const panelRoot = createRoot(panelContainer)
-    await act(async () => {
-      panelRoot.render(
-        <WritingStyleOptionsPanel
-          loading={false}
-          errorMessage=""
-          emptyMessage="文风库还是空的"
-          styles={[{ id: "style-a", name: "甲书 · 文风", description: "来源：甲书" }]}
-          currentSkillId="style-a"
-          defaultSkillId="style-b"
-          onPick={vi.fn()}
-        />,
-      )
-    })
-    expect(panelContainer.textContent).toContain("来源：甲书")
-    expect(panelContainer.textContent).toContain("当前")
-    expect(panelContainer.querySelector('[role="listbox"]')).not.toBeNull()
-
-    await act(async () => {
-      panelRoot.render(
-        <WritingStyleOptionsPanel
-          loading={false}
-          errorMessage=""
-          emptyMessage="文风库还是空的"
-          styles={[]}
-          currentSkillId={null}
-          defaultSkillId={null}
-          onPick={vi.fn()}
-        />,
-      )
-    })
-    expect(panelContainer.textContent).toContain("文风库还是空的")
-
-    act(() => panelRoot.unmount())
-    document.body.removeChild(panelContainer)
   })
 })
 

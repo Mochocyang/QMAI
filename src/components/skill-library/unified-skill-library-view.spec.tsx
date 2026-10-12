@@ -155,6 +155,31 @@ function cleanup(root: Root, container: HTMLElement) {
   document.body.removeChild(container)
 }
 
+/**
+ * 最小外壳：模拟 `content-area.tsx` 按 `activeView` 分派内容区。
+ *
+ * ⚠️ 存在的理由：`UnifiedSkillLibraryView` 在收到非技能库 activeView 时
+ * **会主动抛错**（`resolveActiveTab` 的守卫）。真实外壳的 `switch` 会先把本组件
+ * 卸载、再渲染目标视图，所以生产永远不会走到那一步；测试里若裸渲染本组件
+ * 再切 activeView，就会撞上守卫 —— 那是**脚手架不真实**，不是产品缺陷。
+ *
+ * 判据用 `resolveActiveTab` 本身（try/catch），不另抄一份视图名清单：
+ * 抄一份就会在「新增技能库 tab」时与本尊漂移，而这条 harness 恰恰是
+ * 用来验证分派的，漂移了就会给出假绿。
+ */
+function SkillLibraryHarness() {
+  const activeView = useWikiStore((state) => state.activeView)
+  let insideSkillLibrary = true
+  try {
+    resolveActiveTab(activeView)
+  } catch {
+    insideSkillLibrary = false
+  }
+  return insideSkillLibrary
+    ? <UnifiedSkillLibraryView />
+    : <div data-testid="content-area-book-analysis">拆书库</div>
+}
+
 async function flushEffects() {
   await act(async () => {
     await Promise.resolve()
@@ -540,14 +565,14 @@ describe("UnifiedSkillLibraryView", () => {
     cleanup(root, container)
   })
 
-  it("文风 tab 提供「+ 新建文风」入口，卡片可打开编辑器、不可收藏", async () => {
+  it("文风 tab 提供「+ 新建文风」与「去拆书库添加文风」两个入口，卡片可打开编辑器、不可收藏", async () => {
     const { container, root } = await renderLibrary()
     await switchToTab(container, WRITING_STYLE_TAB)
 
     expect(
       Array.from(container.querySelectorAll('[data-testid="skill-library-header-actions"] button'))
         .map((button) => button.textContent?.trim()),
-    ).toEqual(["新建文风"])
+    ).toEqual(["新建文风", "去拆书库添加文风"])
     // openable: true → 卡片显示「编辑」入口
     expect(container.querySelector(".ui-test-skill-card-open")).not.toBeNull()
 
@@ -558,6 +583,54 @@ describe("UnifiedSkillLibraryView", () => {
     }
     // 文风卡片确实渲染了（否则上面的循环在空集合上「全绿」）
     expect(container.querySelectorAll('[data-testid^="unified-skill-entry-"]').length).toBe(2)
+
+    cleanup(root, container)
+  })
+
+  /*
+   * 「去拆书库添加文风」跳转。
+   *
+   * 为什么值得单钉一条：文风的正经来源是**拆书库的文风提取**（跑真实作品得到
+   * 9 维指标 + 风格宪法），旁边的「新建文风」只能建空壳。这个入口一旦指错视图
+   * （比如写成 "skills" 或漏掉），用户点下去会静默停在本页 —— 没有任何报错。
+   *
+   * 判别力：把 `bookAnalysis` 改成任何别的视图名 ⇒ 红。
+   * 只断言 `activeView` 与外壳的分派结果，不断言拆书库内部渲染了什么 ——
+   * 那是拆书库自己的 spec 的事。
+   */
+  it("「去拆书库添加文风」跳到拆书库视图", async () => {
+    /*
+     * ⚠️ 这条必须用 `SkillLibraryHarness` 而不是裸 `renderLibrary()`。
+     *
+     * `UnifiedSkillLibraryView` 收到非技能库 activeView 时**会主动抛错**
+     * （`resolveActiveTab` 的守卫，见组件里那段注释）。真实外壳
+     * （`content-area.tsx` 的 switch）会先把它卸载再渲染拆书库，所以生产不抛；
+     * 裸渲染 + 切视图会撞上守卫 —— 那是**脚手架不真实**，不是产品缺陷。
+     */
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    await act(async () => {
+      root.render(<SkillLibraryHarness />)
+    })
+    await flushEffects()
+
+    await switchToTab(container, WRITING_STYLE_TAB)
+
+    const button = container.querySelector<HTMLButtonElement>('[data-testid="skill-library-goto-book-analysis"]')
+    expect(button, "文风 tab 应有「去拆书库添加文风」按钮").not.toBeNull()
+    expect(button!.textContent?.trim()).toBe("去拆书库添加文风")
+    // 纯导航：正常状态下必须可点（没有项目时禁用是另一回事，见组件里的注释）
+    expect(button!.disabled).toBe(false)
+
+    await act(async () => {
+      button!.click()
+    })
+
+    expect(useWikiStore.getState().activeView).toBe("bookAnalysis")
+    // 外壳确实把技能库换成了拆书库（而不是把技能库留在原地）
+    expect(container.querySelector('[data-testid="content-area-book-analysis"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="skill-library-header-actions"]')).toBeNull()
 
     cleanup(root, container)
   })
@@ -838,7 +911,7 @@ describe("文风 tab 的自进化入口", () => {
     expect(container.querySelector('[data-testid="style-evolution-panel"]')).not.toBeNull()
     // 默认关闭：数据文件不存在时退化成 emptyState()，而不是让整页崩掉
     expect(
-      container.querySelector('[data-testid="style-evolution-toggle"]')?.getAttribute("aria-pressed"),
+      container.querySelector('[data-testid="style-evolution-toggle"]')?.getAttribute("aria-checked"),
     ).toBe("false")
     /*
      * 进度统计 / 上一轮结论 / 候选按钮 / 轮次历史都按用户要求去掉了。

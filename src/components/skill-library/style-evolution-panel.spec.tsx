@@ -114,7 +114,7 @@ describe("StyleEvolutionPanel", () => {
   it("默认关闭", async () => {
     writeEvolution({ enabled: false })
     const { container, root } = await renderPanel()
-    expect(testId(container, "style-evolution-toggle")?.getAttribute("aria-pressed")).toBe("false")
+    expect(testId(container, "style-evolution-toggle")?.getAttribute("aria-checked")).toBe("false")
     expect(testId(container, "style-evolution-toggle")?.textContent).toBe("已关闭")
     cleanup(root, container)
   })
@@ -126,13 +126,69 @@ describe("StyleEvolutionPanel", () => {
     await click(testId(container, "style-evolution-toggle"))
 
     expect(readEvolution().enabled).toBe(true)
-    expect(testId(container, "style-evolution-toggle")?.getAttribute("aria-pressed")).toBe("true")
+    expect(testId(container, "style-evolution-toggle")?.getAttribute("aria-checked")).toBe("true")
+    expect(testId(container, "style-evolution-toggle")?.textContent).toBe("已开启")
 
     // 再点一次应关回去（不是单程开关）
     await click(testId(container, "style-evolution-toggle"))
     expect(readEvolution().enabled).toBe(false)
+    expect(testId(container, "style-evolution-toggle")?.textContent).toBe("已关闭")
 
     cleanup(root, container)
+  })
+
+  /*
+   * ★ 开关形态（用户要求）。
+   *
+   * 改造前这个开关就是**一段裸文字**（「已关闭」三个字），既看不出能拨、
+   * 也和大模型页那枚开关长得不一样。用户要求：换成类似大模型页的图标，
+   * 并把状态文字放在**左侧**。
+   *
+   * 这里钉的是 DOM 结构（jsdom 拿不到 Tailwind 计算样式，所以不断言颜色渲染结果，
+   * 只断言承载颜色/位移的类名在）：
+   *   · `role="switch"` + `aria-checked` —— 语义是开关，不是按一下就不管了的按钮
+   *   · 顺序必须是「文字 → 滑块」，左文字右滑块
+   *   · 滑块对读屏隐藏（状态已由 aria-checked 承载，重复读会很吵）
+   *
+   * 判别力：把两个 span 顺序调换、或删掉滑块 span ⇒ 红。
+   */
+  it("开关是「文字在左 + 滑块在右」的 switch，不是一段裸文字", async () => {
+    writeEvolution({ enabled: false })
+    const { container, root } = await renderPanel()
+
+    const toggle = testId(container, "style-evolution-toggle")!
+    expect(toggle.tagName).toBe("BUTTON")
+    expect(toggle.getAttribute("role")).toBe("switch")
+    expect(toggle.getAttribute("aria-checked")).toBe("false")
+    // 有明确的动作语义（读屏要能说出"点了会怎样"）
+    expect(toggle.getAttribute("aria-label")).toBe("开启文风自进化")
+
+    // 只该有两块：左侧文字 + 右侧滑块
+    expect(toggle.children).toHaveLength(2)
+    const [label, track] = Array.from(toggle.children) as HTMLElement[]
+    expect(label.textContent).toBe("已关闭")
+    expect(track.getAttribute("aria-hidden")).toBe("true")
+    // 滑块圆点
+    expect(track.querySelector("span")).not.toBeNull()
+    // 关闭态用 bg-muted，开启态才该是 bg-primary
+    expect(track.className).toContain("bg-muted")
+    expect(track.className).not.toContain("bg-primary")
+
+    cleanup(root, container)
+
+    // 开启态：滑块换成主色（= --ui-accent，与模型页那枚开关同色）
+    writeEvolution({ enabled: true })
+    const second = await renderPanel()
+    const onToggle = testId(second.container, "style-evolution-toggle")!
+    expect(onToggle.getAttribute("aria-checked")).toBe("true")
+    expect(onToggle.getAttribute("aria-label")).toBe("关闭文风自进化")
+    const onLabel = onToggle.children[0] as HTMLElement
+    const onTrack = onToggle.children[1] as HTMLElement
+    expect(onLabel.textContent).toBe("已开启")
+    expect(onTrack.className).toContain("bg-primary")
+    // 文字在最左 —— 用户明确要求「图标开启时，左侧显示已开启」
+    expect(onToggle.firstElementChild).toBe(onLabel)
+    cleanup(second.root, second.container)
   })
 
   /*
@@ -178,7 +234,7 @@ describe("StyleEvolutionPanel", () => {
     // 刻意不写文件：这正是「用户从没开过这个开关」的真实路径
     const { container, root } = await renderPanel()
     expect(testId(container, "style-evolution-panel")).not.toBeNull()
-    expect(testId(container, "style-evolution-toggle")?.getAttribute("aria-pressed")).toBe("false")
+    expect(testId(container, "style-evolution-toggle")?.getAttribute("aria-checked")).toBe("false")
     cleanup(root, container)
   })
 
@@ -209,7 +265,7 @@ describe("StyleEvolutionPanel", () => {
     expect(testId(container, "style-evolution-panel")).not.toBeNull()
     expect(testId(container, "style-evolution-toggle")).not.toBeNull()
 
-    // 不该有的：12 个已删除的展示元素一个都不许回来
+    // 不该有的：15 个已删除的展示元素一个都不许回来
     const removed = [
       "style-evolution-remaining",
       "style-evolution-days",
@@ -253,7 +309,7 @@ describe("StyleEvolutionPanel", () => {
 
     // 开关那一行只该有标题和开关，没有段落
     expect(row!.querySelectorAll("p")).toHaveLength(0)
-    expect(row!.textContent).not.toContain("打开日")
+    expect(row!.textContent).not.toContain("token")
 
     // 说明段落必须存在，且在开关那一行之外
     const panel = testId(container, "style-evolution-panel")!
@@ -263,21 +319,24 @@ describe("StyleEvolutionPanel", () => {
       expect(row!.contains(p)).toBe(false)
     }
     // 说明里那段关键话确实在
-    expect(panel.textContent).toContain("自动分析一次")
+    expect(panel.textContent).toContain("会自动分析你前面所写章节的内容")
 
     cleanup(root, container)
   })
 
-  it("说明文字要讲清关键约定：多久一次、结果要手动启用、默认关闭", async () => {
+  it("说明文字要讲清关键约定：分析什么、手动启用、会消耗 token", async () => {
     writeEvolution()
     const { container, root } = await renderPanel()
     const text = container.textContent ?? ""
 
-    expect(text).toContain("3~5")
-    expect(text).toContain("打开日")
+    // 用户点名要写进去的四件事
+    expect(text).toContain("自动分析你前面所写章节的内容")
+    expect(text).toContain("写作习惯")
+    expect(text).toContain("用词习惯")
+    expect(text).toContain("skill")
+    expect(text).toContain("消耗 token")
     // 最容易被误解的一条：进化结果不会自动生效
     expect(text).toContain("需要你点一下才会启用")
-    expect(text).toContain("默认关闭")
 
     cleanup(root, container)
   })
@@ -295,17 +354,18 @@ describe("StyleEvolutionPanel", () => {
     const { container, root } = await renderPanel()
     const text = container.textContent ?? ""
 
-    // 必须保留的那个半角空格：在「让 AI」之后（中英之间）
+    // 必须保留的那个半角空格：在「文风 skill」之前（中英之间）
     expect(text).toContain(
-      "每 3~5 个「打开日」自动分析一次。它拿你自己写的正文当标尺，让 AI 在现有文风画像上做一版改进，只有确实更接近你行文的版本才会被保留成候选。",
+      "文风自进化会自动分析你前面所写章节的内容，提取并读取你平时的写作习惯、用词习惯，形成对应的文风 skill。",
     )
+    // 同样在「消耗 token」之前留一个半角空格
     expect(text).toContain(
-      "候选会作为一份新的文风预设出现在下面的文风库里，需要你点一下才会启用——不会自动替换正在用的文风。同一打开日只尝试一次；默认关闭。",
+      "开启后每次分析都会消耗 token。结果会作为一份新的文风预设出现在下面的文风库里，需要你点一下才会启用——不会自动替换正在用的文风。",
     )
 
     // 反向断言：全角标点后面不该跟空格（JSX 折叠换行会在这里插空格）
     for (const bad of ["。 ", "， ", "； ", "： ", "」 ", "「 "]) {
-      expect(text.includes(bad), `不该出现「${bad.trim()}+空格」`).toBe(false)
+      expect(text.includes(bad), `不该出现「${bad.trim()}+空格`).toBe(false)
     }
 
     cleanup(root, container)

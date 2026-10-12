@@ -1,44 +1,53 @@
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react"
-import { Feather, X } from "lucide-react"
+import { type CSSProperties, useEffect, useRef, useState } from "react"
+import { Feather, Library } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
-import { useWritingStyleOptions, type WritingStyleOption } from "./use-writing-style-options"
+import { useWritingStyleOptions } from "./use-writing-style-options"
 
 /**
- * 「文风写作」选择器（丁-2）：生成时临时选一条文风，**只影响这一次**。
+ * 「文风写作」选择器（丁-2）。
  *
- * 形状照 `DeAiSkillPicker`（`de-ai-skill-picker.tsx`）—— 同一套三态签名、
- * 同一套可访问性契约（键盘 + `role="option"`）、同一套「打开完整库」跳转。
- * 见《docs/scratch-20261010-文风-skill化-实施计划.md》§2 第 4 步。
+ * ## 下拉只剩两项（本次改造）
  *
- * ⚠️ 三态语义（`onChange` 的参数）**不能混用**：
- * - `string` → 本次用这条预设（`DeepChapterGenerationInput.writingStyleIdOverride`）；
- * - `null` → 「本次不用文风」，渲染成 `""`，提示词里不出现这一节；
- * - `undefined` → 「跟随项目设置」，即没有覆盖。
+ *   (a)「当前文风」—— **只读**，直接把现在生效的那条名字摆出来；
+ *   (b)「打开文风库」—— 唯一的动作入口，跳 `/writingStyleLibrary`（与改造前一致）。
  *
- * ⚠️ **绝不写项目设置**：选择只进 React 状态，`enabledStyleId` 不被改
- * （用户决定 2）。本组件不 import 任何写盘的 store 函数。
+ * 改造前这里是「文风列表（逐条带「当前」「默认」徽章）+ 跟随项目设置的文风 +
+ * 本次不用文风 + 打开完整文风库 + 一句上下文预算提示」五块。用户报的是
+ * 「打开后一堆选项，既不知道点哪个、也看不出现在用的是哪条」，于是收成两块。
+ *
+ * ⚠️ **两个覆盖入口（`onChange(null)` / `onChange(undefined)`）已按要求移除**，
+ * 因此本组件现在**不调用** `onChange`。props 留着是故意的，理由见下面
+ * `WritingStylePickerProps.onChange` 的注释 —— 别把它当成漏删的死代码。
+ *
+ * ⚠️ (a) 是**纯展示**，不要给它加 `role="option"` / `onClick` / `aria-selected`。
+ * 它不在键盘选单里，也不该看起来能点；「换文风」这件事只有 (b) 一条路。
+ * （原先那套 listbox + ArrowUp/ArrowDown 的键盘契约随列表一起删掉了，
+ * 别照着旧版 spec 再把 `role="listbox"` 加回来。）
  */
 interface WritingStylePickerProps {
+  /**
+   * 本次生成选中的文风（三态，语义见 `use-writing-style-options` 与
+   * `writing-style-store.ts` 的 `styleIdOverride`）：
+   * - `undefined` = 没有覆盖，显示项目启用项；
+   * - `null` = 显式「本次不用文风」；
+   * - `string` = 指定预设 id。
+   *
+   * 新 UI 不再产生后两种，但外部（chat-panel）仍按三态传，显示逻辑照旧。
+   */
   value?: string | null
-  onChange: (styleId: string | null | undefined) => void
-  /** 是否给「本次不用文风」入口（`onChange(null)`）。 */
-  includeDisableOption?: boolean
-  /** 是否给「跟随项目设置」入口（`onChange(undefined)`），即清掉这次覆盖。 */
-  includeFollowProjectOption?: boolean
+  /**
+   * ⚠️ **当前 UI 已无触发点**：下拉收成「当前文风 + 打开文风库」两项之后，
+   * 本组件不会调用它。
+   *
+   * 保留（且标成可选）是**故意**的：chat-panel 那条三态管道
+   * （`sessionWritingStyleId` → `getWritingStyleIdOverride` → `run_chapter_workflow`
+   * → `DeepChapterGenerationInput.writingStyleIdOverride`）用的是同一个接口形状，
+   * 删掉它会连带改一大片代码，而**行为一个字节都不会变**。
+   * 将来要恢复「本次用某条 / 本次不用」入口，从这里接回去即可。
+   */
+  onChange?: (styleId: string | null | undefined) => void
   buttonLabel?: string
   iconOnly?: boolean
-  showLibraryShortcut?: boolean
-}
-
-interface WritingStyleOptionsPanelProps {
-  loading: boolean
-  errorMessage: string
-  emptyMessage: string
-  styles: WritingStyleOption[]
-  currentSkillId?: string | null
-  defaultSkillId?: string | null
-  onPick: (styleId: string) => void
-  onClose?: () => void
 }
 
 function getPickerPanelStyle(anchor: HTMLElement): CSSProperties {
@@ -59,144 +68,31 @@ function getPickerPanelStyle(anchor: HTMLElement): CSSProperties {
   }
 }
 
-/**
- * 选项面板：**独立的可访问组件**，不内联进选择器。
- *
- * 键盘契约照 `DeAiSkillOptionsPanel`（`:90-107`）：ArrowUp/ArrowDown 移动焦点、
- * Enter 选中、Escape 关闭；每项是 `role="option"` + `aria-selected`/`aria-current`。
- * 只做鼠标下拉是不够的 —— 那样键盘用户根本选不了文风。
- */
-export function WritingStyleOptionsPanel({
-  loading,
-  errorMessage,
-  emptyMessage,
-  styles,
-  currentSkillId,
-  defaultSkillId,
-  onPick,
-  onClose,
-}: WritingStyleOptionsPanelProps) {
-  const styleIds = useMemo(() => styles.map((style) => style.id), [styles])
-  const [focusedStyleId, setFocusedStyleId] = useState<string | null>(null)
-  const listboxRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    if (styles.length === 0) {
-      setFocusedStyleId(null)
-      return
-    }
-    setFocusedStyleId(currentSkillId && styleIds.includes(currentSkillId) ? currentSkillId : styles[0].id)
-  }, [currentSkillId, styleIds, styles])
-
-  useEffect(() => {
-    if (!loading && !errorMessage && styles.length > 0) {
-      listboxRef.current?.focus()
-    }
-  }, [errorMessage, loading, styles.length])
-
-  if (loading) {
-    return <div className="px-2 py-3 text-xs text-muted-foreground">正在读取文风...</div>
-  }
-  if (errorMessage) {
-    return <div className="px-2 py-3 text-xs text-destructive">{errorMessage}</div>
-  }
-  if (styles.length === 0) {
-    return <div className="px-2 py-3 text-xs text-muted-foreground">{emptyMessage}</div>
-  }
-  return (
-    <div
-      ref={listboxRef}
-      role="listbox"
-      aria-label="文风预设"
-      tabIndex={0}
-      className="max-h-72 overflow-y-auto outline-none"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault()
-          onClose?.()
-          return
-        }
-        if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Enter") return
-        event.preventDefault()
-        const currentIndex = Math.max(0, styleIds.indexOf(focusedStyleId ?? ""))
-        if (event.key === "Enter") {
-          const pickedStyleId = focusedStyleId ?? styles[currentIndex]?.id
-          if (pickedStyleId) onPick(pickedStyleId)
-          return
-        }
-        const offset = event.key === "ArrowDown" ? 1 : -1
-        const nextIndex = (currentIndex + offset + styles.length) % styles.length
-        setFocusedStyleId(styles[nextIndex].id)
-      }}
-    >
-      {styles.map((style) => (
-        <button
-          key={style.id}
-          type="button"
-          role="option"
-          aria-selected={style.id === focusedStyleId}
-          aria-current={style.id === currentSkillId ? "true" : undefined}
-          className={`block w-full rounded px-2 py-2 text-left hover:bg-accent ${
-            style.id === currentSkillId ? "bg-accent text-foreground" : ""
-          } ${style.id === focusedStyleId ? "ring-1 ring-primary/40" : ""}`}
-          onMouseEnter={() => setFocusedStyleId(style.id)}
-          onClick={() => onPick(style.id)}
-        >
-          <div className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-sm">{style.name}</span>
-            {style.id === currentSkillId ? (
-              <span className="shrink-0 rounded bg-primary px-1.5 py-0.5 text-[0.625rem] text-primary-foreground">
-                当前
-              </span>
-            ) : null}
-            {style.id === defaultSkillId ? (
-              <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
-                默认
-              </span>
-            ) : null}
-          </div>
-          {style.description ? (
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">{style.description}</div>
-          ) : null}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 export function WritingStylePicker({
   value,
-  onChange,
-  includeDisableOption = true,
-  includeFollowProjectOption = true,
   buttonLabel,
   iconOnly = false,
-  showLibraryShortcut = false,
 }: WritingStylePickerProps) {
   const project = useWikiStore((s) => s.project)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const [open, setOpen] = useState(false)
   const [panelStyle, setPanelStyle] = useState<CSSProperties>({ left: 8, top: 8 })
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const {
-    loading,
-    styles,
-    effectiveName,
-    currentSkillId,
-    defaultSkillId,
-    loadError,
-  } = useWritingStyleOptions({ projectPath: project?.path, selectedSkillId: value })
+  const openLibraryRef = useRef<HTMLButtonElement | null>(null)
+  const { loading, effectiveName } = useWritingStyleOptions({
+    projectPath: project?.path,
+    selectedSkillId: value,
+  })
   /*
-   * ── 触发按钮的文案（用户要求收窄）──
+   * ── 触发按钮的文案 ──
    *
-   * 改造前常态写着「文风写作：甲书 · 文风」四个字起步，把工具栏挤得很宽。
-   * 现在常态只留一个图标，文字全部退到悬停提示里：
+   * 常态只留一个图标，文字全部退到悬停提示里：
    *   · 没有任何文风生效 → 「文风」（两个字的入口名）
    *   · 有文风生效       → 「文风：甲书 · 文风」
    *
-   * ⚠️ 悬停时为什么还要带上名称：只留图标之后，「点了哪个 / 现在生效的是哪个」
-   * 在界面上就没有别的落点了（这是用户报的第二项）。浮层里的「当前」徽章
-   * 只有打开时才看得到，所以悬停这一句是收起状态下的唯一出口。
+   * ⚠️ 悬停时为什么还要带上名称：只留图标之后，「现在生效的是哪个」
+   * 在收起状态下就没有别的落点了。浮层里 (a) 那一行只有打开才看得到，
+   * 所以悬停这一句是收起状态下的唯一出口。
    *
    * ⚠️ `buttonLabel` 仍然优先：调用方可以完全接管文案（现在的调用方都不传）。
    */
@@ -217,6 +113,18 @@ export function WritingStylePicker({
       document.removeEventListener("mousedown", handleMouseDown)
       document.removeEventListener("keydown", handleKeyDown)
     }
+  }, [open])
+
+  /*
+   * 打开即把焦点放到「打开文风库」上。
+   *
+   * 这不是装饰：改造前浮层里是个 `role="listbox"`（`tabIndex=0` + 箭头键选单），
+   * 焦点本来就会落进去；收成两项之后如果什么都不做，键盘用户打开浮层后
+   * 焦点还留在触发器上，得再按一次 Tab 才够得着唯一的动作 —— 那就白退化了一步。
+   * （(a) 是只读读数，不该抢焦点，所以只聚焦这一个按钮。）
+   */
+  useEffect(() => {
+    if (open) openLibraryRef.current?.focus()
   }, [open])
 
   return (
@@ -265,69 +173,44 @@ export function WritingStylePicker({
           className="fixed z-50 w-64 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-lg"
           style={panelStyle}
         >
-          <WritingStyleOptionsPanel
-            loading={loading}
-            errorMessage={loadError}
-            emptyMessage="文风库还是空的：对一部作品做完文风提炼后，这里就能选它。"
-            styles={styles}
-            currentSkillId={currentSkillId}
-            defaultSkillId={defaultSkillId}
-            onClose={() => setOpen(false)}
-            onPick={(styleId) => {
-              onChange(styleId)
-              setOpen(false)
-            }}
-          />
-          {includeFollowProjectOption ? (
-            <button
-              type="button"
-              className="mt-1 flex w-full items-center gap-2 rounded px-2 py-2 text-left text-muted-foreground hover:bg-accent"
-              onClick={() => {
-                onChange(undefined)
-                setOpen(false)
-              }}
-            >
-              <Feather className="h-3.5 w-3.5" />
-              跟随项目设置的文风
-            </button>
-          ) : null}
-          {includeDisableOption ? (
-            <button
-              type="button"
-              className="mt-1 flex w-full items-center gap-2 rounded px-2 py-2 text-left text-muted-foreground hover:bg-accent"
-              onClick={() => {
-                onChange(null)
-                setOpen(false)
-              }}
-            >
-              <X className="h-3.5 w-3.5" />
-              本次不用文风
-            </button>
-          ) : null}
-          {showLibraryShortcut ? (
-            <button
-              type="button"
-              className="mt-1 flex w-full items-center gap-2 rounded border-t px-2 py-2 text-left text-muted-foreground hover:bg-accent"
-              onClick={() => {
-                setOpen(false)
-                setActiveView("writingStyleLibrary")
-              }}
-            >
-              打开完整文风库
-            </button>
-          ) : null}
           {/*
-            预算提示（不是装饰）：`trimContextPack` 对 writingStyle 是**整段丢弃**
-            （priority 19），不是逐字截断 —— 文风越长越可能整段被丢。
-            结构化画像会因此**停机报错**，旧画像会**静默不生效**。
-            这条可达路径必须让用户至少有机会看到，不能只留在代码注释里。
-          */}
-          <p
-            className="mt-1 border-t px-2 pb-1 pt-2 text-[0.6875rem] leading-4 text-muted-foreground"
-            title="文风文本较长时，可能因本次上下文预算不足被整段丢弃：结构化画像会停机报错，旧画像会不生效。"
+           * ── (a) 当前文风：只读 ──
+           *
+           * 不给它 hover 底色、不给 onClick：它是个状态读数，不是选项。
+           * 名字用 `truncate` + `title` —— 文风名（形如「我的文风 · 自动进化 · 第 3 轮」）
+           * 可以很长，截断后靠悬停看全名。
+           */}
+          <div
+            data-testid="writing-style-picker-current"
+            className="flex items-center gap-2 px-2 py-2"
           >
-            只影响这一次生成，不改动项目设置。
-          </p>
+            <Feather className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <span
+              className="min-w-0 flex-1 truncate text-foreground"
+              title={loading ? undefined : effectiveName}
+            >
+              {loading ? "正在读取文风..." : effectiveName}
+            </span>
+          </div>
+          {/*
+           * ── (b) 打开文风库：唯一的动作入口 ──
+           *
+           * 上边框把它与上面那行读数分开（读数不可点、动作可点，视觉上要能区分）。
+           * 跳转目标与改造前的「打开完整文风库」完全相同，操作方式不变。
+           */}
+          <button
+            type="button"
+            ref={openLibraryRef}
+            data-testid="writing-style-picker-open-library"
+            className="mt-1 flex w-full items-center gap-2 rounded border-t px-2 py-2 text-left text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() => {
+              setOpen(false)
+              setActiveView("writingStyleLibrary")
+            }}
+          >
+            <Library className="h-3.5 w-3.5" />
+            打开文风库
+          </button>
         </div>
       ) : null}
     </div>

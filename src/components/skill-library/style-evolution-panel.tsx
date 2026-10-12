@@ -68,13 +68,47 @@ export function StyleEvolutionPanel() {
        */}
       <div className="flex items-center justify-between gap-4">
         <h3 className="text-base font-medium">文风自进化</h3>
+        {/*
+         * 开关形态照「大语言模型」页里那一枚（`llm-provider-section.tsx` 的
+         * Function Calling 开关）：**文字在左、滑块在右**，开关状态从文字读出来。
+         *
+         * ⚠️ 视觉规格与 `.model-switch`（`uitest/models/model-settings.css:43-45`）
+         * 一致 —— 36×21 胶囊 + 15px 圆点 —— 但**刻意不复用那个类名**：
+         * 那份 CSS 只被模型设置那几个视图 `import`，技能库这条 chunk 加载不到，
+         * 复用会退化成一个裸 span（没有任何外观）。所以这里用 Tailwind 内联复刻。
+         *
+         * ⚠️ 颜色用 `bg-primary`：在 ui-test 皮肤下 `--primary = --ui-accent`
+         * （见 `ui-test.css:76`），与模型页那枚开关同色，换皮肤时自动跟着走。
+         * 圆点用 `bg-background`（= `--ui-paper`，近白），同样是皮肤变量。
+         */}
         <button
           type="button"
-          aria-pressed={enabled}
+          role="switch"
+          aria-checked={enabled}
+          aria-label={enabled ? "关闭文风自进化" : "开启文风自进化"}
+          title={enabled ? "关闭文风自进化" : "开启文风自进化"}
           data-testid="style-evolution-toggle"
           onClick={() => void toggle()}
+          className="flex shrink-0 items-center gap-2"
         >
-          {enabled ? "已开启" : "已关闭"}
+          <span
+            className={`text-xs font-medium ${enabled ? "text-primary" : "text-muted-foreground"}`}
+          >
+            {enabled ? "已开启" : "已关闭"}
+          </span>
+          {/* 滑块本体对读屏隐藏：状态已经由外层 `role="switch"` + `aria-checked` 承载 */}
+          <span
+            aria-hidden="true"
+            className={`relative inline-flex h-[21px] w-9 shrink-0 items-center rounded-full transition-colors ${
+              enabled ? "bg-primary" : "bg-muted"
+            }`}
+          >
+            <span
+              className={`inline-block h-[15px] w-[15px] rounded-full bg-background transition-transform ${
+                enabled ? "translate-x-[18px]" : "translate-x-[3px]"
+              }`}
+            />
+          </span>
         </button>
       </div>
 
@@ -85,18 +119,18 @@ export function StyleEvolutionPanel() {
          * ⚠️ JSX 会把文本中间的换行折叠成一个**空格**。中文句子在源码里换行，
          * 渲染出来就成了「才保留候选。 改进结果」这种句中多一个空格的样子
          * （真机截图放大后可见；这个缺陷在上一版就有，不是新引入的）。
-         * 用 {"..."} 才能精确控制空格：该有的地方（「让 AI 在」）保留，
+         * 用 {"..."} 才能精确控制空格：该有的地方（「形成对应的文风 skill」）保留，
          * 不该有的地方（全角标点之后）一个都不留。
          */}
         <p>
           {
-            "每 3~5 个「打开日」自动分析一次。它拿你自己写的正文当标尺，让 AI 在现有文风画像上做一版改进，只有确实更接近你行文的版本才会被保留成候选。"
+            "文风自进化会自动分析你前面所写章节的内容，提取并读取你平时的写作习惯、用词习惯，形成对应的文风 skill。"
           }
         </p>
         <p>
-          {"候选会作为一份新的文风预设出现在下面的文风库里，"}
+          {"开启后每次分析都会消耗 token。结果会作为一份新的文风预设出现在下面的文风库里，"}
           <span className="text-foreground">{"需要你点一下才会启用"}</span>
-          {"——不会自动替换正在用的文风。同一打开日只尝试一次；默认关闭。"}
+          {"——不会自动替换正在用的文风。"}
         </p>
       </div>
     </div>
