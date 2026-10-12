@@ -1074,3 +1074,89 @@ describe("模型输出形状容错：模型不会逐字照抄提示词", () => {
   })
 })
 
+/*
+ * 「学习完成 → 弹窗」这条接线的**唯一**写入点。
+ *
+ * 为什么必须单独钉：弹窗组件自己有 5 条用例
+ * （`persona-skill-completion-dialog.spec.tsx`），但它们全部是**手工往 store 里塞 state**
+ * 再渲染 —— 没有一条覆盖「**谁**把 state 塞进去」。而全仓写这个字段的地方只有
+ * 本文件的 `learnPersonaSkillsFromChapter` 一处。
+ *
+ * 少了这一组，把 `setPersonaSkillCompletion(...)` 那行删掉，整个仓库依然全绿，
+ * 而用户侧的表现是「学完了没有任何提示」—— 恰好是这条分支要修的那个观感问题。
+ *
+ * ⚠️ 这条路径的真实触发要跑一次真实 LLM 摄取（会消耗 API 并写入用户项目），
+ * 所以它**只能**在这里钉住，真机验证代价过高。
+ */
+describe("人物 Skill 学习完成的弹窗触发", () => {
+  function fullFields() {
+    return {
+      怎么说话: "话少，句子短。",
+      怎么想: "先算代价。",
+      怎么判断: "看人先看底线。",
+      什么不做: "不拿无辜者交换。",
+      知道局限: "救不了所有人。",
+    }
+  }
+
+  function replyRaw(raw: string) {
+    streamChatMock.mockImplementation(
+      async (
+        _config: unknown,
+        _messages: unknown,
+        callbacks: { onToken: (t: string) => void; onDone: () => void },
+      ) => {
+        callbacks.onToken(raw)
+        callbacks.onDone()
+      },
+    )
+  }
+
+  beforeEach(() => {
+    io.files.clear()
+    streamChatMock.mockReset()
+    storeMock.setPersonaSkillCompletion.mockClear()
+    __resetPersonaSkillRoundsForTesting()
+  })
+
+  it("建档成功：把新增的人物名交给弹窗", async () => {
+    roleFile("男主", "林清越")
+    reply([{ name: "林清越", fields: fullFields() }])
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    // 先确认这一轮真的写进 index 了：否则下面那条断言可能因为「本轮什么都没做」
+    // 而假绿（比如某天门槛被改大，建档根本没发生）。
+    expect(readIndex()!.skills.map((item) => item.characterName)).toEqual(["林清越"])
+    expect(storeMock.setPersonaSkillCompletion).toHaveBeenCalledTimes(1)
+    const payload = storeMock.setPersonaSkillCompletion.mock.calls[0]?.[0] as
+      | { created: string[]; updated: string[] }
+      | undefined
+    expect(payload?.created).toEqual(["林清越"])
+    expect(payload?.updated).toEqual([])
+  })
+
+  it("解析出草稿但一个字都没落盘：不碰 store（不能弹「生成成功」却一个名字都没有）", async () => {
+    roleFile("男主", "林清越")
+    // 关键：这**不是**「模型没给 JSON」那条更早的返回，而是**确实解析出了 1 条草稿**、
+    // 只是字段名全对不上、渲染成空文档的那条路径。它才真正走到 `written === 0`
+    // 那个分支 —— 也就是下面这条断言唯一能起作用的地方。
+    replyRaw(JSON.stringify({ skills: [{ name: "林清越", fields: { 他喜欢吃辣: "很能吃辣。" } }] }))
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    expect(io.files.has(indexFile)).toBe(false)
+    // 同一轮里「学习失败」那条通道必须照常亮起（否则用户什么都看不到）
+    expect(storeMock.setPersonaSkillLearningError).toHaveBeenCalled()
+    expect(storeMock.setPersonaSkillCompletion).not.toHaveBeenCalled()
+  })
+})
+
