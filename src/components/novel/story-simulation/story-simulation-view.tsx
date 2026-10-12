@@ -82,6 +82,7 @@ import type {
 
 import { SimulationConfigPanel } from "./simulation-config-panel";
 import { averageDirectorScore } from "@/lib/novel/story-simulation/result-summary";
+import { summarizeRunStatus } from "@/lib/novel/story-simulation/run-status";
 import { FrameworkConfirmPanel } from "./framework-confirm-panel";
 import { SimulationReportView } from "./simulation-report-view";
 import { StoryDraftView } from "./story-draft-view";
@@ -2216,6 +2217,11 @@ function SimulatingTimelinePanel({
   const currentAgents = useStorySimulationStore((s) => s.currentAgents);
   const timelineEvents = useStorySimulationStore((s) => s.timelineEvents);
 
+  const runStatus = useMemo(
+    () => summarizeRunStatus({ debugTraces, framework, events }),
+    [debugTraces, framework, events],
+  );
+
   // 筛选状态
   const [filterActor, setFilterActor] = useState<string>("all");
   const [filterType, setFilterType] = useState<string>("all");
@@ -2319,6 +2325,22 @@ function SimulatingTimelinePanel({
             style={{ width: `${clamped}%` }}
           />
         </div>
+        {/* 常驻状态条：跑到一半也能看出在哪个节点、第几轮、已产生多少事件、花了多少次决策 */}
+        {runStatus && (
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">
+              {runStatus.nodeTitle}
+              {runStatus.totalNodes !== null && (
+                <span className="font-normal text-muted-foreground">
+                  （{runStatus.nodeNumber}/{runStatus.totalNodes}）
+                </span>
+              )}
+            </span>
+            <span>第 {runStatus.round} 轮</span>
+            <span>{runStatus.eventCount} 事件</span>
+            <span>{runStatus.decisionCount} 次决策</span>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <div className="text-xs text-muted-foreground">{clamped}%</div>
           {onCancel && (

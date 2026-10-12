@@ -85,4 +85,21 @@ describe("story simulation debug process view wiring", () => {
     // 直接不读不写（见 use-simulation-session.spec.tsx 的覆盖）。
     expect(source).toContain("useSimulationSession(projectPath)")
   })
+
+  it("renders the persistent run status bar during simulation", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/novel/story-simulation/story-simulation-view.tsx",
+      ),
+      "utf8",
+    )
+
+    // 状态条读的是 debugTraces 汇总出来的 runStatus（纯函数，
+    // 见 run-status.spec.ts 的覆盖）。
+    expect(source).toContain("summarizeRunStatus({ debugTraces, framework, events })")
+    expect(source).toContain("runStatus.nodeTitle")
+    expect(source).toContain("runStatus.eventCount")
+    expect(source).toContain("runStatus.decisionCount")
+  })
 })
