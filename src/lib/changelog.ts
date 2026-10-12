@@ -7,6 +7,33 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_THREE_ONE_CHANGELOG: ChangelogEntry = {
+  version: "4.3.1",
+  date: "2026-10-12",
+  highlights: {
+    en: [
+      "[Write Your Own Style] The Style tab is renamed Style Skill and gains a New Style button. You can now author a style yourself — name, source work and the style body — instead of only importing one from a dissected book. The body is stored alongside the rest of your style data and written to disk, so what you write survives a restart.",
+      "[Style Evolution] A new Style Evolution switch reads chapters you have already written, measures how you actually write, and distills the result into a style skill. Because this costs tokens, the panel says so before you turn it on. The extracted style never replaces the one you are using on its own: it waits until you enable it yourself.",
+      "[Character Skills: You Get Told] Ingesting a chapter could learn new character skills without ever saying so, and the only way to notice was to open the library and count. A global notice now appears when learning finishes, closes itself after five seconds, and offers a shortcut straight to the Character Skills tab if you want to review what was filed.",
+      "[One Less Tab] The Character Soul tab inside the skill library is gone. Souls were already reachable from their own entry in the main sidebar, so the tab was a second door to the same room showing fewer things.",
+      "[Style Menu Trimmed To Two Rows] The style dropdown in the composer had grown to five blocks. It is now two: a read-only line stating the current style, and one action that opens the style library. Picking a style is one job and now has one obvious place. Note the consequence: there is no longer a per-message switch to write just this one piece without a style — enabling and disabling is a per-project setting made in the style library. If you want a different style for a single generation, reference it with @.",
+      "[Style Library Can Reach The Dissection Room] The style library gains a shortcut to the book-dissection library, which is where styles actually come from. A library whose only obvious button was delete tends to stay empty; the empty state now points here too.",
+      "[Book Shelf Cover Sizes] Covers were being sized by a fixed column count that changed at a window breakpoint, so widening the window past that point made every cover smaller — a 1206px window showed 95px covers where 1090px showed 200px. Each size now declares the width it wants and the column count follows from the space available. Cards also line up along their tops rather than drifting down by the height of the longest title. The title under each cover is no longer bold, and long titles wrap onto as many lines as they need instead of being clipped after two.",
+      "[Book Name No Longer Vanishes] The book name in the top bar was hidden outright below 1179px, so it simply disappeared at a perfectly ordinary window width and looked like a bug. It now narrows in stages across four breakpoints and truncates with an ellipsis when it runs out of room — visible at every width, just shorter.",
+    ],
+    zh: [
+      "【文风可以自己写】「文风」改名为「文风 skill」，并新增「+ 新建文风」。你现在可以自己写一条文风 —— 名称、来源作品、文风内容 —— 不必非得先从某本书里拆出来。内容与其余文风数据存在一起并落盘，重启之后还在。",
+      "【文风自进化】新增「文风自进化」开关：它会读取你已经写过的章节，度量你实际的写法，把结果沉淀成一条文风 skill。因为这一步要消耗 token，面板在你打开之前就先把这件事说明白。提取出来的文风不会自动顶替你正在用的那条 —— 它等你手动启用。",
+      "【人物 Skill 学会了会告诉你】此前摄取一章时可能已经学到了新的人物 skill，却什么也不说，想知道只能自己去技能库里数。现在学习结束会弹一条全局提示，5 秒后自动关闭；想看学了什么，点「现在勾选」直接跳到技能库的「人物 Skill」页。",
+      "【技能库少一个 tab】技能库里的「角色灵魂」tab 去掉了。角色灵魂在左侧主导航本来就有自己的入口，这个 tab 是通往同一个房间的第二扇门，而且里面的东西还更少。",
+      "【文风下拉收成两行】输入框里的文风下拉原先堆到 5 块，现在只剩两行：一行只读地说明当前文风，一行是「打开文风库」这个唯一动作。选文风这件事现在只有一个去处。需要知道的一点连带变化：原来「本次生成不用文风」的开关随之取消，启用/停用改为按项目在文风库里设置；想在某一次生成里临时换文风，就在输入框用 @ 引用一条。",
+      "【文风库能走到拆书库了】文风库新增去拆书库的入口 —— 文风本来就是从那里来的。一个只有删除按钮的库通常只会一直空着，所以空状态也把这个入口补上了。",
+      "【书架封面尺寸】封面尺寸原先由固定列数决定，而列数在窗口断点处会跳，于是把窗口拉宽过某个点之后封面反而变小 —— 1206px 窗口下封面只有 95px，而 1090px 下是 200px。现在每个尺寸只声明自己要多宽，列数由可用空间推导。同一行卡片也改成顶部对齐，不再被最长书名压着往下挪（实测错位 22px）。封面下的书名去掉加粗，长标题按需要逐行排完，不再被截成两行。",
+      "【顶栏书名不再消失】顶栏书名在窗口窄于 1179px 时被整段隐藏 —— 一个完全正常的窗口宽度下它就凭空不见了，看着像坏了。现在改成四个断点分档收窄，空间不够时用省略号截断：每个宽度都看得到，只是变短。",
+    ],
+  },
+};
+
 const FOUR_POINT_TWO_ZERO_CHANGELOG: ChangelogEntry = {
   version: "4.2.0",
   date: "2026-10-09",
@@ -1886,6 +1913,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_THREE_ONE_CHANGELOG.version)
+    return [FOUR_POINT_THREE_ONE_CHANGELOG];
   if (version === FOUR_POINT_THREE_ZERO_CHANGELOG.version)
     return [FOUR_POINT_THREE_ZERO_CHANGELOG];
   if (version === FOUR_POINT_TWO_ONE_CHANGELOG.version)
@@ -2051,6 +2080,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_THREE_ONE_CHANGELOG,
     FOUR_POINT_THREE_ZERO_CHANGELOG,
     FOUR_POINT_TWO_ONE_CHANGELOG,
     FOUR_POINT_TWO_ZERO_CHANGELOG,

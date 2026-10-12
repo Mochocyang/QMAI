@@ -6,7 +6,22 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 5)).toEqual(["4.3.0", "4.2.1", "4.2.0", "4.1.2", "4.1.1"])
+    expect(versions.slice(0, 5)).toEqual(["4.3.1", "4.3.0", "4.2.1", "4.2.0", "4.1.2"])
+    const release431 = currentVersionChangelog("4.3.1")[0]
+    expect(release431.version).toBe("4.3.1")
+    expect(release431.date).toBe("2026-10-12")
+    expect(release431.highlights.zh.join("\n")).toContain("文风可以自己写")
+    expect(release431.highlights.zh.join("\n")).toContain("文风自进化")
+    expect(release431.highlights.zh.join("\n")).toContain("人物 Skill 学会了会告诉你")
+    expect(release431.highlights.zh.join("\n")).toContain("文风下拉收成两行")
+    expect(release431.highlights.zh.join("\n")).toContain("书架封面尺寸")
+    expect(release431.highlights.zh.join("\n")).toContain("顶栏书名不再消失")
+    expect(release431.highlights.en.join("\n")).toContain("Write Your Own Style")
+    expect(release431.highlights.en.join("\n")).toContain("Style Evolution")
+    expect(release431.highlights.en.join("\n")).toContain("Character Skills: You Get Told")
+    expect(release431.highlights.en.join("\n")).toContain("Style Menu Trimmed To Two Rows")
+    expect(release431.highlights.en.join("\n")).toContain("Book Shelf Cover Sizes")
+    expect(release431.highlights.en).toHaveLength(release431.highlights.zh.length)
     const release430 = currentVersionChangelog("4.3.0")[0]
     expect(release430.version).toBe("4.3.0")
     expect(release430.date).toBe("2026-10-11")
