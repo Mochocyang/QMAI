@@ -52,11 +52,18 @@ export interface PersonaSkillEvolutionState extends StyleEvolutionScheduleState 
   enabled: boolean
   rounds: PersonaSkillEvolutionRound[]
   /**
-   * 上一轮**跑完**时人物索引里最近的一次学习时间戳（`max(updatedAt)`）。
-   * 新素材闸门：自那之后索引没再变过（没有新的章节学习），档案就没有
-   * 新证据可依，进化只会重复上一轮的结论 —— 跳过。
+   * 每个人物「最近一次被进化轮处理过时」的 `updatedAt` 快照（id → updatedAt）。
+   *
+   * 新素材判定靠它而不是一个全局时间戳基线：一轮章节学习常常同时更新 4 个人，
+   * 而进化每轮只处理 2 个 —— 用「全索引 max(updatedAt)」当基线会让同一批里
+   * 排在第 3、4 位的人**永远轮不到**（基线一下子推到他们前面）。
+   * 逐人记录后，「 updatedAt 变了 && 还没处理过这一版」的人就是待处理队列，
+   * 一批 4 人会被两轮进化消化干净，没有人挨饿。
+   *
+   * 被否决（reverted）、生成失败、体积超限的人也算「处理过」—— 否则下一轮
+   * 还会拿到同一份候选再评审一遍。真有新素材时 updatedAt 自然会变。
    */
-  lastIndexedUpdatedAt: string
+  processedAt: Record<string, string>
 }
 
 const ROUND_OUTCOMES: PersonaSkillEvolutionOutcome[] = ["kept", "reverted", "incomplete"]
@@ -71,10 +78,13 @@ export function emptyPersonaEvolutionState(): PersonaSkillEvolutionState {
     version: 1,
     enabled: false,
     rounds: [],
-    lastIndexedUpdatedAt: "",
+    processedAt: {},
     ...emptyScheduleState(),
   }
 }
+
+/** processedAt 只保留这么多条，防手工编辑或长期积累把文件撑大。 */
+const MAX_PROCESSED_ENTRIES = 200
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -139,6 +149,19 @@ function sanitizeRounds(value: unknown): PersonaSkillEvolutionRound[] {
     .slice(-MAX_ROUND_HISTORY)
 }
 
+function sanitizeProcessedAt(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {}
+  const result: Record<string, string> = {}
+  const entries = Object.entries(value)
+  const start = Math.max(0, entries.length - MAX_PROCESSED_ENTRIES)
+  for (const [id, updatedAt] of entries.slice(start)) {
+    if (typeof updatedAt !== "string" || !updatedAt) continue
+    if (!id.trim()) continue
+    result[id] = updatedAt
+  }
+  return result
+}
+
 /** 读盘。任何异常都退化成「默认关闭」的空状态，绝不抛给调用方。 */
 export async function loadPersonaSkillEvolutionState(
   projectPath: string,
@@ -153,7 +176,6 @@ export async function loadPersonaSkillEvolutionState(
   if (!isRecord(parsed)) return emptyPersonaEvolutionState()
 
   const lastAnalyzedOn = safeText(parsed.lastAnalyzedOn)
-  const lastIndexedUpdatedAt = safeText(parsed.lastIndexedUpdatedAt)
 
   return {
     version: 1,
@@ -164,7 +186,7 @@ export async function loadPersonaSkillEvolutionState(
     openDayCount: safeCount(parsed.openDayCount),
     nextThreshold: safeThreshold(parsed.nextThreshold),
     lastAnalyzedOn: lastAnalyzedOn || null,
-    lastIndexedUpdatedAt: lastIndexedUpdatedAt,
+    processedAt: sanitizeProcessedAt(parsed.processedAt),
     rounds: sanitizeRounds(parsed.rounds),
   }
 }
@@ -206,7 +228,7 @@ export async function savePersonaSkillEvolutionState(
     openDayCount: safeCount(state.openDayCount),
     nextThreshold: safeThreshold(state.nextThreshold),
     lastAnalyzedOn: state.lastAnalyzedOn || null,
-    lastIndexedUpdatedAt: safeText(state.lastIndexedUpdatedAt),
+    processedAt: sanitizeProcessedAt(state.processedAt),
     rounds: (Array.isArray(state.rounds) ? state.rounds : [])
       .map(sanitizeRound)
       .filter((item): item is PersonaSkillEvolutionRound => item !== null)

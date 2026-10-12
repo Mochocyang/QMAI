@@ -120,7 +120,7 @@ describe("selectPersonaSkillCandidates", () => {
     expect(selected.map((item) => item.characterName)).toEqual(["丙三", "丁四", "甲一", "乙二"])
   })
 
-  it("归档 / 潜伏的人不入选，绿勾例外", () => {
+  it("归档 / 潜伏的人只要名字出现在本次文本里就入选 —— 回归角色最需要档案", () => {
     const index = {
       version: 1 as const,
       skills: [
@@ -130,7 +130,17 @@ describe("selectPersonaSkillCandidates", () => {
       ],
     }
     const selected = selectPersonaSkillCandidates(index, "甲一 乙二 丙三")
-    expect(selected.map((item) => item.characterName)).toEqual(["丙三"])
+    const names = selected.map((item) => item.characterName)
+    // 「第 1~3 章出场、消失 50 章、第 54 章回归」的角色，回归那章 status 还是
+    // 归档，但名字就在本章文本里 —— 挡掉他的档案等于逼 AI 凭空写老角色。
+    expect(names).toHaveLength(3)
+    expect(names).toContain("甲一")
+    expect(names).toContain("乙二")
+    // 绿勾仍然排在最前（预算紧张时优先保住重要人物）
+    expect(names[0]).toBe("丙三")
+
+    // 反向：休眠/归档的人名字不在文本里，一个都不占预算
+    expect(selectPersonaSkillCandidates(index, "无关的路人")).toEqual([])
   })
 
   it("最多取 12 个", () => {

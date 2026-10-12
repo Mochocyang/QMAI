@@ -287,25 +287,40 @@ function localToday(): string {
   return `${now.getFullYear()}-${month}-${day}`
 }
 
-/** 可参与进化的人物：有档案、没被用户手改（用户的字比模型的好，不许覆盖）。 */
-function pickEvolutionTargets(index: PersonaSkillIndex): PersonaSkillMeta[] {
+/**
+ * 可参与进化的人物：有档案、没被用户手改（用户的字比模型的好，不许覆盖），
+ * 且**这一版还没被进化处理过**（`updatedAt` 与 processedAt 记录不一致）。
+ *
+ * 排序：绿勾 → 主要档 → **最近学习优先**（lastLearnedChapter 大的在前）→ 出场次数。
+ * 「最近学习优先」是给「消失很久后回归」的角色让路：他刚带着新章节素材回来，
+ * 这一轮的新证据对他最值钱；老资历的主角下轮还有机会，回归者错过就要再等
+ * 一个 3~5 天的节律周期。
+ */
+function pickEvolutionTargets(
+  index: PersonaSkillIndex,
+  processedAt: Record<string, string>,
+): PersonaSkillMeta[] {
   return index.skills
     .filter((meta) => meta.status === "active" && !meta.editedByUser)
+    .filter((meta) => (processedAt[meta.id] ?? "") !== meta.updatedAt)
     .sort((a, b) => {
       if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
       if (a.tier !== b.tier) return a.tier === "major" ? -1 : 1
+      if (a.lastLearnedChapter !== b.lastLearnedChapter) return b.lastLearnedChapter - a.lastLearnedChapter
       if (a.appearanceCount !== b.appearanceCount) return b.appearanceCount - a.appearanceCount
       return a.characterName.localeCompare(b.characterName, "zh-Hans-CN")
     })
     .slice(0, MAX_CHARACTERS_PER_ROUND)
 }
 
-function maxUpdatedAt(index: PersonaSkillIndex): string {
-  let latest = ""
-  for (const meta of index.skills) {
-    if (meta.updatedAt > latest) latest = meta.updatedAt
-  }
-  return latest
+/** 待处理人数：一个人物的学习版（updatedAt）还没被任何进化轮处理过，就算待处理。 */
+function countPendingTargets(index: PersonaSkillIndex, processedAt: Record<string, string>): number {
+  return index.skills.filter(
+    (meta) =>
+      meta.status === "active" &&
+      !meta.editedByUser &&
+      (processedAt[meta.id] ?? "") !== meta.updatedAt,
+  ).length
 }
 
 /**
@@ -335,16 +350,14 @@ export async function runPersonaSkillEvolutionRound(
   try {
     const index = await io.loadIndex()
 
-    // 新素材闸门：索引自上一轮跑完之后没有再变过（没有新的章节学习），
-    // 进化就没有新证据可依，只会把上一轮的结论再演一遍。
-    const indexedUpdatedAt = maxUpdatedAt(index)
-    if (state.lastIndexedUpdatedAt && indexedUpdatedAt <= state.lastIndexedUpdatedAt) {
-      // advanceOpenDay 的落盘已经覆盖了这里的全部变化（lastAttemptedOn 等），
-      // state 本身没有再变，不重复写。
-      return { status: "skipped-no-new-material", reason: "自上一轮以来没有新的章节学习", state }
+    // 新素材闸门：所有「学习版还没被进化处理过」的人都消化完了才歇。
+    // 逐人判断而不是比一个全局时间戳：一轮章节学习常同时更新 4 个人，而进化
+    // 每轮只处理 2 个 —— 全局基线会让同一批里排后面的人永远轮不到。
+    if (state.processedAt && countPendingTargets(index, state.processedAt) === 0) {
+      return { status: "skipped-no-new-material", reason: "没有未处理过新学习的人物档案", state }
     }
 
-    const targets = pickEvolutionTargets(index)
+    const targets = pickEvolutionTargets(index, state.processedAt)
     if (targets.length === 0) {
       return {
         status: "incomplete",
@@ -356,10 +369,16 @@ export async function runPersonaSkillEvolutionRound(
     const votes: string[] = []
     const evolvedNames: string[] = []
     let keptCount = 0
+    // 本轮处理过的人（含被否决/跳过的）都记下他们的 updatedAt：
+    // 否决也是一种结论，下一轮不该拿同一份候选再审一遍。
+    const processed: Record<string, string> = { ...state.processedAt }
 
     for (const meta of targets) {
       const document = await io.loadDocument(meta.id)
-      if (!document.trim()) continue
+      if (!document.trim()) {
+        processed[meta.id] = meta.updatedAt
+        continue
+      }
 
       const evidence = await io.loadEvidence(meta.characterName, meta.aliases, [
         meta.lastChapter,
@@ -374,6 +393,7 @@ export async function runPersonaSkillEvolutionRound(
       })
       if (!candidate) {
         votes.push(`${meta.characterName} 跳过（候选生成失败）`)
+        processed[meta.id] = meta.updatedAt
         continue
       }
 
@@ -394,6 +414,7 @@ export async function runPersonaSkillEvolutionRound(
 
       if (candidateDocument.length > candidateSizeLimit(document)) {
         votes.push(`${meta.characterName} 跳过（候选体积超限：${candidateDocument.length} > ${candidateSizeLimit(document)}）`)
+        processed[meta.id] = meta.updatedAt
         continue
       }
 
@@ -410,6 +431,7 @@ export async function runPersonaSkillEvolutionRound(
       // 弃权票过多（有效评委不足 2 个）时不动档案：拿不出可信的多数决。
       if (judgements.length < 2) {
         votes.push(`${meta.characterName} 跳过（有效评委不足）`)
+        processed[meta.id] = meta.updatedAt
         continue
       }
 
@@ -418,6 +440,7 @@ export async function runPersonaSkillEvolutionRound(
       const tally = `${meta.characterName} ${candidateVotes}-${baseVotes}（弃权 ${judgements.length - candidateVotes - baseVotes}）`
 
       // 乐观棘轮（达尔文原规则）：better >= worse 就保留，平局不算退步。
+      processed[meta.id] = meta.updatedAt
       if (candidateVotes >= baseVotes && candidateVotes > 0) {
         await io.applyCandidate(meta.id, candidateDocument)
         const topReason = judgements.find((item) => item.verdict === "candidate")?.reason ?? ""
@@ -446,8 +469,13 @@ export async function runPersonaSkillEvolutionRound(
     state = {
       ...state,
       rounds: [...state.rounds, round],
-      // 记下本轮跑完时的索引时间戳，作为下一轮「有没有新素材」的基线。
-      lastIndexedUpdatedAt: maxUpdatedAt(index),
+      // 逐人记录「这一版处理过了」：被否决的人也算，下一轮拿同一份候选再审
+      // 一遍只是烧钱。只保留 index 里仍存在的人物，demote/删除的不留残迹。
+      processedAt: Object.fromEntries(
+        index.skills
+          .filter((meta) => processed[meta.id] !== undefined)
+          .map((meta) => [meta.id, processed[meta.id]]),
+      ),
     }
     state = completeRound(state, today, rng)
     await io.saveState(state)

@@ -158,9 +158,11 @@ describe("runPersonaSkillEvolutionRound — 节律与闸门", () => {
     expect(saved[0].lastAttemptedOn).toBe("")
   })
 
-  it("索引自上一轮后没有新学习时跳过（新素材闸门）", async () => {
+  it("所有人物的当前学习版都处理过了：跳过（新素材闸门）", async () => {
+    // processedAt 记下了每个人的 updatedAt —— 没有未处理的新学习，进化只会
+    // 把上一轮的结论再演一遍。
     const { io, saved } = harness({
-      state: dueState({ lastIndexedUpdatedAt: "2026-10-12T23:00:00.000Z" }),
+      state: dueState({ processedAt: { 林清越: "2026-10-12T01:00:00.000Z" } }),
     })
     const result = await runPersonaSkillEvolutionRound(io, { now: TODAY })
 
@@ -198,8 +200,8 @@ describe("runPersonaSkillEvolutionRound — 棘轮", () => {
     expect(final.openDayCount).toBe(0)
     expect(final.lastAnalyzedOn).toBe(TODAY)
     expect([3, 4, 5]).toContain(final.nextThreshold)
-    // 新素材基线推进到本轮跑完时的索引时间戳
-    expect(final.lastIndexedUpdatedAt).toBe("2026-10-12T01:00:00.000Z")
+    // 逐人记账：这一版处理过了（否则下一轮会拿同一份候选再审一遍）
+    expect(final.processedAt["林清越"]).toBe("2026-10-12T01:00:00.000Z")
   })
 
   it("多数评委判旧版更好：棘轮回退，一个字节都不落盘，但轮次照记", async () => {
@@ -247,19 +249,35 @@ describe("runPersonaSkillEvolutionRound — 棘轮", () => {
 })
 
 describe("runPersonaSkillEvolutionRound — 护栏", () => {
-  it("被用户手改过的档案不参与进化", async () => {
+  it("被用户手改过的档案不参与进化：它不进待处理队列", async () => {
     const { io, saved, applied } = harness({
       index: [meta({ editedByUser: true })],
     })
     const result = await runPersonaSkillEvolutionRound(io, { now: TODAY })
 
-    expect(result.status).toBe("incomplete")
-    expect(result.reason).toContain("未被手动编辑")
+    // 手改者从不 pending ⇒ 新素材闸门判「无事可做」。incomplete 分支留给
+    // 「闸门通过但选不出人」的防御性未来分叉。
+    expect(result.status).toBe("skipped-no-new-material")
     expect(applied).toHaveLength(0)
-    // incomplete 不推进节律：计数留在阈值之上，下个打开日自动重试
+    // 节律不推进（闸门跳过不计轮）
     const final = saved[saved.length - 1]
     expect(final.openDayCount).toBe(3)
     expect(final.lastAnalyzedOn).toBeNull()
+  })
+
+  it("手改与正常档案混合时：只进化正常那份，手改的不动也不记录", async () => {
+    const { io, saved, applied } = harness({
+      judgements: [{ verdict: "candidate", margin: "clear", reason: "更好" }],
+      index: [meta({ id: "手改的", characterName: "手改的", editedByUser: true }), meta({ id: "正常的", characterName: "正常的" })],
+    })
+    const result = await runPersonaSkillEvolutionRound(io, { now: TODAY })
+
+    expect(result.status).toBe("completed")
+    expect(result.outcome).toBe("kept")
+    expect(applied).toHaveLength(1)
+    expect(applied[0].id).toBe("正常的")
+    const final = saved[saved.length - 1]
+    expect(Object.keys(final.processedAt)).toEqual(["正常的"])
   })
 
   it("候选体积超限（注水/整份重写）判废", async () => {
@@ -318,6 +336,84 @@ describe("runPersonaSkillEvolutionRound — 选择与配对", () => {
 
     expect(seen).toEqual(["乙", "丁"])
     expect(applied).toHaveLength(2)
+  })
+
+  it("同批 4 人不挨饿：第一轮消化 2 人，剩余 2 人下一轮仍是待处理", async () => {
+    // 一轮章节学习同时更新 4 个人（updatedAt 相同），进化每轮只取 2 个。
+    // 旧实现用全索引 max(updatedAt) 当基线，基线一次推到最前，第 3、4 人
+    // 永远轮不到；逐人 processedAt 记账后，剩 2 人保持待处理。
+    const seen: string[] = []
+    const index = [
+      meta({ id: "甲", characterName: "甲", lastLearnedChapter: 4 }),
+      meta({ id: "乙", characterName: "乙", lastLearnedChapter: 4 }),
+      meta({ id: "丙", characterName: "丙", lastLearnedChapter: 4 }),
+      meta({ id: "丁", characterName: "丁", lastLearnedChapter: 4 }),
+    ]
+    const { io } = harness({
+      judgements: [{ verdict: "candidate", margin: "clear", reason: "更好" }],
+      index,
+    })
+    const trackingIO: PersonaSkillEvolutionIO = {
+      ...io,
+      generateCandidate: async (input) => {
+        seen.push(input.characterName)
+        return CANDIDATE
+      },
+    }
+
+    const first = await runPersonaSkillEvolutionRound(trackingIO, { now: TODAY })
+    expect(seen).toEqual(["丙", "丁"])
+    expect(first.state.processedAt).toEqual({
+      丙: "2026-10-12T01:00:00.000Z",
+      丁: "2026-10-12T01:00:00.000Z",
+    })
+
+    // 第二轮：带着第一轮的 processedAt 再跑，选中的正是剩下的两人。
+    // completeRound 抽的新阈值是随机的（3~5），这里固定成 3 让它当天到期。
+    const secondSeen: string[] = []
+    const secondIO: PersonaSkillEvolutionIO = {
+      ...trackingIO,
+      loadState: async () => ({
+        ...first.state,
+        openDayCount: 3,
+        nextThreshold: 3,
+        lastAttemptedOn: "",
+        lastOpenDate: TODAY,
+      }),
+      generateCandidate: async (input) => {
+        secondSeen.push(input.characterName)
+        return CANDIDATE
+      },
+    }
+    const second = await runPersonaSkillEvolutionRound(secondIO, { now: TODAY })
+    expect(second.status).toBe("completed")
+    expect(secondSeen).toEqual(["甲", "乙"])
+  })
+
+  it("消失 50 章后回归的角色（lastLearnedChapter 最新）优先获得进化机会", async () => {
+    // 回归者带着最新鲜的章节素材回来，老资历的主角下轮还有机会，
+    // 回归者错过就要再等一个 3~5 天的节律周期。三人竞争两个名额：
+    // 若按出场次数排序，回归者（6 次）会输给老配角（30 次）；
+    // 按 lastLearnedChapter 排，回归者（54）抢到第二个名额。
+    const seen: string[] = []
+    const { io } = harness({
+      judgements: [{ verdict: "candidate", margin: "clear", reason: "更好" }],
+      index: [
+        meta({ id: "主角", characterName: "主角", pinned: true, lastLearnedChapter: 53, appearanceCount: 50 }),
+        meta({ id: "老配角", characterName: "老配角", lastLearnedChapter: 53, appearanceCount: 30 }),
+        meta({ id: "回归者", characterName: "回归者", lastLearnedChapter: 54, appearanceCount: 6 }),
+      ],
+    })
+    const trackingIO: PersonaSkillEvolutionIO = {
+      ...io,
+      generateCandidate: async (input) => {
+        seen.push(input.characterName)
+        return CANDIDATE
+      },
+    }
+    await runPersonaSkillEvolutionRound(trackingIO, { now: TODAY })
+
+    expect(seen).toEqual(["主角", "回归者"])
   })
 
   it("证据加载取的是最近出场章本身（currentChapter = lastChapter + 1）", async () => {

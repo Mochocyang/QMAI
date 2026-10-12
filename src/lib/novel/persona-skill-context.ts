@@ -41,7 +41,16 @@ export function matchesPersonaName(normalizedQuery: string, names: readonly stri
   return false
 }
 
-/** 从 index 里挑出本次该注入的候选：潜伏 / 归档不注入，绿勾例外。 */
+/**
+ * 从 index 里挑出本次该注入的候选：名字出现在本次文本里的人。
+ *
+ * ⚠️ 刻意**不**按 status（潜伏/归档）过滤。原因：status 由「连续 N 章未出场」
+ * 推出，而它拦不住的恰恰是最需要档案的场景——「第 1~3 章出场、消失 50 章、
+ * 第 54 章回归」的角色，回归那一章 status 还是归档，但他的名字就在本章文本里。
+ * 此时写作提示词不带他的档案，AI 只能凭空写这个老角色，写完摄取再 refine 也
+ * 是在「写歪了」的基础上修。名字命中 = 他出场了 = 档案必须在场。
+ * 预算仍由 PERSONA_INJECT_MAX_SKILLS 与字符预算兜底，排序保证重要人物优先。
+ */
 export function selectPersonaSkillCandidates(
   index: PersonaSkillIndex,
   matchingText: string,
@@ -49,7 +58,6 @@ export function selectPersonaSkillCandidates(
   const query = normalizePersonaName(matchingText)
   if (!query) return []
   return index.skills
-    .filter((meta) => meta.pinned || meta.status === "active")
     .filter((meta) => matchesPersonaName(query, [meta.characterName, ...meta.aliases]))
     .sort(comparePersonaSkillMeta)
     .slice(0, PERSONA_INJECT_MAX_SKILLS)

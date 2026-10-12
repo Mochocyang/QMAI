@@ -41,7 +41,7 @@ function primedState(overrides: Record<string, unknown> = {}) {
     openDayCount: 2,
     nextThreshold: 4,
     lastAnalyzedOn: "2026-10-01",
-    lastIndexedUpdatedAt: "2026-10-10T00:00:00.000Z",
+    processedAt: { 林清越: "2026-10-10T00:00:00.000Z" },
     rounds: [
       {
         at: "2026-10-01",
@@ -121,7 +121,7 @@ describe("PersonaSkillEvolutionPanel", () => {
     expect(state.openDayCount).toBe(2)
     expect(state.nextThreshold).toBe(4)
     expect(state.rounds).toHaveLength(1)
-    expect(state.lastIndexedUpdatedAt).toBe("2026-10-10T00:00:00.000Z")
+    expect(state.processedAt["林清越"]).toBe("2026-10-10T00:00:00.000Z")
 
     // 面板随写盘刷新（本 store 不走 bumpDataVersion，靠自己的订阅通道）
     expect(toggle.getAttribute("aria-checked")).toBe("true")
