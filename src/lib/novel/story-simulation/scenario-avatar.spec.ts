@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
   SCENARIO_MODERATOR_TONE,
@@ -62,6 +64,55 @@ describe("scenarioSpeakerTone", () => {
     for (const tone of SCENARIO_SPEAKER_TONES) {
       expect(tone.avatar.length).toBeGreaterThan(0)
       expect(tone.name.length).toBeGreaterThan(0)
+    }
+  })
+})
+
+describe("色板类名的字面量契约（源码级）", () => {
+  // 为什么必须读源码：`bg-${"rose"}-500/15` 运行时求值结果与字面量
+  // "bg-rose-500/15" 完全相同，任何值断言都发现不了动态拼接。
+  // 但 Tailwind v4 的内容扫描只认源码里的字面量，拼接出来的类名不会进产物 CSS。
+  // 所以这里直接检查源码文本：色板区域不允许出现反引号、${ 插值、字面量拼接。
+  it("发言人色板与主持人配色的源码区域只含字面量类名，没有模板字符串或字符串拼接", () => {
+    const source = readFileSync(resolve(__dirname, "scenario-avatar.ts"), "utf8")
+
+    const regions = [
+      {
+        label: "SCENARIO_SPEAKER_TONES",
+        start: "export const SCENARIO_SPEAKER_TONES",
+        end: "SCENARIO_MODERATOR_TONE",
+      },
+      {
+        label: "SCENARIO_MODERATOR_TONE",
+        start: "export const SCENARIO_MODERATOR_TONE",
+        end: "export function scenarioSpeakerToneIndex",
+      },
+    ]
+
+    for (const region of regions) {
+      const start = source.indexOf(region.start)
+      // 找不到边界标记就直接失败：否则切片会是空串，下面的断言会「假通过」
+      expect(start, `源码里没有找到 ${region.label} 的定义`).toBeGreaterThanOrEqual(0)
+
+      const end = source.indexOf(region.end, start + region.start.length)
+      expect(end, `源码里没有找到 ${region.label} 的结束标记 ${region.end}`).toBeGreaterThan(
+        start,
+      )
+
+      const text = source.slice(start, end)
+
+      expect(
+        text,
+        `${region.label} 区域内出现反引号，说明类名是模板字符串拼出来的，Tailwind 扫不到`,
+      ).not.toContain("`")
+      expect(
+        text,
+        `${region.label} 区域内出现插值拼接，Tailwind v4 无法把它收集进产物 CSS`,
+      ).not.toContain("${")
+      expect(
+        text,
+        `${region.label} 区域内出现字面量相加，Tailwind v4 无法把它收集进产物 CSS`,
+      ).not.toMatch(/["']\s*\+\s*["']/)
     }
   })
 })
