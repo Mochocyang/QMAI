@@ -457,6 +457,117 @@ export function getModeConfig(mode: SimulationMode): ModeConfig {
   return MODE_CONFIGS[mode] ?? MODE_CONFIGS.hybrid
 }
 
+// ── 成本预估（开跑前的护栏） ──
+
+/**
+ * 预估模型调用次数超过该阈值时，配置页要求用户显式勾选确认才能开跑。
+ *
+ * 与「舞台情景」的 `SCENARIO_COST_WARN_THRESHOLD = 40` 取同一量级：那个便宜得多
+ * 的功能早就有护栏，而主推演（中等项目 175~415 次调用、几十分钟等待）此前
+ * 连一句提示都没有 —— 这个阈值就是把倒挂的那一端补上。
+ */
+export const SIMULATION_CALL_WARN_THRESHOLD = 40
+
+/**
+ * 配置阶段拿不到真实角色数（提取发生在点「开始」之后），按此保守假设估算。
+ * 5 与《剧情推演-独立功能优化方案》里举例用的规模一致。
+ */
+export const DEFAULT_ESTIMATED_CHARACTER_COUNT = 5
+
+/**
+ * 每角色每轮的平均调用次数。
+ *
+ * ReAct 工具循环下是 1~3 次（`simulation-engine.ts` 的 agentDecideAndActWithReact），
+ * 取中点 1.5 作为期望值。
+ */
+const AGENT_CALLS_PER_TURN = 1.5
+
+export interface SimulationCallEstimate {
+  /** 节点数 N（`calcNodeCount`） */
+  nodeCount: number
+  /** 每节点实际轮数 R（含模式乘数） */
+  roundsPerNode: number
+  /** 每轮活跃角色数 A */
+  activeAgents: number
+  /** Agent 决策调用 */
+  agentCalls: number
+  /** 节点目标判定的 embedding 调用 */
+  embeddingCalls: number
+  /** 导演 Agent 评估调用 */
+  directorCalls: number
+  /** 固定开销：报告 1 次 + 逐节点草稿 N 次 */
+  fixedCalls: number
+  /** 合计（向上取整） */
+  total: number
+}
+
+/**
+ * 预估一次剧情推演的模型调用次数。
+ *
+ * 口径与当前引擎实现保持一致：
+ * ```
+ * N = calcNodeCount(targetWords)                              types.ts
+ * 基础轮数 = simulationRounds || calcMaxRoundsPerNode(字数)    types.ts
+ * R = max(1, round(基础轮数 × 模式轮数乘数))                   simulation-engine.ts
+ * A = max(1, ceil(角色数 × 模式活跃比例))                      multi-agent-orchestrator.ts
+ * agent   = N × R × A × 1.5        （每角色每轮 1~3 次，取中点）
+ * embed   = strict ? N + N×R : 0   （expectedOutcome 按节点缓存一次 + 事件文本每轮一次）
+ * director= 启用 ? N-1 : 0         （引擎只评估 ni < totalNodes-1）
+ * fixed   = 1（报告）+ N（逐节点草稿）
+ * ```
+ *
+ * 注意与《工作清单》里 `2NR` 的差异：那是 P0-4/P0-5 之前的写法。P0-4 之后非
+ * strict 模式根本不做目标判定（0 次），P0-5 之后 `expectedOutcome` 每节点只算
+ * 一次（`N` 而非 `N×R`），所以这里按实际实现写。
+ *
+ * 这是**量级预估**而非精确值：是否走 ReAct 工具循环、节点目标是否提前达成，
+ * 都会让实际次数偏离。它的用途是让用户在点击前感知代价。
+ */
+export function estimateSimulationCalls(input: {
+  targetWords: number
+  /** 每节点轮次；0 表示按字数自动 */
+  simulationRounds: number
+  mode: SimulationMode
+  directorEnabled?: boolean
+  characterCount?: number
+}): SimulationCallEstimate {
+  const modeConfig = getModeConfig(input.mode)
+
+  const nodeCount = calcNodeCount(input.targetWords)
+  const baseRounds = Math.max(
+    1,
+    input.simulationRounds > 0
+      ? input.simulationRounds
+      : calcMaxRoundsPerNode(input.targetWords),
+  )
+  const roundsPerNode = Math.max(1, Math.round(baseRounds * modeConfig.roundsMultiplier))
+
+  const rawCharacterCount = input.characterCount ?? DEFAULT_ESTIMATED_CHARACTER_COUNT
+  const characterCount = Math.max(1, Math.round(rawCharacterCount))
+  const activeAgents = Math.max(
+    1,
+    Math.ceil(characterCount * Math.max(0, modeConfig.agentSubsetRatio)),
+  )
+
+  const agentCalls = nodeCount * roundsPerNode * activeAgents * AGENT_CALLS_PER_TURN
+  const embeddingCalls = modeConfig.strictNodeProgression
+    ? nodeCount + nodeCount * roundsPerNode
+    : 0
+  const directorCalls = input.directorEnabled ? Math.max(0, nodeCount - 1) : 0
+  const fixedCalls = 1 + nodeCount
+
+  return {
+    nodeCount,
+    roundsPerNode,
+    activeAgents,
+    agentCalls,
+    embeddingCalls,
+    directorCalls,
+    fixedCalls,
+    total: Math.ceil(agentCalls + embeddingCalls + directorCalls + fixedCalls),
+  }
+}
+
 // ── 模式可视化说明 ──
 
 interface ModeVisualInfo {
