@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>乱在哪，以及怎么收 —— 功能边界整理</title>
+<style>
+  :root{
+    --ink:#1a1a1a; --ink-2:#454545; --ink-3:#6b7280; --line:#e5e7eb;
+    --bg:#fbfbfa; --card:#fff; --accent:#0f766e; --accent-soft:#0f766e14;
+    --warn:#b45309; --warn-soft:#b4530914; --bad:#b91c1c; --bad-soft:#b91c1c12;
+    --ok:#15803d; --ok-soft:#15803d14; --violet:#6d28d9; --violet-soft:#6d28d914;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-feature-settings:"tnum";
+  }
+  .wrap{max-width:960px;margin:0 auto;padding:56px 24px 120px}
+  header.doc{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:36px}
+  header.doc .kicker{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  header.doc h1{font-size:31px;line-height:1.3;margin:10px 0 8px;letter-spacing:-.01em}
+  header.doc .sub{color:var(--ink-3);font-size:14px}
+  h2{font-size:22px;margin:56px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h2 .n{color:var(--accent);font-weight:700;margin-right:10px;font-variant-numeric:tabular-nums}
+  h3{font-size:17px;margin:34px 0 10px}
+  h4{font-size:15px;margin:20px 0 8px;color:var(--ink-2)}
+  p{margin:12px 0}
+  code{background:#0000000a;padding:.15em .4em;border-radius:4px;font-size:.875em;
+    font-family:ui-monospace,SFMono-Regular,"Cascadia Code",Consolas,monospace}
+  .cite{font-size:12.5px;color:var(--ink-3);font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px 22px;margin:18px 0}
+  .flag{border-radius:8px;padding:16px 20px;margin:18px 0;border:1px solid}
+  .flag.bad{background:var(--bad-soft);border-color:#b91c1c33}
+  .flag.warn{background:var(--warn-soft);border-color:#b4530933}
+  .flag.ok{background:var(--ok-soft);border-color:#15803d33}
+  .flag.accent{background:var(--accent-soft);border-color:#0f766e33}
+  .flag.violet{background:var(--violet-soft);border-color:#6d28d933}
+  .flag h4{margin-top:0;color:inherit}
+  .flag.bad h4{color:var(--bad)} .flag.ok h4{color:var(--ok)}
+  .flag.warn h4{color:var(--warn)} .flag.accent h4{color:var(--accent)}
+  .flag.violet h4{color:var(--violet)}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#00000005;font-weight:600;font-size:13px;color:var(--ink-2)}
+  tbody tr:last-child td{border-bottom:none}
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+  .scroll table{margin:0}
+  .tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:99px;
+    line-height:1.6;white-space:nowrap;vertical-align:middle}
+  .tag.keep{background:#15803d18;color:var(--ok)}
+  .tag.merge{background:#6d28d918;color:var(--violet)}
+  .tag.demote{background:#b4530918;color:var(--warn)}
+  .tag.dissolve{background:#b91c1c18;color:var(--bad)}
+  .tag.move{background:#0f766e18;color:var(--accent)}
+  .num{font-variant-numeric:tabular-nums;font-weight:600}
+  .flow{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px;
+    background:var(--card);border:1px solid var(--line);border-radius:8px;
+    padding:16px 18px;overflow-x:auto;white-space:pre;line-height:1.85;color:var(--ink-2)}
+  .codeblock{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12.5px;
+    background:#0d1117;color:#c9d1d9;border-radius:8px;padding:14px 18px;overflow-x:auto;line-height:1.7;white-space:pre}
+  .codeblock .c{color:#8b949e}
+  .codeblock .k{color:#ff7b72}
+  .codeblock .s{color:#a5d6ff}
+  ul.tight li{margin:6px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+  .before{background:var(--bad-soft);border:1px solid #b91c1c33;border-radius:8px;padding:16px 20px}
+  .after{background:var(--ok-soft);border:1px solid #15803d33;border-radius:8px;padding:16px 20px}
+  .before h4,.after h4{margin-top:0}
+  .before h4{color:var(--bad)} .after h4{color:var(--ok)}
+  .btn-row{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+  .chip{font-size:12px;padding:3px 10px;border-radius:99px;border:1px solid var(--line);background:#fff;color:var(--ink-2)}
+  .chip.new{border-color:#15803d55;background:#15803d0f;color:var(--ok);font-weight:600}
+  .chip.gone{border-color:#b91c1c33;background:#b91c1c0a;color:#b91c1c99;text-decoration:line-through}
+  footer{margin-top:72px;padding-top:20px;border-top:1px solid var(--line);font-size:13px;color:var(--ink-3)}
+  .kpi{display:flex;gap:30px;flex-wrap:wrap;margin:18px 0}
+  .kpi div{min-width:104px}
+  .kpi .v{font-size:26px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .kpi .k{font-size:12px;color:var(--ink-3);margin-top:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="kicker">QMAI · 功能边界整理</div>
+  <h1>乱在哪，以及怎么收</h1>
+  <p class="sub">对上一版「四档颗粒度」方案的修正 · 基于 <code>QMAI-main</code> v4.3.1 源码直读</p>
+</header>
+
+<div class="flag violet">
+  <h4>先认错：我上一版方案犯了同一个病</h4>
+  <p>我提的是「场景级 / 章节级 / 卷级 / 离线脑暴」四个档位、四个入口。你已经说了"不知道该用哪一个"，我却把选择题从 N 项变成了 <strong>N+4 项</strong>——而且还是让用户去选一个<em>本来不该他选的维度</em>（颗粒度）。</p>
+  <p>我把整个软件数了一遍（88 个入口 / 23 个概念），结论比我预想的更清楚：<strong>颗粒度不是你选的东西，是你站在哪里的必然结果。</strong>而且我发现了一个比"入口乱"更该先修的问题（§02 形态六），以及三个<em>不要动</em>的正交边界（§4.1）。</p>
+</div>
+
+<h2><span class="n">01</span>先把「乱」量化</h2>
+
+<p>「乱」不是感觉，是可以数的。我数了两遍：数概念，也数按钮。</p>
+
+<div class="kpi">
+  <div><div class="v">88</div><div class="k">个用户可见的<br>AI 入口控件</div></div>
+  <div><div class="v">43</div><div class="k">个要求你先<br>离开正文</div></div>
+  <div><div class="v">12</div><div class="k">个真正在<br>正文现场可用</div></div>
+  <div><div class="v">28</div><div class="k">个要先理解<br>专有概念</div></div>
+  <div><div class="v">23</div><div class="k">个要在脑子里<br>维护的概念</div></div>
+</div>
+
+<div class="flag bad">
+  <h4>最关键的一个数字：12 / 88</h4>
+  <p>88 个入口里，45 个标称「内联」。但拆开看，<strong>其中 33 个（73%）挤在「大纲面板」这一列</strong>——卷纲、章节细纲、人物小传、组织势力、力量体系、金手指、背景设定、地理设定、伏笔计划、地点设定，10 个全在那儿。</p>
+  <p>于是真正意义上「你在写正文，伸手就能用」的入口，只剩 <strong>12 个</strong>。而推演室贡献的那 6 个（剧情推演式 / 舞台情景 / 绑定 / 删除 / 全部框架 / 绑定对话框），<strong>全部落在「必须切整窗」的 43 个里</strong>。</p>
+</div>
+
+<div class="flag warn">
+  <h4>比"多"更严重的两件事</h4>
+  <p><strong>1. 有 33 个内联入口挤在一个你不会一边写正文一边看的面板里。</strong>所以「内联」这个数字是虚的——真正的内联只有 12 个。</p>
+  <p style="margin-bottom:0"><strong>2. 记忆中心 / 小说图谱 / 剧情搜索三个视图里，AI 动作按钮数量是 0。</strong>而设定档案（人物小传、力量体系、伏笔计划…）恰恰最该在这两个视图里被维护。位置完全装反了。</p>
+</div>
+
+<h3>1.1 概念清单：23 个</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:16%">类别</th><th style="width:52%">用户必须区分的名词</th><th style="width:8%">数量</th><th style="width:24%">证据</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>剧情结构</strong></td>
+      <td>总纲 / <strong>卷纲</strong> / <strong>章节细纲</strong> / <strong>事件细纲</strong> —— 后两个都叫"细纲"</td>
+      <td class="num">4</td>
+      <td class="cite">outline-section-configs.ts:24-105</td>
+    </tr>
+    <tr>
+      <td><strong>设定档案</strong></td>
+      <td>人物小传 / 组织势力设定 / 力量体系 / 金手指设定 / 背景设定 / 地理设定 / 伏笔计划 / 地点设定</td>
+      <td class="num">8</td>
+      <td class="cite">同上，平铺成一列</td>
+    </tr>
+    <tr>
+      <td><strong>AI 动作</strong></td>
+      <td>续写 / AI润色 / 去AI味 / 计划 / 共创 / 推演 / 舞台情景 / 深度生成</td>
+      <td class="num">8</td>
+      <td class="cite">wiki-editor.tsx:601-642<br>chat-panel.tsx:228-252</td>
+    </tr>
+    <tr><td><strong>强度档位</strong></td><td>快速 / 标准 / 严格</td><td class="num">3</td><td class="cite">chat-panel.tsx:228-245</td></tr>
+    <tr style="background:#00000005">
+      <td colspan="2"><strong>合计</strong></td><td class="num" style="font-size:17px">23</td><td></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>但概念多本身不是罪。MiroFish 的概念也不少。<strong>真正的病是这 23 个概念之间的关系是错的。</strong>下面四种形态，每一种我都能指到具体代码——包括三处作者自己留下的"我知道这里不对"的痕迹。</p>
+
+<h2><span class="n">02</span>乱的四种形态（含五处铁证）</h2>
+
+<h3>形态零：同一件事有两个门，而且门牌号不一样 —— 这是"不知道该用哪个"的头号来源</h3>
+
+<p>在谈正交维度之前，先说最直白的一个：<strong>卷纲和章纲，各有两套入口，指向同一套实现。</strong></p>
+
+<div class="grid2">
+  <div class="card">
+    <h4 style="margin-top:0">门 A：大纲向导</h4>
+    <p><code>OutlineWizardDialog</code>，18 个字段（篇幅/频道/题材/灵感/卖点/目标/规模/叙事/资料源/原创 vs 同人/同人模式/原作名/原作素材/容许偏离/复用正典）</p>
+    <p class="cite" style="margin-bottom:0">outline-wizard.ts:50-82，入口 outline-chat-panel.tsx:7034</p>
+  </div>
+  <div class="card">
+    <h4 style="margin-top:0">门 B：模块菜单 / 对话</h4>
+    <p><code>OUTLINE_SECTION_GENERATION_CONFIGS</code> 的 10 项菜单 + <code>/模块名</code> 斜杠命令 + 自由对话</p>
+    <p class="cite" style="margin-bottom:0">outline-section-configs.ts:24-105，入口 outline-chat-panel.tsx:2009-2043,1025-1036</p>
+  </div>
+</div>
+
+<p>而这两扇门后面<strong>是同一套东西</strong>：共用 <code>buildGenerationPrompt:1038</code>、<code>extractVolumeOutlineData:1233</code>、<code>extractChapterOutlineData:1130</code>、同一个保存请求、同一个落盘路径（<code>wiki/outlines/卷纲/</code>、<code>wiki/outlines/章纲/</code>）。</p>
+
+<div class="flag bad">
+  <h4>这对用户意味着什么</h4>
+  <p>用户看着两处入口，会合理地以为它们是两种不同的能力——一个"向导"（正式、完整）和一个"菜单"（快速、局部）。<strong>于是他会想：我该用哪个？用错了会不会不一样？</strong></p>
+  <p style="margin-bottom:0">答案是不会不一样，它们产出完全相同的文件。<strong>但他没有任何办法从界面上知道这一点。</strong>这不是功能多，这是同一功能被计了两次。</p>
+</div>
+
+<h3>形态一：正交的两个维度被塞进同一个选择器 —— 有铁证</h3>
+
+<p>章节 AI 会话的模式是四选一：<strong>快速 / 标准 / 严格 / 共创</strong>。前三个是<strong>执行力度</strong>，第四个是<strong>要不要先对齐再写</strong>。这两件事互相正交。</p>
+
+<p>把类型定义并排看，问题就暴露了：</p>
+
+<div class="codeblock"><span class="c">// src/lib/agent/workflow-mode.ts:1-6</span>
+<span class="k">export type</span> AiWorkflowMode      = <span class="s">"fast" | "standard" | "strict" | "discuss"</span>
+<span class="k">export type</span> OutlineWorkflowMode = <span class="s">"fast" | "standard" | "plan"   | "discuss"</span>
+<span class="c">//                                        ↑ 有 strict 没 plan    ↑ 有 plan 没 strict</span>
+<span class="c">//                                        两边都有 discuss，但语义不同</span></div>
+
+<p>同一个「execution mode」概念，两套面板两个类型、成员还不一样。而作者为了让它能工作，被迫在 store 里加了一个<strong>影子字段</strong>：</p>
+
+<div class="codeblock"><span class="c">// src/stores/wiki-store.ts:1154-1163</span>
+setAiWorkflowMode: (aiWorkflowMode) =>
+  set((state) => ({
+    aiWorkflowMode,
+    <span class="c">// ↓ 仅仅为了记住「切进共创之前是什么力度」</span>
+    aiWorkflowModeBeforeDiscuss:
+      aiWorkflowMode === <span class="s">"discuss"</span>
+        ? (state.aiWorkflowMode !== <span class="s">"discuss"</span> ? state.aiWorkflowMode : state.aiWorkflowModeBeforeDiscuss)
+        : aiWorkflowMode,
+  })),</div>
+
+<p>作者的注释写得更直白：</p>
+
+<blockquote style="border-left:3px solid var(--violet);margin:12px 0;padding:4px 0 4px 16px;color:var(--ink-2);font-size:14.5px">
+"只在切入「共创」时持久化"上一个模式"：<strong>此时才需要它来记住选定方向后用什么强度生成。</strong>"
+<div class="cite" style="margin-top:6px">chat-panel.tsx:1011-1012</div>
+</blockquote>
+
+<p>然后在用户选定方向时，把这个值取回来：</p>
+
+<div class="codeblock"><span class="c">// src/components/chat/chat-panel.tsx:3019-3020</span>
+<span class="k">const</span> storedMode = useWikiStore.getState().aiWorkflowModeBeforeDiscuss
+<span class="k">const</span> generationMode: AiWorkflowMode = storedMode === <span class="s">"discuss"</span> ? <span class="s">"standard"</span> : storedMode</div>
+
+<div class="flag bad">
+  <h4>为什么这是铁证</h4>
+  <p><strong>代码必须"存起来—再取回来"的那个维度，就是被枚举挤掉的那个维度。</strong></p>
+  <p><code>aiWorkflowModeBeforeDiscuss</code> 这个字段的存在本身，就是系统在承认：<em>「共创」不是一种力度，它是一个阶段</em>。当它被塞进力度枚举时，真正的力度信息就丢了，只能靠一个影子字段救回来。</p>
+  <p>而代价由用户承担。代码自己招了——tooltip 里写着：<strong>"快速与共创模式下不支持计划；请切换到标准或严格模式。"</strong>（<code>chat-panel.tsx:3310-3312</code>；判定逻辑 <code>:1005</code>）</p>
+  <p>翻译成人话：<strong>你不能既说"我想先跟你讨论清楚"，又说"这次给我做完整质检"。</strong>想两者都要，只能手动来回切。</p>
+</div>
+
+<p>同一个词在两套面板里形状也不一样：</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:20%">概念</th><th style="width:40%">章节 AI 面板</th><th style="width:40%">大纲 AI 面板</th></tr></thead>
+  <tbody>
+    <tr><td><strong>快速 / 标准</strong></td><td>模式</td><td>模式</td></tr>
+    <tr><td><strong>「严格」</strong></td><td>模式（第三档）</td><td><em>不存在</em></td></tr>
+    <tr><td><strong>「计划」</strong></td><td><strong>可组合的开关</strong>（<code>chat-panel.tsx:3293-3312</code>）</td><td><strong>不可组合的模式</strong>（<code>outline-chat-panel.tsx:641-646</code>）</td></tr>
+    <tr><td><strong>「共创」</strong></td><td>一批 3~4 条方向候选，<em>单向选择</em></td><td>多轮分歧拍板，<em>每问 ≥2 选项 + AI 倾向</em></td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><strong>同名不同义，同义不同形。</strong>「计划」在一个面板是开关、另一个是模式；「共创」在一边是单选一批、在另一边是多轮问答。这两个词已经不能作为用户的导航依据了。</p>
+
+<h3>形态二：同一个问题，两套实现，而且它们不承认彼此是同一个问题</h3>
+
+<p>把两个数据结构并排放：</p>
+
+<div class="grid2">
+  <div class="card">
+    <h4 style="margin-top:0">章节「共创」的产出</h4>
+    <div class="flow" style="font-size:12px;padding:12px 14px">ChapterDiscussDirection {
+  id: string
+  storyType: string   <span style="color:#6b7280">// 故事类型徽标</span>
+  title: string
+  summary: string     <span style="color:#6b7280">// 约 300 字</span>
+}
+<span style="color:#6b7280">// + preferenceId / preferenceReason
+//   → 卡片打「AI 推荐」徽标</span></div>
+    <p class="cite" style="margin-bottom:0">chapter-discuss-protocol.ts:39-58</p>
+  </div>
+  <div class="card">
+    <h4 style="margin-top:0">剧情推演报告的分支</h4>
+    <div class="flow" style="font-size:12px;padding:12px 14px">StoryBranch {
+  title: string
+  summary: string
+  keyEvents: string[]
+  probability: high|med|low
+  pros: string
+  cons: string
+  recommendation: boolean
+}
+<span style="color:#6b7280">//   → 卡片打「推荐」徽标</span></div>
+    <p class="cite" style="margin-bottom:0">story-simulation/types.ts:325-333</p>
+  </div>
+</div>
+
+<p><strong>这是同一个东西。</strong>都是「给你 N 条候选走向，每条一个标题 + 一段摘要，其中一条被标为推荐，你挑一条」。连 UI 上的「推荐」徽标都是同一个意思。</p>
+
+<p>但用户要为它们付出完全不同的代价：</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:22%"></th><th style="width:39%">章节共创</th><th style="width:39%">剧情推演报告</th></tr></thead>
+  <tbody>
+    <tr><td>入口</td><td>章节 AI 会话里把模式切到「共创」</td><td>离开编辑器 → 进推演室 → 选「剧情推演式」</td></tr>
+    <tr><td>要配什么</td><td>无，直接说</td><td>模式 4 选 1 / 思路 / 字数 / 章节数 / 轮次 / 导演开关</td></tr>
+    <tr><td>必点次数</td><td class="num">1</td><td class="num">4</td></tr>
+    <tr><td>LLM 调用</td><td class="num">1~2</td><td class="num">100~180（全串行）</td></tr>
+    <tr><td>产出落到哪</td><td>会话气泡里的卡片，选定后直接进正文生成</td><td>一份独立 JSON 报告，落 <code>.qmai/simulations/results/</code></td></tr>
+    <tr><td>有护栏吗</td><td>—</td><td><strong>没有</strong>（唯一的护栏在最便宜的舞台情景上，阈值 40）</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><strong>便宜的那个接得进工作流，贵的那个接不上。</strong>这不是巧合——正是因为它接不上，才显得贵。</p>
+
+<h3>形态三：入口按「这个能力属于哪个模块」摆，不按「用户此刻在哪」摆</h3>
+
+<p>推演室是最典型的受害者：它是一个<strong>整窗目的地</strong>（<code>full-window-views.ts:43-49</code>）。要用它，用户必须<em>离开正在写的这一章、离开编辑器、进入另一个视图、配 5 项、点 4 次、等 15 分钟</em>。</p>
+
+<p>而软件里被验证过高频的功能，入口全都在<strong>现场</strong>：</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:24%">功能</th><th style="width:26%">入口位置</th><th style="width:50%">用户要付的代价</th></tr></thead>
+  <tbody>
+    <tr><td>AI润色 / 去AI味</td><td>选区浮动条（<code>wiki-editor.tsx:621-639</code>）</td><td>选中 → 点 → 看对比 → 接受。<strong>不切视图</strong></td></tr>
+    <tr><td>生成章节细纲</td><td>章节工具栏（<code>preview-panel.tsx:2949</code>）</td><td>点 → 就地生成卡片 → 确认 → 就地写正文。<strong>不切视图</strong></td></tr>
+    <tr><td>续写</td><td>选区浮动条 + 右键菜单</td><td>光标处弹出浮层，指令可留空。<strong>不切视图</strong></td></tr>
+    <tr style="background:#b91c1c08"><td><strong>剧情推演 / 舞台情景</strong></td><td>整窗视图（侧栏第 9 位，带 BETA 角标）</td><td><strong>切视图 + 4 次点击 + 5 项配置 + 100~180 次串行调用 + 无成本确认</strong></td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>作者其实<em>知道</em>「续写」重复了。右键菜单的注释写着（<code>editor-context-menu.tsx:5-12</code>）：</p>
+
+<blockquote style="border-left:3px solid var(--line);margin:12px 0;padding:4px 0 4px 16px;color:var(--ink-2);font-size:14.5px">
+"刻意<strong>不</strong>做成「数组项里带 label」的一张表……而「续写」不能出现在默认项里 —— 大纲的 Milkdown 编辑器与章节正文共用这个组件……菜单里长出「续写」是错的。拆成两张表后，「续写」只有调用方显式列进 <code>actions</code> 才会出现。"
+</blockquote>
+
+<p>他解决的是「Milkdown 编辑器里不该有续写」，但没解决「章节正文里续写出现了两次」——选区浮动条一次（<code>wiki-editor.tsx:611-620</code>），右键菜单一次（<code>editor-context-menu.tsx:13-14</code>）。</p>
+
+<div class="flag warn">
+  <h4>这就是"乱"的微观形态</h4>
+  <p><strong>每一次都在解决局部问题，没有一个角色负责全局。</strong></p>
+  <p>同样的痕迹还有两处，都是作者自己注释出来的：</p>
+  <ul class="tight" style="margin-bottom:0">
+    <li><code>preview-panel.tsx:3139-3416</code> 有一整套<strong>第二份工具栏实现</strong>（含 AI会话、去AI味、一键排版、更多功能菜单）。但 <code>:2882</code> 对 markdown 章节/大纲恒真，所以这一整套对写作现场<strong>不可达</strong>——是同一批能力的死副本。改按钮名要同时改两处。</li>
+    <li><code>ui-test-editor.tsx:274</code> 与 <code>chat-panel.tsx:3218</code> 各有一坨 <code>{false &amp;&amp; …}</code> 死 UI，注释里已自认"别再去改它"。</li>
+  </ul>
+</div>
+
+<h3>形态四：文档类型被当成了用户意图 —— 名字还撞车</h3>
+
+<p>「生成大纲模块」菜单里平铺着 10 项（<code>outline-section-configs.ts:24-105</code>）。按性质分开看，是两种完全不同的东西：</p>
+
+<div class="grid2">
+  <div class="card">
+    <h4 style="margin-top:0;color:var(--accent)">这 2 项是「意图」</h4>
+    <p style="margin-bottom:6px"><strong>卷纲</strong>、<strong>章节细纲</strong></p>
+    <p style="font-size:14px;margin-bottom:0">用户真的会想"这一卷接下来怎么走"。这是他脑子里的问题。</p>
+  </div>
+  <div class="card">
+    <h4 style="margin-top:0;color:var(--bad)">这 8 项是「文档类型」</h4>
+    <p style="margin-bottom:6px">人物小传 / 组织势力 / 力量体系 / 金手指 / 背景设定 / 地理设定 / 伏笔计划 / 地点设定</p>
+    <p style="font-size:14px;margin-bottom:0">用户<strong>不会</strong>想"我要生成一份地点设定"。他会想"<em>这个地名我上次怎么写的？</em>"</p>
+  </div>
+</div>
+
+<p>而软件里本来就有这些档案的位置——记忆中心（<code>memory-center.ts:281</code>）、小说图谱（13 类节点，<code>graph-adapter.ts:126-130</code>）。它们该在那里被<em>自动维护 + 按需补齐</em>，不该占着主菜单。顺带一提：<strong>这两个视图里目前 0 个 AI 动作按钮</strong>。</p>
+
+<div class="flag bad">
+  <h4>附赠一个更硬的名字撞车</h4>
+  <p><strong>「章节细纲」这个词，在同一个软件里指两件不同的东西：</strong></p>
+  <ul class="tight">
+    <li>大纲菜单里的「章节细纲」= 17 节重型章纲（<code>outline-section-configs.ts:35-38</code>：基础信息 / 上章承接 / 本章定位 / 浓缩剧情 / 核心事件链 ≥6 条 / 四段式 / 情绪曲线 / 爽点 / …）</li>
+    <li>章节工具栏里的按钮 <code>aria-label="生成章节细纲"</code> = <strong>事件细纲</strong>，一章 4~8 个事件（<code>preview-panel.tsx:2949</code> → <code>EventOutlineWizardDialog</code>）</li>
+  </ul>
+  <p style="margin-bottom:0">用户在菜单里点「章节细纲」和在工具栏点「生成章节细纲」，得到的是两种完全不同粒度、不同结构、不同落点的东西。<strong>同一个标签，两个产品。</strong></p>
+</div>
+
+<p>（公平地说，事件细纲的<em>入口</em>已经去重过了——<code>outline-chat-panel.spec.tsx:3641</code> 明确断言"向导已搬去章节区，面板里不得再留引用"。所以问题不在入口重复，<strong>在命名</strong>。而且这个命名冲突有精确的两行证据：<code>outline-section-configs.ts:35</code> 与 <code>event-outline-wizard-dialog.tsx:86</code>，两个都写着「章节细纲」。）</p>
+
+<h3>形态五：产物有落盘与不落盘之分，但界面上看不出来</h3>
+
+<p>整理过程中冒出一个我原本没料到的、性质完全不同的问题：<strong>这几个"接下来发生什么"的功能，产物的持久化地位差别极大，而 UI 对这件事一言不发。</strong></p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:22%">功能</th><th style="width:30%">产物落在哪</th><th style="width:48%">意味着什么</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>卷纲 / 章纲</strong></td>
+      <td><code>wiki/outlines/卷纲/*.md</code> + <code>.json</code><br><code>wiki/outlines/章纲/*.md</code></td>
+      <td><strong>唯一被上下文引擎按章号读取的结构化权威</strong>（<code>context-engine.ts:636</code> → <code>chapterOutline</code> 优先级 2 + <code>sectionBriefing</code> 优先级 0）。它会真的影响正文生成</td>
+    </tr>
+    <tr style="background:#b4530908">
+      <td><strong>事件细纲</strong></td>
+      <td><strong>不落盘</strong>。纯内存 store</td>
+      <td>代码注释是明说的：<code>event-outline-task-store.ts:152-157</code> 声明不落盘、不写 <code>wiki/outlines</code>。<strong>刷新或换项目就没了</strong>——而它与上一条共用「章节细纲」这个名字</td>
+    </tr>
+    <tr>
+      <td>章节共创 / 大纲共创</td>
+      <td>只落会话消息（<code>.qmai/chat</code>、<code>.qmai/outline-chats.json</code>）</td>
+      <td>不落盘成结构，只是对话记录</td>
+    </tr>
+    <tr>
+      <td>舞台情景 / 剧情推演</td>
+      <td><code>.qmai/simulations/</code> 存档；草稿可写 <code>wiki/chapters/</code></td>
+      <td>落盘，但落在与大纲平行的另一套目录里</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>两个都叫「章节细纲」的东西，一个有持久化权威、一个是内存草稿。<strong>用户看到的是同名的两个按钮，拿到的是两种命运。</strong></p>
+
+<h3>形态六：两条"走向权威"同时注入正文，可能互相打架</h3>
+
+<p>这是最隐蔽、后果最实的一处。深度章节生成的上下文里，会同时进入两条关于"剧情该怎么走"的指令：</p>
+
+<ul class="tight">
+  <li><strong>章纲 + 卷纲</strong>：<code>chapterOutline</code>（优先级 2）、<code>sectionBriefing</code>（优先级 0）、<code>volumeContext</code>——按章号精确解析，有交叉校验 <code>crossCheckChapterAgainstVolume:1455</code></li>
+  <li><strong>推演框架绑定</strong>：<code>storyFrameworkBinding</code>——就是把 StoryFramework 的节点按章节区间摊开的那段话</li>
+</ul>
+
+<p>它们各自都声称自己是"这一章该怎么走"的依据，<strong>但系统里没有任何代码检查它们是否一致</strong>。章纲说「第 5 章主角要输」，推演框架说「第 3-5 章是【承】的转折节点」，模型收到两条冲突指令时只能自己圆。</p>
+
+<div class="flag warn">
+  <h4>为什么这比"入口乱"更该先修</h4>
+  <p>入口乱只是让人<em>困惑</em>；这个会让人<em>写出跑偏的稿子，而且不知道为什么跑偏</em>。</p>
+  <p style="margin-bottom:0">修法不复杂：要么把绑定降级为"仅供推演参考、不进正文上下文"，要么把它纳入章纲生成与偏离校验（<code>chapter-plan-compliance.ts</code>）成为<strong>一条轨道而不是一个并列权威</strong>。二选一，但不能两者都要。</p>
+</div>
+
+<p>命名不一致还不止这一处：侧栏叫「拆文库」而创作工具菜单叫「拆书库」；「剧情搜索」有 <strong>3 个</strong>入口（侧栏 / 顶栏 / 创作工具）；「剧情推演室」有 <strong>2 个</strong>。</p>
+
+<h2><span class="n">03</span>正确的坐标系：位置是入口，颗粒度是位置的属性</h2>
+
+<div class="flag accent">
+  <h4>回答你的两个疑问</h4>
+  <p><strong>「颗粒度假设」错在哪：</strong>我把颗粒度当成了用户要选的维度。它不该是。<strong>玩家不选镜头焦距，站到哪里就是什么焦距。</strong></p>
+  <p><strong>「位置假设」对在哪，我上次没做透：</strong>我说"按位置入口"，但还是把四档并列成四个入口。位置假设必须彻底到"<em>颗粒度由位置推导出来</em>"，否则等于没做。</p>
+</div>
+
+<h3>3.1 位置 → 颗粒度，是推导关系，不是并列关系</h3>
+
+<div class="flow">你在哪                                颗粒度自动是
+─────────────────────────────────────────────────────
+卷纲视图                         →   卷级（10 故事 × 10 环节）
+章纲视图                         →   章级（本章的事件链）
+正文 + 选中一段文字              →   场景级（这几个人的这一场）
+正文 + 光标停在末尾              →   段级（下面这几百字）
+─────────────────────────────────────────────────────
+推演室自由沙盘（没有"位置"）      →   ★ 唯一需要显式选颗粒度的地方</div>
+
+<p>注意最后一行。<strong>颗粒度只在"没有位置"的地方才需要用户选</strong>——而那种地方恰恰不该是主路径。它应该是少数人的探索模式，不是所有人的入口。</p>
+
+<h3>3.2 「用哪个引擎」同样不该是用户的选项</h3>
+
+<p>用户在章纲位置点「推演这一章」，系统该自己判断：这个问题给 3 条方向就够（走共创，1~2 次调用），还是值得跑一次多 Agent 模拟（100+ 次）。</p>
+
+<p><strong>默认走便宜的。给一个「更深入」开关让用户主动升级。一个开关，不是一个菜单。</strong></p>
+
+<p>理由：用户没有能力在点击之前预估"这个问题需要多深"。让他选，他只会在两种情况下选错——要么花了大钱办小事，要么省了小钱办不成事。而系统手上有章号、有出场人数、有历史调用量，它比用户更知道该用哪档。</p>
+
+<h3>3.3 于是坐标系就两维，而用户每次只看到一行</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:14%">位置<br><span class="cite">隐式推导</span></th><th style="width:29%">① 接下来发生什么</th><th style="width:29%">② 这段怎么写</th><th style="width:28%">③ 这样对吗</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>卷纲</strong></td>
+      <td>生成/续写卷纲<br><span class="cite">＋ 更深入 → 卷级推演</span></td>
+      <td>—</td>
+      <td>卷体检<br><span class="cite">角色利用率 / 弧光 / 伏笔台账</span></td>
+    </tr>
+    <tr>
+      <td><strong>章纲</strong></td>
+      <td>生成/续写章纲<br><span class="cite">＋ 推演这一章 → 候选事件链</span></td>
+      <td>—</td>
+      <td>偏离检测<br><span class="cite">chapter-plan-compliance</span></td>
+    </tr>
+    <tr>
+      <td><strong>正文</strong></td>
+      <td>这段怎么走<br><span class="cite">选中时出现 ≈ 舞台情景</span></td>
+      <td>续写 / 改写 / 去AI味<br><span class="cite">＋ 力度档位</span></td>
+      <td>本章审稿<br><span class="cite">审查中心</span></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>用户永远只看到自己那一行的 2~3 个按钮。<strong>不是 3×3=9 个选择，是 2~3 个。</strong></p>
+
+<h2><span class="n">04</span>裁决表：现有 15 个功能各自归位</h2>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:19%">现有功能</th><th style="width:19%">归到哪个格子</th><th style="width:12%">处置</th><th style="width:50%">理由</th></tr></thead>
+  <tbody>    <tr>
+      <td>大纲向导（18 字段）<br>vs 模块菜单/对话</td><td>同一格子的两扇门</td><td><span class="tag merge">合并为一</span></td>
+      <td>同一套实现（共用 prompt / 解析器 / 保存 / 落盘），却给了两处入口，让用户以为它们是两种能力。<strong>保留菜单+对话（可增量、可局部），把向导的 18 个字段做成菜单首项的「完整设定」展开</strong></td>
+    </tr>
+    <tr>
+      <td>卷纲生成</td><td>卷纲 × ①</td><td><span class="tag keep">保留</span></td>
+      <td>真的用户意图。产出结构（position/roles/foreshadows/cast/escalation/debts/rivals/growth/places，<code>volume-outline-template.ts:49-123</code>）已经覆盖了推演报告想要的每个维度</td>
+    </tr>
+    <tr>
+      <td>剧情推演（卷级）</td><td>卷纲 × ①·深入</td><td><span class="tag demote">降级为开关</span></td>
+      <td>和卷纲回答同一个问题（这一卷怎么走），只是方式不同。不该是两个入口</td>
+    </tr>
+    <tr>
+      <td>大纲共创</td><td>卷纲/章纲 × ①·先对齐</td><td><span class="tag demote">降级为开关</span></td>
+      <td>"先对齐再写"是<em>阶段</em>，不是<em>功能</em>。铁证见 §02 形态一：store 里那个影子字段就是它被挤掉留下的疤</td>
+    </tr>
+    <tr>
+      <td>章纲生成</td><td>章纲 × ①</td><td><span class="tag keep">保留</span></td>
+      <td>同上，是真实意图</td>
+    </tr>
+    <tr>
+      <td>章节共创（3~4 方向）</td><td>章纲 × ①</td><td><span class="tag merge">与推演分支合并</span></td>
+      <td>与 <code>StoryBranch</code> 结构同构（见 §02 形态二）。<strong>统一成一种「候选走向卡片」</strong>：共创出 1~2 条、推演出 3~5 条，同一个卡片渲染</td>
+    </tr>
+    <tr>
+      <td>事件细纲生成</td><td>章纲 × ①·落到事件</td><td><span class="tag merge">合并进章纲，改名</span></td>
+      <td>它是章纲的轻量落地版。入口已去重，但<strong>名字与「章节细纲」撞车</strong>（见 §02 形态四）。保留能力，改掉名字</td>
+    </tr>
+    <tr>
+      <td>舞台情景</td><td>正文 × ①</td><td><span class="tag move">搬到选区</span></td>
+      <td>它是<strong>场景级推演</strong>，已经在做对的事，只是长错了位置。搬到正文选区浮动条，与润色/去AI味并排</td>
+    </tr>
+    <tr>
+      <td>续写</td><td>正文 × ②</td><td><span class="tag merge">去掉一处重复</span></td>
+      <td>选区浮动条与右键菜单各挂了一次。保留选区浮动条那份</td>
+    </tr>
+    <tr>
+      <td>深度章节生成</td><td>正文 × ②·深度</td><td><span class="tag demote">降级为力度档</span></td>
+      <td>它是"同一件事做得更彻底"，属于力度维度，不该是并列功能</td>
+    </tr>
+    <tr>
+      <td>AI润色 / 去AI味</td><td>正文 × ②·变换</td><td><span class="tag keep">保留</span></td>
+      <td>已经是正确的形态（选区 → 对比窗 → 接受），是全场最好的样板</td>
+    </tr>
+    <tr>
+      <td>计划（章节面板）</td><td>① 的修饰符</td><td><span class="tag merge">与共创合并</span></td>
+      <td>「计划」= AI 盘点要素问你；「共创」= AI 抛分歧点问你。同一个维度的两个强度，合并为一个「先对齐」开关</td>
+    </tr>
+    <tr>
+      <td>计划（大纲面板）</td><td>同上</td><td><span class="tag merge">统一形状</span></td>
+      <td>现在在两套面板里一个是开关、一个是模式。统一为开关</td>
+    </tr>
+    <tr>
+      <td>8 项设定档案生成</td><td>——</td><td><span class="tag dissolve">移出主菜单</span></td>
+      <td>它们是文档类型不是意图。移进设定档案 / 记忆中心，改为「自动维护 + 按需补齐」。这也能顺手填上"记忆中心/图谱 0 个 AI 按钮"的空</td>
+    </tr>
+    <tr>
+      <td>推演室（作为目的地）</td><td>——</td><td><span class="tag demote">改为状态视图</span></td>
+      <td>从"动作入口"改为"这本书的平行世界现在长什么样"，与小说图谱 / 记忆中心 / 拆书库同类</td>
+    </tr>
+    <tr>
+      <td>审查中心</td><td>任意 × ③</td><td><span class="tag keep">保留</span></td>
+      <td>已经是正确的形态</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="flag ok">
+  <h4>这张表的关键：16 项全是「保留 / 合并 / 降级 / 溶解 / 位移」，没有一项是「新增」</h4>
+  <p>用户能感受到的变化是<strong>东西变少了、位置变对了</strong>，而不是又多了几个功能。这才是我上一版该给的方案。</p>
+</div>
+
+<h3>4.1 反向清单：这三样是真正正交的，不要动它们</h3>
+
+<p>整理功能最容易犯的第二个错，是"看着像就合并"。有三样东西看起来属于同一类，实际上是全场最干净的边界，动它们只会把清晰的地方弄脏。</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:17%">功能</th><th style="width:38%">为什么它正交</th><th style="width:45%">证据</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>续写</strong></td>
+      <td>全库唯一<strong>不读大纲、不读卷纲、不读设定、不读记忆</strong>的生成功能。它只读当前章正文的尾部 8000 字（超长则掐中段留 head 2000 + tail 6000）。语义就是"接着这几句往下写一截"</td>
+      <td class="cite">continuation.ts:19-23,89<br>产出 300~400 字，1 次 LLM，用户点「插入正文」才写回（:122）</td>
+    </tr>
+    <tr>
+      <td><strong>章节共创 /<br>大纲共创</strong></td>
+      <td>它们<strong>不新增产物类型</strong>，只是卷纲/章纲/正文的"前置交互模式"——先商量再交付。这正是 §02 形态一说的那个正交维度，所以它们该被表达为<em>模式</em>，而不是被合并掉或删掉</td>
+      <td class="cite">chapter-discuss-protocol.ts:191-192<br>outline-discuss-protocol.ts:18-19</td>
+    </tr>
+    <tr>
+      <td><strong>章纲的落盘地位</strong></td>
+      <td>它是全库<strong>唯一被上下文引擎按章号解析</strong>、并拆成 <code>chapterOutline</code> + <code>sectionBriefing</code> 两个字段注入的结构化细纲。3 / 6 / 9 都不进这条通道——这就是它为什么该是"章"这一格的权威</td>
+      <td class="cite">context-engine.ts:636<br>context-data-sources.ts:496-509</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>换句话说：<strong>「续写」是段落级的正交存在，「共创」是阶段维度的正交存在，「章纲」是权威维度的正交存在。</strong>裁掉任何一样都会留下真空，而合并它们只会让三个清晰的边界变成一个模糊的。</p>
+
+<h2><span class="n">05</span>收敛前 vs 收敛后</h2>
+
+<div class="grid2">
+  <div class="before">
+    <h4>现在：正文编辑器里的 AI 入口</h4>
+    <div class="btn-row">
+      <span class="chip">续写（选区）</span>
+      <span class="chip">AI润色</span>
+      <span class="chip">去AI味（选区）</span>
+      <span class="chip">续写（右键，重复）</span>
+      <span class="chip">去AI味（工具栏）</span>
+      <span class="chip">提取记忆</span>
+      <span class="chip">查看记忆</span>
+      <span class="chip">生成章节细纲</span>
+    </div>
+    <p style="font-size:13.5px;margin-top:14px;margin-bottom:0">
+      加上会话面板的模式选择器（4 选 1 + 计划开关，且两者互斥），以及要去另一个整窗才能用的推演 / 舞台情景。
+      <br><br><strong>要写一段"两个人对话卡住了"，用户得先决定：这是润色？续写？还是去开推演室？</strong>
+    </p>
+  </div>
+  <div class="after">
+    <h4>收敛后：同一位置</h4>
+    <div class="btn-row">
+      <span class="chip">续写</span>
+      <span class="chip">改写</span>
+      <span class="chip">去AI味</span>
+      <span class="chip new">这段怎么走 ★</span>
+    </div>
+    <p style="font-size:13.5px;margin-top:14px;margin-bottom:0">
+      ★ 是舞台情景搬过来。<strong>四个按钮，每个都能用一句不含专有名词的话说清用途</strong>，且都在原地出结果。
+      <br><br>「提取记忆 / 查看记忆」移回章节头部（它们不是写作动作，是账本动作）。推演室不再是"要去的地方"，而是"结果沉淀的地方"。
+    </p>
+  </div>
+</div>
+
+<h4>其他三处的前后对比</h4>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:15%">位置</th><th style="width:43%">现在</th><th style="width:42%">收敛后</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>AI 会话模式</strong></td>
+      <td>
+        <span class="chip">快速</span><span class="chip">标准</span><span class="chip">严格</span><span class="chip">共创</span>
+        <br><span class="cite">4 选 1，且共创与严格/计划互斥</span>
+      </td>
+      <td>
+        <span class="chip">快速</span><span class="chip">标准</span><span class="chip">严格</span>
+        <span class="chip new">＋「先对齐」开关</span>
+        <br><span class="cite">3 选 1 + 1 个可组合开关，任意组合都成立；<br>影子字段 <code>aiWorkflowModeBeforeDiscuss</code> 可以删掉</span>
+      </td>
+    </tr>
+    <tr>
+      <td><strong>大纲生成</strong></td>
+      <td>
+        <span class="chip">卷纲</span><span class="chip">章节细纲</span><span class="chip">人物小传</span><span class="chip">组织势力</span><span class="chip">力量体系</span><span class="chip">金手指</span><span class="chip">背景设定</span><span class="chip">地理设定</span><span class="chip">伏笔计划</span><span class="chip">地点设定</span>
+        <br><span class="cite">10 项平铺</span>
+      </td>
+      <td>
+        <span class="chip">卷纲</span><span class="chip">章纲</span>
+        <span class="chip gone">其余 8 项</span>
+        <br><span class="cite">2 项留在这里（意图），8 项移进设定档案（文档类型）</span>
+      </td>
+    </tr>
+    <tr>
+      <td><strong>推演室</strong></td>
+      <td>
+        <span class="chip">剧情推演式</span><span class="chip">舞台情景</span><span class="chip">最近</span><span class="chip">框架管理</span>
+        <br><span class="cite">一个目的地，进去要再选一次</span>
+      </td>
+      <td>
+        <span class="chip new">世界状态视图</span>
+        <br><span class="cite">展示绑定框架 / 分支 / 历史 / 时间线 / 谣言 / 角色；动作从现场发起，结果沉淀到这里。保留一个"自由沙盘"给确实没有位置的脑暴</span>
+      </td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2><span class="n">06</span>一条治理规则，以及落地顺序</h2>
+
+<div class="flag violet">
+  <h4>治理规则（建议写进开发约定）</h4>
+  <p><strong>新能力不许新增入口，只能增强已有入口。</strong></p>
+  <p>如果一个新能力无法归入「位置 × 意图」的某个格子，那么它多半不是用户需要的<em>功能</em>，而是引擎的<em>内部能力</em>——那就该藏在已有按钮的背后，而不是自己长一个按钮。</p>
+  <p>这条规则能直接防止今天这个问题再发生一次。现有 88 个入口、28 个需要专有概念的按钮，绝大多数都是这条规则缺席的产物。</p>
+</div>
+
+<h3>落地顺序：前四步是减法与位移，用户马上能感觉到</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:6%">步</th><th style="width:32%">动作</th><th style="width:11%">性质</th><th style="width:51%">为什么排这个顺序</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="num">1</td>
+      <td>修掉两条"走向权威"的冲突：把推演框架绑定纳入章纲生成与偏离校验，或明确降级为"不进正文上下文"</td>
+      <td><strong>正确性</strong></td>
+      <td><strong>唯一一个会让人写出跑偏稿子的问题</strong>（§02 形态六）。它不是体验问题而是正确性问题，所以排在所有整理动作之前。改动也小：一个数据源的取舍 + 一处校验挂钩</td>
+    </tr>
+    <tr>
+      <td class="num">2</td>
+      <td>模式选择器拆分：「先对齐」从 4 选 1 里拿出来做成可组合开关；合并「计划」与「共创」；两套面板统一形状；删掉 <code>aiWorkflowModeBeforeDiscuss</code></td>
+      <td><strong>减法</strong></td>
+      <td>改动小（两个面板各一处 + 一个 store 字段），消除一个"用户必须理解才能操作"的冲突。而且它是唯一一处<strong>代码已经承认自己错了</strong>的地方，收益最确定</td>
+    </tr>
+    <tr>
+      <td class="num">3</td>
+      <td>合并大纲的两扇门：向导的 18 字段收进菜单首项的「完整设定」展开，只留一扇门</td>
+      <td><strong>减法</strong></td>
+      <td>直击"不知道该用哪个"的头号来源（§02 形态零）。合并后用户面对的从 2 个入口 + 10 项菜单变成 1 个入口 + 10 项菜单</td>
+    </tr>
+    <tr>
+      <td class="num">4</td>
+      <td>统一「候选走向卡片」：章节共创与推演分支共用一个数据结构与一个卡片渲染</td>
+      <td><strong>减法</strong></td>
+      <td>两套实现合一，不是新增。之后"推演"对用户来说只剩一种产出形态</td>
+    </tr>
+    <tr>
+      <td class="num">5</td>
+      <td>舞台情景搬到正文选区浮动条</td>
+      <td><strong>位移</strong></td>
+      <td><strong>这一步才是真正"让推演进写作现场"。</strong>引擎和 UI 都是现成的（<code>scenario-engine.ts</code> / <code>scenario-importer.ts</code>），已有成本护栏、已能插入章节，只是换挂载点。做完推演就从"要去的地方"变成"伸手就够得着"</td>
+    </tr>
+    <tr>
+      <td class="num">6</td>
+      <td>命名与去重：续写去一处；「章节细纲 / 事件细纲」改名分清；「拆文库 / 拆书库」统一；「剧情搜索」3 个入口收成 1 个；8 项设定档案移出生成菜单</td>
+      <td><strong>减法</strong></td>
+      <td>纯清理。菜单从 10 项变 2 项，是用户最容易感知到的"变清爽了"。同时顺手处理掉 <code>preview-panel.tsx:3139-3416</code> 那份死工具栏副本</td>
+    </tr>
+    <tr>
+      <td class="num">7</td>
+      <td>推演室改造为世界状态视图；保留"自由沙盘"入口</td>
+      <td><strong>重定位</strong></td>
+      <td>放这里，因为它依赖前面已经把"动作"迁走了。此时推演室剩下的自然就是"看"</td>
+    </tr>
+    <tr>
+      <td class="num">8</td>
+      <td>（承接上一份报告）成本护栏、同轮并发化、报告 Agent 加工具、结果回流章纲 §5</td>
+      <td><strong>增强</strong></td>
+      <td>等入口理顺之后再加强度，否则是在一个没人找得到的入口上做优化</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="flag accent">
+  <h4>一句话总结</h4>
+  <p>现在的乱，是<strong>「同一个用户问题有多个入口」</strong>，以及<strong>「正交的维度被挤进同一个枚举」</strong>。</p>
+  <p>要治的不是把功能切得更细（那是我上次的错），而是<strong>把入口收敛到"位置"，让颗粒度和引擎都从位置推导出来</strong>。</p>
+  <p style="margin-bottom:0">收敛的判据很简单：<strong>用户在任何一个写作现场，需要面对的选择不超过 3 个，而且每一个都能用一句不含专有名词的话说清用途。</strong></p>
+</div>
+
+<footer>
+  <p>基于对 <code>C:\QMAI_C\QMAI-main</code>（v4.3.1）的源码直读，结论均附文件行号。未修改任何源文件。本文件是对《剧情推演-诊断与优化设计》中「优化方向 A / 应用场景」两节的修正。</p>
+  <p>引用的行号以本文写作时的 HEAD（<code>13d5c178</code>）为准；若后续改动导致漂移，以函数名与常量名为准定位。入口计数基于 88 个去重后的可点击控件（<code>{false &amp;&amp; …}</code> 死代码不计，宽/窄两套工具栏的同一能力只计一次）。</p>
+</footer>
+
+</div>
+</body>
+</html>

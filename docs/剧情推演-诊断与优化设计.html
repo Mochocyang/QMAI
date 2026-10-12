@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>剧情推演功能 · 诊断与优化设计</title>
+<style>
+  :root{
+    --ink:#1a1a1a; --ink-2:#454545; --ink-3:#6b7280; --line:#e5e7eb;
+    --bg:#fbfbfa; --card:#fff; --accent:#0f766e; --accent-soft:#0f766e14;
+    --warn:#b45309; --warn-soft:#b4530914; --bad:#b91c1c; --bad-soft:#b91c1c12;
+    --ok:#15803d; --ok-soft:#15803d14;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-feature-settings:"tnum";
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:56px 24px 120px}
+  header.doc{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:40px}
+  header.doc .kicker{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  header.doc h1{font-size:31px;line-height:1.3;margin:10px 0 8px;letter-spacing:-.01em}
+  header.doc .sub{color:var(--ink-3);font-size:14px}
+  h2{font-size:22px;margin:56px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h2 .n{color:var(--accent);font-weight:700;margin-right:10px;font-variant-numeric:tabular-nums}
+  h3{font-size:17px;margin:32px 0 10px}
+  h4{font-size:15px;margin:22px 0 8px;color:var(--ink-2)}
+  p{margin:12px 0}
+  code{background:#0000000a;padding:.15em .4em;border-radius:4px;font-size:.875em;
+    font-family:ui-monospace,SFMono-Regular,"Cascadia Code",Consolas,monospace}
+  .cite{font-size:12.5px;color:var(--ink-3);font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+  .tldr{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);
+    border-radius:8px;padding:20px 24px;margin:28px 0}
+  .tldr h3{margin-top:0}
+  .tldr ol{margin:12px 0 0;padding-left:22px}
+  .tldr li{margin:8px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px 22px;margin:18px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+  .flag{border-radius:8px;padding:16px 20px;margin:18px 0;border:1px solid}
+  .flag.bad{background:var(--bad-soft);border-color:#b91c1c33}
+  .flag.warn{background:var(--warn-soft);border-color:#b4530933}
+  .flag.ok{background:var(--ok-soft);border-color:#15803d33}
+  .flag.accent{background:var(--accent-soft);border-color:#0f766e33}
+  .flag h4{margin-top:0;color:inherit}
+  .flag.bad h4{color:var(--bad)} .flag.ok h4{color:var(--ok)}
+  .flag.warn h4{color:var(--warn)} .flag.accent h4{color:var(--accent)}
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#00000005;font-weight:600;font-size:13px;color:var(--ink-2)}
+  tbody tr:last-child td{border-bottom:none}
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+  .scroll table{margin:0}
+  .tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:99px;
+    line-height:1.6;white-space:nowrap;vertical-align:middle}
+  .tag.p0{background:#b91c1c18;color:var(--bad)}
+  .tag.p1{background:#b4530918;color:var(--warn)}
+  .tag.p2{background:#0f766e18;color:var(--accent)}
+  .tag.mine{background:#0f766e18;color:var(--accent)}
+  .tag.theirs{background:#6b728018;color:var(--ink-2)}
+  .num{font-variant-numeric:tabular-nums;font-weight:600}
+  .flow{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px;
+    background:var(--card);border:1px solid var(--line);border-radius:8px;
+    padding:16px 18px;overflow-x:auto;white-space:pre;line-height:1.9;color:var(--ink-2)}
+  ul.tight li{margin:6px 0}
+  .scenario{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:20px 22px;margin:20px 0}
+  .scenario h4{margin-top:0;font-size:16px;color:var(--ink)}
+  .scenario dl{margin:12px 0 0;font-size:14px}
+  .scenario dt{font-weight:600;color:var(--ink-2);margin-top:10px;font-size:12.5px;letter-spacing:.04em}
+  .scenario dd{margin:3px 0 0}
+  footer{margin-top:72px;padding-top:20px;border-top:1px solid var(--line);font-size:13px;color:var(--ink-3)}
+  .kpi{display:flex;gap:28px;flex-wrap:wrap;margin:20px 0}
+  .kpi div{min-width:110px}
+  .kpi .v{font-size:25px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .kpi .k{font-size:12px;color:var(--ink-3);margin-top:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="kicker">QMAI · 功能诊断报告</div>
+  <h1>剧情推演功能：为什么用不起来，以及它应该长在哪里</h1>
+  <p class="sub">基于对 <code>QMAI-main</code>（v4.3.1，剧情推演室 22,730 行）与参考实现 <code>MiroFish-main</code> 的源码直读对比</p>
+</header>
+
+<div class="tldr">
+  <h3>结论速览</h3>
+  <ol>
+    <li><strong>引擎没问题，是强的。</strong>信息不对称（<code>observableBy</code>）、谣言传播（失真度/代数/可信度）、导演 Agent 七维评分、分支管理——这四样 MiroFish <em>一样都没有</em>。问题不在模拟内核。</li>
+    <li><strong>真正的病因是「工作单元不匹配」。</strong>推演的最小单位是「一个 4~8 节点框架 → 1~5 万字 → 4~8 章」，一次跑 100~180 次串行 LLM 调用、5~15 分钟、无成本确认。而写手坐在第 47 章时的问题是「A 该不该现在告诉 B」，那是一个<em>场景</em>问题。用整个卷级仿真去回答单场景问题，成本与收益差着两个数量级。</li>
+    <li><strong>产物没有座位。</strong><code>SimulationReport</code> / <code>StoryDraft</code> 与大纲 store <em>零耦合</em>：报告只能导出 .md，草稿只能整章导入 <code>wiki/chapters/</code>，<code>branch.summary</code> 与 <code>keyEvents</code> 没有任何通往章纲「§5 核心事件链」或事件细纲 <code>events</code> 的通路。写手拿到一份文档，却没法把它变成稿子。</li>
+    <li><strong>最讽刺的一点：整个房间里最实用、最贴写作现场、唯一带成本护栏的功能（舞台情景，阈值 40 条），被关在了这个房间最深处。</strong>它本该在章节编辑器的选区浮动条上，和「续写 / 润色 / 去AI味 / 生成章节细纲」并排。</li>
+    <li><strong>MiroFish 最值得抄的不是模拟，是「世界可被追问」。</strong>它 5 步流程的终点是<em>深度互动</em>：可以随时采访任意 Agent，ReportAgent 带 4 个工具去<em>调查</em>图谱（每章至少 3 次工具调用、必须引用 Agent 原话）。QMAI 的报告是<em>一次</em> LLM 出的 JSON，是终点不是入口；更糟的是，打开历史结果时角色采访与生成草稿被<em>显式禁用</em>（<code>simulation-report-view.tsx:599-600,622-623</code>）。</li>
+  </ol>
+</div>
+
+<h2><span class="n">01</span>现状解剖：它今天到底是什么</h2>
+
+<h3>1.1 五个入口，但都通向同一条长流水线</h3>
+<div class="scroll">
+<table>
+  <thead><tr><th>入口</th><th>实现</th><th>用户感知</th></tr></thead>
+  <tbody>
+    <tr><td>侧边栏一级图标</td><td><code>icon-sidebar.tsx:51</code>，默认序第 9/11 位（<code>sidebar-nav-preferences.ts:3-15</code>）</td><td>带琥珀色 <span class="tag p1">BETA</span> 角标（<code>icon-sidebar.tsx:113-117</code>）</td></tr>
+    <tr><td>自然语言唤起</td><td><code>task-router.ts:196-238</code> 四个 intent → <code>chat-panel.tsx:1778-1804</code> 自动预填 + 跳整窗</td><td>说「推演剧情」会直接把你<em>甩出</em>会话，回复只剩一句「已为你打开剧情推演室并预填配置」</td></tr>
+    <tr><td>@ 引用</td><td><code>deduction</code> 类，读 <code>.qmai/simulations/</code>（<code>source-paths.ts:54,84</code>）</td><td>产物可被消费——这是它唯一真正嵌进工作流的地方</td></tr>
+    <tr><td>导出中心 / 拆书桥接</td><td><code>collectors.ts:265-332</code>；<code>plot-framework-bridge.ts</code></td><td>拆书发布的 PlotFramework 会单向桥接成 StoryFramework</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>1.2 主流程：11 个 phase，4 次必点，约 5 项配置</h3>
+<div class="flow">落地页选入口 → <b>configuring</b>（模式4选1 / 思路 / 字数 / 章节数 / 轮次 / 导演开关）
+    ↓ 开始提取并生成框架（extract + 事件池 + 框架，3 次 LLM 串行）
+<b>framework-confirming</b>（改标题/短标题/前提 + 每节点 5 字段 + 拖拽排序）
+    ↓ 确认推演
+<b>simulating</b>（N 节点 × R 轮 × A 角色，全部串行 await）
+    ↓
+<b>report-generating</b> → <b>report-viewing</b>（选一条走向分支）
+    ↓ 生成草稿
+<b>draft-generating</b> → <b>draft-viewing</b>（逐章编辑）
+    ↓ 导入到章节库
+wiki/chapters/chapter-NNN.md（frontmatter: source: story-simulation）</div>
+
+<div class="kpi">
+  <div><div class="v">100–180</div><div class="k">次 LLM 调用<br>（1万字 / hybrid / 5 角色）</div></div>
+  <div><div class="v">全串行</div><div class="k">节点→轮→角色<br>三层嵌套 await</div></div>
+  <div><div class="v">0</div><div class="k">主推演的成本<br>预估与确认</div></div>
+  <div><div class="v">174</div><div class="k">个 i18n key<br>（<code>zh.json:1803-1977</code>）</div></div>
+</div>
+
+<p>调用量的算法是：<code>3 + N×R×A×[1~3] + 反应链 + 2×轮(embedding) + N(导演) + 1(报告) + N(草稿)</code>。其中 <code>N=calcNodeCount(targetWords)</code>（<code>types.ts:388-392</code>）、<code>R=round(baseRounds×roundsMultiplier)</code>（<code>simulation-engine.ts:1177-1179</code>）、<code>A=ceil(候选角色×agentSubsetRatio)</code>（<code>multi-agent-orchestrator.ts:237</code>），每个角色回合最多 3 次 LLM 往返（<code>simulation-engine.ts:1082</code>）。</p>
+
+<div class="flag bad">
+  <h4>成本护栏的缺口是真实的、且不对称的</h4>
+  <p>舞台情景有护栏：<code>SCENARIO_COST_WARN_THRESHOLD = 40</code>（<code>scenario-types.ts:74</code>），超阈值必须勾选确认才能开始（<code>scenario-setup-panel.tsx:133-144</code>）。</p>
+  <p><strong>而主推演——那个会跑 100~180 次调用的流程——一句护栏都没有</strong>，配置页只有一行灰字「轮次越多，角色互动越丰富，但消耗token越多」（<code>simulation-config-panel.tsx:218</code>）。护栏装在了便宜的地方，没装在贵的地方。</p>
+</div>
+
+<h3>1.3 持久化：写进文件的只有产物，世界本身活在内存里</h3>
+<div class="scroll">
+<table>
+  <thead><tr><th>数据</th><th>落点</th></tr></thead>
+  <tbody>
+    <tr><td>故事框架</td><td><code>.qmai/simulations/frameworks/&lt;id&gt;.md</code>（<code>framework-store.ts:33-34</code>）</td></tr>
+    <tr><td>推演结果</td><td><code>.qmai/simulations/results/&lt;frameworkId&gt;/result-&lt;ts&gt;.{json,md}</code>（含时间线/agent 快照/谣言）</td></tr>
+    <tr><td>框架绑定（全项目唯一）</td><td><code>.qmai/simulations/bindings/active-binding.json</code>（<code>framework-binding.ts:16</code>）</td></tr>
+    <tr><td>采访 / 导出</td><td><code>.qmai/simulations/interviews/</code>、<code>.qmai/simulations/exports/</code></td></tr>
+    <tr><td><strong>运行态</strong></td><td><strong>只有 zustand 内存</strong>（<code>story-simulation-store.ts:238</code> 的 <code>create(...)</code> 无 persist）——刷新即丢 <code>timelineEvents / currentAgents / branches</code></td></tr>
+  </tbody>
+</table>
+</div>
+<p>这解释了为什么「平行世界」的体验立不住：<strong>一个会被 F5 抹掉的世界，不会让人产生「它在持续演化」的感觉。</strong>MiroFish 反过来——每一轮动作都被自然语言化写成 episode 回写 Zep 图谱（<code>zep_graph_memory_updater.py:36-67,494-517</code>），记忆跨轮复合增长。</p>
+
+<h2><span class="n">02</span>MiroFish 与剧情推演：逐项差异</h2>
+
+<div class="flag accent">
+  <h4>先纠正一个前提：两者根本不是同一类东西</h4>
+  <p><strong>MiroFish 是社会舆论模拟，不是叙事推演。</strong>它的本体生成 prompt 明确写着「社交媒体舆论模拟」，硬性要求正好 10 个实体类型、必须含 <code>Person</code>/<code>Organization</code> 兜底，并<em>显式排除</em>抽象概念与「支持方/反对方」式立场（<code>ontology_generator.py:48-73,113-126</code>）。人物被降维成「可以在 Twitter / Reddit 发声的账号」，推演动作是 <code>CREATE_POST / REPOST / FOLLOW / CREATE_COMMENT / SEARCH_POSTS</code>（<code>run_parallel_simulation.py:178-202</code>），报告 prompt 仍是「未来预测报告」（<code>report_agent.py:552-556</code>）。</p>
+  <p>全仓库代码里<strong>没有任何 novel/story 分支、prompt 或路由</strong>；小说只是通用管线的一种种子文档，而《红楼梦》demo 之所以成立，是因为它被当成了「一个包含大量人物的社会系统」来模拟。所以：<strong>你当年参考它的「想法」是对的，但它的实现里真正能迁移到小说创作的部分，比你以为的少得多。</strong></p>
+</div>
+
+<h3>2.1 对照表</h3>
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:20%">维度</th><th style="width:40%">MiroFish</th><th style="width:40%">QMAI 剧情推演室</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>本体</strong></td>
+      <td>LLM 生成 ontology（10 实体类型 / 6-10 关系），落 Zep Cloud 图谱，GraphRAG 检索</td>
+      <td>从最近 N 章正文 LLM 提取角色 + 认知边界 + 灵魂，<em>无图谱</em>，角色即 Agent</td>
+    </tr>
+    <tr>
+      <td><strong>人格来源</strong></td>
+      <td>由图谱实体派生，prompt 要求 2000 字连贯 persona（含 MBTI/性格/情绪表达），机构账号固定 age=30/ISTJ</td>
+      <td>由已有角色档案 + <code>soul</code> + <code>aura</code> + <code>cognition.doesNotKnow</code> 拼装（<code>agent-profile-builder.ts:237-359</code>，九段式）<span class="tag mine">更强</span></td>
+    </tr>
+    <tr>
+      <td><strong>互动形态</strong></td>
+      <td>双平台社媒动作（Twitter 6 种 / Reddit 13 种），<em>所有 Agent 共享公开时间线</em></td>
+      <td>9 种叙事行为（pushPlot / confront / conceal / ally / investigate…）+ 6 个 ReAct 工具（recall / observe / inquire / introspect / investigate / spread_rumor）<span class="tag mine">更强</span></td>
+    </tr>
+    <tr>
+      <td><strong>信息隔离</strong></td>
+      <td><span class="tag theirs">无</span> 全员看同一条公共流</td>
+      <td><code>observableBy</code>（all / target_only / self）+ 私有 <code>knownSecrets</code> + 认知边界强制「绝不能全知」<span class="tag mine">独有</span></td>
+    </tr>
+    <tr>
+      <td><strong>谣言 / 信息失真</strong></td>
+      <td><span class="tag theirs">无</span></td>
+      <td>完整链路：关键词重叠匹配 → 失真度 +0.1~0.3 → 代数 +1 → 信服概率含好感度与传播者可信度偏移（<code>multi-agent-orchestrator.ts:305-441</code>）<span class="tag mine">独有</span></td>
+    </tr>
+    <tr>
+      <td><strong>叙事结构</strong></td>
+      <td><span class="tag theirs">无</span> 只有时间轮次（默认 72 模拟小时 / 60 分钟一轮）</td>
+      <td>起承转合四段节点 + 节点目标/核心冲突/承接因果/预期结果（<code>types.ts:273-282</code>）<span class="tag mine">独有</span></td>
+    </tr>
+    <tr>
+      <td><strong>质量评估</strong></td>
+      <td><span class="tag theirs">无</span></td>
+      <td>导演 Agent 七维打分（张力/节奏/角色利用率/角色弧光/信息密度/情感共鸣/逻辑一致性），<code>totalScore&lt;3</code> 时向下一节点注入突发事件（<code>director-agent.ts:179</code> + <code>simulation-engine.ts:1511-1524</code>）<span class="tag mine">独有</span></td>
+    </tr>
+    <tr>
+      <td><strong>分支 / 回滚</strong></td>
+      <td><span class="tag theirs">无</span> <code>RunnerStatus.PAUSED</code> 只是个没接线的枚举（<code>simulation_runner.py:45</code>），没有 pause/resume 路由，没有快照</td>
+      <td><code>SimulationBranch</code> + 分支对比视图 + 中断续跑 <code>SimulationResumePoint</code><span class="tag mine">独有</span></td>
+    </tr>
+    <tr>
+      <td><strong>报告是怎么来的</strong></td>
+      <td>ReportAgent = ReAct + 4 个工具（<code>insight_forge / panorama_search / quick_search / interview_agents</code>），每章至少 3 次工具调用，<strong>必须引用 Agent 原话</strong>，2-5 章（<code>report_agent.py:925-961,643-653</code>）</td>
+      <td><strong>一次</strong> LLM 调用产出固定 JSON：<code>characterAnalyses</code> + <code>branches</code> + <code>recommendation</code>（<code>simulation-report-agent.ts:165-204,386</code>）</td>
+    </tr>
+    <tr>
+      <td><strong>世界可追问性</strong></td>
+      <td>随时采访任意 Agent（<code>api/simulation.py:2304</code>），第 5 步就是「深度互动」，是流程的<em>终点与重心</em></td>
+      <td>角色采访存在，但<strong>打开历史结果时被显式禁用</strong>（<code>simulation-report-view.tsx:599-600,622-623</code>）</td>
+    </tr>
+    <tr>
+      <td><strong>记忆增长</strong></td>
+      <td>每轮动作写回图谱 episode，跨轮复合（batch=5，0.5s 间隔）</td>
+      <td>内存 Set/Map，只在存档时序列化一次</td>
+    </tr>
+    <tr>
+      <td><strong>执行位置</strong></td>
+      <td>Flask 后端 + <code>subprocess.Popen</code> 跑模拟器 + 文件 IPC，前端 2s 轮询状态——<strong>可以离开页面</strong></td>
+      <td>渲染进程内三层嵌套 <code>await</code>，前台阻塞——<strong>只能盯着进度条</strong></td>
+    </tr>
+    <tr>
+      <td><strong>成本态度</strong></td>
+      <td>官方直白警告「消耗较大，可先试 &lt;40 轮」（<code>.env.example:3</code>），首页自述「平均 5$/次」（<code>locales/zh.json:49</code>）</td>
+      <td>无预估、无确认、无提示；只在最便宜的那个子功能上装了护栏</td>
+    </tr>
+    <tr>
+      <td><strong>可视化</strong></td>
+      <td>d3 力导向图谱 + 帖/评/时间线 + Agent 统计，4 个接口</td>
+      <td>有侦探板（谣言传播）和分支对比，但定位偏调试，且被 spec 钉在源码文本上</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>2.2 差异的本质：两种产品哲学</h3>
+<div class="grid2">
+  <div class="card">
+    <h4>MiroFish = 探索式沙盘</h4>
+    <p style="margin-bottom:6px">世界的价值在于<strong>被观察和被追问</strong>。</p>
+    <ul class="tight" style="font-size:14px">
+      <li>跑得贵（~5$/次），但跑在后台，你可以走开</li>
+      <li>报告是<em>带工具的调查结果</em>，引用原话、有出处</li>
+      <li>终点是「和任意角色对话」，报告只是入场券</li>
+      <li>没有分支——因为它不需要，它是一个<em>社会趋势</em>预测器，不是叙事生成器</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4>QMAI 剧情推演 = 批处理产线</h4>
+    <p style="margin-bottom:6px">世界的价值在于<strong>产出一份可以用的稿子</strong>。</p>
+    <ul class="tight" style="font-size:14px">
+      <li>跑得更贵（100~180 次串行调用），却在前台阻塞</li>
+      <li>报告是<em>一次性的格式化 JSON</em>，不可追问</li>
+      <li>终点是「导入到章节库」——但它只是把草稿写进文件，没有回写大纲</li>
+      <li>有分支——因为它的目标确实是叙事，但分支没有下游</li>
+    </ul>
+  </div>
+</div>
+
+<div class="flag warn">
+  <h4>关键错位</h4>
+  <p>你把 MiroFish 的<strong>沙盘世界观</strong>搬了过来，却给它配了一套<strong>产线的交付方式</strong>。结果是要么没人用（因为产线的入口太深、太贵、太慢），要么用了也接不住（因为产物落不进大纲，只落成一份 md）。</p>
+</div>
+
+<h2><span class="n">03</span>病因：五个不匹配</h2>
+
+<h3>不匹配一：工作单元 vs 写作循环的尺度</h3>
+<p>推演的最小单元是「4~8 个节点、1~5 万字、4~8 章」——<strong>那是一卷</strong>。而软件里被验证过的高频功能，工作单元全都是<strong>一章、一节、一段甚至一个选区</strong>：事件细纲是「一章一批 4~8 事件」（<code>event-outline.ts:15-16</code>），章纲是 17 节，选区工具条是「选中一段 → 润色」。</p>
+<p>写手一天的循环是「写这一章 → 提取记忆 → 看审查 → 写下一章」。剧情推演不在这个循环上的任何一点。<strong>它要求用户从连载节奏里抽身，去回答一个卷级问题，然后在 15 分钟后回来面对一份可能已经过时的报告。</strong></p>
+
+<h3>不匹配二：产物 vs 数据模型的位置</h3>
+<div class="flag bad">
+  <p>实测：<code>src/stores/</code> 下<strong>没有任何</strong> outline / chapter store 引用 story-simulation。报告页只有「导出报告 / 重新推演 / 生成草稿 / 角色采访」四个出口（<code>simulation-report-view.tsx:567-586</code>），没有「落到大纲」。</p>
+  <p>而软件里所有<em>被验证过</em>的 AI 产出，走的都是同一条路：<code>outlineSaveRequest</code> 三件套（content + htmlContent + structuredData，<code>outline-save-request.ts:39-51</code>）→ 分类型落盘 → 树里可见 → 可 @ 引用 → 可被下游交叉校验。剧情推演的产出<strong>完全不走这条路</strong>。</p>
+</div>
+
+<h3>不匹配三：成本姿态 vs 用户耐受</h3>
+<p>100~180 次串行调用意味着 5~15 分钟墙上时间，且<strong>没有任何预告</strong>。对比软件里另外两个「长任务」的待遇：拆书库有后台任务卡（<code>app-layout.tsx:147-215</code>），让你离开现场、完成弹卡；舞台情景有请求数预估和确认勾选。<strong>推演是唯一一个「又贵、又慢、又在前台、又不说要多久」的功能。</strong></p>
+
+<h3>不匹配四：结构冗余</h3>
+<p>软件里已经有三套结构在描述「剧情该怎么走」：</p>
+<ul class="tight">
+  <li><strong>卷纲</strong>：10 故事 × 10 环节矩阵（<code>volume-outline-template.ts</code>）</li>
+  <li><strong>章纲</strong>：17 节，含 §5 核心事件链、§7 四段式、§8 情绪曲线（<code>chapter-outline-template.ts:15-81</code>）</li>
+  <li><strong>事件细纲</strong>：一章一批 4~8 事件（<code>event-outline.ts:30-56</code>）</li>
+  <li>加上拆书来的 <strong>PlotFramework</strong>：钩子→铺垫→爽点→结尾钩子，带版本历史（<code>plot-framework.ts:44-99</code>）</li>
+</ul>
+<p>剧情推演的 <code>StoryNode</code>（起承转合 4~8 节点）是<strong>第五套</strong>。它既不消费上游（不读卷纲/章纲），也不服务下游（产出不回写），只靠 frontmatter 里的 <code>framework_id</code> 做单向软关联。<strong>用户没有任何理由去学第四套剧情结构语言。</strong></p>
+
+<h3>不匹配五：绑定只是陪跑，不是约束</h3>
+<p>当前的绑定注入只渲染一句话式的内容：</p>
+<div class="flow"># 故事框架绑定
+- 框架标题：…
+- 目标章节数：…
+## 章节分配
+- 第3-5章 → 【承】节点标题
+## 要求
+- 请严格遵循上述故事框架推进剧情…
+（<span class="cite">framework-binding.ts:105-132</span>）</div>
+<p>它作为 priority 19 的数据源塞进系统提示（<code>context-data-sources.ts:516-527</code>），随后被 <code>context-engine.ts:36-68</code> 的 <code>FIELD_PRIORITY</code> 参与裁剪——<strong>可能被裁掉，且不参与任何校验</strong>。章纲生成不知道它的存在，<code>chapter-plan-compliance.ts</code> 的偏离检测也不检查它。<strong>它是一条建议，不是一条轨道。</strong></p>
+
+<h2><span class="n">04</span>优化方向</h2>
+
+<div class="flag accent">
+  <h4>一条总原则</h4>
+  <p><strong>不要新造工作单元，把同一个引擎按四种粒度重新包装，每一档都插进已有的写作现场，每一档的产物都落回已有的数据结构。</strong>引擎（<code>simulation-engine.ts</code>、<code>multi-agent-orchestrator.ts</code>、谣言、导演）不动——它已经是这个软件里最有技术含量的部分。</p>
+</div>
+
+<h3>方向 A <span class="tag p0">P0</span> 四档粒度：把「平行世界」拆成四个写作现场的入口</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:13%">档位</th><th style="width:20%">写作现场</th><th style="width:20%">入口（改造后）</th><th style="width:15%">规模</th><th style="width:32%">产物落点</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>① 场景级</strong><br><span class="cite">≈ 舞台情景</span></td>
+      <td>正文写到一半，一段对话僵住了</td>
+      <td>编辑器<strong>选区浮动条</strong>，与「续写 / AI润色 / 去AI味」并排</td>
+      <td>2~3 角色<br>1~2 轮<br><span class="num">6~15</span> 次调用</td>
+      <td>3 条候选对白 → <code>TextTransformPreviewDialog</code> 式对比窗 → 选择性插入（<code>chapter-selection.ts:66-88</code> 的 <code>bodySnapshot</code> 防漂移已有）</td>
+    </tr>
+    <tr>
+      <td><strong>② 章节级</strong></td>
+      <td>章纲定完了，但不知道这一章的事件怎么排</td>
+      <td><strong>章纲卡片 / 事件细纲卡片</strong>上的「先推演这一章」按钮</td>
+      <td>本章出场角色<br>2~3 轮<br><span class="num">20~40</span> 次调用</td>
+      <td>2~3 条候选事件链 → 一键写入章纲 <strong>§5 核心事件链</strong> 或事件细纲 <code>events</code></td>
+    </tr>
+    <tr>
+      <td><strong>③ 卷级</strong><br><span class="cite">≈ 现状</span></td>
+      <td>这一卷怎么收</td>
+      <td>卷纲视图；或保留推演室落地页</td>
+      <td>现状<br>4~8 节点</td>
+      <td>候选走向 → 写入<strong>卷纲</strong>的故事×环节矩阵；框架_id 与卷纲双向绑定</td>
+    </tr>
+    <tr>
+      <td><strong>④ 离线脑暴</strong><br><span class="cite">≈ 现状</span></td>
+      <td>这本书我还没想好怎么写</td>
+      <td>推演室落地页（现状入口，保留）</td>
+      <td>现状</td>
+      <td>现状（导出报告 / 导入章节）</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>这一改造的核心动作其实只有一句话：<strong>把「舞台情景」从推演室里搬出来，放到它本来该在的地方。</strong>它已经是场景级推演、已经带成本护栏、已经能插入章节（<code>scenario-importer.ts</code>）、已经能选角色和主持人。<strong>它唯一的毛病是长错了位置。</strong></p>
+
+<h3>方向 B <span class="tag p0">P0</span> 报告从「终点」改成「可追问的调查」</h3>
+<p>照抄 MiroFish 最值钱的那部分：</p>
+<ul class="tight">
+  <li><strong>报告 Agent 带工具</strong>：给 <code>simulation-report-agent.ts</code> 挂上查询能力（查某角色完整轨迹 / 查某条谣言的全部传播代际 / 查某轮全部事件），像 MiroFish 那样每章至少若干次工具调用、必须引用角色原话。现在的「一次 LLM 出 JSON」换不来任何有出处感的结论。</li>
+  <li><strong>历史结果必须可追问</strong>：删掉 <code>simulation-report-view.tsx:599-600,622-623</code> 那两行对 <code>onInterviewAgent</code> / <code>onGenerateDraft</code> 的置空。<strong>这是纯粹的自我阉割</strong>——一份三天前的报告，恰恰是最需要被追问「当时 XX 为什么这么做」的。</li>
+  <li><strong>时间线可点、可问</strong>：<code>SimulationHistoryEntry</code> 与播放控制（<code>isPlaying / playbackSpeed / historyIndex</code>）已经存在，把它从调试面板提升为正式视图，点任意事件就能问当事角色。</li>
+</ul>
+
+<h3>方向 C <span class="tag p0">P0</span> 成本与时间真实化 + 后台化</h3>
+<ul class="tight">
+  <li><strong>预估与确认</strong>：把 <code>SCENARIO_COST_WARN_THRESHOLD</code> 的做法推广到主推演，在配置页实时显示「本次约 N 次模型调用，预计 M 分钟，建议使用 X 模型」。用户有权在为 180 次调用付钱之前知道这件事。</li>
+  <li><strong>并发化</strong>：三层循环里，<strong>同一轮内的角色决策之间没有依赖</strong>——它们读的是黑板快照、写的是事件。这一层可以 <code>Promise.all</code>，墙钟时间直接除以角色数。这是<strong>投入产出比最高的一处改动</strong>。</li>
+  <li><strong>后台化 + 任务卡</strong>：复用 <code>app-layout.tsx:147-215</code>，让推演离开现场跑，完成弹卡。<code>story-simulation-store</code> 加 persist，别让刷新毁掉世界。</li>
+</ul>
+
+<h3>方向 D <span class="tag p1">P1</span> 绑定从「建议」升级为「轨道」</h3>
+<ul class="tight">
+  <li>章纲生成时<strong>读取</strong>绑定，把节点目标/核心冲突写进 <strong>§3 本章定位</strong>与 <strong>§5 核心事件链</strong>。</li>
+  <li><code>chapter-plan-compliance.ts</code> 的偏离检测<strong>纳入绑定校验</strong>：定稿章纲偏离节点目标时报警。</li>
+  <li><strong>反向回写</strong>：章纲定稿后，把实际发生的事回写进框架节点，让下次推演知道「这里已经定稿了，别再推翻」。</li>
+  <li>把 <code>storyFrameworkBindingDataSource</code> 的 <code>priority: 19</code> 调整或标记为不可裁剪——一条会被 context 预算裁掉的约束，不构成约束。</li>
+</ul>
+
+<h3>方向 E <span class="tag p1">P1</span> 治理与度量</h3>
+<ul class="tight">
+  <li><strong>补 feature 埋点</strong>：现在只有全局 <code>/open</code>、<code>/heartbeat</code>、<code>/close</code>（<code>analytics.ts:15,76-105</code>）。四档粒度上线后，哪一档有人用、跑到哪一步放弃，必须能量出来。不度量就无法判断这次改造是否有效。</li>
+  <li><strong>去掉 BETA</strong>：功能已经跑了十多个版本（changelog 从 3.0.0 到 4.3.1），一直挂着 BETA 角标（<code>icon-sidebar.tsx:113-117</code>）等于告诉用户「别指望它」。要么去掉，要么明确说清「哪一档是稳定的、哪一档还是试验」。</li>
+  <li><strong>术语瘦身</strong>：174 个 i18n key、4 种模式、14 种行为类型、3 种可见性、7 个导演维度、6 个工具。这些多数应该是<em>引擎的内部实现</em>，不该出现在用户要做的选择里。默认值 + 一句人话就够。</li>
+</ul>
+
+<h2><span class="n">05</span>实际应用：在大纲和章节里具体怎么用</h2>
+
+<p>下面六个场景，每一个都标注了：从哪进、给什么、出什么、花多少。<strong>共同点是不切视图、产物落进已有结构、用户随时可以拒绝。</strong></p>
+
+<h3>5.1 在大纲里</h3>
+
+<div class="scenario">
+  <h4>场景 1 · 卷纲阶段：把「10 故事 × 10 环节」当作推演输入</h4>
+  <dl>
+    <dt>从哪进</dt>
+    <dd>卷纲编辑器的「推演这一卷」按钮（新入口；不再是「读最近 N 章正文」）</dd>
+    <dt>输入什么</dt>
+    <dd>当前卷纲的矩阵（10 故事 × 10 环节）+ 本卷出场人物表 + 用户一句话想法。<strong>不再需要重新提取角色</strong>——卷纲里已经有了。</dd>
+    <dt>产出什么</dt>
+    <dd>每个「环节」下的 2~3 条走法；每条带角色行为与动机。<strong>一键写进对应故事的环节格</strong>，而不是落成一份独立报告。</dd>
+    <dt>替代了什么</dt>
+    <dd>现在的 StoryFramework 起承转合四节点——卷纲的 10×10 结构比它细得多，也已经是用户在用的语言。</dd>
+  </dl>
+</div>
+
+<div class="scenario">
+  <h4>场景 2 · 章纲阶段：「如果 A 在这里选了 X 而不是 Y」</h4>
+  <dl>
+    <dt>从哪进</dt>
+    <dd>章纲编辑器（17 节卡片流）的工具栏按钮；也可从 AI 大纲会话一句话唤起</dd>
+    <dt>输入什么</dt>
+    <dd>本章章纲（尤其 §5 核心事件链与 §14 出场人物变化）+ 一个岔路口问题。<strong>用 @ 引用把相关记忆库、伏笔、上一章正文一起带进来</strong>（推演配置面板现在无法 @，这是接入既有范式的直接收益）</dd>
+    <dt>产出什么</dt>
+    <dd>3 条候选事件链，各带因果链与埋/收伏笔位置 → 用户挑一条 → <strong>直接写回 §5</strong> → 章纲的偏离检测后续会拿它做基准</dd>
+    <dt>规模</dt>
+    <dd>本章出场角色（通常 3~5）× 2 轮 ≈ <span class="num">20~40</span> 次调用，后台跑 1~3 分钟</dd>
+  </dl>
+</div>
+
+<div class="scenario">
+  <h4>场景 3 · 人物弧光体检：把导演 Agent 的七维变成待办</h4>
+  <dl>
+    <dt>从哪进</dt>
+    <dd>卷纲完成后的「卷体检」，或审查中心的新检查项</dd>
+    <dt>输入什么</dt>
+    <dd>整卷章纲序列 + 人物出场表</dd>
+    <dt>产出什么</dt>
+    <dd>导演 Agent 已经在算 <code>characterUtilization</code>（角色利用率）与 <code>characterArc</code>（角色弧光）。<strong>把这两个维度从推演过程中的副产品，提升为卷级报告的两条结论</strong>：「角色 X 在故事 4-7 出现 12 次但零弧光推进」→ 落成审查中心的待办项</dd>
+    <dt>为什么值</dt>
+    <dd>这是<strong>只有多 Agent 模拟能给、而人写不出来</strong>的结论。它真正对应连载作者的实际焦虑：某个角色是不是被写废了。</dd>
+  </dl>
+</div>
+
+<h3>5.2 在章节里</h3>
+
+<div class="scenario">
+  <h4>场景 4 · 写之前：事件细纲的「先演一遍」</h4>
+  <dl>
+    <dt>从哪进</dt>
+    <dd>事件细纲卡片（<code>event-outline-card.tsx</code>）上、「用这份细纲写这一章」旁边加一枚「先推演一遍」</dd>
+    <dt>输入什么</dt>
+    <dd>当前细纲的 4~8 个事件 + 本章出场角色</dd>
+    <dt>产出什么</dt>
+    <dd>角色在这几个事件里的实际反应，暴露「这个事件站不住」或「这两个角色不会这样说话」→ 直接改细纲卡片上的事件，或重新生成</dd>
+    <dt>为什么值</dt>
+    <dd>它插在<strong>「生成细纲 → 确认 → 写正文」</strong>这条已经被验证的高频链路上，而不是另起一条链路。用户不需要学任何新概念。</dd>
+  </dl>
+</div>
+
+<div class="scenario">
+  <h4>场景 5 · 写之中：选区推演，救一段僵住的对话 <span class="tag p0">最高频</span></h4>
+  <dl>
+    <dt>从哪进</dt>
+    <dd>编辑器<strong>选区浮动条</strong>——就是现在「续写 / AI润色 / 去AI味」那一排（<code>wiki-editor.tsx:601-642</code>）</dd>
+    <dt>输入什么</dt>
+    <dd>选中一段对话 + 一句话意图（「我要 B 在这里察觉到不对劲，但不能说破」）</dd>
+    <dt>产出什么</dt>
+    <dd>3 条候选走法（不同角色的不同反应）→ 对比窗挑一条 → 插入或替换</dd>
+    <dt>规模</dt>
+    <dd>2~3 角色 × 1~2 轮 ≈ <span class="num">6~15</span> 次调用，<strong>30 秒内出结果</strong></dd>
+    <dt>本质</dt>
+    <dd>这就是舞台情景，搬到它该在的地方。已有：角色选择、主持人、情景规则、成本护栏（阈值 40）、插入章节。<strong>缺的只是一个入口位置。</strong></dd>
+  </dl>
+</div>
+
+<div class="scenario">
+  <h4>场景 6 · 写之后：把成稿丢回去，问「接下来最可能发生什么」</h4>
+  <dl>
+    <dt>从哪进</dt>
+    <dd>章节编辑器的「推到下一章」，或章节记忆提取完成后的建议卡</dd>
+    <dt>输入什么</dt>
+    <dd>本章定稿正文 + 当前角色状态（记忆提取刚刚更新过）</dd>
+    <dt>产出什么</dt>
+    <dd>各角色「接下来最可能做什么」→ <strong>作为下一章事件细纲的候选钩子</strong>，写进章纲 §14 交接或新细纲的第一个事件</dd>
+    <dt>为什么值</dt>
+    <dd>它把推演从「开写前的一次性投资」变成了<strong>每章收尾时的一次例行动作</strong>——这才是让使用率上去的机制。</dd>
+  </dl>
+</div>
+
+<h2><span class="n">06</span>落地清单</h2>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:8%">优先级</th><th style="width:34%">动作</th><th style="width:58%">涉及文件 / 复用点</th></tr></thead>
+  <tbody>
+    <tr><td><span class="tag p0">P0</span></td><td>舞台情景搬进章节编辑器选区浮动条</td><td><code>wiki-editor.tsx:601-642</code>（触发点）、<code>scenario-*</code>（引擎与 UI 复用）、<code>scenario-importer.ts</code>（落章）、<code>text-transform-preview-dialog.tsx</code>（对比窗）</td></tr>
+    <tr><td><span class="tag p0">P0</span></td><td>报告 Agent 加工具；解除历史结果的采访/草稿禁用</td><td><code>simulation-report-agent.ts</code>、<code>simulation-report-view.tsx:599-600,622-623</code></td></tr>
+    <tr><td><span class="tag p0">P0</span></td><td>主推演成本预估 + 确认闸门</td><td><code>simulation-config-panel.tsx</code>、复用 <code>scenario-types.ts:74</code> + <code>scenario-setup-panel.tsx:133-144</code> 的范式</td></tr>
+    <tr><td><span class="tag p0">P0</span></td><td>同轮内角色决策并发化</td><td><code>simulation-engine.ts:1314-1354</code>（把逐 agent <code>await</code> 改为 <code>Promise.all</code>，注意黑板写入顺序）</td></tr>
+    <tr><td><span class="tag p0">P0</span></td><td>推演后台化 + store persist</td><td><code>story-simulation-store.ts:238</code>、<code>app-layout.tsx:147-215</code>（任务卡范式）</td></tr>
+    <tr><td><span class="tag p1">P1</span></td><td>章纲/事件细纲卡片加「先推演一遍」，产物写回 §5 / <code>events</code></td><td><code>chapter-outline-template.ts:42-43</code>（§5）、<code>event-outline.ts:30-56</code>、卡片组件</td></tr>
+    <tr><td><span class="tag p1">P1</span></td><td>卷纲接入推演（10×10 矩阵作输入与输出）</td><td><code>volume-outline-template.ts</code>、替换 <code>story-framework-generator.ts</code> 的「读最近 N 章」路径</td></tr>
+    <tr><td><span class="tag p1">P1</span></td><td>绑定纳入章纲生成与偏离校验；反向回写</td><td><code>framework-binding.ts:105-132</code>、<code>context-data-sources.ts:516-527</code>、<code>chapter-plan-compliance.ts</code></td></tr>
+    <tr><td><span class="tag p1">P1</span></td><td>补 feature 埋点；去掉 BETA 角标</td><td><code>analytics.ts:15,76-105</code>、<code>icon-sidebar.tsx:113-117</code></td></tr>
+    <tr><td><span class="tag p2">P2</span></td><td>推演配置面板接入 @ 引用；时间线视图正式化</td><td><code>ReferenceInput.tsx</code>、<code>lib/reference/types.ts:21-70</code>、<code>detective-board-panel.tsx</code></td></tr>
+    <tr><td><span class="tag p2">P2</span></td><td>术语瘦身：模式/行为类型/可见性收进「高级」</td><td><code>zh.json:1803-1977</code>（174 key）、<code>simulation-config-panel.tsx</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<footer>
+  <p>本报告基于对 <code>C:\QMAI_C\QMAI-main</code>（v4.3.1）与 <code>C:\QMAI_C\MiroFish-main</code> 的源码直读，全部结论附文件行号证据。未修改任何源文件。</p>
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>剧情推演 · 独立功能优化方案</title>
+<style>
+  :root{
+    --ink:#1a1a1a; --ink-2:#454545; --ink-3:#6b7280; --line:#e5e7eb;
+    --bg:#fbfbfa; --card:#fff; --accent:#0f766e; --accent-soft:#0f766e14;
+    --warn:#b45309; --warn-soft:#b4530914; --bad:#b91c1c; --bad-soft:#b91c1c12;
+    --ok:#15803d; --ok-soft:#15803d14; --violet:#6d28d9; --violet-soft:#6d28d914;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-feature-settings:"tnum";
+  }
+  .wrap{max-width:960px;margin:0 auto;padding:56px 24px 120px}
+  header.doc{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:36px}
+  header.doc .kicker{font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+  header.doc h1{font-size:31px;line-height:1.3;margin:10px 0 8px;letter-spacing:-.01em}
+  header.doc .sub{color:var(--ink-3);font-size:14px}
+  h2{font-size:22px;margin:56px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  h2 .n{color:var(--accent);font-weight:700;margin-right:10px;font-variant-numeric:tabular-nums}
+  h3{font-size:17px;margin:34px 0 10px}
+  h4{font-size:15px;margin:20px 0 8px;color:var(--ink-2)}
+  p{margin:12px 0}
+  code{background:#0000000a;padding:.15em .4em;border-radius:4px;font-size:.875em;
+    font-family:ui-monospace,SFMono-Regular,"Cascadia Code",Consolas,monospace}
+  .cite{font-size:12.5px;color:var(--ink-3);font-family:ui-monospace,SFMono-Regular,Consolas,monospace}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:18px 22px;margin:18px 0}
+  .flag{border-radius:8px;padding:16px 20px;margin:18px 0;border:1px solid}
+  .flag.bad{background:var(--bad-soft);border-color:#b91c1c33}
+  .flag.warn{background:var(--warn-soft);border-color:#b4530933}
+  .flag.ok{background:var(--ok-soft);border-color:#15803d33}
+  .flag.accent{background:var(--accent-soft);border-color:#0f766e33}
+  .flag.violet{background:var(--violet-soft);border-color:#6d28d933}
+  .flag h4{margin-top:0;color:inherit}
+  .flag.bad h4{color:var(--bad)} .flag.ok h4{color:var(--ok)}
+  .flag.warn h4{color:var(--warn)} .flag.accent h4{color:var(--accent)}
+  .flag.violet h4{color:var(--violet)}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:#00000005;font-weight:600;font-size:13px;color:var(--ink-2)}
+  tbody tr:last-child td{border-bottom:none}
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+  .scroll table{margin:0}
+  .tag{display:inline-block;font-size:11px;font-weight:600;padding:2px 7px;border-radius:99px;
+    line-height:1.6;white-space:nowrap;vertical-align:middle}
+  .tag.p0{background:#b91c1c18;color:var(--bad)}
+  .tag.p1{background:#b4530918;color:var(--warn)}
+  .tag.p2{background:#6b728018;color:var(--ink-3)}
+  .tag.fix{background:#15803d18;color:var(--ok)}
+  .tag.wire{background:#6d28d918;color:var(--violet)}
+  .num{font-variant-numeric:tabular-nums;font-weight:600}
+  .flow{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:13px;
+    background:var(--card);border:1px solid var(--line);border-radius:8px;
+    padding:16px 18px;overflow-x:auto;white-space:pre;line-height:1.85;color:var(--ink-2)}
+  .codeblock{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12.5px;
+    background:#0d1117;color:#c9d1d9;border-radius:8px;padding:14px 18px;overflow-x:auto;line-height:1.7;white-space:pre}
+  .codeblock .c{color:#8b949e}
+  .codeblock .k{color:#ff7b72}
+  .codeblock .s{color:#a5d6ff}
+  .codeblock .d{color:#f85149;text-decoration:line-through}
+  .codeblock .g{color:#3fb950}
+  ul.tight li{margin:6px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+  footer{margin-top:72px;padding-top:20px;border-top:1px solid var(--line);font-size:13px;color:var(--ink-3)}
+  .kpi{display:flex;gap:30px;flex-wrap:wrap;margin:18px 0}
+  .kpi div{min-width:104px}
+  .kpi .v{font-size:26px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .kpi .k{font-size:12px;color:var(--ink-3);margin-top:2px}
+  .deadline{color:var(--bad);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="doc">
+  <div class="kicker">QMAI · 剧情推演</div>
+  <h1>独立功能优化方案</h1>
+  <p class="sub">只谈剧情推演本身 · 基于 <code>QMAI-main</code> v4.3.1 源码直读 · 不含与其他功能的整合建议</p>
+</header>
+
+<div class="flag accent">
+  <h4>结论先行</h4>
+  <p>我把这个功能从配置面板一路读到落盘，结论比我预想的尖锐：<strong>剧情推演的引擎不缺能力，缺的是"接线"和"收尾"。</strong></p>
+  <p>具体地说：三处<span class="deadline">用户按了但没反应</span>的断线，一处<span class="deadline">主动砍掉自己最值钱功能</span>的设计，一个<span class="deadline">贵的没护栏、便宜的才有护栏</span>的成本倒挂。</p>
+  <p>它真正的价值定位应该是：<strong>一次昂贵的"平行世界探索"，价值不在跑的那一次，而在跑完之后能被反复追问、能被写进计划。</strong>现在恰恰是这两件事被切断了——这才是使用率低的直接原因。</p>
+</div>
+
+<div class="kpi">
+  <div><div class="v">3</div><div class="k">处用户按了<br>没反应的断线</div></div>
+  <div><div class="v">2</div><div class="k">个死配置<br>字段</div></div>
+  <div><div class="v">0</div><div class="k">成本护栏<br>（最贵的那个）</div></div>
+  <div><div class="v">61~415</div><div class="k">次 LLM 调用<br>（视规模）</div></div>
+</div>
+
+<h2><span class="n">01</span>三处断线：用户按了，但没反应</h2>
+
+<h3>断线一：导演 Agent 是一个装饰性开关</h3>
+
+<p>配置面板里有一个「导演 Agent」复选框，用户可以勾。但那个值永远到不了引擎：</p>
+
+<div class="codeblock"><span class="c">// 1) 面板：复选框 → store</span>
+<span class="c">// simulation-config-panel.tsx:54, 229</span>
+<span class="k">const</span> directorEnabled = useStorySimulationStore((s) =&gt; s.directorEnabled)
+&lt;input type=<span class="s">"checkbox"</span> checked={directorEnabled} ... /&gt;
+
+<span class="c">// 2) store：字段和 setter 都有</span>
+<span class="c">// story-simulation-store.ts:111, 326</span>
+directorEnabled: boolean
+setDirectorEnabled: (directorEnabled) =&gt; set({ directorEnabled }),
+
+<span class="c">// 3) 但引擎输入里没有这个字段 —— 传不进去</span>
+<span class="c">// types.ts:369-383  SimulationInput</span>
+<span class="k">export interface</span> SimulationInput {
+  agents  framework  mode  wordBudget  llmConfig
+  userIdea?  injectionEvent?  maxRoundsPerNode?
+  dynamicEventPool?  resume?
+  <span class="d">// directorEnabled —— 不存在</span>
+}
+
+<span class="c">// 4) 引擎只读 modeConfig.directorEnabled</span>
+<span class="c">// simulation-engine.ts:1214</span>
+directorEnabled: modeConfig.directorEnabled ?? <span class="k">false</span>,
+
+<span class="c">// 5) 而四个模式的这个值，全是 false</span>
+<span class="c">// types.ts:423, 432, 441, 450</span>
+<span class="s">"event-driven"</span>:   { ..., directorEnabled: <span class="k">false</span> }
+<span class="s">"free-emergence"</span>:  { ..., directorEnabled: <span class="k">false</span> }
+<span class="s">"decision-tree"</span>:   { ..., directorEnabled: <span class="k">false</span> }
+hybrid:            { ..., directorEnabled: <span class="k">false</span> }</div>
+
+<p>引擎里唯一的消费点，守卫恒为 false：</p>
+
+<div class="codeblock"><span class="c">// simulation-engine.ts:1511</span>
+<span class="k">if</span> (state.directorEnabled &amp;&amp; ni &lt; totalNodes - 1) {
+  <span class="k">const</span> directorEval = <span class="k">await</span> directorEvaluate({ ... })   <span class="c">// director-agent.ts:179</span>
+  <span class="k">if</span> (shouldInjectEvent(directorEval) &amp;&amp; directorEval.injectEvent) {
+    state.nextNodeInjectionMap.set(nextNodeIndex, directorEval.injectEvent)
+  }
+}</div>
+
+<div class="flag bad">
+  <h4>连带瘫痪的东西比想象中多</h4>
+  <p><code>directorEvaluate</code> 全库只有这一个调用点（其余引用全在 <code>director-agent.spec.ts</code> 单测里），所以整条链全部不可达：</p>
+  <ul class="tight" style="margin-bottom:0">
+    <li><strong>7 维评分</strong>（张力/节奏/角色利用率/角色弧光/信息密度/情感共鸣/逻辑一致性）——从不产生</li>
+    <li><strong>导演注入事件</strong>机制（<code>shouldInjectEvent</code> → <code>nextNodeInjectionMap</code>）——<code>:1271</code> 那个消费点永远读到空</li>
+    <li><code>SimulationBranch.directorEvaluations</code> —— 初值空数组（<code>story-simulation-store.ts:373</code>），全库无写入方</li>
+    <li>因此<strong>分支对比里的「评分对比」页恒为 0 / 空</strong>（<code>branch-compare-view.tsx:191</code> <code>ScoreCompareTab</code>；<code>getAvgDirectorScore</code> 里有 <code>length === 0</code> 的兜底，说明作者想过这个情况）</li>
+  </ul>
+</div>
+
+<p>这不只是"少了个功能"。<strong>它让四个模式失去了评判依据。</strong>六个字段里有两个从来没被读过：</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:16%">模式</th><th style="width:15%">轮数乘数</th><th style="width:15%">随机事件</th><th style="width:16%">活跃比例</th><th style="width:19%">strictNodeProgression</th><th style="width:19%">directorEnabled</th></tr></thead>
+  <tbody>
+    <tr><td>event-driven</td><td class="num">0.8</td><td class="num">0.10</td><td class="num">1.00</td><td><span class="deadline">true（死）</span></td><td><span class="deadline">false（死）</span></td></tr>
+    <tr><td>free-emergence</td><td class="num">1.5</td><td class="num">0.25</td><td class="num">0.70</td><td><span class="deadline">false（死）</span></td><td><span class="deadline">false（死）</span></td></tr>
+    <tr><td>decision-tree</td><td class="num">1.0</td><td class="num">0.15</td><td class="num">0.50</td><td><span class="deadline">true（死）</span></td><td><span class="deadline">false（死）</span></td></tr>
+    <tr><td>hybrid</td><td class="num">1.2</td><td class="num">0.20</td><td class="num">0.85</td><td><span class="deadline">false（死）</span></td><td><span class="deadline">false（死）</span></td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>也就是说，模式面板向用户承诺的「是否强制按节点目标推进」和「是否启用导演」，<strong>两句话都是假的</strong>。真正生效的只有三个数：轮数乘数、随机事件概率、活跃比例。</p>
+
+<h3>断线二：历史结果里，两个最有价值的按钮被主动摘掉</h3>
+
+<p>这是最关键、也最能解释"使用频率低"的一处。</p>
+
+<div class="codeblock"><span class="c">// simulation-report-view.tsx:599-600（对比模式）与 :622-623（单栏）</span>
+&lt;ReportContent
+  report={activeReport}
+  timelineEvents={activeTimeline}
+  onInterviewAgent={!currentResult ? onInterviewAgent : <span class="d">undefined</span>}
+  onGenerateDraft={!currentResult ? onGenerateDraft : <span class="d">undefined</span>}
+/&gt;
+
+<span class="c">// :451, :454-457 —— currentResult 非空 ⟺ 用户正在看历史结果</span>
+<span class="k">const</span> [viewingResultId, setViewingResultId] = useState&lt;string | null&gt;(<span class="k">null</span>)
+<span class="k">const</span> currentResult = useMemo(() =&gt; {
+  <span class="k">if</span> (!viewingResultId) <span class="k">return null</span>
+  <span class="k">return</span> savedResults.find(r =&gt; r.id === viewingResultId) || <span class="k">null</span>
+}, [viewingResultId, savedResults])</div>
+
+<p>直译：<strong>只要你在看一条历史推演结果，采访角色和生成草稿这两个按钮就不存在。</strong></p>
+
+<div class="flag bad">
+  <h4>而装备其实是齐的——这才是最让人难受的地方</h4>
+  <p>这不是"技术上做不到"，而是"做了但没接上"：</p>
+  <ul class="tight" style="margin-bottom:0">
+    <li><strong>Agent 快照已经落盘</strong>。保存结果时会写 <code>agentSnapshot</code>（<code>framework-store.ts:417, 435, 519, 590</code>）。</li>
+    <li><strong>反序列化恢复的代码已经写好</strong>，而且就是给"继续推演"用的：<code>story-simulation-view.tsx:714-716</code>
+      <br><code>agents = deserializeSimulationSnapshot(resumeSnapshot.agentSnapshot).agents</code></li>
+    <li><strong>采访的恢复回退甚至已经实现了</strong>。<code>story-simulation-view.tsx:1111-1129</code> 明确写着"内存里没有状态时，去历史结果里恢复"：
+      <div class="codeblock" style="margin-top:8px"><span class="c">// story-simulation-view.tsx:1111-1121</span>
+<span class="k">if</span> (!lastSimulationStateRef.current || lastAgentsRef.current.length === 0) {
+  <span class="c">// 尝试从当前选中的历史结果中恢复</span>
+  <span class="k">if</span> (selectedResultId) {
+    <span class="k">const</span> result = savedResults.find((r) =&gt; r.id === selectedResultId)
+    <span class="k">if</span> (result?.agentSnapshot) {
+      <span class="k">const</span> { agents, state } = deserializeSimulationSnapshot(result.agentSnapshot)
+      lastAgentsRef.current = agents
+      lastSimulationStateRef.current = state</div>
+    </li>
+  </ul>
+  <p style="margin-bottom:0"><strong>恢复路径写好了，但触发它的那个按钮被 <code>:599/:622</code> 从界面上删掉了。</strong>用户根本点不到那个会去调它的地方。</p>
+</div>
+
+<p>顺带暴露一个状态不一致：报告页判断"我在看哪条历史"用的是局部 state <code>viewingResultId</code>（<code>:451</code>），而恢复逻辑用的是 store 里的 <code>selectedResultId</code>（<code>story-simulation-view.tsx:149, 1113</code>）。<strong>两个各自维护的"当前历史结果"</strong>，可以指向不同条目——这也是为什么恢复回退即使被触发，也可能拿错快照。</p>
+
+<div class="flag warn">
+  <h4>为什么这一处直接导致使用率低</h4>
+  <p>把成本算清楚：一次中等规模推演约 <strong>175~415 次 LLM 调用</strong>、几十分钟等待。这是全软件最昂贵的一次操作。</p>
+  <p>而这么贵的一次探索，成果在<strong>离开页面的那一刻</strong>就无法再深挖；刷新一下更彻底，连内存态都没了（见 §02 发现二）。</p>
+  <p style="margin-bottom:0">用户的理性反应就是不跑第二次。<strong>不是功能不好用，是它的产出是一次性的。</strong></p>
+</div>
+
+<h3>断线三：<code>strictNodeProgression</code> 是纯粹的死配置</h3>
+
+<p>四个模式各自声明了这个字段，grep 全库只有两处命中：定义处（<code>types.ts</code>）和测试文件的构造字面量（<code>multi-agent-orchestrator.spec.ts:84</code>）。<strong>没有任何一行运行时代码读它。</strong></p>
+
+<p>所以模式卡片上「强制按节点目标推进 / 剧情自由涌现」这条对比不产生任何行为差异。真正决定节点会不会提前结束的是 <code>isNodeGoalReachedWithEmbedding</code>（<code>simulation-engine.ts:1496</code>）和轮数上限，与该字段无关。</p>
+
+<h2><span class="n">02</span>成本与效率：三个发现，其中一个是我上次说错了</h2>
+
+<h3>发现一：贵的没护栏，便宜的反而有 —— 成本倒挂</h3>
+
+<div class="grid2">
+  <div class="card">
+    <h4 style="margin-top:0;color:var(--ok)">舞台情景（便宜）</h4>
+    <p><strong>有成本护栏。</strong><code>scenario-setup-panel.tsx:138</code> 预估条数，超过 <code>SCENARIO_COST_WARN_THRESHOLD = 40</code>（<code>scenario-types.ts:74</code>）就要求勾选 <code>costAck</code> 才能开始（<code>:144</code>），<code>:590-601</code> 是那块 UI。</p>
+    <p class="cite" style="margin-bottom:0">还有专门的测试钉住它：scenario-ui-wiring.spec.ts:42-48</p>
+  </div>
+  <div class="card">
+    <h4 style="margin-top:0;color:var(--bad)">剧情推演（贵得多）</h4>
+    <p><strong>没有任何预估或确认。</strong><code>simulation-config-panel.tsx</code> 的 7 个配置区里没有一处计算调用量，也没有任何 <code>costAck</code> 类闸门。</p>
+    <p class="cite" style="margin-bottom:0">填完字数/轮数/角色，点开始，然后等。</p>
+  </div>
+</div>
+
+<p>量级差多少？按代码里的公式算：</p>
+
+<div class="flow">节点数 N   = calcNodeCount(字数)      ≤1万→4  ≤3万→6  否则→8      types.ts:388-392
+基础轮数   = maxRoundsPerNode ?? max(2, ⌊字数/1万⌋)                   types.ts:394-396
+实际轮数 R = round(基础轮数 × 模式乘数)                              simulation-engine.ts:1179
+活跃角色 A = ceil(候选角色 × agentSubsetRatio)                       multi-agent-orchestrator.ts:229
+每角色每轮 1~3 次调用（ReAct 工具循环）                               simulation-engine.ts:1082
+──────────────────────────────────────────────────────────────────
+Agent 调用 ≈ N × R × A × [1~3]
+embedding  = 2 × N × R        （节点目标判定，每轮 2 次）            simulation-engine.ts:810-811
+固定开销   = 1（报告）+ N（逐节点草稿）                                story-draft-generator.ts:133
+
+【小项目】1 万字 / hybrid / 5 角色
+  N=4  R=round(2×1.2)=2  A≈5  →  4×2×5×[1~3] = 40~120
+  + embedding 16 + 报告 1 + 草稿 4                        ≈  61~141 次
+
+【中等项目】3 万字 / hybrid / 5 角色
+  N=6  R=round(3×1.2)=4  A≈5  →  6×4×5×[1~3] = 120~360
+  + embedding 48 + 报告 1 + 草稿 6                        ≈ 175~415 次</div>
+
+<p>而舞台情景的护栏阈值是 <strong>40</strong>。也就是说：<strong>那个 40 次就要求确认的功能，和这个 175 次起步、连一句提示都没有的功能，是同一个家族。</strong></p>
+
+<h3>发现二：刷新即丢 —— store 没有持久化</h3>
+
+<div class="codeblock"><span class="c">// story-simulation-store.ts:238 —— 裸 create，无 persist 中间件</span>
+<span class="k">export const</span> useStorySimulationStore = create&lt;StorySimulationState&gt;((set) =&gt; ({
+  phase: <span class="s">"idle"</span>,  timelineEvents: [],  debugTraces: [],
+  activeChatAgent: <span class="k">null</span>,  agentChatMessages: [],  branches: [],
+  ...
+}))</div>
+
+<p><code>phase</code> / <code>timelineEvents</code> / <code>debugTraces</code> / <code>branches</code> / 采访消息全在内存。推演跑到第 6 个节点时刷新页面 → 进度、时间线、分支、正在进行的采访，全部消失。</p>
+
+<p>（要公平地说明：<strong>磁盘存档是另一条路</strong>——<code>savedResults</code> 从 <code>.qmai/simulations/</code> 读，那条路是持久的。丢的是"正在进行中的会话语境"，以及所有依赖 <code>lastSimulationStateRef</code> 的内存态。但正因为磁盘上有，历史结果里却点不到采访按钮，断线二才更没道理。）</p>
+
+<h3>发现三：更正我上次的说法 —— 同轮串行是故意的，不能直接并发</h3>
+
+<div class="flag violet">
+  <h4>撤回：我上一份报告把这件事说错了</h4>
+  <p>我之前写「同轮 agent 决策互相独立，可用 <code>Promise.all</code> 并发化，是最高 ROI 的工程改动」。<strong>这个判断是错的</strong>，我在这次逐行读代码时发现了反驳证据。</p>
+</div>
+
+<div class="codeblock"><span class="c">// simulation-engine.ts:1314-1322 —— 串行循环，但注释说明了原因</span>
+<span class="k">for</span> (<span class="k">const</span> agent <span class="k">of</span> roundAgentList) {
+  <span class="c">// 获取最新状态的 agent 引用（可能被之前的事件更新了记忆）</span>
+  <span class="k">const</span> currentAgent = state.activeAgents.get(agent.characterId)
+  ...
+  result = <span class="k">await</span> agentDecideAndActWithReact(currentAgent, node, state, ...)
+
+  <span class="c">// :1388 立即写入黑板 —— 同轮后续 agent 会读到</span>
+  recordBlackboardEvent(blackboard, tlEvent)
+  maybeDeriveRumor(tlEvent, blackboard, Array.from(state.activeAgents.keys()))
+  <span class="c">// :1403 追加到 recentEventDescs —— 正是传给下一个 agent 的那份</span>
+  recentEventDescs.push(...)
+}</div>
+
+<p>同轮里 agent B <strong>会看到</strong> agent A 刚刚做的事：黑板在 <code>:1388</code> 立即写入，<code>recentEventDescs</code> 在 <code>:1403</code> 追加，而两者都会被循环中下一个 agent 读到。</p>
+
+<p><strong>这对叙事模拟是正确设计</strong>——一场戏里角色本来就该对彼此刚刚的动作做出反应。改成 <code>Promise.all</code> 会让所有同轮角色基于同一份"过期"黑板做决定，语义直接变了，产出的剧情会不一样。</p>
+
+<div class="flag ok">
+  <h4>那真正该做的是什么</h4>
+  <p>既然同轮串行是语义要求，优化方向就不是"并发同轮"，而是这三条：</p>
+  <ul class="tight" style="margin-bottom:0">
+    <li><strong>并发"分支之间"，而不是"角色之间"。</strong>一次跑 3 条分支对比，本来就是这功能的卖点，现在只能一条条等。分支彼此完全独立（各自一份黑板和事件线），并发是语义安全的，墙钟时间直接除以分支数。</li>
+    <li><strong>减少每轮的调用次数。</strong>每角色每轮 1~3 次（ReAct 工具循环）是主要成本项。绝大多数角色回合并不需要调工具，可以让普通路径做默认、只在确实需要检索时才升级到 ReAct。</li>
+    <li><strong>缓存恒定输入。</strong>见下。</li>
+  </ul>
+</div>
+
+<h3>发现四：embedding 每轮重复算同一个字符串（免费的等价优化）</h3>
+
+<div class="codeblock"><span class="c">// simulation-engine.ts:805-814</span>
+<span class="k">const</span> eventsText = nodeTimelineEvents.map(...).join(<span class="s">"\n"</span>)
+<span class="k">const</span> expectedEmbedding = <span class="k">await</span> embed(expectedOutcome, llmConfig)   <span class="c">// ← 每轮都重算</span>
+<span class="k">const</span> eventsEmbedding   = <span class="k">await</span> embed(eventsText, llmConfig)
+<span class="k">const</span> similarity = cosineSimilarity(expectedEmbedding, eventsEmbedding)</div>
+
+<p><code>expectedOutcome</code> 来自 <code>node.expectedOutcome</code>（<code>:796</code>）——<strong>同一个节点内恒定不变</strong>，而这个函数每轮被调用一次（<code>:1496</code>）。所以同一个字符串被重复 embedding 了 R 次。</p>
+
+<p>按上面的公式，<code>2 × N × R</code> 次 embedding 里有<strong>一半是纯浪费</strong>。3 万字场景是 48 次里的 24 次。用一个 <code>Map&lt;nodeIndex, number[]&gt;</code> 按节点缓存即可，<strong>输出完全等价，无任何语义变化</strong>。</p>
+
+<h2><span class="n">03</span>与 MiroFish 的对照：该学的是收尾，不是引擎</h2>
+
+<p>既然要把它做成一个独立功能，值得明确一件事：<strong>引擎层面我们已经领先，差距在报告和收尾。</strong></p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:34%">能力</th><th style="width:33%">QMAI 剧情推演</th><th style="width:33%">MiroFish</th></tr></thead>
+  <tbody>
+    <tr><td>信息隔离（谁知道什么）</td><td><strong>有</strong>。<code>observableBy: all / target_only / self</code>（<code>simulation-engine.ts:383, 555, 573</code>）</td><td>无</td></tr>
+    <tr><td>谣言传播与失真</td><td><strong>有</strong>。<code>maybeDeriveRumor</code>（<code>:821-880</code>），含可信度与扭曲</td><td>无</td></tr>
+    <tr><td>叙事结构（起承转合）</td><td><strong>有</strong>。<code>StoryNode</code> 节点目标 + <code>expectedOutcome</code></td><td>无</td></tr>
+    <tr><td>分支 / 回滚 / 快照</td><td><strong>有</strong>。<code>SimulationBranch</code> + <code>agentSnapshot</code> + resume</td><td><strong>无</strong>（<code>simulation_runner.py:45</code> 的 PAUSED 是个没接线的枚举值）</td></tr>
+    <tr><td>导演评分 / 质量裁判</td><td>写了但<span class="deadline">没接通</span>（§01 断线一）</td><td>无</td></tr>
+    <tr style="background:#b4530908"><td><strong>报告如何产出</strong></td><td><strong>单次 LLM 出 JSON</strong>，无工具、无追问（<code>simulation-report-agent.ts:165-204</code>）</td><td><strong>ReAct + 4 工具</strong>（<code>insight_forge / panorama_search / quick_search / interview_agents</code>），每章至少 3 次工具调用，且<strong>必须逐字引用 agent 原话</strong>（<code>report_agent.py:925-961, 643-653</code>）</td></tr>
+    <tr><td>世界可被盘问</td><td>有采访 UI 和 <code>sim-agent-tools.ts</code>，但报告阶段不用；且历史结果里入口被摘（§01 断线二）</td><td>是其第 5 步核心：可深度采访任意 agent</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="flag accent">
+  <h4>这也反过来印证了结论</h4>
+  <p>MiroFish 是个<strong>社会舆情模拟器，不是叙事模拟</strong>——它的 <code>ontology_generator.py:48-73</code> 强制 10 类实体（含 Person / Organization）并排除立场类概念，agent 只通过 Twitter / Reddit 动作交互，报告 prompt 至今是"未来预测报告"，<strong>全库没有一行小说/故事代码路径</strong>。</p>
+  <p style="margin-bottom:0">所以它没有什么叙事机制可以抄。它唯一真正值得我们搬的东西，恰好是<strong>"这个世界可以被反复盘问，而且报告必须引用原话"</strong>——这正好补上我们最弱的一环：报告的产出方式。</p>
+</div>
+
+<h2><span class="n">04</span>优化清单</h2>
+
+<h3>P0：先把它修成"按了有反应"（改动都很小，收益立刻可见）</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:5%">#</th><th style="width:28%">动作</th><th style="width:9%">性质</th><th style="width:58%">具体改法与理由</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="num">1</td>
+      <td>接通导演 Agent<br>（或删掉开关）</td>
+      <td><span class="tag fix">接线</span></td>
+      <td><code>SimulationInput</code> 增加 <code>directorEnabled?: boolean</code>；引擎 <code>:1214</code> 改为 <code>input.directorEnabled ?? modeConfig.directorEnabled ?? false</code>；视图 <code>:789</code> 调用处传入 store 值。<br><strong>接通后一次性复活</strong>：7 维评分、注入事件、<code>directorEvaluations</code>、分支评分对比页。<br>如果不打算接通，就必须删掉面板上的复选框——<strong>留一个假开关比没有更伤信任</strong>。</td>
+    </tr>
+    <tr>
+      <td class="num">2</td>
+      <td>历史结果恢复采访 + 生成草稿</td>
+      <td><span class="tag wire">接线</span></td>
+      <td>去掉 <code>simulation-report-view.tsx:599/:622</code> 的 <code>!currentResult ?</code> 三元，让 <code>onInterviewAgent</code> 直接透传；触发已有的 <code>story-simulation-view.tsx:1111-1129</code> 恢复路径（它本来就是为此写的）。<br><strong>同时统一状态</strong>：让 <code>viewingResultId</code> 与 <code>selectedResultId</code> 指向同一个值，否则恢复可能取错快照。<br>这是投入产出比最高的一处——<strong>几行改动，直接解决"产出是一次性的"。</strong></td>
+    </tr>
+    <tr>
+      <td class="num">3</td>
+      <td>给主推演加成本护栏</td>
+      <td><span class="tag fix">补齐</span></td>
+      <td>复用现成模式（<code>scenario-setup-panel.tsx:138-144</code> 的预估 + 勾选确认），在 <code>simulation-config-panel.tsx</code> 里按 <code>N × R × A × 1.5 + 2NR + 1 + N</code> 预估并显示"预计约 XXX 次模型调用"。<br>这是用户唯一能在点击前感知代价的地方，也是"贵的没护栏"的正面解决。</td>
+    </tr>
+    <tr>
+      <td class="num">4</td>
+      <td>处理 <code>strictNodeProgression</code></td>
+      <td><span class="tag fix">二选一</span></td>
+      <td>要么在节点推进逻辑里真正读它（<code>strictNodeProgression: false</code> 时不被 <code>isNodeGoalReached</code> 提前截断），要么从 <code>ModeConfig</code> 和模式说明里删掉。<strong>不能让模式卡片继续承诺一个不存在的行为差异。</strong></td>
+    </tr>
+    <tr>
+      <td class="num">5</td>
+      <td>embedding 按节点缓存</td>
+      <td><span class="tag fix">等价优化</span></td>
+      <td><code>isNodeGoalReachedWithEmbedding</code> 的 <code>expectedEmbedding</code> 按 <code>node.index</code> 缓存（<code>Map&lt;number, number[]&gt;</code>）。<strong>输出完全等价</strong>，直接省掉大约一半 embedding 调用。</td>
+    </tr>
+    <tr>
+      <td class="num">6</td>
+      <td>store 加 persist</td>
+      <td><span class="tag fix">补齐</span></td>
+      <td>给 <code>useStorySimulationStore</code> 挂 <code>persist</code> 中间件，至少保留 <code>phase</code> / <code>timelineEvents</code> / <code>branches</code> / <code>debugTraces</code>，让刷新不丢进行中的推演。注意 <code>extractionResult</code> 体积大，需放进 <code>partialize</code> 白名单外。</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>P1：让它值得跑第二次</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th style="width:5%">#</th><th style="width:28%">动作</th><th style="width:9%">性质</th><th style="width:58%">具体改法与理由</th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="num">7</td>
+      <td>报告 Agent 升级为<br>ReAct + 工具</td>
+      <td><span class="tag wire">学 MiroFish</span></td>
+      <td>现在报告是单次 LLM 出 JSON（<code>simulation-report-agent.ts:165-204</code>），等于让模型"回忆"几十万字推演。改为让报告 Agent 用已有工具（<code>sim-agent-tools.ts</code>：查时间线、查角色认知、采访 agent）主动取证，并要求<strong>逐字引用 agent 原话</strong>作为证据。<br>这是把"模型总结"变成"从模拟里挖出的证据"的关键一步。</td>
+    </tr>
+    <tr>
+      <td class="num">8</td>
+      <td>分支并发运行</td>
+      <td><span class="tag fix">提速</span></td>
+      <td>分支之间语义独立（各自一份黑板与事件线），可并发。跑 3 条分支对比从 3× 时间降到 1×。<br><strong>注意不要动同轮角色循环</strong>——那是语义要求（§02 发现三）。</td>
+    </tr>
+    <tr>
+      <td class="num">9</td>
+      <td>降低 ReAct 默认档位</td>
+      <td><span class="tag fix">省钱</span></td>
+      <td>每角色每轮 1~3 次调用是主要成本。让普通路径（<code>agentDecideAndAct</code>）做默认，仅在需要检索时升级到 ReAct（<code>agentDecideAndActWithReact</code>）。现在的降级逻辑已经存在（<code>ModelDoesNotSupportToolsError</code> 时回退，<code>:1340-1355</code>），只是方向反了。</td>
+    </tr>
+    <tr>
+      <td class="num">10</td>
+      <td>报告结果回流到"计划"</td>
+      <td><span class="tag wire">收尾</span></td>
+      <td>目前只有"生成草稿"（→ <code>wiki/chapters/</code> 正文）。但 <code>branch.summary</code> / <code>keyEvents</code> 与章纲 §5「核心事件链」（<code>chapter-outline-template.ts</code>，≥6 条因果）结构同构。<br>加一个"把这条分支写成本章事件计划"的出口，推演成果就从"草稿正文"升级为<strong>下一章的计划</strong>——这才是写作流程真正需要的形态。</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>P2：体验收尾</h3>
+
+<ul class="tight">
+  <li><strong>推演过程中的可见性。</strong>现在有进度回调与 <code>onDebugTrace</code>（黑板快照、谣言、活跃角色），数据都在，但这是几十分钟的等待——值得把"当前节点/轮次/已发生事件数/已花费调用数"做成常驻状态条。</li>
+  <li><strong>保留"自由沙盘"。</strong>推演室里确实没有"位置"约束的那条脑暴路径（不绑定任何章节）应该保留，它是这个功能作为独立存在时的探索模式。</li>
+  <li><strong>把历史结果列表做成一等公民。</strong>既然核心价值在"事后盘问"，历史列表就该显示：分支数、总调用数、导演均分（接通后）、是否已生成草稿——让用户一眼看出哪条值得再挖。</li>
+</ul>
+
+<h2><span class="n">05</span>优先级判据</h2>
+
+<div class="flag accent">
+  <h4>为什么 P0 排这六项</h4>
+  <p>因为它们有一个共同特征：<strong>功能已经写完了，只是没接上或没兜住。</strong>P0 里没有一项需要新设计——导演 Agent 的 7 维评分、采访恢复、快照反序列化、成本护栏的模式，全都在代码里躺着。这六项的工程量加起来，大概小于 P1 里任何单独一项。</p>
+  <p style="margin-bottom:0">而它们解决的是同一个问题：<strong>让用户"按了有反应"。</strong>在这一点修好之前，讨论"推演准不准""模式好不好"都没有意义。</p>
+</div>
+
+<div class="flag ok">
+  <h4>一句话总结</h4>
+  <p>剧情推演不是功能不够，是<strong>"贵、慢、产出一次性、承诺不兑现"</strong>这四件事叠在一起，让理性用户选择不用。</p>
+  <p style="margin-bottom:0">P0 的四项接线（导演 Agent、历史采访、成本护栏、死配置）把"承诺不兑现"和"产出一次性"直接消掉；embedding 缓存和分支并发削掉"慢"的一部分；成本护栏让"贵"变得可预期。<strong>先把这四件事做完，再谈引擎优化。</strong></p>
+</div>
+
+<footer>
+  <p>基于对 <code>C:\QMAI_C\QMAI-main</code>（v4.3.1）的源码直读，结论均附文件行号。未修改任何源文件。范围限定于剧情推演功能本身，不含与其他功能整合的建议。</p>
+  <p>调用量估算为按代码路径推导的数量级（<code>types.ts:388-396</code>、<code>simulation-engine.ts:1179</code>、<code>multi-agent-orchestrator.ts:229</code>、<code>simulation-engine.ts:1082</code>），实际取决于模型是否走 ReAct 工具循环与节点目标提前达成情况。引用的行号以本文写作时的 HEAD 为准；若后续漂移，以函数名与常量名为准定位。</p>
+</footer>
+
+</div>
+</body>
+</html>
