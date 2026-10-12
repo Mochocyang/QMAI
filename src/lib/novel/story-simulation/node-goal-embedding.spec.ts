@@ -146,3 +146,69 @@ describe("isNodeGoalReachedWithEmbedding", () => {
     expect(result).toBe(true)
   })
 })
+
+/**
+ * 同一节点内 expectedOutcome 恒定，而这个函数每个节点每轮都会被调用一次，
+ * 所以同一个字符串会被重复 embedding R 次 —— 2×N×R 里的一半是纯浪费。
+ * 下面两条一起钉住：加了缓存要省调用，且省调用不能改变判定结果。
+ */
+describe("isNodeGoalReachedWithEmbedding 的 expectedOutcome embedding 缓存", () => {
+  function mockEmbeddings() {
+    const embedMock = vi.mocked(embed)
+    embedMock.mockReset()
+    embedMock.mockImplementation(async (text: string) =>
+      text === "主角发现了真相" ? [1, 0, 0] : [0.8, 0.6, 0],
+    )
+    return embedMock
+  }
+
+  it("传入缓存时，expectedOutcome 只算一次且判定结果不变", async () => {
+    const node = makeNode("主角发现了真相")
+    const events = [makeTimelineEvent("主角终于发现了隐藏的真相")]
+    const embedMock = mockEmbeddings()
+    const cache = new Map<string, number[]>()
+
+    const first = await isNodeGoalReachedWithEmbedding(
+      node, events, 5, 0, makeLlmConfig(), cache,
+    )
+    const second = await isNodeGoalReachedWithEmbedding(
+      node, events, 5, 1, makeLlmConfig(), cache,
+    )
+
+    expect(first).toBe(true)
+    // 等价性：缓存不能改变判定结果
+    expect(second).toBe(true)
+    // expectedOutcome 1 次 + events 2 次 = 3 次；无缓存时是 4 次
+    expect(embedMock).toHaveBeenCalledTimes(3)
+    expect(cache.get("主角发现了真相")).toEqual([1, 0, 0])
+  })
+
+  it("不传缓存时行为与原先一致（每次重算）", async () => {
+    const node = makeNode("主角发现了真相")
+    const events = [makeTimelineEvent("主角终于发现了隐藏的真相")]
+    const embedMock = mockEmbeddings()
+
+    await isNodeGoalReachedWithEmbedding(node, events, 5, 0, makeLlmConfig())
+    await isNodeGoalReachedWithEmbedding(node, events, 5, 1, makeLlmConfig())
+
+    expect(embedMock).toHaveBeenCalledTimes(4)
+  })
+
+  it("缓存不跨 expectedOutcome 复用：不同节点各算各的", async () => {
+    const events = [makeTimelineEvent("主角终于发现了隐藏的真相")]
+    const embedMock = mockEmbeddings()
+    const cache = new Map<string, number[]>()
+
+    await isNodeGoalReachedWithEmbedding(
+      makeNode("主角发现了真相"), events, 5, 0, makeLlmConfig(), cache,
+    )
+    await isNodeGoalReachedWithEmbedding(
+      makeNode("主角逃出了密室"), events, 5, 0, makeLlmConfig(), cache,
+    )
+
+    // 两个不同的 expectedOutcome 各算一次；若按 node.index 粗暴缓存，
+    // 第二个节点会错误复用第一个节点的向量。
+    expect(embedMock).toHaveBeenCalledWith("主角逃出了密室", expect.anything())
+    expect(cache.size).toBe(2)
+  })
+})

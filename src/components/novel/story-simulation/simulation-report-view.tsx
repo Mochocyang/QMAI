@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { MessageCircle, RefreshCw, Sparkles, TrendingUp, Download, ChevronDown, ChevronRight, GitCompare, X } from "lucide-react"
+import { MessageCircle, RefreshCw, Sparkles, TrendingUp, Download, ChevronDown, ChevronRight, GitCompare, X, FileText, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useStorySimulationStore, type SavedSimulationResult } from "@/stores/story-simulation-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -21,6 +21,22 @@ interface SimulationReportViewProps {
   onViewDraft?: () => void
   hasDraft?: boolean
   onViewInterviewHistory?: () => void
+  /**
+   * 切换正在查看的历史结果；`null` 表示回到「最新推演」。
+   *
+   * 由父组件负责把整份结果设为当前上下文（报告 / 时间线 / 快照 / 选中 id），
+   * 否则「生成草稿」会拿着 A 结果的报告去生成 B 结果的分支。
+   */
+  onSelectResult?: (resultId: string | null) => void
+  /**
+   * P1-10：把一条走向分支导出成本章事件计划。
+   *
+   * 由父组件提供：它已经持有 projectPath / 框架 / 报告与已解析的 LLM 配置，
+   * 本组件保持纯展示，不引入模型调用依赖。
+   */
+  onExportEventPlan?: (branch: StoryBranch) => void
+  /** 正在导出的分支标题；用于把对应按钮换成转圈并禁用重复点击 */
+  exportingBranchTitle?: string | null
 }
 
 /** 将 actionType 映射为中文动词短语 */
@@ -66,6 +82,10 @@ interface ReportContentProps {
   framework?: StoryFramework | null
   onInterviewAgent?: (agentId: string, agentName: string) => void
   onGenerateDraft?: (branch: StoryBranch) => void
+  /** P1-10：把这条分支导出成本章事件计划（写入 wiki/outlines/事件计划/） */
+  onExportEventPlan?: (branch: StoryBranch) => void
+  /** 正在导出的分支标题；用于把对应按钮换成转圈 */
+  exportingBranchTitle?: string | null
   title?: string
   compact?: boolean
   /** 对比模式下的另一个报告，用于高亮差异 */
@@ -74,7 +94,7 @@ interface ReportContentProps {
   compareTimelineEvents?: TimelineEvent[]
 }
 
-function ReportContent({ report, timelineEvents, framework, onInterviewAgent, onGenerateDraft, title, compact, compareReport, compareTimelineEvents }: ReportContentProps) {
+function ReportContent({ report, timelineEvents, framework, onInterviewAgent, onGenerateDraft, onExportEventPlan, exportingBranchTitle, title, compact, compareReport, compareTimelineEvents }: ReportContentProps) {
   // 安全清洗 recommendation：防止模型返回 JSON 对象导致显示乱码
   const safeRecommendation = useMemo(() => {
     const raw = report.recommendation
@@ -261,6 +281,47 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
             />
           )}
 
+          {/* 取证审计：引文是否真的逐字来自事件记录 */}
+          {report.evidenceAudit && (
+            <section
+              className={cn(
+                "rounded-lg border p-3 text-xs",
+                report.evidenceAudit.unverified.length > 0
+                  ? "border-amber-500/50 bg-amber-500/5"
+                  : "border-border bg-muted/30",
+              )}
+            >
+              {report.evidenceAudit.unverified.length > 0 ? (
+                <>
+                  <p className="font-medium text-amber-700 dark:text-amber-400">
+                    有 {report.evidenceAudit.unverified.length} 条引文未能逐字核对
+                    （共 {report.evidenceAudit.total} 条，通过{" "}
+                    {report.evidenceAudit.verified} 条）
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    下列内容在推演事件记录里找不到原文，可能是模型改写或编造的，请勿当作依据：
+                  </p>
+                  <ul className="mt-1 space-y-0.5">
+                    {report.evidenceAudit.unverified.map((quote, i) => (
+                      <li key={i} className="border-l-2 border-amber-500/50 pl-2 italic">
+                        「{quote}」
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="text-muted-foreground">
+                  引文均已逐字核对（共 {report.evidenceAudit.total} 条）
+                </p>
+              )}
+              <p className="mt-1 text-muted-foreground">
+                {report.evidenceAudit.toolCalls > 0
+                  ? `取证过程调用工具 ${report.evidenceAudit.toolCalls} 次`
+                  : "本次未使用取证工具（单次生成）"}
+              </p>
+            </section>
+          )}
+
           {/* 角色采访区 */}
           {!compact && report.characterAnalyses.length > 0 && onInterviewAgent && (
             <section>
@@ -327,6 +388,19 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                         </ul>
                       </div>
                     )}
+
+                    {char.evidence && char.evidence.length > 0 && (
+                      <div className="mt-2">
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">原话依据：</p>
+                        <ul className="space-y-0.5 text-sm">
+                          {char.evidence.map((quote, i) => (
+                            <li key={i} className="border-l-2 border-muted pl-2 italic text-muted-foreground">
+                              「{quote}」
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -363,6 +437,19 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                       </div>
                     )}
 
+                    {branch.evidence && branch.evidence.length > 0 && (
+                      <div className="mt-2">
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">原话依据：</p>
+                        <ul className="space-y-0.5 text-sm">
+                          {branch.evidence.map((quote, i) => (
+                            <li key={i} className="border-l-2 border-muted pl-2 italic text-muted-foreground">
+                              「{quote}」
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
                     <div className="mt-2 grid gap-2 sm:grid-cols-2">
                       {branch.pros && (
                         <div className="rounded-md bg-green-50 p-2 text-sm dark:bg-green-950/30">
@@ -378,16 +465,36 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                       )}
                     </div>
 
-                    {!compact && onGenerateDraft && (
-                      <Button
-                        variant="default"
-                        size="sm"
-                        className="mt-3"
-                        onClick={() => onGenerateDraft(branch)}
-                      >
-                        <Sparkles className="h-3.5 w-3.5" />
-                        生成草稿
-                      </Button>
+                    {!compact && (onGenerateDraft || onExportEventPlan) && (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {onGenerateDraft && (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => onGenerateDraft(branch)}
+                          >
+                            <Sparkles className="h-3.5 w-3.5" />
+                            生成草稿
+                          </Button>
+                        )}
+                        {onExportEventPlan && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            // 宽松比较：未传该 prop 时是 undefined，而
+                            // `undefined !== null` 为真会把按钮永久禁用。
+                            disabled={exportingBranchTitle != null}
+                            onClick={() => onExportEventPlan(branch)}
+                          >
+                            {exportingBranchTitle === branch.title ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <FileText className="h-3.5 w-3.5" />
+                            )}
+                            导出事件计划
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}
@@ -436,6 +543,9 @@ export function SimulationReportView({
   onViewDraft,
   hasDraft,
   onViewInterviewHistory,
+  onSelectResult,
+  onExportEventPlan,
+  exportingBranchTitle,
 }: SimulationReportViewProps) {
   const { t } = useTranslation()
   const projectPath = useWikiStore((s) => s.project?.path)
@@ -445,10 +555,30 @@ export function SimulationReportView({
   const savedResults = useStorySimulationStore((s) => s.savedResults)
   const setError = useStorySimulationStore((s) => s.setError)
   const setInfoMessage = useStorySimulationStore((s) => s.setInfoMessage)
+  const setSelectedResultId = useStorySimulationStore(
+    (s) => s.setSelectedResultId,
+  )
   const [exporting, setExporting] = useState(false)
   const [compareMode, setCompareMode] = useState(false)
   const [selectedCompareId, setSelectedCompareId] = useState<string | null>(null)
-  const [viewingResultId, setViewingResultId] = useState<string | null>(null)
+
+  /*
+   * 「我正在看哪条历史结果」以 store 为唯一来源，不再另立一份局部 state。
+   *
+   * 采访的 agentSnapshot 恢复路径（story-simulation-view.tsx 的 handleSendChat）
+   * 是按 store 的 selectedResultId 去 savedResults 里找快照的；若这里再维护一份
+   * 局部 id，两者可能指向不同条目，恢复时就会拿错快照。
+   */
+  const viewingResultId = useStorySimulationStore((s) => s.selectedResultId)
+
+  const handleSelectResult = (resultId: string | null) => {
+    if (onSelectResult) {
+      onSelectResult(resultId)
+      return
+    }
+    // 未注入父级处理器时至少保证选中项一致，避免下拉框变成死控件。
+    setSelectedResultId(resultId)
+  }
 
   // 当前查看的结果（可能是历史结果）
   const currentResult: SavedSimulationResult | null = useMemo(() => {
@@ -506,7 +636,7 @@ export function SimulationReportView({
             <select
               value={viewingResultId || ""}
               onChange={(e) => {
-                setViewingResultId(e.target.value || null)
+                handleSelectResult(e.target.value || null)
                 setCompareMode(false)
                 setSelectedCompareId(null)
               }}
@@ -596,8 +726,6 @@ export function SimulationReportView({
               report={activeReport}
               timelineEvents={activeTimeline}
               framework={currentFramework}
-              onInterviewAgent={!currentResult ? onInterviewAgent : undefined}
-              onGenerateDraft={!currentResult ? onGenerateDraft : undefined}
               title={currentResult ? `结果 A (${formatDate(currentResult.createdAt)})` : "结果 A (最新)"}
               compact={true}
               compareReport={compareResult?.report}
@@ -619,8 +747,10 @@ export function SimulationReportView({
           report={activeReport}
           timelineEvents={activeTimeline}
           framework={currentFramework}
-          onInterviewAgent={!currentResult ? onInterviewAgent : undefined}
-          onGenerateDraft={!currentResult ? onGenerateDraft : undefined}
+          onInterviewAgent={onInterviewAgent}
+          onGenerateDraft={onGenerateDraft}
+          onExportEventPlan={onExportEventPlan}
+          exportingBranchTitle={exportingBranchTitle}
         />
       )}
     </div>

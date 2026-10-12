@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Info, Plus, Sparkles, X } from "lucide-react"
 
@@ -17,8 +17,11 @@ import {
   SCENARIO_MODERATOR_USER_ID,
   SCENARIO_MODERATOR_USER_NAME,
   SCENARIO_ROUND_DEFAULT,
+  SCENARIO_ROUND_MAX,
+  SCENARIO_ROUND_MIN,
   SCENARIO_ROUND_PRESETS,
   SCENARIO_SOURCE_CHAPTER_PRESETS,
+  clampScenarioRounds,
   estimateScenarioMessages,
   hasRoleModerator,
   type ScenarioCandidate,
@@ -108,6 +111,28 @@ export function ScenarioSetupPanel({
 
   const reachedLimit = selectedIds.length >= characterCount
 
+  /**
+   * 候选角色是否少到根本凑不齐一场舞台情景。
+   *
+   * 「角色数量」按钮写死为 [3,5]，与真正提取到几个角色无关；而开始条件要求
+   * 「已选人数 === 所选人数」。提取只找到 1~2 个角色时用户永远凑不满，开始
+   * 按钮会一直灰着 —— 而且界面上唯一的提示（没有候选角色）只在 0 个时出现，
+   * 1~2 个时一片沉默。这里把它变成一个说得清的状态。
+   */
+  const insufficientCandidates = candidates.length < SCENARIO_CHARACTER_MIN
+
+  /**
+   * 候选角色变少时（如重新分析后结果不同），把所选人数夹到候选数。
+   *
+   * 不足 3 人时不夹：那是「素材不够」，应当明确报错让用户去加提取章节数，
+   * 而不是把下限偷偷降到 2 让功能看起来可用。
+   */
+  useEffect(() => {
+    if (candidates.length < SCENARIO_CHARACTER_MIN) return
+    if (characterCount <= candidates.length) return
+    setCharacterCount(candidates.length)
+  }, [candidates.length, characterCount])
+
   const addCharacter = (id: string) => {
     if (!id) return
     if (selectedIds.includes(id)) return
@@ -130,15 +155,34 @@ export function ScenarioSetupPanel({
     ),
   )
   const roleModerated = hasRoleModerator(previewParticipants)
+
+  /**
+   * 轮数的一切对外展示都必须经过与引擎同一套夹取。
+   *
+   * 输入框允许任意正整数，但 `createScenarioSetup` 会把轮数夹到
+   * [1, SCENARIO_ROUND_MAX] —— 直接用原始 `rounds` 去估算，用户输入 9999
+   * 时界面会报出 29998 条，而引擎只会跑 100 轮（301 条）。那个数字不仅夸大
+   * 成本护栏，还让「轮数」这个输入看起来能填 9999，实际上填了也不生效。
+   */
+  const effectiveRounds = clampScenarioRounds(rounds)
+  const roundsClamped = effectiveRounds !== rounds
+
   const estimatedMessages = estimateScenarioMessages(
     previewParticipants,
-    rounds,
+    effectiveRounds,
     moderatorEveryRounds,
   )
   const needsCostAck = estimatedMessages > SCENARIO_COST_WARN_THRESHOLD
 
+  // 预估规模一变就让上一次的确认作废：把配置改小再改大，不能靠旧勾选蒙过去。
+  // 与剧情推演室的护栏保持同一行为（simulation-config-panel.tsx 同款）。
+  useEffect(() => {
+    setCostAck(false)
+  }, [estimatedMessages])
+
   const canStart =
     !extracting &&
+    !insufficientCandidates &&
     selectedIds.length === characterCount &&
     directive.trim().length > 0 &&
     (!needsCostAck || costAck)
@@ -177,7 +221,7 @@ export function ScenarioSetupPanel({
         t("storySimulation.scenarioDefaultTitle"),
       rules,
       format,
-      rounds,
+      rounds: effectiveRounds,
       moderatorEveryRounds,
       participants: withModerator,
       sourceChapters,
@@ -216,6 +260,7 @@ export function ScenarioSetupPanel({
               key={n}
               variant={characterCount === n ? "default" : "outline"}
               size="sm"
+              disabled={n > candidates.length}
               onClick={() => setCharacterCount(n)}
             >
               {n} {t("storySimulation.scenarioCharacterCountUnit")}
@@ -228,6 +273,14 @@ export function ScenarioSetupPanel({
             })}
           </span>
         </div>
+        {insufficientCandidates && (
+          <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+            {t("storySimulation.scenarioCandidatesInsufficient", {
+              count: candidates.length,
+              min: SCENARIO_CHARACTER_MIN,
+            })}
+          </p>
+        )}
       </section>
 
       {/* 2. 提取章节数 */}
@@ -454,6 +507,11 @@ export function ScenarioSetupPanel({
             placeholder={t("storySimulation.scenarioTimePlaceholder")}
           />
         </div>
+        {/* 参考点不是一句空话：写着「必须以此为依据」，就得让人知道依据从哪来。
+            同时先把「检索不到也照常开演」说在前面，免得事后以为是 bug */}
+        <p className="text-xs text-muted-foreground">
+          {t("storySimulation.scenarioReferenceHint")}
+        </p>
       </section>
 
       {/* 5. 对话形式 */}
@@ -512,16 +570,24 @@ export function ScenarioSetupPanel({
             type="number"
             className="w-24"
             value={rounds}
-            min={1}
+            min={SCENARIO_ROUND_MIN}
+            max={SCENARIO_ROUND_MAX}
             onChange={(e) => {
               const val = parseInt(e.target.value, 10)
               if (!isNaN(val) && val > 0) setRounds(val)
             }}
           />
         </div>
+        {roundsClamped && (
+          <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+            {t("storySimulation.scenarioRoundsClamped", {
+              max: SCENARIO_ROUND_MAX,
+            })}
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">
           {t("storySimulation.scenarioRoundsHint", {
-            count: rounds * Math.max(1, characterSpeakers.length),
+            count: effectiveRounds * Math.max(1, characterSpeakers.length),
           })}
         </p>
         <Input
@@ -549,8 +615,24 @@ export function ScenarioSetupPanel({
                   className="flex items-center justify-between gap-3 rounded-lg border p-2.5"
                 >
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{s.title}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium">
+                        {s.title}
+                      </span>
+                      {s.status === "cancelled" && (
+                        <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[0.625rem] font-medium text-amber-700 dark:text-amber-300">
+                          {t("storySimulation.scenarioStatusCancelled")}
+                        </span>
+                      )}
+                    </div>
                     <div className="mt-0.5 text-xs text-muted-foreground">
+                      {SCENARIO_FORMAT_INFO[s.setup.format]?.icon}{" "}
+                      {SCENARIO_FORMAT_INFO[s.setup.format]?.name ?? s.setup.format}
+                      {" · "}
+                      {t("storySimulation.scenarioHistoryRounds", {
+                        n: s.setup.rounds,
+                      })}
+                      {" · "}
                       {t("storySimulation.scenarioHistoryMessages", {
                         count: s.messages.length,
                       })}

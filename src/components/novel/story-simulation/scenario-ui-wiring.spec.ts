@@ -108,4 +108,24 @@ describe("舞台情景 · 主视图接线", () => {
     expect(src).toContain("scenarioExtractedSigRef")
     expect(src).toContain("scenarioExtractNonce")
   })
+
+  it("把「继续生成剩余轮数」接进房间视图", () => {
+    const src = view()
+    expect(src).toContain("handleScenarioContinue")
+    expect(src).toContain("onContinue=")
+    expect(src).toContain("remainingRounds=")
+    // 必须从「已经说到的下一轮」接着跑，并把串场节奏钉在绝对轮次上
+    expect(src).toContain("initialMessages: continuedFrom.messages")
+    expect(src).toContain("moderatorOriginRound: 1")
+  })
+
+  it("三条生成路径都把参考点资料送进引擎", () => {
+    const src = view()
+    expect(src).toContain("collectScenarioReferenceMaterial")
+    expect(src).toContain("resolveScenarioReference")
+    // 开场、插话、续跑都必须带资料，漏一条就会出现「同一场里前后依据不同」
+    const passed = src.match(/referenceMaterial/g) ?? []
+    expect(passed.length).toBeGreaterThanOrEqual(4)
+    expect(src).toContain("referenceInfo={scenarioReferenceInfo}")
+  })
 })

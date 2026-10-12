@@ -27,6 +27,7 @@ import type {
   ActionVisibility,
   AgentAction,
   AgentActionType,
+  DirectorEvaluation,
   EventImpact,
   ExtractionResult,
   NovelAgent,
@@ -39,7 +40,11 @@ import type {
   StoryNode,
   TimelineEvent,
 } from "@/lib/novel/story-simulation/types"
-import { calcMaxRoundsPerNode, getModeConfig } from "@/lib/novel/story-simulation/types"
+import {
+  INLINE_VISIBLE_EVENT_LIMIT,
+  calcMaxRoundsPerNode,
+  getModeConfig,
+} from "@/lib/novel/story-simulation/types"
 import type { ModeConfig } from "@/lib/novel/story-simulation/types"
 
 // ── 对外接口 ──
@@ -53,6 +58,8 @@ export interface SimulationCallbacks {
   onTimelineEvent?: (event: TimelineEvent) => void
   /** 推演过程观察回调：用于 UI 展示 Agent 调度和 blackboard 状态 */
   onDebugTrace?: (trace: SimulationDebugTrace) => void
+  /** 导演 Agent 评估完成回调：用于记录 7 维评分与分支对比数据 */
+  onDirectorEvaluation?: (evaluation: DirectorEvaluation) => void
 }
 
 // ── 常量 ──
@@ -788,6 +795,18 @@ export async function isNodeGoalReachedWithEmbedding(
   maxRounds: number,
   currentRound: number,
   llmConfig: LlmConfig,
+  /**
+   * 本次推演内 `expectedOutcome` 的 embedding 缓存（按文本作键）。
+   *
+   * 同一节点内 `node.expectedOutcome` 恒定不变，而本函数每个节点每轮都会被
+   * 调用一次，不缓存就会把同一个字符串重复 embedding R 次 —— 也就是
+   * `2 × N × R` 次 embedding 里有整整一半是纯浪费。
+   *
+   * 按**文本**而不是 `node.index` 作键：向量是文本的纯函数，按文本缓存既
+   * 保证命中，又不会把「同 index、不同文本」的两个节点错误地算成同一个。
+   * 缓存由调用方按次创建，因此不跨推演泄漏（不同模型/项目不会互相污染）。
+   */
+  expectedEmbeddingCache?: Map<string, number[]>,
 ): Promise<boolean> {
   if (currentRound >= maxRounds - 1) {
     return true
@@ -807,7 +826,11 @@ export async function isNodeGoalReachedWithEmbedding(
       .map((e) => `${e.actorName}：${e.content}`)
       .join("\n")
 
-    const expectedEmbedding = await embed(expectedOutcome, llmConfig)
+    let expectedEmbedding = expectedEmbeddingCache?.get(expectedOutcome)
+    if (expectedEmbedding === undefined) {
+      expectedEmbedding = await embed(expectedOutcome, llmConfig)
+      expectedEmbeddingCache?.set(expectedOutcome, expectedEmbedding)
+    }
     const eventsEmbedding = await embed(eventsText, llmConfig)
 
     const similarity = cosineSimilarity(expectedEmbedding, eventsEmbedding)
@@ -890,6 +913,25 @@ function maybeDeriveRumor(
 
 // ── 内部辅助：单个 Agent 决策并产生事件 ──
 
+/**
+ * 是否需要升级到 ReAct（工具）路径。
+ *
+ * 普通路径只把最近 `INLINE_VISIBLE_EVENT_LIMIT` 条可见事件内联进提示词，
+ * 一次调用就能出结果；ReAct 路径让它能用 `recall` 等工具主动检索，代价是
+ * 每轮 1~3 次调用。
+ *
+ * 所以判据是「普通路径看不全」：可见历史已经超出内联窗口，模型才会因为缺少
+ * 旧事件而需要主动检索。开局几轮事件很少，走普通路径即可 —— 改造前是每轮都
+ * 先走 ReAct 再按需降级，方向反了，绝大多数轮次白付 2~3 倍调用。
+ */
+export function shouldEscalateToReact(visibleEventCount: number): boolean {
+  return visibleEventCount > INLINE_VISIBLE_EVENT_LIMIT
+}
+
+// 常量定义在 types.ts（成本预估也要用，放这里会与 types 形成循环依赖）。
+// 在这里再导出一次，让「内联窗口 + 升级判据」这对概念留在同一个模块下。
+export { INLINE_VISIBLE_EVENT_LIMIT }
+
 async function agentDecideAndAct(
   agent: NovelAgent,
   node: StoryNode,
@@ -903,7 +945,11 @@ async function agentDecideAndAct(
   modeHint?: string,
 ): Promise<{ parsed: ParsedAction; tlEvent: TimelineEvent; simEvent: SimulationEvent } | null> {
   // 1. 观察：筛选该 Agent 可见的时间线事件和传闻
-  const visibleEvents = getBlackboardVisibleEvents(blackboard, agent.characterId, 10)
+  const visibleEvents = getBlackboardVisibleEvents(
+    blackboard,
+    agent.characterId,
+    INLINE_VISIBLE_EVENT_LIMIT,
+  )
   const visibleRumors = getBlackboardVisibleRumors(blackboard, agent.characterId, 5)
 
   // 2. 构建上下文（基于认知边界）
@@ -1169,7 +1215,7 @@ export async function runSimulation(
   signal?: AbortSignal,
 ): Promise<SimulationEvent[]> {
   const events: SimulationEvent[] = []
-  const { agents, framework, wordBudget, llmConfig, injectionEvent, maxRoundsPerNode, dynamicEventPool, resume } = input
+  const { agents, framework, wordBudget, llmConfig, injectionEvent, maxRoundsPerNode, dynamicEventPool, resume, directorEnabled } = input
   const mode = input.mode || framework.simulationMode || "hybrid"
   const modeConfig: ModeConfig = getModeConfig(mode)
   const totalNodes = framework.nodes.length
@@ -1211,9 +1257,13 @@ export async function runSimulation(
     worldState: {},
     dynamicEventPool: stringPool && stringPool.length > 0 ? stringPool : undefined,
     usedEventIndices: stringPool && stringPool.length > 0 ? new Set() : undefined,
-    directorEnabled: modeConfig.directorEnabled ?? false,
+    // 优先级：显式入参 > 模式配置 > 默认关闭
+    directorEnabled: directorEnabled ?? modeConfig.directorEnabled ?? false,
     nextNodeInjectionMap: new Map(),
   }
+  // 本次推演的 expectedOutcome embedding 缓存：同节点内该字符串恒定，
+  // 节点目标判定每轮都会用到它，按次缓存可省掉一半 embedding 调用。
+  const expectedEmbeddingCache = new Map<string, number[]>()
   const blackboard = createSimulationBlackboard({
     agents: Array.from(state.activeAgents.values()),
     timelineEvents: resumeTimelineEvents,
@@ -1321,27 +1371,19 @@ export async function runSimulation(
           const currentAgent = state.activeAgents.get(agent.characterId)
           if (!currentAgent) continue
 
+          // 默认走普通路径（每轮 1 次调用）。只有当该角色的可见历史已经超出
+          // 普通路径的内联窗口、确实需要主动检索时，才升级到 ReAct（1~3 次）。
+          const visibleEventCount = getBlackboardVisibleEvents(
+            blackboard,
+            currentAgent.characterId,
+            INLINE_VISIBLE_EVENT_LIMIT + 1,
+          ).length
+
           let result: Awaited<ReturnType<typeof agentDecideAndAct>> | null = null
           try {
-            try {
-              result = await agentDecideAndActWithReact(
-                currentAgent,
-                node,
-                state,
-                llmConfig,
-                extraction,
-                recentEventDescs,
-                round === 0 ? nodeInjectionEvent : undefined,
-                blackboard,
-                signal,
-                modeConfig.behaviorHint,
-              )
-            } catch (reactErr) {
-              if (reactErr instanceof ModelDoesNotSupportToolsError) {
-                console.warn(
-                  `[simulation] Agent ${currentAgent.name} ReAct 路径不支持工具调用，降级为普通路径`,
-                )
-                result = await agentDecideAndAct(
+            if (shouldEscalateToReact(visibleEventCount)) {
+              try {
+                result = await agentDecideAndActWithReact(
                   currentAgent,
                   node,
                   state,
@@ -1353,9 +1395,40 @@ export async function runSimulation(
                   signal,
                   modeConfig.behaviorHint,
                 )
-              } else {
-                throw reactErr
+              } catch (reactErr) {
+                if (reactErr instanceof ModelDoesNotSupportToolsError) {
+                  console.warn(
+                    `[simulation] Agent ${currentAgent.name} ReAct 路径不支持工具调用，降级为普通路径`,
+                  )
+                  result = await agentDecideAndAct(
+                    currentAgent,
+                    node,
+                    state,
+                    llmConfig,
+                    extraction,
+                    recentEventDescs,
+                    round === 0 ? nodeInjectionEvent : undefined,
+                    blackboard,
+                    signal,
+                    modeConfig.behaviorHint,
+                  )
+                } else {
+                  throw reactErr
+                }
               }
+            } else {
+              result = await agentDecideAndAct(
+                currentAgent,
+                node,
+                state,
+                llmConfig,
+                extraction,
+                recentEventDescs,
+                round === 0 ? nodeInjectionEvent : undefined,
+                blackboard,
+                signal,
+                modeConfig.behaviorHint,
+              )
             }
           } catch (agentErr) {
             if (signal?.aborted || (agentErr instanceof Error && agentErr.name === "AbortError")) {
@@ -1493,13 +1566,22 @@ export async function runSimulation(
         }
 
         // f. 检查节点目标是否达成
-        const goalReached = await isNodeGoalReachedWithEmbedding(
-          node,
-          nodeTimelineEvents,
-          maxRounds,
-          round,
-          llmConfig,
-        )
+        //
+        // 只有声明了 strictNodeProgression 的模式才据「目标达成」提前收尾：
+        // event-driven 承诺「严格按节点目标推进剧情」，而 free-emergence 承诺
+        // 「不强制节点目标，剧情自然涌现」、hybrid 承诺「平衡推进与互动」。
+        // 此前这个字段无人读取，两类模式的行为完全一样 —— 上面的承诺是假的。
+        // 非 strict 模式改为跑满 maxRounds，同时也省掉了目标判定的 embedding。
+        const goalReached = modeConfig.strictNodeProgression
+          ? await isNodeGoalReachedWithEmbedding(
+              node,
+              nodeTimelineEvents,
+              maxRounds,
+              round,
+              llmConfig,
+              expectedEmbeddingCache,
+            )
+          : false
         if (goalReached) {
           break
         }
@@ -1517,6 +1599,8 @@ export async function runSimulation(
             llmConfig,
             signal,
           })
+
+          callbacks.onDirectorEvaluation?.(directorEval)
 
           if (shouldInjectEvent(directorEval) && directorEval.injectEvent) {
             const nextNodeIndex = ni + 1

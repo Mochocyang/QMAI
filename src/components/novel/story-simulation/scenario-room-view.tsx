@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, Copy, Download, FilePlus2, Loader2, Send, Square, Users } from "lucide-react"
+import { Check, Brain, Copy, Download, FilePlus2, Loader2, Play, Send, Square, Users } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -24,6 +24,20 @@ export interface ScenarioRoomViewProps {
   onExport: () => void
   /** 将本场情景导入为一章草稿（可选）。 */
   onInsertToChapters?: () => void
+  /**
+   * 接着跑完剩余轮数（可选）。中止过、或计划轮数还没跑满时才有意义；
+   * 与「插话后继续」不同 —— 插话固定只走 1 轮，这个按钮把剩下的跑完。
+   */
+  onContinue?: () => void
+  /** 还剩多少轮没跑；0 表示跑完了，不显示「继续生成」。 */
+  remainingRounds?: number
+  /**
+   * 本场实际注入的参考资料篇数（null=没填参考点或一篇都没检索到）。
+   *
+   * 传 null 与「没填参考点」在渲染上按 setup.rules.reference 区分：填了却
+   * 检索不到要说出来，没填就什么都不显示。
+   */
+  referenceInfo?: { count: number; truncated: boolean } | null
   onCancel: () => void
   onBack: () => void
   exporting?: boolean
@@ -44,6 +58,9 @@ export function ScenarioRoomView({
   onSend,
   onExport,
   onInsertToChapters,
+  onContinue,
+  remainingRounds = 0,
+  referenceInfo = null,
   onCancel,
   onBack,
   exporting,
@@ -85,6 +102,32 @@ export function ScenarioRoomView({
             <span className="rounded-full bg-muted px-2 py-0.5 text-[0.625rem] text-muted-foreground">
               {formatInfo.icon} {formatInfo.name}
             </span>
+            {/* 「停止」之后最要紧的一件事：这场是跑完的还是被中断的 */}
+            {session.status === "cancelled" && (
+              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.625rem] font-medium text-amber-700 dark:text-amber-300">
+                {t("storySimulation.scenarioStatusCancelled")}
+              </span>
+            )}
+            {/* 参考点检索到了几篇。一篇都没检索到时也必须说，否则用户只会
+                以为模型不听话 —— 提示词里写着「必须以此为依据」，但手里是空的 */}
+            {session.setup.rules.reference && (
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[0.625rem]",
+                  referenceInfo
+                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                    : "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+                )}
+              >
+                {referenceInfo
+                  ? t("storySimulation.scenarioReferenceInjected", {
+                      count: referenceInfo.count,
+                    })
+                  : t("storySimulation.scenarioReferenceMissing")}
+                {referenceInfo?.truncated &&
+                  ` · ${t("storySimulation.scenarioReferenceTruncated")}`}
+              </span>
+            )}
           </div>
           <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
             <Users className="h-3 w-3" />
@@ -134,9 +177,20 @@ export function ScenarioRoomView({
               {t("storySimulation.scenarioStop")}
             </Button>
           ) : (
-            <Button variant="ghost" size="sm" onClick={onBack}>
-              {t("storySimulation.scenarioReset")}
-            </Button>
+            <>
+              {/* 「停止」不该等于毁掉剩余计划 —— 有欠账就让人一次跑完 */}
+              {onContinue && remainingRounds > 0 && (
+                <Button size="sm" onClick={onContinue}>
+                  <Play className="mr-1 h-3.5 w-3.5" />
+                  {t("storySimulation.scenarioContinue", {
+                    n: remainingRounds,
+                  })}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={onBack}>
+                {t("storySimulation.scenarioReset")}
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -215,6 +269,8 @@ function MessageBubble({
   streaming?: boolean
 }) {
   const { t } = useTranslation()
+  // 必须放在 system 的提前 return 之前：hooks 不能有条件地调用
+  const [showReasoning, setShowReasoning] = useState(false)
   if (message.kind === "system") {
     return (
       <div className="py-1 text-center text-xs text-muted-foreground">
@@ -262,6 +318,27 @@ function MessageBubble({
             <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-current align-middle" />
           )}
         </div>
+        {/*
+          模型的思考过程一直存在消息里却没有出口（多数模型不发 reasoning
+          token，所以没有就不渲染任何控件，避免留一个点开是空的按钮）。
+        */}
+        {message.reasoning && (
+          <>
+            <button
+              type="button"
+              onClick={() => setShowReasoning((v) => !v)}
+              className="mt-1 flex items-center gap-1 text-[0.6875rem] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Brain className="h-3 w-3" />
+              {t("storySimulation.scenarioReasoning")}
+            </button>
+            {showReasoning && (
+              <div className="mt-1 whitespace-pre-wrap rounded-lg border border-dashed px-2.5 py-2 text-xs leading-relaxed text-muted-foreground">
+                {message.reasoning}
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   )

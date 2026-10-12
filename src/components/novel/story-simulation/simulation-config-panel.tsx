@@ -1,9 +1,16 @@
+import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { WORD_BUDGET_PRESETS, type SimulationMode, MODE_VISUAL_INFO } from "@/lib/novel/story-simulation/types"
+import {
+  WORD_BUDGET_PRESETS,
+  type SimulationMode,
+  MODE_VISUAL_INFO,
+  SIMULATION_CALL_WARN_THRESHOLD,
+  estimateSimulationCalls,
+} from "@/lib/novel/story-simulation/types"
 import { useStorySimulationStore } from "@/stores/story-simulation-store"
 import { cn } from "@/lib/utils"
 import { Info } from "lucide-react"
@@ -58,8 +65,48 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
   const setSourceChapters = useStorySimulationStore((s) => s.setSourceChapters)
   const setSimulationRounds = useStorySimulationStore((s) => s.setSimulationRounds)
   const setDirectorEnabled = useStorySimulationStore((s) => s.setDirectorEnabled)
+  const extractionResult = useStorySimulationStore((s) => s.extractionResult)
+  const currentFramework = useStorySimulationStore((s) => s.currentFramework)
 
   const selectedModeInfo = MODE_VISUAL_INFO[mode]
+
+  /*
+   * 角色数：配置阶段还没有真正的 agent 列表（提取发生在点「开始」之后），
+   * 所以能推就推、推不出就让估算函数用保守默认值。
+   * 优先用已有的提取结果，其次用已有框架里单节点最多的参与角色数。
+   */
+  const characterCount = useMemo(() => {
+    const extracted = extractionResult?.characters.length ?? 0
+    if (extracted > 0) return extracted
+    if (!currentFramework) return undefined
+    const fromFramework = currentFramework.nodes.reduce(
+      (max, node) => Math.max(max, node.involvedCharacters.length),
+      0,
+    )
+    return fromFramework > 0 ? fromFramework : undefined
+  }, [extractionResult, currentFramework])
+
+  const estimate = useMemo(
+    () =>
+      estimateSimulationCalls({
+        targetWords,
+        simulationRounds,
+        mode,
+        directorEnabled,
+        characterCount,
+      }),
+    [targetWords, simulationRounds, mode, directorEnabled, characterCount],
+  )
+
+  const [costAck, setCostAck] = useState(false)
+  const needsCostAck = estimate.total > SIMULATION_CALL_WARN_THRESHOLD
+
+  // 预估规模一变就让上一次的确认作废：把配置改小再改大，不能靠旧勾选蒙过去。
+  useEffect(() => {
+    setCostAck(false)
+  }, [estimate.total])
+
+  const canStart = !needsCostAck || costAck
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-6">
@@ -242,9 +289,58 @@ export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
         </p>
       </section>
 
-      {/* 7. 开始按钮 */}
+      {/* 7. 成本预估（护栏） */}
+      <section className="flex flex-col gap-3">
+        <h3 className="text-sm font-medium">预计消耗</h3>
+        <div
+          className={cn(
+            "rounded-lg border p-4 text-xs",
+            needsCostAck
+              ? "border-amber-500/50 bg-amber-500/5"
+              : "border-border bg-muted/30",
+          )}
+        >
+          <div className="flex items-baseline justify-between">
+            <span className="text-muted-foreground">预计约</span>
+            <span className="text-lg font-semibold tabular-nums">
+              {estimate.total} 次模型调用
+            </span>
+          </div>
+          <p className="mt-2 leading-relaxed text-muted-foreground">
+            {estimate.nodeCount} 个节点 × {estimate.roundsPerNode} 轮 × 约{" "}
+            {estimate.activeAgents} 个活跃角色
+            {estimate.reactTurns > 0
+              ? `，其中 ${estimate.reactTurns} 次需主动检索（ReAct）`
+              : ""}
+            {estimate.embeddingCalls > 0
+              ? `，含 ${estimate.embeddingCalls} 次目标判定`
+              : ""}
+            {estimate.directorCalls > 0
+              ? `，含 ${estimate.directorCalls} 次导演评估`
+              : ""}
+            。这是量级预估：实际次数取决于模型是否走 ReAct 工具循环、以及节点目标
+            是否提前达成。
+          </p>
+          {needsCostAck && (
+            <label className="mt-3 flex cursor-pointer items-start gap-2">
+              <input
+                type="checkbox"
+                checked={costAck}
+                onChange={(e) => setCostAck(e.target.checked)}
+                className="mt-0.5 h-4 w-4 cursor-pointer rounded border-input"
+              />
+              <span>
+                我已了解本次推演会消耗约 {estimate.total} 次模型调用（可能耗时较长），
+                继续开始推演。
+              </span>
+            </label>
+          )}
+        </div>
+      </section>
+
+      {/* 8. 开始按钮 */}
       <div className="flex justify-end pt-2">
-        <Button onClick={onStart} size="lg">
+        <Button onClick={onStart} size="lg" disabled={!canStart}>
           {t("storySimulation.startExtract")}
         </Button>
       </div>

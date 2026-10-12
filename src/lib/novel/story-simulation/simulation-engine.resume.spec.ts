@@ -8,6 +8,11 @@ import type {
 import { runSimulation } from "@/lib/novel/story-simulation/simulation-engine"
 
 let mockRun: any
+let mockStreamChat: any
+
+vi.mock("@/lib/llm-client", () => ({
+  streamChat: (...args: unknown[]) => mockStreamChat(...args),
+}))
 
 vi.mock("@/lib/agent/runner", () => ({
   AgentRunner: class {
@@ -127,6 +132,25 @@ function makePreviousEvent(): TimelineEvent {
 describe("runSimulation resume", () => {
   it("continues from the saved node and round while keeping previous timeline events", async () => {
     vi.spyOn(Math, "random").mockReturnValue(0.99)
+    // 主循环默认走普通路径（每轮 1 次 streamChat），仅当可见历史超出内联窗口
+    // 时才升级到 ReAct；本用例只有 1 条既有事件，所以两条路径都要 mock。
+    mockStreamChat = vi.fn(
+      async (
+        _config: unknown,
+        _messages: unknown,
+        callbacks: { onToken: (token: string) => void },
+      ) => {
+        callbacks.onToken(
+          JSON.stringify({
+            type: "speak",
+            content: "续跑事件",
+            visibility: "all",
+            motivation: "继续推进",
+            plot_push: "补完当前节点",
+          }),
+        )
+      },
+    )
     mockRun = vi.fn().mockResolvedValue({
       toolCalls: [],
       roundsUsed: 1,

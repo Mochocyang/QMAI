@@ -28,6 +28,7 @@ import {
   SCENARIO_MODERATOR_USER_ID,
   SCENARIO_MODERATOR_USER_NAME,
   clampScenarioRounds,
+  lastSpokenRound,
 } from "./scenario-types"
 import {
   buildModeratorClosingPrompt,
@@ -130,6 +131,7 @@ export function buildCharacterTurnPrompt(
   transcript: string,
   round: number,
   worldRules?: string,
+  referenceMaterial?: string,
 ): string {
   const sections: string[] = []
 
@@ -159,6 +161,7 @@ export function buildCharacterTurnPrompt(
     buildSceneContext(setup, {
       formatHint: SCENARIO_FORMAT_INFO[setup.format].behaviorHint,
       worldRules,
+      referenceMaterial,
     }),
   )
 
@@ -222,6 +225,8 @@ export interface RunScenarioOptions {
   signal?: AbortSignal
   /** 世界规则 / 背景设定（可选）。 */
   worldRules?: string
+  /** 参考点检索到的资料正文（可选）。 */
+  referenceMaterial?: string
   /** 初始消息（续跑时传入）。 */
   initialMessages?: ScenarioMessage[]
   /** 起始轮次（默认 1）。 */
@@ -234,6 +239,21 @@ export interface RunScenarioOptions {
   withClosing?: boolean
   /** 主持人每隔多少轮串场一次（0=不串场；用户主持时忽略；默认取 setup.moderatorEveryRounds，缺省 5）。 */
   moderatorEveryRounds?: number
+  /**
+   * 串场节奏的起算轮次（默认 `startRound`）。
+   *
+   * 判据是「绝对轮次」而非「本段第几轮」：情景的轮次编号自 1 起且跨中止/插话
+   * 一直延续，所以续跑时必须把起算点传成 1，否则每一段都会在自己的第一轮
+   * 命中 `% === 0` —— 用户每次插话都会冒出一句串场，而原本配的「每 N 轮」
+   * 完全失效。默认值保持 `startRound`，整跑行为与从前逐字一致。
+   */
+  moderatorOriginRound?: number
+  /**
+   * 这一轮已经由别处让主持人说过话（典型是插话回应），跳过节奏串场。
+   *
+   * 「回应插话」本身就是这一轮的串场，不跳过就会在同一轮连出两句主持人台词。
+   */
+  suppressModeratorInterjectionRound?: number
   /** 每条发言开始生成时回调。 */
   onMessageStart?: (info: {
     kind: ScenarioMessage["kind"]
@@ -265,6 +285,7 @@ export async function runScenario(
     llmConfig,
     signal,
     worldRules,
+    referenceMaterial,
     initialMessages = [],
     startRound = 1,
     withClosing = true,
@@ -273,6 +294,7 @@ export async function runScenario(
     options.moderatorEveryRounds ??
     setup.moderatorEveryRounds ??
     SCENARIO_MODERATOR_INTERVAL_DEFAULT
+  const moderatorOriginRound = options.moderatorOriginRound ?? startRound
 
   const characters = getCharacters(setup.participants)
   const moderator = getModerator(setup.participants)
@@ -291,7 +313,8 @@ export async function runScenario(
   let interjections = 0
   if (!userModerator && moderator && moderatorEveryRounds > 0) {
     for (let r = startRound; r < startRound + roundsCount; r++) {
-      if ((r - startRound) % moderatorEveryRounds !== 0) continue
+      if (r === options.suppressModeratorInterjectionRound) continue
+      if ((r - moderatorOriginRound) % moderatorEveryRounds !== 0) continue
       if (r === startRound && withOpening) continue
       interjections += 1
     }
@@ -369,7 +392,7 @@ export async function runScenario(
       await generateModeratorSpeech(
         moderator,
         0,
-        buildModeratorOpeningPrompt(setup, worldRules),
+        buildModeratorOpeningPrompt(setup, worldRules, referenceMaterial),
       )
     }
   }
@@ -386,7 +409,8 @@ export async function runScenario(
       !userModerator &&
       moderator &&
       moderatorEveryRounds > 0 &&
-      (r - startRound) % moderatorEveryRounds === 0 &&
+      r !== options.suppressModeratorInterjectionRound &&
+      (r - moderatorOriginRound) % moderatorEveryRounds === 0 &&
       // 首轮串场已由开场覆盖，避免重复
       !(r === startRound && withOpening)
     ) {
@@ -398,6 +422,7 @@ export async function runScenario(
           formatTranscript(messages),
           r,
           worldRules,
+          referenceMaterial,
         ),
       )
     }
@@ -435,6 +460,7 @@ export async function runScenario(
               formatTranscript(messages),
               r,
               worldRules,
+              referenceMaterial,
             ),
           },
         ],
@@ -470,6 +496,7 @@ export async function runScenario(
         setup,
         formatTranscript(messages, 60),
         worldRules,
+        referenceMaterial,
       ),
     )
   }
@@ -486,6 +513,8 @@ export interface ContinueScenarioOptions {
   userInput: string
   signal?: AbortSignal
   worldRules?: string
+  /** 参考点检索到的资料正文（可选）。 */
+  referenceMaterial?: string
   /** 插话后追加多少轮角色发言（默认 1）。 */
   rounds?: number
   /** 是否让主持人（角色担任时）先回应一句（默认 false）。 */
@@ -509,6 +538,7 @@ export async function continueScenario(
     userInput,
     signal,
     worldRules,
+    referenceMaterial,
     rounds = 1,
     moderatorResponds = false,
   } = options
@@ -520,7 +550,7 @@ export async function continueScenario(
   const messages: ScenarioMessage[] = [...session.messages]
 
   // 记录用户插话
-  const lastRound = messages.length > 0 ? messages[messages.length - 1].round : 0
+  const lastRound = lastSpokenRound(messages)
   const userMsg = makeMessage({
     kind: "user",
     speakerId: "user",
@@ -532,7 +562,9 @@ export async function continueScenario(
   options.onMessage?.(userMsg)
 
   // 由角色担任主持人时，可让其先回应一句
-  if (moderatorResponds && moderator && !userModerator) {
+  const moderatorRepliesToUser =
+    moderatorResponds && moderator !== null && !userModerator
+  if (moderatorRepliesToUser && moderator) {
     options.onMessageStart?.({
       kind: "moderator",
       speakerId: moderator.id,
@@ -550,6 +582,7 @@ export async function continueScenario(
             formatTranscript(messages),
             userMsg.round,
             worldRules,
+            referenceMaterial,
           ),
         },
       ],
@@ -574,12 +607,21 @@ export async function continueScenario(
     llmConfig,
     signal,
     worldRules,
+    referenceMaterial,
     initialMessages: messages,
     startRound,
     rounds,
     withOpening: false,
     withClosing: false,
-    moderatorEveryRounds: 0,
+    // 插话不该把「每 N 轮串场」这条设置关掉：情景的轮次编号自 1 起一直延续，
+    // 所以续跑沿用设置里的间隔，并把起算点钉在 1，让节奏跨段接着走。
+    moderatorEveryRounds:
+      setup.moderatorEveryRounds ?? SCENARIO_MODERATOR_INTERVAL_DEFAULT,
+    moderatorOriginRound: 1,
+    // 主持人才刚回应过这条插话，同一轮别再串一次
+    suppressModeratorInterjectionRound: moderatorRepliesToUser
+      ? userMsg.round
+      : undefined,
     onMessageStart: options.onMessageStart,
     onToken: options.onToken,
     onMessage: options.onMessage,

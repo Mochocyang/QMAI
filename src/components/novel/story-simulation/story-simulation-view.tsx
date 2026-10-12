@@ -57,6 +57,11 @@ import type {
   ScenarioSetup,
 } from "@/lib/novel/story-simulation/scenario-types";
 import {
+  lastSpokenRound,
+  remainingScenarioRounds,
+} from "@/lib/novel/story-simulation/scenario-types";
+import { collectScenarioReferenceMaterial } from "@/lib/novel/story-simulation/scenario-reference";
+import {
   saveInterview,
   loadInterviews,
 } from "@/lib/novel/story-simulation/interview-store";
@@ -81,6 +86,14 @@ import type {
 } from "@/lib/novel/story-simulation/types";
 
 import { SimulationConfigPanel } from "./simulation-config-panel";
+import { averageDirectorScore } from "@/lib/novel/story-simulation/result-summary";
+import { summarizeRunStatus } from "@/lib/novel/story-simulation/run-status";
+import {
+  buildBranchEventPlanMarkdown,
+  exportBranchEventPlan,
+  generateBranchEventPlan,
+  resolvePlanTargetNode,
+} from "@/lib/novel/story-simulation/branch-event-plan";
 import { FrameworkConfirmPanel } from "./framework-confirm-panel";
 import { SimulationReportView } from "./simulation-report-view";
 import { StoryDraftView } from "./story-draft-view";
@@ -100,6 +113,7 @@ import {
 } from "@/lib/novel/story-simulation/action-type-utils";
 import { Button } from "@/components/ui/button";
 import { StorySimulationHub } from "./story-simulation-hub";
+import { useSimulationSession } from "./use-simulation-session";
 
 const PROGRESS_PHASES = [
   "extracting",
@@ -131,6 +145,7 @@ export function StorySimulationView() {
 
   const phase = useStorySimulationStore((s) => s.phase);
   const mode = useStorySimulationStore((s) => s.mode);
+  const directorEnabled = useStorySimulationStore((s) => s.directorEnabled);
   const userIdea = useStorySimulationStore((s) => s.userIdea);
   const targetWords = useStorySimulationStore((s) => s.targetWords);
   const sourceChapters = useStorySimulationStore((s) => s.sourceChapters);
@@ -189,6 +204,12 @@ export function StorySimulationView() {
   );
   const setCurrentRumors = useStorySimulationStore((s) => s.setCurrentRumors);
   const setCurrentAgents = useStorySimulationStore((s) => s.setCurrentAgents);
+  const setDirectorEvaluations = useStorySimulationStore(
+    (s) => s.setDirectorEvaluations,
+  );
+  const addDirectorEvaluation = useStorySimulationStore(
+    (s) => s.addDirectorEvaluation,
+  );
   const setSelectedResultId = useStorySimulationStore(
     (s) => s.setSelectedResultId,
   );
@@ -241,6 +262,10 @@ export function StorySimulationView() {
   // 取消控制器
   const abortControllerRef = useRef<AbortController | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  /** 正在导出事件计划的分支标题（P1-10） */
+  const [exportingBranchTitle, setExportingBranchTitle] = useState<
+    string | null
+  >(null);
   const resumeSimulationRef = useRef<SimulationResumePoint | null>(null);
   const resumeSnapshotRef = useRef<{
     agentSnapshot?: ReturnType<typeof serializeSimulationState> | null;
@@ -274,6 +299,16 @@ export function StorySimulationView() {
   const [scenarioRunning, setScenarioRunning] = useState(false);
   const [scenarioExporting, setScenarioExporting] = useState(false);
   const [scenarioInserting, setScenarioInserting] = useState(false);
+  /**
+   * 本场情景实际注入了几篇参考资料（null=没填参考点或一篇都没搜到）。
+   *
+   * 必须让用户看见：「参考点」写着「必须以此为依据」，如果检索落空，作者看到的
+   * 界面和检索成功时一模一样，只会以为模型不听话。
+   */
+  const [scenarioReferenceInfo, setScenarioReferenceInfo] = useState<{
+    count: number;
+    truncated: boolean;
+  } | null>(null);
   const [scenarioSaved, setScenarioSaved] = useState<ScenarioSession[]>([]);
   const [scenarioSourceChapters, setScenarioSourceChapters] =
     useState(sourceChapters);
@@ -285,6 +320,9 @@ export function StorySimulationView() {
 
   // 当前阶段的进度基线
   const phaseBaseProgressRef = useRef(0);
+
+  // 配置跨项目/重启保留（.qmai/simulations/session.json）
+  useSimulationSession(projectPath);
 
   // 采访面板打开时自动滚动到底部
   useEffect(() => {
@@ -309,7 +347,21 @@ export function StorySimulationView() {
         setCurrentAgents(new Map(agents.map((a) => [a.characterId, a])));
       } catch (err) {
         console.error("反序列化历史结果失败:", err);
+        // 快照损坏时清空，避免采访继续用上一条推演的角色与世界观。
+        lastAgentsRef.current = [];
+        lastSimulationStateRef.current = null;
+        setCurrentAgents(new Map());
       }
+    } else {
+      /*
+       * 这条历史结果没有 agentSnapshot。必须把内存态一并清掉，否则采访会拿
+       * `lastSimulationStateRef` 里**上一次推演**的世界去回答，指着一个界面
+       * 上根本没显示的角色聊天。清空后采访会走 handleSendChat 的恢复分支，
+       * 最终给出「没有可用的角色状态」这个诚实的提示。
+       */
+      lastAgentsRef.current = [];
+      lastSimulationStateRef.current = null;
+      setCurrentAgents(new Map());
     }
     if (result.timelineEvents) {
       setTimelineEvents(result.timelineEvents);
@@ -403,7 +455,7 @@ export function StorySimulationView() {
       timelineEvents: savedTimelineEvents,
       activeAgents,
       worldState: lastSimulationStateRef.current?.worldState ?? {},
-      directorEnabled: false,
+      directorEnabled: state.directorEnabled,
       nextNodeInjectionMap: new Map(),
     };
     const agentsForSnapshot =
@@ -593,6 +645,36 @@ export function StorySimulationView() {
   };
 
   /**
+   * 报告页内置下拉的历史结果切换。
+   *
+   * 必须走 `applySimulationResult` 而不是只改一个「选中 id」：报告页展示的是
+   * `currentResult.report`，而「生成草稿」用的是 store 的 `currentReport`。只改 id
+   * 会让两者错位 —— 界面显示 B 结果，草稿却按 A 结果的角色分析去生成。
+   *
+   * 选中 `null`（下拉里的「最新推演」）时回到最新一条；`loadSimulationResults`
+   * 按 `report.createdAt` 倒序，所以 `savedResults[0]` 就是最新。
+   */
+  const handleSelectReportResult = (resultId: string | null) => {
+    if (!resultId) {
+      const latest = savedResults[0];
+      if (latest) {
+        applySimulationResult(latest);
+      } else {
+        setSelectedResultId(null);
+      }
+      return;
+    }
+
+    const result = savedResults.find((r) => r.id === resultId);
+    if (!result) {
+      setSelectedResultId(null);
+      return;
+    }
+
+    applySimulationResult(result);
+  };
+
+  /**
    * 从落地页的「最近」打开一条**跨框架**的推演结果。
    *
    * 与上面那个入口的区别：那条结果可能属于别的框架，所以必须先把框架设成
@@ -676,6 +758,15 @@ export function StorySimulationView() {
     setTimelineEvents([]);
     setDebugTraces(resumePoint ? resumeSnapshot?.debugTraces || [] : []);
     setCurrentRumors(resumePoint ? resumeSnapshot?.rumors || [] : []);
+    /*
+     * 开跑前清掉「正在查看的历史结果」。
+     *
+     * 报告页的 `viewingResultId` 现在就是 store 的 `selectedResultId`，若不清，
+     * 新一次推演跑完后报告页会继续显示上一次浏览的那条历史结果，而不是刚跑出来的。
+     * 继续推演路径不依赖它：需要用的快照已由 handleContinuePartialResult 直接
+     * 写进 lastSimulationStateRef / lastAgentsRef。
+     */
+    setSelectedResultId(null);
     setIsCancelling(false);
     const ac = new AbortController();
     abortControllerRef.current = ac;
@@ -733,6 +824,10 @@ export function StorySimulationView() {
 
       const collectedTimeline: TimelineEvent[] = [];
 
+      // 导演开关以面板 store 值为准，贯穿本次推演的状态快照与分支评分
+      const directorEnabledForRun = directorEnabled;
+      setDirectorEvaluations([]);
+
       const callbacks: SimulationCallbacks = {
         onEvent: () => {},
         onProgress: (p, label) => setProgress(50 + Math.floor(p / 2), label),
@@ -752,7 +847,7 @@ export function StorySimulationView() {
             timelineEvents: useStorySimulationStore.getState().timelineEvents,
             activeAgents: trace.activeAgents,
             worldState: {},
-            directorEnabled: false,
+            directorEnabled: directorEnabledForRun,
             nextNodeInjectionMap: new Map(),
           };
 
@@ -785,6 +880,9 @@ export function StorySimulationView() {
             addHistoryEntry(entry);
           }
         },
+        onDirectorEvaluation: (evaluation) => {
+          addDirectorEvaluation(evaluation);
+        },
       };
       const events = await runSimulation(
         {
@@ -795,6 +893,7 @@ export function StorySimulationView() {
           llmConfig,
           userIdea: userIdea || undefined,
           maxRoundsPerNode: simulationRounds > 0 ? simulationRounds : undefined,
+          directorEnabled: directorEnabledForRun,
           dynamicEventPool: (
             Array.isArray(dynamicEventPool)
               ? dynamicEventPool.length > 0
@@ -823,7 +922,7 @@ export function StorySimulationView() {
         timelineEvents: collectedTimeline,
         activeAgents: new Map(agents.map((a) => [a.characterId, a])),
         worldState: {},
-        directorEnabled: false,
+        directorEnabled: directorEnabledForRun,
         nextNodeInjectionMap: new Map(),
       };
 
@@ -839,6 +938,16 @@ export function StorySimulationView() {
         onProgress: (label) => setProgress(phaseBaseProgressRef.current, label),
         signal: ac.signal,
       });
+
+      // 把导演评分落进报告：历史结果列表读的是磁盘上的报告，而导演评估只存在
+      // 内存分支里。不落盘的话，列表永远显示不出「导演均分」。
+      const directorEvals =
+        useStorySimulationStore.getState().directorEvaluations;
+      const directorAverageScore = averageDirectorScore(directorEvals);
+      if (directorAverageScore !== null) {
+        report.directorAverageScore = directorAverageScore;
+        report.directorEvaluationCount = directorEvals.length;
+      }
 
       if (ac.signal.aborted) {
         await savePartialSimulationResult("用户取消推演");
@@ -919,6 +1028,8 @@ export function StorySimulationView() {
     setTimelineEvents([]);
     setDebugTraces([]);
     setCurrentReport(null);
+    // 同 handleConfirmFramework：别让报告页继续挂着上次浏览的历史结果。
+    setSelectedResultId(null);
     setPhase("framework-confirming");
   };
 
@@ -1011,6 +1122,69 @@ export function StorySimulationView() {
     } finally {
       setIsCancelling(false);
       abortControllerRef.current = null;
+    }
+  };
+
+  /**
+   * P1-10：把一条走向分支导出成本章事件计划（`wiki/outlines/事件计划/`）。
+   *
+   * 在这之前推演结果的唯一出口是「生成草稿」→ 正文，中间缺一步可审阅、可修改
+   * 的计划。而 `StoryBranch.summary` / `keyEvents` 与章纲 §5「核心事件链」本就
+   * 同构，差的只是一个出口。
+   *
+   * 两个判断：
+   * - 计划必须落到某个框架节点上，否则「本章」无从谈起。优先取与分支同名的
+   *   节点；没有同名节点就退回第一个节点，并在提示里说明落到了哪一章 ——
+   *   不能悄悄挑一个让用户以为就是对的那章。
+   * - 生成不达标时**不落盘**：宁可报错让他重试，也不要存一份支离破碎的计划，
+   *   否则用户会把它当成可用产物。
+   */
+  const handleExportEventPlan = async (branch: StoryBranch) => {
+    if (!projectPath || !currentFramework || !currentReport) {
+      setError("缺少项目路径、故事框架或推演报告，无法导出事件计划");
+      return;
+    }
+
+    const target = resolvePlanTargetNode(currentFramework, branch);
+    if (!target) {
+      setError("当前故事框架没有任何节点，无法确定「本章」是哪一章");
+      return;
+    }
+    const { node, matchedByTitle } = target;
+
+    setExportingBranchTitle(branch.title);
+    try {
+      const llmConfig = resolveDefaultModel(baseLlmConfig);
+      const events = await generateBranchEventPlan({
+        framework: currentFramework,
+        node,
+        branch,
+        report: currentReport,
+        llmConfig,
+      });
+      const markdown = buildBranchEventPlanMarkdown({
+        framework: currentFramework,
+        node,
+        branch,
+        events,
+      });
+      const { path } = await exportBranchEventPlan({
+        projectPath,
+        chapterNumber: node.index + 1,
+        branchTitle: branch.title,
+        markdown,
+      });
+
+      const fallbackNote = matchedByTitle
+        ? ""
+        : `（框架里没有与分支同名的节点，已按「${node.title}」这一章生成）`;
+      setInfoMessage(`事件计划已导出到：${path}${fallbackNote}`);
+      setTimeout(() => setInfoMessage(null), 8000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "导出事件计划失败");
+      setTimeout(() => setError(null), 8000);
+    } finally {
+      setExportingBranchTitle(null);
     }
   };
 
@@ -1387,6 +1561,28 @@ export function StorySimulationView() {
   });
 
   /** 启动舞台情景：从设置面板收到的 setup 开始生成。 */
+  /**
+   * 取本场情景的「参考点」资料。
+   *
+   * 没填参考点就完全不检索（省一次 IO）。检索落空也照常返回 undefined，情景
+   * 必须能开演 —— 资料是锦上添花。结果记进 scenarioReferenceInfo，好在房间里
+   * 如实告诉用户「依据了 N 篇资料」还是「一篇都没找到」。
+   */
+  const resolveScenarioReference = async (setup: ScenarioSetup) => {
+    const reference = setup.rules.reference?.trim();
+    if (!projectPath || !reference) {
+      setScenarioReferenceInfo(null);
+      return undefined;
+    }
+    const material = await collectScenarioReferenceMaterial(projectPath, reference);
+    setScenarioReferenceInfo(
+      material.sources.length > 0
+        ? { count: material.sources.length, truncated: material.truncated }
+        : null,
+    );
+    return material.text || undefined;
+  };
+
   const handleScenarioStart = async (setup: ScenarioSetup) => {
     if (!projectPath) {
       setError(t("storySimulation.scenarioNoProject"));
@@ -1404,11 +1600,13 @@ export function StorySimulationView() {
     scenarioAbortRef.current = controller;
     try {
       const llmConfig = resolveDefaultModel(baseLlmConfig);
+      const referenceMaterial = await resolveScenarioReference(setup);
       const result = await runScenario({
         setup,
         llmConfig,
         signal: controller.signal,
         worldRules: extractionResult?.worldRules,
+        referenceMaterial,
         ...makeScenarioCallbacks(setup),
       });
       scenarioMessagesRef.current = result.messages;
@@ -1445,6 +1643,9 @@ export function StorySimulationView() {
     scenarioAbortRef.current = controller;
     try {
       const llmConfig = resolveDefaultModel(baseLlmConfig);
+      const referenceMaterial = await resolveScenarioReference(
+        scenarioSession.setup,
+      );
       const result = await continueScenario({
         session: scenarioSession,
         llmConfig,
@@ -1452,6 +1653,7 @@ export function StorySimulationView() {
         signal: controller.signal,
         rounds: 1,
         worldRules: extractionResult?.worldRules,
+        referenceMaterial,
         ...makeScenarioCallbacks(scenarioSession.setup),
       });
       scenarioMessagesRef.current = result.messages;
@@ -1477,6 +1679,63 @@ export function StorySimulationView() {
 
   const handleScenarioCancel = () => {
     scenarioAbortRef.current?.abort();
+  };
+
+  /**
+   * 接着跑完剩余轮数。
+   *
+   * 「停止」原本等于毁掉剩余计划：想跑完只能手动插话，而每条插话固定只跑 1 轮。
+   * 这里从「已经说到的下一轮」接着跑，主持人串场按绝对轮次延续（与 P1 修好的
+   * 那套节奏同一个口径），收束仍由这次续跑补上，所以中止不再等于半成品。
+   */
+  const handleScenarioContinue = async () => {
+    if (!scenarioSession || !projectPath || scenarioRunning) return;
+    const remaining = remainingScenarioRounds(
+      scenarioSession.setup,
+      scenarioSession.messages,
+    );
+    if (remaining <= 0) return;
+    setError(null);
+    setScenarioRunning(true);
+    const controller = new AbortController();
+    scenarioAbortRef.current = controller;
+    const continuedFrom = scenarioSession;
+    try {
+      const llmConfig = resolveDefaultModel(baseLlmConfig);
+      const result = await runScenario({
+        setup: continuedFrom.setup,
+        llmConfig,
+        signal: controller.signal,
+        worldRules: extractionResult?.worldRules,
+        referenceMaterial: await resolveScenarioReference(continuedFrom.setup),
+        initialMessages: continuedFrom.messages,
+        startRound: lastSpokenRound(continuedFrom.messages) + 1,
+        rounds: remaining,
+        withOpening: false,
+        withClosing: true,
+        moderatorOriginRound: 1,
+        ...makeScenarioCallbacks(continuedFrom.setup),
+      });
+      scenarioMessagesRef.current = result.messages;
+      const finalSession = buildScenarioSession(
+        continuedFrom.setup,
+        result.messages,
+        result.cancelled ? "cancelled" : "completed",
+      );
+      setScenarioSession(finalSession);
+      try {
+        await saveScenario(projectPath, finalSession);
+      } catch {
+        // 持久化失败不影响展示
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setScenarioRunning(false);
+      setScenarioStreaming(null);
+      setScenarioProgress(null);
+      scenarioAbortRef.current = null;
+    }
   };
 
   const handleScenarioExport = async () => {
@@ -1741,6 +2000,11 @@ export function StorySimulationView() {
                       onViewInterviewHistory={() =>
                         setShowInterviewHistory(true)
                       }
+                      onSelectResult={handleSelectReportResult}
+                      onExportEventPlan={(branch) =>
+                        void handleExportEventPlan(branch)
+                      }
+                      exportingBranchTitle={exportingBranchTitle}
                     />
                   ) : reportViewTab === "timeline" ? (
                     <div className="h-full overflow-y-auto p-3">
@@ -1925,6 +2189,11 @@ export function StorySimulationView() {
                   onViewDraft={handleViewDraft}
                   hasDraft={!!currentDraft}
                   onViewInterviewHistory={() => setShowInterviewHistory(true)}
+                  onSelectResult={handleSelectReportResult}
+                  onExportEventPlan={(branch) =>
+                    void handleExportEventPlan(branch)
+                  }
+                  exportingBranchTitle={exportingBranchTitle}
                 />
               ) : draftViewTab === "timeline" ? (
                 <div className="h-full overflow-y-auto p-3">
@@ -2013,8 +2282,18 @@ export function StorySimulationView() {
             onInsertToChapters={() => void handleScenarioInsert()}
             onCancel={handleScenarioCancel}
             onBack={handleScenarioBack}
+            onContinue={() => void handleScenarioContinue()}
+            remainingRounds={
+              scenarioSession
+                ? remainingScenarioRounds(
+                    scenarioSession.setup,
+                    scenarioSession.messages,
+                  )
+                : 0
+            }
             exporting={scenarioExporting}
             inserting={scenarioInserting}
+            referenceInfo={scenarioReferenceInfo}
           />
         ) : phase === "idle" ? (
           /* 落地页：两个彼此独立的功能并列成同级入口 */
@@ -2129,6 +2408,11 @@ function SimulatingTimelinePanel({
   const currentAgents = useStorySimulationStore((s) => s.currentAgents);
   const timelineEvents = useStorySimulationStore((s) => s.timelineEvents);
 
+  const runStatus = useMemo(
+    () => summarizeRunStatus({ debugTraces, framework, events }),
+    [debugTraces, framework, events],
+  );
+
   // 筛选状态
   const [filterActor, setFilterActor] = useState<string>("all");
   const [filterType, setFilterType] = useState<string>("all");
@@ -2232,6 +2516,22 @@ function SimulatingTimelinePanel({
             style={{ width: `${clamped}%` }}
           />
         </div>
+        {/* 常驻状态条：跑到一半也能看出在哪个节点、第几轮、已产生多少事件、花了多少次决策 */}
+        {runStatus && (
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">
+              {runStatus.nodeTitle}
+              {runStatus.totalNodes !== null && (
+                <span className="font-normal text-muted-foreground">
+                  （{runStatus.nodeNumber}/{runStatus.totalNodes}）
+                </span>
+              )}
+            </span>
+            <span>第 {runStatus.round} 轮</span>
+            <span>{runStatus.eventCount} 事件</span>
+            <span>{runStatus.decisionCount} 次决策</span>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <div className="text-xs text-muted-foreground">{clamped}%</div>
           {onCancel && (

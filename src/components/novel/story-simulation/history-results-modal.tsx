@@ -1,8 +1,12 @@
-﻿import { useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { X, Loader2, Trash2, History } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { loadSimulationResults, deleteSimulationResult } from "@/lib/novel/story-simulation/framework-store"
 import type { SimulationResultStatus } from "@/lib/novel/story-simulation/types"
+import {
+  summarizeSimulationResult,
+  type SimulationResultSummary,
+} from "@/lib/novel/story-simulation/result-summary"
 
 interface HistoryResultsModalProps {
   open: boolean
@@ -13,11 +17,10 @@ interface HistoryResultsModalProps {
   onClose: () => void
 }
 
-interface ResultItem {
+interface ResultItem extends SimulationResultSummary {
   id: string
   createdAt: string
   summary: string
-  hasDraft: boolean
   status: SimulationResultStatus
 }
 
@@ -46,8 +49,8 @@ export function HistoryResultsModal({
             id: r.id,
             createdAt: r.report.createdAt,
             summary: r.report.recommendation || "查看推演结果",
-            hasDraft: !!r.draft,
             status: r.status,
+            ...summarizeSimulationResult(r),
           })),
         )
       })
@@ -146,6 +149,26 @@ export function HistoryResultsModal({
                     </div>
                     <span className="block truncate text-xs text-muted-foreground">
                       {result.summary.slice(0, 40)}
+                    </span>
+                    {/* 一等公民指标：让列表本身就能比较几次推演 */}
+                    <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[0.625rem] text-muted-foreground">
+                      <span>{result.characterCount} 角色</span>
+                      <span>·</span>
+                      <span>{result.branchCount} 走向</span>
+                      {result.decisionCount > 0 && (
+                        <>
+                          <span>·</span>
+                          <span>{result.decisionCount} 次决策</span>
+                        </>
+                      )}
+                      {result.directorAverageScore !== null && (
+                        <>
+                          <span>·</span>
+                          <span title={`基于 ${result.directorEvaluationCount ?? 0} 次导演评估`}>
+                            导演 {result.directorAverageScore.toFixed(1)}
+                          </span>
+                        </>
+                      )}
                     </span>
                   </div>
                   {(result.status ?? "complete") !== "complete" && onContinueResult && (

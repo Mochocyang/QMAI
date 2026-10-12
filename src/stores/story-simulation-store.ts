@@ -109,6 +109,8 @@ interface StorySimulationState {
   usedEventIndices: Set<number>;
   /** 是否启用导演 Agent */
   directorEnabled: boolean;
+  /** 本轮推演累积的导演评估（7 维评分），保存分支时写入分支 */
+  directorEvaluations: DirectorEvaluation[];
   /** 当前所有传闻 */
   currentRumors: RumorEvent[];
   /** 当前所有角色快照 */
@@ -192,6 +194,10 @@ interface StorySimulationState {
   setDynamicEventPool: (pool: string[] | StagedEventPool) => void;
   /** 设置是否启用导演 Agent */
   setDirectorEnabled: (enabled: boolean) => void;
+  /** 覆盖本轮推演的导演评估集合（推演开始前清空） */
+  setDirectorEvaluations: (evaluations: DirectorEvaluation[]) => void;
+  /** 追加一条导演评估 */
+  addDirectorEvaluation: (evaluation: DirectorEvaluation) => void;
   /** 设置当前传闻列表 */
   setCurrentRumors: (rumors: RumorEvent[]) => void;
   /** 设置当前角色快照 */
@@ -265,6 +271,7 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   dynamicEventPool: [],
   usedEventIndices: new Set(),
   directorEnabled: false,
+  directorEvaluations: [],
   currentRumors: [],
   currentAgents: new Map(),
   branches: [],
@@ -324,6 +331,11 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   setAgentChatMessages: (agentChatMessages) => set({ agentChatMessages }),
   setDynamicEventPool: (dynamicEventPool) => set({ dynamicEventPool }),
   setDirectorEnabled: (directorEnabled) => set({ directorEnabled }),
+  setDirectorEvaluations: (directorEvaluations) => set({ directorEvaluations }),
+  addDirectorEvaluation: (evaluation) =>
+    set((state) => ({
+      directorEvaluations: [...state.directorEvaluations, evaluation],
+    })),
   setCurrentRumors: (currentRumors) => set({ currentRumors }),
   setCurrentAgents: (currentAgents) => set({ currentAgents }),
 
@@ -354,7 +366,7 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
       );
 
       const { overallScore, details } = calculateBranchScore(
-        [],
+        state.directorEvaluations,
         state.timelineEvents.length,
         activeAgentCount,
         totalAgentCount,
@@ -370,7 +382,7 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
         timelineEvents: [...state.timelineEvents],
         rumors: [...state.currentRumors],
         finalAgentSnapshots,
-        directorEvaluations: [],
+        directorEvaluations: [...state.directorEvaluations],
         overallScore,
         scoreDetails: details,
       };
@@ -577,6 +589,7 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
       dynamicEventPool: [],
       usedEventIndices: new Set(),
       directorEnabled: false,
+      directorEvaluations: [],
       currentRumors: [],
       currentAgents: new Map(),
       branches: [],

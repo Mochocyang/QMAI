@@ -34,4 +34,92 @@ describe("story simulation debug process view wiring", () => {
     expect(source).toContain("Blackboard")
     expect(source).toContain("可见事件")
   })
+
+  it("forwards the panel director switch into runSimulation and the state snapshot", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/novel/story-simulation/story-simulation-view.tsx",
+      ),
+      "utf8",
+    )
+
+    // 面板勾选的导演开关必须真的传进引擎
+    expect(source).toContain("directorEnabled: directorEnabledForRun")
+    // 评估结果必须被回传并累积（分支评分与评分对比页依赖它）
+    expect(source).toContain("onDirectorEvaluation")
+    expect(source).toContain("addDirectorEvaluation")
+    // 回归保护：此前传给采访功能的状态里 directorEnabled 被写死为 false
+    expect(source).not.toContain("directorEnabled: false")
+  })
+
+  it("unifies the report view's selected result with the store and resets it per run", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/novel/story-simulation/story-simulation-view.tsx",
+      ),
+      "utf8",
+    )
+
+    // 报告页切换历史结果时必须走 applySimulationResult：只改「选中 id」会让
+    // 展示的报告与「生成草稿」用的 currentReport 错位。
+    expect(source).toContain("handleSelectReportResult")
+    expect(source).toContain("onSelectResult={handleSelectReportResult}")
+    // 新一次推演开跑前要清掉「正在查看的历史结果」，否则跑完仍显示旧结果。
+    expect(source).toContain("setSelectedResultId(null)")
+    // 历史结果没有 agentSnapshot 时要清空内存态，避免采访用上一条推演的世界
+    expect(source).toContain("lastSimulationStateRef.current = null")
+  })
+
+  it("wires session persistence through the project path", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/novel/story-simulation/story-simulation-view.tsx",
+      ),
+      "utf8",
+    )
+
+    // 配置持久化必须挂在 view 上，且必须拿到 projectPath —— 没有它 hook 会
+    // 直接不读不写（见 use-simulation-session.spec.tsx 的覆盖）。
+    expect(source).toContain("useSimulationSession(projectPath)")
+  })
+
+  it("renders the persistent run status bar during simulation", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/novel/story-simulation/story-simulation-view.tsx",
+      ),
+      "utf8",
+    )
+
+    // 状态条读的是 debugTraces 汇总出来的 runStatus（纯函数，
+    // 见 run-status.spec.ts 的覆盖）。
+    expect(source).toContain("summarizeRunStatus({ debugTraces, framework, events })")
+    expect(source).toContain("runStatus.nodeTitle")
+    expect(source).toContain("runStatus.eventCount")
+    expect(source).toContain("runStatus.decisionCount")
+  })
+
+  it("wires the branch event plan export end to end (P1-10)", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/novel/story-simulation/story-simulation-view.tsx",
+      ),
+      "utf8",
+    )
+
+    // 生成 → 渲染 → 落盘 三步都要接上：只接一半就会变成一个点了没反应、
+    // 或者生成了却没写文件的假出口（本分支的起点 P0-1 正是这类问题）。
+    expect(source).toContain("generateBranchEventPlan({")
+    expect(source).toContain("buildBranchEventPlanMarkdown({")
+    expect(source).toContain("exportBranchEventPlan({")
+    // 落到具体节点上，否则「本章」无从谈起
+    expect(source).toContain("resolvePlanTargetNode(currentFramework, branch)")
+    // 传给报告页，否则按钮根本不会出现
+    expect(source).toContain("onExportEventPlan={(branch) =>")
+  })
 })

@@ -80,6 +80,23 @@ export async function exportReport(
   const timestamp = now.toISOString()
   const filePath = reportFilePath(projectPath, framework.shortTitle || framework.title, timestamp)
 
+  const content = buildReportMarkdown(framework, report, timelineEvents, now)
+  await writeFileAtomic(filePath, content)
+  return filePath
+}
+
+/**
+ * 把报告渲染成 Markdown。
+ *
+ * 从 `exportReport` 里抽出来是为了能直接断言正文内容 —— 原来它和 `writeFileAtomic`
+ * 混在一起，只能靠真实落盘来测。
+ */
+export function buildReportMarkdown(
+  framework: StoryFramework,
+  report: SimulationReport,
+  timelineEvents: TimelineEvent[] | undefined,
+  now: Date,
+): string {
   const lines: string[] = []
   lines.push(`# 故事推演报告：${framework.title}`)
   lines.push("")
@@ -153,6 +170,13 @@ export async function exportReport(
           lines.push(`- ${s}`)
         }
       }
+      if (char.evidence && char.evidence.length > 0) {
+        lines.push("")
+        lines.push("**原话依据：**")
+        for (const quote of char.evidence) {
+          lines.push(`> ${quote}`)
+        }
+      }
       lines.push("")
     }
   }
@@ -182,11 +206,38 @@ export async function exportReport(
       if (branch.cons) {
         lines.push(`- 风险：${branch.cons}`)
       }
+      if (branch.evidence && branch.evidence.length > 0) {
+        lines.push("- 原话依据：")
+        for (const quote of branch.evidence) {
+          lines.push(`  > ${quote}`)
+        }
+      }
       lines.push("")
     }
   }
 
-  const content = lines.join("\n")
-  await writeFileAtomic(filePath, content)
-  return filePath
+  // 取证审计：引文是否真的逐字来自事件记录
+  if (report.evidenceAudit) {
+    lines.push("## 取证审计")
+    lines.push("")
+    lines.push(
+      `- 引文共 ${report.evidenceAudit.total} 条，逐字核对通过 ${report.evidenceAudit.verified} 条`,
+    )
+    lines.push(
+      report.evidenceAudit.toolCalls > 0
+        ? `- 取证过程调用工具 ${report.evidenceAudit.toolCalls} 次`
+        : "- 本次未使用取证工具（单次生成）",
+    )
+    if (report.evidenceAudit.unverified.length > 0) {
+      lines.push(
+        `- **警告**：下列 ${report.evidenceAudit.unverified.length} 条引文在事件记录中找不到原文，可能是改写或编造，请勿当作依据：`,
+      )
+      for (const quote of report.evidenceAudit.unverified) {
+        lines.push(`  - 「${quote}」`)
+      }
+    }
+    lines.push("")
+  }
+
+  return lines.join("\n")
 }

@@ -304,6 +304,32 @@ export interface SimulationReport {
   branches: StoryBranch[]
   recommendation: string
   createdAt: string
+  /**
+   * 报告取证审计（P1-7）。旧存档没有这个字段，故为可选。
+   *
+   * 存在的意义：报告要求逐字引用 agent 原话，而「模型是否真引了、引的是不是
+   * 编的」必须可核对。审计把通过/未通过的条数摊开，未通过的原文也留着。
+   */
+  evidenceAudit?: ReportEvidenceAudit
+  /**
+   * 本次推演的导演评分均值（P2-3）。未启用导演、或旧存档没有该字段时为 undefined。
+   *
+   * 存进报告是为了让历史结果列表能显示「导演均分」—— 导演评估本身只存在内存
+   * 分支里，列表读的是磁盘上的报告，不落盘就看不到。
+   */
+  directorAverageScore?: number
+  /** 参与均值的评估次数，用于区分「没跑导演」与「跑了但均值恰好是某值」 */
+  directorEvaluationCount?: number
+}
+
+export interface ReportEvidenceAudit {
+  /** 参与校验的引文条数（空白引文不计入） */
+  total: number
+  verified: number
+  /** 未能逐字对上的引文原文 */
+  unverified: string[]
+  /** 本次报告实际发生的工具调用次数。0 表示走了单次调用回退路径 */
+  toolCalls: number
 }
 
 export type SimulationResultStatus = "complete" | "partial" | "cancelled"
@@ -320,6 +346,8 @@ export interface CharacterAnalysis {
   behaviors: { node: string; action: string; motivation: string }[]
   stateChanges: string[]
   consistencyScore: number
+  /** 逐字引用该角色的原话作为依据（P1-7）。旧存档无此字段。 */
+  evidence?: string[]
 }
 
 export interface StoryBranch {
@@ -330,6 +358,8 @@ export interface StoryBranch {
   pros: string
   cons: string
   recommendation: boolean
+  /** 逐字引用支撑该走向的原话（P1-7）。旧存档无此字段。 */
+  evidence?: string[]
 }
 
 // ── 故事草稿 ──
@@ -376,6 +406,8 @@ export interface SimulationInput {
   injectionEvent?: string
   /** 每个节点的仿真轮数，不传则根据字数自动计算 */
   maxRoundsPerNode?: number
+  /** 是否启用导演 Agent；显式传入时优先于模式配置，未传则回退到模式配置 */
+  directorEnabled?: boolean
   /** LLM 预生成的动态事件池（支持字符串数组或分阶段池） */
   dynamicEventPool?: string[] | StagedEventPool
   /** 从中断位置继续推演 */
@@ -453,6 +485,150 @@ const MODE_CONFIGS: Record<SimulationMode, ModeConfig> = {
 
 export function getModeConfig(mode: SimulationMode): ModeConfig {
   return MODE_CONFIGS[mode] ?? MODE_CONFIGS.hybrid
+}
+
+// ── 成本预估（开跑前的护栏） ──
+
+/**
+ * 预估模型调用次数超过该阈值时，配置页要求用户显式勾选确认才能开跑。
+ *
+ * 与「舞台情景」的 `SCENARIO_COST_WARN_THRESHOLD = 40` 取同一量级：那个便宜得多
+ * 的功能早就有护栏，而主推演（中等项目 175~415 次调用、几十分钟等待）此前
+ * 连一句提示都没有 —— 这个阈值就是把倒挂的那一端补上。
+ */
+export const SIMULATION_CALL_WARN_THRESHOLD = 40
+
+/**
+ * 配置阶段拿不到真实角色数（提取发生在点「开始」之后），按此保守假设估算。
+ * 5 与《剧情推演-独立功能优化方案》里举例用的规模一致。
+ */
+export const DEFAULT_ESTIMATED_CHARACTER_COUNT = 5
+
+/**
+ * 每角色每轮的平均调用次数 —— **ReAct 路径**。
+ *
+ * ReAct 工具循环下是 1~3 次（`simulation-engine.ts` 的 agentDecideAndActWithReact），
+ * 取中点 1.5 作为期望值。普通路径固定 1 次，见 `PLAIN_CALLS_PER_TURN`。
+ */
+const REACT_CALLS_PER_TURN = 1.5
+
+/** 普通路径每轮固定一次调用（`agentDecideAndAct`）。 */
+const PLAIN_CALLS_PER_TURN = 1
+
+/**
+ * 普通路径内联给模型的历史事件条数上限（P1-9）。
+ *
+ * 这个数字同时决定「什么时候需要升级到 ReAct」——见 `simulation-engine.ts` 的
+ * `shouldEscalateToReact`。定义在这里（而不是引擎里）是因为成本预估
+ * `estimateSimulationCalls` 也要用它，而 `types.ts` 是被引擎 import 的一方，
+ * 反向 import 会形成循环依赖。
+ *
+ * 两者必须共用同一个常量，否则内联窗口与升级阈值会各自漂移，出现
+ * 「明明没看全却不升级」或「看全了还升级」的错配。
+ */
+export const INLINE_VISIBLE_EVENT_LIMIT = 10
+
+export interface SimulationCallEstimate {
+  /** 节点数 N（`calcNodeCount`） */
+  nodeCount: number
+  /** 每节点实际轮数 R（含模式乘数） */
+  roundsPerNode: number
+  /** 每轮活跃角色数 A */
+  activeAgents: number
+  /** Agent 决策调用 */
+  agentCalls: number
+  /** 其中走 ReAct（工具）路径的决策次数 */
+  reactTurns: number
+  /** 节点目标判定的 embedding 调用 */
+  embeddingCalls: number
+  /** 导演 Agent 评估调用 */
+  directorCalls: number
+  /** 固定开销：报告 1 次 + 逐节点草稿 N 次 */
+  fixedCalls: number
+  /** 合计（向上取整） */
+  total: number
+}
+
+/**
+ * 预估一次剧情推演的模型调用次数。
+ *
+ * 口径与当前引擎实现保持一致：
+ * ```
+ * N = calcNodeCount(targetWords)                              types.ts
+ * 基础轮数 = simulationRounds || calcMaxRoundsPerNode(字数)    types.ts
+ * R = max(1, round(基础轮数 × 模式轮数乘数))                   simulation-engine.ts
+ * A = max(1, ceil(角色数 × 模式活跃比例))                      multi-agent-orchestrator.ts
+ *
+ * 路径（P1-9）：第 r 轮开始时该角色可见事件约 r × A 条，
+ *   不超过内联窗口 INLINE_VISIBLE_EVENT_LIMIT 的轮次走普通路径（1 次调用），
+ *   超出的轮次升级到 ReAct（约 1.5 次调用）
+ * agent   = N × A × (普通轮数 × 1 + ReAct 轮数 × 1.5)
+ * embed   = strict ? N + N×R : 0   （expectedOutcome 按节点缓存一次 + 事件文本每轮一次）
+ * director= 启用 ? N-1 : 0         （引擎只评估 ni < totalNodes-1）
+ * fixed   = 1（报告）+ N（逐节点草稿）
+ * ```
+ *
+ * 注意与《工作清单》里 `2NR` 的差异：那是 P0-4/P0-5 之前的写法。P0-4 之后非
+ * strict 模式根本不做目标判定（0 次），P0-5 之后 `expectedOutcome` 每节点只算
+ * 一次（`N` 而非 `N×R`），所以这里按实际实现写。
+ *
+ * 这是**量级预估**而非精确值：可见事件数的增长是按「每个活跃角色每轮各产出一条
+ * 可见事件」估的，实际还受可见性（`visibility`）与随机事件影响；模型是否真的
+ * 用满 ReAct 的轮次同样不定。它的用途是让用户在点击前感知代价。
+ */
+export function estimateSimulationCalls(input: {
+  targetWords: number
+  /** 每节点轮次；0 表示按字数自动 */
+  simulationRounds: number
+  mode: SimulationMode
+  directorEnabled?: boolean
+  characterCount?: number
+}): SimulationCallEstimate {
+  const modeConfig = getModeConfig(input.mode)
+
+  const nodeCount = calcNodeCount(input.targetWords)
+  const baseRounds = Math.max(
+    1,
+    input.simulationRounds > 0
+      ? input.simulationRounds
+      : calcMaxRoundsPerNode(input.targetWords),
+  )
+  const roundsPerNode = Math.max(1, Math.round(baseRounds * modeConfig.roundsMultiplier))
+
+  const rawCharacterCount = input.characterCount ?? DEFAULT_ESTIMATED_CHARACTER_COUNT
+  const characterCount = Math.max(1, Math.round(rawCharacterCount))
+  const activeAgents = Math.max(
+    1,
+    Math.ceil(characterCount * Math.max(0, modeConfig.agentSubsetRatio)),
+  )
+
+  // 第 r 轮（0 基）开始时可见事件约 r × A 条；≤ 窗口则走普通路径。
+  const lastPlainRound = Math.floor(INLINE_VISIBLE_EVENT_LIMIT / activeAgents)
+  const plainRounds = Math.min(roundsPerNode, lastPlainRound + 1)
+  const reactRounds = Math.max(0, roundsPerNode - plainRounds)
+  const reactTurns = nodeCount * activeAgents * reactRounds
+
+  const agentCalls =
+    nodeCount *
+    activeAgents *
+    (plainRounds * PLAIN_CALLS_PER_TURN + reactRounds * REACT_CALLS_PER_TURN)
+  const embeddingCalls = modeConfig.strictNodeProgression
+    ? nodeCount + nodeCount * roundsPerNode
+    : 0
+  const directorCalls = input.directorEnabled ? Math.max(0, nodeCount - 1) : 0
+  const fixedCalls = 1 + nodeCount
+
+  return {
+    nodeCount,
+    roundsPerNode,
+    activeAgents,
+    agentCalls,
+    reactTurns,
+    embeddingCalls,
+    directorCalls,
+    fixedCalls,
+    total: Math.ceil(agentCalls + embeddingCalls + directorCalls + fixedCalls),
+  }
 }
 
 // ── 模式可视化说明 ──
