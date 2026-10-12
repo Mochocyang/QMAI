@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const fsMocks = vi.hoisted(() => ({
-  createDirectory: vi.fn(async () => {}),
   fileExists: vi.fn(async () => false),
   writeFileAtomic: vi.fn(async () => {}),
 }))
 
 vi.mock("@/commands/fs", () => ({
-  createDirectory: fsMocks.createDirectory,
   fileExists: fsMocks.fileExists,
   writeFileAtomic: fsMocks.writeFileAtomic,
 }))
@@ -24,6 +22,7 @@ vi.mock("@/lib/novel/character-aura", async () => {
 })
 
 import { CHARACTER_AURA_BINDING_BLOCK_MESSAGE } from "@/lib/novel/character-aura"
+import { parseFrontmatter, type FrontmatterValue } from "@/lib/frontmatter"
 import type { ScenarioCandidate } from "./scenario-types"
 import {
   bindScenarioSoul,
@@ -234,6 +233,70 @@ describe("createProfilePageThenBind", () => {
     )
     const result = await createProfilePageThenBind(PROJECT, "沈砚", "aura-1", "# 沈砚")
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.message).toContain("人物页已写入")
+    if (!result.ok) {
+      expect(result.message).toContain("人物页已写入")
+      // 草稿里必然已经写了角色名（`# 名字` 与 `- 姓名：名字`），所以这条路径上
+      // 不能再把责任推给「没写名字」，否则用户照提示改也修不好。
+      expect(result.message).not.toContain("请确认这份小传里写到了角色姓名")
+      // 真实出路之一：名字过长会被可绑定名单的 40 字上限筛掉。
+      expect(result.message).toContain("更短的常用名")
+    }
+  })
+})
+
+/**
+ * 为什么这组用例必须让**真实**的 YAML 解析器去读产物。
+ *
+ * 上面 `buildProfilePageContent` 那两条断言只能证明「我们拼出了这几个字符」，
+ * 证明不了「真实解析器认这段 frontmatter」。这个盲区正是本模块漏掉一个
+ * Critical 缺陷的原因：`title: "${name}"` 遇到含 `"` 或 `\` 的名字会写出
+ * `title: "林"清"` / `title: "林\清"`，字符串断言照样全绿，而 parseFrontmatter
+ * 直接返回 `frontmatter: null` → character-aura.ts 的 isCharacterEntityContent
+ * 判否 → 该页不算人物页 → 绑定永久被拒；又因为「已存在的人物页绝不覆盖」，
+ * 用户重试多少次都不会修复。所以这里一律用真实 parseFrontmatter
+ * （src/lib/frontmatter.ts 的实现，同一个 js-yaml + JSON_SCHEMA）验产物。
+ */
+describe("buildProfilePageContent 的 frontmatter 能被真实 YAML 解析器读回", () => {
+  /** FrontmatterValue 是 string | string[]，tags 两种形态都要认，别假设一定是数组。 */
+  const tagList = (value: FrontmatterValue | undefined): string[] => {
+    if (value === undefined) return []
+    return Array.isArray(value)
+      ? value.map((item) => item.trim())
+      : String(value).split(",").map((item) => item.trim())
+  }
+
+  // 与 character-aura.ts 的 extractPrimaryTitle 同一条正则：
+  // 那边优先取 frontmatter 的 title，所以文件名被安全化后仍能取回原文名。
+  // 如果那边改了正则，这里要同步。
+  const titleOf = (page: string) =>
+    page.match(/^title:\s*["']?(.+?)["']?\s*$/m)?.[1]?.trim()
+
+  const NAMES: string[] = [
+    "沈砚", // 普通中文名
+    "林/清", // 含被文件名安全化的字符
+    '林"清', // Critical：旧实现写成 title: "林"清"，YAML 解析直接失败
+    "林\\清", // Critical：旧实现写成 title: "林\清"，双引号里的非法转义
+    "林'清", // 含单引号：单引号标量里要按 YAML 规则加倍成 ''
+    '林/清:越*?"<>|', // 多种特殊字符混合
+  ]
+
+  it.each(NAMES)("名字「%s」解析后是可绑定人物页，且标题还原成原名", (name) => {
+    const page = buildProfilePageContent(
+      name,
+      `# ${name}\n\n草稿正文`,
+      new Date("2026-10-12T00:00:00Z"),
+    )
+    const { frontmatter, body } = parseFrontmatter(page)
+
+    // 1) frontmatter 必须解析成功：旧写法下含 " 或 \ 的名字会先在这里变红。
+    expect(frontmatter).not.toBeNull()
+    // 2) type=entity 是 isCharacterEntityContent 的第一道判据。
+    expect(frontmatter?.type).toBe("entity")
+    // 3) tags 含 character 是第二道判据。
+    expect(tagList(frontmatter?.tags)).toContain("character")
+    // 4) 命门：文件名被安全化、引号被处理之后，标题仍要还原成原名。
+    expect(titleOf(page)).toBe(name)
+    // 5) 修 frontmatter 不能把正文弄丢。
+    expect(body).toContain(`# ${name}`)
   })
 })
