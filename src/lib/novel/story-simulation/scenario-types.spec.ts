@@ -4,6 +4,9 @@ import {
   clampScenarioRounds,
   estimateScenarioMessages,
   hasRoleModerator,
+  lastSpokenRound,
+  remainingScenarioRounds,
+  type ScenarioMessage,
   type ScenarioParticipant,
 } from "./scenario-types"
 
@@ -72,5 +75,47 @@ describe("estimateScenarioMessages", () => {
   it("轮数非法时按至少 1 轮计", () => {
     const participants = [userModerator(), char("甲"), char("乙"), char("丙")]
     expect(estimateScenarioMessages(participants, Number.NaN, 5)).toBe(4)
+  })
+})
+
+describe("lastSpokenRound / remainingScenarioRounds", () => {
+  function message(round: number, kind: ScenarioMessage["kind"] = "character"): ScenarioMessage {
+    return {
+      id: `m${round}-${kind}`,
+      kind,
+      speakerId: "甲",
+      speakerName: "甲",
+      round,
+      content: "……",
+      timestamp: "2026-10-11T00:00:00.000Z",
+    }
+  }
+
+  it("取已发生过的最大轮次", () => {
+    expect(lastSpokenRound([])).toBe(0)
+    expect(lastSpokenRound([message(1), message(3), message(2)])).toBe(3)
+  })
+
+  it("开场与收束记在第 0 轮，不影响进度", () => {
+    // 角色主持的情景跑完后，最后一条正是记在第 0 轮的收束
+    const messages = [message(0, "moderator"), message(1), message(2), message(0, "moderator")]
+    expect(lastSpokenRound(messages)).toBe(2)
+  })
+
+  it("按计划轮数算出还剩多少轮", () => {
+    const setup = { rounds: 50 } as never
+    expect(remainingScenarioRounds(setup, [message(1), message(12)])).toBe(38)
+  })
+
+  it("刚好跑完时为 0，绝不返回负数", () => {
+    const setup = { rounds: 3 } as never
+    expect(remainingScenarioRounds(setup, [message(3)])).toBe(0)
+    // 兜底：即使出现超出计划的轮次也不给负数
+    expect(remainingScenarioRounds(setup, [message(9)])).toBe(0)
+  })
+
+  it("一条发言都还没有时，剩余就是全部计划轮数", () => {
+    const setup = { rounds: 20 } as never
+    expect(remainingScenarioRounds(setup, [])).toBe(20)
   })
 })

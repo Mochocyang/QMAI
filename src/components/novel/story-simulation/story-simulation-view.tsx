@@ -57,6 +57,10 @@ import type {
   ScenarioSetup,
 } from "@/lib/novel/story-simulation/scenario-types";
 import {
+  lastSpokenRound,
+  remainingScenarioRounds,
+} from "@/lib/novel/story-simulation/scenario-types";
+import {
   saveInterview,
   loadInterviews,
 } from "@/lib/novel/story-simulation/interview-store";
@@ -1638,6 +1642,62 @@ export function StorySimulationView() {
     scenarioAbortRef.current?.abort();
   };
 
+  /**
+   * 接着跑完剩余轮数。
+   *
+   * 「停止」原本等于毁掉剩余计划：想跑完只能手动插话，而每条插话固定只跑 1 轮。
+   * 这里从「已经说到的下一轮」接着跑，主持人串场按绝对轮次延续（与 P1 修好的
+   * 那套节奏同一个口径），收束仍由这次续跑补上，所以中止不再等于半成品。
+   */
+  const handleScenarioContinue = async () => {
+    if (!scenarioSession || !projectPath || scenarioRunning) return;
+    const remaining = remainingScenarioRounds(
+      scenarioSession.setup,
+      scenarioSession.messages,
+    );
+    if (remaining <= 0) return;
+    setError(null);
+    setScenarioRunning(true);
+    const controller = new AbortController();
+    scenarioAbortRef.current = controller;
+    const continuedFrom = scenarioSession;
+    try {
+      const llmConfig = resolveDefaultModel(baseLlmConfig);
+      const result = await runScenario({
+        setup: continuedFrom.setup,
+        llmConfig,
+        signal: controller.signal,
+        worldRules: extractionResult?.worldRules,
+        initialMessages: continuedFrom.messages,
+        startRound: lastSpokenRound(continuedFrom.messages) + 1,
+        rounds: remaining,
+        withOpening: false,
+        withClosing: true,
+        moderatorOriginRound: 1,
+        ...makeScenarioCallbacks(continuedFrom.setup),
+      });
+      scenarioMessagesRef.current = result.messages;
+      const finalSession = buildScenarioSession(
+        continuedFrom.setup,
+        result.messages,
+        result.cancelled ? "cancelled" : "completed",
+      );
+      setScenarioSession(finalSession);
+      try {
+        await saveScenario(projectPath, finalSession);
+      } catch {
+        // 持久化失败不影响展示
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setScenarioRunning(false);
+      setScenarioStreaming(null);
+      setScenarioProgress(null);
+      scenarioAbortRef.current = null;
+    }
+  };
+
   const handleScenarioExport = async () => {
     if (!projectPath || !scenarioSession) return;
     setScenarioExporting(true);
@@ -2182,6 +2242,15 @@ export function StorySimulationView() {
             onInsertToChapters={() => void handleScenarioInsert()}
             onCancel={handleScenarioCancel}
             onBack={handleScenarioBack}
+            onContinue={() => void handleScenarioContinue()}
+            remainingRounds={
+              scenarioSession
+                ? remainingScenarioRounds(
+                    scenarioSession.setup,
+                    scenarioSession.messages,
+                  )
+                : 0
+            }
             exporting={scenarioExporting}
             inserting={scenarioInserting}
           />

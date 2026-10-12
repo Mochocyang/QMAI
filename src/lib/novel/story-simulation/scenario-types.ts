@@ -211,6 +211,35 @@ export function clampScenarioRounds(rounds: number): number {
   return Math.max(SCENARIO_ROUND_MIN, Math.min(SCENARIO_ROUND_MAX, int))
 }
 
+/**
+ * 已有对话里真正进行到第几轮（无发言时为 0）。
+ *
+ * 不能直接取最后一条消息的 round：主持人的开场与收束都记在第 0 轮，角色主持
+ * 的情景跑完后最后一条正是那段收束，会把进度读成 0。取最大值即可，第 0 轮
+ * 自然被忽略。
+ */
+export function lastSpokenRound(messages: ScenarioMessage[]): number {
+  let last = 0
+  for (const message of messages) {
+    if (message.round > last) last = message.round
+  }
+  return last
+}
+
+/**
+ * 按计划轮数算出还剩几轮没跑（用于「继续生成」）。
+ *
+ * 下限钳到 0：中止后重新分析或改过计划轮数时，已发生的轮次可能已经超过当前
+ * 计划值，不能返回负数让调用方去反推。
+ */
+export function remainingScenarioRounds(
+  setup: ScenarioSetup,
+  messages: ScenarioMessage[],
+): number {
+  const planned = clampScenarioRounds(setup.rounds)
+  return Math.max(0, planned - lastSpokenRound(messages))
+}
+
 /** 拆分主持人（如有）与普通角色。 */
 export function splitParticipants(participants: ScenarioParticipant[]): {
   moderator: ScenarioParticipant | null

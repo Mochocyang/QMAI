@@ -1938,6 +1938,7 @@
     "scenarioReasoning": "思考",
     "scenarioStatusCancelled": "已中止",
     "scenarioHistoryRounds": "{{n}} 轮",
+    "scenarioContinue": "继续生成（剩余 {{n}} 轮）",
     "scenarioTitlePlaceholder": "情景标题（可选，留空则自动生成）",
     "scenarioStart": "开始舞台情景",
     "scenarioBack": "返回",

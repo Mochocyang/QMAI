@@ -82,13 +82,17 @@ function session(
 
 let container: HTMLDivElement
 let root: Root
+let onContinue: ReturnType<typeof vi.fn<() => void>>
 
-function render(s: ScenarioSession) {
+function render(
+  s: ScenarioSession,
+  over: { remainingRounds?: number; running?: boolean } = {},
+) {
   act(() => {
     root.render(
       <ScenarioRoomView
         session={s}
-        running={false}
+        running={over.running ?? false}
         streaming={null}
         progress={null}
         input=""
@@ -97,6 +101,8 @@ function render(s: ScenarioSession) {
         onExport={() => {}}
         onCancel={() => {}}
         onBack={() => {}}
+        onContinue={onContinue}
+        remainingRounds={over.remainingRounds ?? 0}
       />,
     )
   })
@@ -118,6 +124,7 @@ beforeEach(() => {
   container = document.createElement("div")
   document.body.appendChild(container)
   root = createRoot(container)
+  onContinue = vi.fn<() => void>()
 })
 
 afterEach(() => {
@@ -166,5 +173,58 @@ describe("ScenarioRoomView · 会话状态", () => {
     expect(container.textContent).not.toContain(
       "storySimulation.scenarioStatusCancelled",
     )
+  })
+})
+
+/**
+ * 「停止」原本等于毁掉剩余计划：50 轮跑到第 12 轮中止，想跑完只能手动插话
+ * 38 次，而每条插话固定只跑 1 轮。有剩余轮数时可一键接着跑。
+ */
+describe("ScenarioRoomView · 继续生成剩余轮数", () => {
+  it("有剩余轮数时提供「继续生成」，并报出还剩几轮", () => {
+    render(session([msg({ round: 12 })], "cancelled"), { remainingRounds: 38 })
+
+    const button = findButton((text) =>
+      text.includes("storySimulation.scenarioContinue"),
+    )
+    expect(button).toBeDefined()
+    expect(button?.disabled).toBe(false)
+    expect(container.textContent).toContain(
+      "scenarioContinue(n=38)",
+    )
+  })
+
+  it("点击后触发 onContinue", () => {
+    render(session([msg({ round: 12 })], "cancelled"), { remainingRounds: 38 })
+
+    clickButton(
+      findButton((text) =>
+        text.includes("storySimulation.scenarioContinue"),
+      ) as HTMLButtonElement,
+    )
+    expect(onContinue).toHaveBeenCalledTimes(1)
+  })
+
+  it("没有剩余轮数时不显示「继续生成」，避免点出一个空跑", () => {
+    render(session([msg({ round: 50 })], "completed"), { remainingRounds: 0 })
+
+    expect(
+      findButton((text) =>
+        text.includes("storySimulation.scenarioContinue"),
+      ),
+    ).toBeUndefined()
+  })
+
+  it("正在生成时不能用「继续生成」重复触发", () => {
+    render(session([msg({ round: 12 })], "cancelled"), {
+      remainingRounds: 38,
+      running: true,
+    })
+
+    expect(
+      findButton((text) =>
+        text.includes("storySimulation.scenarioContinue"),
+      ),
+    ).toBeUndefined()
   })
 })

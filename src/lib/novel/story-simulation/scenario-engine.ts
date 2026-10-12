@@ -28,6 +28,7 @@ import {
   SCENARIO_MODERATOR_USER_ID,
   SCENARIO_MODERATOR_USER_NAME,
   clampScenarioRounds,
+  lastSpokenRound,
 } from "./scenario-types"
 import {
   buildModeratorClosingPrompt,
@@ -87,21 +88,6 @@ function makeMessage(
     timestamp: new Date().toISOString(),
     ...partial,
   }
-}
-
-/**
- * 取已有对话里真正进行到第几轮。
- *
- * 不能拿最后一条消息的 round 当进度：主持人的开场与收束都记在第 0 轮，
- * 角色主持的情景跑完后最后一条正是那段收束，于是「上一轮」会读成 0，
- * 插话后的新发言会从「第 1 轮」重新开始，和已有的第 1~N 轮撞号。
- */
-function lastRoundOf(messages: ScenarioMessage[]): number {
-  let last = 0
-  for (const message of messages) {
-    if (message.round > last) last = message.round
-  }
-  return last
 }
 
 // ── 角色提示词 ──
@@ -553,7 +539,7 @@ export async function continueScenario(
   const messages: ScenarioMessage[] = [...session.messages]
 
   // 记录用户插话
-  const lastRound = lastRoundOf(messages)
+  const lastRound = lastSpokenRound(messages)
   const userMsg = makeMessage({
     kind: "user",
     speakerId: "user",

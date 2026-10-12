@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, Brain, Copy, Download, FilePlus2, Loader2, Send, Square, Users } from "lucide-react"
+import { Check, Brain, Copy, Download, FilePlus2, Loader2, Play, Send, Square, Users } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -24,6 +24,13 @@ export interface ScenarioRoomViewProps {
   onExport: () => void
   /** 将本场情景导入为一章草稿（可选）。 */
   onInsertToChapters?: () => void
+  /**
+   * 接着跑完剩余轮数（可选）。中止过、或计划轮数还没跑满时才有意义；
+   * 与「插话后继续」不同 —— 插话固定只走 1 轮，这个按钮把剩下的跑完。
+   */
+  onContinue?: () => void
+  /** 还剩多少轮没跑；0 表示跑完了，不显示「继续生成」。 */
+  remainingRounds?: number
   onCancel: () => void
   onBack: () => void
   exporting?: boolean
@@ -44,6 +51,8 @@ export function ScenarioRoomView({
   onSend,
   onExport,
   onInsertToChapters,
+  onContinue,
+  remainingRounds = 0,
   onCancel,
   onBack,
   exporting,
@@ -140,9 +149,20 @@ export function ScenarioRoomView({
               {t("storySimulation.scenarioStop")}
             </Button>
           ) : (
-            <Button variant="ghost" size="sm" onClick={onBack}>
-              {t("storySimulation.scenarioReset")}
-            </Button>
+            <>
+              {/* 「停止」不该等于毁掉剩余计划 —— 有欠账就让人一次跑完 */}
+              {onContinue && remainingRounds > 0 && (
+                <Button size="sm" onClick={onContinue}>
+                  <Play className="mr-1 h-3.5 w-3.5" />
+                  {t("storySimulation.scenarioContinue", {
+                    n: remainingRounds,
+                  })}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={onBack}>
+                {t("storySimulation.scenarioReset")}
+              </Button>
+            </>
           )}
         </div>
       </div>
