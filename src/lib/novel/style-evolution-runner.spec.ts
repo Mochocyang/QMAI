@@ -19,12 +19,18 @@ vi.mock("@/commands/fs", () => ({
   }),
 }))
 
+const setStyleEvolutionNotice = vi.fn()
+
 vi.mock("@/stores/wiki-store", () => ({
-  useWikiStore: { getState: () => ({ bumpDataVersion: vi.fn() }) },
+  useWikiStore: { getState: () => ({ bumpDataVersion: vi.fn(), setStyleEvolutionNotice }) },
 }))
 
+import { encodeWritingSources, normalizeCountableText, writingTextHash, type WritingSource } from "@/lib/writing-stats"
+import { writingStatsPath } from "@/lib/writing-stats-persistence"
 import {
+  chapterAiRatio,
   collectProjectChapterBodies,
+  collectProjectChapters,
   isStyleEvolutionRunning,
   resetStyleEvolutionInFlight,
   runStyleEvolutionTick,
@@ -60,6 +66,113 @@ beforeEach(() => {
   mem.clear()
   dirs.clear()
   resetStyleEvolutionInFlight()
+  setStyleEvolutionNotice.mockClear()
+})
+
+const LOG_FILE = `${PROJECT}/.qmai/style-evolution.log`
+
+const validProfile = () =>
+  JSON.stringify({
+    schemaVersion: 2,
+    generatedAt: 1,
+    integratedDna: "## 语言特征\n短句。",
+    constitution: "1. 少形容词",
+    samples: [],
+  })
+
+describe("collectProjectChapters：带 key（文件名 + 字数）", () => {
+  it("改了章节内容 ⇒ key 跟着变；没改 ⇒ key 不变", async () => {
+    addChapters([{ name: "chapter-001.md", content: chapterContent("一", "他点了根烟。") }])
+    const first = await collectProjectChapters(PROJECT)
+    expect(first).toEqual([{ key: "chapter-001.md:6", body: "他点了根烟。", aiRatio: null }])
+    expect(await collectProjectChapters(PROJECT)).toEqual(first)
+
+    mem.set(`${CHAPTERS}/chapter-001.md`, chapterContent("一", "他点了根烟，又掐了。"))
+    const changed = await collectProjectChapters(PROJECT)
+    expect(changed[0].key).not.toBe(first[0].key)
+  })
+})
+
+describe("chapterAiRatio：读写作统计的逐字归属账本", () => {
+  const markdown = chapterContent("一", "他点了根烟。雨停了。")
+  const text = normalizeCountableText(markdown)
+
+  function entryOf(sources: WritingSource[]) {
+    return { len: text.length, hash: writingTextHash(text), rle: encodeWritingSources(sources) }
+  }
+
+  it("按 AI 字数 / 总字数算占比", () => {
+    const sources: WritingSource[] = text.split("").map((_, i) => (i < 3 ? "human" : "ai"))
+    expect(chapterAiRatio(entryOf(sources), markdown)).toBeCloseTo((text.length - 3) / text.length)
+  })
+
+  it("账本与正文对不上（带外修改）⇒ null，不猜", () => {
+    const entry = entryOf(text.split("").map(() => "ai"))
+    expect(chapterAiRatio(entry, chapterContent("一", "完全不同的正文。"))).toBeNull()
+    expect(chapterAiRatio(undefined, markdown)).toBeNull()
+  })
+
+  it("collectProjectChapters 把占比带出来", async () => {
+    addChapters([{ name: "chapter-001.md", content: markdown }])
+    const sources: WritingSource[] = text.split("").map(() => "ai")
+    mem.set(
+      writingStatsPath(PROJECT),
+      JSON.stringify({ version: 1, dailyTargetChars: 3000, days: {}, chapters: { "wiki/chapters/chapter-001.md": entryOf(sources) } }),
+    )
+    const [chapter] = await collectProjectChapters(PROJECT)
+    expect(chapter.aiRatio).toBe(1)
+  })
+})
+
+describe("日志与提示", () => {
+  function addThreeChapters() {
+    addChapters([
+      { name: "chapter-001.md", content: chapterContent("一", BODY.repeat(60)) },
+      { name: "chapter-002.md", content: chapterContent("二", BODY.repeat(60)) },
+      { name: "chapter-003.md", content: chapterContent("三", BODY.repeat(60)) },
+    ])
+  }
+
+  it("跑完一轮 ⇒ 追加一行 JSON 日志，并提示有新候选", async () => {
+    await primeDueState()
+    addThreeChapters()
+
+    const result = await runStyleEvolutionTick(PROJECT, { callModel: async () => validProfile() })
+    expect(result?.outcome).toBe("bootstrap")
+
+    const lines = mem.get(LOG_FILE)!.trim().split("\n")
+    expect(lines).toHaveLength(1)
+    expect(JSON.parse(lines[0])).toMatchObject({ status: "completed", outcome: "bootstrap" })
+
+    expect(setStyleEvolutionNotice).toHaveBeenCalledTimes(1)
+    expect(setStyleEvolutionNotice.mock.calls[0][0]).toMatchObject({
+      outcome: "bootstrap",
+      stylePresetId: result?.stylePresetId,
+    })
+  })
+
+  it("没到期的打开不写日志、不提示", async () => {
+    await saveStyleEvolutionState(PROJECT, { ...emptyState(), enabled: true })
+    await runStyleEvolutionTick(PROJECT, { callModel: async () => validProfile() })
+    expect(mem.has(LOG_FILE)).toBe(false)
+    expect(setStyleEvolutionNotice).not.toHaveBeenCalled()
+  })
+
+  it("没跑成（incomplete）⇒ 写日志，但不提示", async () => {
+    await primeDueState()
+    await runStyleEvolutionTick(PROJECT, { collectChapterBodies: async () => [] })
+    expect(JSON.parse(mem.get(LOG_FILE)!.trim())).toMatchObject({ status: "incomplete" })
+    expect(setStyleEvolutionNotice).not.toHaveBeenCalled()
+  })
+
+  it("日志只保留最近 200 行", async () => {
+    mem.set(LOG_FILE, Array.from({ length: 250 }, (_, i) => `{"n":${i}}`).join("\n"))
+    await primeDueState()
+    await runStyleEvolutionTick(PROJECT, { collectChapterBodies: async () => [] })
+    const lines = mem.get(LOG_FILE)!.trim().split("\n")
+    expect(lines).toHaveLength(200)
+    expect(lines[0]).toBe('{"n":51}')
+  })
 })
 
 describe("collectProjectChapterBodies", () => {

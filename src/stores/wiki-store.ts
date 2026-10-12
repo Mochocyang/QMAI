@@ -96,6 +96,12 @@ type SettingsCategoryId =
 
 export type ModelSettingsTabId = "default" | "llm" | "rerank" | "embedding"
 
+export interface StyleEvolutionNotice {
+  stylePresetId: string
+  name: string
+  outcome: "bootstrap" | "kept"
+}
+
 const readStoredUiFontSizeScale = (): number => {
   if (typeof localStorage === "undefined") return 1
   const saved = Number(localStorage.getItem(UI_FONT_SIZE_SCALE_KEY) ?? "1")
@@ -757,6 +763,10 @@ interface WikiState {
    * null = 不显示弹窗。批量导入多章时会把人物名累加合并。
    */
   personaSkillCompletion: { created: string[]; updated: string[] } | null
+  /**
+   * 文风自进化写出了新候选（需要用户在文风库里点一下才启用）。null = 不显示提示。
+   */
+  styleEvolutionNotice: StyleEvolutionNotice | null
   searchHistory: string[]
   searchTrigger: { query: string; ts: number } | null
   revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig
@@ -844,6 +854,7 @@ interface WikiState {
   setCommunitySummaryError: (error: string | null) => void
   setPersonaSkillLearningError: (error: string | null) => void
   setPersonaSkillCompletion: (payload: { created: string[]; updated: string[] } | null) => void
+  setStyleEvolutionNotice: (notice: StyleEvolutionNotice | null) => void
   setSearchHistory: (history: string[]) => void
   setSearchTrigger: (trigger: { query: string; ts: number } | null) => void
   setRevisionFeedbackWindowConfig: (revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig) => void
@@ -1089,6 +1100,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   communitySummaryError: null,
   personaSkillLearningError: null,
   personaSkillCompletion: null,
+  styleEvolutionNotice: null,
   searchHistory: [],
   searchTrigger: null,
   revisionFeedbackWindowConfig: {
@@ -1174,6 +1186,7 @@ export const useWikiStore = create<WikiState>((set) => ({
         },
       }
     }),
+  setStyleEvolutionNotice: (styleEvolutionNotice) => set({ styleEvolutionNotice }),
   setSearchHistory: (searchHistory) => set({ searchHistory }),
   setSearchTrigger: (searchTrigger) => set({ searchTrigger }),
   setRevisionFeedbackWindowConfig: (revisionFeedbackWindowConfig) => set({ revisionFeedbackWindowConfig }),

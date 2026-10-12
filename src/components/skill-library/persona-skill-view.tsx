@@ -12,10 +12,12 @@ import {
   type PersonaSkillStatus,
 } from "@/lib/novel/persona-skill-types"
 import {
+  listPersonaSkillRevisions,
   loadPersonaSkillIndex,
   loadPersonaSightings,
   readPersonaSkillDocument,
   readPersonaSkillResearch,
+  restorePersonaSkillRevision,
   savePersonaSkillDocumentByUser,
   updatePersonaSkillIndex,
 } from "@/lib/novel/persona-skill-store"
@@ -53,6 +55,7 @@ export function PersonaSkillView() {
   const [message, setMessage] = useState("")
   const [analysisOpen, setAnalysisOpen] = useState(false)
   const [sightings, setSightings] = useState<PersonaSkillSighting[]>([])
+  const [revisionCount, setRevisionCount] = useState(0)
 
   const reload = useCallback(async () => {
     if (!projectPath) return
@@ -72,17 +75,20 @@ export function PersonaSkillView() {
     if (!projectPath || !selectedId) {
       setDocumentText("")
       setResearch({})
+      setRevisionCount(0)
       return
     }
     let cancelled = false
     void (async () => {
-      const [document, docs] = await Promise.all([
+      const [document, docs, revisions] = await Promise.all([
         readPersonaSkillDocument(projectPath, selectedId),
         readPersonaSkillResearch(projectPath, selectedId),
+        listPersonaSkillRevisions(projectPath, selectedId),
       ])
       if (cancelled) return
       setDocumentText(document)
       setResearch(docs)
+      setRevisionCount(revisions.length)
       setDraftDirty(false)
     })()
     return () => {
@@ -227,12 +233,34 @@ export function PersonaSkillView() {
       // 否则后台学习可能正好挤在中间，按「没被改过」把刚写的正文覆盖掉。
       const updated = await savePersonaSkillDocumentByUser(projectPath, selected.id, documentText)
       setIndex(updated)
+      setRevisionCount((await listPersonaSkillRevisions(projectPath, selected.id)).length)
       setDraftDirty(false)
-      setMessage("已保存。之后 AI 只会在这份档案后面追加「补充」，不会覆盖你写的内容。")
+      setMessage("已保存。之后 AI 只会更新文末的「补充」段，不会覆盖你写的内容。")
     } catch (err) {
       // 同上：严格读会抛。这一条尤其不能吞——用户以为存下来了、其实没有，
       // 而且是「不改 draftDirty」的状态，草稿还在，可以重试。
       setMessage(`保存失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleRestoreRevision() {
+    if (!projectPath || !selected) return
+    setBusy(true)
+    try {
+      const restored = await restorePersonaSkillRevision(projectPath, selected.id)
+      if (!restored) {
+        setMessage("没有可回退的历史版本。")
+        return
+      }
+      setIndex({ version: 1, skills: [...restored.index.skills].sort(sortMeta) })
+      setDocumentText(restored.document)
+      setRevisionCount((await listPersonaSkillRevisions(projectPath, selected.id)).length)
+      setDraftDirty(false)
+      setMessage("已回退到上一版。")
+    } catch (err) {
+      setMessage(`回退失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setBusy(false)
     }
@@ -300,6 +328,17 @@ export function PersonaSkillView() {
           <button type="button" onClick={handleBack} disabled={busy}>
             取消
           </button>
+          {revisionCount > 0 ? (
+            <button
+              type="button"
+              data-testid="persona-skill-restore"
+              title={`保留了最近 ${revisionCount} 个历史版本`}
+              onClick={() => void handleRestoreRevision()}
+              disabled={busy}
+            >
+              回退上一版
+            </button>
+          ) : null}
         </div>
         {Object.keys(research).length > 0 && selected.pinned ? (
           <div data-testid="persona-skill-research" className="ui-test-persona-research">

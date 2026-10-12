@@ -1,11 +1,14 @@
 import { buildLanguageReminder, getOutputLanguage } from "@/lib/output-language"
 import type { ChatMessage, RequestOverrides } from "@/lib/llm-providers"
 import {
+  PERSONA_FIELD_MAX_CHARS,
   PERSONA_STORED_FIELDS,
   PERSONA_RESEARCH_DOCUMENTS,
+  PERSONA_SUPPLEMENT_MAX_CHARS,
   type PersonaSkillMode,
   type PersonaSkillTier,
 } from "./persona-skill-types"
+import { extractCharacterEvidence } from "./persona-skill-evidence"
 
 /** 单次调用的正文预算：超出只送「开头 + 省略标记 + 结尾」。 */
 export const PERSONA_SKILL_BODY_HEAD_CHARS = 4000
@@ -51,6 +54,10 @@ export interface PersonaSkillPromptTarget {
   withResearch: boolean
   appearanceCount: number
   existingSkill?: string
+  /** 档案被用户手改过：本章观察进唯一的「补充」段，既有正文不动。 */
+  editedByUser?: boolean
+  /** 建档时附上的此前出场章节素材。 */
+  priorEvidence?: ReadonlyArray<{ chapterNumber: number; text: string }>
 }
 
 export interface PersonaSkillPromptInput {
@@ -78,26 +85,40 @@ export function buildPersonaSkillBody(chapterBody: string): string {
   ].join("\n")
 }
 
+/**
+ * ⚠️ 完善（refine）要的是**合并后的完整字段**，不是「本章增量」。
+ * 落盘时字段按整格替换：以前这里写「只补本章新增的信息」「看不出来给空字符串」，
+ * 模型照做后，每完善一次档案就退化成本章残片，本章没体现的字段直接消失。
+ */
 export function buildPersonaSkillSystemPrompt(): string {
   return [
     "你是长篇小说的人物档案编辑。用户会一次给你同一章里的多个人物；",
     "你要在一次回答里为每个人物产出一份「人物 Skill」。",
     "",
     "硬性要求：",
-    "1. 只写本章正文里能看出来、或能直接推断的东西。看不出来的字段给空字符串，禁止编造。",
-    "2. 有人物带了「已有档案」，那只补本章新增的信息，绝不重写既有段落。",
-    "3. 每个人物只写「需要填写的字段」里列出的字段，字段名必须逐字一致。",
-    "4. 「怎么说话」要给可模仿的语言特征（口头禅、句式长短、称谓、停顿节奏），",
+    "1. 只写正文里能看出来、或能直接推断的东西，禁止编造。",
+    "2. 「生成新档案」的人物：看不出来的字段给空字符串。",
+    "3. 「完善已有档案」的人物：每个字段都输出**合并后的完整内容**——保留已有档案里仍然成立的观察，",
+    "   融入本章的新信息，去掉重复，必要时压缩措辞。本章没有新信息的字段，把已有内容原样抄回，",
+    "   绝不能给空字符串，也不能只写本章新增的那一句。",
+    `4. 每个字段不超过 ${PERSONA_FIELD_MAX_CHARS} 字。字段名必须与「需要填写的字段」逐字一致。`,
+    "5. 「怎么说话」要给可模仿的语言特征（口头禅、句式长短、称谓、停顿节奏），",
     "   不要写「他很聪明」这类评价。",
-    "5. 只有标了「需要研究文件」的人物才额外产出 research；其余人物的 research 给空对象。",
-    "6. 只输出 JSON，不要解释，不要 Markdown 代码块。",
+    "6. 标了「用户手改过」的人物：fields 只写本章的新观察；另外输出 supplement 字符串——",
+    `   把已有档案里「补充」段的内容与本章新观察合并成一段完整的补充，不超过 ${PERSONA_SUPPLEMENT_MAX_CHARS} 字。`,
+    "7. 只有标了「需要研究文件」的人物才额外产出 research；其余人物的 research 给空对象。",
+    "8. 只输出 JSON，不要解释，不要 Markdown 代码块。",
     "",
     "输出格式：",
-    '{"skills":[{"name":"人物名","fields":{"怎么说话":"…","怎么想":"…","怎么判断":"…","什么不做":"…","知道局限":"…"},"research":{"人物小传":"…"}}]}',
+    '{"skills":[{"name":"人物名","fields":{"怎么说话":"…","怎么想":"…","怎么判断":"…","什么不做":"…","知道局限":"…"},"supplement":"…","research":{"人物小传":"…"}}]}',
   ].join("\n")
 }
 
-function describeTarget(target: PersonaSkillPromptTarget): string {
+function isLongChapter(chapterBody: string): boolean {
+  return chapterBody.trim().length > PERSONA_SKILL_BODY_HEAD_CHARS + PERSONA_SKILL_BODY_TAIL_CHARS
+}
+
+function describeTarget(target: PersonaSkillPromptTarget, input: PersonaSkillPromptInput): string {
   // 抽取字段一律给全 5 个，不按档位裁剪 —— 档位只管注入，不管学习。
   // 详见 persona-skill-types.ts 的 PERSONA_STORED_FIELDS 注释。
   const fields = PERSONA_STORED_FIELDS
@@ -106,16 +127,25 @@ function describeTarget(target: PersonaSkillPromptTarget): string {
     `- 定位：${target.roleType || "未标注"}`,
     `- 档位：${target.tier === "major" ? "主要人物" : "次要人物"}`,
     `- 累计出场：${target.appearanceCount} 次`,
-    `- 本轮任务：${target.mode === "create" ? "生成新档案" : "在已有档案上补本章新增信息"}`,
+    `- 本轮任务：${target.mode === "create" ? "生成新档案" : "完善已有档案（输出合并后的完整字段）"}`,
     `- 需要填写的字段：${fields.join(" / ")}`,
   ]
   if (target.aliases.length > 0) lines.push(`- 别名：${target.aliases.join("、")}`)
   if (target.pinned) lines.push("- 这一位是用户手动标记的重要人物，字段要写得更细。")
+  if (target.editedByUser) lines.push("- 用户手改过：既有正文不动，本章新观察并入 supplement。")
   if (target.withResearch) lines.push(`- 需要研究文件：${PERSONA_RESEARCH_DOCUMENTS.join(" / ")}`)
+  if (isLongChapter(input.chapterBody)) {
+    const evidence = extractCharacterEvidence(input.chapterBody, [target.characterName, ...target.aliases])
+    if (evidence) lines.push("", `本章相关段落（第 ${input.chapterNumber} 章）：`, evidence)
+  }
+  for (const prior of target.priorEvidence ?? []) {
+    if (!prior.text.trim()) continue
+    lines.push("", `此前出场的相关段落（第 ${prior.chapterNumber} 章）：`, prior.text.trim())
+  }
   if (target.existingSkill?.trim()) {
     lines.push(
       "",
-      "已有档案（在其之上补充，不要重写）：",
+      "已有档案（合并进你的输出，不要重写成只剩本章内容）：",
       "```markdown",
       buildPersonaSkillExisting(target.existingSkill),
       "```",
@@ -124,13 +154,28 @@ function describeTarget(target: PersonaSkillPromptTarget): string {
   return lines.join("\n")
 }
 
+/**
+ * 章节较短时整章给出；较长时不再截「开头 + 结尾」（中段出场的人会一个字都拿不到），
+ * 改为按人物给相关段落。正文里一次都没点名的人物，仍兜底给开头与结尾。
+ */
+function chapterBlock(input: PersonaSkillPromptInput): string[] {
+  if (!isLongChapter(input.chapterBody)) {
+    return [`【第 ${input.chapterNumber} 章正文】`, buildPersonaSkillBody(input.chapterBody)]
+  }
+  const unnamed = input.targets.some(
+    (target) => !extractCharacterEvidence(input.chapterBody, [target.characterName, ...target.aliases]),
+  )
+  const header = `【第 ${input.chapterNumber} 章正文较长，各人物的相关段落附在人物条目下】`
+  if (!unnamed) return [header]
+  return [header, "", "【正文开头与结尾（供正文中未直接点名的人物参考）】", buildPersonaSkillBody(input.chapterBody)]
+}
+
 export function buildPersonaSkillUserPrompt(input: PersonaSkillPromptInput): string {
   return [
-    `【第 ${input.chapterNumber} 章正文】`,
-    buildPersonaSkillBody(input.chapterBody),
+    ...chapterBlock(input),
     "",
     `【本章要处理的人物：${input.targets.length} 位】`,
-    input.targets.map(describeTarget).join("\n\n"),
+    input.targets.map((target) => describeTarget(target, input)).join("\n\n"),
     "",
     "请按输出格式一次返回全部人物的 JSON。",
   ].join("\n")

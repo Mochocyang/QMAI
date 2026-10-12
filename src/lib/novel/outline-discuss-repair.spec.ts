@@ -63,6 +63,9 @@ describe("buildOutlineDiscussRepairMessages", () => {
     expect(text).toContain("只做一件事")
     expect(text).toContain("不要重写、扩写或继续生成大纲正文")
     expect(text).toContain("转写")
+    // 修复结果只用于解析；要求复述正文会在 token 上限内先写满正文、写不到协议块
+    expect(text).toContain("不要复述原回复")
+    expect(text).not.toContain("原样保留")
     // 必须给出完整协议模板，否则修复轮同样可能缺字段
     expect(text).toContain(OUTLINE_DISCUSS_MARKER_OPEN)
     expect(text).toContain(OUTLINE_DISCUSS_MARKER_CLOSE)
@@ -102,8 +105,7 @@ describe("repairOutlineDiscussProtocolWithAi", () => {
       _signal: unknown,
       _overrides: unknown,
     ) => {
-      handlers.onToken(GENERATION_LEAK_REPLY)
-      handlers.onToken(`\n${VALID_PROTOCOL_REPLY}`)
+      handlers.onToken(VALID_PROTOCOL_REPLY.slice(VALID_PROTOCOL_REPLY.indexOf(OUTLINE_DISCUSS_MARKER_OPEN)))
       handlers.onDone()
     })
     const text = await repairOutlineDiscussProtocolWithAi({

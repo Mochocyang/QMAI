@@ -18,6 +18,7 @@ import { confirmAppQuit } from "@/components/uitest/models/model-draft-guard"
 import { restoreUiTestWorkspace, readUiTestWorkspacePreference } from "@/lib/ui-test-workspace-preferences"
 import { UiTestShell } from "@/components/uitest/ui-test-shell"
 import { PersonaSkillCompletionDialog } from "@/components/skill-library/persona-skill-completion-dialog"
+import { StyleEvolutionNoticeDialog } from "@/components/skill-library/style-evolution-notice-dialog"
 import { formatAppTitle } from "@/lib/app-title"
 import { resetProjectState } from "@/lib/reset-project-state"
 import { findLlmPresetById } from "@/components/settings/llm-presets"
@@ -649,6 +650,7 @@ function App() {
         onProjectOpened={handleProjectOpened}
       />
       <PersonaSkillCompletionDialog />
+      <StyleEvolutionNoticeDialog />
     </>
   )
 }

@@ -2149,6 +2149,56 @@ describe("OutlineChatPanel controls", () => {
     expect(document.body.textContent).not.toContain("请确认要保存的大纲文件")
   })
 
+  it("共创轮正文像卷纲但带了 outline_discuss 块时，仍按讨论协议渲染拍板卡", async () => {
+    useWikiStore.setState({ outlineWorkflowMode: "discuss" })
+    vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {
+      const text = [
+        "# 卷纲共创判断",
+        "",
+        "我把第1、2章正文和伏笔追踪都重新读了一遍，卷纲的代价阶梯与主角目标还没对齐，需要你先拍板。",
+        "",
+        "## 依据",
+        "第1章是 final 状态，主角目标已经写成「寻找父亲、守护妻子」；但现有卷纲的代价阶梯仍围绕「修复丹田」展开，",
+        "第三个故事的转①因此失去了动机支撑。令牌机制在第2章已经建立，血脉线索只在伏笔表里出现过一次。",
+        "<!-- outline_discuss -->",
+        "```json",
+        JSON.stringify({
+          status: "needs_decision",
+          module: "卷纲",
+          judgment: "代价阶梯需要重排",
+          nextStep: "先定代价来源",
+          decisions: [{
+            id: "d1",
+            question: "代价来源选哪个",
+            options: [
+              { id: "A", label: "令牌吞噬", description: "与金手指绑定" },
+              { id: "B", label: "血脉反噬", description: "与身世绑定" },
+            ],
+            preferenceId: "A",
+            preferenceReason: "与已建立的令牌机制一致",
+          }],
+          agreed: [],
+        }),
+        "```",
+        "请拍板后我再继续。",
+      ].join("\n")
+      callbacks.onText(text)
+      callbacks.onDone()
+      return { toolCalls: [], roundsUsed: 1, finalText: text }
+    })
+    setOutlineConversations([conversation()], "outline-active")
+    const container = await renderOutlineChatPanel()
+
+    await submitOutlineInput(container, "我们来讨论卷纲")
+
+    const assistant = useOutlineChatStore.getState().conversations[0].messages
+      .findLast((message) => message.role === "assistant")
+    expect(assistant?.outlineDiscussError).toBeUndefined()
+    expect(assistant?.outlineDiscussProtocol?.status).toBe("needs_decision")
+    expect(container.textContent).toContain("令牌吞噬")
+    expect(container.textContent).not.toContain("needs_decision")
+  })
+
   it("共创轮直接交付卷纲时不再判「未返回 outline_discuss」作废", async () => {
     useWikiStore.setState({ outlineWorkflowMode: "discuss" })
     vi.spyOn(AgentRunner.prototype, "run").mockImplementation(async (_config, _registry, _messages, callbacks) => {

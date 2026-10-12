@@ -50,6 +50,9 @@ vi.mock("@/commands/fs", () => ({
     }
     return [...nodes.values()]
   },
+  deleteFile: async (path: string) => {
+    io.files.delete(io.canonical(path))
+  },
 }))
 
 import {
@@ -72,6 +75,10 @@ import {
   withPersonaSkillLock,
   writePersonaSkillDocument,
   writePersonaSkillResearch,
+  listPersonaSkillRevisions,
+  restorePersonaSkillRevision,
+  savePersonaSkillDocumentByUser,
+  snapshotPersonaSkillRevision,
   __resetPersonaSkillLocksForTesting,
 } from "./persona-skill-store"
 import type { PersonaSkillMeta, PersonaSkillSighting } from "./persona-skill-types"
@@ -129,6 +136,45 @@ describe("persona-skill-store", () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it("版本快照只保留最近 5 份，按版本号排序", async () => {
+    const id = personaSkillIdFor("林清越")
+    for (let revision = 1; revision <= 7; revision += 1) {
+      await snapshotPersonaSkillRevision(projectPath, id, revision, `第 ${revision} 版`)
+    }
+    expect(await listPersonaSkillRevisions(projectPath, id)).toEqual([
+      "r000003.md", "r000004.md", "r000005.md", "r000006.md", "r000007.md",
+    ])
+  })
+
+  it("回退：最近一份快照写回正文、从历史移除，并推进 skillRevision", async () => {
+    const id = personaSkillIdFor("林清越")
+    await savePersonaSkillIndex(projectPath, { version: 1, skills: [meta("林清越", { skillRevision: 3 })] })
+    await writePersonaSkillDocument(projectPath, id, "AI 改坏的版本")
+    await snapshotPersonaSkillRevision(projectPath, id, 1, "第 1 版")
+    await snapshotPersonaSkillRevision(projectPath, id, 2, "第 2 版")
+
+    const restored = await restorePersonaSkillRevision(projectPath, id)
+    expect(restored?.document).toBe("第 2 版")
+    expect(await readPersonaSkillDocument(projectPath, id)).toBe("第 2 版")
+    expect(await listPersonaSkillRevisions(projectPath, id)).toEqual(["r000001.md"])
+    expect(restored?.index.skills[0].skillRevision).toBe(4)
+  })
+
+  it("没有快照时回退返回 null，不动正文", async () => {
+    const id = personaSkillIdFor("林清越")
+    await writePersonaSkillDocument(projectPath, id, "现版")
+    expect(await restorePersonaSkillRevision(projectPath, id)).toBeNull()
+    expect(await readPersonaSkillDocument(projectPath, id)).toBe("现版")
+  })
+
+  it("用户保存手改正文前，旧版进快照", async () => {
+    const id = personaSkillIdFor("林清越")
+    await savePersonaSkillIndex(projectPath, { version: 1, skills: [meta("林清越", { skillRevision: 2 })] })
+    await writePersonaSkillDocument(projectPath, id, "AI 写的版本")
+    await savePersonaSkillDocumentByUser(projectPath, id, "用户改的版本")
+    expect(await listPersonaSkillRevisions(projectPath, id)).toEqual(["r000002.md"])
   })
 
   it("没有 index.json 时返回空索引，不抛", async () => {

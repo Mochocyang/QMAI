@@ -61,18 +61,44 @@ describe("parseOutlineDiscussProtocol", () => {
     expect(outcome.protocol.status).toBe("needs_decision")
   })
 
-  it("rejects an unclosed block that still has trailing content", () => {
+  it("accepts an unclosed block that still has trailing content", () => {
+    const outcome = parseOutlineDiscussProtocol(
+      `${OUTLINE_DISCUSS_MARKER_OPEN}\n{"status":"ready","judgment":"可以开写"}\n后面还有别的正文`,
+    )
+    expect(outcome.kind).toBe("valid")
+    if (outcome.kind !== "valid") return
+    expect(outcome.protocol.judgment).toBe("可以开写")
+  })
+
+  it("accepts judgment prose followed by a fenced, unclosed protocol block", () => {
+    const outcome = parseOutlineDiscussProtocol([
+      "我把第1、2章正文重新读了一遍，三个创意分歧还没落到能动手的颗粒度。",
+      OUTLINE_DISCUSS_MARKER_OPEN,
+      "```json",
+      JSON.stringify({
+        status: "needs_decision",
+        module: "章节细纲",
+        judgment: "还有分歧",
+        decisions: [{ id: "d1", question: "黑衣人身份", options: twoOptions(), preferenceId: "A", preferenceReason: "更狠" }],
+        agreed: [],
+      }),
+      "```",
+      "请拍板后我再继续。",
+    ].join("\n"))
+    expect(outcome.kind).toBe("valid")
+    if (outcome.kind !== "valid") return
+    expect(validateOutlineDiscussProtocol(outcome.protocol).kind).toBe("needs_decision")
+  })
+
+  it("rejects a truncated block", () => {
     expect(parseOutlineDiscussProtocol(
-      `${OUTLINE_DISCUSS_MARKER_OPEN}\n{"status":"ready"}\n后面还有别的正文`,
-    )).toEqual({
-      kind: "invalid",
-      error: "共创协议缺少闭合标记且 JSON 后仍有额外内容",
-    })
+      `${OUTLINE_DISCUSS_MARKER_OPEN}\n{"status":"needs_decision","decisions":[{"id":"d1"`,
+    )).toEqual({ kind: "invalid", error: "共创协议 JSON 不完整或缺失" })
   })
 
   it("rejects unparsable json", () => {
     expect(parseOutlineDiscussProtocol(
-      `${OUTLINE_DISCUSS_MARKER_OPEN}\n{status: ready}\n${OUTLINE_DISCUSS_MARKER_CLOSE}`,
+      `${OUTLINE_DISCUSS_MARKER_OPEN}\n{不是 JSON}\n${OUTLINE_DISCUSS_MARKER_CLOSE}`,
     ).kind).toBe("invalid")
   })
 

@@ -108,6 +108,42 @@ describe("parseIntentClarity", () => {
     expect(outcome.result.normalizationSource).toBe("legacy_status_unclosed")
   })
 
+  it("未闭合且 JSON 后还有说明时仍然收下", () => {
+    const text = `判断。\n<!-- intent_clarity -->
+{"clarity":"clear","module":"章节细纲","analysis":"范围已经明确"}
+请确认后继续`
+    const outcome = parseIntentClarityProtocol(text)
+    expect(outcome.kind).toBe("valid")
+    if (outcome.kind !== "valid") return
+    expect(outcome.result.clarity).toBe("clear")
+    expect(outcome.result.normalizationSource).toBe("legacy_unclosed")
+  })
+
+  it("闭合标记在、JSON 包在代码围栏里时仍然收下", () => {
+    const text = `<!-- intent_clarity -->
+\`\`\`json
+{"clarity":"needs_input","module":"卷纲","analysis":"还缺范围","question":"写哪一卷？"}
+\`\`\`
+<!-- /intent_clarity -->`
+    const outcome = parseIntentClarityProtocol(text)
+    expect(outcome.kind).toBe("valid")
+    if (outcome.kind !== "valid") return
+    expect(outcome.result.clarity).toBe("needs_input")
+    expect(outcome.result.normalizationSource).toBe("canonical")
+  })
+
+  it("正文字段 clarity 优先于后面的 status 示例", () => {
+    const text = `<!-- intent_clarity -->
+{"clarity":"clear","module":"章节细纲","analysis":"范围明确"}
+{"status":"needs_input"}
+<!-- /intent_clarity -->`
+    const outcome = parseIntentClarityProtocol(text)
+    expect(outcome.kind).toBe("valid")
+    if (outcome.kind !== "valid") return
+    expect(outcome.result.clarity).toBe("clear")
+    expect(outcome.result.module).toBe("章节细纲")
+  })
+
   it("未闭合且 JSON 截断时返回明确协议错误", () => {
     const outcome = parseIntentClarityProtocol(
       '<!-- intent_clarity -->\n{"status":"clear","scope":"第236章"',

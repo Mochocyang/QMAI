@@ -6,8 +6,50 @@ import {
   flattenMetrics,
   METRIC_KEYS,
   METRIC_SCALES,
+  resolvePairedVerdict,
   resolveVerdict,
 } from "./style-evolution-metrics"
+
+describe("resolvePairedVerdict", () => {
+  it("每组都更近且平均改善超过 EPSILON ⇒ kept", () => {
+    const result = resolvePairedVerdict([
+      { distanceCandidate: 0.2, distanceBase: 0.5 },
+      { distanceCandidate: 0.3, distanceBase: 0.4 },
+    ], EPSILON)
+    expect(result.verdict).toBe("kept")
+    expect(result.meanCandidate).toBeCloseTo(0.25)
+    expect(result.meanBase).toBeCloseTo(0.45)
+  })
+
+  it("平均更近但有一组更远 ⇒ reverted（一次偶然不算改进）", () => {
+    const result = resolvePairedVerdict([
+      { distanceCandidate: 0.1, distanceBase: 0.9 },
+      { distanceCandidate: 0.5, distanceBase: 0.4 },
+    ], EPSILON)
+    expect(result.verdict).toBe("reverted")
+  })
+
+  it("每组都更近但平均改善不到 EPSILON ⇒ reverted", () => {
+    const result = resolvePairedVerdict([
+      { distanceCandidate: 0.4, distanceBase: 0.402 },
+      { distanceCandidate: 0.4, distanceBase: 0.402 },
+    ], EPSILON)
+    expect(result.verdict).toBe("reverted")
+  })
+
+  it("任何一组出现非有限距离 ⇒ undecidable（fail-closed）", () => {
+    const result = resolvePairedVerdict([
+      { distanceCandidate: 0.1, distanceBase: 0.9 },
+      { distanceCandidate: Number.NaN, distanceBase: 0.4 },
+    ], EPSILON)
+    expect(result.verdict).toBe("reverted")
+    expect(result.reason).toBe("undecidable")
+  })
+
+  it("空数组 ⇒ 不采纳", () => {
+    expect(resolvePairedVerdict([], EPSILON).verdict).toBe("reverted")
+  })
+})
 
 /*
  * 指标折算：把「两份统计数字」变成「离用户的真实写法有多远」。

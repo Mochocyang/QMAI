@@ -1,6 +1,10 @@
 import { stripOutlineDiscussMarkers } from "./outline-discuss-protocol"
 import { stripChapterDiscussMarkers } from "./chapter-discuss-protocol"
 import { stripOutlinePlanMarkers } from "./outline-plan-protocol"
+import {
+  scanMarkedJsonPayload,
+  type MarkedJsonInvalidReason,
+} from "./discuss-protocol-shared"
 
 export type IntentClarity = "clear" | "needs_input"
 
@@ -47,41 +51,6 @@ const OUTLINE_GENERATION_TARGETS: Array<{ pattern: RegExp; module: string }> = [
   { pattern: /故事大纲|总纲|(?:^|[^章节卷])大纲/, module: "故事大纲" },
 ]
 
-function extractCompleteJsonObject(text: string): { json: string; remainder: string } | null {
-  const start = text.indexOf("{")
-  if (start < 0) return null
-  let depth = 0
-  let inString = false
-  let escaped = false
-  for (let index = start; index < text.length; index += 1) {
-    const character = text[index]
-    if (inString) {
-      if (escaped) {
-        escaped = false
-      } else if (character === "\\") {
-        escaped = true
-      } else if (character === '"') {
-        inString = false
-      }
-      continue
-    }
-    if (character === '"') {
-      inString = true
-    } else if (character === "{") {
-      depth += 1
-    } else if (character === "}") {
-      depth -= 1
-      if (depth === 0) {
-        return {
-          json: text.slice(start, index + 1),
-          remainder: text.slice(index + 1),
-        }
-      }
-    }
-  }
-  return null
-}
-
 function inferModule(raw: Record<string, unknown>): string {
   const explicitModule = String(raw.module ?? "").trim()
   if (explicitModule) return explicitModule
@@ -110,37 +79,33 @@ export function parseIntentClarity(text: string): IntentClarityResult | null {
   return outcome.kind === "valid" ? outcome.result : null
 }
 
+function intentScanError(reason: MarkedJsonInvalidReason): string {
+  switch (reason) {
+    case "missing_payload":
+      return "意图分析 JSON 不完整或缺失"
+    case "unparseable":
+      return "意图分析 JSON 无法解析"
+    case "not_object":
+      return "意图分析结果必须是 JSON 对象"
+  }
+}
+
 export function parseIntentClarityProtocol(text: string): IntentClarityParseOutcome {
   const openMatch = INTENT_OPEN_PATTERN.exec(text)
   if (!openMatch) return { kind: "none" }
 
-  const payloadStart = openMatch.index + openMatch[0].length
-  const afterOpen = text.slice(payloadStart)
-  const closeMatch = INTENT_CLOSE_PATTERN.exec(afterOpen)
-  const hasClosingMarker = Boolean(closeMatch)
-  const unclosedPayload = hasClosingMarker ? null : extractCompleteJsonObject(afterOpen)
-  const payloadText = hasClosingMarker
-    ? afterOpen.slice(0, closeMatch!.index).trim()
-    : unclosedPayload?.json
-  if (!payloadText) {
-    return { kind: "invalid", error: "意图分析 JSON 不完整或缺失" }
-  }
-  if (!hasClosingMarker && unclosedPayload?.remainder.trim()) {
-    return { kind: "invalid", error: "意图分析缺少闭合标记且 JSON 后仍有额外内容" }
-  }
+  const afterOpen = text.slice(openMatch.index + openMatch[0].length)
+  const hasClosingMarker = Boolean(INTENT_CLOSE_PATTERN.exec(afterOpen))
+  const scan = scanMarkedJsonPayload(
+    text,
+    INTENT_OPEN_PATTERN,
+    INTENT_CLOSE_PATTERN,
+    ["clarity", "status"],
+  )
+  if (scan.kind === "invalid") return { kind: "invalid", error: intentScanError(scan.reason) }
+  if (scan.kind !== "payload") return { kind: "none" }
 
-  let payload: unknown
-  try {
-    payload = JSON.parse(payloadText)
-  } catch {
-    return { kind: "invalid", error: "意图分析 JSON 无法解析" }
-  }
-
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    return { kind: "invalid", error: "意图分析结果必须是 JSON 对象" }
-  }
-
-  const raw = payload as Record<string, unknown>
+  const raw = scan.payload
   const usedLegacyStatus = raw.clarity == null && raw.status != null
   const clarity = String(raw.clarity ?? raw.status ?? "")
   if (clarity !== "clear" && clarity !== "needs_input") {

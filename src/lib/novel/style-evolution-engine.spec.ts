@@ -21,6 +21,14 @@ vi.mock("@/stores/wiki-store", () => ({
 import {
   runStyleEvolutionRound,
   MIN_TOTAL_CHARS,
+  OUTLINE_MARKER,
+  RECENT_CHAPTERS,
+  buildAnalysisPrompt,
+  buildFitText,
+  pickProbePassages,
+  selectAuthoredRecentChapters,
+  selectRecentChapters,
+  AI_SAMPLE_FALLBACK_NOTE,
   type StyleEvolutionDeps,
 } from "./style-evolution-engine"
 import { emptyState, loadStyleEvolutionState, saveStyleEvolutionState } from "./style-evolution-store"
@@ -76,6 +84,26 @@ function deps(overrides: Partial<StyleEvolutionDeps> = {}): StyleEvolutionDeps {
     ...overrides,
   }
 }
+
+const NEAR_TEXT =
+  "他走进屋里，雨还在下。\n\n“你回来了。”她说。\n\n他没有答话，把伞靠在门边。\n\n灯亮着，桌上有一碗凉了的面。\n\n他坐下来，慢慢吃完。"
+const FAR_TEXT =
+  "在一个极其漫长而复杂的黄昏里，当所有关于往事的叙述都被迫挤进同一个句子之中并且不断叠加修饰成分的时候，人们往往会发现自己已经无法再像从前那样用简短干脆的方式去描述当时的心情与处境了。"
+
+/**
+ * 按提示词分流：情节要点提炼 ⇒ 要点 JSON；试写 ⇒ probe(prompt)；其余 ⇒ 画像 JSON。
+ * 用提示词里的【基线画像】/【候选画像】区分角色，而不是数调用次数。
+ */
+function routedModel(probe: (prompt: string) => string, outlines = ["他回家，她在等。", "他吃完那碗面。"]) {
+  return vi.fn(async (prompt: string) => {
+    if (prompt.includes(OUTLINE_MARKER)) return JSON.stringify({ outlines })
+    if (prompt.includes("只输出正文")) return probe(prompt)
+    return profileJson()
+  })
+}
+
+/** 第二轮用的章节：比首轮多两章，过得了新素材闸门。 */
+const secondRoundBodies = async () => makeBodies(5)
 
 beforeEach(() => {
   mem.clear()
@@ -213,7 +241,15 @@ describe("首轮：建立基线（bootstrap）", () => {
     state = { ...state, enabled: true, openDayCount: 3, lastOpenDate: "2026-10-20", lastAttemptedOn: "2026-10-20" }
     await saveStyleEvolutionState(PROJECT, state)
 
-    await runStyleEvolutionRound(PROJECT, deps({ now: "2026-10-21" }))
+    const second = await runStyleEvolutionRound(
+      PROJECT,
+      deps({
+        now: "2026-10-21",
+        collectChapterBodies: secondRoundBodies,
+        callModel: routedModel((prompt) => (prompt.includes("基线画像") ? FAR_TEXT : NEAR_TEXT)),
+      }),
+    )
+    expect(second.outcome).toBe("kept")
 
     const styles = await loadWritingStyleStore(PROJECT)
     const sourceBooks = styles.styles.map((s) => s.sourceBook)
@@ -314,23 +350,14 @@ describe("棘轮：keep / revert", () => {
     await bootstrapOnce()
     await makeSecondRoundDue()
 
-    /*
-     * 探针文本刻意拉开风格差距：目标来自用户自己的章节（短句、多对白、小段落）。
-     * 基线探针写成同一路写法（离目标近），候选探针写成一坨长句无对白（离目标远）。
-     * 用提示词里的【基线画像】/【候选画像】区分角色，而不是数调用次数。
-     */
-    const callModel = vi.fn(async (prompt: string) => {
-      if (prompt.includes("只输出正文")) {
-        if (prompt.includes("基线画像")) {
-          return "他走进屋里，雨还在下。\n\n“你回来了。”她说。\n\n他没有答话，把伞靠在门边。\n\n灯亮着，桌上有一碗凉了的面。\n\n他坐下来，慢慢吃完。"
-        }
-        return "在一个极其漫长而复杂的黄昏里，当所有关于往事的叙述都被迫挤进同一个句子之中并且不断叠加修饰成分的时候，人们往往会发现自己已经无法再像从前那样用简短干脆的方式去描述当时的心情与处境了。"
-      }
-      return profileJson()
-    })
+    // 目标来自用户章节（短句、多对白、小段落）：基线写成同一路写法，候选写成一坨长句无对白。
+    const callModel = routedModel((prompt) => (prompt.includes("基线画像") ? NEAR_TEXT : FAR_TEXT))
 
     const before = await loadWritingStyleStore(PROJECT)
-    const result = await runStyleEvolutionRound(PROJECT, deps({ callModel, now: "2026-10-21" }))
+    const result = await runStyleEvolutionRound(
+      PROJECT,
+      deps({ callModel, now: "2026-10-21", collectChapterBodies: secondRoundBodies }),
+    )
 
     expect(result.status).toBe("completed")
     expect(result.outcome).toBe("reverted")
@@ -353,7 +380,8 @@ describe("棘轮：keep / revert", () => {
       PROJECT,
       deps({
         now: "2026-10-21",
-        callModel: async (prompt: string) => (prompt.includes("只输出正文") ? "" : profileJson()),
+        collectChapterBodies: secondRoundBodies,
+        callModel: routedModel(() => ""),
       }),
     )
 
@@ -377,13 +405,9 @@ describe("棘轮：keep / revert", () => {
       PROJECT,
       deps({
         now: "2026-10-21",
-        callModel: async (prompt: string) => {
-          if (!prompt.includes("只输出正文")) return profileJson()
-          // 基线探针正常，候选探针一个字都不吐
-          return prompt.includes("基线画像")
-            ? "他走进屋里，雨还在下。\n\n“你回来了。”她说。\n\n他没有答话，把伞靠在门边。\n\n灯亮着，桌上有一碗凉了的面。\n\n他坐下来，慢慢吃完。"
-            : "   "
-        },
+        collectChapterBodies: secondRoundBodies,
+        // 基线探针正常，候选探针一个字都不吐
+        callModel: routedModel((prompt) => (prompt.includes("基线画像") ? NEAR_TEXT : "   ")),
       }),
     )
 
@@ -413,13 +437,8 @@ describe("候选清理：被启用的那条绝不能删", () => {
 
   /** 让第二轮判 keep：候选探针与目标一致、基线探针离目标很远。 */
   function keepCallModel() {
-    return vi.fn(async (prompt: string) => {
-      if (!prompt.includes("只输出正文")) return profileJson()
-      // 基线探针故意跑偏（一坨长句、无对白）；候选探针写成正常中文（短句 + 对白）
-      return prompt.includes("基线画像")
-        ? "在一个极其漫长而复杂的黄昏里，当所有关于往事的叙述都被迫挤进同一个句子之中并且不断叠加修饰成分的时候，人们往往会发现自己已经无法再像从前那样用简短干脆的方式去描述当时的心情与处境了。"
-        : "他走进屋里，雨还在下。\n\n“你回来了。”她说。\n\n他没有答话，把伞靠在门边。\n\n灯亮着，桌上有一碗凉了的面。\n\n他坐下来，慢慢吃完。"
-    })
+    // 基线探针故意跑偏（一坨长句、无对白）；候选探针写成正常中文（短句 + 对白）
+    return routedModel((prompt) => (prompt.includes("基线画像") ? FAR_TEXT : NEAR_TEXT))
   }
 
   it("上一轮候选未被启用 ⇒ 被清理掉，盘上不留垃圾", async () => {
@@ -427,7 +446,7 @@ describe("候选清理：被启用的那条绝不能删", () => {
     await makeSecondRoundDue()
     const result = await runStyleEvolutionRound(
       PROJECT,
-      deps({ callModel: keepCallModel(), now: "2026-10-21" }),
+      deps({ callModel: keepCallModel(), now: "2026-10-21", collectChapterBodies: secondRoundBodies }),
     )
 
     /*
@@ -459,7 +478,7 @@ describe("候选清理：被启用的那条绝不能删", () => {
     await makeSecondRoundDue()
     const result = await runStyleEvolutionRound(
       PROJECT,
-      deps({ callModel: keepCallModel(), now: "2026-10-21" }),
+      deps({ callModel: keepCallModel(), now: "2026-10-21", collectChapterBodies: secondRoundBodies }),
     )
     expect(result.outcome).toBe("kept")
 
@@ -469,5 +488,258 @@ describe("候选清理：被启用的那条绝不能删", () => {
     expect(styles.styles.some((s) => s.id === enabledId)).toBe(true)
     // 而且它必须仍然是启用状态
     expect(styles.enabledStyleId).toBe(enabledId)
+  })
+})
+
+describe("取样：只看最近的章节", () => {
+  it("超过 RECENT_CHAPTERS 章时只留最后几章", () => {
+    const chapters = selectRecentChapters(
+      Array.from({ length: RECENT_CHAPTERS + 4 }, (_, i) => ({ key: `c${i}`, body: `第${i}章` })),
+    )
+    expect(chapters).toHaveLength(RECENT_CHAPTERS)
+    expect(chapters[0].key).toBe("c4")
+    expect(chapters[chapters.length - 1].key).toBe(`c${RECENT_CHAPTERS + 3}`)
+  })
+
+  it("分析提示词里每一章都有内容（不再只截最早的 12000 字）", () => {
+    const fit = Array.from({ length: 6 }, (_, i) => `章节标记${i}` + "字".repeat(5000))
+    const text = buildFitText(fit)
+    for (let i = 0; i < 6; i += 1) expect(text).toContain(`章节标记${i}`)
+    expect(text.length).toBeLessThanOrEqual(12000 + 6 * 20)
+  })
+
+  it("引擎实际送进分析提示词的是最近的章节", async () => {
+    await primeDueState()
+    const prompts: string[] = []
+    const bodies = Array.from({ length: 12 }, (_, i) => `【章${i}】` + makeBody(String(i), 600))
+    await runStyleEvolutionRound(
+      PROJECT,
+      deps({
+        collectChapterBodies: async () => bodies,
+        callModel: vi.fn(async (prompt: string) => {
+          prompts.push(prompt)
+          return profileJson()
+        }),
+      }),
+    )
+    expect(prompts[0]).not.toContain("【章0】")
+    expect(prompts[0]).toContain("【章11】")
+  })
+
+  it("基线画像写进分析提示词；首轮不写", () => {
+    const withBase = buildAnalysisPrompt({ fitBodies: ["a"], targetMetricsText: "m", baselineProfileText: "基线X" })
+    const noBase = buildAnalysisPrompt({ fitBodies: ["a"], targetMetricsText: "m", baselineProfileText: null })
+    expect(withBase).toContain("基线X")
+    expect(noBase).not.toContain("当前正在用的画像")
+  })
+
+  it("检验片段：两章各取一段；只有一章时切成两段", () => {
+    expect(pickProbePassages([makeBody("a", 1200), makeBody("b", 1200)])).toHaveLength(2)
+    expect(pickProbePassages([makeBody("a", 1200)])).toHaveLength(2)
+    expect(pickProbePassages([])).toEqual([])
+  })
+})
+
+describe("取样：排除 AI 为主的章节", () => {
+  const chapter = (i: number, aiRatio: number | null) => ({ key: `c${i}`, body: `第${i}章`, aiRatio })
+
+  it("AI 字占比 > 85% 的章节被排除；未知占比按作者文本保留", () => {
+    const result = selectAuthoredRecentChapters([
+      chapter(0, 0.1), chapter(1, 0.95), chapter(2, null), chapter(3, 0.85), chapter(4, 1),
+    ])
+    expect(result.chapters.map((c) => c.key)).toEqual(["c0", "c2", "c3"])
+    expect(result.note).toBeUndefined()
+  })
+
+  it("排除后不够 3 章 ⇒ 退回全部章节并带提醒", () => {
+    const result = selectAuthoredRecentChapters([chapter(0, 0.1), chapter(1, 0.95), chapter(2, 0.99)])
+    expect(result.chapters).toHaveLength(3)
+    expect(result.note).toBe(AI_SAMPLE_FALLBACK_NOTE)
+  })
+
+  it("引擎把提醒带进结果；送进模型的是作者章节", async () => {
+    await primeDueState()
+    const prompts: string[] = []
+    const chapters = [
+      ...Array.from({ length: 3 }, (_, i) => ({ key: `h${i}`, body: `【作者${i}】` + makeBody(String(i), 600), aiRatio: 0 })),
+      { key: "ai", body: "【AI章】" + makeBody("x", 600), aiRatio: 1 },
+    ]
+    const result = await runStyleEvolutionRound(
+      PROJECT,
+      deps({
+        collectChapterBodies: async () => chapters,
+        callModel: vi.fn(async (prompt: string) => {
+          prompts.push(prompt)
+          return profileJson()
+        }),
+      }),
+    )
+    expect(result.sampleNote).toBeUndefined()
+    expect(prompts[0]).not.toContain("【AI章】")
+
+  })
+
+  it("只能退回 AI 章节时，结果里带 sampleNote", async () => {
+    await primeDueState()
+    const chapters = Array.from({ length: 3 }, (_, i) => ({ key: `a${i}`, body: makeBody(String(i), 600), aiRatio: 1 }))
+    const result = await runStyleEvolutionRound(PROJECT, deps({ collectChapterBodies: async () => chapters }))
+    expect(result.status).toBe("completed")
+    expect(result.sampleNote).toBe(AI_SAMPLE_FALLBACK_NOTE)
+  })
+})
+
+describe("新素材闸门", () => {
+  async function bootstrapThenDue() {
+    await primeDueState()
+    await runStyleEvolutionRound(PROJECT, deps())
+    const state = await loadStyleEvolutionState(PROJECT)
+    expect(state.lastSampledChapterKeys.length).toBeGreaterThan(0)
+    await saveStyleEvolutionState(PROJECT, {
+      ...state,
+      openDayCount: 3,
+      lastOpenDate: "2026-10-20",
+      lastAttemptedOn: "2026-10-20",
+    })
+  }
+
+  it("章节没变 ⇒ skipped-no-new-material，不调模型，计数保留到下次", async () => {
+    await bootstrapThenDue()
+    const callModel = vi.fn(async () => profileJson())
+
+    const result = await runStyleEvolutionRound(PROJECT, deps({ callModel, now: "2026-10-21" }))
+
+    expect(result.status).toBe("skipped-no-new-material")
+    expect(callModel).not.toHaveBeenCalled()
+    const state = await loadStyleEvolutionState(PROJECT)
+    expect(state.openDayCount).toBeGreaterThanOrEqual(state.nextThreshold)
+  })
+
+  it("只多了一章 ⇒ 仍然跳过", async () => {
+    await bootstrapThenDue()
+    const result = await runStyleEvolutionRound(
+      PROJECT,
+      deps({ now: "2026-10-21", collectChapterBodies: async () => makeBodies(4) }),
+    )
+    expect(result.status).toBe("skipped-no-new-material")
+  })
+
+  it("多了两章 ⇒ 正常跑", async () => {
+    await bootstrapThenDue()
+    const result = await runStyleEvolutionRound(
+      PROJECT,
+      deps({
+        now: "2026-10-21",
+        collectChapterBodies: secondRoundBodies,
+        callModel: routedModel(() => NEAR_TEXT),
+      }),
+    )
+    expect(result.status).toBe("completed")
+  })
+})
+
+describe("受控试写与配对判定", () => {
+  async function bootstrapThenDue() {
+    await primeDueState()
+    await runStyleEvolutionRound(PROJECT, deps())
+    const state = await loadStyleEvolutionState(PROJECT)
+    await saveStyleEvolutionState(PROJECT, {
+      ...state,
+      openDayCount: 3,
+      lastOpenDate: "2026-10-20",
+      lastAttemptedOn: "2026-10-20",
+    })
+  }
+
+  it("两份画像拿到的是同一份情节要点", async () => {
+    await bootstrapThenDue()
+    const probes: string[] = []
+    await runStyleEvolutionRound(
+      PROJECT,
+      deps({
+        now: "2026-10-21",
+        collectChapterBodies: secondRoundBodies,
+        callModel: routedModel((prompt) => {
+          probes.push(prompt)
+          return NEAR_TEXT
+        }, ["要点甲", "要点乙"]),
+      }),
+    )
+    expect(probes).toHaveLength(4)
+    expect(probes.filter((p) => p.includes("要点甲"))).toHaveLength(2)
+    expect(probes.filter((p) => p.includes("要点乙"))).toHaveLength(2)
+    expect(probes.filter((p) => p.includes("要点甲") && p.includes("基线画像"))).toHaveLength(1)
+    expect(probes.filter((p) => p.includes("要点甲") && p.includes("候选画像"))).toHaveLength(1)
+  })
+
+  it("要点提炼失败 ⇒ incomplete，不写候选", async () => {
+    await bootstrapThenDue()
+    const before = await loadWritingStyleStore(PROJECT)
+    const result = await runStyleEvolutionRound(
+      PROJECT,
+      deps({
+        now: "2026-10-21",
+        collectChapterBodies: secondRoundBodies,
+        callModel: vi.fn(async (prompt: string) => {
+          if (prompt.includes(OUTLINE_MARKER)) return "不是 JSON"
+          if (prompt.includes("只输出正文")) return NEAR_TEXT
+          return profileJson()
+        }),
+      }),
+    )
+    expect(result.status).toBe("incomplete")
+    expect((await loadWritingStyleStore(PROJECT)).styles).toHaveLength(before.styles.length)
+  })
+
+  it("只赢一组 ⇒ reverted（单次试写的偶然不算改进）", async () => {
+    await bootstrapThenDue()
+    const result = await runStyleEvolutionRound(
+      PROJECT,
+      deps({
+        now: "2026-10-21",
+        collectChapterBodies: secondRoundBodies,
+        callModel: routedModel((prompt) => {
+          const first = prompt.includes("要点甲")
+          if (prompt.includes("基线画像")) return first ? FAR_TEXT : NEAR_TEXT
+          return first ? NEAR_TEXT : FAR_TEXT
+        }, ["要点甲", "要点乙"]),
+      }),
+    )
+    expect(result.status).toBe("completed")
+    expect(result.outcome).toBe("reverted")
+  })
+
+  it("基线优先用当前启用的文风，而不是上一轮候选", async () => {
+    await bootstrapThenDue()
+    const { upsertWritingStylePreset } = await import("./writing-style-store")
+    const enabled = await upsertWritingStylePreset(PROJECT, {
+      name: "用户自己的文风",
+      sourceBook: "用户手动",
+      profile: JSON.parse(profileJson({ integratedDna: "## 语言特征\n用户启用的独有标记\n\n## 风格硬约束\n1. x" })),
+    })
+    await setEnabledWritingStyle(PROJECT, enabled.id)
+
+    const baselinePrompts: string[] = []
+    await runStyleEvolutionRound(
+      PROJECT,
+      deps({
+        now: "2026-10-21",
+        collectChapterBodies: secondRoundBodies,
+        callModel: routedModel((prompt) => {
+          if (prompt.includes("基线画像")) baselinePrompts.push(prompt)
+          return NEAR_TEXT
+        }),
+      }),
+    )
+    expect(baselinePrompts.length).toBeGreaterThan(0)
+    expect(baselinePrompts.every((p) => p.includes("用户启用的独有标记"))).toBe(true)
+  })
+
+  it("跑完后不再缓存跨轮的探针指标", async () => {
+    await bootstrapThenDue()
+    await runStyleEvolutionRound(
+      PROJECT,
+      deps({ now: "2026-10-21", collectChapterBodies: secondRoundBodies, callModel: routedModel(() => NEAR_TEXT) }),
+    )
+    expect((await loadStyleEvolutionState(PROJECT)).probe).toBeNull()
   })
 })

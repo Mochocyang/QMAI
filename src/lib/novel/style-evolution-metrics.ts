@@ -152,3 +152,42 @@ export function resolveVerdict(
   }
   return { verdict: "reverted", reason: "not-improved", delta }
 }
+
+/** 同一份情节要点下，候选与基线各写一段后、各自离原文片段的距离。 */
+export interface StyleProbePair {
+  distanceCandidate: number
+  distanceBase: number
+}
+
+export interface PairedVerdictResult extends StyleEvolutionVerdictResult {
+  /** 各组距离的平均值；无法判定时为 `NaN`。 */
+  meanCandidate: number
+  meanBase: number
+}
+
+/**
+ * 配对判定：候选必须在**每一组**里都比基线更近，且平均改善超过 ε，才保留。
+ *
+ * 单段试写的波动远大于 ε —— 只比一组时，「保留还是作废」由这一次试写的随机性决定。
+ * 要求每组都赢，是用重复试验把这部分噪声挡掉；平均改善再过一道 ε，挡住「每组都只赢一丝」。
+ * 任何一组不是有限数时 fail-closed（不保留）。
+ */
+export function resolvePairedVerdict(
+  pairs: readonly StyleProbePair[],
+  epsilon = EPSILON,
+): PairedVerdictResult {
+  const finitePairs = pairs.length > 0 && pairs.every(
+    (pair) => Number.isFinite(pair.distanceCandidate) && Number.isFinite(pair.distanceBase),
+  )
+  if (!finitePairs) {
+    return { verdict: "reverted", reason: "undecidable", delta: null, meanCandidate: Number.NaN, meanBase: Number.NaN }
+  }
+  const meanCandidate = pairs.reduce((sum, pair) => sum + pair.distanceCandidate, 0) / pairs.length
+  const meanBase = pairs.reduce((sum, pair) => sum + pair.distanceBase, 0) / pairs.length
+  const delta = meanBase - meanCandidate
+  const winsEveryPair = pairs.every((pair) => pair.distanceCandidate < pair.distanceBase)
+  if (winsEveryPair && delta > epsilon) {
+    return { verdict: "kept", reason: "improved", delta, meanCandidate, meanBase }
+  }
+  return { verdict: "reverted", reason: "not-improved", delta, meanCandidate, meanBase }
+}

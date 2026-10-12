@@ -78,7 +78,7 @@ describe("repairChapterDiscussProtocolWithAi", () => {
       signal,
       stream,
     })
-    expect(calls[0].overrides).toEqual({ temperature: 0, max_tokens: 1600 })
+    expect(calls[0].overrides).toEqual({ temperature: 0, max_tokens: 4000 })
   })
 
   it("rethrows the upstream error instead of faking an empty repair", async () => {

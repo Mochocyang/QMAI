@@ -1,15 +1,14 @@
 /**
- * 共创类协议共用的无语义机械。
+ * 标记块协议共用的无语义机械。
  *
- * 大纲「共创」（outline_discuss）与章节「共创」（chapter_discuss）在协议语义上不同
- * （前者是多轮分歧拍板，后者是一批方向候选单选），但底层的文本处理完全一致：
- * 从标记块里扫出 JSON、剥离标记、以及在模型只吐正文时补一次协议。
+ * 大纲共创、章节共创、计划协议、意图分析的字段各不相同，但「从开闭标记里扫出
+ * JSON」是同一件事。补协议那一轮调用仍只服务共创。
  *
- * 本模块只负责这些机械，**不含任何业务语义**：模块名、错误文案、协议字段校验
- * 都由各自的协议模块决定。返回值里的 reason 是稳定枚举，由调用方映射成各自的文案，
- * 以保证大纲侧既有错误串不被改写。
+ * 本模块不含业务语义：模块名、错误文案、字段校验都由调用方决定。reason 是稳定
+ * 枚举，调用方映射成自己的文案。
  */
 
+import { jsonrepair } from "jsonrepair"
 import { streamChat, type ChatMessage } from "@/lib/llm-client"
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -56,7 +55,6 @@ export function extractLeadingJsonObject(text: string): { json: string; remainde
 
 export type MarkedJsonInvalidReason =
   | "missing_payload"
-  | "trailing_content"
   | "unparseable"
   | "not_object"
 
@@ -65,43 +63,87 @@ export type MarkedJsonScan =
   | { kind: "payload"; payload: Record<string, unknown> }
   | { kind: "invalid"; reason: MarkedJsonInvalidReason }
 
+/** 区域内所有配平的顶层 `{...}`；某个 `{` 配不平时跳过它继续找，不让一个孤立括号吞掉后面的协议。 */
+function extractBalancedJsonObjects(text: string): string[] {
+  const objects: string[] = []
+  let cursor = 0
+  while (cursor < text.length) {
+    const found = extractLeadingJsonObject(text.slice(cursor))
+    if (found) {
+      objects.push(found.json)
+      cursor = text.length - found.remainder.length
+      continue
+    }
+    const next = text.indexOf("{", cursor)
+    if (next < 0) break
+    cursor = next + 1
+  }
+  return objects
+}
+
+function parseObjectCandidate(candidate: string): Record<string, unknown> | null {
+  for (const attempt of [() => candidate, () => jsonrepair(candidate)]) {
+    try {
+      const parsed: unknown = JSON.parse(attempt())
+      if (isPlainObject(parsed)) return parsed
+    } catch {
+      // 换下一种方式
+    }
+  }
+  return null
+}
+
 /**
  * 扫描 `openPattern ... closePattern` 标记块里的 JSON 对象。
  *
- * 与既有大纲协议对称：支持未闭合标记兜底（流式截断），并把解析失败原因
- * 归一成 reason 码，交给调用方映射文案。
+ * 模型常见的不规范输出都要收下：漏写闭合标记、JSON 外包一层 ```json 围栏、
+ * JSON 后面再补一句说明。判断依据只有一个——区域里有没有一个配平且能解析的对象；
+ * 没写完的括号（流式截断）仍然判失败，绝不拼补成一份假协议。
+ * 区域里有多个对象时，按 identityKeys 的顺序取「最后一个带该字符串字段」的对象，
+ * 默认认 status。意图分析要传 ["clarity", "status"]：正文字段优先，旧数据的 status 其次。
  */
 export function scanMarkedJsonPayload(
   text: string,
   openPattern: RegExp,
   closePattern: RegExp,
+  identityKeys: readonly string[] = ["status"],
 ): MarkedJsonScan {
   const openMatch = stateless(openPattern).exec(text)
   if (!openMatch) return { kind: "none" }
 
   const afterOpen = text.slice(openMatch.index + openMatch[0].length)
   const closeMatch = stateless(closePattern).exec(afterOpen)
-  const unclosedPayload = closeMatch ? null : extractLeadingJsonObject(afterOpen)
-  const payloadText = closeMatch
-    ? afterOpen.slice(0, closeMatch.index).trim()
-    : unclosedPayload?.json
-  if (!payloadText) {
-    return { kind: "invalid", reason: "missing_payload" }
-  }
-  if (!closeMatch && unclosedPayload?.remainder.trim()) {
-    return { kind: "invalid", reason: "trailing_content" }
+  const region = closeMatch ? afterOpen.slice(0, closeMatch.index) : afterOpen
+
+  const candidates = extractBalancedJsonObjects(region)
+  if (candidates.length === 0) {
+    const bare = region.replace(/```(?:json)?/gi, "").trim()
+    if (!bare || bare.includes("{")) return { kind: "invalid", reason: "missing_payload" }
+    try {
+      JSON.parse(bare)
+      return { kind: "invalid", reason: "not_object" }
+    } catch {
+      return { kind: "invalid", reason: "missing_payload" }
+    }
   }
 
-  let payload: unknown
-  try {
-    payload = JSON.parse(payloadText)
-  } catch {
-    return { kind: "invalid", reason: "unparseable" }
+  const parsed = candidates
+    .map(parseObjectCandidate)
+    .filter((payload): payload is Record<string, unknown> => payload !== null)
+  if (parsed.length === 0) return { kind: "invalid", reason: "unparseable" }
+
+  return { kind: "payload", payload: pickIdentifiedPayload(parsed, identityKeys) }
+}
+
+function pickIdentifiedPayload(
+  parsed: Record<string, unknown>[],
+  identityKeys: readonly string[],
+): Record<string, unknown> {
+  for (const key of identityKeys) {
+    const matches = parsed.filter((payload) => typeof payload[key] === "string")
+    if (matches.length > 0) return matches[matches.length - 1]
   }
-  if (!isPlainObject(payload)) {
-    return { kind: "invalid", reason: "not_object" }
-  }
-  return { kind: "payload", payload }
+  return parsed[parsed.length - 1]
 }
 
 /** 剥掉标记块（含未闭合的尾部残留），与既有 stripXxxMarkers 行为一致。 */

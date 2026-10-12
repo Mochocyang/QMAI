@@ -65,9 +65,21 @@ export interface StyleEvolutionProbe {
 export interface StyleEvolutionState extends StyleEvolutionScheduleState {
   version: 1
   enabled: boolean
+  /**
+   * 旧版的跨轮基线指标缓存。现在每轮都对当前启用的文风重新试写（试写内容随检验片段变，
+   * 跨轮缓存的指标不再可比），引擎不再读写它；字段保留只为兼容旧文件。
+   */
   probe: StyleEvolutionProbe | null
+  /**
+   * 上一轮**完整跑完**时参与取样的章节键（文件名 + 字数）。
+   * 新素材闸门靠它判断「自上一轮以来有没有新写的章节」。
+   */
+  lastSampledChapterKeys: string[]
   rounds: StyleEvolutionRound[]
 }
+
+/** 章节键只用于比对，存太多没有意义。 */
+export const MAX_SAMPLED_CHAPTER_KEYS = 50
 
 const ROUND_OUTCOMES: StyleEvolutionRoundOutcome[] = ["bootstrap", "kept", "reverted", "incomplete"]
 
@@ -85,6 +97,7 @@ export function emptyState(): StyleEvolutionState {
     version: 1,
     enabled: false,
     probe: null,
+    lastSampledChapterKeys: [],
     rounds: [],
     ...emptyScheduleState(),
   }
@@ -184,6 +197,13 @@ function sanitizeRound(value: unknown): StyleEvolutionRound | null {
   return result
 }
 
+function sanitizeChapterKeys(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    .slice(-MAX_SAMPLED_CHAPTER_KEYS)
+}
+
 function sanitizeRounds(value: unknown): StyleEvolutionRound[] {
   if (!Array.isArray(value)) return []
   const rounds = value
@@ -215,6 +235,7 @@ export async function loadStyleEvolutionState(projectPath: string): Promise<Styl
     nextThreshold: safeThreshold(parsed.nextThreshold),
     lastAnalyzedOn: lastAnalyzedOn || null,
     probe: sanitizeProbe(parsed.probe),
+    lastSampledChapterKeys: sanitizeChapterKeys(parsed.lastSampledChapterKeys),
     rounds: sanitizeRounds(parsed.rounds),
   }
 }
@@ -259,6 +280,7 @@ export async function saveStyleEvolutionState(
     nextThreshold: safeThreshold(state.nextThreshold),
     lastAnalyzedOn: state.lastAnalyzedOn || null,
     probe: sanitizeProbe(state.probe),
+    lastSampledChapterKeys: sanitizeChapterKeys(state.lastSampledChapterKeys),
     rounds: (Array.isArray(state.rounds) ? state.rounds : [])
       .map(sanitizeRound)
       .filter((item): item is StyleEvolutionRound => item !== null)
