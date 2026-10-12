@@ -507,6 +507,11 @@ export function ScenarioSetupPanel({
             placeholder={t("storySimulation.scenarioTimePlaceholder")}
           />
         </div>
+        {/* 参考点不是一句空话：写着「必须以此为依据」，就得让人知道依据从哪来。
+            同时先把「检索不到也照常开演」说在前面，免得事后以为是 bug */}
+        <p className="text-xs text-muted-foreground">
+          {t("storySimulation.scenarioReferenceHint")}
+        </p>
       </section>
 
       {/* 5. 对话形式 */}

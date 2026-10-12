@@ -177,6 +177,36 @@ describe("runScenario", () => {
     }
   })
 
+  it("参考点检索到的资料会注入每一次 LLM 调用", async () => {
+    const setup = makeSetup(
+      [makeUserModerator(), makeCharacter("甲"), makeCharacter("乙"), makeCharacter("丙")],
+      { rounds: 1 },
+    )
+    await runScenario({
+      setup,
+      llmConfig: mockLlmConfig,
+      referenceMaterial: "### 中庸\n天命之谓性，率性之谓道。",
+    })
+    expect(capturedCalls.length).toBeGreaterThan(0)
+    for (const call of capturedCalls) {
+      const text = call.map((m) => m.content).join("\n")
+      expect(text).toContain("【参考资料（引文必须出自此处）】")
+      expect(text).toContain("天命之谓性")
+    }
+  })
+
+  it("没有资料时不留一个空标题", async () => {
+    const setup = makeSetup(
+      [makeUserModerator(), makeCharacter("甲"), makeCharacter("乙"), makeCharacter("丙")],
+      { rounds: 1 },
+    )
+    await runScenario({ setup, llmConfig: mockLlmConfig })
+    for (const call of capturedCalls) {
+      const text = call.map((m) => m.content).join("\n")
+      expect(text).not.toContain("【参考资料")
+    }
+  })
+
   it("信号已中止时立即结束并标记 cancelled", async () => {
     const setup = makeSetup(
       [makeUserModerator(), makeCharacter("甲"), makeCharacter("乙"), makeCharacter("丙")],

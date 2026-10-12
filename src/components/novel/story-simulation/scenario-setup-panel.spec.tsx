@@ -427,3 +427,29 @@ describe("ScenarioSetupPanel · 历史情景列表", () => {
     expect(container.textContent).not.toContain("scenarioStatusCancelled")
   })
 })
+
+/**
+ * 「参考点」原来只是一句写进提示词的话，界面上没有任何地方说明它会不会被
+ * 真正检索 —— 用户以为填了就会「以此为依据」。至少要说明它从项目资料里检索。
+ */
+describe("ScenarioSetupPanel · 参考点说明", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn<(setup: ScenarioSetup) => void>()
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it("说明参考点会从项目资料中检索、检索不到也能开演", () => {
+    render()
+
+    expect(container.textContent).toContain(
+      "storySimulation.scenarioReferenceHint",
+    )
+  })
+})

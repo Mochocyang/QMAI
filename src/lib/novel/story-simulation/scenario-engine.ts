@@ -131,6 +131,7 @@ export function buildCharacterTurnPrompt(
   transcript: string,
   round: number,
   worldRules?: string,
+  referenceMaterial?: string,
 ): string {
   const sections: string[] = []
 
@@ -160,6 +161,7 @@ export function buildCharacterTurnPrompt(
     buildSceneContext(setup, {
       formatHint: SCENARIO_FORMAT_INFO[setup.format].behaviorHint,
       worldRules,
+      referenceMaterial,
     }),
   )
 
@@ -223,6 +225,8 @@ export interface RunScenarioOptions {
   signal?: AbortSignal
   /** 世界规则 / 背景设定（可选）。 */
   worldRules?: string
+  /** 参考点检索到的资料正文（可选）。 */
+  referenceMaterial?: string
   /** 初始消息（续跑时传入）。 */
   initialMessages?: ScenarioMessage[]
   /** 起始轮次（默认 1）。 */
@@ -281,6 +285,7 @@ export async function runScenario(
     llmConfig,
     signal,
     worldRules,
+    referenceMaterial,
     initialMessages = [],
     startRound = 1,
     withClosing = true,
@@ -387,7 +392,7 @@ export async function runScenario(
       await generateModeratorSpeech(
         moderator,
         0,
-        buildModeratorOpeningPrompt(setup, worldRules),
+        buildModeratorOpeningPrompt(setup, worldRules, referenceMaterial),
       )
     }
   }
@@ -417,6 +422,7 @@ export async function runScenario(
           formatTranscript(messages),
           r,
           worldRules,
+          referenceMaterial,
         ),
       )
     }
@@ -454,6 +460,7 @@ export async function runScenario(
               formatTranscript(messages),
               r,
               worldRules,
+              referenceMaterial,
             ),
           },
         ],
@@ -489,6 +496,7 @@ export async function runScenario(
         setup,
         formatTranscript(messages, 60),
         worldRules,
+        referenceMaterial,
       ),
     )
   }
@@ -505,6 +513,8 @@ export interface ContinueScenarioOptions {
   userInput: string
   signal?: AbortSignal
   worldRules?: string
+  /** 参考点检索到的资料正文（可选）。 */
+  referenceMaterial?: string
   /** 插话后追加多少轮角色发言（默认 1）。 */
   rounds?: number
   /** 是否让主持人（角色担任时）先回应一句（默认 false）。 */
@@ -528,6 +538,7 @@ export async function continueScenario(
     userInput,
     signal,
     worldRules,
+    referenceMaterial,
     rounds = 1,
     moderatorResponds = false,
   } = options
@@ -571,6 +582,7 @@ export async function continueScenario(
             formatTranscript(messages),
             userMsg.round,
             worldRules,
+            referenceMaterial,
           ),
         },
       ],
@@ -595,6 +607,7 @@ export async function continueScenario(
     llmConfig,
     signal,
     worldRules,
+    referenceMaterial,
     initialMessages: messages,
     startRound,
     rounds,

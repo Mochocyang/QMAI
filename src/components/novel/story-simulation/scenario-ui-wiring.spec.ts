@@ -118,4 +118,14 @@ describe("舞台情景 · 主视图接线", () => {
     expect(src).toContain("initialMessages: continuedFrom.messages")
     expect(src).toContain("moderatorOriginRound: 1")
   })
+
+  it("三条生成路径都把参考点资料送进引擎", () => {
+    const src = view()
+    expect(src).toContain("collectScenarioReferenceMaterial")
+    expect(src).toContain("resolveScenarioReference")
+    // 开场、插话、续跑都必须带资料，漏一条就会出现「同一场里前后依据不同」
+    const passed = src.match(/referenceMaterial/g) ?? []
+    expect(passed.length).toBeGreaterThanOrEqual(4)
+    expect(src).toContain("referenceInfo={scenarioReferenceInfo}")
+  })
 })

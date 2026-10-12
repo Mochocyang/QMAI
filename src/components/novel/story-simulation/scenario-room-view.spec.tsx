@@ -86,7 +86,11 @@ let onContinue: ReturnType<typeof vi.fn<() => void>>
 
 function render(
   s: ScenarioSession,
-  over: { remainingRounds?: number; running?: boolean } = {},
+  over: {
+    remainingRounds?: number
+    running?: boolean
+    referenceInfo?: { count: number; truncated: boolean } | null
+  } = {},
 ) {
   act(() => {
     root.render(
@@ -103,6 +107,7 @@ function render(
         onBack={() => {}}
         onContinue={onContinue}
         remainingRounds={over.remainingRounds ?? 0}
+        referenceInfo={over.referenceInfo ?? null}
       />,
     )
   })
@@ -226,5 +231,52 @@ describe("ScenarioRoomView · 继续生成剩余轮数", () => {
         text.includes("storySimulation.scenarioContinue"),
       ),
     ).toBeUndefined()
+  })
+})
+
+/**
+ * 「参考点」写着「必须以此为依据」，但检索落空时界面与成功时一模一样，
+ * 作者只会以为模型不听话。所以要如实报出依据了几篇资料。
+ */
+describe("ScenarioRoomView · 参考资料", () => {
+  /** 填了参考点的会话 —— 与顶层 setup（未填）区分开。 */
+  function withReference(s: ScenarioSession): ScenarioSession {
+    return {
+      ...s,
+      setup: { ...s.setup, rules: { ...s.setup.rules, reference: "《中庸》" } },
+    }
+  }
+
+  it("注入了资料时报出篇数", () => {
+    render(withReference(session([msg({})])), {
+      referenceInfo: { count: 3, truncated: false },
+    })
+
+    expect(container.textContent).toContain(
+      "scenarioReferenceInjected(count=3)",
+    )
+  })
+
+  it("资料被截断时如实说明，不假装完整", () => {
+    render(withReference(session([msg({})])), {
+      referenceInfo: { count: 3, truncated: true },
+    })
+
+    expect(container.textContent).toContain("scenarioReferenceTruncated")
+  })
+
+  it("填了参考点却一篇都没检索到时明说，而不是装作一切正常", () => {
+    render(withReference(session([msg({})])), { referenceInfo: null })
+
+    expect(container.textContent).toContain("scenarioReferenceMissing")
+    expect(container.textContent).not.toContain("scenarioReferenceInjected")
+  })
+
+  it("没填参考点时不显示任何资料标记", () => {
+    render(session([msg({})]), { referenceInfo: null })
+
+    expect(container.textContent).not.toContain("scenarioReferenceInjected")
+    expect(container.textContent).not.toContain("scenarioReferenceMissing")
+    expect(container.textContent).not.toContain("scenarioReferenceTruncated")
   })
 })

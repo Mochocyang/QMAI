@@ -60,6 +60,7 @@ import {
   lastSpokenRound,
   remainingScenarioRounds,
 } from "@/lib/novel/story-simulation/scenario-types";
+import { collectScenarioReferenceMaterial } from "@/lib/novel/story-simulation/scenario-reference";
 import {
   saveInterview,
   loadInterviews,
@@ -298,6 +299,16 @@ export function StorySimulationView() {
   const [scenarioRunning, setScenarioRunning] = useState(false);
   const [scenarioExporting, setScenarioExporting] = useState(false);
   const [scenarioInserting, setScenarioInserting] = useState(false);
+  /**
+   * 本场情景实际注入了几篇参考资料（null=没填参考点或一篇都没搜到）。
+   *
+   * 必须让用户看见：「参考点」写着「必须以此为依据」，如果检索落空，作者看到的
+   * 界面和检索成功时一模一样，只会以为模型不听话。
+   */
+  const [scenarioReferenceInfo, setScenarioReferenceInfo] = useState<{
+    count: number;
+    truncated: boolean;
+  } | null>(null);
   const [scenarioSaved, setScenarioSaved] = useState<ScenarioSession[]>([]);
   const [scenarioSourceChapters, setScenarioSourceChapters] =
     useState(sourceChapters);
@@ -1550,6 +1561,28 @@ export function StorySimulationView() {
   });
 
   /** 启动舞台情景：从设置面板收到的 setup 开始生成。 */
+  /**
+   * 取本场情景的「参考点」资料。
+   *
+   * 没填参考点就完全不检索（省一次 IO）。检索落空也照常返回 undefined，情景
+   * 必须能开演 —— 资料是锦上添花。结果记进 scenarioReferenceInfo，好在房间里
+   * 如实告诉用户「依据了 N 篇资料」还是「一篇都没找到」。
+   */
+  const resolveScenarioReference = async (setup: ScenarioSetup) => {
+    const reference = setup.rules.reference?.trim();
+    if (!projectPath || !reference) {
+      setScenarioReferenceInfo(null);
+      return undefined;
+    }
+    const material = await collectScenarioReferenceMaterial(projectPath, reference);
+    setScenarioReferenceInfo(
+      material.sources.length > 0
+        ? { count: material.sources.length, truncated: material.truncated }
+        : null,
+    );
+    return material.text || undefined;
+  };
+
   const handleScenarioStart = async (setup: ScenarioSetup) => {
     if (!projectPath) {
       setError(t("storySimulation.scenarioNoProject"));
@@ -1567,11 +1600,13 @@ export function StorySimulationView() {
     scenarioAbortRef.current = controller;
     try {
       const llmConfig = resolveDefaultModel(baseLlmConfig);
+      const referenceMaterial = await resolveScenarioReference(setup);
       const result = await runScenario({
         setup,
         llmConfig,
         signal: controller.signal,
         worldRules: extractionResult?.worldRules,
+        referenceMaterial,
         ...makeScenarioCallbacks(setup),
       });
       scenarioMessagesRef.current = result.messages;
@@ -1608,6 +1643,9 @@ export function StorySimulationView() {
     scenarioAbortRef.current = controller;
     try {
       const llmConfig = resolveDefaultModel(baseLlmConfig);
+      const referenceMaterial = await resolveScenarioReference(
+        scenarioSession.setup,
+      );
       const result = await continueScenario({
         session: scenarioSession,
         llmConfig,
@@ -1615,6 +1653,7 @@ export function StorySimulationView() {
         signal: controller.signal,
         rounds: 1,
         worldRules: extractionResult?.worldRules,
+        referenceMaterial,
         ...makeScenarioCallbacks(scenarioSession.setup),
       });
       scenarioMessagesRef.current = result.messages;
@@ -1668,6 +1707,7 @@ export function StorySimulationView() {
         llmConfig,
         signal: controller.signal,
         worldRules: extractionResult?.worldRules,
+        referenceMaterial: await resolveScenarioReference(continuedFrom.setup),
         initialMessages: continuedFrom.messages,
         startRound: lastSpokenRound(continuedFrom.messages) + 1,
         rounds: remaining,
@@ -2253,6 +2293,7 @@ export function StorySimulationView() {
             }
             exporting={scenarioExporting}
             inserting={scenarioInserting}
+            referenceInfo={scenarioReferenceInfo}
           />
         ) : phase === "idle" ? (
           /* 落地页：两个彼此独立的功能并列成同级入口 */

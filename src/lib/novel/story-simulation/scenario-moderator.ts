@@ -84,7 +84,18 @@ export function formatParticipantRoster(
  */
 export function buildSceneContext(
   setup: ScenarioSetup,
-  options: { worldRules?: string; formatHint: string } = {
+  options: {
+    worldRules?: string
+    /**
+     * 参考点检索到的资料正文（可选）。
+     *
+     * 与 rules.reference 的区别：rules.reference 只是「书名/出处」这一句话，
+     * 资料正文才是模型真正能依据的内容。分开放是因为二者来源不同 —— 前者是
+     * 用户手填的，后者是去项目 wiki 检索来的，可能一条都没有。
+     */
+    referenceMaterial?: string
+    formatHint: string
+  } = {
     formatHint: "",
   },
 ): string {
@@ -107,6 +118,11 @@ export function buildSceneContext(
     sections.push("")
     sections.push("【世界规则 / 背景设定】")
     sections.push(options.worldRules)
+  }
+  if (options.referenceMaterial) {
+    sections.push("")
+    sections.push("【参考资料（引文必须出自此处）】")
+    sections.push(options.referenceMaterial)
   }
   return sections.join("\n")
 }
@@ -159,6 +175,7 @@ export function buildModeratorSystemPrompt(setup: ScenarioSetup): string {
 export function buildModeratorOpeningPrompt(
   setup: ScenarioSetup,
   worldRules?: string,
+  referenceMaterial?: string,
 ): string {
   const characters = getCharacters(setup.participants)
   return [
@@ -167,6 +184,7 @@ export function buildModeratorOpeningPrompt(
         .map((c) => c.name)
         .join("、")}。`,
       worldRules,
+      referenceMaterial,
     }),
     "",
     "请说出你的开场白。",
@@ -179,11 +197,13 @@ export function buildModeratorInterjectionPrompt(
   transcript: string,
   round: number,
   worldRules?: string,
+  referenceMaterial?: string,
 ): string {
   return [
     buildSceneContext(setup, {
       formatHint: `当前已进行到第 ${round} 轮。请用一两句话点题、追问或点名某人，把讨论引向深入。`,
       worldRules,
+      referenceMaterial,
     }),
     "",
     "【已有对话】",
@@ -198,11 +218,13 @@ export function buildModeratorClosingPrompt(
   setup: ScenarioSetup,
   transcript: string,
   worldRules?: string,
+  referenceMaterial?: string,
 ): string {
   return [
     buildSceneContext(setup, {
       formatHint: "讨论到此告一段落，请简洁收束，总结各方观点并点出余韵。",
       worldRules,
+      referenceMaterial,
     }),
     "",
     "【完整对话】",

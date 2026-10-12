@@ -31,6 +31,13 @@ export interface ScenarioRoomViewProps {
   onContinue?: () => void
   /** 还剩多少轮没跑；0 表示跑完了，不显示「继续生成」。 */
   remainingRounds?: number
+  /**
+   * 本场实际注入的参考资料篇数（null=没填参考点或一篇都没检索到）。
+   *
+   * 传 null 与「没填参考点」在渲染上按 setup.rules.reference 区分：填了却
+   * 检索不到要说出来，没填就什么都不显示。
+   */
+  referenceInfo?: { count: number; truncated: boolean } | null
   onCancel: () => void
   onBack: () => void
   exporting?: boolean
@@ -53,6 +60,7 @@ export function ScenarioRoomView({
   onInsertToChapters,
   onContinue,
   remainingRounds = 0,
+  referenceInfo = null,
   onCancel,
   onBack,
   exporting,
@@ -98,6 +106,26 @@ export function ScenarioRoomView({
             {session.status === "cancelled" && (
               <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.625rem] font-medium text-amber-700 dark:text-amber-300">
                 {t("storySimulation.scenarioStatusCancelled")}
+              </span>
+            )}
+            {/* 参考点检索到了几篇。一篇都没检索到时也必须说，否则用户只会
+                以为模型不听话 —— 提示词里写着「必须以此为依据」，但手里是空的 */}
+            {session.setup.rules.reference && (
+              <span
+                className={cn(
+                  "rounded-full px-2 py-0.5 text-[0.625rem]",
+                  referenceInfo
+                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                    : "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+                )}
+              >
+                {referenceInfo
+                  ? t("storySimulation.scenarioReferenceInjected", {
+                      count: referenceInfo.count,
+                    })
+                  : t("storySimulation.scenarioReferenceMissing")}
+                {referenceInfo?.truncated &&
+                  ` · ${t("storySimulation.scenarioReferenceTruncated")}`}
               </span>
             )}
           </div>
