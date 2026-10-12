@@ -83,6 +83,12 @@ import type {
 import { SimulationConfigPanel } from "./simulation-config-panel";
 import { averageDirectorScore } from "@/lib/novel/story-simulation/result-summary";
 import { summarizeRunStatus } from "@/lib/novel/story-simulation/run-status";
+import {
+  buildBranchEventPlanMarkdown,
+  exportBranchEventPlan,
+  generateBranchEventPlan,
+  resolvePlanTargetNode,
+} from "@/lib/novel/story-simulation/branch-event-plan";
 import { FrameworkConfirmPanel } from "./framework-confirm-panel";
 import { SimulationReportView } from "./simulation-report-view";
 import { StoryDraftView } from "./story-draft-view";
@@ -251,6 +257,10 @@ export function StorySimulationView() {
   // 取消控制器
   const abortControllerRef = useRef<AbortController | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
+  /** 正在导出事件计划的分支标题（P1-10） */
+  const [exportingBranchTitle, setExportingBranchTitle] = useState<
+    string | null
+  >(null);
   const resumeSimulationRef = useRef<SimulationResumePoint | null>(null);
   const resumeSnapshotRef = useRef<{
     agentSnapshot?: ReturnType<typeof serializeSimulationState> | null;
@@ -1100,6 +1110,69 @@ export function StorySimulationView() {
     }
   };
 
+  /**
+   * P1-10：把一条走向分支导出成本章事件计划（`wiki/outlines/事件计划/`）。
+   *
+   * 在这之前推演结果的唯一出口是「生成草稿」→ 正文，中间缺一步可审阅、可修改
+   * 的计划。而 `StoryBranch.summary` / `keyEvents` 与章纲 §5「核心事件链」本就
+   * 同构，差的只是一个出口。
+   *
+   * 两个判断：
+   * - 计划必须落到某个框架节点上，否则「本章」无从谈起。优先取与分支同名的
+   *   节点；没有同名节点就退回第一个节点，并在提示里说明落到了哪一章 ——
+   *   不能悄悄挑一个让用户以为就是对的那章。
+   * - 生成不达标时**不落盘**：宁可报错让他重试，也不要存一份支离破碎的计划，
+   *   否则用户会把它当成可用产物。
+   */
+  const handleExportEventPlan = async (branch: StoryBranch) => {
+    if (!projectPath || !currentFramework || !currentReport) {
+      setError("缺少项目路径、故事框架或推演报告，无法导出事件计划");
+      return;
+    }
+
+    const target = resolvePlanTargetNode(currentFramework, branch);
+    if (!target) {
+      setError("当前故事框架没有任何节点，无法确定「本章」是哪一章");
+      return;
+    }
+    const { node, matchedByTitle } = target;
+
+    setExportingBranchTitle(branch.title);
+    try {
+      const llmConfig = resolveDefaultModel(baseLlmConfig);
+      const events = await generateBranchEventPlan({
+        framework: currentFramework,
+        node,
+        branch,
+        report: currentReport,
+        llmConfig,
+      });
+      const markdown = buildBranchEventPlanMarkdown({
+        framework: currentFramework,
+        node,
+        branch,
+        events,
+      });
+      const { path } = await exportBranchEventPlan({
+        projectPath,
+        chapterNumber: node.index + 1,
+        branchTitle: branch.title,
+        markdown,
+      });
+
+      const fallbackNote = matchedByTitle
+        ? ""
+        : `（框架里没有与分支同名的节点，已按「${node.title}」这一章生成）`;
+      setInfoMessage(`事件计划已导出到：${path}${fallbackNote}`);
+      setTimeout(() => setInfoMessage(null), 8000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "导出事件计划失败");
+      setTimeout(() => setError(null), 8000);
+    } finally {
+      setExportingBranchTitle(null);
+    }
+  };
+
   /** 草稿视图返回报告视图。 */
   const handleBackToReport = () => {
     setPhase("report-viewing");
@@ -1828,6 +1901,10 @@ export function StorySimulationView() {
                         setShowInterviewHistory(true)
                       }
                       onSelectResult={handleSelectReportResult}
+                      onExportEventPlan={(branch) =>
+                        void handleExportEventPlan(branch)
+                      }
+                      exportingBranchTitle={exportingBranchTitle}
                     />
                   ) : reportViewTab === "timeline" ? (
                     <div className="h-full overflow-y-auto p-3">
@@ -2013,6 +2090,10 @@ export function StorySimulationView() {
                   hasDraft={!!currentDraft}
                   onViewInterviewHistory={() => setShowInterviewHistory(true)}
                   onSelectResult={handleSelectReportResult}
+                  onExportEventPlan={(branch) =>
+                    void handleExportEventPlan(branch)
+                  }
+                  exportingBranchTitle={exportingBranchTitle}
                 />
               ) : draftViewTab === "timeline" ? (
                 <div className="h-full overflow-y-auto p-3">

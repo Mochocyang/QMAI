@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { MessageCircle, RefreshCw, Sparkles, TrendingUp, Download, ChevronDown, ChevronRight, GitCompare, X } from "lucide-react"
+import { MessageCircle, RefreshCw, Sparkles, TrendingUp, Download, ChevronDown, ChevronRight, GitCompare, X, FileText, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useStorySimulationStore, type SavedSimulationResult } from "@/stores/story-simulation-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -28,6 +28,15 @@ interface SimulationReportViewProps {
    * 否则「生成草稿」会拿着 A 结果的报告去生成 B 结果的分支。
    */
   onSelectResult?: (resultId: string | null) => void
+  /**
+   * P1-10：把一条走向分支导出成本章事件计划。
+   *
+   * 由父组件提供：它已经持有 projectPath / 框架 / 报告与已解析的 LLM 配置，
+   * 本组件保持纯展示，不引入模型调用依赖。
+   */
+  onExportEventPlan?: (branch: StoryBranch) => void
+  /** 正在导出的分支标题；用于把对应按钮换成转圈并禁用重复点击 */
+  exportingBranchTitle?: string | null
 }
 
 /** 将 actionType 映射为中文动词短语 */
@@ -73,6 +82,10 @@ interface ReportContentProps {
   framework?: StoryFramework | null
   onInterviewAgent?: (agentId: string, agentName: string) => void
   onGenerateDraft?: (branch: StoryBranch) => void
+  /** P1-10：把这条分支导出成本章事件计划（写入 wiki/outlines/事件计划/） */
+  onExportEventPlan?: (branch: StoryBranch) => void
+  /** 正在导出的分支标题；用于把对应按钮换成转圈 */
+  exportingBranchTitle?: string | null
   title?: string
   compact?: boolean
   /** 对比模式下的另一个报告，用于高亮差异 */
@@ -81,7 +94,7 @@ interface ReportContentProps {
   compareTimelineEvents?: TimelineEvent[]
 }
 
-function ReportContent({ report, timelineEvents, framework, onInterviewAgent, onGenerateDraft, title, compact, compareReport, compareTimelineEvents }: ReportContentProps) {
+function ReportContent({ report, timelineEvents, framework, onInterviewAgent, onGenerateDraft, onExportEventPlan, exportingBranchTitle, title, compact, compareReport, compareTimelineEvents }: ReportContentProps) {
   // 安全清洗 recommendation：防止模型返回 JSON 对象导致显示乱码
   const safeRecommendation = useMemo(() => {
     const raw = report.recommendation
@@ -452,16 +465,36 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                       )}
                     </div>
 
-                    {!compact && onGenerateDraft && (
-                      <Button
-                        variant="default"
-                        size="sm"
-                        className="mt-3"
-                        onClick={() => onGenerateDraft(branch)}
-                      >
-                        <Sparkles className="h-3.5 w-3.5" />
-                        生成草稿
-                      </Button>
+                    {!compact && (onGenerateDraft || onExportEventPlan) && (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {onGenerateDraft && (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            onClick={() => onGenerateDraft(branch)}
+                          >
+                            <Sparkles className="h-3.5 w-3.5" />
+                            生成草稿
+                          </Button>
+                        )}
+                        {onExportEventPlan && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            // 宽松比较：未传该 prop 时是 undefined，而
+                            // `undefined !== null` 为真会把按钮永久禁用。
+                            disabled={exportingBranchTitle != null}
+                            onClick={() => onExportEventPlan(branch)}
+                          >
+                            {exportingBranchTitle === branch.title ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <FileText className="h-3.5 w-3.5" />
+                            )}
+                            导出事件计划
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}
@@ -511,6 +544,8 @@ export function SimulationReportView({
   hasDraft,
   onViewInterviewHistory,
   onSelectResult,
+  onExportEventPlan,
+  exportingBranchTitle,
 }: SimulationReportViewProps) {
   const { t } = useTranslation()
   const projectPath = useWikiStore((s) => s.project?.path)
@@ -714,6 +749,8 @@ export function SimulationReportView({
           framework={currentFramework}
           onInterviewAgent={onInterviewAgent}
           onGenerateDraft={onGenerateDraft}
+          onExportEventPlan={onExportEventPlan}
+          exportingBranchTitle={exportingBranchTitle}
         />
       )}
     </div>

@@ -322,3 +322,66 @@ describe("SimulationReportView 引文依据与取证审计", () => {
     expect(container.textContent).not.toContain("未能逐字核对")
   })
 })
+
+/**
+ * P1-10：走向分支的「导出事件计划」入口。
+ *
+ * 这组用例只盯「入口在界面上真实存在并且带着正确的分支回调出去」—— 本分支的
+ * 起点 P0-1 就是一个勾了完全没反应的假开关，所以必须证明按钮点下去真的有反应。
+ * 真正的生成与落盘由父组件负责（story-simulation-view），在
+ * branch-event-plan.spec.ts 与 story-simulation-view.debug.spec.ts 中覆盖。
+ */
+describe("SimulationReportView 导出事件计划入口", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it("未提供导出回调时不显示该按钮（保持纯展示，不假装有功能）", () => {
+    store.setState({
+      currentReport: makeHistoricalReport(),
+      currentFramework: makeFramework(),
+      savedResults: [],
+      selectedResultId: null,
+    })
+    render({ onInterviewAgent: () => {}, onGenerateDraft: () => {} })
+
+    expect(container.textContent).not.toContain("导出事件计划")
+  })
+
+  it("提供回调时按钮出现，点击后把该分支交出去", () => {
+    store.setState({
+      currentReport: makeHistoricalReport(),
+      currentFramework: makeFramework(),
+      savedResults: [],
+      selectedResultId: null,
+    })
+    const exported: string[] = []
+    act(() => {
+      root.render(
+        <SimulationReportView
+          onResimulate={() => {}}
+          onGenerateDraft={() => {}}
+          onInterviewAgent={() => {}}
+          onExportEventPlan={(branch) => exported.push(branch.title)}
+        />,
+      )
+    })
+
+    const button = Array.from(container.querySelectorAll("button")).find((b) =>
+      b.textContent?.includes("导出事件计划"),
+    )
+    if (!button) throw new Error("报告页没有「导出事件计划」按钮")
+    act(() => {
+      button.click()
+    })
+
+    expect(exported).toEqual(["分支一"])
+  })
+})

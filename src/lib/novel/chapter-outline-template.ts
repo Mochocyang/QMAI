@@ -178,7 +178,14 @@ export const CHAPTER_OUTLINE_TEMPLATE_READY = REQUIRED_PLACEHOLDERS.every((place
   templateHtml.includes(placeholder))
 
 const MIN_CHAPTER_COUNT = 1
-const MIN_EVENT_COUNT = 6
+/**
+ * §5 核心事件链的最少条数。
+ *
+ * 导出是为了让「把推演分支导出成本章事件计划」（story-simulation 的
+ * branch-event-plan）复用同一个下限 —— 否则两处各写一个 6，改一处就会漂移，
+ * 出现「推演导出的计划满足 A 校验、章纲校验按 B 判定不合格」。
+ */
+export const MIN_EVENT_COUNT = 6
 const MIN_MOOD_CURVE_NODES = 4
 const WORD_TOLERANCE = 0.2
 const MIN_WORD_COUNT = 500

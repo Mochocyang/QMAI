@@ -102,4 +102,24 @@ describe("story simulation debug process view wiring", () => {
     expect(source).toContain("runStatus.eventCount")
     expect(source).toContain("runStatus.decisionCount")
   })
+
+  it("wires the branch event plan export end to end (P1-10)", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/novel/story-simulation/story-simulation-view.tsx",
+      ),
+      "utf8",
+    )
+
+    // 生成 → 渲染 → 落盘 三步都要接上：只接一半就会变成一个点了没反应、
+    // 或者生成了却没写文件的假出口（本分支的起点 P0-1 正是这类问题）。
+    expect(source).toContain("generateBranchEventPlan({")
+    expect(source).toContain("buildBranchEventPlanMarkdown({")
+    expect(source).toContain("exportBranchEventPlan({")
+    // 落到具体节点上，否则「本章」无从谈起
+    expect(source).toContain("resolvePlanTargetNode(currentFramework, branch)")
+    // 传给报告页，否则按钮根本不会出现
+    expect(source).toContain("onExportEventPlan={(branch) =>")
+  })
 })
