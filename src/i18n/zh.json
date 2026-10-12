@@ -1928,6 +1928,7 @@
     "scenarioSoulSearch": "搜索灵魂",
     "scenarioSoulLoading": "正在读取角色灵魂…",
     "scenarioSoulEmpty": "还没有可用的角色灵魂。请先到「灵魂」页创建或导入一个灵魂，再回来绑定。",
+    "scenarioSoulNoMatch": "没有匹配「{{query}}」的灵魂，换个关键词试试。",
     "scenarioSoulConfirm": "绑定",
     "scenarioSoulBinding": "绑定中…",
     "scenarioSoulUnbind": "解绑",
