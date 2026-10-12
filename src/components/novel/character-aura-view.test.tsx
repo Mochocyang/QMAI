@@ -86,11 +86,12 @@ describe("角色灵魂页面", () => {
     expect(source).toContain("返回预览")
   })
 
-  it("新建角色灵魂入口固定在自定义列表上方", () => {
+  it("新建灵魂入口固定在自定义列表上方", () => {
     expect(source).toContain("handleStartCreatingCustomAura")
-    expect(source).toContain("新建角色灵魂")
-    expect(source.indexOf("新建角色灵魂")).toBeLessThan(source.indexOf("{visibleAuras.map((aura) => ("))
-    expect(source).toContain("点击上方“新建角色灵魂”后，再填写资料并生成。")
+    expect(source).toContain("新建灵魂")
+    expect(source).not.toContain("新建角色灵魂")
+    expect(source.indexOf("新建灵魂")).toBeLessThan(source.indexOf("{visibleAuras.map((aura) => ("))
+    expect(source).toContain("点击上方“新建灵魂”后，再填写资料并生成。")
   })
 
   it("自定义灵魂预览区提供删除入口", () => {
@@ -302,7 +303,7 @@ describe("CharacterAuraView hideSidebar selection", () => {
     await flush()
 
     expect(useWikiStore.getState().selectedSoulId).toBe("new-custom-soul")
-    expect(host.textContent).toContain("新建角色灵魂")
+    expect(host.textContent).toContain("新建灵魂")
     expect(host.textContent).toContain("从资料生成角色灵魂")
   })
 

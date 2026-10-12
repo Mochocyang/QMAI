@@ -515,7 +515,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               disabled={isGeneratingCustomAura}
             >
               <Plus className="mr-2 h-4 w-4" />
-              新建角色灵魂
+              新建灵魂
             </Button>
           </div>
         )}
@@ -542,7 +542,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
           {effectiveSection === "custom" && visibleAuras.length === 0 && (
             <div className="rounded-md border border-dashed px-3 py-4 text-sm text-muted-foreground">
               <div>暂无自定义灵魂</div>
-              <div className="mt-2 text-xs">点击上方“新建角色灵魂”后，再填写资料并生成。</div>
+              <div className="mt-2 text-xs">点击上方“新建灵魂”后，再填写资料并生成。</div>
             </div>
           )}
         </div>
@@ -582,7 +582,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               />
             ) : (
               <div className="rounded-lg border border-dashed bg-card p-6 text-sm text-muted-foreground">
-                还没有自定义灵魂。点击左侧上方“新建角色灵魂”后，就可以生成并保存到当前小说项目。
+                还没有自定义灵魂。点击左侧上方“新建灵魂”后，就可以生成并保存到当前小说项目。
               </div>
             )
           ) : selected && selected.builtIn ? (
@@ -791,7 +791,7 @@ function CustomAuraForm({
   return (
     <div data-ui="soul-custom-form" className="rounded-lg border bg-card p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold">{mode === "edit" ? "编辑角色灵魂" : "新建角色灵魂"}</h2>
+        <h2 className="text-xl font-semibold">{mode === "edit" ? "编辑角色灵魂" : "新建灵魂"}</h2>
         <Button variant="ghost" size="sm" onClick={onCancel} disabled={isGenerating}>返回预览</Button>
       </div>
 

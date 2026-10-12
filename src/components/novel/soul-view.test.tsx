@@ -157,7 +157,7 @@ describe("SoulView 单列画廊", () => {
     })
     await flush()
 
-    const createBtn = getButton("新建角色灵魂")
+    const createBtn = getButton("新建灵魂")
     expect(createBtn).toBeDefined()
     await act(async () => {
       createBtn!.click()
@@ -165,6 +165,29 @@ describe("SoulView 单列画廊", () => {
     await flush()
 
     expect(useWikiStore.getState().selectedSoulId).toBe("new-custom-soul")
+  })
+
+  it("「去技能库生成角色 skill」跳到技能库的人物 Skill 页", async () => {
+    await act(async () => {
+      root.render(<SoulView />)
+    })
+    await flush()
+
+    await act(async () => {
+      getButton("自定义灵魂")?.click()
+    })
+    await flush()
+
+    // 与「新建灵魂」并排的第二个入口：导航到技能库的人物 Skill，让章节学习去建档
+    const goBtn = getButton("去技能库生成角色 skill")
+    expect(goBtn).toBeDefined()
+    expect(useWikiStore.getState().activeView).not.toBe("personaSkillLibrary")
+    await act(async () => {
+      goBtn!.click()
+    })
+    await flush()
+
+    expect(useWikiStore.getState().activeView).toBe("personaSkillLibrary")
   })
 
   it("标题和页签共用紧凑头部，不再单独显示说明段落", async () => {

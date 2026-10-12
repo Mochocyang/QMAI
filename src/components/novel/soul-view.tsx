@@ -101,7 +101,7 @@ export function SoulView() {
     : gallerySection === "custom" ? "custom" : "role") as "project" | "custom" | "role"
 
   const emptyText = (() => {
-    if (gallerySection === "custom") return "还没有自定义灵魂。点击右上角「新建角色灵魂」后，再填写资料并生成。"
+    if (gallerySection === "custom") return "还没有自定义灵魂。点击右上角「新建灵魂」后，再填写资料并生成。"
     if (gallerySection === "bound") return "还没有绑定任何人物。打开一个灵魂，在详情顶部把它绑定到小说人物。"
     if (builtInCategory !== "all") return `「${builtInCategory}」分类下暂无内置灵魂。`
     return "暂无内置灵魂。"
@@ -131,6 +131,11 @@ export function SoulView() {
     setView("detail")
   }
 
+  /** 人物 Skill 在技能库里随章节学习自动建档，这里只负责把人送过去。 */
+  function goToPersonaSkillLibrary() {
+    useWikiStore.getState().setActiveView("personaSkillLibrary")
+  }
+
   return (
     <section data-ui-page="soul" data-ui-soul={section} className="ui-test-soul-page">
       <header data-ui="soul-tabs" className="ui-test-soul-heading">
@@ -157,9 +162,20 @@ export function SoulView() {
             )}
           </nav>
           {!isProjectSoul && view === "gallery" && gallerySection === "custom" ? (
-            <button type="button" className="ui-test-soul-action" onClick={startNewCustom}>
-              <Plus /> 新建角色灵魂
-            </button>
+            <>
+              <button
+                type="button"
+                className="ui-test-soul-action"
+                data-testid="soul-go-persona-skill"
+                title="人物 Skill 在技能库：随章节摄取自动学出结构化档案"
+                onClick={goToPersonaSkillLibrary}
+              >
+                去技能库生成角色 skill
+              </button>
+              <button type="button" className="ui-test-soul-action" onClick={startNewCustom}>
+                <Plus /> 新建灵魂
+              </button>
+            </>
           ) : null}
         </div>
       </header>

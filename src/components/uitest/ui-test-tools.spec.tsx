@@ -380,7 +380,7 @@ describe("测试版灵魂单列与旧编辑能力", () => {
     expect(container.querySelector('[aria-label="灵魂分组"]')).not.toBeNull()
     // 自定义灵魂有新建入口，进入后复用原角色组件（hideSidebar）。
     if (section === "custom") {
-      const createBtn = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("新建角色灵魂"))
+      const createBtn = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("新建灵魂"))
       expect(createBtn).not.toBeUndefined()
       await act(async () => { createBtn!.click() })
       expect(container.querySelector('[data-existing-aura-view][data-hide-sidebar="true"]')).not.toBeNull()
