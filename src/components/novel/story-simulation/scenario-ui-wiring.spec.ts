@@ -17,7 +17,7 @@ describe("舞台情景 · 流式状态带 speakerId", () => {
   it("ScenarioStreamingState 有 speakerId 字段", () => {
     const src = read("src/lib/novel/story-simulation/scenario-types.ts")
     expect(src).toContain("export interface ScenarioStreamingState")
-    expect(src).toContain("speakerId?: string")
+    expect(src).toMatch(/speakerId\?\s*:\s*string/)
   })
 })
 

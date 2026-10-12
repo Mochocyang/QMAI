@@ -161,6 +161,9 @@ describe("clampScenarioCharacterCount", () => {
     expect(clampScenarioCharacterCount(Number.POSITIVE_INFINITY)).toBe(
       SCENARIO_CHARACTER_MAX,
     )
+    expect(clampScenarioCharacterCount(Number.NEGATIVE_INFINITY)).toBe(
+      SCENARIO_CHARACTER_MIN,
+    )
   })
 
   it("小数四舍五入", () => {

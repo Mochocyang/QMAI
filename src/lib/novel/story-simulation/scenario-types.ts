@@ -2,7 +2,7 @@
  * 「舞台情景」数据模型
  *
  * 舞台情景是一种辅助写对话的功能：当作者写到某一章、不确定剧情里的人物
- * 该如何对话时，可以搭起一个「舞台」——由一名主持人开场与串场，挑选 3~5 名
+ * 该如何对话时，可以搭起一个「舞台」——由一名主持人开场与串场，挑选数名
  * 已有角色同台，围绕一条情景规则（主持人要求）轮流发言、有来有回，生成可供
  * 直接借鉴的对白。
  *
@@ -162,7 +162,11 @@ export interface ScenarioStreamingState {
    *
    * 引擎的 onMessageStart 本来就带 speakerId，只是此前没往这里存，
    * 导致流式气泡拿不到「是哪个角色」，没法给它上头像与专属配色。
-   * 可选是为了让旧会话数据与 store 无需迁移。
+   *
+   * 之所以可选而不是必填：目前唯一的构造点在 story-simulation-view.tsx，
+   * 而那个文件不在本次改动范围内（由后续接线任务补上 `speakerId`）。
+   * 设为必填会立刻改红范围外的文件。消费方在它缺席时用 speakerName 兜底。
+   * 注意这个状态不入库：store 与 scenario-store 都不序列化它。
    */
   speakerId?: string
   speakerName: string
@@ -180,7 +184,7 @@ export interface ScenarioSetup {
   format: ScenarioFormat
   /** 计划生成轮数。 */
   rounds: number
-  /** 主持人 + 参与角色（共 3~5 人）。 */
+  /** 主持人 + 参与角色（共 SCENARIO_CHARACTER_MIN~MAX 人）。 */
   participants: ScenarioParticipant[]
   /** 角色担任主持人时的串场间隔（每 N 轮）；0=不串场。 */
   moderatorEveryRounds?: number
@@ -226,7 +230,14 @@ export function clampScenarioRounds(rounds: number): number {
   return Math.max(SCENARIO_ROUND_MIN, Math.min(SCENARIO_ROUND_MAX, int))
 }
 
-/** 归一化上台人数到合法区间（自定义输入用）。 */
+/**
+ * 归一化上台人数到合法区间（自定义输入用）。
+ *
+ * 非有限值的处理刻意与紧邻的 clampScenarioRounds 不同：那里一律回退默认，
+ * 这里把 +Infinity 视为「超出上限」夹到上限。因为输入来自用户在数字框里
+ * 键入的内容，`Number("1e999")` 会得到 Infinity，而用户的本意显然是「要很多」，
+ * 夹到上限比悄悄退回默认更贴近他的意图。NaN（空框或乱输）才回退默认。
+ */
 export function clampScenarioCharacterCount(count: number): number {
   if (!Number.isFinite(count)) {
     return count === Number.POSITIVE_INFINITY

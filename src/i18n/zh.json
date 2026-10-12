@@ -1907,7 +1907,7 @@
     "summary": "摘要",
     "recommended": "推荐",
     "scenarioCharacterCount": "角色数量",
-    "scenarioCharacterCountHint": "上台角色总数（{{min}}-{{max}} 人，含由角色担任的主持人）",
+    "scenarioCharacterCountHint": "上台总人数（{{min}}-{{max}} 人，含由角色担任的主持人）",
     "scenarioCharacterCountUnit": "个角色",
     "scenarioSelectCharacters": "从已写章节中选择角色",
     "scenarioNoCandidates": "未在前文中分析到角色。请确认已写作的章节内容，或先在「记忆库」中完成章节摄取。",
