@@ -9,10 +9,14 @@ import {
   ChevronRight,
   Save,
   Loader2,
+  ArrowLeft,
 } from "lucide-react";
 
 import { useWikiStore } from "@/stores/wiki-store";
-import { useStorySimulationStore } from "@/stores/story-simulation-store";
+import {
+  useStorySimulationStore,
+  type SavedSimulationResult,
+} from "@/stores/story-simulation-store";
 import { extractStoryContent } from "@/lib/novel/story-simulation/story-extractor";
 import { generateStoryFramework } from "@/lib/novel/story-simulation/story-framework-generator";
 import { buildAgents } from "@/lib/novel/story-simulation/agent-profile-builder";
@@ -27,6 +31,7 @@ import {
   saveFramework,
   saveSimulationResult,
   loadSimulationResults,
+  type SimulationResultRecord,
 } from "@/lib/novel/story-simulation/framework-store";
 import { resolveDefaultModel } from "@/lib/novel/model-resolver";
 import { interviewAgent } from "@/lib/novel/story-simulation/agent-interview";
@@ -94,6 +99,7 @@ import {
   actionTypeIcon,
 } from "@/lib/novel/story-simulation/action-type-utils";
 import { Button } from "@/components/ui/button";
+import { StorySimulationHub } from "./story-simulation-hub";
 
 const PROGRESS_PHASES = [
   "extracting",
@@ -104,10 +110,17 @@ const PROGRESS_PHASES = [
 ] as const;
 
 /**
- * 故事推演室主视图（重构后）。
+ * 故事推演室主视图。
  *
- * 单栏全宽布局：框架列表已迁移到左侧 SidebarPanel。
- * 主区域根据 phase 切换：配置 → 框架确认 → 推演（实时事件流）→ 报告 → 草稿。
+ * 整窗单栏布局：不再有左侧「故事框架」目录栏（该栏已删除，所以本视图进了
+ * `@/lib/full-window-views` 的整窗清单）。主区域按 phase 切换：
+ *
+ *   idle（落地页，两个同级入口）
+ *     ├─ 剧情推演式：配置 → 框架确认 → 推演（实时事件流）→ 报告 → 草稿
+ *     └─ 舞台情景：配置 → 圆桌对话
+ *
+ * 两个入口是**彼此独立**的功能，只在落地页并列出现；
+ * 改造前「舞台情景」被压在剧情推演配置页的最底部（层级归属不合理）。
  * 报告阶段可弹出 Agent 采访面板与角色对话。
  */
 export function StorySimulationView() {
@@ -160,7 +173,6 @@ export function StorySimulationView() {
   );
   const agentChatMessages = useStorySimulationStore((s) => s.agentChatMessages);
   const clearAgentChat = useStorySimulationStore((s) => s.clearAgentChat);
-  const bumpListRefresh = useStorySimulationStore((s) => s.bumpListRefresh);
   const setSavedResults = useStorySimulationStore((s) => s.setSavedResults);
   const setShowInterviewHistory = useStorySimulationStore(
     (s) => s.setShowInterviewHistory,
@@ -512,22 +524,43 @@ export function StorySimulationView() {
     }
   };
 
-  /** 保存当前框架到磁盘，并刷新侧边栏列表。 */
+  /** 保存当前框架到磁盘。 */
   const handleSaveFramework = async () => {
     if (!projectPath || !currentFramework) return;
     try {
       await saveFramework(projectPath, currentFramework);
-      bumpListRefresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
 
-  /** 从历史结果模态框选择结果：反序列化并切换到报告阶段。 */
-  const handleSelectHistoryResult = (resultId: string) => {
-    const result = savedResults.find((r) => r.id === resultId);
-    if (!result) return;
+  /** 把磁盘上的推演结果记录转成 store 里的形态（补上所属框架与展示用时间）。 */
+  const toSavedResult = (
+    frameworkId: string,
+    record: SimulationResultRecord,
+  ): SavedSimulationResult => ({
+    id: record.id,
+    frameworkId,
+    report: record.report,
+    draft: record.draft ?? null,
+    timelineEvents: record.timelineEvents,
+    agentSnapshot: record.agentSnapshot ?? null,
+    rumors: record.rumors,
+    debugTraces: record.debugTraces,
+    status: record.status,
+    partialReason: record.partialReason ?? null,
+    resume: record.resume ?? null,
+    createdAt: record.report.createdAt,
+  });
 
+  /**
+   * 把一条已保存的推演结果灌进 store（报告 / 草稿 / 时间线 / 传闻 / 调试轨迹 /
+   * agent 快照），供报告页渲染。
+   *
+   * 抽成独立函数是因为现在有两个入口：框架内的「历史结果」模态框，
+   * 以及落地页「最近」里那条**跨框架**的结果。
+   */
+  const applySimulationResult = (result: SavedSimulationResult) => {
     setCurrentReport(result.report);
     setCurrentDraft(result.draft || null);
     setTimelineEvents(result.timelineEvents || []);
@@ -543,12 +576,60 @@ export function StorySimulationView() {
     } else {
       setCurrentAgents(new Map());
     }
-    setSelectedResultId(resultId);
+    setSelectedResultId(result.id);
+  };
+
+  /** 从历史结果模态框选择结果：反序列化并切换到报告阶段。 */
+  const handleSelectHistoryResult = (resultId: string) => {
+    const result = savedResults.find((r) => r.id === resultId);
+    if (!result) return;
+
+    applySimulationResult(result);
     setShowHistoryModal(false);
     if ((result.status ?? "complete") !== "complete") {
       setReportViewTab("timeline");
     }
     setPhase("report-viewing");
+  };
+
+  /**
+   * 从落地页的「最近」打开一条**跨框架**的推演结果。
+   *
+   * 与上面那个入口的区别：那条结果可能属于别的框架，所以必须先把框架设成
+   * currentFramework —— 否则报告页的上下文（框架标题、重新推演、导出）是错的。
+   *
+   * `savedResults` 必须至少含这一条：报告页会按 `selectedResultId` 在
+   * `savedResults` 里回查（导出草稿、继续推演都走那条路）。
+   * 这里先放一条让报告页立刻可用，再异步把该框架的完整历史补齐 ——
+   * 补齐失败就保持这一条，不影响正在看的报告。
+   */
+  const handleResumeSimulationResult = (
+    framework: StoryFramework,
+    record: SimulationResultRecord,
+  ) => {
+    setError(null);
+    setInfoMessage(null);
+    setCurrentFramework(framework);
+
+    const mapped = toSavedResult(framework.id, record);
+    setSavedResults([mapped]);
+    applySimulationResult(mapped);
+
+    if ((record.status ?? "complete") !== "complete") {
+      setReportViewTab("timeline");
+    }
+    setPhase("report-viewing");
+
+    const path = projectPath;
+    if (!path) return;
+    void (async () => {
+      try {
+        const records = await loadSimulationResults(path, framework.id);
+        setSavedResults(records.map((item) => toSavedResult(framework.id, item)));
+      } catch {
+        // 补全失败就保持刚才那一条
+      }
+    })();
   };
 
   const handleContinuePartialResult = (resultId: string) => {
@@ -615,15 +696,15 @@ export function StorySimulationView() {
         setExtractionResult(extraction);
       }
 
-      // 开始推演前，若框架尚未保存到磁盘则先保存
-      // 简单判断：检查 frameworks 列表里是否有当前 id
-      const existing = useStorySimulationStore
-        .getState()
-        .frameworks.find((f) => f.id === currentFramework.id);
-      if (!existing) {
-        await saveFramework(projectPath, currentFramework);
-        bumpListRefresh();
-      }
+      /*
+       * 开始推演前先把当前框架落盘。
+       *
+       * 以前这里靠 store 里那份 `frameworks` 列表判断「是否已经保存过」，
+       * 那份列表随左侧「故事框架」栏一起删掉了（落地页自己按需读取）。
+       * `saveFramework` 是幂等的原子写，直接写即可 —— 少了缓存，
+       * 也就不存在「缓存里没有但其实已在磁盘上」这类误判。
+       */
+      await saveFramework(projectPath, currentFramework);
 
       // 构建角色并运行仿真
       setPhase("simulating");
@@ -1225,6 +1306,24 @@ export function StorySimulationView() {
     };
   }, [phase, projectPath]);
 
+  /**
+   * 从落地页的「最近」回到一条历史故事框架，继续上次的推演。
+   *
+   * 这是删掉左侧「故事框架」栏后需要补回的能力（原 SidebarPanel 里的
+   * handleSelectFramework 就做这几件事）。落到 framework-confirming 而不是
+   * simulating：用户应该先看到框架、确认无误再开跑，而不是一点就直接消耗 token。
+   */
+  const handleResumeFramework = (framework: StoryFramework) => {
+    setError(null);
+    setInfoMessage(null);
+    setCurrentFramework(framework);
+    setCurrentReport(null);
+    setCurrentDraft(null);
+    setTimelineEvents([]);
+    setSelectedResultId(null);
+    setPhase("framework-confirming");
+  };
+
   const handleOpenScenario = () => {
     setError(null);
     setInfoMessage(null);
@@ -1450,8 +1549,27 @@ export function StorySimulationView() {
         <header data-ui="tool-heading">
             <div>
               <nav aria-label="面包屑" className="ui-test-breadcrumb"><span>{projectName ?? "未选择项目"}</span><span aria-hidden="true">/</span><span aria-current="page">故事推演</span></nav>
-              <h1 className="ui-test-page-title">{phase === "report-viewing" ? "推演报告" : phase === "draft-viewing" ? "故事草稿" : phase === "framework-confirming" ? "确认故事框架" : phase === "scenario-setup" ? "配置舞台情景" : phase === "scenario-running" ? "舞台情景" : "让角色先走一步。"}</h1>
+              <h1 className="ui-test-page-title">{phase === "idle" ? t("storySimulation.title") : phase === "report-viewing" ? "推演报告" : phase === "draft-viewing" ? "故事草稿" : phase === "framework-confirming" ? "确认故事框架" : phase === "scenario-setup" ? "配置舞台情景" : phase === "scenario-running" ? "舞台情景" : "让角色先走一步。"}</h1>
             </div>
+            {/*
+              所有子阶段共用的「返回功能选择」入口。
+              没有它的话，phase 在会话内是持久的（store 常驻内存），
+              进过一次流程后回到本视图会直接落在那个阶段、再也回不到落地页，
+              「舞台情景」就又看不见了 —— 正是这次要修的问题。
+              进行中的阶段（提取/推演/生成）不显示：那些阶段有自己的「取消」。
+            */}
+            {phase !== "idle" && !isProgressPhase && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => setPhase("idle")}
+              >
+                <ArrowLeft className="mr-1 h-3.5 w-3.5" />
+                {t("storySimulation.hubBack")}
+              </Button>
+            )}
           </header>
         {error && (
           <div className="flex items-center justify-between gap-3 border-b border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-600 dark:text-red-400">
@@ -1879,7 +1997,7 @@ export function StorySimulationView() {
               onStart={(setup) => void handleScenarioStart(setup)}
               onOpenSaved={handleOpenSavedScenario}
               onDeleteSaved={(id) => void handleDeleteSavedScenario(id)}
-              onCancel={() => setPhase("configuring")}
+              onCancel={() => setPhase("idle")}
             />
           </div>
         ) : phase === "scenario-running" && scenarioSession ? (
@@ -1898,12 +2016,20 @@ export function StorySimulationView() {
             exporting={scenarioExporting}
             inserting={scenarioInserting}
           />
+        ) : phase === "idle" ? (
+          /* 落地页：两个彼此独立的功能并列成同级入口 */
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <StorySimulationHub
+              onEnterSimulation={() => setPhase("configuring")}
+              onEnterScenario={handleOpenScenario}
+              onResumeFramework={handleResumeFramework}
+              onResumeScenario={handleOpenSavedScenario}
+              onResumeResult={handleResumeSimulationResult}
+            />
+          </div>
         ) : (
           <div data-ui="simulation-config" className="min-h-0 flex-1 overflow-y-auto">
-            <SimulationConfigPanel
-              onStart={() => void handleStart()}
-              onOpenScenario={handleOpenScenario}
-            />
+            <SimulationConfigPanel onStart={() => void handleStart()} />
           </div>
         )}
       </div>

@@ -32,11 +32,19 @@ const WORD_LABEL_KEYS: Record<number, string> = {
 
 interface SimulationConfigPanelProps {
   onStart: () => void
-  /** 进入「舞台情景」（辅助生成人物对话）。 */
-  onOpenScenario?: () => void
 }
 
-export function SimulationConfigPanel({ onStart, onOpenScenario }: SimulationConfigPanelProps) {
+/**
+ * 「剧情推演式」配置页。
+ *
+ * ⚠️ 这里**不再**放「舞台情景」入口。它曾经是本页第 7 节下面的一个小节，
+ * 层级上被压在剧情推演底下、要滚到底部才看得到；现在它是落地页
+ * （story-simulation-hub.tsx）上与「剧情推演式」并列的同级入口。
+ *
+ * 「返回功能选择」不在这里、而在页头（story-simulation-view.tsx）：
+ * 所有子阶段共用同一个返回入口，避免每个面板各放一个。
+ */
+export function SimulationConfigPanel({ onStart }: SimulationConfigPanelProps) {
   const { t } = useTranslation()
   const mode = useStorySimulationStore((s) => s.mode)
   const userIdea = useStorySimulationStore((s) => s.userIdea)
@@ -234,29 +242,7 @@ export function SimulationConfigPanel({ onStart, onOpenScenario }: SimulationCon
         </p>
       </section>
 
-      {/* 7. 舞台情景入口 */}
-      {onOpenScenario && (
-        <section className="flex flex-col gap-3">
-          <h3 className="text-sm font-medium">
-            {t("storySimulation.scenarioEntryTitle")}
-          </h3>
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed p-4">
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-sm font-medium">
-                🎭 {t("storySimulation.scenarioEntryName")}
-              </div>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                {t("storySimulation.scenarioEntryDesc")}
-              </p>
-            </div>
-            <Button variant="outline" onClick={onOpenScenario} className="shrink-0">
-              {t("storySimulation.scenarioEnter")}
-            </Button>
-          </div>
-        </section>
-      )}
-
-      {/* 8. 开始按钮 */}
+      {/* 7. 开始按钮 */}
       <div className="flex justify-end pt-2">
         <Button onClick={onStart} size="lg">
           {t("storySimulation.startExtract")}

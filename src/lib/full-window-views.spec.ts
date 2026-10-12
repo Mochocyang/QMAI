@@ -34,6 +34,17 @@ describe("fullWindowViews（整窗视图清单）", () => {
     expect(isFullWindowView("bookAnalysis")).toBe(true)
   })
 
+  /*
+   * 「剧情推演室」原本是双栏（左侧「故事框架」栏 + 右侧内容区），
+   * 所以它此前被**有意**钉在「不是整窗视图」那条里。用户要求去掉双栏、
+   * 改成「落地页 + 两个同级入口卡片」，左栏随之删除，于是它移进本清单。
+   *
+   * 判别力：把它从 `FULL_WINDOW_VIEWS` 删掉 ⇒ 本条红；左侧那栏会重新出现。
+   */
+  it("剧情推演室是整窗视图（双栏已改为整窗单栏落地页）", () => {
+    expect(isFullWindowView("storySimulation")).toBe(true)
+  })
+
   it("lint 不在清单里：它还要按 novelMode 分流，不能无条件整窗", () => {
     // 记忆中心由 `activeView === "lint" && novelMode` 另行判定；
     // 若把 lint 混进这张无条件清单，LintView 的章节树会被一起藏掉。
@@ -41,8 +52,12 @@ describe("fullWindowViews（整窗视图清单）", () => {
     expect(FULL_WINDOW_VIEWS).not.toContain("lint")
   })
 
+  /*
+   * ⚠️ `storySimulation` 已从这条移出（见上面它自己的那条用例）：
+   * 它现在是整窗单栏落地页，不再是「左栏 + 内容区」的双栏视图。
+   */
   it("双栏视图与设置页都不是整窗视图", () => {
-    for (const view of ["wiki", "sources", "graph", "search", "reviewCenter", "storySimulation", "settings", "trash", "maintenance"]) {
+    for (const view of ["wiki", "sources", "graph", "search", "reviewCenter", "settings", "trash", "maintenance"]) {
       expect(isFullWindowView(view)).toBe(false)
     }
   })

@@ -2,16 +2,11 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { UiTestDirectoryHeader } from "@/components/uitest/ui-test-directory"
 import { UiTestOutlineTools } from "@/components/uitest/ui-test-outline-tools"
-import {
-  Plus,
-  RefreshCw,
-  Trash2,
-} from "lucide-react"
+import { RefreshCw } from "lucide-react"
 import { KnowledgeTree, type KnowledgeCreateRequest } from "./knowledge-tree"
 import { TrashPanel } from "./trash-panel"
 import { GraphSidebarPanel } from "./graph-sidebar-panel"
 import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
-import { FrameworkList } from "@/components/novel/story-simulation/framework-list"
 import { useListFileDrop } from "@/components/novel/use-list-file-drop"
 import { SidebarBottomActions } from "@/components/layout/sidebar-bottom-actions"
 
@@ -19,15 +14,10 @@ import { useWikiStore } from "@/stores/wiki-store"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
-import { useStorySimulationStore } from "@/stores/story-simulation-store"
-import { loadFrameworks, loadSimulationResults, deleteSimulationResult } from "@/lib/novel/story-simulation/framework-store"
-import { loadBinding } from "@/lib/novel/story-simulation/framework-binding"
-import type { StoryFramework } from "@/lib/novel/story-simulation/types"
 import { createDirectory, fileExists, listDirectory, readFile, writeFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { flattenMdFiles, getNextChapterNumber } from "@/lib/novel/chapter-utils"
 import { Button } from "@/components/ui/button"
-import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   OUTLINE_IMPORT_EXTENSIONS,
@@ -99,205 +89,6 @@ function SidebarPanelLoading() {
     <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
       <RefreshCw className="h-3.5 w-3.5 animate-spin" />
       <span>{t("common.loading", { defaultValue: "加载中..." })}</span>
-    </div>
-  )
-}
-
-/** 剧情推演室侧边栏：头部标题+新建按钮 + 框架列表 */
-function StorySimulationSidebarPanel() {
-  const projectPath = useWikiStore((s) => s.project?.path)
-  const setFrameworks = useStorySimulationStore((s) => s.setFrameworks)
-  const setBinding = useStorySimulationStore((s) => s.setBinding)
-  const setCurrentFramework = useStorySimulationStore((s) => s.setCurrentFramework)
-  const setCurrentReport = useStorySimulationStore((s) => s.setCurrentReport)
-  const setCurrentDraft = useStorySimulationStore((s) => s.setCurrentDraft)
-  const setTimelineEvents = useStorySimulationStore((s) => s.setTimelineEvents)
-  const setPhase = useStorySimulationStore((s) => s.setPhase)
-  const setSavedResults = useStorySimulationStore((s) => s.setSavedResults)
-  const setSelectedResultId = useStorySimulationStore((s) => s.setSelectedResultId)
-  const currentFramework = useStorySimulationStore((s) => s.currentFramework)
-  const savedResults = useStorySimulationStore((s) => s.savedResults)
-  const selectedResultId = useStorySimulationStore((s) => s.selectedResultId)
-  const reset = useStorySimulationStore((s) => s.reset)
-  const [deletingId, setDeletingId] = useState<string | null>(null)
-
-  // 加载指定框架的历史推演结果
-  const loadResultsForFramework = useCallback(async (frameworkId: string) => {
-    if (!projectPath) return
-    try {
-      const results = await loadSimulationResults(projectPath, frameworkId)
-      setSavedResults(results.map(r => ({
-        id: r.id,
-        frameworkId,
-        report: r.report,
-        draft: r.draft,
-        timelineEvents: r.timelineEvents,
-        agentSnapshot: r.agentSnapshot,
-        createdAt: r.report.createdAt,
-      })))
-    } catch {
-      setSavedResults([])
-    }
-  }, [projectPath, setSavedResults])
-
-  // 进入视图时加载框架列表和绑定
-  useEffect(() => {
-    if (!projectPath) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const [list, currentBinding] = await Promise.all([
-          loadFrameworks(projectPath),
-          loadBinding(projectPath),
-        ])
-        if (cancelled) return
-        setFrameworks(list)
-        setBinding(currentBinding)
-      } catch {
-        // 忽略加载错误
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [projectPath, setFrameworks, setBinding])
-
-  // 当currentFramework变化时，加载其历史结果
-  useEffect(() => {
-    if (currentFramework) {
-      void loadResultsForFramework(currentFramework.id)
-    } else {
-      setSavedResults([])
-    }
-  }, [currentFramework, loadResultsForFramework, setSavedResults])
-
-  const handleSelectFramework = (framework: StoryFramework) => {
-    setCurrentFramework(framework)
-    setCurrentReport(null)
-    setCurrentDraft(null)
-    setTimelineEvents([])
-    setSelectedResultId(null)
-    setPhase("framework-confirming")
-  }
-
-  const handleSelectResult = (resultId: string) => {
-    const result = savedResults.find(r => r.id === resultId)
-    if (result) {
-      setCurrentReport(result.report)
-      setCurrentDraft(result.draft || null)
-      setTimelineEvents(result.timelineEvents || [])
-      setSelectedResultId(resultId)
-      setPhase("report-viewing")
-    }
-  }
-
-  const handleDeleteResult = async (e: { stopPropagation: () => void }, resultId: string) => {
-    e.stopPropagation() // 防止触发选择
-    if (!projectPath || !currentFramework) return
-    if (!confirm("确定要删除这个推演结果吗？此操作不可撤销。")) return
-
-    setDeletingId(resultId)
-    try {
-      await deleteSimulationResult(projectPath, currentFramework.id, resultId)
-      // 刷新列表
-      await loadResultsForFramework(currentFramework.id)
-      // 如果删除的是当前选中的结果，清空
-      if (selectedResultId === resultId) {
-        setCurrentReport(null)
-        setCurrentDraft(null)
-        setTimelineEvents([])
-        setSelectedResultId(null)
-        setPhase("framework-confirming")
-      }
-    } catch {
-      // 删除失败忽略
-    } finally {
-      setDeletingId(null)
-    }
-  }
-
-  const handleNewFramework = () => {
-    reset()
-    setPhase("configuring")
-  }
-
-  return (
-    <div className="flex h-full flex-col">
-      <div data-ui-panel-heading className="flex shrink-0 items-center justify-between border-b px-3 py-2">
-        <PanelHeaderWithHelp
-          title="故事框架"
-          helpKey="storySimulation"
-          helpTitle="剧情推演室使用说明"
-        />
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="h-7 px-2 text-xs"
-          onClick={handleNewFramework}
-        >
-          <Plus className="mr-1 h-3.5 w-3.5" />
-          新建框架
-        </Button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <FrameworkList
-          onSelectFramework={handleSelectFramework}
-          onNewFramework={handleNewFramework}
-        />
-      </div>
-      {/* 历史推演结果 */}
-      {currentFramework && savedResults.length > 0 && (
-        <div className="shrink-0 border-t">
-          <div className="flex items-center justify-between px-3 py-2">
-            <div className="text-xs font-semibold text-muted-foreground">
-              历史推演 ({savedResults.length})
-            </div>
-          </div>
-          <div className="max-h-48 overflow-y-auto px-2 pb-2">
-            {savedResults.map((result) => (
-              <div
-                key={result.id}
-                className={`group flex items-center gap-1 rounded px-2 py-1.5 text-xs transition-colors cursor-pointer hover:bg-accent ${
-                  selectedResultId === result.id ? "bg-accent" : ""
-                }`}
-                onClick={() => handleSelectResult(result.id)}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1">
-                    <span className="truncate text-foreground">
-                      {new Date(result.createdAt).toLocaleString("zh-CN", {
-                        month: "2-digit",
-                        day: "2-digit",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                    {result.draft && (
-                      <span className="shrink-0 rounded bg-primary/10 px-1 text-[0.625rem] text-primary">
-                        草稿
-                      </span>
-                    )}
-                  </div>
-                  <span className="block truncate text-[0.6875rem] text-muted-foreground">
-                    {result.report.recommendation?.slice(0, 25) || "查看推演结果"}...
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                  onClick={(e) => void handleDeleteResult(e, result.id)}
-                  disabled={deletingId === result.id}
-                  title="删除此结果"
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-      <SidebarBottomActions />
     </div>
   )
 }
@@ -949,9 +740,15 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
     return () => onUiTestRegisterCancel(null)
   }, [onUiTestRegisterCancel])
 
-  if (activeView === "storySimulation") {
-    return <StorySimulationSidebarPanel />
-  }
+  /*
+   * 「剧情推演室」分支已删除。
+   *
+   * 它原本在这里渲染「故事框架」列表（StorySimulationSidebarPanel），
+   * 与右侧内容区构成双栏。改造后剧情推演室是**整窗单页**（见
+   * `@/lib/full-window-views` 的清单），入口页把「剧情推演式」与
+   * 「舞台情景」并列成两个同级卡片 —— 两个功能彼此独立，不再有
+   * 「谁挂在谁下面」的层级，也就没有左侧目录栏要放。
+   */
 
   if (activeView === "graph") {
     return <GraphSidebarPanel />

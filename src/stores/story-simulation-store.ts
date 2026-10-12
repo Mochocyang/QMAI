@@ -75,8 +75,6 @@ interface StorySimulationState {
   currentFramework: StoryFramework | null;
   currentReport: SimulationReport | null;
   currentDraft: StoryDraft | null;
-  frameworks: StoryFramework[];
-  selectedFrameworkId: string | null;
   binding: FrameworkBinding | null;
   error: string | null;
   /** 提示/成功消息 */
@@ -91,8 +89,6 @@ interface StorySimulationState {
   activeChatAgent: { id: string; name: string } | null;
   /** 采访对话消息 */
   agentChatMessages: AgentChatMessage[];
-  /** 列表刷新计数（用于触发 framework-list 重新加载） */
-  listRefreshKey: number;
   /** 当前框架下已保存的推演结果 */
   savedResults: SavedSimulationResult[];
   /** 当前选中查看的历史结果ID */
@@ -172,8 +168,6 @@ interface StorySimulationState {
   setCurrentFramework: (framework: StoryFramework | null) => void;
   setCurrentReport: (report: SimulationReport | null) => void;
   setCurrentDraft: (draft: StoryDraft | null) => void;
-  setFrameworks: (frameworks: StoryFramework[]) => void;
-  setSelectedFrameworkId: (id: string | null) => void;
   setBinding: (binding: FrameworkBinding | null) => void;
   setError: (error: string | null) => void;
   setInfoMessage: (infoMessage: string | null) => void;
@@ -185,7 +179,6 @@ interface StorySimulationState {
   setActiveChatAgent: (agent: { id: string; name: string } | null) => void;
   addAgentChatMessage: (message: AgentChatMessage) => void;
   clearAgentChat: () => void;
-  bumpListRefresh: () => void;
   setSavedResults: (results: SavedSimulationResult[]) => void;
   setSelectedResultId: (id: string | null) => void;
   setShowInterviewHistory: (show: boolean) => void;
@@ -253,8 +246,6 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   currentFramework: null,
   currentReport: null,
   currentDraft: null,
-  frameworks: [],
-  selectedFrameworkId: null,
   binding: null,
   error: null,
   infoMessage: null,
@@ -264,7 +255,6 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   debugTraces: [],
   activeChatAgent: null,
   agentChatMessages: [],
-  listRefreshKey: 0,
   savedResults: [],
   selectedResultId: null,
   showInterviewHistory: false,
@@ -306,8 +296,6 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
   setCurrentFramework: (currentFramework) => set({ currentFramework }),
   setCurrentReport: (currentReport) => set({ currentReport }),
   setCurrentDraft: (currentDraft) => set({ currentDraft }),
-  setFrameworks: (frameworks) => set({ frameworks }),
-  setSelectedFrameworkId: (selectedFrameworkId) => set({ selectedFrameworkId }),
   setBinding: (binding) => set({ binding }),
   setError: (error) => set({ error }),
   setInfoMessage: (infoMessage: string | null) => set({ infoMessage }),
@@ -324,8 +312,6 @@ export const useStorySimulationStore = create<StorySimulationState>((set) => ({
       agentChatMessages: [...state.agentChatMessages, message],
     })),
   clearAgentChat: () => set({ agentChatMessages: [], activeChatAgent: null }),
-  bumpListRefresh: () =>
-    set((state) => ({ listRefreshKey: state.listRefreshKey + 1 })),
   setSavedResults: (savedResults) => set({ savedResults }),
   setSelectedResultId: (selectedResultId) => set({ selectedResultId }),
   setShowInterviewHistory: (showInterviewHistory) =>

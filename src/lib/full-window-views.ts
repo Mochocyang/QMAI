@@ -39,6 +39,14 @@ export const FULL_WINDOW_VIEWS = [
   "skillFavorites",
   "soul",
   "bookAnalysis",
+  /*
+   * 「剧情推演室」是**补进来的**：它原本是「左侧故事框架栏 + 右侧内容区」的
+   * 双栏视图（`SidebarPanel` 里的 `StorySimulationSidebarPanel`）。
+   * 改造后入口页把「剧情推演式」与「舞台情景」并列成两个同级卡片、整窗单栏，
+   * 左侧那一栏随之删除 —— 用户明确要求去掉双栏结构。
+   * 漏掉它的后果与技能库那次一样：左栏会重新冒出来。
+   */
+  "storySimulation",
 ] as const
 
 export type FullWindowView = (typeof FULL_WINDOW_VIEWS)[number]
