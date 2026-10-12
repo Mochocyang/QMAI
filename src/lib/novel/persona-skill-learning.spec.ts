@@ -47,6 +47,7 @@ vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: () => true }))
 const storeMock = vi.hoisted(() => ({
   providerConfigs: [] as unknown[],
   setPersonaSkillLearningError: vi.fn(),
+  setPersonaSkillCompletion: vi.fn(),
 }))
 
 vi.mock("@/stores/wiki-store", () => ({

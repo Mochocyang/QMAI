@@ -692,6 +692,8 @@ interface WikiState {
   skillLibraryDraftDirty: boolean
   selectedWritingSkillLibrarySkillId: string | null
   writingSkillLibraryDraftDirty: boolean
+  /** 技能库「文风 skill」当前选中的文风 id；null = 未选中。 */
+  selectedWritingStyleLibraryStyleId: string | null
   personaSkillLibraryDraftDirty: boolean
   selectedReviewDimension: string | null
   selectedReviewFilePath: string
@@ -750,6 +752,11 @@ interface WikiState {
    * 表现就是「提取完了技能库还是空的」，必须有个能看见的出口。
    */
   personaSkillLearningError: string | null
+  /**
+   * 人物 Skill 本轮学习完成后，弹出「记忆提取完成」提示用的新建/更新人物名单。
+   * null = 不显示弹窗。批量导入多章时会把人物名累加合并。
+   */
+  personaSkillCompletion: { created: string[]; updated: string[] } | null
   searchHistory: string[]
   searchTrigger: { query: string; ts: number } | null
   revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig
@@ -796,6 +803,7 @@ interface WikiState {
   setSkillLibraryDraftDirty: (dirty: boolean) => void
   setSelectedWritingSkillLibrarySkillId: (id: string | null) => void
   setWritingSkillLibraryDraftDirty: (dirty: boolean) => void
+  setSelectedWritingStyleLibraryStyleId: (id: string | null) => void
   setPersonaSkillLibraryDraftDirty: (dirty: boolean) => void
   setSelectedReviewDimension: (dimension: string | null) => void
   setSelectedReviewFilePath: (path: string) => void
@@ -835,6 +843,7 @@ interface WikiState {
   setNovelConfig: (config: Partial<NovelConfig>) => void
   setCommunitySummaryError: (error: string | null) => void
   setPersonaSkillLearningError: (error: string | null) => void
+  setPersonaSkillCompletion: (payload: { created: string[]; updated: string[] } | null) => void
   setSearchHistory: (history: string[]) => void
   setSearchTrigger: (trigger: { query: string; ts: number } | null) => void
   setRevisionFeedbackWindowConfig: (revisionFeedbackWindowConfig: RevisionFeedbackWindowConfig) => void
@@ -875,12 +884,13 @@ export const useWikiStore = create<WikiState>((set) => ({
   activeSettingsCategory: null,
   activeModelSettingsTab: null,
   selectedSoulId: null,
-  selectedSoulTab: "project",
+  selectedSoulTab: "character",
   selectedSoulSection: "builtIn",
   selectedSkillLibrarySkillId: null,
   skillLibraryDraftDirty: false,
   selectedWritingSkillLibrarySkillId: null,
   writingSkillLibraryDraftDirty: false,
+  selectedWritingStyleLibraryStyleId: null,
   personaSkillLibraryDraftDirty: false,
   selectedReviewDimension: null,
   selectedReviewFilePath: "",
@@ -997,6 +1007,8 @@ export const useWikiStore = create<WikiState>((set) => ({
     }
   }),
   setWritingSkillLibraryDraftDirty: (writingSkillLibraryDraftDirty) => set({ writingSkillLibraryDraftDirty }),
+  setSelectedWritingStyleLibraryStyleId: (selectedWritingStyleLibraryStyleId) =>
+    set({ selectedWritingStyleLibraryStyleId }),
   setPersonaSkillLibraryDraftDirty: (personaSkillLibraryDraftDirty) =>
     set({ personaSkillLibraryDraftDirty }),
   setSelectedReviewDimension: (selectedReviewDimension) => set({ selectedReviewDimension }),
@@ -1076,6 +1088,7 @@ export const useWikiStore = create<WikiState>((set) => ({
   novelConfig: { ...DEFAULT_NOVEL_CONFIG },
   communitySummaryError: null,
   personaSkillLearningError: null,
+  personaSkillCompletion: null,
   searchHistory: [],
   searchTrigger: null,
   revisionFeedbackWindowConfig: {
@@ -1147,6 +1160,20 @@ export const useWikiStore = create<WikiState>((set) => ({
   })),
   setCommunitySummaryError: (communitySummaryError) => set({ communitySummaryError }),
   setPersonaSkillLearningError: (personaSkillLearningError) => set({ personaSkillLearningError }),
+  setPersonaSkillCompletion: (payload) =>
+    set((state) => {
+      if (!payload) return { personaSkillCompletion: null }
+      const prev = state.personaSkillCompletion
+      if (!prev) return { personaSkillCompletion: payload }
+      // 批量导入多章时每章都会触发一次，人物名累加合并，避免后一章覆盖前一章。
+      const merge = (a: string[], b: string[]) => [...new Set([...a, ...b])]
+      return {
+        personaSkillCompletion: {
+          created: merge(prev.created, payload.created),
+          updated: merge(prev.updated, payload.updated),
+        },
+      }
+    }),
   setSearchHistory: (searchHistory) => set({ searchHistory }),
   setSearchTrigger: (searchTrigger) => set({ searchTrigger }),
   setRevisionFeedbackWindowConfig: (revisionFeedbackWindowConfig) => set({ revisionFeedbackWindowConfig }),

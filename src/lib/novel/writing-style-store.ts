@@ -163,6 +163,97 @@ export async function upsertWritingStylePreset(
   return preset
 }
 
+/**
+ * 在技能库里**手动新建**一个文风预设（不依赖拆书）。
+ *
+ * ⚠️ 刻意**不复用** `upsertWritingStylePreset`：那个函数按 `sourceBook` 去重
+ * （同一本书只留一份），手动创建的多个预设若都把 `sourceBook` 留空，会互相覆盖。
+ * 这里用独立 id 前缀 `style-manual-*` 并直接 push，允许多条并存。
+ * `sourceBook` 为空时落成「手动创建」，与拆书来源区分开。
+ */
+export async function createWritingStylePreset(
+  projectPath: string,
+  input: {
+    name: string
+    sourceBook?: string
+    constitution: string
+    samples?: string[]
+    integratedDna?: string
+  },
+): Promise<WritingStylePreset> {
+  const store = await loadWritingStyleStore(projectPath)
+  const now = Date.now()
+  const preset: WritingStylePreset = {
+    id: `style-manual-${now}-${Math.random().toString(36).slice(2, 8)}`,
+    name: input.name.trim() || "未命名文风",
+    sourceBook: input.sourceBook?.trim() || "手动创建",
+    profile: {
+      schemaVersion: 2,
+      generatedAt: now,
+      sampledChapterIds: [],
+      constitution: input.constitution ?? "",
+      samples: input.samples ?? [],
+      integratedDna: input.integratedDna?.trim() ? input.integratedDna : undefined,
+    },
+    createdAt: now,
+    updatedAt: now,
+  }
+  await saveWritingStyleStore(projectPath, { ...store, styles: [...store.styles, preset] })
+  return preset
+}
+
+/**
+ * 更新一个文风预设的可编辑字段。`profile` 做**浅合并**（保留 metrics / layers /
+ * workbenchStyle 等未在 patch 里出现的字段），从而不破坏拆书提炼得到的结构化画像。
+ * 找不到目标时不抛错、原样返回 `null`（删除/更新接口都要可重入）。
+ */
+export async function updateWritingStylePreset(
+  projectPath: string,
+  styleId: string,
+  patch: {
+    name?: string
+    sourceBook?: string
+    constitution?: string
+    samples?: string[]
+    integratedDna?: string
+  },
+): Promise<WritingStylePreset | null> {
+  const store = await loadWritingStyleStore(projectPath)
+  const index = store.styles.findIndex((s) => s.id === styleId)
+  if (index < 0) return null
+  const current = store.styles[index]
+  const profile: BookStyleProfile = {
+    ...current.profile,
+    ...(patch.constitution !== undefined ? { constitution: patch.constitution } : {}),
+    ...(patch.samples !== undefined ? { samples: patch.samples } : {}),
+    ...(patch.integratedDna !== undefined ? { integratedDna: patch.integratedDna } : {}),
+  }
+  const preset: WritingStylePreset = {
+    ...current,
+    name: patch.name !== undefined ? patch.name.trim() || current.name : current.name,
+    sourceBook:
+      patch.sourceBook !== undefined ? patch.sourceBook.trim() || "手动创建" : current.sourceBook,
+    profile,
+    updatedAt: Date.now(),
+  }
+  const styles = [...store.styles]
+  styles[index] = preset
+  await saveWritingStyleStore(projectPath, { ...store, styles })
+  return preset
+}
+
+/**
+ * 读取单个文风预设（供技能库编辑器读-改-写）。
+ * 返回**未迁移**的原始 `profile`：编辑器读进来什么、就原样写回去，不擅自改写用户数据。
+ */
+export async function getWritingStylePreset(
+  projectPath: string,
+  styleId: string,
+): Promise<WritingStylePreset | null> {
+  const store = await loadWritingStyleStore(projectPath)
+  return store.styles.find((s) => s.id === styleId) ?? null
+}
+
 export async function setEnabledWritingStyle(projectPath: string, styleId: string | null): Promise<WritingStyleStore> {
   const store = await loadWritingStyleStore(projectPath)
   const next: WritingStyleStore = {

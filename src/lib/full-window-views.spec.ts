@@ -89,9 +89,19 @@ describe("fullWindowViews（整窗视图清单）", () => {
     expect(tabsBlock.length).toBeGreaterThan(0)
 
     const views = [...tabsBlock.matchAll(/view:\s*"([A-Za-z]+)"/g)].map((m) => m[1])
-    // tab 数量变了要有人过一眼：这里至少保证抽到的不是一个空数组。
-    expect(views.length).toBeGreaterThanOrEqual(6)
+    /*
+     * tab 数量变了要有人过一眼：这里至少保证抽到的不是一个空数组。
+     *
+     * ⚠️ 5 而不是 6：合并 `fix/character-skill-memory-extract-toast` 时，
+     * **「角色灵魂」tab 被有意删掉**（角色灵魂仍有左侧主导航「灵魂」这个入口，
+     * 技能库里那条是重复的第二条路），tab 清单从 6 条变成 5 条。
+     * 这正是上面那句「要有人过一眼」所指的情形 —— 不是漏项，是主动删项。
+     * 若将来再加回 tab，这个数要跟着加。
+     */
+    expect(views.length).toBeGreaterThanOrEqual(5)
     expect(views).toContain("personaSkillLibrary")
+    // 删掉的那条不该再出现在 tab 清单里（防止只改数字、没真删）
+    expect(views).not.toContain("characterSoulLibrary")
 
     const missing = views.filter((view) => !isFullWindowView(view))
     expect(missing, `这些技能库 tab 没进整窗清单，切过去会冒出左侧目录栏：${missing.join(", ")}`).toEqual([])

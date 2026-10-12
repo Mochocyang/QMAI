@@ -177,6 +177,8 @@ export function isMinorRoleType(roleType: string): boolean {
  * 的项目里最高出场数才 2，于是**一个人都建不了档，功能整体静默失效**。
  * 有了这道兜底，确认过的人物第一次出场就建档；档位仍是 minor（浅档、省预算），
  * 由用户点绿勾或声明定位来升级。
+ *
+ * 绿勾的「一票升级」在 planPersonaSkillRound 里处理，不进这张表。
  */
 export function firstAppearanceThreshold(roleType: string, knownCharacter = false): number {
   if (isMajorRoleType(roleType)) return PERSONA_MAJOR_FIRST_APPEARANCE

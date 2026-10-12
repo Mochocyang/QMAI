@@ -378,7 +378,6 @@ describe("测试版灵魂单列与旧编辑能力", () => {
     // 画廊优先：初始不直接挂载编辑组件，也不渲染任何内侧栏。
     expect(container.querySelector('[data-existing-aura-view]')).toBeNull()
     expect(container.querySelector('[aria-label="灵魂分组"]')).not.toBeNull()
-    expect(container.querySelector('[aria-label="灵魂分类"]')).not.toBeNull()
     // 自定义灵魂有新建入口，进入后复用原角色组件（hideSidebar）。
     if (section === "custom") {
       const createBtn = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("新建角色灵魂"))

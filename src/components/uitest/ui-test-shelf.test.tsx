@@ -317,7 +317,7 @@ describe("独立 UI 书架", () => {
     expect(actions.onCreateProject).toHaveBeenCalledOnce()
   })
 
-  it("不显示书架顶部介绍，封面可在大中小之间切换并记住", async () => {
+  it("不显示书架顶部介绍，封面可在大/小两档之间切换并记住", async () => {
     await renderShelf()
     expect(host.textContent).not.toContain("每个故事，都有自己的位置。")
     expect(host.textContent).not.toContain("你的私人书架")
@@ -328,8 +328,13 @@ describe("独立 UI 书架", () => {
     const actions = Array.from(host.querySelectorAll(".ui-test-shelf-actions button")).map((item) => item.textContent)
     expect(actions[0]).toContain("新建小说")
     expect(actions[1]).toContain("打开已有")
+    // 只剩「大 / 小」两档（中封面已移除）。
+    const sizeButtons = Array.from(host.querySelectorAll<HTMLButtonElement>(".ui-test-cover-size"))
+    expect(sizeButtons.map((item) => item.getAttribute("aria-label"))).toEqual(["大封面", "小封面"])
     const grid = host.querySelector(".ui-test-books-grid")!
-    expect(grid.className).toContain("is-medium")
+    // 默认档 = 小封面。
+    expect(grid.className).toContain("is-small")
+    expect(button("小封面").getAttribute("aria-pressed")).toBe("true")
     await act(async () => button("大封面").click())
     expect(grid.className).toContain("is-large")
     expect(button("大封面").getAttribute("aria-pressed")).toBe("true")
@@ -337,6 +342,7 @@ describe("独立 UI 书架", () => {
     expect(localStorage.getItem("qm-uitest-shelf-cover-size-v1")).toBe("large")
     await act(async () => button("小封面").click())
     expect(grid.className).toContain("is-small")
+    expect(localStorage.getItem("qm-uitest-shelf-cover-size-v1")).toBe("small")
   })
 
   it("封面八色取自参考图，筛选后同一本书不换色", async () => {

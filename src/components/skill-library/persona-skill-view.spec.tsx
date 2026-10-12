@@ -13,7 +13,7 @@ import { PersonaSkillView } from "./persona-skill-view"
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const io = vi.hoisted(() => ({ files: new Map<string, string>() }))
+const io = vi.hoisted(() => ({ files: new Map<string, string>(), writes: 0 }))
 
 vi.mock("@/commands/fs", () => ({
   readFile: async (path: string) => {
@@ -21,6 +21,7 @@ vi.mock("@/commands/fs", () => ({
     return io.files.get(path)!
   },
   writeFileAtomic: async (path: string, contents: string) => {
+    io.writes += 1
     io.files.set(path, contents)
   },
   // 加固后的 store 靠 fileExists 区分「索引不存在」（可安全当空索引）与
@@ -41,10 +42,13 @@ vi.mock("@/commands/fs", () => ({
   },
 }))
 
-// 视图只需要「重新整理研究文件」这一个动作来自学习模块；整块 mock 掉，
-// 免得把 llm-client / Tauri 那串东西拖进 jsdom。
+// 视图只需要「重新整理研究文件」与「把候选人物建档」两个动作来自学习模块；
+// 整块 mock 掉，免得把 llm-client / Tauri 那串东西拖进 jsdom。
+const learning = vi.hoisted(() => ({ promote: vi.fn(async () => true) }))
+
 vi.mock("@/lib/novel/persona-skill-learning", () => ({
   regeneratePersonaSkillResearch: vi.fn(async () => true),
+  promotePersonaSighting: learning.promote,
 }))
 
 const project = "C:/project"
@@ -120,6 +124,8 @@ async function click(element: HTMLElement | null) {
 describe("PersonaSkillView", () => {
   beforeEach(() => {
     io.files.clear()
+    io.writes = 0
+    learning.promote.mockClear()
     // 占锁那条用例若在断言前失败，锁链会留在模块级 locks Map 里，
     // 把后面所有用例一起挂死（报出来的是假失败）。每条都从干净锁表开始。
     __resetPersonaSkillLocksForTesting()
@@ -269,6 +275,67 @@ describe("PersonaSkillView", () => {
     expect(io.files.get(docPath)).toContain("用户改过的内容。")
     expect(readIndex().skills[0].editedByUser).toBe(true)
     expect(readIndex().skills[0].skillRevision).toBe(2)
+
+    cleanup(root, container)
+  })
+
+  it("出场频次分析：只列低出场/潜伏/归档者，且不写盘", async () => {
+    writeIndex([
+      meta({ id: "主角", characterName: "主角", appearanceCount: 3, status: "active" }),
+      meta({ id: "低出场", characterName: "低出场", appearanceCount: 1, status: "active" }),
+      meta({ id: "潜伏者", characterName: "潜伏者", appearanceCount: 5, status: "dormant" }),
+      meta({ id: "归档者", characterName: "归档者", appearanceCount: 6, status: "archived" }),
+    ])
+    const { container, root } = await renderView()
+
+    await click(container.querySelector('[data-testid="persona-skill-analysis-toggle"]'))
+    await flushEffects()
+
+    expect(container.querySelector('[data-testid="persona-skill-analysis"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="persona-skill-analysis-低出场"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="persona-skill-analysis-潜伏者"]')).not.toBeNull()
+    const archived = container.querySelector<HTMLElement>('[data-testid="persona-skill-analysis-归档者"]')
+    expect(archived).not.toBeNull()
+    expect(archived!.textContent).toContain("建议归档")
+    expect(container.querySelector('[data-testid="persona-skill-analysis-主角"]')).toBeNull()
+    // 只读面板：绝不允许写盘
+    expect(io.writes).toBe(0)
+
+    cleanup(root, container)
+  })
+
+  it("候选人物区渲染未建档人物，点绿勾调用 promotePersonaSighting", async () => {
+    io.files.set(
+      `${project}/.qmai/persona-skills/sightings.json`,
+      JSON.stringify({
+        version: 1,
+        sightings: [
+          {
+            characterName: "小紫",
+            aliases: ["紫儿"],
+            roleType: "",
+            appearanceCount: 2,
+            firstChapter: 1,
+            lastChapter: 4,
+            chapters: [1, 4],
+          },
+        ],
+      }),
+    )
+    const { container, root } = await renderView()
+
+    const candidate = container.querySelector<HTMLElement>('[data-testid="persona-skill-candidate-小紫"]')
+    expect(candidate).not.toBeNull()
+    expect(candidate!.textContent).toContain("小紫")
+    expect(candidate!.textContent).toContain("出场 2 章")
+
+    await click(container.querySelector('[data-testid="persona-skill-promote-小紫"]'))
+    await flushEffects()
+
+    expect(learning.promote).toHaveBeenCalledTimes(1)
+    expect(learning.promote).toHaveBeenCalledWith(
+      expect.objectContaining({ projectPath: project, characterName: "小紫" }),
+    )
 
     cleanup(root, container)
   })

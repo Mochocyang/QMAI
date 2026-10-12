@@ -1,5 +1,6 @@
 import { listDirectory, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
+import { findChapterFileByNumber } from "@/lib/novel/chapter-utils"
 import { streamChat } from "@/lib/llm-client"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
@@ -15,6 +16,7 @@ import {
   normalizePersonaName,
   planPersonaSkillRound,
   resolvePersonaStatus,
+  resolvePersonaTier,
   type PersonaSkillIndex,
   type PersonaSkillMeta,
   type PersonaSkillPlan,
@@ -778,8 +780,10 @@ export interface ApplyPersonaSkillInput {
   chapterNumber: number
 }
 
-/** 把草稿落到 SKILL.md / 研究文件 / index，并把已建档的人从候选池移走。返回真正写入的人数。 */
-export async function applyPersonaSkillDrafts(input: ApplyPersonaSkillInput): Promise<number> {
+/** 把草稿落到 SKILL.md / 研究文件 / index，并把已建档的人从候选池移走。返回本轮新增/更新的人物名。 */
+export async function applyPersonaSkillDrafts(
+  input: ApplyPersonaSkillInput,
+): Promise<{ created: string[]; updated: string[] }> {
   // 全程在同一把锁内：从读新鲜索引到写回索引，中间不放任何别的写者进来。
   // 关键是「新鲜」二字 —— 用户可能在整轮 LLM 调用期间（数秒到数十秒）在
   // 「人物 Skill」页保存过手改正文。若拿外面那份快照判定 editedByUser，
@@ -792,6 +796,8 @@ export async function applyPersonaSkillDrafts(input: ApplyPersonaSkillInput): Pr
     )
     const updatedAt = new Date().toISOString()
     const upserts: PersonaSkillMeta[] = []
+    const created: string[] = []
+    const updated: string[] = []
 
     for (const plan of input.plans) {
       const draft = input.drafts.find(
@@ -848,9 +854,11 @@ export async function applyPersonaSkillDrafts(input: ApplyPersonaSkillInput): Pr
         hasResearch,
         updatedAt,
       })
+      if (existing) updated.push(plan.characterName)
+      else created.push(plan.characterName)
     }
 
-    if (upserts.length === 0) return 0
+    if (upserts.length === 0) return { created: [], updated: [] }
 
     // 「插进 index」与「从候选池移走」在同一个锁内、同一个决策点完成。
     // 注意仍是两次 writeFileAtomic，中间崩溃会留下一条冗余的 sighting ——
@@ -870,7 +878,7 @@ export async function applyPersonaSkillDrafts(input: ApplyPersonaSkillInput): Pr
     if (remaining.length !== sightings.sightings.length) {
       await savePersonaSightings(input.projectPath, { version: 1, sightings: remaining })
     }
-    return upserts.length
+    return { created, updated }
   })
 }
 
@@ -1030,15 +1038,17 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
       return
     }
 
-    const written = await applyPersonaSkillDrafts({
+    const { created, updated } = await applyPersonaSkillDrafts({
       projectPath: pp,
       appearances,
       plans,
       drafts,
       chapterNumber: chapter.chapterNumber,
     })
+    const written = created.length + updated.length
     if (written > 0) {
       console.log(`[Persona Skill] 第 ${chapter.chapterNumber} 章更新 ${written} 个人物 Skill`)
+      useWikiStore.getState().setPersonaSkillCompletion({ created, updated })
     } else {
       await reportPersonaRoundFailure({
         projectPath: pp,
@@ -1129,6 +1139,93 @@ export async function regeneratePersonaSkillResearch(options: {
     return true
   } catch (err) {
     console.warn("[Persona Skill] 研究文件重新整理失败:", err instanceof Error ? err.message : err)
+    return false
+  }
+}
+
+/**
+ * 用户在技能库把「候选人物」点亮绿勾时立即建档。
+ *
+ * 候选（sightings）里没有正文，只有出场章号 —— 用最后一次出场那一章的文件
+ * 作为素材，按 pinned、带研究文件的规格建一次档；建成后候选会被
+ * applyPersonaSkillDrafts 从候选池移走。
+ *
+ * 永不抛：没有候选、定位不到章节文件或模型没给出有效内容时返回 false。
+ */
+export async function promotePersonaSighting(options: {
+  projectPath: string
+  characterName: string
+  llmConfig: LlmConfig
+  signal?: AbortSignal
+}): Promise<boolean> {
+  const pp = normalizePath(options.projectPath)
+  try {
+    const index = await loadPersonaSkillIndex(pp)
+    const sightings = await loadPersonaSightings(pp)
+    const sighting = findSighting(sightings, options.characterName, [])
+    if (!sighting) return false
+    // 已经有档案的人不该出现在候选池里；真出现就当作已建档，不重复建。
+    if (findPersonaSkillMeta(index, options.characterName, sighting.aliases)) return false
+
+    const chapterPath = await findChapterFileByNumber(pp, sighting.lastChapter)
+    if (!chapterPath) return false
+    const chapterBody = await readFile(chapterPath)
+
+    /*
+     * `knownCharacter` 在这条路径上**不影响结果**（`pinned: true` 已把门槛压到 1、
+     * 档位也由绿勾固定为 major），但仍如实探测一次而不写死：
+     * 这个字段是 `PersonaChapterAppearance` 的必填项，且下游任何按它分支的逻辑
+     * 都该拿到真值。只探一个名字，一次目录列表 + 一次读文件。
+     */
+    const knownCharacters = await resolveKnownCharacters(pp, [
+      sighting.characterName,
+      ...sighting.aliases,
+    ])
+
+    const plan: PersonaSkillPlan = {
+      characterName: sighting.characterName,
+      aliases: [...sighting.aliases],
+      roleType: sighting.roleType,
+      tier: resolvePersonaTier(sighting.roleType, true),
+      pinned: true,
+      appearanceCount: sighting.appearanceCount,
+      mode: "create",
+      withResearch: true,
+    }
+
+    const { drafts } = await requestPersonaSkillDrafts({
+      llmConfig: options.llmConfig,
+      chapterNumber: sighting.lastChapter,
+      chapterBody,
+      plans: [plan],
+      existing: new Map<string, string>(),
+      signal: options.signal,
+    })
+    if (!drafts || drafts.length === 0) return false
+
+    const appearance: PersonaChapterAppearance = {
+      characterName: sighting.characterName,
+      aliases: [...sighting.aliases],
+      roleType: sighting.roleType,
+      appearanceCount: sighting.appearanceCount,
+      firstChapter: sighting.firstChapter,
+      hasSkill: false,
+      hasResearch: false,
+      pinned: true,
+      lastLearnedChapter: 0,
+      knownCharacter: knownCharacters.has(normalizePersonaName(sighting.characterName)),
+    }
+
+    const { created, updated } = await applyPersonaSkillDrafts({
+      projectPath: pp,
+      appearances: [appearance],
+      plans: [plan],
+      drafts,
+      chapterNumber: sighting.lastChapter,
+    })
+    return created.length + updated.length > 0
+  } catch (err) {
+    console.warn("[Persona Skill] 候选人建档失败:", err instanceof Error ? err.message : err)
     return false
   }
 }

@@ -13,19 +13,19 @@ import "./ui-test-shelf.css"
 
 const COVER_COLORS = Array.from({ length: 8 }, (_, index) => `var(--ui-shelf-cover-${index + 1})`)
 const COVER_SIZE_KEY = "qm-uitest-shelf-cover-size-v1"
+// 只保留「大 / 小」两档（原「中封面」已移除）。`size` 是分段控件上图标的字形尺寸。
 const COVER_SIZES = [
-  { id: "large", label: "大封面", size: 22 },
-  { id: "medium", label: "中封面", size: 17 },
-  { id: "small", label: "小封面", size: 13 },
+  { id: "large", label: "大封面", size: 17 },
+  { id: "small", label: "小封面", size: 12 },
 ] as const
 type CoverSize = (typeof COVER_SIZES)[number]["id"]
 
 function readCoverSize(): CoverSize {
   try {
     const value = localStorage.getItem(COVER_SIZE_KEY)
-    return COVER_SIZES.some((item) => item.id === value) ? value as CoverSize : "medium"
+    return COVER_SIZES.some((item) => item.id === value) ? value as CoverSize : "small"
   } catch {
-    return "medium"
+    return "small"
   }
 }
 

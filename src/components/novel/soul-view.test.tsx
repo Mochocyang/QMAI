@@ -176,7 +176,7 @@ describe("SoulView 单列画廊", () => {
     const heading = host.querySelector('[data-ui="soul-tabs"]')
     expect(heading?.querySelector("h1")?.textContent).toBe("灵魂")
     expect(heading?.querySelector("p")).toBeNull()
-    expect(heading?.querySelector('nav[aria-label="灵魂分类"]')?.parentElement)
+    expect(heading?.querySelector('nav[aria-label="灵魂分组"]')?.parentElement)
       .toBe(heading?.querySelector("h1")?.parentElement)
   })
 })
