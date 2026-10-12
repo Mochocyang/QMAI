@@ -1808,7 +1808,7 @@
     "hubSimulationDesc": "从你的思路出发，把剧情的多种走向先跑一遍。",
     "hubSimulationSteps": "故事框架,多角色推演,推演报告,故事草稿",
     "hubScenarioName": "舞台情景",
-    "hubScenarioDesc": "搭一个舞台，让 3~5 名已有角色围绕你的要求轮流发言，生成可借鉴的对白。",
+    "hubScenarioDesc": "搭一个舞台，让 3~10 名已有角色围绕你的要求轮流发言，生成可借鉴的对白。",
     "hubScenarioSteps": "选角色,情景规则,主持人串场,圆桌对话",
     "hubRecent": "最近",
     "hubRecentHint": "直接回到上次的位置继续。",
