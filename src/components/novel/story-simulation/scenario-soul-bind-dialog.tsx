@@ -185,6 +185,11 @@ export function ScenarioSoulBindDialog({
     if (!who) return
     // 写盘前先比对一次：这份草稿是不是当前这个角色的。createProfilePageThenBind 是
     // 「先写盘、再绑定」，名字只要取错一个，磁盘上就多出一份内容属于别人的页面。
+    // ⚠️ 这一句目前测不到：换人时上面的 effect 会清空草稿并把 draftOwnerRef 复位，
+    // 而「创建小传并绑定」要求草稿非空，所以走到这里时归属必然相等 —— 实测删掉这一行，
+    // 本文件全部用例仍然全绿，不会有红灯。它守的是「草稿已提交、effect 还没跑」的
+    // 理论一帧（React 处理下一个离散事件前会先冲刷被动 effect，故实际不可达）。
+    // 保留它，但请勿在没有新证据的情况下删除。
     if (draftOwnerRef.current !== who.id) return
     setBusy(true)
     setError(null)
@@ -217,14 +222,22 @@ export function ScenarioSoulBindDialog({
 
   const handleUnbind = async () => {
     if (busy) return
+    const who = candidateRef.current
+    if (!who) return
     setBusy(true)
     setError(null)
     try {
-      await unbindCharacterAura(projectPath, candidate.name)
+      await unbindCharacterAura(projectPath, who.name)
+      // 换了人：这次结果不属于当前角色，整条作废，一个界面状态都不碰。
+      // 不复位 busy：新角色可能正在飞它自己的请求（解绑，或刚点了绑定），
+      // 复位会把它的请求误判成已结束；换人会重跑上面的 effect，由它复位。
+      if (!isStillCurrent(who)) return
       setBusy(false)
       onBound()
       onOpenChange(false)
     } catch (err) {
+      // 同上：换了人就整条作废，既不弹错误也不复位 busy
+      if (!isStillCurrent(who)) return
       setBusy(false)
       setError(err instanceof Error ? err.message : String(err))
     }

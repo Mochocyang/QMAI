@@ -529,6 +529,46 @@ describe("ScenarioSoulBindDialog", () => {
     expect(document.body.textContent).not.toContain("还没有档案")
   })
 
+  it("解绑请求在飞时换人：不给新角色的界面回执、也不关窗", async () => {
+    const pending = deferred<unknown>()
+    auraMocks.unbindCharacterAura.mockReturnValueOnce(pending.promise)
+    const mocks = makeMocks()
+    const poke = { current: () => {} }
+    act(() => {
+      root.render(
+        <ParentHarness
+          candidate={{ ...CANDIDATE, auraId: "a1", auraName: "账房先生" }}
+          mocks={mocks}
+          poke={poke}
+        />,
+      )
+    })
+    await flush()
+    click(findButton("解绑"))
+    await flush()
+
+    // 沈砚的解绑还在飞的时候，用户切到李四（李四没绑灵魂，界面上已经没有「解绑」）
+    act(() => {
+      root.render(<ParentHarness candidate={OTHER_CANDIDATE} mocks={mocks} poke={poke} />)
+    })
+    await flush()
+    expect(document.body.textContent).toContain("为「李四」绑定灵魂")
+    expect(findButton("解绑")).toBeUndefined()
+
+    // 沈砚那次解绑现在才成功返回
+    await act(async () => {
+      pending.resolve({ customAuras: [], bindings: [] })
+      await Promise.resolve()
+    })
+    await flush()
+
+    // 解绑本身仍按点击那一刻的角色执行（不会错解成李四），
+    // 但结果不能再回写到换了人之后的界面：既不能刷新候选，更不能把弹窗关掉
+    expect(auraMocks.unbindCharacterAura).toHaveBeenCalledWith("/proj", "沈砚")
+    expect(mocks.onBound).not.toHaveBeenCalled()
+    expect(mocks.onOpenChange).not.toHaveBeenCalled()
+  })
+
   it("补小传草稿被用户改过之后，「返回重选」再进来不会把它冲掉", async () => {
     auraMocks.bindCharacterAura.mockRejectedValue(new Error(BLOCK_MESSAGE))
     await pickSoulAndBind()
