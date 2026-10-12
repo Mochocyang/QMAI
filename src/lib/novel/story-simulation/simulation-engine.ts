@@ -791,6 +791,18 @@ export async function isNodeGoalReachedWithEmbedding(
   maxRounds: number,
   currentRound: number,
   llmConfig: LlmConfig,
+  /**
+   * 本次推演内 `expectedOutcome` 的 embedding 缓存（按文本作键）。
+   *
+   * 同一节点内 `node.expectedOutcome` 恒定不变，而本函数每个节点每轮都会被
+   * 调用一次，不缓存就会把同一个字符串重复 embedding R 次 —— 也就是
+   * `2 × N × R` 次 embedding 里有整整一半是纯浪费。
+   *
+   * 按**文本**而不是 `node.index` 作键：向量是文本的纯函数，按文本缓存既
+   * 保证命中，又不会把「同 index、不同文本」的两个节点错误地算成同一个。
+   * 缓存由调用方按次创建，因此不跨推演泄漏（不同模型/项目不会互相污染）。
+   */
+  expectedEmbeddingCache?: Map<string, number[]>,
 ): Promise<boolean> {
   if (currentRound >= maxRounds - 1) {
     return true
@@ -810,7 +822,11 @@ export async function isNodeGoalReachedWithEmbedding(
       .map((e) => `${e.actorName}：${e.content}`)
       .join("\n")
 
-    const expectedEmbedding = await embed(expectedOutcome, llmConfig)
+    let expectedEmbedding = expectedEmbeddingCache?.get(expectedOutcome)
+    if (expectedEmbedding === undefined) {
+      expectedEmbedding = await embed(expectedOutcome, llmConfig)
+      expectedEmbeddingCache?.set(expectedOutcome, expectedEmbedding)
+    }
     const eventsEmbedding = await embed(eventsText, llmConfig)
 
     const similarity = cosineSimilarity(expectedEmbedding, eventsEmbedding)
@@ -1218,6 +1234,9 @@ export async function runSimulation(
     directorEnabled: directorEnabled ?? modeConfig.directorEnabled ?? false,
     nextNodeInjectionMap: new Map(),
   }
+  // 本次推演的 expectedOutcome embedding 缓存：同节点内该字符串恒定，
+  // 节点目标判定每轮都会用到它，按次缓存可省掉一半 embedding 调用。
+  const expectedEmbeddingCache = new Map<string, number[]>()
   const blackboard = createSimulationBlackboard({
     agents: Array.from(state.activeAgents.values()),
     timelineEvents: resumeTimelineEvents,
@@ -1503,6 +1522,7 @@ export async function runSimulation(
           maxRounds,
           round,
           llmConfig,
+          expectedEmbeddingCache,
         )
         if (goalReached) {
           break
