@@ -185,3 +185,66 @@ describe("剧情推演室 · 两个独立功能的同级入口", () => {
     expect(src).toContain('"storySimulation"')
   })
 })
+
+/*
+ * 自由沙盘：不绑定章节的探索路径（P2-2）。
+ *
+ * 先核实事实：**这条路径今天已经存在，不需要新写功能。**「舞台情景」就是它 ——
+ * 角色从章节里提取，但它自己不绑定任何一章：`ScenarioSetup` 只有
+ * { rules, format, rounds, participants }，全库的 `scenario-*.ts*` 里
+ * 没有任何 `currentFramework` / `frameworkId` 引用。落地页进它也只是切一个
+ * phase，不需要先选中章节或框架。
+ *
+ * 那为什么还要加护栏：另一份设计稿《功能边界整理-入口收敛方案》正在规划把入口
+ * 改成「位置驱动」（从卷纲/章纲/正文选中位置直接推演），并明确写着
+ * 「保留一个『自由沙盘』给确实没有位置的脑暴」。也就是说这条路径在未来会被
+ * 一次入口重构正面撞上，而**把它删掉不会报任何编译错误** —— 正如本分支起点
+ * 的导演 Agent 开关，坏了也没有任何测试会红。
+ *
+ * 所以这里钉的不是「新功能」，而是「探索路径必须一直能独立进入」。
+ */
+describe("自由沙盘 · 不绑定章节的探索路径", () => {
+  const scenarioFiles = [
+    "src/lib/novel/story-simulation/scenario-types.ts",
+    "src/lib/novel/story-simulation/scenario-engine.ts",
+    "src/components/novel/story-simulation/scenario-setup-panel.tsx",
+  ]
+
+  it("进入推演室不需要章节/位置上下文 —— 只切一个 phase", () => {
+    const src = viewSource()
+    // 两条流程都从 idle 直接进，前面没有任何「必须有 currentFramework / 选中章节」
+    // 的门槛：这正是「没有位置」的含义。
+    expect(src).toContain('onEnterSimulation={() => setPhase("configuring")}')
+    expect(src).toContain("onEnterScenario={handleOpenScenario}")
+    // handleOpenScenario 本体必须是纯粹的状态切换
+    const handler = src.slice(src.indexOf("const handleOpenScenario"))
+    const body = handler.slice(0, handler.indexOf("};"))
+    expect(body).toContain('setPhase("scenario-setup")')
+    expect(body).not.toContain("currentFramework")
+    expect(body).not.toContain("frameworkId")
+  })
+
+  it("舞台情景不消费推演框架绑定（它是探索路径，不是某一章的执行）", () => {
+    for (const rel of scenarioFiles) {
+      expect(readCode(rel)).not.toContain("frameworkId")
+    }
+  })
+
+  it("舞台情景的设置里没有章节/节点字段，只有规则与参与者", () => {
+    const src = readCode("src/lib/novel/story-simulation/scenario-types.ts")
+    const setup = src.slice(src.indexOf("export interface ScenarioSetup"))
+    const body = setup.slice(0, setup.indexOf("}"))
+
+    expect(body).toContain("rules")
+    expect(body).toContain("participants")
+    // 一旦有人给它加上章节绑定，这条探索路径就变成了「某一章的执行」
+    expect(body).not.toContain("chapter")
+    expect(body).not.toContain("node")
+  })
+
+  it("落地页的两条入口都还在（收敛入口时不能只剩「有位置」那条）", () => {
+    const src = hubSource()
+    expect(src).toContain('key: "simulation"')
+    expect(src).toContain('key: "scenario"')
+  })
+})
