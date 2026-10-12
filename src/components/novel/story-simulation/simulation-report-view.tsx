@@ -21,6 +21,13 @@ interface SimulationReportViewProps {
   onViewDraft?: () => void
   hasDraft?: boolean
   onViewInterviewHistory?: () => void
+  /**
+   * 切换正在查看的历史结果；`null` 表示回到「最新推演」。
+   *
+   * 由父组件负责把整份结果设为当前上下文（报告 / 时间线 / 快照 / 选中 id），
+   * 否则「生成草稿」会拿着 A 结果的报告去生成 B 结果的分支。
+   */
+  onSelectResult?: (resultId: string | null) => void
 }
 
 /** 将 actionType 映射为中文动词短语 */
@@ -436,6 +443,7 @@ export function SimulationReportView({
   onViewDraft,
   hasDraft,
   onViewInterviewHistory,
+  onSelectResult,
 }: SimulationReportViewProps) {
   const { t } = useTranslation()
   const projectPath = useWikiStore((s) => s.project?.path)
@@ -445,10 +453,30 @@ export function SimulationReportView({
   const savedResults = useStorySimulationStore((s) => s.savedResults)
   const setError = useStorySimulationStore((s) => s.setError)
   const setInfoMessage = useStorySimulationStore((s) => s.setInfoMessage)
+  const setSelectedResultId = useStorySimulationStore(
+    (s) => s.setSelectedResultId,
+  )
   const [exporting, setExporting] = useState(false)
   const [compareMode, setCompareMode] = useState(false)
   const [selectedCompareId, setSelectedCompareId] = useState<string | null>(null)
-  const [viewingResultId, setViewingResultId] = useState<string | null>(null)
+
+  /*
+   * 「我正在看哪条历史结果」以 store 为唯一来源，不再另立一份局部 state。
+   *
+   * 采访的 agentSnapshot 恢复路径（story-simulation-view.tsx 的 handleSendChat）
+   * 是按 store 的 selectedResultId 去 savedResults 里找快照的；若这里再维护一份
+   * 局部 id，两者可能指向不同条目，恢复时就会拿错快照。
+   */
+  const viewingResultId = useStorySimulationStore((s) => s.selectedResultId)
+
+  const handleSelectResult = (resultId: string | null) => {
+    if (onSelectResult) {
+      onSelectResult(resultId)
+      return
+    }
+    // 未注入父级处理器时至少保证选中项一致，避免下拉框变成死控件。
+    setSelectedResultId(resultId)
+  }
 
   // 当前查看的结果（可能是历史结果）
   const currentResult: SavedSimulationResult | null = useMemo(() => {
@@ -506,7 +534,7 @@ export function SimulationReportView({
             <select
               value={viewingResultId || ""}
               onChange={(e) => {
-                setViewingResultId(e.target.value || null)
+                handleSelectResult(e.target.value || null)
                 setCompareMode(false)
                 setSelectedCompareId(null)
               }}
@@ -596,8 +624,6 @@ export function SimulationReportView({
               report={activeReport}
               timelineEvents={activeTimeline}
               framework={currentFramework}
-              onInterviewAgent={!currentResult ? onInterviewAgent : undefined}
-              onGenerateDraft={!currentResult ? onGenerateDraft : undefined}
               title={currentResult ? `结果 A (${formatDate(currentResult.createdAt)})` : "结果 A (最新)"}
               compact={true}
               compareReport={compareResult?.report}
@@ -619,8 +645,8 @@ export function SimulationReportView({
           report={activeReport}
           timelineEvents={activeTimeline}
           framework={currentFramework}
-          onInterviewAgent={!currentResult ? onInterviewAgent : undefined}
-          onGenerateDraft={!currentResult ? onGenerateDraft : undefined}
+          onInterviewAgent={onInterviewAgent}
+          onGenerateDraft={onGenerateDraft}
         />
       )}
     </div>

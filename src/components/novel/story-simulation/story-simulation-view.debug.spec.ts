@@ -52,4 +52,23 @@ describe("story simulation debug process view wiring", () => {
     // 回归保护：此前传给采访功能的状态里 directorEnabled 被写死为 false
     expect(source).not.toContain("directorEnabled: false")
   })
+
+  it("unifies the report view's selected result with the store and resets it per run", () => {
+    const source = readFileSync(
+      resolve(
+        process.cwd(),
+        "src/components/novel/story-simulation/story-simulation-view.tsx",
+      ),
+      "utf8",
+    )
+
+    // 报告页切换历史结果时必须走 applySimulationResult：只改「选中 id」会让
+    // 展示的报告与「生成草稿」用的 currentReport 错位。
+    expect(source).toContain("handleSelectReportResult")
+    expect(source).toContain("onSelectResult={handleSelectReportResult}")
+    // 新一次推演开跑前要清掉「正在查看的历史结果」，否则跑完仍显示旧结果。
+    expect(source).toContain("setSelectedResultId(null)")
+    // 历史结果没有 agentSnapshot 时要清空内存态，避免采访用上一条推演的世界
+    expect(source).toContain("lastSimulationStateRef.current = null")
+  })
 })

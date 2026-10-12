@@ -316,7 +316,21 @@ export function StorySimulationView() {
         setCurrentAgents(new Map(agents.map((a) => [a.characterId, a])));
       } catch (err) {
         console.error("反序列化历史结果失败:", err);
+        // 快照损坏时清空，避免采访继续用上一条推演的角色与世界观。
+        lastAgentsRef.current = [];
+        lastSimulationStateRef.current = null;
+        setCurrentAgents(new Map());
       }
+    } else {
+      /*
+       * 这条历史结果没有 agentSnapshot。必须把内存态一并清掉，否则采访会拿
+       * `lastSimulationStateRef` 里**上一次推演**的世界去回答，指着一个界面
+       * 上根本没显示的角色聊天。清空后采访会走 handleSendChat 的恢复分支，
+       * 最终给出「没有可用的角色状态」这个诚实的提示。
+       */
+      lastAgentsRef.current = [];
+      lastSimulationStateRef.current = null;
+      setCurrentAgents(new Map());
     }
     if (result.timelineEvents) {
       setTimelineEvents(result.timelineEvents);
@@ -600,6 +614,36 @@ export function StorySimulationView() {
   };
 
   /**
+   * 报告页内置下拉的历史结果切换。
+   *
+   * 必须走 `applySimulationResult` 而不是只改一个「选中 id」：报告页展示的是
+   * `currentResult.report`，而「生成草稿」用的是 store 的 `currentReport`。只改 id
+   * 会让两者错位 —— 界面显示 B 结果，草稿却按 A 结果的角色分析去生成。
+   *
+   * 选中 `null`（下拉里的「最新推演」）时回到最新一条；`loadSimulationResults`
+   * 按 `report.createdAt` 倒序，所以 `savedResults[0]` 就是最新。
+   */
+  const handleSelectReportResult = (resultId: string | null) => {
+    if (!resultId) {
+      const latest = savedResults[0];
+      if (latest) {
+        applySimulationResult(latest);
+      } else {
+        setSelectedResultId(null);
+      }
+      return;
+    }
+
+    const result = savedResults.find((r) => r.id === resultId);
+    if (!result) {
+      setSelectedResultId(null);
+      return;
+    }
+
+    applySimulationResult(result);
+  };
+
+  /**
    * 从落地页的「最近」打开一条**跨框架**的推演结果。
    *
    * 与上面那个入口的区别：那条结果可能属于别的框架，所以必须先把框架设成
@@ -683,6 +727,15 @@ export function StorySimulationView() {
     setTimelineEvents([]);
     setDebugTraces(resumePoint ? resumeSnapshot?.debugTraces || [] : []);
     setCurrentRumors(resumePoint ? resumeSnapshot?.rumors || [] : []);
+    /*
+     * 开跑前清掉「正在查看的历史结果」。
+     *
+     * 报告页的 `viewingResultId` 现在就是 store 的 `selectedResultId`，若不清，
+     * 新一次推演跑完后报告页会继续显示上一次浏览的那条历史结果，而不是刚跑出来的。
+     * 继续推演路径不依赖它：需要用的快照已由 handleContinuePartialResult 直接
+     * 写进 lastSimulationStateRef / lastAgentsRef。
+     */
+    setSelectedResultId(null);
     setIsCancelling(false);
     const ac = new AbortController();
     abortControllerRef.current = ac;
@@ -934,6 +987,8 @@ export function StorySimulationView() {
     setTimelineEvents([]);
     setDebugTraces([]);
     setCurrentReport(null);
+    // 同 handleConfirmFramework：别让报告页继续挂着上次浏览的历史结果。
+    setSelectedResultId(null);
     setPhase("framework-confirming");
   };
 
@@ -1756,6 +1811,7 @@ export function StorySimulationView() {
                       onViewInterviewHistory={() =>
                         setShowInterviewHistory(true)
                       }
+                      onSelectResult={handleSelectReportResult}
                     />
                   ) : reportViewTab === "timeline" ? (
                     <div className="h-full overflow-y-auto p-3">
@@ -1940,6 +1996,7 @@ export function StorySimulationView() {
                   onViewDraft={handleViewDraft}
                   hasDraft={!!currentDraft}
                   onViewInterviewHistory={() => setShowInterviewHistory(true)}
+                  onSelectResult={handleSelectReportResult}
                 />
               ) : draftViewTab === "timeline" ? (
                 <div className="h-full overflow-y-auto p-3">
