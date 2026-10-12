@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, Copy, Download, FilePlus2, Loader2, Send, Square, Users } from "lucide-react"
+import { Check, Brain, Copy, Download, FilePlus2, Loader2, Send, Square, Users } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -85,6 +85,12 @@ export function ScenarioRoomView({
             <span className="rounded-full bg-muted px-2 py-0.5 text-[0.625rem] text-muted-foreground">
               {formatInfo.icon} {formatInfo.name}
             </span>
+            {/* 「停止」之后最要紧的一件事：这场是跑完的还是被中断的 */}
+            {session.status === "cancelled" && (
+              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[0.625rem] font-medium text-amber-700 dark:text-amber-300">
+                {t("storySimulation.scenarioStatusCancelled")}
+              </span>
+            )}
           </div>
           <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
             <Users className="h-3 w-3" />
@@ -215,6 +221,8 @@ function MessageBubble({
   streaming?: boolean
 }) {
   const { t } = useTranslation()
+  // 必须放在 system 的提前 return 之前：hooks 不能有条件地调用
+  const [showReasoning, setShowReasoning] = useState(false)
   if (message.kind === "system") {
     return (
       <div className="py-1 text-center text-xs text-muted-foreground">
@@ -262,6 +270,27 @@ function MessageBubble({
             <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-current align-middle" />
           )}
         </div>
+        {/*
+          模型的思考过程一直存在消息里却没有出口（多数模型不发 reasoning
+          token，所以没有就不渲染任何控件，避免留一个点开是空的按钮）。
+        */}
+        {message.reasoning && (
+          <>
+            <button
+              type="button"
+              onClick={() => setShowReasoning((v) => !v)}
+              className="mt-1 flex items-center gap-1 text-[0.6875rem] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Brain className="h-3 w-3" />
+              {t("storySimulation.scenarioReasoning")}
+            </button>
+            {showReasoning && (
+              <div className="mt-1 whitespace-pre-wrap rounded-lg border border-dashed px-2.5 py-2 text-xs leading-relaxed text-muted-foreground">
+                {message.reasoning}
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
