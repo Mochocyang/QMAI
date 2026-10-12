@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
+  SCENARIO_CHARACTER_DEFAULT,
+  SCENARIO_CHARACTER_MAX,
+  SCENARIO_CHARACTER_MIN,
+  SCENARIO_CHARACTER_PRESETS,
   SCENARIO_MODERATOR_USER_ID,
+  clampScenarioCharacterCount,
   clampScenarioRounds,
   estimateScenarioMessages,
   hasRoleModerator,
@@ -117,5 +122,56 @@ describe("lastSpokenRound / remainingScenarioRounds", () => {
   it("一条发言都还没有时，剩余就是全部计划轮数", () => {
     const setup = { rounds: 20 } as never
     expect(remainingScenarioRounds(setup, [])).toBe(20)
+  })
+})
+
+describe("角色数量常量", () => {
+  it("上限放宽到 10，下限仍是 3", () => {
+    expect(SCENARIO_CHARACTER_MIN).toBe(3)
+    expect(SCENARIO_CHARACTER_MAX).toBe(10)
+  })
+
+  it("一键预设是 3/4/5，且都落在合法区间内", () => {
+    expect([...SCENARIO_CHARACTER_PRESETS]).toEqual([3, 4, 5])
+    for (const n of SCENARIO_CHARACTER_PRESETS) {
+      expect(n).toBeGreaterThanOrEqual(SCENARIO_CHARACTER_MIN)
+      expect(n).toBeLessThanOrEqual(SCENARIO_CHARACTER_MAX)
+    }
+  })
+
+  it("默认值仍是 3（不回退）", () => {
+    expect(SCENARIO_CHARACTER_DEFAULT).toBe(3)
+  })
+})
+
+describe("clampScenarioCharacterCount", () => {
+  it("区间内原样返回", () => {
+    expect(clampScenarioCharacterCount(7)).toBe(7)
+    expect(clampScenarioCharacterCount(3)).toBe(3)
+    expect(clampScenarioCharacterCount(10)).toBe(10)
+  })
+
+  it("低于下限夹到下限，高于上限夹到上限", () => {
+    expect(clampScenarioCharacterCount(1)).toBe(SCENARIO_CHARACTER_MIN)
+    expect(clampScenarioCharacterCount(99)).toBe(SCENARIO_CHARACTER_MAX)
+  })
+
+  it("非数字不返回 NaN", () => {
+    expect(clampScenarioCharacterCount(Number.NaN)).toBe(SCENARIO_CHARACTER_DEFAULT)
+    expect(clampScenarioCharacterCount(Number.POSITIVE_INFINITY)).toBe(
+      SCENARIO_CHARACTER_MAX,
+    )
+  })
+
+  it("小数四舍五入", () => {
+    expect(clampScenarioCharacterCount(4.4)).toBe(4)
+    expect(clampScenarioCharacterCount(4.6)).toBe(5)
+  })
+})
+
+describe("既有的轮数夹取不被牵连", () => {
+  it("轮数上限仍是 100", () => {
+    expect(clampScenarioRounds(9999)).toBe(100)
+    expect(clampScenarioRounds(20)).toBe(20)
   })
 })

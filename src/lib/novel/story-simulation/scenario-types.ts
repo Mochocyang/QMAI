@@ -52,12 +52,19 @@ export const SCENARIO_FORMAT_INFO: Record<
 
 // ── 角色数量约束 ──
 //
-// 舞台上 = 1 名主持人 + 3~5 名角色。主持人可以由用户本人担任，
-// 因此「角色数」指的是上台发言的角色个数（不含主持人）。
+// 「角色数量」= 上台的总人数，**包含**由角色担任的那名主持人。
+// 主持人由用户本人担任时，上台的就是清一色的发言角色。
+//
+// 之所以写成「含主持人」而不是「不含」：面板上的选中数就是上台人数，
+// 与用户说的「3 个、4 个、5 个角色」是同一个口径；若按「不含」实现，
+// 「选 3 人 + 指定其中一人主持」会只剩 2 名发言角色，还得再点一次补人。
 
 export const SCENARIO_CHARACTER_MIN = 3
-export const SCENARIO_CHARACTER_MAX = 5
+export const SCENARIO_CHARACTER_MAX = 10
 export const SCENARIO_CHARACTER_DEFAULT = 3
+
+/** 一键按钮的预设人数；区间之外的数量走自定义输入。 */
+export const SCENARIO_CHARACTER_PRESETS = [3, 4, 5] as const
 
 export const SCENARIO_ROUND_PRESETS = [10, 20, 30, 50] as const
 export const SCENARIO_ROUND_DEFAULT = 20
@@ -150,6 +157,14 @@ export interface ScenarioMessage {
  */
 export interface ScenarioStreamingState {
   kind: ScenarioSpeakerKind
+  /**
+   * 发言者 id（新增，可选）。
+   *
+   * 引擎的 onMessageStart 本来就带 speakerId，只是此前没往这里存，
+   * 导致流式气泡拿不到「是哪个角色」，没法给它上头像与专属配色。
+   * 可选是为了让旧会话数据与 store 无需迁移。
+   */
+  speakerId?: string
   speakerName: string
   content: string
 }
@@ -209,6 +224,17 @@ export function clampScenarioRounds(rounds: number): number {
   if (!Number.isFinite(rounds)) return SCENARIO_ROUND_DEFAULT
   const int = Math.round(rounds)
   return Math.max(SCENARIO_ROUND_MIN, Math.min(SCENARIO_ROUND_MAX, int))
+}
+
+/** 归一化上台人数到合法区间（自定义输入用）。 */
+export function clampScenarioCharacterCount(count: number): number {
+  if (!Number.isFinite(count)) {
+    return count === Number.POSITIVE_INFINITY
+      ? SCENARIO_CHARACTER_MAX
+      : SCENARIO_CHARACTER_DEFAULT
+  }
+  const int = Math.round(count)
+  return Math.max(SCENARIO_CHARACTER_MIN, Math.min(SCENARIO_CHARACTER_MAX, int))
 }
 
 /**
