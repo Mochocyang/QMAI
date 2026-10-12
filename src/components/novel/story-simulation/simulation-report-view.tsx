@@ -268,6 +268,47 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
             />
           )}
 
+          {/* 取证审计：引文是否真的逐字来自事件记录 */}
+          {report.evidenceAudit && (
+            <section
+              className={cn(
+                "rounded-lg border p-3 text-xs",
+                report.evidenceAudit.unverified.length > 0
+                  ? "border-amber-500/50 bg-amber-500/5"
+                  : "border-border bg-muted/30",
+              )}
+            >
+              {report.evidenceAudit.unverified.length > 0 ? (
+                <>
+                  <p className="font-medium text-amber-700 dark:text-amber-400">
+                    有 {report.evidenceAudit.unverified.length} 条引文未能逐字核对
+                    （共 {report.evidenceAudit.total} 条，通过{" "}
+                    {report.evidenceAudit.verified} 条）
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    下列内容在推演事件记录里找不到原文，可能是模型改写或编造的，请勿当作依据：
+                  </p>
+                  <ul className="mt-1 space-y-0.5">
+                    {report.evidenceAudit.unverified.map((quote, i) => (
+                      <li key={i} className="border-l-2 border-amber-500/50 pl-2 italic">
+                        「{quote}」
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="text-muted-foreground">
+                  引文均已逐字核对（共 {report.evidenceAudit.total} 条）
+                </p>
+              )}
+              <p className="mt-1 text-muted-foreground">
+                {report.evidenceAudit.toolCalls > 0
+                  ? `取证过程调用工具 ${report.evidenceAudit.toolCalls} 次`
+                  : "本次未使用取证工具（单次生成）"}
+              </p>
+            </section>
+          )}
+
           {/* 角色采访区 */}
           {!compact && report.characterAnalyses.length > 0 && onInterviewAgent && (
             <section>
@@ -334,6 +375,19 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                         </ul>
                       </div>
                     )}
+
+                    {char.evidence && char.evidence.length > 0 && (
+                      <div className="mt-2">
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">原话依据：</p>
+                        <ul className="space-y-0.5 text-sm">
+                          {char.evidence.map((quote, i) => (
+                            <li key={i} className="border-l-2 border-muted pl-2 italic text-muted-foreground">
+                              「{quote}」
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -366,6 +420,19 @@ function ReportContent({ report, timelineEvents, framework, onInterviewAgent, on
                         <p className="mb-1 text-xs font-medium text-muted-foreground">关键事件：</p>
                         <ul className="list-disc space-y-0.5 pl-4 text-sm">
                           {branch.keyEvents.map((e, i) => <li key={i}>{e}</li>)}
+                        </ul>
+                      </div>
+                    )}
+
+                    {branch.evidence && branch.evidence.length > 0 && (
+                      <div className="mt-2">
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">原话依据：</p>
+                        <ul className="space-y-0.5 text-sm">
+                          {branch.evidence.map((quote, i) => (
+                            <li key={i} className="border-l-2 border-muted pl-2 italic text-muted-foreground">
+                              「{quote}」
+                            </li>
+                          ))}
                         </ul>
                       </div>
                     )}

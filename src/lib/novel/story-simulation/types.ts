@@ -304,6 +304,23 @@ export interface SimulationReport {
   branches: StoryBranch[]
   recommendation: string
   createdAt: string
+  /**
+   * 报告取证审计（P1-7）。旧存档没有这个字段，故为可选。
+   *
+   * 存在的意义：报告要求逐字引用 agent 原话，而「模型是否真引了、引的是不是
+   * 编的」必须可核对。审计把通过/未通过的条数摊开，未通过的原文也留着。
+   */
+  evidenceAudit?: ReportEvidenceAudit
+}
+
+export interface ReportEvidenceAudit {
+  /** 参与校验的引文条数（空白引文不计入） */
+  total: number
+  verified: number
+  /** 未能逐字对上的引文原文 */
+  unverified: string[]
+  /** 本次报告实际发生的工具调用次数。0 表示走了单次调用回退路径 */
+  toolCalls: number
 }
 
 export type SimulationResultStatus = "complete" | "partial" | "cancelled"
@@ -320,6 +337,8 @@ export interface CharacterAnalysis {
   behaviors: { node: string; action: string; motivation: string }[]
   stateChanges: string[]
   consistencyScore: number
+  /** 逐字引用该角色的原话作为依据（P1-7）。旧存档无此字段。 */
+  evidence?: string[]
 }
 
 export interface StoryBranch {
@@ -330,6 +349,8 @@ export interface StoryBranch {
   pros: string
   cons: string
   recommendation: boolean
+  /** 逐字引用支撑该走向的原话（P1-7）。旧存档无此字段。 */
+  evidence?: string[]
 }
 
 // ── 故事草稿 ──

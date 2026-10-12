@@ -207,3 +207,118 @@ describe("SimulationReportView 历史结果的采访与草稿入口", () => {
     expect(store.getState().selectedResultId).toBe("hist-1")
   })
 })
+
+function makeEvidenceReport(options: {
+  audit?: SimulationReport["evidenceAudit"]
+  evidence?: string[]
+  branchEvidence?: string[]
+}): SimulationReport {
+  return {
+    frameworkId: "fw",
+    mode: "hybrid",
+    characterAnalyses: [
+      {
+        characterId: "a",
+        name: "甲",
+        behaviors: [{ node: "开端", action: "表态", motivation: "想走" }],
+        stateChanges: [],
+        consistencyScore: 80,
+        evidence: options.evidence,
+      },
+    ],
+    branches: [
+      {
+        title: "分支一",
+        summary: "摘要",
+        keyEvents: [],
+        probability: "high",
+        pros: "优点",
+        cons: "缺点",
+        recommendation: true,
+        evidence: options.branchEvidence,
+      },
+    ],
+    recommendation: "推荐分支一",
+    createdAt: "2026-07-06T00:00:00.000Z",
+    evidenceAudit: options.audit,
+  }
+}
+
+/**
+ * 引文必须逐字来自事件记录，而「模型是否真引了、引的是不是编的」得让用户看见 ——
+ * 否则审计算了也白算。这里覆盖三类情形：正常展示、有编造引文时的警示、旧报告兼容。
+ */
+describe("SimulationReportView 引文依据与取证审计", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    store.setState({
+      currentFramework: makeFramework(),
+      timelineEvents: [],
+      selectedResultId: null,
+      savedResults: [],
+    })
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  function renderWith(report: SimulationReport) {
+    store.setState({ currentReport: report })
+    render({ onInterviewAgent: vi.fn(), onGenerateDraft: vi.fn() })
+  }
+
+  it("展示角色与分支的原话依据", () => {
+    renderWith(
+      makeEvidenceReport({
+        evidence: ["我要走了。"],
+        branchEvidence: ["那你走吧。"],
+        audit: { total: 2, verified: 2, unverified: [], toolCalls: 4 },
+      }),
+    )
+
+    expect(container.textContent).toContain("原话依据")
+    expect(container.textContent).toContain("我要走了。")
+    expect(container.textContent).toContain("那你走吧。")
+  })
+
+  it("引文未通过核对时给出警示并列出未通过的原文", () => {
+    renderWith(
+      makeEvidenceReport({
+        evidence: ["我要走了。", "我从来没有爱过你。"],
+        audit: {
+          total: 3,
+          verified: 2,
+          unverified: ["我从来没有爱过你。"],
+          toolCalls: 5,
+        },
+      }),
+    )
+
+    expect(container.textContent).toContain("未能逐字核对")
+    expect(container.textContent).toContain("我从来没有爱过你。")
+  })
+
+  it("引文全部通过时不出现警示，但仍标出取证次数", () => {
+    renderWith(
+      makeEvidenceReport({
+        evidence: ["我要走了。"],
+        audit: { total: 1, verified: 1, unverified: [], toolCalls: 4 },
+      }),
+    )
+
+    expect(container.textContent).not.toContain("未能逐字核对")
+    expect(container.textContent).toContain("4 次")
+  })
+
+  it("旧报告没有引文与审计字段，照常渲染且不出现空的依据区块", () => {
+    renderWith(makeHistoricalReport())
+
+    expect(container.textContent).toContain("推荐分支一")
+    expect(container.textContent).not.toContain("原话依据")
+    expect(container.textContent).not.toContain("未能逐字核对")
+  })
+})
