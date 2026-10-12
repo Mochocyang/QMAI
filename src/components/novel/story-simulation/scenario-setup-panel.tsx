@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Info, Plus, Sparkles, X } from "lucide-react"
 
@@ -151,6 +151,12 @@ export function ScenarioSetupPanel({
     moderatorEveryRounds,
   )
   const needsCostAck = estimatedMessages > SCENARIO_COST_WARN_THRESHOLD
+
+  // 预估规模一变就让上一次的确认作废：把配置改小再改大，不能靠旧勾选蒙过去。
+  // 与剧情推演室的护栏保持同一行为（simulation-config-panel.tsx 同款）。
+  useEffect(() => {
+    setCostAck(false)
+  }, [estimatedMessages])
 
   const canStart =
     !extracting &&

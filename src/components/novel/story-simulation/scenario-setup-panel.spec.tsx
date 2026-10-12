@@ -127,6 +127,19 @@ function setRounds(value: string) {
   })
 }
 
+/** 成本护栏的勾选框（页面上唯一的 checkbox）。 */
+function costCheckbox(): HTMLInputElement | undefined {
+  return Array.from(container.querySelectorAll("input[type=checkbox]")).find(
+    (el) => (el as HTMLInputElement).type === "checkbox",
+  ) as HTMLInputElement | undefined
+}
+
+function clickCheckbox(box: HTMLInputElement) {
+  act(() => {
+    box.click()
+  })
+}
+
 /** 选满 3 名角色（默认角色数量就是 3），主持人默认由用户担任。 */
 function selectThreeCharacters() {
   addCharacter("c1")
@@ -196,5 +209,54 @@ describe("ScenarioSetupPanel · 轮数上限", () => {
     expect(container.textContent).not.toContain(
       "storySimulation.scenarioRoundsClamped",
     )
+  })
+})
+
+describe("ScenarioSetupPanel · 成本确认", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn<(setup: ScenarioSetup) => void>()
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it("预估值一变，上一次的勾选就作废", () => {
+    render()
+    selectThreeCharacters()
+    setRounds("50")
+
+    const box = costCheckbox()
+    expect(box).toBeDefined()
+    clickCheckbox(box as HTMLInputElement)
+    expect(costCheckbox()?.checked).toBe(true)
+
+    // 改到另一个同样超阈值的规模：这是另一笔账，必须重新确认
+    setRounds("60")
+
+    expect(costCheckbox()).toBeDefined()
+    expect(costCheckbox()?.checked).toBe(false)
+  })
+
+  it("把规模改小再改大，不能靠旧勾选蒙过去", () => {
+    render()
+    selectThreeCharacters()
+    setRounds("50")
+
+    clickCheckbox(costCheckbox() as HTMLInputElement)
+    expect(costCheckbox()?.checked).toBe(true)
+
+    // 降到阈值以下：确认框整个消失
+    setRounds("10")
+    expect(costCheckbox()).toBeUndefined()
+
+    // 再改回大配置：确认框回来了，但不该是勾好的
+    setRounds("50")
+    expect(costCheckbox()).toBeDefined()
+    expect(costCheckbox()?.checked).toBe(false)
   })
 })
