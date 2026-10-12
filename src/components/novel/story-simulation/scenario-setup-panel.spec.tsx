@@ -1,0 +1,200 @@
+// @vitest-environment jsdom
+
+import { act } from "react"
+import { createRoot, type Root } from "react-dom/client"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { Mock } from "vitest"
+
+import { ScenarioSetupPanel } from "./scenario-setup-panel"
+import {
+  SCENARIO_MODERATOR_INTERVAL_DEFAULT,
+  SCENARIO_ROUND_MAX,
+  estimateScenarioMessages,
+  type ScenarioCandidate,
+  type ScenarioSetup,
+} from "@/lib/novel/story-simulation/scenario-types"
+
+;(
+  globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true
+
+/**
+ * 这个 mock 必须支持插值：面板把关键数字（预估条数、上限值）都通过
+ * `t(key, { count })` 传出去，`t: (key) => key` 那种写法会让这些数字
+ * 根本不出现在 DOM 里，断言就变成了对着空气断言。
+ */
+vi.mock("react-i18next", () => ({
+  // 面板经由 scenario-engine → llm-client 间接拉起了 i18n 初始化，
+  // 它需要这个导出才能 .use()，缺了会直接让整个测试文件收集失败。
+  initReactI18next: { type: "3rdParty", init: () => {} },
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) =>
+      opts
+        ? `${key}(${Object.entries(opts)
+            .map(([k, v]) => `${k}=${String(v)}`)
+            .join(",")})`
+        : key,
+  }),
+}))
+
+function candidate(n: number): ScenarioCandidate {
+  return {
+    id: `c${n}`,
+    name: `角色${n}`,
+    profile: `角色${n}的档案`,
+    auraId: null,
+    auraName: null,
+    speakingStyle: "简短",
+    personality: ["沉稳"],
+    knowledgeScope: [],
+    doesNotKnow: [],
+  }
+}
+
+const CANDIDATES = [
+  candidate(1),
+  candidate(2),
+  candidate(3),
+  candidate(4),
+  candidate(5),
+]
+
+let container: HTMLDivElement
+let root: Root
+let onStart: Mock<(setup: ScenarioSetup) => void>
+
+function render() {
+  act(() => {
+    root.render(
+      <ScenarioSetupPanel
+        candidates={CANDIDATES}
+        extracting={false}
+        progress={null}
+        sourceChapters={10}
+        onSourceChaptersChange={() => {}}
+        onReExtract={() => {}}
+        onStart={onStart}
+        onCancel={() => {}}
+      />,
+    )
+  })
+}
+
+/** React 受控组件：必须走原型上的 setter，否则 value tracker 会吞掉事件。 */
+function setNativeValue(el: HTMLElement, value: string) {
+  const proto =
+    el instanceof HTMLSelectElement
+      ? HTMLSelectElement.prototype
+      : HTMLInputElement.prototype
+  const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set
+  setter?.call(el, value)
+}
+
+/**
+ * 页面上有多个 `<select>`（提取章节数、角色、主持人、串场间隔），按顺序取第一个
+ * 会拿到提取章节数那个 —— 往它上面设 `c1` 会被 jsdom 静默重置成 ""，测试看起来
+ * 「点了但没反应」。也不能靠「含 c1 选项」来认：选完 c1 之后角色框就不含 c1 了，
+ * 而主持人框反而含 c1。
+ *
+ * 稳定的判据是**受控值**：角色选择框恒为 `value=""`（每次选完由 addCharacter
+ * 清空），其余下拉框都绑着真实值（章节数 10、主持人 `__user__`、间隔 5）。
+ */
+function characterSelect(): HTMLSelectElement {
+  const found = Array.from(container.querySelectorAll("select")).find(
+    (s) => (s as HTMLSelectElement).value === "",
+  )
+  if (!found) throw new Error("找不到角色选择下拉框")
+  return found as HTMLSelectElement
+}
+
+/** 通过下拉框添加一名上台角色。 */
+function addCharacter(id: string) {
+  const select = characterSelect()
+  act(() => {
+    setNativeValue(select, id)
+    select.dispatchEvent(new Event("change", { bubbles: true }))
+  })
+}
+
+/** 修改轮数输入框。 */
+function setRounds(value: string) {
+  const input = container.querySelector(
+    'input[type="number"]',
+  ) as HTMLInputElement
+  act(() => {
+    setNativeValue(input, value)
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+  })
+}
+
+/** 选满 3 名角色（默认角色数量就是 3），主持人默认由用户担任。 */
+function selectThreeCharacters() {
+  addCharacter("c1")
+  addCharacter("c2")
+  addCharacter("c3")
+}
+
+/** 与实现同一个估算函数，按「夹取之后」的轮数算出应有的预估条数。 */
+function expectedMessages(selectedCount: number, rawRounds: number) {
+  const participants = Array.from({ length: selectedCount }, (_, i) =>
+    candidate(i + 1),
+  ).map((c) => ({
+    id: c.id,
+    name: c.name,
+    isModerator: false,
+  }))
+  return estimateScenarioMessages(
+    participants,
+    Math.min(rawRounds, SCENARIO_ROUND_MAX),
+    SCENARIO_MODERATOR_INTERVAL_DEFAULT,
+  )
+}
+
+describe("ScenarioSetupPanel · 轮数上限", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn<(setup: ScenarioSetup) => void>()
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it("输入超过上限的轮数时，成本预估按上限轮数计算", () => {
+    render()
+    selectThreeCharacters()
+    setRounds("9999")
+
+    const expected = expectedMessages(3, 9999)
+    expect(expected).toBe(1 + 3 * SCENARIO_ROUND_MAX)
+
+    // 界面上报出的数字必须是可以真的发生的那个
+    expect(container.textContent).toContain(`count=${expected}`)
+    // 未夹取的 29998 条是永远跑不出来的
+    expect(container.textContent).not.toContain(`count=${1 + 3 * 9999}`)
+  })
+
+  it("输入超过上限的轮数时，明确告知会按上限执行", () => {
+    render()
+    selectThreeCharacters()
+    setRounds("9999")
+
+    expect(container.textContent).toContain(
+      `storySimulation.scenarioRoundsClamped(max=${SCENARIO_ROUND_MAX})`,
+    )
+  })
+
+  it("轮数在上限之内时不显示上限提示", () => {
+    render()
+    selectThreeCharacters()
+    setRounds("50")
+
+    expect(container.textContent).toContain(`count=${1 + 3 * 50}`)
+    expect(container.textContent).not.toContain(
+      "storySimulation.scenarioRoundsClamped",
+    )
+  })
+})

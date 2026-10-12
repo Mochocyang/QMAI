@@ -17,8 +17,11 @@ import {
   SCENARIO_MODERATOR_USER_ID,
   SCENARIO_MODERATOR_USER_NAME,
   SCENARIO_ROUND_DEFAULT,
+  SCENARIO_ROUND_MAX,
+  SCENARIO_ROUND_MIN,
   SCENARIO_ROUND_PRESETS,
   SCENARIO_SOURCE_CHAPTER_PRESETS,
+  clampScenarioRounds,
   estimateScenarioMessages,
   hasRoleModerator,
   type ScenarioCandidate,
@@ -130,9 +133,21 @@ export function ScenarioSetupPanel({
     ),
   )
   const roleModerated = hasRoleModerator(previewParticipants)
+
+  /**
+   * 轮数的一切对外展示都必须经过与引擎同一套夹取。
+   *
+   * 输入框允许任意正整数，但 `createScenarioSetup` 会把轮数夹到
+   * [1, SCENARIO_ROUND_MAX] —— 直接用原始 `rounds` 去估算，用户输入 9999
+   * 时界面会报出 29998 条，而引擎只会跑 100 轮（301 条）。那个数字不仅夸大
+   * 成本护栏，还让「轮数」这个输入看起来能填 9999，实际上填了也不生效。
+   */
+  const effectiveRounds = clampScenarioRounds(rounds)
+  const roundsClamped = effectiveRounds !== rounds
+
   const estimatedMessages = estimateScenarioMessages(
     previewParticipants,
-    rounds,
+    effectiveRounds,
     moderatorEveryRounds,
   )
   const needsCostAck = estimatedMessages > SCENARIO_COST_WARN_THRESHOLD
@@ -177,7 +192,7 @@ export function ScenarioSetupPanel({
         t("storySimulation.scenarioDefaultTitle"),
       rules,
       format,
-      rounds,
+      rounds: effectiveRounds,
       moderatorEveryRounds,
       participants: withModerator,
       sourceChapters,
@@ -512,16 +527,24 @@ export function ScenarioSetupPanel({
             type="number"
             className="w-24"
             value={rounds}
-            min={1}
+            min={SCENARIO_ROUND_MIN}
+            max={SCENARIO_ROUND_MAX}
             onChange={(e) => {
               const val = parseInt(e.target.value, 10)
               if (!isNaN(val) && val > 0) setRounds(val)
             }}
           />
         </div>
+        {roundsClamped && (
+          <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+            {t("storySimulation.scenarioRoundsClamped", {
+              max: SCENARIO_ROUND_MAX,
+            })}
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">
           {t("storySimulation.scenarioRoundsHint", {
-            count: rounds * Math.max(1, characterSpeakers.length),
+            count: effectiveRounds * Math.max(1, characterSpeakers.length),
           })}
         </p>
         <Input
