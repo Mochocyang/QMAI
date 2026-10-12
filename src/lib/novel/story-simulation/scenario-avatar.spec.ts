@@ -48,6 +48,10 @@ describe("scenarioSpeakerToneIndex", () => {
     const used = new Set(names.map((name) => scenarioSpeakerToneIndex(name)))
     expect(used.size).toBeGreaterThan(1)
   })
+
+  it("带空白的 seed 与已规范化的 seed 落在同一个下标", () => {
+    expect(scenarioSpeakerToneIndex("  沈砚  ")).toBe(scenarioSpeakerToneIndex("沈砚"))
+  })
 })
 
 describe("scenarioSpeakerTone", () => {
@@ -60,11 +64,21 @@ describe("scenarioSpeakerTone", () => {
     expect(scenarioSpeakerTone("沈砚")).toEqual(scenarioSpeakerTone("沈砚"))
   })
 
-  it("色板每一项都有写死的头像与名字类名", () => {
+  it("色板每一项的头像与名字类名都非空", () => {
     for (const tone of SCENARIO_SPEAKER_TONES) {
-      expect(tone.avatar.length).toBeGreaterThan(0)
-      expect(tone.name.length).toBeGreaterThan(0)
+      expect(tone.avatarClass.length).toBeGreaterThan(0)
+      expect(tone.nameClass.length).toBeGreaterThan(0)
     }
+  })
+
+  it("不同角色经公开入口拿到不同配色，而不是全被压成同一个色", () => {
+    // 用互不撞下标的 5 个名字；注意「钱七」与「沈砚」撞下标，不能进这组
+    const used = new Set(
+      ["沈砚", "林清越", "苏九", "阿明", "赵六"].map(
+        (id) => scenarioSpeakerTone(id).nameClass,
+      ),
+    )
+    expect(used.size).toBeGreaterThan(1)
   })
 })
 
@@ -99,7 +113,12 @@ describe("色板类名的字面量契约（源码级）", () => {
         start,
       )
 
-      const text = source.slice(start, end)
+      // 先剥掉注释：散文注释里出现反引号或 ${ 是正常的说明写法，
+      // 不该因为注释而误红；这个用例要守的是代码。
+      const text = source
+        .slice(start, end)
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "")
 
       expect(
         text,
@@ -111,8 +130,8 @@ describe("色板类名的字面量契约（源码级）", () => {
       ).not.toContain("${")
       expect(
         text,
-        `${region.label} 区域内出现字面量相加，Tailwind v4 无法把它收集进产物 CSS`,
-      ).not.toMatch(/["']\s*\+\s*["']/)
+        `${region.label} 区域内出现字符串相加拼类名，Tailwind v4 无法把它收集进产物 CSS`,
+      ).not.toMatch(/["'`]\s*\+|\+\s*["'`]/)
     }
   })
 })
