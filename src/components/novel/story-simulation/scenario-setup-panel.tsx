@@ -111,6 +111,28 @@ export function ScenarioSetupPanel({
 
   const reachedLimit = selectedIds.length >= characterCount
 
+  /**
+   * 候选角色是否少到根本凑不齐一场舞台情景。
+   *
+   * 「角色数量」按钮写死为 [3,5]，与真正提取到几个角色无关；而开始条件要求
+   * 「已选人数 === 所选人数」。提取只找到 1~2 个角色时用户永远凑不满，开始
+   * 按钮会一直灰着 —— 而且界面上唯一的提示（没有候选角色）只在 0 个时出现，
+   * 1~2 个时一片沉默。这里把它变成一个说得清的状态。
+   */
+  const insufficientCandidates = candidates.length < SCENARIO_CHARACTER_MIN
+
+  /**
+   * 候选角色变少时（如重新分析后结果不同），把所选人数夹到候选数。
+   *
+   * 不足 3 人时不夹：那是「素材不够」，应当明确报错让用户去加提取章节数，
+   * 而不是把下限偷偷降到 2 让功能看起来可用。
+   */
+  useEffect(() => {
+    if (candidates.length < SCENARIO_CHARACTER_MIN) return
+    if (characterCount <= candidates.length) return
+    setCharacterCount(candidates.length)
+  }, [candidates.length, characterCount])
+
   const addCharacter = (id: string) => {
     if (!id) return
     if (selectedIds.includes(id)) return
@@ -160,6 +182,7 @@ export function ScenarioSetupPanel({
 
   const canStart =
     !extracting &&
+    !insufficientCandidates &&
     selectedIds.length === characterCount &&
     directive.trim().length > 0 &&
     (!needsCostAck || costAck)
@@ -237,6 +260,7 @@ export function ScenarioSetupPanel({
               key={n}
               variant={characterCount === n ? "default" : "outline"}
               size="sm"
+              disabled={n > candidates.length}
               onClick={() => setCharacterCount(n)}
             >
               {n} {t("storySimulation.scenarioCharacterCountUnit")}
@@ -249,6 +273,14 @@ export function ScenarioSetupPanel({
             })}
           </span>
         </div>
+        {insufficientCandidates && (
+          <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+            {t("storySimulation.scenarioCandidatesInsufficient", {
+              count: candidates.length,
+              min: SCENARIO_CHARACTER_MIN,
+            })}
+          </p>
+        )}
       </section>
 
       {/* 2. 提取章节数 */}

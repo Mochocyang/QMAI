@@ -1934,6 +1934,7 @@
     "scenarioRoundsCustom": "自定义",
     "scenarioRoundsHint": "1 轮 = 每位角色各发言一次。约产生 {{count}} 条角色发言。",
     "scenarioRoundsClamped": "轮数上限为 {{max}} 轮，本次将按 {{max}} 轮执行。",
+    "scenarioCandidatesInsufficient": "只找到 {{count}} 个角色，一场舞台情景至少需要 {{min}} 人。请增加「提取章节数」后点「重新分析角色」。",
     "scenarioTitlePlaceholder": "情景标题（可选，留空则自动生成）",
     "scenarioStart": "开始舞台情景",
     "scenarioBack": "返回",

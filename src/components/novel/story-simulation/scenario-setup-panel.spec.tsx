@@ -63,11 +63,11 @@ let container: HTMLDivElement
 let root: Root
 let onStart: Mock<(setup: ScenarioSetup) => void>
 
-function render() {
+function render(candidates: ScenarioCandidate[] = CANDIDATES) {
   act(() => {
     root.render(
       <ScenarioSetupPanel
-        candidates={CANDIDATES}
+        candidates={candidates}
         extracting={false}
         progress={null}
         sourceChapters={10}
@@ -138,6 +138,38 @@ function clickCheckbox(box: HTMLInputElement) {
   act(() => {
     box.click()
   })
+}
+
+/** 按可见文字找按钮。 */
+function findButton(predicate: (text: string) => boolean) {
+  return Array.from(container.querySelectorAll("button")).find((b) =>
+    predicate(b.textContent ?? ""),
+  ) as HTMLButtonElement | undefined
+}
+
+/** 角色数量按钮（3/4/5 人）——用单位文案与轮数预设按钮区分开。 */
+function countButton(n: number): HTMLButtonElement | undefined {
+  return findButton(
+    (text) =>
+      text.startsWith(`${n} `) && text.includes("scenarioCharacterCountUnit"),
+  )
+}
+
+function startButton(): HTMLButtonElement | undefined {
+  return findButton((text) => text.includes("scenarioStart"))
+}
+
+function clickButton(button: HTMLButtonElement) {
+  act(() => {
+    button.click()
+  })
+}
+
+/** 读取「已选 N / 共 M」的实时值。 */
+function selectionCount(): string | undefined {
+  return container.textContent?.match(
+    /scenarioSelectedCount\([^)]*\)/,
+  )?.[0]
 }
 
 /** 选满 3 名角色（默认角色数量就是 3），主持人默认由用户担任。 */
@@ -258,5 +290,62 @@ describe("ScenarioSetupPanel · 成本确认", () => {
     setRounds("50")
     expect(costCheckbox()).toBeDefined()
     expect(costCheckbox()?.checked).toBe(false)
+  })
+})
+
+/**
+ * 角色数量按钮是写死的 [3,4,5]，与真正提取到几个角色无关；而开始条件要求
+ * 「已选人数 === 所选人数」。于是提取只找到 1~2 个角色时，用户永远凑不满，
+ * 开始按钮灰着且不说原因（「没有候选角色」的提示只在 0 个角色时出现）。
+ */
+describe("ScenarioSetupPanel · 候选角色不足", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn<(setup: ScenarioSetup) => void>()
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it("候选不足 3 人时说明原因，而不是让开始按钮无解释地灰着", () => {
+    render(CANDIDATES.slice(0, 2))
+    addCharacter("c1")
+    addCharacter("c2")
+
+    expect(container.textContent).toContain(
+      "storySimulation.scenarioCandidatesInsufficient(count=2,min=3)",
+    )
+    expect(startButton()?.disabled).toBe(true)
+  })
+
+  it("候选够用时不再显示不足提示", () => {
+    render()
+    expect(container.textContent).not.toContain(
+      "storySimulation.scenarioCandidatesInsufficient",
+    )
+  })
+
+  it("候选只有 3 人时，4 人与 5 人的数量按钮不可选", () => {
+    render(CANDIDATES.slice(0, 3))
+
+    expect(countButton(3)?.disabled).toBe(false)
+    expect(countButton(4)?.disabled).toBe(true)
+    expect(countButton(5)?.disabled).toBe(true)
+  })
+
+  it("候选变少后，已选人数被夹到候选数，而不是卡在凑不满的状态", () => {
+    render()
+    clickButton(countButton(5) as HTMLButtonElement)
+    expect(selectionCount()).toContain("total=5")
+
+    // 模拟「重新分析角色」后候选从 5 人变成 3 人
+    render(CANDIDATES.slice(0, 3))
+
+    expect(selectionCount()).toContain("total=3")
+    expect(countButton(5)?.disabled).toBe(true)
   })
 })
