@@ -39,6 +39,12 @@ import {
   buildScenarioCandidates,
 } from "@/lib/novel/story-simulation/scenario-participant-selector";
 import {
+  getCharacterAuraBindings,
+  listCharacterAuras,
+  type CharacterAura,
+  type CharacterAuraBinding,
+} from "@/lib/novel/character-aura";
+import {
   buildScenarioSession,
   continueScenario,
   runScenario,
@@ -252,6 +258,21 @@ export function StorySimulationView() {
   const setScenarioExtracting = useStorySimulationStore(
     (s) => s.setScenarioExtracting,
   );
+
+  /**
+   * 角色灵魂名单与绑定关系。
+   *
+   * 候选角色来自章节正文提取，提取产物里的 aura 常常是空的；真正「用户绑过
+   * 谁」的真相在 bindings 里。所以要把这两份数据读出来交给
+   * buildScenarioCandidates 做兜底匹配，否则刚绑完灵魂回到设置面板，
+   * 卡片上仍然写着「绑定灵魂」。
+   */
+  const [scenarioAuras, setScenarioAuras] = useState<CharacterAura[]>([]);
+  const [scenarioAuraBindings, setScenarioAuraBindings] = useState<
+    CharacterAuraBinding[]
+  >([]);
+  /** 绑定/解绑成功后 +1，驱动上面的加载 effect 重新读一遍。 */
+  const [scenarioSoulNonce, setScenarioSoulNonce] = useState(0);
 
   // 保存仿真后的 agents 和 state 供采访使用
   const lastAgentsRef = useRef<NovelAgent[]>([]);
@@ -1397,8 +1418,14 @@ export function StorySimulationView() {
 
   /** 候选角色（由提取结果整理）。 */
   const scenarioCandidates = useMemo(
-    () => (extractionResult ? buildScenarioCandidates(extractionResult) : []),
-    [extractionResult],
+    () =>
+      extractionResult
+        ? buildScenarioCandidates(extractionResult, {
+            bindings: scenarioAuraBindings,
+            auras: scenarioAuras,
+          })
+        : [],
+    [extractionResult, scenarioAuraBindings, scenarioAuras],
   );
 
   /**
@@ -1481,6 +1508,37 @@ export function StorySimulationView() {
   }, [phase, projectPath]);
 
   /**
+   * 进入舞台情景设置、或刚绑完灵魂时，读一次灵魂名单与绑定关系。
+   *
+   * 读不到就退回空数组：绑定入口的弹窗自己会重读名单（readScenarioAuras），
+   * 缺了这份兜底数据只会让卡片少显示一个灵魂名，不该把整个面板卡住。
+   */
+  useEffect(() => {
+    if (phase !== "scenario-setup") return;
+    if (!projectPath) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [auras, bindings] = await Promise.all([
+          listCharacterAuras(projectPath),
+          getCharacterAuraBindings(projectPath),
+        ]);
+        if (cancelled) return;
+        setScenarioAuras(auras);
+        setScenarioAuraBindings(bindings);
+      } catch {
+        if (!cancelled) {
+          setScenarioAuras([]);
+          setScenarioAuraBindings([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, projectPath, scenarioSoulNonce]);
+
+  /**
    * 从落地页的「最近」回到一条历史故事框架，继续上次的推演。
    *
    * 这是删掉左侧「故事框架」栏后需要补回的能力（原 SidebarPanel 里的
@@ -1536,8 +1594,10 @@ export function StorySimulationView() {
       round: number;
     }) => {
       scenarioStreamRef.current = "";
+      // 带上 speakerId：房间视图要靠它给流式气泡上头像与专属配色
       setScenarioStreaming({
         kind: info.kind,
+        speakerId: info.speakerId,
         speakerName: info.speakerName,
         content: "",
       });
@@ -2262,6 +2322,8 @@ export function StorySimulationView() {
               sourceChapters={scenarioSourceChapters}
               onSourceChaptersChange={handleScenarioSourceChaptersChange}
               onReExtract={handleScenarioReExtract}
+              projectPath={projectPath}
+              onSoulChanged={() => setScenarioSoulNonce((k) => k + 1)}
               savedScenarios={scenarioSaved}
               onStart={(setup) => void handleScenarioStart(setup)}
               onOpenSaved={handleOpenSavedScenario}

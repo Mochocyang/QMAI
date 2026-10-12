@@ -161,4 +161,26 @@ describe("舞台情景 · 主视图接线", () => {
     expect(passed.length).toBeGreaterThanOrEqual(4)
     expect(src).toContain("referenceInfo={scenarioReferenceInfo}")
   })
+
+  it("把灵魂名单与绑定关系喂给候选构建，并传给设置面板", () => {
+    const src = view()
+    expect(src).toContain("listCharacterAuras")
+    expect(src).toContain("getCharacterAuraBindings")
+    // 兜底匹配必须真的被传进去：只 import 不传参，绑定灵魂后台上还是「未绑定」
+    expect(src).toContain("buildScenarioCandidates(extractionResult, {")
+    expect(src).toContain("bindings: scenarioAuraBindings")
+    expect(src).toContain("auras: scenarioAuras")
+    expect(src).toContain("projectPath={projectPath}")
+    expect(src).toContain("onSoulChanged=")
+  })
+
+  it("绑定成功后重载候选，并把引擎给的 speakerId 存进流式状态", () => {
+    const src = view()
+    expect(src).toContain("scenarioSoulNonce")
+    // 光有 nonce 变量不够：它必须真出现在加载 effect 的依赖数组里，
+    // 否则绑定成功后不会重读名单，卡片上的灵魂名永远不刷新。
+    expect(src).toContain("[phase, projectPath, scenarioSoulNonce]")
+    // 流式气泡要认得出是哪个角色，才能上头像与专属配色
+    expect(src).toContain("speakerId: info.speakerId")
+  })
 })
