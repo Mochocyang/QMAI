@@ -24,8 +24,8 @@ export const CHAPTER_DISCUSS_MIN_DIRECTIONS = 3
 export const CHAPTER_DISCUSS_MAX_DIRECTIONS = 4
 /** 每个方向「后续故事介绍」的字数下限（提示词要求约 300 字）。 */
 export const CHAPTER_DISCUSS_MIN_SUMMARY_CHARS = 180
-/** 补协议修复轮的输出上限：只要一个协议块，不需要长正文。 */
-export const CHAPTER_DISCUSS_REPAIR_MAX_TOKENS = 1_600
+/** 补协议修复轮的输出上限：协议块里要放 3-4 个约 300 字的方向介绍。 */
+export const CHAPTER_DISCUSS_REPAIR_MAX_TOKENS = 4_000
 
 const OPEN_PATTERN = /<!--\s*chapter_discuss\s*-->/i
 const CLOSE_PATTERN = /<!--\s*\/chapter_discuss\s*-->/i
@@ -71,8 +71,6 @@ function chapterDiscussScanError(reason: MarkedJsonInvalidReason): string {
   switch (reason) {
     case "missing_payload":
       return "章节共创协议 JSON 不完整或缺失"
-    case "trailing_content":
-      return "章节共创协议缺少闭合标记且 JSON 后仍有额外内容"
     case "unparseable":
       return "章节共创协议 JSON 无法解析"
     case "not_object":
@@ -217,7 +215,7 @@ export function hasChapterDiscussRepairableContent(text: string): boolean {
   return !OPEN_PATTERN.test(trimmed)
 }
 
-/** 「补协议」修复轮的提示词：只补协议，不许重写或扩写正文。 */
+/** 「补协议」修复轮的提示词：只输出协议块，不复述、不重写正文（修复结果只用于解析）。 */
 export function buildChapterDiscussRepairMessages(input: {
   content: string
   module: string
@@ -230,7 +228,7 @@ export function buildChapterDiscussRepairMessages(input: {
       "硬性要求：",
       "- 不要重写、扩写或继续生成正文；只提炼回复里**已经出现**的判断与方向。",
       "- 如果回复里确实没有可推演的方向，就用 status=insufficient，并在 judgment 里说明原因。",
-      "- 输出顺序：先原样保留这段回复的正文，再在末尾追加协议块。",
+      "- 只输出协议块本身（开标记、JSON、闭标记），不要复述原回复，也不要附加任何说明。",
       "协议格式（严格遵守）：",
       CHAPTER_DISCUSS_MARKER_OPEN,
       `{"status":"needs_choice|insufficient","module":"${input.module || "本章"}","judgment":"关键判断","directions":[{"id":"d1","storyType":"故事类型","title":"方向标题","summary":"约300字的后续故事介绍"}],"preferenceId":"d1","preferenceReason":"推荐理由（可空）"}`,

@@ -109,20 +109,33 @@ describe("parseOutlinePlanProtocol", () => {
     expect(outcome.protocol.status).toBe("needs_input")
   })
 
-  it("rejects an unclosed block that still has trailing content", () => {
+  it("accepts an unclosed block that still has trailing content", () => {
     const outcome = parseOutlinePlanProtocol(
-      `${OUTLINE_PLAN_MARKER_OPEN}\n{"status":"ready"}\n后面还有别的正文`,
+      `${OUTLINE_PLAN_MARKER_OPEN}\n{"status":"needs_input","module":"卷纲"}\n后面还有别的正文`,
     )
+    expect(outcome.kind).toBe("valid")
+    if (outcome.kind !== "valid") return
+    expect(outcome.protocol.module).toBe("卷纲")
+  })
 
-    expect(outcome).toEqual({
-      kind: "invalid",
-      error: "计划协议缺少闭合标记且 JSON 后仍有额外内容",
-    })
+  it("accepts a fenced block without the closing marker", () => {
+    const outcome = parseOutlinePlanProtocol(
+      `判断。\n${OUTLINE_PLAN_MARKER_OPEN}\n\`\`\`json\n{"status":"ready","module":"章节细纲"}\n\`\`\``,
+    )
+    expect(outcome.kind).toBe("valid")
+    if (outcome.kind !== "valid") return
+    expect(outcome.protocol.status).toBe("ready")
+  })
+
+  it("rejects a truncated block", () => {
+    expect(parseOutlinePlanProtocol(
+      `${OUTLINE_PLAN_MARKER_OPEN}\n{"status":"needs_input","questions":[`,
+    )).toEqual({ kind: "invalid", error: "计划协议 JSON 不完整或缺失" })
   })
 
   it("rejects unparsable json", () => {
     const outcome = parseOutlinePlanProtocol(
-      `${OUTLINE_PLAN_MARKER_OPEN}\n{status: ready}\n${OUTLINE_PLAN_MARKER_CLOSE}`,
+      `${OUTLINE_PLAN_MARKER_OPEN}\n{不是 JSON}\n${OUTLINE_PLAN_MARKER_CLOSE}`,
     )
 
     expect(outcome.kind).toBe("invalid")

@@ -82,14 +82,25 @@ describe("parseChapterDiscussProtocol", () => {
     expect(outcome.kind).toBe("valid")
   })
 
-  it("rejects an unclosed block that still has trailing content", () => {
+  it("accepts an unclosed block that still has trailing content", () => {
     const outcome = parseChapterDiscussProtocol(
       `${CHAPTER_DISCUSS_MARKER_OPEN}\n{"status":"needs_choice","module":"第3章","judgment":"判断","directions":[],"preferenceId":"","preferenceReason":""}\n后面还有一段正文`,
     )
-    expect(outcome).toEqual({
-      kind: "invalid",
-      error: "章节共创协议缺少闭合标记且 JSON 后仍有额外内容",
-    })
+    expect(outcome.kind).toBe("valid")
+  })
+
+  it("accepts a fenced block without the closing marker", () => {
+    const outcome = parseChapterDiscussProtocol(
+      `判断。\n${CHAPTER_DISCUSS_MARKER_OPEN}\n\`\`\`json\n{"status":"insufficient","module":"第3章","judgment":"缺前文"}\n\`\`\``,
+    )
+    expect(outcome.kind).toBe("valid")
+    if (outcome.kind !== "valid") return
+    expect(outcome.protocol.status).toBe("insufficient")
+  })
+
+  it("rejects a truncated block", () => {
+    expect(parseChapterDiscussProtocol(`${CHAPTER_DISCUSS_MARKER_OPEN}\n{"status":"needs_choice","directions":[`))
+      .toEqual({ kind: "invalid", error: "章节共创协议 JSON 不完整或缺失" })
   })
 
   it("rejects unparseable JSON", () => {
@@ -307,5 +318,7 @@ describe("repair helpers", () => {
     expect(messages).toHaveLength(1)
     expect(messages[0].content).toContain(CHAPTER_DISCUSS_MARKER_OPEN)
     expect(messages[0].content).toContain(CHAPTER_DISCUSS_MARKER_CLOSE)
+    expect(messages[0].content).toContain("不要复述原回复")
+    expect(messages[0].content).not.toContain("原样保留")
   })
 })

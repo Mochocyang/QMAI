@@ -1,3 +1,8 @@
+import {
+  isPlainObject,
+  scanMarkedJsonPayload,
+  type MarkedJsonInvalidReason,
+} from "./discuss-protocol-shared"
 import { DEFAULT_OUTLINE_FOLDERS } from "./outline-workbench"
 import type { OutlinePlanElementSpec } from "./outline-plan-elements"
 
@@ -93,46 +98,10 @@ const OPEN_PATTERN = /<!--\s*outline_plan\s*-->/i
 const CLOSE_PATTERN = /<!--\s*\/outline_plan\s*-->/i
 const ELEMENT_SOURCES: OutlinePlanElementSource[] = ["user", "project", "inferred"]
 
-function extractLeadingJsonObject(text: string): { json: string; remainder: string } | null {
-  const start = text.indexOf("{")
-  if (start < 0) return null
-  let depth = 0
-  let inString = false
-  let escaped = false
-  for (let index = start; index < text.length; index += 1) {
-    const character = text[index]
-    if (inString) {
-      if (escaped) {
-        escaped = false
-      } else if (character === "\\") {
-        escaped = true
-      } else if (character === '"') {
-        inString = false
-      }
-      continue
-    }
-    if (character === '"') {
-      inString = true
-    } else if (character === "{") {
-      depth += 1
-    } else if (character === "}") {
-      depth -= 1
-      if (depth === 0) {
-        return { json: text.slice(start, index + 1), remainder: text.slice(index + 1) }
-      }
-    }
-  }
-  return null
-}
-
 function toStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.map((item) => String(item ?? "").trim()).filter(Boolean)
     : []
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
 
 function normalizeOptions(raw: unknown): OutlinePlanOption[] {
@@ -227,39 +196,29 @@ function normalizePlan(raw: unknown): OutlinePlanBlueprint | undefined {
   }
 }
 
+function planScanError(reason: MarkedJsonInvalidReason): string {
+  switch (reason) {
+    case "missing_payload":
+      return "计划协议 JSON 不完整或缺失"
+    case "unparseable":
+      return "计划协议 JSON 无法解析"
+    case "not_object":
+      return "计划协议必须是 JSON 对象"
+  }
+}
+
 /**
  * 解析 outline_plan 协议块。
  *
- * 与 intent_clarity 对称：支持未闭合标记兜底（流式截断），
- * 并在解析阶段就把每个追问补上自定义输入项。
+ * 文本提取走 discuss-protocol-shared：漏闭合标记、代码围栏、JSON 后的说明文字都收下。
+ * 解析阶段给每个追问补上自定义输入项。
  */
 export function parseOutlinePlanProtocol(text: string): OutlinePlanParseOutcome {
-  const openMatch = OPEN_PATTERN.exec(text)
-  if (!openMatch) return { kind: "none" }
+  const scan = scanMarkedJsonPayload(text, OPEN_PATTERN, CLOSE_PATTERN)
+  if (scan.kind === "none") return { kind: "none" }
+  if (scan.kind === "invalid") return { kind: "invalid", error: planScanError(scan.reason) }
 
-  const afterOpen = text.slice(openMatch.index + openMatch[0].length)
-  const closeMatch = CLOSE_PATTERN.exec(afterOpen)
-  const unclosedPayload = closeMatch ? null : extractLeadingJsonObject(afterOpen)
-  const payloadText = closeMatch
-    ? afterOpen.slice(0, closeMatch.index).trim()
-    : unclosedPayload?.json
-  if (!payloadText) {
-    return { kind: "invalid", error: "计划协议 JSON 不完整或缺失" }
-  }
-  if (!closeMatch && unclosedPayload?.remainder.trim()) {
-    return { kind: "invalid", error: "计划协议缺少闭合标记且 JSON 后仍有额外内容" }
-  }
-
-  let payload: unknown
-  try {
-    payload = JSON.parse(payloadText)
-  } catch {
-    return { kind: "invalid", error: "计划协议 JSON 无法解析" }
-  }
-  if (!isPlainObject(payload)) {
-    return { kind: "invalid", error: "计划协议必须是 JSON 对象" }
-  }
-
+  const payload = scan.payload
   const status = String(payload.status ?? "").trim()
   if (status !== "needs_input" && status !== "ready") {
     return { kind: "invalid", error: "计划协议缺少有效的 status 字段" }

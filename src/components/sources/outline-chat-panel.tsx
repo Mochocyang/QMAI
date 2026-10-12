@@ -855,9 +855,12 @@ export function buildOutlineAgentSystemPrompt(options: {
  *
  * 命中则按生成轮处理（正文照常显示、结构化数据进保存链路），
  * 只有真的只是讨论而没有交付内容时，才继续要求 outline_discuss 协议。
+ * 回复里出现了 outline_discuss 标记就一定是讨论轮：正文以「# 卷纲」开头这类
+ * 启发式命中也不能把协议块绕过去。
  */
 function isDiscussDeliveredOutline(content: string): boolean {
   if (!content.trim()) return false;
+  if (parseOutlineDiscussProtocol(content).kind !== "none") return false;
   if (parseOutlineSaveRequests(content).requests.length > 0) return true;
   if (extractVolumeOutlineData(content)) return true;
   return isSaveableOutlineDeliverable(content);

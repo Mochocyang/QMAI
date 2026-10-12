@@ -75,8 +75,6 @@ function outlineDiscussScanError(reason: MarkedJsonInvalidReason): string {
   switch (reason) {
     case "missing_payload":
       return "共创协议 JSON 不完整或缺失"
-    case "trailing_content":
-      return "共创协议缺少闭合标记且 JSON 后仍有额外内容"
     case "unparseable":
       return "共创协议 JSON 无法解析"
     case "not_object":
@@ -265,9 +263,8 @@ export function hasOutlineDiscussRepairableContent(text: string): boolean {
 /**
  * 「补协议」修复轮的提示词。
  *
- * 关键约束：**只让模型补协议，不许它重写或补充正文**。否则很容易变成
- * 又生成一遍大纲 —— 那正是本轮出问题的原因。文末必须重新输出完整可见回复，
- * 保证用户看到的内容不会因为修复而变少。
+ * 关键约束：**只让模型输出协议块，不许复述、重写或补充正文**。修复结果只用于解析，
+ * 气泡里仍显示原回复；要求复述正文会先耗尽 token 上限，协议块根本写不出来。
  */
 export function buildOutlineDiscussRepairMessages(input: {
   content: string
@@ -281,7 +278,7 @@ export function buildOutlineDiscussRepairMessages(input: {
       "硬性要求：",
       "- 不要重写、扩写或继续生成大纲正文；只提炼回复里**已经出现**的判断与分歧。",
       "- 如果回复里确实没有可拍板的分歧，就用 status=ready，并在 judgment 里说明为什么可以开写。",
-      "- 输出顺序：先原样保留这段回复的正文，再在末尾追加协议块。",
+      "- 只输出协议块本身（开标记、JSON、闭标记），不要复述原回复，也不要附加任何说明。",
       "协议格式（严格遵守）：",
       OUTLINE_DISCUSS_MARKER_OPEN,
       '{"status":"needs_decision|ready","module":"模块名","judgment":"关键判断","nextStep":"下一步建议","decisions":[{"id":"d1","question":"分歧点","options":[{"id":"A","label":"方案","description":"说明"}],"preferenceId":"A","preferenceReason":"倾向理由"}],"agreed":[{"id":"a1","question":"已拍板问题","value":"已确认方案"}]}',
