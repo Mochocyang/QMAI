@@ -82,7 +82,7 @@ function stageBadgeOf(name: string): HTMLElement | null {
   return cardOf(name).querySelector<HTMLElement>('[id^="scenario-stage-"]')
 }
 
-/** 取卡片里的灵魂入口按钮（未绑灵魂时是「为「X」绑定灵魂」，已绑时是「灵魂：X」）。 */
+/** 取卡片里的灵魂入口按钮（未绑灵魂时是「绑定灵魂」，已绑时是「灵魂：X」）。 */
 function soulButtonOf(name: string): HTMLButtonElement {
   const btn = Array.from(cardOf(name).querySelectorAll<HTMLButtonElement>("button")).find((b) =>
     b.textContent?.includes("灵魂"),
@@ -263,8 +263,10 @@ describe("ScenarioCharacterGrid", () => {
     // 设为主持人：图标按钮没有可见文本，可访问名与 title 都靠 aria-label。
     const mod = host.querySelector('button[aria-label="把「沈砚」设为主持人"]')
     expect(mod?.getAttribute("title")).toBe("把「沈砚」设为主持人")
-    // 灵魂入口：可访问名来自可见文本，未绑灵魂那张卡也得带角色名。
-    expect(soulButtonOf("林清越").textContent).toBe("为「林清越」绑定灵魂")
+    // 灵魂入口：可见文案是短的「绑定灵魂」（卡上已有角色名，不重复），
+    // 角色名落在可访问名与 title 上，屏幕阅读器才分得清是给谁绑。
+    expect(soulButtonOf("林清越").textContent).toBe("绑定灵魂")
+    expect(soulButtonOf("林清越").getAttribute("aria-label")).toBe("为「林清越」绑定灵魂")
     // 已绑灵魂那张卡显示的是灵魂名，角色名落在 title 上。
     expect(soulButtonOf("苏九").getAttribute("title")).toBe("更换或解绑「苏九」的灵魂")
   })

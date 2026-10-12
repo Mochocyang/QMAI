@@ -96,6 +96,12 @@ export function ScenarioCharacterGrid({
             const describedBy = onStage
               ? `scenario-stage-${index}${isMod ? ` scenario-moderator-${index}` : ""}`
               : undefined
+            // 灵魂入口的可见文案保持短（卡上本来就写着角色名，重复一遍很吵）；
+            // 名字放进可访问名与 title，屏幕阅读器才分得清是给谁绑。
+            // 可访问名包含可见文案，满足 WCAG 2.5.3。
+            const soulLabel = c.auraName
+              ? t("storySimulation.scenarioChangeSoul", { name: c.name })
+              : t("storySimulation.scenarioBindSoulLabel", { name: c.name })
             return (
               <div
                 key={c.id}
@@ -164,11 +170,8 @@ export function ScenarioCharacterGrid({
                   <button
                     type="button"
                     onClick={() => onBindSoul(c)}
-                    title={
-                      c.auraName
-                        ? t("storySimulation.scenarioChangeSoul", { name: c.name })
-                        : t("storySimulation.scenarioBindSoul", { name: c.name })
-                    }
+                    aria-label={soulLabel}
+                    title={soulLabel}
                     className={cn(
                       "rounded-full px-2 py-0.5",
                       c.auraName
@@ -178,7 +181,7 @@ export function ScenarioCharacterGrid({
                   >
                     {c.auraName
                       ? `${t("storySimulation.scenarioSoul")}：${c.auraName}`
-                      : t("storySimulation.scenarioBindSoul", { name: c.name })}
+                      : t("storySimulation.scenarioBindSoul")}
                   </button>
                   {c.personality.slice(0, 3).map((p, index) => (
                     <span
