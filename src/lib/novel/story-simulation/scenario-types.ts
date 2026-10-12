@@ -211,16 +211,6 @@ export function clampScenarioRounds(rounds: number): number {
   return Math.max(SCENARIO_ROUND_MIN, Math.min(SCENARIO_ROUND_MAX, int))
 }
 
-/** 归一化角色数量（不含主持人）到合法区间。 */
-export function clampCharacterCount(count: number): number {
-  if (!Number.isFinite(count)) return SCENARIO_CHARACTER_DEFAULT
-  const int = Math.round(count)
-  return Math.max(
-    SCENARIO_CHARACTER_MIN,
-    Math.min(SCENARIO_CHARACTER_MAX, int),
-  )
-}
-
 /** 拆分主持人（如有）与普通角色。 */
 export function splitParticipants(participants: ScenarioParticipant[]): {
   moderator: ScenarioParticipant | null
