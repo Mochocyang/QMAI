@@ -23,13 +23,37 @@ describe("舞台情景 · 流式状态带 speakerId", () => {
 })
 
 describe("舞台情景 · 设置面板接线", () => {
-  it("提供角色数量、下拉选择与灵魂展示", () => {
+  it("提供角色数量（含自定义）与候选网格，不再是下拉框选人", () => {
     const src = setupPanel()
     expect(src).toContain("storySimulation.scenarioCharacterCount")
-    expect(src).toContain("<select")
-    expect(src).toContain("storySimulation.scenarioAddPlaceholder")
-    expect(src).toContain("storySimulation.scenarioSoul")
-    expect(src).toContain("storySimulation.scenarioNoSoul")
+    expect(src).toContain("SCENARIO_CHARACTER_PRESETS")
+    expect(src).toContain("clampScenarioCharacterCount")
+    expect(src).toContain("<ScenarioCharacterGrid")
+    // 角色下拉已被网格取代；<select> 只剩「提取章节数」这一个，不再是选人用的
+    expect(src).not.toContain("storySimulation.scenarioAddPlaceholder")
+    expect(src).not.toContain("storySimulation.scenarioNoSoul")
+  })
+
+  it("把绑定灵魂的入口接进设置面板", () => {
+    const src = setupPanel()
+    expect(src).toContain("<ScenarioSoulBindDialog")
+    expect(src).toContain("onSoulChanged")
+    // 灵魂入口挂在候选卡片上，由网格上报
+    expect(src).toContain("onBindSoul")
+  })
+
+  it("情景设定加宽到 max-w-5xl，并给四个输入框补上标签", () => {
+    const src = setupPanel()
+    // 容器放宽（提取中那个分支的 max-w-2xl 不动）
+    expect(src).toContain("max-w-5xl")
+    // 地点 / 时间 一行两个，窄屏退回一列，不再挤在写死的两列里
+    expect(src).toContain("grid grid-cols-1 gap-3 sm:grid-cols-2")
+    expect(src).toContain("storySimulation.scenarioSceneLabel")
+    expect(src).toContain("storySimulation.scenarioLocationLabel")
+    expect(src).toContain("storySimulation.scenarioTimeLabel")
+    expect(src).toContain("storySimulation.scenarioReferenceLabel")
+    // 情景标题从「生成轮数」那一节归位到情景设定
+    expect(src).toContain("storySimulation.scenarioTitleLabel")
   })
 
   it("提供提取章节数与重新分析角色", () => {

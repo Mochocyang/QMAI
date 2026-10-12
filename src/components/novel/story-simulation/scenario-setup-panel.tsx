@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Info, Plus, Sparkles, X } from "lucide-react"
+import { Info, Plus, Sparkles } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,6 +10,7 @@ import {
   SCENARIO_CHARACTER_DEFAULT,
   SCENARIO_CHARACTER_MAX,
   SCENARIO_CHARACTER_MIN,
+  SCENARIO_CHARACTER_PRESETS,
   SCENARIO_COST_WARN_THRESHOLD,
   SCENARIO_FORMAT_INFO,
   SCENARIO_MODERATOR_INTERVAL_DEFAULT,
@@ -21,6 +22,7 @@ import {
   SCENARIO_ROUND_MIN,
   SCENARIO_ROUND_PRESETS,
   SCENARIO_SOURCE_CHAPTER_PRESETS,
+  clampScenarioCharacterCount,
   clampScenarioRounds,
   estimateScenarioMessages,
   hasRoleModerator,
@@ -32,6 +34,8 @@ import {
 } from "@/lib/novel/story-simulation/scenario-types"
 import { assembleParticipants, candidateToParticipant } from "@/lib/novel/story-simulation/scenario-participant-selector"
 import { createScenarioSetup } from "@/lib/novel/story-simulation/scenario-engine"
+import { ScenarioCharacterGrid } from "./scenario-character-grid"
+import { ScenarioSoulBindDialog } from "./scenario-soul-bind-dialog"
 
 const FORMATS: ScenarioFormat[] = ["debate", "dialogue", "free"]
 
@@ -45,6 +49,10 @@ export interface ScenarioSetupPanelProps {
   onSourceChaptersChange: (count: number) => void
   /** 重新分析角色（按当前章节数重新提取） */
   onReExtract: () => void
+  /** 项目路径；绑定灵魂要写盘，缺它时绑定入口不可用。 */
+  projectPath?: string | null
+  /** 绑定/解绑灵魂成功后：由视图重载 bindings + auras 并刷新候选。 */
+  onSoulChanged?: () => void
   /** 已保存的历史情景会话 */
   savedScenarios?: ScenarioSession[]
   onStart: (setup: ScenarioSetup) => void
@@ -55,7 +63,7 @@ export interface ScenarioSetupPanelProps {
 
 /**
  * 「舞台情景」设置面板（第 1、2 步）
- * 1) 角色选择与配置：数量 3/4/5、下拉框选择角色、读取并复用灵魂
+ * 1) 角色选择与配置：数量 3/4/5 或自定义、候选卡片网格选人、绑定灵魂
  * 2) 情景设置：主持人、情景规则、参考点、对话形式、轮数
  */
 export function ScenarioSetupPanel({
@@ -66,6 +74,8 @@ export function ScenarioSetupPanel({
   onSourceChaptersChange,
   onReExtract,
   savedScenarios = [],
+  projectPath = null,
+  onSoulChanged,
   onStart,
   onOpenSaved,
   onDeleteSaved,
@@ -91,6 +101,19 @@ export function ScenarioSetupPanel({
     SCENARIO_MODERATOR_INTERVAL_DEFAULT,
   )
   const [costAck, setCostAck] = useState(false)
+  /** 已选满时点候选卡给的临时提示（不静默失败）。 */
+  const [hint, setHint] = useState<string | null>(null)
+  /** 正在绑定灵魂的角色；null 表示弹窗关闭。 */
+  const [soulTarget, setSoulTarget] = useState<ScenarioCandidate | null>(null)
+  /**
+   * 自定义人数超界时的提示。
+   *
+   * 为什么要单独存一份，而不是渲染时比较「characterCount 是否等于夹取后的值」：
+   * 失焦夹取只发生在一瞬间，随后下面那个「不超过候选人数」的 effect 会立刻把它
+   * 再改小（例如填 99、候选只有 7 人，最终落成 7），比较式就再也看不出来了，
+   * 用户会以为填的数字被吃掉了却没有任何解释。
+   */
+  const [countClampNotice, setCountClampNotice] = useState<string | null>(null)
 
   const candidateMap = useMemo(
     () => new Map(candidates.map((c) => [c.id, c])),
@@ -104,12 +127,6 @@ export function ScenarioSetupPanel({
         .filter((c): c is ScenarioCandidate => Boolean(c)),
     [selectedIds, candidateMap],
   )
-
-  const availableCandidates = candidates.filter(
-    (c) => !selectedIds.includes(c.id),
-  )
-
-  const reachedLimit = selectedIds.length >= characterCount
 
   /**
    * 候选角色是否少到根本凑不齐一场舞台情景。
@@ -129,20 +146,49 @@ export function ScenarioSetupPanel({
    */
   useEffect(() => {
     if (candidates.length < SCENARIO_CHARACTER_MIN) return
+    // 超出配置上限的输入留给失焦时统一夹取（并给出 setCountClampNotice 提示），
+    // 这里只处理「比现有候选人数还多」这一种情况
+    if (characterCount > SCENARIO_CHARACTER_MAX) return
     if (characterCount <= candidates.length) return
     setCharacterCount(candidates.length)
   }, [candidates.length, characterCount])
 
-  const addCharacter = (id: string) => {
-    if (!id) return
-    if (selectedIds.includes(id)) return
-    if (selectedIds.length >= characterCount) return
-    setSelectedIds([...selectedIds, id])
-  }
+  /**
+   * 候选变少或换人后，把已经不存在的 id 从 selectedIds 里裁掉。
+   *
+   * selectedIds 只增不减：不裁的话「已选 N / 共 M」会出现 N > M（如「已选 5 / 共 3」），
+   * reachedLimit 恒真；换成网格后表现为「明明看着有空位却点不进去」。
+   * 更糟的是：把可见卡片全部移除后，selectedIds 可能全是已消失的人，此时
+   * canStart 里「两边长度相等」反而成立 —— 会带着不存在的角色开演。
+   * 主持人若正好是其中一员，一并退回「由你主持」。
+   */
+  useEffect(() => {
+    const alive = new Set(candidates.map((c) => c.id))
+    if (selectedIds.every((id) => alive.has(id))) return
+    setSelectedIds(selectedIds.filter((id) => alive.has(id)))
+    if (moderatorId !== SCENARIO_MODERATOR_USER_ID && !alive.has(moderatorId)) {
+      setModeratorId(SCENARIO_MODERATOR_USER_ID)
+    }
+  }, [candidates, selectedIds, moderatorId])
 
-  const removeCharacter = (id: string) => {
-    setSelectedIds(selectedIds.filter((x) => x !== id))
-    if (moderatorId === id) setModeratorId(SCENARIO_MODERATOR_USER_ID)
+  /**
+   * 点一张候选卡：已上台就下台，未上台就上台；选满时给提示而不是静默忽略。
+   *
+   * 满员判断放在这里（而不是网格里）是为了只有一处真相：网格是哑组件，
+   * 它只管把点击报上来。
+   */
+  const toggleCharacter = (id: string) => {
+    setHint(null)
+    if (selectedIds.includes(id)) {
+      setSelectedIds(selectedIds.filter((x) => x !== id))
+      if (moderatorId === id) setModeratorId(SCENARIO_MODERATOR_USER_ID)
+      return
+    }
+    if (selectedIds.length >= characterCount) {
+      setHint(t("storySimulation.scenarioFull", { n: characterCount }))
+      return
+    }
+    setSelectedIds([...selectedIds, id])
   }
 
   const characterSpeakers = selectedIds.filter((id) => id !== moderatorId)
@@ -247,15 +293,42 @@ export function ScenarioSetupPanel({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-6">
-      {/* 1. 角色数量 */}
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-6">
+      {/* 1. 上台角色：提取范围、人数、候选网格 */}
       <section className="flex flex-col gap-3">
-        <h3 className="flex items-center gap-1.5 text-sm font-medium">
-          {t("storySimulation.scenarioCharacterCount")}
-          <Info className="h-3.5 w-3.5 text-muted-foreground" />
-        </h3>
-        <div className="flex items-center gap-2">
-          {[3, 4, 5].map((n) => (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="flex items-center gap-1.5 text-sm font-medium">
+            {t("storySimulation.scenarioOnStage")}
+            <Info className="h-3.5 w-3.5 text-muted-foreground" />
+          </h3>
+          <div className="flex items-center gap-2">
+            <select
+              value={sourceChapters}
+              disabled={extracting}
+              aria-label={t("storySimulation.scenarioSourceChapters")}
+              onChange={(e) => onSourceChaptersChange(Number(e.target.value))}
+              className="h-8 w-40 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+            >
+              {SCENARIO_SOURCE_CHAPTER_PRESETS.map((n) => (
+                <option key={n} value={n}>
+                  {t("storySimulation.scenarioSourceChapters")} {n}{" "}
+                  {t("storySimulation.scenarioSourceChaptersUnit")}
+                </option>
+              ))}
+            </select>
+            <Button variant="outline" size="sm" onClick={onReExtract} disabled={extracting}>
+              {extracting
+                ? t("storySimulation.scenarioReExtracting")
+                : t("storySimulation.scenarioReExtract")}
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">
+            {t("storySimulation.scenarioCharacterCount")}
+          </span>
+          {SCENARIO_CHARACTER_PRESETS.map((n) => (
             <Button
               key={n}
               variant={characterCount === n ? "default" : "outline"}
@@ -266,13 +339,56 @@ export function ScenarioSetupPanel({
               {n} {t("storySimulation.scenarioCharacterCountUnit")}
             </Button>
           ))}
+          <span className="text-sm text-muted-foreground">
+            {t("storySimulation.scenarioCharacterCountCustom")}
+          </span>
+          <Input
+            type="number"
+            className="w-24"
+            min={SCENARIO_CHARACTER_MIN}
+            max={SCENARIO_CHARACTER_MAX}
+            value={characterCount}
+            aria-label={t("storySimulation.scenarioCharacterCount")}
+            onChange={(e) => {
+              const val = parseInt(e.target.value, 10)
+              if (!isNaN(val)) {
+                setCharacterCount(val)
+                setCountClampNotice(null)
+              }
+            }}
+            onBlur={() => {
+              const clamped = clampScenarioCharacterCount(characterCount)
+              if (clamped === characterCount) return
+              setCharacterCount(clamped)
+              setCountClampNotice(
+                t("storySimulation.scenarioCharacterCountClamped", {
+                  min: SCENARIO_CHARACTER_MIN,
+                  max: SCENARIO_CHARACTER_MAX,
+                }),
+              )
+            }}
+          />
           <span className="text-xs text-muted-foreground">
-            {t("storySimulation.scenarioCharacterCountHint", {
-              min: SCENARIO_CHARACTER_MIN,
-              max: SCENARIO_CHARACTER_MAX,
+            {t("storySimulation.scenarioSelectedCount", {
+              n: selectedIds.length,
+              total: characterCount,
             })}
           </span>
         </div>
+
+        {countClampNotice && (
+          <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+            {countClampNotice}
+          </p>
+        )}
+
+        <p className="text-xs text-muted-foreground">
+          {t("storySimulation.scenarioCharacterCountHint", {
+            min: SCENARIO_CHARACTER_MIN,
+            max: SCENARIO_CHARACTER_MAX,
+          })}
+        </p>
+
         {insufficientCandidates && (
           <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
             {t("storySimulation.scenarioCandidatesInsufficient", {
@@ -281,140 +397,31 @@ export function ScenarioSetupPanel({
             })}
           </p>
         )}
-      </section>
 
-      {/* 2. 提取章节数 */}
-      <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-medium">
-          {t("storySimulation.scenarioSourceChapters")}
-        </h3>
-        <div className="flex items-center gap-2">
-          <select
-            value={sourceChapters}
-            disabled={extracting}
-            onChange={(e) => onSourceChaptersChange(Number(e.target.value))}
-            className="h-8 w-40 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
-          >
-            {SCENARIO_SOURCE_CHAPTER_PRESETS.map((n) => (
-              <option key={n} value={n}>
-                {t("storySimulation.recentChapters")} {n}{" "}
-                {t("storySimulation.scenarioSourceChaptersUnit")}
-              </option>
-            ))}
-          </select>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onReExtract}
-            disabled={extracting}
-          >
-            {extracting
-              ? t("storySimulation.scenarioReExtracting")
-              : t("storySimulation.scenarioReExtract")}
-          </Button>
-        </div>
-      </section>
+        {hint && (
+          <p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
+            {hint}
+          </p>
+        )}
 
-      {/* 3. 角色选择 */}
-      <section className="flex flex-col gap-3">
-        <h3 className="text-sm font-medium">
-          {t("storySimulation.scenarioSelectCharacters")}
-        </h3>
         {candidates.length === 0 ? (
           <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
             {t("storySimulation.scenarioNoCandidates")}
           </p>
         ) : (
           <>
-            <div className="flex items-center gap-2">
-              <select
-                value=""
-                disabled={reachedLimit}
-                onChange={(e) => addCharacter(e.target.value)}
-                className="h-8 flex-1 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
-              >
-                <option value="">
-                  {reachedLimit
-                    ? t("storySimulation.scenarioFull", { n: characterCount })
-                    : t("storySimulation.scenarioAddPlaceholder")}
-                </option>
-                {availableCandidates.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                    {c.auraName
-                      ? `（${t("storySimulation.scenarioSoul")}：${c.auraName}）`
-                      : ""}
-                  </option>
-                ))}
-              </select>
-              <span className="text-xs text-muted-foreground">
-                {t("storySimulation.scenarioSelectedCount", {
-                  n: selectedIds.length,
-                  total: characterCount,
-                })}
-              </span>
-            </div>
-
-            {/* 已选角色（含灵魂展示） */}
-            <div className="flex flex-col gap-2">
-              {selectedCandidates.map((c) => {
-                const isMod = moderatorId === c.id
-                return (
-                  <div
-                    key={c.id}
-                    className="flex items-start justify-between gap-3 rounded-lg border p-3"
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{c.name}</span>
-                        {isMod && (
-                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[0.625rem] font-medium text-primary">
-                            {t("storySimulation.scenarioModerator")}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-1.5 text-xs">
-                        <span
-                          className={cn(
-                            "rounded-full px-2 py-0.5",
-                            c.auraName
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-muted text-muted-foreground",
-                          )}
-                        >
-                          {c.auraName
-                            ? `${t("storySimulation.scenarioSoul")}：${c.auraName}`
-                            : t("storySimulation.scenarioNoSoul")}
-                        </span>
-                        {c.personality.slice(0, 3).map((p) => (
-                          <span
-                            key={p}
-                            className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground"
-                          >
-                            {p}
-                          </span>
-                        ))}
-                      </div>
-                      {c.speakingStyle && (
-                        <p className="mt-1 truncate text-xs text-muted-foreground">
-                          {t("storySimulation.scenarioSpeakingStyle")}：{c.speakingStyle}
-                        </p>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                      onClick={() => removeCharacter(c.id)}
-                      aria-label={t("storySimulation.scenarioRemove", {
-                        name: c.name,
-                      })}
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
+            <ScenarioCharacterGrid
+              candidates={candidates}
+              selectedIds={selectedIds}
+              characterCount={characterCount}
+              moderatorId={moderatorId}
+              onToggle={toggleCharacter}
+              onSetModerator={setModeratorId}
+              onBindSoul={setSoulTarget}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("storySimulation.scenarioSoulHint")}
+            </p>
           </>
         )}
       </section>
@@ -474,7 +481,7 @@ export function ScenarioSetupPanel({
         </p>
       </section>
 
-      {/* 4. 情景规则 */}
+      {/* 2. 情景设定 */}
       <section className="flex flex-col gap-3">
         <h3 className="text-sm font-medium">
           {t("storySimulation.scenarioRules")}
@@ -483,35 +490,76 @@ export function ScenarioSetupPanel({
           value={directive}
           onChange={(e) => setDirective(e.target.value)}
           rows={3}
+          aria-label={t("storySimulation.scenarioRules")}
           placeholder={t("storySimulation.scenarioRulesPlaceholder")}
         />
-        <div className="grid grid-cols-2 gap-3">
-          <Input
+
+        <div className="flex flex-col gap-2">
+          <label className="text-xs text-muted-foreground" htmlFor="scenario-scene">
+            {t("storySimulation.scenarioSceneLabel")}
+          </label>
+          <Textarea
+            id="scenario-scene"
             value={scene}
             onChange={(e) => setScene(e.target.value)}
+            rows={2}
             placeholder={t("storySimulation.scenarioScenePlaceholder")}
           />
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-2">
+            <label className="text-xs text-muted-foreground" htmlFor="scenario-location">
+              {t("storySimulation.scenarioLocationLabel")}
+            </label>
+            <Input
+              id="scenario-location"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder={t("storySimulation.scenarioLocationPlaceholder")}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label className="text-xs text-muted-foreground" htmlFor="scenario-time">
+              {t("storySimulation.scenarioTimeLabel")}
+            </label>
+            <Input
+              id="scenario-time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              placeholder={t("storySimulation.scenarioTimePlaceholder")}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="text-xs text-muted-foreground" htmlFor="scenario-reference">
+            {t("storySimulation.scenarioReferenceLabel")}
+          </label>
           <Input
+            id="scenario-reference"
             value={reference}
             onChange={(e) => setReference(e.target.value)}
             placeholder={t("storySimulation.scenarioReferencePlaceholder")}
           />
+          {/* 参考点不是一句空话：写着「必须以此为依据」，就得让人知道依据从哪来。
+              同时先把「检索不到也照常开演」说在前面，免得事后以为是 bug */}
+          <p className="text-xs text-muted-foreground">
+            {t("storySimulation.scenarioReferenceHint")}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="text-xs text-muted-foreground" htmlFor="scenario-title">
+            {t("storySimulation.scenarioTitleLabel")}
+          </label>
           <Input
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            placeholder={t("storySimulation.scenarioLocationPlaceholder")}
-          />
-          <Input
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-            placeholder={t("storySimulation.scenarioTimePlaceholder")}
+            id="scenario-title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={t("storySimulation.scenarioTitlePlaceholder")}
           />
         </div>
-        {/* 参考点不是一句空话：写着「必须以此为依据」，就得让人知道依据从哪来。
-            同时先把「检索不到也照常开演」说在前面，免得事后以为是 bug */}
-        <p className="text-xs text-muted-foreground">
-          {t("storySimulation.scenarioReferenceHint")}
-        </p>
       </section>
 
       {/* 5. 对话形式 */}
@@ -572,6 +620,7 @@ export function ScenarioSetupPanel({
             value={rounds}
             min={SCENARIO_ROUND_MIN}
             max={SCENARIO_ROUND_MAX}
+            aria-label={t("storySimulation.scenarioRounds")}
             onChange={(e) => {
               const val = parseInt(e.target.value, 10)
               if (!isNaN(val) && val > 0) setRounds(val)
@@ -590,11 +639,6 @@ export function ScenarioSetupPanel({
             count: effectiveRounds * Math.max(1, characterSpeakers.length),
           })}
         </p>
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder={t("storySimulation.scenarioTitlePlaceholder")}
-        />
       </section>
 
       {/* 7. 历史情景 */}
@@ -687,6 +731,19 @@ export function ScenarioSetupPanel({
             {t("storySimulation.scenarioCostAck")}
           </label>
         </section>
+      )}
+
+      {/* 绑定灵魂：写盘、补小传都收在这个弹窗里 */}
+      {projectPath && (
+        <ScenarioSoulBindDialog
+          open={soulTarget !== null}
+          projectPath={projectPath}
+          candidate={soulTarget}
+          onOpenChange={(open) => {
+            if (!open) setSoulTarget(null)
+          }}
+          onBound={() => onSoulChanged?.()}
+        />
       )}
 
       {/* 9. 开始 */}

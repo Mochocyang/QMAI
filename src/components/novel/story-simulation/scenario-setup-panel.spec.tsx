@@ -65,6 +65,7 @@ const CANDIDATES = [
 let container: HTMLDivElement
 let root: Root
 let onStart: Mock<(setup: ScenarioSetup) => void>
+let onSoulChanged: Mock<() => void>
 
 function render(
   candidates: ScenarioCandidate[] = CANDIDATES,
@@ -79,6 +80,8 @@ function render(
         sourceChapters={10}
         onSourceChaptersChange={() => {}}
         onReExtract={() => {}}
+        projectPath="/proj"
+        onSoulChanged={onSoulChanged}
         savedScenarios={savedScenarios}
         onStart={onStart}
         onOpenSaved={() => {}}
@@ -131,35 +134,36 @@ function setNativeValue(el: HTMLElement, value: string) {
 }
 
 /**
- * 页面上有多个 `<select>`（提取章节数、角色、主持人、串场间隔），按顺序取第一个
- * 会拿到提取章节数那个 —— 往它上面设 `c1` 会被 jsdom 静默重置成 ""，测试看起来
- * 「点了但没反应」。也不能靠「含 c1 选项」来认：选完 c1 之后角色框就不含 c1 了，
- * 而主持人框反而含 c1。
+ * 点候选角色卡：未上台则上台，已上台则下台。
  *
- * 稳定的判据是**受控值**：角色选择框恒为 `value=""`（每次选完由 addCharacter
- * 清空），其余下拉框都绑着真实值（章节数 10、主持人 `__user__`、间隔 5）。
+ * 用 aria-label 定位而不是按顺序取第 N 个按钮 —— 网格里还有「设为主持人」
+ * 与「绑定灵魂」两类按钮，按顺序取会在候选人一变多时就错位。
  */
-function characterSelect(): HTMLSelectElement {
-  const found = Array.from(container.querySelectorAll("select")).find(
-    (s) => (s as HTMLSelectElement).value === "",
+function selectCard(name: string) {
+  const button = container.querySelector<HTMLButtonElement>(
+    `button[aria-label="storySimulation.scenarioToggleCharacter(name=${name})"]`,
   )
-  if (!found) throw new Error("找不到角色选择下拉框")
-  return found as HTMLSelectElement
-}
-
-/** 通过下拉框添加一名上台角色。 */
-function addCharacter(id: string) {
-  const select = characterSelect()
+  if (!button) throw new Error(`找不到角色卡：${name}`)
   act(() => {
-    setNativeValue(select, id)
-    select.dispatchEvent(new Event("change", { bubbles: true }))
+    button.click()
   })
 }
 
-/** 修改轮数输入框。 */
+/** 修改轮数输入框（页面上还有一个「角色数量」数字框，必须按 aria-label 认准）。 */
 function setRounds(value: string) {
   const input = container.querySelector(
-    'input[type="number"]',
+    'input[aria-label="storySimulation.scenarioRounds"]',
+  ) as HTMLInputElement
+  act(() => {
+    setNativeValue(input, value)
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+  })
+}
+
+/** 修改「角色数量」数字框。 */
+function setCharacterCount(value: string) {
+  const input = container.querySelector(
+    'input[aria-label="storySimulation.scenarioCharacterCount"]',
   ) as HTMLInputElement
   act(() => {
     setNativeValue(input, value)
@@ -214,9 +218,9 @@ function selectionCount(): string | undefined {
 
 /** 选满 3 名角色（默认角色数量就是 3），主持人默认由用户担任。 */
 function selectThreeCharacters() {
-  addCharacter("c1")
-  addCharacter("c2")
-  addCharacter("c3")
+  selectCard("角色1")
+  selectCard("角色2")
+  selectCard("角色3")
 }
 
 /** 与实现同一个估算函数，按「夹取之后」的轮数算出应有的预估条数。 */
@@ -241,6 +245,7 @@ describe("ScenarioSetupPanel · 轮数上限", () => {
     document.body.appendChild(container)
     root = createRoot(container)
     onStart = vi.fn<(setup: ScenarioSetup) => void>()
+    onSoulChanged = vi.fn<() => void>()
   })
 
   afterEach(() => {
@@ -290,6 +295,7 @@ describe("ScenarioSetupPanel · 成本确认", () => {
     document.body.appendChild(container)
     root = createRoot(container)
     onStart = vi.fn<(setup: ScenarioSetup) => void>()
+    onSoulChanged = vi.fn<() => void>()
   })
 
   afterEach(() => {
@@ -344,6 +350,7 @@ describe("ScenarioSetupPanel · 候选角色不足", () => {
     document.body.appendChild(container)
     root = createRoot(container)
     onStart = vi.fn<(setup: ScenarioSetup) => void>()
+    onSoulChanged = vi.fn<() => void>()
   })
 
   afterEach(() => {
@@ -353,8 +360,8 @@ describe("ScenarioSetupPanel · 候选角色不足", () => {
 
   it("候选不足 3 人时说明原因，而不是让开始按钮无解释地灰着", () => {
     render(CANDIDATES.slice(0, 2))
-    addCharacter("c1")
-    addCharacter("c2")
+    selectCard("角色1")
+    selectCard("角色2")
 
     expect(container.textContent).toContain(
       "storySimulation.scenarioCandidatesInsufficient(count=2,min=3)",
@@ -401,6 +408,7 @@ describe("ScenarioSetupPanel · 历史情景列表", () => {
     document.body.appendChild(container)
     root = createRoot(container)
     onStart = vi.fn<(setup: ScenarioSetup) => void>()
+    onSoulChanged = vi.fn<() => void>()
   })
 
   afterEach(() => {
@@ -438,6 +446,7 @@ describe("ScenarioSetupPanel · 参考点说明", () => {
     document.body.appendChild(container)
     root = createRoot(container)
     onStart = vi.fn<(setup: ScenarioSetup) => void>()
+    onSoulChanged = vi.fn<() => void>()
   })
 
   afterEach(() => {
@@ -450,6 +459,151 @@ describe("ScenarioSetupPanel · 参考点说明", () => {
 
     expect(container.textContent).toContain(
       "storySimulation.scenarioReferenceHint",
+    )
+  })
+})
+
+/** 10 名候选：用于验证自定义人数能真的超过 5。 */
+const MANY = Array.from({ length: 10 }, (_, i) => candidate(i + 1))
+
+describe("ScenarioSetupPanel · 自定义角色数量", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn<(setup: ScenarioSetup) => void>()
+    onSoulChanged = vi.fn<() => void>()
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it("保留 3/4/5 一键按钮", () => {
+    render(MANY)
+    expect(countButton(3)?.disabled).toBe(false)
+    expect(countButton(4)?.disabled).toBe(false)
+    expect(countButton(5)?.disabled).toBe(false)
+  })
+
+  it("自定义人数可以超过 5（上限 10）", () => {
+    render(MANY)
+    setCharacterCount("7")
+    expect(selectionCount()).toContain("total=7")
+  })
+
+  it("自定义人数超界时夹到上限，并明确告知", () => {
+    render(MANY)
+    setCharacterCount("99")
+    // 夹取发生在失焦时：setNativeValue 只发 input，不会自己失焦。
+    // 必须走 focus() + blur()：React 17 起 onBlur 是委托在原生 focusout 上的，
+    // 手工派发一个 blur 事件根本到不了组件里。
+    act(() => {
+      const input = container.querySelector(
+        'input[aria-label="storySimulation.scenarioCharacterCount"]',
+      ) as HTMLInputElement
+      input.focus()
+      input.blur()
+    })
+
+    expect(container.textContent).toContain(
+      `storySimulation.scenarioCharacterCountClamped(min=3,max=10)`,
+    )
+  })
+
+  it("选满后再点候选不会多出人来，并给出原因", () => {
+    render(MANY)
+    selectThreeCharacters()
+
+    selectCard("角色4")
+
+    expect(selectionCount()).toContain("total=3")
+    expect(container.textContent).toContain("storySimulation.scenarioFull(n=3)")
+  })
+})
+
+/**
+ * selectedIds 只增不减，而「候选变少」原来只夹了 characterCount。
+ * 换人（重新分析 / 重新提取）后会出现「已选 5 / 共 3」这种自相矛盾的状态，
+ * 而且空位明明还在却点不进去 —— 因为判断满员用的是那个虚高的已选人数。
+ * 极端情况下 selectedIds 全是已消失的人时，canStart 的「两边长度相等」反而成立，
+ * 会带着不存在的角色开演。这里守住「候选一变少，已消失的人就出局」。
+ */
+describe("ScenarioSetupPanel · 候选变少后裁掉已消失的角色", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn<(setup: ScenarioSetup) => void>()
+    onSoulChanged = vi.fn<() => void>()
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it("已选人数不会超过候选数，且新出现的角色仍点得进去", () => {
+    render()
+    clickButton(countButton(5) as HTMLButtonElement)
+    selectCard("角色1")
+    selectCard("角色2")
+    selectCard("角色3")
+    selectCard("角色4")
+    selectCard("角色5")
+    expect(selectionCount()).toContain("total=5")
+
+    // 重新分析后只剩 3 人，且其中「角色6」是从没上过台的新角色
+    render([candidate(1), candidate(2), candidate(6)])
+
+    // 已消失的 3 人必须被裁掉：已选 2 / 共 3（人数也被夹到候选数）
+    expect(selectionCount()).toContain("total=3")
+    expect(selectionCount()).toContain("n=2")
+    expect(selectionCount()).not.toContain("n=5")
+
+    // 空位是真的空着，新角色必须点得进去
+    selectCard("角色6")
+    expect(selectionCount()).toContain("n=3")
+    expect(container.textContent).not.toContain("storySimulation.scenarioFull")
+  })
+})
+
+describe("ScenarioSetupPanel · 绑定灵魂入口", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn<(setup: ScenarioSetup) => void>()
+    onSoulChanged = vi.fn<() => void>()
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+    document.body.innerHTML = ""
+  })
+
+  it("点候选卡上的「绑定灵魂」会打开绑定弹窗", async () => {
+    render()
+
+    // 每张未绑灵魂的卡片上都有这个入口，findButton 取文档顺序里的第一个 ——
+    // 也就是第一张候选卡「角色1」；下面的标题断言正是钉住这一点。
+    const bind = findButton((text) =>
+      text.includes("storySimulation.scenarioBindSoul"),
+    )
+    expect(bind).toBeDefined()
+    // 弹窗打开时会异步去读灵魂名单，用 await act 收尾，免得留下 act 警告
+    await act(async () => {
+      ;(bind as HTMLButtonElement).click()
+    })
+
+    // 弹窗走 Portal 渲染到 body，所以查 document.body
+    expect(
+      document.body.querySelector('[data-testid="scenario-soul-bind-dialog"]'),
+    ).not.toBeNull()
+    expect(document.body.textContent).toContain(
+      "storySimulation.scenarioSoulDialogTitle(name=角色1)",
     )
   })
 })
