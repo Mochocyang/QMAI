@@ -42,13 +42,17 @@ vi.mock("@/commands/fs", () => ({
   },
 }))
 
-// 视图只需要「重新整理研究文件」与「把候选人物建档」两个动作来自学习模块；
-// 整块 mock 掉，免得把 llm-client / Tauri 那串东西拖进 jsdom。
-const learning = vi.hoisted(() => ({ promote: vi.fn(async () => true) }))
+// 视图只需要「重新整理研究文件」「把候选人物建档」「把误建档的人退回候选」三个动作
+// 来自学习模块；整块 mock 掉，免得把 llm-client / Tauri 那串东西拖进 jsdom。
+const learning = vi.hoisted(() => ({
+  promote: vi.fn(async () => true),
+  demote: vi.fn(async () => true),
+}))
 
 vi.mock("@/lib/novel/persona-skill-learning", () => ({
   regeneratePersonaSkillResearch: vi.fn(async () => true),
   promotePersonaSighting: learning.promote,
+  demotePersonaSkillToSighting: learning.demote,
 }))
 
 const project = "C:/project"
@@ -126,6 +130,7 @@ describe("PersonaSkillView", () => {
     io.files.clear()
     io.writes = 0
     learning.promote.mockClear()
+    learning.demote.mockClear()
     // 占锁那条用例若在断言前失败，锁链会留在模块级 locks Map 里，
     // 把后面所有用例一起挂死（报出来的是假失败）。每条都从干净锁表开始。
     __resetPersonaSkillLocksForTesting()
@@ -304,7 +309,7 @@ describe("PersonaSkillView", () => {
     cleanup(root, container)
   })
 
-  it("候选人物区渲染未建档人物，点绿勾调用 promotePersonaSighting", async () => {
+  it("候选人物区渲染未建档人物，点「建档」调用 promotePersonaSighting", async () => {
     io.files.set(
       `${project}/.qmai/persona-skills/sightings.json`,
       JSON.stringify({
@@ -328,6 +333,10 @@ describe("PersonaSkillView", () => {
     expect(candidate).not.toBeNull()
     expect(candidate!.textContent).toContain("小紫")
     expect(candidate!.textContent).toContain("出场 2 章")
+    // 反向守卫：候选区不能再出现那枚写死 is-on 的绿勾。它长得像「重要角色开关」，
+    // 实际是只能建档、没有取消分支的动作按钮 —— 用户就是因此以为「取消不掉」。
+    expect(candidate!.querySelector(".ui-test-persona-pin")).toBeNull()
+    expect(candidate!.textContent).toContain("建档")
 
     await click(container.querySelector('[data-testid="persona-skill-promote-小紫"]'))
     await flushEffects()
@@ -337,6 +346,38 @@ describe("PersonaSkillView", () => {
       expect.objectContaining({ projectPath: project, characterName: "小紫" }),
     )
 
+    cleanup(root, container)
+  })
+
+  it("档案卡提供「移回候选」，确认后调用 demotePersonaSkillToSighting", async () => {
+    writeIndex([meta({ id: "小紫", characterName: "小紫", appearanceCount: 2 })])
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+    const { container, root } = await renderView()
+
+    const demote = container.querySelector<HTMLButtonElement>('[data-testid="persona-skill-demote-小紫"]')
+    expect(demote).not.toBeNull()
+    expect(demote!.textContent).toContain("移回候选")
+
+    await click(demote)
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(learning.demote).toHaveBeenCalledWith({ projectPath: project, characterName: "小紫" })
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("「移回候选」在确认框被取消时一个字节都不写", async () => {
+    writeIndex([meta({ id: "小紫", characterName: "小紫" })])
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false)
+    const { container, root } = await renderView()
+
+    await click(container.querySelector('[data-testid="persona-skill-demote-小紫"]'))
+
+    expect(learning.demote).not.toHaveBeenCalled()
+    expect(io.writes).toBe(0)
+
+    confirmSpy.mockRestore()
     cleanup(root, container)
   })
 })

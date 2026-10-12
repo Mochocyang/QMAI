@@ -1229,3 +1229,63 @@ export async function promotePersonaSighting(options: {
     return false
   }
 }
+
+/**
+ * 把已建档的人物退回候选池 —— 撤销在候选区误点的「建档」。
+ *
+ * 与 promotePersonaSighting 正好相反：从 index 拿掉、把出场记录写回候选池，
+ * 同一把锁内完成，中间不放别的写者进来。
+ *
+ * 刻意**不删除档案文件与研究文件**。删除不可逆，而触发这条路径的场景恰恰是
+ * 「点错了」——用户还没看清发生了什么的时刻。留着文件最坏只是占一点磁盘，
+ * 下次再建档时整份重写；删掉则连他想找回的正文一起没了。
+ *
+ * `chapters` 写空数组：出场章号只存在候选池里，建档时没有抄进 index，
+ * 所以退回时补不回来。它只用于「同一章重复摄取不重复计数」的去重，
+ * 缺了最坏是多计一次章数，不会让谁少出场一次。
+ *
+ * 永不抛：没有这张档案、或严格读判定索引损坏时返回 false。
+ */
+export async function demotePersonaSkillToSighting(options: {
+  projectPath: string
+  characterName: string
+}): Promise<boolean> {
+  const pp = normalizePath(options.projectPath)
+  try {
+    return await withPersonaSkillLock(personaSkillLockKey(pp), async () => {
+      const index = (await loadPersonaSkillIndexStrict(pp)) ?? { version: 1, skills: [] }
+      const meta = findPersonaSkillMeta(index, options.characterName, [])
+      if (!meta) return false
+
+      // 先 index 后候选池。反过来崩在中间，这个人会同时出现在两处（档案区与候选区）；
+      // 这个顺序下最坏只是候选池少一条，而他下次出场就会被重新并进去。
+      await savePersonaSkillIndex(pp, {
+        version: 1,
+        skills: index.skills.filter((item) => item.id !== meta.id),
+      })
+
+      const sightings = await loadPersonaSightings(pp)
+      if (!findSighting(sightings, meta.characterName, meta.aliases)) {
+        await savePersonaSightings(pp, {
+          version: 1,
+          sightings: [
+            ...sightings.sightings,
+            {
+              characterName: meta.characterName,
+              aliases: [...meta.aliases],
+              roleType: meta.roleType,
+              appearanceCount: meta.appearanceCount,
+              firstChapter: meta.firstChapter,
+              lastChapter: meta.lastChapter,
+              chapters: [] as number[],
+            },
+          ],
+        })
+      }
+      return true
+    })
+  } catch (err) {
+    console.warn("[Persona Skill] 退回候选池失败:", err instanceof Error ? err.message : err)
+    return false
+  }
+}

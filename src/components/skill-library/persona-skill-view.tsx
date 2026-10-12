@@ -19,7 +19,7 @@ import {
   savePersonaSkillDocumentByUser,
   updatePersonaSkillIndex,
 } from "@/lib/novel/persona-skill-store"
-import { promotePersonaSighting, regeneratePersonaSkillResearch } from "@/lib/novel/persona-skill-learning"
+import { demotePersonaSkillToSighting, promotePersonaSighting, regeneratePersonaSkillResearch } from "@/lib/novel/persona-skill-learning"
 import { useWikiStore } from "@/stores/wiki-store"
 
 const STATUS_LABELS: Record<PersonaSkillStatus, string> = {
@@ -134,12 +134,47 @@ export function PersonaSkillView() {
       })
       if (ok) {
         await reload()
-        setMessage(`已把「${sighting.characterName}」标为重要角色并建档。`)
+        setMessage(`已把「${sighting.characterName}」建档，并从候选区移到上方档案区。`)
       } else {
         setMessage(`「${sighting.characterName}」建档失败：模型没有返回可用的内容，可稍后重试。`)
       }
     } catch (err) {
       setMessage(`「${sighting.characterName}」建档失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 把误建档的人物退回候选区。这条路径存在的唯一理由，就是候选区那个动作
+   * **只有建档、没有反悔**：一旦建成，候选池里的记录会被删掉，用户再也回不去。
+   */
+  async function handleDemote(meta: PersonaSkillMeta) {
+    if (!projectPath) return
+    if (
+      !window.confirm(
+        `把「${meta.characterName}」退回候选人物（未建档）吗？\n\n` +
+          "档案会从技能库移除，出场次数与章节记录保留到候选区；\n" +
+          "已经写进档案的内容会在下次建档时重新生成。",
+      )
+    ) {
+      return
+    }
+    setBusy(true)
+    try {
+      const ok = await demotePersonaSkillToSighting({
+        projectPath,
+        characterName: meta.characterName,
+      })
+      if (ok) {
+        if (selectedId === meta.id) handleBack()
+        await reload()
+        setMessage(`已把「${meta.characterName}」退回候选人物。`)
+      } else {
+        setMessage(`「${meta.characterName}」退回候选失败：没有找到对应的档案。`)
+      }
+    } catch (err) {
+      setMessage(`「${meta.characterName}」退回候选失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setBusy(false)
     }
@@ -407,6 +442,16 @@ export function PersonaSkillView() {
                 <button type="button" onClick={() => setSelectedId(meta.id)}>
                   打开档案
                 </button>
+                <button
+                  type="button"
+                  data-testid={`persona-skill-demote-${meta.id}`}
+                  className="ui-test-skills-action"
+                  title="退回「候选人物（未建档）」，撤销误建档"
+                  onClick={() => void handleDemote(meta)}
+                  disabled={busy}
+                >
+                  移回候选
+                </button>
               </div>
             </article>
           ))}
@@ -429,15 +474,6 @@ export function PersonaSkillView() {
                   <h3 className="ui-test-skill-card-name" title={sighting.characterName}>
                     {sighting.characterName}
                   </h3>
-                  <button
-                    type="button"
-                    data-testid={`persona-skill-promote-${sighting.characterName}`}
-                    aria-label="标为重要角色并立即建档"
-                    title="标为重要角色并立即建档"
-                    onClick={() => void handlePromote(sighting)}
-                    disabled={busy}
-                    className="ui-test-persona-pin is-on"
-                  />
                 </header>
                 <div className="ui-test-skill-card-badges">
                   {sighting.aliases.length > 0 ? (
@@ -446,6 +482,24 @@ export function PersonaSkillView() {
                   <span className="ui-test-skill-badge">出场 {sighting.appearanceCount} 章</span>
                   <span className="ui-test-skill-badge">首次第 {sighting.firstChapter} 章</span>
                   <span className="ui-test-skill-badge">最近第 {sighting.lastChapter} 章</span>
+                </div>
+                {/*
+                  这里原先复用了档案卡那枚绿勾（class 写死 is-on），于是渲染出来
+                  永远是「已勾选」——它看着像重要角色开关，实际是「立即建档」动作，
+                  而且没有取消分支。用户点它就是想把勾取消掉，结果只得到一次建档，
+                  人还从候选区消失。改成一个说清后果的按钮。
+                */}
+                <div className="ui-test-skills-actions">
+                  <button
+                    type="button"
+                    data-testid={`persona-skill-promote-${sighting.characterName}`}
+                    className="ui-test-skills-action"
+                    title="建档后这个人会移到上方档案区，并标为重要角色；可用「移回候选」撤销"
+                    onClick={() => void handlePromote(sighting)}
+                    disabled={busy}
+                  >
+                    建档
+                  </button>
                 </div>
               </article>
             ))}

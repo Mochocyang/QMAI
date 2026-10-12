@@ -1284,6 +1284,20 @@
   height: 15px;
 }
 
+/*
+  建档与退回都要调模型，期间整页按钮一起禁用。原先没有任何禁用态样式，
+  点击静默无效 —— 用户报的「点了没反应」有一部分就出在这里。
+*/
+.ui-test-root .ui-test-skills-action:disabled,
+.ui-test-root .ui-test-persona-pin:disabled {
+  opacity: 0.45;
+  cursor: progress;
+}
+
+.ui-test-root .ui-test-skills-action:disabled:hover {
+  background: var(--ui-paper);
+}
+
 .ui-test-root .ui-test-skills-message {
   color: var(--ui-muted);
   font-size: 0.75rem;

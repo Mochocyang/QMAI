@@ -56,6 +56,7 @@ vi.mock("@/stores/wiki-store", () => ({
 
 import {
   collectChapterAppearances,
+  demotePersonaSkillToSighting,
   learnPersonaSkillsFromChapter,
   loadCharacterRoleTypes,
   lookupRoleType,
@@ -64,6 +65,7 @@ import {
   renderPersonaSkillDocument,
   __resetPersonaSkillRoundsForTesting,
 } from "./persona-skill-learning"
+import { __resetPersonaSkillLocksForTesting } from "./persona-skill-store"
 
 const project = "C:/project"
 const indexFile = `${project}/.qmai/persona-skills/index.json`
@@ -1157,6 +1159,83 @@ describe("人物 Skill 学习完成的弹窗触发", () => {
     // 同一轮里「学习失败」那条通道必须照常亮起（否则用户什么都看不到）
     expect(storeMock.setPersonaSkillLearningError).toHaveBeenCalled()
     expect(storeMock.setPersonaSkillCompletion).not.toHaveBeenCalled()
+  })
+})
+
+describe("demotePersonaSkillToSighting", () => {
+  beforeEach(() => {
+    // 这个 describe 自己没有清理的话，上一条用例写下的 sightings.json 会留下来，
+    // 「一个字节都不写」那条断言就会因为看到别人的残留文件而假红。
+    io.files.clear()
+    __resetPersonaSkillRoundsForTesting()
+    __resetPersonaSkillLocksForTesting()
+  })
+
+  it("把档案退回候选：index 移除，出场记录写回候选池", async () => {
+    seedIndex([
+      {
+        id: "小紫",
+        characterName: "小紫",
+        aliases: ["紫儿"],
+        roleType: "",
+        pinned: true,
+        appearanceCount: 2,
+        firstChapter: 1,
+        lastChapter: 4,
+      },
+    ])
+    io.files.set(sightingsFile, JSON.stringify({ version: 1, sightings: [] }))
+
+    expect(await demotePersonaSkillToSighting({ projectPath: project, characterName: "小紫" })).toBe(true)
+
+    // 档案区不再有这个人（否则会同时出现在档案区与候选区）
+    expect(readIndex()!.skills).toHaveLength(0)
+    const sightings = readSightings()!.sightings as Array<Record<string, unknown>>
+    expect(sightings).toHaveLength(1)
+    expect(sightings[0].characterName).toBe("小紫")
+    expect(sightings[0].aliases).toEqual(["紫儿"])
+    // 出场次数与首末章要带回去：退回后仍要参与建档门槛的累计，
+    // 从 1 重新数会让这个人物看起来像刚出场（用户会觉得又“丢数据”了）
+    expect(sightings[0].appearanceCount).toBe(2)
+    expect(sightings[0].firstChapter).toBe(1)
+    expect(sightings[0].lastChapter).toBe(4)
+  })
+
+  it("没有这张档案时返回 false，一个字节都不写", async () => {
+    seedIndex([{ id: "林清越", characterName: "林清越" }])
+    const before = io.files.get(indexFile)
+
+    expect(await demotePersonaSkillToSighting({ projectPath: project, characterName: "查无此人" })).toBe(false)
+
+    expect(io.files.get(indexFile)).toBe(before)
+    expect(io.files.has(sightingsFile)).toBe(false)
+  })
+
+  it("候选池里已有同名条目时不重复添加，也不覆盖它的计数", async () => {
+    seedIndex([{ id: "小紫", characterName: "小紫", appearanceCount: 9 }])
+    io.files.set(
+      sightingsFile,
+      JSON.stringify({
+        version: 1,
+        sightings: [
+          {
+            characterName: "小紫",
+            aliases: [],
+            roleType: "",
+            appearanceCount: 1,
+            firstChapter: 1,
+            lastChapter: 1,
+            chapters: [1],
+          },
+        ],
+      }),
+    )
+
+    expect(await demotePersonaSkillToSighting({ projectPath: project, characterName: "小紫" })).toBe(true)
+
+    const sightings = readSightings()!.sightings as Array<Record<string, unknown>>
+    expect(sightings).toHaveLength(1)
+    expect(sightings[0].appearanceCount).toBe(1)
   })
 })
 
