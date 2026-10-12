@@ -131,6 +131,7 @@ export function StorySimulationView() {
 
   const phase = useStorySimulationStore((s) => s.phase);
   const mode = useStorySimulationStore((s) => s.mode);
+  const directorEnabled = useStorySimulationStore((s) => s.directorEnabled);
   const userIdea = useStorySimulationStore((s) => s.userIdea);
   const targetWords = useStorySimulationStore((s) => s.targetWords);
   const sourceChapters = useStorySimulationStore((s) => s.sourceChapters);
@@ -189,6 +190,12 @@ export function StorySimulationView() {
   );
   const setCurrentRumors = useStorySimulationStore((s) => s.setCurrentRumors);
   const setCurrentAgents = useStorySimulationStore((s) => s.setCurrentAgents);
+  const setDirectorEvaluations = useStorySimulationStore(
+    (s) => s.setDirectorEvaluations,
+  );
+  const addDirectorEvaluation = useStorySimulationStore(
+    (s) => s.addDirectorEvaluation,
+  );
   const setSelectedResultId = useStorySimulationStore(
     (s) => s.setSelectedResultId,
   );
@@ -403,7 +410,7 @@ export function StorySimulationView() {
       timelineEvents: savedTimelineEvents,
       activeAgents,
       worldState: lastSimulationStateRef.current?.worldState ?? {},
-      directorEnabled: false,
+      directorEnabled: state.directorEnabled,
       nextNodeInjectionMap: new Map(),
     };
     const agentsForSnapshot =
@@ -733,6 +740,10 @@ export function StorySimulationView() {
 
       const collectedTimeline: TimelineEvent[] = [];
 
+      // 导演开关以面板 store 值为准，贯穿本次推演的状态快照与分支评分
+      const directorEnabledForRun = directorEnabled;
+      setDirectorEvaluations([]);
+
       const callbacks: SimulationCallbacks = {
         onEvent: () => {},
         onProgress: (p, label) => setProgress(50 + Math.floor(p / 2), label),
@@ -752,7 +763,7 @@ export function StorySimulationView() {
             timelineEvents: useStorySimulationStore.getState().timelineEvents,
             activeAgents: trace.activeAgents,
             worldState: {},
-            directorEnabled: false,
+            directorEnabled: directorEnabledForRun,
             nextNodeInjectionMap: new Map(),
           };
 
@@ -785,6 +796,9 @@ export function StorySimulationView() {
             addHistoryEntry(entry);
           }
         },
+        onDirectorEvaluation: (evaluation) => {
+          addDirectorEvaluation(evaluation);
+        },
       };
       const events = await runSimulation(
         {
@@ -795,6 +809,7 @@ export function StorySimulationView() {
           llmConfig,
           userIdea: userIdea || undefined,
           maxRoundsPerNode: simulationRounds > 0 ? simulationRounds : undefined,
+          directorEnabled: directorEnabledForRun,
           dynamicEventPool: (
             Array.isArray(dynamicEventPool)
               ? dynamicEventPool.length > 0
@@ -823,7 +838,7 @@ export function StorySimulationView() {
         timelineEvents: collectedTimeline,
         activeAgents: new Map(agents.map((a) => [a.characterId, a])),
         worldState: {},
-        directorEnabled: false,
+        directorEnabled: directorEnabledForRun,
         nextNodeInjectionMap: new Map(),
       };
 

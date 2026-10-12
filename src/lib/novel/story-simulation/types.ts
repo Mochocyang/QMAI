@@ -376,6 +376,8 @@ export interface SimulationInput {
   injectionEvent?: string
   /** 每个节点的仿真轮数，不传则根据字数自动计算 */
   maxRoundsPerNode?: number
+  /** 是否启用导演 Agent；显式传入时优先于模式配置，未传则回退到模式配置 */
+  directorEnabled?: boolean
   /** LLM 预生成的动态事件池（支持字符串数组或分阶段池） */
   dynamicEventPool?: string[] | StagedEventPool
   /** 从中断位置继续推演 */

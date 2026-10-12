@@ -27,6 +27,7 @@ import type {
   ActionVisibility,
   AgentAction,
   AgentActionType,
+  DirectorEvaluation,
   EventImpact,
   ExtractionResult,
   NovelAgent,
@@ -53,6 +54,8 @@ export interface SimulationCallbacks {
   onTimelineEvent?: (event: TimelineEvent) => void
   /** 推演过程观察回调：用于 UI 展示 Agent 调度和 blackboard 状态 */
   onDebugTrace?: (trace: SimulationDebugTrace) => void
+  /** 导演 Agent 评估完成回调：用于记录 7 维评分与分支对比数据 */
+  onDirectorEvaluation?: (evaluation: DirectorEvaluation) => void
 }
 
 // ── 常量 ──
@@ -1169,7 +1172,7 @@ export async function runSimulation(
   signal?: AbortSignal,
 ): Promise<SimulationEvent[]> {
   const events: SimulationEvent[] = []
-  const { agents, framework, wordBudget, llmConfig, injectionEvent, maxRoundsPerNode, dynamicEventPool, resume } = input
+  const { agents, framework, wordBudget, llmConfig, injectionEvent, maxRoundsPerNode, dynamicEventPool, resume, directorEnabled } = input
   const mode = input.mode || framework.simulationMode || "hybrid"
   const modeConfig: ModeConfig = getModeConfig(mode)
   const totalNodes = framework.nodes.length
@@ -1211,7 +1214,8 @@ export async function runSimulation(
     worldState: {},
     dynamicEventPool: stringPool && stringPool.length > 0 ? stringPool : undefined,
     usedEventIndices: stringPool && stringPool.length > 0 ? new Set() : undefined,
-    directorEnabled: modeConfig.directorEnabled ?? false,
+    // 优先级：显式入参 > 模式配置 > 默认关闭
+    directorEnabled: directorEnabled ?? modeConfig.directorEnabled ?? false,
     nextNodeInjectionMap: new Map(),
   }
   const blackboard = createSimulationBlackboard({
@@ -1517,6 +1521,8 @@ export async function runSimulation(
             llmConfig,
             signal,
           })
+
+          callbacks.onDirectorEvaluation?.(directorEval)
 
           if (shouldInjectEvent(directorEval) && directorEval.injectEvent) {
             const nextNodeIndex = ni + 1
