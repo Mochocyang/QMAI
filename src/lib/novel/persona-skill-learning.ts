@@ -8,10 +8,14 @@ import { parseLlmJsonArray, parseLlmJsonObject } from "./book-analysis/llm-json"
 import { appendChapterIngestLog, previewLlmOutput } from "./chapter-ingest-log"
 import { parseCharacterRoleFileName } from "./extract-established-context"
 import {
+  PERSONA_FIELD_SHRINK_RATIO,
   PERSONA_MIN_SUBSTRING_MATCH_CHARS,
+  PERSONA_PRIOR_EVIDENCE_CHAPTERS,
   PERSONA_RESEARCH_DOCUMENTS,
+  PERSONA_SKILL_BATCH_SIZE,
   PERSONA_STORED_FIELDS,
   PERSONA_SUPPLEMENT_HEADING,
+  PERSONA_SUPPLEMENT_MAX_CHARS,
   firstAppearanceThreshold,
   normalizePersonaName,
   planPersonaSkillRound,
@@ -34,6 +38,7 @@ import {
   savePersonaSightings,
   withPersonaSkillLock,
   readPersonaSkillDocument,
+  snapshotPersonaSkillRevision,
   updatePersonaSkillIndex,
   updatePersonaSkillState,
   writePersonaSkillDocument,
@@ -45,6 +50,8 @@ import {
   buildPersonaSkillResearchMessages,
   type PersonaSkillPromptTarget,
 } from "./persona-skill-prompt"
+import { PERSONA_PRIOR_EVIDENCE_CHARS, extractCharacterEvidence } from "./persona-skill-evidence"
+import { extractPersonaSkillSections } from "./persona-skill-context"
 
 export interface PersonaChapterInput {
   chapterNumber: number
@@ -65,6 +72,8 @@ export interface PersonaSkillDraft {
   characterName: string
   fields: Record<string, string>
   research: Record<string, string>
+  /** 手改档案的唯一「补充」段（模型合并后的完整内容）；没给时为空串。 */
+  supplement: string
 }
 
 /** 本章出场人物的累计状态（含已有档案的人）。 */
@@ -592,6 +601,7 @@ export function parsePersonaSkillDrafts(
       characterName: plan.characterName,
       fields: extractPersonaDraftFields(record),
       research: canonicalPersonaResearch(record.research),
+      supplement: flattenPersonaFieldValue(record.supplement ?? record[PERSONA_SUPPLEMENT_HEADING]),
     })
   }
   return drafts
@@ -629,6 +639,101 @@ export interface RenderPersonaSkillDocumentInput {
   fields: Record<string, string>
   existing?: string
   editedByUser: boolean
+  /** 手改档案：模型合并好的「补充」段。 */
+  supplement?: string
+}
+
+/** 只取 5 个规范字段的正文。 */
+export function readStoredPersonaFields(document: string): Record<string, string> {
+  const sections = extractPersonaSkillSections(document)
+  const fields: Record<string, string> = {}
+  for (const name of PERSONA_STORED_FIELDS) {
+    const value = sections.get(name)?.trim()
+    if (value) fields[name] = value
+  }
+  return fields
+}
+
+/**
+ * 完善时逐字段合并：新值为空，或短于旧值的 {@link PERSONA_FIELD_SHRINK_RATIO}，
+ * 都视为模型漏写，保留旧值。`kept` 列出被护栏保住的字段，供日志使用。
+ */
+export function mergePersonaFields(
+  previous: Record<string, string>,
+  next: Record<string, string>,
+): { fields: Record<string, string>; kept: string[] } {
+  const fields: Record<string, string> = {}
+  const kept: string[] = []
+  for (const name of PERSONA_STORED_FIELDS) {
+    const before = (previous[name] ?? "").trim()
+    const after = (next[name] ?? "").trim()
+    if (!after) {
+      if (before) fields[name] = before
+      continue
+    }
+    if (before && after.length < before.length * PERSONA_FIELD_SHRINK_RATIO) {
+      fields[name] = before
+      kept.push(name)
+      continue
+    }
+    fields[name] = after
+  }
+  return { fields, kept }
+}
+
+/** 把正文里所有「## 补充…」段摘出来：返回去掉补充后的正文，和补充段拼起来的内容。 */
+function splitSupplementSections(body: string): { body: string; supplement: string } {
+  const kept: string[] = []
+  const supplements: string[] = []
+  let inSupplement = false
+  let current: string[] = []
+  const flush = () => {
+    const text = current.join("\n").trim()
+    if (text) supplements.push(text)
+    current = []
+  }
+  for (const line of body.replace(/\r\n/g, "\n").split("\n")) {
+    const heading = line.match(/^##\s+(.+?)\s*$/)
+    if (heading || /^#\s/.test(line)) {
+      if (inSupplement) flush()
+      inSupplement = Boolean(heading && heading[1].trim().startsWith(PERSONA_SUPPLEMENT_HEADING))
+      if (inSupplement) continue
+    }
+    if (inSupplement) current.push(line)
+    else kept.push(line)
+  }
+  if (inSupplement) flush()
+  return { body: kept.join("\n").trim(), supplement: supplements.join("\n") }
+}
+
+function renderFieldsAsLines(fields: Record<string, string>): string {
+  return PERSONA_STORED_FIELDS.map((name) => {
+    const value = (fields[name] ?? "").trim()
+    return value ? `${name}：${value}` : ""
+  })
+    .filter(Boolean)
+    .join("\n")
+}
+
+/**
+ * 手改档案的补充段只有一个。优先用模型合并好的版本；模型没给、或明显比旧补充短
+ * （漏写）时，退回「旧补充 + 本章新观察」拼接，超长时保留最新的部分。
+ */
+function resolveSupplement(
+  previous: string,
+  merged: string | undefined,
+  fields: Record<string, string>,
+  chapterNumber: number,
+): string {
+  const before = previous.trim()
+  const candidate = (merged ?? "").trim()
+  if (candidate && (!before || candidate.length >= before.length * PERSONA_FIELD_SHRINK_RATIO)) {
+    return candidate
+  }
+  const fresh = renderFieldsAsLines(fields)
+  const joined = [before, fresh ? `第 ${chapterNumber} 章：\n${fresh}` : ""].filter(Boolean).join("\n")
+  const cap = PERSONA_SUPPLEMENT_MAX_CHARS * 2
+  return joined.length <= cap ? joined : joined.slice(-cap)
 }
 
 export function renderPersonaSkillDocument(input: RenderPersonaSkillDocumentInput): string {
@@ -649,16 +754,17 @@ export function renderPersonaSkillDocument(input: RenderPersonaSkillDocumentInpu
   const sections = renderFieldSections(input.fields, order)
 
   if (input.editedByUser && input.existing?.trim()) {
+    const split = splitSupplementSections(stripDocumentPreamble(input.existing))
+    const supplement = resolveSupplement(split.supplement, input.supplement, input.fields, input.chapterNumber)
     return [
       frontmatter,
       "",
       title,
       "",
-      stripDocumentPreamble(input.existing),
-      "",
-      `## ${PERSONA_SUPPLEMENT_HEADING}（第 ${input.chapterNumber} 章）`,
-      "",
-      sections,
+      split.body,
+      ...(supplement
+        ? ["", `## ${PERSONA_SUPPLEMENT_HEADING}（截至第 ${input.chapterNumber} 章）`, "", supplement]
+        : []),
       "",
     ].join("\n")
   }
@@ -667,9 +773,16 @@ export function renderPersonaSkillDocument(input: RenderPersonaSkillDocumentInpu
 }
 
 const inFlightRounds = new Set<string>()
+/**
+ * 同一项目的学习轮次串行执行。调用点是 `void learnPersonaSkillsFromChapter(...)`，
+ * 批量提取时多章的轮次会同时起跑：两轮同时完善同一个人，都基于同一份旧档案，
+ * 后写的会把先写的结果整份盖掉。
+ */
+const learningQueues = new Map<string, Promise<void>>()
 
 export function __resetPersonaSkillRoundsForTesting(): void {
   inFlightRounds.clear()
+  learningQueues.clear()
 }
 
 /** 按当前章号刷新所有人的生命周期状态。没有变化就不落盘。 */
@@ -696,12 +809,54 @@ export async function refreshPersonaSkillStatuses(
   })
 }
 
+export interface PersonaPriorEvidence {
+  chapterNumber: number
+  text: string
+}
+
+/**
+ * 建档素材：该人物此前出场过的最近几章里与他相关的段落。
+ * 首版档案若只凭当前一章，多半有几格是空的；候选池里本来就记着他在哪几章出过场。
+ */
+export async function loadPersonaPriorEvidence(
+  projectPath: string,
+  chapters: readonly number[],
+  names: readonly string[],
+  currentChapter: number,
+  cache: Map<number, string> = new Map(),
+): Promise<PersonaPriorEvidence[]> {
+  const picked = [...new Set(chapters)]
+    .filter((chapter) => chapter > 0 && chapter < currentChapter)
+    .sort((a, b) => b - a)
+    .slice(0, PERSONA_PRIOR_EVIDENCE_CHAPTERS)
+    .sort((a, b) => a - b)
+  const result: PersonaPriorEvidence[] = []
+  for (const chapterNumber of picked) {
+    let body = cache.get(chapterNumber)
+    if (body === undefined) {
+      body = ""
+      try {
+        const path = await findChapterFileByNumber(projectPath, chapterNumber)
+        if (path) body = stripFrontmatter(await readFile(path))
+      } catch {
+        // 读不到就少一份素材，不影响本轮
+      }
+      cache.set(chapterNumber, body)
+    }
+    const text = extractCharacterEvidence(body, names, PERSONA_PRIOR_EVIDENCE_CHARS)
+    if (text) result.push({ chapterNumber, text })
+  }
+  return result
+}
+
 async function requestPersonaSkillDrafts(input: {
   llmConfig: LlmConfig
   chapterNumber: number
   chapterBody: string
   plans: readonly PersonaSkillPlan[]
   existing: Map<string, string>
+  editedByUser?: ReadonlySet<string>
+  priorEvidence?: ReadonlyMap<string, PersonaPriorEvidence[]>
   signal?: AbortSignal
 }): Promise<{ drafts: PersonaSkillDraft[] | null; raw: string }> {
   const targets: PersonaSkillPromptTarget[] = input.plans.map((plan) => ({
@@ -714,6 +869,8 @@ async function requestPersonaSkillDrafts(input: {
     withResearch: plan.withResearch,
     appearanceCount: plan.appearanceCount,
     existingSkill: input.existing.get(plan.characterName),
+    editedByUser: input.editedByUser?.has(plan.characterName) ?? false,
+    priorEvidence: input.priorEvidence?.get(plan.characterName),
   }))
 
   let result = ""
@@ -804,31 +961,48 @@ export async function applyPersonaSkillDrafts(
         (item) => normalizePersonaName(item.characterName) === normalizePersonaName(plan.characterName),
       )
       if (!draft) continue
-      if (Object.values(draft.fields).every((value) => !value.trim())) continue
+      const hasFields = Object.values(draft.fields).some((value) => value.trim())
+      if (!hasFields && !draft.supplement.trim()) continue
 
       const existing = findPersonaSkillMeta(index, plan.characterName, plan.aliases)
       const id = existing?.id ?? personaSkillIdFor(plan.characterName)
       const appearance = appearanceByName.get(normalizePersonaName(plan.characterName))
       const previousDocument = existing ? await readPersonaSkillDocument(input.projectPath, id) : ""
+      const editedByUser = existing?.editedByUser ?? false
+      // 手改档案只有补充、没有字段时也照常写：补充段本身就是这一轮的产出。
+      if (!hasFields && !editedByUser) continue
 
-      await writePersonaSkillDocument(
-        input.projectPath,
-        id,
-        renderPersonaSkillDocument({
-          characterName: plan.characterName,
-          aliases: existing ? uniqueNames([...existing.aliases, ...plan.aliases]) : plan.aliases,
-          roleType: plan.roleType || existing?.roleType || "",
-          tier: plan.tier,
-          pinned: plan.pinned,
-          appearanceCount: Math.max(plan.appearanceCount, existing?.appearanceCount ?? 0),
-          firstChapter: existing?.firstChapter || appearance?.firstChapter || input.chapterNumber,
-          lastChapter: input.chapterNumber,
-          chapterNumber: input.chapterNumber,
-          fields: draft.fields,
-          existing: previousDocument,
-          editedByUser: existing?.editedByUser ?? false,
-        }),
-      )
+      let fields = draft.fields
+      if (!editedByUser && previousDocument.trim()) {
+        const merged = mergePersonaFields(readStoredPersonaFields(previousDocument), draft.fields)
+        fields = merged.fields
+        if (merged.kept.length > 0) {
+          console.info(
+            `[Persona Skill] 第 ${input.chapterNumber} 章「${plan.characterName}」字段疑似漏写，保留旧值：${merged.kept.join("、")}`,
+          )
+        }
+      }
+      const lastChapter = Math.max(existing?.lastChapter ?? 0, input.chapterNumber)
+
+      const nextDocument = renderPersonaSkillDocument({
+        characterName: plan.characterName,
+        aliases: existing ? uniqueNames([...existing.aliases, ...plan.aliases]) : plan.aliases,
+        roleType: plan.roleType || existing?.roleType || "",
+        tier: plan.tier,
+        pinned: plan.pinned,
+        appearanceCount: Math.max(plan.appearanceCount, existing?.appearanceCount ?? 0),
+        firstChapter: existing?.firstChapter || appearance?.firstChapter || input.chapterNumber,
+        lastChapter,
+        chapterNumber: input.chapterNumber,
+        fields,
+        existing: previousDocument,
+        editedByUser,
+        supplement: draft.supplement,
+      })
+      if (existing && previousDocument.trim() && previousDocument !== nextDocument) {
+        await snapshotPersonaSkillRevision(input.projectPath, id, existing.skillRevision, previousDocument)
+      }
+      await writePersonaSkillDocument(input.projectPath, id, nextDocument)
 
       let hasResearch = existing?.hasResearch ?? false
       if (plan.withResearch && Object.keys(draft.research).length > 0) {
@@ -845,12 +1019,13 @@ export async function applyPersonaSkillDrafts(
         pinned: plan.pinned,
         status: "active",
         firstChapter: existing?.firstChapter || appearance?.firstChapter || input.chapterNumber,
-        lastChapter: input.chapterNumber,
+        // 只增不减：批量提取时后面的章可能先学完，旧章晚到时不能把进度拨回去。
+        lastChapter,
         appearanceCount: Math.max(plan.appearanceCount, existing?.appearanceCount ?? 0),
         createdChapter: existing?.createdChapter || input.chapterNumber,
-        lastLearnedChapter: input.chapterNumber,
+        lastLearnedChapter: Math.max(existing?.lastLearnedChapter ?? 0, input.chapterNumber),
         skillRevision: (existing?.skillRevision ?? 0) + 1,
-        editedByUser: existing?.editedByUser ?? false,
+        editedByUser,
         hasResearch,
         updatedAt,
       })
@@ -884,16 +1059,36 @@ export async function applyPersonaSkillDrafts(
 
 /**
  * 章节摄取后的后台学习入口。永不抛：外层兜住一切，只 warn。
- * 只处理「本章出场、且达到门槛」的人物，整轮只发一次 LLM 请求。
+ * 只处理「本章出场、且达到门槛」的人物；同一项目的轮次排队串行，
+ * 每轮按 {@link PERSONA_SKILL_BATCH_SIZE} 人一批调用模型。
  */
-export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsOptions): Promise<void> {
+export function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsOptions): Promise<void> {
   const pp = normalizePath(options.projectPath)
-  const { chapter, llmConfig, signal } = options
-
-  const roundKey = `${pp}#${chapter.chapterNumber}`
-  if (inFlightRounds.has(roundKey)) return
+  const roundKey = `${pp}#${options.chapter.chapterNumber}`
+  if (inFlightRounds.has(roundKey)) return Promise.resolve()
   inFlightRounds.add(roundKey)
 
+  const queueKey = personaSkillLockKey(pp)
+  const previous = learningQueues.get(queueKey) ?? Promise.resolve()
+  const run = previous
+    .then(() => runPersonaSkillRound(pp, options))
+    .finally(() => inFlightRounds.delete(roundKey))
+  const tail = run.catch(() => undefined)
+  learningQueues.set(queueKey, tail)
+  void tail.then(() => {
+    if (learningQueues.get(queueKey) === tail) learningQueues.delete(queueKey)
+  })
+  return run
+}
+
+function chunkPlans(plans: readonly PersonaSkillPlan[], size: number): PersonaSkillPlan[][] {
+  const batches: PersonaSkillPlan[][] = []
+  for (let start = 0; start < plans.length; start += size) batches.push(plans.slice(start, start + size))
+  return batches
+}
+
+async function runPersonaSkillRound(pp: string, options: LearnPersonaSkillsOptions): Promise<void> {
+  const { chapter, llmConfig, signal } = options
   try {
     // 这道守卫必须在 try 里面：它是调用方给的数据，缺字段时以前会**抛出 try 之外**，
     // 而调用点是 `void learnPersonaSkillsFromChapter(...)` —— 变成无人处理的 rejection，
@@ -920,6 +1115,7 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
     // 用它判定会把用户在调用期间保存的手改正文覆盖掉。
     let appearances: PersonaChapterAppearance[] = []
     let index: PersonaSkillIndex = { version: 1, skills: [] }
+    let sightings: PersonaSkillSightings = { version: 1, sightings: [] }
     await updatePersonaSkillState(pp, (state) => {
       // 注意：mutate 必须是同步的，别在这里 await（会拖住候选池落盘）。
       index = state.index
@@ -931,6 +1127,7 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
         knownCharacters,
       )
       appearances = collected.appearances
+      sightings = collected.sightings
 
       // 已建档人物的出场记账必须在这里落盘，不能只留在内存里等 applyPersonaSkillDrafts：
       // 那一趟要求模型返回可用草稿，模型漏了这个人或字段全空时它会整条跳过，
@@ -999,44 +1196,80 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
     }
 
     const existing = new Map<string, string>()
+    const editedByUser = new Set<string>()
+    const priorEvidence = new Map<string, PersonaPriorEvidence[]>()
+    const chapterCache = new Map<number, string>()
     for (const plan of plans) {
       const meta = findPersonaSkillMeta(index, plan.characterName, plan.aliases)
-      if (!meta) continue
-      existing.set(plan.characterName, await readPersonaSkillDocument(pp, meta.id))
+      if (meta) {
+        existing.set(plan.characterName, await readPersonaSkillDocument(pp, meta.id))
+        if (meta.editedByUser) editedByUser.add(plan.characterName)
+        continue
+      }
+      const sighting = findSighting(sightings, plan.characterName, plan.aliases)
+      if (!sighting) continue
+      const prior = await loadPersonaPriorEvidence(
+        pp,
+        sighting.chapters,
+        [plan.characterName, ...plan.aliases],
+        chapter.chapterNumber,
+        chapterCache,
+      )
+      if (prior.length > 0) priorEvidence.set(plan.characterName, prior)
     }
 
-    const { drafts, raw } = await requestPersonaSkillDrafts({
-      llmConfig,
-      chapterNumber: chapter.chapterNumber,
-      chapterBody: chapter.chapterBody,
-      plans,
-      existing,
-      signal,
-    })
-    if (!drafts) {
-      await reportPersonaRoundFailure({
-        projectPath: pp,
-        chapterNumber: chapter.chapterNumber,
-        reason: "unparsable_json",
-        detail: `模型返回的内容里没有可用的 skills 数组（本轮计划 ${plans.length} 人）`,
-        raw,
-      })
-      return
+    // 分批：某一批失败（坏 JSON、调用报错）只丢这一批，其余照常落盘。
+    // 每种失败都要分开留痕：「模型没返回」和「返回了但一条都对不上」是两回事。
+    const drafts: PersonaSkillDraft[] = []
+    let lastRaw = ""
+    for (const batch of chunkPlans(plans, PERSONA_SKILL_BATCH_SIZE)) {
+      if (signal?.aborted) break
+      const names = batch.map((plan) => plan.characterName).join("、")
+      try {
+        const result = await requestPersonaSkillDrafts({
+          llmConfig,
+          chapterNumber: chapter.chapterNumber,
+          chapterBody: chapter.chapterBody,
+          plans: batch,
+          existing,
+          editedByUser,
+          priorEvidence,
+          signal,
+        })
+        lastRaw = result.raw
+        if (!result.drafts) {
+          await reportPersonaRoundFailure({
+            projectPath: pp,
+            chapterNumber: chapter.chapterNumber,
+            reason: "unparsable_json",
+            detail: `模型返回的内容里没有可用的 skills 数组（本批 ${batch.length} 人：${names}）`,
+            raw: result.raw,
+          })
+          continue
+        }
+        if (result.drafts.length === 0) {
+          await reportPersonaRoundFailure({
+            projectPath: pp,
+            chapterNumber: chapter.chapterNumber,
+            reason: "no_matching_entries",
+            detail: `模型返回了 JSON，但没有一条能对上本轮计划的人物（计划：${names}）`,
+            raw: result.raw,
+          })
+          continue
+        }
+        drafts.push(...result.drafts)
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : String(err)
+        await reportPersonaRoundFailure({
+          projectPath: pp,
+          chapterNumber: chapter.chapterNumber,
+          reason: "round_error",
+          detail: `本轮学习抛错（${names}）：${detail}`,
+        })
+      }
     }
-    // 空数组以前会一路走到 apply、拿到 0、然后**什么也不打**。
-    // 它不是「模型没返回」而是「返回了但一条都对不上」—— 这两种要分开说。
-    if (drafts.length === 0) {
-      await reportPersonaRoundFailure({
-        projectPath: pp,
-        chapterNumber: chapter.chapterNumber,
-        reason: "no_matching_entries",
-        detail: `模型返回了 JSON，但没有一条能对上本轮计划的人物（计划：${plans
-          .map((plan) => plan.characterName)
-          .join("、")}）`,
-        raw,
-      })
-      return
-    }
+    if (drafts.length === 0) return
+    const raw = lastRaw
 
     const { created, updated } = await applyPersonaSkillDrafts({
       projectPath: pp,
@@ -1070,8 +1303,6 @@ export async function learnPersonaSkillsFromChapter(options: LearnPersonaSkillsO
       reason: "round_error",
       detail: `本轮学习抛错：${detail}`,
     })
-  } finally {
-    inFlightRounds.delete(roundKey)
   }
 }
 
@@ -1193,12 +1424,19 @@ export async function promotePersonaSighting(options: {
       withResearch: true,
     }
 
+    const prior = await loadPersonaPriorEvidence(
+      pp,
+      sighting.chapters,
+      [sighting.characterName, ...sighting.aliases],
+      sighting.lastChapter,
+    )
     const { drafts } = await requestPersonaSkillDrafts({
       llmConfig: options.llmConfig,
       chapterNumber: sighting.lastChapter,
-      chapterBody,
+      chapterBody: stripFrontmatter(chapterBody),
       plans: [plan],
       existing: new Map<string, string>(),
+      priorEvidence: new Map([[plan.characterName, prior]]),
       signal: options.signal,
     })
     if (!drafts || drafts.length === 0) return false

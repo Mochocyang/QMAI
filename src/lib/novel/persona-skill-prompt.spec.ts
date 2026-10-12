@@ -118,15 +118,65 @@ describe("buildPersonaSkillMessages", () => {
     expect(prompt).toContain("用户手动标记的重要人物")
   })
 
-  it("已有档案原文进 user 消息，并标明是补充而不是重写", () => {
+  it("已有档案原文进 user 消息，并要求输出合并后的完整字段", () => {
     const messages = buildPersonaSkillMessages({
       chapterNumber: 5,
       chapterBody: "正文",
       targets: [target({ mode: "refine", existingSkill: "## 怎么说话\n\n句子很短。" })],
     })
     expect(messages[1].content).toContain("句子很短。")
-    expect(messages[1].content).toContain("不要重写")
-    expect(messages[1].content).toContain("在已有档案上补本章新增信息")
+    expect(messages[1].content).toContain("完善已有档案（输出合并后的完整字段）")
+  })
+
+  it("完善时不许只交本章增量：system 明确要求合并后的完整内容、不给空字段", () => {
+    // 落盘按整格替换字段。提示词若写「只补本章新增」，模型照做后档案每完善一次就退化成残片。
+    const messages = buildPersonaSkillMessages({ chapterNumber: 5, chapterBody: "正文", targets: [target()] })
+    expect(messages[0].content).toContain("合并后的完整内容")
+    expect(messages[0].content).toContain("绝不能给空字符串")
+    expect(messages[0].content).not.toContain("只补本章新增的信息")
+  })
+
+  it("手改过的人物要求输出 supplement", () => {
+    const prompt = buildPersonaSkillUserPrompt({
+      chapterNumber: 5,
+      chapterBody: "正文",
+      targets: [target({ mode: "refine", editedByUser: true, existingSkill: "## 怎么说话\n\n用户写的。" })],
+    })
+    expect(prompt).toContain("用户手改过")
+    expect(buildPersonaSkillMessages({ chapterNumber: 5, chapterBody: "正文", targets: [target()] })[0].content)
+      .toContain('"supplement"')
+  })
+
+  it("长章节按人物给相关段落：中段出场的人也能拿到素材", () => {
+    const filler = "风吹过院子，什么也没有发生。".repeat(40)
+    const paragraphs = [
+      ...Array.from({ length: 10 }, () => filler),
+      "沈砚压低声音：「账本不对。」",
+      ...Array.from({ length: 10 }, () => filler),
+    ]
+    const body = paragraphs.join("\n\n")
+    expect(body.length).toBeGreaterThan(PERSONA_SKILL_BODY_HEAD_CHARS + PERSONA_SKILL_BODY_TAIL_CHARS)
+    // 对照：旧的开头 + 结尾截法拿不到这句
+    expect(buildPersonaSkillBody(body)).not.toContain("账本不对")
+
+    const prompt = buildPersonaSkillUserPrompt({
+      chapterNumber: 9,
+      chapterBody: body,
+      targets: [target({ characterName: "沈砚" })],
+    })
+    expect(prompt).toContain("本章相关段落（第 9 章）")
+    expect(prompt).toContain("账本不对")
+    expect(prompt).not.toContain("【第 9 章正文】")
+  })
+
+  it("建档时带上此前出场章节的素材", () => {
+    const prompt = buildPersonaSkillUserPrompt({
+      chapterNumber: 6,
+      chapterBody: "正文",
+      targets: [target({ priorEvidence: [{ chapterNumber: 2, text: "林清越第一次拔剑。" }] })],
+    })
+    expect(prompt).toContain("此前出场的相关段落（第 2 章）")
+    expect(prompt).toContain("林清越第一次拔剑。")
   })
 
   it("别名进 user 消息", () => {

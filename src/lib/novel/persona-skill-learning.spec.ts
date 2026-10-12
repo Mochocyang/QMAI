@@ -18,6 +18,9 @@ vi.mock("@/commands/fs", () => ({
   // 加固后的 store 靠 fileExists 区分「索引不存在」（可安全当空索引）与
   // 「存在但读不出来」（拒绝写，绝不覆盖）。不 mock 它会掉进真实 Tauri invoke。
   fileExists: async (path: string) => io.files.has(path),
+  deleteFile: async (path: string) => {
+    io.files.delete(path)
+  },
   createDirectory: async () => {},
   listDirectory: async (dir: string) => {
     const prefix = dir.endsWith("/") ? dir : `${dir}/`
@@ -59,6 +62,7 @@ import {
   learnPersonaSkillsFromChapter,
   loadCharacterRoleTypes,
   lookupRoleType,
+  mergePersonaFields,
   parsePersonaSkillDrafts,
   regeneratePersonaSkillResearch,
   renderPersonaSkillDocument,
@@ -282,10 +286,75 @@ describe("renderPersonaSkillDocument", () => {
       chapterNumber: 7,
     })
     expect(doc).toContain("这是用户亲手写的一句。")
-    expect(doc).toContain("## 补充（第 7 章）")
+    expect(doc).toContain("## 补充（截至第 7 章）")
     expect(doc).toContain("AI 的新观察。")
-    expect(doc.indexOf("这是用户亲手写的一句。")).toBeLessThan(doc.indexOf("## 补充（第 7 章）"))
+    expect(doc.indexOf("这是用户亲手写的一句。")).toBeLessThan(doc.indexOf("## 补充（截至第 7 章）"))
     expect(doc.match(/# 林清越 · 人物 Skill/g)).toHaveLength(1)
+  })
+
+  it("手改档案的补充段只有一个：老档案里多个「补充（第 N 章）」合并，模型合并版优先", () => {
+    const existing = [
+      "# 林清越 · 人物 Skill",
+      "",
+      "## 怎么说话",
+      "",
+      "用户写的。",
+      "",
+      "## 补充（第 3 章）",
+      "",
+      "第三章的观察。",
+      "",
+      "## 补充（第 4 章）",
+      "",
+      "第四章的观察。",
+      "",
+    ].join("\n")
+    const doc = renderPersonaSkillDocument({
+      ...base,
+      fields: { 怎么说话: "第五章的观察。" },
+      existing,
+      editedByUser: true,
+      chapterNumber: 5,
+      supplement: "第三、四、五章合并后的补充：说话越来越短。",
+    })
+    expect(doc.match(/^## 补充/gm)).toHaveLength(1)
+    expect(doc).toContain("## 补充（截至第 5 章）")
+    expect(doc).toContain("第三、四、五章合并后的补充")
+    expect(doc).toContain("用户写的。")
+    expect(doc).not.toContain("## 补充（第 3 章）")
+  })
+
+  it("模型没给补充时，旧补充与本章观察拼起来，不丢旧内容", () => {
+    const existing = "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n用户写的。\n\n## 补充（截至第 4 章）\n\n旧补充。\n"
+    const doc = renderPersonaSkillDocument({
+      ...base,
+      fields: { 怎么判断: "先看对方的手。" },
+      existing,
+      editedByUser: true,
+      chapterNumber: 5,
+    })
+    expect(doc.match(/^## 补充/gm)).toHaveLength(1)
+    expect(doc).toContain("旧补充。")
+    expect(doc).toContain("怎么判断：先看对方的手。")
+  })
+})
+
+describe("mergePersonaFields", () => {
+  it("新值为空：保留旧值", () => {
+    const { fields, kept } = mergePersonaFields({ 怎么说话: "句子短。", 怎么想: "先算代价。" }, { 怎么说话: "句子短，爱反问。" })
+    expect(fields).toEqual({ 怎么说话: "句子短，爱反问。", 怎么想: "先算代价。" })
+    expect(kept).toEqual([])
+  })
+
+  it("新值明显比旧值短：视为漏写，保留旧值并报告", () => {
+    const before = "句子短，先问后答；称呼对方一律用全名；生气时反而更客气，尾音拖长。"
+    const { fields, kept } = mergePersonaFields({ 怎么说话: before }, { 怎么说话: "句子短。" })
+    expect(fields.怎么说话).toBe(before)
+    expect(kept).toEqual(["怎么说话"])
+  })
+
+  it("没有旧值时直接采用新值", () => {
+    expect(mergePersonaFields({}, { 知道局限: "不知道沈砚的身份。" }).fields).toEqual({ 知道局限: "不知道沈砚的身份。" })
   })
 })
 
@@ -319,7 +388,7 @@ describe("learnPersonaSkillsFromChapter", () => {
     expect(readSightings()!.sightings).toHaveLength(0)
   })
 
-  it("同一章 5 个人物只调用模型 1 次", async () => {
+  it("同一章 4 个人物合并成 1 次调用；5 个人物分成 2 批", async () => {
     const roles: [string, string][] = [
       ["男主", "甲"], ["女主", "乙"], ["反派", "丙"], ["导师", "丁"], ["主角", "戊"],
     ]
@@ -328,12 +397,43 @@ describe("learnPersonaSkillsFromChapter", () => {
 
     await learnPersonaSkillsFromChapter({
       projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: roles.slice(0, 4).map(([, name]) => name) },
+      llmConfig,
+    })
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+
+    io.files.clear()
+    streamChatMock.mockClear()
+    __resetPersonaSkillRoundsForTesting()
+    for (const [role, name] of roles) roleFile(role, name)
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
       chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: roles.map(([, name]) => name) },
       llmConfig,
     })
-
-    expect(streamChatMock).toHaveBeenCalledTimes(1)
+    expect(streamChatMock).toHaveBeenCalledTimes(2)
     expect(readIndex()!.skills).toHaveLength(5)
+  })
+
+  it("一批失败不影响另一批落盘", async () => {
+    const names = ["甲", "乙", "丙", "丁", "戊"]
+    for (const name of names) roleFile("男主", name)
+    let call = 0
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) => void; onDone: () => void }) => {
+        call += 1
+        if (call === 1) throw new Error("第一批网络错误")
+        callbacks.onToken(JSON.stringify({ skills: [{ name: "戊", fields: { 怎么说话: "戊的语气。" } }] }))
+        callbacks.onDone()
+      },
+    )
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: names },
+      llmConfig,
+    })
+    expect(readIndex()!.skills.map((item) => item.characterName)).toEqual(["戊"])
   })
 
   it("次要人物第一次出场不建档，第二次才建档", async () => {
@@ -521,7 +621,7 @@ describe("learnPersonaSkillsFromChapter", () => {
     const doc = io.files.get(`${project}/.qmai/persona-skills/林清越/SKILL.md`)!
     expect(doc).toContain("用户亲手写的句子。")
     expect(doc).toContain("AI 本次的新观察。")
-    expect(doc).toContain("## 补充（第 3 章）")
+    expect(doc).toContain("## 补充（截至第 3 章）")
     expect(readIndex()!.skills[0].editedByUser).toBe(true)
   })
 
@@ -673,7 +773,7 @@ describe("人物 Skill 审查修复：并发保存、确定性记账、回填旧
     const document = io.files.get(`${project}/.qmai/persona-skills/林清越/SKILL.md`)!
     // 用户那句话必须还在（原实现会整份丢掉，只剩「本章新观察。」）
     expect(document).toContain("用户亲手改的句子。")
-    expect(document).toContain("## 补充（第 2 章）")
+    expect(document).toContain("## 补充（截至第 2 章）")
     // 护栏不能一起丢，否则下一次还会覆盖
     expect(readIndex()!.skills[0].editedByUser).toBe(true)
   })
@@ -1157,6 +1257,146 @@ describe("人物 Skill 学习完成的弹窗触发", () => {
     // 同一轮里「学习失败」那条通道必须照常亮起（否则用户什么都看不到）
     expect(storeMock.setPersonaSkillLearningError).toHaveBeenCalled()
     expect(storeMock.setPersonaSkillCompletion).not.toHaveBeenCalled()
+  })
+})
+
+/*
+ * 「完善一次档案就退化成本章残片」的回归组。
+ *
+ * 旧实现：refine 提示词要模型「只补本章新增」「看不出来给空字符串」，落盘却按整格替换，
+ * 于是每完善一次，本章没体现的字段就消失。
+ */
+describe("人物 Skill 完善：合并而不是覆盖", () => {
+  const docPath = `${project}/.qmai/persona-skills/林清越/SKILL.md`
+  const fullDoc = [
+    "# 林清越 · 人物 Skill",
+    "",
+    "## 怎么说话",
+    "",
+    "句子短，先问后答。",
+    "",
+    "## 怎么想",
+    "",
+    "先算代价，再算人情。",
+    "",
+    "## 怎么判断",
+    "",
+    "看人先看手。",
+    "",
+    "## 什么不做",
+    "",
+    "不拿无辜者交换。",
+    "",
+    "## 知道局限",
+    "",
+    "不知道沈砚的真实身份。",
+    "",
+  ].join("\n")
+
+  beforeEach(() => {
+    io.files.clear()
+    streamChatMock.mockReset()
+    __resetPersonaSkillRoundsForTesting()
+  })
+
+  it("模型只给了一个字段、其余为空：旧字段全部保留", async () => {
+    roleFile("男主", "林清越")
+    seedIndex([{ characterName: "林清越", lastChapter: 2, appearanceCount: 2, lastLearnedChapter: 2 }])
+    io.files.set(docPath, fullDoc)
+    reply([{
+      name: "林清越",
+      fields: { 怎么说话: "句子短，先问后答；被逼急了会连说三个「好」。", 怎么想: "", 怎么判断: "", 什么不做: "", 知道局限: "" },
+    }])
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 3, chapterBody: "第三章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    const doc = io.files.get(docPath)!
+    expect(doc).toContain("被逼急了会连说三个「好」")
+    expect(doc).toContain("先算代价，再算人情。")
+    expect(doc).toContain("看人先看手。")
+    expect(doc).toContain("不拿无辜者交换。")
+    expect(doc).toContain("不知道沈砚的真实身份。")
+  })
+
+  it("覆盖前把旧版存进历史快照", async () => {
+    roleFile("男主", "林清越")
+    seedIndex([{ characterName: "林清越", lastChapter: 2, appearanceCount: 2, lastLearnedChapter: 2, skillRevision: 4 }])
+    io.files.set(docPath, fullDoc)
+    reply([{ name: "林清越", fields: { 怎么说话: "句子短，先问后答，偶尔冷笑。" } }])
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 3, chapterBody: "第三章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+
+    expect(io.files.get(`${project}/.qmai/persona-skills/林清越/references/history/r000004.md`)).toBe(fullDoc)
+  })
+
+  it("并发触发的两轮排队串行：旧章晚到不会把 lastChapter 拨回去", async () => {
+    roleFile("男主", "林清越")
+    seedIndex([{ characterName: "林清越", lastChapter: 1, appearanceCount: 1, lastLearnedChapter: 1 }])
+    io.files.set(docPath, fullDoc)
+    let running = 0
+    let maxRunning = 0
+    streamChatMock.mockImplementation(
+      async (_c: unknown, _m: unknown, callbacks: { onToken: (t: string) => void; onDone: () => void }) => {
+        running += 1
+        maxRunning = Math.max(maxRunning, running)
+        await new Promise((resolve) => setTimeout(resolve, 5))
+        callbacks.onToken(JSON.stringify({ skills: [{ name: "林清越", fields: { 怎么说话: "句子短，先问后答，偶尔冷笑。" } }] }))
+        callbacks.onDone()
+        running -= 1
+      },
+    )
+
+    const third = learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 3, chapterBody: "第三章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+    const second = learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 2, chapterBody: "第二章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+    await Promise.all([third, second])
+
+    expect(maxRunning).toBe(1)
+    const meta = readIndex()!.skills[0]
+    expect(meta.lastChapter).toBe(3)
+    expect(meta.lastLearnedChapter).toBe(3)
+  })
+
+  it("建档时带上候选池记录的此前出场章节素材", async () => {
+    roleFile("配角", "沈砚")
+    io.files.set(
+      `${project}/wiki/chapters/chapter-001.md`,
+      "---\nchapter_number: 1\n---\n\n院子里很静。\n\n沈砚低声说：「先记账，再算人。」\n",
+    )
+    reply([{ name: "沈砚", fields: { 怎么说话: "句尾常带「吧」。" } }])
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "沈砚低声说：「先记账，再算人。」", characters: ["沈砚"] },
+      llmConfig,
+    })
+    expect(streamChatMock).not.toHaveBeenCalled()
+
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 2, chapterBody: "第二章，沈砚没说话。", characters: ["沈砚"] },
+      llmConfig,
+    })
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+    const messages = streamChatMock.mock.calls[0][1] as Array<{ role: string; content: string }>
+    const user = messages.find((message) => message.role === "user")!.content
+    expect(user).toContain("此前出场的相关段落（第 1 章）")
+    expect(user).toContain("先记账，再算人。")
   })
 })
 

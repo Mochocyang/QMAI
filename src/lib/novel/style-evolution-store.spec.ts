@@ -263,6 +263,20 @@ describe("save / load 往返", () => {
     expect(loaded.rounds[0].sourceBook).toBe("我的文风 · 自动进化 · 第 1 轮")
   })
 
+  it("lastSampledChapterKeys 往返；坏值被丢掉、超长截到最近 50 个", async () => {
+    const keys = Array.from({ length: 60 }, (_, i) => `chapter-${i}.md:100`)
+    await saveStyleEvolutionState(PROJECT, { ...emptyState(), lastSampledChapterKeys: keys })
+    const loaded = await loadStyleEvolutionState(PROJECT)
+    expect(loaded.lastSampledChapterKeys).toHaveLength(50)
+    expect(loaded.lastSampledChapterKeys[49]).toBe("chapter-59.md:100")
+
+    mem.set(STORE_FILE, JSON.stringify({ ...emptyState(), lastSampledChapterKeys: ["a", 3, null, "", "b"] }))
+    expect((await loadStyleEvolutionState(PROJECT)).lastSampledChapterKeys).toEqual(["a", "b"])
+
+    mem.set(STORE_FILE, JSON.stringify({ ...emptyState(), lastSampledChapterKeys: "坏" }))
+    expect((await loadStyleEvolutionState(PROJECT)).lastSampledChapterKeys).toEqual([])
+  })
+
   it("写到 <项目>/.qmai/style-evolution.json", async () => {
     await saveStyleEvolutionState(PROJECT, emptyState())
     expect(mem.has(STORE_FILE)).toBe(true)

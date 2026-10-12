@@ -104,10 +104,13 @@ export function renderPersonaSkillBlock(meta: PersonaSkillMeta, document: string
     if (!value) continue
     parts.push(`${field}：${truncate(value, PERSONA_INJECT_FIELD_CHARS)}`)
   }
+  // 新档案只有一个补充段；老档案可能还留着多个「补充（第 N 章）」。
+  // 倒序拼接，截断时先丢最早的，而不是把最新的观察截掉。
   const supplements = [...sections.entries()]
     .filter(([heading]) => heading.startsWith(PERSONA_SUPPLEMENT_HEADING))
     .map(([, value]) => value.replace(/\s*\n\s*/g, " ").trim())
     .filter(Boolean)
+    .reverse()
   if (supplements.length > 0) {
     const joined = truncate(supplements.join(" "), PERSONA_INJECT_FIELD_CHARS)
     parts.push(`${PERSONA_SUPPLEMENT_HEADING}：${joined}`)

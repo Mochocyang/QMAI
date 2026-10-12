@@ -46,6 +46,26 @@ export const PERSONA_MINOR_REFINE_APPEARANCE = 3
 export const PERSONA_DORMANT_GAP_CHAPTERS = 10
 export const PERSONA_ARCHIVED_GAP_CHAPTERS = 30
 
+/** 一次模型调用最多处理几个人物：人数一多，每个人分到的注意力和输出长度都会被稀释。 */
+export const PERSONA_SKILL_BATCH_SIZE = 4
+
+/**
+ * 完善时的字段护栏：新值短于旧值的这个比例，视为模型漏写，保留旧值。
+ * 完善要求输出「合并后的完整内容」，正常情况下只会变长或略微压缩。
+ */
+export const PERSONA_FIELD_SHRINK_RATIO = 0.4
+/** 提示词里每个字段的长度上限（合并后）。 */
+export const PERSONA_FIELD_MAX_CHARS = 300
+/** 手改档案唯一「补充」段的长度上限。 */
+export const PERSONA_SUPPLEMENT_MAX_CHARS = 600
+
+/** 建档时额外参考的、此前出场过的章节数。 */
+export const PERSONA_PRIOR_EVIDENCE_CHAPTERS = 3
+
+/** SKILL.md 被覆盖前的版本快照目录与保留份数。 */
+export const PERSONA_SKILL_HISTORY_DIR = "references/history"
+export const PERSONA_SKILL_HISTORY_KEEP = 5
+
 /** 注入上限（D5）。 */
 export const PERSONA_INJECT_MAX_SKILLS = 12
 export const PERSONA_INJECT_CHAR_BUDGET = 4000

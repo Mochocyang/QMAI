@@ -1,7 +1,9 @@
-import { createDirectory, fileExists, listDirectory, readFile, writeFileAtomic } from "@/commands/fs"
+import { createDirectory, deleteFile, fileExists, listDirectory, readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizeComparablePath, normalizePath } from "@/lib/path-utils"
 import {
   PERSONA_SKILL_DOCUMENT_FILE,
+  PERSONA_SKILL_HISTORY_DIR,
+  PERSONA_SKILL_HISTORY_KEEP,
   PERSONA_SKILL_INDEX_FILE,
   PERSONA_SKILL_RESEARCH_DIR,
   PERSONA_SKILL_SIGHTINGS_FILE,
@@ -344,6 +346,83 @@ export async function writePersonaSkillResearch(
   return paths
 }
 
+export function personaSkillHistoryDirectory(projectPath: string, id: string): string {
+  return `${personaSkillDirectory(projectPath, id)}/${PERSONA_SKILL_HISTORY_DIR}`
+}
+
+const HISTORY_FILE = /^r(\d+)\.md$/
+
+/** 历史快照文件名，按版本号从旧到新排好。 */
+export async function listPersonaSkillRevisions(projectPath: string, id: string): Promise<string[]> {
+  let nodes
+  try {
+    nodes = await listDirectory(personaSkillHistoryDirectory(projectPath, id), {
+      includeHidden: false,
+      maxDepth: 1,
+    })
+  } catch {
+    return []
+  }
+  return nodes
+    .filter((node) => !node.is_dir && HISTORY_FILE.test(node.name))
+    .map((node) => node.name)
+    .sort((a, b) => Number(a.match(HISTORY_FILE)![1]) - Number(b.match(HISTORY_FILE)![1]))
+}
+
+/**
+ * SKILL.md 被覆盖前，把旧版存成 `references/history/r<版本号>.md`，只留最近几份。
+ * 调用方必须已经持有 withPersonaSkillLock（这里不取锁）。
+ */
+export async function snapshotPersonaSkillRevision(
+  projectPath: string,
+  id: string,
+  revision: number,
+  document: string,
+): Promise<void> {
+  if (!document.trim()) return
+  const dir = personaSkillHistoryDirectory(projectPath, id)
+  await createDirectory(dir)
+  const safeRevision = Math.max(0, Math.floor(revision))
+  await writeFileAtomic(`${dir}/r${String(safeRevision).padStart(6, "0")}.md`, document)
+  const revisions = await listPersonaSkillRevisions(projectPath, id)
+  for (const name of revisions.slice(0, Math.max(0, revisions.length - PERSONA_SKILL_HISTORY_KEEP))) {
+    try {
+      await deleteFile(`${dir}/${name}`)
+    } catch {
+      // 清不掉旧快照不影响本次写入
+    }
+  }
+}
+
+/**
+ * 回退到最近一份快照：快照内容写回 SKILL.md，并从历史里移除这一份（连续回退会逐份往前）。
+ * 没有快照时返回 null。
+ */
+export async function restorePersonaSkillRevision(
+  projectPath: string,
+  id: string,
+): Promise<{ index: PersonaSkillIndex; document: string } | null> {
+  return withPersonaSkillLock(personaSkillLockKey(projectPath), async () => {
+    const revisions = await listPersonaSkillRevisions(projectPath, id)
+    const latest = revisions[revisions.length - 1]
+    if (!latest) return null
+    const path = `${personaSkillHistoryDirectory(projectPath, id)}/${latest}`
+    const document = await readFile(path)
+    const index = (await loadPersonaSkillIndexStrict(projectPath)) ?? { version: 1, skills: [] }
+    await writePersonaSkillDocument(projectPath, id, document)
+    await deleteFile(path)
+    const updatedAt = new Date().toISOString()
+    const next: PersonaSkillIndex = {
+      version: 1,
+      skills: index.skills.map((item) =>
+        item.id === id ? { ...item, skillRevision: item.skillRevision + 1, updatedAt } : item,
+      ),
+    }
+    await savePersonaSkillIndex(projectPath, next)
+    return { index: next, document }
+  })
+}
+
 /**
  * 按 key 串行的互斥锁。同一章的两次并发摄取、或「学习」与「用户在 UI 上点绿勾」
  * 同时改 index.json 时，靠它保证读-改-写不互相覆盖。
@@ -461,6 +540,11 @@ export async function savePersonaSkillDocumentByUser(
 ): Promise<PersonaSkillIndex> {
   return withPersonaSkillLock(personaSkillLockKey(projectPath), async () => {
     const index = (await loadPersonaSkillIndexStrict(projectPath)) ?? { version: 1, skills: [] }
+    const meta = index.skills.find((item) => item.id === id)
+    const previous = await readPersonaSkillDocument(projectPath, id)
+    if (meta && previous.trim() && previous !== content) {
+      await snapshotPersonaSkillRevision(projectPath, id, meta.skillRevision, previous)
+    }
     await writePersonaSkillDocument(projectPath, id, content)
     const updatedAt = new Date().toISOString()
     const next: PersonaSkillIndex = {
