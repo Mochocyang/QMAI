@@ -7,6 +7,19 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_THREE_THREE_CHANGELOG: ChangelogEntry = {
+  version: "4.3.3",
+  date: "2026-10-13",
+  highlights: {
+    en: [
+      "Fixed an issue that prevented the app from launching on some computers.",
+    ],
+    zh: [
+      "修复了部分电脑无法启动的问题",
+    ],
+  },
+};
+
 const FOUR_POINT_THREE_TWO_CHANGELOG: ChangelogEntry = {
   version: "4.3.2",
   date: "2026-10-13",
@@ -1926,6 +1939,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_THREE_THREE_CHANGELOG.version)
+    return [FOUR_POINT_THREE_THREE_CHANGELOG];
   if (version === FOUR_POINT_THREE_TWO_CHANGELOG.version)
     return [FOUR_POINT_THREE_TWO_CHANGELOG];
   if (version === FOUR_POINT_THREE_ONE_CHANGELOG.version)
@@ -2095,6 +2110,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_THREE_THREE_CHANGELOG,
     FOUR_POINT_THREE_TWO_CHANGELOG,
     FOUR_POINT_THREE_ONE_CHANGELOG,
     FOUR_POINT_THREE_ZERO_CHANGELOG,

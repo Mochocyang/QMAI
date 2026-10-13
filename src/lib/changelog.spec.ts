@@ -6,7 +6,15 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 5)).toEqual(["4.3.2", "4.3.1", "4.3.0", "4.2.1", "4.2.0"])
+    expect(versions.slice(0, 5)).toEqual(["4.3.3", "4.3.2", "4.3.1", "4.3.0", "4.2.1"])
+    const release433 = currentVersionChangelog("4.3.3")[0]
+    expect(release433.version).toBe("4.3.3")
+    expect(release433.date).toBe("2026-10-13")
+    // 这一版刻意只留一条：兼容性修复（部分电脑无法启动），其余暂不写
+    expect(release433.highlights.zh).toHaveLength(1)
+    expect(release433.highlights.zh[0]).toContain("无法启动")
+    expect(release433.highlights.en).toHaveLength(1)
+    expect(release433.highlights.en[0]).toContain("launching on some computers")
     const release432 = currentVersionChangelog("4.3.2")[0]
     expect(release432.version).toBe("4.3.2")
     expect(release432.date).toBe("2026-10-13")
