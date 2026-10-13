@@ -179,7 +179,21 @@ describe("舞台情景 · 主视图接线", () => {
     expect(src).toContain("scenarioSoulNonce")
     // 光有 nonce 变量不够：它必须真出现在加载 effect 的依赖数组里，
     // 否则绑定成功后不会重读名单，卡片上的灵魂名永远不刷新。
-    expect(src).toContain("[phase, projectPath, scenarioSoulNonce]")
+    // 判据是「三项在同一个依赖数组里」，不是整串字面量：换个顺序语义完全一样，
+    // 不该判红；少一项必须红。
+    const depArray = src
+      .match(/\[[^[\]]*\]\);/g)
+      ?.find(
+        (s) =>
+          s.includes("phase") &&
+          s.includes("projectPath") &&
+          s.includes("scenarioSoulNonce"),
+      )
+    expect(depArray).toBeTruthy()
+    // 迟到回来的旧请求必须被丢弃：换了项目或阶段后，旧数据写进去会把刚绑好的
+    // 灵魂名又覆盖掉。这条守卫在行为用例里没有覆盖（视图层挂载成本高），
+    // 所以在这里钉住 —— 删掉它不会让任何用例变红，只能靠这条守住。
+    expect(src).toContain("if (cancelled) return;")
     // 流式气泡要认得出是哪个角色，才能上头像与专属配色
     expect(src).toContain("speakerId: info.speakerId")
   })

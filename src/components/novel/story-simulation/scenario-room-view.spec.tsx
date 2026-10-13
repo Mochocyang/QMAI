@@ -632,4 +632,34 @@ describe("ScenarioRoomView · 历史情景缺 speakerId", () => {
     expect(bgOf(bubbleAvatars[1])).toEqual(expectedBg)
     expect(bgOf(bubbleAvatars[0])).toEqual(expectedBg)
   })
+
+  it("speakerId 是空串或纯空白（手工改坏的脏数据）也按 speakerName 兜底", () => {
+    // 空串与纯空白都是真值，`??` 兜不住它们；不兜的话这两个气泡会一起落到
+    // 色板第 0 位，和成员条上同一个角色不同色。
+    const dirty = ["", "   "].map((speakerId, i) => ({
+      id: `dirty-${i}`,
+      kind: "character" as const,
+      speakerId,
+      speakerName: "甲",
+      round: 1,
+      content: `脏数据 ${i}。`,
+      timestamp: "2026-10-11T00:00:00.000Z",
+    })) as ScenarioMessage[]
+
+    render(session([...dirty, msg({ speakerId: "甲", speakerName: "甲" })]))
+
+    const expectedBg = bgOf(
+      memberChip("甲")?.querySelector('[data-testid="scenario-avatar"]'),
+    )
+    // 前提与上一条同：甲本来就不在第 0 位，否则「兜底生效」无从判别
+    expect(expectedBg).not.toEqual(tone0Bg())
+
+    const bubbleAvatars = container.querySelectorAll(
+      '[data-testid="scenario-bubble"] [data-testid="scenario-avatar"]',
+    )
+    expect(bubbleAvatars.length).toBe(3)
+    for (const avatar of Array.from(bubbleAvatars)) {
+      expect(bgOf(avatar)).toEqual(expectedBg)
+    }
+  })
 })

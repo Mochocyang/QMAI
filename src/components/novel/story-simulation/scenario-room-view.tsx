@@ -296,8 +296,10 @@ export function ScenarioRoomView({
               message={{
                 id: "__streaming__",
                 kind: streaming.kind,
-                // 引擎本来就给了 speakerId，只是以前拿名字顶替；现在优先用真 id
-                speakerId: streaming.speakerId ?? streaming.speakerName,
+                // 引擎本来就给了 speakerId，只是以前拿名字顶替；现在优先用真 id。
+                // 用 trim + || 而不是 ??：空串与纯空白都是真值，?? 兜不住它们，
+                // 会让这个气泡落到位板第 0 号色，和成员条上同一个角色不同色。
+                speakerId: streaming.speakerId?.trim() || streaming.speakerName,
                 speakerName: streaming.speakerName,
                 round: 0,
                 content: streaming.content,
@@ -393,7 +395,9 @@ function MessageBubble({
     的颜色会与成员条不一致，需要在那时重新审视（例如迁移旧数据补 speakerId）。
   */
   const tone = scenarioSpeakerTone(
-    message.speakerId ?? message.speakerName,
+    // trim + || 而不是 ??：空串与纯空白都是真值，?? 兜不住，会让脏数据气泡
+    // 落到位板第 0 号色，和成员条上同一个角色不同色。
+    message.speakerId?.trim() || message.speakerName,
     isModerator,
   )
 
