@@ -156,6 +156,17 @@ export function ScenarioRoomView({
             {session.setup.participants.map((p) => {
               const tone = scenarioSpeakerTone(p.id, Boolean(p.isModerator))
               const active = running && streaming?.speakerId === p.id
+              /*
+                灵魂小字：规格要求成员徽章是「头像 + 名字 + 灵魂小字」。
+                灵魂名本身就是数据（participants[].auraName 由
+                candidateToParticipant 从候选带进来），直接显示即可，
+                不新增文案 key、不加前缀。
+
+                未绑定（null / undefined / 空串 / 只有空白）时整块不渲染 ——
+                留一个空 span 会在名字后面拖出一段空白。也刻意不做成可点的样子：
+                绑定入口在设置面板，这里只是展示。
+              */
+              const soulName = String(p.auraName ?? "").trim()
               return (
                 <span
                   key={p.id}
@@ -178,6 +189,14 @@ export function ScenarioRoomView({
                     {scenarioAvatarInitial(p.name)}
                   </span>
                   <span className={cn("font-medium", tone.nameClass)}>{p.name}</span>
+                  {soulName && (
+                    <span
+                      data-testid="scenario-member-soul"
+                      className="text-[0.625rem] text-muted-foreground"
+                    >
+                      {soulName}
+                    </span>
+                  )}
                   {p.isModerator && (
                     <span className="text-muted-foreground">
                       ({t("storySimulation.scenarioModeratorBadge")})
@@ -355,8 +374,28 @@ function MessageBubble({
 
   const isUser = message.kind === "user"
   const isModerator = message.kind === "moderator"
-  // 主持人拿固定主色，角色按 speakerId 稳定散列到一个专属色
-  const tone = scenarioSpeakerTone(message.speakerId, isModerator)
+  /*
+    主持人拿固定主色，角色按 speakerId 稳定散列到一个专属色。
+
+    缺 speakerId 时按 speakerName 兜底（规格「边界与错误处理」第 531 行：
+    历史情景旧数据没有 speakerId，可选字段缺省时按 speakerName 兜底取配色、
+    不报错）。不兜底的话散列拿到空串会恒落色板第 0 位：所有老气泡撞成同一个
+    颜色，且与成员条上按 p.id 配色的同一个人不同色，违反「同一角色颜色保持不变」。
+
+    这样与上面流式气泡那一处（`streaming.speakerId ?? streaming.speakerName`）
+    口径一致：历史消息与流式气泡走同一条取色路径。
+
+    今天 id 与名字恰好相等（story-extractor 的 character.id 直接来自 name），
+    所以兜底值与成员条的 p.id 配色对得上。将来两者分家时：带真 speakerId 的
+    消息不受影响，只有「连 speakerId 都没有」的老数据会退化成按名字取色 ——
+    那种老数据本来也无从得知 id，能保住「同名的老气泡彼此同色、且与成员条
+    同名的那位同色」就是能给的最好结果；但若届时名字与 id 不一致，这类老气泡
+    的颜色会与成员条不一致，需要在那时重新审视（例如迁移旧数据补 speakerId）。
+  */
+  const tone = scenarioSpeakerTone(
+    message.speakerId ?? message.speakerName,
+    isModerator,
+  )
 
   return (
     <div

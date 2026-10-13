@@ -86,6 +86,14 @@ let container: HTMLDivElement
 let root: Root
 let onContinue: ReturnType<typeof vi.fn<() => void>>
 
+/** 换掉顶层 setup 里的参与者名单（成员条相关用例共用）。 */
+function withParticipants(
+  s: ScenarioSession,
+  participants: ScenarioSetup["participants"],
+): ScenarioSession {
+  return { ...s, setup: { ...s.setup, participants } }
+}
+
 function render(
   s: ScenarioSession,
   over: {
@@ -306,8 +314,40 @@ function memberChip(speakerId: string): HTMLElement | null {
   return findBySpeakerId("scenario-member", speakerId)
 }
 
+/** 成员徽章里的灵魂小字；未绑定灵魂时整个元素不存在。 */
+function soulOf(chip: HTMLElement | null): Element | null {
+  return chip?.querySelector('[data-testid="scenario-member-soul"]') ?? null
+}
+
 function avatarOf(speakerId: string): HTMLElement | null {
   return findBySpeakerId("scenario-avatar", speakerId)
+}
+
+/**
+ * 从 className 里取底色类名。
+ *
+ * 只比 bg-*：成员条头像 h-4、气泡头像 h-7，尺寸类名本来就不同，
+ * 要比的是「同一个角色是不是同一个颜色」。
+ */
+function bgOf(el: Element | null | undefined): string[] {
+  return (el?.className ?? "")
+    .split(/\s+/)
+    .filter((c) => c.startsWith("bg-"))
+    .sort()
+}
+
+/**
+ * 色板第 0 位的底色。
+ *
+ * 它同时是「seed 缺失」的落点：scenarioSpeakerTone(undefined) 内部把
+ * 空串拿去散列，结果恒为下标 0。用它证明某条用例的期望色不在第 0 位 ——
+ * 否则「兜底生效」会被「兜底前后恰好同色」蒙混过去。
+ */
+function tone0Bg(): string[] {
+  return SCENARIO_SPEAKER_TONES[0].avatarClass
+    .split(/\s+/)
+    .filter((c) => c.startsWith("bg-"))
+    .sort()
 }
 
 /**
@@ -401,14 +441,27 @@ describe("ScenarioRoomView · 群聊在场感", () => {
     // 换成遍历比较只是测试侧的健壮性，断言不变，产品行为也没有任何改变。
     const bubbleAvatar = bubbleAvatarOf("甲")
     expect(bubbleAvatar).not.toBeNull()
-    // 两处的尺寸类名不同（成员条 h-4、气泡 h-7），只比底色
-    const bgOf = (el: Element | null | undefined) =>
-      (el?.className ?? "")
-        .split(/\s+/)
-        .filter((c) => c.startsWith("bg-"))
-        .sort()
+    // 两处的尺寸类名不同（成员条 h-4、气泡 h-7），只比底色（bgOf 见文件上方）
     expect(bgOf(bubbleAvatar).length).toBeGreaterThan(0)
     expect(bgOf(bubbleAvatar)).toEqual(bgOf(chipAvatar))
+  })
+
+  it("同场两个不同角色拿到不同颜色（配色不是全房间一个色）", () => {
+    // 把 scenario-avatar 的 `hash % LEN` 恒定化（所有人同色）后，本文件原本
+    // 23 条全绿：房间视图里没有一条用例守着「真的按各自的 id 散列出不同色」。
+    // 按当前色板，甲落下标 2、乙落 1 —— 两者必须不同色。
+    render(
+      withParticipants(session([msg({})]), [
+        { id: "甲", name: "甲", isModerator: false },
+        { id: "乙", name: "乙", isModerator: false },
+      ]),
+    )
+
+    const first = avatarOf("甲")
+    const second = avatarOf("乙")
+    expect(first).not.toBeNull()
+    expect(second).not.toBeNull()
+    expect(bgOf(first)).not.toEqual(bgOf(second))
   })
 
   it("角色气泡带自己的首字头像", () => {
@@ -484,5 +537,99 @@ describe("ScenarioRoomView · 群聊在场感", () => {
     expect(bubble?.textContent).toContain("甲某")
     // 成员条上高亮的仍然应该是 id 为「甲」的那位
     expect(memberChip("甲")?.getAttribute("data-active")).toBe("true")
+  })
+})
+
+/**
+ * 规格（2026-10-12-scenario-redesign-design.html:435）要求成员徽章是
+ * 「圆形头像（名字首字）+ 名字 + 灵魂小字」，主持人带徽标。
+ *
+ * 灵魂名本身就是数据：participants[].auraName 由 candidateToParticipant
+ * 从候选带进来，所以直接显示即可 —— 不新增文案 key、不加「灵魂：」前缀。
+ */
+describe("ScenarioRoomView · 成员条的灵魂小字", () => {
+  it("绑了灵魂的成员在自己的徽章里带出灵魂名", () => {
+    render(
+      withParticipants(session([msg({})]), [
+        { id: "甲", name: "甲", isModerator: false, auraName: "游侠" },
+        { id: "乙", name: "乙", isModerator: false, auraName: "账房先生" },
+      ]),
+    )
+
+    const chipA = memberChip("甲")
+    const chipB = memberChip("乙")
+    expect(chipA).not.toBeNull()
+    expect(chipB).not.toBeNull()
+    // 断言限定在「各自的徽章内」：两个角色都绑了灵魂，全局 toContain 分不清是谁的
+    expect(soulOf(chipA)?.textContent).toBe("游侠")
+    expect(soulOf(chipB)?.textContent).toBe("账房先生")
+    expect(chipA?.textContent).not.toContain("账房先生")
+    expect(chipB?.textContent).not.toContain("游侠")
+    // 灵魂小字是纯展示：绑定入口在设置面板，这里不能长成可点的样子
+    expect(soulOf(chipA)?.tagName).toBe("SPAN")
+    expect(soulOf(chipA)?.getAttribute("role")).toBeNull()
+  })
+
+  it("没绑灵魂的成员不渲染任何灵魂小字（连空壳都不留）", () => {
+    render(
+      withParticipants(session([msg({})]), [
+        { id: "甲", name: "甲", isModerator: false, auraName: null },
+        // 空串与「键整个不存在」都要覆盖：旧会话里三种都可能出现
+        { id: "乙", name: "乙", isModerator: false, auraName: "" },
+        { id: "丙", name: "丙", isModerator: false },
+      ]),
+    )
+
+    for (const id of ["甲", "乙", "丙"]) {
+      const chip = memberChip(id)
+      expect(chip).not.toBeNull()
+      // 「没渲染」与「渲染了一个空的」是两回事：数元素，别数文字
+      expect(
+        chip?.querySelectorAll('[data-testid="scenario-member-soul"]').length,
+      ).toBe(0)
+      expect(chip?.textContent).not.toContain("null")
+      expect(chip?.textContent).not.toContain("undefined")
+    }
+  })
+})
+
+/**
+ * 规格（同上 :531）：历史情景（旧数据没有 speakerId）→ 可选字段缺省时按
+ * speakerName 兜底取配色，不报错。
+ *
+ * scenario-store 的加载只校验「messages 是数组」，不逐条校验字段，
+ * 所以旧会话里 speakerId 这个键可能整个不存在。
+ */
+describe("ScenarioRoomView · 历史情景缺 speakerId", () => {
+  it("缺 speakerId 的气泡按 speakerName 兜底取色，与同角色的正常气泡同色", () => {
+    // 显式造一条「键整个不存在」的旧消息：类型上 speakerId 是必填的，
+    // 这里如实模拟从磁盘读回来的老数据。
+    const legacy = {
+      id: "legacy-1",
+      kind: "character",
+      speakerName: "甲",
+      round: 1,
+      content: "旧数据：天命之谓性。",
+      timestamp: "2026-10-11T00:00:00.000Z",
+    } as ScenarioMessage
+
+    render(session([legacy, msg({ speakerId: "甲", speakerName: "甲" })]))
+
+    const bubbleAvatars = container.querySelectorAll(
+      '[data-testid="scenario-bubble"] [data-testid="scenario-avatar"]',
+    )
+    expect(bubbleAvatars.length).toBe(2)
+
+    // 期望色取自成员条上的同一个人：规格要的是「同一角色颜色保持不变」
+    const expectedBg = bgOf(
+      memberChip("甲")?.querySelector('[data-testid="scenario-avatar"]'),
+    )
+    // 前提：甲本来就不落在色板第 0 位 —— 否则「兜底生效」会被
+    // 「兜底前后恰好同色」蒙混过去（第 0 位正是 seed 缺失时的落点）
+    expect(expectedBg).not.toEqual(tone0Bg())
+
+    // 顺序即消息顺序：第 0 条是缺 speakerId 的老数据
+    expect(bgOf(bubbleAvatars[1])).toEqual(expectedBg)
+    expect(bgOf(bubbleAvatars[0])).toEqual(expectedBg)
   })
 })
