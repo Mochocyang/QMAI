@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, vi } from "vitest"
 import { mergePageContent } from "./page-merge"
+import { parseFrontmatter } from "./frontmatter"
 
 const PAGE = (fm: string, body: string) => `---\n${fm}\n---\n\n${body}`
 
@@ -129,6 +130,58 @@ describe("mergePageContent — LLM merge", () => {
     const out = await mergePageContent(incoming, existing, merger, baseOpts)
     expect(out).toContain("type: entity")
     expect(out).not.toContain("type: concept")
+  })
+
+  it("锁回的原值含冒号时必须加引号，否则写出去的 YAML 自己读不回来", async () => {
+    // 真实来源：ingest.ts 的兜底摘要页写的是
+    //   title: "Source: 文件名"
+    // 这个值天然含 ": "（ASCII 冒号 + 空格），而 YAML 的裸标量不允许出现它。
+    // 锁回 title 时若原样拼 `title: ${value}`，磁盘上就留下一个解析不了的
+    // 文件 —— 页面标题、正文、乃至整个 frontmatter 全部读不回来。
+    const existing = PAGE(
+      'type: source\ntitle: "Source: doc-A.pdf"',
+      "旧的来源摘要正文，长度足够。",
+    )
+    const incoming = PAGE(
+      'type: source\ntitle: "Source: doc-B.pdf"',
+      "另一份来源的摘要正文，长度足够，不会被当成截断。",
+    )
+    const merger = vi.fn().mockResolvedValue(
+      PAGE(
+        'type: source\ntitle: "Source: doc-B.pdf"',
+        "两份来源合并后的摘要正文，长度足够，不会被当成截断，并且明显更长一些。",
+      ),
+    )
+    const out = await mergePageContent(incoming, existing, merger, baseOpts)
+
+    // 用「写盘后会被真读一遍」的同一个解析器验收：写得出去，就必须读得回来
+    expect(parseFrontmatter(out).frontmatter?.title).toBe("Source: doc-A.pdf")
+  })
+
+  it("普通值（标识符 / ISO 日期 / 数字）仍然不加引号，写法与以前逐字一致", async () => {
+    // 加引号只应为「不加就写坏」服务。这条用例是护栏：证明修复没有顺手
+    // 把正常的 frontmatter 全部改成带引号的写法。
+    const existing = PAGE(
+      "type: entity\ntitle: Foo\ncreated: 2026-04-09\nchapter_number: 12",
+      "旧的正文内容。",
+    )
+    const incoming = PAGE(
+      "type: entity\ntitle: Foo\ncreated: 2026-04-09\nchapter_number: 12",
+      "另一份正文内容，长度足够，不会被当成截断。",
+    )
+    const merger = vi.fn().mockResolvedValue(
+      PAGE(
+        'type: entity\ntitle: "LLM 想改的名字"\ncreated: 2026-01-01\nchapter_number: 99',
+        "合并后的正文内容，长度足够，不会被当成截断，并且明显更长一些。",
+      ),
+    )
+    const out = await mergePageContent(incoming, existing, merger, baseOpts)
+
+    expect(out).toContain("title: Foo\n")
+    expect(out).toContain("created: 2026-04-09\n")
+    expect(out).toContain("chapter_number: 12\n")
+    expect(out).not.toContain('"Foo"')
+    expect(out).not.toContain('"2026-04-09"')
   })
 })
 

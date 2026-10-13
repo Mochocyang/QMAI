@@ -207,11 +207,13 @@ function defaultToday(): string {
  * Keeps the rest of the document unchanged. Returns content
  * unchanged if it has no frontmatter at all.
  *
- * Quoting: the value is written verbatim; the caller is
- * responsible for quoting if the value contains characters that
- * would otherwise break YAML parsing (`:` etc). Today's callers
- * pass plain identifiers and ISO dates so this hasn't been an
- * issue.
+ * Quoting: `value` comes from a previously *parsed* page, so it can
+ * be any string a user or model put there — not just a plain
+ * identifier. It is re-serialized through `serializeScalar`, which
+ * adds double quotes only when a YAML plain scalar couldn't carry
+ * the value (see `needsYamlQuoting`). The common cases — plain
+ * identifiers and ISO dates like `created: 2026-04-09` — are written
+ * byte-identically to before.
  */
 function setFrontmatterScalar(
   content: string,
@@ -222,7 +224,7 @@ function setFrontmatterScalar(
   if (!fmMatch) return content
   const [, openDelim, fmBody, closeDelim] = fmMatch
   const escapedName = fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const newLine = `${fieldName}: ${value}`
+  const newLine = `${fieldName}: ${serializeScalar(value)}`
 
   // Only match scalar form (no `[`, no `\n  -`). Array-form fields
   // are handled by sources-merge.
@@ -234,4 +236,42 @@ function setFrontmatterScalar(
   // Field absent — append.
   const rewritten = `${fmBody}\n${newLine}`
   return `${openDelim}${rewritten}${closeDelim}${content.slice(fmMatch[0].length)}`
+}
+
+/**
+ * 把值写成 YAML 标量：能当裸标量写就原样写，写不了才加双引号。
+ *
+ * 为什么需要它：`value` 取自**已经解析过**的 frontmatter，可能是用户或模型
+ * 写下的任意字符串。真实事故来源是 ingest 的兜底摘要页 —— 它写的是
+ * `title: "Source: 文件名"`，这个值天然含 `: `（冒号 + 空格），而 YAML 的裸
+ * 标量不允许出现它。锁回 title 时若原样拼成 `title: Source: x`，磁盘上就留下
+ * 一个 `bad indentation of a mapping entry` 的文件：标题、正文乃至整个
+ * frontmatter 全部读不回来（parseFrontmatter 返回 null）。
+ *
+ * 用 JSON.stringify 做转义：YAML 的双引号风格是 JSON 字符串的超集，
+ * `"`、`\`、换行与控制字符都能安全表达，不必自己拼转义表。
+ *
+ * 刻意**不**处理「看起来像数字/日期」的值：仓库里解析用的是
+ * `yaml.JSON_SCHEMA`，`2026-04-09`、`12` 这类裸标量本来就按字符串读回来
+ * （normalize → stringifyScalar），加引号只会平白改掉磁盘上的既有写法。
+ */
+function serializeScalar(value: string): string {
+  return needsYamlQuoting(value) ? JSON.stringify(value) : value
+}
+
+/** 判断一个字符串能否安全地作为 YAML 裸标量写出。 */
+function needsYamlQuoting(value: string): boolean {
+  if (value === "") return true
+  // 首尾空白在裸标量里会被吃掉
+  if (value !== value.trim()) return true
+  // 会成为 null / 布尔的保留字，读回来就不是原本的字符串了
+  if (/^(?:~|null|true|false)$/i.test(value)) return true
+  // 指示符开头：裸标量里没有安全含义（`-` 还是列表项）
+  if (/^[-?:,[\]{}#&*!|>'"%@`]/.test(value)) return true
+  // `: ` 会把它变成嵌套映射，` #` 会把它截断成注释，行尾 `:` 同理
+  if (value.includes(": ") || value.endsWith(":") || value.includes(" #")) {
+    return true
+  }
+  if (/[\n\r\t]/.test(value)) return true
+  return false
 }
