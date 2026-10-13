@@ -1,5 +1,20 @@
+# 兼容性基线 = x86-64-v2（SSE4.2）。不要改成 v3/AVX2。
+#
+# 背景（2026-10-13）：此处曾用 `x86-64-v3`（等价于强制 AVX2）。在缺少 AVX2 的 CPU 上
+# （Intel Haswell 2013 之前，以及全部 Atom / Celeron / Pentium 的 Bay Trail、
+# Apollo Lake、Gemini Lake 低端机型），整个二进制会在**执行到 platform_guard 的
+# 兼容性检查之前**就因非法指令（Windows 异常码 0xC000001D）被系统终止。而 main.rs 是
+# `windows_subsystem = "windows"`（无控制台），用户看到的现象就是
+# 「双击毫无反应、不弹任何提示」。
+#
+# x86-64-v2 = SSE3 / SSSE3 / SSE4.1 / SSE4.2 / POPCNT / CMPXCHG16B / LAHF-SAHF，
+# 覆盖 2009 年（Intel Nehalem）/ 2011 年（AMD Bulldozer）之后的几乎所有 64 位 CPU，
+# 包括能正常跑 Windows 10 的低端机型；同时保留 SSE 级 SIMD，向量检索等性能损失可控。
+#
+# ⚠️ 改这里时必须同步改 platform_guard 的检查特性（二者必须一致），否则守卫会在
+#    最需要它的机器上失效。
 [target.x86_64-pc-windows-msvc]
-rustflags = ["-C", "target-cpu=x86-64-v3"]
+rustflags = ["-C", "target-cpu=x86-64-v2"]
 
 [target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "target-cpu=x86-64-v3"]
+rustflags = ["-C", "target-cpu=x86-64-v2"]

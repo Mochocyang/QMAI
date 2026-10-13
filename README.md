@@ -318,9 +318,9 @@ AI 生成的章节默认为草稿状态。草稿支持预览、编辑、重新�
 ### 环境要求
 
 - **操作系统**：
-  - **Windows**：10 2004 (20H1) / Windows 11，**仅 x64**，CPU 需支持 **AVX2**（Intel Haswell / AMD Excavator 或更新）。需要系统已安装 WebView2。不支持 32 位。
+  - **Windows**：10 2004 (20H1) / Windows 11，**仅 x64**，CPU 需支持 **SSE4.2**（x86-64-v2；Intel 2008 年 Nehalem / AMD 2011 年 Bulldozer 或更新）。需要系统已安装 WebView2。不支持 32 位。
   - **macOS**：13.0+（Ventura），**仅 Apple Silicon（M1 起）**。不提供 Intel 包。
-  - **Linux**：**仅 x86_64 / amd64**，CPU 需支持 **AVX2**。Ubuntu 22.04+（webkit2gtk-4.1 / glibc 2.35）。不支持 32 位，不提供 ARM64 包。
+  - **Linux**：**仅 x86_64 / amd64**，CPU 需支持 **SSE4.2**（x86-64-v2）。Ubuntu 22.04+（webkit2gtk-4.1 / glibc 2.35）。不支持 32 位，不提供 ARM64 包。
 - **LLM 服务**：需配置至少一个大语言模型 API（支持 OpenAI 兼容接口、Ollama 等）
 
 ### 安装方式
