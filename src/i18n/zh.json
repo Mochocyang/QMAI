@@ -1987,6 +1987,8 @@
     "scenarioScheduling": "正在调度下一位发言...",
     "scenarioModeratorBadge": "主持人",
     "scenarioRound": "第 {{n}} 轮",
+    "scenarioMembers": "在场角色",
+    "scenarioTyping": "{{name}} 正在输入…",
     "scenarioNoProject": "请先打开一个项目",
     "scenarioHistory": "历史情景",
     "scenarioHistoryEmpty": "暂无历史情景（每次生成后会自动保存）",

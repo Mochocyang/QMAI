@@ -7,6 +7,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { scenarioToMarkdown } from "@/lib/novel/story-simulation/scenario-export"
 import {
+  scenarioAvatarInitial,
+  scenarioSpeakerTone,
+} from "@/lib/novel/story-simulation/scenario-avatar"
+import {
   SCENARIO_FORMAT_INFO,
   type ScenarioMessage,
   type ScenarioSession,
@@ -129,11 +133,62 @@ export function ScenarioRoomView({
               </span>
             )}
           </div>
-          <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-            <Users className="h-3 w-3" />
-            {session.setup.participants
-              .map((p) => `${p.name}${p.isModerator ? "(主持)" : ""}`)
-              .join("、")}
+          {/*
+            成员条：把「这场有谁」从一行逗号文字变成一排带头像的小标签，
+            并标出当前正在发言的那位。生成中如果只有一个转圈，用户看不出
+            在等谁 —— 而「在等谁」正是群聊里最要紧的信息。
+
+            role="group" 不能省：裸 div 上的 aria-label 多数读屏不会念。
+            不用 role="list" 是因为条里还有个装饰性的 Users 图标，
+            它不构成合法的 listitem 子项。
+          */}
+          <div
+            className="mt-1 flex flex-wrap items-center gap-1.5 text-xs"
+            data-testid="scenario-member-bar"
+            role="group"
+            aria-label={t("storySimulation.scenarioMembers")}
+          >
+            {/* 图标只是装饰，旁白里已有人名，别让读屏念出一个无意义的图形名 */}
+            <Users
+              className="h-3 w-3 shrink-0 text-muted-foreground"
+              aria-hidden="true"
+            />
+            {session.setup.participants.map((p) => {
+              const tone = scenarioSpeakerTone(p.id, Boolean(p.isModerator))
+              const active = running && streaming?.speakerId === p.id
+              return (
+                <span
+                  key={p.id}
+                  data-testid="scenario-member"
+                  data-speaker-id={p.id}
+                  data-active={active ? "true" : "false"}
+                  className={cn(
+                    "flex items-center gap-1 rounded-full border px-1.5 py-0.5",
+                    active ? "border-primary/40 bg-primary/5" : "border-transparent",
+                  )}
+                >
+                  <span
+                    data-testid="scenario-avatar"
+                    data-speaker-id={p.id}
+                    className={cn(
+                      "grid h-4 w-4 shrink-0 place-items-center rounded-full text-[0.5rem] font-medium",
+                      tone.avatarClass,
+                    )}
+                  >
+                    {scenarioAvatarInitial(p.name)}
+                  </span>
+                  <span className={cn("font-medium", tone.nameClass)}>{p.name}</span>
+                  {p.isModerator && (
+                    <span className="text-muted-foreground">
+                      ({t("storySimulation.scenarioModeratorBadge")})
+                    </span>
+                  )}
+                  {active && (
+                    <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" />
+                  )}
+                </span>
+              )
+            })}
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -205,18 +260,34 @@ export function ScenarioRoomView({
         ))}
 
         {streaming && (
-          <MessageBubble
-            message={{
-              id: "__streaming__",
-              kind: streaming.kind,
-              speakerId: streaming.speakerName,
-              speakerName: streaming.speakerName,
-              round: 0,
-              content: streaming.content,
-              timestamp: new Date().toISOString(),
-            }}
-            streaming
-          />
+          <>
+            {/*
+              还没吐字时明说「×× 正在输入…」：这段时间用户看到的如果只是一个
+              空气泡，会以为卡住了。已有正文之后就不必再占一行。
+            */}
+            {running && !streaming.content && (
+              <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {t("storySimulation.scenarioTyping", {
+                  name: streaming.speakerName,
+                })}
+              </div>
+            )}
+            <MessageBubble
+              message={{
+                id: "__streaming__",
+                kind: streaming.kind,
+                // 引擎本来就给了 speakerId，只是以前拿名字顶替；现在优先用真 id
+                speakerId: streaming.speakerId ?? streaming.speakerName,
+                speakerName: streaming.speakerName,
+                round: 0,
+                content: streaming.content,
+                timestamp: new Date().toISOString(),
+              }}
+              streaming
+              active
+            />
+          </>
         )}
 
         {running && !streaming && (
@@ -264,9 +335,12 @@ export function ScenarioRoomView({
 function MessageBubble({
   message,
   streaming,
+  active,
 }: {
   message: ScenarioMessage
   streaming?: boolean
+  /** 是否正在发言（用于高亮）。历史消息一律为 false。 */
+  active?: boolean
 }) {
   const { t } = useTranslation()
   // 必须放在 system 的提前 return 之前：hooks 不能有条件地调用
@@ -281,9 +355,27 @@ function MessageBubble({
 
   const isUser = message.kind === "user"
   const isModerator = message.kind === "moderator"
+  // 主持人拿固定主色，角色按 speakerId 稳定散列到一个专属色
+  const tone = scenarioSpeakerTone(message.speakerId, isModerator)
 
   return (
-    <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+    <div
+      data-testid="scenario-bubble"
+      data-speaker-id={message.speakerId}
+      className={cn("flex gap-2", isUser ? "justify-end" : "justify-start")}
+    >
+      {!isUser && (
+        <span
+          data-testid="scenario-avatar"
+          data-speaker-id={message.speakerId}
+          className={cn(
+            "mt-5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-medium",
+            tone.avatarClass,
+          )}
+        >
+          {scenarioAvatarInitial(message.speakerName)}
+        </span>
+      )}
       <div className={cn("max-w-[85%] min-w-0", isUser && "items-end")}>
         <div
           className={cn(
@@ -291,7 +383,7 @@ function MessageBubble({
             isUser && "justify-end",
           )}
         >
-          <span className="font-medium text-foreground/80">
+          <span className={cn("font-medium", isUser ? "text-foreground/80" : tone.nameClass)}>
             {message.speakerName}
           </span>
           {isModerator && (
@@ -311,6 +403,7 @@ function MessageBubble({
               : isModerator
                 ? "border border-primary/30 bg-primary/5"
                 : "bg-muted",
+            active && "ring-1 ring-primary/40",
           )}
         >
           {message.content}

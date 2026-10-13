@@ -11,6 +11,7 @@ import {
   type ScenarioMessage,
   type ScenarioSession,
   type ScenarioSetup,
+  type ScenarioStreamingState,
 } from "@/lib/novel/story-simulation/scenario-types"
 
 ;(
@@ -89,6 +90,7 @@ function render(
   over: {
     remainingRounds?: number
     running?: boolean
+    streaming?: ScenarioStreamingState | null
     referenceInfo?: { count: number; truncated: boolean } | null
   } = {},
 ) {
@@ -97,7 +99,7 @@ function render(
       <ScenarioRoomView
         session={s}
         running={over.running ?? false}
-        streaming={null}
+        streaming={over.streaming ?? null}
         progress={null}
         input=""
         onInputChange={() => {}}
@@ -278,5 +280,165 @@ describe("ScenarioRoomView · 参考资料", () => {
     expect(container.textContent).not.toContain("scenarioReferenceInjected")
     expect(container.textContent).not.toContain("scenarioReferenceMissing")
     expect(container.textContent).not.toContain("scenarioReferenceTruncated")
+  })
+})
+
+/**
+ * 按身份（speakerId）定位成员标签 / 头像。
+ *
+ * 刻意不用 `[data-speaker-id="..."]` 这种属性选择器：当前系统里角色 id 恰好
+ * 等于角色名（见 scenario-participant-selector 的 assembleParticipants：
+ * candidate.id 直接来自 story-extractor 的 character.id === name），名字里
+ * 一旦带上双引号或反斜杠，属性选择器就会失配甚至直接抛错。逐个比对 dataset
+ * 的值对任何名字都安全。
+ */
+function findBySpeakerId(testId: string, speakerId: string): HTMLElement | null {
+  for (const el of container.querySelectorAll(`[data-testid="${testId}"]`)) {
+    if ((el as HTMLElement).dataset.speakerId === speakerId) {
+      return el as HTMLElement
+    }
+  }
+  return null
+}
+
+function memberChip(speakerId: string): HTMLElement | null {
+  return findBySpeakerId("scenario-member", speakerId)
+}
+
+function avatarOf(speakerId: string): HTMLElement | null {
+  return findBySpeakerId("scenario-avatar", speakerId)
+}
+
+function streamingState(
+  over: Partial<ScenarioStreamingState> = {},
+): ScenarioStreamingState {
+  return {
+    kind: "character",
+    speakerId: "甲",
+    speakerName: "甲",
+    content: "",
+    ...over,
+  }
+}
+
+/**
+ * 「群组式」原本只体现在气泡左右分栏上：谁是角色、谁在场、轮到谁说话，
+ * 全靠读气泡里的名字。生成中尤其难受 —— 只有一个转圈，看不出在等谁。
+ */
+describe("ScenarioRoomView · 群聊在场感", () => {
+  it("成员条列出全部在场角色，并带上首字头像", () => {
+    render(session([msg({})]))
+
+    const bar = container.querySelector('[data-testid="scenario-member-bar"]')
+    expect(bar).not.toBeNull()
+    // 角色甲 + 用户主持人占位
+    expect(memberChip("甲")).not.toBeNull()
+    expect(memberChip(SCENARIO_MODERATOR_USER_ID)).not.toBeNull()
+    expect(avatarOf("甲")?.textContent).toBe("甲")
+    expect(avatarOf(SCENARIO_MODERATOR_USER_ID)?.textContent).toBe("主")
+  })
+
+  it("主持人用固定的主色，不参与角色配色（不然串场就认不出来了）", () => {
+    render(session([msg({})]))
+
+    expect(avatarOf(SCENARIO_MODERATOR_USER_ID)?.className).toContain(
+      "bg-primary/15",
+    )
+    expect(avatarOf("甲")?.className).not.toContain("bg-primary/15")
+  })
+
+  it("同一角色在成员条与气泡里的头像配色一致", () => {
+    render(session([msg({ content: "天命之谓性。" })]))
+
+    const chipAvatar = memberChip("甲")?.querySelector(
+      '[data-testid="scenario-avatar"]',
+    )
+    const bubbleAvatar = container.querySelector(
+      '[data-testid="scenario-bubble"] [data-testid="scenario-avatar"][data-speaker-id="甲"]',
+    )
+    expect(bubbleAvatar).not.toBeNull()
+    // 两处的尺寸类名不同（成员条 h-4、气泡 h-7），只比底色
+    const bgOf = (el: Element | null | undefined) =>
+      (el?.className ?? "")
+        .split(/\s+/)
+        .filter((c) => c.startsWith("bg-"))
+        .sort()
+    expect(bgOf(bubbleAvatar).length).toBeGreaterThan(0)
+    expect(bgOf(bubbleAvatar)).toEqual(bgOf(chipAvatar))
+  })
+
+  it("角色气泡带自己的首字头像", () => {
+    render(session([msg({})]))
+
+    expect(
+      container.querySelector(
+        '[data-testid="scenario-bubble"] [data-testid="scenario-avatar"]',
+      ),
+    ).not.toBeNull()
+  })
+
+  it("用户自己发的气泡不带角色头像（右对齐，加了反而像别人发言）", () => {
+    render(session([msg({ kind: "user", speakerId: "user", speakerName: "我" })]))
+
+    const bubble = container.querySelector('[data-testid="scenario-bubble"]')
+    expect(bubble?.querySelector('[data-testid="scenario-avatar"]')).toBeNull()
+  })
+
+  it("正在发言的成员被标出，其他人不被标", () => {
+    render(session([msg({})]), {
+      running: true,
+      streaming: streamingState({ speakerId: "甲", speakerName: "甲" }),
+    })
+
+    expect(memberChip("甲")?.getAttribute("data-active")).toBe("true")
+    expect(
+      memberChip(SCENARIO_MODERATOR_USER_ID)?.getAttribute("data-active"),
+    ).toBe("false")
+  })
+
+  it("还没吐字时明说「×× 正在输入」，而不是只转一个圈", () => {
+    render(session([msg({})]), {
+      running: true,
+      streaming: streamingState({ content: "" }),
+    })
+
+    expect(container.textContent).toContain("scenarioTyping(name=甲)")
+  })
+
+  it("开始吐字后不再显示「正在输入」（那时已经有正文可看了）", () => {
+    render(session([msg({})]), {
+      running: true,
+      streaming: streamingState({ content: "天" }),
+    })
+
+    expect(container.textContent).not.toContain("scenarioTyping")
+  })
+
+  it("没在生成时不显示「正在输入」", () => {
+    render(session([msg({})]), { running: false, streaming: null })
+
+    expect(container.textContent).not.toContain("scenarioTyping")
+  })
+
+  it("流式气泡按 speakerId 认角色，而不是拿名字当 id 顶替", () => {
+    render(session([msg({})]), {
+      running: true,
+      streaming: streamingState({
+        speakerId: "甲",
+        speakerName: "甲某",
+        content: "天",
+      }),
+    })
+
+    const bubbles = container.querySelectorAll('[data-testid="scenario-bubble"]')
+    // 不能用 querySelector 取「第一个」气泡：历史消息先于流式气泡渲染
+    // （session.messages.map 在前、{streaming && ...} 在后），所以第一个永远
+    // 是历史气泡。流式气泡按构造总是最后一个，改成取末尾。
+    const bubble = bubbles[bubbles.length - 1]
+    // 显示名用 speakerName，身份用引擎给的 speakerId —— 两者不一致时不能串角色
+    expect(bubble?.getAttribute("data-speaker-id")).toBe("甲")
+    expect(bubble?.textContent).toContain("甲某")
+    // 成员条上高亮的仍然应该是 id 为「甲」的那位
+    expect(memberChip("甲")?.getAttribute("data-active")).toBe("true")
   })
 })
