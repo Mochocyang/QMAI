@@ -6,7 +6,16 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 5)).toEqual(["4.3.1", "4.3.0", "4.2.1", "4.2.0", "4.1.2"])
+    expect(versions.slice(0, 5)).toEqual(["4.3.2", "4.3.1", "4.3.0", "4.2.1", "4.2.0"])
+    const release432 = currentVersionChangelog("4.3.2")[0]
+    expect(release432.version).toBe("4.3.2")
+    expect(release432.date).toBe("2026-10-13")
+    // 这一版刻意只留一条：细纲显示修复 + 剧情推演/舞台情景重做，其余暂不写
+    expect(release432.highlights.zh).toHaveLength(1)
+    expect(release432.highlights.zh[0]).toContain("章节细纲生成显示错误")
+    expect(release432.highlights.zh[0]).toContain("剧情推演与舞台情景")
+    expect(release432.highlights.en).toHaveLength(1)
+    expect(release432.highlights.en[0]).toContain("event-outline generation")
     const release431 = currentVersionChangelog("4.3.1")[0]
     expect(release431.version).toBe("4.3.1")
     expect(release431.date).toBe("2026-10-12")

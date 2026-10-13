@@ -7,6 +7,19 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_THREE_TWO_CHANGELOG: ChangelogEntry = {
+  version: "4.3.2",
+  date: "2026-10-13",
+  highlights: {
+    en: [
+      "Fixed the display error in chapter event-outline generation, and redesigned the story-simulation and stage-scenario features.",
+    ],
+    zh: [
+      "修复了关于章节细纲生成显示错误，以及重新设计剧情推演与舞台情景功能",
+    ],
+  },
+};
+
 const FOUR_POINT_THREE_ONE_CHANGELOG: ChangelogEntry = {
   version: "4.3.1",
   date: "2026-10-12",
@@ -1913,6 +1926,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_THREE_TWO_CHANGELOG.version)
+    return [FOUR_POINT_THREE_TWO_CHANGELOG];
   if (version === FOUR_POINT_THREE_ONE_CHANGELOG.version)
     return [FOUR_POINT_THREE_ONE_CHANGELOG];
   if (version === FOUR_POINT_THREE_ZERO_CHANGELOG.version)
@@ -2080,6 +2095,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_THREE_TWO_CHANGELOG,
     FOUR_POINT_THREE_ONE_CHANGELOG,
     FOUR_POINT_THREE_ZERO_CHANGELOG,
     FOUR_POINT_TWO_ONE_CHANGELOG,
