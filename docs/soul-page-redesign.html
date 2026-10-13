@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>角色灵魂页面 · 单列重新设计方案</title>
+<style>
+  :root {
+    --canvas:#edf1ec; --paper:#fcfdfb; --panel:#f2f5ef; --soft:#e4ece3;
+    --ink:#273c35; --muted:#5d6e64; --accent:#45624f; --on-accent:#fff;
+    --line:#dfe6da; --danger:#943f36; --warm:#f3ebdf;
+    --ui:"PingFang SC","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+    --serif:"Noto Serif SC","Source Han Serif SC","Songti SC","SimSun",serif;
+    --radius:10px; --shadow:0 1px 2px rgba(23,35,29,.04),0 6px 18px rgba(23,35,29,.06);
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--canvas); color:var(--ink); font:14px/1.7 var(--ui); }
+  .wrap { max-width:1080px; margin:0 auto; padding:28px 20px 64px; }
+  .doc-title { font:600 24px/1.4 var(--serif); margin:0 0 6px; }
+  .doc-sub { color:var(--muted); font-size:13px; margin:0 0 26px; }
+  .banner {
+    display:flex; gap:14px; align-items:flex-start;
+    border:1px solid color-mix(in srgb,var(--accent) 25%,transparent);
+    background:color-mix(in srgb,var(--accent) 6%,var(--paper));
+    border-radius:var(--radius); padding:14px 16px; margin-bottom:26px; font-size:13px; line-height:1.8;
+  }
+  .banner b { color:var(--accent); }
+  .stage { margin:34px 0 10px; font:600 17px/1.4 var(--serif); display:flex; align-items:center; gap:10px; }
+  .stage .tag { font:500 11px/1.7 var(--ui); color:var(--on-accent); background:var(--accent); border-radius:999px; padding:2px 10px; }
+  .stage .tag.alt { background:color-mix(in srgb,var(--accent) 16%,transparent); color:var(--accent); }
+  .stage-desc { color:var(--muted); font-size:13px; margin:4px 0 16px; }
+  /* ===== 应用窗口画框 ===== */
+  .app {
+    background:var(--paper); border-radius:12px; overflow:hidden;
+    box-shadow:var(--shadow); border:1px solid var(--line);
+  }
+  .app-head { display:flex; align-items:center; gap:12px; padding:12px 16px; border-bottom:1px solid var(--line); background:var(--paper); }
+  .app-dots { display:flex; gap:6px; }
+  .app-dots i { width:11px; height:11px; border-radius:50%; }
+  .app-dots i:nth-child(1){background:#e2a04f;} .app-dots i:nth-child(2){background:#e2c04f;} .app-dots i:nth-child(3){background:#8fbf6f;}
+  .app-title { font-size:12px; color:var(--muted); }
+  .app-body { display:flex; min-height:0; }
+  .main-col { flex:1; min-width:0; padding:22px clamp(18px,3vw,34px) 30px; background:var(--paper); }
+  /* ===== 单列内容组件 ===== */
+  .seg-nav { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:20px; }
+  .seg-btn { border:1px solid var(--line); background:var(--panel); color:var(--muted); border-radius:9px; padding:8px 14px; font-size:13px; }
+  .seg-btn.on { background:var(--accent); color:var(--on-accent); border-color:transparent; }
+  .seg-btn.cards.on { background:transparent; color:var(--accent); border-color:var(--accent); }
+  .seg-btn.cards { background:transparent; }
+  .section-title { font:600 16px/1.5 var(--serif); margin:8px 0 12px; display:flex; align-items:center; gap:8px; }
+  .section-title svg { color:var(--accent); }
+  .section-sub { color:var(--muted); font-size:12.5px; margin:-6px 0 16px; line-height:1.8; }
+  /* 灵魂卡片网格 */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(250px,1fr)); gap:14px; }
+  .card {
+    background:var(--panel); border:1px solid transparent; border-radius:12px; padding:16px;
+    cursor:pointer; transition:border-color .15s, background .15s, transform .15s, box-shadow .15s;
+  }
+  .card:hover { border-color:color-mix(in srgb,var(--accent) 40%,transparent); background:var(--paper); box-shadow:var(--shadow); transform:translateY(-2px); }
+  .card.on { border-color:var(--accent); background:color-mix(in srgb,var(--accent) 5%,var(--paper)); }
+  .card h4 { margin:0 0 6px; font-size:15px; font-weight:600; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .card .badge { font-size:11px; color:var(--accent); background:var(--soft); border-radius:6px; padding:1px 7px; font-weight:500; }
+  .card .misc { font-size:12px; color:var(--muted); margin:0 0 8px; }
+  .card p { margin:0; color:var(--muted); font-size:12.5px; line-height:1.75; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .card .foot { margin-top:12px; padding-top:10px; border-top:1px solid color-mix(in srgb,var(--ink) 8%,transparent); display:flex; align-items:center; justify-content:space-between; font-size:12px; color:var(--muted); }
+  .card .foot .n { color:var(--accent); opacity:0; transition:opacity .15s; }
+  .card:hover .foot .n, .card.on .foot .n { opacity:1; }
+  .card .chip { font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:1px 8px; }
+  /* 空态 */
+  .empty { border:1px dashed var(--line); border-radius:12px; padding:44px 20px; text-align:center; color:var(--muted); font-size:13px; }
+  .empty button { margin-top:10px; border:1px solid var(--accent); color:var(--accent); background:transparent; border-radius:8px; padding:8px 14px; font-size:13px; }
+  /* 顶部操作条 */
+  .toolbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
+  .btn { border:1px solid var(--line); background:var(--paper); color:var(--ink); border-radius:8px; padding:8px 14px; font-size:13px; }
+  .btn.primary { background:var(--accent); color:var(--on-accent); border-color:transparent; }
+  /* 详情单列 */
+  .details { background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:20px; }
+  .details-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+  .details-head h3 { margin:0; font:600 19px/1.4 var(--serif); }
+  .details-head .actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .row { margin-bottom:14px; }
+  .row-label { font-size:13px; font-weight:600; }
+  .row-val { margin-top:3px; color:var(--muted); font-size:13px; white-space:pre-wrap; }
+  .doc-box { margin-top:16px; border:1px solid var(--line); border-radius:10px; background:var(--panel); padding:14px; }
+  .doc-box h5 { margin:0 0 10px; font-size:13px; font-weight:600; }
+  .doc-chips { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  .doc-chips button { border:1px solid var(--line); background:var(--paper); border-radius:7px; padding:5px 10px; font-size:11.5px; color:var(--muted); }
+  .doc-chips button.on { background:var(--accent); color:var(--on-accent); border-color:transparent; }
+  .pre { max-height:160px; overflow:auto; background:var(--paper); border:1px solid var(--line); border-radius:7px; padding:10px; font:12px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace; color:var(--muted); white-space:pre-wrap; }
+  /* 流程说明节点 */
+  .flow { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-top:14px; }
+  .flow span { border:1px dashed var(--line); border-radius:9px; padding:10px 12px; font-size:12px; color:var(--muted); text-align:center; }
+  .flow b { display:block; color:var(--ink); font-weight:600; margin-bottom:4px; }
+  .note { font-size:12px; color:var(--muted); line-height:1.8; margin-top:10px; }
+  .foot-line { margin-top:34px; padding-top:16px; border-top:1px solid var(--line); color:var(--muted); font-size:12px; line-height:1.9; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1 class="doc-title">角色灵魂页面 · 单列重新设计方案</h1>
+  <p class="doc-sub">将「灵魂」（项目灵魂 + 角色灵魂）从「左侧目录/边栏 + 右侧编辑」的左右结构，改为整窗单列浏览与编辑。保留全部功能，只重构浏览与编辑的容器结构。</p>
+
+  <div class="banner">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M16 18l6-6-6-6v5H2v2h14z"/></svg>
+    <div><b>沿用技能库的交互范式。</b> 角色灵魂按卡片画廊展示，点卡片在整窗单列进入详情/编辑，顶部「返回灵魂库」。人物绑定不再拆到边栏，改为在详情顶部与卡片角标内管理。项目灵魂与角色灵魂用顶部页签切换。</div>
+  </div>
+
+  <!-- ===================== 1. 整体结构 ===================== -->
+  <div class="stage">1 <span class="tag">结构</span> 整窗三段式：页签 → 画廊 → 详情/编辑</div>
+  <p class="stage-desc">进入「灵魂」页不再占用工作区目录栏，整窗交给灵魂。顶部用页签区分「项目灵魂 / 角色灵魂」，取消原左侧边栏分区。</p>
+  <div class="app">
+    <div class="app-head"><div class="app-dots"><i></i><i></i><i></i></div><span class="app-title">青幕AI写作 — 灵魂</span></div>
+    <div class="app-body">
+      <div class="main-col">
+        <div class="seg-nav" style="justify-content:space-between; align-items:center;">
+          <div style="display:flex; gap:8px;">
+            <button class="seg-btn">项目灵魂</button>
+            <button class="seg-btn on">角色灵魂</button>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button class="seg-btn cards on">内置灵魂</button>
+            <button class="seg-btn cards">自定义灵魂</button>
+            <button class="btn">＋ 新建角色灵魂</button>
+          </div>
+        </div>
+
+        <div class="section-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-6-5.1-6-9.5A6 6 0 0 1 12 6a6 6 0 0 1 6 5.5C18 15.9 12 21 12 21z"/></svg>
+          内置灵魂
+        </div>
+        <p class="section-sub">点开任意卡片进入单列详情；可在详情顶部的「绑定人物」里把灵魂绑定到小说人物。</p>
+
+        <div class="grid">
+          <div class="card on">
+            <h4>林黛玉 <span class="badge">内置</span></h4>
+            <div class="misc">才女 · 世情</div>
+            <p>敏感细腻、才华横溢、对情感极端专注。语气清冷自持，常用比喻与反问。</p>
+            <div class="foot"><span class="chip">绑定：2 人</span><span class="n">查看 →</span></div>
+          </div>
+          <div class="card">
+            <h4>诸葛亮 <span class="badge">内置</span></h4>
+            <div class="misc">军师 · 谋略</div>
+            <p>冷静、周全、以天下为怀。表达节制，决策极重权衡与本末。</p>
+            <div class="foot"><span class="chip">绑定：1 人</span><span class="n">查看 →</span></div>
+          </div>
+          <div class="card">
+            <h4>李白的 <span class="badge">内置</span></h4>
+            <div class="misc">诗人 · 豪放</div>
+            <p>自由奔放、想象奇绝。语势开张，善用夸张与意象跳跃。</p>
+            <div class="foot"><span class="chip">未绑定</span><span class="n">查看 →</span></div>
+          </div>
+        </div>
+
+        <div class="note" style="margin-top:16px;">
+          搜索灵魂：卡片画廊上方保留搜索框；自定义灵魂为空时显示引导空态，「＋ 新建角色灵魂」始终可见。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 2. 详情单列 ===================== -->
+  <div class="stage">2 <span class="tag alt">详情</span> 点卡片 → 整窗单列编辑（带返回）</div>
+  <p class="stage-desc">不再左侧固定列表。点卡片整块切换为详情，顶部「返回灵魂库」回画廊；长内容在单列里纵向滚动，阅读宽度最大化。</p>
+  <div class="app">
+    <div class="app-head"><div class="app-dots"><i></i><i></i><i></i></div><span class="app-title">青幕AI写作 — 角色灵魂</span></div>
+    <div class="app-body">
+      <div class="main-col">
+        <div style="display:flex; gap:10px; align-items:center; margin-bottom:14px;">
+          <button class="btn">← 返回灵魂库</button>
+          <span style="color:var(--muted); font-size:12.5px;">林黛玉 · 内置灵魂</span>
+        </div>
+        <div class="details">
+          <div class="details-head">
+            <h3>林黛玉 <span class="badge" style="font-size:11px;">内置灵魂</span></h3>
+            <div class="actions">
+              <button class="btn">绑定人物</button>
+              <select class="btn" style="min-width:150px;"><option>选择小说人物…</option></select>
+              <span class="chip" style="align-self:center;">已绑定：林如海、紫鹃</span>
+            </div>
+          </div>
+          <div class="row"><div class="row-label">人物分类</div><div class="row-val">才女 · 世情</div></div>
+          <div class="row"><div class="row-label">怎么说话 / 表达特征</div><div class="row-val">清冷自持，善用比喻与反问，语多含蓄留白……</div></div>
+          <div class="row"><div class="row-label">怎么想 / 心智模型</div><div class="row-val">以自身情感体验为轴心，对关系变化极为敏感……</div></div>
+          <div class="row"><div class="row-label">怎么判断 / 决策启发式</div><div class="row-val">重情不重利，先论情分再论是非……</div></div>
+          <div class="doc-box">
+            <h5>灵魂文档预览</h5>
+            <div class="pre"># 林黛玉 · 灵魂信息\n\n## 表达特征\n……</div>
+          </div>
+          <div class="doc-box">
+            <h5>研究文件</h5>
+            <div class="doc-chips"><button class="on">01-著作</button><button>02-对话</button><button>03-表达DNA</button><button>04-外部评价</button><button>05-决策</button><button>06-时间线</button></div>
+            <div class="pre">01-writings.md\n……</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 3. 项目灵魂 & 自定义流程 ===================== -->
+  <div class="stage">3 <span class="tag alt">项目 / 自定义</span> 保持原功能，容器单列化</div>
+  <p class="stage-desc">「项目灵魂」进入后直接渲染单列的灵魂文档编辑；「自定义灵魂」的画廊带新建入口，点新建进入单列表单（含 6 步生成本地进度）。</p>
+  <div class="app">
+    <div class="app-head"><div class="app-dots"><i></i><i></i><i></i></div><span class="app-title">青幕AI写作 — 项目灵魂</span></div>
+    <div class="app-body">
+      <div class="main-col">
+        <div class="seg-nav"><button class="seg-btn on">项目灵魂</button><button class="seg-btn">角色灵魂</button></div>
+        <div class="section-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+          项目灵魂文档
+        </div>
+        <p class="section-sub">长规则编辑单列铺开，保留原有保存能力，顶部无额外左右分栏。</p>
+        <div class="doc-box" style="background:var(--paper);">
+          <h5>灵魂文档正文</h5>
+          <div class="pre" style="max-height:200px;"># 本书灵魂\n\n## 核心命题\n……\n\n## 风格基线\n……</div>
+        </div>
+        <div style="margin-top:14px; display:flex; gap:10px;">
+          <button class="btn primary">保存</button>
+          <button class="btn">放弃修改</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 4. 交互流程 ===================== -->
+  <div class="stage">4 <span class="tag">流程</span> 新建自定义灵魂的 6 步工作流</div>
+  <p class="stage-desc">在原「角色灵魂」标签下点「＋ 新建角色灵魂」→ 单列表单 → 「从资料生成角色灵魂」→ 本地进度条 → 保存后返回自定义画廊。</p>
+  <div class="flow">
+    <span><b>填写资料</b>名称/分类/提示词/资料</span>
+    <span><b>整理资料</b>读取文档+抓取网页</span>
+    <span><b>研究①</b>著作文本</span>
+    <span><b>研究②</b>对话方式</span>
+    <span><b>研究③</b>表达DNA</span>
+    <span><b>研究④</b>外部评价</span>
+    <span><b>研究⑤</b>决策记录</span>
+    <span><b>研究⑥</b>时间线</span>
+    <span><b>汇总</b>生成角色灵魂</span>
+  </div>
+
+  <div class="foot-line">
+    说明：本方案只重构「灵魂」页的容器与浏览结构（把原左侧 SoulSidebarPanel + 右侧编辑并成整窗单列），不改变任何数据文件、绑定关系与工作流。<br />
+    待你确认方向后，我会按此改造 soul-view / character-aura-view / soul-sidebar-panel 与 ui-test-tools.css。当前便携版已重新打包（C:\QMAI_C\QMAI-main\release-portable\QMaiWrite.exe），可先复测技能库中文名与收藏即时反馈。
+  </div>
+
+</div>
+</body>
+</html>

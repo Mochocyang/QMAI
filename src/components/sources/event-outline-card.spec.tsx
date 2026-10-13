@@ -545,6 +545,149 @@ it("细纲合法时不显示体检块", async () => {
   host.remove()
 })
 
+/*
+ * 抓手的排版（用户 2026-10-13 反馈「非常乱」）：原来四条长抓手平铺成
+ * `· 一长段话`，类别词（环境物件 / 神情动作 / 关键台词 / 推进与收束）埋在句子开头，
+ * 四类之间完全对不齐。现在拆成「类别列 + 正文列」——
+ * 这条用例钉的是「类别与正文**确实分成了两个节点**」，而不是「文字还在」，
+ * 否则把两列改回一个整行段落它照样绿。
+ */
+it("抓手按类别拆成两列：类别词单独成节点，正文里不再重复带类别", async () => {
+  const { root, host } = render(<EventOutlineCard data={data()} />)
+  try {
+    await act(async () => {})
+    const rows = [...host.querySelectorAll("[data-event-outline-point]")]
+    expect(rows.length, "每个事件的每条抓手都要落在自己的行上").toBe(
+      data().events.reduce((sum, event) => sum + event.points.length, 0),
+    )
+    // 「神情：念念护住屁股蛋。」——类别与正文必须是**两个**节点
+    const labeled = rows.find((row) => row.textContent?.includes("念念护住屁股蛋"))
+    expect(labeled).toBeDefined()
+    const cells = [...labeled!.children]
+    expect(cells, "类别列 + 正文列两列").toHaveLength(2)
+    expect(cells[0].textContent, "类别词单独占一列").toBe("神情")
+    expect(cells[1].textContent, "正文列里不再重复写一遍类别").toBe("念念护住屁股蛋。")
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+it("认不出类别的抓手整行铺满，不硬塞进类别列", async () => {
+  const { root, host } = render(
+    <EventOutlineCard data={data({
+      events: data().events.map((event, index) => (
+        index === 0 ? { ...event, points: ["令牌亮起，院外传来脚步声。"] } : event
+      )),
+    })} />,
+  )
+  try {
+    await act(async () => {})
+    const row = [...host.querySelectorAll("[data-event-outline-point]")]
+      .find((item) => item.textContent?.includes("令牌亮起"))
+    expect(row).toBeDefined()
+    const cells = [...row!.children]
+    expect(cells[0].textContent, "没有类别词时类别列应为空").toBe("")
+    expect(cells[1].textContent).toBe("令牌亮起，院外传来脚步声。")
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+/* ── 2026-10-13：共创判「前文不足以推演」时，动作并入本卡 ── */
+
+it("不传共创回调时不出现「换一批」「其他想法」（旧卡片不凭空多出按钮）", async () => {
+  const { root, host } = render(<EventOutlineCard data={data()} onWriteChapter={() => {}} />)
+  try {
+    await act(async () => {})
+    expect(host.querySelector('[aria-label="换一批"]')).toBeNull()
+    expect(host.querySelector('[aria-label="其他想法"]')).toBeNull()
+    expect(host.querySelector("[data-event-outline-discuss-note]")).toBeNull()
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+it("传入原因与两枚共创回调时，原因并入卡内且三条动作在同一张卡上", async () => {
+  const onWriteChapter = vi.fn()
+  const onDiscussRegenerate = vi.fn()
+  const { root, host } = render(
+    <EventOutlineCard
+      data={data()}
+      onWriteChapter={onWriteChapter}
+      discussNote="原回复只给了固定情节，未提供可供挑选的多向剧情分支。"
+      onDiscussRegenerate={onDiscussRegenerate}
+      onDiscussCustomIdea={() => {}}
+    />,
+  )
+  try {
+    await act(async () => {})
+    const note = host.querySelector("[data-event-outline-discuss-note]")
+    expect(note, "原因必须并入细纲卡片，而不是另长一张卡").not.toBeNull()
+    expect(note!.textContent).toContain("前文不足以推演")
+    expect(note!.textContent).toContain("未提供可供挑选的多向剧情分支")
+    // 三枚动作在同一张卡里
+    const labels = [...host.querySelectorAll("button")].map((item) => item.textContent?.trim())
+    expect(labels).toContain("用这份细纲写这一章")
+    expect(labels).toContain("换一批")
+    expect(labels).toContain("其他想法")
+    await act(async () => cardButton("换一批", host).click())
+    expect(onDiscussRegenerate).toHaveBeenCalledTimes(1)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+it("「其他想法」展开后提交作者写的走向，并把输入一起回传", async () => {
+  const onDiscussCustomIdea = vi.fn()
+  const { root, host } = render(
+    <EventOutlineCard
+      data={data()}
+      onWriteChapter={() => {}}
+      discussNote="前文不足以推演"
+      onDiscussRegenerate={() => {}}
+      onDiscussCustomIdea={onDiscussCustomIdea}
+    />,
+  )
+  try {
+    await act(async () => {})
+    expect(host.querySelector('[aria-label="输入你的想法"]'), "未点开时不该有输入框").toBeNull()
+    await act(async () => cardButton("其他想法", host).click())
+    await act(async () => setTextareaValue(field<HTMLTextAreaElement>(host, "输入你的想法"), "让主角先躲起来再反杀"))
+    await act(async () => cardButton("按这个想法重新推演", host).click())
+    expect(onDiscussCustomIdea).toHaveBeenCalledWith("让主角先躲起来再反杀")
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+it("「其他想法」留空时提交按钮禁用（空想法不发起推演）", async () => {
+  const onDiscussCustomIdea = vi.fn()
+  const { root, host } = render(
+    <EventOutlineCard
+      data={data()}
+      onWriteChapter={() => {}}
+      discussNote="前文不足以推演"
+      onDiscussCustomIdea={onDiscussCustomIdea}
+    />,
+  )
+  try {
+    await act(async () => {})
+    await act(async () => cardButton("其他想法", host).click())
+    const submit = cardButton("按这个想法重新推演", host)
+    expect(submit.disabled).toBe(true)
+    await act(async () => submit.click())
+    expect(onDiscussCustomIdea).not.toHaveBeenCalled()
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
 /* ── Tab 次序：破坏性入口不得排在卡片动作的最前 ── */
 
 /*

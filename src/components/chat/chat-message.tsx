@@ -178,13 +178,40 @@ export function ChatMessage({
   /**
    * 共创（discuss）轮：气泡里隐藏 chapter_discuss 协议标记。
    * 生成过程中的正文可能已带上 `<!-- chapter_discuss -->{json}`，不剥离会让用户看到裸 JSON。
+   *
+   * ⚠️ 两条剥离**不是二选一**（用户 2026-10-13 实测的裸 JSON 就是这么漏出来的）：
+   * 同一条回复完全可能既有 `chapter_discuss` 协议块、又有 `eventOutlineData` 围栏 ——
+   * 共创判「前文不足以推演」时，模型经常顺手把整章事件细纲也一起给了出来。
+   * 原先写成互斥三元（有协议只剥协议、没有协议才剥围栏），恰好把**这一种**回复漏在
+   * 两个分支之外：协议块被剥掉了，围栏里的裸 JSON 原样留在气泡里。
+   * 两件事各管各的，按顺序各做一遍即可，单协议/单细纲的老路径行为完全不变。
    */
-  const displayContent =
-    message.chapterDiscussPhase || message.chapterDiscussProtocol || message.chapterDiscussError
-      ? stripStructuredMarkers(message.content)
-      : eventOutline
-        ? stripEventOutlineDataFence(message.content)
-        : message.content;
+  const displayContent = useMemo(() => {
+    let text = message.content;
+    if (message.chapterDiscussPhase || message.chapterDiscussProtocol || message.chapterDiscussError) {
+      text = stripStructuredMarkers(text);
+    }
+    if (eventOutline) text = stripEventOutlineDataFence(text);
+    return text;
+  }, [
+    message.content,
+    message.chapterDiscussPhase,
+    message.chapterDiscussProtocol,
+    message.chapterDiscussError,
+    eventOutline,
+  ]);
+  /**
+   * 共创判「前文不足以推演」、而这条回复**同时**给了一份可用的事件细纲 —— 2026-10-13
+   * 起不再单独渲染那张琥珀卡，改成把原因与三枚动作并进细纲卡片（用户要求）。
+   *
+   * 只有这一种组合才合并：`needs_choice`（真给了多向方向）与「没有细纲的 insufficient」
+   * 都照旧走 ChapterDiscussCard —— 那两种场合没有细纲卡可以承载这些按钮，
+   * 硬合并会把卡片连同方向候选一起弄丢。
+   */
+  const insufficientDiscuss = message.chapterDiscussProtocol?.status === "insufficient"
+    ? message.chapterDiscussProtocol
+    : null;
+  const mergeDiscussIntoOutlineCard = Boolean(eventOutline && insufficientDiscuss);
   const canResumeUnfinished = Boolean(
     novelMode &&
     isLastAssistant &&
@@ -307,6 +334,21 @@ export function ChatMessage({
           <EventOutlineCard
             data={eventOutline}
             onWriteChapter={handoffEventOutlineToProse}
+            /*
+             * 下面三枚只在「共创判前文不足 + 这条回复给了细纲」时接线：其余场合
+             * 卡片保持原样（只读、只有「用这份细纲写这一章」），不会凭空多出按钮。
+             */
+            discussNote={mergeDiscussIntoOutlineCard ? insufficientDiscuss?.judgment : undefined}
+            onDiscussRegenerate={
+              mergeDiscussIntoOutlineCard && onRegenerateChapterDiscuss
+                ? () => onRegenerateChapterDiscuss(message.id, message.chapterDiscussProtocol!)
+                : undefined
+            }
+            onDiscussCustomIdea={
+              mergeDiscussIntoOutlineCard && onCustomChapterDiscuss
+                ? (idea) => onCustomChapterDiscuss(message.id, message.chapterDiscussProtocol!, idea)
+                : undefined
+            }
           />
         ) : null}
         {/*
@@ -330,7 +372,15 @@ export function ChatMessage({
             savedReferences={message.references}
           />
         )}
-        {isAssistant && !message.discarded && !message.isAgentRunning && message.chapterDiscussProtocol ? (
+        {/*
+          共创方向卡。`!mergeDiscussIntoOutlineCard` 是 2026-10-13 加的那一条：
+          「判了前文不足、却又给了整章细纲」时，这张卡整张退场 —— 它的两枚按钮
+          （换一批 / 其他想法）已经并入上方细纲卡片，原因也搬了过去。留着的话
+          屏幕上就是两张卡 + 两枚「换一批」，用户得先猜按哪个（这正是用户反馈的
+          「单独出现」）。其余场合（needs_choice、没有细纲的 insufficient）照旧由
+          本卡承载，一个分支都没少。
+        */}
+        {isAssistant && !message.discarded && !message.isAgentRunning && message.chapterDiscussProtocol && !mergeDiscussIntoOutlineCard ? (
           <ChapterDiscussCard
             protocol={message.chapterDiscussProtocol}
             decided={message.chapterDiscussDecision}

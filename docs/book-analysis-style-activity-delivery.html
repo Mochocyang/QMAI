@@ -1,0 +1,88 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>拆书库文风与后台活动交付</title><style>
+*{box-sizing:border-box;letter-spacing:0}body{margin:0;background:#f7f9f8;color:#24352e;font:14px/1.85 "Segoe UI","Microsoft YaHei",sans-serif}main{max-width:1120px;margin:auto;padding:28px 24px 50px}h1{font-size:26px;margin:0 0 8px}h2{font-size:19px;border-top:1px solid #d9e2dd;padding-top:22px;margin-top:25px}h3{font-size:16px}p{margin:9px 0}a{color:#17664f}small{color:#607267}code{font-size:12px;overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{padding:10px 12px;border-bottom:1px solid #d9e2dd;text-align:left;vertical-align:top}th{background:#edf2ef}summary{cursor:pointer;font-weight:600;padding:10px 0}pre{font:14px/1.9 "Microsoft YaHei",sans-serif;white-space:pre-wrap;overflow-wrap:anywhere}.notice{padding:13px 16px;border-left:3px solid #ac8642;background:#faf5e8}img{max-width:100%;height:auto;border:1px solid #d9e2dd}.mobile{max-width:390px}.sample{padding:12px 0;border-bottom:1px solid #d9e2dd}.meta{font-size:12px;color:#5c6c64}@media(max-width:600px){main{padding:20px 16px}h1{font-size:23px}th,td{padding:8px;font-size:12px}}
+</style></head><body><main><h1>拆书库：文风画像与后台活动</h1><p class="meta">2026-10-05 · feature/book-analysis-workbench · 未提交、未合并、未上传</p>
+<p><a href="../release-book-style-activity-20261005/QMaiWrite_4.1.0_windows_X64.exe">打开 Windows x64 测试程序</a> · <a href="http://127.0.0.1:1428">源码服务</a> · <a href="../release-book-style-activity-20261005/version-info.json">包校验信息</a></p>
+<h2>完成的改动</h2><ul><li>分析模型区只保留下拉选择框，不再重复显示内部供应商／模型键。</li><li>已完成、已取消、已跳过和失败的导入记录可在确认后删除；运行中先取消。删除仅处理导入记录和任务缓存，不删除原始TXT、正式作品或生成Skill。</li><li>文风先分析语体定位、词汇搭配、句法标点、叙述声音、对白、描写情绪、段落节奏、场景衔接八类特征。保留样本不足的维度，不用固定模板凑数。</li><li>使用短证据编号与程序映射，保存真实章节位置；词汇频次按证据片段逐字回填。独立核验不通过最多修正一次，仍失败保留草稿、不自动入库。</li><li>分析请求隔离用户个人写作记忆；画像、代表片段和来源随确认入库，启用后完整进入文风上下文。上下文预算不足会提示，不会静默切掉新画像。</li><li>角色／决策、故事、文风分析进入后台活动；进度、完成、失败、重试同步。终态弹出持久提示并保留通知记录，关闭弹窗后可回查，重载不重复弹出。查看结果定位作品与Skill页签。</li></ul>
+<p class="notice">新文风机制用于此版本中新建的提取任务。已有文风、绑定和旧任务保留，不会被自动改写。要体验新画像，请新建一次文风分析，核对后确认入库，再显式启用。</p>
+<h2>验证结果</h2><table><thead><tr><th>项目</th><th>结果</th></tr></thead><tbody><tr><td>回归</td><td>815 项通过，7 项既有失败；与上轮失败名称对照无新增失败。</td></tr><tr><td>浏览器</td><td>1440、1024、390px：单模型框、确认删除、文风展开、三类进度、成功失败弹出、持久通知、重载去重和结果导航均通过；0 个脚本错误。</td></tr><tr><td>真实模型提取</td><td>3/3 组通过结构与证据校验。使用现有配置模型，受控样本请求关闭思考；没有修改用户模型配置。</td></tr><tr><td>写作注入</td><td>已启用文风的全部规则、词项进入同题试写请求；两份输出有区别，但正文长度和事件细节仍需人工复核。</td></tr><tr><td>工程与打包</td><td>typecheck、lint:character-aura、前端build、tauri build --no-bundle通过；x64程序213,544,960字节，603个资源逐一核对。</td></tr></tbody></table>
+<p><a href="../.codex-temp/style-activity-20261005/verified-regression.json">回归记录</a> · <a href="../.codex-temp/style-activity-20261005/ui-results.json">浏览器记录</a> · <a href="../.codex-temp/style-activity-20261005/real-short-id-results.json">真实提取记录</a></p>
+<h2>原文样本与差异</h2><p>抽取完整章节，不是全书评测。《大奉打更人》第1、5、48章；《凡人修仙传》第1、5、10章。同书另加“重点分析对白”的需求作为对照。</p>
+<section class="sample"><h3>大奉打更人 · 综合习惯</h3><p class="meta">8条规则 · 24个词项 · 4次模型请求（含核验／一次修正）</p><p>样本以现代白话为叙述底子，夹入网络口语、穿越梗与轻喜剧式自嘲，同时保留少量文言称谓和书面表达作点缀。叙述上贴近主角限知视角，常把内心吐槽直接嵌入叙事，不加“他想”等提示语。句子以中短句为主，平均句长24字左右，短句占比约三成，长句少；段落极短，一句一段占绝对多数，形成快节奏、易读的网文语感。对白段落占比高，提示语常与动作、神态捆绑，人物分声明显：主角油滑自嘲，堂弟冷硬文雅，婶婶泼辣傲娇，少女娇俏。描写不追求绵密铺陈，而偏功能化：用少量感官细节快速建立场景，情绪多借动作、表情和短促内心句呈现。信息投放常先抛悬念或结论，再补记忆、解释和推理，场景切换干脆，常用时间词和地点词直接跳转。整体语体介于文学叙述与网文口语之间，文言成分仅作点缀，不构成主导。</p><p><b>表达词项：</b>幽幽（1次/1章）、悍然（1次/1章）、鬼使神差（1次/1章）、如释重负（1次/1章）、狗带（1次/1章）、欧皇附体（1次/1章）、社会性死亡（1次/1章）、工具人（1次/1章）、与汝何干（1次/1章）、草民（2次/1章）、小王八蛋（2次/1章）、小崽子（1次/1章）、嘻嘻（1次/1章）、嗯（2次/1章）、牙疼（1次/1章）、头皮一炸（1次/1章）、脊背发凉（1次/1章）、心里一动（1次/1章）、面无表情（1次/1章）、拂袖（1次/1章）、作揖（2次/2章）、颔首（1次/1章）、沉声道（3次/2章）、淡淡道（2次/1章）</p><details><summary>适用局限与场景</summary><p>样本仅3章、约9853字，且章节跨度大（第1、5、48章），不能覆盖全书。对白与内心独白占比高，但不同场景类型（战斗、朝堂、感情线等）未出现，相关习惯无法判断。程序统计中的人名、地名、修炼名词高频，只反映样本内容，不能当作作者偏好。部分维度如叙述视角的稳定性、长段描写能力、复杂场景衔接，因样本段落极短、长段为零，证据有限。标点中省略号为零、分号为零，只能说明本样本未用，不能推断全书习惯。</p><p><b>陌生环境醒来：</b>用一两个感官细节快速建立陌生环境，如气味、光线、触感；紧接着写角色的短促内心疑问和吐槽，先抛结论式短句，再补记忆或解释。段落保持一句一段，短句为主，允许网络口语和自嘲。</p><p><b>牢中对话与告别：</b>对白提示语中嵌入动作和神态，如“面无表情的拂袖”“目光微微下移”；人物分声：读书人用文言短句，主角用现代口语。潜台词用动作暗示，不直接解释。段落短，节奏紧。</p><p><b>公堂推理与实验：</b>先抛结论或假设，再补解释和步骤；用短句和动作描写推进实验过程，如“过滤”“炙烤”“搅拌”。官员反应用神态和短句呈现，主角内心吐槽可插入。信息投放先悬念后解释。</p><p><b>家庭饭桌冲突：</b>对白密集，提示语中嵌入动作和神态；人物分声明显：长辈泼辣，女儿冷淡，主角油滑。潜台词用动作或短句暗示，如“端着碗的手轻轻一颤”。段落短，节奏快。</p><p><b>夫妻夜话与和解：</b>用动作和物品传递情感，如“从怀里摸出一只木盒”“宝贝的握在手里”；对白简短，潜台词靠动作和神态。叙述者贴近主角视角，但此处可切换到另一方视角，用短句写其心理变化。</p><p><b>旅途与日常过渡：</b>用时间词和地点词直接跳转，如“到了午时左右”“两日匆匆而过”；信息投放先写行动，再补背景。段落短，节奏平稳，可插入轻松对话调节气氛。</p></details><p><a href="../.codex-temp/style-activity-20261005/real-samples-short-ids/dafeng-skill.md">完整Skill样本</a></p></section><section class="sample"><h3>凡人修仙传</h3><p class="meta">8条规则 · 20个词项 · 4次模型请求（含核验／一次修正）</p><p>样本为白话叙事，带旧小说与说书人口吻，书面语为主，偶掺口语词与错别字式表达。叙述以第三人称限知为主，紧贴主角感知与心理，常先写外部动作、再补内心解释。句长偏长，平均42字，长句近三成，短句少；逗号密度高，分号、破折号、省略号极少，引号集中在对白段。段落极短，一句一段占三分之二，几乎无长段，形成短段推进、长句承载的呼吸。词汇上多用“心里”“似乎”“一直”“冷冷的”等心理与状态词，称谓与身份词密集，叙述者常替人物作解释性补足。对白提示语多带动作或神态，人物分声主要靠身份与语气差异。描写偏实用细节，重视觉、触觉与身体反应，情绪多借动作与身体感受呈现，也常直接点明。场景衔接靠时间推进与行走移动，信息投放常先给现象、后补来历。</p><p><b>表达词项：</b>心里（15次/3章）、似乎（5次/2章）、一直（7次/1章）、冷冷的（5次/1章）、缓缓（4次/2章）、隐隐约约（2次/2章）、模模糊糊（1次/1章）、老者（13次/1章）、大夫（10次/2章）、师兄（13次/2章）、弟子（18次/3章）、童子（8次/1章）、因此（3次/2章）、除了（5次/2章）、等到（2次/2章）、原来（3次/2章）、听说（2次/1章）、的话（9次/2章）、一边（7次/3章）、好不（1次/1章）</p><details><summary>适用局限与场景</summary><p>样本仅3章、6959字，且为节选，不能覆盖全书或作者全部作品。章节间跨度大，第一、五、十章之间情节不连续，无法判断长篇中的稳定演变。统计中的高频人名、门派名、修炼名只能视为样本内词项，不能当作作者偏好。对白样本量有限，人物分声只能就现有几组对话作有限观察。部分维度如标点中的分号、破折号、省略号频次极低，不足以形成规则。叙述视角在个别段落有轻微越界解释，但样本不足以判断是否为稳定习惯。</p><p><b>乡土日常与离家：</b>用短段推进，环境选三四个具体物件，按视线移动排列；情绪先写身体动作，再用“心里”点明。时间转换用“第二天”“一个多月后”等词。对白少而短，长辈嘱咐用正式词，主角以动作回应。</p><p><b>门派入门与身份宣告：</b>上位者台词短、带命令词，提示语用“肃然”“冷冷”等神态；同门对白带羡慕或顾忌，旁白点出潜台词。信息投放先给结果，再补规则与来历。段落以对白独立成段为主。</p><p><b>行走途中与意外发现：</b>用行走动作衔接场景，长句写环境与身体反应，短句写突发动作。发现新物品时先写外观，再写材质与手感，最后补心理兴趣。情绪借身体疼痛与动作呈现。</p><p><b>师徒或上下级对话：</b>上位者用简短命令句，下位者用“遵命”“弟子”等正式词；提示语带恭敬动作。旁白补足人物心理与身份差异，不直接评论。对白段独立，叙述段作间隔。</p></details><p><a href="../.codex-temp/style-activity-20261005/real-samples-short-ids/fanren-skill.md">完整Skill样本</a></p></section><section class="sample"><h3>大奉打更人 · 对白重点</h3><p class="meta">8条规则 · 20个词项 · 4次模型请求（含核验／一次修正）</p><p>样本以现代白话为基底，叙述层可插入网络口语、穿越自嘲和轻喜剧式吐槽；对白层按人物身份分层，官员用官场套语，书生带文言残留，家人用家常口语。句法上中短句为主，一句一段占比极高，段落像弹幕一样快速切分；对白密度不低，提示语常带动作或神态，动作承接对白，对白后常接人物反应或叙述者吐槽。描写不追求绵密铺陈，而用少量具体物象迅速建立场景，情绪多由身体反应、动作和直接判断句共同完成。整体语感介于网文快节奏与轻幽默之间，叙述者与角色对白在词汇上分层明显。</p><p><b>表达词项：</b>银子（20次/3章）、大人（8次/1章）、草民（2次/1章）、书院（10次/2章）、功名（2次/1章）、系统（6次/1章）、狗带（1次/1章）、欧皇附体（1次/1章）、社会性死亡（1次/1章）、小王八蛋（2次/1章）、与汝何干（1次/1章）、舍妹（1次/1章）、本官（2次/1章）、陛下（1次/1章）、幽幽醒来（1次/1章）、头皮一炸（1次/1章）、脊背发凉（1次/1章）、芳心（1次/1章）、活色生香（1次/1章）、俊美无俦（1次/1章）</p><details><summary>适用局限与场景</summary><p>样本仅3章、约9853字，且章节跨度大（第1、5、48章），无法覆盖全书文风演变。高频人名、地名、修炼名词只作来源观察，不能推断作者偏好。部分维度（如场景衔接、时间转换）证据集中在少数片段，规则只描述样本中反复出现的语言组织方式，不声称适用于全部章节。对白与叙述的用词差异在样本中有明显表现，但人物分声的稳定性受样本量限制，只能作有限观察。</p><p><b>苏醒与身份确认：</b>用短句独立成段写身体感受和内心疑问；叙述者可用现代口语吐槽；对白少而短，提示语带动作。</p><p><b>官民对话与案件推理：</b>对白按身份分层，官员用套语，主角用“草民”；推理处用稍长段落按“假设—验证—结论”推进；动作承接对白。</p><p><b>家庭饭桌与日常互动：</b>对白用家常口语和语气词，叙述者插入吐槽；情绪借动作和身体反应表现；段落碎，一句一段多。</p><p><b>人物外貌与场景描写：</b>用一两个具体物象定住场景，外貌描写用书面语短句，随后迅速转入动作或对白。</p><p><b>场景转换与时间推进：</b>用时间副词或动作句开启新场景，背景信息拆成短段跟在动作之后，避免一次性倾倒。</p></details><p><a href="../.codex-temp/style-activity-20261005/real-samples-short-ids/dafeng-dialogue-skill.md">完整Skill样本</a></p></section>
+<h2>同题试写</h2><p>写一段450至650字的原创现代小说正文：市立博物馆修复员陈禾准备交接一幅旧地图，发现封签日期比归档日期早一天。保安周叔催她下班，她先核对记录而不指责任何人，最后听见闭馆后的储藏室传来一次敲击。人物身份固定，不得出现古代官职、门派、功法、穿越、金手指或原作人物。只写正文，不解释文风，不加标题。</p><p class="notice">以下只证明注入链路与语言差异，不是风格相似度评分。人工复核发现两份均超出目标篇幅，并把“一次敲击”扩展成更多事件；没有宣称模型已严格满足全部写作要求。</p>
+<details><summary>大奉打更人画像试写：824字符</summary><p class="meta">文风注入3730字符 · 平均句长17.53字 · 平均段落36.25字</p><pre>陈禾把放大镜挪开半寸，指尖在封签边缘停住。
+
+日期不对。
+
+封签上写的是三月十二，归档记录里却是三月十三。一天之差，说大不大，说小——她皱了皱眉，把地图卷轴轻轻转了个方向。纸背的霉斑像一小片乌云，压在“市立博物馆藏”几个铅字上。
+
+“小陈，还不走？”周叔的脑袋从门缝里探进来，手电筒的光晃了一下天花板，“闭馆铃都响过两遍了。”
+
+“马上。”她没抬头，“周叔，这幅图入库那天，是你值的班吗？”
+
+“哪幅？”
+
+“三号柜的旧地图，编号M-零四七。”
+
+周叔推门进来，橡胶鞋底在地砖上蹭出短促的声响。他凑近看了一眼封签，又看了一眼陈禾手边的登记簿，没说话。
+
+陈禾也没追问。她只是把登记簿翻到三月那一页，指尖顺着日期往下滑。十二号那栏写着“待修复”，十三号那栏写着“已入库”。字迹是同一个人的，墨色却深浅不一。
+
+“可能是写错了。”周叔终于开口，语气里带着那种老保安特有的含糊，“以前老李在的时候，登记经常——”
+
+“嗯。”陈禾打断他，声音很平，“有可能。”
+
+她把地图重新卷好，用无酸纸裹了两层，动作比平时慢。封签上的日期像一根细刺，扎在指腹上，不疼，但你知道它在那儿。
+
+周叔又催了一遍。这次她应了声，把登记簿合上，笔插回胸前的口袋。储藏室的灯管闪了闪，发出电流不稳的嗡鸣。
+
+她走到门口，回头看了一眼三号柜。
+
+就在这时候，柜子后面的墙壁传来一声闷响。
+
+咚。
+
+很轻，像有人用指节叩了一下砖面。陈禾的脚步钉在原地。周叔的手电筒猛地照过去，光柱里只有灰白的墙和铁皮柜的影子。
+
+“老鼠。”周叔说。
+
+陈禾没接话。她盯着那面墙，后颈的汗毛一根一根竖起来。储藏室没有窗户，墙后面是档案室，档案室再过去就是大街。这个点，街上早没人了。
+
+咚。
+
+又一声。比刚才更短，更闷，像是从很深的地方传上来的。
+
+周叔的手电筒晃了一下。陈禾听见他咽了口唾沫。
+
+“走吧。”她说，声音比自己预想的要稳，“明天再说。”
+
+她转身往外走，脚步不快不慢。但走出储藏室的那一刻，她清楚地感觉到，背后的黑暗里有什么东西，正贴着墙壁，一寸一寸地，朝她刚才站过的地方挪过来。</pre></details><details><summary>凡人修仙传画像试写：804字符</summary><p class="meta">文风注入3821字符 · 平均句长24.36字 · 平均段落59.29字</p><pre>陈禾把放大镜挪开半寸，指尖还压在旧地图的右下角。那枚封签已经发脆，边缘翘起一小片，像干透的树皮。她没敢用力，只用镊子轻轻挑开一角，露出底下褪色的墨迹——日期写的是三月十七，可归档记录上分明填着三月十八。
+
+她心里咯噔一下，面上却没动声色，只把封签重新按平，转身去翻工作台上的登记簿。纸页哗啦啦响过一阵，她一行行对下去，手指停在“入库”那一栏。没错，是十八。她又去看地图背面的编号，和簿子上的红戳子对得上，一个字不差。
+
+走廊那头传来脚步声，不急不缓，皮鞋底蹭着水磨石地面，一听就是周叔。
+
+“陈禾，还不走？都六点多了。”周叔站在门口，手里拎着一串钥匙，金属碰得叮当响。他往屋里扫了一眼，见她还趴在桌上，便又催了一句，“明天再弄吧，闭馆了。”
+
+陈禾抬起头，笑了笑：“周叔，您先巡您的，我把这点对完就走。”
+
+周叔没再说什么，钥匙串晃了晃，人已经往东边去了。脚步声渐渐远了，修复室里只剩空调低低的嗡鸣。
+
+她又低下头，把封签和归档单并排放在白纸上，拿手机拍了张照。日期差一天，说大不大，说小也不小。她没打算现在就去找谁问，更没想过要指认是谁填错了——博物馆里经手的人多，流转环节也多，贸然开口，反倒容易让人下不来台。她只是把照片存进工作文件夹，又在登记簿的备注栏里用铅笔轻轻画了个圈。
+
+窗外天色暗下来，玻璃上映出她自己的影子，模模糊糊的，和身后一排排铁皮柜叠在一起。她收拾好桌面，把地图重新锁进恒温柜，钥匙转了两圈，咔嗒一声。
+
+就在这时候，储藏室那边传来一记闷响。
+
+咚。
+
+很轻，像什么东西从架子上滑下来，又像有人用指节在木板上敲了一下。陈禾停住脚步，侧耳听了一阵。空调还在响，走廊的灯管偶尔滋滋闪一下，别的什么动静也没有。
+
+她心里有些犯疑，却也没慌。这栋楼老，管道热胀冷缩，夜里常有些响动。她关了修复室的灯，带上门，往储藏室方向走了几步。走廊尽头的安全出口指示灯绿幽幽地亮着，照出一小片地面。
+
+咚。
+
+又是一下。这回她听清了，是从储藏室里面传出来的。</pre></details>
+<h2>风险与限制</h2><ul><li>画像描述基于所选片段，不等于作者全部写作习惯。TXT换行与排版也会影响段落统计，不能机械当成作者规则。</li><li>独立模型核验能拦截假编号和部分无依据结论，但不是零漏判保证；风格适配、场景边界、是否混入原作题材词仍需人工判断。</li><li>此前真实请求发生过思考输出耗尽和截断，失败已保存；不把失败草稿当作成功。思考／输出预算与模型能力仍影响成功率。</li><li>7项既有失败包括6项调度器测试替身缺少registerTask，以及1项缓存调用次数预期不一致。本轮未修改这些不相关测试。</li><li>构建仍有pangu浏览器外置、混合导入、大分块、Rust未使用函数警告；原生Windows窗口未做自动化截图，本轮界面验证使用真实React组件和隔离内存文件桥。</li><li>这是本地独立便携测试包，保留其同目录skills资源；不是自动更新发布包，未上传，不更改稳定版版本号。</li></ul>
+<h2>变更文件</h2><p>与本轮开始时快照比较，共30个源文件新增或改动。此前已有的界面、角色灵魂修改保留。</p><details><summary>文件列表</summary><ul><li><code>src/components/uitest/ui-test-shell.tsx</code></li><li><code>src/lib/novel/book-analysis/analysis-pipeline-types.ts</code></li><li><code>src/lib/novel/book-analysis/analysis-result-cache.ts</code></li><li><code>src/lib/novel/book-analysis/batch-import-storage.spec.ts</code></li><li><code>src/lib/novel/book-analysis/batch-import-storage.ts</code></li><li><code>src/lib/novel/book-analysis/types.ts</code></li><li><code>src/lib/novel/context-engine.spec.ts</code></li><li><code>src/lib/novel/context-engine.ts</code></li><li><code>src/lib/novel/writing-style-store.spec.ts</code></li><li><code>src/lib/novel/writing-style-store.ts</code></li><li><code>src/stores/book-analysis-import-store.spec.ts</code></li><li><code>src/stores/book-analysis-import-store.ts</code></li><li><code>src/stores/book-analysis-pipeline-store.character-selection.spec.ts</code></li><li><code>src/stores/book-analysis-pipeline-store.ts</code></li><li><code>src/components/novel/book-analysis-activity-section.tsx</code></li><li><code>src/components/novel/book-analysis-workbench.css</code></li><li><code>src/components/novel/book-analysis-workbench.spec.tsx</code></li><li><code>src/components/novel/book-analysis-workbench.tsx</code></li><li><code>src/components/novel/workbench-style-details.tsx</code></li><li><code>src/lib/novel/book-analysis/analysis-activity.spec.ts</code></li><li><code>src/lib/novel/book-analysis/analysis-activity.ts</code></li><li><code>src/lib/novel/book-analysis/style-fingerprint.spec.ts</code></li><li><code>src/lib/novel/book-analysis/style-fingerprint.ts</code></li><li><code>src/lib/novel/book-analysis/workbench-adapter.ts</code></li><li><code>src/lib/novel/book-analysis/workbench-core.ts</code></li><li><code>src/lib/novel/book-analysis/workbench-publish.spec.ts</code></li><li><code>src/lib/novel/book-analysis/workbench-publish.ts</code></li><li><code>src/lib/novel/book-analysis/workbench-style-flow.spec.ts</code></li><li><code>src/stores/book-analysis-activity-store.spec.ts</code></li><li><code>src/stores/book-analysis-activity-store.ts</code></li></ul></details>
+<h2>界面实测</h2><img src="../.codex-temp/style-activity-20261005/screenshots/desktop-running.png" alt="三类Skill后台进度"><details><summary>文风画像详情</summary><img src="../.codex-temp/style-activity-20261005/screenshots/desktop-style.png" alt="文风画像各维度与词汇"></details><details><summary>窄屏完成提示</summary><img class="mobile" src="../.codex-temp/style-activity-20261005/screenshots/mobile-success-popup.png" alt="窄屏完成提示"></details>
+<h2>校验信息</h2><p><code>SHA256 04c490bb0a8cf4f9aaad7d98cd44e41c921bd6fc98a16787a09d503b2efbfa02</code></p><p>本轮开始时快照中的两个旧包哈希未变化。建议在测试项目中先提取少量章节、核对画像，再启用试写。</p></main></body></html>

@@ -1,0 +1,4675 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>实施计划 — 「舞台情景」重设计</title>
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('qmai-spec-theme');
+      var dark = saved ? saved === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    } catch (e) {}
+  })();
+</script>
+<style>
+  :root {
+    --bg:#FAF9F5; --panel:#FFFFFF; --panel-alt:#F0EEE6; --ink:#141413;
+    --ink-soft:#3D3D3A; --muted:#87867F; --line:#D1CFC5; --accent:#D97757;
+    --ok:#788C5D; --warn:#B5793A;
+    --serif: ui-serif, Georgia, 'Times New Roman', 'Songti SC', serif;
+    --sans: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei UI', Roboto, sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  html.dark {
+    --bg:#16150F; --panel:#201F19; --panel-alt:#2A2921; --ink:#F5F3EC;
+    --ink-soft:#D8D5CA; --muted:#9A988E; --line:#3A3830; --accent:#E08966;
+    --ok:#93A874; --warn:#D0A05E;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family:var(--sans); background:var(--bg); color:var(--ink-soft);
+    line-height:1.6; padding:56px 32px 120px; -webkit-font-smoothing:antialiased;
+  }
+  .page { max-width:1160px; margin:0 auto; }
+  .theme-toggle {
+    position:fixed; top:18px; right:20px; z-index:10; font:500 12px/1 var(--sans);
+    color:var(--ink-soft); background:var(--panel); border:1.5px solid var(--line);
+    border-radius:999px; padding:9px 14px; cursor:pointer;
+  }
+  .theme-toggle:hover { border-color:var(--accent); color:var(--accent); }
+  header.page-head { margin-bottom:36px; max-width:900px; }
+  .eyebrow {
+    font-family:var(--mono); font-size:12px; letter-spacing:0.08em;
+    text-transform:uppercase; color:var(--muted); margin-bottom:12px;
+  }
+  h1 {
+    font-family:var(--serif); font-weight:500; font-size:36px; line-height:1.18;
+    color:var(--ink); margin-bottom:16px; letter-spacing:-0.01em;
+  }
+  .status {
+    display:inline-flex; align-items:center; gap:7px; font-size:12.5px; color:var(--warn);
+    background:var(--panel-alt); border:1.5px solid var(--line); border-radius:999px;
+    padding:5px 12px; margin-bottom:18px;
+  }
+  .status::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--warn); }
+  .meta-box {
+    background:var(--panel); border:1.5px solid var(--line); border-radius:12px;
+    padding:16px 20px; font-size:14.5px; margin-top:4px;
+  }
+  .meta-box + .meta-box { margin-top:12px; }
+  .meta-box .label {
+    font-family:var(--mono); font-size:11px; text-transform:uppercase;
+    letter-spacing:0.06em; color:var(--muted); display:block; margin-bottom:8px;
+  }
+  .meta-box.rule { border-left:3px solid var(--warn); border-radius:0 10px 10px 0; }
+  .summary { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin:30px 0 48px; }
+  @media (max-width:900px) { .summary { grid-template-columns:repeat(2,1fr); } }
+  .summary .cell {
+    background:var(--panel); border:1.5px solid var(--line); border-radius:12px; padding:18px 20px;
+  }
+  .summary .k {
+    font-family:var(--mono); font-size:11px; text-transform:uppercase;
+    letter-spacing:0.06em; color:var(--muted); margin-bottom:6px;
+  }
+  .summary .v { font-size:17px; color:var(--ink); font-weight:600; }
+  .summary .v.accent { color:var(--accent); }
+  section { margin-bottom:52px; }
+  .sec-head { display:flex; align-items:baseline; gap:14px; margin-bottom:8px; }
+  .sec-head .num {
+    font-family:var(--mono); font-size:12px; background:var(--panel-alt);
+    color:var(--ink); padding:3px 9px; border-radius:8px; border:1px solid var(--line);
+  }
+  .sec-head h2 { font-family:var(--serif); font-weight:500; font-size:26px; color:var(--ink); }
+  .sec-intro { font-size:14.5px; color:var(--muted); max-width:820px; margin-bottom:20px; }
+  h3 { font-size:15px; color:var(--ink); margin:24px 0 10px; font-weight:600; }
+  p { max-width:860px; }
+  p + p { margin-top:10px; }
+  ul, ol { margin:10px 0 0 20px; max-width:860px; }
+  li { margin-bottom:6px; }
+  code {
+    font-family:var(--mono); font-size:0.9em; background:var(--panel-alt);
+    border:1px solid var(--line); border-radius:5px; padding:1px 5px; color:var(--ink);
+  }
+  pre {
+    font-family:var(--mono); font-size:12.5px; line-height:1.6; background:var(--panel);
+    border:1.5px solid var(--line); border-radius:12px; padding:15px 18px;
+    margin-top:12px; overflow-x:auto; color:var(--ink); white-space:pre;
+  }
+  pre code { background:none; border:none; padding:0; font-size:12.5px; }
+  b, strong { color:var(--ink); }
+  table {
+    width:100%; border-collapse:collapse; margin-top:12px; font-size:14px;
+    background:var(--panel); border:1.5px solid var(--line); border-radius:12px; overflow:hidden;
+  }
+  th, td { text-align:left; padding:9px 13px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th {
+    font-family:var(--mono); font-size:11px; text-transform:uppercase;
+    letter-spacing:0.05em; color:var(--muted); background:var(--panel-alt); font-weight:500;
+  }
+  tr:last-child td { border-bottom:none; }
+  td.mono, .mono { font-family:var(--mono); font-size:12.5px; }
+  .task {
+    background:var(--panel); border:1.5px solid var(--line); border-radius:14px;
+    padding:22px 24px; margin-top:26px;
+  }
+  .task > h3 { margin-top:0; font-size:17px; }
+  .task .files {
+    font-family:var(--mono); font-size:12.5px; background:var(--panel-alt);
+    border:1px solid var(--line); border-radius:10px; padding:12px 14px;
+    margin:12px 0 4px; white-space:pre-wrap; overflow-x:auto;
+  }
+  .steps { list-style:none; margin:16px 0 0; max-width:none; }
+  .steps > li { position:relative; padding-left:30px; margin-bottom:20px; }
+  .steps > li::before {
+    content:'☐'; position:absolute; left:0; top:0; font-size:15px;
+    color:var(--accent); line-height:1.5;
+  }
+  .steps > li > .st { font-weight:600; color:var(--ink); display:block; margin-bottom:2px; }
+  .why { font-size:13px; color:var(--muted); margin-top:4px; max-width:820px; }
+  .cmd {
+    font-family:var(--mono); font-size:12.5px; background:#1716120d;
+    border-left:3px solid var(--accent); padding:9px 13px; margin-top:8px;
+    border-radius:0 8px 8px 0; white-space:pre-wrap; overflow-x:auto; color:var(--ink);
+  }
+  html.dark .cmd { background:#ffffff0d; }
+  .exp { font-size:13px; color:var(--muted); margin-top:6px; }
+  .callout {
+    border-left:3px solid var(--accent); background:var(--panel);
+    border-radius:0 10px 10px 0; padding:14px 18px; margin-top:16px; max-width:900px;
+  }
+  .callout.warn { border-left-color:var(--warn); }
+  .callout.ok { border-left-color:var(--ok); }
+  .callout .t {
+    font-size:12px; font-family:var(--mono); text-transform:uppercase;
+    letter-spacing:0.05em; color:var(--muted); display:block; margin-bottom:6px;
+  }
+  .no { color:var(--muted); }
+  .yes { color:var(--ok); font-weight:600; }
+  .task h3 .done {
+    font-family:var(--mono); font-size:11px; font-weight:400; letter-spacing:0.05em;
+    color:var(--ok); border:1px solid var(--ok); border-radius:999px;
+    padding:1px 9px; margin-left:10px; vertical-align:2px;
+  }
+  .task h3 .doing {
+    font-family:var(--mono); font-size:11px; font-weight:400; letter-spacing:0.05em;
+    color:var(--warn); border:1px solid var(--warn); border-radius:999px;
+    padding:1px 9px; margin-left:10px; vertical-align:2px;
+  }
+  footer { border-top:1.5px solid var(--line); padding-top:20px; color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<button class="theme-toggle" id="themeToggle" type="button">切换深浅色</button>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">QMAI · 实施计划 · 2026-10-12</div>
+  <h1>「舞台情景」重设计 实施计划</h1>
+  <div class="status">9 个任务 · <b>9 / 9 已完成</b></div>
+
+  <div class="meta-box">
+    <span class="label">For agentic workers</span>
+    <p><b>REQUIRED SUB-SKILL：</b>使用 <code>superpowers:subagent-driven-development</code>（推荐）或
+    <code>superpowers:executing-plans</code> 逐任务实施本计划。步骤用复选框式跟踪。</p>
+  </div>
+
+  <div class="meta-box">
+    <span class="label">Goal</span>
+    <p>把「舞台情景」的设置面板重做成「候选角色直接点选 + 就地绑定灵魂」，把情景设定输入框加宽，
+    并让生成过程呈现群聊式的在场感；<b>对话引擎与发言顺序一行不改</b>。</p>
+  </div>
+
+  <div class="meta-box">
+    <span class="label">Architecture</span>
+    <p>新增 4 个生产文件：两个纯函数 / IO 模块（<code>scenario-avatar.ts</code>、
+    <code>scenario-soul-binding.ts</code>）与两个哑组件（候选网格、绑定灵魂弹窗）。
+    设置面板保留编排职责，视图只负责加载数据与接线。
+    引擎、主持人、Store、导出、导入、提取<b>全部不动</b>。</p>
+  </div>
+
+  <div class="meta-box">
+    <span class="label">Tech Stack</span>
+    <p>TypeScript · React 19 · Tailwind v4 · Zustand · i18next · Vitest（默认 <code>node</code> 环境；
+    组件测试文件首行加 <code>// @vitest-environment jsdom</code>）· React <code>createRoot</code> + <code>act</code>
+    —— 本仓库<b>不使用</b> @testing-library，已装的只有 <code>jsdom</code>。</p>
+  </div>
+
+  <div class="meta-box rule">
+    <span class="label">两条本项目硬规则（先读再动手）</span>
+    <p><b>一、不许擅自提交 git。</b>本仓库 <code>AGENTS.md</code> 要求「不擅自提交 git，除非用户明确要求」。
+    所以每个任务末尾的提交步骤都是<b>待批准</b>：先向用户报告本任务改动点并请求许可，得到同意后才执行
+    <code>git add</code> / <code>git commit</code>。计划里给出的提交命令与信息是<b>获得许可后</b>照抄用的。</p>
+    <p><b>二、<code>character-aura.ts</code> 不许出现中文弯引号（“ ”）。</b>
+    <code>npm run test:mocks</code> 会先跑 <code>scripts/lint-character-aura.mjs</code>；该脚本逐行检查
+    <code>src/lib/novel/character-aura.ts</code>，出现弯引号即整轮失败
+    （<code>lint-character-aura.mjs:26-33</code> 与 <code>:70-71</code>）。
+    本计划对该文件只加 <code>export</code> 两个字，不引入任何新字符串。</p>
+  </div>
+</header>
+
+<div class="summary">
+  <div class="cell"><div class="k">任务数</div><div class="v accent">9 个</div></div>
+  <div class="cell"><div class="k">新增文件</div><div class="v">4 + 4 个测试</div></div>
+  <div class="cell"><div class="k">改动文件</div><div class="v">6 + 4 个测试</div></div>
+  <div class="cell"><div class="k">引擎改动</div><div class="v yes">0 行</div></div>
+</div>
+
+<section>
+  <div class="sec-head"><span class="num">00</span><h2>执行前必读</h2></div>
+
+  <h3>规格来源</h3>
+  <p>本计划实现 <code>docs/superpowers/specs/2026-10-12-scenario-redesign-design.html</code>（已获用户批准）。
+    两处设计决策按规格 04 节与 12 节第 6 条执行：<b>「角色数量」= 上台总人数（含由角色担任的主持人）</b>，
+    只修正文案、不改实现语义。</p>
+
+  <h3>统一命令</h3>
+  <div class="cmd">npx vitest run &lt;单个测试文件路径&gt;</div>
+  <div class="cmd">npx tsc -p tsconfig.test.json --noEmit</div>
+  <div class="cmd">node scripts/lint-character-aura.mjs</div>
+  <div class="cmd">npm run test:mocks</div>
+  <div class="cmd">npm run typecheck</div>
+
+  <h3>任务的依赖顺序</h3>
+  <p>1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9。其中 4、5 依赖 1/2/3；6 依赖 4/5；7 依赖 3；8 依赖 1/2。
+    <b>不要跳序执行</b> —— 每个任务的测试都在验证前面任务建立的接口。</p>
+
+  <h3>文件清单（谁负责什么）</h3>
+  <table>
+    <tr><th>文件</th><th>职责</th><th>动作</th></tr>
+    <tr><td class="mono">scenario-avatar.ts</td><td>首字 + 稳定配色（纯函数，无副作用）</td><td>新增</td></tr>
+    <tr><td class="mono">scenario-soul-binding.ts</td><td>小传草稿 + 实体页写入 + 绑定结果分类（唯一写盘点）</td><td>新增</td></tr>
+    <tr><td class="mono">scenario-character-grid.tsx</td><td>候选角色网格（哑组件：只收 props、只报事件）</td><td>新增</td></tr>
+    <tr><td class="mono">scenario-soul-bind-dialog.tsx</td><td>选灵魂 / 补小传（一个弹窗、两个步骤）</td><td>新增</td></tr>
+    <tr><td class="mono">scenario-types.ts</td><td>常量与类型（人数上限、预设、流式 speakerId、注释更正）</td><td>改</td></tr>
+    <tr><td class="mono">character-aura.ts</td><td>只把绑定拦截文案改为 <code>export</code></td><td>改 1 行</td></tr>
+    <tr><td class="mono">scenario-setup-panel.tsx</td><td>编排：人数、提取范围、网格、情景设定、开始</td><td>改</td></tr>
+    <tr><td class="mono">story-simulation-view.tsx</td><td>加载灵魂与绑定、接线网格与弹窗、透传 speakerId</td><td>改</td></tr>
+    <tr><td class="mono">scenario-room-view.tsx</td><td>呈现：成员条、头像、配色、正在输入</td><td>改</td></tr>
+    <tr><td class="mono">src/i18n/zh.json</td><td>新文案 + 修正「角色数量」提示 + 删除失效 key</td><td>改</td></tr>
+    <tr><td class="mono">scenario-avatar.spec.ts</td><td>首字 / 配色稳定性的纯函数单测</td><td>新增</td></tr>
+    <tr><td class="mono">scenario-soul-binding.spec.ts</td><td>小传草稿 / 不覆盖已有页 / 三种绑定结果分类</td><td>新增</td></tr>
+    <tr><td class="mono">scenario-character-grid.spec.tsx</td><td>点选、序号、满员、灵魂入口、搜索的 jsdom 测试</td><td>新增</td></tr>
+    <tr><td class="mono">scenario-soul-bind-dialog.spec.tsx</td><td>两步骤绑定流程的 jsdom 测试</td><td>新增</td></tr>
+    <tr><td class="mono">scenario-types.spec.ts</td><td>追加人数常量与夹取用例</td><td>改（已存在）</td></tr>
+    <tr><td class="mono">scenario-setup-panel.spec.tsx</td><td>把「下拉选人」的 helper 迁到网格点击</td><td>改（已存在）</td></tr>
+    <tr><td class="mono">scenario-room-view.spec.tsx</td><td>追加成员条 / 头像 / 正在输入用例</td><td>改（已存在）</td></tr>
+    <tr><td class="mono">scenario-ui-wiring.spec.ts</td><td>源码契约断言（下拉框消失后必须同步）</td><td>改</td></tr>
+  </table>
+  <p class="why">（表中前四个文件都在 <code>src/lib/novel/story-simulation/</code> 或
+    <code>src/components/novel/story-simulation/</code> 下，为省版面省去了公共前缀。）</p>
+
+  <div class="callout warn">
+    <span class="t">为什么测试跟着任务走，而不是最后统一补</span>
+    <p><code>scenario-ui-wiring.spec.ts</code> 里有 <code>expect(src).toContain("&lt;select")</code> 这类源码断言。
+    删掉角色下拉框的那一刻它就会变红。所以<b>谁改坏了它，谁在同一个任务里修好它</b>，
+    让每个任务结束时测试套件都是绿的 —— 否则「红着往下走」到第 9 个任务时，已经分不清是哪一步坏的。</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">01</span><h2>任务总览</h2></div>
+  <table>
+    <tr><th>#</th><th>任务</th><th>产出</th><th>验证</th></tr>
+    <tr><td>1</td><td>角色头像与配色 <span class="done">完成</span></td><td><code>scenario-avatar.ts</code> + spec</td><td>纯函数单测（稳定 / 界内 / 主持人不参与哈希）</td></tr>
+    <tr><td>2</td><td>常量与类型 <span class="done">完成</span></td><td><code>scenario-types.ts</code>、zh.json 提示修正</td><td>常量单测 + 源码契约</td></tr>
+    <tr><td>3</td><td>绑定灵魂与补小传 <span class="done">完成</span></td><td><code>character-aura.ts</code> 导出、<code>scenario-soul-binding.ts</code> + spec</td><td>IO 单测（不覆盖已有页、三种结果分类）</td></tr>
+    <tr><td>4</td><td>候选角色网格 <span class="done">完成</span></td><td><code>scenario-character-grid.tsx</code> + spec</td><td>jsdom 交互测试</td></tr>
+    <tr><td>5</td><td>绑定灵魂弹窗 <span class="done">完成</span></td><td><code>scenario-soul-bind-dialog.tsx</code> + spec</td><td>jsdom 两步骤流程测试</td></tr>
+    <tr><td>6</td><td>设置面板重做 <span class="done">完成</span></td><td><code>scenario-setup-panel.tsx</code> + spec</td><td>jsdom 交互 + 契约断言同步</td></tr>
+    <tr><td>7</td><td>视图接线 <span class="done">完成</span></td><td><code>story-simulation-view.tsx</code></td><td>源码契约 + 类型检查</td></tr>
+    <tr><td>8</td><td>房间视图在场感 <span class="done">完成</span></td><td><code>scenario-room-view.tsx</code> + spec</td><td>jsdom 呈现测试</td></tr>
+    <tr><td>9</td><td>回归与反向验证 <span class="done">完成</span></td><td>—</td><td>全量测试 + 逐条反向验证 + 人工验收</td></tr>
+  </table>
+</section>
+
+<!-- ══════════════════ TASK 1 ══════════════════ -->
+<div class="task">
+<h3>Task 1：角色头像与配色（纯函数）<span class="done">已完成</span></h3>
+<div class="files">Create: src/lib/novel/story-simulation/scenario-avatar.ts
+Test:   src/lib/novel/story-simulation/scenario-avatar.spec.ts</div>
+
+<div class="callout ok">
+  <span class="t">本任务已实施完成（3 个提交）</span>
+  <p>实施过程中经规格审查与代码质量审查各一轮，最终接口与本页下方代码块一致。
+    后续任务请以本节为准确认接口名，勿凭记忆书写。</p>
+  <div class="cmd">bb1216ac feat(story-simulation): 舞台情景角色头像与稳定配色（纯函数）
+4fb24154 test(story-simulation): 守卫色板类名必须是字面量，避免 Tailwind 扫描不到而掉色
+52deaccc refactor(story-simulation): 角色配色接口改名为 avatarClass/nameClass 并去掉不可达回退</div>
+  <p><b>与初稿的差异（下游任务必须照新版写）</b>：</p>
+  <ul>
+    <li>字段名 <code>avatar</code> → <code>avatarClass</code>、<code>name</code> → <code>nameClass</code>。
+      原因：调用方会写 <code>className={cn("font-medium", tone.nameClass)}&gt;{p.name}&lt;/span&gt;</code>，
+      两个 name 并排、一个进 className 一个进 children，写反了不报错只是变色。改名让它一眼可辨。</li>
+    <li>接口属性加 <code>readonly</code>。<code>scenarioSpeakerTone</code> 返回的是色板里<b>共享对象的同一引用</b>，
+      调用方一旦赋值会静默改掉全进程配色。</li>
+    <li>删掉三处<b>静态不可达</b>的回退（<code>name ?? ""</code>、<code>[0] ?? "?"</code>、
+      <code>[...] ?? SCENARIO_SPEAKER_TONES[0]!</code>）：已核实两个 tsconfig 都<b>没开</b>
+      <code>noUncheckedIndexedAccess</code>，回退永远走不到；其中最后一个是<b>假保护</b>
+      （色板为空时回退值本身也是 undefined）。<code>codePointAt(0) ?? 0</code> 保留 —— 它由类型强制。</li>
+    <li><code>scenarioSpeakerToneIndex</code> 现在也对 seed 做 <code>trim()</code>，与
+      <code>scenarioAvatarInitial</code> 口径一致。</li>
+    <li>测试从 10 条增至 <b>13 条</b>。</li>
+  </ul>
+</div>
+
+<p class="why">为什么先做这个：后面两个组件（候选网格、房间视图）都要用「名字首字」和「角色专属颜色」。
+做成纯函数之后，颜色一致性不再依赖任何组件状态。</p>
+
+<ul class="steps">
+<li>
+  <span class="st">Step 1：写失败的测试</span>
+  <p class="why">创建 <code>src/lib/novel/story-simulation/scenario-avatar.spec.ts</code>
+    （以下是<b>最终</b>内容）：</p>
+  <pre><code>import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { describe, expect, it } from "vitest"
+import {
+  SCENARIO_MODERATOR_TONE,
+  SCENARIO_SPEAKER_TONES,
+  scenarioAvatarInitial,
+  scenarioSpeakerTone,
+  scenarioSpeakerToneIndex,
+} from "./scenario-avatar"
+
+describe("scenarioAvatarInitial", () =&gt; {
+  it("取中文名字的第一个字", () =&gt; {
+    expect(scenarioAvatarInitial("沈砚")).toBe("沈")
+    expect(scenarioAvatarInitial("诸葛亮")).toBe("诸")
+  })
+
+  it("去掉首尾空白后再取", () =&gt; {
+    expect(scenarioAvatarInitial("  林清越  ")).toBe("林")
+  })
+
+  it("空名与纯空白回退为问号，不返回空串", () =&gt; {
+    expect(scenarioAvatarInitial("")).toBe("?")
+    expect(scenarioAvatarInitial("   ")).toBe("?")
+  })
+
+  it("不把代理对（emoji）截成半个字符", () =&gt; {
+    expect(scenarioAvatarInitial("🐉龙")).toBe("🐉")
+  })
+})
+
+describe("scenarioSpeakerToneIndex", () =&gt; {
+  it("同一个名字永远落在同一个下标", () =&gt; {
+    expect(scenarioSpeakerToneIndex("沈砚")).toBe(scenarioSpeakerToneIndex("沈砚"))
+  })
+
+  it("下标始终落在色板范围内", () =&gt; {
+    const names = ["沈砚", "林清越", "苏九", "阿明", "A", "b", "张三丰", "🐉", ""]
+    for (const name of names) {
+      const index = scenarioSpeakerToneIndex(name)
+      expect(index).toBeGreaterThanOrEqual(0)
+      expect(index).toBeLessThan(SCENARIO_SPEAKER_TONES.length)
+    }
+  })
+
+  it("一组常见名字不会被全部压到同一个颜色", () =&gt; {
+    const names = ["沈砚", "林清越", "苏九", "阿明", "赵六", "钱七"]
+    const used = new Set(names.map((name) =&gt; scenarioSpeakerToneIndex(name)))
+    expect(used.size).toBeGreaterThan(1)
+  })
+
+  it("带空白的 seed 与已规范化的 seed 落在同一个下标", () =&gt; {
+    expect(scenarioSpeakerToneIndex("  沈砚  ")).toBe(scenarioSpeakerToneIndex("沈砚"))
+  })
+})
+
+describe("scenarioSpeakerTone", () =&gt; {
+  it("主持人用固定样式，不参与哈希", () =&gt; {
+    expect(scenarioSpeakerTone("沈砚", true)).toBe(SCENARIO_MODERATOR_TONE)
+    expect(scenarioSpeakerTone("林清越", true)).toBe(SCENARIO_MODERATOR_TONE)
+  })
+
+  it("相同 seed 得到同样的配色", () =&gt; {
+    expect(scenarioSpeakerTone("沈砚")).toEqual(scenarioSpeakerTone("沈砚"))
+  })
+
+  it("色板每一项的头像与名字类名都非空", () =&gt; {
+    for (const tone of SCENARIO_SPEAKER_TONES) {
+      expect(tone.avatarClass.length).toBeGreaterThan(0)
+      expect(tone.nameClass.length).toBeGreaterThan(0)
+    }
+  })
+
+  it("不同角色经公开入口拿到不同配色，而不是全被压成同一个色", () =&gt; {
+    // 用互不撞下标的 5 个名字；注意「钱七」与「沈砚」撞下标，不能进这组
+    const used = new Set(
+      ["沈砚", "林清越", "苏九", "阿明", "赵六"].map(
+        (id) =&gt; scenarioSpeakerTone(id).nameClass,
+      ),
+    )
+    expect(used.size).toBeGreaterThan(1)
+  })
+})
+
+describe("色板类名的字面量契约（源码级）", () =&gt; {
+  // 为什么必须读源码：`bg-${"rose"}-500/15` 运行时求值结果与字面量
+  // "bg-rose-500/15" 完全相同，任何值断言都发现不了动态拼接。
+  // 但 Tailwind v4 的内容扫描只认源码里的字面量，拼接出来的类名不会进产物 CSS。
+  // 所以这里直接检查源码文本：色板区域不允许出现反引号、${ 插值、字面量拼接。
+  it("发言人色板与主持人配色的源码区域只含字面量类名，没有模板字符串或字符串拼接", () =&gt; {
+    const source = readFileSync(resolve(__dirname, "scenario-avatar.ts"), "utf8")
+
+    const regions = [
+      {
+        label: "SCENARIO_SPEAKER_TONES",
+        start: "export const SCENARIO_SPEAKER_TONES",
+        end: "SCENARIO_MODERATOR_TONE",
+      },
+      {
+        label: "SCENARIO_MODERATOR_TONE",
+        start: "export const SCENARIO_MODERATOR_TONE",
+        end: "export function scenarioSpeakerToneIndex",
+      },
+    ]
+
+    for (const region of regions) {
+      const start = source.indexOf(region.start)
+      // 找不到边界标记就直接失败：否则切片会是空串，下面的断言会「假通过」
+      expect(start, `源码里没有找到 ${region.label} 的定义`).toBeGreaterThanOrEqual(0)
+
+      const end = source.indexOf(region.end, start + region.start.length)
+      expect(end, `源码里没有找到 ${region.label} 的结束标记 ${region.end}`).toBeGreaterThan(
+        start,
+      )
+
+      // 先剥掉注释：散文注释里出现反引号或 ${ 是正常的说明写法，
+      // 不该因为注释而误红；这个用例要守的是代码。
+      const text = source
+        .slice(start, end)
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "")
+
+      expect(
+        text,
+        `${region.label} 区域内出现反引号，说明类名是模板字符串拼出来的，Tailwind 扫不到`,
+      ).not.toContain("`")
+      expect(
+        text,
+        `${region.label} 区域内出现插值拼接，Tailwind v4 无法把它收集进产物 CSS`,
+      ).not.toContain("${")
+      expect(
+        text,
+        `${region.label} 区域内出现字符串相加拼类名，Tailwind v4 无法把它收集进产物 CSS`,
+      ).not.toMatch(/["'`]\s*\+|\+\s*["'`]/)
+    }
+  })
+})</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 2：跑测试确认它失败</span>
+  <div class="cmd">npx vitest run src/lib/novel/story-simulation/scenario-avatar.spec.ts</div>
+  <p class="exp">Expected: FAIL。实测报错为
+    <code>Error: Cannot find module './scenario-avatar'</code>
+    （Vitest 5.0.1 的措辞，与初稿猜的 <code>Failed to resolve import</code> 不同，但失败性质等价）。</p>
+</li>
+
+<li>
+  <span class="st">Step 3：写最小实现</span>
+  <p class="why">创建 <code>src/lib/novel/story-simulation/scenario-avatar.ts</code>
+    （以下是<b>最终</b>内容）：</p>
+  <pre><code>/**
+ * 「舞台情景」角色头像与配色
+ *
+ * 纯函数，无任何副作用：同一个 speakerId 在任何时候都得到同样的首字与
+ * 同一个色板下标。所以同一角色在同一场、以及日后回顾历史情景时，
+ * 颜色都不会变。
+ *
+ * ⚠️ 色板里的类名必须写成字面量。Tailwind v4 靠内容扫描收集类名，
+ * 动态拼接出来的类名不会进入产物 CSS，界面上就会掉色。
+ * 这条约束由 scenario-avatar.spec.ts 里的源码级用例守着。
+ *
+ * 已知取舍：8 个色槽对 10 个角色，撞色不可避免（散列本身也允许撞）。
+ * 优先保证的是「同一角色跨场次不变色」，而不是「同一场里两两不同色」——
+ * 头像上的首字与名字标签足以区分撞色的两个人。
+ */
+
+/** 名字首字（用于圆形头像）。 */
+export function scenarioAvatarInitial(name: string): string {
+  const trimmed = name.trim()
+  if (!trimmed) return "?"
+  // 用码点数组而不是 charAt：代理对（如 emoji）不会被截成半个字符。
+  // 已知局限：国旗（如 🇨🇳）与 ZWJ 家庭 emoji 按码点切会取到不完整的一个码点。
+  // 角色名目前都是中文，等真出现 emoji 名字再处理（要 ES2023 的 Intl.Segmenter）。
+  return Array.from(trimmed)[0]
+}
+
+/** 一个角色的配色：头像圆底色 + 发言人名字文字色。 */
+export interface ScenarioSpeakerTone {
+  /** 头像圆底色的类名 */
+  readonly avatarClass: string
+  /** 发言人名字文字色的类名 */
+  readonly nameClass: string
+}
+
+/** 角色专属色板。取 8 个，减少常见名字撞色。 */
+export const SCENARIO_SPEAKER_TONES: readonly ScenarioSpeakerTone[] = [
+  {
+    avatarClass: "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+    nameClass: "text-rose-700 dark:text-rose-300",
+  },
+  {
+    avatarClass: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+    nameClass: "text-amber-700 dark:text-amber-300",
+  },
+  {
+    avatarClass: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+    nameClass: "text-emerald-700 dark:text-emerald-300",
+  },
+  {
+    avatarClass: "bg-sky-500/15 text-sky-700 dark:text-sky-300",
+    nameClass: "text-sky-700 dark:text-sky-300",
+  },
+  {
+    avatarClass: "bg-violet-500/15 text-violet-700 dark:text-violet-300",
+    nameClass: "text-violet-700 dark:text-violet-300",
+  },
+  {
+    avatarClass: "bg-teal-500/15 text-teal-700 dark:text-teal-300",
+    nameClass: "text-teal-700 dark:text-teal-300",
+  },
+  {
+    avatarClass: "bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-300",
+    nameClass: "text-fuchsia-700 dark:text-fuchsia-300",
+  },
+  {
+    avatarClass: "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300",
+    nameClass: "text-indigo-700 dark:text-indigo-300",
+  },
+]
+
+/**
+ * 主持人的固定配色。
+ *
+ * 刻意不参与哈希：主持人在这场里是唯一的，给它一个稳定的主色，
+ * 比让它随名字换色更能让人一眼认出「这句是串场」。
+ */
+export const SCENARIO_MODERATOR_TONE: ScenarioSpeakerTone = {
+  avatarClass: "bg-primary/15 text-primary",
+  nameClass: "text-primary",
+}
+
+/**
+ * 稳定哈希：同一 seed 永远落在同一个下标。
+ *
+ * seed 必须是已规范化的角色 id（`ScenarioParticipant.id` /
+ * `ScenarioMessage.speakerId`），**不要传显示名** —— 引擎里两者今天同为
+ * 角色名，但一旦 id 与名字分家，两处调用点传的东西不一致就会让同一角色
+ * 在同一场里显示两种颜色。
+ *
+ * 这里与 scenarioAvatarInitial 一样先 trim：让带空白的输入得到同样的结果，
+ * 避免「首字正确、颜色却取决于有没有空格」这种不一致。
+ */
+export function scenarioSpeakerToneIndex(seed: string): number {
+  const text = seed.trim()
+  let hash = 0
+  for (const ch of text) {
+    // *31 + 码点：hash 始终小于 2^37，Number 精度足够，&gt;&gt;&gt;0 截成 32 位无符号
+    hash = (hash * 31 + (ch.codePointAt(0) ?? 0)) &gt;&gt;&gt; 0
+  }
+  return hash % SCENARIO_SPEAKER_TONES.length
+}
+
+/**
+ * 取一个角色的配色；isModerator 为真时返回主持人固定样式。
+ *
+ * seed 的取值要求见 scenarioSpeakerToneIndex。
+ */
+export function scenarioSpeakerTone(
+  seed: string,
+  isModerator = false,
+): ScenarioSpeakerTone {
+  if (isModerator) return SCENARIO_MODERATOR_TONE
+  return SCENARIO_SPEAKER_TONES[scenarioSpeakerToneIndex(seed)]
+}</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 4：跑测试确认通过</span>
+  <div class="cmd">npx vitest run src/lib/novel/story-simulation/scenario-avatar.spec.ts</div>
+  <p class="exp">Expected: PASS —— <b>13 个用例</b>全绿（不是初稿写的 9 个）。</p>
+</li>
+
+<li>
+  <span class="st">Step 5：类型检查</span>
+  <div class="cmd">npx tsc -p tsconfig.test.json --noEmit</div>
+  <p class="exp">Expected: 无输出（退出码 0）。</p>
+</li>
+
+<li>
+  <span class="st">Step 6：反向验证 —— 确认守卫真的会用</span>
+  <p class="why">「测试通过」不等于「断言有用」。本任务实施时已逐条验证，结论如下，
+    后续任务若改动本模块，请重跑这三条：</p>
+  <table>
+    <tr><th>反例</th><th>应当变红</th><th>实测结论</th></tr>
+    <tr>
+      <td>删掉 <code>if (isModerator) return SCENARIO_MODERATOR_TONE</code></td>
+      <td>「主持人用固定样式，不参与哈希」</td>
+      <td>✅ 恰好只红这一条</td>
+    </tr>
+    <tr>
+      <td>把色板某项改成模板字符串（<code>`bg-${"rose"}-500/15`</code>）</td>
+      <td>「色板…只含字面量类名」（源码级）</td>
+      <td>✅ 变红。<b>注意</b>：值断言抓不到它 —— 运行时字符串完全相同，
+        这就是必须读源码的原因</td>
+    </tr>
+    <tr>
+      <td>改回无条件 <code>return SCENARIO_SPEAKER_TONES[0]</code></td>
+      <td>「不同角色经公开入口拿到不同配色」</td>
+      <td>✅ 变红。缺了这条，整个界面会变成同一个颜色而测试全绿</td>
+    </tr>
+    <tr>
+      <td>在色板区域的<b>注释</b>里写含反引号 / <code>${</code> 的说明</td>
+      <td>（不应变红）</td>
+      <td>✅ 仍通过。契约测试断言前会先剥注释，否则最自然的说明写法定会让它误红</td>
+    </tr>
+  </table>
+</li>
+
+<li>
+  <span class="st">Step 7：提交（用户已授权本任务的 3 个提交）</span>
+  <div class="cmd">git add src/lib/novel/story-simulation/scenario-avatar.ts src/lib/novel/story-simulation/scenario-avatar.spec.ts
+git commit -m "feat(story-simulation): 舞台情景角色头像与稳定配色（纯函数）"</div>
+</li>
+</ul>
+
+<div class="callout warn">
+  <span class="t">留给后续调用方的两条约定</span>
+  <p>1. <b>seed 必须传角色 id</b>（<code>ScenarioParticipant.id</code> /
+    <code>ScenarioMessage.speakerId</code>），<b>不要传显示名</b>。引擎里两者今天同为角色名，
+    但一旦 id 与名字分家，两处调用点传的东西不一致，同一角色就会在同一场里显示两种颜色。
+    这条目前只有注释约束，没有编译期检查。</p>
+  <p>2. <b>8 个色槽对最多 10 个角色，撞色是已知取舍</b>（散列本身也允许撞）。
+    优先保证的是「同一角色跨场次不变色」，而不是「同一场里两两不同色」——
+    头像首字与名字标签足以区分撞色的两人。<b>人工验收时不要拿「颜色互不相同」当标准</b>。</p>
+</div>
+</div>
+
+<!-- ══════════════════ TASK 2 ══════════════════ -->
+<div class="task">
+<h3>Task 2：常量、类型与提示文案<span class="done">已完成</span></h3>
+<div class="files">Modify: src/lib/novel/story-simulation/scenario-types.ts
+Modify: src/i18n/zh.json
+Modify: src/lib/novel/story-simulation/scenario-types.spec.ts   ← 已存在，追加用例
+Modify: src/components/novel/story-simulation/scenario-ui-wiring.spec.ts</div>
+
+<p class="why">为什么先做这个：人数上限、预设按钮、流式状态里的 speakerId 都会被后面的任务引用。
+先把接口钉住，后面的组件才有确定的契约可依。</p>
+
+<div class="callout ok">
+  <span class="t">本任务已实施完成（3 个提交）</span>
+  <div class="cmd">ed866eb3 feat(story-simulation): 舞台情景角色数量上限放宽到 10，并修正「是否含主持人」的提示文案
+f8f5b59e docs(story-simulation): 修正 speakerId 可选的注释理由、补齐非有限值说明与旧口径文案
+f912838b test(story-simulation): 让 speakerId 契约断言真正覆盖空白变体</div>
+  <p><b>与初稿的差异（下游任务必须照新版写）</b>：</p>
+  <ul>
+    <li>用例数订正：<code>scenario-types.spec.ts</code> 原本是 <b>14</b> 个用例（初稿误记为 12），
+      加新增 8 个共 <b>22</b> 个；<code>scenario-ui-wiring.spec.ts</code> 13 → 14。</li>
+    <li>提示文案最终定为「<b>上台总人数</b>（{{min}}-{{max}} 人，含由角色担任的主持人）」。
+      初稿写的是「上台角色总数」，但同一句里又说「含主持人」，字面上互相拉扯。</li>
+    <li>同文件里两处遗留的旧口径「3~5」也一并改掉（文件头改为「挑选数名」，
+      <code>ScenarioSetup.participants</code> 的注释改为引用
+      <code>SCENARIO_CHARACTER_MIN~MAX</code> 常量名，避免以后再次漂移）。</li>
+    <li><code>speakerId?: string</code> 的注释理由被改写过：初稿写「为了旧会话数据与 store 无需迁移」，
+      <b>与事实不符</b> —— 核实后该状态从不被持久化（store 是裸 <code>create</code>，
+      <code>scenario-store.ts</code> 只序列化 <code>setup + messages</code>）。
+      真实理由是：唯一构造点在 <code>story-simulation-view.tsx</code>，而它不在本任务范围内。</li>
+    <li><code>clampScenarioCharacterCount</code> 补了 JSDoc，说明它把 <code>+Infinity</code> 夹到上限
+      而紧邻的 <code>clampScenarioRounds</code> 一律回退默认 —— 两个相邻函数对同一输入语义不同，
+      必须写下来，否则后来者只能猜。</li>
+    <li>契约断言从 <code>toContain("speakerId?: string")</code> 收紧为
+      <code>toMatch(/speakerId\s*\?\s*:\s*string/)</code>。实测确认：这个正则能覆盖
+      <code>speakerId ?: string</code> 这类空白变体（初版漏了 <code>speakerId</code> 之后的
+      <code>\s*</code>，会漏检），删掉字段时仍会变红。</li>
+  </ul>
+</div>
+
+<div class="callout warn">
+  <span class="t">Task 6 的硬性验收项（本任务留下的中间态）</span>
+  <p>本任务把提示文案改成了「3-10 人」，但按钮此刻仍硬编码 <code>[3, 4, 5]</code>、
+  也没有自定义输入 —— <b>在 Task 6 落地前，用户看得到 6~10 却选不到</b>。
+  所以：<b>Task 6 未完成前不要把中间态发版给用户</b>。</p>
+  <p>Task 6 必须同时做完这两件：</p>
+  <ol>
+    <li>把 <code>[3, 4, 5].map(...)</code> 换成 <code>SCENARIO_CHARACTER_PRESETS</code> + 自定义数字输入
+      （消费 <code>clampScenarioCharacterCount</code>）。</li>
+    <li>把 <code>zh.json:1811</code> 的 <code>hubScenarioDesc</code>
+      （「让 <b>3~5</b> 名已有角色…」）也改掉 —— 它是<b>用户可见</b>的，
+      自定义输入落地后会与面板提示互相矛盾。</li>
+  </ol>
+</div>
+
+<div class="callout warn">
+  <span class="t">先看清哪些测试文件已经存在，别写重复文件</span>
+  <p>本目录的文件命名约定是 <code>.spec.ts</code> / <code>.spec.tsx</code>（不是 <code>.test.tsx</code>），
+    并且下面这三个<b>已经存在</b>，本计划是<b>改</b>它们而不是新建：</p>
+  <ul>
+    <li><code>src/lib/novel/story-simulation/scenario-types.spec.ts</code>（Task 2 追加）</li>
+    <li><code>src/components/novel/story-simulation/scenario-setup-panel.spec.tsx</code>（Task 6 迁移）</li>
+    <li><code>src/components/novel/story-simulation/scenario-room-view.spec.tsx</code>（Task 8 追加）</li>
+  </ul>
+  <p>而 <code>scenario-avatar.spec.ts</code>、<code>scenario-soul-binding.spec.ts</code>、
+  <code>scenario-character-grid.spec.tsx</code>、<code>scenario-soul-bind-dialog.spec.tsx</code>
+  是真正的新文件。</p>
+</div>
+
+<ul class="steps">
+<li>
+  <span class="st">Step 1：追加失败的测试</span>
+  <p class="why">在<b>已有的</b> <code>src/lib/novel/story-simulation/scenario-types.spec.ts</code> 里，
+    把顶部的 import 补上新名字：</p>
+  <pre><code>import {
+  SCENARIO_CHARACTER_DEFAULT,
+  SCENARIO_CHARACTER_MAX,
+  SCENARIO_CHARACTER_MIN,
+  SCENARIO_CHARACTER_PRESETS,
+  SCENARIO_MODERATOR_USER_ID,
+  clampScenarioCharacterCount,
+  clampScenarioRounds,
+  estimateScenarioMessages,
+  hasRoleModerator,
+  lastSpokenRound,
+  remainingScenarioRounds,
+  type ScenarioMessage,
+  type ScenarioParticipant,
+} from "./scenario-types"</code></pre>
+  <p class="why">然后在文件<b>末尾</b>追加：</p>
+  <pre><code>describe("角色数量常量", () =&gt; {
+  it("上限放宽到 10，下限仍是 3", () =&gt; {
+    expect(SCENARIO_CHARACTER_MIN).toBe(3)
+    expect(SCENARIO_CHARACTER_MAX).toBe(10)
+  })
+
+  it("一键预设是 3/4/5，且都落在合法区间内", () =&gt; {
+    expect([...SCENARIO_CHARACTER_PRESETS]).toEqual([3, 4, 5])
+    for (const n of SCENARIO_CHARACTER_PRESETS) {
+      expect(n).toBeGreaterThanOrEqual(SCENARIO_CHARACTER_MIN)
+      expect(n).toBeLessThanOrEqual(SCENARIO_CHARACTER_MAX)
+    }
+  })
+
+  it("默认值仍是 3（不回退）", () =&gt; {
+    expect(SCENARIO_CHARACTER_DEFAULT).toBe(3)
+  })
+})
+
+describe("clampScenarioCharacterCount", () =&gt; {
+  it("区间内原样返回", () =&gt; {
+    expect(clampScenarioCharacterCount(7)).toBe(7)
+    expect(clampScenarioCharacterCount(3)).toBe(3)
+    expect(clampScenarioCharacterCount(10)).toBe(10)
+  })
+
+  it("低于下限夹到下限，高于上限夹到上限", () =&gt; {
+    expect(clampScenarioCharacterCount(1)).toBe(SCENARIO_CHARACTER_MIN)
+    expect(clampScenarioCharacterCount(99)).toBe(SCENARIO_CHARACTER_MAX)
+  })
+
+  it("非数字不返回 NaN", () =&gt; {
+    expect(clampScenarioCharacterCount(Number.NaN)).toBe(SCENARIO_CHARACTER_DEFAULT)
+    expect(clampScenarioCharacterCount(Number.POSITIVE_INFINITY)).toBe(
+      SCENARIO_CHARACTER_MAX,
+    )
+  })
+
+  it("小数四舍五入", () =&gt; {
+    expect(clampScenarioCharacterCount(4.4)).toBe(4)
+    expect(clampScenarioCharacterCount(4.6)).toBe(5)
+  })
+})
+
+describe("既有的轮数夹取不被牵连", () =&gt; {
+  it("轮数上限仍是 100", () =&gt; {
+    expect(clampScenarioRounds(9999)).toBe(100)
+    expect(clampScenarioRounds(20)).toBe(20)
+  })
+})</code></pre>
+  <p class="why">注意：文件里已经有一个 <code>describe("clampScenarioRounds")</code>，
+    所以最后一段的标题写的是「既有的轮数夹取不被牵连」—— 这是一个防回退的看门狗，
+    确认放宽人数上限时没有顺手把轮数上限也改掉。</p>
+</li>
+
+<li>
+  <span class="st">Step 2：跑测试确认它失败</span>
+  <div class="cmd">npx vitest run src/lib/novel/story-simulation/scenario-types.spec.ts</div>
+  <p class="exp">Expected: FAIL（实测 6 条红）—— 新加的用例报 <code>SCENARIO_CHARACTER_MAX</code> 得到 5 而非 10、
+    <code>clampScenarioCharacterCount is not a function</code>；文件里原有的 12 个用例仍然通过。</p>
+</li>
+
+<li>
+  <span class="st">Step 3：改常量与注释</span>
+  <p class="why">把 <code>scenario-types.ts</code> 中这段（当前第 53-60 行）：</p>
+  <pre><code>// ── 角色数量约束 ──
+//
+// 舞台上 = 1 名主持人 + 3~5 名角色。主持人可以由用户本人担任，
+// 因此「角色数」指的是上台发言的角色个数（不含主持人）。
+
+export const SCENARIO_CHARACTER_MIN = 3
+export const SCENARIO_CHARACTER_MAX = 5
+export const SCENARIO_CHARACTER_DEFAULT = 3</code></pre>
+  <p class="why">替换为：</p>
+  <pre><code>// ── 角色数量约束 ──
+//
+// 「角色数量」= 上台的总人数，**包含**由角色担任的那名主持人。
+// 主持人由用户本人担任时，上台的就是清一色的发言角色。
+//
+// 之所以写成「含主持人」而不是「不含」：面板上的选中数就是上台人数，
+// 与用户说的「3 个、4 个、5 个角色」是同一个口径；若按「不含」实现，
+// 「选 3 人 + 指定其中一人主持」会只剩 2 名发言角色，还得再点一次补人。
+
+export const SCENARIO_CHARACTER_MIN = 3
+export const SCENARIO_CHARACTER_MAX = 10
+export const SCENARIO_CHARACTER_DEFAULT = 3
+
+/** 一键按钮的预设人数；区间之外的数量走自定义输入。 */
+export const SCENARIO_CHARACTER_PRESETS = [3, 4, 5] as const</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 4：加夹取函数</span>
+  <p class="why">在同一个文件的 <code>clampScenarioRounds</code> 下面加：</p>
+  <pre><code>/** 归一化上台人数到合法区间（自定义输入用）。 */
+export function clampScenarioCharacterCount(count: number): number {
+  if (!Number.isFinite(count)) {
+    return count === Number.POSITIVE_INFINITY
+      ? SCENARIO_CHARACTER_MAX
+      : SCENARIO_CHARACTER_DEFAULT
+  }
+  const int = Math.round(count)
+  return Math.max(SCENARIO_CHARACTER_MIN, Math.min(SCENARIO_CHARACTER_MAX, int))
+}</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 5：给流式状态加 speakerId</span>
+  <p class="why">把 <code>scenario-types.ts:147-155</code> 的这段：</p>
+  <pre><code>export interface ScenarioStreamingState {
+  kind: ScenarioSpeakerKind
+  speakerName: string
+  content: string
+}</code></pre>
+  <p class="why">替换为：</p>
+  <pre><code>export interface ScenarioStreamingState {
+  kind: ScenarioSpeakerKind
+  /**
+   * 发言者 id（新增，可选）。
+   *
+   * 引擎的 onMessageStart 本来就带 speakerId，只是此前没往这里存，
+   * 导致流式气泡拿不到「是哪个角色」，没法给它上头像与专属配色。
+   * 可选是为了让旧会话数据与 store 无需迁移。
+   */
+  speakerId?: string
+  speakerName: string
+  content: string
+}</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 6：修正「角色数量」提示文案</span>
+  <p class="why">在 <code>src/i18n/zh.json</code> 里把这一条：</p>
+  <pre><code>"scenarioCharacterCountHint": "角色数不含主持人（{{min}}-{{max}}）",</code></pre>
+  <p class="why">替换为：</p>
+  <pre><code>"scenarioCharacterCountHint": "上台角色总数（{{min}}-{{max}} 人，含由角色担任的主持人）",</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 7：跑测试确认通过</span>
+  <div class="cmd">npx vitest run src/lib/novel/story-simulation/scenario-types.spec.ts</div>
+  <p class="exp">Expected: PASS —— 文件里原有的 <b>14</b> 个用例 + 新加的 8 个用例，共 <b>22</b> 个全绿。<br>（初稿此处误记为「原有 12 个 / 共 20 个」，实际复核为 14 / 22。）</p>
+</li>
+
+<li>
+  <span class="st">Step 8：给契约测试补一条 speakerId 断言</span>
+  <p class="why">在 <code>scenario-ui-wiring.spec.ts</code> 的
+    <code>describe("舞台情景 · 设置面板接线")</code> 之前插入一个新 describe：</p>
+  <pre><code>describe("舞台情景 · 流式状态带 speakerId", () =&gt; {
+  it("ScenarioStreamingState 有 speakerId 字段", () =&gt; {
+    const src = read("src/lib/novel/story-simulation/scenario-types.ts")
+    expect(src).toContain("export interface ScenarioStreamingState")
+    expect(src).toContain("speakerId?: string")
+  })
+})</code></pre>
+  <div class="cmd">npx vitest run src/components/novel/story-simulation/scenario-ui-wiring.spec.ts</div>
+  <p class="exp">Expected: PASS（此文件此刻仍全绿，因为角色下拉框还在）。</p>
+</li>
+
+<li>
+  <span class="st">Step 9：提交（需先获得用户许可）</span>
+  <div class="cmd">git add src/lib/novel/story-simulation/scenario-types.ts src/lib/novel/story-simulation/scenario-types.spec.ts src/i18n/zh.json src/components/novel/story-simulation/scenario-ui-wiring.spec.ts
+git commit -m "feat(story-simulation): 舞台情景角色数量上限放宽到 10，并修正「是否含主持人」的提示文案"</div>
+</li>
+</ul>
+</div>
+
+<!-- ══════════════════ TASK 3 ══════════════════ -->
+<div class="task">
+<h3>Task 3：绑定灵魂与「就地补小传」<span class="done">已完成</span></h3>
+<div class="files">Modify: src/lib/novel/character-aura.ts:228
+Create: src/lib/novel/story-simulation/scenario-soul-binding.ts
+Test:   src/lib/novel/story-simulation/scenario-soul-binding.spec.ts</div>
+
+<p class="why">这是需求 2(b) 的核心。<code>bindCharacterAura</code> 写盘前会调
+  <code>hasCharacterProfile</code>（<code>character-aura.ts:510</code>，判据在 <code>:733-747</code>），
+  要求角色先有人物小传；而舞台情景的候选角色是从<b>章节正文</b>提取的
+  （<code>story-extractor.ts</code> 只读不写），所以必须把「补一份小传再绑」做出来。</p>
+
+<div class="callout ok">
+  <span class="t">本任务已实施完成（2 个提交）</span>
+  <div class="cmd">e41a3311 feat(story-simulation): 舞台情景可绑定灵魂，缺人物小传时就地补一份再绑
+64b1a8d3 fix(story-simulation): 人物页 title 改用单引号标量，修掉名字含引号或反斜杠时永久绑不上的缺陷</div>
+  <p>第一个提交经规格审查与代码质量审查各一轮，两份审查<b>各自独立地</b>抓到同一个
+    Critical（<code>title</code> 未做 YAML 安全化），复现确认后由第二个提交修掉。要点：</p>
+  <ul>
+    <li><code>character-aura.ts</code> 的改动<b>只有加 <code>export </code> 六个字符</b>，
+      字符串零改动（该文件受弯引号检查约束）。</li>
+    <li>用例数订正：实际 <b>19</b> 个（初稿误记为 20 个）。</li>
+    <li>三个既有 soul 相关测试文件（<code>character-aura.test.ts</code>、
+      <code>character-aura-bindable.spec.ts</code>、<code>message-scoped-soul-binding.spec.ts</code>）
+      共 38 个用例仍全绿 —— <code>const</code> → <code>export const</code> 是纯增量。</li>
+    <li>反例验证 R-A~R-E 全部有效：去掉「不覆盖已有页」守卫、去掉 <code>isMissingProfileError</code> 分支、
+      把 <code>DRAFT_COGNITION_LIMIT</code> 改成 99、把 <code>tags: [character]</code> 改成 <code>figure</code>、
+      去掉 <code>error instanceof Error</code> —— 每条都让对应断言变红（最后一条是直接抛
+      <code>TypeError</code>，反而更强烈地证明该类型守卫必需）。</li>
+  </ul>
+</div>
+
+<div class="callout warn">
+  <span class="t">本模块能 work 的命门：写盘路径必须与「有没有小传」的判据同源</span>
+  <p>已逐条核实（这是本任务最要紧的一环，若不一致则<b>补完小传也绑不上</b>）：</p>
+  <ul>
+    <li><code>hasCharacterProfile</code>（<code>character-aura.ts:733</code>）→
+      <code>listBindableNovelCharacters</code> 的本地扫描（<code>:820-855</code>）扫的正是
+      <code>{normalizePath(projectPath)}/wiki/entities</code>，与
+      <code>scenarioProfilePagePath</code> 拼出的目录<b>同一个</b>。</li>
+    <li><code>isCharacterEntityContent</code>（<code>:757-763</code>）要求 frontmatter
+      <code>type === "entity"</code> 且 tags 含 <code>character</code> ——
+      这正是 <code>buildProfilePageContent</code> 写的。</li>
+    <li><b>最关键</b>：<code>extractPrimaryTitle</code>（<code>:2167-2173</code>）<b>优先取
+      frontmatter 的 <code>title:</code></b>，所以即使文件名被安全化改过
+      （如 <code>林/清</code> → <code>林-清.md</code>），取回的角色名仍是原文，
+      与传给 <code>bindScenarioSoul</code> 的 <code>characterName</code> 能对上。</li>
+    <li>缓存不会挡住：<code>bindable-characters-cache.ts:44-61</code> 的指纹含路径/大小/修改时间，
+      新写一个文件必然改变指纹 → 重新扫描。</li>
+    <li>既有测试背书：<code>character-aura-bindable.spec.ts:104-116</code> 的实体页夹具与本模块
+      写的页<b>同形状同路径</b>，且 <code>:549-559</code> 断言能从中解析出角色名 ——
+      该用例在本任务 Step 6 的运行中是绿的。</li>
+  </ul>
+  <p><b>已知边界</b>：<code>hasCharacterProfile</code> 的兜底 <code>searchWiki</code>
+  （<code>:737-745</code>）要求正文出现「人物小传 / 人物设定」字样，而本模块的草稿模板<b>没有</b>这两个词，
+  所以它一定走「实体页被扫描到」这条路。上面已证明该路成立。</p>
+</div>
+
+<div class="callout warn">
+  <span class="t">本轮最大的发现：这个 Critical 是<b>规格自己的漏洞</b>，两份审查各自独立抓到</span>
+  <p>实现与任务书<b>逐字节一致</b>，所以问题不在实现者，而在我写进任务书里的
+    <code>title: "${name}"</code>。症状：名字含 <code>"</code> 或 <code>\</code> 时
+    <b>人物页写了，但永远绑不上</b>，且因为「已存在的人物页绝不覆盖」，
+    <b>用户重试多少次都不会修复</b>。</p>
+  <ul>
+    <li>含 <code>"</code> → 产出 <code>title: "林"清"</code> → 双引号标量提前闭合
+      （<code>bad indentation of a mapping entry</code>）。</li>
+    <li>含 <code>\</code> → 产出 <code>title: "林\清"</code> → 双引号里的非法转义
+      （<code>unknown escape sequence</code>）。</li>
+    <li>两者都让<b>整段 frontmatter</b> 解析失败（<code>parseFrontmatter</code> 返回
+      <code>null</code>）→ <code>isCharacterEntityContent</code>（<code>character-aura.ts:757-763</code>）
+      为 false → 该页不被认成人物页 → <code>hasCharacterProfile</code> 落到
+      <code>searchWiki</code> 兜底，而兜底要求正文含「人物小传/人物设定」字样、我们草稿没有 → 绑定被拒。</li>
+    <li><b>最刺眼的一点</b>：任务书点名的命门例子 <code>林/清</code> 恰好是<b>能通过</b>的那个，
+      反而掩盖了缺陷 —— <code>/ : * ? &lt; &gt; |</code> 七个字符只被文件名安全化替换，
+      <code>title</code> 里的原文仍能被 <code>extractPrimaryTitle</code> 取回。</li>
+  </ul>
+  <p>修法（<code>64b1a8d3</code>）是<b>按名字内容选引号</b>：</p>
+  <pre><code>function titleScalar(name: string): string {
+  if (/["\\]/.test(name)) return `'${name.replace(/'/g, "''")}'`
+  return `"${name}"`
+}</code></pre>
+  <p><b>这里我（协调者）的判断错了一次，值得记下来</b>：我最初指令「永远用单引号标量」。
+    实现者<b>拒绝照做</b>，理由是 <code>extractPrimaryTitle</code>
+    （<code>character-aura.ts:2167-2173</code>）的正则
+    <code>/^title:\s*["']?(.+?)["']?\s*$/m</code> <b>不做 YAML 反转义、也不还原单引号加倍</b>，
+    所以永远单引号会让含 <code>'</code> 的名字（如 <code>C'D</code>）被读成 <code>C''D</code>。</p>
+  <p>我用真实 <code>js-yaml</code>（与 <code>frontmatter.ts</code> 同库同 <code>JSON_SCHEMA</code>）+
+    该正则跑了三策略矩阵（10 个名字）核实，<b>实现者是对的、我错了</b>：</p>
+  <table>
+    <tr><th>策略</th><th>YAML 解析失败</th><th>标题精确还原失败</th><th>能否绑定</th></tr>
+    <tr><td>旧的「永远双引号」</td><td><b>6 / 10</b>（全部含 <code>"</code> 或 <code>\</code>）</td><td>0</td><td>失败 6 条</td></tr>
+    <tr><td>我原指令「永远单引号」</td><td>0</td><td><b>4 / 10</b>（全部含 <code>'</code>）</td><td>全通过</td></tr>
+    <tr><td>实现的「按内容选引号」</td><td><b>0</b></td><td><b>2 / 10</b>（仅同时含 <code>'</code> 与 <code>"</code>/<code>\</code> 的极端名）</td><td>全通过</td></tr>
+  </table>
+  <p>即实现者的方案<b>严格优于</b>我的指令。残余的 2/10 只影响下拉里显示多一个引号，
+    不影响能否绑定（判据是 <code>normalizeCharacterText</code>，它会把引号抹掉）。</p>
+  <p><b>单引号形式与所有消费方兼容</b>（我另外独立查过，这是选它的关键依据）：仓库里共有
+    <b>三处</b>彼此独立、正则完全相同的标题提取器，都只剥掉首尾引号、不做反转义 ——
+    <code>character-aura.ts:2167-2173</code> 的 <code>extractPrimaryTitle</code>、
+    <code>wiki-cleanup.ts:81</code> 的 <code>extractFrontmatterTitle</code>
+    （其文档 <code>:74-78</code> <b>明确列出并声明容忍</b> <code>title: 'KV Cache'</code> 单引号形式），
+    以及 <code>graph-node-page.ts:44</code> 自己的写入路径。所以单引号是这些消费方都认的形式。</p>
+  <p><b>顺带澄清一个易被误用的邻居</b>：同目录 <code>framework-store.ts:88-91</code> 里有个
+    <code>yamlString</code>（产出 <code>\"</code> / <code>\\</code> 转义），它<b>不能</b>用在这里 ——
+    框架页的消费方是 <code>parseFrontmatter</code>（会反转义），而人物实体页的消费方是上面那条正则（不反转义），
+    两者要求的形式本来就不同。</p>
+</div>
+
+<div class="callout warn">
+  <span class="t">两处「留待后续定夺」已定夺</span>
+  <p>1. <b><code>createDirectory</code>：已删</b>。核实
+    <code>src/commands/fs.ts</code> → <code>write_file_atomic</code> →
+    <code>src-tauri/src/commands/fs.rs:1072-1079</code> 里 <code>do_write_file_atomic</code> 写盘前
+    <b>无条件</b> <code>fs::create_dir_all(parent)</code>，即 <code>writeFileAtomic</code> 自己就建父目录；
+    <code>create_directory</code> 本身也是幂等的 <code>create_dir_all</code>。
+    删掉后 spec 的 <code>vi.mock</code> 也同步去掉了这个桩（否则 <code>noUnusedLocals</code> 会报未使用的 import）。</p>
+  <p>2. <b>「写盘 → 真绑定成功」的跨模块用例：已补</b>（这次 Critical 正是缺它才溜过 19 条用例）。
+    新增的 6 个用例不再只断言「我们自己拼的字符串里有某几个字符」，
+    而是把产物交给<b>真实的</b> <code>parseFrontmatter</code>（<code>@/lib/frontmatter</code>）解析，
+    验证 frontmatter 非 null、<code>type === "entity"</code>、tags 含 <code>character</code>、
+    标题能还原原名、正文仍在。变异验证：把 <code>title</code> 退回旧的
+    <code>title: "${name}"</code> 写法后，<b>恰好那 3 条</b>（<code>林"清</code>、<code>林\清</code>、混合）
+    变红而旧的字符串断言仍全绿 —— 精确复现了原来的盲区。</p>
+</div>
+
+<div class="callout warn">
+  <span class="t">修复审查的收尾项（已另起一个提交处理）</span>
+  <p>修复本身经审查<b>放行、无 Critical</b>（审查者用真实 <code>js-yaml</code> 独立复现确认有效）。
+    但它提了两条 Important，都已处理：</p>
+  <ul>
+    <li><b>I1：<code>created === false</code> 时文案说错话。</b>那条 message 原本是<b>常量</b>，
+      所以当人物页<b>早已存在</b>（本次一个字节都没写）时它仍说「人物页已写入」。
+      这条路径真实可达：用户已有同名的 <code>wiki/entities/沈砚.md</code>，但那份页没有
+      <code>type: entity</code> / <code>tags: [character]</code>（例如是别的手写笔记），
+      于是 <code>isCharacterEntityContent</code> 判否、<code>searchWiki</code> 兜底也不命中。
+      已按 <code>created</code> 分叉，并补了一条覆盖「页已存在 + 缺小传」这个组合的用例
+      （此前两条相关用例都没覆盖它：一条只走成功分支，另一条 <code>fileExists</code> 恒为 <code>false</code>）。</li>
+    <li><b>I2：混合引号名的显示残余既没测也没承认。</b>名字<b>同时</b>含 <code>'</code> 与
+      <code>"</code>/<code>\</code> 时必须走单引号路径（因为含 <code>"</code>），
+      加倍后的 <code>''</code> 会被 <code>extractPrimaryTitle</code> 原样读回 —— 多一个 <code>'</code>。
+      <b>绑定不受影响</b>（<code>normalizeCharacterText</code> 抹掉引号后仍相等，已实测），
+      只影响 3 个展示面（角色下拉、图谱 label、搜索结果标题 —— 因为同一条正则也复制在
+      <code>wiki-graph.ts:135</code> 与 <code>search.ts:170</code>）。
+      已补一条混合名用例（断言<b>归一化后相等</b>，刻意不断言精确还原）并在注释里承认该残余。</li>
+  </ul>
+</div>
+
+<div class="callout warn">
+  <span class="t">⚠ 顺手发现一个<b>隔壁模块的既有 bug</b>，<b>未修</b>（不在本次范围，等用户决定）</span>
+  <p><code>src/lib/page-merge.ts:216-236</code> 的 <code>setFrontmatterScalar</code> 把值
+    <b>无引号逐字写回</b>（其自身注释 <code>:210-214</code> 也承认「caller is responsible for quoting」）。
+    而 <code>ingest.ts</code> 对<b>已存在</b>的页面会走 <code>mergePageContent</code>，
+    其中 <code>LOCKED_FIELDS</code>（<code>page-merge.ts:44</code>）<b>含 <code>title</code></b>。</p>
+  <p>我用真实 <code>js-yaml</code> 实测（这是<b>既有行为，与本次改动无关</b>，因为旧的双引号写法同样会被剥掉引号，
+    故<b>零回归</b>）：</p>
+  <table>
+    <tr><th>名字</th><th>写回形式</th><th>结果</th></tr>
+    <tr><td><code>林: 清</code></td><td><code>title: 林: 清</code></td><td>❌ <code>bad indentation of a mapping entry</code>，<b>整段 frontmatter 失效</b></td></tr>
+    <tr><td><code>林清 #x</code></td><td><code>title: 林清 #x</code></td><td>⚠ 被当注释截断成 <code>林清</code></td></tr>
+    <tr><td>含 <code>/ \ " ' ? &lt; &gt; |</code> 的名字</td><td>无引号</td><td>✅ 普通标量里这些字符都合法</td></tr>
+  </table>
+  <p>影响面：<b>一切</b>经 <code>ingest</code> 合并过的页面（不止人物页），只要标题里有
+    <code>: </code>（半角冒号+空格）或 <code> #</code>。修法在 <code>page-merge.ts</code> 内部
+    （写入时按需加引号），与「舞台情景」无关 —— 按最小改动原则本次不动，仅在此登记。</p>
+</div>
+
+<ul class="steps">
+<li>
+  <span class="st">Step 1：先让调用方能识别「缺小传」这个失败原因</span>
+  <p class="why">把 <code>character-aura.ts:228</code> 的：</p>
+  <pre><code>const CHARACTER_AURA_BINDING_BLOCK_MESSAGE = "请先在大纲中添加人物小传或人物设定，再绑定角色灵魂"</code></pre>
+  <p class="why">改为（只加 <code>export</code>，字符串一个字不改 —— 该文件受弯引号检查约束）：</p>
+  <pre><code>export const CHARACTER_AURA_BINDING_BLOCK_MESSAGE = "请先在大纲中添加人物小传或人物设定，再绑定角色灵魂"</code></pre>
+  <div class="cmd">node scripts/lint-character-aura.mjs</div>
+  <p class="exp">Expected: <code>✓ 全部通过！没有发现英文或弯引号问题。</code>（退出码 0）</p>
+</li>
+
+<li>
+  <span class="st">Step 2：写失败的测试</span>
+  <p class="why">创建 <code>src/lib/novel/story-simulation/scenario-soul-binding.spec.ts</code>：</p>
+  <pre><code>import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const fsMocks = vi.hoisted(() =&gt; ({
+  fileExists: vi.fn(async () =&gt; false),
+  writeFileAtomic: vi.fn(async () =&gt; {}),
+}))
+
+vi.mock("@/commands/fs", () =&gt; ({
+  fileExists: fsMocks.fileExists,
+  writeFileAtomic: fsMocks.writeFileAtomic,
+}))
+
+const auraMocks = vi.hoisted(() =&gt; ({
+  bindCharacterAura: vi.fn(async () =&gt; ({ customAuras: [], bindings: [] })),
+}))
+
+vi.mock("@/lib/novel/character-aura", async () =&gt; {
+  const actual = await vi.importActual&lt;typeof import("@/lib/novel/character-aura")&gt;(
+    "@/lib/novel/character-aura",
+  )
+  return { ...actual, bindCharacterAura: auraMocks.bindCharacterAura }
+})
+
+import { CHARACTER_AURA_BINDING_BLOCK_MESSAGE } from "@/lib/novel/character-aura"
+import type { ScenarioCandidate } from "./scenario-types"
+import {
+  bindScenarioSoul,
+  buildProfileDraftFromCandidate,
+  buildProfilePageContent,
+  createProfilePageThenBind,
+  isMissingProfileError,
+  scenarioProfileFileName,
+  scenarioProfilePagePath,
+} from "./scenario-soul-binding"
+
+const PROJECT = "/proj"
+
+function makeCandidate(
+  overrides: Partial&lt;ScenarioCandidate&gt; = {},
+): ScenarioCandidate {
+  return {
+    id: "沈砚",
+    name: "沈砚",
+    profile: "账房出身，谨慎寡言",
+    auraId: null,
+    auraName: null,
+    speakingStyle: "短句，先问再答",
+    personality: ["谨慎", "寡言"],
+    knowledgeScope: ["账目", "东家底细"],
+    doesNotKnow: ["北境的战事"],
+    ...overrides,
+  }
+}
+
+describe("buildProfileDraftFromCandidate", () =&gt; {
+  it("用已提取的信息拼出小传：姓名 / 性格 / 风格 / 认知", () =&gt; {
+    const draft = buildProfileDraftFromCandidate(makeCandidate())
+    expect(draft).toContain("# 沈砚")
+    expect(draft).toContain("谨慎、寡言")
+    expect(draft).toContain("短句，先问再答")
+    expect(draft).toContain("- 账目")
+    expect(draft).toContain("- 北境的战事")
+  })
+
+  it("已有灵魂时把灵魂写进基本信息", () =&gt; {
+    const draft = buildProfileDraftFromCandidate(
+      makeCandidate({ auraId: "a1", auraName: "账房先生" }),
+    )
+    expect(draft).toContain("灵魂：账房先生")
+  })
+
+  it("性格与风格缺省时落成「（待补充）」，不留空行", () =&gt; {
+    const draft = buildProfileDraftFromCandidate(
+      makeCandidate({ personality: [], speakingStyle: "" }),
+    )
+    expect(draft.match(/（待补充）/g)?.length).toBe(2)
+  })
+
+  it("认知范围各最多 10 条", () =&gt; {
+    const draft = buildProfileDraftFromCandidate(
+      makeCandidate({
+        knowledgeScope: Array.from({ length: 12 }, (_, i) =&gt; `知道${i}`),
+        doesNotKnow: Array.from({ length: 12 }, (_, i) =&gt; `不知道${i}`),
+      }),
+    )
+    expect(draft).toContain("- 知道9")
+    expect(draft).not.toContain("- 知道10")
+    expect(draft).toContain("- 不知道9")
+    expect(draft).not.toContain("- 不知道10")
+  })
+
+  it("完全没有认知信息时不渲染认知段落", () =&gt; {
+    const draft = buildProfileDraftFromCandidate(
+      makeCandidate({ knowledgeScope: [], doesNotKnow: [] }),
+    )
+    expect(draft).not.toContain("## 认知范围")
+  })
+
+  it("结尾留一行说明，标明这是可改的草稿", () =&gt; {
+    expect(buildProfileDraftFromCandidate(makeCandidate())).toContain(
+      "由「舞台情景」根据已写章节自动整理",
+    )
+  })
+})
+
+describe("buildProfilePageContent", () =&gt; {
+  it("frontmatter 是 type=entity + tags 含 character（才认得出可绑定人物）", () =&gt; {
+    const page = buildProfilePageContent(
+      "沈砚",
+      "# 沈砚",
+      new Date("2026-10-12T00:00:00Z"),
+    )
+    expect(page).toContain("type: entity")
+    expect(page).toContain("tags: [character]")
+    expect(page).toContain('title: "沈砚"')
+    expect(page).toContain("created: 2026-10-12")
+    expect(page).toContain("# 沈砚")
+  })
+
+  it("正文被去掉了首尾空白", () =&gt; {
+    const page = buildProfilePageContent(
+      "沈砚",
+      "\n\n# 沈砚\n\n",
+      new Date("2026-10-12T00:00:00Z"),
+    )
+    expect(page.endsWith("# 沈砚\n")).toBe(true)
+  })
+})
+
+describe("scenarioProfileFileName / scenarioProfilePagePath", () =&gt; {
+  it("把文件名非法字符换成连字符", () =&gt; {
+    expect(scenarioProfileFileName('林/清:越*?"&lt;&gt;|')).toBe("林-清-越------")
+  })
+
+  it("空白名回退为「未命名角色」", () =&gt; {
+    expect(scenarioProfileFileName("   ")).toBe("未命名角色")
+  })
+
+  it("落盘路径是 wiki/entities 下的同名 md", () =&gt; {
+    expect(scenarioProfilePagePath(PROJECT, "沈砚")).toBe("/proj/wiki/entities/沈砚.md")
+  })
+})
+
+describe("isMissingProfileError", () =&gt; {
+  it("只认 character-aura 自己那条文案", () =&gt; {
+    expect(
+      isMissingProfileError(new Error(CHARACTER_AURA_BINDING_BLOCK_MESSAGE)),
+    ).toBe(true)
+    expect(isMissingProfileError(new Error("磁盘满了"))).toBe(false)
+    expect(isMissingProfileError("字符串错误")).toBe(false)
+  })
+})
+
+describe("bindScenarioSoul", () =&gt; {
+  beforeEach(() =&gt; {
+    vi.clearAllMocks()
+    auraMocks.bindCharacterAura.mockResolvedValue({ customAuras: [], bindings: [] })
+  })
+
+  it("成功时返回 ok", async () =&gt; {
+    await expect(bindScenarioSoul(PROJECT, "沈砚", "aura-1")).resolves.toEqual({
+      ok: true,
+    })
+    expect(auraMocks.bindCharacterAura).toHaveBeenCalledWith(PROJECT, {
+      characterName: "沈砚",
+      auraId: "aura-1",
+    })
+  })
+
+  it("缺小传时归类为 missing-profile，而不是笼统的失败", async () =&gt; {
+    auraMocks.bindCharacterAura.mockRejectedValueOnce(
+      new Error(CHARACTER_AURA_BINDING_BLOCK_MESSAGE),
+    )
+    await expect(bindScenarioSoul(PROJECT, "沈砚", "aura-1")).resolves.toEqual({
+      ok: false,
+      reason: "missing-profile",
+    })
+  })
+
+  it("其它错误原样带出 message，不吞错", async () =&gt; {
+    auraMocks.bindCharacterAura.mockRejectedValueOnce(new Error("磁盘满了"))
+    await expect(bindScenarioSoul(PROJECT, "沈砚", "aura-1")).resolves.toEqual({
+      ok: false,
+      reason: "error",
+      message: "磁盘满了",
+    })
+  })
+})
+
+describe("createProfilePageThenBind", () =&gt; {
+  beforeEach(() =&gt; {
+    vi.clearAllMocks()
+    fsMocks.fileExists.mockResolvedValue(false)
+    auraMocks.bindCharacterAura.mockResolvedValue({ customAuras: [], bindings: [] })
+  })
+
+  it("页不存在时先写盘再绑定，created=true", async () =&gt; {
+    const result = await createProfilePageThenBind(PROJECT, "沈砚", "aura-1", "# 沈砚")
+    expect(result).toEqual({ ok: true, created: true })
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
+      "/proj/wiki/entities/沈砚.md",
+      expect.stringContaining("tags: [character]"),
+    )
+    expect(auraMocks.bindCharacterAura).toHaveBeenCalledTimes(1)
+  })
+
+  it("页已存在时绝不覆盖：跳过写入，created=false，但仍绑定", async () =&gt; {
+    fsMocks.fileExists.mockResolvedValue(true)
+    const result = await createProfilePageThenBind(
+      PROJECT,
+      "沈砚",
+      "aura-1",
+      "# 我手写的小传",
+    )
+    expect(result).toEqual({ ok: true, created: false })
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(auraMocks.bindCharacterAura).toHaveBeenCalledTimes(1)
+  })
+
+  it("写入失败时如实报错，且不去调用绑定", async () =&gt; {
+    fsMocks.writeFileAtomic.mockRejectedValueOnce(new Error("只读磁盘"))
+    const result = await createProfilePageThenBind(PROJECT, "沈砚", "aura-1", "# 沈砚")
+    expect(result.ok).toBe(false)
+    expect(result.created).toBe(false)
+    if (!result.ok) expect(result.message).toContain("只读磁盘")
+    expect(auraMocks.bindCharacterAura).not.toHaveBeenCalled()
+  })
+
+  it("补完小传仍被拒时，如实说明人物页已写入", async () =&gt; {
+    auraMocks.bindCharacterAura.mockRejectedValueOnce(
+      new Error(CHARACTER_AURA_BINDING_BLOCK_MESSAGE),
+    )
+    const result = await createProfilePageThenBind(PROJECT, "沈砚", "aura-1", "# 沈砚")
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.message).toContain("人物页已写入")
+  })
+})</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 3：跑测试确认它失败</span>
+  <div class="cmd">npx vitest run src/lib/novel/story-simulation/scenario-soul-binding.spec.ts</div>
+  <p class="exp">Expected: FAIL —— <code>Failed to resolve import "./scenario-soul-binding"</code>。</p>
+</li>
+
+<li>
+  <span class="st">Step 4：写实现</span>
+  <p class="why">创建 <code>src/lib/novel/story-simulation/scenario-soul-binding.ts</code>：</p>
+  <pre><code>/**
+ * 「舞台情景」绑定灵魂
+ *
+ * ── 为什么需要这个模块 ──
+ * `bindCharacterAura` 写盘前会查 `hasCharacterProfile`，要求该角色已经在
+ * `wiki/entities`（type=entity 且 tags 含 character）或 `wiki/outlines`
+ * 里有「人物小传 / 人物设定」，否则直接抛错。
+ *
+ * 而舞台情景的候选角色是 `extractStoryContent` 从**章节正文**提取的，
+ * 提取过程只读不写 —— 所以这些角色大概率还没有人物页，一点「绑定灵魂」
+ * 就会被拒。本模块把「就地补一份最小小传再绑」这件事做完。
+ *
+ * ── 为什么是「先试后补」而不是「先查后补」──
+ * `hasCharacterProfile` 除了查实体页/大纲，还会兜底走一次 `searchWiki`
+ * （character-aura.ts:737-745）。若在这里用 `listBindableNovelCharacters`
+ * 自己预判，会漏掉 searchWiki 这条命中路径，对本来能绑成功的角色弹出
+ * 多余的补小传步骤。所以顺序必须是：直接绑 → 失败且原因正是缺小传 → 才补。
+ */
+
+import { createDirectory, fileExists, writeFileAtomic } from "@/commands/fs"
+import {
+  CHARACTER_AURA_BINDING_BLOCK_MESSAGE,
+  bindCharacterAura,
+} from "@/lib/novel/character-aura"
+import { normalizePath } from "@/lib/path-utils"
+import type { ScenarioCandidate } from "./scenario-types"
+
+/** 认知范围最多带入条目数，避免一份草稿长得没法读。 */
+const DRAFT_COGNITION_LIMIT = 10
+
+/** 性格 / 风格缺省时的占位文案。 */
+const DRAFT_PLACEHOLDER = "（待补充）"
+
+/** 文件名安全化。规则与 graph-node-page.ts 的 fileNameFromLabel 一致。 */
+export function scenarioProfileFileName(name: string): string {
+  return name.replace(/[\\/:*?"&lt;&gt;|]/g, "-").trim() || "未命名角色"
+}
+
+/** 人物页的落盘路径。 */
+export function scenarioProfilePagePath(projectPath: string, name: string): string {
+  const pp = normalizePath(projectPath)
+  return `${pp}/wiki/entities/${scenarioProfileFileName(name)}.md`
+}
+
+/**
+ * 由候选角色**已有**的信息拼出小传草稿。
+ *
+ * 不调模型、不消耗 token：ScenarioCandidate 里已经有 profile / personality /
+ * speakingStyle / knowledgeScope / doesNotKnow，够拼出一份能过校验、也有
+ * 参考价值的草稿。用户可以在弹窗里改。
+ */
+export function buildProfileDraftFromCandidate(candidate: ScenarioCandidate): string {
+  const lines: string[] = []
+
+  lines.push(`# ${candidate.name}`)
+  lines.push("")
+  lines.push("## 基本信息")
+  lines.push(`- 姓名：${candidate.name}`)
+  if (candidate.auraName) lines.push(`- 灵魂：${candidate.auraName}`)
+
+  lines.push("")
+  lines.push("## 性格")
+  lines.push(
+    candidate.personality.length &gt; 0
+      ? candidate.personality.join("、")
+      : DRAFT_PLACEHOLDER,
+  )
+
+  lines.push("")
+  lines.push("## 说话风格")
+  lines.push(candidate.speakingStyle.trim() || DRAFT_PLACEHOLDER)
+
+  const knows = candidate.knowledgeScope.slice(0, DRAFT_COGNITION_LIMIT)
+  const notKnows = candidate.doesNotKnow.slice(0, DRAFT_COGNITION_LIMIT)
+  if (knows.length &gt; 0 || notKnows.length &gt; 0) {
+    lines.push("")
+    lines.push("## 认知范围")
+    if (knows.length &gt; 0) {
+      lines.push("### 知道")
+      for (const item of knows) lines.push(`- ${item}`)
+    }
+    if (notKnows.length &gt; 0) {
+      lines.push("### 不知道")
+      for (const item of notKnows) lines.push(`- ${item}`)
+    }
+  }
+
+  lines.push("")
+  lines.push("&lt;!-- 由「舞台情景」根据已写章节自动整理，可自由修改 --&gt;")
+  return lines.join("\n")
+}
+
+/**
+ * title 的 YAML 标量形式。**订正**：初稿这里写的是 `title: "${name}"`
+ * 直接内插原始名，那是个 Critical（见上方 callout）—— 名字含 `"` 或 `\`
+ * 会让整段 frontmatter 解析失败，人物页写了却永远绑不上。
+ * 含 `"` 或 `\` 时改用单引号标量（其中的 `"`、`\` 是普通字面量，`'` 按
+ * YAML 规则加倍）；其余名字保持双引号，这样含 `'` 的名字能被原样取回。
+ * 因为 character-aura.ts 的 extractPrimaryTitle 只剥首尾引号、不反转义。
+ */
+function titleScalar(name: string): string {
+  if (/["\\]/.test(name)) return `'${name.replace(/'/g, "''")}'`
+  return `"${name}"`
+}
+
+/**
+ * 人物实体页全文。
+ *
+ * frontmatter 必须是 `type: entity` + `tags` 含 `character`：这是
+ * `isCharacterEntityContent`（character-aura.ts:757-763）认出「可绑定人物页」
+ * 的唯一判据，写错这一行绑定就过不了校验。
+ */
+export function buildProfilePageContent(
+  name: string,
+  body: string,
+  date: Date = new Date(),
+): string {
+  const day = date.toISOString().slice(0, 10)
+  return [
+    "---",
+    "type: entity",
+    `title: ${titleScalar(name)}`,
+    "tags: [character]",
+    `created: ${day}`,
+    `updated: ${day}`,
+    "---",
+    "",
+    body.trim(),
+    "",
+  ].join("\n")
+}
+
+/** 绑定结果：成功 / 缺小传 / 其它错误。 */
+export type ScenarioSoulBindResult =
+  | { ok: true }
+  | { ok: false; reason: "missing-profile" }
+  | { ok: false; reason: "error"; message: string }
+
+/** 补小传再绑的结果：无论成败都带上「这次建了没有」。 */
+export type ScenarioSoulBindOutcome =
+  | { ok: true; created: boolean }
+  | { ok: false; created: boolean; message: string }
+
+/** 这个错误是不是「缺人物小传」。 */
+export function isMissingProfileError(error: unknown): boolean {
+  return (
+    error instanceof Error &amp;&amp;
+    error.message.includes(CHARACTER_AURA_BINDING_BLOCK_MESSAGE)
+  )
+}
+
+function toMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** 照常绑一次，并把失败原因分成三类交给界面。 */
+export async function bindScenarioSoul(
+  projectPath: string,
+  characterName: string,
+  auraId: string,
+): Promise&lt;ScenarioSoulBindResult&gt; {
+  try {
+    await bindCharacterAura(projectPath, { characterName, auraId })
+    return { ok: true }
+  } catch (error) {
+    if (isMissingProfileError(error)) return { ok: false, reason: "missing-profile" }
+    return { ok: false, reason: "error", message: toMessage(error) }
+  }
+}
+
+/**
+ * 补一份最简小传，然后绑定。
+ *
+ * **已存在的人物页绝不覆盖** —— 用户手写的内容比我们拼的草稿重要得多，
+ * 所以 fileExists 为真时直接跳过写入进入绑定。
+ */
+export async function createProfilePageThenBind(
+  projectPath: string,
+  characterName: string,
+  auraId: string,
+  body: string,
+): Promise&lt;ScenarioSoulBindOutcome&gt; {
+  const path = scenarioProfilePagePath(projectPath, characterName)
+  let created = false
+
+  try {
+    const exists = await fileExists(path)
+    if (!exists) {
+      await createDirectory(`${normalizePath(projectPath)}/wiki/entities`)
+      await writeFileAtomic(path, buildProfilePageContent(characterName, body))
+      created = true
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      created: false,
+      message: `写入人物页失败：${toMessage(error)}`,
+    }
+  }
+
+  const result = await bindScenarioSoul(projectPath, characterName, auraId)
+  if (result.ok) return { ok: true, created }
+  if (result.reason === "missing-profile") {
+    return {
+      ok: false,
+      created,
+      message:
+        "人物页已写入，但绑定仍被拒绝。请确认这份小传里写到了角色姓名，或先在「人物小传」里补全档案。",
+    }
+  }
+  return { ok: false, created, message: result.message }
+}</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 5：跑测试确认通过</span>
+  <div class="cmd">npx vitest run src/lib/novel/story-simulation/scenario-soul-binding.spec.ts</div>
+  <p class="exp">Expected: PASS —— <b>19</b> 个用例全绿。<br>（初稿此处误记为 20 个，实际复核为 19 个：6 个 draft + 2 个 page content + 3 个 fileName/path + 1 个 isMissingProfileError + 3 个 bindScenarioSoul + 4 个 createProfilePageThenBind。）</p>
+</li>
+
+<li>
+  <span class="st">Step 6：确认没碰坏 character-aura 的既有测试</span>
+  <div class="cmd">npx vitest run src/lib/novel/character-aura.test.ts src/lib/novel/character-aura-bindable.spec.ts src/lib/novel/message-scoped-soul-binding.spec.ts</div>
+  <p class="exp">Expected: PASS。把 <code>const</code> 改成 <code>export const</code> 是纯增量，
+    这三个文件不应有任何变化。</p>
+</li>
+
+<li>
+  <span class="st">Step 7：提交（需先获得用户许可）</span>
+  <div class="cmd">git add src/lib/novel/character-aura.ts src/lib/novel/story-simulation/scenario-soul-binding.ts src/lib/novel/story-simulation/scenario-soul-binding.spec.ts
+git commit -m "feat(story-simulation): 舞台情景可绑定灵魂，缺人物小传时就地补一份再绑"</div>
+</li>
+</ul>
+</div>
+
+<!-- ══════════════════ TASK 4 ══════════════════ -->
+<div class="task">
+<h3>Task 4：候选角色网格<span class="done">已完成</span></h3>
+<div class="files">Create: src/components/novel/story-simulation/scenario-character-grid.tsx
+Create: src/components/novel/story-simulation/scenario-character-grid.spec.tsx
+Modify: src/i18n/zh.json</div>
+
+<p class="why">需求 2(a)：候选角色不再藏在下拉框里，而是全部铺成卡片 —— 名字、灵魂、性格在点选之前就可见，
+点一下就上台、再点一下就下台。</p>
+
+<div class="callout ok">
+  <span class="t">本任务已实施完成（1 个提交）</span>
+  <div class="cmd">434fa4c2 feat(story-simulation): 舞台情景候选角色改为直接点选的卡片网格</div>
+  <p>3 个文件（组件 + spec 新增、<code>zh.json</code> +9 行）、388 行新增、<b>13 个用例全绿</b>、
+    8 个引擎文件零改动。</p>
+  <p><b>任务书 Step 5 写的「13 个用例全绿」不成立</b> —— 第一次跑实际是
+    <b>11 passed / 2 failed</b>，失败的是两条搜索用例。根因是<b>我的任务书缺陷</b>：
+    用 <code>search.value = "角色3"</code> + <code>dispatchEvent(new Event("input"))</code> 模拟输入，
+    被 React 打在实例上的 value 拦截器吞掉 —— React 的 setter 会把 value tracker 的
+    <code>currentValue</code> 一起改掉，随后 <code>updateValueIfChanged()</code> 比较发现「值没变」，
+    于是<b>根本不触发 onChange</b>，过滤与空态分支从未被走到。这是 React 经典测试陷阱，
+    与组件实现无关。</p>
+  <p><b>本仓库早就知道这件事，而且就在同一个目录里</b>：
+    <code>scenario-setup-panel.spec.tsx:123-131</code> 有一个既有的 <code>setNativeValue</code>，
+    第 123 行注释原文是「React 受控组件：必须走原型上的 setter，否则 value tracker 会吞掉事件。」
+    全仓库这种写法约 80 处。所以是<b>我</b>的任务书偏离了仓库约定。</p>
+  <p>已授权并实施的 4 处 spec 偏离（组件与 i18n <b>零改动</b>）：</p>
+  <ul>
+    <li>加 <code>setNativeValue</code> helper（沿用 <code>scenario-setup-panel.spec.tsx</code> 的既有约定）。</li>
+    <li>那两处搜索用例改用它设值。</li>
+    <li>「未绑定灵魂时给可点入口」由 <code>buttonByText("绑定灵魂")</code>（取页面第一个匹配、<b>顺序耦合</b>）
+      改为在 <code>cardOf("沈砚")</code> 范围内查找。</li>
+    <li>「已上台的卡片显示上台序号」里 <code>expect(cardOf("林清越").textContent).not.toContain("1")</code>
+      改为 <code>expect(cardOf("林清越").querySelector("span.place-items-center")).toBeNull()</code> ——
+      原断言<b>恒真、无鉴别力</b>（"林清越"不含数字，且该卡未上台根本不渲染序号）。</li>
+  </ul>
+  <p>反例验证 4 条全部真红并逐字节还原：删「满员淡化」→ 满员用例红；删
+    <code>if (candidates.length === 0) return null</code> → 空态用例红；
+    让 <code>visible</code> 恒返回 <code>candidates</code> → <b>恰好那 2 条搜索用例红</b>；
+    给未上台占位圆加 <code>place-items-center</code> → 新序号断言红（自证有鉴别力）。</p>
+</div>
+
+<ul class="steps">
+<li>
+  <span class="st">Step 1：补齐本任务需要的文案</span>
+  <p class="why">在 <code>src/i18n/zh.json</code> 的 <code>storySimulation</code> 段里，
+    紧接 <code>"scenarioSelectedCount"</code> 之后插入（注意保持 JSON 逗号正确）：</p>
+  <pre><code>"scenarioOnStage": "上台角色",
+"scenarioCharacterCountCustom": "自定义",
+"scenarioCharacterCountClamped": "人数范围为 {{min}}-{{max}}，超出部分已自动调整。",
+"scenarioCharacterSearch": "搜索角色",
+"scenarioCharacterNoMatch": "没有匹配「{{query}}」的角色",
+"scenarioToggleCharacter": "把 {{name}} 加入或移出舞台",
+"scenarioSetModerator": "设为主持人",
+"scenarioBindSoul": "绑定灵魂",
+"scenarioChangeSoul": "更换或解绑灵魂",</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 2：写失败的测试</span>
+  <p class="why">创建 <code>src/components/novel/story-simulation/scenario-character-grid.spec.tsx</code>：</p>
+  <pre><code>// @vitest-environment jsdom
+
+import { act } from "react"
+import { createRoot, type Root } from "react-dom/client"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import "@/i18n"
+import type { ScenarioCandidate } from "@/lib/novel/story-simulation/scenario-types"
+import { ScenarioCharacterGrid } from "./scenario-character-grid"
+
+function makeCandidate(
+  name: string,
+  overrides: Partial&lt;ScenarioCandidate&gt; = {},
+): ScenarioCandidate {
+  return {
+    id: name,
+    name,
+    profile: "",
+    auraId: null,
+    auraName: null,
+    speakingStyle: "",
+    personality: [],
+    knowledgeScope: [],
+    doesNotKnow: [],
+    ...overrides,
+  }
+}
+
+const CANDIDATES = [
+  makeCandidate("沈砚", { personality: ["谨慎", "寡言"] }),
+  makeCandidate("林清越"),
+  makeCandidate("苏九", { auraId: "a1", auraName: "游侠" }),
+]
+
+let host: HTMLDivElement
+let root: Root
+
+async function flush() {
+  await act(async () =&gt; {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+
+/** 渲染网格；未显式传入的回调一律用空 spy 顶上。 */
+function renderGrid(props: Partial&lt;React.ComponentProps&lt;typeof ScenarioCharacterGrid&gt;&gt; = {}) {
+  const handlers = {
+    onToggle: vi.fn(),
+    onSetModerator: vi.fn(),
+    onBindSoul: vi.fn(),
+  }
+  act(() =&gt; {
+    root.render(
+      &lt;ScenarioCharacterGrid
+        candidates={CANDIDATES}
+        selectedIds={[]}
+        characterCount={3}
+        moderatorId="__user__"
+        {...handlers}
+        {...props}
+      /&gt;,
+    )
+  })
+  return handlers
+}
+
+/** 取某个角色所在的卡片容器。 */
+function cardOf(name: string): HTMLElement {
+  const toggle = host.querySelector&lt;HTMLButtonElement&gt;(
+    `button[aria-label="把 ${name} 加入或移出舞台"]`,
+  )
+  if (!toggle) throw new Error(`找不到 ${name} 的卡片`)
+  return toggle.closest("div.rounded-lg") as HTMLElement
+}
+
+function click(node: Element | null | undefined) {
+  if (!node) throw new Error("要点击的元素不存在")
+  act(() =&gt; {
+    ;(node as HTMLElement).click()
+  })
+}
+
+function buttonByText(text: string): HTMLButtonElement | undefined {
+  return Array.from(host.querySelectorAll&lt;HTMLButtonElement&gt;("button")).find((b) =&gt;
+    b.textContent?.includes(text),
+  )
+}
+
+beforeEach(() =&gt; {
+  vi.clearAllMocks()
+  ;(
+    globalThis as typeof globalThis &amp; { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true
+  host = document.createElement("div")
+  document.body.appendChild(host)
+  root = createRoot(host)
+})
+
+afterEach(() =&gt; {
+  act(() =&gt; root.unmount())
+  host.remove()
+})
+
+describe("ScenarioCharacterGrid", () =&gt; {
+  it("未上台时点击卡片即请求上台", () =&gt; {
+    const { onToggle } = renderGrid()
+    click(host.querySelector('button[aria-label="把 沈砚 加入或移出舞台"]'))
+    expect(onToggle).toHaveBeenCalledWith("沈砚")
+  })
+
+  it("已上台的卡片显示上台序号，顺序与 selectedIds 一致", () =&gt; {
+    renderGrid({ selectedIds: ["苏九", "沈砚"] })
+    expect(cardOf("苏九").textContent).toContain("1")
+    expect(cardOf("沈砚").textContent).toContain("2")
+    expect(cardOf("林清越").textContent).not.toContain("1")
+  })
+
+  it("点已上台的卡片也走同一个回调（由父组件决定是下台）", () =&gt; {
+    const { onToggle } = renderGrid({ selectedIds: ["沈砚"] })
+    click(host.querySelector('button[aria-label="把 沈砚 加入或移出舞台"]'))
+    expect(onToggle).toHaveBeenCalledWith("沈砚")
+  })
+
+  it("满员时不再把候选算作可上台（回调照发，由父组件拒绝并提示）", () =&gt; {
+    const { onToggle } = renderGrid({ selectedIds: ["沈砚", "林清越"], characterCount: 2 })
+    const card = cardOf("苏九")
+    expect(card.className).toContain("opacity-60")
+    click(host.querySelector('button[aria-label="把 苏九 加入或移出舞台"]'))
+    expect(onToggle).toHaveBeenCalledWith("苏九")
+  })
+
+  it("未绑定灵魂时给的是可点的「绑定灵魂」入口，而不是一句死文案", () =&gt; {
+    const { onBindSoul } = renderGrid()
+    const bind = buttonByText("绑定灵魂")
+    expect(bind).toBeTruthy()
+    click(bind)
+    expect(onBindSoul).toHaveBeenCalledWith(expect.objectContaining({ id: "沈砚" }))
+  })
+
+  it("已绑定灵魂时显示灵魂名，并可点开更换", () =&gt; {
+    const { onBindSoul } = renderGrid()
+    const soul = buttonByText("游侠")
+    expect(soul?.textContent).toContain("灵魂")
+    click(soul)
+    expect(onBindSoul).toHaveBeenCalledWith(expect.objectContaining({ id: "苏九" }))
+  })
+
+  it("已上台且不是主持人时出现「设为主持人」", () =&gt; {
+    const { onSetModerator } = renderGrid({ selectedIds: ["沈砚"] })
+    click(host.querySelector('button[aria-label="设为主持人"]'))
+    expect(onSetModerator).toHaveBeenCalledWith("沈砚")
+  })
+
+  it("只有已上台的角色才有「设为主持人」", () =&gt; {
+    renderGrid({ selectedIds: ["苏九"] })
+    expect(host.querySelectorAll('button[aria-label="设为主持人"]')).toHaveLength(1)
+  })
+
+  it("已是主持人时显示徽标，且不再显示「设为主持人」", () =&gt; {
+    renderGrid({ selectedIds: ["沈砚"], moderatorId: "沈砚" })
+    expect(cardOf("沈砚").textContent).toContain("主持人")
+    expect(host.querySelector('button[aria-label="设为主持人"]')).toBeNull()
+  })
+
+  it("候选少时不出现搜索框", () =&gt; {
+    renderGrid()
+    expect(host.querySelector('input[aria-label="搜索角色"]')).toBeNull()
+  })
+
+  it("候选超过阈值时出现搜索框，且能按名字过滤", async () =&gt; {
+    const many = Array.from({ length: 15 }, (_, i) =&gt; makeCandidate(`角色${i}`))
+    renderGrid({ candidates: many })
+    const search = host.querySelector&lt;HTMLInputElement&gt;('input[aria-label="搜索角色"]')
+    expect(search).toBeTruthy()
+    act(() =&gt; {
+      search!.value = "角色3"
+      search!.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await flush()
+    expect(host.textContent).toContain("角色3")
+    expect(host.textContent).not.toContain("角色4")
+  })
+
+  it("过滤后一个都不匹配时给出空态，而不是一片空白", async () =&gt; {
+    const many = Array.from({ length: 15 }, (_, i) =&gt; makeCandidate(`角色${i}`))
+    renderGrid({ candidates: many })
+    const search = host.querySelector&lt;HTMLInputElement&gt;('input[aria-label="搜索角色"]')!
+    act(() =&gt; {
+      search.value = "查无此人"
+      search.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await flush()
+    expect(host.textContent).toContain("没有匹配")
+  })
+
+  it("候选为空时不渲染任何东西", () =&gt; {
+    renderGrid({ candidates: [] })
+    expect(host.textContent?.trim()).toBe("")
+  })
+})</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 3：跑测试确认它失败</span>
+  <div class="cmd">npx vitest run src/components/novel/story-simulation/scenario-character-grid.spec.tsx</div>
+  <p class="exp">Expected: FAIL —— <code>Failed to resolve import "./scenario-character-grid"</code>。</p>
+</li>
+
+<li>
+  <span class="st">Step 4：写组件</span>
+  <p class="why">创建 <code>src/components/novel/story-simulation/scenario-character-grid.tsx</code>：</p>
+  <pre><code>import { useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
+import { Search, UserCog } from "lucide-react"
+
+import { cn } from "@/lib/utils"
+import type { ScenarioCandidate } from "@/lib/novel/story-simulation/scenario-types"
+
+export interface ScenarioCharacterGridProps {
+  candidates: ScenarioCandidate[]
+  /** 已上台的角色 id；数组顺序即上台顺序，卡片上的序号取自这里。 */
+  selectedIds: string[]
+  /** 本次要选几个；选满后未上台的卡片会被淡化。 */
+  characterCount: number
+  /** 主持人 id；SCENARIO_MODERATOR_USER_ID 表示由用户本人担任。 */
+  moderatorId: string
+  /** 候选超过这个数量才显示搜索框，避免多一个空控件。 */
+  searchThreshold?: number
+  /** 点卡片：未上台则上台，已上台则下台。满员与否由调用方决定并给出提示。 */
+  onToggle: (id: string) =&gt; void
+  onSetModerator: (id: string) =&gt; void
+  onBindSoul: (candidate: ScenarioCandidate) =&gt; void
+}
+
+const DEFAULT_SEARCH_THRESHOLD = 12
+
+/**
+ * 「舞台情景」候选角色网格（哑组件）
+ *
+ * 只负责呈现与上报：人数上限、上台顺序、主持人归属全部由父组件持有。
+ * 拆出来是因为设置面板加上网格与弹窗入口后会超过 1100 行，一次读不完。
+ */
+export function ScenarioCharacterGrid({
+  candidates,
+  selectedIds,
+  characterCount,
+  moderatorId,
+  searchThreshold = DEFAULT_SEARCH_THRESHOLD,
+  onToggle,
+  onSetModerator,
+  onBindSoul,
+}: ScenarioCharacterGridProps) {
+  const { t } = useTranslation()
+  const [query, setQuery] = useState("")
+
+  const keyword = query.trim().toLowerCase()
+  const visible = useMemo(() =&gt; {
+    if (!keyword) return candidates
+    return candidates.filter((c) =&gt;
+      `${c.name} ${c.auraName ?? ""}`.toLowerCase().includes(keyword),
+    )
+  }, [candidates, keyword])
+
+  if (candidates.length === 0) return null
+  const full = selectedIds.length &gt;= characterCount
+
+  return (
+    &lt;div className="flex flex-col gap-3"&gt;
+      {candidates.length &gt; searchThreshold &amp;&amp; (
+        &lt;label className="flex items-center gap-2 rounded-lg border border-input px-2.5"&gt;
+          &lt;Search className="h-4 w-4 shrink-0 opacity-60" /&gt;
+          &lt;input
+            value={query}
+            onChange={(e) =&gt; setQuery(e.target.value)}
+            placeholder={t("storySimulation.scenarioCharacterSearch")}
+            aria-label={t("storySimulation.scenarioCharacterSearch")}
+            className="h-8 w-full bg-transparent text-sm outline-none"
+          /&gt;
+        &lt;/label&gt;
+      )}
+
+      {visible.length === 0 ? (
+        &lt;p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground"&gt;
+          {t("storySimulation.scenarioCharacterNoMatch", { query: query.trim() })}
+        &lt;/p&gt;
+      ) : (
+        &lt;div className="grid grid-cols-1 gap-2 sm:grid-cols-2"&gt;
+          {visible.map((c) =&gt; {
+            const order = selectedIds.indexOf(c.id)
+            const onStage = order &gt;= 0
+            const isMod = onStage &amp;&amp; moderatorId === c.id
+            return (
+              &lt;div
+                key={c.id}
+                className={cn(
+                  "flex flex-col gap-2 rounded-lg border p-3 transition-colors",
+                  onStage
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                    : "border-border hover:border-primary/50 hover:bg-accent/30",
+                  // 已满且没上台：淡一点，让人一眼看出「再点也不会加进去」
+                  !onStage &amp;&amp; full &amp;&amp; "opacity-60",
+                )}
+              &gt;
+                &lt;div className="flex items-start justify-between gap-2"&gt;
+                  &lt;button
+                    type="button"
+                    onClick={() =&gt; onToggle(c.id)}
+                    aria-pressed={onStage}
+                    aria-label={t("storySimulation.scenarioToggleCharacter", {
+                      name: c.name,
+                    })}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  &gt;
+                    {onStage ? (
+                      &lt;span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-primary text-[0.625rem] font-semibold text-primary-foreground"&gt;
+                        {order + 1}
+                      &lt;/span&gt;
+                    ) : (
+                      &lt;span className="h-5 w-5 shrink-0 rounded-full border border-input" /&gt;
+                    )}
+                    &lt;span className="truncate text-sm font-medium"&gt;{c.name}&lt;/span&gt;
+                    {isMod &amp;&amp; (
+                      &lt;span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[0.625rem] font-medium text-primary"&gt;
+                        {t("storySimulation.scenarioModerator")}
+                      &lt;/span&gt;
+                    )}
+                  &lt;/button&gt;
+
+                  {onStage &amp;&amp; !isMod &amp;&amp; (
+                    &lt;button
+                      type="button"
+                      onClick={() =&gt; onSetModerator(c.id)}
+                      aria-label={t("storySimulation.scenarioSetModerator")}
+                      title={t("storySimulation.scenarioSetModerator")}
+                      className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    &gt;
+                      &lt;UserCog className="h-4 w-4" /&gt;
+                    &lt;/button&gt;
+                  )}
+                &lt;/div&gt;
+
+                &lt;div className="flex flex-wrap items-center gap-1.5 text-xs"&gt;
+                  &lt;button
+                    type="button"
+                    onClick={() =&gt; onBindSoul(c)}
+                    title={
+                      c.auraName
+                        ? t("storySimulation.scenarioChangeSoul")
+                        : t("storySimulation.scenarioBindSoul")
+                    }
+                    className={cn(
+                      "rounded-full px-2 py-0.5",
+                      c.auraName
+                        ? "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-500/15 dark:text-amber-300"
+                        : "bg-muted text-muted-foreground hover:bg-accent",
+                    )}
+                  &gt;
+                    {c.auraName
+                      ? `${t("storySimulation.scenarioSoul")}：${c.auraName}`
+                      : t("storySimulation.scenarioBindSoul")}
+                  &lt;/button&gt;
+                  {c.personality.slice(0, 3).map((p) =&gt; (
+                    &lt;span
+                      key={p}
+                      className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground"
+                    &gt;
+                      {p}
+                    &lt;/span&gt;
+                  ))}
+                &lt;/div&gt;
+              &lt;/div&gt;
+            )
+          })}
+        &lt;/div&gt;
+      )}
+    &lt;/div&gt;
+  )
+}</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 5：跑测试确认通过</span>
+  <div class="cmd">npx vitest run src/components/novel/story-simulation/scenario-character-grid.spec.tsx</div>
+  <p class="exp">Expected: PASS —— 13 个用例全绿。</p>
+</li>
+
+<li>
+  <span class="st">Step 6：提交（需先获得用户许可）</span>
+  <div class="cmd">git add src/components/novel/story-simulation/scenario-character-grid.tsx src/components/novel/story-simulation/scenario-character-grid.spec.tsx src/i18n/zh.json
+git commit -m "feat(story-simulation): 舞台情景候选角色改为直接点选的卡片网格"</div>
+</li>
+</ul>
+
+<div class="callout ok">
+  <span class="t">已交付：434fa4c2 + 0e5c002f（收尾加固）</span>
+  <p><code>434fa4c2</code> 3 个文件、<code>+388</code>、13 个用例；规格审查确认组件与任务书<b>逐字符零差异</b>，
+  且 4 处已授权偏离<b>没有一处放宽断言</b>（其中「序号」那条原断言被变异测试证明<b>恒真无鉴别力</b>，
+  换成结构化查询后才捕获得到注入的 bug）。</p>
+  <p>随后质量审查提了 7 项 Important 与若干 Minor，其中一条是<b>真的功能回退</b>：规格
+  <code>specs/…:215</code> 明确把「说话风格」列为卡片信息，而网格没渲染它、Task 6 又要删掉唯一渲染它的那段。
+  收尾加固 <code>0e5c002f</code> 一并处理：补回说话风格、搜索框焦点可见（<code>focus-within</code>）、
+  两个图标按钮的可访问名带上角色名、序号用 <code>aria-describedby</code> 让读屏器读得到、
+  搜索框隐藏后清空关键词（防「永久空态且无法自救」）、性格词 key 去重、
+  把 hover 暗示从卡片根节点收窄到真正可点的按钮、满员未上台加 <code>aria-disabled</code>。
+  用例 <b>13 → 27</b>。</p>
+  <p>再补一处我自己造成的可见文案问题（<code>8b01cf7b</code>）：为实现「可访问名带角色名」，
+  未绑灵魂的胶囊可见文案变成了「为「沈砚」绑定灵魂」，而卡片上本来就写着「沈砚」—— 一张卡上名字出现两次。
+  改成可见文案保持短的「绑定灵魂」、角色名只放进可访问名与 <code>title</code>（新增
+  <code>scenarioBindSoulLabel</code>）；可访问名<b>包含</b>可见文案，仍然满足 WCAG 2.5.3。
+  这个判断纠正了收尾加固里那条「改 key 值是唯一不破坏 2.5.3 的拿名方式」的论证 —— 它漏掉了
+  「给按钮加 aria-label」这条更简单的路。</p>
+</div>
+
+<div class="callout warn">
+  <span class="t">顺带查实：这条既有缺陷已在 Task 6 登记（见 3001 行附近）</span>
+  <p>审查还发现 <code>selectedIds</code> 只增不减：把可见卡片全部移除后，
+  <code>canStart</code> 的「两边长度相等」反而成立 —— 会<b>带着不存在的角色开演</b>；
+  「已选 N / 共 M」也会出现 N &gt; M。这是<b>既有</b>缺陷（当前面板同样可达），已作为必修项写进 Task 6。</p>
+</div>
+</div>
+
+<!-- ══════════════════ TASK 5 ══════════════════ -->
+<div class="task">
+<h3>Task 5：绑定灵魂弹窗（选灵魂 / 补小传）<span class="done">已完成</span></h3>
+<div class="files">Create: src/components/novel/story-simulation/scenario-soul-bind-dialog.tsx
+Test:   src/components/novel/story-simulation/scenario-soul-bind-dialog.spec.tsx
+Modify: src/i18n/zh.json</div>
+
+<p class="why">一个弹窗、两个步骤：只有 Task 3 的「先试后补」判定真的落到「缺小传」时才切到第二步，
+「本来能绑成功的角色」不会被多余的补小传步骤打扰。</p>
+
+<ul class="steps">
+<li>
+  <span class="st">Step 1：补齐本任务需要的文案</span>
+  <p class="why">在 <code>src/i18n/zh.json</code> 的 <code>storySimulation</code> 段里，紧接 Task 4 新增的键之后插入：</p>
+  <pre><code>"scenarioSoulDialogTitle": "为「{{name}}」绑定灵魂",
+"scenarioSoulDialogDesc": "绑定会写入本项目，对这个角色全项目生效。",
+"scenarioSoulSearch": "搜索灵魂",
+"scenarioSoulLoading": "正在读取角色灵魂…",
+"scenarioSoulEmpty": "还没有可用的角色灵魂。请先到「灵魂」页创建或导入一个灵魂，再回来绑定。",
+"scenarioSoulConfirm": "绑定",
+"scenarioSoulBinding": "绑定中…",
+"scenarioSoulUnbind": "解绑",
+"scenarioSoulProfileTitle": "先补一份人物小传",
+"scenarioSoulProfileDesc": "「{{name}}」在人物小传里还没有档案，直接绑定会被拒绝。下面这份草稿是根据已写章节整理出来的，不消耗模型调用，你可以改完再保存。",
+"scenarioSoulProfileCreate": "创建小传并绑定",
+"scenarioSoulProfileBack": "返回重选",</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 2：写失败的测试</span>
+  <p class="why">创建 <code>src/components/novel/story-simulation/scenario-soul-bind-dialog.spec.tsx</code>：</p>
+  <pre><code>// @vitest-environment jsdom
+
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { act } from "react"
+import { createRoot, type Root } from "react-dom/client"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import "@/i18n"
+import type { ScenarioCandidate } from "@/lib/novel/story-simulation/scenario-types"
+import { ScenarioSoulBindDialog } from "./scenario-soul-bind-dialog"
+
+const fsMocks = vi.hoisted(() =&gt; ({
+  createDirectory: vi.fn(async () =&gt; {}),
+  fileExists: vi.fn(async () =&gt; false),
+  writeFileAtomic: vi.fn(async () =&gt; {}),
+}))
+
+vi.mock("@/commands/fs", () =&gt; ({
+  createDirectory: fsMocks.createDirectory,
+  fileExists: fsMocks.fileExists,
+  writeFileAtomic: fsMocks.writeFileAtomic,
+}))
+
+const auraMocks = vi.hoisted(() =&gt; ({
+  listCharacterAuras: vi.fn(),
+  bindCharacterAura: vi.fn(),
+  unbindCharacterAura: vi.fn(),
+}))
+
+vi.mock("@/lib/novel/character-aura", async () =&gt; {
+  const actual = await vi.importActual&lt;typeof import("@/lib/novel/character-aura")&gt;(
+    "@/lib/novel/character-aura",
+  )
+  return {
+    ...actual,
+    listCharacterAuras: auraMocks.listCharacterAuras,
+    bindCharacterAura: auraMocks.bindCharacterAura,
+    unbindCharacterAura: auraMocks.unbindCharacterAura,
+  }
+})
+
+const BLOCK_MESSAGE = "请先在大纲中添加人物小传或人物设定，再绑定角色灵魂"
+
+function makeAura(id: string, name: string) {
+  return {
+    id,
+    builtIn: false,
+    name,
+    sourceNote: "",
+    corpus: "",
+    styleDescription: "",
+    behaviorRules: "",
+    boundaries: "",
+    notes: "",
+  }
+}
+
+const CANDIDATE: ScenarioCandidate = {
+  id: "沈砚",
+  name: "沈砚",
+  profile: "账房出身",
+  auraId: null,
+  auraName: null,
+  speakingStyle: "短句",
+  personality: ["谨慎"],
+  knowledgeScope: ["账目"],
+  doesNotKnow: ["北境战事"],
+}
+
+let host: HTMLDivElement
+let root: Root
+
+async function flush() {
+  await act(async () =&gt; {
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+
+function renderDialog(
+  props: Partial&lt;React.ComponentProps&lt;typeof ScenarioSoulBindDialog&gt;&gt; = {},
+) {
+  const onOpenChange = vi.fn()
+  const onBound = vi.fn()
+  act(() =&gt; {
+    root.render(
+      &lt;ScenarioSoulBindDialog
+        open
+        projectPath="/proj"
+        candidate={CANDIDATE}
+        onOpenChange={onOpenChange}
+        onBound={onBound}
+        {...props}
+      /&gt;,
+    )
+  })
+  return { onOpenChange, onBound }
+}
+
+function findButton(label: string): HTMLButtonElement | undefined {
+  return Array.from(document.body.querySelectorAll&lt;HTMLButtonElement&gt;("button")).find(
+    (b) =&gt; b.textContent?.trim() === label,
+  )
+}
+
+function click(node: Element | null | undefined) {
+  if (!node) throw new Error("要点击的元素不存在")
+  act(() =&gt; {
+    ;(node as HTMLElement).click()
+  })
+}
+
+/** 打开弹窗 → 选中第一个灵魂 → 点「绑定」。 */
+async function pickSoulAndBind(name = "账房先生") {
+  renderDialog()
+  await flush()
+  act(() =&gt; document.body.querySelector&lt;HTMLInputElement&gt;(`input[aria-label="${name}"]`)!.click())
+  await flush()
+  click(findButton("绑定"))
+  await flush()
+}
+
+beforeEach(() =&gt; {
+  vi.clearAllMocks()
+  ;(
+    globalThis as typeof globalThis &amp; { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  ).IS_REACT_ACT_ENVIRONMENT = true
+  fsMocks.fileExists.mockResolvedValue(false)
+  auraMocks.listCharacterAuras.mockResolvedValue([makeAura("a1", "账房先生")])
+  auraMocks.bindCharacterAura.mockResolvedValue({ customAuras: [], bindings: [] })
+  // 弹窗走 Portal 渲染到 body，所以断言一律查 document.body；每次先清空 body，
+  // 否则上一个用例残留的弹窗 DOM 会让「不该出现的东西」断言假通过
+  document.body.innerHTML = ""
+  host = document.createElement("div")
+  document.body.appendChild(host)
+  root = createRoot(host)
+})
+
+afterEach(() =&gt; {
+  act(() =&gt; root.unmount())
+  host.remove()
+  document.body.innerHTML = ""
+})
+
+describe("ScenarioSoulBindDialog", () =&gt; {
+  it("打开时读出灵魂名单，选中后可绑定并回执", async () =&gt; {
+    const { onBound, onOpenChange } = renderDialog()
+    await flush()
+    expect(auraMocks.listCharacterAuras).toHaveBeenCalledWith("/proj")
+
+    act(() =&gt; document.body.querySelector&lt;HTMLInputElement&gt;('input[aria-label="账房先生"]')!.click())
+    await flush()
+    click(findButton("绑定"))
+    await flush()
+
+    expect(auraMocks.bindCharacterAura).toHaveBeenCalledWith("/proj", {
+      characterName: "沈砚",
+      auraId: "a1",
+    })
+    expect(onBound).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it("绑定被拒（缺小传）时切到补小传步骤，并预填草稿、不写盘", async () =&gt; {
+    auraMocks.bindCharacterAura.mockRejectedValueOnce(new Error(BLOCK_MESSAGE))
+    await pickSoulAndBind()
+
+    expect(document.body.textContent).toContain("先补一份人物小传")
+    const textarea = document.body.querySelector&lt;HTMLTextAreaElement&gt;("textarea")
+    expect(textarea?.value).toContain("# 沈砚")
+    expect(textarea?.value).toContain("谨慎")
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("补小传步骤：写盘 → 再次绑定 → 成功回执", async () =&gt; {
+    auraMocks.bindCharacterAura
+      .mockRejectedValueOnce(new Error(BLOCK_MESSAGE))
+      .mockResolvedValueOnce({ customAuras: [], bindings: [] })
+    await pickSoulAndBind()
+    click(findButton("创建小传并绑定"))
+    await flush()
+
+    expect(fsMocks.writeFileAtomic).toHaveBeenCalledWith(
+      "/proj/wiki/entities/沈砚.md",
+      expect.stringContaining("tags: [character]"),
+    )
+    expect(auraMocks.bindCharacterAura).toHaveBeenCalledTimes(2)
+  })
+
+  it("补小传步骤可以退回重选，退回时还没写盘", async () =&gt; {
+    auraMocks.bindCharacterAura.mockRejectedValueOnce(new Error(BLOCK_MESSAGE))
+    await pickSoulAndBind()
+    click(findButton("返回重选"))
+    await flush()
+
+    expect(document.body.textContent).toContain("绑定会写入本项目")
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+  })
+
+  it("其它错误原样显示，且不切步骤", async () =&gt; {
+    auraMocks.bindCharacterAura.mockRejectedValueOnce(new Error("磁盘满了"))
+    await pickSoulAndBind()
+
+    expect(document.body.textContent).toContain("磁盘满了")
+    expect(document.body.textContent).not.toContain("先补一份人物小传")
+  })
+
+  it("灵魂库为空时给出可操作的空态", async () =&gt; {
+    auraMocks.listCharacterAuras.mockResolvedValue([])
+    renderDialog()
+    await flush()
+    expect(document.body.textContent).toContain("还没有可用的角色灵魂")
+  })
+
+  it("角色已绑定时提供「解绑」，解绑成功同样回执", async () =&gt; {
+    auraMocks.unbindCharacterAura.mockResolvedValue({ customAuras: [], bindings: [] })
+    const { onBound } = renderDialog({
+      candidate: { ...CANDIDATE, auraId: "a1", auraName: "账房先生" },
+    })
+    await flush()
+    click(findButton("解绑"))
+    await flush()
+    expect(auraMocks.unbindCharacterAura).toHaveBeenCalledWith("/proj", "沈砚")
+    expect(onBound).toHaveBeenCalledTimes(1)
+  })
+
+  it("未绑定时不显示「解绑」", async () =&gt; {
+    renderDialog()
+    await flush()
+    expect(findButton("解绑")).toBeUndefined()
+  })
+
+  it("取消不产生任何写入", async () =&gt; {
+    const { onOpenChange } = renderDialog()
+    await flush()
+    click(findButton("返回"))
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(fsMocks.writeFileAtomic).not.toHaveBeenCalled()
+    expect(auraMocks.bindCharacterAura).not.toHaveBeenCalled()
+  })
+})
+
+describe("ScenarioSoulBindDialog 源码契约", () =&gt; {
+  const src = readFileSync(resolve(__dirname, "scenario-soul-bind-dialog.tsx"), "utf8")
+
+  it("不复用拆书工作台的绑定弹窗（那是发布语义，文案与多选都不对）", () =&gt; {
+    expect(src).not.toContain("BindingTargetDialog")
+    expect(src).toContain("scenario-soul-bind-dialog")
+  })
+
+  it("名单来自 listCharacterAuras，绑定走 scenario-soul-binding", () =&gt; {
+    expect(src).toContain("listCharacterAuras")
+    expect(src).toContain("bindScenarioSoul")
+    expect(src).toContain("createProfilePageThenBind")
+  })
+})</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 3：跑测试确认它失败</span>
+  <div class="cmd">npx vitest run src/components/novel/story-simulation/scenario-soul-bind-dialog.spec.tsx</div>
+  <p class="exp">Expected: FAIL —— <code>Failed to resolve import "./scenario-soul-bind-dialog"</code>。</p>
+</li>
+
+<li>
+  <span class="st">Step 4：写组件</span>
+  <p class="why">创建 <code>src/components/novel/story-simulation/scenario-soul-bind-dialog.tsx</code>：</p>
+  <pre><code>/**
+ * 「舞台情景」绑定灵魂弹窗
+ *
+ * ── 一个弹窗、两个步骤 ──
+ * 步骤 1 选灵魂；步骤 2 只在 `bindCharacterAura` 明确报「缺人物小传」时出现。
+ * 为什么不预先判断缺不缺小传：`hasCharacterProfile` 还会兜底走一次
+ * searchWiki（character-aura.ts:737-745），预判会漏掉那条命中路径，
+ * 对本来能绑成功的角色弹出多余的补小传步骤。
+ *
+ * ── 为什么复用 soul-binding-target-dialog 的名单链而不是它的组件 ──
+ * 那个弹窗是「本条消息的临时绑定」语义，文案写着「只对这一条消息生效」，
+ * 而且是多选；本处要做的是**项目级持久绑定**，两者同形不同义。
+ */
+import { useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
+import { Search } from "lucide-react"
+
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  listCharacterAuras,
+  unbindCharacterAura,
+  type CharacterAura,
+} from "@/lib/novel/character-aura"
+import {
+  bindScenarioSoul,
+  buildProfileDraftFromCandidate,
+  createProfilePageThenBind,
+} from "@/lib/novel/story-simulation/scenario-soul-binding"
+import type { ScenarioCandidate } from "@/lib/novel/story-simulation/scenario-types"
+
+export interface ScenarioSoulBindDialogProps {
+  open: boolean
+  projectPath: string
+  /** 要绑定的角色；为 null 时弹窗内容为空。 */
+  candidate: ScenarioCandidate | null
+  onOpenChange: (open: boolean) =&gt; void
+  /** 绑定或解绑成功后通知调用方刷新候选。 */
+  onBound: () =&gt; void
+}
+
+export function ScenarioSoulBindDialog({
+  open,
+  projectPath,
+  candidate,
+  onOpenChange,
+  onBound,
+}: ScenarioSoulBindDialogProps) {
+  const { t } = useTranslation()
+  const [step, setStep] = useState&lt;"pick" | "profile"&gt;("pick")
+  const [auras, setAuras] = useState&lt;CharacterAura[] | null&gt;(null)
+  const [query, setQuery] = useState("")
+  const [pickedId, setPickedId] = useState("")
+  const [draft, setDraft] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState&lt;string | null&gt;(null)
+
+  // 每次打开都重读名单：用户可能刚在灵魂页建了一个灵魂
+  useEffect(() =&gt; {
+    if (!open) return
+    setStep("pick")
+    setQuery("")
+    setPickedId(candidate?.auraId ?? "")
+    setDraft("")
+    setBusy(false)
+    setError(null)
+    setAuras(null)
+    let current = true
+    void listCharacterAuras(projectPath)
+      .then((list) =&gt; {
+        if (current) setAuras(list)
+      })
+      // 读不到就当空名单：空态会告诉用户去哪儿补，绝不能因此挡住弹窗
+      .catch(() =&gt; {
+        if (current) setAuras([])
+      })
+    return () =&gt; {
+      current = false
+    }
+  }, [open, projectPath, candidate])
+
+  const keyword = query.trim().toLowerCase()
+  const visible = useMemo(() =&gt; {
+    const list = auras ?? []
+    if (!keyword) return list
+    return list.filter((a) =&gt; a.name.toLowerCase().includes(keyword))
+  }, [auras, keyword])
+
+  if (!candidate) return null
+
+  const handleBind = async () =&gt; {
+    if (!pickedId || busy) return
+    setBusy(true)
+    setError(null)
+    const result = await bindScenarioSoul(projectPath, candidate.name, pickedId)
+    setBusy(false)
+    if (result.ok) {
+      onBound()
+      onOpenChange(false)
+      return
+    }
+    if (result.reason === "missing-profile") {
+      // 只有这一条路径才切到补小传：草稿不调模型、不消耗 token
+      setDraft(buildProfileDraftFromCandidate(candidate))
+      setStep("profile")
+      return
+    }
+    setError(result.message)
+  }
+
+  const handleCreateAndBind = async () =&gt; {
+    if (busy || !draft.trim()) return
+    setBusy(true)
+    setError(null)
+    const result = await createProfilePageThenBind(
+      projectPath,
+      candidate.name,
+      pickedId,
+      draft,
+    )
+    setBusy(false)
+    if (result.ok) {
+      onBound()
+      onOpenChange(false)
+      return
+    }
+    setError(result.message)
+  }
+
+  const handleUnbind = async () =&gt; {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await unbindCharacterAura(projectPath, candidate.name)
+      setBusy(false)
+      onBound()
+      onOpenChange(false)
+    } catch (err) {
+      setBusy(false)
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  return (
+    &lt;Dialog open={open} onOpenChange={onOpenChange}&gt;
+      &lt;DialogContent
+        data-testid="scenario-soul-bind-dialog"
+        className="flex max-h-[85vh] flex-col gap-3 overflow-y-auto sm:max-w-[720px]"
+      &gt;
+        &lt;DialogHeader className="shrink-0"&gt;
+          &lt;DialogTitle&gt;
+            {step === "pick"
+              ? t("storySimulation.scenarioSoulDialogTitle", { name: candidate.name })
+              : t("storySimulation.scenarioSoulProfileTitle")}
+          &lt;/DialogTitle&gt;
+        &lt;/DialogHeader&gt;
+
+        {step === "pick" ? (
+          &lt;&gt;
+            &lt;p className="shrink-0 text-sm text-muted-foreground"&gt;
+              {t("storySimulation.scenarioSoulDialogDesc")}
+            &lt;/p&gt;
+
+            &lt;label className="flex shrink-0 items-center gap-2 rounded-md border px-2"&gt;
+              &lt;Search className="size-4 shrink-0 opacity-60" /&gt;
+              &lt;input
+                value={query}
+                onChange={(e) =&gt; setQuery(e.target.value)}
+                placeholder={t("storySimulation.scenarioSoulSearch")}
+                aria-label={t("storySimulation.scenarioSoulSearch")}
+                className="h-9 w-full bg-transparent text-sm outline-none"
+              /&gt;
+            &lt;/label&gt;
+
+            &lt;div className="min-h-0 flex-1 overflow-y-auto" data-testid="scenario-soul-list"&gt;
+              {auras === null ? (
+                &lt;p className="text-sm text-muted-foreground"&gt;
+                  {t("storySimulation.scenarioSoulLoading")}
+                &lt;/p&gt;
+              ) : visible.length === 0 ? (
+                &lt;p role="alert" className="text-sm"&gt;
+                  {t("storySimulation.scenarioSoulEmpty")}
+                &lt;/p&gt;
+              ) : (
+                &lt;div className="flex flex-col gap-1"&gt;
+                  {visible.map((aura) =&gt; (
+                    &lt;label key={aura.id} className="flex items-center gap-2 py-1.5 text-sm"&gt;
+                      &lt;input
+                        type="radio"
+                        name="scenario-soul"
+                        checked={pickedId === aura.id}
+                        onChange={() =&gt; setPickedId(aura.id)}
+                        aria-label={aura.name}
+                      /&gt;
+                      &lt;span className="truncate" title={aura.name}&gt;
+                        {aura.name}
+                      &lt;/span&gt;
+                    &lt;/label&gt;
+                  ))}
+                &lt;/div&gt;
+              )}
+            &lt;/div&gt;
+
+            {error &amp;&amp; (
+              &lt;p role="alert" className="shrink-0 text-sm text-red-600 dark:text-red-400"&gt;
+                {error}
+              &lt;/p&gt;
+            )}
+
+            &lt;DialogFooter className="shrink-0"&gt;
+              {candidate.auraId &amp;&amp; (
+                &lt;Button variant="ghost" disabled={busy} onClick={() =&gt; void handleUnbind()}&gt;
+                  {t("storySimulation.scenarioSoulUnbind")}
+                &lt;/Button&gt;
+              )}
+              &lt;Button variant="outline" onClick={() =&gt; onOpenChange(false)}&gt;
+                {t("storySimulation.back")}
+              &lt;/Button&gt;
+              &lt;Button disabled={!pickedId || busy} onClick={() =&gt; void handleBind()}&gt;
+                {busy
+                  ? t("storySimulation.scenarioSoulBinding")
+                  : t("storySimulation.scenarioSoulConfirm")}
+              &lt;/Button&gt;
+            &lt;/DialogFooter&gt;
+          &lt;/&gt;
+        ) : (
+          &lt;&gt;
+            &lt;p className="shrink-0 text-sm text-muted-foreground"&gt;
+              {t("storySimulation.scenarioSoulProfileDesc", { name: candidate.name })}
+            &lt;/p&gt;
+
+            &lt;Textarea
+              value={draft}
+              onChange={(e) =&gt; setDraft(e.target.value)}
+              rows={12}
+              aria-label={t("storySimulation.scenarioSoulProfileTitle")}
+              className="min-h-0 flex-1 font-mono text-xs"
+            /&gt;
+
+            {error &amp;&amp; (
+              &lt;p role="alert" className="shrink-0 text-sm text-red-600 dark:text-red-400"&gt;
+                {error}
+              &lt;/p&gt;
+            )}
+
+            &lt;DialogFooter className="shrink-0"&gt;
+              &lt;Button
+                variant="ghost"
+                disabled={busy}
+                onClick={() =&gt; {
+                  setStep("pick")
+                  setError(null)
+                }}
+              &gt;
+                {t("storySimulation.scenarioSoulProfileBack")}
+              &lt;/Button&gt;
+              &lt;Button
+                disabled={busy || !draft.trim()}
+                onClick={() =&gt; void handleCreateAndBind()}
+              &gt;
+                {busy
+                  ? t("storySimulation.scenarioSoulBinding")
+                  : t("storySimulation.scenarioSoulProfileCreate")}
+              &lt;/Button&gt;
+            &lt;/DialogFooter&gt;
+          &lt;/&gt;
+        )}
+      &lt;/DialogContent&gt;
+    &lt;/Dialog&gt;
+  )
+}</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 5：跑测试确认通过</span>
+  <div class="cmd">npx vitest run src/components/novel/story-simulation/scenario-soul-bind-dialog.spec.tsx</div>
+  <p class="exp">Expected: PASS —— 11 个用例全绿。</p>
+</li>
+
+<li>
+  <span class="st">Step 6：确认弹窗里的 key 都已存在</span>
+  <p class="exp">已核实：<code>storySimulation.back</code> 在 <code>src/i18n/zh.json:1901</code>（值为「返回」），
+    <code>storySimulation.scenarioSoul</code> 在 <code>:1917</code>，<code>storySimulation.scenarioSoulUnbind</code>
+    等本任务新增的键由 Step 1 补入。<b>「取消」用的是 <code>storySimulation.back</code></b>——
+    本任务的测试里 <code>findButton("返回")</code> 就是它。若测试报找不到「返回」按钮，
+    先把实际渲染出来的按钮文案打印出来核对，不要凭猜改 key。</p>
+</li>
+
+<li>
+  <span class="st">Step 7：提交（需先获得用户许可）</span>
+  <div class="cmd">git add src/components/novel/story-simulation/scenario-soul-bind-dialog.tsx src/components/novel/story-simulation/scenario-soul-bind-dialog.spec.tsx src/i18n/zh.json
+git commit -m "feat(story-simulation): 舞台情景就地在弹窗里绑定灵魂，缺小传时补一份再绑"</div>
+</li>
+</ul>
+
+<div class="callout ok">
+  <span class="t">已交付：6ebfe4ab</span>
+  <p>3 个文件（<code>+548</code>），<b>11 个用例全绿</b>，两阶段类型检查 exit 0。
+  规格审查判定「符合规格」，并逐字符确认组件（279 行）与 spec（257 行）与任务书<b>零差异</b>；
+  关于 <code>setNativeValue</code> 的说明也核实属实 —— 本任务从未向受控输入框打字，故任务书没踩那个坑。</p>
+  <p>最关键的「先试绑 → 只在缺小传时才进第二步」由变异测试证明被钉死：把它改成「预检」后 <b>5/11 变红</b>，
+  而且预检自身还会经 <code>listBindableNovelCharacters</code> 落盘缓存 —— 连「用户还没操作就不该写盘」都被用例抓住了。</p>
+  <p>随后质量审查提了 <b>2 个 Critical</b>，已在 <code>057c97cc</code> 修掉并补测（见下一段），用例 <b>11 → 23</b>。</p>
+</div>
+
+<div class="callout warn">
+  <span class="t">收尾必修：代码质量审查用探针实测出 2 个 Critical</span>
+  <p>两者今天都还看不到（弹窗尚无生产调用方），但 <b>Task 6 一接线就会真的写坏用户磁盘</b>，所以必须在接线前修掉：</p>
+  <ul>
+    <li><b>C1</b>：effect 依赖了 <code>candidate</code> <b>对象本身</b>。父组件只要传内联字面量（或每次 <code>map</code>/<code>find</code> 新建对象），
+    任何一次无关重渲染都会重跑 effect → <code>listCharacterAuras</code> 再发一次 IPC、<code>setStep("pick")</code> + <code>setDraft("")</code>
+    把用户<b>刚改好的小传草稿清空并弹回第一步</b>。修法：依赖换成 <code>candidate?.id</code>/<code>candidate?.auraId</code> 两个基本类型，
+    再用 <code>useRef</code> 给异步处理器取最新值。</li>
+    <li><b>C2</b>：请求在飞时换人 → A（沈砚）的「缺小传」结果回来时，界面已经是 B（李四）的描述，
+    <b>textarea 里却是 A 的草稿</b>；用户一点「创建小传并绑定」，磁盘上就多出一份内容属于沈砚的
+    <code>李四.md</code>，随后还用空 <code>auraId</code> 去绑李四。修法：两个处理器在 <code>await</code> 后先比对
+    「人有没有被换掉」，不匹配立即 return（且不许把 <code>busy</code> 永久留在 true）。</li>
+  </ul>
+  <p>另有两个 Important 同期修：<b>I1</b>「灵魂库为空」与「搜索无匹配」共用同一条文案，用户明明有灵魂、只是打错字，
+  却被叫去灵魂页建新的 → 按 <code>keyword</code> 分叉；<b>I2</b> 过滤把已选中的灵魂藏起来后「绑定」仍可点，
+  <b>绑的是看不见的那个</b> → 关键词变化时清掉不在可见列表里的选中项（或回显选中名）。</p>
+  <p>测试侧同时补齐 4 个已知缺口：搜索/过滤<b>零覆盖</b>（补测必须走原型 setter，直接赋 <code>input.value</code> 会被 value tracker 吞掉）、
+  C2 换人守卫、C1 只读一次且草稿不丢、以及把「写盘」断言从只校验 frontmatter 常量收紧到<b>校验正文内容</b>
+  （现有那条传空草稿也会绿）。</p>
+</div>
+</div>
+
+<!-- ══════════════════ TASK 6 ══════════════════ -->
+<div class="task">
+<h3>Task 6：设置面板重做<span class="done">已完成</span></h3>
+<div class="files">Modify: src/components/novel/story-simulation/scenario-setup-panel.tsx
+Test:   src/components/novel/story-simulation/scenario-setup-panel.spec.tsx
+Modify: src/i18n/zh.json
+Modify: src/components/novel/story-simulation/scenario-ui-wiring.spec.ts</div>
+
+<p class="why">本任务把需求 1、2(a)、2(b)、3 组装起来：数量（3/4/5 + 自定义）、候选网格、绑定入口、
+情景设定加宽、标题归位。<b>主持人一节与开工条件一行不改</b>。</p>
+
+<div class="callout warn">
+  <span class="t">开工前先对一遍清单，别漏项（都是这次真的漏过的）</span>
+  <ol>
+    <li><b>用户可见的旧口径「3~5」也要改</b>：<code>zh.json</code> 的 <code>hubScenarioDesc</code>
+      （「搭一个舞台，让 <b>3~5</b> 名已有角色…」）改成 <b>3~10</b>。
+      它<b>不在</b>本任务的代码文件清单里，但自定义人数落地后它就和面板提示互相矛盾，
+      属本任务的硬性验收项（原计划只把它写在开头的「未完成前不要发版」提示里，正文漏了，
+      实施时确实漏掉了 —— 所以这里是第二次登记）。<b>不要</b>顺手润色其余文字。</li>
+    <li>计划书开头那条「未完成前不要把中间态发版」的约束仍然成立：只把 <code>[3,4,5].map</code>
+      换成 <code>SCENARIO_CHARACTER_PRESETS</code> + 自定义输入、却忘了改这句入口文案，就是一个
+      <b>用户可见的自相矛盾</b>（提示说 3-10、入口卡片说 3~5）。</li>
+    <li>既有 13 个用例<b>一条都不许丢</b>；需要改查询方式时按本章迁移，不许为了让测试变绿而放松断言。</li>
+  </ol>
+</div>
+
+<ul class="steps">
+<li>
+  <span class="st">Step 1：补齐本任务需要的文案，并删掉随下拉框一起失效的两条</span>
+  <p class="why">在 <code>src/i18n/zh.json</code> 的 <code>storySimulation</code> 段里，紧接 Task 5 新增的键之后插入：</p>
+  <pre><code>"scenarioSceneLabel": "情景设定 / 背景",
+"scenarioLocationLabel": "地点",
+"scenarioTimeLabel": "时间",
+"scenarioReferenceLabel": "参考点",
+"scenarioTitleLabel": "情景标题",
+"scenarioSoulHint": "未绑定灵魂的角色会用档案兜底；绑定后性格与说话风格会立刻更新。",</code></pre>
+  <p class="why">然后<b>删除</b>这两条（下拉框已被网格取代，不再有引用点）：</p>
+  <pre><code>"scenarioAddPlaceholder": "选择一个角色加入舞台...",
+"scenarioNoSoul": "未绑定灵魂",</code></pre>
+  <div class="cmd">Select-String -Path src -Pattern "scenarioAddPlaceholder|scenarioNoSoul" -Recurse</div>
+  <p class="exp">Expected: 只剩 <code>src/components/novel/story-simulation/scenario-ui-wiring.spec.ts</code>
+    里的两处断言（本任务 Step 7 会一并改掉）与 <code>src/i18n/zh.json</code> 自身。
+    若在别处还有引用，先停下来报告，不要硬删。</p>
+</li>
+
+<li>
+  <span class="st">Step 2：迁移已有的设置面板测试（不是新建）</span>
+  <p class="why"><code>scenario-setup-panel.spec.tsx</code> <b>已经存在</b>（455 行，13 个用例）。
+    它用下拉框选人（<code>characterSelect()</code> / <code>addCharacter()</code>），
+    下拉框一删，这两个 helper 会抛「找不到角色选择下拉框」，连带 6 个用例一起红。
+    所以这一步是<b>迁移</b>，并且要保证迁移后原有断言一条都不丢。</p>
+
+  <h4>2.1 给 <code>render()</code> 补上新属性</h4>
+  <p class="why">把已有的 <code>render()</code>（当前第 69-90 行）改成：</p>
+  <pre><code>let onSoulChanged: Mock&lt;() =&gt; void&gt;
+
+function render(
+  candidates: ScenarioCandidate[] = CANDIDATES,
+  savedScenarios: ScenarioSession[] = [],
+) {
+  act(() =&gt; {
+    root.render(
+      &lt;ScenarioSetupPanel
+        candidates={candidates}
+        extracting={false}
+        progress={null}
+        sourceChapters={10}
+        onSourceChaptersChange={() =&gt; {}}
+        onReExtract={() =&gt; {}}
+        projectPath="/proj"
+        onSoulChanged={onSoulChanged}
+        savedScenarios={savedScenarios}
+        onStart={onStart}
+        onOpenSaved={() =&gt; {}}
+        onDeleteSaved={() =&gt; {}}
+        onCancel={() =&gt; {}}
+      /&gt;,
+    )
+  })
+}</code></pre>
+  <p class="why">并在每个 <code>beforeEach</code> 里补 <code>onSoulChanged = vi.fn&lt;() =&gt; void&gt;()</code>
+    （与 <code>onStart</code> 并列）。文件里有 5 个 <code>beforeEach</code>，都要加。</p>
+
+  <h4>2.2 把「下拉框选人」换成「点卡片」</h4>
+  <p class="why">删掉 <code>characterSelect()</code>（第 133-148 行）与 <code>addCharacter()</code>
+    （第 150-157 行），替换为：</p>
+  <pre><code>/**
+ * 点候选角色卡：未上台则上台，已上台则下台。
+ *
+ * 用 aria-label 定位而不是按顺序取第 N 个按钮 —— 网格里还有「设为主持人」
+ * 与「绑定灵魂」两类按钮，按顺序取会在候选人一变多时就错位。
+ */
+function selectCard(name: string) {
+  const button = container.querySelector&lt;HTMLButtonElement&gt;(
+    `button[aria-label="storySimulation.scenarioToggleCharacter(name=${name})"]`,
+  )
+  if (!button) throw new Error(`找不到角色卡：${name}`)
+  act(() =&gt; {
+    button.click()
+  })
+}</code></pre>
+  <p class="why">然后把 <code>selectThreeCharacters()</code> 改成：</p>
+  <pre><code>/** 选满 3 名角色（默认角色数量就是 3），主持人默认由用户担任。 */
+function selectThreeCharacters() {
+  selectCard("角色1")
+  selectCard("角色2")
+  selectCard("角色3")
+}</code></pre>
+  <p class="why">「候选不足 3 人」那个用例里的两处 <code>addCharacter("c1")</code> /
+    <code>addCharacter("c2")</code> 改成 <code>selectCard("角色1")</code> /
+    <code>selectCard("角色2")</code>。</p>
+
+  <h4>2.3 让 <code>setRounds</code> 认准轮数输入框</h4>
+  <p class="why">页面上将出现<b>两个</b> <code>input[type="number"]</code>：新的「角色数量」在前、
+    轮数在后。原来那句 <code>container.querySelector('input[type="number"]')</code> 会拿到角色数量框，
+    于是轮数测试全都在往错误的地方填数字。</p>
+  <p class="why">先在 <code>scenario-setup-panel.tsx</code> 的轮数输入框（当前第 569-579 行）
+    加一个 <code>aria-label</code>：</p>
+  <pre><code>          &lt;Input
+            type="number"
+            className="w-24"
+            value={rounds}
+            min={SCENARIO_ROUND_MIN}
+            max={SCENARIO_ROUND_MAX}
+            aria-label={t("storySimulation.scenarioRounds")}
+            onChange={(e) =&gt; {
+              const val = parseInt(e.target.value, 10)
+              if (!isNaN(val) &amp;&amp; val &gt; 0) setRounds(val)
+            }}
+          /&gt;</code></pre>
+  <p class="why">再把测试里的 <code>setRounds</code> 改成：</p>
+  <pre><code>/** 修改轮数输入框（页面上还有一个「角色数量」数字框，必须按 aria-label 认准）。 */
+function setRounds(value: string) {
+  const input = container.querySelector(
+    'input[aria-label="storySimulation.scenarioRounds"]',
+  ) as HTMLInputElement
+  act(() =&gt; {
+    setNativeValue(input, value)
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+  })
+}</code></pre>
+  <p class="why"><code>setNativeValue</code> 现在只剩 input 分支会用到，可以把 select 分支删掉，
+    也可以留着 —— 留着不影响测试，但 <code>noUnusedLocals</code> 管不到函数体内部，两可。</p>
+
+  <h4>2.4 一行都不改的既有断言（迁移的驗收标准）</h4>
+  <p class="why">迁移完成后，下面这 13 个用例必须<b>原样全绿、且断言一个字不改</b>：</p>
+  <table>
+    <tr><th>describe</th><th>依赖点</th><th>为什么不用改</th></tr>
+    <tr><td>轮数上限（3 例）</td><td><code>selectThreeCharacters()</code> + <code>setRounds()</code></td><td>只换了选人方式</td></tr>
+    <tr><td>成本确认（2 例）</td><td>同上</td><td>成本护栏逻辑一行未动</td></tr>
+    <tr><td>候选角色不足（4 例）</td><td><code>countButton(3/4/5)</code></td><td>预设按钮<b>保留</b> <code>disabled={n &gt; candidates.length}</code></td></tr>
+    <tr><td>历史情景列表（3 例）</td><td>—</td><td>未涉及</td></tr>
+    <tr><td>参考点说明（1 例）</td><td>—</td><td>文案与位置都保留</td></tr>
+  </table>
+  <div class="callout warn">
+    <span class="t">所以预设按钮的 disabled 必须保留</span>
+    <p>「候选只有 3 人时 4 人 / 5 人的按钮不可选」这个用例（第 372-378 行）是<b>既有行为</b>，
+    而且候选只有 3 人时选 4 人本来就凑不满、开始按钮永远灰着。所以自定义人数是<b>上限放宽</b>，
+    不是「把 3/4/5 也变成任意值」：预设按钮照旧按候选数禁用，自定义输入则由那个
+    「不超过候选人数」的 effect 兜住。</p>
+  </div>
+
+  <h4>2.5 追加本任务的新用例</h4>
+  <p class="why">在文件末尾追加（注意用 <code>MANY</code> 这组 10 人候选：
+    如果只有 5 人，「填 7」会被「不超过候选人数」的 effect 夹回 5，测的就不是自定义上限了）：</p>
+  <pre><code>/** 10 名候选：用于验证自定义人数能真的超过 5。 */
+const MANY = Array.from({ length: 10 }, (_, i) =&gt; candidate(i + 1))
+
+describe("ScenarioSetupPanel · 自定义角色数量", () =&gt; {
+  beforeEach(() =&gt; {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn&lt;(setup: ScenarioSetup) =&gt; void&gt;()
+    onSoulChanged = vi.fn&lt;() =&gt; void&gt;()
+  })
+
+  afterEach(() =&gt; {
+    act(() =&gt; root.unmount())
+    container.remove()
+  })
+
+  it("保留 3/4/5 一键按钮", () =&gt; {
+    render(MANY)
+    expect(countButton(3)?.disabled).toBe(false)
+    expect(countButton(4)?.disabled).toBe(false)
+    expect(countButton(5)?.disabled).toBe(false)
+  })
+
+  it("自定义人数可以超过 5（上限 10）", () =&gt; {
+    render(MANY)
+    setCharacterCount("7")
+    expect(selectionCount()).toContain("total=7")
+  })
+
+  it("自定义人数超界时夹到上限，并明确告知", () =&gt; {
+    render(MANY)
+    setCharacterCount("99")
+    // 夹取发生在失焦时：setNativeValue 只发 input，不会发 blur
+    act(() =&gt; {
+      container
+        .querySelector(
+          'input[aria-label="storySimulation.scenarioCharacterCount"]',
+        )
+        ?.dispatchEvent(new Event("blur", { bubbles: true }))
+    })
+
+    expect(container.textContent).toContain(
+      `storySimulation.scenarioCharacterCountClamped(min=3,max=10)`,
+    )
+  })
+
+  it("选满后再点候选不会多出人来，并给出原因", () =&gt; {
+    render(MANY)
+    selectThreeCharacters()
+
+    selectCard("角色4")
+
+    expect(selectionCount()).toContain("total=3")
+    expect(container.textContent).toContain("storySimulation.scenarioFull(n=3)")
+  })
+})
+
+describe("ScenarioSetupPanel · 绑定灵魂入口", () =&gt; {
+  beforeEach(() =&gt; {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn&lt;(setup: ScenarioSetup) =&gt; void&gt;()
+    onSoulChanged = vi.fn&lt;() =&gt; void&gt;()
+  })
+
+  afterEach(() =&gt; {
+    act(() =&gt; root.unmount())
+    container.remove()
+    document.body.innerHTML = ""
+  })
+
+  it("点候选卡上的「绑定灵魂」会打开绑定弹窗", () =&gt; {
+    render()
+
+    const bind = findButton((text) =&gt;
+      text.includes("storySimulation.scenarioBindSoul"),
+    )
+    expect(bind).toBeDefined()
+    clickButton(bind as HTMLButtonElement)
+
+    // 弹窗走 Portal 渲染到 body，所以查 document.body
+    expect(
+      document.body.querySelector('[data-testid="scenario-soul-bind-dialog"]'),
+    ).not.toBeNull()
+    expect(document.body.textContent).toContain(
+      "storySimulation.scenarioSoulDialogTitle(name=角色1)",
+    )
+  })
+})</code></pre>
+  <p class="why">还需要两个新 helper，加在 <code>setRounds</code> 旁边：</p>
+  <pre><code>/** 修改「角色数量」数字框。 */
+function setCharacterCount(value: string) {
+  const input = container.querySelector(
+    'input[aria-label="storySimulation.scenarioCharacterCount"]',
+  ) as HTMLInputElement
+  act(() =&gt; {
+    setNativeValue(input, value)
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+  })
+}
+
+/** 点「绑定灵魂」需要按文字找按钮，findButton 已有；这里只补一个按下标取的入口。 */
+function bindSoulButton(): HTMLButtonElement | undefined {
+  return findButton((text) =&gt;
+    text.includes("storySimulation.scenarioBindSoul"),
+  )
+}</code></pre>
+  <div class="callout">
+    <span class="t">为什么「超界」这条用例必须补一次 blur</span>
+    <p><code>setNativeValue</code> 只派发 <code>input</code> 事件，而本任务的实现把夹取与提示放在
+    <code>onBlur</code> 里 —— 这是有意的：用户还在敲「1」「2」的时候不该跳出来说「1 小于下限 3」。
+    所以测试必须自己补一次失焦，否则断言的是「不会发生的事」。</p>
+  </div>
+</li>
+
+<li>
+  <span class="st">Step 3：跑测试确认它失败</span>
+  <div class="cmd">npx vitest run src/components/novel/story-simulation/scenario-setup-panel.spec.tsx</div>
+  <p class="exp">Expected: FAIL —— 缺 <code>projectPath</code> / <code>onSoulChanged</code> 属性、
+    找不到 <code>input[aria-label="角色数量"]</code>、源码契约里 <code>&lt;ScenarioCharacterGrid</code> 不存在。</p>
+</li>
+
+<li>
+  <span class="st">Step 4：改 import 与 props</span>
+  <p class="why">把 <code>scenario-setup-panel.tsx</code> 顶部第 1-34 行的 import 与常量改成：</p>
+  <pre><code>import { useEffect, useMemo, useState } from "react"
+import { useTranslation } from "react-i18next"
+import { Info, Plus, Sparkles } from "lucide-react"
+
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { cn } from "@/lib/utils"
+import {
+  SCENARIO_CHARACTER_DEFAULT,
+  SCENARIO_CHARACTER_MAX,
+  SCENARIO_CHARACTER_MIN,
+  SCENARIO_CHARACTER_PRESETS,
+  SCENARIO_COST_WARN_THRESHOLD,
+  SCENARIO_FORMAT_INFO,
+  SCENARIO_MODERATOR_INTERVAL_DEFAULT,
+  SCENARIO_MODERATOR_INTERVAL_OPTIONS,
+  SCENARIO_MODERATOR_USER_ID,
+  SCENARIO_MODERATOR_USER_NAME,
+  SCENARIO_ROUND_DEFAULT,
+  SCENARIO_ROUND_MAX,
+  SCENARIO_ROUND_MIN,
+  SCENARIO_ROUND_PRESETS,
+  SCENARIO_SOURCE_CHAPTER_PRESETS,
+  clampScenarioCharacterCount,
+  clampScenarioRounds,
+  estimateScenarioMessages,
+  hasRoleModerator,
+  type ScenarioCandidate,
+  type ScenarioFormat,
+  type ScenarioRules,
+  type ScenarioSession,
+  type ScenarioSetup,
+} from "@/lib/novel/story-simulation/scenario-types"
+import { assembleParticipants, candidateToParticipant } from "@/lib/novel/story-simulation/scenario-participant-selector"
+import { createScenarioSetup } from "@/lib/novel/story-simulation/scenario-engine"
+import { ScenarioCharacterGrid } from "./scenario-character-grid"
+import { ScenarioSoulBindDialog } from "./scenario-soul-bind-dialog"
+
+const FORMATS: ScenarioFormat[] = ["debate", "dialogue", "free"]</code></pre>
+  <p class="why">注意图标三兄弟的去留（当前第 3 行是
+    <code>import { Info, Plus, Sparkles, X } from "lucide-react"</code>）：</p>
+  <ul>
+    <li><code>X</code> <b>必须删掉</b> —— 它唯一的用处是「已选角色」卡片右上角的移除按钮
+      （当前第 412 行），而那张卡片被网格取代了。</li>
+    <li><code>Sparkles</code> <b>保留</b> —— 提取中的进度界面在用（第 235 行）。</li>
+    <li><code>Plus</code> <b>保留</b> —— 第 706 行的「开始舞台情景」按钮在用。</li>
+  </ul>
+  <p class="why"><code>tsconfig.app.json</code> 开着 <code>noUnusedLocals</code> /
+    <code>noUnusedParameters</code>，留着没用的 import 会直接编译失败 ——
+    所以这一步不是「顺手清理」，而是必须做对。</p>
+  <p class="why">然后在 <code>ScenarioSetupPanelProps</code> 里加两个属性（放在 <code>savedScenarios</code> 之前）：</p>
+  <pre><code>  /** 项目路径；绑定灵魂要写盘，缺它时绑定入口不可用。 */
+  projectPath?: string | null
+  /** 绑定/解绑灵魂成功后：由视图重载 bindings + auras 并刷新候选。 */
+  onSoulChanged?: () =&gt; void</code></pre>
+  <p class="why">并在解构参数里加上这两个（默认 <code>null</code> / <code>undefined</code>）：</p>
+  <pre><code>  savedScenarios = [],
+  projectPath = null,
+  onSoulChanged,
+  onStart,</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 5：加面板本地状态与上台/下台逻辑</span>
+  <p class="why">在 <code>const [costAck, setCostAck] = useState(false)</code> 之后插入：</p>
+  <pre><code>  /** 已选满时点候选卡给的临时提示（不静默失败）。 */
+  const [hint, setHint] = useState&lt;string | null&gt;(null)
+  /** 正在绑定灵魂的角色；null 表示弹窗关闭。 */
+  const [soulTarget, setSoulTarget] = useState&lt;ScenarioCandidate | null&gt;(null)
+  /**
+   * 自定义人数超界时的提示。
+   *
+   * 为什么要单独存一份，而不是渲染时比较「characterCount 是否等于夹取后的值」：
+   * 失焦夹取只发生在一瞬间，随后下面那个「不超过候选人数」的 effect 会立刻把它
+   * 再改小（例如填 99、候选只有 7 人，最终落成 7），比较式就再也看不出来了，
+   * 用户会以为填的数字被吃掉了却没有任何解释。
+   */
+  const [countClampNotice, setCountClampNotice] = useState&lt;string | null&gt;(null)</code></pre>
+  <p class="why">然后把「候选角色变少时把所选人数夹到候选数」那个 effect（当前第 130-134 行）：</p>
+  <pre><code>  useEffect(() =&gt; {
+    if (candidates.length &lt; SCENARIO_CHARACTER_MIN) return
+    if (characterCount &lt;= candidates.length) return
+    setCharacterCount(candidates.length)
+  }, [candidates.length, characterCount])</code></pre>
+  <p class="why">改为：</p>
+  <pre><code>  useEffect(() =&gt; {
+    if (candidates.length &lt; SCENARIO_CHARACTER_MIN) return
+    // 超出配置上限的输入留给失焦时统一夹取（并给出 setCountClampNotice 提示），
+    // 这里只处理「比现有候选人数还多」这一种情况
+    if (characterCount &gt; SCENARIO_CHARACTER_MAX) return
+    if (characterCount &lt;= candidates.length) return
+    setCharacterCount(candidates.length)
+  }, [candidates.length, characterCount])</code></pre>
+  <p class="why">之所以要加这一行 <code>return</code>：不加的话，用户填 99 会被这个 effect
+    先夹成候选人数（如 7），失焦时的 <code>clampScenarioCharacterCount</code> 就再也看不到
+    「99」这个超界输入，提示也就永远不显示 —— 数字悄悄变小而没人解释。</p>
+  <div class="callout warn">
+    <span class="t">必修：同一个 effect 之后还要裁掉已消失的候选（既有缺陷）</span>
+    <p><code>selectedIds</code> 只增不减，而「候选变少」只夹了 <code>characterCount</code>，
+    于是<code>selectedIds</code> 里会留着已经不存在的 id。后果有两级：</p>
+    <ul>
+      <li>「已选 N / 共 M」的 <code>N</code> 取的是 <code>selectedIds.length</code>，会出现
+      <b>N &gt; M</b>（如「已选 5 / 共 3」），<code>reachedLimit</code> 恒真 → 下拉框显示「已满」
+      而台上其实只有两三张卡；换成网格后表现为「<b>明明看着有空位却点不进去</b>」。</li>
+      <li>更糟：把可见卡片全部移除后，<code>selectedIds</code> 可能全是已消失的人，此时
+      <code>canStart</code> 里的 <code>selectedIds.length === characterCount</code> 反而成立 ——
+      <b>带着不存在的角色开演</b>。</li>
+    </ul>
+    <p>所以夹 <code>characterCount</code> 之后要再补一个 effect 把 <code>selectedIds</code>
+    裁到仍存在的 id；主持人若正好是其中一员，一并退回「由你主持」。
+    用 <code>every</code> 做提前返回，避免 <code>setState</code> 自触发循环。</p>
+  </div>
+  <pre><code>  /**
+   * 候选变少或换人后，把已经不存在的 id 从 selectedIds 里裁掉。
+   *
+   * 不裁的话「已选 N / 共 M」会出现 N &gt; M，而且极端情况下 selectedIds 全是
+   * 已消失的角色时，开始条件（两边长度相等）反而成立 —— 会带着不存在的角色开演。
+   * 主持人若正好是其中一员，一并退回「由你主持」。
+   */
+  useEffect(() =&gt; {
+    const alive = new Set(candidates.map((c) =&gt; c.id))
+    if (selectedIds.every((id) =&gt; alive.has(id))) return
+    setSelectedIds(selectedIds.filter((id) =&gt; alive.has(id)))
+    if (moderatorId !== SCENARIO_MODERATOR_USER_ID &amp;&amp; !alive.has(moderatorId)) {
+      setModeratorId(SCENARIO_MODERATOR_USER_ID)
+    }
+  }, [candidates, selectedIds, moderatorId])</code></pre>
+  <p class="why">这一步必须有回归测试：先选满 5 人，再用「只剩 3 人且其中有未选过的新角色」的候选
+    重新渲染，断言「已选 N / 共 M」的 N 不超过 3、且未上台的新角色仍点得进去。
+    既有那条「候选变少后，已选人数被夹到候选数」只夹了人数、<code>selectedIds</code> 当时为空，
+    覆盖不到这条路径。</p>
+  <p class="why">另外登记一条归属，免得被当成死配置：Task 4 提前加进 <code>zh.json</code> 的
+    <code>scenarioOnStage</code> / <code>scenarioCharacterCountCustom</code> /
+    <code>scenarioCharacterCountClamped</code> 三个 key，<b>由本任务消费</b>。</p>
+  <p class="why">把 <code>addCharacter</code> / <code>removeCharacter</code>（当前第 136-146 行）这两段：</p>
+  <pre><code>  const addCharacter = (id: string) =&gt; {
+    if (!id) return
+    if (selectedIds.includes(id)) return
+    if (selectedIds.length &gt;= characterCount) return
+    setSelectedIds([...selectedIds, id])
+  }
+
+  const removeCharacter = (id: string) =&gt; {
+    setSelectedIds(selectedIds.filter((x) =&gt; x !== id))
+    if (moderatorId === id) setModeratorId(SCENARIO_MODERATOR_USER_ID)
+  }</code></pre>
+  <p class="why">替换为：</p>
+  <pre><code>  /**
+   * 点一张候选卡：已上台就下台，未上台就上台；选满时给提示而不是静默忽略。
+   *
+   * 满员判断放在这里（而不是网格里）是为了只有一处真相：网格是哑组件，
+   * 它只管把点击报上来。
+   */
+  const toggleCharacter = (id: string) =&gt; {
+    setHint(null)
+    if (selectedIds.includes(id)) {
+      setSelectedIds(selectedIds.filter((x) =&gt; x !== id))
+      if (moderatorId === id) setModeratorId(SCENARIO_MODERATOR_USER_ID)
+      return
+    }
+    if (selectedIds.length &gt;= characterCount) {
+      setHint(t("storySimulation.scenarioFull", { n: characterCount }))
+      return
+    }
+    setSelectedIds([...selectedIds, id])
+  }</code></pre>
+  <p class="why">同时删掉已经无人使用的 <code>availableCandidates</code> 与 <code>reachedLimit</code>
+    （当前第 108-112 行）—— 同样是因为 <code>noUnusedLocals</code>。</p>
+</li>
+
+<li>
+  <span class="st">Step 6：把角色数量 + 提取章节数 + 角色选择三节合并成新的一节</span>
+  <p class="why">把当前第 251-420 行（从 <code>{/* 1. 角色数量 */}</code> 到第三节的 <code>&lt;/section&gt;</code>）
+    整段替换为：</p>
+  <pre><code>      {/* 1. 上台角色：提取范围、人数、候选网格 */}
+      &lt;section className="flex flex-col gap-3"&gt;
+        &lt;div className="flex flex-wrap items-center justify-between gap-3"&gt;
+          &lt;h3 className="flex items-center gap-1.5 text-sm font-medium"&gt;
+            {t("storySimulation.scenarioOnStage")}
+            &lt;Info className="h-3.5 w-3.5 text-muted-foreground" /&gt;
+          &lt;/h3&gt;
+          &lt;div className="flex items-center gap-2"&gt;
+            &lt;select
+              value={sourceChapters}
+              disabled={extracting}
+              aria-label={t("storySimulation.scenarioSourceChapters")}
+              onChange={(e) =&gt; onSourceChaptersChange(Number(e.target.value))}
+              className="h-8 w-40 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
+            >
+              {SCENARIO_SOURCE_CHAPTER_PRESETS.map((n) =&gt; (
+                &lt;option key={n} value={n}&gt;
+                  {t("storySimulation.scenarioSourceChapters")} {n}{" "}
+                  {t("storySimulation.scenarioSourceChaptersUnit")}
+                &lt;/option&gt;
+              ))}
+            &lt;/select&gt;
+            &lt;Button variant="outline" size="sm" onClick={onReExtract} disabled={extracting}&gt;
+              {extracting
+                ? t("storySimulation.scenarioReExtracting")
+                : t("storySimulation.scenarioReExtract")}
+            &lt;/Button&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+
+        &lt;div className="flex flex-wrap items-center gap-2"&gt;
+          &lt;span className="text-sm text-muted-foreground"&gt;
+            {t("storySimulation.scenarioCharacterCount")}
+          &lt;/span&gt;
+          {SCENARIO_CHARACTER_PRESETS.map((n) =&gt; (
+            &lt;Button
+              key={n}
+              variant={characterCount === n ? "default" : "outline"}
+              size="sm"
+              disabled={n &gt; candidates.length}
+              onClick={() =&gt; setCharacterCount(n)}
+            &gt;
+              {n} {t("storySimulation.scenarioCharacterCountUnit")}
+            &lt;/Button&gt;
+          ))}
+          &lt;span className="text-sm text-muted-foreground"&gt;
+            {t("storySimulation.scenarioCharacterCountCustom")}
+          &lt;/span&gt;
+          &lt;Input
+            type="number"
+            className="w-24"
+            min={SCENARIO_CHARACTER_MIN}
+            max={SCENARIO_CHARACTER_MAX}
+            value={characterCount}
+            aria-label={t("storySimulation.scenarioCharacterCount")}
+            onChange={(e) =&gt; {
+              const val = parseInt(e.target.value, 10)
+              if (!isNaN(val)) {
+                setCharacterCount(val)
+                setCountClampNotice(null)
+              }
+            }}
+            onBlur={() =&gt; {
+              const clamped = clampScenarioCharacterCount(characterCount)
+              if (clamped === characterCount) return
+              setCharacterCount(clamped)
+              setCountClampNotice(
+                t("storySimulation.scenarioCharacterCountClamped", {
+                  min: SCENARIO_CHARACTER_MIN,
+                  max: SCENARIO_CHARACTER_MAX,
+                }),
+              )
+            }}
+          /&gt;
+          &lt;span className="text-xs text-muted-foreground"&gt;
+            {t("storySimulation.scenarioSelectedCount", {
+              n: selectedIds.length,
+              total: characterCount,
+            })}
+          &lt;/span&gt;
+        &lt;/div&gt;
+
+        {countClampNotice &amp;&amp; (
+          &lt;p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300"&gt;
+            {countClampNotice}
+          &lt;/p&gt;
+        )}
+
+        &lt;p className="text-xs text-muted-foreground"&gt;
+          {t("storySimulation.scenarioCharacterCountHint", {
+            min: SCENARIO_CHARACTER_MIN,
+            max: SCENARIO_CHARACTER_MAX,
+          })}
+        &lt;/p&gt;
+
+        {insufficientCandidates &amp;&amp; (
+          &lt;p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300"&gt;
+            {t("storySimulation.scenarioCandidatesInsufficient", {
+              count: candidates.length,
+              min: SCENARIO_CHARACTER_MIN,
+            })}
+          &lt;/p&gt;
+        )}
+
+        {hint &amp;&amp; (
+          &lt;p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground"&gt;
+            {hint}
+          &lt;/p&gt;
+        )}
+
+        {candidates.length === 0 ? (
+          &lt;p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground"&gt;
+            {t("storySimulation.scenarioNoCandidates")}
+          &lt;/p&gt;
+        ) : (
+          &lt;&gt;
+            &lt;ScenarioCharacterGrid
+              candidates={candidates}
+              selectedIds={selectedIds}
+              characterCount={characterCount}
+              moderatorId={moderatorId}
+              onToggle={toggleCharacter}
+              onSetModerator={setModeratorId}
+              onBindSoul={setSoulTarget}
+            /&gt;
+            &lt;p className="text-xs text-muted-foreground"&gt;
+              {t("storySimulation.scenarioSoulHint")}
+            &lt;/p&gt;
+          &lt;/&gt;
+        )}
+      &lt;/section&gt;</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 7：加宽情景设定，并把情景标题挪进来</span>
+  <p class="why">把当前第 477-515 行（<code>{/* 4. 情景规则 */}</code> 整节）替换为：</p>
+  <pre><code>      {/* 2. 情景设定 */}
+      &lt;section className="flex flex-col gap-3"&gt;
+        &lt;h3 className="text-sm font-medium"&gt;
+          {t("storySimulation.scenarioRules")}
+        &lt;/h3&gt;
+        &lt;Textarea
+          value={directive}
+          onChange={(e) =&gt; setDirective(e.target.value)}
+          rows={3}
+          aria-label={t("storySimulation.scenarioRules")}
+          placeholder={t("storySimulation.scenarioRulesPlaceholder")}
+        /&gt;
+
+        &lt;div className="flex flex-col gap-2"&gt;
+          &lt;label className="text-xs text-muted-foreground" htmlFor="scenario-scene"&gt;
+            {t("storySimulation.scenarioSceneLabel")}
+          &lt;/label&gt;
+          &lt;Textarea
+            id="scenario-scene"
+            value={scene}
+            onChange={(e) =&gt; setScene(e.target.value)}
+            rows={2}
+            placeholder={t("storySimulation.scenarioScenePlaceholder")}
+          /&gt;
+        &lt;/div&gt;
+
+        &lt;div className="grid grid-cols-1 gap-3 sm:grid-cols-2"&gt;
+          &lt;div className="flex flex-col gap-2"&gt;
+            &lt;label className="text-xs text-muted-foreground" htmlFor="scenario-location"&gt;
+              {t("storySimulation.scenarioLocationLabel")}
+            &lt;/label&gt;
+            &lt;Input
+              id="scenario-location"
+              value={location}
+              onChange={(e) =&gt; setLocation(e.target.value)}
+              placeholder={t("storySimulation.scenarioLocationPlaceholder")}
+            /&gt;
+          &lt;/div&gt;
+          &lt;div className="flex flex-col gap-2"&gt;
+            &lt;label className="text-xs text-muted-foreground" htmlFor="scenario-time"&gt;
+              {t("storySimulation.scenarioTimeLabel")}
+            &lt;/label&gt;
+            &lt;Input
+              id="scenario-time"
+              value={time}
+              onChange={(e) =&gt; setTime(e.target.value)}
+              placeholder={t("storySimulation.scenarioTimePlaceholder")}
+            /&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+
+        &lt;div className="flex flex-col gap-2"&gt;
+          &lt;label className="text-xs text-muted-foreground" htmlFor="scenario-reference"&gt;
+            {t("storySimulation.scenarioReferenceLabel")}
+          &lt;/label&gt;
+          &lt;Input
+            id="scenario-reference"
+            value={reference}
+            onChange={(e) =&gt; setReference(e.target.value)}
+            placeholder={t("storySimulation.scenarioReferencePlaceholder")}
+          /&gt;
+          {/* 参考点不是一句空话：写着「必须以此为依据」，就得让人知道依据从哪来。
+              同时先把「检索不到也照常开演」说在前面，免得事后以为是 bug */}
+          &lt;p className="text-xs text-muted-foreground"&gt;
+            {t("storySimulation.scenarioReferenceHint")}
+          &lt;/p&gt;
+        &lt;/div&gt;
+
+        &lt;div className="flex flex-col gap-2"&gt;
+          &lt;label className="text-xs text-muted-foreground" htmlFor="scenario-title"&gt;
+            {t("storySimulation.scenarioTitleLabel")}
+          &lt;/label&gt;
+          &lt;Input
+            id="scenario-title"
+            value={title}
+            onChange={(e) =&gt; setTitle(e.target.value)}
+            placeholder={t("storySimulation.scenarioTitlePlaceholder")}
+          /&gt;
+        &lt;/div&gt;
+      &lt;/section&gt;</code></pre>
+  <p class="why">然后把「轮数」一节末尾那段情景标题输入框（当前第 593-597 行）删掉：</p>
+  <pre><code>        &lt;Input
+          value={title}
+          onChange={(e) =&gt; setTitle(e.target.value)}
+          placeholder={t("storySimulation.scenarioTitlePlaceholder")}
+        /&gt;</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 8：放宽容器、挂上弹窗</span>
+  <p class="why">把主返回的外层容器（当前第 250 行）：</p>
+  <pre><code>    &lt;div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-6"&gt;</code></pre>
+  <p class="why">改为（<b>提取中</b>那个分支里的 <code>max-w-2xl</code> 保持不动）：</p>
+  <pre><code>    &lt;div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-6"&gt;</code></pre>
+  <p class="why">在最后那个「开始」<code>&lt;/div&gt;</code> 之前（当前第 692 行 <code>{/* 9. 开始 */}</code> 之前）插入：</p>
+  <pre><code>      {/* 绑定灵魂：写盘、补小传都收在这个弹窗里 */}
+      {projectPath &amp;&amp; (
+        &lt;ScenarioSoulBindDialog
+          open={soulTarget !== null}
+          projectPath={projectPath}
+          candidate={soulTarget}
+          onOpenChange={(open) =&gt; {
+            if (!open) setSoulTarget(null)
+          }}
+          onBound={() =&gt; onSoulChanged?.()}
+        /&gt;
+      )}</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 9：同步那条已经变红的契约测试</span>
+  <p class="why">把 <code>scenario-ui-wiring.spec.ts</code> 的第一个用例（当前第 17-24 行）：</p>
+  <pre><code>  it("提供角色数量、下拉选择与灵魂展示", () =&gt; {
+    const src = setupPanel()
+    expect(src).toContain("storySimulation.scenarioCharacterCount")
+    expect(src).toContain("&lt;select")
+    expect(src).toContain("storySimulation.scenarioAddPlaceholder")
+    expect(src).toContain("storySimulation.scenarioSoul")
+    expect(src).toContain("storySimulation.scenarioNoSoul")
+  })</code></pre>
+  <p class="why">替换为：</p>
+  <pre><code>  it("提供角色数量（含自定义）与候选网格，不再是下拉框选人", () =&gt; {
+    const src = setupPanel()
+    expect(src).toContain("storySimulation.scenarioCharacterCount")
+    expect(src).toContain("SCENARIO_CHARACTER_PRESETS")
+    expect(src).toContain("clampScenarioCharacterCount")
+    expect(src).toContain("&lt;ScenarioCharacterGrid")
+    // 角色下拉已被网格取代；&lt;select&gt; 只剩「提取章节数」这一个，不再是选人用的
+    expect(src).not.toContain("storySimulation.scenarioAddPlaceholder")
+    expect(src).not.toContain("storySimulation.scenarioNoSoul")
+  })
+
+  it("把绑定灵魂的入口接进设置面板", () =&gt; {
+    const src = setupPanel()
+    expect(src).toContain("&lt;ScenarioSoulBindDialog")
+    expect(src).toContain("onSoulChanged")
+  })</code></pre>
+  <div class="cmd">npx vitest run src/components/novel/story-simulation/scenario-ui-wiring.spec.ts</div>
+  <p class="exp">Expected: PASS —— 全部用例通过（含 Task 2 加的那条 speakerId 断言）。</p>
+</li>
+
+<li>
+  <span class="st">Step 10：跑本任务的测试与类型检查</span>
+  <div class="cmd">npx vitest run src/components/novel/story-simulation/scenario-setup-panel.spec.tsx</div>
+  <p class="exp">Expected: PASS —— 12 个用例全绿。</p>
+  <div class="cmd">npx tsc -p tsconfig.test.json --noEmit</div>
+  <p class="exp">Expected: 无输出。若报 <code>X is declared but its value is never read</code>，
+    说明 Step 4 里忘了删 <code>X</code> 的 import。</p>
+</li>
+
+<li>
+  <span class="st">Step 11：提交（需先获得用户许可）</span>
+  <div class="cmd">git add src/components/novel/story-simulation/scenario-setup-panel.tsx src/components/novel/story-simulation/scenario-setup-panel.spec.tsx src/components/novel/story-simulation/scenario-ui-wiring.spec.ts src/i18n/zh.json
+git commit -m "feat(story-simulation): 舞台情景设置面板改为网格选人，情景设定加宽并把标题归位"</div>
+</li>
+</ul>
+
+<div class="callout ok">
+  <span class="t">已交付：8bb6a4f9 + 0630c3d3（入口文案补正）</span>
+  <p>两个提交共 5 个文件；<code>8bb6a4f9</code> 恰好 4 个（面板 tsx / 面板 spec / 契约 spec / <code>zh.json</code>），
+  <code>0630c3d3</code> 只动 <code>zh.json</code> 一动一删。用例 <b>13 → 19</b>（新增 6：自定义人数 4 + 裁候选回归 1 + 绑定入口 1），
+  契约 spec <b>16</b>、<code>i18n-parity</code> <b>8/8</b>，两阶段类型检查 exit 0；<code>npm run test:mocks</code> 除本机既有两条 ENOENT 外全绿。</p>
+  <p><b>主持人一节、成本护栏一节、<code>canStart</code> 表达式、成本确认 effect</b> 都与 HEAD 做整段逐字比对，结果 <b>true</b>；
+  15 个红线文件逐个 <code>hash-object</code> 与 <code>rev-parse HEAD:&lt;path&gt;</code> 相等。</p>
+  <p><code>selectedIds</code> 只增不减这个<b>既有缺陷</b>按本章新增的必修项修掉了：
+  候选变少后裁掉已消失的 id，主持人若在其中则退回「由你主持」。回归测试由变异证明有效 ——
+  删掉该 effect 会打出 <code>expected 'scenarioSelectedCount(n=5,total=3)' to contain 'n=2'</code>，
+  正是「已选 5 / 共 3」那个原始症状。</p>
+</div>
+
+<div class="callout warn">
+  <span class="t">记下我这次写任务书又犯的两处错（都已被实施者拦下）</span>
+  <ol>
+    <li><b>失焦写法必然失败</b>：任务书 Step 2.5 让我用 <code>dispatchEvent(new Event("blur", {bubbles:true}))</code>
+      触发失焦。React 17 起 <code>onBlur</code> 是<b>委托在原生 <code>focusout</code> 上</b>的，
+      手工派发 <code>blur</code> 根本到不了组件 —— 实测红输出里是 <code>scenarioSelectedCount(n=0,total=99)</code>，
+      数字一点没夹。改用真实 <code>input.focus(); input.blur()</code> 后才绿，且反例照样能打红。
+      <b>教训</b>：这个仓库的「受控输入」有两类坑 —— 一类是赋值要走原型 setter（这条我记得），
+      另一类是<b>合成事件类型选错</b>（这条我漏了）。</li>
+    <li><b><code>hubScenarioDesc</code> 漏抄</b>：这条硬性验收项只写在本章开头的「未完成前不要发版」提示里（见本章前面的 <code>callout</code>），
+      正文与任务书都漏了，实施者做完主任务后<b>主动停下**问我**</b>才补上。已在本章正文第二次登记。</li>
+  </ol>
+</div>
+
+<div class="callout warn">
+  <span class="t">收尾必修：代码质量审查用探针 + 7 个变异体实测出 3 个 Critical</span>
+  <p><b>这一节最重要的教训：45 个测试全绿不等于做对了。</b>审查做了 7 个变异体，其中
+  <b>两个能存活</b>（把上限夹取改成错值 <code>Math.min(5, …)</code>（99→5）后 19 条仍全绿；
+  删掉 <code>onBlur</code> 里的 <code>setCharacterCount(clamped)</code> 也无一条打红 ——
+  提示照出、输入框停在 <code>99</code>）。原因是那两条用例<b>只断言了文案没断言 state</b>，
+  且一条用了子串匹配（<code>n=4,total=3</code> 也含 <code>total=3</code>）。</p>
+  <ul>
+    <li><b>C1（新引入的功能死路）</b>：<code>canStart</code> 要求 <code>selectedIds.length === characterCount</code>，
+      而裁切 effect 只在<b>候选集合</b>变化时跑、<b>「所选人数」变小时不裁</b>。于是先选满 5 人再点「3 个角色」
+      得到「已选 5/共 3」，开始按钮<b>永久灰着且零解释</b>，此时满员提示还在说「已选满 3 个角色」，自相矛盾。
+      旧实现看不到这条路径（人数由 3/4/5 按钮直接设置、下拉框会禁用并提示满员）；<b>网格化 + 自定义输入后它才首次可达</b>。
+      <b>用户裁决</b>：自动让多出来的人下台（保留前 N 个，上台序号 1..N 保持稳定）。
+      关键约束：<b>只在提交点（预设按钮点击 / 输入框失焦）裁，绝不在每次按键时裁</b> ——
+      用户想把 5 改成 10，输入过程必然先经过 <code>"1"</code>，按键即裁会把 4 个人踢下台。</li>
+    <li><b>C2</b>：<code>canStart</code> 只查 <code>===</code>、<b>不查下限</b>。实测 <code>count=2</code> + 选 2 人时
+      开始按钮是<b>亮的</b>（低于 <code>SCENARIO_CHARACTER_MIN=3</code> 却能开演）；<code>count=0</code> + 0 人时
+      <code>0 === 0</code> 也亮，点下去会带着<b>空 participants</b> 进引擎。修法是给 <code>canStart</code>
+      <b>加</b>一项 <code>characterCount &gt;= SCENARIO_CHARACTER_MIN</code>（是<b>加强</b>，不违背「不许放松」的约束）。
+      反过来<b>不能</b>在 <code>onChange</code> 里夹下限 —— 同样会踩「想输 10 先经过 1」。</li>
+    <li><b>C3</b>：三处提示都是用户操作后<b>异步出现</b>的，实测 <code>live region: 0</code>，
+      读屏用户点满员卡片后得不到任何反馈。全部加 <code>role="alert"</code>
+      （同仓库 <code>scenario-soul-bind-dialog.tsx</code> 已有先例）。</li>
+    <li><b>I1 陈旧提示</b>：改大人数后旧「已选满 3 个角色」仍在、夹取提示跨预设按钮存活、
+      进「提取中」再回来旧提示<b>原样复活</b>（组件不卸载、state 保留）。</li>
+    <li><b>I2 两条提示可同时在场</b>（实测同为 true），互斥关系不成立。</li>
+  </ul>
+  <p>审查同时<b>独立验证并推翻了我此前的担忧</b>：裁切 effect 用 <code>every</code> 提前返回确实挡住了自激
+  （Profiler 实测 commits 严格线性、每 tick 恰好 +1）；<code>characterCount &gt; MAX</code> 那条 early return
+  是<b>正确且必要</b>的（删掉它，99 会被候选 effect 提前夹走、夹取提示永远不显示）；
+  <code>soulTarget</code> 绑完不陈旧（实测重开后解绑按钮出现 + 光环预选正确）；
+  主持人被裁掉 / 被移出舞台两条路径行为都对（但 spec 里零覆盖）。</p>
+</div>
+
+</div>
+
+<!-- ══════════════════ TASK 7 ══════════════════ -->
+<div class="task">
+<h3>Task 7：主视图接线（灵魂名单 / 绑定关系 / speakerId）<span class="done">已完成</span></h3>
+<div class="files">Modify: src/components/novel/story-simulation/story-simulation-view.tsx
+Modify: src/components/novel/story-simulation/scenario-ui-wiring.spec.ts</div>
+
+<p class="why">这是把「绑定灵魂」这条链真正接通的一步：候选带不带灵魂名、绑完能不能立刻看到，
+全看这里传没传 <code>bindings</code> / <code>auras</code>。<b>本任务不新建文件，只改视图。</b></p>
+
+<ul class="steps">
+<li>
+  <span class="st">Step 1：补契约断言（先红后绿）</span>
+  <p class="why">在 <code>scenario-ui-wiring.spec.ts</code> 的
+    <code>describe("舞台情景 · 主视图接线")</code> 末尾追加：</p>
+  <pre><code>  it("把灵魂名单与绑定关系喂给候选构建，并传给设置面板", () =&gt; {
+    const src = view()
+    expect(src).toContain("listCharacterAuras")
+    expect(src).toContain("getCharacterAuraBindings")
+    // 兜底匹配必须真的被传进去：只 import 不传参，绑定灵魂后台上还是「未绑定」
+    expect(src).toContain("buildScenarioCandidates(extractionResult, {")
+    expect(src).toContain("bindings: scenarioAuraBindings")
+    expect(src).toContain("auras: scenarioAuras")
+    expect(src).toContain("projectPath={projectPath}")
+    expect(src).toContain("onSoulChanged=")
+  })
+
+  it("绑定成功后重载候选，并把引擎给的 speakerId 存进流式状态", () =&gt; {
+    const src = view()
+    expect(src).toContain("scenarioSoulNonce")
+    expect(src).toContain("scenarioSoulNonce")
+    // 流式气泡要认得出是哪个角色，才能上头像与专属配色
+    expect(src).toContain("speakerId: info.speakerId")
+  })</code></pre>
+  <div class="cmd">npx vitest run src/components/novel/story-simulation/scenario-ui-wiring.spec.ts</div>
+  <p class="exp">Expected: FAIL —— <code>listCharacterAuras</code> 等断言找不到。</p>
+</li>
+
+<li>
+  <span class="st">Step 2：加 import</span>
+  <p class="why">在 <code>story-simulation-view.tsx</code> 里找到已有的
+    <code>story-simulation/scenario-participant-selector</code> import，紧挨它加：</p>
+  <pre><code>import {
+  getCharacterAuraBindings,
+  listCharacterAuras,
+  type CharacterAura,
+  type CharacterAuraBinding,
+} from "@/lib/novel/character-aura"</code></pre>
+  <p class="why">若该文件已经 import 过 <code>@/lib/novel/character-aura</code>（用于别处），
+    就把这四个名字并进<b>已有的那条</b> import，不要写两条。</p>
+  <div class="cmd">Select-String -Path src/components/novel/story-simulation/story-simulation-view.tsx -Pattern 'character-aura'</div>
+  <p class="exp">Expected: 最多一行命中。多行命中就先合并再继续。</p>
+</li>
+
+<li>
+  <span class="st">Step 3：加状态与刷新信号</span>
+  <p class="why">在舞台情景的 store 订阅之后（当前第 254 行 <code>setScenarioExtracting</code> 那段之后）插入：</p>
+  <pre><code>  /**
+   * 角色灵魂名单与绑定关系。
+   *
+   * 候选角色来自章节正文提取，提取产物里的 aura 常常是空的；真正「用户绑过
+   * 谁」的真相在 bindings 里。所以要把这两份数据读出来交给
+   * buildScenarioCandidates 做兜底匹配，否则刚绑完灵魂回到设置面板，
+   * 卡片上仍然写着「绑定灵魂」。
+   */
+  const [scenarioAuras, setScenarioAuras] = useState&lt;CharacterAura[]&gt;([]);
+  const [scenarioAuraBindings, setScenarioAuraBindings] = useState&lt;
+    CharacterAuraBinding[]
+  &gt;([]);
+  /** 绑定/解绑成功后 +1，驱动上面的加载 effect 重新读一遍。 */
+  const [scenarioSoulNonce, setScenarioSoulNonce] = useState(0);</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 4：加载灵魂与绑定</span>
+  <p class="why">在「进入舞台情景设置时，加载已保存的历史情景」那个 effect 之后插入：</p>
+  <pre><code>  /**
+   * 进入舞台情景设置、或刚绑完灵魂时，读一次灵魂名单与绑定关系。
+   *
+   * 读不到就退回空数组：绑定入口的弹窗自己会重读名单（readScenarioAuras），
+   * 缺了这份兜底数据只会让卡片少显示一个灵魂名，不该把整个面板卡住。
+   */
+  useEffect(() =&gt; {
+    if (phase !== "scenario-setup") return;
+    if (!projectPath) return;
+    let cancelled = false;
+    void (async () =&gt; {
+      try {
+        const [auras, bindings] = await Promise.all([
+          listCharacterAuras(projectPath),
+          getCharacterAuraBindings(projectPath),
+        ]);
+        if (cancelled) return;
+        setScenarioAuras(auras);
+        setScenarioAuraBindings(bindings);
+      } catch {
+        if (!cancelled) {
+          setScenarioAuras([]);
+          setScenarioAuraBindings([]);
+        }
+      }
+    })();
+    return () =&gt; {
+      cancelled = true;
+    };
+  }, [phase, projectPath, scenarioSoulNonce]);</code></pre>
+  <div class="callout warn">
+    <span class="t">先核实这两个函数的签名与返回</span>
+    <p><code>listCharacterAuras(projectPath)</code> 与 <code>getCharacterAuraBindings(projectPath)</code>
+    在 <code>character-aura.ts:321</code> 与 <code>:539</code>。开工前先读一眼这两个函数，
+    确认返回的是数组（而不是 <code>{ auras, bindings }</code> 之类的包装）。
+    若签名不同，按实际签名改写本步，并在任务汇报里说明。</p>
+  </div>
+</li>
+
+<li>
+  <span class="st">Step 5：把两份数据喂给候选构建</span>
+  <p class="why">把当前第 1399-1402 行：</p>
+  <pre><code>  const scenarioCandidates = useMemo(
+    () =&gt; (extractionResult ? buildScenarioCandidates(extractionResult) : []),
+    [extractionResult],
+  );</code></pre>
+  <p class="why">替换为：</p>
+  <pre><code>  const scenarioCandidates = useMemo(
+    () =&gt;
+      extractionResult
+        ? buildScenarioCandidates(extractionResult, {
+            bindings: scenarioAuraBindings,
+            auras: scenarioAuras,
+          })
+        : [],
+    [extractionResult, scenarioAuraBindings, scenarioAuras],
+  );</code></pre>
+  <p class="why">依赖数组必须带上这两份数据 —— 少了它们，绑完灵魂重读回来了，
+    候选却还是用旧数据算的（<code>useMemo</code> 不会重算），卡片依旧显示未绑定。</p>
+</li>
+
+<li>
+  <span class="st">Step 6：给设置面板传 projectPath 与刷新回调</span>
+  <p class="why">把当前第 2258-2270 行的面板调用补上两个属性：</p>
+  <pre><code>            &lt;ScenarioSetupPanel
+              candidates={scenarioCandidates}
+              extracting={scenarioExtracting}
+              progress={{ progress, label: progressLabel }}
+              sourceChapters={scenarioSourceChapters}
+              onSourceChaptersChange={handleScenarioSourceChaptersChange}
+              onReExtract={handleScenarioReExtract}
+              projectPath={projectPath}
+              onSoulChanged={() =&gt; setScenarioSoulNonce((k) =&gt; k + 1)}
+              savedScenarios={scenarioSaved}
+              onStart={(setup) =&gt; void handleScenarioStart(setup)}
+              onOpenSaved={handleOpenSavedScenario}
+              onDeleteSaved={(id) =&gt; void handleDeleteSavedScenario(id)}
+              onCancel={() =&gt; setPhase("idle")}
+            /&gt;</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 7：让流式状态带上 speakerId</span>
+  <p class="why">把 <code>makeScenarioCallbacks</code> 里的
+    <code>onMessageStart</code>（当前第 1538-1543 行）：</p>
+  <pre><code>      scenarioStreamRef.current = "";
+      setScenarioStreaming({
+        kind: info.kind,
+        speakerName: info.speakerName,
+        content: "",
+      });</code></pre>
+  <p class="why">替换为：</p>
+  <pre><code>      scenarioStreamRef.current = "";
+      // 带上 speakerId：房间视图要靠它给流式气泡上头像与专属配色
+      setScenarioStreaming({
+        kind: info.kind,
+        speakerId: info.speakerId,
+        speakerName: info.speakerName,
+        content: "",
+      });</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 8：跑契约测试与类型检查</span>
+  <div class="cmd">npx vitest run src/components/novel/story-simulation/scenario-ui-wiring.spec.ts</div>
+  <p class="exp">Expected: PASS —— 全部用例通过。</p>
+  <div class="cmd">npx tsc -p tsconfig.test.json --noEmit</div>
+  <p class="exp">Expected: 无输出。若报 <code>CharacterAura is declared but never read</code>
+    之类，说明 import 了用不上的类型，删掉即可。</p>
+</li>
+
+<li>
+  <span class="st">Step 9：确认引擎相关测试一条没动</span>
+  <div class="cmd">npx vitest run src/lib/novel/story-simulation</div>
+  <p class="exp">Expected: PASS —— <code>scenario-engine</code>、<code>scenario-participant-selector</code>
+    等既有测试全部通过。本任务不该改动它们中的任何一个。</p>
+</li>
+
+<li>
+  <span class="st">Step 10：提交（需先获得用户许可）</span>
+  <div class="cmd">git add src/components/novel/story-simulation/story-simulation-view.tsx src/components/novel/story-simulation/scenario-ui-wiring.spec.ts
+git commit -m "feat(story-simulation): 舞台情景读取灵魂绑定并在绑定后即时刷新候选"</div>
+</li>
+</ul>
+
+<div class="callout ok">
+  <span class="t">已交付：6f9ebf55（2 个文件，+86/−2），契约用例 16 → 18</span>
+  <p>这条链补上后，用户绑完灵魂回到面板才真的能看见灵魂名 —— 之前候选是由<b>章节正文提取</b>产物构建的，
+  提取出来的 <code>aura</code> 常常是空的，真正「用户绑过谁」的真相在 <code>bindings</code> 里，
+  这个 <code>buildScenarioCandidates(extractionResult, { bindings, auras })</code> 入口
+  （<code>scenario-participant-selector.ts:12</code> 的注释就写着「若调用方另行提供 bindings」）
+  本来就是为这一步留的，Task 7 之前一直没人传。</p>
+  <p><b>并发交接点</b>：规格审查在 <code>0630c3d3</code> 上把「绑定灵魂入口点下去没反应」
+  登记为 Important（<code>story-simulation-view.tsx</code> 没传 <code>projectPath</code>，
+  而面板是 <code>{projectPath && &lt;ScenarioSoulBindDialog/&gt;}</code> 条件渲染 → 弹窗永不挂载）。
+  这正是 Task 7 Step 6 的内容，已在 <code>6f9ebf55</code> 落地（<code>projectPath={projectPath}</code> +
+  <code>onSoulChanged=</code>），该 Important 随之关闭。</p>
+  <p>实施者还实测回答了我最担心的两条：<b>不会丢用户正在编辑的设置</b>
+  （面板三个 effect 分别依赖 <code>candidates.length</code> / <code>candidates</code> / <code>estimatedMessages</code>；
+  nonce 刷新只换对象不换 id，<code>selectedIds.every(id =&gt; alive.has(id))</code> 成立即提前返回；
+  而 <code>estimateScenarioMessages</code> 只看人数/主持人/轮数，与灵魂字段无关 → <code>costAck</code> 不会被清）；
+  <b>不会无限重渲染</b>（探针从真实源文件切片执行 effect 与 useMemo 原文，实测空转 5 个宏任务后
+  reads/renders 完全不增长：<code>1/3 → 1/3</code>；nonce+1 恰好只多读一次 <code>2/5</code>）。</p>
+</div>
+
+</div>
+
+
+<!-- ══════════════════ TASK 8 ══════════════════ -->
+<div class="task">
+<h3>Task 8：房间视图的群聊在场感<span class="done">已完成</span></h3>
+<div class="files">Modify: src/components/novel/story-simulation/scenario-room-view.tsx
+Modify: src/components/novel/story-simulation/scenario-room-view.spec.tsx   ← 已存在，追加用例
+Modify: src/i18n/zh.json</div>
+
+<p class="why">需求 5：生成过程要像群聊 —— 每个角色自己回复。房间视图<b>本来就已经是气泡流</b>
+  （角色靠左、用户靠右、主持人带边框与徽标），缺的是「看得出谁在场、谁正在说」。
+  所以这一步只补在场感，<b>不改布局方向、不往气泡里塞角色卡</b>。</p>
+
+<div class="callout">
+  <span class="t">这一步不碰引擎</span>
+  <p>发言顺序、串场节奏、prompt 组装全在 <code>scenario-engine.ts</code> / <code>scenario-moderator.ts</code> 里，
+  本任务一行不改。唯一与引擎相关的是把引擎<b>已经给出</b>的 <code>speakerId</code> 存下来用于配色
+  —— 那是 Task 7 做的事，本任务只是把它用上。</p>
+</div>
+
+<ul class="steps">
+<li>
+  <span class="st">Step 1：补两条文案</span>
+  <p class="why">在 <code>src/i18n/zh.json</code> 的 <code>storySimulation</code> 段里，紧接 Task 6 新增的键之后插入：</p>
+  <pre><code>"scenarioMembers": "在场角色",
+"scenarioTyping": "{{name}} 正在输入…",</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 2：追加失败的测试</span>
+  <p class="why">在<b>已有的</b> <code>scenario-room-view.spec.tsx</code> 里，先把 <code>render()</code>
+    的 <code>over</code> 参数补上 <code>streaming</code> 与 <code>progress</code>：</p>
+  <pre><code>function render(
+  s: ScenarioSession,
+  over: {
+    remainingRounds?: number
+    running?: boolean
+    streaming?: ScenarioStreamingState | null
+    referenceInfo?: { count: number; truncated: boolean } | null
+  } = {},
+) {
+  act(() =&gt; {
+    root.render(
+      &lt;ScenarioRoomView
+        session={s}
+        running={over.running ?? false}
+        streaming={over.streaming ?? null}
+        progress={null}
+        input=""
+        onInputChange={() =&gt; {}}
+        onSend={() =&gt; {}}
+        onExport={() =&gt; {}}
+        onCancel={() =&gt; {}}
+        onBack={() =&gt; {}}
+        onContinue={onContinue}
+        remainingRounds={over.remainingRounds ?? 0}
+        referenceInfo={over.referenceInfo ?? null}
+      /&gt;,
+    )
+  })
+}</code></pre>
+  <p class="why">并在文件顶部的 import 里加上 <code>type ScenarioStreamingState</code>。
+    然后在文件<b>末尾</b>追加：</p>
+  <pre><code>function memberChip(speakerId: string): HTMLElement | null {
+  return container.querySelector(
+    `[data-testid="scenario-member"][data-speaker-id="${speakerId}"]`,
+  )
+}
+
+function avatarOf(speakerId: string): HTMLElement | null {
+  return container.querySelector(
+    `[data-testid="scenario-avatar"][data-speaker-id="${speakerId}"]`,
+  )
+}
+
+function streamingState(
+  over: Partial&lt;ScenarioStreamingState&gt; = {},
+): ScenarioStreamingState {
+  return {
+    kind: "character",
+    speakerId: "甲",
+    speakerName: "甲",
+    content: "",
+    ...over,
+  }
+}
+
+/**
+ * 「群组式」原本只体现在气泡左右分栏上：谁是角色、谁在场、轮到谁说话，
+ * 全靠读气泡里的名字。生成中尤其难受 —— 只有一个转圈，看不出在等谁。
+ */
+describe("ScenarioRoomView · 群聊在场感", () =&gt; {
+  it("成员条列出全部在场角色，并带上首字头像", () =&gt; {
+    render(session([msg({})]))
+
+    const bar = container.querySelector('[data-testid="scenario-member-bar"]')
+    expect(bar).not.toBeNull()
+    // 角色甲 + 用户主持人占位
+    expect(memberChip("甲")).not.toBeNull()
+    expect(memberChip(SCENARIO_MODERATOR_USER_ID)).not.toBeNull()
+    expect(avatarOf("甲")?.textContent).toBe("甲")
+    expect(avatarOf(SCENARIO_MODERATOR_USER_ID)?.textContent).toBe("主")
+  })
+
+  it("主持人用固定的主色，不参与角色配色（不然串场就认不出来了）", () =&gt; {
+    render(session([msg({})]))
+
+    expect(avatarOf(SCENARIO_MODERATOR_USER_ID)?.className).toContain(
+      "bg-primary/15",
+    )
+    expect(avatarOf("甲")?.className).not.toContain("bg-primary/15")
+  })
+
+  it("同一角色在成员条与气泡里的头像配色一致", () =&gt; {
+    render(session([msg({ content: "天命之谓性。" })]))
+
+    const chipAvatar = memberChip("甲")?.querySelector(
+      '[data-testid="scenario-avatar"]',
+    )
+    const bubbleAvatar = container.querySelector(
+      '[data-testid="scenario-bubble"] [data-testid="scenario-avatar"][data-speaker-id="甲"]',
+    )
+    expect(bubbleAvatar).not.toBeNull()
+    // 两处的尺寸类名不同（成员条 h-4、气泡 h-7），只比底色
+    const bgOf = (el: Element | null | undefined) =&gt;
+      (el?.className ?? "")
+        .split(/\s+/)
+        .filter((c) =&gt; c.startsWith("bg-"))
+        .sort()
+    expect(bgOf(bubbleAvatar).length).toBeGreaterThan(0)
+    expect(bgOf(bubbleAvatar)).toEqual(bgOf(chipAvatar))
+  })
+
+  it("角色气泡带自己的首字头像", () =&gt; {
+    render(session([msg({})]))
+
+    expect(
+      container.querySelector(
+        '[data-testid="scenario-bubble"] [data-testid="scenario-avatar"]',
+      ),
+    ).not.toBeNull()
+  })
+
+  it("用户自己发的气泡不带角色头像（右对齐，加了反而像别人发言）", () =&gt; {
+    render(session([msg({ kind: "user", speakerId: "user", speakerName: "我" })]))
+
+    const bubble = container.querySelector('[data-testid="scenario-bubble"]')
+    expect(bubble?.querySelector('[data-testid="scenario-avatar"]')).toBeNull()
+  })
+
+  it("正在发言的成员被标出，其他人不被标", () => {
+    render(session([msg({})]), {
+      running: true,
+      streaming: streamingState({ speakerId: "甲", speakerName: "甲" }),
+    })
+
+    expect(memberChip("甲")?.getAttribute("data-active")).toBe("true")
+    expect(
+      memberChip(SCENARIO_MODERATOR_USER_ID)?.getAttribute("data-active"),
+    ).toBe("false")
+  })
+
+  it("还没吐字时明说「×× 正在输入」，而不是只转一个圈", () => {
+    render(session([msg({})]), {
+      running: true,
+      streaming: streamingState({ content: "" }),
+    })
+
+    expect(container.textContent).toContain("scenarioTyping(name=甲)")
+  })
+
+  it("开始吐字后不再显示「正在输入」（那时已经有正文可看了）", () => {
+    render(session([msg({})]), {
+      running: true,
+      streaming: streamingState({ content: "天" }),
+    })
+
+    expect(container.textContent).not.toContain("scenarioTyping")
+  })
+
+  it("没在生成时不显示「正在输入」", () => {
+    render(session([msg({})]), { running: false, streaming: null })
+
+    expect(container.textContent).not.toContain("scenarioTyping")
+  })
+
+  it("流式气泡按 speakerId 认角色，而不是拿名字当 id 顶替", () =&gt; {
+    render(session([msg({})]), {
+      running: true,
+      streaming: streamingState({
+        speakerId: "甲",
+        speakerName: "甲某",
+        content: "天",
+      }),
+    })
+
+    const bubble = container.querySelector('[data-testid="scenario-bubble"]')
+    // 显示名用 speakerName，身份用引擎给的 speakerId —— 两者不一致时不能串角色
+    expect(bubble?.getAttribute("data-speaker-id")).toBe("甲")
+    expect(bubble?.textContent).toContain("甲某")
+    // 成员条上高亮的仍然应该是 id 为「甲」的那位
+    expect(memberChip("甲")?.getAttribute("data-active")).toBe("true")
+  })
+})</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 3：跑测试确认它失败</span>
+  <div class="cmd">npx vitest run src/components/novel/story-simulation/scenario-room-view.spec.tsx</div>
+  <p class="exp">Expected: FAIL —— <code>scenario-member-bar</code> / <code>scenario-member</code> /
+    <code>scenario-avatar</code> 都还不存在；<code>scenarioTyping</code> 也不出现。
+    文件里原有的 12 个用例应当仍然通过。</p>
+</li>
+
+<li>
+  <span class="st">Step 4：加 import</span>
+  <p class="why">在 <code>scenario-room-view.tsx</code> 的 scenario-types import 之前加：</p>
+  <pre><code>import {
+  scenarioAvatarInitial,
+  scenarioSpeakerTone,
+} from "@/lib/novel/story-simulation/scenario-avatar"</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 5：把顶部那行纯文字换成成员条</span>
+  <p class="why">把当前第 132-137 行：</p>
+  <pre><code>          &lt;div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground"&gt;
+            &lt;Users className="h-3 w-3" /&gt;
+            {session.setup.participants
+              .map((p) =&gt; `${p.name}${p.isModerator ? "(主持)" : ""}`)
+              .join("、")}
+          &lt;/div&gt;</code></pre>
+  <p class="why">替换为：</p>
+  <pre><code>          {/*
+            成员条：把「这场有谁」从一行逗号文字变成一排带头像的小标签，
+            并标出当前正在发言的那位。生成中如果只有一个转圈，用户看不出
+            在等谁 —— 而「在等谁」正是群聊里最要紧的信息。
+          */}
+          &lt;div
+            className="mt-1 flex flex-wrap items-center gap-1.5 text-xs"
+            data-testid="scenario-member-bar"
+            aria-label={t("storySimulation.scenarioMembers")}
+          &gt;
+            &lt;Users className="h-3 w-3 shrink-0 text-muted-foreground" /&gt;
+            {session.setup.participants.map((p) =&gt; {
+              const tone = scenarioSpeakerTone(p.id, Boolean(p.isModerator))
+              const active = running &amp;&amp; streaming?.speakerId === p.id
+              return (
+                &lt;span
+                  key={p.id}
+                  data-testid="scenario-member"
+                  data-speaker-id={p.id}
+                  data-active={active ? "true" : "false"}
+                  className={cn(
+                    "flex items-center gap-1 rounded-full border px-1.5 py-0.5",
+                    active ? "border-primary/40 bg-primary/5" : "border-transparent",
+                  )}
+                &gt;
+                  &lt;span
+                    data-testid="scenario-avatar"
+                    data-speaker-id={p.id}
+                    className={cn(
+                      "grid h-4 w-4 shrink-0 place-items-center rounded-full text-[0.5rem] font-medium",
+                      tone.avatarClass,
+                    )}
+                  &gt;
+                    {scenarioAvatarInitial(p.name)}
+                  &lt;/span&gt;
+                  &lt;span className={cn("font-medium", tone.nameClass)}&gt;{p.name}&lt;/span&gt;
+                  {p.isModerator &amp;&amp; (
+                    &lt;span className="text-muted-foreground"&gt;
+                      ({t("storySimulation.scenarioModeratorBadge")})
+                    &lt;/span&gt;
+                  )}
+                  {active &amp;&amp; (
+                    &lt;span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-primary" /&gt;
+                  )}
+                &lt;/span&gt;
+              )
+            })}
+          &lt;/div&gt;</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 6：流式气泡用真的 speakerId，并加「正在输入」</span>
+  <p class="why">把当前第 207-227 行那段：</p>
+  <pre><code>        {streaming &amp;&amp; (
+          &lt;MessageBubble
+            message={{
+              id: "__streaming__",
+              kind: streaming.kind,
+              speakerId: streaming.speakerName,
+              speakerName: streaming.speakerName,
+              round: 0,
+              content: streaming.content,
+              timestamp: new Date().toISOString(),
+            }}
+            streaming
+          /&gt;
+        )}
+
+        {running &amp;&amp; !streaming &amp;&amp; (
+          &lt;div className="flex items-center gap-2 py-2 text-xs text-muted-foreground"&gt;
+            &lt;Loader2 className="h-3.5 w-3.5 animate-spin" /&gt;
+            {t("storySimulation.scenarioScheduling")}
+          &lt;/div&gt;
+        )}</code></pre>
+  <p class="why">替换为：</p>
+  <pre><code>        {streaming &amp;&amp; (
+          &lt;&gt;
+            {/*
+              还没吐字时明说「×× 正在输入…」：这段时间用户看到的如果只是一个
+              空气泡，会以为卡住了。已有正文之后就不必再占一行。
+            */}
+            {running &amp;&amp; !streaming.content &amp;&amp; (
+              &lt;div className="flex items-center gap-2 py-1 text-xs text-muted-foreground"&gt;
+                &lt;Loader2 className="h-3.5 w-3.5 animate-spin" /&gt;
+                {t("storySimulation.scenarioTyping", {
+                  name: streaming.speakerName,
+                })}
+              &lt;/div&gt;
+            )}
+            &lt;MessageBubble
+              message={{
+                id: "__streaming__",
+                kind: streaming.kind,
+                // 引擎本来就给了 speakerId，只是以前拿名字顶替；现在优先用真 id
+                speakerId: streaming.speakerId ?? streaming.speakerName,
+                speakerName: streaming.speakerName,
+                round: 0,
+                content: streaming.content,
+                timestamp: new Date().toISOString(),
+              }}
+              streaming
+              active
+            /&gt;
+          &lt;/&gt;
+        )}
+
+        {running &amp;&amp; !streaming &amp;&amp; (
+          &lt;div className="flex items-center gap-2 py-2 text-xs text-muted-foreground"&gt;
+            &lt;Loader2 className="h-3.5 w-3.5 animate-spin" /&gt;
+            {t("storySimulation.scenarioScheduling")}
+          &lt;/div&gt;
+        )}</code></pre>
+</li>
+
+<li>
+  <span class="st">Step 7：给气泡加头像、配色与当前发言高亮</span>
+  <p class="why">把 <code>MessageBubble</code>（当前第 264-345 行）整体替换为：</p>
+  <pre><code>function MessageBubble({
+  message,
+  streaming,
+  active,
+}: {
+  message: ScenarioMessage
+  streaming?: boolean
+  /** 是否正在发言（用于高亮）。历史消息一律为 false。 */
+  active?: boolean
+}) {
+  const { t } = useTranslation()
+  // 必须放在 system 的提前 return 之前：hooks 不能有条件地调用
+  const [showReasoning, setShowReasoning] = useState(false)
+  if (message.kind === "system") {
+    return (
+      &lt;div className="py-1 text-center text-xs text-muted-foreground"&gt;
+        {message.content}
+      &lt;/div&gt;
+    )
+  }
+
+  const isUser = message.kind === "user"
+  const isModerator = message.kind === "moderator"
+  // 主持人拿固定主色，角色按 speakerId 稳定散列到一个专属色
+  const tone = scenarioSpeakerTone(message.speakerId, isModerator)
+
+  return (
+    &lt;div
+      data-testid="scenario-bubble"
+      data-speaker-id={message.speakerId}
+      className={cn("flex gap-2", isUser ? "justify-end" : "justify-start")}
+    &gt;
+      {!isUser &amp;&amp; (
+        &lt;span
+          data-testid="scenario-avatar"
+          data-speaker-id={message.speakerId}
+          className={cn(
+            "mt-5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-xs font-medium",
+            tone.avatarClass,
+          )}
+        &gt;
+          {scenarioAvatarInitial(message.speakerName)}
+        &lt;/span&gt;
+      )}
+      &lt;div className={cn("max-w-[85%] min-w-0", isUser &amp;&amp; "items-end")}&gt;
+        &lt;div
+          className={cn(
+            "mb-1 flex items-center gap-2 text-xs text-muted-foreground",
+            isUser &amp;&amp; "justify-end",
+          )}
+        &gt;
+          &lt;span className={cn("font-medium", isUser ? "text-foreground/80" : tone.nameClass)}&gt;
+            {message.speakerName}
+          &lt;/span&gt;
+          {isModerator &amp;&amp; (
+            &lt;span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[0.625rem] text-primary"&gt;
+              {t("storySimulation.scenarioModeratorBadge")}
+            &lt;/span&gt;
+          )}
+          {!isUser &amp;&amp; message.round &gt; 0 &amp;&amp; (
+            &lt;span&gt;{t("storySimulation.scenarioRound", { n: message.round })}&lt;/span&gt;
+          )}
+        &lt;/div&gt;
+        &lt;div
+          className={cn(
+            "whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm leading-relaxed",
+            isUser
+              ? "bg-primary text-primary-foreground"
+              : isModerator
+                ? "border border-primary/30 bg-primary/5"
+                : "bg-muted",
+            active &amp;&amp; "ring-1 ring-primary/40",
+          )}
+        &gt;
+          {message.content}
+          {streaming &amp;&amp; (
+            &lt;span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse bg-current align-middle" /&gt;
+          )}
+        &lt;/div&gt;
+        {/*
+          模型的思考过程一直存在消息里却没有出口（多数模型不发 reasoning
+          token，所以没有就不渲染任何控件，避免留一个点开是空的按钮）。
+        */}
+        {message.reasoning &amp;&amp; (
+          &lt;&gt;
+            &lt;button
+              type="button"
+              onClick={() =&gt; setShowReasoning((v) =&gt; !v)}
+              className="mt-1 flex items-center gap-1 text-[0.6875rem] text-muted-foreground transition-colors hover:text-foreground"
+            &gt;
+              &lt;Brain className="h-3 w-3" /&gt;
+              {t("storySimulation.scenarioReasoning")}
+            &lt;/button&gt;
+            {showReasoning &amp;&amp; (
+              &lt;div className="mt-1 whitespace-pre-wrap rounded-lg border border-dashed px-2.5 py-2 text-xs leading-relaxed text-muted-foreground"&gt;
+                {message.reasoning}
+              &lt;/div&gt;
+            )}
+          &lt;/&gt;
+        )}
+      &lt;/div&gt;
+    &lt;/div&gt;
+  )
+}</code></pre>
+  <p class="why">历史消息的 <code>MessageBubble</code> 调用（当前第 203-205 行）保持
+    <code>&lt;MessageBubble key={msg.id} message={msg} /&gt;</code> 不变 —— <code>active</code> 是可选属性，
+    不传即为不高亮。</p>
+</li>
+
+<li>
+  <span class="st">Step 8：跑测试确认通过</span>
+  <div class="cmd">npx vitest run src/components/novel/story-simulation/scenario-room-view.spec.tsx</div>
+  <p class="exp">Expected: PASS —— 原有 12 个用例 + 新增 10 个用例全绿。</p>
+  <div class="cmd">npx vitest run src/components/novel/story-simulation/scenario-ui-wiring.spec.ts</div>
+  <p class="exp">Expected: PASS —— 房间视图那 3 条源码契约断言（<code>MessageBubble</code>、
+    <code>kind === "moderator"</code>、<code>scenarioScheduling</code>）都还在。</p>
+</li>
+
+<li>
+  <span class="st">Step 9：确认没碰到引擎</span>
+  <div class="cmd">git diff --stat -- src/lib/novel/story-simulation</div>
+  <p class="exp">Expected: 只应看到 Task 1/2/3 新增的文件与 <code>scenario-types.ts</code>。
+    <b>不应出现</b> <code>scenario-engine.ts</code>、<code>scenario-moderator.ts</code>、
+    <code>scenario-participant-selector.ts</code>、<code>story-extractor.ts</code>。
+    出现了就停下来报告 —— 那是本计划明确不做的改动。</p>
+</li>
+
+<li>
+  <span class="st">Step 10：提交（需先获得用户许可）</span>
+  <div class="cmd">git add src/components/novel/story-simulation/scenario-room-view.tsx src/components/novel/story-simulation/scenario-room-view.spec.tsx src/i18n/zh.json
+git commit -m "feat(story-simulation): 舞台情景房间补上群聊在场感：成员条、头像与配色、正在输入"</div>
+</li>
+</ul>
+
+<div class="callout ok">
+  <span class="t">已交付：813e6cc8（3 个文件），用例 12 → 22</span>
+  <p>房间视图原来只有一行逗号文字「甲(主持)、乙」，生成中只有一个转圈 ——
+  <b>「在等谁」正是群聊里最要紧的信息</b>，而它看不见。现在补上：带头像的成员条、当前发言者高亮 + 脉冲点、
+  每个角色按 <code>id</code> 稳定散列的专属色（主持人固定主色）、气泡首字头像、
+  还没吐字时明说「×× 正在输入…」（已有正文就不再占一行）。
+  <b>没加左右分栏、没往气泡里塞角色卡、引擎一行未动</b>（<code>git diff --stat -- src/lib/novel/story-simulation src/lib/page-merge.ts</code> 为空）。</p>
+  <p>先红后绿：加完用例先跑 <code>8 failed | 14 passed</code>（<b>既有 12 条一条没红</b>），实现后 22/22。</p>
+</div>
+
+<div class="callout warn">
+  <span class="t">第 8、9 处任务书缺陷 + 一条本次新引入的崩溃面</span>
+  <ol>
+    <li><b>第 8 处 · 一条断言因 DOM 顺序而不可能通过</b>：我写的「流式气泡按 speakerId 认角色」用
+      <code>querySelector('[data-testid="scenario-bubble"]')</code> 取气泡，而
+      <code>scenario-room-view.tsx:249-250</code> 先渲染 <code>session.messages.map(...)</code>、
+      <code>:253</code> 才是 <code>{streaming && (</code> —— 命中的<b>永远是历史气泡</b>，
+      所以 <code>toContain("甲某")</code> 恒假。实施者还额外看出同一条里
+      <code>data-speaker-id === "甲"</code> 是<b>巧合成真</b>（历史气泡的 id 也是「甲」），
+      即这条用例的信息量有一半是假的。改用「取最后一个 bubble」+ 注释说明为什么不能简化回去。</li>
+    <li><b>第 9 处 · 一条反例不可能变红</b>：我要求「把 <code>scenarioSpeakerTone(message.speakerId, …)</code>
+      改成 <code>speakerName</code></b> 应打红主持人配色那条。实施者实测<b>22 条全绿</b> ——
+      因为那条用例只看<b>成员条</b>头像（走 <code>p.isModerator</code> 独立分支），
+      且所有测试数据里 <code>speakerId === speakerName</code>，更关键的是
+      <b>没有任何用例构造 <code>kind: "moderator"</code> 的气泡</b>。
+      他换成等价反例（成员条主持人不再用固定色调）打红后如实报告，并<b>没有擅自加第 11 条用例</b>。→ 已补覆盖（见下）。</li>
+    <li><b>本次新引入的崩溃面</b>：<code>MessageBubble</code> 以前<b>从不调用</b> <code>scenario-avatar.ts</code>；
+      本任务让它对每个气泡调 <code>scenarioSpeakerTone(message.speakerId)</code> 与
+      <code>scenarioAvatarInitial(message.speakerName)</code>。而
+      <code>scenario-avatar.ts:94</code> 是 <code>seed.trim()</code>，<code>scenario-store.ts:82</code> 的
+      <code>loadScenarios</code> 又只校验 <code>messages</code> 是数组、<b>不逐条校验</b> ——
+      于是持久化 JSON 里某条 message 缺 <code>speakerId</code> 键（手工编辑/旧脏数据）会让
+      <b>整个房间视图白屏</b>。修法是让公共入口对任何输入都不崩
+      （<code>String(seed ?? "").trim()</code>），<b>对合法输入结果逐字不变</b>。</li>
+    <li><b>顺带核实的架构事实</b>（值得记住）：<code>data-speaker-id</code> 语义上是「身份 id」，
+      但<b>当前系统里 id 恰好等于角色名</b>（<code>story-extractor.ts:545-546</code> → <code>scenario-participant-selector.ts:78-79</code>，
+      <code>scenario-types.ts:112</code> 也这么注释）。所以测试里写 <code>[data-speaker-id="甲"]</code> 今天能过，
+      但名字含<b>双引号或反斜杠</b>时 CSS 属性选择器会失配/抛错 → 测试侧统一改为
+      <code>querySelectorAll</code> + 遍历比较 <code>dataset.speakerId</code>（断言一字不改）。</li>
+    <li><b>被推翻的担忧</b>：我曾担心「主持人由某个角色担任时，成员条用 <code>p.isModerator</code>、
+      气泡用 <code>kind === "moderator"</code>，两者语义不一致会导致配色串掉」。实施者去读了引擎：
+      主持人<b>恒发</b> <code>kind:"moderator"</code>（<code>scenario-engine.ts:343-348 / 375-380</code>），
+      而角色主持人在 <code>scenario-moderator.ts:35-39</code> 的 <code>getCharacters</code> 里被
+      <code>!p.isModerator</code> 排除 —— 同一个人不会既以 character 又以 moderator 出现，
+      两者对同一人同真同假，<b>不会串色，该 bug 不存在</b>。</li>
+  </ol>
+</div>
+
+<div class="callout ok">
+  <span class="t">收尾已交付：f2ed31a2（3 个文件，+76/−5）；用例 avatar 13 → 15、room-view 22 → 23</span>
+  <p>补掉上方第 3 条那个<b>新引入的崩溃面</b>：兜底放在 <code>scenario-avatar.ts</code> 的两个<b>公共入口</b>
+  （<code>:24</code> <code>String(name ?? "").trim()</code>、<code>:102</code> <code>String(seed ?? "").trim()</code>），
+  不是打地鼠式地改调用点 —— 这样成员条、气泡、以及将来任何新调用方都不必各自防一遍，
+  且<b>对合法输入结果逐字不变</b>（既有 13 条断言一条未改）。签名故意保持
+  <code>name: string</code> / <code>seed: string</code>，注释写明「类型明明是 string 还要兜」的原因。</p>
+  <p>同时补上上方第 2 条点出的<b>真实覆盖缺口</b>：气泡侧的主持人固定色调此前
+  <b>完全没有测试</b>（变异证明：把 <code>isModerator</code> 传成 <code>false</code> 原本 22 条全绿）。
+  新用例构造 <code>kind: "moderator"</code> 的历史气泡，断言头像含 <code>bg-primary/15</code>
+  且<b>不等于</b>任何一个角色色调；变异后确实变红。</p>
+  <p>另核实一条<b>否证结论</b>：<code>scripts/lint-character-aura.mjs:70</code>
+  <b>只读</b> <code>src/lib/novel/character-aura.ts</code> —— 用「假根目录」探针同时给两个文件塞弯引号，
+  脚本只报 <code>character-aura.ts</code> 一处，证明它从不打开 <code>scenario-avatar.ts</code>。
+  所以那条弯引号约束<b>不覆盖</b>本模块（但注释仍保持中文引号风格）。</p>
+</div>
+
+<div class="callout warn">
+  <span class="t">⚠️ 记一次真实事故：并发子代理的 git stash 扫走了另一个子代理的未提交改动</span>
+  <p>08:14 左右，改设置面板的子代理在<b>共享工作区</b>上依次执行了
+  <code>commit f3127624</code> → <code>git reset</code> → <code>git stash</code>。
+  <b><code>git stash</code> 是整工作区操作</b>，把另一位子代理当时尚未提交的 3 个文件
+  （<code>scenario-avatar.ts</code> / <code>.spec.ts</code> / <code>scenario-room-view.spec.tsx</code>）
+  一起扫进了 <code>stash@{0}</code>，那 3 个文件的工作区改动一度整体消失。</p>
+  <p><b>结果：零丢失。</b>被卷走的子代理自己发现并恢复 —— 它用
+  <code>git cat-file blob</code> 把 blob <b>逐字节写回</b>（<b>没有</b> <code>git stash pop</code>、
+  也没动 index，避免带走或破坏他人 WIP），并核对 blob 哈希与行尾（LF/LF/CRLF）全部一致。
+  我事后独立复核：<code>git diff --stat "stash@{0}" f2ed31a2</code> <b>为空</b>
+  （stash 内容与已提交内容完全一致，现已冗余）；三个文件的工作区 blob 与
+  <code>HEAD:&lt;path&gt;</code> <b>逐字节相同</b>；21 个提交、reflog 全部完好；
+  <code>src-tauri/Cargo.toml</code> 与 HEAD <b>内容零差异</b>
+  （它那个长期存在的 <code>M</code> 只是<b>行尾</b>差异，stash 后工作区行尾被规范化回 CRLF，
+  <code>git diff</code> 反而变空了）；约 19 个未跟踪无关项（<code>docs/</code>、<code>AGENTS.md</code>）
+  一个不少。</p>
+  <p><b>教训（写给未来的自己）</b>：
+  ① 多个子代理<b>同时</b>在同一个工作区上做实现时，<b>任何</b> <code>git stash</code> /
+  <code>git reset</code> / <code>git worktree</code> 都是会波及旁人的危险操作 ——
+  要么严格串行、要么每个子代理用独立 worktree。
+  ② 本任务书后续已把这条写成<b>最高优先级安全规则</b>：审查者只许用只读 git 命令，
+  还原临时改动一律「备份 → 改 → 验证 → 写回」+ <code>git hash-object</code> 证据。
+  ③ 这次之所以没造成损失，靠的是子代理<b>自己主动核对 blob 哈希</b>并如实上报 ——
+  这正是「不许凭推理跳过验证」的价值。</p>
+</div>
+
+<div class="callout warn">
+  <span class="t">规格符合性审查（独立复核）实测出 2 条 Important 规格偏离 —— 都是「规格明文写了，实现与计划都漏了」</span>
+  <p>审查者逐条对照规格原文（不是我转述的），跑完 8 个变异（<b>全部真的变红</b>，未出现不可能变红的反例），
+  给了 4 份用例基线（wiring 18 / room-view 23 / avatar 15 / soul-bind-dialog 24，与我一致）、
+  8 个红线文件零 diff、<code>character-aura.ts</code> 仅多一个 <code>export</code>、<code>canStart</code> 逐字核实。</p>
+  <ul>
+    <li><b>I1 · 成员条漏了「灵魂小字」</b>：规格 <code>:435</code> 明文写「每个参与者一枚
+      『<b>圆形头像（名字首字）+ 名字 + 灵魂小字</b>』」，而 <code>scenario-room-view.tsx</code>
+      全文件 <code>auraName</code> 命中 <b>0 次</b>，只有头像 + 名字 + 主持人徽标。
+      <b>根因在「规格 → 计划」的传递</b>：计划 Task 8 Step 5 的代码片段本身就漏了这一项，
+      实施者是照计划写的、没照规格写 —— 所以这不是实施者的疏忽，是我的计划漏抄。</li>
+    <li><b>I2 · 缺 <code>speakerId</code> 时没按规格兜底取配色</b>：规格 <code>:531</code> 明文要求
+      「可选字段缺省时按 <code>speakerName</code> 兜底取配色，不报错」，而
+      <code>scenario-room-view.tsx:359</code> 直接传 <code>message.speakerId</code>。
+      <code>f2ed31a2</code> 的兜底让它<b>不再崩</b>，但会落到位板 index 0 ——
+      <b>所有缺 id 的气泡撞同一色</b>，且与成员条（按 <code>p.id</code> 配色）同屏不同色，
+      违反规格 §06「同一角色颜色保持不变」。<b>而且同一文件口径不一致</b>：
+      <code>:281</code> 的流式气泡做了 <code>?? speakerName</code> 兜底，历史消息这条路没做。</li>
+  </ul>
+  <p>审查还<b>修正了我的两处说法</b>：① 我列的 Task 8 规格项漏了「灵魂小字」这条硬性要求
+  （这是<b>第 10 处</b>任务书/计划遗漏）；② 我对变异 V4 的<b>预期方向对、机制错</b> ——
+  把配色改成固定一个色确实会红，但红的是「跨面一致性」用例，
+  而房间视图里<b>没有</b>「同场两个不同角色拿到不同颜色」的用例（审查另做附加变异把
+  <code>hash % LEN</code> 恒定化，room-view 23 条<b>全绿</b>，证明这是真实覆盖缺口）。
+  另有 <b>M2</b>：去掉流式气泡的 <code>active</code> 高亮环后 23 条也全绿 —— 同样无用例守。</p>
+  <p>审查同时<b>替我把一条存疑事实验证了</b>：<code>scripts/lint-character-aura.mjs</code>
+  <b>只读</b> <code>character-aura.ts</code>（用「假根目录」探针塞弯引号，脚本从不打开
+  <code>scenario-avatar.ts</code>），所以那条中文引号约束不覆盖本模块；
+  以及一条架构结论：房间视图用 <code>message.speakerId</code> 做高亮/配色键<b>是正确的</b>
+  （引擎每条消息都写 id），且 <code>data-speaker-id</code> 语义上是 id、只是当前 id 恰好等于角色名。</p>
+</div>
+
+<div class="callout warn">
+  <span class="t">⚠️ 第二起事故：受跟踪资源文件 <code>src/assets/QM-LOGO-original.png</code> 被删除（已零丢失恢复，根因未确证）</span>
+  <p><b>事实</b>：08:28:51 我例行检查时，<code>git status --short</code> 的受跟踪改动是<b>空</b>的；
+  08:41:51 再查，出现 <code>D src/assets/QM-LOGO-original.png</code> ——
+  一个 <b>1,118,383 字节</b>的受跟踪 PNG 被从磁盘删除。这是<b>删除数据</b>，比上面那起 <code>git stash</code>
+  严重得多（那起只是把改动挪走、随时可恢复；这起直接少了文件，只能靠 git 对象救回）。</p>
+  <p><b>处置</b>：我立刻用 <code>git checkout -- src/assets/QM-LOGO-original.png</code>
+  从 HEAD 恢复（<b>只点名这一个文件</b>），恢复后 <code>git hash-object</code> =
+  <code>70b2766dfaa35b6206e80759e92d34b04fcc81a3</code> = <code>HEAD:src/assets/QM-LOGO-original.png</code>，
+  字节数 <b>1118383</b> 一致 → <b>零丢失</b>。恢复后全仓受跟踪改动为空，19 个无关未跟踪项一个不少。</p>
+  <p><b>为什么是「零丢失」而不是「没损失」</b>：这个文件被 git 跟踪、内容完整躺在 HEAD 里，
+  所以能精确还原。如果删的是<b>未跟踪</b>文件（例如那 19 个里的 <code>docs/</code>），就<b>永久没了</b>。
+  这正是「严禁未经同意删除文件」这条铁律的分量所在。</p>
+  <p><b>根因：未确证，如实记下排查过程与证据。</b>
+  ① 时间窗是 08:38:46（<code>9c41d6d6</code> 提交）到 08:41:51，落在两位子代理交班前后；
+  ② 当事的两位子代理（一位刚做完规格偏离修复、一位刚启动代码质量审查）<b>都明确否认</b>执行过任何删除/移动；
+  ③ 我自己在本仓库找证据：<code>grep</code> 全部 <code>src</code> 的 <code>rmSync</code>/<code>unlinkSync</code>/<code>rmdirSync</code>/<code>Remove-Item</code>
+  <b>零命中</b>；<code>scripts/</code> 下只有 <code>check-tauri-frontend.mjs</code> 与
+  <code>prepare-local-tauri-config.spec.mjs</code> 提到 <code>assets</code>，但都在
+  <code>tmpdir()</code> 造的 fixture 里、<b>不碰 <code>src/assets</code></b>；
+  全仓唯一引用 <code>QM-LOGO-original.png</code> 路径的地方都在 gitignore 的 <code>.codex-temp/</code> 历史快照里。
+  所以<b>仓库自身的代码/测试不可能删它</b>，删除必然来自某次外部命令。
+  ④ 因此我给不出「是谁删的」的结论 —— <b>不编造、不甩锅，把不确定如实留在文档里</b>。</p>
+  <p><b>这次的教训与已采取的对策</b>：
+  ① <b>受跟踪文件也能凭空消失</b>，所以「工作区干净」不能只看改动清单，要留意 <code>D</code>（删除）状态；
+  ② 给子代理的任务书除了「禁止 <code>git stash</code>/<code>reset</code>/<code>checkout</code>」，
+  还要明确禁止<b>任何删除/移动类命令</b>（<code>Remove-Item</code>、<code>rm</code>、<code>Move-Item</code>、通配符清理），
+  并要求「要清理就让父代理来定」——本任务书后续已按此收紧；
+  ③ <b>发现 <code>D</code> 要立刻查</b>（我就是靠 13 分钟一次的例行 <code>git status</code> 抓到的），
+  因为越晚发现、被覆盖/丢失的风险越高；
+  ④ 恢复只用<b>点名单个文件</b>的 <code>git checkout --</code>，<b>绝不用</b> <code>git checkout .</code>。</p>
+</div>
+
+</div>
+
+<!-- ══════════════════ TASK 9 ══════════════════ -->
+<div class="task">
+<h3>Task 9：回归、反向验证与人工验收<span class="done">已完成</span></h3>
+<div class="files">不改代码。只跑验证、逐条制造反例、最后请用户验收。</div>
+
+<p class="why">前面 8 个任务各自绿了，但「各自绿」不等于「合起来对」。
+  本任务做三件事：跑全量、逐条证明每个新增的守卫<b>真的会红</b>、以及把界面交给用户看。</p>
+
+<div class="callout warn">
+  <span class="t">执行前必读：本节初稿有 3 处会误导执行者，按下面的订正执行</span>
+  <p><b>1. 「还原只用 <code>git checkout -- &lt;单个文件&gt;</code>」有一个前提必须先验证。</b>
+    <code>git checkout -- &lt;file&gt;</code> 是从 <b>HEAD</b> 恢复的，所以它<b>只在这 9 个任务都已各自提交、
+    且该文件没有其它未提交改动时</b>才等价于「撤销我刚才那处反例」。
+    本仓库工作区<b>长期存在约 19 个与本次无关的未提交项</b>（含 <code>M src-tauri/Cargo.toml</code>、
+    一批未跟踪的 <code>docs/</code>、<code>AGENTS.md</code>），所以：</p>
+  <ul>
+    <li>改反例<b>之前</b>，先跑 <code>git status --short -- &lt;那个文件&gt;</code> 并确认输出为空、
+      <code>git diff --stat -- &lt;那个文件&gt;</code> 也为空。为空才允许用 <code>git checkout --</code> 还原。</li>
+    <li>若不为空（说明该文件上还有没提交的正当改动），<b>不要</b>用 <code>git checkout --</code> ——
+      改成「先把原文完整读出来备份、改反例、验证变红、再把备份原样写回」，并用
+      <code>git hash-object &lt;file&gt;</code> 前后一致作为还原证据。</li>
+    <li>无论走哪条路，还原后都必须<b>重跑一次确认回绿</b>，再进下一条。</li>
+  </ul>
+  <p><b>2. R5 不能引用 <code>scenarioNoSoul</code>。</b>那个 i18n key 在 <b>Task 6 里被删掉</b>了
+    （下拉框被网格取代后它没有引用点）。R5 的意图是「把可点的绑定入口换回一句死文案」，
+    请直接写一个<b>字面量</b>死文案（例如 <code>&lt;span&gt;未绑定灵魂&lt;/span&gt;</code>）来做反例，
+    不要 <code>t("storySimulation.scenarioNoSoul")</code>（那会先撞 TS 类型/键缺失报错，
+    混淆「反例生效」与「代码写错」两种红）。</p>
+  <p><b>3. Step 6 的「<code>git status --short</code> 应为空」是错的。</b>
+    由于上面第 1 条说的既有未提交项，全仓 <code>git status --short</code> <b>永远不会空</b>。
+    正确的判据是：<b>本计划 00 节文件清单里列出的那些文件</b>都没有残留，即
+    <code>git status --short -- &lt;这些文件的路径&gt;</code> 为空。若真有残留，逐个说明后请用户决定。</p>
+</div>
+
+<ul class="steps">
+<li>
+  <span class="st">Step 1：类型检查两道门</span>
+  <div class="cmd">npm run typecheck</div>
+  <p class="exp">Expected: 无输出（<code>tsc --build</code> 通过）。</p>
+  <div class="cmd">npx tsc -p tsconfig.test.json --noEmit</div>
+  <p class="exp">Expected: 无输出。测试文件也过类型检查 —— 新增的 4 个 spec 会在这里被验一遍。</p>
+</li>
+
+<li>
+  <span class="st">Step 2：全量测试</span>
+  <div class="cmd">npm run test:mocks</div>
+  <p class="exp">Expected: 全绿，且第一行是
+    <code>✓ 全部通过！没有发现英文或弯引号问题。</code>（<code>character-aura.ts</code> 的弯引号检查）。</p>
+  <div class="callout warn">
+    <span class="t">如果这一步有红</span>
+    <p>先看是不是<b>别的功能</b>本来就在红（本机的既有失败）。做法：<code>git stash</code> 后重跑同一条件，
+    确认在改动前也红；是的话记下来、不要顺手去修，直接向用户报告。
+    <b>不要为了让测试变绿去改与被测功能无关的代码。</b></p>
+  </div>
+</li>
+
+<li>
+  <span class="st">Step 3：反向验证（每条守卫都亲手制造一次反例）</span>
+  <p class="why">「测试通过」只说明当前代码没触发断言失败，不说明断言本身有用。
+    逐条把守卫拆掉、确认对应测试变红、再改回来。<b>每一条都要真的跑一次，不要凭推理跳过。</b></p>
+  <table>
+    <tr><th>#</th><th>反例（临时改什么）</th><th>应当变红的测试</th></tr>
+    <tr><td>R1</td><td><code>scenario-types.ts</code> 把 <code>SCENARIO_CHARACTER_MAX</code> 改回 5</td><td><code>scenario-types.spec.ts</code> 的「上限放宽到 10」</td></tr>
+    <tr><td>R2</td><td><code>scenario-avatar.ts</code> 让主持人也走哈希（把 <code>if (isModerator) return SCENARIO_MODERATOR_TONE</code> 删掉）</td><td><code>scenario-avatar.spec.ts</code> 的「主持人用固定样式」</td></tr>
+    <tr><td>R3</td><td><code>scenario-soul-binding.ts</code> 去掉 <code>fileExists</code> 判断，无条件写盘</td><td><code>scenario-soul-binding.spec.ts</code> 的「页已存在时绝不覆盖」</td></tr>
+    <tr><td>R4</td><td><code>scenario-soul-binding.ts</code> 让 <code>createProfilePageThenBind</code> 用 <code>await bindCharacterAura</code> 直接抛错（不再分类 <code>missing-profile</code>）</td><td><code>scenario-soul-binding.spec.ts</code> 的「缺小传时归类为 missing-profile」</td></tr>
+    <tr><td>R5</td><td><code>scenario-character-grid.tsx</code> 把「绑定灵魂」按钮换回一句<b>字面量</b>死文案 <code>&lt;span&gt;未绑定灵魂&lt;/span&gt;</code>（<b>不要</b>用已被 Task 6 删掉的 <code>scenarioNoSoul</code>，理由见上面第 2 条）</td><td><code>scenario-character-grid.spec.tsx</code> 的「未绑定灵魂时给的是可点的入口」</td></tr>
+    <tr><td>R6</td><td><code>story-simulation-view.tsx</code> 去掉 <code>buildScenarioCandidates</code> 的 <code>bindings</code>/<code>auras</code> 传参</td><td><code>scenario-ui-wiring.spec.ts</code> 的「把灵魂名单与绑定关系喂给候选构建」</td></tr>
+    <tr><td>R7</td><td><code>story-simulation-view.tsx</code> 去掉 <code>speakerId: info.speakerId</code></td><td><code>scenario-ui-wiring.spec.ts</code> 的「把引擎给的 speakerId 存进流式状态」</td></tr>
+    <tr><td>R8</td><td><code>scenario-room-view.tsx</code> 把成员条整段删掉</td><td><code>scenario-room-view.spec.tsx</code> 的「成员条列出全部在场角色」</td></tr>
+    <tr><td>R9</td><td><code>scenario-setup-panel.tsx</code> 把情景设定的 <code>scenarioSceneLabel</code> 去掉</td><td><code>scenario-ui-wiring.spec.ts</code> 的「情景设定加宽到 max-w-5xl，并给四个输入框补上标签」</td></tr>
+  </table>
+  <p class="why">做法（以 R1 为例）：<b>先备份原文</b>（<code>Copy-Item &lt;文件&gt; $env:TEMP\rN-backup</code>，并用
+    <code>git hash-object</code> 记下原始 blob 哈希）→ 改一处 → <code>npx vitest run &lt;那个 spec&gt;</code> →
+    确认报的正是预期的失败 → 用备份写回（<code>git checkout -- &lt;单个文件&gt;</code> 只在满足上面第 1 条的前提时
+    才允许用；本仓库工作区长期有约 19 个与本次无关的未提交项，<b>永远不要</b>用 <code>git checkout .</code>
+    或 <code>git reset --hard</code>）→ <code>git hash-object</code> 复核哈希与原始值一致 → 再跑一次确认回绿。
+    <b>每一次还原后都要重跑，确认真的回到了绿</b>，否则后面几条会连锁失真。</p>
+  <div class="callout warn">
+    <span class="t">还原只用 <code>git checkout -- &lt;单个文件&gt;</code></span>
+    <p>不要用 <code>git checkout .</code> 或 <code>git reset --hard</code> —— 那会一并丢弃本任务之前
+    所有还没提交的改动。每次只点名一个文件。</p>
+  </div>
+</li>
+
+<li>
+  <span class="st">Step 4：人工验收清单（交给用户点一遍）</span>
+  <p class="why">下面这些是自动化测不到的部分（真实布局、真实模型输出），必须用户自己看。
+    报告给用户时请原样给出这份清单：</p>
+  <ol>
+    <li>进「舞台情景」，确认面板比之前宽，<b>情景设定</b>四个框不再挤成两列窄条。</li>
+    <li>候选角色区：不再有下拉框；每张卡上直接看到名字、性格、灵魂状态。</li>
+    <li>点卡片加入舞台，卡上出现上台序号；再点一次移出。</li>
+    <li>把人数改成 <b>7</b>，确认按钮区显示「已选 0/7」且真的能选到 7 人。</li>
+    <li>给一个「未绑定灵魂」的角色点<b>绑定灵魂</b>，选一个灵魂确认：
+      若提示缺小传，弹窗会进第二步并预填草稿；保存后回到面板，该卡应立刻显示灵魂名。</li>
+    <li>把某个已上台角色点成<b>主持人</b>，确认主持人的下拉与串场间隔一节仍在、行为说明仍显示。</li>
+    <li>开始生成，确认房间里：顶部有成员条（头像 + 名字）、角色气泡有头像且颜色分散可辨、
+      当前发言者的成员被高亮、开跑瞬间能看到「×× 正在输入…」。</li>
+    <li>停止、插话、继续生成、导出、插入到章节 —— 这五个按钮<b>行为与之前一致</b>。</li>
+    <li>打开一条历史情景，确认仍可只读回顾并继续插话，且历史消息不带「正在发言」高亮。</li>
+  </ol>
+</li>
+
+<li>
+  <span class="st">Step 5：汇总报告</span>
+  <p class="why">按 <code>AGENTS.md</code> 第十节汇报，至少包含：</p>
+  <ul>
+    <li>改动点清单（对照本计划 00 节的「文件清单」逐项打勾）。</li>
+    <li>每一步的验证命令与实际输出结论（跑过就是跑过，不要写「应该没问题」）。</li>
+    <li>R1–R9 反向验证的逐条结果。</li>
+    <li><b>明确说明引擎一行未改</b>，并给出 <code>git diff --stat</code> 作为证据。</li>
+    <li>下一步建议与仍可优化的点。</li>
+  </ul>
+</li>
+
+<li>
+  <span class="st">Step 6：整批提交（需先获得用户许可）</span>
+  <p class="why">如果前面每个任务都已单独提交，这一步只需确认工作区干净：
+    <code>git status --short</code> 应为空。若有残留，逐个说明后请用户决定。</p>
+</li>
+</ul>
+
+<div class="callout ok">
+  <span class="t">已执行：Task 9 的两道门 + R1–R13 全部反向验证（13/13 都能打红）</span>
+  <p><b>Step 1 类型检查</b>：<code>npm run typecheck</code> 与
+  <code>npx tsc -p tsconfig.test.json --noEmit</code> <b>双双 exit 0、无输出</b>。</p>
+  <p><b>Step 2 全量测试</b>：<code>npm run test:mocks</code> →
+  <code>Test Files 4 failed | 799 passed (803)</code>、
+  <code>Tests 4 failed | 8465 passed | 6 todo</code>，
+  且必须出现的 <code>✓ 全部通过！没有发现英文或弯引号问题。</code> <b>在场</b>。
+  4 条红<b>全都与本批改动无关</b>，已逐条坐实：
+  ① <code>src/lib/font-settings.spec.ts</code>、② <code>src/components/uitest/ui-test-ai-input.spec.tsx</code>
+  是本机<b>既有的缺文件 ENOENT</b>（缺未跟踪的 <code>docs/</code> 脚本）；
+  ③ <code>src/stores/outline-chat-store.spec.ts</code>、④ <code>src/stores/book-analysis-pipeline-store.character-selection.spec.ts</code>
+  是 803 文件并行下的<b>超时抖动</b> —— 单独复跑 <b>2 files / 44 passed，1.09s</b>，
+  且这两个 spec <b>不 import 本批任何一个文件</b>（已 grep 确认 0 命中）。
+  <b>本批 8 个 spec 合计 191 passed</b>（wiring 18 / types 22 / avatar 15 / soul-binding 27 /
+  character-grid 27 / room-view 28 / soul-bind-dialog 24 / setup-panel 30）。</p>
+  <p><b>Step 3 反向验证 13/13 全部真的变红</b>（每条都是「备份 → 改 → 跑 → 写回」+ <code>git hash-object</code> 复核）：</p>
+  <ul>
+    <li><b>R1</b> <code>SCENARIO_CHARACTER_MAX</code> 10→5 → 红「上限放宽到 10，下限仍是 3」+「区间内原样返回」</li>
+    <li><b>R2</b> 主持人也走哈希 → 红「主持人用固定样式，不参与哈希」（另带 room-view 2 条）</li>
+    <li><b>R3</b> 去掉 <code>fileExists</code> 判断 → 红「页已存在时绝不覆盖」等 2 条</li>
+    <li><b>R4</b> 不再分类 <code>missing-profile</code> → 红「缺小传时归类为 missing-profile」等 3 条</li>
+    <li><b>R5</b> 让灵魂入口不可点 → 红<b>正是</b>「未绑定灵魂时给的是可点的『绑定灵魂』入口，而不是一句死文案」</li>
+    <li><b>R6</b> 去掉 <code>bindings</code>/<code>auras</code> 传参 → 红「把灵魂名单与绑定关系喂给候选构建，并传给设置面板」</li>
+    <li><b>R7</b> 去掉 <code>speakerId: info.speakerId</code> → 红「绑定成功后重载候选，并把引擎给的 speakerId 存进流式状态」</li>
+    <li><b>R8</b> 删掉成员条 → 红「成员条列出全部在场角色，并带上首字头像」+ 连带 4 条</li>
+    <li><b>R9</b> 去掉 <code>scenarioSceneLabel</code> → 红「<b>情景设定加宽到 max-w-5xl，并给四个输入框补上标签</b>」
+      —— 注意它红在 <code>scenario-ui-wiring.spec.ts</code>，<b>不在</b> setup-panel spec，
+      这正好验证了本任务书修正 2 的结论</li>
+    <li><b>R10</b> 删掉改小人数时的裁切调用 → 红「改小人数后多出来的人自动下台」等 3 条</li>
+    <li><b>R11</b> 删掉 <code>canStart</code> 的下限项 → 红 2 条（<code>expected false to be true</code>）</li>
+    <li><b>R12</b> 删掉 <code>handleBind</code> 的归属比对 → 红「绑定请求在飞时换人」「解绑请求在飞时换人」2 条</li>
+    <li><b>R13</b> 兜底退回 <code>seed.trim()</code> → 红脏数据 2 条（<code>TypeError: ... reading 'trim'</code>）</li>
+  </ul>
+  <p><b>两条被本任务「反向验证」暴露出来、并当场补上的真问题</b>（都不是规格偏离，靠规格对照永远抓不到）：</p>
+  <ul>
+    <li><b>P-A 一条守卫完全没人守</b>：删掉 Task 7 新引入的 <code>if (cancelled) return;</code>（丢弃迟到回来的旧请求）
+      后 <b>190 条全绿</b>。而原本唯一「守着」它的是
+      <code>toContain("[phase, projectPath, scenarioSoulNonce]")</code> —— 一条<b>字面量字符串</b>断言：
+      把依赖数组换个顺序（语义完全一样）它会<b>误报红</b>，而删掉守卫它反而**全绿**。
+      已改为「三项在同一个依赖数组里」的判据 + 显式钉住 <code>if (cancelled) return;</code>，
+      并实测：删守卫 → 红、少一项 → 红、<b>换顺序 → 绿</b>（误报已修）。</li>
+    <li><b>P-B 空串 <code>speakerId</code> 会串色</b>：<code>??</code> 兜不住空串与纯空白（都是真值），
+      会让脏数据气泡落到位板第 0 号色，与成员条上同一个角色<b>同屏不同色</b>。
+      两处（历史气泡与流式气泡）统一改成 <code>?.trim() || speakerName</code>，并补一条用例
+      （空串 + 纯空白两种），实测退回 <code>??</code> 时<b>精确打红</b>。</li>
+  </ul>
+</div>
+
+<div class="callout warn">
+  <span class="t">人工验收清单（必须由用户本人点一遍，自动化测不到真实布局与真实模型输出）</span>
+  <ol>
+    <li>进「舞台情景」，确认面板<b>比之前宽</b>，情景设定四个框不再挤成两列窄条（每个框上方有中文标签）。</li>
+    <li>候选角色区：<b>不再有下拉框</b>；每张卡上直接看到名字、性格词、说话风格、灵魂状态。</li>
+    <li>点卡片加入舞台，卡上出现<b>上台序号</b>；再点一次移出。</li>
+    <li>把人数改成 <b>7</b>，确认按钮区显示「已选 0/7」且真的能选到 7 人。</li>
+    <li><b>先选满 5 人、再把人数改成 3</b>：确认多出来的人<b>自动下台</b>、显示「已选 3/共 3」、
+      开始按钮不再无解释地灰着。（这是本轮修掉的功能死路，请重点看。）</li>
+    <li>给一个「未绑定灵魂」的角色点<b>绑定灵魂</b>，选一个灵魂确认：
+      若提示缺小传，弹窗会进第二步并预填草稿；保存后回到面板，该卡应<b>立刻</b>显示灵魂名。</li>
+    <li>把某个已上台角色点成<b>主持人</b>，确认主持人的下拉与串场间隔一节仍在、行为说明仍显示。</li>
+    <li>开始生成，确认房间里：顶部有<b>成员条</b>（头像 + 名字 + 已绑灵魂的小字）、
+      角色气泡有头像且<b>颜色分散可辨</b>、<b>当前发言者的成员被高亮</b>、
+      开跑瞬间能看到「<b>×× 正在输入…</b>」。</li>
+    <li>停止、插话、继续生成、导出、插入到章节 —— 这五个按钮行为与之前一致。</li>
+    <li>打开一条<b>历史情景</b>，确认仍可只读回顾并继续插话，且历史消息<b>不带</b>「正在发言」高亮。</li>
+  </ol>
+</div>
+
+<div class="callout ok">
+  <span class="t">收尾：Task 9 之后又处理了 4 件遗留（2 个提交）</span>
+  <p>9 个任务交付后，代码质量审查提出了一批「不阻塞但该修」的项。逐条评估后处理如下，
+  <b>均带变异验证</b>（改坏 → 确认变红 → 写回 → <code>git hash-object</code> 复核）。</p>
+  <p><b>提交 <code>27b1a459</code></b>（4 文件，+59/−10）：</p>
+  <ul>
+    <li><b>灵魂小字的读屏连读</b>：名字与灵魂名此前是两个紧邻的 <code>&lt;span&gt;</code>，
+      DOM 里连空白文本节点都没有，读屏会念成「甲游侠」。已按审查建议插入
+      <code>aria-hidden="true"</code> 的 <code>·</code> 分隔符 —— <b>零新增文案 key</b>，
+      也守住了规格 :435「不加前缀」的约束。补 2 条用例（含「没绑灵魂时不许出现孤零零的 ·」），
+      变异 <i>去掉 aria-hidden</i> 与 <i>抽掉那个点</i> 都能<b>精确打红</b>。</li>
+    <li><b>两处失真注释</b>：<code>scenario-types.ts:166-168</code> 说「<code>speakerId</code> 由后续接线任务补上」，
+      但 <code>6f9ebf55</code> 已经补了，这句话成了假话（改成「已真的写入」+ 说明为何仍保持可选）；
+      <code>scenario-ui-wiring.spec.ts:32</code> 说「<code>&lt;select&gt;</code> 只剩提取章节数这一个」，
+      实测是 <b>3 个</b>且其中之一<b>就是选主持人用的</b>，话说反了（如实改写）。</li>
+  </ul>
+  <p><b>提交 <code>792e2450</code></b>（2 文件，+99/−6）—— 修掉一个<b>真会把文件写坏</b>的既有 bug：</p>
+  <ul>
+    <li><code>page-merge.ts</code> 的 <code>setFrontmatterScalar</code> 把值<b>不加引号</b>写成
+      <code>field: 值</code>，而它自己的注释承认「调用方负责加引号」。锁回的字段里有
+      <code>title</code>（<code>page-merge.ts:44</code>）。</li>
+    <li><b>为什么必然踩到</b>：<code>ingest.ts:825</code> 的兜底摘要页写的就是
+      <code>title: "Source: 文件名"</code> —— 这个值<b>天然含 <code>: </code></b>（ASCII 冒号 + 空格），
+      而 YAML 裸标量不允许出现它。而 <code>wiki/sources/</code> 页确实走
+      <code>mergePageContent</code>（<code>ingest.ts:1044-1072</code>）。
+      于是再合并一次，磁盘上就留下 <code>title: Source: x</code> → js-yaml 报
+      <code>bad indentation of a mapping entry</code> → <code>parseFrontmatter</code> 返回
+      <code>frontmatter: null</code>，<b>标题、正文、整个 frontmatter 一起读不回来</b>。</li>
+    <li><b>先复现再修</b>：新用例不用字符串匹配，而是拿「写盘后会被真读一遍」的同一个
+      <code>parseFrontmatter</code> 验收 <code>title</code> 能不能原样读回 —— 修复前该断言
+      <code>expected undefined to be 'Source: doc-A.pdf'</code>。</li>
+    <li><b>修法刻意收窄</b>：只在「裸标量承载不了」时才加引号（空串 / 首尾空白 /
+      <code>~ null true false</code> / 指示符开头 / 含 <code>: </code>、<code> #</code>、行尾 <code>:</code> /
+      含换行制表符），转义交给 <code>JSON.stringify</code>（YAML 双引号风格是 JSON 字符串的超集）。
+      <b>刻意不管「像数字/日期」的值</b>：仓库解析用 <code>yaml.JSON_SCHEMA</code>，
+      <code>2026-04-09</code>、<code>12</code> 本来就按字符串读回来，多此一举加引号只会平白改掉磁盘既有写法。
+      另补一条护栏用例，钉住普通值<b>逐字未变</b>。</li>
+    <li><b>3 条变异全部精确打红</b>：退回原样写 → 红冒号用例；改成一律加引号 → 红 4 条（含护栏，证明我没改变安全路径）；
+      不再把 <code>: </code> 当危险 → 红冒号用例。</li>
+    <li><b>未修、已记录</b>：<code>dedup.ts:499</code> 有一份同名副本，但它<b>只被 ISO 日期调用</b>
+      （<code>dedup.ts:379</code>），不存在危险值，故按最小改动原则不动。</li>
+  </ul>
+  <p><b>验证</b>：<code>npm run typecheck</code> 与 <code>npx tsc -p tsconfig.test.json --noEmit</code> 双 exit 0；
+  <code>lint-character-aura</code> ✓；全量 <code>test:mocks</code> → <b>2 failed | 801 passed</b>（文件）、
+  <b>1 failed | 8472 passed</b>（用例），两条失败<b>正是既有的 ENOENT</b>
+  （<code>font-settings.spec.ts</code>、<code>ui-test-ai-input.spec.tsx</code>，缺未跟踪的 <code>docs/</code> 脚本）；
+  8 个 scenario spec <b>193 passed</b>；<code>page-merge.test.ts</code> + <code>frontmatter.test.ts</code> <b>37 passed</b>；
+  批次范围 <code>bb1216ac^..4f6cbade</code> 引擎红线 <b>8/8 仍零改动</b>。</p>
+</div>
+</div>
+
+<!-- ══════════════════ 执行方式 ══════════════════ -->
+<section>
+  <div class="sec-head"><span class="num">10</span><h2>执行方式（二选一）</h2></div>
+  <p class="sec-intro">计划到此完备。接下来选一种方式执行 —— 两种都要求<b>逐任务推进</b>，
+    每个任务跑完测试再进下一个。</p>
+
+  <table>
+    <tr><th>方式</th><th>怎么做</th><th>适合</th></tr>
+    <tr>
+      <td><b>子代理驱动</b>（推荐）</td>
+      <td>用 <code>superpowers:subagent-driven-development</code>：每个任务派一个子代理去实现，
+        主会话只做审阅与验收。子代理之间不共享上下文，所以本计划里的<b>每条命令、每段代码都写全了</b>，
+        直接照抄即可。</td>
+      <td>想省主会话上下文、且能接受「实现者看不到全局」</td>
+    </tr>
+    <tr>
+      <td><b>当前会话顺序执行</b></td>
+      <td>用 <code>superpowers:executing-plans</code>：在本会话里一个一个任务做，
+        每个任务结束时向你汇报改动点并请求提交许可。</td>
+      <td>改动集中、希望每一步都在眼前</td>
+    </tr>
+  </table>
+
+  <div class="callout warn">
+    <span class="t">无论选哪种，这三条不变</span>
+    <ol>
+      <li><b>不擅自提交 git。</b>每个任务的提交步骤都要先获得你的明确许可。</li>
+      <li><b>引擎一行不改。</b>任何时刻 <code>git diff</code> 里都不该出现
+        <code>scenario-engine.ts</code> / <code>scenario-moderator.ts</code> /
+        <code>scenario-participant-selector.ts</code> / <code>story-extractor.ts</code>。</li>
+      <li><b>红了就停。</b>某个任务测试变红且不在预期内，先报告，不要「顺手把它改绿」。</li>
+    </ol>
+  </div>
+
+  <h3>本计划文件的绝对路径</h3>
+  <div class="cmd">file:///C:/QMAI_C/QMAI-main/docs/superpowers/plans/2026-10-12-scenario-redesign.html</div>
+  <h3>对应规格文件的绝对路径</h3>
+  <div class="cmd">file:///C:/QMAI_C/QMAI-main/docs/superpowers/specs/2026-10-12-scenario-redesign-design.html</div>
+</section>
+
+<footer>
+  青木AI写作 · 实施计划 · 2026-10-12 · 对应规格
+  <code>docs/superpowers/specs/2026-10-12-scenario-redesign-design.html</code>
+</footer>
+</div>
+<script>
+  (function () {
+    var btn = document.getElementById('themeToggle');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var dark = document.documentElement.classList.toggle('dark');
+      try { localStorage.setItem('qmai-spec-theme', dark ? 'dark' : 'light'); } catch (e) {}
+    });
+  })();
+</script>
+</body>
+</html>

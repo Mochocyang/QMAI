@@ -455,4 +455,134 @@ describe("事件细纲卡片（写作助手侧）", () => {
 
     expect(html).not.toContain("data-event-outline-card")
   })
+
+  /*
+   * ── 2026-10-13 用户实测的那个组合 ──
+   *
+   * 共创判「前文不足以推演」的那一轮，模型经常**顺手把整章事件细纲也一起给出来**
+   * （只是没给多向分支）。于是同一条回复里既有 `chapter_discuss` 协议块、
+   * 又有 `eventOutlineData` 围栏，用户看到的是：
+   *   · 气泡里漏着一大坨裸 JSON（两条剥离被写成互斥三元，那一支只剥协议块）；
+   *   · 细纲卡 + 一张说「前文不足以推演」的琥珀卡并排，两张卡各带一枚「换一批」。
+   *
+   * 现在：裸 JSON 必须收起来，且只剩**一张**卡 —— 原因与三枚动作都并进细纲卡。
+   */
+  const insufficientProtocol = {
+    status: "insufficient" as const,
+    module: "第12章",
+    judgment: "原回复只给了固定情节，未提供可供挑选的多向剧情分支。",
+    directions: [],
+    preferenceId: "",
+    preferenceReason: "",
+  }
+
+  /** 同一条回复：细纲（Markdown + JSON 围栏）+ 共创协议块。 */
+  const assistantWithOutlineAndInsufficient = (patch: Partial<DisplayMessage> = {}): DisplayMessage => ({
+    ...assistantWithOutline(),
+    content: [
+      "# 事件细纲 · 第12章 令牌初现",
+      "",
+      "## 事件1 楚白翻出令牌",
+      "- 关键台词：你来啦",
+      "",
+      "<!-- chapter_discuss -->",
+      JSON.stringify({ status: "insufficient", module: "第12章", directions: [] }),
+      "<!-- /chapter_discuss -->",
+      "",
+      "```json",
+      JSON.stringify({ eventOutlineData: outline }),
+      "```",
+    ].join("\n"),
+    chapterDiscussProtocol: insufficientProtocol,
+    chapterDiscussPhase: "decision",
+    ...patch,
+  })
+
+  it("共创判「前文不足以推演」又给了细纲时：裸 JSON 收起来，只剩一张卡", () => {
+    const html = renderToStaticMarkup(
+      <ChatMessage
+        message={assistantWithOutlineAndInsufficient()}
+        onSelectChapterDiscussDirection={() => {}}
+        onRegenerateChapterDiscuss={() => {}}
+        onCustomChapterDiscuss={() => {}}
+      />,
+    )
+
+    // 1) 裸 JSON 一个字都不许露（两条剥离必须都跑，不能二选一）
+    expect(html).not.toContain("eventOutlineData")
+    expect(html).not.toContain("chapter_discuss")
+    // 2) 细纲卡还在，且只有一张（两张卡时这枚按钮会出现两次）
+    expect(html.match(/用这份细纲写这一章/g)).toHaveLength(1)
+    expect(html.match(/换一批/g)).toHaveLength(1)
+    // 3) 那张「前文不足以推演」的独立卡整张退场，原因搬进细纲卡
+    expect(html).not.toContain("data-chapter-discuss-card")
+    expect(html).toContain("data-event-outline-discuss-note")
+    expect(html).toContain("未提供可供挑选的多向剧情分支")
+  })
+
+  it("没有细纲时那一轮「前文不足以推演」照旧单独成卡（合并只发生在有细纲时）", () => {
+    const html = renderToStaticMarkup(
+      <ChatMessage
+        message={insufficientOnlyMessage()}
+        onSelectChapterDiscussDirection={() => {}}
+        onRegenerateChapterDiscuss={() => {}}
+        onCustomChapterDiscuss={() => {}}
+      />,
+    )
+
+    expect(html).toContain("data-chapter-discuss-card")
+    expect(html).toContain("前文不足以推演")
+    expect(html).not.toContain("用这份细纲写这一章")
+  })
+
+  it("共创给的是多向方向（needs_choice）时，即便同一条回复带了细纲也照常出方向卡", () => {
+    const html = renderToStaticMarkup(
+      <ChatMessage
+        message={assistantWithOutlineAndInsufficient({
+          chapterDiscussProtocol: {
+            ...insufficientProtocol,
+            status: "needs_choice",
+            directions: [{
+              id: "d1",
+              storyType: "复仇线",
+              title: "藏起来，然后反杀回收队",
+              summary: "主角先躲进废车场，等那队人进来再突然动手。",
+            }],
+          },
+        })}
+        onSelectChapterDiscussDirection={() => {}}
+        onRegenerateChapterDiscuss={() => {}}
+        onCustomChapterDiscuss={() => {}}
+      />,
+    )
+
+    expect(html).toContain("data-chapter-discuss-card")
+    // 反向控制：细纲卡也在（两张是两件不同的事，不能互相顶掉）
+    expect(html).toContain("data-event-outline-card")
+  })
 })
+
+/** 只有共创协议、没有事件细纲的那一轮。 */
+function insufficientOnlyMessage(): DisplayMessage {
+  return {
+    id: "msg-discuss-only",
+    role: "assistant",
+    content: [
+      "关键判断：前文给不出可挑选的多向分支。",
+      "<!-- chapter_discuss -->",
+      JSON.stringify({ status: "insufficient", module: "第12章", judgment: "前文不足以推演。" }),
+      "<!-- /chapter_discuss -->",
+    ].join("\n"),
+    timestamp: 1,
+    conversationId: "conv-1",
+    chapterDiscussPhase: "decision",
+    chapterDiscussProtocol: {
+      status: "insufficient",
+      module: "第12章",
+      judgment: "前文不足以推演。",
+      directions: [],
+      preferenceId: "",
+      preferenceReason: "",
+    },
+  }
+}

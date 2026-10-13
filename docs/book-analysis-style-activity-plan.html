@@ -1,0 +1,16 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>拆书库文风与后台活动实施计划</title><style>body{font:14px/1.8 "Microsoft YaHei",sans-serif;color:#24332e;max-width:1000px;margin:30px auto;padding:0 20px}h1{font-size:24px}h2{font-size:18px;border-top:1px solid #ddd;padding-top:16px}li{margin:8px 0}code{overflow-wrap:anywhere}</style></head><body>
+<h1>拆书库：文风画像、后台活动与交互修正</h1>
+<p>2026-10-05 · 独立功能分支 feature/book-analysis-workbench · 不提交、不合并、不上传。</p>
+<h2>目标与边界</h2><p>一个模型选择框；终态导入记录可删除但不连带删除原始 TXT 或作品；文风分析建立原文特征与写作约束的完整链路；三类 Skill 的进度和完成／失败通知进入后台活动。旧结果不自动重生成，不改已有绑定或启用状态。</p>
+<h2>执行检查点</h2><ol>
+<li>保存当前源码快照和可用包，运行相关基线测试。</li>
+<li>删除重复模型标识；扩展终态导入记录删除，校验任务锁、活动状态、重试竞争、批次清理和删除失败回滚。</li>
+<li>新增文风画像分析器：原文语体定位、词汇与搭配、句法、叙述声音、对白、描写与情绪、节奏、结构；先分析事实，再由程序编译写作约束；证据不足明确标记。</li>
+<li>文风词项由程序回填频次，引用逐字校验；新任务单独记录流程版本并隔离缓存。入库保存画像、证据和代表片段；启用时均衡注入各类习惯，兼容旧画像。</li>
+<li>后台活动直接读取分析任务和运行时阶段；完成、失败生成持久通知记录与弹出提示，重载不重复弹出，重试新结果可再次提示。</li>
+<li>专项与回归、源码启动、浏览器桌面／窄屏、typecheck、lint、build；生成独立 Windows 测试包并记录既有失败项与模型质量限制。</li>
+</ol>
+<h2>主要文件范围</h2><p><code>book-analysis-workbench.tsx</code>、导入 store/storage 及测试；文风画像新模块、<code>workbench-adapter/core/publish</code>、<code>writing-style-store</code>、类型及缓存；分析 pipeline store、后台活动专属组件、<code>knowledge-tree.tsx</code> 的活动挂载入口及相关测试。</p>
+<h2>执行结果</h2><p>上述六个检查点已执行：815项回归通过、7项既有失败，无新增失败；三组原文文风分析通过结构与证据校验，完成同题试写及三种宽度交互测试；typecheck、lint、build和独立Windows打包完成。后台活动实际挂载于ui-test-shell.tsx，没有重构knowledge-tree.tsx。详细结果见<a href="book-analysis-style-activity-delivery.html">交付说明</a>。</p>
+<h2>验收口径</h2><p>不承诺复刻作者身份或保证模型零误判。以原文统计、定位证据、可执行写作约束及启用注入结果作为验收依据。对风格标签、作者立场和角色性格作区分；用户创作要求不冒充原作事实。试写仍有字数和细节越界，已列明人工复核限制。</p>
+</body></html>

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="青幕AI写作">
+  <title>青幕AI写作 · 小写i曦点（重瓣）</title>
+  <defs>
+    <!-- 柔光底版：顶亮底暗轻渐变 -->
+    <linearGradient id="qmBg" x1="15%" y1="0%" x2="85%" y2="100%">
+      <stop offset="0" stop-color="#B7DEDA"/>
+      <stop offset="52%" stop-color="#A3D0CB"/>
+      <stop offset="100%" stop-color="#89BEB9"/>
+    </linearGradient>
+    <!-- 顶部漫光 -->
+    <radialGradient id="qmGlow" cx="50%" cy="30%" r="75%">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 超椭圆底版 -->
+  <rect width="64" height="64" rx="14.5" fill="url(#qmBg)"/>
+  <rect width="64" height="64" rx="14.5" fill="url(#qmGlow)"/>
+
+  <!-- 小写 i 的竖身（居下半部） -->
+  <g id="i-stem">
+    <rect x="30.25" y="29.5" width="3.5" height="19.5" rx="1.75" fill="#FFFFFF"/>
+  </g>
+
+  <!-- 顶端“点”：重瓣半圆光点（中心大点，内三小点，外缘七小点） -->
+  <g id="i-dot">
+    <!-- 上半圆柔光面（平底在下、弧顶在上） -->
+    <path d="M23.5 22 A8.5 8.5 0 0 0 40.5 22 Z" fill="#FFFFFF" opacity="0.10"/>
+    <!-- 同心泛光 / 聚光 -->
+    <circle cx="32" cy="22" r="9.5" fill="#FFFFFF" opacity="0.07"/>
+    <circle cx="32" cy="22" r="5.6" fill="#FFFFFF" opacity="0.20"/>
+    <!-- 外缘七小点：弧顶最大、两端最小（R=9.5 上半圆弧） -->
+    <circle cx="22.5"  cy="22"    r="0.7"  fill="#FFFFFF"/>
+    <circle cx="23.78" cy="17.28" r="0.85" fill="#FFFFFF"/>
+    <circle cx="27.25" cy="13.78" r="1.0"  fill="#FFFFFF"/>
+    <circle cx="32"    cy="12.5"  r="1.15" fill="#FFFFFF"/>
+    <circle cx="36.75" cy="13.78" r="1.0"  fill="#FFFFFF"/>
+    <circle cx="40.22" cy="17.28" r="0.85" fill="#FFFFFF"/>
+    <circle cx="41.5"  cy="22"    r="0.7"  fill="#FFFFFF"/>
+    <!-- 内层三小点（R=5.4） -->
+    <circle cx="29.3" cy="17.33" r="1.0"  fill="#FFFFFF"/>
+    <circle cx="32"   cy="16.6"  r="1.15" fill="#FFFFFF"/>
+    <circle cx="34.7" cy="17.33" r="1.0"  fill="#FFFFFF"/>
+    <!-- 中心大光点 -->
+    <circle cx="32" cy="22" r="2.9" fill="#FFFFFF"/>
+  </g>
+</svg>

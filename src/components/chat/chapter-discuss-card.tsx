@@ -1,5 +1,6 @@
 import { useRef, useState } from "react"
 
+import { CustomIdeaSection } from "@/components/chat/custom-idea-section"
 import type {
   ChapterDiscussDecision,
   ChapterDiscussDirection,
@@ -77,7 +78,11 @@ export function ChapterDiscussCard({
 
   if (protocol.status === "insufficient") {
     return (
-      <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-50/40 p-3 dark:bg-amber-950/10">
+      <div
+        data-chapter-discuss-card
+        data-chapter-discuss-status={protocol.status}
+        className="mt-3 rounded-md border border-amber-500/30 bg-amber-50/40 p-3 dark:bg-amber-950/10"
+      >
         <div className="mb-2 text-sm font-medium">{protocol.module || "本章"}：前文不足以推演</div>
         {protocol.judgment ? (
           <div className="mb-3 text-xs text-muted-foreground">{protocol.judgment}</div>
@@ -102,7 +107,11 @@ export function ChapterDiscussCard({
   if (protocol.directions.length === 0) return null
 
   return (
-    <div className="mt-3 rounded-md border border-sky-500/30 bg-sky-50/30 p-3 dark:bg-sky-950/10">
+    <div
+      data-chapter-discuss-card
+      data-chapter-discuss-status={protocol.status}
+      className="mt-3 rounded-md border border-sky-500/30 bg-sky-50/30 p-3 dark:bg-sky-950/10"
+    >
       <div className="mb-2 text-sm font-medium">
         需要你选一个「{protocol.module || "本章"}」的后续走向
       </div>
@@ -187,79 +196,11 @@ export function ChapterDiscussCard({
   )
 }
 
-/**
- * 「其他想法」：点开后在卡片内展开输入框，把作者的想法交给 AI 重新推演。
- * 与大纲共创卡的自定义输入保持同一套交互（内联展开，不额外弹窗）。
+/*
+ * 「其他想法」的输入块已搬到 `custom-idea-section.tsx`：2026-10-13 起事件细纲卡片
+ * 也要挂同一枚入口（共创判「前文不足以推演」时把这几个动作整合进一张卡），
+ * 两处共用一份实现，避免按钮文案与交互各长一套。
  */
-function CustomIdeaSection({
-  open,
-  value,
-  onOpenChange,
-  onValueChange,
-  onSubmit,
-  disabled,
-  disabledReason,
-  submitting,
-}: {
-  open: boolean
-  value: string
-  onOpenChange: (open: boolean) => void
-  onValueChange: (value: string) => void
-  onSubmit: () => void
-  disabled: boolean
-  disabledReason?: string
-  submitting: boolean
-}) {
-  const locked = disabled || submitting
-  return (
-    <>
-      <button
-        type="button"
-        aria-label="其他想法"
-        aria-expanded={open}
-        className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-        onClick={() => onOpenChange(!open)}
-        disabled={locked}
-        title={disabled ? disabledReason : undefined}
-      >
-        其他想法
-      </button>
-      {open ? (
-        <div className="w-full space-y-2">
-          <textarea
-            aria-label="输入你的想法"
-            value={value}
-            onChange={(event) => onValueChange(event.target.value)}
-            disabled={locked}
-            placeholder="说说你希望后面怎么发展，AI 会按这个想法重新推演方向"
-            className="min-h-16 w-full resize-y rounded-md border bg-background p-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              aria-label="按这个想法重新推演"
-              className="rounded-md bg-sky-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={onSubmit}
-              disabled={locked || !value.trim()}
-              aria-busy={submitting || undefined}
-            >
-              {submitting ? "推演中..." : "按这个想法重新推演"}
-            </button>
-            <button
-              type="button"
-              aria-label="取消想法输入"
-              className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={() => onOpenChange(false)}
-              disabled={submitting}
-            >
-              取消
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </>
-  )
-}
 
 function isPreferredReasonVisible(protocol: ChapterDiscussProtocol): boolean {
   return Boolean(protocol.preferenceId && protocol.preferenceReason)

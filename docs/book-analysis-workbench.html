@@ -1,0 +1,55 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>拆书库单页实施记录</title><style>*{box-sizing:border-box}body{max-width:1040px;margin:auto;padding:24px;font:15px/1.8 "Microsoft YaHei",sans-serif;color:#243b3b;background:#fafcfc;letter-spacing:0}h1{font-size:24px}h2{font-size:18px;border-top:1px solid #cddad6;padding-top:16px}code,a{overflow-wrap:anywhere}li{margin:8px 0}img{display:block;width:100%;height:auto;border:1px solid #d5dfdc}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #d5dfdc;padding:10px;text-align:left;vertical-align:top}a{color:#176b78}.note{border-left:3px solid #b67a36;padding:8px 16px;background:#fcf5e9}@media(max-width:600px){body{padding:16px}td,th{padding:7px 4px;font-size:13px}}</style>
+<h1>拆书库单页重设计与三类 Skill 优化</h1><p>2026-10-05 · 分支：feature/book-analysis-workbench。未提交、未合并、未上传。</p>
+<h2>已确认方案</h2><p>作品切换 → 分析设置 → 任务进度 → 结果页签。取消双栏；三类分别输入需求；实际章节ID选择、超过100章拆批、长章完整分段；角色不强制六维分析；证据与规则分层；确认后入库，修订保留版本。</p>
+<h2>执行清单</h2><ol>
+<li>已完成：保留当前源码差异与Windows可用包，创建独立功能分支。</li>
+<li>已完成：新任务协议、章节覆盖和精确证据；旧任务继续原流程。</li>
+<li>已完成：三类按需提炼、有限返修、版本确认与入库。</li>
+<li>已完成：单页工作台、章节选择、导入、历史与结果交互。</li>
+<li>已完成：专项、回归对比、真实模型与浏览器验证；独立Windows测试包及603个资源文件已核对。</li>
+</ol><h2>验收约束</h2><p>不删除原函数或旧数据，不自动启用或绑定新结果。模型核验不能证明零误差，必须保留人工确认。失败草稿不可替代已确认版本。所有用户界面、错误和确认使用中文。</p>
+<h2>界面与流程</h2>
+<ul>
+<li>拆书页面整窗展示，作品搜索、刷新、删除和旧版任务入口位于顶部。范围数字框96px，主要控件34px，导入弹窗最大640px。</li>
+<li>章节清单支持标题／序号搜索、逐项选择、Shift连续选择和选中搜索结果。以真实ID运行，不连续选择不补中间章节；全书按每批最多100章、每区块最多24,000字／10章拆分，长章完整分段。</li>
+<li>角色、故事、文风各自输入需求；角色先选目标人物，直接提炼人格规则，不强制跑旧六维报告。</li>
+<li>任务摘要与区块／用量分层，旧任务从“作品管理 → 旧版任务与结果”继续访问，不自动转换。</li>
+<li>结果按对象上下展开，规则关联原文位置；用户确认后入库，不自动绑定或启用。文风入库后可显式启停；历史版本被替换时不冒充当前生效版本。</li>
+<li>补充要求创建新任务和新版本，保留父版本关系；前后版本可展开比较。导出默认输出可复用规则，不把全部小说证据一起导出。</li>
+</ul>
+<h2>数据与兼容</h2>
+<p>新任务使用 <code>workbenchVersion: 2</code>，保存实际章节ID、三类需求和父版本ID；旧任务继续原适配器。证据包含章节、起止位置、原文文本和正文SHA256。模型只能选编号，引文由程序回填。确认前再次读取原文核对，来源变化阻止入库。</p>
+<p>新结果保存在作品目录 <code>analysis/revisions</code>，失败原始输出保存在 <code>analysis/drafts</code>，替换使用库前保留 <code>analysis/publication-history</code>。缓存键包含需求、真实选择、分段、模型、目标角色与算法版本。区块缺失或失败时，新任务不允许用部分区块冒充完整结果。</p>
+<h2>真实样本</h2>
+<p>输入为本地 <code>D:\E\大奉打更人.txt</code> 的第1、2、5、6、14、22、28、31、48、102、103章，共38,413字符。使用独立测试项目，不修改正式小说。提炼和核验使用现有配置的 deepseek-flash，试写使用 gemini-3.8-flash-high；未更改持久化模型设置。</p>
+<table><thead><tr><th>测试目标</th><th>结果</th></tr></thead><tbody>
+<tr><td>角色：权势压力下的处事</td><td>生成7条规则，覆盖11个正文分段，确认入库并绑定“陆衡”读取。</td></tr>
+<tr><td>故事：信息差、施压和转折</td><td>生成6条机制规则，保留结构观察导图，确认加入故事框架库。</td></tr>
+<tr><td>文风：对白反差和段落节奏</td><td>生成8条规则，关联程序统计，确认加入文风库，没有自动启用。</td></tr>
+<tr><td>同一原文改为亲近者关心主题</td><td>生成3条规则，内容转为表达关心和实际行动，而非只改标题。</td></tr>
+<tr><td>跨书试写与负例</td><td>账房学徒“陆衡”的家庭场景试写完成，最终回调一次；刻意带入前世警察、刑侦知识的反例被检出。</td></tr>
+</tbody></table>
+<p><a href="../.codex-temp/xu-qian-study/workbench/outcomes.json">三类与对照实验记录</a> · <a href="../.codex-temp/xu-qian-study/workbench/result-0-characters.json">角色样本</a> · <a href="../.codex-temp/xu-qian-study/workbench/result-1-story.json">故事样本</a> · <a href="../.codex-temp/xu-qian-study/workbench/result-2-style.json">文风样本</a> · <a href="../.codex-temp/xu-qian-study/workbench/result-3-characters.json">第二种角色需求</a> · <a href="../.codex-temp/xu-qian-study/workbench/cross-book-chapter.md">跨书试写</a></p>
+<p class="note">真实试验早期出现证据编号缩写、原型姓名混入和原剧情复述，失败输出已保留且未入库。最新结果通过自动核验，但人工复核仍发现个别边界推测过度、规则依赖具体情境、试写语气偏激等质量限制。不能把“核验通过”解释为人物永不跑偏；这也是结果仍需要用户确认的原因。</p>
+<h2>验证记录</h2>
+<ul>
+<li>全量模拟测试：5,424通过、195原有失败、6待实现；与本轮修改前逐项比较，无新增失败。另有5个测试文件因缺少 fast-check 无法加载，未安装或改动无关依赖。</li>
+<li>最新7个定向测试文件45项通过，覆盖选择、证据、提炼、确认、任务调度和文风启用；另补充需求／选择／分段／目标人物的缓存隔离测试并通过全量运行。</li>
+<li><code>npm run typecheck</code>、角色灵魂内容lint、<code>git diff --check</code>通过。构建保留原有pangu外置、分块、动态导入和Rust shell_quote未使用警告。</li>
+<li>源码服务：<a href="http://127.0.0.1:1426">http://127.0.0.1:1426</a>。原1425端口保留。补测使用独立端口避开开发热更新导致的测试模块重复。</li>
+<li>Playwright使用真实工作台、状态库和CSS，文件读写限制在测试内存桥；在1440×900、1024×800、390×844下验证空库、导入、运行中、失败、结果展开、101章以后和全书选择，均无横向溢出。不是原生窗口自动化，也不是923章全书模型付费跑测。</li>
+</ul>
+<p><a href="../.codex-temp/book-workbench-20261004/verified-regression.json">完整回归记录</a> · <a href="../.codex-temp/book-workbench-20261004/ui-results.json">浏览器记录</a></p>
+<h2>代码范围</h2>
+<table><thead><tr><th>模块</th><th>文件</th></tr></thead><tbody>
+<tr><td>单页及章节选择</td><td><code>book-analysis-workbench.tsx/.css</code>、<code>workbench-chapter-selector.tsx</code>及测试；入口<code>book-analysis-view.tsx</code>保留Legacy组件；<code>book-analysis-input-dialog.tsx</code>添加限定模式；外壳仅为拆书隐藏侧栏。</td></tr>
+<tr><td>新任务与证据</td><td><code>workbench-core.ts</code>、<code>workbench-storage.ts</code>、<code>workbench-adapter.ts</code>、<code>workbench-publish.ts</code>及测试。</td></tr>
+<tr><td>兼容与调度</td><td><code>book-analysis-pipeline-store.ts</code>、<code>analysis-pipeline-types.ts</code>、<code>analysis-scheduler.ts</code>、<code>analysis-result-cache.ts</code>及测试。</td></tr>
+</tbody></table>
+<p>上一轮灵魂与菜单改动保留，本轮没有提交、合并或上传；旧包和原小说均未删除。后续建议优先补充更多题材的人工验收样本，降低条件与例外的过度归纳，再考虑完整对话式修订。</p>
+<h2>页面截图</h2>
+<img src="../.codex-temp/book-workbench-20261004/screenshots/desktop-ready.png" alt="拆书库单页工作台">
+<h2>打包</h2><p id="package-status"><a href="../release-book-workbench-20261005/QMaiWrite_4.1.0_windows_X64.exe">Windows独立测试包</a>已完成，程序213,536,768字节，603个内置资源文件逐一核对一致，旧菜单修复版哈希未变。最终构建耗时6分49秒，未启动原生窗口自动化。</p>
+<p>SHA256：<code>DFC4D42F54584250560ED2A3B26B3820373780A45CBC5A42C487B921DD050F0D</code>。目录只包含程序、skills运行资源和version-info.json；没有小说、日志或模型配置。没有上传，因此未生成在线更新所需的latest.json。</p>
+</html>

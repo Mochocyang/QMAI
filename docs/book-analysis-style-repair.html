@@ -1,0 +1,8 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>文风生成失败修复记录</title><style>body{font:16px/1.8 system-ui;max-width:960px;margin:32px auto;padding:0 20px;color:#222}h1{font-size:26px}h2{font-size:20px}code{overflow-wrap:anywhere}</style><body>
+<h1>文风生成失败修复记录</h1><p>2026-10-05 · feature/book-analysis-workbench · 未提交、未合并、未上传</p>
+<h2>目标与成功标准</h2><p>解决文风核验反复失败：完整反馈问题、只修订失败条目、保留通过的内容；不放过伪造引用或无依据的结论。连续20章分区块生成、汇总及人工确认链路均须验证。</p>
+<h2>根因与方案</h2><p>原实现只反馈首个不合格项，整份重写导致已通过内容反复变动；整体定位只见被引用的少量证据，缺少原分析上下文；来源观察也被要求可迁移。采用一次定点修订和独立复核，不增加无上限重试，不跳过证据校验。定位仅核验其样本支持与具体性，写作指令仍严格核验可迁移性。</p>
+<h2>范围与保护</h2><p>主要修改 style-fingerprint.ts、对应测试和 analysis-result-cache.ts。必要的集成测试限定文风链路；不改角色、故事、绑定、文风启停与后台活动接口。修改前保存源码差异及全部相关源文件，校验旧测试包哈希，不删除或改写用户资料。</p>
+<h2>执行清单</h2><ol><li>保存基线并用自动化测试复现。</li><li>修复完整反馈、定点修订和证据上下文。</li><li>连续20章真实模型测试，回归、源码运行、类型检查与构建。</li><li>生成独立Windows测试包，列出既有失败及质量限制。</li></ol>
+<h2>进度与验证</h2><ol><li>已保存1528份源文件、Git差异及旧包哈希。</li><li>核验与定点修订修复完成；来源定位、失败项收集、编号重算和限制说明保留均有测试。</li><li>833项回归中826项通过，7项为既有失败，无新增失败。类型、lint及源码界面验证通过。</li><li>真实模型第1～7章通过生成、修订和复核；第8～20章与最终汇总受模型服务HTTP 402余额不足阻断，凡人对照也未完成。已停止付费请求，并增加余额不足的中文错误提示。</li><li>Windows独立测试包已完成，603份运行资源逐一校验，旧包保持不变。详见<a href="book-analysis-style-repair-delivery.html">修复交付报告与真实样本</a>。</li></ol>
+<p>本轮额外修改workbench-adapter.ts与workbench-style-flow.spec.ts，仅处理已复现的402错误提示，不改变三类Skill的生成入口。旧版本可用包保留在 release-book-style-activity-20261005。未提交、未合并、未上传。</p></body></html>

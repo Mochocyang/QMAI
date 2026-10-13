@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>角色灵魂：可迁移人格实施说明</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#fafcfd;color:#25363d;font:15px/1.85 "Microsoft YaHei",sans-serif;letter-spacing:0}
+main{max-width:1000px;margin:auto;padding:28px 22px 60px}h1{font-size:26px}h2{font-size:20px;margin-top:30px}
+section{border-top:1px solid #d8e1e5;padding-bottom:18px}table{border-collapse:collapse;width:100%}
+th,td{border-bottom:1px solid #d8e1e5;padding:10px;text-align:left;vertical-align:top}th{background:#edf2f5}
+code{overflow-wrap:anywhere}a{color:#12647c}.note{border-left:4px solid #29748a;padding:10px 16px;background:#edf5f7}
+li{margin:8px 0}@media(max-width:600px){main{padding:16px}h1{font-size:22px}th,td{padding:8px 4px;font-size:13px}}
+</style>
+</head>
+<body><main>
+<h1>角色灵魂：可迁移人格实施说明</h1>
+<p>2026-10-04 · 功能分支：<code>feature/portable-character-soul</code> · 未提交、未合并</p>
+<p class="note">角色档案记录“这个人是谁”；角色灵魂描述“在什么情况下，倾向怎样判断、表达和行动”。两者分开保存，不把原型经历改写到用户人物小传中。</p>
+<p class="note"><strong>当前结论：基础链路已实现，仍是测试版。</strong>绑定读取与职业隔离已有实测；模型自动核验有漏判，人工复核仍发现规则泛化和正文过度推断，尚未达到“百分之百严格遵守 Skill”的验收标准。</p>
+<section><h2>本轮实施范围</h2>
+<ol>
+<li>保留原有角色档案、旧灵魂和上一轮界面调整，不自动迁移或覆盖。</li>
+<li>新生成角色 Skill 改为可迁移人格：按姓名和别名定位上下文，跨章节取样，再仅提炼性格明显的行动、取舍、表达及反例。</li>
+<li>原文证据由程序编号，模型每条规则只选1至2个关键编号；程序回填引文，不让模型改写引文。保存前另做迁移与证据关联核验。格式、证据或迁移核验不合格最多修正一次，仍失败不保存成品。</li>
+<li>文档、预览、编辑和运行时人格来自同一份结构化规则。修改后的原始证据不冒充用户修订规则的证明。</li>
+<li>生成前检查规则是否完整进入上下文及是否与小传冲突；生成后逐条核验。人格专项最多返修一次，不通过不调用最终正文回调。</li>
+<li>运行源码页面、回归和真实模型测试，完成后生成独立便携包。</li>
+</ol>
+</section>
+<section><h2>哪些内容不迁移</h2>
+<table><thead><tr><th>原作信息</th><th>可以提炼的性格倾向</th><th>不可继承</th></tr></thead><tbody>
+<tr><td>前世是警察</td><td>有行为证据时：资料不足先核验，不把猜测当成事实</td><td>穿越经历、警察身份、刑侦和法医知识</td></tr>
+<tr><td>用特殊武技救人</td><td>紧迫底线下先尝试制止，再承担代价</td><td>武技、战力、原作胜负结果和原事件</td></tr>
+<tr><td>给原作妹妹送礼</td><td>口头打趣与实际照顾并存</td><td>原作亲属、亲缘关系、具体礼物和台词</td></tr>
+</tbody></table>
+<p>不把单一场景扩大成绝对人格。新人物是账房、普通人或其他职业，不算性格冲突；但“资料不足也必须直接定罪”与“先核验再判断”才可能构成直接冲突。</p>
+</section>
+<section><h2>数据和流程</h2>
+<p><code>原文章节 → 人物相关片段 → 原文证据编号 → 条件化人格规则 → Skill / 灵魂字段 → 绑定目标人物 → 完整性与冲突前检 → 正文 → 逐条核验 → 最多一次返修与复检 → 最终正文</code></p>
+<p>规则包含编号、维度、触发条件、行为倾向、例外与边界、证据编号。人格摘要和规则进入写作请求；原作姓名、原文证据、职业和生平不经新灵魂自动注入。</p>
+<p>证据、范围和结构化规则嵌入同一个 Skill 文件，重启加载无需额外同步旁路数据。重复生成前保留旧文件到该作品的 <code>skills/history</code>，新内容验证成功后再更新。</p>
+<p>五个维度仍沿用软件现有的表达特征、心智模型、决策启发式、价值观反模式、诚实边界。没有证据的维度不强行生成内容。</p>
+</section>
+<section><h2>与对话生成的关系</h2>
+<p>本轮先建立对话未来调用的可靠底层，不新增聊天窗口。后续对话将把用户需求整理为“目标人物、章节范围、关注的性格问题、预期用途”，调用同一提炼器并形成草稿，而不是直接修改最终灵魂。</p>
+<p>建议按三步继续：专题需求输入；带证据的多轮修订；版本确认和替换绑定。每步应单独验收，旧版灵魂与已有小传始终由用户决定是否替换。</p>
+<p>对话不应直接把聊天记录注入正文。每次修订应产出规则差异：保留、修改、删除及对应证据，用户确认后再更新绑定版本。优先解决证据可信与误判，再增加聊天界面。</p>
+</section>
+<section><h2>GitHub 参考分析</h2>
+<table><thead><tr><th>已查阅项目</th><th>可借鉴</th><th>本项目的取舍</th></tr></thead><tbody>
+<tr><td><a href="https://github.com/wx331406/Online-novel-character-extraction">Online-novel-character-extraction</a><br>已阅读 README 和 Qwen3_backup.py</td><td>按章节分批、人物别名、结构化抽取、按人物归档。</td><td>该脚本重点是职业、年龄、气质、外观等角色描述；只在提示中要求无幻觉，未见逐条原文证据及人格迁移核验。不应直接把这些人物档案当成可移植人格。</td></tr>
+<tr><td><a href="https://github.com/microsoft/graphrag">Microsoft GraphRAG</a><br>已阅读 README</td><td>从非结构化文本构造结构化记忆，为用户问题提供有针对性的上下文。</td><td>可为后续“只研究处事方式”的专题检索提供设计参考。本轮不引入全套图索引：其文档提示索引成本较高，且项目目前主要维护。未声称其能保证人格一致。</td></tr>
+</tbody></table>
+<p>本轮仅检索和阅读公开资料，没有安装、运行或复制这些项目的代码，也没有上传本地小说。</p>
+</section>
+<section><h2>真实试验结果</h2>
+<p>使用 <code>D:\E\大奉打更人.txt</code>，以 GB18030 解码，选取第1、2、5、6、14、22、28、31、48、102、103章，共38,413字符。生成器再按人物窗口取样，最多18个片段。提炼/独立核验使用当前配置的 deepseek-flash，章节写作使用 gemini-3.8-flash-high；未修改用户持久化模型设置。</p>
+<table><thead><tr><th>检查项</th><th>实测结果</th></tr></thead><tbody>
+<tr><td>原文 → 新 Skill → 灵魂 → 绑定“陆衡”</td><td>链路通过，陆衡仍为无武功、非穿越的账房学徒；原型证据不经新灵魂路径注入写作上下文。</td></tr>
+<tr><td>故意混入前世警察、刑侦和法医知识</td><td>独立核验检出违规。不同职业本身没有被当成人格冲突。</td></tr>
+<tr><td>初次完整写作</td><td>模型判通过，但人工发现凭空新增墨色、钥匙、印章等关键证据。这是漏判，不算内容验收成功。</td></tr>
+<tr><td>加强证据边界后复验原失败稿</td><td>已识别新增事实；调用真实章节恢复流程，触发一次返修并复检，最终回调一次。</td></tr>
+<tr><td>返修稿人工复核</td><td>仍有“练过三年以上行楷”等无依据的确定判断，写作也仍过分贴近查案场景。自动判通过不能代表完全合格，样本保留待后续改进。</td></tr>
+<tr><td>规则质量</td><td>精确引文可核对，但个别摘要与例外仍泛化过度，例如“帮人从不白帮”“无人可倚仗时一定先走”。不应把这份自动样本作为最终人格定论。</td></tr>
+</tbody></table>
+<p>实测文件：
+<a href="../.codex-temp/xu-qian-study/portable/SKILL.md">自动生成的原始 Skill</a> ·
+<a href="../.codex-temp/xu-qian-study/portable/negative-check.json">职业迁移反例</a> ·
+<a href="../.codex-temp/xu-qian-study/portable/added-evidence-check.json">新增证据漏判复验</a> ·
+<a href="../.codex-temp/xu-qian-study/portable/repaired-chapter.md">返修稿（仍需人工复核）</a> ·
+<a href="../.codex-temp/xu-qian-study/portable/repair-result.json">恢复流程结果</a>。</p>
+<p>下一步建议把规则证据进一步拆成“原文观察、有限推断、未知边界”，用固定的反例集检查“冒险程度被改写”“新职业获得专业知识”“用新增事实伪装验证”。优先降低误判和漏判，再开放需求对话。</p>
+</section>
+<section><h2>验证记录</h2>
+<ul>
+<li>源码页面：<code>http://127.0.0.1:1425</code>。Playwright 使用真实 SoulView / CharacterAuraView 和受限的测试目录文件桥，验证显示、绑定、取消绑定、写盘与规则编辑；桌面1200×820、移动390×844无横向溢出，已人工查看截图。不是原生窗口端到端自动化。</li>
+<li>相关10个测试文件共139项通过，含快速、标准、严格模式的前置冲突和最终拦截；人格专项一次返修失败不能发出最终正文事件。</li>
+<li>全量模拟测试：5,397通过，195失败，6待实现；另有5个测试文件因缺少 fast-check 无法加载。与本次修改前报告逐项比较，没有新增失败，不等于全量测试通过。</li>
+<li><code>npm run typecheck</code>、角色灵魂内容 lint、<code>git diff --check</code>通过。Git仍提示部分现有文件下次操作可能从LF转为CRLF，未改全局设置。</li>
+<li>打包：<code>npx tauri build --no-bundle --config src-tauri/tauri.windows.conf.json</code>成功，耗时约7分钟。<a href="../release-portable-personality-20261004/QMaiWrite_4.1.0_windows_X64.exe">Windows独立测试包</a>为213,524,480字节，603个资源文件逐一核对一致。程序SHA256：<code>0E269FEEA71A3381EE06F00D3D8210B6DB30437918030E20F411F11B85363C90</code>。原包保留；未上传，因此未生成用于在线更新的latest.json。</li>
+<li>现有Vite pangu浏览器外置、分块大小、动态导入警告，以及Rust的shell_quote未使用警告仍存在。构建后未进行原生窗口自动化，便携包按测试版交付。</li>
+</ul>
+</section>
+<section><h2>本轮代码范围</h2>
+<table><thead><tr><th>文件</th><th>用途</th></tr></thead><tbody>
+<tr><td><code>src/lib/novel/portable-personality.ts</code><br><code>src/lib/novel/book-analysis/personality-distiller.ts</code></td><td>结构、序列化、原文编号与人物规则提炼。</td></tr>
+<tr><td><code>src/lib/novel/book-analysis/skill-generator.ts</code><br><code>src/lib/novel/book-analysis/aura-adapter.ts</code></td><td>现有生成入口、旧文件保留、新灵魂映射。</td></tr>
+<tr><td><code>src/lib/novel/character-aura.ts</code><br><code>src/lib/novel/context-engine.ts</code></td><td>绑定读取、编辑同步与上下文完整性检查。</td></tr>
+<tr><td><code>src/lib/novel/personality-guard.ts</code><br><code>src/lib/novel/deep-chapter-generation.ts</code></td><td>前检、后检、一次返修与失败拦截。</td></tr>
+<tr><td><code>src/components/novel/character-aura-view.tsx</code></td><td>新结构的条件、倾向、边界编辑；保留旧灵魂编辑方式。</td></tr>
+<tr><td>上述模块对应测试、<code>src/test-helpers/portable-personality-fixture.ts</code>和本说明</td><td>验证与可追踪交付。</td></tr>
+</tbody></table>
+<p>上一轮已有的灵魂页样式变更原样保留；未提交 Git、未合并、未上传，未删除旧包及用户资料。</p>
+</section>
+<section><h2>验收与限制</h2>
+<ul>
+<li>确定性检查覆盖结构恢复、原文回填、字段一致性、绑定读取、低预算拦截、快速模式前检、返修次数和最终正文回调。</li>
+<li>真实样本、模型请求和实际输出保存在本地 <a href="../.codex-temp/xu-qian-study/portable/SKILL.md">许七安新样本</a>；<a href="../.codex-temp/xu-qian-study/portable/workflow-result.json">完整快速流程结果</a>单独记录是否通过，失败不算成功。</li>
+<li>当前是有上限的代表性取样，不是全书穷尽分析。未包含在片段中的显著行为仍可能遗漏，后续专题检索可进一步改进。</li>
+<li>现有“简单提取/六维分析”的前置角色档案流程保留。本轮改变最终角色 Skill 的生成内容，不表示整个拆书流程已经不做前置分析，也不宣称整体费用一定降低；新核验会增加模型调用。</li>
+<li>模型仍可能误判人格或证据与规则之间的关联。程序能保证引文来自输入及检查失败不自动完成，不能保证大模型永不偏离。</li>
+<li>用户手动改写后的规则明确标记为用户修订，不声称已获得原文证明。</li>
+<li>硬检查适用于此次新生成并绑定的可迁移人格，以及软件的章节写作流程；旧版灵魂、普通问答和外部手动写入不因此自动获得同等校验。</li>
+<li>当前角色导入仍保留原有同书同角色去重。已经加入灵魂库的旧角色不自动升级，本轮也不默默替换旧绑定。</li>
+</ul>
+</section>
+</main></body></html>

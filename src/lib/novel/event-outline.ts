@@ -32,7 +32,11 @@ export interface EventOutlineEvent {
   id: number
   /** 一句话事件，约 20 字。 */
   title: string
-  /** 2~5 条细节抓手：关键台词 / 神情动作 / 环境物件 / 推进或钩子。 */
+  /**
+   * 2~5 条细节抓手，以「故事推进」为首，其余按需：
+   * 冲突与转折 / 关键台词 / 环境与物件 / 伏笔或钩子。
+   * （2026-10-13 前的旧细纲可能是「关键台词 / 神情动作 / 环境物件 / 推进与收束」口径，照旧能读。）
+   */
   points: string[]
 }
 
@@ -137,8 +141,7 @@ export function normalizeEventOutlineData(raw: unknown): EventOutlineData | null
  * `problems` 只装结构性缺陷（缺字段、数量越界、序号不连续），`ok` 也随之只反映结构；
  * 字数分配、标题超长一类的软性建议放 `advisories`，不参与 `ok`，避免合法细纲被误判为不可用。
  * 契约：任何非 null 对象都只返回清单，绝不抛异常。
- */
-export function validateEventOutlineData(
+ */export function validateEventOutlineData(
   data: EventOutlineData | null,
 ): { ok: boolean; problems: string[]; advisories: string[] } {
   if (!data) {
@@ -212,6 +215,89 @@ export function validateEventOutlineData(
   }
 
   return { ok: problems.length === 0, problems, advisories }
+}
+
+/**
+ * 抓手开头的类别词白名单。
+ *
+ * 当前提示词（2026-10-13 起）要求抓手写成「类别：正文」，第一条固定「故事推进」，
+ * 其余按需取用：冲突与转折 / 关键台词 / 环境与物件 / 伏笔或钩子。卡片据此把一条长
+ * 抓手拆成「类别 + 正文」两列 —— 不拆的话，几条长抓手挤成几段话，用户拿到的观感
+ * 就是「乱」（用户 2026-10-13 反馈）。
+ *
+ * 下半截那批（环境物件 / 神情动作 / 关键台词 / 推进与收束 …）是 2026-10-13 之前的
+ * 提示词口径，**刻意保留**：提示词改了，磁盘上已有的旧细纲不改，旧卡片还要照旧
+ * 排成两列。缺了它们，历史细纲的抓手会全部退化成整行铺满。
+ *
+ * 刻意用白名单，而不是「冒号前不超过 8 个字就当类别」：后者会把
+ * 「杨震的神色：阴冷如冰」这类正常句子也误拆出一列类别，排版反而更乱。
+ * 没命中的抓手整行原样显示，一个字都不改。
+ */
+export const EVENT_POINT_LABELS = [
+  // 故事向（当前提示词口径）
+  "故事推进",
+  "剧情推进",
+  "情节推进",
+  "推进与收束",
+  "推进",
+  "收束",
+  "冲突与转折",
+  "冲突",
+  "转折",
+  "伏笔或钩子",
+  "伏笔",
+  "钩子",
+  "章尾钩子",
+  "线索",
+  "目标",
+  "动机",
+  "结果",
+  "后果",
+  "信息",
+  "变化",
+  "关系",
+  // 描写向（2026-10-13 之前的旧口径，保留以兼容历史细纲）
+  "环境物件",
+  "环境与物件",
+  "环境",
+  "物件",
+  "场景",
+  "地点",
+  "时间",
+  "神情动作",
+  "神情与动作",
+  "神情",
+  "神态",
+  "表情",
+  "动作",
+  "心理",
+  "情绪",
+  "关键台词",
+  "台词",
+  "对白",
+]
+
+/** 一条抓手拆出来的两半（卡片排版用）。 */
+export interface EventPointParts {
+  /** 类别词（「环境物件」「关键台词」…）；没有可识别类别时是空串。 */
+  label: string
+  /** 类别词之后的正文；没有类别词时就是整条抓手（原样，不裁字）。 */
+  text: string
+}
+
+/**
+ * 把一条抓手拆成「类别 + 正文」。
+ *
+ * 只认白名单里的类别词；认不出来就整条当正文返回（`label` 为空串）——
+ * 排版层据此把那一条铺满整行，而不是硬塞进类别列里。
+ */
+export function splitEventPointLabel(point: string): EventPointParts {
+  const raw = point.trim()
+  const match = raw.match(/^([^：:]{1,8})[：:]\s*(\S[\s\S]*)$/)
+  if (!match) return { label: "", text: raw }
+  const label = match[1].trim()
+  if (!EVENT_POINT_LABELS.includes(label)) return { label: "", text: raw }
+  return { label, text: match[2].trim() }
 }
 
 /** 从 `{` 开始配平花括号，返回一个完整 JSON 对象文本；尊重字符串与转义。 */
@@ -301,15 +387,19 @@ function withRequirement(data: EventOutlineData, requirement?: string): EventOut
  * 细纲正文」和「一大坨裸 JSON」——后者是给程序看的，不是给人看的。卡片已经把同一份
  * 数据渲染成可读结构，裸 JSON 就是纯噪声。
  *
- * ⚠️ 只摘**能解析成事件细纲**的那一个围栏，其余围栏原样保留：同一条回复里可能还有
+ * ⚠️ 只摘**能解析成事件细纲**的那一份，其余围栏原样保留：同一条回复里可能还有
  * 别的 json（例如保存请求），它们不属于本函数的目标，删掉就是删掉用户要看的内容。
  *
  * 只用于展示层：模型历史、落盘内容、`extractEventOutlineData` 的输入都不经过它。
+ *
+ * 两道剥离（围栏里的 + 没围栏的）都要做：提示词要求了围栏，但模型确实会漏写 ——
+ * 用户 2026-10-13 实测到的气泡里就是一段没围栏的裸 JSON（连代码块都不是，直接以正文
+ * 形态铺在气泡里）。只认围栏的话，那一段会一直露着。
  */
 export function stripEventOutlineDataFence(content: string): string {
   const fencePattern = /```(?:json)?[ \t]*\r?\n([\s\S]*?)```/gi
-  return content
-    .replace(fencePattern, (whole: string, body: string) => {
+  return stripBareEventOutlineJson(
+    content.replace(fencePattern, (whole: string, body: string) => {
       if (!body.includes("{")) return whole
       let start = body.indexOf("{")
       while (start >= 0) {
@@ -324,8 +414,44 @@ export function stripEventOutlineDataFence(content: string): string {
         start = body.indexOf("{", start + 1)
       }
       return whole
-    })
-    .trim()
+    }),
+  ).trim()
+}
+
+/**
+ * 摘掉**没有围栏**的事件细纲 JSON（模型漏写围栏时的兜底）。
+ *
+ * 两道闸都不能省，理由与「只摘能解析成事件细纲的那一份」同源：
+ * 1. 先做子串预筛 `eventOutlineData` —— 绝大多数回复连这个词都没有，预筛之后
+ *    完全不进那段逐字符配平的扫描（气泡每次重渲染都会跑这个函数）；
+ * 2. 只删**能解析成事件细纲**的对象 —— 一段恰好提到花括号的正文不会被误删。
+ */
+function stripBareEventOutlineJson(text: string): string {
+  if (!text.includes("eventOutlineData")) return text
+  let result = ""
+  let cursor = 0
+  let start = text.indexOf("{", cursor)
+  while (start >= 0) {
+    const block = balancedJsonBlock(text, start)
+    let stripped = false
+    if (block) {
+      try {
+        if (normalizeEventOutlineData(JSON.parse(block) as unknown)) {
+          result += text.slice(cursor, start)
+          cursor = start + block.length
+          stripped = true
+        }
+      } catch {
+        // 不是合法 JSON，按普通花括号处理
+      }
+    }
+    if (!stripped) {
+      result += text.slice(cursor, start + 1)
+      cursor = start + 1
+    }
+    start = text.indexOf("{", cursor)
+  }
+  return result + text.slice(cursor)
 }
 
 /**
@@ -364,7 +490,11 @@ export function buildEventOutlinePrompt(
       title: "第N章 · 一句话章名",
       targetWords: request.targetWords,
       events: [
-        { id: 1, title: "一句话事件", points: ["关键台词：…", "神情动作：…", "环境物件：…"] },
+        {
+          id: 1,
+          title: "一句话事件",
+          points: ["故事推进：…", "冲突与转折：…", "关键台词：谁——『…』"],
+        },
       ],
       endingHook: "章尾钩子",
       requirement: requirement || undefined,
@@ -382,13 +512,21 @@ export function buildEventOutlinePrompt(
     ...(requirement ? [`- 用户对本章的要求：${requirement}`] : []),
     "",
     "## 每个事件必须包含",
-    `1. title：一句话说清这个事件发生了什么，20 字左右，不超过 ${EVENT_OUTLINE_TITLE_MAX_CHARS} 字；`,
-    `2. points：${EVENT_OUTLINE_MIN_POINTS}~${EVENT_OUTLINE_MAX_POINTS} 条细节抓手，写可以直接落笔的东西，例如关键台词、人物神情与动作、环境与物件细节、这一步推进了什么或留下什么钩子。`,
+    `1. title：一句话说清这个事件发生了什么 —— 谁做了什么、结果如何，20 字左右，不超过 ${EVENT_OUTLINE_TITLE_MAX_CHARS} 字；`,
+    `2. points：${EVENT_OUTLINE_MIN_POINTS}~${EVENT_OUTLINE_MAX_POINTS} 条细节抓手，每条写成「类别：正文」的形式。第一条固定是「故事推进」，其余按需取用：`,
+    "- 故事推进（必写）：这个事件把情节推到了哪一步 —— 谁做了什么、得到了或失去了什么、局面因此发生了什么变化；",
+    "- 冲突与转折：本事件的阻碍、对抗，或意料之外的反转；有就写，没有不要硬凑；",
+    "- 关键台词（有才写）：仅当**确实有角色说出一句推动剧情、或暴露要害的话**时才写，并点明说话人（形如「关键台词：林砚——『令牌的事，你别问。』」）。一章里关键台词宁缺毋滥：不是每个事件都有台词，也不是每个出场角色都有关键台词；没有就让这一条缺席，不要为凑条数硬编；",
+    "- 环境与物件（有用才写）：只写对剧情有作用的场景或关键道具（布置、线索、要紧物），不要为写景而写景；",
+    "- 伏笔或钩子：本事件埋下、后面需要兑现的线头。",
     "",
     "## 硬要求",
-    "- 事件之间必须前后连续、有因果推进，不能是并列的碎片；",
+    "- 事件之间必须前后连续、按时间与因果串成一条线：除第一个事件外，每个事件的「故事推进」都要先说清它承接上一个事件的什么结果，再说这个事件把局面推进到了哪一步，不能是并列的碎片；",
+    "- 整章要有一条清晰的故事主线：这几个事件合起来要讲完一个小故事（起因 → 发展 → 转折 → 收束），而不是几个互不相干的片段；",
+    "- 每个事件都要有实实在在的情节推进（谁做了什么、局面怎么变），不要只写氛围、环境或人物状态；",
+    "- 不要写人物神情、表情、神态和细微小动作这一类表演性描写 —— 这些留给正文；人物推动剧情的行动照写；",
     "- 最后一个事件之后必须留下一个能勾住读者的章尾钩子；",
-    "- **不要写正文**，不要展开描写，只给事件与抓手；",
+    "- **不要写正文**，不要展开描写，只给事件、故事推进与上述按需的抓手；",
     // 只有真的有工具循环时才要求读资料 —— 章节区那条链路没有工具，见函数注释
     ...(hasFileTools
       ? ["- 先读资料（list_chapters / read_chapter / list_outlines / read_outline）确认前文与已有章纲，再动笔；"]
@@ -433,7 +571,7 @@ export function eventOutlineToProsePrompt(data: EventOutlineData): string {
   lines.push(
     "",
     "## 写作要求",
-    `- 目标约 ${data.targetWords} 字，允许 ±10% 浮动；每个事件都要有场景、对话、人物神情与环境细节，不要写成事件流水账；`,
+    `- 目标约 ${data.targetWords} 字，允许 ±10% 浮动；把这几个事件串成一个连贯的故事，因果与推进要交代清楚，不要写成事件流水账；场景、对话与人物神态点到为止，服务于故事本身；`,
     "- 只输出可直接保存到章节库的小说正文，不要解释，不要列提纲，不要输出工具调用报告。",
     "",
     DE_AI_GENERATION_RULES,

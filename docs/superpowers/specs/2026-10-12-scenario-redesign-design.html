@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>设计规格 — 「舞台情景」重设计</title>
+<script>
+  // 首屏前生效，避免闪白/闪黑
+  (function () {
+    try {
+      var saved = localStorage.getItem('qmai-spec-theme');
+      var dark = saved ? saved === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    } catch (e) {}
+  })();
+</script>
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --panel:     #FFFFFF;
+    --panel-alt: #F0EEE6;
+    --ink:       #141413;
+    --ink-soft:  #3D3D3A;
+    --muted:     #87867F;
+    --line:      #D1CFC5;
+    --accent:    #D97757;
+    --ok:        #788C5D;
+    --warn:      #B5793A;
+    --serif: ui-serif, Georgia, 'Times New Roman', 'Songti SC', serif;
+    --sans: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei UI', Roboto, sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  }
+  html.dark {
+    --bg:        #16150F;
+    --panel:     #201F19;
+    --panel-alt: #2A2921;
+    --ink:       #F5F3EC;
+    --ink-soft:  #D8D5CA;
+    --muted:     #9A988E;
+    --line:      #3A3830;
+    --accent:    #E08966;
+    --ok:        #93A874;
+    --warn:      #D0A05E;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--ink-soft);
+    line-height: 1.6;
+    padding: 56px 32px 120px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1120px; margin: 0 auto; }
+
+  .theme-toggle {
+    position: fixed; top: 18px; right: 20px; z-index: 10;
+    font: 500 12px/1 var(--sans);
+    color: var(--ink-soft); background: var(--panel);
+    border: 1.5px solid var(--line); border-radius: 999px;
+    padding: 9px 14px; cursor: pointer;
+  }
+  .theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+  header.page-head { margin-bottom: 44px; max-width: 860px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 12px;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 500; font-size: 38px; line-height: 1.18;
+    color: var(--ink); margin-bottom: 16px; letter-spacing: -0.01em;
+  }
+  .status {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12.5px; color: var(--warn); background: var(--panel-alt);
+    border: 1.5px solid var(--line); border-radius: 999px; padding: 5px 12px; margin-bottom: 20px;
+  }
+  .status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+
+  .prompt-box {
+    background: var(--panel-alt); border: 1.5px solid var(--line);
+    border-radius: 12px; padding: 16px 20px; font-size: 14.5px;
+  }
+  .prompt-box .label {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted); display: block; margin-bottom: 8px;
+  }
+  .prompt-box p + p { margin-top: 8px; }
+  .prompt-box em { color: var(--accent); font-style: normal; }
+
+  .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin: 40px 0 60px; }
+  @media (max-width: 900px) { .summary { grid-template-columns: repeat(2, 1fr); } }
+  .summary .cell {
+    background: var(--panel); border: 1.5px solid var(--line);
+    border-radius: 12px; padding: 18px 20px;
+  }
+  .summary .k {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted); margin-bottom: 6px;
+  }
+  .summary .v { font-size: 17px; color: var(--ink); font-weight: 600; }
+  .summary .v.accent { color: var(--accent); }
+
+  section { margin-bottom: 58px; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px; }
+  .sec-head .num {
+    font-family: var(--mono); font-size: 12px; background: var(--panel-alt);
+    color: var(--ink); padding: 3px 9px; border-radius: 8px; border: 1px solid var(--line);
+  }
+  .sec-head h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--ink); }
+  .sec-intro { font-size: 14.5px; color: var(--muted); max-width: 800px; margin-bottom: 22px; }
+
+  h3 { font-size: 15px; color: var(--ink); margin: 26px 0 10px; font-weight: 600; }
+  p { max-width: 840px; }
+  p + p { margin-top: 10px; }
+  ul, ol { margin: 10px 0 0 20px; max-width: 840px; }
+  li { margin-bottom: 6px; }
+  code {
+    font-family: var(--mono); font-size: 0.9em;
+    background: var(--panel-alt); border: 1px solid var(--line);
+    border-radius: 5px; padding: 1px 5px; color: var(--ink);
+  }
+  pre {
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.62;
+    background: var(--panel); border: 1.5px solid var(--line); border-radius: 12px;
+    padding: 16px 18px; margin-top: 14px; overflow-x: auto; color: var(--ink);
+  }
+  pre code { background: none; border: none; padding: 0; font-size: 12.5px; }
+  b, strong { color: var(--ink); }
+
+  table {
+    width: 100%; border-collapse: collapse; margin-top: 14px;
+    font-size: 14px; background: var(--panel);
+    border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden;
+  }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--muted); background: var(--panel-alt); font-weight: 500;
+  }
+  tr:last-child td { border-bottom: none; }
+  td.mono { font-family: var(--mono); font-size: 12.5px; }
+
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--panel);
+    border-radius: 0 10px 10px 0; padding: 14px 18px; margin-top: 18px; max-width: 880px;
+  }
+  .callout.warn { border-left-color: var(--warn); }
+  .callout.ok { border-left-color: var(--ok); }
+  .callout .t {
+    font-size: 12px; font-family: var(--mono); text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--muted); display: block; margin-bottom: 6px;
+  }
+  .decide { color: var(--warn); font-weight: 600; }
+  .no { color: var(--muted); }
+  .yes { color: var(--ok); font-weight: 600; }
+  footer { border-top: 1.5px solid var(--line); padding-top: 20px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<button class="theme-toggle" id="themeToggle" type="button">切换深浅色</button>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">QMAI · 设计规格 · 2026-10-12</div>
+  <h1>「舞台情景」重设计</h1>
+  <div class="status">已批准 · 2026-10-12 · 实施计划待生成</div>
+  <div class="prompt-box">
+    <span class="label">原始需求（用户原话，逐字保留）</span>
+    <p>分析当前“青木AI写作”软件中的“舞台情景”模块，具体反馈如下：</p>
+    <p>1. 角色数量：<br>
+       现在有 3 个、4 个、5 个角色，后续要支持用户手动选择。提取的章节数量要与角色数量保持一致，这一点没有问题。</p>
+    <p>2. 角色选择与绑定：<br>
+       (a) 从已写章节中选择角色时，不需要从下拉框中选择，也可以直接在这里选择。<br>
+       (b) 选择后若提示“未绑定灵魂”，这里应该增加一个“绑定灵魂”的功能。<br>
+       (c) 主持人相关功能没有问题。</p>
+    <p>3. 情景设定：<br>
+       这 4 个输入框的输入体验不是特别好，框太窄了，应该再宽一些。</p>
+    <p>因此，目前关于“舞台情景”模块需要重新设计一下。</p>
+    <p>另外，关于生成内容：<br>
+       生成内容时，形式应类似于对话框或群组，由每一个角色自动回复内容。</p>
+    <p style="margin-top:10px;color:var(--muted);font-size:13px">注：以上为逐字保留。三处需要澄清的地方已在「12 已销账的确认点」逐条记录了用户的选择与理由。</p>
+  </div>
+</header>
+
+<div class="summary">
+  <div class="cell"><div class="k">新增文件</div><div class="v accent">4 个</div></div>
+  <div class="cell"><div class="k">改动文件</div><div class="v">7 个<br><span style="font-size:12px;font-weight:400;color:var(--muted)">含 1 个测试断言同步</span></div></div>
+  <div class="cell"><div class="k">角色数量</div><div class="v">3–10 人<br><span style="font-size:12px;font-weight:400;color:var(--muted)">3/4/5 一键 + 自定义</span></div></div>
+  <div class="cell"><div class="k">对话引擎改动</div><div class="v yes">0 行<br><span style="font-size:12px;font-weight:400;color:var(--muted)">发言顺序与轮转完全不动</span></div></div>
+</div>
+
+<section>
+  <div class="sec-head"><span class="num">01</span><h2>现状核实：四条反馈逐条对代码</h2></div>
+  <p class="sec-intro">动手前先把「用户看到的现象」与「代码里的事实」对上，避免把问题修在错误的层。</p>
+
+  <h3>1. 角色数量 —— 只有写死的 3/4/5，且不参与提取</h3>
+  <table>
+    <tr><th>事实</th><th>位置</th></tr>
+    <tr><td>三个按钮硬编码 <code>[3, 4, 5]</code>，且 <code>disabled={n &gt; candidates.length}</code>（候选不够直接禁用按钮）</td><td class="mono">scenario-setup-panel.tsx:257-275</td></tr>
+    <tr><td>常量 <code>SCENARIO_CHARACTER_MIN=3 / MAX=5 / DEFAULT=3</code></td><td class="mono">scenario-types.ts:58-60</td></tr>
+    <tr><td>开始条件是「必须选满」：<code>selectedIds.length === characterCount</code></td><td class="mono">scenario-setup-panel.tsx:183-188</td></tr>
+    <tr><td>「提取章节数」是另一个独立下拉（<code>[5,10,20,30,50]</code>），改动即重新提取</td><td class="mono">scenario-types.ts:68<br>story-simulation-view.tsx:1455-1458</td></tr>
+  </table>
+  <p><b>两者现在没有任何联动</b>：角色数不参与提取，提取结果只反过来禁用角色数按钮。所以「提取 4 人却想开 5 人的场」永远开不了；只有提取到 1~2 人时才有一条明确报错（<code>scenarioCandidatesInsufficient</code>）。</p>
+  <p>用户在澄清中已确认：<b>提取章节数与角色数量保持现状、不做联动</b>。</p>
+
+  <h3>2(a) 角色选择 —— 确实只有一个下拉框，候选看不到信息</h3>
+  <p>现在是「下拉挑一个 → 加进已选列表」。<b>没被选中的候选</b>只能在下拉里看到「名字（灵魂：xx）」，看不到性格 / 说话风格；只有已选卡片才有完整信息。</p>
+  <table>
+    <tr><th>区域</th><th>能看到什么</th><th>位置</th></tr>
+    <tr><td>候选下拉</td><td>仅 <code>名字</code> + <code>灵魂：xxx</code></td><td class="mono">scenario-setup-panel.tsx:330-349</td></tr>
+    <tr><td>已选卡片</td><td>名字 / 主持人徽标 / 灵魂徽标 / 前 3 个性格词 / 说话风格 / 移除</td><td class="mono">scenario-setup-panel.tsx:359-417</td></tr>
+  </table>
+  <p>用户要的「不需要从下拉框中选择，也可以直接在这里选择」= 候选全部铺开成可点选卡片，点一下上台、再点一下下台。</p>
+
+  <h3>2(b) 绑定灵魂 —— 现在只是一句不可点的死文案</h3>
+  <table>
+    <tr><th>事实</th><th>位置</th></tr>
+    <tr><td>卡片上「未绑定灵魂」是纯文本，<b>不可点</b></td><td class="mono">scenario-setup-panel.tsx:385-388</td></tr>
+    <tr><td>绑定能力早已存在：<code>bindCharacterAura</code> / <code>unbindCharacterAura</code></td><td class="mono">character-aura.ts:505 / :522</td></tr>
+    <tr><td>现有入口在灵魂页 / 拆书工作台，<b>情景面板完全没有入口</b></td><td class="mono">character-aura-view.tsx:393<br>soul-sidebar-panel.tsx:59</td></tr>
+  </table>
+  <div class="callout warn">
+    <span class="t">必须先讲清的硬约束</span>
+    <p><code>bindCharacterAura</code> 写盘前会查 <code>hasCharacterProfile()</code>（<code>character-aura.ts:510</code>、<code>:733</code>），要求该角色在 <code>wiki/entities</code>（<code>type: entity</code> + <code>tags</code> 含 <code>character</code>）或 <code>wiki/outlines</code> 里有「人物小传 / 人物设定」，否则直接抛 <b>「请先在大纲中添加人物小传或人物设定，再绑定角色灵魂」</b>。</p>
+    <p>而舞台情景的候选角色是 <code>extractStoryContent()</code> 从<b>章节正文</b>提的，提取过程只读不写（<code>story-extractor.ts:534-537</code> 只读 <code>wiki/entities/{name}.md</code>）。<b>所以很可能一点「绑定灵魂」就撞上那句报错</b>——这正是这个功能必须先解决的问题，而不是加一个按钮就完。</p>
+  </div>
+
+  <h3>2(c) 主持人 —— 确认没问题，本次不动</h3>
+  <p>主持人下拉（你 / 某个已选角色）+ 串场间隔 + 行为说明（<code>scenario-setup-panel.tsx:422-475</code>）；角色主持时负责开场、每 N 轮串场、结尾收束；你主持时「主持人要求」即开场白且不额外消耗调用。<b>本轮只把这个下拉的等价操作搬到角色卡上（见 04 节），行为本身一行不改。</b></p>
+
+  <h3>3. 情景设定 —— 框确实太窄，且没有标签</h3>
+  <table>
+    <tr><th>事实</th><th>位置</th></tr>
+    <tr><td><code>grid grid-cols-2 gap-3</code> + 4 个<b>无标签</b> <code>&lt;Input&gt;</code>，只靠 placeholder 区分</td><td class="mono">scenario-setup-panel.tsx:488-509</td></tr>
+    <tr><td>外层容器 <code>max-w-2xl</code>（672px）→ 每格实际可用宽度只有 300px 出头</td><td class="mono">scenario-setup-panel.tsx:250</td></tr>
+    <tr><td>「情景标题」被塞在「生成轮数」那一节的末尾，位置不合理</td><td class="mono">scenario-setup-panel.tsx:593-597</td></tr>
+  </table>
+
+  <h3>4. 生成形式 —— 现状已经是群组气泡流，差的是「在场感」</h3>
+  <table>
+    <tr><th>现状</th><th>位置</th></tr>
+    <tr><td>房间视图已是气泡群聊：角色靠左、用户靠右、主持人带边框 + 徽标，逐条流式打出</td><td class="mono">scenario-room-view.tsx:203-220<br>MessageBubble :264-345</td></tr>
+    <tr><td>引擎 <code>runScenario</code> 就是「主持人开场 → 每轮轮转顺序每个角色自动发言 → 主持人串场 → 收束」</td><td class="mono">scenario-engine.ts:401-482</td></tr>
+    <tr><td>流式状态只带 <code>speakerName</code>，<b>没有 speakerId</b>，无法按角色定位头像/配色</td><td class="mono">scenario-types.ts:151-155</td></tr>
+  </table>
+  <p>所以第 4 点的真实差距是<b>视觉在场感</b>：没有头像、角色没有专属配色、分不清谁在说、没有「×× 正在输入」。<b>引擎主循环与发言顺序一行不动</b>，只重做呈现。</p>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">02</span><h2>方案选择：角色区怎么重做</h2></div>
+  <table>
+    <tr><th>方案</th><th>做法</th><th>优点</th><th>代价</th></tr>
+    <tr>
+      <td><b>A ✓</b></td>
+      <td><b>一个统一网格</b>：候选角色全部铺成卡片，点一下上台（带序号、高亮），再点一下下台；数量按钮只做校验与提示（「已选 2/4，还差 2 人」）</td>
+      <td>只有一处列表，不必在「候选下拉」与「已选列表」之间来回看；绑定灵魂 / 设为主持人都有位置放；候选信息（性格/风格/认知）第一次全部可见</td>
+      <td>候选很多时需要补一个搜索/过滤框</td>
+    </tr>
+    <tr>
+      <td>B</td>
+      <td>候选网格 + 已上台清单两块，上台清单带主持人 / 绑定 / 移除</td>
+      <td>结构最清楚，「台上是谁」一眼可见</td>
+      <td>同一个角色出现两次，卡片内容重复；「未绑定灵魂」这个提示要在两处同步</td>
+    </tr>
+    <tr>
+      <td>C</td>
+      <td>维持下拉，只是把下拉加宽</td>
+      <td>改动最小</td>
+      <td class="no"><b>没有解决需求 2(a)</b>，不采用</td>
+    </tr>
+  </table>
+  <p><b>结论：采用 A。</b>「已上台」这件事由卡片自身的高亮 + 序号 + 顶部计数共同表达，不需要第二份清单。B 的重复呈现会带来「同一条绑定状态写两遍、两处都要刷新」的同步负担，而它换来的信息 A 已经有了。</p>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">03</span><h2>目标结构：设置面板</h2></div>
+  <p class="sec-intro">单列排布，容器由 <code>max-w-2xl</code> 放宽到 <code>max-w-5xl</code>。①②③ 是本轮重做的部分，④ 保持原样。</p>
+
+  <pre><code>① 上台角色                                        [提取章节数 ▾ 20 章] [重新分析角色]
+   角色数量：  [3 人] [4 人] [5 人] [自定义 ▢ 7]      已选 2 / 4，还差 2 人
+   ┌─ 候选角色网格（点了就上台）─────────────────────────────────┐
+   │ ▣ 沈砚   ①   灵魂：账房先生      ▢ 林清越   未绑定灵魂        │
+   │      性格：谨慎 · 寡言                    [绑定灵魂]          │
+   │ ▢ 苏九   灵魂：游侠                                          │
+   └─────────────────────────────────────────────────────────────┘
+② 情景设定
+   情景规则（主持人的要求）  [ 整行 · 多行输入 ]
+   情景设定 / 背景           [ 整行 · 多行输入 ]
+   地点                      [ 整行 ]
+   时间                      [ 整行 ]
+   参考点                    [ 整行 ]  + 现有检索说明
+   情景标题                  [ 整行 ]
+③ 主持人  —— 原样保留：既有下拉 + 串场间隔 + 行为说明；角色卡上的「设为主持人」是同一状态的第二个入口
+④ 对话形式 / 生成轮数 / 成本护栏 / 历史情景 / 开始  —— 保持原样</code></pre>
+
+  <div class="callout">
+    <span class="t">为什么「情景标题」要挪</span>
+    <p>它现在的家在「生成轮数」那一节的末尾（<code>scenario-setup-panel.tsx:593-597</code>），和轮数挤在一起。标题属于「这场情景是什么」，不属于「跑多少轮」，挪进 ② 之后两边的语义都干净了。</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">04</span><h2>角色区交互细节</h2></div>
+
+  <h3>数量：3/4/5 一键 + 自定义</h3>
+  <ul>
+    <li><code>SCENARIO_CHARACTER_PRESETS = [3, 4, 5]</code>：三个按钮原样保留。</li>
+    <li>右侧「自定义」数字输入，范围 <code>[SCENARIO_CHARACTER_MIN, SCENARIO_CHARACTER_MAX]</code> = <b>3 – 10</b>；<code>SCENARIO_CHARACTER_MAX</code> 由 5 改为 10。</li>
+    <li>该常量目前<b>只被提示文案使用</b>（<code>scenario-setup-panel.tsx:272</code>），不参与引擎计算 —— 改它不会影响任何生成行为。</li>
+    <li>自定义值超界时夹取到边界并给出一行提示，与既有「轮数夹取」同一套做法（<code>scenarioRoundsClamped</code>）。</li>
+  </ul>
+
+  <h3>开始条件（语义不变，只是变得看得见）</h3>
+  <pre><code>canStart =
+  !extracting
+  &amp;&amp; !insufficientCandidates        // 候选 &lt; 3 人：素材不够，明确报错
+  &amp;&amp; selectedIds.length === characterCount   // 选满
+  &amp;&amp; directive.trim().length &gt; 0   // 填了情景规则
+  &amp;&amp; (!needsCostAck || costAck)    // 成本护栏</code></pre>
+  <p>这五条一个都不放宽。区别只在于：原来「没选满」只能靠一个灰着的按钮表达，现在顶部有 <b>「已选 2 / 4，还差 2 人」</b> 的明确计数。</p>
+
+  <div class="callout warn">
+    <span class="t">发现一处文案与实现不一致（本规格给出处理方式，请复核）</span>
+    <p>现提示文案是「角色数<b>不含</b>主持人（3-5）」（<code>scenarioCharacterCountHint</code>），但实现要求的是 <code>selectedIds.length === characterCount</code>，而 <code>selectedIds</code> <b>包含</b>被选为主持人的那个角色（<code>scenario-setup-panel.tsx:148</code>、<code>:186</code>）。也就是说：选 3 人、其中一人当主持人时，实际发言只有 2 人，和文案说的「3 个发言角色」不符。</p>
+    <p><b>本规格的处理：保留实现语义、修正文案。</b>理由：① 用户原话说的是「现在有 3 个、4 个、5 个<b>角色</b>」，指的是台上人数，与实现一致；② 改实现会让「选 3 人 + 指定角色主持」变成 4 次点选，是行为回退；③ 只需把文案改成「上台角色总数（3-10 人，含由角色担任的主持人）」，并保留已有的「主持人由角色担任，实际发言角色 N 人」提示即可说清。</p>
+    <p>类型注释里的旧说法（<code>scenario-types.ts:53-56</code>「角色数不含主持人」）同步更正。</p>
+  </div>
+
+  <h3>候选卡片：三种状态</h3>
+  <table>
+    <tr><th>状态</th><th>外观</th><th>点击行为</th></tr>
+    <tr><td><b>未上台</b></td><td>普通边框；显示名字、灵魂（或「未绑定灵魂」）、性格词前 3 个</td><td>点卡片 = 上台（未满时）；已满时点击给提示，不静默失败</td></tr>
+    <tr><td><b>已上台</b></td><td>主色边框 + 主色底 + 左上角<b>上台序号</b>（①②③…，与发言轮转顺序一致）</td><td>点卡片上的移除按钮 = 下台；下台若其正担任主持人，主持人自动回落为「你」（沿用现有 <code>removeCharacter</code> 行为）</td></tr>
+    <tr><td><b>已上台且是主持人</b></td><td>额外一枚「主持人」徽标</td><td>徽标可取消（回落为「你」）</td></tr>
+  </table>
+
+  <h3>卡片上的两个操作</h3>
+  <ul>
+    <li><b>绑定灵魂 / 灵魂：xxx</b>：未绑定时是可点的「绑定灵魂」按钮；已绑定时显示金色徽标「灵魂：xxx」，点它可重新绑定或解绑（复用 <code>unbindCharacterAura</code>）。</li>
+    <li><b>设为主持人</b>：单选语义（全局只有一个）。放在已上台的卡片上，等价于现在的主持人下拉，但不必翻到下一节去找名字。<b>③ 节的下拉保留</b>，两处状态同源，改哪边都同步。</li>
+  </ul>
+
+  <h3>候选很多时</h3>
+  <p>候选超过 12 个时，网格上方显示搜索框（按名字/灵魂名过滤，纯前端过滤，沿用 <code>soul-binding-target-dialog.tsx:118-127</code> 的输入样式）。少于 12 个不显示，避免多一个空控件。</p>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">05</span><h2>绑定灵魂与「就地补小传」</h2></div>
+  <p class="sec-intro">这是需求 2(b) 的核心。因为 <code>bindCharacterAura</code> 有「必须先有人物小传」的前置校验（见 01 节），所以「绑定」在缺小传时是一次<b>两步写入</b>，必须让用户在写盘前看清要写什么。</p>
+
+  <h3>流程</h3>
+  <p>全过程是<b>一个弹窗组件、两个内部步骤</b>（步骤 1 选灵魂 → 步骤 2 补小传），不是一个接一个的两个独立弹窗；步骤 2 可以退回步骤 1 重选灵魂，也可以直接取消。</p>
+  <pre><code>点「绑定灵魂」
+   │
+   ├─【步骤 1】灵魂选择：listCharacterAuras(projectPath)（内置 + 自定义），带搜索
+   │
+   ├─ 用户选定某个灵魂，点「绑定」
+   │     → bindCharacterAura(projectPath, { characterName, auraId })
+   │          ├─ 成功 ─────────────────────────────► 关窗，刷新候选，徽标变「灵魂：xxx」【结束】
+   │          └─ 抛「请先在大纲中添加人物小传…」─► 切到【步骤 2】
+   │
+   └─【步骤 2】补小传确认
+         · 正文预填（不调模型、不消耗 token）：由已提取信息拼出
+         · 用户可自由编辑
+         · 点「创建小传并绑定」
+              → 写 wiki/entities/{安全文件名}.md（已存在则不覆盖，直接绑定）
+              → 再 bindCharacterAura
+              → 关窗，刷新候选
+         · 点「返回重选」→ 回【步骤 1】
+         · 点「取消」→ 全程零写入</code></pre>
+
+  <div class="callout ok">
+    <span class="t">为什么用「先试后补」而不是「先查后补」</span>
+    <p><code>hasCharacterProfile</code> 除了查 <code>wiki/entities</code> / <code>wiki/outlines</code>，还会兜底走一次 <code>searchWiki</code>（<code>character-aura.ts:737-745</code>）。若我们事先用 <code>listBindableNovelCharacters</code> 自己预判，会漏掉 <code>searchWiki</code> 这条命中路径，<b>对本来能绑成功的角色弹出多余的补小传弹窗</b>。所以顺序必须是「直接绑 → 失败且原因正是缺小传 → 才补」。</p>
+    <p>为了让调用方能识别失败原因，需要把 <code>CHARACTER_AURA_BINDING_BLOCK_MESSAGE</code> 导出（<code>character-aura.ts:228</code>，当前是模块内私有）。这是本次对该文件的<b>唯一改动</b>。</p>
+  </div>
+
+  <h3>预填小传的内容（纯函数，可单测）</h3>
+  <p><code>buildProfileDraftFromCandidate(candidate)</code> 只使用 <code>ScenarioCandidate</code> 里<b>已有</b>的字段，不新增任何模型调用：</p>
+  <pre><code># {candidate.name}
+
+## 基本信息
+- 姓名：{candidate.name}
+- 灵魂：{candidate.auraName}          （无则省略该行）
+
+## 性格
+{candidate.personality.join("、")}    （空则写「（待补充）」）
+
+## 说话风格
+{candidate.speakingStyle}            （空则写「（待补充）」）
+
+## 认知范围
+- 知道：{candidate.knowledgeScope}    （各占一行，最多 10 条）
+- 不知道：{candidate.doesNotKnow}      （同上，无则省略整段）
+
+&lt;!-- 由「舞台情景」根据已写章节自动整理，可自由修改 --&gt;</code></pre>
+
+  <h3>写入的实体页格式</h3>
+  <pre><code>---
+type: entity
+title: "{name}"
+tags: [character]
+created: {yyyy-mm-dd}
+updated: {yyyy-mm-dd}
+---
+
+{用户确认后的正文}</code></pre>
+  <ul>
+    <li>路径：<code>wiki/entities/{安全文件名}.md</code>；安全化沿用仓库既有规则 <code>label.replace(/[\\/:*?"&lt;&gt;|]/g, "-")</code>（<code>graph-node-page.ts:26</code>）。</li>
+    <li><b>已存在则不覆盖</b>：<code>fileExists</code> 为真就跳过写入、直接进入绑定。绝不修改用户已有的人物页。</li>
+    <li>该格式能被 <code>listBindableNovelCharacters</code> 认出（<code>type: entity</code> + <code>tags</code> 含 <code>character</code>，判据在 <code>character-aura.ts:757-763</code>；同格式的既有测试夹具见 <code>character-aura-bindable.spec.ts:104-116</code>）。</li>
+    <li>新建文件会改变 <code>wiki/entities</code> 的文件清单指纹（<code>bindable-characters-cache.ts:44-61</code> 按「路径 + 大小 + 修改时间」取值），所以名单缓存<b>自动失效</b>，紧接着的 <code>bindCharacterAura</code> 不会读到旧名单。</li>
+  </ul>
+
+  <h3>绑定后候选如何立刻刷新</h3>
+  <p>不必重新跑一次章节提取。候选构造器<b>早就预留了这个入口但没被接线</b>：</p>
+  <pre><code>buildScenarioCandidates(extraction, { bindings, auras })   // scenario-participant-selector.ts:55-90</code></pre>
+  <p>而现在视图调用时没传这两个参数（<code>story-simulation-view.tsx:1399-1402</code>）。接线后：</p>
+  <ul>
+    <li>视图加载 <code>listCharacterAuras</code> + <code>getCharacterAuraBindings</code> 存入状态；</li>
+    <li>绑定/解绑成功后重载这两份数据 → <code>useMemo</code> 依赖变化 → 候选卡片的灵魂徽标与「性格/说话风格」立即更新；</li>
+    <li>兜底匹配分支只在<b>提取产物没带光环</b>时生效（<code>scenario-participant-selector.ts:65-73</code>），恰好就是「刚在情景面板里绑上」的这一类角色。</li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">06</span><h2>房间视图：群聊在场感</h2></div>
+  <p class="sec-intro">只改呈现。发言顺序、轮转起点、主持人串场节奏、插话 / 续跑 / 导出 / 插入章节<b>全部保持原样</b>。</p>
+
+  <h3>新增：顶部成员条</h3>
+  <p>在现有信息条下方加一行成员徽章：每个参与者一枚「圆形头像（名字首字）+ 名字 + 灵魂小字」，主持人带徽标。作用有两个：开演前就知道这场有谁；发言时<b>当前发言者的徽章高亮</b>，形成「谁在说」的在场感。</p>
+
+  <h3>新增：稳定的角色配色</h3>
+  <p>新增纯函数模块 <code>scenario-avatar.ts</code>：</p>
+  <table>
+    <tr><th>函数</th><th>行为</th></tr>
+    <tr><td class="mono">scenarioAvatarInitial(name)</td><td>取名字首字（CJK 取第 1 个字符；空名回退 <code>?</code>）</td></tr>
+    <tr><td class="mono">scenarioSpeakerToneIndex(seed)</td><td>把 <code>speakerId</code> 稳定哈希到固定色板下标</td></tr>
+    <tr><td class="mono">SCENARIO_SPEAKER_TONES</td><td>固定色板，每项是<b>写死的</b> Tailwind 类名（如 <code>bg-rose-500/15 text-rose-700</code>），保证 Tailwind v4 的内容扫描能识别</td></tr>
+  </table>
+  <p>同一角色在同一场、以及跨场回顾时，颜色与首字都<b>保持不变</b>（纯函数 → 同一 seed 同一结果）。主持人使用固定的主色样式，不参与哈希，保持「主持人」视觉唯一。</p>
+
+  <h3>气泡改造</h3>
+  <table>
+    <tr><th>元素</th><th>改动</th></tr>
+    <tr><td>左侧头像</td><td>角色气泡左侧加圆形首字头像（底色取该角色色板）；用户气泡不加（右对齐，保持现状）</td></tr>
+    <tr><td>发言人名</td><td>用该角色的专属色替代当前统一的 <code>text-foreground/80</code></td></tr>
+    <tr><td>「正在输入…」</td><td>流式生成时，该发言人气泡头部显示 <code>×× 正在输入…</code>（替换/补充当前的纯光标闪烁），成员条同步高亮</td></tr>
+    <tr><td>思考过程 / 轮次徽标 / 系统提示</td><td class="no">不动</td></tr>
+  </table>
+
+  <h3>需要的一处类型补全</h3>
+  <pre><code>// scenario-types.ts:151-155
+export interface ScenarioStreamingState {
+  kind: ScenarioSpeakerKind
+  speakerId?: string        // ← 新增（可选，向后兼容）
+  speakerName: string
+  content: string
+}</code></pre>
+  <p><code>onMessageStart</code> 回调<b>本来就带 <code>speakerId</code></b>（<code>scenario-engine.ts:258-263</code>），只是没往流式状态里存。补上之后，流式气泡也能用与历史消息同一条路径取头像与配色（历史消息用 <code>message.speakerId</code>）。可选字段 → 旧会话数据与 store 无需迁移。</p>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">07</span><h2>模块划分</h2></div>
+  <pre><code>新增
+src/lib/novel/story-simulation/scenario-avatar.ts          纯函数：首字 + 稳定配色 + 色板常量
+src/lib/novel/story-simulation/scenario-soul-binding.ts     IO：预填小传 / 建实体页 / 尝试绑定并分类结果
+src/components/novel/story-simulation/
+  scenario-soul-bind-dialog.tsx                            灵魂选择 + 补小传确认（两态合一的弹窗）
+  scenario-character-grid.tsx                              候选角色网格（卡片 + 上台序号 + 绑定 + 主持人）
+
+改动
+src/components/novel/story-simulation/scenario-setup-panel.tsx   容器放宽、① 区换成网格、② 区加宽、标题归位
+src/components/novel/story-simulation/scenario-room-view.tsx     成员条 / 头像 / 配色 / 正在输入
+src/components/novel/story-simulation/story-simulation-view.tsx  加载 auras+bindings、传构造器选项、绑定回调
+src/lib/novel/story-simulation/scenario-types.ts                 MAX 5→10、PRESETS 常量、StreamingState 加 speakerId、类型注释更正
+src/lib/novel/character-aura.ts                                  仅把 CHARACTER_AURA_BINDING_BLOCK_MESSAGE 改为 export
+src/i18n/zh.json                                                 新文案 + 角色数量提示文案修正
+
+测试（不是生产代码，但必须同步）
+src/components/novel/story-simulation/scenario-ui-wiring.spec.ts  现有断言会因下拉框被网格取代而变红，见 10 节第 4 条</code></pre>
+
+  <div class="callout">
+    <span class="t">为什么角色网格要单独一个文件</span>
+    <p><code>scenario-setup-panel.tsx</code> 现在 713 行。加上网格、灵魂弹窗入口、自定义数量、搜索框之后会直接冲到 1100 行以上。把「候选网格」独立成哑组件（只收 props、只报事件），设置面板保留编排职责，两边都还能一次读完。</p>
+    <p><b>明确不动</b>：<code>scenario-engine.ts</code>、<code>scenario-moderator.ts</code>、<code>scenario-store.ts</code>、<code>scenario-export.ts</code>、<code>scenario-importer.ts</code>、<code>scenario-participant-selector.ts</code>、<code>story-extractor.ts</code>。</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">08</span><h2>数据流</h2></div>
+  <pre><code>进入 scenario-setup
+   │
+   ├─ 既有：按「提取章节数 # nonce」去重地跑 extractStoryContent
+   │
+   ├─ 新增：并行加载 listCharacterAuras / getCharacterAuraBindings
+   │
+   └─ scenarioCandidates = buildScenarioCandidates(extraction, { bindings, auras })
+          │
+          ├─ 点卡片 ──► selectedIds / moderatorId（面板本地状态，与现状一致）
+          │
+          └─ 点「绑定灵魂」
+                └─ bindScenarioSoul(projectPath, name, auraId)
+                      ├─ { ok: true }            ──► 重载 bindings+auras ──► 候选刷新
+                      └─ { ok: false, reason: "missing-profile" }
+                             └─ 弹补小传窗（预填 buildProfileDraftFromCandidate）
+                                   └─ createProfilePageThenBind(...)
+                                         └─ 重载 bindings+auras ──► 候选刷新
+
+开始舞台情景（以下与现状逐字一致）
+   └─ createScenarioSetup → runScenario → 回调 onMessageStart/onToken/onMessage/onProgress
+          └─ ScenarioRoomView：成员条高亮 + 头像配色 + 正在输入</code></pre>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">09</span><h2>边界与错误处理</h2></div>
+  <table>
+    <tr><th>情况</th><th>处理</th></tr>
+    <tr><td>候选 &lt; 3 人</td><td>保留现有明确报错（<code>scenarioCandidatesInsufficient</code>）：提示增加提取章节数并「重新分析角色」</td></tr>
+    <tr><td>候选 &lt; 用户选的数量（如提取 4 人、想开 5 人）</td><td>自定义输入与 3/4/5 按钮均夹取到候选数并提示；沿用现有的 <code>useEffect</code> 夹取逻辑（<code>scenario-setup-panel.tsx:130-134</code>），不静默失败</td></tr>
+    <tr><td>已选满还点未上台的卡片</td><td>给一行提示「已选满 N 人，先取消一位」，不作静默忽略</td></tr>
+    <tr><td>绑定灵魂时灵魂列表为空</td><td>空态提示：去「灵魂」页创建或导入灵魂后再来绑定（不阻断其它操作）</td></tr>
+    <tr><td>绑定失败且原因不是缺小传</td><td>原样抛出、由面板既有的错误条呈现（不吞错）</td></tr>
+    <tr><td>补小传时目标实体页已存在</td><td>跳过写入、直接绑定（绝不覆盖用户已有内容）</td></tr>
+    <tr><td>补小传写入成功但绑定失败</td><td>如实告知「已创建人物页，但绑定失败：…」；人物页保留（用户已确认要创建它）</td></tr>
+    <tr><td>解绑后</td><td>候选徽标回到「未绑定灵魂」，性格/风格回落到档案兜底（构造器内既有行为）</td></tr>
+    <tr><td>历史情景（旧数据没有 <code>speakerId</code>）</td><td>可选字段缺省时按 <code>speakerName</code> 兜底取配色，不报错</td></tr>
+    <tr><td>参与者名字重复</td><td>排序与配色按 <code>speakerId</code> 计算，不依赖名字唯一</td></tr>
+  </table>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">10</span><h2>测试与反向验证</h2></div>
+  <ol>
+    <li><b>纯函数单测</b> <code>scenario-avatar.ts</code>：CJK 首字、空名、同名同色（稳定）、不同名不同色（尽量分散）、色板下标始终在界内、主持人固定样式不参与哈希。</li>
+    <li><b>纯函数 + IO 单测</b> <code>scenario-soul-binding.ts</code>：预填正文包含名字/性格/风格/认知；空字段落成「（待补充）」；实体页格式含 <code>type: entity</code> 与 <code>tags: [character]</code>；<b>已存在文件不写入</b>；文件名安全化（<code>/</code>、<code>:</code>、<code>"</code> 等）；绑定成功 / <code>missing-profile</code> / 其它错误三种分类结果。</li>
+    <li><b>组件测试</b> <code>scenario-character-grid.tsx</code>：点卡片上台与下台；满员时点击给出提示而非静默；「绑定灵魂」只在未绑定时出现；已绑定显示灵魂名；主持人单选唯一；下台时主持人回落。</li>
+    <li><b>契约测试</b>（本仓库既有习惯，用源码断言）更新 <code>scenario-ui-wiring.spec.ts</code>：<b>该文件现有断言会因本次改动变红</b>，必须同步 —— 第 17-24 行断言 <code>toContain("&lt;select")</code> 与 <code>scenarioAddPlaceholder</code>（下拉框将被网格取代）、第 19-23 行断言角色数量与灵魂展示的接线。新断言改为：候选网格组件被引用、<code>scenarioCharacterCountCustom</code> 存在、绑定灵魂入口存在、<code>ScenarioStreamingState</code> 带 <code>speakerId</code>、房间视图渲染成员条。</li>
+    <li><b>反向验证</b>（逐条把改动拿掉，确认变红后再还原）：去掉 <code>buildScenarioCandidates</code> 的 <code>bindings/auras</code> 参数 → 「绑定后候选立即反映灵魂」红；把 <code>MAX</code> 改回 5 → 「自定义 7 可选中」红；去掉「已存在则不覆盖」→ 「不覆盖已有实体页」红；把主持人也纳入哈希配色 → 「主持人固定样式」红。</li>
+    <li><b>引擎零改动验证</b>：<code>scenario-engine.ts</code> 与 <code>scenario-moderator.ts</code> 的既有测试必须<b>全部原样通过</b>，作为「本轮没有碰生成行为」的证据。</li>
+  </ol>
+  <div class="callout warn">
+    <span class="t">纪律</span>
+    <p>每一条新守卫都必须先证明「无修复必红」。只跑一遍绿的测试不算验证——第 5 条就是为了避免假绿。</p>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">11</span><h2>明确不做（YAGNI）</h2></div>
+  <ul>
+    <li class="no">不改对话引擎：发言顺序、轮转起点、主持人串场节奏、收束全部原样</li>
+    <li class="no">不做「角色数量 ↔ 提取章节数」联动（用户在澄清中确认保持现状）</li>
+    <li class="no">不改提取逻辑（<code>story-extractor.ts</code> 只读不写的现状保留）</li>
+    <li class="no">不动主持人功能本身（用户明确说没问题）</li>
+    <li class="no">不动成本护栏（阈值 40、二次确认）</li>
+    <li class="no">不动历史情景列表、导出、插入章节、插话续跑、继续生成</li>
+    <li class="no">不做角色的增删改（新增/重命名/删除角色），那是「人物小传」页的职责</li>
+    <li class="no">不自动生成小传正文（补小传只做预填 + 用户编辑，不调模型、不消耗 token）</li>
+    <li class="no">不改左右布局（用户选的是「加群聊在场感」，不是左右分栏）</li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-head"><span class="num">12</span><h2>已销账的确认点</h2></div>
+  <p class="sec-intro">设计过程中问过的问题与用户的选择，逐条留档，便于日后回溯为什么是这样。</p>
+  <ol>
+    <li><b>角色数量怎么改</b> → 用户选「<b>保留 3/4/5 按钮，另加「自定义」输入</b>」。自定义范围由本规格定为 3–10（下限沿用既有 <code>MIN=3</code>，上限由 5 放宽到 10）。</li>
+    <li><b>提取章节数与角色数量的关系</b> → 用户选「<b>现状就好，这条不用改</b>」：提取章节数仍是独立下拉，只作为「从最近多少章里提角色」的输入范围，两者不联动。</li>
+    <li><b>「绑定灵魂」绑到什么范围</b> → 用户选「<b>写项目绑定 + 缺小传时就地引导补一份</b>」：与灵魂页绑定行为完全一致、全项目生效；缺人物小传时在情景面板就地补一份最小小传再绑。<b>本规格据此确认会新增写入 <code>wiki/entities/{角色名}.md</code> 的动作</b>（仅在文件不存在时写入）。</li>
+    <li><b>「生成形式像群组」具体指什么</b> → 用户选「<b>加「群聊在场感」</b>」：保留气泡流，增加头像 / 专属配色 / 「×× 正在输入」/ 成员条；不做左右分栏，不做气泡内角色信息卡。<b>引擎不动。</b></li>
+    <li><b>「提取的章节数量要与角色数量保持一致，这一点没有问题」的含义</b> → 经核实，现状是两者完全独立、无任何联动；用户确认按现状理解，本条不作为改动项。</li>
+    <li><b>角色数量含不含主持人</b> → 设计过程中新发现的文案/实现不一致（见 04 节）。<b>本规格按「含主持人」保留实现语义并修正文案</b>，若期望「3 个发言角色 + 额外 1 名主持人」，需改为选择 4 人，请在规格复核时指出。</li>
+  </ol>
+</section>
+
+<footer>
+  青木AI写作 · 设计规格 · 2026-10-12 · 本文件仅为规格，未改动任何生产代码
+</footer>
+</div>
+<script>
+  (function () {
+    var btn = document.getElementById('themeToggle');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var dark = document.documentElement.classList.toggle('dark');
+      try { localStorage.setItem('qmai-spec-theme', dark ? 'dark' : 'light'); } catch (e) {}
+    });
+  })();
+</script>
+</body>
+</html>

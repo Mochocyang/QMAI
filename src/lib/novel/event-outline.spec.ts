@@ -10,6 +10,7 @@ import {
   eventOutlineToProsePrompt,
   extractEventOutlineData,
   normalizeEventOutlineData,
+  splitEventPointLabel,
   stripEventOutlineDataFence,
   validateEventOutlineData,
   type EventOutlineData,
@@ -35,7 +36,7 @@ function data(overrides: Partial<EventOutlineData> = {}): EventOutlineData {
 
 /** 提示词里的 ```json 例子的类型：只需断言用到的字段。 */
 interface PromptJsonFence {
-  eventOutlineData?: { events: unknown[] }
+  eventOutlineData?: { events: Array<{ points?: string[] }>; requirement?: string }
   outlineSaveRequest?: Record<string, unknown>
 }
 
@@ -405,6 +406,52 @@ describe("buildEventOutlinePrompt", () => {
     expect(prompt).toContain(`${EVENT_OUTLINE_MIN_POINTS}~${EVENT_OUTLINE_MAX_POINTS} 条`)
   })
 
+  /*
+   * 用户 2026-10-13 第二轮反馈（四条）：
+   * 1) 减少神情/动作描写；2) 关键台词不是每个角色都有；3) 4 个事件必须连续；
+   * 4) 要突出「故事方向」的描写，而原口径只有环境/神情/台词。
+   * 提示词的口径改动全部钉在下面这几条上。
+   */
+  it("抓手以「故事推进」为首，其余按需取用", () => {
+    const prompt = buildEventOutlinePrompt(request)
+    expect(prompt).toContain("第一条固定是「故事推进」")
+    expect(prompt).toContain("故事推进（必写）")
+    expect(prompt).toContain("冲突与转折")
+    expect(prompt).toContain("环境与物件（有用才写）")
+    expect(prompt).toContain("伏笔或钩子")
+  })
+
+  it("关键台词改成「有才写」，不是每个事件、每个角色都有", () => {
+    const prompt = buildEventOutlinePrompt(request)
+    expect(prompt).toContain("关键台词（有才写）")
+    expect(prompt).toContain("不是每个事件都有台词")
+    expect(prompt).toContain("也不是每个出场角色都有关键台词")
+    // 旧口径把「关键台词」当成默认抓手之一，已删干净
+    expect(prompt).not.toContain("例如关键台词、人物神情与动作")
+  })
+
+  it("不再要求人物神情/动作，只要求故事推进", () => {
+    const prompt = buildEventOutlinePrompt(request)
+    expect(prompt).toContain("不要写人物神情、表情、神态和细微小动作")
+    expect(prompt).toContain("不要只写氛围、环境或人物状态")
+    // 抓手示例里不能再出现「神情动作」，否则等于继续教模型写神态
+    expect(prompt).not.toContain("神情动作")
+  })
+
+  it("强调事件连续性与整章故事主线", () => {
+    const prompt = buildEventOutlinePrompt(request)
+    expect(prompt).toContain("先说清它承接上一个事件的什么结果")
+    expect(prompt).toContain("起因 → 发展 → 转折 → 收束")
+    expect(prompt).toContain("不是几个互不相干的片段")
+  })
+
+  it("示例 JSON 的抓手按故事向口径给出", () => {
+    const fences = promptJsonFences(buildEventOutlinePrompt(request))
+    const points = fences[0].eventOutlineData?.events[0]?.points ?? []
+    expect(points[0]).toContain("故事推进")
+    expect(points.join("")).not.toContain("神情动作")
+  })
+
   it("事件数为 0 时回落到默认事件数，不产生 Infinity", () => {
     const prompt = buildEventOutlinePrompt({ ...request, eventCount: 0 })
     expect(prompt).not.toContain("Infinity")
@@ -596,5 +643,95 @@ describe("stripEventOutlineDataFence", () => {
 
   it("没有围栏时原样返回（不做任何猜测式剥离）", () => {
     expect(stripEventOutlineDataFence("只有正文。")).toBe("只有正文。")
+  })
+
+  /*
+   * 用户 2026-10-13 实测：气泡里直接铺着一段**没有围栏**的 eventOutlineData JSON
+   * （连代码块都不是）。提示词要求了围栏，但模型确实会漏写，所以剥围栏之外还要能
+   * 认出裸 JSON —— 否则那一段会永远露在气泡里。
+   */
+  it("模型漏写围栏时，裸的 eventOutlineData JSON 一样摘掉", () => {
+    const content = [
+      "# 事件细纲 · 第20章 活着的那个",
+      "",
+      "## 事件1 废车场雨夜伏击",
+      "- 环境物件：翻倒的货车残骸",
+      "",
+      JSON.stringify({ eventOutlineData: data() }, null, 2),
+    ].join("\n")
+
+    const stripped = stripEventOutlineDataFence(content)
+    expect(stripped).toContain("## 事件1 废车场雨夜伏击")
+    expect(stripped).not.toContain("eventOutlineData")
+    expect(stripped).not.toContain("{")
+  })
+
+  it("正文里提到花括号、但没有可解析的细纲对象时不误删", () => {
+    const content = "判断如下：结构可以写成 {\"a\": 1} 这样，但这一步不给数据。"
+    expect(stripEventOutlineDataFence(content)).toBe(content)
+  })
+})
+
+/*
+ * 抓手的两列排版：模型把每条抓手写成「类别：一长段话」，类别词是有限的那几个
+ * （故事推进 / 冲突与转折 / 关键台词 / 环境与物件 / 伏笔或钩子，以及 2026-10-13
+ * 之前的旧口径 环境物件 / 神情动作 / 推进与收束）。卡片据此分成两列 ——
+ * 白名单之外的前缀**不拆**，整行原样显示，避免把一个正常句子误拆成两列。
+ */
+describe("splitEventPointLabel", () => {
+  it("认得出当前故事向口径的类别词", () => {
+    expect(splitEventPointLabel("故事推进：楚白用令牌脱身，惊动了城门口的守卫。")).toEqual({
+      label: "故事推进",
+      text: "楚白用令牌脱身，惊动了城门口的守卫。",
+    })
+    expect(splitEventPointLabel("冲突与转折：追兵撞见了他藏在袖中的手。")).toEqual({
+      label: "冲突与转折",
+      text: "追兵撞见了他藏在袖中的手。",
+    })
+    expect(splitEventPointLabel("伏笔或钩子：那枚令牌背面还刻着半个名字。")).toEqual({
+      label: "伏笔或钩子",
+      text: "那枚令牌背面还刻着半个名字。",
+    })
+  })
+
+  it("旧口径的类别词仍认（历史细纲照旧排两列）", () => {
+    expect(splitEventPointLabel("环境物件：翻倒货车残骸、重油烧灼泥地。")).toEqual({
+      label: "环境物件",
+      text: "翻倒货车残骸、重油烧灼泥地。",
+    })
+    expect(splitEventPointLabel("关键台词：杨震神色阴冷如冰：「找了我十年。」")).toEqual({
+      label: "关键台词",
+      text: "杨震神色阴冷如冰：「找了我十年。」",
+    })
+    expect(splitEventPointLabel("推进与收束：全歼前哨追捕小队。")).toEqual({
+      label: "推进与收束",
+      text: "全歼前哨追捕小队。",
+    })
+  })
+
+  it("半角冒号与冒号后的空格都认", () => {
+    expect(splitEventPointLabel("神情动作: 她手一抖")).toEqual({ label: "神情动作", text: "她手一抖" })
+  })
+
+  /*
+   * 「杨震的神色：阴冷如冰」的冒号前是 5 个字、也全是中文 ——
+   * 若按「冒号前不超过 8 个字就算类别」来拆，这种正常句子会被误拆出一列类别。
+   */
+  it("白名单之外的冒号不拆（不把正常句子误当成类别）", () => {
+    expect(splitEventPointLabel("杨震的神色：阴冷如冰")).toEqual({
+      label: "",
+      text: "杨震的神色：阴冷如冰",
+    })
+  })
+
+  it("没有冒号时整条当正文，且一个字都不改", () => {
+    expect(splitEventPointLabel(" 令牌亮起，院外传来脚步声。 ")).toEqual({
+      label: "",
+      text: "令牌亮起，院外传来脚步声。",
+    })
+  })
+
+  it("只有类别没有正文时不拆（不留一个空正文列）", () => {
+    expect(splitEventPointLabel("环境物件：")).toEqual({ label: "", text: "环境物件：" })
   })
 })

@@ -2,8 +2,10 @@ import { useId, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { CustomIdeaSection } from "@/components/chat/custom-idea-section"
 import {
   eventOutlineToProsePrompt,
+  splitEventPointLabel,
   validateEventOutlineData,
   type EventOutlineData,
 } from "@/lib/novel/event-outline"
@@ -37,6 +39,19 @@ interface EventOutlineCardProps {
    * （也就不会有「组件重挂后忘了把标志复位」这第二种 bug）。
    */
   onDiscard?: () => void
+  /**
+   * 共创这一轮判了「前文不足以推演」的原因（原话照抄 `judgment`）。
+   *
+   * 用户 2026-10-13 的要求：这种场合下模型往往**顺手把整章细纲也给了出来**
+   * （只是没给多向分支），于是屏幕上会并排出现「一张能用的细纲卡」和「一张说
+   * 前文不足的琥珀卡」，两张卡还各带一枚「换一批」，用户不知道按哪个。
+   * 现在改成只留细纲这一张：原因以一行小字并入卡内，动作也合并到**同一条动作行**里。
+   */
+  discussNote?: string
+  /** 共创「换一批」：按上一批判断重新推演一批走向。与 onRegenerate 是两件事。 */
+  onDiscussRegenerate?: () => void
+  /** 共创「其他想法」：作者自己写的走向，交给 AI 按它重新推演。 */
+  onDiscussCustomIdea?: (idea: string) => void | Promise<void>
 }
 
 /**
@@ -72,7 +87,7 @@ interface EventOutlineCardProps {
  * 手改改坏了就把主 CTA 抽掉，用户只会以为「功能没了」，也无从知道该改回什么。
  * 这是实施计划 §3b 第 3 条要求的**显式决定**，不是偶然行为。
  */
-export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOutline, onDiscard }: EventOutlineCardProps) {
+export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOutline, onDiscard, discussNote, onDiscussRegenerate, onDiscussCustomIdea }: EventOutlineCardProps) {
   const validation = useMemo(() => validateEventOutlineData(data), [data])
   const perEventWords = data.events.length > 0 ? Math.round(data.targetWords / data.events.length) : 0
   /*
@@ -82,6 +97,13 @@ export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOut
    */
   const problemsId = `${useId()}event-outline-problems`
   const [editing, setEditing] = useState(false)
+  /*
+   * 「其他想法」的内联输入态。与 chapter-discuss-card 共用 `CustomIdeaSection`，
+   * 所以这几个状态与提交中的互斥判断也照那一份写：同一枚按钮在两处行为必须一致。
+   */
+  const [customOpen, setCustomOpen] = useState(false)
+  const [customText, setCustomText] = useState("")
+  const [customSubmitting, setCustomSubmitting] = useState(false)
 
   if (editing && onSaveOutline) {
     return (
@@ -106,14 +128,60 @@ export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOut
         </span>
       </div>
 
-      <ol className="space-y-2">
+      {/*
+        共创判「前文不足以推演」的原因并入本卡（不再单独长出一张琥珀卡）。
+        措辞说明它「不影响这份细纲可用」：用户上一次看到的是一张说前文不足的卡，
+        很容易以为这份细纲也不能用，而事实相反 —— 它整份都是可写的。
+      */}
+      {discussNote ? (
+        <div
+          data-event-outline-discuss-note
+          className="mb-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-2 py-1.5 text-xs leading-5 text-muted-foreground"
+        >
+          <span className="font-medium text-amber-700 dark:text-amber-300">
+            共创这一轮判了「前文不足以推演」
+          </span>
+          <span className="mx-1">—</span>
+          {discussNote}
+          <span className="ml-1">这份细纲仍然可以直接拿来写这一章。</span>
+        </div>
+      ) : null}
+
+      <ol className="mt-2 space-y-2">
         {data.events.map((event) => (
-          <li key={event.id} className="rounded border-l-2 border-primary/40 pl-2">
-            <div className="font-medium">{event.id}. {event.title}</div>
-            <ul className="mt-0.5 space-y-0.5 text-xs text-muted-foreground">
-              {event.points.map((point, index) => (
-                <li key={`${event.id}-${index}`}>· {point}</li>
-              ))}
+          <li key={event.id} className="rounded-md border border-border/60 bg-muted/20 px-2 py-1.5">
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xs font-semibold text-primary/70">{event.id}</span>
+              <span className="text-sm font-medium leading-5">{event.title}</span>
+            </div>
+            {/*
+              抓手按「类别列 + 正文列」排：模型把故事推进/冲突与转折/关键台词等都写成
+              「类别：一长段话」，平铺成 `· 长段话` 会挤成一大片（用户 2026-10-13
+              反馈「非常乱」）。类别列宽度固定，正文列自然换行，几类一眼能对齐。
+              认不出的类别整行铺满，一个字都不改（见 splitEventPointLabel）。
+            */}
+            <ul className="mt-1 space-y-1">
+              {event.points.map((point, index) => {
+                const parts = splitEventPointLabel(point)
+                return (
+                  <li
+                    key={`${event.id}-${index}`}
+                    data-event-outline-point
+                    className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-start gap-x-2 text-xs leading-5"
+                  >
+                    <span className="pt-px">
+                      {parts.label ? (
+                        <span className="inline-block whitespace-nowrap rounded bg-muted px-1 text-[0.6875rem] text-muted-foreground">
+                          {parts.label}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="min-w-0 whitespace-pre-wrap break-words text-foreground/90">
+                      {parts.text}
+                    </span>
+                  </li>
+                )
+              })}
             </ul>
           </li>
         ))}
@@ -215,6 +283,33 @@ export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOut
               用这份细纲写这一章
             </Button>
           </>
+        ) : null}
+        {/*
+          共创判「前文不足以推演」时，把「换一批」「其他想法」并进**同一条动作行**：
+          原先它们是另一张琥珀卡上的两枚按钮，与这张卡的「用这份细纲写这一章」并排，
+          用户得先猜「哪张卡才是现在该按的」。合并之后三条动作挨着，路径唯一。
+          各自的回调没接线就不渲染（与上面几枚入口同一套契约）。
+        */}
+        {onDiscussRegenerate ? (
+          <Button type="button" variant="outline" size="sm" onClick={onDiscussRegenerate}>
+            换一批
+          </Button>
+        ) : null}
+        {onDiscussCustomIdea ? (
+          <CustomIdeaSection
+            open={customOpen}
+            value={customText}
+            onOpenChange={setCustomOpen}
+            onValueChange={setCustomText}
+            onSubmit={() => {
+              const idea = customText.trim()
+              if (!idea || customSubmitting) return
+              setCustomSubmitting(true)
+              void Promise.resolve(onDiscussCustomIdea(idea)).finally(() => setCustomSubmitting(false))
+            }}
+            disabled={false}
+            submitting={customSubmitting}
+          />
         ) : null}
         {onDiscard ? (
           <button
