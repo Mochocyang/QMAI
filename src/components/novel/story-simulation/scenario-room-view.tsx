@@ -190,12 +190,23 @@ export function ScenarioRoomView({
                   </span>
                   <span className={cn("font-medium", tone.nameClass)}>{p.name}</span>
                   {soulName && (
-                    <span
-                      data-testid="scenario-member-soul"
-                      className="text-[0.625rem] text-muted-foreground"
-                    >
-                      {soulName}
-                    </span>
+                    <>
+                      {/*
+                        分隔符只给屏幕阅读器一个停顿：没有它，名字与灵魂名是
+                        两个紧邻的 span，DOM 里连空白文本节点都没有，读屏会把
+                        「甲」+「游侠」连读成「甲游侠」。aria-hidden 让它对视觉
+                        与无障碍名都不产生新语义，也就不需要新增文案 key。
+                      */}
+                      <span aria-hidden="true" className="text-muted-foreground">
+                        ·
+                      </span>
+                      <span
+                        data-testid="scenario-member-soul"
+                        className="text-[0.625rem] text-muted-foreground"
+                      >
+                        {soulName}
+                      </span>
+                    </>
                   )}
                   {p.isModerator && (
                     <span className="text-muted-foreground">

@@ -29,7 +29,8 @@ describe("舞台情景 · 设置面板接线", () => {
     expect(src).toContain("SCENARIO_CHARACTER_PRESETS")
     expect(src).toContain("clampScenarioCharacterCount")
     expect(src).toContain("<ScenarioCharacterGrid")
-    // 角色下拉已被网格取代；<select> 只剩「提取章节数」这一个，不再是选人用的
+    // 「添加角色」那个下拉已被网格取代。剩下的 <select> 有三个，都不是用来
+    // 「挑选候选角色上台」的：提取章节数、由谁担任主持人、主持串场间隔。
     expect(src).not.toContain("storySimulation.scenarioAddPlaceholder")
     expect(src).not.toContain("storySimulation.scenarioNoSoul")
   })

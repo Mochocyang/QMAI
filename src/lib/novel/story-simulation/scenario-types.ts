@@ -163,9 +163,10 @@ export interface ScenarioStreamingState {
    * 引擎的 onMessageStart 本来就带 speakerId，只是此前没往这里存，
    * 导致流式气泡拿不到「是哪个角色」，没法给它上头像与专属配色。
    *
-   * 之所以可选而不是必填：目前唯一的构造点在 story-simulation-view.tsx，
-   * 而那个文件不在本次改动范围内（由后续接线任务补上 `speakerId`）。
-   * 设为必填会立刻改红范围外的文件。消费方在它缺席时用 speakerName 兜底。
+   * 之所以可选而不是必填：这是给既有类型加字段，做成必填会让所有构造点
+   * （含测试与任何第三方调用方）一起改红。唯一的构造点
+   * story-simulation-view.tsx 已经真的写入了它。
+   * 消费方（房间视图）在它缺席或为空时用 speakerName 兜底取配色。
    * 注意这个状态不入库：store 与 scenario-store 都不序列化它。
    */
   speakerId?: string

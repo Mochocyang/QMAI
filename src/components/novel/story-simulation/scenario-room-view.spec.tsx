@@ -570,6 +570,42 @@ describe("ScenarioRoomView · 成员条的灵魂小字", () => {
     expect(soulOf(chipA)?.getAttribute("role")).toBeNull()
   })
 
+  it("名字与灵魂名之间有 aria-hidden 分隔符，避免读屏连读成「甲游侠」", () => {
+    render(
+      withParticipants(session([msg({})]), [
+        { id: "甲", name: "甲", isModerator: false, auraName: "游侠" },
+      ]),
+    )
+
+    const chip = memberChip("甲")
+    expect(chip).not.toBeNull()
+
+    // 灵魂小字本身仍只承载灵魂名：分隔符必须是它的兄弟节点，不能混进去
+    expect(soulOf(chip)?.textContent).toBe("游侠")
+
+    // 两个文本 span 之间必须真的有个分隔符元素；纯视觉的空白节点不算
+    const sep = Array.from(chip?.children ?? []).find(
+      (el) => el.getAttribute("aria-hidden") === "true",
+    )
+    expect(sep).toBeTruthy()
+    expect(sep?.textContent).toBe("·")
+    // 它不能给无障碍名添字，否则等于偷偷加了前缀
+    expect(sep?.getAttribute("aria-label")).toBeNull()
+  })
+
+  it("没绑灵魂的成员既不渲染灵魂小字，也不出现分隔符", () => {
+    render(
+      withParticipants(session([msg({})]), [
+        { id: "甲", name: "甲", isModerator: false, auraName: null },
+      ]),
+    )
+
+    const chip = memberChip("甲")
+    expect(chip).not.toBeNull()
+    // 没绑灵魂时名字后面不该多出一个孤零零的「·」
+    expect(chip?.textContent).not.toContain("·")
+  })
+
   it("没绑灵魂的成员不渲染任何灵魂小字（连空壳都不留）", () => {
     render(
       withParticipants(session([msg({})]), [
