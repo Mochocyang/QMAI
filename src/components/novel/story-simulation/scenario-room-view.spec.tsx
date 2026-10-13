@@ -13,6 +13,7 @@ import {
   type ScenarioSetup,
   type ScenarioStreamingState,
 } from "@/lib/novel/story-simulation/scenario-types"
+import { SCENARIO_SPEAKER_TONES } from "@/lib/novel/story-simulation/scenario-avatar"
 
 ;(
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -309,6 +310,24 @@ function avatarOf(speakerId: string): HTMLElement | null {
   return findBySpeakerId("scenario-avatar", speakerId)
 }
 
+/**
+ * 气泡里的头像。
+ *
+ * 不能直接用 avatarOf：成员条渲染在对话流之前，同一个 speakerId 会先命中
+ * 成员条上的那个头像。所以范围限定在气泡内，再逐个比对 dataset.speakerId
+ * （理由同 findBySpeakerId：不用属性选择器，任何名字都安全）。
+ */
+function bubbleAvatarOf(speakerId: string): HTMLElement | null {
+  for (const el of container.querySelectorAll(
+    '[data-testid="scenario-bubble"] [data-testid="scenario-avatar"]',
+  )) {
+    if ((el as HTMLElement).dataset.speakerId === speakerId) {
+      return el as HTMLElement
+    }
+  }
+  return null
+}
+
 function streamingState(
   over: Partial<ScenarioStreamingState> = {},
 ): ScenarioStreamingState {
@@ -347,15 +366,40 @@ describe("ScenarioRoomView · 群聊在场感", () => {
     expect(avatarOf("甲")?.className).not.toContain("bg-primary/15")
   })
 
+  it("主持人的历史气泡也用固定主色，而不是被当成普通角色散列配色", () => {
+    // 上面那条只看成员条（走 p.isModerator 这条独立分支），气泡里的
+    // scenarioSpeakerTone(message.speakerId, isModerator) 完全没人守：
+    // 把 isModerator 传成 false，22 条全绿也不响一声。
+    render(
+      session([
+        msg({
+          kind: "moderator",
+          speakerId: SCENARIO_MODERATOR_USER_ID,
+          speakerName: SCENARIO_MODERATOR_USER_NAME,
+        }),
+      ]),
+    )
+
+    const avatar = bubbleAvatarOf(SCENARIO_MODERATOR_USER_ID)
+    expect(avatar).not.toBeNull()
+    expect(avatar?.className).toContain("bg-primary/15")
+    // 主持人不能落进角色色板，否则「这句是串场」就认不出来了
+    for (const tone of SCENARIO_SPEAKER_TONES) {
+      expect(avatar?.className).not.toContain(tone.avatarClass)
+    }
+  })
+
   it("同一角色在成员条与气泡里的头像配色一致", () => {
     render(session([msg({ content: "天命之谓性。" })]))
 
     const chipAvatar = memberChip("甲")?.querySelector(
       '[data-testid="scenario-avatar"]',
     )
-    const bubbleAvatar = container.querySelector(
-      '[data-testid="scenario-bubble"] [data-testid="scenario-avatar"][data-speaker-id="甲"]',
-    )
+    // 这里原来写的是内联的 `[data-speaker-id="甲"]`：当前系统里角色 id 恰好
+    // 等于角色名（story-extractor 的 character.id 直接来自 name），所以今天
+    // 能过；名字里一旦带双引号或反斜杠，属性选择器就会失配甚至抛错。
+    // 换成遍历比较只是测试侧的健壮性，断言不变，产品行为也没有任何改变。
+    const bubbleAvatar = bubbleAvatarOf("甲")
     expect(bubbleAvatar).not.toBeNull()
     // 两处的尺寸类名不同（成员条 h-4、气泡 h-7），只比底色
     const bgOf = (el: Element | null | undefined) =>

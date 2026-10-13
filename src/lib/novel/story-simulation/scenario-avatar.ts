@@ -16,7 +16,12 @@
 
 /** 名字首字（用于圆形头像）。 */
 export function scenarioAvatarInitial(name: string): string {
-  const trimmed = name.trim()
+  // 签名上明明是 string 还要兜：持久化的情景 JSON 只校验了 messages 是数组、
+  // 不逐条校验每个字段（见 scenario-store 的 loadScenarios），所以旧数据、手工
+  // 改过的文件、或将来字段改名后的存量数据里，speakerName 可能整个键都不存在。
+  // 房间视图渲染每个气泡都会走到这里，直接 .trim() 就是一屏白。
+  // String(name ?? "") 对合法输入逐字不变，只是把「抛错」换成「回退为问号」。
+  const trimmed = String(name ?? "").trim()
   if (!trimmed) return "?"
   // 用码点数组而不是 charAt：代理对（如 emoji）不会被截成半个字符。
   // 已知局限：国旗（如 🇨🇳）与 ZWJ 家庭 emoji 按码点切会取到不完整的一个码点。
@@ -91,7 +96,10 @@ export const SCENARIO_MODERATOR_TONE: ScenarioSpeakerTone = {
  * 避免「首字正确、颜色却取决于有没有空格」这种不一致。
  */
 export function scenarioSpeakerToneIndex(seed: string): number {
-  const text = seed.trim()
+  // 与 scenarioAvatarInitial 同一个原因要兜脏持久化数据：speakerId 可能整个键
+  // 都不存在，而房间视图渲染每个气泡都调这里。根因在公共入口，所以修在这里 ——
+  // 成员条、气泡、以及将来任何新调用方就都不必各自防一遍。
+  const text = String(seed ?? "").trim()
   let hash = 0
   for (const ch of text) {
     // *31 + 码点：hash 始终小于 2^37，Number 精度足够，>>>0 截成 32 位无符号

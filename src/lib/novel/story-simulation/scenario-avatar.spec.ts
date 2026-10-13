@@ -27,6 +27,14 @@ describe("scenarioAvatarInitial", () => {
   it("不把代理对（emoji）截成半个字符", () => {
     expect(scenarioAvatarInitial("🐉龙")).toBe("🐉")
   })
+
+  it("缺字段的脏数据（undefined / null）回退为问号，不抛 TypeError", () => {
+    // 签名上是 string，但持久化的情景 JSON 只校验了 messages 是数组、
+    // 不逐条校验每个字段（见 scenario-store 的 loadScenarios）。旧数据或手工
+    // 改过的文件里缺 speakerName 键时，渲染气泡就会拿到 undefined。
+    expect(scenarioAvatarInitial(undefined as unknown as string)).toBe("?")
+    expect(scenarioAvatarInitial(null as unknown as string)).toBe("?")
+  })
 })
 
 describe("scenarioSpeakerToneIndex", () => {
@@ -66,6 +74,17 @@ describe("scenarioSpeakerTone", () => {
 
   it("色板每一项的头像与名字类名都非空", () => {
     for (const tone of SCENARIO_SPEAKER_TONES) {
+      expect(tone.avatarClass.length).toBeGreaterThan(0)
+      expect(tone.nameClass.length).toBeGreaterThan(0)
+    }
+  })
+
+  it("seed 是脏数据（undefined / null / 空串）时仍返回一个合法配色，不抛 TypeError", () => {
+    // 与 scenarioAvatarInitial 同一个原因：speakerId 在脏持久化数据里可能整个键
+    // 都不存在。房间视图渲染每个气泡都要调这里，一抛就是整屏白。
+    for (const seed of [undefined, null, ""] as unknown as string[]) {
+      const tone = scenarioSpeakerTone(seed, false)
+      expect(SCENARIO_SPEAKER_TONES).toContain(tone)
       expect(tone.avatarClass.length).toBeGreaterThan(0)
       expect(tone.nameClass.length).toBeGreaterThan(0)
     }
