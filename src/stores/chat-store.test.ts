@@ -13,6 +13,7 @@ beforeEach(() => {
     streamingContents: {},
     runStates: {},
     pendingReferenceTokens: [],
+    pendingComposerSend: null,
     mode: "chat",
     ingestSource: null,
     maxHistoryMessages: 20,
@@ -249,5 +250,40 @@ describe("chat-store", () => {
     useChatStore.getState().finishConversationRun(id, null, "run-deleted")
     useChatStore.getState().failConversationRun(id, "旧任务失败", "run-deleted")
     expect(useChatStore.getState().runStates[id]).toBeUndefined()
+  })
+})
+
+/*
+ * 章节区「生成章节细纲」投进来的那条队列。
+ *
+ * 它存在的前提是发起方与执行方是两个组件、且执行方可能**还没挂载**，
+ * 所以「取走即清空」与「后到覆盖先到」这两条语义都是契约，不是实现细节：
+ * 前者保证同一条请求不会被发两轮（烧两次钱），后者保证用户最后一次意图一定被执行。
+ */
+describe("chat-store 外部发送队列（pendingComposerSend）", () => {
+  it("初始为空", () => {
+    expect(useChatStore.getState().pendingComposerSend).toBeNull()
+  })
+
+  it("投递后可取出，且取走即清空（同一条请求不会被发两次）", () => {
+    useChatStore.getState().requestComposerSend({ text: "完整提示词", displayText: "给用户看的一句" })
+
+    const first = useChatStore.getState().consumeComposerSend()
+    expect(first).toEqual({ text: "完整提示词", displayText: "给用户看的一句" })
+    expect(useChatStore.getState().pendingComposerSend).toBeNull()
+    expect(useChatStore.getState().consumeComposerSend()).toBeNull()
+  })
+
+  it("后一次投递覆盖前一次，而不是排队", () => {
+    useChatStore.getState().requestComposerSend({ text: "第一次", displayText: "第一次" })
+    useChatStore.getState().requestComposerSend({ text: "第二次", displayText: "第二次" })
+
+    expect(useChatStore.getState().consumeComposerSend()).toEqual({ text: "第二次", displayText: "第二次" })
+    expect(useChatStore.getState().pendingComposerSend).toBeNull()
+  })
+
+  it("取空队列是 no-op（不写状态、不抛错）", () => {
+    expect(useChatStore.getState().consumeComposerSend()).toBeNull()
+    expect(useChatStore.getState().pendingComposerSend).toBeNull()
   })
 })

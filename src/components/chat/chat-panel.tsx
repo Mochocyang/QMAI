@@ -946,6 +946,13 @@ export function ChatPanel() {
   const setConversationInputDraft = useChatStore((s) => s.setConversationInputDraft)
   const pendingReferenceTokens = useChatStore((s) => s.pendingReferenceTokens)
   const consumePendingReferenceTokens = useChatStore((s) => s.consumePendingReferenceTokens)
+  /*
+   * 章节区投递过来的「生成章节细纲」请求（见 chat-store 的 PendingComposerSend）。
+   *
+   * 订阅式读取而不是靠事件：请求可能在**本组件还没挂载**时投递（写作助手栏当时是收起的），
+   * 这时只有「挂载后从 store 里读一次」才接得住。
+   */
+  const pendingComposerSend = useChatStore((s) => s.pendingComposerSend)
   const outlineConversations = useOutlineChatStore((s) => s.conversations)
   // Derive active messages via selector to re-render on message changes
   // 使用 useShallow 避免过滤数组返回新引用导致 useSyncExternalStore 无限重渲染（Zustand v5）
@@ -2927,6 +2934,27 @@ export function ChatPanel() {
     ],
   )
   handleSendRef.current = handleSend
+
+  /**
+   * 把章节区投递的「生成章节细纲」请求发出去。
+   *
+   * 三个要点：
+   * 1. **先取后发**（consume 在 handleSend 之前）：handleSend 是个长流程，里面还有
+   *    多个 await；不先清空队列的话，期间任何一次重渲染（依赖数组变化）都会再消费一次
+   *    同一条请求，同一个提示词被发两轮、烧两次钱。
+   * 2. **有会话在生成时先不发**：这条请求是一条**新的**用户消息，插进正在跑的轮次里
+   *    会和它抢同一个会话。不消费即可 —— 流式状态是依赖项，等那一轮收尾后本 effect
+   *    会重跑并把请求发出去，用户点的那一次不会丢。
+   * 3. `displayText` 走 handleSend 的第三参：提示词有几十行，原样铺进气泡会淹掉对话；
+   *    模型收到的仍是完整提示词（第一参）。
+   */
+  useEffect(() => {
+    if (!pendingComposerSend) return
+    if (Object.keys(streamingContents).length > 0) return
+    const payload = useChatStore.getState().consumeComposerSend()
+    if (!payload) return
+    void handleSendRef.current(payload.text, [], payload.displayText)
+  }, [pendingComposerSend, streamingContents])
 
   const handleStop = useCallback(() => {
     const convId = useChatStore.getState().activeConversationId

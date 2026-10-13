@@ -303,6 +303,35 @@ describe("prompt builders", () => {
     expect(prompt).toContain("第3章")
     expect(prompt).toContain("chapter_discuss")
   })
+
+  /*
+   * 用户 2026-10-13 反馈：共创给出的「后续走向」AI 味太重——介绍里全是
+   * 「编号派实战杀器」「战时编号器测试母片」这类生造名词，标题写成「雷霆碎锁」这样的
+   * 四字对仗，读一眼就知道是 AI 写的。用户要的是「用初中生/小学生都能懂的大白话，
+   * 只讲清楚故事怎么发展」。
+   *
+   * 这几条守卫钉的是**可执行的约束词**，不是「不要 AI 腔」这种空话：语言水平、
+   * 禁自造名词、禁四字对仗标题，且必须给出正反两个例子（模型照着例子写）。
+   * 任一环节（主规则 / 换一批 / 其他想法 / 补协议）漏掉，重推的那一批就会退回 AI 腔。
+   */
+  it("要求方向介绍用大白话：禁自造名词、禁四字对仗标题", () => {
+    const rules = buildChapterDiscussPhaseSystemRules("第3章")
+    expect(rules).toContain("大白话")
+    expect(rules).toContain("禁止自造名词")
+    expect(rules).toContain("初中生读一遍就懂")
+    // 反面例子（对仗标题）与正面例子（一句话标题）都要在，否则模型不知道写成什么样才对
+    expect(rules).toContain("雷霆碎锁")
+    expect(rules).toContain("藏起来，然后反杀回收队")
+  })
+
+  it("换一批与其他想法都要重申大白话，避免重推时回到 AI 腔", () => {
+    const reroll = buildChapterDiscussRegeneratePrompt({ module: "第3章", previous: [] })
+    expect(reroll).toContain("大白话")
+    expect(reroll).toContain("不要自造名词")
+    const custom = buildChapterDiscussCustomPrompt({ module: "第3章", idea: "节奏压下来" })
+    expect(custom).toContain("大白话")
+    expect(custom).toContain("不要自造名词")
+  })
 })
 
 describe("repair helpers", () => {
@@ -320,5 +349,11 @@ describe("repair helpers", () => {
     expect(messages[0].content).toContain(CHAPTER_DISCUSS_MARKER_CLOSE)
     expect(messages[0].content).toContain("不要复述原回复")
     expect(messages[0].content).not.toContain("原样保留")
+  })
+
+  it("补协议轮也必须把介绍改回大白话，否则补出来的仍是 AI 腔", () => {
+    const messages = buildChapterDiscussRepairMessages({ content: "一".repeat(200), module: "第3章" })
+    expect(messages[0].content).toContain("大白话")
+    expect(messages[0].content).toContain("禁止自造名词")
   })
 })

@@ -3645,9 +3645,15 @@ describe("事件细纲接线", () => {
   })
 
   it("交接时展开写作面：草稿不能落进被折叠的输入框", () => {
-    // 写作面只在 chatExpanded 为 true 时渲染 ChatPanel，而助手的「关闭写作助手」会把它置 false。
-    // 不主动展开的话，草稿填进一个看不见的输入框，toast 却还在说「已填进写作输入框」。
-    expect(source).toMatch(/onWriteChapter=\{\(prompt\) => \{[\s\S]{0,1200}?setChatExpanded\(true\)/)
+    /*
+     * 交接逻辑已从面板里内联的那一段抽成共享模块 `event-outline-handoff.ts`：
+     * 同一张卡片在写作助手（chat-message.tsx）里也有宿主，两处必须落在**同一个**
+     * 写作输入框上，各写一份必然漂移。所以这条断言跟着搬了两处：
+     * 面板确实调用那个共享函数 + 共享函数里确实展开了写作面。
+     */
+    expect(source).toContain("onWriteChapter={handoffEventOutlineToProse}")
+    const handoff = readFileSync(resolve(__dirname, "../../lib/novel/event-outline-handoff.ts"), "utf8")
+    expect(handoff, "不展开写作面，草稿会落进一个看不见的输入框").toMatch(/setChatExpanded\(true\)/)
   })
 
   it("交接时追加已有草稿而不是覆盖，并如实提示「追加」", async () => {

@@ -85,7 +85,8 @@ export function EventOutlineWizardDialog({
         <DialogHeader>
           <DialogTitle>生成章节细纲</DialogTitle>
           <DialogDescription>
-            把这一章拆成 4~8 个连续事件，每个事件给一句话与可直接落笔的细节抓手；确认后即可扩写成正文。
+            把这一章拆成 4~8 个连续事件，每个事件给一句话与可直接落笔的细节抓手；提交后会在
+            AI 对话里生成，结果显示在对话框中。
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>

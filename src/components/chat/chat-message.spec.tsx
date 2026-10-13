@@ -384,3 +384,75 @@ describe("生成期间始终显示等待文案", () => {
     expect(hintIndex).toBeGreaterThan(contentIndex)
   })
 })
+
+/*
+ * 事件细纲：章节工具栏那枚「生成章节细纲」现在把请求发进 AI 对话
+ * （用户要求「生成的内容在 AI 对话框中显示」），所以写作助手这一侧也必须
+ * 认得出细纲并把裸 JSON 收起来 —— 否则用户看到的是一大坨 `eventOutlineData`。
+ */
+describe("事件细纲卡片（写作助手侧）", () => {
+  const outline = {
+    version: 1,
+    chapterNumber: 12,
+    title: "第12章 · 令牌初现",
+    targetWords: 3000,
+    events: [1, 2, 3, 4].map((id) => ({
+      id,
+      title: `事件${id} 一句话事件`,
+      points: ["关键台词：你来啦", "神情动作：她手一抖"],
+    })),
+    endingHook: "令牌上的四个字亮起时，院外传来脚步声。",
+  }
+
+  const assistantWithOutline = (patch: Partial<DisplayMessage> = {}): DisplayMessage => ({
+    id: "msg-event-outline",
+    role: "assistant",
+    content: [
+      "# 事件细纲 · 第12章 令牌初现",
+      "",
+      "## 事件1 楚白翻出令牌",
+      "- 关键台词：你来啦",
+      "",
+      "```json",
+      JSON.stringify({ eventOutlineData: outline }),
+      "```",
+    ].join("\n"),
+    timestamp: 1,
+    conversationId: "conv-1",
+    ...patch,
+  })
+
+  it("把 eventOutlineData 渲染成卡片，并且不再显示裸 JSON", () => {
+    const html = renderToStaticMarkup(<ChatMessage message={assistantWithOutline()} />)
+
+    expect(html).toContain("data-event-outline-card")
+    expect(html).toContain("第12章 · 令牌初现")
+    expect(html).toContain("用这份细纲写这一章")
+    // 卡片已经把同一份数据渲染成可读结构，围栏里的裸 JSON 是纯噪声。
+    expect(html).not.toContain("eventOutlineData")
+  })
+
+  it("生成过程中不解析：逐 token 重渲染时不做括号配平，卡片等收尾后再出", () => {
+    const html = renderToStaticMarkup(
+      <ChatMessage message={assistantWithOutline({ isAgentRunning: true })} />,
+    )
+
+    expect(html).not.toContain("data-event-outline-card")
+  })
+
+  it("用户消息里粘贴的同样 JSON 不渲染卡片（那不是生成结果）", () => {
+    const html = renderToStaticMarkup(
+      <ChatMessage message={assistantWithOutline({ role: "user" })} />,
+    )
+
+    expect(html).not.toContain("data-event-outline-card")
+  })
+
+  it("普通助手回复不长出卡片", () => {
+    const html = renderToStaticMarkup(
+      <ChatMessage message={assistantWithOutline({ content: "这一章我建议这样走。", id: "msg-plain" })} />,
+    )
+
+    expect(html).not.toContain("data-event-outline-card")
+  })
+})

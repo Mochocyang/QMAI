@@ -64,6 +64,9 @@ import { getCopyableAssistantContent } from "@/lib/chat-copy-content";
 import { StoppedGenerationActions } from "@/components/novel/stopped-generation-actions";
 import { isStoppedGenerationMessage } from "@/lib/novel/stopped-generation";
 import { ChapterDiscussCard } from "@/components/chat/chapter-discuss-card";
+import { EventOutlineCard } from "@/components/sources/event-outline-card";
+import { extractEventOutlineData, stripEventOutlineDataFence } from "@/lib/novel/event-outline";
+import { handoffEventOutlineToProse } from "@/lib/novel/event-outline-handoff";
 import { stripStructuredMarkers } from "@/lib/novel/outline-intent-clarity";
 import type {
   ChapterDiscussDirection,
@@ -151,13 +154,37 @@ export function ChatMessage({
   const [hovered, setHovered] = useState(false);
   const [contextTraceExpanded] = useState(false);
   /**
+   * 事件细纲：助手回复里带 `eventOutlineData` 时，在气泡下方挂一张卡片。
+   *
+   * 已有的同形先例是上面那段 chapter_discuss 的剥离逻辑 —— 结构化数据由程序消费，
+   * 用户该看到的是卡片，不是裸 JSON。这里只是把同一套做法对齐到事件细纲这条产线
+   * （它原先只在章节区本地渲染卡片，用户要求改成「在 AI 对话里显示」）。
+   *
+   * ⚠️ 三道闸都不能省：
+   * - **只认助手消息**：用户消息里也可能粘贴一段细纲 JSON，那不是生成结果；
+   * - **生成中不解析**（`isAgentRunning`）：流式期间每条 token 都会重渲染，
+   *   而这个解析要逐字符配平花括号 —— 对一条几千字的回复做几十次是白烧 CPU。
+   *   生成结束时 `isAgentRunning` 转假，卡片随之出现，用户不会少看到什么；
+   * - **先做一次子串预筛**：`"events"` 是 JSON 里的键名，不可能不出现。绝大多数
+   *   回复连这个子串都没有，预筛之后就完全不进那个 O(n) 的扫描。
+   */
+  const eventOutline = useMemo(
+    () =>
+      isAssistant && !message.discarded && !message.isAgentRunning && message.content.includes('"events"')
+        ? extractEventOutlineData(message.content)
+        : null,
+    [isAssistant, message.content, message.discarded, message.isAgentRunning],
+  );
+  /**
    * 共创（discuss）轮：气泡里隐藏 chapter_discuss 协议标记。
    * 生成过程中的正文可能已带上 `<!-- chapter_discuss -->{json}`，不剥离会让用户看到裸 JSON。
    */
   const displayContent =
     message.chapterDiscussPhase || message.chapterDiscussProtocol || message.chapterDiscussError
       ? stripStructuredMarkers(message.content)
-      : message.content;
+      : eventOutline
+        ? stripEventOutlineDataFence(message.content)
+        : message.content;
   const canResumeUnfinished = Boolean(
     novelMode &&
     isLastAssistant &&
@@ -265,6 +292,23 @@ export function ChatMessage({
             </>
           )}
         </div>
+        {/*
+          * 事件细纲卡片挂在助手气泡**下方**（不是气泡内）。
+          *
+          * 与大纲助手（outline-chat-panel）里那张卡片是同一个组件、同一个交接回调，
+          * 差别只在宿主：用户要求「点章节工具栏的生成按钮后，内容发进 AI 对话、
+          * 生成结果在 AI 对话框里显示」，于是写作助手这一侧也要能认出细纲并渲染它。
+          *
+          * 只渲染只读视图：卡片上报的手改 / 重新生成 / 丢弃三枚入口在这里都不接线
+          * （各自的回调不传即不渲染），因为本面板没有承载细纲任务状态的地方 ——
+          * 接了线就会长出一枚点了没反应的按钮，比没有更糟。要手改就再让 AI 出一份。
+          */}
+        {isAssistant && !message.discarded && eventOutline ? (
+          <EventOutlineCard
+            data={eventOutline}
+            onWriteChapter={handoffEventOutlineToProse}
+          />
+        ) : null}
         {/*
           * 停止生成之后的补救动作，紧贴在「已停止生成」那句提示的下方。
           * 停止按钮是这个应用里唯一「先停下 → 换个模型 → 再来一次」的入口，
