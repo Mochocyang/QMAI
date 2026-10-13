@@ -1233,3 +1233,49 @@ describe("ChatPanel 的「@ 引用角色灵魂」消费端（丁-4）", () => {
     expect(container.querySelectorAll('[data-reference-category="skill"]')).toHaveLength(1)
   }
 })
+
+/*
+ * 章节区的「生成章节细纲」把请求投在 chat-store 的队列上（PendingComposerSend），
+ * 由本面板自取自用 —— 发起时写作助手栏可能还没挂载，所以这是**唯一**能接住
+ * 「先投递、后挂载」的形态（换成一次性 DOM 事件会在那种次序下静默丢失）。
+ */
+describe("章节区投递的事件细纲请求（pendingComposerSend）", () => {
+  async function waitForRunSettled(conversationId: string) {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if (useChatStore.getState().runStates[conversationId]?.status !== "running") return
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+    }
+    throw new Error(`会话 ${conversationId} 的运行没有在预期轮数内结束`)
+  }
+
+  it("挂载后自取队列并把请求发出去，队列随即清空", async () => {
+    /*
+     * 先投递、再挂载：这正是真实次序（章节区先 requestComposerSend，写作助手栏随后展开）。
+     * `renderChatPanel` 的 setState 是合并式的，不会把这条请求冲掉。
+     */
+    useChatStore.setState({
+      pendingComposerSend: {
+        text: "请为第 4 章生成一份「事件细纲」：把这一章拆成 6 个连续事件。",
+        displayText: "请为第 4 章生成事件细纲（6 个事件 · 目标 3000 字）",
+      },
+    })
+    const { container, unmount } = await renderChatPanel({ activeConversation: true, aiWorkflowMode: "fast" })
+    await flushEffects()
+    await flushEffects()
+
+    // 1) 取走即清空：否则任何一次重渲染都会把同一条请求再发一轮（烧两次钱）
+    expect(useChatStore.getState().pendingComposerSend).toBeNull()
+    /*
+     * 2) 气泡上是 displayText（一句人话），不是那条几十行的提示词 ——
+     *    提示词只发给模型。两者分离正是 handleSend 第三参存在的理由。
+     */
+    const userMessage = useChatStore.getState().messages.find((message) => message.role === "user")
+    expect(userMessage?.content).toBe("请为第 4 章生成事件细纲（6 个事件 · 目标 3000 字）")
+
+    await waitForRunSettled("conv_mount")
+    expect(container.querySelector('[data-ui-ai-panel="chapter"]')).not.toBeNull()
+    await unmount()
+  })
+})

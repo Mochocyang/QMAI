@@ -294,6 +294,41 @@ function withRequirement(data: EventOutlineData, requirement?: string): EventOut
 }
 
 /**
+ * 把承载细纲数据的 ```json 围栏从**展示文本**里摘掉。
+ *
+ * 用在哪里：聊天面板的气泡用的是 Markdown 渲染，细纲提示词又明确要求模型先给一份
+ * Markdown 细纲、再给一个 `eventOutlineData` 围栏。于是气泡里会同时出现「一份好看的
+ * 细纲正文」和「一大坨裸 JSON」——后者是给程序看的，不是给人看的。卡片已经把同一份
+ * 数据渲染成可读结构，裸 JSON 就是纯噪声。
+ *
+ * ⚠️ 只摘**能解析成事件细纲**的那一个围栏，其余围栏原样保留：同一条回复里可能还有
+ * 别的 json（例如保存请求），它们不属于本函数的目标，删掉就是删掉用户要看的内容。
+ *
+ * 只用于展示层：模型历史、落盘内容、`extractEventOutlineData` 的输入都不经过它。
+ */
+export function stripEventOutlineDataFence(content: string): string {
+  const fencePattern = /```(?:json)?[ \t]*\r?\n([\s\S]*?)```/gi
+  return content
+    .replace(fencePattern, (whole: string, body: string) => {
+      if (!body.includes("{")) return whole
+      let start = body.indexOf("{")
+      while (start >= 0) {
+        const block = balancedJsonBlock(body, start)
+        if (block) {
+          try {
+            if (normalizeEventOutlineData(JSON.parse(block) as unknown)) return ""
+          } catch {
+            // 这个对象不是合法 JSON，继续往右找下一个
+          }
+        }
+        start = body.indexOf("{", start + 1)
+      }
+      return whole
+    })
+    .trim()
+}
+
+/**
  * 事件细纲的生成提示词。范围（章号 / 事件数 / 字数）由向导定死，所以不开意图分析。
  *
  * `hasFileTools` 决定要不要写「先读资料（list_chapters / …）」那一条硬要求，

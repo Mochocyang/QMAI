@@ -146,6 +146,16 @@ vi.mock("@/commands/fs", () => ({
   getFileSize: vi.fn(async () => 0),
   writeFileAtomic: vi.fn(async () => {}),
   listDirectory: vi.fn(async () => []),
+  /*
+   * 上下文中枢（ContextSourceRegistry）在建实例时就会取这个函数当默认 hasher。
+   * 少了它，任何**真的发出一条消息**的用例都会在后台抛
+   * 「No "getFileMd5" export is defined on the "@/commands/fs" mock」——
+   * 那是个 unhandled rejection，vitest 会把它记成整个文件的 Error。
+   * 本文件此前没有发消息的用例，所以一直没暴露。
+   */
+  getFileMd5: vi.fn(async () => "mock-md5"),
+  // 同一个注册表在构造末尾会订阅文件变更；返回值必须是可调用的退订函数。
+  subscribeProjectFileMutations: vi.fn(() => () => {}),
 }))
 
 vi.mock("@/lib/project-refresh", () => ({

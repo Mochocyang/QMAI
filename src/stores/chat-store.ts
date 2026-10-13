@@ -66,6 +66,24 @@ export interface DisplayMessage {
   chapterDiscussDecision?: ChapterDiscussDecision
 }
 
+/**
+ * 外部入口投递给「AI 对话」的一次发送请求。
+ *
+ * 存在的理由：章节区的「生成章节细纲」原本在自己那一层就地调模型、就地渲染卡片，
+ * 于是细纲出现在章节正文区（用户看到的「内容在正文中显示」）。现在这条产线改成
+ * 「把请求发进 AI 对话、结果在 AI 对话框里生成」—— 而发起方（章节工具栏）与执行方
+ * （ChatPanel 的 handleSend）是两个组件，且发起时 ChatPanel 可能**还没挂载**
+ * （写作助手栏未展开时根本不渲染）。所以请求先落在这条队列上，ChatPanel 挂载后
+ * 自取自用，而不是靠一次性的 DOM 事件 —— 后者在「先投递、后挂载」时会静默丢掉。
+ *
+ * `text` 是真正发给模型的完整提示词；`displayText` 是气泡上给用户看的那一句
+ * （完整提示词有几十行，直接铺在气泡里会淹掉整个对话）。
+ */
+export interface PendingComposerSend {
+  text: string
+  displayText: string
+}
+
 interface ChatState {
   conversations: Conversation[]
   activeConversationId: string | null
@@ -74,6 +92,8 @@ interface ChatState {
   streamingContents: Record<string, string>
   runStates: ConversationRunStates
   pendingReferenceTokens: ReferenceToken[]
+  /** 待 AI 对话自取的发送请求（见 PendingComposerSend）。只存内存，不落盘。 */
+  pendingComposerSend: PendingComposerSend | null
   mode: "chat" | "ingest"
   ingestSource: string | null
   maxHistoryMessages: number
@@ -123,6 +143,10 @@ interface ChatState {
   markLastAssistantDiscarded: () => void   // for novel draft discard
   enqueueReferenceTokens: (tokens: ReferenceToken[]) => void
   consumePendingReferenceTokens: () => ReferenceToken[]
+  /** 外部入口（章节区）投递一次「请 AI 生成事件细纲」的发送请求。 */
+  requestComposerSend: (payload: PendingComposerSend) => void
+  /** ChatPanel 自取待发送请求；取走即清空（同一请求只会被发一次）。 */
+  consumeComposerSend: () => PendingComposerSend | null
 
   // Helpers
   getActiveMessages: () => DisplayMessage[]
@@ -150,6 +174,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   streamingContents: {},
   runStates: {},
   pendingReferenceTokens: [],
+  pendingComposerSend: null,
   mode: "chat",
   ingestSource: null,
   maxHistoryMessages: 20,
@@ -454,6 +479,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const tokens = get().pendingReferenceTokens
     set({ pendingReferenceTokens: [] })
     return tokens
+  },
+
+  /*
+   * 后投递的请求**覆盖**前一条，而不是排队。
+   *
+   * 这条队列承载的是「用户刚刚点了一次生成章节细纲」这一个意图，而向导是模态的：
+   * 要投第二次必须先关掉向导、再点一次工具栏按钮。两次投递之间 ChatPanel 若一直
+   * 没挂载（助手栏没展开），排队只会让用户在打开助手时看到两轮一模一样的生成请求
+   * ——那两次的钱都花了，而用户只点过一次「我看到了」。覆盖则保证「最新一次意图」
+   * 一定被执行，且最多只多出一次调用。
+   */
+  requestComposerSend: (payload) => set({ pendingComposerSend: payload }),
+
+  consumeComposerSend: () => {
+    const payload = get().pendingComposerSend
+    if (payload) set({ pendingComposerSend: null })
+    return payload
   },
 
   getActiveMessages: () => {

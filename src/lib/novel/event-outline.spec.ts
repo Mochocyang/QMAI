@@ -10,6 +10,7 @@ import {
   eventOutlineToProsePrompt,
   extractEventOutlineData,
   normalizeEventOutlineData,
+  stripEventOutlineDataFence,
   validateEventOutlineData,
   type EventOutlineData,
   type EventOutlineEvent,
@@ -549,5 +550,51 @@ describe("事件细纲的 requirement 不再丢失", () => {
     const payload = `\`\`\`json\n${JSON.stringify({ eventOutlineData: data() })}\n\`\`\``
     const dataWithRequirement = extractEventOutlineData(payload, "让楚白第一次动用令牌")
     expect(eventOutlineToProsePrompt(dataWithRequirement!)).toContain("## 用户对本章的要求")
+  })
+})
+
+/*
+ * 展示层的剥离函数：卡片已经把 eventOutlineData 渲染成可读结构，
+ * 裸 JSON 在气泡里就是纯噪声（气泡是 Markdown 渲染，围栏会变成一个代码块）。
+ */
+describe("stripEventOutlineDataFence", () => {
+  it("摘下能解析成事件细纲的 json 围栏，留下人看的 Markdown 正文", () => {
+    const withFence = [
+      "# 事件细纲 · 第12章 令牌初现",
+      "",
+      "## 事件1 楚白翻出令牌",
+      "- 关键台词：你来啦",
+      "",
+      "```json",
+      JSON.stringify({ eventOutlineData: data() }, null, 2),
+      "```",
+    ].join("\n")
+
+    const stripped = stripEventOutlineDataFence(withFence)
+    expect(stripped).toContain("## 事件1 楚白翻出令牌")
+    expect(stripped).not.toContain("eventOutlineData")
+    expect(stripped).not.toContain("```")
+  })
+
+  it("非 json 的围栏、以及别的 json 围栏都原样保留", () => {
+    const content = [
+      "正文如下。",
+      "",
+      "```ts",
+      "const a = 1",
+      "```",
+      "",
+      "```json",
+      JSON.stringify({ outlineSaveRequest: { content: "别的请求" } }),
+      "```",
+    ].join("\n")
+
+    const stripped = stripEventOutlineDataFence(content)
+    expect(stripped).toContain("const a = 1")
+    expect(stripped).toContain("outlineSaveRequest")
+  })
+
+  it("没有围栏时原样返回（不做任何猜测式剥离）", () => {
+    expect(stripEventOutlineDataFence("只有正文。")).toBe("只有正文。")
   })
 })
