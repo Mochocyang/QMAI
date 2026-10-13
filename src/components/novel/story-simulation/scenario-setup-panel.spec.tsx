@@ -7,6 +7,7 @@ import type { Mock } from "vitest"
 
 import { ScenarioSetupPanel } from "./scenario-setup-panel"
 import {
+  SCENARIO_CHARACTER_MAX,
   SCENARIO_MODERATOR_INTERVAL_DEFAULT,
   SCENARIO_MODERATOR_USER_ID,
   SCENARIO_MODERATOR_USER_NAME,
@@ -70,12 +71,13 @@ let onSoulChanged: Mock<() => void>
 function render(
   candidates: ScenarioCandidate[] = CANDIDATES,
   savedScenarios: ScenarioSession[] = [],
+  extracting = false,
 ) {
   act(() => {
     root.render(
       <ScenarioSetupPanel
         candidates={candidates}
-        extracting={false}
+        extracting={extracting}
         progress={null}
         sourceChapters={10}
         onSourceChaptersChange={() => {}}
@@ -123,12 +125,18 @@ function savedSession(
   }
 }
 
-/** React 受控组件：必须走原型上的 setter，否则 value tracker 会吞掉事件。 */
+/**
+ * React 受控组件：必须走原型上的 setter，否则 value tracker 会吞掉事件。
+ * input / textarea / select 的 value 描述符分别挂在各自的原型上，认错原型
+ * 一样会被吞掉 —— 所以这里三种都要认。
+ */
 function setNativeValue(el: HTMLElement, value: string) {
   const proto =
     el instanceof HTMLSelectElement
       ? HTMLSelectElement.prototype
-      : HTMLInputElement.prototype
+      : el instanceof HTMLTextAreaElement
+        ? HTMLTextAreaElement.prototype
+        : HTMLInputElement.prototype
   const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set
   setter?.call(el, value)
 }
@@ -139,14 +147,56 @@ function setNativeValue(el: HTMLElement, value: string) {
  * 用 aria-label 定位而不是按顺序取第 N 个按钮 —— 网格里还有「设为主持人」
  * 与「绑定灵魂」两类按钮，按顺序取会在候选人一变多时就错位。
  */
-function selectCard(name: string) {
-  const button = container.querySelector<HTMLButtonElement>(
-    `button[aria-label="storySimulation.scenarioToggleCharacter(name=${name})"]`,
+function cardButton(name: string): HTMLButtonElement | undefined {
+  return (
+    container.querySelector<HTMLButtonElement>(
+      `button[aria-label="storySimulation.scenarioToggleCharacter(name=${name})"]`,
+    ) ?? undefined
   )
+}
+
+function selectCard(name: string) {
+  const button = cardButton(name)
   if (!button) throw new Error(`找不到角色卡：${name}`)
   act(() => {
     button.click()
   })
+}
+
+/** 卡片是否在台上：网格把 aria-pressed 挂在 toggle 按钮上。 */
+function cardPressed(name: string): string | null {
+  return cardButton(name)?.getAttribute("aria-pressed") ?? null
+}
+
+/**
+ * 卡片上的上台序号（1..N）。
+ *
+ * 序号渲染在 toggle 按钮里的那个胶囊上，没上台时是个空圈 —— 所以空字符串
+ * 就是「这个人已经下台」。用序号而不是「在不在台上」来断言，才能证明
+ * 裁切保留的是「前 N 个」而不是随便留下的 N 个。
+ */
+function stageOrder(name: string): string | undefined {
+  return cardButton(name)?.querySelector("span")?.textContent?.trim()
+}
+
+/** 卡片上的「设为主持人」入口（上台且尚未担任主持人时才渲染）。 */
+function setModeratorFromCard(name: string) {
+  const button = container.querySelector<HTMLButtonElement>(
+    `button[aria-label="storySimulation.scenarioSetModerator(name=${name})"]`,
+  )
+  if (!button) throw new Error(`找不到「设为主持人」按钮：${name}`)
+  act(() => {
+    button.click()
+  })
+}
+
+/** 面板上的主持人下拉框（与「提取章节数」那个 select 区分开）。 */
+function moderatorSelect(): HTMLSelectElement {
+  const el = Array.from(container.querySelectorAll("select")).find((s) =>
+    Array.from(s.options).some((o) => o.value === SCENARIO_MODERATOR_USER_ID),
+  )
+  if (!el) throw new Error("找不到主持人下拉框")
+  return el as HTMLSelectElement
 }
 
 /** 修改轮数输入框（页面上还有一个「角色数量」数字框，必须按 aria-label 认准）。 */
@@ -160,14 +210,44 @@ function setRounds(value: string) {
   })
 }
 
-/** 修改「角色数量」数字框。 */
-function setCharacterCount(value: string) {
-  const input = container.querySelector(
+/** 「角色数量」数字框。 */
+function characterCountInput(): HTMLInputElement {
+  return container.querySelector(
     'input[aria-label="storySimulation.scenarioCharacterCount"]',
   ) as HTMLInputElement
+}
+
+/** 修改「角色数量」数字框（只发 input，不涉及失焦）。 */
+function setCharacterCount(value: string) {
+  const input = characterCountInput()
   act(() => {
     setNativeValue(input, value)
     input.dispatchEvent(new Event("input", { bubbles: true }))
+  })
+}
+
+/**
+ * 让「角色数量」输入框失焦（夹取发生在失焦时）。
+ *
+ * 必须走 focus() + blur()：React 17 起 onBlur 是委托在原生 focusout 上的，
+ * 手工派发一个 blur 事件根本到不了组件里。
+ */
+function blurCharacterCount() {
+  act(() => {
+    const input = characterCountInput()
+    input.focus()
+    input.blur()
+  })
+}
+
+/** 填写「情景规则」（开始按钮要求它非空）。 */
+function setDirective(value: string) {
+  const textarea = container.querySelector(
+    'textarea[aria-label="storySimulation.scenarioRules"]',
+  ) as HTMLTextAreaElement
+  act(() => {
+    setNativeValue(textarea, value)
+    textarea.dispatchEvent(new Event("input", { bubbles: true }))
   })
 }
 
@@ -207,6 +287,18 @@ function clickButton(button: HTMLButtonElement) {
   act(() => {
     button.click()
   })
+}
+
+/** 所有会被屏幕阅读器即时播报的提示（role=alert）。 */
+function alerts(): Element[] {
+  return Array.from(container.querySelectorAll('[role="alert"]'))
+}
+
+/** 按文案片段找一句话提示（实现里提示都是 <p>）。 */
+function noticeByText(fragment: string): Element | undefined {
+  return Array.from(container.querySelectorAll("p")).find((el) =>
+    el.textContent?.includes(fragment),
+  )
 }
 
 /** 读取「已选 N / 共 M」的实时值。 */
@@ -497,19 +589,16 @@ describe("ScenarioSetupPanel · 自定义角色数量", () => {
     render(MANY)
     setCharacterCount("99")
     // 夹取发生在失焦时：setNativeValue 只发 input，不会自己失焦。
-    // 必须走 focus() + blur()：React 17 起 onBlur 是委托在原生 focusout 上的，
-    // 手工派发一个 blur 事件根本到不了组件里。
-    act(() => {
-      const input = container.querySelector(
-        'input[aria-label="storySimulation.scenarioCharacterCount"]',
-      ) as HTMLInputElement
-      input.focus()
-      input.blur()
-    })
+    blurCharacterCount()
 
     expect(container.textContent).toContain(
       `storySimulation.scenarioCharacterCountClamped(min=3,max=10)`,
     )
+    // 只断言提示是不够的：提示照出、输入框却停在 99 也照样能过（实测如此）。
+    // MANY 的 10 名候选正好等于上限，所以「不超过候选人数」那一步不会再改动它，
+    // 失焦后输入框必须精确落在夹取后的值上。
+    expect(MANY.length).toBe(SCENARIO_CHARACTER_MAX)
+    expect(characterCountInput().value).toBe(String(SCENARIO_CHARACTER_MAX))
   })
 
   it("选满后再点候选不会多出人来，并给出原因", () => {
@@ -518,7 +607,9 @@ describe("ScenarioSetupPanel · 自定义角色数量", () => {
 
     selectCard("角色4")
 
-    expect(selectionCount()).toContain("total=3")
+    // 全等而不是子串：满员时照样加人的话会得到 `n=4,total=3`，它同样「包含
+    // total=3」，子串断言对这种变异毫无反应（实测存活）。
+    expect(selectionCount()).toBe("scenarioSelectedCount(n=3,total=3)")
     expect(container.textContent).toContain("storySimulation.scenarioFull(n=3)")
   })
 })
@@ -605,5 +696,265 @@ describe("ScenarioSetupPanel · 绑定灵魂入口", () => {
     expect(document.body.textContent).toContain(
       "storySimulation.scenarioSoulDialogTitle(name=角色1)",
     )
+  })
+})
+
+/**
+ * 「网格选人 + 自定义人数」之后才第一次可达的一条路径：先把人数选到 5 并选满，
+ * 再把人数改小。裁切原本只在「候选集合变化」时跑，改小人数不会让已经上台的人
+ * 下台，于是「已选 5 / 共 3」永远凑不满，开始按钮再无解释地灰着，点掉一个变
+ * 「已选 4 / 共 3」，而 toggleCharacter 还在说「已选满 3 个角色」。
+ *
+ * 用户已裁决：多出来的人自动下台（保留前 N 个，上台序号不动）。
+ */
+describe("ScenarioSetupPanel · 改小人数时收敛上台角色", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn<(setup: ScenarioSetup) => void>()
+    onSoulChanged = vi.fn<() => void>()
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  /** 选满 5 人（点击顺序就是上台顺序）。 */
+  function selectFiveCharacters() {
+    for (const n of [1, 2, 3, 4, 5]) selectCard(`角色${n}`)
+  }
+
+  it("改小人数后多出来的人下台，开始按钮不再永久灰着", () => {
+    render(MANY)
+    setDirective("辩一辩")
+    // 把轮数压到成本阈值以下：这条用例盯的是人数收敛，不能被成本护栏挡住
+    setRounds("5")
+
+    clickButton(countButton(5) as HTMLButtonElement)
+    selectFiveCharacters()
+    expect(selectionCount()).toBe("scenarioSelectedCount(n=5,total=5)")
+    expect(startButton()?.disabled).toBe(false)
+
+    clickButton(countButton(3) as HTMLButtonElement)
+
+    expect(selectionCount()).toBe("scenarioSelectedCount(n=3,total=3)")
+    expect(startButton()?.disabled).toBe(false)
+  })
+
+  it("保留的是前 N 个：上台序号 1/2/3 不动，末尾两人下台", () => {
+    render(MANY)
+    clickButton(countButton(5) as HTMLButtonElement)
+    selectFiveCharacters()
+    expect(stageOrder("角色1")).toBe("1")
+    expect(stageOrder("角色5")).toBe("5")
+
+    clickButton(countButton(3) as HTMLButtonElement)
+
+    // 保留前 N 个意味着序号一格格都不动，用户看到的只是排在末尾的人下台
+    expect(stageOrder("角色1")).toBe("1")
+    expect(stageOrder("角色2")).toBe("2")
+    expect(stageOrder("角色3")).toBe("3")
+    expect(cardPressed("角色4")).toBe("false")
+    expect(cardPressed("角色5")).toBe("false")
+  })
+
+  it("在输入框里改小人数并失焦，多出来的人同样下台", () => {
+    render(MANY)
+    setDirective("辩一辩")
+    setRounds("5")
+    clickButton(countButton(5) as HTMLButtonElement)
+    selectFiveCharacters()
+
+    setCharacterCount("3")
+    // 输入框里现在正好是 3，与夹取后的值相同，所以「要不要提示被夹取」是不提示；
+    // 但裁切本身绝不能因为「值没变」就被跳过（原来的提前 return 正是这么漏掉的）
+    blurCharacterCount()
+
+    expect(selectionCount()).toBe("scenarioSelectedCount(n=3,total=3)")
+    expect(container.textContent).not.toContain("scenarioCharacterCountClamped")
+    expect(startButton()?.disabled).toBe(false)
+  })
+
+  it("主持人正好被裁掉时，退回「由你主持」", () => {
+    render(MANY)
+    clickButton(countButton(5) as HTMLButtonElement)
+    selectFiveCharacters()
+    setModeratorFromCard("角色5")
+    expect(moderatorSelect().value).toBe("c5")
+
+    clickButton(countButton(3) as HTMLButtonElement)
+
+    // 主持人本人已经下台，不能再继续主持
+    expect(moderatorSelect().value).toBe(SCENARIO_MODERATOR_USER_ID)
+  })
+})
+
+/**
+ * 人数下限只在失焦时才夹，按键期间 2 / 0 都能进 state，而 canStart 原本只查
+ * 「已选人数 === 所选人数」：填 2 再选 2 个人，开始按钮就是亮的；填 0 且一个
+ * 都不选时 `0 === 0` 同样成立 —— 会带着低于下限、甚至空 participants 的配置
+ * 进引擎。下限只能靠 canStart 挡（按键期间不能夹，否则「想输 10、先经过 1」
+ * 会被当场夹成 3）。
+ */
+describe("ScenarioSetupPanel · 人数下限守卫", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn<(setup: ScenarioSetup) => void>()
+    onSoulChanged = vi.fn<() => void>()
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it("人数低于下限时开始按钮灰着，即使恰好把人都选上", () => {
+    render(MANY)
+    setDirective("辩一辩")
+    // 轮数压到阈值以下，免得护栏替下限背锅
+    setRounds("5")
+
+    setCharacterCount("2")
+
+    // 按键期间允许暂时越界：下限夹取要到失焦才做，否则想输 10 的人先经过 1
+    // 就会被打成 3
+    expect(characterCountInput().value).toBe("2")
+
+    selectCard("角色1")
+    selectCard("角色2")
+
+    expect(selectionCount()).toBe("scenarioSelectedCount(n=2,total=2)")
+    expect(startButton()?.disabled).toBe(true)
+  })
+
+  it("人数填 0 且一个都没选时也不会开演（那会带着空 participants 进引擎）", () => {
+    render(MANY)
+    setDirective("辩一辩")
+    setRounds("5")
+
+    setCharacterCount("0")
+
+    expect(selectionCount()).toBe("scenarioSelectedCount(n=0,total=0)")
+    expect(startButton()?.disabled).toBe(true)
+  })
+})
+
+/**
+ * 提示原本是「存下来的字符串」，一句话存下来就永远在场：人数改了、重新提取
+ * 往返一趟、甚至另一类提示已经出现，它都还挂在屏幕上。这里守住「提示只为
+ * 当前人数、当前这一轮提取负责」，并守住两类提示不可能同时在场。
+ */
+describe("ScenarioSetupPanel · 提示的时效性", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn<(setup: ScenarioSetup) => void>()
+    onSoulChanged = vi.fn<() => void>()
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it("改大人数后，旧的满员提示不再挂在屏幕上", () => {
+    render(MANY)
+    selectThreeCharacters()
+    selectCard("角色4")
+    expect(container.textContent).toContain("storySimulation.scenarioFull(n=3)")
+
+    clickButton(countButton(4) as HTMLButtonElement)
+
+    expect(selectionCount()).toBe("scenarioSelectedCount(n=3,total=4)")
+    // 已经不满员了，「已选满 3 个角色」也就不能再留着
+    expect(container.textContent).not.toContain("storySimulation.scenarioFull")
+  })
+
+  it("满员提示与夹取提示不会同时在场", () => {
+    render(MANY)
+    selectThreeCharacters()
+    selectCard("角色4")
+    expect(container.textContent).toContain("storySimulation.scenarioFull(n=3)")
+
+    setCharacterCount("99")
+    blurCharacterCount()
+
+    expect(container.textContent).toContain(
+      "storySimulation.scenarioCharacterCountClamped(min=3,max=10)",
+    )
+    // 「已选满 3 个角色」讲的是 3 人，而人数已经被夹到 10：两句同时在屏幕上
+    // 就是自相矛盾
+    expect(container.textContent).not.toContain("storySimulation.scenarioFull")
+    expect(alerts()).toHaveLength(1)
+  })
+
+  it("重新提取往返一趟后，上一轮的提示不复活", () => {
+    render(MANY)
+    selectThreeCharacters()
+    selectCard("角色4")
+    expect(container.textContent).toContain("storySimulation.scenarioFull(n=3)")
+
+    // 提取中：整个面板换成进度分支，但组件没有卸载，state 原样保留
+    render(MANY, [], true)
+    // 提取结束，候选还是这 10 个人，人数一个字没变
+    render(MANY)
+
+    expect(container.textContent).not.toContain("storySimulation.scenarioFull")
+  })
+})
+
+/**
+ * 三处提示都是「异步出现」的：屏幕上突然多出一行字，屏幕阅读器默认不会主动
+ * 播报（审查实测 live region: 0）—— 对看不见屏幕的用户，这些提示等于不存在。
+ * 照 scenario-soul-bind-dialog.tsx 的做法挂 role="alert"。
+ */
+describe("ScenarioSetupPanel · 提示的可访问性", () => {
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    onStart = vi.fn<(setup: ScenarioSetup) => void>()
+    onSoulChanged = vi.fn<() => void>()
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    container.remove()
+  })
+
+  it("夹取提示与满员提示都挂 role=alert", () => {
+    render(MANY)
+    setCharacterCount("99")
+    blurCharacterCount()
+
+    expect(
+      noticeByText("storySimulation.scenarioCharacterCountClamped")?.getAttribute(
+        "role",
+      ),
+    ).toBe("alert")
+
+    // 另一条路径：满员提示（改回 3 人，再选满后点第 4 张卡）
+    clickButton(countButton(3) as HTMLButtonElement)
+    selectThreeCharacters()
+    selectCard("角色4")
+
+    expect(
+      noticeByText("storySimulation.scenarioFull")?.getAttribute("role"),
+    ).toBe("alert")
+  })
+
+  it("候选不足的提示也挂 role=alert", () => {
+    render(CANDIDATES.slice(0, 2))
+
+    expect(
+      noticeByText(
+        "storySimulation.scenarioCandidatesInsufficient",
+      )?.getAttribute("role"),
+    ).toBe("alert")
   })
 })

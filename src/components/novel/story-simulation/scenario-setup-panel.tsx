@@ -62,6 +62,26 @@ export interface ScenarioSetupPanelProps {
 }
 
 /**
+ * 「角色数量」相关的临时提示（选满 / 自定义超界被夹取）。
+ *
+ * 记下「它是什么时候算出来的」，而不是只存一句本地化好的话：
+ * - 存成字符串就永远在场。选满 3 人时点第 4 张卡说「已选满 3 个角色」，再把
+ *   人数改成 4，这句已经不成立的话还挂在屏幕上；夹取提示在用户重新点了
+ *   「3 个角色」之后也一样。
+ * - 跨提取周期同样要失效：重新分析角色往返一趟（组件不卸载、state 原样保留）
+ *   后人还是那几个人、人数一个字没变，上一轮的解释却已经不作数了。
+ */
+interface CharacterCountNotice {
+  kind: "full" | "clamped"
+  /** 已经本地化好的提示正文。 */
+  text: string
+  /** 生成它时的「所选人数」；与当前人数不一致即失效。 */
+  count: number
+  /** 生成它时的提取周期；重新提取过即失效。 */
+  epoch: number
+}
+
+/**
  * 「舞台情景」设置面板（第 1、2 步）
  * 1) 角色选择与配置：数量 3/4/5 或自定义、候选卡片网格选人、绑定灵魂
  * 2) 情景设置：主持人、情景规则、参考点、对话形式、轮数
@@ -101,19 +121,31 @@ export function ScenarioSetupPanel({
     SCENARIO_MODERATOR_INTERVAL_DEFAULT,
   )
   const [costAck, setCostAck] = useState(false)
-  /** 已选满时点候选卡给的临时提示（不静默失败）。 */
-  const [hint, setHint] = useState<string | null>(null)
   /** 正在绑定灵魂的角色；null 表示弹窗关闭。 */
   const [soulTarget, setSoulTarget] = useState<ScenarioCandidate | null>(null)
   /**
-   * 自定义人数超界时的提示。
+   * 「已选满」与「自定义人数超界被夹取」两类提示共用一个槽位。
    *
-   * 为什么要单独存一份，而不是渲染时比较「characterCount 是否等于夹取后的值」：
-   * 失焦夹取只发生在一瞬间，随后下面那个「不超过候选人数」的 effect 会立刻把它
-   * 再改小（例如填 99、候选只有 7 人，最终落成 7），比较式就再也看不出来了，
-   * 用户会以为填的数字被吃掉了却没有任何解释。
+   * 为什么不合起来不行：
+   * - 两类提示在真实操作里可以同时成立（先填 99 被夹到 10，再点一张满员之外
+   *   的卡片），同屏出现两句自相矛盾的话。共用一个槽位后「不可能同时在场」
+   *   是结构上的保证，而不是靠两处互相记得清。
+   * - 提示的有效性由 `count === characterCount && epoch === extractEpoch` 现算，
+   *   不依赖在每一个改人数 / 重新提取的地方记得手动清空。
+   *
+   * 唯一需要主动搬一次基准的地方是下面那个「不超过候选人数」的 effect：那是
+   * 系统替用户改的人数（填 99、候选只有 7 人时会落成 7），若不动基准，刚说
+   * 出口的解释就会被这句夹取自己判成失效，用户会以为填的数字被吃掉了却一声
+   * 不吭 —— 这正是上面 count 字段存在的意义。
    */
-  const [countClampNotice, setCountClampNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<CharacterCountNotice | null>(null)
+  /** 提取周期：每进入一次「提取中」加一，让上一轮算出的提示自动失效。 */
+  const [extractEpoch, setExtractEpoch] = useState(0)
+
+  useEffect(() => {
+    if (!extracting) return
+    setExtractEpoch((n) => n + 1)
+  }, [extracting])
 
   const candidateMap = useMemo(
     () => new Map(candidates.map((c) => [c.id, c])),
@@ -146,11 +178,16 @@ export function ScenarioSetupPanel({
    */
   useEffect(() => {
     if (candidates.length < SCENARIO_CHARACTER_MIN) return
-    // 超出配置上限的输入留给失焦时统一夹取（并给出 setCountClampNotice 提示），
+    // 超出配置上限的输入留给失焦时统一夹取（并给出「已夹到 3-10」提示），
     // 这里只处理「比现有候选人数还多」这一种情况
     if (characterCount > SCENARIO_CHARACTER_MAX) return
     if (characterCount <= candidates.length) return
     setCharacterCount(candidates.length)
+    // 这一步是系统替用户改的人数：夹取提示的基准跟着挪，否则刚说出口的解释
+    // 会被这句夹取自己判成失效（填 99、候选 7 人时落成 7 却一声不吭）。
+    setNotice((cur) =>
+      cur && cur.kind === "clamped" ? { ...cur, count: candidates.length } : cur,
+    )
   }, [candidates.length, characterCount])
 
   /**
@@ -172,20 +209,53 @@ export function ScenarioSetupPanel({
   }, [candidates, selectedIds, moderatorId])
 
   /**
+   * 把上台人数收敛到 nextCount：多出来的人下台。
+   *
+   * 为什么保留「前 N 个」而不是「后 N 个」：selectedIds 的顺序就是上台顺序，
+   * 卡片上的序号 1..N 直接取自它。保留前 N 个时已上台角色的序号一格都不动，
+   * 用户看到的只是排在末尾的人下台；保留后 N 个会把所有人往前挪，等于把已经
+   * 排好的台位重排一遍 —— 而用户只是想把人数改少。
+   *
+   * 只在「提交点」（预设按钮、自定义输入失焦）调用，绝不放进入按键的 onChange：
+   * 想把 5 改成 10，输入过程必然先经过 "1"，按键即裁会把 4 个人当场踢下台，
+   * 那是真实的数据丢失。
+   *
+   * 主持人若正好被裁掉，退回「由你主持」—— 判据与下面「候选消失」那个 effect
+   * 同一套：只有真的指定了角色主持人时才需要退回。
+   */
+  const pruneSelectedTo = (nextCount: number) => {
+    const kept = selectedIds.slice(0, Math.max(0, nextCount))
+    setSelectedIds(kept)
+    if (
+      moderatorId !== SCENARIO_MODERATOR_USER_ID &&
+      !kept.includes(moderatorId)
+    ) {
+      setModeratorId(SCENARIO_MODERATOR_USER_ID)
+    }
+  }
+
+  /**
    * 点一张候选卡：已上台就下台，未上台就上台；选满时给提示而不是静默忽略。
    *
    * 满员判断放在这里（而不是网格里）是为了只有一处真相：网格是哑组件，
    * 它只管把点击报上来。
    */
   const toggleCharacter = (id: string) => {
-    setHint(null)
+    // 任何时候点卡片，上一条关于人数的提示都不再作数：下台会让「已选满」立刻
+    // 变成假话，上台则可能换成新的满员提示。
+    setNotice(null)
     if (selectedIds.includes(id)) {
       setSelectedIds(selectedIds.filter((x) => x !== id))
       if (moderatorId === id) setModeratorId(SCENARIO_MODERATOR_USER_ID)
       return
     }
     if (selectedIds.length >= characterCount) {
-      setHint(t("storySimulation.scenarioFull", { n: characterCount }))
+      setNotice({
+        kind: "full",
+        text: t("storySimulation.scenarioFull", { n: characterCount }),
+        count: characterCount,
+        epoch: extractEpoch,
+      })
       return
     }
     setSelectedIds([...selectedIds, id])
@@ -226,9 +296,23 @@ export function ScenarioSetupPanel({
     setCostAck(false)
   }, [estimatedMessages])
 
+  /**
+   * 只有「为当前人数算的、且属于本次提取周期」的提示才作数。
+   * 人数一变、或重新提取过，旧提示自动失效（不需要在别处手动清）。
+   */
+  const visibleNotice =
+    notice && notice.count === characterCount && notice.epoch === extractEpoch
+      ? notice
+      : null
+
   const canStart =
     !extracting &&
     !insufficientCandidates &&
+    // 下限守卫：输入框在按键期间允许暂时越界（下限夹取要到失焦才做，见 onBlur），
+    // 此时填 2 再选 2 个人也会满足下面那个「两边长度相等」，人数填 0 且一个都
+    // 没选时 0 === 0 同样成立 —— 会带着低于下限、甚至空 participants 的配置进
+    // 引擎。这里挡的就是「低于下限也能开演」。
+    characterCount >= SCENARIO_CHARACTER_MIN &&
     selectedIds.length === characterCount &&
     directive.trim().length > 0 &&
     (!needsCostAck || costAck)
@@ -334,7 +418,11 @@ export function ScenarioSetupPanel({
               variant={characterCount === n ? "default" : "outline"}
               size="sm"
               disabled={n > candidates.length}
-              onClick={() => setCharacterCount(n)}
+              onClick={() => {
+                setCharacterCount(n)
+                // 提交点：改了人数就把多出来的人请下台（按键期间不裁，见 onBlur 注释）
+                pruneSelectedTo(n)
+              }}
             >
               {n} {t("storySimulation.scenarioCharacterCountUnit")}
             </Button>
@@ -351,20 +439,30 @@ export function ScenarioSetupPanel({
             aria-label={t("storySimulation.scenarioCharacterCount")}
             onChange={(e) => {
               const val = parseInt(e.target.value, 10)
-              if (!isNaN(val)) {
-                setCharacterCount(val)
-                setCountClampNotice(null)
-              }
+              // 按键期间只写人数、不夹取也不裁人：用户想把 5 改成 10，路上必然
+              // 先经过 "1"，当场夹成 3 或裁掉 4 个人都是真实的数据丢失。
+              // 下限由 canStart 挡着，越界值不会真的开演。
+              if (!isNaN(val)) setCharacterCount(val)
             }}
             onBlur={() => {
               const clamped = clampScenarioCharacterCount(characterCount)
-              if (clamped === characterCount) return
+              // 裁切无条件执行：输入的人数正好等于当前 characterCount 时（例如把
+              // 5 改成 3）提前 return，会让已经多出来的那两个人永远下不了台。
+              // 只有「要不要提示被夹取」才取决于 clamped 是否真的改动了人数。
               setCharacterCount(clamped)
-              setCountClampNotice(
-                t("storySimulation.scenarioCharacterCountClamped", {
-                  min: SCENARIO_CHARACTER_MIN,
-                  max: SCENARIO_CHARACTER_MAX,
-                }),
+              pruneSelectedTo(clamped)
+              setNotice(
+                clamped === characterCount
+                  ? null
+                  : {
+                      kind: "clamped",
+                      text: t("storySimulation.scenarioCharacterCountClamped", {
+                        min: SCENARIO_CHARACTER_MIN,
+                        max: SCENARIO_CHARACTER_MAX,
+                      }),
+                      count: clamped,
+                      epoch: extractEpoch,
+                    },
               )
             }}
           />
@@ -376,9 +474,14 @@ export function ScenarioSetupPanel({
           </span>
         </div>
 
-        {countClampNotice && (
-          <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
-            {countClampNotice}
+        {/* 提示是异步冒出来的，屏幕阅读器不会主动播报：挂 role="alert"
+            （与 scenario-soul-bind-dialog.tsx 的错误段同一做法） */}
+        {visibleNotice?.kind === "clamped" && (
+          <p
+            role="alert"
+            className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300"
+          >
+            {visibleNotice.text}
           </p>
         )}
 
@@ -390,7 +493,10 @@ export function ScenarioSetupPanel({
         </p>
 
         {insufficientCandidates && (
-          <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+          <p
+            role="alert"
+            className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs leading-relaxed text-amber-700 dark:text-amber-300"
+          >
             {t("storySimulation.scenarioCandidatesInsufficient", {
               count: candidates.length,
               min: SCENARIO_CHARACTER_MIN,
@@ -398,9 +504,12 @@ export function ScenarioSetupPanel({
           </p>
         )}
 
-        {hint && (
-          <p className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
-            {hint}
+        {visibleNotice?.kind === "full" && (
+          <p
+            role="alert"
+            className="rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground"
+          >
+            {visibleNotice.text}
           </p>
         )}
 
