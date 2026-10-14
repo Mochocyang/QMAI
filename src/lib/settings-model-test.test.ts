@@ -7,6 +7,8 @@ vi.mock("@/lib/llm-client", () => ({
 
 vi.mock("@/lib/embedding", () => ({
   fetchEmbedding: vi.fn(),
+  getLastEmbeddingError: vi.fn(() => null),
+  resetLastEmbeddingError: vi.fn(),
 }))
 
 vi.mock("@/lib/rerank-api", () => ({
@@ -14,7 +16,7 @@ vi.mock("@/lib/rerank-api", () => ({
   requestDirectRerank: vi.fn(),
 }))
 
-import { fetchEmbedding } from "@/lib/embedding"
+import { fetchEmbedding, getLastEmbeddingError } from "@/lib/embedding"
 import { streamChat } from "@/lib/llm-client"
 import { isDirectRerankEndpoint, requestDirectRerank } from "@/lib/rerank-api"
 import {
@@ -120,6 +122,38 @@ describe("settings model test helpers", () => {
       ...baseRerankConfig,
       model: "Qwen/Qwen3-Embedding-4B",
     })).rejects.toThrow("嵌入模型")
+
+    expect(vi.mocked(streamChat)).not.toHaveBeenCalled()
+  })
+
+  it("reports the real embedding failure reason instead of a canned message", async () => {
+    vi.mocked(fetchEmbedding).mockResolvedValue(null)
+
+    await expect(testSettingsEmbeddingModel(baseEmbeddingConfig)).rejects.toThrow(
+      "请检查接口、密钥和模型名称",
+    )
+
+    vi.mocked(getLastEmbeddingError).mockReturnValueOnce(
+      'API 401 Unauthorized — {"message":"Token is invalid."} at https://example.com/v1/embeddings',
+    )
+    await expect(testSettingsEmbeddingModel(baseEmbeddingConfig)).rejects.toThrow("Token is invalid.")
+  })
+
+  it("rejects reranker models when the endpoint is not a direct rerank endpoint", async () => {
+    await expect(testSettingsRerankModel(baseLlmConfig, {
+      ...baseRerankConfig,
+      model: "Pro/BAAI/bge-reranker-v2-m3",
+    })).rejects.toThrow("/rerank")
+
+    expect(vi.mocked(streamChat)).not.toHaveBeenCalled()
+  })
+
+  it("explains the reuse-main-model toggle when the main model is missing", async () => {
+    await expect(testSettingsRerankModel({ ...baseLlmConfig, model: "" }, {
+      ...baseRerankConfig,
+      useMainLlm: true,
+      model: "",
+    })).rejects.toThrow("复用主模型")
 
     expect(vi.mocked(streamChat)).not.toHaveBeenCalled()
   })

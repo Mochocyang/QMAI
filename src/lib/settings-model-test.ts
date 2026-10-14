@@ -1,4 +1,4 @@
-import { fetchEmbedding } from "@/lib/embedding"
+import { fetchEmbedding, getLastEmbeddingError, resetLastEmbeddingError } from "@/lib/embedding"
 import { streamChat } from "@/lib/llm-client"
 import { isDirectRerankEndpoint, requestDirectRerank } from "@/lib/rerank-api"
 import { fetchLlmModelList } from "@/lib/settings-model-list"
@@ -143,13 +143,24 @@ function extractJsonObject(raw: string): string {
   return candidate
 }
 
+/**
+ * 常见重排模型名族。这些模型只能走直连重排接口（…/rerank），
+ * 丢到 /chat/completions 上服务端只会回「模型不存在」，用户很难自己看出来。
+ */
+function isRerankModelName(model: string): boolean {
+  return /bge[-_]rerank|qwen\d?[./_-]rerank|gte[-_]rerank|jina[-_]reranker|bce[-_]rerank|bge[-_]reranker/i.test(model)
+}
+
 function resolveRerankTestConfig(llmConfig: LlmConfig, rerankConfig: RerankConfig): {
   config: LlmConfig
   model: string
   usedMainLlm: boolean
 } {
   if (rerankConfig.useMainLlm) {
-    const model = ensureModel(llmConfig.model, "请先配置主模型后再测试重排模型。")
+    const model = ensureModel(
+      llmConfig.model,
+      "已开启「复用主模型」，但主模型没有配置：请先到「大语言模型」页配置并保存主模型，或关闭「复用主模型」单独填写重排模型。",
+    )
     return {
       config: { ...llmConfig, reasoning: { mode: "off" } },
       model,
@@ -160,6 +171,16 @@ function resolveRerankTestConfig(llmConfig: LlmConfig, rerankConfig: RerankConfi
   const model = ensureModel(rerankConfig.model, "请先填写重排模型名称后再测试。")
   if (/embedding/i.test(model)) {
     throw new Error("当前填写的更像是嵌入模型。重排模型需要可生成 JSON 的聊天模型，不能使用嵌入模型。")
+  }
+  if (!isDirectRerankEndpoint({
+    provider: rerankConfig.provider,
+    customEndpoint: rerankConfig.customEndpoint,
+  }) && isRerankModelName(model)) {
+    throw new Error(
+      `当前接口地址不是直连重排接口（需以 /rerank 结尾），却在使用重排模型 ${model}。`
+      + "请把接口地址填成完整的重排地址（例如 https://api.siliconflow.cn/v1/rerank），"
+      + "或改用能返回 JSON 的聊天模型。",
+    )
   }
   return {
     config: {
@@ -184,12 +205,46 @@ export async function testSettingsLlmModel(config: LlmConfig): Promise<LlmModelT
   )
 }
 
+/**
+ * 把 embedding 管线记下来的原始原因（HTTP 状态 + 服务端回包 / 网络错误）
+ * 翻成一句能照做的下一步。原因本身保留在消息里，方便对照服务商文档。
+ */
+function embeddingFailureHint(message: string): string {
+  // 管线里的原始原因形如「API 401 Unauthorized — {…} at …」，先按状态码判，
+  // 再退回文本特征，避免被服务端回包里的任意一个 "invalid" 带偏。
+  const status = Number(message.match(/(?:API|HTTP)\s(\d{3})/)?.[1] ?? 0)
+  if (status === 404 || status === 405 || /not found/i.test(message)) {
+    return "接口地址可能不完整：多数服务商要求填写到 /v1/embeddings（只填基础地址会 404）。"
+  }
+  if (status === 401 || /token is invalid|invalid api key|unauthorized/i.test(message)) {
+    return "API 密钥可能无效、已过期或不是该接口签发。"
+  }
+  if (status === 403) {
+    return "密钥没有该模型的调用权限，或被网关按来源拒绝。"
+  }
+  if (status === 429) {
+    return "请求被限流，请稍后重试。"
+  }
+  if (status === 400) {
+    return "模型名称可能不存在，或该接口不提供向量模型；建议先用「拉取模型」拿到准确的模型 ID。"
+  }
+  if (/missing .*(data\[|embeddings|output)/i.test(message)) {
+    return "接口返回的不是标准向量格式，请确认接口地址指向向量接口（而不是聊天或重排接口）。"
+  }
+  if (/network error|load failed|failed to fetch|error sending request/i.test(message)) {
+    return "网络不可达：请检查接口地址、代理与网络连通性。"
+  }
+  return ""
+}
+
 export async function testSettingsEmbeddingModel(config: EmbeddingConfig): Promise<EmbeddingModelTestResult> {
   const model = ensureModel(config.model, "请先填写嵌入模型名称后再测试。")
   if (!config.endpoint.trim()) {
     throw new Error("请先填写嵌入接口地址后再测试。")
   }
 
+  // 先清掉上一次留下的原因，失败时读到的才是本次的。
+  resetLastEmbeddingError()
   const vector = await fetchEmbedding(
     "这是一段用于测试嵌入模型可用性的短文本。",
     config,
@@ -197,7 +252,12 @@ export async function testSettingsEmbeddingModel(config: EmbeddingConfig): Promi
   )
 
   if (!vector || vector.length === 0) {
-    throw new Error("嵌入模型没有返回有效向量，请检查接口、密钥和模型名称。")
+    const reason = getLastEmbeddingError()
+    if (!reason) {
+      throw new Error("嵌入模型没有返回有效向量，请检查接口、密钥和模型名称。")
+    }
+    const hint = embeddingFailureHint(reason)
+    throw new Error(`嵌入模型测试失败：${reason}${hint ? ` ${hint}` : ""}`)
   }
 
   return {
