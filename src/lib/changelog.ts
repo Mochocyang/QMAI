@@ -7,6 +7,19 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_THREE_FOUR_CHANGELOG: ChangelogEntry = {
+  version: "4.3.4",
+  date: "2026-10-14",
+  highlights: {
+    en: [
+      "Fixed retrieval and rerank model tests that always failed: a bare base URL is now completed to the full endpoint and retried automatically, and a failure now shows the server's original error along with a suggested next step instead of one generic message. The model picker is also highlighted, so it is obvious you can fetch and choose a model there.",
+    ],
+    zh: [
+      "修复了向量与重排模型测试总是失败的问题：接口地址只填基础地址时会自动补全为完整地址并重试，失败时也不再只显示一句笼统提示，而是直接给出服务端的原始报错和下一步建议；模型选择下拉框也做了高亮，更容易发现可以直接在这里拉取并选择模型。",
+    ],
+  },
+};
+
 const FOUR_POINT_THREE_THREE_CHANGELOG: ChangelogEntry = {
   version: "4.3.3",
   date: "2026-10-13",
@@ -1939,6 +1952,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_THREE_FOUR_CHANGELOG.version)
+    return [FOUR_POINT_THREE_FOUR_CHANGELOG];
   if (version === FOUR_POINT_THREE_THREE_CHANGELOG.version)
     return [FOUR_POINT_THREE_THREE_CHANGELOG];
   if (version === FOUR_POINT_THREE_TWO_CHANGELOG.version)
@@ -2110,6 +2125,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_THREE_FOUR_CHANGELOG,
     FOUR_POINT_THREE_THREE_CHANGELOG,
     FOUR_POINT_THREE_TWO_CHANGELOG,
     FOUR_POINT_THREE_ONE_CHANGELOG,
