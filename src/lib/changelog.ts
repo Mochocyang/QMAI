@@ -7,6 +7,19 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_THREE_FIVE_CHANGELOG: ChangelogEntry = {
+  version: "4.3.5",
+  date: "2026-10-14",
+  highlights: {
+    en: [
+      "Outline documents now keep the Extract memory and View memory icons next to the HTML / MD switch, so both are visible in HTML mode instead of being hidden until you switch to MD.",
+    ],
+    zh: [
+      "大纲文档现在把「提取记忆」「查看记忆」两枚图标固定放在 HTML / MD 标识旁：HTML 模式下也能直接看到入口，不必先切到 MD 才能找到。",
+    ],
+  },
+};
+
 const FOUR_POINT_THREE_FOUR_CHANGELOG: ChangelogEntry = {
   version: "4.3.4",
   date: "2026-10-14",
@@ -1952,6 +1965,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_THREE_FIVE_CHANGELOG.version)
+    return [FOUR_POINT_THREE_FIVE_CHANGELOG];
   if (version === FOUR_POINT_THREE_FOUR_CHANGELOG.version)
     return [FOUR_POINT_THREE_FOUR_CHANGELOG];
   if (version === FOUR_POINT_THREE_THREE_CHANGELOG.version)
@@ -2125,6 +2140,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_THREE_FIVE_CHANGELOG,
     FOUR_POINT_THREE_FOUR_CHANGELOG,
     FOUR_POINT_THREE_THREE_CHANGELOG,
     FOUR_POINT_THREE_TWO_CHANGELOG,

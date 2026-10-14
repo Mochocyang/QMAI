@@ -6,7 +6,14 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 5)).toEqual(["4.3.4", "4.3.3", "4.3.2", "4.3.1", "4.3.0"])
+    expect(versions.slice(0, 5)).toEqual(["4.3.5", "4.3.4", "4.3.3", "4.3.2", "4.3.1"])
+    const release435 = currentVersionChangelog("4.3.5")[0]
+    expect(release435.version).toBe("4.3.5")
+    expect(release435.date).toBe("2026-10-14")
+    // 这一版刻意只留一条：大纲「提取记忆/查看记忆」入口移到 HTML/MD 旁
+    expect(release435.highlights.zh).toHaveLength(1)
+    expect(release435.highlights.zh[0]).toContain("提取记忆")
+    expect(release435.highlights.en).toHaveLength(1)
     const release434 = currentVersionChangelog("4.3.4")[0]
     expect(release434.version).toBe("4.3.4")
     expect(release434.date).toBe("2026-10-14")
