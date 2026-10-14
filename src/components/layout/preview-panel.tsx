@@ -2374,6 +2374,48 @@ export function PreviewPanel() {
     canViewSnapshot
   )
 
+  /*
+   * 大纲的「提取记忆 / 查看记忆」两枚图标。
+   *
+   * 它们原先只长在大纲 MD 编辑器的工具栏里 —— 而大纲一旦有伴生 HTML，打开文档
+   * 默认就是 HTML 模式（OutlineDualPreview 默认 mode="html"），iframe 会把整条
+   * 编辑器工具栏顶掉，于是 HTML 视图下这两枚按钮完全消失：用户看着一份 HTML 大纲
+   * 找不到「提取记忆」，只能自己猜是不是要切到 MD。
+   *
+   * 现在改为：有伴生 HTML（即会渲染双格式顶栏）时，把这两枚按钮提到顶栏、紧挨
+   * HTML / MD 标识，两种模式位置一致；没有伴生 HTML 时仍留在编辑器工具栏里
+   * （见下面 actions 里的三元），入口不会丢。
+   *
+   * ⚠️ `effectiveCompanionHtml` 只对 `isOutlinePath` 的文档非空（见上面读伴生
+   * html 的 effect），所以这里不需要再判一次是不是大纲。
+   */
+  const outlineMemoryActions = (
+    <>
+      <button
+        type="button"
+        className="ui-test-editor-action is-icon-only"
+        aria-label={isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"}
+        title={isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"}
+        onClick={() => void handleIngestOutline()}
+        disabled={!canIngestOutline || isOutlineIngesting}
+      >
+        <Brain aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="ui-test-editor-action is-icon-only"
+        aria-label="查看记忆"
+        title="查看记忆"
+        onClick={() => {
+          if (outlineIngested && outlineSnapshotNumber !== null) setShowOutlineSnapshot(true)
+          else setSaveStatus("尚未提取记忆。请先使用“提取记忆”，完成后可在此查看。")
+        }}
+      >
+        <BookOpen aria-hidden="true" />
+      </button>
+    </>
+  )
+
   if (loadedFilePath !== selectedFile) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -2455,13 +2497,9 @@ export function PreviewPanel() {
         </>
       ) : (
         <>
-          <button type="button" className="ui-test-editor-action is-icon-only" aria-label={isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"} title={isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"} onClick={() => void handleIngestOutline()} disabled={!canIngestOutline || isOutlineIngesting}>
-            <Brain aria-hidden="true" />
-          </button>
-          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="查看记忆" title="查看记忆" onClick={() => {
-            if (outlineIngested && outlineSnapshotNumber !== null) setShowOutlineSnapshot(true)
-            else setSaveStatus("尚未提取记忆。请先使用“提取记忆”，完成后可在此查看。")
-          }}><BookOpen aria-hidden="true" /></button>
+          {/* 有伴生 HTML 时这两枚按钮已在双格式顶栏（outlineMemoryActions）里，
+              这里不能再渲染一遍，免得同一个入口在同一屏出现两次。 */}
+          {effectiveCompanionHtml ? null : outlineMemoryActions}
           {/*
             大纲里也要能调字体。用户原话：「关于字体、间距等这些的设置，
             大纲当中也要有这个设置功能」。
@@ -2521,7 +2559,12 @@ export function PreviewPanel() {
     <div className="flex h-full flex-col">
       {uiTestEditorElement ? (
         effectiveCompanionHtml ? (
-          <OutlineDualPreview htmlContent={effectiveCompanionHtml} mdEditor={uiTestEditorElement} label={outlineFolderLabel ? `${outlineFolderLabel}双格式` : undefined} />
+          <OutlineDualPreview
+            htmlContent={effectiveCompanionHtml}
+            mdEditor={uiTestEditorElement}
+            label={outlineFolderLabel ? `${outlineFolderLabel}双格式` : undefined}
+            actions={outlineMemoryActions}
+          />
         ) : uiTestEditorElement
       ) : (
       <>

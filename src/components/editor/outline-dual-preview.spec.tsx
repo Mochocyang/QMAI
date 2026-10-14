@@ -79,6 +79,37 @@ describe("OutlineDualPreview", () => {
     expect(iframe.srcdoc).toContain("折叠树")
   })
 
+  it("附加操作渲染在 HTML / MD 标识旁，且两种模式下都在", async () => {
+    const html = "<!DOCTYPE html><html><body><h1>折叠树</h1></body></html>"
+    await act(async () => {
+      root.render(
+        <OutlineDualPreview
+          htmlContent={html}
+          mdEditor={<div data-testid="md-editor">MD 编辑器</div>}
+          actions={<button type="button" aria-label="提取记忆">提取</button>}
+        />,
+      )
+    })
+
+    // 默认 HTML 模式：iframe 在，操作区也在（这正是改造前缺的那一半）
+    expect(host.querySelector("iframe")).not.toBeNull()
+    const bar = host.querySelector("[data-outline-dual-actions]")
+    expect(bar, "HTML / MD 标识旁应有操作区").not.toBeNull()
+    expect(bar!.querySelector('[aria-label="提取记忆"]')).not.toBeNull()
+
+    // 切到 MD：操作区不随模式消失
+    await act(async () => {
+      findButton(host, "MD").click()
+    })
+    expect(host.querySelector('[data-testid="md-editor"]')).not.toBeNull()
+    expect(host.querySelector("[data-outline-dual-actions]")?.querySelector('[aria-label="提取记忆"]')).not.toBeNull()
+  })
+
+  it("没有附加操作时不渲染空的操作区", async () => {
+    await render("<!DOCTYPE html><html><body></body></html>", <div data-testid="md-editor">MD</div>)
+    expect(host.querySelector("[data-outline-dual-actions]")).toBeNull()
+  })
+
   it("预览跟随当前外观，切换皮肤后换成对应配色", async () => {
     document.documentElement.dataset.uiTestSkin = "xing"
     const html = "<!DOCTYPE html><html><head></head><body><h1>折叠树</h1></body></html>"

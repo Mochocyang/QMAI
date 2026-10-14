@@ -9,6 +9,14 @@ interface OutlineDualPreviewProps {
   mdEditor: ReactNode
   /** 顶栏标题，默认「双格式」 */
   label?: string
+  /**
+   * HTML / MD 标识旁的附加操作（如大纲的「提取记忆 / 查看记忆」）。
+   *
+   * 这两枚按钮原先只长在 MD 编辑器工具栏里，而本组件默认就是 HTML 模式 ——
+   * iframe 会把整条编辑器工具栏顶掉，于是 HTML 视图下按钮凭空消失，用户
+   * 只能猜「是不是要切到 MD 才有」。提到顶栏后两种模式位置一致。
+   */
+  actions?: ReactNode
 }
 
 /**
@@ -17,7 +25,7 @@ interface OutlineDualPreviewProps {
  * - MD：纯文字编辑（复用上层 WikiEditor，用户可改任何文字）
  * 默认进入 HTML 模式；MD 编辑保存后不同步重建 HTML（两格式独立）。
  */
-export function OutlineDualPreview({ htmlContent, mdEditor, label = "双格式" }: OutlineDualPreviewProps) {
+export function OutlineDualPreview({ htmlContent, mdEditor, label = "双格式", actions }: OutlineDualPreviewProps) {
   const [mode, setMode] = useState<"html" | "md">("html")
   const skin = useDocumentAppearance()
   const previewHtml = useDocumentAppearanceHtml(htmlContent)
@@ -28,6 +36,11 @@ export function OutlineDualPreview({ htmlContent, mdEditor, label = "双格式" 
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center justify-end gap-1 border-b border-border px-2 py-1">
         <span className="mr-auto text-xs font-medium text-muted-foreground">{label}</span>
+        {/*
+          附加操作排在两个模式标识**左侧**（紧挨），用与编辑器工具栏相同的
+          `ui-test-editor-action is-icon-only` 类，视觉上与别处的图标按钮一致。
+        */}
+        {actions ? <div className="flex items-center gap-1" data-outline-dual-actions="">{actions}</div> : null}
         <button
           type="button"
           onClick={() => setMode("html")}

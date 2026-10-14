@@ -69,7 +69,16 @@ const fixture = vi.hoisted(() => ({
   },
 }))
 
-vi.mock("@/lib/ui-test", () => ({ get IS_UI_TEST_BUILD() { return fixture.enabled } }))
+/*
+ * 只替换 `IS_UI_TEST_BUILD`，其余导出（如 `readUiTestSkin`）必须保留 ——
+ * 大纲有伴生 HTML 时本文件会渲染 `OutlineDualPreview`，它经
+ * `useDocumentAppearance` 读 `readUiTestSkin()`；整模块替换会让那条链在没有
+ * 该导出时直接抛错，和被测行为无关。
+ */
+vi.mock("@/lib/ui-test", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/ui-test")>(),
+  get IS_UI_TEST_BUILD() { return fixture.enabled },
+}))
 vi.mock("@/commands/fs", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/commands/fs")>(),
   readFile: vi.fn(async (path: string) => {
@@ -375,6 +384,33 @@ describe("测试版正文编辑器", () => {
     await click("查看记忆")
     expect(container.textContent).toContain("尚未提取记忆")
     expect(fixture.write).not.toHaveBeenCalled()
+  })
+
+  /*
+   * 大纲有同名 .html 伴生文件时，打开文档默认就是 HTML 模式（iframe 占满），
+   * 原先「提取记忆 / 查看记忆」只挂在 MD 编辑器工具栏上 → HTML 视图下两枚
+   * 按钮凭空消失，用户找不到入口。现在它们挪到顶栏、紧挨 HTML / MD 标识。
+   */
+  it("大纲的 HTML 视图下也能看到提取记忆 / 查看记忆（挨着 HTML / MD）", async () => {
+    fixture.files.set(
+      outlinePath.replace(/\.md$/i, ".html"),
+      "<!DOCTYPE html><html><body><h1>折叠树</h1></body></html>",
+    )
+    await mount(outlinePath)
+
+    expect(container.querySelector("iframe"), "默认应是 HTML 模式").not.toBeNull()
+    const bar = container.querySelector("[data-outline-dual-actions]")
+    expect(bar, "HTML / MD 标识旁应有操作区").not.toBeNull()
+    button("提取记忆", bar!)
+    button("查看记忆", bar!)
+
+    /* 切到 MD：两枚按钮仍留在顶栏，编辑器工具栏里不再重复一份 */
+    await click("MD")
+    const toolbar = container.querySelector(".ui-test-editor-toolbar")
+    expect(toolbar, "MD 模式应渲染编辑器工具栏").not.toBeNull()
+    expect(button("提取记忆").closest("[data-outline-dual-actions]"), "提取记忆应仍在顶栏").not.toBeNull()
+    expect(toolbar!.querySelector('[aria-label="提取记忆"]')).toBeNull()
+    expect(toolbar!.querySelector('[aria-label="查看记忆"]')).toBeNull()
   })
 
   it("没有文档时使用中文空状态且不伪造保存成功", async () => {
