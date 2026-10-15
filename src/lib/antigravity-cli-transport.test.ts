@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { LlmConfig } from "@/stores/wiki-store"
-import { createAntigravityStreamParser, streamAntigravityCli } from "./antigravity-cli-transport"
+import { createAntigravityStreamParser, emptyOutputMessage, streamAntigravityCli } from "./antigravity-cli-transport"
 
 type EventHandler = (event: { payload: unknown }) => void
 
@@ -114,5 +114,14 @@ describe("streamAntigravityCli", () => {
     })
     expect(error).not.toBeNull()
     expect(error?.message).toContain("invalid model selection")
+  })
+
+  it("explains a headless command denial without suggesting skipped permissions", () => {
+    const message = emptyOutputMessage(
+      "jetski: no output produced — a tool required the \"command\" permission that headless mode cannot prompt for, so it was auto-denied.",
+    )
+    expect(message).toContain("无头模式不能弹出授权")
+    expect(message).not.toContain("dangerously-skip-permissions")
+    expect(message).not.toContain("settings.json")
   })
 })

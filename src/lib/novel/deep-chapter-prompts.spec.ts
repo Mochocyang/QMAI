@@ -56,7 +56,7 @@ describe("chapter prompts honor the configured length spec", () => {
     expect(draft).toContain("目标约 2000 字")
     expect(draft).toContain(`阶段3正文草稿最多 ${spec.draftMaxChars} 字`)
     expect(draft).not.toContain("目标约 3000 字")
-    expect(draft).toContain("写作时遵守「本章相关材料」")
+    expect(draft).toContain("「本章相关材料」只是路径清单，不是正文")
     expect(brief).not.toContain("本章相关材料")
   })
 

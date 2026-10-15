@@ -159,7 +159,8 @@ interface HeadingState {
 }
 
 function splitSemanticSegments(document: OutlineDocument): OutlineSegment[] {
-  // 材料整篇按章取用。标题里的「第 N 章 / 世界观」不能把这篇改写成章纲或设定，否则会漏进稳定大纲。
+  // 材料不按标题拆段。标题里的「第 N 章 / 世界观」不能把这篇改写成章纲或设定，否则会漏进稳定大纲。
+  // 正文不在这里预选，只在材料目录里列出路径。
   if (document.kind === "material") {
     const content = document.content.trim()
     if (!content) return []
@@ -534,84 +535,24 @@ function groupSourcesByDocument(
   }))
 }
 
-function relatedText(frontmatter: Record<string, unknown> | null): string {
-  const related = frontmatter?.related
-  if (Array.isArray(related)) return related.map((item) => scalarText(item)).filter(Boolean).join("\n")
-  return scalarText(related)
-}
-
-function materialTitleText(document: OutlineDocument): string {
-  const heading = document.content.match(/^#{1,6}\s+(.+)$/m)?.[1]?.trim() ?? ""
-  const title = scalarText(document.frontmatter?.title)
-  const stem = document.relativePath.split("/").pop()?.replace(/\.md$/i, "") ?? ""
-  return [heading, title, stem].filter(Boolean).join("\n")
-}
-
-function exactChapterPattern(chapterNumber: number): RegExp {
-  return new RegExp(`第\\s*0*${chapterNumber}\\s*章(?!\\d)`)
-}
-
-function materialBodyRangeContains(content: string, chapterNumber: number): boolean {
-  if (bodyRangeContains(content, chapterNumber)) return true
-  const pattern = /第\s*(\d+)\s*章?\s*[-—–~至]\s*第?\s*(\d+)\s*章/g
-  for (const match of content.matchAll(pattern)) {
-    const start = Number(match[1])
-    const end = Number(match[2])
-    if (start > 0 && end >= start && chapterNumber >= start && chapterNumber <= end) return true
-  }
-  return false
-}
-
-function hasFrontmatterChapterRange(frontmatter: Record<string, unknown> | null): boolean {
-  const start = Number(scalarText(frontmatter?.chapter_range_start))
-  const end = Number(scalarText(frontmatter?.chapter_range_end))
-  return Number.isFinite(start) && Number.isFinite(end) && start > 0 && end >= start
-}
-
-function materialHasNarrowerChapterScope(document: OutlineDocument, titleText: string, related: string): boolean {
-  if (frontmatterChapterNumber(document.frontmatter) || hasFrontmatterChapterRange(document.frontmatter)) return true
-  const scopeText = `${document.content}\n${titleText}\n${related}`
-  if (/第\s*\d+\s*章/.test(scopeText)) return true
-  if (/第\s*\d+\s*章?\s*[-—–~至]\s*第?\s*\d+\s*章/.test(document.content)) return true
-  if (/章节范围[^\d]{0,12}第?\s*\d+/.test(document.content)) return true
-  return /章号[^\d]{0,12}\d+\s*[-—–~至]\s*\d+/.test(document.content)
-}
-
-function materialMatchesChapter(
-  document: OutlineDocument,
-  chapterNumber: number,
-  volumeTitles: string[],
-): boolean {
-  const titleText = materialTitleText(document)
-  const related = relatedText(document.frontmatter)
-  const scopeText = `${document.content}\n${titleText}\n${related}`
-  if (exactChapterPattern(chapterNumber).test(scopeText)) return true
-  if (frontmatterChapterNumber(document.frontmatter) === chapterNumber) return true
-  if (materialBodyRangeContains(document.content, chapterNumber)) return true
-  if (frontmatterRangeContains(document.frontmatter, chapterNumber)) return true
-  if (materialHasNarrowerChapterScope(document, titleText, related)) return false
-  const haystack = `${titleText}\n${related}`
-  return volumeTitles.some((title) => title.length > 0 && haystack.includes(title))
-}
-
-function renderRelevantMaterials(index: OutlineDocumentIndex, chapterNumber?: number): string {
-  if (!chapterNumber) return ""
-  const volumeTitles = resolveTargetVolumes(index, chapterNumber).map((volume) => volume.title)
-  const matches = index.documents.filter((document) =>
-    document.kind === "material" && materialMatchesChapter(document, chapterNumber, volumeTitles),
-  )
-  return uniqueSourceBlocks(matches.map((document) => ({
-    kind: "material" as const,
-    relativePath: document.relativePath,
-    content: document.content,
-  }))).join("\n\n")
+/** 材料只列路径，不按文件名或章号预选正文。模型读过之后自己决定用不用。 */
+function renderMaterialCatalog(index: OutlineDocumentIndex): string {
+  const paths = index.documents
+    .filter((document) => document.kind === "material")
+    .map((document) => document.relativePath)
+    .sort((left, right) => left.localeCompare(right, "zh-Hans-CN", { numeric: true }))
+  if (paths.length === 0) return ""
+  return [
+    "材料目录（只列路径，不含正文）。与大纲列表相同：先看清单，读过正文后再判断本章要不要用。不要按文件名或章号机械选定。",
+    ...paths.map((path) => `- ${path}`),
+  ].join("\n")
 }
 
 export interface OutlineContextLayers {
   full: string
   project: string
   task: string
-  /** 当前章命中的材料。不进入 project / full。 */
+  /** 材料路径清单。不含正文，不进入 project / full。 */
   materials: string
 }
 
@@ -635,7 +576,7 @@ export function buildOutlineContextLayers(index: OutlineDocumentIndex, chapterNu
     full: render([...master, ...volumes, ...chapterPlans, ...settings]),
     project: render([...master, ...settings]),
     task: render([...volumes, ...chapterPlans]),
-    materials: renderRelevantMaterials(index, chapterNumber),
+    materials: renderMaterialCatalog(index),
   }
 }
 

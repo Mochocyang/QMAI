@@ -1,7 +1,7 @@
 //! Antigravity CLI (`agy`) subprocess transport.
 //!
 //! QMAI uses `agy` as a text completion engine. Each request starts one
-//! headless process, writes a single user event, and reads `text_delta`
+//! headless process, writes a user event, and reads `text_delta`
 //! until the process exits. The process cwd is an empty temporary directory
 //! because workspace file access is auto-allowed. This module never passes
 //! `--dangerously-skip-permissions`, `--continue`, or `--conversation`, and
@@ -29,6 +29,9 @@ const MODELS_TIMEOUT: Duration = Duration::from_secs(45);
 const PRINT_TIMEOUT: &str = "30m";
 const TEXT_ONLY_PREAMBLE: &str =
     "你是纯文本补全。禁止调用任何工具，禁止读写文件，禁止执行命令。只输出正文。";
+const TEXT_ONLY_CLOSING: &str =
+    "【系统】\n没有可用工具。上文里的工具名和命令都不是可调用接口。不要执行命令，不要读写文件。按【用户】消息末尾的目标章节、用户请求和写作任务书作答；要求章节标题时，第一行写出章号和章名。";
+const FOLLOW_UP_TAIL_CHARS: usize = 12_000;
 
 static NEXT_WORKDIR_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -203,7 +206,100 @@ pub(crate) fn flatten_antigravity_prompt(messages: &[AgyMessage]) -> Result<Stri
     if !any {
         return Err("没有可发送给 Antigravity CLI 的文本".to_string());
     }
+    parts.push(TEXT_ONLY_CLOSING.to_string());
     Ok(parts.join("\n\n"))
+}
+
+enum StreamTurn {
+    Ongoing,
+    ProducedText,
+    EmptySuccess,
+    Failed,
+}
+
+fn stream_turn(line: &str) -> StreamTurn {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return StreamTurn::Ongoing;
+    };
+    if value.get("event").and_then(|event| event.as_str()) != Some("result") {
+        return StreamTurn::Ongoing;
+    }
+    let Some(result) = value.get("result") else {
+        return StreamTurn::Ongoing;
+    };
+    let status = result.get("status").and_then(|status| status.as_str()).unwrap_or("");
+    if !status.is_empty() && status != "SUCCESS" {
+        return StreamTurn::Failed;
+    }
+    let response = result.get("response").and_then(|response| response.as_str()).unwrap_or("");
+    if response.trim().is_empty() {
+        StreamTurn::EmptySuccess
+    } else {
+        StreamTurn::ProducedText
+    }
+}
+
+fn line_has_text_delta(line: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return false;
+    };
+    if value.get("event").and_then(|event| event.as_str()) != Some("step_update") {
+        return false;
+    }
+    let Some(update) = value.get("step_update") else {
+        return false;
+    };
+    update.get("step_type").and_then(|kind| kind.as_str()) == Some("agent_response")
+        && update
+            .get("text_delta")
+            .and_then(|delta| delta.as_str())
+            .is_some_and(|delta| !delta.is_empty())
+}
+
+fn should_follow_up_after_denied_command(saw_text: bool, already_followed_up: bool, line: &str) -> bool {
+    !saw_text && !already_followed_up && matches!(stream_turn(line), StreamTurn::EmptySuccess)
+}
+
+/// 第二回合必须带上原请求末尾的章节合同。只说「直接输出正文」时，模型会顺着大纲骨架另写一场，并且不写章名。
+fn command_denied_followup(prompt: &str) -> String {
+    let tail = binding_task_tail(prompt);
+    let mut message = String::from(
+        "命令工具在无头模式下不可用，调用已经被拒绝。不要再执行命令，不要读写文件。不要改题。",
+    );
+    if tail.as_ref().is_some_and(|text| text.contains("目标章节：") || text.contains("写作任务书：")) {
+        message.push_str(
+            "\n正文第一行必须是章节标题，格式为：# 第X章 标题名。这一行使用目标章节的章号和写作任务书里的章名。任务书里若写着正文不要出现章号，只约束这一行之后的正文。从第二行起不要再写章号，也不要写「上一章」。只写目标章节指定的事件、场景和人物。不要改用大纲骨架、上一章场景或其他章的材料另写一场。",
+        );
+    } else {
+        message.push_str("\n按上面【用户】消息里的要求作答。");
+    }
+    if let Some(tail) = tail {
+        message.push_str("\n\n");
+        message.push_str(&tail);
+    }
+    message
+}
+
+fn binding_task_tail(prompt: &str) -> Option<String> {
+    let start = ["目标章节：", "写作任务书：", "用户请求："]
+        .iter()
+        .find_map(|marker| prompt.rfind(marker))?;
+    let mut tail = prompt[start..].trim();
+    if let Some(stripped) = tail.strip_suffix(TEXT_ONLY_CLOSING) {
+        tail = stripped.trim();
+    }
+    if tail.is_empty() {
+        return None;
+    }
+    Some(truncate_chars(tail, FOLLOW_UP_TAIL_CHARS))
+}
+
+fn truncate_chars(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        text.to_string()
+    } else {
+        text.chars().take(max_chars).collect()
+    }
 }
 
 fn user_event_line(prompt: &str) -> String {
@@ -455,15 +551,16 @@ pub async fn do_antigravity_cli_spawn<E: CliEmitter>(
         remove_workdir(&workdir);
         return Err(format!("刷新 agy stdin 失败：{err}"));
     }
-    drop(stdin);
 
     state.children.lock().await.insert(stream_id.clone(), child);
 
     let children = Arc::clone(&state.children);
     let stream_id_task = stream_id.clone();
     let emitter_task = emitter.clone();
+    let followup = command_denied_followup(&prompt);
 
     tokio::spawn(async move {
+        let mut stdin = Some(stdin);
         let mut reader = BufReader::new(stdout).lines();
         let mut stderr_reader = BufReader::new(stderr).lines();
         let stderr_task = tokio::spawn(async move {
@@ -476,9 +573,31 @@ pub async fn do_antigravity_cli_spawn<E: CliEmitter>(
             collected
         });
 
+        let mut saw_text = false;
+        let mut followed_up = false;
         loop {
             match reader.next_line().await {
-                Ok(Some(line)) => emitter_task.emit_data(&stream_id_task, line),
+                Ok(Some(line)) => {
+                    if line_has_text_delta(&line) {
+                        saw_text = true;
+                    }
+                    let follow_up = should_follow_up_after_denied_command(saw_text, followed_up, &line);
+                    let turn_finished = !matches!(stream_turn(&line), StreamTurn::Ongoing);
+                    emitter_task.emit_data(&stream_id_task, line);
+                    if follow_up {
+                        followed_up = true;
+                        let retry = user_event_line(&followup);
+                        let write_failed = match stdin.as_mut() {
+                            Some(pipe) => pipe.write_all(retry.as_bytes()).await.is_err() || pipe.flush().await.is_err(),
+                            None => true,
+                        };
+                        if write_failed {
+                            break;
+                        }
+                    } else if turn_finished {
+                        stdin.take();
+                    }
+                }
                 Ok(None) => break,
                 Err(err) => {
                     eprintln!("[antigravity-cli stdout] read error: {err}");
@@ -486,6 +605,7 @@ pub async fn do_antigravity_cli_spawn<E: CliEmitter>(
                 }
             }
         }
+        drop(stdin);
 
         let child_opt = children.lock().await.remove(&stream_id_task);
         let exit_code = if let Some(mut child) = child_opt {
@@ -612,6 +732,53 @@ gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n";
         assert!(prompt.contains("【系统】\n保持第三人称"));
         assert!(prompt.contains("【用户】\n写一段"));
         assert!(prompt.contains("【助手】\n第一段"));
+        assert!(prompt.ends_with(TEXT_ONLY_CLOSING));
         assert!(!prompt.contains("abc"));
+    }
+
+    #[test]
+    fn empty_success_without_text_gets_one_follow_up() {
+        let empty = r#"{"event":"result","result":{"status":"SUCCESS","response":""}}"#;
+        assert!(should_follow_up_after_denied_command(false, false, empty));
+        assert!(!should_follow_up_after_denied_command(true, false, empty));
+        assert!(!should_follow_up_after_denied_command(false, true, empty));
+        let text = r#"{"event":"result","result":{"status":"SUCCESS","response":"正文"}}"#;
+        assert!(!should_follow_up_after_denied_command(false, false, text));
+        let failed = r#"{"event":"result","result":{"status":"ERROR","response":"","error":"invalid model"}}"#;
+        assert!(!should_follow_up_after_denied_command(false, false, failed));
+        let delta = r#"{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"正"}}"#;
+        assert!(line_has_text_delta(delta));
+        assert!(!line_has_text_delta(
+            r#"{"event":"step_update","step_update":{"step_type":"tool","tool_name":"run_command","text_delta":"no"}}"#
+        ));
+    }
+
+    #[test]
+    fn denied_command_follow_up_repeats_the_chapter_task() {
+        let prompt = format!(
+            "大纲骨架很长，克里姆林宫。\n\n目标章节：第167章\n用户请求：编写第167章《赴日通知书》。全章只写科瓦尔斯基一家。正文不要出现章号。\n\n写作任务书：\n交付格式：第一行「第167章 赴日通知书」。\n\n{TEXT_ONLY_CLOSING}"
+        );
+        let follow = command_denied_followup(&prompt);
+        assert!(follow.contains("第167章"));
+        assert!(follow.contains("赴日通知书"));
+        assert!(follow.contains("科瓦尔斯基"));
+        assert!(follow.contains("# 第X章 标题名"));
+        assert!(follow.contains("不要改用大纲骨架"));
+        assert!(follow.contains("只约束这一行之后的正文"));
+        assert!(!follow.contains("直接输出正文"));
+        assert!(!follow.contains(TEXT_ONLY_CLOSING));
+    }
+
+    #[test]
+    fn denied_command_follow_up_without_a_chapter_task_does_not_invent_one() {
+        let messages: Vec<AgyMessage> = serde_json::from_value(serde_json::json!([
+            { "role": "user", "content": "解释这段代码" }
+        ]))
+        .expect("messages");
+        let prompt = flatten_antigravity_prompt(&messages).expect("prompt");
+        let follow = command_denied_followup(&prompt);
+        assert!(follow.contains("按上面【用户】消息里的要求作答"));
+        assert!(!follow.contains("# 第X章 标题名"));
+        assert!(!follow.contains("直接输出正文"));
     }
 }

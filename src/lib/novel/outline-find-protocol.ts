@@ -34,7 +34,7 @@ export function buildOutlineFindProtocol(targetChapterNumber?: number): string {
     "   - 章纲：本章主候选；必须 read_outline 读正文，按目标章号定位对应章纲。",
     "   - 卷纲：卷级候选；确认章号落在该卷后再读。",
     "   - 人物小传 / 伏笔 / 组织：辅助资料，不当本章剧情大纲。",
-    "   - 材料：本章或本卷的辅助资料，不是章纲。只读上下文里已经给出的「本章相关材料」，或正文明确对上当前章号、章号区间、当前卷的那几篇。不要按文件夹整夹 read_outline。",
+    "   - 材料：本章或本卷的辅助资料，不是章纲。和大纲一样只先列出路径。需要时 read_outline 读正文，再判断本章用不用。不要按文件名、章号或章号区间机械选定，也不要按文件夹整夹 read_outline。",
     "3. 兼容（非强制）：若几乎无标准文件夹、却有旧 frontmatter type，可参考 overview≈大纲、concept≈设定、outline≈卷纲/章纲；不要求新项目补 type。",
     "4. 文件夹与 type 都缺失时，必须读正文判断是卷纲、章纲、设定还是清单；禁止只看文件名就选定。",
     "5. 确认对应该章的大纲，并已知相关 大纲/设定（或旧 overview/concept）约束后，必须调用 run_chapter_workflow；禁止直接输出终稿正文。",

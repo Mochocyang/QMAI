@@ -179,11 +179,7 @@ export async function streamAntigravityCli(
           return
         }
         if (!emittedToken) {
-          finishWith(() => onError(new Error(
-            stderr
-              ? `Antigravity CLI 没有返回正文：\n${stderr}`
-              : "Antigravity CLI 没有返回正文。请在终端运行 agy 确认登录状态。",
-          )))
+          finishWith(() => onError(new Error(emptyOutputMessage(stderr))))
           return
         }
         finishWith(onDone)
@@ -237,6 +233,14 @@ function failureMessage(status: string | undefined, error: string | undefined): 
   }
   if (detail) return `Antigravity CLI 失败（${status ?? "ERROR"}）：${detail}`
   return `Antigravity CLI 失败（${status ?? "ERROR"}）。`
+}
+
+export function emptyOutputMessage(stderr: string): string {
+  if (/no output produced/i.test(stderr) && /permission/i.test(stderr)) {
+    return "Antigravity CLI 试图执行命令，无头模式不能弹出授权，所以没有正文。"
+  }
+  if (stderr) return `Antigravity CLI 没有返回正文：\n${stderr}`
+  return "Antigravity CLI 没有返回正文。请在终端运行 agy 确认登录状态。"
 }
 
 function exitMessage(code: number, stderr: string): string {
