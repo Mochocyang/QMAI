@@ -33,6 +33,7 @@ title: "规则"
   it("extracts standard outline folder from relative path", () => {
     expect(extractOutlineFolder("章纲/第52章-条件.md")).toBe("章纲")
     expect(extractOutlineFolder("设定/写作通则.md")).toBe("设定")
+    expect(extractOutlineFolder("材料/基地与部队台账.md")).toBe("材料")
     expect(extractOutlineFolder("第三卷大纲.md")).toBeUndefined()
     expect(extractOutlineFolder("其他/说明.md")).toBeUndefined()
   })
@@ -96,6 +97,8 @@ title: "规则"
     expect(result).toContain("优先按文件夹（folder）分流")
     expect(result).toContain("章纲：本章主候选")
     expect(result).toContain("设定：全书硬约束")
+    expect(result).toContain("材料：本章或本卷的辅助资料，不是章纲")
+    expect(result).toContain("不要按文件夹整夹 read_outline")
     expect(result).toContain("旧兼容：overview≈大纲")
     expect(result).toContain("优先在章纲中定位")
   })

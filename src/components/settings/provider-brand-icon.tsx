@@ -33,6 +33,7 @@ const PROVIDER_BRAND_ICONS: Record<string, { slug: string; mono?: boolean }> = {
   "ollama-cloud": { slug: "ollama", mono: true },
   atlascloud: { slug: "atlascloud", mono: true },
   "cursor-cli": { slug: "cursor", mono: true },
+  "antigravity-cli": { slug: "antigravity-color" },
 }
 
 export function modelSaveLabel(persisted: boolean, dirty: boolean) {

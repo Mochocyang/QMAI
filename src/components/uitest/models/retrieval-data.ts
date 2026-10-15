@@ -19,6 +19,6 @@ export function validateRerankDraft(config: RerankConfig, mainModel: string): st
     const error = validateModelEndpoint(config.provider === "ollama" ? config.ollamaUrl : config.customEndpoint)
     if (error) return error
   }
-  if (!["claude-code", "codex-cli", "cursor-cli"].includes(config.provider) && !config.model.trim()) return "请填写重排模型 ID。"
+  if (!["claude-code", "codex-cli", "cursor-cli", "antigravity-cli"].includes(config.provider) && !config.model.trim()) return "请填写重排模型 ID。"
   return null
 }

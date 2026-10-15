@@ -52,13 +52,14 @@ describe("codex app-server transport", () => {
       web_search: "disabled",
       project_doc_max_bytes: 0,
       project_root_markers: [],
-      tools: { view_image: false, web_search: false },
+      tools: { web_search: false },
       features: expect.objectContaining({
         apps: false,
         plugins: false,
         shell_tool: false,
         multi_agent: false,
         skill_search: false,
+        view_image: false,
       }),
     }))
   })

@@ -51,6 +51,7 @@ describe("QMAI model settings", () => {
       "claude-code-cli",
       "codex-cli",
       "cursor-cli",
+      "antigravity-cli",
       "openai",
       "google",
       "azure",

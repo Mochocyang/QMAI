@@ -23,6 +23,7 @@ export type Provider =
   | "claude-code"
   | "codex-cli"
   | "cursor-cli"
+  | "antigravity-cli"
 
 export interface LlmPreset {
   /** Stable id used as the dropdown value. */
@@ -137,6 +138,25 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     suggestedModels: [
       "auto",
       "composer-2.5-fast",
+    ],
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
+  },
+  {
+    id: "antigravity-cli",
+    label: "Antigravity CLI (local)",
+    hint: "使用 local agy 命令及其登录状态，无需 API Key",
+    provider: "antigravity-cli",
+    suggestedModels: [
+      "gemini-3.8-flash-high",
+      "gemini-3.8-flash-medium",
+      "gemini-3.8-flash-low",
+      "claude-opus-5-5-high",
+      "claude-opus-5-5-medium",
+      "claude-opus-5-5-low",
+      "claude-sonnet-5-5-high",
+      "claude-sonnet-5-5-medium",
+      "claude-sonnet-5-5-low",
+      "gpt-oss-120b-medium",
     ],
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },

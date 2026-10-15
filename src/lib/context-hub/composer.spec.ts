@@ -288,6 +288,24 @@ describe("项目与章节缓存层隔离", () => {
     expect(second.dynamicContext).not.toContain("全书固定主线")
   })
 
+  it("本章相关材料只进入动态层，并排在当前章纲之后", () => {
+    const result = composeContext({
+      contextPack: pack({
+        projectOutline: "全书骨架",
+        chapterOutlineContext: "第167章纲",
+        relevantMaterials: "第167章机场名单",
+      }),
+      dependencyStamp,
+    })
+    expect(result.stableCore).toContain("全书骨架")
+    expect(result.stableCore).not.toContain("机场名单")
+    expect(result.dynamicContext).toContain("本章相关材料")
+    expect(result.dynamicContext).toContain("第167章机场名单")
+    expect(result.dynamicContext.indexOf("分卷与当前章纲")).toBeLessThan(
+      result.dynamicContext.indexOf("本章相关材料"),
+    )
+  })
+
   it("明确没有全书骨架时，不把可变章纲回填到稳定层", () => {
     const result = composeContext({
       contextPack: pack({ outline: "只有当前章纲", projectOutline: "", chapterOutlineContext: "只有当前章纲" }),

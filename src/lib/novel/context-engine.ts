@@ -89,6 +89,8 @@ export interface ContextPack {
   projectOutline?: string
   /** 当前分卷、章节规划和章纲；仅放在动态任务层。 */
   chapterOutlineContext?: string
+  /** 当前章命中的材料；只进动态层，不进稳定大纲。 */
+  relevantMaterials?: string
   /** 仅供写作实体补搜提取候选名称，不注入任务书、正文或审稿提示词。 */
   entitySearchOutline?: string
   recentChapterContents?: string[]
@@ -338,6 +340,7 @@ async function buildContextPackFromRawData(
         rawData.volumeContext,
         rawData.chapterOutline,
       ], "\n\n"),
+      relevantMaterials: outlineLayers.materials,
     } : {}),
     entitySearchOutline,
     recentChapterContents,
@@ -552,7 +555,7 @@ export async function readOutlineContextLayers(pp: string, chapterNumber?: numbe
   try {
     return buildOutlineContextLayers(await loadOutlineDocumentIndex(pp), chapterNumber)
   } catch {
-    return { full: "", project: "", task: "" }
+    return { full: "", project: "", task: "", materials: "" }
   }
 }
 

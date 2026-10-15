@@ -8,7 +8,10 @@ import { DEFAULT_OUTLINE_FOLDERS } from "@/lib/novel/outline-workbench"
 import { normalizePath } from "@/lib/path-utils"
 import type { FileNode } from "@/types/wiki"
 
-const STANDARD_OUTLINE_FOLDERS = new Set(DEFAULT_OUTLINE_FOLDERS.map((folder) => folder.name))
+const STANDARD_OUTLINE_FOLDERS = new Set([
+  ...DEFAULT_OUTLINE_FOLDERS.map((folder) => folder.name),
+  "材料",
+])
 
 export interface OutlineListEntry {
   /** 相对 outlines 根目录的路径，含 .md */
@@ -143,6 +146,7 @@ export function buildOutlineListToolResult(
     "- 章纲：本章主候选，按目标章号定位后读正文。",
     "- 卷纲：卷级候选，确认章号落在该卷后再读。",
     "- 人物小传 / 伏笔 / 组织：辅助资料，不当本章剧情大纲。",
+    "- 材料：本章或本卷的辅助资料，不是章纲。只使用上下文里已经给出的「本章相关材料」，或正文明确对上当前章号、章号区间、当前卷的那几篇；不要按文件夹整夹 read_outline。",
     "- 旧兼容：overview≈大纲，concept≈设定，outline≈卷纲/章纲（视 outline_type）。",
     "不要只凭文件名选择；不要跳过 大纲/设定（或旧 overview/concept）只读一份卷纲。",
   ]

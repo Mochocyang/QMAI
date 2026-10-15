@@ -82,7 +82,7 @@ function endpointWithoutCredentials(endpoint: string): string {
 }
 
 function modelIdentity(config: LlmConfig): unknown {
-  const localCli = config.provider === "claude-code" || config.provider === "codex-cli"
+  const localCli = config.provider === "claude-code" || config.provider === "codex-cli" || config.provider === "antigravity-cli"
   const provider = localCli ? null : getProviderConfig({ ...config, apiKey: "" })
   // 使用供应商真实 buildBody 的默认采样/推理参数；不构造请求、不保存 headers。
   const body = provider?.buildBody([])

@@ -10,6 +10,7 @@ const PRESET_ID_BY_PROVIDER: Partial<Record<LlmProvider, string>> = {
   "claude-code": "claude-code-cli",
   "codex-cli": "codex-cli",
   "cursor-cli": "cursor-cli",
+  "antigravity-cli": "antigravity-cli",
   "ollama": "ollama-local",
 }
 
@@ -47,7 +48,7 @@ export function hasUsableLlm(
   const hasKey = cfg.apiKey.trim().length > 0
   const hasModel = cfg.model.trim().length > 0
 
-  if (cfg.provider === "claude-code" || cfg.provider === "codex-cli" || cfg.provider === "cursor-cli") {
+  if (cfg.provider === "claude-code" || cfg.provider === "codex-cli" || cfg.provider === "cursor-cli" || cfg.provider === "antigravity-cli") {
     const presetId = PRESET_ID_BY_PROVIDER[cfg.provider]!
     return isPresetEnabled(providerConfigs, presetId)
   }

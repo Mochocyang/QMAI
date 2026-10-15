@@ -71,6 +71,19 @@ describe("hasUsableLlm", () => {
     expect(hasUsableLlm(cfg, providers)).toBe(true)
   })
 
+  it("accepts antigravity-cli when the preset is enabled without an API key or model", () => {
+    const providers: ProviderConfigs = {
+      "antigravity-cli": { enabled: true },
+    }
+    const cfg: LlmConfig = { ...baseCfg, provider: "antigravity-cli", apiKey: "", model: "" }
+    expect(hasUsableLlm(cfg, providers)).toBe(true)
+  })
+
+  it("rejects antigravity-cli when the preset is not enabled", () => {
+    const cfg: LlmConfig = { ...baseCfg, provider: "antigravity-cli", apiKey: "", model: "gemini-3.8-flash-high" }
+    expect(hasUsableLlm(cfg, {})).toBe(false)
+  })
+
   it("accepts cursor-cli when the preset is enabled without an API key", () => {
     const providers: ProviderConfigs = {
       "cursor-cli": { enabled: true },

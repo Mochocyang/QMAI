@@ -162,6 +162,7 @@ pub fn run() {
             } else {
                 eprintln!("[proxy] could not resolve app_data_dir");
             }
+            app.manage(commands::antigravity_cli::AntigravityCliState::default());
             app.manage(commands::claude_cli::ClaudeCliState::default());
             app.manage(commands::codex_cli::CodexAppServerState::default());
             app.manage(commands::cursor_cli::CursorProxyState::default());
@@ -216,6 +217,9 @@ pub fn run() {
             commands::vectorstore::vector_rebuild_append,
             commands::vectorstore::vector_rebuild_commit,
             commands::vectorstore::vector_rebuild_abort,
+            commands::antigravity_cli::antigravity_cli_detect,
+            commands::antigravity_cli::antigravity_cli_spawn,
+            commands::antigravity_cli::antigravity_cli_kill,
             commands::claude_cli::claude_cli_detect,
             commands::claude_cli::claude_cli_spawn,
             commands::claude_cli::claude_cli_kill,

@@ -16,6 +16,8 @@ describe("outline-find-protocol", () => {
     expect(text).toContain("按文件夹分流（主路径")
     expect(text).toContain("章纲：本章主候选")
     expect(text).toContain("设定：写作硬约束")
+    expect(text).toContain("材料：本章或本卷的辅助资料，不是章纲")
+    expect(text).toContain("不要按文件夹整夹 read_outline")
     expect(text).toContain("兼容（非强制）")
     expect(text).toContain("overview≈大纲")
     expect(text).toContain("read_outline")

@@ -61,7 +61,7 @@ describe("LLM provider model controls", () => {
   it("does not expose Cursor Fast or reasoning controls", () => {
     expect(source).not.toContain("resolveCursorSpeedMode")
     expect(source).not.toContain("cursorSpeedMode")
-    expect(source).toContain('{preset.provider !== "cursor-cli" && (')
+    expect(source).toContain('{preset.provider !== "cursor-cli" && preset.provider !== "antigravity-cli" && (')
     expect(source).toContain("<ReasoningControls")
   })
 })

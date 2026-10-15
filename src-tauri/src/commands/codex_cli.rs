@@ -139,6 +139,7 @@ fn isolated_codex_config(home_dir: Option<&Path>) -> toml::Table {
         "shell_tool",
         "skill_mcp_dependency_install",
         "skill_search",
+        "view_image",
     ]
     .into_iter()
     .map(|key| (key.to_string(), toml::Value::Boolean(false)))
@@ -160,12 +161,9 @@ fn isolated_codex_config(home_dir: Option<&Path>) -> toml::Table {
     isolated.insert(
         "tools".to_string(),
         toml::Value::Table(
-            [
-                ("view_image".to_string(), toml::Value::Boolean(false)),
-                ("web_search".to_string(), toml::Value::Boolean(false)),
-            ]
-            .into_iter()
-            .collect(),
+            [("web_search".to_string(), toml::Value::Boolean(false))]
+                .into_iter()
+                .collect(),
         ),
     );
     isolated
@@ -299,13 +297,14 @@ fn restricted_feature_config() -> Value {
             "shell_snapshot": false,
             "shell_tool": false,
             "skill_mcp_dependency_install": false,
-            "skill_search": false
+            "skill_search": false,
+            "view_image": false
         },
         "web_search": "disabled",
         "project_doc_max_bytes": 0,
         "project_doc_fallback_filenames": [],
         "project_root_markers": [],
-        "tools": { "view_image": false, "web_search": false }
+        "tools": { "web_search": false }
     })
 }
 
@@ -794,6 +793,13 @@ mod tests {
                 .and_then(Value::as_bool),
             Some(false)
         );
+        assert_eq!(
+            config
+                .pointer("/features/view_image")
+                .and_then(Value::as_bool),
+            Some(false)
+        );
+        assert!(config.pointer("/tools/view_image").is_none());
     }
 
     #[test]
@@ -851,6 +857,18 @@ command = "danger"
                 .and_then(toml::Value::as_bool),
             Some(false)
         );
+        assert_eq!(
+            reparsed
+                .get("features")
+                .and_then(toml::Value::as_table)
+                .and_then(|features| features.get("view_image"))
+                .and_then(toml::Value::as_bool),
+            Some(false)
+        );
+        assert!(reparsed
+            .get("tools")
+            .and_then(toml::Value::as_table)
+            .is_some_and(|tools| !tools.contains_key("view_image")));
         let _ = std::fs::remove_dir_all(dir);
     }
 }

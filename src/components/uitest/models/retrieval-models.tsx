@@ -16,7 +16,7 @@ import { validateEmbeddingDraft, validateRerankDraft } from "./retrieval-data"
 import "./model-settings.css"
 
 type Message = { running?: boolean; error?: boolean; text: string } | null
-const PROVIDERS: Array<{ value: LlmConfig["provider"]; label: string }> = [{ value: "custom", label: "自定义兼容接口" },{ value: "openai", label: "OpenAI" },{ value: "anthropic", label: "Anthropic" },{ value: "google", label: "Google" },{ value: "ollama", label: "Ollama（本地）" },{ value: "minimax", label: "MiniMax" },{ value: "claude-code", label: "Claude Code CLI" },{ value: "codex-cli", label: "Codex CLI" },{ value: "cursor-cli", label: "Cursor CLI" }]
+const PROVIDERS: Array<{ value: LlmConfig["provider"]; label: string }> = [{ value: "custom", label: "自定义兼容接口" },{ value: "openai", label: "OpenAI" },{ value: "anthropic", label: "Anthropic" },{ value: "google", label: "Google" },{ value: "ollama", label: "Ollama（本地）" },{ value: "minimax", label: "MiniMax" },{ value: "claude-code", label: "Claude Code CLI" },{ value: "codex-cli", label: "Codex CLI" },{ value: "cursor-cli", label: "Cursor CLI" },{ value: "antigravity-cli", label: "Antigravity CLI" }]
 function ApiMode({ value, onChange }: { value: RerankConfig["apiMode"]; onChange: (value: RerankConfig["apiMode"]) => void }) {
   return <label className="model-field"><span>API 模式</span><select aria-label="API 模式" value={value ?? "chat_completions"} onChange={event => onChange(event.target.value as RerankConfig["apiMode"])}><option value="chat_completions">OpenAI 兼容</option><option value="responses">Responses API</option><option value="anthropic_messages">Anthropic 兼容</option></select></label>
 }
@@ -163,7 +163,7 @@ export function UiTestRerankModels() {
           <label className="model-field"><span>模型 ID</span><ModelSelectInput value={draft.model} options={options} onChange={model => change({ model })} inputPlaceholder="输入重排模型 ID" selectPlaceholder="选择已拉取的重排模型" /></label>
           {candidatesField}
         </div>
-        {["claude-code", "codex-cli", "cursor-cli"].includes(draft.provider) && <p className="model-note">本地 CLI 需先在“大语言模型”的提供方模型中完成检测与登录；此处不会自动安装或登录。</p>}
+        {["claude-code", "codex-cli", "cursor-cli", "antigravity-cli"].includes(draft.provider) && <p className="model-note">本地 CLI 需先在“大语言模型”的提供方模型中完成检测与登录；此处不会自动安装或登录。</p>}
       </>}
       <p className="model-section-note">TOPN 不是 TOPK：这里只控制送入重排的候选数量（3–30），不是最终返回数量。重排不可用时沿用原有检索降级。</p>
       <div className="model-actions">

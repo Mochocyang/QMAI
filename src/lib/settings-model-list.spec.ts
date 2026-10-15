@@ -142,6 +142,31 @@ describe("settings model list", () => {
     expect(result.models).toEqual(["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"])
   })
 
+  it("reads the Antigravity CLI catalog from agy models", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({
+      installed: true,
+      version: "1.3.5",
+      path: "/opt/homebrew/bin/agy",
+      model: "gemini-3.8-flash-high",
+      models: ["gemini-3.8-flash-high", "claude-sonnet-5-5-high", "gpt-oss-120b-medium"],
+      error: null,
+    })
+
+    const { fetchLlmModelList } = await import("./settings-model-list")
+    const result = await fetchLlmModelList(customConfig({
+      provider: "antigravity-cli",
+      apiKey: "",
+      model: "",
+    }))
+
+    expect(invoke).toHaveBeenCalledWith("antigravity_cli_detect")
+    expect(result.models).toEqual([
+      "claude-sonnet-5-5-high",
+      "gemini-3.8-flash-high",
+      "gpt-oss-120b-medium",
+    ])
+  })
+
   it("filters the cursor-cli list through ACP params and keeps CLI ids", async () => {
     vi.mocked(invoke).mockImplementation(async (command: string) => {
       if (command === "cursor_proxy_ensure") {
