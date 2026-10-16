@@ -1,8 +1,9 @@
 //! Antigravity CLI (`agy`) subprocess transport.
 //!
 //! QMAI uses `agy` as a text completion engine. Each request starts one
-//! headless process, writes a user event, and reads `text_delta`
-//! until the process exits. The process cwd is an empty temporary directory
+//! headless process, writes a user event, and reads `text_delta` until the
+//! terminal result event. A language server that keeps polling after that
+//! event must not hold the stream open. The process cwd is an empty temporary directory
 //! because workspace file access is auto-allowed. This module never passes
 //! `--dangerously-skip-permissions`, `--continue`, or `--conversation`, and
 //! it does not write `~/.gemini/antigravity-cli/settings.json`.
@@ -27,6 +28,8 @@ use super::local_cli_config::apply_local_cli_environment;
 const VERSION_TIMEOUT: Duration = Duration::from_secs(15);
 const MODELS_TIMEOUT: Duration = Duration::from_secs(45);
 const PRINT_TIMEOUT: &str = "30m";
+/// 终态结果已经发出后，给 agy 自行退出的时间。语言服务器继续轮询时不等待 `--print-timeout`。
+const POST_TURN_EXIT_GRACE: Duration = Duration::from_secs(2);
 const TEXT_ONLY_PREAMBLE: &str =
     "你是纯文本补全。禁止调用任何工具，禁止读写文件，禁止执行命令。只输出正文。";
 const TEXT_ONLY_CLOSING: &str =
@@ -258,6 +261,32 @@ fn line_has_text_delta(line: &str) -> bool {
 
 fn should_follow_up_after_denied_command(saw_text: bool, already_followed_up: bool, line: &str) -> bool {
     !saw_text && !already_followed_up && matches!(stream_turn(line), StreamTurn::EmptySuccess)
+}
+
+/// 终态结果已经交给前端之后就收尾。空成功且还没补过一轮时要先发追问，不能在这里结束。
+fn stream_should_finish(saw_text: bool, already_followed_up: bool, line: &str) -> bool {
+    !matches!(stream_turn(line), StreamTurn::Ongoing)
+        && !should_follow_up_after_denied_command(saw_text, already_followed_up, line)
+}
+
+async fn wait_for_agy_exit(child: &mut Child, finished_turn: bool) -> Option<i32> {
+    if finished_turn {
+        match tokio::time::timeout(POST_TURN_EXIT_GRACE, child.wait()).await {
+            Ok(Ok(status)) => return status.code(),
+            Ok(Err(_)) => return None,
+            Err(_) => {
+                eprintln!(
+                    "[antigravity-cli] 回合已结束，agy 在 {} 秒内没有退出，正在结束残留进程",
+                    POST_TURN_EXIT_GRACE.as_secs()
+                );
+                let _ = child.start_kill();
+            }
+        }
+    }
+    match child.wait().await {
+        Ok(status) => status.code(),
+        Err(_) => None,
+    }
 }
 
 /// 第二回合必须带上原请求末尾的章节合同。只说「直接输出正文」时，模型会顺着大纲骨架另写一场，并且不写章名。
@@ -575,6 +604,7 @@ pub async fn do_antigravity_cli_spawn<E: CliEmitter>(
 
         let mut saw_text = false;
         let mut followed_up = false;
+        let mut finished_turn = false;
         loop {
             match reader.next_line().await {
                 Ok(Some(line)) => {
@@ -582,7 +612,7 @@ pub async fn do_antigravity_cli_spawn<E: CliEmitter>(
                         saw_text = true;
                     }
                     let follow_up = should_follow_up_after_denied_command(saw_text, followed_up, &line);
-                    let turn_finished = !matches!(stream_turn(&line), StreamTurn::Ongoing);
+                    let finish = stream_should_finish(saw_text, followed_up, &line);
                     emitter_task.emit_data(&stream_id_task, line);
                     if follow_up {
                         followed_up = true;
@@ -594,8 +624,10 @@ pub async fn do_antigravity_cli_spawn<E: CliEmitter>(
                         if write_failed {
                             break;
                         }
-                    } else if turn_finished {
+                    } else if finish {
                         stdin.take();
+                        finished_turn = true;
+                        break;
                     }
                 }
                 Ok(None) => break,
@@ -606,17 +638,18 @@ pub async fn do_antigravity_cli_spawn<E: CliEmitter>(
             }
         }
         drop(stdin);
+        drop(reader);
 
         let child_opt = children.lock().await.remove(&stream_id_task);
         let exit_code = if let Some(mut child) = child_opt {
-            match child.wait().await {
-                Ok(status) => status.code(),
-                Err(_) => None,
-            }
+            wait_for_agy_exit(&mut child, finished_turn).await
         } else {
             None
         };
-        let stderr_text = stderr_task.await.unwrap_or_default();
+        let stderr_text = match tokio::time::timeout(Duration::from_secs(2), stderr_task).await {
+            Ok(Ok(text)) => text,
+            _ => String::new(),
+        };
         remove_workdir(&workdir);
         emitter_task.emit_done(&stream_id_task, exit_code, stderr_text);
     });
@@ -751,6 +784,21 @@ gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n";
         assert!(!line_has_text_delta(
             r#"{"event":"step_update","step_update":{"step_type":"tool","tool_name":"run_command","text_delta":"no"}}"#
         ));
+    }
+
+    #[test]
+    fn terminal_result_finishes_without_waiting_for_the_language_server() {
+        let text = r#"{"event":"result","result":{"status":"SUCCESS","response":"正文"}}"#;
+        let empty = r#"{"event":"result","result":{"status":"SUCCESS","response":""}}"#;
+        let failed = r#"{"event":"result","result":{"status":"ERROR","response":"","error":"eof"}}"#;
+        let delta = r#"{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"正"}}"#;
+        assert!(stream_should_finish(true, false, text));
+        assert!(stream_should_finish(false, false, text));
+        assert!(stream_should_finish(false, false, failed));
+        assert!(!stream_should_finish(false, false, empty));
+        assert!(stream_should_finish(true, false, empty));
+        assert!(stream_should_finish(false, true, empty));
+        assert!(!stream_should_finish(false, false, delta));
     }
 
     #[test]
