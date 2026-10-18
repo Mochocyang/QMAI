@@ -898,7 +898,24 @@ export function describeStructuredOnlyAnswer(raw: string): string {
   if (chapter) {
     const numbers = chapter.chapters.map((item) => item.n).sort((a, b) => a - b)
     const range = numbers.length > 1 ? `第 ${numbers[0]}–${numbers[numbers.length - 1]} 章` : `第 ${numbers[0] ?? 1} 章`
-    return `已生成章纲 ${range}（共 ${chapter.chapters.length} 章，每章 17 节）。正文与卡片流由软件从结构化数据生成。`
+    /*
+     * 节数按**实际产出的 .md** 数，不写死 17。
+     *
+     * 反推会跳过全空的分区（模型少给几节就少几节）。写死「每章 17 节」等于替软件
+     * 保证了一件没发生的事：用户打开 .md 只有 8 节，第一反应是「软件把内容吞了」，
+     * 而数据本来就只有这些。全部写满时文案与旧版逐字相同。
+     */
+    const sectionCounts = chapter.chapters.map(
+      (item) => (renderChapterOutlineMarkdown({ ...chapter, chapters: [item] }).match(/^### /gm) ?? []).length,
+    )
+    const minSections = Math.min(...sectionCounts)
+    const maxSections = Math.max(...sectionCounts)
+    const sectionsNote = sectionCounts.length === 0 || minSections === 0
+      ? ""
+      : minSections === maxSections
+        ? `，每章 ${minSections} 节`
+        : `，每章 ${minSections}–${maxSections} 节`
+    return `已生成章纲 ${range}（共 ${chapter.chapters.length} 章${sectionsNote}）。正文与卡片流由软件从结构化数据生成。`
   }
   /*
    * 事件细纲同样从 2026-10-18 起只收结构化数据（`eventOutlineData`）。

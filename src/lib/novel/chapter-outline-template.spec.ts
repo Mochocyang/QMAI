@@ -364,6 +364,33 @@ describe("chapter-outline-template", () => {
     expect(extractChapterOutlineData("只有一段普通正文")).toBeNull()
   })
 
+  it("数据被塞进 outlineSaveRequest 内部时也能提取（模型常见误解）", () => {
+    /*
+     * 提示词要求「chapterOutlineData 与 outlineSaveRequest 并列」，但模型经常把数据
+     * 放进请求对象里 —— 它把一切都当成「请求」。只配平第一个花括号时取不到数据，
+     * 保存阶段报「缺少 content，且无法从正文中提取」，而数据明明就在眼前。
+     */
+    const reply = ["```json", JSON.stringify({ outlineSaveRequest: { fileName: "第一卷.md", chapterOutlineData: buildData() } }), "```"].join("\n")
+    expect(extractChapterOutlineData(reply)?.chapters).toHaveLength(12)
+  })
+
+  it("章号写成数字字符串时按真实章号，不退回序号", () => {
+    /*
+     * `"n": "7"` 会被旧实现当成 index + 1，单章生成时就是「第 1 章」：
+     * 卡片标题、卷纲导航、文件名全指着第 1 章，数据却是第 7 章的。静默错位。
+     * 章号对了，标题里的重复章号也才能被剥掉。
+     */
+    const normalized = normalizeChapterOutlineData({ chapters: [{ ...buildChapter(7), n: "7" }] })
+    expect(normalized?.chapters[0].n).toBe(7)
+    expect(normalized?.chapters[0].title).toBe("标题")
+  })
+
+  it("字数写成数字时不丢成空串", () => {
+    // 模型写 `"words": 2600` 很常见（就是个字数）。只认字符串会让「字数」整列空白。
+    const normalized = normalizeChapterOutlineData({ chapters: [{ n: 1, info: { words: 2600 } }] })
+    expect(normalized?.chapters[0].info.words).toBe("2600")
+  })
+
   it("normalizeChapterOutlineData 容错缺失字段", () => {
     const normalized = normalizeChapterOutlineData({ chapters: [{ n: 1, title: "第一章" }] })
     expect(normalized).not.toBeNull()

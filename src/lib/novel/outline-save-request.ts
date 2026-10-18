@@ -378,13 +378,7 @@ function attachSettingFamilyHtml<
      * 只在 `fileType === "setting"` 时用数据键：character / organization / foreshadowing
      * 已被 fileType 唯一确定，不该被回复里别处出现的 JSON 改判。
      */
-    const byDataKey = request.fileType === "setting"
-      ? (() => {
-          const keys = resolveSettingProfileKeysByDataKey(text)
-          if (keys.length === 1) return keys[0]
-          return keys.length > 1 ? disambiguateSettingFamily(keys, text, request) : null
-        })()
-      : null
+    const byDataKey = resolveSettingKeyByStructuredData(request, text)
     const spec = (byDataKey ? resolveSettingSpecById(byDataKey) : null) ?? resolveSettingSpecForRequest({
       fileType: request.fileType,
       fileName: request.fileName,
@@ -726,8 +720,9 @@ function normalizeProfileName(value: string): string {
  * 一条回复里同时出现多类设定时（模型一次把人物 + 势力都给了），
  * 按「文件名 / 正文首标题」把每个保存请求配回它自己的那一类。
  *
- * 只做**双向包含**匹配（`九转玄功.md` ↔ `九转玄功`），匹配不到就返回 null 交回关键词嗅探 ——
- * 宁可退回通用卡片流，也不能把势力的档案套上力量体系的模板。
+ * 先做**全等**匹配（`九转玄功.md` ↔ `九转玄功`），再做双向包含（按重叠最长取），
+ * 匹配不到就返回 null 交回关键词嗅探 —— 宁可退回通用卡片流，也不能把势力的档案套上
+ * 力量体系的模板。
  */
 function disambiguateSettingFamily(
   keys: SettingProfileKey[],
@@ -740,15 +735,52 @@ function disambiguateSettingFamily(
     .map(normalizeProfileName)
     .filter(Boolean)
   if (names.length === 0) return null
+  /*
+   * 分两轮：先找**全等**，再按「重叠最长」取候选。
+   *
+   * 单轮双向包含会错配。实测：一条回复里同时有「背景设定：北境」与「地理设定：北境地理」
+   * （大背景和它的地理分区，名字天然是包含关系），保存请求 `北境地理.md` 在遍历到背景时
+   * 就先撞上 `name.includes("北境")` → 地理设定被套上背景卡：页头写「背景设定」、
+   * 分区标题按背景契约渲染、专属版式（地理卡的地形/气候区块）全丢，而文件写成功了，
+   * 没有任何报错。判据与 `pickProfileDocument` 对齐：精确相等优先，包含只作兜底，
+   * 且多个候选时取重叠更长的那个。
+   */
+  const partial: Array<{ key: SettingProfileKey; overlap: number }> = []
   for (const key of keys) {
     const docs = SETTING_PROFILE_DOC_EXTRACTORS[key]?.(text) ?? []
     for (const doc of docs) {
       const docName = normalizeProfileName(doc.name ?? "")
       if (!docName) continue
-      if (names.some((name) => name === docName || name.includes(docName) || docName.includes(name))) return key
+      if (names.some((name) => name === docName)) return key
+      for (const name of names) {
+        if (name.includes(docName) || docName.includes(name)) {
+          // 重叠长度按较短串算：「北境」×「北境地理」= 2，「北境地理」×「北境地理」= 4。
+          partial.push({ key, overlap: Math.min(name.length, docName.length) })
+        }
+      }
     }
   }
-  return null
+  partial.sort((a, b) => b.overlap - a.overlap)
+  return partial[0]?.key ?? null
+}
+
+/**
+ * 按回复里实际出现的结构化数据键判定设定分项（只对 `fileType=setting` 生效）。
+ *
+ * 🔴 HTML 分派与 MD 反推必须**共用这一处**。
+ * 分开判过一次：`attachSettingFamilyHtml` 走数据键 + 文件名配对，而 `fillSettingProfileContent`
+ * 还留着旧的关键词嗅探。结果「背景 + 地点」同一条回复里，`竹屋.md` 的 .html 是地点卡，
+ * .md 正文却是 `# 北境`（背景 extractor 先跑，`pickProfileDocument` 对单文档直接返回
+ * docs[0]）—— 同一份内容的两份文件对不上，而 .md 才是主阅读载体。
+ */
+function resolveSettingKeyByStructuredData(
+  request: { fileType: string; fileName?: string; content?: string },
+  text: string,
+): SettingProfileKey | null {
+  if (request.fileType !== "setting") return null
+  const keys = resolveSettingProfileKeysByDataKey(text)
+  if (keys.length === 1) return keys[0]
+  return keys.length > 1 ? disambiguateSettingFamily(keys, text, request) : null
 }
 
 /** 本次请求对应的设定分项（正文标题 → 文件名 → 目录 → fileType 四级线索）。 */
@@ -812,7 +844,16 @@ function renderSettingProfileMarkdownFromData(
  * 结构化-only 之后这条路只在「模型不听指令」时才走，属于极少数的防御分支。
  */
 function fillSettingProfileContent(request: OutlineSaveRequest, text: string): OutlineSaveRequest {
-  const spec = resolveProfileSpec(request, text)
+  /*
+   * 分项判定与 HTML 分派**同源**（`resolveSettingKeyByStructuredData`）。
+   *
+   * 旧实现只走 `resolveProfileSpec` 的关键词嗅探，而结构化-only 之后正文起始为空、
+   * 文件名就是对象名、数据里又没有 `settingOutlineData.title` —— 嗅探基本猜不中，
+   * 于是「背景 + 地点」同一条回复里，`竹屋.md` 的正文被按背景反推成 `# 北境`，
+   * 而它的 .html 是地点卡。.md 与 .html 内容对不上，且没有任何报错。
+   */
+  const byDataKey = resolveSettingKeyByStructuredData(request, text)
+  const spec = (byDataKey ? resolveSettingSpecById(byDataKey) : null) ?? resolveProfileSpec(request, text)
   if (looksLikeProfileBody(request.content, sectionHeadingsOf(spec.id))) return request
   const markdown = renderSettingProfileMarkdownFromData(request, text, spec.id)
   return markdown ? { ...request, content: markdown } : request

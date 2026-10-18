@@ -87,8 +87,22 @@ function positiveInteger(value: unknown, fallback: number): number {
 }
 
 function normalizePoints(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value.map((item) => text(item)).filter(Boolean)
+  /*
+   * 三种写法都要接：字符串数组（提示词口径）、单个字符串、`[{text:"…"}]` 这种对象数组。
+   *
+   * 旧实现只认数组且只认数组里的字符串，其余一律读成空 —— 于是一个「有 4 条抓手、
+   * 但每条是 `{text}`」的细纲会变成 4 个空点，卡片上没有抓手、反推的 .md 只有事件标题。
+   * 卷纲的 `stage.p` 早就做了这层容错（`{"v"} / {"text"}`），细纲漏了，属于同一类
+   * 静默丢内容：数据在，界面上就是空的。
+   */
+  const list = Array.isArray(value) ? value : [value]
+  return list
+    .map((item) => {
+      if (typeof item === "string") return item.trim()
+      if (isRecord(item)) return text(item.text) || text(item.v) || text(item.value) || text(item.point)
+      return text(item)
+    })
+    .filter(Boolean)
 }
 
 function normalizeEvents(value: unknown): EventOutlineEvent[] {

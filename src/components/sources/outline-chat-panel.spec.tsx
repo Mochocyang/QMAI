@@ -3957,6 +3957,24 @@ describe("只有结构化数据的回复：气泡不空着", () => {
     expect(text).toContain("共 2 章")
   })
 
+  it("章纲：节数按实际产出报，不写死 17 节", () => {
+    /*
+     * 反推会跳过全空的分区，模型少给几节就少几节。写死「每章 17 节」等于替软件
+     * 保证一件没发生的事 —— 用户打开 .md 只有 8 节，会以为软件吞了内容。
+     */
+    const reply = "```json\n" + JSON.stringify({
+      chapterOutlineData: {
+        title: "章纲-第03章",
+        story: { index: 1, name: "故事一", range: "第 1–12 章" },
+        chapters: [{ n: 3, title: "落水", digest: "楚白落水，被捞起。" }],
+      },
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("共 1 章")
+    expect(text, "数据只有一两节时说「每章 17 节」是谎报").not.toContain("17 节")
+    expect(text).toMatch(/每章 \d+ 节/)
+  })
+
   it("人物小传：报出角色名与分区数", () => {
     const reply = "```json\n" + JSON.stringify({
       characterProfileData: {

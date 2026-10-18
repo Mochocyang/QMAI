@@ -215,11 +215,37 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function asString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : ""
+  if (typeof value === "string") return value.trim()
+  /*
+   * 数字也要接：`"words": 2600`、`"n": 7` 这类写法模型经常给。
+   * 旧实现只认字符串，这些字段就被静默读成空串 —— 卡片上「字数」「章号」整列空着，
+   * 反推的 .md 也照空（因为反推与卡片读的是同一份归一化数据），
+   * 而数据本身明明是对的，用户完全看不出是类型问题。
+   */
+  if (typeof value === "number" && Number.isFinite(value)) return String(value)
+  return ""
 }
 
 function asNumber(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  // 数字字符串（"2600" / "约 2600 字"）同样接住：只认 number 会让这类字段整列归零。
+  const digits = asString(value).match(/\d+/)?.[0]
+  return digits ? Number.parseInt(digits, 10) : 0
+}
+
+/**
+ * 章号归一化：数字、数字字符串、"第7章" 都认，认不出才回退到序号。
+ *
+ * 旧写法是 `typeof item.n === "number" ? item.n : index + 1`。模型偶尔把章号写成
+ * `"n": "7"`（尤其是从别的模板抄格式时），于是这一章就被当成 `index + 1` ——
+ * 单章生成时就是「第 1 章」，卡片标题、卷纲导航、文件名全部指着第 1 章，
+ * 而数据、正文都是第 7 章的内容。这是**静默错位**，不会报任何错。
+ */
+function chapterNumberOf(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return Math.round(value)
+  const digits = asString(value).match(/\d+/)?.[0]
+  const num = digits ? Number.parseInt(digits, 10) : Number.NaN
+  return Number.isFinite(num) && num > 0 ? num : fallback
 }
 
 function asRecordArray(value: unknown): Array<Record<string, unknown>> {
@@ -263,7 +289,7 @@ export function normalizeChapterOutlineData(raw: unknown): ChapterOutlineData | 
   if (!isRecord(raw)) return null
   const storyRaw = isRecord(raw.story) ? raw.story : {}
   const chapters = asRecordArray(raw.chapters).map((item, index) => {
-    const chapterNumber = typeof item.n === "number" ? item.n : index + 1
+    const chapterNumber = chapterNumberOf(item.n, index + 1)
     const info = isRecord(item.info) ? item.info : {}
     const carry = isRecord(item.carry) ? item.carry : {}
     const position = isRecord(item.position) ? item.position : {}
@@ -1255,16 +1281,33 @@ export function extractChapterOutlineData(text: string): ChapterOutlineData | nu
   if (candidates.length === 0 && text.includes("{")) candidates.push(text)
 
   for (const candidate of candidates) {
-    const start = candidate.indexOf("{")
-    if (start < 0) continue
-    const block = balancedJsonBlock(candidate, start)
-    if (!block) continue
-    try {
-      const payload = JSON.parse(block) as unknown
-      const data = chapterDataFromPayload(payload)
-      if (data) return data
-    } catch {
-      // 该围栏不是合法 JSON（可能是别的围栏），继续下一个
+    /*
+     * 从每一个 `{` 都试一次，而不是只试第一个。
+     *
+     * 提示词要求「chapterOutlineData 与 outlineSaveRequest 并列」，但模型经常把数据
+     * **塞进保存请求对象里面**（`{ "outlineSaveRequest": { …, "chapterOutlineData": {…} } }`）
+     * —— 它把一切都当成「请求」。旧写法只配平第一个花括号，解析出来是外层 request，
+     * `chapterDataFromPayload` 里的 shallow 解包只能看一层，于是取不到数据：
+     *
+     *   第 1 个保存请求缺少 content，且无法从正文中提取。
+     *
+     * 数据在眼前却报「没有内容」。改成逐个 `{` 往右扫后，内层 `chapterOutlineData`
+     * 自己配平出来就是一份合法数据，直接命中。与 `extractEventOutlineData` 同构
+     * （那边早就这么写了，细纲没出过这类问题）。
+     */
+    let start = candidate.indexOf("{")
+    while (start >= 0) {
+      const block = balancedJsonBlock(candidate, start)
+      if (block) {
+        try {
+          const payload = JSON.parse(block) as unknown
+          const data = chapterDataFromPayload(payload)
+          if (data) return data
+        } catch {
+          // 该对象不是合法 JSON（尾随逗号、正文里提到的花括号），继续往右找。
+        }
+      }
+      start = candidate.indexOf("{", start + 1)
     }
   }
   return null

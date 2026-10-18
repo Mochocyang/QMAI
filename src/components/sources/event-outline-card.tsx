@@ -160,7 +160,15 @@ export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOut
           <li key={event.id} className="rounded-md border border-border/60 bg-muted/20 px-2 py-1.5">
             <div className="flex items-baseline gap-1.5">
               <span className="text-xs font-semibold text-primary/70">{event.id}</span>
-              <span className="text-sm font-medium leading-5">{event.title}</span>
+              {/*
+                标题为空时不能只留一个编号：模型截断时会给出「有 id、有抓手、没标题」的事件，
+                渲染出来就是一行孤零零的「3」—— 看着像卡片渲染坏了，实际是标题字段缺失。
+                反推的 .md 那边同样跳过空标题（`renderEventOutlineMarkdown`），这里给个
+                可见占位，让用户知道「是缺标题」而不是「软件没画出来」。
+              */}
+              {event.title
+                ? <span className="text-sm font-medium leading-5">{event.title}</span>
+                : <span className="text-xs text-muted-foreground">（缺标题）</span>}
             </div>
             {/*
               抓手按「类别列 + 正文列」排：模型把故事推进/冲突与转折/关键台词等都写成

@@ -640,6 +640,25 @@ it("目标字数缺失时摘要行只说事件数，不写「目标 0 字」", a
   }
 })
 
+it("事件缺标题时给可见占位，不只留一个编号", async () => {
+  // 模型截断会出现「有 id、有抓手、没标题」的事件；只渲染编号看着像渲染坏了。
+  const { root, host } = render(
+    <EventOutlineCard data={data({
+      events: data().events.map((event, index) => (index === 0 ? { ...event, title: "" } : event)),
+    })} />,
+  )
+  try {
+    await act(async () => {})
+    const card = host.querySelector("[data-event-outline-card]")
+    expect(card?.textContent).toContain("（缺标题）")
+    // 抓手照常显示：缺的是标题，不是整条内容
+    expect(card?.textContent).toContain("夜壶里的东西是药")
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
 /* ── 2026-10-13：共创判「前文不足以推演」时，动作并入本卡 ── */
 
 it("不传共创回调时不出现「换一批」「其他想法」（旧卡片不凭空多出按钮）", async () => {

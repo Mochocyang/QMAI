@@ -486,5 +486,44 @@ describe("八类设定：HTML 走各自的专属模板", () => {
     expect(power?.htmlContent).not.toContain("地点设定")
     expect(location?.htmlContent).toContain("地点设定 · 地点卡")
     expect(location?.htmlContent).not.toContain("力量体系")
+    /*
+     * .md 必须与 .html 同源。
+     * 曾经只断言 HTML：`竹屋.md` 的正文其实被按背景反推成 `# 北境`，而 .html 是地点卡 ——
+     * 模板对了，内容错了，用例全绿。正文才是主阅读载体，必须逐份钉住 H1。
+     */
+    expect(power?.content).toContain("# 九转玄功")
+    expect(location?.content).toContain("# 竹屋")
+    expect(location?.content, "地点正文不能拿别的分项顶替").not.toContain("# 九转玄功")
+  })
+
+  it("分项名字有包含关系时（北境 / 北境地理）不串档", () => {
+    /*
+     * 大背景与它的地理分区，名字天然是包含关系。按「双向包含」单轮匹配时，
+     * `北境地理.md` 会先撞上背景的 `name.includes("北境")` → 地理卡被套上背景模板：
+     * 页头写「背景设定」、分区标题按背景契约渲染、地理卡的地形区块全丢，文件却写成功了。
+     * 判据必须是「全等优先、包含兜底取重叠最长」。
+     */
+    const reply = [
+      "```json",
+      JSON.stringify({
+        backgroundProfileData: { name: "北境", tag: "徽章", sections: buildSections("backgroundSetting") },
+        geographyProfileData: { name: "北境地理", tag: "徽章", sections: buildSections("geographySetting") },
+        outlineSaveRequests: [
+          { targetFolder: "设定", fileName: "北境.md", fileType: "setting", writeMode: "create", referencedSkills: [], sourceIntent: "", content: "" },
+          { targetFolder: "设定", fileName: "北境地理.md", fileType: "setting", writeMode: "create", referencedSkills: [], sourceIntent: "", content: "" },
+        ],
+      }),
+      "```",
+    ].join("\n")
+    const result = parseOutlineSaveRequests(reply)
+    expect(result.errors).toEqual([])
+    const background = result.requests.find((item) => item.fileName === "北境.md")
+    const geography = result.requests.find((item) => item.fileName === "北境地理.md")
+    expect(background?.htmlContent).toContain("背景设定 · 背景卡")
+    expect(geography?.htmlContent).toContain("地理设定 · 地理卡")
+    expect(geography?.htmlContent).not.toContain("背景设定")
+    expect(background?.content).toContain("# 北境")
+    expect(geography?.content).toContain("# 北境地理")
+    expect(geography?.content, "地理正文不能拿背景的文档顶替").not.toMatch(/^# 北境（/m)
   })
 })

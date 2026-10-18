@@ -103,6 +103,25 @@ describe("normalizeEventOutlineData", () => {
     expect(result?.targetWords).toBe(3000)
   })
 
+  it("抓手写成单个字符串或对象数组时都不丢", () => {
+    /*
+     * 提示词口径是 `points: ["…", "…"]`。模型偶尔给成一个字符串，
+     * 或者给成 `[{ text: "…" }]`（从别的结构化字段抄来的形状）。
+     * 旧实现只认「数组 + 数组里的字符串」，这两种都会读成空 —— 卡片上没有抓手、
+     * 反推的 .md 只剩事件标题，数据其实一个字都没少。卷纲的 stage.p 早已容错，
+     * 这里对齐同一口径。
+     */
+    const result = normalizeEventOutlineData({
+      ...data(),
+      events: [
+        { title: "单个字符串", points: "故事推进：楚白下井。" },
+        { title: "对象数组", points: [{ text: "关键台词：你来了。" }, { v: "环境物件：井绳。" }] },
+      ],
+    })
+    expect(result?.events[0].points).toEqual(["故事推进：楚白下井。"])
+    expect(result?.events[1].points).toEqual(["关键台词：你来了。", "环境物件：井绳。"])
+  })
+
   it("非对象输入返回 null", () => {
     expect(normalizeEventOutlineData("不是对象")).toBeNull()
     expect(normalizeEventOutlineData(null)).toBeNull()

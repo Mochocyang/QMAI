@@ -268,6 +268,28 @@ describe("normalizeVolumeOutlineData", () => {
     expect(normalized?.stories[0].st[0].p).toEqual(["对象条目", "字符串条目"])
   })
 
+  it("p 写成单个字符串时也保留整段内容", () => {
+    // 模型把三条事件合成一段话写进 p 时，旧写法直接给 []，折叠树里只剩环节标题。
+    const normalized = normalizeVolumeOutlineData({
+      stories: [{ id: 1, st: [{ stage: "起①", p: "三条事件合并成一段" }] }],
+    })
+    expect(normalized?.stories[0].st[0].p).toEqual(["三条事件合并成一段"])
+  })
+
+  it("故事序号写成数字字符串时不退回数组下标（否则锚点会重名）", () => {
+    /*
+     * id 是锚点导航的 `#story-N`。旧写法只认 number，`"id": "2"` 会退化成 index + 1，
+     * 两个故事可能撞上同一个 id —— 导航点第二个跳到第一个，页面上看不出异常。
+     */
+    const normalized = normalizeVolumeOutlineData({
+      stories: [
+        { id: "2", title: "故事二", st: [] },
+        { id: "5", title: "故事五", st: [] },
+      ],
+    })
+    expect(normalized?.stories.map((story) => story.id)).toEqual([2, 5])
+  })
+
   it("12 章节拍写成数组时无损拼回字符串", () => {
     const normalized = normalizeVolumeOutlineData({
       stories: [{ id: 1, beats: ["平", "升", "起"], st: [] }],

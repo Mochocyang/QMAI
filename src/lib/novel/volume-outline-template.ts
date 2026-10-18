@@ -223,7 +223,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function asString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : ""
+  if (typeof value === "string") return value.trim()
+  // 数字同样接住：`"who": 3`、「章号范围」写成数字一类的偏差不该让整格变空。
+  if (typeof value === "number" && Number.isFinite(value)) return String(value)
+  return ""
+}
+
+/**
+ * 故事序号归一化：数字 / 数字字符串都认，认不出才回退到序号。
+ *
+ * 序号是锚点导航的 id（`#story-N`）。旧写法只认 number，模型把 id 写成 `"2"`
+ * 时就会退化成 `index + 1` —— 两个故事可能拿到同一个 id，导航点第二个跳到第一个，
+ * 而页面上完全看不出异常。
+ */
+function storyNumberOf(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return Math.round(value)
+  const digits = asString(value).match(/\d+/)?.[0]
+  const num = digits ? Number.parseInt(digits, 10) : Number.NaN
+  return Number.isFinite(num) && num > 0 ? num : fallback
 }
 
 /**
@@ -453,14 +470,19 @@ export function normalizeVolumeOutlineData(raw: unknown): VolumeOutlineData | nu
         stage: stageId,
         label: asString(stage.name) || asString(stage.label) || asString(stage.title),
         who: asString(stage.who),
-        // `p` 里的条目也容忍对象形态（{"v": "…"}），否则整条内容会被静默丢掉
-        p: (Array.isArray(stage.p) ? stage.p : [])
+        /*
+         * `p` 三种形态都要接：字符串数组（提示词口径）、单个字符串、
+         * `[{"v": "…"}] / [{"text": "…"}]` 对象数组。
+         * 旧写法对非数组直接给 `[]` —— 模型把三条事件合成一段字符串写进 `p` 时，
+         * 这个环节在折叠树里就只剩标题，正文一个字都没有（数据明明在）。
+         */
+        p: (Array.isArray(stage.p) ? stage.p : [stage.p])
           .map((entry) => (isRecord(entry) ? asString(entry.v) || asString(entry.text) : asString(entry)))
           .filter(Boolean),
       }
     })
     return {
-      id: typeof item.id === "number" ? item.id : index + 1,
+      id: storyNumberOf(item.id, index + 1),
       range: asString(item.range),
       title: asString(item.title) || asString(item.name),
       beats: asString(item.beats) || asBeatSequence(item.beats),
