@@ -27,6 +27,7 @@ import {
   buildOutlineAgentSystemPrompt,
   buildOutlineReferenceSkillEntries,
   buildVolumeOutlineRepairPrompt,
+  describeStructuredOnlyAnswer,
   filterOutlineGeneratedContent,
   OutlineChatPanel,
 } from "./outline-chat-panel"
@@ -322,24 +323,23 @@ describe("卷纲自动补全提示词与校验器同契约", () => {
   })
 
   it("覆盖校验器要求的每一个故事级字段（漏一个就会「补了还不过」）", () => {
-    for (const field of ["range", "deliver", "gift", "mid", "twist", "hook", "link", "climax", "beats"]) {
+    for (const field of ["range", "title", "id", "st", "beats"]) {
       expect(prompt).toContain(field)
     }
   })
 
   it("覆盖环节的每一个必填项与 10 个环节名", () => {
-    for (const field of ["stage", "who", "use", "pay"]) expect(prompt).toContain(field)
+    for (const field of ["stage", "label", "who", "p"]) expect(prompt).toContain(field)
     for (const stage of ["起①", "起②", "起③", "承①", "承②", "承③", "转①", "转②", "合①", "合②"]) {
       expect(prompt).toContain(stage)
     }
   })
 
-  it("覆盖 story.line 与顶层台账字段", () => {
-    expect(prompt).toContain("line")
-    for (const field of [
-      "position", "roles", "foreshadows", "cast", "escalation", "debts", "rivals", "growth", "places",
-    ]) {
-      expect(prompt).toContain(field)
+  it("明令禁止再重复写 MD 与台账面板（两者都在白烧 token）", () => {
+    expect(prompt).toContain("不要再手写一遍 MD 正文")
+    expect(prompt).toContain("只要故事，不要台账")
+    for (const removed of ["position", "escalation", "foreshadows", "rivals", "growth", "places", "debts"]) {
+      expect(prompt).not.toContain(removed)
     }
   })
 
@@ -2336,7 +2336,7 @@ describe("OutlineChatPanel controls", () => {
     // ② 补全提示词复用卷纲契约（否则「补一轮→还是同样的 N 项」）
     expect(repairPrompts.length).toBeGreaterThan(0)
     const repairPrompt = repairPrompts[0]
-    for (const field of ["range", "deliver", "gift", "mid", "twist", "hook", "climax", "beats", "stage", "who", "use", "line"]) {
+    for (const field of ["range", "title", "st", "beats", "stage", "label", "who"]) {
       expect(repairPrompt).toContain(field)
     }
   })
@@ -3915,5 +3915,96 @@ describe("事件细纲接线", () => {
       expect(confirmDialogVisible(), "闸门必须拦下，不弹确认框").toBe(false)
       expect(infoSpy).toHaveBeenCalledWith("事件细纲只作为对话消息保留，不写入大纲列表。")
     })
+  })
+})
+
+describe("只有结构化数据的回复：气泡不空着", () => {
+  const stages = ["起①", "起②", "起③", "承①", "承②", "承③", "转①", "转②", "合①", "合②"]
+
+  it("卷纲：报出故事数、环节数与去处，不把 JSON 塞回气泡", () => {
+    const reply = "```json\n" + JSON.stringify({
+      volumeOutlineData: {
+        title: "卷一 无我绝响",
+        stories: Array.from({ length: 3 }, (_, i) => ({
+          id: i + 1,
+          range: `第 ${i * 12 + 1}–${i * 12 + 12} 章`,
+          title: `故事${i + 1}`,
+          st: stages.map((stage) => ({ stage, p: ["a", "b", "c"] })),
+        })),
+      },
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("已生成卷纲《卷一 无我绝响》")
+    expect(text).toContain("3 个故事")
+    expect(text).toContain("30 个环节")
+    expect(text).not.toContain("volumeOutlineData")
+  })
+
+  it("章纲：报出章号区间与章数", () => {
+    const reply = "```json\n" + JSON.stringify({
+      chapterOutlineData: {
+        title: "章纲-第01–02章",
+        story: { index: 1, name: "故事一", range: "第 1–12 章", beats: "平升起紧落缓升紧顶缓顶悬" },
+        words: "6000",
+        chapters: [
+          { n: 1, title: "雨夜" },
+          { n: 2, title: "断电" },
+        ],
+      },
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("第 1–2 章")
+    expect(text).toContain("共 2 章")
+  })
+
+  it("人物小传：报出角色名与分区数", () => {
+    const reply = "```json\n" + JSON.stringify({
+      characterProfileData: {
+        name: "楚白",
+        tag: "主角",
+        sections: [
+          { kind: "kv", heading: "基本信息", items: [{ label: "职业", text: "掮客" }] },
+          { kind: "kv", heading: "角色定位", items: [{ label: "功能", text: "带路" }] },
+        ],
+      },
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("楚白")
+    expect(text).toContain("2 个分区")
+    expect(text).not.toContain("characterProfileData")
+  })
+
+  it("七类设定：报出对象名与分区数，不把 JSON 塞回气泡", () => {
+    const reply = "```json\n" + JSON.stringify({
+      factionProfileData: {
+        name: "青云商会",
+        tag: "商户",
+        sections: [
+          { kind: "kv", heading: "基本信息", items: [{ label: "据点", text: "霜河渡口" }] },
+          { kind: "kv", heading: "组织使命", items: [{ label: "公开宗旨", text: "保证雪线补给" }] },
+        ],
+      },
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("青云商会")
+    expect(text).toContain("2 个分区")
+    expect(text).toContain(".md / .html")
+    expect(text).not.toContain("factionProfileData")
+  })
+
+  it("七类设定：多份档案报数量与前三个名字", () => {
+    const reply = "```json\n" + JSON.stringify({
+      locationProfiles: [
+        { name: "霜河渡口", sections: [{ kind: "kv", heading: "地点定位", items: [] }] },
+        { name: "黑水湾", sections: [{ kind: "kv", heading: "地点定位", items: [] }] },
+      ],
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("2 份地点设定")
+    expect(text).toContain("霜河渡口、黑水湾")
+  })
+
+  it("既没有正文也没有结构化数据时返回空串（不凭空说话）", () => {
+    expect(describeStructuredOnlyAnswer("好的，我明白了。")).toBe("")
   })
 })

@@ -118,7 +118,19 @@ export function useAgentConfig(
     const fcEnabled = isFunctionCallingEnabled(agentLlmConfig)
     const supportsTools = modelOk && fcEnabled
 
-    if (!modelOk || !projectPath || !skillConfigLoaded) {
+    /*
+     * ⚠️ 这里**不能**因为「模型不支持工具」就返回 config: null。
+     *
+     * 那样等于把「不支持工具」当成「不能用」：o1 / o3-mini / deepseek-reasoner
+     * 以及用户关闭 Function Calling 的本地模型都会被整块拒绝，
+     * 连普通对话都发不出去 —— 而设置页那个开关的说明恰恰承诺了
+     * 「关闭后请求不携带 tools/tool_choice，用于兼容不支持工具调用的本地模型」。
+     *
+     * 正确形状：照常构建 config，`buildAgentConfig` 在无工具时注册 0 个工具，
+     * `AgentRunner` 也不发 tools/tool_choice，于是这就是一次普通对话。
+     * `supportsTools` 继续如实反映「本轮会不会带工具」，供提示语使用。
+     */
+    if (!projectPath || !skillConfigLoaded) {
       return {
         config: null,
         registry: new ToolRegistry(),

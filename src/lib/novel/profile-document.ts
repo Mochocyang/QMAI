@@ -274,13 +274,26 @@ function candidateNames(hints: ProfilePickHints): string[] {
  * 这一步很关键：多份时若直接回退 MD，AI 精心设计的结构化表格会被压成零散条目，
  * 卡片信息量大幅下降（势力卡的 组织架构/人员构成/经济来源 等表格尤其明显）。
  */
-export function pickProfileDocument(
-  docs: ProfileDocument[],
+export function pickProfileDocument<T extends ProfileDocument>(
+  docs: T[],
   hints: ProfilePickHints,
-): ProfileDocument | null {
+): T | null {
   if (docs.length === 0) return null
   if (docs.length === 1) return docs[0]
   const names = candidateNames(hints)
+  /*
+   * 先做**逐字相等**匹配，再用「互相包含」兜底。
+   *
+   * 只做包含匹配会张冠李戴：同一批里同时有「青云会」和「青云会分舵」时，
+   * 给「青云会分舵.md」挑档案，`find` 会先撞上名字较短的「青云会」
+   * （「青云会分舵」包含「青云会」），于是把总会的档案存进分舵文件。
+   * 精确相等这一步把这种前缀重合的情况拨回来，包含匹配只在
+   * 「男主-林辰」↔「林辰」这类前缀/后缀差异时生效。
+   */
+  for (const name of names) {
+    const exact = docs.find((doc) => normalizeName(doc.name) === normalizeName(name))
+    if (exact) return exact
+  }
   for (const name of names) {
     const hit = docs.find((doc) => nameMatches(doc.name, name))
     if (hit) return hit
@@ -452,7 +465,19 @@ export function profileDocumentFromMarkdown(md: string, fallbackName = "未命�
 
   const h1 = headings.find((heading) => heading.level === 1)
   if (h1) {
-    if (!name) name = stripNumbering(cleanInline(h1.text).replace(NAME_PREFIX, ""))
+    /*
+     * 一级标题同样要拆「名字（类型）」。
+     *
+     * 从 4.3.6 起正文由 `renderProfileDocumentMarkdown` 反推，标题固定写成
+     * `# 楚白（主角）`；这里不拆的话，存盘后重新渲染会把括号留在名字里、
+     * 而且徽章丢失（卡片头变成「楚白（主角）」且没有类型标签）。
+     * 与下面二级标题那条分支保持同一套规则。
+     */
+    if (!name) {
+      const split = splitNameAndTag(cleanInline(h1.text).replace(NAME_PREFIX, ""))
+      name = stripNumbering(split.name)
+      if (!tag && split.tag) tag = split.tag
+    }
     sectionLevelMin = 2
     leadingStart = h1.index + 1
   } else if (headings.length > 0) {
@@ -511,6 +536,102 @@ export function profileDocumentFromMarkdown(md: string, fallbackName = "未命�
     ...(tagline ? { tagline } : {}),
     sections,
   }
+}
+
+// ---------------------------------------------------------------------------
+// 结构化数据 → Markdown（省掉模型重复写一遍正文）
+// ---------------------------------------------------------------------------
+
+/** 表格单元格里的竖线与换行必须转义，否则反推出来的 MD 会被解析成错列。 */
+function markdownCell(value: string): string {
+  return value.replace(/\r?\n+/g, " ").replace(/\|/g, "\\|").trim()
+}
+
+function sectionMarkdownBody(section: ProfileSection): string[] {
+  switch (section.kind) {
+    case "kv":
+      // 空值不导出：`- 债务：` 这种只有标签的行在 .md 里没有任何信息量。
+      return section.items
+        .filter((item) => item.text.trim())
+        .map((item) => (item.label ? `- ${item.label}：${item.text}` : `- ${item.text}`))
+    case "list":
+      return section.items.filter((item) => item.trim()).map((item) => `- ${item}`)
+    case "table": {
+      /*
+       * 表格行按「首列之外是否还有内容」筛：只剩行标签、右侧全空的表导出来
+       * 就是几行「| 对象 |  |  |」，看着像数据、读起来什么也没有。
+       * 整表都这样时连表头一起不导出（返回空数组，调用方会跳过整个分区）。
+       */
+      const hasBody = (row: string[]) =>
+        (section.head.length > 1 ? row.slice(1) : row).some((value) => String(value ?? "").trim())
+      const rows = section.rows.filter(hasBody)
+      if (rows.length === 0) return []
+      /*
+       * 🔴 列数按「表头与所有行里最宽的那个」定，不能用表头长度去取值。
+       *
+       * 模型完全可能给出「表头 2 列、某行 3 列」，也可能只给 rows 不给 head
+       * （`{heading, rows:[["会长","1"]]}`，`normalizeProfileSection` 是允许的）。
+       * 旧写法用 `section.head.map(...)` 取单元格：
+       *   · 行比表头宽 → 多出来的那几列**静默丢失**；
+       *   · 表头为空   → 整张表被压成 `|  |`，一行内容都不剩（数据等于被删掉）。
+       * 两种都是「一个字段不能丢」的直接违反，而且表面上 .md 还在，没人会发现。
+       * 缺表头时用「第 N 项」占位，至少内容能读、能再解析回来。
+       */
+      const cellAt = (row: string[], index: number) => markdownCell(row[index] ?? "")
+      const columnCount = Math.max(section.head.length, ...rows.map((row) => row.length))
+      if (columnCount <= 0) return []
+      const headCells = Array.from({ length: columnCount }, (_, index) =>
+        markdownCell(section.head[index] ?? `第 ${index + 1} 项`))
+      return [
+        `| ${headCells.join(" | ")} |`,
+        `| ${headCells.map(() => "---").join(" | ")} |`,
+        ...rows.map((row) =>
+          `| ${Array.from({ length: columnCount }, (_, index) => cellAt(row, index)).join(" | ")} |`),
+      ]
+    }
+    case "mixed": {
+      /*
+       * 一个分区里可能有多块（MD 兜底路径：正文 + 表 + 另一张表）。
+       * 块之间必须空一行：两张表紧贴会被 Markdown 合并成一张（第二张的表头
+       * 变成第一张的数据行），列表后紧跟表格则整张表退化成一行竖线。
+       * 数据路径不会产出 mixed（只来自 MD 解析），但反推函数是公开 API，
+       * 从 `profileDocumentFromMarkdown` 拿到的文档也可能被拿去反推。
+       */
+      const blocks = section.blocks.map(sectionMarkdownBody).filter((block) => block.length > 0)
+      return blocks.flatMap((block, index) => (index === 0 ? block : ["", ...block]))
+    }
+  }
+}
+
+/**
+ * 档案数据 → Markdown 正文。
+ *
+ * 与 `profileDocumentFromMarkdown` 互逆：反推出来的 MD 再解析回来应得到同一份分区，
+ * 所以标题层级固定为 `# 名字（类型）` + `## 分区`，条目固定为 `- 字段：内容` 与 GFM 表格。
+ * 模型不再手写正文时，落盘的 .md 就由这里生成。
+ */
+export function renderProfileDocumentMarkdown(doc: ProfileDocument): string {
+  const name = (doc.name ?? "").trim() || "未命名"
+  const tag = (doc.tag ?? "").trim()
+  /*
+   * 名字本身可能已经带括号（模型常写 `name: "楚白（主角）"`），此时再拼一个 (tag)
+   * 会得到「楚白（主角）（主角）」—— 存盘标题一读就像坏了，而且再解析回来
+   * `splitNameAndTag` 只会取第一组括号，徽章虽然还是「主角」，名字却已经变形。
+   * 尾部的括号与 tag 完全相同时不重复拼；不同时保留两者（名字里的括号是模型
+   * 自己给的信息，不能为了排版删掉）。
+   */
+  const trailingParen = name.match(/[（(]\s*([^）)]+?)\s*[)）]\s*$/)
+  const title = !tag || trailingParen?.[1] === tag ? name : `${name}（${tag}）`
+  const lines: string[] = [`# ${title}`]
+  if (doc.tagline?.trim()) lines.push("", doc.tagline.trim())
+  for (const section of doc.sections) {
+    const body = sectionMarkdownBody(section)
+    // 只判空、不逐行 filter：mixed 块之间的分隔空行是语法需要（见上面的 case "mixed"），
+    // 按行去掉会把它一起吃掉，两张表重新粘成一张。
+    if (!body.some((line) => line.trim())) continue
+    lines.push("", `## ${section.heading}`, "", ...body)
+  }
+  return `${lines.join("\n")}\n`
 }
 
 // ---------------------------------------------------------------------------

@@ -4,16 +4,18 @@ import { cleanNextStepArtifacts } from "./outline-next-step"
 import { isLikelyChapterOutline } from "./outline-quality-check"
 import { stripOutlineFrontmatter } from "./outline-markdown"
 import { stripThoughtDumpFromText } from "@/lib/thought-dump"
-import { attachVolumeOutlineHtml } from "./volume-outline-template"
-import { attachChapterOutlineHtml } from "./chapter-outline-template"
-import { attachCharacterProfileHtml, renderCharacterProfileForContent } from "./character-profile-template"
-import { attachFactionProfileHtml } from "./faction-profile-template"
-import { attachPowerSystemHtml } from "./power-system-template"
-import { attachGoldenFingerHtml } from "./golden-finger-template"
-import { attachGeographyProfileHtml } from "./geography-setting-template"
-import { attachLocationProfileHtml } from "./location-setting-template"
-import { attachBackgroundProfileHtml } from "./background-setting-template"
-import { attachForeshadowingProfileHtml } from "./foreshadowing-plan-template"
+import { attachVolumeOutlineHtml, pickVolumeOutlineDataForRequest, renderVolumeOutlineMarkdown } from "./volume-outline-template"
+import { attachChapterOutlineHtml, extractChapterOutlineData, renderChapterOutlineMarkdown } from "./chapter-outline-template"
+import { attachCharacterProfileHtml, pickCharacterProfileFromText, renderCharacterProfileForContent, renderCharacterProfileMarkdown } from "./character-profile-template"
+import { attachFactionProfileHtml, extractFactionProfiles } from "./faction-profile-template"
+import { attachPowerSystemHtml, extractPowerProfiles } from "./power-system-template"
+import { attachGoldenFingerHtml, extractGoldenFingerProfiles } from "./golden-finger-template"
+import { attachGeographyProfileHtml, extractGeographyProfiles } from "./geography-setting-template"
+import { attachLocationProfileHtml, extractLocationProfiles } from "./location-setting-template"
+import { attachBackgroundProfileHtml, extractBackgroundProfiles } from "./background-setting-template"
+import { attachForeshadowingProfileHtml, extractForeshadowingProfiles } from "./foreshadowing-plan-template"
+import { pickProfileDocument, renderProfileDocumentMarkdown, type ProfileDocument } from "./profile-document"
+import { SETTING_PROFILE_SECTIONS } from "./setting-profile-contracts"
 import {
   attachSettingOutlineHtml,
   extractSettingOutlineData,
@@ -658,6 +660,108 @@ function hasEventOutlineStructure(content: string): boolean {
   return hasEventSection && listLines.length >= 2
 }
 
+/**
+ * 正文是否已经是一份「带分区标题的档案」。
+ *
+ * 用来区分两种情况：模型真写了完整档案（保留它，别用数据覆盖），
+ * 还是只吐了结构化数据、围栏外剩一句「已生成…」（必须用数据补正文）。
+ *
+ * 判据特意**不只看长度**：模型完全可能只写一份两三个分区的短档案，
+ * 而 `## 经济来源（见下方 JSON）` 这类交代语也带着分区名。所以先看有没有命中
+ * 本类分区标题，再看标题之外还剩下多少真内容 —— 交代语标题外几乎不留字。
+ */
+function looksLikeProfileBody(content: string, headings: string[] = []): boolean {
+  const text = content.trim()
+  if (!text) return false
+  const sectionPattern = (heading: string) =>
+    new RegExp(`^#{1,6}\\s*(?:\\d+[.、]\\s*)?${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "m")
+  const hits = headings.filter((heading) => sectionPattern(heading).test(text)).length
+  if (hits >= 1) {
+    // 去掉标题行后的实际字数：一句「见下方 JSON」不够 12 字，正常条目远超
+    const body = text.replace(/^#{1,6}.*$/gm, "").replace(/\s+/g, "")
+    return body.length >= 12
+  }
+  return text.length >= 200 && /^#{1,6}\s/m.test(text)
+}
+
+/** 设定档案类型 → 从 AI 原文解析出结构化档案。七类共用 `ProfileDocument`。 */
+const SETTING_PROFILE_DOC_EXTRACTORS: Record<string, (text: string) => ProfileDocument[]> = {
+  organizationsOutline: extractFactionProfiles,
+  powerSystem: extractPowerProfiles,
+  goldenFinger: extractGoldenFingerProfiles,
+  backgroundSetting: extractBackgroundProfiles,
+  geographySetting: extractGeographyProfiles,
+  foreshadowingPlan: extractForeshadowingProfiles,
+  locationsOutline: extractLocationProfiles,
+}
+
+/** 本次请求对应的设定分项（正文标题 → 文件名 → 目录 → fileType 四级线索）。 */
+function resolveProfileSpec(
+  request: Pick<OutlineSaveRequest, "fileType" | "fileName" | "targetFolder" | "sourceIntent" | "content">,
+  text: string,
+) {
+  return resolveSettingSpecForRequest({
+    fileType: request.fileType,
+    fileName: request.fileName,
+    targetFolder: request.targetFolder,
+    sourceIntent: request.sourceIntent,
+    content: request.content,
+    dataTitle: extractSettingOutlineData(text)?.title,
+  })
+}
+
+function sectionHeadingsOf(specId: string): string[] {
+  const sections = (SETTING_PROFILE_SECTIONS as Record<string, Array<{ heading: string }>>)[specId]
+  return sections ? sections.map((section) => section.heading) : []
+}
+
+/**
+ * 从结构化数据反推设定档案正文。
+ *
+ * 七类设定（势力 / 力量 / 金手指 / 背景 / 地理 / 地点 / 伏笔）从 2026-10-18 起
+ * 不再让模型手写 MD —— 它们的正文本来就是「分区 → 字段/条目/表格」的机械展开，
+ * 让模型再写一遍等于同一份内容付两次钱。
+ *
+ * 先按分项规格命中的解析器，再逐个兜底：模型偶尔把 JSON 写进别的顶层 key，
+ * 或者文件名起得毫无线索（`青云会.md` 落在 `设定/` 下）时，靠「谁能解析出数据」兜住，
+ * 否则正文会空着、保存直接失败。
+ */
+function renderSettingProfileMarkdownFromData(
+  request: OutlineSaveRequest,
+  text: string,
+  specId: string,
+): string | null {
+  const preferred = SETTING_PROFILE_DOC_EXTRACTORS[specId]
+  const extractors = preferred
+    ? [preferred, ...Object.values(SETTING_PROFILE_DOC_EXTRACTORS).filter((item) => item !== preferred)]
+    : Object.values(SETTING_PROFILE_DOC_EXTRACTORS)
+  for (const extract of extractors) {
+    const docs = extract(text)
+    if (docs.length === 0) continue
+    const picked = pickProfileDocument(docs, {
+      fileName: request.fileName,
+      targetFolder: request.targetFolder,
+      content: request.content,
+    })
+    if (picked) return renderProfileDocumentMarkdown(picked)
+  }
+  return null
+}
+
+/**
+ * 设定档案的正文兜底：只有「正文不像一份档案」时才用结构化数据反推。
+ *
+ * 不做无条件覆盖（卷纲才是无条件覆盖，因为它的折叠树与正文必须来自同一份数据）：
+ * 模型如果没听指令、真写了一份完整档案，那是真内容，覆盖会静默丢掉它写的细节。
+ * 结构化-only 之后这条路只在「模型不听指令」时才走，属于极少数的防御分支。
+ */
+function fillSettingProfileContent(request: OutlineSaveRequest, text: string): OutlineSaveRequest {
+  const spec = resolveProfileSpec(request, text)
+  if (looksLikeProfileBody(request.content, sectionHeadingsOf(spec.id))) return request
+  const markdown = renderSettingProfileMarkdownFromData(request, text, spec.id)
+  return markdown ? { ...request, content: markdown } : request
+}
+
 function fillContentFromText(requests: OutlineSaveRequest[], text: string): OutlineSaveRequest[] {
   const body = cleanNextStepArtifacts(extractBodyContent(text))
   if (!body) return requests
@@ -716,7 +820,63 @@ export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseR
   const htmlBlocks = extractHtmlBlocks(text)
   const filled = fillContentFromText(requests, text)
   const usable: OutlineSaveRequest[] = []
-  filled.forEach((request, index) => {
+  filled.forEach((raw, index) => {
+    /*
+     * 卷纲不再让模型写 MD 正文：content 由结构化数据反推。
+     * 这里**无条件**用数据生成的正文覆盖（而不是只在空的时候填）——
+     * 模型在 JSON 围栏外偶尔会补一句「已生成」，fillContentFromText 会把它
+     * 当成正文填进来，那样存下来的 .md 就只剩一句话。数据才是唯一权威。
+     */
+    let request = raw
+    if (request.fileType === "volume-outline") {
+      /*
+       * 按「这一条请求」挑数据，而不是全局取第一份：
+       * 一条回复里同时出现两卷（用户说「卷一和卷二一起写」）时，
+       * 两个保存请求必须各拿各的，否则卷二.md 里会是卷一的正文。
+       */
+      const data = pickVolumeOutlineDataForRequest(text, request)
+      if (data) request = { ...request, content: renderVolumeOutlineMarkdown(data) }
+    }
+    /*
+     * 人物小传同理不再让模型写 MD 正文（结构化数据即正文），但**不无条件覆盖**：
+     * 模型如果没听指令、老老实实写了完整 MD，那是真内容，覆盖会丢掉它写的东西。
+     * 只有「正文不像一份档案」时才用数据反推 —— 也就是 content 为空，
+     * 或者围栏外只剩一句「已生成…」的交代语（fillContentFromText 会把它当正文填进来）。
+     */
+    if (request.fileType === "character" && !looksLikeProfileBody(request.content, sectionHeadingsOf("characterBriefs"))) {
+      const profile = pickCharacterProfileFromText(text, {
+        fileName: request.fileName,
+        targetFolder: request.targetFolder,
+        content: request.content,
+      })
+      if (profile) request = { ...request, content: renderCharacterProfileMarkdown(profile) }
+    }
+    /*
+     * 其余七类设定（势力 / 力量 / 金手指 / 背景 / 地理 / 地点 / 伏笔）同样只收结构化数据，
+     * 正文由 `renderSettingProfileMarkdownFromData` 反推。`outline` 不在其中 ——
+     * 它是普通大纲（总纲 / 写作通则），没有对应的分区契约，不能硬套档案格式。
+     */
+    if (request.fileType === "setting" || request.fileType === "organization" || request.fileType === "foreshadowing") {
+      request = fillSettingProfileContent(request, text)
+    }
+    /*
+     * 章纲同样只收结构化数据：正文由 `renderChapterOutlineMarkdown` 反推。
+     *
+     * 🔴 这段不能少。分批产线（`chapterOutlineBatch`）是在合并时显式调反推的，
+     * 但**单条** `chapterOutlineData` 走不到那里 —— 模型偶尔会不听「请分批」的指令
+     * 直接给完整章纲（共创讨论轮判「前文不足」时尤其常见）。那时 content 只能是
+     * `fillContentFromText` 从围栏外正文捞来的「已生成」一句话，紧接着就被下面的
+     * 章纲结构闸门（`hasChapterOutlineStructure`）判「内容不像章纲」整条拒收：
+     * 用户看到的是「保存请求解析失败」，而数据其实完好。
+     *
+     * 判据与闸门**同口径**（同一个 `hasChapterOutlineStructure`）：模型真写了合格章纲
+     * 就原样保留，不拿数据覆盖；只有明显不像章纲时才反推 —— 这样既不丢模型写的细节，
+     * 又保证「过闸的那份内容」一定存在。
+     */
+    if (request.fileType === "chapter-outline" && !hasChapterOutlineStructure(request.content, request.fileName)) {
+      const data = extractChapterOutlineData(text)
+      if (data) request = { ...request, content: renderChapterOutlineMarkdown(data) }
+    }
     if (!request.content.trim()) {
       errors.push(`第 ${index + 1} 个保存请求缺少 content，且无法从正文中提取。`)
       /*
@@ -921,27 +1081,40 @@ export async function saveOutlineSaveRequests(input: {
     }
 
     if (request.writeMode === "append") {
+      /*
+       * append 的契约是「追加到文件末尾」（提示词与 skills/SkillHub/AI_OUTLINE_OUTPUT_PROTOCOL.md
+       * 都这么写：适合伏笔记录、角色出场记录、设定更新记录），所以**不论 confirmed 与否**
+       * 都必须先读原文再拼接。
+       *
+       * 旧实现把 confirmed 分支写成 `writeFile(targetPath, content)` —— 那是覆盖写。
+       * 而唯一的调用点（大纲对话保存，outline-chat-panel）恒传 `confirmed: true`，
+       * 于是 append 永远走覆盖分支：用户已有的伏笔台账 / 设定更新记录会被这一轮
+       * 新增的那一小段整个替换掉，旧内容不可恢复（.md 没有版本历史）。
+       *
+       * 只有在「读不到原文」时才退化成纯写入 —— 那是新文件，行为与覆盖写等价。
+       */
       const targetPath = `${targetDir}/${request.fileName}`
-      if (input.confirmed) {
-        if (formats.md) {
-          await input.writeFile(targetPath, buildSaveContent(request))
+      const body = stripOutlineFrontmatter(request.content).trim()
+      const exists = await input.fileExists(targetPath)
+      if (formats.md) {
+        if (exists && !input.readFile) {
+          // 文件已存在但读不到原文：宁可不写，也不能用覆盖写把旧内容抹掉
+          result.skipped.push(`已跳过 ${request.fileName}：当前环境缺少追加读取能力。`)
+        } else {
+          const original = exists && input.readFile ? await input.readFile(targetPath) : ""
+          const merged = original
+            ? `${stripOutlineFrontmatter(original).replace(/\s*$/, "\n\n")}${body}\n`
+            : `${body}\n`
+          await input.writeFile(targetPath, merged)
           result.saved.push({ path: targetPath, fileName: request.fileName, writeMode: request.writeMode })
         }
-        if (request.htmlContent && formats.html) {
-          const htmlFileName = request.fileName.replace(/\.md$/i, ".html")
-          const htmlPath = `${targetDir}/${htmlFileName}`
-          await input.writeFile(htmlPath, request.htmlContent)
-          result.saved.push({ path: htmlPath, fileName: htmlFileName, writeMode: request.writeMode })
-        }
-        continue
       }
-      if (!input.readFile) {
-        result.skipped.push(`已跳过 ${request.fileName}：当前环境缺少追加读取能力。`)
-        continue
+      if (request.htmlContent && formats.html) {
+        const htmlFileName = request.fileName.replace(/\.md$/i, ".html")
+        const htmlPath = `${targetDir}/${htmlFileName}`
+        await input.writeFile(htmlPath, request.htmlContent)
+        result.saved.push({ path: htmlPath, fileName: htmlFileName, writeMode: request.writeMode })
       }
-      const original = await input.fileExists(targetPath) ? await input.readFile(targetPath) : ""
-      await input.writeFile(targetPath, `${stripOutlineFrontmatter(original).replace(/\s*$/, "\n\n")}${stripOutlineFrontmatter(request.content).trim()}\n`)
-      result.saved.push({ path: targetPath, fileName: request.fileName, writeMode: request.writeMode })
       continue
     }
 

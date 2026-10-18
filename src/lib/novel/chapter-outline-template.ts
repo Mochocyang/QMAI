@@ -558,6 +558,14 @@ const CHAPTER_SECTIONS: ChapterSectionSpec[] = [
   {
     id: "s12", title: "§12 伏笔与钩子",
     rows: [
+      /*
+       * 这两条是**对齐字段**（顶层 seedFores / payFores），不是 foreshadow 里的说明。
+       * 它们原本只在 HTML 的伏笔账本与文本视图里出现，数据 → Markdown 反推时被漏掉了：
+       * 落盘的 .md 里既看不到本章埋了哪些伏笔名、也看不到收了哪些，
+       * 而这两件事正是后续写正文与跨章校验要读的。放在本节最前面。
+       */
+      { kind: "kv", label: "本章预埋伏笔", get: (c) => c.seedFores },
+      { kind: "kv", label: "本章回收伏笔", get: (c) => c.payFores },
       { kind: "kv", label: "回收来源", get: (c) => c.foreshadow.payFrom },
       { kind: "kv", label: "如何回收", get: (c) => c.foreshadow.payHow },
       { kind: "kv", label: "回收程度", get: (c) => c.foreshadow.payLevel },
@@ -613,6 +621,85 @@ const CHAPTER_SECTIONS: ChapterSectionSpec[] = [
     rows: [{ kind: "list", label: "已覆盖条目", get: (c) => c.checks }],
   },
 ]
+
+/**
+ * 由结构化数据反推章纲 MD 正文。
+ *
+ * 和卷纲同理：17 节里的每个字段都已经在 JSON 里了，让模型再写一遍 MD
+ * 等于为同一份内容付两遍输出费（一个 12 章的章纲，这一项就是上万字）。
+ * 保存时由这里生成，保证 .md 与 .html 内容完全一致。
+ */
+export function renderChapterOutlineMarkdown(data: ChapterOutlineData): string {
+  const lines: string[] = [`# ${data.title || "章纲"}`, ""]
+  const story = data.story
+  if (story?.name || story?.range) {
+    const header = [story?.name ? `故事${story.index} ${story.name}` : "", story?.range ?? ""]
+      .filter(Boolean)
+      .join(" · ")
+    if (header) {
+      /*
+       * 节拍串单独一行，不能丢：它是章纲与卷纲骨架对齐的凭据，
+       * 后续写正文、校验「不连续三章同拍」都要读它。只写故事名与章号范围
+       * 会让落盘的 .md 少掉一个 JSON 里明明有的字段。
+       */
+      lines.push(`> ${header}`, ...(story?.beats ? [">", `> 章情节拍：${story.beats}`] : []), "")
+    }
+  }
+  data.chapters.forEach((chapter) => {
+    lines.push(`## 第 ${chapter.n} 章 ${chapter.title || ""}`.trim(), "")
+    CHAPTER_SECTIONS.forEach((spec) => {
+      /*
+       * 同一节里可能既有 kv 列表又有表格（§6 关键词 + 必要条件）。
+       * Markdown 里列表项后面**紧跟**表格起始行，表格不会被识别成表格 ——
+       * 用户看到的是「| 类型 | 内容 |」这样一整行竖线。载体切换处必须空一行。
+       *
+       * 空字段一律不导出：`未填` / `- 未填` 是给编辑界面提示缺项用的，落进 .md
+       * 就变成满屏无信息噪声（一章 17 节，漏几节就能刷出十几行）。整节都空时
+       * 连节标题一起跳过 —— 用户要读的是这章发生了什么，不是一份缺项清单。
+       */
+      const body: string[] = []
+      let lastKind = ""
+      let gap = false
+      const push = (line: string) => {
+        // 只在两条**有内容**的行之间插分隔空行：载体全空时不会留下孤立的空行，
+        // 也不会出现「标题 → 空行 → 空行 → 表格」这种双空行。
+        if (gap && body.length > 0) body.push("")
+        gap = false
+        body.push(line)
+      }
+      spec.rows.forEach((row) => {
+        if (lastKind && lastKind !== row.kind) gap = true
+        lastKind = row.kind
+        if (row.kind === "kv") {
+          const value = String(row.get(chapter) ?? "").trim()
+          if (value) push(`- **${row.label}：** ${value}`)
+          return
+        }
+        if (row.kind === "list") {
+          const items = (row.get(chapter) ?? []).map((item) => String(item ?? "").trim()).filter(Boolean)
+          items.forEach((item) => push(`- ${item}`))
+          return
+        }
+        /*
+         * 表格行按「首列之外是否还有内容」筛：一张只剩标签、右侧全是空白的表
+         * （如必要条件四行的值都没填）导出来就是四行「| 入场条件 |  |」，
+         * 看着像数据、读起来什么也没有。首列往往是行标签，不足以支撑一张表。
+         */
+        const hasBody = (values: string[]) =>
+          (row.head.length > 1 ? values.slice(1) : values).some((value) => String(value ?? "").trim())
+        const rows = (row.get(chapter) ?? []).filter(hasBody)
+        if (rows.length === 0) return
+        const cell = (value: string) => String(value ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ")
+        push(`| ${row.head.join(" | ")} |`)
+        push(`| ${row.head.map(() => "---").join(" | ")} |`)
+        rows.forEach((values) => push(`| ${values.map(cell).join(" | ")} |`))
+      })
+      if (body.length === 0) return
+      lines.push(`### ${spec.title}`, "", ...body, "")
+    })
+  })
+  return lines.join("\n").trimEnd() + "\n"
+}
 
 function renderSectionRows(spec: ChapterSectionSpec, chapter: ChapterOutlineChapter): string {
   return spec.rows.map((row) => {
@@ -1329,7 +1416,7 @@ export function buildChapterBatchPrompt(input: {
     `1. 只写第 ${batch.from} 章到第 ${batch.to} 章，每章必须写满 17 节（§1 基础信息 / §2 上章承接 / §3 本章定位 / §4 浓缩剧情 / §5 核心事件链（≥6 条且每条含 what/cause/action/result/use）/ §6 关键词与必要条件（enter/trigger/interact/result 四类齐全）/ §7 四段式 / §8 情绪曲线（4 节点）/ §9 爽点与看点 / §10 关键信息与扩写方式 / §11 画面细节 / §12 伏笔与钩子 / §13 出场角色与状态变化（至少 1 条）/ §14 设定与道具更新 / §15 写作约束 / §16 下一章交接 / §17 写作检查清单）。`,
     "2. 每章必须带对齐字段：stage（所属环节）/ beat（本章节拍，必须等于骨架 beats 对应位置的字符）/ expect（本章主期待感）/ time / place / seedFores / payFores。",
     "3. 第 N 章的 handover.nextStart 必须与第 N+1 章的 carry.hook 呼应；payFores 必须在更早章节的 seedFores 出现过。",
-    "4. 输出顺序：先写本批 MD 正文，再写一个 ```json 围栏，顶层字段固定为 chapterOutlineBatch（结构与 chapterOutlineData 相同，chapters 只含本批章节）。",
+    "4. 输出顺序：只写一个 ```json 围栏，顶层字段固定为 chapterOutlineBatch（结构与 chapterOutlineData 相同，chapters 只含本批章节）。**不要写 MD 正文**——17 节内容与 JSON 完全重复，软件会用数据生成 MD。",
     "5. 本批**不要**输出 outlineSaveRequest（软件会在最后一批之后合并并统一保存），不要输出 HTML，不要用「…」「同上」等省略写法。",
     "6. 关键节不得留空：§8 moodCurve 写满 4 个节点；§10 expand 至少 1 条且含 info/how；§11 visual.env 与 visual.memory 必须有内容；§13 castChanges 至少 1 条；§14 worldUpdate 至少一项有内容（确无新增就写「无新增」）。",
     "7. §17 checks 必须覆盖 10 条固定项：三行内入戏 / 有明确变化 / 事件链有因果 / 有核心记忆点 / 有动作微细节 / 有爽点 / 回收旧信息 / 埋新信息 / 有追读钩子 / 已写明下一章交接。",

@@ -380,12 +380,66 @@ function withRequirement(data: EventOutlineData, requirement?: string): EventOut
 }
 
 /**
+ * 事件细纲数据 → 可直接保存/阅读的 Markdown 正文。
+ *
+ * 为什么要有它：提示词此前要求模型先写一份 Markdown 细纲、再给一个 `eventOutlineData`
+ * 围栏，同一份内容被付费两次；而气泡展示时那份 Markdown 又会被 `stripEventOutlineDataFence`
+ * 之外的处理链丢弃/覆盖（卡片才是主展示）。2026-10-18 起模型只输出 JSON，正文由这里反推，
+ * 字段一个不落地还原成旧提示词要求的形状（`# 事件细纲 · 第N章 名` / `## 事件N 标题` /
+ * 抓手逐条），所以外部读 `# 事件细纲` 的旧逻辑与老用例都还能命中。
+ */
+export function renderEventOutlineMarkdown(data: EventOutlineData): string {
+  /*
+   * title 的写法是「第12章 · 令牌初现」，而 H1 的旧形状是「事件细纲 · 第12章 令牌初现」
+   * （章号与章名之间是空格）。直接拼会变成「… · 第12章 · 令牌初现」，两个分隔符连用。
+   * 只把**紧跟在章号后的那个**「·」换成空格，其余原样 —— 章名里自带的「·」不该被动。
+   */
+  const chapterTitle = data.title
+    .trim()
+    .replace(/^(第[0-9零一二三四五六七八九十百千两]+章)\s*[·・:：]\s*/, "$1 ")
+  const heading = chapterTitle
+    ? `# 事件细纲 · ${chapterTitle}`
+    : `# 事件细纲 · 第${data.chapterNumber}章`
+  const lines: string[] = [heading, ""]
+  if (data.targetWords > 0) lines.push(`目标字数：约 ${data.targetWords} 字`, "")
+  data.events.forEach((event) => {
+    // 标题后空一行再列抓手：与文档其余部分（标题 → 空行 → 内容）保持同一节奏，
+    // 也让「## 事件N」这段在纯文本阅读时不会和下面第一条挤在一起。
+    lines.push(`## 事件${event.id} ${event.title}`.trim(), "")
+    event.points.forEach((point) => lines.push(`- ${point}`))
+    lines.push("")
+  })
+  if (data.endingHook.trim()) lines.push("## 本章结尾钩子", data.endingHook.trim(), "")
+  return `${lines.join("\n").trimEnd()}\n`
+}
+
+/**
+ * 摘掉数据围栏后剩下的文字，是否只是「已生成第N章事件细纲」这类交代语。
+ *
+ * 为什么需要判定：结构化-only 之后提示词**允许**模型在围栏外留一句说明
+ * （「围栏外最多留一句『已生成…』」）。气泡如果拿「有文字就显示原文」来判，
+ * 那这句说明就顶掉了本该展示的细纲正文 —— 用户看到的是一条只有 12 个字的回复，
+ * 而正文其实完整地躺在 JSON 里，只是没人把它渲染出来。
+ *
+ * 判据故意不认关键词、只认形状：没有标题行 + 去掉空白后极短。
+ * 一份真正手写的细纲至少包含 `#`/`##` 标题与四条事件，短不到 60 字；
+ * 用关键词（「已生成」「完成」）判断反而会被模型换一种说法绕过。
+ */
+export function looksLikeEventOutlineDeliveryNote(content: string): boolean {
+  const trimmed = content.trim()
+  if (!trimmed) return true
+  if (/^#{1,6}\s/m.test(trimmed)) return false
+  return trimmed.replace(/\s+/g, "").length <= 60
+}
+
+/**
  * 把承载细纲数据的 ```json 围栏从**展示文本**里摘掉。
  *
- * 用在哪里：聊天面板的气泡用的是 Markdown 渲染，细纲提示词又明确要求模型先给一份
- * Markdown 细纲、再给一个 `eventOutlineData` 围栏。于是气泡里会同时出现「一份好看的
- * 细纲正文」和「一大坨裸 JSON」——后者是给程序看的，不是给人看的。卡片已经把同一份
- * 数据渲染成可读结构，裸 JSON 就是纯噪声。
+ * 用在哪里：聊天面板的气泡用的是 Markdown 渲染。2026-10-18 前细纲提示词要求模型
+ * 先给一份 Markdown 细纲、再给一个 `eventOutlineData` 围栏，于是气泡里会同时出现
+ * 「一份好看的细纲正文」和「一大坨裸 JSON」——后者是给程序看的，不是给人看的。
+ * 现在提示词只要 JSON，正文由 `renderEventOutlineMarkdown` 反推；本函数仍要保留，
+ * 因为**历史消息里**还压着大量模型手写的 MD + 围栏，读旧会话时同样要把围栏摘掉。
  *
  * ⚠️ 只摘**能解析成事件细纲**的那一份，其余围栏原样保留：同一条回复里可能还有
  * 别的 json（例如保存请求），它们不属于本函数的目标，删掉就是删掉用户要看的内容。
@@ -534,14 +588,14 @@ export function buildEventOutlinePrompt(
     "- 不要输出工具调用报告和分析过程。",
     "",
     "## 输出格式（缺一不可）",
-    "1. 一份可直接保存的 Markdown 细纲内容（不是小说正文）：",
-    "   - 一级标题固定形如「# 事件细纲 · 第N章 一句话章名」（「事件细纲」四个字必须出现）；",
-    "   - 下面每个事件用二级标题分节，形如「## 事件1 一句话事件」，并按抓手逐条列出；",
-    "2. 一个 ```json 围栏，顶层字段为 eventOutlineData：",
+    "只输出一个 ```json 围栏，顶层字段为 eventOutlineData：",
     "```json",
     example,
     "```",
     `（上面的 events 只演示单个事件的字段格式；实际必须按上面要求写满 ${eventCount} 个事件，用真实的 chapterNumber 与 targetWords。）`,
+    "",
+    "- title 写成「第N章 · 一句话章名」（章号带「第」「章」，中间用「·」分隔）——软件用它拼出正文的一级标题；",
+    "- **不要手写 Markdown 细纲**，也不要写 HTML：软件会把这份结构化数据一个字段不落地还原成「# 事件细纲 · 第N章 章名」的正文。再手写一遍等于让用户为同一份内容付两次钱。围栏外最多留一句「已生成第N章事件细纲」的说明。",
   ].join("\n")
 }
 

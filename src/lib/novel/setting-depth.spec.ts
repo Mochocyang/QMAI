@@ -27,10 +27,16 @@ describe("八类设定的正文可用深度", () => {
     foreshadowingPlan: ["真相", "误导", "知情", "强化", "触发", "后果", "计划", "已发生", "证据"],
     locationsOutline: ["布局", "住所", "食宿", "补给", "入口", "出口", "感官", "触发", "变化"],
   }
+  /*
+   * 人物小传从 10 个分区瘦到 6 个：出场记录 / 状态追踪 由章节记忆维护（静态表必然过期），
+   * 写作使用规则 是给模型的执行约束而非设定内容，别名 绝大多数角色没有。
+   * 其余 7 类仍是 10 个以上，不受影响。
+   */
+  const minSections: Record<string, number> = { characterBriefs: 6 }
   for (const [id, words] of Object.entries(requirements)) {
     it(`${id} 覆盖写正文所需的关键维度`, () => {
       const spec = SETTING_OUTLINE_SPECS.find(item => item.id === id)!
-      expect(spec.sections.length).toBeGreaterThanOrEqual(10)
+      expect(spec.sections.length).toBeGreaterThanOrEqual(minSections[id] ?? 10)
       const hints = spec.sections.map(section => section.hint).join("\n")
       for (const word of words) expect(hints, `${id} 缺少 ${word}`).toContain(word)
       for (const section of spec.sections) expect(section.hint.length, section.heading).toBeGreaterThanOrEqual(45)
@@ -109,8 +115,25 @@ describe("内容契约接入与跨文件一致性", () => {
     })
   }
   it("不把知识缺失或尚未写到的节点编造成已发生事实", () => {
-    for (const text of ["设计提案", "已确认", "待确认", "计划", "已发生", "依据", "认知边界", "不强行", "内容等价"]) {
+    for (const text of ["设计提案", "已确认", "待确认", "计划", "已发生", "依据", "认知边界", "不强行", "缩成摘要"]) {
       expect(SETTING_PROFILE_QUALITY_RULES + SETTING_PROFILE_SECTIONS.organizationsOutline.map(s => s.hint).join("\n")).toContain(text)
+    }
+  })
+  /*
+   * 人物小传的「省钱」契约：不再排台账分区，也不再让模型把同一份内容写两遍。
+   * 这两条是分开锁的 —— 只砍分区不砍双份输出，省的是四成；只砍双份输出不砍分区，
+   * 台账仍会继续编。任意一条回退都要在这里红。
+   */
+  it("人物小传不再要求台账分区", () => {
+    const headings = SETTING_PROFILE_SECTIONS.characterBriefs.map(section => section.heading)
+    expect(headings).toEqual(["基本信息", "角色定位", "外在表现", "内在分析", "语言风格", "关系网络"])
+    expect(headings.some(heading => /出场记录|状态追踪|写作使用规则|别名/.test(heading))).toBe(false)
+  })
+  it("八类设定只输出结构化数据，正文由软件反推", () => {
+    for (const key of Object.keys(skills) as SettingProfileKey[]) {
+      const rules = buildSettingProfileOutputRules(key)
+      expect(rules, key).toContain("不要写MD正文")
+      expect(rules, key).not.toContain("先输出完整MD正文")
     }
   })
 })

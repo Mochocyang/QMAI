@@ -68,6 +68,20 @@ describe("buildAgentConfig functionCallingEnabled", () => {
     expect(registry.list()).toEqual([])
   })
 
+  it("黑名单模型即便开关打开也不注册工具（tools 不能发给 o1/deepseek-reasoner）", () => {
+    const registry = new ToolRegistry()
+    const config = buildAgentConfig("deepseek-reasoner", "system", registry, {
+      wikiPath: "/tmp/wiki",
+      getSkillConfig: () => null,
+      getChatConversations: () => [],
+      getOutlineConversations: () => [],
+      llmConfig: { ...baseLlm, provider: "custom", model: "deepseek-reasoner" },
+    })
+
+    expect(config.tools).toEqual([])
+    expect(registry.list()).toEqual([])
+  })
+
   it("keeps cursor-cli on native tools without a text-JSON prompt", () => {
     const registry = new ToolRegistry()
     const config = buildAgentConfig("composer-2-fast", "You are helpful", registry, {

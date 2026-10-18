@@ -34,7 +34,7 @@ const source = readFileSync(resolve(__dirname, "preview-panel.tsx"), "utf8")
  *
  * ── occurrence 参数：为什么必须有（这是实测出来的一个真盲区）──
  * 这个函数原先用 `findIndex`，也就是**只取第一处**匹配。
- * 而「字体设置」在源码里有**两处**：章节工具栏一处、大纲工具栏一处。
+ * 而「字体设置」在源码里有**两处**：章节工具栏一处、大纲一处。
  * 于是 Task 11 的变异验证发现：**只把大纲那处的图标改回 WandSparkles，
  * 全部守卫依然全绿** —— 大纲那一处从没进入任何断言的视野。
  *
@@ -43,10 +43,8 @@ const source = readFileSync(resolve(__dirname, "preview-panel.tsx"), "utf8")
  * 只守住章节那处，等于把"大纲里又抄错了图标"这类回归放走 ——
  * 而它恰恰是**用户在界面上能直接看到**的那种错。
  *
- * 所以加 occurrence（1 起算）。传 2 就取第二处。
- * 找不到第 occurrence 处时**抛错**而不是回退到第一处：
- * 静默回退会让"大纲入口被删掉"这种情况继续假绿，
- * 而那正是要防的另一件事。
+ * 所以加 occurrence（1 起算）。找不到第 occurrence 处时**抛错**而不是
+ * 回退到第一处：静默回退会让"入口被删掉"这种情况继续假绿。
  *
  * ── ⚠ 命中点必须锚定到 <button>（代码质量审查 I5）──
  * 原先只匹配 `aria-label="字体设置"`，于是**浮层容器**那一行
@@ -59,12 +57,26 @@ const source = readFileSync(resolve(__dirname, "preview-panel.tsx"), "utf8")
  * 与注释承诺的定位能力不符，会让后来者查错方向。
  *
  * 现在要求命中行同时含有 `<button`。这样 3 处命中里只剩真正的两个按钮。
+ * ⚠️ 连带约定：按钮必须写成**单行**（`<button … aria-label="…" …>`），
+ * 拆成多行会让这里查不到它 —— preview-panel.tsx 里两个字体设置按钮
+ * 都按这个写法，改动时别把它排成多行。
+ *
+ * ── ⚠ 2026-10-15：occurrence 的「第 1 处 / 第 2 处」语义已失效，改用 scope ──
+ * 用户要求「将字体设置图标也移上去」：大纲那处从"大纲工具栏里的独立按钮"
+ * 并入了 `outlineMemoryActions`（双格式顶栏用），在文件里的位置随之
+ * **排到章节那处的前面**。于是原来的映射（1=章节、2=大纲）正好反过来 ——
+ * 两条用例会各自测到**对方**的入口，却因为两处按钮文本逐字相同而
+ * **照样全绿**（与上面那段盲区是同一种失效方式）。
+ *
+ * 现在不按行序、改按**区块**定位：entry 落在哪个变量定义区里，是**结构**
+ * 决定的（见下面 OUTLINE_ACTIONS_SCOPE / EDITOR_JSX_SCOPE），
+ * 搬动按钮顺序不会再骗过它。
  */
-function buttonBlock(ariaLabel: string, occurrence = 1): string {
+function buttonBlock(ariaLabel: string, occurrence = 1, scope: string = source): string {
   if (!Number.isInteger(occurrence) || occurrence < 1) {
     throw new Error(`occurrence 必须是 1 起的整数，收到 ${occurrence}`)
   }
-  const lines = source.split(/\r?\n/)
+  const lines = scope.split(/\r?\n/)
   let seen = 0
   let start = -1
   for (let i = 0; i < lines.length; i++) {
@@ -92,6 +104,34 @@ function buttonBlock(ariaLabel: string, occurrence = 1): string {
 }
 
 /**
+ * 取 [startNeedle, endNeedle) 之间的源码片段（两端都是首次出现处）。
+ *
+ * 为什么需要它：见上面 buttonBlock 注释末尾 —— 「字体设置」两处入口在
+ * 文件里的先后顺序已随 2026-10-15 的改动互换，occurrence 不再可靠。
+ * 这里用**变量定义区**做锚点，把两处入口按结构分开。
+ */
+function sliceBetween(startNeedle: string, endNeedle: string): string {
+  const start = source.indexOf(startNeedle)
+  if (start < 0) throw new Error(`找不到区块起点：${startNeedle}`)
+  const end = source.indexOf(endNeedle, start + startNeedle.length)
+  if (end < 0) throw new Error(`找不到区块终点：${endNeedle}`)
+  return source.slice(start, end)
+}
+
+/** 大纲「提取记忆 / 查看记忆 / 字体设置」三枚动作的定义区（双格式顶栏用） */
+const OUTLINE_ACTIONS_SCOPE = sliceBetween(
+  "const outlineMemoryActions",
+  "if (loadedFilePath !== selectedFile)",
+)
+
+/**
+ * 编辑器 JSX 区：章节工具栏那处「字体设置」在这里。
+ * 大纲分支不再单独渲染它（已并入上面的 actions），所以这个区块里只剩章节
+ * 一处 —— 章节入口被删时 buttonBlock 会抛错。
+ */
+const EDITOR_JSX_SCOPE = sliceBetween("const uiTestEditorElement", "\n  return (")
+
+/**
  * 取出片段里用到的 lucide 图标组件名（形如 `<WandSparkles ... />`）。
  *
  * 为什么需要它：用户的原话是「一键排版的图标与正文字体的图标两个不能
@@ -115,8 +155,8 @@ describe("章节与大纲工具栏图标", () => {
     expect(line).not.toContain("<Type")
   })
 
-  it("字体设置用 Type 图标，且与一键排版不是同一个", () => {
-    const line = buttonBlock("字体设置")
+  it("章节工具栏的字体设置用 Type 图标，且与一键排版不是同一个", () => {
+    const line = buttonBlock("字体设置", 1, EDITOR_JSX_SCOPE)
     expect(line).toContain("Type")
     expect(line).not.toContain("WandSparkles")
     /*
@@ -132,7 +172,7 @@ describe("章节与大纲工具栏图标", () => {
      * 而且它对撞车场景真的会红。
      */
     const fanIcon = iconNamesIn(line)
-    const formatIcon = iconNamesIn(buttonBlock("一键排版"))
+    const formatIcon = iconNamesIn(buttonBlock("一键排版", 1, EDITOR_JSX_SCOPE))
     expect(fanIcon, "「字体设置」应恰好用一个图标组件").toHaveLength(1)
     expect(formatIcon, "「一键排版」应恰好用一个图标组件").toHaveLength(1)
     expect(fanIcon[0], "两处图标不能是同一个组件").not.toBe(formatIcon[0])
@@ -141,31 +181,34 @@ describe("章节与大纲工具栏图标", () => {
   })
 
   /*
-   * 大纲那一处**必须单独钉**。
+   * 大纲那一处**必须单独钉**（2026-10-15 起它住在 `outlineMemoryActions` 里，
+   * 与「提取记忆 / 查看记忆」一起渲染在双格式顶栏）。
    *
-   * 上面那条用的是第一处「字体设置」（章节工具栏）。实测变异：
-   * 只把大纲那处的图标改成 WandSparkles，全部守卫**依然全绿** ——
-   * 因为大纲那处从来没进入任何断言的视野（buttonBlock 原先只取第一处）。
+   * 上面那条用的是章节工具栏那处。实测变异：只把大纲那处的图标改成
+   * WandSparkles，全部守卫**依然全绿** —— 因为大纲那处从来没进入任何
+   * 断言的视野（buttonBlock 原先只取第一处）。
    *
    * 而用户的要求是**两处入口**都要有、且图标都不能与一键排版撞车：
-   * 「大纲当中也要有这个设置功能」。所以这一条不是重复，
-   * 它守的是另一半。删掉它，大纲入口就能悄悄退化成魔法棒图标。
+   * 「大纲当中也要有这个设置功能」（之后又追加「将字体设置图标也移上去」）。
+   * 所以这一条不是重复，它守的是另一半。删掉它，大纲入口就能悄悄退化成
+   * 魔法棒图标。
    */
   it("大纲的字体设置也用 Type 图标，同样不与一键排版撞车", () => {
-    const outline = buttonBlock("字体设置", 2)
+    const outline = buttonBlock("字体设置", 1, OUTLINE_ACTIONS_SCOPE)
     expect(outline).toContain("Type")
     expect(outline).not.toContain("WandSparkles")
     /*
-     * 这里**故意不加** `expect(outline).not.toBe(buttonBlock("字体设置", 1))`。
+     * 这里**故意不加**
+     * `expect(outline).not.toBe(buttonBlock("字体设置", 1, EDITOR_JSX_SCOPE))`。
      * 我第一版加了它，结果是假红：章节与大纲那两段按钮的文本
      * **逐字节相同**（同一套 className / title / onClick / 同一个 <Type />），
      * 就像两处入口本来就该长一样。
      *
-     * 而"它们是不是同一段被取到两次"这个担心，其实由 occurrence 机制本身
-     * 解决了：它按**行**逐个计数，第 2 次命中必然在更靠后的行上。
+     * 而"它们是不是同一段被取到两次"这个担心，其实由 scope 机制本身
+     * 解决了：两个 scope 是**不相交**的源码区间，取不出同一段。
      * 真正需要防的是"大纲入口被删掉"——那种情况下
-     * buttonBlock("字体设置", 2) 会**抛错**（找不到第 2 处），用例照样红，
-     * 而且报错信息会直接说明缺的是第几处。
+     * buttonBlock("字体设置", 1, OUTLINE_ACTIONS_SCOPE) 会**抛错**
+     * （该区块里找不到按钮），用例照样红。
      */
   })
 
@@ -195,8 +238,9 @@ describe("章节与大纲工具栏图标", () => {
 
     // 两两互不相同：任何两个复用同一个组件都会红
     const icons = {
-      字体设置: iconNamesIn(buttonBlock("字体设置"))[0],
-      一键排版: iconNamesIn(buttonBlock("一键排版"))[0],
+      // 三个图标同屏的是**章节工具栏**，所以这三处都锚定 EDITOR_JSX_SCOPE
+      字体设置: iconNamesIn(buttonBlock("字体设置", 1, EDITOR_JSX_SCOPE))[0],
+      一键排版: iconNamesIn(buttonBlock("一键排版", 1, EDITOR_JSX_SCOPE))[0],
       生成章节细纲: generationIcon[0],
     }
     expect(new Set(Object.values(icons)).size, `三个图标撞车了：${JSON.stringify(icons)}`).toBe(3)

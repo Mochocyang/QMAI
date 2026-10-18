@@ -391,7 +391,7 @@ describe("测试版正文编辑器", () => {
    * 原先「提取记忆 / 查看记忆」只挂在 MD 编辑器工具栏上 → HTML 视图下两枚
    * 按钮凭空消失，用户找不到入口。现在它们挪到顶栏、紧挨 HTML / MD 标识。
    */
-  it("大纲的 HTML 视图下也能看到提取记忆 / 查看记忆（挨着 HTML / MD）", async () => {
+  it("大纲的 HTML 视图下也能看到提取记忆 / 查看记忆 / 字体设置（挨着 HTML / MD）", async () => {
     fixture.files.set(
       outlinePath.replace(/\.md$/i, ".html"),
       "<!DOCTYPE html><html><body><h1>折叠树</h1></body></html>",
@@ -403,14 +403,20 @@ describe("测试版正文编辑器", () => {
     expect(bar, "HTML / MD 标识旁应有操作区").not.toBeNull()
     button("提取记忆", bar!)
     button("查看记忆", bar!)
+    /*
+     * 「字体设置」与记忆两枚同批上移（用户要求「将字体设置图标也移上去」）：
+     * HTML 模式下它原先整条工具栏被 iframe 顶掉，也就一起消失了。
+     */
+    button("字体设置", bar!)
 
-    /* 切到 MD：两枚按钮仍留在顶栏，编辑器工具栏里不再重复一份 */
+    /* 切到 MD：三枚按钮仍留在顶栏，编辑器工具栏里不再重复一份 */
     await click("MD")
     const toolbar = container.querySelector(".ui-test-editor-toolbar")
     expect(toolbar, "MD 模式应渲染编辑器工具栏").not.toBeNull()
     expect(button("提取记忆").closest("[data-outline-dual-actions]"), "提取记忆应仍在顶栏").not.toBeNull()
     expect(toolbar!.querySelector('[aria-label="提取记忆"]')).toBeNull()
     expect(toolbar!.querySelector('[aria-label="查看记忆"]')).toBeNull()
+    expect(toolbar!.querySelector('[aria-label="字体设置"]')).toBeNull()
   })
 
   it("没有文档时使用中文空状态且不伪造保存成功", async () => {

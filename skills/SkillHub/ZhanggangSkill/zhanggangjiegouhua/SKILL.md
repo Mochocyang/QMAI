@@ -1,5 +1,5 @@
 ---
-name: zhanggangjiegouhua
+name: zhanggangjiegouhua
 title: 章纲结构化
 description: 当用户需要生成章纲、细纲、章节细纲，或要求把某个故事（10–12 章）拆成逐章执行单元时使用。触发词：章纲、细纲、章节细纲、逐章拆解、把第X–Y章拆成章纲。不用于卷纲、总纲、人物小传或正文。
 ---
@@ -88,13 +88,14 @@ description: 当用户需要生成章纲、细纲、章节细纲，或要求把�
 
 - 章 × 环节 × 节拍对照表、字数配比、期待与钩子链、爽点节奏表、伏笔账本、人物出场与状态变化、地点与时间切换、情绪曲线、一致性体检 —— 全部由软件依据你写的数据自动生成。
 
-### 一、MD 正文（给人阅读）
+### 一、不要写 MD 正文
 
-按章逐个输出，每章包含：章号与标题、章节属性与情绪、所属环节与节拍、主期待感、字数目标、上章承接与本章定位、浓缩剧情、核心事件链、必要条件、四段式、情绪曲线、爽点、关键信息扩写、画面细节、伏笔埋收、角色状态变化、设定增量、写作约束、下一章交接、检查清单。
+17 节的内容与结构化 JSON **完全重复**。写两遍等于让用户为同一份内容付两遍输出费。
+MD 与 HTML 都由软件从你写的数据生成，你只需要产出结构化数据。
 
 ### 二、章纲结构化数据
 
-在 MD 正文之后，输出一个 ```json 围栏，顶层字段为 `chapterOutlineData`：
+只输出一个 ```json 围栏，顶层字段为 `chapterOutlineData`（围栏外最多留一句「已生成第N章章纲」的说明）：
 
 ```json
 {
@@ -157,7 +158,7 @@ description: 当用户需要生成章纲、细纲、章节细纲，或要求把�
 
 ### 三、保存请求
 
-最后附加 `outlineSaveRequest`：
+在结构化数据之后（或最后一批时），附加 `outlineSaveRequest`：
 
 ```json
 {
@@ -168,10 +169,12 @@ description: 当用户需要生成章纲、细纲、章节细纲，或要求把�
     "writeMode": "create",
     "referencedSkills": ["ZhanggangSkill/zhanggangjiegouhua"],
     "sourceIntent": "生成故事一 雨夜无我 的章纲",
-    "content": "# 章纲-第01–10章：雨夜无我\n\n（与上方 MD 正文一致）"
+    "content": ""
   }
 }
 ```
+
+`content` 留空字符串即可 —— 软件会用章纲结构化数据生成 MD 正文，不需要你重复写一遍。
 
 **不需要**在 `outlineSaveRequest` 里提供 `htmlContent` —— 软件会自动用章纲数据套模板渲染 HTML。
 
@@ -197,9 +200,8 @@ description: 当用户需要生成章纲、细纲、章节细纲，或要求把�
 
 ## 输出顺序
 
-1. 本批的 MD 正文（该批章的 17 节）；
-2. ```json 围栏的 `chapterOutlineBatch`（该批章全写满）；
-3. 若这是最后一批，再附 `outlineSaveRequest`（content 为整故事的 MD 正文）。
+1. ```json 围栏的 `chapterOutlineBatch`（该批章全写满）；
+2. 中间批次到此为止；不要写 MD 正文、不要输出 `outlineSaveRequest`。
 
 ## 常见错误
 

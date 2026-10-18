@@ -1,7 +1,13 @@
 import { ScrollToLatestButton } from "@/components/chat/scroll-to-latest-button"
 import { UserMessageMeta } from "@/components/chat/user-message-meta"
 import { StoppedGenerationActions } from "@/components/novel/stopped-generation-actions"
+import { FailedGenerationActions } from "@/components/novel/failed-generation-actions"
 import { CONTINUE_STOPPED_GENERATION_PROMPT, isStoppedGenerationMessage } from "@/lib/novel/stopped-generation"
+import {
+  FAILED_GENERATION_CONTINUE_PROMPT,
+  hasFailedGenerationPartialContent,
+  isFailedGenerationMessage,
+} from "@/lib/novel/failed-generation"
 import { buildSettingProfileOutputRules } from "@/lib/novel/setting-profile-contracts";
 import {
   type CSSProperties,
@@ -177,6 +183,7 @@ import {
   mergeChapterBatches,
   nextChapterBatchRange,
   primeChapterOutlineTemplate,
+  renderChapterOutlineMarkdown,
   validateChapterOutlineData,
   type ChapterOutlineData,
 } from "@/lib/novel/chapter-outline-template";
@@ -190,13 +197,13 @@ import {
   buildCharacterProfileHtmlForDraft,
   extractCharacterProfiles,
 } from "@/lib/novel/character-profile-template";
-import { primeFactionProfileTemplate } from "@/lib/novel/faction-profile-template";
-import { primePowerProfileTemplate } from "@/lib/novel/power-system-template";
-import { primeForeshadowingProfileTemplate } from "@/lib/novel/foreshadowing-plan-template";
-import { primeGoldenFingerProfileTemplate } from "@/lib/novel/golden-finger-template";
-import { primeGeographyProfileTemplate } from "@/lib/novel/geography-setting-template";
-import { primeLocationProfileTemplate } from "@/lib/novel/location-setting-template";
-import { primeBackgroundProfileTemplate } from "@/lib/novel/background-setting-template";
+import { primeFactionProfileTemplate, extractFactionProfiles } from "@/lib/novel/faction-profile-template";
+import { primePowerProfileTemplate, extractPowerProfiles } from "@/lib/novel/power-system-template";
+import { primeForeshadowingProfileTemplate, extractForeshadowingProfiles } from "@/lib/novel/foreshadowing-plan-template";
+import { primeGoldenFingerProfileTemplate, extractGoldenFingerProfiles } from "@/lib/novel/golden-finger-template";
+import { primeGeographyProfileTemplate, extractGeographyProfiles } from "@/lib/novel/geography-setting-template";
+import { primeLocationProfileTemplate, extractLocationProfiles } from "@/lib/novel/location-setting-template";
+import { primeBackgroundProfileTemplate, extractBackgroundProfiles } from "@/lib/novel/background-setting-template";
 import {
   resolveModelConfig,
   resolveNovelModel,
@@ -264,7 +271,7 @@ import {
   stripThoughtDumpFromText,
 } from "@/lib/thought-dump";
 import { ToolRegistry } from "@/lib/agent/registry";
-import { buildAgentConfig, modelSupportsTools } from "@/lib/agent/config";
+import { buildAgentConfig, isFunctionCallingEnabled, modelSupportsTools } from "@/lib/agent/config";
 import type { AgentConfig, AgentMessage, AgentRunRecord } from "@/lib/agent/types";
 import {
   applyAgentToolEvent,
@@ -864,40 +871,125 @@ function isDiscussDeliveredOutline(content: string): boolean {
   if (parseOutlineDiscussProtocol(content).kind !== "none") return false;
   if (parseOutlineSaveRequests(content).requests.length > 0) return true;
   if (extractVolumeOutlineData(content)) return true;
+  /*
+   * 章纲分批产出（chapterOutlineBatch）**不带** outlineSaveRequest —— 保存请求由软件在
+   * 最后一批之后合并生成。结构化-only 之后正文也空了，上面三条判据全落空，
+   * 于是「讨论轮里模型直接交付了章纲」会被判成"没交付"，回答被丢弃后重新要求它讲协议。
+   * 分批数据同样是一份真交付，这里必须认。
+   */
+  if (extractChapterOutlineBatch(content)) return true;
   return isSaveableOutlineDeliverable(content);
+}
+
+/**
+ * 只返回了结构化数据（没有 MD 正文）时，气泡里给一句可读的交代。
+ *
+ * 卷纲/章纲从 4.3.6 起不再让模型重复写一遍 MD —— 气泡里的正文因此会变成空，
+ * 用户只看到一团被清掉的 JSON 围栏。这里用数据本身算出统计，告诉他生成成功了、
+ * 有多少内容、去哪里看。文字由软件生成，不占模型输出。
+ */
+export function describeStructuredOnlyAnswer(raw: string): string {
+  const volume = extractVolumeOutlineData(raw)
+  if (volume) {
+    const stages = volume.stories.reduce((sum, story) => sum + story.st.length, 0)
+    return `已生成卷纲《${volume.title}》：${volume.stories.length} 个故事、${stages} 个环节。正文与折叠树由软件从结构化数据生成，可在下方保存为 .md / .html。`
+  }
+  const chapter = extractChapterOutlineData(raw)
+  if (chapter) {
+    const numbers = chapter.chapters.map((item) => item.n).sort((a, b) => a - b)
+    const range = numbers.length > 1 ? `第 ${numbers[0]}–${numbers[numbers.length - 1]} 章` : `第 ${numbers[0] ?? 1} 章`
+    return `已生成章纲 ${range}（共 ${chapter.chapters.length} 章，每章 17 节）。正文与卡片流由软件从结构化数据生成。`
+  }
+  const profiles = extractCharacterProfiles(raw)
+  if (profiles.length > 0) {
+    const sections = profiles.reduce((sum, profile) => sum + profile.sections.length, 0)
+    const names = profiles.slice(0, 3).map((profile) => profile.name).join("、")
+    const suffix = profiles.length > 3 ? "…" : ""
+    const subject = profiles.length > 1
+      ? `${profiles.length} 个角色（${names}${suffix}）`
+      : `角色《${profiles[0].name}》`
+    return `已生成${subject}的人物小传，共 ${sections} 个分区。正文与角色卡由软件从结构化数据生成，可在下方保存为 .md / .html。`
+  }
+  /*
+   * 其余七类设定同样只收结构化数据（2026-10-18 起），气泡必须给一句可读的交代，
+   * 否则用户看到的是一条空消息 —— 明明生成了内容，界面上却什么都没有。
+   */
+  const settingFamilies: Array<{ label: string; extract: (text: string) => Array<{ name: string; sections: unknown[] }> }> = [
+    { label: "势力档案", extract: extractFactionProfiles },
+    { label: "力量体系", extract: extractPowerProfiles },
+    { label: "金手指", extract: extractGoldenFingerProfiles },
+    { label: "背景设定", extract: extractBackgroundProfiles },
+    { label: "地理设定", extract: extractGeographyProfiles },
+    { label: "地点设定", extract: extractLocationProfiles },
+    { label: "伏笔计划", extract: extractForeshadowingProfiles },
+  ]
+  for (const family of settingFamilies) {
+    const docs = family.extract(raw)
+    if (docs.length === 0) continue
+    const sections = docs.reduce((sum, doc) => sum + doc.sections.length, 0)
+    const names = docs.slice(0, 3).map((doc) => doc.name).join("、")
+    const suffix = docs.length > 3 ? "…" : ""
+    const subject = docs.length > 1
+      ? `${docs.length} 份${family.label}（${names}${suffix}）`
+      : `${family.label}《${docs[0].name}》`
+    return `已生成${subject}，共 ${sections} 个分区。正文与卡片由软件从结构化数据生成，可在下方保存为 .md / .html。`
+  }
+  return ""
+}
+
+/**
+ * 剥掉数据围栏后剩下的文字，是否只是「已生成…」这类交代语。
+ *
+ * 提示词允许模型在围栏外留一句说明，而气泡的内容判定如果只写「剥完还有没有字」，
+ * 那句话就会顶掉 `describeStructuredOnlyAnswer` 的统计交代 —— 用户看到的是
+ * 「好的，已按折叠树生成卷一。」这种一句话回复，明明生成了 10 个故事却什么都不显示。
+ *
+ * 判据只看形状（没有标题行 + 去掉空白极短），不认关键词：一份真交付的大纲
+ * 必然带 `#`/`##` 标题且远超 80 字，而交代语换个说法也逃离不了长度限制。
+ */
+export function looksLikeOutlineDeliveryNote(content: string): boolean {
+  const trimmed = content.trim()
+  if (!trimmed) return true
+  if (/^#{1,6}\s/m.test(trimmed)) return false
+  return trimmed.replace(/\s+/g, "").length <= 80
 }
 
 function getOutlineSectionOutputRules(title: string): string {
   if (title.includes("卷纲")) {
     return [
-      "【载体】必须同时产出三部分，缺一不可：",
-      "(1) MD 正文：本卷 10 个故事的文本版卷纲；",
-      "(2) 一个 ```json 围栏，顶层字段为 volumeOutlineData（10 个故事 × 10 个环节的结构化数据）；",
-      "(3) outlineSaveRequest（content 为 MD 正文即可）。",
-      "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 template.html 自动渲染折叠树。",
+      "【载体】只产出两部分，缺一不可：",
+      "(1) 一个 ```json 围栏，顶层字段为 volumeOutlineData（10 个故事 × 10 个环节的结构化数据）；",
+      '(2) outlineSaveRequest（content 写空字符串 ""，软件会用结构化数据自动生成 MD 与 HTML）。',
+      "**不要再手写一遍 MD 正文**：MD 里的每个字都能从结构化数据原样得到，重复写一遍等于让用户为同一份内容付两遍钱。",
+      "**不要自己写 HTML/CSS/标签**——软件会套模板渲染折叠树。",
       "",
-      "【完整性硬要求】",
-      "1. volumeOutlineData.stories 必须写满 10 个故事对象，一个都不能少；",
-      "2. 每个故事 st 必须写满 10 个环节：起①起②起③承①承②承③转①转②合①合②，每环节必须带 stage（**环节标识就用 stage 这个键，值写作「起①」这种标识，不要用 k / id 代替**）、who（人物＋功能位）、use（这一段要完成什么）、pay（该环节埋的期待在哪里兑现，如「合①」「故事五 承②」）、p（3 条具体条目）；可选 name：给该环节起一句具体的小标题（如「沐浴昏死」），软件会连同环节名一起显示；",
-      "3. 每个故事必须填全字段：range（**该故事覆盖的章号范围，如「第 1–12 章」，不是卷名**） / deliver / gift / mid（承③的反转类型） / twist（转①的反转类型） / hook / link / climax / beats（12 章节拍序列，可写成字符串「平升起紧落缓升紧顶缓顶悬」）；link 说明本故事引线在下一故事起①如何被接住；",
-      "4. 每个故事必须包含 line（main 主线＋sub 支线数组＋daily 日常与日常作用）；",
-      "5. 顶层必须补跨故事台账字段：position（卷级定位：pitch 卷定位 / theme 主题句 / narrative 叙事形态 / structure 结构选用声明 / chapters 建议章数 / ending 卷末落点）、roles（卷级功能位总览：引路/主角/阻力/镜子/代价/预埋 各一条）、foreshadows（伏笔追踪：每条 v 内容 / seed 埋设位置 / pay 回收位置）、cast（人物出场表：每条 n 人物 / role 功能位 / stories 出场故事 / u 作用）、escalation（大高潮分解+代价阶梯：写满 10 条，每条 id 故事 / stake 赌注等级 / lose 付出的代价 / rise 抬升到什么）、debts（悬念债务：每条 q 问题 / from 起始 / plan 计划回收）、rivals（对手推进：每条 n 对手 / moves 每故事的出手目标与动作）、growth（人物成长与资源：每条 n 人物 / gains 获得物与资源演进 / state 能力与状态变化）、places（地点组织索引：每条 n 名称 / kind 类型 / stories 出场故事 / u 剧情作用）；",
-      "6. position.structure 必须声明本卷选用的叙事结构：全卷 1 个 + 单故事 1 个 + 逐章 1 个，并说明为什么不用其余几种（不得叠加）；",
-      "7. 承③(mid) 与 转①(twist) 必须是不同的反转类型。",
+      "【只要故事，不要台账】卷纲只回答一件事：这卷发生了哪些故事、每个故事怎么推进。",
+      "禁止输出（写了软件也不显示，纯烧 token）：卷级定位（卷定位 / 主题句 / 叙事形态 / 结构选用 / 建议章数 / 卷末落点）、角色索引、地点索引、伏笔追踪表、悬念债务、对手推进表、人物成长表、整卷账本、期待感曲线、反转类型分布、支线推进矩阵、节拍体检、环节完整性矩阵、任何评分与统计。",
       "",
-      "【禁止事项】禁止出现「…」「等等」「略」「参考上文」「其余同理」「此处省略」等任何缩写写法；禁止只写第 1 个和第 10 个故事；禁止输出方法论说明板块（10 环节表 / 8 期待感 / 7 反转库 / 8 情绪结构 / 叙事结构表 / 三层线表 / 12 章排布表 / 跨卷复用）。",
-      "【输出顺序】先写 MD 正文，再写 ```json 的 volumeOutlineData，最后写 outlineSaveRequest。",
-      "【自检】输出前确认：故事数=10、每故事环节数=10、每环节条目数=3、每故事含 link、每环节含 pay、顶层含 position/roles/foreshadows/cast/escalation(10 条)/debts/rivals/growth/places、无省略号、承③≠转①。",
+      "【结构硬要求】",
+      "1. stories 必须写满 10 个故事对象，一个都不能少；每个故事只有 `id` / `range` / `title` / `st` 四个字段（可选 `beats`）；",
+      "2. range 是该故事覆盖的章号范围（如「第 1–12 章」）；title 是这个故事的名字；",
+      "3. st 必须写满 10 个环节：起①起②起③承①承②承③转①转②合①合②，每个环节只有三个字段——",
+      "   - stage：环节标识，值就写「起①」这种（**不要用 k / id / name 代替键名**）；",
+      "   - label：该故事在这一步的具体小标题（如「沐浴昏死」），要具体，不要照抄环节名；",
+      "   - who：这一步出场的人物（可带一句身份或功能）；",
+      "   - p：3 条这个环节里**具体发生了什么**——写事件、动作、决定、代价、说出口的话，不要写「铺垫矛盾」「承上启下」「推动剧情」这类空话；",
+      "4. 可选 beats：12 个字符的节拍串（平升起紧落缓升紧顶缓顶悬），章纲要靠它对齐，能写就写；",
+      "5. 承③ 与 转① 不要用同一个反转。",
+      "",
+      "【禁止事项】禁止出现「…」「等等」「略」「参考上文」「其余同理」「此处省略」等缩写写法；禁止只写第 1 个和第 10 个故事；禁止输出方法论说明板块（10 环节表 / 8 期待感 / 7 反转库 / 8 情绪结构 / 叙事结构表 / 三层线表 / 12 章排布表）。",
+      "【输出顺序】先写 ```json 的 volumeOutlineData，再写 outlineSaveRequest。",
+      "【自检】输出前确认：故事数=10、每故事环节数=10、每环节 p 满 3 条且条条是具体事件、无省略号、承③≠转①。",
     ].join("\n");
   }
   if (title.includes("章节细纲") || title.includes("章纲") || title.includes("细纲")) {
     const skeletonReference = getVolumeSkeletonReference();
     return [
-      "【载体】必须同时产出三部分，缺一不可：",
-      "(1) MD 正文：本故事每一章的章纲文本版（按章分节）；",
-      "(2) 一个 ```json 围栏，顶层字段为 chapterOutlineData（含 story 骨架 + chapters 数组）；",
-      "(3) outlineSaveRequest（content 为 MD 正文即可，文件名形如「章纲-第01–12章.md」）。",
-      "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 template.html 自动渲染章纲卡片流。",
+      "【载体】只产出两部分，缺一不可：",
+      "(1) 一个 ```json 围栏，顶层字段为 chapterOutlineData（含 story 骨架 + chapters 数组）；",
+      '(2) outlineSaveRequest（content 写空字符串 ""，软件会用结构化数据自动生成 MD 与 HTML）。',
+      "**不要再手写一遍 MD 正文**（本分项已改为分批生成，17 节 MD 与 JSON 内容完全重复，写两遍就是让用户付两遍钱）。",
+      "**不要自己写 HTML/CSS/标签**——软件会套模板渲染章纲卡片流。",
       "",
       "【每章 17 节硬要求】§1 基础信息 / §2 上章承接 / §3 本章定位 / §4 浓缩剧情 / §5 核心事件链 / §6 关键词与必要条件 / §7 四段式 / §8 情绪曲线 / §9 爽点与看点 / §10 关键信息与扩写方式 / §11 画面细节 / §12 伏笔与钩子 / §13 出场角色与状态变化 / §14 设定与道具更新 / §15 写作约束 / §16 下一章交接 / §17 写作检查清单，一节都不能少。",
       "",
@@ -921,7 +1013,7 @@ function getOutlineSectionOutputRules(title: string): string {
       "1. JSON 顶层字段固定为 `chapterOutlineBatch`（结构与 chapterOutlineData 相同：title / story 骨架 / words / chapters，chapters 只含本批章节）；",
       "2. 本批**不要**输出 outlineSaveRequest，也不要重复已完成的章节；软件会在最后一批之后自动合并并统一保存；",
       "3. 必须带上 story 骨架（index / name / range / beats）——软件据此计算剩余批次；",
-      "4. 输出顺序：先写本批 MD 正文，再写 ```json 围栏的 chapterOutlineBatch。",
+      "4. 输出顺序：先写本批 ```json 围栏的 chapterOutlineBatch（**不要写 MD 正文**，正文由软件从数据生成）。",
       "",
       skeletonReference || "【卷纲骨架】项目里还没有可用的卷纲结构化数据（伴生 .json），story 骨架必须从卷纲 MD 原文逐字抄写，不得自创。",
       "",
@@ -1045,14 +1137,23 @@ function buildGenerationPrompt(
 ): string {
   const isVolumeOutline = title.includes("卷纲");
   const isChapterOutline = title.includes("章节细纲") || title.includes("章纲") || title.includes("细纲");
+  /*
+   * 八类设定（人物小传 / 势力 / 力量 / 金手指 / 背景 / 地理 / 地点 / 伏笔）同样是
+   * 结构化-only。这里必须自己判一次，不能只靠分项输出规则：`outputModeInstruction`
+   * 排在那些规则**之后**，末尾一句「按可保存的大纲正文输出」会把它们整个盖掉
+   * （模型倾向于听最后一句），结果又把 MD 写一遍 —— 正好是这次要省掉的那一半钱。
+   */
+  const isStructuredOnlySetting = Boolean(resolveSettingSpecByTitle(title));
   const outputModeInstruction = isVolumeOutline
-    ? "本次为卷纲：必须在同一条回复里同时产出 (1) MD 正文；(2) ```json 围栏的 volumeOutlineData（10 故事 × 10 环节全写满）；(3) outlineSaveRequest（content=MD 正文）。不要自己写 HTML，软件会套模板渲染折叠树。"
+    ? "本次为卷纲：只产出 (1) ```json 围栏的 volumeOutlineData（10 故事 × 10 环节全写满）；(2) outlineSaveRequest（content 留空字符串，软件会用它自动生成 MD 与 HTML）。不要再手写 MD 正文、不要自己写 HTML——重复写一遍等于让用户多付一倍钱。"
     : isChapterOutline
-    ? "本次为章纲（分批）：只写第 1 批 3 章，同时产出 (1) 本批 MD 正文；(2) ```json 围栏的 chapterOutlineBatch（story 骨架 + 本批章节的 17 节数据）；本批不要输出 outlineSaveRequest——软件会自动继续下一批，并在最后一批之后合并渲染 HTML 卡片流与统一保存。不要自己写 HTML，不要省略。"
+    ? "本次为章纲（分批）：只写第 1 批 3 章，只产出一个 ```json 围栏的 chapterOutlineBatch（story 骨架 + 本批章节的 17 节数据）；**不要写 MD 正文**（软件会用数据生成 MD 与 HTML 卡片流），本批不要输出 outlineSaveRequest——软件会自动继续下一批，并在最后一批之后合并渲染与统一保存。不要自己写 HTML，不要省略。"
     : outputMode === "per_chapter"
     ? "每个章节必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：第N章-章节标题.md。禁止将多个章节写入同一文件。"
     : outputMode === "per_item"
-    ? "每个角色/势力/体系必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：名称.md。禁止将多个角色/势力写入同一文件。每个文件都会由软件套该分项专属模板额外渲染同名 HTML 卡（保存时可选择 HTML/MD），你无需自己写 HTML。\n【单次体量硬限制】本次回复最多完整生成 1 个对象（各自的 MD 正文 + JSON + outlineSaveRequest 都必须完整，禁止为省篇幅缩水）。若待生成对象超过 1 个，只输出第 1 个，并在回复结尾用一行注明「未完成：对象A、对象B、…」；用户回复「继续」后按同样规则生成下一批。宁可分批，不可截断。"
+    ? "每个角色/势力/体系必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：名称.md。禁止将多个角色/势力写入同一文件。每个文件都会由软件套该分项专属模板额外渲染同名 HTML 卡（保存时可选择 HTML/MD），你无需自己写 HTML 或 MD。\n【单次体量硬限制】本次回复最多完整生成 1 个对象（结构化 JSON 与 outlineSaveRequest 都必须完整，content 留空字符串；禁止为省篇幅缩水）。若待生成对象超过 1 个，只输出第 1 个，并在回复结尾用一行注明「未完成：对象A、对象B、…」；用户回复「继续」后按同样规则生成下一批。宁可分批，不可截断。"
+    : isStructuredOnlySetting
+    ? "本次为设定分项：只产出一个 ```json 围栏的结构化数据（分区按上面的契约写全）与 outlineSaveRequest（content 留空字符串）。**不要写 MD 正文**、不要自己写 HTML/CSS——软件会把结构化数据一个字段不落地还原成 .md 并套专属模板渲染同名 HTML 卡；重复写一遍等于让用户多付一倍钱。"
     : "按可保存的大纲正文输出：标题清楚、条目完整、能直接指导后续小说写作。该分项会由软件套其专属模板额外渲染同名 HTML 卡（保存时可选择 HTML/MD），你无需自己写 HTML。";
 
   return [
@@ -1552,6 +1653,7 @@ function OutlineAssistantMessage({
   onConfirmDiscuss,
   onResumeMultiAgent,
   onContinueStopped,
+  onContinueFailed,
   resumeMultiAgentDisabled,
   nextStepDisabled,
   nextStepDisabledReason,
@@ -1597,6 +1699,12 @@ function OutlineAssistantMessage({
    * novel/stopped-generation-actions 统一渲染。
    */
   onContinueStopped?: () => void;
+  /**
+   * 「继续」：上一条大纲回复**生成失败**后，保留已生成内容接着往下写。
+   * 与停止那枚的区别只在提示词（失败有一种"什么都没产出"的形态）；
+   * 显示条件来自 lib/novel/failed-generation.ts，两个面板共用同一判定。
+   */
+  onContinueFailed?: () => void;
   resumeMultiAgentDisabled: boolean;
   nextStepDisabled: boolean;
   nextStepDisabledReason?: string;
@@ -1641,6 +1749,20 @@ function OutlineAssistantMessage({
   const isStoppedGeneration = !messageIsStreaming
     && index === activeMessagesLength - 1
     && isStoppedGenerationMessage(msg.content);
+  /**
+   * 这条大纲回复是**生成失败**的（正文结尾是 `生成失败：…`，或保留了半截内容
+   * 之后的 `⚠️ 生成中断：…`）。判定收在 lib/novel/failed-generation.ts，
+   * 章节面板用的是同一份。
+   *
+   * 与停止同一口径：只认最后一条、且这一轮已经跑完 —— 历史里失败过的消息
+   * 不该再长出两枚"重来/接着写"的按钮，那些动作只在刚刚失败这一刻有意义。
+   */
+  const isFailedGeneration = !messageIsStreaming
+    && index === activeMessagesLength - 1
+    && !isStoppedGeneration
+    && isFailedGenerationMessage(msg.content);
+  /** 失败前是否真的写出了内容（决定「继续」可用还是禁用）。 */
+  const canContinueFailed = hasFailedGenerationPartialContent(msg.content);
   // 轮播俏皮文案：整段生成期间始终显示，消解等待的枯燥感。
   const waitingHint = useWaitingHint(messageIsStreaming);
   // 文案并到闪烁光标那一行显示，不单独占一行。
@@ -1689,7 +1811,17 @@ function OutlineAssistantMessage({
     if (isPlanProtocolMessage || isDiscussProtocolMessage) return stripStructuredMarkers(rawContent);
     if (intentProtocol.kind === "valid") return stripStructuredMarkers(rawContent);
     if (intentProtocol.kind === "invalid" || msg.intentProtocolError) return "";
-    return prepareOutlineSaveSourceContent(rawContent);
+    const prepared = prepareOutlineSaveSourceContent(rawContent);
+    /*
+     * 只有结构化数据的回复（卷纲/章纲不再重复写 MD）不能让气泡空着，
+     * 也不能让「已生成…」一句交代语顶掉统计交代。
+     *
+     * 顺序是刻意的：**先**判 prepared 是不是真正文，只有「空 / 只是一句交代语」
+     * 时才去解析 JSON 算统计。反过来写（无条件先算 summary）会让每条历史消息
+     * 都跑一遍围栏扫描 + JSON.parse，一条两万字的回复也照跑 —— 纯浪费。
+     */
+    if (prepared.trim() && !looksLikeOutlineDeliveryNote(prepared)) return prepared;
+    return describeStructuredOnlyAnswer(rawContent) || prepared;
   }, [answer, intentProtocol, isDiscussProtocolMessage, isPlanProtocolMessage, msg.intentProtocolError, parsed.textContent]);
   useEffect(() => {
     if (!answer) {
@@ -1847,10 +1979,23 @@ function OutlineAssistantMessage({
             {copied === msg.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
           {/*
+            * 生成失败的消息：把「重试 / 继续」放在原本「重新生成」那一格，
+            * 于是这一排读起来是 保存 → 复制 → 重试 → 继续 → 引用资料，
+            * 与章节面板完全一致（两边共用 FailedGenerationActions）。
+            */}
+          {isFailedGeneration ? (
+            <FailedGenerationActions
+              onRetry={() => void onRegenerate(index)}
+              onContinue={onContinueFailed}
+              continueDisabled={!canContinueFailed}
+            />
+          ) : null}
+          {/*
             * 停止生成的消息不再单出一枚「重新生成」：上方那对按钮里的「重试」
             * 就是同一个动作，并排出现只会让人猜哪个才是"换模型重来"。
+            * 失败消息同理 —— 「重试」接的正是 onRegenerate。
             */}
-          {!isStoppedGeneration ? (
+          {!isStoppedGeneration && !isFailedGeneration ? (
             <button
               onClick={() => void onRegenerate(index)}
               disabled={isStreaming}
@@ -2814,11 +2959,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
       chapterBatchSessionsRef.current.delete(conversationId);
       void clearChapterOutlineDraft(project?.path);
-      const md = batches.map((item) => item.md).filter(Boolean).join("\n\n");
+      // 正文由软件从合并后的数据生成：模型不再重复写一遍 MD（省一半输出 token）
+      const md = renderChapterOutlineMarkdown(merged);
       presentOrQueueSaveBatch({
         title: "请确认要保存的章纲文件",
         mode: "normal",
-        requests: [buildChapterOutlineSaveRequest(merged, md || `# ${merged.title}`)],
+        requests: [buildChapterOutlineSaveRequest(merged, md)],
         characterDrafts: [],
       });
       setSaveStatus(
@@ -3003,7 +3149,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               prompt: [
                 "系统检测到上一轮章纲内容不完整，无法渲染章纲卡片流，问题如下：",
                 `- ${chapterValidation.fileName}：${chapterValidation.text}`,
-                "请重新输出完整章纲：1) MD 正文；2) 一个 ```json 围栏的 chapterOutlineData —— story 骨架（index/name/range/beats）必须与卷纲一致；chapters 必须写满该故事每一章，每章写满 17 节（§1~§17），并带对齐字段 stage/beat/expect/time/place/seedFores/payFores；§5 核心事件链 ≥6 条且每条含 what/cause/action/result/use；§6 必要条件 enter/trigger/interact/result 四类齐全；§8 moodCurve 写满 4 节点；§10 expand 至少 1 条且含 info/how；§11 visual.env 与 visual.memory 必须有内容；§13 castChanges 至少 1 条；§14 worldUpdate 至少一项有内容；§17 checks 覆盖 10 条固定项；各章节拍必须与 story.beats 逐字一致；第 N 章 handover.nextStart 必须与第 N+1 章 carry.hook 呼应；payFores 必须在更早章节的 seedFores 出现过；3) outlineSaveRequest（content 为 MD 正文，文件名「章纲-第XX–XX章.md」，不要写 HTML）。禁止任何省略写法。",
+                "请重新输出完整章纲：只输出一个 ```json 围栏的 chapterOutlineData（**不要写 MD 正文**，正文与卡片流由软件从数据生成）—— story 骨架（index/name/range/beats）必须与卷纲一致；chapters 必须写满该故事每一章，每章写满 17 节（§1~§17），并带对齐字段 stage/beat/expect/time/place/seedFores/payFores；§5 核心事件链 ≥6 条且每条含 what/cause/action/result/use；§6 必要条件 enter/trigger/interact/result 四类齐全；§8 moodCurve 写满 4 节点；§10 expand 至少 1 条且含 info/how；§11 visual.env 与 visual.memory 必须有内容；§13 castChanges 至少 1 条；§14 worldUpdate 至少一项有内容；§17 checks 覆盖 10 条固定项；各章节拍必须与 story.beats 逐字一致；第 N 章 handover.nextStart 必须与第 N+1 章 carry.hook 呼应；payFores 必须在更早章节的 seedFores 出现过；再输出 outlineSaveRequest（content 留空字符串，文件名「章纲-第XX–XX章.md」，不要写 HTML）。禁止任何省略写法。",
               ].join("\n"),
             });
             return;
@@ -3181,6 +3327,25 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           role: "assistant",
           content:
             "请先在设置中配置并选择一个可用的 AI 模型，或在下方模型选择器中选择模型后再试。",
+        });
+        return { started: false, sent: false };
+      }
+      /*
+       * 两种原因必须分开说（用户已经踩过）：
+       * ① 供应商那边关掉了 Function Calling —— 这不是「模型不支持」，
+       *    而是用户自己的开关，提示必须指向那个开关；
+       * ② 模型确实在黑名单里。
+       *
+       * 为什么关掉开关也不能让大纲对话照跑：它的产出全靠 write_outline_node
+       * 落到 wiki/outlines，没有工具时模型只会回一段没人保存的文本
+       * （界面看着像成功了，文件却没变），比直接拦下更误导。
+       */
+      if (!isFunctionCallingEnabled(effectiveLlmConfig)) {
+        addMessage(convId, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content:
+            "当前供应商已关闭「启用 Function Calling」，AI 大纲需要工具调用才能把结果写入大纲文件。请到设置 → 模型设置中打开该开关，或更换支持工具调用的模型。",
         });
         return { started: false, sent: false };
       }
@@ -5704,6 +5869,20 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     });
   }, [handleSendMessage, isStreaming]);
 
+  /**
+   * 「继续」：上一条大纲回复**生成失败**后，保留已生成的内容接着往下写。
+   *
+   * 与 handleContinueStopped 的差别只有提示词（失败有一种"一个字都没产出"
+   * 的形态，那时要整份重来而不是接着写）。eventOutlineRequirement 同样要从
+   * 失败的那条消息上抄过来，否则续写出来的细纲卡片会缺掉「用户对本章的要求」。
+   */
+  const handleContinueFailed = useCallback(async (eventOutlineRequirement?: string) => {
+    if (isStreaming) return;
+    await handleSendMessage(FAILED_GENERATION_CONTINUE_PROMPT, {
+      ...(eventOutlineRequirement ? { eventOutlineRequirement } : {}),
+    });
+  }, [handleSendMessage, isStreaming]);
+
   const handleRegenerate = useCallback(
     async (msgIndex: number) => {
       if (!project || isStreaming || !activeConversationId) return;
@@ -5729,6 +5908,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           role: "assistant",
           content:
             "请先在设置中配置并选择一个可用的 AI 模型，或在下方模型选择器中选择模型后再试。",
+        });
+        return;
+      }
+      // 与上面首次发送同一套判定（重试/续写同样不能在无工具时跑，
+      // 否则会把上一轮"看起来成功、文件没变"的状态再复制一遍）。
+      if (!isFunctionCallingEnabled(effectiveLlmConfig)) {
+        addMessage(activeConversationId, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content:
+            "当前供应商已关闭「启用 Function Calling」，AI 大纲需要工具调用才能把结果写入大纲文件。请到设置 → 模型设置中打开该开关，或更换支持工具调用的模型。",
         });
         return;
       }
@@ -6789,6 +6979,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   onConfirmDiscuss={handleConfirmOutlineDiscuss}
                   onResumeMultiAgent={handleResumeMultiAgent}
                   onContinueStopped={isStreaming ? undefined : () => void handleContinueStopped(msg.eventOutlineRequirement)}
+                  onContinueFailed={isStreaming ? undefined : () => void handleContinueFailed(msg.eventOutlineRequirement)}
                   resumeMultiAgentDisabled={isStreaming}
                   nextStepDisabled={submitDisabled}
                   generationContext={activeMessages.slice(0, i).some((message) => message.role === "user" && Boolean(message.novelGenerationRequest))

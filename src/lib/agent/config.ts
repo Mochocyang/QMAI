@@ -57,8 +57,13 @@ export function buildAgentConfig(
   options: BuildAgentConfigOptions,
 ): AgentConfig {
   registry.clear()
-  const fcEnabled = isFunctionCallingEnabled(options.llmConfig)
-  registerAllBuiltInTools(registry, fcEnabled
+  // 两条关闭通道都必须在这里生效：
+  // ① 用户开关（functionCallingEnabled === false）；
+  // ② 模型/提供方黑名单（o1、o3-mini、deepseek-reasoner、claude-code）。
+  // 只判开关的话，黑名单模型在开关打开时仍会被注册工具并随请求发出，
+  // 服务端直接 400；只判黑名单的话，用户关掉开关也不起作用。
+  const toolsEnabled = effectiveToolsEnabled(modelId, options.llmConfig)
+  registerAllBuiltInTools(registry, toolsEnabled
     ? options
     : {
         ...options,

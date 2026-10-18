@@ -2375,16 +2375,21 @@ export function PreviewPanel() {
   )
 
   /*
-   * 大纲的「提取记忆 / 查看记忆」两枚图标。
+   * 大纲的「提取记忆 / 查看记忆 / 字体设置」三枚图标。
    *
    * 它们原先只长在大纲 MD 编辑器的工具栏里 —— 而大纲一旦有伴生 HTML，打开文档
    * 默认就是 HTML 模式（OutlineDualPreview 默认 mode="html"），iframe 会把整条
-   * 编辑器工具栏顶掉，于是 HTML 视图下这两枚按钮完全消失：用户看着一份 HTML 大纲
+   * 编辑器工具栏顶掉，于是 HTML 视图下这三枚按钮完全消失：用户看着一份 HTML 大纲
    * 找不到「提取记忆」，只能自己猜是不是要切到 MD。
    *
-   * 现在改为：有伴生 HTML（即会渲染双格式顶栏）时，把这两枚按钮提到顶栏、紧挨
+   * 现在改为：有伴生 HTML（即会渲染双格式顶栏）时，把这三枚按钮提到顶栏、紧挨
    * HTML / MD 标识，两种模式位置一致；没有伴生 HTML 时仍留在编辑器工具栏里
    * （见下面 actions 里的三元），入口不会丢。
+   *
+   * 「字体设置」与记忆两枚同批上移：用户要求「将字体设置图标也移上去」。
+   * 它在大纲里本就是既有能力（「关于字体、间距等这些的设置，大纲当中也要有」），
+   * 与章节共用同一个浮层与同一份值 —— 章节与大纲共用一套排版参数是已确认的决定，
+   * 不各自维护一份。
    *
    * ⚠️ `effectiveCompanionHtml` 只对 `isOutlinePath` 的文档非空（见上面读伴生
    * html 的 effect），所以这里不需要再判一次是不是大纲。
@@ -2412,6 +2417,15 @@ export function PreviewPanel() {
         }}
       >
         <BookOpen aria-hidden="true" />
+      </button>
+      {/*
+        ⚠️ 这个按钮必须写成**单行**：preview-panel.chapter-toolbar.spec.tsx
+        的 buttonBlock 以「同一行同时含 <button 与 aria-label」为命中条件
+        （用来排除浮层容器那处），拆成多行会让「大纲这处入口仍在」的守卫
+        直接查不到它。章节工具栏那处也是同一写法，保持一致。
+      */}
+      <button type="button" className="ui-test-editor-action is-icon-only" aria-label="字体设置" title="字体设置" onClick={(event) => openBodyFontPopover(event.currentTarget)}>
+        <Type aria-hidden="true" />
       </button>
     </>
   )
@@ -2497,18 +2511,10 @@ export function PreviewPanel() {
         </>
       ) : (
         <>
-          {/* 有伴生 HTML 时这两枚按钮已在双格式顶栏（outlineMemoryActions）里，
-              这里不能再渲染一遍，免得同一个入口在同一屏出现两次。 */}
+          {/* 有伴生 HTML 时这三枚按钮已在双格式顶栏（outlineMemoryActions）里，
+              这里不能再渲染一遍，免得同一个入口在同一屏出现两次；
+              没有伴生 HTML 时仍留在编辑器工具栏，入口不会丢。 */}
           {effectiveCompanionHtml ? null : outlineMemoryActions}
-          {/*
-            大纲里也要能调字体。用户原话：「关于字体、间距等这些的设置，
-            大纲当中也要有这个设置功能」。
-            与章节共用同一个浮层与同一份值 —— 章节与大纲共用一套排版参数
-            是已确认的决定，不各自维护一份。
-          */}
-          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="字体设置" title="字体设置" onClick={(event) => openBodyFontPopover(event.currentTarget)}>
-            <Type aria-hidden="true" />
-          </button>
         </>
       )}
       moreActions={[]}

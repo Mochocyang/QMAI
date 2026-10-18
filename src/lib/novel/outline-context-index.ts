@@ -596,17 +596,62 @@ function extractIdentifierSections(content: string, identifiers: string[]): stri
   return sections
 }
 
+/**
+ * 卷纲里没有任何「第 N 章」字样时，退到「故事」粒度兜底。
+ *
+ * 🔴 为什么必须要有这一层：结构化-only 之后的卷纲由 `renderVolumeOutlineMarkdown`
+ * 生成，一个章号都不出现（只有「## 故事N：标题 / 章号范围 / 环节」）。旧格式靠
+ * 模型自己写的 `章序表` 或 `第N章` 行兜底，新格式这两样都没有 —— 缺了这层，
+ * 用户「只生成了卷纲、还没生成章纲」就开写正文时，`resolveChapterOutline` 会
+ * 返回 `sourceKind: "none"` + 空串，写作上下文里连一份大纲都拿不到。
+ *
+ * 取「包含本章号范围的最小那一节」：H1 通常是整卷（也包含本章号），按长度升序
+ * 挑最短的，才能落到 `## 故事N` 这一节而不是整卷。
+ */
+function extractStorySection(content: string, chapterNumber: number): string {
+  const lines = content.split(/\r?\n/)
+  const candidates: string[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const heading = lines[index].match(/^(#{1,6})\s+(.+)$/)
+    if (!heading) continue
+    const level = heading[1].length
+    let end = index + 1
+    while (end < lines.length) {
+      const next = lines[end].match(/^(#{1,6})\s+/)
+      if (next && next[1].length <= level) break
+      end += 1
+    }
+    const section = lines.slice(index, end).join("\n").trim()
+    if (section && bodyRangeContains(section, chapterNumber)) candidates.push(section)
+    /*
+     * 这里**不能** `index = end - 1` 跳过整节：H1 是整卷、也包含全部章号范围，
+     * 跳过去就再也看不到里面更精确的 `## 故事N` 了（实测会退回整卷全文）。
+     * 每个标题各自独立成候选，最后按长度挑最短的那个。
+     */
+  }
+  if (candidates.length === 0) return ""
+  return candidates.sort((left, right) => left.length - right.length)[0]
+}
+
 function extractStructuredChapterContent(content: string, chapterNumber: number): string {
   const headingSection = extractHeadingSection(content, chapterNumber)
   const rows = chapterTableRows(content, chapterNumber)
-  const lines = explicitChapterLines(content, chapterNumber)
+  /*
+   * 章标题那一行会同时被 `extractHeadingSection`（整节）和 `explicitChapterLines`
+   * （单行）抓到，`new Set` 按整串去重挡不住 —— 落进写作上下文的摘录里会出现
+   * 同一行「## 第 13 章 断线」两遍（一次在节首、一次在末尾）。按「行」去重。
+   */
+  const headingLines = new Set(headingSection.split(/\r?\n/).map((line) => line.trim()))
+  const lines = explicitChapterLines(content, chapterNumber).filter((line) => !headingLines.has(line.trim()))
   const base = [headingSection, ...rows, ...lines].filter(Boolean)
   const ids = stableIdentifiers(base)
   const identifierSections = extractIdentifierSections(content, ids)
   const relatedLines = ids.length > 0
     ? content.split(/\r?\n/).filter((line) => ids.some((id) => line.includes(id)))
     : []
-  return Array.from(new Set([...base, ...identifierSections, ...relatedLines])).join("\n\n").trim()
+  const structured = Array.from(new Set([...base, ...identifierSections, ...relatedLines])).join("\n\n").trim()
+  // 逐章信息缺失（新格式卷纲）时退到所属故事的环节，别让写作上下文空手而归。
+  return structured || extractStorySection(content, chapterNumber)
 }
 
 function standaloneChapterMatches(document: OutlineDocument, chapterNumber: number): boolean {
@@ -639,7 +684,7 @@ export function resolveChapterOutline(index: OutlineDocumentIndex, chapterNumber
     const sourcePaths = Array.from(new Set(volumes.flatMap((volume) => volume.sourcePaths)))
     return {
       content: [
-        `【章纲来源：卷纲兜底】未找到第${chapterNumber}章独立章纲，以下内容从目标卷纲按章节结构精确摘录。`,
+        `【章纲来源：卷纲兜底】未找到第${chapterNumber}章独立章纲，以下内容从目标卷纲摘录：章号精确命中时给本章那一节，只有故事粒度的卷纲则给本章所属故事的环节。`,
         ...volumeExtracts,
       ].join("\n\n").slice(0, MAX_CHAPTER_CONTEXT_CHARS),
       sourceKind: "volume",
@@ -667,11 +712,16 @@ export function resolveChapterOutline(index: OutlineDocumentIndex, chapterNumber
 }
 
 export function buildVolumeContext(index: OutlineDocumentIndex, chapterNumber: number): string {
-  return resolveTargetVolumes(index, chapterNumber).map((volume) => [
-    `所属卷纲：${volume.title}`,
-    `来源：${volume.sourcePaths.join("、")}`,
-    ...chapterTableRows(volume.content, chapterNumber),
-  ].filter(Boolean).join("\n")).join("\n\n")
+  return resolveTargetVolumes(index, chapterNumber).map((volume) => {
+    // 逐章表格是旧格式卷纲才有的；新格式只有故事粒度，同样要给出所属故事的环节，
+    // 否则这里只剩「所属卷纲 / 来源」两行标题、正文全空。
+    const rows = chapterTableRows(volume.content, chapterNumber)
+    return [
+      `所属卷纲：${volume.title}`,
+      `来源：${volume.sourcePaths.join("、")}`,
+      ...(rows.length > 0 ? rows : [extractStorySection(volume.content, chapterNumber)].filter(Boolean)),
+    ].filter(Boolean).join("\n")
+  }).join("\n\n")
 }
 
 function parseMarkedSourceBlocks(outline: string): string[] {

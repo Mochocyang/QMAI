@@ -13,17 +13,26 @@ export interface SettingProfileSectionSpec {
 }
 
 export const SETTING_PROFILE_SECTIONS: Record<SettingProfileKey, SettingProfileSectionSpec[]> = {
+  /*
+   * 人物小传只留「写正文时真的会去查」的 6 个分区。
+   *
+   * 砍掉的 4 个（都不是能力丢失，是**本来就该由别处负责**）：
+   * - 出场记录：章节记忆（`.novel/memory` / character-states）在每章入库时自动维护，
+   *   档案里再排一张静态表必然过期；没有正文时更是只能编「计划出场」。
+   * - 状态追踪：`.novel/character-states.json` 是运行时的当前状态单一权威（chapter-ingest 每章更新），
+   *   档案里再写一份就是两个基准，改章不改档案迟早互相打脸。
+   * - 写作使用规则：这是给模型的执行约束，不是设定内容 —— 用户读它拿不到任何新信息，
+   *   模型读了也照旧守不住，纯粹是每份档案多付一段 token。
+   * - 别名：绝大多数角色没有别名；真有化名，在「基本信息」写一行即可，
+   *   不值得为它单开一张「暂无别名及原因」的空表。
+   */
   characterBriefs: [
     { heading: "基本信息", kind: "kv", hint: "姓名、年龄与时间基准、性别、显性及隐藏身份、阵营、职业与生计、收入与债务、住所及日常活动范围、家庭与教育、能力与资源、伤病及当前处境；说明这些条件如何限制行动，而非只列标签。" },
     { heading: "角色定位", kind: "kv", hint: "在主线中的独立目标、故事功能、情绪功能、主题立场、与主角的对照和不可替代性；区分短期任务与长期欲望，说明利益冲突、主动行动、登场阶段及退场条件，配角也有不围绕主角运转的生活。" },
     { heading: "外在表现", kind: "kv", hint: "外貌辨识点、衣着及磨损、姿态、步态、惯用动作、饮食作息、随身物品、职业习惯；分别写放松、受压、说谎时可观察的变化，给出可直接入正文的动作细节，不用形容词堆砌代替表现。" },
-    { heading: "内在分析", kind: "kv", hint: "成长经历按时间说明家庭、教育、关键创伤和成败如何形成信念；写欲望、恐惧、羞耻、底线、缺陷、认知偏差、防御机制和秘密；设计诱因—选择—代价—信念变化的弧线，列出可能做与绝不会做的事。" },
+    { heading: "内在分析", kind: "kv", hint: "成长经历按时间说明家庭、教育、关键创伤和成败如何形成信念；写欲望、恐惧、羞耻、底线、缺陷、认知偏差、防御机制和秘密；分别写他知道、误以为知道、不知道的事实及获知渠道，防止角色越界用上还没得知的信息；设计诱因—选择—代价—信念变化的弧线，列出可能做与绝不会做的事。" },
     { heading: "语言风格", kind: "table", head: ["对象与场景", "措辞与节奏", "潜台词与回避", "示例对白", "变化条件"], hint: "区分面对亲近者、上位者、敌人、陌生人及极端压力时的说话方式；写句长、语气、口头习惯、称呼、隐瞒与禁用措辞。每种重要场景给出原创示例对白和潜台词，语言差异应源于经历与利益。" },
     { heading: "关系网络", kind: "table", head: ["对象与共同经历", "公开关系与真实态度", "利益与依赖", "秘密与冲突", "变化触发与代价"], hint: "写亲缘、师承、盟友、敌对、债权和情感关系；逐个交代双方各想得到什么、掌握对方什么秘密、权力是否对等、信任程度、最近变化及决裂或修复条件。关系变化必须有事件和成本，不能只有好友或敌人标签。" },
-    { heading: "出场记录", kind: "table", head: ["章节或阶段", "登场原因与目标", "行动与选择", "结果及代价", "后续影响与依据"], hint: "区分已发生的出场记录与计划出场；已有正文记录时间地点、目标、关键行动、结果、认知或关系改变和来源章节。未写的出场明确标为计划，不虚构已发生章节；首次、转折、退场都应服务人物弧线。" },
-    { heading: "状态追踪", kind: "kv", hint: "注明当前章节或时点：位置、伤病、体力、情绪、资源、任务、可用能力与限制；分别写知道、误以为知道、不知道的事实及获知渠道，防止认知越界；记录最近状态变化、原因、待兑现承诺及下一步行动。" },
-    { heading: "写作使用规则", kind: "list", hint: "给出可检查的行动逻辑、底线、语言禁区、能力边界、情绪触发器与关系推进条件；至少包含一个典型压力场景的选择示例。说明允许成长的部分及触发代价，禁止用性格标签替代行动、为剧情降智或突然全知。" },
-    { heading: "别名", kind: "table", head: ["称呼或代号", "使用者", "场合与时间", "指代及认知边界"], hint: "列真名、化名、尊称、亲昵称呼、蔑称和组织代号，交代谁在何时何地知道并使用、暴露身份的风险及易混淆对象。没有别名则明确暂无及原因，不为了填表制造新身份；称呼变化须对应关系变化。" },
   ],
   organizationsOutline: [
     { heading: "基本信息", kind: "kv", hint: "名称、别称、类型、创立者、成立时间、规模与统计时点、公开身份和真实性质、法律地位、象征与核心据点、当前实力及危机；说明组织在世界中解决什么需求、为何能持续存在，避免只写正邪标签。" },
@@ -136,10 +145,20 @@ export const SETTING_PROFILE_QUALITY_RULES = [
   "按题材适配：非营利组织解释收支平衡，无任务金手指写使用史，无分级力量写可验证能力边界；不适用项说明原因及等价约束，不硬套仙侠、系统或公司模板。",
   "跨档案核对人物、势力、地点名称、时间线、交通耗时、经济口径、能力边界、关系和伏笔ID；新增提案不得静默覆盖已确认内容，冲突明确列出。",
   "每个分区包含能够指导具体场景的细节，关键机制给触发—行动—结果—代价的示例。数字写单位、周期、依据或估算假设，不能伪造精确度；禁止省略号、略、同上、其余同理等占位。",
-  "MD正文与结构化JSON必须内容等价：每个分区、字段、表格、说明和例子均须保留，不能把JSON缩成摘要。长说明用kv条目；表格长解释保留在对应单元格，禁止因排版删除正文。",
+  "结构化字段必须承载完整正文：每个分区、字段、表格、说明和例子均须保留，不能缩成摘要。长说明用kv条目；表格长解释保留在对应单元格，禁止因排版删除内容。",
   "多个对象分别完整输出并保持名称匹配，禁止混用他人档案。输出预算不足时缩小批次或继续完成当前对象，不压缩必填分区，不把截断草稿冒充完整档案；沿用现有保存确认流程。",
 ].join("\n")
 
+/*
+ * 八类设定统一「只输出结构化数据，正文交给软件反推」。
+ *
+ * 这八类的正文本质上都是「分区 → 字段/条目/表格」的机械展开，模型再手写一遍 MD
+ * 就是把同一份内容付费两次（一次 MD、一次 JSON）。软件侧 `renderProfileDocumentMarkdown`
+ * 能一个字段不落地还原成 MD，落盘内容与模型手写完全等价。
+ *
+ * 人物小传 2026-10-18 先行验证，其余七类 2026-10-18 跟进（同一套机制，见
+ * `outline-save-request` 的 `renderSettingProfileMarkdownFromData`）。
+ */
 const PROFILE_OUTPUTS: Record<SettingProfileKey, { single: string; list: string; fileType: string; template: string }> = {
   characterBriefs: { single: "characterProfileData", list: "characterProfiles", fileType: "character", template: "character-design/profile.html" },
   organizationsOutline: { single: "factionProfileData", list: "factionProfiles", fileType: "organization", template: "faction-system/profile.html" },
@@ -162,12 +181,12 @@ export function buildSettingProfileOutputRules(key: SettingProfileKey): string {
         : { kind: section.kind, heading: section.heading, items: section.kind === "list" ? ["填写具体约束与使用情境"] : [{ label: "按下方要求逐项拆分字段", text: "填写具体内容" }] }),
     },
   }
-  return [
-    "【详细设定输出契约】",
+  return [    "【详细设定输出契约】",
     "【单轮体量】每轮最多生成一个完整对象，写全所有分区与详细字段；多个对象列出尚未完成的名称，等用户继续，不得为挤入一轮而压缩内容。",
-    '【避免重复输出】先输出完整MD正文和配套完整结构化JSON；outlineSaveRequest 的 content=""，由软件从本条回复中的MD正文回填。不要在保存请求中重复抄写同一篇MD，也不要自行生成HTML。targetFolder、fileName、fileType、writeMode、referencedSkills、sourceIntent照常填写；不要省略MD正文或JSON字段。',
-
-    `依次输出：(1)完整MD正文；(2)一个JSON围栏，单对象顶层字段为 ${output.single}，多对象用 ${output.list} 数组；(3)outlineSaveRequest，fileType=${output.fileType}，content=""。`,
+    '【避免重复输出】只输出结构化JSON；outlineSaveRequest 的 content=""，正文由软件从结构化数据生成。不要在保存请求中重复抄写正文，不要自己写MD正文或HTML。targetFolder、fileName、fileType、writeMode、referencedSkills、sourceIntent照常填写。',
+    "",
+    `依次输出：(1)一个JSON围栏，单对象顶层字段为 ${output.single}，多对象用 ${output.list} 数组；(2)outlineSaveRequest，fileType=${output.fileType}，content=""。`,
+    "**不要写MD正文**：软件会把结构化数据一个字段不落地还原成 MD 与 HTML。再手写一遍等于让用户为同一份内容付两次钱。围栏外最多留一句「已生成…」的说明。",
     `软件读取 ${output.template} 渲染HTML，不要自己写HTML/CSS。下面仅为结构示例，实际输出必须填实内容，不能照抄占位文字；每个对象必须写满 ${sections.length} 个分区，标题及顺序一致。`,
     JSON.stringify(example),
     "【逐分区深度要求】",

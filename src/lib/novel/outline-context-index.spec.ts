@@ -11,6 +11,7 @@ import {
   buildOutlineContextLayers,
   buildRelevantCharacterBriefs,
   buildRelevantForeshadowing,
+  buildVolumeContext,
   capOutlineSourcesToBudget,
   loadOutlineDocumentIndex,
   resolveChapterOutline,
@@ -296,5 +297,88 @@ describe("大纲缓存分层", () => {
     expect(second.task).not.toContain("全书寻找真相")
     expect(first.full).toBe(buildOutlineContext(index, 1))
     expect(second.full).toBe(buildOutlineContext(index, 20))
+  })
+
+  /*
+   * 结构化-only 之后的卷纲由 `renderVolumeOutlineMarkdown` 生成，一个章号都不出现
+   * （只有「## 故事N：标题 / 章号范围 / 环节」）。这两条用例把「新格式卷纲还能不能
+   * 兜底」钉死：修复前 `resolveChapterOutline` 返回 `sourceKind: "none"` + 空串，
+   * 用户只生成卷纲就开写正文时，上下文里一份大纲都没有。
+   */
+  const structuredVolumeMarkdown = [
+    "# 第四卷 千碑之城",
+    "",
+    "> 楚白夺回碑林控制权",
+    "",
+    "## 故事1：雨夜无我",
+    "",
+    "- **章号范围：** 第 1–12 章",
+    "- **章情节拍：** 平升平起紧落缓升紧顶缓顶悬",
+    "",
+    "### 起① 常态与破口",
+    "",
+    "- **人物：** 楚白",
+    "- 雨夜中被追杀",
+    "- 第一次听见碑鸣",
+    "",
+    "## 故事2：断线",
+    "",
+    "- **章号范围：** 第 13–24 章",
+    "",
+    "### 起① 常态与破口",
+    "",
+    "- **人物：** 楚白、沈砚",
+    "- 线索断在城南",
+  ].join("\n")
+
+  it("结构化-only 卷纲没有逐章信息时，兜底到本章所属故事的环节", async () => {
+    const volumePath = `${root}/卷纲/第四卷.md`
+    vi.mocked(listDirectory).mockResolvedValue([directory(`${root}/卷纲`, [file(volumePath)])])
+    vi.mocked(readFile).mockResolvedValue(structuredVolumeMarkdown)
+
+    const index = await loadOutlineDocumentIndex("/book")
+    const story1 = resolveChapterOutline(index, 5)
+    const story2 = resolveChapterOutline(index, 20)
+
+    expect(story1.sourceKind).toBe("volume")
+    expect(story1.content).toContain("卷纲兜底")
+    expect(story1.content).toContain("雨夜无我")
+    expect(story1.content).toContain("第一次听见碑鸣")
+    // 关键：只给本章所属的那个故事，不能把整卷（含另一个故事）倒进上下文
+    expect(story1.content).not.toContain("断线")
+    expect(story1.content).not.toContain("线索断在城南")
+
+    expect(story2.sourceKind).toBe("volume")
+    expect(story2.content).toContain("断线")
+    expect(story2.content).toContain("线索断在城南")
+    expect(story2.content).not.toContain("第一次听见碑鸣")
+
+    // 卷上下文同一条链路，不能只剩「所属卷纲 / 来源」两行空标题
+    expect(buildVolumeContext(index, 5)).toContain("第一次听见碑鸣")
+    expect(buildVolumeContext(index, 5)).not.toContain("线索断在城南")
+  })
+
+  it("章纲按章切片时章标题只出现一次（不重复追加）", async () => {
+    const chapterPath = `${root}/章纲/章纲-第13–24章.md`
+    vi.mocked(listDirectory).mockResolvedValue([directory(`${root}/章纲`, [file(chapterPath)])])
+    vi.mocked(readFile).mockResolvedValue([
+      "# 章纲-第13–24章",
+      "",
+      "## 第 13 章 断线",
+      "",
+      "- 第十三章的执行单元",
+      "",
+      "## 第 14 章 第二个名字",
+      "",
+      "- 第十四章的执行单元",
+    ].join("\n"))
+
+    const result = resolveChapterOutline(await loadOutlineDocumentIndex("/book"), 13)
+
+    expect(result.sourceKind).toBe("standalone")
+    expect(result.content).toContain("第十三章的执行单元")
+    expect(result.content).not.toContain("第十四章的执行单元")
+    // 旧实现会把「## 第 13 章 断线」在摘录末尾再追加一遍
+    expect(result.content.match(/## 第 13 章 断线/g)).toHaveLength(1)
   })
 })

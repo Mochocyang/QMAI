@@ -13,6 +13,7 @@ import {
   pickProfileDocument,
   profileDocumentFromMarkdown,
   renderProfileDocumentHtml,
+  renderProfileDocumentMarkdown,
   type ProfileDocument,
   type ProfileKvItem,
   type ProfileSection,
@@ -91,6 +92,31 @@ export function renderCharacterProfileHtml(
   template: string = runtime.getTemplate(),
 ): string {
   return renderProfileDocumentHtml(toDoc(data), template, EYEBROW)
+}
+
+/**
+ * 从 AI 原文里挑出「本文件对应的那一份」角色档案。
+ *
+ * 多角色批量生成时回复里是一个 `characterProfiles` 数组，必须按文件名挑本份，
+ * 绝不张冠李戴（与其余 7 类共用 `pickProfileDocument` 的匹配规则）。
+ */
+export function pickCharacterProfileFromText(
+  text: string,
+  hints: { fileName?: string; targetFolder?: string; content?: string },
+): CharacterProfileData | null {
+  const profiles = extractCharacterProfiles(text)
+  if (!profiles.length) return null
+  return pickProfileDocument(profiles, hints)
+}
+
+/**
+ * 角色卡数据 → Markdown 正文。
+ *
+ * 人物小传从「MD + JSON 双份输出」改为「只出 JSON」后，落盘的 .md 由这里反推，
+ * 一个字段都不会丢（分区顺序、kv 条目、表格行列全部按数据原样展开）。
+ */
+export function renderCharacterProfileMarkdown(data: CharacterProfileData): string {
+  return renderProfileDocumentMarkdown(toDoc(data))
 }
 
 /** 从 MD 正文直接渲染角色卡。 */

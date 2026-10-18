@@ -35,6 +35,7 @@ import {
   parseChapterCount,
   primeChapterOutlineTemplate,
   renderChapterOutlineHtml,
+  renderChapterOutlineMarkdown,
   resetChapterOutlineTemplateForTest,
   validateChapterOutlineData,
   type ChapterOutlineChapter,
@@ -706,5 +707,86 @@ describe("chapter-outline-template 运行时加载", () => {
     await primeChapterOutlineTemplate("E:/Novel")
 
     expect(getChapterOutlineTemplate()).toContain("#B8551D")
+  })
+})
+/**
+ * 数据 → Markdown 反推。
+ *
+ * 模型不再手写章纲正文（同一份内容写两遍＝付费两次），落盘的 .md 全由这里生成。
+ * 因此这里要守的不是「大概像章纲」，而是三条硬要求：
+ *   ① JSON 里每个字段都要在正文里出现（少一个就是静默丢内容）；
+ *   ② 不许夹带 JSON 符号（用户拿到的是文档，不是数据）；
+ *   ③ 空字段没有信息量，不能变成满屏「未填」和空表格。
+ */
+describe("章纲数据 → Markdown 反推", () => {
+  const markdown = () => renderChapterOutlineMarkdown(buildData(2))
+
+  it("17 节全部导出，且每个非空字段都能在正文里找到", () => {
+    const text = markdown()
+    for (let i = 1; i <= 17; i += 1) expect(text, `缺 §${i}`).toContain(`### §${i} `)
+    // 逐字段核对：JSON 里有、正文里也要有（表格单元格的 \| 先还原）
+    const haystack = text.replace(/\\\|/g, "|")
+    const walk = (value: unknown): string[] => {
+      if (typeof value === "string") return value.trim() ? [value.trim()] : []
+      if (Array.isArray(value)) return value.flatMap(walk)
+      if (value && typeof value === "object") return Object.values(value as Record<string, unknown>).flatMap(walk)
+      return []
+    }
+    const missing = walk(buildData(2)).filter((item) => !haystack.includes(item))
+    expect(missing).toEqual([])
+  })
+
+  it("故事骨架的节拍串不丢（章纲要靠它和卷纲对齐）", () => {
+    expect(markdown()).toContain("> 章情节拍：平升起紧落缓升紧顶缓顶悬")
+  })
+
+  it("列表与表格之间有空行，否则表格会在 Markdown 里退化成一行竖线", () => {
+    const text = markdown()
+    // §6 是 kv + table 混排：最后一条 `- **…**` 之后必须先有一个空行再起表头
+    const section6 = text.slice(text.indexOf("### §6"), text.indexOf("### §7"))
+    expect(section6).toMatch(/^-\s\*\*[^\n]*\n\n\|/m)
+    // 表格分隔行紧跟表头，中间不能插空行
+    expect(section6).toContain("| 类型 | 内容 |\n| --- | --- |")
+  })
+
+  it("不夹带任何 JSON 符号", () => {
+    const text = markdown()
+    expect(text).not.toMatch(/[{}]/)
+    expect(text).not.toContain("```")
+    expect(text).not.toMatch(/"\s*:/)
+    expect(text).not.toContain('"kind"')
+    expect(text).not.toContain('"head"')
+  })
+
+  it("空字段不导出「未填」，只剩标签的空表格整块不出", () => {
+    const sparse: ChapterOutlineChapter = {
+      ...buildChapter(1),
+      info: { attr: "", mood: "", words: "", goal: "只写了这一句目标" },
+      carry: { hook: "", left: "", heroState: "", castState: "", fores: "", expect: "" },
+      position: { main: "", advance: "", charArc: "", relation: "", whyRead: "", newExpect: "" },
+      digest: "",
+      events: [],
+      keywords: { scene: "", mood: "", props: "", relation: "", sell: "" },
+      conditions: { enter: "", trigger: "", interact: "", result: "" },
+      fourBeat: { open: "", clash: "", burst: "", close: "" },
+      moodCurve: [],
+      sell: { first: "", main: "", build: "", release: "", react: "", after: "", fit: "" },
+      expand: [],
+      visual: { env: "", micro: "", hint: "", replace: "", memory: "" },
+      foreshadow: { payFrom: "", payHow: "", payLevel: "", seedNew: "", seedAt: "", seedUse: "", hookType: "", readerAsk: "", nextMust: "" },
+      castChanges: [],
+      worldUpdate: { setting: "", place: "", faction: "", item: "", writeBack: "" },
+      rules: { must: "", forbid: "", secret: "", pace: "", style: "", sellPoint: "" },
+      handover: { nextStart: "", nextSolve: "", nextDelay: "", nextMood: "", nextHook: "" },
+      checks: [],
+    }
+    const text = renderChapterOutlineMarkdown({ title: "稀疏章纲", chapters: [sparse], words: 0 })
+    expect(text).not.toContain("未填")
+    // 必要条件四个值全空 ⇒ 整张「类型 / 内容」表不导出
+    expect(text).not.toContain("| 类型 | 内容 |")
+    // 只剩有内容的那一节
+    expect(text).toContain("### §1 基础信息")
+    expect(text).toContain("- **一句话目标：** 只写了这一句目标")
+    expect(text).not.toMatch(/\n\n\n/)
   })
 })

@@ -106,7 +106,7 @@ description: Use when designing factions, sects, families, companies, agencies, 
 
 ### 结构化与保存
 
-同时输出完整 MD 与 JSON。单对象顶层字段 `factionProfileData`，多个对象用 `factionProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须与 MD 等价，不得缩成摘要。
+只输出结构化 JSON，不要写 MD 正文。单对象顶层字段 `factionProfileData`，多个对象用 `factionProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须完整，不得缩成摘要。
 
 软件套用 `faction-system/profile.html`，不要自行输出 HTML/CSS。最后按既有 outlineSaveRequest 协议输出保存请求，只有用户确认后才落盘。
 
@@ -121,7 +121,7 @@ description: Use when designing factions, sects, families, companies, agencies, 
 按题材适配：非营利组织解释收支平衡，无任务金手指写使用史，无分级力量写可验证能力边界；不适用项说明原因及等价约束，不硬套仙侠、系统或公司模板。
 跨档案核对人物、势力、地点名称、时间线、交通耗时、经济口径、能力边界、关系和伏笔ID；新增提案不得静默覆盖已确认内容，冲突明确列出。
 每个分区包含能够指导具体场景的细节，关键机制给触发—行动—结果—代价的示例。数字写单位、周期、依据或估算假设，不能伪造精确度；禁止省略号、略、同上、其余同理等占位。
-MD正文与结构化JSON必须内容等价：每个分区、字段、表格、说明和例子均须保留，不能把JSON缩成摘要。长说明用kv条目；表格长解释保留在对应单元格，禁止因排版删除正文。
+结构化字段必须承载完整正文：每个分区、字段、表格、说明和例子均须保留，不能缩成摘要。长说明用kv条目；表格长解释保留在对应单元格，禁止因排版删除内容。
 多个对象分别完整输出并保持名称匹配，禁止混用他人档案。输出预算不足时缩小批次或继续完成当前对象，不压缩必填分区，不把截断草稿冒充完整档案；沿用现有保存确认流程。
 
 ## 第二版 HTML 阅读方式
@@ -130,6 +130,6 @@ MD正文与结构化JSON必须内容等价：每个分区、字段、表格、�
 
 ## 设定类单对象低重复输出
 
-每轮最多生成一个完整对象；保留全部分区、详细字段及配套结构化JSON，不减少信息深度。先输出完整MD正文，再输出本对象的完整JSON，最后输出 outlineSaveRequest。保存请求的 content=""，由软件从同一回复的MD正文回填；不要在保存请求中重复抄写同一篇正文。其余保存字段照常填写，不调用写入工具替代用户确认。多个待生成对象仅列未完成名称，等用户继续，不把多个完整对象挤入本轮。
+每轮最多生成一个完整对象；保留全部分区、详细字段，不减少信息深度。只输出一个完整的结构化JSON围栏，不写MD正文，最后输出 outlineSaveRequest。保存请求的 content=""，正文由软件从结构化数据生成；不要在保存请求中重复抄写正文。其余保存字段照常填写，不调用写入工具替代用户确认。多个待生成对象仅列未完成名称，等用户继续，不把多个完整对象挤入本轮。
 
 已收到正文但流式中断时仍是未完成草稿，不得声明生成或保存成功。不要为避免中断删减内容或编造已完成状态。
