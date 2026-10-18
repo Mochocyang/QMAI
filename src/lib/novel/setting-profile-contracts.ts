@@ -170,6 +170,36 @@ const PROFILE_OUTPUTS: Record<SettingProfileKey, { single: string; list: string;
   locationsOutline: { single: "locationProfileData", list: "locationProfiles", fileType: "setting", template: "map-progression/location.html" },
 }
 
+/**
+ * 从模型回复里**实际出现的结构化数据键**反推这是哪一类设定。
+ *
+ * 为什么需要它：`fileType` 只区分 character / organization / foreshadowing / setting，
+ * 力量体系 / 金手指 / 背景 / 地理 / 地点五类全落在 `setting`，只能靠
+ * 「结构化数据标题 → 正文首个标题 → 文件名 → sourceIntent → 文件夹」猜子类型。
+ * 结构化-only 之后 `content` 一开始是空串，H1 又要等反推才有；而文件通常就叫对象名
+ * （`九转玄功.md`、`竹屋.md`），猜不中时**不会报错**，只是悄悄退回通用「设定卡片流」——
+ * 等级阶梯加粗列、代价矩阵危险色表头、专属头图全部消失，页面标题还变成「设定」。
+ *
+ * JSON 里的键名是唯一不含歧义的线索（`powerProfileData` 只可能是力量体系），
+ * 因此优先用它；同时出现多类（批量回复）时返回 null，交回原来的关键词嗅探。
+ */
+export function resolveSettingProfileKeysByDataKey(text: string): SettingProfileKey[] {
+  const matched: SettingProfileKey[] = []
+  for (const key of Object.keys(PROFILE_OUTPUTS) as SettingProfileKey[]) {
+    const { single, list } = PROFILE_OUTPUTS[key]
+    if (new RegExp(`"${single}"\\s*:`).test(text) || new RegExp(`"${list}"\\s*:`).test(text)) {
+      matched.push(key)
+    }
+  }
+  return matched
+}
+
+/** 单值版本：只在**恰好一类**时给出答案，多类（批量回复）交回调用方按文件名二次配对。 */
+export function resolveSettingProfileKeyByDataKey(text: string): SettingProfileKey | null {
+  const keys = resolveSettingProfileKeysByDataKey(text)
+  return keys.length === 1 ? keys[0] : null
+}
+
 export function buildSettingProfileOutputRules(key: SettingProfileKey): string {
   const sections = SETTING_PROFILE_SECTIONS[key]
   const output = PROFILE_OUTPUTS[key]

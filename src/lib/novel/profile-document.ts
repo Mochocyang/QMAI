@@ -716,6 +716,22 @@ function renderKvItems(items: ProfileKvItem[]): string {
     .join("")
 }
 
+/**
+ * 表格行里还剩不剩正文：首列之外至少要有一个非空单元格。
+ *
+ * 与 MD 反推（`sectionMarkdownBody` 的 `hasBody`）**同一口径**。两边不一致时，
+ * 同一份数据会生成「.md 里没有这一行、.html 里却有一条只有边框的空行」——
+ * 用户点开 HTML 版只看到一条空白的表格行，像是渲染坏了。
+ */
+function tableRowHasBody(head: string[], row: string[]): boolean {
+  const cells = (head?.length ?? 0) > 1 ? row.slice(1) : row
+  return cells.some((value) => String(value ?? "").trim())
+}
+
+function tableRowsWithBody(section: Extract<ProfileSection, { kind: "table" }>): string[][] {
+  return section.rows.filter((row) => tableRowHasBody(section.head, row))
+}
+
 function tableBlock(head: string[], rows: string[][]): string {
   // AI 输出的表格常出现「表头 4 列、某一行 5 列（或少了 1 列）」——不归一化会让整张表错位。
   // 这里按最大列数补齐，缺失的单元格留空。
@@ -751,11 +767,14 @@ function semanticTable(section: Extract<ProfileSection, { kind: "table" }>): str
     : /经济来源|资源与消耗|资源与限制/.test(heading) ? "resources"
     : /关系网络|外部关系|组织架构|人员构成|派系/.test(heading) ? "roster" : null
   if (!style || !section.rows.length) return null
-  const cards = section.rows.map((row, index) => {
+  // 与 MD 反推同口径剔掉「只剩行标签」的空行：卡片与下方源表都不该出现空条目。
+  const rows = tableRowsWithBody(section)
+  if (!rows.length) return null
+  const cards = rows.map((row, index) => {
     const fields = row.slice(1).map((cell, i) => `<div class="semantic-field"><dt>${escapeHtml(section.head?.[i + 1] || `第${i + 2}项`)}</dt><dd>${renderCell(cell)}</dd></div>`).join("")
     return `<article class="semantic-card"><header><span class="semantic-number">${String(index + 1).padStart(2, "0")}</span><h4>${escapeHtml(row[0] || "未命名条目")}</h4></header><dl>${fields}</dl></article>`
   }).join("")
-  return `<div class="profile-${style} semantic-grid">${cards}</div><details class="profile-source-table"><summary>查看完整对照表（${section.rows.length} 条）</summary>${tableBlock(section.head, section.rows)}</details>`
+  return `<div class="profile-${style} semantic-grid">${cards}</div><details class="profile-source-table"><summary>查看完整对照表（${rows.length} 条）</summary>${tableBlock(section.head, rows)}</details>`
 }
 
 function sectionBody(section: ProfileSection, editorial = false): string {
@@ -764,7 +783,10 @@ function sectionBody(section: ProfileSection, editorial = false): string {
     const visual = semanticTable(section)
     if (visual) return visual
   }
-  if (section.kind === "table") return section.rows.length ? tableBlock(section.head, section.rows) : `<p class="hint">未填</p>`
+  if (section.kind === "table") {
+    const rows = tableRowsWithBody(section)
+    return rows.length ? tableBlock(section.head, rows) : `<p class="hint">未填</p>`
+  }
   if (section.kind === "list") return section.items.length ? listBlock(section.items) : `<p class="hint">未填</p>`
   if (section.items.length === 0) return `<p class="hint">未填</p>`
   return renderKvItems(section.items)
@@ -773,7 +795,9 @@ function sectionBody(section: ProfileSection, editorial = false): string {
 /** 分区规模标注（导航与卡片标题共用）。 */
 function sectionCount(section: ProfileSection): string {
   if (section.kind === "mixed") return `${section.blocks.length} 组内容`
-  return section.kind === "table" ? `${section.rows.length} 行` : `${section.items.length} 条`
+  // 表格计数与正文同口径：不把被剔掉的空行算成「有内容」，否则标题写着「3 行」
+  // 而表里只有 1 行（用户会以为丢了两行）。
+  return section.kind === "table" ? `${tableRowsWithBody(section).length} 行` : `${section.items.length} 条`
 }
 
 /**

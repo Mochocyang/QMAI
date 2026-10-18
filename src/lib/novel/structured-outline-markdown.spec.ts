@@ -398,3 +398,93 @@ describe("章纲：标题自带章号时不重复", () => {
     expect(result.requests[0].content).toContain("## 第 1 章 第1章")
   })
 })
+
+/**
+ * 八类设定的 HTML 必须各用各的专属模板。
+ *
+ * 为什么单独守这一组：`fileType` 只区分 character / organization / foreshadowing / setting，
+ * 力量体系 / 金手指 / 背景 / 地理 / 地点五类全落在 `setting`，只能靠关键词猜子类型。
+ * 而结构化-only 之后 `content` 一开始是空串（H1 要等反推），提示词又明确要求
+ * 「文件名格式：名称.md」—— 三条线索同时失效，猜不中**不报错**，只是悄悄退回通用
+ * 「设定卡片流」：页头从「力量体系」变成「设定」，等级阶梯加粗列、代价矩阵危险色表头、
+ * 专属头图全部消失。用户看到的是「同一批八份设定，有的长得像卡，有的像清单」。
+ */
+describe("八类设定：HTML 走各自的专属模板", () => {
+  const EYEBROW: Record<SettingProfileKey, string> = {
+    characterBriefs: "人物小传 · 角色卡",
+    organizationsOutline: "组织势力 · 势力卡",
+    powerSystem: "力量体系 · 体系卡",
+    goldenFinger: "金手指 · 能力卡",
+    backgroundSetting: "背景设定 · 背景卡",
+    geographySetting: "地理设定 · 地理卡",
+    locationsOutline: "地点设定 · 地点卡",
+    foreshadowingPlan: "伏笔计划 · 伏笔台账",
+  }
+
+  /** 文件名与 tag 都不含任何分项关键词——真实场景（提示词要求「文件名格式：名称.md」） */
+  function replyWithoutKeywords(key: SettingProfileKey) {
+    const output = OUTPUTS[key]
+    return [
+      "```json",
+      JSON.stringify({
+        [output.single]: {
+          name: "某对象",
+          tag: "徽章",
+          tagline: "一句话定位",
+          sections: buildSections(key),
+        },
+      }),
+      "```",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: {
+          targetFolder: output.folder, fileName: "某对象.md", fileType: output.fileType,
+          writeMode: "create", referencedSkills: [], sourceIntent: "", content: "",
+        },
+      }),
+      "```",
+    ].join("\n")
+  }
+
+  for (const key of Object.keys(OUTPUTS) as SettingProfileKey[]) {
+    it(`${key}：文件名只有对象名时仍是专属模板`, () => {
+      const result = parseOutlineSaveRequests(replyWithoutKeywords(key))
+      expect(result.errors, `${key} errors: ${result.errors.join(" | ")}`).toEqual([])
+      const html = result.requests[0].htmlContent ?? ""
+      expect(html).toContain(EYEBROW[key])
+      // 通用卡片流的页头眉标，出现即说明退化了
+      expect(html).not.toContain("设定 · 卡片流")
+      // 专属模板的档案版式标记
+      expect(html).toContain('class="role"')
+    })
+  }
+
+  it("回复里有多个分项时不吃错：按各自的数据键分别归档", () => {
+    const reply = [
+      "```json",
+      JSON.stringify({ powerProfileData: { name: "九转玄功", tag: "徽章", sections: buildSections("powerSystem") } }),
+      "```",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: { targetFolder: "设定", fileName: "九转玄功.md", fileType: "setting", writeMode: "create", referencedSkills: [], sourceIntent: "", content: "" },
+      }),
+      "```",
+      "```json",
+      JSON.stringify({ locationProfileData: { name: "竹屋", tag: "徽章", sections: buildSections("locationsOutline") } }),
+      "```",
+      "```json",
+      JSON.stringify({
+        outlineSaveRequest: { targetFolder: "设定", fileName: "竹屋.md", fileType: "setting", writeMode: "create", referencedSkills: [], sourceIntent: "", content: "" },
+      }),
+      "```",
+    ].join("\n")
+    const result = parseOutlineSaveRequests(reply)
+    expect(result.errors).toEqual([])
+    const power = result.requests.find((item) => item.fileName === "九转玄功.md")
+    const location = result.requests.find((item) => item.fileName === "竹屋.md")
+    expect(power?.htmlContent).toContain("力量体系 · 体系卡")
+    expect(power?.htmlContent).not.toContain("地点设定")
+    expect(location?.htmlContent).toContain("地点设定 · 地点卡")
+    expect(location?.htmlContent).not.toContain("力量体系")
+  })
+})

@@ -587,8 +587,53 @@ it("认不出类别的抓手整行铺满，不硬塞进类别列", async () => {
       .find((item) => item.textContent?.includes("令牌亮起"))
     expect(row).toBeDefined()
     const cells = [...row!.children]
-    expect(cells[0].textContent, "没有类别词时类别列应为空").toBe("")
-    expect(cells[1].textContent).toBe("令牌亮起，院外传来脚步声。")
+    /*
+     * 「整行铺满」不只是「类别列文字为空」：原先无标签的抓手照样套着
+     * `grid-cols-[4.5rem_minmax(0,1fr)]`，第一列空着但**照样占 4.5rem**，
+     * 正文被白推一个缩进、可用宽度还少了一截（复审实测：认不出的抓手齐刷刷
+     * 缩进，看着像层级错了）。所以钉子下在「节点数」与「网格类」上。
+     */
+    expect(cells, "没有类别词时不该渲染空的类别列").toHaveLength(1)
+    expect(cells[0].textContent).toBe("令牌亮起，院外传来脚步声。")
+    expect(row!.className, "无类别词时不套两列网格").not.toContain("4.5rem")
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+/* ── 摘要行：缺项时不许把「没填」说成「0 字」 ── */
+
+it("有目标字数时摘要行报出目标与每个事件的平均字数", async () => {
+  const { root, host } = render(<EventOutlineCard data={data()} />)
+  try {
+    await act(async () => {})
+    const summary = host.querySelector("[data-event-outline-summary]")
+    expect(summary).not.toBeNull()
+    expect(summary!.textContent).toContain("4 个事件")
+    expect(summary!.textContent).toContain("目标 3000 字")
+    // 3000 / 4 = 750：四舍五入的除数必须是事件数，不是写死的常量
+    expect(summary!.textContent).toContain("每事件约 750 字")
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+  }
+})
+
+it("目标字数缺失时摘要行只说事件数，不写「目标 0 字」", async () => {
+  /*
+   * targetWords 缺项（模型漏给 / 用户在表单里填了非数字）时卡片下方体检会说
+   * 「缺少本章目标字数」。摘要行如果同时写着「目标 0 字 · 每事件约 0 字」，
+   * 两句话互相打脸 —— 用户会以为是软件把字数算成了 0，而不是自己没填。
+   */
+  const { root, host } = render(<EventOutlineCard data={data({ targetWords: 0 })} />)
+  try {
+    await act(async () => {})
+    const summary = host.querySelector("[data-event-outline-summary]")
+    expect(summary).not.toBeNull()
+    expect(summary!.textContent).toContain("4 个事件")
+    expect(summary!.textContent).not.toContain("0 字")
+    expect(summary!.textContent).not.toContain("每事件约")
   } finally {
     await act(async () => root.unmount())
     host.remove()

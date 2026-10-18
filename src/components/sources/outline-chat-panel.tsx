@@ -900,6 +900,19 @@ export function describeStructuredOnlyAnswer(raw: string): string {
     const range = numbers.length > 1 ? `第 ${numbers[0]}–${numbers[numbers.length - 1]} 章` : `第 ${numbers[0] ?? 1} 章`
     return `已生成章纲 ${range}（共 ${chapter.chapters.length} 章，每章 17 节）。正文与卡片流由软件从结构化数据生成。`
   }
+  /*
+   * 事件细纲同样从 2026-10-18 起只收结构化数据（`eventOutlineData`）。
+   * 它的围栏被 `extractBodyContent` 剥掉之后气泡就空了 —— 主对话那边由
+   * `chat-message` 用 `renderEventOutlineMarkdown` 补正文，大纲面板没有那条腿，
+   * 于是同一条细纲回复在「章节区」有完整正文、在「大纲面板」只剩一张空消息 + 卡片。
+   * 这里补一句统计交代，与其余结构化-only 产线口径一致。
+   */
+  const eventOutline = extractEventOutlineData(raw)
+  if (eventOutline) {
+    const count = eventOutline.events.length
+    const budget = eventOutline.targetWords > 0 ? `，目标约 ${eventOutline.targetWords} 字` : ""
+    return `已生成第 ${eventOutline.chapterNumber} 章事件细纲：${count} 个事件${budget}。正文与细纲卡片由软件从结构化数据生成。`
+  }
   const profiles = extractCharacterProfiles(raw)
   if (profiles.length > 0) {
     const sections = profiles.reduce((sum, profile) => sum + profile.sections.length, 0)
@@ -913,6 +926,12 @@ export function describeStructuredOnlyAnswer(raw: string): string {
   /*
    * 其余七类设定同样只收结构化数据（2026-10-18 起），气泡必须给一句可读的交代，
    * 否则用户看到的是一条空消息 —— 明明生成了内容，界面上却什么都没有。
+   *
+   * ⚠️ 必须**聚合全部命中的类别**，不能命中第一类就 return：「一键生成全部设定」
+   * 那一轮里，同一条回复经常同时带力量体系与地点设定（八类共用 fileType=setting，
+   * 批量产出是常态）。旧写法在第一类上直接返回，气泡只报「已生成 3 份力量体系」，
+   * 地点那几份一个都不提 —— 用户以为软件漏做了，实际只是没报数
+   * （`attachSettingFamilyHtml` 那边早就得按文件名二次配对，也是同一批回复）。
    */
   const settingFamilies: Array<{ label: string; extract: (text: string) => Array<{ name: string; sections: unknown[] }> }> = [
     { label: "势力档案", extract: extractFactionProfiles },
@@ -923,6 +942,7 @@ export function describeStructuredOnlyAnswer(raw: string): string {
     { label: "地点设定", extract: extractLocationProfiles },
     { label: "伏笔计划", extract: extractForeshadowingProfiles },
   ]
+  const familySummaries: string[] = []
   for (const family of settingFamilies) {
     const docs = family.extract(raw)
     if (docs.length === 0) continue
@@ -932,7 +952,11 @@ export function describeStructuredOnlyAnswer(raw: string): string {
     const subject = docs.length > 1
       ? `${docs.length} 份${family.label}（${names}${suffix}）`
       : `${family.label}《${docs[0].name}》`
-    return `已生成${subject}，共 ${sections} 个分区。正文与卡片由软件从结构化数据生成，可在下方保存为 .md / .html。`
+    familySummaries.push(`${subject}，共 ${sections} 个分区`)
+  }
+  if (familySummaries.length > 0) {
+    // 单类时这一句与旧文案逐字相同（只有一类命中时 `join` 不引入任何分隔符之外的变化）。
+    return `已生成${familySummaries.join("；")}。正文与卡片由软件从结构化数据生成，可在下方保存为 .md / .html。`
   }
   return ""
 }

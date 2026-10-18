@@ -356,6 +356,21 @@ export function renderVolumeOutlineHtml(
   data: VolumeOutlineData,
   template: string = getVolumeOutlineTemplate(),
 ): string {
+  /*
+   * 卷纲提示词明确禁止输出「卷级定位（卷定位 / 主题句 / …）」（见
+   * `outline-chat-panel.tsx#getOutlineSectionOutputRules`），所以新产线的
+   * `goal` **恒为空**。模板里是 `<p class="goal">__VOLUME_GOAL__</p>`，而 `.goal`
+   * 的 `line-height` 是 1.95 —— 空标签会在 H1 与芯片行之间撑出整整一行（约 29px）
+   * 的空白，看着像「标题下面漏了一块内容」。
+   *
+   * 在**渲染器**里整块摘掉，而不是只给内置模板补一条 `.goal:empty{display:none}`：
+   * 用户放在 `.qmai/卷纲模板.html` 的覆盖模板不受我们控制，靠模板侧兜底会漏。
+   * 只摘「元素内容就是这个占位符」的那种（带空白也算），里面还有别的子节点的
+   * 原样保留 —— 那种模板是有意留位置的，清空会把它的排版打乱。
+   */
+  const goalText = (data.goal ?? "").trim()
+  const goalOnlyElement = new RegExp(`<([a-zA-Z][\\w-]*)([^>]*)>\\s*${GOAL_PLACEHOLDER}\\s*</\\1>`, "i")
+  const base = goalText ? template : template.replace(goalOnlyElement, "")
   const placeholders: Record<string, string> = {
     [TITLE_PLACEHOLDER]: escapeHtml(data.title || "卷纲"),
     [GOAL_PLACEHOLDER]: escapeHtml(data.goal ?? ""),
@@ -366,7 +381,7 @@ export function renderVolumeOutlineHtml(
   // 用函数替换器，避免内容里的 $& / $1 等被当作替换模式
   const html = Object.entries(placeholders).reduce(
     (output, [placeholder, value]) => output.replace(placeholder, () => value),
-    template,
+    base,
   )
   /*
    * 旧版模板（用户自己放在 .qmai/卷纲模板.html 的）里可能还留着已删除面板的

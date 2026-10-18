@@ -403,11 +403,19 @@ export function renderEventOutlineMarkdown(data: EventOutlineData): string {
   const lines: string[] = [heading, ""]
   if (data.targetWords > 0) lines.push(`目标字数：约 ${data.targetWords} 字`, "")
   data.events.forEach((event) => {
+    /*
+     * 空事件不导出标题：模型截断或没听指令时会出现「事件只有标题、一条抓手都没有」，
+     * 拼出来就是 `## 事件2 ` + 两行空白 —— 气泡里看着像渲染坏了。
+     * 标题和抓手都为空的事件整条跳过；只有标题的保留标题但不再留空行。
+     */
+    const title = event.title.trim()
+    const points = event.points.map((point) => point.trim()).filter(Boolean)
+    if (!title && points.length === 0) return
     // 标题后空一行再列抓手：与文档其余部分（标题 → 空行 → 内容）保持同一节奏，
     // 也让「## 事件N」这段在纯文本阅读时不会和下面第一条挤在一起。
-    lines.push(`## 事件${event.id} ${event.title}`.trim(), "")
-    event.points.forEach((point) => lines.push(`- ${point}`))
-    lines.push("")
+    lines.push(`## 事件${event.id}${title ? ` ${title}` : ""}`, "")
+    points.forEach((point) => lines.push(`- ${point}`))
+    if (points.length > 0) lines.push("")
   })
   if (data.endingHook.trim()) lines.push("## 本章结尾钩子", data.endingHook.trim(), "")
   return `${lines.join("\n").trimEnd()}\n`

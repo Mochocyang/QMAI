@@ -15,13 +15,14 @@ import { attachLocationProfileHtml, extractLocationProfiles } from "./location-s
 import { attachBackgroundProfileHtml, extractBackgroundProfiles } from "./background-setting-template"
 import { attachForeshadowingProfileHtml, extractForeshadowingProfiles } from "./foreshadowing-plan-template"
 import { pickProfileDocument, renderProfileDocumentMarkdown, type ProfileDocument } from "./profile-document"
-import { SETTING_PROFILE_SECTIONS } from "./setting-profile-contracts"
+import { SETTING_PROFILE_SECTIONS, resolveSettingProfileKeysByDataKey, type SettingProfileKey } from "./setting-profile-contracts"
 import {
   attachSettingOutlineHtml,
   extractSettingOutlineData,
   isSettingOutlineFileType,
   renderCardFlowForSpec,
   resolveNeutralOutlineSpec,
+  resolveSettingSpecById,
   resolveSettingSpecForRequest,
 } from "./setting-outline-template"
 
@@ -365,7 +366,26 @@ function attachSettingFamilyHtml<
   if (!isSettingOutlineFileType(request.fileType)) return request
   const existing = request.htmlContent?.trim() ?? ""
   if (!/<html[\s>]/i.test(existing)) {
-    const spec = resolveSettingSpecForRequest({
+    /*
+     * 🔴 分项判定顺序：**先看回复里到底给了哪个结构化数据键**，再退回关键词嗅探。
+     *
+     * 结构化-only 之后 `content` 一开始是空串，H1 要等反推才有，而文件通常就叫对象名
+     * （`九转玄功.md` / `竹屋.md`）。只靠「正文标题 → 文件名 → 文件夹」猜时，猜不中
+     * **不会报错**，只会悄悄退回通用「设定卡片流」：页头从「力量体系」变成「设定」，
+     * 等级阶梯加粗列、代价矩阵危险色表头、专属头图全没了 —— 同一批里五种设定是档案卡、
+     * 另外几种是朴素卡片流，用户完全不知道为什么长得不一样。
+     *
+     * 只在 `fileType === "setting"` 时用数据键：character / organization / foreshadowing
+     * 已被 fileType 唯一确定，不该被回复里别处出现的 JSON 改判。
+     */
+    const byDataKey = request.fileType === "setting"
+      ? (() => {
+          const keys = resolveSettingProfileKeysByDataKey(text)
+          if (keys.length === 1) return keys[0]
+          return keys.length > 1 ? disambiguateSettingFamily(keys, text, request) : null
+        })()
+      : null
+    const spec = (byDataKey ? resolveSettingSpecById(byDataKey) : null) ?? resolveSettingSpecForRequest({
       fileType: request.fileType,
       fileName: request.fileName,
       targetFolder: request.targetFolder,
@@ -693,6 +713,42 @@ const SETTING_PROFILE_DOC_EXTRACTORS: Record<string, (text: string) => ProfileDo
   geographySetting: extractGeographyProfiles,
   foreshadowingPlan: extractForeshadowingProfiles,
   locationsOutline: extractLocationProfiles,
+}
+
+/** 文件名里常见的分项前缀，比对名称前先剥掉（`力量体系-九转玄功.md` → `九转玄功`）。 */
+const PROFILE_FILE_NAME_PREFIX = /^(?:力量体系|人物小传|角色|人物|组织势力|势力|组织|阵营|金手指|背景设定|背景|世界观|地理设定|地理|地点设定|地点|场景|伏笔计划|伏笔)[-－—_· ]+/i
+
+function normalizeProfileName(value: string): string {
+  return (value ?? "").replace(/[\s　·・.,，。:：;；!！?？()（）[\]【】「」"'“”‘’*_`#]/g, "").toLowerCase()
+}
+
+/**
+ * 一条回复里同时出现多类设定时（模型一次把人物 + 势力都给了），
+ * 按「文件名 / 正文首标题」把每个保存请求配回它自己的那一类。
+ *
+ * 只做**双向包含**匹配（`九转玄功.md` ↔ `九转玄功`），匹配不到就返回 null 交回关键词嗅探 ——
+ * 宁可退回通用卡片流，也不能把势力的档案套上力量体系的模板。
+ */
+function disambiguateSettingFamily(
+  keys: SettingProfileKey[],
+  text: string,
+  request: { fileName?: string; content?: string },
+): SettingProfileKey | null {
+  const raw = (request.fileName ?? "").replace(/\.md$/i, "").trim()
+  const names = [raw, raw.replace(PROFILE_FILE_NAME_PREFIX, "").trim()]
+    .filter(Boolean)
+    .map(normalizeProfileName)
+    .filter(Boolean)
+  if (names.length === 0) return null
+  for (const key of keys) {
+    const docs = SETTING_PROFILE_DOC_EXTRACTORS[key]?.(text) ?? []
+    for (const doc of docs) {
+      const docName = normalizeProfileName(doc.name ?? "")
+      if (!docName) continue
+      if (names.some((name) => name === docName || name.includes(docName) || docName.includes(name))) return key
+    }
+  }
+  return null
 }
 
 /** 本次请求对应的设定分项（正文标题 → 文件名 → 目录 → fileType 四级线索）。 */

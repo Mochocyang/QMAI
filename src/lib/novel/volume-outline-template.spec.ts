@@ -98,6 +98,21 @@ describe("volume-outline-template（精简版：只留故事）", () => {
     expect(html).not.toContain("__VOLUME_")
   })
 
+  it("卷目标为空时整块摘掉 .goal，不留一行空白", () => {
+    /*
+     * 结构化-only 之后卷纲提示词**明确禁止**输出「卷级定位（卷定位 / 主题句 / …）」，
+     * 所以新产线的 `goal` 恒为空。模板里是 `<p class="goal">__VOLUME_GOAL__</p>`，
+     * 而 `.goal` 的 line-height 是 1.95 —— 空标签会在 H1 与芯片行之间撑出整整
+     * 一行（≈29px）的空白，看着像标题下面漏了一块内容。
+     */
+    const html = renderVolumeOutlineHtml({ ...buildData(2), goal: "" })
+    expect(html).toContain("卷一 无我绝响")
+    expect(html).not.toMatch(/<p class="goal">\s*<\/p>/)
+    expect(html).not.toContain('class="goal"')
+    // 有 goal 的老数据照旧保留（老文件/老模板不能被这次收口影响）
+    expect(renderVolumeOutlineHtml(buildData(2))).toContain('class="goal">查明真相')
+  })
+
   it("10 个故事各渲染出一个故事级节点，且全部默认展开", () => {
     const html = renderVolumeOutlineHtml(buildData())
     expect((html.match(/class="story-wrap"/g) ?? []).length).toBe(10)

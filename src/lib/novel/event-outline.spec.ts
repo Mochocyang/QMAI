@@ -722,6 +722,62 @@ describe("stripEventOutlineDataFence", () => {
 })
 
 /*
+ * 空事件不留空壳。
+ *
+ * 结构化-only 之后正文**完全**由数据拼出，没有模型手写的 Markdown 兜底：数据里只要
+ * 出现一个「有 id、没内容」的事件（模型截断、或只填了 half 个字段），拼出来就是
+ * `## 事件2 ` 后面跟两行空白 —— 气泡里看着像渲染坏了，用户会以为细纲生成失败。
+ * 正常事件仍按旧形状导出（id 逐条、抓手逐条），空事件整条跳过且不占用后续排版。
+ */
+describe("renderEventOutlineMarkdown：空事件不留空壳", () => {
+  it("标题与抓手都为空的事件整条不导出", () => {
+    const markdown = renderEventOutlineMarkdown(
+      data({
+        events: [
+          { id: 1, title: "楚白翻出令牌", points: ["  故事推进：他摸到令牌  "] },
+          { id: 2, title: "", points: [] },
+          // 全是空白也算空：模型写空串/空格，比缺字段更常见
+          { id: 3, title: "   ", points: ["", "   "] },
+        ],
+      }),
+    )
+    expect(markdown).toContain("## 事件1 楚白翻出令牌")
+    expect(markdown).not.toContain("## 事件2")
+    expect(markdown).not.toContain("## 事件3")
+    // 抓手逐条 trim：前后空白不许带进正文，也不许留下空的列表项
+    expect(markdown).toContain("- 故事推进：他摸到令牌")
+    expect(markdown).not.toMatch(/^## 事件\d+\s*$/m)
+    expect(markdown).not.toMatch(/^-\s*$/m)
+  })
+
+  it("只有标题没有抓手时保留标题，且不追加空行", () => {
+    const markdown = renderEventOutlineMarkdown(
+      data({
+        events: [
+          { id: 1, title: "楚白翻出令牌", points: [] },
+          { id: 2, title: "守卫追来", points: ["故事推进：他只能往井边跑"] },
+        ],
+        endingHook: "",
+      }),
+    )
+    expect(markdown).toContain("## 事件1 楚白翻出令牌")
+    expect(markdown).toContain("## 事件2 守卫追来")
+    // 标题后面先推了一个空行，若无抓手还补空行就成了两个连续空行（形似坏档）
+    expect(markdown).not.toMatch(/\n{3,}/)
+  })
+
+  it("事件全为空时只剩文档标题与目标字数", () => {
+    const markdown = renderEventOutlineMarkdown(
+      data({ events: [{ id: 1, title: "", points: [] }], endingHook: "" }),
+    )
+    expect(markdown).toContain("# 事件细纲 · 第12章 令牌初现")
+    expect(markdown).toContain("目标字数：约 3000 字")
+    expect(markdown).not.toContain("## 事件")
+    expect(markdown).not.toMatch(/\n{3,}/)
+  })
+})
+
+/*
  * 抓手的两列排版：模型把每条抓手写成「类别：一长段话」，类别词是有限的那几个
  * （故事推进 / 冲突与转折 / 关键台词 / 环境与物件 / 伏笔或钩子，以及 2026-10-13
  * 之前的旧口径 环境物件 / 神情动作 / 推进与收束）。卡片据此分成两列 ——

@@ -4004,6 +4004,54 @@ describe("只有结构化数据的回复：气泡不空着", () => {
     expect(text).toContain("霜河渡口、黑水湾")
   })
 
+  it("七类设定：同一条回复里出现多类时逐类报数，不只报第一类", () => {
+    /*
+     * 「一键生成全部设定」那一轮，模型常把两类档案塞进同一条回复（八类共用
+     * fileType=setting，批量是常态）。旧实现命中第一类就 return，气泡只提
+     * 力量体系、一个字都不提地点 —— 用户会以为地点那几份没生成。
+     */
+    const reply = "```json\n" + JSON.stringify({
+      powerProfileData: {
+        name: "九转玄功",
+        sections: [{ kind: "kv", heading: "体系定位", items: [{ label: "类型", text: "内功" }] }],
+      },
+      locationProfiles: [
+        { name: "竹屋", sections: [{ kind: "kv", heading: "地点定位", items: [] }] },
+      ],
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("力量体系《九转玄功》")
+    expect(text).toContain("地点设定《竹屋》")
+    // 两类之间用分号串起来，读起来是一句完整的话
+    expect(text).toContain("；")
+    // 结构化键名一律不许漏到气泡里
+    expect(text).not.toContain("powerProfileData")
+    expect(text).not.toContain("locationProfiles")
+  })
+
+  it("事件细纲：报出章号、事件数与目标字数（否则面板气泡是空的）", () => {
+    const reply = "```json\n" + JSON.stringify({
+      eventOutlineData: {
+        version: 1,
+        chapterNumber: 7,
+        title: "第7章 · 断线",
+        targetWords: 2600,
+        events: [
+          { title: "楚白摸到井口", points: ["试探", "回声"] },
+          { title: "井底有人应答", points: ["反转"] },
+          { title: "竹哨裂开", points: ["代价"] },
+        ],
+        endingHook: "井底的人叫出他的旧名",
+      },
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("第 7 章事件细纲")
+    expect(text).toContain("3 个事件")
+    expect(text).toContain("2600 字")
+    // 结构化键名不能漏到气泡里
+    expect(text).not.toContain("eventOutlineData")
+  })
+
   it("既没有正文也没有结构化数据时返回空串（不凭空说话）", () => {
     expect(describeStructuredOnlyAnswer("好的，我明白了。")).toBe("")
   })

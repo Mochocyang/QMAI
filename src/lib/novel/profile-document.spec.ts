@@ -104,6 +104,41 @@ describe("表格渲染健壮性", () => {
     expect((html.match(/<th /g) ?? []).length).toBe(4)
   })
 
+  it("只剩行标签的空行不进 HTML（与 MD 反推同口径）", () => {
+    /*
+     * MD 反推（`sectionMarkdownBody` 的 `hasBody`）会剔掉「首列之外全空」的表格行，
+     * 而 HTML 侧以前不剔：同一份数据导出的 .md 没有这一行、.html 却画出一条
+     * 只有边框的空行，用户点开 HTML 版看着像渲染坏了。
+     */
+    const html = renderProfileDocumentHtml(
+      {
+        name: "测试对象",
+        sections: [
+          {
+            kind: "table",
+            heading: "成长节奏",
+            head: ["章", "变化"],
+            rows: [
+              ["第一章", ""],   // 只剩行标签 -> 不画
+              ["第二章", "觉醒"], // 有正文 -> 保留
+              ["", ""],         // 整行全空 -> 不画
+            ],
+          },
+        ],
+      },
+      MIN_TEMPLATE,
+      "测试 · 卡",
+    )
+    expect(html).toContain("第二章")
+    expect(html).toContain("觉醒")
+    expect(html).not.toContain("第一章")
+    // 不许留下空单元格（一条只有边框的空行）
+    expect(html).not.toMatch(/<td[^>]*>\s*<\/td>/)
+    // 分区标题的「N 行」与表里实际行数一致：写「3 行」而表里只有 1 行同样是错
+    expect(html).toContain("1 行")
+    expect(html).not.toContain("3 行")
+  })
+
   it("表头缺失时不渲染 thead，但单元格仍按最大列数补齐", () => {
     const html = renderProfileDocumentHtml(
       {

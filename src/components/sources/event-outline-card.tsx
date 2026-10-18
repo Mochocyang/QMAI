@@ -123,8 +123,16 @@ export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOut
     <div className="mt-2 rounded-lg border bg-background/60 p-3 text-sm" data-event-outline-card>
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <strong className="text-sm">{data.title || `第${data.chapterNumber}章 · 事件细纲`}</strong>
-        <span className="text-xs text-muted-foreground">
-          {data.events.length} 个事件 · 目标 {data.targetWords} 字 · 每事件约 {perEventWords} 字
+        <span className="text-xs text-muted-foreground" data-event-outline-summary>
+          {/*
+           * 目标字数缺失（0）时**不写**「目标 0 字 · 每事件约 0 字」：那是把「没填」
+           * 说成一个明确的数字，与下方「细纲体检：缺少本章目标字数」自相矛盾，
+           * 用户会以为是软件把字数算成了 0。
+           */}
+          {data.events.length} 个事件
+          {data.targetWords > 0
+            ? ` · 目标 ${data.targetWords} 字 · 每事件约 ${perEventWords} 字`
+            : ""}
         </span>
       </div>
 
@@ -167,16 +175,26 @@ export function EventOutlineCard({ data, onWriteChapter, onRegenerate, onSaveOut
                   <li
                     key={`${event.id}-${index}`}
                     data-event-outline-point
-                    className="grid grid-cols-[4.5rem_minmax(0,1fr)] items-start gap-x-2 text-xs leading-5"
+                    /*
+                     * 没有类别词时**不能**还挂着两列网格：那会留一个 4.5rem 的空标签列，
+                     * 正文被白白推进一个缩进、还窄了 4.5rem —— 与注释里承诺的「整行铺满」
+                     * 恰好相反（复审实测：认不出的抓手齐刷刷缩进一截，看着像层级错了）。
+                     * 所以网格类是条件渲染的，无标签时正文独占整行。
+                     */
+                    className={
+                      parts.label
+                        ? "grid grid-cols-[4.5rem_minmax(0,1fr)] items-start gap-x-2 text-xs leading-5"
+                        : "text-xs leading-5"
+                    }
                   >
-                    <span className="pt-px">
-                      {parts.label ? (
+                    {parts.label ? (
+                      <span className="pt-px">
                         <span className="inline-block whitespace-nowrap rounded bg-muted px-1 text-[0.6875rem] text-muted-foreground">
                           {parts.label}
                         </span>
-                      ) : null}
-                    </span>
-                    <span className="min-w-0 whitespace-pre-wrap break-words text-foreground/90">
+                      </span>
+                    ) : null}
+                    <span className="block min-w-0 whitespace-pre-wrap break-words text-foreground/90">
                       {parts.text}
                     </span>
                   </li>
