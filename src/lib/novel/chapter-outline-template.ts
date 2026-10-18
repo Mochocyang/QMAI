@@ -10,6 +10,7 @@ import templateHtml from "../../../skills/SkillHub/ZhanggangSkill/zhanggangjiego
 import { fileExists, getExecutableDir, getResourceDir, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { BEAT_INTENSITY, STAGE_CHAPTER_MAP, checkBeats, type VolumeOutlineData } from "./volume-outline-template"
+import { parseChineseNumber } from "./chapter-utils"
 
 /** 17 节章纲标准 + 对齐补字段的单章数据。 */
 export interface ChapterOutlineChapter {
@@ -238,10 +239,31 @@ function splitNames(value: string): string[] {
 }
 
 /** 归一化 AI 输出的章纲数据（容错：字段缺失取空、类型不符丢弃）。 */
+/**
+ * 剥掉标题里重复的章号：「第1章 竹哨与夜雨」→「竹哨与夜雨」。
+ *
+ * 为什么需要：反推 MD 的 H2 是 `## 第 ${n} 章 ${title}`，而 HTML 卡片的标题位与
+ * 侧边导航用的是 `title` 本身。模型经常在 `title` 里再写一遍「第1章」，于是
+ * 同一份数据存成 .md 会出现「## 第 1 章 第1章 竹哨与夜雨」，HTML 侧栏也是
+ * 「1 第1章 竹哨与夜雨」—— 两处都不报错，只是难看且与旧格式对不上。
+ *
+ * 只在**章号与本章 n 一致**时剥：写成「第7章」却放在 n=1 的位置那是模型张冠李戴，
+ * 原样保留更容易被人看见。
+ */
+function stripChapterNumberPrefix(title: string, n: number): string {
+  const match = title.match(/^第\s*(\d+|[零〇一二三四五六七八九十百千万两]+)\s*[章节]\s*[：:、.．·,，—-]?\s*/)
+  if (!match) return title
+  const raw = match[1]
+  const value = /^\d+$/.test(raw) ? Number(raw) : parseChineseNumber(raw)
+  if (!Number.isFinite(value) || value !== n) return title
+  return title.slice(match[0].length).trim() || title
+}
+
 export function normalizeChapterOutlineData(raw: unknown): ChapterOutlineData | null {
   if (!isRecord(raw)) return null
   const storyRaw = isRecord(raw.story) ? raw.story : {}
   const chapters = asRecordArray(raw.chapters).map((item, index) => {
+    const chapterNumber = typeof item.n === "number" ? item.n : index + 1
     const info = isRecord(item.info) ? item.info : {}
     const carry = isRecord(item.carry) ? item.carry : {}
     const position = isRecord(item.position) ? item.position : {}
@@ -255,8 +277,8 @@ export function normalizeChapterOutlineData(raw: unknown): ChapterOutlineData | 
     const rules = isRecord(item.rules) ? item.rules : {}
     const handover = isRecord(item.handover) ? item.handover : {}
     return {
-      n: typeof item.n === "number" ? item.n : index + 1,
-      title: asString(item.title),
+      n: chapterNumber,
+      title: stripChapterNumberPrefix(asString(item.title), chapterNumber),
       stage: asString(item.stage),
       beat: asString(item.beat),
       expect: asString(item.expect),

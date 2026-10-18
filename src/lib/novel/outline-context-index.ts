@@ -301,6 +301,23 @@ function exactChapterHeading(content: string, chapterNumber: number): boolean {
   })
 }
 
+/**
+ * 正文里出现过的章号（只认标题行里的「第N章」）。
+ *
+ * 用途：判断一份多章章纲到底含不含某一章。返回空数组说明正文没有逐章标题，
+ * 此时「切不出本章」是格式问题而不是缺内容，调用方应保留旧行为。
+ */
+function chapterHeadingNumbers(content: string): number[] {
+  const numbers: number[] = []
+  for (const line of content.split(/\r?\n/)) {
+    const heading = line.match(/^#{1,6}\s*(.+)$/)?.[1]?.replace(/\s+/g, "")
+    if (!heading) continue
+    const match = heading.match(/第0*(\d+)章(?!\d)/)
+    if (match) numbers.push(Number(match[1]))
+  }
+  return numbers
+}
+
 function pathMatchesChapter(path: string, chapterNumber: number): boolean {
   const compact = path.replace(/\s+/g, "")
   return new RegExp(`第0*${chapterNumber}章`).test(compact) ||
@@ -663,14 +680,29 @@ function standaloneChapterMatches(document: OutlineDocument, chapterNumber: numb
 }
 
 export function resolveChapterOutline(index: OutlineDocumentIndex, chapterNumber: number): ChapterOutlineResolution {
-  const standalone = index.documents.find((document) =>
+  const standaloneDocs = index.documents.filter((document) =>
     document.kind === "chapter" && standaloneChapterMatches(document, chapterNumber),
   )
-  if (standalone) {
-    // 一份章纲覆盖多章（如「章纲-第01–12章」）时，只取本章那一节；
-    // 单章文件仍返回整份内容。切片失败则退回整份，保证旧行为不回退。
+  for (const standalone of standaloneDocs) {
+    // 一份章纲覆盖多章（如「章纲-第01–12章」）时，只取本章那一节；单章文件仍返回整份内容。
     const range = standaloneDocumentRange(standalone)
     const scoped = range ? extractStructuredChapterContent(standalone.content, chapterNumber) : ""
+    const headings = range ? chapterHeadingNumbers(standalone.content) : []
+    /*
+     * 文件名覆盖本章、正文里却没有本章 —— 不能拿整份顶替。
+     *
+     * 真实场景：模型被要求写 1–12 章的章纲，只写完了第 1 章就产出
+     * `chapterOutlineData`，而保存请求的文件名是按故事区间生成的
+     * 「章纲-第01–12章.md」。于是写第 5 章时 `standaloneChapterMatches` 命中这个文件，
+     * 切片拿不到内容，旧实现退回整份 ⇒ 写作上下文里塞进的是**第 1 章**的 17 节。
+     * 模型会照着第一章的节拍、事件、钩子去写第五章，而且不报任何错。
+     *
+     * 判据：正文里存在明确的「第N章」标题、且没有任何一个等于本章号 ⇒ 这份文件
+     * 确实不含本章，跳到下一份候选（最终落到卷纲兜底）。
+     * 正文里根本没有逐章标题时才退回整份 —— 那是格式不认识导致切不出来，
+     * 旧行为必须保留，否则非标准章纲会一律读不到。
+     */
+    if (range && !scoped.trim() && headings.length > 0) continue
     return {
       content: excerptHeadTail(scoped.trim() ? scoped : standalone.content, MAX_CHAPTER_CONTEXT_CHARS),
       sourceKind: "standalone",

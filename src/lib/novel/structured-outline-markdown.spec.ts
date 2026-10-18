@@ -328,3 +328,73 @@ describe("卷纲 / 章纲 / 事件细纲", () => {
     expect(secondFile?.content).toContain("卷二故事1")
   })
 })
+
+describe("章纲：标题自带章号时不重复", () => {
+  const chapter = (n: number, title: string) => ({
+    n,
+    title,
+    stage: "起①", beat: "平", expect: "好奇", time: "", place: "",
+    seedFores: "", payFores: "",
+    info: { attr: "", mood: "", words: "", goal: "" },
+    carry: { hook: "", left: "", heroState: "", castState: "", fores: "", expect: "" },
+    position: { main: "", advance: "", charArc: "", relation: "", whyRead: "", newExpect: "" },
+    digest: "一句话",
+    events: [{ what: "W", cause: "C", action: "A", result: "R", use: "U" }],
+    keywords: { scene: "", mood: "", props: "", relation: "", sell: "" },
+    conditions: { enter: "", trigger: "", interact: "", result: "" },
+    fourBeat: { open: "", clash: "", burst: "", close: "" },
+    moodCurve: [],
+    sell: { first: "", main: "", build: "", release: "", react: "", after: "", fit: "" },
+    expand: [],
+    visual: { env: "", micro: "", hint: "", replace: "", memory: "" },
+    foreshadow: { payFrom: "", payHow: "", payLevel: "", seedNew: "", seedAt: "", seedUse: "", hookType: "", readerAsk: "", nextMust: "" },
+    castChanges: [],
+    worldUpdate: { setting: "", place: "", faction: "", item: "", writeBack: "" },
+    rules: { must: "", forbid: "", secret: "", pace: "", style: "", sellPoint: "" },
+    handover: { nextStart: "", nextSolve: "", nextDelay: "", nextMood: "", nextHook: "" },
+    checks: [],
+  })
+
+  const build = (chapters: unknown[]) => [
+    "```json",
+    JSON.stringify({ chapterOutlineData: { title: "章纲", story: { index: 1, name: "故事一", range: "第1–3章", beats: "平" }, words: 2000, chapters } }),
+    "```",
+    "```json",
+    JSON.stringify({
+      outlineSaveRequest: {
+        targetFolder: "章纲", fileName: "章纲-第01–03章.md", fileType: "chapter-outline",
+        writeMode: "create", referencedSkills: [], sourceIntent: "", content: "",
+      },
+    }),
+    "```",
+  ].join("\n")
+
+  it("阿拉伯数字、中文数字、带冒号的章号都剥掉", () => {
+    const result = parseOutlineSaveRequests(build([
+      chapter(1, "第1章 竹哨与夜雨"),
+      chapter(2, "第二章：井底回声"),
+      chapter(3, "第 3 章 碑上人名"),
+    ]))
+    expect(result.errors).toEqual([])
+    const content = result.requests[0].content
+    // 标题行不重复章号
+    expect(content).toContain("## 第 1 章 竹哨与夜雨")
+    expect(content).toContain("## 第 2 章 井底回声")
+    expect(content).toContain("## 第 3 章 碑上人名")
+    expect(content).not.toMatch(/## 第 \d+ 章 第/)
+    // 章节标题字段也同步干净，避免 §1 里再出现一次章号
+    expect(content).toContain("- **章节标题：** 井底回声")
+  })
+
+  it("章号与所在章不一致时原样保留（模型张冠李戴要看得见）", () => {
+    const result = parseOutlineSaveRequests(build([chapter(1, "第7章 张冠李戴")]))
+    expect(result.errors).toEqual([])
+    expect(result.requests[0].content).toContain("## 第 1 章 第7章 张冠李戴")
+  })
+
+  it("标题只有章号时不会剥成空标题", () => {
+    const result = parseOutlineSaveRequests(build([chapter(1, "第1章")]))
+    expect(result.errors).toEqual([])
+    expect(result.requests[0].content).toContain("## 第 1 章 第1章")
+  })
+})

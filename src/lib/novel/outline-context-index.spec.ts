@@ -382,3 +382,54 @@ describe("大纲缓存分层", () => {
     expect(result.content.match(/## 第 13 章 断线/g)).toHaveLength(1)
   })
 })
+
+describe("多章章纲缺本章", () => {
+  it("文件名覆盖本章、正文没有本章 → 回退卷纲兜底，不得拿别的章顶替", async () => {
+    const chapterPath = `${root}/章纲/章纲-第01–12章.md`
+    const volumePath = `${root}/卷纲/卷纲-第一卷.md`
+    vi.mocked(listDirectory).mockResolvedValue([
+      directory(`${root}/章纲`, [file(chapterPath)]),
+      directory(`${root}/卷纲`, [file(volumePath)]),
+    ])
+    // 真实形态：模型被要求写 1–12 章，只写出第 1 章，但文件名按故事区间命名
+    vi.mocked(readFile).mockImplementation(async (path: string) => {
+      if (path === chapterPath) {
+        return ["# 故事一 章纲", "", "## 第 1 章 竹哨与雨夜", "", "- **一句话目标：** 记住竹哨"].join("\n")
+      }
+      return [
+        "# 卷一 雨夜无我",
+        "",
+        "## 故事1：雨夜无我",
+        "",
+        "- **章号范围：** 第 1–12 章",
+        "",
+        "### 起① 常态与破口",
+        "",
+        "- 第一次听见碑鸣",
+      ].join("\n")
+    })
+
+    const index = await loadOutlineDocumentIndex("/book")
+
+    const ch1 = resolveChapterOutline(index, 1)
+    expect(ch1.sourceKind).toBe("standalone")
+    expect(ch1.content).toContain("竹哨与雨夜")
+
+    // 第 5 章不在文件里：绝不能把第 1 章当成第 5 章喂给写作
+    const ch5 = resolveChapterOutline(index, 5)
+    expect(ch5.sourceKind).toBe("volume")
+    expect(ch5.content).toContain("第一次听见碑鸣")
+    expect(ch5.content).not.toContain("竹哨与雨夜")
+  })
+
+  it("正文没有逐章标题时保留「退回整份」的旧行为", async () => {
+    const chapterPath = `${root}/章纲/章纲-第01–12章.md`
+    vi.mocked(listDirectory).mockResolvedValue([directory(`${root}/章纲`, [file(chapterPath)])])
+    // 非标准格式：整篇一段说明，没有任何「第N章」标题，切片本来就切不出来
+    vi.mocked(readFile).mockResolvedValue("# 章纲总览\n\n第1到12章围绕竹哨展开，暂无分章细节。")
+
+    const result = resolveChapterOutline(await loadOutlineDocumentIndex("/book"), 5)
+    expect(result.sourceKind).toBe("standalone")
+    expect(result.content).toContain("围绕竹哨展开")
+  })
+})
