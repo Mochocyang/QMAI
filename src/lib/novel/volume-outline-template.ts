@@ -21,6 +21,7 @@ import templateHtml from "../../../skills/SkillHub/DagangSkill/juangangzhedieshu
 import { fileExists, getExecutableDir, getResourceDir, listDirectory, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { parseChineseNumber } from "./chapter-utils"
+import { markdownInline } from "./markdown-inline"
 
 export interface VolumeOutlineStage {
   stage: string
@@ -415,15 +416,20 @@ export function renderVolumeOutlineHtml(
  * 「MD 正文」这一项，保存时由这里生成，保证 .md 与 .html 内容一致。
  */
 export function renderVolumeOutlineMarkdown(data: VolumeOutlineData): string {
-  const lines: string[] = [`# ${data.title || "卷纲"}`, ""]
+  /*
+   * 所有来自数据的单行位置（标题、定位、故事名、字段值、环节正文）都过
+   * `markdownInline`：值里自带换行时直接拼会把后半截变成裸行，
+   * `- 人物：甲\n- 乙` 解析回来就是两个人。
+   */
+  const lines: string[] = [`# ${markdownInline(data.title || "卷纲")}`, ""]
   if (data.goal?.trim()) {
-    lines.push(`> ${data.goal.trim()}`, "")
+    lines.push(`> ${markdownInline(data.goal)}`, "")
   }
   data.stories.forEach((story) => {
-    lines.push(`## 故事${story.id}${story.title ? `：${story.title}` : ""}`, "")
+    lines.push(`## 故事${story.id}${story.title ? `：${markdownInline(story.title)}` : ""}`, "")
     // 空字段不导出：「未定」是编辑界面的占位提示，写进 .md 只是噪声。
-    if (story.range?.trim()) lines.push(`- **章号范围：** ${story.range.trim()}`)
-    if (story.beats?.trim()) lines.push(`- **章情节拍：** ${story.beats.trim()}`)
+    if (story.range?.trim()) lines.push(`- **章号范围：** ${markdownInline(story.range)}`)
+    if (story.beats?.trim()) lines.push(`- **章情节拍：** ${markdownInline(story.beats)}`)
     lines.push("")
     story.st.forEach((stage, index) => {
       const meta = STAGE_META.find((item) => item.id === stage.stage) ?? STAGE_META[index]
@@ -433,12 +439,12 @@ export function renderVolumeOutlineMarkdown(data: VolumeOutlineData): string {
        * HTML 视图的 `stageNode` 已经是这个口径，两边必须一致，否则同一份卷纲
        * 存成 .md 和 .html 会读出两种标题。
        */
-      const label = stage.label?.trim() && stage.label.trim() !== meta?.name ? ` · ${stage.label.trim()}` : ""
+      const label = stage.label?.trim() && stage.label.trim() !== meta?.name ? ` · ${markdownInline(stage.label)}` : ""
       // 环节本身没有任何内容时连标题一起跳过：只留 10 个空环节名，读起来像模板骨架。
-      const points = stage.p.map((item) => item.trim()).filter(Boolean)
+      const points = stage.p.map((item) => markdownInline(item)).filter(Boolean)
       if (points.length === 0 && !stage.who?.trim()) return
-      lines.push(`### ${heading}${label}`, "")
-      if (stage.who?.trim()) lines.push(`- **人物：** ${stage.who.trim()}`)
+      lines.push(`### ${markdownInline(heading)}${label}`, "")
+      if (stage.who?.trim()) lines.push(`- **人物：** ${markdownInline(stage.who)}`)
       points.forEach((item) => lines.push(`- ${item}`))
       lines.push("")
     })

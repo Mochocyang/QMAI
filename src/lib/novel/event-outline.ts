@@ -10,6 +10,7 @@
  */
 
 import { DE_AI_GENERATION_RULES } from "./de-ai-generation-rules"
+import { markdownInline } from "./markdown-inline"
 
 export const EVENT_OUTLINE_VERSION = 1
 export const EVENT_OUTLINE_MIN_EVENTS = 4
@@ -408,9 +409,11 @@ export function renderEventOutlineMarkdown(data: EventOutlineData): string {
    * （章号与章名之间是空格）。直接拼会变成「… · 第12章 · 令牌初现」，两个分隔符连用。
    * 只把**紧跟在章号后的那个**「·」换成空格，其余原样 —— 章名里自带的「·」不该被动。
    */
-  const chapterTitle = data.title
-    .trim()
-    .replace(/^(第[0-9零一二三四五六七八九十百千两]+章)\s*[·・:：]\s*/, "$1 ")
+  const chapterTitle = markdownInline(
+    data.title
+      .trim()
+      .replace(/^(第[0-9零一二三四五六七八九十百千两]+章)\s*[·・:：]\s*/, "$1 "),
+  )
   const heading = chapterTitle
     ? `# 事件细纲 · ${chapterTitle}`
     : `# 事件细纲 · 第${data.chapterNumber}章`
@@ -422,8 +425,8 @@ export function renderEventOutlineMarkdown(data: EventOutlineData): string {
      * 拼出来就是 `## 事件2 ` + 两行空白 —— 气泡里看着像渲染坏了。
      * 标题和抓手都为空的事件整条跳过；只有标题的保留标题但不再留空行。
      */
-    const title = event.title.trim()
-    const points = event.points.map((point) => point.trim()).filter(Boolean)
+    const title = markdownInline(event.title)
+    const points = event.points.map((point) => markdownInline(point)).filter(Boolean)
     if (!title && points.length === 0) return
     // 标题后空一行再列抓手：与文档其余部分（标题 → 空行 → 内容）保持同一节奏，
     // 也让「## 事件N」这段在纯文本阅读时不会和下面第一条挤在一起。
@@ -431,7 +434,7 @@ export function renderEventOutlineMarkdown(data: EventOutlineData): string {
     points.forEach((point) => lines.push(`- ${point}`))
     if (points.length > 0) lines.push("")
   })
-  if (data.endingHook.trim()) lines.push("## 本章结尾钩子", data.endingHook.trim(), "")
+  if (data.endingHook.trim()) lines.push("## 本章结尾钩子", markdownInline(data.endingHook), "")
   return `${lines.join("\n").trimEnd()}\n`
 }
 

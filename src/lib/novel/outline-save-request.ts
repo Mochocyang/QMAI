@@ -660,6 +660,44 @@ function hasChapterOutlineStructure(content: string, fileName: string): boolean 
 }
 
 /**
+ * 模型手写的正文是否覆盖了「数据能产出的内容」。
+ *
+ * 判据只回答一个问题：这份手写正文能不能**替代**数据反推而不丢内容。
+ *
+ * 为什么需要它：`looksLikeProfileBody` / `hasChapterOutlineStructure` 都是
+ * 「命中一个标题就算像」，于是模型只写了 1 个分区（或 3 节）也会被判成「真写了正文」
+ * 而被原样保留，数据里剩下的分区一节不落地从 `.md` 里消失 —— 而 `.html` 是按数据
+ * 渲染的完整版。同一份档案两种载体内容不一样，且没有任何报错。
+ *
+ * 不用「标题逐字相等」当判据：模型写同一份章纲也会用 `§1 基础信息` / `一、基础信息`
+ * 这类不同措辞，逐字比对会把完整正文误判成残缺、反而用数据覆盖掉它。
+ * 这里只要求两件事：
+ *   1. 手写正文的标题数不少于数据产出的标题数（广度够）；
+ *   2. 至少一半标题能对上（归一化掉编号与标点后互相包含），确认写的是同一份东西。
+ */
+function outlineBodyCoversData(content: string, markdown: string): boolean {
+  const collect = (text: string) =>
+    [...text.matchAll(/^#{1,6}\s+(\S.*)$/gm)].map((match) => match[1].trim())
+  const dataHeadings = collect(markdown)
+  if (dataHeadings.length === 0) return true
+  const bodyHeadings = collect(content.replace(/\r/g, ""))
+  if (bodyHeadings.length < dataHeadings.length) return false
+  const normalize = (heading: string) =>
+    heading
+      .replace(/^§?\s*\d+(?:[.、．)]|\s)\s*/, "")
+      .replace(/^[一二三四五六七八九十]+[、.．)）]\s*/, "")
+      .replace(/[#*_`\s\d.、．:：()（）【】[\]「」"'“”‘’·・-]/g, "")
+  const normalizedBody = bodyHeadings.map(normalize).filter(Boolean)
+  if (normalizedBody.length === 0) return false
+  const hits = dataHeadings.filter((heading) => {
+    const target = normalize(heading)
+    if (!target) return false
+    return normalizedBody.some((body) => body.includes(target) || target.includes(body))
+  }).length
+  return hits >= Math.ceil(dataHeadings.length / 2)
+}
+
+/**
  * 事件细纲必须真的是一份事件清单，避免「好的，我已完成本章细纲。」这类确认摘要被误放行。
  *
  * 事件分节标记才是闸门的关键（摘要里不会出现「事件1 / 事件序列 / 事件清单 / 编号分节」）；
@@ -854,9 +892,17 @@ function fillSettingProfileContent(request: OutlineSaveRequest, text: string): O
    */
   const byDataKey = resolveSettingKeyByStructuredData(request, text)
   const spec = (byDataKey ? resolveSettingSpecById(byDataKey) : null) ?? resolveProfileSpec(request, text)
-  if (looksLikeProfileBody(request.content, sectionHeadingsOf(spec.id))) return request
   const markdown = renderSettingProfileMarkdownFromData(request, text, spec.id)
-  return markdown ? { ...request, content: markdown } : request
+  if (!markdown) return request
+  /*
+   * 保留模型手写正文的前提是「它没比数据少」——见 `outlineBodyCoversData`。
+   * 旧写法只要 `looksLikeProfileBody` 命中一个分区标题就整份保留，
+   * 模型只写了「基本信息」时另外五个分区从 .md 里彻底消失，而 .html 是完整版。
+   */
+  if (looksLikeProfileBody(request.content, sectionHeadingsOf(spec.id)) && outlineBodyCoversData(request.content, markdown)) {
+    return request
+  }
+  return { ...request, content: markdown }
 }
 
 function fillContentFromText(requests: OutlineSaveRequest[], text: string): OutlineSaveRequest[] {
@@ -939,14 +985,21 @@ export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseR
      * 模型如果没听指令、老老实实写了完整 MD，那是真内容，覆盖会丢掉它写的东西。
      * 只有「正文不像一份档案」时才用数据反推 —— 也就是 content 为空，
      * 或者围栏外只剩一句「已生成…」的交代语（fillContentFromText 会把它当正文填进来）。
+     *
+     * 「像一份档案」还要看**写没写全**：只写了一个分区就整份保留，
+     * 数据里其余五个分区会从 .md 里消失（HTML 是完整的），见 `outlineBodyCoversData`。
      */
-    if (request.fileType === "character" && !looksLikeProfileBody(request.content, sectionHeadingsOf("characterBriefs"))) {
+    if (request.fileType === "character") {
       const profile = pickCharacterProfileFromText(text, {
         fileName: request.fileName,
         targetFolder: request.targetFolder,
         content: request.content,
       })
-      if (profile) request = { ...request, content: renderCharacterProfileMarkdown(profile) }
+      const markdown = profile ? renderCharacterProfileMarkdown(profile) : ""
+      const keep = Boolean(markdown)
+        && looksLikeProfileBody(request.content, sectionHeadingsOf("characterBriefs"))
+        && outlineBodyCoversData(request.content, markdown)
+      if (markdown && !keep) request = { ...request, content: markdown }
     }
     /*
      * 其余七类设定（势力 / 力量 / 金手指 / 背景 / 地理 / 地点 / 伏笔）同样只收结构化数据，
@@ -969,10 +1022,16 @@ export function parseOutlineSaveRequests(text: string): OutlineSaveRequestParseR
      * 判据与闸门**同口径**（同一个 `hasChapterOutlineStructure`）：模型真写了合格章纲
      * 就原样保留，不拿数据覆盖；只有明显不像章纲时才反推 —— 这样既不丢模型写的细节，
      * 又保证「过闸的那份内容」一定存在。
+     *
+     * 「真写了」还要再判一层：写全了才保留。模型只写了 3 节、数据里有 17 节时，
+     * 原样保留等于让另外 14 节从 .md 里消失（HTML 是完整的），见 `outlineBodyCoversData`。
      */
-    if (request.fileType === "chapter-outline" && !hasChapterOutlineStructure(request.content, request.fileName)) {
+    if (request.fileType === "chapter-outline") {
       const data = extractChapterOutlineData(text)
-      if (data) request = { ...request, content: renderChapterOutlineMarkdown(data) }
+      const markdown = data ? renderChapterOutlineMarkdown(data) : ""
+      const keep = Boolean(markdown) && hasChapterOutlineStructure(request.content, request.fileName)
+        && outlineBodyCoversData(request.content, markdown)
+      if (markdown && !keep) request = { ...request, content: markdown }
     }
     if (!request.content.trim()) {
       errors.push(`第 ${index + 1} 个保存请求缺少 content，且无法从正文中提取。`)

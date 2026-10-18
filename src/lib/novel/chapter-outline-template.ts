@@ -11,6 +11,7 @@ import { fileExists, getExecutableDir, getResourceDir, readFile } from "@/comman
 import { normalizePath } from "@/lib/path-utils"
 import { BEAT_INTENSITY, STAGE_CHAPTER_MAP, checkBeats, type VolumeOutlineData } from "./volume-outline-template"
 import { parseChineseNumber } from "./chapter-utils"
+import { escapeMarkdownCell, markdownInline } from "./markdown-inline"
 
 /** 17 节章纲标准 + 对齐补字段的单章数据。 */
 export interface ChapterOutlineChapter {
@@ -678,10 +679,10 @@ const CHAPTER_SECTIONS: ChapterSectionSpec[] = [
  * 保存时由这里生成，保证 .md 与 .html 内容完全一致。
  */
 export function renderChapterOutlineMarkdown(data: ChapterOutlineData): string {
-  const lines: string[] = [`# ${data.title || "章纲"}`, ""]
+  const lines: string[] = [`# ${markdownInline(data.title || "章纲")}`, ""]
   const story = data.story
   if (story?.name || story?.range) {
-    const header = [story?.name ? `故事${story.index} ${story.name}` : "", story?.range ?? ""]
+    const header = [story?.name ? `故事${story.index} ${markdownInline(story.name)}` : "", story?.range ? markdownInline(story.range) : ""]
       .filter(Boolean)
       .join(" · ")
     if (header) {
@@ -690,11 +691,11 @@ export function renderChapterOutlineMarkdown(data: ChapterOutlineData): string {
        * 后续写正文、校验「不连续三章同拍」都要读它。只写故事名与章号范围
        * 会让落盘的 .md 少掉一个 JSON 里明明有的字段。
        */
-      lines.push(`> ${header}`, ...(story?.beats ? [">", `> 章情节拍：${story.beats}`] : []), "")
+      lines.push(`> ${header}`, ...(story?.beats ? [">", `> 章情节拍：${markdownInline(story.beats)}`] : []), "")
     }
   }
   data.chapters.forEach((chapter) => {
-    lines.push(`## 第 ${chapter.n} 章 ${chapter.title || ""}`.trim(), "")
+    lines.push(`## 第 ${chapter.n} 章 ${markdownInline(chapter.title || "")}`.trim(), "")
     CHAPTER_SECTIONS.forEach((spec) => {
       /*
        * 同一节里可能既有 kv 列表又有表格（§6 关键词 + 必要条件）。
@@ -719,12 +720,12 @@ export function renderChapterOutlineMarkdown(data: ChapterOutlineData): string {
         if (lastKind && lastKind !== row.kind) gap = true
         lastKind = row.kind
         if (row.kind === "kv") {
-          const value = String(row.get(chapter) ?? "").trim()
+          const value = markdownInline(String(row.get(chapter) ?? ""))
           if (value) push(`- **${row.label}：** ${value}`)
           return
         }
         if (row.kind === "list") {
-          const items = (row.get(chapter) ?? []).map((item) => String(item ?? "").trim()).filter(Boolean)
+          const items = (row.get(chapter) ?? []).map((item) => markdownInline(String(item ?? ""))).filter(Boolean)
           items.forEach((item) => push(`- ${item}`))
           return
         }
@@ -737,7 +738,7 @@ export function renderChapterOutlineMarkdown(data: ChapterOutlineData): string {
           (row.head.length > 1 ? values.slice(1) : values).some((value) => String(value ?? "").trim())
         const rows = (row.get(chapter) ?? []).filter(hasBody)
         if (rows.length === 0) return
-        const cell = (value: string) => String(value ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ")
+        const cell = (value: string) => escapeMarkdownCell(String(value ?? ""))
         push(`| ${row.head.join(" | ")} |`)
         push(`| ${row.head.map(() => "---").join(" | ")} |`)
         rows.forEach((values) => push(`| ${values.map(cell).join(" | ")} |`))

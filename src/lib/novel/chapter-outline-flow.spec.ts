@@ -78,7 +78,7 @@ const CHAPTER_MD = [
   "- 章尾钩子：记忆断裂",
 ].join("\n")
 
-function buildReply(chapterCount = 12): string {
+function buildReply(chapterCount = 12, md = CHAPTER_MD): string {
   const data = {
     chapterOutlineData: {
       title: "故事一 雨夜无我 · 章纲",
@@ -102,7 +102,7 @@ function buildReply(chapterCount = 12): string {
         writeMode: "create",
         referencedSkills: ["ZhanggangSkill/zhanggangjiegouhua"],
         sourceIntent: "生成故事一 雨夜无我 的章纲",
-        content: CHAPTER_MD,
+        content: md,
       },
     }),
     "```",
@@ -117,7 +117,13 @@ describe("章纲全流程（系统套模板）", () => {
     const request = parsed.requests[0]
 
     expect(request.fileType).toBe("chapter-outline")
-    expect(request.content).toContain("# 章纲-第01–12章")
+    /*
+     * 模型在这条回复里只写了 4 行（第 1 章、三条要点），而数据有 12 章 × 17 节。
+     * 保留那 4 行等于让另外 11 章从 .md 里消失（.html 始终按数据渲染 12 章），
+     * 所以这里以数据为准 —— 正文由 `renderChapterOutlineMarkdown` 反推。
+     */
+    expect(request.content).toContain("# 故事一 雨夜无我 · 章纲")
+    expect(request.content).toContain("## 第 12 章")
     expect(request.content).not.toContain("chapterOutlineData")
 
     const html = request.htmlContent ?? ""
@@ -134,6 +140,22 @@ describe("章纲全流程（系统套模板）", () => {
     const html = request.htmlContent ?? ""
     expect((html.match(/class="cc"/g) ?? []).length).toBe(12)
     expect((html.match(/class="csec"/g) ?? []).length).toBe(204)
+  })
+
+  it("模型只写了 1 节时用数据反推，不让 .md 少 11 章", () => {
+    const partial = [
+      "# 章纲-第01–12章：雨夜无我",
+      "",
+      "## 第1章 第1章标题",
+      "",
+      "### §1 基础信息",
+      "",
+      "- **本章目标：** 模型自己写的一句话",
+    ].join("\n")
+    const request = parseOutlineSaveRequests(buildReply(12, partial)).requests[0]
+    // 数据有 12 章：正文必须跟着数据走，而不是只剩模型那一章
+    expect(request.content).toContain("## 第 12 章")
+    expect(request.content).toContain("## 第 1 章")
   })
 
   it("数据自洽时校验通过", () => {

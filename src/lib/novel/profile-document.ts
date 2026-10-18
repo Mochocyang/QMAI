@@ -15,6 +15,7 @@
 import { fileExists, getExecutableDir, getResourceDir, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { normalizeProfileDiagram, renderProfileDiagram, type ProfileDiagram } from "./profile-diagram"
+import { escapeMarkdownCell, markdownInline, unescapeMarkdownInline } from "./markdown-inline"
 
 export interface ProfileKvItem {
   label?: string
@@ -311,7 +312,7 @@ function stripFrontmatter(md: string): { frontmatter: string; body: string } {
   return { frontmatter: match[1], body: md.slice(match[0].length).trim() }
 }
 
-function cleanInline(value: string): string {
+function cleanInline(value: string, stripMarker = true, unescape = true): string {
   const paired = value
     .replace(/`([^`]*)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
@@ -328,10 +329,25 @@ function cleanInline(value: string): string {
     .replace(/\s*\*\s*$/, "")
     .replace(/^\s*_\s*/, "")
     .replace(/\s*_\s*$/, "")
-  return stripped
-    .replace(/^#+\s*/, "")
-    .replace(/^[-*+]\s+/, "") // 行首列表符（MD 兜底取首行做 tagline 时会带上）
-    .trim()
+  /*
+   * `stripMarker = false` 用在「已经是字段值」的位置（kv 的 text、表格单元格）：
+   * 那里出现 `- xxx` 是内容本身，不是列表语法，再剥一次就等于改数据。
+   */
+  const noMarker = stripMarker
+    ? stripped
+        .replace(/^#+\s*/, "")
+        .replace(/^[-*+]\s+/, "") // 行首列表符（MD 兜底取首行做 tagline 时会带上）
+    : stripped
+  /*
+   * 反转义必须放最后：反推器把「值本身以 `- ` 开头」写成 `\- `，首字符是反斜线，
+   * 上面所有行首规则都不会命中；到这里才还原成原文。顺序反了就会被
+   * `^[-*+]` 先吃掉，`{ text: "- 甲" }` 反推再解析回来变成 `甲`。
+   *
+   * `unescape = false` 用在「已经还原过的整行再拆出来的片段」上：
+   * 整行 `C:\\path\\|x` 还原一次得到 `C:\path\|x`，拆出 text 如果再还原一次，
+   * 字面的 `\|` 会被当成转义竖线，路径就少一个反斜线。
+   */
+  return (unescape ? unescapeMarkdownInline(noMarker) : noMarker).trim()
 }
 
 interface HeadingLine {
@@ -358,7 +374,30 @@ function isTableRow(line: string): boolean {
 }
 
 function splitCells(line: string): string[] {
-  return line.replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map((cell) => cleanInline(cell.replace(/\\\|/g, "|")).trim())
+  const body = line.replace(/^\|/, "").replace(/\|$/, "")
+  /*
+   * 不能简单 `split(/(?<!\\)\|/)`：`\\|` 是「字面反斜线 + 列分隔」，`\|` 才是「字面竖线」，
+   * 只看前一个字符会把前者也当成转义，整行少一列。这里成对吃掉反斜线再判断，
+   * 转义还原交给 cleanInline 末尾的 unescape。
+   */
+  const cells: string[] = []
+  let current = ""
+  for (let index = 0; index < body.length; index++) {
+    const char = body[index]
+    if (char === "\\" && index + 1 < body.length) {
+      current += char + body[index + 1]
+      index++
+      continue
+    }
+    if (char === "|") {
+      cells.push(current)
+      current = ""
+      continue
+    }
+    current += char
+  }
+  cells.push(current)
+  return cells.map((cell) => cleanInline(cell).trim())
 }
 
 function isTableSeparator(cells: string[]): boolean {
@@ -373,7 +412,14 @@ function parseKvOrList(block: string): ProfileSection | null {
     buffer = []
     if (!text) return
     const field = text.match(/^([^：:]{1,32})[：:]\s*(.+)$/)
-    items.push(field ? { label: cleanInline(field[1]), text: cleanInline(field[2]) } : { text })
+    /*
+     * 字段值不再剥行首记号：`- 字段：- 甲` 里的 `- 甲` 是数据，不是列表语法。
+     * 整行层面已经剥过一次（`flush` 第一行的 `- `），这里再剥就丢内容。
+     * 也不再反转义：`text` 是整行清理的结果，反斜线已经还原过了。
+     */
+    items.push(field
+      ? { label: cleanInline(field[1], false, false), text: cleanInline(field[2], false, false) }
+      : { text })
   }
   for (const line of block.split(/\r?\n/)) {
     const text = line.trim()
@@ -542,20 +588,29 @@ export function profileDocumentFromMarkdown(md: string, fallbackName = "未命�
 // 结构化数据 → Markdown（省掉模型重复写一遍正文）
 // ---------------------------------------------------------------------------
 
-/** 表格单元格里的竖线与换行必须转义，否则反推出来的 MD 会被解析成错列。 */
+/** 表格单元格里的竖线、反斜线与换行必须转义，否则反推出来的 MD 会被解析成错列。 */
 function markdownCell(value: string): string {
-  return value.replace(/\r?\n+/g, " ").replace(/\|/g, "\\|").trim()
+  return escapeMarkdownCell(value)
 }
 
 function sectionMarkdownBody(section: ProfileSection): string[] {
   switch (section.kind) {
     case "kv":
-      // 空值不导出：`- 债务：` 这种只有标签的行在 .md 里没有任何信息量。
+      /*
+       * 空值不导出：`- 债务：` 这种只有标签的行在 .md 里没有任何信息量。
+       * 标签与值都过 `markdownInline`：值里的换行会让下一行以裸 `- ` 开头，
+       * 解析回来就变成**另一个条目**（字段被撕成两条），必须拍平并转义。
+       */
       return section.items
         .filter((item) => item.text.trim())
-        .map((item) => (item.label ? `- ${item.label}：${item.text}` : `- ${item.text}`))
+        .map((item) => {
+          const text = markdownInline(item.text)
+          return item.label?.trim()
+            ? `- ${markdownInline(item.label)}：${text}`
+            : `- ${text}`
+        })
     case "list":
-      return section.items.filter((item) => item.trim()).map((item) => `- ${item}`)
+      return section.items.filter((item) => item.trim()).map((item) => `- ${markdownInline(item)}`)
     case "table": {
       /*
        * 表格行按「首列之外是否还有内容」筛：只剩行标签、右侧全空的表导出来
@@ -611,8 +666,13 @@ function sectionMarkdownBody(section: ProfileSection): string[] {
  * 模型不再手写正文时，落盘的 .md 就由这里生成。
  */
 export function renderProfileDocumentMarkdown(doc: ProfileDocument): string {
-  const name = (doc.name ?? "").trim() || "未命名"
-  const tag = (doc.tag ?? "").trim()
+  /*
+   * 名字、徽章、一句话简介、分区标题都来自数据，同样可能带换行。
+   * 标题位置出现换行会把后半截变成正文段落（`# 名` 后面凭空多一行字），
+   * 统一走 `markdownInline` 拍平 —— 除这些位置以外它什么都不改。
+   */
+  const name = markdownInline(doc.name ?? "").trim() || "未命名"
+  const tag = markdownInline(doc.tag ?? "").trim()
   /*
    * 名字本身可能已经带括号（模型常写 `name: "楚白（主角）"`），此时再拼一个 (tag)
    * 会得到「楚白（主角）（主角）」—— 存盘标题一读就像坏了，而且再解析回来
@@ -623,13 +683,13 @@ export function renderProfileDocumentMarkdown(doc: ProfileDocument): string {
   const trailingParen = name.match(/[（(]\s*([^）)]+?)\s*[)）]\s*$/)
   const title = !tag || trailingParen?.[1] === tag ? name : `${name}（${tag}）`
   const lines: string[] = [`# ${title}`]
-  if (doc.tagline?.trim()) lines.push("", doc.tagline.trim())
+  if (doc.tagline?.trim()) lines.push("", markdownInline(doc.tagline))
   for (const section of doc.sections) {
     const body = sectionMarkdownBody(section)
     // 只判空、不逐行 filter：mixed 块之间的分隔空行是语法需要（见上面的 case "mixed"），
     // 按行去掉会把它一起吃掉，两张表重新粘成一张。
     if (!body.some((line) => line.trim())) continue
-    lines.push("", `## ${section.heading}`, "", ...body)
+    lines.push("", `## ${markdownInline(section.heading)}`, "", ...body)
   }
   return `${lines.join("\n")}\n`
 }
@@ -787,17 +847,27 @@ function sectionBody(section: ProfileSection, editorial = false): string {
     const rows = tableRowsWithBody(section)
     return rows.length ? tableBlock(section.head, rows) : `<p class="hint">未填</p>`
   }
-  if (section.kind === "list") return section.items.length ? listBlock(section.items) : `<p class="hint">未填</p>`
-  if (section.items.length === 0) return `<p class="hint">未填</p>`
-  return renderKvItems(section.items)
+  /*
+   * kv / list 都要先剔空值项：MD 反推（`sectionMarkdownBody`）本来就不导出
+   * `- 债务：`（只有标签）与空列表项，HTML 照旧渲染会在同一份档案里多出一条
+   * 「债务 —」—— 用户点开 .html 看到一条空值，会以为数据缺了。
+   */
+  if (section.kind === "list") {
+    const items = section.items.filter((item) => item.trim())
+    return items.length ? listBlock(items) : `<p class="hint">未填</p>`
+  }
+  const items = section.items.filter((item) => item.text.trim())
+  return items.length ? renderKvItems(items) : `<p class="hint">未填</p>`
 }
 
 /** 分区规模标注（导航与卡片标题共用）。 */
 function sectionCount(section: ProfileSection): string {
   if (section.kind === "mixed") return `${section.blocks.length} 组内容`
   // 表格计数与正文同口径：不把被剔掉的空行算成「有内容」，否则标题写着「3 行」
-  // 而表里只有 1 行（用户会以为丢了两行）。
-  return section.kind === "table" ? `${tableRowsWithBody(section).length} 行` : `${section.items.length} 条`
+  // 而表里只有 1 行（用户会以为丢了两行）。kv / list 同理，空值项不计数。
+  if (section.kind === "table") return `${tableRowsWithBody(section).length} 行`
+  if (section.kind === "list") return `${section.items.filter((item) => item.trim()).length} 条`
+  return `${section.items.filter((item) => item.text.trim()).length} 条`
 }
 
 /**
