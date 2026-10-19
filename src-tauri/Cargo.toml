@@ -22,7 +22,10 @@ tauri-build = { version = "2", features = [] }
 indexmap = { version = "1", features = ["std"] }
 
 [dependencies]
-tauri = { version = "2", features = ["protocol-asset"] }
+# `macos-private-api` 与 tauri.conf.json 的 `app.macOSPrivateApi` 必须同时打开：
+# macOS 上 `transparent: true` 否则只是空操作，并在 debug 启动时打印警告。
+# `tauri dev` 会按配置改写这份 features；两边不一致时它会把多出来的删掉。
+tauri = { version = "2", features = ["protocol-asset", "macos-private-api"] }
 tauri-plugin-opener = "2.5.5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

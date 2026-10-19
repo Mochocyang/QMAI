@@ -86,7 +86,12 @@ impl FontFaceDescription {
  *
  * 基础层：任何一款汉字字体（简/繁/日/韩）都必然覆盖这几个。
  * 作用只有一个 —— 淘汰纯拉丁字体。
+ *
+ * 生产调用只在 Windows 的 DirectWrite 路径里。非 Windows 的 `cargo run`
+ * 不引用这套判据；单元测试在所有平台都要能编译它。用 cfg 而不是
+ * `allow(dead_code)`，避免把用不到的判据编进 macOS 发布产物。
  */
+#[cfg(any(windows, test))]
 const PROBE_BASIC: [u32; 7] = [
     0x4E2D, // 中
     0x6587, // 文
@@ -110,6 +115,7 @@ const PROBE_BASIC: [u32; 7] = [
  * 字形，实测能通过；真正只含 Big5 的字体在 Windows 上已极少见。
  * 若日后确需列出纯繁体字体，应另加一层繁体探针，而不是放宽这一层。
  */
+#[cfg(any(windows, test))]
 const PROBE_SIMPLIFIED_ONLY: [u32; 6] = [
     0x4E1C, // 东（簡 東）
     0x56FD, // 国（簡 國）
@@ -123,6 +129,7 @@ const PROBE_SIMPLIFIED_ONLY: [u32; 6] = [
 ///
 /// 抽成纯函数（用闭包注入"是否有某码点字形"）是为了能脱离 COM 单元测试，
 /// 并用假字体构造**负向对照**（纯拉丁字体必须被排除）。
+#[cfg(any(windows, test))]
 pub fn qualifies_as_chinese_font(has_char: impl Fn(u32) -> bool) -> bool {
     PROBE_BASIC.iter().all(|&c| has_char(c)) && PROBE_SIMPLIFIED_ONLY.iter().all(|&c| has_char(c))
 }
