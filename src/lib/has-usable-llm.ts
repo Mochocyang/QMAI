@@ -1,4 +1,5 @@
 import type { LlmConfig, ProviderConfigs } from "@/stores/wiki-store"
+import { isProviderAvailable } from "@/lib/llm-model-keys"
 
 type LlmProvider = LlmConfig["provider"]
 
@@ -14,15 +15,16 @@ const PRESET_ID_BY_PROVIDER: Partial<Record<LlmProvider, string>> = {
   "ollama": "ollama-local",
 }
 
-function isPresetEnabled(providerConfigs: ProviderConfigs, presetId: string): boolean {
+function isPresetAvailable(providerConfigs: ProviderConfigs, presetId: string): boolean {
   const entry = providerConfigs[presetId]
-  return entry?.enabled === true
+  // 与设置页、模型选择器一致：兼容已有模型但尚无 enabled 字段的旧配置。
+  return !!entry && isProviderAvailable(presetId, entry)
 }
 
 function hasEnabledCustomPreset(providerConfigs: ProviderConfigs): boolean {
   for (const key of Object.keys(providerConfigs)) {
     if (!key.startsWith("custom-")) continue
-    if (isPresetEnabled(providerConfigs, key)) return true
+    if (providerConfigs[key]?.enabled === true) return true
   }
   return false
 }
@@ -50,11 +52,11 @@ export function hasUsableLlm(
 
   if (cfg.provider === "claude-code" || cfg.provider === "codex-cli" || cfg.provider === "cursor-cli" || cfg.provider === "antigravity-cli") {
     const presetId = PRESET_ID_BY_PROVIDER[cfg.provider]!
-    return isPresetEnabled(providerConfigs, presetId)
+    return isPresetAvailable(providerConfigs, presetId)
   }
 
   if (cfg.provider === "ollama") {
-    return isPresetEnabled(providerConfigs, "ollama-local") && hasModel
+    return isPresetAvailable(providerConfigs, "ollama-local") && hasModel
   }
 
   if (cfg.provider === "custom") {

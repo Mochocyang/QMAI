@@ -176,6 +176,38 @@ describe("MCP documents", () => {
 })
 
 describe("writing parameters", () => {
+  it("uses a saved legacy Antigravity chat model without requiring an enabled field", () => {
+    const selected = "antigravity-cli/gemini-4-argon-medium"
+    useWikiStore.setState({
+      aiChatModel: selected,
+      aiWorkflowMode: "standard",
+      providerConfigs: {
+        ...providerConfigs,
+        "antigravity-cli": {
+          model: "gemini-3.8-flash-high",
+          savedModels: [
+            { id: "flash", name: "Flash", model: "gemini-3.8-flash-high", createdAt: 1 },
+            { id: "argon", name: "Argon", model: "gemini-4-argon-medium", createdAt: 2 },
+          ],
+        },
+      },
+      llmConfig: baseConfig,
+      novelConfig: { ...DEFAULT_NOVEL_CONFIG, defaultLlmModel: "custom/workflow-model" },
+    })
+    const resolved = resolveWritingParameters()
+    expect(resolved.chapterWritingLlm.provider).toBe("antigravity-cli")
+    expect(resolved.chapterWritingLlm.model).toBe("gemini-4-argon-medium")
+    expect(resolved.agentLlm.model).toBe("workflow-model")
+    expect(useWikiStore.getState().aiChatModel).toBe(selected)
+    expect(useWikiStore.getState().providerConfigs["antigravity-cli"].enabled).toBeUndefined()
+
+    useWikiStore.setState({ providerConfigs: {
+      ...useWikiStore.getState().providerConfigs,
+      "antigravity-cli": { ...useWikiStore.getState().providerConfigs["antigravity-cli"], enabled: false },
+    } })
+    expect(() => resolveWritingParameters()).toThrow("聊天框选中的写作模型不可用")
+  })
+
   it.each(["fast", "standard", "strict", "discuss"] as const)("inherits the selected %s mode and keeps body and orchestration models separate", (mode) => {
     useWikiStore.setState({
       aiChatModel: "custom/writer-model",
