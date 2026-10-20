@@ -123,11 +123,11 @@ fn suppress_windows_console(_cmd: &mut Command) {
     }
 }
 
-async fn find_agy_command() -> Result<PathBuf, String> {
+pub(crate) async fn find_agy_command() -> Result<PathBuf, String> {
     find_cli_command("agy", &["agy.cmd", "agy.exe"]).await
 }
 
-async fn configure_agy_command(cmd: &mut Command) {
+pub(crate) async fn configure_agy_command(cmd: &mut Command) {
     suppress_windows_console(cmd);
     apply_local_cli_environment(cmd);
     if let Some(path_env) = child_path_env().await {
@@ -149,13 +149,13 @@ pub(crate) fn antigravity_workdir(stream_id: &str) -> PathBuf {
     ))
 }
 
-fn prepare_workdir(stream_id: &str) -> Result<PathBuf, String> {
+pub(crate) fn prepare_workdir(stream_id: &str) -> Result<PathBuf, String> {
     let dir = antigravity_workdir(stream_id);
     std::fs::create_dir_all(&dir).map_err(|err| format!("无法创建 Antigravity 临时目录：{err}"))?;
     Ok(dir)
 }
 
-fn remove_workdir(dir: &Path) {
+pub(crate) fn remove_workdir(dir: &Path) {
     let _ = std::fs::remove_dir_all(dir);
 }
 

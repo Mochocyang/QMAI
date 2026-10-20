@@ -255,7 +255,7 @@ interface LlmConfig {
   functionCallingEnabled?: boolean
 }
 
-export type SearchProvider = "bocha" | "qiniu" | "metaso" | "tavily" | "serpapi" | "searxng" | "gemini" | "baizhi" | "none"
+export type SearchProvider = "bocha" | "qiniu" | "metaso" | "tavily" | "serpapi" | "searxng" | "gemini" | "baizhi" | "antigravity" | "none"
 export type SerpApiEngine =
   | "google"
   | "google_news"
@@ -287,6 +287,8 @@ export interface SearchProviderOverride {
   searXngCategories?: SearXngCategory[]
   /** Gemini 搜索（Grounding with Google Search）用的模型，默认 gemini-3.8-flash。 */
   geminiModel?: string
+  /** 反重力 CLI 搜索用的 agy 模型；留空用 agy 默认模型。 */
+  antigravityModel?: string
   /** Gemini API 自定义地址（代理/中转），默认 https://generativelanguage.googleapis.com。 */
   geminiBaseUrl?: string
 }
