@@ -6,7 +6,13 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 5)).toEqual(["4.3.3", "4.3.2", "4.3.1", "4.3.0", "4.2.1"])
+    expect(versions.slice(0, 6)).toEqual(["4.3.4", "4.3.3", "4.3.2", "4.3.1", "4.3.0", "4.2.1"])
+    const release434 = currentVersionChangelog("4.3.4")[0]
+    expect(release434.version).toBe("4.3.4")
+    expect(release434.date).toBe("2026-10-20")
+    expect(release434.highlights.zh).toHaveLength(6)
+    expect(release434.highlights.en).toHaveLength(6)
+    expect(release434.highlights.zh[0]).toContain("百智云")
     const release433 = currentVersionChangelog("4.3.3")[0]
     expect(release433.version).toBe("4.3.3")
     expect(release433.date).toBe("2026-10-13")

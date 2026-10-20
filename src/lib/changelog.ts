@@ -7,6 +7,29 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_THREE_FOUR_CHANGELOG: ChangelogEntry = {
+  version: "4.3.4",
+  date: "2026-10-20",
+  highlights: {
+    en: [
+      "Web search adds two optional backends: Gemini (Google Search, with Google's summary prioritized for writing) and Baizhi Cloud; existing search providers are unchanged.",
+      "Expanded Google search entries in the writing timeline now show only the queries and the summary, without the source list or the embedded suggestion box.",
+      "Fixed pasted body text landing in the title after creating a new chapter outline.",
+      "Favorited AI skills are pinned to the top of the reference picker, and skills can now be searched by their Chinese names (e.g. 战斗描写).",
+      "Added Antigravity CLI support, and local agents can now drive writing (background writing, live progress, stop).",
+      "Deleting an outline no longer rewrites derived memory, plus a macOS transparent-window fix.",
+    ],
+    zh: [
+      "网页搜索新增两个可选后端：Gemini（谷歌搜索，写作优先用谷歌摘要）和百智云，原有搜索来源不受影响",
+      "写作时间线里的谷歌搜索展开后只显示搜索词和摘要，去掉来源列表和搜索建议小框",
+      "修复新建一章大纲后，粘贴正文会跑到标题栏的问题",
+      "AI 技能库收藏的技能在选择引用时置顶，并可按中文名搜索（如「战斗描写」）",
+      "接入 Antigravity CLI，本机 Agent 可调用写作（后台写作、实时进度、停止生成）",
+      "删除大纲不再重写派生记忆；修复 macOS 透明窗口问题",
+    ],
+  },
+};
+
 const FOUR_POINT_THREE_THREE_CHANGELOG: ChangelogEntry = {
   version: "4.3.3",
   date: "2026-10-13",
@@ -1939,6 +1962,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_THREE_FOUR_CHANGELOG.version)
+    return [FOUR_POINT_THREE_FOUR_CHANGELOG];
   if (version === FOUR_POINT_THREE_THREE_CHANGELOG.version)
     return [FOUR_POINT_THREE_THREE_CHANGELOG];
   if (version === FOUR_POINT_THREE_TWO_CHANGELOG.version)
@@ -2110,6 +2135,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_THREE_FOUR_CHANGELOG,
     FOUR_POINT_THREE_THREE_CHANGELOG,
     FOUR_POINT_THREE_TWO_CHANGELOG,
     FOUR_POINT_THREE_ONE_CHANGELOG,
