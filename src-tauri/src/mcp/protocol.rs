@@ -1,5 +1,6 @@
 use serde_json::{json, Value};
 
+#[cfg(test)]
 pub const TOOL_NAMES: [&str; 9] = [
     "list_bookshelf",
     "open_bookshelf",
