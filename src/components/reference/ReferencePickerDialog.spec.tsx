@@ -3,7 +3,8 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { ReferencePickerDialog } from "./ReferencePickerDialog"
+import { ReferencePickerDialog, matchesReferenceKeyword, pinFavoriteSkills } from "./ReferencePickerDialog"
+import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
 import type { ReferenceProvider } from "@/lib/reference/providers"
 import type { ReferenceToken } from "@/lib/reference/types"
 
@@ -590,5 +591,61 @@ describe("ReferencePickerDialog", () => {
         expect.objectContaining({ skillId: "custom-xu", skillSubtype: "soul" }),
       ])
     })
+  })
+})
+
+describe("ReferencePickerDialog 写作Skill：展示名搜索与收藏置顶", () => {
+  const writingItems: ReferenceToken[] = [
+    { id: "w1", category: "skill", title: "dialogue-emotion", displayTitle: "对话与情绪", skillId: "skill:1", skillSubtype: "writing" },
+    { id: "w2", category: "skill", title: "battle-scene", displayTitle: "战斗描写", skillId: "skill:2", skillSubtype: "writing" },
+    { id: "w3", category: "skill", title: "esports-live", displayTitle: "文娱直播电竞", skillId: "skill:3", skillSubtype: "writing" },
+  ]
+  const writingProviders: ReferenceProvider[] = [{ category: "skill", fetchItems: vi.fn(async () => writingItems) }]
+
+  async function renderWriting() {
+    await act(async () => {
+      root.render(<ReferencePickerDialog open defaultTab="skill" providers={writingProviders} projectPath="C:/Novel" onConfirm={vi.fn()} onClose={vi.fn()} />)
+    })
+    await flush()
+  }
+
+  function listedTitles(): string[] {
+    return Array.from(host.querySelectorAll("label span.block.truncate")).map((node) => node.textContent ?? "")
+  }
+
+  afterEach(() => {
+    useFavoriteSkillStore.setState({ favorites: [] })
+  })
+
+  it("按界面上显示的中文名能搜到（title 是机器名）", async () => {
+    await renderWriting()
+    const input = host.querySelector<HTMLInputElement>('input[type="search"]')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "战斗描写")
+      input.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    expect(listedTitles()).toEqual(["战斗描写"])
+  })
+
+  it("已收藏的技能置顶，其余保持原顺序", async () => {
+    useFavoriteSkillStore.setState({
+      favorites: [{ favoriteId: "f", library: "writing", skillId: "skill:3", originProjectPath: "", source: "project", snapshot: {} as never, favoritedAt: 1 }],
+    })
+    await renderWriting()
+    expect(listedTitles()).toEqual(["文娱直播电竞", "对话与情绪", "战斗描写"])
+  })
+
+  it("pinFavoriteSkills 稳定排序且按库区分", () => {
+    const items: ReferenceToken[] = [
+      { id: "a", category: "skill", title: "a", displayTitle: "a", skillId: "x", skillSubtype: "deai" },
+      { id: "b", category: "skill", title: "b", displayTitle: "b", skillId: "x", skillSubtype: "writing" },
+      { id: "c", category: "skill", title: "c", displayTitle: "c", skillId: "y", skillSubtype: "deai" },
+    ]
+    expect(pinFavoriteSkills(items, new Set(["de-ai:y", "de-ai:x"])).map((i) => i.id)).toEqual(["a", "c", "b"])
+    expect(pinFavoriteSkills(items, new Set()).map((i) => i.id)).toEqual(["a", "b", "c"])
+  })
+
+  it("截断的展示名去掉省略号后仍可匹配", () => {
+    expect(matchesReferenceKeyword({ id: "z", category: "skill", title: "long", displayTitle: "一二三四五六七八九十一二三四五六七八九十..." }, "九十")).toBe(true)
   })
 })

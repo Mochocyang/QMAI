@@ -3,6 +3,7 @@ import { Search, X } from "lucide-react"
 import type { ReferenceCategory, ReferenceToken, SkillSubtype } from "@/lib/reference/types"
 import { MAX_REFERENCE_COUNT, REFERENCE_TABS } from "@/lib/reference/types"
 import type { ReferenceProvider } from "@/lib/reference/providers"
+import { useFavoriteSkillStore } from "@/stores/favorite-skill-store"
 import {
   SKILL_KIND_LABELS,
   SKILL_STAGE_LABELS,
@@ -148,15 +149,23 @@ export function ReferencePickerDialog({
     ? skillSubtab
     : availableSkillSubtabs[0]?.key ?? skillSubtab
 
+  // 必须订阅 favorites 本身，收藏变化才会触发重排。
+  const favoriteSkills = useFavoriteSkillStore((s) => s.favorites)
+  const favoriteSkillKeys = useMemo(
+    () => new Set(favoriteSkills.map((favorite) => `${favorite.library}:${favorite.skillId}`)),
+    [favoriteSkills],
+  )
+
   const filteredItems = useMemo(() => {
     const keyword = search.trim().toLowerCase()
     let result = items
     if (activeTab === "skill") {
       result = result.filter((item) => item.skillSubtype === effectiveSkillSubtab)
     }
-    if (!keyword) return result
-    return result.filter((item) => item.title.toLowerCase().includes(keyword))
-  }, [items, search, activeTab, effectiveSkillSubtab])
+    if (keyword) result = result.filter((item) => matchesReferenceKeyword(item, keyword))
+    if (activeTab === "skill") result = pinFavoriteSkills(result, favoriteSkillKeys)
+    return result
+  }, [items, search, activeTab, effectiveSkillSubtab, favoriteSkillKeys])
 
   function toggleItem(item: ReferenceToken) {
     setSelected((prev) => {
@@ -358,4 +367,29 @@ export function ReferencePickerDialog({
       </div>
     </div>
   )
+}
+
+/*
+ * 搜索同时匹配机器名（title）与界面展示名（displayTitle）。
+ * 写作 Skill 的 title 是机器名（如 battle-scene），列表上显示的是中文展示名
+ * （如「战斗描写」）；只按 title 过滤时，搜看得见的名字反而搜不到。
+ * displayTitle 超过 20 字会被截成「…...」，去掉省略号后再比对。
+ */
+export function matchesReferenceKeyword(item: ReferenceToken, keyword: string): boolean {
+  const display = (item.displayTitle ?? "").replace(/\.\.\.$/, "")
+  return [item.title, display].some((text) => text.toLowerCase().includes(keyword))
+}
+
+const FAVORITE_LIBRARY_BY_SUBTYPE: Partial<Record<SkillSubtype, string>> = { writing: "writing", deai: "de-ai" }
+
+/** 已在 AI 技能库收藏的技能置顶；收藏与非收藏内部保持原顺序（稳定排序）。 */
+export function pinFavoriteSkills(items: ReferenceToken[], favoriteKeys: ReadonlySet<string>): ReferenceToken[] {
+  if (favoriteKeys.size === 0) return items
+  const isFavorite = (item: ReferenceToken) => {
+    const library = item.skillSubtype ? FAVORITE_LIBRARY_BY_SUBTYPE[item.skillSubtype] : undefined
+    return Boolean(library && item.skillId && favoriteKeys.has(`${library}:${item.skillId}`))
+  }
+  const favorites = items.filter(isFavorite)
+  if (favorites.length === 0) return items
+  return [...favorites, ...items.filter((item) => !isFavorite(item))]
 }
