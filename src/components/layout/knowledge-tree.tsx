@@ -15,14 +15,14 @@ import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { scrollChapterDirectory } from "@/lib/chapter-directory-scroll"
 import { normalizeChapterStatus, type ChapterStatus } from "@/lib/novel/chapter-meta"
 import {
-  extractChapterNumberFromContent,
   extractPageOrderFromTitle,
   resolveChapterDotNumbers,
   resolveChapterPageTitle,
 } from "@/lib/novel/chapter-utils"
 import { chapterSnapshotNumbersFrom, chapterSnapshotNumbersFromFileNames, resolveChapterMemoryDotState, type ChapterMemoryDotState } from "@/lib/novel/chapter-memory-dot"
 import { moveFileToTrash } from "@/lib/trash"
-import { makeChapterFileName, makeDefaultChapterTitle, makeSafeFileSlug } from "@/lib/wiki-filename"
+import { makeSafeFileSlug } from "@/lib/wiki-filename"
+import { allocateUniqueSiblingPath, planPageRename } from "@/lib/wiki/rename-page"
 import { useImportProgressStore, type ImportProgressTask } from "@/stores/import-progress-store"
 import { selectProjectDeAiTasks, useDeAiTaskStore } from "@/stores/de-ai-task-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
@@ -141,21 +141,6 @@ function createPageReferenceToken(page: WikiPageInfo): ReferenceToken {
     path: page.path,
     displayTitle: truncateReferenceTitle(page.title),
   }
-}
-
-async function getUniquePagePath(dir: string, fileName: string, excludePath?: string): Promise<string> {
-  const firstPath = `${dir}/${fileName}`
-  if (firstPath === excludePath || !(await fileExists(firstPath))) return firstPath
-
-  const extensionIndex = fileName.lastIndexOf(".")
-  const stem = extensionIndex > 0 ? fileName.slice(0, extensionIndex) : fileName
-  const extension = extensionIndex > 0 ? fileName.slice(extensionIndex) : ""
-  for (let index = 2; index <= 99; index += 1) {
-    const candidate = `${dir}/${stem}-${index}${extension}`
-    if (candidate === excludePath || !(await fileExists(candidate))) return candidate
-  }
-
-  return `${dir}/${stem}-${Date.now()}${extension}`
 }
 
 function flattenMdFiles(nodes: FileNode[]): FileNode[] {
@@ -1060,32 +1045,6 @@ export function KnowledgeTree({
     setRenameFolderValue("")
   }, [renamingFolderBusy])
 
-  const updatePageTitleContent = useCallback((content: string, newTitle: string, newChapterNumber?: number | null) => {
-    const escapedTitle = newTitle.replace(/"/g, '\\"')
-    let next = content
-    const frontmatterMatch = next.match(/^---\n([\s\S]*?)\n---/)
-    if (frontmatterMatch) {
-      let frontmatterBody = frontmatterMatch[1]
-      if (/^title:\s*.*$/m.test(frontmatterBody)) {
-        frontmatterBody = frontmatterBody.replace(/^title:\s*.*$/m, `title: "${escapedTitle}"`)
-      } else {
-        frontmatterBody = `${frontmatterBody}\ntitle: "${escapedTitle}"`
-      }
-      if (typeof newChapterNumber === "number" && newChapterNumber > 0) {
-        if (/^chapter_number:\s*.*$/m.test(frontmatterBody)) {
-          frontmatterBody = frontmatterBody.replace(/^chapter_number:\s*.*$/m, `chapter_number: ${newChapterNumber}`)
-        } else {
-          frontmatterBody = `${frontmatterBody}\nchapter_number: ${newChapterNumber}`
-        }
-      }
-      next = next.replace(/^---\n[\s\S]*?\n---/, `---\n${frontmatterBody}\n---`)
-    }
-    if (/^#\s+.+$/m.test(next)) {
-      next = next.replace(/^#\s+.+$/m, `# ${newTitle}`)
-    }
-    return next
-  }, [])
-
   const updateChapterNumberContent = useCallback((content: string, newChapterNumber: number) => {
     if (!Number.isFinite(newChapterNumber) || newChapterNumber <= 0) return content
 
@@ -1141,31 +1100,24 @@ export function KnowledgeTree({
 
     setRenamingBusy(true)
     try {
-      const duplicate = effectivePages.some((page) => page.path !== renamingPath && page.type === current.type && page.title.trim() === newTitle)
-      if (duplicate) return
-
       const content = await readFile(renamingPath)
-      const oldChapterNumber = extractChapterNumberFromContent(content) ?? extractPageOrderFromTitle(current.title)
-      const userChapterNumber = extractPageOrderFromTitle(newTitle)
-      const chapterNumber = (current.type === "chapter" && userChapterNumber !== null) ? userChapterNumber : oldChapterNumber
-      const chapterNumberConflict = current.type === "chapter"
-        && typeof chapterNumber === "number"
-        && effectivePages.some((page) => (
-          page.path !== renamingPath
-          && page.type === "chapter"
-          && page.chapterNumber === chapterNumber
-        ))
-      if (chapterNumberConflict) return
-      const normalizedTitle = current.type === "chapter" && chapterNumber
-        ? makeDefaultChapterTitle(chapterNumber, newTitle)
-        : newTitle
-      const nextContent = updatePageTitleContent(content, normalizedTitle, current.type === "chapter" ? chapterNumber : null)
-      const targetFileName = current.type === "chapter"
-        ? makeChapterFileName(normalizedTitle, chapterNumber)
-        : `${makeSafeFileSlug(newTitle)}.md`
-      const targetPath = await getUniquePagePath(getDirName(renamingPath), targetFileName, renamingPath)
+      const plan = planPageRename({
+        path: renamingPath,
+        nextTitle: newTitle,
+        content,
+        type: current.type,
+        currentTitle: current.title,
+        siblings: effectivePages.map((page) => ({
+          path: page.path,
+          title: page.title,
+          type: page.type,
+          chapterNumber: page.chapterNumber,
+        })),
+      })
+      if (plan.status !== "ready" || !plan.content || !plan.fileName) return
+      const targetPath = await allocateUniqueSiblingPath(getDirName(renamingPath), plan.fileName, renamingPath)
 
-      await writeFile(targetPath, nextContent)
+      await writeFile(targetPath, plan.content)
       if (targetPath !== renamingPath) {
         // 章节改名/换目录：把写作归属账本一起搬到新路径，
         // 否则新路径会从零打基线，用户此前手写的归属会凭空消失。
@@ -1188,7 +1140,7 @@ export function KnowledgeTree({
       setRenamingPath(null)
       setRenameValue("")
     }
-  }, [renamingPath, renamingBusy, renameValue, effectivePages, updatePageTitleContent, selectedFile, setSelectedFile, onRemovePendingPage, loadPages, project, setFileTree, bumpDataVersion])
+  }, [renamingPath, renamingBusy, renameValue, effectivePages, selectedFile, setSelectedFile, onRemovePendingPage, loadPages, project, setFileTree, bumpDataVersion])
 
   const cancelRenamePage = useCallback(() => {
     if (renamingBusy) return

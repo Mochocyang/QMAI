@@ -31,6 +31,7 @@ import { applyVisualStyle } from "@/lib/visual-style-settings"
 import { isChapterPathInProject, normalizePath } from "@/lib/path-utils"
 import { useWritingStatsStore } from "@/stores/writing-stats-store"
 import { runUserMemoryMaintenance } from "@/lib/user-memory/maintenance"
+import { bootMcp } from "@/lib/mcp/startup"
 import { initializeProjectContextCache } from "@/lib/context-hub/context-hub"
 import { useEnsureAiChatModel } from "@/lib/ensure-ai-chat-model"
 
@@ -62,6 +63,21 @@ function App() {
 
   useEffect(() => {
     runUserMemoryMaintenance()
+  }, [])
+
+  useEffect(() => {
+    let stop = () => {}
+    let cancelled = false
+    void bootMcp().then((dispose) => {
+      if (cancelled) dispose()
+      else stop = dispose
+    }).catch((error) => {
+      console.warn("[mcp] 初始化失败：", error)
+    })
+    return () => {
+      cancelled = true
+      stop()
+    }
   }, [])
 
   function isCurrentProject(proj: WikiProject): boolean {

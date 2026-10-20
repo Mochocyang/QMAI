@@ -48,6 +48,10 @@ QMAI 是**长篇小说记忆型 AI 写作桌面系统**（Tauri 2 + React 19 + T
 - 角色认知（knows / does_not_know）必须在校验和上下文中保持一致
 - 图谱节点/边来自章节摄取快照，增量更新而非全量重建
 
+## 外部 Agent（MCP）
+
+MCP 只把写作对话、保存文档、修改标题、提取记忆和章节排版暴露给本机 Agent。草稿仍然不能进入记忆库；`extract_memory` 不排版正文，非正式章节默认拒绝。`skills/qmai-mcp` 使用自己的 `metadata.version`，启动时只按这个版本更新 Agent skills 目录里的同名副本。
+
 ## 改动时的检查清单
 
 - 是否破坏草稿隔离？

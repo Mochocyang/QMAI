@@ -1,5 +1,6 @@
 import pangu from "pangu"
 import { parseFrontmatter } from "@/lib/frontmatter"
+import { syncChapterFrontmatterFromBody } from "@/lib/novel/chapter-meta"
 
 // pangu 10 still treats CJK-N hyphen as an operator: 苏-35 → 苏 - 35
 const CJK_MODEL_HYPHEN =
@@ -91,4 +92,9 @@ export function formatChapterWriting(markdown: string): string {
   }
 
   return rawBlock + formatted.join("\n")
+}
+
+/** 一键排版：先同步章节 frontmatter，再整理正文段落。 */
+export function normalizeChapterWriting(markdown: string): string {
+  return formatChapterWriting(syncChapterFrontmatterFromBody(markdown))
 }

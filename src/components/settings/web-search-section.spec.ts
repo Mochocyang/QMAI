@@ -24,7 +24,8 @@ describe("Web Search settings restore", () => {
     const webSearchIdx = settingsViewSource.indexOf('{ id: "web-search"')
     expect(networkIdx).toBeGreaterThan(-1)
     expect(webSearchIdx).toBeGreaterThan(networkIdx)
-    expect(settingsViewSource).not.toContain('{ id: "mcp"')
+    expect(settingsViewSource).toContain('{ id: "mcp", labelKey: "settings.categories.mcp", icon: Plug }')
+    expect(settingsViewSource).not.toContain("RealMcpConnector")
   })
 
   it("lists domestic providers before self-hosted and international ones", () => {
