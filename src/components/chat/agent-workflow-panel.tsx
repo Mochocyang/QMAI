@@ -1,5 +1,6 @@
 import { useMemo, useRef, useEffect } from "react"
 import { getWorkflowToolDescription, getWorkflowToolResultDisplay } from "@/lib/agent/workflow-trace"
+import { extractSearchDisplayDetail } from "@/lib/search-display"
 import type { AgentRunRecord } from "@/lib/agent/types"
 import type { ContextTrace } from "@/lib/agent/context-trace"
 import { normalizeOutlineWriteTarget } from "@/lib/agent/tools/write-outline-node"
@@ -23,6 +24,7 @@ interface AgentWorkflowPanelProps {
 function adaptToolCall(call: ToolCallRecord): ToolCallEventItem {
   const isError = call.status === "error"
   const displayResult = getWorkflowToolResultDisplay(call.result)
+  const searchDetail = isError ? null : extractSearchDisplayDetail(call.result)
   return {
     id: call.id,
     name: call.name,
@@ -34,6 +36,7 @@ function adaptToolCall(call: ToolCallRecord): ToolCallEventItem {
     error: isError ? displayResult : undefined,
     startedAt: call.startedAt,
     finishedAt: call.finishedAt,
+    ...(searchDetail ? { searchDetail } : {}),
   }
 }
 

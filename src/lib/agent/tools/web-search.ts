@@ -1,6 +1,7 @@
 import type { Tool } from "../types"
 import { providerRequiresApiKey, resolveSearchConfig, webSearchDetailed } from "@/lib/web-search"
 import type { SearchApiConfig } from "@/stores/wiki-store"
+import { TOOL_UI_DISPLAY_KEY } from "@/lib/search-display"
 
 interface WebSearchToolResult {
   status: "ok" | "not_configured" | "error"
@@ -18,6 +19,8 @@ interface WebSearchToolResult {
   queries?: string[]
   /** 搜索后端的综合摘要（Gemini）。 */
   summary?: string
+  /** 只给界面用（Gemini 搜索建议 HTML），工具执行器发给模型前会去掉。 */
+  uiDisplay?: { searchSuggestionsHtml: string }
 }
 
 function toPositiveInteger(value: unknown, fallback: number, max: number): number {
@@ -80,6 +83,9 @@ export function createWebSearchTool(getSearchApiConfig?: () => SearchApiConfig |
         const result: WebSearchToolResult = {
           ...(outcome.queries?.length ? { queries: outcome.queries } : {}),
           ...(outcome.summary ? { summary: outcome.summary } : {}),
+          ...(outcome.searchSuggestionsHtml?.trim()
+            ? { [TOOL_UI_DISPLAY_KEY]: { searchSuggestionsHtml: outcome.searchSuggestionsHtml } }
+            : {}),
           status: "ok",
           query,
           provider: resolveSearchConfig(config).provider,

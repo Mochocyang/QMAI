@@ -1,6 +1,9 @@
 import type { SearchApiConfig } from "@/stores/wiki-store"
 import { getHttpFetch } from "@/lib/tauri-fetch"
 import { webSearchDetailed, type WebSearchResult } from "@/lib/web-search"
+import { formatGeminiContextBlock } from "@/lib/search-display"
+
+const WEB_RESEARCH_CONTEXT_CAP = 5000
 
 interface WebResearchDocument {
   title: string
@@ -107,14 +110,18 @@ export async function collectWebResearch(input: WebResearchInput): Promise<WebRe
     importedDocuments,
     failedUrls,
     notes,
-    searchQueries,
-    searchSummary,
+    // 只有 Gemini 后端会带这两项；其它后端保持原来的对象形状。
+    ...(searchQueries?.length ? { searchQueries } : {}),
+    ...(searchSummary?.trim() ? { searchSummary } : {}),
   }
 }
 
 export function buildWebResearchContext(input: WebResearchContextInput): { markdown: string; sources: string[] } {
+  // Gemini 的来源只在时间线展示：这份 sources 会进入后续提示词（大纲的 existingModules），
+  // 所以有 Gemini 摘要时不列搜索来源（也就不带跳转长链接）。其它后端不变。
+  const searchSources = input.searchSummary?.trim() ? [] : input.searchResults
   const sources = dedupeSources([
-    ...input.searchResults.map((result) => `${result.title} - ${result.url}`),
+    ...searchSources.map((result) => `${result.title} - ${result.url}`),
     ...input.importedDocuments.map((document) => `${document.title} - ${document.url}`),
   ])
   const lines: string[] = [
@@ -128,15 +135,16 @@ export function buildWebResearchContext(input: WebResearchContextInput): { markd
     "- 不要大段复述网页原文；如果资料不足，请明确说明资料不足。",
   ]
 
-  if (input.searchQueries?.length) {
-    lines.push("", `实际搜索词：${input.searchQueries.join("；")}`)
-  }
-
-  if (input.searchSummary?.trim()) {
-    lines.push("", "### 搜索摘要（Gemini 基于 Google 搜索综合，引用见下方来源）", clipText(input.searchSummary, 1200))
-  }
-
-  if (input.searchResults.length > 0) {
+  const geminiSummary = input.searchSummary?.trim() ?? ""
+  if (geminiSummary) {
+    // Gemini：只放搜索词 + 完整摘要；来源、片段、链接只在时间线展示。
+    const headerLength = lines.join("\n").length + 2
+    lines.push("", ...formatGeminiContextBlock({
+      queries: input.searchQueries,
+      summary: geminiSummary,
+      budget: WEB_RESEARCH_CONTEXT_CAP - headerLength,
+    }))
+  } else if (input.searchResults.length > 0) {
     lines.push("", "### 搜索结果")
     input.searchResults.slice(0, 8).forEach((result, index) => {
       lines.push(

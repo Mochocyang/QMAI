@@ -149,7 +149,8 @@ describe("接入现有联网查询流程", () => {
     const { markdown } = buildWebResearchContext(research)
     expect(markdown).toContain("实际搜索词：2024年巴黎奥运会中国金牌数")
     expect(markdown).toContain("搜索摘要")
-    expect(markdown).toContain("chinadaily.com.cn")
+    expect(markdown).toContain(TEXT)
+    expect(markdown).not.toContain("chinadaily.com.cn") // Gemini 来源只在时间线展示
 
     fetchMock.mockResolvedValueOnce(json(500, {}))
     const failed = await collectWebResearch({ text: "搜索 巴黎奥运会金牌", searchApiConfig: config(), allowReadUrls: false })

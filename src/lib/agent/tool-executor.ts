@@ -2,6 +2,7 @@ import type { ToolRegistry } from "./registry"
 import type { AgentRunCallbacks, AgentRunRecord, ToolCall } from "./types"
 import { TOOL_EXECUTE_TIMEOUT_MS } from "./types"
 import { isToolErrorResult } from "./tool-result"
+import { splitToolResultForModel } from "@/lib/search-display"
 
 function withToolTimeout<T>(operation: Promise<T>, timeoutMs: number | undefined): Promise<T> {
   const resolvedTimeoutMs = timeoutMs ?? TOOL_EXECUTE_TIMEOUT_MS
@@ -200,7 +201,8 @@ export async function executeAgentTool(
     })
     return {
       record,
-      responseText: result,
+      // 带 uiDisplay 的结果（Gemini 搜索建议 HTML）只存进记录给界面用，不发给模型；其它结果原样。
+      responseText: splitToolResultForModel(result),
       success: true,
       ...(deliveredFinalContent ? { finalContent: deliveredFinalContent } : {}),
     }
