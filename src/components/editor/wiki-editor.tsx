@@ -31,6 +31,7 @@ import { EditorContextMenu, type EditorContextAction } from "@/components/editor
 import { TextareaFindBar } from "@/components/editor/textarea-find-bar";
 import { TextareaFindHighlights } from "@/components/editor/textarea-find-highlights";
 import { OutlineFormatToolbar } from "@/components/editor/outline-format-toolbar";
+import { outlineHiddenTitleGuardPlugin } from "@/components/editor/outline-hidden-title";
 import { outlineUnderlinePlugin, readOutlinePlainText, replaceOutlinePlainText, runOutlineToolbarAction, selectAllOutline } from "@/components/editor/outline-toolbar-actions";
 import {
   findAllMatches,
@@ -747,7 +748,9 @@ function WikiEditorInner({ content, onSave, formatToolbar = false }: WikiEditorI
         .use(outlineUnderlinePlugin)
         .use(gfm)
         .use(history)
-        .use(listener),
+        .use(listener)
+        // 大纲的首行 h1 被隐藏成标题栏，光标不能落进去（见 outline-hidden-title.ts）。
+        .use(formatToolbar ? outlineHiddenTitleGuardPlugin : []),
     [],
   );
 
