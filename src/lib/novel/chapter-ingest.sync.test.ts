@@ -281,4 +281,97 @@ describe("syncSnapshotToMemory", () => {
     expect(files.get("/project/wiki/memory/character-states.md")).not.toContain("正在追查")
     expect(files.get("/project/wiki/memory/foreshadowing-tracker.md")).not.toContain("旧手机")
   })
+
+  it("删除大纲快照时只撤该编号，不用章节快照重写手改的派生记忆", async () => {
+    writeTestFile("/project/.novel/snapshots/001.snapshot.json", JSON.stringify({
+      ...syncedSnapshot,
+      characterStateChanges: ["主角: 来自章节快照"],
+      knowledgeChanges: ["主角知道来自章节快照"],
+      timelineEvents: ["章节快照时间线"],
+      foreshadowingChanges: ["新增伏笔: 章节伏笔 - 不该在删大纲时重放"],
+    }, null, 2))
+    writeTestFile("/project/.novel/snapshots/outline-005.snapshot.json", JSON.stringify({
+      ...syncedOutlineSnapshot,
+      chapterNumber: -5,
+    }, null, 2))
+    writeTestFile("/project/.novel/snapshots/outline-005.snapshot.md", "# 大纲快照")
+
+    const characterStates = JSON.stringify({
+      characters: [{ characterName: "手改角色", status: "保留" }],
+      lastUpdated: "manual",
+    }, null, 2)
+    const cognition = JSON.stringify({
+      characters: [],
+      readerKnows: ["手改认知"],
+      lastUpdatedChapter: 1,
+    }, null, 2)
+    const memoryPage = "# 手改记忆页\n\n不要重写。"
+    writeTestFile("/project/.novel/character-states.json", characterStates)
+    writeTestFile("/project/.novel/cognition-state.json", cognition)
+    writeTestFile("/project/wiki/memory/character-states.md", memoryPage)
+    writeTestFile("/project/.novel/timeline.json", JSON.stringify({
+      version: 1,
+      serial: 3,
+      updatedAt: "manual",
+      entries: [
+        { chapterNumber: 1, event: "章节时间线" },
+        { chapterNumber: -5, event: "大纲时间线" },
+        { chapterNumber: 99, event: "手改时间线" },
+      ],
+    }, null, 2))
+    writeTestFile("/project/.novel/foreshadowing-tracker.json", JSON.stringify({
+      items: [
+        {
+          id: "F001",
+          name: "大纲伏笔",
+          description: "",
+          status: "planted",
+          plantedChapter: -5,
+          advancedChapters: [],
+          relatedCharacters: [],
+          relatedEvents: [],
+          notes: "",
+        },
+        {
+          id: "F008",
+          name: "手改伏笔",
+          description: "留下",
+          status: "planted",
+          plantedChapter: 2,
+          advancedChapters: [-5],
+          relatedCharacters: [],
+          relatedEvents: [],
+          notes: "",
+        },
+      ],
+      lastUpdated: "manual",
+    }, null, 2))
+
+    await deleteChapterSnapshots("/project", -5)
+
+    expect(files.has("/project/.novel/snapshots/outline-005.snapshot.json")).toBe(false)
+    expect(files.has("/project/.novel/snapshots/outline-005.snapshot.md")).toBe(false)
+    expect(files.has("/project/.novel/snapshots/001.snapshot.json")).toBe(true)
+    expect(files.get("/project/.novel/character-states.json")).toBe(characterStates)
+    expect(files.get("/project/.novel/cognition-state.json")).toBe(cognition)
+    expect(files.get("/project/wiki/memory/character-states.md")).toBe(memoryPage)
+    expect(files.has("/project/wiki/memory/timeline.md")).toBe(false)
+
+    const timeline = JSON.parse(files.get("/project/.novel/timeline.json") ?? "{}")
+    expect(timeline.entries).toEqual([
+      { chapterNumber: 1, event: "章节时间线" },
+      { chapterNumber: 99, event: "手改时间线" },
+    ])
+
+    const foreshadowing = JSON.parse(files.get("/project/.novel/foreshadowing-tracker.json") ?? "{}")
+    expect(foreshadowing.items).toEqual([
+      expect.objectContaining({
+        id: "F008",
+        name: "手改伏笔",
+        description: "留下",
+        plantedChapter: 2,
+        advancedChapters: [],
+      }),
+    ])
+  })
 })

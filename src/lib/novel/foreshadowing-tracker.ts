@@ -31,6 +31,72 @@ export function createEmptyForeshadowingStore(): ForeshadowingStore {
   return { items: [], lastUpdated: new Date().toISOString() }
 }
 
+/**
+ * 从伏笔台账撤掉某一个章节号。只改引用了该编号的条目，其余原样保留。
+ * 仅由该编号种下、且没有其它章节推进或回收的条目会被删除。
+ */
+export function retractChapterFromForeshadowingStore(
+  store: ForeshadowingStore,
+  chapterNumber: number,
+): { store: ForeshadowingStore; changed: boolean } {
+  let changed = false
+  const items: Foreshadowing[] = []
+
+  for (const item of store.items) {
+    const advancedChapters = item.advancedChapters.filter((chapter) => chapter !== chapterNumber)
+    const resolvedHere = item.resolvedChapter === chapterNumber
+    const plantedHere = item.plantedChapter === chapterNumber
+    const remainingChapters = [
+      ...advancedChapters,
+      ...(!resolvedHere && item.resolvedChapter != null ? [item.resolvedChapter] : []),
+    ]
+    const advancedChanged = advancedChapters.length !== item.advancedChapters.length
+
+    if (plantedHere && remainingChapters.length === 0) {
+      changed = true
+      continue
+    }
+    if (!plantedHere && !resolvedHere && !advancedChanged) {
+      items.push(item)
+      continue
+    }
+
+    let next: Foreshadowing = { ...item, advancedChapters }
+    if (plantedHere) {
+      next = { ...next, plantedChapter: Math.min(...remainingChapters) }
+    }
+    if (resolvedHere) {
+      const status = next.status === "abandoned"
+        ? "abandoned"
+        : advancedChapters.length > 0
+          ? "advanced"
+          : "planted"
+      const rest: Foreshadowing = { ...next, status, advancedChapters }
+      delete rest.resolvedChapter
+      next = rest
+    }
+    changed = true
+    items.push(next)
+  }
+
+  if (!changed) return { store, changed: false }
+  return { changed: true, store: { ...store, items } }
+}
+
+export async function retractForeshadowingChapter(
+  projectPath: string,
+  chapterNumber: number,
+): Promise<boolean> {
+  const existing = await loadForeshadowingTracker(projectPath)
+  const retracted = retractChapterFromForeshadowingStore(existing, chapterNumber)
+  if (!retracted.changed) return false
+  await saveForeshadowingTracker(projectPath, {
+    ...retracted.store,
+    lastUpdated: new Date().toISOString(),
+  })
+  return true
+}
+
 export async function saveForeshadowingTracker(
   projectPath: string,
   store: ForeshadowingStore,

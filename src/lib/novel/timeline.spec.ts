@@ -17,6 +17,7 @@ import {
   getTimelineEvents,
   mergeSnapshotTimeline,
   rebuildTimelineFromSnapshots,
+  removeTimelineChapter,
   replaceChapterTimelineEntries,
   timelineEntriesFromSnapshots,
 } from "./timeline"
@@ -107,6 +108,41 @@ describe("mergeSnapshotTimeline", () => {
       { chapterNumber: 240, event: "数据链通联测试完成" },
       { chapterNumber: 240, event: "A-50首次进入叙利亚空域" },
     ])
+  })
+})
+
+describe("removeTimelineChapter", () => {
+  it("removes one chapter and keeps hand-edited entries", async () => {
+    memStore.set(timelinePath, JSON.stringify({
+      version: 1,
+      serial: 3,
+      updatedAt: "old",
+      entries: [
+        { chapterNumber: 1, event: "章节" },
+        { chapterNumber: -5, event: "大纲时间线" },
+        { chapterNumber: 99, event: "手改" },
+      ],
+    }))
+
+    await removeTimelineChapter(projectPath, -5)
+
+    expect(await getTimelineEvents(projectPath)).toEqual([
+      { chapterNumber: 1, event: "章节" },
+      { chapterNumber: 99, event: "手改" },
+    ])
+  })
+
+  it("does not rewrite the file when that chapter is absent", async () => {
+    const raw = JSON.stringify({
+      version: 1,
+      serial: 1,
+      updatedAt: "keep",
+      entries: [{ chapterNumber: 1, event: "手改" }],
+    })
+    memStore.set(timelinePath, raw)
+
+    await expect(removeTimelineChapter(projectPath, -5)).resolves.toBe(false)
+    expect(memStore.get(timelinePath)).toBe(raw)
   })
 })
 
