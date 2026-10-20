@@ -74,6 +74,8 @@ pub(crate) fn build_search_args(prompt: &str, model: &str, timeout_secs: u64) ->
         prompt.to_string(),
         "--output-format".to_string(),
         "stream-json".to_string(),
+        // 搜索词可能以 / 开头，不能被当成斜杠命令或技能展开。
+        "--disable-slash-commands".to_string(),
         "--json-schema".to_string(),
         SEARCH_JSON_SCHEMA.to_string(),
         "--print-timeout".to_string(),
@@ -232,6 +234,7 @@ mod tests {
         assert!(args.windows(2).any(|p| p[0] == "--output-format" && p[1] == "stream-json"));
         assert!(args.windows(2).any(|p| p[0] == "--json-schema" && p[1] == SEARCH_JSON_SCHEMA));
         assert!(args.windows(2).any(|p| p[0] == "--print-timeout" && p[1] == "120s"));
+        assert!(args.iter().any(|a| a == "--disable-slash-commands"));
         for flag in ["--model", "--dangerously-skip-permissions", "--continue", "--conversation", "--input-format"] {
             assert!(!args.iter().any(|a| a == flag), "{flag}");
         }

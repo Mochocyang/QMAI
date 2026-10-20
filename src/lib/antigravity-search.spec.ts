@@ -66,6 +66,11 @@ describe("interpretAntigravitySearchRaw", () => {
   it("未登录", () => {
     expect(() => interpretAntigravitySearchRaw({ ...okRaw(""), exitCode: 1, stderr: "Error: authentication required" })).toThrow(/未登录/)
   })
+  it("未登录（agy 1.4.3 真机输出：等待登录 60 秒后返回 ERROR 结果）", () => {
+    const stdout = 'Authentication required. Please visit the URL to log in:\n\nWaiting for authentication (timeout 60s)...\n' +
+      '{"event":"result","result":{"conversation_id":"","status":"ERROR","response":"","error":"authentication failed or timed out","duration_seconds":0,"num_turns":0}}\n'
+    expect(() => interpretAntigravitySearchRaw({ ...okRaw(stdout), exitCode: 1, stderr: "error: authentication failed or timed out" })).toThrow(/未登录/)
+  })
   it("超时", () => {
     expect(() => interpretAntigravitySearchRaw({ ...okRaw(lines(init)), timedOut: true, exitCode: null })).toThrow(/超时/)
   })

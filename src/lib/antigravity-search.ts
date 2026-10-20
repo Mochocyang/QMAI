@@ -194,7 +194,7 @@ export function parseAntigravitySearchOutput(stdout: string, maxResults = 10): A
 export function interpretAntigravitySearchRaw(raw: AntigravitySearchRaw, maxResults = 10): AntigravitySearchOutcome {
   if (raw.notInstalled) throw new AntigravitySearchError(`未检测到 Antigravity CLI（agy）。${INSTALL_HINT}。`)
   const combined = `${raw.stderr}\n${raw.stdout}`
-  if (/authentication required|not authenticated|please (log ?in|sign ?in)|unauthenticated/i.test(combined)) {
+  if (/authentication required|authentication failed|authentication interrupted|not authenticated|please (log ?in|sign ?in)|unauthenticated/i.test(combined)) {
     throw new AntigravitySearchError(`Antigravity CLI 未登录。${LOGIN_HINT}。`)
   }
   if (raw.timedOut) throw new AntigravitySearchError("反重力 CLI 搜索超时，已结束 agy 进程。请稍后重试。")
