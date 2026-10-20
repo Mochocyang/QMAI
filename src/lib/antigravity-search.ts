@@ -11,8 +11,10 @@ import type { WebSearchResult } from "@/lib/web-search"
  *  - 摘要：最终 `result` 事件里按 --json-schema 输出的 summary（由模型基于搜索结果生成，不是谷歌官方摘要）；
  *  - 来源链接：能从 search_web 的输出里认出 URL 就存进结果（时间线不显示，也不进写作上下文）。
  *
- * 注意：tool_info 的具体字段名来自官方 changelog 的描述（工具名、参数、输出），未在真机上验证，
- * 所以解析尽量宽松；取不到时退回最终 JSON。
+ * agy 1.4.3 实测：search_web 的 tool_info 只有 `{ name, parameters: { query } }`，同一次调用会出现
+ * ACTIVE / DONE 两条（需去重），没有 output，所以拿不到来源链接；--json-schema 的结构化结果在
+ * `result.structured_output`（`result.response` 里是同样内容的 JSON 字符串）。默认 request-review
+ * 权限模式下 search_web 不需要审核，可以直接执行。来源解析仍保留，以兼容以后带 output 的版本。
  */
 
 export const ANTIGRAVITY_SEARCH_TIMEOUT_SECS = 180

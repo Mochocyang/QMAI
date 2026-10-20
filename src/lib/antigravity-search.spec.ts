@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import {
   AntigravitySearchError,
   antigravitySearchDetailed,
@@ -96,5 +98,25 @@ describe("antigravitySearchDetailed", () => {
   it("invoke 本身失败（例如旧版应用没有该命令）也不崩，给中文错误", async () => {
     const invoke = vi.fn().mockRejectedValue(new Error("command not found"))
     await expect(antigravitySearchDetailed("x", { invoke })).rejects.toThrow(/无法调用反重力 CLI 搜索/)
+  })
+})
+
+describe("真机样例（agy 1.4.3，去掉 conversation_id / usage）", () => {
+  const fixture = (name: string) =>
+    readFileSync(join(__dirname, "fixtures/antigravity-search", name), "utf8")
+
+  it("带 --json-schema：搜索词来自 tool_info，摘要来自 structured_output，没有来源链接", () => {
+    const out = parseAntigravitySearchOutput(fixture("tu244-json-schema.jsonl"))
+    expect(out.queries).toEqual(["Tu-244"])
+    expect(out.summary.startsWith("图波列夫 Tu-244")).toBe(true)
+    expect(out.summary).toContain("\n\n")
+    expect(out.results).toEqual([])
+  })
+
+  it("不带 --json-schema：ACTIVE/DONE 两条 tool_info 去重，整段回答当摘要", () => {
+    const out = parseAntigravitySearchOutput(fixture("t80bvm-plain-3-searches.jsonl"))
+    expect(out.queries).toEqual(["T-80BVM main battle tank"])
+    expect(out.summary.startsWith("**T-80BVM**")).toBe(true)
+    expect(out.results).toEqual([])
   })
 })
