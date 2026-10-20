@@ -53,7 +53,7 @@ function parseObject(text: string | undefined): Record<string, unknown> | null {
 }
 
 function build(queries: string[], summary: string, sources: SearchDisplaySource[], suggestionsHtml: string): SearchDisplayDetail | null {
-  if (queries.length === 0 && !summary.trim() && !suggestionsHtml.trim()) return null
+  if (queries.length === 0 && !summary.trim()) return null
   return { queries, summary, sources, suggestionsHtml }
 }
 
