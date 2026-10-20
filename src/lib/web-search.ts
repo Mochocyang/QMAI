@@ -7,6 +7,7 @@ import type {
 } from "@/stores/wiki-store"
 import { getHttpFetch, isFetchNetworkError } from "@/lib/tauri-fetch"
 import { geminiSearchDetailed } from "@/lib/gemini-search"
+import { baizhiSearch } from "@/lib/baizhi-search"
 
 export interface WebSearchResult {
   title: string
@@ -91,7 +92,10 @@ export function resolveSearchConfig(config: SearchApiConfig): SearchApiConfig {
   return {
     ...config,
     provider: activeProvider,
-    apiKey: activeOverride?.apiKey ?? config.apiKey ?? "",
+    // 百智只认自己卡片里填的 Key，不继承顶层 apiKey（可能是别的服务的凭据）。
+    apiKey: activeProvider === "baizhi"
+      ? activeOverride?.apiKey ?? ""
+      : activeOverride?.apiKey ?? config.apiKey ?? "",
     serpApiEngine: activeOverride?.serpApiEngine ?? config.serpApiEngine ?? "google",
     searXngUrl: activeOverride?.searXngUrl ?? config.searXngUrl ?? "",
     searXngCategories: activeOverride?.searXngCategories ?? config.searXngCategories ?? ["general"],
@@ -106,6 +110,7 @@ const API_KEY_PROVIDERS = new Set<SearchProvider>([
   "tavily",
   "serpapi",
   "gemini",
+  "baizhi",
 ])
 
 export function providerRequiresApiKey(provider: SearchProvider): boolean {
@@ -172,6 +177,8 @@ async function providerSearch(
       return metasoSearch(query, resolved.apiKey, maxResults)
     case "tavily":
       return tavilySearch(query, resolved.apiKey, maxResults)
+    case "baizhi":
+      return baizhiSearch(query, resolved.apiKey, maxResults)
     case "serpapi":
       return serpApiSearch(query, resolved.apiKey, maxResults, resolved.serpApiEngine ?? "google")
     case "searxng":

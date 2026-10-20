@@ -62,6 +62,13 @@ const SEARCH_PROVIDERS = [
     keyPlaceholder: "Gemini API Key（aistudio.google.com）",
     needsApiKey: true,
   },
+  {
+    id: "baizhi",
+    label: "百智云 Baizhi（MCP）",
+    hint: "国内 · 百智云 Agent Toolkit 网页搜索（agent-toolkit.app.baizhi.cloud）。需自备百智账号和 Key，调用可能消耗额度/收费；查询会发给百智，结果可能进入所选写作模型，联网研究还可能继续读取结果网页",
+    keyPlaceholder: "百智 API Key（只填 Key 本身，不要带 Bearer）",
+    needsApiKey: true,
+  },
 ] as const
 
 export function WebSearchSection() {
