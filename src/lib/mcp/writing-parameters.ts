@@ -32,6 +32,7 @@ export function resolveWritingParameters(input: {
   if (input.workflowMode !== undefined && !isAiWorkflowMode(input.workflowMode)) {
     throw new Error("写作模式无效，只能是 fast、standard、strict、discuss")
   }
+  // MCP 不指定模式时，读取聊天框当前选择；显式覆盖仅作用于本次调用。
   const workflowMode = input.workflowMode === undefined
     ? resolveAiWorkflowMode(state.aiWorkflowMode)
     : input.workflowMode
@@ -39,17 +40,21 @@ export function resolveWritingParameters(input: {
     ? normalizeReasoningDepth(state.aiChatReasoningDepth)
     : requireReasoningDepth(input.reasoningDepth)
   const requestedModel = typeof input.model === "string" ? input.model.trim() : ""
-  const chapterWritingLlm = requestedModel
+  // 已选模型不可用时明确报错，不能静默改用默认模型生成正文。
+  const writingModel = requestedModel || state.aiChatModel.trim()
+  const chapterWritingLlm = writingModel
     ? (() => {
-        const key = resolveUsableModelKey(requestedModel, state.llmConfig, state.providerConfigs)
-        if (!key) throw new Error(`找不到写作模型：${requestedModel}`)
+        const key = resolveUsableModelKey(writingModel, state.llmConfig, state.providerConfigs)
+        if (!key) throw new Error(requestedModel
+          ? `找不到写作模型：${requestedModel}`
+          : `聊天框选中的写作模型不可用：${writingModel}，请重新选择模型`)
         return applyReasoningDepth(resolveModelConfig(key, state.llmConfig, state.providerConfigs), reasoningDepth)
       })()
     : applyReasoningDepth(resolveNovelModel(state.llmConfig, state.novelConfig, "writing"), reasoningDepth)
   const agentLlm = workflowMode === "fast"
     ? chapterWritingLlm
     : applyReasoningDepth(resolveAgentSessionModel(state.llmConfig, state.novelConfig, workflowMode), reasoningDepth)
-  if (!hasUsableLlm(agentLlm, state.providerConfigs)) {
+  if (!hasUsableLlm(chapterWritingLlm, state.providerConfigs) || !hasUsableLlm(agentLlm, state.providerConfigs)) {
     throw new Error("当前没有可用的写作模型")
   }
   return { workflowMode, reasoningDepth, agentLlm, chapterWritingLlm }

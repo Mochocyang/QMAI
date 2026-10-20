@@ -12,6 +12,7 @@ import { compareSemver, decideSkillSync, parseSkillVersion, syncQmaiMcpSkill, ty
 import { resolveWritingParameters } from "./writing-parameters"
 import { runWritingConversation } from "./writing-conversation"
 import { stopProjectWriting } from "./stop-writing"
+import { createWritingProgressStore } from "./writing-progress"
 
 const baseConfig: LlmConfig = {
   provider: "custom",
@@ -175,6 +176,75 @@ describe("MCP documents", () => {
 })
 
 describe("writing parameters", () => {
+  it.each(["fast", "standard", "strict", "discuss"] as const)("inherits the selected %s mode and keeps body and orchestration models separate", (mode) => {
+    useWikiStore.setState({
+      aiChatModel: "custom/writer-model",
+      aiWorkflowMode: mode,
+      providerConfigs,
+      llmConfig: baseConfig,
+      defaultLlmModel: "custom/workflow-model",
+      novelConfig: { ...DEFAULT_NOVEL_CONFIG, defaultLlmModel: "custom/workflow-model" },
+    })
+    const resolved = resolveWritingParameters()
+    expect(resolved.workflowMode).toBe(mode)
+    expect(resolved.chapterWritingLlm.model).toBe("writer-model")
+    expect(resolved.agentLlm.model).toBe(mode === "fast" ? "writer-model" : "workflow-model")
+    expect(useWikiStore.getState().aiWorkflowMode).toBe(mode)
+  })
+
+  it("reads the current chat mode again for each call without caching it", () => {
+    useWikiStore.setState({
+      aiChatModel: "custom/writer-model",
+      providerConfigs,
+      llmConfig: baseConfig,
+      novelConfig: { ...DEFAULT_NOVEL_CONFIG, defaultLlmModel: "custom/workflow-model" },
+    })
+    for (const mode of ["strict", "fast", "discuss", "standard"] as const) {
+      useWikiStore.setState({ aiWorkflowMode: mode })
+      expect(resolveWritingParameters().workflowMode).toBe(mode)
+    }
+  })
+
+  it("overrides only this call's body model and mode while retaining the configured workflow model", () => {
+    useWikiStore.setState({
+      aiChatModel: "custom/writer-model",
+      aiWorkflowMode: "discuss",
+      providerConfigs,
+      llmConfig: baseConfig,
+      novelConfig: { ...DEFAULT_NOVEL_CONFIG, defaultLlmModel: "custom/workflow-model" },
+    })
+    const resolved = resolveWritingParameters({ workflowMode: "strict", model: "custom/writer-model" })
+    expect(resolved.workflowMode).toBe("strict")
+    expect(resolved.chapterWritingLlm.model).toBe("writer-model")
+    expect(resolved.agentLlm.model).toBe("workflow-model")
+    expect(useWikiStore.getState().aiWorkflowMode).toBe("discuss")
+    expect(useWikiStore.getState().aiChatModel).toBe("custom/writer-model")
+    expect(useWikiStore.getState().novelConfig.defaultLlmModel).toBe("custom/workflow-model")
+  })
+
+  it.each(["custom/missing-model", "disabled/writer-model"])("rejects an unavailable selection %s instead of silently using the default", (selected) => {
+    useWikiStore.setState({
+      aiChatModel: selected,
+      aiWorkflowMode: "standard",
+      providerConfigs: { ...providerConfigs, disabled: { ...providerConfigs.custom, enabled: false } },
+      llmConfig: baseConfig,
+      novelConfig: { ...DEFAULT_NOVEL_CONFIG, defaultLlmModel: "custom/workflow-model" },
+    })
+    expect(() => resolveWritingParameters()).toThrow("聊天框选中的写作模型不可用")
+    expect(useWikiStore.getState().aiChatModel).toBe(selected)
+    expect(resolveWritingParameters({ model: "custom/writer-model" }).chapterWritingLlm.model).toBe("writer-model")
+  })
+
+  it("uses the default only when no chat model is selected", () => {
+    useWikiStore.setState({
+      aiChatModel: "",
+      providerConfigs,
+      llmConfig: baseConfig,
+      novelConfig: { ...DEFAULT_NOVEL_CONFIG, defaultLlmModel: "custom/workflow-model" },
+    })
+    expect(resolveWritingParameters().chapterWritingLlm.model).toBe("workflow-model")
+  })
+
   it("uses the current mode and model when the call omits them, and does not write them back", () => {
     useWikiStore.setState({
       aiChatModel: "custom/writer-model",
@@ -223,26 +293,29 @@ describe("writing conversation", () => {
       novelConfig: { ...DEFAULT_NOVEL_CONFIG, defaultLlmModel: "custom/workflow-model" },
       project: null,
     })
-    let saved: { conversations: { id: string }[]; messages: { role: string; content: string }[] } | null = null
+    const saved: { current: { conversations: { id: string }[]; messages: { role: string; content: string }[] } | null } = { current: null }
     const reply = await runWritingConversation({
       projectPath: "/books/demo",
       message: "继续写下一章",
-      workflowMode: "fast",
     }, {
+      progressStore: createWritingProgressStore({ read: async () => "", write: async () => {} }),
       loadHistory: async () => ({ conversations: [], messages: [], runStates: {} }),
       saveHistory: async (_path, conversations, messages) => {
-        saved = { conversations, messages }
+        saved.current = { conversations, messages }
       },
       readLive: () => null,
       runSession: async (ctx) => {
-        expect(ctx.workflowMode).toBe("fast")
+        expect(ctx.workflowMode).toBe("standard")
+        expect(ctx.agentLlm.model).toBe("workflow-model")
         expect(ctx.chapterWritingLlm.model).toBe("writer-model")
         return "这是回复"
       },
     })
     expect(reply).toContain("这是回复")
-    expect(saved?.conversations).toHaveLength(1)
-    expect(saved?.messages.map((message) => message.role)).toEqual(["user", "assistant"])
+    expect(reply).toContain("正文模型：writer-model")
+    expect(reply).toContain("工作流模型：workflow-model")
+    expect(saved.current?.conversations).toHaveLength(1)
+    expect(saved.current?.messages.map((message) => message.role)).toEqual(["user", "assistant"])
     expect(useWikiStore.getState().aiWorkflowMode).toBe("standard")
   })
 
@@ -260,6 +333,7 @@ describe("writing conversation", () => {
       projectPath: "/books/locked",
       message: "第一句",
     }, {
+      progressStore: createWritingProgressStore({ read: async () => "", write: async () => {} }),
       loadHistory: async () => ({ conversations: [], messages: [], runStates: {} }),
       saveHistory: async () => {},
       readLive: () => null,
@@ -272,6 +346,7 @@ describe("writing conversation", () => {
       projectPath: "/books/locked",
       message: "第二句",
     }, {
+      progressStore: createWritingProgressStore({ read: async () => "", write: async () => {} }),
       loadHistory: async () => ({ conversations: [], messages: [], runStates: {} }),
       saveHistory: async () => {},
       readLive: () => null,
@@ -291,14 +366,15 @@ describe("writing conversation", () => {
     })
     let entered: () => void = () => {}
     const ready = new Promise<void>((resolve) => { entered = resolve })
-    let saved: { role: string; content: string }[] | null = null
+    const saved: { current: { role: string; content: string }[] | null } = { current: null }
     const running = runWritingConversation({
       projectPath: "/books/stop",
       message: "编写第 200 章",
     }, {
+      progressStore: createWritingProgressStore({ read: async () => "", write: async () => {} }),
       loadHistory: async () => ({ conversations: [], messages: [], runStates: {} }),
       saveHistory: async (_path, _conversations, messages) => {
-        saved = messages
+        saved.current = messages
       },
       readLive: () => null,
       runSession: (ctx) => new Promise((_resolve, reject) => {
@@ -309,7 +385,7 @@ describe("writing conversation", () => {
     await ready
     expect(stopProjectWriting("/books/stop")).toBe("已停止生成。")
     await expect(running).resolves.toBe("已停止生成。")
-    expect(saved?.map((message) => message.content)).toEqual(["编写第 200 章", "已停止生成。"])
+    expect(saved.current?.map((message) => message.content)).toEqual(["编写第 200 章", "已停止生成。"])
     expect(stopProjectWriting("/books/stop")).toBe("当前没有正在进行的写作生成。")
   })
 })

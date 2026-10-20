@@ -95,4 +95,45 @@ mod tests {
         assert!(called.contains("保存被拒绝"));
         server.stop();
     }
+
+    #[test]
+    fn background_start_allows_progress_and_stop_on_the_same_bridge() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let running = Arc::new(AtomicBool::new(false));
+        let task = running.clone();
+        let server = start_with(Arc::new(move |params| {
+            let name = params["name"].as_str().unwrap_or("");
+            let text = match name {
+                "writing_conversation" => {
+                    assert_eq!(params["arguments"]["background"], true);
+                    task.store(true, Ordering::SeqCst);
+                    json!({"runId":"run-1","status":"running"}).to_string()
+                }
+                "get_writing_progress" => {
+                    assert_eq!(params["arguments"]["runId"], "run-1");
+                    json!({"status": if task.load(Ordering::SeqCst) { "running" } else { "cancelled" }}).to_string()
+                }
+                "stop_writing" => {
+                    task.store(false, Ordering::SeqCst);
+                    "已停止生成。".to_string()
+                }
+                _ => return Err("未知工具".to_string()),
+            };
+            Ok(json!({"content":[{"type":"text","text":text}]}))
+        })).unwrap();
+        for (id, name, arguments, expected) in [
+            (1, "writing_conversation", json!({"message":"编写第 200 章","background":true}), "running"),
+            (2, "get_writing_progress", json!({"runId":"run-1"}), "running"),
+            (3, "stop_writing", json!({}), "已停止生成。"),
+            (4, "get_writing_progress", json!({"runId":"run-1"}), "cancelled"),
+        ] {
+            let request = json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":arguments}});
+            let response = bridge_line(&request.to_string(), Ok((server.port(), server.token()))).unwrap();
+            let parsed: Value = serde_json::from_str(&response).unwrap();
+            assert_eq!(parsed["id"], id);
+            assert!(parsed["result"]["content"][0]["text"].as_str().unwrap().contains(expected));
+        }
+        assert!(!running.load(Ordering::SeqCst));
+        server.stop();
+    }
 }

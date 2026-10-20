@@ -1,11 +1,12 @@
 use serde_json::{json, Value};
 
 #[cfg(test)]
-pub const TOOL_NAMES: [&str; 9] = [
+pub const TOOL_NAMES: [&str; 10] = [
     "list_bookshelf",
     "open_bookshelf",
     "get_current",
     "writing_conversation",
+    "get_writing_progress",
     "stop_writing",
     "save_document",
     "update_document_title",
@@ -73,16 +74,28 @@ pub fn tools_list_result() -> Value {
             ),
             tool(
                 "writing_conversation",
-                "发起或继续一次写作对话。不传 workflowMode、model、reasoningDepth 时使用青幕当前界面的写作模式、写作模型和思考深度，且不改写界面选择。",
+                "发起或继续一次写作对话。background 为 true 时立即返回任务标识，使用 get_writing_progress 查询进度；默认等待完成。不传写作参数时使用当前界面值，且不改写界面选择。",
                 json!({
                     "message": prop("用户要说的话"),
                     "projectPath": prop("项目目录。不传则使用当前打开的项目"),
                     "conversationId": prop("要继续的写作会话 id。不传则新建"),
                     "workflowMode": { "type": "string", "enum": ["fast", "standard", "strict", "discuss"], "description": "这一次的写作模式" },
                     "model": prop("这一次的写作模型 id"),
-                    "reasoningDepth": { "type": "string", "enum": ["auto", "off", "low", "medium", "high", "max"], "description": "这一次的思考深度" }
+                    "reasoningDepth": { "type": "string", "enum": ["auto", "off", "low", "medium", "high", "max"], "description": "这一次的思考深度" },
+                    "background": { "type": "boolean", "default": false, "description": "为 true 时后台执行，返回 runId、conversationId 和进度文件路径；断开客户端不取消任务" }
                 }),
                 vec!["message"]
+            ),
+            tool(
+                "get_writing_progress",
+                "查询 MCP 写作任务的实际阶段、工具状态和问题，不返回正文或思考。传 afterRevision 可等待变化，最长 30 秒；无变化时 changed 为 false。",
+                json!({
+                    "projectPath": prop("任务所属项目目录。不传则使用当前打开的项目"),
+                    "runId": prop("writing_conversation 返回的任务 runId"),
+                    "afterRevision": { "type": "integer", "minimum": 0, "description": "上次已读取的进度版本号" },
+                    "waitMs": { "type": "integer", "minimum": 0, "maximum": 30000, "default": 0, "description": "进度未变化时最多等待的毫秒数，仅配合 afterRevision 生效" }
+                }),
+                vec!["runId"]
             ),
             tool(
                 "stop_writing",
@@ -199,5 +212,18 @@ mod tests {
             &mut |_| Ok(json!({})),
         );
         assert!(response.is_none());
+    }
+
+    #[test]
+    fn background_progress_schema_preserves_sync_default_and_bounded_waits() {
+        let listed = tools_list_result();
+        let tools = listed["tools"].as_array().unwrap();
+        let writing = tools.iter().find(|tool| tool["name"] == "writing_conversation").unwrap();
+        assert_eq!(writing["inputSchema"]["properties"]["background"]["default"], false);
+        assert_eq!(writing["inputSchema"]["required"], json!(["message"]));
+        let progress = tools.iter().find(|tool| tool["name"] == "get_writing_progress").unwrap();
+        assert_eq!(progress["inputSchema"]["required"], json!(["runId"]));
+        assert_eq!(progress["inputSchema"]["properties"]["waitMs"]["maximum"], 30000);
+        assert_eq!(progress["inputSchema"]["properties"]["afterRevision"]["minimum"], 0);
     }
 }

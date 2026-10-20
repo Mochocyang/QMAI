@@ -10,6 +10,7 @@ import { renameProjectDocument, siblingFromMarkdown } from "./rename-document"
 import { saveProjectDocument } from "./save-document"
 import { runWritingConversation } from "./writing-conversation"
 import { stopProjectWriting } from "./stop-writing"
+import { writingProgressStore } from "./writing-progress"
 
 function textArg(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
@@ -60,6 +61,15 @@ export async function dispatchMcpTool(name: string, args: Record<string, unknown
   }
   if (name === "get_current") return getCurrentOpen()
   const projectPath = requireProjectPath(args)
+  if (name === "get_writing_progress") {
+    const runId = textArg(args.runId)
+    if (!runId) throw new Error("请提供写作任务 runId")
+    return JSON.stringify(await writingProgressStore.get({
+      projectPath, runId,
+      afterRevision: args.afterRevision as number | undefined,
+      waitMs: args.waitMs as number | undefined,
+    }))
+  }
   if (name === "stop_writing") return stopProjectWriting(projectPath)
   if (name === "writing_conversation") {
     return runWritingConversation({
@@ -69,6 +79,7 @@ export async function dispatchMcpTool(name: string, args: Record<string, unknown
       workflowMode: args.workflowMode,
       model: args.model,
       reasoningDepth: args.reasoningDepth,
+      background: args.background === true,
     })
   }
   const path = textArg(args.path)
