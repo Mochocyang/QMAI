@@ -1,4 +1,5 @@
 import { memo, useState } from "react"
+import { SearchResultDetail } from "./search-result-detail"
 import {
   Ban,
   Check,
@@ -71,9 +72,12 @@ function ToolCallEventImpl({ event, compact = false }: ToolCallEventProps) {
   const StatusIcon = STATUS_ICON[event.status]
   const statusLabel = STATUS_LABEL[event.status]
   const hasParams = !!event.params && Object.keys(event.params).length > 0
-  const hasResult = !!event.result?.trim()
+  const searchDetail = event.searchDetail ?? null
+  // 有搜索附加信息时，原始 JSON 结果由结构化视图代替；纯文本结果照常显示。
+  const hideRawResult = !!searchDetail && !!event.result?.trim().startsWith("{")
+  const hasResult = !!event.result?.trim() && !hideRawResult
   const hasError = !!event.error?.trim()
-  const hasDetails = hasParams || hasResult || hasError
+  const hasDetails = hasParams || hasResult || hasError || !!searchDetail
 
   return (
     <div
@@ -133,6 +137,7 @@ function ToolCallEventImpl({ event, compact = false }: ToolCallEventProps) {
               ))}
             </div>
           )}
+          {searchDetail && <SearchResultDetail detail={searchDetail} />}
           {hasResult && event.result && (
             <div className="space-y-0.5">
               <div className="text-[0.625rem] font-medium text-muted-foreground/70">结果</div>

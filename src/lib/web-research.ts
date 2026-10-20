@@ -1,6 +1,9 @@
 import type { SearchApiConfig } from "@/stores/wiki-store"
 import { getHttpFetch } from "@/lib/tauri-fetch"
-import { webSearch, type WebSearchResult } from "@/lib/web-search"
+import { webSearchDetailed, type WebSearchResult } from "@/lib/web-search"
+import { formatGeminiContextBlock } from "@/lib/search-display"
+
+const WEB_RESEARCH_CONTEXT_CAP = 5000
 
 interface WebResearchDocument {
   title: string
@@ -25,6 +28,10 @@ interface WebResearchResult {
   importedDocuments: WebResearchDocument[]
   failedUrls: string[]
   notes: string[]
+  /** 搜索后端实际执行的搜索词（目前只有 Gemini 提供）。 */
+  searchQueries?: string[]
+  /** 搜索后端给出的综合摘要（目前只有 Gemini 提供）。 */
+  searchSummary?: string
 }
 
 interface WebResearchContextInput {
@@ -32,6 +39,8 @@ interface WebResearchContextInput {
   searchResults: WebSearchResult[]
   importedDocuments: WebResearchDocument[]
   failedUrls: string[]
+  searchQueries?: string[]
+  searchSummary?: string
 }
 
 export function extractWebUrls(text: string): string[] {
@@ -71,10 +80,15 @@ export async function collectWebResearch(input: WebResearchInput): Promise<WebRe
   const notes: string[] = []
   const failedUrls: string[] = []
   let searchResults: WebSearchResult[] = []
+  let searchQueries: string[] | undefined
+  let searchSummary: string | undefined
 
   if (allowSearch && query) {
     try {
-      searchResults = await webSearch(query, input.searchApiConfig, maxSearchResults)
+      const outcome = await webSearchDetailed(query, input.searchApiConfig, maxSearchResults)
+      searchResults = outcome.results
+      searchQueries = outcome.queries
+      searchSummary = outcome.summary
     } catch (error) {
       notes.push(`网页搜索失败：${error instanceof Error ? error.message : String(error)}`)
     }
@@ -96,12 +110,18 @@ export async function collectWebResearch(input: WebResearchInput): Promise<WebRe
     importedDocuments,
     failedUrls,
     notes,
+    // 只有 Gemini 后端会带这两项；其它后端保持原来的对象形状。
+    ...(searchQueries?.length ? { searchQueries } : {}),
+    ...(searchSummary?.trim() ? { searchSummary } : {}),
   }
 }
 
 export function buildWebResearchContext(input: WebResearchContextInput): { markdown: string; sources: string[] } {
+  // Gemini 的来源只在时间线展示：这份 sources 会进入后续提示词（大纲的 existingModules），
+  // 所以有 Gemini 摘要时不列搜索来源（也就不带跳转长链接）。其它后端不变。
+  const searchSources = input.searchSummary?.trim() ? [] : input.searchResults
   const sources = dedupeSources([
-    ...input.searchResults.map((result) => `${result.title} - ${result.url}`),
+    ...searchSources.map((result) => `${result.title} - ${result.url}`),
     ...input.importedDocuments.map((document) => `${document.title} - ${document.url}`),
   ])
   const lines: string[] = [
@@ -115,7 +135,16 @@ export function buildWebResearchContext(input: WebResearchContextInput): { markd
     "- 不要大段复述网页原文；如果资料不足，请明确说明资料不足。",
   ]
 
-  if (input.searchResults.length > 0) {
+  const geminiSummary = input.searchSummary?.trim() ?? ""
+  if (geminiSummary) {
+    // Gemini：只放搜索词 + 完整摘要；来源、片段、链接只在时间线展示。
+    const headerLength = lines.join("\n").length + 2
+    lines.push("", ...formatGeminiContextBlock({
+      queries: input.searchQueries,
+      summary: geminiSummary,
+      budget: WEB_RESEARCH_CONTEXT_CAP - headerLength,
+    }))
+  } else if (input.searchResults.length > 0) {
     lines.push("", "### 搜索结果")
     input.searchResults.slice(0, 8).forEach((result, index) => {
       lines.push(

@@ -1,6 +1,7 @@
 import type { LlmConfig, SearchApiConfig } from "@/stores/wiki-store"
 import type { ChatMessage, RequestOverrides, StreamCallbacks } from "@/lib/llm-client"
-import { providerRequiresApiKey, resolveSearchConfig, webSearch, type WebSearchResult } from "@/lib/web-search"
+import { providerRequiresApiKey, resolveSearchConfig, webSearch, webSearchDetailed, type WebSearchOutcome, type WebSearchResult } from "@/lib/web-search"
+import { formatGeminiContextBlock } from "@/lib/search-display"
 import { rethrowIfUserAbort, throwIfAborted } from "@/lib/user-abort"
 import { listLocalEntityNames } from "./local-entity-names"
 import { readPreviousChapterBodies } from "./previous-chapters-analysis"
@@ -12,11 +13,23 @@ const MAX_EXTRACTED_ENTITIES = 20
 const MAX_SEARCH_QUERIES = 8
 const SOURCE_TEXT_CHAR_CAP = 8000
 
+/**
+ * 一个实体的搜索结果。`searchQueries` / `summary` / `searchSuggestionsHtml`
+ * 只有 Gemini 后端会给；其它后端与旧记录没有这些字段。
+ */
+export interface WritingEntitySearchItem {
+  name: string
+  results: WebSearchResult[]
+  searchQueries?: string[]
+  summary?: string
+  searchSuggestionsHtml?: string
+}
+
 export interface WritingEntityWebSearchResult {
   markdown: string
   searchedNames: string[]
   notes: string[]
-  items?: Array<{ name: string; results: WebSearchResult[] }>
+  items?: WritingEntitySearchItem[]
   /** 按规则主动跳过（无候选、判定无需联网、未配置搜索源），区别于检索失败。 */
   skipped?: boolean
 }
@@ -44,6 +57,8 @@ export interface CollectWritingEntityWebSearchInput {
   listEntityNames?: typeof listLocalEntityNames
   readPreviousBodies?: typeof readPreviousChapterBodies
   search?: typeof webSearch
+  /** 带附加信息的搜索（默认 webSearchDetailed）。传了 `search` 时以 `search` 为准。 */
+  searchDetailed?: typeof webSearchDetailed
 }
 
 export function isWebSearchConfigured(
@@ -223,17 +238,27 @@ interface WritingEntitySearchWorkflowPersisted {
   content: string
   searchedNames: string[]
   notes: string[]
-  items: Array<{ name: string; results: WebSearchResult[] }>
+  items: WritingEntitySearchItem[]
 }
 
 const DISPLAY_TITLE_MAX = 80
 const DISPLAY_SNIPPET_MAX = 140
 
 export function formatWritingEntitySearchMarkdown(
-  items: Array<{ name: string; results: WebSearchResult[] }>,
+  items: WritingEntitySearchItem[],
 ): string {
   if (items.length === 0) return ""
   const sections = items.map((item) => {
+    const summary = item.summary?.trim() ?? ""
+    if (summary) {
+      // Gemini：只放搜索词 + 完整摘要；来源、片段、链接只在时间线展示。
+      const block = formatGeminiContextBlock({
+        queries: item.searchQueries,
+        summary,
+        labels: { queries: "实际搜索词：", summary: "搜索摘要：" },
+      })
+      return [`### ${item.name}`, ...block].join("\n")
+    }
     const lines = item.results.length > 0
       ? item.results.map((result) => {
         const title = result.title.trim() || result.url.trim() || result.source.trim() || "未命名来源"
@@ -291,6 +316,10 @@ export function serializeWritingEntitySearchWorkflowResult(
       snippet: source.snippet,
       source: source.source,
     })),
+    // 只有 Gemini 有；没有时不写这些键，保持旧记录格式不变。
+    ...(item.searchQueries?.length ? { searchQueries: [...item.searchQueries] } : {}),
+    ...(item.summary?.trim() ? { summary: item.summary } : {}),
+    ...(item.searchSuggestionsHtml?.trim() ? { searchSuggestionsHtml: item.searchSuggestionsHtml } : {}),
   }))
   const persisted: WritingEntitySearchWorkflowPersisted = {
     content: formatWritingEntitySearchWorkflowResult({ ...result, items }),
@@ -374,9 +403,9 @@ export function writingEntitySearchSourceLabels(
   return labels
 }
 
-function normalizePersistedSearchItems(value: unknown): Array<{ name: string; results: WebSearchResult[] }> {
+function normalizePersistedSearchItems(value: unknown): WritingEntitySearchItem[] {
   if (!Array.isArray(value)) return []
-  const items: Array<{ name: string; results: WebSearchResult[] }> = []
+  const items: WritingEntitySearchItem[] = []
   for (const item of value) {
     if (!item || typeof item !== "object") continue
     const record = item as Record<string, unknown>
@@ -395,7 +424,18 @@ function normalizePersistedSearchItems(value: unknown): Array<{ name: string; re
         })
       }
     }
-    items.push({ name, results })
+    const searchQueries = Array.isArray(record.searchQueries)
+      ? record.searchQueries.filter((q): q is string => typeof q === "string" && q.trim().length > 0)
+      : []
+    items.push({
+      name,
+      results,
+      ...(searchQueries.length ? { searchQueries } : {}),
+      ...(typeof record.summary === "string" && record.summary.trim() ? { summary: record.summary } : {}),
+      ...(typeof record.searchSuggestionsHtml === "string" && record.searchSuggestionsHtml.trim()
+        ? { searchSuggestionsHtml: record.searchSuggestionsHtml }
+        : {}),
+    })
   }
   return items
 }
@@ -433,7 +473,9 @@ export async function collectWritingEntityWebSearch(
   try {
     const listEntityNames = input.listEntityNames ?? listLocalEntityNames
     const readPreviousBodies = input.readPreviousBodies ?? readPreviousChapterBodies
-    const search = input.search ?? webSearch
+    const search: (term: string) => Promise<WebSearchOutcome> = input.search
+      ? async (term) => ({ results: await input.search!(term, input.searchApiConfig!, 8) })
+      : (term) => (input.searchDetailed ?? webSearchDetailed)(term, input.searchApiConfig!, 8)
 
     const [entityNames, previousBodies] = await Promise.all([
       listEntityNames(input.projectPath),
@@ -468,16 +510,23 @@ export async function collectWritingEntityWebSearch(
 
     input.onSearchStart?.(launchedQueriesFor(queries))
 
-    const items: Array<{ name: string; results: WebSearchResult[] }> = []
+    const items: WritingEntitySearchItem[] = []
     const searchedNames: string[] = []
     for (const query of queries) {
       throwIfAborted(input.signal)
       const results: WebSearchResult[] = []
+      const extraQueries: string[] = []
+      const summaries: string[] = []
+      const suggestions: string[] = []
       let searchedThisEntity = false
       for (const term of launchedQueriesFor([query])) {
         throwIfAborted(input.signal)
         try {
-          mergeSearchResults(results, await search(term, input.searchApiConfig, 8))
+          const outcome = await search(term)
+          mergeSearchResults(results, outcome.results)
+          if (outcome.queries?.length) extraQueries.push(...outcome.queries)
+          if (outcome.summary?.trim()) summaries.push(outcome.summary.trim())
+          if (outcome.searchSuggestionsHtml?.trim()) suggestions.push(outcome.searchSuggestionsHtml)
           searchedNames.push(term)
           searchedThisEntity = true
         } catch (error) {
@@ -486,7 +535,13 @@ export async function collectWritingEntityWebSearch(
         }
       }
       if (searchedThisEntity) {
-        items.push({ name: query.name, results })
+        items.push({
+          name: query.name,
+          results,
+          ...(extraQueries.length ? { searchQueries: [...new Set(extraQueries)] } : {}),
+          ...(summaries.length ? { summary: summaries.join("\n\n") } : {}),
+          ...(suggestions.length ? { searchSuggestionsHtml: suggestions.join("\n") } : {}),
+        })
       }
     }
 

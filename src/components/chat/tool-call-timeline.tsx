@@ -2,6 +2,8 @@ import { useMemo, useState } from "react"
 import { BookOpen, ChevronDown, ChevronRight, Loader2, CheckCircle2, Pencil, XCircle, Zap, Cpu, Minimize2, Maximize2, AlertTriangle, Search, Filter } from "lucide-react"
 import type { AgentRunRecord } from "@/lib/agent/types"
 import { getWorkflowToolResultDisplay } from "@/lib/agent/workflow-trace"
+import { extractSearchDisplayDetail } from "@/lib/search-display"
+import { SearchResultDetail } from "@/components/common/search-result-detail"
 import { cn } from "@/lib/utils"
 
 type ToolCallRecord = AgentRunRecord["toolCalls"][number]
@@ -329,7 +331,17 @@ function TimelineItem({
                   </div>
                 </div>
               )}
-              {getWorkflowToolResultDisplay(call.result)}
+              {(() => {
+                const searchDetail = hasError ? null : extractSearchDisplayDetail(call.result)
+                const text = getWorkflowToolResultDisplay(call.result)
+                if (!searchDetail) return text
+                return (
+                  <>
+                    <SearchResultDetail detail={searchDetail} />
+                    {text.startsWith("{") ? null : <div className="mt-1.5">{text}</div>}
+                  </>
+                )
+              })()}
               {needsApproval && isWriteTool && onConfirmSave && onReject && (
                 <div className="mt-2 flex gap-2 border-t border-amber-200/60 pt-2 dark:border-amber-900/30">
                   <button
