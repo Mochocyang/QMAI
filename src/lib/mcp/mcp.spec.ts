@@ -7,7 +7,7 @@ import { saveProjectDocument } from "./save-document"
 import { extractProjectMemory } from "./extract-memory"
 import { planPageRename } from "@/lib/wiki/rename-page"
 import { renameProjectDocument } from "./rename-document"
-import { buildMcpConfigInstallText, buildSkillInstallText } from "./copy-text"
+import { buildAgentInstallText, buildMcpConfigInstallText, buildSkillInstallText } from "./copy-text"
 import { compareSemver, decideSkillSync, parseSkillVersion, syncQmaiMcpSkill, type SkillSyncIo } from "./skill-sync"
 import { resolveWritingParameters } from "./writing-parameters"
 import { runWritingConversation } from "./writing-conversation"
@@ -327,6 +327,9 @@ describe("install copy text", () => {
     expect(config).toContain("C:/Program Files/青幕AI写作/青幕AI写作.exe")
     expect(config).toContain("--mcp-stdio")
     const skill = buildSkillInstallText("/Applications/青幕.app/Contents/Resources/skills/qmai-mcp", "1.0.0")
+    const combined = buildAgentInstallText("C:/Program Files/青幕AI写作/青幕AI写作.exe", "/Applications/青幕.app/Contents/Resources/skills/qmai-mcp", "1.0.0")
+    expect(combined).toContain(config)
+    expect(combined).toContain(skill)
     expect(skill).toContain("请安装 qmai-mcp 1.0.0")
     expect(skill).toContain("/Applications/青幕.app/Contents/Resources/skills/qmai-mcp")
     expect(skill).toContain("覆盖已有同名目录")

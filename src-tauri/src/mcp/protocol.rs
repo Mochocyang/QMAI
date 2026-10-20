@@ -1,6 +1,9 @@
 use serde_json::{json, Value};
 
-pub const TOOL_NAMES: [&str; 5] = [
+pub const TOOL_NAMES: [&str; 8] = [
+    "list_bookshelf",
+    "open_bookshelf",
+    "get_current",
     "writing_conversation",
     "save_document",
     "update_document_title",
@@ -44,6 +47,28 @@ fn prop(description: &str) -> Value {
 pub fn tools_list_result() -> Value {
     json!({
         "tools": [
+            tool(
+                "list_bookshelf",
+                "列出书架上的全部书，包含书名、id 和路径。",
+                json!({}),
+                vec![]
+            ),
+            tool(
+                "open_bookshelf",
+                "从书架打开一本书，并切换到这本书。书名、id、路径至少提供一个。同名书有多本时请改用 id 或路径。",
+                json!({
+                    "name": prop("书名"),
+                    "id": prop("书的 id"),
+                    "path": prop("书的项目目录")
+                }),
+                vec![]
+            ),
+            tool(
+                "get_current",
+                "获取当前打开的书，以及正在打开的文件。没有打开的书时会说明。",
+                json!({}),
+                vec![]
+            ),
             tool(
                 "writing_conversation",
                 "发起或继续一次写作对话。不传 workflowMode、model、reasoningDepth 时使用青幕当前界面的写作模式、写作模型和思考深度，且不改写界面选择。",
@@ -129,7 +154,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tools_list_contains_the_five_agent_tools() {
+    fn tools_list_contains_the_agent_tools() {
         let result = tools_list_result();
         let names: Vec<&str> = result["tools"]
             .as_array()

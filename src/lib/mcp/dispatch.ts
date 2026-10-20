@@ -2,6 +2,7 @@ import { listDirectory, readFile } from "@/commands/fs"
 import type { FileNode } from "@/types/wiki"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
+import { getCurrentOpen, listBookshelf, openBookshelf } from "./bookshelf"
 import { extractProjectMemory } from "./extract-memory"
 import { formatProjectChapter } from "./format-chapter"
 import { classifyProjectDocument } from "./paths"
@@ -48,6 +49,15 @@ async function siblingsFor(projectPath: string, path: string) {
 }
 
 export async function dispatchMcpTool(name: string, args: Record<string, unknown>): Promise<string> {
+  if (name === "list_bookshelf") return listBookshelf()
+  if (name === "open_bookshelf") {
+    return openBookshelf({
+      id: textArg(args.id),
+      name: textArg(args.name),
+      path: textArg(args.path),
+    })
+  }
+  if (name === "get_current") return getCurrentOpen()
   const projectPath = requireProjectPath(args)
   if (name === "writing_conversation") {
     return runWritingConversation({

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import i18n from "@/i18n"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
@@ -32,6 +32,7 @@ import { isChapterPathInProject, normalizePath } from "@/lib/path-utils"
 import { useWritingStatsStore } from "@/stores/writing-stats-store"
 import { runUserMemoryMaintenance } from "@/lib/user-memory/maintenance"
 import { bootMcp } from "@/lib/mcp/startup"
+import { registerShelfOpener } from "@/lib/mcp/bookshelf"
 import { initializeProjectContextCache } from "@/lib/context-hub/context-hub"
 import { useEnsureAiChatModel } from "@/lib/ensure-ai-chat-model"
 
@@ -627,6 +628,13 @@ function App() {
     // 文件树由新版外壳通过 refreshProjectFileTree 加载；重队列/定时导入/审查/聊天后置 hydration。
     void hydrateDeferredProjectState(proj)
   }
+
+  const openShelfRef = useRef(handleProjectOpened)
+  openShelfRef.current = handleProjectOpened
+  useEffect(() => {
+    registerShelfOpener((project) => openShelfRef.current(project))
+    return () => registerShelfOpener(null)
+  }, [])
 
   async function handleSelectRecent(proj: WikiProject) {
     try {

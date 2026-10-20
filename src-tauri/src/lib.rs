@@ -263,6 +263,7 @@ pub fn run() {
             ensure_bundled_fonts,
             remove_bundled_fonts,
             mcp::mcp_set_enabled,
+            mcp::mcp_status,
             mcp::mcp_respond,
             mcp::mcp_stdio_executable,
             mcp::resolve_qmai_mcp_skill_dir,

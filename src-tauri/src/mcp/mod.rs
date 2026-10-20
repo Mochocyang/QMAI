@@ -51,6 +51,21 @@ pub fn mcp_set_enabled(app: AppHandle, state: State<'_, McpState>, enabled: bool
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+pub struct McpStatus {
+    enabled: bool,
+    port: Option<u16>,
+}
+
+#[tauri::command]
+pub fn mcp_status(state: State<'_, McpState>) -> Result<McpStatus, String> {
+    let server = state.server.lock().map_err(|_| "MCP 状态不可用".to_string())?;
+    Ok(McpStatus {
+        enabled: server.is_some(),
+        port: server.as_ref().map(|running| running.port()),
+    })
+}
+
 #[tauri::command]
 pub fn mcp_respond(state: State<'_, McpState>, id: String, body: Value) -> Result<(), String> {
     server::complete_call(&state.pending, &id, body)

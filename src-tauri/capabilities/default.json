@@ -21,6 +21,7 @@
     "core:window:allow-start-resize-dragging",
     "core:webview:allow-create-webview-window",
     "opener:default",
+    "opener:allow-open-path",
     "dialog:default",
     "dialog:allow-confirm",
     "store:default",

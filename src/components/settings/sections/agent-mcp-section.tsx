@@ -1,159 +1,195 @@
 import { useEffect, useState } from "react"
-import { useTranslation } from "react-i18next"
+import { invoke } from "@tauri-apps/api/core"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { MCP_USAGE_EXAMPLES, buildMcpConfigInstallText, buildSkillInstallText } from "@/lib/mcp/copy-text"
-import { applyMcpSettings, readBundledSkillInstallInfo, syncInstalledQmaiMcpSkill } from "@/lib/mcp/startup"
+import { copyDirectory, createDirectory, deleteFile, fileExists } from "@/commands/fs"
+import { buildMcpConfigInstallText, buildSkillInstallText } from "@/lib/mcp/copy-text"
+import { applyMcpSettings, readBundledSkillInstallInfo } from "@/lib/mcp/startup"
+import { openExternalUrl } from "@/lib/open-external-url"
+import { pickDirectory } from "@/lib/platform"
+import { joinPath } from "@/lib/path-utils"
 import { loadMcpSettings, saveMcpSettings } from "@/lib/project-store"
 
+const MCP_DOC_URL = "https://github.com/Mochocyang/QMAI/blob/cursor/mcp-agent-tools-f62a/docs/mcp-agent-tools-%E5%88%86%E6%94%AF%E8%AF%B4%E6%98%8E.md"
+
+interface InstallInfo {
+  skillDir: string
+  version: string
+  executablePath: string
+}
+
 export function AgentMcpSection() {
-  const { t } = useTranslation()
   const [enabled, setEnabled] = useState(false)
-  const [skillsDir, setSkillsDir] = useState("")
-  const [status, setStatus] = useState("")
-  const [copyError, setCopyError] = useState("")
-  const [install, setInstall] = useState<{ skillDir: string; version: string; executablePath: string } | null>(null)
+  const [port, setPort] = useState<number | null>(null)
+  const [install, setInstall] = useState<InstallInfo | null>(null)
+  const [notice, setNotice] = useState("")
 
   useEffect(() => {
     let cancelled = false
-    void (async () => {
-      try {
-        const settings = await loadMcpSettings()
+    void loadMcpSettings()
+      .then(async (settings) => {
         if (cancelled) return
         setEnabled(settings.enabled)
-        setSkillsDir(settings.agentSkillsDir)
-      } catch (error) {
-        if (!cancelled) setStatus(error instanceof Error ? error.message : String(error))
-      }
-      try {
-        const info = await readBundledSkillInstallInfo()
+        if (settings.enabled) await refreshPort()
+      })
+      .catch((cause) => {
+        if (!cancelled) setNotice(cause instanceof Error ? cause.message : String(cause))
+      })
+    void readBundledSkillInstallInfo()
+      .then((info) => {
         if (!cancelled) setInstall(info)
-      } catch (error) {
-        if (!cancelled) setCopyError(error instanceof Error ? error.message : String(error))
-      }
-    })()
+      })
+      .catch((cause) => {
+        if (!cancelled) setNotice(cause instanceof Error ? cause.message : String(cause))
+      })
     return () => {
       cancelled = true
     }
   }, [])
 
-  async function persist(nextEnabled: boolean, nextDir: string) {
-    const settings = { enabled: nextEnabled, agentSkillsDir: nextDir.trim() }
-    await saveMcpSettings(settings)
-    const report = await applyMcpSettings(settings)
-    setStatus(report.message)
+  async function refreshPort() {
+    try {
+      const status = await invoke<{ enabled: boolean; port: number | null }>("mcp_status")
+      setPort(status.port)
+    } catch {
+      setPort(null)
+    }
+  }
+
+  async function toggle() {
+    const next = !enabled
+    setEnabled(next)
+    setNotice("")
+    try {
+      const current = await loadMcpSettings()
+      const settings = { enabled: next, agentSkillsDir: current.agentSkillsDir }
+      await saveMcpSettings(settings)
+      await applyMcpSettings(settings)
+      if (next) await refreshPort()
+      else setPort(null)
+    } catch (cause) {
+      setEnabled(!next)
+      setNotice(cause instanceof Error ? cause.message : String(cause))
+    }
   }
 
   async function copyText(text: string) {
     try {
       await navigator.clipboard.writeText(text)
-      setCopyError("")
-      setStatus("已复制到剪贴板")
-    } catch (error) {
-      setCopyError(error instanceof Error ? error.message : "复制失败")
+      setNotice("已复制")
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "复制失败")
     }
+  }
+
+  async function exportSkill() {
+    if (!install) return
+    const destination = await pickDirectory()
+    if (!destination) return
+    const target = joinPath(destination, "qmai-mcp")
+    try {
+      if (await fileExists(target)) await deleteFile(target)
+      await createDirectory(target)
+      await copyDirectory(install.skillDir, target)
+      setNotice(`已导出到 ${target}`)
+    } catch (cause) {
+      setNotice(cause instanceof Error ? cause.message : "导出失败")
+    }
+  }
+
+  async function openDoc() {
+    const localDoc = install
+      ? joinPath(install.skillDir.replace(/\/skills\/qmai-mcp\/?$/, ""), "docs/mcp-agent-tools-分支说明.md")
+      : ""
+    if (localDoc && await fileExists(localDoc).catch(() => false)) {
+      const { openPath } = await import("@tauri-apps/plugin-opener")
+      await openPath(localDoc)
+      return
+    }
+    await openExternalUrl(MCP_DOC_URL)
   }
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold">
-          {t("settings.categories.mcp", { defaultValue: "外部 Agent（MCP）" })}
-        </h2>
+        <h2 className="text-xl font-semibold">外部 Agent（MCP）</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          打开后，本机 Agent 可以通过 MCP 调用写作对话、保存文档、修改标题、提取记忆和章节排版。应用需要保持打开。
+          打开后，外部 Agent 可以调用写作对话、保存、改标题、提取记忆和排版。应用需保持打开。
         </p>
       </div>
 
-      <label className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={enabled}
-          aria-label="启用 MCP"
-          onChange={(event) => {
-            const next = event.target.checked
-            setEnabled(next)
-            void persist(next, skillsDir).catch((error) => {
-              setStatus(error instanceof Error ? error.message : String(error))
-            })
-          }}
-          className="h-4 w-4"
-        />
-        <span className="text-sm">启用 MCP</span>
-      </label>
+      <div className="divide-y divide-border rounded-lg border border-border">
+        <div className="space-y-2 px-4 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm">服务端口</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={enabled}
+              aria-label={enabled ? "关闭服务端口" : "开启服务端口"}
+              onClick={() => void toggle()}
+              className="shrink-0"
+            >
+              <span
+                aria-hidden="true"
+                className={`relative inline-flex h-[21px] w-9 items-center rounded-full transition-colors ${
+                  enabled ? "bg-primary" : "bg-muted"
+                }`}
+              >
+                <span
+                  className={`inline-block h-[15px] w-[15px] rounded-full bg-background transition-transform ${
+                    enabled ? "translate-x-[18px]" : "translate-x-[3px]"
+                  }`}
+                />
+              </span>
+            </button>
+          </div>
+          {enabled && port ? <p className="text-xs text-muted-foreground">端口号：{port}</p> : null}
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {enabled
+              ? "工具的服务端口已开启。命令行和 HTTP 均可调用工具。详细信息："
+              : "工具的服务端口已关闭。打开后，命令行和 HTTP 均可调用工具。详细信息："}
+            <button type="button" className="text-primary" onClick={() => void openDoc()}>
+              文档
+            </button>
+          </p>
+        </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="mcp-agent-skills-dir">Agent skills 目录</Label>
-        <div className="flex gap-2">
-          <Input
-            id="mcp-agent-skills-dir"
-            value={skillsDir}
-            placeholder="外部 Agent 存放 skills 的目录"
-            onChange={(event) => setSkillsDir(event.target.value)}
-          />
+        <div className="flex items-center justify-between gap-4 px-4 py-3">
+          <span className="text-sm">复制 MCP 配置</span>
           <Button
             type="button"
             variant="outline"
-            onClick={() => {
-              void persist(enabled, skillsDir).catch((error) => {
-                setStatus(error instanceof Error ? error.message : String(error))
-              })
-            }}
+            size="sm"
+            disabled={!install}
+            onClick={() => install && void copyText(buildMcpConfigInstallText(install.executablePath))}
           >
-            保存目录
+            复制
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">
-          应用启动、打开开关和保存这个目录时，会自检并只更新其中的 qmai-mcp。父目录不存在时不会创建。
-        </p>
-      </div>
-
-      {status ? <p className="text-sm">{status}</p> : null}
-      {copyError ? <p className="text-sm text-destructive">{copyError}</p> : null}
-
-      <div className="space-y-3">
-        <h3 className="text-sm font-medium">使用示例</h3>
-        <ul className="space-y-2 text-sm text-muted-foreground">
-          {MCP_USAGE_EXAMPLES.map((example) => <li key={example}>{example}</li>)}
-        </ul>
       </div>
 
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
           variant="outline"
+          className="h-auto min-h-10 w-[100px] whitespace-normal px-2"
           disabled={!install}
-          onClick={() => {
-            if (!install) return
-            void copyText(buildMcpConfigInstallText(install.executablePath))
-          }}
+          onClick={() => void exportSkill()}
         >
-          复制 MCP 配置说明
+          导出 Skill
         </Button>
         <Button
           type="button"
           variant="outline"
+          className="h-10 w-[200px] whitespace-nowrap"
           disabled={!install}
-          onClick={() => {
-            if (!install) return
-            void copyText(buildSkillInstallText(install.skillDir, install.version))
-          }}
+          onClick={() => install && void copyText(buildSkillInstallText(install.skillDir, install.version))}
         >
-          复制 Skill 安装说明
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => {
-            void syncInstalledQmaiMcpSkill(skillsDir)
-              .then((report) => setStatus(report.message))
-              .catch((error) => setStatus(error instanceof Error ? error.message : String(error)))
-          }}
-        >
-          立即自检更新
+          复制 Skill 安装提示词
         </Button>
       </div>
+
+      {notice ? <p className="text-xs text-muted-foreground">{notice}</p> : null}
     </div>
   )
 }
