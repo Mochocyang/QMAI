@@ -255,7 +255,7 @@ interface LlmConfig {
   functionCallingEnabled?: boolean
 }
 
-export type SearchProvider = "bocha" | "qiniu" | "metaso" | "tavily" | "serpapi" | "searxng" | "gemini" | "none"
+export type SearchProvider = "bocha" | "qiniu" | "metaso" | "tavily" | "serpapi" | "searxng" | "gemini" | "baizhi" | "none"
 export type SerpApiEngine =
   | "google"
   | "google_news"
