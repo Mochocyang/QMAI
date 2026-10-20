@@ -1,6 +1,7 @@
 mod app_state;
 mod atomic_file;
 mod commands;
+mod mcp;
 mod font_install;
 mod fonts;
 #[cfg(target_os = "macos")]
@@ -100,6 +101,10 @@ fn restore_macos_window_frame(window: tauri::WebviewWindow) {
 }
 
 pub fn run() {
+    if mcp::stdio_requested() {
+        mcp::run_stdio();
+        return;
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             use tauri::Manager;
@@ -168,6 +173,7 @@ pub fn run() {
             app.manage(commands::cursor_cli::CursorProxyState::default());
             app.manage(commands::file_sync::FileSyncState::default());
             app.manage(commands::writing_wake_lock::WritingWakeLockManager::default());
+            app.manage(mcp::McpState::default());
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
                 if let Ok(ptr) = window.ns_window() {
@@ -256,6 +262,11 @@ pub fn run() {
             list_system_cjk_fonts,
             ensure_bundled_fonts,
             remove_bundled_fonts,
+            mcp::mcp_set_enabled,
+            mcp::mcp_status,
+            mcp::mcp_respond,
+            mcp::mcp_stdio_executable,
+            mcp::resolve_qmai_mcp_skill_dir,
         ])
         .on_window_event(|window, event| {
             #[cfg(target_os = "macos")]

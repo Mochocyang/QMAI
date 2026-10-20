@@ -178,7 +178,7 @@ function splitSemanticSegments(document: OutlineDocument): OutlineSegment[] {
   const segments: OutlineSegment[] = []
   const stack: HeadingState[] = []
   let volumeCounter = 0
-  let currentKind = document.kind
+  let currentKind: OutlineSegmentKind = document.kind
   let currentVolumeScope = document.kind === "volume" ? `${document.path}#document` : undefined
   let currentLines: string[] = []
 

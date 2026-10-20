@@ -11,7 +11,8 @@ import { WikiEditor, type WikiEditorHandle } from "@/components/editor/wiki-edit
 import { WikiReader } from "@/components/editor/wiki-reader"
 import { FilePreview } from "@/components/editor/file-preview"
 import { OutlineDualPreview } from "@/components/editor/outline-dual-preview"
-import { formatChapterWriting } from "@/lib/chapter-formatting"
+import { normalizeChapterWriting } from "@/lib/chapter-formatting"
+import { registerOpenDocument } from "@/lib/mcp/open-document"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
@@ -19,7 +20,7 @@ import { resolveInspirationHint } from "@/lib/inspiration-hint"
 import { chapterHasLaterChapter, chapterOrdersFromTree, resolveDraftMemoryHint, type DraftMemoryHintArrival } from "@/lib/draft-memory-hint"
 import { saveNovelConfig, saveUiBodyFontFamily, saveUiBodyFontPx, saveUiBodyLineHeight, saveUiBodyLetterSpacing, saveUiBodyMarginX, saveUiBodySafeBottom } from "@/lib/project-store"
 import { registerPreCloseFlush } from "@/lib/pre-close-flush"
-import { isChapterPage, isFinalChapter, parseChapterMeta, syncChapterFrontmatterFromBody, updateChapterStatus, updateChapterTitle } from "@/lib/novel/chapter-meta"
+import { isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus, updateChapterTitle } from "@/lib/novel/chapter-meta"
 import { chapterSnapshotNumbersFrom, chapterSnapshotNumbersFromFileNames, resolveChapterMemoryDotState } from "@/lib/novel/chapter-memory-dot"
 import { resolveChapterDotNumbers } from "@/lib/novel/chapter-utils"
 import { resolveReviewModel } from "@/lib/novel/review-model"
@@ -185,32 +186,6 @@ async function getCanonicalChapterPath(currentPath: string, markdown: string, ch
     : body.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? ""
   if (!title) return currentPath
   return getUniqueSiblingPath(getDirName(currentPath), makeChapterFileName(title, chapterNumber), currentPath)
-}
-
-function formatWritingBodyWithIndent(markdown: string): string {
-  return formatChapterWriting(markdown)
-  /*
-  const lines = body.split("\n")
-  let inFence = false
-  const formatted = lines.map((line) => {
-    const trimmed = line.trim()
-    if (trimmed.startsWith("```")) {
-      inFence = !inFence
-      return line
-    }
-    if (inFence) return line
-    if (!trimmed) return line
-    if (/^(#{1,6}\s|>\s|[-*+]\s|\d+\.\s|\|)/.test(trimmed)) return line
-    if (/^\s*[-]{3,}\s*$/.test(trimmed)) return line
-    if (/^\s*[　 ]{2}/.test(line)) return line
-    return `　　${line}`
-  })
-  return rawBlock + formatted.join("\n")
-  */
-}
-
-function normalizeChapterWriting(markdown: string): string {
-  return formatWritingBodyWithIndent(syncChapterFrontmatterFromBody(markdown))
 }
 
 function getDiskSyncNormalize(path: string): (content: string) => string {
@@ -625,6 +600,29 @@ export function PreviewPanel() {
     lastLoadedByPathRef.current.set(key, markdown)
     chapterExternalUpdateCoordinator.markEditorSession(key)
   }, [chapterExternalUpdateCoordinator])
+
+  useEffect(() => {
+    if (!selectedFile) {
+      registerOpenDocument(null)
+      return
+    }
+    const path = selectedFile
+    registerOpenDocument({
+      path,
+      isDirty: () => {
+        const current = wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current
+        const persisted = isChapterPath(path) ? normalizeChapterWriting(current) : current
+        const last = lastLoadedByPathRef.current.get(normalizePath(path)) ?? ""
+        return persisted !== last || saveTimerRef.current != null
+      },
+      applyMarkdown: (markdown) => {
+        setFileContent(markdown)
+        fileContentRef.current = markdown
+        rememberLoadedChapter(path, markdown)
+      },
+    })
+    return () => registerOpenDocument(null)
+  }, [rememberLoadedChapter, selectedFile, setFileContent])
 
   const applyDiskSyncIfSafe = useCallback(async (path: string): Promise<boolean> => {
     const normalizedPath = normalizePath(path)

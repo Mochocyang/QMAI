@@ -31,6 +31,7 @@ import { ConversationRunStatusIcon } from "@/components/common/conversation-run-
 import { ConversationDeleteConfirmDialog } from "@/components/common/conversation-delete-confirm-dialog"
 import { ConversationHistoryClearDialog } from "@/components/common/conversation-history-clear-dialog"
 import { chatConversationRunRegistry } from "@/lib/conversation-run-registry"
+import { registerChatGenerationStop } from "@/lib/mcp/stop-writing"
 import { toast } from "@/lib/toast"
 import {
   chapterProvider,
@@ -3004,6 +3005,24 @@ export function ChatPanel() {
       finalizeStopped()
     }
   }, [clearStreaming, finalizeStream])
+
+  useEffect(() => {
+    return registerChatGenerationStop((requestedPath) => {
+      const open = useWikiStore.getState().project?.path
+      if (!open || normalizePath(open) !== normalizePath(requestedPath)) return false
+      const state = useChatStore.getState()
+      const convId = state.activeConversationId
+      if (!convId) return false
+      const streaming = state.streamingContents[convId] !== undefined
+      const running = state.messages.some((message) => (
+        message.conversationId === convId && message.role === "assistant" && message.isAgentRunning
+      ))
+      const runRunning = state.runStates[convId]?.status === "running"
+      if (!streaming && !running && !runRunning) return false
+      handleStop()
+      return true
+    })
+  }, [handleStop])
 
   const handleRegenerate = useCallback(async () => {
     // 直接从 store 获取最新状态，避免闭包旧值
