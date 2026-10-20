@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { applyForeshadowingChangesToStore } from "./chapter-ingest"
-import { createEmptyForeshadowingStore } from "./foreshadowing-tracker"
+import { createEmptyForeshadowingStore, retractChapterFromForeshadowingStore, type Foreshadowing } from "./foreshadowing-tracker"
 import type { ChapterSnapshot } from "./chapter-ingest"
 
 function snap(
@@ -101,5 +101,106 @@ describe("applyForeshadowingChangesToStore", () => {
     expect(store.items).toHaveLength(1)
     expect(store.items[0].status).toBe("resolved")
     expect(store.items[0].resolvedChapter).toBe(14)
+  })
+})
+
+function foreshadowing(partial: Partial<Foreshadowing> & Pick<Foreshadowing, "id" | "plantedChapter">): Foreshadowing {
+  return {
+    name: partial.id,
+    description: "",
+    status: "planted",
+    advancedChapters: [],
+    relatedCharacters: [],
+    relatedEvents: [],
+    notes: "",
+    ...partial,
+  }
+}
+
+describe("retractChapterFromForeshadowingStore", () => {
+  it("drops an item that only the removed chapter planted", () => {
+    const store = {
+      items: [
+        foreshadowing({ id: "F001", plantedChapter: -5, name: "大纲伏笔" }),
+        foreshadowing({ id: "F008", plantedChapter: 2, name: "手改伏笔" }),
+      ],
+      lastUpdated: "keep",
+    }
+
+    const retracted = retractChapterFromForeshadowingStore(store, -5)
+
+    expect(retracted.changed).toBe(true)
+    expect(retracted.store.items).toEqual([store.items[1]])
+    expect(retracted.store.lastUpdated).toBe("keep")
+  })
+
+  it("strips the chapter from later references and keeps the original id", () => {
+    const kept = foreshadowing({
+      id: "F003",
+      plantedChapter: 1,
+      advancedChapters: [-5, 4],
+      status: "advanced",
+      name: "章节伏笔",
+    })
+    const store = { items: [kept], lastUpdated: "keep" }
+
+    const retracted = retractChapterFromForeshadowingStore(store, -5)
+
+    expect(retracted.store.items).toEqual([{
+      ...kept,
+      advancedChapters: [4],
+    }])
+  })
+
+  it("moves the plant onto the earliest remaining chapter", () => {
+    const store = {
+      items: [foreshadowing({
+        id: "F004",
+        plantedChapter: -5,
+        advancedChapters: [6, 3],
+        status: "advanced",
+      })],
+      lastUpdated: "keep",
+    }
+
+    const retracted = retractChapterFromForeshadowingStore(store, -5)
+
+    expect(retracted.store.items[0]).toMatchObject({
+      id: "F004",
+      plantedChapter: 3,
+      advancedChapters: [6, 3],
+      status: "advanced",
+    })
+  })
+
+  it("clears a resolution that came from the removed chapter", () => {
+    const store = {
+      items: [foreshadowing({
+        id: "F005",
+        plantedChapter: 2,
+        advancedChapters: [4],
+        resolvedChapter: -5,
+        status: "resolved",
+      })],
+      lastUpdated: "keep",
+    }
+
+    const retracted = retractChapterFromForeshadowingStore(store, -5)
+
+    expect(retracted.store.items[0].resolvedChapter).toBeUndefined()
+    expect(retracted.store.items[0].status).toBe("advanced")
+    expect(retracted.store.items[0].plantedChapter).toBe(2)
+  })
+
+  it("returns the same store when nothing references the chapter", () => {
+    const store = {
+      items: [foreshadowing({ id: "F008", plantedChapter: 2 })],
+      lastUpdated: "keep",
+    }
+
+    const retracted = retractChapterFromForeshadowingStore(store, -5)
+
+    expect(retracted.changed).toBe(false)
+    expect(retracted.store).toBe(store)
   })
 })

@@ -96,6 +96,20 @@ export async function rebuildTimelineFromSnapshots(
   })
 }
 
+/** 只删除指定章节号的时间线条目。没有对应条目时不写文件。 */
+export async function removeTimelineChapter(
+  projectPath: string,
+  chapterNumber: number,
+): Promise<boolean> {
+  const tl = await loadTimeline(projectPath)
+  const entries = tl.entries.filter((entry) => entry.chapterNumber !== chapterNumber)
+  if (entries.length === tl.entries.length) return false
+  tl.entries = entries
+  tl.serial = entries.length
+  await saveTimeline(projectPath, tl)
+  return true
+}
+
 export async function getTimelineEvents(
   projectPath: string,
 ): Promise<TimelineEntry[]> {
