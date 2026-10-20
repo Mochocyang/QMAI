@@ -11,8 +11,13 @@ vi.mock("@/lib/web-search", () => ({
     provider === "qiniu" ||
     provider === "metaso" ||
     provider === "tavily" ||
-    provider === "serpapi",
+    provider === "serpapi" ||
+    provider === "gemini",
   webSearch: (...args: unknown[]) => webSearchMock(...args),
+  webSearchDetailed: async (...args: unknown[]) => {
+    const value = await webSearchMock(...args)
+    return Array.isArray(value) ? { results: value } : value
+  },
 }))
 
 const notConfigured: SearchApiConfig = {
@@ -91,5 +96,19 @@ describe("createWebSearchTool", () => {
     expect(result.resultCount).toBe(0)
     expect(result.message).toContain("外部搜索失败")
     expect(result.message).toContain("本次未使用联网资料")
+  })
+
+  it("Gemini 后端返回实际搜索词与综合摘要", async () => {
+    webSearchMock.mockResolvedValueOnce({
+      results: [{ title: "olympics.com", url: "https://r.example/a", snippet: "中国获得40枚金牌", source: "olympics.com" }],
+      queries: ["2024年巴黎奥运会中国金牌数"],
+      summary: "中国获得40枚金牌。",
+    })
+    const tool = createWebSearchTool(() => ({ provider: "gemini", apiKey: "k" }))
+    const result = JSON.parse(await tool.execute({ query: "中国金牌数" }))
+    expect(result.status).toBe("ok")
+    expect(result.queries).toEqual(["2024年巴黎奥运会中国金牌数"])
+    expect(result.summary).toBe("中国获得40枚金牌。")
+    expect(result.resultCount).toBe(1)
   })
 })

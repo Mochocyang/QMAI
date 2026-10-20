@@ -6,12 +6,25 @@ import type {
   SerpApiEngine,
 } from "@/stores/wiki-store"
 import { getHttpFetch, isFetchNetworkError } from "@/lib/tauri-fetch"
+import { geminiSearchDetailed } from "@/lib/gemini-search"
 
 export interface WebSearchResult {
   title: string
   url: string
   snippet: string
   source: string
+}
+
+/**
+ * 带附加信息的搜索结果。普通搜索引擎只有 `results`；
+ * Gemini（Grounding with Google Search）还会给出它实际执行的搜索词、
+ * 综合摘要与 Google 要求展示的搜索建议 HTML。
+ */
+export interface WebSearchOutcome {
+  results: WebSearchResult[]
+  queries?: string[]
+  summary?: string
+  searchSuggestionsHtml?: string
 }
 
 export const SERPAPI_ENGINE_OPTIONS: { value: SerpApiEngine; label: string; hint: string }[] = [
@@ -92,6 +105,7 @@ const API_KEY_PROVIDERS = new Set<SearchProvider>([
   "metaso",
   "tavily",
   "serpapi",
+  "gemini",
 ])
 
 export function providerRequiresApiKey(provider: SearchProvider): boolean {
@@ -102,6 +116,41 @@ export async function webSearch(
   query: string,
   config: SearchApiConfig,
   maxResults: number = 10,
+): Promise<WebSearchResult[]> {
+  return (await webSearchDetailed(query, config, maxResults)).results
+}
+
+export async function webSearchDetailed(
+  query: string,
+  config: SearchApiConfig,
+  maxResults: number = 10,
+): Promise<WebSearchOutcome> {
+  const resolved = resolveSearchConfig(config)
+  if (resolved.provider === "gemini") {
+    if (!resolved.apiKey?.trim()) {
+      throw new Error("未配置 Gemini API Key，请在「设置 → 网页搜索 → Gemini」中填写。")
+    }
+    const override = resolved.providerConfigs?.gemini
+    const outcome = await geminiSearchDetailed(query, {
+      apiKey: resolved.apiKey,
+      model: override?.geminiModel,
+      baseUrl: override?.geminiBaseUrl,
+      maxResults,
+    })
+    return {
+      results: outcome.results,
+      queries: outcome.queries,
+      summary: outcome.summary,
+      searchSuggestionsHtml: outcome.searchSuggestionsHtml,
+    }
+  }
+  return { results: await providerSearch(query, config, maxResults) }
+}
+
+async function providerSearch(
+  query: string,
+  config: SearchApiConfig,
+  maxResults: number,
 ): Promise<WebSearchResult[]> {
   const resolved = resolveSearchConfig(config)
   if (resolved.provider === "none") {

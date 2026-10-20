@@ -1,6 +1,6 @@
 import type { SearchApiConfig } from "@/stores/wiki-store"
 import { getHttpFetch } from "@/lib/tauri-fetch"
-import { webSearch, type WebSearchResult } from "@/lib/web-search"
+import { webSearchDetailed, type WebSearchResult } from "@/lib/web-search"
 
 interface WebResearchDocument {
   title: string
@@ -25,6 +25,10 @@ interface WebResearchResult {
   importedDocuments: WebResearchDocument[]
   failedUrls: string[]
   notes: string[]
+  /** 搜索后端实际执行的搜索词（目前只有 Gemini 提供）。 */
+  searchQueries?: string[]
+  /** 搜索后端给出的综合摘要（目前只有 Gemini 提供）。 */
+  searchSummary?: string
 }
 
 interface WebResearchContextInput {
@@ -32,6 +36,8 @@ interface WebResearchContextInput {
   searchResults: WebSearchResult[]
   importedDocuments: WebResearchDocument[]
   failedUrls: string[]
+  searchQueries?: string[]
+  searchSummary?: string
 }
 
 export function extractWebUrls(text: string): string[] {
@@ -71,10 +77,15 @@ export async function collectWebResearch(input: WebResearchInput): Promise<WebRe
   const notes: string[] = []
   const failedUrls: string[] = []
   let searchResults: WebSearchResult[] = []
+  let searchQueries: string[] | undefined
+  let searchSummary: string | undefined
 
   if (allowSearch && query) {
     try {
-      searchResults = await webSearch(query, input.searchApiConfig, maxSearchResults)
+      const outcome = await webSearchDetailed(query, input.searchApiConfig, maxSearchResults)
+      searchResults = outcome.results
+      searchQueries = outcome.queries
+      searchSummary = outcome.summary
     } catch (error) {
       notes.push(`网页搜索失败：${error instanceof Error ? error.message : String(error)}`)
     }
@@ -96,6 +107,8 @@ export async function collectWebResearch(input: WebResearchInput): Promise<WebRe
     importedDocuments,
     failedUrls,
     notes,
+    searchQueries,
+    searchSummary,
   }
 }
 
@@ -114,6 +127,14 @@ export function buildWebResearchContext(input: WebResearchContextInput): { markd
     "- 写大纲或拆文分析时可以提炼趋势、结构、卖点、套路和读者期待。",
     "- 不要大段复述网页原文；如果资料不足，请明确说明资料不足。",
   ]
+
+  if (input.searchQueries?.length) {
+    lines.push("", `实际搜索词：${input.searchQueries.join("；")}`)
+  }
+
+  if (input.searchSummary?.trim()) {
+    lines.push("", "### 搜索摘要（Gemini 基于 Google 搜索综合，引用见下方来源）", clipText(input.searchSummary, 1200))
+  }
 
   if (input.searchResults.length > 0) {
     lines.push("", "### 搜索结果")

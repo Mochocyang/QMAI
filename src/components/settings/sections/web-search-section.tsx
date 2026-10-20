@@ -10,6 +10,7 @@ import {
   type SearchProviderOverride,
 } from "@/stores/wiki-store"
 import { SEARXNG_CATEGORY_OPTIONS, SERPAPI_ENGINE_OPTIONS, resolveSearchConfig } from "@/lib/web-search"
+import { DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_SEARCH_MODEL } from "@/lib/gemini-search"
 
 const SEARCH_PROVIDERS = [
   {
@@ -52,6 +53,13 @@ const SEARCH_PROVIDERS = [
     label: "SerpApi",
     hint: "国际 · Google / Bing / DuckDuckGo 等 SERP（serpapi.com）",
     keyPlaceholder: "SerpApi API key",
+    needsApiKey: true,
+  },
+  {
+    id: "gemini",
+    label: "Gemini（Google 搜索）",
+    hint: "国际 · Gemini Grounding with Google Search，与写作模型无关；按搜索次数计费（每月 5000 次免费）",
+    keyPlaceholder: "Gemini API Key（aistudio.google.com）",
     needsApiKey: true,
   },
 ] as const
@@ -199,6 +207,29 @@ export function WebSearchSection() {
                       value={override?.serpApiEngine ?? resolvedConfig.serpApiEngine ?? "google"}
                       onChange={(serpApiEngine) => updateProvider("serpapi", { serpApiEngine })}
                     />
+                  )}
+
+                  {provider.id === "gemini" && (
+                    <>
+                      <div className="space-y-2">
+                        <Label>搜索模型</Label>
+                        <Input
+                          value={override?.geminiModel ?? ""}
+                          onChange={(e) => updateProvider("gemini", { geminiModel: e.target.value })}
+                          placeholder={DEFAULT_GEMINI_SEARCH_MODEL}
+                        />
+                        <p className="text-xs text-muted-foreground">留空使用 {DEFAULT_GEMINI_SEARCH_MODEL}。只用于联网搜索，不影响写作所用的模型。</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>自定义地址（可选）</Label>
+                        <Input
+                          value={override?.geminiBaseUrl ?? ""}
+                          onChange={(e) => updateProvider("gemini", { geminiBaseUrl: e.target.value })}
+                          placeholder={DEFAULT_GEMINI_BASE_URL}
+                        />
+                        <p className="text-xs text-muted-foreground">走代理/中转时填写；请求会经过「设置」中的网络代理。</p>
+                      </div>
+                    </>
                   )}
 
                   {provider.id === "searxng" && (

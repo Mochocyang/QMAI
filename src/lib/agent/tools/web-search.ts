@@ -1,5 +1,5 @@
 import type { Tool } from "../types"
-import { providerRequiresApiKey, resolveSearchConfig, webSearch } from "@/lib/web-search"
+import { providerRequiresApiKey, resolveSearchConfig, webSearchDetailed } from "@/lib/web-search"
 import type { SearchApiConfig } from "@/stores/wiki-store"
 
 interface WebSearchToolResult {
@@ -14,6 +14,10 @@ interface WebSearchToolResult {
     source: string
   }>
   message?: string
+  /** 搜索后端实际执行的搜索词（Gemini）。 */
+  queries?: string[]
+  /** 搜索后端的综合摘要（Gemini）。 */
+  summary?: string
 }
 
 function toPositiveInteger(value: unknown, fallback: number, max: number): number {
@@ -71,8 +75,11 @@ export function createWebSearchTool(getSearchApiConfig?: () => SearchApiConfig |
       }
 
       try {
-        const results = await webSearch(query, config, maxResults)
+        const outcome = await webSearchDetailed(query, config, maxResults)
+        const results = outcome.results
         const result: WebSearchToolResult = {
+          ...(outcome.queries?.length ? { queries: outcome.queries } : {}),
+          ...(outcome.summary ? { summary: outcome.summary } : {}),
           status: "ok",
           query,
           provider: resolveSearchConfig(config).provider,
