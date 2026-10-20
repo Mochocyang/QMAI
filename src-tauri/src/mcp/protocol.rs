@@ -1,10 +1,11 @@
 use serde_json::{json, Value};
 
-pub const TOOL_NAMES: [&str; 8] = [
+pub const TOOL_NAMES: [&str; 9] = [
     "list_bookshelf",
     "open_bookshelf",
     "get_current",
     "writing_conversation",
+    "stop_writing",
     "save_document",
     "update_document_title",
     "extract_memory",
@@ -81,6 +82,14 @@ pub fn tools_list_result() -> Value {
                     "reasoningDepth": { "type": "string", "enum": ["auto", "off", "low", "medium", "high", "max"], "description": "这一次的思考深度" }
                 }),
                 vec!["message"]
+            ),
+            tool(
+                "stop_writing",
+                "停止当前项目正在进行的写作生成，与界面「停止生成」相同。没有进行中的生成时会说明。",
+                json!({
+                    "projectPath": prop("项目目录。不传则使用当前打开的项目")
+                }),
+                vec![]
             ),
             tool(
                 "save_document",

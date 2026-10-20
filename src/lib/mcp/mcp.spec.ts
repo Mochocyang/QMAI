@@ -11,6 +11,7 @@ import { buildAgentInstallText, buildMcpConfigInstallText, buildSkillInstallText
 import { compareSemver, decideSkillSync, parseSkillVersion, syncQmaiMcpSkill, type SkillSyncIo } from "./skill-sync"
 import { resolveWritingParameters } from "./writing-parameters"
 import { runWritingConversation } from "./writing-conversation"
+import { stopProjectWriting } from "./stop-writing"
 
 const baseConfig: LlmConfig = {
   provider: "custom",
@@ -278,6 +279,38 @@ describe("writing conversation", () => {
     })).rejects.toThrow("进行中的写作对话")
     release()
     await first
+  })
+
+  it("stops an in-flight writing conversation and records the stop", async () => {
+    useWikiStore.setState({
+      aiChatModel: "custom/writer-model",
+      providerConfigs,
+      llmConfig: baseConfig,
+      novelConfig: { ...DEFAULT_NOVEL_CONFIG, defaultLlmModel: "custom/writer-model" },
+      project: null,
+    })
+    let entered: () => void = () => {}
+    const ready = new Promise<void>((resolve) => { entered = resolve })
+    let saved: { role: string; content: string }[] | null = null
+    const running = runWritingConversation({
+      projectPath: "/books/stop",
+      message: "编写第 200 章",
+    }, {
+      loadHistory: async () => ({ conversations: [], messages: [], runStates: {} }),
+      saveHistory: async (_path, _conversations, messages) => {
+        saved = messages
+      },
+      readLive: () => null,
+      runSession: (ctx) => new Promise((_resolve, reject) => {
+        entered()
+        ctx.signal?.addEventListener("abort", () => reject(new Error("操作已取消")), { once: true })
+      }),
+    })
+    await ready
+    expect(stopProjectWriting("/books/stop")).toBe("已停止生成。")
+    await expect(running).resolves.toBe("已停止生成。")
+    expect(saved?.map((message) => message.content)).toEqual(["编写第 200 章", "已停止生成。"])
+    expect(stopProjectWriting("/books/stop")).toBe("当前没有正在进行的写作生成。")
   })
 })
 

@@ -9,6 +9,7 @@ import { classifyProjectDocument } from "./paths"
 import { renameProjectDocument, siblingFromMarkdown } from "./rename-document"
 import { saveProjectDocument } from "./save-document"
 import { runWritingConversation } from "./writing-conversation"
+import { stopProjectWriting } from "./stop-writing"
 
 function textArg(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
@@ -59,6 +60,7 @@ export async function dispatchMcpTool(name: string, args: Record<string, unknown
   }
   if (name === "get_current") return getCurrentOpen()
   const projectPath = requireProjectPath(args)
+  if (name === "stop_writing") return stopProjectWriting(projectPath)
   if (name === "writing_conversation") {
     return runWritingConversation({
       projectPath,

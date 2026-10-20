@@ -42,7 +42,7 @@ fn post(port: u16, token: &str, message: &Value) -> Result<Value, String> {
         &SocketAddr::from((Ipv4Addr::LOCALHOST, port)),
         Duration::from_secs(2),
     ).map_err(|_| "青幕写作未启动，或尚未打开 MCP 开关。".to_string())?;
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(900)));
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(1800)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     let body = message.to_string();
     let request = format!(

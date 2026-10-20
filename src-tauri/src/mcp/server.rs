@@ -143,7 +143,7 @@ fn call_frontend(app: &AppHandle, pending: &PendingCalls, params: &Value) -> Res
         pending.lock().ok().and_then(|mut calls| calls.remove(&id));
         return Err(format!("无法把 MCP 请求交给界面：{error}"));
     }
-    match receiver.recv_timeout(Duration::from_secs(900)) {
+    match receiver.recv_timeout(Duration::from_secs(1800)) {
         Ok(result) => result,
         Err(_) => {
             pending.lock().ok().and_then(|mut calls| calls.remove(&id));
