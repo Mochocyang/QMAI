@@ -188,9 +188,10 @@ function describeWebSearchCall(call: WorkflowToolCall): string {
   if (status === "not_configured") {
     return query ? `联网搜索「${query}」未执行：未配置外部搜索` : "联网搜索未执行：未配置外部搜索"
   }
-  if (query && resultCount != null) return `联网搜索「${query}」（${resultCount} 条来源）`
+  // Gemini / 反重力 CLI 只有摘要、没有链接时 resultCount 为 0，「0 条来源」没意义，直接不写。
+  if (query && resultCount != null && resultCount > 0) return `联网搜索「${query}」（${resultCount} 条来源）`
   if (query) return `联网搜索「${query}」`
-  if (resultCount != null) return `联网搜索（${resultCount} 条来源）`
+  if (resultCount != null && resultCount > 0) return `联网搜索（${resultCount} 条来源）`
   return "联网搜索"
 }
 
