@@ -157,6 +157,51 @@
   cursor: pointer;
 }
 
+/* 整张书卡「跳一下」的回答：悬停时卡片先抬到 -8px，封面再额外向上弹一下落回。
+ *
+ * 卡片位移走 transition + 回弹曲线（1.56 > 1）而不是 @keyframes：
+ * keyframes 在指针移出时是整条声明被移除，transform 会从动画末帧硬跳回 0，
+ * 手感和「弹起来软、落下去砸」一样下盘不稳。transition 两个方向共用同一条曲线，
+ * 指针移出时是同一段回弹反着走，抬起和落下才是一套动作。
+ *
+ * 但只靠曲线的过冲，回弹量只有目标位移的 8%（-8px 只冲到 -8.6px），眼睛读不出「跳」。
+ * 所以真正的弹跳交给封面的 keyframes：它从 0 起跳到 -6px 再回落，**末帧回到 0**，
+ * 动画被移除时没有落差，不会出现反向的硬跳。两层叠起来峰值 -14px，落定 -8px。
+ *
+ * 只位移卡片、不缩放封面：卡片下面是完整书名（不截断），放大卡面会把
+ * 文字一起拉虚；位移则整块（封面 + 书名 + 字数）一起浮起来，像把书从架子上抽出一寸。
+ */
+.ui-test-root .ui-test-shelf .ui-test-book-card {
+  transform: translateY(0);
+  transition: transform .34s cubic-bezier(.34, 1.56, .64, 1);
+}
+.ui-test-root .ui-test-shelf .ui-test-book-card .ui-test-cover {
+  /* 两段影子都必须一直存在（只是透明），否则 transition 无从插值，
+     影子会瞬间出现/消失，和位移的节奏对不上。 */
+  box-shadow: 0 14px 28px -18px #18241c00, 0 3px 8px -4px #18241c00;
+  transition: box-shadow .34s ease;
+}
+.ui-test-root .ui-test-shelf .ui-test-book-card:is(:hover, :focus-visible) {
+  transform: translateY(-8px);
+}
+.ui-test-root .ui-test-shelf .ui-test-book-card:is(:hover, :focus-visible) .ui-test-cover {
+  box-shadow: 0 18px 32px -14px #18241c47, 0 4px 10px -4px #18241c24;
+}
+/* 只在鼠标悬停时起跳：键盘 Tab 一格格扫过书架，每张卡都抖一下是噪音。 */
+.ui-test-root .ui-test-shelf .ui-test-book-card:hover .ui-test-cover {
+  animation: ui-shelf-cover-hop .44s cubic-bezier(.33, .9, .35, 1);
+}
+@keyframes ui-shelf-cover-hop {
+  0% { transform: translateY(0); }
+  32% { transform: translateY(-6px); }
+  64% { transform: translateY(2px); }
+  100% { transform: translateY(0); }
+}
+/* 点下去收一点，避免"跳"起来之后按不动的手感。 */
+.ui-test-root .ui-test-shelf .ui-test-book-card:active {
+  transform: translateY(-3px);
+}
+
 .ui-test-root .ui-test-shelf .ui-test-cover {
   display: flex;
   flex-direction: column;
@@ -297,13 +342,7 @@
 .ui-test-root .ui-test-shelf .ui-test-empty p { margin: 0; font-size: 0.875rem; line-height: 1.8; }
 .ui-test-root .ui-test-shelf .ui-test-empty h2 { margin: 0; font-size: 1.125rem; color: var(--ui-ink); }
 
-.ui-test-shelf-tooltip {
-  max-width: min(36rem, calc(100vw - 32px));
-  white-space: normal;
-  overflow-wrap: anywhere;
-  font-size: 0.8125rem;
-  line-height: 1.6;
-}
+
 
 .ui-test-root .ui-test-shelf button:focus-visible {
   outline: 2px solid var(--ui-accent);
@@ -479,6 +518,10 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .ui-test-root .ui-test-shelf button,
-  .ui-test-shelf-tooltip,
   .ui-test-create-project-dialog { animation: none; transition: none; }
+  /* 位移本身是触发点，不是装饰：只关过渡的话「跳起来」还是瞬移，
+     这里连位移一起取消，只留影子提示悬停到了哪本书。 */
+  .ui-test-root .ui-test-shelf .ui-test-book-card:is(:hover, :focus-visible, :active) { transform: none; }
+  /* 起跳动画挂在封面上（不是 button），上面那条 blanket 规则盖不到，必须单列。 */
+  .ui-test-root .ui-test-shelf .ui-test-book-card:hover .ui-test-cover { animation: none; }
 }

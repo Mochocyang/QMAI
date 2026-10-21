@@ -197,7 +197,7 @@ describe("独立 UI 书架", () => {
     expect(mocks.listDirectory.mock.calls.some(([path]) => String(path).replace(/\\/g, "/").toLowerCase() === "c:/qm-book")).toBe(false)
   })
 
-  it("标题去书名号仅用于展示，键盘聚焦可看全名，开书仍传原项目", async () => {
+  it("标题去书名号仅用于展示，键盘聚焦不再弹黑色浮层，开书仍传原项目", async () => {
     const fullName = "一个合法的很长小说标题".repeat(8)
     const longProject = { ...project, name: `《${fullName}》` }
     mocks.getRecentProjects.mockResolvedValue([longProject])
@@ -211,7 +211,8 @@ describe("独立 UI 书架", () => {
       card.focus()
       await new Promise((resolve) => setTimeout(resolve, 20))
     })
-    expect(document.body.querySelector('[data-slot="tooltip-content"]')?.textContent).toContain(fullName)
+    // 书名在封面下方已经完整展示，悬停/聚焦时不再叠一个黑色浮层重复一遍。
+    expect(document.body.querySelector('[data-slot="tooltip-content"]')).toBeNull()
     await act(async () => card.click())
     expect(actions.onSelectProject).toHaveBeenCalledWith(longProject)
   })
