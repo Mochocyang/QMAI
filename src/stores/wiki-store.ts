@@ -289,6 +289,8 @@ export interface SearchProviderOverride {
   geminiModel?: string
   /** 反重力 CLI 搜索用的 agy 模型；留空用 agy 默认模型。 */
   antigravityModel?: string
+  /** 反重力 CLI 单次搜索超时（秒），30–900；缺省 180。 */
+  antigravityTimeoutSecs?: number
   /** Gemini API 自定义地址（代理/中转），默认 https://generativelanguage.googleapis.com。 */
   geminiBaseUrl?: string
 }

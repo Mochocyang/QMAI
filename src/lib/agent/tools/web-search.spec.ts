@@ -112,3 +112,14 @@ describe("createWebSearchTool", () => {
     expect(result.resultCount).toBe(1)
   })
 })
+
+describe("web_search 工具超时随反重力设置变化", () => {
+  it("未设置时按 180 秒 + 余量；设置后跟随", () => {
+    let config = { provider: "antigravity", apiKey: "" } as unknown as SearchApiConfig
+    const tool = createWebSearchTool(() => config)
+    expect(tool.executeTimeoutMs).toBe(210_000)
+    config = { provider: "antigravity", apiKey: "", providerConfigs: { antigravity: { antigravityTimeoutSecs: 600 } } } as unknown as SearchApiConfig
+    expect(tool.executeTimeoutMs).toBe(630_000)
+    expect(createWebSearchTool().executeTimeoutMs).toBe(210_000)
+  })
+})

@@ -2,6 +2,7 @@ import type { Tool } from "../types"
 import { providerRequiresApiKey, resolveSearchConfig, webSearchDetailed } from "@/lib/web-search"
 import type { SearchApiConfig } from "@/stores/wiki-store"
 import { TOOL_UI_DISPLAY_KEY } from "@/lib/search-display"
+import { ANTIGRAVITY_SEARCH_TIMEOUT_SECS, resolveAntigravitySearchTimeoutSecs } from "@/lib/antigravity-search"
 
 interface WebSearchToolResult {
   status: "ok" | "not_configured" | "error"
@@ -43,8 +44,15 @@ export function createWebSearchTool(getSearchApiConfig?: () => SearchApiConfig |
     name: "web_search",
     description: "联网搜索外部资料。用户明确要求搜索、联网查询、查外部资料或最新信息时使用；本地人物/设定实体查不到或信息不足时也应主动使用；未配置搜索时会返回中文降级说明。",
     category: "read",
-    // 反重力 CLI 单次搜索约 17–30 秒，默认工具超时 30 秒会误杀；给足上限与 Rust 侧一致。
-    executeTimeoutMs: 180_000,
+    // 反重力 CLI 单次搜索约 17–30 秒，默认工具超时 30 秒会误杀；按设置里的搜索超时再留 30 秒余量（Rust 侧另有 +5 秒收尾）。
+    get executeTimeoutMs() {
+      const config = getSearchApiConfig?.()
+      const resolved = config ? resolveSearchConfig(config) : null
+      const secs = resolved?.provider === "antigravity"
+        ? resolveAntigravitySearchTimeoutSecs(resolved.providerConfigs?.antigravity?.antigravityTimeoutSecs)
+        : ANTIGRAVITY_SEARCH_TIMEOUT_SECS
+      return (secs + 30) * 1000
+    },
     parameters: {
       query: { type: "string", description: "搜索关键词", required: true },
       maxResults: { type: "integer", description: "最多返回结果数量，默认 5，最大 10" },
