@@ -10,6 +10,12 @@ import {
   type SearchProviderOverride,
 } from "@/stores/wiki-store"
 import { SEARXNG_CATEGORY_OPTIONS, SERPAPI_ENGINE_OPTIONS, resolveSearchConfig } from "@/lib/web-search"
+import {
+  ANTIGRAVITY_AGY_DEFAULT_MODEL,
+  DEFAULT_ANTIGRAVITY_SEARCH_MODEL,
+  antigravityModelLabel,
+} from "@/lib/antigravity-search"
+import { detectLocalCliConfig } from "@/lib/local-cli-config"
 import { DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_SEARCH_MODEL } from "@/lib/gemini-search"
 
 const SEARCH_PROVIDERS = [
@@ -229,13 +235,10 @@ export function WebSearchSection() {
                         <li>搜索消耗该账号的模型额度；摘要由模型根据 Google 搜索结果生成。</li>
                         <li>写作模型接收实际搜索词和摘要。</li>
                       </ul>
-                      <Label>搜索模型（可选）</Label>
-                      <Input
+                      <AntigravityModelPicker
                         value={override?.antigravityModel ?? ""}
-                        onChange={(e) => updateProvider("antigravity", { antigravityModel: e.target.value })}
-                        placeholder="留空使用 agy 默认模型"
+                        onChange={(antigravityModel) => updateProvider("antigravity", { antigravityModel })}
                       />
-                      <p className="text-xs text-muted-foreground">只用于联网搜索，不影响写作所用的模型。</p>
                     </div>
                   )}
 
@@ -369,6 +372,67 @@ function SerpApiEnginePicker({
           {t("settings.sections.webSearch.customSerpApiHint")}
         </p>
       )}
+    </div>
+  )
+}
+
+function AntigravityModelPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [models, setModels] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const current = value.trim()
+
+  const fetchModels = async () => {
+    setLoading(true)
+    setError("")
+    try {
+      const detect = await detectLocalCliConfig("antigravity-cli")
+      const list = detect?.models ?? []
+      if (list.length === 0) throw new Error(detect?.error || "未拉取到模型，请先在终端运行 agy 完成登录。")
+      setModels(list)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const options = Array.from(new Set([
+    DEFAULT_ANTIGRAVITY_SEARCH_MODEL,
+    ...models,
+    ...(current && current !== ANTIGRAVITY_AGY_DEFAULT_MODEL ? [current] : []),
+  ]))
+
+  return (
+    <div className="space-y-2">
+      <Label>搜索模型</Label>
+      <div className="flex gap-2">
+        <select
+          className="h-9 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
+          value={current}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">默认：{antigravityModelLabel(DEFAULT_ANTIGRAVITY_SEARCH_MODEL)}（{DEFAULT_ANTIGRAVITY_SEARCH_MODEL}）</option>
+          {options.map((slug) => (
+            <option key={slug} value={slug}>
+              {antigravityModelLabel(slug)}（{slug}）
+            </option>
+          ))}
+          <option value={ANTIGRAVITY_AGY_DEFAULT_MODEL}>agy 默认模型（不指定，可能较贵）</option>
+        </select>
+        <button
+          type="button"
+          className="h-9 rounded-md border border-input px-3 text-sm hover:bg-accent disabled:opacity-50"
+          onClick={() => void fetchModels()}
+          disabled={loading}
+        >
+          {loading ? "拉取中…" : "拉取模型"}
+        </button>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <p className="text-xs text-muted-foreground">
+        默认使用 {DEFAULT_ANTIGRAVITY_SEARCH_MODEL}，额度消耗低。点「拉取模型」可从 agy 读取全部可选模型。只用于联网搜索，不影响写作所用的模型。
+      </p>
     </div>
   )
 }

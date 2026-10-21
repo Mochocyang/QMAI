@@ -19,6 +19,31 @@ import type { WebSearchResult } from "@/lib/web-search"
 
 export const ANTIGRAVITY_SEARCH_TIMEOUT_SECS = 180
 
+/** 搜索模型留空时使用的默认模型：最低档 Flash，避免 agy 默认的 Gemini 4 Argon 额度消耗过高。 */
+export const DEFAULT_ANTIGRAVITY_SEARCH_MODEL = "gemini-3.8-flash-low"
+/** 设置里显式选择「agy 默认模型」时保存的值：调用时不传 --model。 */
+export const ANTIGRAVITY_AGY_DEFAULT_MODEL = "__agy_default__"
+
+/** 把设置里保存的搜索模型换成实际传给 agy 的 --model；null 表示不传。 */
+export function resolveAntigravitySearchModel(model?: string | null): string | null {
+  const trimmed = model?.trim() ?? ""
+  if (!trimmed) return DEFAULT_ANTIGRAVITY_SEARCH_MODEL
+  if (trimmed === ANTIGRAVITY_AGY_DEFAULT_MODEL) return null
+  return trimmed
+}
+
+/** 由 agy 模型 slug 生成展示名，如 gemini-3.8-flash-low → Gemini 3.8 Flash (Low)。 */
+export function antigravityModelLabel(slug: string): string {
+  const parts = slug.trim().split("-").filter(Boolean)
+  if (parts.length === 0) return slug
+  const tiers = ["low", "medium", "high"]
+  const last = parts[parts.length - 1].toLowerCase()
+  const tier = tiers.includes(last) ? parts.pop()! : ""
+  const cap = (w: string) => (/^[a-z]/.test(w) ? w[0].toUpperCase() + w.slice(1) : w)
+  const name = parts.map((w) => (w.toLowerCase() === "gpt" || w.toLowerCase() === "oss" ? w.toUpperCase() : cap(w))).join(" ")
+  return tier ? `${name} (${cap(tier)})` : name
+}
+
 export interface AntigravitySearchRaw {
   notInstalled: boolean
   timedOut: boolean
@@ -224,7 +249,7 @@ export async function antigravitySearchDetailed(
   try {
     raw = (await (options.invoke ?? defaultInvoke)("antigravity_cli_search", {
       query,
-      model: options.model?.trim() || null,
+      model: resolveAntigravitySearchModel(options.model),
       maxResults,
       timeoutSecs: options.timeoutSecs ?? ANTIGRAVITY_SEARCH_TIMEOUT_SECS,
     })) as AntigravitySearchRaw
