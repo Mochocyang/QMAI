@@ -108,16 +108,13 @@ import {
   buildChapterDiscussPhaseSystemRules,
   buildChapterDiscussPlanBlueprint,
   buildChapterDiscussRegeneratePrompt,
-  hasChapterDiscussRepairableContent,
-  parseChapterDiscussProtocol,
   stripChapterDiscussMarkers,
-  validateChapterDiscussProtocol,
   type ChapterDiscussDirection,
   type ChapterDiscussDecision,
   type ChapterDiscussPhase,
   type ChapterDiscussProtocol,
 } from "@/lib/novel/chapter-discuss-protocol"
-import { repairChapterDiscussProtocolWithAi } from "@/lib/novel/chapter-discuss-repair"
+import { resolveChapterDiscussProtocol } from "@/lib/novel/chapter-discuss-repair"
 import { resolveModelConfig } from "@/lib/novel/model-resolver"
 import {
   buildGoldenThreeChapterDirective,
@@ -2612,49 +2609,33 @@ export function ChatPanel() {
             console.warn("供应商缓存用量快照保存失败，继续保留本地缓存统计：", error)
           }
         }
-        // 共创（discuss）讨论轮：解析 chapter_discuss 协议（必要时补一次协议），
-        // 把方向候选写入消息供卡片渲染；气泡正文里的协议标记一律剥掉。
+        /*
+         * 共创（discuss）讨论轮：解析 chapter_discuss 协议并落成方向卡片。
+         *
+         * 这里**不再自己写重试链**，统一交给 resolveChapterDiscussProtocol：
+         * 解析失败先「补协议」、校验不过再「补齐」一轮，两轮都不过就把已经解析出来的
+         * 方向原样放行（附一句提示），绝不因为"介绍短了 20 字"把整轮讨论作废。
+         * 用户 2026-10-21 的口径：前面问了非常多问题，后面一报格式无效内容全丢，
+         * 那几轮的 token 比一次修补贵得多。
+         */
         if (sessionWorkflowMode === "discuss") {
           const discussModule = targetChapterNumber ? `第${targetChapterNumber}章` : ""
           const rawDiscussContent = useChatStore.getState().messages
             .find((m) => m.id === assistantMessage.id)?.content || record.finalText || ""
           void (async () => {
             try {
-              let outcome = parseChapterDiscussProtocol(rawDiscussContent)
-              if (
-                outcome.kind === "none"
-                && hasChapterDiscussRepairableContent(rawDiscussContent)
-              ) {
-                const repaired = await repairChapterDiscussProtocolWithAi({
-                  content: rawDiscussContent,
-                  module: discussModule,
-                  llmConfig: agentConfig.llmConfig,
-                  signal: controller.signal,
-                }).catch((error) => {
-                  console.warn("章节共创协议补全失败，按原结果继续：", error)
-                  return ""
-                })
-                const repairedOutcome = repaired
-                  ? parseChapterDiscussProtocol(repaired)
-                  : { kind: "none" as const }
-                if (repairedOutcome.kind === "valid") outcome = repairedOutcome
-              }
-              const validation = outcome.kind === "valid"
-                ? validateChapterDiscussProtocol(outcome.protocol)
-                : null
-              const protocol = validation && validation.kind !== "invalid" ? validation.protocol : null
-              const discussError = outcome.kind === "invalid"
-                ? outcome.error
-                : outcome.kind === "none"
-                  ? "模型未返回 chapter_discuss 协议块"
-                  : validation && validation.kind === "invalid"
-                    ? validation.error
-                    : undefined
+              const gate = await resolveChapterDiscussProtocol({
+                text: rawDiscussContent,
+                module: discussModule,
+                llmConfig: agentConfig.llmConfig,
+                signal: controller.signal,
+              })
               updateAgentAssistantMessage(assistantMessage.id, (message) => ({
                 ...message,
                 content: stripChapterDiscussMarkers(message.content),
-                chapterDiscussProtocol: protocol,
-                chapterDiscussError: discussError,
+                chapterDiscussProtocol: gate.protocol,
+                chapterDiscussError: gate.error || undefined,
+                chapterDiscussNotice: gate.notice || undefined,
                 chapterDiscussDecision: undefined,
               }))
             } catch (error) {

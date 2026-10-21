@@ -247,6 +247,66 @@ export function hasChapterDiscussRepairableContent(text: string): boolean {
   return !OPEN_PATTERN.test(trimmed)
 }
 
+/**
+ * 「补齐」轮的输出上限：只补短介绍/缺字段，不该重写整批方向，
+ * 但各方向加起来仍可能接近修复轮的体量，沿用修复轮的上限。
+ */
+export const CHAPTER_DISCUSS_TOPUP_MAX_TOKENS = CHAPTER_DISCUSS_REPAIR_MAX_TOKENS
+
+/**
+ * 「补齐」轮提示词：协议**解析出来了但没通过闸门**（介绍太短、缺故事类型/标题、
+ * 故事类型重复、方向数量不对、AI 推荐指向不存在方向）时，让模型只修这几处。
+ *
+ * 为什么必须单独一轮：这类失败是"内容不够"，不是"格式没给"。重新生成整批会把
+ * 用户在上一轮已经看到的方向全部换掉，而用户真正需要的只是把那条短的介绍补到 180 字。
+ * 所以这里要求 id / 标题 / 故事类型原样保留，只补不足。
+ */
+export function buildChapterDiscussTopUpMessages(input: {
+  module: string
+  /** 校验失败原因（来自 validateChapterDiscussProtocol）。 */
+  error: string
+  /** 已解析出的协议；完全没解析出来（JSON 坏了）时传 null。 */
+  protocol: ChapterDiscussProtocol | null
+  /** 原始回复，protocol 为 null 时用它重建。 */
+  content?: string
+}): Array<{ role: "user"; content: string }> {
+  const scope = input.module || "本章"
+  const payload = input.protocol
+    ? JSON.stringify({
+      status: input.protocol.status,
+      module: input.protocol.module || scope,
+      judgment: input.protocol.judgment,
+      directions: input.protocol.directions,
+      preferenceId: input.protocol.preferenceId,
+      preferenceReason: input.protocol.preferenceReason,
+    })
+    : ""
+  return [{
+    role: "user",
+    content: [
+      `下面这份「${scope}」的 chapter_discuss 协议没有通过完整性检查：${input.error}`,
+      "请只修不合格的地方，凑齐要求后重新输出**完整**协议块。",
+      "硬性要求：",
+      "- 已经存在的方向 id、标题、故事类型原样保留，不要新增、删除或替换方向（除下面说的数量不足）。",
+      "- 介绍太短的方向：把它扩写到 200-300 字，只补剧情信息（谁做了什么、遇到什么、结果怎样、停在哪里），不要注水、不要修辞。",
+      "- 缺故事类型或标题的方向：按它已经写出的事情补一个普通说法即可。",
+      "- 故事类型重复：把后面那个换成它实际写的另一类走法。",
+      "- 方向数量不足：按已写的判断补足到 3-4 个；数量超标：只保留最靠前的几个，其余合并进保留方向的介绍里。",
+      "- AI 推荐必须指向真实存在的方向 id；实在选不出就留空字符串。",
+      "- 只输出协议块本身（开标记、JSON、闭标记），不要复述原回复，不要写任何解释。",
+      ...CHAPTER_DISCUSS_PLAIN_LANGUAGE_RULES,
+      "协议格式（严格遵守）：",
+      CHAPTER_DISCUSS_MARKER_OPEN,
+      `{"status":"needs_choice","module":"${scope}","judgment":"关键判断","directions":[{"id":"d1","storyType":"故事类型","title":"方向标题","summary":"约200-300字的大白话后续故事介绍"}],"preferenceId":"d1","preferenceReason":"推荐理由（可空）"}`,
+      CHAPTER_DISCUSS_MARKER_CLOSE,
+      `开闭标记必须成对出现，JSON 必须完整可解析；每个方向的介绍不少于 ${CHAPTER_DISCUSS_MIN_SUMMARY_CHARS} 字。`,
+      "",
+      input.protocol ? "## 待修的协议" : "## 上一轮回复（协议块缺失或无法解析，请据此重建）",
+      payload || (input.content ?? ""),
+    ].join("\n"),
+  }]
+}
+
 /** 「补协议」修复轮的提示词：只输出协议块，不复述、不重写正文（修复结果只用于解析）。 */
 export function buildChapterDiscussRepairMessages(input: {
   content: string

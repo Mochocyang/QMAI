@@ -21,6 +21,7 @@ const FOUR_POINT_THREE_SIX_CHANGELOG: ChangelogEntry = {
       "Outline HTML documents are now editable in place: hit Edit next to the HTML / MD switch and headings, body text and table cells become editable, then save writes back to the companion .html file (Markdown and structured data are left untouched).",
       "The shelf no longer pops a black title tooltip on hover; the whole card lifts and the cover hops once instead (keyboard focus lifts it too, and motion is disabled when reduced motion is requested).",
       "The LLM, rerank and embedding tabs in Settings now link to a model-setup tutorial that opens the Feishu wiki in your browser.",
+      "Co-creation rounds no longer get discarded over one imperfect field: when the protocol fails the completeness check the app retries once to fill in the missing piece (short direction summary, missing option, dangling preference), and if it still falls short it shows the cards with the content it has plus a short note instead of losing the whole discussion. The reply text is always kept.",
       "Removed the \"reuse main model\" option from reranking: reranking with the chat model cost an extra full request on every retrieval while the ordering barely changed. Reranking now needs its own model, the page warns when none is configured, and old configs that relied on the main model are switched back to disabled.",
     ],
     zh: [
@@ -33,6 +34,7 @@ const FOUR_POINT_THREE_SIX_CHANGELOG: ChangelogEntry = {
       "大纲的 HTML 文档可以直接改：点 HTML / MD 标识旁的「编辑」，标题、正文和表格单元格都会变成可改状态，保存后写回同名 .html（MD 与结构化数据不动）",
       "书架不再在悬停时弹黑色书名浮层，改为整张卡片弹起、封面再跳一下；键盘聚焦同样会抬起，系统开启「减少动态效果」时自动取消",
       "设置里的大语言模型 / 重排模型 / 向量模型三个页签新增「模型设置教程」链接，点击用系统浏览器打开飞书文档",
+      "共创协议不再因为一项不达标整轮作废：校验没通过时会先自动补齐一轮（方向介绍过短、分歧可选项不足、AI 倾向悬空等），补齐仍不达标就按现有内容照常出卡片并给一句说明；连协议都拿不到时也保留回复正文，不再把前面几轮问答白白丢掉",
       "取消重排模型的「复用主模型」：拿聊天主模型做重排，每次检索都多一次完整请求，排序却基本不变；现在重排只走专用重排模型，没填模型时页面会明确提示「重排不会生效」，老配置自动改回未启用",
     ],
   },

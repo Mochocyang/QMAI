@@ -12,8 +12,8 @@ describe("changelog", () => {
     const release436 = currentVersionChangelog("4.3.6")[0]
     expect(release436.version).toBe("4.3.6")
     expect(release436.date).toBe("2026-10-21")
-    expect(release436.highlights.zh).toHaveLength(10)
-    expect(release436.highlights.en).toHaveLength(10)
+    expect(release436.highlights.zh).toHaveLength(11)
+    expect(release436.highlights.en).toHaveLength(11)
     expect(release436.highlights.zh.join("\n")).toContain("新手引导")
     expect(release436.highlights.zh.join("\n")).toContain("添加提供方")
     // 10-21 追加的三项（模型设置教程链接 / 书架悬停 / 大纲 HTML 就地编辑）
@@ -24,6 +24,9 @@ describe("changelog", () => {
     // 10-21 追加：取消重排的「复用主模型」
     expect(release436.highlights.zh.join("\n")).toContain("取消重排模型的「复用主模型」")
     expect(release436.highlights.en.join("\n")).toContain("reuse main model")
+    // 10-21 追加：共创协议「一次补齐 + 降级放行」
+    expect(release436.highlights.zh.join("\n")).toContain("共创协议不再因为一项不达标整轮作废")
+    expect(release436.highlights.en.join("\n")).toContain("Co-creation rounds no longer get discarded")
     const release435 = currentVersionChangelog("4.3.5")[0]
     expect(release435.version).toBe("4.3.5")
     expect(release435.date).toBe("2026-10-21")

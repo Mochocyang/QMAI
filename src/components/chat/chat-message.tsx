@@ -202,7 +202,7 @@ export function ChatMessage({
    */
   const displayContent = useMemo(() => {
     let text = message.content;
-    if (message.chapterDiscussPhase || message.chapterDiscussProtocol || message.chapterDiscussError) {
+    if (message.chapterDiscussPhase || message.chapterDiscussProtocol || message.chapterDiscussError || message.chapterDiscussNotice) {
       text = stripStructuredMarkers(text);
     }
     if (eventOutline) {
@@ -227,6 +227,7 @@ export function ChatMessage({
     message.chapterDiscussPhase,
     message.chapterDiscussProtocol,
     message.chapterDiscussError,
+    message.chapterDiscussNotice,
     eventOutline,
   ]);
   /**
@@ -457,9 +458,14 @@ export function ChatMessage({
             disabledReason="请在生成结束或打开项目后重试。"
           />
         ) : null}
+        {isAssistant && !message.discarded && message.chapterDiscussNotice ? (
+          <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-50/60 px-2 py-1.5 text-[0.6875rem] leading-5 text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+            方向卡片已给出，但有一处不完整：{message.chapterDiscussNotice}
+          </div>
+        ) : null}
         {isAssistant && !message.discarded && message.chapterDiscussError ? (
           <div className="mt-2 rounded-md border border-red-500/30 bg-red-50/40 px-2 py-1.5 text-[0.6875rem] leading-5 text-red-700 dark:bg-red-950/20 dark:text-red-300">
-            章节共创协议格式无效，尚未开始生成：{message.chapterDiscussError}
+            本轮没有拿到方向卡片：{message.chapterDiscussError}。上方回复内容已保留，可再发一次或换个说法重试。
           </div>
         ) : null}
         {isAssistant && !message.discarded && (

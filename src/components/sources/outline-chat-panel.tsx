@@ -350,16 +350,13 @@ import {
   buildOutlineDiscussExecutionPrompt,
   buildOutlineDiscussPhaseSystemRules,
   findLatestOutlineDiscussProtocol,
-  hasOutlineDiscussRepairableContent,
   isOutlineDiscussFinalizeRequest,
   parseOutlineDiscussProtocol,
-  validateOutlineDiscussProtocol,
   type OutlineDiscussAnswer,
-  type OutlineDiscussParseOutcome,
   type OutlineDiscussPhase,
   type OutlineDiscussProtocol,
 } from "@/lib/novel/outline-discuss-protocol";
-import { repairOutlineDiscussProtocolWithAi } from "@/lib/novel/outline-discuss-repair";
+import { resolveOutlineDiscussProtocol } from "@/lib/novel/outline-discuss-repair";
 import {
   buildOutlinePlanClarifyAnswerPrompt,
   buildOutlinePlanElementCheckPrompt,
@@ -1956,6 +1953,11 @@ function OutlineAssistantMessage({
       {msg.outlinePlanError && !messageIsStreaming ? (
         <div role="alert" className="mb-2 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {msg.outlinePlanError}
+        </div>
+      ) : null}
+      {msg.outlineDiscussNotice && !messageIsStreaming ? (
+        <div className="mb-2 rounded border border-amber-500/40 bg-amber-50/70 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+          已按现有内容给出卡片：{msg.outlineDiscussNotice}
         </div>
       ) : null}
       {msg.outlineDiscussError && !messageIsStreaming ? (
@@ -4465,47 +4467,28 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           ? isDiscussDeliveredOutline(rawFinalContent)
           : false;
         const discussProtocolRequired = discussPhase && !discussDeliveredOutline;
-        // 共创讨论轮：模型偶发只给正文不给协议块。先尝试一次「补协议」修复，
-        // 把这一轮从「格式无效、整轮作废」救回来；修复失败才走原来的报错路径。
-        let discussProtocolOutcome: OutlineDiscussParseOutcome = discussProtocolRequired
-          ? parseOutlineDiscussProtocol(rawFinalContent)
-          : { kind: "none" as const };
-        if (
-          discussProtocolRequired
-          && discussProtocolOutcome.kind !== "valid"
-          && hasOutlineDiscussRepairableContent(rawFinalContent)
-        ) {
-          const repairedText = await repairOutlineDiscussProtocolWithAi({
-            content: rawFinalContent,
+        /*
+         * 共创讨论轮：解析 + 「一次重试 + 降级放行」，统一走 resolveOutlineDiscussProtocol。
+         *
+         * 改造前这里只处理"完全没给协议块"（补协议一轮），校验不过仍然整轮作废 ——
+         * 用户实测：前面问了很多问题，最后因为某个可选项缺失/倾向悬空就报「共创协议格式无效」，
+         * 内容全丢。现在校验不过会再「补齐」一轮；仍不过就把已解析的分歧原样放行，
+         * 只留一句说明，绝不把讨论作废。
+         */
+        const discussGate = discussProtocolRequired
+          ? await resolveOutlineDiscussProtocol({
+            text: rawFinalContent,
             module: discussModule || "大纲",
             llmConfig: effectiveLlmConfig,
             signal: controller.signal,
-          }).catch((error) => {
-            console.warn(
-              "AI 大纲共创协议补全失败，按原结果继续：",
-              error instanceof Error ? error.message : error,
-            );
-            return "";
-          });
-          const repairedOutcome = repairedText
-            ? parseOutlineDiscussProtocol(repairedText)
-            : ({ kind: "none" } as const);
-          if (repairedOutcome.kind === "valid") {
-            discussProtocolOutcome = repairedOutcome;
-          }
-        }
-        const discussValidation = discussProtocolOutcome.kind === "valid"
-          ? validateOutlineDiscussProtocol(discussProtocolOutcome.protocol)
-          : null;
-        const discussProtocolError = discussProtocolRequired
-          ? discussProtocolOutcome.kind === "invalid"
-            ? `共创协议格式无效，尚未开始生成：${discussProtocolOutcome.error}`
-            : discussProtocolOutcome.kind === "none"
-              ? "共创协议格式无效，尚未开始生成：模型未返回 outline_discuss 协议块"
-              : discussValidation?.kind === "invalid"
-                ? `共创协议不满足共创模式要求，尚未开始生成：${discussValidation.error}`
-                : undefined
+          })
+          : { protocol: null, notice: "", error: "" };
+        /** 最终放行的协议：可能是补齐后的，也可能是降级放行的原始协议。 */
+        const discussFinalProtocol = discussGate.protocol;
+        const discussProtocolError = discussProtocolRequired && discussGate.error
+          ? `共创协议格式无效，尚未开始生成：${discussGate.error}`
           : undefined;
+        const discussProtocolNotice = discussProtocolRequired ? discussGate.notice || undefined : undefined;
         const rawIntentProtocol = parseIntentClarityProtocol(rawFinalContent);
         const nextStepExtraction = extractNextStep(rawFinalContent, {
           allowFallback: options.intentPhase === "generation",
@@ -4579,10 +4562,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             ? planValidation.protocol
             : null,
           outlinePlanError: planProtocolError,
-          outlineDiscussProtocol: discussValidation && discussValidation.kind !== "invalid"
-            ? discussValidation.protocol
-            : null,
+          // 降级放行的协议（校验没过但内容在）同样要出卡片，所以这里不再二次过闸。
+          outlineDiscussProtocol: discussFinalProtocol,
           outlineDiscussError: discussProtocolError,
+          outlineDiscussNotice: discussProtocolNotice,
         }));
         if (!isCurrentRun()) {
           void useOutlineChatStore.getState().saveToDisk();
@@ -4601,10 +4584,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             ]);
           }
         }
-        if (discussProtocolRequired && discussValidation) {
-          if (discussValidation.kind === "needs_decision") {
+        if (discussProtocolRequired && discussFinalProtocol) {
+          // 按协议自报的 status 推进：降级放行时 validate 的结果可能是 invalid，
+          // 但那只是"某一项不达标"，阶段机器不该因此卡死在原地。
+          if (discussFinalProtocol.status === "needs_decision") {
             advanceCapturedWorkflowStages(["collecting_requirements"]);
-          } else if (discussValidation.kind === "ready") {
+          } else if (discussFinalProtocol.status === "ready") {
             advanceCapturedWorkflowStages([
               "sufficiency_check",
               "generation_plan",
@@ -6403,45 +6388,21 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           ? isDiscussDeliveredOutline(rawRegenerationContent)
           : false;
         const regenerationProtocolRequired = regenerationDiscussPhase && !regenerationDeliveredOutline;
-        // 与首轮一致：续跑/重新生成也先尝试一次「补协议」，避免整轮作废。
-        let regenerationDiscussOutcome: OutlineDiscussParseOutcome = regenerationProtocolRequired
-          ? parseOutlineDiscussProtocol(rawRegenerationContent)
-          : { kind: "none" as const };
-        if (
-          regenerationProtocolRequired
-          && regenerationDiscussOutcome.kind !== "valid"
-          && hasOutlineDiscussRepairableContent(rawRegenerationContent)
-        ) {
-          const repairedText = await repairOutlineDiscussProtocolWithAi({
-            content: rawRegenerationContent,
+        // 与首轮一致：换一批 / 续跑同样走「一次重试 + 降级放行」。
+        const regenerationDiscussGate = regenerationProtocolRequired
+          ? await resolveOutlineDiscussProtocol({
+            text: rawRegenerationContent,
             module: regenerationDiscussModule || "大纲",
             llmConfig: effectiveLlmConfig,
             signal: controller.signal,
-          }).catch((error) => {
-            console.warn(
-              "AI 大纲共创协议补全失败，按原结果继续：",
-              error instanceof Error ? error.message : error,
-            );
-            return "";
-          });
-          const repairedOutcome = repairedText
-            ? parseOutlineDiscussProtocol(repairedText)
-            : ({ kind: "none" } as const);
-          if (repairedOutcome.kind === "valid") {
-            regenerationDiscussOutcome = repairedOutcome;
-          }
-        }
-        const regenerationDiscussValidation = regenerationDiscussOutcome.kind === "valid"
-          ? validateOutlineDiscussProtocol(regenerationDiscussOutcome.protocol)
-          : null;
-        const regenerationDiscussError = regenerationProtocolRequired
-          ? regenerationDiscussOutcome.kind === "invalid"
-            ? `共创协议格式无效，尚未开始生成：${regenerationDiscussOutcome.error}`
-            : regenerationDiscussOutcome.kind === "none"
-              ? "共创协议格式无效，尚未开始生成：模型未返回 outline_discuss 协议块"
-              : regenerationDiscussValidation?.kind === "invalid"
-                ? `共创协议不满足共创模式要求，尚未开始生成：${regenerationDiscussValidation.error}`
-                : undefined
+          })
+          : { protocol: null, notice: "", error: "" };
+        const regenerationFinalProtocol = regenerationDiscussGate.protocol;
+        const regenerationDiscussError = regenerationProtocolRequired && regenerationDiscussGate.error
+          ? `共创协议格式无效，尚未开始生成：${regenerationDiscussGate.error}`
+          : undefined;
+        const regenerationDiscussNotice = regenerationProtocolRequired
+          ? regenerationDiscussGate.notice || undefined
           : undefined;
         const rawRegenerationIntentProtocol = parseIntentClarityProtocol(rawRegenerationContent);
         const nextStepExtraction = extractNextStep(
@@ -6488,10 +6449,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             intentProtocolError: regenerationIntentProtocolError,
             // 直接交付了大纲的共创轮按生成轮处理：不带讨论标，正文走正常显示路径。
             outlineDiscussPhase: regenerationProtocolRequired ? regenerationDiscussPhase : undefined,
-            outlineDiscussProtocol: regenerationDiscussValidation && regenerationDiscussValidation.kind !== "invalid"
-              ? regenerationDiscussValidation.protocol
-              : null,
+            // 降级放行的协议也照常出卡片（见首轮同名注释）。
+            outlineDiscussProtocol: regenerationFinalProtocol,
             outlineDiscussError: regenerationDiscussError,
+            outlineDiscussNotice: regenerationDiscussNotice,
           }),
         );
         setConversationContextSummary(capturedConvId, buildSessionContextSummary({

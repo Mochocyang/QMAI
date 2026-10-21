@@ -160,6 +160,11 @@ export interface OutlineChatMessage {
   outlineDiscussProtocol?: OutlineDiscussProtocol | null
   outlineDiscussError?: string
   /**
+   * 共创协议补齐一轮后仍不完美、但已按现有内容出卡片时的说明。
+   * 与 error 互斥：error 表示连协议都拿不到，需要用户重发。
+   */
+  outlineDiscussNotice?: string
+  /**
    * 保存前结构化校验发现的问题。
    *
    * 挂在这条消息上、显示在生成结果**下方**，而不是只弹一个持久浮层：
