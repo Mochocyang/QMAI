@@ -56,7 +56,7 @@ function baizhiConfig(extra: Partial<SearchApiConfig> = {}): SearchApiConfig {
 }
 
 describe("百智 MCP 搜索后端", () => {
-  beforeEach(() => fetchMock.mockReset())
+  beforeEach(() => { fetchMock.mockReset() })
 
   it("需要 Key", () => {
     expect(providerRequiresApiKey("baizhi")).toBe(true)
@@ -136,7 +136,7 @@ describe("百智 MCP 搜索后端", () => {
     fetchMock.mockReset()
     fetchMock.mockImplementation(async (_u: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body ?? "{}"))
-      if (body.method === "initialize") return json({ jsonrpc: "2.0", id: body.id, result: {} })
+      if (body.method === "initialize") return json({ jsonrpc: "2.0", id: body.id, result: { protocolVersion: "2025-06-18" } })
       if (body.method === "tools/call") return json({ jsonrpc: "2.0", id: body.id, error: { code: -32602, message: "Unknown tool" } })
       return new Response(null, { status: 202 })
     })
@@ -152,6 +152,46 @@ describe("百智 MCP 搜索后端", () => {
     const cfg = { ...baizhiConfig(), provider: "tavily" as const, providerConfigs: { baizhi: { apiKey: FAKE_KEY }, tavily: { apiKey: "tv" } } }
     await webSearch("q", cfg)
     expect(fetchMock.mock.calls[0][0]).toBe("https://api.tavily.com/search")
+  })
+
+  it.each(["2025-03-26", "2099-01-01", undefined])("仅支持当前协议：拒绝协商版本 %s，且不继续调用或伪称清理", async (version) => {
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body ?? "{}"))
+      if (body.method === "initialize") return json({ jsonrpc: "2.0", id: body.id, result: { protocolVersion: version } }, { "mcp-session-id": "unaccepted-session" })
+      if (body.method === "tools/call") return json({ jsonrpc: "2.0", id: body.id, result: { structuredContent: { results: [] } } })
+      return new Response(null, { status: 202 })
+    })
+    await expect(webSearch("q", baizhiConfig())).rejects.toThrow(/协议版本/)
+    expect(fetchMock.mock.calls).toHaveLength(1)
+  })
+
+  it.each(["http503", "transport"])("初始化确认失败 %s 不继续搜索，接受的会话仍尽力清理", async (failure) => {
+    fetchMock.mockImplementation(async (_url: string, init: RequestInit) => {
+      if (init.method === "DELETE") return new Response(null, { status: 200 })
+      const body = JSON.parse(String(init.body ?? "{}"))
+      if (body.method === "initialize") return json({ jsonrpc: "2.0", id: body.id, result: { protocolVersion: "2025-06-18" } }, { "mcp-session-id": "accepted-session" })
+      if (body.method === "notifications/initialized") {
+        if (failure === "transport") throw new Error("synthetic notification transport failure")
+        return new Response(null, { status: 503 })
+      }
+      if (body.method === "tools/call") return json({ jsonrpc: "2.0", id: body.id, result: { structuredContent: { results: [] } } })
+      throw new Error("unexpected synthetic request")
+    })
+    await expect(webSearch("q", baizhiConfig())).rejects.toThrow()
+    const methods = fetchMock.mock.calls.map(([, init]) => init.body ? JSON.parse(String(init.body)).method : init.method)
+    expect(methods).not.toContain("tools/call")
+    const cleanup = fetchMock.mock.calls.find(([, init]) => init.method === "DELETE")
+    expect(cleanup?.[1].headers).toMatchObject({ "MCP-Protocol-Version": "2025-06-18", "Mcp-Session-Id": "accepted-session", Authorization: `Bearer ${FAKE_KEY}` })
+  })
+
+  it("会话清理带协议Header；DELETE拒绝不冒充失败搜索或自动重试", async () => {
+    mockHappyPath()
+    const original = fetchMock.getMockImplementation()!
+    fetchMock.mockImplementation(async (url: string, init: RequestInit) => init.method === "DELETE" ? new Response(null, { status: 405 }) : original(url, init))
+    expect(await webSearch("q", baizhiConfig())).toHaveLength(1)
+    const cleanup = fetchMock.mock.calls.filter(([, init]) => init.method === "DELETE")
+    expect(cleanup).toHaveLength(1)
+    expect(cleanup[0][1].headers).toMatchObject({ "MCP-Protocol-Version": "2025-06-18", "Mcp-Session-Id": "sess-1" })
   })
 
   it("解析 SSE 和 JSON 响应体", () => {

@@ -144,6 +144,7 @@ export async function baizhiSearch(
   }
   const httpFetch = await getHttpFetch()
   let sessionId: string | null = null
+  let protocolAccepted = false
   let nextId = 1
 
   const post = async (payload: Record<string, unknown>): Promise<Response> => {
@@ -183,25 +184,33 @@ export async function baizhiSearch(
   }
 
   try {
-    await rpc("initialize", {
+    const initialization = await rpc("initialize", {
       protocolVersion: MCP_PROTOCOL_VERSION,
       capabilities: {},
       clientInfo: { name: "QMAI", version: "1" },
     })
-    // 通知无响应体；失败不影响后续调用。
-    await post({ jsonrpc: "2.0", method: "notifications/initialized" }).catch(() => undefined)
+    if (!initialization || typeof initialization !== "object"
+      || (initialization as { protocolVersion?: unknown }).protocolVersion !== MCP_PROTOCOL_VERSION) {
+      throw new Error(`百智搜索失败：服务返回的 MCP 协议版本不兼容，客户端仅支持 ${MCP_PROTOCOL_VERSION}。`)
+    }
+    protocolAccepted = true
+    // 初始化确认失败时停止，避免尚未建立会话就继续搜索。
+    const initialized = await post({ jsonrpc: "2.0", method: "notifications/initialized" })
+    if (!initialized.ok) {
+      throw new Error(`百智初始化确认失败（${initialized.status}），未执行搜索。`)
+    }
     const result = await rpc("tools/call", {
       name: BAIZHI_SEARCH_TOOL,
       arguments: { query, count: Math.max(1, Math.min(MAX_COUNT, Math.floor(maxResults) || 10)) },
     })
     return normalizeBaizhiToolResult(result, maxResults)
   } finally {
-    if (sessionId) {
+    if (sessionId && protocolAccepted) {
       // 会话清理：尽力而为。
       const sid = sessionId
       httpFetch(BAIZHI_MCP_URL, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${key}`, "Mcp-Session-Id": sid },
+        headers: { Authorization: `Bearer ${key}`, "Mcp-Session-Id": sid, "MCP-Protocol-Version": MCP_PROTOCOL_VERSION },
       }).catch(() => undefined)
     }
   }
