@@ -204,6 +204,54 @@ describe("resolveChapterDiscussProtocol", () => {
     expect(gate.error).toContain("未返回 chapter_discuss 协议块")
   })
 
+  it("降级时把「声称资料不足、却给了方向」改成可选方向，别把方向藏起来", async () => {
+    const long = "他连夜出城，半路被巡夜的人拦下，靠旧身份骗过守军；天亮前赶到码头，船已经开走。"
+    const insufficient = [CHAPTER_DISCUSS_MARKER_OPEN, JSON.stringify({
+      status: "insufficient",
+      module: "第3章",
+      judgment: "前文线索不足",
+      directions: [
+        { id: "d1", storyType: "复仇线", title: "血债血偿", summary: long },
+        { id: "d2", storyType: "悬念反转", title: "真凶另有其人", summary: long },
+        { id: "d3", storyType: "情感升温", title: "并肩之夜", summary: long },
+      ],
+      preferenceId: "",
+      preferenceReason: "",
+    }), CHAPTER_DISCUSS_MARKER_CLOSE].join("\n")
+
+    const gate = await resolveChapterDiscussProtocol({
+      ...base,
+      text: insufficient,
+      repair: async () => "",
+      topUp: async () => insufficient,
+    })
+    expect(gate.error).toBe("")
+    expect(gate.protocol?.status).toBe("needs_choice")
+    expect(gate.protocol?.directions).toHaveLength(3)
+    expect(gate.notice).toContain("已按现有内容展示")
+  })
+
+  it("降级后一个方向都没有时不放行（卡片会是空的），改为报错保留正文", async () => {
+    const empty = [CHAPTER_DISCUSS_MARKER_OPEN, JSON.stringify({
+      status: "needs_choice",
+      module: "第3章",
+      judgment: "还没有想清方向",
+      directions: [],
+      preferenceId: "",
+      preferenceReason: "",
+    }), CHAPTER_DISCUSS_MARKER_CLOSE].join("\n")
+
+    const gate = await resolveChapterDiscussProtocol({
+      ...base,
+      text: empty,
+      repair: async () => "",
+      topUp: async () => empty,
+    })
+    expect(gate.protocol).toBeNull()
+    expect(gate.notice).toBe("")
+    expect(gate.error).toContain("方向")
+  })
+
   it("协议块存在但 JSON 坏了：再重建一次，成功就用重建的协议", async () => {
     const broken = [CHAPTER_DISCUSS_MARKER_OPEN, '{"status":"needs_choice","directions":[{"id":"d1"', CHAPTER_DISCUSS_MARKER_CLOSE].join("\n")
     let topUpCalls = 0

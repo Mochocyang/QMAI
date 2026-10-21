@@ -120,6 +120,18 @@ export async function resolveOutlineDiscussProtocol(
     return { ok: true, protocol: validation.protocol }
   }
 
+  /**
+   * 降级放行前先确认"卡片真的出得来"：`OutlineDiscussCard` 在 decisions 为空时
+   * 整张卡 `return null`，`needs_decision` 却没有分歧点的协议放行后只会留一条空消息，
+   * 比明确报错更糟。这种情况不降级，返回原因让调用方提示重发（正文照常保留）。
+   */
+  const degrade = (protocol: OutlineDiscussProtocol, reason: string): OutlineDiscussGateResult => {
+    if (protocol.status === "needs_decision" && protocol.decisions.length === 0) {
+      return { protocol: null, notice: "", error: reason }
+    }
+    return { protocol, notice: `已按现有内容展示（${reason}）。`, error: "" }
+  }
+
   const first = inspect(options.text)
   if (first.ok) return { protocol: first.protocol, notice: "", error: "" }
 
@@ -133,9 +145,7 @@ export async function resolveOutlineDiscussProtocol(
       })
       const repaired = repairedText ? inspect(repairedText) : null
       if (repaired?.ok) return { protocol: repaired.protocol, notice: "", error: "" }
-      if (repaired && repaired.protocol) {
-        return { protocol: repaired.protocol, notice: `已按现有内容展示（${repaired.reason}）。`, error: "" }
-      }
+      if (repaired && repaired.protocol) return degrade(repaired.protocol, repaired.reason)
     }
     // 2) 有标记但 JSON 坏了 → 让「补齐」据原文重建一次；再不行才报错。
     const rebuilt = await topUp({
@@ -164,5 +174,5 @@ export async function resolveOutlineDiscussProtocol(
     const afterTopUp = inspect(topped)
     if (afterTopUp.ok) return { protocol: afterTopUp.protocol, notice: "", error: "" }
   }
-  return { protocol: first.protocol, notice: `已按现有内容展示（${first.reason}）。`, error: "" }
+  return degrade(first.protocol, first.reason)
 }

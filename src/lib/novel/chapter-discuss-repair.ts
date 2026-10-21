@@ -133,6 +133,29 @@ export async function resolveChapterDiscussProtocol(
     return { ok: true, protocol: validation.protocol }
   }
 
+  /**
+   * 降级放行前先确认"这张卡真的能出"。
+   *
+   * 卡片组件对 0 个方向直接 `return null`（画面上什么都没有），而
+   * `status=insufficient` 的分支根本不渲染 directions —— 这两种协议就算原样放行，
+   * 用户也只会看到一条空消息，比明确报错更糟。所以：
+   * - insufficient 却带方向的：改成 needs_choice，把方向真的显示出来（内容不浪费）；
+   * - 一个方向都没有的：不降级，返回 error 让调用方保留正文并提示重发。
+   */
+  const degrade = (protocol: ChapterDiscussProtocol, reason: string): ChapterDiscussGateResult => {
+    if (protocol.directions.length === 0) {
+      return { protocol: null, notice: "", error: reason }
+    }
+    if (protocol.status === "insufficient") {
+      return {
+        protocol: { ...protocol, status: "needs_choice" },
+        notice: `已按现有内容展示（${reason}）。`,
+        error: "",
+      }
+    }
+    return { protocol, notice: `已按现有内容展示（${reason}）。`, error: "" }
+  }
+
   const first = inspect(options.text)
   if (first.ok) return { protocol: first.protocol, notice: "", error: "" }
 
@@ -147,9 +170,7 @@ export async function resolveChapterDiscussProtocol(
       })
       const repaired = repairedText ? inspect(repairedText) : null
       if (repaired?.ok) return { protocol: repaired.protocol, notice: "", error: "" }
-      if (repaired && repaired.protocol) {
-        return { protocol: repaired.protocol, notice: `已按现有内容展示（${repaired.reason}）。`, error: "" }
-      }
+      if (repaired && repaired.protocol) return degrade(repaired.protocol, repaired.reason)
     }
     // 2) 有标记但 JSON 坏了 → 让「补齐」据原文重建一次；再不行才报错。
     const rebuilt = await topUp({
@@ -179,5 +200,5 @@ export async function resolveChapterDiscussProtocol(
     const afterTopUp = inspect(topped)
     if (afterTopUp.ok) return { protocol: afterTopUp.protocol, notice: "", error: "" }
   }
-  return { protocol: first.protocol, notice: `已按现有内容展示（${first.reason}）。`, error: "" }
+  return degrade(first.protocol, first.reason)
 }

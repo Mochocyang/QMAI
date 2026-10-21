@@ -205,6 +205,27 @@ describe("resolveOutlineDiscussProtocol", () => {
     expect(gate.notice).toContain("已按现有内容展示")
   })
 
+  it("needs_decision 却没有任何分歧时不放行（卡片会是空的），改为报错保留正文", async () => {
+    const empty = [OUTLINE_DISCUSS_MARKER_OPEN, JSON.stringify({
+      status: "needs_decision",
+      module: "卷纲",
+      judgment: "还需要定几件事",
+      nextStep: "",
+      decisions: [],
+      agreed: [],
+    }), OUTLINE_DISCUSS_MARKER_CLOSE].join("\n")
+
+    const gate = await resolveOutlineDiscussProtocol({
+      ...base,
+      text: empty,
+      repair: async () => "",
+      topUp: async () => empty,
+    })
+    expect(gate.protocol).toBeNull()
+    expect(gate.notice).toBe("")
+    expect(gate.error).toContain("分歧")
+  })
+
   it("没有协议块时先补协议，补不出来才报错（内容由调用方保留）", async () => {
     const gate = await resolveOutlineDiscussProtocol({
       ...base,
