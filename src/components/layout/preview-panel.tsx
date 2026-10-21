@@ -2399,6 +2399,7 @@ export function PreviewPanel() {
       <button
         type="button"
         className="ui-test-editor-action is-icon-only"
+        data-guide="outline.memory"
         aria-label={isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"}
         title={isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"}
         onClick={() => void handleIngestOutline()}
@@ -2472,13 +2473,13 @@ export function PreviewPanel() {
       auxiliaryPanel={!isSelectedChapter ? <UiTestOutlineTools /> : undefined}
       actions={isSelectedChapter ? (
         <>
-          <button type="button" className="ui-test-editor-action is-icon-only" aria-label={chapterDeAiButtonLabel} title={`${chapterDeAiButtonLabel} · ${chapterDeAiButtonTitle}`} onClick={(event) => void openDeAiSkillPicker(null, event.currentTarget)} disabled={currentChapterDeAiProcessing || !extractDeAiChapterText(fileContent).trim()}>
+          <button type="button" className="ui-test-editor-action is-icon-only" data-guide="chapter.deai" aria-label={chapterDeAiButtonLabel} title={`${chapterDeAiButtonLabel} · ${chapterDeAiButtonTitle}`} onClick={(event) => void openDeAiSkillPicker(null, event.currentTarget)} disabled={currentChapterDeAiProcessing || !extractDeAiChapterText(fileContent).trim()}>
             <Eraser aria-hidden="true" />
           </button>
-          <button type="button" className="ui-test-editor-action is-icon-only" data-draft-memory-target="" aria-label={isFinalChapterSaving ? "正在提取记忆…" : chapterMemoryExtracted ? "重新提取记忆" : "提取记忆"} title={isFinalChapterSaving ? "正在提取记忆…" : chapterMemoryExtracted ? "重新提取记忆" : "提取记忆"} onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal({ thenExtract: true }))} disabled={!canSaveAsFinal || isFinalChapterSaving}>
+          <button type="button" className="ui-test-editor-action is-icon-only" data-guide="chapter.memory" data-draft-memory-target="" aria-label={isFinalChapterSaving ? "正在提取记忆…" : chapterMemoryExtracted ? "重新提取记忆" : "提取记忆"} title={isFinalChapterSaving ? "正在提取记忆…" : chapterMemoryExtracted ? "重新提取记忆" : "提取记忆"} onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal({ thenExtract: true }))} disabled={!canSaveAsFinal || isFinalChapterSaving}>
             <Brain aria-hidden="true" />
           </button>
-          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="查看记忆" title="查看记忆" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
+          <button type="button" className="ui-test-editor-action is-icon-only" data-guide="chapter.view-memory" aria-label="查看记忆" title="查看记忆" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
             <BookOpen aria-hidden="true" />
           </button>
           {/*
@@ -2486,7 +2487,7 @@ export function PreviewPanel() {
             用户明确要求两者不能是同一个图标：改造前两者都是 Type，
             用户在工具栏上无法区分"调字体"与"自动整理段落"。
           */}
-          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="字体设置" title="字体设置" onClick={(event) => openBodyFontPopover(event.currentTarget)}>
+          <button type="button" className="ui-test-editor-action is-icon-only" data-guide="chapter.font" aria-label="字体设置" title="字体设置" onClick={(event) => openBodyFontPopover(event.currentTarget)}>
             <Type aria-hidden="true" />
           </button>
           {/*
@@ -2505,7 +2506,7 @@ export function PreviewPanel() {
             同时命中两枚按钮、把两枚都包起来。
           */}
           {canFormatWriting ? <button type="button" className="ui-test-editor-action is-icon-only" aria-label="一键排版" title="一键排版" onClick={() => void handleFormatWriting()}><WandSparkles aria-hidden="true" /></button> : null}
-          <button type="button" className="ui-test-editor-action is-icon-only" data-event-outline-target="" aria-label="生成章节细纲" title="生成章节细纲" onClick={handleOpenEventOutlineWizard}>
+          <button type="button" className="ui-test-editor-action is-icon-only" data-guide="chapter.event-outline" data-event-outline-target="" aria-label="生成章节细纲" title="生成章节细纲" onClick={handleOpenEventOutlineWizard}>
             <Lightbulb aria-hidden="true" />
           </button>
         </>

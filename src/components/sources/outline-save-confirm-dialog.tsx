@@ -246,6 +246,11 @@ export function OutlineSaveConfirmDialog({
           </Button>
           <Button
             type="button"
+            /*
+             * 新手引导「保存这份大纲」一步的第二候选靶点：弹窗打开后就高亮这里，
+             * 用户点它即真正落盘。属性对生产逻辑无影响，删掉引导也不会留死代码。
+             */
+            data-guide="outline.save.confirm"
             disabled={
               (!formats.md && !formats.html) ||
               (mode === "character" && selectedDrafts.length === 0) ||

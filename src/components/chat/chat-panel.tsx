@@ -3421,6 +3421,7 @@ export function ChatPanel() {
                           type="button"
                           variant="ghost"
                           size="sm"
+                          data-guide="chat.mode"
                           aria-haspopup="listbox"
                           aria-expanded={workflowModeDropdownOpen}
                           aria-label={aiSessionWorkflowModeLabel}
@@ -3484,7 +3485,7 @@ export function ChatPanel() {
                         改了没有任何效果，还会让回归测试定位到错误的元素）。
                       */}
                       <Tooltip>
-                        <TooltipTrigger render={<Button type="button" variant="ghost" size="sm" aria-pressed={planExecuteEnabled && aiWorkflowMode !== "fast"} disabled={aiWorkflowMode === "fast"} className={`h-7 w-7 shrink-0 border-0 bg-transparent p-0 shadow-none ${planExecuteEnabled && aiWorkflowMode !== "fast" ? "text-primary" : "text-muted-foreground"} disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => setPlanExecuteEnabled(!planExecuteEnabled)} title="计划" aria-label={aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"} />}>
+                        <TooltipTrigger render={<Button type="button" variant="ghost" size="sm" data-guide="chapter.plan" aria-pressed={planExecuteEnabled && aiWorkflowMode !== "fast"} disabled={aiWorkflowMode === "fast"} className={`h-7 w-7 shrink-0 border-0 bg-transparent p-0 shadow-none ${planExecuteEnabled && aiWorkflowMode !== "fast" ? "text-primary" : "text-muted-foreground"} disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => setPlanExecuteEnabled(!planExecuteEnabled)} title="计划" aria-label={aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"} />}>
                           <ListChecks className="h-3.5 w-3.5" />
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-xs leading-5">
@@ -3514,11 +3515,13 @@ export function ChatPanel() {
                         收进悬停提示（用户要求收窄工具栏）。当前生效的是哪一条
                         从悬停提示里看（「文风：甲书 · 文风」），浮层里另有一行当前文风。
                       */}
-                      <WritingStylePicker
-                        value={sessionWritingStyleId}
-                        onChange={setSessionWritingStyleId}
-                        iconOnly
-                      />
+                      <span className="inline-flex" data-guide="chapter.style">
+                        <WritingStylePicker
+                          value={sessionWritingStyleId}
+                          onChange={setSessionWritingStyleId}
+                          iconOnly
+                        />
+                      </span>
                     </>
                   )}
                 </>

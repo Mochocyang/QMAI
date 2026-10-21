@@ -14,6 +14,8 @@ import { useWikiStore, type OutputLanguage } from "@/stores/wiki-store"
 import { saveOutputLanguage } from "@/lib/project-store"
 import { pickDirectory } from "@/lib/platform"
 import { buildDefaultNovelDir } from "@/lib/default-paths"
+import { pickGuideDemoNovel, readGuideDemoNovel, rememberGuideDemoNovel } from "@/lib/guide/guide-demo-novel"
+import { useGuideStore } from "@/lib/guide/guide-store"
 import "@/components/uitest/ui-test-shelf.css"
 
 interface CreateProjectDialogProps {
@@ -82,6 +84,21 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
       if (!cancelled) setUiDefaultPath(defaultPath)
     })
     return () => { cancelled = true }
+  }, [isOpen])
+
+  /**
+   * 新手引导里「随机填一个示例书名」。
+   *
+   * 只在引导进行中生效，普通用户点「新建小说」不会看到被塞进来的名字。
+   * 书名同时写进 localStorage（`rememberGuideDemoNovel`）：走到章节阶段要往
+   * **同一本书**里放示例正文，不能重新随机一本。
+   */
+  useEffect(() => {
+    if (!isOpen) return
+    if (useGuideStore.getState().status !== "running") return
+    const novel = readGuideDemoNovel() ?? pickGuideDemoNovel()
+    rememberGuideDemoNovel(novel)
+    setName((current) => (current.trim() ? current : novel.name))
   }, [isOpen])
 
   async function handleBrowse() {
@@ -178,6 +195,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
                 <Label htmlFor="ui-test-novel-name">小说名称</Label>
                 <Input
                   id="ui-test-novel-name"
+                  data-guide="create.name"
                   className="ui-test-create-name"
                   aria-required="true"
                   aria-invalid={!!uiError && error === t("project.errorNameRequired")}
@@ -190,7 +208,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
               </div>
               <div className="ui-test-create-field">
                 <Label htmlFor="ui-test-novel-location">存放位置</Label>
-                <div className="ui-test-create-location">
+                <div className="ui-test-create-location" data-guide="create.location">
                   <output id="ui-test-novel-location" className="ui-test-create-path">{path || uiDefaultPath || "正在读取默认小说目录…"}</output>
                   <button
                     type="button"
@@ -214,7 +232,7 @@ export function CreateProjectDialog({ open: isOpen, onOpenChange, onCreated }: C
             </div>
             <div className="ui-test-create-footer">
               <button type="button" className="ui-test-create-button" disabled={creating} onClick={() => onOpenChange(false)}>取消</button>
-              <button type="submit" className="ui-test-create-button primary" disabled={creating || !name.trim()}>
+              <button type="submit" className="ui-test-create-button primary" data-guide="create.submit" disabled={creating || !name.trim()}>
                 <ArrowRight aria-hidden="true" />
                 {creating ? "创建中…" : "创建并写大纲"}
               </button>

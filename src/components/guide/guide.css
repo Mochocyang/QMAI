@@ -1,0 +1,305 @@
+/*
+ * 新手引导覆盖层。
+ *
+ * 全部颜色走主题变量（--card / --foreground / --border / --primary），
+ * 因此静水、纸间、星夜三套皮肤以及「方正」等视觉风格都自动适配，
+ * 不需要在这里再写一遍皮肤分支。
+ *
+ * 层级：Radix 弹窗是 z-index 50，引导必须压在弹窗之上（新建小说弹窗、
+ * 大纲向导都在引导过程中出现），所以取一个远高于它们的值。
+ */
+
+.guide-root {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  pointer-events: none;
+  font-family: var(--ui, var(--qmai-ui-font-family));
+  color: var(--foreground);
+}
+
+/* 遮罩本体不拦截点击；真正拦截的是四块 mask-block。 */
+.guide-mask {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.guide-mask-block {
+  position: absolute;
+  background: rgba(12, 16, 14, 0.52);
+  pointer-events: auto;
+}
+
+/* 没有靶点的纯讲解步骤：不挡路，用户仍可操作界面。 */
+.guide-mask-block.guide-mask-pass-through {
+  pointer-events: none;
+  background: rgba(12, 16, 14, 0.32);
+}
+
+/* 高亮框：只画描边，不接收事件，靶点仍是原元素在吃点击。 */
+.guide-hole {
+  position: absolute;
+  border-radius: 10px;
+  border: 2px solid var(--brand-500, #517d4e);
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--brand-400, #6f9b6a) 45%, transparent),
+    0 0 22px 6px color-mix(in oklab, var(--brand-500, #517d4e) 30%, transparent);
+  pointer-events: none;
+  animation: guide-hole-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes guide-hole-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.62; }
+}
+
+.guide-card {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.28),
+    0 2px 8px rgba(0, 0, 0, 0.12);
+  animation: guide-card-in 180ms ease-out;
+}
+
+@keyframes guide-card-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+.guide-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guide-chip {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  line-height: 1.125rem;
+  font-weight: 600;
+  color: var(--brand-700, #384f3e);
+  background: color-mix(in oklab, var(--brand-200, #bed5ba) 55%, transparent);
+}
+
+.guide-count {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.guide-close {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.guide-close svg { width: 14px; height: 14px; }
+
+.guide-close:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.guide-title {
+  margin: 0;
+  font-family: var(--serif, inherit);
+  font-size: 1.0625rem;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+.guide-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.guide-body p {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.75;
+  color: var(--foreground);
+}
+
+.guide-body strong {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.guide-body code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--muted);
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.guide-body a {
+  color: var(--brand-600, #45624f);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-all;
+}
+
+.guide-bullets {
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.guide-bullets li {
+  position: relative;
+  padding-left: 12px;
+  font-size: 0.78125rem;
+  line-height: 1.7;
+  color: var(--muted-foreground);
+}
+
+.guide-bullets li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--brand-400, #6f9b6a);
+}
+
+.guide-bullet-title {
+  display: block;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.guide-hint {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px dashed color-mix(in oklab, var(--brand-500, #517d4e) 45%, transparent);
+  background: color-mix(in oklab, var(--brand-100, #dce9da) 40%, transparent);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--brand-700, #384f3e);
+}
+
+.guide-hint svg { width: 14px; height: 14px; flex: none; }
+
+.guide-waiting {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--muted-foreground);
+}
+
+.guide-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* 窄卡片（或字号偏大）时让左右两组各自换行，而不是把「取消」挤出卡片。 */
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-top: 2px;
+}
+
+.guide-footer-left,
+.guide-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guide-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.78125rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.guide-btn svg { width: 13px; height: 13px; }
+
+.guide-btn:hover { background: var(--accent); }
+
+.guide-btn.text {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted-foreground);
+  padding: 0 4px;
+}
+
+.guide-btn.text:hover { color: var(--foreground); text-decoration: underline; }
+
+/*
+ * 「取消」紧挨着「跳过这一步」，两个同款文字按钮容易被读成一个：
+ * 加一道细竖线把它们分开，同时仍然保持「低强调的退出动作」的观感。
+ */
+.guide-btn-quit {
+  position: relative;
+  padding-left: 11px;
+}
+
+.guide-btn-quit::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--border);
+}
+
+.guide-btn.ghost { background: transparent; }
+
+.guide-btn.primary {
+  border-color: transparent;
+  /*
+   * 用 brand-700 底 + brand-50 字：这两个色在浅色皮肤里是「深底浅字」，
+   * 在星夜里正好反过来（brand-700 变浅、brand-50 变深）。写死 white 会在
+   * 星夜皮肤上变成「浅绿底白字」，对比度不足。
+   */
+  background: var(--brand-700, #384f3e);
+  color: var(--brand-50, #edf3ec);
+  font-weight: 600;
+}
+
+.guide-btn.primary:hover { background: var(--brand-800, #2c3e33); }
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-hole,
+  .guide-card {
+    animation: none;
+  }
+}

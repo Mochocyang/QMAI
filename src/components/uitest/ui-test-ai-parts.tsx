@@ -59,7 +59,7 @@ export function UiTestAiEmpty({ kind, onGenerateOutline, generateDisabled, gener
       <p>{kind === "outline" ? "聊聊故事方向，或用 @ 引用已有大纲和章节。" : "输入写作想法，或用 @ 引用章节、大纲和记忆。"}</p>
       {onGenerateOutline && (
         <div className="ui-test-ai-empty-actions">
-          <button type="button" onClick={onGenerateOutline} disabled={generateDisabled} title={generateDisabled ? generateDisabledReason : undefined}>生成小说大纲</button>
+          <button type="button" data-guide="outline.generate" onClick={onGenerateOutline} disabled={generateDisabled} title={generateDisabled ? generateDisabledReason : undefined}>生成小说大纲</button>
         </div>
       )}
     </div>

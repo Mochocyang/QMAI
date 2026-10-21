@@ -9,6 +9,13 @@ import {
   isFailedGenerationMessage,
 } from "@/lib/novel/failed-generation"
 import { buildSettingProfileOutputRules } from "@/lib/novel/setting-profile-contracts";
+import { useGuideStore } from "@/lib/guide/guide-store"
+import {
+  buildGuideDemoOutlineMarkdown,
+  pickGuideDemoNovel,
+  readGuideDemoNovel,
+  rememberGuideDemoNovel,
+} from "@/lib/guide/guide-demo-novel"
 import {
   type CSSProperties,
   type ReactNode,
@@ -2004,6 +2011,7 @@ function OutlineAssistantMessage({
           {!hasEventOutline ? (
             <button
               onClick={() => void onSaveAsOutline(actionContent)}
+              data-guide="outline.save"
               className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent"
               title="保存为大纲"
               aria-label="保存为大纲"
@@ -2195,6 +2203,7 @@ function OutlineGenerationMenu({
         className="inline-flex h-7 w-7 items-center justify-center rounded-md border-0 bg-transparent text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         title="生成大纲模块"
         aria-label="生成大纲模块"
+        data-guide="outline.modules"
         aria-haspopup="menu"
         aria-expanded={isOpen}
       >
@@ -5727,6 +5736,46 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   const handleSubmitOutlineWizard = useCallback(
     async (request: OutlineWizardRequest) => {
+      /*
+       * 新手引导：走**本地示例大纲**，完全不请求模型。
+       *
+       * 引导要让一个还没拿到 API 密钥的人也能跑完「提交需求 → 得到大纲 → 保存」。
+       * 所以这里在调用任何模型之前短路：把内置的一份完整卷纲 Markdown 当成
+       * assistant 消息写进当前会话，后续的展示、保存、校验全部复用真实链路
+       * （用户点的「保存为大纲」仍然会真的写文件）。
+       *
+       * 只判定「引导进行中」，不判定别的条件：正式写作时即使用户没配模型，
+       * 也应该看到真实的报错，而不是悄悄塞一份假大纲。
+       */
+      if (useGuideStore.getState().status === "running") {
+        const novel = readGuideDemoNovel() ?? pickGuideDemoNovel()
+        rememberGuideDemoNovel(novel)
+        const conversationId = activeConversationId ?? createConversation()
+        const now = Date.now()
+        const userText = request.inspiration.trim() || `按示例需求生成一版《${novel.name}》的完整大纲`
+        addMessage(conversationId, {
+          id: `guide-demo-user-${now}`,
+          role: "user",
+          content: userText,
+          timestamp: now,
+        })
+        addMessage(conversationId, {
+          id: `guide-demo-outline-${now}`,
+          role: "assistant",
+          content: [
+            buildGuideDemoOutlineMarkdown(novel),
+            "",
+            "---",
+            "",
+            "> 这份大纲来自**引导内置内容**，没有调用模型、没有消耗 Token。",
+            "> 点下方的「保存为大纲」就会真正写进这本书的 `wiki/outlines/`；想改成自己的故事，直接在这段文字上改。",
+          ].join("\n"),
+          timestamp: now + 1,
+        })
+        setSaveStatus("已生成示例大纲（未调用模型）。点消息下方的「保存为大纲」写入小说。")
+        void useOutlineChatStore.getState().saveToDisk()
+        return
+      }
       // 同人创作先把原作素材编译成持久正典：超长原作会被分片压缩成证据包，
       // 而不是把几十万字原样塞进提示词。编译后的正典同时落盘到
       // .novel/fanfic-canon.md，供后续正文生成的上下文包按固定路径读取。
@@ -5871,7 +5920,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         systemGenerated: true,
       });
     },
-    [activeConversationId, createConversation, handleSend, startOutlinePlanElementCheck, project],
+    [activeConversationId, addMessage, createConversation, handleSend, startOutlinePlanElementCheck, project],
   );
 
   const handleStop = useCallback(() => {
@@ -7110,7 +7159,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 usage={liveContextUsage}
                 onCreateConversation={() => createConversation()}
               />
-              <div className="relative">
+              <div className="relative" data-guide="outline.mode">
                 <Button
                   ref={workflowModeTriggerRef}
                   type="button"

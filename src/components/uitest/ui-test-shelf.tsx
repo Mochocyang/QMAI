@@ -235,7 +235,7 @@ export function UiTestShelf({
       <div className="ui-test-shelf-inner">
         <div className="ui-test-shelf-hero">
           <div className="ui-test-shelf-actions">
-            <button type="button" className="ui-test-btn primary" onClick={onCreateProject}>
+            <button type="button" className="ui-test-btn primary" data-guide="shelf.create" onClick={onCreateProject}>
               <Plus aria-hidden="true" />
               新建小说
             </button>
