@@ -120,3 +120,16 @@ describe("真机样例（agy 1.4.3，去掉 conversation_id / usage）", () => {
     expect(out.results).toEqual([])
   })
 })
+
+describe("antigravity search default model", () => {
+  it("falls back to the cheap flash model when empty, and supports explicit agy default", async () => {
+    const { resolveAntigravitySearchModel, DEFAULT_ANTIGRAVITY_SEARCH_MODEL, ANTIGRAVITY_AGY_DEFAULT_MODEL, antigravityModelLabel } = await import("./antigravity-search")
+    expect(DEFAULT_ANTIGRAVITY_SEARCH_MODEL).toBe("gemini-3.8-flash-low")
+    expect(resolveAntigravitySearchModel(undefined)).toBe("gemini-3.8-flash-low")
+    expect(resolveAntigravitySearchModel("  ")).toBe("gemini-3.8-flash-low")
+    expect(resolveAntigravitySearchModel(ANTIGRAVITY_AGY_DEFAULT_MODEL)).toBeNull()
+    expect(resolveAntigravitySearchModel(" gemini-x ")).toBe("gemini-x")
+    expect(antigravityModelLabel("gemini-3.8-flash-low")).toBe("Gemini 3.8 Flash (Low)")
+    expect(antigravityModelLabel("gpt-oss-120b-medium")).toBe("GPT OSS 120b (Medium)")
+  })
+})
