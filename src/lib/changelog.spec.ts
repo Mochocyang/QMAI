@@ -12,10 +12,15 @@ describe("changelog", () => {
     const release436 = currentVersionChangelog("4.3.6")[0]
     expect(release436.version).toBe("4.3.6")
     expect(release436.date).toBe("2026-10-21")
-    expect(release436.highlights.zh).toHaveLength(6)
-    expect(release436.highlights.en).toHaveLength(6)
+    expect(release436.highlights.zh).toHaveLength(9)
+    expect(release436.highlights.en).toHaveLength(9)
     expect(release436.highlights.zh.join("\n")).toContain("新手引导")
     expect(release436.highlights.zh.join("\n")).toContain("添加提供方")
+    // 10-21 追加的三项（模型设置教程链接 / 书架悬停 / 大纲 HTML 就地编辑）
+    expect(release436.highlights.zh.join("\n")).toContain("模型设置教程")
+    expect(release436.highlights.zh.join("\n")).toContain("书架不再在悬停时弹黑色书名浮层")
+    expect(release436.highlights.zh.join("\n")).toContain("大纲的 HTML 文档可以直接改")
+    expect(release436.highlights.en.join("\n")).toContain("editable in place")
     const release435 = currentVersionChangelog("4.3.5")[0]
     expect(release435.version).toBe("4.3.5")
     expect(release435.date).toBe("2026-10-21")

@@ -18,6 +18,9 @@ const FOUR_POINT_THREE_SIX_CHANGELOG: ChangelogEntry = {
       "Outline generation (volume / chapter / eight setting types / event outlines) now returns structured data only, with Markdown and HTML rendered from it: fewer tokens, plus fixes for split fields, dropped characters, truncated bodies overwriting existing data, duplicated chapter numbers, and Markdown drifting apart from HTML.",
       "The Extract memory and View memory icons now sit next to the HTML / MD switch in outline documents, so they are visible in HTML mode too.",
       "Fixed retrieval and rerank model tests that always failed: a bare base URL is completed to the full endpoint and retried, the server's original error is shown with a suggested next step, and the model picker is highlighted.",
+      "Outline HTML documents are now editable in place: hit Edit next to the HTML / MD switch and headings, body text and table cells become editable, then save writes back to the companion .html file (Markdown and structured data are left untouched).",
+      "The shelf no longer pops a black title tooltip on hover; the whole card lifts and the cover hops once instead (keyboard focus lifts it too, and motion is disabled when reduced motion is requested).",
+      "The LLM, rerank and embedding tabs in Settings now link to a model-setup tutorial that opens the Feishu wiki in your browser.",
     ],
     zh: [
       "新增新手引导：46 步分阶段讲解，需要时会自动打开设置页、指着每一项告诉你在哪里怎么设；入口在「设置 → 写作设置 → 播放」，随时可以重看，也能跳过某一步或直接取消。没配 API Key 时用本地示例数据，同样能走完整条流程",
@@ -26,6 +29,9 @@ const FOUR_POINT_THREE_SIX_CHANGELOG: ChangelogEntry = {
       "大纲生成（卷纲 / 章纲 / 八类设定 / 事件细纲）改为只输出结构化数据，Markdown 与 HTML 由程序反推渲染：更省 token，并修掉字段被撕裂、丢字符、残缺正文顶掉已有数据、章纲标题重复章号、Markdown 与 HTML 分项分裂等问题",
       "大纲文档的「提取记忆」「查看记忆」图标移到 HTML / MD 标识旁，HTML 模式下也能直接看到",
       "修复向量与重排模型测试总是失败的问题：只填基础地址会自动补全为完整接口并重试，失败时给出服务端原始报错和下一步建议，模型下拉框也做了高亮",
+      "大纲的 HTML 文档可以直接改：点 HTML / MD 标识旁的「编辑」，标题、正文和表格单元格都会变成可改状态，保存后写回同名 .html（MD 与结构化数据不动）",
+      "书架不再在悬停时弹黑色书名浮层，改为整张卡片弹起、封面再跳一下；键盘聚焦同样会抬起，系统开启「减少动态效果」时自动取消",
+      "设置里的大语言模型 / 重排模型 / 向量模型三个页签新增「模型设置教程」链接，点击用系统浏览器打开飞书文档",
     ],
   },
 };

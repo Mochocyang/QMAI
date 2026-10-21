@@ -718,6 +718,37 @@ export function PreviewPanel() {
     return renderOutlineHtmlForPath(selectedFile, fileContent)
   }, [companionHtml, selectedFile, fileContent])
 
+  /** 伴生 HTML 的磁盘路径（与上面读它、下面写它必须是同一份推导）。 */
+  const companionHtmlPath = useMemo(() => {
+    const target = selectedFile
+    if (!target || !target.toLowerCase().endsWith(".md") || !isOutlinePath(target)) return null
+    return target.replace(/\.md$/i, ".html")
+  }, [selectedFile])
+
+  /**
+   * 大纲 HTML 就地编辑的落盘口（见 `OutlineDualPreview#onSaveHtml`）。
+   *
+   * 只写同名 `.html`，**不动 MD 与结构化数据**：两格式本来就是独立的
+   * （MD 保存也不重建 HTML，见 OutlineDualPreview 头注释），反过来把 HTML 反推成 MD
+   * 做不到无损 —— 表格之外的版式、配色、导航都会丢，人工补的段落顺序也会被打乱。
+   *
+   * 磁盘上原本没有伴生 html（预览是按 MD 即时渲染出来的）时，这一步顺手把它补出来，
+   * 用户改完就能看到「确实存下来了」。
+   */
+  const saveCompanionHtml = useCallback(async (html: string): Promise<boolean> => {
+    const path = companionHtmlPath
+    if (!path) return false
+    try {
+      await writeFileAtomic(path, html)
+      setCompanionHtml(html)
+      setSaveStatus("已保存 HTML 修改。MD 未改动；重新生成大纲时会按新内容覆盖这两份文件。")
+      return true
+    } catch (error) {
+      setSaveStatus(`HTML 保存失败：${error instanceof Error ? error.message : String(error)}`)
+      return false
+    }
+  }, [companionHtmlPath])
+
   const syncDiskBeforeAction = useCallback(async () => {
     const path = selectedFileRef.current
     if (!path) return
@@ -2608,6 +2639,8 @@ export function PreviewPanel() {
             mdEditor={uiTestEditorElement}
             label={outlineFolderLabel ? `${outlineFolderLabel}双格式` : undefined}
             actions={outlineMemoryActions}
+            onSaveHtml={saveCompanionHtml}
+            documentKey={selectedFile}
           />
         ) : uiTestEditorElement
       ) : (
@@ -2905,6 +2938,8 @@ export function PreviewPanel() {
             <OutlineDualPreview
               htmlContent={effectiveCompanionHtml}
               label={outlineFolderLabel ? `${outlineFolderLabel}双格式` : undefined}
+              onSaveHtml={saveCompanionHtml}
+              documentKey={selectedFile}
               mdEditor={
                 <WikiEditor
                   ref={wikiEditorRef}
