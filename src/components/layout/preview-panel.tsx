@@ -84,7 +84,7 @@ import {
 } from "@/lib/novel/continuation"
 import { shouldApplyDiskToEditor } from "@/lib/editor-disk-sync"
 import { registerEditorExternalUpdateHandler } from "@/lib/editor-external-update-session"
-import { registerChapterSaveFlush, CHAPTER_AUTOSAVE_INTERVAL_MS } from "@/lib/chapter-save-flush"
+import { registerChapterSaveFlush, CHAPTER_AUTOSAVE_INTERVAL_MS, OUTLINE_AUTOSAVE_DELAY_MS } from "@/lib/chapter-save-flush"
 import { createChapterExternalUpdateCoordinator } from "@/lib/chapter-external-update-coordinator"
 import { applyOpenChapterBodyUpdate, createDeAiBatchChapterApplier } from "@/lib/novel/de-ai-batch/chapter-apply"
 import { acquireDeAiChapterSlot } from "@/lib/novel/de-ai-batch/chapter-concurrency"
@@ -863,6 +863,34 @@ export function PreviewPanel() {
     }
   }, [chapterExternalUpdateCoordinator, syncChapterToCanonicalPath, finalChapterSave])
 
+  /**
+   * 离开非章节文件（大纲/细纲）时立刻落盘待保存内容。
+   *
+   * 自动保存间隔是 3 分钟，原来只有章节在切走/卸载时兜底 flush，
+   * 大纲没有 —— 粘贴细纲后切到别的大纲、切页面或点提取记忆导致重新挂载，
+   * 内容就留在定时器里被丢掉了。磁盘若已被外部改动则不覆盖。
+   */
+  const flushNonChapterPendingSave = useCallback(async (path: string) => {
+    const pending = pendingChapterSaveRef.current
+    if (!pending || pending.pathAtSave !== path) return
+    pendingChapterSaveRef.current = null
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    try {
+      const lastLoaded = lastLoadedByPathRef.current.get(pending.normalizedPath) ?? ""
+      const diskContent = await readFile(pending.normalizedPath).catch(() => null)
+      const normalize = getDiskSyncNormalize(pending.normalizedPath)
+      if (diskContent !== null && normalize(diskContent) !== normalize(lastLoaded)) return
+      await writeFileAtomic(pending.pathAtSave, pending.persistedMarkdown)
+      lastLoadedByPathRef.current.set(pending.normalizedPath, pending.persistedMarkdown)
+      bumpDataVersion()
+    } catch (err) {
+      console.error("离开大纲前保存失败:", err)
+    }
+  }, [bumpDataVersion])
+
   useEffect(() => {
     let cancelled = false
     if (saveTimerRef.current) {
@@ -875,6 +903,9 @@ export function PreviewPanel() {
     console.log("[PreviewPanel][debug] useEffect triggered", { selectedFile, previousFile, previousContentLength: previousContent?.length })
     if (previousFile && previousFile !== selectedFile && isChapterPath(previousFile)) {
       void flushChapterBeforeLeave(previousFile, previousContent)
+    } else if (previousFile && previousFile !== selectedFile) {
+      // 大纲等非章节文件：切走前把还在定时器里的那份写下去，否则粘贴的内容会丢。
+      void flushNonChapterPendingSave(previousFile)
     }
     selectedFileRef.current = selectedFile
     setSelectionTransformOpen(false)
@@ -939,7 +970,7 @@ export function PreviewPanel() {
       console.log("[PreviewPanel][debug] useEffect cleanup", { selectedFile })
       cancelled = true
     }
-  }, [selectedFile, rememberLoadedChapter, setFileContent, flushChapterBeforeLeave, reportUiTestSave])
+  }, [selectedFile, rememberLoadedChapter, setFileContent, flushChapterBeforeLeave, flushNonChapterPendingSave, reportUiTestSave])
 
   useEffect(() => {
     if (!selectedFile) return
@@ -970,9 +1001,11 @@ export function PreviewPanel() {
       const currentFile = selectedFileRef.current
       if (currentFile && isChapterPath(currentFile)) {
         void flushChapterBeforeLeave(currentFile, fileContentRef.current)
+      } else if (currentFile) {
+        void flushNonChapterPendingSave(currentFile)
       }
     }
-  }, [flushChapterBeforeLeave])
+  }, [flushChapterBeforeLeave, flushNonChapterPendingSave])
 
   /**
    * 待落盘的章节正文。
@@ -1099,7 +1132,7 @@ export function PreviewPanel() {
       saveTimerRef.current = setTimeout(() => {
         saveTimerRef.current = null
         void runPendingChapterSave()
-      }, CHAPTER_AUTOSAVE_INTERVAL_MS)
+      }, isChapterPath(pathAtSave) ? CHAPTER_AUTOSAVE_INTERVAL_MS : OUTLINE_AUTOSAVE_DELAY_MS)
     },
     [rememberLoadedChapter, setFileContent, bumpDataVersion, applyDiskSyncIfSafe, reportUiTestSave, runPendingChapterSave]
   )
@@ -1843,11 +1876,17 @@ export function PreviewPanel() {
     }
   }, [canFormatWriting, fileContent, rememberLoadedChapter, selectedFile, setFileContent, bumpDataVersion, reportUiTestSave])
 
-  const handleIngestOutline = useCallback(() => {
+  const handleIngestOutline = useCallback(async () => {
     if (!project || !selectedFile || !canIngestOutline || isOutlineIngesting) return
+    // 提取记忆读的是磁盘：先把刚粘贴、还没落盘的细纲写下去。
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    await runPendingChapterSave()
     setSaveStatus("")
     startOutlineIngestTask(project.path, selectedFile)
-  }, [canIngestOutline, isOutlineIngesting, project, selectedFile])
+  }, [canIngestOutline, isOutlineIngesting, project, selectedFile, runPendingChapterSave])
 
   const runWholeChapterDeAi = useCallback(async (skillContent: string, skillName: string) => {
     await syncDiskBeforeAction()
