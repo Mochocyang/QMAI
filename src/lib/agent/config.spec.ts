@@ -37,8 +37,12 @@ describe("function calling helpers", () => {
     expect(modelSupportsTools("opus", "claude-code")).toBe(false)
   })
 
-  it("blocks Antigravity CLI from agent tools", () => {
-    expect(modelSupportsTools("gemini-3.8-flash-high", "antigravity-cli")).toBe(false)
+  it("allows Antigravity CLI as main agent through the local tool proxy", () => {
+    expect(modelSupportsTools("gemini-3.8-flash-high", "antigravity-cli")).toBe(true)
+    // 模型留空时代理用默认的 gemini-3.8-flash-medium。
+    expect(modelSupportsTools("", "antigravity-cli")).toBe(true)
+    expect(modelSupportsTools("  ", "antigravity-cli")).toBe(true)
+    expect(modelSupportsTools("", "openai")).toBe(false)
   })
 
   it("allows cursor-cli native tools", () => {

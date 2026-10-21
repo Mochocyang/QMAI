@@ -14,6 +14,13 @@ const TOOL_UNSUPPORTED_MODEL_PREFIXES: string[] = [
 
 const TOOL_UNSUPPORTED_PROVIDERS = new Set<LlmConfig["provider"]>([
   "claude-code",
+])
+
+/**
+ * 模型名可以留空的提供方：留空时由本机 CLI/代理选默认模型。
+ * Antigravity CLI 的主 Agent 留空时用 gemini-3.8-flash-medium。
+ */
+const EMPTY_MODEL_OK_PROVIDERS = new Set<LlmConfig["provider"]>([
   "antigravity-cli",
 ])
 
@@ -29,7 +36,7 @@ export function modelSupportsTools(
   if (provider && TOOL_UNSUPPORTED_PROVIDERS.has(provider)) return false
 
   const id = modelId.trim().toLowerCase()
-  if (!id) return false
+  if (!id) return Boolean(provider && EMPTY_MODEL_OK_PROVIDERS.has(provider))
 
   const modelPart = id.includes("/") ? id.slice(id.lastIndexOf("/") + 1) : id
 

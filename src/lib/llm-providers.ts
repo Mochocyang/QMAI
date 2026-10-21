@@ -1325,6 +1325,35 @@ function buildGoogleBody(
   }
 }
 
+/** 本机 OpenAI 兼容代理（cursor-api-proxy、Antigravity 主 Agent 代理）共用的请求配置。 */
+function openAiCompatibleLocalProxyConfig(
+  config: LlmConfig,
+  endpointInput: string,
+  apiKey: string,
+  model: string,
+): ProviderConfig {
+  const endpoint = endpointInput.replace(/\/+$/, "")
+  const base = normalizeEndpoint(endpoint, "chat_completions").normalized.replace(/\/+$/, "")
+  const url = /\/chat\/completions$/i.test(base)
+    ? base
+    : `${base}/chat/completions`
+  const key = apiKey.trim() || "unused"
+  return {
+    url,
+    headers: withCustomOriginHeader({
+      "Content-Type": JSON_CONTENT_TYPE,
+      Authorization: `Bearer ${key}`,
+    }, url),
+    buildBody: (messages, overrides) => ({
+      ...buildOpenAiCompatibleBody(config, messages, overrides),
+      model,
+    }),
+    parseStream: parseOpenAiLine,
+    parseUsage: parseOpenAiUsage,
+    parseFinishReason: parseOpenAiFinishReason,
+  }
+}
+
 export function getProviderConfig(config: LlmConfig): ProviderConfig {
   const { provider, apiKey, model, ollamaUrl, customEndpoint } = config
 
@@ -1448,9 +1477,16 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
       }
     }
 
+    case "antigravity-cli":
+      // 带工具的主 Agent 请求由 llm-client 指到本机 Antigravity 代理（OpenAI 兼容）；
+      // 没有代理地址时仍是子进程通道，不应走到这里。
+      if (customEndpoint) return openAiCompatibleLocalProxyConfig(config, customEndpoint, apiKey, model)
+      throw new Error(
+        `${provider} provider uses subprocess transport; getProviderConfig should not be called for it`,
+      )
+
     case "claude-code":
     case "codex-cli":
-    case "antigravity-cli":
       // Local CLI providers use subprocess transports (stdin/stdout JSON
       // streams), not HTTP. Dispatch happens one layer up in
       // streamChat() before getProviderConfig is called. Reaching this
@@ -1459,29 +1495,9 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
         `${provider} provider uses subprocess transport; getProviderConfig should not be called for it`,
       )
 
-    case "cursor-cli": {
+    case "cursor-cli":
       // OpenAI-compatible HTTP via local cursor-api-proxy.
-      const endpoint = (customEndpoint || "http://127.0.0.1:8765/v1").replace(/\/+$/, "")
-      const base = normalizeEndpoint(endpoint, "chat_completions").normalized.replace(/\/+$/, "")
-      const url = /\/chat\/completions$/i.test(base)
-        ? base
-        : `${base}/chat/completions`
-      const key = apiKey.trim() || "unused"
-      return {
-        url,
-        headers: withCustomOriginHeader({
-          "Content-Type": JSON_CONTENT_TYPE,
-          Authorization: `Bearer ${key}`,
-        }, url),
-        buildBody: (messages, overrides) => ({
-          ...buildOpenAiCompatibleBody(config, messages, overrides),
-          model,
-        }),
-        parseStream: parseOpenAiLine,
-        parseUsage: parseOpenAiUsage,
-        parseFinishReason: parseOpenAiFinishReason,
-      }
-    }
+      return openAiCompatibleLocalProxyConfig(config, customEndpoint || "http://127.0.0.1:8765/v1", apiKey, model)
 
     case "custom": {
       // Custom endpoints can speak either OpenAI's /chat/completions

@@ -1,3 +1,4 @@
+pub mod antigravity_agent;
 pub mod antigravity_cli;
 pub mod antigravity_search;
 pub mod backup;

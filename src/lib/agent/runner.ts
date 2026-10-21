@@ -1,4 +1,5 @@
 import { streamChat } from "../llm-client"
+import { cancelAntigravityToolCalls } from "@/lib/antigravity-agent-proxy"
 import type { StreamCallbacks } from "../llm-client"
 import { isFunctionCallingEnabled } from "./config"
 import { accumulateToolCalls } from "./tool-call-parser"
@@ -70,6 +71,21 @@ export class AgentRunner {
     if (config.llmConfig.provider === "codex-cli") {
       return new CodexAppServerRunner().run(config, registry, messages, callbacks, signal)
     }
+    const record = await this.runLoop(config, registry, messages, callbacks, signal)
+    if (config.llmConfig.provider === "antigravity-cli") {
+      // 停止、出错或到达轮次上限时，agy 可能还挂在某个工具调用上，顺手结束它。
+      await cancelAntigravityToolCalls(record.toolCalls.map((call) => call.id))
+    }
+    return record
+  }
+
+  private async runLoop(
+    config: AgentConfig,
+    registry: ToolRegistry,
+    messages: AgentMessage[],
+    callbacks: AgentRunCallbacks,
+    signal?: AbortSignal,
+  ): Promise<AgentRunRecord> {
     const record: AgentRunRecord = { toolCalls: [], roundsUsed: 0, finalText: "" }
     const requestTraceCollector = new LlmRequestTraceCollector()
     const onRequestTrace = (trace: LlmRequestCacheTrace) => {

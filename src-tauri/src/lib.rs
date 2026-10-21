@@ -223,6 +223,8 @@ pub fn run() {
             commands::vectorstore::vector_rebuild_append,
             commands::vectorstore::vector_rebuild_commit,
             commands::vectorstore::vector_rebuild_abort,
+            commands::antigravity_agent::antigravity_agent_proxy_ensure,
+            commands::antigravity_agent::antigravity_agent_cancel,
             commands::antigravity_cli::antigravity_cli_detect,
             commands::antigravity_cli::antigravity_cli_spawn,
             commands::antigravity_cli::antigravity_cli_kill,
@@ -348,6 +350,7 @@ pub fn run() {
             // macOS 红叉只 hide；真正退出（Cmd+Q）必须在这里落盘。
             if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
                 app_state::persist_app_state_before_exit(app);
+                commands::antigravity_agent::shutdown_antigravity_agent_proxy();
             }
         });
 }
