@@ -143,6 +143,7 @@ it.each(["openai", "claude-code-cli", "codex-cli"])("提供方%s内的启用类�
 it("新提供方填写密钥不改变启用状态，点开关只保存开关且保留草稿", async () => {
   useWikiStore.setState({ providerConfigs: {} })
   await render(<LlmProviderSection />); await click(host, "＋ 添加提供方")
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-guide="model.preset.anthropic"]')!.click())
   const card = host.querySelector<HTMLElement>('[data-model-provider="anthropic"]')!
   await changeInput(card, "API 密钥", "draft-key")
   expect(card.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("false")
