@@ -128,6 +128,24 @@ describe("OutlineSaveConfirmDialog", () => {
 
     expect(document.querySelector<HTMLInputElement>('[aria-label="修改 章纲-第001章.md 的文件名"]')?.value).toBe("章纲-第001章")
     expect(document.body.textContent).toContain("章纲")
+    expect(document.body.textContent).not.toContain("保存到「材料」")
+    const select = document.body.querySelector(
+      'select[aria-label="选择 章纲-第001章.md 的保存文件夹"]',
+    ) as HTMLSelectElement
+    const folders = Array.from(select.querySelectorAll("option")).map((option) => option.value)
+    expect(folders).toContain("材料")
+
+    await act(async () => {
+      select.value = "材料"
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(document.body.textContent).toContain("保存到「材料」")
+
+    await act(async () => {
+      select.value = "章纲"
+      select.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(document.body.textContent).not.toContain("保存到「材料」")
   })
 
   it("非人物保存预览隐藏类型、写入方式、来源和引用 skill", async () => {

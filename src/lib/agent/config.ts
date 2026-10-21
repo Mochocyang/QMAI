@@ -14,6 +14,7 @@ const TOOL_UNSUPPORTED_MODEL_PREFIXES: string[] = [
 
 const TOOL_UNSUPPORTED_PROVIDERS = new Set<LlmConfig["provider"]>([
   "claude-code",
+  "antigravity-cli",
 ])
 
 interface BuildAgentConfigOptions extends ToolFactoryOptions {

@@ -1,3 +1,5 @@
+pub mod antigravity_cli;
+pub mod antigravity_search;
 pub mod backup;
 pub mod claude_cli;
 mod cli_resolver;

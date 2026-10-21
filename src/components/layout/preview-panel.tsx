@@ -11,7 +11,8 @@ import { WikiEditor, type WikiEditorHandle } from "@/components/editor/wiki-edit
 import { WikiReader } from "@/components/editor/wiki-reader"
 import { FilePreview } from "@/components/editor/file-preview"
 import { OutlineDualPreview } from "@/components/editor/outline-dual-preview"
-import { formatChapterWriting } from "@/lib/chapter-formatting"
+import { normalizeChapterWriting } from "@/lib/chapter-formatting"
+import { registerOpenDocument } from "@/lib/mcp/open-document"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { buildChapterEditorHeader } from "@/lib/chapter-editor-header"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
@@ -19,7 +20,7 @@ import { resolveInspirationHint } from "@/lib/inspiration-hint"
 import { chapterHasLaterChapter, chapterOrdersFromTree, resolveDraftMemoryHint, type DraftMemoryHintArrival } from "@/lib/draft-memory-hint"
 import { saveNovelConfig, saveUiBodyFontFamily, saveUiBodyFontPx, saveUiBodyLineHeight, saveUiBodyLetterSpacing, saveUiBodyMarginX, saveUiBodySafeBottom } from "@/lib/project-store"
 import { registerPreCloseFlush } from "@/lib/pre-close-flush"
-import { isChapterPage, isFinalChapter, parseChapterMeta, syncChapterFrontmatterFromBody, updateChapterStatus, updateChapterTitle } from "@/lib/novel/chapter-meta"
+import { isChapterPage, isFinalChapter, parseChapterMeta, updateChapterStatus, updateChapterTitle } from "@/lib/novel/chapter-meta"
 import { chapterSnapshotNumbersFrom, chapterSnapshotNumbersFromFileNames, resolveChapterMemoryDotState } from "@/lib/novel/chapter-memory-dot"
 import { resolveChapterDotNumbers } from "@/lib/novel/chapter-utils"
 import { resolveReviewModel } from "@/lib/novel/review-model"
@@ -83,7 +84,7 @@ import {
 } from "@/lib/novel/continuation"
 import { shouldApplyDiskToEditor } from "@/lib/editor-disk-sync"
 import { registerEditorExternalUpdateHandler } from "@/lib/editor-external-update-session"
-import { registerChapterSaveFlush, CHAPTER_AUTOSAVE_INTERVAL_MS } from "@/lib/chapter-save-flush"
+import { registerChapterSaveFlush, CHAPTER_AUTOSAVE_INTERVAL_MS, OUTLINE_AUTOSAVE_DELAY_MS } from "@/lib/chapter-save-flush"
 import { createChapterExternalUpdateCoordinator } from "@/lib/chapter-external-update-coordinator"
 import { applyOpenChapterBodyUpdate, createDeAiBatchChapterApplier } from "@/lib/novel/de-ai-batch/chapter-apply"
 import { acquireDeAiChapterSlot } from "@/lib/novel/de-ai-batch/chapter-concurrency"
@@ -185,32 +186,6 @@ async function getCanonicalChapterPath(currentPath: string, markdown: string, ch
     : body.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? ""
   if (!title) return currentPath
   return getUniqueSiblingPath(getDirName(currentPath), makeChapterFileName(title, chapterNumber), currentPath)
-}
-
-function formatWritingBodyWithIndent(markdown: string): string {
-  return formatChapterWriting(markdown)
-  /*
-  const lines = body.split("\n")
-  let inFence = false
-  const formatted = lines.map((line) => {
-    const trimmed = line.trim()
-    if (trimmed.startsWith("```")) {
-      inFence = !inFence
-      return line
-    }
-    if (inFence) return line
-    if (!trimmed) return line
-    if (/^(#{1,6}\s|>\s|[-*+]\s|\d+\.\s|\|)/.test(trimmed)) return line
-    if (/^\s*[-]{3,}\s*$/.test(trimmed)) return line
-    if (/^\s*[　 ]{2}/.test(line)) return line
-    return `　　${line}`
-  })
-  return rawBlock + formatted.join("\n")
-  */
-}
-
-function normalizeChapterWriting(markdown: string): string {
-  return formatWritingBodyWithIndent(syncChapterFrontmatterFromBody(markdown))
 }
 
 function getDiskSyncNormalize(path: string): (content: string) => string {
@@ -626,6 +601,29 @@ export function PreviewPanel() {
     chapterExternalUpdateCoordinator.markEditorSession(key)
   }, [chapterExternalUpdateCoordinator])
 
+  useEffect(() => {
+    if (!selectedFile) {
+      registerOpenDocument(null)
+      return
+    }
+    const path = selectedFile
+    registerOpenDocument({
+      path,
+      isDirty: () => {
+        const current = wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current
+        const persisted = isChapterPath(path) ? normalizeChapterWriting(current) : current
+        const last = lastLoadedByPathRef.current.get(normalizePath(path)) ?? ""
+        return persisted !== last || saveTimerRef.current != null
+      },
+      applyMarkdown: (markdown) => {
+        setFileContent(markdown)
+        fileContentRef.current = markdown
+        rememberLoadedChapter(path, markdown)
+      },
+    })
+    return () => registerOpenDocument(null)
+  }, [rememberLoadedChapter, selectedFile, setFileContent])
+
   const applyDiskSyncIfSafe = useCallback(async (path: string): Promise<boolean> => {
     const normalizedPath = normalizePath(path)
     if (getFileCategory(normalizedPath) !== "markdown") return false
@@ -865,6 +863,34 @@ export function PreviewPanel() {
     }
   }, [chapterExternalUpdateCoordinator, syncChapterToCanonicalPath, finalChapterSave])
 
+  /**
+   * 离开非章节文件（大纲/细纲）时立刻落盘待保存内容。
+   *
+   * 自动保存间隔是 3 分钟，原来只有章节在切走/卸载时兜底 flush，
+   * 大纲没有 —— 粘贴细纲后切到别的大纲、切页面或点提取记忆导致重新挂载，
+   * 内容就留在定时器里被丢掉了。磁盘若已被外部改动则不覆盖。
+   */
+  const flushNonChapterPendingSave = useCallback(async (path: string) => {
+    const pending = pendingChapterSaveRef.current
+    if (!pending || pending.pathAtSave !== path) return
+    pendingChapterSaveRef.current = null
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    try {
+      const lastLoaded = lastLoadedByPathRef.current.get(pending.normalizedPath) ?? ""
+      const diskContent = await readFile(pending.normalizedPath).catch(() => null)
+      const normalize = getDiskSyncNormalize(pending.normalizedPath)
+      if (diskContent !== null && normalize(diskContent) !== normalize(lastLoaded)) return
+      await writeFileAtomic(pending.pathAtSave, pending.persistedMarkdown)
+      lastLoadedByPathRef.current.set(pending.normalizedPath, pending.persistedMarkdown)
+      bumpDataVersion()
+    } catch (err) {
+      console.error("离开大纲前保存失败:", err)
+    }
+  }, [bumpDataVersion])
+
   useEffect(() => {
     let cancelled = false
     if (saveTimerRef.current) {
@@ -877,6 +903,9 @@ export function PreviewPanel() {
     console.log("[PreviewPanel][debug] useEffect triggered", { selectedFile, previousFile, previousContentLength: previousContent?.length })
     if (previousFile && previousFile !== selectedFile && isChapterPath(previousFile)) {
       void flushChapterBeforeLeave(previousFile, previousContent)
+    } else if (previousFile && previousFile !== selectedFile) {
+      // 大纲等非章节文件：切走前把还在定时器里的那份写下去，否则粘贴的内容会丢。
+      void flushNonChapterPendingSave(previousFile)
     }
     selectedFileRef.current = selectedFile
     setSelectionTransformOpen(false)
@@ -941,7 +970,7 @@ export function PreviewPanel() {
       console.log("[PreviewPanel][debug] useEffect cleanup", { selectedFile })
       cancelled = true
     }
-  }, [selectedFile, rememberLoadedChapter, setFileContent, flushChapterBeforeLeave, reportUiTestSave])
+  }, [selectedFile, rememberLoadedChapter, setFileContent, flushChapterBeforeLeave, flushNonChapterPendingSave, reportUiTestSave])
 
   useEffect(() => {
     if (!selectedFile) return
@@ -972,9 +1001,11 @@ export function PreviewPanel() {
       const currentFile = selectedFileRef.current
       if (currentFile && isChapterPath(currentFile)) {
         void flushChapterBeforeLeave(currentFile, fileContentRef.current)
+      } else if (currentFile) {
+        void flushNonChapterPendingSave(currentFile)
       }
     }
-  }, [flushChapterBeforeLeave])
+  }, [flushChapterBeforeLeave, flushNonChapterPendingSave])
 
   /**
    * 待落盘的章节正文。
@@ -1101,7 +1132,7 @@ export function PreviewPanel() {
       saveTimerRef.current = setTimeout(() => {
         saveTimerRef.current = null
         void runPendingChapterSave()
-      }, CHAPTER_AUTOSAVE_INTERVAL_MS)
+      }, isChapterPath(pathAtSave) ? CHAPTER_AUTOSAVE_INTERVAL_MS : OUTLINE_AUTOSAVE_DELAY_MS)
     },
     [rememberLoadedChapter, setFileContent, bumpDataVersion, applyDiskSyncIfSafe, reportUiTestSave, runPendingChapterSave]
   )
@@ -1845,11 +1876,17 @@ export function PreviewPanel() {
     }
   }, [canFormatWriting, fileContent, rememberLoadedChapter, selectedFile, setFileContent, bumpDataVersion, reportUiTestSave])
 
-  const handleIngestOutline = useCallback(() => {
+  const handleIngestOutline = useCallback(async () => {
     if (!project || !selectedFile || !canIngestOutline || isOutlineIngesting) return
+    // 提取记忆读的是磁盘：先把刚粘贴、还没落盘的细纲写下去。
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
+    await runPendingChapterSave()
     setSaveStatus("")
     startOutlineIngestTask(project.path, selectedFile)
-  }, [canIngestOutline, isOutlineIngesting, project, selectedFile])
+  }, [canIngestOutline, isOutlineIngesting, project, selectedFile, runPendingChapterSave])
 
   const runWholeChapterDeAi = useCallback(async (skillContent: string, skillName: string) => {
     await syncDiskBeforeAction()

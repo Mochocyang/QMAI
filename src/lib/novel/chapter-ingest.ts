@@ -17,6 +17,7 @@ import {
   createEmptyForeshadowingStore,
   generateForeshadowingId,
   loadForeshadowingTracker,
+  retractForeshadowingChapter,
   saveForeshadowingTracker,
   type Foreshadowing,
   type ForeshadowingStore,
@@ -29,7 +30,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { shouldRebuildCommunitySummaries, generateCommunitySummaries } from "./community-summary"
 import { learnPersonaSkillsFromChapter } from "./persona-skill-learning"
 import { buildChapterIngestOutput, type ChapterIngestOutput } from "./chapter-ingest-output"
-import { mergeSnapshotTimeline, rebuildTimelineFromSnapshots } from "./timeline"
+import { mergeSnapshotTimeline, rebuildTimelineFromSnapshots, removeTimelineChapter } from "./timeline"
 import { buildStructuredMemoryDocuments, isValidMemorySnapshot } from "./memory-rebuild"
 import { clearGraphCache } from "@/lib/graph-relevance"
 import { RetrievalStore } from "./retrieval"
@@ -1401,10 +1402,21 @@ export async function deleteChapterSnapshotArtifacts(projectPath: string, chapte
   return deleted
 }
 
+async function retractOutlineDerivedEntries(projectPath: string, chapterNumber: number): Promise<void> {
+  await removeTimelineChapter(projectPath, chapterNumber)
+  await retractForeshadowingChapter(projectPath, chapterNumber)
+}
+
 export async function deleteChapterSnapshots(projectPath: string, chapterNumber: number): Promise<void> {
   const pp = normalizePath(projectPath)
   await deleteChapterSnapshotArtifacts(pp, chapterNumber)
-  await rebuildDerivedMemoryFromSnapshots(pp)
+  // 大纲快照章号为负，派生记忆重放不读取它们。删除时只撤该编号在时间线和伏笔中的记录，
+  // 不用章节快照重写人物状态、认知和其余手改内容。
+  if (chapterNumber < 0) {
+    await retractOutlineDerivedEntries(pp, chapterNumber)
+  } else {
+    await rebuildDerivedMemoryFromSnapshots(pp)
+  }
   clearGraphCache()
   useWikiStore.getState().bumpDataVersion()
 }

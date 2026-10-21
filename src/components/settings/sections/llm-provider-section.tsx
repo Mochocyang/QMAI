@@ -40,6 +40,7 @@ const UI_TEST_PROVIDER_HINTS: Record<string, string> = {
   "claude-code-cli": "使用本机 claude 命令及其登录状态，无需 API Key",
   "codex-cli": "使用本机 codex 命令及其登录状态，无需 API Key",
   "cursor-cli": "通过 cursor-api-proxy 使用本机 agent 命令，无需官方 API Key",
+  "antigravity-cli": "使用 local agy 命令及其登录状态，无需 API Key",
   openai: "官方 OpenAI API",
   google: "Google 生成式语言 API",
   azure: "Azure OpenAI 资源接口；模型字段填写部署名称",
@@ -150,7 +151,7 @@ function UiTestPresetCard({ preset, expanded, onToggle, onRemoved }: { preset: L
   const [manual, setManual] = useState("")
   const [deleting, setDeleting] = useState(false)
   const deletingRef = useRef(false)
-  const localCli = preset.provider === "claude-code" || preset.provider === "codex-cli" || preset.provider === "cursor-cli"
+  const localCli = preset.provider === "claude-code" || preset.provider === "codex-cli" || preset.provider === "cursor-cli" || preset.provider === "antigravity-cli"
   const enabled = isProviderAvailable(preset.id, saved ?? {})
   const hasDraft = dirty || Boolean(manual.trim())
   const saveConfig = () => save(manual.trim() ? "还有未加入列表的模型 ID，请先点击“添加”，再保存配置。" : validateProviderDraft(draft, { endpointRequired: !localCli && ["custom", "azure", "ollama"].includes(preset.provider), modelRequired: !localCli }))
@@ -241,7 +242,8 @@ function PresetRow({
     preset.provider !== "ollama" &&
     preset.provider !== "claude-code" &&
     preset.provider !== "codex-cli" &&
-    preset.provider !== "cursor-cli"
+    preset.provider !== "cursor-cli" &&
+    preset.provider !== "antigravity-cli"
 
   const resolvedConfig = useMemo(
     () => resolveConfig(preset, ov, useWikiStore.getState().llmConfig),
@@ -409,6 +411,7 @@ function PresetRow({
 
           {preset.provider === "claude-code" && <ClaudeCliStatusPill />}
           {preset.provider === "codex-cli" && <CodexCliStatusPill />}
+          {preset.provider === "antigravity-cli" && <AntigravityCliStatusPill />}
           {isCursorCliProvider && <CursorCliStatusPill />}
 
           {isCursorCliProvider && (
@@ -630,7 +633,7 @@ function PresetRow({
             />
           </div>
 
-          {preset.provider !== "cursor-cli" && (
+          {preset.provider !== "cursor-cli" && preset.provider !== "antigravity-cli" && (
             <ReasoningControls
               value={reasoning}
               onChange={(next) => onChange(withOutputRoomForReasoning(next, maxOutputTokens))}
@@ -850,6 +853,7 @@ interface DetectResult {
   installed: boolean
   version: string | null
   path: string | null
+  model?: string | null
   appServerReady?: boolean
   dynamicToolsReady?: boolean
   models?: string[]
@@ -863,6 +867,108 @@ interface DetectResult {
  * panel. The error message comes straight from the Rust side — it
  * already tailors the hint (macOS quarantine, missing binary, etc).
  */
+function AntigravityCliStatusPill() {
+  const { t } = useTranslation()
+  const [state, setState] = useState<"loading" | "ok" | "err">("loading")
+  const [result, setResult] = useState<DetectResult | null>(null)
+
+  async function detect() {
+    setState("loading")
+    if (!isTauri()) {
+      setResult({ installed: false, version: null, path: null, error: t("settings.sections.llm.cliStatus.desktopOnly") })
+      setState("err")
+      return
+    }
+    try {
+      const detected = await invoke<DetectResult>("antigravity_cli_detect")
+      setResult(detected)
+      setState(detected.installed && (detected.models?.length ?? 0) > 0 && !detected.error ? "ok" : "err")
+    } catch (error) {
+      setResult({
+        installed: false,
+        version: null,
+        path: null,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      setState("err")
+    }
+  }
+
+  useEffect(() => {
+    void detect()
+  }, [])
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        <Label className="m-0">{t("settings.sections.llm.cliStatus.title")}</Label>
+        <button
+          type="button"
+          onClick={() => void detect()}
+          className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          disabled={state === "loading"}
+        >
+          {state === "loading"
+            ? t("settings.sections.llm.cliStatus.checking")
+            : t("settings.sections.llm.cliStatus.recheck")}
+        </button>
+      </div>
+      <div
+        className={`flex items-start gap-1.5 rounded-md border px-2 py-1.5 text-xs ${
+          state === "ok"
+            ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+            : state === "err"
+              ? "border-rose-500/40 bg-rose-500/5 text-rose-700 dark:text-rose-400"
+              : "border-border bg-background/50 text-muted-foreground"
+        }`}
+      >
+        {state === "loading" && <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />}
+        {state === "ok" && <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+        {state === "err" && <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+        <div className="min-w-0 flex-1 space-y-0.5">
+          {state === "loading" && <div>{t("settings.sections.llm.cliStatus.antigravityDetecting")}</div>}
+          {state === "ok" && (
+            <>
+              <div>
+                {t("settings.sections.llm.cliStatus.antigravityReady", {
+                  versionSuffix: result?.version ? ` ${result.version}` : "",
+                })}
+              </div>
+              {result?.path && (
+                <div className="truncate font-mono text-[0.625rem] text-muted-foreground">
+                  {result.path}
+                </div>
+              )}
+              {result?.model && (
+                <div className="text-muted-foreground">当前默认模型：{result.model}</div>
+              )}
+              <div className="text-muted-foreground">
+                {t("settings.sections.llm.cliStatus.authErrorPrefix")}{" "}
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
+                  agy
+                </code>{" "}
+                {t("settings.sections.llm.cliStatus.antigravityAuthErrorSuffix")}
+              </div>
+            </>
+          )}
+          {state === "err" && (
+            <>
+              <div>{result?.error ?? t("settings.sections.llm.cliStatus.antigravityUnavailable")}</div>
+              <div className="text-muted-foreground">
+                {t("settings.sections.llm.cliStatus.installPrefix")}{" "}
+                <code className="rounded bg-background/60 px-1 py-0.5 font-mono text-[0.625rem]">
+                  curl -fsSL https://antigravity.google/cli/install.sh | bash
+                </code>{" "}
+                {t("settings.sections.llm.cliStatus.installSuffix")}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ClaudeCliStatusPill() {
   const { t } = useTranslation()
   const [state, setState] = useState<"loading" | "ok" | "err">("loading")

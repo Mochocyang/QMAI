@@ -12,6 +12,7 @@ type OutlineSegmentKind =
   | "character"
   | "setting"
   | "foreshadowing"
+  | "material"
   | "unknown"
 
 interface OutlineDocument {
@@ -75,6 +76,7 @@ const STANDARD_FOLDER_KINDS: Record<string, OutlineSegmentKind> = {
   伏笔: "foreshadowing",
   伏笔表: "foreshadowing",
   伏笔计划: "foreshadowing",
+  材料: "material",
 }
 
 const SOURCE_START = "<!-- qmai-outline-source:start -->"
@@ -157,11 +159,26 @@ interface HeadingState {
 }
 
 function splitSemanticSegments(document: OutlineDocument): OutlineSegment[] {
+  // 材料不按标题拆段。标题里的「第 N 章 / 世界观」不能把这篇改写成章纲或设定，否则会漏进稳定大纲。
+  // 正文不在这里预选，只在材料目录里列出路径。
+  if (document.kind === "material") {
+    const content = document.content.trim()
+    if (!content) return []
+    return [{
+      path: document.path,
+      relativePath: document.relativePath,
+      folder: document.folder,
+      kind: "material",
+      content,
+      frontmatter: document.frontmatter,
+    }]
+  }
+
   const lines = document.content.split(/\r?\n/)
   const segments: OutlineSegment[] = []
   const stack: HeadingState[] = []
   let volumeCounter = 0
-  let currentKind = document.kind
+  let currentKind: OutlineSegmentKind = document.kind
   let currentVolumeScope = document.kind === "volume" ? `${document.path}#document` : undefined
   let currentLines: string[] = []
 
@@ -535,10 +552,25 @@ function groupSourcesByDocument(
   }))
 }
 
+/** 材料只列路径，不按文件名或章号预选正文。模型读过之后自己决定用不用。 */
+function renderMaterialCatalog(index: OutlineDocumentIndex): string {
+  const paths = index.documents
+    .filter((document) => document.kind === "material")
+    .map((document) => document.relativePath)
+    .sort((left, right) => left.localeCompare(right, "zh-Hans-CN", { numeric: true }))
+  if (paths.length === 0) return ""
+  return [
+    "材料目录（只列路径，不含正文）。与大纲列表相同：先看清单，读过正文后再判断本章要不要用。不要按文件名或章号机械选定。",
+    ...paths.map((path) => `- ${path}`),
+  ].join("\n")
+}
+
 export interface OutlineContextLayers {
   full: string
   project: string
   task: string
+  /** 材料路径清单。不含正文，不进入 project / full。 */
+  materials: string
 }
 
 export function buildOutlineContextLayers(index: OutlineDocumentIndex, chapterNumber?: number): OutlineContextLayers {
@@ -561,6 +593,7 @@ export function buildOutlineContextLayers(index: OutlineDocumentIndex, chapterNu
     full: render([...master, ...volumes, ...chapterPlans, ...settings]),
     project: render([...master, ...settings]),
     task: render([...volumes, ...chapterPlans]),
+    materials: renderMaterialCatalog(index),
   }
 }
 

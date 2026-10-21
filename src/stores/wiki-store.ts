@@ -232,7 +232,7 @@ export interface ReasoningConfig {
 }
 
 interface LlmConfig {
-  provider: "openai" | "anthropic" | "google" | "azure" | "ollama" | "custom" | "minimax" | "claude-code" | "codex-cli" | "cursor-cli"
+  provider: "openai" | "anthropic" | "google" | "azure" | "ollama" | "custom" | "minimax" | "claude-code" | "codex-cli" | "cursor-cli" | "antigravity-cli"
   apiKey: string
   model: string
   ollamaUrl: string
@@ -255,7 +255,7 @@ interface LlmConfig {
   functionCallingEnabled?: boolean
 }
 
-export type SearchProvider = "bocha" | "qiniu" | "metaso" | "tavily" | "serpapi" | "searxng" | "none"
+export type SearchProvider = "bocha" | "qiniu" | "metaso" | "tavily" | "serpapi" | "searxng" | "gemini" | "baizhi" | "antigravity" | "none"
 export type SerpApiEngine =
   | "google"
   | "google_news"
@@ -285,6 +285,14 @@ export interface SearchProviderOverride {
   serpApiEngine?: SerpApiEngine
   searXngUrl?: string
   searXngCategories?: SearXngCategory[]
+  /** Gemini 搜索（Grounding with Google Search）用的模型，默认 gemini-3.8-flash。 */
+  geminiModel?: string
+  /** 反重力 CLI 搜索用的 agy 模型；留空用 agy 默认模型。 */
+  antigravityModel?: string
+  /** 反重力 CLI 单次搜索超时（秒），30–900；缺省 180。 */
+  antigravityTimeoutSecs?: number
+  /** Gemini API 自定义地址（代理/中转），默认 https://generativelanguage.googleapis.com。 */
+  geminiBaseUrl?: string
 }
 
 export type SearchProviderConfigs = Partial<Record<Exclude<SearchProvider, "none">, SearchProviderOverride>>

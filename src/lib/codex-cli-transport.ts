@@ -56,13 +56,13 @@ export function restrictedCodexConfig(): Record<string, unknown> {
       shell_tool: false,
       skill_mcp_dependency_install: false,
       skill_search: false,
+      view_image: false,
     },
     web_search: "disabled",
     project_doc_max_bytes: 0,
     project_doc_fallback_filenames: [],
     project_root_markers: [],
     tools: {
-      view_image: false,
       web_search: false,
     },
   }

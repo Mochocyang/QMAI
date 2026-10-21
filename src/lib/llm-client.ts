@@ -78,6 +78,17 @@ async function streamViaClaudeCodeCli(
   return mod.streamClaudeCodeCli(config, messages, callbacks, signal, requestOverrides)
 }
 
+async function streamViaAntigravityCli(
+  config: LlmConfig,
+  messages: import("./llm-providers").ChatMessage[],
+  callbacks: StreamCallbacks,
+  signal?: AbortSignal,
+  requestOverrides?: RequestOverrides,
+) {
+  const mod = await import("./antigravity-cli-transport")
+  return mod.streamAntigravityCli(config, messages, callbacks, signal, requestOverrides)
+}
+
 async function streamViaCodexCli(
   config: LlmConfig,
   messages: import("./llm-providers").ChatMessage[],
@@ -208,7 +219,7 @@ function parseMaxTokensLimit(errorDetail: string): number | null {
 }
 
 function isLocalCliProvider(provider: LlmConfig["provider"]): boolean {
-  return provider === "claude-code" || provider === "codex-cli" || provider === "cursor-cli"
+  return provider === "claude-code" || provider === "codex-cli" || provider === "cursor-cli" || provider === "antigravity-cli"
 }
 
 export async function streamChat(
@@ -413,6 +424,11 @@ async function streamChatHeld(
   if (runtimeConfig.provider === "codex-cli") {
     return streamLocalWithTrace((localCallbacks) =>
       streamViaCodexCli(runtimeConfig, budgetedMessages, localCallbacks, signal, effectiveRequestOverrides))
+  }
+
+  if (runtimeConfig.provider === "antigravity-cli") {
+    return streamLocalWithTrace((localCallbacks) =>
+      streamViaAntigravityCli(runtimeConfig, budgetedMessages, localCallbacks, signal, effectiveRequestOverrides))
   }
 
   if (runtimeConfig.provider === "cursor-cli") {

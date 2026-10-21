@@ -14,6 +14,21 @@ const baseCfg: LlmConfig = {
 }
 
 describe("hasUsableLlm", () => {
+  it.each([
+    ["claude-code", "claude-code-cli"],
+    ["codex-cli", "codex-cli"],
+    ["cursor-cli", "cursor-cli"],
+    ["antigravity-cli", "antigravity-cli"],
+    ["ollama", "ollama-local"],
+  ] as const)("accepts configured legacy %s presets without an enabled field", (provider, presetId) => {
+    const cfg: LlmConfig = { ...baseCfg, provider, apiKey: "", model: "legacy-model" }
+    const legacy = { savedModels: [{ id: "legacy", name: "Legacy", model: cfg.model, createdAt: 1 }] }
+    expect(hasUsableLlm(cfg, { [presetId]: legacy })).toBe(true)
+    expect(hasUsableLlm(cfg, { [presetId]: { ...legacy, enabled: false } })).toBe(false)
+    expect(hasUsableLlm(cfg, { [presetId]: {} })).toBe(false)
+    expect(hasUsableLlm(cfg, {})).toBe(false)
+  })
+
   it("accepts a hosted provider with apiKey and model", () => {
     const providers: ProviderConfigs = {}
     expect(hasUsableLlm(baseCfg, providers)).toBe(true)
@@ -69,6 +84,19 @@ describe("hasUsableLlm", () => {
     }
     const cfg: LlmConfig = { ...baseCfg, provider: "codex-cli", apiKey: "", model: "gpt-5" }
     expect(hasUsableLlm(cfg, providers)).toBe(true)
+  })
+
+  it("accepts antigravity-cli when the preset is enabled without an API key or model", () => {
+    const providers: ProviderConfigs = {
+      "antigravity-cli": { enabled: true },
+    }
+    const cfg: LlmConfig = { ...baseCfg, provider: "antigravity-cli", apiKey: "", model: "" }
+    expect(hasUsableLlm(cfg, providers)).toBe(true)
+  })
+
+  it("rejects antigravity-cli when the preset is not enabled", () => {
+    const cfg: LlmConfig = { ...baseCfg, provider: "antigravity-cli", apiKey: "", model: "gemini-3.8-flash-high" }
+    expect(hasUsableLlm(cfg, {})).toBe(false)
   })
 
   it("accepts cursor-cli when the preset is enabled without an API key", () => {

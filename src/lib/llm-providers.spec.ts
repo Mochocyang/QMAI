@@ -768,6 +768,10 @@ describe("modelSupportsReasoningControl", () => {
       provider: "cursor-cli",
       model: "gpt-5.4",
     }))).toBe(false)
+    expect(modelSupportsReasoningControl(customConfig({
+      provider: "antigravity-cli",
+      model: "gemini-3.8-flash-high",
+    }))).toBe(false)
   })
 
   it("offers the control for Codex CLI, which maps the mode onto turn effort", () => {

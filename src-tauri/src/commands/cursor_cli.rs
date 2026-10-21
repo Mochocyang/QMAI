@@ -1,6 +1,6 @@
 //! Cursor CLI + cursor-api-proxy management.
 //!
-//! Detects the local `agent` binary and can start `cursor-api-proxy` so the
+//! Detects the local `cursor-agent` binary and can start `cursor-api-proxy` so the
 //! frontend can talk OpenAI-compatible HTTP. Port is chosen dynamically
 //! (prefer 8765, else an ephemeral free port) via `CURSOR_BRIDGE_PORT`.
 
@@ -120,7 +120,7 @@ fn suppress_windows_console(_cmd: &mut Command) {
 }
 
 async fn find_agent_command() -> Result<std::path::PathBuf, String> {
-    find_cli_command("agent", &["agent.cmd", "agent.exe"]).await
+    find_cli_command("cursor-agent", &["cursor-agent.cmd", "cursor-agent.exe"]).await
 }
 
 fn npx_proxy_args() -> Vec<String> {
@@ -163,7 +163,7 @@ async fn ensure_qmai_workspace_trusted(workspace: &Path, config_dir: &Path) {
         }
         Ok((_path, false, output)) => {
             eprintln!(
-                "[cursor-cli] `agent --trust -p` failed for {}: {output}",
+                "[cursor-cli] `cursor-agent --trust -p` failed for {}: {output}",
                 workspace.display()
             );
         }
@@ -565,15 +565,15 @@ async fn list_cursor_acp_models() -> Result<Vec<AcpCatalogModel>, String> {
 
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("Failed to spawn `agent acp`: {e}"))?;
+        .map_err(|e| format!("Failed to spawn `cursor-agent acp`: {e}"))?;
     let mut stdin = child
         .stdin
         .take()
-        .ok_or_else(|| "agent acp stdin missing".to_string())?;
+        .ok_or_else(|| "cursor-agent acp stdin missing".to_string())?;
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| "agent acp stdout missing".to_string())?;
+        .ok_or_else(|| "cursor-agent acp stdout missing".to_string())?;
     let mut reader = BufReader::new(stdout);
 
     let run = async {
@@ -614,7 +614,7 @@ async fn list_cursor_acp_models() -> Result<Vec<AcpCatalogModel>, String> {
     let _ = child.wait().await;
     let models = match result {
         Ok(inner) => inner?,
-        Err(_) => return Err("agent acp session/new timed out".to_string()),
+        Err(_) => return Err("cursor-agent acp session/new timed out".to_string()),
     };
     remember_acp_models(&models);
     write_cached_acp_models(&config_dir, &models);
@@ -726,8 +726,8 @@ async fn run_agent_command(
 
     let output = tokio::time::timeout(timeout, cmd.output())
         .await
-        .map_err(|_| format!("`agent {}` timed out", args.join(" ")))?
-        .map_err(|e| format!("Failed to spawn `agent {}`: {e}", args.join(" ")))?;
+        .map_err(|_| format!("`cursor-agent {}` timed out", args.join(" ")))?
+        .map_err(|e| format!("Failed to spawn `cursor-agent {}`: {e}", args.join(" ")))?;
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     let combined = if stderr.is_empty() {
@@ -753,7 +753,7 @@ fn apply_qmai_proxy_env(
     cmd.env("CURSOR_BRIDGE_CHAT_ONLY_WORKSPACE", "false");
     cmd.env("CURSOR_BRIDGE_USE_ACP", "true");
     cmd.env("CURSOR_BRIDGE_MODE", "ask");
-    // CLI catalog ids (cursor-grok-4.6-medium-fast) are valid for `agent --model`
+    // CLI catalog ids (cursor-grok-4.6-medium-fast) are valid for `cursor-agent --model`
     // but do not appear in ACP availableModels. Proxy defaults strictModel=true
     // and treats that mismatch as fatal (empty stderr, exit 1).
     cmd.env("CURSOR_BRIDGE_STRICT_MODEL", "false");
@@ -892,7 +892,7 @@ async fn ping_health(base: &str) -> bool {
     matches!(http_get_status(base, "/health").await, Ok(200))
 }
 
-/// Detect whether Cursor `agent` CLI is installed on PATH.
+/// Detect whether `cursor-agent` is installed on PATH.
 pub async fn do_cursor_cli_detect() -> Result<DetectResult, String> {
     let path = match find_agent_command().await {
         Ok(p) => p,
@@ -926,7 +926,7 @@ pub async fn do_cursor_cli_detect() -> Result<DetectResult, String> {
             } else if !stderr.is_empty() {
                 stderr
             } else {
-                "agent".to_string()
+                "cursor-agent".to_string()
             };
             Ok(DetectResult {
                 installed: true,
@@ -944,7 +944,7 @@ pub async fn do_cursor_cli_detect() -> Result<DetectResult, String> {
                 path: Some(path_str),
                 model: None,
                 error: Some(if stderr.is_empty() {
-                    format!("`agent --version` exited with {}", out.status)
+                    format!("`cursor-agent --version` exited with {}", out.status)
                 } else {
                     stderr
                 }),
@@ -955,14 +955,14 @@ pub async fn do_cursor_cli_detect() -> Result<DetectResult, String> {
             version: None,
             path: Some(path_str),
             model: None,
-            error: Some(format!("Failed to spawn `agent`: {e}")),
+            error: Some(format!("Failed to spawn `cursor-agent`: {e}")),
         }),
         Err(_) => Ok(DetectResult {
             installed: true,
             version: None,
             path: Some(path_str),
             model: None,
-            error: Some("`agent --version` timed out after 5s".to_string()),
+            error: Some("`cursor-agent --version` timed out after 5s".to_string()),
         }),
     }
 }
@@ -1015,7 +1015,7 @@ pub async fn cursor_cli_about() -> Result<AgentAboutResult, String> {
         latest_version: None,
         path: Some(path_str),
         error: Some(if output.is_empty() {
-            "`agent about --format json` returned no version".to_string()
+            "`cursor-agent about --format json` returned no version".to_string()
         } else {
             output
         }),
@@ -1049,7 +1049,7 @@ pub async fn cursor_cli_update() -> Result<AgentUpdateResult, String> {
                     None
                 } else {
                     Some(if output.is_empty() {
-                        "`agent update` failed".to_string()
+                        "`cursor-agent update` failed".to_string()
                     } else {
                         output
                     })
@@ -1361,7 +1361,7 @@ pub async fn cursor_proxy_ensure(
 
     stop_managed_child(&state).await;
     Err(format!(
-        "Started cursor-api-proxy on {base} but /health did not become ready within {PROXY_START_TIMEOUT_MS}ms. Ensure Node.js 18+, `agent` CLI, and that CURSOR_API_KEY / AGENT_CLI_CREDENTIAL_STORE are set in ~/.zshrc (or auth.json)."
+        "Started cursor-api-proxy on {base} but /health did not become ready within {PROXY_START_TIMEOUT_MS}ms. Ensure Node.js 18+, `cursor-agent` CLI, and that CURSOR_API_KEY / AGENT_CLI_CREDENTIAL_STORE are set in ~/.zshrc (or auth.json)."
     ))
 }
 
@@ -1539,13 +1539,13 @@ mod tests {
             std::fs::read_to_string(dir.join("qmai-acp-model")).unwrap(),
             "cursor-grok-4.6-medium-fast"
         );
-        let wrapper = ensure_qmai_agent_wrapper(&dir, Some(Path::new("/usr/local/bin/agent"))).unwrap();
+        let wrapper = ensure_qmai_agent_wrapper(&dir, Some(Path::new("/usr/local/bin/cursor-agent"))).unwrap();
         assert!(wrapper.exists());
         let script = std::fs::read_to_string(dir.join("qmai-cursor-agent.cjs")).unwrap();
         assert!(script.contains("qmai-acp-model"));
         assert!(script.contains("resolveAcpArgvModel"));
         assert!(script.contains("QMAI_CURSOR_AGENT_REAL"));
-        assert!(script.contains("/usr/local/bin/agent"));
+        assert!(script.contains("/usr/local/bin/cursor-agent"));
         assert!(!script.contains("__QMAI_BAKED_AGENT__"));
         let _ = std::fs::remove_dir_all(&dir);
     }

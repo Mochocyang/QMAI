@@ -16,6 +16,7 @@ const LLM_REQUEST_TRACE_PROVIDERS = new Set<LlmConfig["provider"]>([
   "claude-code",
   "codex-cli",
   "cursor-cli",
+  "antigravity-cli",
 ])
 
 export type LlmRequestTraceStatus = "success" | "error" | "cancelled" | "network_error"
@@ -49,6 +50,7 @@ function resolveLlmRequestApiMode(config: LlmConfig): string {
   if (config.provider === "azure") return "azure_chat_completions"
   if (config.provider === "claude-code") return "claude_code_cli"
   if (config.provider === "codex-cli") return "codex_cli"
+  if (config.provider === "antigravity-cli") return "antigravity_cli"
   return "chat_completions"
 }
 

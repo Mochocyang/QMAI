@@ -297,6 +297,122 @@ describe("大纲缓存分层", () => {
     expect(second.task).not.toContain("全书寻找真相")
     expect(first.full).toBe(buildOutlineContext(index, 1))
     expect(second.full).toBe(buildOutlineContext(index, 20))
+    expect(first.materials).toBe("")
+    expect(second.materials).toBe("")
+  })
+})
+
+describe("按需材料", () => {
+  function mockOutlines(contents: Record<string, string>) {
+    const folders = new Map<string, ReturnType<typeof file>[]>()
+    for (const path of Object.keys(contents)) {
+      const folder = path.slice(0, path.lastIndexOf("/"))
+      const list = folders.get(folder) ?? []
+      list.push(file(path))
+      folders.set(folder, list)
+    }
+    vi.mocked(listDirectory).mockResolvedValue(
+      Array.from(folders.entries()).map(([path, children]) => directory(path, children)),
+    )
+    vi.mocked(readFile).mockImplementation(async (path) => contents[String(path)] ?? "")
+  }
+
+  it("只列材料路径，不按章号或文件名把正文预选进上下文", async () => {
+    const paths = {
+      master: `${root}/大纲/总纲.md`,
+      setting: `${root}/设定/世界观.md`,
+      volume1: `${root}/卷纲/第一卷.md`,
+      volume2: `${root}/卷纲/第二卷.md`,
+      speech: `${root}/材料/红场发言稿.md`,
+      ledger: `${root}/材料/基地与部队台账.md`,
+      discussion: `${root}/材料/第二卷讨论稿.md`,
+      chapterNote: `${root}/材料/第167章发言补充.md`,
+      frontmatterNote: `${root}/材料/机场名单.md`,
+      idle: `${root}/材料/闲置笔记.md`,
+      mixed: `${root}/材料/多章台账.md`,
+    }
+    mockOutlines({
+      [paths.master]: "# 总纲\n全书主线",
+      [paths.setting]: "# 世界观设定\n世界规则",
+      [paths.volume1]: "# 第一卷\n\n| 实际章号 | 事件 |\n| --- | --- |\n| 1 | 开端 |",
+      [paths.volume2]: "# 第二卷\n\n| 实际章号 | 事件 |\n| --- | --- |\n| 167 | 赴日 |\n| 238 | 阅兵 |",
+      [paths.speech]: [
+        "---",
+        "related: [[第二卷]], [[第238章-For Soviet glory]]",
+        "---",
+        "# 红场发言稿",
+        "阅兵稿不应进骨架",
+      ].join("\n"),
+      [paths.ledger]: "# 基地与部队台账\n第14节维持第150—239章。\n台账末尾仍保留",
+      [paths.discussion]: [
+        "---",
+        "related: [[第二卷]]",
+        "---",
+        "# 第二卷讨论稿",
+        "本卷兵力怎么写。",
+      ].join("\n"),
+      [paths.chapterNote]: "# 补充\n正文写到第167章的机场。",
+      [paths.frontmatterNote]: [
+        "---",
+        "chapter_number: 167",
+        "---",
+        "# 机场名单",
+        "只写航班。",
+      ].join("\n"),
+      [paths.idle]: "# 闲置笔记\n闲置笔记不该入选，尽管正文提到第二卷。",
+      [paths.mixed]: "# 多章台账\n第150—239章维持。\n其他章的兵力不要带进167。\n\n第167章 只带机场台账这一段。\n",
+    })
+
+    const index = await loadOutlineDocumentIndex("/book")
+    const chapter167 = buildOutlineContextLayers(index, 167)
+    const chapter238 = buildOutlineContextLayers(index, 238)
+    const chapter1 = buildOutlineContextLayers(index, 1)
+
+    for (const layers of [chapter167, chapter238, chapter1]) {
+      expect(layers.project).toContain("全书主线")
+      expect(layers.project).toContain("世界规则")
+      expect(layers.project).not.toContain("阅兵稿不应进骨架")
+      expect(layers.project).not.toContain("台账末尾仍保留")
+      expect(layers.project).not.toContain("本卷兵力怎么写")
+      expect(layers.full).not.toContain("阅兵稿不应进骨架")
+      expect(layers.full).not.toContain("台账末尾仍保留")
+      expect(layers.full).not.toContain("本卷兵力怎么写")
+      expect(layers.full).toBe(buildOutlineContext(index, layers === chapter1 ? 1 : layers === chapter167 ? 167 : 238))
+    }
+
+    expect(chapter167.materials).toBe(chapter238.materials)
+    expect(chapter167.materials).toBe(chapter1.materials)
+    for (const path of [
+      "材料/基地与部队台账.md",
+      "材料/红场发言稿.md",
+      "材料/第二卷讨论稿.md",
+      "材料/第167章发言补充.md",
+      "材料/机场名单.md",
+      "材料/闲置笔记.md",
+      "材料/多章台账.md",
+    ]) {
+      expect(chapter167.materials).toContain(`- ${path}`)
+    }
+    expect(chapter167.materials).not.toContain("台账末尾仍保留")
+    expect(chapter167.materials).not.toContain("本卷兵力怎么写")
+    expect(chapter167.materials).not.toContain("正文写到第167章的机场")
+    expect(chapter167.materials).not.toContain("只写航班")
+    expect(chapter167.materials).not.toContain("只带机场台账这一段")
+    expect(chapter167.materials).not.toContain("阅兵稿不应进骨架")
+    expect(chapter167.materials).not.toContain("闲置笔记不该入选")
+  })
+
+  it("超长材料也只留路径，正文不进上下文", async () => {
+    const path = `${root}/材料/超长台账.md`
+    mockOutlines({
+      [path]: `# 超长台账\n第167章\n${"甲".repeat(20_000)}\n尾部标记TAIL167`,
+    })
+    const layers = buildOutlineContextLayers(await loadOutlineDocumentIndex("/book"), 167)
+    expect(layers.project).toBe("")
+    expect(layers.full).toBe("")
+    expect(layers.materials).toContain("- 材料/超长台账.md")
+    expect(layers.materials).not.toContain("尾部标记TAIL167")
+    expect(layers.materials).not.toContain("甲甲")
   })
 
   /*

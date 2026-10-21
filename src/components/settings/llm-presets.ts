@@ -23,6 +23,7 @@ export type Provider =
   | "claude-code"
   | "codex-cli"
   | "cursor-cli"
+  | "antigravity-cli"
 
 export interface LlmPreset {
   /** Stable id used as the dropdown value. */
@@ -128,15 +129,34 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
   {
     id: "cursor-cli",
     label: "Cursor CLI (local)",
-    hint: "Local `agent` via cursor-api-proxy — no official API key needed",
+    hint: "Local `cursor-agent` via cursor-api-proxy — no official API key needed",
     provider: "cursor-cli",
     baseUrl: "http://127.0.0.1:8765/v1",
     defaultModel: "composer-2.5-fast",
     apiMode: "chat_completions",
-    // Only ids that survive ACP-catalog filtering of `agent --list-models`.
+    // Only ids that survive ACP-catalog filtering of `cursor-agent --list-models`.
     suggestedModels: [
       "auto",
       "composer-2.5-fast",
+    ],
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
+  },
+  {
+    id: "antigravity-cli",
+    label: "Antigravity CLI (local)",
+    hint: "使用 local agy 命令及其登录状态，无需 API Key",
+    provider: "antigravity-cli",
+    suggestedModels: [
+      "gemini-3.8-flash-high",
+      "gemini-3.8-flash-medium",
+      "gemini-3.8-flash-low",
+      "claude-opus-5-5-high",
+      "claude-opus-5-5-medium",
+      "claude-opus-5-5-low",
+      "claude-sonnet-5-5-high",
+      "claude-sonnet-5-5-medium",
+      "claude-sonnet-5-5-low",
+      "gpt-oss-120b-medium",
     ],
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },

@@ -1,5 +1,6 @@
 import type { ContextTrace } from "./context-trace"
 import type { ToolCallStatus } from "./types"
+import { displayWritingEntitySearchWorkflowContent } from "@/lib/novel/writing-entity-web-search"
 
 type AgentWorkflowStepStatus =
   | "pending"
@@ -155,7 +156,7 @@ export function getWorkflowToolResultDisplay(result: string | undefined): string
     && parsed.content.trim()
     && (Array.isArray(parsed.items) || Array.isArray(parsed.searchedNames))
   ) {
-    return parsed.content.trim()
+    return displayWritingEntitySearchWorkflowContent(result)
   }
   return (result ?? "").trim()
 }
@@ -188,9 +189,10 @@ function describeWebSearchCall(call: WorkflowToolCall): string {
   if (status === "not_configured") {
     return query ? `联网搜索「${query}」未执行：未配置外部搜索` : "联网搜索未执行：未配置外部搜索"
   }
-  if (query && resultCount != null) return `联网搜索「${query}」（${resultCount} 条来源）`
+  // Gemini / 反重力 CLI 只有摘要、没有链接时 resultCount 为 0，「0 条来源」没意义，直接不写。
+  if (query && resultCount != null && resultCount > 0) return `联网搜索「${query}」（${resultCount} 条来源）`
   if (query) return `联网搜索「${query}」`
-  if (resultCount != null) return `联网搜索（${resultCount} 条来源）`
+  if (resultCount != null && resultCount > 0) return `联网搜索（${resultCount} 条来源）`
   return "联网搜索"
 }
 

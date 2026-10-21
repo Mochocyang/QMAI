@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
@@ -10,6 +10,17 @@ import {
   type SearchProviderOverride,
 } from "@/stores/wiki-store"
 import { SEARXNG_CATEGORY_OPTIONS, SERPAPI_ENGINE_OPTIONS, resolveSearchConfig } from "@/lib/web-search"
+import {
+  ANTIGRAVITY_AGY_DEFAULT_MODEL,
+  DEFAULT_ANTIGRAVITY_SEARCH_MODEL,
+  antigravityModelLabel,
+  ANTIGRAVITY_SEARCH_TIMEOUT_SECS,
+  ANTIGRAVITY_SEARCH_TIMEOUT_MIN_SECS,
+  ANTIGRAVITY_SEARCH_TIMEOUT_MAX_SECS,
+  resolveAntigravitySearchTimeoutSecs,
+} from "@/lib/antigravity-search"
+import { detectLocalCliConfig } from "@/lib/local-cli-config"
+import { DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_SEARCH_MODEL } from "@/lib/gemini-search"
 
 const SEARCH_PROVIDERS = [
   {
@@ -53,6 +64,26 @@ const SEARCH_PROVIDERS = [
     hint: "国际 · Google / Bing / DuckDuckGo 等 SERP（serpapi.com）",
     keyPlaceholder: "SerpApi API key",
     needsApiKey: true,
+  },
+  {
+    id: "gemini",
+    label: "Gemini（Google 搜索）",
+    hint: "国际 · Gemini Grounding with Google Search，与写作模型无关；按搜索次数计费（每月 5000 次免费）",
+    keyPlaceholder: "Gemini API Key（aistudio.google.com）",
+    needsApiKey: true,
+  },
+  {
+    id: "baizhi",
+    label: "百智云 Baizhi（MCP）",
+    hint: "国内 · 百智云网页搜索，需自备 API Key",
+    keyPlaceholder: "百智 API Key（只填 Key 本身，不要带 Bearer）",
+    needsApiKey: true,
+  },
+  {
+    id: "antigravity",
+    label: "反重力 CLI（Antigravity CLI）",
+    hint: "国际 · 通过本机 agy 搜索，无需 API Key",
+    needsApiKey: false,
   },
 ] as const
 
@@ -127,8 +158,8 @@ export function WebSearchSection() {
                   onClick={() => setExpanded((prev) => ({ ...prev, [provider.id]: !prev[provider.id] }))}
                   className="min-w-0 flex-1 text-left"
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium">{provider.label}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="min-w-0 break-words text-sm font-medium">{provider.label}</span>
                     {hasConfig && !isActive && (
                       <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                         {t("settings.sections.webSearch.configuredBadge")}
@@ -145,7 +176,7 @@ export function WebSearchSection() {
                       </span>
                     )}
                   </div>
-                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                  <div className="mt-0.5 break-words text-xs leading-relaxed text-muted-foreground">
                     {provider.hint}
                   </div>
                 </button>
@@ -170,6 +201,13 @@ export function WebSearchSection() {
 
               {isExpanded && (
                 <div className="space-y-4 border-t bg-background/50 px-4 py-3">
+                  {provider.id === "baizhi" && (
+                    <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
+                      <li>需百智云账号和 API Key；调用可能消耗额度或产生费用。</li>
+                      <li>搜索词发往百智云，结果可供写作模型使用；联网研究可能继续读取结果网页。</li>
+                    </ul>
+                  )}
+
                   {provider.needsApiKey ? (
                     <div className="space-y-2">
                       <Label>{t("settings.apiKey")}</Label>
@@ -180,7 +218,7 @@ export function WebSearchSection() {
                         placeholder={provider.keyPlaceholder}
                       />
                     </div>
-                  ) : (
+                  ) : provider.id === "searxng" ? (
                     <div className="space-y-2">
                       <Label>{t("settings.sections.webSearch.instanceUrl")}</Label>
                       <Input
@@ -192,6 +230,24 @@ export function WebSearchSection() {
                         {t("settings.sections.webSearch.searxngJsonHint")}
                       </p>
                     </div>
+                  ) : null}
+
+                  {provider.id === "antigravity" && (
+                    <div className="space-y-2">
+                      <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
+                        <li>安装 agy 1.1.8 及以上，在终端运行 agy 并用 Google 账号登录。</li>
+                        <li>搜索消耗该账号的模型额度；摘要由模型根据 Google 搜索结果生成。</li>
+                        <li>写作模型接收实际搜索词和摘要。</li>
+                      </ul>
+                      <AntigravityModelPicker
+                        value={override?.antigravityModel ?? ""}
+                        onChange={(antigravityModel) => updateProvider("antigravity", { antigravityModel })}
+                      />
+                      <AntigravityTimeoutInput
+                        value={override?.antigravityTimeoutSecs}
+                        onChange={(antigravityTimeoutSecs) => updateProvider("antigravity", { antigravityTimeoutSecs })}
+                      />
+                    </div>
                   )}
 
                   {provider.id === "serpapi" && (
@@ -199,6 +255,29 @@ export function WebSearchSection() {
                       value={override?.serpApiEngine ?? resolvedConfig.serpApiEngine ?? "google"}
                       onChange={(serpApiEngine) => updateProvider("serpapi", { serpApiEngine })}
                     />
+                  )}
+
+                  {provider.id === "gemini" && (
+                    <>
+                      <div className="space-y-2">
+                        <Label>搜索模型</Label>
+                        <Input
+                          value={override?.geminiModel ?? ""}
+                          onChange={(e) => updateProvider("gemini", { geminiModel: e.target.value })}
+                          placeholder={DEFAULT_GEMINI_SEARCH_MODEL}
+                        />
+                        <p className="text-xs text-muted-foreground">留空使用 {DEFAULT_GEMINI_SEARCH_MODEL}。只用于联网搜索，不影响写作所用的模型。</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>自定义地址（可选）</Label>
+                        <Input
+                          value={override?.geminiBaseUrl ?? ""}
+                          onChange={(e) => updateProvider("gemini", { geminiBaseUrl: e.target.value })}
+                          placeholder={DEFAULT_GEMINI_BASE_URL}
+                        />
+                        <p className="text-xs text-muted-foreground">走代理/中转时填写；请求会经过「设置」中的网络代理。</p>
+                      </div>
+                    </>
                   )}
 
                   {provider.id === "searxng" && (
@@ -301,6 +380,97 @@ function SerpApiEnginePicker({
           {t("settings.sections.webSearch.customSerpApiHint")}
         </p>
       )}
+    </div>
+  )
+}
+
+function AntigravityTimeoutInput({ value, onChange }: { value?: number; onChange: (value: number) => void }) {
+  const resolved = resolveAntigravitySearchTimeoutSecs(value)
+  const [draft, setDraft] = useState(String(resolved))
+  useEffect(() => setDraft(String(resolved)), [resolved])
+  const commit = () => {
+    const next = resolveAntigravitySearchTimeoutSecs(draft)
+    setDraft(String(next))
+    if (next !== value) onChange(next)
+  }
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="antigravity-timeout">搜索超时（秒）</Label>
+      <Input
+        id="antigravity-timeout"
+        type="number"
+        min={ANTIGRAVITY_SEARCH_TIMEOUT_MIN_SECS}
+        max={ANTIGRAVITY_SEARCH_TIMEOUT_MAX_SECS}
+        step={10}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") commit() }}
+      />
+      <p className="text-xs text-muted-foreground">
+        默认 {ANTIGRAVITY_SEARCH_TIMEOUT_SECS} 秒，可设 {ANTIGRAVITY_SEARCH_TIMEOUT_MIN_SECS}–{ANTIGRAVITY_SEARCH_TIMEOUT_MAX_SECS} 秒。超时后会结束 agy 进程。
+      </p>
+    </div>
+  )
+}
+
+function AntigravityModelPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [models, setModels] = useState<string[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const current = value.trim()
+
+  const fetchModels = async () => {
+    setLoading(true)
+    setError("")
+    try {
+      const detect = await detectLocalCliConfig("antigravity-cli")
+      const list = detect?.models ?? []
+      if (list.length === 0) throw new Error(detect?.error || "未拉取到模型，请先在终端运行 agy 完成登录。")
+      setModels(list)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const options = Array.from(new Set([
+    DEFAULT_ANTIGRAVITY_SEARCH_MODEL,
+    ...models,
+    ...(current && current !== ANTIGRAVITY_AGY_DEFAULT_MODEL ? [current] : []),
+  ]))
+
+  return (
+    <div className="space-y-2">
+      <Label>搜索模型</Label>
+      <div className="flex gap-2">
+        <select
+          className="h-9 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
+          value={current}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">默认：{antigravityModelLabel(DEFAULT_ANTIGRAVITY_SEARCH_MODEL)}（{DEFAULT_ANTIGRAVITY_SEARCH_MODEL}）</option>
+          {options.map((slug) => (
+            <option key={slug} value={slug}>
+              {antigravityModelLabel(slug)}（{slug}）
+            </option>
+          ))}
+          <option value={ANTIGRAVITY_AGY_DEFAULT_MODEL}>agy 默认模型（不指定，可能较贵）</option>
+        </select>
+        <button
+          type="button"
+          className="h-9 rounded-md border border-input px-3 text-sm hover:bg-accent disabled:opacity-50"
+          onClick={() => void fetchModels()}
+          disabled={loading}
+        >
+          {loading ? "拉取中…" : "拉取模型"}
+        </button>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <p className="text-xs text-muted-foreground">
+        默认使用 {DEFAULT_ANTIGRAVITY_SEARCH_MODEL}，额度消耗低。点「拉取模型」可从 agy 读取全部可选模型。只用于联网搜索，不影响写作所用的模型。
+      </p>
     </div>
   )
 }

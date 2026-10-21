@@ -889,7 +889,7 @@ export function modelSupportsReasoningControl(config: LlmConfig): boolean {
   // Claude Code CLI takes no thinking parameter at all, and Cursor CLI
   // carries effort inside the model id (`model[reasoning_effort=high]`)
   // rather than reading config.reasoning.
-  if (config.provider === "claude-code" || config.provider === "cursor-cli") return false
+  if (config.provider === "claude-code" || config.provider === "cursor-cli" || config.provider === "antigravity-cli") return false
   // Codex CLI maps the mode straight onto `turn/start.effort`.
   if (config.provider === "codex-cli") return true
   if (config.provider === "google") return googleModelSupportsThinkingConfig(config.model)
@@ -1450,6 +1450,7 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
 
     case "claude-code":
     case "codex-cli":
+    case "antigravity-cli":
       // Local CLI providers use subprocess transports (stdin/stdout JSON
       // streams), not HTTP. Dispatch happens one layer up in
       // streamChat() before getProviderConfig is called. Reaching this

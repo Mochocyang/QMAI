@@ -6,22 +6,19 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 5)).toEqual(["4.3.5", "4.3.4", "4.3.3", "4.3.2", "4.3.1"])
+    expect(versions.slice(0, 7)).toEqual(["4.3.5", "4.3.4", "4.3.3", "4.3.2", "4.3.1", "4.3.0", "4.2.1"])
     const release435 = currentVersionChangelog("4.3.5")[0]
     expect(release435.version).toBe("4.3.5")
-    expect(release435.date).toBe("2026-10-14")
-    // 这一版刻意只留一条：大纲「提取记忆/查看记忆」入口移到 HTML/MD 旁
-    expect(release435.highlights.zh).toHaveLength(1)
-    expect(release435.highlights.zh[0]).toContain("提取记忆")
-    expect(release435.highlights.en).toHaveLength(1)
+    expect(release435.date).toBe("2026-10-21")
+    expect(release435.highlights.zh).toHaveLength(5)
+    expect(release435.highlights.en).toHaveLength(5)
+    expect(release435.highlights.zh[0]).toContain("反重力")
     const release434 = currentVersionChangelog("4.3.4")[0]
     expect(release434.version).toBe("4.3.4")
-    expect(release434.date).toBe("2026-10-14")
-    // 这一版刻意只留一条：向量/重排模型测试失败修复 + 模型下拉框高亮
-    expect(release434.highlights.zh).toHaveLength(1)
-    expect(release434.highlights.zh[0]).toContain("模型测试")
-    expect(release434.highlights.en).toHaveLength(1)
-    expect(release434.highlights.en[0]).toContain("model tests")
+    expect(release434.date).toBe("2026-10-20")
+    expect(release434.highlights.zh).toHaveLength(6)
+    expect(release434.highlights.en).toHaveLength(6)
+    expect(release434.highlights.zh[0]).toContain("百智云")
     const release433 = currentVersionChangelog("4.3.3")[0]
     expect(release433.version).toBe("4.3.3")
     expect(release433.date).toBe("2026-10-13")

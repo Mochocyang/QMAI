@@ -37,6 +37,10 @@ describe("function calling helpers", () => {
     expect(modelSupportsTools("opus", "claude-code")).toBe(false)
   })
 
+  it("blocks Antigravity CLI from agent tools", () => {
+    expect(modelSupportsTools("gemini-3.8-flash-high", "antigravity-cli")).toBe(false)
+  })
+
   it("allows cursor-cli native tools", () => {
     expect(modelSupportsTools("composer-2-fast", "cursor-cli")).toBe(true)
     expect(effectiveToolsEnabled("composer-2-fast", { ...baseLlm, provider: "cursor-cli", model: "composer-2-fast" })).toBe(true)

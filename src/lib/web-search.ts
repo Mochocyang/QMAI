@@ -6,12 +6,27 @@ import type {
   SerpApiEngine,
 } from "@/stores/wiki-store"
 import { getHttpFetch, isFetchNetworkError } from "@/lib/tauri-fetch"
+import { geminiSearchDetailed } from "@/lib/gemini-search"
+import { baizhiSearch } from "@/lib/baizhi-search"
+import { antigravitySearchDetailed } from "@/lib/antigravity-search"
 
 export interface WebSearchResult {
   title: string
   url: string
   snippet: string
   source: string
+}
+
+/**
+ * 带附加信息的搜索结果。普通搜索引擎只有 `results`；
+ * Gemini（Grounding with Google Search）还会给出它实际执行的搜索词、
+ * 综合摘要与 Google 要求展示的搜索建议 HTML。
+ */
+export interface WebSearchOutcome {
+  results: WebSearchResult[]
+  queries?: string[]
+  summary?: string
+  searchSuggestionsHtml?: string
 }
 
 export const SERPAPI_ENGINE_OPTIONS: { value: SerpApiEngine; label: string; hint: string }[] = [
@@ -78,7 +93,10 @@ export function resolveSearchConfig(config: SearchApiConfig): SearchApiConfig {
   return {
     ...config,
     provider: activeProvider,
-    apiKey: activeOverride?.apiKey ?? config.apiKey ?? "",
+    // 百智只认自己卡片里填的 Key，不继承顶层 apiKey（可能是别的服务的凭据）。
+    apiKey: activeProvider === "baizhi"
+      ? activeOverride?.apiKey ?? ""
+      : activeOverride?.apiKey ?? config.apiKey ?? "",
     serpApiEngine: activeOverride?.serpApiEngine ?? config.serpApiEngine ?? "google",
     searXngUrl: activeOverride?.searXngUrl ?? config.searXngUrl ?? "",
     searXngCategories: activeOverride?.searXngCategories ?? config.searXngCategories ?? ["general"],
@@ -92,6 +110,8 @@ const API_KEY_PROVIDERS = new Set<SearchProvider>([
   "metaso",
   "tavily",
   "serpapi",
+  "gemini",
+  "baizhi",
 ])
 
 export function providerRequiresApiKey(provider: SearchProvider): boolean {
@@ -102,6 +122,50 @@ export async function webSearch(
   query: string,
   config: SearchApiConfig,
   maxResults: number = 10,
+): Promise<WebSearchResult[]> {
+  return (await webSearchDetailed(query, config, maxResults)).results
+}
+
+export async function webSearchDetailed(
+  query: string,
+  config: SearchApiConfig,
+  maxResults: number = 10,
+): Promise<WebSearchOutcome> {
+  const resolved = resolveSearchConfig(config)
+  if (resolved.provider === "gemini") {
+    if (!resolved.apiKey?.trim()) {
+      throw new Error("未配置 Gemini API Key，请在「设置 → 网页搜索 → Gemini」中填写。")
+    }
+    const override = resolved.providerConfigs?.gemini
+    const outcome = await geminiSearchDetailed(query, {
+      apiKey: resolved.apiKey,
+      model: override?.geminiModel,
+      baseUrl: override?.geminiBaseUrl,
+      maxResults,
+    })
+    return {
+      results: outcome.results,
+      queries: outcome.queries,
+      summary: outcome.summary,
+      searchSuggestionsHtml: outcome.searchSuggestionsHtml,
+    }
+  }
+  if (resolved.provider === "antigravity") {
+    // 反重力 CLI：不需要 Key，用本机 agy 登录态；只给搜索词 + 摘要（来源只存不显示）。
+    const outcome = await antigravitySearchDetailed(query, {
+      model: resolved.providerConfigs?.antigravity?.antigravityModel,
+      timeoutSecs: resolved.providerConfigs?.antigravity?.antigravityTimeoutSecs,
+      maxResults,
+    })
+    return { results: outcome.results, queries: outcome.queries, summary: outcome.summary }
+  }
+  return { results: await providerSearch(query, config, maxResults) }
+}
+
+async function providerSearch(
+  query: string,
+  config: SearchApiConfig,
+  maxResults: number,
 ): Promise<WebSearchResult[]> {
   const resolved = resolveSearchConfig(config)
   if (resolved.provider === "none") {
@@ -123,8 +187,16 @@ export async function webSearch(
       return metasoSearch(query, resolved.apiKey, maxResults)
     case "tavily":
       return tavilySearch(query, resolved.apiKey, maxResults)
+    case "baizhi":
+      return baizhiSearch(query, resolved.apiKey, maxResults)
     case "serpapi":
       return serpApiSearch(query, resolved.apiKey, maxResults, resolved.serpApiEngine ?? "google")
+    case "antigravity":
+      return (await antigravitySearchDetailed(query, {
+        model: resolved.providerConfigs?.antigravity?.antigravityModel,
+        timeoutSecs: resolved.providerConfigs?.antigravity?.antigravityTimeoutSecs,
+        maxResults,
+      })).results
     case "searxng":
       return searXngSearch(query, resolved.searXngUrl ?? "", maxResults, resolved.searXngCategories ?? ["general"])
     default:

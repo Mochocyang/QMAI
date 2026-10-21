@@ -15,12 +15,15 @@ const OUTLINE_SAVE_FOLDER_OPTIONS = [
   "大纲",
   "卷纲",
   "章纲",
+  "材料",
   "人物小传",
   "设定",
   "伏笔",
   "组织",
   "质量检查",
 ]
+
+const MATERIAL_FOLDER_HINT = "只在某一章或某一卷使用的台账、发言稿、讨论，保存到「材料」。放进「大纲」或「设定」会在每次写作时整篇进入上下文。"
 
 export interface OutlineSaveConfirmPayload {
   requests: OutlineSaveRequest[]
@@ -203,6 +206,9 @@ export function OutlineSaveConfirmDialog({
                           </option>
                         ))}
                       </select>
+                      {request.targetFolder === "材料" ? (
+                        <p>{MATERIAL_FOLDER_HINT}</p>
+                      ) : null}
                     </div>
                   </span>
                 </label>

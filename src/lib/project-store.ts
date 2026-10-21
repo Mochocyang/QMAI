@@ -507,6 +507,28 @@ export async function loadLanguage(): Promise<string | null> {
   return (await store.get<string>(LANGUAGE_KEY)) ?? null
 }
 
+const MCP_ENABLED_KEY = "mcpEnabled"
+const MCP_AGENT_SKILLS_DIR_KEY = "mcpAgentSkillsDir"
+
+export interface McpSettings {
+  enabled: boolean
+  agentSkillsDir: string
+}
+
+export async function loadMcpSettings(): Promise<McpSettings> {
+  const store = await getStore()
+  return {
+    enabled: (await store.get<boolean>(MCP_ENABLED_KEY)) === true,
+    agentSkillsDir: (await store.get<string>(MCP_AGENT_SKILLS_DIR_KEY))?.trim() ?? "",
+  }
+}
+
+export async function saveMcpSettings(settings: McpSettings): Promise<void> {
+  const store = await getStore()
+  await store.set(MCP_ENABLED_KEY, settings.enabled)
+  await store.set(MCP_AGENT_SKILLS_DIR_KEY, settings.agentSkillsDir.trim())
+}
+
 const OUTPUT_LANGUAGE_KEY = "outputLanguage"
 const PROJECT_OUTPUT_LANGUAGE_KEY = "projectOutputLanguages"
 const PROJECT_FILE_SYNC_KEY = "projectFileSyncEnabled"

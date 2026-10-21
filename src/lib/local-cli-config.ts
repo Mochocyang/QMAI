@@ -13,9 +13,10 @@ export interface LocalCliDetectResult {
   error: string | null
 }
 
-function detectCommand(provider: LlmConfig["provider"]): "claude_cli_detect" | "codex_cli_detect" | null {
+function detectCommand(provider: LlmConfig["provider"]): "claude_cli_detect" | "codex_cli_detect" | "antigravity_cli_detect" | null {
   if (provider === "claude-code") return "claude_cli_detect"
   if (provider === "codex-cli") return "codex_cli_detect"
+  if (provider === "antigravity-cli") return "antigravity_cli_detect"
   return null
 }
 

@@ -78,7 +78,7 @@ export function resolveConfig(
       localCliIsolation: false,
       functionCallingEnabled,
     }
-  } else if (preset.provider === "claude-code" || preset.provider === "codex-cli") {
+  } else if (preset.provider === "claude-code" || preset.provider === "codex-cli" || preset.provider === "antigravity-cli") {
     // Subprocess transport — no apiKey, no endpoint URL. Model id is
     // passed straight to the local CLI. Claude can inherit its machine
     // default; Codex is pinned to QMAI's curated default unless the user

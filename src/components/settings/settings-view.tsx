@@ -10,6 +10,7 @@ import {
   Archive,
   Brain,
   Search,
+  Plug,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
@@ -32,6 +33,7 @@ import { NovelSection } from "./sections/novel-section"
 import { ClassificationSection } from "./sections/classification-section"
 import { NetworkSection } from "./sections/network-section"
 import { WebSearchSection } from "./sections/web-search-section"
+import { AgentMcpSection } from "./sections/agent-mcp-section"
 import { ChangelogSection } from "./sections/changelog-section"
 import { FeedbackSection } from "./sections/feedback-section"
 import { UsageGuideSection } from "./sections/usage-guide-section"
@@ -44,6 +46,7 @@ type CategoryId =
   | "model"
   | "network"
   | "web-search"
+  | "mcp"
   | "interface"
   | "novel"
   | "user-memory"
@@ -76,6 +79,7 @@ const CATEGORIES: Category[] = [
    */
   { id: "novel", labelKey: "settings.categories.novel", icon: BookOpen },
   { id: "network", labelKey: "settings.categories.network", icon: Network },
+  { id: "mcp", labelKey: "settings.categories.mcp", icon: Plug },
   { id: "web-search", labelKey: "settings.categories.webSearch", icon: Search },
   { id: "interface", labelKey: "settings.categories.interface", icon: Palette },
   { id: "user-memory", labelKey: "settings.categories.userMemory", icon: Brain },
@@ -585,6 +589,8 @@ export function SettingsView() {
         return <NetworkSection draft={draft} setDraft={setDraft} />
       case "web-search":
         return <WebSearchSection />
+      case "mcp":
+        return <AgentMcpSection />
       case "interface":
         return <InterfaceSection draft={draft} setDraft={setDraft} />
       case "novel":

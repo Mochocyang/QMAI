@@ -43,6 +43,7 @@ const PROVIDER_OPTIONS: Array<{ value: LlmConfig["provider"]; label: string }> =
   { value: "claude-code", label: "Claude Code CLI" },
   { value: "codex-cli", label: "Codex CLI" },
   { value: "cursor-cli", label: "Cursor CLI" },
+  { value: "antigravity-cli", label: "Antigravity CLI" },
 ]
 
 export function RerankSection({ draft, setDraft }: Props) {
@@ -70,7 +71,8 @@ export function RerankSection({ draft, setDraft }: Props) {
     config.provider !== "ollama" &&
     config.provider !== "claude-code" &&
     config.provider !== "codex-cli" &&
-    config.provider !== "cursor-cli"
+    config.provider !== "cursor-cli" &&
+    config.provider !== "antigravity-cli"
   const hasConfig = config.useMainLlm || Boolean(config.model || config.customEndpoint || config.ollamaUrl)
 
   function handleOpenPanel() {

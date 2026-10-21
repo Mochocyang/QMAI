@@ -1,0 +1,25 @@
+{
+  "researchKeys": [
+    "failedUrls",
+    "importedDocuments",
+    "notes",
+    "query",
+    "searchResults",
+    "urls"
+  ],
+  "researchContext": {
+    "markdown": "## 联网研究资料\n\n搜索问题：黄蓉 桃花岛\n\n使用规则：\n- 这些资料只作为外部参考，不要把网页内容当成当前小说已经发生的事实。\n- 写大纲或拆文分析时可以提炼趋势、结构、卖点、套路和读者期待。\n- 不要大段复述网页原文；如果资料不足，请明确说明资料不足。\n\n### 搜索结果\n1. 黄蓉 - 维基百科\n   来源：zh.wikipedia.org\n   链接：https://zh.wikipedia.org/wiki/%E9%BB%84%E8%93%89\n   摘要：黄蓉，金庸武侠小说《射雕英雄传》女主角。\n2. 桃花岛\n   来源：example.com\n   链接：https://example.com/taohuadao\n   摘要：桃花岛位于东海。",
+    "sources": [
+      "黄蓉 - 维基百科 - https://zh.wikipedia.org/wiki/%E9%BB%84%E8%93%89",
+      "桃花岛 - https://example.com/taohuadao"
+    ]
+  },
+  "entityMarkdown": "## 外部检索（仅补本地缺失实体）\n\n### 黄蓉\n- 黄蓉 - 维基百科 https://zh.wikipedia.org/wiki/%E9%BB%84%E8%93%89\n  黄蓉，金庸武侠小说《射雕英雄传》女主角。\n- 桃花岛 https://example.com/taohuadao\n  桃花岛位于东海。\n\n### 桃花岛\n- 无可用结果",
+  "entitySerialized": "{\"content\":\"已搜索：黄蓉、桃花岛\\n\\n黄蓉\\n- 黄蓉 - 维基百科 · zh.wikipedia.org\\n  黄蓉，金庸武侠小说《射雕英雄传》女主角。\\n- 桃花岛 · example.com\\n  桃花岛位于东海。\\n\\n桃花岛\\n- 无可用结果\\n\\nn1\",\"searchedNames\":[\"黄蓉\",\"桃花岛\"],\"notes\":[\"n1\"],\"items\":[{\"name\":\"黄蓉\",\"results\":[{\"title\":\"黄蓉 - 维基百科\",\"url\":\"https://zh.wikipedia.org/wiki/%E9%BB%84%E8%93%89\",\"snippet\":\"黄蓉，金庸武侠小说《射雕英雄传》女主角。\",\"source\":\"zh.wikipedia.org\"},{\"title\":\"桃花岛\",\"url\":\"https://example.com/taohuadao\",\"snippet\":\"桃花岛位于东海。\",\"source\":\"example.com\"}]},{\"name\":\"桃花岛\",\"results\":[]}]}",
+  "entityWorkflowText": "已搜索：黄蓉\n\n黄蓉\n- 黄蓉 - 维基百科 · zh.wikipedia.org\n  黄蓉，金庸武侠小说《射雕英雄传》女主角。\n- 桃花岛 · example.com\n  桃花岛位于东海。\n\n桃花岛\n- 无可用结果",
+  "entityDisplay": "已搜索：黄蓉、桃花岛\n\n黄蓉\n- 黄蓉 - 维基百科 · zh.wikipedia.org\n  黄蓉，金庸武侠小说《射雕英雄传》女主角。\n- 桃花岛 · example.com\n  桃花岛位于东海。\n\n桃花岛\n- 无可用结果\n\nn1",
+  "entityResultDisplay": "已搜索：黄蓉、桃花岛\n\n黄蓉\n- 黄蓉 - 维基百科 · zh.wikipedia.org\n  黄蓉，金庸武侠小说《射雕英雄传》女主角。\n- 桃花岛 · example.com\n  桃花岛位于东海。\n\n桃花岛\n- 无可用结果\n\nn1",
+  "toolOut": "{\"status\":\"ok\",\"query\":\"黄蓉\",\"provider\":\"tavily\",\"resultCount\":2,\"results\":[{\"title\":\"黄蓉 - 维基百科\",\"url\":\"https://zh.wikipedia.org/wiki/%E9%BB%84%E8%93%89\",\"snippet\":\"黄蓉，金庸武侠小说《射雕英雄传》女主角。\",\"source\":\"zh.wikipedia.org\"},{\"title\":\"桃花岛\",\"url\":\"https://example.com/taohuadao\",\"snippet\":\"桃花岛位于东海。\",\"source\":\"example.com\"}]}",
+  "toolResultDisplay": "{\"status\":\"ok\",\"query\":\"黄蓉\",\"provider\":\"tavily\",\"resultCount\":2,\"results\":[{\"title\":\"黄蓉 - 维基百科\",\"url\":\"https://zh.wikipedia.org/wiki/%E9%BB%84%E8%93%89\",\"snippet\":\"黄蓉，金庸武侠小说《射雕英雄传》女主角。\",\"source\":\"zh.wikipedia.org\"},{\"title\":\"桃花岛\",\"url\":\"https://example.com/taohuadao\",\"snippet\":\"桃花岛位于东海。\",\"source\":\"example.com\"}]}",
+  "toolDescription": "联网搜索「黄蓉」（2 条来源）"
+}

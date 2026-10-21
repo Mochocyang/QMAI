@@ -355,4 +355,13 @@ describe("preview-panel final chapter save state", () => {
     expect(source).toContain("? parseFrontmatter(fileContent).body")
     expect(source).toContain("<WikiReader body={trashPreviewBody} />")
   })
+
+  it("大纲粘贴细纲后不会丢：短延迟落盘、切走/卸载时 flush、提取记忆前先落盘", () => {
+    const code = stripComments(source)
+    expect(code).toContain("isChapterPath(pathAtSave) ? CHAPTER_AUTOSAVE_INTERVAL_MS : OUTLINE_AUTOSAVE_DELAY_MS")
+    expect(code).toContain("void flushNonChapterPendingSave(previousFile)")
+    expect(code).toContain("void flushNonChapterPendingSave(currentFile)")
+    const ingest = code.slice(code.indexOf("const handleIngestOutline"), code.indexOf("startOutlineIngestTask(project.path, selectedFile)"))
+    expect(ingest).toContain("await runPendingChapterSave()")
+  })
 })

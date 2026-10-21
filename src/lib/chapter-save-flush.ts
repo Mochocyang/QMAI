@@ -46,3 +46,11 @@ export async function flushPendingChapterSave(): Promise<void> {
   if (!activeHandler) return
   await activeHandler()
 }
+
+/**
+ * 大纲/细纲等非章节文件的自动保存延迟。
+ *
+ * 3 分钟间隔是给章节正文「连续写作」用的；大纲多是一次性粘贴整段细纲，
+ * 等 3 分钟才落盘的话，期间切走、重新挂载或点「提取记忆」都会丢内容。
+ */
+export const OUTLINE_AUTOSAVE_DELAY_MS = 1000

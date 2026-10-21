@@ -110,7 +110,7 @@ function buildModelsUrl(config: LlmConfig): { url: string; headers: Record<strin
     }
   }
 
-  if (config.provider === "claude-code" || config.provider === "codex-cli") {
+  if (config.provider === "claude-code" || config.provider === "codex-cli" || config.provider === "antigravity-cli") {
     return {
       url: "",
       headers: {},
@@ -225,7 +225,23 @@ async function fetchLocalCliModel(config: LlmConfig): Promise<LlmModelListResult
   return { models: [localModel] }
 }
 
+async function fetchAntigravityModels(config: LlmConfig): Promise<LlmModelListResult> {
+  const detect = await detectLocalCliConfig(config.provider)
+  const models = Array.from(new Set([
+    ...(config.model.trim() ? [config.model.trim()] : []),
+    ...(detect?.models ?? []),
+  ])).filter(Boolean)
+  if (models.length === 0) {
+    throw new Error(detect?.error || "未检测到可用模型。请先在终端运行 agy 完成登录，然后重新检查。")
+  }
+  return toModelListResult(models)
+}
+
 export async function fetchLlmModelList(config: LlmConfig): Promise<LlmModelListResult> {
+  if (config.provider === "antigravity-cli") {
+    return fetchAntigravityModels(config)
+  }
+
   if (config.provider === "claude-code" || config.provider === "codex-cli") {
     return fetchLocalCliModel(config)
   }

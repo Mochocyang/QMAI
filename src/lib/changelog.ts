@@ -9,26 +9,44 @@ interface ChangelogEntry {
 
 const FOUR_POINT_THREE_FIVE_CHANGELOG: ChangelogEntry = {
   version: "4.3.5",
-  date: "2026-10-14",
+  date: "2026-10-21",
   highlights: {
     en: [
-      "Outline documents now keep the Extract memory and View memory icons next to the HTML / MD switch, so both are visible in HTML mode instead of being hidden until you switch to MD.",
+      "Web search adds an Antigravity CLI source that uses your locally signed-in agy for Google Search; you can fetch and pick its model (default: the cheaper gemini-3.8-flash-low), and the search timeout is raised to 180 seconds.",
+      "Baizhi Cloud search now checks the MCP protocol handshake first, so misconfiguration is reported earlier.",
+      "Fixed outline/detailed-outline content disappearing after paste: it now autosaves after 1 second idle and saves before switching away or extracting memory.",
+      "Searches without links no longer show \"0 sources\" in the writing timeline, and summary-only results are no longer shown as empty.",
+      "Simplified web search descriptions in Settings with better narrow-screen layout.",
     ],
     zh: [
-      "大纲文档现在把「提取记忆」「查看记忆」两枚图标固定放在 HTML / MD 标识旁：HTML 模式下也能直接看到入口，不必先切到 MD 才能找到。",
+      "网页搜索新增「反重力 CLI」来源：借用本机已登录的 Antigravity（agy）做谷歌搜索；搜索时可拉取模型列表自选模型，默认用更便宜的 gemini-3.8-flash-low，超时放宽到 180 秒，避免搜索被中途打断",
+      "百智云搜索连接前会先检查 MCP 协议是否正常，配置有误时能更早给出提示",
+      "修复大纲/细纲粘贴内容后会自行消失的问题：现在停下 1 秒就自动保存，切走或提取记忆前也会先保存",
+      "写作时间线里没有链接的搜索不再显示「0 条来源」，有摘要的搜索结果也不会再被误显示为空",
+      "设置里的网页搜索说明更精简，窄屏下更好读",
     ],
   },
 };
 
 const FOUR_POINT_THREE_FOUR_CHANGELOG: ChangelogEntry = {
   version: "4.3.4",
-  date: "2026-10-14",
+  date: "2026-10-20",
   highlights: {
     en: [
-      "Fixed retrieval and rerank model tests that always failed: a bare base URL is now completed to the full endpoint and retried automatically, and a failure now shows the server's original error along with a suggested next step instead of one generic message. The model picker is also highlighted, so it is obvious you can fetch and choose a model there.",
+      "Web search adds two optional backends: Gemini (Google Search; writing prioritizes Google's summary, and the timeline shows only queries and the summary) and Baizhi Cloud MCP; existing search providers are unchanged.",
+      "New external Agent (MCP) service: local agents can call QMAI writing over MCP, including bookshelf commands, background writing, live progress, and stop.",
+      "Added Antigravity CLI support.",
+      "Fixed pasted body text landing in the title after creating a new chapter outline.",
+      "Favorited AI skills are pinned to the top of the reference picker, and skills can now be searched by their Chinese names (e.g. 战斗描写).",
+      "Deleting an outline no longer rewrites derived memory, plus a macOS transparent-window fix.",
     ],
     zh: [
-      "修复了向量与重排模型测试总是失败的问题：接口地址只填基础地址时会自动补全为完整地址并重试，失败时也不再只显示一句笼统提示，而是直接给出服务端的原始报错和下一步建议；模型选择下拉框也做了高亮，更容易发现可以直接在这里拉取并选择模型。",
+      "网页搜索新增两个可选后端：Gemini（谷歌搜索，写作优先用谷歌摘要，时间线只显示搜索词和摘要）和百智云 MCP，原有搜索来源不受影响",
+      "新增外部 Agent（MCP）服务：本机 Agent 可通过 MCP 调用青幕写作，支持书架操作、后台写作、实时进度和停止生成",
+      "接入 Antigravity CLI",
+      "修复新建一章大纲后，粘贴正文会跑到标题栏的问题",
+      "AI 技能库收藏的技能在选择引用时置顶，并可按中文名搜索（如「战斗描写」）",
+      "删除大纲不再重写派生记忆；修复 macOS 透明窗口问题",
     ],
   },
 };
