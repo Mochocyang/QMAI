@@ -218,6 +218,25 @@ describe("getWorkflowToolDescription", () => {
 })
 
 describe("getWorkflowToolResultDisplay", () => {
+  it("restores saved search summaries instead of stale no-result text", () => {
+    const persisted = JSON.stringify({
+      content: "已搜索：心灵终结\n\n心灵终结\n- 无可用结果",
+      searchedNames: ["心灵终结", "Mental Omega"],
+      notes: [],
+      items: [{
+        name: "心灵终结",
+        results: [],
+        searchQueries: ["心灵终结", "Mental Omega"],
+        summary: "已检索到心灵终结的公开资料摘要。",
+      }],
+    })
+
+    const display = getWorkflowToolResultDisplay(persisted)
+    expect(display).toContain("已搜索：心灵终结、Mental Omega")
+    expect(display).toContain("已检索到心灵终结的公开资料摘要。")
+    expect(display).not.toContain("无可用结果")
+  })
+
   it("extracts the grouped summary from persisted writing search JSON", () => {
     const summary = [
       "已搜索：鲁茨科伊",

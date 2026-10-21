@@ -281,7 +281,10 @@ export function formatWritingEntitySearchWorkflowResult(
   }
   for (const item of result.items ?? []) {
     const lines = [`${item.name}`]
-    if (item.results.length === 0) {
+    const summary = item.summary?.trim()
+    if (summary) {
+      lines.push(summary)
+    } else if (item.results.length === 0) {
       lines.push("- 无可用结果")
     } else {
       for (const source of item.results) {
@@ -368,6 +371,9 @@ export function parseWritingEntitySearchWorkflowResult(
 export function displayWritingEntitySearchWorkflowContent(text: string | undefined): string {
   const parsed = parseWritingEntitySearchWorkflowResult(text)
   if (!parsed) return (text ?? "").trim()
+  if (parsed.items.some((item) => item.summary?.trim())) {
+    return formatWritingEntitySearchWorkflowResult({ ...parsed, markdown: "" })
+  }
   return parsed.content.trim() || formatWritingEntitySearchWorkflowResult({ ...parsed, markdown: "" })
 }
 

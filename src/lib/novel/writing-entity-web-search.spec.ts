@@ -214,6 +214,38 @@ describe("isWebSearchConfigured", () => {
 })
 
 describe("collectWritingEntityWebSearch", () => {
+  it("keeps summary-only search responses in writing context and workflow records", async () => {
+    const searchDetailed = vi.fn(async (term: string) => ({
+      results: [],
+      queries: [term],
+      summary: `已检索到 ${term} 的公开资料摘要。`,
+    }))
+    const result = await collectWritingEntityWebSearch({
+      projectPath: "/project",
+      userRequest: "核对心灵终结与卡特彼勒",
+      contextPack: pack,
+      streamChat: streamChatReturning([
+        '{"entities":["心灵终结","卡特彼勒"]}',
+        '{"needExternal":[{"name":"心灵终结","englishQuery":"Mental Omega"},{"name":"卡特彼勒","englishQuery":"Caterpillar Inc"}]}',
+      ]),
+      llmConfig,
+      searchApiConfig: { ...configuredSearch, provider: "antigravity", apiKey: "" },
+      listEntityNames: async () => [],
+      readPreviousBodies: async () => [],
+      searchDetailed,
+    })
+
+    expect(result.searchedNames).toEqual(["心灵终结", "Mental Omega", "卡特彼勒", "Caterpillar Inc"])
+    expect(result.notes).toEqual([])
+    const persisted = serializeWritingEntitySearchWorkflowResult(result)
+    const display = displayWritingEntitySearchWorkflowContent(persisted)
+    for (const term of result.searchedNames) {
+      expect(result.markdown).toContain(`已检索到 ${term} 的公开资料摘要。`)
+      expect(display).toContain(`已检索到 ${term} 的公开资料摘要。`)
+    }
+    expect(display).not.toContain("无可用结果")
+  })
+
   it("skips search when the provider is not configured", async () => {
     const search = vi.fn()
     const result = await collectWritingEntityWebSearch({

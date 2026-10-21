@@ -1,5 +1,6 @@
 import type { ContextTrace } from "./context-trace"
 import type { ToolCallStatus } from "./types"
+import { displayWritingEntitySearchWorkflowContent } from "@/lib/novel/writing-entity-web-search"
 
 type AgentWorkflowStepStatus =
   | "pending"
@@ -155,7 +156,7 @@ export function getWorkflowToolResultDisplay(result: string | undefined): string
     && parsed.content.trim()
     && (Array.isArray(parsed.items) || Array.isArray(parsed.searchedNames))
   ) {
-    return parsed.content.trim()
+    return displayWritingEntitySearchWorkflowContent(result)
   }
   return (result ?? "").trim()
 }
