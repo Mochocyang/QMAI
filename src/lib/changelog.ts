@@ -7,6 +7,27 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_THREE_FIVE_CHANGELOG: ChangelogEntry = {
+  version: "4.3.5",
+  date: "2026-10-21",
+  highlights: {
+    en: [
+      "Web search adds an Antigravity CLI source that uses your locally signed-in agy for Google Search; you can fetch and pick its model (default: the cheaper gemini-3.8-flash-low), and the search timeout is raised to 180 seconds.",
+      "Baizhi Cloud search now checks the MCP protocol handshake first, so misconfiguration is reported earlier.",
+      "Fixed outline/detailed-outline content disappearing after paste: it now autosaves after 1 second idle and saves before switching away or extracting memory.",
+      "Searches without links no longer show \"0 sources\" in the writing timeline, and summary-only results are no longer shown as empty.",
+      "Simplified web search descriptions in Settings with better narrow-screen layout.",
+    ],
+    zh: [
+      "网页搜索新增「反重力 CLI」来源：借用本机已登录的 Antigravity（agy）做谷歌搜索；搜索时可拉取模型列表自选模型，默认用更便宜的 gemini-3.8-flash-low，超时放宽到 180 秒，避免搜索被中途打断",
+      "百智云搜索连接前会先检查 MCP 协议是否正常，配置有误时能更早给出提示",
+      "修复大纲/细纲粘贴内容后会自行消失的问题：现在停下 1 秒就自动保存，切走或提取记忆前也会先保存",
+      "写作时间线里没有链接的搜索不再显示「0 条来源」，有摘要的搜索结果也不会再被误显示为空",
+      "设置里的网页搜索说明更精简，窄屏下更好读",
+    ],
+  },
+};
+
 const FOUR_POINT_THREE_FOUR_CHANGELOG: ChangelogEntry = {
   version: "4.3.4",
   date: "2026-10-20",
@@ -1962,6 +1983,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_THREE_FIVE_CHANGELOG.version)
+    return [FOUR_POINT_THREE_FIVE_CHANGELOG];
   if (version === FOUR_POINT_THREE_FOUR_CHANGELOG.version)
     return [FOUR_POINT_THREE_FOUR_CHANGELOG];
   if (version === FOUR_POINT_THREE_THREE_CHANGELOG.version)
@@ -2135,6 +2158,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_THREE_FIVE_CHANGELOG,
     FOUR_POINT_THREE_FOUR_CHANGELOG,
     FOUR_POINT_THREE_THREE_CHANGELOG,
     FOUR_POINT_THREE_TWO_CHANGELOG,
