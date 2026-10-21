@@ -65,14 +65,14 @@ const SEARCH_PROVIDERS = [
   {
     id: "baizhi",
     label: "百智云 Baizhi（MCP）",
-    hint: "国内 · 百智云 Agent Toolkit 网页搜索（agent-toolkit.app.baizhi.cloud）。需自备百智账号和 Key，调用可能消耗额度/收费；查询会发给百智，结果可能进入所选写作模型，联网研究还可能继续读取结果网页",
+    hint: "国内 · 百智云网页搜索，需自备 API Key",
     keyPlaceholder: "百智 API Key（只填 Key 本身，不要带 Bearer）",
     needsApiKey: true,
   },
   {
     id: "antigravity",
     label: "反重力 CLI（Antigravity CLI）",
-    hint: "国际 · 借本机 Antigravity CLI（agy）内置的 Google 搜索。不需要 Key，但需本机安装并用 Google 账号登录 agy；每次搜索消耗账号额度；摘要由模型基于谷歌搜索生成，不是谷歌官方摘要",
+    hint: "国际 · 通过本机 agy 搜索，无需 API Key",
     needsApiKey: false,
   },
 ] as const
@@ -148,8 +148,8 @@ export function WebSearchSection() {
                   onClick={() => setExpanded((prev) => ({ ...prev, [provider.id]: !prev[provider.id] }))}
                   className="min-w-0 flex-1 text-left"
                 >
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium">{provider.label}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="min-w-0 break-words text-sm font-medium">{provider.label}</span>
                     {hasConfig && !isActive && (
                       <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[0.625rem] text-muted-foreground">
                         {t("settings.sections.webSearch.configuredBadge")}
@@ -166,7 +166,7 @@ export function WebSearchSection() {
                       </span>
                     )}
                   </div>
-                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                  <div className="mt-0.5 break-words text-xs leading-relaxed text-muted-foreground">
                     {provider.hint}
                   </div>
                 </button>
@@ -191,6 +191,13 @@ export function WebSearchSection() {
 
               {isExpanded && (
                 <div className="space-y-4 border-t bg-background/50 px-4 py-3">
+                  {provider.id === "baizhi" && (
+                    <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
+                      <li>需百智云账号和 API Key；调用可能消耗额度或产生费用。</li>
+                      <li>搜索词发往百智云，结果可供写作模型使用；联网研究可能继续读取结果网页。</li>
+                    </ul>
+                  )}
+
                   {provider.needsApiKey ? (
                     <div className="space-y-2">
                       <Label>{t("settings.apiKey")}</Label>
@@ -217,9 +224,11 @@ export function WebSearchSection() {
 
                   {provider.id === "antigravity" && (
                     <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">
-                        需要本机已安装 Antigravity CLI（agy 1.1.8 及以上），并在终端运行一次 agy 用 Google 账号登录。每次搜索会单独启动一个 agy 进程，消耗该账号的模型额度；给写作模型的只有实际搜索词和摘要，摘要由模型基于谷歌搜索结果生成。
-                      </p>
+                      <ul className="list-disc space-y-1 pl-4 text-xs leading-relaxed text-muted-foreground">
+                        <li>安装 agy 1.1.8 及以上，在终端运行 agy 并用 Google 账号登录。</li>
+                        <li>搜索消耗该账号的模型额度；摘要由模型根据 Google 搜索结果生成。</li>
+                        <li>写作模型接收实际搜索词和摘要。</li>
+                      </ul>
                       <Label>搜索模型（可选）</Label>
                       <Input
                         value={override?.antigravityModel ?? ""}
