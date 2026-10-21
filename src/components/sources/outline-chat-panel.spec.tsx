@@ -1430,14 +1430,16 @@ describe("OutlineChatPanel controls", () => {
     expect(useOutlineChatStore.getState().conversations[0].messages.at(-1)?.content).toContain("补全远洋投送")
   })
 
-  it("无效意图 JSON 显示协议错误且不提供保存入口", async () => {
+  it("无效意图 JSON 显示协议错误、保留正文且不提供保存入口", async () => {
     setOutlineConversations([conversation([
       { id: "u-invalid", role: "user", content: "完善章纲" },
       { id: "a-invalid", role: "assistant", content: '<!-- intent_clarity -->\n{"clarity":"clear"' },
     ])], "outline-active")
     const container = await renderOutlineChatPanel()
 
-    expect(container.textContent).toContain("意图分析格式无效，尚未开始生成")
+    // 协议坏了不再把整条回复藏起来：错误照报，但正文（剥掉坏 JSON）要留在气泡里。
+    expect(container.textContent).toContain("意图分析格式无效")
+    expect(container.textContent).not.toContain("尚未开始生成")
     expect(container.querySelector('[role="alert"]')).not.toBeNull()
     expect(Array.from(container.querySelectorAll("button")).some((button) => button.getAttribute("aria-label") === "保存为大纲")).toBe(false)
   })
