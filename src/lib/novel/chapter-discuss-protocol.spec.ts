@@ -167,7 +167,7 @@ describe("validateChapterDiscussProtocol", () => {
     expect(result.error).toContain("故事类型重复")
   })
 
-  it("rejects a direction whose summary is too short", () => {
+  it("只有几乎空着的介绍才算不合格（不再卡每项字数）", () => {
     const result = validateChapterDiscussProtocol(protocol({
       directions: [
         direction({ id: "d1", storyType: "复仇线", summary: "太短了" }),
@@ -177,7 +177,24 @@ describe("validateChapterDiscussProtocol", () => {
     }))
     expect(result.kind).toBe("invalid")
     if (result.kind !== "invalid") return
-    expect(result.error).toContain("过短")
+    expect(result.error).toContain("几乎是空的")
+  })
+
+  /*
+   * 用户 2026-10-21：「协议最好不要每一项都有字数限制，有些介绍字数没那么长」。
+   * 一句六七十字、但把走向讲完的介绍（比如「他连夜出城，半路被拦，靠旧身份骗过守军，
+   * 天亮前赶到码头」）必须放行 —— 原来的 180 字门槛会把它判成格式无效。
+   */
+  it("短而完整的介绍直接通过：六七十字讲清走向不再被判无效", () => {
+    // 三条都在 40-80 字之间：原来的 180 字门槛会把它们全部判成格式无效。
+    const result = validateChapterDiscussProtocol(protocol({
+      directions: [
+        direction({ id: "d1", storyType: "复仇线", summary: "他连夜出城，半路被巡夜的人拦下，靠旧身份骗过守军；天亮前赶到码头，船已经开走，只能改走旱路追。" }),
+        direction({ id: "d2", storyType: "悬念反转", summary: "留在城里的人开始互相猜疑，线索一点点指向副手；沈砚没有当场揭穿，先把人稳住再放长线。" }),
+        direction({ id: "d3", storyType: "情感升温", summary: "两人在码头重逢，谁也没先说明来意，只交换了一件旧物；那件东西让对方确认了彼此还站在同一边。" }),
+      ],
+    }))
+    expect(result.kind).toBe("needs_choice")
   })
 
   it("rejects a preference id that points at no direction", () => {

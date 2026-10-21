@@ -94,10 +94,10 @@ describe("repairChapterDiscussProtocolWithAi", () => {
 })
 
 // ---------------------------------------------------------------------------
-// 「一次重试 + 降级放行」：用户实测「介绍不足 180 字 → 整轮共创作废、前面问答全丢」
+// 「一次重试 + 降级放行」：用户实测「介绍被判过短 → 整轮共创作废、前面问答全丢」
 // ---------------------------------------------------------------------------
 
-/** 一份解析得通、但 d2 的介绍只有 10 个字（闸门会判 invalid）的协议。 */
+/** 一份解析得通、但 d2 的介绍几乎是空的（闸门会判 invalid）的协议。 */
 function thinReply(): string {
   return [
     CHAPTER_DISCUSS_MARKER_OPEN,
@@ -135,7 +135,7 @@ describe("resolveChapterDiscussProtocol", () => {
     expect([repairCalls, topUpCalls]).toEqual([0, 0])
   })
 
-  it("介绍过短时先补齐一轮：补齐成功就用补齐后的协议", async () => {
+  it("介绍几乎为空时先补齐一轮：补齐成功就用补齐后的协议", async () => {
     let topUpCalls = 0
     const gate = await resolveChapterDiscussProtocol({
       ...base,
@@ -143,7 +143,7 @@ describe("resolveChapterDiscussProtocol", () => {
       repair: async () => "",
       topUp: async ({ protocol, error }) => {
         topUpCalls += 1
-        expect(error).toContain("后续介绍过短")
+        expect(error).toContain("几乎是空的")
         expect(protocol?.directions[1].title).toBe("直接点出老礼官就是常不疑")
         return validReply()
       },
@@ -164,7 +164,7 @@ describe("resolveChapterDiscussProtocol", () => {
     expect(gate.protocol?.directions).toHaveLength(3)
     expect(gate.protocol?.directions[1].summary).toBe("短介绍")
     expect(gate.notice).toContain("已按现有内容展示")
-    expect(gate.notice).toContain("后续介绍过短")
+    expect(gate.notice).toContain("几乎是空的")
   })
 
   it("补齐调用自己抛错时同样降级放行（不把异常抛给调用方）", async () => {

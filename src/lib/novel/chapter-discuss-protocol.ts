@@ -22,9 +22,21 @@ export const CHAPTER_DISCUSS_MARKER_CLOSE = "<!-- /chapter_discuss -->"
 export const CHAPTER_DISCUSS_MIN_DIRECTIONS = 3
 /** 每批方向数量上限，避免一次铺满整屏。 */
 export const CHAPTER_DISCUSS_MAX_DIRECTIONS = 4
-/** 每个方向「后续故事介绍」的字数下限（提示词要求约 200-300 字大白话）。 */
-export const CHAPTER_DISCUSS_MIN_SUMMARY_CHARS = 180
-/** 补协议修复轮的输出上限：协议块里要放 3-4 个约 200-300 字的方向介绍。 */
+/**
+ * 每个方向「后续故事介绍」的**建议**长度，只用于提示词，不参与闸门。
+ * 200 字左右能把一章走向讲清楚；具体写多长交给模型判断。
+ */
+export const CHAPTER_DISCUSS_SUMMARY_TARGET_CHARS = 200
+/**
+ * 硬下限：只用来拦「基本是空的介绍」，不是"每项必须达到多少字"。
+ *
+ * 用户口径（2026-10-21）：「协议最好不要每一项都有字数限制，有些介绍字数没那么长」。
+ * 原来按 180 字一票否决，与提示词里「不要为了凑字数注水」自相矛盾：
+ * 一句「他决定连夜出城」本身就把走向讲完了，却被判成格式无效、整轮作废。
+ * 现在 40 字以下才视为没写（空白/占位/半句话），短而有内容的介绍一律放行。
+ */
+export const CHAPTER_DISCUSS_MIN_SUMMARY_CHARS = 40
+/** 补协议 / 补齐轮的输出上限：最多 3-4 个方向介绍（长短不定，按 200 字上下估）。 */
 export const CHAPTER_DISCUSS_REPAIR_MAX_TOKENS = 4_000
 
 const OPEN_PATTERN = /<!--\s*chapter_discuss\s*-->/i
@@ -42,7 +54,8 @@ export interface ChapterDiscussDirection {
   storyType: string
   title: string
   /**
-   * 约 200-300 字的后续故事介绍。
+   * 大白话的后续故事介绍：建议 200 字上下，但**没有硬性字数要求** ——
+   * 一句话就能讲清走向的，短一点也算合格（闸门只拦"几乎空着"的介绍）。
    *
    * 必须是**大白话**：只讲剧情怎么走，不写修辞、不写主题升华、不自造名词
    * （约束见 CHAPTER_DISCUSS_PLAIN_LANGUAGE_RULES）。
@@ -178,7 +191,7 @@ export function validateChapterDiscussProtocol(
   if (thin) {
     return {
       kind: "invalid",
-      error: `方向「${thin.title}」的后续介绍过短（不足 ${CHAPTER_DISCUSS_MIN_SUMMARY_CHARS} 字）`,
+      error: `方向「${thin.title}」的后续介绍几乎是空的（不足 ${CHAPTER_DISCUSS_MIN_SUMMARY_CHARS} 字）`,
     }
   }
 
@@ -223,13 +236,13 @@ export function buildChapterDiscussPhaseSystemRules(module: string): string {
     `本轮目标：${scope}。本轮只做方向推演，禁止输出章节正文，禁止调用 run_chapter_workflow，禁止输出可直接入库的正文草稿。`,
     "1. 先读取前文：用 read_chapter、read_outline、read_memory、list_chapters 等只读工具确认已有剧情、人物与伏笔。",
     "2. 依据已写内容与「起承转合」式的功能故事框架，判断后续应当如何发展，先用大白话写出关键判断（不要术语、不要自造名词）。",
-    `3. 给出 ${CHAPTER_DISCUSS_MIN_DIRECTIONS}-${CHAPTER_DISCUSS_MAX_DIRECTIONS} 个走向不同的方向。每个方向必须带一个**互不重复**的故事类型（如「复仇线」「悬念反转」「情感升温」「势力升级」），并附约 200-300 字的后续故事介绍。`,
+    `3. 给出 ${CHAPTER_DISCUSS_MIN_DIRECTIONS}-${CHAPTER_DISCUSS_MAX_DIRECTIONS} 个走向不同的方向。每个方向必须带一个**互不重复**的故事类型（如「复仇线」「悬念反转」「情感升温」「势力升级」），并附一段大白话的后续故事介绍（建议 ${CHAPTER_DISCUSS_SUMMARY_TARGET_CHARS} 字上下，讲清走向即可，短一点不影响可用性，绝不要为凑字数注水）。`,
     "4. 最后输出一个 chapter_discuss 协议块承载这些方向；正文里只留关键判断，不要把方向内容再抄一遍。",
     "5. 如果前文信息确实不足以推演，用 status=insufficient 并在 judgment 里说明缺少什么。",
     ...CHAPTER_DISCUSS_PLAIN_LANGUAGE_RULES,
     "## 输出格式（必须严格遵守）",
     CHAPTER_DISCUSS_MARKER_OPEN,
-    `{"status":"needs_choice|insufficient","module":"${scope}","judgment":"关键判断","directions":[{"id":"d1","storyType":"故事类型","title":"方向标题","summary":"约200-300字的大白话后续故事介绍"}],"preferenceId":"d1","preferenceReason":"推荐理由（可空）"}`,
+    `{"status":"needs_choice|insufficient","module":"${scope}","judgment":"关键判断","directions":[{"id":"d1","storyType":"故事类型","title":"方向标题","summary":"大白话后续故事介绍（讲清走向即可，长短随需要）"}],"preferenceId":"d1","preferenceReason":"推荐理由（可空）"}`,
     CHAPTER_DISCUSS_MARKER_CLOSE,
     "开闭标记必须成对出现，JSON 必须完整可解析。",
   ].join("\n")
@@ -258,7 +271,7 @@ export const CHAPTER_DISCUSS_TOPUP_MAX_TOKENS = CHAPTER_DISCUSS_REPAIR_MAX_TOKEN
  * 故事类型重复、方向数量不对、AI 推荐指向不存在方向）时，让模型只修这几处。
  *
  * 为什么必须单独一轮：这类失败是"内容不够"，不是"格式没给"。重新生成整批会把
- * 用户在上一轮已经看到的方向全部换掉，而用户真正需要的只是把那条短的介绍补到 180 字。
+ * 用户在上一轮已经看到的方向全部换掉，而用户真正需要的只是把那条几乎空着的介绍补上。
  * 所以这里要求 id / 标题 / 故事类型原样保留，只补不足。
  */
 export function buildChapterDiscussTopUpMessages(input: {
@@ -288,7 +301,7 @@ export function buildChapterDiscussTopUpMessages(input: {
       "请只修不合格的地方，凑齐要求后重新输出**完整**协议块。",
       "硬性要求：",
       "- 已经存在的方向 id、标题、故事类型原样保留，不要新增、删除或替换方向（除下面说的数量不足）。",
-      "- 介绍太短的方向：把它扩写到 200-300 字，只补剧情信息（谁做了什么、遇到什么、结果怎样、停在哪里），不要注水、不要修辞。",
+      "- 介绍几乎是空的方向（不足 40 字）：按它已经写好的标题补到能讲清走向即可，不要注水、不要修辞。",
       "- 缺故事类型或标题的方向：按它已经写出的事情补一个普通说法即可。",
       "- 故事类型重复：把后面那个换成它实际写的另一类走法。",
       "- 方向数量不足：按已写的判断补足到 3-4 个；数量超标：只保留最靠前的几个，其余合并进保留方向的介绍里。",
@@ -297,9 +310,9 @@ export function buildChapterDiscussTopUpMessages(input: {
       ...CHAPTER_DISCUSS_PLAIN_LANGUAGE_RULES,
       "协议格式（严格遵守）：",
       CHAPTER_DISCUSS_MARKER_OPEN,
-      `{"status":"needs_choice","module":"${scope}","judgment":"关键判断","directions":[{"id":"d1","storyType":"故事类型","title":"方向标题","summary":"约200-300字的大白话后续故事介绍"}],"preferenceId":"d1","preferenceReason":"推荐理由（可空）"}`,
+      `{"status":"needs_choice","module":"${scope}","judgment":"关键判断","directions":[{"id":"d1","storyType":"故事类型","title":"方向标题","summary":"大白话后续故事介绍（讲清走向即可，长短随需要）"}],"preferenceId":"d1","preferenceReason":"推荐理由（可空）"}`,
       CHAPTER_DISCUSS_MARKER_CLOSE,
-      `开闭标记必须成对出现，JSON 必须完整可解析；每个方向的介绍不少于 ${CHAPTER_DISCUSS_MIN_SUMMARY_CHARS} 字。`,
+      "开闭标记必须成对出现，JSON 必须完整可解析；介绍长短不设硬指标，写清走向即可。",
       "",
       input.protocol ? "## 待修的协议" : "## 上一轮回复（协议块缺失或无法解析，请据此重建）",
       payload || (input.content ?? ""),
@@ -324,9 +337,9 @@ export function buildChapterDiscussRepairMessages(input: {
       "- 方向介绍与标题一律用大白话重写：把原文里自造的术语、代号、编号和四字对仗标题改成人话（前文已有的专有名词可保留）。",
       "协议格式（严格遵守）：",
       CHAPTER_DISCUSS_MARKER_OPEN,
-      `{"status":"needs_choice|insufficient","module":"${input.module || "本章"}","judgment":"关键判断","directions":[{"id":"d1","storyType":"故事类型","title":"方向标题","summary":"约200-300字的大白话后续故事介绍"}],"preferenceId":"d1","preferenceReason":"推荐理由（可空）"}`,
+      `{"status":"needs_choice|insufficient","module":"${input.module || "本章"}","judgment":"关键判断","directions":[{"id":"d1","storyType":"故事类型","title":"方向标题","summary":"大白话后续故事介绍（讲清走向即可，长短随需要）"}],"preferenceId":"d1","preferenceReason":"推荐理由（可空）"}`,
       CHAPTER_DISCUSS_MARKER_CLOSE,
-      `开闭标记必须成对出现，JSON 必须完整可解析。needs_choice 时给出 ${CHAPTER_DISCUSS_MIN_DIRECTIONS}-${CHAPTER_DISCUSS_MAX_DIRECTIONS} 个方向，每个都要有互不重复的故事类型、标题与不少于 ${CHAPTER_DISCUSS_MIN_SUMMARY_CHARS} 字的介绍。`,
+      `开闭标记必须成对出现，JSON 必须完整可解析。needs_choice 时给出 ${CHAPTER_DISCUSS_MIN_DIRECTIONS}-${CHAPTER_DISCUSS_MAX_DIRECTIONS} 个方向，每个都要有互不重复的故事类型、标题与一段讲清走向的介绍（不设字数硬指标）。`,
       ...CHAPTER_DISCUSS_PLAIN_LANGUAGE_RULES,
       "",
       "## 需要补协议的回复",
@@ -378,7 +391,7 @@ export function buildChapterDiscussRegeneratePrompt(input: {
     `上一批方向我都不太满意，请为「${scope}」重新推演一批全新的方向。`,
     ...listed,
     "",
-    `请给出 ${CHAPTER_DISCUSS_MIN_DIRECTIONS}-${CHAPTER_DISCUSS_MAX_DIRECTIONS} 个与上一批**故事类型完全不同**、彼此也不重复的新方向，每个仍附约 200-300 字的大白话后续故事介绍，并按 chapter_discuss 协议输出。`,
+    `请给出 ${CHAPTER_DISCUSS_MIN_DIRECTIONS}-${CHAPTER_DISCUSS_MAX_DIRECTIONS} 个与上一批**故事类型完全不同**、彼此也不重复的新方向，每个附一段大白话后续故事介绍（讲清走向即可，长短随需要），并按 chapter_discuss 协议输出。`,
     "介绍和标题照旧用大白话写：只讲故事怎么发展，不要自造名词，也不要四字对仗的标题。",
   ].join("\n")
 }
@@ -394,7 +407,7 @@ export function buildChapterDiscussCustomPrompt(input: {
     input.idea.trim(),
     "",
     `请结合前文与这个想法，重新推演后续走向，并按 chapter_discuss 协议给出新的方向。`,
-    `要求：给出 ${CHAPTER_DISCUSS_MIN_DIRECTIONS}-${CHAPTER_DISCUSS_MAX_DIRECTIONS} 个方向，每个方向带互不重复的故事类型与约 200-300 字的大白话后续故事介绍；介绍和标题只讲故事怎么发展，不要自造名词，也不要四字对仗的标题；如果你的判断认为我的想法与前文设定冲突或信息不足，请在 judgment 里直接说明，不要为了迎合我而硬凑。`,
+    `要求：给出 ${CHAPTER_DISCUSS_MIN_DIRECTIONS}-${CHAPTER_DISCUSS_MAX_DIRECTIONS} 个方向，每个方向带互不重复的故事类型与一段大白话后续故事介绍（讲清走向即可，长短随需要）；介绍和标题只讲故事怎么发展，不要自造名词，也不要四字对仗的标题；如果你的判断认为我的想法与前文设定冲突或信息不足，请在 judgment 里直接说明，不要为了迎合我而硬凑。`,
   ].join("\n")
 }
 
