@@ -25,7 +25,7 @@ export interface IntentClarityResult {
   normalizationSource?: "canonical" | "legacy_status" | "legacy_unclosed" | "legacy_status_unclosed"
 }
 
-type IntentClarityParseOutcome =
+export type IntentClarityParseOutcome =
   | { kind: "none" }
   | { kind: "valid"; result: IntentClarityResult }
   | { kind: "invalid"; error: string }

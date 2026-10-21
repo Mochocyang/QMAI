@@ -357,13 +357,13 @@ import {
   type OutlineDiscussProtocol,
 } from "@/lib/novel/outline-discuss-protocol";
 import { resolveOutlineDiscussProtocol } from "@/lib/novel/outline-discuss-repair";
+import { resolveOutlinePlanProtocol } from "@/lib/novel/outline-plan-repair";
+import { resolveIntentClarityProtocol } from "@/lib/novel/outline-intent-repair";
 import {
   buildOutlinePlanClarifyAnswerPrompt,
   buildOutlinePlanElementCheckPrompt,
   buildOutlinePlanExecutionPrompt,
   buildOutlinePlanPhaseSystemRules,
-  parseOutlinePlanProtocol,
-  validateOutlinePlanProtocol,
   type OutlinePlanAnswer,
   type OutlinePlanPhase,
   type OutlinePlanProtocol,
@@ -1822,8 +1822,9 @@ function OutlineAssistantMessage({
     [answer, displayContent],
   );
   const intentProtocolError = !messageIsStreaming
-    ? msg.intentProtocolError ?? (intentProtocol.kind === "invalid"
-      ? `意图分析格式无效，尚未开始生成：${intentProtocol.error}`
+    ? msg.intentProtocolError ?? (intentProtocol.kind === "invalid" && !msg.intentClarityResult
+      // 补协议成功时消息上已有 intentClarityResult，这里不能再按"原始文本解析失败"补一条假错误。
+      ? `意图分析格式无效：${intentProtocol.error}。回复内容已保留。`
       : undefined)
     : undefined;
   const planProtocol = msg.outlinePlanProtocol ?? null;
@@ -1855,7 +1856,8 @@ function OutlineAssistantMessage({
     // 计划模式的协议块只用卡片渲染，气泡里不能漏出 JSON
     if (isPlanProtocolMessage || isDiscussProtocolMessage) return stripStructuredMarkers(rawContent);
     if (intentProtocol.kind === "valid") return stripStructuredMarkers(rawContent);
-    if (intentProtocol.kind === "invalid" || msg.intentProtocolError) return "";
+    // 协议坏了也要把正文给用户（剥掉标记即可）：清空气泡等于把这一轮回复藏起来。
+    if (intentProtocol.kind === "invalid" || msg.intentProtocolError) return stripStructuredMarkers(rawContent);
     const prepared = prepareOutlineSaveSourceContent(rawContent);
     /*
      * 只有结构化数据的回复（卷纲/章纲不再重复写 MD）不能让气泡空着，
@@ -1948,6 +1950,11 @@ function OutlineAssistantMessage({
       {intentProtocolError ? (
         <div role="alert" className="mb-2 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {intentProtocolError}
+        </div>
+      ) : null}
+      {msg.outlinePlanNotice && !messageIsStreaming ? (
+        <div className="mb-2 rounded border border-amber-500/40 bg-amber-50/70 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+          {msg.outlinePlanNotice}
         </div>
       ) : null}
       {msg.outlinePlanError && !messageIsStreaming ? (
@@ -4441,24 +4448,23 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           throw new Error(OUTLINE_REASONING_ONLY_ERROR_MESSAGE);
         }
         const rawFinalContent = filteredRawFinalContent.content || "AI大纲未返回内容。";
-        // 计划模式的要素盘点轮：先过协议闸门，未通过一律不放行到生成
-        const planProtocolOutcome = options.planPhase
-          ? parseOutlinePlanProtocol(rawFinalContent)
-          : { kind: "none" as const };
-        const planValidation = planProtocolOutcome.kind === "valid"
-          ? validateOutlinePlanProtocol(
-            planProtocolOutcome.protocol,
-            getOutlinePlanRequiredElements(planProtocolOutcome.protocol.module || planTargetModule),
-          )
+        /*
+         * 计划模式：与共创同一套容错 —— 协议不合格先补一轮，仍不行就降级成追问，
+         * 绝不把"已经写好的计划"整轮作废（用户口径 2026-10-21）。
+         */
+        const planGate = options.planPhase
+          ? await resolveOutlinePlanProtocol({
+            text: rawFinalContent,
+            module: planTargetModule,
+            required: getOutlinePlanRequiredElements(planTargetModule),
+            llmConfig: effectiveLlmConfig,
+            signal: controller.signal,
+          })
           : null;
-        const planProtocolError = options.planPhase
-          ? planProtocolOutcome.kind === "invalid"
-            ? `计划协议格式无效，尚未开始生成：${planProtocolOutcome.error}`
-            : planProtocolOutcome.kind === "none"
-              ? "计划协议格式无效，尚未开始生成：模型未返回 outline_plan 协议块"
-              : planValidation?.kind === "invalid"
-                ? `计划协议不满足计划模式要求，尚未开始生成：${planValidation.error}`
-                : undefined
+        const planValidation = planGate?.validation ?? null;
+        const planProtocolNotice = options.planPhase ? planGate?.notice || undefined : undefined;
+        const planProtocolError = options.planPhase && planValidation?.kind === "invalid"
+          ? `计划协议不满足计划模式要求：${planValidation.error}。回复内容已保留，可补一句更具体的需求后重发。`
           : undefined;
         // 共创讨论轮里模型有时会直接交付完整大纲而不是讨论协议。命中「已交付」时
         // 按生成轮处理：不要求 outline_discuss、正文照常显示、结构化数据进保存链路
@@ -4517,9 +4523,22 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           },
         );
         if (finalContent.trim()) bestGeneratedText = finalContent;
-        const intentProtocol = rawIntentProtocol.kind !== "none"
+        let intentProtocol = rawIntentProtocol.kind !== "none"
           ? rawIntentProtocol
           : parseIntentClarityProtocol(finalContent);
+        /*
+         * 意图分析：协议缺失或坏掉时先补一轮（转写已有判断）。补不出来就照旧报错，
+         * 但不会再清空气泡 —— 正文由 renderedMarkdownContent 剥掉标记后展示。
+         */
+        if (options.intentPhase === "intent_analysis" && intentProtocol.kind !== "valid") {
+          const intentGate = await resolveIntentClarityProtocol({
+            text: finalContent,
+            module: intentContextsRef.current[capturedConvId]?.title || "",
+            llmConfig: effectiveLlmConfig,
+            signal: controller.signal,
+          });
+          if (intentGate.outcome.kind === "valid") intentProtocol = intentGate.outcome;
+        }
         const intentProtocolError = options.intentPhase === "intent_analysis"
           ? intentProtocol.kind === "invalid"
             ? `意图分析格式无效，尚未开始生成：${intentProtocol.error}`
@@ -4562,6 +4581,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             ? planValidation.protocol
             : null,
           outlinePlanError: planProtocolError,
+          outlinePlanNotice: planProtocolNotice,
           // 降级放行的协议（校验没过但内容在）同样要出卡片，所以这里不再二次过闸。
           outlineDiscussProtocol: discussFinalProtocol,
           outlineDiscussError: discussProtocolError,
@@ -6423,9 +6443,19 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }),
         });
         if (!isCurrentRun()) return;
-        const regenerationIntentProtocol = rawRegenerationIntentProtocol.kind !== "none"
+        let regenerationIntentProtocol = rawRegenerationIntentProtocol.kind !== "none"
           ? rawRegenerationIntentProtocol
           : parseIntentClarityProtocol(finalContent);
+        // 与首轮一致：意图协议缺失/损坏时先补一轮再判错（正文不再被清空）。
+        if (regenerationIntentPhase === "intent_analysis" && regenerationIntentProtocol.kind !== "valid") {
+          const intentGate = await resolveIntentClarityProtocol({
+            text: finalContent,
+            module: "",
+            llmConfig: effectiveLlmConfig,
+            signal: controller.signal,
+          });
+          if (intentGate.outcome.kind === "valid") regenerationIntentProtocol = intentGate.outcome;
+        }
         const regenerationIntentProtocolError = regenerationIntentPhase === "generation"
           && regenerationIntentProtocol.kind !== "none"
           ? "正文生成阶段返回了 intent_clarity，已阻止重复意图分析和自动循环。"

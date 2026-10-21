@@ -12,8 +12,8 @@ describe("changelog", () => {
     const release436 = currentVersionChangelog("4.3.6")[0]
     expect(release436.version).toBe("4.3.6")
     expect(release436.date).toBe("2026-10-21")
-    expect(release436.highlights.zh).toHaveLength(11)
-    expect(release436.highlights.en).toHaveLength(11)
+    expect(release436.highlights.zh).toHaveLength(12)
+    expect(release436.highlights.en).toHaveLength(12)
     expect(release436.highlights.zh.join("\n")).toContain("新手引导")
     expect(release436.highlights.zh.join("\n")).toContain("添加提供方")
     // 10-21 追加的三项（模型设置教程链接 / 书架悬停 / 大纲 HTML 就地编辑）
@@ -27,6 +27,8 @@ describe("changelog", () => {
     // 10-21 追加：共创协议「一次补齐 + 降级放行」
     expect(release436.highlights.zh.join("\n")).toContain("共创协议不再因为一项不达标整轮作废")
     expect(release436.highlights.en.join("\n")).toContain("Co-creation rounds no longer get discarded")
+    // 10-21 追加：计划模式与意图分析接入同一套容错
+    expect(release436.highlights.zh.join("\n")).toContain("计划模式与意图分析也接入同样的容错")
     const release435 = currentVersionChangelog("4.3.5")[0]
     expect(release435.version).toBe("4.3.5")
     expect(release435.date).toBe("2026-10-21")
