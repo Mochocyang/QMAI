@@ -164,6 +164,13 @@ describe("getWorkflowToolDescription", () => {
     }))).toBe("联网搜索「黄蓉」（2 条来源）")
 
     expect(getWorkflowToolDescription(call({
+      id: "search-summary-only",
+      name: "web_search",
+      params: { query: "T-80BVM" },
+      result: JSON.stringify({ status: "ok", query: "T-80BVM", resultCount: 0, results: [], summary: "摘要", queries: ["T-80BVM"] }),
+    }))).toBe("联网搜索「T-80BVM」")
+
+    expect(getWorkflowToolDescription(call({
       id: "search-grouped",
       name: "web_search",
       params: { query: "鲁茨科伊、哈斯布拉托夫" },

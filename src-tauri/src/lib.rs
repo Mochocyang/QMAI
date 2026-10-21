@@ -226,6 +226,7 @@ pub fn run() {
             commands::antigravity_cli::antigravity_cli_detect,
             commands::antigravity_cli::antigravity_cli_spawn,
             commands::antigravity_cli::antigravity_cli_kill,
+            commands::antigravity_search::antigravity_cli_search,
             commands::claude_cli::claude_cli_detect,
             commands::claude_cli::claude_cli_spawn,
             commands::claude_cli::claude_cli_kill,

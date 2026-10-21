@@ -8,6 +8,7 @@ import type {
 import { getHttpFetch, isFetchNetworkError } from "@/lib/tauri-fetch"
 import { geminiSearchDetailed } from "@/lib/gemini-search"
 import { baizhiSearch } from "@/lib/baizhi-search"
+import { antigravitySearchDetailed } from "@/lib/antigravity-search"
 
 export interface WebSearchResult {
   title: string
@@ -149,6 +150,14 @@ export async function webSearchDetailed(
       searchSuggestionsHtml: outcome.searchSuggestionsHtml,
     }
   }
+  if (resolved.provider === "antigravity") {
+    // 反重力 CLI：不需要 Key，用本机 agy 登录态；只给搜索词 + 摘要（来源只存不显示）。
+    const outcome = await antigravitySearchDetailed(query, {
+      model: resolved.providerConfigs?.antigravity?.antigravityModel,
+      maxResults,
+    })
+    return { results: outcome.results, queries: outcome.queries, summary: outcome.summary }
+  }
   return { results: await providerSearch(query, config, maxResults) }
 }
 
@@ -181,6 +190,11 @@ async function providerSearch(
       return baizhiSearch(query, resolved.apiKey, maxResults)
     case "serpapi":
       return serpApiSearch(query, resolved.apiKey, maxResults, resolved.serpApiEngine ?? "google")
+    case "antigravity":
+      return (await antigravitySearchDetailed(query, {
+        model: resolved.providerConfigs?.antigravity?.antigravityModel,
+        maxResults,
+      })).results
     case "searxng":
       return searXngSearch(query, resolved.searXngUrl ?? "", maxResults, resolved.searXngCategories ?? ["general"])
     default:

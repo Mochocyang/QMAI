@@ -69,6 +69,12 @@ const SEARCH_PROVIDERS = [
     keyPlaceholder: "百智 API Key（只填 Key 本身，不要带 Bearer）",
     needsApiKey: true,
   },
+  {
+    id: "antigravity",
+    label: "反重力 CLI（Antigravity CLI）",
+    hint: "国际 · 借本机 Antigravity CLI（agy）内置的 Google 搜索。不需要 Key，但需本机安装并用 Google 账号登录 agy；每次搜索消耗账号额度；摘要由模型基于谷歌搜索生成，不是谷歌官方摘要",
+    needsApiKey: false,
+  },
 ] as const
 
 export function WebSearchSection() {
@@ -195,7 +201,7 @@ export function WebSearchSection() {
                         placeholder={provider.keyPlaceholder}
                       />
                     </div>
-                  ) : (
+                  ) : provider.id === "searxng" ? (
                     <div className="space-y-2">
                       <Label>{t("settings.sections.webSearch.instanceUrl")}</Label>
                       <Input
@@ -206,6 +212,21 @@ export function WebSearchSection() {
                       <p className="text-xs text-muted-foreground">
                         {t("settings.sections.webSearch.searxngJsonHint")}
                       </p>
+                    </div>
+                  ) : null}
+
+                  {provider.id === "antigravity" && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        需要本机已安装 Antigravity CLI（agy 1.1.8 及以上），并在终端运行一次 agy 用 Google 账号登录。每次搜索会单独启动一个 agy 进程，消耗该账号的模型额度；给写作模型的只有实际搜索词和摘要，摘要由模型基于谷歌搜索结果生成。
+                      </p>
+                      <Label>搜索模型（可选）</Label>
+                      <Input
+                        value={override?.antigravityModel ?? ""}
+                        onChange={(e) => updateProvider("antigravity", { antigravityModel: e.target.value })}
+                        placeholder="留空使用 agy 默认模型"
+                      />
+                      <p className="text-xs text-muted-foreground">只用于联网搜索，不影响写作所用的模型。</p>
                     </div>
                   )}
 
