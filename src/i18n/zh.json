@@ -436,6 +436,7 @@
     "modelSettingsDescription": "配置写小说各环节使用的模型：默认模型、大语言模型、重排模型、向量检索模型。",
     "categories": {
       "model": "模型设置",
+      "onboarding": "新手引导",
       "defaultModel": "默认模型",
       "llm": "大语言模型",
       "rerank": "重排模型",
@@ -840,6 +841,20 @@
       "novel": {
         "title": "写作设置",
         "description": "项目级写作模式和修改反馈窗口设置。",
+        "groups": {
+          "context": "写作上下文",
+          "generation": "章节生成",
+          "hints": "界面提示",
+          "community": "社区摘要",
+          "performance": "性能与并发",
+          "guide": "新手引导"
+        },
+        "guide": {
+          "title": "新手引导",
+          "hint": "点「播放」从头看一遍引导，会一步步告诉你每一项在哪里、怎么设置。",
+          "play": "播放新手引导",
+          "playLabel": "播放"
+        },
         "feedbackWindow": {
           "title": "修改反馈窗口",
           "lookbackChapterCount": "回溯章节数量",

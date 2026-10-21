@@ -121,6 +121,13 @@ describe("测试版设置布局与正式版隔离", () => {
     await render(<SettingsView />)
     expect(container.querySelector('[data-ui-page="settings"]')).not.toBeNull()
     expect(container.querySelectorAll('aside')).toHaveLength(1)
+    /*
+     * 11 → 10：独立的「新手引导」分类已按用户要求撤掉。
+     * 它现在只是「写作设置」里的一个开关（打开后旁边出现「播放」），
+     * 按阶段重播的列表也不再有 —— 需要整段重看就点播放。
+     * 其余被隐藏的分类（维护 / 导出 / 使用说明 / 分类规则）仍保持隐藏，
+     * 下面几条反向断言不变。
+     */
     expect(container.querySelectorAll('[data-ui="settings-navigation"] button')).toHaveLength(10)
     /*
      * 「维护工具」已按用户要求从设置搬到顶栏「创作工具」（见 ui-test-shell

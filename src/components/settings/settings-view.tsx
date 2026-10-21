@@ -69,7 +69,12 @@ interface Category {
 
 const CATEGORIES: Category[] = [
   { id: "model", labelKey: "settings.categories.model", icon: Brain },
-  { id: "novel", labelKey: "settings.categories.novel", hintKey: "settings.categories.novelHint", icon: BookOpen },
+  /*
+   * 「新手引导」不再单独占一个分类：它现在只是写作设置里的一个开关
+   * （打开后旁边出现「播放」）。按阶段重播的入口已按用户要求去掉 ——
+   * 需要整段重看时，点播放即可。
+   */
+  { id: "novel", labelKey: "settings.categories.novel", icon: BookOpen },
   { id: "network", labelKey: "settings.categories.network", icon: Network },
   { id: "web-search", labelKey: "settings.categories.webSearch", icon: Search },
   { id: "interface", labelKey: "settings.categories.interface", icon: Palette },
@@ -125,6 +130,7 @@ function UiTestModelSettingsSection({ draft, setDraft }: { draft: SettingsDraft;
             type="button"
             role="tab"
             data-ui-model-tab={tab.id}
+            data-guide={`settings.model-tab.${tab.id}`}
             aria-selected={active === tab.id}
             aria-controls={`${id}-${tab.id}-panel`}
             tabIndex={active === tab.id ? 0 : -1}
