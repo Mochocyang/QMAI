@@ -258,6 +258,21 @@
   color: var(--ui-accent);
 }
 
+/* 页签行 + 右侧「模型设置教程」入口：窄屏时链接换到下一行，不挤压页签。 */
+.ui-test-root [data-ui="settings-model"] > .ui-test-model-tabbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 0 0 22px;
+}
+
+/* 行间距交给 .ui-test-model-tabbar，页签自身不再留底边距 */
+.ui-test-root [data-ui="settings-model"] .ui-test-tool-tabs {
+  margin-bottom: 0;
+}
+
 .ui-test-root [data-ui="settings-footer"] {
   border: 0;
   background: var(--ui-paper);
@@ -1150,7 +1165,7 @@
 
 .ui-test-root [data-ui="skills-tabs"] > .flex > button,
 .ui-test-root [data-ui="skills-tabs"] [data-testid="skill-library-header-actions"] > button,
-.ui-test-root [data-ui="settings-model"] > .ui-test-tool-tabs > button {
+.ui-test-root [data-ui="settings-model"] .ui-test-tool-tabs > button {
   min-height: var(--ui-heading-line);
   padding-block: 4px;
   line-height: 1.25rem;

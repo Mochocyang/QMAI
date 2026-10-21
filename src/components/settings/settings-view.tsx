@@ -41,6 +41,7 @@ import { ContactSupportSection } from "./sections/contact-support-section"
 import { DataManagementSection } from "./sections/data-management-section"
 import { ExportCenterSection } from "./sections/export-center-section"
 import { UserMemorySection } from "./sections/user-memory-section"
+import { ModelTutorialLink } from "./model-tutorial-link"
 
 type CategoryId =
   | "model"
@@ -105,7 +106,7 @@ const UI_TEST_MODEL_TABS: Array<{ id: ModelSettingsTabId; label: string }> = [
 ]
 
 /** 测试版子页按需挂载并保留草稿；业务调用仍复用原配置接口。 */
-function UiTestModelSettingsSection({ draft, setDraft }: { draft: SettingsDraft; setDraft: DraftSetter }) {
+export function UiTestModelSettingsSection({ draft, setDraft }: { draft: SettingsDraft; setDraft: DraftSetter }) {
   const requestedTab = useWikiStore((s) => s.activeModelSettingsTab)
   const setRequestedTab = useWikiStore((s) => s.setActiveModelSettingsTab)
   const [active, setActive] = useState<ModelSettingsTabId>(() => requestedTab ?? "llm")
@@ -126,35 +127,39 @@ function UiTestModelSettingsSection({ draft, setDraft }: { draft: SettingsDraft;
   return (
     <div data-ui="settings-model">
       <h1 className="ui-test-page-title hidden">{UI_TEST_MODEL_TABS.find((tab) => tab.id === active)?.label}</h1>
-      <div role="tablist" aria-label="模型设置" className="ui-test-tool-tabs">
-        {UI_TEST_MODEL_TABS.map((tab, index) => (
-          <button
-            key={tab.id}
-            id={`${id}-${tab.id}`}
-            type="button"
-            role="tab"
-            data-ui-model-tab={tab.id}
-            data-guide={`settings.model-tab.${tab.id}`}
-            aria-selected={active === tab.id}
-            aria-controls={`${id}-${tab.id}-panel`}
-            tabIndex={active === tab.id ? 0 : -1}
-            onClick={() => activate(tab.id)}
-            onKeyDown={(event) => {
-              const nextIndex = event.key === "Home" ? 0
-                : event.key === "End" ? UI_TEST_MODEL_TABS.length - 1
-                : event.key === "ArrowRight" ? (index + 1) % UI_TEST_MODEL_TABS.length
-                : event.key === "ArrowLeft" ? (index + UI_TEST_MODEL_TABS.length - 1) % UI_TEST_MODEL_TABS.length
-                : null
-              if (nextIndex === null) return
-              event.preventDefault()
-              const next = UI_TEST_MODEL_TABS[nextIndex]
-              activate(next.id)
-              document.getElementById(`${id}-${next.id}`)?.focus()
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="ui-test-model-tabbar">
+        <div role="tablist" aria-label="模型设置" className="ui-test-tool-tabs">
+          {UI_TEST_MODEL_TABS.map((tab, index) => (
+            <button
+              key={tab.id}
+              id={`${id}-${tab.id}`}
+              type="button"
+              role="tab"
+              data-ui-model-tab={tab.id}
+              data-guide={`settings.model-tab.${tab.id}`}
+              aria-selected={active === tab.id}
+              aria-controls={`${id}-${tab.id}-panel`}
+              tabIndex={active === tab.id ? 0 : -1}
+              onClick={() => activate(tab.id)}
+              onKeyDown={(event) => {
+                const nextIndex = event.key === "Home" ? 0
+                  : event.key === "End" ? UI_TEST_MODEL_TABS.length - 1
+                  : event.key === "ArrowRight" ? (index + 1) % UI_TEST_MODEL_TABS.length
+                  : event.key === "ArrowLeft" ? (index + UI_TEST_MODEL_TABS.length - 1) % UI_TEST_MODEL_TABS.length
+                  : null
+                if (nextIndex === null) return
+                event.preventDefault()
+                const next = UI_TEST_MODEL_TABS[nextIndex]
+                activate(next.id)
+                document.getElementById(`${id}-${next.id}`)?.focus()
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        {/* 三个要自己填密钥/地址的页签才挂教程；「默认模型」不涉及，不摆链接。 */}
+        {active !== "default" && <ModelTutorialLink />}
       </div>
       {UI_TEST_MODEL_TABS.map((tab) => (
         <div key={tab.id} id={`${id}-${tab.id}-panel`} role="tabpanel" aria-labelledby={`${id}-${tab.id}`} hidden={active !== tab.id} data-ui="settings-model-panel" data-ui-model={tab.id}>

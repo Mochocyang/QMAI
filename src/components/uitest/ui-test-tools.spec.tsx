@@ -117,18 +117,18 @@ async function click(selector: string) {
 }
 
 describe("测试版设置布局与正式版隔离", () => {
-  it("只保留十个设置分类，不显示路径、导出、使用说明和意图路由", async () => {
+  it("只保留十一个设置分类，不显示路径、导出、使用说明和意图路由", async () => {
     await render(<SettingsView />)
     expect(container.querySelector('[data-ui-page="settings"]')).not.toBeNull()
     expect(container.querySelectorAll('aside')).toHaveLength(1)
     /*
-     * 11 → 10：独立的「新手引导」分类已按用户要求撤掉。
-     * 它现在只是「写作设置」里的一个开关（打开后旁边出现「播放」），
-     * 按阶段重播的列表也不再有 —— 需要整段重看就点播放。
-     * 其余被隐藏的分类（维护 / 导出 / 使用说明 / 分类规则）仍保持隐藏，
+     * 10 → 11：远端「把写作能力开放给本机 Agent」新增了应用级分类
+     * 「外部 Agent（MCP）」（settings-view 的 CATEGORIES 里的 mcp）。
+     * 独立「新手引导」分类早已按用户要求撤掉，仍只是写作设置里的一个开关。
+     * 其余被隐藏的分类（维护 / 导出 / 使用说明 / 分类规则）保持隐藏，
      * 下面几条反向断言不变。
      */
-    expect(container.querySelectorAll('[data-ui="settings-navigation"] button')).toHaveLength(10)
+    expect(container.querySelectorAll('[data-ui="settings-navigation"] button')).toHaveLength(11)
     /*
      * 「维护工具」已按用户要求从设置搬到顶栏「创作工具」（见 ui-test-shell
      * 的 TOOL_GROUPS 与 layout/content-area 的 maintenance 视图）。
@@ -153,7 +153,7 @@ describe("测试版设置布局与正式版隔离", () => {
     await render(<SettingsView />)
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="设置分类"]')
     expect(select).not.toBeNull()
-    expect(select?.options).toHaveLength(10)
+    expect(select?.options).toHaveLength(11)
     await act(async () => {
       select!.value = "interface"
       select!.dispatchEvent(new Event("change", { bubbles: true }))

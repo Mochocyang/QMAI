@@ -434,6 +434,8 @@
     "language": "语言",
     "languageHint": "界面语言（Wiki 内容语言以原始资料为准）",
     "modelSettingsDescription": "配置写小说各环节使用的模型：默认模型、大语言模型、重排模型、向量检索模型。",
+    "modelTutorialLink": "模型设置教程",
+    "modelTutorialLinkHint": "模型设置教程：怎么申请密钥、填接口地址、配向量与重排模型",
     "categories": {
       "model": "模型设置",
       "onboarding": "新手引导",
