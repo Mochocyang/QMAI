@@ -124,14 +124,13 @@ export function UiTestRerankModels() {
     await persistModelChange(() => saveRerankConfig(snapshot, target?.id, target?.path), () => saveRerankConfig(saved, target?.id, target?.path))
     if ((useWikiStore.getState().project?.id ?? "global") === (target?.id ?? "global")) useWikiStore.getState().setRerankConfig(snapshot)
   }
-  const saveConfig = () => save(validateRerankDraft(draft, llm.model), persist)
+  const saveConfig = () => save(validateRerankDraft(draft), persist)
   useModelDraftGuard("rerank-model", "重排模型配置", dirty, saving, saveConfig, reset)
-  useEffect(() => { request.current++; setOptions([]); setAction(null) }, [draft.provider, draft.apiKey, draft.customEndpoint, draft.ollamaUrl, draft.apiMode, draft.useMainLlm])
-  useEffect(() => { if (draft.useMainLlm) { request.current++; setAction(null) } }, [llm])
+  useEffect(() => { request.current++; setOptions([]); setAction(null) }, [draft.provider, draft.apiKey, draft.customEndpoint, draft.ollamaUrl, draft.apiMode])
   useEffect(() => { request.current++; setAction(null) }, [draft])
   const change = (patch: Partial<RerankConfig>) => { update(patch); request.current++; setAction(null) }
   async function network(kind: "fetch" | "test") {
-    const error = kind === "test" ? validateRerankDraft({ ...draft, enabled: true }, llm.model) : draft.provider === "custom" && !draft.useMainLlm ? validateModelEndpoint(draft.customEndpoint) : null
+    const error = kind === "test" ? validateRerankDraft({ ...draft, enabled: true }) : draft.provider === "custom" ? validateModelEndpoint(draft.customEndpoint) : null
     if (error) { setAction({ error: true, text: error }); return }
     const id = ++request.current, generation = revision.current, config = { ...draft, enabled: true }
     const current = () => alive.current && request.current === id && revision.current === generation
@@ -150,27 +149,30 @@ export function UiTestRerankModels() {
       <button type="button" className="model-switch" role="switch" aria-label="启用检索重排" aria-checked={draft.enabled} disabled={saving} onClick={() => void save(null, persist, { enabled: !draft.enabled })}><span /></button>
     </header>
     <fieldset className="model-form" disabled={saving}>
-      <div className="model-source-row">
-        <div><h3>复用主模型</h3><p className="model-note">关闭后可单独配置重排模型，不改变聊天框的模型选择。</p></div>
-        <button type="button" className="model-switch" role="switch" aria-label="复用主模型" aria-checked={draft.useMainLlm} onClick={() => void save(null, persist, { useMainLlm: !draft.useMainLlm })}><span /></button>
+      {/* 4.3.6 起取消「复用主模型」：重排必须配专用重排模型（见 RerankConfig 注释）。 */}
+      <div className="model-fields">
+        <label className="model-field"><span>提供方</span><select aria-label="重排提供方" value={draft.provider} onChange={event => change({ provider: event.target.value as LlmConfig["provider"] })}>{!PROVIDERS.some(item => item.value === draft.provider) && <option value={draft.provider}>{draft.provider}（原配置）</option>}{PROVIDERS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+        {draft.provider === "custom" && <ApiMode value={draft.apiMode} onChange={apiMode => change({ apiMode })} />}
+        {showEndpoint && <label className="model-field"><span>接口地址</span><input aria-label="重排接口地址" value={draft.provider === "ollama" ? draft.ollamaUrl : draft.customEndpoint} onChange={event => change(draft.provider === "ollama" ? { ollamaUrl: event.target.value } : { customEndpoint: event.target.value })} placeholder="https://api.example.com/v1/rerank" /></label>}
+        {showKey && <div className="model-field"><span>API 密钥</span><ModelSecretInput value={draft.apiKey} label="重排 API 密钥" onChange={apiKey => change({ apiKey })} /></div>}
+        <label className="model-field"><span>模型 ID</span><ModelSelectInput value={draft.model} options={options} onChange={model => change({ model })} inputPlaceholder="输入重排模型 ID" selectPlaceholder="选择已拉取的重排模型" /></label>
+        {candidatesField}
       </div>
-      {draft.useMainLlm ? <><p className="model-section-note">当前主模型：{llm.model || "尚未配置"}。只用于重排，不改变聊天模型选择。</p><div className="model-fields">{candidatesField}</div></> : <>
-        <div className="model-fields">
-          <label className="model-field"><span>提供方</span><select aria-label="重排提供方" value={draft.provider} onChange={event => change({ provider: event.target.value as LlmConfig["provider"] })}>{!PROVIDERS.some(item => item.value === draft.provider) && <option value={draft.provider}>{draft.provider}（原配置）</option>}{PROVIDERS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-          {draft.provider === "custom" && <ApiMode value={draft.apiMode} onChange={apiMode => change({ apiMode })} />}
-          {showEndpoint && <label className="model-field"><span>接口地址</span><input aria-label="重排接口地址" value={draft.provider === "ollama" ? draft.ollamaUrl : draft.customEndpoint} onChange={event => change(draft.provider === "ollama" ? { ollamaUrl: event.target.value } : { customEndpoint: event.target.value })} placeholder="https://api.example.com/v1/rerank" /></label>}
-          {showKey && <div className="model-field"><span>API 密钥</span><ModelSecretInput value={draft.apiKey} label="重排 API 密钥" onChange={apiKey => change({ apiKey })} /></div>}
-          <label className="model-field"><span>模型 ID</span><ModelSelectInput value={draft.model} options={options} onChange={model => change({ model })} inputPlaceholder="输入重排模型 ID" selectPlaceholder="选择已拉取的重排模型" /></label>
-          {candidatesField}
-        </div>
-        {["claude-code", "codex-cli", "cursor-cli", "antigravity-cli"].includes(draft.provider) && <p className="model-note">本地 CLI 需先在“大语言模型”的提供方模型中完成检测与登录；此处不会自动安装或登录。</p>}
-      </>}
+      {["claude-code", "codex-cli", "cursor-cli", "antigravity-cli"].includes(draft.provider) && <p className="model-note">本地 CLI 需先在“大语言模型”的提供方模型中完成检测与登录；此处不会自动安装或登录。</p>}
       <p className="model-section-note">TOPN 不是 TOPK：这里只控制送入重排的候选数量（3–30），不是最终返回数量。重排不可用时沿用原有检索降级。</p>
       <div className="model-actions">
-        {!draft.useMainLlm && <button type="button" className="model-button" disabled={action?.running} onClick={() => void network("fetch")}><RefreshCw />拉取模型</button>}
+        <button type="button" className="model-button" disabled={action?.running} onClick={() => void network("fetch")}><RefreshCw />拉取模型</button>
         <button type="button" className="model-button ghost" disabled={action?.running} onClick={() => void network("test")}>测试重排模型</button>
       </div>
       {action && <p role="status" className={action.error ? "model-feedback error" : "model-feedback"}>{action.text}</p>}
+      {/*
+        总开关是「立即保存」的，不经过本页校验，所以可能出现「已启用但没填模型」。
+        取消「复用主模型」之后这种情况不会再自动借用主模型，必须在页面上说清楚：
+        否则用户会以为重排在跑，实际 resolveRerankModel 返回 null、检索按原顺序降级。
+      */}
+      {draft.enabled && !draft.model.trim() && !["claude-code", "codex-cli", "cursor-cli", "antigravity-cli"].includes(draft.provider) && (
+        <p className="model-feedback error" role="status">还没有填写重排模型，重排不会生效（检索按原顺序返回）。</p>
+      )}
     </fieldset>
     <SaveFooter dirty={dirty} saving={saving} status={status} onReset={reset} onSave={() => void saveConfig()} />
   </section>

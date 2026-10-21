@@ -1114,9 +1114,19 @@ function normalizeRerankConfig(
   config?: Partial<RerankConfig> | null,
 ): RerankConfig | null {
   if (!config) return null
+  /*
+   * 4.3.6 起没有「复用主模型」了：老配置里的 `useMainLlm` 直接丢弃。
+   * 那些靠主模型重排的用户，磁盘上没有自己的重排模型 —— 如果仍把 enabled 读成 true，
+   * 设置页会显示「已启用」但 resolveRerankModel 恒返回 null，检索静默不重排（假绿）。
+   * 所以老配置一律关掉总开关，让用户自己决定要不要配一个真重排模型再打开；
+   * 已经填了独立模型的（换过配置又切回主模型那种）保持原样，它现在会直接用那个模型。
+   */
+  const legacyReuseMainModel = (config as { useMainLlm?: unknown }).useMainLlm === true
+  const enabled = legacyReuseMainModel && !(config.model ?? "").trim()
+    ? false
+    : config.enabled ?? DEFAULT_RERANK_CONFIG.enabled
   return {
-    enabled: config.enabled ?? DEFAULT_RERANK_CONFIG.enabled,
-    useMainLlm: config.useMainLlm ?? DEFAULT_RERANK_CONFIG.useMainLlm,
+    enabled,
     provider: config.provider ?? DEFAULT_RERANK_CONFIG.provider,
     apiKey: config.apiKey ?? DEFAULT_RERANK_CONFIG.apiKey,
     model: config.model ?? DEFAULT_RERANK_CONFIG.model,

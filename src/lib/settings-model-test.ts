@@ -19,7 +19,6 @@ interface EmbeddingModelTestResult {
 interface RerankModelTestResult {
   model: string
   content: string
-  usedMainLlm: boolean
 }
 
 function ensureModel(model: string, emptyMessage: string): string {
@@ -154,20 +153,7 @@ function isRerankModelName(model: string): boolean {
 function resolveRerankTestConfig(llmConfig: LlmConfig, rerankConfig: RerankConfig): {
   config: LlmConfig
   model: string
-  usedMainLlm: boolean
 } {
-  if (rerankConfig.useMainLlm) {
-    const model = ensureModel(
-      llmConfig.model,
-      "已开启「复用主模型」，但主模型没有配置：请先到「大语言模型」页配置并保存主模型，或关闭「复用主模型」单独填写重排模型。",
-    )
-    return {
-      config: { ...llmConfig, reasoning: { mode: "off" } },
-      model,
-      usedMainLlm: true,
-    }
-  }
-
   const model = ensureModel(rerankConfig.model, "请先填写重排模型名称后再测试。")
   if (/embedding/i.test(model)) {
     throw new Error("当前填写的更像是嵌入模型。重排模型需要可生成 JSON 的聊天模型，不能使用嵌入模型。")
@@ -194,7 +180,6 @@ function resolveRerankTestConfig(llmConfig: LlmConfig, rerankConfig: RerankConfi
       reasoning: { mode: "off" },
     },
     model,
-    usedMainLlm: false,
   }
 }
 
@@ -270,7 +255,7 @@ export async function testSettingsRerankModel(
   llmConfig: LlmConfig,
   rerankConfig: RerankConfig,
 ): Promise<RerankModelTestResult> {
-  const { config, model, usedMainLlm } = resolveRerankTestConfig(llmConfig, rerankConfig)
+  const { config, model } = resolveRerankTestConfig(llmConfig, rerankConfig)
   if (isDirectRerankEndpoint(config)) {
     const directResults = await requestDirectRerank(
       config,
@@ -287,7 +272,6 @@ export async function testSettingsRerankModel(
     return {
       model,
       content: JSON.stringify(directResults),
-      usedMainLlm,
     }
   }
 
@@ -315,6 +299,5 @@ export async function testSettingsRerankModel(
   return {
     model,
     content: result.content,
-    usedMainLlm,
   }
 }

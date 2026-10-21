@@ -23,7 +23,7 @@ const provider = { enabled: true, label: "测试配置", apiKey: "saved-key", ba
 let host: HTMLDivElement, unmount: (() => Promise<void>) | undefined
 beforeEach(() => {
   vi.resetAllMocks(); vi.spyOn(window, "confirm").mockReturnValue(false)
-  useWikiStore.setState({ ...initial, project: null, activePresetId: null, providerConfigs: { openai: provider, "custom-test": provider }, embeddingConfig: { ...initial.embeddingConfig, enabled: true, endpoint: "https://saved.invalid/v1", model: "embed", apiKey: "saved-key" }, rerankConfig: { ...initial.rerankConfig, enabled: true, useMainLlm: false, customEndpoint: "https://saved.invalid/v1", apiKey: "saved-key", model: "rank" } })
+  useWikiStore.setState({ ...initial, project: null, activePresetId: null, providerConfigs: { openai: provider, "custom-test": provider }, embeddingConfig: { ...initial.embeddingConfig, enabled: true, endpoint: "https://saved.invalid/v1", model: "embed", apiKey: "saved-key" }, rerankConfig: { ...initial.rerankConfig, enabled: true, customEndpoint: "https://saved.invalid/v1", apiKey: "saved-key", model: "rank" } })
 })
 afterEach(async () => { if (unmount) await unmount(); unmount = undefined; vi.restoreAllMocks() })
 async function render(node: Parameters<typeof mountModel>[0]) { ({ host, unmount } = await mountModel(node)) }
@@ -60,12 +60,18 @@ it.each([false, true])("检索开关只持久化开关，重排=%s", async reran
   expect(rerank ? useWikiStore.getState().rerankConfig : useWikiStore.getState().embeddingConfig).toEqual({ ...saved, enabled: false })
   expect(rerank ? saveRerankConfig : saveEmbeddingConfig).toHaveBeenCalled()
 })
-it("复用主模型开关立即持久化但不保存TOPN草稿", async () => {
-  await render(<UiTestRerankModels />); await changeInput(host, "候选 TOPN", "25")
-  const saved = useWikiStore.getState().rerankConfig
-  await click(host, "复用主模型")
-  expect(useWikiStore.getState().rerankConfig).toEqual({ ...saved, useMainLlm: true })
-  expect(host.querySelector<HTMLInputElement>('[aria-label="候选 TOPN"]')!.value).toBe("25")
+it("启用重排但没填模型时，页面明确提示重排不会生效", async () => {
+  useWikiStore.setState({ rerankConfig: { ...useWikiStore.getState().rerankConfig, enabled: true, model: "" } })
+  await render(<UiTestRerankModels />)
+  expect(host.textContent).toContain("重排不会生效")
+})
+it("重排页不再有「复用主模型」开关，重排模型字段始终可见", async () => {
+  await render(<UiTestRerankModels />)
+  expect(host.querySelector('[aria-label="复用主模型"]')).toBeNull()
+  expect(host.querySelector('input[placeholder="输入重排模型 ID"]')).not.toBeNull()
+  // 「拉取模型」以前只在关闭复用主模型时出现，现在始终可用
+  expect(button(host, "拉取模型")).not.toBeNull()
+  expect(host.textContent).not.toContain("复用主模型")
 })
 it("内置提供方开关立即持久化，已保存配置可删除且目录可重新添加", async () => {
   await render(<LlmProviderSection />)

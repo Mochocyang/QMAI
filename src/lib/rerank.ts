@@ -39,9 +39,7 @@ function resolveRerankModel(
   rerankConfig: RerankConfig,
 ): LlmConfig | null {
   if (!rerankConfig.enabled) return null
-  if (rerankConfig.useMainLlm) {
-    return { ...baseConfig, reasoning: { mode: "off" } }
-  }
+  // 只认专用重排模型：4.3.6 起不再支持「复用主模型」（见 RerankConfig 注释）。
   if (!rerankConfig.model.trim()) return null
   return {
     provider: rerankConfig.provider,

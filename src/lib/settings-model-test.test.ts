@@ -45,7 +45,6 @@ const baseEmbeddingConfig: EmbeddingConfig = {
 
 const baseRerankConfig: RerankConfig = {
   enabled: true,
-  useMainLlm: false,
   provider: "custom",
   apiKey: "rerank-key",
   model: "rerank-model",
@@ -96,25 +95,16 @@ describe("settings model test helpers", () => {
     const result = await testSettingsRerankModel(baseLlmConfig, baseRerankConfig)
 
     expect(result.model).toBe("rerank-model")
-    expect(result.usedMainLlm).toBe(false)
     expect(vi.mocked(streamChat).mock.calls[0]?.[0].model).toBe("rerank-model")
   })
 
-  it("reuses the main model when rerank is configured to use it", async () => {
-    vi.mocked(streamChat).mockImplementation(async (_config, _messages, callbacks) => {
-      callbacks.onToken('{"order":[{"id":"a","score":1},{"id":"b","score":0.2}]}')
-      callbacks.onDone()
-    })
-
-    const result = await testSettingsRerankModel(baseLlmConfig, {
+  it("没配重排模型时不会退回去用主模型，而是直接要求先填模型", async () => {
+    await expect(testSettingsRerankModel(baseLlmConfig, {
       ...baseRerankConfig,
-      useMainLlm: true,
       model: "",
-    })
+    })).rejects.toThrow("请先填写重排模型名称")
 
-    expect(result.model).toBe("main-model")
-    expect(result.usedMainLlm).toBe(true)
-    expect(vi.mocked(streamChat).mock.calls[0]?.[0].model).toBe("main-model")
+    expect(vi.mocked(streamChat)).not.toHaveBeenCalled()
   })
 
   it("rejects embedding models for rerank tests before sending the request", async () => {
@@ -144,16 +134,6 @@ describe("settings model test helpers", () => {
       ...baseRerankConfig,
       model: "Pro/BAAI/bge-reranker-v2-m3",
     })).rejects.toThrow("/rerank")
-
-    expect(vi.mocked(streamChat)).not.toHaveBeenCalled()
-  })
-
-  it("explains the reuse-main-model toggle when the main model is missing", async () => {
-    await expect(testSettingsRerankModel({ ...baseLlmConfig, model: "" }, {
-      ...baseRerankConfig,
-      useMainLlm: true,
-      model: "",
-    })).rejects.toThrow("复用主模型")
 
     expect(vi.mocked(streamChat)).not.toHaveBeenCalled()
   })

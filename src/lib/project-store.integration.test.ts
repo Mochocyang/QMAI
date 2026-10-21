@@ -283,7 +283,6 @@ function makeSourceWatchConfig(overrides: Partial<SourceWatchConfig> = {}): Sour
 function makeRerankConfig(overrides: Partial<RerankConfig> = {}): RerankConfig {
   return {
     enabled: true,
-    useMainLlm: false,
     provider: "custom",
     apiKey: "rerank-key",
     model: "rerank-model",
@@ -594,7 +593,7 @@ describe("sourceWatchConfig — project-directory persistence", () => {
 })
 describe("rerankConfig persistence", () => {
   it("round-trip save then load returns identical config", async () => {
-    const config = makeRerankConfig({ maxCandidates: 9, useMainLlm: true })
+    const config = makeRerankConfig({ maxCandidates: 9 })
     await saveRerankConfig(config, "rerank-1", tmp.path)
     const loaded = await loadRerankConfig("rerank-1", tmp.path)
     expect(loaded).toEqual(config)
@@ -614,6 +613,32 @@ describe("rerankConfig persistence", () => {
     const loaded = await loadRerankConfig("rerank-r", tmp.path)
     expect(loaded?.model).toBe("local-rerank")
     expect(loaded?.maxCandidates).toBe(18)
+  })
+
+  /*
+   * 「复用主模型」在 4.3.6 被取消：老用户的配置里仍然有 `useMainLlm: true`。
+   * 那种配置没有自己的重排模型，如果原样读回 enabled: true，设置页会显示「已启用」
+   * 但实际不重排（resolveRerankModel 返回 null）—— 面板是假绿。所以读到这种老配置
+   * 就把总开关关掉，让用户自己决定要不要配一个真重排模型再打开。
+   */
+  it("老配置的「复用主模型」被丢弃：没配独立模型时连同总开关一起关掉", async () => {
+    await writeFileRaw(
+      `${tmp.path}/.qmai/rerank-config.json`,
+      JSON.stringify({ ...makeRerankConfig({ enabled: true, model: "" }), useMainLlm: true }),
+    )
+    const loaded = await loadRerankConfig("rerank-legacy", tmp.path)
+    expect(loaded?.enabled).toBe(false)
+    expect(loaded && "useMainLlm" in loaded).toBe(false)
+  })
+
+  it("老配置若已经填了独立重排模型，保留启用状态（改用那个模型）", async () => {
+    await writeFileRaw(
+      `${tmp.path}/.qmai/rerank-config.json`,
+      JSON.stringify({ ...makeRerankConfig({ enabled: true, model: "legacy-rank" }), useMainLlm: true }),
+    )
+    const loaded = await loadRerankConfig("rerank-legacy-2", tmp.path)
+    expect(loaded?.enabled).toBe(true)
+    expect(loaded?.model).toBe("legacy-rank")
   })
 })
 

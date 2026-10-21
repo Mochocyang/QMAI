@@ -710,8 +710,6 @@
         "description": "在检索候选展示或注入上下文前，再做一次模型重排。",
         "enableLabel": "启用重排",
         "enableHint": "会用于搜索面板、聊天检索、剧情搜索和写作上下文组装。",
-        "useMainLlm": "复用主模型",
-        "useMainLlmHint": "直接用当前主模型做重排。关闭后可单独配置一套重排模型。",
         "maxCandidates": "重排候选数量（TOPN）",
         "maxCandidatesHint": "初步检索后，优先将前 N 条候选交给 Reranker 排序。TOPN 不是最终注入 LLM 的条数；最终保留数量由检索 TOPK 和具体场景决定。若候选不足 N 或最终所需数更大，会按实际候选数处理。数值越大召回越稳，但延迟和成本也更高。",
         "provider": "提供方",
@@ -724,8 +722,7 @@
         "apiKeyPlaceholder": "请输入 API Key",
         "model": "模型",
         "modelPlaceholder": "输入重排模型 ID",
-        "modelHint": "这里可以用更便宜、更快的模型，只要它能稳定遵循指令并返回 JSON。",
-        "testSuccessUsingMainModel": "已通过主模型完成重排测试：{{model}}"
+        "modelHint": "这里可以用更便宜、更快的模型，只要它能稳定遵循指令并返回 JSON。"
       },
       "multimodal": {
         "title": "图片描述",

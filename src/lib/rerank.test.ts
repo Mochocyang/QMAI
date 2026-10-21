@@ -30,14 +30,14 @@ describe("rerankCandidates", () => {
         maxContextSize: 200000,
         reasoning: { mode: "auto" },
       },
+      // 4.3.6 起没有「复用主模型」：重排只能配自己的模型（这里用能返回 JSON 的聊天模型）。
       rerankConfig: {
         enabled: true,
-        useMainLlm: true,
         provider: "custom",
-        apiKey: "",
-        model: "",
+        apiKey: "rerank-key",
+        model: "rerank-chat-model",
         ollamaUrl: "http://127.0.0.1:11434",
-        customEndpoint: "",
+        customEndpoint: "https://rerank.example.com/v1",
         apiMode: "chat_completions",
         maxCandidates: 8,
       },
@@ -75,11 +75,24 @@ describe("rerankCandidates", () => {
     expect(results.map((item) => item.id)).toEqual(["b", "a"])
   })
 
+  it("没有配置重排模型时直接返回原顺序，不再偷偷借用主模型", async () => {
+    useWikiStore.setState({
+      rerankConfig: { ...useWikiStore.getState().rerankConfig, model: "" },
+    })
+
+    const results = await rerankCandidates("query", [
+      { id: "a", title: "A", snippet: "aaa" },
+      { id: "b", title: "B", snippet: "bbb" },
+    ])
+
+    expect(results.map((item) => item.id)).toEqual(["a", "b"])
+    expect(mockStreamChat).not.toHaveBeenCalled()
+  })
+
   it("uses the direct rerank endpoint when configured", async () => {
     useWikiStore.setState({
       rerankConfig: {
         ...useWikiStore.getState().rerankConfig,
-        useMainLlm: false,
         provider: "custom",
         apiKey: "rerank-key",
         model: "Qwen/Qwen3-Reranker-8B",
