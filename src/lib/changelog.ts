@@ -7,6 +7,29 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_THREE_SIX_CHANGELOG: ChangelogEntry = {
+  version: "4.3.6",
+  date: "2026-10-21",
+  highlights: {
+    en: [
+      "New interactive onboarding: a 46-step walkthrough that opens Settings and points at each item where it actually lives. Start it any time from Settings → Writing Settings → Play, skip a step or cancel outright, and it still works before any API key is configured because it uses local sample data.",
+      "Writing Settings is now grouped by purpose (Writing context / Chapter generation / In-app hints / Community summary / Performance and concurrency / Revision feedback), each group collapsible, and the redundant \"Other writing settings\" hint is gone.",
+      "Adding a model provider now lists every provider first and opens the configuration only after you pick one, instead of jumping straight into Claude's form.",
+      "Outline generation (volume / chapter / eight setting types / event outlines) now returns structured data only, with Markdown and HTML rendered from it: fewer tokens, plus fixes for split fields, dropped characters, truncated bodies overwriting existing data, duplicated chapter numbers, and Markdown drifting apart from HTML.",
+      "The Extract memory and View memory icons now sit next to the HTML / MD switch in outline documents, so they are visible in HTML mode too.",
+      "Fixed retrieval and rerank model tests that always failed: a bare base URL is completed to the full endpoint and retried, the server's original error is shown with a suggested next step, and the model picker is highlighted.",
+    ],
+    zh: [
+      "新增新手引导：46 步分阶段讲解，需要时会自动打开设置页、指着每一项告诉你在哪里怎么设；入口在「设置 → 写作设置 → 播放」，随时可以重看，也能跳过某一步或直接取消。没配 API Key 时用本地示例数据，同样能走完整条流程",
+      "写作设置按功能重新分组（写作上下文 / 章节生成 / 界面提示 / 社区摘要 / 性能与并发 / 修改反馈窗口），每组可折叠；侧栏「写作设置」下多余的「其他写作设置」说明已删除",
+      "模型设置点「添加提供方」时先列出所有可选提供方，选中后才展开对应的配置页，不再直接跳进 Claude 的填写页",
+      "大纲生成（卷纲 / 章纲 / 八类设定 / 事件细纲）改为只输出结构化数据，Markdown 与 HTML 由程序反推渲染：更省 token，并修掉字段被撕裂、丢字符、残缺正文顶掉已有数据、章纲标题重复章号、Markdown 与 HTML 分项分裂等问题",
+      "大纲文档的「提取记忆」「查看记忆」图标移到 HTML / MD 标识旁，HTML 模式下也能直接看到",
+      "修复向量与重排模型测试总是失败的问题：只填基础地址会自动补全为完整接口并重试，失败时给出服务端原始报错和下一步建议，模型下拉框也做了高亮",
+    ],
+  },
+};
+
 const FOUR_POINT_THREE_FIVE_CHANGELOG: ChangelogEntry = {
   version: "4.3.5",
   date: "2026-10-21",
@@ -1983,6 +2006,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_THREE_SIX_CHANGELOG.version)
+    return [FOUR_POINT_THREE_SIX_CHANGELOG];
   if (version === FOUR_POINT_THREE_FIVE_CHANGELOG.version)
     return [FOUR_POINT_THREE_FIVE_CHANGELOG];
   if (version === FOUR_POINT_THREE_FOUR_CHANGELOG.version)
@@ -2158,6 +2183,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_THREE_SIX_CHANGELOG,
     FOUR_POINT_THREE_FIVE_CHANGELOG,
     FOUR_POINT_THREE_FOUR_CHANGELOG,
     FOUR_POINT_THREE_THREE_CHANGELOG,

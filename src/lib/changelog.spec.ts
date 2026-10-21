@@ -6,7 +6,16 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 7)).toEqual(["4.3.5", "4.3.4", "4.3.3", "4.3.2", "4.3.1", "4.3.0", "4.2.1"])
+    expect(versions.slice(0, 7)).toEqual(["4.3.6", "4.3.5", "4.3.4", "4.3.3", "4.3.2", "4.3.1", "4.3.0"])
+    // 4.3.4 / 4.3.5 已被远端发版占用（tag 都在），本地这批改动（引导、设置分组、
+    // 提供方列表、大纲结构化输出等）作为 4.3.6 记，不与已发版的说明抢同一个版本号。
+    const release436 = currentVersionChangelog("4.3.6")[0]
+    expect(release436.version).toBe("4.3.6")
+    expect(release436.date).toBe("2026-10-21")
+    expect(release436.highlights.zh).toHaveLength(6)
+    expect(release436.highlights.en).toHaveLength(6)
+    expect(release436.highlights.zh.join("\n")).toContain("新手引导")
+    expect(release436.highlights.zh.join("\n")).toContain("添加提供方")
     const release435 = currentVersionChangelog("4.3.5")[0]
     expect(release435.version).toBe("4.3.5")
     expect(release435.date).toBe("2026-10-21")
