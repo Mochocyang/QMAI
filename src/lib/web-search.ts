@@ -154,6 +154,7 @@ export async function webSearchDetailed(
     // 反重力 CLI：不需要 Key，用本机 agy 登录态；只给搜索词 + 摘要（来源只存不显示）。
     const outcome = await antigravitySearchDetailed(query, {
       model: resolved.providerConfigs?.antigravity?.antigravityModel,
+      timeoutSecs: resolved.providerConfigs?.antigravity?.antigravityTimeoutSecs,
       maxResults,
     })
     return { results: outcome.results, queries: outcome.queries, summary: outcome.summary }
@@ -193,6 +194,7 @@ async function providerSearch(
     case "antigravity":
       return (await antigravitySearchDetailed(query, {
         model: resolved.providerConfigs?.antigravity?.antigravityModel,
+        timeoutSecs: resolved.providerConfigs?.antigravity?.antigravityTimeoutSecs,
         maxResults,
       })).results
     case "searxng":

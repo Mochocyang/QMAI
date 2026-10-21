@@ -6,6 +6,7 @@ import {
   antigravitySearchDetailed,
   interpretAntigravitySearchRaw,
   parseAntigravitySearchOutput,
+  resolveAntigravitySearchTimeoutSecs,
   type AntigravitySearchRaw,
 } from "./antigravity-search"
 
@@ -131,5 +132,24 @@ describe("antigravity search default model", () => {
     expect(resolveAntigravitySearchModel(" gemini-x ")).toBe("gemini-x")
     expect(antigravityModelLabel("gemini-3.8-flash-low")).toBe("Gemini 3.8 Flash (Low)")
     expect(antigravityModelLabel("gpt-oss-120b-medium")).toBe("GPT OSS 120b (Medium)")
+  })
+})
+
+describe("resolveAntigravitySearchTimeoutSecs", () => {
+  it("旧配置缺字段或非法值回落 180 秒", () => {
+    for (const v of [undefined, null, "", "abc", 0, -5, Number.NaN]) expect(resolveAntigravitySearchTimeoutSecs(v)).toBe(180)
+  })
+  it("限制在 30–900 秒并取整", () => {
+    expect(resolveAntigravitySearchTimeoutSecs(5)).toBe(30)
+    expect(resolveAntigravitySearchTimeoutSecs(5000)).toBe(900)
+    expect(resolveAntigravitySearchTimeoutSecs("300")).toBe(300)
+    expect(resolveAntigravitySearchTimeoutSecs(120.6)).toBe(121)
+  })
+  it("自定义超时传给 Rust 命令", async () => {
+    const invoke = vi.fn().mockResolvedValue(okRaw(lines(resultEvent("{\"queries\":[],\"summary\":\"摘要\"}"))))
+    await antigravitySearchDetailed("问题", { invoke, timeoutSecs: 600 })
+    expect(invoke).toHaveBeenCalledWith("antigravity_cli_search", expect.objectContaining({ timeoutSecs: 600 }))
+    await antigravitySearchDetailed("问题", { invoke, timeoutSecs: 9999 })
+    expect(invoke).toHaveBeenLastCalledWith("antigravity_cli_search", expect.objectContaining({ timeoutSecs: 900 }))
   })
 })

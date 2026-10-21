@@ -19,7 +19,8 @@ use super::antigravity_cli::{
 };
 
 const DEFAULT_TIMEOUT_SECS: u64 = 180;
-const MAX_TIMEOUT_SECS: u64 = 600;
+const MIN_TIMEOUT_SECS: u64 = 30;
+const MAX_TIMEOUT_SECS: u64 = 900;
 const POST_RESULT_EXIT_GRACE: Duration = Duration::from_secs(2);
 const MAX_STDOUT_BYTES: usize = 4 * 1024 * 1024;
 
@@ -95,6 +96,13 @@ fn is_result_event(line: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// 用户在设置里配置的搜索超时；旧前端不传时用默认 180 秒，并限制在 30–900 秒。
+pub(crate) fn resolve_timeout_secs(timeout_secs: Option<u64>) -> u64 {
+    timeout_secs
+        .unwrap_or(DEFAULT_TIMEOUT_SECS)
+        .clamp(MIN_TIMEOUT_SECS, MAX_TIMEOUT_SECS)
+}
+
 pub async fn do_antigravity_cli_search(
     query: String,
     model: Option<String>,
@@ -114,9 +122,7 @@ pub async fn do_antigravity_cli_search(
             }
         }
     };
-    let timeout_secs = timeout_secs
-        .unwrap_or(DEFAULT_TIMEOUT_SECS)
-        .clamp(10, MAX_TIMEOUT_SECS);
+    let timeout_secs = resolve_timeout_secs(timeout_secs);
     let id = NEXT_SEARCH_ID.fetch_add(1, Ordering::SeqCst);
     let workdir = match prepare_workdir(&format!("search-{id}")) {
         Ok(dir) => dir,
@@ -226,6 +232,14 @@ pub async fn antigravity_cli_search(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn timeout_defaults_and_clamps() {
+        assert_eq!(resolve_timeout_secs(None), 180);
+        assert_eq!(resolve_timeout_secs(Some(5)), 30);
+        assert_eq!(resolve_timeout_secs(Some(600)), 600);
+        assert_eq!(resolve_timeout_secs(Some(5000)), 900);
+    }
 
     #[test]
     fn search_args_are_headless_and_never_skip_permissions() {

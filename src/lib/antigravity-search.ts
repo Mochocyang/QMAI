@@ -18,6 +18,16 @@ import type { WebSearchResult } from "@/lib/web-search"
  */
 
 export const ANTIGRAVITY_SEARCH_TIMEOUT_SECS = 180
+/** 设置里允许的搜索超时范围（秒），与 Rust 端 clamp 一致。 */
+export const ANTIGRAVITY_SEARCH_TIMEOUT_MIN_SECS = 30
+export const ANTIGRAVITY_SEARCH_TIMEOUT_MAX_SECS = 900
+
+/** 把设置里保存的超时（可能缺失/非法，旧配置没有该字段）规范成 30–900 秒的整数，缺省 180。 */
+export function resolveAntigravitySearchTimeoutSecs(value?: unknown): number {
+  const n = typeof value === "string" ? Number(value.trim()) : typeof value === "number" ? value : NaN
+  if (!Number.isFinite(n) || n <= 0) return ANTIGRAVITY_SEARCH_TIMEOUT_SECS
+  return Math.min(ANTIGRAVITY_SEARCH_TIMEOUT_MAX_SECS, Math.max(ANTIGRAVITY_SEARCH_TIMEOUT_MIN_SECS, Math.round(n)))
+}
 
 /** 搜索模型留空时使用的默认模型：最低档 Flash，避免 agy 默认的 Gemini 4 Argon 额度消耗过高。 */
 export const DEFAULT_ANTIGRAVITY_SEARCH_MODEL = "gemini-3.8-flash-low"
@@ -251,7 +261,7 @@ export async function antigravitySearchDetailed(
       query,
       model: resolveAntigravitySearchModel(options.model),
       maxResults,
-      timeoutSecs: options.timeoutSecs ?? ANTIGRAVITY_SEARCH_TIMEOUT_SECS,
+      timeoutSecs: resolveAntigravitySearchTimeoutSecs(options.timeoutSecs),
     })) as AntigravitySearchRaw
   } catch (error) {
     throw new AntigravitySearchError(

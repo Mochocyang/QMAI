@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ChevronDown, ChevronRight } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
@@ -14,6 +14,10 @@ import {
   ANTIGRAVITY_AGY_DEFAULT_MODEL,
   DEFAULT_ANTIGRAVITY_SEARCH_MODEL,
   antigravityModelLabel,
+  ANTIGRAVITY_SEARCH_TIMEOUT_SECS,
+  ANTIGRAVITY_SEARCH_TIMEOUT_MIN_SECS,
+  ANTIGRAVITY_SEARCH_TIMEOUT_MAX_SECS,
+  resolveAntigravitySearchTimeoutSecs,
 } from "@/lib/antigravity-search"
 import { detectLocalCliConfig } from "@/lib/local-cli-config"
 import { DEFAULT_GEMINI_BASE_URL, DEFAULT_GEMINI_SEARCH_MODEL } from "@/lib/gemini-search"
@@ -239,6 +243,10 @@ export function WebSearchSection() {
                         value={override?.antigravityModel ?? ""}
                         onChange={(antigravityModel) => updateProvider("antigravity", { antigravityModel })}
                       />
+                      <AntigravityTimeoutInput
+                        value={override?.antigravityTimeoutSecs}
+                        onChange={(antigravityTimeoutSecs) => updateProvider("antigravity", { antigravityTimeoutSecs })}
+                      />
                     </div>
                   )}
 
@@ -372,6 +380,36 @@ function SerpApiEnginePicker({
           {t("settings.sections.webSearch.customSerpApiHint")}
         </p>
       )}
+    </div>
+  )
+}
+
+function AntigravityTimeoutInput({ value, onChange }: { value?: number; onChange: (value: number) => void }) {
+  const resolved = resolveAntigravitySearchTimeoutSecs(value)
+  const [draft, setDraft] = useState(String(resolved))
+  useEffect(() => setDraft(String(resolved)), [resolved])
+  const commit = () => {
+    const next = resolveAntigravitySearchTimeoutSecs(draft)
+    setDraft(String(next))
+    if (next !== value) onChange(next)
+  }
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="antigravity-timeout">搜索超时（秒）</Label>
+      <Input
+        id="antigravity-timeout"
+        type="number"
+        min={ANTIGRAVITY_SEARCH_TIMEOUT_MIN_SECS}
+        max={ANTIGRAVITY_SEARCH_TIMEOUT_MAX_SECS}
+        step={10}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") commit() }}
+      />
+      <p className="text-xs text-muted-foreground">
+        默认 {ANTIGRAVITY_SEARCH_TIMEOUT_SECS} 秒，可设 {ANTIGRAVITY_SEARCH_TIMEOUT_MIN_SECS}–{ANTIGRAVITY_SEARCH_TIMEOUT_MAX_SECS} 秒。超时后会结束 agy 进程。
+      </p>
     </div>
   )
 }
