@@ -7,6 +7,25 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_THREE_SEVEN_CHANGELOG: ChangelogEntry = {
+  version: "4.3.7",
+  date: "2026-10-22",
+  highlights: {
+    en: [
+      "Character Skill is now a real dossier: clicking a character opens tabbed pages (Basics / Voice & Behavior / Relationships / Current status / Raw Markdown) instead of one big text box, with gender, age, faction, appearance, personality, background, motive, ability, relationship network, growth and notes alongside the five acting fields. Change the role type right there and the injection tier follows.",
+      "Every Extract memory run now also refreshes that character's current status, organizations they appear with, cognition changes and relationship changes. These are projected straight from the chapter snapshot rather than asked of the model, so they cost no extra tokens, stay consistent with the memory center, and still update when no model is configured or the model fails.",
+      "Relationship changes from a chapter now feed the knowledge graph even when the model only wrote them into relationshipChanges (the graph previously read graphEdges alone, so key character-to-character links were silently missing). Duplicate edges are collapsed.",
+      "Character self-evolution fixed in two places: an upgraded dossier is no longer re-selected on every later cycle (processedAt recorded the pre-write timestamp, so the same character's voice was rewritten every few days), and reviewers now compare like with like — the incumbent side is trimmed to the same five acting fields as the candidate instead of the whole dossier.",
+    ],
+    zh: [
+      "人物 Skill 变成一份能查的档案：点开角色不再是一整块文本框，而是按页签分开的基础设定 / 语言与行为 / 关系 / 当前状态 / 原始 Markdown，性别、年龄、势力组织、外貌、性格、背景、动机、能力、关系网、成长轨迹、备注与原有 5 个演技字段并列；定位可以直接在这里改，注入档位随之调整",
+      "每次「提取记忆」都会顺带刷新该角色的当前状态、出场组织、认知变化与关系变化。这四段直接从章节快照投影，不问模型：不额外花 token、与记忆中心同一份事实，而且没配模型或模型失败时照样更新",
+      "章节里的关系变化现在也会进知识图谱——此前图谱只认 graphEdges，模型把关系写进 relationshipChanges 时，主角和其他角色的关键连边会整条缺失；重复的边会合并",
+      "人物自进化修了两处：升级过的档案不再每个周期被重新选中（原先记的是落盘前的时间戳，同一个人的说话方式每隔几天就被重写一遍）；评审也改成同类比较——旧版只截取与候选相同的 5 个演技字段，而不是拿整份档案去比 5 段候选",
+    ],
+  },
+};
+
 const FOUR_POINT_THREE_SIX_CHANGELOG: ChangelogEntry = {
   version: "4.3.6",
   date: "2026-10-21",
@@ -2018,6 +2037,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_THREE_SEVEN_CHANGELOG.version)
+    return [FOUR_POINT_THREE_SEVEN_CHANGELOG];
   if (version === FOUR_POINT_THREE_SIX_CHANGELOG.version)
     return [FOUR_POINT_THREE_SIX_CHANGELOG];
   if (version === FOUR_POINT_THREE_FIVE_CHANGELOG.version)
@@ -2195,6 +2216,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_THREE_SEVEN_CHANGELOG,
     FOUR_POINT_THREE_SIX_CHANGELOG,
     FOUR_POINT_THREE_FIVE_CHANGELOG,
     FOUR_POINT_THREE_FOUR_CHANGELOG,

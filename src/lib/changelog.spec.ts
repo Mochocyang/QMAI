@@ -6,7 +6,18 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 7)).toEqual(["4.3.6", "4.3.5", "4.3.4", "4.3.3", "4.3.2", "4.3.1", "4.3.0"])
+    expect(versions.slice(0, 7)).toEqual(["4.3.7", "4.3.6", "4.3.5", "4.3.4", "4.3.3", "4.3.2", "4.3.1"])
+    const release437 = currentVersionChangelog("4.3.7")[0]
+    expect(release437.version).toBe("4.3.7")
+    expect(release437.date).toBe("2026-10-22")
+    expect(release437.highlights.zh).toHaveLength(4)
+    expect(release437.highlights.en).toHaveLength(4)
+    expect(release437.highlights.zh.join("\n")).toContain("人物 Skill 变成一份能查的档案")
+    expect(release437.highlights.zh.join("\n")).toContain("顺带刷新该角色的当前状态")
+    expect(release437.highlights.zh.join("\n")).toContain("关系变化现在也会进知识图谱")
+    expect(release437.highlights.zh.join("\n")).toContain("人物自进化修了两处")
+    expect(release437.highlights.en.join("\n")).toContain("real dossier")
+    expect(release437.highlights.en.join("\n")).toContain("cost no extra tokens")
     // 4.3.4 / 4.3.5 已被远端发版占用（tag 都在），本地这批改动（引导、设置分组、
     // 提供方列表、大纲结构化输出等）作为 4.3.6 记，不与已发版的说明抢同一个版本号。
     const release436 = currentVersionChangelog("4.3.6")[0]
