@@ -604,6 +604,149 @@ FunctionEnd
   !include "{{this}}"
 {{/each}}
 
+; ============================================================================
+;  安装器动效壳（默认关闭）
+;
+;  启用方式：
+;    1. 把动效壳产物 QmaiSetupUI.exe 及其依赖放进 src-tauri\windows\setup-shell\
+;    2. 取消下面 !define QMAI_SETUP_SHELL 的注释
+;    3. 重新打包（tauri build）
+;
+;  未启用时：本段只留下一个未定义的 !ifdef，不产生任何指令，
+;  安装器的行为、页面流、静默路径与改动前完全一致。
+;
+;  为什么内联而不是 !include：
+;  Tauri 会把本模板复制到临时目录再交给 makensis 编译，相对路径的
+;  !include 在那里的解析基准不是 src-tauri\windows，会直接编译失败。
+;  内联虽然长，但只依赖模板自身，没有额外文件依赖。
+;
+;  编码约定：进度文件只写 ASCII（"百分比|阶段序号||"），
+;  NSIS 的 FileWrite 按系统 ANSI 代码页落盘，写中文会在非中文系统上乱码；
+;  阶段文案由壳按 protocol.js 里的 STAGES 表补全。
+;
+;  启用开关（当前：已启用）
+; ============================================================================
+!define QMAI_SETUP_SHELL
+!ifdef QMAI_SETUP_SHELL
+
+Var QmaiSession
+
+Function QmaiAppendLine
+  ; 踩过并已规避的两个 NSIS 陷阱（都有实测，不是照文档抄的）：
+  ;   ① FileOpen ... a 在文件不存在时直接失败且不创建它 → 首次写入静默丢失；
+  ;   ② FileOpen ... a 打开后写指针不在文件尾（实测覆盖开头）→ 只剩最后一行。
+  ; 两条都必须留着，少任一条进度文件就不可用。
+  Exch $R0
+  ${If} $QmaiSession == ""
+    Exch $R0
+    Return
+  ${EndIf}
+
+  CreateDirectory "$QmaiSession"
+
+  ClearErrors
+  FileOpen $R1 "$QmaiSession\progress.txt" a
+  ${If} ${Errors}
+    ClearErrors
+    FileOpen $R1 "$QmaiSession\progress.txt" w
+    ${If} ${Errors}
+      Exch $R0
+      Return
+    ${EndIf}
+    FileClose $R1
+    ClearErrors
+    FileOpen $R1 "$QmaiSession\progress.txt" a
+    ${If} ${Errors}
+      Exch $R0
+      Return
+    ${EndIf}
+  ${EndIf}
+
+  FileSeek $R1 0 END
+  FileWrite $R1 "$R0$\r$\n"
+  FileClose $R1
+  Exch $R0
+FunctionEnd
+
+; 用法：Push "45|1||" / Call QmaiProgress
+; 非壳模式下是空转，可以放心插在安装段任何位置。
+Function QmaiProgress
+  Call QmaiAppendLine
+FunctionEnd
+
+; 用法：Push "done" 或 Push "err|E1024|写入失败" / Call QmaiFinish
+Function QmaiFinish
+  Call QmaiAppendLine
+FunctionEnd
+
+; 只在 .onInit 末尾调用一次
+Function QmaiMaybeLaunchShell
+
+  ; ── 第一优先：解析 /QM_SESSION=<目录> ──
+  ; 必须排在任何 Return 之前。子进程是壳用 /S 拉起来的，一旦先命中
+  ; 下面的 ${Silent} 直接返回，$QmaiSession 就永远为空，QmaiProgress 全部空转，
+  ; 表现为"进度条一直停在 0%"。这个顺序是实测踩出来的，不要调换。
+  ${GetOptions} $CMDLINE "/QM_SESSION=" $QmaiSession
+  ${IfNot} ${Errors}
+    Return
+  ${EndIf}
+  StrCpy $QmaiSession ""
+
+  ${If} ${Silent}
+    Return
+  ${EndIf}
+  ${If} $PassiveMode = 1
+    Return
+  ${EndIf}
+
+  ; ── 释放壳 ──
+  ; 先清空旧目录：上一次安装残留的旧壳会让用户看到过期界面。
+  ;
+  ; 源路径用 ${__FILEDIR__} 反推，不能写相对路径：
+  ; Tauri 把脚本生成到 src-tauri\target\release\nsis\x64\ 再编译，
+  ; 那里的相对路径基准不是 src-tauri\windows，实测会找不到文件。
+  ;   __FILEDIR__ = ...\src-tauri\target\release\nsis\x64
+  ;   上溯 4 层     = ...\src-tauri
+  ; 这条路径只在启用壳时才被求值；未启用时下面整段都在 !ifdef 里，不参与编译。
+  !if /FileExists "${__FILEDIR__}\..\..\..\..\windows\setup-shell\QmaiSetupUI.exe"
+  !else
+    !error "已启用 QMAI_SETUP_SHELL，但没有找到 src-tauri\windows\setup-shell\QmaiSetupUI.exe。请先把动效壳产物放进去，或关闭 QMAI_SETUP_SHELL。"
+  !endif
+
+  RMDir /r "$TEMP\qmai-setup\shell"
+  CreateDirectory "$TEMP\qmai-setup\shell"
+  SetOutPath "$TEMP\qmai-setup\shell"
+  File /r "${__FILEDIR__}\..\..\..\..\windows\setup-shell\*.*"
+
+  ${IfNot} ${FileExists} "$TEMP\qmai-setup\shell\QmaiSetupUI.exe"
+    RMDir /r "$TEMP\qmai-setup\shell"
+    Return
+  ${EndIf}
+
+  RMDir /r "$TEMP\qmai-setup\session"
+  CreateDirectory "$TEMP\qmai-setup\session"
+
+  ; ── 拉起壳 ──
+  ; 传原安装包路径与已算好的 $INSTDIR：壳点「开始安装」时用它们
+  ; 启动静默子进程，所以壳里显示的安装位置与最终实际位置一致。
+  ClearErrors
+  Exec '"$TEMP\qmai-setup\shell\QmaiSetupUI.exe" --installer "$EXEPATH" --session "$TEMP\qmai-setup\session" --dir "$INSTDIR" --main "$INSTDIR\${MAINBINARYNAME}.exe" --version "${VERSION}"'
+  ${If} ${Errors}
+    RMDir /r "$TEMP\qmai-setup"
+    Return
+  ${EndIf}
+
+  ; 投递成功：NSIS 本体退出，不做任何安装。
+  ; 真正的安装由壳稍后以 /S 重新拉起本 exe 完成（走的是未改动的静默路径）。
+  ;
+  ; 必须先 SetErrorLevel 0：裸 Quit 会让 NSIS 以退出码 2（视同"被中止"）收场，
+  ; 实测确认。更新器与外部包装脚本会把这个 2 当成安装失败。
+  SetErrorLevel 0
+  Quit
+FunctionEnd
+
+!endif ; QMAI_SETUP_SHELL
+
 Function .onInit
   ${IfNot} ${RunningX64}
     MessageBox MB_OK|MB_ICONSTOP "青幕AI写作仅支持 64 位 Windows，不支持 32 位系统。"
@@ -665,6 +808,13 @@ Function .onInit
 
   !if "${INSTALLMODE}" == "both"
     !insertmacro MULTIUSER_INIT
+  !endif
+
+  ; 动效壳投递必须在 .onInit 的最末尾：此时 $INSTDIR 已按 D 盘/ProgramFiles/
+  ; LocalAppData 的规则算好，壳拿到的安装位置才与最终实际位置一致。
+  ; 投递成功时本函数内部 Quit，后面的页面不会出现；失败则继续走原向导。
+  !ifdef QMAI_SETUP_SHELL
+    Call QmaiMaybeLaunchShell
   !endif
 FunctionEnd
 
@@ -799,6 +949,15 @@ FunctionEnd
 Section Install
   SetOutPath $INSTDIR
 
+  ; ── 动效壳进度上报 ──
+  ; 未启用壳时 QmaiProgress 是空转，这几行不产生任何运行时行为。
+  ; 阶段序号必须与 src-installer/protocol.js 的 STAGES 顺序一致：
+  ;   0 准备环境 → 1 解压核心 → 2 创建快捷方式 → 3 写入字体
+  !ifdef QMAI_SETUP_SHELL
+    Push "6|0||"
+    Call QmaiProgress
+  !endif
+
   !ifmacrodef NSIS_HOOK_PREINSTALL
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
@@ -821,6 +980,12 @@ Section Install
   {{#each binaries}}
     File /a "/oname={{this}}" "{{no-escape @key}}"
   {{/each}}
+
+  ; 文件解压完毕（解压核心 = 阶段 1）
+  !ifdef QMAI_SETUP_SHELL
+    Push "48|1||"
+    Call QmaiProgress
+  !endif
 
   ; Create file associations
   {{#each file_associations as |association| ~}}
@@ -892,6 +1057,12 @@ Section Install
     Call CreateOrUpdateDesktopShortcut
   ${EndIf}
 
+  ; 快捷方式建好（创建快捷方式 = 阶段 2）
+  !ifdef QMAI_SETUP_SHELL
+    Push "74|2||"
+    Call QmaiProgress
+  !endif
+
   ; ── 随包字体：按用户安装（阶段 4）──
   ;
   ; 与 Rust 侧 `ensure_fonts_installed` 指向**同一组**目标（同一目录、同一值名
@@ -940,8 +1111,25 @@ Section Install
   ; 跳过 —— 否则"没测到"会伪装成"通过"。
   qmai_fonts_install_done:
 
+  ; 字体处理完毕（写入字体 = 阶段 3）。
+  ; 放在结束标签之后：验收脚本按这个标签原样切出上面整段单独跑，
+  ; 把上报语句留在标签外，不会混进被切成被测样本的那一段里。
+  !ifdef QMAI_SETUP_SHELL
+    Push "95|3||"
+    Call QmaiProgress
+  !endif
+
   !ifmacrodef NSIS_HOOK_POSTINSTALL
     !insertmacro NSIS_HOOK_POSTINSTALL
+  !endif
+
+  ; 成功标记。这是整个进度协议里**唯一**的完成信号：
+  ; 安装段跑到这里就说明文件、注册表、快捷方式、字体全部成功，
+  ; 少于这一行 = 没装完。壳同时监视子进程退出码，两者都对上才切完成页，
+  ; 所以不必再写 "100|3||" —— done 本身会把进度置为 100。
+  !ifdef QMAI_SETUP_SHELL
+    Push "done"
+    Call QmaiFinish
   !endif
 
   ; Auto close this page for passive mode

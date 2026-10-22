@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>青幕AI写作 安装程序</title>
+<!--
+  安装器动效壳 · 第一幕~第四幕（欢迎 / 安装中 / 完成 / 失败）
+
+  设计约束（与《安装界面动效方案》一致）：
+  · 960×600 无系统边框，视觉自绘，品牌独占整块画布
+  · 所有装饰动效只动 transform / opacity，且在系统开启"减少动态效果"时整体停用
+  · 进度由真实安装段驱动，不做定时假动画（demo 数据也走同一套协议解析）
+  · 无构建步骤、无外部依赖：双击即可预览，也可被 Tauri WebView 直接加载
+-->
+<style>
+  :root{
+    --ink:#EAF7F4; --ink-dim:rgba(234,247,244,.62); --ink-faint:rgba(234,247,244,.38);
+    --teal:#35B7A6; --teal-deep:#1E7A6C; --mint:#6FE3CE; --danger:#E8836B;
+    --radius:16px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; display:grid; place-items:center; min-height:100vh; padding:24px;
+    background:#0A1214;
+    font-family:"Microsoft YaHei UI","Microsoft YaHei","Segoe UI",system-ui,-apple-system,"PingFang SC",sans-serif;
+    color:var(--ink); -webkit-font-smoothing:antialiased;
+  }
+  /* 预览时是网页背景；装进 Tauri 后窗口本身就是画布，这层自然被盖住 */
+  body::before{
+    content:""; position:fixed; inset:0; z-index:-1;
+    background:radial-gradient(900px 600px at 20% -10%, rgba(53,183,166,.12), transparent 60%);
+  }
+
+  /* ============ 窗口 ============ */
+  .shell{
+    position:relative; width:min(960px, 100%); aspect-ratio:16/10; max-height:calc(100vh - 48px);
+    display:flex; flex-direction:column; isolation:isolate; overflow:hidden;
+    border-radius:var(--radius); background:#07161A;
+    box-shadow:0 0 0 1px rgba(255,255,255,.10), 0 40px 90px -30px rgba(0,0,0,.85);
+  }
+
+  /* 真机窗口模式（app.js 在宿主模式下给 <html> 加 is-app）：
+     窗口尺寸就等于卡片尺寸，再留 body 的 24px 外边距会变成界面四周
+     一圈深色黑框。这里让界面铺满整个窗口。
+     圆角保留：窗口是不透明矩形，四角露出的是窗口底色，看起来是刻意的圆角。 */
+  html.is-app body{
+    padding:0; display:block; min-height:0;
+  }
+  html.is-app .shell{
+    width:100%; height:100%; max-height:none; aspect-ratio:auto;
+    /* 窗口本身已经是无边框矩形，这里再留圆角和描边，四角和四周就会
+       露出背景色，看起来又是一圈边框。铺满即直角、无描边。 */
+    border-radius:0; box-shadow:none;
+  }
+  /* 顶部不再占一条独立的标题栏横带，而是把标题栏浮在内容之上：
+     后面的背景动效从窗口最顶端一直铺到底，顶部就没有"一条带子"了。
+     顶部只留右上角关闭按钮，图标、标题、版本号在真机窗口里全部隐藏——
+     安装程序窗口本身已经能拖动，标题文字没有额外信息价值。 */
+  html.is-app .chrome{
+    position:absolute; top:0; left:0; right:0;
+    background:transparent; border-bottom:0;
+    /* 浮在动效上方，必须能压住下面内容 */
+    z-index:7;
+    /* 品牌行隐藏后整条会塌成 0 高，那样这块区域就接不到鼠标，
+       窗口也就拖不动了。这里显式给一个高度，作为透明的拖动条。 */
+    height:46px; padding:0;
+    /* 整条都能拖窗口：给移动光标，并禁止选中文字 */
+    cursor:move;
+    user-select:none; -webkit-user-select:none;
+  }
+  /* 真机窗口里隐藏品牌行，只保留关闭按钮 */
+  html.is-app .chrome .mark,
+  html.is-app .chrome .name,
+  html.is-app .chrome .ver{display:none}
+  /* 按钮靠右、留出与设计一致的边距 */
+  html.is-app .chrome .winbtn{
+    cursor:pointer;
+    position:absolute; top:11px; right:12px;
+    width:32px; height:24px;
+  }
+
+  .chrome{
+    position:relative; z-index:6; flex:0 0 auto;
+    display:flex; align-items:center; gap:10px; padding:13px 16px;
+    border-bottom:1px solid rgba(255,255,255,.06);
+    /* 标题文字不该被拖选，真机和预览保持一致 */
+    user-select:none; -webkit-user-select:none;
+  }
+  .chrome .mark{width:18px; height:18px; flex:0 0 18px}
+  .chrome .name{font-size:13px; font-weight:600; letter-spacing:.04em; opacity:.88}
+  .chrome .ver{font-size:11.5px; letter-spacing:.06em; opacity:.42}
+  .chrome .spacer{flex:1 1 auto; margin-left:auto}
+  .winbtn{
+    width:30px; height:22px; display:grid; place-items:center; border:0; border-radius:5px;
+    background:transparent; color:inherit; opacity:.45; cursor:pointer; font-size:12px;
+    font-family:inherit; transition:background .18s, opacity .18s, color .18s;
+  }
+  .winbtn:hover{opacity:1; background:rgba(255,255,255,.08)}
+  .winbtn:focus-visible{outline:2px solid var(--mint); outline-offset:1px; opacity:1}
+
+  .body{position:relative; flex:1 1 auto; overflow:hidden}
+
+  /* ============ 背景动效 ============ */
+  #fx{position:absolute; inset:0; width:100%; height:100%; z-index:1; opacity:.9}
+  .aura{position:absolute; inset:-30% -10%; z-index:0; pointer-events:none; opacity:.85}
+  .aura::before,.aura::after{content:""; position:absolute; border-radius:50%; filter:blur(44px)}
+  .aura::before{
+    width:62%; height:78%; left:-6%; top:-10%;
+    background:radial-gradient(circle at 40% 40%, rgba(53,183,166,.55), transparent 66%);
+    animation:driftA 16s ease-in-out infinite alternate;
+  }
+  .aura::after{
+    width:52%; height:70%; right:-8%; bottom:-18%;
+    background:radial-gradient(circle at 60% 50%, rgba(111,227,206,.34), transparent 66%);
+    animation:driftB 20s ease-in-out infinite alternate;
+  }
+  @keyframes driftA{from{transform:translate3d(-3%,-2%,0) scale(1)}to{transform:translate3d(6%,4%,0) scale(1.12)}}
+  @keyframes driftB{from{transform:translate3d(2%,3%,0) scale(1.05)}to{transform:translate3d(-5%,-4%,0) scale(.94)}}
+
+  .floor{
+    position:absolute; left:-10%; right:-10%; bottom:-46%; height:78%; z-index:0;
+    background:
+      linear-gradient(transparent, rgba(53,183,166,.14) 60%, transparent 92%),
+      repeating-linear-gradient(90deg, rgba(111,227,206,.16) 0 1px, transparent 1px 58px),
+      repeating-linear-gradient(0deg, rgba(111,227,206,.13) 0 1px, transparent 1px 46px);
+    transform:perspective(520px) rotateX(64deg); transform-origin:50% 0; opacity:.5;
+    mask-image:linear-gradient(to bottom, transparent, #000 42%, #000 78%, transparent);
+    -webkit-mask-image:linear-gradient(to bottom, transparent, #000 42%, #000 78%, transparent);
+    animation:floorShift 14s linear infinite;
+  }
+  @keyframes floorShift{from{background-position:0 0,0 0,0 0}to{background-position:0 0,0 0,0 46px}}
+
+  /* ============ 幕 ============ */
+  /* 幕切换：退出快（180ms 淡出）、进入慢（420ms 淡入并延迟 120ms 起步）。
+     两幕不做等时长交叉淡入——那样中间有半秒是两屏文字叠在一起，看着发脏。
+     visibility 用 0s 配合延迟切换，保证退出的幕彻底不接收点击。 */
+  .act{
+    position:absolute; inset:0; z-index:3;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    padding:clamp(16px,3.4%,34px); text-align:center;
+    opacity:0; visibility:hidden; transform:scale(.99); pointer-events:none;
+    transition:opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
+  }
+  .act.is-on{
+    opacity:1; visibility:visible; transform:none; pointer-events:auto;
+    transition:opacity .42s cubic-bezier(.16,1,.3,1) .12s,
+               transform .42s cubic-bezier(.16,1,.3,1) .12s,
+               visibility 0s linear 0s;
+  }
+
+  /* 第一幕 · 欢迎 */
+  .logoWrap{position:relative; display:grid; place-items:center; margin-bottom:clamp(10px,2vw,18px)}
+  .halo{
+    position:absolute; inset:-38%; border-radius:50%; filter:blur(14px); opacity:.9;
+    background:conic-gradient(from 0deg, rgba(111,227,206,0) 0deg, rgba(111,227,206,.55) 70deg, rgba(111,227,206,0) 150deg, rgba(111,227,206,0) 360deg);
+    animation:spin 7s linear infinite;
+  }
+  .ring2{position:absolute; inset:-16%; border-radius:50%; border:1px solid rgba(111,227,206,.22); animation:pulse 3.4s ease-in-out infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse{0%,100%{transform:scale(1);opacity:.55}50%{transform:scale(1.07);opacity:.18}}
+  .mark-lg{
+    position:relative; z-index:2; display:block; width:clamp(56px,7vw,78px); height:clamp(56px,7vw,78px);
+    filter:drop-shadow(0 10px 24px rgba(53,183,166,.45)); animation:breathe 4.6s ease-in-out infinite;
+  }
+  @keyframes breathe{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-3px) scale(1.028)}}
+
+  .title{font-size:clamp(20px,3vw,30px); font-weight:800; letter-spacing:.02em; margin:0; line-height:1.25}
+  .sub{font-size:clamp(11.5px,1.3vw,13.5px); color:var(--ink-dim); margin:9px 0 0; letter-spacing:.04em}
+  .chips{display:flex; gap:7px; margin-top:14px; flex-wrap:wrap; justify-content:center}
+  .chip{font-size:11.5px; padding:3px 10px; border-radius:99px; border:1px solid rgba(255,255,255,.18); color:var(--ink-dim)}
+
+  .cta{
+    margin-top:clamp(16px,3vw,26px); display:inline-flex; align-items:center; gap:10px;
+    font-size:14.5px; font-weight:700; letter-spacing:.03em; font-family:inherit; cursor:pointer;
+    padding:12px 30px; border-radius:11px; border:0; color:#04231E;
+    background:linear-gradient(135deg,#8BF0DC,#35B7A6);
+    box-shadow:0 10px 26px -8px rgba(53,183,166,.75), 0 1px 0 rgba(255,255,255,.5) inset;
+    transition:transform .2s, box-shadow .2s, opacity .2s;
+  }
+  .cta:hover{transform:translateY(-1px); box-shadow:0 16px 34px -10px rgba(53,183,166,.85)}
+  .cta:active{transform:translateY(0) scale(.99)}
+  .cta:focus-visible{outline:2px solid var(--mint); outline-offset:3px}
+  .cta.ghost{
+    background:transparent; color:var(--ink); border:1px solid rgba(255,255,255,.26);
+    box-shadow:none; font-weight:600; opacity:.85;
+  }
+  .cta.ghost:hover{background:rgba(255,255,255,.07); opacity:1}
+  .ctaRow{display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:center; margin-top:clamp(16px,3vw,26px)}
+  .fine{font-size:11.5px; color:var(--ink-faint); margin-top:16px; letter-spacing:.03em}
+
+  /* 第二幕 · 安装中 */
+  .progWrap{display:flex; flex-direction:column; align-items:center; width:100%}
+  .ringBox{position:relative; width:clamp(150px,19vw,196px); aspect-ratio:1; display:grid; place-items:center}
+  .ringBox svg{position:absolute; inset:0; width:100%; height:100%; transform:rotate(-90deg)}
+  .ringBox .track{stroke:rgba(255,255,255,.10); stroke-width:5; fill:none}
+  .ringBox .bar{
+    stroke:url(#ringGrad); stroke-width:5; fill:none; stroke-linecap:round;
+    filter:drop-shadow(0 0 8px rgba(111,227,206,.6));
+    transition:stroke-dashoffset .25s linear;
+  }
+  .ringTxt{position:relative; z-index:2; display:flex; flex-direction:column; align-items:center}
+  .pct{font-size:clamp(28px,4.4vw,40px); font-weight:800; letter-spacing:-.02em; line-height:1; font-variant-numeric:tabular-nums}
+  .pct i{font-style:normal; font-size:.42em; font-weight:700; opacity:.55; margin-left:2px}
+  .stageLine{
+    margin-top:12px; font-size:clamp(12.5px,1.4vw,14.5px); letter-spacing:.05em; color:var(--ink-dim);
+    display:flex; align-items:center; gap:8px; justify-content:center; min-height:22px;
+  }
+  .dot-ping{width:6px; height:6px; border-radius:99px; background:var(--mint); animation:ping 1.6s ease-out infinite}
+  @keyframes ping{0%{box-shadow:0 0 0 0 rgba(111,227,206,.55)}70%{box-shadow:0 0 0 9px rgba(111,227,206,0)}100%{box-shadow:0 0 0 0 rgba(111,227,206,0)}}
+
+  .steps{display:flex; gap:clamp(6px,1.4vw,14px); margin-top:clamp(16px,2.6vw,26px); flex-wrap:wrap; justify-content:center}
+  .step{display:flex; align-items:center; gap:7px; font-size:11.5px; letter-spacing:.04em; color:var(--ink-faint); transition:color .35s}
+  .step .b{
+    width:16px; height:16px; flex:0 0 16px; border-radius:99px; display:grid; place-items:center;
+    border:1px solid rgba(255,255,255,.34); font-size:9px; transition:background .35s, border-color .35s, color .35s;
+  }
+  .step[data-status="done"]{color:var(--ink-dim)}
+  .step[data-status="done"] .b{background:var(--teal); border-color:var(--teal); color:#04231E; font-size:0}
+  .step[data-status="done"] .b::after{content:"✓"; font-size:9px; font-weight:800; line-height:1}
+  .step[data-status="active"]{color:var(--ink)}
+  .step[data-status="active"] .b{border-color:var(--mint); box-shadow:0 0 0 3px rgba(111,227,206,.16)}
+
+  .detail{
+    margin-top:clamp(12px,2vw,18px); font-size:11px; letter-spacing:.02em; color:var(--ink-faint);
+    font-family:ui-monospace,"Cascadia Code",Consolas,monospace;
+    max-width:86%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-height:16px;
+  }
+  .linkbtn{
+    margin-top:14px; font-size:12px; letter-spacing:.04em; color:var(--ink-faint);
+    background:none; border:0; font-family:inherit; cursor:pointer;
+    text-decoration:underline; text-underline-offset:3px; transition:color .2s;
+  }
+  .linkbtn:hover{color:var(--ink-dim)}
+  .linkbtn:focus-visible{outline:2px solid var(--mint); outline-offset:2px; border-radius:3px}
+
+  /* 第三幕 · 完成 */
+  .okWrap{position:relative; display:grid; place-items:center; margin-bottom:clamp(10px,2vw,18px)}
+  .okRings{position:absolute; inset:-30%; display:grid; place-items:center; pointer-events:none}
+  .okRings i{
+    position:absolute; width:clamp(96px,12vw,130px); aspect-ratio:1; border-radius:50%;
+    border:1px solid rgba(111,227,206,.55); opacity:0;
+  }
+  .act.is-on .okRings i{animation:ripple 2.6s ease-out infinite}
+  .act.is-on .okRings i:nth-child(2){animation-delay:.85s}
+  .act.is-on .okRings i:nth-child(3){animation-delay:1.7s}
+  @keyframes ripple{0%{transform:scale(.55);opacity:.75}100%{transform:scale(2.3);opacity:0}}
+  .okBadge{
+    position:relative; z-index:2; width:clamp(66px,8vw,86px); aspect-ratio:1; border-radius:50%;
+    display:grid; place-items:center;
+    background:radial-gradient(circle at 35% 30%, #8BF0DC, #2EA292);
+    box-shadow:0 16px 40px -12px rgba(53,183,166,.9), 0 0 0 1px rgba(255,255,255,.2) inset;
+  }
+  .okBadge svg{width:56%; height:56%}
+  /* 勾始终是实打实画好的静态图形。
+     不用 stroke-dashoffset 描绘动画：那种写法一旦动画被节流/不推进（后台窗口、
+     某些 WebView、系统动画策略），勾会停在不可见的首帧，用户看到的就是一个空白圆点。
+     仪式感交给整个徽章的缩放来给，关键信息绝不依赖动画是否跑起来。 */
+  .okBadge path{fill:none; stroke:#04231E; stroke-width:3.4; stroke-linecap:round; stroke-linejoin:round}
+  @media (prefers-reduced-motion: no-preference){
+    /* forwards 而不是 both：动画没跑时保持元素的原生完整状态，
+       不会把徽章按在 .72 缩放 / 半透明上 */
+    .act.is-on .okBadge{animation:pop .5s .1s cubic-bezier(.2,.9,.25,1) forwards}
+    @keyframes pop{from{transform:scale(.72);opacity:.4}to{transform:scale(1);opacity:1}}
+  }
+  .statRow{display:flex; gap:18px; margin-top:12px; font-size:11.5px; color:var(--ink-faint); flex-wrap:wrap; justify-content:center}
+  .statRow b{font-weight:700; color:var(--ink-dim)}
+
+  /* 第四幕 · 失败 */
+  .failBadge{
+    width:clamp(60px,7.4vw,76px); aspect-ratio:1; border-radius:50%; display:grid; place-items:center;
+    background:radial-gradient(circle at 35% 30%, rgba(232,131,107,.95), rgba(160,64,48,.95));
+    box-shadow:0 16px 40px -14px rgba(232,131,107,.75), 0 0 0 1px rgba(255,255,255,.16) inset;
+    margin-bottom:clamp(10px,2vw,18px);
+  }
+  .failBadge svg{width:52%; height:52%}
+  .failBadge path{stroke:#2A0F0A; stroke-width:3.4; stroke-linecap:round; fill:none}
+  .errBox{
+    margin-top:14px; max-width:min(560px,88%); padding:10px 14px; border-radius:9px;
+    border:1px solid rgba(232,131,107,.28); background:rgba(232,131,107,.08);
+    font-size:11.5px; line-height:1.6; color:var(--ink-dim); text-align:left;
+  }
+  .errBox b{color:#F3B6A6; font-weight:700}
+
+  /* ============ 确认弹层 ============ */
+  .modal{
+    position:absolute; inset:0; z-index:20; display:grid; place-items:center; padding:24px;
+    background:rgba(4,14,16,.72); backdrop-filter:blur(4px);
+    opacity:0; visibility:hidden; transition:opacity .22s, visibility .22s;
+  }
+  .modal.is-on{opacity:1; visibility:visible}
+  .modalCard{
+    width:min(420px,100%); padding:22px 24px; border-radius:14px; text-align:left;
+    background:#0F2226; border:1px solid rgba(255,255,255,.12);
+    box-shadow:0 30px 70px -24px rgba(0,0,0,.8);
+  }
+  .modalCard h2{margin:0 0 8px; font-size:16px; letter-spacing:.01em}
+  .modalCard p{margin:0; font-size:13px; line-height:1.7; color:var(--ink-dim)}
+  .modalRow{display:flex; gap:10px; justify-content:flex-end; margin-top:20px}
+  .modalRow .cta{margin-top:0; padding:9px 20px; font-size:13px}
+  .modalRow .cta.ghost{padding:9px 18px}
+
+  /* ============ 静态模式（跟随系统"减少动态效果"） ============ */
+  .shell.is-static *,.shell.is-static *::before,.shell.is-static *::after{
+    animation:none !important; transition:none !important;
+  }
+  .shell.is-static #fx{opacity:.22}
+
+  @media (prefers-reduced-motion: reduce){
+    .shell *,.shell *::before,.shell *::after{animation:none !important; transition:none !important}
+    .shell #fx{opacity:.22}
+  }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="qmlogo" viewBox="0 0 64 64">
+    <defs>
+      <linearGradient id="qmBg" x1="15%" y1="0%" x2="85%" y2="100%">
+        <stop offset="0" stop-color="#B7DEDA"/><stop offset="52%" stop-color="#A3D0CB"/><stop offset="100%" stop-color="#89BEB9"/>
+      </linearGradient>
+      <radialGradient id="qmGlow" cx="50%" cy="30%" r="75%">
+        <stop offset="0" stop-color="#FFFFFF" stop-opacity=".28"/><stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect width="64" height="64" rx="14.5" fill="url(#qmBg)"/>
+    <rect width="64" height="64" rx="14.5" fill="url(#qmGlow)"/>
+    <rect x="30.25" y="29.5" width="3.5" height="19.5" rx="1.75" fill="#FFFFFF"/>
+    <path d="M23.5 22 A8.5 8.5 0 0 0 40.5 22 Z" fill="#FFFFFF" opacity=".10"/>
+    <circle cx="32" cy="22" r="9.5" fill="#FFFFFF" opacity=".07"/>
+    <circle cx="32" cy="22" r="5.6" fill="#FFFFFF" opacity=".20"/>
+    <circle cx="22.5" cy="22" r=".7" fill="#FFFFFF"/>
+    <circle cx="23.78" cy="17.28" r=".85" fill="#FFFFFF"/>
+    <circle cx="27.25" cy="13.78" r="1" fill="#FFFFFF"/>
+    <circle cx="32" cy="12.5" r="1.15" fill="#FFFFFF"/>
+    <circle cx="36.75" cy="13.78" r="1" fill="#FFFFFF"/>
+    <circle cx="40.22" cy="17.28" r=".85" fill="#FFFFFF"/>
+    <circle cx="41.5" cy="22" r=".7" fill="#FFFFFF"/>
+    <circle cx="29.3" cy="17.33" r="1" fill="#FFFFFF"/>
+    <circle cx="32" cy="16.6" r="1.15" fill="#FFFFFF"/>
+    <circle cx="34.7" cy="17.33" r="1" fill="#FFFFFF"/>
+    <circle cx="32" cy="22" r="2.9" fill="#FFFFFF"/>
+  </symbol>
+</svg>
+
+<div class="shell" id="shell" data-act="welcome">
+  <header class="chrome">
+    <svg class="mark" aria-hidden="true"><use href="#qmlogo"/></svg>
+    <span class="name">青幕AI写作 安装程序</span>
+    <span class="ver" id="chromeVer">v4.3.7</span>
+    <span class="spacer"></span>
+    <button class="winbtn" id="btnChromeClose" type="button" title="取消安装" aria-label="取消安装">✕</button>
+  </header>
+
+  <div class="body">
+    <div class="aura"></div>
+    <div class="floor"></div>
+    <canvas id="fx" aria-hidden="true"></canvas>
+
+    <!-- 第一幕：欢迎 -->
+    <section class="act is-on" data-act="welcome" aria-label="欢迎">
+      <div class="logoWrap">
+        <span class="halo"></span>
+        <span class="ring2"></span>
+        <svg class="mark-lg" aria-hidden="true"><use href="#qmlogo"/></svg>
+      </div>
+      <h1 class="title">青幕AI写作</h1>
+      <p class="sub">为中文长文本写作而生的 AI 工作台</p>
+      <div class="chips">
+        <span class="chip">本地优先</span>
+        <span class="chip">技能编排</span>
+        <span class="chip">长篇结构</span>
+      </div>
+      <button class="cta" id="btnStart" type="button">
+        开始安装
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+      </button>
+      <p class="fine">安装到当前用户目录 · 无需管理员权限 · 预计 40 秒</p>
+    </section>
+
+    <!-- 第二幕：安装中 -->
+    <section class="act" data-act="installing" aria-label="正在安装">
+      <div class="progWrap">
+        <div class="ringBox">
+          <svg viewBox="0 0 200 200" aria-hidden="true">
+            <defs>
+              <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#8BF0DC"/>
+                <stop offset="55%" stop-color="#35B7A6"/>
+                <stop offset="100%" stop-color="#1E7A6C"/>
+              </linearGradient>
+            </defs>
+            <circle class="track" cx="100" cy="100" r="88"/>
+            <circle class="bar" id="ringBar" cx="100" cy="100" r="88"/>
+          </svg>
+          <div class="ringTxt">
+            <span class="pct"><span id="pctNum">0</span><i>%</i></span>
+            <span class="stageLine"><span class="dot-ping"></span><span id="stageLabel">准备安装环境</span></span>
+          </div>
+        </div>
+
+        <div class="steps" id="steps"></div>
+
+        <div class="detail" id="detailLine"></div>
+        <button class="linkbtn" id="btnAbort" type="button">中止安装</button>
+      </div>
+    </section>
+
+    <!-- 第三幕：完成 -->
+    <section class="act" data-act="done" aria-label="安装完成">
+      <div class="okWrap">
+        <span class="okRings"><i></i><i></i><i></i></span>
+        <span class="okBadge">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        </span>
+      </div>
+      <h1 class="title">安装完成</h1>
+      <p class="sub">青幕AI写作 已就绪，随时可以开始写</p>
+      <div class="ctaRow">
+        <button class="cta" id="btnLaunch" type="button">
+          立即体验
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+        </button>
+        <button class="cta ghost" id="btnFinish" type="button">关闭</button>
+      </div>
+      <div class="statRow">
+        <span>安装位置 <b id="installPath">%LOCALAPPDATA%\QMaiWrite</b></span>
+      </div>
+    </section>
+
+    <!-- 第四幕：失败 -->
+    <section class="act" data-act="error" aria-label="安装失败">
+      <span class="failBadge">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg>
+      </span>
+      <h1 class="title">安装未完成</h1>
+      <p class="sub">可以重试，或者切回经典安装界面再试一次</p>
+      <div class="errBox">
+        <div><b id="errCode">E0000</b></div>
+        <div id="errMsg"></div>
+      </div>
+      <div class="ctaRow">
+        <button class="cta" id="btnRetry" type="button">重试安装</button>
+        <button class="cta ghost" id="btnLog" type="button">查看日志</button>
+        <button class="cta ghost" id="btnClassic" type="button">切回经典界面</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- 中止确认 -->
+  <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-hidden="true">
+    <div class="modalCard">
+      <h2 id="modalTitle">要中止安装吗？</h2>
+      <p>安装到一半中止会留下不完整的文件，程序可能无法正常使用。建议等安装完成。</p>
+      <div class="modalRow">
+        <button class="cta ghost" id="btnModalNo" type="button">继续安装</button>
+        <button class="cta" id="btnModalYes" type="button">中止并清理</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="./protocol.js"></script>
+<script src="./bridge.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

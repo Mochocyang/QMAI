@@ -7,6 +7,11 @@ release-portable-*/
 release-portable-backup/
 release-github/
 src-tauri/target/
+# 安装器动效壳是独立 crate，有自己的 target 目录，同样不进版本库
+src-installer/shell/target/
+# WebView2 运行时数据目录（紧挨 exe 生成）：含 Cookies、Login Data、
+# History 等浏览器数据，属于本机运行时缓存，绝不能进版本库。
+*.WebView2/
 *.tsbuildinfo
 .env
 .env.*
@@ -48,6 +53,8 @@ reasonix.toml
 QMdelete/
 tokenyouhua/
 .codegraph/
+# 3D 地图实验素材（约 4.3MB 的图片与 three.js 副本），仅本地保留
+/docs/map-demo/
 
 # === 字体调研原始素材（仅本地保留，勿提交）===
 # 148 个文件 / 约 222MB：抓取到的许可全文、PDF 抽取文本、各字体发行包。
