@@ -1,4 +1,0 @@
-// 资源脚本：只做一件事——把软件图标写进 exe 的资源段。
-// 没有这一步，安装界面的任务栏按钮会显示 Windows 默认空白图标。
-// 图标路径相对本文件所在目录（src-installer/shell）。
-1 ICON "../../src-tauri/icons/icon.ico"
