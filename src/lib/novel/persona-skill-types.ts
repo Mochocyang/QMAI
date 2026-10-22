@@ -96,7 +96,7 @@ export const PERSONA_MAJOR_FIELDS = [
 /** 次要人物只给两条（设计 07 节）：这两条在 major 表里也有，必须是它的子集。 */
 export const PERSONA_MINOR_FIELDS = ["怎么说话", "怎么判断"] as const
 /**
- * 建档/落盘时抽取的字段：**一律是全部 5 个**，与档位无关。
+ * 建档/落盘时抽取的**演技**字段：**一律是全部 5 个**，与档位无关。
  *
  * 这是刻意的分工：档位（major/minor）决定的是**注入写正文时给几段**
  * （见 `renderPersonaSkillBlock`），而不是「学多少」。原因有两条：
@@ -109,6 +109,72 @@ export const PERSONA_MINOR_FIELDS = ["怎么说话", "怎么判断"] as const
  * 所以别把这里改成按档位取值 —— 那会把「省注入」和「省学习」混为一谈。
  */
 export const PERSONA_STORED_FIELDS = PERSONA_MAJOR_FIELDS
+
+/**
+ * 档案字段：界面「档案」页签的结构化内容，与演技字段一起写进 SKILL.md。
+ *
+ * 与 `PERSONA_MAJOR_FIELDS` 的分工（别混为一谈）：
+ * - **档案字段**回答「他是谁、他在哪一方、他长什么样、他要什么」——给**人**读，
+ *   也给人改。它不参与写正文的注入预算，所以不占 `PERSONA_INJECT_CHAR_BUDGET`。
+ * - **演技字段**回答「这一场该怎么演他」——给**模型**读，按档位裁剪后注入。
+ *
+ * 为什么档案字段不能塞进 `PERSONA_MAJOR_FIELDS`：那张表是注入字段表，
+ * 每加一项就从每个出场人物的注入预算里切走一块，而「外貌 / 背景 / 成长轨迹」
+ * 对「这一场怎么演」几乎没有边际收益。反过来，档案页签需要它们 ——
+ * 用户点开一个人，看到的应该是一份能当资料查的档案，而不是五个抽象标签。
+ *
+ * ⚠️ 这张表里的名字就是 SKILL.md 的 `## 标题`，改名等于让老档案整段读不出来。
+ * 顺序即界面顺序，也是 SKILL.md 里的渲染顺序。
+ */
+export const PERSONA_PROFILE_FIELDS = [
+  "性别",
+  "年龄",
+  "势力组织",
+  "外貌",
+  "性格",
+  "背景",
+  "动机",
+  "能力",
+  "关系网",
+  "成长轨迹",
+  "备注",
+] as const
+
+/**
+ * 由「提取记忆」自动维护的**动态区块**：当前状态 / 出场组织 / 认知变化 / 关系变化。
+ *
+ * 与档案字段的根本区别是**谁写**：
+ * - 档案字段（性别、外貌…）由模型在章节学习时产出；
+ * - 动态区块由 `persona-skill-facts.ts` 从章节快照（`ChapterSnapshot`）直接映射，
+ *   **不调模型、不花 token、不进提示词**。因为组织、状态、认知、关系变化
+ *   在快照里本来就有结构化数据（`organizations` / `characterStateChanges` /
+ *   `knowledgeChanges` / `relationshipChanges`），让模型再写一遍既贵又会与
+ *   记忆中心的权威数据打架。
+ *
+ * 也刻意不进注入字段表：这些都是「当前处境」，不是「这一场怎么演他」；
+ * 状态每章都变，注入进去等于让上下文逐章漂移。
+ */
+export const PERSONA_LIVE_FIELDS = ["当前状态", "出场组织", "认知变化", "关系变化"] as const
+
+/**
+ * SKILL.md 里会被渲染 / 合并的**全部**字段，顺序即文档顺序。
+ *
+ * 档案在前、演技居中、动态在最后：动态区块变得最勤，放末尾便于人肉阅读与 diff。
+ * `readStoredPersonaFields` 与 `mergePersonaFields` 也用它遍历 —— 后者必须覆盖
+ * 全部字段，否则完善一轮只合并 5 个演技字段，其余字段会被下一轮整格替换清空。
+ */
+export const PERSONA_DOCUMENT_FIELDS = [
+  ...PERSONA_PROFILE_FIELDS,
+  ...PERSONA_MAJOR_FIELDS,
+  ...PERSONA_LIVE_FIELDS,
+] as const
+
+/** 动态区块里「累积型」字段各自保留的条数上限（超出丢最旧）。当前状态是快照，不累积。 */
+export const PERSONA_LIVE_SECTION_LIMITS = {
+  出场组织: 8,
+  认知变化: 12,
+  关系变化: 12,
+} as const
 /** 用户手改过的档案只在文末追加这个段落，AI 不覆盖既有内容。 */
 export const PERSONA_SUPPLEMENT_HEADING = "补充"
 /** 只有绿勾（pinned）人物才生成研究文件。 */

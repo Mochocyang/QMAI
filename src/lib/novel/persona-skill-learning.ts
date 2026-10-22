@@ -8,9 +8,12 @@ import { parseLlmJsonArray, parseLlmJsonObject } from "./book-analysis/llm-json"
 import { appendChapterIngestLog, previewLlmOutput } from "./chapter-ingest-log"
 import { parseCharacterRoleFileName } from "./extract-established-context"
 import {
+  PERSONA_DOCUMENT_FIELDS,
   PERSONA_FIELD_SHRINK_RATIO,
+  PERSONA_MAJOR_FIELDS,
   PERSONA_MIN_SUBSTRING_MATCH_CHARS,
   PERSONA_PRIOR_EVIDENCE_CHAPTERS,
+  PERSONA_PROFILE_FIELDS,
   PERSONA_RESEARCH_DOCUMENTS,
   PERSONA_SKILL_BATCH_SIZE,
   PERSONA_STORED_FIELDS,
@@ -28,6 +31,14 @@ import {
   type PersonaSkillSightings,
   type PersonaSkillTier,
 } from "./persona-skill-types"
+import {
+  applyPersonaProfileEdits,
+  readPersonaDocumentFields,
+} from "./persona-skill-profile"
+import {
+  syncPersonaSkillChapterFacts,
+  type PersonaChapterFactSource,
+} from "./persona-skill-facts"
 import {
   loadPersonaSkillIndex,
   loadPersonaSkillIndexStrict,
@@ -51,7 +62,6 @@ import {
   type PersonaSkillPromptTarget,
 } from "./persona-skill-prompt"
 import { PERSONA_PRIOR_EVIDENCE_CHARS, extractCharacterEvidence } from "./persona-skill-evidence"
-import { extractPersonaSkillSections } from "./persona-skill-context"
 
 export interface PersonaChapterInput {
   chapterNumber: number
@@ -66,6 +76,14 @@ export interface LearnPersonaSkillsOptions {
   chapter: PersonaChapterInput
   llmConfig: LlmConfig
   signal?: AbortSignal
+  /**
+   * 本章快照：走「动态区块」投影（当前状态 / 出场组织 / 认知变化 / 关系变化）。
+   *
+   * 可选是为了兼容只造了 chapter 的旧调用（测试、外部调用）。传了就一定同步 ——
+   * 且在 `finally` 里做，保证「本章没达标 / 没模型 / 模型报错」时**也会**更新，
+   * 因为状态与关系不该依赖模型是否可用。
+   */
+  chapterSnapshot?: PersonaChapterFactSource
 }
 
 export interface PersonaSkillDraft {
@@ -417,7 +435,6 @@ const PERSONA_FIELD_ALIASES: Record<string, string> = {
   思考方式: "怎么想",
   心理: "怎么想",
   内心: "怎么想",
-  动机: "怎么想",
   判断: "怎么判断",
   判断方式: "怎么判断",
   决策: "怎么判断",
@@ -431,6 +448,57 @@ const PERSONA_FIELD_ALIASES: Record<string, string> = {
   盲区: "知道局限",
   弱点: "知道局限",
   认知边界: "知道局限",
+}
+
+/**
+ * 档案字段的字段名容错。与演技字段同样的道理：差一个字，那一格就是空的，
+ * 而空白档案在界面上看起来像「AI 什么都没学到」，实际只是标题没对上。
+ *
+ * ⚠️ 「动机」不再映射到「怎么想」（它是档案字段的规范名，规范名优先命中）；
+ * 「补充说明」不收：文档里以「补充」开头的段属于手改档案的追加区，
+ * 让它同时是「备注」的别名会让两套语义互相踩。
+ */
+const PERSONA_PROFILE_FIELD_ALIASES: Record<string, string> = {
+  所属势力: "势力组织",
+  势力: "势力组织",
+  阵营: "势力组织",
+  组织: "势力组织",
+  门派: "势力组织",
+  家族: "势力组织",
+  隶属: "势力组织",
+  外形: "外貌",
+  外表: "外貌",
+  容貌: "外貌",
+  长相: "外貌",
+  形象: "外貌",
+  相貌: "外貌",
+  性情: "性格",
+  性格特点: "性格",
+  性情特点: "性格",
+  性子: "性格",
+  出身: "背景",
+  身世: "背景",
+  来历: "背景",
+  背景故事: "背景",
+  目的: "动机",
+  欲望: "动机",
+  追求: "动机",
+  目标: "动机",
+  实力: "能力",
+  技能: "能力",
+  战力: "能力",
+  能力与资源: "能力",
+  关系: "关系网",
+  人际关系: "关系网",
+  关系网络: "关系网",
+  人物关系: "关系网",
+  成长: "成长轨迹",
+  成长经历: "成长轨迹",
+  经历: "成长轨迹",
+  弧光: "成长轨迹",
+  人物弧光: "成长轨迹",
+  说明: "备注",
+  其他: "备注",
 }
 
 /** 别名表没命中时的兜底：按关键词判归属。顺序即优先级（「不做」必须先于「想」）。 */
@@ -459,11 +527,21 @@ const PERSONA_FIELD_KEYWORDS: ReadonlyArray<readonly [string, string]> = [
   ["想", "怎么想"],
 ]
 
-/** 模型给的字段名 → 5 个规范名之一；认不出来返回 null（宁可丢掉，也不硬塞错格）。 */
+/** 模型给的字段名 → 规范名之一；认不出来返回 null（宁可丢掉，也不硬塞错格）。 */
 export function canonicalPersonaFieldName(raw: string): string | null {
   const key = raw.trim()
   if (!key) return null
-  if ((PERSONA_STORED_FIELDS as readonly string[]).includes(key)) return key
+  // 规范名优先，但**只认 AI 该写的两类**（档案 + 演技）。
+  // 动态区块（当前状态/出场组织/认知变化/关系变化）由快照投影维护：
+  // 让模型输出它们既不划算（快照里已有结构化数据），也会把投影写的事实覆盖成编造。
+  if (
+    (PERSONA_PROFILE_FIELDS as readonly string[]).includes(key) ||
+    (PERSONA_MAJOR_FIELDS as readonly string[]).includes(key)
+  ) {
+    return key
+  }
+  const profileAlias = PERSONA_PROFILE_FIELD_ALIASES[key]
+  if (profileAlias) return profileAlias
   const alias = PERSONA_FIELD_ALIASES[key]
   if (alias) return alias
   for (const [needle, target] of PERSONA_FIELD_KEYWORDS) {
@@ -643,20 +721,23 @@ export interface RenderPersonaSkillDocumentInput {
   supplement?: string
 }
 
-/** 只取 5 个规范字段的正文。 */
+/**
+ * 只取已知字段的正文（档案 + 演技）。
+ *
+ * ⚠️ 必须覆盖**全部**文档字段：这里读出来的东西是完善时合并的「基线」。
+ * 只读 5 个演技字段的话，档案字段的旧值在合并时等于不存在 ——
+ * 模型这一章没提到「外貌」，`## 外貌` 就在落盘时被整段删掉。
+ */
 export function readStoredPersonaFields(document: string): Record<string, string> {
-  const sections = extractPersonaSkillSections(document)
-  const fields: Record<string, string> = {}
-  for (const name of PERSONA_STORED_FIELDS) {
-    const value = sections.get(name)?.trim()
-    if (value) fields[name] = value
-  }
-  return fields
+  return readPersonaDocumentFields(document)
 }
 
 /**
  * 完善时逐字段合并：新值为空，或短于旧值的 {@link PERSONA_FIELD_SHRINK_RATIO}，
  * 都视为模型漏写，保留旧值。`kept` 列出被护栏保住的字段，供日志使用。
+ *
+ * 遍历**全部**文档字段（档案 + 演技）：护栏若只护 5 个演技字段，
+ * 档案页里的「外貌 / 背景」会在每次完善时被本章的空白替换掉。
  */
 export function mergePersonaFields(
   previous: Record<string, string>,
@@ -664,7 +745,7 @@ export function mergePersonaFields(
 ): { fields: Record<string, string>; kept: string[] } {
   const fields: Record<string, string> = {}
   const kept: string[] = []
-  for (const name of PERSONA_STORED_FIELDS) {
+  for (const name of PERSONA_DOCUMENT_FIELDS) {
     const before = (previous[name] ?? "").trim()
     const after = (next[name] ?? "").trim()
     if (!after) {
@@ -737,7 +818,9 @@ function resolveSupplement(
 }
 
 export function renderPersonaSkillDocument(input: RenderPersonaSkillDocumentInput): string {
-  const order = PERSONA_STORED_FIELDS
+  // 档案字段也渲染进 SKILL.md：界面点开一个人，读的就是这份文档。
+  // 注入另有其人（renderPersonaSkillBlock 只取 5 个演技字段），两者不冲突。
+  const order = PERSONA_DOCUMENT_FIELDS
   const frontmatter = [
     "---",
     `character: ${input.characterName}`,
@@ -1303,6 +1386,18 @@ async function runPersonaSkillRound(pp: string, options: LearnPersonaSkillsOptio
       reason: "round_error",
       detail: `本轮学习抛错：${detail}`,
     })
+  } finally {
+    /*
+     * 动态区块投影必须放在 finally：
+     * 「本章没人达到学习门槛 / 没配模型 / 模型返回坏 JSON / 调用抛错」这几条路径
+     * 都会提前 return 或跳进 catch，但它们**同样需要**更新状态、出场组织、
+     * 认知与关系 —— 这些是事实，不该由模型是否可用决定。
+     * 也放在学习之后：新建档的人此时才有 SKILL.md 可写。
+     * 函数自身永不抛，失败只 warn，不会把 here 变成新的失败源。
+     */
+    if (options.chapterSnapshot) {
+      await syncPersonaSkillChapterFacts(pp, options.chapterSnapshot)
+    }
   }
 }
 
@@ -1466,6 +1561,67 @@ export async function promotePersonaSighting(options: {
     console.warn("[Persona Skill] 候选人建档失败:", err instanceof Error ? err.message : err)
     return false
   }
+}
+
+/**
+ * 用户在「档案」界面保存手改内容。
+ *
+ * 与 {@link savePersonaSkillDocumentByUser} 的区别：那个保存的是**整篇 Markdown**
+ * （原文编辑器），这个保存的是**表单字段**，由 `applyPersonaProfileEdits` 重建文档 ——
+ * frontmatter、H1、自定义分区与「补充」段都会原样保留。
+ *
+ * 顺带允许改「定位」：定位决定档位（注入预算），但它只存在 index.json 里，
+ * 写回时必须用 `resolvePersonaTier` 重算，不能让界面自己拼 tier。
+ *
+ * 全程同一把锁：正文与 editedByUser 必须在同一个原子操作里落盘，否则后台学习
+ * 会挤在中间按「没被改过」把用户刚写的内容覆盖掉（与 savePersonaSkillDocumentByUser 同理）。
+ */
+export interface SavePersonaProfileInput {
+  projectPath: string
+  id: string
+  fields: Record<string, string>
+  /** 界面改过的定位；不传表示不动。 */
+  roleType?: string
+}
+
+export async function savePersonaSkillProfileByUser(
+  input: SavePersonaProfileInput,
+): Promise<PersonaSkillIndex> {
+  const pp = normalizePath(input.projectPath)
+  return withPersonaSkillLock(personaSkillLockKey(pp), async () => {
+    const index = (await loadPersonaSkillIndexStrict(pp)) ?? { version: 1, skills: [] }
+    const meta = index.skills.find((item) => item.id === input.id)
+    const previous = await readPersonaSkillDocument(pp, input.id)
+    // 没有正文时先造一个壳：applyPersonaProfileEdits 只重建分区，
+    // 空文档会让 frontmatter 与 H1 一起消失，档案看起来「没有主人」。
+    const base = previous.trim()
+      ? previous
+      : `# ${meta?.characterName ?? input.id} · 人物 Skill\n`
+    const next = applyPersonaProfileEdits(base, input.fields)
+    if (meta && previous.trim() && previous !== next) {
+      await snapshotPersonaSkillRevision(pp, input.id, meta.skillRevision, previous)
+    }
+    await writePersonaSkillDocument(pp, input.id, next)
+
+    const updatedAt = new Date().toISOString()
+    const nextIndex: PersonaSkillIndex = {
+      version: 1,
+      skills: index.skills.map((item) => {
+        if (item.id !== input.id) return item
+        const roleType = input.roleType === undefined ? item.roleType : input.roleType.trim()
+        return {
+          ...item,
+          roleType,
+          tier: resolvePersonaTier(roleType, item.pinned),
+          editedByUser: true,
+          skillRevision: item.skillRevision + 1,
+          updatedAt,
+        }
+      }),
+    }
+    await savePersonaSkillIndex(pp, nextIndex)
+    return nextIndex
+  })
 }
 
 /**
