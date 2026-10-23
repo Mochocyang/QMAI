@@ -14,7 +14,9 @@ interface DirectRerankResponse {
 }
 
 export function isDirectRerankEndpoint(config: Pick<LlmConfig, "provider" | "customEndpoint">): boolean {
-  return config.provider === "custom" && /\/rerank\/?$/i.test(config.customEndpoint.trim())
+  // 阿里云百炼 / 千问云的 OpenAI 兼容重排地址是 .../compatible-api/v1/reranks（复数），
+  // 请求体与返回结构同 Cohere / SiliconFlow，只是路径多一个 s。
+  return config.provider === "custom" && /\/reranks?\/?$/i.test(config.customEndpoint.trim())
 }
 
 export async function requestDirectRerank(

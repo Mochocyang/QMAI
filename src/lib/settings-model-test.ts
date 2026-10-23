@@ -143,11 +143,11 @@ function extractJsonObject(raw: string): string {
 }
 
 /**
- * 常见重排模型名族。这些模型只能走直连重排接口（…/rerank），
- * 丢到 /chat/completions 上服务端只会回「模型不存在」，用户很难自己看出来。
+ * 常见重排模型名族。这些模型只能走直连重排接口（…/rerank 或 …/reranks），
+ * 丢到 /chat/completions 上服务端只会回一句看不懂的路径错误，用户很难自己看出来。
  */
 function isRerankModelName(model: string): boolean {
-  return /bge[-_]rerank|qwen\d?[./_-]rerank|gte[-_]rerank|jina[-_]reranker|bce[-_]rerank|bge[-_]reranker/i.test(model)
+  return /bge[-_]rerank|qwen[\w.-]*rerank|gte[-_]rerank|jina[-_]reranker|bce[-_]rerank|bge[-_]reranker/i.test(model)
 }
 
 function resolveRerankTestConfig(llmConfig: LlmConfig, rerankConfig: RerankConfig): {
@@ -163,8 +163,9 @@ function resolveRerankTestConfig(llmConfig: LlmConfig, rerankConfig: RerankConfi
     customEndpoint: rerankConfig.customEndpoint,
   }) && isRerankModelName(model)) {
     throw new Error(
-      `当前接口地址不是直连重排接口（需以 /rerank 结尾），却在使用重排模型 ${model}。`
-      + "请把接口地址填成完整的重排地址（例如 https://api.siliconflow.cn/v1/rerank），"
+      `当前接口地址不是直连重排接口（需以 /rerank 或 …/reranks 结尾），却在使用重排模型 ${model}。`
+      + "请把接口地址填成完整的重排地址（例如 https://api.siliconflow.cn/v1/rerank、"
+      + "https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-api/v1/reranks），"
       + "或改用能返回 JSON 的聊天模型。",
     )
   }

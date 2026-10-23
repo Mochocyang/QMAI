@@ -29,10 +29,12 @@ describe("KnowledgeTree chapter memory extraction menu", () => {
   it("delegates to the shared bulk ingest used by the sidebar one-click entry", () => {
     // 必须是动态 import：这棵树刻意不在顶层拖进 chapter-ingest 的整个模块图
     expect(source).toContain('const { runBulkChapterIngest } = await import("@/lib/novel/chapter-bulk-ingest")')
-    expect(source).not.toContain('from "@/lib/novel/chapter-bulk-ingest"')
+    expect(source).not.toContain('import { runBulkChapterIngest } from')
     expect(source).toContain("runBulkChapterIngest(projectPath, {")
-    // 右键菜单的语义是「重新提取所有章节」，不能悄悄变成「只补未提取的」
-    expect(source).toContain('mode: "all"')
+    // 两种范围都交给共享实现，入口不能写死全量提取。
+    expect(source).toContain('handleExtractAllChapterMemories("all")')
+    expect(source).toContain('handleExtractAllChapterMemories("pending")')
+    expect(source).not.toContain('mode: "all"')
     expect(source).toContain("chapters: sortedChapterPages.map((page) => ({")
     // 树算不出章号时靠文件名数字兜底，不传就会被整章跳过
     expect(source).toContain("fileChapterNumber: page.fileChapterNumber")

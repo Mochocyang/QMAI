@@ -86,8 +86,8 @@ function buildEndpointModelsUrl(endpoint: string): string {
   if (/\/messages(?:\?.*)?$/i.test(trimmed)) {
     return trimmed.replace(/\/messages(?:\?.*)?$/i, "/models")
   }
-  if (/\/rerank(?:\?.*)?$/i.test(trimmed)) {
-    return trimmed.replace(/\/rerank(?:\?.*)?$/i, "/models")
+  if (/\/reranks?(?:\?.*)?$/i.test(trimmed)) {
+    return trimmed.replace(/\/reranks?(?:\?.*)?$/i, "/models")
   }
   if (/\/models(?:\?.*)?$/i.test(trimmed)) {
     return trimmed
@@ -127,8 +127,8 @@ function buildModelsUrl(config: LlmConfig): { url: string; headers: Record<strin
     modelsUrl = url.replace(/\/responses(?:\?.*)?$/i, "/models")
   } else if (/\/messages(?:\?.*)?$/i.test(url)) {
     modelsUrl = url.replace(/\/messages(?:\?.*)?$/i, "/models")
-  } else if (/\/rerank(?:\?.*)?$/i.test(url)) {
-    modelsUrl = url.replace(/\/rerank(?:\?.*)?$/i, "/models")
+  } else if (/\/reranks?(?:\?.*)?$/i.test(url)) {
+    modelsUrl = url.replace(/\/reranks?(?:\?.*)?$/i, "/models")
   } else {
     modelsUrl = `${url.replace(/\/+$/, "")}/models`
   }

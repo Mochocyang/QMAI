@@ -5,7 +5,7 @@ import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, Fol
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { useWikiStore } from "@/stores/wiki-store"
 import { createDirectory, deleteFile, fileExists, listDirectory, readFile, writeFile, openFileLocation, copyFile } from "@/commands/fs"
 import type { FileNode } from "@/types/wiki"
@@ -32,6 +32,7 @@ import { openDocumentInReaderWindow } from "@/lib/reader-window-opener"
 import { saveLastReadChapter } from "@/lib/project-store"
 import { mapWithConcurrency } from "@/lib/async-pool"
 import type { ReferenceToken } from "@/lib/reference/types"
+import type { BulkChapterIngestMode } from "@/lib/novel/chapter-bulk-ingest"
 
 /**
  * 章节行最前面那一格圆点的尺寸 class。真点与占位点**共用**这一份，
@@ -339,6 +340,7 @@ export function KnowledgeTree({
   const [deletingPath, setDeletingPath] = useState<string | null>(null)
   const [createMenu, setCreateMenu] = useState<CreateMenuState | null>(null)
   const [findOpen, setFindOpen] = useState(false)
+  const [chapterExtractDialogOpen, setChapterExtractDialogOpen] = useState(false)
   const [findDraft, setFindDraft] = useState("")
   const [pageMenu, setPageMenu] = useState<{ path: string; x: number; y: number } | null>(null)
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
@@ -767,8 +769,9 @@ export function KnowledgeTree({
     }
   }, [project, t, refreshCurrentTree, selectedFile, setSelectedFile])
 
-  const handleExtractAllChapterMemories = useCallback(async () => {
+  const handleExtractAllChapterMemories = useCallback(async (mode: BulkChapterIngestMode) => {
     if (!project || filterType !== "chapter") return
+    setChapterExtractDialogOpen(false)
     const chapterPaths = sortedChapterPages.map((page) => page.path)
     if (chapterPaths.length === 0) {
       window.alert("当前没有可提取的章节。")
@@ -779,9 +782,7 @@ export function KnowledgeTree({
      * 进度任务、取消、逐章点亮「提取中」灰点全部由 lib 里的共享实现负责 ——
      * 与侧边栏那枚「一键提取」图标是同一条代码路径。以前这里自己抄了一份
      * 循环，两份实现的分歧正是「一键提取没反应」那类问题的温床。
-     *
-     * 这里传 mode: "all"：右键菜单的语义一直是「重新提取所有章节」，
-     * 与侧边栏默认的「只补未提取」不同，不能悄悄改掉。
+     * 提取范围由弹窗显式选择，未提取章节的筛选也交给共享实现。
      */
     const projectPath = normalizePath(project.path)
     try {
@@ -789,7 +790,7 @@ export function KnowledgeTree({
       // 拖进这棵树（见上面 listSnapshots 那段注释）。
       const { runBulkChapterIngest } = await import("@/lib/novel/chapter-bulk-ingest")
       await runBulkChapterIngest(projectPath, {
-        mode: "all",
+        mode,
         chapters: sortedChapterPages.map((page) => ({
           path: page.path,
           title: page.title,
@@ -2022,7 +2023,10 @@ export function KnowledgeTree({
               <button
                 type="button"
                 className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
-                onClick={() => void handleExtractAllChapterMemories()}
+                onClick={() => {
+                  setPageMenu(null)
+                  setChapterExtractDialogOpen(true)
+                }}
               >
                 <BookOpen className="h-3.5 w-3.5" />
                 一键提取所有章节
@@ -2100,6 +2104,28 @@ export function KnowledgeTree({
             )}
           </div>
         )}
+
+        <Dialog open={chapterExtractDialogOpen} onOpenChange={setChapterExtractDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>选择章节提取范围</DialogTitle>
+              <DialogDescription>
+                “全部提取”会重新提取所有章节，更新已有章节记忆；“仅提取未提取章节”会跳过已有记忆快照的章节。
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setChapterExtractDialogOpen(false)}>
+                取消
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => void handleExtractAllChapterMemories("pending")}>
+                仅提取未提取章节
+              </Button>
+              <Button type="button" onClick={() => void handleExtractAllChapterMemories("all")}>
+                全部提取
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={findOpen} onOpenChange={setFindOpen}>
           <DialogContent className="sm:max-w-sm">
