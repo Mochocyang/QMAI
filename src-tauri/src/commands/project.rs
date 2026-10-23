@@ -314,27 +314,144 @@ fn suppress_windows_console(_cmd: &mut Command) {
     }
 }
 
+/// 把整本小说移入**系统回收站**（删书）。
+///
+/// 三端机制完全不同，所以按平台分派。以前这里只有 PowerShell 一条实现，
+/// 没做 `cfg(windows)` 门控 —— macOS 上 `Command::new("powershell")` 直接
+/// spawn 失败，返回 `无法打开系统回收站：No such file or directory (os error 2)`，
+/// 前端 `removeBook` 捕获后只弹一条错误、书原样留在书架上，表现就是「删书删不掉」。
 #[tauri::command]
 pub fn move_project_to_system_trash(path: String) -> Result<(), String> {
     run_guarded("move_project_to_system_trash", || {
         let (parent, name) = project_parent_and_name(&path)?;
         let source = parent.join(&name);
-        let script = format!(
-            "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('{}','OnlyErrorDialogs','SendToRecycleBin')",
-            source.to_string_lossy().replace('\'', "''")
-        );
-        let mut command = Command::new("powershell");
-        suppress_windows_console(&mut command);
-        let output = command
-            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
-            .output()
-            .map_err(|error| format!("无法打开系统回收站：{}", error))?;
-        if !output.status.success() {
-            let message = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("移入系统回收站失败：{}", message.trim()));
-        }
-        Ok(())
+        move_dir_to_trash(&source)
     })
+}
+
+#[cfg(windows)]
+fn move_dir_to_trash(source: &Path) -> Result<(), String> {
+    let script = format!(
+        "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('{}','OnlyErrorDialogs','SendToRecycleBin')",
+        source.to_string_lossy().replace('\'', "''")
+    );
+    let mut command = Command::new("powershell");
+    suppress_windows_console(&mut command);
+    let output = command
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .map_err(|error| format!("无法打开系统回收站：{}", error))?;
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("移入系统回收站失败：{}", message.trim()));
+    }
+    Ok(())
+}
+
+/// macOS：直接挪进用户回收站 `~/.Trash`。
+///
+/// 为什么不用 `osascript`/Finder 的 `delete`：那条路要「自动化」授权（TCC），
+/// 首次删书会弹「青幕AI写作 想要控制 Finder」，用户点一次拒绝就永久坏掉；
+/// 而 `~/.Trash` 就是当前用户下的普通目录，`rename` 一步进去，Finder 里立刻
+/// 能看到、也支持拖回来。代价是不会写「放回原位」的定位信息 —— 但**能删**比
+/// 「有放回按钮但删不掉」重要得多。
+#[cfg(target_os = "macos")]
+fn move_dir_to_trash(source: &Path) -> Result<(), String> {
+    let trash = macos_trash_directory()?;
+    fs::create_dir_all(&trash)
+        .map_err(|error| format!("无法创建回收站目录 '{}'：{}", trash.display(), error))?;
+    let target = unique_trash_destination(&trash, source);
+    move_into_place(source, &target)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_trash_directory() -> Result<PathBuf, String> {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .ok_or_else(|| "无法定位用户主目录（HOME 未设置），书没有删除。".to_string())?;
+    Ok(home.join(".Trash"))
+}
+
+/// Linux：优先交给 `gio trash`（会写 `.trashinfo`，文件管理器里能正常还原）；
+/// 系统没装 gio 时给一句明确的错，而不是像以前那样报「找不到 powershell」。
+#[cfg(all(not(windows), not(target_os = "macos")))]
+fn move_dir_to_trash(source: &Path) -> Result<(), String> {
+    let output = Command::new("gio")
+        .args(["trash", "--"])
+        .arg(source)
+        .output()
+        .map_err(|error| format!("系统没有可用的回收站工具（gio trash）：{}", error))?;
+    if !output.status.success() {
+        let message = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("移入系统回收站失败：{}", message.trim()));
+    }
+    Ok(())
+}
+
+/// 真正把目录挪到 `target`。同卷 `rename` 是原子操作；跨卷（小说放在移动硬盘、
+/// 或另一个分区）`rename` 会回 EXDEV，这时退化成「复制 → 删源」。
+#[cfg(target_os = "macos")]
+fn move_into_place(source: &Path, target: &Path) -> Result<(), String> {
+    match fs::rename(source, target) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
+            copy_dir_all(source, target).map_err(|copy_error| {
+                format!(
+                    "移入系统回收站失败：{}；复制到回收站也失败：{}",
+                    error, copy_error
+                )
+            })?;
+            fs::remove_dir_all(source)
+                .map_err(|remove_error| format!("已复制到回收站，但删除原目录失败：{}", remove_error))
+        }
+        Err(error) => Err(format!("移入系统回收站失败：{}", error)),
+    }
+}
+
+/// 回收站里的重名处理：`书名` → `书名 2` → `书名 3`…，和 Finder 的副本命名一致。
+///
+/// 这一步不能省：POSIX 的 `rename` 对同名目录**不是安全的**——目标是空目录会被
+/// 直接替换，非空则报 ENOTEMPTY 让删除整体失败。而用户完全可能在回收站里已经有
+/// 一本同名（删过又重建）的小说，两种情况都不能接受。
+#[cfg(any(target_os = "macos", test))]
+fn unique_trash_destination(trash: &Path, source: &Path) -> PathBuf {
+    let name = source
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("未命名小说")
+        .to_string();
+    let first = trash.join(&name);
+    if !first.exists() {
+        return first;
+    }
+    for index in 2..10_000u32 {
+        let candidate = trash.join(format!("{name} {index}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    trash.join(format!("{name} {}", Local::now().format("%Y%m%d%H%M%S")))
+}
+
+#[cfg(target_os = "macos")]
+fn copy_dir_all(source: &Path, target: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(target)?;
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = target.join(entry.file_name());
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            // 链接按链接本身搬，不跟随 —— 否则一个指向外部的链接会把整片目录拖进回收站。
+            std::os::unix::fs::symlink(fs::read_link(&from)?, &to)?;
+        } else if file_type.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else {
+            fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
 }
 
 fn cover_directory(path: &str) -> Result<PathBuf, String> {
@@ -510,4 +627,56 @@ fn write_file_inner(path: std::path::PathBuf, contents: &str) -> Result<(), Stri
     }
     fs::write(&path, contents)
         .map_err(|e| format!("Failed to write file '{}': {}", path.display(), e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 每个用例用独立临时目录，避免并行跑测试时互相看见对方建的同名文件夹。
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "qmai-trash-{}-{}-{:?}",
+            tag,
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("创建临时目录失败");
+        dir
+    }
+
+    #[test]
+    fn unique_trash_destination_uses_original_name_when_free() {
+        let trash = scratch("free");
+        let source = trash.join("楚白");
+        let target = unique_trash_destination(&trash, &source);
+        assert_eq!(target, trash.join("楚白"));
+        let _ = fs::remove_dir_all(&trash);
+    }
+
+    #[test]
+    fn unique_trash_destination_appends_index_on_collision() {
+        let trash = scratch("collide");
+        fs::create_dir_all(trash.join("楚白")).unwrap();
+        let source = trash.join("楚白");
+        assert_eq!(unique_trash_destination(&trash, &source), trash.join("楚白 2"));
+
+        // 「楚白 2」也占用时继续往后找，绝不覆盖回收站里已有的那份。
+        fs::create_dir_all(trash.join("楚白 2")).unwrap();
+        assert_eq!(unique_trash_destination(&trash, &source), trash.join("楚白 3"));
+        let _ = fs::remove_dir_all(&trash);
+    }
+
+    #[test]
+    fn unique_trash_destination_keeps_names_with_spaces_and_dots() {
+        let trash = scratch("spaces");
+        fs::create_dir_all(trash.join("我的 小说 v1.2")).unwrap();
+        let source = trash.join("我的 小说 v1.2");
+        assert_eq!(
+            unique_trash_destination(&trash, &source),
+            trash.join("我的 小说 v1.2 2")
+        );
+        let _ = fs::remove_dir_all(&trash);
+    }
 }
