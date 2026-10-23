@@ -53,6 +53,28 @@ vi.mock("@/lib/novel/persona-skill-learning", () => ({
   regeneratePersonaSkillResearch: vi.fn(async () => true),
   promotePersonaSighting: learning.promote,
   demotePersonaSkillToSighting: learning.demote,
+  /*
+   * 保存路径必须**真实跑一遍**：这一组用例要验证的正是「正文与 editedByUser
+   * 在同一把锁内写入」。mock 成空函数等于把被测对象换成 `() => {}`，
+   * 用例永远绿、功能永远错。这里用纯文本重建 + store 的真实保存，
+   * 只省掉 learning 模块拖进来的 llm-client / Tauri 依赖。
+   */
+  savePersonaSkillProfileByUser: async (input: {
+    projectPath: string
+    id: string
+    fields: Record<string, string>
+    roleType?: string
+  }) => {
+    const { applyPersonaProfileEdits } = await import("@/lib/novel/persona-skill-profile")
+    const store = await import("@/lib/novel/persona-skill-store")
+    const previous = await store.readPersonaSkillDocument(input.projectPath, input.id)
+    const base = previous.trim() ? previous : `# ${input.id} · 人物 Skill\n`
+    return store.savePersonaSkillDocumentByUser(
+      input.projectPath,
+      input.id,
+      applyPersonaProfileEdits(base, input.fields),
+    )
+  },
 }))
 
 const project = "C:/project"
@@ -187,12 +209,159 @@ describe("PersonaSkillView", () => {
     cleanup(root, container)
   })
 
-  it("打开档案后保存：写回 SKILL.md 并把 editedByUser 置真", async () => {
+  it("打开档案后按表单保存：写回 SKILL.md 并把 editedByUser 置真", async () => {
     writeIndex([meta()])
-    io.files.set(`${project}/.qmai/persona-skills/林清越/SKILL.md`, "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n原始内容。\n")
+    io.files.set(
+      `${project}/.qmai/persona-skills/林清越/SKILL.md`,
+      "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n原始内容。\n",
+    )
     const { container, root } = await renderView()
 
     await click(getButton(container, "打开档案") ?? null)
+
+    // 档案面板默认落在「基础设定」：这一格是结构化表单，不再是整篇 Markdown
+    const field = container.querySelector<HTMLTextAreaElement>('[data-testid="persona-field-性格"]')!
+    expect(field).not.toBeNull()
+    expect(container.textContent).toContain("势力组织")
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
+      setter?.call(field, "沉得住气，不轻易表态。")
+      field.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+    await flushEffects()
+    expect(container.textContent).toContain("未保存")
+
+    await click(container.querySelector('[data-testid="persona-profile-save"]'))
+
+    const saved = io.files.get(`${project}/.qmai/persona-skills/林清越/SKILL.md`)!
+    expect(saved).toContain("## 性格")
+    expect(saved).toContain("沉得住气，不轻易表态。")
+    // 既有分区必须原样保留：表单保存是在旧文档上重建，不是从零拼一份
+    expect(saved).toContain("## 怎么说话")
+    expect(saved).toContain("原始内容。")
+    expect(readIndex().skills[0].editedByUser).toBe(true)
+    expect(readIndex().skills[0].skillRevision).toBe(2)
+
+    cleanup(root, container)
+  })
+
+  it("档案页签把 SKILL.md 的分区回填成结构化字段", async () => {
+    writeIndex([meta()])
+    io.files.set(
+      `${project}/.qmai/persona-skills/林清越/SKILL.md`,
+      [
+        "---",
+        "character: 林清越",
+        "role: 男主",
+        "---",
+        "",
+        "# 林清越 · 人物 Skill",
+        "",
+        "## 性别",
+        "",
+        "男",
+        "",
+        "## 势力组织",
+        "",
+        "青云会",
+        "",
+        "## 关系网",
+        "",
+        "沈砚：旧识（互相提防）",
+        "",
+        "## 怎么说话",
+        "",
+        "句子短。",
+        "",
+        "## 补充（截至第 3 章）",
+        "",
+        "右肩有旧伤。",
+        "",
+      ].join("\n"),
+    )
+    const { container, root } = await renderView()
+
+    await click(getButton(container, "打开档案") ?? null)
+
+    expect(container.querySelector<HTMLInputElement>('[data-testid="persona-field-性别"]')!.value).toBe("男")
+    expect(container.querySelector<HTMLInputElement>('[data-testid="persona-field-势力组织"]')!.value).toBe("青云会")
+
+    // 语言与行为：5 条演技字段 + AI 追加的「补充」段
+    await click(container.querySelector('[data-testid="persona-profile-tab-act"]'))
+    expect(container.querySelector<HTMLTextAreaElement>('[data-testid="persona-field-怎么说话"]')!.value).toBe(
+      "句子短。",
+    )
+    expect(container.textContent).toContain("右肩有旧伤。")
+
+    // 关系：把「对象：关系（性质）」拆成一行一条
+    await click(container.querySelector('[data-testid="persona-profile-tab-relation"]'))
+    const relations = container.querySelector(".ui-test-persona-relations")!
+    expect(relations.textContent).toContain("沈砚")
+    expect(relations.textContent).toContain("旧识")
+    expect(relations.textContent).toContain("互相提防")
+
+    cleanup(root, container)
+  })
+
+  it("「当前状态」页签展示提取记忆投影的四段动态内容", async () => {
+    writeIndex([meta()])
+    io.files.set(
+      `${project}/.qmai/persona-skills/林清越/SKILL.md`,
+      [
+        "# 林清越 · 人物 Skill",
+        "",
+        "## 怎么说话",
+        "",
+        "句子短。",
+        "",
+        "## 当前状态",
+        "",
+        "第 7 章：右肩受伤，被困在码头",
+        "",
+        "## 出场组织",
+        "",
+        "青云会：成员（第 7 章）",
+        "",
+        "## 认知变化",
+        "",
+        "第 7 章：林清越知道账本是假的",
+        "",
+        "## 关系变化",
+        "",
+        "第 7 章：与 沈砚 关系 → 怀疑",
+        "",
+      ].join("\n"),
+    )
+    const { container, root } = await renderView()
+
+    await click(getButton(container, "打开档案") ?? null)
+    await click(container.querySelector('[data-testid="persona-profile-tab-status"]'))
+
+    expect(
+      container.querySelector<HTMLTextAreaElement>('[data-testid="persona-live-当前状态"]')!.value,
+    ).toContain("右肩受伤")
+    expect(
+      container.querySelector<HTMLTextAreaElement>('[data-testid="persona-live-出场组织"]')!.value,
+    ).toContain("青云会：成员")
+    expect(
+      container.querySelector<HTMLTextAreaElement>('[data-testid="persona-live-认知变化"]')!.value,
+    ).toContain("知道账本是假的")
+    expect(
+      container.querySelector<HTMLTextAreaElement>('[data-testid="persona-live-关系变化"]')!.value,
+    ).toContain("与 沈砚 关系")
+
+    cleanup(root, container)
+  })
+
+  it("原始 Markdown 页签仍可整篇编辑", async () => {
+    writeIndex([meta()])
+    const docPath = `${project}/.qmai/persona-skills/林清越/SKILL.md`
+    io.files.set(docPath, "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n原始内容。\n")
+    const { container, root } = await renderView()
+
+    await click(getButton(container, "打开档案") ?? null)
+    await click(container.querySelector('[data-testid="persona-profile-tab-raw"]'))
 
     const editor = container.querySelector<HTMLTextAreaElement>('[data-testid="persona-skill-editor"]')!
     expect(editor.value).toContain("原始内容。")
@@ -203,11 +372,10 @@ describe("PersonaSkillView", () => {
       editor.dispatchEvent(new Event("input", { bubbles: true }))
     })
 
-    await click(getButton(container, "保存") ?? null)
+    await click(container.querySelector('[data-testid="persona-profile-save"]'))
 
-    expect(io.files.get(`${project}/.qmai/persona-skills/林清越/SKILL.md`)).toContain("用户改过的内容。")
+    expect(io.files.get(docPath)).toContain("用户改过的内容。")
     expect(readIndex().skills[0].editedByUser).toBe(true)
-    expect(readIndex().skills[0].skillRevision).toBe(2)
 
     cleanup(root, container)
   })
@@ -253,11 +421,11 @@ describe("PersonaSkillView", () => {
 
     await click(getButton(container, "打开档案") ?? null)
 
-    const editor = container.querySelector<HTMLTextAreaElement>('[data-testid="persona-skill-editor"]')!
+    const field = container.querySelector<HTMLTextAreaElement>('[data-testid="persona-field-性格"]')!
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
-      setter?.call(editor, "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n用户改过的内容。\n")
-      editor.dispatchEvent(new Event("input", { bubbles: true }))
+      setter?.call(field, "用户改过的内容。")
+      field.dispatchEvent(new Event("input", { bubbles: true }))
     })
 
     // 先自己占住锁，模拟「后台学习正在跑」
@@ -267,11 +435,12 @@ describe("PersonaSkillView", () => {
       () => new Promise<void>((resolve) => { release = () => resolve() }),
     )
 
-    await click(getButton(container, "保存") ?? null)
+    await click(container.querySelector('[data-testid="persona-profile-save"]'))
 
     // 锁还被占着 —— 正文必须一字未动，证明「写正文」也在锁内。
     // 若实现是「先写正文、再单独取锁改标志」，这里会提前看到用户那句话。
     expect(io.files.get(docPath)).toContain("原始内容。")
+    expect(io.files.get(docPath)).not.toContain("用户改过的内容。")
 
     release()
     await act(async () => { await held })

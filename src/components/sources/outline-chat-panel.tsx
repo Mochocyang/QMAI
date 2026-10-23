@@ -1,8 +1,21 @@
 import { ScrollToLatestButton } from "@/components/chat/scroll-to-latest-button"
 import { UserMessageMeta } from "@/components/chat/user-message-meta"
 import { StoppedGenerationActions } from "@/components/novel/stopped-generation-actions"
+import { FailedGenerationActions } from "@/components/novel/failed-generation-actions"
 import { CONTINUE_STOPPED_GENERATION_PROMPT, isStoppedGenerationMessage } from "@/lib/novel/stopped-generation"
+import {
+  FAILED_GENERATION_CONTINUE_PROMPT,
+  hasFailedGenerationPartialContent,
+  isFailedGenerationMessage,
+} from "@/lib/novel/failed-generation"
 import { buildSettingProfileOutputRules } from "@/lib/novel/setting-profile-contracts";
+import { useGuideStore } from "@/lib/guide/guide-store"
+import {
+  buildGuideDemoOutlineMarkdown,
+  pickGuideDemoNovel,
+  readGuideDemoNovel,
+  rememberGuideDemoNovel,
+} from "@/lib/guide/guide-demo-novel"
 import {
   type CSSProperties,
   type ReactNode,
@@ -177,6 +190,7 @@ import {
   mergeChapterBatches,
   nextChapterBatchRange,
   primeChapterOutlineTemplate,
+  renderChapterOutlineMarkdown,
   validateChapterOutlineData,
   type ChapterOutlineData,
 } from "@/lib/novel/chapter-outline-template";
@@ -190,13 +204,13 @@ import {
   buildCharacterProfileHtmlForDraft,
   extractCharacterProfiles,
 } from "@/lib/novel/character-profile-template";
-import { primeFactionProfileTemplate } from "@/lib/novel/faction-profile-template";
-import { primePowerProfileTemplate } from "@/lib/novel/power-system-template";
-import { primeForeshadowingProfileTemplate } from "@/lib/novel/foreshadowing-plan-template";
-import { primeGoldenFingerProfileTemplate } from "@/lib/novel/golden-finger-template";
-import { primeGeographyProfileTemplate } from "@/lib/novel/geography-setting-template";
-import { primeLocationProfileTemplate } from "@/lib/novel/location-setting-template";
-import { primeBackgroundProfileTemplate } from "@/lib/novel/background-setting-template";
+import { primeFactionProfileTemplate, extractFactionProfiles } from "@/lib/novel/faction-profile-template";
+import { primePowerProfileTemplate, extractPowerProfiles } from "@/lib/novel/power-system-template";
+import { primeForeshadowingProfileTemplate, extractForeshadowingProfiles } from "@/lib/novel/foreshadowing-plan-template";
+import { primeGoldenFingerProfileTemplate, extractGoldenFingerProfiles } from "@/lib/novel/golden-finger-template";
+import { primeGeographyProfileTemplate, extractGeographyProfiles } from "@/lib/novel/geography-setting-template";
+import { primeLocationProfileTemplate, extractLocationProfiles } from "@/lib/novel/location-setting-template";
+import { primeBackgroundProfileTemplate, extractBackgroundProfiles } from "@/lib/novel/background-setting-template";
 import {
   resolveModelConfig,
   resolveNovelModel,
@@ -264,7 +278,7 @@ import {
   stripThoughtDumpFromText,
 } from "@/lib/thought-dump";
 import { ToolRegistry } from "@/lib/agent/registry";
-import { buildAgentConfig, modelSupportsTools } from "@/lib/agent/config";
+import { buildAgentConfig, isFunctionCallingEnabled, modelSupportsTools } from "@/lib/agent/config";
 import type { AgentConfig, AgentMessage, AgentRunRecord } from "@/lib/agent/types";
 import {
   applyAgentToolEvent,
@@ -336,23 +350,20 @@ import {
   buildOutlineDiscussExecutionPrompt,
   buildOutlineDiscussPhaseSystemRules,
   findLatestOutlineDiscussProtocol,
-  hasOutlineDiscussRepairableContent,
   isOutlineDiscussFinalizeRequest,
   parseOutlineDiscussProtocol,
-  validateOutlineDiscussProtocol,
   type OutlineDiscussAnswer,
-  type OutlineDiscussParseOutcome,
   type OutlineDiscussPhase,
   type OutlineDiscussProtocol,
 } from "@/lib/novel/outline-discuss-protocol";
-import { repairOutlineDiscussProtocolWithAi } from "@/lib/novel/outline-discuss-repair";
+import { resolveOutlineDiscussProtocol } from "@/lib/novel/outline-discuss-repair";
+import { resolveOutlinePlanProtocol } from "@/lib/novel/outline-plan-repair";
+import { resolveIntentClarityProtocol } from "@/lib/novel/outline-intent-repair";
 import {
   buildOutlinePlanClarifyAnswerPrompt,
   buildOutlinePlanElementCheckPrompt,
   buildOutlinePlanExecutionPrompt,
   buildOutlinePlanPhaseSystemRules,
-  parseOutlinePlanProtocol,
-  validateOutlinePlanProtocol,
   type OutlinePlanAnswer,
   type OutlinePlanPhase,
   type OutlinePlanProtocol,
@@ -864,40 +875,166 @@ function isDiscussDeliveredOutline(content: string): boolean {
   if (parseOutlineDiscussProtocol(content).kind !== "none") return false;
   if (parseOutlineSaveRequests(content).requests.length > 0) return true;
   if (extractVolumeOutlineData(content)) return true;
+  /*
+   * 章纲分批产出（chapterOutlineBatch）**不带** outlineSaveRequest —— 保存请求由软件在
+   * 最后一批之后合并生成。结构化-only 之后正文也空了，上面三条判据全落空，
+   * 于是「讨论轮里模型直接交付了章纲」会被判成"没交付"，回答被丢弃后重新要求它讲协议。
+   * 分批数据同样是一份真交付，这里必须认。
+   */
+  if (extractChapterOutlineBatch(content)) return true;
   return isSaveableOutlineDeliverable(content);
+}
+
+/**
+ * 只返回了结构化数据（没有 MD 正文）时，气泡里给一句可读的交代。
+ *
+ * 卷纲/章纲从 4.3.6 起不再让模型重复写一遍 MD —— 气泡里的正文因此会变成空，
+ * 用户只看到一团被清掉的 JSON 围栏。这里用数据本身算出统计，告诉他生成成功了、
+ * 有多少内容、去哪里看。文字由软件生成，不占模型输出。
+ */
+export function describeStructuredOnlyAnswer(raw: string): string {
+  const volume = extractVolumeOutlineData(raw)
+  if (volume) {
+    const stages = volume.stories.reduce((sum, story) => sum + story.st.length, 0)
+    return `已生成卷纲《${volume.title}》：${volume.stories.length} 个故事、${stages} 个环节。正文与折叠树由软件从结构化数据生成，可在下方保存为 .md / .html。`
+  }
+  const chapter = extractChapterOutlineData(raw)
+  if (chapter) {
+    const numbers = chapter.chapters.map((item) => item.n).sort((a, b) => a - b)
+    const range = numbers.length > 1 ? `第 ${numbers[0]}–${numbers[numbers.length - 1]} 章` : `第 ${numbers[0] ?? 1} 章`
+    /*
+     * 节数按**实际产出的 .md** 数，不写死 17。
+     *
+     * 反推会跳过全空的分区（模型少给几节就少几节）。写死「每章 17 节」等于替软件
+     * 保证了一件没发生的事：用户打开 .md 只有 8 节，第一反应是「软件把内容吞了」，
+     * 而数据本来就只有这些。全部写满时文案与旧版逐字相同。
+     */
+    const sectionCounts = chapter.chapters.map(
+      (item) => (renderChapterOutlineMarkdown({ ...chapter, chapters: [item] }).match(/^### /gm) ?? []).length,
+    )
+    const minSections = Math.min(...sectionCounts)
+    const maxSections = Math.max(...sectionCounts)
+    const sectionsNote = sectionCounts.length === 0 || minSections === 0
+      ? ""
+      : minSections === maxSections
+        ? `，每章 ${minSections} 节`
+        : `，每章 ${minSections}–${maxSections} 节`
+    return `已生成章纲 ${range}（共 ${chapter.chapters.length} 章${sectionsNote}）。正文与卡片流由软件从结构化数据生成。`
+  }
+  /*
+   * 事件细纲同样从 2026-10-18 起只收结构化数据（`eventOutlineData`）。
+   * 它的围栏被 `extractBodyContent` 剥掉之后气泡就空了 —— 主对话那边由
+   * `chat-message` 用 `renderEventOutlineMarkdown` 补正文，大纲面板没有那条腿，
+   * 于是同一条细纲回复在「章节区」有完整正文、在「大纲面板」只剩一张空消息 + 卡片。
+   * 这里补一句统计交代，与其余结构化-only 产线口径一致。
+   */
+  const eventOutline = extractEventOutlineData(raw)
+  if (eventOutline) {
+    const count = eventOutline.events.length
+    const budget = eventOutline.targetWords > 0 ? `，目标约 ${eventOutline.targetWords} 字` : ""
+    return `已生成第 ${eventOutline.chapterNumber} 章事件细纲：${count} 个事件${budget}。正文与细纲卡片由软件从结构化数据生成。`
+  }
+  const profiles = extractCharacterProfiles(raw)
+  if (profiles.length > 0) {
+    const sections = profiles.reduce((sum, profile) => sum + profile.sections.length, 0)
+    const names = profiles.slice(0, 3).map((profile) => profile.name).join("、")
+    const suffix = profiles.length > 3 ? "…" : ""
+    const subject = profiles.length > 1
+      ? `${profiles.length} 个角色（${names}${suffix}）`
+      : `角色《${profiles[0].name}》`
+    return `已生成${subject}的人物小传，共 ${sections} 个分区。正文与角色卡由软件从结构化数据生成，可在下方保存为 .md / .html。`
+  }
+  /*
+   * 其余七类设定同样只收结构化数据（2026-10-18 起），气泡必须给一句可读的交代，
+   * 否则用户看到的是一条空消息 —— 明明生成了内容，界面上却什么都没有。
+   *
+   * ⚠️ 必须**聚合全部命中的类别**，不能命中第一类就 return：「一键生成全部设定」
+   * 那一轮里，同一条回复经常同时带力量体系与地点设定（八类共用 fileType=setting，
+   * 批量产出是常态）。旧写法在第一类上直接返回，气泡只报「已生成 3 份力量体系」，
+   * 地点那几份一个都不提 —— 用户以为软件漏做了，实际只是没报数
+   * （`attachSettingFamilyHtml` 那边早就得按文件名二次配对，也是同一批回复）。
+   */
+  const settingFamilies: Array<{ label: string; extract: (text: string) => Array<{ name: string; sections: unknown[] }> }> = [
+    { label: "势力档案", extract: extractFactionProfiles },
+    { label: "力量体系", extract: extractPowerProfiles },
+    { label: "金手指", extract: extractGoldenFingerProfiles },
+    { label: "背景设定", extract: extractBackgroundProfiles },
+    { label: "地理设定", extract: extractGeographyProfiles },
+    { label: "地点设定", extract: extractLocationProfiles },
+    { label: "伏笔计划", extract: extractForeshadowingProfiles },
+  ]
+  const familySummaries: string[] = []
+  for (const family of settingFamilies) {
+    const docs = family.extract(raw)
+    if (docs.length === 0) continue
+    const sections = docs.reduce((sum, doc) => sum + doc.sections.length, 0)
+    const names = docs.slice(0, 3).map((doc) => doc.name).join("、")
+    const suffix = docs.length > 3 ? "…" : ""
+    const subject = docs.length > 1
+      ? `${docs.length} 份${family.label}（${names}${suffix}）`
+      : `${family.label}《${docs[0].name}》`
+    familySummaries.push(`${subject}，共 ${sections} 个分区`)
+  }
+  if (familySummaries.length > 0) {
+    // 单类时这一句与旧文案逐字相同（只有一类命中时 `join` 不引入任何分隔符之外的变化）。
+    return `已生成${familySummaries.join("；")}。正文与卡片由软件从结构化数据生成，可在下方保存为 .md / .html。`
+  }
+  return ""
+}
+
+/**
+ * 剥掉数据围栏后剩下的文字，是否只是「已生成…」这类交代语。
+ *
+ * 提示词允许模型在围栏外留一句说明，而气泡的内容判定如果只写「剥完还有没有字」，
+ * 那句话就会顶掉 `describeStructuredOnlyAnswer` 的统计交代 —— 用户看到的是
+ * 「好的，已按折叠树生成卷一。」这种一句话回复，明明生成了 10 个故事却什么都不显示。
+ *
+ * 判据只看形状（没有标题行 + 去掉空白极短），不认关键词：一份真交付的大纲
+ * 必然带 `#`/`##` 标题且远超 80 字，而交代语换个说法也逃离不了长度限制。
+ */
+export function looksLikeOutlineDeliveryNote(content: string): boolean {
+  const trimmed = content.trim()
+  if (!trimmed) return true
+  if (/^#{1,6}\s/m.test(trimmed)) return false
+  return trimmed.replace(/\s+/g, "").length <= 80
 }
 
 function getOutlineSectionOutputRules(title: string): string {
   if (title.includes("卷纲")) {
     return [
-      "【载体】必须同时产出三部分，缺一不可：",
-      "(1) MD 正文：本卷 10 个故事的文本版卷纲；",
-      "(2) 一个 ```json 围栏，顶层字段为 volumeOutlineData（10 个故事 × 10 个环节的结构化数据）；",
-      "(3) outlineSaveRequest（content 为 MD 正文即可）。",
-      "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 template.html 自动渲染折叠树。",
+      "【载体】只产出两部分，缺一不可：",
+      "(1) 一个 ```json 围栏，顶层字段为 volumeOutlineData（10 个故事 × 10 个环节的结构化数据）；",
+      '(2) outlineSaveRequest（content 写空字符串 ""，软件会用结构化数据自动生成 MD 与 HTML）。',
+      "**不要再手写一遍 MD 正文**：MD 里的每个字都能从结构化数据原样得到，重复写一遍等于让用户为同一份内容付两遍钱。",
+      "**不要自己写 HTML/CSS/标签**——软件会套模板渲染折叠树。",
       "",
-      "【完整性硬要求】",
-      "1. volumeOutlineData.stories 必须写满 10 个故事对象，一个都不能少；",
-      "2. 每个故事 st 必须写满 10 个环节：起①起②起③承①承②承③转①转②合①合②，每环节必须带 stage（**环节标识就用 stage 这个键，值写作「起①」这种标识，不要用 k / id 代替**）、who（人物＋功能位）、use（这一段要完成什么）、pay（该环节埋的期待在哪里兑现，如「合①」「故事五 承②」）、p（3 条具体条目）；可选 name：给该环节起一句具体的小标题（如「沐浴昏死」），软件会连同环节名一起显示；",
-      "3. 每个故事必须填全字段：range（**该故事覆盖的章号范围，如「第 1–12 章」，不是卷名**） / deliver / gift / mid（承③的反转类型） / twist（转①的反转类型） / hook / link / climax / beats（12 章节拍序列，可写成字符串「平升起紧落缓升紧顶缓顶悬」）；link 说明本故事引线在下一故事起①如何被接住；",
-      "4. 每个故事必须包含 line（main 主线＋sub 支线数组＋daily 日常与日常作用）；",
-      "5. 顶层必须补跨故事台账字段：position（卷级定位：pitch 卷定位 / theme 主题句 / narrative 叙事形态 / structure 结构选用声明 / chapters 建议章数 / ending 卷末落点）、roles（卷级功能位总览：引路/主角/阻力/镜子/代价/预埋 各一条）、foreshadows（伏笔追踪：每条 v 内容 / seed 埋设位置 / pay 回收位置）、cast（人物出场表：每条 n 人物 / role 功能位 / stories 出场故事 / u 作用）、escalation（大高潮分解+代价阶梯：写满 10 条，每条 id 故事 / stake 赌注等级 / lose 付出的代价 / rise 抬升到什么）、debts（悬念债务：每条 q 问题 / from 起始 / plan 计划回收）、rivals（对手推进：每条 n 对手 / moves 每故事的出手目标与动作）、growth（人物成长与资源：每条 n 人物 / gains 获得物与资源演进 / state 能力与状态变化）、places（地点组织索引：每条 n 名称 / kind 类型 / stories 出场故事 / u 剧情作用）；",
-      "6. position.structure 必须声明本卷选用的叙事结构：全卷 1 个 + 单故事 1 个 + 逐章 1 个，并说明为什么不用其余几种（不得叠加）；",
-      "7. 承③(mid) 与 转①(twist) 必须是不同的反转类型。",
+      "【只要故事，不要台账】卷纲只回答一件事：这卷发生了哪些故事、每个故事怎么推进。",
+      "禁止输出（写了软件也不显示，纯烧 token）：卷级定位（卷定位 / 主题句 / 叙事形态 / 结构选用 / 建议章数 / 卷末落点）、角色索引、地点索引、伏笔追踪表、悬念债务、对手推进表、人物成长表、整卷账本、期待感曲线、反转类型分布、支线推进矩阵、节拍体检、环节完整性矩阵、任何评分与统计。",
       "",
-      "【禁止事项】禁止出现「…」「等等」「略」「参考上文」「其余同理」「此处省略」等任何缩写写法；禁止只写第 1 个和第 10 个故事；禁止输出方法论说明板块（10 环节表 / 8 期待感 / 7 反转库 / 8 情绪结构 / 叙事结构表 / 三层线表 / 12 章排布表 / 跨卷复用）。",
-      "【输出顺序】先写 MD 正文，再写 ```json 的 volumeOutlineData，最后写 outlineSaveRequest。",
-      "【自检】输出前确认：故事数=10、每故事环节数=10、每环节条目数=3、每故事含 link、每环节含 pay、顶层含 position/roles/foreshadows/cast/escalation(10 条)/debts/rivals/growth/places、无省略号、承③≠转①。",
+      "【结构硬要求】",
+      "1. stories 必须写满 10 个故事对象，一个都不能少；每个故事只有 `id` / `range` / `title` / `st` 四个字段（可选 `beats`）；",
+      "2. range 是该故事覆盖的章号范围（如「第 1–12 章」）；title 是这个故事的名字；",
+      "3. st 必须写满 10 个环节：起①起②起③承①承②承③转①转②合①合②，每个环节只有三个字段——",
+      "   - stage：环节标识，值就写「起①」这种（**不要用 k / id / name 代替键名**）；",
+      "   - label：该故事在这一步的具体小标题（如「沐浴昏死」），要具体，不要照抄环节名；",
+      "   - who：这一步出场的人物（可带一句身份或功能）；",
+      "   - p：3 条这个环节里**具体发生了什么**——写事件、动作、决定、代价、说出口的话，不要写「铺垫矛盾」「承上启下」「推动剧情」这类空话；",
+      "4. 可选 beats：12 个字符的节拍串（平升起紧落缓升紧顶缓顶悬），章纲要靠它对齐，能写就写；",
+      "5. 承③ 与 转① 不要用同一个反转。",
+      "",
+      "【禁止事项】禁止出现「…」「等等」「略」「参考上文」「其余同理」「此处省略」等缩写写法；禁止只写第 1 个和第 10 个故事；禁止输出方法论说明板块（10 环节表 / 8 期待感 / 7 反转库 / 8 情绪结构 / 叙事结构表 / 三层线表 / 12 章排布表）。",
+      "【输出顺序】先写 ```json 的 volumeOutlineData，再写 outlineSaveRequest。",
+      "【自检】输出前确认：故事数=10、每故事环节数=10、每环节 p 满 3 条且条条是具体事件、无省略号、承③≠转①。",
     ].join("\n");
   }
   if (title.includes("章节细纲") || title.includes("章纲") || title.includes("细纲")) {
     const skeletonReference = getVolumeSkeletonReference();
     return [
-      "【载体】必须同时产出三部分，缺一不可：",
-      "(1) MD 正文：本故事每一章的章纲文本版（按章分节）；",
-      "(2) 一个 ```json 围栏，顶层字段为 chapterOutlineData（含 story 骨架 + chapters 数组）；",
-      "(3) outlineSaveRequest（content 为 MD 正文即可，文件名形如「章纲-第01–12章.md」）。",
-      "**不要自己写 HTML/CSS/标签**——软件会读取技能目录下的 template.html 自动渲染章纲卡片流。",
+      "【载体】只产出两部分，缺一不可：",
+      "(1) 一个 ```json 围栏，顶层字段为 chapterOutlineData（含 story 骨架 + chapters 数组）；",
+      '(2) outlineSaveRequest（content 写空字符串 ""，软件会用结构化数据自动生成 MD 与 HTML）。',
+      "**不要再手写一遍 MD 正文**（本分项已改为分批生成，17 节 MD 与 JSON 内容完全重复，写两遍就是让用户付两遍钱）。",
+      "**不要自己写 HTML/CSS/标签**——软件会套模板渲染章纲卡片流。",
       "",
       "【每章 17 节硬要求】§1 基础信息 / §2 上章承接 / §3 本章定位 / §4 浓缩剧情 / §5 核心事件链 / §6 关键词与必要条件 / §7 四段式 / §8 情绪曲线 / §9 爽点与看点 / §10 关键信息与扩写方式 / §11 画面细节 / §12 伏笔与钩子 / §13 出场角色与状态变化 / §14 设定与道具更新 / §15 写作约束 / §16 下一章交接 / §17 写作检查清单，一节都不能少。",
       "",
@@ -921,7 +1058,7 @@ function getOutlineSectionOutputRules(title: string): string {
       "1. JSON 顶层字段固定为 `chapterOutlineBatch`（结构与 chapterOutlineData 相同：title / story 骨架 / words / chapters，chapters 只含本批章节）；",
       "2. 本批**不要**输出 outlineSaveRequest，也不要重复已完成的章节；软件会在最后一批之后自动合并并统一保存；",
       "3. 必须带上 story 骨架（index / name / range / beats）——软件据此计算剩余批次；",
-      "4. 输出顺序：先写本批 MD 正文，再写 ```json 围栏的 chapterOutlineBatch。",
+      "4. 输出顺序：先写本批 ```json 围栏的 chapterOutlineBatch（**不要写 MD 正文**，正文由软件从数据生成）。",
       "",
       skeletonReference || "【卷纲骨架】项目里还没有可用的卷纲结构化数据（伴生 .json），story 骨架必须从卷纲 MD 原文逐字抄写，不得自创。",
       "",
@@ -1045,14 +1182,23 @@ function buildGenerationPrompt(
 ): string {
   const isVolumeOutline = title.includes("卷纲");
   const isChapterOutline = title.includes("章节细纲") || title.includes("章纲") || title.includes("细纲");
+  /*
+   * 八类设定（人物小传 / 势力 / 力量 / 金手指 / 背景 / 地理 / 地点 / 伏笔）同样是
+   * 结构化-only。这里必须自己判一次，不能只靠分项输出规则：`outputModeInstruction`
+   * 排在那些规则**之后**，末尾一句「按可保存的大纲正文输出」会把它们整个盖掉
+   * （模型倾向于听最后一句），结果又把 MD 写一遍 —— 正好是这次要省掉的那一半钱。
+   */
+  const isStructuredOnlySetting = Boolean(resolveSettingSpecByTitle(title));
   const outputModeInstruction = isVolumeOutline
-    ? "本次为卷纲：必须在同一条回复里同时产出 (1) MD 正文；(2) ```json 围栏的 volumeOutlineData（10 故事 × 10 环节全写满）；(3) outlineSaveRequest（content=MD 正文）。不要自己写 HTML，软件会套模板渲染折叠树。"
+    ? "本次为卷纲：只产出 (1) ```json 围栏的 volumeOutlineData（10 故事 × 10 环节全写满）；(2) outlineSaveRequest（content 留空字符串，软件会用它自动生成 MD 与 HTML）。不要再手写 MD 正文、不要自己写 HTML——重复写一遍等于让用户多付一倍钱。"
     : isChapterOutline
-    ? "本次为章纲（分批）：只写第 1 批 3 章，同时产出 (1) 本批 MD 正文；(2) ```json 围栏的 chapterOutlineBatch（story 骨架 + 本批章节的 17 节数据）；本批不要输出 outlineSaveRequest——软件会自动继续下一批，并在最后一批之后合并渲染 HTML 卡片流与统一保存。不要自己写 HTML，不要省略。"
+    ? "本次为章纲（分批）：只写第 1 批 3 章，只产出一个 ```json 围栏的 chapterOutlineBatch（story 骨架 + 本批章节的 17 节数据）；**不要写 MD 正文**（软件会用数据生成 MD 与 HTML 卡片流），本批不要输出 outlineSaveRequest——软件会自动继续下一批，并在最后一批之后合并渲染与统一保存。不要自己写 HTML，不要省略。"
     : outputMode === "per_chapter"
     ? "每个章节必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：第N章-章节标题.md。禁止将多个章节写入同一文件。"
     : outputMode === "per_item"
-    ? "每个角色/势力/体系必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：名称.md。禁止将多个角色/势力写入同一文件。每个文件都会由软件套该分项专属模板额外渲染同名 HTML 卡（保存时可选择 HTML/MD），你无需自己写 HTML。\n【单次体量硬限制】本次回复最多完整生成 1 个对象（各自的 MD 正文 + JSON + outlineSaveRequest 都必须完整，禁止为省篇幅缩水）。若待生成对象超过 1 个，只输出第 1 个，并在回复结尾用一行注明「未完成：对象A、对象B、…」；用户回复「继续」后按同样规则生成下一批。宁可分批，不可截断。"
+    ? "每个角色/势力/体系必须输出独立的 outlineSaveRequest，每个对应一个独立 .md 文件，文件名格式：名称.md。禁止将多个角色/势力写入同一文件。每个文件都会由软件套该分项专属模板额外渲染同名 HTML 卡（保存时可选择 HTML/MD），你无需自己写 HTML 或 MD。\n【单次体量硬限制】本次回复最多完整生成 1 个对象（结构化 JSON 与 outlineSaveRequest 都必须完整，content 留空字符串；禁止为省篇幅缩水）。若待生成对象超过 1 个，只输出第 1 个，并在回复结尾用一行注明「未完成：对象A、对象B、…」；用户回复「继续」后按同样规则生成下一批。宁可分批，不可截断。"
+    : isStructuredOnlySetting
+    ? "本次为设定分项：只产出一个 ```json 围栏的结构化数据（分区按上面的契约写全）与 outlineSaveRequest（content 留空字符串）。**不要写 MD 正文**、不要自己写 HTML/CSS——软件会把结构化数据一个字段不落地还原成 .md 并套专属模板渲染同名 HTML 卡；重复写一遍等于让用户多付一倍钱。"
     : "按可保存的大纲正文输出：标题清楚、条目完整、能直接指导后续小说写作。该分项会由软件套其专属模板额外渲染同名 HTML 卡（保存时可选择 HTML/MD），你无需自己写 HTML。";
 
   return [
@@ -1552,6 +1698,7 @@ function OutlineAssistantMessage({
   onConfirmDiscuss,
   onResumeMultiAgent,
   onContinueStopped,
+  onContinueFailed,
   resumeMultiAgentDisabled,
   nextStepDisabled,
   nextStepDisabledReason,
@@ -1597,6 +1744,12 @@ function OutlineAssistantMessage({
    * novel/stopped-generation-actions 统一渲染。
    */
   onContinueStopped?: () => void;
+  /**
+   * 「继续」：上一条大纲回复**生成失败**后，保留已生成内容接着往下写。
+   * 与停止那枚的区别只在提示词（失败有一种"什么都没产出"的形态）；
+   * 显示条件来自 lib/novel/failed-generation.ts，两个面板共用同一判定。
+   */
+  onContinueFailed?: () => void;
   resumeMultiAgentDisabled: boolean;
   nextStepDisabled: boolean;
   nextStepDisabledReason?: string;
@@ -1641,6 +1794,20 @@ function OutlineAssistantMessage({
   const isStoppedGeneration = !messageIsStreaming
     && index === activeMessagesLength - 1
     && isStoppedGenerationMessage(msg.content);
+  /**
+   * 这条大纲回复是**生成失败**的（正文结尾是 `生成失败：…`，或保留了半截内容
+   * 之后的 `⚠️ 生成中断：…`）。判定收在 lib/novel/failed-generation.ts，
+   * 章节面板用的是同一份。
+   *
+   * 与停止同一口径：只认最后一条、且这一轮已经跑完 —— 历史里失败过的消息
+   * 不该再长出两枚"重来/接着写"的按钮，那些动作只在刚刚失败这一刻有意义。
+   */
+  const isFailedGeneration = !messageIsStreaming
+    && index === activeMessagesLength - 1
+    && !isStoppedGeneration
+    && isFailedGenerationMessage(msg.content);
+  /** 失败前是否真的写出了内容（决定「继续」可用还是禁用）。 */
+  const canContinueFailed = hasFailedGenerationPartialContent(msg.content);
   // 轮播俏皮文案：整段生成期间始终显示，消解等待的枯燥感。
   const waitingHint = useWaitingHint(messageIsStreaming);
   // 文案并到闪烁光标那一行显示，不单独占一行。
@@ -1655,8 +1822,9 @@ function OutlineAssistantMessage({
     [answer, displayContent],
   );
   const intentProtocolError = !messageIsStreaming
-    ? msg.intentProtocolError ?? (intentProtocol.kind === "invalid"
-      ? `意图分析格式无效，尚未开始生成：${intentProtocol.error}`
+    ? msg.intentProtocolError ?? (intentProtocol.kind === "invalid" && !msg.intentClarityResult
+      // 补协议成功时消息上已有 intentClarityResult，这里不能再按"原始文本解析失败"补一条假错误。
+      ? `意图分析格式无效：${intentProtocol.error}。回复内容已保留。`
       : undefined)
     : undefined;
   const planProtocol = msg.outlinePlanProtocol ?? null;
@@ -1688,8 +1856,19 @@ function OutlineAssistantMessage({
     // 计划模式的协议块只用卡片渲染，气泡里不能漏出 JSON
     if (isPlanProtocolMessage || isDiscussProtocolMessage) return stripStructuredMarkers(rawContent);
     if (intentProtocol.kind === "valid") return stripStructuredMarkers(rawContent);
-    if (intentProtocol.kind === "invalid" || msg.intentProtocolError) return "";
-    return prepareOutlineSaveSourceContent(rawContent);
+    // 协议坏了也要把正文给用户（剥掉标记即可）：清空气泡等于把这一轮回复藏起来。
+    if (intentProtocol.kind === "invalid" || msg.intentProtocolError) return stripStructuredMarkers(rawContent);
+    const prepared = prepareOutlineSaveSourceContent(rawContent);
+    /*
+     * 只有结构化数据的回复（卷纲/章纲不再重复写 MD）不能让气泡空着，
+     * 也不能让「已生成…」一句交代语顶掉统计交代。
+     *
+     * 顺序是刻意的：**先**判 prepared 是不是真正文，只有「空 / 只是一句交代语」
+     * 时才去解析 JSON 算统计。反过来写（无条件先算 summary）会让每条历史消息
+     * 都跑一遍围栏扫描 + JSON.parse，一条两万字的回复也照跑 —— 纯浪费。
+     */
+    if (prepared.trim() && !looksLikeOutlineDeliveryNote(prepared)) return prepared;
+    return describeStructuredOnlyAnswer(rawContent) || prepared;
   }, [answer, intentProtocol, isDiscussProtocolMessage, isPlanProtocolMessage, msg.intentProtocolError, parsed.textContent]);
   useEffect(() => {
     if (!answer) {
@@ -1773,9 +1952,19 @@ function OutlineAssistantMessage({
           {intentProtocolError}
         </div>
       ) : null}
+      {msg.outlinePlanNotice && !messageIsStreaming ? (
+        <div className="mb-2 rounded border border-amber-500/40 bg-amber-50/70 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+          {msg.outlinePlanNotice}
+        </div>
+      ) : null}
       {msg.outlinePlanError && !messageIsStreaming ? (
         <div role="alert" className="mb-2 rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {msg.outlinePlanError}
+        </div>
+      ) : null}
+      {msg.outlineDiscussNotice && !messageIsStreaming ? (
+        <div className="mb-2 rounded border border-amber-500/40 bg-amber-50/70 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+          已按现有内容给出卡片：{msg.outlineDiscussNotice}
         </div>
       ) : null}
       {msg.outlineDiscussError && !messageIsStreaming ? (
@@ -1831,6 +2020,7 @@ function OutlineAssistantMessage({
           {!hasEventOutline ? (
             <button
               onClick={() => void onSaveAsOutline(actionContent)}
+              data-guide="outline.save"
               className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent"
               title="保存为大纲"
               aria-label="保存为大纲"
@@ -1847,10 +2037,23 @@ function OutlineAssistantMessage({
             {copied === msg.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
           </button>
           {/*
+            * 生成失败的消息：把「重试 / 继续」放在原本「重新生成」那一格，
+            * 于是这一排读起来是 保存 → 复制 → 重试 → 继续 → 引用资料，
+            * 与章节面板完全一致（两边共用 FailedGenerationActions）。
+            */}
+          {isFailedGeneration ? (
+            <FailedGenerationActions
+              onRetry={() => void onRegenerate(index)}
+              onContinue={onContinueFailed}
+              continueDisabled={!canContinueFailed}
+            />
+          ) : null}
+          {/*
             * 停止生成的消息不再单出一枚「重新生成」：上方那对按钮里的「重试」
             * 就是同一个动作，并排出现只会让人猜哪个才是"换模型重来"。
+            * 失败消息同理 —— 「重试」接的正是 onRegenerate。
             */}
-          {!isStoppedGeneration ? (
+          {!isStoppedGeneration && !isFailedGeneration ? (
             <button
               onClick={() => void onRegenerate(index)}
               disabled={isStreaming}
@@ -2009,6 +2212,7 @@ function OutlineGenerationMenu({
         className="inline-flex h-7 w-7 items-center justify-center rounded-md border-0 bg-transparent text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         title="生成大纲模块"
         aria-label="生成大纲模块"
+        data-guide="outline.modules"
         aria-haspopup="menu"
         aria-expanded={isOpen}
       >
@@ -2814,11 +3018,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
       chapterBatchSessionsRef.current.delete(conversationId);
       void clearChapterOutlineDraft(project?.path);
-      const md = batches.map((item) => item.md).filter(Boolean).join("\n\n");
+      // 正文由软件从合并后的数据生成：模型不再重复写一遍 MD（省一半输出 token）
+      const md = renderChapterOutlineMarkdown(merged);
       presentOrQueueSaveBatch({
         title: "请确认要保存的章纲文件",
         mode: "normal",
-        requests: [buildChapterOutlineSaveRequest(merged, md || `# ${merged.title}`)],
+        requests: [buildChapterOutlineSaveRequest(merged, md)],
         characterDrafts: [],
       });
       setSaveStatus(
@@ -3003,7 +3208,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               prompt: [
                 "系统检测到上一轮章纲内容不完整，无法渲染章纲卡片流，问题如下：",
                 `- ${chapterValidation.fileName}：${chapterValidation.text}`,
-                "请重新输出完整章纲：1) MD 正文；2) 一个 ```json 围栏的 chapterOutlineData —— story 骨架（index/name/range/beats）必须与卷纲一致；chapters 必须写满该故事每一章，每章写满 17 节（§1~§17），并带对齐字段 stage/beat/expect/time/place/seedFores/payFores；§5 核心事件链 ≥6 条且每条含 what/cause/action/result/use；§6 必要条件 enter/trigger/interact/result 四类齐全；§8 moodCurve 写满 4 节点；§10 expand 至少 1 条且含 info/how；§11 visual.env 与 visual.memory 必须有内容；§13 castChanges 至少 1 条；§14 worldUpdate 至少一项有内容；§17 checks 覆盖 10 条固定项；各章节拍必须与 story.beats 逐字一致；第 N 章 handover.nextStart 必须与第 N+1 章 carry.hook 呼应；payFores 必须在更早章节的 seedFores 出现过；3) outlineSaveRequest（content 为 MD 正文，文件名「章纲-第XX–XX章.md」，不要写 HTML）。禁止任何省略写法。",
+                "请重新输出完整章纲：只输出一个 ```json 围栏的 chapterOutlineData（**不要写 MD 正文**，正文与卡片流由软件从数据生成）—— story 骨架（index/name/range/beats）必须与卷纲一致；chapters 必须写满该故事每一章，每章写满 17 节（§1~§17），并带对齐字段 stage/beat/expect/time/place/seedFores/payFores；§5 核心事件链 ≥6 条且每条含 what/cause/action/result/use；§6 必要条件 enter/trigger/interact/result 四类齐全；§8 moodCurve 写满 4 节点；§10 expand 至少 1 条且含 info/how；§11 visual.env 与 visual.memory 必须有内容；§13 castChanges 至少 1 条；§14 worldUpdate 至少一项有内容；§17 checks 覆盖 10 条固定项；各章节拍必须与 story.beats 逐字一致；第 N 章 handover.nextStart 必须与第 N+1 章 carry.hook 呼应；payFores 必须在更早章节的 seedFores 出现过；再输出 outlineSaveRequest（content 留空字符串，文件名「章纲-第XX–XX章.md」，不要写 HTML）。禁止任何省略写法。",
               ].join("\n"),
             });
             return;
@@ -3181,6 +3386,25 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           role: "assistant",
           content:
             "请先在设置中配置并选择一个可用的 AI 模型，或在下方模型选择器中选择模型后再试。",
+        });
+        return { started: false, sent: false };
+      }
+      /*
+       * 两种原因必须分开说（用户已经踩过）：
+       * ① 供应商那边关掉了 Function Calling —— 这不是「模型不支持」，
+       *    而是用户自己的开关，提示必须指向那个开关；
+       * ② 模型确实在黑名单里。
+       *
+       * 为什么关掉开关也不能让大纲对话照跑：它的产出全靠 write_outline_node
+       * 落到 wiki/outlines，没有工具时模型只会回一段没人保存的文本
+       * （界面看着像成功了，文件却没变），比直接拦下更误导。
+       */
+      if (!isFunctionCallingEnabled(effectiveLlmConfig)) {
+        addMessage(convId, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content:
+            "当前供应商已关闭「启用 Function Calling」，AI 大纲需要工具调用才能把结果写入大纲文件。请到设置 → 模型设置中打开该开关，或更换支持工具调用的模型。",
         });
         return { started: false, sent: false };
       }
@@ -4224,24 +4448,23 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           throw new Error(OUTLINE_REASONING_ONLY_ERROR_MESSAGE);
         }
         const rawFinalContent = filteredRawFinalContent.content || "AI大纲未返回内容。";
-        // 计划模式的要素盘点轮：先过协议闸门，未通过一律不放行到生成
-        const planProtocolOutcome = options.planPhase
-          ? parseOutlinePlanProtocol(rawFinalContent)
-          : { kind: "none" as const };
-        const planValidation = planProtocolOutcome.kind === "valid"
-          ? validateOutlinePlanProtocol(
-            planProtocolOutcome.protocol,
-            getOutlinePlanRequiredElements(planProtocolOutcome.protocol.module || planTargetModule),
-          )
+        /*
+         * 计划模式：与共创同一套容错 —— 协议不合格先补一轮，仍不行就降级成追问，
+         * 绝不把"已经写好的计划"整轮作废（用户口径 2026-10-21）。
+         */
+        const planGate = options.planPhase
+          ? await resolveOutlinePlanProtocol({
+            text: rawFinalContent,
+            module: planTargetModule,
+            required: getOutlinePlanRequiredElements(planTargetModule),
+            llmConfig: effectiveLlmConfig,
+            signal: controller.signal,
+          })
           : null;
-        const planProtocolError = options.planPhase
-          ? planProtocolOutcome.kind === "invalid"
-            ? `计划协议格式无效，尚未开始生成：${planProtocolOutcome.error}`
-            : planProtocolOutcome.kind === "none"
-              ? "计划协议格式无效，尚未开始生成：模型未返回 outline_plan 协议块"
-              : planValidation?.kind === "invalid"
-                ? `计划协议不满足计划模式要求，尚未开始生成：${planValidation.error}`
-                : undefined
+        const planValidation = planGate?.validation ?? null;
+        const planProtocolNotice = options.planPhase ? planGate?.notice || undefined : undefined;
+        const planProtocolError = options.planPhase && planValidation?.kind === "invalid"
+          ? `计划协议不满足计划模式要求：${planValidation.error}。回复内容已保留，可补一句更具体的需求后重发。`
           : undefined;
         // 共创讨论轮里模型有时会直接交付完整大纲而不是讨论协议。命中「已交付」时
         // 按生成轮处理：不要求 outline_discuss、正文照常显示、结构化数据进保存链路
@@ -4250,47 +4473,28 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           ? isDiscussDeliveredOutline(rawFinalContent)
           : false;
         const discussProtocolRequired = discussPhase && !discussDeliveredOutline;
-        // 共创讨论轮：模型偶发只给正文不给协议块。先尝试一次「补协议」修复，
-        // 把这一轮从「格式无效、整轮作废」救回来；修复失败才走原来的报错路径。
-        let discussProtocolOutcome: OutlineDiscussParseOutcome = discussProtocolRequired
-          ? parseOutlineDiscussProtocol(rawFinalContent)
-          : { kind: "none" as const };
-        if (
-          discussProtocolRequired
-          && discussProtocolOutcome.kind !== "valid"
-          && hasOutlineDiscussRepairableContent(rawFinalContent)
-        ) {
-          const repairedText = await repairOutlineDiscussProtocolWithAi({
-            content: rawFinalContent,
+        /*
+         * 共创讨论轮：解析 + 「一次重试 + 降级放行」，统一走 resolveOutlineDiscussProtocol。
+         *
+         * 改造前这里只处理"完全没给协议块"（补协议一轮），校验不过仍然整轮作废 ——
+         * 用户实测：前面问了很多问题，最后因为某个可选项缺失/倾向悬空就报「共创协议格式无效」，
+         * 内容全丢。现在校验不过会再「补齐」一轮；仍不过就把已解析的分歧原样放行，
+         * 只留一句说明，绝不把讨论作废。
+         */
+        const discussGate = discussProtocolRequired
+          ? await resolveOutlineDiscussProtocol({
+            text: rawFinalContent,
             module: discussModule || "大纲",
             llmConfig: effectiveLlmConfig,
             signal: controller.signal,
-          }).catch((error) => {
-            console.warn(
-              "AI 大纲共创协议补全失败，按原结果继续：",
-              error instanceof Error ? error.message : error,
-            );
-            return "";
-          });
-          const repairedOutcome = repairedText
-            ? parseOutlineDiscussProtocol(repairedText)
-            : ({ kind: "none" } as const);
-          if (repairedOutcome.kind === "valid") {
-            discussProtocolOutcome = repairedOutcome;
-          }
-        }
-        const discussValidation = discussProtocolOutcome.kind === "valid"
-          ? validateOutlineDiscussProtocol(discussProtocolOutcome.protocol)
-          : null;
-        const discussProtocolError = discussProtocolRequired
-          ? discussProtocolOutcome.kind === "invalid"
-            ? `共创协议格式无效，尚未开始生成：${discussProtocolOutcome.error}`
-            : discussProtocolOutcome.kind === "none"
-              ? "共创协议格式无效，尚未开始生成：模型未返回 outline_discuss 协议块"
-              : discussValidation?.kind === "invalid"
-                ? `共创协议不满足共创模式要求，尚未开始生成：${discussValidation.error}`
-                : undefined
+          })
+          : { protocol: null, notice: "", error: "" };
+        /** 最终放行的协议：可能是补齐后的，也可能是降级放行的原始协议。 */
+        const discussFinalProtocol = discussGate.protocol;
+        const discussProtocolError = discussProtocolRequired && discussGate.error
+          ? `共创协议格式无效，尚未开始生成：${discussGate.error}`
           : undefined;
+        const discussProtocolNotice = discussProtocolRequired ? discussGate.notice || undefined : undefined;
         const rawIntentProtocol = parseIntentClarityProtocol(rawFinalContent);
         const nextStepExtraction = extractNextStep(rawFinalContent, {
           allowFallback: options.intentPhase === "generation",
@@ -4319,9 +4523,22 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           },
         );
         if (finalContent.trim()) bestGeneratedText = finalContent;
-        const intentProtocol = rawIntentProtocol.kind !== "none"
+        let intentProtocol = rawIntentProtocol.kind !== "none"
           ? rawIntentProtocol
           : parseIntentClarityProtocol(finalContent);
+        /*
+         * 意图分析：协议缺失或坏掉时先补一轮（转写已有判断）。补不出来就照旧报错，
+         * 但不会再清空气泡 —— 正文由 renderedMarkdownContent 剥掉标记后展示。
+         */
+        if (options.intentPhase === "intent_analysis" && intentProtocol.kind !== "valid") {
+          const intentGate = await resolveIntentClarityProtocol({
+            text: finalContent,
+            module: intentContextsRef.current[capturedConvId]?.title || "",
+            llmConfig: effectiveLlmConfig,
+            signal: controller.signal,
+          });
+          if (intentGate.outcome.kind === "valid") intentProtocol = intentGate.outcome;
+        }
         const intentProtocolError = options.intentPhase === "intent_analysis"
           ? intentProtocol.kind === "invalid"
             ? `意图分析格式无效，尚未开始生成：${intentProtocol.error}`
@@ -4364,10 +4581,11 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             ? planValidation.protocol
             : null,
           outlinePlanError: planProtocolError,
-          outlineDiscussProtocol: discussValidation && discussValidation.kind !== "invalid"
-            ? discussValidation.protocol
-            : null,
+          outlinePlanNotice: planProtocolNotice,
+          // 降级放行的协议（校验没过但内容在）同样要出卡片，所以这里不再二次过闸。
+          outlineDiscussProtocol: discussFinalProtocol,
           outlineDiscussError: discussProtocolError,
+          outlineDiscussNotice: discussProtocolNotice,
         }));
         if (!isCurrentRun()) {
           void useOutlineChatStore.getState().saveToDisk();
@@ -4386,10 +4604,12 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             ]);
           }
         }
-        if (discussProtocolRequired && discussValidation) {
-          if (discussValidation.kind === "needs_decision") {
+        if (discussProtocolRequired && discussFinalProtocol) {
+          // 按协议自报的 status 推进：降级放行时 validate 的结果可能是 invalid，
+          // 但那只是"某一项不达标"，阶段机器不该因此卡死在原地。
+          if (discussFinalProtocol.status === "needs_decision") {
             advanceCapturedWorkflowStages(["collecting_requirements"]);
-          } else if (discussValidation.kind === "ready") {
+          } else if (discussFinalProtocol.status === "ready") {
             advanceCapturedWorkflowStages([
               "sufficiency_check",
               "generation_plan",
@@ -5521,6 +5741,46 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
 
   const handleSubmitOutlineWizard = useCallback(
     async (request: OutlineWizardRequest) => {
+      /*
+       * 新手引导：走**本地示例大纲**，完全不请求模型。
+       *
+       * 引导要让一个还没拿到 API 密钥的人也能跑完「提交需求 → 得到大纲 → 保存」。
+       * 所以这里在调用任何模型之前短路：把内置的一份完整卷纲 Markdown 当成
+       * assistant 消息写进当前会话，后续的展示、保存、校验全部复用真实链路
+       * （用户点的「保存为大纲」仍然会真的写文件）。
+       *
+       * 只判定「引导进行中」，不判定别的条件：正式写作时即使用户没配模型，
+       * 也应该看到真实的报错，而不是悄悄塞一份假大纲。
+       */
+      if (useGuideStore.getState().status === "running") {
+        const novel = readGuideDemoNovel() ?? pickGuideDemoNovel()
+        rememberGuideDemoNovel(novel)
+        const conversationId = activeConversationId ?? createConversation()
+        const now = Date.now()
+        const userText = request.inspiration.trim() || `按示例需求生成一版《${novel.name}》的完整大纲`
+        addMessage(conversationId, {
+          id: `guide-demo-user-${now}`,
+          role: "user",
+          content: userText,
+          timestamp: now,
+        })
+        addMessage(conversationId, {
+          id: `guide-demo-outline-${now}`,
+          role: "assistant",
+          content: [
+            buildGuideDemoOutlineMarkdown(novel),
+            "",
+            "---",
+            "",
+            "> 这份大纲来自**引导内置内容**，没有调用模型、没有消耗 Token。",
+            "> 点下方的「保存为大纲」就会真正写进这本书的 `wiki/outlines/`；想改成自己的故事，直接在这段文字上改。",
+          ].join("\n"),
+          timestamp: now + 1,
+        })
+        setSaveStatus("已生成示例大纲（未调用模型）。点消息下方的「保存为大纲」写入小说。")
+        void useOutlineChatStore.getState().saveToDisk()
+        return
+      }
       // 同人创作先把原作素材编译成持久正典：超长原作会被分片压缩成证据包，
       // 而不是把几十万字原样塞进提示词。编译后的正典同时落盘到
       // .novel/fanfic-canon.md，供后续正文生成的上下文包按固定路径读取。
@@ -5665,7 +5925,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         systemGenerated: true,
       });
     },
-    [activeConversationId, createConversation, handleSend, startOutlinePlanElementCheck, project],
+    [activeConversationId, addMessage, createConversation, handleSend, startOutlinePlanElementCheck, project],
   );
 
   const handleStop = useCallback(() => {
@@ -5704,6 +5964,20 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     });
   }, [handleSendMessage, isStreaming]);
 
+  /**
+   * 「继续」：上一条大纲回复**生成失败**后，保留已生成的内容接着往下写。
+   *
+   * 与 handleContinueStopped 的差别只有提示词（失败有一种"一个字都没产出"
+   * 的形态，那时要整份重来而不是接着写）。eventOutlineRequirement 同样要从
+   * 失败的那条消息上抄过来，否则续写出来的细纲卡片会缺掉「用户对本章的要求」。
+   */
+  const handleContinueFailed = useCallback(async (eventOutlineRequirement?: string) => {
+    if (isStreaming) return;
+    await handleSendMessage(FAILED_GENERATION_CONTINUE_PROMPT, {
+      ...(eventOutlineRequirement ? { eventOutlineRequirement } : {}),
+    });
+  }, [handleSendMessage, isStreaming]);
+
   const handleRegenerate = useCallback(
     async (msgIndex: number) => {
       if (!project || isStreaming || !activeConversationId) return;
@@ -5729,6 +6003,17 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           role: "assistant",
           content:
             "请先在设置中配置并选择一个可用的 AI 模型，或在下方模型选择器中选择模型后再试。",
+        });
+        return;
+      }
+      // 与上面首次发送同一套判定（重试/续写同样不能在无工具时跑，
+      // 否则会把上一轮"看起来成功、文件没变"的状态再复制一遍）。
+      if (!isFunctionCallingEnabled(effectiveLlmConfig)) {
+        addMessage(activeConversationId, {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content:
+            "当前供应商已关闭「启用 Function Calling」，AI 大纲需要工具调用才能把结果写入大纲文件。请到设置 → 模型设置中打开该开关，或更换支持工具调用的模型。",
         });
         return;
       }
@@ -6123,45 +6408,21 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           ? isDiscussDeliveredOutline(rawRegenerationContent)
           : false;
         const regenerationProtocolRequired = regenerationDiscussPhase && !regenerationDeliveredOutline;
-        // 与首轮一致：续跑/重新生成也先尝试一次「补协议」，避免整轮作废。
-        let regenerationDiscussOutcome: OutlineDiscussParseOutcome = regenerationProtocolRequired
-          ? parseOutlineDiscussProtocol(rawRegenerationContent)
-          : { kind: "none" as const };
-        if (
-          regenerationProtocolRequired
-          && regenerationDiscussOutcome.kind !== "valid"
-          && hasOutlineDiscussRepairableContent(rawRegenerationContent)
-        ) {
-          const repairedText = await repairOutlineDiscussProtocolWithAi({
-            content: rawRegenerationContent,
+        // 与首轮一致：换一批 / 续跑同样走「一次重试 + 降级放行」。
+        const regenerationDiscussGate = regenerationProtocolRequired
+          ? await resolveOutlineDiscussProtocol({
+            text: rawRegenerationContent,
             module: regenerationDiscussModule || "大纲",
             llmConfig: effectiveLlmConfig,
             signal: controller.signal,
-          }).catch((error) => {
-            console.warn(
-              "AI 大纲共创协议补全失败，按原结果继续：",
-              error instanceof Error ? error.message : error,
-            );
-            return "";
-          });
-          const repairedOutcome = repairedText
-            ? parseOutlineDiscussProtocol(repairedText)
-            : ({ kind: "none" } as const);
-          if (repairedOutcome.kind === "valid") {
-            regenerationDiscussOutcome = repairedOutcome;
-          }
-        }
-        const regenerationDiscussValidation = regenerationDiscussOutcome.kind === "valid"
-          ? validateOutlineDiscussProtocol(regenerationDiscussOutcome.protocol)
-          : null;
-        const regenerationDiscussError = regenerationProtocolRequired
-          ? regenerationDiscussOutcome.kind === "invalid"
-            ? `共创协议格式无效，尚未开始生成：${regenerationDiscussOutcome.error}`
-            : regenerationDiscussOutcome.kind === "none"
-              ? "共创协议格式无效，尚未开始生成：模型未返回 outline_discuss 协议块"
-              : regenerationDiscussValidation?.kind === "invalid"
-                ? `共创协议不满足共创模式要求，尚未开始生成：${regenerationDiscussValidation.error}`
-                : undefined
+          })
+          : { protocol: null, notice: "", error: "" };
+        const regenerationFinalProtocol = regenerationDiscussGate.protocol;
+        const regenerationDiscussError = regenerationProtocolRequired && regenerationDiscussGate.error
+          ? `共创协议格式无效，尚未开始生成：${regenerationDiscussGate.error}`
+          : undefined;
+        const regenerationDiscussNotice = regenerationProtocolRequired
+          ? regenerationDiscussGate.notice || undefined
           : undefined;
         const rawRegenerationIntentProtocol = parseIntentClarityProtocol(rawRegenerationContent);
         const nextStepExtraction = extractNextStep(
@@ -6182,9 +6443,19 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           }),
         });
         if (!isCurrentRun()) return;
-        const regenerationIntentProtocol = rawRegenerationIntentProtocol.kind !== "none"
+        let regenerationIntentProtocol = rawRegenerationIntentProtocol.kind !== "none"
           ? rawRegenerationIntentProtocol
           : parseIntentClarityProtocol(finalContent);
+        // 与首轮一致：意图协议缺失/损坏时先补一轮再判错（正文不再被清空）。
+        if (regenerationIntentPhase === "intent_analysis" && regenerationIntentProtocol.kind !== "valid") {
+          const intentGate = await resolveIntentClarityProtocol({
+            text: finalContent,
+            module: "",
+            llmConfig: effectiveLlmConfig,
+            signal: controller.signal,
+          });
+          if (intentGate.outcome.kind === "valid") regenerationIntentProtocol = intentGate.outcome;
+        }
         const regenerationIntentProtocolError = regenerationIntentPhase === "generation"
           && regenerationIntentProtocol.kind !== "none"
           ? "正文生成阶段返回了 intent_clarity，已阻止重复意图分析和自动循环。"
@@ -6208,10 +6479,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             intentProtocolError: regenerationIntentProtocolError,
             // 直接交付了大纲的共创轮按生成轮处理：不带讨论标，正文走正常显示路径。
             outlineDiscussPhase: regenerationProtocolRequired ? regenerationDiscussPhase : undefined,
-            outlineDiscussProtocol: regenerationDiscussValidation && regenerationDiscussValidation.kind !== "invalid"
-              ? regenerationDiscussValidation.protocol
-              : null,
+            // 降级放行的协议也照常出卡片（见首轮同名注释）。
+            outlineDiscussProtocol: regenerationFinalProtocol,
             outlineDiscussError: regenerationDiscussError,
+            outlineDiscussNotice: regenerationDiscussNotice,
           }),
         );
         setConversationContextSummary(capturedConvId, buildSessionContextSummary({
@@ -6789,6 +7060,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                   onConfirmDiscuss={handleConfirmOutlineDiscuss}
                   onResumeMultiAgent={handleResumeMultiAgent}
                   onContinueStopped={isStreaming ? undefined : () => void handleContinueStopped(msg.eventOutlineRequirement)}
+                  onContinueFailed={isStreaming ? undefined : () => void handleContinueFailed(msg.eventOutlineRequirement)}
                   resumeMultiAgentDisabled={isStreaming}
                   nextStepDisabled={submitDisabled}
                   generationContext={activeMessages.slice(0, i).some((message) => message.role === "user" && Boolean(message.novelGenerationRequest))
@@ -6878,7 +7150,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 usage={liveContextUsage}
                 onCreateConversation={() => createConversation()}
               />
-              <div className="relative">
+              <div className="relative" data-guide="outline.mode">
                 <Button
                   ref={workflowModeTriggerRef}
                   type="button"

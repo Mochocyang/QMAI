@@ -432,6 +432,46 @@ describe("事件细纲卡片（写作助手侧）", () => {
     expect(html).not.toContain("eventOutlineData")
   })
 
+  it("模型只给 JSON 时，气泡用数据反推正文（不能空着）", () => {
+    /*
+     * 2026-10-18 起细纲提示词只要 JSON，模型不再手写 Markdown。
+     * 摘掉围栏后若直接显示原文，气泡就是一片空白 —— 看起来像「没生成」。
+     * 这里必须落到反推正文：形状沿用旧契约「# 事件细纲 · 第N章 章名」。
+     */
+    const html = renderToStaticMarkup(
+      <ChatMessage
+        message={assistantWithOutline({
+          content: `\`\`\`json\n${JSON.stringify({ eventOutlineData: outline })}\n\`\`\``,
+        })}
+      />,
+    )
+
+    expect(html).toContain("data-event-outline-card")
+    expect(html).not.toContain("eventOutlineData")
+    expect(html).toContain("事件细纲 · 第12章 令牌初现")
+    expect(html).toContain("事件1 一句话事件")
+    expect(html).toContain("关键台词：你来啦")
+  })
+
+  it("围栏外只留一句「已生成」说明时，气泡仍显示反推正文", () => {
+    /*
+     * 提示词明确允许模型在围栏外留一句交代（「围栏外最多留一句『已生成…』」）。
+     * 如果气泡按「剥完还有没有字」来判，那句 12 字的交代就会顶掉本该展示的正文 ——
+     * 用户看到一条只有一句话的回复，而完整内容躺在 JSON 里没人渲染。
+     */
+    const html = renderToStaticMarkup(
+      <ChatMessage
+        message={assistantWithOutline({
+          content: `已生成第12章事件细纲。\n\n\`\`\`json\n${JSON.stringify({ eventOutlineData: outline })}\n\`\`\``,
+        })}
+      />,
+    )
+
+    expect(html).not.toContain("eventOutlineData")
+    expect(html).toContain("事件1 一句话事件")
+    expect(html).toContain("事件2 一句话事件")
+  })
+
   it("生成过程中不解析：逐 token 重渲染时不做括号配平，卡片等收尾后再出", () => {
     const html = renderToStaticMarkup(
       <ChatMessage message={assistantWithOutline({ isAgentRunning: true })} />,

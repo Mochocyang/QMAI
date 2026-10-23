@@ -152,6 +152,8 @@ export interface OutlineChatMessage {
   /** 计划模式：追问或生成计划的协议结果。 */
   outlinePlanProtocol?: OutlinePlanProtocol | null
   outlinePlanError?: string
+  /** 计划协议补齐一轮后降级成追问时的说明（与 error 互斥）。 */
+  outlinePlanNotice?: string
   /** 计划模式：卡片已被使用，重载后保持置灰。 */
   outlinePlanDecision?: OutlinePlanDecision
   /** 共创模式：本轮是决策讨论。 */
@@ -159,6 +161,11 @@ export interface OutlineChatMessage {
   /** 共创模式：决策点或定稿协议结果。 */
   outlineDiscussProtocol?: OutlineDiscussProtocol | null
   outlineDiscussError?: string
+  /**
+   * 共创协议补齐一轮后仍不完美、但已按现有内容出卡片时的说明。
+   * 与 error 互斥：error 表示连协议都拿不到，需要用户重发。
+   */
+  outlineDiscussNotice?: string
   /**
    * 保存前结构化校验发现的问题。
    *

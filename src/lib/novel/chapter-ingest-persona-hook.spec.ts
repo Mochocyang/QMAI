@@ -61,4 +61,10 @@ describe("章节摄取里的人物 Skill 挂钩", () => {
     expect(block).toContain("characters: snapshot.characters,")
     expect(block).toContain("characterAliases: snapshot.characterAliases,")
   })
+
+  it("整份快照一起传入：状态 / 出场组织 / 认知 / 关系靠它投影，不依赖模型", () => {
+    const hookAt = ingest.indexOf("void learnPersonaSkillsFromChapter(")
+    const block = ingest.slice(hookAt, ingest.indexOf("})", hookAt))
+    expect(block).toContain("chapterSnapshot: snapshot,")
+  })
 })

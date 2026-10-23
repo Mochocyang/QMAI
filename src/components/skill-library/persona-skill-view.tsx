@@ -1,10 +1,11 @@
 import "@/components/uitest/ui-test-tools.css"
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ArrowLeft, RefreshCw, Search } from "lucide-react"
+import { Search } from "lucide-react"
 import { resolveNovelModel } from "@/lib/novel/model-resolver"
 import {
   PERSONA_ARCHIVED_GAP_CHAPTERS,
   PERSONA_DORMANT_GAP_CHAPTERS,
+  normalizePersonaName,
   resolvePersonaTier,
   type PersonaSkillIndex,
   type PersonaSkillMeta,
@@ -21,8 +22,14 @@ import {
   savePersonaSkillDocumentByUser,
   updatePersonaSkillIndex,
 } from "@/lib/novel/persona-skill-store"
-import { demotePersonaSkillToSighting, promotePersonaSighting, regeneratePersonaSkillResearch } from "@/lib/novel/persona-skill-learning"
+import {
+  demotePersonaSkillToSighting,
+  promotePersonaSighting,
+  regeneratePersonaSkillResearch,
+  savePersonaSkillProfileByUser,
+} from "@/lib/novel/persona-skill-learning"
 import { useWikiStore } from "@/stores/wiki-store"
+import { PersonaSkillProfilePanel } from "./persona-skill-profile-panel"
 
 const STATUS_LABELS: Record<PersonaSkillStatus, string> = {
   active: "活跃",
@@ -56,6 +63,8 @@ export function PersonaSkillView() {
   const [analysisOpen, setAnalysisOpen] = useState(false)
   const [sightings, setSightings] = useState<PersonaSkillSighting[]>([])
   const [revisionCount, setRevisionCount] = useState(0)
+  /** 每次保存成功 +1：让档案面板重置草稿态（只改定位时正文没变，靠 document 变化触发不了）。 */
+  const [resetToken, setResetToken] = useState(0)
 
   const reload = useCallback(async () => {
     if (!projectPath) return
@@ -225,15 +234,21 @@ export function PersonaSkillView() {
     }
   }
 
-  async function handleSaveDocument() {
+  /**
+   * 保存「原始 Markdown」页签的内容。
+   *
+   * 一次调用完成「写正文 + 置 editedByUser」：两者必须在同一把锁内，
+   * 否则后台学习可能正好挤在中间，按「没被改过」把刚写的正文覆盖掉。
+   */
+  async function handleSaveDocument(text: string) {
     if (!projectPath || !selected) return
     setBusy(true)
     try {
-      // 一次调用完成「写正文 + 置 editedByUser」：两者必须在同一把锁内，
-      // 否则后台学习可能正好挤在中间，按「没被改过」把刚写的正文覆盖掉。
-      const updated = await savePersonaSkillDocumentByUser(projectPath, selected.id, documentText)
+      const updated = await savePersonaSkillDocumentByUser(projectPath, selected.id, text)
       setIndex(updated)
+      setDocumentText(text)
       setRevisionCount((await listPersonaSkillRevisions(projectPath, selected.id)).length)
+      setResetToken((token) => token + 1)
       setDraftDirty(false)
       setMessage("已保存。之后 AI 只会更新文末的「补充」段，不会覆盖你写的内容。")
     } catch (err) {
@@ -243,6 +258,63 @@ export function PersonaSkillView() {
     } finally {
       setBusy(false)
     }
+  }
+
+  /**
+   * 保存结构化档案（基础设定 / 演技字段 / 关系网 + 定位）。
+   *
+   * 正文由 `applyPersonaProfileEdits` 重建：frontmatter、H1、自定义分区与
+   * 「补充」段都在原文档上保留，不是从表单从零拼一份 —— 那会把用户写在原文里
+   * 的其它段整段抹掉。
+   */
+  async function handleSaveProfile(input: { fields: Record<string, string>; roleType: string }) {
+    if (!projectPath || !selected) return
+    setBusy(true)
+    try {
+      const updated = await savePersonaSkillProfileByUser({
+        projectPath,
+        id: selected.id,
+        fields: input.fields,
+        roleType: input.roleType,
+      })
+      setIndex(updated)
+      setDocumentText(await readPersonaSkillDocument(projectPath, selected.id))
+      setRevisionCount((await listPersonaSkillRevisions(projectPath, selected.id)).length)
+      setResetToken((token) => token + 1)
+      setDraftDirty(false)
+      setMessage(
+        input.roleType !== selected.roleType
+          ? `已保存。定位改为「${input.roleType || "未标注"}」，档位随之变成${TIER_LABELS[resolvePersonaTier(input.roleType, selected.pinned)]}。`
+          : "已保存。之后 AI 只会更新文末的「补充」段，不会覆盖你写的内容。",
+      )
+    } catch (err) {
+      setMessage(`保存失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 关系网里点到一个人：他身上有档案就跳过去。 */
+  function handleOpenCharacter(name: string) {
+    const key = normalizePersonaName(name)
+    const target = index.skills.find(
+      (meta) =>
+        normalizePersonaName(meta.characterName) === key ||
+        meta.aliases.some((alias) => normalizePersonaName(alias) === key),
+    )
+    if (target) {
+      setSelectedId(target.id)
+      setMessage("")
+    }
+  }
+
+  function hasCharacter(name: string): boolean {
+    const key = normalizePersonaName(name)
+    return index.skills.some(
+      (meta) =>
+        normalizePersonaName(meta.characterName) === key ||
+        meta.aliases.some((alias) => normalizePersonaName(alias) === key),
+    )
   }
 
   async function handleRestoreRevision() {
@@ -297,71 +369,23 @@ export function PersonaSkillView() {
 
   if (selected) {
     return (
-      <div data-testid="persona-skill-view" className="ui-test-skills-gallery">
-        <button type="button" className="ui-test-skills-back" onClick={handleBack}>
-          <ArrowLeft /> 返回人物 Skill 列表
-        </button>
-        <div className="ui-test-skills-heading-copy">
-          <h3>{selected.characterName}</h3>
-          <div className="ui-test-skill-card-badges">
-            <span className="ui-test-skill-badge is-type">{TIER_LABELS[selected.tier]}</span>
-            <span className="ui-test-skill-badge">{STATUS_LABELS[selected.status]}</span>
-            {selected.roleType ? <span className="ui-test-skill-badge">{selected.roleType}</span> : null}
-            <span className="ui-test-skill-badge">出场 {selected.appearanceCount} 次</span>
-            <span className="ui-test-skill-badge">首次第 {selected.firstChapter} 章</span>
-            <span className="ui-test-skill-badge">最近第 {selected.lastChapter} 章</span>
-          </div>
-        </div>
-        <textarea
-          data-testid="persona-skill-editor"
-          className="ui-test-persona-editor"
-          value={documentText}
-          onChange={(event) => {
-            setDocumentText(event.target.value)
-            setDraftDirty(true)
-          }}
-        />
-        <div className="ui-test-skills-actions">
-          <button type="button" onClick={() => void handleSaveDocument()} disabled={busy}>
-            保存
-          </button>
-          <button type="button" onClick={handleBack} disabled={busy}>
-            取消
-          </button>
-          {revisionCount > 0 ? (
-            <button
-              type="button"
-              data-testid="persona-skill-restore"
-              title={`保留了最近 ${revisionCount} 个历史版本`}
-              onClick={() => void handleRestoreRevision()}
-              disabled={busy}
-            >
-              回退上一版
-            </button>
-          ) : null}
-        </div>
-        {Object.keys(research).length > 0 && selected.pinned ? (
-          <div data-testid="persona-skill-research" className="ui-test-persona-research">
-            <h4>研究文件</h4>
-            {Object.entries(research).map(([name, content]) => (
-              <details key={name}>
-                <summary>{name}</summary>
-                <pre>{content}</pre>
-              </details>
-            ))}
-            <button type="button" onClick={() => void handleRegenerateResearch()} disabled={busy}>
-              <RefreshCw /> 重新整理研究文件
-            </button>
-          </div>
-        ) : (
-          <p className="ui-test-skills-empty">
-            {selected.pinned
-              ? "研究文件会在该人物下次出场时自动生成。"
-              : "点亮绿勾后，该人物会生成研究文件。"}
-          </p>
-        )}
-        {message ? <span className="ui-test-skills-message">{message}</span> : null}
-      </div>
+      <PersonaSkillProfilePanel
+        meta={selected}
+        document={documentText}
+        research={research}
+        revisionCount={revisionCount}
+        resetToken={resetToken}
+        busy={busy}
+        message={message}
+        onBack={handleBack}
+        onDirtyChange={setDraftDirty}
+        onSaveProfile={(input) => void handleSaveProfile(input)}
+        onSaveRaw={(text) => void handleSaveDocument(text)}
+        onRestoreRevision={() => void handleRestoreRevision()}
+        onRegenerateResearch={() => void handleRegenerateResearch()}
+        onOpenCharacter={handleOpenCharacter}
+        hasCharacter={hasCharacter}
+      />
     )
   }
 

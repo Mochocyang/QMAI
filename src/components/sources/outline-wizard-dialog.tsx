@@ -33,6 +33,8 @@ import {
 import { getFanficSubGenreLabels } from "@/lib/novel/outline-genres"
 import { fanficCanonPath } from "@/lib/novel/fanfic-canon"
 import { fileExists } from "@/commands/fs"
+import { useGuideStore } from "@/lib/guide/guide-store"
+import { buildGuideDemoInspiration, pickGuideDemoNovel, readGuideDemoNovel, rememberGuideDemoNovel } from "@/lib/guide/guide-demo-novel"
 import { normalizePath } from "@/lib/path-utils"
 
 interface OutlineWizardDialogProps {
@@ -109,7 +111,21 @@ export function OutlineWizardDialog({
 
   useEffect(() => {
     if (!open) return
-    setRequest(createDefaultOutlineWizardRequest())
+    /*
+     * 新手引导：预填一段内置示例需求。
+     *
+     * 「故事灵感」是整份向导里唯一必须手写的字段，也是新用户最容易卡住的地方。
+     * 引导期间预填，用户可以直接提交看到结果；提交后走的是本地示例大纲
+     * （见 `outline-chat-panel.tsx#handleSubmitOutlineWizard`），不消耗 Token。
+     * 普通使用（引导已结束）时这里不动，仍然是空白表单。
+     */
+    const base = createDefaultOutlineWizardRequest()
+    if (useGuideStore.getState().status === "running") {
+      const novel = readGuideDemoNovel() ?? pickGuideDemoNovel()
+      rememberGuideDemoNovel(novel)
+      base.inspiration = buildGuideDemoInspiration(novel)
+    }
+    setRequest(base)
     setError("")
     let cancelled = false
     if (!projectPath) {
@@ -254,7 +270,7 @@ export function OutlineWizardDialog({
                 </div>
               </div>
             )}
-            <label className="ui-test-wizard-field"><span>故事灵感 / 处理要求</span><Textarea aria-label="故事灵感/处理要求" value={request.inspiration} placeholder={fanfic ? "写下你想在原作世界里写的新戏：谁、在什么时间点、要解决什么问题…" : "写下故事灵感、主角处境，或说明要分析、修改、补全的要求…"} onChange={event => updateRequest({ inspiration: event.target.value }, ["inspiration"])} /></label>
+            <label className="ui-test-wizard-field"><span>故事灵感 / 处理要求</span><Textarea aria-label="故事灵感/处理要求" data-guide="outline.wizard.inspiration" value={request.inspiration} placeholder={fanfic ? "写下你想在原作世界里写的新戏：谁、在什么时间点、要解决什么问题…" : "写下故事灵感、主角处境，或说明要分析、修改、补全的要求…"} onChange={event => updateRequest({ inspiration: event.target.value }, ["inspiration"])} /></label>
             <div className="ui-test-wizard-field"><span>核心卖点</span><div className="ui-test-wizard-chips">{OUTLINE_WIZARD_SELLING_POINTS.map(point => <button type="button" key={point} aria-pressed={request.sellingPoints.includes(point)} onClick={() => updateRequest({ sellingPoints: toggleListValue(request.sellingPoints, point) }, ["sellingPoints"])}>{point}</button>)}</div></div>
             <div className="ui-test-wizard-field"><span>生成目标（至少一项）</span><div className="ui-test-wizard-chips">{OUTLINE_WIZARD_TARGETS.map(target => <button type="button" key={target} aria-pressed={request.targets.includes(target)} onClick={() => updateRequest({ targets: toggleListValue(request.targets, target) }, ["targets"])}>{target}</button>)}</div></div>
             <div className="ui-test-wizard-grid">
@@ -264,7 +280,7 @@ export function OutlineWizardDialog({
             <OptionGroup label="已有资料来源" options={OUTLINE_WIZARD_MATERIAL_OPTIONS} value={request.materialSource} onChange={materialSource => updateRequest({ materialSource }, ["materialSource"])} />
             {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
           </div>
-          <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button><Button type="submit">提交需求</Button></DialogFooter>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => onOpenChange(false)}>取消</Button><Button type="submit" data-guide="outline.wizard.submit">提交需求</Button></DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

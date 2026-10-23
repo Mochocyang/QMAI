@@ -6,7 +6,7 @@ import {
   parseChapterDiscussProtocol,
   validateChapterDiscussProtocol,
 } from "./chapter-discuss-protocol"
-import { repairChapterDiscussProtocolWithAi } from "./chapter-discuss-repair"
+import { repairChapterDiscussProtocolWithAi, resolveChapterDiscussProtocol } from "./chapter-discuss-repair"
 
 type StreamFn = typeof streamChat
 
@@ -90,5 +90,197 @@ describe("repairChapterDiscussProtocolWithAi", () => {
       signal,
       stream,
     })).rejects.toThrow("boom")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 「一次重试 + 降级放行」：用户实测「介绍被判过短 → 整轮共创作废、前面问答全丢」
+// ---------------------------------------------------------------------------
+
+/** 一份解析得通、但 d2 的介绍几乎是空的（闸门会判 invalid）的协议。 */
+function thinReply(): string {
+  return [
+    CHAPTER_DISCUSS_MARKER_OPEN,
+    JSON.stringify({
+      status: "needs_choice",
+      module: "第3章",
+      judgment: "需要一个爆发点",
+      directions: [
+        { id: "d1", storyType: "复仇线", title: "血债血偿", summary: "前".repeat(200) },
+        { id: "d2", storyType: "悬念反转", title: "直接点出老礼官就是常不疑", summary: "短介绍" },
+        { id: "d3", storyType: "情感升温", title: "并肩之夜", summary: "前".repeat(200) },
+      ],
+      preferenceId: "d1",
+      preferenceReason: "最贴合前文伏笔",
+    }),
+    CHAPTER_DISCUSS_MARKER_CLOSE,
+  ].join("\n")
+}
+
+describe("resolveChapterDiscussProtocol", () => {
+  const base = { module: "第3章", llmConfig, signal }
+
+  it("协议本来就合格时不做任何额外调用", async () => {
+    let repairCalls = 0
+    let topUpCalls = 0
+    const gate = await resolveChapterDiscussProtocol({
+      ...base,
+      text: validReply(),
+      repair: async () => { repairCalls += 1; return "" },
+      topUp: async () => { topUpCalls += 1; return "" },
+    })
+    expect(gate.protocol?.directions).toHaveLength(3)
+    expect(gate.notice).toBe("")
+    expect(gate.error).toBe("")
+    expect([repairCalls, topUpCalls]).toEqual([0, 0])
+  })
+
+  it("介绍几乎为空时先补齐一轮：补齐成功就用补齐后的协议", async () => {
+    let topUpCalls = 0
+    const gate = await resolveChapterDiscussProtocol({
+      ...base,
+      text: thinReply(),
+      repair: async () => "",
+      topUp: async ({ protocol, error }) => {
+        topUpCalls += 1
+        expect(error).toContain("几乎是空的")
+        expect(protocol?.directions[1].title).toBe("直接点出老礼官就是常不疑")
+        return validReply()
+      },
+    })
+    expect(topUpCalls).toBe(1)
+    expect(gate.notice).toBe("")
+    expect(gate.protocol?.directions.map((d) => d.title)).toEqual(["血债血偿", "真凶另有其人", "并肩之夜"])
+  })
+
+  it("补齐后仍不合格就降级放行：卡片照给、只留一句说明，绝不报错丢内容", async () => {
+    const gate = await resolveChapterDiscussProtocol({
+      ...base,
+      text: thinReply(),
+      repair: async () => "",
+      topUp: async () => thinReply(),
+    })
+    expect(gate.error).toBe("")
+    expect(gate.protocol?.directions).toHaveLength(3)
+    expect(gate.protocol?.directions[1].summary).toBe("短介绍")
+    expect(gate.notice).toContain("已按现有内容展示")
+    expect(gate.notice).toContain("几乎是空的")
+  })
+
+  it("补齐调用自己抛错时同样降级放行（不把异常抛给调用方）", async () => {
+    const gate = await resolveChapterDiscussProtocol({
+      ...base,
+      text: thinReply(),
+      repair: async () => "",
+      topUp: async () => { throw new Error("network down") },
+    })
+    expect(gate.error).toBe("")
+    expect(gate.protocol?.directions).toHaveLength(3)
+    expect(gate.notice).toContain("已按现有内容展示")
+  })
+
+  it("完全没有协议块时先补协议；补出来的合格就用它", async () => {
+    let repairCalls = 0
+    const gate = await resolveChapterDiscussProtocol({
+      ...base,
+      text: "一".repeat(200),
+      repair: async () => { repairCalls += 1; return validReply() },
+      topUp: async () => "",
+    })
+    expect(repairCalls).toBe(1)
+    expect(gate.protocol?.directions).toHaveLength(3)
+    expect(gate.error).toBe("")
+  })
+
+  it("补协议也拿不到内容时才返回 error，由调用方保留正文", async () => {
+    const gate = await resolveChapterDiscussProtocol({
+      ...base,
+      text: "一".repeat(200),
+      repair: async () => "",
+      topUp: async () => "",
+    })
+    expect(gate.protocol).toBeNull()
+    expect(gate.notice).toBe("")
+    expect(gate.error).toContain("未返回 chapter_discuss 协议块")
+  })
+
+  it("降级时把「声称资料不足、却给了方向」改成可选方向，别把方向藏起来", async () => {
+    const long = "他连夜出城，半路被巡夜的人拦下，靠旧身份骗过守军；天亮前赶到码头，船已经开走。"
+    const insufficient = [CHAPTER_DISCUSS_MARKER_OPEN, JSON.stringify({
+      status: "insufficient",
+      module: "第3章",
+      judgment: "前文线索不足",
+      directions: [
+        { id: "d1", storyType: "复仇线", title: "血债血偿", summary: long },
+        { id: "d2", storyType: "悬念反转", title: "真凶另有其人", summary: long },
+        { id: "d3", storyType: "情感升温", title: "并肩之夜", summary: long },
+      ],
+      preferenceId: "",
+      preferenceReason: "",
+    }), CHAPTER_DISCUSS_MARKER_CLOSE].join("\n")
+
+    const gate = await resolveChapterDiscussProtocol({
+      ...base,
+      text: insufficient,
+      repair: async () => "",
+      topUp: async () => insufficient,
+    })
+    expect(gate.error).toBe("")
+    expect(gate.protocol?.status).toBe("needs_choice")
+    expect(gate.protocol?.directions).toHaveLength(3)
+    expect(gate.notice).toContain("已按现有内容展示")
+  })
+
+  it("降级后一个方向都没有时不放行（卡片会是空的），改为报错保留正文", async () => {
+    const empty = [CHAPTER_DISCUSS_MARKER_OPEN, JSON.stringify({
+      status: "needs_choice",
+      module: "第3章",
+      judgment: "还没有想清方向",
+      directions: [],
+      preferenceId: "",
+      preferenceReason: "",
+    }), CHAPTER_DISCUSS_MARKER_CLOSE].join("\n")
+
+    const gate = await resolveChapterDiscussProtocol({
+      ...base,
+      text: empty,
+      repair: async () => "",
+      topUp: async () => empty,
+    })
+    expect(gate.protocol).toBeNull()
+    expect(gate.notice).toBe("")
+    expect(gate.error).toContain("方向")
+  })
+
+  it("协议块存在但 JSON 坏了：再重建一次，成功就用重建的协议", async () => {
+    const broken = [CHAPTER_DISCUSS_MARKER_OPEN, '{"status":"needs_choice","directions":[{"id":"d1"', CHAPTER_DISCUSS_MARKER_CLOSE].join("\n")
+    let topUpCalls = 0
+    const gate = await resolveChapterDiscussProtocol({
+      ...base,
+      text: broken,
+      repair: async () => "",
+      topUp: async ({ protocol, content }) => {
+        topUpCalls += 1
+        expect(protocol).toBeNull()
+        expect(content).toContain("chapter_discuss")
+        return validReply()
+      },
+    })
+    expect(topUpCalls).toBe(1)
+    expect(gate.error).toBe("")
+    expect(gate.protocol?.directions).toHaveLength(3)
+  })
+
+  it("回复太短（没什么可补）时不浪费一次调用", async () => {
+    let repairCalls = 0
+    const gate = await resolveChapterDiscussProtocol({
+      ...base,
+      text: "好的",
+      repair: async () => { repairCalls += 1; return "" },
+      topUp: async () => "",
+    })
+    expect(repairCalls).toBe(0)
+    expect(gate.protocol).toBeNull()
+    expect(gate.error).toContain("未返回")
   })
 })

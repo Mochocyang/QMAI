@@ -122,7 +122,6 @@ describe("settings-model-list", () => {
       },
       {
         enabled: true,
-        useMainLlm: false,
         provider: "custom",
         apiKey: "rerank-key",
         model: "Qwen/Qwen3-Reranker-8B",

@@ -7,6 +7,8 @@ vi.mock("@/lib/llm-client", () => ({
 
 vi.mock("@/lib/embedding", () => ({
   fetchEmbedding: vi.fn(),
+  getLastEmbeddingError: vi.fn(() => null),
+  resetLastEmbeddingError: vi.fn(),
 }))
 
 vi.mock("@/lib/rerank-api", () => ({
@@ -14,7 +16,7 @@ vi.mock("@/lib/rerank-api", () => ({
   requestDirectRerank: vi.fn(),
 }))
 
-import { fetchEmbedding } from "@/lib/embedding"
+import { fetchEmbedding, getLastEmbeddingError } from "@/lib/embedding"
 import { streamChat } from "@/lib/llm-client"
 import { isDirectRerankEndpoint, requestDirectRerank } from "@/lib/rerank-api"
 import {
@@ -43,7 +45,6 @@ const baseEmbeddingConfig: EmbeddingConfig = {
 
 const baseRerankConfig: RerankConfig = {
   enabled: true,
-  useMainLlm: false,
   provider: "custom",
   apiKey: "rerank-key",
   model: "rerank-model",
@@ -94,25 +95,16 @@ describe("settings model test helpers", () => {
     const result = await testSettingsRerankModel(baseLlmConfig, baseRerankConfig)
 
     expect(result.model).toBe("rerank-model")
-    expect(result.usedMainLlm).toBe(false)
     expect(vi.mocked(streamChat).mock.calls[0]?.[0].model).toBe("rerank-model")
   })
 
-  it("reuses the main model when rerank is configured to use it", async () => {
-    vi.mocked(streamChat).mockImplementation(async (_config, _messages, callbacks) => {
-      callbacks.onToken('{"order":[{"id":"a","score":1},{"id":"b","score":0.2}]}')
-      callbacks.onDone()
-    })
-
-    const result = await testSettingsRerankModel(baseLlmConfig, {
+  it("没配重排模型时不会退回去用主模型，而是直接要求先填模型", async () => {
+    await expect(testSettingsRerankModel(baseLlmConfig, {
       ...baseRerankConfig,
-      useMainLlm: true,
       model: "",
-    })
+    })).rejects.toThrow("请先填写重排模型名称")
 
-    expect(result.model).toBe("main-model")
-    expect(result.usedMainLlm).toBe(true)
-    expect(vi.mocked(streamChat).mock.calls[0]?.[0].model).toBe("main-model")
+    expect(vi.mocked(streamChat)).not.toHaveBeenCalled()
   })
 
   it("rejects embedding models for rerank tests before sending the request", async () => {
@@ -120,6 +112,28 @@ describe("settings model test helpers", () => {
       ...baseRerankConfig,
       model: "Qwen/Qwen3-Embedding-4B",
     })).rejects.toThrow("嵌入模型")
+
+    expect(vi.mocked(streamChat)).not.toHaveBeenCalled()
+  })
+
+  it("reports the real embedding failure reason instead of a canned message", async () => {
+    vi.mocked(fetchEmbedding).mockResolvedValue(null)
+
+    await expect(testSettingsEmbeddingModel(baseEmbeddingConfig)).rejects.toThrow(
+      "请检查接口、密钥和模型名称",
+    )
+
+    vi.mocked(getLastEmbeddingError).mockReturnValueOnce(
+      'API 401 Unauthorized — {"message":"Token is invalid."} at https://example.com/v1/embeddings',
+    )
+    await expect(testSettingsEmbeddingModel(baseEmbeddingConfig)).rejects.toThrow("Token is invalid.")
+  })
+
+  it("rejects reranker models when the endpoint is not a direct rerank endpoint", async () => {
+    await expect(testSettingsRerankModel(baseLlmConfig, {
+      ...baseRerankConfig,
+      model: "Pro/BAAI/bge-reranker-v2-m3",
+    })).rejects.toThrow("/rerank")
 
     expect(vi.mocked(streamChat)).not.toHaveBeenCalled()
   })

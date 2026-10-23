@@ -364,4 +364,22 @@ describe("preview-panel final chapter save state", () => {
     const ingest = code.slice(code.indexOf("const handleIngestOutline"), code.indexOf("startOutlineIngestTask(project.path, selectedFile)"))
     expect(ingest).toContain("await runPendingChapterSave()")
   })
+
+  /*
+   * 大纲 HTML 就地编辑的落盘接线。
+   *
+   * 这条守的是「改完能存下来」这件事在**组件树上的最后一步**：
+   * 双格式查看器把改好的 HTML 交出来（onSaveHtml），preview-panel 必须写到
+   * **同名 .html**，而不是写回 .md —— 两格式独立是既定设计（MD 保存也不重建 HTML），
+   * 写错文件会把人工改的档案写进正文编辑器那份 MD 里。
+   */
+  it("大纲 HTML 就地编辑写回同名 .html，且两处双格式入口都接上", () => {
+    const code = stripComments(source)
+    expect(code).toContain('return target.replace(/\\.md$/i, ".html")')
+    const save = code.slice(code.indexOf("const saveCompanionHtml"), code.indexOf("const syncDiskBeforeAction"))
+    expect(save).toContain("await writeFileAtomic(path, html)")
+    expect(save).toContain("setCompanionHtml(html)")
+    // 双格式查看器出现两处（UI 测试版编辑器和普通预览分支），都要传保存回调
+    expect(code.match(/onSaveHtml=\{saveCompanionHtml\}/g) ?? []).toHaveLength(2)
+  })
 })

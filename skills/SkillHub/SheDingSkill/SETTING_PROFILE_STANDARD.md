@@ -233,7 +233,7 @@
 
 ### 结构化与保存
 
-同时输出完整 MD 与 JSON。单对象顶层字段 `backgroundProfileData`，多个对象用 `backgroundProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须与 MD 等价，不得缩成摘要。
+只输出结构化 JSON，不要写 MD 正文。单对象顶层字段 `backgroundProfileData`，多个对象用 `backgroundProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须完整，不得缩成摘要。
 
 软件套用 `world-rules/background.html`，不要自行输出 HTML/CSS。最后按既有 outlineSaveRequest 协议输出保存请求，只有用户确认后才落盘。
 
@@ -321,7 +321,7 @@
 
 ### 结构化与保存
 
-同时输出完整 MD 与 JSON。单对象顶层字段 `powerProfileData`，多个对象用 `powerProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须与 MD 等价，不得缩成摘要。
+只输出结构化 JSON，不要写 MD 正文。单对象顶层字段 `powerProfileData`，多个对象用 `powerProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须完整，不得缩成摘要。
 
 软件套用 `power-system/profile.html`，不要自行输出 HTML/CSS。最后按既有 outlineSaveRequest 协议输出保存请求，只有用户确认后才落盘。
 
@@ -403,7 +403,7 @@
 
 ### 结构化与保存
 
-同时输出完整 MD 与 JSON。单对象顶层字段 `goldenFingerProfileData`，多个对象用 `goldenFingerProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须与 MD 等价，不得缩成摘要。
+只输出结构化 JSON，不要写 MD 正文。单对象顶层字段 `goldenFingerProfileData`，多个对象用 `goldenFingerProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须完整，不得缩成摘要。
 
 软件套用 `power-system/golden-finger.html`，不要自行输出 HTML/CSS。最后按既有 outlineSaveRequest 协议输出保存请求，只有用户确认后才落盘。
 
@@ -479,7 +479,7 @@
 
 ### 结构化与保存
 
-同时输出完整 MD 与 JSON。单对象顶层字段 `factionProfileData`，多个对象用 `factionProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须与 MD 等价，不得缩成摘要。
+只输出结构化 JSON，不要写 MD 正文。单对象顶层字段 `factionProfileData`，多个对象用 `factionProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须完整，不得缩成摘要。
 
 软件套用 `faction-system/profile.html`，不要自行输出 HTML/CSS。最后按既有 outlineSaveRequest 协议输出保存请求，只有用户确认后才落盘。
 
@@ -561,7 +561,7 @@
 
 ### 结构化与保存
 
-同时输出完整 MD 与 JSON。单对象顶层字段 `geographyProfileData`，多个对象用 `geographyProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须与 MD 等价，不得缩成摘要。
+只输出结构化 JSON，不要写 MD 正文。单对象顶层字段 `geographyProfileData`，多个对象用 `geographyProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须完整，不得缩成摘要。
 
 软件套用 `map-progression/profile.html`，不要自行输出 HTML/CSS。最后按既有 outlineSaveRequest 协议输出保存请求，只有用户确认后才落盘。
 
@@ -643,7 +643,7 @@
 
 ### 结构化与保存
 
-同时输出完整 MD 与 JSON。单对象顶层字段 `locationProfileData`，多个对象用 `locationProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须与 MD 等价，不得缩成摘要。
+只输出结构化 JSON，不要写 MD 正文。单对象顶层字段 `locationProfileData`，多个对象用 `locationProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须完整，不得缩成摘要。
 
 软件套用 `map-progression/location.html`，不要自行输出 HTML/CSS。最后按既有 outlineSaveRequest 协议输出保存请求，只有用户确认后才落盘。
 
@@ -725,7 +725,7 @@
 
 ### 结构化与保存
 
-同时输出完整 MD 与 JSON。单对象顶层字段 `foreshadowingProfileData`，多个对象用 `foreshadowingProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须与 MD 等价，不得缩成摘要。
+只输出结构化 JSON，不要写 MD 正文。单对象顶层字段 `foreshadowingProfileData`，多个对象用 `foreshadowingProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须完整，不得缩成摘要。
 
 软件套用 `foreshadowing-suspense/profile.html`，不要自行输出 HTML/CSS。最后按既有 outlineSaveRequest 协议输出保存请求，只有用户确认后才落盘。
 
@@ -764,7 +764,7 @@
 按题材适配：非营利组织解释收支平衡，无任务金手指写使用史，无分级力量写可验证能力边界；不适用项说明原因及等价约束，不硬套仙侠、系统或公司模板。
 跨档案核对人物、势力、地点名称、时间线、交通耗时、经济口径、能力边界、关系和伏笔ID；新增提案不得静默覆盖已确认内容，冲突明确列出。
 每个分区包含能够指导具体场景的细节，关键机制给触发—行动—结果—代价的示例。数字写单位、周期、依据或估算假设，不能伪造精确度；禁止省略号、略、同上、其余同理等占位。
-MD正文与结构化JSON必须内容等价：每个分区、字段、表格、说明和例子均须保留，不能把JSON缩成摘要。长说明用kv条目；表格长解释保留在对应单元格，禁止因排版删除正文。
+结构化字段必须承载完整正文：每个分区、字段、表格、说明和例子均须保留，不能缩成摘要。长说明用kv条目；表格长解释保留在对应单元格，禁止因排版删除内容。
 多个对象分别完整输出并保持名称匹配，禁止混用他人档案。输出预算不足时缩小批次或继续完成当前对象，不压缩必填分区，不把截断草稿冒充完整档案；沿用现有保存确认流程。
 
 ## 地理与地点的空间数据
@@ -778,7 +778,7 @@ regions可为空；地图区域提供至少3个二维points，terrain只能是la
 平面图nodes需提供width、height，均大于0；x+width和y+height不超过100。坐标是房间左上角；同层房间不得无解释重叠。只有明确存在的空间和通路才能绘制，不能为逃脱剧情额外创造门或暗道。
 routes.from/to必须引用nodes.id，mode只能是land/water/passage。detail保留完整距离、耗时、条件、代价和必要假设，不能根据图形屏幕距离反推真实行程。没有交通联系就不添加连线。
 note必须说明信息性质（已确认/设计提案/待确认）、作者层或角色认知层与非比例示意。新增创作允许设计内部一致的位置，但需标设计提案；补全已有文档若无足够空间依据则省略diagram，并在正文列待确认问题，禁止伪造测绘。
-所有图形实体、关系与行程也须完整写入MD相关分区；批量档案每个对象自带自己的diagram，不能借用另一对象的地图。
+所有图形实体、关系与行程也须完整写入对应分区；批量档案每个对象自带自己的diagram，不能借用另一对象的地图。
 
 【第二版图形与正文对应规则】
 本类具备空间信息时，在档案对象内增加 diagram 对象（不是另一个顶层JSON），kind=floorplan。结构示例如下，必须换成当前设定，不照抄示例实体、坐标和数值：
@@ -789,10 +789,10 @@ regions可为空；地图区域提供至少3个二维points，terrain只能是la
 平面图nodes需提供width、height，均大于0；x+width和y+height不超过100。坐标是房间左上角；同层房间不得无解释重叠。只有明确存在的空间和通路才能绘制，不能为逃脱剧情额外创造门或暗道。
 routes.from/to必须引用nodes.id，mode只能是land/water/passage。detail保留完整距离、耗时、条件、代价和必要假设，不能根据图形屏幕距离反推真实行程。没有交通联系就不添加连线。
 note必须说明信息性质（已确认/设计提案/待确认）、作者层或角色认知层与非比例示意。新增创作允许设计内部一致的位置，但需标设计提案；补全已有文档若无足够空间依据则省略diagram，并在正文列待确认问题，禁止伪造测绘。
-所有图形实体、关系与行程也须完整写入MD相关分区；批量档案每个对象自带自己的diagram，不能借用另一对象的地图。
+所有图形实体、关系与行程也须完整写入对应分区；批量档案每个对象自带自己的diagram，不能借用另一对象的地图。
 
 ## 设定类单对象低重复输出
 
-每轮最多生成一个完整对象；保留全部分区、详细字段及配套结构化JSON，不减少信息深度。先输出完整MD正文，再输出本对象的完整JSON，最后输出 outlineSaveRequest。保存请求的 content=""，由软件从同一回复的MD正文回填；不要在保存请求中重复抄写同一篇正文。其余保存字段照常填写，不调用写入工具替代用户确认。多个待生成对象仅列未完成名称，等用户继续，不把多个完整对象挤入本轮。
+每轮最多生成一个完整对象；保留全部分区、详细字段，不减少信息深度。只输出一个完整的结构化JSON围栏，不写MD正文，最后输出 outlineSaveRequest。保存请求的 content=""，正文由软件从结构化数据生成；不要在保存请求中重复抄写正文。其余保存字段照常填写，不调用写入工具替代用户确认。多个待生成对象仅列未完成名称，等用户继续，不把多个完整对象挤入本轮。
 
 已收到正文但流式中断时仍是未完成草稿，不得声明生成或保存成功。不要为避免中断删减内容或编造已完成状态。

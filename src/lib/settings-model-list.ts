@@ -304,10 +304,8 @@ export async function fetchRerankModelList(
   llmConfig: LlmConfig,
   rerankConfig: RerankConfig,
 ): Promise<LlmModelListResult> {
-  if (rerankConfig.useMainLlm) {
-    return fetchLlmModelList(llmConfig)
-  }
-
+  // 4.3.6 起不再有「复用主模型」，所以这里不会再去拉主模型的模型列表：
+  // 重排页拿到的候选必须是**重排端点自己的**模型（bge-reranker / qwen-rerank 之类）。
   if (isDirectRerankEndpoint({ provider: rerankConfig.provider, customEndpoint: rerankConfig.customEndpoint })) {
     return fetchModelList(
       buildEndpointModelsUrl(rerankConfig.customEndpoint),

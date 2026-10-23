@@ -2,7 +2,6 @@ import { useEffect, useState } from "react"
 import { FolderOpen, Plus, BookOpen, RectangleVertical } from "lucide-react"
 import type { WikiProject } from "@/types/wiki"
 import { fileExists, getExecutableDir, listDirectory, moveProjectToSystemTrash, openProjectFolder, readFile, renameProject } from "@/commands/fs"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { buildDefaultNovelDir } from "@/lib/default-paths"
 import { flattenMdFiles } from "@/lib/novel/chapter-utils"
 import { countChapterBodyWords } from "@/lib/chapter-word-count"
@@ -235,7 +234,7 @@ export function UiTestShelf({
       <div className="ui-test-shelf-inner">
         <div className="ui-test-shelf-hero">
           <div className="ui-test-shelf-actions">
-            <button type="button" className="ui-test-btn primary" onClick={onCreateProject}>
+            <button type="button" className="ui-test-btn primary" data-guide="shelf.create" onClick={onCreateProject}>
               <Plus aria-hidden="true" />
               新建小说
             </button>
@@ -288,27 +287,23 @@ export function UiTestShelf({
               const name = book.project.name.trim().replace(/^《(.+)》$/s, "$1")
               const coverChar = Array.from(name)[0] || "书"
               return (
-                <Tooltip key={book.project.path}>
-                  <TooltipTrigger render={
-                    <button
-                      type="button"
-                      className="ui-test-book-card"
-                      onClick={() => onSelectProject(book.project)}
-                      onContextMenu={(event) => { event.preventDefault(); setMenu({ project: book.project, x: event.clientX, y: event.clientY }) }}
-                      aria-label={`打开小说：${name}`}
-                    />
-                  }>
-                    <span className="ui-test-cover" data-char={coverChar} aria-hidden="true" style={{ backgroundColor: COVER_COLORS[book.coverIndex] }}>
-                      <small>青幕 · 原创书稿</small>
-                      <span className="ui-test-cover-title">{name}</span>
-                    </span>
-                    <span className="ui-test-book-info">
-                      <span className="ui-test-book-title" role="heading" aria-level={2}>{name}</span>
-                      <span className="ui-test-book-words">{book.wordCount == null ? "字数读取中" : book.wordCount < 0 ? "字数不可用" : formatWords(book.wordCount)}</span>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent className="ui-test-shelf-tooltip" side="bottom">{name}</TooltipContent>
-                </Tooltip>
+                <button
+                  key={book.project.path}
+                  type="button"
+                  className="ui-test-book-card"
+                  onClick={() => onSelectProject(book.project)}
+                  onContextMenu={(event) => { event.preventDefault(); setMenu({ project: book.project, x: event.clientX, y: event.clientY }) }}
+                  aria-label={`打开小说：${name}`}
+                >
+                  <span className="ui-test-cover" data-char={coverChar} aria-hidden="true" style={{ backgroundColor: COVER_COLORS[book.coverIndex] }}>
+                    <small>青幕 · 原创书稿</small>
+                    <span className="ui-test-cover-title">{name}</span>
+                  </span>
+                  <span className="ui-test-book-info">
+                    <span className="ui-test-book-title" role="heading" aria-level={2}>{name}</span>
+                    <span className="ui-test-book-words">{book.wordCount == null ? "字数读取中" : book.wordCount < 0 ? "字数不可用" : formatWords(book.wordCount)}</span>
+                  </span>
+                </button>
               )
             })}
           </div>

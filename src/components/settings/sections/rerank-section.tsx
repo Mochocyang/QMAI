@@ -73,7 +73,7 @@ export function RerankSection({ draft, setDraft }: Props) {
     config.provider !== "codex-cli" &&
     config.provider !== "cursor-cli" &&
     config.provider !== "antigravity-cli"
-  const hasConfig = config.useMainLlm || Boolean(config.model || config.customEndpoint || config.ollamaUrl)
+  const hasConfig = Boolean(config.model || config.customEndpoint || config.ollamaUrl)
 
   function handleOpenPanel() {
     setExpanded((prev) => !prev)
@@ -82,12 +82,10 @@ export function RerankSection({ draft, setDraft }: Props) {
   useEffect(() => {
     setModelOptions([])
     setModelListState(null)
-  }, [config.useMainLlm, config.provider, config.apiKey, config.customEndpoint, config.ollamaUrl, config.apiMode])
+  }, [config.provider, config.apiKey, config.customEndpoint, config.ollamaUrl, config.apiMode])
 
   async function handleTestModel() {
-    const hasModel = config.useMainLlm
-      ? llmConfig.model.trim().length > 0
-      : config.model.trim().length > 0
+    const hasModel = config.model.trim().length > 0
 
     if (hasModel) {
       setTestState({
@@ -101,9 +99,7 @@ export function RerankSection({ draft, setDraft }: Props) {
         setTestState({
           loading: false,
           success: true,
-          message: result.usedMainLlm
-            ? t("settings.sections.rerank.testSuccessUsingMainModel", { model: result.model })
-            : t("settings.sections.shared.testSuccessWithModel", { model: result.model }),
+          message: t("settings.sections.shared.testSuccessWithModel", { model: result.model }),
         })
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
@@ -221,32 +217,6 @@ export function RerankSection({ draft, setDraft }: Props) {
               {t("settings.sections.rerank.description")}
             </p>
 
-            <div className="flex items-center justify-between gap-3 rounded-md border p-3">
-              <div>
-                <Label>{t("settings.sections.rerank.useMainLlm")}</Label>
-                <p className="text-xs text-muted-foreground">
-                  {t("settings.sections.rerank.useMainLlmHint")}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => updateRerankConfig({ useMainLlm: !config.useMainLlm })}
-                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors ${
-                  config.useMainLlm
-                    ? "border-primary bg-primary"
-                    : "border-muted-foreground/30 bg-muted-foreground/20 hover:bg-muted-foreground/30"
-                }`}
-                title={config.useMainLlm ? t("settings.sections.llm.toggleOff") : t("settings.sections.llm.toggleOn")}
-                aria-label={config.useMainLlm ? t("settings.sections.llm.deactivate") : t("settings.sections.llm.activate")}
-              >
-                <span
-                  className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm ring-1 ring-black/10 transition-transform ${
-                    config.useMainLlm ? "translate-x-4" : "translate-x-0.5"
-                  }`}
-                />
-              </button>
-            </div>
-
             <div className="space-y-2">
               <Label>{t("settings.sections.rerank.maxCandidates")}</Label>
               <Input
@@ -264,8 +234,7 @@ export function RerankSection({ draft, setDraft }: Props) {
               </p>
             </div>
 
-            {!config.useMainLlm && (
-              <>
+            <>
                 <div className="space-y-2">
                   <Label>{t("settings.sections.rerank.provider")}</Label>
                   <select
@@ -381,33 +350,6 @@ export function RerankSection({ draft, setDraft }: Props) {
                   </p>
                 </div>
               </>
-            )}
-
-            {config.useMainLlm && (
-              <div className="space-y-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={testState?.loading || modelListState?.loading}
-                  onClick={() => void handleTestModel()}
-                >
-                  {testState?.loading || modelListState?.loading
-                    ? t("settings.sections.shared.testing")
-                    : t("settings.sections.shared.testModel")}
-                </Button>
-                {testState?.message ? (
-                  <p className={`text-xs ${testState.success ? "text-emerald-600" : "text-destructive"}`}>
-                    {testState.message}
-                  </p>
-                ) : null}
-                {modelListState?.message ? (
-                  <p className={`text-xs ${modelListState.success ? "text-emerald-600" : "text-destructive"}`}>
-                    {modelListState.message}
-                  </p>
-                ) : null}
-              </div>
-            )}
           </div>
         )}
       </div>

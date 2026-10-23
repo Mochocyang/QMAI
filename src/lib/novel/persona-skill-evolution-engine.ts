@@ -35,6 +35,7 @@ import {
   renderPersonaSkillDocument,
   type PersonaPriorEvidence,
 } from "./persona-skill-learning"
+import { readPersonaDocumentFields } from "./persona-skill-profile"
 import type {
   PersonaSkillEvolutionRound,
   PersonaSkillEvolutionState,
@@ -108,8 +109,14 @@ export interface PersonaSkillEvolutionIO {
     candidate: PersonaEvolutionCandidate
     evidence: PersonaPriorEvidence[]
   }) => Promise<PersonaPairJudgement | null>
-  /** 把候选落盘：快照旧版 → 写新档案 → 索引 skillRevision+1，全程同一把锁。 */
-  applyCandidate: (id: string, candidateDocument: string) => Promise<void>
+  /**
+   * 把候选落盘：快照旧版 → 写新档案 → 索引 skillRevision+1，全程同一把锁。
+   *
+   * 必须回传**落盘后**索引里的 `updatedAt`：引擎要把它记进 processedAt。
+   * 不回传（或让引擎先记旧值）会让「这一版处理过了」永远追不上磁盘上的
+   * 新版 —— 于是同一个人每个节律周期都被重写一次，说话方式越改越远。
+   */
+  applyCandidate: (id: string, candidateDocument: string) => Promise<{ updatedAt: string }>
 }
 
 export type PersonaSkillEvolutionStatus =
@@ -212,7 +219,7 @@ export function buildPersonaEvolutionCandidatePrompt(input: {
     `你在审校一份中文小说人物的「人物 Skill」档案。它会被注入写作提示词，指导 AI 把「${input.characterName}」写对。`,
     `别名：${input.aliases.length > 0 ? input.aliases.join("、") : "无"}`,
     "",
-    "【当前档案（五个字段）】",
+    "【当前档案（整份，含档案页；本轮只改下面列出的 5 个演技字段）】",
     input.document,
     "",
     "【该人物最近的出场原文（唯一事实来源）】",
@@ -227,6 +234,9 @@ export function buildPersonaEvolutionCandidatePrompt(input: {
     "   - 简洁：没有「注意」「总之」式的凑字废话。",
     "2. 输出改进后的**完整五字段**（不是增量）：仍成立的内容原样保留，只修诊断出的问题；",
     "   不得引入出场原文之外的新设定，不得整份推翻重写。",
+    "   这里的「五字段」只有：怎么说话 / 怎么想 / 怎么判断 / 什么不做 / 知道局限。",
+    "   档案页字段（性别 / 年龄 / 势力组织 / 外貌 / 性格 / 背景 / 动机 / 能力 / 关系网 / 成长轨迹 / 备注）",
+    "   不在本轮范围内：不要输出，也不要把它们当成要改的内容。",
     "3. 每个字段给一句改进理由（对应上面哪条准则、修的哪个问题）。",
     "4. 做一次配对演绎：从出场原文里挑一个情节锚点，分别按【当前档案】与【改进档案】",
     "   写出这个人物在该情节下的言行（各 3~5 句，含一小段对话或动作），用于后续评审。",
@@ -246,6 +256,16 @@ export function buildPersonaPairJudgePrompt(input: {
   evidence: PersonaPriorEvidence[]
 }): string {
   const candidateSections = FIELD_NAMES.map((name) => `## ${name}\n${input.candidate.fields[name] ?? ""}`).join("\n\n")
+  /**
+   * A 版也只截 5 个演技字段。
+   *
+   * 档案里现在还有性别 / 势力组织 / 外貌 / 关系网等 11 个字段，而候选只产这 5 个。
+   * 若把整份文档当 A 版去比，评委是在拿「16 段的旧档案」比「5 段的新档案」——
+   * 要么因为「A 版更完整」而系统性否决好候选，要么被这些与准则无关的段落干扰。
+   * 评审要的是同类项相比：这一场怎么演他。
+   */
+  const baseFields = readPersonaDocumentFields(input.document)
+  const baseSections = FIELD_NAMES.map((name) => `## ${name}\n${baseFields[name] ?? ""}`).join("\n\n")
   const evidenceText =
     input.evidence.length > 0
       ? input.evidence.map((item) => `【第 ${item.chapterNumber} 章】${item.text}`).join("\n\n")
@@ -264,8 +284,8 @@ export function buildPersonaPairJudgePrompt(input: {
     "【出场原文（事实锚点）】",
     evidenceText,
     "",
-    "【A 版（现行档案）】",
-    input.document,
+    "【A 版（现行档案中的五个演技字段）】",
+    baseSections,
     "",
     "【B 版（候选档案）】",
     candidateSections,
@@ -397,6 +417,11 @@ export async function runPersonaSkillEvolutionRound(
         continue
       }
 
+      // 候选只覆盖 5 个「演技」字段（提示词就这么要求的），档案字段
+      // （性别 / 势力组织 / 外貌 / 关系网…）必须从旧档案原样带过来。
+      // 不带的话，一次自进化就把整份档案的档案页清空 —— 而界面上看起来
+      // 像「AI 把他忘了」，用户没有任何线索。
+      const previousFields = readPersonaDocumentFields(document)
       const candidateDocument = renderPersonaSkillDocument({
         characterName: meta.characterName,
         aliases: [...meta.aliases],
@@ -407,7 +432,7 @@ export async function runPersonaSkillEvolutionRound(
         firstChapter: meta.firstChapter,
         lastChapter: meta.lastChapter,
         chapterNumber: meta.lastChapter,
-        fields: candidate.fields,
+        fields: { ...previousFields, ...candidate.fields },
         existing: "",
         editedByUser: false,
       })
@@ -440,14 +465,17 @@ export async function runPersonaSkillEvolutionRound(
       const tally = `${meta.characterName} ${candidateVotes}-${baseVotes}（弃权 ${judgements.length - candidateVotes - baseVotes}）`
 
       // 乐观棘轮（达尔文原规则）：better >= worse 就保留，平局不算退步。
-      processed[meta.id] = meta.updatedAt
+      // 记录 processedAt 时用**落盘后**的 updatedAt —— 用 meta.updatedAt（旧值）
+      // 会让新素材闸门永远认为「这一版还没处理过」，同一份档案被反复重写。
       if (candidateVotes >= baseVotes && candidateVotes > 0) {
-        await io.applyCandidate(meta.id, candidateDocument)
+        const applied = await io.applyCandidate(meta.id, candidateDocument)
+        processed[meta.id] = applied.updatedAt || meta.updatedAt
         const topReason = judgements.find((item) => item.verdict === "candidate")?.reason ?? ""
         votes.push(`${tally} kept：${topReason}`)
         evolvedNames.push(meta.characterName)
         keptCount += 1
       } else {
+        processed[meta.id] = meta.updatedAt
         const topReason = judgements.find((item) => item.verdict === "base")?.reason ?? ""
         votes.push(`${tally} reverted：${topReason}`)
       }

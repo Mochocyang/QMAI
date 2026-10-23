@@ -121,9 +121,12 @@ function buildIO(projectPath: string): PersonaSkillEvolutionIO {
       )
       return parsePersonaPairJudgement(raw)
     },
-    /** 候选落盘：快照旧版 → 写新档案 → 索引 skillRevision+1，全程同一把锁。 */
+    /**
+     * 候选落盘：快照旧版 → 写新档案 → 索引 skillRevision+1，全程同一把锁。
+     * 回传写入索引里的 `updatedAt`，引擎用它记 processedAt（见 IO 接口注释）。
+     */
     applyCandidate: async (id, candidateDocument) => {
-      await withPersonaSkillLock(personaSkillLockKey(projectPath), async () => {
+      return withPersonaSkillLock(personaSkillLockKey(projectPath), async () => {
         const index = (await loadPersonaSkillIndexStrict(projectPath)) ?? { version: 1, skills: [] }
         const meta = index.skills.find((item) => item.id === id)
         if (!meta) throw new Error(`档案已不存在：${id}`)
@@ -134,12 +137,14 @@ function buildIO(projectPath: string): PersonaSkillEvolutionIO {
         }
         await writePersonaSkillDocument(projectPath, id, candidateDocument)
 
+        const updatedAt = new Date().toISOString()
         const skills = index.skills.map((item) =>
           item.id === id
-            ? { ...item, skillRevision: item.skillRevision + 1, updatedAt: new Date().toISOString() }
+            ? { ...item, skillRevision: item.skillRevision + 1, updatedAt }
             : item,
         )
         await savePersonaSkillIndex(projectPath, { version: 1, skills })
+        return { updatedAt }
       })
     },
   }

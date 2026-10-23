@@ -60,8 +60,15 @@ export interface DisplayMessage {
   chapterDiscussProtocol?: ChapterDiscussProtocol | null
   /** 共创模式：本轮是方向推演轮（用于渲染时隐藏协议标记）。 */
   chapterDiscussPhase?: ChapterDiscussPhase
-  /** 共创模式：协议解析/校验失败的提示。 */
+  /** 共创模式：协议解析/校验失败的提示（仅在完全拿不到协议时出现）。 */
   chapterDiscussError?: string
+  /**
+   * 共创模式：补齐一轮后仍不完全达标，但已按现有内容展示时的说明。
+   *
+   * 与 `chapterDiscussError` 的区别：notice 表示"卡片照常给出，只是某项不完美"，
+   * 不再拦生成 —— 前面几轮问答的 token 已经花了，不能因为介绍短了 20 字就全丢。
+   */
+  chapterDiscussNotice?: string
   /** 共创模式：卡片已被使用过，重载后保持置灰。 */
   chapterDiscussDecision?: ChapterDiscussDecision
 }
@@ -112,6 +119,7 @@ interface ChatState {
   setMessageChapterDiscuss: (messageId: string, patch: {
     chapterDiscussProtocol?: ChapterDiscussProtocol | null
     chapterDiscussError?: string
+    chapterDiscussNotice?: string
     chapterDiscussDecision?: ChapterDiscussDecision
   }) => void
 

@@ -32,11 +32,16 @@ it("已有提供方直接出现在我的模型配置中", async () => {
   expect(card.textContent).toContain("测试模型")
   expect(card.querySelector("[aria-label='停用']")).not.toBeNull()
 })
-it("添加提供方后进入我的模型配置", async () => {
+it("添加提供方后先出目录，选中提供方才进入我的模型配置", async () => {
   await click(host, "＋ 添加提供方")
-  const provider = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Anthropic"))!
+  const grid = host.querySelector<HTMLElement>(".model-provider-grid")!
+  expect(grid, "点添加提供方应只展开提供方目录").not.toBeNull()
+  expect(grid.querySelector("[aria-label='模型']")).toBeNull()
+  expect(host.querySelector("[data-model-provider='anthropic']")).toBeNull()
+  const provider = Array.from(grid.querySelectorAll("button")).find((button) => button.textContent?.includes("Anthropic"))!
   await act(async () => { provider.click() })
+  expect(host.querySelector(".model-provider-grid")).toBeNull()
   const card = host.querySelector<HTMLElement>("[data-model-provider='anthropic']")!
-  await act(async () => { card.querySelector<HTMLButtonElement>("button")?.click() })
   expect(card.querySelector("[aria-label='模型']")).not.toBeNull()
+  expect(card.textContent).toContain("拉取模型")
 })

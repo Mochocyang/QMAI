@@ -258,6 +258,21 @@
   color: var(--ui-accent);
 }
 
+/* 页签行 + 右侧「模型设置教程」入口：窄屏时链接换到下一行，不挤压页签。 */
+.ui-test-root [data-ui="settings-model"] > .ui-test-model-tabbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 0 0 22px;
+}
+
+/* 行间距交给 .ui-test-model-tabbar，页签自身不再留底边距 */
+.ui-test-root [data-ui="settings-model"] .ui-test-tool-tabs {
+  margin-bottom: 0;
+}
+
 .ui-test-root [data-ui="settings-footer"] {
   border: 0;
   background: var(--ui-paper);
@@ -1150,7 +1165,7 @@
 
 .ui-test-root [data-ui="skills-tabs"] > .flex > button,
 .ui-test-root [data-ui="skills-tabs"] [data-testid="skill-library-header-actions"] > button,
-.ui-test-root [data-ui="settings-model"] > .ui-test-tool-tabs > button {
+.ui-test-root [data-ui="settings-model"] .ui-test-tool-tabs > button {
   min-height: var(--ui-heading-line);
   padding-block: 4px;
   line-height: 1.25rem;
@@ -2163,4 +2178,288 @@
   border-radius: 8px;
   background: color-mix(in srgb, var(--ui-ink) 5%, transparent);
   white-space: pre-wrap;
+}
+
+/* ============================================================
+   人物 Skill · 档案面板
+   点开一个角色后不再是「一大片 textarea」，而是像角色档案那样分页签、
+   分字段。下面这些类只在 persona-skill-profile-panel.tsx 里用。
+   ============================================================ */
+
+.ui-test-root .ui-test-persona-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 14px 0 4px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--ui-line);
+}
+
+.ui-test-root .ui-test-persona-avatar {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  border: 1px solid var(--ui-line);
+  background: var(--ui-soft);
+  color: var(--ui-accent);
+  font: 400 1.5rem/1 var(--serif);
+  user-select: none;
+}
+
+.ui-test-root .ui-test-persona-hero-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.ui-test-root .ui-test-persona-hero-copy h3 {
+  margin: 2px 0 8px;
+  color: var(--ui-ink);
+  font: 500 1.35rem/1.4 var(--serif);
+  overflow-wrap: anywhere;
+}
+
+.ui-test-root .ui-test-persona-hero-line {
+  margin: 8px 0 0;
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+}
+
+.ui-test-root .ui-test-persona-hero-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.ui-test-root .ui-test-persona-dirty {
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+}
+
+.ui-test-root .ui-test-persona-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 7px 18px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-persona-save:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.ui-test-root .ui-test-persona-save:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.ui-test-root .ui-test-persona-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 4px;
+  border-bottom: 1px solid var(--ui-line);
+}
+
+.ui-test-root .ui-test-persona-tab {
+  position: relative;
+  min-height: 34px;
+  padding: 7px 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 0.8125rem;
+}
+
+.ui-test-root .ui-test-persona-tab:hover {
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-persona-tab.is-active {
+  color: var(--ui-accent);
+  border-bottom-color: currentColor;
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-persona-panel {
+  padding: 16px 2px 8px;
+}
+
+.ui-test-root .ui-test-persona-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 22px;
+  margin-bottom: 14px;
+}
+
+.ui-test-root .ui-test-persona-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ui-test-root .ui-test-persona-field.is-wide {
+  grid-column: 1 / -1;
+}
+
+.ui-test-root .ui-test-persona-field > span {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--ui-muted);
+  font-size: 0.78rem;
+}
+
+.ui-test-root .ui-test-persona-hint {
+  color: var(--ui-muted);
+  font-size: 0.72rem;
+  font-style: normal;
+  opacity: 0.85;
+}
+
+.ui-test-root .ui-test-persona-input,
+.ui-test-root .ui-test-persona-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  font: 0.8125rem/1.7 var(--ui);
+  outline: none;
+}
+
+.ui-test-root .ui-test-persona-input:focus,
+.ui-test-root .ui-test-persona-textarea:focus {
+  border-color: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-persona-input[readonly] {
+  background: var(--ui-panel);
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-persona-textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.ui-test-root .ui-test-persona-textarea.is-short {
+  min-height: 64px;
+}
+
+.ui-test-root .ui-test-persona-note {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--ui-panel);
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+  line-height: 1.75;
+}
+
+.ui-test-root .ui-test-persona-note strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ui-ink);
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-persona-note pre {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  font: inherit;
+}
+
+.ui-test-root .ui-test-persona-relations {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-test-root .ui-test-persona-relation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  background: var(--ui-paper);
+  font-size: 0.8125rem;
+}
+
+.ui-test-root .ui-test-persona-relation-name {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ui-accent);
+  font: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ui-test-root .ui-test-persona-relation-name:disabled {
+  color: var(--ui-ink);
+  text-decoration: none;
+  cursor: default;
+}
+
+.ui-test-root .ui-test-persona-relation .is-relation {
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-persona-relation .is-nature {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--ui-soft);
+  color: var(--ui-muted);
+  font-size: 0.72rem;
+}
+
+.ui-test-root .ui-test-persona-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 20px;
+  margin: 0 0 16px;
+}
+
+.ui-test-root .ui-test-persona-facts dt {
+  color: var(--ui-muted);
+  font-size: 0.72rem;
+}
+
+.ui-test-root .ui-test-persona-facts dd {
+  margin: 3px 0 0;
+  color: var(--ui-ink);
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 900px) {
+  .ui-test-root .ui-test-persona-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ui-test-root .ui-test-persona-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

@@ -260,6 +260,58 @@ export function hasOutlineDiscussRepairableContent(text: string): boolean {
   return !OPEN_PATTERN.test(trimmed)
 }
 
+/** 「补齐」轮的输出上限：只补可选项目/倾向，不重写整份讨论，沿用补协议的上限。 */
+export const OUTLINE_DISCUSS_TOPUP_MAX_TOKENS = OUTLINE_DISCUSS_REPAIR_MAX_TOKENS
+
+/**
+ * 「补齐」轮提示词：协议**解析出来了但没通过闸门**（分歧没有可选项、可选项少于 2 个、
+ * 倾向没落在真实选项上、一次抛出太多分歧、ready 却没有判断）时，只修这几处。
+ *
+ * 为什么值得单独一轮：这类失败是"内容不达标"，不是"没给格式"。重新跑一整轮共创
+ * 会把前面已经确认过的拍板全部作废（用户口径：前面问了非常多的问题，后面一报错全丢）。
+ */
+export function buildOutlineDiscussTopUpMessages(input: {
+  module: string
+  error: string
+  /** 已解析出的协议；JSON 坏掉时传 null，让模型据原始回复重建。 */
+  protocol: OutlineDiscussProtocol | null
+  content?: string
+}): Array<{ role: "user"; content: string }> {
+  const scope = input.module || "大纲"
+  const payload = input.protocol
+    ? JSON.stringify({
+      status: input.protocol.status,
+      module: input.protocol.module || scope,
+      judgment: input.protocol.judgment,
+      nextStep: input.protocol.nextStep,
+      decisions: input.protocol.decisions,
+      agreed: input.protocol.agreed,
+    })
+    : ""
+  return [{
+    role: "user",
+    content: [
+      `下面这份「${scope}」的 outline_discuss 协议没有通过完整性检查：${input.error}`,
+      "请只修不合格的地方，凑齐要求后重新输出**完整**协议块。",
+      "硬性要求：",
+      "- 已有的分歧 id、问题、可选项、已拍板项原样保留，不要新增无关分歧，也不要重写已确认的结论。",
+      "- 某个分歧的可选项少于 2 个：按它已经写到的思路补足到 2-3 个真实可选项（不要只补一个 CUSTOM）。",
+      "- 倾向没有落在真实选项上：从该分歧已有的可选项里挑一个最合适的填进 preferenceId，并给一句理由。",
+      "- 分歧太多：只保留最关键的 1-3 个，其余降级写进 agreed（问题 + 已确认方案）。",
+      "- status=ready 却缺少判断：补一句为什么现在可以开写。",
+      "- 只输出协议块本身（开标记、JSON、闭标记），不要复述原回复，不要写任何解释。",
+      "协议格式（严格遵守）：",
+      OUTLINE_DISCUSS_MARKER_OPEN,
+      '{"status":"needs_decision|ready","module":"模块名","judgment":"关键判断","nextStep":"下一步建议","decisions":[{"id":"d1","question":"分歧点","options":[{"id":"A","label":"方案","description":"说明"}],"preferenceId":"A","preferenceReason":"倾向理由"}],"agreed":[{"id":"a1","question":"已拍板问题","value":"已确认方案"}]}',
+      OUTLINE_DISCUSS_MARKER_CLOSE,
+      "开闭标记必须成对出现，JSON 必须完整可解析。needs_decision 时 decisions 放 1-3 个分歧，每个至少 2 个真实可选项，并填 preferenceId 与 preferenceReason。",
+      "",
+      input.protocol ? "## 待修的协议" : "## 上一轮回复（协议块缺失或无法解析，请据此重建）",
+      payload || (input.content ?? ""),
+    ].join("\n"),
+  }]
+}
+
 /**
  * 「补协议」修复轮的提示词。
  *

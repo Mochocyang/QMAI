@@ -2,6 +2,7 @@ import { buildLanguageReminder, getOutputLanguage } from "@/lib/output-language"
 import type { ChatMessage, RequestOverrides } from "@/lib/llm-providers"
 import {
   PERSONA_FIELD_MAX_CHARS,
+  PERSONA_PROFILE_FIELDS,
   PERSONA_STORED_FIELDS,
   PERSONA_RESEARCH_DOCUMENTS,
   PERSONA_SUPPLEMENT_MAX_CHARS,
@@ -94,6 +95,7 @@ export function buildPersonaSkillSystemPrompt(): string {
   return [
     "你是长篇小说的人物档案编辑。用户会一次给你同一章里的多个人物；",
     "你要在一次回答里为每个人物产出一份「人物 Skill」。",
+    "一份人物 Skill 由两部分组成：**档案**（他是谁）与**演技**（这一场该怎么演他）。",
     "",
     "硬性要求：",
     "1. 只写正文里能看出来、或能直接推断的东西，禁止编造。",
@@ -102,15 +104,23 @@ export function buildPersonaSkillSystemPrompt(): string {
     "   融入本章的新信息，去掉重复，必要时压缩措辞。本章没有新信息的字段，把已有内容原样抄回，",
     "   绝不能给空字符串，也不能只写本章新增的那一句。",
     `4. 每个字段不超过 ${PERSONA_FIELD_MAX_CHARS} 字。字段名必须与「需要填写的字段」逐字一致。`,
-    "5. 「怎么说话」要给可模仿的语言特征（口头禅、句式长短、称谓、停顿节奏），",
-    "   不要写「他很聪明」这类评价。",
-    "6. 标了「用户手改过」的人物：fields 只写本章的新观察；另外输出 supplement 字符串——",
+    "   档案字段多数写一两句就够（16 个字段一次全写满会让整轮 JSON 过长、被截断）；",
+    "   宁可短而具体，不要为了填满而空转。",
+    "5. 档案字段写「他是谁」：性别、年龄、势力组织（门派 / 家族 / 阵营 / 所属机构，正文没提就空着）、",
+    "   外貌（辨识点：身形、面容、衣着、随身物，不要形容词堆砌）、性格、背景（出身与关键经历）、",
+    "   动机（他要什么、为什么）、能力（会什么、靠什么立足）、成长轨迹（已经发生的变化）、",
+    "   备注（其它确凿、但没处安放的事实）。",
+    "6. 「关系网」每行一个人，格式「对象：关系（性质）」，例如「陆云飞：竞争对手（权力斗争）」；",
+    "   只写正文里真的出现过的关系，态度与利益冲突写进括注，不要只写「好友 / 敌人」两个标签。",
+    "7. 「怎么说话」要整理到能照着写台词：口头禅、称呼习惯、句子长短与停顿、情绪上来时的变化、",
+    "   绝不会说的词。不要写「他很聪明」这类评价。",
+    "8. 标了「用户手改过」的人物：fields 只写本章的新观察；另外输出 supplement 字符串——",
     `   把已有档案里「补充」段的内容与本章新观察合并成一段完整的补充，不超过 ${PERSONA_SUPPLEMENT_MAX_CHARS} 字。`,
-    "7. 只有标了「需要研究文件」的人物才额外产出 research；其余人物的 research 给空对象。",
-    "8. 只输出 JSON，不要解释，不要 Markdown 代码块。",
+    "9. 只有标了「需要研究文件」的人物才额外产出 research；其余人物的 research 给空对象。",
+    "10. 只输出 JSON，不要解释，不要 Markdown 代码块。",
     "",
     "输出格式：",
-    '{"skills":[{"name":"人物名","fields":{"怎么说话":"…","怎么想":"…","怎么判断":"…","什么不做":"…","知道局限":"…"},"supplement":"…","research":{"人物小传":"…"}}]}',
+    '{"skills":[{"name":"人物名","fields":{"性别":"…","势力组织":"…","外貌":"…","关系网":"…","怎么说话":"…","怎么想":"…","怎么判断":"…","什么不做":"…","知道局限":"…"},"supplement":"…","research":{"人物小传":"…"}}]}',
   ].join("\n")
 }
 
@@ -119,16 +129,18 @@ function isLongChapter(chapterBody: string): boolean {
 }
 
 function describeTarget(target: PersonaSkillPromptTarget, input: PersonaSkillPromptInput): string {
-  // 抽取字段一律给全 5 个，不按档位裁剪 —— 档位只管注入，不管学习。
+  // 抽取字段一律给全，不按档位裁剪 —— 档位只管注入，不管学习。
   // 详见 persona-skill-types.ts 的 PERSONA_STORED_FIELDS 注释。
-  const fields = PERSONA_STORED_FIELDS
+  // 「档案字段」与「演技字段」分两行写：前者进界面档案，后者进写作注入，
+  // 合成一行会让模型以为它们同等重要，档案字段又被敷衍成标签。
   const lines = [
     `### ${target.characterName}`,
     `- 定位：${target.roleType || "未标注"}`,
     `- 档位：${target.tier === "major" ? "主要人物" : "次要人物"}`,
     `- 累计出场：${target.appearanceCount} 次`,
     `- 本轮任务：${target.mode === "create" ? "生成新档案" : "完善已有档案（输出合并后的完整字段）"}`,
-    `- 需要填写的字段：${fields.join(" / ")}`,
+    `- 需要填写的档案字段：${PERSONA_PROFILE_FIELDS.join(" / ")}`,
+    `- 需要填写的演技字段：${PERSONA_STORED_FIELDS.join(" / ")}`,
   ]
   if (target.aliases.length > 0) lines.push(`- 别名：${target.aliases.join("、")}`)
   if (target.pinned) lines.push("- 这一位是用户手动标记的重要人物，字段要写得更细。")

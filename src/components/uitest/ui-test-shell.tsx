@@ -28,6 +28,19 @@ import { UiTestShelf } from "./ui-test-shelf"
 import { ContactSupportSection } from "@/components/settings/sections/contact-support-section"
 import { confirmModelDraftLeave } from "./models/model-draft-guard"
 import { MacTrafficLights } from "./mac-traffic-lights"
+import { GuideOverlay } from "@/components/guide/guide-overlay"
+import { useGuideStore } from "@/lib/guide/guide-store"
+import { GUIDE_RESTART_EVENT } from "@/lib/guide/guide-events"
+import {
+  buildGuideDemoChapterBody,
+  readGuideDemoNovel,
+} from "@/lib/guide/guide-demo-novel"
+import type { GuideDirective } from "@/lib/guide/guide-types"
+import { buildDraftChapterMarkdown } from "@/lib/novel/chapter-draft-markdown"
+import { makeChapterFileName } from "@/lib/wiki-filename"
+import { createDirectory, fileExists, readFile, writeFile } from "@/commands/fs"
+import { toast } from "@/lib/toast"
+import type { FileNode } from "@/types/wiki"
 import "./ui-test.css"
 
 const UiTestWorkspace = lazy(async () => ({ default: (await import("./ui-test-workspace")).UiTestWorkspace }))
@@ -45,6 +58,11 @@ const TOOL_GROUPS = [
   [ { view: "storySimulation", label: "剧情推演室 · 测试版", icon: BookOpen }, { view: "reviewCenter", label: "审查中心", icon: ShieldCheck }, { view: "search", label: "剧情搜索", icon: Search } ],
   [ { view: "maintenance", label: "维护工具", icon: Wrench }, { view: "trash", label: "回收站", icon: Trash2 } ],
 ] as const
+/** 文件树里是否已经有章节文件（用来区分「空书」与「用户已经在写的书」）。 */
+function fileTreeHasChapter(nodes: FileNode[]): boolean {
+  return nodes.some((node) => /\/wiki\/chapters\//.test(node.path) || (node.children ? fileTreeHasChapter(node.children) : false))
+}
+
 function menuKeyboard(event: KeyboardEvent<HTMLDivElement>) {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return
   event.preventDefault()
@@ -84,6 +102,17 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const [aiHintDismissed, setAiHintDismissed] = useState(() => readUiTestAiHintDismissed())
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showGlobalSettings, setShowGlobalSettings] = useState(false)
+  /**
+   * 新手引导的开关状态。
+   *
+   * `hydrate()` 必须在首帧后跑一次（读 localStorage），否则服务端式首渲染
+   * 与持久化状态不一致会先闪一下引导再消失。`status === "new"` 表示这台机器
+   * 从没走过引导 —— 只有这种情况才自动弹，用户「结束引导」之后不再打扰。
+   */
+  const guideStatus = useGuideStore((s) => s.status)
+  const guideHydrated = useGuideStore((s) => s.hydrated)
+  const hydrateGuide = useGuideStore((s) => s.hydrate)
+  const startGuide = useGuideStore((s) => s.start)
   const [showActivity, setShowActivity] = useState(false)
   const [showContact, setShowContact] = useState(false)
   const [libraryError, setLibraryError] = useState("")
@@ -126,6 +155,39 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const sidebarVisible = hasDirectory && sidebarPreference
   const showShelf = !project && !showGlobalSettings
 
+  useEffect(() => {
+    hydrateGuide()
+  }, [hydrateGuide])
+  /**
+   * 自动播放只在**本次启动**判断一次，而且只看「装好还没走过」这一种情况。
+   *
+   * 设置页现在没有引导开关（只剩一颗「播放」），所以状态一旦变成 done / off
+   * 就不会再回到 new；这次会话想再看，只能自己点播放。用 ref 吃掉后续状态变化，
+   * 是为了防止将来任何把 status 复位成 new 的入口把 46 步教程直接拍到用户脸上
+   * —— 那会顶掉设置页，而第一步恰好是「在书架点设置」。
+   */
+  const autoStartChecked = useRef(false)
+  useEffect(() => {
+    if (!guideHydrated || autoStartChecked.current) return
+    autoStartChecked.current = true
+    // 只有「从没开始过」才自动弹；结束/关闭过的一律安静。
+    if (guideStatus === "new") startGuide()
+  }, [guideHydrated, guideStatus, startGuide])
+  /**
+   * 设置页点了「重新开始引导」：先退出设置、回到书架。
+   *
+   * 整段引导的第一步是「在书架点设置」，人若还站在设置页，第一步会指着一个
+   * 已经点过的按钮。这里只管退界面，进度由设置页那边（`start()`）写好。
+   */
+  useEffect(() => {
+    const onRestart = () => {
+      setShowGlobalSettings(false)
+      setShowCreateDialog(false)
+      if (useWikiStore.getState().project) onSwitchProject()
+    }
+    window.addEventListener(GUIDE_RESTART_EVENT, onRestart)
+    return () => window.removeEventListener(GUIDE_RESTART_EVENT, onRestart)
+  }, [onSwitchProject])
   useEffect(() => {
     const nextTheme = skin === "xing" ? "dark" : "light"
     document.documentElement.dataset.uiTestSkin = skin
@@ -323,6 +385,73 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const handleCreatedProject = async (created: WikiProject) => { await onProjectOpened(created); setActiveView("sources") }
 
   /**
+   * 引导的「载入示例章节」：把内置正文写成一份**草稿章节**再打开。
+   *
+   * 为什么写草稿（`chapter_status: draft`）而不是正式章节：与 AI 生成正文
+   * 落盘的口径一致（见 `chapter-draft-markdown.ts` 的文件头说明）——草稿不会被
+   * 自动提取记忆，用户要先看过、确认过，才走「提取记忆」把它转正。
+   * 引导示范的是一章「还没定稿的初稿」，不该一上来就污染记忆库。
+   *
+   * 已存在同名文件时**不覆盖**：用户可能已经把示例改成了自己的开头。
+   */
+  const guideLoadDemoChapter = async () => {
+    const store = useWikiStore.getState()
+    const project = store.project
+    const novel = readGuideDemoNovel()
+    if (!project || !novel) {
+      toast.error("还没有可写入的小说，请先完成新建小说这一步。")
+      return
+    }
+    /*
+     * 只往「引导用的示例书」里写。
+     *
+     * 重播「章节」阶段时，当前打开的可能是用户自己的小说：不拦一下就会凭空
+     * 给它多出一章《第1章-雾里的船》，那是最难解释的一类"数据损坏"。
+     * 书名对不上但书里还一章都没有（用户改过示例书名）时仍然放行。
+     */
+    if (project.name.trim() !== novel.name && fileTreeHasChapter(store.fileTree)) {
+      toast.error(`这一节用的是示例小说《${novel.name}》，请先切回它再重播，否则会往《${project.name}》里多写一章。`)
+      return
+    }
+    const projectPath = normalizePath(project.path)
+    const chapterPath = `${projectPath}/wiki/chapters/${makeChapterFileName(`第1章-${novel.chapterTitle}`, 1)}`
+    try {
+      if (!(await fileExists(chapterPath))) {
+        await createDirectory(`${projectPath}/wiki/chapters`)
+        await writeFile(
+          chapterPath,
+          buildDraftChapterMarkdown(1, novel.chapterTitle, buildGuideDemoChapterBody(novel)),
+        )
+        await refreshProjectFileTree(projectPath, { projectId: project.id, clearDisplayTreeFirst: false })
+      }
+      const content = await readFile(chapterPath)
+      store.setSelectedFile(chapterPath)
+      store.setFileContent(content)
+      store.setActiveView("wiki")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "载入示例章节失败，可稍后在章节里手动新建。")
+    }
+  }
+
+  /**
+   * 执行引导层请求的界面动作。
+   *
+   * 引导数据只声明「要打开设置 / 回书架 / 开新建弹窗」，真正落地放在这里：
+   * 这几个开关（`showGlobalSettings`、`showCreateDialog`）与 `navigate()` 都归外壳所有，
+   * 让覆盖层直接去改 store 会造成「设置开着、书架还盖在上面」这类不一致。
+   */
+  const runGuideDirective = (directive: GuideDirective) => {
+    switch (directive) {
+      case "open-settings": void navigate("settings"); break
+      case "open-shelf": void returnToShelf(); break
+      case "open-create-dialog": setShowCreateDialog(true); break
+      case "open-outline-view": void navigate("sources"); break
+      case "open-chapter-view": void navigate("wiki"); break
+      case "load-demo-chapter": void guideLoadDemoChapter(); break
+    }
+  }
+
+  /**
    * 皮肤切换器已从顶栏移到侧栏底部（SidebarBottomActions 的「外观」）。
    * 这里把皮肤状态通过 context 传下去，避免穿过层层侧栏面板做 prop drilling。
    */
@@ -367,9 +496,9 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
               此前是 `<BookOpen />书架`。去掉图标后，它与右侧那几个纯文字导航项
               在视觉上才是一组；`BookOpen` 仍被下方创作工具菜单使用，导入保留。
             */}
-            <button type="button" className={`ui-test-nav-shelf${showShelf ? " is-active" : ""}`} aria-label="返回书架" aria-current={showShelf ? "page" : undefined} title="返回书架" onClick={() => void returnToShelf()}>书架</button>
+            <button type="button" className={`ui-test-nav-shelf${showShelf ? " is-active" : ""}`} data-guide="shell.shelf" aria-label="返回书架" aria-current={showShelf ? "page" : undefined} title="返回书架" onClick={() => void returnToShelf()}>书架</button>
             {primaryNav.map((item, index) => <div className="ui-test-nav-slot" key={item.view} onPointerDown={(event) => pressNav(event, item.view)} onPointerMove={moveNavPress} onPointerUp={releaseNavPress} onPointerCancel={releaseNavPress} onContextMenu={(event) => openNavMenu(event, item.view)}>
-              <button type="button" disabled={!project} aria-current={project && activeView === item.view ? "page" : undefined} aria-haspopup="menu" className={`ui-test-nav-item${project && activeView === item.view ? " is-active" : ""}`} onClick={() => navigate(item.view)}>{item.label}</button>
+              <button type="button" disabled={!project} data-guide={item.view === "wiki" ? "shell.nav.wiki" : item.view === "soul" ? "shell.tool.soul" : item.view === "skillLibrary" ? "shell.tool.skillLibrary" : undefined} aria-current={project && activeView === item.view ? "page" : undefined} aria-haspopup="menu" className={`ui-test-nav-item${project && activeView === item.view ? " is-active" : ""}`} onClick={() => navigate(item.view)}>{item.label}</button>
               {navMenu === item.view && <div ref={navMenuRef} className={`ui-test-menu-pop ui-test-nav-menu${navMenuAlign === "right" ? " is-right" : ""}`} role="menu" aria-label={`${item.label}功能菜单`} data-tauri-drag-region="false" onKeyDown={menuKeyboard} onMouseLeave={hideNavSectionSoon}>
                 <button type="button" role="menuitem" className="ui-test-menu-item" aria-expanded={navMenuSection === "move"} aria-haspopup="menu" onMouseEnter={() => showNavSection("move")} onFocus={() => showNavSection("move")}>移动</button>
                 <button type="button" role="menuitem" className="ui-test-menu-item" aria-expanded={navMenuSection === "replace"} aria-haspopup="menu" onMouseEnter={() => showNavSection("replace")} onFocus={() => showNavSection("replace")}>替换为</button>
@@ -389,7 +518,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
           <div className="ui-test-actions">
             {writing ? <div className="ui-test-header-hint-anchor"><Tooltip><TooltipTrigger render={<button type="button" className="ui-test-icon-btn" aria-label="AI 对话" aria-expanded={assistantOpen} onClick={() => activeView === "sources" ? setOutlineExpanded(!outlineExpanded) : setChatExpanded(!chatExpanded)}><AiChatIcon /></button>} /><TooltipContent>AI 对话</TooltipContent></Tooltip>{!aiHintDismissed && <div className="ui-test-header-hint is-right" role="status"><p>「AI 对话」改成了图标：点击它即可打开或收起对话栏。</p><div className="ui-test-header-hint-actions"><button type="button" className="ui-test-header-hint-dismiss" onClick={() => { writeUiTestAiHintDismissed(); setAiHintDismissed(true) }}>知道了</button></div></div>}</div> : <>
               <button type="button" className="ui-test-icon-btn" aria-label="剧情搜索" title={project ? "剧情搜索" : "请先打开小说"} disabled={!project} onClick={() => navigate("search")}><Search /></button>
-              <button type="button" className="ui-test-icon-btn" aria-label="设置" title="设置" onClick={() => navigate("settings")}><Settings /></button>
+              <button type="button" className="ui-test-icon-btn" data-guide="shell.settings" aria-label="设置" title="设置" onClick={() => navigate("settings")}><Settings /></button>
             </>}
             <div ref={toolsRef} className="ui-test-menu-anchor">
               <Tooltip>
@@ -433,6 +562,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
       <CreateProjectDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} onCreated={handleCreatedProject} />
       <Dialog open={showActivity} onOpenChange={setShowActivity}><DialogContent className="ui-test-activity-dialog"><DialogHeader><DialogTitle>后台活动</DialogTitle><DialogDescription>查看进度、重试错误，不必离开写作。</DialogDescription></DialogHeader><div className="ui-test-activity-body"><RawSourcesSection uiTestActivityView onCancelExtraction={() => cancelImportRef.current?.()} /><BookAnalysisActivitySection onNavigate={() => setShowActivity(false)} /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowActivity(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
       <Dialog open={showContact} onOpenChange={setShowContact}><DialogContent className="ui-test-contact-dialog" aria-label="联系与支持"><DialogTitle className="sr-only">联系与支持</DialogTitle><div className="ui-test-contact-body"><ContactSupportSection /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowContact(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
+      <GuideOverlay onDirective={runGuideDirective} />
     </div>
     </AppearanceSkinProvider>
   )

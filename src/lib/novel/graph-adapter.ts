@@ -249,18 +249,32 @@ export function snapshotToGraphEdges(snapshot: ChapterSnapshot): NovelGraphEdge[
     edges.push({ source: `item:${name}`, target: chapterId, relation: "APPEARS_IN" })
   })
 
-  canonicalSnapshot.graphEdges.forEach(edge => {
+  const pushRelationEdge = (edge: string) => {
     const parts = edge.split("->")
-    if (parts.length === 3) {
-      const source = normalizeGraphEdgeNodeId(parts[0], nodeIdsByLabel)
-      const target = normalizeGraphEdgeNodeId(parts[2], nodeIdsByLabel)
-      const relation = normalizeGraphEdgeRelation(parts[1])
-      if (!source || !target) return
-      edges.push({ source, target, relation })
-    }
-  })
+    if (parts.length !== 3) return
+    const source = normalizeGraphEdgeNodeId(parts[0], nodeIdsByLabel)
+    const target = normalizeGraphEdgeNodeId(parts[2], nodeIdsByLabel)
+    const relation = normalizeGraphEdgeRelation(parts[1])
+    if (!source || !target) return
+    edges.push({ source, target, relation })
+  }
 
-  return edges
+  canonicalSnapshot.graphEdges.forEach(pushRelationEdge)
+  /*
+   * `relationshipChanges` 也是同一套 `A->REL->B` 格式，但过去只有 `graphEdges`
+   * 会变成图谱边。模型经常把人物关系写在前者、后者留空 —— 于是「主角和谁有关系」
+   * 在图谱上整条缺失，而记忆中心的 relationshipSummary 里明明有。
+   * 两处都收，最后按 (source, relation, target) 去重。
+   */
+  canonicalSnapshot.relationshipChanges.forEach(pushRelationEdge)
+
+  const seen = new Set<string>()
+  return edges.filter((edge) => {
+    const key = `${edge.source}|${edge.relation}|${edge.target}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 export function detectNodeType(label: string): NovelNodeType {

@@ -131,6 +131,10 @@ function harness(options: HarnessOptions = {}) {
     applyCandidate: async (id, document) => {
       if (options.failApply) throw new Error("写盘失败")
       applied.push({ id, document })
+      // harness 的索引是常量快照：落盘不改 updatedAt，回传当前值即可。
+      // 「真实落盘改了 updatedAt」的路径由下面单独一条用例覆盖。
+      const target = (options.index ?? [meta()]).find((item) => item.id === id)
+      return { updatedAt: target?.updatedAt ?? meta().updatedAt }
     },
   }
 
@@ -202,6 +206,48 @@ describe("runPersonaSkillEvolutionRound — 棘轮", () => {
     expect([3, 4, 5]).toContain(final.nextThreshold)
     // 逐人记账：这一版处理过了（否则下一轮会拿同一份候选再审一遍）
     expect(final.processedAt["林清越"]).toBe("2026-10-12T01:00:00.000Z")
+  })
+
+  it("升级落盘后记的是**新** updatedAt：下一轮不会把同一个人再进化一次", async () => {
+    // 真实 applyCandidate 会把索引里的 updatedAt 改成「现在」。引擎若仍记旧值，
+    // 新素材闸门永远认为「这一版没处理过」→ 每个节律周期都重写同一个人的
+    // 说话方式，而且每轮都拿同样的证据、重新诊断一遍。
+    const NEW_UPDATED_AT = "2026-10-12T09:00:00.000Z"
+    const { io, applied } = harness({
+      judgements: [{ verdict: "candidate", margin: "clear", reason: "更可演" }],
+    })
+    let skills: PersonaSkillMeta[] = [meta()]
+    let latest = dueState()
+    const realIO: PersonaSkillEvolutionIO = {
+      ...io,
+      loadState: async () => latest,
+      saveState: async (state) => {
+        latest = state
+      },
+      loadIndex: async (): Promise<PersonaSkillIndex> => ({ version: 1, skills: [...skills] }),
+      applyCandidate: async (id, document) => {
+        applied.push({ id, document })
+        skills = skills.map((item) => (item.id === id ? { ...item, updatedAt: NEW_UPDATED_AT } : item))
+        return { updatedAt: NEW_UPDATED_AT }
+      },
+    }
+
+    const first = await runPersonaSkillEvolutionRound(realIO, { now: TODAY })
+    expect(first.status).toBe("completed")
+    expect(applied).toHaveLength(1)
+    expect(first.state.processedAt["林清越"]).toBe(NEW_UPDATED_AT)
+
+    // 下一个打开日、节律强行到期：没有新学习 → 直接歇，不再动同一份档案
+    latest = {
+      ...latest,
+      lastOpenDate: "2026-10-12",
+      lastAttemptedOn: "",
+      openDayCount: 3,
+      nextThreshold: 3,
+    }
+    const second = await runPersonaSkillEvolutionRound(realIO, { now: "2026-10-13" })
+    expect(second.status).toBe("skipped-no-new-material")
+    expect(applied).toHaveLength(1)
   })
 
   it("多数评委判旧版更好：棘轮回退，一个字节都不落盘，但轮次照记", async () => {
@@ -474,10 +520,13 @@ describe("提示词", () => {
       document: DOCUMENT,
       evidence: EVIDENCE,
     })
-    expect(prompt).toContain("【当前档案（五个字段）】")
+    expect(prompt).toContain("【当前档案（整份，含档案页；本轮只改下面列出的 5 个演技字段）】")
     expect(prompt).toContain("先诊断，第二步再改进")
     expect(prompt).toContain("【第 5 章出场原文】")
     expect(prompt).toContain("不得引入出场原文之外的新设定")
+    // 档案字段在文档里，但只要求改 5 个演技字段 —— 提示词必须说清，
+    // 否则模型可能把「外貌 / 势力组织」也当成要改的内容塞回来。
+    expect(prompt).toContain("不在本轮范围内")
     expect(prompt).toContain('"sample"')
   })
 
@@ -488,11 +537,40 @@ describe("提示词", () => {
       candidate: CANDIDATE,
       evidence: EVIDENCE,
     })
-    expect(prompt).toContain("【A 版（现行档案）】")
+    expect(prompt).toContain("【A 版（现行档案中的五个演技字段）】")
     expect(prompt).toContain("【B 版（候选档案）】")
     expect(prompt).toContain("按 A 版写")
     expect(prompt).toContain("按 B 版写")
     expect(prompt).toContain("码头对峙")
     expect(prompt).toContain('{"verdict":"base|candidate|tie"')
+  })
+
+  it("评审的 A 版只截五个演技字段：不能拿 16 段的旧档案比 5 段的候选", () => {
+    // 档案页新增 11 个字段后，A 版若给整份文档，评委是在比「信息量」而不是
+    // 比「这一场怎么演他」—— 好候选会被「旧版更完整」系统性否决。
+    const withProfile = [
+      DOCUMENT,
+      "",
+      "## 性别",
+      "",
+      "男",
+      "",
+      "## 势力组织",
+      "",
+      "青云会",
+      "",
+      "## 关系网",
+      "",
+      "沈砚：旧识（互相提防）",
+    ].join("\n")
+    const prompt = buildPersonaPairJudgePrompt({
+      characterName: "林清越",
+      document: withProfile,
+      candidate: CANDIDATE,
+      evidence: EVIDENCE,
+    })
+    expect(prompt).not.toContain("青云会")
+    expect(prompt).not.toContain("旧识（互相提防）")
+    expect(prompt).toContain("句子短。")
   })
 })

@@ -250,7 +250,7 @@ export function UiTestEditor({
               </h1>
             )}
           </div>
-          <div className="ui-test-editor-toolbar" role="group" aria-label="文档操作">
+          <div className="ui-test-editor-toolbar" data-guide="chapter.toolbar" role="group" aria-label="文档操作">
             {withAnchoredHint(actions, [
               ...(draftMemoryHint
                 ? [{

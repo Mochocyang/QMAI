@@ -803,6 +803,30 @@ describe("fetchEmbedding (via searchByEmbedding) — auto-halve", () => {
     await searchByEmbedding("/tmp/p", "q", cfg, 5)
     expect(getLastEmbeddingError()).toBeNull()
   })
+
+  it("retries once against …/v1/embeddings when the pasted base URL 404s", async () => {
+    // 用户只粘了基础地址（…/v1）：拉取模型能成功（列表地址会补 /models），
+    // 但直接 POST 基础地址只会 404，所以这里补一次 /embeddings。
+    mockHttpFetch.mockResolvedValueOnce(genericErrorResponse(404, "Not Found"))
+    mockHttpFetch.mockResolvedValueOnce(okResponse([0.1, 0.2, 0.3]))
+
+    const vector = await fetchEmbedding("hello", { ...cfg, endpoint: "http://localhost:1234/v1" })
+
+    expect(vector).toEqual([0.1, 0.2, 0.3])
+    expect(mockHttpFetch.mock.calls.map((call) => call[0])).toEqual([
+      "http://localhost:1234/v1",
+      "http://localhost:1234/v1/embeddings",
+    ])
+  })
+
+  it("does not rewrite custom non-base endpoints after a 404", async () => {
+    mockHttpFetch.mockResolvedValue(genericErrorResponse(404, "Not Found"))
+
+    const vector = await fetchEmbedding("hello", { ...cfg, endpoint: "https://proxy.example.com/embed" })
+
+    expect(vector).toBeNull()
+    expect(mockHttpFetch.mock.calls.map((call) => call[0])).toEqual(["https://proxy.example.com/embed"])
+  })
 })
 
 // ── embedPage — replaces page's chunks in LanceDB ──────────────────

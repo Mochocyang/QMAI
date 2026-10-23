@@ -62,10 +62,15 @@ import { StreamingSpinner } from "@/components/common/streaming-spinner";
 import { canContinueUnfinishedDeepChapter } from "./chat-resume";
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content";
 import { StoppedGenerationActions } from "@/components/novel/stopped-generation-actions";
+import { FailedGenerationActions } from "@/components/novel/failed-generation-actions";
 import { isStoppedGenerationMessage } from "@/lib/novel/stopped-generation";
+import {
+  hasFailedGenerationPartialContent,
+  isFailedGenerationMessage,
+} from "@/lib/novel/failed-generation";
 import { ChapterDiscussCard } from "@/components/chat/chapter-discuss-card";
 import { EventOutlineCard } from "@/components/sources/event-outline-card";
-import { extractEventOutlineData, stripEventOutlineDataFence } from "@/lib/novel/event-outline";
+import { extractEventOutlineData, looksLikeEventOutlineDeliveryNote, renderEventOutlineMarkdown, stripEventOutlineDataFence } from "@/lib/novel/event-outline";
 import { handoffEventOutlineToProse } from "@/lib/novel/event-outline-handoff";
 import { stripStructuredMarkers } from "@/lib/novel/outline-intent-clarity";
 import type {
@@ -92,6 +97,14 @@ interface ChatMessageProps {
    * 这个服务任意一次手动停止。见 lib/novel/stopped-generation.ts。
    */
   onContinueStopped?: () => void;
+  /**
+   * 「继续」：上一条回复生成失败后，保留已生成内容接着往下写。
+   *
+   * 与 onContinueStopped 的区别只在提示词（失败有"完全没产出"这种形态，
+   * 那需要整份重来而不是接着写）；按钮的显示条件来自
+   * lib/novel/failed-generation.ts 的 isFailedGenerationMessage，与大纲面板共用。
+   */
+  onContinueFailed?: () => void;
   onSaveAsDraft?: (content: string) => void;
   onDiscardDraft?: () => void;
   saveStatus?: string;
@@ -136,6 +149,7 @@ export function ChatMessage({
   onContinueNextChapter,
   onContinueUnfinished,
   onContinueStopped,
+  onContinueFailed,
   saveStatus,
   isSaving,
   onConfirmToolSave,
@@ -188,16 +202,32 @@ export function ChatMessage({
    */
   const displayContent = useMemo(() => {
     let text = message.content;
-    if (message.chapterDiscussPhase || message.chapterDiscussProtocol || message.chapterDiscussError) {
+    if (message.chapterDiscussPhase || message.chapterDiscussProtocol || message.chapterDiscussError || message.chapterDiscussNotice) {
       text = stripStructuredMarkers(text);
     }
-    if (eventOutline) text = stripEventOutlineDataFence(text);
+    if (eventOutline) {
+      /**
+       * 2026-10-18 起细纲提示词只要求模型输出 JSON（不再手写 Markdown 细纲，写两遍付两次钱），
+       * 于是摘掉围栏后气泡会**空着**。空着不是「没生成」，只是正文挪到了软件这边生成：
+       * 这里用 `renderEventOutlineMarkdown` 从数据反推一份，用户仍可在气泡里拖选复制。
+       *
+       * 提示词允许模型在围栏外留一句「已生成第N章事件细纲」的交代，所以不能只看
+       * 「剥完还有没有字」——那句话同样会顶掉正文（用户看到一条 12 字的回复，
+       * 内容却在 JSON 里）。只有剥完仍是一份**带标题的手写细纲**时才用原文，
+       * 其余一律用反推正文。老消息本来就有模型手写的正文，走的就是保留分支。
+       */
+      const stripped = stripEventOutlineDataFence(text);
+      text = looksLikeEventOutlineDeliveryNote(stripped)
+        ? renderEventOutlineMarkdown(eventOutline)
+        : stripped;
+    }
     return text;
   }, [
     message.content,
     message.chapterDiscussPhase,
     message.chapterDiscussProtocol,
     message.chapterDiscussError,
+    message.chapterDiscussNotice,
     eventOutline,
   ]);
   /**
@@ -234,6 +264,26 @@ export function ChatMessage({
     !message.isAgentRunning &&
     isStoppedGenerationMessage(message.content),
   );
+  /**
+   * 上一条回复是**生成失败**的（正文结尾带着 `出错：…`）。
+   *
+   * 与"已停止"同一个口径：只认最后一条助手消息、且这一轮已经跑完。
+   * 历史里失败过的消息不再长出按钮 —— 那两枚动作只服务"刚刚失败、马上要决定
+   * 下一步"这一刻，翻旧账时它们既无用（请求上下文已经变了）又占地方。
+   */
+  const isFailedGeneration = Boolean(
+    isLastAssistant &&
+    !message.isAgentRunning &&
+    !isStoppedGeneration &&
+    isFailedGenerationMessage(message.content),
+  );
+  /**
+   * 「继续」能不能用：失败前是否真的写出了内容。
+   *
+   * 401 / 404 这类失败一个字都没产出，此时"接着写"没有可接的断点，
+   * 按钮做禁用态并说明原因（用户要求失败时两个按钮都在，那就如实禁用）。
+   */
+  const canContinueFailed = hasFailedGenerationPartialContent(message.content);
   const currentContextHubSnapshot = message.contextHubSnapshot
     ? parseContextHubSnapshotRef(message.contextHubSnapshot)
     : null;
@@ -408,9 +458,14 @@ export function ChatMessage({
             disabledReason="请在生成结束或打开项目后重试。"
           />
         ) : null}
+        {isAssistant && !message.discarded && message.chapterDiscussNotice ? (
+          <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-50/60 px-2 py-1.5 text-[0.6875rem] leading-5 text-amber-800 dark:bg-amber-950/20 dark:text-amber-300">
+            方向卡片已给出，但有一处不完整：{message.chapterDiscussNotice}
+          </div>
+        ) : null}
         {isAssistant && !message.discarded && message.chapterDiscussError ? (
           <div className="mt-2 rounded-md border border-red-500/30 bg-red-50/40 px-2 py-1.5 text-[0.6875rem] leading-5 text-red-700 dark:bg-red-950/20 dark:text-red-300">
-            章节共创协议格式无效，尚未开始生成：{message.chapterDiscussError}
+            本轮没有拿到方向卡片：{message.chapterDiscussError}。上方回复内容已保留，可再发一次或换个说法重试。
           </div>
         ) : null}
         {isAssistant && !message.discarded && (
@@ -464,11 +519,24 @@ export function ChatMessage({
               />
             )}
             {/*
+              * 失败消息的补救动作，位置就在原本「重新生成」那一格：
+              * 保存 / 复制 → 重试 / 继续，与大纲面板那一排的顺序一致。
+              * 判定与提示词都在 lib/novel/failed-generation.ts 里，两侧同源。
+              */}
+            {isFailedGeneration ? (
+              <FailedGenerationActions
+                onRetry={onRegenerate}
+                onContinue={onContinueFailed}
+                continueDisabled={!canContinueFailed}
+              />
+            ) : null}
+            {/*
               * 停止生成的消息不再单出一枚「重新生成」：它和上方那对
               * 「重试」是同一个动作，并排出现只会让人猜哪个才是"换模型重来"。
-              * 重试按钮已经承担了这件事。
+              * 重试按钮已经承担了这件事。失败消息同理 —— 上方那枚「重试」
+              * 接的就是 onRegenerate，再并排一枚会变成两个一模一样的按钮。
               */}
-            {isLastAssistant && onRegenerate && !isStoppedGeneration && (
+            {isLastAssistant && onRegenerate && !isStoppedGeneration && !isFailedGeneration && (
               <button
                 type="button"
                 onClick={onRegenerate}

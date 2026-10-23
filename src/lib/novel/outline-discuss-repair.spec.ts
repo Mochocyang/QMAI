@@ -8,7 +8,7 @@ import {
   parseOutlineDiscussProtocol,
   validateOutlineDiscussProtocol,
 } from "./outline-discuss-protocol"
-import { repairOutlineDiscussProtocolWithAi } from "./outline-discuss-repair"
+import { repairOutlineDiscussProtocolWithAi, resolveOutlineDiscussProtocol } from "./outline-discuss-repair"
 
 /** 用户实测那一轮：模型吐了整卷大纲和写回清单，一个协议标记都没有。 */
 const GENERATION_LEAK_REPLY = [
@@ -142,5 +142,99 @@ describe("repairOutlineDiscussProtocolWithAi", () => {
       signal: new AbortController().signal,
       stream: stream as never,
     })).rejects.toThrow("模型不可用")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 「一次重试 + 降级放行」（与章节侧同构）
+// ---------------------------------------------------------------------------
+
+/** 一份解析得通、但某个分歧只有 1 个真实选项（闸门判 invalid）的协议。 */
+const THIN_OPTIONS_REPLY = [
+  OUTLINE_DISCUSS_MARKER_OPEN,
+  JSON.stringify({
+    status: "needs_decision",
+    module: "卷纲",
+    judgment: "代价阶梯需要重排",
+    nextStep: "先定代价",
+    decisions: [{
+      id: "d1",
+      question: "代价来源选哪个",
+      options: [{ id: "A", label: "令牌吞噬", description: "与金手指绑定" }],
+      preferenceId: "A",
+      preferenceReason: "与已建立的令牌机制一致",
+    }],
+    agreed: [],
+  }),
+  OUTLINE_DISCUSS_MARKER_CLOSE,
+].join("\n")
+
+describe("resolveOutlineDiscussProtocol", () => {
+  const base = { module: "卷纲", llmConfig: {} as never, signal: new AbortController().signal }
+
+  it("协议合格时零额外调用", async () => {
+    const repair = vi.fn(async () => "")
+    const topUp = vi.fn(async () => "")
+    const gate = await resolveOutlineDiscussProtocol({ ...base, text: VALID_PROTOCOL_REPLY, repair, topUp })
+    expect(gate.protocol?.decisions).toHaveLength(1)
+    expect(gate.notice).toBe("")
+    expect(repair).not.toHaveBeenCalled()
+    expect(topUp).not.toHaveBeenCalled()
+  })
+
+  it("可选项不足时先补齐一轮，补齐成功就用补齐后的协议", async () => {
+    const topUp = vi.fn(async ({ error }: { error: string }) => {
+      expect(error).toContain("可选项少于")
+      return VALID_PROTOCOL_REPLY
+    })
+    const gate = await resolveOutlineDiscussProtocol({ ...base, text: THIN_OPTIONS_REPLY, repair: async () => "", topUp })
+    expect(topUp).toHaveBeenCalledTimes(1)
+    expect(gate.notice).toBe("")
+    expect(gate.protocol?.decisions[0].options.filter((o) => o.id !== "CUSTOM")).toHaveLength(2)
+  })
+
+  it("补齐仍不合格就降级放行：卡片照给，只留说明", async () => {
+    const gate = await resolveOutlineDiscussProtocol({
+      ...base,
+      text: THIN_OPTIONS_REPLY,
+      repair: async () => "",
+      topUp: async () => THIN_OPTIONS_REPLY,
+    })
+    expect(gate.error).toBe("")
+    expect(gate.protocol?.decisions).toHaveLength(1)
+    expect(gate.notice).toContain("已按现有内容展示")
+  })
+
+  it("needs_decision 却没有任何分歧时不放行（卡片会是空的），改为报错保留正文", async () => {
+    const empty = [OUTLINE_DISCUSS_MARKER_OPEN, JSON.stringify({
+      status: "needs_decision",
+      module: "卷纲",
+      judgment: "还需要定几件事",
+      nextStep: "",
+      decisions: [],
+      agreed: [],
+    }), OUTLINE_DISCUSS_MARKER_CLOSE].join("\n")
+
+    const gate = await resolveOutlineDiscussProtocol({
+      ...base,
+      text: empty,
+      repair: async () => "",
+      topUp: async () => empty,
+    })
+    expect(gate.protocol).toBeNull()
+    expect(gate.notice).toBe("")
+    expect(gate.error).toContain("分歧")
+  })
+
+  it("没有协议块时先补协议，补不出来才报错（内容由调用方保留）", async () => {
+    const gate = await resolveOutlineDiscussProtocol({
+      ...base,
+      text: GENERATION_LEAK_REPLY,
+      repair: async () => "",
+      topUp: async () => "",
+    })
+    expect(gate.protocol).toBeNull()
+    expect(gate.error).toContain("未返回 outline_discuss 协议块")
+    expect(gate.notice).toBe("")
   })
 })

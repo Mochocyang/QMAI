@@ -718,6 +718,37 @@ export function PreviewPanel() {
     return renderOutlineHtmlForPath(selectedFile, fileContent)
   }, [companionHtml, selectedFile, fileContent])
 
+  /** 伴生 HTML 的磁盘路径（与上面读它、下面写它必须是同一份推导）。 */
+  const companionHtmlPath = useMemo(() => {
+    const target = selectedFile
+    if (!target || !target.toLowerCase().endsWith(".md") || !isOutlinePath(target)) return null
+    return target.replace(/\.md$/i, ".html")
+  }, [selectedFile])
+
+  /**
+   * 大纲 HTML 就地编辑的落盘口（见 `OutlineDualPreview#onSaveHtml`）。
+   *
+   * 只写同名 `.html`，**不动 MD 与结构化数据**：两格式本来就是独立的
+   * （MD 保存也不重建 HTML，见 OutlineDualPreview 头注释），反过来把 HTML 反推成 MD
+   * 做不到无损 —— 表格之外的版式、配色、导航都会丢，人工补的段落顺序也会被打乱。
+   *
+   * 磁盘上原本没有伴生 html（预览是按 MD 即时渲染出来的）时，这一步顺手把它补出来，
+   * 用户改完就能看到「确实存下来了」。
+   */
+  const saveCompanionHtml = useCallback(async (html: string): Promise<boolean> => {
+    const path = companionHtmlPath
+    if (!path) return false
+    try {
+      await writeFileAtomic(path, html)
+      setCompanionHtml(html)
+      setSaveStatus("已保存 HTML 修改。MD 未改动；重新生成大纲时会按新内容覆盖这两份文件。")
+      return true
+    } catch (error) {
+      setSaveStatus(`HTML 保存失败：${error instanceof Error ? error.message : String(error)}`)
+      return false
+    }
+  }, [companionHtmlPath])
+
   const syncDiskBeforeAction = useCallback(async () => {
     const path = selectedFileRef.current
     if (!path) return
@@ -2411,6 +2442,63 @@ export function PreviewPanel() {
     canViewSnapshot
   )
 
+  /*
+   * 大纲的「提取记忆 / 查看记忆 / 字体设置」三枚图标。
+   *
+   * 它们原先只长在大纲 MD 编辑器的工具栏里 —— 而大纲一旦有伴生 HTML，打开文档
+   * 默认就是 HTML 模式（OutlineDualPreview 默认 mode="html"），iframe 会把整条
+   * 编辑器工具栏顶掉，于是 HTML 视图下这三枚按钮完全消失：用户看着一份 HTML 大纲
+   * 找不到「提取记忆」，只能自己猜是不是要切到 MD。
+   *
+   * 现在改为：有伴生 HTML（即会渲染双格式顶栏）时，把这三枚按钮提到顶栏、紧挨
+   * HTML / MD 标识，两种模式位置一致；没有伴生 HTML 时仍留在编辑器工具栏里
+   * （见下面 actions 里的三元），入口不会丢。
+   *
+   * 「字体设置」与记忆两枚同批上移：用户要求「将字体设置图标也移上去」。
+   * 它在大纲里本就是既有能力（「关于字体、间距等这些的设置，大纲当中也要有」），
+   * 与章节共用同一个浮层与同一份值 —— 章节与大纲共用一套排版参数是已确认的决定，
+   * 不各自维护一份。
+   *
+   * ⚠️ `effectiveCompanionHtml` 只对 `isOutlinePath` 的文档非空（见上面读伴生
+   * html 的 effect），所以这里不需要再判一次是不是大纲。
+   */
+  const outlineMemoryActions = (
+    <>
+      <button
+        type="button"
+        className="ui-test-editor-action is-icon-only"
+        data-guide="outline.memory"
+        aria-label={isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"}
+        title={isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"}
+        onClick={() => void handleIngestOutline()}
+        disabled={!canIngestOutline || isOutlineIngesting}
+      >
+        <Brain aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        className="ui-test-editor-action is-icon-only"
+        aria-label="查看记忆"
+        title="查看记忆"
+        onClick={() => {
+          if (outlineIngested && outlineSnapshotNumber !== null) setShowOutlineSnapshot(true)
+          else setSaveStatus("尚未提取记忆。请先使用“提取记忆”，完成后可在此查看。")
+        }}
+      >
+        <BookOpen aria-hidden="true" />
+      </button>
+      {/*
+        ⚠️ 这个按钮必须写成**单行**：preview-panel.chapter-toolbar.spec.tsx
+        的 buttonBlock 以「同一行同时含 <button 与 aria-label」为命中条件
+        （用来排除浮层容器那处），拆成多行会让「大纲这处入口仍在」的守卫
+        直接查不到它。章节工具栏那处也是同一写法，保持一致。
+      */}
+      <button type="button" className="ui-test-editor-action is-icon-only" aria-label="字体设置" title="字体设置" onClick={(event) => openBodyFontPopover(event.currentTarget)}>
+        <Type aria-hidden="true" />
+      </button>
+    </>
+  )
+
   if (loadedFilePath !== selectedFile) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -2453,13 +2541,13 @@ export function PreviewPanel() {
       auxiliaryPanel={!isSelectedChapter ? <UiTestOutlineTools /> : undefined}
       actions={isSelectedChapter ? (
         <>
-          <button type="button" className="ui-test-editor-action is-icon-only" aria-label={chapterDeAiButtonLabel} title={`${chapterDeAiButtonLabel} · ${chapterDeAiButtonTitle}`} onClick={(event) => void openDeAiSkillPicker(null, event.currentTarget)} disabled={currentChapterDeAiProcessing || !extractDeAiChapterText(fileContent).trim()}>
+          <button type="button" className="ui-test-editor-action is-icon-only" data-guide="chapter.deai" aria-label={chapterDeAiButtonLabel} title={`${chapterDeAiButtonLabel} · ${chapterDeAiButtonTitle}`} onClick={(event) => void openDeAiSkillPicker(null, event.currentTarget)} disabled={currentChapterDeAiProcessing || !extractDeAiChapterText(fileContent).trim()}>
             <Eraser aria-hidden="true" />
           </button>
-          <button type="button" className="ui-test-editor-action is-icon-only" data-draft-memory-target="" aria-label={isFinalChapterSaving ? "正在提取记忆…" : chapterMemoryExtracted ? "重新提取记忆" : "提取记忆"} title={isFinalChapterSaving ? "正在提取记忆…" : chapterMemoryExtracted ? "重新提取记忆" : "提取记忆"} onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal({ thenExtract: true }))} disabled={!canSaveAsFinal || isFinalChapterSaving}>
+          <button type="button" className="ui-test-editor-action is-icon-only" data-guide="chapter.memory" data-draft-memory-target="" aria-label={isFinalChapterSaving ? "正在提取记忆…" : chapterMemoryExtracted ? "重新提取记忆" : "提取记忆"} title={isFinalChapterSaving ? "正在提取记忆…" : chapterMemoryExtracted ? "重新提取记忆" : "提取记忆"} onClick={() => void (alreadyFinal ? handleReingest() : handleSaveAsFinal({ thenExtract: true }))} disabled={!canSaveAsFinal || isFinalChapterSaving}>
             <Brain aria-hidden="true" />
           </button>
-          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="查看记忆" title="查看记忆" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
+          <button type="button" className="ui-test-editor-action is-icon-only" data-guide="chapter.view-memory" aria-label="查看记忆" title="查看记忆" onClick={() => canViewSnapshot ? setShowSnapshot(true) : setSaveStatus("尚无可查看的章节记忆，请先确认章节编号并提取记忆。")}>
             <BookOpen aria-hidden="true" />
           </button>
           {/*
@@ -2467,7 +2555,7 @@ export function PreviewPanel() {
             用户明确要求两者不能是同一个图标：改造前两者都是 Type，
             用户在工具栏上无法区分"调字体"与"自动整理段落"。
           */}
-          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="字体设置" title="字体设置" onClick={(event) => openBodyFontPopover(event.currentTarget)}>
+          <button type="button" className="ui-test-editor-action is-icon-only" data-guide="chapter.font" aria-label="字体设置" title="字体设置" onClick={(event) => openBodyFontPopover(event.currentTarget)}>
             <Type aria-hidden="true" />
           </button>
           {/*
@@ -2486,28 +2574,16 @@ export function PreviewPanel() {
             同时命中两枚按钮、把两枚都包起来。
           */}
           {canFormatWriting ? <button type="button" className="ui-test-editor-action is-icon-only" aria-label="一键排版" title="一键排版" onClick={() => void handleFormatWriting()}><WandSparkles aria-hidden="true" /></button> : null}
-          <button type="button" className="ui-test-editor-action is-icon-only" data-event-outline-target="" aria-label="生成章节细纲" title="生成章节细纲" onClick={handleOpenEventOutlineWizard}>
+          <button type="button" className="ui-test-editor-action is-icon-only" data-guide="chapter.event-outline" data-event-outline-target="" aria-label="生成章节细纲" title="生成章节细纲" onClick={handleOpenEventOutlineWizard}>
             <Lightbulb aria-hidden="true" />
           </button>
         </>
       ) : (
         <>
-          <button type="button" className="ui-test-editor-action is-icon-only" aria-label={isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"} title={isOutlineIngesting ? "正在提取记忆…" : outlineIngested ? "重新提取记忆" : "提取记忆"} onClick={() => void handleIngestOutline()} disabled={!canIngestOutline || isOutlineIngesting}>
-            <Brain aria-hidden="true" />
-          </button>
-          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="查看记忆" title="查看记忆" onClick={() => {
-            if (outlineIngested && outlineSnapshotNumber !== null) setShowOutlineSnapshot(true)
-            else setSaveStatus("尚未提取记忆。请先使用“提取记忆”，完成后可在此查看。")
-          }}><BookOpen aria-hidden="true" /></button>
-          {/*
-            大纲里也要能调字体。用户原话：「关于字体、间距等这些的设置，
-            大纲当中也要有这个设置功能」。
-            与章节共用同一个浮层与同一份值 —— 章节与大纲共用一套排版参数
-            是已确认的决定，不各自维护一份。
-          */}
-          <button type="button" className="ui-test-editor-action is-icon-only" aria-label="字体设置" title="字体设置" onClick={(event) => openBodyFontPopover(event.currentTarget)}>
-            <Type aria-hidden="true" />
-          </button>
+          {/* 有伴生 HTML 时这三枚按钮已在双格式顶栏（outlineMemoryActions）里，
+              这里不能再渲染一遍，免得同一个入口在同一屏出现两次；
+              没有伴生 HTML 时仍留在编辑器工具栏，入口不会丢。 */}
+          {effectiveCompanionHtml ? null : outlineMemoryActions}
         </>
       )}
       moreActions={[]}
@@ -2558,7 +2634,14 @@ export function PreviewPanel() {
     <div className="flex h-full flex-col">
       {uiTestEditorElement ? (
         effectiveCompanionHtml ? (
-          <OutlineDualPreview htmlContent={effectiveCompanionHtml} mdEditor={uiTestEditorElement} label={outlineFolderLabel ? `${outlineFolderLabel}双格式` : undefined} />
+          <OutlineDualPreview
+            htmlContent={effectiveCompanionHtml}
+            mdEditor={uiTestEditorElement}
+            label={outlineFolderLabel ? `${outlineFolderLabel}双格式` : undefined}
+            actions={outlineMemoryActions}
+            onSaveHtml={saveCompanionHtml}
+            documentKey={selectedFile}
+          />
         ) : uiTestEditorElement
       ) : (
       <>
@@ -2855,6 +2938,8 @@ export function PreviewPanel() {
             <OutlineDualPreview
               htmlContent={effectiveCompanionHtml}
               label={outlineFolderLabel ? `${outlineFolderLabel}双格式` : undefined}
+              onSaveHtml={saveCompanionHtml}
+              documentKey={selectedFile}
               mdEditor={
                 <WikiEditor
                   ref={wikiEditorRef}

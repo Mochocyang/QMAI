@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 import { act } from "react"
 import { beforeEach, afterEach, expect, it, vi } from "vitest"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -21,7 +23,7 @@ beforeEach(() => {
   vi.clearAllMocks(); vi.spyOn(window, "confirm").mockReturnValue(true)
   useWikiStore.setState({ ...initial, project: { id: "mock-book", name: "模拟小说", path: "/mock/book" },
     embeddingConfig: { enabled: true, endpoint: "https://embedding.invalid/v1", model: "embed-a", apiKey: "fake-vector-key", maxChunkChars: 1000, overlapChunkChars: 200 },
-    rerankConfig: { ...initial.rerankConfig, enabled: true, useMainLlm: false, provider: "custom", customEndpoint: "https://rerank.invalid/v1/rerank", model: "rank-a", apiKey: "fake-rank-key", maxCandidates: 12 },
+    rerankConfig: { ...initial.rerankConfig, enabled: true, provider: "custom", customEndpoint: "https://rerank.invalid/v1/rerank", model: "rank-a", apiKey: "fake-rank-key", maxCandidates: 12 },
   })
 })
 afterEach(async () => { if (unmount) await unmount(); vi.restoreAllMocks() })
@@ -81,7 +83,7 @@ it("重排TOPN边界校验与独立保存，不会更新向量或聊天模型", 
 })
 it("重排拉取目录保留，测试用草稿但不保存，保存失败仍可重试", async () => {
   vi.mocked(fetchRerankModelList).mockResolvedValue({ models: ["rank-a", "rank-b"] })
-  vi.mocked(testSettingsRerankModel).mockResolvedValue({ model: "rank-b", content: "模拟排序", usedMainLlm: false })
+  vi.mocked(testSettingsRerankModel).mockResolvedValue({ model: "rank-b", content: "模拟排序" })
   await render(true); await click(host, "拉取模型")
   await changeInput(host, "输入重排模型 ID", "rank-b")
   expect(host.querySelector('option[value="rank-a"]')).not.toBeNull()
@@ -95,4 +97,15 @@ it("重排拉取目录保留，测试用草稿但不保存，保存失败仍可�
   expect(useWikiStore.getState().rerankConfig.model).toBe("rank-a")
   await click(host, "保存配置")
   expect(useWikiStore.getState().rerankConfig.model).toBe("rank-b")
+})
+
+/*
+ * CSS 层的回归守卫：`ui-test-tools.css` 为了让设置页不重复左侧分类标题，
+ * 把 `[data-ui="settings-section"]` 里所有 h1/h2（以及紧跟 h2 的说明）统一藏了，
+ * 而向量 / 重排页的 header 是**开关自己的标签**。曾经因此页面上只剩一个没有文字说明的开关。
+ * jsdom 不跑层叠，所以这条只能对 CSS 源码断言。
+ */
+it("向量/重排页的开关标题有专门的显示覆盖，不会只剩一个裸开关", () => {
+  const css = readFileSync(resolve(__dirname, "model-settings.css"), "utf8")
+  expect(css).toContain(".model-retrieval > header > div > :is(h2, p) { display: block; }")
 })

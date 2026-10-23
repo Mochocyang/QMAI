@@ -10,6 +10,8 @@ import templateHtml from "../../../skills/SkillHub/ZhanggangSkill/zhanggangjiego
 import { fileExists, getExecutableDir, getResourceDir, readFile } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
 import { BEAT_INTENSITY, STAGE_CHAPTER_MAP, checkBeats, type VolumeOutlineData } from "./volume-outline-template"
+import { parseChineseNumber } from "./chapter-utils"
+import { escapeMarkdownCell, markdownInline } from "./markdown-inline"
 
 /** 17 节章纲标准 + 对齐补字段的单章数据。 */
 export interface ChapterOutlineChapter {
@@ -214,11 +216,37 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function asString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : ""
+  if (typeof value === "string") return value.trim()
+  /*
+   * 数字也要接：`"words": 2600`、`"n": 7` 这类写法模型经常给。
+   * 旧实现只认字符串，这些字段就被静默读成空串 —— 卡片上「字数」「章号」整列空着，
+   * 反推的 .md 也照空（因为反推与卡片读的是同一份归一化数据），
+   * 而数据本身明明是对的，用户完全看不出是类型问题。
+   */
+  if (typeof value === "number" && Number.isFinite(value)) return String(value)
+  return ""
 }
 
 function asNumber(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0
+  if (typeof value === "number" && Number.isFinite(value)) return value
+  // 数字字符串（"2600" / "约 2600 字"）同样接住：只认 number 会让这类字段整列归零。
+  const digits = asString(value).match(/\d+/)?.[0]
+  return digits ? Number.parseInt(digits, 10) : 0
+}
+
+/**
+ * 章号归一化：数字、数字字符串、"第7章" 都认，认不出才回退到序号。
+ *
+ * 旧写法是 `typeof item.n === "number" ? item.n : index + 1`。模型偶尔把章号写成
+ * `"n": "7"`（尤其是从别的模板抄格式时），于是这一章就被当成 `index + 1` ——
+ * 单章生成时就是「第 1 章」，卡片标题、卷纲导航、文件名全部指着第 1 章，
+ * 而数据、正文都是第 7 章的内容。这是**静默错位**，不会报任何错。
+ */
+function chapterNumberOf(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return Math.round(value)
+  const digits = asString(value).match(/\d+/)?.[0]
+  const num = digits ? Number.parseInt(digits, 10) : Number.NaN
+  return Number.isFinite(num) && num > 0 ? num : fallback
 }
 
 function asRecordArray(value: unknown): Array<Record<string, unknown>> {
@@ -238,10 +266,31 @@ function splitNames(value: string): string[] {
 }
 
 /** 归一化 AI 输出的章纲数据（容错：字段缺失取空、类型不符丢弃）。 */
+/**
+ * 剥掉标题里重复的章号：「第1章 竹哨与夜雨」→「竹哨与夜雨」。
+ *
+ * 为什么需要：反推 MD 的 H2 是 `## 第 ${n} 章 ${title}`，而 HTML 卡片的标题位与
+ * 侧边导航用的是 `title` 本身。模型经常在 `title` 里再写一遍「第1章」，于是
+ * 同一份数据存成 .md 会出现「## 第 1 章 第1章 竹哨与夜雨」，HTML 侧栏也是
+ * 「1 第1章 竹哨与夜雨」—— 两处都不报错，只是难看且与旧格式对不上。
+ *
+ * 只在**章号与本章 n 一致**时剥：写成「第7章」却放在 n=1 的位置那是模型张冠李戴，
+ * 原样保留更容易被人看见。
+ */
+function stripChapterNumberPrefix(title: string, n: number): string {
+  const match = title.match(/^第\s*(\d+|[零〇一二三四五六七八九十百千万两]+)\s*[章节]\s*[：:、.．·,，—-]?\s*/)
+  if (!match) return title
+  const raw = match[1]
+  const value = /^\d+$/.test(raw) ? Number(raw) : parseChineseNumber(raw)
+  if (!Number.isFinite(value) || value !== n) return title
+  return title.slice(match[0].length).trim() || title
+}
+
 export function normalizeChapterOutlineData(raw: unknown): ChapterOutlineData | null {
   if (!isRecord(raw)) return null
   const storyRaw = isRecord(raw.story) ? raw.story : {}
   const chapters = asRecordArray(raw.chapters).map((item, index) => {
+    const chapterNumber = chapterNumberOf(item.n, index + 1)
     const info = isRecord(item.info) ? item.info : {}
     const carry = isRecord(item.carry) ? item.carry : {}
     const position = isRecord(item.position) ? item.position : {}
@@ -255,8 +304,8 @@ export function normalizeChapterOutlineData(raw: unknown): ChapterOutlineData | 
     const rules = isRecord(item.rules) ? item.rules : {}
     const handover = isRecord(item.handover) ? item.handover : {}
     return {
-      n: typeof item.n === "number" ? item.n : index + 1,
-      title: asString(item.title),
+      n: chapterNumber,
+      title: stripChapterNumberPrefix(asString(item.title), chapterNumber),
       stage: asString(item.stage),
       beat: asString(item.beat),
       expect: asString(item.expect),
@@ -558,6 +607,14 @@ const CHAPTER_SECTIONS: ChapterSectionSpec[] = [
   {
     id: "s12", title: "§12 伏笔与钩子",
     rows: [
+      /*
+       * 这两条是**对齐字段**（顶层 seedFores / payFores），不是 foreshadow 里的说明。
+       * 它们原本只在 HTML 的伏笔账本与文本视图里出现，数据 → Markdown 反推时被漏掉了：
+       * 落盘的 .md 里既看不到本章埋了哪些伏笔名、也看不到收了哪些，
+       * 而这两件事正是后续写正文与跨章校验要读的。放在本节最前面。
+       */
+      { kind: "kv", label: "本章预埋伏笔", get: (c) => c.seedFores },
+      { kind: "kv", label: "本章回收伏笔", get: (c) => c.payFores },
       { kind: "kv", label: "回收来源", get: (c) => c.foreshadow.payFrom },
       { kind: "kv", label: "如何回收", get: (c) => c.foreshadow.payHow },
       { kind: "kv", label: "回收程度", get: (c) => c.foreshadow.payLevel },
@@ -613,6 +670,85 @@ const CHAPTER_SECTIONS: ChapterSectionSpec[] = [
     rows: [{ kind: "list", label: "已覆盖条目", get: (c) => c.checks }],
   },
 ]
+
+/**
+ * 由结构化数据反推章纲 MD 正文。
+ *
+ * 和卷纲同理：17 节里的每个字段都已经在 JSON 里了，让模型再写一遍 MD
+ * 等于为同一份内容付两遍输出费（一个 12 章的章纲，这一项就是上万字）。
+ * 保存时由这里生成，保证 .md 与 .html 内容完全一致。
+ */
+export function renderChapterOutlineMarkdown(data: ChapterOutlineData): string {
+  const lines: string[] = [`# ${markdownInline(data.title || "章纲")}`, ""]
+  const story = data.story
+  if (story?.name || story?.range) {
+    const header = [story?.name ? `故事${story.index} ${markdownInline(story.name)}` : "", story?.range ? markdownInline(story.range) : ""]
+      .filter(Boolean)
+      .join(" · ")
+    if (header) {
+      /*
+       * 节拍串单独一行，不能丢：它是章纲与卷纲骨架对齐的凭据，
+       * 后续写正文、校验「不连续三章同拍」都要读它。只写故事名与章号范围
+       * 会让落盘的 .md 少掉一个 JSON 里明明有的字段。
+       */
+      lines.push(`> ${header}`, ...(story?.beats ? [">", `> 章情节拍：${markdownInline(story.beats)}`] : []), "")
+    }
+  }
+  data.chapters.forEach((chapter) => {
+    lines.push(`## 第 ${chapter.n} 章 ${markdownInline(chapter.title || "")}`.trim(), "")
+    CHAPTER_SECTIONS.forEach((spec) => {
+      /*
+       * 同一节里可能既有 kv 列表又有表格（§6 关键词 + 必要条件）。
+       * Markdown 里列表项后面**紧跟**表格起始行，表格不会被识别成表格 ——
+       * 用户看到的是「| 类型 | 内容 |」这样一整行竖线。载体切换处必须空一行。
+       *
+       * 空字段一律不导出：`未填` / `- 未填` 是给编辑界面提示缺项用的，落进 .md
+       * 就变成满屏无信息噪声（一章 17 节，漏几节就能刷出十几行）。整节都空时
+       * 连节标题一起跳过 —— 用户要读的是这章发生了什么，不是一份缺项清单。
+       */
+      const body: string[] = []
+      let lastKind = ""
+      let gap = false
+      const push = (line: string) => {
+        // 只在两条**有内容**的行之间插分隔空行：载体全空时不会留下孤立的空行，
+        // 也不会出现「标题 → 空行 → 空行 → 表格」这种双空行。
+        if (gap && body.length > 0) body.push("")
+        gap = false
+        body.push(line)
+      }
+      spec.rows.forEach((row) => {
+        if (lastKind && lastKind !== row.kind) gap = true
+        lastKind = row.kind
+        if (row.kind === "kv") {
+          const value = markdownInline(String(row.get(chapter) ?? ""))
+          if (value) push(`- **${row.label}：** ${value}`)
+          return
+        }
+        if (row.kind === "list") {
+          const items = (row.get(chapter) ?? []).map((item) => markdownInline(String(item ?? ""))).filter(Boolean)
+          items.forEach((item) => push(`- ${item}`))
+          return
+        }
+        /*
+         * 表格行按「首列之外是否还有内容」筛：一张只剩标签、右侧全是空白的表
+         * （如必要条件四行的值都没填）导出来就是四行「| 入场条件 |  |」，
+         * 看着像数据、读起来什么也没有。首列往往是行标签，不足以支撑一张表。
+         */
+        const hasBody = (values: string[]) =>
+          (row.head.length > 1 ? values.slice(1) : values).some((value) => String(value ?? "").trim())
+        const rows = (row.get(chapter) ?? []).filter(hasBody)
+        if (rows.length === 0) return
+        const cell = (value: string) => escapeMarkdownCell(String(value ?? ""))
+        push(`| ${row.head.join(" | ")} |`)
+        push(`| ${row.head.map(() => "---").join(" | ")} |`)
+        rows.forEach((values) => push(`| ${values.map(cell).join(" | ")} |`))
+      })
+      if (body.length === 0) return
+      lines.push(`### ${spec.title}`, "", ...body, "")
+    })
+  })
+  return lines.join("\n").trimEnd() + "\n"
+}
 
 function renderSectionRows(spec: ChapterSectionSpec, chapter: ChapterOutlineChapter): string {
   return spec.rows.map((row) => {
@@ -1146,16 +1282,33 @@ export function extractChapterOutlineData(text: string): ChapterOutlineData | nu
   if (candidates.length === 0 && text.includes("{")) candidates.push(text)
 
   for (const candidate of candidates) {
-    const start = candidate.indexOf("{")
-    if (start < 0) continue
-    const block = balancedJsonBlock(candidate, start)
-    if (!block) continue
-    try {
-      const payload = JSON.parse(block) as unknown
-      const data = chapterDataFromPayload(payload)
-      if (data) return data
-    } catch {
-      // 该围栏不是合法 JSON（可能是别的围栏），继续下一个
+    /*
+     * 从每一个 `{` 都试一次，而不是只试第一个。
+     *
+     * 提示词要求「chapterOutlineData 与 outlineSaveRequest 并列」，但模型经常把数据
+     * **塞进保存请求对象里面**（`{ "outlineSaveRequest": { …, "chapterOutlineData": {…} } }`）
+     * —— 它把一切都当成「请求」。旧写法只配平第一个花括号，解析出来是外层 request，
+     * `chapterDataFromPayload` 里的 shallow 解包只能看一层，于是取不到数据：
+     *
+     *   第 1 个保存请求缺少 content，且无法从正文中提取。
+     *
+     * 数据在眼前却报「没有内容」。改成逐个 `{` 往右扫后，内层 `chapterOutlineData`
+     * 自己配平出来就是一份合法数据，直接命中。与 `extractEventOutlineData` 同构
+     * （那边早就这么写了，细纲没出过这类问题）。
+     */
+    let start = candidate.indexOf("{")
+    while (start >= 0) {
+      const block = balancedJsonBlock(candidate, start)
+      if (block) {
+        try {
+          const payload = JSON.parse(block) as unknown
+          const data = chapterDataFromPayload(payload)
+          if (data) return data
+        } catch {
+          // 该对象不是合法 JSON（尾随逗号、正文里提到的花括号），继续往右找。
+        }
+      }
+      start = candidate.indexOf("{", start + 1)
     }
   }
   return null
@@ -1329,7 +1482,7 @@ export function buildChapterBatchPrompt(input: {
     `1. 只写第 ${batch.from} 章到第 ${batch.to} 章，每章必须写满 17 节（§1 基础信息 / §2 上章承接 / §3 本章定位 / §4 浓缩剧情 / §5 核心事件链（≥6 条且每条含 what/cause/action/result/use）/ §6 关键词与必要条件（enter/trigger/interact/result 四类齐全）/ §7 四段式 / §8 情绪曲线（4 节点）/ §9 爽点与看点 / §10 关键信息与扩写方式 / §11 画面细节 / §12 伏笔与钩子 / §13 出场角色与状态变化（至少 1 条）/ §14 设定与道具更新 / §15 写作约束 / §16 下一章交接 / §17 写作检查清单）。`,
     "2. 每章必须带对齐字段：stage（所属环节）/ beat（本章节拍，必须等于骨架 beats 对应位置的字符）/ expect（本章主期待感）/ time / place / seedFores / payFores。",
     "3. 第 N 章的 handover.nextStart 必须与第 N+1 章的 carry.hook 呼应；payFores 必须在更早章节的 seedFores 出现过。",
-    "4. 输出顺序：先写本批 MD 正文，再写一个 ```json 围栏，顶层字段固定为 chapterOutlineBatch（结构与 chapterOutlineData 相同，chapters 只含本批章节）。",
+    "4. 输出顺序：只写一个 ```json 围栏，顶层字段固定为 chapterOutlineBatch（结构与 chapterOutlineData 相同，chapters 只含本批章节）。**不要写 MD 正文**——17 节内容与 JSON 完全重复，软件会用数据生成 MD。",
     "5. 本批**不要**输出 outlineSaveRequest（软件会在最后一批之后合并并统一保存），不要输出 HTML，不要用「…」「同上」等省略写法。",
     "6. 关键节不得留空：§8 moodCurve 写满 4 个节点；§10 expand 至少 1 条且含 info/how；§11 visual.env 与 visual.memory 必须有内容；§13 castChanges 至少 1 条；§14 worldUpdate 至少一项有内容（确无新增就写「无新增」）。",
     "7. §17 checks 必须覆盖 10 条固定项：三行内入戏 / 有明确变化 / 事件链有因果 / 有核心记忆点 / 有动作微细节 / 有爽点 / 回收旧信息 / 埋新信息 / 有追读钩子 / 已写明下一章交接。",

@@ -135,6 +135,14 @@ export function getLastEmbeddingError(): string | null {
   return lastEmbeddingError
 }
 
+/**
+ * Drop the cached failure before an isolated probe (设置页的「测试向量模型」)，
+ * 否则失败时读到的可能是上一次索引重建留下的旧原因。
+ */
+export function resetLastEmbeddingError(): void {
+  lastEmbeddingError = null
+}
+
 // ── fetchEmbedding with auto-halve retry ────────────────────────────────
 
 /**
@@ -227,61 +235,95 @@ type EmbeddingPostResult =
   | { ok: true; vectors: (number[] | null)[] }
   | { ok: false; status: number; statusText: string; body: string }
 
+/**
+ * 用户粘进来的常常是「基础地址」而不是完整接口地址（各家文档给的都是基础
+ * 地址，例如阿里云百炼的 …/compatible-mode/v1）。拉取模型能成功只是因为
+ * 列表地址会自动补 /models，真正发请求时 POST 到基础地址只会 404。
+ * 这里在收到 404/405 之后补一次 /embeddings 重试，且只在明确的基础地址
+ * 形态（以版本段结尾）下生效：Google 的 :embedContent 端点、DashScope 原生
+ * services/embeddings 路径、以及自定义非标准路径（…/embed）都保持原样，
+ * 不会被改写。
+ */
+const EMBEDDING_BASE_PATH = /\/(?:v\d+(?:beta\d*)?|compatible-mode\/v\d+|api\/v\d+|openai\/v\d+|paas\/v\d+)$/i
+
+function withDefaultEmbeddingPath(endpoint: string): string | null {
+  const trimmed = endpoint.trim()
+  if (!/^https?:\/\//i.test(trimmed)) return null
+  const cut = trimmed.search(/[?#]/)
+  const target = (cut === -1 ? trimmed : trimmed.slice(0, cut)).replace(/\/+$/, "")
+  const tail = cut === -1 ? "" : trimmed.slice(cut)
+  if (!EMBEDDING_BASE_PATH.test(target)) return null
+  return `${target}/embeddings${tail}`
+}
+
 async function postEmbeddingTextsOnce(
   cfg: EmbeddingConfig,
   texts: string[],
 ): Promise<EmbeddingPostResult> {
   const provider = embeddingProvider(cfg)
   const { endpoint, body } = embeddingRequest(cfg, texts)
-  try {
-    const httpFetch = await getHttpFetch()
-    const resp = await httpFetch(endpoint, {
-      method: "POST",
-      headers: embeddingHeaders(cfg),
-      body: JSON.stringify(body),
-    })
-    if (!resp.ok) {
-      let bodyText = ""
-      try {
-        bodyText = await resp.text()
-      } catch {
-        // empty error bodies are common
+
+  const send = async (target: string): Promise<EmbeddingPostResult> => {
+    try {
+      const httpFetch = await getHttpFetch()
+      const resp = await httpFetch(target, {
+        method: "POST",
+        headers: embeddingHeaders(cfg),
+        body: JSON.stringify(body),
+      })
+      if (!resp.ok) {
+        let bodyText = ""
+        try {
+          bodyText = await resp.text()
+        } catch {
+          // empty error bodies are common
+        }
+        return { ok: false, status: resp.status, statusText: resp.statusText, body: bodyText }
       }
-      return { ok: false, status: resp.status, statusText: resp.statusText, body: bodyText }
+      const data = await resp.json()
+      const vectors = parseProviderBatch(provider, data, texts.length)
+      if (!vectors) {
+        const expectedShape = provider === "google"
+          ? "embeddings[].values"
+          : provider === "dashscope"
+          ? "output.embeddings[].embedding"
+          : "data[].embedding"
+        rememberEmbeddingFailure(
+          `Embedding response missing ${expectedShape} (got ${JSON.stringify(data).slice(0, 200)})`,
+        )
+        return { ok: true, vectors: texts.map(() => null) }
+      }
+      if (vectors.some((vector) => vector)) {
+        lastEmbeddingError = null
+      } else if (texts.length === 1) {
+        // Envelope parsed but the only item carried no usable vector. Report
+        // it here, otherwise a single-text caller would return null while
+        // lastEmbeddingError kept a stale (or absent) message.
+        rememberEmbeddingFailure(
+          `Embedding response missing ${embeddingItemShape(provider)} (got ${JSON.stringify(data).slice(0, 200)})`,
+        )
+      }
+      return { ok: true, vectors }
+    } catch (err) {
+      const message = isFetchNetworkError(err)
+        ? `Network error reaching ${target}. Check endpoint URL, API key, and connectivity.`
+        : err instanceof Error ? err.message : String(err)
+      rememberEmbeddingFailure(message)
+      noteEmbeddingLogError(message)
+      embeddingIndexLog("http-fail", { status: 0, texts: texts.length, body: message.slice(0, 200) })
+      return { ok: false, status: 0, statusText: "", body: message }
     }
-    const data = await resp.json()
-    const vectors = parseProviderBatch(provider, data, texts.length)
-    if (!vectors) {
-      const expectedShape = provider === "google"
-        ? "embeddings[].values"
-        : provider === "dashscope"
-        ? "output.embeddings[].embedding"
-        : "data[].embedding"
-      rememberEmbeddingFailure(
-        `Embedding response missing ${expectedShape} (got ${JSON.stringify(data).slice(0, 200)})`,
-      )
-      return { ok: true, vectors: texts.map(() => null) }
-    }
-    if (vectors.some((vector) => vector)) {
-      lastEmbeddingError = null
-    } else if (texts.length === 1) {
-      // Envelope parsed but the only item carried no usable vector. Report
-      // it here, otherwise a single-text caller would return null while
-      // lastEmbeddingError kept a stale (or absent) message.
-      rememberEmbeddingFailure(
-        `Embedding response missing ${embeddingItemShape(provider)} (got ${JSON.stringify(data).slice(0, 200)})`,
-      )
-    }
-    return { ok: true, vectors }
-  } catch (err) {
-    const message = isFetchNetworkError(err)
-      ? `Network error reaching ${endpoint}. Check endpoint URL, API key, and connectivity.`
-      : err instanceof Error ? err.message : String(err)
-    rememberEmbeddingFailure(message)
-    noteEmbeddingLogError(message)
-    embeddingIndexLog("http-fail", { status: 0, texts: texts.length, body: message.slice(0, 200) })
-    return { ok: false, status: 0, statusText: "", body: message }
   }
+
+  const result = await send(endpoint)
+  if (!result.ok && (result.status === 404 || result.status === 405)) {
+    const fallback = withDefaultEmbeddingPath(endpoint)
+    if (fallback) {
+      embeddingIndexLog("endpoint-fallback", { status: result.status, url: fallback })
+      return send(fallback)
+    }
+  }
+  return result
 }
 
 async function postEmbeddingTextsOnceTracked(

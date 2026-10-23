@@ -27,6 +27,7 @@ import {
   buildOutlineAgentSystemPrompt,
   buildOutlineReferenceSkillEntries,
   buildVolumeOutlineRepairPrompt,
+  describeStructuredOnlyAnswer,
   filterOutlineGeneratedContent,
   OutlineChatPanel,
 } from "./outline-chat-panel"
@@ -322,24 +323,23 @@ describe("卷纲自动补全提示词与校验器同契约", () => {
   })
 
   it("覆盖校验器要求的每一个故事级字段（漏一个就会「补了还不过」）", () => {
-    for (const field of ["range", "deliver", "gift", "mid", "twist", "hook", "link", "climax", "beats"]) {
+    for (const field of ["range", "title", "id", "st", "beats"]) {
       expect(prompt).toContain(field)
     }
   })
 
   it("覆盖环节的每一个必填项与 10 个环节名", () => {
-    for (const field of ["stage", "who", "use", "pay"]) expect(prompt).toContain(field)
+    for (const field of ["stage", "label", "who", "p"]) expect(prompt).toContain(field)
     for (const stage of ["起①", "起②", "起③", "承①", "承②", "承③", "转①", "转②", "合①", "合②"]) {
       expect(prompt).toContain(stage)
     }
   })
 
-  it("覆盖 story.line 与顶层台账字段", () => {
-    expect(prompt).toContain("line")
-    for (const field of [
-      "position", "roles", "foreshadows", "cast", "escalation", "debts", "rivals", "growth", "places",
-    ]) {
-      expect(prompt).toContain(field)
+  it("明令禁止再重复写 MD 与台账面板（两者都在白烧 token）", () => {
+    expect(prompt).toContain("不要再手写一遍 MD 正文")
+    expect(prompt).toContain("只要故事，不要台账")
+    for (const removed of ["position", "escalation", "foreshadows", "rivals", "growth", "places", "debts"]) {
+      expect(prompt).not.toContain(removed)
     }
   })
 
@@ -1430,14 +1430,16 @@ describe("OutlineChatPanel controls", () => {
     expect(useOutlineChatStore.getState().conversations[0].messages.at(-1)?.content).toContain("补全远洋投送")
   })
 
-  it("无效意图 JSON 显示协议错误且不提供保存入口", async () => {
+  it("无效意图 JSON 显示协议错误、保留正文且不提供保存入口", async () => {
     setOutlineConversations([conversation([
       { id: "u-invalid", role: "user", content: "完善章纲" },
       { id: "a-invalid", role: "assistant", content: '<!-- intent_clarity -->\n{"clarity":"clear"' },
     ])], "outline-active")
     const container = await renderOutlineChatPanel()
 
-    expect(container.textContent).toContain("意图分析格式无效，尚未开始生成")
+    // 协议坏了不再把整条回复藏起来：错误照报，但正文（剥掉坏 JSON）要留在气泡里。
+    expect(container.textContent).toContain("意图分析格式无效")
+    expect(container.textContent).not.toContain("尚未开始生成")
     expect(container.querySelector('[role="alert"]')).not.toBeNull()
     expect(Array.from(container.querySelectorAll("button")).some((button) => button.getAttribute("aria-label") === "保存为大纲")).toBe(false)
   })
@@ -2336,7 +2338,7 @@ describe("OutlineChatPanel controls", () => {
     // ② 补全提示词复用卷纲契约（否则「补一轮→还是同样的 N 项」）
     expect(repairPrompts.length).toBeGreaterThan(0)
     const repairPrompt = repairPrompts[0]
-    for (const field of ["range", "deliver", "gift", "mid", "twist", "hook", "climax", "beats", "stage", "who", "use", "line"]) {
+    for (const field of ["range", "title", "st", "beats", "stage", "label", "who"]) {
       expect(repairPrompt).toContain(field)
     }
   })
@@ -3915,5 +3917,162 @@ describe("事件细纲接线", () => {
       expect(confirmDialogVisible(), "闸门必须拦下，不弹确认框").toBe(false)
       expect(infoSpy).toHaveBeenCalledWith("事件细纲只作为对话消息保留，不写入大纲列表。")
     })
+  })
+})
+
+describe("只有结构化数据的回复：气泡不空着", () => {
+  const stages = ["起①", "起②", "起③", "承①", "承②", "承③", "转①", "转②", "合①", "合②"]
+
+  it("卷纲：报出故事数、环节数与去处，不把 JSON 塞回气泡", () => {
+    const reply = "```json\n" + JSON.stringify({
+      volumeOutlineData: {
+        title: "卷一 无我绝响",
+        stories: Array.from({ length: 3 }, (_, i) => ({
+          id: i + 1,
+          range: `第 ${i * 12 + 1}–${i * 12 + 12} 章`,
+          title: `故事${i + 1}`,
+          st: stages.map((stage) => ({ stage, p: ["a", "b", "c"] })),
+        })),
+      },
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("已生成卷纲《卷一 无我绝响》")
+    expect(text).toContain("3 个故事")
+    expect(text).toContain("30 个环节")
+    expect(text).not.toContain("volumeOutlineData")
+  })
+
+  it("章纲：报出章号区间与章数", () => {
+    const reply = "```json\n" + JSON.stringify({
+      chapterOutlineData: {
+        title: "章纲-第01–02章",
+        story: { index: 1, name: "故事一", range: "第 1–12 章", beats: "平升起紧落缓升紧顶缓顶悬" },
+        words: "6000",
+        chapters: [
+          { n: 1, title: "雨夜" },
+          { n: 2, title: "断电" },
+        ],
+      },
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("第 1–2 章")
+    expect(text).toContain("共 2 章")
+  })
+
+  it("章纲：节数按实际产出报，不写死 17 节", () => {
+    /*
+     * 反推会跳过全空的分区，模型少给几节就少几节。写死「每章 17 节」等于替软件
+     * 保证一件没发生的事 —— 用户打开 .md 只有 8 节，会以为软件吞了内容。
+     */
+    const reply = "```json\n" + JSON.stringify({
+      chapterOutlineData: {
+        title: "章纲-第03章",
+        story: { index: 1, name: "故事一", range: "第 1–12 章" },
+        chapters: [{ n: 3, title: "落水", digest: "楚白落水，被捞起。" }],
+      },
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("共 1 章")
+    expect(text, "数据只有一两节时说「每章 17 节」是谎报").not.toContain("17 节")
+    expect(text).toMatch(/每章 \d+ 节/)
+  })
+
+  it("人物小传：报出角色名与分区数", () => {
+    const reply = "```json\n" + JSON.stringify({
+      characterProfileData: {
+        name: "楚白",
+        tag: "主角",
+        sections: [
+          { kind: "kv", heading: "基本信息", items: [{ label: "职业", text: "掮客" }] },
+          { kind: "kv", heading: "角色定位", items: [{ label: "功能", text: "带路" }] },
+        ],
+      },
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("楚白")
+    expect(text).toContain("2 个分区")
+    expect(text).not.toContain("characterProfileData")
+  })
+
+  it("七类设定：报出对象名与分区数，不把 JSON 塞回气泡", () => {
+    const reply = "```json\n" + JSON.stringify({
+      factionProfileData: {
+        name: "青云商会",
+        tag: "商户",
+        sections: [
+          { kind: "kv", heading: "基本信息", items: [{ label: "据点", text: "霜河渡口" }] },
+          { kind: "kv", heading: "组织使命", items: [{ label: "公开宗旨", text: "保证雪线补给" }] },
+        ],
+      },
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("青云商会")
+    expect(text).toContain("2 个分区")
+    expect(text).toContain(".md / .html")
+    expect(text).not.toContain("factionProfileData")
+  })
+
+  it("七类设定：多份档案报数量与前三个名字", () => {
+    const reply = "```json\n" + JSON.stringify({
+      locationProfiles: [
+        { name: "霜河渡口", sections: [{ kind: "kv", heading: "地点定位", items: [] }] },
+        { name: "黑水湾", sections: [{ kind: "kv", heading: "地点定位", items: [] }] },
+      ],
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("2 份地点设定")
+    expect(text).toContain("霜河渡口、黑水湾")
+  })
+
+  it("七类设定：同一条回复里出现多类时逐类报数，不只报第一类", () => {
+    /*
+     * 「一键生成全部设定」那一轮，模型常把两类档案塞进同一条回复（八类共用
+     * fileType=setting，批量是常态）。旧实现命中第一类就 return，气泡只提
+     * 力量体系、一个字都不提地点 —— 用户会以为地点那几份没生成。
+     */
+    const reply = "```json\n" + JSON.stringify({
+      powerProfileData: {
+        name: "九转玄功",
+        sections: [{ kind: "kv", heading: "体系定位", items: [{ label: "类型", text: "内功" }] }],
+      },
+      locationProfiles: [
+        { name: "竹屋", sections: [{ kind: "kv", heading: "地点定位", items: [] }] },
+      ],
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("力量体系《九转玄功》")
+    expect(text).toContain("地点设定《竹屋》")
+    // 两类之间用分号串起来，读起来是一句完整的话
+    expect(text).toContain("；")
+    // 结构化键名一律不许漏到气泡里
+    expect(text).not.toContain("powerProfileData")
+    expect(text).not.toContain("locationProfiles")
+  })
+
+  it("事件细纲：报出章号、事件数与目标字数（否则面板气泡是空的）", () => {
+    const reply = "```json\n" + JSON.stringify({
+      eventOutlineData: {
+        version: 1,
+        chapterNumber: 7,
+        title: "第7章 · 断线",
+        targetWords: 2600,
+        events: [
+          { title: "楚白摸到井口", points: ["试探", "回声"] },
+          { title: "井底有人应答", points: ["反转"] },
+          { title: "竹哨裂开", points: ["代价"] },
+        ],
+        endingHook: "井底的人叫出他的旧名",
+      },
+    }) + "\n```"
+    const text = describeStructuredOnlyAnswer(reply)
+    expect(text).toContain("第 7 章事件细纲")
+    expect(text).toContain("3 个事件")
+    expect(text).toContain("2600 字")
+    // 结构化键名不能漏到气泡里
+    expect(text).not.toContain("eventOutlineData")
+  })
+
+  it("既没有正文也没有结构化数据时返回空串（不凭空说话）", () => {
+    expect(describeStructuredOnlyAnswer("好的，我明白了。")).toBe("")
   })
 })

@@ -7,6 +7,11 @@ release-portable-*/
 release-portable-backup/
 release-github/
 src-tauri/target/
+# 动效安装壳（已停用）若重新编译会产生自己的 target，不进版本库
+src-installer/shell/target/
+# WebView2 运行时数据目录：含 Cookies、Login Data、History 等浏览器数据，
+# 属于本机运行时缓存，绝不能进版本库
+*.WebView2/
 *.tsbuildinfo
 .env
 .env.*

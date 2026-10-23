@@ -225,11 +225,23 @@ describe("useAgentConfig", () => {
     vi.doUnmock("@/lib/web-search")
   })
 
-  it("当 aiChatModel 在不支持列表中时，返回 supportsTools: false 且 config: null", async () => {
+  /*
+   * 这条用例的**旧断言是 config: null**，它把「模型不支持工具」直接当成
+   * 「会话不能用」，结果用户在设置里关掉 Function Calling 也依然发不出消息。
+   * 现在改为：照常构建 config，只是 tools 为空（无工具模式）。
+   */
+  it("当 aiChatModel 在不支持列表中时，仍构建无工具 config（不再整块禁用会话）", async () => {
     const { result, cleanup } = await renderHook("test prompt", {
       wiki: {
         aiChatModel: "openai/o3-mini",
         project: { path: "/tmp/project" } as WikiProject,
+        providerConfigs: {
+          openai: {
+            enabled: true,
+            apiKey: "test-key",
+            savedModels: [{ id: "o3-mini", name: "o3-mini", model: "o3-mini", createdAt: 1 }],
+          },
+        },
       },
       skillConfig: {
         version: 1,
@@ -242,8 +254,10 @@ describe("useAgentConfig", () => {
     })
 
     expect(result.supportsTools).toBe(false)
-    expect(result.config).toBeNull()
-    expect(result.skillConfigLoaded).toBe(false)
+    expect(result.config).not.toBeNull()
+    expect(result.config?.tools).toEqual([])
+    expect(result.config?.modelId).toBe("o3-mini")
+    expect(result.skillConfigLoaded).toBe(true)
 
     await cleanup()
   }, 15000)

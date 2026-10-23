@@ -199,7 +199,7 @@ describe("chat-panel agent reference integration", () => {
 
   it("injects Plan Execute policy only when the independent switch is enabled and not in fast mode", () => {
     expect(source).toContain("buildPlanExecutePolicyPrompt")
-    expect(source).toContain("options.planExecuteEnabled && options.aiWorkflowMode !== \"fast\"")
+    expect(source).toContain("options.planExecuteEnabled && toolsEnabled && options.aiWorkflowMode !== \"fast\"")
     expect(source).toContain("run_chapter_workflow")
     expect(source).not.toContain("标准模式：复杂小说任务先给出简短计划")
     expect(source).not.toContain("严格模式：复杂小说任务必须先规划")
@@ -285,7 +285,7 @@ describe("chat-panel agent reference integration", () => {
 
     const guardIndex = source.lastIndexOf("const shouldRunNovelPrePluginChain")
     const runIndex = source.indexOf("await runNovelPrePluginChain({")
-    const guardedRunIndex = source.indexOf("if (shouldRunNovelPrePluginChain && effectiveTaskRoute)")
+    const guardedRunIndex = source.indexOf("if (shouldRunNovelPrePluginChain && effectiveTaskRoute && agentSupportsTools)")
 
     expect(guardIndex).toBeGreaterThan(-1)
     expect(runIndex).toBeGreaterThan(-1)

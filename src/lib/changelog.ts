@@ -7,6 +7,60 @@ interface ChangelogEntry {
   };
 }
 
+const FOUR_POINT_THREE_SEVEN_CHANGELOG: ChangelogEntry = {
+  version: "4.3.7",
+  date: "2026-10-22",
+  highlights: {
+    en: [
+      "Character Skill is now a real dossier: clicking a character opens tabbed pages (Basics / Voice & Behavior / Relationships / Current status / Raw Markdown) instead of one big text box, with gender, age, faction, appearance, personality, background, motive, ability, relationship network, growth and notes alongside the five acting fields. Change the role type right there and the injection tier follows.",
+      "Every Extract memory run now also refreshes that character's current status, organizations they appear with, cognition changes and relationship changes. These are projected straight from the chapter snapshot rather than asked of the model, so they cost no extra tokens, stay consistent with the memory center, and still update when no model is configured or the model fails.",
+      "Relationship changes from a chapter now feed the knowledge graph even when the model only wrote them into relationshipChanges (the graph previously read graphEdges alone, so key character-to-character links were silently missing). Duplicate edges are collapsed.",
+      "Character self-evolution fixed in two places: an upgraded dossier is no longer re-selected on every later cycle (processedAt recorded the pre-write timestamp, so the same character's voice was rewritten every few days), and reviewers now compare like with like — the incumbent side is trimmed to the same five acting fields as the candidate instead of the whole dossier.",
+    ],
+    zh: [
+      "人物 Skill 变成一份能查的档案：点开角色不再是一整块文本框，而是按页签分开的基础设定 / 语言与行为 / 关系 / 当前状态 / 原始 Markdown，性别、年龄、势力组织、外貌、性格、背景、动机、能力、关系网、成长轨迹、备注与原有 5 个演技字段并列；定位可以直接在这里改，注入档位随之调整",
+      "每次「提取记忆」都会顺带刷新该角色的当前状态、出场组织、认知变化与关系变化。这四段直接从章节快照投影，不问模型：不额外花 token、与记忆中心同一份事实，而且没配模型或模型失败时照样更新",
+      "章节里的关系变化现在也会进知识图谱——此前图谱只认 graphEdges，模型把关系写进 relationshipChanges 时，主角和其他角色的关键连边会整条缺失；重复的边会合并",
+      "人物自进化修了两处：升级过的档案不再每个周期被重新选中（原先记的是落盘前的时间戳，同一个人的说话方式每隔几天就被重写一遍）；评审也改成同类比较——旧版只截取与候选相同的 5 个演技字段，而不是拿整份档案去比 5 段候选",
+    ],
+  },
+};
+
+const FOUR_POINT_THREE_SIX_CHANGELOG: ChangelogEntry = {
+  version: "4.3.6",
+  date: "2026-10-21",
+  highlights: {
+    en: [
+      "New interactive onboarding: a 46-step walkthrough that opens Settings and points at each item where it actually lives. Start it any time from Settings → Writing Settings → Play, skip a step or cancel outright, and it still works before any API key is configured because it uses local sample data.",
+      "Writing Settings is now grouped by purpose (Writing context / Chapter generation / In-app hints / Community summary / Performance and concurrency / Revision feedback), each group collapsible, and the redundant \"Other writing settings\" hint is gone.",
+      "Adding a model provider now lists every provider first and opens the configuration only after you pick one, instead of jumping straight into Claude's form.",
+      "Outline generation (volume / chapter / eight setting types / event outlines) now returns structured data only, with Markdown and HTML rendered from it: fewer tokens, plus fixes for split fields, dropped characters, truncated bodies overwriting existing data, duplicated chapter numbers, and Markdown drifting apart from HTML.",
+      "The Extract memory and View memory icons now sit next to the HTML / MD switch in outline documents, so they are visible in HTML mode too.",
+      "Fixed retrieval and rerank model tests that always failed: a bare base URL is completed to the full endpoint and retried, the server's original error is shown with a suggested next step, and the model picker is highlighted.",
+      "Outline HTML documents are now editable in place: hit Edit next to the HTML / MD switch and headings, body text and table cells become editable, then save writes back to the companion .html file (Markdown and structured data are left untouched).",
+      "The shelf no longer pops a black title tooltip on hover; the whole card lifts and the cover hops once instead (keyboard focus lifts it too, and motion is disabled when reduced motion is requested).",
+      "The LLM, rerank and embedding tabs in Settings now link to a model-setup tutorial that opens the Feishu wiki in your browser.",
+      "Plan mode and intent analysis get the same resilience: a protocol missing steps, files or options is topped up once first; a plan that still falls short is downgraded to clarify questions for you to answer instead of discarding the round, and a broken intent analysis keeps the reply visible instead of blanking the message.",
+      "Co-creation rounds no longer get discarded over one imperfect field: when the protocol fails the completeness check the app retries once to fill in the missing piece (near-empty direction summary, missing option, dangling preference), and if it still falls short it shows the cards with the content it has plus a short note instead of losing the whole discussion. The reply text is always kept, and direction summaries are no longer rejected for being short — only for being essentially empty.",
+      "Removed the \"reuse main model\" option from reranking: reranking with the chat model cost an extra full request on every retrieval while the ordering barely changed. Reranking now needs its own model, the page warns when none is configured, and old configs that relied on the main model are switched back to disabled.",
+    ],
+    zh: [
+      "新增新手引导：46 步分阶段讲解，需要时会自动打开设置页、指着每一项告诉你在哪里怎么设；入口在「设置 → 写作设置 → 播放」，随时可以重看，也能跳过某一步或直接取消。没配 API Key 时用本地示例数据，同样能走完整条流程",
+      "写作设置按功能重新分组（写作上下文 / 章节生成 / 界面提示 / 社区摘要 / 性能与并发 / 修改反馈窗口），每组可折叠；侧栏「写作设置」下多余的「其他写作设置」说明已删除",
+      "模型设置点「添加提供方」时先列出所有可选提供方，选中后才展开对应的配置页，不再直接跳进 Claude 的填写页",
+      "大纲生成（卷纲 / 章纲 / 八类设定 / 事件细纲）改为只输出结构化数据，Markdown 与 HTML 由程序反推渲染：更省 token，并修掉字段被撕裂、丢字符、残缺正文顶掉已有数据、章纲标题重复章号、Markdown 与 HTML 分项分裂等问题",
+      "大纲文档的「提取记忆」「查看记忆」图标移到 HTML / MD 标识旁，HTML 模式下也能直接看到",
+      "修复向量与重排模型测试总是失败的问题：只填基础地址会自动补全为完整接口并重试，失败时给出服务端原始报错和下一步建议，模型下拉框也做了高亮",
+      "大纲的 HTML 文档可以直接改：点 HTML / MD 标识旁的「编辑」，标题、正文和表格单元格都会变成可改状态，保存后写回同名 .html（MD 与结构化数据不动）",
+      "书架不再在悬停时弹黑色书名浮层，改为整张卡片弹起、封面再跳一下；键盘聚焦同样会抬起，系统开启「减少动态效果」时自动取消",
+      "设置里的大语言模型 / 重排模型 / 向量模型三个页签新增「模型设置教程」链接，点击用系统浏览器打开飞书文档",
+      "计划模式与意图分析也接入同样的容错：协议缺步骤/缺文件清单/追问选项不足时先自动补齐一轮，补齐仍不合格的计划会降级成追问交给作者拍板，不再整轮作废；意图分析格式无效时先转写一轮，仍失败也保留回复正文、不再清空气泡",
+      "共创协议不再因为一项不达标整轮作废：方向介绍不再按每项字数硬卡（只拦几乎空着的），校验没过时会先自动补齐一轮（介绍几乎是空的、分歧可选项不足、AI 倾向悬空等）；补齐仍不达标就按现有内容照常出卡片并给一句说明；连协议都拿不到时也保留回复正文，不再把前面几轮问答白白丢掉",
+      "取消重排模型的「复用主模型」：拿聊天主模型做重排，每次检索都多一次完整请求，排序却基本不变；现在重排只走专用重排模型，没填模型时页面会明确提示「重排不会生效」，老配置自动改回未启用",
+    ],
+  },
+};
+
 const FOUR_POINT_THREE_FIVE_CHANGELOG: ChangelogEntry = {
   version: "4.3.5",
   date: "2026-10-21",
@@ -1983,6 +2037,10 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_THREE_SEVEN_CHANGELOG.version)
+    return [FOUR_POINT_THREE_SEVEN_CHANGELOG];
+  if (version === FOUR_POINT_THREE_SIX_CHANGELOG.version)
+    return [FOUR_POINT_THREE_SIX_CHANGELOG];
   if (version === FOUR_POINT_THREE_FIVE_CHANGELOG.version)
     return [FOUR_POINT_THREE_FIVE_CHANGELOG];
   if (version === FOUR_POINT_THREE_FOUR_CHANGELOG.version)
@@ -2158,6 +2216,8 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_THREE_SEVEN_CHANGELOG,
+    FOUR_POINT_THREE_SIX_CHANGELOG,
     FOUR_POINT_THREE_FIVE_CHANGELOG,
     FOUR_POINT_THREE_FOUR_CHANGELOG,
     FOUR_POINT_THREE_THREE_CHANGELOG,

@@ -6,7 +6,40 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 7)).toEqual(["4.3.5", "4.3.4", "4.3.3", "4.3.2", "4.3.1", "4.3.0", "4.2.1"])
+    expect(versions.slice(0, 7)).toEqual(["4.3.7", "4.3.6", "4.3.5", "4.3.4", "4.3.3", "4.3.2", "4.3.1"])
+    const release437 = currentVersionChangelog("4.3.7")[0]
+    expect(release437.version).toBe("4.3.7")
+    expect(release437.date).toBe("2026-10-22")
+    expect(release437.highlights.zh).toHaveLength(4)
+    expect(release437.highlights.en).toHaveLength(4)
+    expect(release437.highlights.zh.join("\n")).toContain("人物 Skill 变成一份能查的档案")
+    expect(release437.highlights.zh.join("\n")).toContain("顺带刷新该角色的当前状态")
+    expect(release437.highlights.zh.join("\n")).toContain("关系变化现在也会进知识图谱")
+    expect(release437.highlights.zh.join("\n")).toContain("人物自进化修了两处")
+    expect(release437.highlights.en.join("\n")).toContain("real dossier")
+    expect(release437.highlights.en.join("\n")).toContain("cost no extra tokens")
+    // 4.3.4 / 4.3.5 已被远端发版占用（tag 都在），本地这批改动（引导、设置分组、
+    // 提供方列表、大纲结构化输出等）作为 4.3.6 记，不与已发版的说明抢同一个版本号。
+    const release436 = currentVersionChangelog("4.3.6")[0]
+    expect(release436.version).toBe("4.3.6")
+    expect(release436.date).toBe("2026-10-21")
+    expect(release436.highlights.zh).toHaveLength(12)
+    expect(release436.highlights.en).toHaveLength(12)
+    expect(release436.highlights.zh.join("\n")).toContain("新手引导")
+    expect(release436.highlights.zh.join("\n")).toContain("添加提供方")
+    // 10-21 追加的三项（模型设置教程链接 / 书架悬停 / 大纲 HTML 就地编辑）
+    expect(release436.highlights.zh.join("\n")).toContain("模型设置教程")
+    expect(release436.highlights.zh.join("\n")).toContain("书架不再在悬停时弹黑色书名浮层")
+    expect(release436.highlights.zh.join("\n")).toContain("大纲的 HTML 文档可以直接改")
+    expect(release436.highlights.en.join("\n")).toContain("editable in place")
+    // 10-21 追加：取消重排的「复用主模型」
+    expect(release436.highlights.zh.join("\n")).toContain("取消重排模型的「复用主模型」")
+    expect(release436.highlights.en.join("\n")).toContain("reuse main model")
+    // 10-21 追加：共创协议「一次补齐 + 降级放行」
+    expect(release436.highlights.zh.join("\n")).toContain("共创协议不再因为一项不达标整轮作废")
+    expect(release436.highlights.en.join("\n")).toContain("Co-creation rounds no longer get discarded")
+    // 10-21 追加：计划模式与意图分析接入同一套容错
+    expect(release436.highlights.zh.join("\n")).toContain("计划模式与意图分析也接入同样的容错")
     const release435 = currentVersionChangelog("4.3.5")[0]
     expect(release435.version).toBe("4.3.5")
     expect(release435.date).toBe("2026-10-21")

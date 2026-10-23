@@ -217,6 +217,16 @@ function specById(id: string): SettingOutlineSpec | null {
   return SETTING_OUTLINE_SPECS.find((spec) => spec.id === id) ?? null
 }
 
+/**
+ * 按分项 id 取规格。
+ *
+ * 供「已经知道是哪一类」的调用方直接取规格，不必再走关键词嗅探 ——
+ * 例如保存请求里出现了 `powerProfileData`，那就是力量体系，再拿文件名去猜没有意义。
+ */
+export function resolveSettingSpecById(id: string): SettingOutlineSpec | null {
+  return specById(id)
+}
+
 /** 按 fileType 取兜底规格（永远不会 null）。 */
 export function resolveSettingSpecByFileType(fileType: string): SettingOutlineSpec {
   return specById(SETTING_SPEC_BY_FILE_TYPE[fileType] ?? GENERIC_SETTING_SPEC.id) ?? GENERIC_SETTING_SPEC

@@ -108,16 +108,13 @@ import {
   buildChapterDiscussPhaseSystemRules,
   buildChapterDiscussPlanBlueprint,
   buildChapterDiscussRegeneratePrompt,
-  hasChapterDiscussRepairableContent,
-  parseChapterDiscussProtocol,
   stripChapterDiscussMarkers,
-  validateChapterDiscussProtocol,
   type ChapterDiscussDirection,
   type ChapterDiscussDecision,
   type ChapterDiscussPhase,
   type ChapterDiscussProtocol,
 } from "@/lib/novel/chapter-discuss-protocol"
-import { repairChapterDiscussProtocolWithAi } from "@/lib/novel/chapter-discuss-repair"
+import { resolveChapterDiscussProtocol } from "@/lib/novel/chapter-discuss-repair"
 import { resolveModelConfig } from "@/lib/novel/model-resolver"
 import {
   buildGoldenThreeChapterDirective,
@@ -192,6 +189,7 @@ import { ContextUsageRing } from "@/components/chat/context-usage-ring"
 import { enqueueUserMemoryLearning } from "@/lib/user-memory/learning-service"
 import { recordLatestUserMemoryFeedback } from "@/lib/user-memory/feedback-service"
 import { CONTINUE_STOPPED_GENERATION_PROMPT } from "@/lib/novel/stopped-generation"
+import { FAILED_GENERATION_CONTINUE_PROMPT } from "@/lib/novel/failed-generation"
 import {
   ensureSystemNotificationPermission,
   notifyChapterWritingOutcome,
@@ -364,7 +362,7 @@ function buildSelectedSkillsActivityContent(
     .join("\n") + missingText
 }
 
-function buildChatAgentSystemPrompt(options: {
+export function buildChatAgentSystemPrompt(options: {
   novelMode: boolean
   mode: "chat" | "ingest"
   chatEditModeEnabled: boolean
@@ -379,15 +377,33 @@ function buildChatAgentSystemPrompt(options: {
   chapterDiscussModule?: string
   /** 仅章节写作且不会走 pre-plugin 时注入，避免与 build_system_prompt plugin 重复 */
   includeOutlineFindProtocol?: boolean
+  /**
+   * 本轮请求是否真的会携带工具（= 供应商开关开着 且 模型不在黑名单里）。
+   *
+   * 关闭 Function Calling 时它会是 false，而提示词**必须**跟着变：
+   * 继续要求「必须调用 run_chapter_workflow」时，模型手上没有任何工具，
+   * 只能回一句「我无法读取文件」，或者干脆吐一段假的工具 JSON ——
+   * 这正是「关掉开关后本地模型依然不能用」的直接原因。
+   */
+  toolsEnabled?: boolean
 }): string {
-  const lines = [
-    options.novelMode
-      ? "你是专业小说写作助手。请通过可用工具读取项目资料、章节、记忆、大纲、推演结果和历史对话，再完成用户要求。"
-      : "你是专业资料库问答助手。请通过可用工具读取项目资料、记忆、大纲、推演结果和历史对话，再回答用户问题。",
-    "不要假设 @ 引用内容已经注入上下文；用户提供引用时，必须优先使用对应工具读取具体内容。",
-    "如果需要修改或写入项目内容，先确认目标文件和用户意图，再使用写入类工具。",
-    "所有面向用户的回复必须使用中文，除非用户明确要求其他语言。",
-  ]
+  const toolsEnabled = options.toolsEnabled !== false
+  const lines = toolsEnabled
+    ? [
+        options.novelMode
+          ? "你是专业小说写作助手。请通过可用工具读取项目资料、章节、记忆、大纲、推演结果和历史对话，再完成用户要求。"
+          : "你是专业资料库问答助手。请通过可用工具读取项目资料、记忆、大纲、推演结果和历史对话，再回答用户问题。",
+        "不要假设 @ 引用内容已经注入上下文；用户提供引用时，必须优先使用对应工具读取具体内容。",
+        "如果需要修改或写入项目内容，先确认目标文件和用户意图，再使用写入类工具。",
+        "所有面向用户的回复必须使用中文，除非用户明确要求其他语言。",
+      ]
+    : [
+        options.novelMode
+          ? "你是专业小说写作助手。本轮未启用工具调用，请直接依据用户消息与本轮已提供的上下文完成回答或写作。"
+          : "你是专业资料库问答助手。本轮未启用工具调用，请直接依据用户消息与本轮已提供的上下文回答问题。",
+        "本轮没有任何工具可用：不要输出工具调用、函数调用或任何调用标记，不要要求用户先让你读取文件；没有给出的资料就按现有信息作答，并说明依据有限。",
+        "所有面向用户的回复必须使用中文，除非用户明确要求其他语言。",
+      ]
 
   if (options.projectName) {
     lines.push(`当前项目：${options.projectName}`)
@@ -396,11 +412,15 @@ function buildChatAgentSystemPrompt(options: {
     lines.push("当前处于资料写入模式，用户可能希望把对话内容整理写入资料库。")
   }
   if (options.novelMode) {
-    const planPhase = Boolean(options.planExecuteEnabled) && options.aiWorkflowMode !== "fast" && options.aiWorkflowMode !== "discuss"
+    // 计划阶段依赖后续用工具执行；没有工具时只出计划等于把用户卡死在半路，
+    // 所以无工具模式下不进计划阶段，直接走下面的「直接输出正文」。
+    const planPhase = toolsEnabled && Boolean(options.planExecuteEnabled) && options.aiWorkflowMode !== "fast" && options.aiWorkflowMode !== "discuss"
     if (planPhase) {
       // 计划阶段与"只输出正文/必须调 run_chapter_workflow"互斥：同时注入
       // 会让模型在两套矛盾指令之间随机选择，表现为跳过计划直接产出正文。
-      lines.push("当前处于章节计划阶段：本轮只输出章节创作计划并等待用户确认，禁止输出章节正文，禁止调用 run_chapter_workflow 等正文生成类工具。")
+      lines.push(toolsEnabled
+        ? "当前处于章节计划阶段：本轮只输出章节创作计划并等待用户确认，禁止输出章节正文，禁止调用 run_chapter_workflow 等正文生成类工具。"
+        : "当前处于章节计划阶段：本轮只输出章节创作计划并等待用户确认，禁止输出章节正文。")
     } else if (options.aiWorkflowMode === "fast") {
       lines.push("小说模式下，如果用户要求生成、续写或改写章节，只输出可直接放入章节库的正文。")
       lines.push("章节生成、续写或改写任务的最终回复必须只包含章节正文，不要把工具读取过程、写作计划或执行过程展示给用户。")
@@ -408,6 +428,11 @@ function buildChatAgentSystemPrompt(options: {
     } else if (options.aiWorkflowMode === "discuss") {
       // 共创讨论轮：只做方向推演，不产出正文，也不得调用章节工作流。
       lines.push(buildChapterDiscussPhaseSystemRules(options.chapterDiscussModule ?? ""))
+    } else if (!toolsEnabled) {
+      // 没有工具就没有 run_chapter_workflow 可调：此时要求「必须调用工具否则
+      // 禁止输出正文」等于让模型什么都不能说。改为直接交付正文。
+      lines.push("小说模式下，如果用户要求生成、续写或改写章节，请直接输出可放入章节库的完整正文（含章节标题）。")
+      lines.push("不要输出读取说明、执行总结或章节结构等过程性内容。")
     } else {
       // 走工作流时正文由工具直接交付，再要求模型「只输出正文」会诱导它把
       // 终稿复述一遍：既多花一次生成，又可能改坏已经定稿的正文。
@@ -422,7 +447,7 @@ function buildChatAgentSystemPrompt(options: {
       lines.push("快速模式下可以读取必要上下文；除非用户明确要求使用工作流或 Skill，否则不要主动调用 run_chapter_workflow。")
     } else if (options.aiWorkflowMode === "discuss") {
       lines.push("本轮不要调用 run_chapter_workflow，也不要输出章节正文；只给出方向与关键判断。")
-    } else if (!planPhase) {
+    } else if (!planPhase && toolsEnabled) {
       lines.push("章节生成、续写、改写或润色必须调用 run_chapter_workflow 工具；未调用前禁止输出章节终稿正文。")
     }
   }
@@ -443,16 +468,19 @@ function buildChatAgentSystemPrompt(options: {
       }
     if (
       options.writingWebSearchEnabled
+      && toolsEnabled
       && options.aiWorkflowMode !== "fast"
     ) {
       lines.push("会联网搜索。如果有外部搜索需求，必须使用 web_search 工具，不得声称已经搜索。未使用联网资料时，在回复末尾注明。")
     }
-    if (options.planExecuteEnabled && options.aiWorkflowMode !== "fast" && options.aiWorkflowMode !== "discuss") {
+    if (options.planExecuteEnabled && toolsEnabled && options.aiWorkflowMode !== "fast" && options.aiWorkflowMode !== "discuss") {
       lines.push(buildPlanExecutePolicyPrompt(options.aiWorkflowMode))
     }
   }
   if (options.chatEditModeEnabled) {
-    lines.push("用户已开启编辑章节模式，如涉及章节修改，请优先定位目标章节并使用章节读写工具。")
+    lines.push(toolsEnabled
+      ? "用户已开启编辑章节模式，如涉及章节修改，请优先定位目标章节并使用章节读写工具。"
+      : "用户已开启编辑章节模式，但本轮没有写入工具：请把需要修改的段落原文与改写结果直接写在回复里。")
   }
   if (options.bindingTitle) {
     lines.push(`当前绑定故事框架：${options.bindingTitle}`)
@@ -1672,11 +1700,9 @@ export function ChatPanel() {
         return
       }
       if (!agentSkillConfigLoaded || !agentConfig) {
-        setDeAiSkillWarningMessage(
-          !agentSupportsTools
-            ? "Agent 调度模型不支持工具调用，请更换小说设置中的默认模型"
-            : "Agent配置仍在加载，请稍后重试",
-        )
+        // 能走到这里只剩「配置还在加载」一种情况：模型不支持工具 / 用户关掉
+        // Function Calling 时 config 照样会构建（无工具模式），不再被拦下。
+        setDeAiSkillWarningMessage("Agent配置仍在加载，请稍后重试")
         return
       }
 
@@ -2072,6 +2098,9 @@ export function ChatPanel() {
         includeOutlineFindProtocol:
           shouldIncludeOutlineFindProtocol(effectiveTaskRoute?.intent) &&
           !(novelMode && (sessionWorkflowMode !== "fast" || planExecuteActive)),
+        // 本轮是否真的带工具（关闭 Function Calling / 模型在黑名单时是 false）。
+        // 提示词必须跟着降级成「直接生成内容」，否则它要求的工具根本不存在。
+        toolsEnabled: agentSupportsTools,
       })
 
       // 快速模式普通对话（general_chat）与小说内容无关：不预载小说上下文、不给模型暴露读取类工具，
@@ -2125,7 +2154,14 @@ export function ChatPanel() {
         }
       }
 
-      if (shouldRunNovelPrePluginChain && effectiveTaskRoute) {
+      /*
+       * 无工具模式（关闭 Function Calling 或模型在黑名单里）时**跳过**
+       * novel pre-plugin 链：这条链是围绕工具编排长出来的（找纲协议、
+       * 能力筛选、`build_system_prompt` 拼的提示词里写着「必须调用
+       * run_chapter_workflow」），它的 finalSystemPrompt 会**顶掉**上面那份
+       * 无工具提示词，于是纯聊天模型又被要求去调用不存在的工具。
+       */
+      if (shouldRunNovelPrePluginChain && effectiveTaskRoute && agentSupportsTools) {
         try {
           prePluginResult = await runNovelPrePluginChain({
             input: {
@@ -2573,49 +2609,33 @@ export function ChatPanel() {
             console.warn("供应商缓存用量快照保存失败，继续保留本地缓存统计：", error)
           }
         }
-        // 共创（discuss）讨论轮：解析 chapter_discuss 协议（必要时补一次协议），
-        // 把方向候选写入消息供卡片渲染；气泡正文里的协议标记一律剥掉。
+        /*
+         * 共创（discuss）讨论轮：解析 chapter_discuss 协议并落成方向卡片。
+         *
+         * 这里**不再自己写重试链**，统一交给 resolveChapterDiscussProtocol：
+         * 解析失败先「补协议」、校验不过再「补齐」一轮，两轮都不过就把已经解析出来的
+         * 方向原样放行（附一句提示），绝不因为"介绍短了 20 字"把整轮讨论作废。
+         * 用户 2026-10-21 的口径：前面问了非常多问题，后面一报格式无效内容全丢，
+         * 那几轮的 token 比一次修补贵得多。
+         */
         if (sessionWorkflowMode === "discuss") {
           const discussModule = targetChapterNumber ? `第${targetChapterNumber}章` : ""
           const rawDiscussContent = useChatStore.getState().messages
             .find((m) => m.id === assistantMessage.id)?.content || record.finalText || ""
           void (async () => {
             try {
-              let outcome = parseChapterDiscussProtocol(rawDiscussContent)
-              if (
-                outcome.kind === "none"
-                && hasChapterDiscussRepairableContent(rawDiscussContent)
-              ) {
-                const repaired = await repairChapterDiscussProtocolWithAi({
-                  content: rawDiscussContent,
-                  module: discussModule,
-                  llmConfig: agentConfig.llmConfig,
-                  signal: controller.signal,
-                }).catch((error) => {
-                  console.warn("章节共创协议补全失败，按原结果继续：", error)
-                  return ""
-                })
-                const repairedOutcome = repaired
-                  ? parseChapterDiscussProtocol(repaired)
-                  : { kind: "none" as const }
-                if (repairedOutcome.kind === "valid") outcome = repairedOutcome
-              }
-              const validation = outcome.kind === "valid"
-                ? validateChapterDiscussProtocol(outcome.protocol)
-                : null
-              const protocol = validation && validation.kind !== "invalid" ? validation.protocol : null
-              const discussError = outcome.kind === "invalid"
-                ? outcome.error
-                : outcome.kind === "none"
-                  ? "模型未返回 chapter_discuss 协议块"
-                  : validation && validation.kind === "invalid"
-                    ? validation.error
-                    : undefined
+              const gate = await resolveChapterDiscussProtocol({
+                text: rawDiscussContent,
+                module: discussModule,
+                llmConfig: agentConfig.llmConfig,
+                signal: controller.signal,
+              })
               updateAgentAssistantMessage(assistantMessage.id, (message) => ({
                 ...message,
                 content: stripChapterDiscussMarkers(message.content),
-                chapterDiscussProtocol: protocol,
-                chapterDiscussError: discussError,
+                chapterDiscussProtocol: gate.protocol,
+                chapterDiscussError: gate.error || undefined,
+                chapterDiscussNotice: gate.notice || undefined,
                 chapterDiscussDecision: undefined,
               }))
             } catch (error) {
@@ -3159,6 +3179,18 @@ export function ChatPanel() {
     await handleSendRef.current(CONTINUE_STOPPED_GENERATION_PROMPT, [], "继续")
   }, [isStreaming])
 
+  /**
+   * 「继续」：上一条回复**生成失败**后，保留已生成的内容接着往下写。
+   *
+   * 与 handleContinueStopped 的差别只在提示词：失败有两种形态（断在半截 /
+   * 什么都没产出），一句话必须同时覆盖，具体写在 failed-generation.ts 的常量里。
+   * 重试不另开函数 —— 它接的就是 handleRegenerate（整条重发、可先换模型）。
+   */
+  const handleContinueFailed = useCallback(async () => {
+    if (isStreaming) return
+    await handleSendRef.current(FAILED_GENERATION_CONTINUE_PROMPT, [], "继续")
+  }, [isStreaming])
+
   const handleWriteToWiki = useCallback(async () => {
     if (!project) return
     const pp = normalizePath(project.path)
@@ -3208,6 +3240,7 @@ export function ChatPanel() {
                       onContinueNextChapter={isLastAssistant ? handleContinueNextChapter : undefined}
                       onContinueUnfinished={isLastAssistant ? () => handleContinueUnfinished(msg) : undefined}
                       onContinueStopped={isLastAssistant && !isStreaming ? handleContinueStopped : undefined}
+                      onContinueFailed={isLastAssistant && !isStreaming ? handleContinueFailed : undefined}
                       onSelectChapterDiscussDirection={handleChapterDiscussSelect}
                       onRegenerateChapterDiscuss={handleChapterDiscussRegenerate}
                       onCustomChapterDiscuss={handleChapterDiscussCustom}
@@ -3388,6 +3421,7 @@ export function ChatPanel() {
                           type="button"
                           variant="ghost"
                           size="sm"
+                          data-guide="chat.mode"
                           aria-haspopup="listbox"
                           aria-expanded={workflowModeDropdownOpen}
                           aria-label={aiSessionWorkflowModeLabel}
@@ -3451,7 +3485,7 @@ export function ChatPanel() {
                         改了没有任何效果，还会让回归测试定位到错误的元素）。
                       */}
                       <Tooltip>
-                        <TooltipTrigger render={<Button type="button" variant="ghost" size="sm" aria-pressed={planExecuteEnabled && aiWorkflowMode !== "fast"} disabled={aiWorkflowMode === "fast"} className={`h-7 w-7 shrink-0 border-0 bg-transparent p-0 shadow-none ${planExecuteEnabled && aiWorkflowMode !== "fast" ? "text-primary" : "text-muted-foreground"} disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => setPlanExecuteEnabled(!planExecuteEnabled)} title="计划" aria-label={aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"} />}>
+                        <TooltipTrigger render={<Button type="button" variant="ghost" size="sm" data-guide="chapter.plan" aria-pressed={planExecuteEnabled && aiWorkflowMode !== "fast"} disabled={aiWorkflowMode === "fast"} className={`h-7 w-7 shrink-0 border-0 bg-transparent p-0 shadow-none ${planExecuteEnabled && aiWorkflowMode !== "fast" ? "text-primary" : "text-muted-foreground"} disabled:cursor-not-allowed disabled:opacity-50`} onClick={() => setPlanExecuteEnabled(!planExecuteEnabled)} title="计划" aria-label={aiWorkflowMode === "fast" ? "快速模式下不支持计划，请切换到标准或严格模式" : planExecuteEnabled ? "关闭计划模式" : "开启计划模式"} />}>
                           <ListChecks className="h-3.5 w-3.5" />
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-xs leading-5">
@@ -3481,11 +3515,13 @@ export function ChatPanel() {
                         收进悬停提示（用户要求收窄工具栏）。当前生效的是哪一条
                         从悬停提示里看（「文风：甲书 · 文风」），浮层里另有一行当前文风。
                       */}
-                      <WritingStylePicker
-                        value={sessionWritingStyleId}
-                        onChange={setSessionWritingStyleId}
-                        iconOnly
-                      />
+                      <span className="inline-flex" data-guide="chapter.style">
+                        <WritingStylePicker
+                          value={sessionWritingStyleId}
+                          onChange={setSessionWritingStyleId}
+                          iconOnly
+                        />
+                      </span>
                     </>
                   )}
                 </>

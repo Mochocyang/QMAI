@@ -71,13 +71,16 @@ export function LlmProviderSection() {
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [uiTestSource, setUiTestSource] = useState<"library" | "custom" | "presets">("library")
-  const [selectedPresetId, setSelectedPresetId] = useState(LLM_PRESETS.find((preset) => preset.id !== "custom")?.id ?? "")
+  // 目录里没有任何默认选中项：必须先由用户挑一个提供方，才生成它的配置卡。
+  const [selectedPresetId, setSelectedPresetId] = useState("")
   const [customDraftIds, setCustomDraftIds] = useState<string[]>([])
   const [presetDraftIds, setPresetDraftIds] = useState<string[]>([])
   const selectPreset = (id: string) => {
     setSelectedPresetId(id)
     setPresetDraftIds(ids => ids.includes(id) ? ids : [...ids, id])
     setExpanded({ [id]: true })
+    // 选中具体提供方后收起目录，直接进入它的模型填写页。
+    setUiTestSource("library")
   }
 
   function toggleExpand(id: string) {
@@ -86,7 +89,6 @@ export function LlmProviderSection() {
 
   const configured = [...new Set([...Object.keys(providerConfigs), ...customDraftIds, ...presetDraftIds])]
     const presets = LLM_PRESETS.filter((preset) => preset.id !== "custom")
-    const selectedPreset = presets.find((preset) => preset.id === selectedPresetId) ?? presets[0]
     return (
       <div data-ui="llm-library">
         <div className="model-library-heading"><h3>我的模型配置</h3><span>{configured.length} 个配置</span></div>
@@ -99,11 +101,11 @@ export function LlmProviderSection() {
           {!configured.length && <p>还没有模型配置。</p>}
         </div>
         <div className="model-add-row">
-          <button type="button" className="model-add-card" onClick={() => { if (uiTestSource !== "presets") selectPreset(selectedPresetId); setUiTestSource(uiTestSource === "presets" ? "library" : "presets") }}>＋ 添加提供方</button>
-          <button type="button" className="model-add-card" onClick={() => { const id = `custom-${crypto.randomUUID()}`; setCustomDraftIds((ids) => [...ids, id]); setExpanded({ [id]: true }); setUiTestSource("library") }}>＋ 添加自定义模型</button>
+          <button type="button" className="model-add-card" data-guide="model.add-provider" onClick={() => setUiTestSource(uiTestSource === "presets" ? "library" : "presets")}>＋ 添加提供方</button>
+          <button type="button" className="model-add-card" data-guide="model.add-custom" onClick={() => { const id = `custom-${crypto.randomUUID()}`; setCustomDraftIds((ids) => [...ids, id]); setExpanded({ [id]: true }); setUiTestSource("library") }}>＋ 添加自定义模型</button>
         </div>
-        {uiTestSource === "presets" && selectedPreset && <div className="model-add-panel">
-          <div className="model-provider-grid">{presets.map((preset) => <button type="button" key={preset.id} className={preset.id === selectedPreset.id ? "is-selected" : ""} onClick={() => selectPreset(preset.id)}><span className="model-provider-grid-name"><ProviderBrandIcon presetId={preset.id} /><strong>{preset.label}</strong></span><small>{UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint}</small></button>)}</div>
+        {uiTestSource === "presets" && <div className="model-add-panel">
+          <div className="model-provider-grid">{presets.map((preset) => <button type="button" key={preset.id} data-guide={`model.preset.${preset.id}`} className={preset.id === selectedPresetId ? "is-selected" : ""} onClick={() => selectPreset(preset.id)}><span className="model-provider-grid-name"><ProviderBrandIcon presetId={preset.id} /><strong>{preset.label}</strong></span><small>{UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint}</small></button>)}</div>
         </div>}
       </div>
     )
@@ -170,7 +172,7 @@ function UiTestPresetCard({ preset, expanded, onToggle, onRemoved }: { preset: L
     <fieldset disabled={saving || deleting}>
       <PresetRow preset={preset} override={draft} isActive={false} isEnabled={enabled} isExpanded={expanded} persisted={Boolean(saved)} dirty={hasDraft} onToggleActive={() => {}} onToggleEnabled={() => void saveSwitch({ enabled: !enabled })} onToggleExpand={onToggle} onChange={change} manual={manual} onManualChange={setManual} onReasoningModeChange={mode => void saveSwitch(withOutputRoomForReasoning({ ...saved?.reasoning, mode }, saved?.maxOutputTokens ?? initial.maxOutputTokens))} />
     </fieldset>
-    {(expanded || hasDraft || status) && <div className="model-save-footer"><div><p role="status" aria-live="polite" className={status?.error ? "model-feedback error" : "model-feedback"}>{status?.text ?? (manual.trim() ? "还有未加入列表的模型 ID，请先点击“添加”。" : hasDraft ? "有未保存修改，开关已独立保存。" : saved ? "当前配置已保存。" : "提供方模型，尚未启用。")}</p><small>测试不会自动保存。</small></div><div className="model-actions"><button type="button" className="model-icon-button danger" title="删除配置" aria-label="删除配置" disabled={saving || deleting} onClick={() => void remove()}><Trash2 /></button>{hasDraft && <button type="button" className="model-button ghost" disabled={saving || deleting} onClick={async () => { if (await confirmModelAction("放弃本项未保存修改？")) discard() }}>放弃修改</button>}<button type="button" className="model-button primary" disabled={!hasDraft || saving || deleting || Boolean(manual.trim())} onClick={() => void saveConfig()}>{saving ? "正在保存…" : "保存配置"}</button></div></div>}
+    {(expanded || hasDraft || status) && <div className="model-save-footer"><div><p role="status" aria-live="polite" className={status?.error ? "model-feedback error" : "model-feedback"}>{status?.text ?? (manual.trim() ? "还有未加入列表的模型 ID，请先点击“添加”。" : hasDraft ? "有未保存修改，开关已独立保存。" : saved ? "当前配置已保存。" : "提供方模型，尚未启用。")}</p><small>测试不会自动保存。</small></div><div className="model-actions"><button type="button" className="model-icon-button danger" title="删除配置" aria-label="删除配置" disabled={saving || deleting} onClick={() => void remove()}><Trash2 /></button>{hasDraft && <button type="button" className="model-button ghost" disabled={saving || deleting} onClick={async () => { if (await confirmModelAction("放弃本项未保存修改？")) discard() }}>放弃修改</button>}<button type="button" className="model-button primary" data-guide="model.save" disabled={!hasDraft || saving || deleting || Boolean(manual.trim())} onClick={() => void saveConfig()}>{saving ? "正在保存…" : "保存配置"}</button></div></div>}
   </div>
 }
 
@@ -538,7 +540,7 @@ function PresetRow({
           )}
 
           {needsApiKey && (
-            <div className="space-y-2">
+            <div className="space-y-2" data-guide="model.api-key">
               <Label>{t("settings.sections.llm.apiKey")}</Label>
               <ModelSecretInput value={apiKey} onChange={(apiKey) => onChange({ apiKey })} />
             </div>
@@ -558,6 +560,7 @@ function PresetRow({
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
+                data-guide="model.fetch"
                 onClick={() => void loadModelOptions()}
                 disabled={modelListState?.loading || modelTestState?.loading}
                 className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
@@ -568,6 +571,7 @@ function PresetRow({
               </button>
               <button
                 type="button"
+                data-guide="model.test"
                 onClick={() => void runSelectedModelTest()}
                 disabled={modelListState?.loading || modelTestState?.loading}
                 className="rounded-md border px-3 py-1.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
@@ -612,7 +616,7 @@ function PresetRow({
             ) : null}
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2" data-guide="model.context">
             <Label>{t("settings.sections.llm.contextWindow")}</Label>
             <ContextSizeSelector
               value={context}
@@ -620,7 +624,7 @@ function PresetRow({
             />
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2" data-guide="model.output">
             <Label>{t("settings.sections.llm.maxOutputTokens")}</Label>
             <OutputTokensSelector
               value={maxOutputTokens}

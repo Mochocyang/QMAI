@@ -11,10 +11,9 @@ export function validateEmbeddingDraft(config: EmbeddingConfig): string | null {
   if (config.outputDimensionality !== undefined && (!Number.isInteger(config.outputDimensionality) || config.outputDimensionality < 1)) return "输出维度必须为正整数，留空则使用模型默认维度。"
   return null
 }
-export function validateRerankDraft(config: RerankConfig, mainModel: string): string | null {
+export function validateRerankDraft(config: RerankConfig): string | null {
   if (!config.enabled) return null
   if (!Number.isInteger(config.maxCandidates) || config.maxCandidates < 3 || config.maxCandidates > 30) return "候选 TOPN 必须是 3–30 的整数，不是最终返回数量 TOPK。"
-  if (config.useMainLlm) return mainModel.trim() ? null : "当前主模型未配置，请先保存大语言模型，或选择独立重排模型。"
   if (["custom", "ollama", "azure"].includes(config.provider)) {
     const error = validateModelEndpoint(config.provider === "ollama" ? config.ollamaUrl : config.customEndpoint)
     if (error) return error

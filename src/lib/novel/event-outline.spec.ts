@@ -9,7 +9,9 @@ import {
   buildEventOutlinePrompt,
   eventOutlineToProsePrompt,
   extractEventOutlineData,
+  looksLikeEventOutlineDeliveryNote,
   normalizeEventOutlineData,
+  renderEventOutlineMarkdown,
   splitEventPointLabel,
   stripEventOutlineDataFence,
   validateEventOutlineData,
@@ -99,6 +101,25 @@ describe("normalizeEventOutlineData", () => {
     const result = normalizeEventOutlineData({ ...data(), chapterNumber: "第12章", targetWords: "约3000字" })
     expect(result?.chapterNumber).toBe(12)
     expect(result?.targetWords).toBe(3000)
+  })
+
+  it("抓手写成单个字符串或对象数组时都不丢", () => {
+    /*
+     * 提示词口径是 `points: ["…", "…"]`。模型偶尔给成一个字符串，
+     * 或者给成 `[{ text: "…" }]`（从别的结构化字段抄来的形状）。
+     * 旧实现只认「数组 + 数组里的字符串」，这两种都会读成空 —— 卡片上没有抓手、
+     * 反推的 .md 只剩事件标题，数据其实一个字都没少。卷纲的 stage.p 早已容错，
+     * 这里对齐同一口径。
+     */
+    const result = normalizeEventOutlineData({
+      ...data(),
+      events: [
+        { title: "单个字符串", points: "故事推进：楚白下井。" },
+        { title: "对象数组", points: [{ text: "关键台词：你来了。" }, { v: "环境物件：井绳。" }] },
+      ],
+    })
+    expect(result?.events[0].points).toEqual(["故事推进：楚白下井。"])
+    expect(result?.events[1].points).toEqual(["关键台词：你来了。", "环境物件：井绳。"])
   })
 
   it("非对象输入返回 null", () => {
@@ -370,13 +391,36 @@ describe("buildEventOutlinePrompt", () => {
     expect(buildEventOutlinePrompt(request)).toContain("不要写正文")
   })
 
-  it("规定的 Markdown 形状自带「事件细纲」并由「## 事件N」分节", () => {
-    // 一级标题带「事件细纲」仍是本条产线的形状契约（卡片标题、以及磁盘上已有的旧文件
-    // 都靠它自我识别）。丙-1 只去掉了「保存归档靠它识别类型」这个后果，
-    // 形状本身不变。
+  it("不再要求模型手写 Markdown，形状契约转由软件反推承担", () => {
+    /*
+     * 2026-10-18：同一份内容原来要模型写两遍（Markdown 细纲 + JSON 围栏），
+     * 用户要为重复的正文付双份输出费。现在提示词只要 JSON，正文由
+     * `renderEventOutlineMarkdown` 从数据反推 —— 但那套「# 事件细纲 / ## 事件N」
+     * 的形状不能丢：卡片标题、磁盘上已有的旧文件都靠它自我识别。
+     * 所以断言一分为二：**提示词不再要 MD**，**反推函数仍产出旧形状**。
+     */
     const prompt = buildEventOutlinePrompt(request)
-    expect(prompt).toContain("事件细纲 · 第N章")
-    expect(prompt).toContain("## 事件1")
+    expect(prompt).not.toContain("## 事件1")
+    expect(prompt).toContain("不要手写 Markdown 细纲")
+
+    const markdown = renderEventOutlineMarkdown(data({
+      events: [{ id: 1, title: "楚白翻出令牌", points: ["故事推进：他摸到令牌", "关键台词：『别回头。』"] }],
+    }))
+    // 章号后的那个「·」被换成空格，与旧提示词要求的「# 事件细纲 · 第N章 章名」一致
+    expect(markdown).toContain("# 事件细纲 · 第12章 令牌初现")
+    expect(markdown).toContain("## 事件1 楚白翻出令牌")
+    expect(markdown).toContain("- 故事推进：他摸到令牌")
+    expect(markdown).toContain("- 关键台词：『别回头。』")
+    expect(markdown).toContain("## 本章结尾钩子")
+    expect(markdown).toContain("目标字数：约 3000 字")
+    // 用户拿到的是文档，不是数据：任何 JSON 符号都不许漏出来
+    expect(markdown).not.toMatch(/[{}]/)
+    expect(markdown).not.toContain("```")
+    expect(markdown).not.toMatch(/"\s*:/)
+    expect(markdown).not.toContain("eventOutlineData")
+    // 事件按 id 逐条导出，且不会把同一条重复成两条
+    expect(markdown).toContain("## 事件1 楚白翻出令牌")
+    expect(markdown).not.toContain("## 事件2")
   })
 
   it("没有额外要求时不留下空标题", () => {
@@ -482,10 +526,13 @@ describe("buildEventOutlinePrompt", () => {
     expect(fences[0].eventOutlineData?.events).toHaveLength(1)
   })
 
-  it("输出格式说的是「细纲内容（不是小说正文）」，不与「不要写正文」互相矛盾", () => {
+  it("输出格式只要一个 JSON 围栏，并明确禁止手写 Markdown", () => {
     const prompt = buildEventOutlinePrompt(request)
-    expect(prompt).toContain("一份可直接保存的 Markdown 细纲内容（不是小说正文）")
+    expect(prompt).toContain("只输出一个 ```json 围栏")
+    expect(prompt).not.toContain("一份可直接保存的 Markdown 细纲内容")
     expect(prompt).not.toContain("一份可直接保存的 Markdown 正文")
+    // title 仍要写清章号与章名：反推的一级标题靠它拼
+    expect(prompt).toContain("第N章 · 一句话章名")
   })
 
   /*
@@ -503,7 +550,7 @@ describe("buildEventOutlinePrompt", () => {
     // 除那一条外，其余硬要求与输出格式一字不动
     expect(prompt).toContain("不要输出工具调用报告和分析过程")
     expect(prompt).toContain("不要写正文")
-    expect(prompt).toContain("一级标题固定形如")
+    expect(prompt).toContain("不要手写 Markdown 细纲")
   })
 
   it("默认（有大纲面板的工具循环）仍然要求先读资料，行为与改动前一致", () => {
@@ -604,6 +651,27 @@ describe("事件细纲的 requirement 不再丢失", () => {
  * 展示层的剥离函数：卡片已经把 eventOutlineData 渲染成可读结构，
  * 裸 JSON 在气泡里就是纯噪声（气泡是 Markdown 渲染，围栏会变成一个代码块）。
  */
+describe("looksLikeEventOutlineDeliveryNote", () => {
+  it("空串与一句「已生成」都算交代语（应当改用反推正文）", () => {
+    expect(looksLikeEventOutlineDeliveryNote("")).toBe(true)
+    expect(looksLikeEventOutlineDeliveryNote("已生成第12章事件细纲。")).toBe(true)
+    expect(looksLikeEventOutlineDeliveryNote("  好的，\n已完成。 ")).toBe(true)
+  })
+  it("带标题的手写细纲不算交代语（原样保留）", () => {
+    const handwritten = [
+      "# 事件细纲 · 第12章 令牌初现",
+      "",
+      "## 事件1 楚白翻出令牌",
+      "- 关键台词：你来啦",
+    ].join("\n")
+    expect(looksLikeEventOutlineDeliveryNote(handwritten)).toBe(false)
+  })
+  it("较长但没标题的正文也不当成交代语（宁可多显示，不要吞内容）", () => {
+    const long = "这是一段没有标题但内容很长的细纲说明。".repeat(8)
+    expect(looksLikeEventOutlineDeliveryNote(long)).toBe(false)
+  })
+})
+
 describe("stripEventOutlineDataFence", () => {
   it("摘下能解析成事件细纲的 json 围栏，留下人看的 Markdown 正文", () => {
     const withFence = [
@@ -669,6 +737,62 @@ describe("stripEventOutlineDataFence", () => {
   it("正文里提到花括号、但没有可解析的细纲对象时不误删", () => {
     const content = "判断如下：结构可以写成 {\"a\": 1} 这样，但这一步不给数据。"
     expect(stripEventOutlineDataFence(content)).toBe(content)
+  })
+})
+
+/*
+ * 空事件不留空壳。
+ *
+ * 结构化-only 之后正文**完全**由数据拼出，没有模型手写的 Markdown 兜底：数据里只要
+ * 出现一个「有 id、没内容」的事件（模型截断、或只填了 half 个字段），拼出来就是
+ * `## 事件2 ` 后面跟两行空白 —— 气泡里看着像渲染坏了，用户会以为细纲生成失败。
+ * 正常事件仍按旧形状导出（id 逐条、抓手逐条），空事件整条跳过且不占用后续排版。
+ */
+describe("renderEventOutlineMarkdown：空事件不留空壳", () => {
+  it("标题与抓手都为空的事件整条不导出", () => {
+    const markdown = renderEventOutlineMarkdown(
+      data({
+        events: [
+          { id: 1, title: "楚白翻出令牌", points: ["  故事推进：他摸到令牌  "] },
+          { id: 2, title: "", points: [] },
+          // 全是空白也算空：模型写空串/空格，比缺字段更常见
+          { id: 3, title: "   ", points: ["", "   "] },
+        ],
+      }),
+    )
+    expect(markdown).toContain("## 事件1 楚白翻出令牌")
+    expect(markdown).not.toContain("## 事件2")
+    expect(markdown).not.toContain("## 事件3")
+    // 抓手逐条 trim：前后空白不许带进正文，也不许留下空的列表项
+    expect(markdown).toContain("- 故事推进：他摸到令牌")
+    expect(markdown).not.toMatch(/^## 事件\d+\s*$/m)
+    expect(markdown).not.toMatch(/^-\s*$/m)
+  })
+
+  it("只有标题没有抓手时保留标题，且不追加空行", () => {
+    const markdown = renderEventOutlineMarkdown(
+      data({
+        events: [
+          { id: 1, title: "楚白翻出令牌", points: [] },
+          { id: 2, title: "守卫追来", points: ["故事推进：他只能往井边跑"] },
+        ],
+        endingHook: "",
+      }),
+    )
+    expect(markdown).toContain("## 事件1 楚白翻出令牌")
+    expect(markdown).toContain("## 事件2 守卫追来")
+    // 标题后面先推了一个空行，若无抓手还补空行就成了两个连续空行（形似坏档）
+    expect(markdown).not.toMatch(/\n{3,}/)
+  })
+
+  it("事件全为空时只剩文档标题与目标字数", () => {
+    const markdown = renderEventOutlineMarkdown(
+      data({ events: [{ id: 1, title: "", points: [] }], endingHook: "" }),
+    )
+    expect(markdown).toContain("# 事件细纲 · 第12章 令牌初现")
+    expect(markdown).toContain("目标字数：约 3000 字")
+    expect(markdown).not.toContain("## 事件")
+    expect(markdown).not.toMatch(/\n{3,}/)
   })
 })
 

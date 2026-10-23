@@ -166,6 +166,72 @@ describe("writePatchFieldsToWiki", () => {
     ]))
   })
 
+  it("relationshipChanges 也变成图谱边：模型常把人物关系只写在这一栏", () => {
+    // graphEdges 留空、relationshipChanges 有内容 —— 这是真实输出里很常见的形状。
+    // 只认 graphEdges 的话，「主角和谁有关系」在图谱上是空的，而记忆中心里明明有。
+    const snapshot: ChapterSnapshot = {
+      chapterId: "chapter-2",
+      chapterNumber: 2,
+      summary: "测试章节",
+      characters: ["林清越", "沈砚"],
+      locations: [],
+      organizations: [],
+      items: [],
+      events: [],
+      characterStateChanges: [],
+      relationshipChanges: ["林清越->SUSPECTS->沈砚", "沈砚->ALLY_OF->林清越"],
+      knowledgeChanges: [],
+      foreshadowingChanges: [],
+      newCanonFacts: [],
+      timelineEvents: [],
+      conflicts: [],
+      endingHook: "",
+      graphNodes: [],
+      graphEdges: [],
+    }
+
+    expect(snapshotToGraphEdges(snapshot)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: "character:林清越",
+        target: "character:沈砚",
+        relation: "SUSPECTS",
+      }),
+      expect.objectContaining({
+        source: "character:沈砚",
+        target: "character:林清越",
+        relation: "ALLY_OF",
+      }),
+    ]))
+  })
+
+  it("同一关系在两个栏位都写了：只留一条边", () => {
+    const snapshot: ChapterSnapshot = {
+      chapterId: "chapter-3",
+      chapterNumber: 3,
+      summary: "测试章节",
+      characters: ["林清越", "沈砚"],
+      locations: [],
+      organizations: [],
+      items: [],
+      events: [],
+      characterStateChanges: [],
+      relationshipChanges: ["林清越->SUSPECTS->沈砚"],
+      knowledgeChanges: [],
+      foreshadowingChanges: [],
+      newCanonFacts: [],
+      timelineEvents: [],
+      conflicts: [],
+      endingHook: "",
+      graphNodes: [],
+      graphEdges: ["林清越->SUSPECTS->沈砚"],
+    }
+
+    const matched = snapshotToGraphEdges(snapshot).filter(
+      (edge) => edge.source === "character:林清越" && edge.target === "character:沈砚",
+    )
+    expect(matched).toHaveLength(1)
+  })
+
   it("将单次 WikiUpdatePatch 的每个条目写入对应的实体页面", async () => {
     mockFileExists.mockResolvedValue(false)
 

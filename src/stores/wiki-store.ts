@@ -330,9 +330,18 @@ interface EmbeddingConfig {
   overlapChunkChars?: number
 }
 
+/**
+ * 检索重排（rerank）配置。
+ *
+ * ⚠️ 这里**没有** `useMainLlm`：4.3.6 起取消了「复用主模型」。
+ * 用聊天主模型当重排器要额外发一次完整对话请求（每次检索 12 个候选 ≈ 数千 token），
+ * 换来的排序变化基本看不出来，用户侧的表现就是「开了没反应、还烧钱」。
+ * 现在重排只走专用重排模型（直连 …/rerank 或能返回 JSON 的模型）；
+ * 没配模型时 resolveRerankModel 返回 null，检索直接降级为原顺序。
+ * 老配置里残留的 `useMainLlm` 由 project-store 的 normalizeRerankConfig 吞掉。
+ */
 export interface RerankConfig {
   enabled: boolean
-  useMainLlm: boolean
   provider: LlmConfig["provider"]
   apiKey: string
   model: string
@@ -344,7 +353,6 @@ export interface RerankConfig {
 
 export const DEFAULT_RERANK_CONFIG: RerankConfig = {
   enabled: false,
-  useMainLlm: true,
   provider: "custom",
   apiKey: "",
   model: "",

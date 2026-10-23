@@ -434,8 +434,11 @@
     "language": "语言",
     "languageHint": "界面语言（Wiki 内容语言以原始资料为准）",
     "modelSettingsDescription": "配置写小说各环节使用的模型：默认模型、大语言模型、重排模型、向量检索模型。",
+    "modelTutorialLink": "模型设置教程",
+    "modelTutorialLinkHint": "模型设置教程：怎么申请密钥、填接口地址、配向量与重排模型",
     "categories": {
       "model": "模型设置",
+      "onboarding": "新手引导",
       "defaultModel": "默认模型",
       "llm": "大语言模型",
       "rerank": "重排模型",
@@ -707,8 +710,6 @@
         "description": "在检索候选展示或注入上下文前，再做一次模型重排。",
         "enableLabel": "启用重排",
         "enableHint": "会用于搜索面板、聊天检索、剧情搜索和写作上下文组装。",
-        "useMainLlm": "复用主模型",
-        "useMainLlmHint": "直接用当前主模型做重排。关闭后可单独配置一套重排模型。",
         "maxCandidates": "重排候选数量（TOPN）",
         "maxCandidatesHint": "初步检索后，优先将前 N 条候选交给 Reranker 排序。TOPN 不是最终注入 LLM 的条数；最终保留数量由检索 TOPK 和具体场景决定。若候选不足 N 或最终所需数更大，会按实际候选数处理。数值越大召回越稳，但延迟和成本也更高。",
         "provider": "提供方",
@@ -721,8 +722,7 @@
         "apiKeyPlaceholder": "请输入 API Key",
         "model": "模型",
         "modelPlaceholder": "输入重排模型 ID",
-        "modelHint": "这里可以用更便宜、更快的模型，只要它能稳定遵循指令并返回 JSON。",
-        "testSuccessUsingMainModel": "已通过主模型完成重排测试：{{model}}"
+        "modelHint": "这里可以用更便宜、更快的模型，只要它能稳定遵循指令并返回 JSON。"
       },
       "multimodal": {
         "title": "图片描述",
@@ -845,6 +845,20 @@
       "novel": {
         "title": "写作设置",
         "description": "项目级写作模式和修改反馈窗口设置。",
+        "groups": {
+          "context": "写作上下文",
+          "generation": "章节生成",
+          "hints": "界面提示",
+          "community": "社区摘要",
+          "performance": "性能与并发",
+          "guide": "新手引导"
+        },
+        "guide": {
+          "title": "新手引导",
+          "hint": "点「播放」从头看一遍引导，会一步步告诉你每一项在哪里、怎么设置。",
+          "play": "播放新手引导",
+          "playLabel": "播放"
+        },
         "feedbackWindow": {
           "title": "修改反馈窗口",
           "lookbackChapterCount": "回溯章节数量",

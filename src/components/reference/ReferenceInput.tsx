@@ -271,8 +271,13 @@ export function ReferenceInput({
     [handleRemoveToken, tokens],
   )
 
+  /*
+   * `data-guide="chat.reference"`：新手引导的 @ 引用靶点。
+   * 章节面板与大纲面板共用这个输入框，两处的 @ 引用是同一件事（引用章节 /
+   * 大纲 / 记忆），所以共用一个锚点不会指错；两个面板互斥渲染，不会同时命中。
+   */
   return (
-    <div className="overflow-hidden rounded-lg border bg-background shadow-sm">
+    <div className="overflow-hidden rounded-lg border bg-background shadow-sm" data-guide="chat.reference">
       <div
         role="separator"
         aria-label="拖动调整输入框高度"

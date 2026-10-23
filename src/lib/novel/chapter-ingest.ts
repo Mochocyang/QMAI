@@ -476,6 +476,9 @@ export async function ingestChapter(
       characters: snapshot.characters,
       characterAliases: snapshot.characterAliases,
     },
+    // 整份快照一起下去：人物 Skill 的「当前状态 / 出场组织 / 认知变化 / 关系变化」
+    // 由它投影（不调模型），所以模型不可用时这四段照样更新。
+    chapterSnapshot: snapshot,
     llmConfig: runtimeLlmConfig,
     signal,
   })

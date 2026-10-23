@@ -102,6 +102,103 @@ export function getOutlineMessageModelContent(message: {
     : message.content
 }
 
+/**
+ * 历史里「已经被软件消费过」的结构化数据块。
+ *
+ * 为什么要在发请求前摘掉它们：大纲对话的历史是**原样回灌**给模型的，
+ * 上一轮生成的那份 volumeOutlineData / chapterOutlineData / outlineSaveRequest
+ * 会跟着每一次后续发言重新计一遍输入费。一个 10 故事的卷纲，数据本身就有
+ * 上万字，用户只是在下面追问一句「第二卷也写一下」，就要为上一卷的全部数据
+ * 再付一次钱 —— 而那份数据早已被解析、渲染、落盘，模型再看一眼毫无用处
+ * （真需要时它会用 read_outline 去读文件）。
+ *
+ * 这里把这类围栏换成一行说明：既省掉 payload，又保留「已经生成过什么、
+ * 存在哪个文件」这个对后续对话真正有用的信息。
+ */
+const CONSUMED_JSON_FENCE = /```(?:json)?[ \t]*\r?\n([\s\S]*?)```/gi
+
+const CONSUMED_DATA_KEYS = [
+  "volumeOutlineData",
+  "chapterOutlineData",
+  "chapterOutlineBatch",
+  "settingOutlineData",
+  "characterProfileData",
+  "factionProfileData",
+  "powerProfileData",
+  "goldenFingerProfileData",
+  "foreshadowingProfileData",
+  "geographyProfileData",
+  "locationProfileData",
+  "backgroundProfileData",
+  /*
+   * 复数形态同样要压：模型一次生成多个对象时用的是 `factionProfiles` 这类数组，
+   * 漏掉它们，多轮对话里那一大坨已保存的档案会一直原样回灌 —— 这也是「没几轮就烧钱」
+   * 最典型的成因。八类的单/复数 key 必须成对出现在这里。
+   */
+  "characterProfiles",
+  "factionProfiles",
+  "powerProfiles",
+  "goldenFingerProfiles",
+  "foreshadowingProfiles",
+  "geographyProfiles",
+  "locationProfiles",
+  "backgroundProfiles",
+]
+
+/** 摘要最小体积：小于这个长度的围栏留下来也无所谓，不值得改写成说明。 */
+const COMPACT_MIN_CHARS = 200
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+}
+
+function summarizeConsumedFence(inner: string): string | null {
+  if (inner.length < COMPACT_MIN_CHARS) return null
+  let payload: unknown
+  try {
+    payload = JSON.parse(inner)
+  } catch {
+    return null
+  }
+  if (!isRecordValue(payload)) return null
+
+  const dataKey = CONSUMED_DATA_KEYS.find((key) => key in payload)
+  if (dataKey) {
+    return `（上一轮生成的 ${dataKey} 结构化数据已由软件保存到文件，此处不再重复回灌，省略 ${inner.length} 字。）`
+  }
+
+  const requests = Array.isArray(payload.outlineSaveRequests)
+    ? payload.outlineSaveRequests
+    : payload.outlineSaveRequest
+      ? [payload.outlineSaveRequest]
+      : null
+  if (requests) {
+    const names = requests
+      .filter(isRecordValue)
+      .map((item) => `${String(item.targetFolder ?? "")}/${String(item.fileName ?? "")}`.replace(/^\/+|\/+$/g, ""))
+      .filter(Boolean)
+    const list = names.length > 0 ? names.join("、") : "大纲文件"
+    return `（已交付并保存：${list}。正文已落盘，需要改动请先读取该文件再改，不要凭记忆重写。）`
+  }
+  return null
+}
+
+/** 把历史消息里已被消费的结构化 JSON 围栏压成一行说明（导出供测试）。 */
+export function compactConsumedOutlineBlocks(content: string): string {
+  if (!content.includes("```")) return content
+  let changed = false
+  const compacted = content
+    .replace(CONSUMED_JSON_FENCE, (full, inner: string) => {
+      const summary = summarizeConsumedFence(inner)
+      if (summary === null) return full
+      changed = true
+      return summary
+    })
+    .trim()
+  if (!changed) return content
+  return compacted || "（上一轮的大纲内容已由软件保存到文件，此处不再重复回灌。）"
+}
+
 export function mapOutlineMessagesForModel(messages: OutlineModelMessage[]): Array<{
   role: "user" | "assistant"
   content: string
@@ -109,13 +206,17 @@ export function mapOutlineMessagesForModel(messages: OutlineModelMessage[]): Arr
 }> {
   return messages
     .filter((message) => getOutlineMessageModelContent(message).trim() && !message.isAgentRunning)
-    .map((message) => ({
-      role: message.role,
-      content: getOutlineMessageModelContent(message),
-      ...(message.reasoning_content !== undefined
-        ? { reasoning_content: message.reasoning_content }
-        : {}),
-    }))
+    .map((message) => {
+      const content = getOutlineMessageModelContent(message)
+      return {
+        role: message.role,
+        // 只压 assistant 历史：用户消息里的引用是用户自己贴的，不能替人删
+        content: message.role === "assistant" ? compactConsumedOutlineBlocks(content) : content,
+        ...(message.reasoning_content !== undefined
+          ? { reasoning_content: message.reasoning_content }
+          : {}),
+      }
+    })
 }
 
 export function isInternalOutlineMessage(message: {
