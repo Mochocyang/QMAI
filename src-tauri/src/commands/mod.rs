@@ -10,5 +10,6 @@ pub mod file_sync;
 pub mod fs;
 pub mod local_cli_config;
 pub mod project;
+pub mod reader_window;
 pub mod vectorstore;
 pub mod writing_wake_lock;

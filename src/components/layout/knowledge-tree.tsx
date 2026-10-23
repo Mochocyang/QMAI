@@ -1,7 +1,7 @@
 import { filterUiTestDirectory } from "@/lib/ui-test-layout"
 import { MoreHorizontal } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, Loader2, MessageCircle, Pencil, Plus, Search, Trash2, Check, X } from "lucide-react"
+import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, AppWindow, Loader2, MessageCircle, Pencil, Plus, Search, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -28,6 +28,7 @@ import { selectProjectDeAiTasks, useDeAiTaskStore } from "@/stores/de-ai-task-st
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { useWritingStatsStore } from "@/stores/writing-stats-store"
 import { getOutlineFileName, outlineSnapshotExists } from "@/lib/novel/outline-ingest-utils"
+import { openDocumentInReaderWindow } from "@/lib/reader-window-opener"
 import { saveLastReadChapter } from "@/lib/project-store"
 import { mapWithConcurrency } from "@/lib/async-pool"
 import type { ReferenceToken } from "@/lib/reference/types"
@@ -2027,6 +2028,20 @@ export function KnowledgeTree({
                 一键提取所有章节
               </button>
             )}
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+              onClick={() => {
+                const targetPath = pageMenu.path
+                setPageMenu(null)
+                openDocumentInReaderWindow(targetPath, filterType).catch((error) => {
+                  console.error("在独立窗口中编辑失败:", error)
+                })
+              }}
+            >
+              <AppWindow className="h-4 w-4" />
+              在独立窗口中打开
+            </button>
             <button
               type="button"
               className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"

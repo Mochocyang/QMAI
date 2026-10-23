@@ -105,6 +105,8 @@ pub fn run() {
         mcp::run_stdio();
         return;
     }
+    // 必须在 build() 之前：wry 建窗失败只走 log::error!，不装接收器就永远查不到原因。
+    commands::reader_window::init_diagnostics();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             use tauri::Manager;
@@ -180,6 +182,8 @@ pub fn run() {
                     macos_window::restore_overlay_frame(ptr);
                 }
             }
+            // 只有设了 QMAI_READER_SELFTEST 才会真的建窗，平时是空操作。
+            commands::reader_window::maybe_run_selftest(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -212,6 +216,9 @@ pub fn run() {
             commands::vectorstore::vector_upsert,
             commands::vectorstore::vector_search,
             commands::vectorstore::vector_delete,
+            commands::reader_window::open_reader_window,
+            commands::reader_window::reader_window_log,
+            commands::reader_window::reader_window_ready,
             commands::vectorstore::vector_count,
             commands::vectorstore::vector_upsert_chunks,
             commands::vectorstore::vector_search_chunks,
@@ -270,6 +277,23 @@ pub fn run() {
             mcp::resolve_qmai_mcp_skill_dir,
         ])
         .on_window_event(|window, event| {
+            // 独立窗口（label 前缀 reader-）的生死要留痕：用户反馈的是
+            // "点开弹一下就没"，光看界面分不出是建窗失败、页面没起来，
+            // 还是起来之后被谁关掉了。日志与建窗命令共用一个文件。
+            if window.label().starts_with("reader-") {
+                let marker = match event {
+                    tauri::WindowEvent::CloseRequested { .. } => Some("event CloseRequested"),
+                    tauri::WindowEvent::Destroyed => Some("event Destroyed"),
+                    _ => None,
+                };
+                if let Some(marker) = marker {
+                    commands::reader_window::log_line(&format!(
+                        "{marker} label={}",
+                        window.label()
+                    ));
+                }
+            }
+
             #[cfg(target_os = "macos")]
             if matches!(
                 event,

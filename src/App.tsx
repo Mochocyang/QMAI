@@ -27,6 +27,8 @@ import { toast } from "@/lib/toast"
 import type { WikiProject } from "@/types/wiki"
 import { applyTheme, watchSystemTheme } from "@/lib/theme-utils"
 import { applyBodyTypography, applyBodyFontFamily, applyUiFontFamily } from "@/lib/font-settings"
+import { publishReaderWindowAppearance } from "@/lib/reader-window-appearance"
+import { useDocumentAppearance } from "@/lib/html-document-appearance"
 import { applyVisualStyle } from "@/lib/visual-style-settings"
 import { isChapterPathInProject, normalizePath } from "@/lib/path-utils"
 import { useWritingStatsStore } from "@/stores/writing-stats-store"
@@ -61,6 +63,13 @@ function App() {
   const appTitleTotalWordCount = useWritingStatsStore((s) => s.totalChars)
   const [, setShowCreateDialog] = useState(false)
   const [loading, setLoading] = useState(true)
+  /**
+   * 当前皮肤（来自 `html[data-ui-test-skin]`，由 shell 写入）。
+   *
+   * 皮肤不在 store 里，只在 localStorage + 那个属性上；独立窗口的外观推送
+   * 需要它，而 `useDocumentAppearance` 恰好订阅了属性变化与换肤事件。
+   */
+  const documentSkin = useDocumentAppearance()
 
   useEffect(() => {
     runUserMemoryMaintenance()
@@ -236,6 +245,32 @@ function App() {
       safeBottom: uiBodySafeBottom,
     })
   }, [uiBodyFontPx, uiBodyLineHeight, uiBodyLetterSpacing, uiBodyMarginX, uiBodySafeBottom])
+
+  /*
+   * 把外观 / 排版广播给已打开的独立窗口。
+   *
+   * 独立窗口有自己的 WebView2 profile 与 store，读不到这里的 localStorage，
+   * 所以它只能靠主窗口推。建窗那一刻的值走 payload（见 opener），
+   * 这里管的是"窗口开着时用户又去改设置"——不推的话，那边会一直停在旧的样子，
+   * 用户会以为设置没生效。
+   *
+   * 皮肤存在 shell 的 state 里、最终写在 `html[data-ui-test-skin]` 上，
+   * 所以用 useDocumentAppearance 订阅那个属性来拿到变化（含事件与 MutationObserver）。
+   * 去抖在 publishReaderWindowAppearance 内部（150ms）。
+   */
+  useEffect(() => {
+    publishReaderWindowAppearance()
+  }, [
+    documentSkin,
+    uiFontSizeScale,
+    uiFontFamily,
+    uiBodyFontFamily,
+    uiBodyFontPx,
+    uiBodyLineHeight,
+    uiBodyLetterSpacing,
+    uiBodyMarginX,
+    uiBodySafeBottom,
+  ])
 
   useEffect(() => {
     applyVisualStyle("classic")
