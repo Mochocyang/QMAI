@@ -17,7 +17,7 @@ const SILICONFLOW_RESOURCE_URL = "https://cloud.siliconflow.cn/i/1lKTd7hi"
 
 function normalizeRerankEndpoint(raw: string, mode: CustomApiMode) {
   const trimmed = (raw ?? "").trim()
-  if (/^https?:\/\//i.test(trimmed) && /\/rerank\/?$/i.test(trimmed)) {
+  if (/^https?:\/\//i.test(trimmed) && /\/reranks?\/?$/i.test(trimmed)) {
     const normalized = trimmed.replace(/\/+$/, "")
     return {
       normalized,
