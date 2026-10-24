@@ -26,6 +26,11 @@ import { isFullWindowView } from "@/lib/full-window-views"
 import type { WikiProject } from "@/types/wiki"
 import { UiTestShelf } from "./ui-test-shelf"
 import { ContactSupportSection } from "@/components/settings/sections/contact-support-section"
+import { useCloudSyncAutoSync } from "@/hooks/use-cloud-sync-auto-sync"
+import { CloudSyncIndicator } from "@/components/layout/cloud-sync-indicator"
+import { CloudSyncDetailDialog } from "@/components/layout/cloud-sync-detail-dialog"
+import { CLOUD_SYNC_OPEN_SETTINGS_EVENT } from "@/lib/cloud-sync/client"
+import { useCloudSyncStore } from "@/stores/cloud-sync-store"
 import { confirmModelDraftLeave } from "./models/model-draft-guard"
 import { MacTrafficLights } from "./mac-traffic-lights"
 import { GuideOverlay } from "@/components/guide/guide-overlay"
@@ -377,6 +382,36 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
       if (!(current ? normalizePath(current).includes(kind) : false)) useWikiStore.getState().setSelectedFile(project ? getUiTestDocumentPath(project.path, preference.files?.[view], view) : null)
     }
   }
+  /**
+   * 云同步：启动时拉一次配置/状态/历史并订阅后端事件。
+   * 主窗口才订阅（client 里按 window.label 判断），独立窗口不会重复弹泡。
+   */
+  useEffect(() => {
+    void useCloudSyncStore.getState().hydrate()
+    return () => useCloudSyncStore.getState().teardown()
+  }, [])
+
+  // 自动同步（落盘后 / 重新聚焦 / 刚连上）：判定在 lib/cloud-sync/scheduler.ts。
+  useCloudSyncAutoSync()
+
+  // 云图标/气泡里点「去登录」「查看详情」时，由外壳负责真正打开设置页：
+  // showGlobalSettings 属于外壳，组件自己改会在无项目时掉回书架。
+  const navigateRef = useRef(navigate)
+  navigateRef.current = navigate
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ category?: string }>).detail
+      const category = detail?.category
+      if (category) {
+        const setCategory = useWikiStore.getState().setActiveSettingsCategory
+        setCategory(category as Parameters<typeof setCategory>[0])
+      }
+      void navigateRef.current("settings")
+    }
+    window.addEventListener(CLOUD_SYNC_OPEN_SETTINGS_EVENT, handler)
+    return () => window.removeEventListener(CLOUD_SYNC_OPEN_SETTINGS_EVENT, handler)
+  }, [])
+
   const returnToShelf = async () => {
     if (!showShelf && activeView === "settings" && !(await confirmModelDraftLeave())) return
     setShowGlobalSettings(false)
@@ -536,6 +571,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
               <TooltipTrigger render={<button type="button" className="ui-test-icon-btn ui-test-activity-entry" aria-label="后台活动" onClick={() => setShowActivity(true)}><History /></button>} />
               <TooltipContent>后台活动</TooltipContent>
             </Tooltip>
+            <CloudSyncIndicator />
             <Tooltip>
               <TooltipTrigger render={<button type="button" className="ui-test-icon-btn ui-test-activity-entry" aria-label="联系与支持" aria-haspopup="dialog" onClick={() => setShowContact(true)}><HeartHandshake /></button>} />
               <TooltipContent>联系与支持</TooltipContent>
@@ -561,6 +597,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
       </div>
       <CreateProjectDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} onCreated={handleCreatedProject} />
       <Dialog open={showActivity} onOpenChange={setShowActivity}><DialogContent className="ui-test-activity-dialog"><DialogHeader><DialogTitle>后台活动</DialogTitle><DialogDescription>查看进度、重试错误，不必离开写作。</DialogDescription></DialogHeader><div className="ui-test-activity-body"><RawSourcesSection uiTestActivityView onCancelExtraction={() => cancelImportRef.current?.()} /><BookAnalysisActivitySection onNavigate={() => setShowActivity(false)} /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowActivity(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
+      <CloudSyncDetailDialog />
       <Dialog open={showContact} onOpenChange={setShowContact}><DialogContent className="ui-test-contact-dialog" aria-label="联系与支持"><DialogTitle className="sr-only">联系与支持</DialogTitle><div className="ui-test-contact-body"><ContactSupportSection /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowContact(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
       <GuideOverlay onDirective={runGuideDirective} />
     </div>

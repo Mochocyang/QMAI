@@ -1,0 +1,354 @@
+/*
+ * 云同步：顶部云图标、状态点、气泡、详情面板。
+ *
+ * 只在这里补齐 --ui-warning（其它皮肤令牌都在 ui-test.css 里）。
+ * 颜色一律走令牌，保证亮/暖/暗三套皮肤跟主题走。
+ */
+
+:root {
+  --ui-warning: #a9701f;
+}
+
+:is(.ui-test-root, html[data-ui-test-skin]) {
+  --ui-warning: #a9701f;
+}
+
+.ui-test-root[data-skin="zhi"],
+html[data-ui-test-skin="zhi"] {
+  --ui-warning: #a9701f;
+}
+
+.ui-test-root[data-skin="xing"],
+html[data-ui-test-skin="xing"] {
+  --ui-warning: #e2b56b;
+}
+
+/* 图标外面加一层相对定位容器，让气泡贴住图标右下角。 */
+.ui-test-cloud-anchor {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.ui-test-cloud-entry {
+  position: relative;
+}
+
+.ui-test-cloud-entry[data-cloud-sync-state="login-required"] {
+  color: var(--ui-muted);
+}
+
+.ui-test-cloud-entry[data-cloud-sync-state="auth-expired"] {
+  color: var(--ui-warning);
+}
+
+.ui-test-cloud-entry[data-cloud-sync-state="attention"] {
+  color: var(--ui-danger);
+}
+
+.ui-test-cloud-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--ui-paper);
+  pointer-events: none;
+}
+
+.ui-test-cloud-badge.is-error {
+  background: var(--ui-danger);
+}
+
+.ui-test-cloud-badge.is-warn {
+  background: var(--ui-warning);
+}
+
+/* 气泡本体复用 .ui-test-header-hint，这里只覆盖宽度与失败文案颜色。 */
+.ui-test-cloud-bubble {
+  width: min(320px, calc(100vw - 40px));
+}
+
+.ui-test-cloud-bubble-text.is-failure {
+  color: var(--ui-danger);
+}
+
+.ui-test-cloud-bubble .ui-test-header-hint-actions {
+  gap: 12px;
+}
+
+/* ---- 详情面板 ---- */
+
+/*
+ * 弹窗本身不滚：标题、冲突区和底部按钮都留在可视区，
+ * 只有中间的批次列表滚动。
+ * 曾经整个弹窗按内容撑高、列表又跟着内容长，结果底部
+ * 「复制远端地址 / 重试失败项 / 立即同步」被挤出可视区，
+ * 用户得滚轮才能点到按钮。
+ */
+.ui-test-sync-dialog {
+  width: min(720px, calc(100vw - 48px));
+  max-height: min(78vh, 720px);
+  /*
+   * `!important` 是必要的：DialogContent 自带 Tailwind 的 `grid`，
+   * 谁赢只看 CSS 加载顺序；这里必须保证弹窗变成纵向 flex，
+   * 否则列表不会收缩，底部按钮照样被裁掉（比不加更糟）。
+   */
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 12px;
+  overflow: hidden;
+}
+
+/* 固定在可视区、不参与滚动的三块 */
+.ui-test-sync-dialog > [data-slot="dialog-header"],
+.ui-test-sync-dialog > .ui-test-sync-conflicts,
+.ui-test-sync-dialog > .ui-test-sync-actions {
+  flex: 0 0 auto;
+}
+
+/* 冲突区自己也可能很长：给它一个上限，内部再滚 */
+.ui-test-sync-dialog > .ui-test-sync-conflicts {
+  max-height: 36%;
+  overflow-y: auto;
+}
+
+/* 中间列表占满剩余高度并自己滚 */
+.ui-test-sync-dialog > .ui-test-sync-batches,
+.ui-test-sync-dialog > .ui-test-sync-empty {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.ui-test-sync-dialog > .ui-test-sync-batches {
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.ui-test-sync-empty {
+  margin: 0;
+  padding: 24px 0;
+  color: var(--ui-muted);
+  text-align: center;
+}
+
+.ui-test-sync-show-empty {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px dashed var(--border);
+  border-radius: 0.375rem;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  text-align: center;
+  cursor: pointer;
+}
+
+.ui-test-sync-show-empty:hover {
+  background: var(--accent);
+}
+
+.ui-test-sync-batches {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ui-test-sync-batch {
+  border: 1px solid var(--ui-line);
+  border-radius: 10px;
+  background: var(--ui-panel);
+}
+
+.ui-test-sync-batch-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ui-ink);
+  font: 500 0.8125rem/1.5 var(--ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-test-sync-batch-head svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--ui-muted);
+}
+
+.ui-test-sync-batch-provider {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--ui-border);
+  border-radius: 999px;
+  color: var(--ui-text);
+  font-weight: 600;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.ui-test-sync-batch-time {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+  font-weight: 400;
+}
+
+.ui-test-sync-batch-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-test-sync-batch[data-batch-state="partial"] .ui-test-sync-batch-summary,
+.ui-test-sync-batch[data-batch-state="failed"] .ui-test-sync-batch-summary {
+  color: var(--ui-danger);
+}
+
+.ui-test-sync-entry-list {
+  margin: 0;
+  padding: 0 10px 8px;
+  list-style: none;
+}
+
+.ui-test-sync-entry {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid color-mix(in srgb, var(--ui-line) 60%, transparent);
+}
+
+.ui-test-sync-entry.is-empty {
+  border-top: 0;
+  color: var(--ui-muted);
+  font-size: 0.8125rem;
+}
+
+.ui-test-sync-entry-icon {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  color: var(--ui-muted);
+}
+
+.ui-test-sync-entry[data-sync-direction="delete"] .ui-test-sync-entry-icon,
+.ui-test-sync-entry[data-sync-direction="conflict"] .ui-test-sync-entry-icon {
+  color: var(--ui-warning);
+}
+
+.ui-test-sync-entry[data-sync-ok="false"] .ui-test-sync-entry-icon {
+  color: var(--ui-danger);
+}
+
+.ui-test-sync-entry-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.ui-test-sync-entry-path {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+}
+
+.ui-test-sync-entry-meta {
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+}
+
+.ui-test-sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  /* 与滚动列表之间画一条线：按钮是「操作」，不该看起来像列表的一部分。 */
+  border-top: 1px solid var(--ui-line);
+  padding-top: 10px;
+  /* 窄窗口下按钮换行也不该把它挤出弹窗。 */
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------------- 冲突定夺 */
+
+.ui-test-sync-conflicts {
+  margin: 0 0 12px;
+  padding: 12px;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--primary, #3b82f6) 4%, transparent);
+}
+
+.ui-test-sync-conflicts-title {
+  margin: 0 0 4px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ui-test-sync-conflicts-hint {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  color: var(--muted-foreground, #737373);
+}
+
+.ui-test-sync-conflict-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-test-sync-conflict {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--background, #fff);
+}
+
+.ui-test-sync-conflict-body {
+  min-width: 0;
+}
+
+.ui-test-sync-conflict-path {
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-test-sync-conflict-meta {
+  margin: 2px 0 0;
+  font-size: 0.6875rem;
+  color: var(--muted-foreground, #737373);
+}
+
+.ui-test-sync-conflict-meta code {
+  font-size: 0.6875rem;
+}
+
+.ui-test-sync-conflict-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
