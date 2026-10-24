@@ -126,8 +126,18 @@
      现在唯一来源是 --qmai-body-safe-bottom，由用户在"字体设置"里调。
      缺省 51px 是用户确认的值。 */
   padding-bottom: var(--qmai-body-safe-bottom, 51px);
-  scrollbar-width: thin;
-  scrollbar-color: var(--ui-soft) transparent;
+  /*
+   * 🔴 隐藏滚动条但保留滚动（用户要求：右侧不要显示滚轮，滚轮/触摸板照常滚）。
+   * `scrollbar-width: none` 是标准属性（WebView2 Chromium 121+ 支持）；
+   * `::-webkit-scrollbar { display: none }` 兜底旧运行时。两者都只影响视觉，
+   * overflow-y: auto 的滚动行为、锚点定位、scrollTop 读写全部不变。
+   * 与 ui-test-tools.css 的 memory-tabs/memory-stats 同一套手法。
+   */
+  scrollbar-width: none;
+}
+
+.ui-test-root .ui-test-editor-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .ui-test-root .ui-test-editor-title-row {
