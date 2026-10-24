@@ -438,6 +438,7 @@
     "modelTutorialLinkHint": "模型设置教程：怎么申请密钥、填接口地址、配向量与重排模型",
     "categories": {
       "model": "模型设置",
+      "cloudSync": "云同步",
       "onboarding": "新手引导",
       "defaultModel": "默认模型",
       "llm": "大语言模型",

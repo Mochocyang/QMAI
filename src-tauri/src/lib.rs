@@ -1,5 +1,6 @@
 mod app_state;
 mod atomic_file;
+mod cloud_sync;
 mod commands;
 mod mcp;
 mod font_install;
@@ -108,6 +109,8 @@ pub fn run() {
     // 必须在 build() 之前：wry 建窗失败只走 log::error!，不装接收器就永远查不到原因。
     commands::reader_window::init_diagnostics();
     tauri::Builder::default()
+        // 云同步的运行时状态（是否在跑、跑到第几个、失败数）
+        .manage(cloud_sync::CloudSyncState::default())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
@@ -187,7 +190,21 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::fs::read_file,
+                        commands::cloud_sync::cloud_sync_get_config,
+            commands::cloud_sync::cloud_sync_set_config,
+            commands::cloud_sync::cloud_sync_status,
+            commands::cloud_sync::cloud_sync_begin_login,
+            commands::cloud_sync::cloud_sync_cancel_login,
+            commands::cloud_sync::cloud_sync_connect_webdav,
+            commands::cloud_sync::cloud_sync_connect_folder,
+            commands::cloud_sync::cloud_sync_stop,
+            commands::cloud_sync::cloud_sync_logout,
+            commands::cloud_sync::cloud_sync_run_now,
+            commands::cloud_sync::cloud_sync_history,
+        commands::cloud_sync::cloud_sync_resolve_conflict,
+            commands::cloud_sync::cloud_sync_clear_history,
+            commands::cloud_sync::cloud_sync_reveal_remote,
+commands::fs::read_file,
             commands::fs::write_file,
             commands::fs::write_file_if_absent,
             commands::fs::write_export_file,

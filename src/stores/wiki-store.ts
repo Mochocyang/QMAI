@@ -85,6 +85,7 @@ const SIDEBAR_NAV_CONFIG_KEY = "qmai-sidebar-nav-config"
 
 type SettingsCategoryId =
   | "model"
+  | "cloudSync"
   | "network"
   | "interface"
   | "novel"

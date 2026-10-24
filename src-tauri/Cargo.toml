@@ -69,6 +69,8 @@ toml = "0.9"
 image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"
 sha2 = "0.10"
+# 百度 OAuth 的 token 交换/接口调用（已有传递依赖，显式声明后可直接用）
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 md-5 = "0.10"
 notify = "8"
 walkdir = "2"
@@ -103,7 +105,9 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 windows = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Graphics_DirectWrite",
+  "Win32_Security_Cryptography",
   "Win32_System_Com",
+  "Win32_System_Memory",
   "Win32_System_Registry",
 ] }
 

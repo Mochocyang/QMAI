@@ -11,6 +11,7 @@ import {
   Brain,
   Search,
   Plug,
+  Cloud,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
@@ -42,9 +43,11 @@ import { DataManagementSection } from "./sections/data-management-section"
 import { ExportCenterSection } from "./sections/export-center-section"
 import { UserMemorySection } from "./sections/user-memory-section"
 import { ModelTutorialLink } from "./model-tutorial-link"
+import { CloudSyncSection } from "./sections/cloud-sync-section"
 
 type CategoryId =
   | "model"
+  | "cloudSync"
   | "network"
   | "web-search"
   | "mcp"
@@ -73,6 +76,8 @@ interface Category {
 
 const CATEGORIES: Category[] = [
   { id: "model", labelKey: "settings.categories.model", icon: Brain },
+  /* 云同步：紧跟在「模型设置」下面，与需求位置一致。 */
+  { id: "cloudSync", labelKey: "settings.categories.cloudSync", icon: Cloud, defaultLabel: "云同步" },
   /*
    * 「新手引导」不再单独占一个分类：它现在只是写作设置里的一个开关
    * （打开后旁边出现「播放」）。按阶段重播的入口已按用户要求去掉 ——
@@ -590,6 +595,8 @@ export function SettingsView() {
     switch (active) {
       case "model":
         return <UiTestModelSettingsSection draft={draft} setDraft={setDraft} />
+      case "cloudSync":
+        return <CloudSyncSection />
       case "network":
         return <NetworkSection draft={draft} setDraft={setDraft} />
       case "web-search":

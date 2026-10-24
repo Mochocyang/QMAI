@@ -85,6 +85,7 @@ import {
 import { shouldApplyDiskToEditor } from "@/lib/editor-disk-sync"
 import { registerEditorExternalUpdateHandler } from "@/lib/editor-external-update-session"
 import { registerChapterSaveFlush, CHAPTER_AUTOSAVE_INTERVAL_MS, OUTLINE_AUTOSAVE_DELAY_MS } from "@/lib/chapter-save-flush"
+import { notifyProjectSaved } from "@/lib/cloud-sync/save-signal"
 import { createChapterExternalUpdateCoordinator } from "@/lib/chapter-external-update-coordinator"
 import { applyOpenChapterBodyUpdate, createDeAiBatchChapterApplier } from "@/lib/novel/de-ai-batch/chapter-apply"
 import { acquireDeAiChapterSlot } from "@/lib/novel/de-ai-batch/chapter-concurrency"
@@ -1091,6 +1092,9 @@ export function PreviewPanel() {
       reportUiTestSave(pathAtSave, "saved", persistedMarkdown, generation)
       rememberLoadedChapter(normalizedPath, persistedMarkdown)
       bumpDataVersion()
+      // 正文真的落到磁盘了才通知云同步（去抖在订阅侧做）：
+      // 写失败时通知会同步一份旧内容，比不同步更糟。
+      notifyProjectSaved()
     } catch (err) {
       console.error("保存失败:", err)
       reportUiTestSave(pathAtSave, "error", persistedMarkdown, generation)
