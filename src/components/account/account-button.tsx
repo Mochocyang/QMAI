@@ -10,13 +10,18 @@ export function AccountButton() {
 
   const hasUser = user !== null
   const displayName = hasUser ? accountDisplayName(user.displayName, user.email) : ""
+  const title = !hasUser
+    ? "登录 / 注册"
+    : displayName === user.email
+      ? user.email
+      : `${displayName} · ${user.email}`
 
   return (
     <button
       type="button"
       className="ui-test-icon-btn account-entry"
       aria-label="账号"
-      title={hasUser ? `${displayName} · ${user.email}` : "登录 / 注册"}
+      title={title}
       onClick={() => openDialog()}
     >
       {hasUser ? (

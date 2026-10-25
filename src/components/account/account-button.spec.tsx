@@ -83,6 +83,6 @@ describe("AccountButton", () => {
     const button = accountButton()
     expect(button.querySelector(".account-avatar")?.textContent).toBe("A")
     expect(button.querySelector("svg")).toBeNull()
-    expect(button.title).toBe("author@example.com · author@example.com")
+    expect(button.title).toBe("author@example.com")
   })
 })

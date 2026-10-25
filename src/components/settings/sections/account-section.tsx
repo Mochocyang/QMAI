@@ -26,7 +26,9 @@ export function AccountSection() {
   const header = (
     <div>
       <h2 className="text-xl font-semibold">账号</h2>
-      <p className="mt-1 text-sm text-muted-foreground">{ACCOUNT_DESCRIPTION}</p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        账号用于会员权益与后续云服务；本地写作和模型配置始终不受影响。
+      </p>
     </div>
   )
 

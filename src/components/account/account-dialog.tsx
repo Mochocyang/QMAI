@@ -81,7 +81,7 @@ export function AccountDialog() {
 
   const authenticated = status === "authenticated" && user !== null
   const displayedError = localError ?? sessionError
-  const busy = submitting || loggingOut
+  const busy = submitting || loggingOut || sendingCode
 
   useEffect(() => {
     if (cooldown <= 0) return
@@ -92,6 +92,7 @@ export function AccountDialog() {
   // 模式切换会作废在途请求，并清错误、验证码与敏感字段；邮箱保留。
   useEffect(() => {
     requestEpochRef.current += 1
+    composingRef.current = false
     setLocalError(null)
     setFieldError(null)
     setDevCode(null)
@@ -107,6 +108,7 @@ export function AccountDialog() {
   useEffect(() => {
     if (dialogOpen) return
     requestEpochRef.current += 1
+    composingRef.current = false
     setPassword("")
     setCode("")
     setLocalError(null)
