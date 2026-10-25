@@ -75,7 +75,22 @@ function setAuthenticatedSession(session: StoredAccountSession): void {
     user: session.user,
     session,
     bootstrapped: true,
+    sessionUnverified: false,
   })
+}
+
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (error: unknown) => void
+} {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
 }
 
 describe("account store", () => {
@@ -111,6 +126,7 @@ describe("account store", () => {
       expect(state.user).toEqual(payload.user)
       expect(state.session?.refreshToken).toBe("new-refresh")
       expect(state.bootstrapped).toBe(true)
+      expect(state.sessionUnverified).toBe(false)
       expect(loadAccountSession()?.refreshToken).toBe("new-refresh")
     })
 
@@ -126,10 +142,11 @@ describe("account store", () => {
       expect(useAccountStore.getState().user).toBeNull()
       expect(useAccountStore.getState().session).toBeNull()
       expect(useAccountStore.getState().bootstrapped).toBe(true)
+      expect(useAccountStore.getState().sessionUnverified).toBe(false)
       expect(loadAccountSession()).toBeNull()
     })
 
-    it("断网/5xx 时保留缓存会话，不因服务不可用登出", async () => {
+    it("断网/5xx 时保留缓存会话，标记待确认且不因服务不可用登出", async () => {
       const stored = storedSession()
       saveAccountSession(stored)
       vi.mocked(refreshAccountSession).mockRejectedValue(
@@ -141,6 +158,7 @@ describe("account store", () => {
       expect(useAccountStore.getState().status).toBe("authenticated")
       expect(useAccountStore.getState().session).toEqual(stored)
       expect(useAccountStore.getState().user).toEqual(stored.user)
+      expect(useAccountStore.getState().sessionUnverified).toBe(true)
       expect(loadAccountSession()).toEqual(stored)
 
       resetAccountStoreForTests()
@@ -152,6 +170,22 @@ describe("account store", () => {
 
       expect(useAccountStore.getState().status).toBe("authenticated")
       expect(useAccountStore.getState().session).toEqual(stored)
+      expect(useAccountStore.getState().sessionUnverified).toBe(true)
+      expect(loadAccountSession()).toEqual(stored)
+    })
+
+    it("403 无明确 ACCOUNT_DISABLED 码时保留会话，不误清", async () => {
+      const stored = storedSession()
+      saveAccountSession(stored)
+      vi.mocked(refreshAccountSession).mockRejectedValue(
+        new AccountApiError("SERVER_ERROR", "网关禁止访问", 403),
+      )
+
+      await useAccountStore.getState().bootstrap()
+
+      expect(useAccountStore.getState().status).toBe("authenticated")
+      expect(useAccountStore.getState().session).toEqual(stored)
+      expect(useAccountStore.getState().sessionUnverified).toBe(true)
       expect(loadAccountSession()).toEqual(stored)
     })
   })
@@ -177,6 +211,7 @@ describe("account store", () => {
       expect(state.session?.refreshToken).toBe("new-refresh")
       expect(state.dialogOpen).toBe(false)
       expect(state.error).toBeNull()
+      expect(state.sessionUnverified).toBe(false)
       expect(loadAccountSession()?.accessToken).toBe("new-access")
     })
 
@@ -194,6 +229,23 @@ describe("account store", () => {
       expect(state.user).toBeNull()
       expect(state.session).toBeNull()
       expect(state.error).toBe("邮箱或密码不正确。")
+      expect(loadAccountSession()).toBeNull()
+    })
+
+    it("登录失败时清掉已有磁盘会话，避免重启后恢复旧身份", async () => {
+      const old = storedSession()
+      saveAccountSession(old)
+      setAuthenticatedSession(old)
+      const error = new AccountApiError("INVALID_CREDENTIALS", "邮箱或密码不正确。", 401)
+      vi.mocked(loginAccount).mockRejectedValue(error)
+
+      await expect(useAccountStore.getState().login({
+        email: "author@example.com",
+        password: "wrong-password",
+      })).rejects.toBe(error)
+
+      expect(useAccountStore.getState().status).toBe("anonymous")
+      expect(useAccountStore.getState().session).toBeNull()
       expect(loadAccountSession()).toBeNull()
     })
 
@@ -263,6 +315,7 @@ describe("account store", () => {
       expect(state.session).toBeNull()
       expect(state.authMode).toBe("login")
       expect(state.dialogOpen).toBe(true)
+      expect(state.sessionUnverified).toBe(false)
       expect(loadAccountSession()).toBeNull()
     })
   })
@@ -282,6 +335,7 @@ describe("account store", () => {
       expect(state.user).toBeNull()
       expect(state.session).toBeNull()
       expect(state.dialogOpen).toBe(false)
+      expect(state.sessionUnverified).toBe(false)
       expect(loadAccountSession()).toBeNull()
     })
 
@@ -317,7 +371,7 @@ describe("account store", () => {
       expect(loadAccountSession()).toBeNull()
     })
 
-    it("refreshSession 网络失败保留会话并 rethrow", async () => {
+    it("refreshSession 网络失败保留会话、标记待确认并 rethrow", async () => {
       const stored = storedSession()
       setAuthenticatedSession(stored)
       const error = new AccountApiError("NETWORK", "网络异常", 0)
@@ -327,6 +381,106 @@ describe("account store", () => {
 
       expect(useAccountStore.getState().session).toEqual(stored)
       expect(useAccountStore.getState().status).toBe("authenticated")
+      expect(useAccountStore.getState().sessionUnverified).toBe(true)
+    })
+
+    it("refresh 成功后清除 sessionUnverified，401 也清除并匿名", async () => {
+      const stored = storedSession()
+      saveAccountSession(stored)
+      vi.mocked(refreshAccountSession).mockRejectedValue(
+        new AccountApiError("NETWORK", "网络异常", 0),
+      )
+      await useAccountStore.getState().bootstrap()
+      expect(useAccountStore.getState().sessionUnverified).toBe(true)
+
+      vi.mocked(refreshAccountSession).mockResolvedValue(authPayload())
+      await useAccountStore.getState().refreshSession()
+      expect(useAccountStore.getState().sessionUnverified).toBe(false)
+
+      resetAccountStoreForTests()
+      saveAccountSession(stored)
+      vi.mocked(refreshAccountSession).mockRejectedValue(
+        new AccountApiError("NETWORK", "网络异常", 0),
+      )
+      await useAccountStore.getState().bootstrap()
+      expect(useAccountStore.getState().sessionUnverified).toBe(true)
+
+      vi.mocked(refreshAccountSession).mockRejectedValue(
+        new AccountApiError("TOKEN_EXPIRED", "登录已过期", 401),
+      )
+      await expect(useAccountStore.getState().refreshSession()).resolves.toBeNull()
+      expect(useAccountStore.getState().sessionUnverified).toBe(false)
+      expect(useAccountStore.getState().status).toBe("anonymous")
+    })
+
+    it("并发 refreshSession 只发一次请求并共享结果", async () => {
+      const stored = storedSession()
+      setAuthenticatedSession(stored)
+      const gate = deferred<AccountAuthPayload>()
+      vi.mocked(refreshAccountSession).mockReturnValue(gate.promise)
+
+      const first = useAccountStore.getState().refreshSession()
+      const second = useAccountStore.getState().refreshSession()
+      expect(refreshAccountSession).toHaveBeenCalledTimes(1)
+      expect(refreshAccountSession).toHaveBeenCalledWith(stored.baseUrl, stored.refreshToken)
+
+      gate.resolve(authPayload())
+      const [a, b] = await Promise.all([first, second])
+      expect(a?.refreshToken).toBe("new-refresh")
+      expect(b?.refreshToken).toBe("new-refresh")
+      expect(loadAccountSession()?.refreshToken).toBe("new-refresh")
+    })
+
+    it("bootstrap 与 refreshSession 并发时共用同一次续期", async () => {
+      const stored = storedSession()
+      saveAccountSession(stored)
+      const gate = deferred<AccountAuthPayload>()
+      vi.mocked(refreshAccountSession).mockReturnValue(gate.promise)
+
+      const boot = useAccountStore.getState().bootstrap()
+      const refresh = useAccountStore.getState().refreshSession()
+      expect(refreshAccountSession).toHaveBeenCalledTimes(1)
+
+      gate.resolve(authPayload())
+      await Promise.all([boot, refresh])
+
+      expect(refreshAccountSession).toHaveBeenCalledTimes(1)
+      expect(useAccountStore.getState().status).toBe("authenticated")
+      expect(useAccountStore.getState().session?.refreshToken).toBe("new-refresh")
+    })
+
+    it("logout 期间完成的 bootstrap 不会把状态改回已登录", async () => {
+      const stored = storedSession()
+      saveAccountSession(stored)
+      const gate = deferred<AccountAuthPayload>()
+      vi.mocked(refreshAccountSession).mockReturnValue(gate.promise)
+      vi.mocked(logoutAccount).mockResolvedValue(undefined)
+
+      const boot = useAccountStore.getState().bootstrap()
+      expect(useAccountStore.getState().session).toEqual(stored)
+
+      await useAccountStore.getState().logout()
+      expect(useAccountStore.getState().status).toBe("anonymous")
+
+      gate.resolve(authPayload())
+      await boot
+
+      expect(useAccountStore.getState().status).toBe("anonymous")
+      expect(useAccountStore.getState().session).toBeNull()
+      expect(useAccountStore.getState().user).toBeNull()
+      expect(loadAccountSession()).toBeNull()
+    })
+
+    it("refresh() 别名吞掉续期错误，保留待确认标记", async () => {
+      const stored = storedSession()
+      setAuthenticatedSession(stored)
+      vi.mocked(refreshAccountSession).mockRejectedValue(
+        new AccountApiError("NETWORK", "网络异常", 0),
+      )
+
+      await expect(useAccountStore.getState().refresh()).resolves.toBeUndefined()
+      expect(useAccountStore.getState().sessionUnverified).toBe(true)
+      expect(useAccountStore.getState().session).toEqual(stored)
     })
   })
 

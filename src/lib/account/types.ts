@@ -48,6 +48,8 @@ export interface StoredAccountSession {
   refreshToken: string
   refreshExpiresAt: number
   user: AccountUser
+  /** 本地保存时间（Unix 秒）。 */
+  savedAt: number
 }
 
 export interface SendCodeResult {

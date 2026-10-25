@@ -2,7 +2,7 @@
  * 账号 Worker 的纯 HTTP 接入层。
  *
  * 本文件不碰 React、store、toast；只负责：
- * - 地址归一化与解析（localStorage 覆盖 → 构建环境变量 → 默认地址）；
+ * - 地址解析（构建环境变量 → 默认地址）；
  * - 统一信封解析与错误码映射；
  * - 通过注入的 fetch 发请求，便于单测替换网络。
  *
@@ -29,7 +29,9 @@ import type {
 import { normalizeEmail } from "./validation"
 
 export const DEFAULT_ACCOUNT_BASE_URL = "https://qmai-account.qmai.workers.dev"
-export const ACCOUNT_BASE_URL_STORAGE_KEY = "qmai.account.baseUrl.v1"
+
+/** 单次账号请求（含读响应体）的上限；超时统一映射为 NETWORK。 */
+export const ACCOUNT_REQUEST_TIMEOUT_MS = 20_000
 
 type FetchImpl = typeof fetch
 type HttpMethod = "GET" | "POST"
@@ -43,35 +45,46 @@ const lazyAccountFetch: FetchImpl = async (input, init) => {
   return fetcher(input, init)
 }
 
-/** trim、去尾部 `/`；缺少 http(s) 前缀时补 `https://`；空串回默认地址。 */
+/**
+ * 严格解析账号服务地址：只接受带 http/https 协议的绝对地址、必须有不带
+ * userinfo 的主机、不允许 query/hash。返回 `null` 表示调用方应回默认地址
+ * 或拒绝该会话。
+ */
+export function parseAccountBaseUrl(raw: string): string | null {
+  const trimmed = typeof raw === "string" ? raw.trim() : ""
+  if (!trimmed || !/^https?:\/\//i.test(trimmed)) return null
+
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return null
+  }
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null
+  if (!url.hostname) return null
+  if (url.username || url.password) return null
+  if (url.search || url.hash) return null
+
+  const pathname = url.pathname.replace(/\/+$/, "")
+  return `${url.origin}${pathname}`
+}
+
+/** trim、去尾部 `/`；缺少前缀时补 `https://`；非法/空回默认地址。 */
 export function normalizeAccountBaseUrl(raw: string): string {
   const trimmed = typeof raw === "string" ? raw.trim() : ""
   if (!trimmed) return DEFAULT_ACCOUNT_BASE_URL
 
-  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
-  const stripped = withScheme.replace(/\/+$/, "")
-  // `https://` / `http://` 这类只有协议没有主机的输入没有意义，回默认地址。
-  return /^https?:\/\/[^/]/i.test(stripped) ? stripped : DEFAULT_ACCOUNT_BASE_URL
-}
-
-function readStoredBaseUrlOverride(): string {
-  try {
-    if (typeof localStorage === "undefined") return ""
-    return localStorage.getItem(ACCOUNT_BASE_URL_STORAGE_KEY) ?? ""
-  } catch {
-    return ""
-  }
+  // 明确写了 `://` 就按原协议交给严格解析（ftp 等会被拒绝）；否则补 https。
+  const withScheme = trimmed.includes("://") ? trimmed : `https://${trimmed}`
+  return parseAccountBaseUrl(withScheme) ?? DEFAULT_ACCOUNT_BASE_URL
 }
 
 /**
- * 解析本次请求应使用的账号服务地址：
- * localStorage 覆盖 → `VITE_QMAI_ACCOUNT_URL` → 默认地址。
- * 任何存储异常都只影响覆盖值，不阻塞登录。
+ * 解析本次请求应使用的账号服务地址：`VITE_QMAI_ACCOUNT_URL` → 默认地址。
+ * 不读 localStorage：本地覆盖若被 XSS 改写，可能把 token 送到钓鱼地址。
  */
 export function resolveAccountBaseUrl(): string {
-  const stored = readStoredBaseUrlOverride()
-  if (stored.trim()) return normalizeAccountBaseUrl(stored)
-
   const envUrl = import.meta.env.VITE_QMAI_ACCOUNT_URL
   if (typeof envUrl === "string" && envUrl.trim()) return normalizeAccountBaseUrl(envUrl)
 
@@ -92,10 +105,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function fallbackCodeForStatus(status: number, unauthorizedCode: AccountErrorCode): AccountErrorCode {
   if (status === 400) return "VALIDATION"
   if (status === 401) return unauthorizedCode
-  if (status === 403) return "ACCOUNT_DISABLED"
   if (status === 409) return "EMAIL_TAKEN"
   if (status === 429) return "RATE_LIMITED"
   if (status >= 500) return "SERVER_ERROR"
+  // 403 只有服务端明确给出 ACCOUNT_DISABLED 才算停用；HTML/网关页兜底为服务错误。
   return "SERVER_ERROR"
 }
 
@@ -186,6 +199,8 @@ interface AccountRequestOptions {
   accessToken?: string
   unauthorizedCode: AccountErrorCode
   fetchImpl: FetchImpl
+  /** void 接口（logout/reset）允许 204 或空响应体。 */
+  acceptEmptySuccess?: boolean
 }
 
 interface AccountResponse {
@@ -201,39 +216,69 @@ async function requestAccount(
   if (options.body) headers["Content-Type"] = "application/json"
   if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`
 
-  let response: Response
-  try {
-    response = await options.fetchImpl(`${normalizeAccountBaseUrl(baseUrl)}${options.path}`, {
-      method: options.method,
-      headers,
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    })
-  } catch {
-    throw new AccountApiError("NETWORK", ACCOUNT_ERROR_MESSAGES.NETWORK, 0)
-  }
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  // 自己计时，避免注入的 fetch 不响应 abort 时请求永远挂起。
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort()
+      reject(new AccountApiError("NETWORK", ACCOUNT_ERROR_MESSAGES.NETWORK, 0))
+    }, ACCOUNT_REQUEST_TIMEOUT_MS)
+  })
+  // 请求先完成时 timeout 仍会到点；先挂一个 catch，避免迟到的 rejection 报警。
+  void timeout.catch(() => undefined)
 
-  let text = ""
   try {
-    text = await response.text()
-  } catch {
-    throw new AccountApiError("NETWORK", ACCOUNT_ERROR_MESSAGES.NETWORK, 0)
-  }
-
-  let payload: unknown = null
-  if (text) {
+    let response: Response
     try {
-      payload = JSON.parse(text)
+      response = await Promise.race([
+        options.fetchImpl(`${normalizeAccountBaseUrl(baseUrl)}${options.path}`, {
+          method: options.method,
+          headers,
+          body: options.body ? JSON.stringify(options.body) : undefined,
+          signal: controller.signal,
+        }),
+        timeout,
+      ])
     } catch {
-      payload = null
+      throw new AccountApiError("NETWORK", ACCOUNT_ERROR_MESSAGES.NETWORK, 0)
     }
-  }
 
-  const envelope = asRecord(payload)
-  if (!response.ok || envelope?.success !== true) {
-    throw buildAccountError(payload, response.status, options.unauthorizedCode)
-  }
+    let text = ""
+    try {
+      text = await Promise.race([response.text(), timeout])
+    } catch {
+      throw new AccountApiError("NETWORK", ACCOUNT_ERROR_MESSAGES.NETWORK, 0)
+    }
 
-  return { status: response.status, data: envelope.data }
+    let payload: unknown = null
+    if (text.trim()) {
+      try {
+        payload = JSON.parse(text)
+      } catch {
+        payload = null
+      }
+    }
+
+    if (!response.ok) {
+      throw buildAccountError(payload, response.status, options.unauthorizedCode)
+    }
+
+    // 204 / 空 body 对 logout、reset 是合法成功；有 body 则必须仍是统一信封。
+    if (!text.trim()) {
+      if (options.acceptEmptySuccess) return { status: response.status, data: null }
+      throw buildAccountError(payload, response.status, options.unauthorizedCode)
+    }
+
+    const envelope = asRecord(payload)
+    if (envelope?.success !== true) {
+      throw buildAccountError(payload, response.status, options.unauthorizedCode)
+    }
+
+    return { status: response.status, data: envelope.data }
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
 }
 
 function optionalBodyField(
@@ -329,6 +374,7 @@ export async function logoutAccount(
     body: { refreshToken },
     unauthorizedCode: "TOKEN_EXPIRED",
     fetchImpl,
+    acceptEmptySuccess: true,
   })
 }
 
@@ -365,5 +411,6 @@ export async function resetAccountPassword(
     },
     unauthorizedCode: "INVALID_CREDENTIALS",
     fetchImpl,
+    acceptEmptySuccess: true,
   })
 }

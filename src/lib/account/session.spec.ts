@@ -40,13 +40,15 @@ describe("account session", () => {
     localStorage.clear()
   })
 
-  it("createStoredSession 归一化地址并复制用户", () => {
+  it("createStoredSession 归一化地址、写入 savedAt 并复制用户", () => {
     const payload = authPayload()
+    const before = Math.floor(Date.now() / 1000)
     const session = createStoredSession("https://account.test/", payload)
 
     expect(session.baseUrl).toBe("https://account.test")
     expect(session.accessToken).toBe("access-token")
     expect(session.refreshToken).toBe("refresh-token")
+    expect(session.savedAt).toBeGreaterThanOrEqual(before)
     expect(session.user).toEqual(payload.user)
     expect(session.user).not.toBe(payload.user)
   })
@@ -79,11 +81,20 @@ describe("account session", () => {
     expect(localStorage.getItem(ACCOUNT_SESSION_STORAGE_KEY)).toBeNull()
   })
 
-  it("baseUrl 为空视为坏数据", () => {
-    localStorage.setItem(ACCOUNT_SESSION_STORAGE_KEY, JSON.stringify(storedSession({
-      baseUrl: "   ",
-    })))
+  it("savedAt 缺失视为坏数据", () => {
+    const withoutSavedAt: Record<string, unknown> = { ...storedSession() }
+    delete withoutSavedAt.savedAt
+    localStorage.setItem(ACCOUNT_SESSION_STORAGE_KEY, JSON.stringify(withoutSavedAt))
     expect(loadAccountSession()).toBeNull()
+    expect(localStorage.getItem(ACCOUNT_SESSION_STORAGE_KEY)).toBeNull()
+  })
+
+  it("非法 baseUrl 拒绝整份会话，不静默指向默认服务", () => {
+    for (const baseUrl of ["   ", "ftp://account.test", "https://user:pass@account.test", "https://account.test?x=1"]) {
+      localStorage.setItem(ACCOUNT_SESSION_STORAGE_KEY, JSON.stringify(storedSession({ baseUrl })))
+      expect(loadAccountSession()).toBeNull()
+      expect(localStorage.getItem(ACCOUNT_SESSION_STORAGE_KEY)).toBeNull()
+    }
   })
 
   it("读取 localStorage 抛异常时回 null", () => {

@@ -22,7 +22,7 @@ const EXPECTED_MESSAGES: Record<AccountErrorCode, string> = {
   INVALID_REFRESH: "登录已失效，请重新登录。",
   EMAIL_SEND_FAILED: "验证码邮件发送失败，请稍后重试。",
   SERVER_ERROR: "账号服务暂时不可用，请稍后再试。",
-  NETWORK: "网络连接失败，请检查网络后重试。",
+  NETWORK: "网络不可用，请检查连接后重试。",
 }
 
 describe("accountErrorMessage", () => {
@@ -35,7 +35,7 @@ describe("accountErrorMessage", () => {
 
   it("NETWORK 的文案按客户端约定显示", () => {
     expect(accountErrorMessage(new AccountApiError("NETWORK", "fetch failed", 0)))
-      .toBe("网络连接失败，请检查网络后重试。")
+      .toBe("网络不可用，请检查连接后重试。")
   })
 
   it("未知错误走兜底文案，不把内部错误甩给用户", () => {

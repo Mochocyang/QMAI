@@ -1,11 +1,13 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
+  ACCOUNT_REQUEST_TIMEOUT_MS,
   DEFAULT_ACCOUNT_BASE_URL,
   fetchAccountMe,
   loginAccount,
   logoutAccount,
   normalizeAccountBaseUrl,
+  parseAccountBaseUrl,
   refreshAccountSession,
   registerAccount,
   resetAccountPassword,
@@ -14,6 +16,11 @@ import {
 } from "./api"
 import { AccountApiError, accountErrorMessage, isAccountApiError } from "./errors"
 import type { AccountAuthPayload } from "./types"
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.useRealTimers()
+})
 
 const BASE = "https://account.test"
 
@@ -75,23 +82,46 @@ function authPayload(overrides: Partial<AccountAuthPayload> = {}): AccountAuthPa
   }
 }
 
-describe("normalizeAccountBaseUrl", () => {
-  it("trim、去尾斜杠、补 https、空串回默认", () => {
-    expect(normalizeAccountBaseUrl("  https://account.test/  ")).toBe("https://account.test")
-    expect(normalizeAccountBaseUrl("http://127.0.0.1:8787/")).toBe("http://127.0.0.1:8787")
-    expect(normalizeAccountBaseUrl("account.test/")).toBe("https://account.test")
-    expect(normalizeAccountBaseUrl("  ")).toBe(DEFAULT_ACCOUNT_BASE_URL)
-    expect(normalizeAccountBaseUrl("")).toBe(DEFAULT_ACCOUNT_BASE_URL)
+describe("parseAccountBaseUrl / normalizeAccountBaseUrl", () => {
+  it("严格解析合法 http(s) 绝对地址并归一化尾斜杠", () => {
+    expect(parseAccountBaseUrl("  https://account.test/  ")).toBe("https://account.test")
+    expect(parseAccountBaseUrl("http://127.0.0.1:8787/")).toBe("http://127.0.0.1:8787")
+    expect(parseAccountBaseUrl("https://account.test/api/")).toBe("https://account.test/api")
+    expect(parseAccountBaseUrl("http://localhost:8787")).toBe("http://localhost:8787")
   })
 
-  it("只有协议没有主机时回默认地址", () => {
-    expect(normalizeAccountBaseUrl("https://")).toBe(DEFAULT_ACCOUNT_BASE_URL)
-    expect(normalizeAccountBaseUrl("http:///")).toBe(DEFAULT_ACCOUNT_BASE_URL)
+  it("严格 parse 拒绝无协议、空串、非法协议、userinfo、query、hash 与无主机地址", () => {
+    expect(parseAccountBaseUrl("account.test/")).toBeNull()
+    expect(parseAccountBaseUrl("")).toBeNull()
+    expect(parseAccountBaseUrl("   ")).toBeNull()
+    expect(parseAccountBaseUrl("https://")).toBeNull()
+    expect(parseAccountBaseUrl("http:///")).toBeNull()
+    expect(parseAccountBaseUrl("ftp://account.test")).toBeNull()
+    expect(parseAccountBaseUrl("https://user:pass@account.test")).toBeNull()
+    expect(parseAccountBaseUrl("https://account.test?x=1")).toBeNull()
+    expect(parseAccountBaseUrl("https://account.test#frag")).toBeNull()
+  })
+
+  it("normalize 仍会补 https，非法/空回默认地址", () => {
+    expect(normalizeAccountBaseUrl("account.test/")).toBe("https://account.test")
+    expect(normalizeAccountBaseUrl("localhost:8787")).toBe("https://localhost:8787")
+    expect(normalizeAccountBaseUrl("  ")).toBe(DEFAULT_ACCOUNT_BASE_URL)
+    expect(normalizeAccountBaseUrl("ftp://account.test")).toBe(DEFAULT_ACCOUNT_BASE_URL)
+    expect(normalizeAccountBaseUrl("https://user@account.test")).toBe(DEFAULT_ACCOUNT_BASE_URL)
+    expect(normalizeAccountBaseUrl("https://account.test/")).toBe("https://account.test")
   })
 })
 
 describe("resolveAccountBaseUrl", () => {
-  it("没有任何覆盖时使用默认地址", () => {
+  it("没有环境变量时使用默认地址", () => {
+    expect(resolveAccountBaseUrl()).toBe(DEFAULT_ACCOUNT_BASE_URL)
+  })
+
+  it("优先使用 VITE_QMAI_ACCOUNT_URL，非法环境地址回默认", () => {
+    vi.stubEnv("VITE_QMAI_ACCOUNT_URL", "https://env-account.test/")
+    expect(resolveAccountBaseUrl()).toBe("https://env-account.test")
+
+    vi.stubEnv("VITE_QMAI_ACCOUNT_URL", "ftp://evil.test")
     expect(resolveAccountBaseUrl()).toBe(DEFAULT_ACCOUNT_BASE_URL)
   })
 })
@@ -194,6 +224,16 @@ describe("loginAccount / registerAccount / refreshAccountSession", () => {
     })
   })
 
+  it("void 接口的空 body / 204 视为成功", async () => {
+    const empty = fakeFetch(() => new Response(null, { status: 204 }))
+    await expect(logoutAccount(BASE, "refresh-token", empty.fetchImpl)).resolves.toBeUndefined()
+    await expect(resetAccountPassword(BASE, {
+      email: "author@example.com",
+      code: "654321",
+      password: "new-password",
+    }, empty.fetchImpl)).resolves.toBeUndefined()
+  })
+
   it("成功信封但登录态字段缺失时不返回半截对象", async () => {
     const { fetchImpl } = fakeFetch(() => success({
       ...authPayload(),
@@ -281,6 +321,37 @@ describe("错误映射", () => {
     expect(error.code).toBe("SERVER_ERROR")
   })
 
+  it("HTTP 403 无 code 或 HTML 页兜底为 SERVER_ERROR，不误判停用", async () => {
+    const html = fakeFetch(() => new Response("<html>Forbidden</html>", {
+      status: 403,
+      headers: { "Content-Type": "text/html" },
+    }))
+    const htmlError = await captureError(sendCode(BASE, "a@b.com", "register", html.fetchImpl))
+    expect(htmlError.code).toBe("SERVER_ERROR")
+    expect(htmlError.status).toBe(403)
+    expect(accountErrorMessage(htmlError)).toBe("账号服务暂时不可用，请稍后再试。")
+
+    const coded = fakeFetch(() => failure("ACCOUNT_DISABLED", "账号已停用", 403))
+    const codedError = await captureError(sendCode(BASE, "a@b.com", "register", coded.fetchImpl))
+    expect(codedError.code).toBe("ACCOUNT_DISABLED")
+  })
+
+  it("20 秒无响应按 NETWORK 超时，并清理 signal 定时器", async () => {
+    vi.useFakeTimers()
+    // 故意不监听 abort：计时器必须能自己结束请求，不能依赖 fetch 实现。
+    const { fetchImpl, calls } = fakeFetch(() => new Promise<Response>(() => undefined))
+
+    const request = sendCode(BASE, "a@b.com", "register", fetchImpl)
+    const assertion = expect(request).rejects.toMatchObject({ code: "NETWORK", status: 0 })
+
+    await vi.advanceTimersByTimeAsync(ACCOUNT_REQUEST_TIMEOUT_MS - 1)
+    expect(calls[0]?.init.signal?.aborted).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(1)
+    await assertion
+    expect(calls[0]?.init.signal?.aborted).toBe(true)
+  })
+
   it("网络异常映射为 NETWORK / status 0", async () => {
     const { fetchImpl } = fakeFetch(() => {
       throw new TypeError("Failed to fetch")
@@ -290,6 +361,6 @@ describe("错误映射", () => {
     expect(error).toBeInstanceOf(AccountApiError)
     expect(error.code).toBe("NETWORK")
     expect(error.status).toBe(0)
-    expect(accountErrorMessage(error)).toBe("网络连接失败，请检查网络后重试。")
+    expect(accountErrorMessage(error)).toBe("网络不可用，请检查连接后重试。")
   })
 })

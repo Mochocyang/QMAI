@@ -5,7 +5,7 @@
  * 写入失败不阻塞本次会话。坏数据直接删除，避免每次启动都解析同一份垃圾。
  */
 
-import { normalizeAccountBaseUrl } from "./api"
+import { normalizeAccountBaseUrl, parseAccountBaseUrl } from "./api"
 import type {
   AccountAuthPayload,
   AccountUser,
@@ -47,17 +47,23 @@ function toStoredSession(value: unknown): StoredAccountSession | null {
   if (!isFiniteNumber(record.accessExpiresAt)) return null
   if (!isNonEmptyString(record.refreshToken)) return null
   if (!isFiniteNumber(record.refreshExpiresAt)) return null
+  if (!isFiniteNumber(record.savedAt)) return null
 
   const user = toAccountUser(record.user)
   if (!user) return null
 
+  // 旧数据或 XSS 改写的地址不能静默指向默认服务，直接拒绝整份会话。
+  const baseUrl = parseAccountBaseUrl(record.baseUrl)
+  if (!baseUrl) return null
+
   return {
-    baseUrl: normalizeAccountBaseUrl(record.baseUrl),
+    baseUrl,
     accessToken: record.accessToken,
     accessExpiresAt: record.accessExpiresAt,
     refreshToken: record.refreshToken,
     refreshExpiresAt: record.refreshExpiresAt,
     user,
+    savedAt: record.savedAt,
   }
 }
 
@@ -80,6 +86,7 @@ export function createStoredSession(
     refreshToken: payload.refreshToken,
     refreshExpiresAt: payload.refreshExpiresAt,
     user: { ...payload.user },
+    savedAt: Math.floor(Date.now() / 1000),
   }
 }
 
