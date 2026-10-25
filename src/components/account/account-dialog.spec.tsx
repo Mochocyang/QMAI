@@ -3,7 +3,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { resetAccountStoreForTests, useAccountStore } from "@/stores/account-store"
+import { resetAccountStoreForTests, useAccountStore, type AccountStoreState } from "@/stores/account-store"
 import { AccountDialog } from "./account-dialog"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -27,11 +27,11 @@ function deferred<T>() {
 
 let host: HTMLDivElement
 let root: Root
-let login: ReturnType<typeof vi.fn>
-let register: ReturnType<typeof vi.fn>
-let sendCode: ReturnType<typeof vi.fn>
-let resetPassword: ReturnType<typeof vi.fn>
-let logout: ReturnType<typeof vi.fn>
+let login: ReturnType<typeof vi.fn<AccountStoreState["login"]>>
+let register: ReturnType<typeof vi.fn<AccountStoreState["register"]>>
+let sendCode: ReturnType<typeof vi.fn<AccountStoreState["sendCode"]>>
+let resetPassword: ReturnType<typeof vi.fn<AccountStoreState["resetPassword"]>>
+let logout: ReturnType<typeof vi.fn<AccountStoreState["logout"]>>
 
 function render() {
   act(() => {
@@ -83,11 +83,11 @@ async function submitForm() {
 
 beforeEach(() => {
   resetAccountStoreForTests()
-  login = vi.fn(async () => undefined)
-  register = vi.fn(async () => undefined)
-  sendCode = vi.fn(async () => ({ cooldownSeconds: 60, devCode: "654321" }))
-  resetPassword = vi.fn(async () => undefined)
-  logout = vi.fn(async () => undefined)
+  login = vi.fn<AccountStoreState["login"]>(async () => undefined)
+  register = vi.fn<AccountStoreState["register"]>(async () => undefined)
+  sendCode = vi.fn<AccountStoreState["sendCode"]>(async () => ({ cooldownSeconds: 60, devCode: "654321" }))
+  resetPassword = vi.fn<AccountStoreState["resetPassword"]>(async () => undefined)
+  logout = vi.fn<AccountStoreState["logout"]>(async () => undefined)
 
   useAccountStore.setState({
     dialogOpen: true,
