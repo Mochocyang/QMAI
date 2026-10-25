@@ -1,0 +1,18 @@
+name = "qmai-account"
+main = "src/index.ts"
+compatibility_date = "2026-01-01"
+
+# D1：账号数据独立于 analytics-worker / New API 模型网关。
+# database_id 为占位值，替换为 `npx wrangler d1 create qmai-account-db` 返回值。
+[[d1_databases]]
+binding = "DB"
+database_name = "qmai-account-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[vars]
+AUTH_EMAIL_FROM = "青幕AI写作 <no-reply@qmai.example>"
+APP_ALLOWED_ORIGINS = "tauri://localhost,https://tauri.localhost,http://localhost:1420,http://127.0.0.1:1420"
+ENVIRONMENT = "production"
+PASSWORD_ITERATIONS = "210000"
+# 仅本地联调时改为 "true"；生产必须保持 "false"。
+ALLOW_DEV_CODE = "false"
