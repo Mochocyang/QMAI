@@ -201,7 +201,7 @@ assert(
   "non-allowlisted origin gets no ACAO",
 )
 
-// 同一 IP 连续错误码会累计 attempts 并最终作废该码。
+// 同一 IP 视为同一人：连续错误码会累计 attempts 并最终作废该码（已知假设）。
 const sameIpEmail = `same-ip-${Date.now()}@example.com`
 const sameIp = "203.0.113.10"
 const sameIpSend = await request(
@@ -241,7 +241,46 @@ assert(
   "same-IP correct code after exhaustion stays blocked",
 )
 
-// 换 IP 提交错误码不累计 attempts，原 IP 的正确码仍可使用。
+// attempts 早检查只对同 IP 生效：码已被发码人烧掉后，外来 IP 的正确码仍可成功。
+const exhaustedEmail = `exhausted-${Date.now()}@example.com`
+const exhaustedOwnerIp = "203.0.113.13"
+const exhaustedOtherIp = "203.0.113.14"
+const exhaustedSend = await request(
+  "/v1/auth/send-code",
+  "POST",
+  { email: exhaustedEmail, purpose: "register" },
+  { "X-Forwarded-For": exhaustedOwnerIp },
+)
+assert(exhaustedSend.status === 200, "exhaustion scenario code is sent")
+for (let i = 1; i <= 5; i += 1) {
+  const wrong = await request(
+    "/v1/auth/register",
+    "POST",
+    { email: exhaustedEmail, code: "000000", password },
+    { "X-Forwarded-For": exhaustedOwnerIp },
+  )
+  if (i < 5) {
+    assert(wrong.status === 400, `owner wrong code ${i} returns CODE_INVALID`)
+  } else {
+    assert(
+      wrong.status === 429 && wrong.json?.code === "CODE_ATTEMPTS",
+      "owner fifth wrong code exhausts attempts",
+    )
+  }
+}
+const otherIpCorrect = await request(
+  "/v1/auth/register",
+  "POST",
+  { email: exhaustedEmail, code: exhaustedSend.json.data.devCode, password },
+  { "X-Forwarded-For": exhaustedOtherIp },
+)
+assert(
+  otherIpCorrect.status === 200 && otherIpCorrect.json?.success === true,
+  "other IP can still verify a correct code after owner exhaustion",
+)
+
+// 换 IP 提交错误码不累计 attempts；用 20 次外来猜测打满全局桶后，
+// 发码人本人 IP 仍应能用正确码注册（全局桶只约束外来 IP）。
 const crossIpEmail = `cross-ip-${Date.now()}@example.com`
 const ownerIp = "203.0.113.11"
 const attackerIp = "203.0.113.12"
@@ -252,7 +291,7 @@ const crossIpSend = await request(
   { "X-Forwarded-For": ownerIp },
 )
 assert(crossIpSend.status === 200, "cross-IP code is sent from owner IP")
-for (let i = 1; i <= 5; i += 1) {
+for (let i = 1; i <= 20; i += 1) {
   const wrong = await request(
     "/v1/auth/register",
     "POST",

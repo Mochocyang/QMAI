@@ -166,24 +166,35 @@ async function verifyEmailCode(
   )
   if (!emailLimit.allowed) return { ok: false, code: "RATE_LIMITED" }
 
-  // 全局 per-email 猜测桶（10 分钟，与码 TTL 一致）防止攻击者换 IP 猜同一邮箱。
-  const globalEmailBucket = `verify:email:global:${emailKey}`
-  const globalLimit = await consumeRateLimit(
-    env.DB,
-    globalEmailBucket,
-    VERIFY_EMAIL_GLOBAL_LIMIT,
-    VERIFY_EMAIL_GLOBAL_WINDOW_SECONDS,
-    now,
-  )
-  if (!globalLimit.allowed) return { ok: false, code: "RATE_LIMITED" }
-
+  // 先取最新码，记录不存在时不消费全局桶。
   const record = await findLatestEmailCode(env.DB, email, purpose)
   if (!record) return { ok: false, code: "CODE_INVALID" }
   if (record.expires_at <= now) return { ok: false, code: "CODE_EXPIRED" }
-  if (record.attempts >= MAX_CODE_ATTEMPTS) return { ok: false, code: "CODE_ATTEMPTS" }
+
+  // 全局 per-email 猜测桶只约束外来 IP；发码人本人 IP 不受第三方打满影响。
+  const globalEmailBucket = `verify:email:global:${emailKey}`
+  if (record.request_ip_hash !== ipHash) {
+    const globalLimit = await consumeRateLimit(
+      env.DB,
+      globalEmailBucket,
+      VERIFY_EMAIL_GLOBAL_LIMIT,
+      VERIFY_EMAIL_GLOBAL_WINDOW_SECONDS,
+      now,
+    )
+    if (!globalLimit.allowed) return { ok: false, code: "RATE_LIMITED" }
+  }
+
+  // 同 IP（或旧码未记录 IP）才把 attempts 用尽视为 CODE_ATTEMPTS；
+  // 外来 IP 即使码已被发码人烧掉，也继续比对，正确码仍可成功。
+  const sameIpOrUnknown = record.request_ip_hash === null || record.request_ip_hash === ipHash
+  if (sameIpOrUnknown && record.attempts >= MAX_CODE_ATTEMPTS) {
+    return { ok: false, code: "CODE_ATTEMPTS" }
+  }
 
   const expected = await hashEmailCode(getPepper(env), email, purpose, code)
   if (!timingSafeEqualHex(expected, record.code_hash)) {
+    // 外来 IP 不累计 attempts，错误尝试由全局外来桶兜底。
+    if (!sameIpOrUnknown) return { ok: false, code: "CODE_INVALID" }
     const attempts = await recordCodeAttempt(env.DB, record.id, ipHash)
     return {
       ok: false,
@@ -195,8 +206,23 @@ async function verifyEmailCode(
   if (!consumed) return { ok: false, code: "CODE_INVALID" }
 
   // 成功验码后清掉本 IP 邮箱桶与全局桶，避免成功用户被后续请求连累。
-  await deleteRateLimit(env.DB, perIpEmailBucket)
-  await deleteRateLimit(env.DB, globalEmailBucket)
+  // 清理失败不能把已消费的正确码变成 500，只记录事件类型。
+  try {
+    await deleteRateLimit(env.DB, perIpEmailBucket)
+  } catch (error) {
+    logEvent("verify_bucket_cleanup_failed", {
+      bucket: "email_per_ip",
+      name: error instanceof Error ? error.name : "UnknownError",
+    })
+  }
+  try {
+    await deleteRateLimit(env.DB, globalEmailBucket)
+  } catch (error) {
+    logEvent("verify_bucket_cleanup_failed", {
+      bucket: "email_global",
+      name: error instanceof Error ? error.name : "UnknownError",
+    })
+  }
   return { ok: true }
 }
 
