@@ -6,7 +6,19 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 7)).toEqual(["4.3.7", "4.3.6", "4.3.5", "4.3.4", "4.3.3", "4.3.2", "4.3.1"])
+    expect(versions.slice(0, 8)).toEqual(["4.3.8", "4.3.7", "4.3.6", "4.3.5", "4.3.4", "4.3.3", "4.3.2", "4.3.1"])
+    // 4.3.8 起更新日志只维护中文，en 复用 zh（英文界面宁可显示中文，也不要空白卡片）。
+    const release438 = currentVersionChangelog("4.3.8")[0]
+    expect(release438.version).toBe("4.3.8")
+    expect(release438.date).toBe("2026-10-25")
+    expect(release438.highlights.zh.length).toBeGreaterThanOrEqual(12)
+    expect(release438.highlights.en).toEqual(release438.highlights.zh)
+    const zh438 = release438.highlights.zh.join(String.fromCharCode(10))
+    expect(zh438).toContain("新增云同步")
+    expect(zh438).toContain("缓存命中率")
+    expect(zh438).toContain("设定档案能正常保存")
+    expect(zh438).toContain("不再出现成段的 JSON")
+
     const release437 = currentVersionChangelog("4.3.7")[0]
     expect(release437.version).toBe("4.3.7")
     expect(release437.date).toBe("2026-10-22")
