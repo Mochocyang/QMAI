@@ -13,8 +13,12 @@
 | POST | `/v1/auth/login` | 邮箱 + 密码 |
 | POST | `/v1/auth/refresh` | 轮换 refresh token，返回新 access |
 | POST | `/v1/auth/logout` | 撤销当前设备会话（幂等） |
-| GET | `/v1/auth/me` | 用 Bearer access token 取当前账号 |
+| POST | `/v1/auth/me` | 用 Bearer access token 取当前账号 |
 | POST | `/v1/auth/password/reset` | 验证码 + 新密码，撤销该用户全部会话 |
+| POST | `/v1/auth/password/change` | 已登录改密：当前密码 + 新密码，撤销**其它**设备会话 |
+| POST | `/v1/account/avatar` | 上传头像（请求体为图片原始字节，≤200 KB） |
+| DELETE | `/v1/account/avatar` | 删除头像（幂等） |
+| GET | `/v1/account/avatar/{id}` | 公开读取头像，长缓存 |
 
 统一响应：成功 `{ "success": true, "data": ... }`；失败 `{ "success": false, "code": "...", "message": "..." }`。
 
@@ -30,6 +34,9 @@ npx wrangler d1 create qmai-account-db
 # 2. 建表
 npx wrangler d1 execute qmai-account-db --remote --file=./schema.sql
 
+# 已有库升级（补头像列；新建库不需要）
+npx wrangler d1 execute qmai-account-db --remote --file=./migrations/0002_avatar.sql
+
 # 3. 写入 secrets（不要写进仓库）
 npx wrangler secret put AUTH_JWT_SECRET       # >= 32 字节随机值
 npx wrangler secret put AUTH_CODE_PEPPER      # >= 16 字节随机值
@@ -44,6 +51,23 @@ npm run deploy
 > 修改 `wrangler.toml` 后请确认部署输出里仍列出 `env.DB (qmai-account-db)  D1 Database`。若它变成 `Environment Variable`，说明文件编码或 TOML 结构被破坏，Worker 会拿不到数据库并让所有接口 500。
 
 ## 发信通道
+
+`EMAIL_PROVIDER` 选择发信后端，两条通道都已实现：
+
+| 值 | 通道 | 要求 |
+|---|---|---|
+| `resend` | Resend HTTP API | Resend 已验证发信域名；免费档每天 100 封 |
+| `cloudflare` | Workers `send_email` 绑定 | 需 Workers Paid 才能发给任意收件人 |
+
+留空时按可用凭据推断：有 `EMAIL` 绑定走 cloudflare，有 `RESEND_API_KEY` 走 resend。`AUTH_EMAIL_FROM` 支持 `"显示名 <a@b.com>"` 与纯地址两种写法。
+
+## 头像与改密
+
+- **头像存储**：`users.avatar_mime` / `avatar_data`(BLOB) / `avatar_updated_at`。客户端上传前在本地把图片裁成 256×256 并压成 WebP（不支持时回退 JPEG），服务端再按文件头魔数校验真实类型，只接受 PNG/JPEG/WebP，上限 200 KB。SVG 会被拒绝（含脚本，不能当图片直接对外提供）。
+- **头像读取**：`GET /v1/account/avatar/{id}` 公开可读，带 `?v=<avatar_updated_at>` 换版本；响应带 `nosniff` 与 CSP sandbox。
+- **D1 二进制坑**：实测线上 D1 返回 BLOB 时是普通 `number[]`（不是 ArrayBuffer/TypedArray）。`findUserAvatar` 三种形态都兼容，否则会出现「数据库有数据、接口返回 0 字节」。
+- **改密**：必须提供当前密码；改密后撤销该用户其它会话，当前设备通过请求体里的 `refreshToken` 识别并保留。当前密码错误有独立限流（每 IP 15 分钟 10 次），防止拿 access token 爆破原密码。
+
 
 `EMAIL_PROVIDER` 选择发信后端，两条通道都已实现：
 

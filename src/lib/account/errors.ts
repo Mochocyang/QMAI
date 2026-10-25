@@ -15,11 +15,15 @@ export const ACCOUNT_ERROR_MESSAGES: Record<AccountErrorCode, string> = {
   CODE_ATTEMPTS: "验证码尝试次数过多，请重新获取。",
   RATE_LIMITED: "操作太频繁，请稍后再试。",
   INVALID_CREDENTIALS: "邮箱或密码不正确。",
+  WRONG_PASSWORD: "当前密码不正确。",
   ACCOUNT_DISABLED: "账号已被停用，请联系支持。",
   TOKEN_EXPIRED: "登录已过期，请重新登录。",
   INVALID_REFRESH: "登录已失效，请重新登录。",
   EMAIL_SEND_FAILED: "验证码邮件发送失败，请稍后重试。",
+  PAYLOAD_TOO_LARGE: "文件太大，请选择更小的图片。",
+  UNSUPPORTED_MEDIA_TYPE: "仅支持 PNG、JPEG 或 WebP 图片。",
   SERVER_ERROR: "账号服务暂时不可用，请稍后再试。",
+  NOT_FOUND: "接口不存在。",
   NETWORK: "网络不可用，请检查连接后重试。",
 }
 

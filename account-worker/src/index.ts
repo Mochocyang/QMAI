@@ -6,6 +6,9 @@
  */
 
 import {
+  handleChangePassword,
+  handleDeleteAvatar,
+  handleGetAvatar,
   handleLogin,
   handleLogout,
   handleMe,
@@ -13,6 +16,7 @@ import {
   handleRegister,
   handleResetPassword,
   handleSendCode,
+  handleUploadAvatar,
 } from "./auth"
 import {
   applyResponseHeaders,
@@ -21,6 +25,7 @@ import {
   preflightResponse,
 } from "./http"
 import { cleanupExpiredData } from "./db"
+import { hashRefreshToken } from "./crypto"
 import type { Env } from "./types"
 
 type RouteHandler = (request: Request, env: Env) => Promise<Response>
@@ -33,6 +38,31 @@ const ROUTES: Record<string, RouteHandler> = {
   "POST /v1/auth/logout": handleLogout,
   "GET /v1/auth/me": handleMe,
   "POST /v1/auth/password/reset": handleResetPassword,
+  "POST /v1/auth/password/change": handleChangePassword,
+  "POST /v1/account/avatar": handleUploadAvatar,
+  "DELETE /v1/account/avatar": handleDeleteAvatar,
+}
+
+/** 头像读取是公开路径：`/v1/account/avatar/{userId}`。 */
+const AVATAR_PATH = /^\/v1\/account\/avatar\/([1-9][0-9]{0,17})$/
+
+/**
+ * 改密需要知道「当前设备」的 refresh token 哈希，才能只撤销其它设备。
+ * refresh token 放在请求体里（不放进 URL，避免进日志/历史）。
+ */
+async function handleChangePasswordRoute(request: Request, env: Env): Promise<Response> {
+  const cloned = request.clone()
+  let keepTokenHash: string | null = null
+  try {
+    const body = (await cloned.json()) as { refreshToken?: unknown }
+    if (typeof body?.refreshToken === "string" && body.refreshToken.length === 43) {
+      keepTokenHash = await hashRefreshToken(body.refreshToken)
+    }
+  } catch {
+    // 读不出来就退化成撤销全部会话，安全侧默认。
+    keepTokenHash = null
+  }
+  return handleChangePassword(request, env, Math.floor(Date.now() / 1000), keepTokenHash)
 }
 
 const MIN_JWT_SECRET_BYTES = 32
@@ -64,7 +94,10 @@ export default {
     const path = new URL(request.url).pathname
     const handler = ROUTES[`${request.method} ${path}`]
 
-    if (!handler) {
+    // 头像读取走路径参数，单独匹配。
+    const avatarMatch = request.method === "GET" ? AVATAR_PATH.exec(path) : null
+
+    if (!handler && !avatarMatch) {
       return applyResponseHeaders(failure("NOT_FOUND"), request, allowedOrigins)
     }
 
@@ -76,7 +109,11 @@ export default {
     }
 
     try {
-      const response = await handler(request, env)
+      const response = avatarMatch
+        ? await handleGetAvatar(request, env, Number(avatarMatch[1]))
+        : await (path === "/v1/auth/password/change" && request.method === "POST"
+            ? handleChangePasswordRoute(request, env)
+            : handler!(request, env))
       return applyResponseHeaders(response, request, allowedOrigins)
     } catch (error) {
       // 只记录错误类型与路由，不记录请求体、密码、验证码或 token。

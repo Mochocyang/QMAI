@@ -73,6 +73,7 @@ function authPayload(overrides: Partial<AccountAuthPayload> = {}): AccountAuthPa
       email: "author@example.com",
       displayName: "作者",
       createdAt: 1793000000,
+      avatarUpdatedAt: null,
     },
     accessToken: "access-token",
     accessExpiresAt: 1793000900,
@@ -316,7 +317,8 @@ describe("错误映射", () => {
   })
 
   it("未知服务端 code 时按状态兜底，不暴露未知码", async () => {
-    const { fetchImpl } = fakeFetch(() => failure("NOT_FOUND", "接口不存在。", 404))
+    // NOT_FOUND 现在是客户端认识的正规错误码，未知码换一个真正陌生的值。
+    const { fetchImpl } = fakeFetch(() => failure("SOMETHING_ELSE" as never, "未知。", 500))
     const error = await captureError(sendCode(BASE, "a@b.com", "register", fetchImpl))
     expect(error.code).toBe("SERVER_ERROR")
   })

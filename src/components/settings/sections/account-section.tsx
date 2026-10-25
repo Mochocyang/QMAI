@@ -1,14 +1,17 @@
-import { useState } from "react"
-import { LogIn, LogOut, UserPlus, UserRound } from "lucide-react"
+import { useRef, useState, type ChangeEvent } from "react"
+import { ImageUp, KeyRound, LogIn, LogOut, UserPlus, UserRound } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { processAvatarImage } from "@/lib/account/avatar"
+import { accountErrorMessage } from "@/lib/account/errors"
 import { toast } from "@/lib/toast"
 import { useAccountStore } from "@/stores/account-store"
+import { AccountAvatar } from "@/components/account/account-avatar"
 import {
+  ACCOUNT_AVATAR_ACCEPT,
   ACCOUNT_LOGOUT_CONFIRM,
   accountCreatedDate,
   accountDisplayName,
-  accountInitial,
 } from "@/components/account/account-display"
 
 const ACCOUNT_DESCRIPTION =
@@ -18,10 +21,15 @@ const ACCOUNT_DESCRIPTION =
 export function AccountSection() {
   const status = useAccountStore((state) => state.status)
   const user = useAccountStore((state) => state.user)
+  const session = useAccountStore((state) => state.session)
   const sessionUnverified = useAccountStore((state) => state.sessionUnverified)
   const openDialog = useAccountStore((state) => state.openDialog)
+  const openPasswordPanel = useAccountStore((state) => state.openPasswordPanel)
   const logout = useAccountStore((state) => state.logout)
+  const setAvatar = useAccountStore((state) => state.setAvatar)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [avatarBusy, setAvatarBusy] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const header = (
     <div>
@@ -51,15 +59,30 @@ export function AccountSection() {
       toast.success("已退出登录")
     }
 
+    const handleAvatarFile = async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0]
+      event.target.value = ""
+      if (!file) return
+
+      setAvatarBusy(true)
+      try {
+        const processed = await processAvatarImage(file)
+        await setAvatar({ data: processed.data, mime: processed.mime })
+        toast.success("头像已更新")
+      } catch (error) {
+        toast.error(accountErrorMessage(error))
+      } finally {
+        setAvatarBusy(false)
+      }
+    }
+
     return (
       <div data-ui="account-section" className="space-y-6">
         {header}
 
         <div className="rounded-lg border border-border p-4">
           <div className="flex items-center gap-3">
-            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-primary text-base font-semibold text-primary-foreground">
-              {accountInitial(user.displayName, user.email)}
-            </div>
+            <AccountAvatar user={user} baseUrl={session?.baseUrl ?? null} size="lg" />
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">
                 {accountDisplayName(user.displayName, user.email)}
@@ -70,6 +93,47 @@ export function AccountSection() {
               </p>
             </div>
           </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={avatarBusy}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <ImageUp aria-hidden="true" />
+              {avatarBusy ? "处理中…" : user.avatarUpdatedAt ? "更换头像" : "上传头像"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => openPasswordPanel()}
+            >
+              <KeyRound aria-hidden="true" />
+              修改密码
+            </Button>            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={loggingOut}
+              onClick={() => void handleLogout()}
+            >
+              <LogOut aria-hidden="true" />
+              {loggingOut ? "正在退出…" : "退出登录"}
+            </Button>
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCOUNT_AVATAR_ACCEPT}
+            className="hidden"
+            aria-hidden="true"
+            tabIndex={-1}
+            onChange={(event) => void handleAvatarFile(event)}
+          />
 
           <div className="mt-4 rounded-md border border-dashed border-border bg-muted/40 p-3">
             <div className="flex items-center gap-2 text-sm font-medium">
@@ -86,18 +150,6 @@ export function AccountSection() {
               账号服务暂时不可用，已保留本地登录状态；会员与云同步稍后再试。
             </p>
           ) : null}
-
-          <div className="mt-4">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={loggingOut}
-              onClick={() => void handleLogout()}
-            >
-              <LogOut aria-hidden="true" />
-              {loggingOut ? "正在退出…" : "退出登录"}
-            </Button>
-          </div>
         </div>
       </div>
     )

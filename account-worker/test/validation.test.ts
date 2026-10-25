@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  detectImageMime,
   displayNameFromEmail,
   isValidCode,
   isValidEmail,
   isValidPassword,
   isValidRefreshTokenFormat,
+  MAX_AVATAR_BYTES,
+  normalizeAvatarMime,
   normalizeDisplayName,
   normalizeEmail,
   normalizePurpose,
@@ -118,5 +121,63 @@ describe("isValidRefreshTokenFormat", () => {
     expect(isValidRefreshTokenFormat(`${"A".repeat(42)}+`)).toBe(false)
     expect(isValidRefreshTokenFormat("")).toBe(false)
     expect(isValidRefreshTokenFormat(null)).toBe(false)
+  })
+})
+
+describe("normalizeAvatarMime", () => {
+  it("accepts the three whitelisted image types", () => {
+    expect(normalizeAvatarMime("image/png")).toBe("image/png")
+    expect(normalizeAvatarMime("IMAGE/PNG")).toBe("image/png")
+    expect(normalizeAvatarMime("image/jpeg")).toBe("image/jpeg")
+    expect(normalizeAvatarMime("image/webp")).toBe("image/webp")
+  })
+
+  it("normalizes the non-standard image/jpg alias", () => {
+    expect(normalizeAvatarMime("image/jpg")).toBe("image/jpeg")
+  })
+
+  it("rejects svg, gif, html and non-strings", () => {
+    expect(normalizeAvatarMime("image/svg+xml")).toBeNull()
+    expect(normalizeAvatarMime("image/gif")).toBeNull()
+    expect(normalizeAvatarMime("text/html")).toBeNull()
+    expect(normalizeAvatarMime(undefined)).toBeNull()
+    expect(normalizeAvatarMime("")).toBeNull()
+  })
+})
+
+describe("detectImageMime", () => {
+  function bytes(...values: number[]): Uint8Array {
+    const out = new Uint8Array(16)
+    out.set(values)
+    return out
+  }
+
+  it("detects PNG by signature", () => {
+    expect(detectImageMime(bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a))).toBe("image/png")
+  })
+
+  it("detects JPEG by SOI marker", () => {
+    expect(detectImageMime(bytes(0xff, 0xd8, 0xff, 0xe0))).toBe("image/jpeg")
+  })
+
+  it("detects WebP by RIFF....WEBP", () => {
+    const header = new Uint8Array(16)
+    header.set([0x52, 0x49, 0x46, 0x46], 0) // RIFF
+    header.set([0x57, 0x45, 0x42, 0x50], 8) // WEBP
+    expect(detectImageMime(header)).toBe("image/webp")
+  })
+
+  it("rejects SVG, HTML and truncated buffers", () => {
+    const svg = new TextEncoder().encode("<svg xmlns='http://www.w3.org/2000/svg'>")
+    expect(detectImageMime(svg)).toBeNull()
+
+    const html = new TextEncoder().encode("<!doctype html><html></html>")
+    expect(detectImageMime(html)).toBeNull()
+
+    expect(detectImageMime(new Uint8Array(4))).toBeNull()
+  })
+
+  it("exposes a 200 KB ceiling", () => {
+    expect(MAX_AVATAR_BYTES).toBe(204800)
   })
 })

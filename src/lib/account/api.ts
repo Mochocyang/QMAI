@@ -21,6 +21,8 @@ import type {
   AccountErrorCode,
   AccountPurpose,
   AccountUser,
+  AvatarUpload,
+  ChangePasswordInput,
   LoginInput,
   RegisterInput,
   ResetPasswordInput,
@@ -34,7 +36,7 @@ export const DEFAULT_ACCOUNT_BASE_URL = "https://qmai-account.qmai.workers.dev"
 export const ACCOUNT_REQUEST_TIMEOUT_MS = 20_000
 
 type FetchImpl = typeof fetch
-type HttpMethod = "GET" | "POST"
+type HttpMethod = "GET" | "POST" | "DELETE"
 
 /**
  * 默认请求函数。本身不发起网络请求，只把参数转交给 Tauri 提供的 fetch，
@@ -152,7 +154,12 @@ function expectUser(raw: unknown, status: number): AccountUser {
   if (typeof displayName !== "string") throw invalidStructure(status)
   if (typeof createdAt !== "number" || !Number.isFinite(createdAt)) throw invalidStructure(status)
 
-  return { id, email, displayName, createdAt }
+  // 头像版本号可选：老服务端不返回时为 null，不视为结构错误。
+  const rawAvatar = record.avatarUpdatedAt
+  const avatarUpdatedAt =
+    typeof rawAvatar === "number" && Number.isFinite(rawAvatar) ? rawAvatar : null
+
+  return { id, email, displayName, createdAt, avatarUpdatedAt }
 }
 
 function expectAuthPayload(raw: unknown, status: number): AccountAuthPayload {
@@ -413,4 +420,129 @@ export async function resetAccountPassword(
     fetchImpl,
     acceptEmptySuccess: true,
   })
+}
+
+/**
+ * 已登录改密。带上当前 refresh token，服务端据此只撤销「其它设备」，
+ * 当前设备保持登录。
+ */
+export async function changeAccountPassword(
+  baseUrl: string,
+  accessToken: string,
+  refreshToken: string,
+  input: ChangePasswordInput,
+  fetchImpl: FetchImpl = lazyAccountFetch,
+): Promise<void> {
+  await requestAccount(baseUrl, {
+    method: "POST",
+    path: "/v1/auth/password/change",
+    body: {
+      currentPassword: input.currentPassword,
+      newPassword: input.newPassword,
+      refreshToken,
+    },
+    accessToken,
+    unauthorizedCode: "TOKEN_EXPIRED",
+    fetchImpl,
+    acceptEmptySuccess: true,
+  })
+}
+
+/**
+ * 上传头像：请求体是图片原始字节，Content-Type 直接用图片 MIME。
+ * 不复用 requestAccount，因为那条路径固定发 JSON。
+ */
+export async function uploadAccountAvatar(
+  baseUrl: string,
+  accessToken: string,
+  upload: AvatarUpload,
+  fetchImpl: FetchImpl = lazyAccountFetch,
+): Promise<AccountUser> {
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort()
+      reject(new AccountApiError("NETWORK", ACCOUNT_ERROR_MESSAGES.NETWORK, 0))
+    }, ACCOUNT_REQUEST_TIMEOUT_MS)
+  })
+  void timeout.catch(() => undefined)
+
+  try {
+    let response: Response
+    try {
+      response = await Promise.race([
+        fetchImpl(`${normalizeAccountBaseUrl(baseUrl)}/v1/account/avatar`, {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": upload.mime,
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: upload.data,
+          signal: controller.signal,
+        }),
+        timeout,
+      ])
+    } catch {
+      throw new AccountApiError("NETWORK", ACCOUNT_ERROR_MESSAGES.NETWORK, 0)
+    }
+
+    let text = ""
+    try {
+      text = await Promise.race([response.text(), timeout])
+    } catch {
+      throw new AccountApiError("NETWORK", ACCOUNT_ERROR_MESSAGES.NETWORK, 0)
+    }
+
+    let payload: unknown = null
+    if (text.trim()) {
+      try {
+        payload = JSON.parse(text)
+      } catch {
+        payload = null
+      }
+    }
+
+    if (!response.ok) {
+      throw buildAccountError(payload, response.status, "TOKEN_EXPIRED")
+    }
+
+    const envelope = asRecord(payload)
+    if (envelope?.success !== true) {
+      throw buildAccountError(payload, response.status, "TOKEN_EXPIRED")
+    }
+    const data = asRecord(envelope.data)
+    if (!data) throw invalidStructure(response.status)
+    return expectUser(data.user, response.status)
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+  }
+}
+
+/** 删除头像；服务端幂等，没有头像也算成功。 */
+export async function deleteAccountAvatar(
+  baseUrl: string,
+  accessToken: string,
+  fetchImpl: FetchImpl = lazyAccountFetch,
+): Promise<void> {
+  await requestAccount(baseUrl, {
+    method: "DELETE",
+    path: "/v1/account/avatar",
+    accessToken,
+    unauthorizedCode: "TOKEN_EXPIRED",
+    fetchImpl,
+    acceptEmptySuccess: true,
+  })
+}
+
+/** 头像展示地址：带版本号，换头像后自动换 URL，绕开浏览器缓存。 */
+export function accountAvatarUrl(
+  baseUrl: string,
+  userId: number,
+  avatarUpdatedAt: number | null,
+): string | null {
+  if (avatarUpdatedAt === null) return null
+  if (!Number.isInteger(userId) || userId <= 0) return null
+  return `${normalizeAccountBaseUrl(baseUrl)}/v1/account/avatar/${userId}?v=${avatarUpdatedAt}`
 }

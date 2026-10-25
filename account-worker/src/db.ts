@@ -9,7 +9,7 @@ import { MAX_CODE_ATTEMPTS } from "./constants"
 import type { EmailCodeRow, SessionRow, UserRow } from "./types"
 
 const USER_COLUMNS =
-  "id, email, display_name, password_hash, status, created_at, updated_at"
+  "id, email, display_name, password_hash, status, created_at, updated_at, avatar_updated_at"
 const SESSION_COLUMNS =
   "id, user_id, family_id, token_hash, previous_token_hash, device_label, created_at, last_used_at, expires_at, revoked_at"
 const EMAIL_CODE_COLUMNS =
@@ -63,6 +63,71 @@ export async function updateUserPassword(
   await db
     .prepare("UPDATE users SET password_hash = ?2, updated_at = ?3 WHERE id = ?1")
     .bind(userId, passwordHash, now)
+    .run()
+}
+
+/** 只取头像二进制，避免把整行（含密码哈希）读进来。 */
+export async function findUserAvatar(
+  db: D1Database,
+  userId: number,
+): Promise<{ mime: string; data: Uint8Array } | null> {
+  const row = await db
+    .prepare("SELECT avatar_mime, avatar_data FROM users WHERE id = ?1")
+    .bind(userId)
+    .first<{ avatar_mime: string | null; avatar_data: unknown }>()
+
+  if (!row?.avatar_mime || row.avatar_data === null || row.avatar_data === undefined) {
+    return null
+  }
+
+  // D1 返回二进制的形态不稳定：可能是 ArrayBuffer、TypedArray，
+  // 实测在线上运行时是普通 number[]（Object.prototype.toString 为 [object Array]）。
+  // 三种都兼容，否则会出现「数据库有 1227 字节、接口却返回 0 字节」。
+  const raw = row.avatar_data
+  let bytes: Uint8Array
+  if (ArrayBuffer.isView(raw)) {
+    bytes = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength).slice()
+  } else if (raw instanceof ArrayBuffer) {
+    bytes = new Uint8Array(raw).slice()
+  } else if (Array.isArray(raw)) {
+    bytes = Uint8Array.from(raw as number[])
+  } else {
+    return null
+  }
+
+  if (bytes.byteLength === 0) return null
+
+  return { mime: row.avatar_mime, data: bytes }
+}
+
+/** 写入头像并更新版本号；返回新版本号（Unix 秒）。 */
+export async function updateUserAvatar(
+  db: D1Database,
+  userId: number,
+  mime: string,
+  data: ArrayBuffer,
+  now: number,
+): Promise<number> {
+  await db
+    .prepare(
+      "UPDATE users SET avatar_mime = ?2, avatar_data = ?3, avatar_updated_at = ?4, updated_at = ?4 WHERE id = ?1",
+    )
+    .bind(userId, mime, data, now)
+    .run()
+  return now
+}
+
+/** 删除头像；没有头像时也是成功（幂等）。 */
+export async function clearUserAvatar(
+  db: D1Database,
+  userId: number,
+  now: number,
+): Promise<void> {
+  await db
+    .prepare(
+      "UPDATE users SET avatar_mime = NULL, avatar_data = NULL, avatar_updated_at = NULL, updated_at = ?2 WHERE id = ?1",
+    )
+    .bind(userId, now)
     .run()
 }
 
@@ -164,6 +229,27 @@ export async function revokeAllUserSessions(
   const result = await db
     .prepare("UPDATE sessions SET revoked_at = ?2 WHERE user_id = ?1 AND revoked_at IS NULL")
     .bind(userId, now)
+    .run()
+  return result.meta.changes ?? 0
+}
+
+/**
+ * 撤销该用户除指定 refresh token 之外的会话。
+ * 改密后保留当前设备，其它设备强制重新登录。
+ */
+export async function revokeOtherUserSessions(
+  db: D1Database,
+  userId: number,
+  keepTokenHash: string,
+  now: number,
+): Promise<number> {
+  const result = await db
+    .prepare(
+      `UPDATE sessions SET revoked_at = ?3
+       WHERE user_id = ?1 AND revoked_at IS NULL
+         AND token_hash <> ?2 AND (previous_token_hash IS NULL OR previous_token_hash <> ?2)`,
+    )
+    .bind(userId, keepTokenHash, now)
     .run()
   return result.meta.changes ?? 0
 }

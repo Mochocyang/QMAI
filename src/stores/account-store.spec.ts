@@ -13,17 +13,23 @@ vi.mock("@/lib/account/api", async (importOriginal) => {
     logoutAccount: vi.fn(),
     fetchAccountMe: vi.fn(),
     resetAccountPassword: vi.fn(),
+    changeAccountPassword: vi.fn(),
+    uploadAccountAvatar: vi.fn(),
+    deleteAccountAvatar: vi.fn(),
   }
 })
 
 import {
+  changeAccountPassword,
   DEFAULT_ACCOUNT_BASE_URL,
+  deleteAccountAvatar,
   loginAccount,
   logoutAccount,
   refreshAccountSession,
   registerAccount,
   resetAccountPassword,
   sendCode as requestSendCode,
+  uploadAccountAvatar,
 } from "@/lib/account/api"
 import { AccountApiError } from "@/lib/account/errors"
 import {
@@ -44,6 +50,7 @@ function accountUser(overrides: Partial<AccountUser> = {}): AccountUser {
     email: "author@example.com",
     displayName: "作者",
     createdAt: 1793000000,
+    avatarUpdatedAt: null,
     ...overrides,
   }
 }
@@ -70,6 +77,8 @@ function storedSession(overrides: Partial<StoredAccountSession> = {}): StoredAcc
 }
 
 function setAuthenticatedSession(session: StoredAccountSession): void {
+  // 同时写盘：改密/头像这类操作会读 localStorage 断言「会话未被误清」。
+  saveAccountSession(session)
   useAccountStore.setState({
     status: "authenticated",
     user: session.user,
@@ -514,6 +523,117 @@ describe("account store", () => {
 
       useAccountStore.getState().closeDialog()
       expect(useAccountStore.getState().dialogOpen).toBe(false)
+    })
+  })
+
+  describe("改密与头像", () => {
+    it("未登录时改密直接抛 TOKEN_EXPIRED，不发请求", async () => {
+      await expect(
+        useAccountStore.getState().changePassword({
+          currentPassword: "old-password",
+          newPassword: "new-password-1",
+        }),
+      ).rejects.toBeInstanceOf(AccountApiError)
+      expect(changeAccountPassword).not.toHaveBeenCalled()
+    })
+
+    it("已登录时带上当前会话的 token 调用改密接口", async () => {
+      const stored = storedSession()
+      setAuthenticatedSession(stored)
+      vi.mocked(changeAccountPassword).mockResolvedValue(undefined)
+
+      await useAccountStore.getState().changePassword({
+        currentPassword: "old-password",
+        newPassword: "new-password-1",
+      })
+
+      expect(changeAccountPassword).toHaveBeenCalledWith(
+        stored.baseUrl,
+        stored.accessToken,
+        stored.refreshToken,
+        { currentPassword: "old-password", newPassword: "new-password-1" },
+      )
+      expect(useAccountStore.getState().error).toBeNull()
+    })
+
+    it("改密失败写错误并抛出，不改本地登录态", async () => {
+      const stored = storedSession()
+      setAuthenticatedSession(stored)
+      vi.mocked(changeAccountPassword).mockRejectedValue(
+        new AccountApiError("WRONG_PASSWORD", "当前密码不正确。", 401),
+      )
+
+      await expect(
+        useAccountStore.getState().changePassword({
+          currentPassword: "bad",
+          newPassword: "new-password-1",
+        }),
+      ).rejects.toBeInstanceOf(AccountApiError)
+
+      expect(useAccountStore.getState().error).toBe("当前密码不正确。")
+      expect(useAccountStore.getState().status).toBe("authenticated")
+      expect(loadAccountSession()).not.toBeNull()
+    })
+
+    it("换头像后用户与磁盘会话都写入新的头像版本", async () => {
+      const stored = storedSession()
+      setAuthenticatedSession(stored)
+      vi.mocked(uploadAccountAvatar).mockResolvedValue({
+        ...stored.user,
+        avatarUpdatedAt: 1793000123,
+      })
+
+      const upload = { data: new ArrayBuffer(8), mime: "image/webp" }
+      await useAccountStore.getState().setAvatar(upload)
+
+      expect(uploadAccountAvatar).toHaveBeenCalledWith(
+        stored.baseUrl,
+        stored.accessToken,
+        upload,
+      )
+      expect(useAccountStore.getState().user?.avatarUpdatedAt).toBe(1793000123)
+      expect(useAccountStore.getState().session?.user.avatarUpdatedAt).toBe(1793000123)
+      expect(loadAccountSession()?.user.avatarUpdatedAt).toBe(1793000123)
+    })
+
+    it("换头像失败写错误并抛出", async () => {
+      const stored = storedSession()
+      setAuthenticatedSession(stored)
+      vi.mocked(uploadAccountAvatar).mockRejectedValue(
+        new AccountApiError("PAYLOAD_TOO_LARGE", "文件太大，请选择更小的图片。", 413),
+      )
+
+      await expect(
+        useAccountStore.getState().setAvatar({ data: new ArrayBuffer(8), mime: "image/png" }),
+      ).rejects.toBeInstanceOf(AccountApiError)
+
+      expect(useAccountStore.getState().error).toBe("文件太大，请选择更小的图片。")
+      expect(useAccountStore.getState().user?.avatarUpdatedAt).toBeNull()
+    })
+
+    it("移除头像后本地版本号清空", async () => {
+      const stored = storedSession({ user: accountUser({ avatarUpdatedAt: 1793000123 }) })
+      setAuthenticatedSession(stored)
+      vi.mocked(deleteAccountAvatar).mockResolvedValue(undefined)
+
+      await useAccountStore.getState().removeAvatar()
+
+      expect(deleteAccountAvatar).toHaveBeenCalledWith(stored.baseUrl, stored.accessToken)
+      expect(useAccountStore.getState().user?.avatarUpdatedAt).toBeNull()
+      expect(loadAccountSession()?.user.avatarUpdatedAt).toBeNull()
+    })
+
+    it("openPasswordPanel 在已登录时置请求标记，未登录时退回登录", () => {
+      useAccountStore.getState().openPasswordPanel()
+      expect(useAccountStore.getState().passwordPanelRequested).toBe(false)
+
+      setAuthenticatedSession(storedSession())
+      useAccountStore.getState().openPasswordPanel()
+      expect(useAccountStore.getState().passwordPanelRequested).toBe(true)
+      expect(useAccountStore.getState().dialogOpen).toBe(true)
+
+      useAccountStore.getState().clearPasswordPanelRequest()
+      expect(useAccountStore.getState().passwordPanelRequested).toBe(false)
     })
   })
 })

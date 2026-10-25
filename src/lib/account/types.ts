@@ -15,11 +15,15 @@ export type AccountErrorCode =
   | "CODE_ATTEMPTS"
   | "RATE_LIMITED"
   | "INVALID_CREDENTIALS"
+  | "WRONG_PASSWORD"
   | "ACCOUNT_DISABLED"
   | "TOKEN_EXPIRED"
   | "INVALID_REFRESH"
   | "EMAIL_SEND_FAILED"
+  | "PAYLOAD_TOO_LARGE"
+  | "UNSUPPORTED_MEDIA_TYPE"
   | "SERVER_ERROR"
+  | "NOT_FOUND"
   | "NETWORK"
 
 export interface AccountUser {
@@ -27,6 +31,8 @@ export interface AccountUser {
   email: string
   displayName: string
   createdAt: number
+  /** 头像版本号（Unix 秒）；null 表示没有头像。 */
+  avatarUpdatedAt: number | null
 }
 
 export interface AccountAuthPayload {
@@ -74,4 +80,15 @@ export interface ResetPasswordInput {
   email: string
   code: string
   password: string
+}
+
+export interface ChangePasswordInput {
+  currentPassword: string
+  newPassword: string
+}
+
+/** 头像上传时的图片原始字节与 MIME。 */
+export interface AvatarUpload {
+  data: ArrayBuffer
+  mime: string
 }

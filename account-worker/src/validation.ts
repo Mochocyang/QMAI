@@ -62,3 +62,50 @@ export function normalizeDeviceLabel(value: unknown): string | null {
   const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, "").trim()
   return cleaned ? Array.from(cleaned).slice(0, 100).join("") : null
 }
+
+/** 头像允许的图片类型白名单。 */
+export const ALLOWED_AVATAR_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"] as const
+
+export type AvatarMimeType = (typeof ALLOWED_AVATAR_MIME_TYPES)[number]
+
+/** 头像上限 200 KB：客户端已裁剪到 256×256，正常 WebP 只有十几 KB。 */
+export const MAX_AVATAR_BYTES = 200 * 1024
+
+export function normalizeAvatarMime(value: unknown): AvatarMimeType | null {
+  if (typeof value !== "string") return null
+  const mime = value.trim().toLowerCase()
+  // 兼容 image/jpg 这种非标准写法。
+  if (mime === "image/jpg") return "image/jpeg"
+  return (ALLOWED_AVATAR_MIME_TYPES as readonly string[]).includes(mime)
+    ? (mime as AvatarMimeType)
+    : null
+}
+
+/**
+ * 用文件头魔数二次确认格式，避免只信 Content-Type 被塞进 HTML/SVG。
+ * 这一步同时挡掉 SVG（它含脚本，不能当图片直接对外提供）。
+ */
+export function detectImageMime(bytes: Uint8Array): AvatarMimeType | null {
+  if (bytes.length < 12) return null
+
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 &&
+    bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a
+  ) {
+    return "image/png"
+  }
+
+  // JPEG: FF D8 FF
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg"
+
+  // WebP: "RIFF" .... "WEBP"
+  if (
+    bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+    bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+  ) {
+    return "image/webp"
+  }
+
+  return null
+}

@@ -14,6 +14,8 @@
 import { create } from "zustand"
 
 import {
+  changeAccountPassword,
+  deleteAccountAvatar,
   loginAccount,
   logoutAccount,
   refreshAccountSession,
@@ -21,8 +23,9 @@ import {
   resetAccountPassword,
   resolveAccountBaseUrl,
   sendCode as requestSendCode,
+  uploadAccountAvatar,
 } from "@/lib/account/api"
-import { accountErrorMessage, isAccountApiError } from "@/lib/account/errors"
+import { AccountApiError, accountErrorMessage, isAccountApiError } from "@/lib/account/errors"
 import {
   clearAccountSession,
   createStoredSession,
@@ -34,6 +37,8 @@ import type {
   AccountAuthPayload,
   AccountStatus,
   AccountUser,
+  AvatarUpload,
+  ChangePasswordInput,
   LoginInput,
   RegisterInput,
   ResetPasswordInput,
@@ -51,6 +56,11 @@ export interface AccountStoreState {
   bootstrapped: boolean
   /** 启动/续期失败但保留了缓存会话，设置页可据此显示「服务暂时不可用」。 */
   sessionUnverified: boolean
+  /**
+   * 打开弹窗时是否直接进入「修改密码」面板。
+   * 设置页的「修改密码」按钮用它一步跳到目标界面。
+   */
+  passwordPanelRequested: boolean
 
   /** 启动时只跑一次：有本地会话就静默续期。 */
   bootstrap: () => Promise<void>
@@ -59,12 +69,22 @@ export interface AccountStoreState {
   sendCode: (email: string, purpose: "register" | "reset") => Promise<SendCodeResult>
   resetPassword: (input: ResetPasswordInput) => Promise<void>
   logout: () => Promise<void>
+  /** 已登录改密；成功后其它设备会话被撤销，当前设备保持登录。 */
+  changePassword: (input: ChangePasswordInput) => Promise<void>
+  /** 上传新头像；成功后本地用户信息与磁盘会话同步更新。 */
+  setAvatar: (upload: AvatarUpload) => Promise<void>
+  /** 删除头像。 */
+  removeAvatar: () => Promise<void>
   /** 主动续期；无会话返回 null，401 清会话，网络错误保留会话并抛出。 */
   refreshSession: () => Promise<StoredAccountSession | null>
   /** 规格动作名：续期并吞掉错误，供「重试/下次打开账号页」使用。 */
   refresh: () => Promise<void>
 
   openDialog: (mode?: AccountAuthMode) => void
+  /** 打开弹窗并直接进入修改密码面板（已登录时使用）。 */
+  openPasswordPanel: () => void
+  /** 消费一次「进入改密面板」的请求，避免重复打开。 */
+  clearPasswordPanelRequest: () => void
   closeDialog: () => void
   setAuthMode: (mode: AccountAuthMode) => void
   clearError: () => void
@@ -79,6 +99,7 @@ const INITIAL_ACCOUNT_STATE = {
   error: null,
   bootstrapped: false,
   sessionUnverified: false,
+  passwordPanelRequested: false,
 }
 
 /** 并发调用 bootstrap 时共用同一次续期，避免重复轮换 refresh token。 */
@@ -338,6 +359,56 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
     }
   },
 
+  changePassword: async (input) => {
+    const session = get().session
+    if (!session) throw new AccountApiError("TOKEN_EXPIRED")
+
+    try {
+      await changeAccountPassword(
+        session.baseUrl,
+        session.accessToken,
+        session.refreshToken,
+        input,
+      )
+      // 改密不影响当前设备的 access/refresh，只需清掉界面上的错误。
+      set({ error: null })
+    } catch (error) {
+      set({ error: accountErrorMessage(error) })
+      throw error
+    }
+  },
+
+  setAvatar: async (upload) => {
+    const session = get().session
+    if (!session) throw new AccountApiError("TOKEN_EXPIRED")
+
+    try {
+      const user = await uploadAccountAvatar(session.baseUrl, session.accessToken, upload)
+      const next: StoredAccountSession = { ...session, user }
+      saveAccountSession(next)
+      set({ user, session: next, error: null })
+    } catch (error) {
+      set({ error: accountErrorMessage(error) })
+      throw error
+    }
+  },
+
+  removeAvatar: async () => {
+    const session = get().session
+    if (!session) throw new AccountApiError("TOKEN_EXPIRED")
+
+    try {
+      await deleteAccountAvatar(session.baseUrl, session.accessToken)
+      const user: AccountUser = { ...session.user, avatarUpdatedAt: null }
+      const next: StoredAccountSession = { ...session, user }
+      saveAccountSession(next)
+      set({ user, session: next, error: null })
+    } catch (error) {
+      set({ error: accountErrorMessage(error) })
+      throw error
+    }
+  },
+
   refreshSession: async () => {
     const epochAtStart = sessionEpoch
     const session = get().session
@@ -386,11 +457,24 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
   },
 
   openDialog: (mode = "login") => {
-    set({ dialogOpen: true, authMode: mode, error: null })
+    set({ dialogOpen: true, authMode: mode, error: null, passwordPanelRequested: false })
+  },
+
+  openPasswordPanel: () => {
+    // 只有已登录才需要改密面板；未登录时退回普通登录弹窗。
+    if (get().status !== "authenticated" || !get().session) {
+      set({ dialogOpen: true, authMode: "login", error: null, passwordPanelRequested: false })
+      return
+    }
+    set({ dialogOpen: true, error: null, passwordPanelRequested: true })
+  },
+
+  clearPasswordPanelRequest: () => {
+    set({ passwordPanelRequested: false })
   },
 
   closeDialog: () => {
-    set({ dialogOpen: false, error: null })
+    set({ dialogOpen: false, error: null, passwordPanelRequested: false })
   },
 
   setAuthMode: (mode) => {

@@ -47,6 +47,9 @@ export interface UserRow {
   status: string
   created_at: number
   updated_at: number
+  avatar_mime: string | null
+  avatar_data: ArrayBuffer | Uint8Array | null
+  avatar_updated_at: number | null
 }
 
 export interface EmailCodeRow {
@@ -79,6 +82,11 @@ export interface PublicUser {
   email: string
   displayName: string
   createdAt: number
+  /**
+   * 头像版本号（Unix 秒）；无头像为 null。
+   * 客户端据此拼 `/v1/account/avatar/{id}?v=…`，换头像后 URL 变化即可破缓存。
+   */
+  avatarUpdatedAt: number | null
 }
 
 export interface AuthPayload {
@@ -106,9 +114,12 @@ export type ApiErrorCode =
   | "CODE_ATTEMPTS"
   | "RATE_LIMITED"
   | "INVALID_CREDENTIALS"
+  | "WRONG_PASSWORD"
   | "ACCOUNT_DISABLED"
   | "TOKEN_EXPIRED"
   | "INVALID_REFRESH"
   | "EMAIL_SEND_FAILED"
+  | "PAYLOAD_TOO_LARGE"
+  | "UNSUPPORTED_MEDIA_TYPE"
   | "SERVER_ERROR"
   | "NOT_FOUND"

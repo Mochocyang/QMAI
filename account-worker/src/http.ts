@@ -8,10 +8,13 @@ const ERROR_STATUS: Record<ApiErrorCode, number> = {
   CODE_ATTEMPTS: 429,
   RATE_LIMITED: 429,
   INVALID_CREDENTIALS: 401,
+  WRONG_PASSWORD: 401,
   ACCOUNT_DISABLED: 403,
   TOKEN_EXPIRED: 401,
   INVALID_REFRESH: 401,
   EMAIL_SEND_FAILED: 502,
+  PAYLOAD_TOO_LARGE: 413,
+  UNSUPPORTED_MEDIA_TYPE: 415,
   SERVER_ERROR: 500,
   NOT_FOUND: 404,
 }
@@ -24,10 +27,13 @@ const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   CODE_ATTEMPTS: "验证码尝试次数过多，请重新获取。",
   RATE_LIMITED: "操作太频繁，请稍后再试。",
   INVALID_CREDENTIALS: "邮箱或密码不正确。",
+  WRONG_PASSWORD: "当前密码不正确。",
   ACCOUNT_DISABLED: "账号已被停用，请联系支持。",
   TOKEN_EXPIRED: "登录已过期，请重新登录。",
   INVALID_REFRESH: "登录已失效，请重新登录。",
   EMAIL_SEND_FAILED: "验证码邮件发送失败，请稍后重试。",
+  PAYLOAD_TOO_LARGE: "文件太大，请选择更小的图片。",
+  UNSUPPORTED_MEDIA_TYPE: "仅支持 PNG、JPEG 或 WebP 图片。",
   SERVER_ERROR: "账号服务暂时不可用，请稍后再试。",
   NOT_FOUND: "接口不存在。",
 }
@@ -92,7 +98,11 @@ export function applyResponseHeaders(
   allowedOrigins: string[],
 ): Response {
   const headers = new Headers(response.headers)
-  headers.set("Cache-Control", "no-store")
+
+  // JSON 接口统一 no-store；头像这类自带长缓存的二进制响应保留自己的缓存头。
+  if (!headers.has("Cache-Control") || headers.get("Content-Type")?.startsWith("application/json")) {
+    headers.set("Cache-Control", "no-store")
+  }
   headers.set("X-Content-Type-Options", "nosniff")
 
   if (!headers.has("Content-Type")) {
@@ -119,8 +129,12 @@ export function preflightResponse(request: Request, allowedOrigins: string[]): R
   if (origin) {
     headers.set("Access-Control-Allow-Origin", origin)
     headers.set("Vary", "Origin")
-    headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+    headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+    headers.set(
+      "Access-Control-Allow-Headers",
+      "Authorization, Content-Type, Content-Length",
+    )
+    // 头像上传直接发图片字节，前端要读响应状态与图片本体。
     headers.set("Access-Control-Max-Age", "86400")
   }
   return new Response(null, { status: 204, headers })

@@ -14,3 +14,6 @@ export function accountInitial(displayName: string, email: string): string {
 export function accountCreatedDate(createdAt: number): string {
   return new Date(createdAt * 1000).toLocaleDateString("zh-CN")
 }
+
+/** 换头像时的文件选择框过滤；与后端白名单一致。 */
+export const ACCOUNT_AVATAR_ACCEPT = "image/png,image/jpeg,image/webp"

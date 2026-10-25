@@ -9,7 +9,11 @@ CREATE TABLE IF NOT EXISTS users (
   password_hash TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'active',
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  -- 头像：BLOB 存 WebP/PNG/JPEG 原字节，mime 单独记；未设置时为 NULL。
+  avatar_mime TEXT,
+  avatar_data BLOB,
+  avatar_updated_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS email_codes (

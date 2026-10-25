@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react"
 import { Eye, EyeOff, Loader2 } from "lucide-react"
 
 import {
@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { processAvatarImage } from "@/lib/account/avatar"
 import { accountErrorMessage } from "@/lib/account/errors"
 import type { AccountAuthMode } from "@/lib/account/types"
 import {
@@ -20,12 +21,14 @@ import {
 } from "@/lib/account/validation"
 import { toast } from "@/lib/toast"
 import { useAccountStore } from "@/stores/account-store"
+import { AccountAvatar } from "./account-avatar"
 import {
+  ACCOUNT_AVATAR_ACCEPT,
   ACCOUNT_LOGOUT_CONFIRM,
   accountCreatedDate,
   accountDisplayName,
-  accountInitial,
 } from "./account-display"
+import { AccountPasswordForm } from "./account-password-form"
 import "./account-dialog.css"
 
 interface AuthTab {
@@ -64,6 +67,11 @@ export function AccountDialog() {
   const sendCode = useAccountStore((state) => state.sendCode)
   const resetPassword = useAccountStore((state) => state.resetPassword)
   const logout = useAccountStore((state) => state.logout)
+  const setAvatar = useAccountStore((state) => state.setAvatar)
+  const removeAvatar = useAccountStore((state) => state.removeAvatar)
+  const session = useAccountStore((state) => state.session)
+  const openPasswordPanelRequested = useAccountStore((state) => state.passwordPanelRequested)
+  const clearPasswordPanelRequest = useAccountStore((state) => state.clearPasswordPanelRequest)
 
   const [email, setEmail] = useState("")
   const [code, setCode] = useState("")
@@ -76,8 +84,11 @@ export function AccountDialog() {
   const [sendingCode, setSendingCode] = useState(false)
   const [cooldown, setCooldown] = useState(0)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [editingPassword, setEditingPassword] = useState(false)
+  const [avatarBusy, setAvatarBusy] = useState(false)
   const composingRef = useRef(false)
   const requestEpochRef = useRef(0)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const authenticated = status === "authenticated" && user !== null
   const displayedError = localError ?? sessionError
@@ -104,6 +115,13 @@ export function AccountDialog() {
     setCooldown(0)
   }, [authMode])
 
+  // 设置页点「修改密码」时，弹窗打开后直接进入改密面板。
+  useEffect(() => {
+    if (!dialogOpen || !openPasswordPanelRequested || !authenticated) return
+    setEditingPassword(true)
+    clearPasswordPanelRequest()
+  }, [dialogOpen, openPasswordPanelRequested, authenticated, clearPasswordPanelRequest])
+
   // 关闭时同样作废在途请求，不能把密码/验证码或旧错误留在下一次打开里。
   useEffect(() => {
     if (dialogOpen) return
@@ -119,6 +137,8 @@ export function AccountDialog() {
     setSendingCode(false)
     setCooldown(0)
     setLoggingOut(false)
+    setEditingPassword(false)
+    setAvatarBusy(false)
   }, [dialogOpen])
 
   const compositionHandlers = {
@@ -256,6 +276,42 @@ export function AccountDialog() {
     toast.success("已退出登录")
   }
 
+  const pickAvatar = () => {
+    if (avatarBusy) return
+    fileInputRef.current?.click()
+  }
+
+  const handleAvatarFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    // 清空 value，保证连续选同一张图也能触发 change。
+    event.target.value = ""
+    if (!file) return
+
+    setAvatarBusy(true)
+    try {
+      const processed = await processAvatarImage(file)
+      await setAvatar({ data: processed.data, mime: processed.mime })
+      toast.success("头像已更新")
+    } catch (error) {
+      toast.error(accountErrorMessage(error))
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
+
+  const handleRemoveAvatar = async () => {
+    if (avatarBusy) return
+    setAvatarBusy(true)
+    try {
+      await removeAvatar()
+      toast.success("已恢复默认头像")
+    } catch (error) {
+      toast.error(accountErrorMessage(error))
+    } finally {
+      setAvatarBusy(false)
+    }
+  }
+
   return (
     <Dialog
       open={dialogOpen}
@@ -267,39 +323,100 @@ export function AccountDialog() {
         {authenticated ? (
           <div className="account-session">
             <DialogHeader>
-              <DialogTitle>账号</DialogTitle>
-              <DialogDescription>管理这台设备上的青幕账号。</DialogDescription>
+              <DialogTitle>{editingPassword ? "修改密码" : "账号"}</DialogTitle>
+              <DialogDescription>
+                {editingPassword
+                  ? "改完密码后，其它设备需要重新登录。"
+                  : "管理这台设备上的青幕账号。"}
+              </DialogDescription>
             </DialogHeader>
 
-            <div className="account-summary">
-              <span className="account-avatar account-avatar-lg" aria-hidden="true">
-                {accountInitial(user.displayName, user.email)}
-              </span>
-              <div className="account-summary-copy">
-                <strong>{accountDisplayName(user.displayName, user.email)}</strong>
-                <span>{user.email}</span>
-                <span className="account-summary-meta">注册于 {accountCreatedDate(user.createdAt)}</span>
-              </div>
-            </div>
+            {editingPassword ? (
+              <AccountPasswordForm onDone={() => setEditingPassword(false)} />
+            ) : (
+              <>
+                <div className="account-summary">
+                  <button
+                    type="button"
+                    className="account-avatar-button"
+                    title="更换头像"
+                    aria-label="更换头像"
+                    disabled={avatarBusy}
+                    onClick={pickAvatar}
+                  >
+                    <AccountAvatar user={user} baseUrl={session?.baseUrl ?? null} size="lg" />
+                    {avatarBusy ? (
+                      <span className="account-avatar-spinner" aria-hidden="true">
+                        <Loader2 className="animate-spin" />
+                      </span>
+                    ) : null}
+                  </button>
+                  <div className="account-summary-copy">
+                    <strong>{accountDisplayName(user.displayName, user.email)}</strong>
+                    <span>{user.email}</span>
+                    <span className="account-summary-meta">
+                      注册于 {accountCreatedDate(user.createdAt)}
+                    </span>
+                  </div>
+                </div>
 
-            <p className="account-note">会员与云同步将在后续版本接入。</p>
-            <p className="account-note account-note-muted">会员权益筹备中。上线后会在这里显示套餐与到期时间。</p>
-            {sessionUnverified ? (
-              <p className="account-note account-note-muted" role="status">
-                账号服务暂时不可用，已保留本地登录状态；会员与云同步稍后再试。
-              </p>
-            ) : null}
+                <div className="account-avatar-actions">
+                  <button type="button" disabled={avatarBusy} onClick={pickAvatar}>
+                    {user.avatarUpdatedAt ? "更换头像" : "上传头像"}
+                  </button>
+                  {user.avatarUpdatedAt ? (
+                    <button
+                      type="button"
+                      className="account-link-muted"
+                      disabled={avatarBusy}
+                      onClick={() => void handleRemoveAvatar()}
+                    >
+                      移除头像
+                    </button>
+                  ) : null}
+                </div>
 
-            <Button
-              type="button"
-              variant="outline"
-              className="account-submit"
-              disabled={loggingOut}
-              onClick={() => void confirmLogout()}
-            >
-              {loggingOut ? <Loader2 className="animate-spin" /> : null}
-              {loggingOut ? "正在退出…" : "退出登录"}
-            </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={ACCOUNT_AVATAR_ACCEPT}
+                  className="account-file-input"
+                  aria-hidden="true"
+                  tabIndex={-1}
+                  onChange={(event) => void handleAvatarFile(event)}
+                />
+
+                <p className="account-note">会员与云同步将在后续版本接入。</p>
+                <p className="account-note account-note-muted">
+                  会员权益筹备中。上线后会在这里显示套餐与到期时间。
+                </p>
+                {sessionUnverified ? (
+                  <p className="account-note account-note-muted" role="status">
+                    账号服务暂时不可用，已保留本地登录状态；会员与云同步稍后再试。
+                  </p>
+                ) : null}
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="account-submit"
+                  onClick={() => setEditingPassword(true)}
+                >
+                  修改密码
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="account-submit"
+                  disabled={loggingOut}
+                  onClick={() => void confirmLogout()}
+                >
+                  {loggingOut ? <Loader2 className="animate-spin" /> : null}
+                  {loggingOut ? "正在退出…" : "退出登录"}
+                </Button>
+              </>
+            )}
           </div>
         ) : (
           <>

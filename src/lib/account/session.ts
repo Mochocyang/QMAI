@@ -35,7 +35,11 @@ function toAccountUser(value: unknown): AccountUser | null {
   if (typeof displayName !== "string") return null
   if (!isFiniteNumber(createdAt)) return null
 
-  return { id, email, displayName, createdAt }
+  // 旧版本会话没有这个字段，缺失/非法一律按「无头像」处理，不判坏数据。
+  const avatarUpdatedAt =
+    isFiniteNumber(record.avatarUpdatedAt) ? record.avatarUpdatedAt : null
+
+  return { id, email, displayName, createdAt, avatarUpdatedAt }
 }
 
 function toStoredSession(value: unknown): StoredAccountSession | null {

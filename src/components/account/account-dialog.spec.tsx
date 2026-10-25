@@ -13,6 +13,17 @@ const USER = {
   email: "writer@example.com",
   displayName: "青禾",
   createdAt: 1_793_000_000,
+  avatarUpdatedAt: null,
+}
+
+const SESSION = {
+  baseUrl: "https://account.test",
+  accessToken: "access-token",
+  accessExpiresAt: 1_793_000_900,
+  refreshToken: "refresh-token",
+  refreshExpiresAt: 1_800_776_000,
+  user: USER,
+  savedAt: 1_793_000_000,
 }
 
 function deferred<T>() {
@@ -32,6 +43,9 @@ let register: ReturnType<typeof vi.fn<AccountStoreState["register"]>>
 let sendCode: ReturnType<typeof vi.fn<AccountStoreState["sendCode"]>>
 let resetPassword: ReturnType<typeof vi.fn<AccountStoreState["resetPassword"]>>
 let logout: ReturnType<typeof vi.fn<AccountStoreState["logout"]>>
+let changePassword: ReturnType<typeof vi.fn<AccountStoreState["changePassword"]>>
+let setAvatar: ReturnType<typeof vi.fn<AccountStoreState["setAvatar"]>>
+let removeAvatar: ReturnType<typeof vi.fn<AccountStoreState["removeAvatar"]>>
 
 function render() {
   act(() => {
@@ -88,6 +102,9 @@ beforeEach(() => {
   sendCode = vi.fn<AccountStoreState["sendCode"]>(async () => ({ cooldownSeconds: 60, devCode: "654321" }))
   resetPassword = vi.fn<AccountStoreState["resetPassword"]>(async () => undefined)
   logout = vi.fn<AccountStoreState["logout"]>(async () => undefined)
+  changePassword = vi.fn<AccountStoreState["changePassword"]>(async () => undefined)
+  setAvatar = vi.fn<AccountStoreState["setAvatar"]>(async () => undefined)
+  removeAvatar = vi.fn<AccountStoreState["removeAvatar"]>(async () => undefined)
 
   useAccountStore.setState({
     dialogOpen: true,
@@ -101,6 +118,9 @@ beforeEach(() => {
     sendCode,
     resetPassword,
     logout,
+    changePassword,
+    setAvatar,
+    removeAvatar,
   })
 
   host = document.createElement("div")
@@ -354,5 +374,86 @@ describe("AccountDialog", () => {
 
     const notice = document.querySelector('[role="status"]')
     expect(notice?.textContent).toBe("账号服务暂时不可用，已保留本地登录状态；会员与云同步稍后再试。")
+  })
+
+  it("已登录时可用修改密码入口进入改密面板", async () => {
+    useAccountStore.setState({ status: "authenticated", user: USER, session: SESSION })
+    render()
+
+    expect(document.querySelector("#account-current-password")).toBeNull()
+
+    await click(buttonByText("修改密码"))
+
+    expect(document.querySelector("#account-current-password")).not.toBeNull()
+    expect(document.querySelector("#account-new-password")).not.toBeNull()
+    expect(document.querySelector("#account-confirm-password")).not.toBeNull()
+  })
+
+  it("改密表单校验两次输入一致，并调用 changePassword", async () => {
+    useAccountStore.setState({ status: "authenticated", user: USER, session: SESSION })
+    render()
+    await click(buttonByText("修改密码"))
+
+    await setInput("account-current-password", "old-password")
+    await setInput("account-new-password", "new-password-1")
+    await setInput("account-confirm-password", "new-password-2")
+
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".account-form button[type=submit]")!.click()
+    })
+
+    expect(changePassword).not.toHaveBeenCalled()
+    expect(document.body.textContent).toContain("两次输入的新密码不一致")
+
+    await setInput("account-confirm-password", "new-password-1")
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".account-form button[type=submit]")!.click()
+    })
+
+    expect(changePassword).toHaveBeenCalledWith({
+      currentPassword: "old-password",
+      newPassword: "new-password-1",
+    })
+  })
+
+  it("改密成功后返回账号面板", async () => {
+    useAccountStore.setState({ status: "authenticated", user: USER, session: SESSION })
+    render()
+    await click(buttonByText("修改密码"))
+
+    await setInput("account-current-password", "old-password")
+    await setInput("account-new-password", "new-password-1")
+    await setInput("account-confirm-password", "new-password-1")
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>(".account-form button[type=submit]")!.click()
+    })
+
+    expect(changePassword).toHaveBeenCalledTimes(1)
+    expect(document.querySelector("#account-current-password")).toBeNull()
+  })
+
+  it("已登录时有头像上传入口，无头像时显示上传文案", () => {
+    useAccountStore.setState({ status: "authenticated", user: USER, session: SESSION })
+    render()
+
+    expect(buttonByText("上传头像")).not.toBeUndefined()
+    expect(document.querySelector(".account-avatar-button")).not.toBeNull()
+    // 没有头像时不该出现「移除头像」。
+    expect([...document.querySelectorAll("button")].some((b) => b.textContent?.trim() === "移除头像")).toBe(false)
+  })
+
+  it("有头像时显示更换与移除，移除调用 removeAvatar", async () => {
+    useAccountStore.setState({
+      status: "authenticated",
+      user: { ...USER, avatarUpdatedAt: 1793000000 },
+      session: SESSION,
+    })
+    render()
+
+    expect(buttonByText("更换头像")).not.toBeUndefined()
+
+    await click(buttonByText("移除头像"))
+
+    expect(removeAvatar).toHaveBeenCalledTimes(1)
   })
 })

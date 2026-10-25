@@ -36,6 +36,85 @@
   font-size: 1.125rem;
 }
 
+/* 有头像时用图片替换首字母色块；保持同样的圆形裁切。 */
+.account-avatar-image {
+  object-fit: cover;
+  background: var(--muted);
+}
+
+.account-avatar-button {
+  position: relative;
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.account-avatar-button:hover .account-avatar {
+  filter: brightness(0.9);
+}
+
+.account-avatar-button:disabled {
+  cursor: progress;
+}
+
+.account-avatar-spinner {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--foreground) 45%, transparent);
+  color: var(--background);
+}
+
+.account-avatar-spinner svg {
+  width: 16px;
+  height: 16px;
+}
+
+.account-avatar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: -8px;
+}
+
+.account-avatar-actions button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.account-avatar-actions button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.account-avatar-actions button:disabled {
+  color: var(--muted-foreground);
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.account-avatar-actions .account-link-muted {
+  color: var(--muted-foreground);
+}
+
+/* 文件选择框由按钮触发，本身不占位。 */
+.account-file-input {
+  display: none;
+}
+
 .account-tabs {
   display: flex;
   align-items: center;

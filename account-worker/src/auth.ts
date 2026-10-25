@@ -21,6 +21,7 @@ import {
   verifyPassword,
 } from "./crypto"
 import {
+  clearUserAvatar,
   consumeEmailCode,
   consumeRateLimit,
   deleteEmailCode,
@@ -28,6 +29,7 @@ import {
   findLatestEmailCode,
   findSessionByPreviousTokenHash,
   findSessionByTokenHash,
+  findUserAvatar,
   findUserByEmail,
   findUserById,
   insertEmailCode,
@@ -37,9 +39,11 @@ import {
   peekRateLimit,
   recordCodeAttempt,
   revokeAllUserSessions,
+  revokeOtherUserSessions,
   revokeSessionByTokenHash,
   revokeSessionFamily,
   rotateSession,
+  updateUserAvatar,
   updateUserPassword,
 } from "./db"
 import { MAX_CODE_ATTEMPTS } from "./constants"
@@ -55,10 +59,13 @@ import type {
   UserRow,
 } from "./types"
 import {
+  detectImageMime,
   isValidCode,
   isValidEmail,
   isValidPassword,
   isValidRefreshTokenFormat,
+  MAX_AVATAR_BYTES,
+  normalizeAvatarMime,
   normalizeDeviceLabel,
   normalizeDisplayName,
   normalizeEmail,
@@ -116,7 +123,49 @@ function toPublicUser(user: UserRow): PublicUser {
     email: user.email,
     displayName: user.display_name,
     createdAt: user.created_at,
+    avatarUpdatedAt: user.avatar_updated_at,
   }
+}
+
+type AuthenticatedUser =
+  | { ok: true; user: UserRow }
+  | { ok: false; response: Response }
+
+/**
+ * 校验 Authorization Bearer 并取出当前用户。
+ * `me`、改密、头像三类接口共用，避免三处各自实现一遍令牌校验。
+ */
+async function authenticate(
+  request: Request,
+  env: Env,
+  now: number,
+): Promise<AuthenticatedUser> {
+  const authorization = request.headers.get("Authorization") ?? ""
+  const match = /^Bearer\s+(.+)$/i.exec(authorization)
+  if (!match?.[1]) return { ok: false, response: failure("TOKEN_EXPIRED") }
+
+  let claims
+  try {
+    claims = await verifyAccessToken(getJwtSecret(env), match[1], now)
+  } catch (error) {
+    if (error instanceof JwtVerificationError) {
+      logEvent("access_token_rejected", { reason: error.reason })
+    }
+    return { ok: false, response: failure("TOKEN_EXPIRED") }
+  }
+
+  const userId = Number(claims.sub)
+  if (!Number.isInteger(userId) || userId <= 0) {
+    return { ok: false, response: failure("TOKEN_EXPIRED") }
+  }
+
+  const user = await findUserById(env.DB, userId)
+  if (!user) return { ok: false, response: failure("TOKEN_EXPIRED") }
+  if (user.status !== "active") {
+    return { ok: false, response: failure("ACCOUNT_DISABLED") }
+  }
+
+  return { ok: true, user }
 }
 
 function clientIp(request: Request, env: Env): string {
@@ -590,28 +639,10 @@ export async function handleMe(
   env: Env,
   now = currentSeconds(),
 ): Promise<Response> {
-  const authorization = request.headers.get("Authorization") ?? ""
-  const match = /^Bearer\s+(.+)$/i.exec(authorization)
-  if (!match?.[1]) return failure("TOKEN_EXPIRED")
+  const auth = await authenticate(request, env, now)
+  if (!auth.ok) return auth.response
 
-  let claims
-  try {
-    claims = await verifyAccessToken(getJwtSecret(env), match[1], now)
-  } catch (error) {
-    if (error instanceof JwtVerificationError) {
-      logEvent("access_token_rejected", { reason: error.reason })
-    }
-    return failure("TOKEN_EXPIRED")
-  }
-
-  const userId = Number(claims.sub)
-  if (!Number.isInteger(userId) || userId <= 0) return failure("TOKEN_EXPIRED")
-
-  const user = await findUserById(env.DB, userId)
-  if (!user) return failure("TOKEN_EXPIRED")
-  if (user.status !== "active") return failure("ACCOUNT_DISABLED")
-
-  return jsonSuccess({ user: toPublicUser(user) })
+  return jsonSuccess({ user: toPublicUser(auth.user) })
 }
 
 /** POST /v1/auth/password/reset */
@@ -648,4 +679,178 @@ export async function handleResetPassword(
   const revoked = await revokeAllUserSessions(env.DB, user.id, now)
   logEvent("password_reset_ok", { userId: user.id, revoked })
   return jsonSuccess(null)
+}
+
+const CHANGE_PASSWORD_FAIL_IP_LIMIT = 10
+const CHANGE_PASSWORD_FAIL_WINDOW_SECONDS = 15 * 60
+
+/**
+ * POST /v1/auth/password/change
+ *
+ * 已登录用户改密：必须提供当前密码。改密后撤销该用户的**其它**会话，
+ * 当前设备保留登录（否则用户改完密码就被踢，体验很差）。
+ */
+export async function handleChangePassword(
+  request: Request,
+  env: Env,
+  now = currentSeconds(),
+  keepSessionTokenHash: string | null = null,
+): Promise<Response> {
+  const auth = await authenticate(request, env, now)
+  if (!auth.ok) return auth.response
+
+  const parsed = await readJsonBody(request)
+  if (!parsed.ok) return parsed.response
+
+  const currentPassword = parsed.body.currentPassword
+  if (typeof currentPassword !== "string" || currentPassword.length === 0 || currentPassword.length > 128) {
+    return failure("VALIDATION")
+  }
+
+  const newPassword = parsed.body.newPassword
+  if (!isValidPassword(newPassword)) return failure("VALIDATION")
+
+  if (currentPassword === newPassword) {
+    return failure("VALIDATION", "新密码不能与当前密码相同。")
+  }
+
+  // 当前密码校验失败要限流，否则拿别人的 access token 可以爆破原始密码。
+  const ipHash = await hashIp(getPepper(env), clientIp(request, env))
+  const failBucket = `change-pw:fail:ip:${ipHash}`
+  const limited = await peekRateLimit(
+    env.DB,
+    failBucket,
+    CHANGE_PASSWORD_FAIL_IP_LIMIT,
+    CHANGE_PASSWORD_FAIL_WINDOW_SECONDS,
+    now,
+  )
+  if (!limited.allowed) return rateLimited(limited.retryAfterSeconds)
+
+  const passwordValid = await verifyPassword(currentPassword, auth.user.password_hash)
+  if (!passwordValid) {
+    const consumed = await consumeRateLimit(
+      env.DB,
+      failBucket,
+      CHANGE_PASSWORD_FAIL_IP_LIMIT,
+      CHANGE_PASSWORD_FAIL_WINDOW_SECONDS,
+      now,
+    )
+    if (!consumed.allowed) return rateLimited(consumed.retryAfterSeconds)
+    return failure("WRONG_PASSWORD")
+  }
+
+  await deleteRateLimit(env.DB, failBucket)
+
+  const passwordHash = await hashPassword(
+    newPassword,
+    resolvePasswordIterations(env.PASSWORD_ITERATIONS),
+  )
+  await updateUserPassword(env.DB, auth.user.id, passwordHash, now)
+
+  // 撤销其它设备，保留当前设备（用当前 refresh token 的哈希识别）。
+  const revoked = keepSessionTokenHash
+    ? await revokeOtherUserSessions(env.DB, auth.user.id, keepSessionTokenHash, now)
+    : await revokeAllUserSessions(env.DB, auth.user.id, now)
+
+  logEvent("password_change_ok", { userId: auth.user.id, revoked })
+  return jsonSuccess(null)
+}
+
+/**
+ * POST /v1/account/avatar
+ *
+ * 请求体是图片原始字节（不是 multipart），Content-Type 直接是图片 MIME。
+ * 这样 Worker 侧不用解析 multipart，客户端也不用拼边界字符串。
+ */
+export async function handleUploadAvatar(
+  request: Request,
+  env: Env,
+  now = currentSeconds(),
+): Promise<Response> {
+  const auth = await authenticate(request, env, now)
+  if (!auth.ok) return auth.response
+
+  const declaredMime = normalizeAvatarMime(request.headers.get("Content-Type")?.split(";")[0])
+  if (!declaredMime) return failure("UNSUPPORTED_MEDIA_TYPE")
+
+  const declaredLength = request.headers.get("Content-Length")
+  if (declaredLength !== null) {
+    const length = Number(declaredLength)
+    if (Number.isFinite(length) && length > MAX_AVATAR_BYTES) {
+      return failure("PAYLOAD_TOO_LARGE")
+    }
+  }
+
+  let buffer: ArrayBuffer
+  try {
+    buffer = await request.arrayBuffer()
+  } catch {
+    return failure("VALIDATION", "无法读取图片内容。")
+  }
+
+  if (buffer.byteLength === 0) return failure("VALIDATION", "图片内容为空。")
+  if (buffer.byteLength > MAX_AVATAR_BYTES) return failure("PAYLOAD_TOO_LARGE")
+
+  // 按文件头判定真实类型，既校验白名单也顺带挡掉 SVG/HTML 伪装。
+  const detectedMime = detectImageMime(new Uint8Array(buffer))
+  if (!detectedMime) return failure("UNSUPPORTED_MEDIA_TYPE")
+
+  const avatarUpdatedAt = await updateUserAvatar(
+    env.DB,
+    auth.user.id,
+    detectedMime,
+    buffer,
+    now,
+  )
+
+  const user = await findUserById(env.DB, auth.user.id)
+  logEvent("avatar_upload_ok", { userId: auth.user.id, bytes: buffer.byteLength, mime: detectedMime })
+
+  return jsonSuccess({
+    user: user
+      ? toPublicUser(user)
+      : { ...toPublicUser(auth.user), avatarUpdatedAt },
+  })
+}
+
+/** DELETE /v1/account/avatar */
+export async function handleDeleteAvatar(
+  request: Request,
+  env: Env,
+  now = currentSeconds(),
+): Promise<Response> {
+  const auth = await authenticate(request, env, now)
+  if (!auth.ok) return auth.response
+
+  await clearUserAvatar(env.DB, auth.user.id, now)
+  const user = await findUserById(env.DB, auth.user.id)
+  logEvent("avatar_delete_ok", { userId: auth.user.id })
+
+  return jsonSuccess({ user: user ? toPublicUser(user) : null })
+}
+
+/** GET /v1/account/avatar/{id}：公开读取，靠 avatar_updated_at 做长缓存。 */
+export async function handleGetAvatar(
+  request: Request,
+  env: Env,
+  userId: number,
+  now = currentSeconds(),
+): Promise<Response> {
+  if (!Number.isInteger(userId) || userId <= 0) return failure("NOT_FOUND")
+
+  const avatar = await findUserAvatar(env.DB, userId)
+  if (!avatar) return failure("NOT_FOUND")
+
+  const headers = new Headers()
+  headers.set("Content-Type", avatar.mime)
+  headers.set("Content-Length", String(avatar.data.byteLength))
+  // 头像内容是公开的，可以长缓存；换头像后 URL 带 ?v= 变化。
+  headers.set("Cache-Control", "public, max-age=604800, immutable")
+  headers.set("Cross-Origin-Resource-Policy", "cross-origin")
+  headers.set("X-Content-Type-Options", "nosniff")
+  headers.set("Content-Security-Policy", "default-src 'none'; sandbox")
+  headers.set("ETag", `"${avatar.data.byteLength}-${now}"`)
+
+  // 直接给字节本身，不依赖 body 的流式封装。
+  return new Response(avatar.data, { status: 200, headers })
 }
