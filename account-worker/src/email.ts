@@ -3,6 +3,7 @@
  * 只在这里接触 RESEND_API_KEY；业务层不关心邮件通道。
  */
 
+import { MAX_CODE_ATTEMPTS } from "./constants"
 import type { Env } from "./types"
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails"
@@ -11,8 +12,9 @@ export interface EmailResult {
   ok: boolean
 }
 
-function isDevelopment(env: Env): boolean {
-  return env.ENVIRONMENT === "development"
+/** 只有 development 且显式打开 ALLOW_DEV_CODE，才允许在日志里出现验证码。 */
+function isDevCodeAllowed(env: Env): boolean {
+  return env.ENVIRONMENT === "development" && env.ALLOW_DEV_CODE === "true"
 }
 
 function logEvent(event: string, fields: Record<string, string | number> = {}): void {
@@ -33,7 +35,7 @@ function htmlFor(purpose: "register" | "reset", code: string): string {
       <p style="margin:0 0 10px;line-height:1.7;">你好，</p>
       <p style="margin:0 0 16px;line-height:1.7;">你正在${action}，验证码是：</p>
       <p style="margin:0 0 18px;font-size:30px;font-weight:700;letter-spacing:7px;color:#23483c;">${code}</p>
-      <p style="margin:0 0 8px;line-height:1.7;color:#5d6878;">验证码 10 分钟内有效，最多尝试 5 次。</p>
+      <p style="margin:0 0 8px;line-height:1.7;color:#5d6878;">验证码 10 分钟内有效，最多尝试 ${MAX_CODE_ATTEMPTS} 次。</p>
       <p style="margin:0;line-height:1.7;color:#5d6878;">如果不是你本人操作，请忽略这封邮件，不要向任何人透露验证码。</p>
     </div>
   </body>
@@ -42,7 +44,7 @@ function htmlFor(purpose: "register" | "reset", code: string): string {
 
 function textFor(purpose: "register" | "reset", code: string): string {
   const action = purpose === "register" ? "注册账号" : "重置密码"
-  return `青幕AI写作\n\n你正在${action}，验证码是：${code}\n\n验证码 10 分钟内有效，最多尝试 5 次。\n如果不是你本人操作，请忽略这封邮件，不要向任何人透露验证码。`
+  return `青幕AI写作\n\n你正在${action}，验证码是：${code}\n\n验证码 10 分钟内有效，最多尝试 ${MAX_CODE_ATTEMPTS} 次。\n如果不是你本人操作，请忽略这封邮件，不要向任何人透露验证码。`
 }
 
 function registeredNoticeHtml(): string {
@@ -72,17 +74,9 @@ async function postResend(
   const from = env.AUTH_EMAIL_FROM
 
   if (!apiKey) {
-    if (isDevelopment(env)) {
-      // 仅开发模式、且未配置 Resend 时才允许把验证码打到本地日志。
-      logEvent(payload.subject.includes("注册验证码") ? "dev_code_email" : "dev_email", {
-        to: payload.to,
-      })
-      return { ok: true }
-    }
     logEvent("email_config_missing", { variable: "RESEND_API_KEY" })
     return { ok: false }
   }
-
   if (!from) {
     logEvent("email_config_missing", { variable: "AUTH_EMAIL_FROM" })
     return { ok: false }
@@ -120,7 +114,7 @@ export async function sendVerificationEmail(
   env: Env,
   input: { to: string; code: string; purpose: "register" | "reset" },
 ): Promise<EmailResult> {
-  if (!env.RESEND_API_KEY && isDevelopment(env)) {
+  if (!env.RESEND_API_KEY && isDevCodeAllowed(env)) {
     // 开发替身：不请求网络，仅把验证码写到本地控制台，并视为发送成功。
     console.log(
       `[account] dev verification code email=${input.to} purpose=${input.purpose} code=${input.code}`,
@@ -138,7 +132,7 @@ export async function sendVerificationEmail(
 
 /** 已注册邮箱请求 register 验证码时，只发通知，不生成/写入验证码。 */
 export async function sendRegisteredNotice(env: Env, to: string): Promise<EmailResult> {
-  if (!env.RESEND_API_KEY && isDevelopment(env)) {
+  if (!env.RESEND_API_KEY && isDevCodeAllowed(env)) {
     console.log(`[account] dev registered notice email=${to}`)
     return { ok: true }
   }

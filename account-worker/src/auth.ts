@@ -24,6 +24,7 @@ import {
   consumeEmailCode,
   consumeRateLimit,
   deleteEmailCode,
+  deleteRateLimit,
   findLatestEmailCode,
   findSessionByPreviousTokenHash,
   findSessionByTokenHash,
@@ -33,6 +34,7 @@ import {
   insertSession,
   insertUser,
   invalidateEmailCodes,
+  peekRateLimit,
   recordCodeAttempt,
   revokeAllUserSessions,
   revokeSessionByTokenHash,
@@ -40,6 +42,7 @@ import {
   rotateSession,
   updateUserPassword,
 } from "./db"
+import { MAX_CODE_ATTEMPTS } from "./constants"
 import { sendRegisteredNotice, sendVerificationEmail } from "./email"
 import { failure, jsonSuccess, readJsonBody } from "./http"
 import type {
@@ -66,13 +69,22 @@ const EMAIL_CODE_TTL_SECONDS = 10 * 60
 const EMAIL_SEND_COOLDOWN_SECONDS = 60
 const EMAIL_SEND_HOURLY_LIMIT = 5
 const IP_SEND_HOURLY_LIMIT = 20
-const LOGIN_EMAIL_HOURLY_LIMIT = 10
-const LOGIN_IP_HOURLY_LIMIT = 30
+const VERIFY_EMAIL_HOURLY_LIMIT = 20
+const VERIFY_IP_HOURLY_LIMIT = 30
+const LOGIN_FAIL_WINDOW_SECONDS = 15 * 60
+const LOGIN_FAIL_EMAIL_LIMIT = 10
+const LOGIN_FAIL_IP_LIMIT = 30
 const HOUR_SECONDS = 60 * 60
 
 type CodeVerification =
   | { ok: true }
-  | { ok: false; code: Extract<ApiErrorCode, "CODE_INVALID" | "CODE_EXPIRED" | "CODE_ATTEMPTS"> }
+  | {
+      ok: false
+      code: Extract<
+        ApiErrorCode,
+        "CODE_INVALID" | "CODE_EXPIRED" | "CODE_ATTEMPTS" | "RATE_LIMITED"
+      >
+    }
 
 function currentSeconds(): number {
   return Math.floor(Date.now() / 1000)
@@ -105,11 +117,14 @@ function toPublicUser(user: UserRow): PublicUser {
   }
 }
 
-function clientIp(request: Request): string {
+function clientIp(request: Request, env: Env): string {
   const connectingIp = request.headers.get("CF-Connecting-IP")
   if (connectingIp) return connectingIp
-  const forwarded = request.headers.get("X-Forwarded-For")
-  if (forwarded) return forwarded.split(",")[0]?.trim() || "unknown"
+  // X-Forwarded-For 可伪造，只在本地开发模式兜底使用。
+  if (env.ENVIRONMENT === "development") {
+    const forwarded = request.headers.get("X-Forwarded-For")
+    if (forwarded) return forwarded.split(",")[0]?.trim() || "unknown"
+  }
   return "unknown"
 }
 
@@ -125,16 +140,40 @@ async function verifyEmailCode(
   purpose: CodePurpose,
   code: string,
   now: number,
+  ipHash: string,
 ): Promise<CodeVerification> {
+  // 先限制校验次数，避免攻击者用错误码快速烧掉受害者的验证码。
+  const ipLimit = await consumeRateLimit(
+    env.DB,
+    `verify:ip:${ipHash}`,
+    VERIFY_IP_HOURLY_LIMIT,
+    HOUR_SECONDS,
+    now,
+  )
+  if (!ipLimit.allowed) return { ok: false, code: "RATE_LIMITED" }
+
+  const emailKey = await sha256Hex(email)
+  const emailLimit = await consumeRateLimit(
+    env.DB,
+    `verify:email:${emailKey}`,
+    VERIFY_EMAIL_HOURLY_LIMIT,
+    HOUR_SECONDS,
+    now,
+  )
+  if (!emailLimit.allowed) return { ok: false, code: "RATE_LIMITED" }
+
   const record = await findLatestEmailCode(env.DB, email, purpose)
   if (!record) return { ok: false, code: "CODE_INVALID" }
   if (record.expires_at <= now) return { ok: false, code: "CODE_EXPIRED" }
-  if (record.attempts >= 5) return { ok: false, code: "CODE_ATTEMPTS" }
+  if (record.attempts >= MAX_CODE_ATTEMPTS) return { ok: false, code: "CODE_ATTEMPTS" }
 
   const expected = await hashEmailCode(getPepper(env), email, purpose, code)
   if (!timingSafeEqualHex(expected, record.code_hash)) {
     const attempts = await recordCodeAttempt(env.DB, record.id)
-    return { ok: false, code: attempts >= 5 ? "CODE_ATTEMPTS" : "CODE_INVALID" }
+    return {
+      ok: false,
+      code: attempts >= MAX_CODE_ATTEMPTS ? "CODE_ATTEMPTS" : "CODE_INVALID",
+    }
   }
 
   const consumed = await consumeEmailCode(env.DB, record.id, now)
@@ -201,7 +240,7 @@ export async function handleSendCode(
   if (!purpose) return failure("VALIDATION")
 
   const emailKey = await sha256Hex(email)
-  const ipHash = await hashIp(getPepper(env), clientIp(request))
+  const ipHash = await hashIp(getPepper(env), clientIp(request, env))
 
   const cooldown = await consumeRateLimit(
     env.DB,
@@ -291,7 +330,8 @@ export async function handleRegister(
 
   if (await findUserByEmail(env.DB, email)) return failure("EMAIL_TAKEN")
 
-  const verification = await verifyEmailCode(env, email, "register", code, now)
+  const ipHash = await hashIp(getPepper(env), clientIp(request, env))
+  const verification = await verifyEmailCode(env, email, "register", code, now, ipHash)
   if (!verification.ok) return failure(verification.code)
 
   const passwordHash = await hashPassword(
@@ -331,37 +371,72 @@ export async function handleLogin(
   }
 
   const emailKey = await sha256Hex(email)
-  const ipHash = await hashIp(getPepper(env), clientIp(request))
+  const ipHash = await hashIp(getPepper(env), clientIp(request, env))
+  const failEmailBucket = `login:fail:email:${emailKey}`
+  const failIpBucket = `login:fail:ip:${ipHash}`
 
-  const emailLimit = await consumeRateLimit(
+  // IP 闸门先于 PBKDF2：失败次数已满时直接拒绝，避免被用来打 CPU。
+  const ipPeek = await peekRateLimit(
     env.DB,
-    `login:email:${emailKey}`,
-    LOGIN_EMAIL_HOURLY_LIMIT,
-    HOUR_SECONDS,
+    failIpBucket,
+    LOGIN_FAIL_IP_LIMIT,
+    LOGIN_FAIL_WINDOW_SECONDS,
     now,
   )
-  if (!emailLimit.allowed) return rateLimited(emailLimit.retryAfterSeconds)
+  if (!ipPeek.allowed) return rateLimited(ipPeek.retryAfterSeconds)
 
-  const ipLimit = await consumeRateLimit(
+  // 邮箱失败桶只做只读判断；即使已满，也仍要验密，正确密码可清桶放行，
+  // 防止攻击者用错误尝试永久锁死受害者账号。
+  const emailPeek = await peekRateLimit(
     env.DB,
-    `login:ip:${ipHash}`,
-    LOGIN_IP_HOURLY_LIMIT,
-    HOUR_SECONDS,
+    failEmailBucket,
+    LOGIN_FAIL_EMAIL_LIMIT,
+    LOGIN_FAIL_WINDOW_SECONDS,
     now,
   )
-  if (!ipLimit.allowed) return rateLimited(ipLimit.retryAfterSeconds)
 
   const iterations = resolvePasswordIterations(env.PASSWORD_ITERATIONS)
   const user = await findUserByEmail(env.DB, email)
 
-  if (!user) {
+  let passwordValid = false
+  if (user) {
+    passwordValid = await verifyPassword(password, user.password_hash)
+  } else {
     // 账号不存在时也执行一次等价 PBKDF2，避免时间侧信道枚举邮箱。
     await dummyPasswordCheck(password, iterations)
+  }
+
+  if (!passwordValid) {
+    const emailFail = await consumeRateLimit(
+      env.DB,
+      failEmailBucket,
+      LOGIN_FAIL_EMAIL_LIMIT,
+      LOGIN_FAIL_WINDOW_SECONDS,
+      now,
+    )
+    const ipFail = await consumeRateLimit(
+      env.DB,
+      failIpBucket,
+      LOGIN_FAIL_IP_LIMIT,
+      LOGIN_FAIL_WINDOW_SECONDS,
+      now,
+    )
+
+    const retryAfterSeconds = Math.max(
+      emailFail.retryAfterSeconds,
+      ipFail.retryAfterSeconds,
+    )
+    if (!emailPeek.allowed || !emailFail.allowed || !ipFail.allowed) {
+      return rateLimited(retryAfterSeconds)
+    }
     return failure("INVALID_CREDENTIALS")
   }
 
-  const passwordValid = await verifyPassword(password, user.password_hash)
-  if (!passwordValid) return failure("INVALID_CREDENTIALS")
+  // 密码正确才清邮箱失败桶；IP 桶保留，避免换号绕过 IP 级失败上限。
+  await deleteRateLimit(env.DB, failEmailBucket)
+
+  // 密码校验通过必然存在用户；这里仅为类型收窄与防御性兜底。
+  if (!user) return failure("INVALID_CREDENTIALS")
   if (user.status !== "active") return failure("ACCOUNT_DISABLED")
 
   const payload = await issueAuthPayload(env, user, now, normalizeDeviceLabel(parsed.body.deviceLabel))
@@ -413,7 +488,13 @@ export async function handleRefresh(
       refreshExpiresAt,
     )
     // 条件更新失败 = 同一 refresh 被并发提交，已不再可信。
-    if (!rotated) return failure("INVALID_REFRESH")
+    if (!rotated) {
+      logEvent("refresh_rotation_conflict", {
+        userId: user.id,
+        sessionId: session.id,
+      })
+      return failure("INVALID_REFRESH")
+    }
 
     const access = await signAccessToken(
       getJwtSecret(env),
@@ -510,7 +591,8 @@ export async function handleResetPassword(
   // 未注册邮箱与“没有有效码”返回同一个错误，避免账号枚举。
   if (!user) return failure("CODE_INVALID")
 
-  const verification = await verifyEmailCode(env, email, "reset", code, now)
+  const ipHash = await hashIp(getPepper(env), clientIp(request, env))
+  const verification = await verifyEmailCode(env, email, "reset", code, now, ipHash)
   if (!verification.ok) return failure(verification.code)
 
   const passwordHash = await hashPassword(

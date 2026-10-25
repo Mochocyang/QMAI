@@ -11,8 +11,13 @@ database_id = "00000000-0000-0000-0000-000000000000"
 
 [vars]
 AUTH_EMAIL_FROM = "青幕AI写作 <no-reply@qmai.example>"
-APP_ALLOWED_ORIGINS = "tauri://localhost,https://tauri.localhost,http://localhost:1420,http://127.0.0.1:1420"
+# 生产只允许 Tauri 两个来源；浏览器本地开发来源写在 .dev.vars 覆盖。
+APP_ALLOWED_ORIGINS = "tauri://localhost,https://tauri.localhost"
 ENVIRONMENT = "production"
 PASSWORD_ITERATIONS = "210000"
 # 仅本地联调时改为 "true"；生产必须保持 "false"。
 ALLOW_DEV_CODE = "false"
+
+# 每日清理：24h 前限流桶、7 天前验证码、过期/撤销 30 天前的会话。
+[triggers]
+crons = ["17 3 * * *"]

@@ -20,6 +20,7 @@ import {
   parseAllowedOrigins,
   preflightResponse,
 } from "./http"
+import { cleanupExpiredData } from "./db"
 import type { Env } from "./types"
 
 type RouteHandler = (request: Request, env: Env) => Promise<Response>
@@ -84,6 +85,22 @@ export default {
         name: error instanceof Error ? error.name : "UnknownError",
       })
       return applyResponseHeaders(failure("SERVER_ERROR"), request, allowedOrigins)
+    }
+  },
+
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    const now = Math.floor(Date.now() / 1000)
+    try {
+      const counts = await cleanupExpiredData(env.DB, now)
+      console.log("[account] cleanup_done", counts)
+    } catch (error) {
+      console.error("[account] cleanup_failed", {
+        name: error instanceof Error ? error.name : "UnknownError",
+      })
     }
   },
 }

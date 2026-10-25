@@ -4,7 +4,8 @@
  * bucket / 表名层面，不拼接任何用户输入。
  */
 
-import { evaluateRateLimit, type RateLimitDecision } from "./rate-limit"
+import { peekRateLimitDecision, type RateLimitDecision, type RateLimitPeek } from "./rate-limit"
+import { MAX_CODE_ATTEMPTS } from "./constants"
 import type { EmailCodeRow, SessionRow, UserRow } from "./types"
 
 const USER_COLUMNS =
@@ -40,15 +41,15 @@ export async function insertUser(
     now: number
   },
 ): Promise<UserRow> {
-  await db
+  const user = await db
     .prepare(
       `INSERT INTO users (email, display_name, password_hash, status, created_at, updated_at)
-       VALUES (?1, ?2, ?3, 'active', ?4, ?4)`,
+       VALUES (?1, ?2, ?3, 'active', ?4, ?4)
+       RETURNING ${USER_COLUMNS}`,
     )
     .bind(input.email, input.displayName, input.passwordHash, input.now)
-    .run()
+    .first<UserRow>()
 
-  const user = await findUserByEmail(db, input.email)
   if (!user) throw new Error("inserted user not found")
   return user
 }
@@ -242,7 +243,7 @@ export async function recordCodeAttempt(db: D1Database, id: number): Promise<num
     .prepare("SELECT attempts FROM email_codes WHERE id = ?1")
     .bind(id)
     .first<{ attempts: number }>()
-  return row?.attempts ?? 5
+  return row?.attempts ?? MAX_CODE_ATTEMPTS
 }
 
 /** 原子消费：只有 consumed_at 仍为空时才能成功，避免同一码被并发复用。 */
@@ -261,8 +262,8 @@ export async function consumeEmailCode(
 }
 
 /**
- * 限流消费：读取当前窗口状态，用纯函数判定，再写回。
- * Workers 同一 isolate 内请求串行执行；跨 isolate 的极小概率竞态可接受。
+ * 原子消费一次限流配额：单条 UPSERT ... RETURNING，返回的 count 已含本次。
+ * allowed = count <= limit；窗口起点以首次请求为准，窗口结束自动重置。
  */
 export async function consumeRateLimit(
   db: D1Database,
@@ -271,27 +272,92 @@ export async function consumeRateLimit(
   windowSeconds: number,
   now: number,
 ): Promise<RateLimitDecision> {
-  const previous = await db
+  const row = await db
+    .prepare(
+      `INSERT INTO rate_limits (bucket, window_start, count) VALUES (?1, ?2, 1)
+       ON CONFLICT(bucket) DO UPDATE SET
+         window_start = CASE WHEN rate_limits.window_start <= ?2
+                              AND ?2 < rate_limits.window_start + ?3
+                             THEN rate_limits.window_start ELSE ?2 END,
+         count = CASE WHEN rate_limits.window_start <= ?2
+                        AND ?2 < rate_limits.window_start + ?3
+                       THEN rate_limits.count + 1 ELSE 1 END
+       RETURNING window_start, count`,
+    )
+    .bind(bucket, now, windowSeconds)
+    .first<{ window_start: number; count: number }>()
+
+  if (!row) throw new Error("rate limit upsert returned no row")
+
+  const allowed = row.count <= limit
+  return {
+    allowed,
+    state: { windowStart: row.window_start, count: row.count },
+    retryAfterSeconds: allowed
+      ? 0
+      : Math.max(1, row.window_start + windowSeconds - now),
+  }
+}
+
+/** 只读判断当前桶是否还有配额，不写入；用于登录前保护 PBKDF2。 */
+export async function peekRateLimit(
+  db: D1Database,
+  bucket: string,
+  limit: number,
+  windowSeconds: number,
+  now: number,
+): Promise<RateLimitPeek> {
+  const row = await db
     .prepare("SELECT window_start, count FROM rate_limits WHERE bucket = ?1")
     .bind(bucket)
     .first<{ window_start: number; count: number }>()
 
-  const decision = evaluateRateLimit(
-    previous ? { windowStart: previous.window_start, count: previous.count } : null,
+  return peekRateLimitDecision(
+    row ? { windowStart: row.window_start, count: row.count } : null,
     limit,
     windowSeconds,
     now,
   )
+}
 
-  if (decision.allowed) {
-    await db
+export async function deleteRateLimit(db: D1Database, bucket: string): Promise<void> {
+  await db.prepare("DELETE FROM rate_limits WHERE bucket = ?1").bind(bucket).run()
+}
+
+export interface CleanupCounts {
+  rateLimits: number
+  emailCodes: number
+  sessions: number
+}
+
+/**
+ * 每日清理：24 小时前的限流桶、7 天前的验证码、过期或撤销 30 天前的会话。
+ * 由 index.ts 的 scheduled 调用，使用 D1 batch 一次提交。
+ */
+export async function cleanupExpiredData(
+  db: D1Database,
+  now: number,
+): Promise<CleanupCounts> {
+  const daySeconds = 24 * 60 * 60
+  const results = await db.batch([
+    db
+      .prepare("DELETE FROM rate_limits WHERE window_start < ?1")
+      .bind(now - daySeconds),
+    db
+      .prepare("DELETE FROM email_codes WHERE created_at < ?1")
+      .bind(now - 7 * daySeconds),
+    db
       .prepare(
-        `INSERT INTO rate_limits (bucket, window_start, count) VALUES (?1, ?2, ?3)
-         ON CONFLICT(bucket) DO UPDATE SET window_start = ?2, count = ?3`,
+        `DELETE FROM sessions
+         WHERE expires_at < ?1
+            OR (revoked_at IS NOT NULL AND revoked_at < ?1)`,
       )
-      .bind(bucket, decision.state.windowStart, decision.state.count)
-      .run()
-  }
+      .bind(now - 30 * daySeconds),
+  ])
 
-  return decision
+  return {
+    rateLimits: results[0]?.meta.changes ?? 0,
+    emailCodes: results[1]?.meta.changes ?? 0,
+    sessions: results[2]?.meta.changes ?? 0,
+  }
 }

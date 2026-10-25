@@ -7,6 +7,7 @@ import {
   failure,
   jsonSuccess,
   parseAllowedOrigins,
+  preflightResponse,
   readJsonBody,
   resolveAllowedOrigin,
 } from "../src/http"
@@ -108,6 +109,57 @@ describe("CORS allowlist", () => {
   })
 })
 
+describe("CORS preflight", () => {
+  const allowed = ["tauri://localhost", "https://tauri.localhost"]
+
+  it("returns 204 with methods and headers for an allowlisted origin", () => {
+    const response = preflightResponse(
+      new Request("https://account.example/v1/auth/login", {
+        method: "OPTIONS",
+        headers: {
+          Origin: "tauri://localhost",
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "authorization,content-type",
+        },
+      }),
+      allowed,
+    )
+
+    expect(response.status).toBe(204)
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBe("tauri://localhost")
+    expect(response.headers.get("Access-Control-Allow-Methods")).toContain("POST")
+    expect(response.headers.get("Access-Control-Allow-Headers")).toContain("Authorization")
+    expect(response.headers.get("Access-Control-Allow-Headers")).toContain("Content-Type")
+    expect(response.headers.get("Access-Control-Max-Age")).toBe("86400")
+    expect(response.headers.get("Vary")).toContain("Origin")
+    expect(response.headers.get("Cache-Control")).toBe("no-store")
+  })
+
+  it("returns 204 without ACAO for a non-allowlisted origin", () => {
+    const response = preflightResponse(
+      new Request("https://account.example/v1/auth/login", {
+        method: "OPTIONS",
+        headers: { Origin: "https://evil.example" },
+      }),
+      allowed,
+    )
+
+    expect(response.status).toBe(204)
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull()
+    expect(response.headers.get("Access-Control-Allow-Methods")).toBeNull()
+    expect(response.headers.get("Access-Control-Allow-Headers")).toBeNull()
+  })
+
+  it("returns 204 without ACAO when Origin is absent", () => {
+    const response = preflightResponse(
+      new Request("https://account.example/v1/auth/login", { method: "OPTIONS" }),
+      allowed,
+    )
+    expect(response.status).toBe(204)
+    expect(response.headers.get("Access-Control-Allow-Origin")).toBeNull()
+  })
+})
+
 describe("readJsonBody", () => {
   it("parses a JSON object with an allowed content type", async () => {
     const request = new Request("https://account.example/v1/auth/login", {
@@ -166,5 +218,40 @@ describe("readJsonBody", () => {
     if (!result.ok) {
       expect(await envelope(result.response)).toMatchObject({ code: "VALIDATION" })
     }
+  })
+
+  it("rejects a declared Content-Length over 8 KB before reading the body", async () => {
+    const request = new Request("https://account.example/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Content-Length": "9000" },
+      body: JSON.stringify({ email: "a@b.com" }),
+    })
+    const result = await readJsonBody(request)
+    expect(result.ok).toBe(false)
+    if (!result.ok) {
+      expect(await envelope(result.response)).toMatchObject({ code: "VALIDATION" })
+    }
+  })
+
+  it("rejects a body streamed past 8 KB without a Content-Length header", async () => {
+    let cancelled = false
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(new Uint8Array(4096).fill(0x20))
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    const request = new Request("https://account.example/v1/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: stream,
+      // @ts-expect-error Node fetch needs duplex for streaming request bodies
+      duplex: "half",
+    })
+    const result = await readJsonBody(request)
+    expect(result.ok).toBe(false)
+    expect(cancelled).toBe(true)
   })
 })

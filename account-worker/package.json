@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "smoke": "node test/smoke.mjs",
     "db:create": "wrangler d1 create qmai-account-db",
     "db:migrate": "wrangler d1 execute qmai-account-db --remote --file=./schema.sql",
     "db:migrate:local": "wrangler d1 execute qmai-account-db --local --file=./schema.sql"

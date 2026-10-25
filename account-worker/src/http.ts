@@ -68,9 +68,6 @@ export function failure(
   })
 }
 
-/** 兼容命名；内部统一用 failure。 */
-export const jsonFailure = failure
-
 export function parseAllowedOrigins(value: string | undefined): string[] {
   if (typeof value !== "string") return []
   return value
@@ -135,6 +132,53 @@ export type JsonBodyResult =
   | { ok: true; body: Record<string, unknown> }
   | { ok: false; response: Response }
 
+type BodyReadResult = { ok: true; text: string } | { ok: false }
+
+/**
+ * 流式读取请求体，超过 8 KB 立即 cancel；不把整个 body 先读成字符串。
+ * Content-Length 已知且超限时直接拒绝，连 body 都不碰。
+ */
+async function readBodyText(request: Request): Promise<BodyReadResult> {
+  const declaredLength = request.headers.get("Content-Length")
+  if (declaredLength !== null) {
+    const length = Number(declaredLength)
+    if (Number.isFinite(length) && length > MAX_BODY_BYTES) return { ok: false }
+  }
+
+  const body = request.body
+  if (!body) return { ok: true, text: "" }
+
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!value) continue
+
+      total += value.byteLength
+      if (total > MAX_BODY_BYTES) {
+        await reader.cancel().catch(() => undefined)
+        return { ok: false }
+      }
+      chunks.push(value)
+    }
+  } catch {
+    await reader.cancel().catch(() => undefined)
+    return { ok: false }
+  }
+
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return { ok: true, text: new TextDecoder().decode(bytes) }
+}
+
 /**
  * 只接受 application/json（允许 charset 参数），请求体 ≤ 8 KB，
  * 且顶层必须是 JSON 对象；任何不满足都返回统一 VALIDATION 信封。
@@ -149,20 +193,14 @@ export async function readJsonBody(request: Request): Promise<JsonBodyResult> {
     }
   }
 
-  let text: string
-  try {
-    text = await request.text()
-  } catch {
-    return { ok: false, response: failure("VALIDATION") }
-  }
-
-  if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) {
-    return { ok: false, response: failure("VALIDATION", "请求内容过大。") }
+  const body = await readBodyText(request)
+  if (!body.ok) {
+    return { ok: false, response: failure("VALIDATION", "请求内容过大或无法读取。") }
   }
 
   let value: unknown
   try {
-    value = JSON.parse(text)
+    value = JSON.parse(body.text)
   } catch {
     return { ok: false, response: failure("VALIDATION", "请求内容不是有效 JSON。") }
   }

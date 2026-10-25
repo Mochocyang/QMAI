@@ -432,7 +432,7 @@
             <tr><td>有效期</td><td>10 分钟</td><td>过期后必须重新获取。</td></tr>
             <tr><td>重发冷却</td><td>60 秒</td><td>客户端倒计时 + 服务端硬限制。</td></tr>
             <tr><td>最多尝试</td><td>5 次</td><td>达到后该码作废，需重新获取。</td></tr>
-            <tr><td>同邮箱频率</td><td>5 次 / 小时</td><td>滑动窗口计数。</td></tr>
+            <tr><td>同邮箱频率</td><td>5 次 / 小时</td><td>以首次请求为起点的固定窗口计数（<code>rate_limits</code> 只有三列）。</td></tr>
             <tr><td>同 IP 频率</td><td>20 次 / 小时</td><td>IP 先加盐哈希再存。</td></tr>
             <tr><td>新码生效</td><td>旧码立即作废</td><td>避免同时存在多个有效码。</td></tr>
           </tbody>
@@ -586,7 +586,7 @@ interface AccountState {
             <tr><td>邮件接口被刷</td><td>同邮箱 60 秒冷却、每小时 5 次；同 IP 每小时 20 次；后续可加 Turnstile。</td></tr>
             <tr><td>账号枚举</td><td><code>send-code</code> 永远返回成功；登录失败统一文案；注册重复邮箱才明确提示。</td></tr>
             <tr><td>密码拖库</td><td>PBKDF2-SHA256 + 随机盐；不存明文；日志脱敏。</td></tr>
-            <tr><td>refresh 被盗</td><td>只存哈希；轮换；重复使用撤销整个 family；90 天滑动过期，撤销后立即失效。</td></tr>
+            <tr><td>refresh 被盗</td><td>只存哈希；轮换；重复使用撤销整个 family；90 天滑动过期，撤销后立即失效。首版只能检测紧邻的上一个 refresh token，更早 token 重放只失效、不撤族。</td></tr>
             <tr><td>JWT 伪造</td><td>HS256 + 强随机 secret；校验签名、<code>exp</code>、<code>iss</code>；secret 缺失时 Worker 启动即失败关闭。</td></tr>
             <tr><td>SQL 注入</td><td>全部使用 D1 prepared statement 参数绑定；动态 SQL 只拼固定表名/列名。</td></tr>
             <tr><td>跨站请求</td><td>CORS allowlist；非 allowlist 来源不返回 <code>Access-Control-Allow-Origin</code>。</td></tr>
