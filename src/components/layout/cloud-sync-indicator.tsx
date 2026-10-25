@@ -1,10 +1,18 @@
 /**
- * 右上角云同步图标 + 状态气泡。
+ * 右上角云同步图标。
  *
  * 只在「云同步开关已打开」时渲染（关闭后图标消失，但连接态与凭据保留）。
- * 成功/失败提示都在这个图标下方弹，不走全局 toast：
- * - 成功：4 秒自动消失，鼠标悬停暂停计时
- * - 失败：常驻，带「重新登录 / 查看详情」动作
+ *
+ * 状态**全部由图标本身表达**，不再弹气泡：
+ * - 同步中：图标持续浮动呼吸（动画在 cloud-sync.css）
+ * - 失败：图标变红（逐项失败或整轮失败都算），点击打开详情
+ * - 授权过期：图标变黄，点击直接重新登录
+ * - 成功：短暂的对勾，2 秒后回落成常态云
+ *
+ * 旧实现会在图标下方弹气泡（成功 4 秒自动消失、失败常驻）。问题是
+ * 每次同步成功都会弹「已是最新，没有需要同步的内容」——用户点一次同步就被
+ * 打搅一次，而且这句话本身没有任何信息量。状态用图标表达、失败靠红色吸引
+ * 注意、细节交给点击，比气泡省事得多。
  */
 
 import { useCallback, useEffect, useState } from "react"
@@ -14,7 +22,7 @@ import type { LucideIcon } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import "./cloud-sync.css"
 import { CLOUD_SYNC_OPEN_SETTINGS_EVENT } from "@/lib/cloud-sync/client"
-import { noticeActionLabel, resolveNotice, type NoticeAction } from "@/lib/cloud-sync/notice"
+import { resolveNotice } from "@/lib/cloud-sync/notice"
 import { deriveCloudSyncView, type CloudSyncIconName, type CloudSyncView } from "@/lib/cloud-sync/status"
 import { totalSyncedCount, type CloudSyncNotice } from "@/lib/cloud-sync/types"
 import { useCloudSyncStore } from "@/stores/cloud-sync-store"
@@ -26,9 +34,6 @@ const ICONS: Record<CloudSyncIconName, LucideIcon> = {
   CloudCheck,
   CloudAlert,
 }
-
-/** 成功气泡停留时长。 */
-export const SYNC_SUCCESS_BUBBLE_MS = 4_000
 
 function openSettings(category: "cloudSync") {
   window.dispatchEvent(new CustomEvent(CLOUD_SYNC_OPEN_SETTINGS_EVENT, { detail: { category } }))
@@ -42,57 +47,10 @@ export function syncNoticeMessage(notice: CloudSyncNotice): string {
   return resolveNotice(notice.errorCode, { count: notice.counts?.conflict }).message
 }
 
-function SyncNotice({
-  notice,
-  onDismiss,
-  onAction,
-}: {
-  notice: CloudSyncNotice
-  onDismiss: () => void
-  onAction: (action: NoticeAction) => void
-}) {
-  const failed = notice.kind === "failure"
-  const [hovered, setHovered] = useState(false)
-
-  useEffect(() => {
-    if (failed || hovered) return
-    const timer = setTimeout(onDismiss, SYNC_SUCCESS_BUBBLE_MS)
-    return () => clearTimeout(timer)
-  }, [failed, hovered, notice.at, onDismiss])
-
-  const copy = failed ? resolveNotice(notice.errorCode, { count: notice.counts?.conflict }) : null
-  const actionLabel = copy ? noticeActionLabel(copy.action) : null
-
-  return (
-    <div
-      className="ui-test-header-hint is-right ui-test-cloud-bubble"
-      role="status"
-      data-cloud-sync-notice={notice.kind}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <p className={failed ? "ui-test-cloud-bubble-text is-failure" : "ui-test-cloud-bubble-text"}>
-        {syncNoticeMessage(notice)}
-      </p>
-      <div className="ui-test-header-hint-actions">
-        {actionLabel && copy ? (
-          <button type="button" className="ui-test-header-hint-dismiss" onClick={() => onAction(copy.action)}>
-            {actionLabel}
-          </button>
-        ) : null}
-        <button type="button" className="ui-test-header-hint-dismiss" onClick={onDismiss}>
-          {failed ? "知道了" : "关闭"}
-        </button>
-      </div>
-    </div>
-  )
-}
-
 export function CloudSyncIndicator() {
   const config = useCloudSyncStore((state) => state.config)
   const runtime = useCloudSyncStore((state) => state.runtime)
   const notice = useCloudSyncStore((state) => state.notice)
-  const dismissNotice = useCloudSyncStore((state) => state.dismissNotice)
   const openDetail = useCloudSyncStore((state) => state.openDetail)
   const beginLogin = useCloudSyncStore((state) => state.beginLogin)
 
@@ -104,8 +62,13 @@ export function CloudSyncIndicator() {
     return () => clearTimeout(timer)
   }, [runtime.recentSuccessAt])
 
-  const view: CloudSyncView = deriveCloudSyncView(config, runtime)
+  const failedRecently = notice?.kind === "failure"
+  const view: CloudSyncView = deriveCloudSyncView(config, runtime, Date.now(), {
+    lastFailure: failedRecently,
+  })
   const Icon = ICONS[view.icon]
+  // 失败时把具体原因放进 tooltip：图标只有一个颜色，说不清是断网还是鉴权被拒。
+  const label = failedRecently && notice ? `云同步：${syncNoticeMessage(notice)}，点击查看` : view.label
 
   const handleClick = useCallback(() => {
     if (view.state === "login-required") {
@@ -119,22 +82,6 @@ export function CloudSyncIndicator() {
     openDetail()
   }, [beginLogin, openDetail, view.state])
 
-  const handleNoticeAction = useCallback(
-    (action: NoticeAction) => {
-      dismissNotice()
-      if (action === "relogin") {
-        void beginLogin()
-        return
-      }
-      if (action === "settings") {
-        openSettings("cloudSync")
-        return
-      }
-      if (action === "detail") openDetail()
-    },
-    [beginLogin, dismissNotice, openDetail],
-  )
-
   if (!config.enabled) return null
 
   return (
@@ -146,7 +93,7 @@ export function CloudSyncIndicator() {
               type="button"
               className="ui-test-icon-btn ui-test-cloud-entry"
               data-cloud-sync-state={view.state}
-              aria-label={view.label}
+              aria-label={label}
               aria-haspopup="dialog"
               onClick={handleClick}
             >
@@ -157,11 +104,8 @@ export function CloudSyncIndicator() {
             </button>
           }
         />
-        <TooltipContent>{view.label}</TooltipContent>
+        <TooltipContent>{label}</TooltipContent>
       </Tooltip>
-      {notice ? (
-        <SyncNotice notice={notice} onDismiss={dismissNotice} onAction={handleNoticeAction} />
-      ) : null}
     </div>
   )
 }

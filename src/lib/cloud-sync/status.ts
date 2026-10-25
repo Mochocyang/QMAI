@@ -65,6 +65,14 @@ export function deriveCloudSyncView(
   config: Pick<CloudSyncConfig, "enabled" | "connected" | "lastSyncAt">,
   runtime: CloudSyncRuntime,
   now: number = Date.now(),
+  /**
+   * 最近一轮同步是否以失败告终（来自后端 notice）。
+   *
+   * 逐项失败会体现在 `runtime.failureCount`，但**整轮失败**（断网、鉴权被拒、
+   * 远端不可达）没有逐项记录，`failureCount` 仍是 0。这种情况下如果只看
+   * failureCount，图标会停在「已就绪」，用户根本不知道刚才那轮挂了。
+   */
+  options: { lastFailure?: boolean } = {},
 ): CloudSyncView {
   if (!config.enabled) {
     return { state: "disabled", icon: "CloudOff", badge: null, label: "云同步已关闭" }
@@ -106,6 +114,16 @@ export function deriveCloudSyncView(
       icon: "CloudAlert",
       badge: "error",
       label: `云同步：有 ${failureCount} 项同步失败，点击查看`,
+    }
+  }
+
+  // 整轮失败（没有逐项记录）也要让图标变红，否则用户以为同步正常。
+  if (options.lastFailure) {
+    return {
+      state: "attention",
+      icon: "CloudAlert",
+      badge: "error",
+      label: "云同步：上次同步失败，点击查看",
     }
   }
 

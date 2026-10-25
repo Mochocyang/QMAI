@@ -111,3 +111,30 @@ describe("formatSyncAge", () => {
     expect(formatSyncAge(NOW - 2 * 86_400_000, NOW)).toBe("2 天前")
   })
 })
+
+describe("deriveCloudSyncView · 整轮失败（无逐项记录）", () => {
+  it("整轮失败（failureCount 为 0）也显示为 attention", () => {
+    // 断网 / 鉴权被拒 / 远端不可达 这类失败没有逐项记录，
+    // 只看 failureCount 会和「已就绪」完全一样，用户根本不知道刚挂了。
+    const view = deriveCloudSyncView(
+      { enabled: true, connected: true, lastSyncAt: NOW },
+      { running: false, failureCount: 0 },
+      NOW,
+      { lastFailure: true },
+    )
+    expect(view.state).toBe("attention")
+    expect(view.icon).toBe("CloudAlert")
+    expect(view.badge).toBe("error")
+    expect(view.label).toContain("失败")
+  })
+
+  it("没有失败时 lastFailure 不生效，仍回落成 ready", () => {
+    const view = deriveCloudSyncView(
+      { enabled: true, connected: true, lastSyncAt: NOW },
+      { running: false },
+      NOW,
+      { lastFailure: false },
+    )
+    expect(view.state).toBe("ready")
+  })
+})
