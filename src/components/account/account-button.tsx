@@ -1,11 +1,13 @@
 import { UserRound } from "lucide-react"
 
 import { useAccountStore } from "@/stores/account-store"
-import { accountDisplayName, accountInitial } from "./account-display"
+import { AccountAvatar } from "./account-avatar"
+import { accountDisplayName } from "./account-display"
 
-/** 顶栏账号入口：匿名是图标，有用户（含 booting 缓存）就显示首字母头像。 */
+/** 顶栏账号入口：匿名是图标，有用户（含 booting 缓存）就显示头像。 */
 export function AccountButton() {
   const user = useAccountStore((state) => state.user)
+  const session = useAccountStore((state) => state.session)
   const openDialog = useAccountStore((state) => state.openDialog)
 
   const hasUser = user !== null
@@ -25,9 +27,7 @@ export function AccountButton() {
       onClick={() => openDialog()}
     >
       {hasUser ? (
-        <span className="account-avatar" aria-hidden="true">
-          {accountInitial(user.displayName, user.email)}
-        </span>
+        <AccountAvatar user={user} baseUrl={session?.baseUrl ?? null} />
       ) : (
         <UserRound aria-hidden="true" />
       )}

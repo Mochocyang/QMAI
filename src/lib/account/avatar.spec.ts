@@ -10,9 +10,31 @@ import {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
-/** jsdom 没有真实图片解码与 canvas 渲染，这里按需替换两个关键点。 */
+const PNG_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
+/**
+ * 图片现在通过 FileReader 读成 data: URL，而不是 blob: URL。
+ * Tauri 的 tauri.localhost 下 blob: URL 无法被 <img> 加载，这条测试在旧实现上会失败。
+ */
+function stubFileReader(result: string | null = PNG_DATA_URL) {
+  class FakeFileReader {
+    result: string | null = null
+    onload: (() => void) | null = null
+    onerror: (() => void) | null = null
+    onabort: (() => void) | null = null
+    readAsDataURL(_blob: Blob) {
+      this.result = result
+      queueMicrotask(() => (result === null ? this.onerror?.() : this.onload?.()))
+    }
+  }
+  vi.stubGlobal("FileReader", FakeFileReader as unknown as typeof FileReader)
+}
+
+/** jsdom 没有真实图片解码与 canvas 渲染，这里按需替换关键点。 */
 function stubImage(width: number, height: number) {
   class FakeImage {
     naturalWidth = width
@@ -24,6 +46,7 @@ function stubImage(width: number, height: number) {
     }
   }
   vi.stubGlobal("Image", FakeImage as unknown as typeof Image)
+  stubFileReader()
 }
 
 function stubCanvas(blob: Blob | null, drawSpy?: ReturnType<typeof vi.fn>) {
@@ -50,7 +73,6 @@ describe("processAvatarImage", () => {
     stubImage(800, 600)
     const drawSpy = vi.fn()
     stubCanvas(new Blob([new Uint8Array(1024)], { type: "image/webp" }), drawSpy)
-    vi.stubGlobal("URL", { createObjectURL: () => "blob:x", revokeObjectURL: () => undefined })
 
     const result = await processAvatarImage(imageFile())
 
@@ -73,7 +95,6 @@ describe("processAvatarImage", () => {
   it("WebP 不可用时回退 JPEG", async () => {
     stubImage(300, 300)
     stubCanvas(new Blob([new Uint8Array(512)], { type: "image/jpeg" }))
-    vi.stubGlobal("URL", { createObjectURL: () => "blob:x", revokeObjectURL: () => undefined })
 
     const result = await processAvatarImage(imageFile())
 
@@ -83,19 +104,24 @@ describe("processAvatarImage", () => {
   it("压缩后仍超过上限时报错", async () => {
     stubImage(300, 300)
     stubCanvas(new Blob([new Uint8Array(MAX_AVATAR_BYTES + 1)], { type: "image/webp" }))
-    vi.stubGlobal("URL", { createObjectURL: () => "blob:x", revokeObjectURL: () => undefined })
 
     await expect(processAvatarImage(imageFile())).rejects.toBeInstanceOf(AvatarProcessError)
   })
 
   it("非图片文件直接拒绝，且不尝试解码", async () => {
-    const createObjectURL = vi.fn()
-    vi.stubGlobal("URL", { createObjectURL, revokeObjectURL: () => undefined })
+    const readAsDataURL = vi.fn()
+    class SpyReader {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      onabort: (() => void) | null = null
+      readAsDataURL = readAsDataURL
+    }
+    vi.stubGlobal("FileReader", SpyReader as unknown as typeof FileReader)
 
     await expect(
       processAvatarImage(new File(["hello"], "note.txt", { type: "text/plain" })),
     ).rejects.toThrow("请选择图片文件。")
-    expect(createObjectURL).not.toHaveBeenCalled()
+    expect(readAsDataURL).not.toHaveBeenCalled()
   })
 
   it("图片解码失败给出可读错误", async () => {
@@ -109,7 +135,7 @@ describe("processAvatarImage", () => {
       }
     }
     vi.stubGlobal("Image", BrokenImage as unknown as typeof Image)
-    vi.stubGlobal("URL", { createObjectURL: () => "blob:x", revokeObjectURL: () => undefined })
+    stubFileReader()
 
     await expect(processAvatarImage(imageFile())).rejects.toThrow("无法读取这张图片")
   })
@@ -117,8 +143,74 @@ describe("processAvatarImage", () => {
   it("canvas 拿不到 context 时报错", async () => {
     stubImage(200, 200)
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null)
-    vi.stubGlobal("URL", { createObjectURL: () => "blob:x", revokeObjectURL: () => undefined })
 
     await expect(processAvatarImage(imageFile())).rejects.toThrow("无法处理图片")
   })
+
+  it("toBlob 回调不触发时用 toDataURL 兜底，不会永久挂起", async () => {
+    // 两次 toBlob 各自等 5s 超时，所以给足余量。
+    stubImage(300, 300)
+    const context = {
+      imageSmoothingEnabled: false,
+      imageSmoothingQuality: "low",
+      drawImage: vi.fn(),
+    }
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+      context as unknown as CanvasRenderingContext2D,
+    )
+    // 模拟 Tauri WebView 下 toBlob 永不回调。
+    stubFileReader()
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(() => undefined)
+    // 1×1 PNG 的合法 dataURL。
+    const png =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(png)
+
+    const result = await processAvatarImage(imageFile())
+
+    expect(result.mime).toBe("image/png")
+    expect(result.bytes).toBeGreaterThan(0)
+  }, 20000)
+
+  it("所有编码方式都失败时给出明确错误", async () => {
+    stubImage(300, 300)
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      imageSmoothingEnabled: false,
+      imageSmoothingQuality: "low",
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    stubFileReader()
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(() => undefined)
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:,")
+
+    await expect(processAvatarImage(imageFile())).rejects.toThrow("无法压缩图片")
+  }, 20000)
+
+  it("优先用 createImageBitmap 解码，不依赖 img-src 允许 blob:/data:", async () => {
+    // 应用 CSP 的 img-src 不含 blob:/data:，用 <img> 读图会被静默拦截。
+    const close = vi.fn()
+    const bitmap = { width: 400, height: 300, close }
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => bitmap))
+    vi.stubGlobal("FileReader", class { readAsDataURL() { throw new Error("不该走 FileReader") } })
+    vi.stubGlobal("Image", class { set src(_v) { throw new Error("不该用 img 解码") } })
+    const drawSpy = vi.fn()
+    stubCanvas(new Blob([new Uint8Array(256)], { type: "image/webp" }), drawSpy)
+
+    const result = await processAvatarImage(imageFile())
+
+    expect(result.mime).toBe("image/webp")
+    // 居中裁方：400x300 → 边长 300，横向偏移 (400-300)/2 = 50。
+    expect(drawSpy).toHaveBeenCalledWith(bitmap, 50, 0, 300, 300, 0, 0, AVATAR_SIZE, AVATAR_SIZE)
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it("createImageBitmap 解码失败时回退到 img 元素", async () => {
+    vi.stubGlobal("createImageBitmap", vi.fn(async () => { throw new Error("decode failed") }))
+    stubImage(200, 200)
+    stubCanvas(new Blob([new Uint8Array(128)], { type: "image/webp" }))
+
+    const result = await processAvatarImage(imageFile())
+
+    expect(result.mime).toBe("image/webp")
+  }, 20000)
 })

@@ -51,6 +51,17 @@ export function isAccountApiError(error: unknown): error is AccountApiError {
 
 /** 已知错误码用固定中文文案；未知错误不暴露内部信息。 */
 export function accountErrorMessage(error: unknown): string {
-  if (!isAccountApiError(error)) return ACCOUNT_ERROR_FALLBACK_MESSAGE
+  if (!isAccountApiError(error)) {
+    // 本地处理类错误（如头像裁剪失败）自带面向用户的文案，直接透出，
+    // 否则用户只会看到「操作失败，请稍后重试」，无法判断该换图片还是重试。
+    if (
+      error instanceof Error &&
+      error.name === "AvatarProcessError" &&
+      error.message
+    ) {
+      return error.message
+    }
+    return ACCOUNT_ERROR_FALLBACK_MESSAGE
+  }
   return ACCOUNT_ERROR_MESSAGES[error.code] ?? ACCOUNT_ERROR_FALLBACK_MESSAGE
 }

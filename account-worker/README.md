@@ -65,6 +65,8 @@ npm run deploy
 
 - **头像存储**：`users.avatar_mime` / `avatar_data`(BLOB) / `avatar_updated_at`。客户端上传前在本地把图片裁成 256×256 并压成 WebP（不支持时回退 JPEG），服务端再按文件头魔数校验真实类型，只接受 PNG/JPEG/WebP，上限 200 KB。SVG 会被拒绝（含脚本，不能当图片直接对外提供）。
 - **头像读取**：`GET /v1/account/avatar/{id}` 公开可读，带 `?v=<avatar_updated_at>` 换版本；响应带 `nosniff` 与 CSP sandbox。
+- **客户端 CSP 要求**：`src-tauri/tauri.conf.json` 的 `img-src` 必须包含 `https:`（头像走账号服务域名）与 `data: blob:`（本地预览）。少了前者头像会被静默拦截、界面一直显示首字母。
+- **本地裁剪不能用 `<img>` 读 blob:**：CSP 只放行 `img-src`，`URL.createObjectURL` 生成的 `blob:` 同样受它约束。客户端改用 `createImageBitmap(File)` 直接解码，不受 `img-src` 限制。
 - **D1 二进制坑**：实测线上 D1 返回 BLOB 时是普通 `number[]`（不是 ArrayBuffer/TypedArray）。`findUserAvatar` 三种形态都兼容，否则会出现「数据库有数据、接口返回 0 字节」。
 - **改密**：必须提供当前密码；改密后撤销该用户其它会话，当前设备通过请求体里的 `refreshToken` 识别并保留。当前密码错误有独立限流（每 IP 15 分钟 10 次），防止拿 access token 爆破原密码。
 

@@ -293,6 +293,7 @@ export function AccountDialog() {
       await setAvatar({ data: processed.data, mime: processed.mime })
       toast.success("头像已更新")
     } catch (error) {
+      // 裁剪阶段与上传阶段的失败原因不同，都要让用户看得到。
       toast.error(accountErrorMessage(error))
     } finally {
       setAvatarBusy(false)

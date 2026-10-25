@@ -471,6 +471,9 @@ export async function uploadAccountAvatar(
   try {
     let response: Response
     try {
+      // Tauri 的 plugin-http 经 IPC 传参，ArrayBuffer 不一定是可结构化克隆的类型；
+      // 用 Uint8Array 明确表达二进制，避免请求体在传输层就失败。
+      const body = new Uint8Array(upload.data)
       response = await Promise.race([
         fetchImpl(`${normalizeAccountBaseUrl(baseUrl)}/v1/account/avatar`, {
           method: "POST",
@@ -478,8 +481,9 @@ export async function uploadAccountAvatar(
             Accept: "application/json",
             "Content-Type": upload.mime,
             Authorization: `Bearer ${accessToken}`,
+            "Content-Length": String(body.byteLength),
           },
-          body: upload.data,
+          body,
           signal: controller.signal,
         }),
         timeout,

@@ -43,6 +43,13 @@ describe("accountErrorMessage", () => {
     expect(accountErrorMessage(null)).toBe(ACCOUNT_ERROR_FALLBACK_MESSAGE)
     expect(accountErrorMessage("failed")).toBe(ACCOUNT_ERROR_FALLBACK_MESSAGE)
   })
+
+  it("头像处理错误透出可操作的原始文案，不退化成兜底", () => {
+    // 否则用户只看到「操作失败，请稍后重试」，不知道该换图片还是重试。
+    const error = new Error("请选择图片文件。")
+    error.name = "AvatarProcessError"
+    expect(accountErrorMessage(error)).toBe("请选择图片文件。")
+  })
 })
 
 describe("AccountApiError / isAccountApiError", () => {
