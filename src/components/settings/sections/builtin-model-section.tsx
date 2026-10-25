@@ -611,7 +611,7 @@ export function BuiltinModelSection() {
         </div>
       )}
 
-      {activeKey && (
+      {activeKey && sortedModels.length > 0 && (
         <div className="builtin-card">
           <div className="builtin-card-head">
             <div>
