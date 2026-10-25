@@ -201,4 +201,78 @@ assert(
   "non-allowlisted origin gets no ACAO",
 )
 
+// 同一 IP 连续错误码会累计 attempts 并最终作废该码。
+const sameIpEmail = `same-ip-${Date.now()}@example.com`
+const sameIp = "203.0.113.10"
+const sameIpSend = await request(
+  "/v1/auth/send-code",
+  "POST",
+  { email: sameIpEmail, purpose: "register" },
+  { "X-Forwarded-For": sameIp },
+)
+assert(sameIpSend.status === 200, "same-IP code is sent")
+for (let i = 1; i <= 5; i += 1) {
+  const wrong = await request(
+    "/v1/auth/register",
+    "POST",
+    { email: sameIpEmail, code: "000000", password },
+    { "X-Forwarded-For": sameIp },
+  )
+  if (i < 5) {
+    assert(
+      wrong.status === 400 && wrong.json?.code === "CODE_INVALID",
+      `same-IP wrong code ${i} returns CODE_INVALID`,
+    )
+  } else {
+    assert(
+      wrong.status === 429 && wrong.json?.code === "CODE_ATTEMPTS",
+      "same-IP fifth wrong code exhausts attempts",
+    )
+  }
+}
+const sameIpCorrect = await request(
+  "/v1/auth/register",
+  "POST",
+  { email: sameIpEmail, code: sameIpSend.json.data.devCode, password },
+  { "X-Forwarded-For": sameIp },
+)
+assert(
+  sameIpCorrect.status === 429 && sameIpCorrect.json?.code === "CODE_ATTEMPTS",
+  "same-IP correct code after exhaustion stays blocked",
+)
+
+// 换 IP 提交错误码不累计 attempts，原 IP 的正确码仍可使用。
+const crossIpEmail = `cross-ip-${Date.now()}@example.com`
+const ownerIp = "203.0.113.11"
+const attackerIp = "203.0.113.12"
+const crossIpSend = await request(
+  "/v1/auth/send-code",
+  "POST",
+  { email: crossIpEmail, purpose: "register" },
+  { "X-Forwarded-For": ownerIp },
+)
+assert(crossIpSend.status === 200, "cross-IP code is sent from owner IP")
+for (let i = 1; i <= 5; i += 1) {
+  const wrong = await request(
+    "/v1/auth/register",
+    "POST",
+    { email: crossIpEmail, code: "000000", password },
+    { "X-Forwarded-For": attackerIp },
+  )
+  assert(
+    wrong.status === 400 && wrong.json?.code === "CODE_INVALID",
+    `different-IP wrong code ${i} does not burn attempts`,
+  )
+}
+const crossIpCorrect = await request(
+  "/v1/auth/register",
+  "POST",
+  { email: crossIpEmail, code: crossIpSend.json.data.devCode, password },
+  { "X-Forwarded-For": ownerIp },
+)
+assert(
+  crossIpCorrect.status === 200 && crossIpCorrect.json?.success === true,
+  "owner IP can still use its code after other-IP guesses",
+)
+
 console.log("SMOKE PASSED")

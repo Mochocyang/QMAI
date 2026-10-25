@@ -38,7 +38,8 @@ function isWindowActive(
 }
 
 /**
- * 模拟一次消费后的结果，语义与 db.consumeRateLimit 的单条 SQL 一致：
+ * 仅测试参考：模拟一次消费后的结果，语义与 db.consumeRateLimit 的单条 SQL 一致。
+ * 生产写入只走 db.consumeRateLimit，本函数当前无生产调用。
  * 窗口内 count + 1，窗口外新开窗口 count = 1；allowed 用 count <= limit。
  */
 export function evaluateRateLimit(

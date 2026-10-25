@@ -95,13 +95,13 @@ localStorage.setItem("qmai.account.baseUrl.v1", "http://127.0.0.1:8787")
 
 ## 限流与安全权衡
 
-- **固定窗口，不是精确滑动窗口**：`rate_limits` 只有 `bucket/window_start/count` 三列。发送验证码的邮箱 5 次/小时、IP 20 次/小时，冷却 60 秒；登录失败 15 分钟窗口（邮箱 10 次、IP 30 次）；验证码校验 1 小时窗口（邮箱 20 次、IP 30 次）。计数写入用单条 `UPSERT ... RETURNING` 原子完成。
-- **登录失败锁不永久锁死账号**：邮箱失败桶满后仍会验密；密码正确会清空邮箱失败桶并放行，密码错误才返回 429。IP 失败桶先做只读闸门，避免被用来消耗 PBKDF2 CPU。
+- **固定窗口，不是精确滑动窗口**：`rate_limits` 只有 `bucket/window_start/count` 三列。发送验证码的邮箱 5 次/小时、IP 20 次/小时，冷却 60 秒；登录失败 15 分钟窗口（邮箱 10 次、IP 30 次）；验证码校验按 IP 隔离的邮箱桶 20 次/小时、IP 30 次/小时，另有全局 per-email 猜测桶 20 次/10 分钟。计数写入用单条 `UPSERT ... RETURNING` 原子完成。
+- **登录失败锁不永久锁死账号**：邮箱失败桶是错误响应节流，不是猜测硬闸；真正的 CPU/猜测硬闸是 IP 桶（30 次 / 15 分钟）。邮箱桶满后仍会验密，密码正确就清空邮箱桶并放行，密码错误才返回 429。生产建议在 Cloudflare WAF 对 `/v1/auth/login` 再加一层限流。
 - **refresh 盗用检测范围有限**：每个设备只保留当前与紧邻的上一个 token 哈希。只有紧邻的上一个 refresh token 重放会撤销整个 `family_id`；更早的 token 重放会失效，但不会触发撤族。
 - **密码重置**：撤销该用户全部 refresh 会话；已签发的 access JWT 在剩余 ≤15 分钟内仍有效（JWT + refresh 方案的固有窗口）。
 - **Workers 免费版 CPU**：PBKDF2 默认 210,000 次迭代，免费版 10ms CPU 可能超限。必须用免费版时把 `PASSWORD_ITERATIONS` 降到 `100000`，并接受安全强度下降。
 - `AUTH_JWT_SECRET` / `AUTH_CODE_PEPPER` 缺失或过短时 Worker 会失败关闭，返回 `SERVER_ERROR`。
-- 验证码、密码、access/refresh token 都不会写入日志。
+- 密码、access/refresh token 不会写入日志；验证码只在开发模式且 `ALLOW_DEV_CODE=true` 时打印到本地终端，生产环境绝不打印。
 - **每日清理**：`wrangler.toml` 配置了每日 cron，删除 24 小时前的限流桶、7 天前的验证码、过期或撤销 30 天前的会话。
 
 ## 测试

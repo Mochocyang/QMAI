@@ -71,6 +71,8 @@ const EMAIL_SEND_HOURLY_LIMIT = 5
 const IP_SEND_HOURLY_LIMIT = 20
 const VERIFY_EMAIL_HOURLY_LIMIT = 20
 const VERIFY_IP_HOURLY_LIMIT = 30
+const VERIFY_EMAIL_GLOBAL_LIMIT = 20
+const VERIFY_EMAIL_GLOBAL_WINDOW_SECONDS = 10 * 60
 const LOGIN_FAIL_WINDOW_SECONDS = 15 * 60
 const LOGIN_FAIL_EMAIL_LIMIT = 10
 const LOGIN_FAIL_IP_LIMIT = 30
@@ -118,13 +120,14 @@ function toPublicUser(user: UserRow): PublicUser {
 }
 
 function clientIp(request: Request, env: Env): string {
-  const connectingIp = request.headers.get("CF-Connecting-IP")
-  if (connectingIp) return connectingIp
-  // X-Forwarded-For 可伪造，只在本地开发模式兜底使用。
+  // 本地 wrangler 也会注入 CF-Connecting-IP（通常恒为 127.0.0.1），
+  // 开发模式优先用 X-Forwarded-For，便于联调/冒烟模拟不同来源 IP。
   if (env.ENVIRONMENT === "development") {
     const forwarded = request.headers.get("X-Forwarded-For")
     if (forwarded) return forwarded.split(",")[0]?.trim() || "unknown"
   }
+  const connectingIp = request.headers.get("CF-Connecting-IP")
+  if (connectingIp) return connectingIp
   return "unknown"
 }
 
@@ -153,14 +156,26 @@ async function verifyEmailCode(
   if (!ipLimit.allowed) return { ok: false, code: "RATE_LIMITED" }
 
   const emailKey = await sha256Hex(email)
+  const perIpEmailBucket = `verify:email:${emailKey}:${ipHash}`
   const emailLimit = await consumeRateLimit(
     env.DB,
-    `verify:email:${emailKey}`,
+    perIpEmailBucket,
     VERIFY_EMAIL_HOURLY_LIMIT,
     HOUR_SECONDS,
     now,
   )
   if (!emailLimit.allowed) return { ok: false, code: "RATE_LIMITED" }
+
+  // 全局 per-email 猜测桶（10 分钟，与码 TTL 一致）防止攻击者换 IP 猜同一邮箱。
+  const globalEmailBucket = `verify:email:global:${emailKey}`
+  const globalLimit = await consumeRateLimit(
+    env.DB,
+    globalEmailBucket,
+    VERIFY_EMAIL_GLOBAL_LIMIT,
+    VERIFY_EMAIL_GLOBAL_WINDOW_SECONDS,
+    now,
+  )
+  if (!globalLimit.allowed) return { ok: false, code: "RATE_LIMITED" }
 
   const record = await findLatestEmailCode(env.DB, email, purpose)
   if (!record) return { ok: false, code: "CODE_INVALID" }
@@ -169,7 +184,7 @@ async function verifyEmailCode(
 
   const expected = await hashEmailCode(getPepper(env), email, purpose, code)
   if (!timingSafeEqualHex(expected, record.code_hash)) {
-    const attempts = await recordCodeAttempt(env.DB, record.id)
+    const attempts = await recordCodeAttempt(env.DB, record.id, ipHash)
     return {
       ok: false,
       code: attempts >= MAX_CODE_ATTEMPTS ? "CODE_ATTEMPTS" : "CODE_INVALID",
@@ -178,6 +193,10 @@ async function verifyEmailCode(
 
   const consumed = await consumeEmailCode(env.DB, record.id, now)
   if (!consumed) return { ok: false, code: "CODE_INVALID" }
+
+  // 成功验码后清掉本 IP 邮箱桶与全局桶，避免成功用户被后续请求连累。
+  await deleteRateLimit(env.DB, perIpEmailBucket)
+  await deleteRateLimit(env.DB, globalEmailBucket)
   return { ok: true }
 }
 

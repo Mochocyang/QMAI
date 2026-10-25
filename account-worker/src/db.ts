@@ -233,11 +233,24 @@ export async function deleteEmailCode(db: D1Database, id: number): Promise<void>
   await db.prepare("DELETE FROM email_codes WHERE id = ?1").bind(id).run()
 }
 
-/** 返回累加后的尝试次数；调用方据此决定 CODE_INVALID / CODE_ATTEMPTS。 */
-export async function recordCodeAttempt(db: D1Database, id: number): Promise<number> {
+/**
+ * 返回累加后的尝试次数；调用方据此决定 CODE_INVALID / CODE_ATTEMPTS。
+ * 只有请求 IP 与发码 IP 一致（或发码时没记录 IP）才累加，避免其他 IP
+ * 用错误码烧掉受害者的验证码。条件 UPDATE 后 SELECT 当前值。
+ */
+export async function recordCodeAttempt(
+  db: D1Database,
+  id: number,
+  ipHash: string,
+): Promise<number> {
   await db
-    .prepare("UPDATE email_codes SET attempts = attempts + 1 WHERE id = ?1 AND consumed_at IS NULL")
-    .bind(id)
+    .prepare(
+      `UPDATE email_codes SET attempts = attempts + 1
+       WHERE id = ?1
+         AND (request_ip_hash IS NULL OR request_ip_hash = ?2)
+         AND consumed_at IS NULL`,
+    )
+    .bind(id, ipHash)
     .run()
   const row = await db
     .prepare("SELECT attempts FROM email_codes WHERE id = ?1")
