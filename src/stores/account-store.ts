@@ -327,7 +327,14 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
     })
 
     if (session) {
+      // 旧 token 可能已被在途 refresh 轮换；先尽力撤销旧 token，再等轮换结果撤销新 token。
       void logoutAccount(session.baseUrl, session.refreshToken).catch(() => undefined)
+      const pendingRefresh = refreshInFlight
+      if (pendingRefresh) {
+        void pendingRefresh.promise
+          .then((payload) => logoutAccount(session.baseUrl, payload.refreshToken))
+          .catch(() => undefined)
+      }
     }
   },
 

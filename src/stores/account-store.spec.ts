@@ -471,6 +471,23 @@ describe("account store", () => {
       expect(loadAccountSession()).toBeNull()
     })
 
+    it("logout 在途轮换完成后撤销新 token", async () => {
+      const stored = storedSession()
+      saveAccountSession(stored)
+      const gate = deferred<AccountAuthPayload>()
+      vi.mocked(refreshAccountSession).mockReturnValue(gate.promise)
+      vi.mocked(logoutAccount).mockResolvedValue(undefined)
+
+      const boot = useAccountStore.getState().bootstrap()
+      await useAccountStore.getState().logout()
+      gate.resolve(authPayload())
+      await boot
+
+      await vi.waitFor(() => {
+        expect(logoutAccount).toHaveBeenNthCalledWith(2, stored.baseUrl, "new-refresh")
+      })
+    })
+
     it("refresh() 别名吞掉续期错误，保留待确认标记", async () => {
       const stored = storedSession()
       setAuthenticatedSession(stored)
