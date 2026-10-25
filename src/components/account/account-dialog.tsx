@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
 import { Eye, EyeOff, Loader2 } from "lucide-react"
 
 import {
@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { accountErrorMessage } from "@/lib/account/errors"
-import type { AccountAuthMode, AccountUser } from "@/lib/account/types"
+import type { AccountAuthMode } from "@/lib/account/types"
 import {
   isSixDigitCode,
   isValidEmail,
@@ -20,6 +20,12 @@ import {
 } from "@/lib/account/validation"
 import { toast } from "@/lib/toast"
 import { useAccountStore } from "@/stores/account-store"
+import {
+  ACCOUNT_LOGOUT_CONFIRM,
+  accountCreatedDate,
+  accountDisplayName,
+  accountInitial,
+} from "./account-display"
 import "./account-dialog.css"
 
 interface AuthTab {
@@ -27,21 +33,20 @@ interface AuthTab {
   label: string
 }
 
+type AuthField = "email" | "code" | "password"
+
+interface ValidationIssue {
+  field: AuthField
+  message: string
+}
+
+const AUTH_PANEL_ID = "account-auth-panel"
+const ERROR_ID = "account-error"
 const BASE_TABS: AuthTab[] = [
   { mode: "login", label: "登录" },
   { mode: "register", label: "注册" },
 ]
-
 const DEFAULT_COOLDOWN_SECONDS = 60
-
-function accountInitial(user: AccountUser): string {
-  const name = user.displayName.trim() || user.email
-  return (Array.from(name)[0] ?? "").toUpperCase()
-}
-
-function createdDate(user: AccountUser): string {
-  return new Date(user.createdAt * 1000).toLocaleDateString("zh-CN")
-}
 
 /** 登录 / 注册 / 重置密码共用一个弹窗，所有会话变化都由 store 驱动。 */
 export function AccountDialog() {
@@ -50,6 +55,7 @@ export function AccountDialog() {
   const status = useAccountStore((state) => state.status)
   const user = useAccountStore((state) => state.user)
   const sessionError = useAccountStore((state) => state.error)
+  const sessionUnverified = useAccountStore((state) => state.sessionUnverified)
   const closeDialog = useAccountStore((state) => state.closeDialog)
   const setAuthMode = useAccountStore((state) => state.setAuthMode)
   const clearError = useAccountStore((state) => state.clearError)
@@ -64,11 +70,14 @@ export function AccountDialog() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
+  const [fieldError, setFieldError] = useState<AuthField | null>(null)
   const [devCode, setDevCode] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [sendingCode, setSendingCode] = useState(false)
   const [cooldown, setCooldown] = useState(0)
   const [loggingOut, setLoggingOut] = useState(false)
+  const composingRef = useRef(false)
+  const requestEpochRef = useRef(0)
 
   const authenticated = status === "authenticated" && user !== null
   const displayedError = localError ?? sessionError
@@ -80,21 +89,28 @@ export function AccountDialog() {
     return () => window.clearTimeout(timer)
   }, [cooldown])
 
-  // 模式切换只清错误、验证码与敏感字段，邮箱保留给用户继续用。
+  // 模式切换会作废在途请求，并清错误、验证码与敏感字段；邮箱保留。
   useEffect(() => {
+    requestEpochRef.current += 1
     setLocalError(null)
+    setFieldError(null)
     setDevCode(null)
     setCode("")
     setPassword("")
     setShowPassword(false)
+    setSubmitting(false)
+    setSendingCode(false)
+    setCooldown(0)
   }, [authMode])
 
-  // 关闭时不能把密码/验证码留在组件状态里；邮箱与模式由 store/下次打开决定。
+  // 关闭时同样作废在途请求，不能把密码/验证码或旧错误留在下一次打开里。
   useEffect(() => {
     if (dialogOpen) return
+    requestEpochRef.current += 1
     setPassword("")
     setCode("")
     setLocalError(null)
+    setFieldError(null)
     setDevCode(null)
     setShowPassword(false)
     setSubmitting(false)
@@ -103,12 +119,24 @@ export function AccountDialog() {
     setLoggingOut(false)
   }, [dialogOpen])
 
-  const tabs = authMode === "reset"
-    ? [...BASE_TABS, { mode: "reset" as const, label: "重置密码" }]
-    : BASE_TABS
+  const compositionHandlers = {
+    onCompositionStart: () => {
+      composingRef.current = true
+    },
+    onCompositionEnd: () => {
+      composingRef.current = false
+    },
+  }
+
+  const handleCompositionKeyDown = (event: KeyboardEvent<HTMLFormElement>) => {
+    if (event.key === "Enter" && (composingRef.current || event.nativeEvent.isComposing)) {
+      event.preventDefault()
+    }
+  }
 
   const clearFeedback = () => {
     setLocalError(null)
+    setFieldError(null)
     if (useAccountStore.getState().error) clearError()
   }
 
@@ -131,36 +159,46 @@ export function AccountDialog() {
   }
 
   const switchMode = (mode: AccountAuthMode) => {
-    if (mode === authMode) return
+    if (mode === authMode || busy) return
     setAuthMode(mode)
   }
 
-  const validate = (normalizedEmail: string): string | null => {
-    if (!isValidEmail(normalizedEmail)) return "请输入有效的邮箱地址。"
-    if (authMode !== "login" && !isSixDigitCode(code)) return "请输入 6 位数字验证码。"
-    return validateAccountPassword(password)
+  const validate = (normalizedEmail: string): ValidationIssue | null => {
+    if (!isValidEmail(normalizedEmail)) {
+      return { field: "email", message: "请输入有效的邮箱地址。" }
+    }
+    if (authMode !== "login" && !isSixDigitCode(code)) {
+      return { field: "code", message: "请输入 6 位数字验证码。" }
+    }
+    const passwordError = validateAccountPassword(password)
+    if (passwordError) return { field: "password", message: passwordError }
+    return null
   }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    const nativeEvent = event.nativeEvent as Event & { isComposing?: boolean }
+    if (composingRef.current || nativeEvent.isComposing) return
     if (busy) return
 
     const normalizedEmail = email.trim().toLowerCase()
-    const validationError = validate(normalizedEmail)
-    if (validationError) {
-      setLocalError(validationError)
+    const issue = validate(normalizedEmail)
+    if (issue) {
+      setLocalError(issue.message)
+      setFieldError(issue.field)
       return
     }
 
     clearFeedback()
     setSubmitting(true)
+    const epoch = requestEpochRef.current
     try {
       if (authMode === "login") {
         await login({ email: normalizedEmail, password })
         toast.success("登录成功")
       } else if (authMode === "register") {
         await register({ email: normalizedEmail, code, password })
-        toast.success("注册成功")
+        toast.success("注册成功，已自动登录")
       } else {
         await resetPassword({ email: normalizedEmail, code, password })
         setCode("")
@@ -168,52 +206,53 @@ export function AccountDialog() {
         toast.success("密码已重置，请用新密码登录")
       }
     } catch (error) {
+      if (requestEpochRef.current !== epoch) return
+      setFieldError(null)
       setLocalError(accountErrorMessage(error))
     } finally {
-      setSubmitting(false)
+      if (requestEpochRef.current === epoch) setSubmitting(false)
     }
   }
 
   const requestCode = async () => {
-    if (sendingCode || cooldown > 0) return
+    if (sendingCode || cooldown > 0 || submitting) return
 
     const normalizedEmail = email.trim().toLowerCase()
     if (!isValidEmail(normalizedEmail)) {
       setLocalError("请输入有效的邮箱地址。")
+      setFieldError("email")
       return
     }
 
     clearFeedback()
     setSendingCode(true)
+    const epoch = requestEpochRef.current
     try {
       const result = await sendCode(normalizedEmail, authMode === "reset" ? "reset" : "register")
+      if (requestEpochRef.current !== epoch) return
       const seconds = Number.isFinite(result.cooldownSeconds) && result.cooldownSeconds > 0
         ? Math.floor(result.cooldownSeconds)
         : DEFAULT_COOLDOWN_SECONDS
       setCooldown(seconds)
-      setDevCode(result.devCode?.trim() || null)
+      setDevCode(import.meta.env.DEV ? result.devCode?.trim() || null : null)
     } catch (error) {
+      if (requestEpochRef.current !== epoch) return
+      setFieldError(null)
       setLocalError(accountErrorMessage(error))
       setDevCode(null)
     } finally {
-      setSendingCode(false)
+      if (requestEpochRef.current === epoch) setSendingCode(false)
     }
   }
 
   const confirmLogout = async () => {
     if (loggingOut) return
+    if (!window.confirm(ACCOUNT_LOGOUT_CONFIRM)) return
     setLoggingOut(true)
-    try {
-      await logout()
-      toast.success("已退出登录")
-    } catch {
-      toast.error("退出登录失败，请稍后重试。")
-    } finally {
-      setLoggingOut(false)
-    }
+    await logout()
+    setLoggingOut(false)
+    toast.success("已退出登录")
   }
-
-  const tabPanelId = `account-panel-${authMode}`
 
   return (
     <Dialog
@@ -231,16 +270,23 @@ export function AccountDialog() {
             </DialogHeader>
 
             <div className="account-summary">
-              <span className="account-avatar account-avatar-lg" aria-hidden="true">{accountInitial(user)}</span>
+              <span className="account-avatar account-avatar-lg" aria-hidden="true">
+                {accountInitial(user.displayName, user.email)}
+              </span>
               <div className="account-summary-copy">
-                <strong>{user.displayName.trim() || user.email}</strong>
+                <strong>{accountDisplayName(user.displayName, user.email)}</strong>
                 <span>{user.email}</span>
-                <span className="account-summary-meta">注册于 {createdDate(user)}</span>
+                <span className="account-summary-meta">注册于 {accountCreatedDate(user.createdAt)}</span>
               </div>
             </div>
 
             <p className="account-note">会员与云同步将在后续版本接入。</p>
             <p className="account-note account-note-muted">会员权益筹备中。上线后会在这里显示套餐与到期时间。</p>
+            {sessionUnverified ? (
+              <p className="account-note account-note-muted" role="status">
+                账号服务暂时不可用，已保留本地登录状态；会员与云同步稍后再试。
+              </p>
+            ) : null}
 
             <Button
               type="button"
@@ -263,14 +309,15 @@ export function AccountDialog() {
             </DialogHeader>
 
             <div className="account-tabs" role="tablist" aria-label="账号操作">
-              {tabs.map((tab) => (
+              {BASE_TABS.map((tab) => (
                 <button
                   key={tab.mode}
                   type="button"
                   role="tab"
                   id={`account-tab-${tab.mode}`}
                   aria-selected={authMode === tab.mode}
-                  aria-controls={authMode === tab.mode ? tabPanelId : undefined}
+                  aria-controls={AUTH_PANEL_ID}
+                  disabled={busy}
                   className="account-tab"
                   onClick={() => switchMode(tab.mode)}
                 >
@@ -281,12 +328,18 @@ export function AccountDialog() {
 
             <form
               className="account-form"
-              id={tabPanelId}
+              id={AUTH_PANEL_ID}
               role="tabpanel"
-              aria-labelledby={`account-tab-${authMode}`}
+              aria-labelledby={authMode === "reset" ? "account-reset-title" : `account-tab-${authMode}`}
               noValidate
+              {...compositionHandlers}
+              onKeyDown={handleCompositionKeyDown}
               onSubmit={(event) => void submit(event)}
             >
+              {authMode === "reset" ? (
+                <h3 id="account-reset-title" className="account-reset-title">重置密码</h3>
+              ) : null}
+
               <div className="account-field">
                 <Label htmlFor="account-email">邮箱</Label>
                 <Input
@@ -296,6 +349,9 @@ export function AccountDialog() {
                   autoComplete="email"
                   inputMode="email"
                   placeholder="you@example.com"
+                  aria-invalid={fieldError === "email" ? true : undefined}
+                  aria-describedby={displayedError && fieldError === "email" ? ERROR_ID : undefined}
+                  {...compositionHandlers}
                   onChange={(event) => changeEmail(event.target.value)}
                 />
               </div>
@@ -311,6 +367,9 @@ export function AccountDialog() {
                       inputMode="numeric"
                       maxLength={6}
                       placeholder="6 位数字"
+                      aria-invalid={fieldError === "code" ? true : undefined}
+                      aria-describedby={displayedError && fieldError === "code" ? ERROR_ID : undefined}
+                      {...compositionHandlers}
                       onChange={(event) => changeCode(event.target.value)}
                     />
                     <Button
@@ -337,12 +396,16 @@ export function AccountDialog() {
                     value={password}
                     autoComplete={authMode === "login" ? "current-password" : "new-password"}
                     placeholder={authMode === "login" ? "输入密码" : "至少 8 位"}
+                    aria-invalid={fieldError === "password" ? true : undefined}
+                    aria-describedby={displayedError && fieldError === "password" ? ERROR_ID : undefined}
+                    {...compositionHandlers}
                     onChange={(event) => changePassword(event.target.value)}
                   />
                   <button
                     type="button"
                     className="account-password-toggle"
                     aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                    aria-pressed={showPassword}
                     title={showPassword ? "隐藏密码" : "显示密码"}
                     onClick={() => setShowPassword((visible) => !visible)}
                   >
@@ -352,10 +415,15 @@ export function AccountDialog() {
               </div>
 
               {displayedError ? (
-                <p className="account-error" role="alert">{displayedError}</p>
+                <p className="account-error" id={ERROR_ID} role="alert">{displayedError}</p>
               ) : null}
 
-              <Button type="submit" className="account-submit" disabled={busy}>
+              <Button
+                type="submit"
+                className="account-submit"
+                disabled={busy}
+                aria-busy={submitting || undefined}
+              >
                 {submitting ? <Loader2 className="animate-spin" /> : null}
                 {submitting
                   ? authMode === "login"
@@ -366,20 +434,20 @@ export function AccountDialog() {
                   : authMode === "login"
                     ? "登录"
                     : authMode === "register"
-                      ? "注册"
+                      ? "注册并登录"
                       : "重置密码"}
               </Button>
 
               <div className="account-form-links">
                 {authMode === "login" ? (
                   <>
-                    <button type="button" onClick={() => switchMode("register")}>没有账号？注册</button>
-                    <button type="button" onClick={() => switchMode("reset")}>忘记密码？</button>
+                    <button type="button" disabled={busy} onClick={() => switchMode("register")}>没有账号？注册</button>
+                    <button type="button" disabled={busy} onClick={() => switchMode("reset")}>忘记密码？</button>
                   </>
                 ) : authMode === "register" ? (
-                  <button type="button" onClick={() => switchMode("login")}>已有账号？登录</button>
+                  <button type="button" disabled={busy} onClick={() => switchMode("login")}>已有账号？登录</button>
                 ) : (
-                  <button type="button" onClick={() => switchMode("login")}>返回登录</button>
+                  <button type="button" disabled={busy} onClick={() => switchMode("login")}>返回登录</button>
                 )}
               </div>
             </form>

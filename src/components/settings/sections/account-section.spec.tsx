@@ -52,7 +52,7 @@ describe("AccountSection", () => {
     render()
 
     expect(host.querySelector('[data-ui="account-section"]')).not.toBeNull()
-    expect(host.textContent).toContain("登录后为后续会员与多设备同步做准备；本地写作和模型配置不受影响。")
+    expect(host.textContent).toContain("登录青幕账号，会员权益与后续云服务会记在这个账号下。不登录也可以正常写作。")
     expect(host.textContent).not.toContain("会员已开通")
 
     await act(async () => textButton("登录").click())
@@ -75,10 +75,10 @@ describe("AccountSection", () => {
     expect(host.textContent).not.toContain("会员已开通")
 
     await act(async () => textButton("退出登录").click())
-    expect(window.confirm).toHaveBeenCalledWith("确定退出登录吗？")
+    expect(window.confirm).toHaveBeenCalledWith("退出后这台设备需要重新登录；本地小说和模型配置不会被删除。")
     expect(useAccountStore.getState().status).toBe("anonymous")
     expect(useAccountStore.getState().user).toBeNull()
-    expect(host.textContent).toContain("登录后为后续会员与多设备同步做准备")
+    expect(host.textContent).toContain("登录青幕账号，会员权益与后续云服务会记在这个账号下")
   })
 
   it("账号状态尚未读取时显示加载说明", () => {
@@ -86,5 +86,17 @@ describe("AccountSection", () => {
     render()
     expect(host.textContent).toContain("正在读取账号状态…")
     expect(host.querySelector("button")).toBeNull()
+  })
+
+  it("账号服务暂时不可用但保留登录态时显示灰色提示", () => {
+    useAccountStore.setState({
+      status: "authenticated",
+      user: USER,
+      sessionUnverified: true,
+    })
+    render()
+
+    expect(host.textContent).toContain("账号服务暂时不可用，已保留本地登录状态；会员与云同步稍后再试。")
+    expect(host.querySelector('[role="status"]')).not.toBeNull()
   })
 })

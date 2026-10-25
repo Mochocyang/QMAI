@@ -67,4 +67,22 @@ describe("AccountButton", () => {
     expect(button.title).toBe("青禾 · author@example.com")
     expect(button.title).toContain("author@example.com")
   })
+
+  it("booting 缓存用户也显示头像，空显示名回退邮箱", () => {
+    useAccountStore.setState({
+      status: "booting",
+      user: {
+        id: 8,
+        email: "author@example.com",
+        displayName: "",
+        createdAt: 1_793_000_000,
+      },
+    })
+    render()
+
+    const button = accountButton()
+    expect(button.querySelector(".account-avatar")?.textContent).toBe("A")
+    expect(button.querySelector("svg")).toBeNull()
+    expect(button.title).toBe("author@example.com · author@example.com")
+  })
 })

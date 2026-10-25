@@ -4,16 +4,21 @@ import { LogIn, LogOut, UserPlus, UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/lib/toast"
 import { useAccountStore } from "@/stores/account-store"
+import {
+  ACCOUNT_LOGOUT_CONFIRM,
+  accountCreatedDate,
+  accountDisplayName,
+  accountInitial,
+} from "@/components/account/account-display"
 
-function accountInitial(displayName: string, email: string): string {
-  const name = displayName.trim() || email
-  return (Array.from(name)[0] ?? "").toUpperCase()
-}
+const ACCOUNT_DESCRIPTION =
+  "登录青幕账号，会员权益与后续云服务会记在这个账号下。不登录也可以正常写作。"
 
 /** 设置 › 账号：只展示登录态，不请求接口，也不影响其它设置。 */
 export function AccountSection() {
   const status = useAccountStore((state) => state.status)
   const user = useAccountStore((state) => state.user)
+  const sessionUnverified = useAccountStore((state) => state.sessionUnverified)
   const openDialog = useAccountStore((state) => state.openDialog)
   const logout = useAccountStore((state) => state.logout)
   const [loggingOut, setLoggingOut] = useState(false)
@@ -21,9 +26,7 @@ export function AccountSection() {
   const header = (
     <div>
       <h2 className="text-xl font-semibold">账号</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        登录后为后续会员与多设备同步做准备；本地写作和模型配置不受影响。
-      </p>
+      <p className="mt-1 text-sm text-muted-foreground">{ACCOUNT_DESCRIPTION}</p>
     </div>
   )
 
@@ -39,16 +42,11 @@ export function AccountSection() {
   if (status === "authenticated" && user) {
     const handleLogout = async () => {
       if (loggingOut) return
-      if (!window.confirm("确定退出登录吗？")) return
+      if (!window.confirm(ACCOUNT_LOGOUT_CONFIRM)) return
       setLoggingOut(true)
-      try {
-        await logout()
-        toast.success("已退出登录")
-      } catch {
-        toast.error("退出登录失败，请稍后重试。")
-      } finally {
-        setLoggingOut(false)
-      }
+      await logout()
+      setLoggingOut(false)
+      toast.success("已退出登录")
     }
 
     return (
@@ -61,10 +59,12 @@ export function AccountSection() {
               {accountInitial(user.displayName, user.email)}
             </div>
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{user.displayName.trim() || user.email}</p>
+              <p className="truncate text-sm font-medium">
+                {accountDisplayName(user.displayName, user.email)}
+              </p>
               <p className="truncate text-sm text-muted-foreground">{user.email}</p>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                注册于 {new Date(user.createdAt * 1000).toLocaleDateString("zh-CN")}
+                注册于 {accountCreatedDate(user.createdAt)}
               </p>
             </div>
           </div>
@@ -78,6 +78,12 @@ export function AccountSection() {
               会员权益筹备中。上线后会在这里显示套餐与到期时间。
             </p>
           </div>
+
+          {sessionUnverified ? (
+            <p className="mt-3 rounded-md bg-muted px-3 py-2 text-xs leading-5 text-muted-foreground" role="status">
+              账号服务暂时不可用，已保留本地登录状态；会员与云同步稍后再试。
+            </p>
+          ) : null}
 
           <div className="mt-4">
             <Button
@@ -99,7 +105,7 @@ export function AccountSection() {
     <div data-ui="account-section" className="space-y-6">
       {header}
       <div className="rounded-lg border border-border p-4">
-        <p className="text-sm text-muted-foreground">不登录也可以正常写作。</p>
+        <p className="text-sm text-muted-foreground">{ACCOUNT_DESCRIPTION}</p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button type="button" onClick={() => openDialog("login")}>
             <LogIn aria-hidden="true" />

@@ -4,11 +4,11 @@
   width: min(92vw, 420px);
 }
 
-.account-entry {
+.ui-test-actions .account-entry {
   padding: 0;
 }
 
-.account-entry .account-avatar {
+.ui-test-actions .account-entry .account-avatar {
   width: 24px;
   height: 24px;
   font-size: 0.6875rem;
@@ -74,6 +74,19 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.account-reset-title {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.account-dialog button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 .account-field {
@@ -231,10 +244,6 @@
 }
 
 @media (max-width: 480px) {
-  .account-dialog {
-    width: min(92vw, 420px);
-  }
-
   .account-code-row {
     grid-template-columns: minmax(0, 1fr);
   }
