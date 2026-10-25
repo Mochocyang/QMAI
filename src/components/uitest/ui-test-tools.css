@@ -525,6 +525,16 @@
   font-weight: 500;
 }
 
+/* 灵魂页右上角两个操作按钮：整组靠右，组内紧挨（曾因按钮各自 margin-left:auto
+   被拆成一左一右两颗，用户要求「新建灵魂」旁边紧跟着另一个）。 */
+.ui-test-root .ui-test-soul-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .ui-test-root .ui-test-soul-action {
   display: inline-flex;
   align-items: center;
@@ -536,7 +546,6 @@
   background: var(--ui-paper);
   color: var(--ui-ink);
   font-size: 0.8125rem;
-  margin-left: auto;
 }
 
 .ui-test-root .ui-test-soul-action:hover { background: var(--ui-soft); }
