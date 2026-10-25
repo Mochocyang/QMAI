@@ -9,10 +9,15 @@ import { useWikiStore } from "@/stores/wiki-store"
 export async function refreshProjectState(projectPath: string | undefined | null): Promise<void> {
   if (!projectPath) return
   const pp = normalizePath(projectPath)
+  const project = useWikiStore.getState().project
+  if (!project || normalizePath(project.path) !== pp) return
   try {
-    await refreshProjectFileTree(pp, { bumpDataVersion: true })
+    await refreshProjectFileTree(pp, { projectId: project.id, bumpDataVersion: true })
   } catch (err) {
-    useWikiStore.getState().bumpDataVersion()
+    const current = useWikiStore.getState().project
+    if (current?.id === project.id && normalizePath(current.path) === pp) {
+      useWikiStore.getState().bumpDataVersion()
+    }
     console.error("[refreshProjectState] 刷新文件树失败:", err)
   }
 }
