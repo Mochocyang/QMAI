@@ -30,6 +30,19 @@ const FOUR_POINT_THREE_EIGHT_ZH: string[] = [
   "重排地址支持 …/reranks 这类复数写法，不再提示地址无效。",
 ];
 
+const FOUR_POINT_THREE_NINE_ZH: string[] = [
+  "修复一些问题，提升使用稳定性与体验。",
+];
+
+const FOUR_POINT_THREE_NINE_CHANGELOG: ChangelogEntry = {
+  version: "4.3.9",
+  date: "2026-10-25",
+  highlights: {
+    en: FOUR_POINT_THREE_NINE_ZH,
+    zh: FOUR_POINT_THREE_NINE_ZH,
+  },
+};
+
 const FOUR_POINT_THREE_EIGHT_CHANGELOG: ChangelogEntry = {
   version: "4.3.8",
   date: "2026-10-25",
@@ -2069,6 +2082,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_THREE_NINE_CHANGELOG.version)
+    return [FOUR_POINT_THREE_NINE_CHANGELOG];
   if (version === FOUR_POINT_THREE_EIGHT_CHANGELOG.version)
     return [FOUR_POINT_THREE_EIGHT_CHANGELOG];
   if (version === FOUR_POINT_THREE_SEVEN_CHANGELOG.version)
@@ -2250,6 +2265,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_THREE_NINE_CHANGELOG,
     FOUR_POINT_THREE_EIGHT_CHANGELOG,
     FOUR_POINT_THREE_SEVEN_CHANGELOG,
     FOUR_POINT_THREE_SIX_CHANGELOG,
