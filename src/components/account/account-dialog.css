@@ -1,0 +1,241 @@
+/* 账号弹窗与顶栏入口的布局。颜色全部取自现有主题 token。 */
+
+.account-dialog {
+  width: min(92vw, 420px);
+}
+
+.account-entry {
+  padding: 0;
+}
+
+.account-entry .account-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 0.6875rem;
+}
+
+.account-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.account-avatar-lg {
+  width: 44px;
+  height: 44px;
+  font-size: 1.125rem;
+}
+
+.account-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--muted);
+}
+
+.account-tab {
+  flex: 1;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.account-tab:hover {
+  color: var(--foreground);
+}
+
+.account-tab[aria-selected="true"] {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
+.account-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.account-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.account-field [data-slot="label"] {
+  color: var(--foreground);
+}
+
+.account-code-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.account-password-field {
+  position: relative;
+  display: flex;
+}
+
+.account-password-field [data-slot="input"] {
+  padding-right: 2.375rem;
+}
+
+.account-password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.account-password-toggle:hover {
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.account-password-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+.account-dev-code {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.account-error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--destructive) 35%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--destructive) 8%, transparent);
+  color: var(--destructive);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+.account-submit {
+  width: 100%;
+}
+
+.account-form-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 12px;
+  min-height: 22px;
+}
+
+.account-form-links button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.account-form-links button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.account-session {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.account-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--muted);
+}
+
+.account-summary-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.account-summary-copy strong {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-summary-copy span {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-summary-copy .account-summary-meta {
+  font-size: 0.75rem;
+}
+
+.account-note {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  line-height: 1.65;
+}
+
+.account-note-muted {
+  margin-top: -8px;
+  color: var(--muted-foreground);
+}
+
+@media (max-width: 480px) {
+  .account-dialog {
+    width: min(92vw, 420px);
+  }
+
+  .account-code-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
