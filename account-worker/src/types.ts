@@ -9,8 +9,16 @@ export interface Env {
   AUTH_JWT_SECRET?: string
   /** 验证码 / IP 哈希 pepper，至少 16 字节；缺失时 Worker 失败关闭。 */
   AUTH_CODE_PEPPER?: string
-  /** Resend API key；缺失时仅 development 允许 console 输出验证码。 */
+  /**
+   * 发信通道：`cloudflare`（send_email 绑定）或 `resend`（HTTP API）。
+   * 留空时按可用凭据自动推断。
+   */
+  EMAIL_PROVIDER?: string
+  /** Cloudflare Workers send_email 绑定；仅在 EMAIL_PROVIDER=cloudflare 时使用。 */
+  EMAIL?: SendEmailBinding
+  /** Resend API key；仅在 EMAIL_PROVIDER=resend 时使用。 */
   RESEND_API_KEY?: string
+  /** 发件人，支持 `"显示名 <a@b.com>"` 或纯地址。 */
   AUTH_EMAIL_FROM?: string
   APP_ALLOWED_ORIGINS?: string
   ENVIRONMENT?: string
@@ -19,6 +27,17 @@ export interface Env {
 }
 
 export type CodePurpose = "register" | "reset"
+
+/** 只声明用到的 send_email 绑定形状，避免把 Workers 运行时类型带进单测。 */
+export interface SendEmailBinding {
+  send(message: {
+    to: string | { email: string; name?: string } | Array<string | { email: string; name?: string }>
+    from: string | { email: string; name?: string }
+    subject: string
+    html?: string
+    text?: string
+  }): Promise<{ messageId: string }>
+}
 
 export interface UserRow {
   id: number
