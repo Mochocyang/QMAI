@@ -47,6 +47,7 @@ describe("QMAI model settings", () => {
 
     expect(LLM_PRESETS.map((item) => item.id)).toEqual([
       "custom",
+      "qmai-builtin",
       "anthropic",
       "claude-code-cli",
       "codex-cli",

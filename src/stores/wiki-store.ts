@@ -95,7 +95,7 @@ type SettingsCategoryId =
   | "contact-support"
   | "changelog"
 
-export type ModelSettingsTabId = "default" | "llm" | "rerank" | "embedding"
+export type ModelSettingsTabId = "builtin" | "default" | "llm" | "rerank" | "embedding"
 
 export interface StyleEvolutionNotice {
   stylePresetId: string
