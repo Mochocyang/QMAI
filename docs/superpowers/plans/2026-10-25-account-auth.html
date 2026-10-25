@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>账号登录与注册 · 实施计划</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2430; --muted:#5d6878; --line:#dfe4ea; --accent:#3f6f5f; --soft:#eaf2ee; --warn:#8a5a1f; --warnbg:#fbf3e4; --code:#f1f4f7; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.7 "PingFang SC","Microsoft YaHei",system-ui,sans-serif; }
+  .page { max-width:1080px; margin:0 auto; padding:40px 24px 90px; }
+  header { background:linear-gradient(135deg,#23483c,#3f6f5f 60%,#6e9587); color:#fff; border-radius:18px; padding:32px 34px; margin-bottom:24px; }
+  header h1 { margin:0 0 10px; font-size:30px; line-height:1.3; }
+  header p { margin:6px 0; opacity:.92; }
+  header .meta { font-size:13px; opacity:.8; margin-top:14px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:24px 28px; margin-bottom:18px; }
+  h2 { margin:0 0 6px; font-size:21px; }
+  h3 { margin:20px 0 8px; font-size:16px; }
+  h4 { margin:14px 0 6px; font-size:14px; color:var(--muted); }
+  p { margin:8px 0; }
+  ul,ol { margin:8px 0; padding-left:22px; }
+  li { margin:4px 0; }
+  code { background:var(--code); padding:1px 5px; border-radius:5px; font-family:"Cascadia Code",Consolas,monospace; font-size:.92em; }
+  pre { background:#1f2933; color:#e8edf2; padding:15px 17px; border-radius:10px; overflow-x:auto; font-size:13px; line-height:1.6; }
+  pre code { background:transparent; padding:0; color:inherit; }
+  table { width:100%; border-collapse:collapse; margin:10px 0; font-size:14px; }
+  th,td { border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#f2f5f3; }
+  .task { border-left:3px solid var(--accent); }
+  .task h2 { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+  .badge { font-size:12px; font-weight:600; background:var(--soft); color:var(--accent); border:1px solid #cfe0d7; border-radius:999px; padding:2px 9px; }
+  .note { border-left:3px solid var(--accent); background:var(--soft); padding:10px 14px; border-radius:0 8px 8px 0; margin:12px 0; }
+  .warn { border-left-color:var(--warn); background:var(--warnbg); }
+  .files { font-size:13px; background:#f8faf9; border:1px solid var(--line); border-radius:8px; padding:10px 14px; }
+  .files code { background:transparent; padding:0; }
+  ol.steps { list-style:none; padding-left:0; counter-reset:step; }
+  ol.steps > li { counter-increment:step; position:relative; padding:10px 0 10px 38px; border-bottom:1px dashed var(--line); }
+  ol.steps > li:last-child { border-bottom:0; }
+  ol.steps > li::before { content:counter(step); position:absolute; left:0; top:11px; width:24px; height:24px; border-radius:50%; background:var(--soft); color:var(--accent); font-size:12px; font-weight:700; display:grid; place-items:center; }
+  .cmd { font-size:13px; }
+  footer { color:var(--muted); font-size:13px; text-align:center; margin-top:20px; }
+</style>
+</head>
+<body>
+<div class="page">
+<header>
+  <h1>账号登录与注册 · 实施计划</h1>
+  <p><strong>目标：</strong>在 QMAI 中交付可选登录的邮箱账号体系：验证码注册、邮箱密码登录、长期登录态、退出与找回密码；账号服务独立部署，不影响本地写作与现有模型。</p>
+  <p><strong>架构：</strong>Cloudflare Worker + D1 提供 <code>/v1/auth/*</code>；客户端新增纯 HTTP 层、会话持久化、zustand store、账号弹窗与设置页。</p>
+  <p><strong>技术栈：</strong>TypeScript、Cloudflare Workers/D1、WebCrypto、Resend、React 19、Zustand、Vitest、Tauri plugin-http。</p>
+  <div class="meta">规格：<code>docs/superpowers/specs/2026-10-25-account-auth-design.html</code> · 计划日期：2026-10-25</div>
+</header>
+
+<section>
+  <h2>执行方式</h2>
+  <p>本计划按「服务端 → 客户端纯逻辑 → UI → 集成验证」顺序执行。每个任务先写测试，再实现，再跑测试并提交。</p>
+  <div class="note warn"><strong>外部依赖：</strong>Resend 的 <code>RESEND_API_KEY</code> 与已验证发信域名由你提供。代码先支持开发模式（<code>devCode</code>）联调；生产密钥未配置时不得对外发布。</div>
+</section>
+
+<section class="task">
+  <h2>Task 1：Worker 骨架、D1 表结构、配置 <span class="badge">服务端</span></h2>
+  <div class="files">
+    <strong>Create:</strong> <code>account-worker/package.json</code>、<code>account-worker/tsconfig.json</code>、<code>account-worker/wrangler.toml</code>、<code>account-worker/schema.sql</code>、<code>account-worker/.gitignore</code><br />
+    <strong>Create:</strong> <code>account-worker/src/types.ts</code>、<code>account-worker/src/http.ts</code>
+  </div>
+  <ol class="steps">
+    <li><strong>写 schema.sql</strong>：四张表 + 索引，列与规格 §5 完全一致（<code>users</code>、<code>email_codes</code>、<code>sessions</code>、<code>rate_limits</code>）。<br /><code>sessions</code> 使用 <code>token_hash</code> + <code>previous_token_hash</code>，不要用每次刷新插新行。</li>
+    <li><strong>写 wrangler.toml</strong>：<code>name = "qmai-account"</code>、<code>main = "src/index.ts"</code>、<code>compatibility_date = "2026-01-01"</code>、D1 绑定名 <code>DB</code>、变量 <code>AUTH_EMAIL_FROM</code> / <code>APP_ALLOWED_ORIGINS</code> / <code>ENVIRONMENT</code> / <code>PASSWORD_ITERATIONS</code>。<code>database_id</code> 先写全零 UUID，并在 README 里要求替换。</li>
+    <li><strong>写 types.ts</strong>：<code>Env</code>、<code>UserRow</code>、<code>PublicUser</code>、<code>AuthBundle</code>、<code>AuthErrorCode</code>。</li>
+    <li><strong>写 http.ts</strong>：<code>json()</code>、<code>apiError()</code>、<code>readJson()</code>、<code>corsHeaders()</code>、<code>clientIpHash()</code>、<code>noStore()</code>。统一 <code>{success,data}</code> / <code>{success:false,code,message}</code> 信封。</li>
+    <li><strong>验证：</strong><code>cd account-worker; npm install; npm run typecheck</code> 预期通过（此时 index.ts 还没路由，先放一个返回 404 的 fetch）。</li>
+    <li><strong>提交：</strong><code>git add account-worker; git commit -m "feat(账号): 账号 Worker 骨架与 D1 表结构"</code></li>
+  </ol>
+</section>
+
+<section class="task">
+  <h2>Task 2：密码、验证码、JWT（TDD） <span class="badge">服务端核心</span></h2>
+  <div class="files">
+    <strong>Create:</strong> <code>account-worker/src/validation.ts</code>、<code>account-worker/src/crypto.ts</code><br />
+    <strong>Test:</strong> <code>account-worker/test/validation.test.ts</code>、<code>account-worker/test/crypto.test.ts</code>、<code>account-worker/test/jwt.test.ts</code><br />
+    <strong>Create:</strong> <code>account-worker/vitest.config.ts</code>
+  </div>
+  <ol class="steps">
+    <li><strong>先写失败测试</strong>：邮箱 trim/小写、非法邮箱拒绝；密码 8–128；验证码必须 6 位数字；PBKDF2 哈希可验证、盐不同结果不同；JWT 签发后可验证，篡改/过期/错误 secret 必须失败。</li>
+    <li><strong>跑测试确认失败</strong>：<code>cd account-worker; npx vitest run</code>，预期模块不存在。</li>
+    <li><strong>实现 validation.ts</strong>：
+<pre><code>export function normalizeEmail(raw: string): string
+export function isValidEmail(email: string): boolean
+export function validatePassword(password: string): "TOO_SHORT" | "TOO_LONG" | null
+export function isValidCode(code: string): boolean</code></pre></li>
+    <li><strong>实现 crypto.ts</strong>：<code>randomCode()</code> 用 <code>crypto.getRandomValues</code> 生成 6 位；<code>sha256Hex()</code>；<code>hashPassword()</code> 输出 <code>pbkdf2$iterations$saltB64url$hashB64url</code>；<code>verifyPassword()</code> 用存储的迭代数；<code>signJwt()</code> / <code>verifyJwt()</code> HS256 + <code>iss="qmai-account"</code>；<code>base64url()</code> / <code>fromBase64url()</code>；<code>randomToken()</code> 32 字节。</li>
+    <li><strong>跑测试确认通过</strong>：<code>npx vitest run</code>，预期全绿。</li>
+    <li><strong>提交：</strong><code>git add account-worker; git commit -m "feat(账号): 密码哈希、验证码与 JWT 基础能力"</code></li>
+  </ol>
+</section>
+
+<section class="task">
+  <h2>Task 3：Resend 发信、D1 查询、限流 <span class="badge">服务端</span></h2>
+  <div class="files">
+    <strong>Create:</strong> <code>account-worker/src/email.ts</code>、<code>account-worker/src/db.ts</code><br />
+    <strong>Test:</strong> <code>account-worker/test/rate-limit.test.ts</code>（用纯函数验证窗口计算）
+  </div>
+  <ol class="steps">
+    <li><strong>email.ts</strong>：<code>sendVerificationEmail(env, email, code, purpose)</code> 调 <code>https://api.resend.com/emails</code>，Bearer <code>RESEND_API_KEY</code>，from <code>AUTH_EMAIL_FROM</code>，中文 HTML + 纯文本；<code>sendAlreadyRegisteredEmail()</code> 提示直接登录。无 key 且 <code>ENVIRONMENT=development</code> 时只 <code>console.log</code> 并返回 <code>ok</code>。</li>
+    <li><strong>db.ts</strong>：参数化查询封装：<code>findUserByEmail</code>、<code>insertUser</code>、<code>insertCode</code>、<code>findLatestCode</code>、<code>consumeCode</code>、<code>incrementCodeAttempts</code>、<code>insertSession</code>、<code>findSessionByTokenHash</code>、<code>findSessionByPreviousHash</code>、<code>rotateSession</code>、<code>revokeFamily</code>、<code>revokeAllUserSessions</code>、<code>consumeRateLimit</code>。</li>
+    <li><strong>限流 SQL</strong>：<code>INSERT ... ON CONFLICT(bucket) DO UPDATE</code>，窗口过期时重置为 1，否则 +1，<code>RETURNING count</code>。窗口：邮箱码 60s/5 每小时、IP 20 每小时、登录失败 15 分钟 10 次。</li>
+    <li><strong>测试窗口函数</strong>：把「是否需要重置 / 是否超限」抽成纯函数 <code>nextRateLimit(state, now, windowSec, limit)</code> 并单测。</li>
+    <li><strong>提交：</strong><code>git commit -m "feat(账号): Resend 发信、D1 访问与频率限制"</code></li>
+  </ol>
+</section>
+
+<section class="task">
+  <h2>Task 4：八个认证路由 <span class="badge">服务端</span></h2>
+  <div class="files">
+    <strong>Create:</strong> <code>account-worker/src/auth.ts</code><br />
+    <strong>Modify:</strong> <code>account-worker/src/index.ts</code>（路由、CORS、错误兜底）
+  </div>
+  <ol class="steps">
+    <li><strong>send-code</strong>：校验邮箱/purpose → 邮箱 60s + IP/邮箱小时限流 → 已注册的 register 发通知不发码 → 生成码、存哈希、发信 → 返回 <code>{cooldownSeconds:60}</code>；开发模式附 <code>devCode</code>。</li>
+    <li><strong>register</strong>：查重 → 取最近未消费码 → 过期/尝试/哈希校验 → 插用户 → 建 session → 返回 bundle。失败码按规格 §11。</li>
+    <li><strong>login</strong>：查用户；不存在也跑一次 PBKDF2；校验密码；status 检查；建新 family session。</li>
+    <li><strong>refresh</strong>：先按当前哈希查；命中则轮换（<code>previous_token_hash = 旧</code>，写入新哈希，expires_at 顺延）；若命中 previous 哈希 → <code>revokeFamily</code> 并返回 <code>INVALID_REFRESH</code>；否则 401。</li>
+    <li><strong>logout</strong>：按 refresh 哈希撤销；幂等返回成功。</li>
+    <li><strong>me</strong>：Bearer 解析 + JWT 校验 + 查用户。</li>
+    <li><strong>password/reset</strong>：purpose=reset 校验 → 更新哈希 → 撤销全部 session。</li>
+    <li><strong>CORS/路由</strong>：OPTIONS 204；只允许 allowlist；未知路由 404；捕获异常返回 <code>SERVER_ERROR</code>，不泄露堆栈。</li>
+    <li><strong>本地冒烟</strong>：<code>npx wrangler dev --local --port 8787</code>，用 curl 走「发码（开发模式看码）→ 注册 → me → refresh → logout」；记录结果。</li>
+    <li><strong>提交：</strong><code>git commit -m "feat(账号): 注册、登录、续期与找回密码路由"</code></li>
+  </ol>
+</section>
+
+<section class="task">
+  <h2>Task 5：客户端 HTTP 层、错误映射、校验 <span class="badge">客户端纯逻辑</span></h2>
+  <div class="files">
+    <strong>Create:</strong> <code>src/lib/account/types.ts</code>、<code>src/lib/account/api.ts</code>、<code>src/lib/account/errors.ts</code>、<code>src/lib/account/validation.ts</code>、<code>src/lib/account/session.ts</code><br />
+    <strong>Test:</strong> <code>src/lib/account/api.spec.ts</code>、<code>src/lib/account/session.spec.ts</code>
+  </div>
+  <ol class="steps">
+    <li><strong>先写 api.spec.ts</strong>：用注入的 <code>fetchImpl</code> 断言 URL、方法、body、Authorization；401/409/429 映射成中文；网络异常映射 <code>NETWORK</code>。</li>
+    <li><strong>types.ts</strong>：<code>AccountUser</code>、<code>AuthBundle</code>、<code>StoredAccountSession</code>、<code>AccountPurpose</code>、<code>ResetPasswordInput</code>。</li>
+    <li><strong>api.ts</strong>：每个函数接受可选 <code>fetchImpl</code>；<code>resolveAccountBaseUrl()</code> 读 <code>qmai.account.baseUrl.v1</code> 或 <code>VITE_QMAI_ACCOUNT_URL</code>，默认 <code>https://qmai-account.qmai.workers.dev</code>；超时 20 秒；解析信封；抛 <code>AccountApiError</code>。</li>
+    <li><strong>errors.ts</strong>：规格 §11 的 code → 文案表；<code>accountErrorText(error)</code> 兜底不泄露原始 URL/token。</li>
+    <li><strong>session.ts</strong>：键 <code>qmai.account.session.v1</code>；读时校验 baseUrl / refreshToken / user；写失败静默；清除幂等。</li>
+    <li><strong>跑测试</strong>：<code>npx vitest run src/lib/account</code> 预期全绿。</li>
+    <li><strong>提交：</strong><code>git commit -m "feat(账号): 客户端账号接口与本地会话"</code></li>
+  </ol>
+</section>
+
+<section class="task">
+  <h2>Task 6：account-store（登录态与动作） <span class="badge">客户端状态</span></h2>
+  <div class="files">
+    <strong>Create:</strong> <code>src/stores/account-store.ts</code><br />
+    <strong>Test:</strong> <code>src/stores/account-store.spec.ts</code>（jsdom）
+  </div>
+  <ol class="steps">
+    <li><strong>先写测试</strong>：登录成功写会话并 authenticated；register 同理；refresh 成功更新 token；refresh 401 清会话；logout 即使接口失败也清本地；bootstrap 无会话不发请求；bootstrap 网络失败保留缓存用户。</li>
+    <li><strong>实现 store</strong>：
+<pre><code>type AccountStatus = "idle" | "booting" | "anonymous" | "authenticated"
+interface AccountState {
+  status: AccountStatus
+  user: AccountUser | null
+  session: StoredAccountSession | null
+  bootstrapped: boolean
+  error: string | null
+  dialogOpen: boolean
+  authMode: "login" | "register" | "reset"
+  bootstrap(): Promise&lt;void&gt;
+  sendCode(email: string, purpose: AccountPurpose): Promise&lt;{ cooldownSeconds: number; devCode?: string }&gt;
+  register(input: RegisterInput): Promise&lt;void&gt;
+  login(input: LoginInput): Promise&lt;void&gt;
+  resetPassword(input: ResetPasswordInput): Promise&lt;void&gt;
+  logout(): Promise&lt;void&gt;
+  refresh(): Promise&lt;void&gt;
+  openDialog(mode?: "login" | "register" | "reset"): void
+  closeDialog(): void
+  setAuthMode(mode): void
+  clearError(): void
+}</code></pre></li>
+    <li><strong>关键行为</strong>：<code>bootstrap()</code> 只跑一次；有 refresh 先乐观设 authenticated，再静默刷新；<code>login/register</code> 成功后写会话、关弹窗、toast；<code>logout</code> 先调接口再无条件清本地。</li>
+    <li><strong>跑测试</strong>：<code>npx vitest run src/stores/account-store.spec.ts</code>。</li>
+    <li><strong>提交：</strong><code>git commit -m "feat(账号): 全局登录态与启动续期"</code></li>
+  </ol>
+</section>
+
+<section class="task">
+  <h2>Task 7：登录/注册/重置弹窗与顶栏入口 <span class="badge">客户端 UI</span></h2>
+  <div class="files">
+    <strong>Create:</strong> <code>src/components/account/account-dialog.tsx</code>、<code>src/components/account/account-button.tsx</code>、<code>src/components/account/account.css</code><br />
+    <strong>Test:</strong> <code>src/components/account/account-dialog.spec.tsx</code><br />
+    <strong>Modify:</strong> <code>src/components/uitest/ui-test-shell.tsx</code>
+  </div>
+  <ol class="steps">
+    <li><strong>先写弹窗测试</strong>：空邮箱点获取 → 提示；合法邮箱点获取 → 按钮进入倒计时；注册空密码 → 提示；忘记密码切换到重置视图；登录失败显示表单内错误。</li>
+    <li><strong>account-dialog.tsx</strong>：用现有 <code>Dialog</code>；<code>open</code> 绑 store；三个模式；本地 state 管字段/倒计时/提交中；提交调用 store；错误 <code>role="alert"</code>；开发模式显示 <code>devCode</code> 提示。</li>
+    <li><strong>account-button.tsx</strong>：未登录 <code>UserRound</code>，已登录首字母圆头像；<code>aria-label</code> 与 title 正确；点击 <code>openDialog()</code>。</li>
+    <li><strong>接入 shell</strong>：在顶栏 actions 的设置按钮前放 <code>&lt;AccountButton /&gt;</code>；在根节点挂一次 <code>&lt;AccountDialog /&gt;</code>；<code>useEffect</code> 调 <code>bootstrap()</code>。</li>
+    <li><strong>样式</strong>：<code>account.css</code> 用现有 CSS 变量；桌面 420px、窄屏不溢出；输入框与按钮复用现有视觉语言。</li>
+    <li><strong>跑测试</strong>：<code>npx vitest run src/components/account</code>；再跑 <code>npx vitest run src/components/uitest/ui-test-shell.spec.tsx</code> 防回归。</li>
+    <li><strong>提交：</strong><code>git commit -m "feat(账号): 登录注册弹窗与顶栏入口"</code></li>
+  </ol>
+</section>
+
+<section class="task">
+  <h2>Task 8：设置 → 账号页 <span class="badge">客户端 UI</span></h2>
+  <div class="files">
+    <strong>Create:</strong> <code>src/components/settings/sections/account-section.tsx</code><br />
+    <strong>Test:</strong> <code>src/components/settings/sections/account-section.spec.tsx</code><br />
+    <strong>Modify:</strong> <code>src/components/settings/settings-view.tsx</code>、<code>src/i18n/zh.json</code>
+  </div>
+  <ol class="steps">
+    <li><strong>settings-view</strong>：<code>CategoryId</code> 加 <code>"account"</code>；<code>CATEGORIES</code> 第一位加 <code>{ id:"account", labelKey:"settings.categories.account", icon:UserRound }</code>；<code>body</code> 加 <code>case "account"</code>。</li>
+    <li><strong>i18n</strong>：<code>settings.categories.account = "账号"</code>。</li>
+    <li><strong>account-section</strong>：未登录说明 + 按钮；已登录头像/邮箱/注册时间/会员占位/退出登录（确认框）；服务错误只在本页显示。</li>
+    <li><strong>测试</strong>：未登录渲染登录按钮；已登录渲染邮箱与退出；点击退出调用 store 并清会话。</li>
+    <li><strong>提交：</strong><code>git commit -m "feat(账号): 设置页账号入口与状态卡"</code></li>
+  </ol>
+</section>
+
+<section class="task">
+  <h2>Task 9：文档、测试排除、全量验证 <span class="badge">收尾</span></h2>
+  <div class="files">
+    <strong>Create:</strong> <code>account-worker/README.md</code><br />
+    <strong>Modify:</strong> <code>package.json</code>（<code>test:mocks</code> 排除 <code>account-worker/**</code>）、<code>wrangler.toml</code> 注释
+  </div>
+  <ol class="steps">
+    <li><strong>README</strong>：D1 创建、schema、三个 secret、Resend 域名验证、部署命令、开发模式、免费版 CPU 注意事项、客户端地址覆盖。</li>
+    <li><strong>test:mocks</strong>：加 <code>--exclude='**/account-worker/**'</code>，避免根 vitest 误跑 Worker 用例。</li>
+    <li><strong>类型检查</strong>：<code>npm run typecheck</code> 与 <code>npm run typecheck:tests</code>。</li>
+    <li><strong>定向测试</strong>：<code>npx vitest run src/lib/account src/stores/account-store.spec.ts src/components/account src/components/settings/sections/account-section.spec.tsx</code>。</li>
+    <li><strong>回归</strong>：<code>npx vitest run src/components/uitest/ui-test-shell.spec.tsx src/components/settings/sections/builtin-model-section.spec.tsx</code>。</li>
+    <li><strong>Worker</strong>：<code>cd account-worker; npm run typecheck; npx vitest run</code>。</li>
+    <li><strong>人工</strong>：按规格 §12 的验收清单逐项勾；至少完成注册/登录/重启/退出/断网五项。</li>
+    <li><strong>提交：</strong><code>git commit -m "docs(账号): 部署说明与验证收尾"</code></li>
+  </ol>
+</section>
+
+<section>
+  <h2>验收对照（规格 → 任务）</h2>
+  <table>
+    <thead><tr><th>规格条目</th><th>落点</th></tr></thead>
+    <tbody>
+      <tr><td>邮箱验证码注册 / 60 秒重发 / 10 分钟有效</td><td>Task 3、4、7</td></tr>
+      <tr><td>邮箱密码登录 / 统一错误 / 限流</td><td>Task 4、7</td></tr>
+      <tr><td>JWT access + 轮换 refresh + 盗用检测</td><td>Task 2、4、6</td></tr>
+      <tr><td>重启保持登录 / 断网不阻塞</td><td>Task 6、7</td></tr>
+      <tr><td>退出登录 / 重置密码撤销会话</td><td>Task 4、6、8</td></tr>
+      <tr><td>顶栏入口 + 设置账号页</td><td>Task 7、8</td></tr>
+      <tr><td>错误码中文映射</td><td>Task 5</td></tr>
+      <tr><td>部署与 Resend 配置</td><td>Task 9</td></tr>
+    </tbody>
+  </table>
+  <div class="note"><strong>不在本计划：</strong>会员计费、模型权限、云同步、第三方登录、设备管理页。它们依赖本计划产出的稳定 <code>users.id</code> 与会话表，后续单独出规格。</div>
+</section>
+
+<footer>青幕AI写作 · 账号登录与注册实施计划 · 2026-10-25</footer>
+</div>
+</body>
+</html>
