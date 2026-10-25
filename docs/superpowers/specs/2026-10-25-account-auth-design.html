@@ -294,7 +294,7 @@
             <tr><td><code>purpose</code></td><td>TEXT</td><td><code>register</code> 或 <code>reset</code>。</td></tr>
             <tr><td><code>code_hash</code></td><td>TEXT</td><td>SHA-256(pepper + email + purpose + code)。</td></tr>
             <tr><td><code>created_at</code> / <code>expires_at</code></td><td>INTEGER</td><td>默认 10 分钟有效。</td></tr>
-            <tr><td><code>attempts</code></td><td>INTEGER</td><td>默认 0；达到 5 次作废。</td></tr>
+            <tr><td><code>attempts</code></td><td>INTEGER</td><td>默认 0；同发码 IP 达到 5 次作废。</td></tr>
             <tr><td><code>consumed_at</code></td><td>INTEGER</td><td>成功使用后写入；非空即不可再用。</td></tr>
             <tr><td><code>request_ip_hash</code></td><td>TEXT</td><td>哈希后的请求 IP，仅用于审计/限流。</td></tr>
           </tbody>
@@ -431,7 +431,7 @@
             <tr><td>长度 / 字符集</td><td>6 位数字</td><td>用 <code>crypto.getRandomValues</code>，拒绝 <code>Math.random</code>。</td></tr>
             <tr><td>有效期</td><td>10 分钟</td><td>过期后必须重新获取。</td></tr>
             <tr><td>重发冷却</td><td>60 秒</td><td>客户端倒计时 + 服务端硬限制。</td></tr>
-            <tr><td>最多尝试</td><td>5 次</td><td>达到后该码作废，需重新获取。</td></tr>
+            <tr><td>最多尝试</td><td>发码 IP 5 次</td><td>同发码 IP 连续错误 5 次后该码作废，需重新获取；其他 IP 不累计 attempts，由全局 per-email 20 次/10 分钟兜底。</td></tr>
             <tr><td>同邮箱频率</td><td>5 次 / 小时</td><td>以首次请求为起点的固定窗口计数（<code>rate_limits</code> 只有三列）。</td></tr>
             <tr><td>同 IP 频率</td><td>20 次 / 小时</td><td>IP 先加盐哈希再存。</td></tr>
             <tr><td>新码生效</td><td>旧码立即作废</td><td>避免同时存在多个有效码。</td></tr>
@@ -582,7 +582,7 @@ interface AccountState {
         <table>
           <thead><tr><th style="width:24%">风险</th><th>措施</th></tr></thead>
           <tbody>
-            <tr><td>验证码被爆破</td><td>6 位码 + 5 次尝试上限 + 10 分钟过期 + 每邮箱/IP 频率限制；错误码不区分「不存在」与「已过期」之外的细节。</td></tr>
+            <tr><td>验证码被爆破</td><td>6 位码 + 发码 IP 5 次尝试上限 + 10 分钟过期 + 每邮箱/IP 频率限制；其他 IP 由全局 per-email 20 次/10 分钟兜底；错误码不区分「不存在」与「已过期」之外的细节。</td></tr>
             <tr><td>邮件接口被刷</td><td>同邮箱 60 秒冷却、每小时 5 次；同 IP 每小时 20 次；后续可加 Turnstile。</td></tr>
             <tr><td>账号枚举</td><td><code>send-code</code> 永远返回成功；登录失败统一文案；注册重复邮箱才明确提示。</td></tr>
             <tr><td>密码拖库</td><td>PBKDF2-SHA256 + 随机盐；不存明文；日志脱敏。</td></tr>
@@ -648,7 +648,7 @@ interface AccountState {
         <ul class="checklist">
           <li>新邮箱收码 → 注册 → 自动登录 → 重启客户端仍登录。</li>
           <li>同一邮箱重复注册 → 提示直接登录。</li>
-          <li>错误验证码 5 次 → 提示重新获取；过期码 → 提示已过期。</li>
+          <li>错误验证码 5 次（同一发码 IP）→ 提示重新获取；过期码 → 提示已过期。</li>
           <li>60 秒内重复点获取 → 按钮倒计时且接口拒绝。</li>
           <li>错误密码 → 表单内提示，不清空邮箱。</li>
           <li>退出登录 → 顶栏回到未登录；重启后仍是未登录。</li>

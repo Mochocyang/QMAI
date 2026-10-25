@@ -41,7 +41,7 @@ npm run deploy
 
 `wrangler.toml` 里的 `database_id` 默认是全零占位值，**必须**替换成第 1 步的返回值；`AUTH_EMAIL_FROM` 改成 Resend 已验证域名下的发信人。
 
-生产 CORS 只保留 `tauri://localhost,https://tauri.localhost`；浏览器本地开发来源通过 `.dev.vars` 覆盖，不要写进生产配置。
+生产 CORS 只保留 `tauri://localhost,https://tauri.localhost`；浏览器本地开发来源通过 `.dev.vars` 覆盖，不要写进生产配置。生产必须保持 `ENVIRONMENT=production`、`ALLOW_DEV_CODE=false`：误设为 development 会返回验证码、并允许伪造 `X-Forwarded-For` 绕过 IP 限流。
 
 ## 本地联调
 
@@ -78,10 +78,10 @@ npm run smoke
 
 ## 客户端地址
 
-客户端默认请求 `https://qmai-account.qmai.workers.dev`。构建时可用 `VITE_QMAI_ACCOUNT_URL` 覆盖；本地调试也可在浏览器 localStorage 写入：
+客户端默认请求 `https://qmai-account.qmai.workers.dev`。构建/启动时用 `VITE_QMAI_ACCOUNT_URL` 覆盖（不再支持 localStorage 改地址，避免被 XSS 重定向登录）。在仓库根目录 `.env.local` 写一行：
 
-```js
-localStorage.setItem("qmai.account.baseUrl.v1", "http://127.0.0.1:8787")
+```bash
+VITE_QMAI_ACCOUNT_URL=http://127.0.0.1:8787
 ```
 
 正式发布建议绑定自定义域名：`workers.dev` 在部分国内网络下不稳定。
@@ -96,7 +96,7 @@ localStorage.setItem("qmai.account.baseUrl.v1", "http://127.0.0.1:8787")
 ## 限流与安全权衡
 
 - **固定窗口，不是精确滑动窗口**：`rate_limits` 只有 `bucket/window_start/count` 三列。发送验证码的邮箱 5 次/小时、IP 20 次/小时，冷却 60 秒；登录失败 15 分钟窗口（邮箱 10 次、IP 30 次）；验证码校验按 IP 隔离的邮箱桶 20 次/小时、IP 30 次/小时，另有全局 per-email 猜测桶 20 次/10 分钟。计数写入用单条 `UPSERT ... RETURNING` 原子完成。
-- **验证码全局桶的边界**：全局 per-email 桶可能被第三方打满，但发码人本人 IP 验证不受影响（本人 IP 跳过全局桶）。同 IP 视为同一人，因此同 IP 连续错误码仍会累计并烧码，这是已知假设。
+- **验证码全局桶的边界**：全局 per-email 桶可能被第三方打满，但发码人本人 IP 验证不受影响（本人 IP 跳过全局桶）。前提是受害者自己发码；攻击者代发码、或受害者换了 IP 时仍受该桶约束，最长 10 分钟。同 IP 视为同一人，因此同 IP 连续错误码仍会累计并烧码，这是已知假设。
 - **登录失败锁不永久锁死账号**：邮箱失败桶是错误响应节流，不是猜测硬闸；真正的 CPU/猜测硬闸是 IP 桶（30 次 / 15 分钟）。邮箱桶满后仍会验密，密码正确就清空邮箱桶并放行，密码错误才返回 429。生产建议在 Cloudflare WAF 对 `/v1/auth/login` 再加一层限流。
 - **refresh 盗用检测范围有限**：每个设备只保留当前与紧邻的上一个 token 哈希。只有紧邻的上一个 refresh token 重放会撤销整个 `family_id`；更早的 token 重放会失效，但不会触发撤族。
 - **密码重置**：撤销该用户全部 refresh 会话；已签发的 access JWT 在剩余 ≤15 分钟内仍有效（JWT + refresh 方案的固有窗口）。
