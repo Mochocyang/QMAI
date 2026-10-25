@@ -14,6 +14,7 @@ import { flushAppState } from "@/lib/web-store"
 import { runPreCloseFlushes } from "@/lib/pre-close-flush"
 import { flushPendingChapterSave } from "@/lib/chapter-save-flush"
 import { checkForAppUpdate } from "@/lib/app-updater"
+import { initAnalytics } from "@/lib/analytics"
 import { confirmAppQuit } from "@/components/uitest/models/model-draft-guard"
 import { restoreUiTestWorkspace, readUiTestWorkspacePreference } from "@/lib/ui-test-workspace-preferences"
 import { UiTestShell } from "@/components/uitest/ui-test-shell"
@@ -551,6 +552,14 @@ function App() {
         // 恒假 —— 调用写了也等于没写，而 tsc 与测试都不会报错。
         // 非 Tauri 环境与非 Windows 平台由 checkForAppUpdate 内部自行返回。
         void checkForAppUpdate()
+
+        // 启动静默上报（/open + 心跳 + 关窗 /close），无 UI，失败不影响使用。
+        // 与上面的 checkForAppUpdate 是同一场事故的两个受害者：26f80ee6 删掉了
+        // 那个"UI 测试版常量取反"的守卫块，连同块内的两个调用一起 ——
+        // initAnalytics 从此没有任何调用者，analytics.ts 被 tree-shake，
+        // 后台的下载数/独立 IP/在线人数/今日新增从那时起就不再更新。
+        // 回归守卫见 analytics-wiring.test.ts。
+        void initAnalytics()
       }
     }
     init()

@@ -8,4 +8,6 @@ database_name = "qmai-analytics-db"
 database_id = "884bb0bb-c024-4cff-b062-b3b4e783a5cf"
 
 [triggers]
-crons = ["0 * * * *"]
+# 每 5 分钟：清理僵尸会话 + 刷新当日统计快照。
+# 免费版 Cron 调用也计入 Workers 请求额度，288 次/天可忽略。
+crons = ["*/5 * * * *"]
