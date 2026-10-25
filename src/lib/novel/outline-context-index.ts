@@ -796,32 +796,53 @@ function parseMarkedSourceBlocks(outline: string): string[] {
   return Array.from(outline.matchAll(regex), (match) => `${SOURCE_START}${match[1]}${SOURCE_END}`.trim())
 }
 
+/**
+ * 把「大纲来源块」压到字符预算内。
+ *
+ * ⚠️ 这里的策略直接决定缓存命中率，改之前先看这段说明。
+ *
+ * 旧实现是**按剩余预算平均分配**：`share = remaining / pending.size`。
+ * 只要待分配块的数量变一个，**所有大块的分片位置就整体平移**。
+ * 而大纲链路恰恰在不停生成新的设定文档——每生成一篇，
+ * `settings` 就多一块，于是下一次请求里整段大纲骨架的字节全变，
+ * 前缀从大纲处断开，只有「灵魂 / 规则 / 文风」那一段还能命中。
+ *
+ * 实测（黑雨之下，2026-10-25）：12:12 生成核心角色小传 → 12:13 再生成时命中 0%；
+ * 各请求 cached 恒为 8.7 万，而 input 在 15~24 万之间，差额正是被平移的大纲段。
+ *
+ * 新策略：**按顺序整篇装入，装不下就停**，剩余预算只给「第一个装不下的块」。
+ * - 已保留块的内容完全由它自己决定，不受兄弟数量与预算微调影响；
+ * - 新增文档只会追加在末尾，不会回头改写前面块的字节；
+ * - 代价是末尾的文档可能整篇进不来（而不是每篇都残缺一点），
+ *   这是「稳定性优先于信息量」的取舍，因为被省略的部分本来也经常是低相关的。
+ */
 export function capOutlineSourcesToBudget(outline: string, charCap: number): string {
   const trimmed = outline.trim()
   if (charCap <= 0 || trimmed.length <= charCap) return trimmed
   const blocks = parseMarkedSourceBlocks(trimmed)
   if (blocks.length === 0) return excerptHeadTail(trimmed, charCap)
 
-  const kept = new Array<string>(blocks.length)
-  const pending = new Set(blocks.map((_, index) => index))
-  let remaining = charCap - Math.max(0, blocks.length - 1) * 2
-  while (pending.size > 0 && remaining > 0) {
-    const share = Math.floor(remaining / pending.size)
-    let consumedSmallBlock = false
-    for (const index of Array.from(pending)) {
-      if (blocks[index].length <= share) {
-        kept[index] = blocks[index]
-        remaining -= blocks[index].length
-        pending.delete(index)
-        consumedSmallBlock = true
-      }
-    }
-    if (!consumedSmallBlock) {
-      for (const index of pending) kept[index] = excerptHeadTail(blocks[index], share)
-      remaining = 0
-    }
+  const kept: string[] = []
+  let used = 0
+  for (const block of blocks) {
+    const cost = block.length + (kept.length > 0 ? 2 : 0)
+    if (used + cost > charCap) break
+    kept.push(block)
+    used += cost
   }
-  return kept.filter(Boolean).join("\n\n").slice(0, charCap)
+
+  if (kept.length === 0) {
+    // 预算连第一块都装不下：退化为头尾截断，至少给模型这一块的开头。
+    return excerptHeadTail(blocks[0], charCap)
+  }
+
+  // 剩余预算只给下一个块——前面的字节已经定型，不会因为它而改变。
+  const remaining = charCap - used
+  const next = blocks[kept.length]
+  if (next && remaining > 200) {
+    kept.push(excerptHeadTail(next, Math.max(0, remaining - 2)))
+  }
+  return kept.join("\n\n")
 }
 
 function characterAliases(segment: OutlineSegment): string[] {

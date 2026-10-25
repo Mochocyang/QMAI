@@ -83,7 +83,7 @@ describe("context hub system content", () => {
 
 
 describe("对话缓存前缀与本轮资料分离", () => {
-  it("摘要、任务和阶段规则变化不再改变系统前缀", () => {
+  it("摘要、资料和阶段规则变化都不改变系统前缀", () => {
     const first = buildContextHubPromptParts("固定软件规则", result, ["分析阶段"])
     const second = buildContextHubPromptParts("固定软件规则", {
       ...result,
@@ -91,22 +91,34 @@ describe("对话缓存前缀与本轮资料分离", () => {
       dynamicContext: "新的任务资料",
     }, ["生成阶段"])
     expect(first.systemContent).toEqual(second.systemContent)
-    expect(flattenContextHubSystemContent(first.systemContent)).not.toContain("当前会话摘要")
+    const systemText = flattenContextHubSystemContent(first.systemContent)
+    expect(systemText).not.toContain("当前会话摘要")
+    // 本轮资料已前移到独立消息，不再进 system
+    expect(systemText).not.toContain("任务动态片段")
     expect(flattenContextHubSystemContent(first.taskContext)).toContain("当前会话摘要")
-    expect(flattenContextHubSystemContent(second.taskContext)).toContain("新的任务资料")
+    expect(flattenContextHubSystemContent(first.chapterPrefix)).toContain("任务动态片段")
+    expect(flattenContextHubSystemContent(second.chapterPrefix)).toContain("新的任务资料")
     expect(flattenContextHubSystemContent(second.taskContext)).toContain("生成阶段")
+  })
+
+  it("稳定技能规则进 system 前缀，且不进本轮要求", () => {
+    const parts = buildContextHubPromptParts("固定软件规则", result, ["生成阶段"], ["## 技能库\n写法A"])
+    expect(flattenContextHubSystemContent(parts.systemContent)).toContain("## 技能库")
+    expect(flattenContextHubSystemContent(parts.taskContext)).not.toContain("## 技能库")
+    // 稳定段必须在 cacheControl 断点内，否则 Anthropic 侧不会打点
+    expect(parts.systemContent.at(-1)).toMatchObject({ cacheControl: true })
   })
 
   it("同一资料包不同阶段复用完整资料前缀，变化规则在断点之后", () => {
     const material = { ...result, dynamicContext: "同一份章节材料".repeat(1500) }
     const first = buildContextHubPromptParts("固定规则", material, ["先做意图分析"])
     const second = buildContextHubPromptParts("固定规则", material, ["根据分析生成大纲"])
-    expect(first.taskContext[0]).toEqual(second.taskContext[0])
-    expect(first.taskContext[0]).toMatchObject({ cacheControl: true })
-    const materialBlock = expectTextBlock(first.taskContext[0])
+    expect(first.chapterPrefix[0]).toEqual(second.chapterPrefix[0])
+    expect(first.chapterPrefix[0]).toMatchObject({ cacheControl: true })
+    const materialBlock = expectTextBlock(first.chapterPrefix[0]!)
     expect(materialBlock.text).toContain(material.dynamicContext)
     expect(materialBlock.text).not.toContain("先做意图分析")
-    expect(expectTextBlock(first.taskContext[1]).text).toContain("先做意图分析")
+    expect(flattenContextHubSystemContent(first.taskContext)).toContain("先做意图分析")
   })
 
   it("把本轮资料放到当前用户消息中，保留图片和原始请求且不修改输入", () => {

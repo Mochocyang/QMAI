@@ -61,6 +61,32 @@ export function buildStableContextPrefix(outline: string, contextPrompt: string)
   ].filter(Boolean).join("\n")
 }
 
+/**
+ * 章节写作链路的**稳定 system 提示**：跨阶段、跨章逐字节相同。
+ *
+ * 为什么单独抽成 system 而不是继续留在每个阶段提示词里：
+ * provider 的前缀缓存只认「从第 0 个字节起连续相同」的部分。反 AI 腔规则原本排在
+ * 各阶段指令之后（每阶段的指令都不同），所以它每阶段都要全价重发。挪进 system 后，
+ * 它落盘一次即可被本会话所有阶段、后续所有章节复用。
+ *
+ * ⚠️ 这份内容必须保持**完全静态**：不得包含章节号、用户请求、字数规格、技能库等
+ * 任何会变化的量，否则 system 一变，整个请求的前缀（含后面的上下文包）全部失效。
+ * 阶段专属的人设与硬性要求仍留在各自提示词里。
+ *
+ * ⚠️ 只要写作请求带了 system，审稿请求就必须带**同一份**（见 review-adapter 的
+ * cacheSystemPrompt）：否则两者第 0 个字节不同，审稿再也命不中写作的前缀。
+ */
+export const CHAPTER_SYSTEM_PROMPT: string = [
+  "你是「青木 AI 写作」的章节创作引擎。本会话按阶段推进：写作任务书 → 正文草稿 → 审稿 → 返修 → 终稿润色，每个阶段都遵守同一套硬约束。",
+  "",
+  "## 通用纪律",
+  "1. 只输出当前阶段明确要求的内容；不输出分析过程、自我检查、与阶段无关的说明或后续建议。",
+  "2. 下方反 AI 腔约束适用于本会话产出的每一段文字，不因阶段不同而放宽。",
+  "3. 若当前阶段只要求在指定问题范围内做局部修改，这些约束只在点名范围内顺带满足，不得据此改写范围之外的段落、剧情或人物关系。",
+  "4. 禁止复读、循环输出、重复同一段落或用相同句式堆字数。",
+  asOwnParagraph(DE_AI_GENERATION_RULES),
+].filter(Boolean).join("\n")
+
 /** 可变 Skill 约束必须放在稳定缓存前缀之后，避免截断公共前缀。 */
 function skillsConstraintSection(skillsPrompt?: string): string {
   return skillsPrompt?.trim() ?? ""
@@ -191,9 +217,8 @@ export function buildDeepChapterDraftPrompt(
     "10. 开头承接上一章并立刻给当前问题；结尾完成阶段结果，并留下下一章必须解决的动作、信息或危险。",
     "11. 对话必须有目标和攻防，通过试探、隐瞒、压迫、诱导或回避推动关系或信息状态变化，禁止无用闲聊。",
     "12. 「本章相关材料」只是路径清单，不是正文。不要按文件名判断本章需要哪一篇。任务书写了已读材料的约束时，只遵守那一部分。",
-    // 反 AI 腔约束必须排在稳定缓存前缀之后（见文件头 buildStableContextPrefix 的说明）。
-    // asOwnParagraph：这个数组走 filter(Boolean)，靠相邻的 "" 造空行是无效的。
-    asOwnParagraph(DE_AI_GENERATION_RULES),
+    // 反 AI 腔约束已上移到 CHAPTER_SYSTEM_PROMPT（system）：
+    // 留在 user 里会排在阶段指令之后，每阶段全价重发；进 system 后落盘一次即可复用。
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
@@ -229,9 +254,10 @@ export function buildDeepChapterRevisionPrompt(
     "5. 必须继续遵守写作任务书和上下文。",
     "6. 不再强制调整到固定字数区间；只修复审稿指出的阻断问题，并保留当前章节的有效剧情容量。",
     "7. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
-    // 返修会重写正文，所以规则之后必须跟边界句：只在点名的审稿问题范围内顺带满足。
-    // 两者合成一段（段内空行），让边界句自成一句而不是挂在上一条 bullet 后面当续行。
-    asOwnParagraph(`${DE_AI_GENERATION_RULES}\n\n${DE_AI_REVISION_BOUNDARY}`),
+    // 规则本体已上移到 CHAPTER_SYSTEM_PROMPT；这里只留**返修专用**的边界句：
+    // 返修会重写正文，必须把 system 里那套规则的适用范围钉在点名的问题清单内。
+    // asOwnParagraph：这个数组走 filter(Boolean)，靠相邻的 "" 造空行是无效的。
+    asOwnParagraph(DE_AI_REVISION_BOUNDARY),
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),
@@ -271,8 +297,9 @@ export function buildDeepChapterExpansionPrompt(
     "5. 扩写时补足场景铺陈、动作细节、对话交锋、心理变化、冲突升级和结尾钩子。",
     "6. 必须严格遵守写作任务书、上下文、人物状态、伏笔和时间线，不要新增会推翻设定的剧情。",
     "7. 禁止复读、循环输出、重复同一段落或用相同句式堆字数；写到完整结尾后立即停止。",
-    // 扩写最容易堆出 AI 腔（注水、排比、空修饰），是规则块的关键落点。
-    asOwnParagraph(DE_AI_GENERATION_RULES),
+    // 扩写最容易堆出 AI 腔（注水、排比、空修饰）——规则本体在 CHAPTER_SYSTEM_PROMPT，
+    // 这里补一句把重点拉回当前阶段。
+    "8. 扩写最容易堆出 AI 腔（注水、排比、空修饰），严格按 system 中的反 AI 腔约束执行。",
     chapterNumber ? `目标章节：第${chapterNumber}章` : "目标章节：用户请求中的章节",
     `用户请求：${userRequest}`,
     goldenThreeChapterSection(goldenThreeChapter),

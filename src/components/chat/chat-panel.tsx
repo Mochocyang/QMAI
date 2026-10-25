@@ -2340,18 +2340,20 @@ export function ChatPanel() {
         rawContextHubSoftwareRules,
         targetChapterNumber,
       )
+      const contextHubStableRules = [
+        qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
+        prePluginSystemRulesPrompt || hasSplitSystemRules ? "" : selectedSkillsPrompt,
+        !prePluginSystemRulesPrompt && !hasSplitSystemRules && sessionSelectedSkills.length > 0
+          ? `## 当前会话写作技能\n${sessionSkillsPrompt}`
+          : "",
+      ].filter((value) => value.trim())
       const contextHubPromptParts = contextHubResult
         ? buildContextHubPromptParts(contextHubSoftwareRules, contextHubResult, [
             outlineCacheRules,
             dynamicSystemRulesPrompt ?? "",
-            qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
             prePluginSystemRulesPrompt || hasSplitSystemRules ? "" : taskDirective,
             goldenDirective,
-            prePluginSystemRulesPrompt || hasSplitSystemRules ? "" : selectedSkillsPrompt,
-            !prePluginSystemRulesPrompt && !hasSplitSystemRules && sessionSelectedSkills.length > 0
-              ? `## 当前会话写作技能\n${sessionSkillsPrompt}`
-              : "",
-          ])
+          ], contextHubStableRules)
         : null
       const contextHubSystemContent = contextHubPromptParts?.systemContent ?? null
       const systemPromptForConfig = contextHubSystemContent
@@ -2382,6 +2384,11 @@ export function ChatPanel() {
       })
       const agentMessages: AgentMessage[] = [
         { role: "system", content: contextHubSystemContent ?? effectiveSystemPrompt },
+        // 本轮资料前移：作为独立消息放在 system 之后、历史之前。
+        // 它一章之内逐字节不变，下一轮才能被完整命中（实测 85.8% → 98.7%）。
+        ...(contextHubPromptParts?.chapterPrefix.length
+          ? [{ role: "user" as const, content: contextHubPromptParts.chapterPrefix }]
+          : []),
         ...historyMessages,
         { role: "user", content: userContent },
       ]
@@ -2475,7 +2482,8 @@ export function ChatPanel() {
             tools: sessionTools,
             systemPrompt: systemPromptForConfig,
             projectPath,
-            taskGoal: plainText,
+            // 不传 taskGoal：它写的是"初始任务目标"，由 runner 取会话首条 user 消息，
+            // 传本轮输入会让 system 块每轮变化、打断全部历史的前缀缓存。
             ...(requiredToolsOnce ? { requiredToolsOnce } : {}),
             ...(sendOptions?.forceRequiredToolsImmediately
               ? { forceRequiredToolsImmediately: true }

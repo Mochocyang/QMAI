@@ -315,6 +315,23 @@ describe("项目与章节缓存层隔离", () => {
     expect(result.dynamicContext).toContain("只有当前章纲")
   })
 
+  it("核心设定随章变化，必须排在稳定块最后，且不影响前面的字节", () => {
+    const build = (relatedSettings: string) => composeContext({
+      contextPack: pack({ relatedSettings }),
+      dependencyStamp,
+    }).stableCore
+    const first = build("第19章相关设定：码头、旧仓库")
+    const second = build("第20章相关设定：警局、档案馆")
+
+    // 顺序：核心设定在写作风格与大纲骨架之后
+    expect(first.indexOf("核心设定")).toBeGreaterThan(first.indexOf("写作风格"))
+    expect(first.indexOf("核心设定")).toBeGreaterThan(first.indexOf("大纲骨架"))
+    // 核心设定变化不得影响它之前的任何字节
+    const cut = first.indexOf("### 核心设定")
+    expect(cut).toBeGreaterThan(0)
+    expect(second.slice(0, cut)).toBe(first.slice(0, cut))
+  })
+
   it("全书主线实际变更必须立即改变稳定前缀", () => {
     const make = (projectOutline: string) => composeContext({
       contextPack: pack({ projectOutline, chapterOutlineContext: "本章不变" }),

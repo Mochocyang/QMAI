@@ -129,8 +129,16 @@ const leftoverWarning: NovelReviewResult = {
   suggestion: "补强钩子",
 }
 
+/**
+ * 把消息拍平成 prompt 文本，供 mock 按关键字判断"现在是哪个阶段"。
+ *
+ * **必须跳过 system**：章节链路的 system（`CHAPTER_SYSTEM_PROMPT`）是引擎级常量，
+ * 正文里会提到「返修」「正文」这些阶段词；若参与关键字路由，任何阶段都会被误判成
+ * 返修阶段（历史上 17 条用例就是这么一起挂掉的）。
+ */
 function messagesPromptText(messages: ChatMessage[]): string {
   return messages
+    .filter((message) => message.role !== "system")
     .map((message) =>
       typeof message.content === "string"
         ? message.content

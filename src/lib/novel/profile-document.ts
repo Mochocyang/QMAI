@@ -104,7 +104,11 @@ export function normalizeProfileSection(raw: unknown): ProfileSection | null {
     const rows = tableRowsSource
       .map((row) => (Array.isArray(row) ? row.map((cell) => sanitizeInline(asString(cell))) : []))
       .filter((row) => row.length > 0)
-    const head = asStringArray(raw.head ?? (tableObj ? tableObj.head : undefined)).map(sanitizeInline)
+    // `columns` 是 AI 写表格时最常用的字段名（Excel 习惯），契约里叫 `head`。
+    // 只认 `head` 会让整张表被当成"没有表头"而丢掉列语义。
+    const head = asStringArray(
+      raw.head ?? raw.columns ?? (tableObj ? (tableObj.head ?? tableObj.columns) : undefined),
+    ).map(sanitizeInline)
     if (rows.length > 0) return { kind: "table", heading, head, rows }
   }
 
@@ -121,6 +125,118 @@ export function normalizeProfileSection(raw: unknown): ProfileSection | null {
     : { kind: "list", heading, items: kv.map((item) => item.text) }
 }
 
+/**
+ * 摊平式输出的键名 → 分区标题。
+ *
+ * 契约要求 `sections: [{kind, heading, items|head+rows}]`，但模型经常把每个板块
+ * 直接摊成顶层键。实测一条真实输出摊出 16 个键：
+ * `meta / overview / stages / ascension / abilities / resources / costs / counters /
+ *  taboos / factions / loopholes / growth / storyUses / writingRules`，
+ * 内容完全正确、结构完全不对，结果 `sections` 为空 → 界面报"未包含档案数据"、
+ * 用户攒的知识全丢。所以这里按结构还原，而不是直接判失败。
+ */
+const LOOSE_SECTION_LABELS: Record<string, string> = {
+  meta: "档案信息",
+  overview: "概览",
+  summary: "总览",
+  intro: "简介",
+  stages: "阶段",
+  levels: "等级",
+  tiers: "层级",
+  ranks: "阶位",
+  ascension: "晋升路径",
+  breakthrough: "突破条件",
+  abilities: "能力",
+  skills: "技能",
+  powers: "能力",
+  resources: "资源",
+  materials: "材料",
+  costs: "代价",
+  price: "代价",
+  sideEffects: "副作用",
+  counters: "克制方式",
+  weaknesses: "弱点",
+  taboos: "禁忌",
+  restrictions: "限制",
+  factions: "阵营与归属",
+  organization: "组织",
+  loopholes: "漏洞与破绽",
+  growth: "成长节奏",
+  progression: "演进",
+  storyUses: "剧情用法",
+  writingRules: "写作规则",
+  rules: "规则",
+  notes: "备注",
+  history: "沿革",
+  examples: "示例",
+  traits: "特征",
+  relationships: "关系",
+  members: "成员",
+  duties: "职责",
+  faq: "常见问题",
+}
+
+/**
+ * 把"摊平成顶层键"的档案对象还原成分区数组。
+ *
+ * 支持三种值形状：
+ * - `{columns|head, rows}` → 表格分区（AI 写表格时几乎总是用 `columns`）
+ * - `Array` → kv / list（`{k,v}` 由 `normalizeKvItem` 兜住）
+ * - `string` → 单条列表分区
+ */
+function coerceLooseSections(payload: Record<string, unknown>): ProfileSection[] {
+  const identityKeys = new Set([
+    "name", "title", "characterName", "factionName",
+    "tag", "roleType", "role", "type", "position",
+    "tagline", "subtitle", "oneLine",
+    "sections", "profile", "diagram",
+  ])
+  const sections: ProfileSection[] = []
+  for (const [key, value] of Object.entries(payload)) {
+    if (identityKeys.has(key)) continue
+    const heading = LOOSE_SECTION_LABELS[key] ?? key
+    if (isRecord(value)) {
+      const hasGrid = Array.isArray(value.head) || Array.isArray(value.columns)
+      if (hasGrid || Array.isArray(value.rows)) {
+        const table = normalizeProfileSection({
+          kind: "table",
+          heading,
+          head: value.head ?? value.columns,
+          rows: value.rows,
+        })
+        if (table) {
+          sections.push(table)
+          continue
+        }
+        // 表格形状不完整（缺 rows / 缺列名）时不要整段丢弃，
+        // 把能读到的标量值还原成 kv。
+        const scalarItems = Object.entries(value)
+          .filter(([, cell]) => typeof cell === "string" && cell.trim())
+          .map(([cellKey, cell]) => ({ label: cellKey, text: cell }))
+        const kv = normalizeProfileSection({ heading, items: scalarItems })
+        if (kv) sections.push(kv)
+        continue
+      }
+      // 普通对象：{ 小标题: 文本 } → kv
+      const entries = Object.entries(value)
+        .filter(([, cell]) => typeof cell === "string" && cell.trim())
+        .map(([cellKey, cell]) => ({ label: cellKey, text: cell }))
+      const kv = normalizeProfileSection({ heading, items: entries })
+      if (kv) sections.push(kv)
+      continue
+    }
+    if (Array.isArray(value)) {
+      const section = normalizeProfileSection({ heading, items: value })
+      if (section) sections.push(section)
+      continue
+    }
+    if (typeof value === "string" && value.trim()) {
+      sections.push({ kind: "list", heading, items: [sanitizeInline(value)] })
+    }
+  }
+  return sections
+}
+
 /** 归一化一个档案对象（容错 AI 的多种字段名）。 */
 export function normalizeProfileDocument(raw: unknown, fallbackName = "未命名"): ProfileDocument | null {
   if (!isRecord(raw)) return null
@@ -128,9 +244,11 @@ export function normalizeProfileDocument(raw: unknown, fallbackName = "未命名
   const name = sanitizeInline(asString(payload.name ?? payload.title ?? payload.characterName ?? payload.factionName))
   const tag = sanitizeInline(asString(payload.tag ?? payload.roleType ?? payload.role ?? payload.type ?? payload.position))
   const tagline = sanitizeInline(asString(payload.tagline ?? payload.subtitle ?? payload.summary ?? payload.oneLine))
-  const sections = (Array.isArray(payload.sections) ? payload.sections : [])
+  const declaredSections = (Array.isArray(payload.sections) ? payload.sections : [])
     .map(normalizeProfileSection)
     .filter((section): section is ProfileSection => Boolean(section))
+  // 契约给了 sections 就信它；没给（或给的全是空壳）才走摊平还原。
+  const sections = declaredSections.length > 0 ? declaredSections : coerceLooseSections(payload)
   const diagram = normalizeProfileDiagram(payload.diagram)
   if (!name && sections.length === 0) return null
   return {

@@ -27,11 +27,23 @@ const DEFAULT_TITLE_PREFIX = "AI大纲"
 
 /**
  * 将 AI 大纲回复清洗为可展示/可保存的正文（与「保存为大纲」同源）。
+ *
+ * ⚠️ 这里**不能**在剥离后为空时回退成原文。
+ *
+ * 卷纲/章纲/设定这几类分项现在只输出结构化数据（`outlineSaveRequest.content=""`），
+ * 整轮回复就是「一句交代 + 一个 ```json 围栏」。`extractBodyContent` 本来会把围栏剥掉，
+ * 剥完自然为空；旧写法 `bodyContent || stripped` 于是把**未剥离的原文**捡了回来，
+ * 再交给 `normalizeOutlineMarkdown` 做「属性行 → 列表项」改写，结果就是
+ * `"title": "第二卷"` 被变成 `- **"title"：** "第二卷"`，整段 JSON 漏进
+ * 对话气泡和保存出来的 MD 里。
+ *
+ * 剥离后为空 = 这一轮没有可读正文，交给调用方用 `describeStructuredOnlyAnswer`
+ * 生成「已生成…」的摘要，才是正确行为。
  */
 export function prepareOutlineSaveSourceContent(raw: string): string {
   const stripped = stripStructuredMarkers(raw)
   const bodyContent = extractBodyContent(stripped)
-  const cleaned = cleanNextStepArtifacts(bodyContent || stripped)
+  const cleaned = cleanNextStepArtifacts(bodyContent)
   return normalizeOutlineMarkdown(cleaned).trim()
 }
 
@@ -262,6 +274,16 @@ function convertAttributeLines(lines: string[]): string[] {
     if (/^[-*+]\s/.test(trimmed)) return line
     if (/^\d+\.\s/.test(trimmed)) return line
     if (trimmed.startsWith("```") || trimmed.endsWith("```")) return line
+    /*
+     * JSON 行绝不能当成「属性行」改写。
+     *
+     * 旧逻辑只排除标题/列表/代码围栏，于是 `"title": "第二卷"` 会被
+     * `^([^：:]{1,12})[：:]` 命中，改写成 `- **"title"：** "第二卷"`——
+     * 一份正常 JSON 就这样被"美化"成了带加粗的伪 markdown，既显示不成样子，
+     * 也让保存下来的 MD 变成一段谁也读不懂的东西。
+     */
+    if (/^"[^"]*"\s*:/.test(trimmed)) return line
+    if (/^["{}[\],]+$/.test(trimmed)) return line
 
     const attrMatch = trimmed.match(/^([^：:]{1,12})[：:]\s*(.*)$/)
     if (attrMatch) {

@@ -179,6 +179,90 @@ describe("review-adapter staged review", () => {
     }])
   })
 
+  it("buildReviewPrompt 传入 cachePrefix 时用它替换自建上下文段，并保留增量补充", () => {
+    const cachePrefix = "# 写作稳定前缀\n大纲与上下文逐字节相同"
+    const prompt = buildReviewPrompt(
+      contextPack,
+      "主角直接说出族谱被换。",
+      false,
+      undefined,
+      undefined,
+      cachePrefix,
+      "## 初稿新增角色光环\n新角色：更夫",
+    )
+
+    expect(prompt.startsWith(cachePrefix)).toBe(true)
+    expect(prompt).toContain("## 初稿新增角色光环")
+    expect(prompt).toContain("阶段式深度审查工作流")
+    // 自建上下文段被替换，不能把大纲再拼一遍
+    expect(prompt).not.toContain("### 大纲" + "\n" + cachePrefix)
+  })
+
+  it("审稿带 cachePrefix 时以 user 消息开头（无 system），保证与写作前缀逐字节对齐", async () => {
+    const cachePrefix = "# 写作稳定前缀\n同一份大纲与上下文"
+    let sent: Array<{ role: string; content: unknown }> = []
+    streamChatMock.mockImplementation(async (
+      _config: LlmConfig,
+      messages: Array<{ role: string; content: unknown }>,
+      callbacks: StreamCallbacks,
+    ) => {
+      sent = messages
+      callbacks.onToken("[]")
+      callbacks.onDone()
+    })
+
+    await reviewChapter("E:/Novel", "主角直接说出族谱被换。", 8, { contextPack, cachePrefix })
+
+    const flat = (content: unknown) => Array.isArray(content)
+      ? content.map((block) => (block as { text?: string }).text ?? "").join("")
+      : String(content)
+    expect(sent[0]?.role).toBe("user")
+    // 第一段必须是逐字节相同的前缀（Anthropic 侧在这一段打 cache_control 断点）
+    const blocks = sent[0]?.content as Array<{ type: string; text?: string; cacheControl?: boolean }>
+    expect(blocks[0]).toMatchObject({ type: "text", text: cachePrefix, cacheControl: true })
+    expect(flat(sent[0]?.content).startsWith(cachePrefix)).toBe(true)
+    expect(sent.some((message) => message.role === "system")).toBe(false)
+    expect(sent.map((message) => flat(message.content)).join("\n")).toContain("阶段式深度审查工作流")
+  })
+
+  it("审稿带上写作同一份 system 时，请求头部与写作完全对齐（system + 前缀块）", async () => {
+    const cachePrefix = "# 写作稳定前缀\n同一份大纲与上下文"
+    const cacheSystemPrompt = "## 引擎约束\n反 AI 腔规则"
+    let sent: Array<{ role: string; content: unknown }> = []
+    streamChatMock.mockImplementation(async (
+      _config: LlmConfig,
+      messages: Array<{ role: string; content: unknown }>,
+      callbacks: StreamCallbacks,
+    ) => {
+      sent = messages
+      callbacks.onToken("[]")
+      callbacks.onDone()
+    })
+
+    await reviewChapter("E:/Novel", "主角直接说出族谱被换。", 8, {
+      contextPack,
+      cachePrefix,
+      cacheSystemPrompt,
+    })
+
+    const flat = (content: unknown) => Array.isArray(content)
+      ? content.map((block) => (block as { text?: string }).text ?? "").join("")
+      : String(content)
+
+    // 第 0 个字节 = 写作那份 system（逐字节相同），否则前缀从起点就错位。
+    expect(sent[0]?.role).toBe("system")
+    expect(sent[0]?.content).toBe(cacheSystemPrompt)
+    // 第 1 条紧接着是逐字节相同的前缀块。
+    expect(sent[1]?.role).toBe("user")
+    const blocks = sent[1]?.content as Array<{ type: string; text?: string; cacheControl?: boolean }>
+    expect(blocks[0]).toMatchObject({ type: "text", text: cachePrefix, cacheControl: true })
+    // 审稿人设只能出现在前缀之后。
+    expect(flat(sent[1]?.content).startsWith(cachePrefix)).toBe(true)
+    expect(flat(sent[1]?.content)).toContain("阶段式深度审查工作流")
+    // 不能出现第二条 system（那会顶掉写作的 system）。
+    expect(sent.filter((message) => message.role === "system")).toHaveLength(1)
+  })
+
   it("reuses a provided contextPack instead of building one", async () => {
     const { buildContextPack } = await import("./context-engine")
     vi.mocked(buildContextPack).mockClear()

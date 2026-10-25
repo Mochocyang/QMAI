@@ -84,9 +84,12 @@ export class AgentRunner {
     let finalText = ""
     const maxRounds = config.maxRounds || DEFAULT_MAX_ROUNDS
     const projectPath = config.projectPath
+    // 任务契约写的是"初始任务目标"，必须取会话里**第一条** user 消息。
+    // 取最后一条（= 本轮输入）会让 system 块每轮都变，而它位于全部历史之前，
+    // 一变则其后历史全部失去前缀缓存（真机实测：改一行头部当次命中归零）。
     const taskGoal =
       config.taskGoal ||
-      messageContentText([...messages].reverse().find((m) => m.role === "user")?.content ?? "") ||
+      messageContentText(messages.find((m) => m.role === "user")?.content ?? "") ||
       "未命名任务"
     const taskContract = `## 任务契约\n初始任务目标：${taskGoal.slice(0, 1800)}\n执行过程中不得因历史裁剪丢失该目标；当前用户新要求优先。`
     const requiredTools = [...new Set((config.requiredToolsOnce ?? []).filter((name) => name.trim()))]
