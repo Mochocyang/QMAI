@@ -39,7 +39,20 @@ npx wrangler secret put RESEND_API_KEY        # Resend 控制台生成
 npm run deploy
 ```
 
-`wrangler.toml` 里的 `database_id` 默认是全零占位值，**必须**替换成第 1 步的返回值；`AUTH_EMAIL_FROM` 改成 Resend 已验证域名下的发信人。
+`wrangler.toml` 里的 `database_id` 必须替换成第 1 步的返回值；`AUTH_EMAIL_FROM` 改成已验证发信域名下的发信人。
+
+> 修改 `wrangler.toml` 后请确认部署输出里仍列出 `env.DB (qmai-account-db)  D1 Database`。若它变成 `Environment Variable`，说明文件编码或 TOML 结构被破坏，Worker 会拿不到数据库并让所有接口 500。
+
+## 发信通道
+
+`EMAIL_PROVIDER` 选择发信后端，两条通道都已实现：
+
+| 值 | 通道 | 要求 |
+|---|---|---|
+| `resend` | Resend HTTP API | Resend 已验证发信域名；免费档每天 100 封 |
+| `cloudflare` | Workers `send_email` 绑定 | 需 Workers Paid 才能发给任意收件人 |
+
+留空时按可用凭据推断：有 `EMAIL` 绑定走 cloudflare，有 `RESEND_API_KEY` 走 resend。`AUTH_EMAIL_FROM` 支持 `"显示名 <a@b.com>"` 与纯地址两种写法。
 
 生产 CORS 只保留 `tauri://localhost,https://tauri.localhost`；浏览器本地开发来源通过 `.dev.vars` 覆盖，不要写进生产配置。生产必须保持 `ENVIRONMENT=production`、`ALLOW_DEV_CODE=false`：误设为 development 会返回验证码、并允许伪造 `X-Forwarded-For` 绕过 IP 限流。
 
@@ -86,11 +99,22 @@ VITE_QMAI_ACCOUNT_URL=http://127.0.0.1:8787
 
 正式发布建议绑定自定义域名：`workers.dev` 在部分国内网络下不稳定。
 
-## Resend
+## Resend 发信域名配置（当前生产方案）
 
-1. 在 Resend 添加并验证发信域名（DNS 记录）。
-2. 未验证域名前只能发到 Resend 账号本人邮箱，真实用户收不到码。
-3. 上线前用 QQ 邮箱、163 邮箱、Gmail 各测一次送达与垃圾箱位置。
+`qmai.pro` 已在 Resend 验证通过，发件人是 `青幕AI写作 <no-reply@qmai.pro>`。需要的 DNS 记录：
+
+| 类型 | 名称 | 内容 | 代理 |
+|---|---|---|---|
+| CNAME | `send` | `send.forge.rmta.net` | 仅 DNS（灰云） |
+| CNAME | `rsend` | `rsend-apne1.forge.rmta.net` | 仅 DNS（灰云） |
+| TXT | `resend._domainkey` | DKIM 公钥 `p=MIGf...` | — |
+
+三条记录都必须是**灰云（DNS only）**；CNAME 被橙云代理会导致验证失败。`qmai.pro` 根域的 MX/SPF 由 Cloudflare Email Routing 占用，Resend 用独立子域，不冲突。
+
+注意：
+1. 第二条 CNAME 的主机名是 `rsend`，不是 `resend`；名字写错会一直 `pending`。
+2. `resend._domainkey` 只能有一条 TXT，且内容不要带外层引号，重复或带引号都会导致 DKIM 校验失败。
+3. 上线前用 QQ 邮箱、163 邮箱、Gmail 各测一次送达与垃圾箱位置；Resend 免费档每天 100 封。
 4. 若国内送达差，只需替换 `src/email.ts` 的发送实现（例如阿里云 DirectMail），业务层不动。
 
 ## 限流与安全权衡
@@ -100,7 +124,7 @@ VITE_QMAI_ACCOUNT_URL=http://127.0.0.1:8787
 - **登录失败锁不永久锁死账号**：邮箱失败桶是错误响应节流，不是猜测硬闸；真正的 CPU/猜测硬闸是 IP 桶（30 次 / 15 分钟）。邮箱桶满后仍会验密，密码正确就清空邮箱桶并放行，密码错误才返回 429。生产建议在 Cloudflare WAF 对 `/v1/auth/login` 再加一层限流。
 - **refresh 盗用检测范围有限**：每个设备只保留当前与紧邻的上一个 token 哈希。只有紧邻的上一个 refresh token 重放会撤销整个 `family_id`；更早的 token 重放会失效，但不会触发撤族。
 - **密码重置**：撤销该用户全部 refresh 会话；已签发的 access JWT 在剩余 ≤15 分钟内仍有效（JWT + refresh 方案的固有窗口）。
-- **Workers 免费版 CPU**：PBKDF2 默认 210,000 次迭代，免费版 10ms CPU 可能超限。必须用免费版时把 `PASSWORD_ITERATIONS` 降到 `100000`，并接受安全强度下降。
+- **Workers 免费版 CPU**：PBKDF2 默认 210,000 次迭代，免费版 10ms CPU 会超限。当前生产用免费版，`PASSWORD_ITERATIONS` 已设为 `100000`；升级到 Workers Paid 后可改回 210,000。
 - `AUTH_JWT_SECRET` / `AUTH_CODE_PEPPER` 缺失或过短时 Worker 会失败关闭，返回 `SERVER_ERROR`。
 - 密码、access/refresh token 不会写入日志；验证码只在开发模式且 `ALLOW_DEV_CODE=true` 时打印到本地终端，生产环境绝不打印。
 - **每日清理**：`wrangler.toml` 配置了每日 cron，删除 24 小时前的限流桶、7 天前的验证码、过期或撤销 30 天前的会话。

@@ -7,7 +7,7 @@ import {
   sendRegisteredNotice,
   sendVerificationEmail,
 } from "../src/email"
-import type { Env } from "../src/types"
+import type { Env, SendEmailBinding } from "../src/types"
 
 function baseEnv(overrides: Partial<Env> = {}): Env {
   return {
@@ -72,11 +72,14 @@ describe("parseFrom", () => {
 })
 
 function bindingSpy(result: { messageId: string } | Error = { messageId: "msg_1" }) {
-  const send = vi.fn(async () => {
-    if (result instanceof Error) throw result
-    return result
-  })
-  return { binding: { send }, send }
+  // 显式声明参数类型，mock.calls 才能带上参数元组，避免被推断成 [].
+  const send = vi.fn(
+    async (_message: SendEmailBinding extends { send(m: infer M): unknown } ? M : never) => {
+      if (result instanceof Error) throw result
+      return result
+    },
+  )
+  return { binding: { send } as unknown as SendEmailBinding, send }
 }
 
 const silentConsole = () => vi.spyOn(console, "log").mockImplementation(() => {})

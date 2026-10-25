@@ -2,22 +2,25 @@ name = "qmai-account"
 main = "src/index.ts"
 compatibility_date = "2026-01-01"
 
-# D1：账号数据独立于 analytics-worker / New API 模型网关。
-# database_id 为占位值，替换为 `npx wrangler d1 create qmai-account-db` 返回值。
+# D1: account data kept separate from analytics-worker and New API gateway.
 [[d1_databases]]
 binding = "DB"
 database_name = "qmai-account-db"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "968a6a50-80bb-40da-881f-b39b751e4921"
 
 [vars]
-AUTH_EMAIL_FROM = "青幕AI写作 <no-reply@qmai.example>"
-# 生产只允许 Tauri 两个来源；浏览器本地开发来源写在 .dev.vars 覆盖。
+# Email channel: resend (free tier, 100/day, requires a verified sending domain).
+# To switch to Workers Paid send_email binding, set "cloudflare" and add [[send_email]].
+EMAIL_PROVIDER = "resend"
+AUTH_EMAIL_FROM = "青幕AI写作 <no-reply@qmai.pro>"
+# Production only allows the two Tauri origins; local dev origins go in .dev.vars.
 APP_ALLOWED_ORIGINS = "tauri://localhost,https://tauri.localhost"
 ENVIRONMENT = "production"
-PASSWORD_ITERATIONS = "210000"
-# 仅本地联调时改为 "true"；生产必须保持 "false"。
+# Workers Free has a tight CPU budget; 100000 iterations is the safe ceiling.
+PASSWORD_ITERATIONS = "100000"
+# Keep "false" in production; only local debugging may set "true".
 ALLOW_DEV_CODE = "false"
 
-# 每日清理：24h 前限流桶、7 天前验证码、过期/撤销 30 天前的会话。
+# Daily cleanup: rate limit buckets older than 24h, codes older than 7d, sessions 30d past expiry.
 [triggers]
 crons = ["17 3 * * *"]
