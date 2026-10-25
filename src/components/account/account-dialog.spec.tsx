@@ -146,6 +146,30 @@ describe("AccountDialog", () => {
     expect(buttonByText("注册并登录")).not.toBeUndefined()
   })
 
+  it("发码后提示检查垃圾箱，未发码时不显示该提示", async () => {
+    render()
+    await click(buttonByText("注册"))
+    await setInput("account-email", "writer@example.com")
+
+    // 还没点获取验证码时不应该出现垃圾箱提示。
+    expect(document.body.textContent).not.toContain("垃圾箱")
+
+    await click(buttonByText("获取验证码"))
+
+    const hint = document.querySelector(".account-code-hint")
+    expect(hint, "code hint").not.toBeNull()
+    expect(hint!.textContent).toContain("垃圾箱")
+    expect(hint!.textContent).toContain("60")
+  })
+
+  it("登录模式不渲染验证码与垃圾箱提示", async () => {
+    render()
+    await setInput("account-email", "writer@example.com")
+
+    expect(document.querySelector(".account-code-hint")).toBeNull()
+    expect(document.body.textContent).not.toContain("垃圾箱")
+  })
+
   it("登录提交中禁用按钮并显示登录中，Promise 结束后恢复", async () => {
     let resolveLogin!: () => void
     login.mockImplementation(() => new Promise<void>((resolve) => {

@@ -384,6 +384,11 @@ export function AccountDialog() {
                     </Button>
                   </div>
                   {devCode ? <p className="account-dev-code">开发模式验证码：{devCode}</p> : null}
+                  {cooldown > 0 ? (
+                    <p className="account-code-hint" role="status">
+                      没收到？请检查垃圾箱，或在 {cooldown} 秒后重新获取。
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
 
