@@ -14,6 +14,7 @@ import { flushAppState } from "@/lib/web-store"
 import { runPreCloseFlushes } from "@/lib/pre-close-flush"
 import { flushPendingChapterSave } from "@/lib/chapter-save-flush"
 import { checkForAppUpdate } from "@/lib/app-updater"
+import { initAnalytics } from "@/lib/analytics"
 import { confirmAppQuit } from "@/components/uitest/models/model-draft-guard"
 import { restoreUiTestWorkspace, readUiTestWorkspacePreference } from "@/lib/ui-test-workspace-preferences"
 import { UiTestShell } from "@/components/uitest/ui-test-shell"
@@ -551,6 +552,15 @@ function App() {
         // 恒假 —— 调用写了也等于没写，而 tsc 与测试都不会报错。
         // 非 Tauri 环境与非 Windows 平台由 checkForAppUpdate 内部自行返回。
         void checkForAppUpdate()
+
+        // 启动后静默上报使用统计（下载数 / 独立 IP / 在线数 / 今日新增）。
+        //
+        // 与上面的更新检查同源：26f80ee 把这两个调用一起删掉了，更新检查后来
+        // 在 471a0dcf 单独修复，统计上报至今没有调用者 —— analytics.ts 被
+        // tree-shake 掉，后台数据从 2026-09-25 起就停止增长。
+        // 内部已 try/catch 且失败静默，不会影响启动。回归守卫见
+        // src/lib/analytics-wiring.test.ts。
+        void initAnalytics()
       }
     }
     init()
