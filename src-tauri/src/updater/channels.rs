@@ -80,6 +80,68 @@ impl ChannelTable {
     }
 }
 
+impl Channel {
+    /// 把一个 GitHub release 地址映射到本通道的地址。
+    ///
+    /// 返回 `None` 表示**这个通道不支持这类地址**（例如 jsDelivr 代理不了 release 资产）。
+    /// 调用方看到 `None` 应当跳过该通道，而不是把它当作「可用但失败」——
+    /// 两者在用户眼里完全不同：前者是"这条通道不具备该能力"，后者是"这条通道坏了"。
+    pub fn map_release_url(&self, github_url: &str) -> Option<String> {
+        match self.rewrite {
+            Rewrite::Identity => Some(github_url.to_string()),
+            Rewrite::Prefix => {
+                let base = self.base.as_deref()?.trim();
+                if base.is_empty() || !base.starts_with("https://") {
+                    // 只接受 https：明文 http 的加速通道会被中间设备随意改写内容。
+                    return None;
+                }
+                Some(format!("{}{}", ensure_trailing_slash(base), github_url))
+            }
+            Rewrite::Jsdelivr => None,
+        }
+    }
+
+    /// jsDelivr 这类 CDN 只能取**仓库文件**（不是 release 资产）。
+    ///
+    /// 用途：远程下发的通道表本身（`update-channels.json`）就存放在仓库里，
+    /// 可以用 jsDelivr 拉取，这比走 release 更稳。
+    pub fn map_repo_file_url(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+        path: &str,
+    ) -> Option<String> {
+        match self.rewrite {
+            Rewrite::Identity => Some(format!(
+                "https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+            )),
+            Rewrite::Jsdelivr => Some(format!(
+                "https://cdn.jsdelivr.net/gh/{owner}/{repo}@{branch}/{path}"
+            )),
+            Rewrite::Prefix => {
+                let base = self.base.as_deref()?.trim();
+                if base.is_empty() || !base.starts_with("https://") {
+                    return None;
+                }
+                Some(format!(
+                    "{}{}",
+                    ensure_trailing_slash(base),
+                    format!("https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}")
+                ))
+            }
+        }
+    }
+}
+
+fn ensure_trailing_slash(value: &str) -> String {
+    if value.ends_with('/') {
+        value.to_string()
+    } else {
+        format!("{value}/")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +164,132 @@ mod tests {
             table.channels.iter().any(|c| c.rewrite != Rewrite::Identity),
             "内置表里至少要有一条镜像，否则自动择优没有意义"
         );
+    }
+
+    #[test]
+    fn identity_keeps_the_original_url() {
+        let url = "https://github.com/Mochocyang/QMAI/releases/download/v1/latest.json";
+        let channel = Channel {
+            id: "direct".into(),
+            label: "直连".into(),
+            rewrite: Rewrite::Identity,
+            base: None,
+            scope: ChannelScope::UpdateOnly,
+        };
+        assert_eq!(channel.map_release_url(url).as_deref(), Some(url));
+    }
+
+    #[test]
+    fn prefix_channel_prepends_base() {
+        let url = "https://github.com/O/R/releases/download/v1/app.exe";
+        let channel = Channel {
+            id: "p".into(),
+            label: "A".into(),
+            rewrite: Rewrite::Prefix,
+            base: Some("https://ghproxy.net/".into()),
+            scope: ChannelScope::UpdateOnly,
+        };
+        assert_eq!(
+            channel.map_release_url(url).as_deref(),
+            Some("https://ghproxy.net/https://github.com/O/R/releases/download/v1/app.exe")
+        );
+    }
+
+    #[test]
+    fn prefix_channel_without_trailing_slash_still_joins_correctly() {
+        let channel = Channel {
+            id: "p".into(),
+            label: "A".into(),
+            rewrite: Rewrite::Prefix,
+            base: Some("https://ghproxy.net".into()),
+            scope: ChannelScope::UpdateOnly,
+        };
+        assert_eq!(
+            channel.map_release_url("https://github.com/x").as_deref(),
+            Some("https://ghproxy.net/https://github.com/x")
+        );
+    }
+
+    #[test]
+    fn prefix_channel_needs_an_https_base() {
+        let missing = Channel {
+            id: "p".into(),
+            label: "A".into(),
+            rewrite: Rewrite::Prefix,
+            base: None,
+            scope: ChannelScope::UpdateOnly,
+        };
+        assert_eq!(missing.map_release_url("https://github.com/x"), None);
+
+        // 明文 http 的加速通道会被中间设备随意改写，不接受
+        let plain = Channel {
+            id: "p".into(),
+            label: "A".into(),
+            rewrite: Rewrite::Prefix,
+            base: Some("http://evil.example/".into()),
+            scope: ChannelScope::UpdateOnly,
+        };
+        assert_eq!(plain.map_release_url("https://github.com/x"), None);
+    }
+
+    #[test]
+    fn jsdelivr_refuses_release_assets() {
+        // jsDelivr 只能代理仓库文件，代理 release 资产会 404。
+        // 必须提前拒绝，否则用户看到的是一个 200MB 下载卡在 404 上反复重试。
+        let channel = Channel {
+            id: "j".into(),
+            label: "C".into(),
+            rewrite: Rewrite::Jsdelivr,
+            base: None,
+            scope: ChannelScope::UpdateOnly,
+        };
+        assert_eq!(
+            channel.map_release_url("https://github.com/O/R/releases/download/v1/app.exe"),
+            None
+        );
+    }
+
+    #[test]
+    fn jsdelivr_maps_repo_files_to_cdn() {
+        let channel = Channel {
+            id: "j".into(),
+            label: "C".into(),
+            rewrite: Rewrite::Jsdelivr,
+            base: None,
+            scope: ChannelScope::UpdateOnly,
+        };
+        assert_eq!(
+            channel.map_repo_file_url("Mochocyang", "QMAI", "main", "latest.json").as_deref(),
+            Some("https://cdn.jsdelivr.net/gh/Mochocyang/QMAI@main/latest.json")
+        );
+    }
+
+    #[test]
+    fn identity_maps_repo_files_to_raw_github() {
+        let channel = Channel {
+            id: "direct".into(),
+            label: "直连".into(),
+            rewrite: Rewrite::Identity,
+            base: None,
+            scope: ChannelScope::UpdateOnly,
+        };
+        assert_eq!(
+            channel.map_repo_file_url("O", "R", "main", "x.json").as_deref(),
+            Some("https://raw.githubusercontent.com/O/R/main/x.json")
+        );
+    }
+
+    #[test]
+    fn builtin_mirrors_can_map_the_manifest_but_jsdelivr_cannot() {
+        let table = ChannelTable::builtin();
+        let manifest = "https://github.com/Mochocyang/QMAI/releases/latest/download/latest.json";
+        for channel in &table.channels {
+            let mapped = channel.map_release_url(manifest);
+            if channel.id == "jsdelivr" {
+                assert!(mapped.is_none(), "jsDelivr 不该能映射 release 清单");
+            } else {
+                assert!(mapped.is_some(), "{} 应该能映射清单", channel.id);
+            }
+        }
     }
 }
