@@ -74,12 +74,15 @@ function ProviderCard({
     ? provider.unavailableHint ?? "后续版本开放"
     : enabled && connected
       ? accountLabel ?? "已连接"
-      : provider.hint
+      : enabled
+        ? "已勾选，还需登录账号"
+        : provider.hint
   return (
     <div
       data-ui="cloud-sync-provider-card"
       data-provider-card={provider.id}
       data-target-enabled={enabled}
+      data-target-connected={connected ? "true" : "false"}
       data-provider-available={available ? "true" : "false"}
       className={`flex items-start gap-1 rounded-lg border p-2.5 text-sm transition-colors ${
         selected ? "border-primary bg-primary/5" : available ? "hover:bg-accent/40" : ""
@@ -441,6 +444,8 @@ export function CloudSyncSection() {
   const saving = useCloudSyncStore((state) => state.saving)
   const setEnabled = useCloudSyncStore((state) => state.setEnabled)
   const setProvider = useCloudSyncStore((state) => state.setProvider)
+  // 点卡片主体只切"正在看哪个"，不改勾选（见 store 里 focusProvider 的注释）。
+  const focusProvider = useCloudSyncStore((state) => state.focusProvider)
   const toggleTarget = useCloudSyncStore((state) => state.toggleTarget)
   const setScope = useCloudSyncStore((state) => state.setScope)
   const setIncludeSnapshots = useCloudSyncStore((state) => state.setIncludeSnapshots)
@@ -567,7 +572,7 @@ export function CloudSyncSection() {
                     enabled={Boolean(target)}
                     connected={target?.connected === true}
                     accountLabel={target?.accountLabel}
-                    onSelect={() => void setProvider(item.id)}
+                    onSelect={() => void focusProvider(item.id)}
                     onToggle={() => void toggleTarget(item.id)}
                   />
                 )
@@ -615,7 +620,13 @@ export function CloudSyncSection() {
                         <ExternalLink className="mr-2 h-4 w-4" />
                         打开远端内容
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => void logout()}>
+                      <Button
+                      variant="outline"
+                      size="sm"
+                      data-ui="cloud-sync-logout"
+                      data-provider={provider.id}
+                      onClick={() => void logout(provider.id)}
+                    >
                         <LogOut className="mr-2 h-4 w-4" />
                         {t("settings.sections.cloudSync.logout", { defaultValue: "退出登录" })}
                       </Button>
