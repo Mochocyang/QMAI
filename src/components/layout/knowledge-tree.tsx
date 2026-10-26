@@ -1,7 +1,7 @@
 import { filterUiTestDirectory } from "@/lib/ui-test-layout"
 import { MoreHorizontal } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, AppWindow, Loader2, MessageCircle, Pencil, Plus, Search, Trash2, Check, X } from "lucide-react"
+import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, AppWindow, History, Loader2, MessageCircle, Pencil, Plus, Search, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -33,6 +33,8 @@ import { saveLastReadChapter } from "@/lib/project-store"
 import { mapWithConcurrency } from "@/lib/async-pool"
 import type { ReferenceToken } from "@/lib/reference/types"
 import type { BulkChapterIngestMode } from "@/lib/novel/chapter-bulk-ingest"
+import { listVersions, saveVersion, type VersionEntry } from "@/lib/novel/version-store"
+import { VersionHistoryDialog } from "./version-history-dialog"
 
 /**
  * 章节行最前面那一格圆点的尺寸 class。真点与占位点**共用**这一份，
@@ -343,6 +345,15 @@ export function KnowledgeTree({
   const [chapterExtractDialogOpen, setChapterExtractDialogOpen] = useState(false)
   const [findDraft, setFindDraft] = useState("")
   const [pageMenu, setPageMenu] = useState<{ path: string; x: number; y: number } | null>(null)
+  /** 历史版本弹窗的目标页；null 表示弹窗关闭。 */
+  const [historyTarget, setHistoryTarget] = useState<{
+    path: string
+    title: string
+    kind: "chapter" | "outline"
+    key: number | string | null
+  } | null>(null)
+  const [historyVersions, setHistoryVersions] = useState<VersionEntry[]>([])
+  const [historyCurrent, setHistoryCurrent] = useState("")
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const [renamingBusy, setRenamingBusy] = useState(false)
@@ -1356,6 +1367,65 @@ export function KnowledgeTree({
     setPageMenu(null)
   }, [])
 
+  /*
+   * 历史版本：右键菜单只做「打开弹窗」，读写版本库的逻辑都在这里。
+   *
+   * `project` 来自 wiki store，未打开项目时为 null。这里刻意不在 hook 依赖里判空就返回，
+   * 而是在 async 里读 `project?.path`：菜单是同步点击入口，拿不到项目时直接静默返回，
+   * 免得 null 项目下的版本目录被拼成 "undefined/.qmai/versions"。
+   */
+  const openHistory = useCallback(async (pagePath: string) => {
+    const projectPath = project?.path
+    if (!projectPath) return
+    const page = pageInfoByPath.get(pagePath)
+    const title = page?.title ?? pagePath.split(/[\\/]/).pop()?.replace(/\.md$/i, "") ?? "文档"
+    const kind = filterType === "chapter" ? "chapter" : "outline"
+    // 章节用编号分目录；大纲用文件名（去掉扩展名）当 key。
+    // 必须与写入侧严格一致，否则弹窗会列出空列表：
+    //   - 章节：chapter-save-version.ts / write-chapter.ts 用 extractChapterNumber(文件名)
+    //   - 大纲：outline-chat-panel.tsx 的 beforeOverwrite 传的是去掉扩展名的文件名
+    // 树的 page.chapterNumber 来自 frontmatter/标题，filename 兜底用 fileChapterNumber。
+    const key = kind === "chapter"
+      ? page?.chapterNumber ?? page?.fileChapterNumber ?? null
+      : title
+    // 先把弹窗开出来（空白），再异步填内容：大文件读取不该让点击看起来没反应。
+    setHistoryTarget({ path: pagePath, title, kind, key })
+    setHistoryCurrent("")
+    setHistoryVersions([])
+    try {
+      const [versions, current] = await Promise.all([
+        listVersions(projectPath, kind, key),
+        readFile(pagePath).catch(() => ""),
+      ])
+      setHistoryVersions(versions)
+      setHistoryCurrent(current)
+    } catch (error) {
+      console.warn("[history] 读取历史版本失败：", error)
+    }
+  }, [filterType, pageInfoByPath, project?.path])
+
+  const restoreVersion = useCallback(async (version: VersionEntry) => {
+    if (!historyTarget) return
+    const projectPath = project?.path
+    if (!projectPath) return
+    try {
+      // 顺序不能换：先把「当前正文」本身留成一条历史，恢复才是可撤销的；
+      // 若先 writeFile 再 save，存下来的会是被恢复的那一版，等于没留后路。
+      await saveVersion({
+        projectPath,
+        kind: historyTarget.kind,
+        key: historyTarget.key,
+        content: historyCurrent,
+      })
+      await writeFile(historyTarget.path, version.content)
+      bumpDataVersion()
+      setSelectedFile(historyTarget.path)
+      setHistoryTarget(null)
+    } catch (error) {
+      console.error("[history] 恢复版本失败：", error)
+    }
+  }, [historyTarget, historyCurrent, project?.path, bumpDataVersion, setSelectedFile])
+
   const openPageMenu = useCallback((event: React.MouseEvent, pagePath: string) => {
     event.preventDefault()
     event.stopPropagation()
@@ -1929,6 +1999,18 @@ export function KnowledgeTree({
               <Pencil className="h-3.5 w-3.5" />
               {t("knowledgeTree.rename")}
             </button>
+            <button
+              type="button"
+              data-ui="tree-version-history"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+              onClick={() => {
+                setPageMenu(null)
+                void openHistory(pageMenu.path)
+              }}
+            >
+              <History className="h-3.5 w-3.5" />
+              历史版本
+            </button>
             {filterType === "chapter" && volumeFolders.length > 0 && (
               <div>
                 <button
@@ -2159,6 +2241,16 @@ export function KnowledgeTree({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {historyTarget ? (
+          <VersionHistoryDialog
+            title={historyTarget.title}
+            currentContent={historyCurrent}
+            versions={historyVersions}
+            onClose={() => setHistoryTarget(null)}
+            onRestore={(version) => { void restoreVersion(version) }}
+          />
+        ) : null}
       </div>
     </ScrollArea>
   )
