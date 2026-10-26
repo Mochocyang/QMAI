@@ -5,7 +5,7 @@
  * 字段名一律 camelCase，与 Rust 侧 `#[serde(rename_all = "camelCase")]` 对齐。
  */
 
-export type CloudProviderId = "baidu" | "webdav" | "folder"
+export type CloudProviderId = "baidu" | "webdav" | "folder" | "github"
 
 export type CloudSyncScope = "all" | "current"
 
@@ -18,6 +18,10 @@ export interface CloudTarget {
   folderPath?: string
   webdavUrl?: string
   webdavUser?: string
+  /** GitHub 目标：仓库所有者（个人或组织）。 */
+  githubOwner?: string
+  githubRepo?: string
+  githubBranch?: string
 }
 
 export interface CloudSyncConfig {

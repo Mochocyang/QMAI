@@ -687,7 +687,8 @@ export function SettingsView() {
               {CATEGORIES.map((category) => <option key={category.id} value={category.id}>{t(category.labelKey, { defaultValue: category.defaultLabel })}</option>)}
             </select>
           </div>
-        <div data-ui="settings-scroll" className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+        {/* overflow-x-hidden：任何子元素横向溢出都别变成整页的横向滚动条。 */}
+        <div data-ui="settings-scroll" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-8 py-6">
           <div data-ui="settings-section" className="mx-auto max-w-2xl">
             {body}
           </div>

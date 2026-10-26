@@ -61,6 +61,59 @@ pub fn read_proxy_config_from_store(store_path: &Path) -> Option<ProxyConfig> {
     serde_json::from_value(proxy.clone()).ok()
 }
 
+/// Locate the same `app-state.json` the frontend's plugin-store writes.
+///
+/// Why not take an `AppHandle`: the callers that need the proxy *per request*
+/// (updater channel probing / download) all run inside `spawn_blocking`, where
+/// no handle is available. Resolving the path from the environment instead
+/// means they can stay plain synchronous functions with no Tauri plumbing.
+///
+/// Resolution order mirrors Tauri's own `app_data_dir`:
+/// 1. `QMAI_TEST_APP_DATA_DIR` — only the test suite sets it;
+/// 2. `%APPDATA%\<identifier>` on Windows (the bundled app's real location);
+/// 3. `$XDG_DATA_HOME`/`~/.local/share/<identifier>` elsewhere.
+///
+/// `IDENTIFIER` must stay equal to `identifier` in `tauri.conf.json`: if the
+/// two drift, this silently reads a file that never exists, the proxy looks
+/// disabled forever, and neither updater nor cloud sync honours it.
+///
+/// Returning `None` is normal (fresh install, odd environment) and is treated
+/// exactly like "no proxy configured" by every caller.
+pub fn app_state_path() -> Option<std::path::PathBuf> {
+    const IDENTIFIER: &str = "com.qingmuai.writer";
+
+    if let Some(dir) = std::env::var_os("QMAI_TEST_APP_DATA_DIR") {
+        return Some(std::path::PathBuf::from(dir).join("app-state.json"));
+    }
+    #[cfg(windows)]
+    {
+        let base = std::env::var_os("APPDATA")?;
+        return Some(
+            std::path::PathBuf::from(base)
+                .join(IDENTIFIER)
+                .join("app-state.json"),
+        );
+    }
+    #[cfg(not(windows))]
+    {
+        if let Some(base) = std::env::var_os("XDG_DATA_HOME") {
+            return Some(
+                std::path::PathBuf::from(base)
+                    .join(IDENTIFIER)
+                    .join("app-state.json"),
+            );
+        }
+        let home = std::env::var_os("HOME")?;
+        Some(
+            std::path::PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join(IDENTIFIER)
+                .join("app-state.json"),
+        )
+    }
+}
+
 /// Read and apply the stored proxy config. Missing or unreadable
 /// config is treated exactly like a disabled proxy, so inherited
 /// HTTP_PROXY / HTTPS_PROXY / NO_PROXY values from the parent process

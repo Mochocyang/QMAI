@@ -81,3 +81,7 @@ typecheck-output.txt
 .dsh-vision-router/
 .tmp-outline-*.tsx
 /1.txt
+
+# 本地临时产物：截图预览与一次性演示页，不属于源码
+/preview/
+/docs/map-demo/
