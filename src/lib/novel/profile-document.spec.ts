@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest"
 import {
   extractProfileDocuments,
+  normalizeProfileDocument,
   pickProfileDocument,
   profileDocumentFromMarkdown,
   profileSectionExtraClass,
@@ -461,5 +462,60 @@ describe("档案反推：空内容不导出", () => {
     expect(md).not.toMatch(/"\s*:/)
     expect(md).not.toContain('"kind"')
     expect(md).not.toContain("sections")
+  })
+})
+
+describe("摊平式档案输出（模型自创顶层键）", () => {
+  // 结构取自一条真实模型输出：内容完全正确，但没包进 sections，
+  // 而是摊成 meta / overview / stages / costs / … 共 16 个顶层键。
+  // 旧实现只读 payload.sections，于是 sections 为空，界面报
+  // 「未包含档案数据（sections 为空），请重新生成」，用户的内容全丢。
+  const flat = {
+    name: "基因锁七重体系·第四重",
+    tag: "编号派核心成果层",
+    tagline: "把未来向度削平",
+    meta: [{ k: "档案对象", v: "第四重专项细化" }, { k: "正文时点", v: "第20章末" }],
+    overview: [{ k: "官面名", v: "无念境" }, { k: "真名", v: "灭欲" }],
+    stages: {
+      columns: ["阶段", "可观察能力"],
+      rows: [["四重初段", "私人欲望开始钝化"], ["四重中段", "只剩任务清单"]],
+    },
+    costs: { columns: ["代价", "表现"], rows: [["未来向度自我被削平", "不再生成私人愿望"]] },
+    storyUses: ["让四重体在群战中充当指令锚点", "用空场期制造救人时间窗"],
+    writingRules: ["严禁在没有使命锚解释的情况下让人进入四重"],
+  }
+
+  it("没有 sections 时按结构还原成分区，而不是判失败", () => {
+    const doc = normalizeProfileDocument(flat)
+    expect(doc).not.toBeNull()
+    expect(doc!.name).toBe("基因锁七重体系·第四重")
+    expect(doc!.tagline).toBe("把未来向度削平")
+    expect(doc!.sections.map((section) => section.heading))
+      .toEqual(["档案信息", "概览", "阶段", "代价", "剧情用法", "写作规则"])
+    expect(doc!.sections.map((section) => section.kind))
+      .toEqual(["kv", "kv", "table", "table", "list", "list"])
+  })
+
+  it("columns 当作表头（契约里叫 head，AI 习惯写 columns）", () => {
+    const doc = normalizeProfileDocument(flat)!
+    expect(doc.sections.find((section) => section.heading === "阶段"))
+      .toMatchObject({ kind: "table", head: ["阶段", "可观察能力"] })
+  })
+
+  it("sections 合法时不混入摊平键，避免内容翻倍", () => {
+    const doc = normalizeProfileDocument({
+      name: "老秦",
+      sections: [{ kind: "kv", heading: "基本信息", items: [{ label: "职业", text: "掮客" }] }],
+      meta: [{ k: "不该出现", v: "被忽略" }],
+    })!
+    expect(doc.sections).toHaveLength(1)
+    expect(doc.sections[0]!.heading).toBe("基本信息")
+  })
+
+  it("摊平后仍渲染不出空档案", () => {
+    const doc = normalizeProfileDocument(flat)!
+    const html = renderProfileDocumentHtml(doc, MIN_TEMPLATE)
+    expect(html).not.toContain("未包含档案数据")
+    expect(html).toContain("阶段")
   })
 })

@@ -19,9 +19,9 @@ const DATA_SOURCE_KINDS: Record<string, ContextSourceKind[]> = {
   searchResults: ["chapter", "outline", "memory", "setting", "entity", "snapshot"],
   graphSearchResults: ["chapter", "outline", "memory", "setting", "entity", "snapshot"],
   revisionFeedback: ["chapter", "snapshot"],
-  cognitionText: ["entity"],
+  cognitionText: ["entity", "outline"],
   soulDoc: ["soul"],
-  sectionBriefing: ["outline", "snapshot"],
+  sectionBriefing: ["outline", "snapshot", "entity", "memory"],
   storyFrameworkBinding: ["outline", "setting", "deduction"],
   retrieval: ["retrieval"],
 }
@@ -43,10 +43,14 @@ export function classifyContextSourcePath(projectPath: string, path: string): Co
   if (relative.startsWith("wiki/chapters/")) return "chapter"
   if (relative.startsWith("wiki/outlines/")) return "outline"
   if (relative.startsWith("wiki/memory/")) return "memory"
+  if (relative === "wiki/tracking/角色状态.md") return "entity"
+  if (relative.startsWith("wiki/tracking/")) return "memory"
   if (relative.startsWith("wiki/entities/") || relative.startsWith("wiki/characters/")) return "entity"
   if (relative.startsWith("wiki/settings/") || relative === "wiki/canon.md" || relative === "wiki/writing-style.md") return "setting"
   if (relative === "soul.md" || relative === "wiki/soul.md") return "soul"
   if (relative === ".novel/cognition-state.json") return "entity"
+  if (relative === ".novel/character-states.json") return "entity"
+  if (relative === ".novel/foreshadowing-tracker.json") return "memory"
   if (relative === ".novel/fanfic-canon.md") return "setting"
   if (relative === ".novel/revision-feedback.json") return "snapshot"
   if (relative === ".novel/timeline.json") return "memory"
@@ -68,7 +72,7 @@ export function getDataSourceKinds(sourceName: string): ContextSourceKind[] {
  */
 export const SOURCE_DEPENDENCY_PREFIXES: Record<string, string[]> = {
   soulDoc: ["soul.md", "wiki/soul.md"],
-  cognitionText: [".novel/cognition-state.json"],
+  cognitionText: [".novel/cognition-state.json", "wiki/outlines/"],
   writingStyle: ["wiki/settings/", "wiki/canon.md", "wiki/writing-style.md", ".qmai/writing-style.json"],
   relatedSettings: [
     "wiki/settings/", "wiki/canon.md", "wiki/writing-style.md",
@@ -95,7 +99,7 @@ export const SOURCE_DEPENDENCY_PREFIXES: Record<string, string[]> = {
   fallbackTimeline: ["wiki/memory/", ".novel/timeline.json"],
   revisionFeedback: ["wiki/chapters/", ".novel/snapshots/", ".novel/revision-feedback.json"],
   retrieval: ["retrieval/"],
-  sectionBriefing: ["wiki/outlines/", ".novel/snapshots/"],
+  sectionBriefing: ["wiki/outlines/", ".novel/snapshots/", ".novel/foreshadowing-tracker.json", "wiki/tracking/"],
 }
 
 /** 返回某数据源的依赖路径前缀；未声明则返回空（调用方回退到 kind 聚合）。 */

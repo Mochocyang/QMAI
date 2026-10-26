@@ -5,6 +5,7 @@ import {
   buildDeepChapterExpansionPrompt,
   buildDeepChapterFinalPolishPrompt,
   buildDeepChapterRevisionPrompt,
+  CHAPTER_SYSTEM_PROMPT,
 } from "./deep-chapter-prompts"
 import type { NovelReviewResult } from "./review-adapter"
 import { DE_AI_GENERATION_RULES } from "./de-ai-generation-rules"
@@ -73,21 +74,29 @@ describe("deep chapter prompts share a stable cacheable prefix (stage 2)", () =>
     console.log(`[stage1] 审稿调用：旧 4 次串行 → 新 1 次（省 3 次完整审查 prompt + 1 次重复 buildContextPack）`)
   })
 
-  it("反 AI 腔规则块整体排在公共前缀之后（加规则不得截断缓存前缀）", () => {
-    const sharedLens = stageList.slice(1).map((p) => commonPrefixLength(stageList[0], p))
-    const minShared = Math.min(...sharedLens)
-    // 初稿 / 扩写 / 返修现在都带规则块，它们必须落在阶段专属区里。
-    const withRules = ["draft", "expansion", "revision"].map((name) => [name, stages[name]] as const)
-    for (const [name, prompt] of withRules) {
-      const index = prompt.indexOf(DE_AI_GENERATION_RULES)
-      expect(index, `${name} 没有带上反 AI 腔规则块`).toBeGreaterThan(0)
-      expect(index, `${name} 的规则块落进了跨阶段公共前缀`).toBeGreaterThanOrEqual(minShared)
+  it("反 AI 腔规则改由 system 承载：所有阶段共用一份，user 里不再重复", () => {
+    // 旧契约是「规则块排在公共前缀之后」——它保证了不截断前缀，但没解决
+    // 「排在各阶段指令之后 → 每阶段全价重发」。现在规则进 CHAPTER_SYSTEM_PROMPT，
+    // 排在整条请求的最前面：前缀照样完整，且落盘一次即可被所有阶段复用。
+    for (const [name, prompt] of Object.entries(stages)) {
+      expect(prompt, `${name} 的 user 里又出现了规则块`).not.toContain(DE_AI_GENERATION_RULES)
     }
-    // 规则不得放进任务书与阶段 6：它们不是正文生成阶段（阶段 6 见 42727a9）。
-    expect(stages.brief).not.toContain(DE_AI_GENERATION_RULES)
-    expect(stages.polish).not.toContain(DE_AI_GENERATION_RULES)
-    // 公共前缀仍完整覆盖「大纲 + 上下文」：插入规则后它不得被截短。
-    // （它止于各阶段共用的一句开场白，与规则无关；这里只钉住下界，避免把前缀长度写成脆断言。）
-    expect(minShared).toBeGreaterThanOrEqual(stableBlock.length)
+    expect(CHAPTER_SYSTEM_PROMPT).toContain(DE_AI_GENERATION_RULES)
+
+    // system 必须是纯静态常量：里面混入章节号/时间/随机量会让整条前缀失效。
+    expect(CHAPTER_SYSTEM_PROMPT).toBe(CHAPTER_SYSTEM_PROMPT)
+
+    // 公共前缀仍完整覆盖「大纲 + 上下文」（去掉规则块后更要保证没被别的插入截短）。
+    const sharedLens = stageList.slice(1).map((p) => commonPrefixLength(stageList[0], p))
+    expect(Math.min(...sharedLens)).toBeGreaterThanOrEqual(stableBlock.length)
+
+    // ── 测量：规则块从「每阶段全价」变成「全程一次命中」──
+    const ruleChars = DE_AI_GENERATION_RULES.length
+    const stageCount = 5
+    console.log(`[system] 规则块 ${ruleChars} chars ≈ ${Math.round(ruleChars / 4)} tok`)
+    console.log(
+      `[system] 每章 ${stageCount} 阶段：旧 ${Math.round((ruleChars * stageCount) / 4)} tok 全价` +
+      ` → 新 ≈ ${Math.round((ruleChars + ruleChars * (stageCount - 1) * 0.1) / 4)} tok（含 system 命中价）`,
+    )
   })
 })

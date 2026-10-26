@@ -9,7 +9,8 @@ import { parseFrontmatter } from "@/lib/frontmatter"
 import { parseChapterMeta } from "./chapter-meta"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
 import { loadRevisionFeedbackForContext, createEmptyRevisionFeedback } from "./revision-feedback"
-import { loadCognitionState, cognitionToContextText } from "./character-cognition"
+import { loadCognitionState } from "./character-cognition"
+import { relevantCognitionContext } from "./cognition-context"
 import { readSoulDoc } from "./soul-doc"
 import { buildWritingStyleContext } from "./writing-style-store"
 import { buildSectionBriefing } from "./section-briefing"
@@ -472,7 +473,8 @@ const cognitionTextDataSource: DataSource<string> = {
     try {
       const state = await loadCognitionState(context.projectPath)
       if (!state) return ""
-      return cognitionToContextText(state)
+      const outline = context.chapterNumber ? await readChapterOutlineContent(context.projectPath, context.chapterNumber) : ""
+      return relevantCognitionContext(state, [context.task, outline].filter(Boolean).join("\n"))
     } catch {}
     return ""
   },

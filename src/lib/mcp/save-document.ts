@@ -1,4 +1,5 @@
 import { writeFileAtomic } from "@/commands/fs"
+import { refreshProjectState } from "@/lib/project-refresh"
 import { getOpenDocumentGuard } from "./open-document"
 import { requireProjectDocument } from "./paths"
 
@@ -15,5 +16,6 @@ export async function saveProjectDocument(input: {
   }
   await write(input.path, input.content)
   guard?.applyMarkdown(input.content)
+  await refreshProjectState(input.projectPath)
   return `已保存 ${input.path}`
 }

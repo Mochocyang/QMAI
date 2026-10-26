@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  CHAPTER_SYSTEM_PROMPT,
   CHAPTER_TARGET_CHARS_MAX,
   CHAPTER_TARGET_CHARS_MIN,
   DEEP_CHAPTER_DRAFT_MAX_CHARS,
@@ -82,39 +83,50 @@ describe("chapter prompts carry the anti-AI-flavor constraint", () => {
   const outline = "# 大纲"
   const context = "上下文包"
 
-  it("注入初稿 / 扩写 / 返修三个阶段", () => {
+  it("规则本体已上移到 system，三个阶段都不再在 user 里重复携带", () => {
     const draft = buildDeepChapterDraftPrompt(outline, context, "任务书", "写下一章", 5)
     const expansion = buildDeepChapterExpansionPrompt(outline, context, "任务书", "过短正文", "写下一章", 5)
     const revision = buildDeepChapterRevisionPrompt(outline, context, "任务书", "初稿", [], "写下一章", 5)
 
+    // 规则排在阶段指令之后 → 每阶段全价重发。现在只由 system 携带一次。
     for (const prompt of [draft, expansion, revision]) {
-      expect(prompt).toContain(DE_AI_GENERATION_RULES)
+      expect(prompt).not.toContain(DE_AI_GENERATION_RULES)
     }
+    expect(CHAPTER_SYSTEM_PROMPT).toContain(DE_AI_GENERATION_RULES)
   })
 
-  it("任务书与阶段 6 局部修改都不注入", () => {
+  it("任务书与阶段 6 局部修改都不在 user 里塞规则本体", () => {
     // 任务书产出的是计划不是散文；阶段 6 由 42727a9 有意改成「只按清单局部改」，
     // 恢复去 AI 味内容等于把那次回退掉，deep-chapter-generation.spec.ts 也钉着这一点。
+    // 规则本体现在统一在 CHAPTER_SYSTEM_PROMPT（引擎级），两个阶段都不再重复携带。
     const brief = buildDeepChapterBriefPrompt(outline, context, "写下一章", 5)
     const polish = buildDeepChapterFinalPolishPrompt(outline, context, "任务书", "当前正文", [], "写下一章", 5)
 
     expect(brief).not.toContain(DE_AI_GENERATION_RULES)
     expect(polish).not.toContain(DE_AI_GENERATION_RULES)
+    // 42727a9 的护栏保持：阶段 6 的 user 里不出现这套规则相关的任何文案。
+    // 规则升到 system 后的「不扩大改写范围」由 CHAPTER_SYSTEM_PROMPT 第 3 条承担，
+    // 不侵入各阶段提示词。
     expect(polish).not.toContain(DE_AI_REVISION_BOUNDARY)
+    expect(CHAPTER_SYSTEM_PROMPT).toContain("不得据此改写范围之外")
   })
 
   it("只有返修带「不得扩大改动范围」的边界句", () => {
     const revision = buildDeepChapterRevisionPrompt(outline, context, "任务书", "初稿", [], "写下一章", 5)
     const draft = buildDeepChapterDraftPrompt(outline, context, "任务书", "写下一章", 5)
 
-    // 返修要求「优先修复审稿指出的问题，不要无关改写」，边界句必须紧跟规则本体，
-    // 否则「不要写 AI 腔」会被读成大范围重写的授权。
+    // 返修要求「优先修复审稿指出的问题，不要无关改写」，边界句必须钉在
+    // system 里那套规则的适用范围上，否则「不要写 AI 腔」会被读成大范围重写的授权。
+    // 规则本体在 system（更早），边界句必须在 user 的稳定前缀之后才生效。
     expect(revision).toContain(DE_AI_REVISION_BOUNDARY)
-    expect(revision.indexOf(DE_AI_REVISION_BOUNDARY)).toBeGreaterThan(revision.indexOf(DE_AI_GENERATION_RULES))
+    expect(CHAPTER_SYSTEM_PROMPT).toContain(DE_AI_GENERATION_RULES)
+    expect(revision.indexOf(DE_AI_REVISION_BOUNDARY)).toBeGreaterThan(
+      revision.indexOf(buildStableContextPrefix(outline, context)),
+    )
     expect(draft).not.toContain(DE_AI_REVISION_BOUNDARY)
   })
 
-  it("规则块排在稳定缓存前缀之后", () => {
+  it("规则不进 user 提示词，因此永远不会截断稳定缓存前缀", () => {
     const stableBlock = buildStableContextPrefix(outline, context)
     const prompts = [
       buildDeepChapterDraftPrompt(outline, context, "任务书", "写下一章", 5),
@@ -123,9 +135,11 @@ describe("chapter prompts carry the anti-AI-flavor constraint", () => {
     ]
 
     for (const prompt of prompts) {
-      // 插到前缀之前会截断 DeepSeek/OpenAI 的自动前缀缓存（重复前缀约按 1/10 计费）。
+      // user 必须以前缀开头（DeepSeek/OpenAI 的自动前缀缓存从这里算起）。
       expect(prompt.startsWith(stableBlock)).toBe(true)
-      expect(prompt.indexOf(DE_AI_GENERATION_RULES)).toBeGreaterThan(stableBlock.length)
+      // 规则本体不在 user 里——它在 system，排在整条请求的最前面，
+      // 既不会截断 P，也不会随阶段内容变化而重发。
+      expect(prompt).not.toContain(DE_AI_GENERATION_RULES)
     }
   })
 })

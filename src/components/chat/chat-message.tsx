@@ -250,6 +250,33 @@ export function ChatMessage({
     canContinueUnfinishedDeepChapter(message.content),
   );
   /**
+   * 这条回复里有没有「可以直接存进章节库」的正文。
+   *
+   * 2026-10-25 起，保存 / 复制按钮不再只看 `isLastAssistant`：用户生成一章后忘了点
+   * 「保存到章节库」，接着去生成下一章，回来时那枚按钮就消失了，内容等于白生成。
+   * 现在按消息自身判定 —— 只要这条回复能取出章节正文，按钮就常驻，与它是不是
+   * 最后一条无关。
+   *
+   * 判据与 `handleSaveAsChapter` 保存时用的是同一个函数（`getCopyableAssistantContent`），
+   * 所以「按钮在」与「点了真能存」不会出现分歧。
+   */
+  const saveableChapterContent = useMemo(() => {
+    if (!novelMode || !isAssistant || message.discarded || message.isAgentRunning) return "";
+    return getCopyableAssistantContent(message.content, {
+      toolCalls: message.agentToolCalls,
+    }).trim();
+  }, [
+    novelMode,
+    isAssistant,
+    message.discarded,
+    message.isAgentRunning,
+    message.content,
+    message.agentToolCalls,
+  ]);
+  /** 已存过章节的消息：按钮保留但禁用，避免同一条内容被重复存成两章。 */
+  const savedChapterRef = message.chapterRef;
+  const canSaveAsChapter = Boolean(onSaveAsChapter && saveableChapterContent);
+  /**
    * 上一条回复是被用户手动停止的（正文结尾带着「已停止生成。」这类收尾提示）。
    *
    * 只在**最后一条**助手消息、且这一轮已经跑完（isAgentRunning 转假）时成立：
@@ -476,16 +503,28 @@ export function ChatMessage({
                 这次深度生成已经完成了部分思考过程。点击“继续未完成”会基于上方已有阶段继续往后生成，通常比“重新生成”更节省 token；如果前面的思考方向本身不对，再使用“重新生成”。
               </div>
             )}
-            {novelMode && isLastAssistant && onSaveAsChapter && (
+            {canSaveAsChapter && (
               <button
                 type="button"
                 onClick={() =>
-                  onSaveAsChapter(message.id, message.content, message.agentToolCalls)
+                  onSaveAsChapter!(message.id, message.content, message.agentToolCalls)
                 }
-                disabled={isSaving}
+                disabled={isSaving || Boolean(savedChapterRef)}
                 className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent disabled:opacity-50"
-                title={isSaving ? "保存中" : "保存到章节库"}
-                aria-label={isSaving ? "保存中" : "保存到章节库"}
+                title={
+                  savedChapterRef
+                    ? `已保存为第 ${savedChapterRef.chapterNumber} 章`
+                    : isSaving
+                      ? "保存中"
+                      : "保存到章节库"
+                }
+                aria-label={
+                  savedChapterRef
+                    ? `已保存为第 ${savedChapterRef.chapterNumber} 章`
+                    : isSaving
+                      ? "保存中"
+                      : "保存到章节库"
+                }
               >
                 <Save className="h-3.5 w-3.5" />
               </button>
@@ -513,7 +552,12 @@ export function ChatMessage({
                 继续未完成
               </button>
             )}
-            {(hovered || (novelMode && isLastAssistant)) && (
+            {/*
+             * 复制按钮：悬停可见，另外「能存进章节库的回复」与「最后一条回复」
+             * 常驻可见 —— 前者是 2026-10-25 按用户要求补的：生成一章忘了复制、
+             * 又去生成下一章，回来时不该连复制入口一起消失。
+             */}
+            {(hovered || canSaveAsChapter || isLastAssistant) && (
               <CopyButton
                 content={displayContent}
                 toolCalls={message.agentToolCalls}
@@ -580,7 +624,18 @@ export function ChatMessage({
               ) : null}
             </div>
           )}
-        {isLastAssistant && saveStatus && (
+        {/*
+          每条消息各显示自己的落库结果。原先只有最后一条能看到 saveStatus，
+          用户保存了旧的一章、又去生成下一章后，那条「已保存为第 N 章」就跟着
+          最后一条的视角一起消失了 —— 现在 chapterRef 落在哪条消息上，
+          哪条消息下面就常驻这句交代。
+        */}
+        {savedChapterRef ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            已保存为第 {savedChapterRef.chapterNumber} 章
+          </p>
+        ) : null}
+        {isLastAssistant && saveStatus && !savedChapterRef && (
           <p className="mt-1 text-xs text-muted-foreground">{saveStatus}</p>
         )}
       </div>

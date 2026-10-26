@@ -73,6 +73,7 @@ import {
   buildDeepChapterFinalPolishPrompt,
   buildDeepChapterRevisionPrompt,
   buildStableContextPrefix,
+  CHAPTER_SYSTEM_PROMPT,
 } from "./deep-chapter-prompts";
 import { buildWritingStyleContext } from "./writing-style-store";
 
@@ -767,8 +768,11 @@ export async function runDeepChapterGeneration(
   const outlineCharCap = Math.floor(
     totalContextCharBudget * DEEP_CHAPTER_OUTLINE_MAX_FRAC,
   );
+  // 只用**作品级**大纲：卷纲与本章章纲改由 contextPackToPrompt 的
+  // chapterOutlineContext 字段承担（排在稳定字段之后）。这样跨章时
+  // 「作品大纲 + 灵魂/规则/设定/文风」全部逐字节相同，可直接命中缓存。
   const outlineText = capOutlineSourcesToBudget(
-    contextPack.outline ?? "",
+    (contextPack.projectOutline ?? "").trim() || contextPack.outline || "",
     outlineCharCap,
   );
 
@@ -1294,6 +1298,10 @@ export async function runDeepChapterGeneration(
                 planBlueprint: planExecutionSummary,
                 throwOnFailure: true,
                 onRequestTrace: callbacks.onRequestTrace,
+                // 复用写作阶段算好的稳定前缀：审稿与写作同源，才能吃到同一份缓存。
+                cachePrefix,
+                // 与写作共用同一份 system，否则第 0 字节不同、前缀对不上。
+                cacheSystemPrompt: CHAPTER_SYSTEM_PROMPT,
               },
               signal,
             )
@@ -1307,6 +1315,10 @@ export async function runDeepChapterGeneration(
                 planBlueprint: planExecutionSummary,
                 throwOnFailure: true,
                 onRequestTrace: callbacks.onRequestTrace,
+                // 复用写作阶段算好的稳定前缀：审稿与写作同源，才能吃到同一份缓存。
+                cachePrefix,
+                // 与写作共用同一份 system，否则第 0 字节不同、前缀对不上。
+                cacheSystemPrompt: CHAPTER_SYSTEM_PROMPT,
               },
             );
       } catch (err) {
@@ -1519,6 +1531,9 @@ export async function runDeepChapterGeneration(
               characterOnly: true,
               throwOnFailure: true,
               onRequestTrace: callbacks.onRequestTrace,
+              cachePrefix,
+              // 与写作共用同一份 system，否则第 0 字节不同、前缀对不上。
+              cacheSystemPrompt: CHAPTER_SYSTEM_PROMPT,
             },
             signal,
           )
@@ -1532,6 +1547,9 @@ export async function runDeepChapterGeneration(
               characterOnly: true,
               throwOnFailure: true,
               onRequestTrace: callbacks.onRequestTrace,
+              cachePrefix,
+              // 与写作共用同一份 system，否则第 0 字节不同、前缀对不上。
+              cacheSystemPrompt: CHAPTER_SYSTEM_PROMPT,
             },
           );
       postRevisionBlockingIssues = (postRevisionResults || []).filter(
@@ -2085,17 +2103,26 @@ function resolveWritingConfig(llmConfig: LlmConfig): LlmConfig {
 }
 
 /**
- * 把以 cachePrefix 开头的 user 字符串消息拆成 [前缀块(cacheControl), 余下块]，
- * 让 provider 在稳定上下文前缀上打缓存断点。其余消息原样返回。
- * 注：Anthropic/MiniMax 会据此发出 cache_control；OpenAI/DeepSeek 端纯文本块会被
- * 折叠回与原字符串逐字节一致的内容，不影响其自动前缀缓存。
+ * 给章节请求加"稳定帧"：**共享 system** + 在 cachePrefix 上打缓存断点。
+ *
+ * 两件事必须一起做，否则前缀对不齐：
+ * 1. `CHAPTER_SYSTEM_PROMPT` 是跨阶段、跨章逐字节相同的静态 system（反 AI 腔规则等）。
+ *    它原本散在各阶段 user 提示词的中段，排在各阶段指令之后，所以每阶段全价重发；
+ *    进 system 后落盘一次，本会话所有阶段 + 后续所有章节都能复用。
+ * 2. 把以 cachePrefix 开头的 user 字符串拆成 [前缀块(cacheControl), 余下块]，
+ *    让 Anthropic/MiniMax 在前缀上打 cache_control；OpenAI/DeepSeek 端纯文本块会被
+ *    折叠回与原字符串逐字节一致的内容，不影响其自动前缀缓存。
+ *
+ * ⚠️ 只要有 cachePrefix 就一定带 system：审稿链路也必须带同一份
+ * （review-adapter 的 `cacheSystemPrompt`）。若一边有 system、一边没有，
+ * 第 0 个字节就不同，审稿再也命不中写作的前缀。
  */
-function applyCachePrefix(
+function withChapterRequestFrame(
   messages: ChatMessage[],
   cachePrefix?: string,
 ): ChatMessage[] {
   if (!cachePrefix) return messages;
-  return messages.map((message) => {
+  const prefixed: ChatMessage[] = messages.map((message) => {
     if (
       message.role === "user" &&
       typeof message.content === "string" &&
@@ -2112,6 +2139,9 @@ function applyCachePrefix(
     }
     return message;
   });
+  // 调用方可能已自带 system（当前没有），有则不再重复插入。
+  if (prefixed.some((message) => message.role === "system")) return prefixed;
+  return [{ role: "system", content: CHAPTER_SYSTEM_PROMPT }, ...prefixed];
 }
 
 async function collectModelText(
@@ -2180,7 +2210,7 @@ async function collectModelText(
     cutoffReason = null;
     await deps.streamChat(
       config,
-      applyCachePrefix(messages, cachePrefix),
+      withChapterRequestFrame(messages, cachePrefix),
       callbacks,
       combinedSignal,
       effectiveOverrides,

@@ -251,6 +251,17 @@ describe("trimContextPack 两级裁剪", () => {
     expect(result.prompt).toContain("主角遭遇反派")
   })
 
+  it("硬性世界规则排在每章可再取的辅助信息之前", () => {
+    // 规则(6.6)必须早于摘要(7)/人物状态(9)/时间线(15)/核心设定(16)：
+    // 它被裁时，这几项也必须已经被裁，不能出现"留下摘要却丢了硬规则"。
+    for (const budget of [6000, 8000, 12000, 20000, 30000]) {
+      const trimmed = new Set(trimContextPack(fullPack, budget).trimmedFields)
+      if (!trimmed.has("canonRules")) continue
+      expect(trimmed.has("recentSummaries"), `budget=${budget} 留下了摘要却裁掉硬规则`).toBe(true)
+      expect(trimmed.has("characterStates"), `budget=${budget} 留下了人物状态却裁掉硬规则`).toBe(true)
+    }
+  })
+
   it("裁剪结果包含裁剪提示信息", () => {
     const result = trimContextPack(fullPack, 100)
     expect(result.prompt).toContain("已裁剪")

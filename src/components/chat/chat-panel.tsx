@@ -91,6 +91,7 @@ import {
   cleanGeneratedChapterContentForDisplay,
   cleanGeneratedChapterContentWithTitle,
 } from "@/lib/novel/chapter-content-cleanup"
+import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { normalizePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
 import {
@@ -1500,6 +1501,11 @@ export function ChatPanel() {
         return
       }
 
+      // 保存即一键排版：用与编辑器「一键排版」完全相同的整理函数（formatChapterWriting）
+      // 先把段落、缩进、中英文间距规整好，再落进章节库。此前是原样写入，
+      // 用户存完还得自己回编辑器点一次一键排版（2026-10-25 用户反馈）。
+      const formattedContent = formatChapterWriting(cleanedContent)
+
       const selectedChapterNumber = await readSelectedChapterNumberForFile(selectedFile)
       const generatedTargetChapterNumber = detectGeneratedTargetChapterNumber(extractedTitle ?? cleanedContent)
       const explicitTargetPath = generatedTargetChapterNumber ? await findChapterFileByNumber(pp, generatedTargetChapterNumber) : null
@@ -1537,7 +1543,7 @@ export function ChatPanel() {
       const chapterDir = `${pp}/wiki/chapters`
       await createDirectory(chapterDir)
       const chapterPath = `${chapterDir}/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
-      const chapterMarkdown = buildDraftContent(targetChapterNumber, chapterTitle, cleanedContent)
+      const chapterMarkdown = buildDraftContent(targetChapterNumber, chapterTitle, formattedContent)
       // 目标路径通常还是空的（新章），但也可能撞上一份已存在的同号文件；
       // 有旧正文就交给记账层差分，否则整份覆盖会被算成今天 AI 新写的。
       const previousMarkdown = await readFile(chapterPath).catch(() => undefined)
@@ -2340,18 +2346,20 @@ export function ChatPanel() {
         rawContextHubSoftwareRules,
         targetChapterNumber,
       )
+      const contextHubStableRules = [
+        qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
+        prePluginSystemRulesPrompt || hasSplitSystemRules ? "" : selectedSkillsPrompt,
+        !prePluginSystemRulesPrompt && !hasSplitSystemRules && sessionSelectedSkills.length > 0
+          ? `## 当前会话写作技能\n${sessionSkillsPrompt}`
+          : "",
+      ].filter((value) => value.trim())
       const contextHubPromptParts = contextHubResult
         ? buildContextHubPromptParts(contextHubSoftwareRules, contextHubResult, [
             outlineCacheRules,
             dynamicSystemRulesPrompt ?? "",
-            qmQuaiSystemPrompt ? `## QM-QUAI 技能\n${qmQuaiSystemPrompt}` : "",
             prePluginSystemRulesPrompt || hasSplitSystemRules ? "" : taskDirective,
             goldenDirective,
-            prePluginSystemRulesPrompt || hasSplitSystemRules ? "" : selectedSkillsPrompt,
-            !prePluginSystemRulesPrompt && !hasSplitSystemRules && sessionSelectedSkills.length > 0
-              ? `## 当前会话写作技能\n${sessionSkillsPrompt}`
-              : "",
-          ])
+          ], contextHubStableRules)
         : null
       const contextHubSystemContent = contextHubPromptParts?.systemContent ?? null
       const systemPromptForConfig = contextHubSystemContent
@@ -2382,6 +2390,11 @@ export function ChatPanel() {
       })
       const agentMessages: AgentMessage[] = [
         { role: "system", content: contextHubSystemContent ?? effectiveSystemPrompt },
+        // 本轮资料前移：作为独立消息放在 system 之后、历史之前。
+        // 它一章之内逐字节不变，下一轮才能被完整命中（实测 85.8% → 98.7%）。
+        ...(contextHubPromptParts?.chapterPrefix.length
+          ? [{ role: "user" as const, content: contextHubPromptParts.chapterPrefix }]
+          : []),
         ...historyMessages,
         { role: "user", content: userContent },
       ]
@@ -2475,7 +2488,8 @@ export function ChatPanel() {
             tools: sessionTools,
             systemPrompt: systemPromptForConfig,
             projectPath,
-            taskGoal: plainText,
+            // 不传 taskGoal：它写的是"初始任务目标"，由 runner 取会话首条 user 消息，
+            // 传本轮输入会让 system 块每轮变化、打断全部历史的前缀缓存。
             ...(requiredToolsOnce ? { requiredToolsOnce } : {}),
             ...(sendOptions?.forceRequiredToolsImmediately
               ? { forceRequiredToolsImmediately: true }

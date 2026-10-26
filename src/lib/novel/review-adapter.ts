@@ -45,6 +45,25 @@ interface ReviewChapterOptions extends NovelReviewCallbacks {
    * 普通手动审稿保持原有兼容行为，失败时仍返回空结果。
    */
   throwOnFailure?: boolean
+  /**
+   * 写作阶段已算好的稳定上下文前缀（大纲 + 上下文包）。
+   *
+   * 传入时审稿请求会**以这段逐字节相同的内容开头**，从而直接复用写作阶段
+   * 已经落盘的 provider 前缀缓存。实测：审稿原本从自己的 contextPackToPrompt
+   * 起头，与写作前缀异构，命中率 0%；复用后与写作同源。
+   *
+   * 未传入（手动审稿、其它调用方）保持原行为：自行用 contextPackToPrompt 起头。
+   */
+  cachePrefix?: string
+  /**
+   * 写作链路使用的**稳定 system**（`CHAPTER_SYSTEM_PROMPT`）。
+   *
+   * 必须与 `cachePrefix` 成对传入：请求的第 0 个字节是 system，若写作请求带 system
+   * 而审稿不带，两者从第 0 字节就不同，审稿再也命不中写作已经落盘的前缀。
+   * 传入后审稿请求结构变成 `[system: 同一份] + [user: 前缀块 + 审稿文案]`，
+   * 与写作完全对齐。
+   */
+  cacheSystemPrompt?: string
 }
 
 /** 角色一致性相关的审查维度，用于 characterOnly 轻量审查模式 */
@@ -118,6 +137,8 @@ export function buildReviewPrompt(
   characterOnly = false,
   planBlueprint?: string,
   maxContextSize?: number,
+  cachePrefix?: string,
+  extraContext?: string,
 ): string {
   const baseDimensions = characterOnly ? CHARACTER_REVIEW_DIMENSIONS : REVIEW_DIMENSIONS
   // 当传入用户确认的计划时，追加计划偏离维度（characterOnly 模式下不追加，保持轻量）
@@ -140,7 +161,15 @@ export function buildReviewPrompt(
         planBlueprint.trim(),
       ].join("\n")
     : ""
-  return `${contextPackToPrompt(pack, undefined, { maxContextSize })}
+  // 有写作前缀时直接复用它（与写作阶段逐字节相同，可直接吃缓存），
+  // 否则维持原有自建上下文段。
+  const contextSection = cachePrefix && cachePrefix.trim()
+    ? cachePrefix.trim()
+    : contextPackToPrompt(pack, undefined, { maxContextSize })
+  const extraSection = extraContext && extraContext.trim()
+    ? `\n\n${extraContext.trim()}`
+    : ""
+  return `${contextSection}${extraSection}
 
 ${modeTitle}：
 ${modeStages.map((stage) => `- ${stage}：必须使用高级 thinking，先分析证据，再给结论。`).join("\n")}
@@ -257,6 +286,14 @@ export async function reviewChapter(
   }
 
   if (signal?.aborted) throw new Error("已停止生成")
+  // 复用写作前缀时，审稿自建的 contextPackToPrompt 会被前缀取代，
+  // 重匹配得到的角色光环必须单独补在**前缀之后**，否则这部分信息会丢。
+  const auraDelta = options.cachePrefix
+    && contextPack.characterAuras
+    && contextPack.characterAuras !== baseContextPack.characterAuras
+    ? `## 初稿新增角色光环（写作阶段之后重新匹配）\n${contextPack.characterAuras}`
+    : undefined
+
   const outputLang = getOutputLanguage()
   const langReminder = buildLanguageReminder(outputLang)
   // 审稿 reasoning 档位可配置（默认 high）；下调可省审稿推理 Token。
@@ -288,6 +325,8 @@ ${langReminder}`
         options.characterOnly,
         options.planBlueprint,
         llmConfig.maxContextSize,
+        options.cachePrefix,
+        auraDelta,
       )
       const stageTitle = chunks.length > 1
         ? (options.characterOnly ? `角色一致性审查（第${i + 1}/${chunks.length}段）` : `深度审查（第${i + 1}/${chunks.length}段）`)
@@ -311,6 +350,9 @@ ${langReminder}`
         stageThinking,
         reviewSignal,
         reviewReasoningEffort,
+        0,
+        options.cachePrefix,
+        options.cacheSystemPrompt,
       )
 
       const jsonMatch = extractJsonArray(result)
@@ -388,12 +430,31 @@ async function runReviewStage(
   signal?: AbortSignal,
   reasoningMode: "low" | "medium" | "high" = "high",
   retryCount = 0,
+  cachePrefix?: string,
+  cacheSystemPrompt?: string,
 ): Promise<string> {
   publishReviewStageThinking(stageThinking, callbacks, stageTitle, "正在分析...")
-  const messages: ChatMessage[] = [
-    { role: "system", content: systemPrompt },
-    { role: "user", content: userPrompt },
-  ]
+  // 复用写作前缀时，**审稿人设绝不能单独占一条前置 system**：那会让请求的第 0 个
+  // 字节变成审稿专属文案，与写作前缀错位，缓存直接失效。审稿人设并进前缀之后。
+  //
+  // 但写作链路自带的稳定 system（`CHAPTER_SYSTEM_PROMPT`）必须原样带上：
+  // 写作请求是 `[system: S][user: P + 阶段文案]`，审稿若只有 `[user: P + 审稿文案]`，
+  // 第 0 字节就不同，一样命不中。带上同一份 S 后，两条请求共享 `S + P` 整段。
+  const messages: ChatMessage[] = cachePrefix
+    ? [
+        ...(cacheSystemPrompt ? [{ role: "system" as const, content: cacheSystemPrompt }] : []),
+        {
+          role: "user" as const,
+          content: [
+            { type: "text" as const, text: cachePrefix, cacheControl: true },
+            { type: "text" as const, text: `\n\n${systemPrompt}\n\n${userPrompt}` },
+          ],
+        },
+      ]
+    : [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ]
 
   let result = ""
   let reasoning = ""
@@ -452,7 +513,7 @@ async function runReviewStage(
       console.warn(`[Novel Review] Stage "${stageTitle}" failed, retrying (${retryCount + 1}/2)...`)
       publishReviewStageThinking(stageThinking, callbacks, stageTitle, "网络波动，正在重试...")
       await new Promise(resolve => setTimeout(resolve, 2000))
-      return runReviewStage(llmConfig, systemPrompt, userPrompt, stageTitle, callbacks, stageThinking, signal, reasoningMode, retryCount + 1)
+      return runReviewStage(llmConfig, systemPrompt, userPrompt, stageTitle, callbacks, stageThinking, signal, reasoningMode, retryCount + 1, cachePrefix, cacheSystemPrompt)
     }
     throw err
   }

@@ -1,10 +1,22 @@
 /**
- * 右上角云同步图标 + 状态气泡。
+ * 右上角云同步图标。
  *
  * 只在「云同步开关已打开」时渲染（关闭后图标消失，但连接态与凭据保留）。
- * 成功/失败提示都在这个图标下方弹，不走全局 toast：
- * - 成功：4 秒自动消失，鼠标悬停暂停计时
- * - 失败：常驻，带「重新登录 / 查看详情」动作
+ *
+ * 状态**全部由图标本身表达**，不再弹气泡：
+ * - 同步中：图标持续浮动呼吸（动画在 cloud-sync.css）
+ * - 失败：图标变红（逐项失败或整轮失败都算）
+ * - 授权过期：图标变黄，点击直接重新登录
+ * - 成功：短暂的对勾，2 秒后回落成常态云
+ *
+ * 旧实现会在图标下方弹气泡（成功 4 秒自动消失、失败常驻）。问题是
+ * 每次同步成功都会弹「已是最新，没有需要同步的内容」——用户点一次同步就被
+ * 打搅一次，而且这句话本身没有任何信息量。状态用图标表达、失败靠红色吸引
+ * 注意、细节交给点击，比气泡省事得多。
+ *
+ * 唯一的例外是**同步失败**：点图标会先展开一个失败清单（而不是直接开详情），
+ * 因为用户此刻最想知道的是「哪几项坏了、是哪个网盘、为什么」。清单里有
+ * 「知道了」，点过之后这批失败算已读，红点不再烦人（只提醒新失败）。
  */
 
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -14,7 +26,7 @@ import type { LucideIcon } from "lucide-react"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import "./cloud-sync.css"
 import { CLOUD_SYNC_OPEN_SETTINGS_EVENT } from "@/lib/cloud-sync/client"
-import { noticeActionLabel, resolveNotice, type NoticeAction } from "@/lib/cloud-sync/notice"
+import { resolveNotice } from "@/lib/cloud-sync/notice"
 import { providerLabel } from "@/lib/cloud-sync/providers"
 import { deriveCloudSyncView, type CloudSyncIconName, type CloudSyncView } from "@/lib/cloud-sync/status"
 import { totalSyncedCount, type CloudSyncNotice, type SyncEntry } from "@/lib/cloud-sync/types"
@@ -28,9 +40,6 @@ const ICONS: Record<CloudSyncIconName, LucideIcon> = {
   CloudAlert,
 }
 
-/** 成功气泡停留时长。 */
-export const SYNC_SUCCESS_BUBBLE_MS = 4_000
-
 function openSettings(category: "cloudSync") {
   window.dispatchEvent(new CustomEvent(CLOUD_SYNC_OPEN_SETTINGS_EVENT, { detail: { category } }))
 }
@@ -43,59 +52,13 @@ export function syncNoticeMessage(notice: CloudSyncNotice): string {
   return resolveNotice(notice.errorCode, { count: notice.counts?.conflict }).message
 }
 
-function SyncNotice({
-  notice,
-  onDismiss,
-  onAction,
-}: {
-  notice: CloudSyncNotice
-  onDismiss: () => void
-  onAction: (action: NoticeAction) => void
-}) {
-  const failed = notice.kind === "failure"
-  const [hovered, setHovered] = useState(false)
-
-  useEffect(() => {
-    if (failed || hovered) return
-    const timer = setTimeout(onDismiss, SYNC_SUCCESS_BUBBLE_MS)
-    return () => clearTimeout(timer)
-  }, [failed, hovered, notice.at, onDismiss])
-
-  const copy = failed ? resolveNotice(notice.errorCode, { count: notice.counts?.conflict }) : null
-  const actionLabel = copy ? noticeActionLabel(copy.action) : null
-
-  return (
-    <div
-      className="ui-test-header-hint is-right ui-test-cloud-bubble"
-      role="status"
-      data-cloud-sync-notice={notice.kind}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <p className={failed ? "ui-test-cloud-bubble-text is-failure" : "ui-test-cloud-bubble-text"}>
-        {syncNoticeMessage(notice)}
-      </p>
-      <div className="ui-test-header-hint-actions">
-        {actionLabel && copy ? (
-          <button type="button" className="ui-test-header-hint-dismiss" onClick={() => onAction(copy.action)}>
-            {actionLabel}
-          </button>
-        ) : null}
-        <button type="button" className="ui-test-header-hint-dismiss" onClick={onDismiss}>
-          {failed ? "知道了" : "关闭"}
-        </button>
-      </div>
-    </div>
-  )
-}
-
 /**
- * 云图标点开的「同步失败」下拉列表。
+ * 云图标点开的「同步失败」清单。
  *
- * 用户投诉：提示「有 N 项同步失败，点击右上角云图标查看详情」，点开却什么都没有。
- * 原因是那 N 是运行态里的残留计数，历史里根本没有失败条目。现在：
- *   · 有失败 → 点图标直接列出失败的路径 + 原因（就是这个下拉）；
- *   · 没失败 → 点图标照旧打开完整详情。
+ * 用户投诉：提示「有 N 项同步失败，点击右上角云图标查看详情」，点开却看不到失败内容。
+ * 现在点图标（有失败时）直接列出失败的路径 + 网盘 + 原因：
+ *   · 「知道了」→ 这批算已读，红点消失，之后只提醒新失败；
+ *   · 「查看全部」→ 也算已读，并打开完整详情面板。
  * 用「下拉」而不是弹窗：用户只是想扫一眼哪几项坏了，不该被一个大窗口挡住。
  */
 function SyncFailureList({
@@ -153,7 +116,6 @@ export function CloudSyncIndicator() {
   const config = useCloudSyncStore((state) => state.config)
   const runtime = useCloudSyncStore((state) => state.runtime)
   const notice = useCloudSyncStore((state) => state.notice)
-  const dismissNotice = useCloudSyncStore((state) => state.dismissNotice)
   const openDetail = useCloudSyncStore((state) => state.openDetail)
   const markSeen = useCloudSyncStore((state) => state.markFailuresSeen)
   const beginLogin = useCloudSyncStore((state) => state.beginLogin)
@@ -174,8 +136,13 @@ export function CloudSyncIndicator() {
     return () => clearTimeout(timer)
   }, [runtime.recentSuccessAt])
 
-  const view: CloudSyncView = deriveCloudSyncView(config, runtime)
+  const failedRecently = notice?.kind === "failure"
+  const view: CloudSyncView = deriveCloudSyncView(config, runtime, Date.now(), {
+    lastFailure: failedRecently,
+  })
   const Icon = ICONS[view.icon]
+  // 失败时把具体原因放进 tooltip：图标只有一个颜色，说不清是断网还是鉴权被拒。
+  const label = failedRecently && notice ? `云同步：${syncNoticeMessage(notice)}，点击查看` : view.label
 
   const handleClick = useCallback(() => {
     if (view.state === "login-required") {
@@ -186,11 +153,11 @@ export function CloudSyncIndicator() {
       void beginLogin()
       return
     }
-    // 有失败时先给下拉列表（用户点图标就是想知道"哪几项坏了"），
-    // 没有失败才打开完整详情。
-    //
-    // 点图标本身必须能**关掉**已打开的下拉：这个按钮看起来就是个开关，
-    // 之前只会「开」不会「关」，用户点它一下反而打不开别的（真实投诉）。
+    /*
+     * 有失败时先展开清单（用户点图标就是想知道"哪几项坏了"），
+     * 再点一次收起来 —— 这个按钮看起来就是个开关。
+     * 没有失败才直接打开完整详情。
+     */
     if (failedEntries.length > 0) {
       setFailuresOpen((previous) => !previous)
       return
@@ -198,36 +165,18 @@ export function CloudSyncIndicator() {
     openDetail()
   }, [beginLogin, failedEntries.length, openDetail, view.state])
 
-  const handleNoticeAction = useCallback(
-    (action: NoticeAction) => {
-      dismissNotice()
-      if (action === "relogin") {
-        void beginLogin()
-        return
-      }
-      if (action === "settings") {
-        openSettings("cloudSync")
-        return
-      }
-      if (action === "detail") openDetail()
-    },
-    [beginLogin, dismissNotice, openDetail],
-  )
-
   /*
-   * 点下拉外面、或按 Esc 都要收起来。
+   * 点清单外面、或按 Esc 都要收起来。
    *
-   * 之前只有「查看全部 / 知道了」能关，下拉会一直挂在页面上挡住内容 ——
-   * 用户的原话是"点击其他内容弹窗也不会消失"。用 mousedown 而不是 click：
-   * 点按钮时 click 会先触发一次，导致"点图标打开、同一次点击又关掉"。
-   * 捕获阶段监听，保证在我们的按钮 onClick 之前判定。
+   * 用 mousedown 而不是 click：点按钮时 click 会先触发一次，
+   * 导致"点图标打开、同一次点击又关掉"。捕获阶段监听，保证在按钮 onClick 之前判定。
    */
   useEffect(() => {
     if (!failuresOpen) return
     const onPointerDown = (event: MouseEvent) => {
       const target = event.target
       if (!(target instanceof Node)) return
-      // 点在锚点（图标）或下拉内部时不算"点外面"，交给各自的 onClick 处理。
+      // 点在锚点（图标）或清单内部时不算"点外面"，交给各自的 onClick 处理。
       if (anchorRef.current?.contains(target)) return
       setFailuresOpen(false)
     }
@@ -253,7 +202,7 @@ export function CloudSyncIndicator() {
               type="button"
               className="ui-test-icon-btn ui-test-cloud-entry"
               data-cloud-sync-state={view.state}
-              aria-label={view.label}
+              aria-label={label}
               aria-haspopup={failedEntries.length > 0 ? "menu" : "dialog"}
               onClick={handleClick}
             >
@@ -264,11 +213,8 @@ export function CloudSyncIndicator() {
             </button>
           }
         />
-        <TooltipContent>{view.label}</TooltipContent>
+        <TooltipContent>{label}</TooltipContent>
       </Tooltip>
-      {notice ? (
-        <SyncNotice notice={notice} onDismiss={dismissNotice} onAction={handleNoticeAction} />
-      ) : null}
       {failuresOpen && failedEntries.length > 0 ? (
         <SyncFailureList
           entries={failedEntries}

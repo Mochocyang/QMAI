@@ -257,3 +257,54 @@ describe("事件细纲保存闸门判据", () => {
     })).toBe("continue")
   })
 })
+
+
+describe("结构化数据回复不能被当成正文（气泡与 MD 都必须是可读文本）", () => {
+  const fence = "```";
+  const volumeJson = [
+    fence + "json",
+    "{",
+    '  "volumeOutlineData": {',
+    '    "title": "第二卷 归墟寄魂",',
+    '    "goal": "杨寒从白塔旧院火场追到第一座记忆仓",',
+    '    "stories": [',
+    '      { "id": 1, "range": "第21–32章", "title": "焦骨余温" }',
+    "    ]",
+    "  },",
+    '  "outlineSaveRequest": { "targetFolder": "卷纲", "fileName": "第二卷.md" }',
+    "}",
+    fence,
+  ].join("\n")
+
+  it("整轮只有结构化数据时，正文为空（由摘要兜底，不能回退成 JSON 原文）", () => {
+    expect(prepareOutlineSaveSourceContent(volumeJson)).toBe("")
+    // 围栏外的交代语可以留下（渲染层会用 looksLikeOutlineDeliveryNote 换成摘要），
+    // 但 JSON 本体必须一个字符都不剩。
+    const withNote = prepareOutlineSaveSourceContent(`已按结构化数据生成第二卷。\n\n${volumeJson}`)
+    expect(withNote).toContain("已按结构化数据生成第二卷")
+    expect(withNote).not.toContain("volumeOutlineData")
+  })
+
+  it("正文 + 结构化围栏时，只保留正文，JSON 一个字都不留", () => {
+    const md = "# 第二卷 归墟寄魂\n\n## 卷级定位\n- 卷定位：杨寒追链\n- 主题句：请叫我名字"
+    const out = prepareOutlineSaveSourceContent(`${md}\n\n${volumeJson}`)
+    expect(out).toContain("# 第二卷 归墟寄魂")
+    expect(out).toContain("卷定位")
+    expect(out).not.toContain("volumeOutlineData")
+    expect(out).not.toContain('"title"')
+    expect(out).not.toContain('"goal"')
+  })
+
+  it("JSON 属性行不会被改写成加粗列表（旧 bug：- **\"title\"：** …）", () => {
+    // 即使围栏没被剥掉（异常输入），也不能把 JSON 行"美化"成 markdown
+    const out = prepareOutlineSaveSourceContent(`${volumeJson}\n\n尾注一句`)
+    expect(out).not.toContain('- **"title"')
+    expect(out).not.toContain('- **"goal"')
+  })
+
+  it("普通中文属性行仍然要转成列表项（别把功能改没了）", () => {
+    const out = prepareOutlineSaveSourceContent("# 第一卷\n\n卷定位：用死亡把编号的恶钉进读者心里\n主题句：请叫我名字")
+    expect(out).toContain("- **卷定位：**")
+    expect(out).toContain("- **主题句：**")
+  })
+})

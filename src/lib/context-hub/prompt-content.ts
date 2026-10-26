@@ -24,27 +24,45 @@ export function flattenContextHubSystemContent(content: ContentBlock[]): string 
 }
 
 
-/** 系统只放稳定规则；本轮资料在历史之后注入，避免每轮改写整个会话前缀。 */
+/**
+ * 系统只放稳定规则；本轮资料前移到历史之前单独成段，本轮要求留在尾部。
+ *
+ * 分三段的目的（真机实测依据：资料放 user 尾部时第二轮只命中 85.8%，
+ * 前移到 system 之后能到 98.7%）：
+ * - `systemContent`：软件规则 + 项目稳定核心 + 稳定技能/规则，逐字节不随轮次变。
+ * - `chapterPrefix`：本轮参考资料（人物状态/伏笔/检索/推演）。一章之内基本不变，
+ *   作为独立消息插在 system 之后、历史之前，才能被下一轮完整命中。
+ * - `taskContext`：会话摘要 + 本轮执行要求。每轮都变，只能留在最尾部。
+ *   会话摘要**不能**放进 chapterPrefix：它每轮重算，一进去就把前缀打断。
+ */
 export function buildContextHubPromptParts(
   softwareRules: string,
   result: ContextHubResult,
   dynamicRules: string[] = [],
-): { systemContent: ContentBlock[]; taskContext: ContentBlock[] } {
-  const systemContent = buildContextHubSystemContent(softwareRules, {
-    ...result,
-    sessionSummary: "",
-    dynamicContext: "",
-  }).filter((block) => block.type !== "text" || block.text.length > 0)
+  stableRules: string[] = [],
+): { systemContent: ContentBlock[]; chapterPrefix: ContentBlock[]; taskContext: ContentBlock[] } {
+  const stableText = stableRules.filter((value) => value.trim()).join("\n\n")
+  const systemContent = [
+    ...buildContextHubSystemContent(softwareRules, {
+      ...result,
+      sessionSummary: "",
+      dynamicContext: "",
+    }),
+    ...(stableText ? [{ type: "text" as const, text: `\n\n${stableText}` }] : []),
+  ].filter((block) => block.type !== "text" || block.text.length > 0)
     .map((block) => block.type === "text" ? { ...block, cacheControl: true } : block)
-  const material = [
-    result.sessionSummary ? `## 当前会话摘要\n${result.sessionSummary}` : "",
-    result.dynamicContext ? `## 本轮参考资料\n${result.dynamicContext}` : "",
-  ].filter(Boolean).join("\n\n")
+
+  const summary = result.sessionSummary ? `## 当前会话摘要\n${result.sessionSummary}` : ""
+  const material = result.dynamicContext ? `## 本轮参考资料\n${result.dynamicContext}` : ""
   const rules = dynamicRules.filter((value) => value.trim()).join("\n\n")
+
+  const chapterPrefix: ContentBlock[] = material
+    ? [{ type: "text", text: material, cacheControl: true }]
+    : []
   const taskContext: ContentBlock[] = []
-  if (material) taskContext.push({ type: "text", text: material, cacheControl: true })
-  if (rules) taskContext.push({ type: "text", text: `${material ? "\n\n" : ""}## 本轮执行要求\n${rules}` })
-  return { systemContent, taskContext }
+  if (summary) taskContext.push({ type: "text", text: summary })
+  if (rules) taskContext.push({ type: "text", text: `${summary ? "\n\n" : ""}## 本轮执行要求\n${rules}` })
+  return { systemContent, chapterPrefix, taskContext }
 }
 
 export function withContextHubTaskContent(

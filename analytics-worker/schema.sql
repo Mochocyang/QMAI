@@ -1,12 +1,20 @@
--- 用户表：记录每个独立设备（下载用户统计）
+-- 青幕AI写作 - 用户统计 D1 表结构
+
+-- 用户表：记录每个独立设备（下载用户数统计）
+--
+-- ip_hash 存 IP 的 SHA-256 哈希（带固定 salt），不落明文，用于
+-- 「独立 IP 数」去重：同一 IP 下载/使用多次只算 1 个。
+-- last_version / last_platform 由客户端 /open 上报，用于版本与平台分布。
 CREATE TABLE IF NOT EXISTS users (
   uuid TEXT PRIMARY KEY,
-  ip_hash TEXT NOT NULL,
+  ip_hash TEXT NOT NULL DEFAULT '',
   first_seen TEXT NOT NULL DEFAULT (datetime('now')),
-  last_seen TEXT NOT NULL DEFAULT (datetime('now'))
+  last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+  last_version TEXT,
+  last_platform TEXT
 );
 
--- 会话表：记录 open/close 事件（在线人数统计）
+-- 会话表：记录 open/heartbeat/close 事件（在线人数、DAU/WAU 统计）
 CREATE TABLE IF NOT EXISTS sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   uuid TEXT NOT NULL,
@@ -16,7 +24,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   is_online INTEGER NOT NULL DEFAULT 1
 );
 
--- 每日统计快照
+-- 每日统计快照（cron 每 5 分钟更新一次）
 CREATE TABLE IF NOT EXISTS daily_stats (
   date TEXT PRIMARY KEY,
   new_users INTEGER NOT NULL DEFAULT 0,
@@ -24,20 +32,9 @@ CREATE TABLE IF NOT EXISTS daily_stats (
   peak_online INTEGER NOT NULL DEFAULT 0
 );
 
--- 反馈表：记录设置页提交的问题与建议
-CREATE TABLE IF NOT EXISTS feedback (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  type TEXT NOT NULL,
-  message TEXT NOT NULL,
-  contact TEXT,
-  app_version TEXT,
-  user_agent TEXT,
-  ip_hash TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
--- 索引：加速在线人数查询
+-- 索引：加速在线人数、DAU/WAU 与版本分布查询
 CREATE INDEX IF NOT EXISTS idx_sessions_online ON sessions(is_online) WHERE is_online = 1;
 CREATE INDEX IF NOT EXISTS idx_sessions_uuid ON sessions(uuid);
-CREATE INDEX IF NOT EXISTS idx_users_ip_hash ON users(ip_hash);
-CREATE INDEX IF NOT EXISTS idx_feedback_created_at ON feedback(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active DESC);
+CREATE INDEX IF NOT EXISTS idx_users_first_seen ON users(first_seen);
+CREATE INDEX IF NOT EXISTS idx_users_last_version ON users(last_version);

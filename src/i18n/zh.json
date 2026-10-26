@@ -874,7 +874,7 @@
       },
       "maintenance": {
         "title": "维护工具",
-        "description": "用于清理资料库的工具：检测并合并重复实体/概念，以及清理伏笔追踪器中的重复、噪声与失效条目。",
+        "description": "用于维护写作记忆与资料库：从来源清理重复、噪声记忆，同步派生文档，并检测和合并重复实体/概念。",
         "noProject": "请先打开一个项目。",
         "noLlm": "请先配置大模型提供方。",
         "foreshadowing": {
@@ -1641,6 +1641,7 @@
       "currentChapterGoal": "## 当前章节目标",
       "recentRevisionDirectives": "## 最近检查待修正项",
       "requiredOutline": "## 必须遵守的大纲",
+      "chapterOutline": "## 本章章纲",
       "recentPlotSummaries": "## 最近剧情摘要",
       "recentChapterContents": "## 最近章节正文片段",
       "previousChapterEnding": "## 上一章结尾",

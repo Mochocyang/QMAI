@@ -162,20 +162,20 @@ export function SoulView() {
             )}
           </nav>
           {!isProjectSoul && view === "gallery" && gallerySection === "custom" ? (
-            <>
+            <div className="ui-test-soul-actions">
               <button
                 type="button"
                 className="ui-test-soul-action"
                 data-testid="soul-go-persona-skill"
-                title="人物 Skill 在技能库：随章节摄取自动学出结构化档案"
+                title="去拆书库：从拆解出的角色里直接生成人物 Skill"
                 onClick={goToPersonaSkillLibrary}
               >
-                去技能库生成角色 skill
+                去拆书库生成角色 skill
               </button>
               <button type="button" className="ui-test-soul-action" onClick={startNewCustom}>
                 <Plus /> 新建灵魂
               </button>
-            </>
+            </div>
           ) : null}
         </div>
       </header>

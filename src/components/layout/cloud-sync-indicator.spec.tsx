@@ -3,7 +3,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { CloudSyncIndicator, SYNC_SUCCESS_BUBBLE_MS } from "./cloud-sync-indicator"
+import { CloudSyncIndicator } from "./cloud-sync-indicator"
 import { DEFAULT_CLOUD_SYNC_CONFIG, emptyCounts } from "@/lib/cloud-sync/types"
 import { useCloudSyncStore } from "@/stores/cloud-sync-store"
 
@@ -97,8 +97,7 @@ describe("CloudSyncIndicator", () => {
     expect(entryButton()?.getAttribute("aria-label")).toContain("重新登录")
   })
 
-  it("成功气泡在图标下方出现，4 秒后自动消失", () => {
-    vi.useFakeTimers()
+  it("同步成功不再弹气泡（只有图标态，不打搅用户）", () => {
     useCloudSyncStore.setState({ config: connectedConfig, runtime: { running: false } })
     render()
     act(() => {
@@ -108,18 +107,14 @@ describe("CloudSyncIndicator", () => {
         counts: { ...emptyCounts(), upload: 5, download: 2 },
       })
     })
-    const bubble = host.querySelector('[data-cloud-sync-notice="success"]')
-    expect(bubble?.textContent).toContain("已同步 7 项")
-
-    act(() => {
-      vi.advanceTimersByTime(SYNC_SUCCESS_BUBBLE_MS + 10)
-    })
-    expect(useCloudSyncStore.getState().notice).toBeNull()
+    expect(host.querySelector("[data-cloud-sync-notice]")).toBeNull()
+    expect(host.querySelector(".ui-test-cloud-bubble")).toBeNull()
+    // 图标回到「已就绪」，不因为一次成功就长期停在别的状态。
+    expect(entryButton()?.dataset.cloudSyncState).toBe("ready")
   })
 
-  it("失败气泡不会自动消失，并且带「查看详情」", () => {
-    vi.useFakeTimers()
-    useCloudSyncStore.setState({ config: connectedConfig, runtime: { running: false } })
+  it("整轮失败（没有逐项记录）也让图标变红，点击打开详情", () => {
+    useCloudSyncStore.setState({ config: connectedConfig, runtime: { running: false, failureCount: 0 } })
     render()
     act(() => {
       useCloudSyncStore.getState().showNotice({
@@ -129,43 +124,25 @@ describe("CloudSyncIndicator", () => {
         counts: emptyCounts(),
       })
     })
-    const bubble = host.querySelector('[data-cloud-sync-notice="failure"]')
-    expect(bubble?.textContent).toContain("检查网络")
+    // 没有气泡，但状态必须是 attention（CSS 会把它染红）
+    expect(host.querySelector("[data-cloud-sync-notice]")).toBeNull()
+    expect(entryButton()?.dataset.cloudSyncState).toBe("attention")
+    expect(entryButton()?.getAttribute("aria-label")).toContain("检查网络")
 
-    act(() => {
-      vi.advanceTimersByTime(SYNC_SUCCESS_BUBBLE_MS * 3)
-    })
-    expect(useCloudSyncStore.getState().notice).not.toBeNull()
-    expect(bubble?.textContent).toContain("查看详情")
+    act(() => entryButton()!.click())
+    expect(useCloudSyncStore.getState().detailOpen).toBe(true)
   })
 
-  it("鼠标悬停时暂停成功气泡的计时", () => {
-    vi.useFakeTimers()
+  it("成功之后失败态不会残留（新 notice 覆盖旧 notice）", () => {
     useCloudSyncStore.setState({ config: connectedConfig, runtime: { running: false } })
     render()
     act(() => {
+      useCloudSyncStore.getState().showNotice({ kind: "failure", at: Date.now(), errorCode: "net.offline" })
+    })
+    expect(entryButton()?.dataset.cloudSyncState).toBe("attention")
+    act(() => {
       useCloudSyncStore.getState().showNotice({ kind: "success", at: Date.now(), counts: emptyCounts() })
     })
-    const bubble = host.querySelector('[data-cloud-sync-notice="success"]')!
-    act(() => {
-      // React 用 mouseover 委托 onMouseEnter，直接派发 mouseenter 不会命中。
-      bubble.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }))
-    })
-    act(() => {
-      vi.advanceTimersByTime(SYNC_SUCCESS_BUBBLE_MS * 2)
-    })
-    expect(useCloudSyncStore.getState().notice).not.toBeNull()
-  })
-
-  it("点失败气泡的「重新登录」会把授权过期态复位成未连接", () => {
-    useCloudSyncStore.setState({ config: connectedConfig, runtime: { running: false, authExpired: true } })
-    render()
-    act(() => {
-      useCloudSyncStore.getState().showNotice({ kind: "failure", at: Date.now(), errorCode: "auth.expired" })
-    })
-    const bubble = host.querySelector('[data-cloud-sync-notice="failure"]')!
-    const relogin = [...bubble.querySelectorAll("button")].find((item) => item.textContent === "重新登录")!
-    act(() => relogin.click())
-    expect(useCloudSyncStore.getState().notice).toBeNull()
+    expect(entryButton()?.dataset.cloudSyncState).toBe("ready")
   })
 })

@@ -549,3 +549,57 @@ describe("多章章纲缺本章", () => {
     expect(result.content).toContain("围绕竹哨展开")
   })
 })
+
+
+describe("capOutlineSourcesToBudget 的前缀稳定性（缓存命中率）", () => {
+  const START = "<!-- qmai-outline-source:start -->"
+  const END = "<!-- qmai-outline-source:end -->"
+  const block = (name: string, chars: number) =>
+    `${START}\n## 大纲来源：设定/${name}.md（setting）\n\n${"内".repeat(chars)}\n${END}`
+
+  // 旧实现用 share = remaining / pending.size 均分：多一篇文档，
+  // 所有大文档的分片位置就整体平移，整段大纲字节全变 → 前缀断掉。
+  // 大纲链路恰好在不停新增设定文档，所以这条必须锁死。
+  it("末尾新增文档不改变已有输出（逐字节相同）", () => {
+    const a = block("甲", 500)
+    const b = block("乙", 500)
+    const c = block("丙", 500)
+    // 预算只够装下甲、乙 + 丙的一部分：丙正是"第一个装不下的块"。
+    const before = capOutlineSourcesToBudget([a, b, c].join("\n\n"), 1500)
+    const after = capOutlineSourcesToBudget([a, b, c, block("丁", 500)].join("\n\n"), 1500)
+    // 新增的丁排在丙之后，完全不该影响输出——这才是可缓存的形状。
+    expect(after).toBe(before)
+    expect(before).toContain("设定/甲.md")
+    expect(before).toContain("设定/乙.md")
+  })
+
+  it("预算微调不影响已经整篇装入的文档", () => {
+    const a = block("甲", 200)
+    const b = block("乙", 200)
+    const c = block("丙", 900)
+    const tight = capOutlineSourcesToBudget([a, b, c].join("\n\n"), 1200)
+    const loose = capOutlineSourcesToBudget([a, b, c].join("\n\n"), 1500)
+    const stableHead = `${a}\n\n${b}`
+    expect(tight.startsWith(stableHead)).toBe(true)
+    expect(loose.startsWith(stableHead)).toBe(true)
+  })
+
+  it("超出预算时整篇舍弃末尾文档，而不是每篇都切一半", () => {
+    const a = block("甲", 400)
+    const b = block("乙", 400)
+    const c = block("丙", 4000)
+    const out = capOutlineSourcesToBudget([a, b, c].join("\n\n"), 2000)
+    expect(out).toContain("设定/甲.md")
+    expect(out).toContain("设定/乙.md")
+    // 丙整篇装不下，只拿剩余预算做头尾截断——不会把甲、乙也压短
+    expect(out.length).toBeLessThanOrEqual(2000)
+    expect(out.indexOf("设定/丙.md")).toBeGreaterThan(out.indexOf("设定/乙.md"))
+  })
+
+  it("输出永远不超过给定预算", () => {
+    const many = Array.from({ length: 12 }, (_, i) => block(`第${i}篇`, 600)).join("\n\n")
+    for (const cap of [1000, 3000, 8000]) {
+      expect(capOutlineSourcesToBudget(many, cap).length).toBeLessThanOrEqual(cap)
+    }
+  })
+})

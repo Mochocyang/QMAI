@@ -7,6 +7,64 @@ interface ChangelogEntry {
   };
 }
 
+/**
+ * 4.3.8 起更新日志只维护中文。
+ *
+ * `en` 直接复用 `zh`：英文界面宁可显示中文，也不该出现一张空白的版本卡片。
+ * 以后新增条目照此办理，不必再写第二份英文。
+ */
+const FOUR_POINT_THREE_EIGHT_ZH: string[] = [
+  "新增云同步：支持 WebDAV（坚果云、NAS、自建）与网盘本地文件夹，可在设置中开关、手动立即同步，也会后台自动同步；同步记录按批次查看每一项结果，两边都改过的文件会列出来让你逐项选择保留哪边。百度网盘已内置但暂不开放（卡片置灰，后续版本放开）。",
+  "章节与大纲在独立窗口打开时，会跟随主窗口当前的皮肤、字号、行距与页边距，不再是一套固定的默认样式。",
+  "在知识图谱/知识树上右键批量提取记忆时，会先选择范围：「全部提取」重新提取所有章节并更新已有记忆；「仅提取未提取章节」跳过已有记忆快照的章节，批量补提取时不必担心重复覆盖。",
+  "重复内容不再全额付费：主对话从第二轮起缓存命中率由 72.8% 升到 99.6%，审稿改为复用写作时的上下文前缀（0% → 99.3%），同章后续阶段不再重复支付整段上下文的费用。",
+  "跨章写作能吃到上一章的缓存：把随章变化的字段与整本不变的内容分开输出后，跨章复用从 0.2% 升到 73.4%。",
+  "作品大纲与卷纲/章纲拆开注入，不再合并成一大段，跨章命中由 35.7% 升到 71.9%。",
+  "硬性世界规则不会再被上下文预算挤掉——此前它排在章纲之后，预算紧张时会整段静默丢失；现在与章纲同等优先。章节生成的反 AI 腔规则也改由统一的系统提示承载，不再每个阶段重发一遍。",
+  "设定档案能正常保存了：某些模型会把档案拆成「档案信息 / 阶段 / 代价 / 禁忌…」十几个顶层字段而不是约定的分区数组，此前会被判为「未包含档案数据（sections 为空）」导致保存失败、内容全丢。现在这些结构会自动还原成分区（含表格），实测一份档案完整还原出 14 个分区。",
+  "对话气泡与保存出来的 Markdown 不再出现成段的 JSON：此前大纲类回复会把结构化数据原样显示、并写进保存的文档（还被逐行改写成了带加粗的列表），现在只留正文与一句交代，文档由结构化数据重新生成。",
+  "生成新的大纲内容后，已有大纲的缓存不再整体作废：此前每新增一份设定文档，整段大纲的截断位置都会一起平移，导致下一次请求几乎全价重算；现在按顺序完整装入，新增内容只影响末尾。",
+  "云同步不再弹窗，状态只看右上角云图标：同步中图标浮动呼吸，失败时变红、点击可看详情与具体原因，成功只短暂显示对勾，不再弹「已是最新，没有需要同步的内容」。整轮同步失败（断网、鉴权被拒、远端不可达）现在也会让图标变红——这类失败没有逐项记录，此前图标会停在「已就绪」，你不会知道刚失败过。",
+  "写作区与阅读区的正文滚动条已隐藏，滚动、翻页与定位行为不变。",
+  "删除小说在 macOS 与 Linux 上也会移入系统回收站（此前只有 Windows 正常）。",
+  "重排地址支持 …/reranks 这类复数写法，不再提示地址无效。",
+];
+
+const FOUR_POINT_THREE_TEN_ZH: string[] = [
+  "目录收起后左上角按钮显示收起图标，不再显示品牌 logo。",
+];
+
+const FOUR_POINT_THREE_TEN_CHANGELOG: ChangelogEntry = {
+  version: "4.3.10",
+  date: "2026-10-26",
+  highlights: {
+    en: FOUR_POINT_THREE_TEN_ZH,
+    zh: FOUR_POINT_THREE_TEN_ZH,
+  },
+};
+
+const FOUR_POINT_THREE_NINE_ZH: string[] = [
+  "修复一些问题，提升使用稳定性与体验。",
+];
+
+const FOUR_POINT_THREE_NINE_CHANGELOG: ChangelogEntry = {
+  version: "4.3.9",
+  date: "2026-10-25",
+  highlights: {
+    en: FOUR_POINT_THREE_NINE_ZH,
+    zh: FOUR_POINT_THREE_NINE_ZH,
+  },
+};
+
+const FOUR_POINT_THREE_EIGHT_CHANGELOG: ChangelogEntry = {
+  version: "4.3.8",
+  date: "2026-10-25",
+  highlights: {
+    en: FOUR_POINT_THREE_EIGHT_ZH,
+    zh: FOUR_POINT_THREE_EIGHT_ZH,
+  },
+};
+
 const FOUR_POINT_THREE_SEVEN_CHANGELOG: ChangelogEntry = {
   version: "4.3.7",
   date: "2026-10-22",
@@ -2037,6 +2095,12 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_THREE_TEN_CHANGELOG.version)
+    return [FOUR_POINT_THREE_TEN_CHANGELOG];
+  if (version === FOUR_POINT_THREE_NINE_CHANGELOG.version)
+    return [FOUR_POINT_THREE_NINE_CHANGELOG];
+  if (version === FOUR_POINT_THREE_EIGHT_CHANGELOG.version)
+    return [FOUR_POINT_THREE_EIGHT_CHANGELOG];
   if (version === FOUR_POINT_THREE_SEVEN_CHANGELOG.version)
     return [FOUR_POINT_THREE_SEVEN_CHANGELOG];
   if (version === FOUR_POINT_THREE_SIX_CHANGELOG.version)
@@ -2216,6 +2280,9 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_THREE_TEN_CHANGELOG,
+    FOUR_POINT_THREE_NINE_CHANGELOG,
+    FOUR_POINT_THREE_EIGHT_CHANGELOG,
     FOUR_POINT_THREE_SEVEN_CHANGELOG,
     FOUR_POINT_THREE_SIX_CHANGELOG,
     FOUR_POINT_THREE_FIVE_CHANGELOG,

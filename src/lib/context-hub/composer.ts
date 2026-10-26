@@ -56,14 +56,17 @@ function fragmentTokens(fragment: ContextFragment): number {
 
 function stableFragments(pack: ContextPack): ContextFragment[] {
   return [
+    // 顺序即缓存前缀的顺序：作品级不变的内容在前，随章变化的内容在后。
+    // 「核心设定」是按本章相关度挑出来的，换章就变，所以必须排在最后，
+    // 否则它一变，排在它后面的「写作风格 / 大纲骨架」全部够不着缓存。
     { title: "作品灵魂", text: pack.soulDoc, layer: "stable" },
     { title: "故事框架绑定", text: pack.storyFrameworkBinding, layer: "stable" },
     // 同人正典排在自有设定之前：原作的既成事实优先于本作新设定。
     { title: "原作正典", text: pack.sourceCanon ?? "", layer: "stable" },
     { title: "硬性世界规则", text: pack.canonRules, layer: "stable" },
-    { title: "核心设定", text: pack.relatedSettings, layer: "stable" },
     { title: "写作风格", text: pack.writingStyle, layer: "stable" },
     { title: "大纲骨架", text: pack.projectOutline ?? pack.outline, layer: "stable" },
+    { title: "核心设定", text: pack.relatedSettings, layer: "stable" },
   ]
 }
 

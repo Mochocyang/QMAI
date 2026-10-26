@@ -14,6 +14,7 @@ import { buildRevisionDirectives } from "./revision-feedback"
 import { extractChapterOutlineStatus } from "./outline-quality-check"
 import { loadCognitionState, cognitionToContextText } from "./character-cognition"
 import { buildPersonaSkillContext } from "./persona-skill-context"
+import { withMemoryWriteLock } from "./memory-cleanup-policy"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
 import { rerankCandidates } from "@/lib/rerank"
 import {
@@ -46,6 +47,9 @@ const FIELD_PRIORITY: Record<string, number> = {
   sourceCanon: 4.5,
   soulDoc: 5,
   outline: 6,
+  /** 本章章纲：写作链路（excludeOutline）下替代 mergedOutline 里的章纲部分，
+   *  让「作品大纲」可以稳定前置、章纲下沉。优先级紧贴 outline。 */
+  chapterOutlineContext: 6.5,
   recentSummaries: 7,
   previousChapterEnding: 8,
   characterStates: 9,
@@ -60,7 +64,16 @@ const FIELD_PRIORITY: Record<string, number> = {
   cognitionStates: 14,
   timeline: 15,
   relatedSettings: 16,
-  canonRules: 17,
+  /**
+   * 「禁止违背」（硬性世界规则）是跨章不变的正确性约束，和原作正典同类，
+   * 不能排在"最近摘要/人物状态/时间线/核心设定"这些**每章可再取**的辅助信息之后。
+   *
+   * 实测（12000~40000 预算的存活模拟）：提到 6.6（紧跟章纲）后，
+   * ≤12000 时"留谁"的集合完全不变（截止点本来就在它之前），
+   * ≥20000 时能把硬规则救回来，且不额外挤掉任何字段。
+   * 没有再往前提到"章纲之前"——那样会为了硬规则牺牲本章章纲，得不偿失。
+   */
+  canonRules: 6.6,
   nextChapterAdvice: 18,
   writingStyle: 19,
   searchResults: 20,
@@ -135,20 +148,22 @@ export async function buildContextPack(
   options?: { categories?: DataSourceCategory[]; loadAdapter?: DataSourceLoadAdapter },
 ): Promise<ContextPack> {
   const pp = normalizePath(projectPath)
-  const novelMode = useWikiStore.getState().novelMode
-  if (!novelMode) {
-    return emptyPack(task)
-  }
+  return withMemoryWriteLock(pp, async () => {
+    const novelMode = useWikiStore.getState().novelMode
+    if (!novelMode) {
+      return emptyPack(task)
+    }
 
-  // 构建加载上下文
-  const context = buildLoadContext(pp, task, chapterNumber)
+    // 构建加载上下文
+    const context = buildLoadContext(pp, task, chapterNumber)
   
-  // 创建数据源注册器并加载所有数据
-  const registry = createDataSourceRegistry(options?.categories, options?.loadAdapter)
-  const rawData = await registry.loadAll(context)
+    // 创建数据源注册器并加载所有数据
+    const registry = createDataSourceRegistry(options?.categories, options?.loadAdapter)
+    const rawData = await registry.loadAll(context)
   
-  // 从原始数据构建上下文包
-  return buildContextPackFromRawData(rawData, context)
+    // 从原始数据构建上下文包
+    return buildContextPackFromRawData(rawData, context)
+  })
 }
 
 /**
@@ -335,11 +350,19 @@ async function buildContextPackFromRawData(
     outline: mergedOutline,
     ...(outlineLayers ? {
       projectOutline: outlineLayers.project,
-      chapterOutlineContext: joinNonEmpty([
-        outlineLayers.task,
-        rawData.volumeContext,
-        rawData.chapterOutline,
-      ], "\n\n"),
+      // outlineLayers.task 已经包含「卷纲 + 章纲」。旧写法把 task、volumeContext、
+      // chapterOutline 无条件拼在一起，同一段章纲会出现 2~3 次（浪费 token，
+      // 也让模型读到重复段落）。这里只追加**确实没被 task 覆盖**的部分，
+      // 索引落后/漏收时仍然不会丢内容。
+      chapterOutlineContext: (() => {
+        const taskText = outlineLayers.task.trim()
+        const extras = [rawData.volumeContext, rawData.chapterOutline]
+          .map((value) => (typeof value === "string" ? value.trim() : ""))
+          .filter(Boolean)
+        if (!taskText) return joinNonEmpty(extras, "\n\n")
+        const uncovered = extras.filter((value) => !taskText.includes(value.slice(0, Math.min(200, value.length))))
+        return joinNonEmpty([taskText, ...uncovered], "\n\n")
+      })(),
       relevantMaterials: outlineLayers.materials,
     } : {}),
     entitySearchOutline,
@@ -1093,6 +1116,7 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.storyFrameworkBinding", fieldKey: "storyFrameworkBinding" },
   { titleKey: "novel.contextPack.recentRevisionDirectives", fieldKey: "revisionDirectives" },
   { titleKey: "novel.contextPack.requiredOutline", fieldKey: "outline" },
+  { titleKey: "novel.contextPack.chapterOutline", fieldKey: "chapterOutlineContext" },
   { titleKey: "novel.contextPack.recentChapterContents", fieldKey: "recentChapterContents" },
   { titleKey: "novel.contextPack.recentPlotSummaries", fieldKey: "recentSummaries" },
   { titleKey: "novel.contextPack.previousChapterEnding", fieldKey: "previousChapterEnding" },
@@ -1109,6 +1133,54 @@ const FIELD_CONFIGS: FieldConfig[] = [
   { titleKey: "novel.contextPack.searchResults", fieldKey: "searchResults" },
   { titleKey: "novel.contextPack.graphSearchResults", fieldKey: "graphSearchResults" },
 ]
+
+/**
+ * 上下文字段的**输出顺序**，与 {@link FIELD_PRIORITY}（裁剪优先级）解耦。
+ *
+ * 优先级决定"预算不够时留谁"，输出顺序决定"写进 prompt 的先后"。
+ * provider 的前缀缓存只认从第 0 个字节起连续相同的部分，所以：
+ * **作品级稳定字段必须写在最前面，随章变化的字段（任务/章纲/状态/检索）写在最后。**
+ *
+ * 旧实现直接用优先级顺序输出，`## 当前任务 / 写第N章` 落在第 18 个字符，
+ * 于是每换一章，整包上下文从第 20 个字符起全部失效（实测跨章公共前缀 0.2%）。
+ */
+const FIELD_EMIT_ORDER: string[] = [
+  // 作品级稳定：整本书内逐字节不变
+  "soulDoc",
+  "storyFrameworkBinding",
+  "sourceCanon",
+  "canonRules",
+  "writingStyle",
+  // 作品+卷+章合并大纲：含章纲，随章变（review 等未 excludeOutline 的场景走这里）
+  "outline",
+  // 写作链路里章纲单独成段，跟在（已稳定的）作品大纲之后
+  "chapterOutlineContext",
+  // 以下随章/随轮变化
+  "task",
+  "chapterGoal",
+  "sectionBriefing",
+  "mustDo",
+  "mustAvoid",
+  "relatedSettings",
+  "previousChapterEnding",
+  "characterStates",
+  "personaSkills",
+  "characterAuras",
+  "foreshadowingStates",
+  "cognitionStates",
+  "timeline",
+  "recentSummaries",
+  "recentChapterContents",
+  "revisionDirectives",
+  "nextChapterAdvice",
+  "searchResults",
+  "graphSearchResults",
+]
+
+function emitRank(fieldKey: string): number {
+  const index = FIELD_EMIT_ORDER.indexOf(fieldKey)
+  return index < 0 ? FIELD_EMIT_ORDER.length : index
+}
 
 /** 正典被预算裁掉时的统一提示。 */
 export const SOURCE_CANON_OVERFLOW_MESSAGE =
@@ -1187,13 +1259,14 @@ export function trimContextPack(
 
   sections.push(i18n.t("novel.contextPack.title"))
   sections.push("")
-  sections.push(i18n.t("novel.contextPack.currentTask"))
-  sections.push(pack.task)
-  sections.push("")
 
   const fieldData: { fieldKey: string; title: string; content: string | string[]; priority: number; charCount: number }[] = []
   for (const config of FIELD_CONFIGS) {
     if (options?.excludeOutline && config.fieldKey === "outline") {
+      continue
+    }
+    // 不排除 outline 时，章纲已经在 mergedOutline 里了，再单独输出会重复。
+    if (!options?.excludeOutline && config.fieldKey === "chapterOutlineContext") {
       continue
     }
 
@@ -1215,6 +1288,17 @@ export function trimContextPack(
     })
   }
 
+  // 当前任务是正文的一部分，但**输出位置必须排在稳定字段之后**（见 FIELD_EMIT_ORDER）。
+  if (pack.task && pack.task.trim()) {
+    fieldData.push({
+      fieldKey: "task",
+      title: i18n.t("novel.contextPack.currentTask"),
+      content: pack.task,
+      priority: FIELD_PRIORITY.task ?? 1,
+      charCount: pack.task.length,
+    })
+  }
+
   fieldData.sort((a, b) => a.priority - b.priority)
 
   const headerChars = sections.join("\n").length + 2
@@ -1230,7 +1314,7 @@ export function trimContextPack(
   const targetChars = Math.floor(resolvedTokenBudget * charsPerTokenForLanguage())
 
   if (totalChars <= targetChars) {
-    for (const { title, content } of fieldData) {
+    for (const { title, content } of [...fieldData].sort((a, b) => emitRank(a.fieldKey) - emitRank(b.fieldKey))) {
       sections.push(title)
       if (Array.isArray(content)) {
         content.forEach(item => sections.push(item))
@@ -1302,7 +1386,7 @@ export function trimContextPack(
 
   const keptFields = sortedByPriorityAsc.slice(0, keepCount)
 
-  for (const { title, content } of keptFields) {
+  for (const { title, content } of [...keptFields].sort((a, b) => emitRank(a.fieldKey) - emitRank(b.fieldKey))) {
     sections.push(title)
     if (Array.isArray(content)) {
       content.forEach(item => sections.push(item))
