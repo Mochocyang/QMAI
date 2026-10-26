@@ -7,10 +7,13 @@ import { DEFAULT_MEMORY_MAINTENANCE, loadMemoryMaintenanceSettings } from "@/lib
 
 const io = vi.hoisted(() => ({
   scan: vi.fn(), apply: vi.fn(async () => 1), undo: vi.fn(async () => {}), keep: vi.fn(async () => {}),
+  plan: vi.fn(async () => ({ issues: [], counts: { nonPositive: 0, unupdated: 0, stale: 0, total: 0 } })),
+  applyRules: vi.fn(async () => 0),
   save: vi.fn(async (_path: string, patch: object) => ({ version: 1, lastRemindedAt: 0, ...patch })),
 }))
 vi.mock("@/lib/novel/memory-cleanup-runner", () => ({
   runMemoryCleanupScan: io.scan, applyMemoryCleanup: io.apply, undoLastMemoryCleanup: io.undo, keepMemoryCleanupIssue: io.keep, loadMemoryCleanupScan: vi.fn(async () => null),
+  planMemoryCleanupByRules: io.plan, applyMemoryCleanupRules: io.applyRules,
 }))
 vi.mock("@/lib/novel/memory-maintenance", async (original) => ({
   ...await original<typeof import("@/lib/novel/memory-maintenance")>(),
@@ -23,6 +26,7 @@ vi.mock("@/lib/novel/model-resolver", () => ({ resolveDefaultModel: vi.fn(() => 
 vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: () => true }))
 vi.mock("@/lib/toast", () => ({ toast: { success: vi.fn(), info: vi.fn() } }))
 import { resetMemoryCleanupSessionsForTests } from "@/lib/novel/memory-cleanup-session"
+import { RECOMMENDED_MEMORY_CLEANUP_RULES } from "@/lib/novel/memory-cleanup-rules"
 import { MemoryCleanupTool } from "./memory-cleanup-tool"
 
 let root: Root, container: HTMLDivElement
@@ -45,8 +49,33 @@ afterEach(async () => { await act(async () => root.unmount()); container.remove(
 it("展示超量提示、六类扫描选项和可调整提醒阈值", () => {
   expect(container.textContent).toContain("认知条目 301 条")
   expect(container.textContent).toContain("自动提醒与阈值")
-  expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(7)
-  expect(container.querySelectorAll('input[type="number"]')).toHaveLength(5)
+  expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(8)
+  expect(container.querySelectorAll('input[type="number"]')).toHaveLength(7)
+})
+it("一键清理预填推荐规则，确认后才删除", async () => {
+  const block = (title: string) => {
+    const heading = [...container.querySelectorAll("h4")].find((node) => node.textContent === title)
+    expect(heading, title).toBeTruthy()
+    return heading!.parentElement!
+  }
+  const model = block("用模型清理")
+  const rules = block("一键清理")
+  expect(model).not.toBe(rules)
+  expect(model.textContent).toContain("扫描记忆")
+  expect(model.textContent).not.toContain("一键清理")
+  expect(rules.textContent).toContain("一键清理")
+  expect(rules.textContent).not.toContain("扫描记忆")
+  expect(container.querySelector<HTMLInputElement>('[data-testid="stale-chapter-gap"]')?.value).toBe(String(RECOMMENDED_MEMORY_CLEANUP_RULES.staleChapterGap))
+  expect(container.querySelector<HTMLInputElement>('[data-testid="rule-non-positive"]')?.checked).toBe(true)
+  expect(container.querySelector<HTMLInputElement>('[data-testid="unupdated-chapter-gap"]')?.value).toBe(String(RECOMMENDED_MEMORY_CLEANUP_RULES.unupdatedChapterGap))
+  io.plan.mockResolvedValue({ issues: [{}], counts: { nonPositive: 2, unupdated: 3, stale: 4, total: 9 } })
+  io.applyRules.mockResolvedValue(9)
+  await click("一键清理")
+  expect(io.plan).toHaveBeenCalledWith("/a", RECOMMENDED_MEMORY_CLEANUP_RULES)
+  expect(window.confirm).toHaveBeenCalledOnce()
+  expect(String(vi.mocked(window.confirm).mock.calls[0][0])).toContain("9")
+  expect(io.applyRules).toHaveBeenCalledWith("/a", RECOMMENDED_MEMORY_CLEANUP_RULES, expect.any(Function))
+  expect(io.apply).not.toHaveBeenCalled()
 })
 it("扫描只展示候选，用户选择并执行后才删除；成功后旧扫描失效", async () => {
   await click("扫描记忆")

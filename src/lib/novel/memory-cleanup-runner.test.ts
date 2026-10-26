@@ -224,6 +224,58 @@ describe("断点续扫", () => {
     const resumedFirst = JSON.parse(String(vi.mocked(streamChat).mock.calls[0][1][1].content)) as { records: { id: string }[] }
     expect(resumedFirst.records[0].id).not.toBe(firstIds[0])
   })
+  it("同一人物按章节聚在一批，单批不超过 120 条", async () => {
+    fs.files.set(snapPath(1), JSON.stringify({ ...source(1), knowledgeChanges: Array.from({ length: 100 }, (_, index) => `林默知道独立事实${index}`) }))
+    fs.files.set(snapPath(2), JSON.stringify({ ...source(2), knowledgeChanges: ["路人知道天气"] }))
+    fs.files.set(snapPath(3), JSON.stringify({ ...source(3), knowledgeChanges: Array.from({ length: 40 }, (_, index) => `林默知道后续事实${index}`) }))
+    fs.files.set(snapPath(8), JSON.stringify({ ...source(8), knowledgeChanges: ["林默不知道门在哪"] }))
+    vi.mocked(streamChat).mockImplementation(async (_config, _messages, callbacks) => { callbacks.onToken('{"issues":[]}'); callbacks.onDone?.() })
+    const config = { ...useWikiStore.getState().llmConfig, maxContextSize: 200000 }
+    await runMemoryCleanupScan("/project", config, { fields: ["knowledgeChanges"] })
+    const first = JSON.parse(String(vi.mocked(streamChat).mock.calls[0][1][1].content)) as { records: { text: string; chapterNumber: number }[] }
+    expect(first.records).toHaveLength(120)
+    expect(first.records.filter((record) => record.chapterNumber === 1)).toHaveLength(100)
+    expect(first.records[100].chapterNumber).toBe(3)
+    expect(first.records.some((record) => record.text.includes("不知道") || record.text.startsWith("路人"))).toBe(false)
+    expect(first.records.map((record) => record.chapterNumber)).toEqual([...first.records.map((record) => record.chapterNumber)].sort((a, b) => a - b))
+  })
+  it("后完成的批次不会先记成已完成", async () => {
+    const knowledge = Array.from({ length: 12 }, (_, index) => `林默知道独立事实${index}：${"细节".repeat(400)}`)
+    fs.files.set(snapPath(1), JSON.stringify({ ...source(1), knowledgeChanges: knowledge }))
+    fs.files.delete(snapPath(2))
+    const config = { ...useWikiStore.getState().llmConfig, provider: "test", model: "scan", maxContextSize: 1000 }
+    let releaseFirst!: () => void
+    const gate = new Promise<void>((resolve) => { releaseFirst = resolve })
+    let firstId = ""
+    const finished: string[] = []
+    const progress: number[] = []
+    vi.mocked(streamChat).mockImplementation(async (_config, messages, callbacks) => {
+      const payload = JSON.parse(String(messages[1].content)) as { records: { id: string }[] }
+      const id = payload.records[0].id
+      if (!firstId) firstId = id
+      if (id === firstId) await gate
+      callbacks.onToken('{"issues":[]}')
+      callbacks.onDone?.()
+      finished.push(id)
+    })
+    const pending = runMemoryCleanupScan("/project", config, { fields: ["knowledgeChanges"], onProgress: (done) => { progress.push(done) } })
+    try {
+      for (let attempt = 0; attempt < 40 && finished.length < 1; attempt++) await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(finished.length).toBeGreaterThan(0)
+      expect(finished).not.toContain(firstId)
+      const checkpoint = JSON.parse(fs.files.get("/project/.qmai/memory-cleanup-checkpoint.json")!) as { scan: { completedBatches: number } }
+      expect(checkpoint.scan.completedBatches).toBe(0)
+      releaseFirst()
+      const done = await pending
+      expect(done.complete).toBe(true)
+      expect(done.completedBatches).toBe(done.totalBatches)
+      const steps = progress.filter((value) => value > 0)
+      expect(steps).toEqual(Array.from({ length: steps.length }, (_, index) => index + 1))
+    } finally {
+      releaseFirst()
+      await pending.catch(() => {})
+    }
+  })
 })
 
 describe("自动超量提醒", () => {

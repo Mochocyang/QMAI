@@ -37,6 +37,21 @@ describe("来源记忆清理决策", () => {
       { ...base, kind: "superseded", removeIds: [old.id], keepId: newer.id },
     ] }, records)).toMatchObject([{ kind: "superseded", removeIds: [old.id], keepId: newer.id }])
   })
+  it("人物状态的复述可标为已被后续同字段条目取代，跨字段合并仍然拒绝", () => {
+    const records = collectMemoryRecords([
+      { ...snapshot(1, ["林默不知道系统来源"]), characterStateChanges: ["林默：黑发，已绑定系统"] },
+      { ...snapshot(4, ["林默知道系统来源"]), characterStateChanges: ["林默：黑发少年，系统仍绑定"] },
+    ])
+    const state = records.filter((record) => record.field === "characterStateChanges").sort((a, b) => a.chapterNumber - b.chapterNumber)
+    const knowledge = records.filter((record) => record.field === "knowledgeChanges").sort((a, b) => a.chapterNumber - b.chapterNumber)
+    const base = { reason: "只是复述身份和绑定", confidence: "medium" }
+    expect(parseMemoryCleanupIssues({ issues: [
+      { ...base, kind: "superseded", removeIds: [state[0].id], keepId: state[1].id },
+      { ...base, kind: "superseded", removeIds: [state[0].id], keepId: knowledge[1].id },
+      { ...base, kind: "superseded", removeIds: [state[1].id], keepId: state[0].id },
+      { ...base, kind: "noise", removeIds: ["missing"] },
+    ] }, records)).toMatchObject([{ kind: "superseded", removeIds: [state[0].id], keepId: state[1].id }])
+  })
 })
 
 describe("人物认知按本章筛选", () => {

@@ -18,15 +18,28 @@ import { loadTimeline } from "./timeline"
 import { readContextMd, writeCharacterStateMd, writeContextMd, writeForeshadowingMd, writeTimelineMd } from "./tracking-files"
 import { filterRemovedMemories, loadMemoryCleanupPolicy, saveMemoryCleanupPolicy, memoryPolicyPath, memoryRemovalKey, withMemoryWriteLock, MEMORY_FIELDS, type MemoryCleanupPolicy, type MemoryField } from "./memory-cleanup-policy"
 import { collectMemoryRecords, snapshotsInCleanupScope, MEMORY_CLEANUP_SYSTEM, parseMemoryCleanupIssues, type MemoryCleanupIssue, type MemoryCleanupRecord, type MemoryCleanupScan, type MemoryCleanupScope } from "./memory-cleanup"
+import { memoryAppearanceSubject, planMemoryCleanupRules, type MemoryCleanupRuleOptions, type MemoryCleanupRulePlan } from "./memory-cleanup-rules"
 import { buildPersonaChapterFacts, mergeLiveLines } from "./persona-skill-facts"
 import { applyPersonaProfileEdits, splitPersonaSkillDocument } from "./persona-skill-profile"
 import { loadPersonaSkillIndexStrict, personaSkillDocumentPath, personaSkillIndexPath, personaSkillLockKey, savePersonaSkillIndex, withPersonaSkillLock } from "./persona-skill-store"
 import { PERSONA_LIVE_SECTION_LIMITS } from "./persona-skill-types"
 
 type Log = (message: string) => void
+const CLEANUP_BATCH_RECORD_CAP = 120
+const CLEANUP_BATCH_OVERLAP = 8
+const CLEANUP_BATCH_CONCURRENCY = 4
 const scanPath = (p: string) => `${normalizePath(p)}/.qmai/memory-cleanup-scan.json`
 const lastPath = (p: string) => `${normalizePath(p)}/.qmai/memory-cleanup-last.json`
 const historyRoot = (p: string) => `${normalizePath(p)}/.qmai/memory-cleanup-history`
+
+function memoryCleanupBatchSubject(record: MemoryCleanupRecord): string {
+  const named = memoryAppearanceSubject(record.text, record.field)
+  if (named) return named
+  const normalized = record.text.normalize("NFKC").trim()
+  const head = normalized.split(/[:：]/u)[0]?.trim() ?? ""
+  if (!head || head.length > 40 || head === normalized || /^(?:推进|新增|回收)/u.test(head)) return ""
+  return head
+}
 
 async function readSnapshots(projectPath: string): Promise<ChapterSnapshot[]> {
   const dir = `${normalizePath(projectPath)}/.novel/snapshots`
@@ -68,18 +81,21 @@ export async function runMemoryCleanupScan(projectPath: string, config: LlmConfi
   const batches: MemoryCleanupRecord[][] = []
   const maxChars = Math.min(32000, Math.max(3000, Math.floor((config.maxContextSize ?? 32768) * 0.8)))
   for (const field of options.fields ?? MEMORY_FIELDS) {
-    const items = records.filter((r) => r.field === field)
+    const items = records.filter((r) => r.field === field).sort((a, b) => {
+      const subject = memoryCleanupBatchSubject(a).localeCompare(memoryCleanupBatchSubject(b), "zh-CN")
+      return subject || a.chapterNumber - b.chapterNumber || a.text.localeCompare(b.text, "zh-CN") || a.id.localeCompare(b.id)
+    })
     let start = 0
     while (start < items.length) {
       let end = start, chars = 0
-      while (end < items.length && end - start < 60) {
+      while (end < items.length && end - start < CLEANUP_BATCH_RECORD_CAP) {
         const size = Math.min(items[end].text.length, 2000) + 160
         if (end > start && chars + size > maxChars) break
         chars += size; end++
       }
       batches.push(items.slice(start, end))
       if (end === items.length) break
-      start = Math.max(start + 1, end - 8)
+      start = Math.max(start + 1, end - CLEANUP_BATCH_OVERLAP)
     }
   }
   const checkpointPath = `${normalizePath(projectPath)}/.qmai/memory-cleanup-checkpoint.json`
@@ -120,34 +136,61 @@ export async function runMemoryCleanupScan(projectPath: string, config: LlmConfi
     options.onProgress?.(completed, batches.length, scan)
   }
   await publish(false)
-  for (let i = completed; i < batches.length; i++) {
+  const buffered = new Map<number, MemoryCleanupIssue[]>()
+  const inFlight = new Map<number, Promise<void>>()
+  const failed = new Set<number>()
+  let launch = completed
+  let failure: unknown = null
+  const scanBatch = async (index: number): Promise<MemoryCleanupIssue[]> => {
     options.signal?.throwIfAborted()
-    options.onLog?.(`分析第 ${i + 1}/${batches.length} 批，${batches[i].length} 条来源记忆`)
-    let output = "", failure: Error | null = null, lastActivity = 0
+    options.onLog?.(`分析第 ${index + 1}/${batches.length} 批，${batches[index].length} 条来源记忆`)
+    let output = "", requestError: Error | null = null, lastActivity = 0
     const startedAt = Date.now()
     const activity = (force = false) => {
       if (!force && Date.now() - lastActivity < 500) return
       lastActivity = Date.now()
-      options.onActivity?.({ batch: i + 1, receivedChars: output.length, elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000) })
+      options.onActivity?.({ batch: index + 1, receivedChars: output.length, elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000) })
     }
     activity(true)
     const timer = setInterval(() => activity(), 1000)
     try {
       await streamChat(config, [
         { role: "system", content: MEMORY_CLEANUP_SYSTEM },
-        { role: "user", content: JSON.stringify({ recentStory, records: batches[i].map((r) => ({ ...r, text: r.text.slice(0, 2000) })) }) },
-      ], { onToken: (text) => { output += text; activity() }, onDone: () => {}, onError: (error) => { failure = error } }, options.signal,
+        { role: "user", content: JSON.stringify({ recentStory, records: batches[index].map((r) => ({ ...r, text: r.text.slice(0, 2000) })) }) },
+      ], { onToken: (text) => { output += text; activity() }, onDone: () => {}, onError: (error) => { requestError = error } }, options.signal,
       { temperature: 0.1, skipUserMemory: true, reasoning: { mode: "off" }, max_tokens: 4096 })
     } finally { clearInterval(timer) }
     options.signal?.throwIfAborted()
-    if (failure) throw failure
-    for (const issue of parseMemoryCleanupIssues(parseLlmJsonObject(output), batches[i])) {
-      if (!policy.kept.includes(issue.id)) issues.set(issue.id, issue)
-    }
-    completed = i + 1
-    await publish(completed === batches.length)
+    if (requestError) throw requestError
+    return parseMemoryCleanupIssues(parseLlmJsonObject(output), batches[index]).filter((issue) => !policy.kept.includes(issue.id))
   }
-  if (!batches.length || completed === batches.length) await publish(true)
+  // Later batches may finish first. Only a contiguous prefix is checkpointed,
+  // so abort or a crash cannot mark batch N done while an earlier batch is open.
+  while (completed < batches.length) {
+    while (buffered.has(completed)) {
+      options.signal?.throwIfAborted()
+      for (const issue of buffered.get(completed)!) issues.set(issue.id, issue)
+      buffered.delete(completed)
+      completed += 1
+      await publish(completed === batches.length)
+    }
+    if (completed >= batches.length) break
+    options.signal?.throwIfAborted()
+    if (failed.has(completed)) throw failure
+    while (inFlight.size < CLEANUP_BATCH_CONCURRENCY && launch < batches.length && !failure) {
+      const index = launch++
+      const job = scanBatch(index).then((found) => { buffered.set(index, found) }).catch((error) => { failed.add(index); failure ??= error })
+      inFlight.set(index, job)
+      void job.finally(() => { if (inFlight.get(index) === job) inFlight.delete(index) })
+    }
+    if (buffered.has(completed)) continue
+    if (failed.has(completed)) throw failure
+    const pending = [...inFlight.values()]
+    if (!pending.length) break
+    await Promise.race(pending)
+  }
+  if (failure && completed < batches.length) throw failure
+  if ((!batches.length || completed === batches.length) && scan!.complete !== true) await publish(true)
   options.onLog?.(`扫描完成：${records.length} 条来源记忆，${issues.size} 组候选。`)
   return scan!
 }
@@ -370,6 +413,22 @@ export async function applyMemoryCleanup(projectPath: string, scan: MemoryCleanu
       throw new Error(`清理失败，已恢复文件备份：${error instanceof Error ? error.message : String(error)}`)
     }
   }))
+}
+
+async function loadRawCleanupRecords(projectPath: string): Promise<MemoryCleanupRecord[]> {
+  return collectMemoryRecords(await withMemoryWriteLock(projectPath, () => readSnapshots(projectPath)))
+}
+
+export async function planMemoryCleanupByRules(projectPath: string, options: MemoryCleanupRuleOptions): Promise<MemoryCleanupRulePlan> {
+  return planMemoryCleanupRules(await loadRawCleanupRecords(projectPath), options)
+}
+
+export async function applyMemoryCleanupRules(projectPath: string, options: MemoryCleanupRuleOptions, onLog?: Log): Promise<number> {
+  const records = await loadRawCleanupRecords(projectPath)
+  const plan = planMemoryCleanupRules(records, options)
+  if (!plan.issues.length) return 0
+  const scan: MemoryCleanupScan = { version: 1, scannedAt: Date.now(), records, issues: plan.issues, complete: true }
+  return applyMemoryCleanup(projectPath, scan, plan.issues, onLog)
 }
 
 export async function keepMemoryCleanupIssue(projectPath: string, issue: MemoryCleanupIssue): Promise<void> {
