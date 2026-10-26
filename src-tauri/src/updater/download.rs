@@ -73,7 +73,9 @@ pub fn fetch_url(
     }
     let client = builder.build().map_err(|e| format!("创建请求失败: {e}"))?;
 
-    let mut response = client
+    // 响应体本身不需要可变绑定：`Read::take` 会按值接管它，
+    // 再在 `read_to_end` 里消费。多余的 `mut` 会报 unused_mut。
+    let response = client
         .get(url)
         .send()
         .map_err(|e| format!("请求失败: {e}"))?;
