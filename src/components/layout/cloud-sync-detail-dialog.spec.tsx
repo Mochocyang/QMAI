@@ -147,7 +147,7 @@ describe("同步详情里的冲突定夺", () => {
     expect(children.some((child) => child.getAttribute("data-slot") === "dialog-header")).toBe(true)
   })
 
-  it("没有文件变更的轮次默认不显示，点提示才展开", async () => {
+  it("没有文件变更的轮次完全不显示（连提示都不留）", async () => {
     act(() => {
       useCloudSyncStore.setState({
         config: { ...DEFAULT_CLOUD_SYNC_CONFIG, enabled: true, provider: "folder", connected: true },
@@ -180,13 +180,16 @@ describe("同步详情里的冲突定夺", () => {
       await Promise.resolve()
     })
 
-    // 自动同步每两分钟一轮，全是「没有文件变更」时会把真正有内容的轮次挤掉。
+    /*
+     * 没有文件变更的轮次**彻底不显示**。
+     *
+     * 早先留过一个「另有 N 轮没有文件变更（点这里一并显示）」的开关，
+     * 用户明确反馈没有意义（一轮什么都没传，展示出来只会让人以为同步坏了），
+     * 所以现在连这个交代都不给了：只渲染真正有动作的轮次。
+     */
     expect(document.querySelectorAll(".ui-test-sync-batch").length).toBe(1)
-    const hint = document.querySelector<HTMLButtonElement>(".ui-test-sync-show-empty")
-    expect(hint?.textContent).toContain("另有 1 轮没有文件变更")
-
-    act(() => hint?.click())
-    expect(document.querySelectorAll(".ui-test-sync-batch").length).toBe(2)
+    expect(document.querySelector(".ui-test-sync-show-empty")).toBeNull()
+    expect(document.body.textContent).not.toContain("没有文件变更")
   })
 
   it("点「改用云端」传 cloud", async () => {
@@ -219,5 +222,55 @@ describe("同步详情里的冲突定夺", () => {
       await Promise.resolve()
     })
     expect(document.querySelectorAll(".ui-test-sync-conflict")).toHaveLength(1)
+  })
+})
+
+describe("清空同步记录", () => {
+  it("要点两次才真的清空（不可撤销的操作不能一次就删）", async () => {
+    const { clearHistory } = useCloudSyncStore.getState()
+    const spy = vi.fn(async () => undefined)
+    useCloudSyncStore.setState({ clearHistory: spy } as never)
+
+    act(() => {
+      useCloudSyncStore.setState({
+        config: { ...DEFAULT_CLOUD_SYNC_CONFIG, enabled: true, provider: "github", connected: true },
+        runtime: { running: false },
+        detailOpen: true,
+        batches: [
+          {
+            batchId: "b1",
+            startedAt: 1_700_000_000_000,
+            trigger: "manual",
+            state: "failed",
+            counts: emptyCounts(),
+            provider: "github",
+          },
+        ],
+        entries: [conflictEntry()],
+      })
+      root.render(<CloudSyncDetailDialog />)
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    // 第一次点：只进入待确认态，不许删。
+    const first = document.querySelector<HTMLButtonElement>('[data-ui="cloud-sync-clear-history"]')!
+    expect(first).toBeTruthy()
+    act(() => first.click())
+    expect(spy).not.toHaveBeenCalled()
+
+    // 第二次点「确认清空？」才真删。
+    const confirm = document.querySelector<HTMLButtonElement>(
+      '[data-ui="cloud-sync-clear-history-confirm"]',
+    )!
+    expect(confirm).toBeTruthy()
+    act(() => confirm.click())
+    expect(spy).toHaveBeenCalledTimes(1)
+
+    // 清空后红点也要跟着消失（否则用户清完了还看到红点）。
+    expect(useCloudSyncStore.getState().runtime.failureCount ?? 0).toBe(0)
+
+    useCloudSyncStore.setState({ clearHistory } as never)
   })
 })
