@@ -77,16 +77,29 @@ export async function runAppUpdateFlow(bindings: UpdaterBindings) {
     return
   }
 
-  const update = await bindings.check({ proxy, timeout: CHECK_TIMEOUT_MS })
+  /*
+   * 到这里 `hasUpdate` 一定有版本号了 —— 检查这一步已经由 updater_check 完成。
+   *
+   * **不能再调 `bindings.check()`**：插件命令层吃的是编译期 endpoints（只有直连），
+   * 国内实测 12 秒超时，等于把刚才镜像省下的时间全赔回去，用户看到的就是
+   * "检查更新失败"。这是"镜像没效果"的真正原因。
+   *
+   * 这里唯一还需要的插件能力是**安装**（install 要靠它自己的资源与签名校验），
+   * 所以拿句柄失败时可以优雅降级：告诉用户有新版，引导手动下载。
+   */
+  const update = hasUpdate
+    ? await bindings
+        .check({ proxy, timeout: CHECK_TIMEOUT_MS })
+        // 拿不到句柄就别让整件事失败：至少把"有新版本"告诉用户。
+        .catch(() => null)
+    : null
+
   if (!update) {
-    // 用户主动点的就要有回应："已经是最新版本"也是结果，沉默等于"点了没用"。
-    if (bindings.silent === false) {
-      await bindings.message("已经是最新版本了。", {
-        title: "检查更新",
-        kind: "info",
-        okLabel: "知道了",
-      })
-    }
+    // 有新版本但拿不到安装句柄（插件端点不通）：给一条可走的路。
+    await bindings.message(
+      `发现新版本 ${hasUpdate!.version}，但自动更新通道暂时连不上。\n\n可以前往 GitHub Releases 手动下载安装包。`,
+      { title: "发现新版本", kind: "info", okLabel: "知道了" },
+    )
     return
   }
 

@@ -11,11 +11,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
  * 但要真正防住"没人调用入口"，还需要 app-updater-wiring.test.ts。
  */
 
+const invokeMock = vi.fn()
 const checkMock = vi.fn()
 const confirmMock = vi.fn()
 const messageMock = vi.fn()
 const isTauriMock = vi.fn(() => true)
 const isSupportedMock = vi.fn(() => true)
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (...args: unknown[]) => invokeMock(...args),
+}))
 
 vi.mock("@tauri-apps/plugin-updater", () => ({
   check: (...args: unknown[]) => checkMock(...args),
@@ -46,6 +51,10 @@ function makeUpdate(version: string) {
 }
 
 beforeEach(() => {
+  invokeMock.mockReset()
+  // 默认"有新版本"：检查这一步现在由 Rust 的 updater_check 负责，
+  // 所以入口测试必须让它给出结论，否则流程在第一步就返回了。
+  invokeMock.mockResolvedValue({ version: "0.4.11", notes: null, downloadUrl: null })
   checkMock.mockReset()
   confirmMock.mockReset()
   messageMock.mockReset()
@@ -102,6 +111,11 @@ describe("checkForAppUpdate", () => {
   })
 
   it("检查过程抛错时不向外抛（启动流程不应被更新检查拖垮）", async () => {
+    /*
+     * 让"检查"这一步抛错。现在真正的检查在 Rust 的 updater_check（invoke），
+     * 所以要在 invoke 上抛；同时让插件 check 也抛，模拟两条路全挂。
+     */
+    invokeMock.mockRejectedValue(new Error("network down"))
     checkMock.mockRejectedValue(new Error("network down"))
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
 
