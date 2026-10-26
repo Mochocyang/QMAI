@@ -157,6 +157,24 @@ fn redact_url(url: &str) -> String {
     out
 }
 
+/// 当前生效的代理 URL；没启用、地址为空或协议不支持时返回 `None`。
+///
+/// 为什么需要它：`tauri-plugin-updater` 走自己的 http 客户端，**不读**我们写进
+/// 环境变量的 `HTTP_PROXY`。所以更新通道必须显式把代理交给它，否则用户开了代理
+/// 也对「检查更新」无效（这是实测发现的一个漏洞，不是猜测）。
+pub fn current_proxy_url(config: &ProxyConfig) -> Option<String> {
+    let url = config.url.trim();
+    if !config.enabled || url.is_empty() {
+        return None;
+    }
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        // reqwest 的代理只认 http/https；socks 需要额外 feature，这里明确不支持，
+        // 以免把一个用不了的地址丢给下层后得到莫名其妙的连接错误。
+        return None;
+    }
+    Some(url.to_string())
+}
+
 /// Remove all three proxy env vars. Called whenever the user
 /// disables the proxy or supplies an invalid URL — this is what
 /// makes "turn off proxy" actually take effect for the next fetch
@@ -518,6 +536,49 @@ mod tests {
         let path = dir.join("app-state.json");
         std::fs::write(&path, r#"{"otherKey": "value"}"#).unwrap();
         assert!(read_proxy_config_from_store(&path).is_none());
+    }
+
+    #[test]
+    fn current_proxy_url_is_none_when_disabled() {
+        let config = ProxyConfig {
+            enabled: false,
+            url: "http://127.0.0.1:7890".to_string(),
+            bypass_local: true,
+        };
+        assert_eq!(current_proxy_url(&config), None);
+    }
+
+    #[test]
+    fn current_proxy_url_rejects_non_http_schemes() {
+        let config = ProxyConfig {
+            enabled: true,
+            url: "socks9://weird".to_string(),
+            bypass_local: true,
+        };
+        assert_eq!(current_proxy_url(&config), None);
+    }
+
+    #[test]
+    fn current_proxy_url_returns_the_configured_url() {
+        let config = ProxyConfig {
+            enabled: true,
+            url: "http://127.0.0.1:7890".to_string(),
+            bypass_local: true,
+        };
+        assert_eq!(
+            current_proxy_url(&config).as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+    }
+
+    #[test]
+    fn current_proxy_url_ignores_blank_url() {
+        let config = ProxyConfig {
+            enabled: true,
+            url: "   ".to_string(),
+            bypass_local: true,
+        };
+        assert_eq!(current_proxy_url(&config), None);
     }
 
     fn tempdir_for_test() -> std::path::PathBuf {

@@ -8,4 +8,5 @@
 #![allow(dead_code)]
 
 pub mod channels;
+pub mod download;
 pub mod probe;
