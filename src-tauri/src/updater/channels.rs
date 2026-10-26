@@ -78,6 +78,55 @@ impl ChannelTable {
             ],
         }
     }
+
+    /// 解析远程下发的通道表并做清洗。
+    ///
+    /// 原则：**坏项丢弃、整体可用**。远程表是网络内容，不能被它搞崩更新流程：
+    /// 重复 id、明文 http、缺 base、未知 rewrite 一律剔除；剔除后如果连 direct
+    /// 都没了，自动补回内置的 direct 并排在最前，保证永远有一条兜底。
+    ///
+    /// 未知 `rewrite` 会在 `serde_json::from_value` 处失败（`Rewrite` 是
+    /// kebab-case 的单元枚举），于是自然被丢弃 —— 不需要额外判断。
+    pub fn parse(json: &str) -> Option<Self> {
+        let raw: serde_json::Value = serde_json::from_str(json).ok()?;
+        let version = raw.get("version")?.as_u64()? as u32;
+        let items = raw.get("channels")?.as_array()?;
+
+        let mut out: Vec<Channel> = Vec::new();
+        for item in items {
+            let Ok(channel) = serde_json::from_value::<Channel>(item.clone()) else {
+                continue;
+            };
+            if channel.id.trim().is_empty() {
+                continue;
+            }
+            if out.iter().any(|existing| existing.id == channel.id) {
+                continue;
+            }
+            if channel.rewrite == Rewrite::Prefix {
+                let Some(base) = channel.base.as_deref() else {
+                    continue;
+                };
+                if !base.trim().starts_with("https://") {
+                    continue;
+                }
+            }
+            out.push(channel);
+        }
+
+        if !out.iter().any(|channel| channel.id == "direct") {
+            let direct = Self::builtin()
+                .channels
+                .into_iter()
+                .find(|channel| channel.id == "direct")?;
+            out.insert(0, direct);
+        }
+
+        Some(Self {
+            version,
+            channels: out,
+        })
+    }
 }
 
 impl Channel {
@@ -277,6 +326,51 @@ mod tests {
             channel.map_repo_file_url("O", "R", "main", "x.json").as_deref(),
             Some("https://raw.githubusercontent.com/O/R/main/x.json")
         );
+    }
+
+    #[test]
+    fn invalid_channels_are_dropped_not_fatal() {
+        let json = r#"{
+            "version": 2,
+            "channels": [
+                {"id":"direct","label":"直连","rewrite":"identity","scope":"update-only"},
+                {"id":"direct","label":"重复 id","rewrite":"identity","scope":"update-only"},
+                {"id":"http","label":"明文","rewrite":"prefix","base":"http://evil.example/","scope":"update-only"},
+                {"id":"nobase","label":"缺 base","rewrite":"prefix","scope":"update-only"},
+                {"id":"mystery","label":"未知规则","rewrite":"teleport","scope":"update-only"},
+                {"id":"ok","label":"好通道","rewrite":"prefix","base":"https://ok.example/","scope":"update-only"}
+            ]
+        }"#;
+        let table = ChannelTable::parse(json).expect("能解析");
+        let ids: Vec<&str> = table.channels.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, vec!["direct", "ok"], "只留合法且不重复的");
+    }
+
+    #[test]
+    fn table_without_direct_still_falls_back_to_builtin_direct() {
+        let json = r#"{"version":9,"channels":[{"id":"only","label":"唯一","rewrite":"identity","scope":"update-only"}]}"#;
+        let table = ChannelTable::parse(json).expect("能解析");
+        assert!(
+            table.channels.iter().any(|c| c.id == "direct"),
+            "远程表删掉直连时要自动补回，否则一旦镜像全挂就没有兜底"
+        );
+        // 补回来的 direct 要排在最前面，保证它一定是"最后才尝试"的那条
+        assert_eq!(table.channels[0].id, "direct");
+    }
+
+    #[test]
+    fn broken_json_returns_none() {
+        assert!(ChannelTable::parse("{ not json").is_none());
+        assert!(ChannelTable::parse(r#"{"version":1,"channels":"nope"}"#).is_none());
+        assert!(ChannelTable::parse(r#"{"channels":[]}"#).is_none(), "缺 version 也要拒绝");
+    }
+
+    #[test]
+    fn empty_channel_list_after_sanitizing_still_yields_direct() {
+        let json = r#"{"version":3,"channels":[{"id":"","label":"空 id","rewrite":"identity","scope":"update-only"}]}"#;
+        let table = ChannelTable::parse(json).expect("能解析");
+        assert_eq!(table.channels.len(), 1);
+        assert_eq!(table.channels[0].id, "direct");
     }
 
     #[test]
