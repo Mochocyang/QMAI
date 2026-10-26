@@ -14,6 +14,7 @@ pub mod baidu;
 pub mod compare;
 pub mod credentials;
 pub mod engine;
+pub mod github;
 pub mod history;
 pub mod providers;
 pub mod resolve;
@@ -91,6 +92,13 @@ impl CloudSyncState {
         self.stop_requested.store(false, Ordering::SeqCst);
         self.done.store(0, Ordering::SeqCst);
         self.total.store(0, Ordering::SeqCst);
+        // 失败数必须跟着一轮结束一起归零。
+        // 曾经这里不清：某个盘失败了一次之后，failure_count 就一直挂在状态里，
+        // 前端重启后 hydrate 读到它，于是界面永远显示「有 N 项同步失败」——
+        // 而历史里早就没有失败条目了，用户点进去一无所获（真实投诉）。
+        // 一轮的真实失败数由 run_now 在结束前用 set_failure_count 写一次，
+        // 这里是「这一轮已经翻篇」的最终清零。
+        self.failure_count.store(0, Ordering::SeqCst);
     }
 
     pub fn request_stop(&self) {
@@ -137,6 +145,11 @@ impl CloudSyncState {
     }
 
     /// 交给登录等待线程的取消标志（Arc 克隆，线程独立持有）。
+    /// 登录是不是还挂在后台等着（前端用它决定要不要继续显示 8 位码）。
+    pub fn login_active(&self) -> bool {
+        self.login_active.load(Ordering::SeqCst)
+    }
+
     pub fn login_cancel_flag(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.login_cancel)
     }

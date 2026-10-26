@@ -100,6 +100,7 @@ import { UiTestEditor, type UiTestEditorSaveState } from "@/components/uitest/ui
 import { FrontmatterPanel } from "@/components/editor/frontmatter-panel"
 import { UiTestOutlineTools } from "@/components/uitest/ui-test-outline-tools"
 import { createDebouncedPersist } from "@/lib/debounced-persist"
+import { snapshotChapterBeforeSave } from "./chapter-save-version"
 import { BodyTypographyFields, type BodyTypographyValue } from "@/components/settings/sections/body-typography-fields"
 /*
  * ⚠ 这个 CSS 必须**静态** import 在渲染浮层的这个模块里，不能挪走。
@@ -1085,6 +1086,18 @@ export function PreviewPanel() {
         return
       }
 
+      // 覆盖前把即将被换掉的旧正文留成历史版本（只有章节 md 留）。
+      // `diskContent` 就是上面读到的旧内容，可直接复用，无需二次读盘；
+      // 冲突分支在上面已经 return，那条路径是磁盘覆盖，不该留版本。
+      // 函数内部已兜住异常，绝不会挡住下面的写入。
+      if (isChapterPath(pathAtSave) && project) {
+        await snapshotChapterBeforeSave({
+          projectPath: project.path,
+          path: pathAtSave,
+          previousContent: diskContent,
+        })
+      }
+
       // 刻意**不**报 "saving"：这是用户每打几个字就会走一次的例行落盘，
       // 弹「正在保存」只会干扰写作（用户明确反馈过）。出错与冲突仍然会报，
       // 那两种状态需要用户处理，不能沉默。
@@ -1099,7 +1112,7 @@ export function PreviewPanel() {
       console.error("保存失败:", err)
       reportUiTestSave(pathAtSave, "error", persistedMarkdown, generation)
     }
-  }, [applyDiskSyncIfSafe, bumpDataVersion, rememberLoadedChapter, reportUiTestSave])
+  }, [applyDiskSyncIfSafe, bumpDataVersion, project, rememberLoadedChapter, reportUiTestSave])
 
   // 关窗时 App.tsx 拿不到上面的定时器，靠这个登记处触发一次落盘。
   useEffect(() => registerChapterSaveFlush(runPendingChapterSave), [runPendingChapterSave])

@@ -86,7 +86,13 @@ export async function runMemoryCleanupScan(projectPath: string, config: LlmConfi
   const recentStory = snapshots.filter((s) => s.chapterNumber > 0).slice(-3).map((s) => ({ chapter: s.chapterNumber, summary: s.summary.slice(0, 400) }))
   const fingerprint = fingerprintText(JSON.stringify({ records, batches: batches.map((batch) => batch.map((r) => r.id)), recentStory,
     model: `${config.provider}/${config.model}`, prompt: MEMORY_CLEANUP_SYSTEM }))
-  let scanId = crypto.randomUUID(), completed = 0
+  /*
+   * 显式标注成 string：`crypto.randomUUID()` 的返回类型是模板字面量
+   * `${string}-${string}-...`，而断点里读回来的 scanId 只是 string，
+   * 不标注会让 `scanId = checkpoint.scan.scanId` 报 TS2322。
+   */
+  let scanId: string = crypto.randomUUID()
+  let completed = 0
   const issues = new Map<string, MemoryCleanupIssue>()
   if (options.resume !== false && await fileExists(checkpointPath)) {
     let checkpoint: { version: number; fingerprint: string; scan: MemoryCleanupScan } | null = null

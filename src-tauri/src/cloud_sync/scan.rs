@@ -8,6 +8,7 @@
 //!
 //! 明确不同步：`.qmai/`（本机缓存、锁、快照清单）、导出目录、日志。
 //! 这些要么是机器相关、要么会被同步本身反复改写（放进去就是自激）。
+//! 例外：`.qmai/versions/`（历史版本）属于用户稿件内容，必须跟着同步。
 
 use std::fs;
 use std::io::Read;
@@ -46,10 +47,28 @@ pub fn to_relative_string(path: &Path, root: &Path) -> Option<String> {
     Some(parts.join("/"))
 }
 
+/// 路径是否落在 `.qmai/` 状态目录里（相对路径一律用 `/` 分隔）。
+///
+/// 两种形态都要认：项目根级 `.qmai/...`，以及远端按书分目录后的
+/// `<书>/ .qmai/...`（例如 `黑雨之下/.qmai/versions/...`）。
+fn in_qmai_dir(lower_rel: &str) -> bool {
+    lower_rel.starts_with(".qmai/") || lower_rel.contains("/.qmai/")
+}
+
+/// 是否属于 `.qmai/versions/`：历史版本目录，唯一要从 `.qmai/` 里放行出去的部分。
+/// `versions` 本身是纯 ASCII，`lower` 已小写化，所以直接比对字面量即可。
+fn in_qmai_versions_dir(lower_rel: &str) -> bool {
+    lower_rel.starts_with(".qmai/versions/") || lower_rel.contains("/.qmai/versions/")
+}
+
 /// 明显不该同步的文件：系统垃圾、编辑器临时文件、下载中的半成品。
 pub fn should_ignore(rel: &str) -> bool {
     let lower = rel.to_ascii_lowercase();
-    if lower.contains("/.qmai/") || lower.starts_with(".qmai/") {
+    // `.qmai/` 默认整目录不同步（本机缓存、锁、快照清单这类派生状态：
+    // 换一台电脑它们本来就该重新生成，传上去只会互相打架、每轮自激）。
+    // 但 `.qmai/versions/` 是**用户的历史版本稿件**（还原本人旧稿用的），
+    // 属于「内容」不属于「缓存」：必须跟着同步，否则换台电脑就看不到历史。
+    if in_qmai_dir(&lower) && !in_qmai_versions_dir(&lower) {
         return true;
     }
     // 我们自己写在远端根的元数据目录：它会被远端列目录扫到，
@@ -240,6 +259,17 @@ mod tests {
         fs::write(&second, b"different").unwrap();
         assert_ne!(sha256_file(&first).unwrap(), sha256_file(&second).unwrap());
         fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn versions_are_synced_but_other_qmai_state_is_not() {
+        // 历史版本要跟着走：换台电脑也得能看旧稿。
+        assert!(!should_ignore(".qmai/versions/chapters/001/20261026-090000-1c4d.md"));
+        assert!(!should_ignore(".qmai/versions/outlines/总纲/20261026-090000-5e8a.md"));
+        assert!(!should_ignore("黑雨之下/.qmai/versions/chapters/012/20261026-090000-1c4d.md"));
+        // 但本机的派生状态不该同步。
+        assert!(should_ignore(".qmai/file-snapshot.json"));
+        assert!(should_ignore(".qmai/chapter-backups/chapter-001-20261024-113000.md"));
     }
 
     #[test]

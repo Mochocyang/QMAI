@@ -61,6 +61,59 @@ pub fn read_proxy_config_from_store(store_path: &Path) -> Option<ProxyConfig> {
     serde_json::from_value(proxy.clone()).ok()
 }
 
+/// Locate the same `app-state.json` the frontend's plugin-store writes.
+///
+/// Why not take an `AppHandle`: the callers that need the proxy *per request*
+/// (updater channel probing / download) all run inside `spawn_blocking`, where
+/// no handle is available. Resolving the path from the environment instead
+/// means they can stay plain synchronous functions with no Tauri plumbing.
+///
+/// Resolution order mirrors Tauri's own `app_data_dir`:
+/// 1. `QMAI_TEST_APP_DATA_DIR` — only the test suite sets it;
+/// 2. `%APPDATA%\<identifier>` on Windows (the bundled app's real location);
+/// 3. `$XDG_DATA_HOME`/`~/.local/share/<identifier>` elsewhere.
+///
+/// `IDENTIFIER` must stay equal to `identifier` in `tauri.conf.json`: if the
+/// two drift, this silently reads a file that never exists, the proxy looks
+/// disabled forever, and neither updater nor cloud sync honours it.
+///
+/// Returning `None` is normal (fresh install, odd environment) and is treated
+/// exactly like "no proxy configured" by every caller.
+pub fn app_state_path() -> Option<std::path::PathBuf> {
+    const IDENTIFIER: &str = "com.qingmuai.writer";
+
+    if let Some(dir) = std::env::var_os("QMAI_TEST_APP_DATA_DIR") {
+        return Some(std::path::PathBuf::from(dir).join("app-state.json"));
+    }
+    #[cfg(windows)]
+    {
+        let base = std::env::var_os("APPDATA")?;
+        return Some(
+            std::path::PathBuf::from(base)
+                .join(IDENTIFIER)
+                .join("app-state.json"),
+        );
+    }
+    #[cfg(not(windows))]
+    {
+        if let Some(base) = std::env::var_os("XDG_DATA_HOME") {
+            return Some(
+                std::path::PathBuf::from(base)
+                    .join(IDENTIFIER)
+                    .join("app-state.json"),
+            );
+        }
+        let home = std::env::var_os("HOME")?;
+        Some(
+            std::path::PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join(IDENTIFIER)
+                .join("app-state.json"),
+        )
+    }
+}
+
 /// Read and apply the stored proxy config. Missing or unreadable
 /// config is treated exactly like a disabled proxy, so inherited
 /// HTTP_PROXY / HTTPS_PROXY / NO_PROXY values from the parent process
@@ -155,6 +208,24 @@ fn redact_url(url: &str) -> String {
     out.push_str("***");
     out.push_str(&after_scheme[userinfo_end..]);
     out
+}
+
+/// 当前生效的代理 URL；没启用、地址为空或协议不支持时返回 `None`。
+///
+/// 为什么需要它：`tauri-plugin-updater` 走自己的 http 客户端，**不读**我们写进
+/// 环境变量的 `HTTP_PROXY`。所以更新通道必须显式把代理交给它，否则用户开了代理
+/// 也对「检查更新」无效（这是实测发现的一个漏洞，不是猜测）。
+pub fn current_proxy_url(config: &ProxyConfig) -> Option<String> {
+    let url = config.url.trim();
+    if !config.enabled || url.is_empty() {
+        return None;
+    }
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        // reqwest 的代理只认 http/https；socks 需要额外 feature，这里明确不支持，
+        // 以免把一个用不了的地址丢给下层后得到莫名其妙的连接错误。
+        return None;
+    }
+    Some(url.to_string())
 }
 
 /// Remove all three proxy env vars. Called whenever the user
@@ -518,6 +589,49 @@ mod tests {
         let path = dir.join("app-state.json");
         std::fs::write(&path, r#"{"otherKey": "value"}"#).unwrap();
         assert!(read_proxy_config_from_store(&path).is_none());
+    }
+
+    #[test]
+    fn current_proxy_url_is_none_when_disabled() {
+        let config = ProxyConfig {
+            enabled: false,
+            url: "http://127.0.0.1:7890".to_string(),
+            bypass_local: true,
+        };
+        assert_eq!(current_proxy_url(&config), None);
+    }
+
+    #[test]
+    fn current_proxy_url_rejects_non_http_schemes() {
+        let config = ProxyConfig {
+            enabled: true,
+            url: "socks9://weird".to_string(),
+            bypass_local: true,
+        };
+        assert_eq!(current_proxy_url(&config), None);
+    }
+
+    #[test]
+    fn current_proxy_url_returns_the_configured_url() {
+        let config = ProxyConfig {
+            enabled: true,
+            url: "http://127.0.0.1:7890".to_string(),
+            bypass_local: true,
+        };
+        assert_eq!(
+            current_proxy_url(&config).as_deref(),
+            Some("http://127.0.0.1:7890")
+        );
+    }
+
+    #[test]
+    fn current_proxy_url_ignores_blank_url() {
+        let config = ProxyConfig {
+            enabled: true,
+            url: "   ".to_string(),
+            bypass_local: true,
+        };
+        assert_eq!(current_proxy_url(&config), None);
     }
 
     fn tempdir_for_test() -> std::path::PathBuf {

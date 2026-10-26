@@ -13,6 +13,7 @@ import {
   cancelCloudSyncLogin,
   clearCloudSyncHistory,
   connectCloudSyncFolder,
+  connectCloudSyncGithub,
   connectCloudSyncWebdav,
   getCloudSyncConfig,
   getCloudSyncStatus,
@@ -30,6 +31,7 @@ import {
 } from "@/lib/cloud-sync/client"
 import type { CloudSyncRuntime } from "@/lib/cloud-sync/status"
 import { isProviderAvailable } from "@/lib/cloud-sync/providers"
+import { markFailuresSeen, readSeenAt, unreadFailures } from "@/lib/cloud-sync/failure-read"
 import {
   DEFAULT_CLOUD_SYNC_CONFIG,
   enabledTargets,
@@ -70,6 +72,8 @@ interface CloudSyncStoreState {
   setProvider: (provider: CloudSyncConfig["provider"]) => Promise<void>
   /** 勾选/取消一个网盘：取消后它不再参与同步，但已保存的凭据不删。 */
   toggleTarget: (provider: CloudProviderId) => Promise<void>
+  /** 只切换「正在配置的网盘」，不改它的勾选状态。 */
+  focusProvider: (provider: CloudProviderId | null) => Promise<void>
   setScope: (scope: CloudSyncConfig["scope"]) => Promise<void>
   setIncludeSnapshots: (include: boolean) => Promise<void>
 
@@ -77,7 +81,10 @@ interface CloudSyncStoreState {
   cancelLogin: () => Promise<void>
   connectWebdav: (input: { url: string; user: string; password: string }) => Promise<ConnectResult>
   connectFolder: (path: string) => Promise<ConnectResult>
-  logout: () => Promise<void>
+  /** 连接 GitHub 私有仓库（校验私有 + 写探针都在后端做）。 */
+  connectGithub: (input: { owner: string; repo: string; branch?: string }) => Promise<ConnectResult>
+  /** 退出某个网盘；不传则退当前激活的那个（旧调用方兼容）。 */
+  logout: (provider?: CloudProviderId | null) => Promise<void>
 
   runNow: (projects: CloudSyncProjectRef[], trigger?: SyncTrigger) => Promise<void>
   /** 从项目登记表取书单后同步（「仅当前书籍」在这里筛）。 */
@@ -103,6 +110,13 @@ interface CloudSyncStoreState {
   dismissNotice: () => void
   openDetail: () => void
   closeDetail: () => void
+  /**
+   * 把当前所有失败标记为已读，红点与红字立刻消失。
+   *
+   * 用户点「知道了」/「查看全部」时调用。之后只统计新出现的失败 ——
+   * 看过的不再烦人，新的才提醒。
+   */
+  markFailuresSeen: () => void
 }
 
 let unlisten: (() => void) | null = null
@@ -160,7 +174,12 @@ export const useCloudSyncStore = create<CloudSyncStoreState>((set, get) => ({
         running: status.running,
         done: status.done,
         total: status.total,
-        failureCount: status.failureCount,
+        // 失败数一律**从历史记录现算**，不信后端的运行态快照。
+        // 后端那个计数是「进程内」的，旧版本还不会在一轮结束后清零，重启后
+        // 会把上一轮的残留值读回来 —— 用户看到永久挂着的「有 N 项同步失败」，
+        // 点进详情却一条失败都没有（真实投诉）。历史才是唯一可信来源。
+        // 只数「上次查看之后」的新失败：已读的旧失败不该一直顶着红点。
+        failureCount: unreadFailures(history.entries, readSeenAt()).length,
         authExpired: status.authExpired,
       },
       batches: history.batches,
@@ -190,6 +209,27 @@ export const useCloudSyncStore = create<CloudSyncStoreState>((set, get) => ({
       set({ saving: false })
       throw error
     }
+  },
+
+  /**
+   * 只把某个网盘标成「正在配置的」。
+   *
+   * 与 `setProvider` 的区别：`setProvider` 走 patchConfig，后端会把它当成
+   * 「激活目标」处理；而这里只让界面知道"要给谁显示表单"，
+   * **绝不改变它是否被勾选**——用户点卡片主体只是想看一眼。
+   */
+  focusProvider: async (provider) => {
+    if (provider && !isProviderAvailable(provider)) return
+    /*
+     * 纯本地切换「正在看哪个网盘」，**不落盘**。
+     *
+     * 三个理由：
+     *   1. 它只是界面上"给谁显示表单"，不是需要持久化的状态；
+     *   2. 走 patchConfig 会触发后端 merge_patch，历史上那里用过 upsert，
+     *      一点卡片就把没勾选的网盘塞回 targets（用户投诉过的 bug 根源）；
+     *   3. 省一次 IPC —— 点一下卡片不该有网络/磁盘往返。
+     */
+    set((state) => ({ config: { ...state.config, provider } }))
   },
 
   setProvider: async (provider) => {
@@ -255,6 +295,23 @@ export const useCloudSyncStore = create<CloudSyncStoreState>((set, get) => ({
     return result
   },
 
+  connectGithub: async (input) => {
+    const result = await connectCloudSyncGithub(input)
+    if (result.ok) {
+      set((state) => ({
+        config: result.config
+          ? normalizeCloudSyncConfig(result.config)
+          : {
+              ...state.config,
+              provider: "github",
+              connected: true,
+              accountLabel: `${input.owner}/${input.repo}`,
+            },
+      }))
+    }
+    return result
+  },
+
   connectFolder: async (path) => {
     const result = await connectCloudSyncFolder(path)
     if (result.ok) {
@@ -274,9 +331,15 @@ export const useCloudSyncStore = create<CloudSyncStoreState>((set, get) => ({
     return result
   },
 
-  logout: async () => {
-    // 带 provider：多选时只断开当前这个盘，其他目标保持连接。
-    const config = await logoutCloudSync(get().config.provider)
+  logout: async (provider) => {
+    /*
+     * 必须由**点按钮的那一行**告诉我们退哪个盘。
+     *
+     * 曾经这里读 `get().config.provider`（"当前正在配置的盘"），
+     * 于是"在坚果云那行点退出登录，退掉的却是 GitHub"——因为用户
+     * 上一个点过的卡片是 GitHub（真实投诉）。provider 缺省时才退回激活目标。
+     */
+    const config = await logoutCloudSync(provider ?? get().config.provider)
     set({ config, login: null })
   },
 
@@ -298,8 +361,17 @@ export const useCloudSyncStore = create<CloudSyncStoreState>((set, get) => ({
     const chosen =
       get().config.scope === "current" && current ? all.filter((project) => project.id === current.id) : all
     if (chosen.length === 0) return
-    // 记账要在发起之前：否则「刚发起就被聚焦再触发」会连发两轮。
-    set((state) => ({ runtime: { ...state.runtime, lastAttemptAt: Date.now() } }))
+    /*
+     * 记账要在发起之前：否则「刚发起就被聚焦再触发」会连发两轮。
+     *
+     * `running: true` 也在本地先置上：后端要等 `try_begin` 之后才推第一份状态，
+     * 一轮 0 变更的同步常常几百毫秒就跑完 —— 用户点完按钮到看见任何变化之间
+     * 有一段完全静默的窗口，看起来就是「点了没用」（真实投诉）。
+     * 后端推来的状态会覆盖它，所以这只是乐观更新，不会卡住。
+     */
+    set((state) => ({
+      runtime: { ...state.runtime, lastAttemptAt: Date.now(), running: true },
+    }))
     const result = await runCloudSyncNow(
       chosen.map((project) => ({ id: project.id, name: project.name, path: project.path })),
       trigger,
@@ -311,6 +383,8 @@ export const useCloudSyncStore = create<CloudSyncStoreState>((set, get) => ({
       set((state) => ({
         runtime: {
           ...state.runtime,
+          // 这一轮压根没跑起来（被禁用/没连/没书）：把乐观置上的 running 放掉。
+          running: false,
           consecutiveFailures: (state.runtime.consecutiveFailures ?? 0) + 1,
           lastErrorCode: errorCode,
         },
@@ -338,7 +412,16 @@ export const useCloudSyncStore = create<CloudSyncStoreState>((set, get) => ({
   refreshHistory: async () => {
     try {
       const history = await readCloudSyncHistory()
-      set({ batches: history.batches, entries: history.entries })
+      set((state) => ({
+        batches: history.batches,
+        entries: history.entries,
+        // 失败数跟着历史走：历史里没有失败条目，界面就不该再挂红字。
+        runtime: {
+          ...state.runtime,
+          // 只数「上次查看之后」的新失败：已读的旧失败不该一直顶着红点。
+        failureCount: unreadFailures(history.entries, readSeenAt()).length,
+        },
+      }))
     } catch {
       // 读历史失败不该影响同步本身：面板显示上一次的内容即可。
     }
@@ -346,7 +429,11 @@ export const useCloudSyncStore = create<CloudSyncStoreState>((set, get) => ({
 
   clearHistory: async () => {
     await clearCloudSyncHistory()
-    set({ batches: [], entries: [] })
+    set((state) => ({
+      batches: [],
+      entries: [],
+      runtime: { ...state.runtime, failureCount: 0 },
+    }))
   },
 
   applyStatus: (status) => {
@@ -430,6 +517,14 @@ export const useCloudSyncStore = create<CloudSyncStoreState>((set, get) => ({
     void get().refreshHistory()
   },
   closeDetail: () => set({ detailOpen: false }),
+
+  markFailuresSeen: () => {
+    markFailuresSeen()
+    // 立刻把未读数清零：不依赖下一次 refreshHistory，红点当场消失。
+    set((state) => ({
+      runtime: { ...state.runtime, failureCount: 0 },
+    }))
+  },
 }))
 
 /** 供批次列表使用：新建一个空批次壳（P0 只有 stub 会用）。 */

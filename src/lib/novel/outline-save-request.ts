@@ -106,6 +106,24 @@ interface OutlineSaveRequestFs {
   readFile?: (path: string) => Promise<string>
 }
 
+/**
+ * 覆盖写「历史版本」钩子。
+ *
+ * 为什么用一个注入的 hook，而不是在本模块里直接 import version-store / fs：
+ * 本模块是**可注入 fs 的纯逻辑**，它自己的全部测试（outline-save-request.spec.ts）
+ * 都用假 fs 跑，不碰真实磁盘。若在这里直接 import 真实读写实现，
+ * 这些测试就会开始真写盘、变成依赖环境的集成测试。
+ * 用 hook 注入既保住了可测性，也把「历史存在哪、什么格式」的决定权留给调用方。
+ */
+export interface OutlineSaveRequestsHistoryHook {
+  /** 覆盖写 md 之前调用；实现方负责落版本，抛错会被吞掉。 */
+  beforeOverwrite?: (input: {
+    projectPath: string
+    name: string
+    previousContent: string
+  }) => void | Promise<void>
+}
+
 const ALLOWED_FILE_TYPES = new Set<OutlineSaveRequestFileType>([
   "outline",
   "volume-outline",
@@ -1190,6 +1208,73 @@ function buildSaveContent(request: OutlineSaveRequest): string {
   return stripOutlineFrontmatter(request.content)
 }
 
+/** 历史版本的 key：文件名去掉 `.md` 后缀。`总纲.md` → `总纲`。 */
+function outlineVersionNameOf(mdFileName: string): string {
+  return mdFileName.replace(/\.md$/i, "").trim()
+}
+
+/** 本次保存会用的输入里，与历史版本相关的那部分。 */
+type OutlineSaveHistoryContext = Pick<OutlineSaveRequestFs, "fileExists" | "readFile">
+  & OutlineSaveRequestsHistoryHook
+  & { projectPath?: string }
+
+/**
+ * 在覆盖写 `.md` 之前把旧内容交给调用方落成历史版本。
+ *
+ * 四条「不落版本」的安全边界，缺一条都会产生垃圾版本或写错位置：
+ * 1. 调用方没传 `projectPath` —— 历史库的根目录无从得知，宁可跳过；
+ * 2. 调用方没传 hook —— 这条保存流程本来就不留历史；
+ * 3. 旧内容为空 —— 存一条空白历史只会污染列表；
+ * 4. `previousContent` 未给时读不到旧文件 / 读到空 —— 说明不是覆盖，没什么可留。
+ *
+ * 全程吞掉异常：历史是「保险」，不是主流程。历史库写坏了绝不能让用户以为
+ * 正文没保存成功 —— 那比丢一条历史严重得多。
+ */
+function callBeforeOverwrite(
+  context: OutlineSaveHistoryContext,
+  name: string,
+  previousContent: string,
+): void {
+  if (!context.projectPath) return
+  if (!context.beforeOverwrite) return
+  if (!previousContent.trim()) return
+  try {
+    // 不 await：hook 里同步抛错走 catch，异步 reject 由下面的 void/catch 兜住。
+    const outcome = context.beforeOverwrite({
+      projectPath: context.projectPath,
+      name,
+      previousContent,
+    })
+    if (outcome && typeof (outcome as Promise<void>).catch === "function") {
+      void (outcome as Promise<void>).catch((error: unknown) => {
+        console.warn(`留历史版本失败（已忽略，不影响保存）：${name}`, error)
+      })
+    }
+  } catch (error) {
+    console.warn(`留历史版本失败（已忽略，不影响保存）：${name}`, error)
+  }
+}
+
+/**
+ * 覆盖写分支的旧内容读取。
+ *
+ * 只有「文件已存在、且调用方给了 readFile」时才有旧内容可存；
+ * 读失败一律当作「没有旧内容」，不让历史读取成为保存的前置条件。
+ */
+async function readPreviousOutlineContent(
+  context: OutlineSaveHistoryContext,
+  path: string,
+): Promise<string> {
+  if (!context.readFile) return ""
+  if (!(await context.fileExists(path))) return ""
+  try {
+    return await context.readFile(path)
+  } catch (error) {
+    console.warn(`读取大纲旧内容失败，本次不留历史版本：${path}`, error)
+    return ""
+  }
+}
+
 async function resolveUniquePath(
   fs: Pick<OutlineSaveRequestFs, "fileExists">,
   targetDir: string,
@@ -1218,7 +1303,15 @@ export async function saveOutlineSaveRequests(input: {
   confirmed?: boolean
   /** 保存格式选择：md 默认 true；html 仅当请求含 htmlContent 且此处为 true 时写入伴生 .html */
   formats?: { md: boolean; html: boolean }
-} & OutlineSaveRequestFs): Promise<OutlineSaveRequestSaveResult> {
+  /**
+   * 书根目录，用于把被覆盖的旧内容落成历史版本。
+   *
+   * 刻意由**调用方**传入而不是从 `outlineRoot` 反推：`outlineRoot` 形如
+   * `<书根>/wiki/outlines`，反推要猜分隔符与目录层级，猜错就会把历史写到
+   * 一个不存在的地方。缺省时安全跳过落版本（不影响保存本身）。
+   */
+  projectPath?: string
+} & OutlineSaveRequestsHistoryHook & OutlineSaveRequestFs): Promise<OutlineSaveRequestSaveResult> {
   const outlineRoot = normalizePath(input.outlineRoot).replace(/\/+$/, "")
   const result: OutlineSaveRequestSaveResult = { saved: [], skipped: [], errors: [] }
   const formats = input.formats ?? { md: true, html: true }
@@ -1258,6 +1351,13 @@ export async function saveOutlineSaveRequests(input: {
           result.skipped.push(`已跳过 ${request.fileName}：当前环境缺少追加读取能力。`)
         } else {
           const original = exists && input.readFile ? await input.readFile(targetPath) : ""
+          /*
+           * 复用上面已经读到的 `original`，**不再二次 readFile**：
+           * append 本来就必须读原文才能拼接，旧内容已经在这一份手里了。
+           * 再读一次既多一次 IO，也可能读到刚被别的进程改过的内容，
+           * 存下的「历史」就不再是本次真正被追加的那一版。
+           */
+          callBeforeOverwrite(input, outlineVersionNameOf(request.fileName), original)
           const merged = original
             ? `${stripOutlineFrontmatter(original).replace(/\s*$/, "\n\n")}${body}\n`
             : `${body}\n`
@@ -1282,7 +1382,9 @@ export async function saveOutlineSaveRequests(input: {
 }
 
 async function writeRequestFormats(
-  fs: Pick<OutlineSaveRequestFs, "writeFile">,
+  fs: Pick<OutlineSaveRequestFs, "writeFile" | "fileExists" | "readFile">
+    & OutlineSaveRequestsHistoryHook
+    & { projectPath?: string },
   targetDir: string,
   mdFileName: string,
   request: OutlineSaveRequest,
@@ -1291,6 +1393,16 @@ async function writeRequestFormats(
 ): Promise<void> {
   const mdPath = `${targetDir}/${mdFileName}`
   if (formats.md) {
+    /*
+     * 覆盖前留版本：这一支处理的是 replace / patch（以及 create 落到同名文件时的
+     * 唯一路径解析）。`writeMode === "create"` 落到的是 `resolveUniquePath` 挑出的
+     * **不重名**路径，通常没有旧内容可存；真有同名文件时读到的旧内容照样值得留一份。
+     *
+     * 只对 `.md` 主文件落版本：`.html` / `.json` 是伴生文件，能从同一个请求
+     * 重新渲染出来，留历史没有必要且会成倍放大版本库体积。
+     */
+    const previousContent = await readPreviousOutlineContent(fs, mdPath)
+    callBeforeOverwrite(fs, outlineVersionNameOf(mdFileName), previousContent)
     await fs.writeFile(mdPath, buildSaveContent({ ...request, fileName: mdFileName }))
     result.saved.push({ path: mdPath, fileName: mdFileName, writeMode: request.writeMode })
   }
