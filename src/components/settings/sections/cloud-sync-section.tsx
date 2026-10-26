@@ -10,8 +10,8 @@
  * - 换网盘 = 换账号：切换 provider 会清掉 connected 与账号显示。
  */
 
-import { useState } from "react"
-import { Check, Cloud, FolderOpen, Loader2, LogOut, RefreshCw, Server } from "lucide-react"
+import { useCallback, useEffect, useState } from "react"
+import { Check, Cloud, FolderOpen, GitBranch, Loader2, LogOut, RefreshCw, Server } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,6 +23,15 @@ import { formatSyncAge } from "@/lib/cloud-sync/status"
 import { enabledTargets, type CloudProviderId } from "@/lib/cloud-sync/types"
 import { isTauri } from "@/lib/platform"
 import { useCloudSyncStore } from "@/stores/cloud-sync-store"
+import {
+  beginCloudSyncLogin,
+  cancelCloudSyncLogin,
+  createGithubRepo,
+  getGithubAuthState,
+  listGithubRepos,
+  type GithubRepoChoice,
+} from "@/lib/cloud-sync/client"
+import { openExternalUrl } from "@/lib/open-external-url"
 import { useTranslation } from "react-i18next"
 
 import { CloudSyncLoginDialog } from "./cloud-sync-login-dialog"
@@ -30,6 +39,7 @@ import { CloudSyncLoginDialog } from "./cloud-sync-login-dialog"
 const PROVIDER_ICONS: Record<CloudProviderId, typeof Cloud> = {
   baidu: Cloud,
   webdav: Server,
+  github: GitBranch,
   folder: FolderOpen,
 }
 
@@ -175,6 +185,202 @@ function WebdavForm() {
         {connecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
         测试并连接
       </Button>
+    </div>
+  )
+}
+
+/**
+ * GitHub 连接：设备流（8 位码）+ 私有仓库选择。
+ *
+ * 为什么不用「点一下浏览器就回来」的回调：设备流不需要 client_secret、
+ * 也不用占本地端口，代价只是用户要把码粘进浏览器一次。
+ */
+function GithubForm() {
+  const connectGithub = useCloudSyncStore((state) => state.connectGithub)
+  const [phase, setPhase] = useState<"loading" | "idle" | "waiting" | "choose">("loading")
+  const [code, setCode] = useState<string | null>(null)
+  const [uri, setUri] = useState("")
+  const [repos, setRepos] = useState<GithubRepoChoice[]>([])
+  const [picked, setPicked] = useState("")
+  const [account, setAccount] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const loadRepos = useCallback(async () => {
+    setBusy(true)
+    const result = await listGithubRepos()
+    setBusy(false)
+    if (!result.ok) {
+      setError(resolveNotice(result.errorCode ?? "github.http").message)
+      setPhase("idle")
+      return
+    }
+    const list = result.repos ?? []
+    setRepos(list)
+    // 默认选中我们自己的备份仓库（如果它已经在列表里）。
+    setPicked((current) => {
+      if (current) return current
+      const preferred = list.find((repo) => repo.name === "qmai-write-backup") ?? list[0]
+      return preferred ? `${preferred.owner}/${preferred.name}` : ""
+    })
+    setPhase("choose")
+  }, [])
+
+  // 打开面板时先问一次：已经授权过就别再让用户走设备流。
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const state = await getGithubAuthState()
+      if (cancelled) return
+      setAccount(state.accountLabel)
+      if (state.authorized) {
+        await loadRepos()
+      } else {
+        setPhase("idle")
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [loadRepos])
+
+  // 等用户在浏览器里确认：每 2 秒问一次后端（不依赖事件，关掉面板也不丢状态）。
+  useEffect(() => {
+    if (phase !== "waiting") return
+    const timer = window.setInterval(() => {
+      void (async () => {
+        const state = await getGithubAuthState()
+        if (state.authorized) {
+          setAccount(state.accountLabel)
+          await loadRepos()
+        } else if (!state.loginPending) {
+          setPhase("idle")
+          setCode(null)
+          setError("授权没有完成（码过期了？）再点一次「连接 GitHub」。")
+        }
+      })()
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [phase, loadRepos])
+
+  async function start() {
+    setError(null)
+    setBusy(true)
+    const result = await beginCloudSyncLogin("github")
+    setBusy(false)
+    if (result.errorCode) {
+      setError(resolveNotice(result.errorCode).message)
+      return
+    }
+    if (result.alreadyAuthorized) {
+      setAccount(result.accountLabel ?? "")
+      await loadRepos()
+      return
+    }
+    if (!result.userCode) return
+    setCode(result.userCode)
+    setUri(result.verificationUri ?? "")
+    setPhase("waiting")
+    if (result.verificationUri) void openExternalUrl(result.verificationUri)
+  }
+
+  async function createRepo() {
+    setError(null)
+    setBusy(true)
+    const result = await createGithubRepo("")
+    setBusy(false)
+    if (!result.ok) {
+      setError(resolveNotice(result.errorCode ?? "github.http").message)
+      return
+    }
+    await loadRepos()
+    if (result.repo) setPicked(`${result.repo.owner}/${result.repo.name}`)
+  }
+
+  async function connect() {
+    if (!picked) return
+    const [owner, repo] = picked.split("/")
+    setError(null)
+    setBusy(true)
+    const result = await connectGithub({ owner, repo })
+    setBusy(false)
+    if (!result.ok) setError(resolveNotice(result.errorCode ?? "github.http").message)
+  }
+
+  return (
+    <div className="space-y-3">
+      {phase === "loading" ? <p className="text-xs text-muted-foreground">正在检查 GitHub 授权…</p> : null}
+
+      {phase === "waiting" && code ? (
+        <div className="space-y-2 rounded-lg border border-dashed p-3">
+          <p className="text-sm">在浏览器里输入这个码，确认授权：</p>
+          <p className="select-all font-mono text-2xl tracking-[0.3em]">{code}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => void openExternalUrl(uri)}>
+              再打开一次授权页面
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => void cancelCloudSyncLogin().then(() => setPhase("idle"))}>
+              取消
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            授权只给「私有仓库读写」。确认之后这里会自动列出你的私有仓库。
+          </p>
+        </div>
+      ) : null}
+
+      {phase === "idle" ? (
+        <div className="space-y-2">
+          <Button disabled={busy} onClick={() => void start()}>
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <GitBranch className="mr-2 h-4 w-4" />}
+            连接 GitHub
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            小说会存进你自己的<b>私有</b>仓库；公开仓库不允许连接（那等于把稿子公开）。
+          </p>
+        </div>
+      ) : null}
+
+      {phase === "choose" ? (
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground">
+            {account ? `已授权：${account}` : "已授权"}。选一个<b>私有</b>仓库：
+          </p>
+          <select
+            aria-label="GitHub 仓库"
+            data-testid="cloud-sync-github-repo"
+            className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+            value={picked}
+            onChange={(event) => setPicked(event.target.value)}
+          >
+            {repos.length === 0 ? <option value="">（没有私有仓库）</option> : null}
+            {repos.map((repo) => (
+              <option key={`${repo.owner}/${repo.name}`} value={`${repo.owner}/${repo.name}`}>
+                {repo.owner}/{repo.name}
+                {repo.canPush ? "" : "（只读）"}
+              </option>
+            ))}
+          </select>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" disabled={busy || !picked} onClick={() => void connect()}>
+              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              连接这个仓库
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void createRepo()}>
+              新建私有仓库
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            新建会创建 <code>qmai-write-backup</code>（私有、空仓库）。连接时会在仓库里写一次探针文件验证写权限，然后删掉。
+          </p>
+        </div>
+      ) : null}
+
+      {error ? (
+        <p className="text-sm text-destructive" role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -325,11 +531,9 @@ export function CloudSyncSection() {
 
             {provider ? (
               <div className="space-y-3 border-t pt-3">
-                {provider.available === false && !config.connected ? (
-                  <p className="text-sm text-muted-foreground">
-                    百度网盘会在后续版本开放。这一版可以先用 WebDAV（坚果云、NAS）或网盘本地文件夹。
-                  </p>
-                ) : config.connected ? (
+                {/* 百度已从 CLOUD_PROVIDERS 移除（这一版隐藏），这里不必再留「暂未开放」分支：
+                    provider 永远来自列表，available 恒为 true。适配器与后端代码都还在。 */}
+                {config.connected ? (
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="text-sm">
                       {t("settings.sections.cloudSync.connectedAs", {
@@ -355,6 +559,8 @@ export function CloudSyncSection() {
                           })}
                         </p>
                       </div>
+                    ) : provider.login === "device" ? (
+                      <GithubForm />
                     ) : provider.login === "form" ? (
                       <WebdavForm />
                     ) : (
