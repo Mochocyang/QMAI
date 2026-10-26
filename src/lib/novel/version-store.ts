@@ -10,6 +10,7 @@
  */
 
 import { normalizePath } from "@/lib/path-utils"
+import { createDirectory, deleteFile, listDirectory, readFile, writeFile } from "@/commands/fs"
 
 /** 版本库相对书根目录的位置；集中定义避免调用方各自拼字符串拼错。 */
 export const VERSIONS_DIR = ".qmai/versions"
@@ -130,4 +131,132 @@ export function buildVersionDir(
 
   const rawKey = key === null ? "" : String(key)
   return `${root}/outlines/${sanitizeKey(rawKey)}`
+}
+
+/**
+ * 合并窗口：同一份内容在这个时间内的连续保存只保留最后一条。
+ *
+ * 为什么需要：用户改稿时习惯性连按 Ctrl+S，或者编辑器自动保存，
+ * 几十秒内可能刷出十几条几乎一样的版本，历史列表会被垃圾淹没，
+ * 真正想回退的那一版反而找不到了。30 秒大致是「一次连续思考」
+ * 的编辑节奏，既能把抖动合并掉，又不会把两个不同的编辑阶段并成一条。
+ */
+export const MERGE_WINDOW_MS = 30_000
+
+export interface SaveVersionInput {
+  projectPath: string
+  kind: VersionKind
+  key: number | string | null
+  content: string
+  /** 版本时间，默认当前时间；显式传入便于测试与回溯导入。 */
+  at?: Date
+}
+
+export interface SaveVersionOutcome {
+  saved: boolean
+  path?: string
+  /** 被合并掉的旧版本文件名（合并时才有）。 */
+  replaced?: string
+}
+
+/**
+ * 扫描一个版本目录并读出内容，作为「本次保存是否重复 / 是否需要合并」的依据。
+ *
+ * 私有辅助：本任务只需要它支撑 saveVersion 的去重与合并判断，
+ * 面向界面的完整版本列表（排序、展示）留给后续任务，避免这里先长出一套
+ * 半成品接口。
+ *
+ * 容错策略决定了它是「尽力而为」而不是「全有或全无」：
+ * - 目录不存在（第一次保存）视为没有任何版本，而不是报错——这是最常见的场景；
+ * - 单个文件读失败（被用户删掉、正在被同步工具占用）就跳过它，
+ *   不能因为一个坏文件让整次保存失败。
+ */
+async function readVersionsForMerge(
+  dir: string,
+): Promise<Array<{ fileName: string; at: Date; content: string }>> {
+  let nodes: Awaited<ReturnType<typeof listDirectory>>
+  try {
+    nodes = await listDirectory(dir)
+  } catch {
+    // 目录还不存在：这就是第一条版本，交给调用方正常写入。
+    return []
+  }
+
+  const fileNodes = nodes.filter((node) => !node.is_dir)
+  const contents = await Promise.all(
+    fileNodes.map(async (node) => {
+      const parsed = parseVersionFileName(node.name)
+      // 不认识的杂文件（用户手放的笔记、旧格式残留）不参与合并判断，
+      // 也不能被合并逻辑删掉。
+      if (!parsed) return null
+      try {
+        const content = await readFile(node.path)
+        return { fileName: node.name, at: parsed.at, content }
+      } catch {
+        return null
+      }
+    }),
+  )
+
+  return contents.filter(
+    (item): item is { fileName: string; at: Date; content: string } => item !== null,
+  )
+}
+
+/**
+ * 保存一条历史版本。
+ *
+ * 三种「不写」的情形共用同一个结果 `{ saved: false }`：调用方（保存流程）
+ * 只关心有没有产生新版本，不需要区分原因。
+ */
+export async function saveVersion(input: SaveVersionInput): Promise<SaveVersionOutcome> {
+  const { projectPath, kind, key, content } = input
+  const at = input.at ?? new Date()
+
+  // 空白内容不落版本：新建章节第一次保存内容往往是空的，
+  // 存下来只会让列表里多出一条「点开是空白的」历史，纯属污染。
+  if (content.trim() === "") {
+    return { saved: false }
+  }
+
+  const dir = buildVersionDir(projectPath, kind, key)
+  const existing = await readVersionsForMerge(dir)
+
+  // 内容一模一样就不重复记录：编辑器失焦刷新、手动再按一次保存，
+  // 都会以「同样内容、不同时间」的形式重复触发，这里拦掉。
+  if (existing.some((version) => version.content === content)) {
+    return { saved: false }
+  }
+
+  await createDirectory(dir)
+
+  const fileName = buildVersionFileName(at, content)
+  const path = `${dir}/${fileName}`
+  await writeFile(path, content)
+
+  // 合并：只认「过去的 30 秒内」的版本。`<= at` 这个上界很重要，
+  // 否则用户把系统时间往回调（或手工导入旧版本）时，会把将来的版本当成
+  // 「刚才那次保存」删掉。
+  const windowStart = at.getTime() - MERGE_WINDOW_MS
+  const mergeTarget = existing
+    .filter((version) => version.at.getTime() >= windowStart && version.at.getTime() <= at.getTime())
+    // 多个命中时合并最新的那一个：它就是紧挨着本次保存的上一条记录。
+    .sort((a, b) => b.at.getTime() - a.at.getTime())[0]
+
+  if (!mergeTarget) {
+    return { saved: true, path }
+  }
+
+  const replacedPath = `${dir}/${mergeTarget.fileName}`
+  try {
+    await deleteFile(replacedPath)
+  } catch (error) {
+    // 删旧版失败不影响本次保存成功：历史里多留一份只是冗余，
+    // 而让保存流程失败会让用户以为正文没存上，代价大得多。
+    console.warn("合并历史版本时删除旧版本失败：", replacedPath, error)
+    // 没真正删掉就不能声称「已替换」，否则界面会显示一条并不存在的合并。
+    return { saved: true, path }
+  }
+
+  return { saved: true, path, replaced: mergeTarget.fileName }
 }
