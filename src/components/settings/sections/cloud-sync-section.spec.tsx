@@ -127,43 +127,31 @@ describe("CloudSyncSection", () => {
   it("打开后进入登录门：给出提示，且不触发同步", async () => {
     render()
     await act(async () => switchButton("云同步").click())
+    // 现在是三张：坚果云（WebDAV）、GitHub、网盘本地文件夹。百度这一版隐藏了。
     expect(host.querySelectorAll('[data-ui="cloud-sync-provider"]').length).toBe(3)
     // 还没勾选任何网盘：提示先去勾一个，而不是笼统说「需要登录」。
     expect(host.textContent).toContain("先勾选一个网盘")
     expect(clientMocks.runCloudSyncNow).not.toHaveBeenCalled()
   })
 
-  it("百度网盘不开登录入口：这一版只在卡片上说明后续开放", async () => {
+  it("百度网盘这一版不出卡片", async () => {
     render()
     await act(async () => switchButton("云同步").click())
-    // 卡片主体 disabled，点不动也就不存在「登录百度账号」按钮。
-    const body = host.querySelector<HTMLButtonElement>('[data-provider="baidu"]')!
-    expect(body.disabled).toBe(true)
-    await act(async () => body.click())
-    expect(host.textContent).not.toContain("登录百度账号")
-    expect(clientMocks.beginCloudSyncLogin).not.toHaveBeenCalled()
+    // 列表里没有百度：卡片、勾选框都不存在，界面上也不提它。
+    expect(host.querySelector('[data-provider-card="baidu"]')).toBeNull()
+    expect(host.querySelector('[data-provider="baidu"]')).toBeNull()
+    expect(host.querySelector('[data-target-toggle="baidu"]')).toBeNull()
+    expect(host.textContent).not.toContain("百度")
+    expect(host.textContent).not.toContain("后续版本开放")
   })
 
-  it("百度网盘这一版点不动，卡片上写明后续版本开放", async () => {
+  it("WebDAV 卡片文案是「坚果云」", async () => {
     useCloudSyncStore.setState({
       config: { ...DEFAULT_CLOUD_SYNC_CONFIG, enabled: true, provider: null, connected: false },
     })
     render()
-
-    const card = host.querySelector<HTMLElement>('[data-provider-card="baidu"]')!
-    expect(card.getAttribute("data-provider-available")).toBe("false")
-    expect(card.textContent).toContain("后续版本开放")
-
-    // 主体与勾选框都是 disabled：点了不会有任何命令发出去。
-    const body = card.querySelector<HTMLButtonElement>('[data-ui="cloud-sync-provider"]')!
-    const toggle = card.querySelector<HTMLButtonElement>('[data-target-toggle="baidu"]')!
-    expect(body.disabled).toBe(true)
-    expect(toggle.disabled).toBe(true)
-    await act(async () => {
-      body.click()
-      toggle.click()
-    })
-    expect(clientMocks.setCloudSyncConfig).not.toHaveBeenCalled()
+    const webdavCard = host.querySelector<HTMLElement>('[data-provider-card="webdav"]')!
+    expect(webdavCard.textContent).toContain("坚果云")
   })
 
   it("「本地文件夹」改名为「网盘本地文件夹」", async () => {
