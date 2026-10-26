@@ -26,6 +26,7 @@
 
 import { createDirectory, readFile, listDirectory, writeFileAtomic } from "@/commands/fs"
 import { invoke } from "@tauri-apps/api/core"
+import { withMemoryWriteLock } from "@/lib/novel/memory-cleanup-policy"
 import type { EmbeddingConfig } from "@/stores/wiki-store"
 import type { FileNode } from "@/types/wiki"
 import { mapWithConcurrency } from "@/lib/async-pool"
@@ -1082,88 +1083,90 @@ export async function embedAllPages(
   if (!cfg.enabled || !cfg.model) return 0
 
   const pp = normalizePath(projectPath)
-  const startedAt = Date.now()
-  startEmbeddingIndexLog(pp, {
-    model: cfg.model,
-    host: endpointHost(cfg.endpoint),
-    batchSize: EMBED_BATCH_SIZE,
-    concurrency: EMBED_BATCH_CONCURRENCY,
-    dims: cfg.outputDimensionality ?? null,
+  return withMemoryWriteLock(pp, async () => {
+    const startedAt = Date.now()
+    startEmbeddingIndexLog(pp, {
+      model: cfg.model,
+      host: endpointHost(cfg.endpoint),
+      batchSize: EMBED_BATCH_SIZE,
+      concurrency: EMBED_BATCH_CONCURRENCY,
+      dims: cfg.outputDimensionality ?? null,
+    })
+    const progress = (done: number, total: number) => {
+      setEmbeddingLogProgress(done, total)
+      onProgress?.(done, total)
+    }
+    try {
+      let pages: WikiPageRef[]
+      try {
+        pages = await listWikiPages(pp)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        noteEmbeddingLogError(message)
+        embeddingIndexLog("list-fail", { error: message.slice(0, 200) })
+        return 0
+      }
+      if (pages.length === 0) {
+        embeddingIndexLog("empty")
+        progress(0, 0)
+        return 0
+      }
+
+      const configHash = embeddingConfigFingerprint(cfg)
+      const manifest = await readEmbeddingManifest(pp)
+      const pageHashes: Record<string, string> = {}
+      for (const page of pages) pageHashes[page.id] = page.hash
+      const plan = planEmbeddingReindex(pageHashes, manifest, configHash)
+      // A staged rebuild swaps in a table built from the pages we could read, so a
+      // page whose read failed would silently lose its existing vectors. Patch the
+      // readable pages in place instead: the unreadable page keeps its rows and
+      // stays dirty, so the next run retries it.
+      const mode = plan.mode === "rebuild" && pages.some((page) => page.content === undefined)
+        ? "incremental"
+        : plan.mode
+      setEmbeddingLogPhase(mode)
+      setEmbeddingLogProgress(0, pages.length)
+      embeddingIndexLog("plan", {
+        mode,
+        pages: pages.length,
+        dirty: plan.dirtyIds.length,
+        removed: plan.removedIds.length,
+      })
+
+      const nextPages = mode === "rebuild"
+        ? await embedPagesRebuild(pp, pages, cfg, progress)
+        : await embedPagesIncremental(
+          pp,
+          pages,
+          new Set(plan.dirtyIds),
+          plan.removedIds,
+          cfg,
+          progress,
+        )
+
+      try {
+        await writeEmbeddingManifest(pp, { configHash, pages: nextPages })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.warn(`[Embedding] Failed to write index manifest: ${message}`)
+        noteEmbeddingLogError(message)
+        embeddingIndexLog("manifest-fail", { error: message.slice(0, 200) })
+      }
+      embeddingIndexLog("done", {
+        pages: pages.length,
+        indexedPages: Object.keys(nextPages).length,
+        elapsedMs: Date.now() - startedAt,
+      })
+      return pages.length
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      noteEmbeddingLogError(message)
+      embeddingIndexLog("abort", { error: message.slice(0, 200) })
+      throw error
+    } finally {
+      stopEmbeddingIndexLog()
+    }
   })
-  const progress = (done: number, total: number) => {
-    setEmbeddingLogProgress(done, total)
-    onProgress?.(done, total)
-  }
-  try {
-    let pages: WikiPageRef[]
-    try {
-      pages = await listWikiPages(pp)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      noteEmbeddingLogError(message)
-      embeddingIndexLog("list-fail", { error: message.slice(0, 200) })
-      return 0
-    }
-    if (pages.length === 0) {
-      embeddingIndexLog("empty")
-      progress(0, 0)
-      return 0
-    }
-
-    const configHash = embeddingConfigFingerprint(cfg)
-    const manifest = await readEmbeddingManifest(pp)
-    const pageHashes: Record<string, string> = {}
-    for (const page of pages) pageHashes[page.id] = page.hash
-    const plan = planEmbeddingReindex(pageHashes, manifest, configHash)
-    // A staged rebuild swaps in a table built from the pages we could read, so a
-    // page whose read failed would silently lose its existing vectors. Patch the
-    // readable pages in place instead: the unreadable page keeps its rows and
-    // stays dirty, so the next run retries it.
-    const mode = plan.mode === "rebuild" && pages.some((page) => page.content === undefined)
-      ? "incremental"
-      : plan.mode
-    setEmbeddingLogPhase(mode)
-    setEmbeddingLogProgress(0, pages.length)
-    embeddingIndexLog("plan", {
-      mode,
-      pages: pages.length,
-      dirty: plan.dirtyIds.length,
-      removed: plan.removedIds.length,
-    })
-
-    const nextPages = mode === "rebuild"
-      ? await embedPagesRebuild(pp, pages, cfg, progress)
-      : await embedPagesIncremental(
-        pp,
-        pages,
-        new Set(plan.dirtyIds),
-        plan.removedIds,
-        cfg,
-        progress,
-      )
-
-    try {
-      await writeEmbeddingManifest(pp, { configHash, pages: nextPages })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      console.warn(`[Embedding] Failed to write index manifest: ${message}`)
-      noteEmbeddingLogError(message)
-      embeddingIndexLog("manifest-fail", { error: message.slice(0, 200) })
-    }
-    embeddingIndexLog("done", {
-      pages: pages.length,
-      indexedPages: Object.keys(nextPages).length,
-      elapsedMs: Date.now() - startedAt,
-    })
-    return pages.length
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    noteEmbeddingLogError(message)
-    embeddingIndexLog("abort", { error: message.slice(0, 200) })
-    throw error
-  } finally {
-    stopEmbeddingIndexLog()
-  }
 }
 
 /**
@@ -1258,6 +1261,16 @@ export async function removePageEmbedding(
     await vectorDeletePage(projectPath, pageId)
   } catch {
     // non-critical
+  }
+}
+
+/** Maintenance must surface index failures instead of silently retaining stale facts. */
+export async function removePageEmbeddingStrict(projectPath: string, pageId: string): Promise<void> {
+  await vectorDeletePage(projectPath, pageId)
+  const manifest = await readEmbeddingManifest(projectPath)
+  if (manifest && Object.prototype.hasOwnProperty.call(manifest.pages, pageId)) {
+    delete manifest.pages[pageId]
+    await writeEmbeddingManifest(projectPath, manifest)
   }
 }
 

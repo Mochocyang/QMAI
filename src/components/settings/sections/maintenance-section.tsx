@@ -53,7 +53,7 @@ import {
 import type { DedupMergeStage } from "@/lib/dedup-runner"
 import type { WikiProject } from "@/types/wiki"
 import type { DuplicateGroup } from "@/lib/dedup"
-import { ForeshadowingCleanupTool } from "@/components/settings/sections/foreshadowing-cleanup-tool"
+import { MemoryCleanupTool } from "@/components/settings/sections/memory-cleanup-tool"
 
 function confidenceRank(confidence: DuplicateGroup["confidence"]): number {
   switch (confidence) {
@@ -667,12 +667,12 @@ export function MaintenanceSection() {
         <p className="mt-1 text-sm text-muted-foreground">
           {t("settings.sections.maintenance.description", {
             defaultValue:
-              "用于清理资料库的工具：检测并合并重复实体/概念，以及清理伏笔追踪器中的重复、噪声与失效条目。",
+              "用于维护写作记忆与资料库：从来源清理重复、噪声记忆，同步派生文档，并检测和合并重复实体/概念。",
           })}
         </p>
       </div>
 
-      <ForeshadowingCleanupTool />
+      <MemoryCleanupTool />
 
       <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-4">
         <div className="flex items-center gap-2">

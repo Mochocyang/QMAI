@@ -43,10 +43,12 @@ import {
   buildOutlineExtractUserPrompt,
   CHAPTER_EXTRACT_REQUEST_OVERRIDES,
   resolveChapterExtractMaxTokens,
+  buildMemoryCleanupExclusions,
 } from "./chapter-ingest-extract"
 import { appendChapterIngestLog, previewLlmOutput } from "./chapter-ingest-log"
 import { normalizeItemCategoryRecord, ITEM_CATEGORY_LABELS, type ItemCategory } from "./item-category"
 import { buildEstablishedContextForExtraction } from "./extract-established-context"
+import { filterRemovedMemories, loadMemoryCleanupPolicy, withMemoryWriteLock, MEMORY_FIELDS, type MemoryField, type MemoryRemoval } from "./memory-cleanup-policy"
 
 export interface ValidationWarning {
   type: "entity_new" | "canon_conflict"
@@ -399,6 +401,7 @@ export async function ingestChapter(
       .catch(() => "")
     extractedSnapshot = await extractSnapshotWithLLM(
       chapterNumber, body, runtimeLlmConfig, signal, establishedContext,
+      (await loadMemoryCleanupPolicy(pp)).removed.filter((r) => r.chapterNumber === chapterNumber),
     )
   } catch (err) {
     return logFail("extract_failed", err instanceof Error ? err.message : String(err))
@@ -409,148 +412,151 @@ export async function ingestChapter(
     return logFail("extract_failed", "模型没有返回快照")
   }
 
-  const existingSnapshot = await existingSnapshotPromise
-  const isReingest = existingSnapshot != null
+  return withMemoryWriteLock(pp, async () => {
+    Object.assign(snapshot, filterRemovedMemories(snapshot, await loadMemoryCleanupPolicy(pp)))
+    const existingSnapshot = await existingSnapshotPromise
+    const isReingest = existingSnapshot != null
 
-  try {
-    const [entityWarnings, canonWarnings] = await Promise.all([
-      validateEntityReferences(pp, snapshot),
-      validateCanonConflicts(pp, snapshot),
-    ])
-    snapshot.validationWarnings = [...entityWarnings, ...canonWarnings]
-  } catch (err) {
-    console.warn("[Chapter Ingest] Validation failed:", err instanceof Error ? err.message : err)
-    snapshot.validationWarnings = []
-  }
-
-  await saveChapterIngestOutput(pp, snapshot, {
-    title: typeof fm.title === "string" ? fm.title : undefined,
-  })
-
-  const embedPromise = (async () => {
-    const embCfg = useWikiStore.getState().embeddingConfig
-    if (!embCfg.enabled || !embCfg.model) return
     try {
-      const { embedPage } = await import("@/lib/embedding")
-      const pageId = chapterPath.split(/[/\\]/).pop()?.replace(/\.md$/, "") ?? ""
-      if (!pageId) return
-      const title = typeof fm?.title === "string" ? fm.title : pageId
-      await embedPage(pp, pageId, title, content, embCfg)
-    } catch {
-      console.warn("[Chapter Ingest] Embedding update failed, skipping")
+      const [entityWarnings, canonWarnings] = await Promise.all([
+        validateEntityReferences(pp, snapshot),
+        validateCanonConflicts(pp, snapshot),
+      ])
+      snapshot.validationWarnings = [...entityWarnings, ...canonWarnings]
+    } catch (err) {
+      console.warn("[Chapter Ingest] Validation failed:", err instanceof Error ? err.message : err)
+      snapshot.validationWarnings = []
     }
-  })()
 
-  const syncResult = await syncSnapshotToMemory(pp, snapshot, isReingest ? REINGEST_SYNC_OPTIONS : undefined)
+    await saveChapterIngestOutput(pp, snapshot, {
+      title: typeof fm.title === "string" ? fm.title : undefined,
+    })
 
-  try {
-    const patchPath = `${pp}/.novel/chapter-ingest-output/${String(snapshot.chapterNumber).padStart(3, "0")}.wiki-patch.json`
-    const patchJson = await readFile(patchPath)
-    const patch = JSON.parse(patchJson)
-    const patchPaths = await writePatchFieldsToWiki(pp, patch)
-    if (patchPaths.length > 0) {
-      console.log(`[Chapter Ingest] Wrote ${patchPaths.length} entity pages from wiki patch fields`)
-    }
-  } catch (err) {
-    console.warn("[Chapter Ingest] Wiki patch fields write failed:", err instanceof Error ? err.message : err)
-  }
-
-  // 人物 Skill：提取记忆时顺带学习（首次建档 / 再次完善）。
-  // 后台异步、不阻塞「提取记忆」按钮；整章所有人物合并成一次 LLM 调用。
-  // 这里刻意不 await：学习失败只 warn，绝不能影响章节摄取本身。
-  //
-  // 重新提取（isReingest）同样要学习 —— 不能短路：
-  // 旧版这里写着「重新提取不重复学习，避免重复消耗模型」，但那个理由站不住，
-  // 而且有真实代价。学习本身就是幂等的（planPersonaSkillRound 按
-  // lastLearnedChapter 跳过已学过的人；候选池按 chapters[] 去重），
-  // 所以重复摄取不会二次烧模型。反过来，一旦某一轮因为任何原因没建出档案
-  // （定位查不到、模型没返回 JSON、应用被关掉），短路就等于**永久放弃修复**：
-  // 用户手上唯一的补救动作就是重新提取，而那恰好是被跳过的那条路。
-  // 实测就踩了这个坑：第 1 章早已摄取过，重新提取时 isReingest 为真，
-  // 学习整段不执行，技能库永远是空的。
-  void learnPersonaSkillsFromChapter({
-    projectPath: pp,
-    chapter: {
-      chapterNumber: snapshot.chapterNumber,
-      chapterBody: body,
-      characters: snapshot.characters,
-      characterAliases: snapshot.characterAliases,
-    },
-    // 整份快照一起下去：人物 Skill 的「当前状态 / 出场组织 / 认知变化 / 关系变化」
-    // 由它投影（不调模型），所以模型不可用时这四段照样更新。
-    chapterSnapshot: snapshot,
-    llmConfig: runtimeLlmConfig,
-    signal,
-  })
-
-  if (isReingest) {
-    await finalizeProjectMemoryRebuild(pp)
-  }
-
-  await embedPromise
-
-  // 重新提取只替换本章快照，不必顺带打一次社区摘要（那是另一次 LLM）。
-  if (!isReingest && shouldRebuildCommunitySummaries(snapshot.chapterNumber, novelConfig)) {
-    const rebuildCommunitySummaries = async () => {
+    const embedPromise = (async () => {
+      const embCfg = useWikiStore.getState().embeddingConfig
+      if (!embCfg.enabled || !embCfg.model) return
       try {
-        await generateCommunitySummaries(pp, llmConfig, novelConfig, signal)
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        console.warn("[Chapter Ingest] 社区摘要生成失败:", message)
-        // 弹窗提示（通过 store 触发 UI 通知）
-        useWikiStore.getState().setCommunitySummaryError(message)
+        const { embedPage } = await import("@/lib/embedding")
+        const pageId = chapterPath.split(/[/\\]/).pop()?.replace(/\.md$/, "") ?? ""
+        if (!pageId) return
+        const title = typeof fm?.title === "string" ? fm.title : pageId
+        await embedPage(pp, pageId, title, content, embCfg)
+      } catch {
+        console.warn("[Chapter Ingest] Embedding update failed, skipping")
+      }
+    })()
+
+    const syncResult = await syncSnapshotToMemoryUnlocked(pp, snapshot, isReingest ? REINGEST_SYNC_OPTIONS : undefined)
+
+    try {
+      const patchPath = `${pp}/.novel/chapter-ingest-output/${String(snapshot.chapterNumber).padStart(3, "0")}.wiki-patch.json`
+      const patchJson = await readFile(patchPath)
+      const patch = JSON.parse(patchJson)
+      const patchPaths = await writePatchFieldsToWiki(pp, patch)
+      if (patchPaths.length > 0) {
+        console.log(`[Chapter Ingest] Wrote ${patchPaths.length} entity pages from wiki patch fields`)
+      }
+    } catch (err) {
+      console.warn("[Chapter Ingest] Wiki patch fields write failed:", err instanceof Error ? err.message : err)
+    }
+
+    // 人物 Skill：提取记忆时顺带学习（首次建档 / 再次完善）。
+    // 后台异步、不阻塞「提取记忆」按钮；整章所有人物合并成一次 LLM 调用。
+    // 这里刻意不 await：学习失败只 warn，绝不能影响章节摄取本身。
+    //
+    // 重新提取（isReingest）同样要学习 —— 不能短路：
+    // 旧版这里写着「重新提取不重复学习，避免重复消耗模型」，但那个理由站不住，
+    // 而且有真实代价。学习本身就是幂等的（planPersonaSkillRound 按
+    // lastLearnedChapter 跳过已学过的人；候选池按 chapters[] 去重），
+    // 所以重复摄取不会二次烧模型。反过来，一旦某一轮因为任何原因没建出档案
+    // （定位查不到、模型没返回 JSON、应用被关掉），短路就等于**永久放弃修复**：
+    // 用户手上唯一的补救动作就是重新提取，而那恰好是被跳过的那条路。
+    // 实测就踩了这个坑：第 1 章早已摄取过，重新提取时 isReingest 为真，
+    // 学习整段不执行，技能库永远是空的。
+    void learnPersonaSkillsFromChapter({
+      projectPath: pp,
+      chapter: {
+        chapterNumber: snapshot.chapterNumber,
+        chapterBody: body,
+        characters: snapshot.characters,
+        characterAliases: snapshot.characterAliases,
+      },
+      // 整份快照一起下去：人物 Skill 的「当前状态 / 出场组织 / 认知变化 / 关系变化」
+      // 由它投影（不调模型），所以模型不可用时这四段照样更新。
+      chapterSnapshot: snapshot,
+      llmConfig: runtimeLlmConfig,
+      signal,
+    })
+
+    if (isReingest) {
+      await finalizeProjectMemoryRebuild(pp)
+    }
+
+    await embedPromise
+
+    // 重新提取只替换本章快照，不必顺带打一次社区摘要（那是另一次 LLM）。
+    if (!isReingest && shouldRebuildCommunitySummaries(snapshot.chapterNumber, novelConfig)) {
+      const rebuildCommunitySummaries = async () => {
+        try {
+          await generateCommunitySummaries(pp, llmConfig, novelConfig, signal)
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          console.warn("[Chapter Ingest] 社区摘要生成失败:", message)
+          // 弹窗提示（通过 store 触发 UI 通知）
+          useWikiStore.getState().setCommunitySummaryError(message)
+        }
+      }
+
+      if (novelConfig.communitySummaryAsync) {
+        // 后台异步执行，不阻塞章节摄取
+        void rebuildCommunitySummaries()
+      } else {
+        // 同步等待
+        await rebuildCommunitySummaries()
       }
     }
 
-    if (novelConfig.communitySummaryAsync) {
-      // 后台异步执行，不阻塞章节摄取
-      void rebuildCommunitySummaries()
-    } else {
-      // 同步等待
-      await rebuildCommunitySummaries()
+    if (snapshot) {
+      try {
+        const retrievalStore = createRetrievalStore(pp)
+        const sourceHash = buildSourceHash(content)
+        const relativePath = normalizePath(chapterPath).startsWith(normalizePath(pp) + "/")
+          ? normalizePath(chapterPath).slice(normalizePath(pp).length + 1)
+          : chapterPath
+        await retrievalStore.updateChapterEntry(snapshot.chapterNumber, snapshot, {
+          filePath: relativePath,
+          sourceHash,
+        }).catch((err) => {
+          console.warn("[Chapter Ingest] Retrieval index update failed:", err)
+        })
+      } catch (err) {
+        console.warn("[Chapter Ingest] Retrieval index update failed:", err instanceof Error ? err.message : err)
+      }
     }
-  }
 
-  if (snapshot) {
-    try {
-      const retrievalStore = createRetrievalStore(pp)
-      const sourceHash = buildSourceHash(content)
-      const relativePath = normalizePath(chapterPath).startsWith(normalizePath(pp) + "/")
-        ? normalizePath(chapterPath).slice(normalizePath(pp).length + 1)
-        : chapterPath
-      await retrievalStore.updateChapterEntry(snapshot.chapterNumber, snapshot, {
-        filePath: relativePath,
-        sourceHash,
-      }).catch((err) => {
-        console.warn("[Chapter Ingest] Retrieval index update failed:", err)
-      })
-    } catch (err) {
-      console.warn("[Chapter Ingest] Retrieval index update failed:", err instanceof Error ? err.message : err)
+    // 章节写完后自动更新追踪文件
+    if (snapshot) {
+      try {
+        const chapterTitle = snapshot.chapterTitle || (typeof fm?.title === "string" ? fm.title : `第${chapterNumber}章`)
+        await updateTrackingAfterChapter(pp, chapterNumber, chapterTitle, body, snapshot.summary)
+      } catch (err) {
+        console.warn("[Chapter Ingest] 追踪文件更新失败:", err instanceof Error ? err.message : err)
+      }
     }
-  }
 
-  // 章节写完后自动更新追踪文件
-  if (snapshot) {
-    try {
-      const chapterTitle = snapshot.chapterTitle || (typeof fm?.title === "string" ? fm.title : `第${chapterNumber}章`)
-      await updateTrackingAfterChapter(pp, chapterNumber, chapterTitle, body, snapshot.summary)
-    } catch (err) {
-      console.warn("[Chapter Ingest] 追踪文件更新失败:", err instanceof Error ? err.message : err)
-    }
-  }
-
-  await appendChapterIngestLog(pp, {
-    event: "ok",
-    chapterNumber,
-    chapterPath,
-    model: runtimeLlmConfig.model,
-    provider: runtimeLlmConfig.provider,
-    elapsedMs: Date.now() - startedAt,
+    await appendChapterIngestLog(pp, {
+      event: "ok",
+      chapterNumber,
+      chapterPath,
+      model: runtimeLlmConfig.model,
+      provider: runtimeLlmConfig.provider,
+      elapsedMs: Date.now() - startedAt,
+    })
+    return { snapshot: { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt } }
   })
-  return { snapshot: { ...snapshot, memorySyncedAt: syncResult.memorySyncedAt } }
 }
 
-function createRetrievalStore(projectPath: string): RetrievalStore {
+export function createRetrievalStore(projectPath: string): RetrievalStore {
   const fsAdapter = {
     readFile,
     writeFile: writeFileAtomic,
@@ -606,11 +612,12 @@ async function extractSnapshotWithLLM(
   llmConfig: LlmConfig,
   signal?: AbortSignal,
   establishedContext = "",
+  removed: MemoryRemoval[] = [],
 ): Promise<ChapterSnapshot | null> {
   const outputLang = getOutputLanguage()
   const langReminder = buildLanguageReminder(outputLang)
   const systemPrompt = buildChapterExtractSystemPrompt(langReminder)
-  const userPrompt = buildChapterExtractUserPrompt(chapterNumber, chapterBody, establishedContext)
+  const userPrompt = buildChapterExtractUserPrompt(chapterNumber, chapterBody, establishedContext, removed)
 
   try {
     const messages: ChatMessage[] = [
@@ -803,24 +810,27 @@ export async function restoreSnapshotHistory(
   historyFileName: string,
 ): Promise<ChapterSnapshot> {
   const pp = normalizePath(projectPath)
-  const currentSnapshot = await readCurrentSnapshot(pp, chapterNumber)
-  await backupSnapshotBeforeOverwrite(pp, chapterNumber)
-  const historyPath = `${snapshotHistoryDir(pp, chapterNumber)}/${historyFileName}`
-  const snapshot = normalizeChapterSnapshot(
-    JSON.parse(await readFile(historyPath)),
-    { chapterId: `chapter-${chapterNumber}`, chapterNumber },
-  )
-  if (!snapshot) {
-    throw new Error("Invalid snapshot history file.")
-  }
-  const restoredCurrent = materializeRestoredCurrentSnapshot(snapshot, currentSnapshot)
-  await saveSnapshot(pp, restoredCurrent)
-  const writtenEntityPaths = await writeSnapshotToWiki(pp, restoredCurrent)
-  await cleanupSupersededEntityFiles(pp, restoredCurrent, writtenEntityPaths)
-  await rebuildDerivedMemoryFromSnapshots(pp, restoredCurrent)
-  clearGraphCache()
-  useWikiStore.getState().bumpDataVersion()
-  return restoredCurrent
+  return withMemoryWriteLock(pp, async () => {
+    const currentSnapshot = await readCurrentSnapshot(pp, chapterNumber)
+    await backupSnapshotBeforeOverwrite(pp, chapterNumber)
+    const historyPath = `${snapshotHistoryDir(pp, chapterNumber)}/${historyFileName}`
+    const snapshot = normalizeChapterSnapshot(
+      JSON.parse(await readFile(historyPath)),
+      { chapterId: `chapter-${chapterNumber}`, chapterNumber },
+    )
+    if (!snapshot) {
+      throw new Error("Invalid snapshot history file.")
+    }
+    const restoredCurrent = materializeRestoredCurrentSnapshot(snapshot, currentSnapshot)
+    Object.assign(restoredCurrent, filterRemovedMemories(restoredCurrent, await loadMemoryCleanupPolicy(pp)))
+    await saveSnapshot(pp, restoredCurrent)
+    const writtenEntityPaths = await writeSnapshotToWiki(pp, restoredCurrent)
+    await cleanupSupersededEntityFiles(pp, restoredCurrent, writtenEntityPaths)
+    await rebuildDerivedMemoryFromSnapshots(pp, restoredCurrent)
+    clearGraphCache()
+    useWikiStore.getState().bumpDataVersion()
+    return restoredCurrent
+  })
 }
 
 async function listActualChapterNumbers(projectPath: string): Promise<number[]> {
@@ -858,16 +868,17 @@ async function loadValidMemorySnapshots(
   const actualChapterNumbers = await listActualChapterNumbers(pp)
   const snapshotNumbers = await listSnapshots(pp)
   const snapshotMap = new Map<number, ChapterSnapshot>()
+  const cleanupPolicy = await loadMemoryCleanupPolicy(pp)
 
   const loadedSnapshots = await Promise.all(snapshotNumbers.map((chapterNumber) => loadSnapshot(pp, chapterNumber)))
   for (const loadedSnapshot of loadedSnapshots) {
     if (isValidMemorySnapshot(loadedSnapshot, actualChapterNumbers)) {
-      snapshotMap.set(loadedSnapshot.chapterNumber, loadedSnapshot)
+      snapshotMap.set(loadedSnapshot.chapterNumber, filterRemovedMemories(loadedSnapshot, cleanupPolicy))
     }
   }
 
   if (isValidMemorySnapshot(latestSnapshot ?? null, actualChapterNumbers)) {
-    snapshotMap.set(latestSnapshot!.chapterNumber, latestSnapshot!)
+    snapshotMap.set(latestSnapshot!.chapterNumber, filterRemovedMemories(latestSnapshot!, cleanupPolicy))
   }
 
   return [...snapshotMap.values()].sort((a, b) => a.chapterNumber - b.chapterNumber)
@@ -921,7 +932,18 @@ export async function syncSnapshotToMemory(
   snapshot: ChapterSnapshot,
   options?: SyncSnapshotToMemoryOptions,
 ): Promise<SyncSnapshotToMemoryResult> {
+  return withMemoryWriteLock(projectPath, () => syncSnapshotToMemoryUnlocked(projectPath, snapshot, options))
+}
+
+async function syncSnapshotToMemoryUnlocked(
+  projectPath: string,
+  snapshot: ChapterSnapshot,
+  options?: SyncSnapshotToMemoryOptions,
+): Promise<SyncSnapshotToMemoryResult> {
   const pp = normalizePath(projectPath)
+  const filtered = filterRemovedMemories(snapshot, await loadMemoryCleanupPolicy(pp))
+  const hadSuppressedFacts = MEMORY_FIELDS.some((field) => snapshot[field].length !== filtered[field].length)
+  Object.assign(snapshot, filtered)
   const currentSnapshot = await readCurrentSnapshot(pp, snapshot.chapterNumber)
   const memorySyncedAt = new Date().toISOString()
   const normalizedSnapshot = normalizeChapterSnapshot(
@@ -985,6 +1007,7 @@ export async function syncSnapshotToMemory(
 
   await backupSnapshotBeforeOverwrite(pp, syncedSnapshot.chapterNumber)
   await saveSnapshot(pp, syncedSnapshot)
+  if (hadSuppressedFacts) await saveChapterIngestOutput(pp, syncedSnapshot)
   const memoryPagePaths = options?.deferStructuredMemoryExport
     ? []
     : await exportStructuredMemoryToWiki(pp, syncedSnapshot)
@@ -1208,27 +1231,34 @@ async function syncForeshadowingChanges(projectPath: string, snapshot: ChapterSn
   await saveForeshadowingTracker(projectPath, existingForeshadows)
 }
 
-export async function rebuildDerivedMemoryFromSnapshots(projectPath: string, latestSnapshot?: ChapterSnapshot): Promise<void> {
+export async function rebuildDerivedMemoryFromSnapshots(projectPath: string, latestSnapshot?: ChapterSnapshot, options?: { fields?: readonly MemoryField[] }): Promise<void> {
   const snapshots = await loadValidMemorySnapshots(projectPath, latestSnapshot)
+  const selected = options?.fields ? new Set(options.fields) : null
 
-  const cognitionState = snapshots.reduce(
-    (state, snapshot) => mergeCognitionFromSnapshot(state, snapshot),
-    emptyCognitionState(),
-  )
-  await saveCognitionState(projectPath, cognitionState)
-
-  const characterStateStore = createEmptyCharacterStateStore()
-  for (const snapshot of snapshots) {
-    applyCharacterStateChangesToStore(characterStateStore, snapshot)
+  if (!selected || selected.has("knowledgeChanges")) {
+    const cognitionState = snapshots.reduce(
+      (state, snapshot) => mergeCognitionFromSnapshot(state, snapshot),
+      emptyCognitionState(),
+    )
+    await saveCognitionState(projectPath, cognitionState)
   }
-  await saveCharacterStates(projectPath, characterStateStore)
 
-  const foreshadowingStore = createEmptyForeshadowingStore()
-  for (const snapshot of snapshots) {
-    applyForeshadowingChangesToStore(foreshadowingStore, snapshot)
+  if (!selected || selected.has("characterStateChanges")) {
+    const characterStateStore = createEmptyCharacterStateStore()
+    for (const snapshot of snapshots) {
+      applyCharacterStateChangesToStore(characterStateStore, snapshot)
+    }
+    await saveCharacterStates(projectPath, characterStateStore)
   }
-  await saveForeshadowingTracker(projectPath, foreshadowingStore)
-  await rebuildTimelineFromSnapshots(projectPath, snapshots)
+
+  if (!selected || selected.has("foreshadowingChanges")) {
+    const foreshadowingStore = createEmptyForeshadowingStore()
+    for (const snapshot of snapshots) {
+      applyForeshadowingChangesToStore(foreshadowingStore, snapshot)
+    }
+    await saveForeshadowingTracker(projectPath, foreshadowingStore)
+  }
+  if (!selected || selected.has("timelineEvents")) await rebuildTimelineFromSnapshots(projectPath, snapshots)
 
   await writeStructuredMemoryDocuments(projectPath, snapshots)
 }
@@ -1240,7 +1270,8 @@ export async function finalizeProjectMemoryRebuild(projectPath: string): Promise
   useWikiStore.getState().bumpDataVersion()
 }
 
-async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {
+async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot, options?: { skipTimeline?: boolean }): Promise<void> {
+  snapshot = filterRemovedMemories(snapshot, await loadMemoryCleanupPolicy(projectPath))
   const canonicalSnapshot = ensureSnapshotIdentity(canonicalizeSnapshotCharacters(snapshot))
   const normalizedSnapshot = normalizeChapterSnapshot(canonicalSnapshot, {
     chapterId: snapshot.chapterId,
@@ -1257,13 +1288,27 @@ async function saveSnapshot(projectPath: string, snapshot: ChapterSnapshot): Pro
   await writeFileAtomic(jsonPath, JSON.stringify(normalizedSnapshot, null, 2))
   await writeFileAtomic(mdPath, snapshotToMarkdown(normalizedSnapshot))
 
-  await mergeSnapshotTimeline(projectPath, normalizedSnapshot.chapterNumber, normalizedSnapshot.timelineEvents)
+  if (!options?.skipTimeline) await mergeSnapshotTimeline(projectPath, normalizedSnapshot.chapterNumber, normalizedSnapshot.timelineEvents)
+}
+
+/** Called with the project memory lock held; no model call or incremental merge. */
+export async function replaceSnapshotForMemoryCleanup(projectPath: string, snapshot: ChapterSnapshot): Promise<void> {
+  const previous = await readCurrentSnapshot(projectPath, snapshot.chapterNumber)
+  await backupSnapshotBeforeOverwrite(projectPath, snapshot.chapterNumber)
+  const next = materializeNextCurrentSnapshot(snapshot, previous)
+  await saveSnapshot(projectPath, next, { skipTimeline: true })
+  await saveChapterIngestOutput(projectPath, next)
 }
 
 async function saveChapterIngestOutput(projectPath: string, snapshot: ChapterSnapshot, options: { title?: string } = {}): Promise<ChapterIngestOutput> {
-  const output = buildChapterIngestOutput(snapshot, options)
   const outputDir = `${projectPath}/.novel/chapter-ingest-output`
   const prefix = `${outputDir}/${String(snapshot.chapterNumber).padStart(3, "0")}`
+  let title = snapshot.chapterTitle
+  if (!options.title && await fileExists(`${prefix}.output.json`)) {
+    const previous = JSON.parse(await readFile(`${prefix}.output.json`)) as ChapterIngestOutput
+    if (typeof previous.snapshotWikiFields?.title === "string") title = previous.snapshotWikiFields.title
+  }
+  const output = buildChapterIngestOutput(snapshot, { ...(title ? { title } : {}), ...options })
 
   await createDirectory(outputDir)
   await writeFileAtomic(`${prefix}.output.json`, JSON.stringify(output, null, 2))
@@ -1412,16 +1457,18 @@ async function retractOutlineDerivedEntries(projectPath: string, chapterNumber: 
 
 export async function deleteChapterSnapshots(projectPath: string, chapterNumber: number): Promise<void> {
   const pp = normalizePath(projectPath)
-  await deleteChapterSnapshotArtifacts(pp, chapterNumber)
-  // 大纲快照章号为负，派生记忆重放不读取它们。删除时只撤该编号在时间线和伏笔中的记录，
-  // 不用章节快照重写人物状态、认知和其余手改内容。
-  if (chapterNumber < 0) {
-    await retractOutlineDerivedEntries(pp, chapterNumber)
-  } else {
-    await rebuildDerivedMemoryFromSnapshots(pp)
-  }
-  clearGraphCache()
-  useWikiStore.getState().bumpDataVersion()
+  return withMemoryWriteLock(pp, async () => {
+    await deleteChapterSnapshotArtifacts(pp, chapterNumber)
+    // 大纲快照章号为负，派生记忆重放不读取它们。删除时只撤该编号在时间线和伏笔中的记录，
+    // 不用章节快照重写人物状态、认知和其余手改内容。
+    if (chapterNumber < 0) {
+      await retractOutlineDerivedEntries(pp, chapterNumber)
+    } else {
+      await rebuildDerivedMemoryFromSnapshots(pp)
+    }
+    clearGraphCache()
+    useWikiStore.getState().bumpDataVersion()
+  })
 }
 
 export async function ingestOutline(
@@ -1475,7 +1522,9 @@ export async function ingestOutline(
   const outlineNumber = -(Math.abs(hash % 999) + 1) // -1 到 -999
   const chapterId = `outline-${outlineName}`
 
-  const userPrompt = buildOutlineIngestUserPrompt(body)
+  const userPrompt = buildOutlineIngestUserPrompt(body) + buildMemoryCleanupExclusions(
+    (await loadMemoryCleanupPolicy(pp)).removed.filter((r) => r.chapterNumber === outlineNumber),
+  )
   const existingSnapshotPromise = readCurrentSnapshot(pp, outlineNumber)
 
   try {

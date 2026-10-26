@@ -12,10 +12,7 @@ import {
 import { streamChat } from "@/lib/llm-client"
 import { normalizePath } from "@/lib/path-utils"
 import type { LlmConfig } from "@/stores/wiki-store"
-import { useWikiStore } from "@/stores/wiki-store"
 import {
-  applyBulkDeleteAndAbandon,
-  applyCleanupIssue,
   buildOverview,
   defaultCleanupAction,
   detectCleanupIssues,
@@ -27,15 +24,11 @@ import {
 } from "@/lib/foreshadowing-cleanup"
 import {
   loadForeshadowingTracker,
-  saveForeshadowingTracker,
   type ForeshadowingStore,
 } from "@/lib/novel/foreshadowing-tracker"
-import { writeForeshadowingMd } from "@/lib/novel/tracking-files"
 import {
-  exportStructuredMemoryToWiki,
   finalizeProjectMemoryRebuild,
   listSnapshots,
-  loadSnapshot,
 } from "@/lib/novel/chapter-ingest"
 import { loadForeshadowingKeep } from "@/lib/foreshadowing-cleanup-cache"
 import type { FileNode } from "@/types/wiki"
@@ -226,36 +219,6 @@ async function backupFiles(
   return backupDir
 }
 
-async function syncDerivedDocs(projectPath: string, store: ForeshadowingStore): Promise<void> {
-  const pp = normalizePath(projectPath)
-  const resolvedRecords = store.items
-    .filter((f) => f.status === "resolved" && f.resolvedChapter != null)
-    .map((f) => ({
-      id: f.id,
-      resolvedInChapter: f.resolvedChapter!,
-      resolution: `伏笔「${f.name}」在第${f.resolvedChapter}章回收`,
-    }))
-
-  try {
-    await writeForeshadowingMd(pp, store.items, resolvedRecords)
-  } catch (err) {
-    console.warn("[ForeshadowingCleanup] writeForeshadowingMd failed:", err)
-  }
-
-  try {
-    const numbers = await listSnapshots(pp)
-    const latestPositive = numbers.filter((n) => n > 0).sort((a, b) => b - a)[0]
-    if (latestPositive != null) {
-      const snap = await loadSnapshot(pp, latestPositive)
-      if (snap) {
-        await exportStructuredMemoryToWiki(pp, snap)
-      }
-    }
-  } catch (err) {
-    console.warn("[ForeshadowingCleanup] memory doc rewrite failed:", err)
-  }
-}
-
 export async function executeCleanupTask(
   projectPath: string,
   issue: CleanupIssue,
@@ -268,63 +231,15 @@ export async function executeCleanupTask(
     currentChapter?: number
   } = {},
 ): Promise<void> {
-  const pp = normalizePath(projectPath)
-  const log = options.onLog
-  const action = options.action ?? defaultCleanupAction(issue.kind)
   options.signal?.throwIfAborted()
-
-  const actionLabel =
-    action === "delete" ? "删除" : action === "abandon" ? "放弃" : "合并"
-  log?.(
-    `开始${actionLabel} ${issue.kind}：${issue.ids.join(", ")}${
-      action === "merge" ? ` → ${options.canonicalId || issue.canonicalId}` : ""
-    }`,
-  )
-
-  options.onProgress?.("loading")
-  const store = await loadForeshadowingTracker(pp)
-  const present = issue.ids.filter((id) => store.items.some((f) => f.id === id))
-  const missing = issue.ids.filter((id) => !present.includes(id))
-  if (present.length === 0) {
-    throw new Error(
-      `伏笔已不存在：${issue.ids.join(", ")} — 可能已被先前任务处理或重建覆盖`,
-    )
+  const action = options.action ?? defaultCleanupAction(issue.kind)
+  if (action !== "delete") {
+    throw new Error("旧版合并/放弃任务需要重新定位来源，请到「清理写作记忆」重新扫描。")
   }
-  if (missing.length > 0) {
-    if (action === "delete") {
-      log?.(`部分条目已不存在，将删除剩余 ${present.length} 条：${present.join(", ")}`)
-    } else {
-      throw new Error(
-        `伏笔已不存在：${missing.join(", ")} — 可能已被先前任务处理或重建覆盖`,
-      )
-    }
-  }
-
   options.onProgress?.("applying")
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-")
-  const backupDir = await backupFiles(pp, stamp)
-  log?.(`已备份 → ${backupDir}`)
-
-  const effectiveIssue =
-    action === "delete" && missing.length > 0
-      ? { ...issue, ids: present }
-      : issue
-
-  applyCleanupIssue(store, effectiveIssue, {
-    canonicalId: options.canonicalId,
-    reason: issue.reason,
-    chapter: options.currentChapter,
-    action,
-  })
-
+  const { cleanupLegacyForeshadowingSources } = await import("@/lib/novel/memory-cleanup-runner")
+  await cleanupLegacyForeshadowingSources(projectPath, issue.ids, options.onLog)
   options.onProgress?.("writing")
-  await saveForeshadowingTracker(pp, store)
-  log?.("已写入 foreshadowing-tracker.json")
-  await syncDerivedDocs(pp, store)
-  log?.("已同步 tracking / memory 文档")
-
-  useWikiStore.getState().bumpDataVersion()
-  log?.("处理完成")
 }
 
 export async function executeBulkNoiseAndStaleCleanup(
@@ -338,48 +253,16 @@ export async function executeBulkNoiseAndStaleCleanup(
     signal?: AbortSignal
   },
 ): Promise<{ deleted: number; abandoned: number }> {
-  const pp = normalizePath(projectPath)
-  const log = options.onLog
-  const deleteIds = [...new Set(options.deleteIds.filter(Boolean))]
-  const abandonIds = [...new Set(options.abandonIds.filter(Boolean))].filter(
-    (id) => !deleteIds.includes(id),
-  )
-
-  if (deleteIds.length === 0 && abandonIds.length === 0) {
-    log?.("没有可清理的噪声/失效条目")
-    return { deleted: 0, abandoned: 0 }
-  }
-
   options.signal?.throwIfAborted()
-  log?.(
-    `开始一键清理：删除噪声 ${deleteIds.length} 条，放弃失效 ${abandonIds.length} 条`,
-  )
-
-  options.onProgress?.("loading")
-  const store = await loadForeshadowingTracker(pp)
-
+  if (options.abandonIds.length) {
+    throw new Error("旧版放弃任务需要重新定位来源，请到「清理写作记忆」重新扫描。")
+  }
+  if (!options.deleteIds.length) return { deleted: 0, abandoned: 0 }
+  const { cleanupLegacyForeshadowingSources } = await import("@/lib/novel/memory-cleanup-runner")
   options.onProgress?.("applying")
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-")
-  const backupDir = await backupFiles(pp, `bulk-${stamp}`)
-  log?.(`已备份 → ${backupDir}`)
-
-  const result = applyBulkDeleteAndAbandon(store, {
-    deleteIds,
-    abandonIds,
-    reason: "一键清理噪声/失效",
-    chapter: options.currentChapter,
-  })
-  log?.(`已处理：删除 ${result.deleted} 条，放弃 ${result.abandoned} 条`)
-
+  await cleanupLegacyForeshadowingSources(projectPath, options.deleteIds, options.onLog)
   options.onProgress?.("writing")
-  await saveForeshadowingTracker(pp, store)
-  log?.("已写入 foreshadowing-tracker.json")
-  await syncDerivedDocs(pp, store)
-  log?.("已同步 tracking / memory 文档")
-
-  useWikiStore.getState().bumpDataVersion()
-  log?.("一键清理完成")
-  return result
+  return { deleted: new Set(options.deleteIds).size, abandoned: 0 }
 }
 
 export async function rebuildForeshadowingFromSnapshots(

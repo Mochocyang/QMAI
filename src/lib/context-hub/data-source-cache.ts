@@ -65,7 +65,6 @@ const STATIC_SOURCES = new Set([
   "fallbackCharacterStates",
   "fallbackForeshadowingStates",
   "fallbackTimeline",
-  "cognitionText",
   // retrieval 现在返回项目级原始条目（按章节过滤移到构建阶段），同样跨章节复用
   "retrieval",
 ])
@@ -75,6 +74,7 @@ const STATIC_SOURCES = new Set([
  * 缓存 key 必须包含任务文本，无法安全跨消息复用；命中率统计时不计入可缓存部分。
  */
 const TASK_SCOPED_SOURCES = new Set([
+  "cognitionText",
   "searchResults",
   "graphSearchResults",
   "bookAnalysisReferences",
@@ -94,6 +94,7 @@ const CHAPTER_SCOPED_SOURCES = new Set([
 // Bump only the affected data source when its extraction semantics change.
 // This prevents a previously cached wrong-chapter outline from surviving the fix.
 const SOURCE_CACHE_VERSIONS: Partial<Record<string, number>> = {
+  cognitionText: 1,
   outline: 3,
   chapterOutline: 3,
   volumeContext: 2,

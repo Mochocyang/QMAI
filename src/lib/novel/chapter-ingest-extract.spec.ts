@@ -18,6 +18,13 @@ import { ANALYSIS_OUTPUT_FRAC, MIN_LLM_OUTPUT_TOKENS } from "@/lib/context-budge
 const LEGACY_CHAPTER_EXTRACT_SCHEMA_CHARS = 2_400
 
 describe("chapter extract prompt", () => {
+  it("重新提取时说明本来源的删除决定，避免换措辞恢复已清理记忆", () => {
+    const prompt = buildChapterExtractUserPrompt(12, "正文", "", [{ field: "knowledgeChanges", text: "林默知道空泛噪声" }])
+    expect(prompt).toContain("不得换措辞恢复同义条目")
+    expect(prompt).toContain('"field":"knowledgeChanges"')
+    expect(prompt).toContain("林默知道空泛噪声")
+    expect(buildChapterExtractUserPrompt(12, "正文")).not.toContain("记忆清理约束")
+  })
   it("keeps graph edge labels aligned with the graph adapter", () => {
     expect(GRAPH_EDGE_RELATION_LABELS).toBe(Object.values(NOVEL_RELATION_LABELS).join("|"))
   })

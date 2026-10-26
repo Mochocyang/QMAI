@@ -24,6 +24,7 @@ import {
   writePersonaSkillDocument,
 } from "./persona-skill-store"
 import { applyPersonaProfileEdits, splitPersonaSkillDocument } from "./persona-skill-profile"
+import { loadMemoryCleanupPolicy, memoryRemovalKey } from "./memory-cleanup-policy"
 import {
   PERSONA_LIVE_SECTION_LIMITS,
   normalizePersonaName,
@@ -299,6 +300,21 @@ export async function syncPersonaSkillChapterFacts(
   const updated: string[] = []
   try {
     await withPersonaSkillLock(personaSkillLockKey(projectPath), async () => {
+      // A background learning run may finish after maintenance. Apply the
+      // current decisions while holding the same profile lock as maintenance.
+      const policy = await loadMemoryCleanupPolicy(projectPath)
+      const removed = policy.removed.filter((r) => r.chapterNumber === source.chapterNumber)
+      const blocked = new Set(removed.map(memoryRemovalKey))
+      source = {
+        ...source,
+        knowledgeChanges: source.knowledgeChanges.filter((text) => !blocked.has(memoryRemovalKey({ chapterNumber: source.chapterNumber, field: "knowledgeChanges", text }))),
+        characterStateChanges: source.characterStateChanges.filter((text) => !blocked.has(memoryRemovalKey({ chapterNumber: source.chapterNumber, field: "characterStateChanges", text }))),
+        graphEdges: source.graphEdges.filter((edge) => {
+          const [subject, relation, object] = edge.split("->").map((s) => s.trim())
+          return !subject || !object || !/知道|不知道|KNOWS|DOES_NOT_KNOW/.test(relation ?? "")
+            || !removed.some((r) => r.field === "knowledgeChanges" && r.text.includes(subject) && r.text.includes(object))
+        }),
+      }
       const index: PersonaSkillIndex =
         (await loadPersonaSkillIndexStrict(projectPath)) ?? { version: 1, skills: [] }
       if (index.skills.length === 0) return

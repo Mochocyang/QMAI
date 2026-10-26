@@ -1,13 +1,13 @@
 ---
 name: qmai-mcp
-description: 调用本机青幕写作 MCP，后台发起写作并查询实际阶段、工具状态和问题，也支持书架、文档保存、标题、记忆提取和章节排版。写作进度最多跟踪 30 分钟。
+description: 调用本机青幕写作 MCP，后台发起写作并查询实际阶段、工具状态和问题，也支持书架、文档保存、标题、记忆提取、章节排版及来源记忆清理与撤销。写作进度最多跟踪 30 分钟。
 metadata:
-  version: 1.5.0
+  version: 1.6.0
 ---
 
 # qmai-mcp
 
-版本：1.5.0
+版本：1.6.0
 
 青幕写作需要保持打开，并且设置里的 MCP 开关已打开。工具通过本机 MCP 服务 `qmai` 调用。
 
@@ -47,6 +47,20 @@ metadata:
 `progressPath` 指向 `.qmai/writing-runs/<runId>.json`，可按需读取该任务的精简快照；软件重启后优先查询工具，由工具判断遗留运行记录是否已中断。聊天文件用于完整结果，不扫描 `conv_*.json` 猜当前任务，也不用 `.qm/breakpoint.json` 判断成功或失败。
 
 如服务未提供 `background` 或 `get_writing_progress`，明确说明当前青幕版本无法提供实时进度，需要更新应用。不要套用新参数反复重试，也不要将旧断点推测当作确定进度。汇报进度只使用进度字段，不贴聊天正文、思考内容或完整工具结果。
+
+## 记忆维护
+
+先 `get_maintenance_status` 查看当前项目、六类记忆的扫描摘要、四项数量及认知字数阈值、提醒设置和 `availableModels`。维护只针对当前打开的书，切书先用 `open_bookshelf`。可用 `update_maintenance_settings` 调整 `enabled`、`limits`（cognition、characters、foreshadowing、timeline）、`cognitionChars` 和默认检测 `model`。超量只提醒，由用户选择清理；同项目最多每七天提醒一次。
+
+- `scan_memory_cleanup`：后台检测，返回 `runId`、`projectPath` 和进度路径。可传完整 `model` ID，不改变界面模型；可选 `fields` 为 knowledgeChanges、characterStateChanges、foreshadowingChanges、timelineEvents、newCanonFacts、conflicts，可用 `fromChapter`、`toChapter` 限定正文章节范围。省略范围时扫描全部有效快照。扫描不会删除来源。
+- `get_maintenance_progress`：按启动返回的 `projectPath`、`runId` 查询，配合 `afterRevision`、`waitMs: 30000` 等待变化。终态为 completed、failed、cancelled、interrupted；重启不会自动重跑。`persistenceError` 表示磁盘进度可能滞后。不要将启动成功当成维护完成。
+- `get_memory_cleanup_result`：扫描完成后分页查看 `issues`，包括删除条目、保留依据、理由和置信度。可指定 `scanId`；`offset` 默认 0，`limit` 默认 20、最大 100。
+- `keep_memory_cleanup_issues`：传 `scanId` 和明确 `issueIds`，把误判候选加入项目保留白名单，之后不再建议同组候选。
+- `apply_memory_cleanup`：传原 `scanId` 和审查后的明确 `issueIds`，后台先备份，再从快照来源删除并同步四类 JSON、正式记忆/追踪 Markdown、检索资料、人物 Skill、图谱和受影响向量。不会修改正文或大纲。来源修订变化、候选保留依据冲突或相关编辑器有未保存修改时拒绝执行。完成结果带 `cleanupId`。
+- `undo_memory_cleanup`：撤销最近一次清理，可传原 `cleanupId` 防止撤销错任务。后台恢复实际改动的文件并同步索引；相关文件清理后已有新修改时拒绝覆盖，保留备份。
+- `stop_maintenance_task`：只取消扫描，传 `projectPath`、`runId`。清理和撤销同步期间不能中断，清理完成后可以撤销。
+
+模型建议只是候选。检查原文及保留依据，不能因历史久远、人物退场、当前未用、政治战争题材或架空设定而删掉有效事实。除非用户已授权相应清理或测试，不要仅凭高置信度就全选删除。进度文件为 `.qmai/maintenance-runs/<runId>.json`，备份为 `.qmai/memory-cleanup-history/`；不要把备份当作新记忆提取。
 
 ## 自检
 

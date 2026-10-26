@@ -53,6 +53,7 @@ import {
   dropLegacyVectorTable,
   getEmbeddingCount,
   removePageEmbedding,
+  removePageEmbeddingStrict,
   type PageSearchResult,
 } from "./embedding"
 
@@ -1191,6 +1192,15 @@ describe("embedAllPages", () => {
 // ── Legacy & misc helpers ───────────────────────────────────────────
 
 describe("legacyVectorRowCount / dropLegacyVectorTable / getEmbeddingCount / removePageEmbedding", () => {
+  it("maintenance deletion clears the cached page hash and surfaces vector write failures", async () => {
+    const fs = await import("@/commands/fs")
+    vi.mocked(fs.readFile).mockResolvedValueOnce(JSON.stringify({ configHash: "same", pages: { rope: "old", kept: "unchanged" } }))
+    mockInvoke.mockResolvedValueOnce(undefined)
+    await removePageEmbeddingStrict("/proj", "rope")
+    expect(fs.writeFileAtomic).toHaveBeenCalledWith("/proj/.qmai/embedding-index.json", JSON.stringify({ configHash: "same", pages: { kept: "unchanged" } }))
+    mockInvoke.mockRejectedValueOnce(new Error("index read-only"))
+    await expect(removePageEmbeddingStrict("/proj", "rope")).rejects.toThrow("index read-only")
+  })
   it("legacyVectorRowCount: returns the Rust row count on success, 0 on error", async () => {
     mockInvoke.mockResolvedValueOnce(42)
     const n = await legacyVectorRowCount("/proj")

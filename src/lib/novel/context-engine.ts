@@ -14,6 +14,7 @@ import { buildRevisionDirectives } from "./revision-feedback"
 import { extractChapterOutlineStatus } from "./outline-quality-check"
 import { loadCognitionState, cognitionToContextText } from "./character-cognition"
 import { buildPersonaSkillContext } from "./persona-skill-context"
+import { withMemoryWriteLock } from "./memory-cleanup-policy"
 import { isAuthoritativeGenerationPath, isHistoricalProjectionSnippet, novelMixedSearch } from "./search-adapter"
 import { rerankCandidates } from "@/lib/rerank"
 import {
@@ -147,20 +148,22 @@ export async function buildContextPack(
   options?: { categories?: DataSourceCategory[]; loadAdapter?: DataSourceLoadAdapter },
 ): Promise<ContextPack> {
   const pp = normalizePath(projectPath)
-  const novelMode = useWikiStore.getState().novelMode
-  if (!novelMode) {
-    return emptyPack(task)
-  }
+  return withMemoryWriteLock(pp, async () => {
+    const novelMode = useWikiStore.getState().novelMode
+    if (!novelMode) {
+      return emptyPack(task)
+    }
 
-  // 构建加载上下文
-  const context = buildLoadContext(pp, task, chapterNumber)
+    // 构建加载上下文
+    const context = buildLoadContext(pp, task, chapterNumber)
   
-  // 创建数据源注册器并加载所有数据
-  const registry = createDataSourceRegistry(options?.categories, options?.loadAdapter)
-  const rawData = await registry.loadAll(context)
+    // 创建数据源注册器并加载所有数据
+    const registry = createDataSourceRegistry(options?.categories, options?.loadAdapter)
+    const rawData = await registry.loadAll(context)
   
-  // 从原始数据构建上下文包
-  return buildContextPackFromRawData(rawData, context)
+    // 从原始数据构建上下文包
+    return buildContextPackFromRawData(rawData, context)
+  })
 }
 
 /**

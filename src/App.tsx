@@ -38,6 +38,7 @@ import { bootMcp } from "@/lib/mcp/startup"
 import { registerShelfOpener } from "@/lib/mcp/bookshelf"
 import { initializeProjectContextCache } from "@/lib/context-hub/context-hub"
 import { useEnsureAiChatModel } from "@/lib/ensure-ai-chat-model"
+import { MemoryMaintenanceReminder } from "@/components/novel/memory-maintenance-reminder"
 
 function App() {
   useEnsureAiChatModel()
@@ -79,6 +80,7 @@ function App() {
   useEffect(() => {
     let stop = () => {}
     let cancelled = false
+    // Rebind the native MCP listener when the application effect is refreshed.
     void bootMcp().then((dispose) => {
       if (cancelled) dispose()
       else stop = dispose
@@ -730,6 +732,7 @@ function App() {
       />
       <PersonaSkillCompletionDialog />
       <StyleEvolutionNoticeDialog />
+      <MemoryMaintenanceReminder />
     </>
   )
 }
