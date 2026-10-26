@@ -1,4 +1,4 @@
-//! 给前端用的更新通道命令：返回「按推荐顺序排好的通道列表」。
+//! 给前端用的更新通道命令：返回「按推荐顺序排好的通道列表」，以及按通道下载。
 
 use serde::Serialize;
 use tauri::Runtime;
@@ -11,18 +11,45 @@ pub struct ChannelPlanItem {
     pub channel_id: String,
     pub label: String,
     pub manifest_url: Option<String>,
+    /// 前端要拼在原始 release 地址前面的前缀。
+    ///
+    /// 三态语义（与 `Channel::release_prefix` 一一对应）：
+    /// - `""`：直连，原样使用；
+    /// - `"https://mirror/"`：镜像前缀，拼 `${prefix}${url}`；
+    /// - `null`：该通道不支持 release 资产（jsDelivr），前端应退回插件自己的下载。
+    ///
+    /// 为什么由 Rust 给出而不是让前端自己按 `channelId` 判断：改写规则必须只有
+    /// 一份（`map_release_url`），两处各写一遍迟早漂移，且漂移只表现为"某通道静默 404"。
+    pub manifest_prefix: Option<String>,
     pub rtt_ms: Option<u64>,
 }
 
 impl ChannelPlanItem {
-    fn new(channel_id: String, label: String, manifest_url: Option<String>, rtt_ms: Option<u64>) -> Self {
+    fn new(
+        channel_id: String,
+        label: String,
+        manifest_url: Option<String>,
+        manifest_prefix: Option<String>,
+        rtt_ms: Option<u64>,
+    ) -> Self {
         Self {
             channel_id,
             label,
             manifest_url,
+            manifest_prefix,
             rtt_ms,
         }
     }
+}
+
+/// 从 app-state.json 读代理，供按需发起的请求显式使用。
+///
+/// 为什么每个命令自己读：`reqwest` 只在建 client 时读一次环境变量，
+/// 而用户可以在软件运行中才打开代理 —— 这时 env 是旧值，必须直接读文件。
+fn proxy_url_from_store() -> Option<String> {
+    let path = crate::proxy::app_state_path()?;
+    let config = crate::proxy::read_proxy_config_from_store(&path)?;
+    crate::proxy::current_proxy_url(&config)
 }
 
 /// 探活并返回下载顺序。前端拿第一项带 `manifestUrl` 的去检查更新。
@@ -40,7 +67,9 @@ impl ChannelPlanItem {
 pub async fn updater_channel_plan<R: Runtime>(
     _app: tauri::AppHandle<R>,
 ) -> Result<Vec<ChannelPlanItem>, String> {
-    let table = ChannelTable::builtin();
+    // 远程通道表在这里按需拉取：失败/版本不更新都会静默回落到内置表，
+    // 所以这个命令永远不会因为 CDN 不可用而失败。
+    let table = ChannelTable::effective();
     let targets: Vec<(String, String, String)> = table
         .channels
         .iter()
@@ -52,7 +81,10 @@ pub async fn updater_channel_plan<R: Runtime>(
         .collect();
 
     let probed = tauri::async_runtime::spawn_blocking(move || {
-        let client = match probe::client() {
+        // 代理在阻塞线程里读，和探活用同一份判定 —— 探活走代理了，
+        // 记录下来的"可用/不可用"才代表真实网络状况。
+        let proxy_url = proxy_url_from_store();
+        let client = match probe::client_with_proxy(proxy_url.as_deref()) {
             Ok(client) => client,
             Err(_) => return Vec::new(),
         };
@@ -72,17 +104,51 @@ pub async fn updater_channel_plan<R: Runtime>(
     Ok(plan
         .into_iter()
         .map(|item| {
-            let label = table
+            let channel = table
                 .channels
                 .iter()
-                .find(|channel| channel.id == item.channel_id)
+                .find(|channel| channel.id == item.channel_id);
+            let label = channel
                 .map(|channel| channel.label.clone())
                 .unwrap_or_else(|| item.label.clone());
+            // 前缀只对"这条通道确实能映射该地址"的才给出，避免前端拿一个
+            // 前缀去拼一条本来就不该走该通道的地址。
+            let prefix = channel.and_then(|channel| {
+                if item.manifest_url.is_some() {
+                    channel.release_prefix()
+                } else {
+                    None
+                }
+            });
             let rtt = probed
                 .iter()
                 .find(|result| result.channel_id == item.channel_id)
                 .and_then(|result| result.rtt_ms);
-            ChannelPlanItem::new(item.channel_id, label, item.manifest_url, rtt)
+            ChannelPlanItem::new(item.channel_id, label, item.manifest_url, prefix, rtt)
         })
         .collect())
+}
+
+/// 走我们选出的通道下载一个更新包，返回原始字节。
+///
+/// **安全边界**：这个命令前端可任意调用，所以 URL 必须过白名单（只允许 https
+/// 且属于 GitHub 发布域或当前通道表里配置过的镜像域名）。不加这道检查，
+/// 它就等于"从任意地址往内存里拉任意内容"的通用下载器。
+#[tauri::command]
+pub async fn updater_download_bytes<R: Runtime>(
+    _app: tauri::AppHandle<R>,
+    url: String,
+) -> Result<Vec<u8>, String> {
+    let table = ChannelTable::effective();
+    if !crate::updater::channels::is_allowed_download_url(&url, &table) {
+        return Err(format!("不允许的下载地址：{url}"));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let proxy_url = proxy_url_from_store();
+        // expected_len 传 None：长度由 fetch_url 内部按 Content-Length 与
+        // 256 MiB 硬上限兜底，这里多传一个数字只会多一处可能写错的地方。
+        crate::updater::download::fetch_url(&url, proxy_url.as_deref(), None)
+    })
+    .await
+    .map_err(|error| format!("下载失败：{error}"))?
 }

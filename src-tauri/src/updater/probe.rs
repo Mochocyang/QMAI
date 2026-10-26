@@ -42,11 +42,33 @@ impl ProbeCache {
     }
 }
 
+/// 探活用的 HTTP 客户端。
+///
+/// 保留这个无参版本只是为了「不需要代理」的调用点读起来更直接；
+/// 它等价于 `client_with_proxy(None)`。
+///
+/// **注意**：`None` 不等于"不走代理" —— reqwest 建 client 时会读一次
+/// `HTTP_PROXY` / `HTTPS_PROXY` 环境变量，而启动时 `proxy.rs` 可能早已
+/// 把它们设好了。要在运行中真正按最新配置走代理，调用方应显式传 `Some(url)`。
 pub fn client() -> Result<reqwest::blocking::Client, String> {
-    reqwest::blocking::Client::builder()
+    client_with_proxy(None)
+}
+
+/// 带可选代理的探活客户端。
+///
+/// 为什么不让它每次自己读 app-state.json：探活和下载要**同一个**代理
+/// 判定（用户改完代理后一次检查更新里两处必须一致），由调用方统一读一次
+/// 再传进来，比在两处各读一次文件更难写歪。
+pub fn client_with_proxy(proxy_url: Option<&str>) -> Result<reqwest::blocking::Client, String> {
+    let mut builder = reqwest::blocking::Client::builder()
         .connect_timeout(PROBE_CONNECT_TIMEOUT)
         .timeout(PROBE_TOTAL_TIMEOUT)
-        .user_agent("QMaiWrite-Updater")
+        .user_agent("QMaiWrite-Updater");
+    if let Some(proxy) = proxy_url {
+        let proxy = reqwest::Proxy::all(proxy).map_err(|error| format!("updater.proxy:{error}"))?;
+        builder = builder.proxy(proxy);
+    }
+    builder
         .build()
         .map_err(|error| format!("updater.client:{error}"))
 }

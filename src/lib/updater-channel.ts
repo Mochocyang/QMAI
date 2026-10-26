@@ -7,6 +7,17 @@ export interface UpdateChannelPlanItem {
   label: string
   /** `null` 表示这条通道不支持 release 资产（例如 jsDelivr）。 */
   manifestUrl: string | null
+  /**
+   * 要拼在原始 release 地址前面的前缀，由 Rust 给出（唯一规则来源）。
+   *
+   * - `""`：直连，原样使用；
+   * - `"https://mirror/"`：镜像前缀，拼 `${prefix}${url}`；
+   * - `null`：该通道不支持 release 资产，应退回插件自己的下载。
+   *
+   * 老版本 Rust 可能不带这个字段，所以声明成可缺省：
+   * 缺省按"没有前缀"处理，调用方自然退回插件下载，不会崩。
+   */
+  manifestPrefix?: string | null
   rttMs: number | null
 }
 

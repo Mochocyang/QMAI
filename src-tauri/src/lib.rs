@@ -288,6 +288,9 @@ commands::fs::read_file,
             commands::writing_wake_lock::acquire_writing_wake_lock,
             commands::writing_wake_lock::release_writing_wake_lock,
             commands::updater_channels::updater_channel_plan,
+            // 按通道下载更新包：供前端把「检查更新」接到我们选出的通道上。
+            // 白名单校验在命令内部完成（前端可任意调用，不能变成通用下载器）。
+            commands::updater_channels::updater_download_bytes,
             set_proxy_env,
             log_error,
             log_diagnostic,
