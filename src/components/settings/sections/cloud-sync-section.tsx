@@ -11,13 +11,14 @@
  */
 
 import { useCallback, useEffect, useState } from "react"
-import { Check, Cloud, FolderOpen, GitBranch, Loader2, LogOut, RefreshCw, Server } from "lucide-react"
+import { Check, Cloud, ExternalLink, FolderOpen, GitBranch, Loader2, LogOut, RefreshCw, Server } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { resolveNotice } from "@/lib/cloud-sync/notice"
+import { describeFailures, groupFailuresByProvider } from "@/lib/cloud-sync/failure-summary"
 import { CLOUD_PROVIDERS, type CloudProviderMeta } from "@/lib/cloud-sync/providers"
 import { formatSyncAge } from "@/lib/cloud-sync/status"
 import { enabledTargets, type CloudProviderId } from "@/lib/cloud-sync/types"
@@ -32,6 +33,8 @@ import {
   type GithubRepoChoice,
 } from "@/lib/cloud-sync/client"
 import { openExternalUrl } from "@/lib/open-external-url"
+import { revealCloudSyncRemote } from "@/lib/cloud-sync/client"
+import { toast } from "@/lib/toast"
 import { useTranslation } from "react-i18next"
 
 import { CloudSyncLoginDialog } from "./cloud-sync-login-dialog"
@@ -433,6 +436,8 @@ export function CloudSyncSection() {
   const { t } = useTranslation()
   const config = useCloudSyncStore((state) => state.config)
   const runtime = useCloudSyncStore((state) => state.runtime)
+  const batches = useCloudSyncStore((state) => state.batches)
+  const entries = useCloudSyncStore((state) => state.entries)
   const saving = useCloudSyncStore((state) => state.saving)
   const setEnabled = useCloudSyncStore((state) => state.setEnabled)
   const setProvider = useCloudSyncStore((state) => state.setProvider)
@@ -446,8 +451,49 @@ export function CloudSyncSection() {
   // 兼容：老数据/测试构造的 config 可能没有 targets，用扁平字段折算。
   const targets = enabledTargets(config)
   const connectedCount = targets.filter((entry) => entry.connected).length
+
+  /**
+   * 打开某个网盘的「远端内容」。
+   *
+   * 为什么放在「退出登录」旁边：这是同一个层级的账号操作（我还连着哪个盘、
+   * 那个盘里的东西在哪），用户找它时第一反应就是账号区。
+   * WebDAV 没有可浏览的网页，改成复制地址；GitHub 会打开仓库网页，
+   * 没登录 GitHub 时浏览器会先落到登录页 —— 这是用户自己的会话，我们不代劳。
+   */
+  const openRemoteContent = useCallback(
+    async (providerId: string) => {
+      if (providerId === "webdav") {
+        const target = targets.find((entry) => entry.provider === providerId)
+        const url = target?.webdavUrl ?? config.webdavUrl ?? ""
+        try {
+          await navigator.clipboard.writeText(url)
+          toast.success("远端地址已复制，粘贴到你的 WebDAV 客户端即可打开")
+        } catch {
+          toast.error(`远端地址：${url}`)
+        }
+        return
+      }
+      try {
+        await revealCloudSyncRemote(providerId as never)
+        if (providerId === "github") {
+          toast.success("已在浏览器打开仓库；如果还没登录 GitHub，先登录就能看到内容")
+        }
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "打不开远端内容")
+      }
+    },
+    [config.webdavUrl, targets],
+  )
   const provider = CLOUD_PROVIDERS.find((item) => item.id === config.provider) ?? null
   const lastSyncAge = formatSyncAge(config.lastSyncAt, Date.now())
+  /*
+   * 失败提示必须**点名到哪个盘**。
+   *
+   * 以前只写「有 N 项同步失败」，多网盘并存时用户根本不知道该去处理哪一个：
+   * GitHub 失败多半是网络/授权，网盘本地文件夹失败多半是目录被占用，处置方式完全不同。
+   * 数据来自历史记录（按批次反查 provider），不用运行态的残留计数。
+   */
+  const failureSummary = describeFailures(groupFailuresByProvider(batches, entries))
 
   return (
     <div className="space-y-6">
@@ -499,7 +545,18 @@ export function CloudSyncSection() {
                 可以同时勾选多个网盘：勾上的每个都会各同步一份（各自独立记录，互不影响）。
               </p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="选择网盘">
+            {/*
+               * auto-fit + minmax 而不是死写 sm:grid-cols-3：
+               * 三列会把每张卡压到 ~197px，账号名一长就把内容撑出容器，
+               * 整页因此多出一条纵向滚动条（用户投诉过）。
+               * 改成"每张卡至少 11rem，放不下就换行"。
+               */}
+            <div
+              className="grid gap-2"
+              style={{ gridTemplateColumns: "repeat(auto-fit, minmax(11rem, 1fr))" }}
+              role="radiogroup"
+              aria-label="选择网盘"
+            >
               {CLOUD_PROVIDERS.map((item) => {
                 const target = targets.find((entry) => entry.provider === item.id)
                 return (
@@ -534,17 +591,35 @@ export function CloudSyncSection() {
                 {/* 百度已从 CLOUD_PROVIDERS 移除（这一版隐藏），这里不必再留「暂未开放」分支：
                     provider 永远来自列表，available 恒为 true。适配器与后端代码都还在。 */}
                 {config.connected ? (
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                     <p className="text-sm">
                       {t("settings.sections.cloudSync.connectedAs", {
                         defaultValue: `已连接：${config.accountLabel ?? provider.label}`,
                         account: config.accountLabel ?? provider.label,
                       })}
                     </p>
-                    <Button variant="outline" size="sm" onClick={() => void logout()}>
-                      <LogOut className="mr-2 h-4 w-4" />
-                      {t("settings.sections.cloudSync.logout", { defaultValue: "退出登录" })}
-                    </Button>
+                    {/*
+                      这两个按钮必须挨在一起：它们同属「账号操作」一组。
+                      以前「打开远端内容」是 justify-between 下的第二个子元素，
+                      会被推到整行中间、和「退出登录」隔一大段空白（用户截图投诉）。
+                      现在包进一个右对齐的小组，组内只留 8px 间距。
+                    */}
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        data-ui="cloud-sync-reveal-remote"
+                        data-provider={provider.id}
+                        onClick={() => void openRemoteContent(provider.id)}
+                      >
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                        打开远端内容
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => void logout()}>
+                        <LogOut className="mr-2 h-4 w-4" />
+                        {t("settings.sections.cloudSync.logout", { defaultValue: "退出登录" })}
+                      </Button>
+                    </div>
                   </div>
                 ) : (
                   <>
@@ -605,9 +680,10 @@ export function CloudSyncSection() {
                     : t("settings.sections.cloudSync.runNow", { defaultValue: "立即同步" })}
                 </Button>
               </div>
-              {runtime.failureCount ? (
-                <p className="text-sm text-destructive">
-                  有 {runtime.failureCount} 项同步失败，点击右上角云图标查看详情。
+              {failureSummary ? (
+                <p className="text-sm text-destructive" data-ui="cloud-sync-failure-line">
+                  {failureSummary}
+                  ，点击右上角云图标查看详情。
                 </p>
               ) : null}
             </div>
