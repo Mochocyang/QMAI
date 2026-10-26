@@ -4,6 +4,7 @@
 
 pub mod channels;
 pub mod download;
+pub mod segmented;
 pub mod probe;
 
 use crate::updater::channels::{Channel, ChannelTable};

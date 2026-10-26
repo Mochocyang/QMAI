@@ -46,7 +46,7 @@ impl ChannelPlanItem {
 ///
 /// 为什么每个命令自己读：`reqwest` 只在建 client 时读一次环境变量，
 /// 而用户可以在软件运行中才打开代理 —— 这时 env 是旧值，必须直接读文件。
-fn proxy_url_from_store() -> Option<String> {
+pub fn proxy_url_from_store() -> Option<String> {
     let path = crate::proxy::app_state_path()?;
     let config = crate::proxy::read_proxy_config_from_store(&path)?;
     crate::proxy::current_proxy_url(&config)
@@ -227,4 +227,10 @@ pub async fn updater_check<R: Runtime>(app: tauri::AppHandle<R>) -> Result<AppUp
 
     log::warn!("[updater] result = {:?}", checked.is_ok());
     checked.map(|info| info.unwrap_or(AppUpdateInfo { version: None, notes: None, download_url: None }))
+}
+
+
+/// 供下载模块复用：当前生效的代理地址。
+pub fn proxy_url_from_store_public() -> Option<String> {
+    proxy_url_from_store()
 }

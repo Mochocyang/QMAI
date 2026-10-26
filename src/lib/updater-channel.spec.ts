@@ -97,7 +97,9 @@ describe("检查更新走自建多通道", () => {
     const text = readFileSync(resolve(__dirname, "changelog-update-session.ts"), "utf8")
     expect(text).toContain('invoke<{')
     expect(text).toContain('"updater_check"')
-    // 安装包字节也要走我们自己的通道（带代理 + 域名白名单）
-    expect(text).toContain('"updater_download_bytes"')
+    // 安装包改用多源分段下载（官网直链 → 反代 → 直连，每个源内 8 段并发）。
+    // 这是唯一能把 58 KB/s 的 GitHub 直连救回来的手段。
+    expect(text).toContain('"updater_download_package"')
+    expect(text).toContain("subscribeDownloadProgress")
   })
 })

@@ -43,6 +43,12 @@ pub enum Rewrite {
     Prefix,
     /// jsDelivr：只能代理**仓库文件**，不能代理 release 资产。
     Jsdelivr,
+    /// 站点直出：地址是站点自己托管的完整安装包（不经 GitHub）。
+    ///
+    /// 实测 qmai.pro 的安装包存在 Azure Blob、经 Cloudflare CDN 分发，
+    /// 单连接 0.6～0.8 MB/s、8 段并发 2.7 MB/s，比 GitHub 直连（58 KB/s）快两个数量级。
+    /// 它**没有版本参数**，所以必须靠文件名版本守门（见 `site_asset_matches_version`）。
+    Site,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,6 +83,18 @@ impl ChannelTable {
                  *   github.com     12 秒超时
                  * 直连排第一的话，每次都要先白等一次超时；排最后才谈得上"加速"。
                  */
+                /*
+                 * 官网直出排第一：实测它比任何 GitHub 反代都快且稳定
+                 * （Azure Blob + Cloudflare CDN）。但它是**固定文件**，
+                 * 只有当文件名版本与 latest.json 一致时才可用 —— 见 `site_asset_matches_version`。
+                 */
+                Channel {
+                    id: "official-site".to_string(),
+                    label: "官网直链".to_string(),
+                    rewrite: Rewrite::Site,
+                    base: Some("https://qmai.pro/download/windows".to_string()),
+                    scope: ChannelScope::UpdateOnly,
+                },
                 Channel {
                     id: "gh-proxy-com".to_string(),
                     label: "加速通道 A".to_string(),
@@ -361,7 +379,7 @@ impl Channel {
                 }
                 Some(format!("{}{}", ensure_trailing_slash(base), github_url))
             }
-            Rewrite::Jsdelivr => None,
+            Rewrite::Jsdelivr | Rewrite::Site => None,
         }
     }
 
@@ -385,7 +403,7 @@ impl Channel {
                 }
                 Some(ensure_trailing_slash(base))
             }
-            Rewrite::Jsdelivr => None,
+            Rewrite::Jsdelivr | Rewrite::Site => None,
         }
     }
 
@@ -418,6 +436,25 @@ impl Channel {
                     format!("https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}")
                 ))
             }
+            // 官网直链是「整包文件」，取不了仓库里的任意路径。
+            Rewrite::Site => None,
+        }
+    }
+
+    /// 站点直出通道的完整下载地址（只有 `Rewrite::Site` 有）。
+    ///
+    /// 与 `map_release_url` 分开的原因：它**不**由 GitHub 地址映射而来，
+    /// 而是站点自己托管的固定 URL。混在一起会让「映射规则」这个概念变脏。
+    pub fn site_asset_url(&self) -> Option<String> {
+        match self.rewrite {
+            Rewrite::Site => {
+                let base = self.base.as_deref()?.trim();
+                if base.is_empty() || !base.starts_with("https://") {
+                    return None;
+                }
+                Some(base.to_string())
+            }
+            _ => None,
         }
     }
 }
@@ -656,8 +693,10 @@ mod tests {
         let manifest = "https://github.com/Mochocyang/QMAI/releases/latest/download/latest.json";
         for channel in &table.channels {
             let mapped = channel.map_release_url(manifest);
-            if channel.id == "jsdelivr" {
-                assert!(mapped.is_none(), "jsDelivr 不该能映射 release 清单");
+            // jsDelivr 只能取仓库文件；官网直链是站点自己的固定整包，
+            // 两者都无法从 release 地址映射出来。
+            if channel.id == "jsdelivr" || channel.id == "official-site" {
+                assert!(mapped.is_none(), "{} 不该能映射 release 清单", channel.id);
             } else {
                 assert!(mapped.is_some(), "{} 应该能映射清单", channel.id);
             }

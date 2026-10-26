@@ -292,6 +292,7 @@ commands::fs::read_file,
             // 白名单校验在命令内部完成（前端可任意调用，不能变成通用下载器）。
             commands::updater_channels::updater_download_bytes,
     commands::updater_channels::updater_check,
+    commands::updater_download::updater_download_package,
             set_proxy_env,
             log_error,
             log_diagnostic,

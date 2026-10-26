@@ -148,6 +148,21 @@ const CHECK_TIMEOUT_MS = 10_000
  * 拿到的只是一个"有新版本"的结论 + 安装包地址；真正下载与安装由调用方
  * 走 `updater_download_bytes`（带代理、带白名单）+ 插件的 `install(bytes)`。
  */
+/**
+ * 下载进度事件的负载（Rust 侧 `updater://download-progress`）。
+ *
+ * 带 `source` 是为了让用户知道"正在用哪条源"——国内网速差异极大，
+ * 一句"正在从官网直链下载"比一个光转的进度条有说服力得多。
+ */
+interface DownloadProgressPayload {
+  downloaded: number
+  total: number
+  source: string
+}
+
+/** 当前下载源，供界面显示。 */
+let activeSource = ""
+
 async function loadUpdate(): Promise<ChangelogUpdatePackage | null> {
   if (checkerOverride) return checkerOverride()
   const { invoke } = await import("@tauri-apps/api/core")
@@ -161,24 +176,27 @@ async function loadUpdate(): Promise<ChangelogUpdatePackage | null> {
   if (!info?.version) return null
 
   /*
-   * 拿到"有新版本"之后要安装包字节，这里走我们自己的通道（带代理 + 域名白名单）。
-   * 插件自带的 `update.download()` 只能下它自己那条端点上的地址，
-   * 而那个地址是 latest.json 里写死的 GitHub 直连 —— 国内实测 12 秒超时。
+   * 安装包用我们自己的多源分段下载：
+   *   官网直链（Azure+Cloudflare，实测 2.7 MB/s）→ 各反代 → 直连兜底，
+   *   每个源内部再拆 8 段并发。
+   * 插件自带的 `update.download()` 是单连接 + 写死的 GitHub 直连地址，
+   * 国内实测 58 KB/s（142.9 MB 要 42 分钟），所以不用它。
    */
   const proxy = await resolveProxyForCheck()
-  let bytes: Uint8Array | null = null
+  let packagePath: string | null = null
   if (info.downloadUrl) {
     try {
-      bytes = await invoke<number[] | Uint8Array>("updater_download_bytes", {
-        url: info.downloadUrl,
-      }).then((data) => new Uint8Array(data as ArrayLike<number>))
+      packagePath = await invoke<string>("updater_download_package", {
+        releaseUrl: info.downloadUrl,
+        version: info.version,
+      })
     } catch (error) {
-      console.warn("[updater] 加速通道下载失败，退回插件自带下载：", error)
-      bytes = null
+      console.warn("[updater] 多源下载失败，退回插件自带下载：", error)
+      packagePath = null
     }
   }
 
-  // 无论字节从哪来，句柄还是插件的（安装要靠它自己的资源）。
+  // 句柄还是要插件的：install 依赖它自己的资源与签名校验。
   const update = await check({ proxy, timeout: CHECK_TIMEOUT_MS })
   if (!update) return null
 
@@ -186,9 +204,9 @@ async function loadUpdate(): Promise<ChangelogUpdatePackage | null> {
     version: update.version,
     body: update.body,
     download: async (onEvent) => {
-      if (bytes) {
-        // 字节已经下好了：直接汇报开始/完成，进度条照样能走完。
-        onEvent?.({ event: "Started", data: { contentLength: bytes.byteLength } } as never)
+      if (packagePath) {
+        // 已经下好了：补发开始/完成事件，让进度条走完（百分号由 trackDownload 算）。
+        onEvent?.({ event: "Started", data: { contentLength: 1 } } as never)
         onEvent?.({ event: "Finished", data: {} } as never)
         return
       }
@@ -197,6 +215,33 @@ async function loadUpdate(): Promise<ChangelogUpdatePackage | null> {
     install: () => update.install(),
     close: () => update.close(),
   }
+}
+
+/**
+ * 订阅下载进度并折算成百分比。
+ *
+ * 返回取消订阅函数；调用方在下载结束后必须调用，否则监听器会累积。
+ */
+export async function subscribeDownloadProgress(): Promise<() => void> {
+  const { listen } = await import("@tauri-apps/api/event")
+  const unlisten = await listen<DownloadProgressPayload>(
+    "updater://download-progress",
+    (event) => {
+      const { downloaded, total, source } = event.payload
+      activeSource = source
+      if (total > 0) {
+        updateSnapshot({
+          downloadProgress: Math.min(Math.round((downloaded / total) * 100), 99),
+        })
+      }
+    },
+  )
+  return unlisten
+}
+
+/** 当前正在用哪条下载源（空字符串表示还没开始）。 */
+export function currentDownloadSource(): string {
+  return activeSource
 }
 
 async function trackDownload(pkg: ChangelogUpdatePackage) {
@@ -319,6 +364,16 @@ export async function downloadChangelogUpdate(): Promise<void> {
   const pkg = currentPackage
   busy = true
   updateSnapshot({ status: "downloading", downloadProgress: 0, errorMessage: "" })
+  /*
+   * 下载进度来自 Rust 的 `updater://download-progress`（8 段并发各自累加）。
+   * 必须在开始前订阅、结束后**一定**退订，否则切几次面板就会叠一堆监听器。
+   */
+  let unsubscribe: (() => void) | null = null
+  try {
+    unsubscribe = await subscribeDownloadProgress()
+  } catch (error) {
+    console.warn("[updater] 订阅下载进度失败（不影响下载本身）：", error)
+  }
   try {
     await trackDownload(pkg)
     updateSnapshot({ status: "ready", downloadProgress: 100, errorMessage: "" })
@@ -329,6 +384,7 @@ export async function downloadChangelogUpdate(): Promise<void> {
       downloadProgress: 0,
     })
   } finally {
+    unsubscribe?.()
     busy = false
   }
 }
