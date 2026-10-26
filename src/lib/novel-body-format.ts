@@ -87,25 +87,38 @@ export function normalizeNovelParagraphs(markdown: string): string {
 }
 
 /**
- * 段首的全角空格（U+3000）统一成两个半角空格。
+ * 去掉段首的中文全角空格（U+3000）缩进。
  *
- * 为什么不直接删：中文小说段首缩进是排版习惯，删了反而不好看。
- * 但 U+3000 在等宽/非等宽字体下宽度不稳定，转成半角空格 + CSS 控制更可靠。
+ * **必须删掉，不能换成半角空格** —— 这一点踩过坑：
+ * Markdown 规定「行首 4 个及以上空格 = 缩进代码块」，
+ * 而两个全角空格转成半角正好是 4 个，于是每一段正文都被渲染成
+ * `<pre><code>`：等宽字体 + 灰色背景（真实 bug）。
+ *
+ * 中文段首缩进改用 **CSS `text-indent`** 表达，不占用正文字符，
+ * 既保留排版习惯，又不会触发任何 Markdown 结构规则。
  */
-export function normalizeParagraphIndent(markdown: string): string {
+export function stripParagraphIndent(markdown: string): string {
   return markdown
     .split(/\r?\n/)
-    .map((line) => {
-      // 只处理段首的全角空格，正文中间的不动。
-      const match = /^(\u3000+)(.*)$/.exec(line)
-      if (!match) return line
-      const halfWidth = " ".repeat(match[1].length * 2)
-      return `${halfWidth}${match[2]}`
-    })
+    .map((line) => line.replace(/^[\u3000 ]+/, (match) => {
+      // 只清除"段首缩进"量级的空白（≤ 4 个半角或 ≤ 2 个全角）；
+      // 更长的缩进说明作者/模型本来就想表达代码块，保留原样。
+      const halfWidthEquivalents = [...match].reduce(
+        (sum, ch) => sum + (ch === "\u3000" ? 2 : 1),
+        0,
+      )
+      if (halfWidthEquivalents > 4) return match
+      return ""
+    }))
     .join("\n")
 }
 
-/** 渲染前一步到位：先规范段落，再统一缩进。 */
+/**
+ * 渲染前一步到位：先规范段落，再去掉会引起代码块误判的段首缩进。
+ *
+ * 段首缩进交给 CSS `text-indent: 2em`（见 chat-markdown 样式），
+ * 不在文本里留空格 —— 否则 Markdown 会把正文当代码。
+ */
 export function formatNovelBody(markdown: string): string {
-  return normalizeParagraphIndent(normalizeNovelParagraphs(markdown))
+  return stripParagraphIndent(normalizeNovelParagraphs(markdown))
 }

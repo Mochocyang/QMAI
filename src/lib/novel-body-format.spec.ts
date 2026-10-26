@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   formatNovelBody,
   normalizeNovelParagraphs,
-  normalizeParagraphIndent,
+  stripParagraphIndent,
 } from "./novel-body-format"
 
 describe("中文正文段落规范化", () => {
@@ -22,10 +22,24 @@ describe("中文正文段落规范化", () => {
     expect(normalizeNovelParagraphs(normalizeNovelParagraphs(input))).toBe(input)
   })
 
-  it("段首全角空格转成等宽半角空格，保留缩进习惯", () => {
-    expect(normalizeParagraphIndent("\u3000\u3000杨寒收回手。")).toBe("    杨寒收回手。")
-    // 正文中间的全角空格不动
-    expect(normalizeParagraphIndent("杨寒\u3000收回手")).toBe("杨寒\u3000收回手")
+  it("段首全角空格必须删掉，绝不能变成 4 个半角空格", () => {
+    /*
+     * 这是上一版的真实 bug：2 个全角空格转成 4 个半角空格后，
+     * Markdown 把它当成「缩进代码块」，每段正文都渲染成 <pre><code>
+     * —— 等宽字体 + 灰色背景。
+     */
+    const stripped = stripParagraphIndent("\u3000\u3000杨寒收回手。")
+    expect(stripped).toBe("杨寒收回手。")
+    expect(stripped.startsWith(" ")).toBe(false)
+  })
+
+  it("正文中间的全角空格不动（那是内容，不是缩进）", () => {
+    expect(stripParagraphIndent("杨寒\u3000收回手")).toBe("杨寒\u3000收回手")
+  })
+
+  it("更深的缩进（可能是真代码块）保留原样", () => {
+    // 8 个半角空格：判定为"作者本来就想表达代码块"，不能拆。
+    expect(stripParagraphIndent("        code line")).toBe("        code line")
   })
 
   it("不会打散列表、标题、引用与表格", () => {
@@ -57,11 +71,13 @@ describe("中文正文段落规范化", () => {
     const output = formatNovelBody(input)
     // 每段前有缩进，段与段之间有空行。
     expect(output.split("\n\n")).toHaveLength(3)
-    expect(output.startsWith("    Titlen")).toBe(true)
+    // 段首缩进交给 CSS，文本里不该再有前导空白（否则又会被当成代码块）。
+    expect(output.startsWith("Titlen")).toBe(true)
   })
 
-  it("空输入与纯空白不会炸", () => {
+  it("空输入不会炸；纯空白的「段」会被清掉（否则又变成 4 空格缩进）", () => {
     expect(formatNovelBody("")).toBe("")
-    expect(formatNovelBody("   \n\n  ")).toBe("   \n\n  ")
+    // 只有空白字符的行等同于空行，不该保留缩进空格。
+    expect(formatNovelBody("   \n\n  ")).toBe("\n\n")
   })
 })
