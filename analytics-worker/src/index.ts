@@ -282,6 +282,112 @@ async function collectPlatformDistribution(env: Env) {
   return rows.results ?? []
 }
 
+/**
+ * 留存率：按「注册日」分群，看这批人在第 N 天是否还有活跃会话。
+ *
+ * 口径：以 sessions.last_active 判定"活跃"（真实使用过的时刻），
+ * 而不是 users.last_seen（只在启动时写）。分群基准取 users.first_seen 的日期。
+ *
+ * 只统计**已经过完整观察窗**的群体，避免新注册的人必然拉低留存：
+ * - 次日留存：只看注册日 ≤ 昨天的群体（否则今天的用户还没机会进入次日）
+ * - 7 日留存：只看注册日 ≤ 7 天前的群体
+ *
+ * 纯查询，不增加任何写入。
+ */
+async function collectRetention(env: Env) {
+  const now = new Date()
+  const dayMs = 24 * 60 * 60 * 1000
+  const today = utcDateKey(now)
+  const yesterday = utcDateKey(new Date(now.getTime() - dayMs))
+  const weekAgo = utcDateKey(new Date(now.getTime() - 7 * dayMs))
+
+  // 次日留存：注册日 = D 的用户，在 D+1 当天有活跃会话
+  const d1 = await env.DB.prepare(
+    `SELECT
+       COUNT(*) as cohort,
+       SUM(CASE WHEN EXISTS (
+         SELECT 1 FROM sessions s
+         WHERE s.uuid = u.uuid
+           AND date(s.last_active, '+8 hours') = date(u.first_seen, '+8 hours', '+1 day')
+       ) THEN 1 ELSE 0 END) as retained
+     FROM users u
+     WHERE date(u.first_seen, '+8 hours') <= ?1`
+  ).bind(yesterday).first<{ cohort: number; retained: number }>()
+
+  // 7 日留存：注册日 = D 的用户，在 D+7 当天有活跃会话
+  const d7 = await env.DB.prepare(
+    `SELECT
+       COUNT(*) as cohort,
+       SUM(CASE WHEN EXISTS (
+         SELECT 1 FROM sessions s
+         WHERE s.uuid = u.uuid
+           AND date(s.last_active, '+8 hours') = date(u.first_seen, '+8 hours', '+7 day')
+       ) THEN 1 ELSE 0 END) as retained
+     FROM users u
+     WHERE date(u.first_seen, '+8 hours') <= ?1`
+  ).bind(weekAgo).first<{ cohort: number; retained: number }>()
+
+  const pct = (part: number | null, whole: number | null) => {
+    const w = whole ?? 0
+    return w > 0 ? Math.round(((part ?? 0) / w) * 1000) / 10 : null
+  }
+
+  return {
+    d1_cohort: d1?.cohort ?? 0,
+    d1_rate: pct(d1?.retained ?? 0, d1?.cohort ?? 0),
+    d7_cohort: d7?.cohort ?? 0,
+    d7_rate: pct(d7?.retained ?? 0, d7?.cohort ?? 0),
+  }
+}
+
+/**
+ * 版本升级率：有多少设备在用最新版本，多少还停在旧版。
+ *
+ * 取全库出现过的最高版本号作为"最新"，避免依赖某个硬编码常量。
+ * 纯查询，不增加任何写入。
+ *
+ * ⚠️ 分母只算「已知版本」的设备。last_version 是 2026-10-25 新增的列，
+ * 此前所有老用户从未上报过版本，一律落在「未知」里。若把「未知」计入
+ * 分母，占比会被稀释到接近 0% 而毫无参考价值 —— 那个数字只反映
+ * "有多少人装了新版本"，不反映"新版本用户里有多少人升级"。
+ * 因此这里同时返回 known（已知版本设备数），让仪表盘能说明分母。
+ */
+async function collectVersionAdoption(env: Env, versions: Array<{ version: string; count: number }>) {
+  // 「未知」不是真实版本（早期用户或读取失败），不参与最新版判定与占比分母
+  const real = versions.filter((v) => v.version !== "未知")
+  const known = real.reduce((sum, v) => sum + v.count, 0)
+
+  if (real.length === 0) {
+    return {
+      latestVersion: "",
+      latestCount: 0,
+      known: 0,
+      latestRate: null as number | null,
+    }
+  }
+
+  // 版本号按数字分段比较，处理 4.3.10 > 4.3.9 这类情况
+  const compareVer = (a: string, b: string) => {
+    const pa = a.split(".").map((n) => Number(n) || 0)
+    const pb = b.split(".").map((n) => Number(n) || 0)
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const diff = (pa[i] ?? 0) - (pb[i] ?? 0)
+      if (diff !== 0) return diff
+    }
+    return 0
+  }
+
+  const latestVersion = real.map((v) => v.version).sort(compareVer).at(-1) ?? ""
+  const latestCount = real.find((v) => v.version === latestVersion)?.count ?? 0
+
+  return {
+    latestVersion,
+    latestCount,
+    known,
+    latestRate: known > 0 ? Math.round((latestCount / known) * 1000) / 10 : null,
+  }
+}
+
 /** GET /stats - 统计数据 JSON（需要密钥） */
 async function handleStats(request: Request, env: Env): Promise<Response> {
   const auth = request.headers.get("Authorization")
@@ -308,6 +414,9 @@ async function handleStats(request: Request, env: Env): Promise<Response> {
      ORDER BY date DESC LIMIT 7`
   ).all()
 
+  const retention = await collectRetention(env)
+  const adoption = await collectVersionAdoption(env, versions)
+
   return jsonResponse({
     total_users: metrics.totalUsers,
     unique_ips: uniqueIPs?.count ?? 0,
@@ -315,6 +424,8 @@ async function handleStats(request: Request, env: Env): Promise<Response> {
     today_new_users: metrics.todayNew,
     dau: activity.dau,
     wau: activity.wau,
+    retention,
+    version_adoption: adoption,
     versions,
     platforms,
     daily_stats: dailyStats.results,
@@ -346,6 +457,18 @@ function renderDashboard(input: {
   todayNew: number
   dau: number
   wau: number
+  retention: {
+    d1_cohort: number
+    d1_rate: number | null
+    d7_cohort: number
+    d7_rate: number | null
+  }
+  adoption: {
+    latestVersion: string
+    latestCount: number
+    known: number
+    latestRate: number | null
+  }
   versions: Array<{ version: string; count: number }>
   platforms: Array<{ platform: string; count: number }>
   dailyRows: Array<{ date: string; new_users: number; total_users: number; peak_online: number }>
@@ -354,6 +477,10 @@ function renderDashboard(input: {
 }): string {
   const versionRows = input.versions.map((v) => ({ label: v.version, count: v.count }))
   const platformRows = input.platforms.map((p) => ({ label: p.platform, count: p.count }))
+
+  // 样本不足时显示「样本不足」而不是 0%，避免误读成留存为零
+  const rateText = (rate: number | null, cohort: number) =>
+    cohort <= 0 || rate === null ? `<span class="na">样本不足</span>` : `${rate}%`
 
   const dailyRows = input.dailyRows.length > 0
     ? input.dailyRows.map((row) => `
@@ -384,6 +511,9 @@ function renderDashboard(input: {
     .card .label { margin-top: 0.35rem; color: #94a3b8; font-size: 0.9rem; }
     .online .number { color: #4ade80; }
     .activity .number { color: #c084fc; }
+    .retention .number { color: #fbbf24; }
+    .adopt .number { color: #2dd4bf; }
+    .na { font-size: 1.1rem; color: #64748b; font-weight: 500; }
     .panel { overflow: hidden; border: 1px solid #334155; border-radius: 8px; background: #111827; }
     table { width: 100%; border-collapse: collapse; }
     th, td { padding: 0.85rem; border-bottom: 1px solid #1f2937; text-align: left; vertical-align: top; font-size: 0.9rem; }
@@ -436,7 +566,25 @@ function renderDashboard(input: {
     </div>
 
     <h2>版本分布</h2>
+    <div class="grid">
+      <div class="card adopt">
+        <div class="number">${input.adoption.latestRate === null ? "—" : `${input.adoption.latestRate}%`}</div>
+        <div class="label">最新版本占比（v${escapeHtml(input.adoption.latestVersion || "—")}：${input.adoption.latestCount} / ${input.adoption.known} 台已知版本设备）</div>
+      </div>
+    </div>
     <div class="panel">${renderBarRows(versionRows, input.totalUsers)}</div>
+
+    <h2>留存率</h2>
+    <div class="grid">
+      <div class="card retention">
+        <div class="number">${rateText(input.retention.d1_rate, input.retention.d1_cohort)}</div>
+        <div class="label">次日留存（样本 ${input.retention.d1_cohort} 台）</div>
+      </div>
+      <div class="card retention">
+        <div class="number">${rateText(input.retention.d7_rate, input.retention.d7_cohort)}</div>
+        <div class="label">7 日留存（样本 ${input.retention.d7_cohort} 台）</div>
+      </div>
+    </div>
 
     <h2>平台分布</h2>
     <div class="panel">${renderBarRows(platformRows, input.totalUsers)}</div>
@@ -456,6 +604,8 @@ function renderDashboard(input: {
       <p>在线人数按最近 15 分钟内有心跳的去重设备计算；客户端心跳间隔 5 分钟。</p>
       <p>DAU/WAU 按最近一次活跃时间统计，口径与"打开过"不同，反映真实使用。</p>
       <p>独立 IP 数按 IP 的 SHA-256 哈希去重，只存哈希不存明文；同一 IP 多次下载只计 1。</p>
+      <p>留存率按注册日分群，仅统计已过完整观察窗的样本；「样本不足」表示该窗口还没有足够用户。</p>
+      <p>最新版本占比的分母只算「已知版本」设备：版本号自 v4.3.9 起才上报，此前的老用户显示为「未知」不计入。</p>
     </div>
   </main>
 </body>
@@ -483,6 +633,9 @@ async function handleDashboard(request: Request, env: Env): Promise<Response> {
      ORDER BY date DESC LIMIT 7`
   ).all<{ date: string; new_users: number; total_users: number; peak_online: number }>()
 
+  const retention = await collectRetention(env)
+  const adoption = await collectVersionAdoption(env, versions)
+
   const html = renderDashboard({
     totalUsers: metrics.totalUsers,
     uniqueIPs: uniqueIPs?.count ?? 0,
@@ -490,6 +643,8 @@ async function handleDashboard(request: Request, env: Env): Promise<Response> {
     todayNew: metrics.todayNew,
     dau: activity.dau,
     wau: activity.wau,
+    retention,
+    adoption,
     versions,
     platforms,
     dailyRows: daily.results ?? [],
