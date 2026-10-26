@@ -137,3 +137,89 @@ describe("写入版本", () => {
     expect(fsMocks.createDirectory).toHaveBeenCalled()
   })
 })
+
+import { MAX_VERSION_AGE_DAYS, MAX_VERSIONS_PER_ITEM, listVersions, pruneVersions } from "./version-store"
+
+describe("列出与保留策略", () => {
+  it("常量就是需求里的 50 条 / 90 天", () => {
+    expect(MAX_VERSIONS_PER_ITEM).toBe(50)
+    expect(MAX_VERSION_AGE_DAYS).toBe(90)
+  })
+
+  it("按时间倒序返回，跳过不认识的文件和目录", async () => {
+    fsMocks.listDirectory.mockResolvedValue([
+      { name: "20261024-090000-aaaa.md", path: "/v/a.md", is_dir: false },
+      { name: "20261026-090000-bbbb.md", path: "/v/b.md", is_dir: false },
+      { name: "说明.txt", path: "/v/说明.txt", is_dir: false },
+      { name: "sub", path: "/v/sub", is_dir: true },
+    ])
+    fsMocks.readFile.mockImplementation(async (path: string) =>
+      path.includes("bbbb") ? "新内容" : "旧内容",
+    )
+    const list = await listVersions("/书", "chapter", 3)
+    expect(list.map((item) => item.fileName)).toEqual([
+      "20261026-090000-bbbb.md",
+      "20261024-090000-aaaa.md",
+    ])
+    expect(list[0].content).toBe("新内容")
+    expect(list[0].hash).toBe("bbbb")
+    expect(list[0].path).toBe("/书/.qmai/versions/chapters/003/20261026-090000-bbbb.md")
+  })
+
+  it("某个版本文件读失败时跳过它，不影响其它", async () => {
+    fsMocks.listDirectory.mockResolvedValue([
+      { name: "20261024-090000-aaaa.md", path: "/v/a.md", is_dir: false },
+      { name: "20261026-090000-bbbb.md", path: "/v/b.md", is_dir: false },
+    ])
+    fsMocks.readFile.mockImplementation(async (path: string) => {
+      if (path.includes("aaaa")) throw new Error("EACCES")
+      return "好的内容"
+    })
+    const list = await listVersions("/书", "chapter", 1)
+    expect(list).toHaveLength(1)
+    expect(list[0].fileName).toBe("20261026-090000-bbbb.md")
+  })
+
+  it("目录不存在时返回空列表，不抛错", async () => {
+    fsMocks.listDirectory.mockRejectedValue(new Error("ENOENT"))
+    await expect(listVersions("/书", "chapter", 9)).resolves.toEqual([])
+  })
+
+  it("超过 50 个或超过 90 天的旧版本会被清掉", async () => {
+    const now = new Date(2026, 9, 26, 12, 0, 0)
+    const nodes: Array<{ name: string; path: string; is_dir: boolean }> = []
+    // 55 个近期版本（每分钟一个），第 0 个最新
+    for (let index = 0; index < 55; index += 1) {
+      const at = new Date(now.getTime() - index * 60_000)
+      const name = buildVersionFileName(at, `内容${index}`)
+      nodes.push({ name, path: `/书/.qmai/versions/chapters/001/${name}`, is_dir: false })
+    }
+    // 1 个 100 天前的（超龄）
+    const veryOld = new Date(now.getTime() - 100 * 24 * 3600_000)
+    const oldName = buildVersionFileName(veryOld, "很旧的内容")
+    nodes.push({ name: oldName, path: `/书/.qmai/versions/chapters/001/${oldName}`, is_dir: false })
+    fsMocks.listDirectory.mockResolvedValue(nodes)
+    fsMocks.readFile.mockResolvedValue("x")
+
+    const removed = await pruneVersions("/书", "chapter", 1, now)
+    // 55 条里只留前 50 条 → 删 5 条；再加 100 天前那 1 条 → 共 6 条
+    expect(removed).toBe(6)
+    expect(fsMocks.deleteFile).toHaveBeenCalledTimes(6)
+  })
+
+  it("删除失败时跳过并继续，不把整个清理带崩", async () => {
+    const now = new Date(2026, 9, 26, 12, 0, 0)
+    const nodes = Array.from({ length: 52 }, (_, index) => {
+      const at = new Date(now.getTime() - index * 60_000)
+      const name = buildVersionFileName(at, `内容${index}`)
+      return { name, path: `/书/.qmai/versions/chapters/001/${name}`, is_dir: false }
+    })
+    fsMocks.listDirectory.mockResolvedValue(nodes)
+    fsMocks.readFile.mockResolvedValue("x")
+    fsMocks.deleteFile.mockRejectedValue(new Error("EBUSY"))
+
+    const removed = await pruneVersions("/书", "chapter", 1, now)
+    expect(removed).toBe(0)            // 全都没删掉
+    expect(fsMocks.deleteFile).toHaveBeenCalledTimes(2) // 仍然尝试了这 2 条
+  })
+})

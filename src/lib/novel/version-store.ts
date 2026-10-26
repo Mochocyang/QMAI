@@ -159,48 +159,107 @@ export interface SaveVersionOutcome {
   replaced?: string
 }
 
+/** 每个对象（章节 / 大纲）最多保留的版本条数。 */
+export const MAX_VERSIONS_PER_ITEM = 50
+
+/** 版本最长保留天数。 */
+export const MAX_VERSION_AGE_DAYS = 90
+
+export interface VersionEntry {
+  fileName: string
+  path: string
+  at: Date
+  hash: string
+  content: string
+}
+
 /**
- * 扫描一个版本目录并读出内容，作为「本次保存是否重复 / 是否需要合并」的依据。
+ * 列出一个版本目录里的全部有效版本，按时间倒序（最新在前）。
  *
- * 私有辅助：本任务只需要它支撑 saveVersion 的去重与合并判断，
- * 面向界面的完整版本列表（排序、展示）留给后续任务，避免这里先长出一套
- * 半成品接口。
- *
- * 容错策略决定了它是「尽力而为」而不是「全有或全无」：
- * - 目录不存在（第一次保存）视为没有任何版本，而不是报错——这是最常见的场景；
+ * 容错策略是「尽力而为」而不是「全有或全无」：
+ * - 目录不存在（还没存过版本）视为没有任何版本，而不是报错——这是最常见的场景；
  * - 单个文件读失败（被用户删掉、正在被同步工具占用）就跳过它，
- *   不能因为一个坏文件让整次保存失败。
+ *   不能因为一个坏文件让整个历史列表 / 保存流程失败；
+ * - 不认识的文件名（用户手放的笔记、旧格式残留）同样跳过，且绝不参与后续删除。
  */
-async function readVersionsForMerge(
-  dir: string,
-): Promise<Array<{ fileName: string; at: Date; content: string }>> {
+export async function listVersions(
+  projectPath: string,
+  kind: VersionKind,
+  key: number | string | null,
+): Promise<VersionEntry[]> {
+  const dir = buildVersionDir(projectPath, kind, key)
+
   let nodes: Awaited<ReturnType<typeof listDirectory>>
   try {
     nodes = await listDirectory(dir)
   } catch {
-    // 目录还不存在：这就是第一条版本，交给调用方正常写入。
     return []
   }
 
+  // 目录项也要跳过：理论上版本目录下不会有子目录，但用户的同步工具
+  // 或手动整理可能塞进来，按文件去读它会直接失败。
   const fileNodes = nodes.filter((node) => !node.is_dir)
-  const contents = await Promise.all(
-    fileNodes.map(async (node) => {
+  const entries = await Promise.all(
+    fileNodes.map(async (node): Promise<VersionEntry | null> => {
       const parsed = parseVersionFileName(node.name)
-      // 不认识的杂文件（用户手放的笔记、旧格式残留）不参与合并判断，
-      // 也不能被合并逻辑删掉。
       if (!parsed) return null
+      // 路径按「目录 + 文件名」重算，而不是照抄 node.path：读、展示、删除
+      // 都用同一条可预测的路径，不必依赖底层返回的写法（分隔符风格、是否带
+      // 前缀都随平台变），也能保证清理时只删到版本库里的文件。
+      const path = `${dir}/${node.name}`
       try {
-        const content = await readFile(node.path)
-        return { fileName: node.name, at: parsed.at, content }
+        const content = await readFile(path)
+        return { fileName: node.name, path, at: parsed.at, hash: parsed.hash, content }
       } catch {
         return null
       }
     }),
   )
 
-  return contents.filter(
-    (item): item is { fileName: string; at: Date; content: string } => item !== null,
-  )
+  return entries
+    .filter((entry): entry is VersionEntry => entry !== null)
+    .sort((a, b) => b.at.getTime() - a.at.getTime())
+}
+
+/**
+ * 清理过期版本，返回真正删掉的数量。
+ *
+ * 保留策略是「最近 MAX_VERSIONS_PER_ITEM 个」与「MAX_VERSION_AGE_DAYS 天内」的**交集**：
+ * 两个条件都满足才留下（索引在前 50 之内，且时间没超过 90 天）。
+ * 反过来看也可以理解为「超出前 50 个的」与「超过 90 天的」两批待删项的并集。
+ * 为什么不让任一条单独兜底：只按条数留，一本长期断更的书会一直躺着几十条
+ * 一年前的版本，磁盘和列表都被占着；只按时间留，一天猛改上百次的书
+ * 会把版本目录撑到几千个文件，扫描变慢。取交集能同时压住「量」和「旧」。
+ *
+ * 删除失败只跳过、继续删下一条：一个文件正被别的程序占用（Windows 上很常见）
+ * 不该让整次清理中断，否则后面的过期文件永远等不到清理；但没删掉就不能
+ * 计进返回值，否则调用方会以为目录已经变干净。
+ */
+export async function pruneVersions(
+  projectPath: string,
+  kind: VersionKind,
+  key: number | string | null,
+  now: Date = new Date(),
+): Promise<number> {
+  const entries = await listVersions(projectPath, kind, key)
+  const cutoff = now.getTime() - MAX_VERSION_AGE_DAYS * 24 * 60 * 60 * 1000
+
+  let removed = 0
+  // entries 已按时间倒序，索引天然就是「从新到旧」的名次。
+  for (const [index, entry] of entries.entries()) {
+    const keepByCount = index < MAX_VERSIONS_PER_ITEM
+    const keepByAge = entry.at.getTime() >= cutoff
+    if (keepByCount && keepByAge) continue
+
+    try {
+      await deleteFile(entry.path)
+      removed += 1
+    } catch (error) {
+      console.warn("清理历史版本时删除失败，已跳过：", entry.path, error)
+    }
+  }
+
+  return removed
 }
 
 /**
@@ -220,7 +279,10 @@ export async function saveVersion(input: SaveVersionInput): Promise<SaveVersionO
   }
 
   const dir = buildVersionDir(projectPath, kind, key)
-  const existing = await readVersionsForMerge(dir)
+  // 复用 listVersions 而不是再写一套扫描：去重 / 合并判断和界面的历史列表
+  // 必须看到同一批版本，两套逻辑一旦漂移，就会出现「列表里有但合并看不到」
+  // 这种难查的错位。
+  const existing = await listVersions(projectPath, kind, key)
 
   // 内容一模一样就不重复记录：编辑器失焦刷新、手动再按一次保存，
   // 都会以「同样内容、不同时间」的形式重复触发，这里拦掉。
