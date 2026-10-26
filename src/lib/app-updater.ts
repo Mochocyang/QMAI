@@ -40,6 +40,43 @@ export async function runAppUpdateFlow(bindings: UpdaterBindings) {
    */
   const CHECK_TIMEOUT_MS = 10_000
   const proxy = bindings.resolveProxy ? await bindings.resolveProxy() : undefined
+
+  /*
+   * 先问 Rust 的 updater_check：它按「内置 + 远程覆盖」的通道表逐个试镜像，
+   * 失败才轮到直连。
+   *
+   * 为什么必须先用它：插件命令层的 `check()` **吃的是编译期 endpoints**，
+   * 而我们真正想要的是"镜像表能远程更新、不用发版"。
+   * 之前这条流程直接调 `bindings.check()`，所以永远只试 github.com 直连 ——
+   * 用户在国内点了必然失败（这就是"镜像没效果"的真正原因）。
+   */
+  let hasUpdate: { version: string; notes?: string; downloadUrl?: string } | null = null
+  try {
+    const { invoke } = await import("@tauri-apps/api/core")
+    const info = await invoke<{
+      version: string | null
+      notes: string | null
+      downloadUrl: string | null
+    }>("updater_check")
+    hasUpdate = info?.version
+      ? { version: info.version, notes: info.notes ?? undefined, downloadUrl: info.downloadUrl ?? undefined }
+      : null
+  } catch (error) {
+    console.warn("[updater] 通道检查失败，退回插件端点：", error)
+    hasUpdate = undefined as never
+  }
+
+  if (hasUpdate === null) {
+    if (bindings.silent === false) {
+      await bindings.message("已经是最新版本了。", {
+        title: "检查更新",
+        kind: "info",
+        okLabel: "知道了",
+      })
+    }
+    return
+  }
+
   const update = await bindings.check({ proxy, timeout: CHECK_TIMEOUT_MS })
   if (!update) {
     // 用户主动点的就要有回应："已经是最新版本"也是结果，沉默等于"点了没用"。

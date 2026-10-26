@@ -67,31 +67,42 @@ impl ChannelTable {
         Self {
             version: 1,
             channels: vec![
+                /*
+                 * **镜像在前、直连垫底**。
+                 *
+                 * 这个顺序就是 updater_check 交给插件的 endpoints 顺序，
+                 * 插件会按序逐个试。国内实测：
+                 *   gh-proxy.com   1.0 秒 200
+                 *   ghproxy.net    12 秒超时
+                 *   github.com     12 秒超时
+                 * 直连排第一的话，每次都要先白等一次超时；排最后才谈得上"加速"。
+                 */
                 Channel {
-                    id: DIRECT_CHANNEL_ID.to_string(),
-                    label: "直连".to_string(),
-                    rewrite: Rewrite::Identity,
-                    base: None,
+                    id: "gh-proxy-com".to_string(),
+                    label: "加速通道 A".to_string(),
+                    rewrite: Rewrite::Prefix,
+                    base: Some("https://gh-proxy.com/".to_string()),
                     scope: ChannelScope::UpdateOnly,
                 },
                 Channel {
                     id: "ghproxy-net".to_string(),
-                    label: "加速通道 A".to_string(),
-                    rewrite: Rewrite::Prefix,
-                    base: Some("https://ghproxy.net/".to_string()),
-                    scope: ChannelScope::UpdateOnly,
-                },
-                Channel {
-                    id: "gh-proxy-com".to_string(),
                     label: "加速通道 B".to_string(),
                     rewrite: Rewrite::Prefix,
-                    base: Some("https://gh-proxy.com/".to_string()),
+                    base: Some("https://ghproxy.net/".to_string()),
                     scope: ChannelScope::UpdateOnly,
                 },
                 Channel {
                     id: "jsdelivr".to_string(),
                     label: "加速通道 C".to_string(),
                     rewrite: Rewrite::Jsdelivr,
+                    base: None,
+                    scope: ChannelScope::UpdateOnly,
+                },
+                // 直连永远垫底：唯一不依赖第三方、永远不会"服务下线"的那条。
+                Channel {
+                    id: DIRECT_CHANNEL_ID.to_string(),
+                    label: "直连".to_string(),
+                    rewrite: Rewrite::Identity,
                     base: None,
                     scope: ChannelScope::UpdateOnly,
                 },
@@ -429,7 +440,11 @@ mod tests {
     #[test]
     fn builtin_channels_start_with_direct_and_are_unique() {
         let table = ChannelTable::builtin();
-        assert_eq!(table.channels[0].id, "direct");
+        // 直连**排最后**（镜像优先）：国内实测直连 12 秒超时，排第一等于每次先白等一次。
+        assert_eq!(
+            table.channels.last().map(|channel| channel.id.as_str()),
+            Some(DIRECT_CHANNEL_ID)
+        );
         let mut ids: Vec<&str> = table.channels.iter().map(|c| c.id.as_str()).collect();
         ids.sort();
         ids.dedup();
@@ -834,5 +849,34 @@ mod tests {
             "https://cdn.example.org/https://github.com/x",
             &ChannelTable::builtin()
         ));
+    }
+}
+
+
+#[cfg(test)]
+mod effective_tests {
+    use super::*;
+
+    #[test]
+    fn builtin_table_yields_mirror_first_then_direct() {
+        // updater_check 会把 map_release_url 的结果按顺序塞给插件的 endpoints。
+        // 第一条必须是镜像：国内实测直连 12 秒超时、镜像 1 秒通。
+        let table = ChannelTable::builtin();
+        let urls: Vec<String> = table
+            .channels
+            .iter()
+            .filter_map(|channel| channel.map_release_url("https://github.com/O/R/releases/latest/download/latest.json"))
+            .collect();
+        assert!(urls.len() >= 2, "至少要有镜像 + 直连");
+        assert!(
+            !urls[0].starts_with("https://github.com/"),
+            "第一条得是镜像，不能是直连：{}",
+            urls[0]
+        );
+        let last = urls.last().unwrap();
+        assert!(
+            last.starts_with("https://github.com/"),
+            "最后一条必须是直连兜底：{last}"
+        );
     }
 }
