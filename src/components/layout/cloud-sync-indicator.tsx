@@ -155,6 +155,7 @@ export function CloudSyncIndicator() {
   const notice = useCloudSyncStore((state) => state.notice)
   const dismissNotice = useCloudSyncStore((state) => state.dismissNotice)
   const openDetail = useCloudSyncStore((state) => state.openDetail)
+  const markSeen = useCloudSyncStore((state) => state.markFailuresSeen)
   const beginLogin = useCloudSyncStore((state) => state.beginLogin)
   const entries = useCloudSyncStore((state) => state.entries)
   const batches = useCloudSyncStore((state) => state.batches)
@@ -275,8 +276,14 @@ export function CloudSyncIndicator() {
             const provider = batches.find((batch) => batch.batchId === batchId)?.provider ?? null
             return provider ? providerLabel(provider) : "未知网盘"
           }}
-          onDismiss={() => setFailuresOpen(false)}
+          onDismiss={() => {
+            // 「知道了」= 已读：红点消失，之后只提醒新失败。
+            markSeen()
+            setFailuresOpen(false)
+          }}
           onOpenDetail={() => {
+            // 「查看全部」也算看过了。
+            markSeen()
             setFailuresOpen(false)
             openDetail()
           }}

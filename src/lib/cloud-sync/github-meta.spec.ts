@@ -39,3 +39,22 @@ describe("云同步 · GitHub 元数据", () => {
     expect(resolveNotice("github.not-configured").message).toContain("还没绑定 GitHub 应用")
   })
 })
+
+
+describe("带冒号后缀的错误码也要给出人话", () => {
+  it("github.auth:Bad credentials 不把英文原话丢给用户", () => {
+    const notice = resolveNotice("github.auth:Bad credentials")
+    expect(notice.message).not.toContain("Bad credentials")
+    expect(notice.message).toContain("GitHub")
+    // 必须能引导用户去处理（重新连接 / 去设置）
+    expect(["relogin", "settings"]).toContain(notice.action)
+  })
+
+  it("webdav.status:502 仍然走它自己的专用文案", () => {
+    expect(resolveNotice("webdav.status:502").message).toContain("异常状态")
+  })
+
+  it("baidu.errno 仍然走它自己的专用文案", () => {
+    expect(resolveNotice("baidu.errno:-6").message).toContain("百度网盘接口报错")
+  })
+})

@@ -31,6 +31,7 @@ import {
 } from "@/lib/cloud-sync/client"
 import type { CloudSyncRuntime } from "@/lib/cloud-sync/status"
 import { isProviderAvailable } from "@/lib/cloud-sync/providers"
+import { markFailuresSeen, readSeenAt, unreadFailures } from "@/lib/cloud-sync/failure-read"
 import {
   DEFAULT_CLOUD_SYNC_CONFIG,
   enabledTargets,
@@ -109,6 +110,13 @@ interface CloudSyncStoreState {
   dismissNotice: () => void
   openDetail: () => void
   closeDetail: () => void
+  /**
+   * 把当前所有失败标记为已读，红点与红字立刻消失。
+   *
+   * 用户点「知道了」/「查看全部」时调用。之后只统计新出现的失败 ——
+   * 看过的不再烦人，新的才提醒。
+   */
+  markFailuresSeen: () => void
 }
 
 let unlisten: (() => void) | null = null
@@ -170,7 +178,8 @@ export const useCloudSyncStore = create<CloudSyncStoreState>((set, get) => ({
         // 后端那个计数是「进程内」的，旧版本还不会在一轮结束后清零，重启后
         // 会把上一轮的残留值读回来 —— 用户看到永久挂着的「有 N 项同步失败」，
         // 点进详情却一条失败都没有（真实投诉）。历史才是唯一可信来源。
-        failureCount: history.entries.filter((entry) => !entry.ok).length,
+        // 只数「上次查看之后」的新失败：已读的旧失败不该一直顶着红点。
+        failureCount: unreadFailures(history.entries, readSeenAt()).length,
         authExpired: status.authExpired,
       },
       batches: history.batches,
@@ -409,7 +418,8 @@ export const useCloudSyncStore = create<CloudSyncStoreState>((set, get) => ({
         // 失败数跟着历史走：历史里没有失败条目，界面就不该再挂红字。
         runtime: {
           ...state.runtime,
-          failureCount: history.entries.filter((entry) => !entry.ok).length,
+          // 只数「上次查看之后」的新失败：已读的旧失败不该一直顶着红点。
+        failureCount: unreadFailures(history.entries, readSeenAt()).length,
         },
       }))
     } catch {
@@ -507,6 +517,14 @@ export const useCloudSyncStore = create<CloudSyncStoreState>((set, get) => ({
     void get().refreshHistory()
   },
   closeDetail: () => set({ detailOpen: false }),
+
+  markFailuresSeen: () => {
+    markFailuresSeen()
+    // 立刻把未读数清零：不依赖下一次 refreshHistory，红点当场消失。
+    set((state) => ({
+      runtime: { ...state.runtime, failureCount: 0 },
+    }))
+  },
 }))
 
 /** 供批次列表使用：新建一个空批次壳（P0 只有 stub 会用）。 */

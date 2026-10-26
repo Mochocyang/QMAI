@@ -830,68 +830,115 @@ fn begin_github_login<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
 
     let cancel = state.login_cancel_flag();
     let app_for_task = app.clone();
-    let device_code = login.device_code.clone();
-    let interval = login.interval.max(5);
-    let expires_in = login.expires_in;
-    std::thread::spawn(move || {
-        let started = std::time::Instant::now();
-        let mut wait = interval;
-        let mut network_failures = 0u32;
-        loop {
-            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
-                break;
-            }
-            if started.elapsed().as_secs() >= expires_in {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_secs(wait));
-            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
-                break;
-            }
-            match github::poll_device_token(&oauth, &device_code) {
-                Ok(github::DevicePoll::Done(mut token)) => {
-                    token.login = github::fetch_viewer(&token.token).unwrap_or_default();
-                    finish_github_login(&app_for_task, Ok(token));
-                    return;
-                }
-                Ok(github::DevicePoll::Pending) => {
-                    network_failures = 0;
-                }
-                Ok(github::DevicePoll::SlowDown) => {
-                    wait = (wait + 5).min(30);
-                }
-                Ok(github::DevicePoll::Denied) => {
-                    finish_github_login(&app_for_task, Err("auth.denied".to_string()));
-                    return;
-                }
-                Ok(github::DevicePoll::Expired) => {
-                    finish_github_login(&app_for_task, Err("auth.expired".to_string()));
-                    return;
-                }
-                Ok(github::DevicePoll::Misconfigured) => {
-                    finish_github_login(&app_for_task, Err("github.misconfigured".to_string()));
-                    return;
-                }
-                Err(code) => {
-                    // 网络抖动不该一次就放弃（GitHub 在部分网络下会间歇性连不上）。
-                    network_failures += 1;
-                    if network_failures >= 3 {
-                        finish_github_login(&app_for_task, Err(code));
-                        return;
-                    }
-                    wait = (wait + 3).min(20);
-                }
-            }
-        }
-        finish_github_login(&app_for_task, Err("auth.expired".to_string()));
-    });
-
-    Ok(json!({
+    // 线程要接管 `login`（可能被换码替换），所以先把首次要展示的字段留下来。
+    let first_payload = json!({
         "userCode": login.user_code,
         "verificationUri": login.verification_uri,
         "expiresIn": login.expires_in,
         "interval": login.interval,
-    }))
+    });
+    std::thread::spawn(move || {
+        /*
+         * 设备码有 15 分钟有效期。**过期后必须换一张新的**，
+         * 并且要把新码推给前端 —— 否则界面上一直显示一个已经作废的码，
+         * 用户照着输永远授权不成功，还以为是自己输错了（真实投诉）。
+         */
+        let mut current = login;
+        let mut offline_rounds = 0u32;
+        loop {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+
+            let interval = current.interval.max(5);
+            let expires_in = current.expires_in;
+            let started = std::time::Instant::now();
+            let mut wait = interval;
+            let mut network_failures = 0u32;
+            let mut need_new_code = false;
+
+            while started.elapsed().as_secs() < expires_in {
+                if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_secs(wait));
+                if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+                match github::poll_device_token(&oauth, &current.device_code) {
+                    Ok(github::DevicePoll::Done(mut token)) => {
+                        token.login = github::fetch_viewer(&token.token).unwrap_or_default();
+                        finish_github_login(&app_for_task, Ok(token));
+                        return;
+                    }
+                    Ok(github::DevicePoll::Pending) => {
+                        network_failures = 0;
+                    }
+                    Ok(github::DevicePoll::SlowDown) => {
+                        wait = (wait + 5).min(30);
+                    }
+                    Ok(github::DevicePoll::Denied) => {
+                        finish_github_login(&app_for_task, Err("auth.denied".to_string()));
+                        return;
+                    }
+                    Ok(github::DevicePoll::Expired) => {
+                        // 码过期：换新的重来，不要直接判失败。
+                        need_new_code = true;
+                        break;
+                    }
+                    Ok(github::DevicePoll::Misconfigured) => {
+                        finish_github_login(&app_for_task, Err("github.misconfigured".to_string()));
+                        return;
+                    }
+                    Err(code) => {
+                        // 网络抖动不该一次就放弃（GitHub 在部分网络下会间歇性连不上）。
+                        network_failures += 1;
+                        if network_failures >= 3 {
+                            finish_github_login(&app_for_task, Err(code));
+                            return;
+                        }
+                        wait = (wait + 3).min(20);
+                    }
+                }
+            }
+
+            // 走完一轮：要么码到期、要么显式要求换码。
+            if !need_new_code && started.elapsed().as_secs() < expires_in {
+                // 被 cancel 打断的路径已经在上面 return。
+                return;
+            }
+
+            match github::request_device_code(&oauth) {
+                Ok(fresh) => {
+                    offline_rounds = 0;
+                    let payload = json!({
+                        "userCode": fresh.user_code,
+                        "verificationUri": fresh.verification_uri,
+                        "expiresIn": fresh.expires_in,
+                        "interval": fresh.interval,
+                        // 让前端知道这是**换码**而不是首次出码，好做提示。
+                        "refreshed": true,
+                    });
+                    let _ = app_for_task.emit("cloud-sync://github-device-code", payload);
+                    current = fresh;
+                }
+                Err(code) => {
+                    /*
+                     * 换码本身失败（通常是网络）：给 3 次机会再放弃，
+                     * 不要因为一次抖动就把用户踢回"重新连接"。
+                     */
+                    offline_rounds += 1;
+                    if offline_rounds >= 3 {
+                        finish_github_login(&app_for_task, Err(code));
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                }
+            }
+        }
+    });
+
+    Ok(first_payload)
 }
 
 fn finish_github_login<R: Runtime>(app: &AppHandle<R>, result: Result<github::GithubToken, String>) {

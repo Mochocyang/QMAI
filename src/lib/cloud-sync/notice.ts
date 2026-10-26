@@ -56,6 +56,32 @@ const RULES: Record<string, NoticeRule> = {
   "auth.store-failed": { message: "授权成功了，但凭据没能保存到本机，请重试", action: "relogin" },
   "sync.busy": { message: "上一轮同步还没结束，等它跑完再试", action: null },
   "sync.no-project": { message: "当前没有打开的书，暂时没有可同步的内容", action: null },
+  "github.not-configured": {
+    message: "这一版还没绑定 GitHub 应用，暂时先用 WebDAV 或网盘本地文件夹",
+    action: "settings",
+  },
+  "github.misconfigured": { message: "GitHub 应用配置不对（client id），请重新安装或联系作者", action: "settings" },
+  "github.device-flow-disabled": { message: "这个 GitHub 应用没开启设备授权，请联系作者", action: "settings" },
+  "github.auth": {
+    // token 被 GitHub 吊销（撤销授权 / 重新授权产生新 token / 长时间未用）。
+    // 这不是网络问题，重试不会好，必须让用户重新授权。
+    message: "GitHub 登录已失效（授权被撤销或已过期），请退出后重新登录",
+    action: "settings",
+  },
+  "github.network": { message: "连不上 GitHub（网络问题），稍后会自动重试", action: "settings" },
+  "github.rate-limited": { message: "GitHub 限制了请求频率，歇几分钟再点「立即同步」", action: "settings" },
+  "github.repo-public": {
+    message: "这个仓库是公开的，你的小说会被所有人看到 —— 请换成私有仓库",
+    action: "settings",
+  },
+  "github.repo-missing": { message: "仓库不存在或没有访问权限（被删掉或改名了？）", action: "settings" },
+  "github.read-only": { message: "这个仓库没有写权限，请换一个有权限的仓库", action: "settings" },
+  "github.forbidden": { message: "GitHub 拒绝了这次操作（权限不足）", action: "settings" },
+  "github.no-repo": { message: "还没选 GitHub 仓库", action: "settings" },
+  "github.conflict": { message: "另一台设备刚提交过，正在重试", action: "settings" },
+  "github.server": { message: "GitHub 服务端出错了，稍后重试", action: "settings" },
+  "github.http": { message: "GitHub 返回了意外的结果，稍后重试", action: "settings" },
+  "github.probe-mismatch": { message: "写进去的内容读回来不一致，仓库可能被拦截改写", action: "settings" },
   "folder.missing": { message: "这个文件夹不存在了，请重新选择", action: "settings" },
   "folder.not-directory": { message: "选中的不是文件夹", action: "settings" },
   "folder.not-writable": { message: "这个文件夹不能写入，请换一个（或检查权限）", action: "settings" },
@@ -97,6 +123,23 @@ export function conflictNotice(count: number): NoticeCopy {
 export function resolveNotice(errorCode: string | undefined, context: NoticeContext = {}): NoticeCopy {
   if (!errorCode) {
     return { message: "同步失败，请稍后重试", action: "detail" }
+  }
+
+  /*
+   * 归一化：Rust 侧会把服务端原话拼在错误码后面（`github.auth:Bad credentials`）。
+   * 不剥离的话查表查不到，用户最后看到的就是裸的 `github.auth:Bad credentials` ——
+   * 这既看不懂（英文），也没告诉他该做什么（真实投诉）。
+   * 这里先按冒号前半段查表；带专用解析的分支（baidu/webdav）在后面优先处理。
+   */
+  const normalizedCode = errorCode.split(":")[0]
+  if (
+    normalizedCode !== errorCode &&
+    !errorCode.startsWith("baidu.errno:") &&
+    !errorCode.startsWith("baidu.status:") &&
+    !errorCode.startsWith("webdav.status:")
+  ) {
+    const base = RULES[normalizedCode]
+    if (base) return base
   }
 
   if (

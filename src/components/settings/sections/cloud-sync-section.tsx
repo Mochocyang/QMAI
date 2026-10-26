@@ -218,6 +218,10 @@ function GithubForm() {
   const [account, setAccount] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** 授权码剩余秒数（null = 还不知道）。 */
+  const [codeSecondsLeft, setCodeSecondsLeft] = useState<number | null>(null)
+  /** 是否刚收到过"换新码"通知，用来给一句明确提示。 */
+  const [codeRefreshed, setCodeRefreshed] = useState(false)
 
   const loadRepos = useCallback(async () => {
     setBusy(true)
@@ -257,6 +261,45 @@ function GithubForm() {
     }
   }, [loadRepos])
 
+  /*
+   * 后端换码时会推 `cloud-sync://github-device-code`：
+   * 设备码有效期 15 分钟，过期后必须换成新的，否则界面一直显示作废的码，
+   * 用户照着输永远不成功还以为是自己输错了（真实投诉）。
+   */
+  useEffect(() => {
+    if (phase !== "waiting") return
+    let unlisten: (() => void) | null = null
+    let cancelled = false
+    void (async () => {
+      const { listen } = await import("@tauri-apps/api/event")
+      const off = await listen<{
+        userCode: string
+        verificationUri: string
+        expiresIn: number
+        refreshed?: boolean
+      }>("cloud-sync://github-device-code", (event) => {
+        setCode(event.payload.userCode)
+        setUri(event.payload.verificationUri)
+        setCodeSecondsLeft(event.payload.expiresIn)
+        setCodeRefreshed(event.payload.refreshed === true)
+      })
+      if (cancelled) off()
+      else unlisten = off
+    })()
+    return () => {
+      cancelled = true
+      unlisten?.()
+    }
+  }, [phase])
+
+  // 授权码倒计时：每秒减一，让用户知道这个码还有多久有效。
+  useEffect(() => {
+    if (phase !== "waiting" || codeSecondsLeft === null) return
+    if (codeSecondsLeft <= 0) return
+    const timer = window.setTimeout(() => setCodeSecondsLeft((value) => (value ?? 0) - 1), 1000)
+    return () => window.clearTimeout(timer)
+  }, [phase, codeSecondsLeft])
+
   // 等用户在浏览器里确认：每 2 秒问一次后端（不依赖事件，关掉面板也不丢状态）。
   useEffect(() => {
     if (phase !== "waiting") return
@@ -293,6 +336,8 @@ function GithubForm() {
     if (!result.userCode) return
     setCode(result.userCode)
     setUri(result.verificationUri ?? "")
+    setCodeSecondsLeft(result.expiresIn ?? null)
+    setCodeRefreshed(false)
     setPhase("waiting")
     if (result.verificationUri) void openExternalUrl(result.verificationUri)
   }
@@ -325,12 +370,46 @@ function GithubForm() {
       {phase === "loading" ? <p className="text-xs text-muted-foreground">正在检查 GitHub 授权…</p> : null}
 
       {phase === "waiting" && code ? (
-        <div className="space-y-2 rounded-lg border border-dashed p-3">
-          <p className="text-sm">在浏览器里输入这个码，确认授权：</p>
-          <p className="select-all font-mono text-2xl tracking-[0.3em]">{code}</p>
+        <div className="space-y-3 rounded-lg border border-dashed p-3" data-ui="cloud-sync-github-waiting">
+          <div className="space-y-1.5">
+            <p className="text-sm">在浏览器里输入这个码，确认授权：</p>
+            <p
+              className="select-all font-mono text-2xl tracking-[0.3em]"
+              data-ui="cloud-sync-github-code"
+            >
+              {code}
+            </p>
+            {/* 授权码有 15 分钟有效期；过期会自动换新码并在这里更新。 */}
+            <p className="text-xs text-muted-foreground" data-ui="cloud-sync-github-code-meta">
+              {codeSecondsLeft !== null
+                ? `还剩约 ${Math.max(0, Math.floor(codeSecondsLeft / 60))} 分 ${Math.max(0, codeSecondsLeft % 60)} 秒；过期会自动换新码`
+                : "码过期后会自动换新的"}
+            </p>
+          </div>
+
+          {/*
+           * 等待中的状态必须看得见。
+           * 之前这里只有码和两个按钮，用户不知道程序是不是还在等（真实反馈）。
+           */}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            正在等待授权，请等待…
+          </div>
+
+          {codeRefreshed ? (
+            <p className="text-xs text-[var(--ui-warning)]" role="status">
+              授权码已更新，请用上面这个新码在浏览器里确认。
+            </p>
+          ) : null}
+
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => void openExternalUrl(uri)}>
-              再打开一次授权页面
+            <Button
+              size="sm"
+              variant="outline"
+              data-ui="cloud-sync-github-reopen"
+              onClick={() => void openExternalUrl(uri)}
+            >
+              重新打开授权页面
             </Button>
             <Button size="sm" variant="ghost" onClick={() => void cancelCloudSyncLogin().then(() => setPhase("idle"))}>
               取消
