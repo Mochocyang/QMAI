@@ -4,9 +4,21 @@ import type { Update } from "@tauri-apps/plugin-updater"
 
 type UpdaterBindings = {
   isTauri: boolean
-  check: () => Promise<Update | null>
+  /**
+   * `options` 会透传给 plugin-updater 的 `check()`。
+   *
+   * 为什么必须留这个口子：插件自己的 http 客户端**不读**我们写进环境变量的
+   * `HTTP_PROXY`，用户开了代理对「检查更新」完全无效（实测发现）。插件从 2.11
+   * 起支持 `check({ proxy, timeout })`，把代理显式传进去才真正生效。
+   * 探活得到的加速通道地址、超时上限也走这里。
+   */
+  check: (options?: { proxy?: string; timeout?: number }) => Promise<Update | null>
   confirm: (message: string, options?: Record<string, unknown>) => Promise<boolean>
   message: (message: string, options?: Record<string, unknown>) => Promise<unknown>
+  /** 当前生效的代理地址（用户自己配的），没有就 undefined。 */
+  resolveProxy?: () => Promise<string | undefined>
+  /** 后台静默检查：没新版本时不打扰用户。用户主动点「检查更新」时为 false。 */
+  silent?: boolean
 }
 
 let updateCheckStarted = false
@@ -22,8 +34,24 @@ let updateCheckStarted = false
 export async function runAppUpdateFlow(bindings: UpdaterBindings) {
   if (!bindings.isTauri) return
 
-  const update = await bindings.check()
-  if (!update) return
+  /*
+   * 10 秒上限：用户抱怨过"点检查更新毫无反应 20 秒"。
+   * 这个值要大于单条通道的探活时间（5s），又要小到用户能忍。
+   */
+  const CHECK_TIMEOUT_MS = 10_000
+  const proxy = bindings.resolveProxy ? await bindings.resolveProxy() : undefined
+  const update = await bindings.check({ proxy, timeout: CHECK_TIMEOUT_MS })
+  if (!update) {
+    // 用户主动点的就要有回应："已经是最新版本"也是结果，沉默等于"点了没用"。
+    if (bindings.silent === false) {
+      await bindings.message("已经是最新版本了。", {
+        title: "检查更新",
+        kind: "info",
+        okLabel: "知道了",
+      })
+    }
+    return
+  }
 
   const notes = update.body?.trim() ? `\n\n更新说明：\n${update.body.trim()}` : ""
   const confirmed = await bindings.confirm(
@@ -50,7 +78,9 @@ export async function runAppUpdateFlow(bindings: UpdaterBindings) {
     await update.download()
   } catch (error) {
     await bindings.message(
-      `下载更新失败：${error instanceof Error ? error.message : String(error)}\n\n请稍后重试或前往 GitHub 手动下载安装包。`,
+      `下载更新失败：${error instanceof Error ? error.message : String(error)}
+
+网络连不上 GitHub 时可以：稍后重试；或在设置里配置自己的代理后重试；也可以前往 GitHub 手动下载安装包。`,
       {
         title: "下载失败",
         kind: "error",
@@ -97,7 +127,35 @@ export async function runAppUpdateFlow(bindings: UpdaterBindings) {
   }
 }
 
-export async function checkForAppUpdate() {
+/**
+ * 读出用户配好的代理地址（没启用或地址非法时返回 undefined）。
+ *
+ * 为什么更新要单独读一次：`tauri-plugin-updater` 有自己的 http 客户端，
+ * **不读**我们写进环境变量的 HTTP_PROXY。不显式传进去，用户开了代理
+ * 对「检查更新」也毫无作用（实测发现，不是猜测）。
+ */
+async function resolveProxyForUpdate(): Promise<string | undefined> {
+  try {
+    const { useWikiStore } = await import("@/stores/wiki-store")
+    const proxy = useWikiStore.getState().proxyConfig
+    if (!proxy?.enabled) return undefined
+    const url = proxy.url?.trim() ?? ""
+    if (!url.startsWith("http://") && !url.startsWith("https://")) return undefined
+    return url
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 检查一次更新。
+ *
+ * `silent`（默认 true）是后台自动检查：没新版本就不打扰。
+ * 用户主动点「检查更新」时传 `silent: false` —— 他主动点了就要有回应，
+ * 即使"已经是最新版本"也要说一声，否则只会觉得点了没用。
+ */
+export async function checkForAppUpdate(options: { silent?: boolean } = {}) {
+  const silent = options.silent ?? true
   if (!isTauri() || !isAppAutoUpdateSupported() || updateCheckStarted) return
 
   updateCheckStarted = true
@@ -111,9 +169,22 @@ export async function checkForAppUpdate() {
       check,
       confirm,
       message,
+      resolveProxy: resolveProxyForUpdate,
+      silent,
     })
   } catch (error) {
     console.warn("检查应用更新失败：", error)
+    if (!silent) {
+      try {
+        const { message } = await import("@tauri-apps/plugin-dialog")
+        await message(
+          `检查更新失败：${error instanceof Error ? error.message : String(error)}\n\n网络连不上 GitHub 时可以：稍后重试；或先在「设置 → 网络」里配置代理再试；也可以前往 GitHub 手动下载安装包。`,
+          { title: "检查更新失败", kind: "error", okLabel: "知道了" },
+        )
+      } catch {
+        // 连弹窗都起不来就算了，别让更新流程抛未捕获异常。
+      }
+    }
   } finally {
     updateCheckStarted = false
   }
