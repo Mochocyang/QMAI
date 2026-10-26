@@ -438,4 +438,27 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn shipped_update_channels_json_is_parseable() {
+        // 这份文件会被 jsDelivr 远程下发，写坏了等于把所有人的加速通道关掉。
+        // 路径相对本源文件：src-tauri/src/updater/channels.rs → 上三级是仓库根。
+        let raw = include_str!("../../../update-channels.json");
+        let table = ChannelTable::parse(raw).expect("仓库根目录的 update-channels.json 必须合法");
+        assert!(
+            table.channels.iter().any(|c| c.id == "direct"),
+            "远程表必须包含直连兜底"
+        );
+        assert!(
+            table.channels.len() >= 2,
+            "只有直连等于没加速，至少要有一条镜像"
+        );
+        assert!(
+            table
+                .channels
+                .iter()
+                .any(|c| c.rewrite != Rewrite::Identity),
+            "必须至少有一条非直连通道"
+        );
+    }
 }
