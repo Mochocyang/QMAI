@@ -11,6 +11,7 @@ mod panic_guard;
 mod platform_guard;
 mod proxy;
 mod types;
+mod updater;
 
 pub use platform_guard::assert_supported_platform;
 
@@ -197,6 +198,11 @@ pub fn run() {
             commands::cloud_sync::cloud_sync_cancel_login,
             commands::cloud_sync::cloud_sync_connect_webdav,
             commands::cloud_sync::cloud_sync_connect_folder,
+    commands::cloud_sync::cloud_sync_connect_github,
+    commands::cloud_sync::cloud_sync_github_auth_state,
+    commands::cloud_sync::cloud_sync_github_repos,
+    commands::cloud_sync::cloud_sync_github_create_repo,
+    commands::cloud_sync::cloud_sync_github_make_private,
             commands::cloud_sync::cloud_sync_stop,
             commands::cloud_sync::cloud_sync_logout,
             commands::cloud_sync::cloud_sync_run_now,
@@ -204,6 +210,7 @@ pub fn run() {
         commands::cloud_sync::cloud_sync_resolve_conflict,
             commands::cloud_sync::cloud_sync_clear_history,
             commands::cloud_sync::cloud_sync_reveal_remote,
+    commands::cloud_sync::cloud_sync_reveal_target_remote,
 commands::fs::read_file,
             commands::fs::write_file,
             commands::fs::write_file_if_absent,
