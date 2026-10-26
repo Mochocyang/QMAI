@@ -8,3 +8,4 @@
 #![allow(dead_code)]
 
 pub mod channels;
+pub mod probe;
