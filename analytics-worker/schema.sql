@@ -2,8 +2,8 @@
 
 -- 用户表：记录每个独立设备（下载用户数统计）
 --
--- ip_hash 已停止写入新值（隐私收窄），保留该列仅为了不让历史数据失效；
--- 仪表盘上的「独立 IP 数」只统计非空值，属历史参考指标。
+-- ip_hash 存 IP 的 SHA-256 哈希（带固定 salt），不落明文，用于
+-- 「独立 IP 数」去重：同一 IP 下载/使用多次只算 1 个。
 -- last_version / last_platform 由客户端 /open 上报，用于版本与平台分布。
 CREATE TABLE IF NOT EXISTS users (
   uuid TEXT PRIMARY KEY,

@@ -41,6 +41,18 @@ interface OpenBody {
   platform?: string
 }
 
+/**
+ * 把 IP 哈希化后再入库，隐私保护：只存 SHA-256 摘要，不落明文 IP。
+ * 固定 salt 保证同一 IP 在其生命周期内哈希值稳定，可稳定去重。
+ */
+async function hashIP(ip: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(ip + "qmai-salt-2026")
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("")
+}
+
 // CORS 响应头
 function corsHeaders(): Record<string, string> {
   return {
@@ -83,25 +95,31 @@ function utcDateKey(d: Date): string {
  *
  * 只在 /open 调用：心跳不再回写 users 表，否则每分钟每用户一次写入
  * 会迅速打爆免费版 D1 的 10 万行/天写入额度。
+ *
+ * ip_hash 存的是 SHA-256 哈希（加固定 salt），不落明文 IP。
+ * 「独立 IP 数」用它去重：同一个 IP 下载/使用 10 次只算 1 个，
+ * 因此它是比「累计下载次数」更接近真实用户规模的指标。
  */
 async function upsertUserSeen(
+  request: Request,
   env: Env,
   uuid: string,
   now: string,
   version: string,
   platform: string,
 ): Promise<void> {
-  // ip_hash 显式写空串：线上老表的该列是 NOT NULL 且没有 DEFAULT，
-  // 漏写会触发 "NOT NULL constraint failed: users.ip_hash"。
-  // 之所以不再采集 IP：该指标对新增用户已无法统计，收窄采集面更安全。
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown"
+  const ipHash = await hashIP(ip)
+
   await env.DB.prepare(
     `INSERT INTO users (uuid, ip_hash, first_seen, last_seen, last_version, last_platform)
-     VALUES (?1, '', ?2, ?2, ?3, ?4)
+     VALUES (?1, ?2, ?3, ?3, ?4, ?5)
      ON CONFLICT(uuid) DO UPDATE SET
-       last_seen = ?2,
-       last_version = COALESCE(NULLIF(?3, ''), users.last_version),
-       last_platform = COALESCE(NULLIF(?4, ''), users.last_platform)`
-  ).bind(uuid, now, version, platform).run()
+       last_seen = ?3,
+       ip_hash = ?2,
+       last_version = COALESCE(NULLIF(?4, ''), users.last_version),
+       last_platform = COALESCE(NULLIF(?5, ''), users.last_platform)`
+  ).bind(uuid, ipHash, now, version, platform).run()
 }
 
 async function countActiveUsers(env: Env, cutoff: string): Promise<number> {
@@ -123,7 +141,7 @@ async function handleOpen(request: Request, env: Env): Promise<Response> {
   const now = new Date().toISOString()
 
   // 写 1：注册/更新用户（版本与平台分布的数据来源）
-  await upsertUserSeen(env, uuid, now, version, platform)
+  await upsertUserSeen(request, env, uuid, now, version, platform)
 
   // 写 2：关闭该 uuid 的所有旧会话并开启新会话，合并成一条语句。
   // 先 UPDATE 再 INSERT 是 2 次写，用 UPSERT 不好表达"关旧开新"，
@@ -276,10 +294,11 @@ async function handleStats(request: Request, env: Env): Promise<Response> {
   const versions = await collectVersionDistribution(env)
   const platforms = await collectPlatformDistribution(env)
 
-  // 独立 IP 数：按 users.ip_hash 去重。
-  // 注意：ip_hash 列已不再写入新数据（出于隐私收窄），
-  // 新注册用户 ip_hash 为空串，因此该指标对新增用户会失真 ——
-  // 仪表盘已把它降级为"历史数据参考"，新用户数应以"下载用户数"为准。
+  // 独立 IP 数：按 users.ip_hash 去重，代表"真实独立设备/用户"的粗略规模。
+  // 为什么仍保留：累计下载用户数会被"同一台机器删除重装/多设备下载"放大，
+  // 而独立 IP 去重后更接近真实用户量，两者对比能看出异常增长。
+  // 空串只存在于 2026-10-25~26 短暂停止采集期间的用户，过滤掉避免把
+  // "无 IP 记录"整体算作 1 个独立 IP。
   const uniqueIPs = await env.DB.prepare(
     `SELECT COUNT(DISTINCT ip_hash) as count FROM users WHERE ip_hash <> ''`
   ).first<{ count: number }>()
@@ -392,7 +411,7 @@ function renderDashboard(input: {
       </div>
       <div class="card">
         <div class="number">${input.uniqueIPs}</div>
-        <div class="label">独立 IP 数（历史参考）</div>
+        <div class="label">独立 IP 数</div>
       </div>
       <div class="card online">
         <div class="number">${input.onlineCount}</div>
@@ -436,7 +455,7 @@ function renderDashboard(input: {
       <p>数据更新时间：${escapeHtml(input.serverTime)}</p>
       <p>在线人数按最近 15 分钟内有心跳的去重设备计算；客户端心跳间隔 5 分钟。</p>
       <p>DAU/WAU 按最近一次活跃时间统计，口径与"打开过"不同，反映真实使用。</p>
-      <p>独立 IP 数仅统计历史数据：为收窄隐私采集，新用户不再记录 IP 哈希。</p>
+      <p>独立 IP 数按 IP 的 SHA-256 哈希去重，只存哈希不存明文；同一 IP 多次下载只计 1。</p>
     </div>
   </main>
 </body>
