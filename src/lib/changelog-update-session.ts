@@ -114,10 +114,34 @@ async function closePackage(pkg: ChangelogUpdatePackage) {
   }
 }
 
+/**
+ * 读出用户配好的代理地址（没启用或地址非法时返回 undefined）。
+ *
+ * 用户就卡在「点检查更新毫无反应 20 秒」上，而 plugin-updater 自带的
+ * http 客户端**不读**环境变量里的 HTTP_PROXY —— 不显式传进去，
+ * 用户开了代理也等于没开（实测发现）。插件 2.11 起支持 check({ proxy, timeout })。
+ */
+async function resolveProxyForCheck(): Promise<string | undefined> {
+  try {
+    const { useWikiStore } = await import("@/stores/wiki-store")
+    const proxy = useWikiStore.getState().proxyConfig
+    if (!proxy?.enabled) return undefined
+    const url = proxy.url?.trim() ?? ""
+    if (!url.startsWith("http://") && !url.startsWith("https://")) return undefined
+    return url
+  } catch {
+    return undefined
+  }
+}
+
+/** 检查更新必须有上限：20 秒无响应是用户最不能接受的那种"点了没用"。 */
+const CHECK_TIMEOUT_MS = 10_000
+
 async function loadUpdate(): Promise<ChangelogUpdatePackage | null> {
   if (checkerOverride) return checkerOverride()
   const { check } = await import("@tauri-apps/plugin-updater")
-  const update = await check()
+  const proxy = await resolveProxyForCheck()
+  const update = await check({ proxy, timeout: CHECK_TIMEOUT_MS })
   if (!update) return null
   return {
     version: update.version,
