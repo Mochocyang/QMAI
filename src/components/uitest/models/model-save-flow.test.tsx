@@ -14,7 +14,7 @@ import { button, changeInput, click, mountModel, deferred, choose } from "./mode
 vi.mock("@/lib/platform", () => ({ isTauri: () => false }))
 vi.mock("@/lib/project-store", () => ({ saveProviderConfigs: vi.fn(), saveActivePresetId: vi.fn(), saveLlmConfig: vi.fn(), saveEmbeddingConfig: vi.fn(), saveRerankConfig: vi.fn(), saveNovelConfig: vi.fn(), saveDefaultLlmModel: vi.fn() }))
 vi.mock("@/lib/web-store", () => ({ flushAppState: vi.fn() }))
-vi.mock("@/lib/embedding", () => ({ getEmbeddingCount: vi.fn(), legacyVectorRowCount: vi.fn(), getLastEmbeddingError: vi.fn(), embedAllPages: vi.fn(), dropLegacyVectorTable: vi.fn() }))
+vi.mock("@/lib/embedding", () => ({ getEmbeddingCount: vi.fn(), legacyVectorRowCount: vi.fn(), getLastEmbeddingError: vi.fn(), getEmbeddingSkipSummary: vi.fn(), embedAllPages: vi.fn(), dropLegacyVectorTable: vi.fn() }))
 vi.mock("@/lib/settings-model-list", () => ({ fetchLlmModelList: vi.fn(), fetchEmbeddingModelList: vi.fn(), fetchRerankModelList: vi.fn() }))
 vi.mock("@/lib/connection-tests", () => ({ testLlmConnection: vi.fn(), testLlmFunction: vi.fn() }))
 vi.mock("@/components/settings/resource-link", () => ({ ResourceLink: () => null }))

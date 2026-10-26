@@ -42,6 +42,7 @@ import {
   parseDashScopeEmbeddingBatch,
   parseGoogleEmbeddingBatch,
   parseOpenAiEmbeddingBatch,
+  pageIdIndexBlock,
   planEmbeddingReindex,
   shouldFlushEmbeddingWrite,
   type EmbeddingIndexManifest,
@@ -142,6 +143,22 @@ export function getLastEmbeddingError(): string | null {
  */
 export function resetLastEmbeddingError(): void {
   lastEmbeddingError = null
+}
+
+let embeddingSkippedPages: string[] = []
+
+export function getEmbeddingSkipSummary(): string | null {
+  if (embeddingSkippedPages.length === 0) return null
+  const shown = embeddingSkippedPages.slice(0, 6)
+  const rest = embeddingSkippedPages.length - shown.length
+  const names = shown.join("、")
+  return rest > 0
+    ? `已跳过 ${embeddingSkippedPages.length} 个页面（${names} 等）。这些页面没有进入本次索引。`
+    : `已跳过 ${embeddingSkippedPages.length} 个页面（${names}）。这些页面没有进入本次索引。`
+}
+
+function rememberEmbeddingSkip(pageId: string) {
+  if (!embeddingSkippedPages.includes(pageId)) embeddingSkippedPages.push(pageId)
 }
 
 // ── fetchEmbedding with auto-halve retry ────────────────────────────────
@@ -923,29 +940,87 @@ async function embedPagesRebuild(
   await vectorRebuildBegin(projectPath)
   const hashes: Record<string, string> = {}
   const buffer: RebuildChunkInput[] = []
-  const pageStates = new Map<string, { hash: string; left: number; failed: boolean }>()
+  const pageStates = new Map<string, { hash: string; left: number; failed: boolean; pendingRows: number }>()
   const queue = createRebuildQueue(EMBED_QUEUE_DEPTH)
   let done = 0
-  let writeError: unknown = null
   let writeChain = Promise.resolve()
   let bufferBytes = 0
+
+  const seal = (pageId: string) => {
+    const state = pageStates.get(pageId)
+    if (!state || state.left > 0 || state.pendingRows > 0) return
+    pageStates.delete(pageId)
+    if (state.failed) delete hashes[pageId]
+    else hashes[pageId] = state.hash
+  }
+
+  const discardRows = (rows: RebuildChunkInput[], reason: string) => {
+    const counts = new Map<string, number>()
+    for (const row of rows) counts.set(row.pageId, (counts.get(row.pageId) ?? 0) + 1)
+    for (const [pageId, count] of counts) {
+      const state = pageStates.get(pageId)
+      if (state) {
+        state.failed = true
+        state.pendingRows = Math.max(0, state.pendingRows - count)
+      }
+      delete hashes[pageId]
+      rememberEmbeddingSkip(pageId)
+      embeddingIndexLog("page-skip", { pageId, reason: reason.slice(0, 200) })
+      seal(pageId)
+    }
+  }
+
+  const acceptRows = (rows: RebuildChunkInput[]) => {
+    const counts = new Map<string, number>()
+    for (const row of rows) counts.set(row.pageId, (counts.get(row.pageId) ?? 0) + 1)
+    for (const [pageId, count] of counts) {
+      const state = pageStates.get(pageId)
+      if (!state) continue
+      state.pendingRows = Math.max(0, state.pendingRows - count)
+      seal(pageId)
+    }
+  }
+
+  const writeRows = async (rows: RebuildChunkInput[]) => {
+    const blocked: RebuildChunkInput[] = []
+    const accepted: RebuildChunkInput[] = []
+    for (const row of rows) {
+      if (pageIdIndexBlock(row.pageId)) blocked.push(row)
+      else accepted.push(row)
+    }
+    if (blocked.length > 0) discardRows(blocked, "page id cannot be stored")
+    if (accepted.length === 0) return
+    try {
+      await vectorRebuildAppend(projectPath, accepted)
+      acceptRows(accepted)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      noteEmbeddingLogError(message)
+      embeddingIndexLog("flush-fail", { error: message.slice(0, 200) })
+      discardRows(accepted, message)
+    }
+  }
 
   const notePageFinished = (pageId: string) => {
     const state = pageStates.get(pageId)
     if (!state) return
     state.left -= 1
     if (state.left > 0) return
-    pageStates.delete(pageId)
-    if (!state.failed) hashes[pageId] = state.hash
-    else embeddingIndexLog("page-incomplete", { pageId })
+    if (state.failed) {
+      rememberEmbeddingSkip(pageId)
+      embeddingIndexLog("page-incomplete", { pageId })
+    }
     done += 1
     setEmbeddingLogProgress(done, pages.length)
     onProgress?.(done, pages.length)
+    seal(pageId)
   }
 
   const enqueueRows = (rows: RebuildChunkInput[]) => {
-    if (writeError || rows.length === 0) return
+    if (rows.length === 0) return
     for (const row of rows) {
+      const state = pageStates.get(row.pageId)
+      if (state) state.pendingRows += 1
       buffer.push(row)
       bufferBytes += estimateEmbeddingJsonBytes(row.embedding.length)
     }
@@ -956,19 +1031,26 @@ async function embedPagesRebuild(
     bufferBytes = 0
     setEmbeddingLogBuffer(0, 0)
     embeddingIndexLog("flush", { rows: batch.length, bytes: flushedBytes })
-    writeChain = writeChain.then(() => vectorRebuildAppend(projectPath, batch)).catch((error) => {
-      const message = error instanceof Error ? error.message : String(error)
-      writeError = error
-      noteEmbeddingLogError(message)
-      embeddingIndexLog("flush-fail", { error: message.slice(0, 200) })
-      queue.close()
-    })
+    writeChain = writeChain.then(() => writeRows(batch))
+  }
+
+  const skipPage = (pageId: string, reason: string) => {
+    rememberEmbeddingSkip(pageId)
+    embeddingIndexLog("page-skip", { pageId, reason: reason.slice(0, 200) })
+    done += 1
+    setEmbeddingLogProgress(done, pages.length)
+    onProgress?.(done, pages.length)
   }
 
   const producer = (async () => {
     try {
       for (const page of pages) {
-        if (queue.closed) return
+        const blocked = pageIdIndexBlock(page.id)
+        if (blocked) {
+          page.content = undefined
+          skipPage(page.id, blocked)
+          continue
+        }
         let chunks: Chunk[] = []
         try {
           const content = page.content ?? (await readFile(page.path))
@@ -978,9 +1060,7 @@ async function embedPagesRebuild(
           const message = error instanceof Error ? error.message : String(error)
           noteEmbeddingLogError(message)
           embeddingIndexLog("page-read-fail", { pageId: page.id, error: message.slice(0, 200) })
-          done += 1
-          setEmbeddingLogProgress(done, pages.length)
-          onProgress?.(done, pages.length)
+          skipPage(page.id, message)
           continue
         }
         if (chunks.length === 0) {
@@ -990,7 +1070,7 @@ async function embedPagesRebuild(
           continue
         }
         const batchCount = Math.ceil(chunks.length / EMBED_BATCH_SIZE)
-        pageStates.set(page.id, { hash: page.hash, left: batchCount, failed: false })
+        pageStates.set(page.id, { hash: page.hash, left: batchCount, failed: false, pendingRows: 0 })
         for (let i = 0; i < chunks.length; i += EMBED_BATCH_SIZE) {
           const slice = chunks.slice(i, i + EMBED_BATCH_SIZE)
           await queue.push({
@@ -998,7 +1078,6 @@ async function embedPagesRebuild(
             chunks: slice,
             texts: slice.map((chunk) => enrichChunkForEmbedding(page.title, chunk)),
           })
-          if (queue.closed) return
         }
       }
     } finally {
@@ -1007,7 +1086,7 @@ async function embedPagesRebuild(
   })()
 
   const workers = Array.from({ length: EMBED_BATCH_CONCURRENCY }, async () => {
-    while (!writeError) {
+    while (true) {
       const job = await queue.pop()
       if (!job) return
       const state = pageStates.get(job.pageId)
@@ -1039,20 +1118,18 @@ async function embedPagesRebuild(
     }
   })
 
+  await Promise.all([producer, ...workers])
+  await writeChain
+  if (buffer.length > 0) {
+    const batch = buffer.splice(0, buffer.length)
+    embeddingIndexLog("flush", { rows: batch.length, bytes: bufferBytes })
+    bufferBytes = 0
+    setEmbeddingLogBuffer(0, 0)
+    await writeRows(batch)
+  }
   try {
-    await Promise.all([producer, ...workers])
-    await writeChain
-    if (writeError) throw writeError
-    if (buffer.length > 0) {
-      const batch = buffer.splice(0, buffer.length)
-      embeddingIndexLog("flush", { rows: batch.length, bytes: bufferBytes })
-      bufferBytes = 0
-      setEmbeddingLogBuffer(0, 0)
-      await vectorRebuildAppend(projectPath, batch)
-    }
     embeddingIndexLog("commit")
     await vectorRebuildCommit(projectPath)
-    return hashes
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     noteEmbeddingLogError(message)
@@ -1060,10 +1137,11 @@ async function embedPagesRebuild(
     try {
       await vectorRebuildAbort(projectPath)
     } catch {
-      // the original failure is the one to surface
+      // the commit failure is the one to surface
     }
     throw error
   }
+  return hashes
 }
 
 /**
@@ -1084,6 +1162,7 @@ export async function embedAllPages(
 
   const pp = normalizePath(projectPath)
   return withMemoryWriteLock(pp, async () => {
+    embeddingSkippedPages = []
     const startedAt = Date.now()
     startEmbeddingIndexLog(pp, {
       model: cfg.model,

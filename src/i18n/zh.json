@@ -702,8 +702,8 @@
         "reindexDone": "已索引 {{count}} 个页面。",
         "legacyPromptTitle": "检测到旧版（按页）索引",
         "legacyPromptBody": "当前项目在旧版按页向量存储里有 {{count}} 条记录。新版按 chunk 索引检索质量更高,但需要一次性重新 embed。点击\"重新索引全部页面\"完成升级。",
-        "dropLegacy": "删除旧版索引",
-        "dropLegacyDone": "旧版索引已删除。",
+        "dropLegacy": "删除升级前的按页向量表",
+        "dropLegacyDone": "升级前的按页向量表已删除。",
         "testSuccessWithDimensions": "嵌入模型测试成功：{{model}}（{{dimensions}}维）"
       },
       "rerank": {

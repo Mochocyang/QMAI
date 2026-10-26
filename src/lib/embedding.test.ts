@@ -48,6 +48,7 @@ import {
   fetchEmbedding,
   embedPage,
   embedAllPages,
+  getEmbeddingSkipSummary,
   getLastEmbeddingError,
   legacyVectorRowCount,
   dropLegacyVectorTable,
@@ -1186,6 +1187,45 @@ describe("embedAllPages", () => {
     const upserts = mockInvoke.mock.calls.filter((c) => c[0] === "vector_upsert_chunks")
     expect(upserts).toHaveLength(1)
     expect((upserts[0][1] as { pageId: string }).pageId).toBe("b")
+  })
+
+  it("skips a page id Lance would reject and still commits the other pages", async () => {
+    listDirectoryMock.mockResolvedValueOnce([
+      { name: "ok.md", path: "/proj/wiki/ok.md", is_dir: false },
+      { name: "第157章-Let's clear the air.md", path: "/proj/wiki/bad.md", is_dir: false },
+    ])
+    readFileMock.mockResolvedValue("# Title\n\nBody text.")
+    mockHttpFetch.mockImplementation(async (_url: string, opts?: RequestInit) => batchOkResponse(opts))
+
+    await embedAllPages("/proj", cfg)
+
+    const commands = mockInvoke.mock.calls.map((call) => call[0])
+    expect(commands).toContain("vector_rebuild_commit")
+    expect(commands).not.toContain("vector_rebuild_abort")
+    const staged = mockInvoke.mock.calls
+      .filter((call) => call[0] === "vector_rebuild_append")
+      .flatMap((call) => (call[1] as { chunks: Array<{ page_id: string }> }).chunks)
+    expect([...new Set(staged.map((row) => row.page_id))]).toEqual(["ok"])
+    expect(getEmbeddingSkipSummary()).toContain("第157章-Let's clear the air")
+  })
+
+  it("commits a rebuild after a staging write fails instead of dropping it", async () => {
+    listDirectoryMock.mockResolvedValueOnce([
+      { name: "a.md", path: "/proj/wiki/a.md", is_dir: false },
+      { name: "b.md", path: "/proj/wiki/b.md", is_dir: false },
+    ])
+    readFileMock.mockResolvedValue("body.")
+    mockHttpFetch.mockImplementation(async () => okResponse([0.5]))
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "vector_rebuild_append") throw new Error("disk full")
+    })
+
+    await expect(embedAllPages("/proj", cfg)).resolves.toBe(2)
+
+    const commands = mockInvoke.mock.calls.map((call) => call[0])
+    expect(commands).toContain("vector_rebuild_commit")
+    expect(commands).not.toContain("vector_rebuild_abort")
+    expect(getEmbeddingSkipSummary()).toContain("已跳过")
   })
 })
 
