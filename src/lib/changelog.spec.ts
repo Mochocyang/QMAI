@@ -6,7 +6,21 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 8)).toEqual(["4.3.10", "4.3.9", "4.3.8", "4.3.7", "4.3.6", "4.3.5", "4.3.4", "4.3.3"])
+    expect(versions.slice(0, 8)).toEqual(["4.4.0", "4.3.10", "4.3.9", "4.3.8", "4.3.7", "4.3.6", "4.3.5", "4.3.4"])
+    /*
+     * 4.4.0 是本次功能版：云同步 GitHub 支持、更新加速、历史版本、
+     * 记忆清理断点续传等六项，按发布要求逐条列出。
+     */
+    const release440 = currentVersionChangelog("4.4.0")[0]
+    expect(release440.version).toBe("4.4.0")
+    expect(release440.date).toBe("2026-10-26")
+    expect(release440.highlights.zh).toHaveLength(6)
+    const zh440 = release440.highlights.zh.join(String.fromCharCode(10))
+    expect(zh440).toContain("GitHub 私有仓库同步")
+    expect(zh440).toContain("多通道择优")
+    expect(zh440).toContain("历史版本")
+    expect(zh440).toContain("断点续传")
+    expect(release440.highlights.en).toEqual(release440.highlights.zh)
     // 4.3.10 只收录一条：目录收起后的图标提示。
     const release4310 = currentVersionChangelog("4.3.10")[0]
     expect(release4310.version).toBe("4.3.10")

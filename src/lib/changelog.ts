@@ -30,6 +30,24 @@ const FOUR_POINT_THREE_EIGHT_ZH: string[] = [
   "重排地址支持 …/reranks 这类复数写法，不再提示地址无效。",
 ];
 
+const FOUR_POINT_FOUR_ZERO_ZH: string[] = [
+  "新增 GitHub 私有仓库同步。",
+  "检查更新和下载都改走多通道择优。下载提速 10～20 倍。",
+  "章节与大纲支持右键查看历史版本：保存、AI 覆盖、大纲覆盖前都会自动留一份版本，可以逐条比对差异并回退。",
+  "章节树删除改为右键入口，二次确认为红底白字，避免误删。",
+  "记忆清理扫描支持断点续传：离开维护页后扫描继续，中途停止保留已发现候选，重启后从已完成批次继续，不重跑已扫部分。",
+  "统一记忆清理并开放 MCP 维护工具：从快照来源清理六类记忆，同步 JSON、Markdown、人物 Skill 和检索缓存，支持备份撤销及超量提醒。",
+];
+
+const FOUR_POINT_FOUR_ZERO_CHANGELOG: ChangelogEntry = {
+  version: "4.4.0",
+  date: "2026-10-26",
+  highlights: {
+    en: FOUR_POINT_FOUR_ZERO_ZH,
+    zh: FOUR_POINT_FOUR_ZERO_ZH,
+  },
+};
+
 const FOUR_POINT_THREE_TEN_ZH: string[] = [
   "目录收起后左上角按钮显示收起图标，不再显示品牌 logo。",
 ];
@@ -2095,6 +2113,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_FOUR_ZERO_CHANGELOG.version)
+    return [FOUR_POINT_FOUR_ZERO_CHANGELOG];
   if (version === FOUR_POINT_THREE_TEN_CHANGELOG.version)
     return [FOUR_POINT_THREE_TEN_CHANGELOG];
   if (version === FOUR_POINT_THREE_NINE_CHANGELOG.version)
@@ -2280,6 +2300,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_FOUR_ZERO_CHANGELOG,
     FOUR_POINT_THREE_TEN_CHANGELOG,
     FOUR_POINT_THREE_NINE_CHANGELOG,
     FOUR_POINT_THREE_EIGHT_CHANGELOG,
