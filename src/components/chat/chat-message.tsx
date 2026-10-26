@@ -58,6 +58,7 @@ import { MermaidDiagram, unwrapMermaidPre } from "@/components/mermaid-diagram";
 import { highlightCode } from "@/lib/streaming-code-highlight";
 import { separateThinking } from "@/lib/separate-thinking";
 import { StreamingMarkdown } from "@/components/common/streaming-markdown";
+import { formatNovelBody } from "@/lib/novel-body-format";
 import { StreamingSpinner } from "@/components/common/streaming-spinner";
 import { canContinueUnfinishedDeepChapter } from "./chat-resume";
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content";
@@ -1095,7 +1096,12 @@ function MarkdownContent({ content }: { content: string }) {
     () => separateThinking(cleaned),
     [cleaned],
   );
-  const processed = useMemo(() => processContent(answer), [answer]);
+  /*
+   * AI 写出的中文正文是「一行一段、段间无空行」，而 Markdown 把单个换行
+   * 当成软换行 —— 30 段会挤进同一个 <p>（真实投诉：正文完全没法读）。
+   * 渲染前统一规范化成独立段落，并把段首的全角空格转成可稳定渲染的缩进。
+   */
+  const processed = useMemo(() => formatNovelBody(processContent(answer)), [answer]);
   const renderLanguage = useMemo(() => detectLanguage(answer), [answer]);
   const direction = getTextDirection(renderLanguage);
   const htmlLang = getHtmlLang(renderLanguage);
@@ -1104,7 +1110,11 @@ function MarkdownContent({ content }: { content: string }) {
     <div className="w-full min-w-0">
       {thinking && <WorkflowBlock content={thinking} />}
       <div
-        className="chat-markdown prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-2 prose-code:text-xs prose-code:before:content-none prose-code:after:content-none"
+        /*
+         * 段落间距从 my-1（4px）放大：中文正文一行一段，4px 挤在一起仍然难读。
+         * 行高也放宽（1.9），中文比英文需要更多呼吸感。
+         */
+        className="chat-markdown prose prose-sm max-w-none dark:prose-invert prose-p:my-2.5 prose-p:leading-[1.9] prose-headings:my-3 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-pre:my-2 prose-code:text-xs prose-code:before:content-none prose-code:after:content-none"
         dir={direction}
         lang={htmlLang}
         style={{ textAlign: "start" }}
