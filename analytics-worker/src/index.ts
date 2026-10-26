@@ -35,6 +35,12 @@ const ACTIVE_ONLINE_WINDOW_MS = 15 * 60 * 1000
  */
 const STALE_SESSION_MS = 60 * 60 * 1000
 
+/**
+ * 留存率的队列窗口（天）：只统计近 N 天注册的用户。
+ * 早期用户的产品形态与现在差异很大，算进来会把曲线拉平。
+ */
+const COHORT_WINDOW_DAYS = 30
+
 interface OpenBody {
   uuid?: string
   version?: string
@@ -288,18 +294,22 @@ async function collectPlatformDistribution(env: Env) {
  * 口径：以 sessions.last_active 判定"活跃"（真实使用过的时刻），
  * 而不是 users.last_seen（只在启动时写）。分群基准取 users.first_seen 的日期。
  *
- * 只统计**已经过完整观察窗**的群体，避免新注册的人必然拉低留存：
- * - 次日留存：只看注册日 ≤ 昨天的群体（否则今天的用户还没机会进入次日）
- * - 7 日留存：只看注册日 ≤ 7 天前的群体
+ * 观察窗上下界同时约束，缺一不可：
+ * - 上界（已过完整观察窗）：次日留存只看注册日 ≤ 昨天的群体，7 日留存只看
+ *   注册日 ≤ 7 天前，否则新注册的人还在观察窗内，必然拉低留存。
+ * - 下界（只看近 30 天）：`COHORT_WINDOW_DAYS` 天以前注册的老用户不参与。
+ *   早期用户的产品形态与现在差异很大，把他们算进来会把曲线拉平，
+ *   看不出近期版本的真实留存变化。
  *
  * 纯查询，不增加任何写入。
  */
 async function collectRetention(env: Env) {
   const now = new Date()
   const dayMs = 24 * 60 * 60 * 1000
-  const today = utcDateKey(now)
   const yesterday = utcDateKey(new Date(now.getTime() - dayMs))
   const weekAgo = utcDateKey(new Date(now.getTime() - 7 * dayMs))
+  // 队列下界：仅统计近 COHORT_WINDOW_DAYS 天注册的用户
+  const cohortFloor = utcDateKey(new Date(now.getTime() - COHORT_WINDOW_DAYS * dayMs))
 
   // 次日留存：注册日 = D 的用户，在 D+1 当天有活跃会话
   const d1 = await env.DB.prepare(
@@ -311,8 +321,9 @@ async function collectRetention(env: Env) {
            AND date(s.last_active, '+8 hours') = date(u.first_seen, '+8 hours', '+1 day')
        ) THEN 1 ELSE 0 END) as retained
      FROM users u
-     WHERE date(u.first_seen, '+8 hours') <= ?1`
-  ).bind(yesterday).first<{ cohort: number; retained: number }>()
+     WHERE date(u.first_seen, '+8 hours') <= ?1
+       AND date(u.first_seen, '+8 hours') >= ?2`
+  ).bind(yesterday, cohortFloor).first<{ cohort: number; retained: number }>()
 
   // 7 日留存：注册日 = D 的用户，在 D+7 当天有活跃会话
   const d7 = await env.DB.prepare(
@@ -324,8 +335,9 @@ async function collectRetention(env: Env) {
            AND date(s.last_active, '+8 hours') = date(u.first_seen, '+8 hours', '+7 day')
        ) THEN 1 ELSE 0 END) as retained
      FROM users u
-     WHERE date(u.first_seen, '+8 hours') <= ?1`
-  ).bind(weekAgo).first<{ cohort: number; retained: number }>()
+     WHERE date(u.first_seen, '+8 hours') <= ?1
+       AND date(u.first_seen, '+8 hours') >= ?2`
+  ).bind(weekAgo, cohortFloor).first<{ cohort: number; retained: number }>()
 
   const pct = (part: number | null, whole: number | null) => {
     const w = whole ?? 0
@@ -604,7 +616,7 @@ function renderDashboard(input: {
       <p>在线人数按最近 15 分钟内有心跳的去重设备计算；客户端心跳间隔 5 分钟。</p>
       <p>DAU/WAU 按最近一次活跃时间统计，口径与"打开过"不同，反映真实使用。</p>
       <p>独立 IP 数按 IP 的 SHA-256 哈希去重，只存哈希不存明文；同一 IP 多次下载只计 1。</p>
-      <p>留存率按注册日分群，仅统计已过完整观察窗的样本；「样本不足」表示该窗口还没有足够用户。</p>
+      <p>留存率按注册日分群，仅统计近 30 天注册且已过完整观察窗的样本；「样本不足」表示该窗口还没有足够用户。</p>
       <p>最新版本占比的分母只算「已知版本」设备：版本号自 v4.3.9 起才上报，此前的老用户显示为「未知」不计入。</p>
     </div>
   </main>
