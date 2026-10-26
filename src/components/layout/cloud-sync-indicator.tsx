@@ -7,7 +7,7 @@
  * - 失败：常驻，带「重新登录 / 查看详情」动作
  */
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Cloud, CloudAlert, CloudCheck, CloudOff, CloudUpload } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 
@@ -162,6 +162,8 @@ export function CloudSyncIndicator() {
   // 失败条目只从**历史记录**算：那才是真发生过的事。
   const failedEntries = entries.filter((entry) => !entry.ok)
   const [failuresOpen, setFailuresOpen] = useState(false)
+  /** 整个云图标锚点。用来判断"点的是不是外面"。 */
+  const anchorRef = useRef<HTMLDivElement | null>(null)
 
   // 2 秒绿色对勾需要一次重渲染才能回落到常态图标。
   const [, force] = useState(0)
@@ -185,8 +187,11 @@ export function CloudSyncIndicator() {
     }
     // 有失败时先给下拉列表（用户点图标就是想知道"哪几项坏了"），
     // 没有失败才打开完整详情。
+    //
+    // 点图标本身必须能**关掉**已打开的下拉：这个按钮看起来就是个开关，
+    // 之前只会「开」不会「关」，用户点它一下反而打不开别的（真实投诉）。
     if (failedEntries.length > 0) {
-      setFailuresOpen(true)
+      setFailuresOpen((previous) => !previous)
       return
     }
     openDetail()
@@ -208,10 +213,38 @@ export function CloudSyncIndicator() {
     [beginLogin, dismissNotice, openDetail],
   )
 
+  /*
+   * 点下拉外面、或按 Esc 都要收起来。
+   *
+   * 之前只有「查看全部 / 知道了」能关，下拉会一直挂在页面上挡住内容 ——
+   * 用户的原话是"点击其他内容弹窗也不会消失"。用 mousedown 而不是 click：
+   * 点按钮时 click 会先触发一次，导致"点图标打开、同一次点击又关掉"。
+   * 捕获阶段监听，保证在我们的按钮 onClick 之前判定。
+   */
+  useEffect(() => {
+    if (!failuresOpen) return
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      // 点在锚点（图标）或下拉内部时不算"点外面"，交给各自的 onClick 处理。
+      if (anchorRef.current?.contains(target)) return
+      setFailuresOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFailuresOpen(false)
+    }
+    document.addEventListener("mousedown", onPointerDown, true)
+    document.addEventListener("keydown", onKeyDown)
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown, true)
+      document.removeEventListener("keydown", onKeyDown)
+    }
+  }, [failuresOpen])
+
   if (!config.enabled) return null
 
   return (
-    <div className="ui-test-cloud-anchor">
+    <div className="ui-test-cloud-anchor" ref={anchorRef}>
       <Tooltip>
         <TooltipTrigger
           render={
