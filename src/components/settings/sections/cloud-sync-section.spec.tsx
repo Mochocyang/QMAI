@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -242,6 +245,79 @@ describe("CloudSyncSection", () => {
     expect(card.getAttribute("data-target-enabled")).toBe("true")
     expect(card.getAttribute("data-target-connected")).toBe("false")
     expect(card.textContent).toContain("已勾选，还需登录")
+  })
+
+  it("点哪个网盘，下方就显示那个网盘自己的信息", async () => {
+    /*
+     * 真实投诉：点「网盘本地文件夹」，下面还显示"已连接：GitHub"；
+     * 点坚果云也看不到坚果云的信息，于是想重新登录都点不到表单。
+     * 根因是信息区用的是 config.connected/config.accountLabel（激活目标的投影），
+     * 而不是"刚点开的那个网盘"。
+     */
+    useCloudSyncStore.setState({
+      config: {
+        ...DEFAULT_CLOUD_SYNC_CONFIG,
+        enabled: true,
+        provider: "github",
+        connected: true,
+        accountLabel: "Mochocyang/qmai-write-backup",
+        targets: [
+          { provider: "github", connected: true, accountLabel: "Mochocyang/qmai-write-backup" },
+          {
+            provider: "webdav",
+            connected: true,
+            accountLabel: "pairy0@sina.com",
+            webdavUrl: "https://dav.jianguoyun.com/dav/",
+          },
+          { provider: "folder", connected: true, accountLabel: "BaiduSyncdisk", folderPath: "O:/BaiduSyncdisk" },
+        ],
+      },
+    })
+    render()
+    await act(async () => {})
+
+    // 一开始焦点在 GitHub
+    expect(host.textContent).toContain("Mochocyang/qmai-write-backup")
+
+    // 点坚果云 → 下方必须变成坚果云的账号
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[data-provider="webdav"]')!.click(),
+    )
+    expect(host.textContent).toContain("pairy0@sina.com")
+    expect(host.textContent).not.toContain("已连接：Mochocyang/qmai-write-backup")
+
+    // 点网盘本地文件夹 → 下方变成它自己的账号
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[data-provider="folder"]')!.click(),
+    )
+    expect(host.textContent).toContain("BaiduSyncdisk")
+  })
+
+  it("未勾选的网盘也能点开看到登录表单（只是不参与同步）", async () => {
+    useCloudSyncStore.setState({
+      config: {
+        ...DEFAULT_CLOUD_SYNC_CONFIG,
+        enabled: true,
+        provider: "github",
+        connected: true,
+        targets: [{ provider: "github", connected: true, accountLabel: "me/repo" }],
+      },
+    })
+    render()
+    await act(async () => {})
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[data-provider="webdav"]')!.click(),
+    )
+    // 表单在（能重新登录），同时明确告诉用户"还没勾选"
+    expect(host.textContent).toContain("还没勾选")
+    expect(host.textContent).toContain("登录")
+  })
+
+  it("勾选框未选中时也要看得见（不能浅到找不到）", () => {
+    const source = readFileSync(resolve(__dirname, "cloud-sync-section.tsx"), "utf8")
+    // 未勾选态不能再用 border-input 这种浅灰，必须是带透明度的前景色描边
+    expect(source).toContain("border-foreground/45")
+    expect(source).toContain("border-2")
   })
 
   it("「打开远端内容」和「退出登录」挨在一起，中间不夹别的元素", async () => {

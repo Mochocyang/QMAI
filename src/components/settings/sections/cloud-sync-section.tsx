@@ -123,9 +123,16 @@ function ProviderCard({
         data-ui="cloud-sync-target-toggle"
         data-target-toggle={provider.id}
         onClick={onToggle}
-        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border ${
-          enabled ? "border-primary bg-primary text-primary-foreground" : "border-input"
-        } ${canToggle ? "" : "cursor-not-allowed"}`}
+        /*
+         * 未勾选时必须**看得见**：原先用 border-input（浅灰），在浅色背景上几乎消失，
+         * 用户根本找不到勾选框在哪（真实反馈）。改成深一点的实线 + 白底，
+         * 让「这是可以勾的框」一眼可辨；勾选后是实心主色 + 白色对勾。
+         */
+        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-[0.25rem] border-2 transition-colors ${
+          enabled
+            ? "border-primary bg-primary text-primary-foreground"
+            : "border-foreground/45 bg-background hover:border-foreground/70"
+        } ${canToggle ? "" : "cursor-not-allowed opacity-50"}`}
       >
         {enabled ? <Check className="h-3.5 w-3.5" /> : null}
       </button>
@@ -443,8 +450,8 @@ export function CloudSyncSection() {
   const entries = useCloudSyncStore((state) => state.entries)
   const saving = useCloudSyncStore((state) => state.saving)
   const setEnabled = useCloudSyncStore((state) => state.setEnabled)
-  const setProvider = useCloudSyncStore((state) => state.setProvider)
   // 点卡片主体只切"正在看哪个"，不改勾选（见 store 里 focusProvider 的注释）。
+  // `setProvider` 已无人使用：卡片主体的职责现在只有"切焦点"。
   const focusProvider = useCloudSyncStore((state) => state.focusProvider)
   const toggleTarget = useCloudSyncStore((state) => state.toggleTarget)
   const setScope = useCloudSyncStore((state) => state.setScope)
@@ -489,7 +496,18 @@ export function CloudSyncSection() {
     },
     [config.webdavUrl, targets],
   )
+  /*
+   * 下方信息区要显示的是「我刚点开的那个盘」，不是「激活目标」。
+   *
+   * 曾经用 `config.provider`（激活目标）：点一下网盘本地文件夹，下面还是显示
+   * "已连接：GitHub" —— 因为焦点根本没切过去，于是用户想给坚果云换账号
+   * 也点不到登录表单（真实投诉）。现在统一用 focusProvider 维护的焦点。
+   */
   const provider = CLOUD_PROVIDERS.find((item) => item.id === config.provider) ?? null
+  /** 焦点所在网盘的目标条目：连接态/账号都从它取，而不是扁平投影。 */
+  const focusedTarget = provider
+    ? targets.find((entry) => entry.provider === provider.id) ?? null
+    : null
   const lastSyncAge = formatSyncAge(config.lastSyncAt, Date.now())
   /*
    * 失败提示必须**点名到哪个盘**。
@@ -595,12 +613,12 @@ export function CloudSyncSection() {
               <div className="space-y-3 border-t pt-3">
                 {/* 百度已从 CLOUD_PROVIDERS 移除（这一版隐藏），这里不必再留「暂未开放」分支：
                     provider 永远来自列表，available 恒为 true。适配器与后端代码都还在。 */}
-                {config.connected ? (
+                {focusedTarget?.connected ? (
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                     <p className="text-sm">
                       {t("settings.sections.cloudSync.connectedAs", {
-                        defaultValue: `已连接：${config.accountLabel ?? provider.label}`,
-                        account: config.accountLabel ?? provider.label,
+                        defaultValue: `已连接：${focusedTarget.accountLabel ?? provider.label}`,
+                        account: focusedTarget.accountLabel ?? provider.label,
                       })}
                     </p>
                     {/*
@@ -634,6 +652,11 @@ export function CloudSyncSection() {
                   </div>
                 ) : (
                   <>
+                    {focusedTarget ? null : (
+                      <p className="text-xs text-[var(--ui-warning)]" role="status">
+                        这个网盘还没勾选。可以先在这里登录/选择目录；勾选右侧复选框后才会参与同步。
+                      </p>
+                    )}
                     {provider.login === "oauth-browser" ? (
                       <div className="space-y-2">
                         <Button onClick={() => void beginLogin()}>
