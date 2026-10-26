@@ -157,6 +157,15 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 .ui-test-brand-logo-btn .ui-test-brand-logo-icon { width: 16px; height: 16px; color: var(--ui-muted); display: none; }
 .ui-test-brand-logo-btn:hover .ui-test-brand-logo { display: none; }
 .ui-test-brand-logo-btn:hover .ui-test-brand-logo-icon { display: block; }
+/*
+ * 目录已收起时，按钮常驻显示「收起目录」图标而不是品牌 logo。
+ *
+ * 光靠 :hover 不够：目录隐藏后按钮恢复成 logo，用户看不出列表是被收起了，
+ * 也不知道再点一下就能打开。这里让「已收起」这个状态自己可见。
+ * 放在 :hover 规则之后，确保与悬停同时命中时不会被盖回 logo。
+ */
+.ui-test-brand-logo-btn.is-directory-collapsed .ui-test-brand-logo { display: none; }
+.ui-test-brand-logo-btn.is-directory-collapsed .ui-test-brand-logo-icon { display: block; }
 .ui-test-header-hint-anchor { position: relative; display: inline-flex; flex-shrink: 0; }
 .ui-test-header-hint { position: absolute; top: calc(100% + 10px); left: 0; z-index: 30; width: min(280px, calc(100vw - 40px)); padding: 12px 14px; border: 1px solid var(--ui-line); border-radius: 12px; background: var(--ui-paper); color: var(--ui-ink); font: 400 0.8125rem/1.6 var(--ui); box-shadow: 0 12px 40px color-mix(in srgb, var(--ui-ink) 16%, transparent); }
 .ui-test-header-hint.is-right { left: auto; right: 0; }
