@@ -289,12 +289,21 @@ async function rebuildPersonaFacts(projectPath: string, snapshots: ChapterSnapsh
   if (dirty) await savePersonaSkillIndex(projectPath, index)
 }
 
+function report(onLog: Log | undefined, message: string): void {
+  onLog?.(message)
+}
+
 async function invalidateVectors(projectPath: string, paths: string[], communities: string[], onLog?: Log): Promise<void> {
   if (!await fileExists(`${normalizePath(projectPath)}/.qmai/lancedb`)) return
   const { removePageEmbeddingStrict, embedPage } = await import("@/lib/embedding")
   const ids = new Set(paths.filter((path) => path.endsWith(".md")).map((path) => path.split("/").pop()!.replace(/\.md$/, "")))
   for (const path of communities) ids.add(`community:${path.split("/").pop()!.replace(/\.json$/, "")}`)
-  for (const id of ids) await removePageEmbeddingStrict(projectPath, id)
+  const pending = [...ids]
+  report(onLog, `正在清除旧向量 0/${pending.length}。每 32 页会压缩一次索引，这一步数字会短暂停住，并不是卡住。`)
+  for (let index = 0; index < pending.length; index++) {
+    report(onLog, `正在清除旧向量 ${index + 1}/${pending.length}`)
+    await removePageEmbeddingStrict(projectPath, pending[index])
+  }
   const config = useWikiStore.getState().embeddingConfig
   if (config.enabled && config.model) {
     const pages = [...new Set(paths)].filter((path) => path.includes("/wiki/") && path.endsWith(".md"))
@@ -304,7 +313,7 @@ async function invalidateVectors(projectPath: string, paths: string[], communiti
       const id = path.split("/").pop()!.replace(/\.md$/, "")
       const content = await readFile(path)
       const title = parseFrontmatter(content).frontmatter?.title
-      onLog?.(`同步向量索引 ${index + 1}/${pages.length}：${id}`)
+      report(onLog, `正在重建向量 ${index + 1}/${pages.length}：${id}`)
       try {
         if (!await embedPage(projectPath, id, typeof title === "string" ? title : id, content, config)) throw new Error("嵌入未完成")
       } catch {
@@ -364,29 +373,44 @@ export async function applyMemoryCleanup(projectPath: string, scan: MemoryCleanu
       return [{ ...before, entries: before.entries.filter((entry) => differs(entry.entryId)) }, { ...after, entries: after.entries.filter((entry) => differs(entry.entryId)) }]
     })
     const entityPaths = memoryProjectionPaths(projectPath, changedPatches)
+    report(onLog, `正在备份 ${changed.length} 章来源`)
     const { dir, backup } = await captureBackup(projectPath, changed, entityPaths)
-    onLog?.(`已备份至 ${dir}`)
+    report(onLog, `已备份至 ${dir}`)
     const communities = backup.files.filter((f) => f.path.startsWith(".novel/community-summaries/")).map((f) => `${normalizePath(projectPath)}/${f.path}`)
     try {
       await saveMemoryCleanupPolicy(projectPath, nextPolicy)
-      for (const snapshot of next.filter((s) => changedNumbers.has(s.chapterNumber))) await replaceSnapshotForMemoryCleanup(projectPath, snapshot)
+      const rewritten = next.filter((s) => changedNumbers.has(s.chapterNumber))
+      for (let index = 0; index < rewritten.length; index++) {
+        if (index % 20 === 0) report(onLog, `正在重写来源快照 ${index + 1}/${rewritten.length}`)
+        await replaceSnapshotForMemoryCleanup(projectPath, rewritten[index])
+      }
+      if (rewritten.length) report(onLog, `正在重写来源快照 ${rewritten.length}/${rewritten.length}`)
       const committed = await readSnapshots(projectPath)
       const patches = committed.filter((s) => s.chapterNumber > 0).map((s) => buildChapterIngestOutput(s).wikiUpdatePatch)
+      report(onLog, "正在重建派生记忆")
       await rebuildDerivedMemoryFromSnapshots(projectPath, undefined, { fields: [...changedFields] })
       await syncTracking(projectPath)
       const retrieval = createRetrievalStore(projectPath)
-      for (const snapshot of committed.filter((s) => s.chapterNumber > 0 && changedNumbers.has(s.chapterNumber))) await retrieval.updateChapterEntry(snapshot.chapterNumber, snapshot)
+      const retrievalSnapshots = committed.filter((s) => s.chapterNumber > 0 && changedNumbers.has(s.chapterNumber))
+      for (let index = 0; index < retrievalSnapshots.length; index++) {
+        if (index % 20 === 0) report(onLog, `正在同步检索 ${index + 1}/${retrievalSnapshots.length}`)
+        await retrieval.updateChapterEntry(retrievalSnapshots[index].chapterNumber, retrievalSnapshots[index])
+      }
+      report(onLog, "正在同步人物页和人设事实")
       await rebuildMemoryEntityProjections(projectPath, patches, entityPaths, changed, committed)
       await rebuildPersonaFacts(projectPath, committed, changedNumbers, changedFields)
       for (const path of communities) await deleteFile(path)
       // Invalidate stale chunks before reporting success. Reindexing can restore recall later.
       const mutatedPaths: string[] = []
-      for (const file of backup.files) {
+      for (let index = 0; index < backup.files.length; index++) {
+        if (index % 200 === 0) report(onLog, `正在核对改动 ${index + 1}/${backup.files.length}`)
+        const file = backup.files[index]
         const path = `${normalizePath(projectPath)}/${file.path}`
         const after = await fileExists(path) ? await readFile(path) : null
         file.after = fingerprintText(JSON.stringify(after))
         if (after !== file.before) mutatedPaths.push(path)
       }
+      if (backup.files.length) report(onLog, `正在核对改动 ${backup.files.length}/${backup.files.length}`)
       // Include newly created retrieval files in rollback/undo as absent originals.
       const known = new Set(backup.files.map((f) => f.path))
       for (const path of await optionalTree(`${normalizePath(projectPath)}/retrieval`)) {

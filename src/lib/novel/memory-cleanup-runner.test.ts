@@ -176,6 +176,7 @@ describe("来源删除与派生文件同步", () => {
     vi.mocked(embedPage).mockResolvedValue(false)
     const scan = await scanFixture(), log = vi.fn()
     await expect(applyMemoryCleanup("/project", scan, scan.issues, log)).resolves.toBe(6)
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("正在清除旧向量 1/"))
     expect(log).toHaveBeenCalledWith(expect.stringContaining("警告：旧向量已清除"))
     expect(removePageEmbeddingStrict).toHaveBeenCalled()
     expect((await loadSnapshot("/project", 1))?.knowledgeChanges).toEqual([])

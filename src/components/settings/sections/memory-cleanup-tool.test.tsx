@@ -69,7 +69,10 @@ it("一键清理预填推荐规则，确认后才删除", async () => {
   expect(container.querySelector<HTMLInputElement>('[data-testid="rule-non-positive"]')?.checked).toBe(true)
   expect(container.querySelector<HTMLInputElement>('[data-testid="unupdated-chapter-gap"]')?.value).toBe(String(RECOMMENDED_MEMORY_CLEANUP_RULES.unupdatedChapterGap))
   io.plan.mockResolvedValue({ issues: [{}], counts: { nonPositive: 2, unupdated: 3, stale: 4, total: 9 } })
-  io.applyRules.mockResolvedValue(9)
+  io.applyRules.mockImplementation(async (_path, _rules, log: (message: string) => void) => {
+    log("正在清除旧向量 1/3")
+    return 9
+  })
   await click("一键清理")
   expect(io.plan).toHaveBeenCalledWith("/a", RECOMMENDED_MEMORY_CLEANUP_RULES)
   expect(window.confirm).toHaveBeenCalledOnce()

@@ -37,6 +37,7 @@ export function MemoryCleanupTool() {
   const persistedSettings = useRef<string | null>(null)
   const scope = useRef<string | null>(null)
   const seenLogs = useRef(0)
+  const phase = useRef<"scan" | "apply" | "rules" | "undo" | "save" | null>(null)
   scope.current = project?.path ?? null
   const path = project?.path
 
@@ -104,7 +105,12 @@ export function MemoryCleanupTool() {
   const resumable = !scanning && scan?.complete === false
   const scannedCount = scan?.complete === false ? (scan.scannedRecordCount ?? 0) : (scan?.records.length ?? 0)
   const warnings = overview ? memoryMaintenanceWarnings(overview, settings) : []
-  const log = (message: string) => { if (scope.current === path) { setLogs((old) => [...old.slice(-99), message]); if (message.startsWith("警告：")) toast.info(message, { persistent: true }) } }
+  const log = (message: string) => {
+    if (scope.current !== path) return
+    setLogs((old) => [...old.slice(-99), message])
+    if (phase.current === "rules" || phase.current === "apply" || phase.current === "undo") setProgress(message)
+    if (message.startsWith("警告：")) toast.info(message, { persistent: true })
+  }
 
   async function saveSettings() {
     if (!path) return
@@ -115,7 +121,8 @@ export function MemoryCleanupTool() {
   async function run(action: "scan" | "apply" | "undo" | "save") {
     if (!path || busy || !hydrated) return
     const currentPath = path
-    setBusy(action); setError(""); setLogs([])
+    phase.current = action
+    setBusy(action); setError(""); setLogs([]); setProgress(action === "apply" ? "正在准备清理" : action === "undo" ? "正在撤销" : "")
     try {
       if (action === "save") { await saveSettings(); if (scope.current === currentPath) toast.success("已保存记忆清理提醒设置") }
       if (action === "scan") {
@@ -152,13 +159,15 @@ export function MemoryCleanupTool() {
       if (cause instanceof DOMException && cause.name === "AbortError") return
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
+      phase.current = null
       if (scope.current === currentPath && memoryCleanupSession(currentPath)?.status !== "running") { setBusy(null); setProgress("") }
     }
   }
   async function runRules() {
     if (!path || busy || !hydrated) return
     const currentPath = path
-    setBusy("rules"); setError(""); setLogs([])
+    phase.current = "rules"
+    setBusy("rules"); setError(""); setLogs([]); setProgress("正在按规则统计将删除的来源")
     try {
       const plan = await planMemoryCleanupByRules(currentPath, rules)
       if (scope.current !== currentPath) return
@@ -170,6 +179,7 @@ export function MemoryCleanupTool() {
     } catch (cause) {
       if (scope.current === currentPath) setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
+      phase.current = null
       if (scope.current === currentPath && memoryCleanupSession(currentPath)?.status !== "running") { setBusy(null); setProgress("") }
     }
   }
@@ -215,6 +225,7 @@ export function MemoryCleanupTool() {
         <div className="flex flex-wrap items-center gap-3 text-sm"><span>{scan.complete === false ? `已扫描 ${scannedCount} / ${scan.records.length} 条来源记忆` : `已扫描 ${scannedCount} 条来源记忆`}，发现 {scan.issues.length} 组候选</span>
           <Button variant="outline" size="sm" disabled={!!busy} onClick={() => setSelected(new Set(scan.issues.filter((i) => i.confidence === "high").map((i) => i.id)))}>选择高置信度候选</Button>
           <Button variant="destructive" size="sm" disabled={!!busy || !selected.size} onClick={() => void run("apply")}>{busy === "apply" && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}清理选中项（{selected.size}）</Button>
+          {busy === "apply" && progress && <span role="status" data-testid="cleanup-progress" className="text-muted-foreground">{progress}</span>}
         </div>
         {scan.issues.length === 0 && scan.complete !== false && <p className="text-sm text-muted-foreground">本次未发现需要处理的候选。无法定位到来源快照的手工条目不会被直接删除。</p>}
         {scan.issues.map((issue) => <div key={issue.id} className="space-y-2 rounded-md border bg-background p-3 text-sm">
@@ -233,7 +244,8 @@ export function MemoryCleanupTool() {
         <label className="flex items-center gap-2 text-sm"><input data-testid="rule-non-positive" type="checkbox" checked={rules.dropNonPositiveChapters} disabled={!!busy || !hydrated} onChange={(e) => setRules((current) => ({ ...current, dropNonPositiveChapters: e.target.checked }))} />清理章节号小于等于 0 的大纲快照（编号如 -1）</label>
         <label className="flex flex-wrap items-center gap-2 text-sm">比最新正文章节至少落后<Input data-testid="stale-chapter-gap" className="h-8 w-24" type="number" min={0} max={100000} value={rules.staleChapterGap} disabled={!!busy || !hydrated} onChange={(e) => setRules((current) => ({ ...current, staleChapterGap: Number(e.target.value) }))} />章的来源（0 表示不启用，推荐 150）</label>
         <label className="flex flex-wrap items-center gap-2 text-sm">出场后再隔<Input data-testid="unupdated-chapter-gap" className="h-8 w-24" type="number" min={0} max={100000} value={rules.unupdatedChapterGap} disabled={!!busy || !hydrated} onChange={(e) => setRules((current) => ({ ...current, unupdatedChapterGap: Number(e.target.value) }))} />章仍未更新才删除该人物的状态和认知（0 表示不启用，推荐 30）</label>
-        <Button variant="destructive" size="sm" disabled={!!busy || !hydrated} onClick={() => void runRules()}>{busy === "rules" && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}一键清理</Button>
+        <div className="flex flex-wrap items-center gap-2"><Button variant="destructive" size="sm" disabled={!!busy || !hydrated} onClick={() => void runRules()}>{busy === "rules" && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}一键清理</Button>
+          {busy === "rules" && progress && <span role="status" data-testid="cleanup-progress" className="text-sm text-muted-foreground">{progress}</span>}</div>
       </div>
       <Button variant="outline" size="sm" disabled={!!busy || !hydrated} onClick={() => void run("undo")}><RotateCcw className="mr-1 h-4 w-4" />撤销最近清理</Button>
     </>}
