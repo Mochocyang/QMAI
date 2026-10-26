@@ -5,6 +5,12 @@
 
 use serde::{Deserialize, Serialize};
 
+/// 「直连」通道的 id。
+///
+/// 单独抽成常量，是因为「direct 永远垫底兜底」这条硬约束分散在探活排序、
+/// 通道表清洗、下载计划三处；散落的字面量一旦拼错，垫底保护会静默失效。
+pub const DIRECT_CHANNEL_ID: &str = "direct";
+
 /// 通道用途。现在只有一种，写成枚举是为了让「以后有人想拿它加速云同步」
 /// 在类型层面就无法通过——云同步模块的入参只接受 `ChannelScope::UpdateOnly`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -48,7 +54,7 @@ impl ChannelTable {
             version: 1,
             channels: vec![
                 Channel {
-                    id: "direct".to_string(),
+                    id: DIRECT_CHANNEL_ID.to_string(),
                     label: "直连".to_string(),
                     rewrite: Rewrite::Identity,
                     base: None,
@@ -133,7 +139,7 @@ impl ChannelTable {
             let direct = Self::builtin()
                 .channels
                 .into_iter()
-                .find(|channel| channel.id == "direct")?;
+                .find(|channel| channel.id == DIRECT_CHANNEL_ID)?;
             out.insert(0, direct);
         }
 

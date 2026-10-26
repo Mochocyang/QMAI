@@ -8,6 +8,8 @@
 
 use std::time::{Duration, Instant};
 
+use crate::updater::channels::DIRECT_CHANNEL_ID;
+
 pub const PROBE_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROBE_TOTAL_TIMEOUT: Duration = Duration::from_secs(5);
 /// 探活结果缓存 10 分钟：网络状况不会一秒一变，每次都全量探活纯属浪费。
@@ -52,6 +54,7 @@ pub fn client() -> Result<reqwest::blocking::Client, String> {
 /// 探一条 URL。任何失败都只是"不可用"，不是错误 ——
 /// 「某条通道挂了」对用户来说不该是一条报错，只是换个通道的事。
 pub fn probe_url(client: &reqwest::blocking::Client, url: &str) -> ProbeResult {
+    // 返回的 `channel_id` 为空，由调用方回填 —— 这里不该假装知道自己在探哪条通道。
     let started = Instant::now();
     let available = client
         .get(url)
@@ -75,7 +78,7 @@ pub fn probe_url(client: &reqwest::blocking::Client, url: &str) -> ProbeResult {
 /// 即使探活时它很慢甚至失败，也留着最后一次尝试机会。
 pub fn order_for_download(mut probed: Vec<ProbeResult>) -> Vec<ProbeResult> {
     probed.sort_by_key(|item| {
-        let is_direct = item.channel_id == "direct";
+        let is_direct = item.channel_id == DIRECT_CHANNEL_ID;
         let bucket = if !is_direct {
             if item.available { 0 } else { 1 }
         } else {
@@ -145,20 +148,20 @@ mod tests {
     fn ordering_puts_available_first_then_by_rtt_and_keeps_direct_last() {
         let probed = vec![
             ProbeResult { channel_id: "slow".into(), available: true, rtt_ms: Some(900) },
-            ProbeResult { channel_id: "direct".into(), available: true, rtt_ms: Some(100) },
+            ProbeResult { channel_id: DIRECT_CHANNEL_ID.into(), available: true, rtt_ms: Some(100) },
             ProbeResult { channel_id: "fast".into(), available: true, rtt_ms: Some(200) },
             ProbeResult { channel_id: "dead".into(), available: false, rtt_ms: None },
         ];
         let ordered = order_for_download(probed);
         let ids: Vec<&str> = ordered.iter().map(|item| item.channel_id.as_str()).collect();
         // 可用的按 RTT 从小到大；不可用的排最后；direct 永远垫底兜底
-        assert_eq!(ids, vec!["fast", "slow", "dead", "direct"]);
+        assert_eq!(ids, vec!["fast", "slow", "dead", DIRECT_CHANNEL_ID]);
     }
 
     #[test]
     fn direct_stays_last_even_when_it_is_the_fastest() {
         let probed = vec![
-            ProbeResult { channel_id: "direct".into(), available: true, rtt_ms: Some(10) },
+            ProbeResult { channel_id: DIRECT_CHANNEL_ID.into(), available: true, rtt_ms: Some(10) },
             ProbeResult { channel_id: "mirror".into(), available: true, rtt_ms: Some(500) },
         ];
         let ids: Vec<String> = order_for_download(probed)
