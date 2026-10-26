@@ -26,6 +26,17 @@ export type ChangelogUpdateSnapshot = {
   updateNotes: string
   errorMessage: string
   downloadProgress: number
+  /**
+   * 正在用哪条下载源（"官网直链" / "加速通道 A" / "直连" …）。
+   *
+   * 国内各条线路速度差异大，明确告诉用户"正在从官网直链下载"比一个
+   * 光转的进度条更有说服力——他至少知道东西在动、走的是哪条路。
+   */
+  downloadSource: string
+  /** 已下载字节，界面显示 "12.4 / 142.9 MB"。 */
+  downloadBytes: number
+  /** 总字节。0 表示还不知道。 */
+  downloadTotalBytes: number
 }
 
 export type ChangelogUpdatePackage = {
@@ -34,6 +45,14 @@ export type ChangelogUpdatePackage = {
   download: (onEvent?: (event: DownloadEvent) => void) => Promise<void>
   install: () => Promise<void>
   close: () => Promise<void>
+  /**
+   * 安装包是否在「检查更新」阶段就已经下好了（走我们自己的多源分段下载）。
+   *
+   * 为什么需要这个标记：那种情况下 `download()` 立刻返回，`trackDownload`
+   * 收不到任何真实进度 —— 进度条会从 0 直接跳到 100，用户在这 50 多秒里
+   * 看到的是一个不动的界面，以为"点了没反应"（真实投诉）。
+   */
+  preDownloaded?: boolean
 }
 
 type ChangelogUpdateChecker = () => Promise<ChangelogUpdatePackage | null>
@@ -47,6 +66,9 @@ function createIdleSnapshot(): ChangelogUpdateSnapshot {
     updateNotes: "",
     errorMessage: "",
     downloadProgress: 0,
+    downloadSource: "",
+    downloadBytes: 0,
+    downloadTotalBytes: 0,
   }
 }
 
@@ -86,6 +108,10 @@ function publish(next: ChangelogUpdateSnapshot) {
     && next.updateNotes === snapshot.updateNotes
     && next.errorMessage === snapshot.errorMessage
     && next.downloadProgress === snapshot.downloadProgress
+    // 漏掉这三个会让"进度百分比不变但字节在涨"的时刻不刷新界面。
+    && next.downloadSource === snapshot.downloadSource
+    && next.downloadBytes === snapshot.downloadBytes
+    && next.downloadTotalBytes === snapshot.downloadTotalBytes
   ) {
     return
   }
@@ -182,19 +208,18 @@ async function loadUpdate(): Promise<ChangelogUpdatePackage | null> {
    * 插件自带的 `update.download()` 是单连接 + 写死的 GitHub 直连地址，
    * 国内实测 58 KB/s（142.9 MB 要 42 分钟），所以不用它。
    */
+  /*
+   * **检查阶段只问结论，不下包。**
+   *
+   * 曾经在这里就把 143 MB 装包下完了 —— 后果是用户点「检查更新」后
+   * 要干等 50 多秒，界面还只是"正在检查"，完全不知道在下东西；
+   * 等他真点了「下载」，包已下完，进度条只会从 0 跳到 100（真实投诉）。
+   * 现在下载交给 `downloadChangelogUpdate`，那里才有真实进度。
+   */
+  // 检查这一步也要走用户代理：插件自己的 http 客户端不读环境变量。
   const proxy = await resolveProxyForCheck()
-  let packagePath: string | null = null
-  if (info.downloadUrl) {
-    try {
-      packagePath = await invoke<string>("updater_download_package", {
-        releaseUrl: info.downloadUrl,
-        version: info.version,
-      })
-    } catch (error) {
-      console.warn("[updater] 多源下载失败，退回插件自带下载：", error)
-      packagePath = null
-    }
-  }
+  const releaseUrl = info.downloadUrl
+  const wantedVersion = info.version
 
   // 句柄还是要插件的：install 依赖它自己的资源与签名校验。
   const update = await check({ proxy, timeout: CHECK_TIMEOUT_MS })
@@ -204,16 +229,34 @@ async function loadUpdate(): Promise<ChangelogUpdatePackage | null> {
     version: update.version,
     body: update.body,
     download: async (onEvent) => {
-      if (packagePath) {
-        // 已经下好了：补发开始/完成事件，让进度条走完（百分号由 trackDownload 算）。
-        onEvent?.({ event: "Started", data: { contentLength: 1 } } as never)
-        onEvent?.({ event: "Finished", data: {} } as never)
-        return
+      /*
+       * 优先用我们自己的多源分段下载（官网直链 → 反代 → 直连，各源内 8 段并发）。
+       * 真实进度由 `updater://download-progress` 实时推送；这里**先订阅再下载**。
+       */
+      if (releaseUrl) {
+        let unsubscribe: (() => void) | null = null
+        try {
+          unsubscribe = await subscribeDownloadProgress()
+          await invoke<string>("updater_download_package", {
+            releaseUrl,
+            version: wantedVersion,
+          })
+          // 让 trackDownload 收尾置 100（真实百分比已经由事件推过了）。
+          onEvent?.({ event: "Started", data: { contentLength: 1 } } as never)
+          onEvent?.({ event: "Finished", data: {} } as never)
+          return
+        } catch (error) {
+          console.warn("[updater] 多源分段下载失败，退回插件自带下载：", error)
+        } finally {
+          unsubscribe?.()
+        }
       }
+      // 兜底：插件自己的单连接下载（慢，但能下）。
       await update.download(onEvent)
     },
     install: () => update.install(),
     close: () => update.close(),
+    preDownloaded: false,
   }
 }
 
@@ -232,6 +275,9 @@ export async function subscribeDownloadProgress(): Promise<() => void> {
       if (total > 0) {
         updateSnapshot({
           downloadProgress: Math.min(Math.round((downloaded / total) * 100), 99),
+          downloadSource: source,
+          downloadBytes: downloaded,
+          downloadTotalBytes: total,
         })
       }
     },
@@ -368,12 +414,6 @@ export async function downloadChangelogUpdate(): Promise<void> {
    * 下载进度来自 Rust 的 `updater://download-progress`（8 段并发各自累加）。
    * 必须在开始前订阅、结束后**一定**退订，否则切几次面板就会叠一堆监听器。
    */
-  let unsubscribe: (() => void) | null = null
-  try {
-    unsubscribe = await subscribeDownloadProgress()
-  } catch (error) {
-    console.warn("[updater] 订阅下载进度失败（不影响下载本身）：", error)
-  }
   try {
     await trackDownload(pkg)
     updateSnapshot({ status: "ready", downloadProgress: 100, errorMessage: "" })
@@ -384,7 +424,6 @@ export async function downloadChangelogUpdate(): Promise<void> {
       downloadProgress: 0,
     })
   } finally {
-    unsubscribe?.()
     busy = false
   }
 }
