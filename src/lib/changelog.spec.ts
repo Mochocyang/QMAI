@@ -6,7 +6,14 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 8)).toEqual(["4.3.9", "4.3.8", "4.3.7", "4.3.6", "4.3.5", "4.3.4", "4.3.3", "4.3.2"])
+    expect(versions.slice(0, 8)).toEqual(["4.3.10", "4.3.9", "4.3.8", "4.3.7", "4.3.6", "4.3.5", "4.3.4", "4.3.3"])
+    // 4.3.10 只收录一条：目录收起后的图标提示。
+    const release4310 = currentVersionChangelog("4.3.10")[0]
+    expect(release4310.version).toBe("4.3.10")
+    expect(release4310.date).toBe("2026-10-26")
+    expect(release4310.highlights.zh).toHaveLength(1)
+    expect(release4310.highlights.zh[0]).toContain("目录收起后左上角按钮显示收起图标")
+    expect(release4310.highlights.en).toEqual(release4310.highlights.zh)
     // 4.3.9 是修复版，按发布要求只保留一条笼统说明，不逐项罗列。
     const release439 = currentVersionChangelog("4.3.9")[0]
     expect(release439.version).toBe("4.3.9")
