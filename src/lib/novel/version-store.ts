@@ -247,9 +247,11 @@ export async function pruneVersions(
   let removed = 0
   // entries 已按时间倒序，索引天然就是「从新到旧」的名次。
   for (const [index, entry] of entries.entries()) {
+    // 保留侧取「或」：最近 50 个一定留，90 天内的也一定留。
+    // 断更过三个月的书，再打开时旧的 50 个还在，不会一进清理就被扫空。
     const keepByCount = index < MAX_VERSIONS_PER_ITEM
     const keepByAge = entry.at.getTime() >= cutoff
-    if (keepByCount && keepByAge) continue
+    if (keepByCount || keepByAge) continue
 
     try {
       await deleteFile(entry.path)

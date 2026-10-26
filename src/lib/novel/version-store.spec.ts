@@ -185,7 +185,7 @@ describe("列出与保留策略", () => {
     await expect(listVersions("/书", "chapter", 9)).resolves.toEqual([])
   })
 
-  it("超过 50 个或超过 90 天的旧版本会被清掉", async () => {
+  it("超出前 50 个的会被清掉，但 90 天内的版本一定保住", async () => {
     const now = new Date(2026, 9, 26, 12, 0, 0)
     const nodes: Array<{ name: string; path: string; is_dir: boolean }> = []
     // 55 个近期版本（每分钟一个），第 0 个最新
@@ -194,7 +194,7 @@ describe("列出与保留策略", () => {
       const name = buildVersionFileName(at, `内容${index}`)
       nodes.push({ name, path: `/书/.qmai/versions/chapters/001/${name}`, is_dir: false })
     }
-    // 1 个 100 天前的（超龄）
+    // 1 个 100 天前的（超龄，且排在 55 个之后）
     const veryOld = new Date(now.getTime() - 100 * 24 * 3600_000)
     const oldName = buildVersionFileName(veryOld, "很旧的内容")
     nodes.push({ name: oldName, path: `/书/.qmai/versions/chapters/001/${oldName}`, is_dir: false })
@@ -202,15 +202,36 @@ describe("列出与保留策略", () => {
     fsMocks.readFile.mockResolvedValue("x")
 
     const removed = await pruneVersions("/书", "chapter", 1, now)
-    // 55 条里只留前 50 条 → 删 5 条；再加 100 天前那 1 条 → 共 6 条
-    expect(removed).toBe(6)
-    expect(fsMocks.deleteFile).toHaveBeenCalledTimes(6)
+    // 55 个近期版本全在 90 天内 → 一条都不删（保留侧取「或」，年龄条件救回它们）。
+    // 只有 100 天前那一条既超龄又排在前 50 之外 → 删掉。
+    expect(removed).toBe(1)
+    expect(fsMocks.deleteFile).toHaveBeenCalledTimes(1)
+    expect(fsMocks.deleteFile).toHaveBeenCalledWith(
+      `/书/.qmai/versions/chapters/001/${oldName}`,
+    )
+  })
+
+  it("断更三个月以上的书，最近 50 个版本仍被保住（不会一清理就清空历史）", async () => {
+    const now = new Date(2026, 9, 26, 12, 0, 0)
+    const nodes: Array<{ name: string; path: string; is_dir: boolean }> = []
+    // 60 个版本全都超过 120 天：按年龄全该删，但最近 50 个必须留
+    for (let index = 0; index < 60; index += 1) {
+      const at = new Date(now.getTime() - (120 * 24 * 3600_000 + index * 60_000))
+      const name = buildVersionFileName(at, `陈年内容${index}`)
+      nodes.push({ name, path: `/书/.qmai/versions/chapters/002/${name}`, is_dir: false })
+    }
+    fsMocks.listDirectory.mockResolvedValue(nodes)
+    fsMocks.readFile.mockResolvedValue("x")
+
+    const removed = await pruneVersions("/书", "chapter", 2, now)
+    expect(removed).toBe(10) // 60 - 50
   })
 
   it("删除失败时跳过并继续，不把整个清理带崩", async () => {
     const now = new Date(2026, 9, 26, 12, 0, 0)
+    // 全部超过 90 天，这样「前 50 名之外」的那 2 条才真的会被尝试删除。
     const nodes = Array.from({ length: 52 }, (_, index) => {
-      const at = new Date(now.getTime() - index * 60_000)
+      const at = new Date(now.getTime() - (120 * 24 * 3600_000 + index * 60_000))
       const name = buildVersionFileName(at, `内容${index}`)
       return { name, path: `/书/.qmai/versions/chapters/001/${name}`, is_dir: false }
     })
