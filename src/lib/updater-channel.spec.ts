@@ -47,3 +47,39 @@ describe("解析更新通道", () => {
     expect(plan?.channelId).toBe("ok")
   })
 })
+
+
+describe("更新端点配置", () => {
+  it("镜像排在直连前面，直连永远垫底兜底", async () => {
+    /*
+     * 用户就卡在"检查更新 20 秒无反应"上。实测同一网络：
+     *   镜像 gh-proxy  1.6s 成功
+     *   直连           8s 超时（更早实测过连续 3 次 20s 超时）
+     * 而 tauri-plugin-updater 会按 endpoints 顺序逐个尝试、失败换下一个
+     * （见 crate 源码 updater.rs 的 `for url in &self.endpoints`），
+     * 所以顺序必须"快的镜像在前、直连最后"。
+     */
+    const { readFileSync } = await import("node:fs")
+    const { resolve } = await import("node:path")
+    const conf = JSON.parse(
+      readFileSync(resolve(__dirname, "../../src-tauri/tauri.conf.json"), "utf8"),
+    )
+    const endpoints: string[] = conf.plugins.updater.endpoints
+    expect(endpoints.length).toBeGreaterThanOrEqual(2)
+
+    const mirrorIndexes = endpoints
+      .map((url, index) => ({ url, index }))
+      .filter((item) => !item.url.startsWith("https://github.com/"))
+      .map((item) => item.index)
+    expect(mirrorIndexes.length).toBeGreaterThan(0)
+
+    const directIndex = endpoints.findIndex((url) => url.startsWith("https://github.com/"))
+    expect(directIndex).toBeGreaterThan(-1)
+    for (const index of mirrorIndexes) {
+      expect(index).toBeLessThan(directIndex)
+    }
+
+    // pubkey 必须还在：镜像能加速，但**不能**让镜像有机会替换安装包。
+    expect(conf.plugins.updater.pubkey).toBeTruthy()
+  })
+})

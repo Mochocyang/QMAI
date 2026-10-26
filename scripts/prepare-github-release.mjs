@@ -66,7 +66,10 @@ const latest = {
   platforms: {
     "windows-x86_64": {
       signature,
-      url: `https://github.com/Mochocyang/QMAI/releases/latest/download/${releaseAssetName}`,
+      // 安装包地址也走加速镜像（与 build.yml 保持一致）：
+      // 国内实测 HEAD 直连 12 秒超时、镜像 1.6 秒 200。
+      // 镜像只转发公开资产，签名校验不变，改过的包会被拒绝安装。
+      url: `https://gh-proxy.com/https://github.com/Mochocyang/QMAI/releases/latest/download/${releaseAssetName}`,
     },
   },
 }
