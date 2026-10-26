@@ -880,3 +880,25 @@ mod effective_tests {
         );
     }
 }
+
+
+#[cfg(test)]
+mod remote_fetch_tests {
+    use super::*;
+
+    #[test]
+    fn effective_table_has_mirror_first_when_remote_is_unreachable() {
+        // 远程表拉不到时要**静默回落内置表**，且内置表第一必须是镜像。
+        // 这条守住"镜像没效果"这类回归：一旦直连跑回第一位，国内每次都要先白等超时。
+        let table = ChannelTable::builtin();
+        let first = table
+            .channels
+            .iter()
+            .find_map(|channel| channel.map_release_url("https://github.com/O/R/releases/latest/download/latest.json"));
+        let first = first.expect("至少要能映射清单地址");
+        assert!(
+            first.starts_with("https://gh-proxy.com/"),
+            "第一条应是 gh-proxy（实测 1 秒通），实际是 {first}"
+        );
+    }
+}

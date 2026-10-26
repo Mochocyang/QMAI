@@ -187,6 +187,12 @@ pub async fn updater_check<R: Runtime>(app: tauri::AppHandle<R>) -> Result<AppUp
         return Err("没有可用的更新通道".to_string());
     }
 
+    // 诊断：把实际要试的端点打进日志。国内网络环境下"到底试了哪条"必须能查，
+    // 否则只会看到一句"检查更新失败"，无从判断是镜像没生效还是网络问题。
+    for (index, url) in plan.iter().enumerate() {
+        log::info!("[updater] endpoint[{index}] = {url}");
+    }
+
     let app_for_task = app.clone();
     let checked = tauri::async_runtime::spawn_blocking(move || -> Result<Option<AppUpdateInfo>, String> {
         let endpoints: Vec<tauri::Url> = plan
