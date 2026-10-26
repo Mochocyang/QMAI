@@ -88,6 +88,9 @@ impl ChannelTable {
     /// 未知 `rewrite` 会在 `serde_json::from_value` 处失败（`Rewrite` 是
     /// kebab-case 的单元枚举），于是自然被丢弃 —— 不需要额外判断。
     pub fn parse(json: &str) -> Option<Self> {
+        // 远程表最多认这么多条。通道是「探活后才用」的，条数一多，
+        // 检查更新就要挨个探测，反而更慢 —— 上限比"全都信"更符合目标。
+        const MAX_CHANNELS: usize = 8;
         let raw: serde_json::Value = serde_json::from_str(json).ok()?;
         let version = raw.get("version")?.as_u64()? as u32;
         let items = raw.get("channels")?.as_array()?;
@@ -97,9 +100,14 @@ impl ChannelTable {
             let Ok(channel) = serde_json::from_value::<Channel>(item.clone()) else {
                 continue;
             };
-            if channel.id.trim().is_empty() {
+            // id 归一化后再存：远程表可能写 " direct"（带空格），
+            // 不 trim 会让下面「有没有 direct」的判断漏判，于是多插一条内置 direct。
+            let id = channel.id.trim().to_string();
+            if id.is_empty() {
                 continue;
             }
+            let mut channel = channel;
+            channel.id = id;
             if out.iter().any(|existing| existing.id == channel.id) {
                 continue;
             }
@@ -111,10 +119,17 @@ impl ChannelTable {
                     continue;
                 }
             }
+            if out.len() >= MAX_CHANNELS {
+                break;
+            }
             out.push(channel);
         }
 
+        // 兜底的 direct 是**额外**补的：先给它留一个位，否则总数会超上限一条。
         if !out.iter().any(|channel| channel.id == "direct") {
+            while out.len() >= MAX_CHANNELS {
+                out.pop();
+            }
             let direct = Self::builtin()
                 .channels
                 .into_iter()
@@ -363,6 +378,37 @@ mod tests {
         assert!(ChannelTable::parse("{ not json").is_none());
         assert!(ChannelTable::parse(r#"{"version":1,"channels":"nope"}"#).is_none());
         assert!(ChannelTable::parse(r#"{"channels":[]}"#).is_none(), "缺 version 也要拒绝");
+    }
+
+    #[test]
+    fn channel_id_is_normalized_before_dedup_and_fallback() {
+        // 远程表写 " direct"（前导空格）：归一化后应当被认成同一个 direct，
+        // 不能再多插一条内置 direct，否则会出现两条语义重复的通道。
+        let json = r#"{"version":4,"channels":[{"id":" direct","label":"带空格","rewrite":"identity","scope":"update-only"}]}"#;
+        let table = ChannelTable::parse(json).expect("能解析");
+        assert_eq!(table.channels.len(), 1);
+        assert_eq!(table.channels[0].id, "direct");
+    }
+
+    #[test]
+    fn channel_count_is_capped() {
+        let mut channels = String::new();
+        for index in 0..20 {
+            if index > 0 {
+                channels.push(',');
+            }
+            channels.push_str(&format!(
+                r#"{{"id":"m{index}","label":"镜像{index}","rewrite":"prefix","base":"https://m{index}.example/","scope":"update-only"}}"#
+            ));
+        }
+        let json = format!(r#"{{"version":5,"channels":[{channels}]}}"#);
+        let table = ChannelTable::parse(&json).expect("能解析");
+        assert_eq!(
+            table.channels.len(),
+            8,
+            "上限算的是**总数**（含补回来的 direct），否则实际会变成 9 条"
+        );
+        assert_eq!(table.channels[0].id, "direct", "补回来的 direct 要排最前");
     }
 
     #[test]
