@@ -97,21 +97,6 @@
   width: 100%;
 }
 
-/*
- * 维护工具已从设置搬到顶栏「创作工具」，自成一个视图（用户要求）。
- *
- * 它在设置里时，内边距由 [data-ui="settings-scroll"] 的 `px-8 py-6` 提供；
- * 独立成页后这份内边距得自己带上 —— 否则内容会紧贴窗口边缘，
- * 而且长列表（拆书/去重队列很长）需要自己滚动。
- * 32px / 24px 就是上面那两个 Tailwind 值，保持与在设置里时同一观感。
- */
-.ui-test-root [data-ui-page="maintenance"] {
-  height: 100%;
-  overflow-y: auto;
-  padding: 24px 32px 28px;
-  scrollbar-gutter: stable;
-}
-
 .ui-test-root [data-ui="settings-sidebar"] {
   width: 205px;
   border: 0;

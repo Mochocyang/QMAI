@@ -56,7 +56,8 @@ export async function loadMemoryCleanupScan(projectPath: string): Promise<Memory
 }
 
 export async function runMemoryCleanupScan(projectPath: string, config: LlmConfig, options: {
-  fields?: MemoryField[]; scope?: MemoryCleanupScope; signal?: AbortSignal; onLog?: Log; onProgress?: (done: number, total: number) => void
+  fields?: MemoryField[]; scope?: MemoryCleanupScope; resume?: boolean; signal?: AbortSignal; onLog?: Log; onProgress?: (done: number, total: number, scan: MemoryCleanupScan) => void
+  onActivity?: (activity: { batch: number; receivedChars: number; elapsedSeconds: number }) => void
 } = {}): Promise<MemoryCleanupScan> {
   if (options.scope && ([options.scope.fromChapter, options.scope.toChapter].some((n) => n !== undefined && (!Number.isInteger(n) || n < 1))
     || (options.scope.fromChapter !== undefined && options.scope.toChapter !== undefined && options.scope.fromChapter > options.scope.toChapter))) throw new Error("清理章节范围无效")
@@ -81,32 +82,68 @@ export async function runMemoryCleanupScan(projectPath: string, config: LlmConfi
       start = Math.max(start + 1, end - 8)
     }
   }
+  const checkpointPath = `${normalizePath(projectPath)}/.qmai/memory-cleanup-checkpoint.json`
+  const recentStory = snapshots.filter((s) => s.chapterNumber > 0).slice(-3).map((s) => ({ chapter: s.chapterNumber, summary: s.summary.slice(0, 400) }))
+  const fingerprint = fingerprintText(JSON.stringify({ records, batches: batches.map((batch) => batch.map((r) => r.id)), recentStory,
+    model: `${config.provider}/${config.model}`, prompt: MEMORY_CLEANUP_SYSTEM }))
+  let scanId = crypto.randomUUID(), completed = 0
   const issues = new Map<string, MemoryCleanupIssue>()
-  for (let i = 0; i < batches.length; i++) {
+  if (options.resume !== false && await fileExists(checkpointPath)) {
+    let checkpoint: { version: number; fingerprint: string; scan: MemoryCleanupScan } | null = null
+    try { checkpoint = JSON.parse(await readFile(checkpointPath)) } catch { /* A broken checkpoint cannot be trusted. */ }
+    if (checkpoint?.version === 1 && checkpoint.fingerprint === fingerprint && checkpoint.scan.complete === false
+      && Number.isInteger(checkpoint.scan.completedBatches) && checkpoint.scan.completedBatches! >= 0 && checkpoint.scan.completedBatches! <= batches.length) {
+      scanId = checkpoint.scan.scanId ?? scanId
+      completed = checkpoint.scan.completedBatches!
+      for (const issue of parseMemoryCleanupIssues({ issues: checkpoint.scan.issues }, records)) if (!policy.kept.includes(issue.id)) issues.set(issue.id, issue)
+      options.onLog?.(`恢复断点：已完成 ${completed}/${batches.length} 批，保留 ${issues.size} 组候选；继续未完成批次。`)
+    } else if (checkpoint?.scan?.complete === false) options.onLog?.("来源、模型或扫描参数已变化，旧断点不再适用，本次重新扫描。")
+  }
+  await createDirectory(`${normalizePath(projectPath)}/.qmai`)
+  let scan: MemoryCleanupScan
+  const publish = async (complete: boolean) => {
+    const scannedIds = new Set(batches.slice(0, completed).flatMap((batch) => batch.map((record) => record.id)))
+    scan = { version: 1, scanId, ...(options.scope ? { scope: options.scope } : {}), fields: [...(options.fields ?? MEMORY_FIELDS)], scannedAt: Date.now(), records,
+      issues: [...issues.values()], complete, completedBatches: completed, totalBatches: batches.length, scannedRecordCount: scannedIds.size }
+    // Persist a completed batch before announcing progress; a restart repeats only
+    // the currently unfinished request. Partial candidates are independently usable.
+    await writeFileAtomic(checkpointPath, JSON.stringify({ version: 1, fingerprint, scan }))
+    // A fresh run has no candidates yet. Keep the previous result file until a batch
+    // actually finishes, so cancelling immediately does not blank the review list.
+    if (completed > 0 || complete || scan.issues.length > 0) await writeFileAtomic(scanPath(projectPath), JSON.stringify(scan, null, 2))
+    options.onProgress?.(completed, batches.length, scan)
+  }
+  await publish(false)
+  for (let i = completed; i < batches.length; i++) {
     options.signal?.throwIfAborted()
-    options.onProgress?.(i, batches.length)
     options.onLog?.(`分析第 ${i + 1}/${batches.length} 批，${batches[i].length} 条来源记忆`)
-    let output = "", failure: Error | null = null
-    await streamChat(config, [
-      { role: "system", content: MEMORY_CLEANUP_SYSTEM },
-      { role: "user", content: JSON.stringify({
-        recentStory: snapshots.filter((s) => s.chapterNumber > 0).slice(-3).map((s) => ({ chapter: s.chapterNumber, summary: s.summary.slice(0, 400) })),
-        records: batches[i].map((r) => ({ ...r, text: r.text.slice(0, 2000) })),
-      }) },
-    ], { onToken: (text) => { output += text }, onDone: () => {}, onError: (error) => { failure = error } }, options.signal,
-    { temperature: 0.1, skipUserMemory: true, reasoning: { mode: "off" }, max_tokens: 4096 })
+    let output = "", failure: Error | null = null, lastActivity = 0
+    const startedAt = Date.now()
+    const activity = (force = false) => {
+      if (!force && Date.now() - lastActivity < 500) return
+      lastActivity = Date.now()
+      options.onActivity?.({ batch: i + 1, receivedChars: output.length, elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000) })
+    }
+    activity(true)
+    const timer = setInterval(() => activity(), 1000)
+    try {
+      await streamChat(config, [
+        { role: "system", content: MEMORY_CLEANUP_SYSTEM },
+        { role: "user", content: JSON.stringify({ recentStory, records: batches[i].map((r) => ({ ...r, text: r.text.slice(0, 2000) })) }) },
+      ], { onToken: (text) => { output += text; activity() }, onDone: () => {}, onError: (error) => { failure = error } }, options.signal,
+      { temperature: 0.1, skipUserMemory: true, reasoning: { mode: "off" }, max_tokens: 4096 })
+    } finally { clearInterval(timer) }
     options.signal?.throwIfAborted()
     if (failure) throw failure
     for (const issue of parseMemoryCleanupIssues(parseLlmJsonObject(output), batches[i])) {
       if (!policy.kept.includes(issue.id)) issues.set(issue.id, issue)
     }
+    completed = i + 1
+    await publish(completed === batches.length)
   }
-  options.onProgress?.(batches.length, batches.length)
-  const scan: MemoryCleanupScan = { version: 1, scanId: crypto.randomUUID(), ...(options.scope ? { scope: options.scope } : {}), scannedAt: Date.now(), records, issues: [...issues.values()] }
-  await createDirectory(`${normalizePath(projectPath)}/.qmai`)
-  await writeFileAtomic(scanPath(projectPath), JSON.stringify(scan, null, 2))
-  options.onLog?.(`扫描完成：${records.length} 条来源记忆，${scan.issues.length} 组候选。`)
-  return scan
+  if (!batches.length || completed === batches.length) await publish(true)
+  options.onLog?.(`扫描完成：${records.length} 条来源记忆，${issues.size} 组候选。`)
+  return scan!
 }
 
 interface BackupFile { path: string; before: string | null; after?: string }

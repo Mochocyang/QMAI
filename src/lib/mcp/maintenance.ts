@@ -115,7 +115,8 @@ export async function dispatchMaintenanceTool(name: string, args: Record<string,
     return JSON.stringify({ projectPath, overview, settings, warnings: memoryMaintenanceWarnings(overview, settings), availableModels: availableModels(),
       editor: { path: selected, isDirty: selected ? getOpenDocumentGuard(selected)?.isDirty() ?? false : false }, writing: writingRunRegistry.has(projectPath),
       activeRunId: maintenanceProgressStore.active(projectPath), lastCleanupId: cleanupId,
-      scan: scan ? { scanId: scan.scanId, scannedAt: scan.scannedAt, scope: scan.scope, recordCount: scan.records.length, issueCount: scan.issues.length } : null,
+      scan: scan ? { scanId: scan.scanId, scannedAt: scan.scannedAt, scope: scan.scope, recordCount: scan.records.length, issueCount: scan.issues.length,
+        complete: scan.complete !== false, completedBatches: scan.completedBatches ?? null, totalBatches: scan.totalBatches ?? null, scannedRecordCount: scan.scannedRecordCount ?? scan.records.length } : null,
     })
   }
   if (name === "get_maintenance_progress") return JSON.stringify(await maintenanceProgressStore.get({ projectPath, runId: requiredText(args.runId, "runId"),

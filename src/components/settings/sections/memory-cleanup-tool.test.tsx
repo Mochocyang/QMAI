@@ -22,6 +22,7 @@ vi.mock("@/components/chat/chat-model-selector", () => ({ ChatModelSelector: () 
 vi.mock("@/lib/novel/model-resolver", () => ({ resolveDefaultModel: vi.fn(() => ({})), resolveModelConfig: vi.fn(() => ({})) }))
 vi.mock("@/lib/has-usable-llm", () => ({ hasUsableLlm: () => true }))
 vi.mock("@/lib/toast", () => ({ toast: { success: vi.fn(), info: vi.fn() } }))
+import { resetMemoryCleanupSessionsForTests } from "@/lib/novel/memory-cleanup-session"
 import { MemoryCleanupTool } from "./memory-cleanup-tool"
 
 let root: Root, container: HTMLDivElement
@@ -31,6 +32,7 @@ const click = async (label: string) => {
   await act(async () => button!.click())
 }
 beforeEach(async () => {
+  resetMemoryCleanupSessionsForTests()
   vi.clearAllMocks()
   ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   useWikiStore.setState({ project: { id: "a", name: "甲", path: "/a" }, dataVersion: 0 })
@@ -79,4 +81,32 @@ it("MCP 修改设置后刷新面板，但保留用户尚未保存的表单修改
   await act(async () => useWikiStore.getState().bumpDataVersion())
   expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(false)
   expect(container.querySelector<HTMLInputElement>('input[type="number"]')?.value).toBe("500")
+})
+it("停止扫描后保留已经发现的候选", async () => {
+  const partial = { version: 1, scannedAt: 2, complete: false, completedBatches: 1, totalBatches: 4, scannedRecordCount: 3,
+    records: [{ id: "r", field: "knowledgeChanges", chapterNumber: 1, revision: 1, text: "已扫到的噪声" }],
+    issues: [{ id: "issue", kind: "noise", removeIds: ["r"], reason: "中途发现的噪声", confidence: "high" }] }
+  io.scan.mockImplementation((_path: string, _config: unknown, options: { signal: AbortSignal; onProgress?: (done: number, total: number, scan: typeof partial) => void }) => new Promise((_resolve, reject) => {
+    options.onProgress?.(1, 4, partial)
+    options.signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
+  }))
+  await click("扫描记忆")
+  expect(container.textContent).toContain("中途发现的噪声")
+  await click("取消扫描")
+  expect(container.textContent).toContain("中途发现的噪声")
+  expect(container.textContent).toContain("继续扫描")
+  expect(container.textContent).not.toContain("取消扫描")
+})
+it("离开维护页不会中断扫描，返回后进度还在", async () => {
+  let finish!: (value: unknown) => void
+  io.scan.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+  await click("扫描记忆")
+  const signal = io.scan.mock.calls[0][2].signal as AbortSignal
+  expect(container.textContent).toContain("取消扫描")
+  await act(async () => root.unmount())
+  expect(signal.aborted).toBe(false)
+  await act(async () => { root = createRoot(container); root.render(<MemoryCleanupTool />) })
+  expect(container.textContent).toContain("取消扫描")
+  await act(async () => finish({ version: 1, scannedAt: 1, records: [], issues: [], complete: true }))
+  expect(container.textContent).not.toContain("取消扫描")
 })

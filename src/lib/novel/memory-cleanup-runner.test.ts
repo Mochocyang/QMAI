@@ -190,6 +190,42 @@ describe("来源删除与派生文件同步", () => {
   })
 })
 
+describe("断点续扫", () => {
+  it("中途停止后保留已完成批次，再次扫描只请求剩余批次", async () => {
+    const knowledge = Array.from({ length: 12 }, (_, index) => `林默知道独立事实${index}：${"细节".repeat(400)}`)
+    fs.files.set(snapPath(1), JSON.stringify({ ...source(1), knowledgeChanges: knowledge }))
+    fs.files.delete(snapPath(2))
+    const config = { ...useWikiStore.getState().llmConfig, provider: "test", model: "scan", maxContextSize: 1000 }
+    const controller = new AbortController()
+    const firstIds: string[] = []
+    vi.mocked(streamChat).mockImplementation(async (_config, messages, callbacks) => {
+      const payload = JSON.parse(String(messages[1].content)) as { records: { id: string }[] }
+      firstIds.push(payload.records[0].id)
+      callbacks.onToken(JSON.stringify({ issues: [{ kind: "noise", removeIds: [payload.records[0].id], reason: "空泛记忆", confidence: "high" }] }))
+      callbacks.onDone?.()
+    })
+    const logs: string[] = []
+    await expect(runMemoryCleanupScan("/project", config, {
+      fields: ["knowledgeChanges"], signal: controller.signal, onLog: (message) => logs.push(message),
+      onProgress: (done) => { if (done === 1) controller.abort() },
+    })).rejects.toMatchObject({ name: "AbortError" })
+    const partial = await loadMemoryCleanupScan("/project")
+    expect(partial?.complete).toBe(false)
+    expect(partial?.completedBatches).toBe(1)
+    expect(partial?.totalBatches).toBeGreaterThan(1)
+    expect(partial?.issues.some((issue) => issue.reason === "空泛记忆")).toBe(true)
+    vi.mocked(streamChat).mockClear()
+    const done = await runMemoryCleanupScan("/project", config, { fields: ["knowledgeChanges"], onLog: (message) => logs.push(message) })
+    expect(vi.mocked(streamChat)).toHaveBeenCalledTimes((partial?.totalBatches ?? 0) - 1)
+    expect(done.complete).toBe(true)
+    expect(done.completedBatches).toBe(partial?.totalBatches)
+    expect(done.issues.some((issue) => issue.reason === "空泛记忆")).toBe(true)
+    expect(logs.some((line) => line.startsWith("恢复断点"))).toBe(true)
+    const resumedFirst = JSON.parse(String(vi.mocked(streamChat).mock.calls[0][1][1].content)) as { records: { id: string }[] }
+    expect(resumedFirst.records[0].id).not.toBe(firstIds[0])
+  })
+})
+
 describe("自动超量提醒", () => {
   it("边界值不提醒，条目或文本超过阈值才提醒，支持关闭和冷却", () => {
     const prefs = DEFAULT_MEMORY_MAINTENANCE

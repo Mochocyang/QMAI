@@ -12,7 +12,7 @@ export interface MemoryCleanupIssue {
   confidence: "high" | "medium" | "low"
 }
 export interface MemoryCleanupScope { fromChapter?: number; toChapter?: number }
-export interface MemoryCleanupScan { version: 1; scanId?: string; scope?: MemoryCleanupScope; scannedAt: number; records: MemoryCleanupRecord[]; issues: MemoryCleanupIssue[] }
+export interface MemoryCleanupScan { complete?: boolean; completedBatches?: number; totalBatches?: number; scannedRecordCount?: number; fields?: MemoryField[]; version: 1; scanId?: string; scope?: MemoryCleanupScope; scannedAt: number; records: MemoryCleanupRecord[]; issues: MemoryCleanupIssue[] }
 
 export function snapshotsInCleanupScope(snapshots: ChapterSnapshot[], scope?: MemoryCleanupScope): ChapterSnapshot[] {
   if (!scope) return snapshots

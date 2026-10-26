@@ -8,8 +8,9 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { resolveDefaultModel, resolveModelConfig } from "@/lib/novel/model-resolver"
 import { toast } from "@/lib/toast"
 import { MEMORY_FIELDS, MEMORY_LABELS, type MemoryField } from "@/lib/novel/memory-cleanup-policy"
-import { applyMemoryCleanup, keepMemoryCleanupIssue, loadMemoryCleanupScan, runMemoryCleanupScan, undoLastMemoryCleanup } from "@/lib/novel/memory-cleanup-runner"
+import { applyMemoryCleanup, keepMemoryCleanupIssue, loadMemoryCleanupScan, undoLastMemoryCleanup } from "@/lib/novel/memory-cleanup-runner"
 import type { MemoryCleanupScan } from "@/lib/novel/memory-cleanup"
+import { cancelMemoryCleanupSession, memoryCleanupSession, startMemoryCleanupSession, subscribeMemoryCleanupSession, visibleMemoryCleanupScan } from "@/lib/novel/memory-cleanup-session"
 import {
   DEFAULT_MEMORY_MAINTENANCE, MAINTENANCE_KINDS, MAINTENANCE_LABELS, loadMemoryMaintenanceOverview,
   loadMemoryMaintenanceSettings, memoryMaintenanceWarnings, updateMemoryMaintenanceSettings,
@@ -31,23 +32,54 @@ export function MemoryCleanupTool() {
   const [logs, setLogs] = useState<string[]>([])
   const [progress, setProgress] = useState("")
   const [hydrated, setHydrated] = useState(false)
-  const controller = useRef<AbortController | null>(null)
   const persistedSettings = useRef<string | null>(null)
   const scope = useRef<string | null>(null)
+  const seenLogs = useRef(0)
   scope.current = project?.path ?? null
   const path = project?.path
 
   useEffect(() => {
     let cancelled = false
-    scope.current = path ?? null
+    const projectPath = path
+    scope.current = projectPath ?? null
     persistedSettings.current = null
-    setHydrated(false); setScan(null); setOverview(null); setSelected(new Set()); setError(""); setLogs([]); setBusy(null)
-    if (path) void Promise.all([loadMemoryMaintenanceSettings(path), loadMemoryCleanupScan(path)]).then(([prefs, cached]) => {
+    const live = projectPath ? memoryCleanupSession(projectPath) : null
+    const running = live?.status === "running"
+    seenLogs.current = live?.logs.length ?? 0
+    setHydrated(false); setOverview(null); setSelected(new Set()); setError("")
+    setBusy(running ? "scan" : null); setLogs(live?.logs ?? []); setScan(live?.scan ?? null)
+    setProgress(running && live?.progress ? `${live.progress.done}/${live.progress.total} 批` : "")
+    const unsub = projectPath ? subscribeMemoryCleanupSession(projectPath, () => {
+      if (cancelled || scope.current !== projectPath) return
+      const session = memoryCleanupSession(projectPath)
+      if (!session) return
+      setScan(session.scan); setLogs(session.logs)
+      setProgress(session.status === "running" && session.progress ? `${session.progress.done}/${session.progress.total} 批` : "")
+      setBusy((current) => session.status === "running" ? "scan" : current === "scan" ? null : current)
+      if (session.status === "failed" && session.error) setError(session.error)
+      for (const message of session.logs.slice(seenLogs.current)) if (message.startsWith("警告：")) toast.info(message, { persistent: true })
+      seenLogs.current = session.logs.length
+    }) : () => {}
+    if (projectPath) void Promise.all([loadMemoryMaintenanceSettings(projectPath), loadMemoryCleanupScan(projectPath)]).then(([prefs, cached]) => {
       if (cancelled) return
       persistedSettings.current = JSON.stringify(prefs)
-      setSettings(prefs); setScan(cached); setHydrated(true)
+      setSettings(prefs)
+      const session = memoryCleanupSession(projectPath)
+      const visible = session?.status === "running" ? (session.scan ?? cached) : visibleMemoryCleanupScan(projectPath, cached)
+      setScan(visible)
+      if (session?.status !== "running" && visible?.complete === false && visible.fields?.length) {
+        const restored = visible.fields.filter((field): field is MemoryField => (MEMORY_FIELDS as readonly string[]).includes(field))
+        if (restored.length) setFields(restored)
+      }
+      setHydrated(true)
     }).catch((cause) => { if (!cancelled) setError(String(cause)) })
-    return () => { cancelled = true; controller.current?.abort(); scope.current = null }
+    return () => {
+      cancelled = true
+      unsub()
+      scope.current = null
+      const latest = useWikiStore.getState().project?.path ?? null
+      if (projectPath && latest !== projectPath) cancelMemoryCleanupSession(projectPath)
+    }
   }, [path])
   useEffect(() => {
     let cancelled = false
@@ -57,6 +89,7 @@ export function MemoryCleanupTool() {
       const previous = persistedSettings.current
       if (previous !== null) setSettings((current) => JSON.stringify(current) === previous ? prefs : current)
       persistedSettings.current = JSON.stringify(prefs)
+      if (memoryCleanupSession(path)?.status === "running") return
       if (!busy) { setScan(cached); setSelected(new Set()) }
     }).catch((cause) => { if (!cancelled) setError(String(cause)) })
     return () => { cancelled = true }
@@ -65,6 +98,9 @@ export function MemoryCleanupTool() {
   const config = useMemo(() => settings.modelId.trim() ? resolveModelConfig(settings.modelId, llmConfig, providers) : resolveDefaultModel(llmConfig), [settings.modelId, llmConfig, providers])
   const ready = hasUsableLlm(config, providers)
   const records = useMemo(() => new Map(scan?.records.map((r) => [r.id, r]) ?? []), [scan])
+  const scanning = busy === "scan"
+  const resumable = !scanning && scan?.complete === false
+  const scannedCount = scan?.complete === false ? (scan.scannedRecordCount ?? 0) : (scan?.records.length ?? 0)
   const warnings = overview ? memoryMaintenanceWarnings(overview, settings) : []
   const log = (message: string) => { if (scope.current === path) { setLogs((old) => [...old.slice(-99), message]); if (message.startsWith("警告：")) toast.info(message, { persistent: true }) } }
 
@@ -83,10 +119,14 @@ export function MemoryCleanupTool() {
       if (action === "scan") {
         if (!ready || !fields.length) throw new Error("请选择可用的检测模型及至少一类记忆。")
         await saveSettings()
-        const abort = new AbortController(); controller.current = abort
-        const result = await runMemoryCleanupScan(currentPath, config, { fields, signal: abort.signal, onLog: log,
-          onProgress: (done, total) => { if (scope.current === currentPath) setProgress(`${done}/${total} 批`) } })
-        if (scope.current === currentPath) { setScan(result); setSelected(new Set()) }
+        if (scope.current !== currentPath) return
+        setSelected(new Set())
+        await startMemoryCleanupSession(currentPath, config, fields, scan)
+        if (scope.current === currentPath) {
+          const session = memoryCleanupSession(currentPath)
+          if (session?.scan) setScan(session.scan)
+          if (session?.status === "completed") setSelected(new Set())
+        }
       }
       if (action === "apply" && scan) {
         const issues = scan.issues.filter((issue) => selected.has(issue.id))
@@ -104,8 +144,14 @@ export function MemoryCleanupTool() {
         if (scope.current === currentPath) { setScan(null); setSelected(new Set()); toast.success("已撤销最近一次记忆清理") }
       }
     } catch (cause) {
-      if (scope.current === currentPath && !(cause instanceof DOMException && cause.name === "AbortError")) setError(cause instanceof Error ? cause.message : String(cause))
-    } finally { if (scope.current === currentPath) { setBusy(null); setProgress("") } }
+      if (scope.current !== currentPath) return
+      const live = memoryCleanupSession(currentPath)
+      if (live?.scan) setScan(live.scan)
+      if (cause instanceof DOMException && cause.name === "AbortError") return
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      if (scope.current === currentPath && memoryCleanupSession(currentPath)?.status !== "running") { setBusy(null); setProgress("") }
+    }
   }
   async function keep(id: string) {
     const issue = scan?.issues.find((i) => i.id === id)
@@ -136,17 +182,20 @@ export function MemoryCleanupTool() {
       </div></details>
       <div className="flex flex-wrap gap-3">{MEMORY_FIELDS.map((field) => <label key={field} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={fields.includes(field)} disabled={!!busy} onChange={(e) => setFields((old) => e.target.checked ? [...old, field] : old.filter((f) => f !== field))} />{MEMORY_LABELS[field]}</label>)}</div>
       <div className="flex flex-wrap items-center gap-2"><span className="text-sm">检测模型</span><ChatModelSelector value={settings.modelId} onChange={(modelId) => setSettings((s) => ({ ...s, modelId }))} disabled={!!busy || !hydrated} />
-        <Button size="sm" disabled={!!busy || !hydrated || !ready || !fields.length} onClick={() => void run("scan")}>{busy === "scan" && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}扫描记忆{busy === "scan" ? ` ${progress}` : ""}</Button>
-        {busy === "scan" && <Button variant="outline" size="sm" onClick={() => controller.current?.abort()}>取消扫描</Button>}
+        <Button size="sm" disabled={!!busy || !hydrated || !ready || !fields.length} onClick={() => void run("scan")}>{scanning && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}{resumable ? "继续扫描" : "扫描记忆"}{scanning && progress ? ` ${progress}` : ""}</Button>
+        {scanning && path && <Button variant="outline" size="sm" onClick={() => cancelMemoryCleanupSession(path)}>取消扫描</Button>}
         <Button variant="outline" size="sm" disabled={!!busy || !hydrated} onClick={() => void run("undo")}><RotateCcw className="mr-1 h-4 w-4" />撤销最近清理</Button>
       </div>
       {!ready && <p className="text-sm text-muted-foreground">请选择已配置且可用的检测模型。</p>}
       {scan && <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-3 text-sm"><span>已扫描 {scan.records.length} 条来源记忆，发现 {scan.issues.length} 组候选</span>
+        {scan.complete === false && <p className="text-sm text-muted-foreground">{scanning
+          ? `扫描进行中（${scan.completedBatches ?? 0}/${scan.totalBatches ?? 0} 批），已发现的候选会保留。`
+          : `扫描未完成（${scan.completedBatches ?? 0}/${scan.totalBatches ?? 0} 批）。已保留当前候选，可继续扫描。`}</p>}
+        <div className="flex flex-wrap items-center gap-3 text-sm"><span>{scan.complete === false ? `已扫描 ${scannedCount} / ${scan.records.length} 条来源记忆` : `已扫描 ${scannedCount} 条来源记忆`}，发现 {scan.issues.length} 组候选</span>
           <Button variant="outline" size="sm" disabled={!!busy} onClick={() => setSelected(new Set(scan.issues.filter((i) => i.confidence === "high").map((i) => i.id)))}>选择高置信度候选</Button>
           <Button variant="destructive" size="sm" disabled={!!busy || !selected.size} onClick={() => void run("apply")}>{busy === "apply" && <Loader2 className="mr-1 h-4 w-4 animate-spin" />}清理选中项（{selected.size}）</Button>
         </div>
-        {scan.issues.length === 0 && <p className="text-sm text-muted-foreground">本次未发现需要处理的候选。无法定位到来源快照的手工条目不会被直接删除。</p>}
+        {scan.issues.length === 0 && scan.complete !== false && <p className="text-sm text-muted-foreground">本次未发现需要处理的候选。无法定位到来源快照的手工条目不会被直接删除。</p>}
         {scan.issues.map((issue) => <div key={issue.id} className="space-y-2 rounded-md border bg-background p-3 text-sm">
           <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={selected.has(issue.id)} disabled={!!busy} onChange={(e) => setSelected((old) => { const next = new Set(old); if (e.target.checked) next.add(issue.id); else next.delete(issue.id); return next })} />
             {issue.kind === "duplicate" ? "合并重复表达" : issue.kind === "superseded" ? "清理已解除的认知盲区" : "清理噪声"} · {{ high: "高", medium: "中", low: "低" }[issue.confidence]}置信度</label>

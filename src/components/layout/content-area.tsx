@@ -174,10 +174,11 @@ export function ContentArea() {
       case "maintenance":
         content = (
           <Suspense fallback={<LoadingView />}>
-            {/* data-ui-page 由外层提供：MaintenanceSection 是原设置页的区块，
-                它自己的根节点没有这个属性（见 ui-test-tools.css 里
-                [data-ui-page="maintenance"] 的内边距说明）。 */}
-            <div data-ui-page="maintenance">
+            {/* 独立维护页自己承担滚动和边距，正式界面与测试界面共用。 */}
+            <div
+              data-ui-page="maintenance"
+              className="h-full min-h-0 min-w-0 overflow-y-auto overscroll-contain px-4 pt-6 pb-7 sm:px-8 [scrollbar-gutter:stable]"
+            >
               <MaintenanceView />
             </div>
           </Suspense>
