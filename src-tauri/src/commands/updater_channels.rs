@@ -190,7 +190,7 @@ pub async fn updater_check<R: Runtime>(app: tauri::AppHandle<R>) -> Result<AppUp
     // 诊断：把实际要试的端点打进日志。国内网络环境下"到底试了哪条"必须能查，
     // 否则只会看到一句"检查更新失败"，无从判断是镜像没生效还是网络问题。
     for (index, url) in plan.iter().enumerate() {
-        log::info!("[updater] endpoint[{index}] = {url}");
+        log::warn!("[updater] endpoint[{index}] = {url}");
     }
 
     let app_for_task = app.clone();
@@ -225,5 +225,6 @@ pub async fn updater_check<R: Runtime>(app: tauri::AppHandle<R>) -> Result<AppUp
     .await
     .map_err(|error| format!("检查更新任务失败：{error}"))?;
 
+    log::warn!("[updater] result = {:?}", checked.is_ok());
     checked.map(|info| info.unwrap_or(AppUpdateInfo { version: None, notes: None, download_url: None }))
 }
