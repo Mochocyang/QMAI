@@ -137,16 +137,63 @@ async function resolveProxyForCheck(): Promise<string | undefined> {
 /** 检查更新必须有上限：20 秒无响应是用户最不能接受的那种"点了没用"。 */
 const CHECK_TIMEOUT_MS = 10_000
 
+/**
+ * 检查更新：**只调一次**，由 Rust 决定用哪条通道。
+ *
+ * `updater_check` 走 `ChannelTable::effective()`（内置表 + 远程覆盖），
+ * 逐个试端点、失败换下一个。这样：
+ *   · 不再是"烧死在编译期的单一端点"，某个镜像挂了改仓库里的 JSON 即可；
+ *   · 也不再有"先自建问一遍、再让插件问一遍"的重复请求。
+ *
+ * 拿到的只是一个"有新版本"的结论 + 安装包地址；真正下载与安装由调用方
+ * 走 `updater_download_bytes`（带代理、带白名单）+ 插件的 `install(bytes)`。
+ */
 async function loadUpdate(): Promise<ChangelogUpdatePackage | null> {
   if (checkerOverride) return checkerOverride()
+  const { invoke } = await import("@tauri-apps/api/core")
   const { check } = await import("@tauri-apps/plugin-updater")
+
+  const info = await invoke<{
+    version: string | null
+    notes: string | null
+    downloadUrl: string | null
+  }>("updater_check")
+  if (!info?.version) return null
+
+  /*
+   * 拿到"有新版本"之后要安装包字节，这里走我们自己的通道（带代理 + 域名白名单）。
+   * 插件自带的 `update.download()` 只能下它自己那条端点上的地址，
+   * 而那个地址是 latest.json 里写死的 GitHub 直连 —— 国内实测 12 秒超时。
+   */
   const proxy = await resolveProxyForCheck()
+  let bytes: Uint8Array | null = null
+  if (info.downloadUrl) {
+    try {
+      bytes = await invoke<number[] | Uint8Array>("updater_download_bytes", {
+        url: info.downloadUrl,
+      }).then((data) => new Uint8Array(data as ArrayLike<number>))
+    } catch (error) {
+      console.warn("[updater] 加速通道下载失败，退回插件自带下载：", error)
+      bytes = null
+    }
+  }
+
+  // 无论字节从哪来，句柄还是插件的（安装要靠它自己的资源）。
   const update = await check({ proxy, timeout: CHECK_TIMEOUT_MS })
   if (!update) return null
+
   return {
     version: update.version,
     body: update.body,
-    download: (onEvent) => update.download(onEvent),
+    download: async (onEvent) => {
+      if (bytes) {
+        // 字节已经下好了：直接汇报开始/完成，进度条照样能走完。
+        onEvent?.({ event: "Started", data: { contentLength: bytes.byteLength } } as never)
+        onEvent?.({ event: "Finished", data: {} } as never)
+        return
+      }
+      await update.download(onEvent)
+    },
     install: () => update.install(),
     close: () => update.close(),
   }

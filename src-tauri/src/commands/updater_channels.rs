@@ -152,3 +152,72 @@ pub async fn updater_download_bytes<R: Runtime>(
     .await
     .map_err(|error| format!("下载失败：{error}"))?
 }
+
+// ---------------------------------------------------------------- 自建检查 / 下载 / 安装
+
+use tauri_plugin_updater::UpdaterExt;
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdateInfo {
+    /// 新版本号；`None` 表示已经是最新。
+    pub version: Option<String>,
+    pub notes: Option<String>,
+    /// 安装包的原始（GitHub 直连）地址，前端据此拼镜像前缀。
+    pub download_url: Option<String>,
+}
+
+/// 检查更新：走我们自己的多通道，而不是插件内置的单一端点。
+///
+/// 为什么自建：`updater_channel_plan` 已经能选出最快通道，但插件命令层的
+/// `check` **不接受运行时 endpoints**（只能用编译期配置）。`UpdaterExt::updater_builder()`
+/// 可以覆盖 endpoints，所以在这里自己拼一次，把「远程可更新的镜像表」真正用起来。
+///
+/// 返回的 `version` 为 `None` 表示没有新版本 —— 这不是错误。
+#[tauri::command]
+pub async fn updater_check<R: Runtime>(app: tauri::AppHandle<R>) -> Result<AppUpdateInfo, String> {
+    let table = crate::updater::channels::ChannelTable::effective();
+    let proxy = proxy_url_from_store();
+    let plan: Vec<String> = table
+        .channels
+        .iter()
+        .filter_map(|channel| channel.map_release_url(crate::updater::MANIFEST_URL))
+        .collect();
+    if plan.is_empty() {
+        return Err("没有可用的更新通道".to_string());
+    }
+
+    let app_for_task = app.clone();
+    let checked = tauri::async_runtime::spawn_blocking(move || -> Result<Option<AppUpdateInfo>, String> {
+        let endpoints: Vec<tauri::Url> = plan
+            .iter()
+            .filter_map(|url| tauri::Url::parse(url).ok())
+            .collect();
+        if endpoints.is_empty() {
+            return Err("更新通道地址非法".to_string());
+        }
+        // 逐个尝试：插件 builder 接受多个 endpoints，它内部会按顺序试、失败换下一个。
+        let mut builder = app_for_task
+            .updater_builder()
+            .endpoints(endpoints)
+            .map_err(|error| format!("更新通道无效：{error}"))?;
+        builder = builder.timeout(std::time::Duration::from_secs(10));
+        if let Some(proxy) = proxy {
+            if let Ok(url) = tauri::Url::parse(&proxy) {
+                builder = builder.proxy(url);
+            }
+        }
+        let updater = builder.build().map_err(|error| format!("初始化更新器失败：{error}"))?;
+        let runtime = tauri::async_runtime::block_on(updater.check())
+            .map_err(|error| format!("检查更新失败：{error}"))?;
+        Ok(runtime.map(|update| AppUpdateInfo {
+            version: Some(update.version.clone()),
+            notes: update.body.clone(),
+            download_url: Some(update.download_url.to_string()),
+        }))
+    })
+    .await
+    .map_err(|error| format!("检查更新任务失败：{error}"))?;
+
+    checked.map(|info| info.unwrap_or(AppUpdateInfo { version: None, notes: None, download_url: None }))
+}

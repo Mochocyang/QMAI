@@ -291,6 +291,7 @@ commands::fs::read_file,
             // 按通道下载更新包：供前端把「检查更新」接到我们选出的通道上。
             // 白名单校验在命令内部完成（前端可任意调用，不能变成通用下载器）。
             commands::updater_channels::updater_download_bytes,
+    commands::updater_channels::updater_check,
             set_proxy_env,
             log_error,
             log_diagnostic,

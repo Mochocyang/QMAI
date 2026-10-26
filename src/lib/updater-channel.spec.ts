@@ -83,3 +83,21 @@ describe("更新端点配置", () => {
     expect(conf.plugins.updater.pubkey).toBeTruthy()
   })
 })
+
+
+describe("检查更新走自建多通道", () => {
+  it("changelog 的检查更新调用 updater_check，而不是直接用插件的 check()", async () => {
+    /*
+     * 插件命令层的 check **不接受运行时 endpoints**，只能吃编译期写死的那份。
+     * 一旦某个镜像挂了就得重新发版。所以检查这一步必须走 Rust 的 updater_check
+     * （它用 ChannelTable::effective()，内置表 + 远程覆盖）。
+     */
+    const { readFileSync } = await import("node:fs")
+    const { resolve } = await import("node:path")
+    const text = readFileSync(resolve(__dirname, "changelog-update-session.ts"), "utf8")
+    expect(text).toContain('invoke<{')
+    expect(text).toContain('"updater_check"')
+    // 安装包字节也要走我们自己的通道（带代理 + 域名白名单）
+    expect(text).toContain('"updater_download_bytes"')
+  })
+})
