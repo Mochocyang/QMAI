@@ -16,29 +16,38 @@ describe("章节/大纲右键菜单的历史版本入口", () => {
   })
 
   it("「历史版本」菜单项紧跟在「重命名」之后", () => {
-    // 文档菜单里「重命名」是唯一一处带 startRenamePage 的 rename 文案；
-    // 直接 indexOf 会先命中文件夹创建菜单里的同名文案，所以用完整代码块定位。
-    // 仓库里的源文件是 CRLF，标记按行拼装，避免写死的 "\n" 匹配不到。
-    const renameMarker = [
-      "if (target) startRenamePage(target)",
-      "              }}",
-      "            >",
-      '              <Pencil className="h-3.5 w-3.5" />',
-      '              {t("knowledgeTree.rename")}',
-      "            </button>",
-    ].join("\r\n")
-    const renameIndex = source.indexOf(renameMarker)
+    /*
+     * 文档菜单里的「重命名」是唯一一处 onClick 里调 startRenamePage 的 rename 项
+     * （文件夹创建菜单里那句同名文案不带 startRenamePage）。
+     *
+     * 定位方式刻意不写死缩进或换行符：源文件是 CRLF、缩进有人动过，
+     * 之前写死 "\r\n" + 精确缩进的做法一次重排就会假失败。
+     * 改为「按关键行逐步定位」，只依赖真正有语义的代码本身。
+     */
     const historyIndex = source.indexOf('data-ui="tree-version-history"')
-    expect(renameIndex).toBeGreaterThan(-1)
-    expect(historyIndex).toBeGreaterThan(renameIndex)
-    // 从重命名按钮的收口处（`</button>` 之后）开始截，只到「历史版本」按钮的起始标签为止：
-    // 中间必须只剩下换行和缩进——连一个 <button / </button> 都不能有，
-    // 否则就说明有别的菜单项插在了两者之间。
-    const afterRename = renameIndex + renameMarker.length
+    expect(historyIndex).toBeGreaterThan(-1)
+
+    // 重命名那一项：从 onClick 里出现 startRenamePage 的位置往前找它所属的 <button
+    const renameCall = source.indexOf("if (target) startRenamePage(target)")
+    expect(renameCall).toBeGreaterThan(-1)
+    const renameTagStart = source.lastIndexOf("<button", renameCall)
+    expect(renameTagStart).toBeGreaterThan(-1)
+    // 取「重命名」按钮自己的收口：从 startRenamePage 往后找的第一个 </button> 就是它
+    const renameTagEnd = source.indexOf("</button>", renameCall) + "</button>".length
+    expect(renameTagEnd).toBeGreaterThan(renameCall)
+    // 确认这一段确实是「重命名」项，而不是别的按钮
+    expect(source.slice(renameTagStart, renameTagEnd)).toContain('{t("knowledgeTree.rename")}')
+
+    // 历史版本必须排在重命名之后
     const historyTagStart = source.lastIndexOf("<button", historyIndex)
-    const between = source.slice(afterRename, historyTagStart)
+    expect(historyTagStart).toBeGreaterThan(renameTagEnd)
+
+    // 两者之间不能再夹任何菜单项按钮 —— 只能有换行与缩进
+    const between = source.slice(renameTagEnd, historyTagStart)
     expect(between).not.toContain("<button")
     expect(between).not.toContain("</button>")
+    expect(between.trim()).toBe("")
+
     // 顺带确认「历史版本」这串字就在它自己的按钮里。
     expect(source.slice(historyTagStart, source.indexOf("</button>", historyIndex))).toContain("历史版本")
   })

@@ -15,6 +15,7 @@ import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { scrollChapterDirectory } from "@/lib/chapter-directory-scroll"
 import { normalizeChapterStatus, type ChapterStatus } from "@/lib/novel/chapter-meta"
 import {
+  extractChapterNumber,
   extractPageOrderFromTitle,
   resolveChapterDotNumbers,
   resolveChapterPageTitle,
@@ -1380,14 +1381,20 @@ export function KnowledgeTree({
     const page = pageInfoByPath.get(pagePath)
     const title = page?.title ?? pagePath.split(/[\\/]/).pop()?.replace(/\.md$/i, "") ?? "文档"
     const kind = filterType === "chapter" ? "chapter" : "outline"
-    // 章节用编号分目录；大纲用文件名（去掉扩展名）当 key。
-    // 必须与写入侧严格一致，否则弹窗会列出空列表：
-    //   - 章节：chapter-save-version.ts / write-chapter.ts 用 extractChapterNumber(文件名)
-    //   - 大纲：outline-chat-panel.tsx 的 beforeOverwrite 传的是去掉扩展名的文件名
-    // 树的 page.chapterNumber 来自 frontmatter/标题，filename 兜底用 fileChapterNumber。
+    /*
+     * key 必须与**写入侧严格同源**，否则会去查一个空目录、用户看到「还没有历史版本」：
+     *   · 章节：chapter-save-version.ts 与 write-chapter.ts 都按
+     *     `extractChapterNumber(文件名去扩展名)` 取号。这里必须同样从文件名取，
+     *     不能用 frontmatter/标题来的 page.chapterNumber —— 「frontmatter 有号、
+     *     文件名无号」时两者不一致：版本落在 chapters/unnumbered/，
+     *     却跑去 chapters/003/ 找，列表永远是空的。
+     *   · 大纲：写入侧传给 beforeOverwrite 的 name 是**文件名去 .md**，
+     *     不是标题（标题可能是「故事总纲」而文件叫「总纲-v2.md」）。
+     */
+    const stem = pagePath.split(/[\\/]/).pop()?.replace(/\.md$/i, "") ?? ""
     const key = kind === "chapter"
-      ? page?.chapterNumber ?? page?.fileChapterNumber ?? null
-      : title
+      ? extractChapterNumber(stem) ?? page?.chapterNumber ?? page?.fileChapterNumber ?? null
+      : stem || title
     // 先把弹窗开出来（空白），再异步填内容：大文件读取不该让点击看起来没反应。
     setHistoryTarget({ path: pagePath, title, kind, key })
     setHistoryCurrent("")
