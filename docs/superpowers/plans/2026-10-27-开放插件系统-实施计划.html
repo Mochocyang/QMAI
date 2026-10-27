@@ -3311,6 +3311,10 @@ git commit -m "feat(plugins): 启用即启动、停用即停止的常驻接线"
 <div class="cell">安装器只做来源记录（repo + commit + sha256），不做签名校验。</div>
 </div>
 <div class="row" style="grid-template-columns: 1fr 2fr;">
+<div class="cell">清单字段只增不改（封闭契约）</div>
+<div class="cell">清单解析开了 <code>deny_unknown_fields</code>，未知字段即拒。因此任务 3 之后若要给 <code>plugin.json</code> 新增字段，<strong>必须同时 bump <code>schema</code></strong>，否则旧版本宿主会拒绝安装按新 schema 写的插件。已发布过的字段含义也不得改变。</div>
+</div>
+<div class="row" style="grid-template-columns: 1fr 2fr;">
 <div class="cell"><code>requires.qmai</code> 的宿主版本兼容性校验</div>
 <div class="cell">清单里该字段会被解析但不校验。设计文档 4.2 原定返回 <code>E_HOST_INCOMPATIBLE</code>，但本仓没有 <code>semver</code> 依赖，手写范围匹配容易出错且不在第一期验收项内。改为：装到不兼容宿主上时，插件在启动阶段失败并在界面显示「启动失败」，用户可停用/卸载。第二期若引入 <code>semver</code> 再补前置拦截。</div>
 </div>
