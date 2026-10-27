@@ -4,6 +4,8 @@ import type { AgentConfig } from "./types"
 import { DEFAULT_MAX_ROUNDS } from "./types"
 import { registerAllBuiltInTools } from "./tools"
 import type { ToolFactoryOptions } from "./tools"
+import { registerPluginTools } from "@/lib/plugins/tool-bridge"
+import type { PluginToolDescriptor, PluginToolInvoker } from "@/lib/plugins/types"
 
 const TOOL_UNSUPPORTED_MODEL_PREFIXES: string[] = [
   "o1",
@@ -20,6 +22,10 @@ const TOOL_UNSUPPORTED_PROVIDERS = new Set<LlmConfig["provider"]>([
 interface BuildAgentConfigOptions extends ToolFactoryOptions {
   llmConfig: LlmConfig
   requestOverrides?: AgentConfig["requestOverrides"]
+  /** 已启用插件的工具声明（由插件管理状态提供） */
+  pluginTools?: PluginToolDescriptor[]
+  /** 调用插件工具的实现（走 Tauri 命令） */
+  invokePluginTool?: PluginToolInvoker
 }
 
 export function modelSupportsTools(
@@ -70,6 +76,13 @@ export function buildAgentConfig(
         ...options,
         enabledToolNames: [],
       })
+
+  // 插件工具必须在 clear() 与内置注册之后追加：
+  // ① buildAgentConfig 每次进来先 registry.clear()，提前注册会被抹掉；
+  // ② registerPluginTools 自己跳过同名项，不会覆盖内置工具。
+  if (toolsEnabled && options.pluginTools?.length && options.invokePluginTool) {
+    registerPluginTools(registry, options.pluginTools, options.invokePluginTool)
+  }
 
   return {
     maxRounds: DEFAULT_MAX_ROUNDS,
