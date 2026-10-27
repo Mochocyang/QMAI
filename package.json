@@ -11,7 +11,7 @@
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "test": "npm run test:mocks && npm run test:llm",
-    "test:mocks": "node scripts/lint-character-aura.mjs && vitest run --exclude='**/*.real-llm.test.ts' --exclude='**/.worktrees/**' --exclude='**/.claude/**' --exclude='**/.codex-temp/**' --exclude='**/superpowers-main/**' --exclude='**/SKILL/**' --exclude='**/superpowers/**' --exclude='**/nul'",
+    "test:mocks": "node scripts/lint-character-aura.mjs && vitest run --exclude='**/*.real-llm.test.ts' --exclude='**/.worktrees/**' --exclude='**/.claude/**' --exclude='**/.codex-temp/**' --exclude='**/superpowers-main/**' --exclude='**/SKILL/**' --exclude='**/superpowers/**' --exclude='**/account-worker/**' --exclude='**/nul'",
     "lint:character-aura": "node scripts/lint-character-aura.mjs",
     "test:llm": "vitest run real-llm --no-file-parallelism --reporter=verbose --exclude='**/.claude/**' --exclude='**/.worktrees/**' --exclude='**/.codex-temp/**'",
     "tauri": "tauri",

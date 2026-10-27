@@ -31,6 +31,9 @@ import { CloudSyncIndicator } from "@/components/layout/cloud-sync-indicator"
 import { CloudSyncDetailDialog } from "@/components/layout/cloud-sync-detail-dialog"
 import { CLOUD_SYNC_OPEN_SETTINGS_EVENT } from "@/lib/cloud-sync/client"
 import { useCloudSyncStore } from "@/stores/cloud-sync-store"
+import { AccountButton } from "@/components/account/account-button"
+import { AccountDialog } from "@/components/account/account-dialog"
+import { useAccountStore } from "@/stores/account-store"
 import { confirmModelDraftLeave } from "./models/model-draft-guard"
 import { MacTrafficLights } from "./mac-traffic-lights"
 import { GuideOverlay } from "@/components/guide/guide-overlay"
@@ -163,6 +166,17 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   useEffect(() => {
     hydrateGuide()
   }, [hydrateGuide])
+
+  /**
+   * 账号登录态只在启动时恢复一次。
+   *
+   * 这里**不订阅**整个 account store（`useAccountStore((s) => s)`）：
+   * 顶栏按钮与设置页各自按字段订阅，整体订阅会让每次 token 刷新都重渲染外壳。
+   * 失败由 store 内部静默处理（离线 / 未登录都是正常状态）。
+   */
+  useEffect(() => {
+    void useAccountStore.getState().bootstrap()
+  }, [])
   /**
    * 自动播放只在**本次启动**判断一次，而且只看「装好还没走过」这一种情况。
    *
@@ -551,6 +565,8 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
             </div>)}
           </nav>
           <div className="ui-test-actions">
+            {/* 账号入口放最左：它是「可选」的云端身份，不抢对话/设置的常用位置。 */}
+            <AccountButton />
             {writing ? <div className="ui-test-header-hint-anchor"><Tooltip><TooltipTrigger render={<button type="button" className="ui-test-icon-btn" aria-label="AI 对话" aria-expanded={assistantOpen} onClick={() => activeView === "sources" ? setOutlineExpanded(!outlineExpanded) : setChatExpanded(!chatExpanded)}><AiChatIcon /></button>} /><TooltipContent>AI 对话</TooltipContent></Tooltip>{!aiHintDismissed && <div className="ui-test-header-hint is-right" role="status"><p>「AI 对话」改成了图标：点击它即可打开或收起对话栏。</p><div className="ui-test-header-hint-actions"><button type="button" className="ui-test-header-hint-dismiss" onClick={() => { writeUiTestAiHintDismissed(); setAiHintDismissed(true) }}>知道了</button></div></div>}</div> : <>
               <button type="button" className="ui-test-icon-btn" aria-label="剧情搜索" title={project ? "剧情搜索" : "请先打开小说"} disabled={!project} onClick={() => navigate("search")}><Search /></button>
               <button type="button" className="ui-test-icon-btn" data-guide="shell.settings" aria-label="设置" title="设置" onClick={() => navigate("settings")}><Settings /></button>
@@ -598,6 +614,8 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
       <CreateProjectDialog open={showCreateDialog} onOpenChange={setShowCreateDialog} onCreated={handleCreatedProject} />
       <Dialog open={showActivity} onOpenChange={setShowActivity}><DialogContent className="ui-test-activity-dialog"><DialogHeader><DialogTitle>后台活动</DialogTitle><DialogDescription>查看进度、重试错误，不必离开写作。</DialogDescription></DialogHeader><div className="ui-test-activity-body"><RawSourcesSection uiTestActivityView onCancelExtraction={() => cancelImportRef.current?.()} /><BookAnalysisActivitySection onNavigate={() => setShowActivity(false)} /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowActivity(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
       <CloudSyncDetailDialog />
+      {/* 账号弹窗挂根上：侧栏面板有五套，挂在面板里会出现多层遮罩。 */}
+      <AccountDialog />
       <Dialog open={showContact} onOpenChange={setShowContact}><DialogContent className="ui-test-contact-dialog" aria-label="联系与支持"><DialogTitle className="sr-only">联系与支持</DialogTitle><div className="ui-test-contact-body"><ContactSupportSection /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowContact(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
       <GuideOverlay onDirective={runGuideDirective} />
     </div>

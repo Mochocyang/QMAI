@@ -74,8 +74,9 @@ vi.mock("@/components/settings/sections/feedback-section", () => ({ FeedbackSect
 vi.mock("@/components/settings/sections/contact-support-section", () => ({ ContactSupportSection: () => <div data-capability="contact-support" /> }))
 vi.mock("@/components/settings/sections/classification-section", () => ({ ClassificationSection: () => <div data-capability="classification" /> }))
 vi.mock("@/components/settings/sections/changelog-section", () => ({ ChangelogSection: () => <div data-capability="changelog" /> }))
+vi.mock("@/components/settings/sections/account-section", () => ({ AccountSection: () => <div data-capability="account" /> }))
 
-const categories = ["model", "novel", "network", "web-search", "interface", "user-memory", "data-management", "feedback", "contact-support", "changelog"]
+const categories = ["account", "model", "novel", "network", "web-search", "interface", "user-memory", "data-management", "feedback", "contact-support", "changelog"]
 let container: HTMLDivElement
 let root: Root
 
@@ -117,7 +118,7 @@ async function click(selector: string) {
 }
 
 describe("测试版设置布局与正式版隔离", () => {
-  it("只保留十二个设置分类，不显示路径、导出、使用说明和意图路由", async () => {
+  it("只保留十三个设置分类，不显示路径、导出、使用说明和意图路由", async () => {
     await render(<SettingsView />)
     expect(container.querySelector('[data-ui-page="settings"]')).not.toBeNull()
     expect(container.querySelectorAll('aside')).toHaveLength(1)
@@ -125,11 +126,12 @@ describe("测试版设置布局与正式版隔离", () => {
      * 10 → 11：远端「把写作能力开放给本机 Agent」新增了应用级分类
      * 「外部 Agent（MCP）」（settings-view 的 CATEGORIES 里的 mcp）。
      * 11 → 12：新增「云同步」（紧跟模型设置），用于把书籍备份到用户自己的网盘。
+     * 12 → 13：新增「账号」（注册 / 登录 / 头像 / 改密码），排在第一位。
      * 独立「新手引导」分类早已按用户要求撤掉，仍只是写作设置里的一个开关。
      * 其余被隐藏的分类（维护 / 导出 / 使用说明 / 分类规则）保持隐藏，
      * 下面几条反向断言不变。
      */
-    expect(container.querySelectorAll('[data-ui="settings-navigation"] button')).toHaveLength(12)
+    expect(container.querySelectorAll('[data-ui="settings-navigation"] button')).toHaveLength(13)
     /*
      * 「维护工具」已按用户要求从设置搬到顶栏「创作工具」（见 ui-test-shell
      * 的 TOOL_GROUPS 与 layout/content-area 的 maintenance 视图）。
@@ -154,7 +156,7 @@ describe("测试版设置布局与正式版隔离", () => {
     await render(<SettingsView />)
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="设置分类"]')
     expect(select).not.toBeNull()
-    expect(select?.options).toHaveLength(12)
+    expect(select?.options).toHaveLength(13)
     await act(async () => {
       select!.value = "interface"
       select!.dispatchEvent(new Event("change", { bubbles: true }))

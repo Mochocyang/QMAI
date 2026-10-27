@@ -61,10 +61,14 @@ describe("AnnouncementBell", () => {
 
     const button = document.querySelector("button")
     expect(button?.getAttribute("aria-label")).toBe("公告，1 条未读")
-    expect(host.querySelector("[data-announcement-badge]")?.textContent).toBe("1")
+    // 角标只是一个「有新公告」的小红点，不再画数字。
+    // 未读数量仍然通过 aria-label / title 完整播报（上一行断言的就是它）。
+    const badge = host.querySelector("[data-announcement-badge]")
+    expect(badge).not.toBeNull()
+    expect(badge?.textContent).toBe("")
   })
 
-  it("未读超过 9 显示 9+", async () => {
+  it("未读数量只在无障碍属性里给，角标不画数字", async () => {
     useAnnouncementStore.setState({
       items: Array.from({ length: 12 }, (_, i) => announcement(`a${i}`)),
       readIds: new Set<string>(),
@@ -72,7 +76,7 @@ describe("AnnouncementBell", () => {
 
     await act(async () => root.render(<AnnouncementBell />))
 
-    expect(host.querySelector("[data-announcement-badge]")?.textContent).toBe("9+")
+    expect(host.querySelector("[data-announcement-badge]")?.textContent).toBe("")
     expect(host.querySelector("button")?.getAttribute("aria-label")).toBe("公告，12 条未读")
   })
 

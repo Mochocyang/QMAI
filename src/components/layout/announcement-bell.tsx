@@ -32,14 +32,20 @@ export function AnnouncementBell() {
       className="relative flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
     >
       <Bell className="h-4 w-4" />
+      {/*
+        角标刻意做得很小：它只是「有新公告」的提示，不是需要看清数字的计数器。
+        原来是一个 12px 高、带数字的红胶囊，盖住了半个铃铛；现在固定成一个
+        6px 的红点，外面加一圈背景色描边 —— 铃铛是描边图标，没有这圈描边
+        红点会糊进线条里。
+        未读数仍然通过 aria-label / title 完整播报（见上面 label），
+        鼠标悬停与读屏都拿得到「有几条未读」，只是不再画在图标上。
+      */}
       {unreadCount > 0 && (
         <span
           data-announcement-badge
           aria-hidden="true"
-          className="absolute -top-0.5 -right-1 flex h-3 min-w-3 items-center justify-center rounded-full bg-destructive px-[3px] text-[0.5rem] leading-none font-medium text-destructive-foreground"
-        >
-          {unreadCount > 9 ? "9+" : unreadCount}
-        </span>
+          className="pointer-events-none absolute top-0 right-1 size-1.5 rounded-full bg-destructive ring-2 ring-background"
+        />
       )}
     </button>
   )

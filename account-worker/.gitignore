@@ -1,0 +1,8 @@
+node_modules/
+.wrangler/
+dist/
+coverage/
+.dev.vars
+.dev.vars.*
+*.log
+npm-debug.log*
