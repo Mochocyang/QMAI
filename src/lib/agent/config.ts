@@ -4,7 +4,7 @@ import type { AgentConfig } from "./types"
 import { DEFAULT_MAX_ROUNDS } from "./types"
 import { registerAllBuiltInTools } from "./tools"
 import type { ToolFactoryOptions } from "./tools"
-import { registerPluginTools } from "@/lib/plugins/tool-bridge"
+import { registerPluginTools, toHostToolName } from "@/lib/plugins/tool-bridge"
 import type { PluginToolDescriptor, PluginToolInvoker } from "@/lib/plugins/types"
 
 const TOOL_UNSUPPORTED_MODEL_PREFIXES: string[] = [
@@ -80,8 +80,16 @@ export function buildAgentConfig(
   // 插件工具必须在 clear() 与内置注册之后追加：
   // ① buildAgentConfig 每次进来先 registry.clear()，提前注册会被抹掉；
   // ② registerPluginTools 自己跳过同名项，不会覆盖内置工具。
+  // 插件工具必须与内置工具受同一套过滤：调用方用 disabledTools 表达「只读聊天」
+  // 这类意图时，不能被插件工具绕过。
   if (toolsEnabled && options.pluginTools?.length && options.invokePluginTool) {
-    registerPluginTools(registry, options.pluginTools, options.invokePluginTool)
+    const disabled = new Set(options.disabledTools ?? [])
+    const allowed = options.enabledToolNames ? new Set(options.enabledToolNames) : null
+    const visible = options.pluginTools.filter((t) => {
+      const hostName = toHostToolName(t.pluginId, t.name)
+      return !disabled.has(hostName) && (!allowed || allowed.has(hostName))
+    })
+    registerPluginTools(registry, visible, options.invokePluginTool)
   }
 
   return {

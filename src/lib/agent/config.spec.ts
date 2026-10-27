@@ -173,4 +173,39 @@ describe("buildAgentConfig plugin tools", () => {
 
     expect(config.tools.some((t) => t.name === "chapter_insights__analyze")).toBe(false)
   })
+
+  // 插件工具与内置工具必须受同一套过滤：调用方用 disabledTools 表达「只读聊天」
+  // 这类意图时，不能被插件绕过（use-agent-config.ts 就在传 disabledTools）。
+  it("disabledTools 也能挡住插件工具", () => {
+    const registry = new ToolRegistry()
+    const config = buildAgentConfig("gpt-4o", "sys", registry, {
+      ...baseOptions,
+      llmConfig: baseLlm,
+      disabledTools: ["chapter_insights__analyze"],
+      pluginTools: [
+        { pluginId: "chapter-insights", name: "analyze", description: "d", parameters: {} },
+      ],
+      invokePluginTool: async () => "x",
+    })
+
+    expect(config.tools.map((t) => t.name)).not.toContain("chapter_insights__analyze")
+  })
+
+  it("enabledToolNames 白名单只放行列出的插件工具", () => {
+    const registry = new ToolRegistry()
+    const config = buildAgentConfig("gpt-4o", "sys", registry, {
+      ...baseOptions,
+      llmConfig: baseLlm,
+      enabledToolNames: ["chapter_insights__analyze"],
+      pluginTools: [
+        { pluginId: "chapter-insights", name: "analyze", description: "d", parameters: {} },
+        { pluginId: "chapter-insights", name: "report", description: "d", parameters: {} },
+      ],
+      invokePluginTool: async () => "x",
+    })
+    const names = config.tools.map((t) => t.name)
+
+    expect(names).toContain("chapter_insights__analyze")
+    expect(names).not.toContain("chapter_insights__report")
+  })
 })
