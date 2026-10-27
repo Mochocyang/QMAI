@@ -338,8 +338,21 @@ fn main_window_browser_args(app: &AppHandle) -> Option<String> {
 }
 
 /// 允许用环境变量覆盖浏览器参数，方便现场试不同组合而不必重新编译。
+///
+/// ⚠️ **只在 debug 构建生效**：这些参数能传 `--remote-debugging-port`、
+/// `--disable-web-security` 之类的开关，等于把一个可被本机进程接管的 WebView
+/// 敞开。正式包一律使用编译期常量，环境变量里设置了也只记一条日志。
+#[cfg(debug_assertions)]
 fn reader_browser_args() -> String {
     std::env::var("QMAI_READER_ARGS").unwrap_or_else(|_| READER_BROWSER_ARGS.to_string())
+}
+
+#[cfg(not(debug_assertions))]
+fn reader_browser_args() -> String {
+    if std::env::var_os("QMAI_READER_ARGS").is_some() {
+        log_line("ignored QMAI_READER_ARGS: browser args override is debug-build only");
+    }
+    READER_BROWSER_ARGS.to_string()
 }
 
 /// 读取「自检用外部 URL」覆盖，**只在 debug 构建生效**。
