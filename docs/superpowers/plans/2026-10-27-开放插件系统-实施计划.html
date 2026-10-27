@@ -3310,6 +3310,10 @@ git commit -m "feat(plugins): 启用即启动、停用即停止的常驻接线"
 <div class="cell">插件签名与审核</div>
 <div class="cell">安装器只做来源记录（repo + commit + sha256），不做签名校验。</div>
 </div>
+<div class="row" style="grid-template-columns: 1fr 2fr;">
+<div class="cell"><code>requires.qmai</code> 的宿主版本兼容性校验</div>
+<div class="cell">清单里该字段会被解析但不校验。设计文档 4.2 原定返回 <code>E_HOST_INCOMPATIBLE</code>，但本仓没有 <code>semver</code> 依赖，手写范围匹配容易出错且不在第一期验收项内。改为：装到不兼容宿主上时，插件在启动阶段失败并在界面显示「启动失败」，用户可停用/卸载。第二期若引入 <code>semver</code> 再补前置拦截。</div>
+</div>
 </div>
 </section>
 
