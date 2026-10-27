@@ -2101,47 +2101,48 @@ git commit -m "feat(plugins): GitHub 安装器（防穿越解压 + 原子发布�
 <span class="fl">Files</span>
 <ul>
 <li><span class="op">Modify</span> src/lib/agent/registry.ts</li>
-<li><span class="op">Create</span> src/lib/agent/registry.spec.ts</li>
+<li><span class="op">Modify</span> src/lib/agent/registry.spec.ts（<strong>文件已存在</strong>，含 6 个既有测试，只追加不改动）</li>
 </ul>
 </div>
 
 <div class="step"><div class="box"></div><div class="body">
-<h4>Step 1 — 写失败的测试</h4>
-<div class="code"><pre>// src/lib/agent/registry.spec.ts
-import { describe, expect, it } from "vitest"
-import { ToolRegistry } from "./registry"
-import type { Tool } from "./types"
-
-function tool(name: string): Tool {
-  return {
-    name,
-    description: name,
-    category: "action",
-    parameters: {},
-    execute: async () => "ok",
-  }
-}
-
+<h4>Step 1 — 追加失败的测试</h4>
+<div class="code"><pre>// src/lib/agent/registry.spec.ts —— 追加到文件末尾。
+// 文件顶部已有 makeTool(name, category?) 辅助函数，直接复用，不要重复定义。
 describe("ToolRegistry.unregisterPrefix", () => {
   it("只删带前缀的工具，内置工具不动", () => {
     const r = new ToolRegistry()
-    r.register(tool("read_chapter"))
-    r.register(tool("chapter_insights__analyze"))
-    r.register(tool("chapter_insights__report"))
+    r.register(makeTool("read_chapter"))
+    r.register(makeTool("chapter_insights__analyze"))
+    r.register(makeTool("chapter_insights__report"))
+    // 近乎同名的对照：不以 chapter_insights__ 开头，必须存活。
+    // 少了这条，实现退化成 includes(prefix) 也能通过，测试就锁不住边界。
+    r.register(makeTool("chapter_insightsx__a"))
 
     const removed = r.unregisterPrefix("chapter_insights__")
 
     expect(removed).toBe(2)
     expect(r.has("read_chapter")).toBe(true)
+    expect(r.has("chapter_insightsx__a")).toBe(true)
     expect(r.has("chapter_insights__analyze")).toBe(false)
-    expect(r.list().map((t) => t.name)).toEqual(["read_chapter"])
+    expect(r.list().map((t) => t.name).sort()).toEqual(
+      ["chapter_insightsx__a", "read_chapter"],
+    )
   })
 
   it("前缀不存在时返回 0 且不报错", () => {
     const r = new ToolRegistry()
-    r.register(tool("read_chapter"))
+    r.register(makeTool("read_chapter"))
     expect(r.unregisterPrefix("nope__")).toBe(0)
     expect(r.list()).toHaveLength(1)
+  })
+
+  it("空前缀不删除任何工具（防误清空）", () => {
+    const r = new ToolRegistry()
+    r.register(makeTool("read_chapter"))
+    r.register(makeTool("chapter_insights__analyze"))
+    expect(r.unregisterPrefix("")).toBe(0)
+    expect(r.list()).toHaveLength(2)
   })
 })
 </pre></div>
@@ -2157,12 +2158,14 @@ describe("ToolRegistry.unregisterPrefix", () => {
 <h4>Step 3 — 实现</h4>
 <div class="code"><pre>// src/lib/agent/registry.ts （在 clear() 之前插入）
   /**
-   * 按前缀注销工具，返回删除数量。
+   * 按命名空间前缀批量注销外部工具，返回删除数量。
    *
-   * 插件工具统一带 `<pluginId 下划线化>__` 前缀（见设计文档 9.2），
-   * 插件停用/卸载时只清自己那一批，不碰内置工具。
+   * 外部工具统一带 `<命名空间>__` 前缀，停用/卸载时只清自己那一批，
+   * 不碰内置工具——所以不能用 clear()（那是全清）。
    */
   unregisterPrefix(prefix: string): number {
+    // 空前缀会让 startsWith("") 恒为真，等价于 clear()，必须挡住
+    if (!prefix) return 0
     let removed = 0
     for (const name of [...this.tools.keys()]) {
       if (name.startsWith(prefix)) {
@@ -2178,7 +2181,7 @@ describe("ToolRegistry.unregisterPrefix", () => {
 <div class="step"><div class="box"></div><div class="body">
 <h4>Step 4 — 跑测试确认通过</h4>
 <div class="run">npx vitest run src/lib/agent/registry.spec.ts</div>
-<p class="expect">预期：<strong>2 passed</strong>。</p>
+<p class="expect">预期：<strong>9 passed</strong>（该文件既有 6 个 + 本任务新增 3 个；vitest 按文件汇总计数）。</p>
 </div></div>
 
 <div class="step"><div class="box"></div><div class="body">
