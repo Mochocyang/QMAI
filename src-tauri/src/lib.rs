@@ -3,6 +3,7 @@ mod atomic_file;
 mod cloud_sync;
 mod commands;
 mod mcp;
+mod plugins;
 mod font_install;
 mod fonts;
 #[cfg(target_os = "macos")]

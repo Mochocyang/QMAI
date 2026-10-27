@@ -1,4 +1,4 @@
-mod paths;
+pub mod paths;
 mod protocol;
 mod server;
 mod stdio;
