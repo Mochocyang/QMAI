@@ -312,8 +312,9 @@ describe("真实模型列表的测试版分组", () => {
 
   it("默认只展示自定义模型，风险说明折叠但完整可展开", async () => {
     await renderProviders()
-    expect(container.textContent).toContain("我的模型配置")
-    expect(container.textContent).toContain("我的模型配置")
+    // 标题随三栏入口（添加账号 / 添加提供方 / 添加自定义模型）改为「我的模型设置」。
+    expect(container.textContent).toContain("我的模型设置")
+    expect(container.textContent).toContain("＋ 添加账号")
     expect(container.textContent).toContain("＋ 添加提供方")
     expect(container.textContent).toContain("＋ 添加自定义模型")
     expect(container.querySelector(".model-add-panel")).toBeNull()

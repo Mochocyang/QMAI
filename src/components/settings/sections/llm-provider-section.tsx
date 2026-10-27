@@ -4,7 +4,7 @@ import { useUiTestProviderBatch } from "@/components/uitest/models/provider-batc
 import { isProviderAvailable } from "@/lib/llm-model-keys"
 import { useProviderDraft } from "@/components/uitest/models/provider-draft"
 import { useModelDraftGuard } from "@/components/uitest/models/model-draft-guard"
-import { deleteUiTestProvider } from "@/components/uitest/models/provider-save"
+import { deleteUiTestProvider, saveUiTestProvider } from "@/components/uitest/models/provider-save"
 import { validateProviderDraft } from "@/components/uitest/models/provider-data"
 import { safeModelError } from "@/components/uitest/models/model-feedback"
 import "@/components/uitest/models/model-settings.css"
@@ -34,6 +34,8 @@ import {
 import { thinkingMinMaxTokens } from "@/lib/llm-providers"
 import { resolveCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
 import { resolveCodexSpeedMode } from "@/lib/codex-cli-speed"
+import { AddWorkbuddyAccountDialog } from "./add-workbuddy-account-dialog"
+import { buildWorkbuddyCard, disableWorkbuddyCard } from "@/lib/workbuddy-card"
 
 const UI_TEST_PROVIDER_HINTS: Record<string, string> = {
   anthropic: "官方 Claude API",
@@ -41,6 +43,7 @@ const UI_TEST_PROVIDER_HINTS: Record<string, string> = {
   "codex-cli": "使用本机 codex 命令及其登录状态，无需 API Key",
   "cursor-cli": "通过 cursor-api-proxy 使用本机 agent 命令，无需官方 API Key",
   "antigravity-cli": "使用 local agy 命令及其登录状态，无需 API Key",
+  workbuddy: "用你自己的 WorkBuddy 账号登录，无需 API Key（免装 CLI）",
   openai: "官方 OpenAI API",
   google: "Google 生成式语言 API",
   azure: "Azure OpenAI 资源接口；模型字段填写部署名称",
@@ -71,6 +74,11 @@ export function LlmProviderSection() {
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [uiTestSource, setUiTestSource] = useState<"library" | "custom" | "presets">("library")
+  // 「添加账号」是独立弹窗（不是卡片）：账号属于「设备级登录态」，
+  // 与「某个供应方的模型配置」不是一回事。
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false)
+  // 已登录账号数只用于卡片上的状态文案；账号本体在 Rust 侧。
+  const [, setWorkbuddyAccountCount] = useState(0)
   // 目录里没有任何默认选中项：必须先由用户挑一个提供方，才生成它的配置卡。
   const [selectedPresetId, setSelectedPresetId] = useState("")
   const [customDraftIds, setCustomDraftIds] = useState<string[]>([])
@@ -91,7 +99,14 @@ export function LlmProviderSection() {
     const presets = LLM_PRESETS.filter((preset) => preset.id !== "custom")
     return (
       <div data-ui="llm-library">
-        <div className="model-library-heading"><h3>我的模型配置</h3><span>{configured.length} 个配置</span></div>
+        <div className="model-library-heading"><h3>我的模型设置</h3><span>{configured.length} 个配置</span></div>
+        {/* 三栏入口：账号 / 提供方 / 自定义模型。顺序即产品叙事 ——
+            先「用自己的账号登录」（零 Key、零安装），再「填别人的 Key」，最后「完全自定义」。 */}
+        <div className="model-add-row">
+          <button type="button" className="model-add-card" data-guide="model.add-account" onClick={() => setAccountDialogOpen(true)}>＋ 添加账号</button>
+          <button type="button" className="model-add-card" data-guide="model.add-provider" onClick={() => setUiTestSource(uiTestSource === "presets" ? "library" : "presets")}>＋ 添加提供方</button>
+          <button type="button" className="model-add-card" data-guide="model.add-custom" onClick={() => { const id = `custom-${crypto.randomUUID()}`; setCustomDraftIds((ids) => [...ids, id]); setExpanded({ [id]: true }); setUiTestSource("library") }}>＋ 添加自定义模型</button>
+        </div>
         <div className="model-library-list">
           {configured.map((id) => {
             const config = providerConfigs[id] ?? {}
@@ -100,10 +115,30 @@ export function LlmProviderSection() {
           })}
           {!configured.length && <p>还没有模型配置。</p>}
         </div>
-        <div className="model-add-row">
-          <button type="button" className="model-add-card" data-guide="model.add-provider" onClick={() => setUiTestSource(uiTestSource === "presets" ? "library" : "presets")}>＋ 添加提供方</button>
-          <button type="button" className="model-add-card" data-guide="model.add-custom" onClick={() => { const id = `custom-${crypto.randomUUID()}`; setCustomDraftIds((ids) => [...ids, id]); setExpanded({ [id]: true }); setUiTestSource("library") }}>＋ 添加自定义模型</button>
-        </div>
+        <AddWorkbuddyAccountDialog
+          open={accountDialogOpen}
+          onClose={() => setAccountDialogOpen(false)}
+          onAccountsChanged={(accounts) => {
+            // 账号增删只影响「WorkBuddy 卡片是否可用」，由卡片自己的保存流程写
+            // providerConfigs；这里只把结果透出去，避免两处各写一份状态。
+            setWorkbuddyAccountCount(accounts.length)
+          }}
+          onAccountAdded={async (models) => {
+            // 首个账号登录成功：自动生成 WorkBuddy 卡片（用户不必再点「添加提供方」）。
+            if (providerConfigs.workbuddy) return
+            const card = buildWorkbuddyCard(models)
+            await saveUiTestProvider("workbuddy", card, undefined).catch(() => undefined)
+            setPresetDraftIds((ids) => (ids.includes("workbuddy") ? ids : [...ids, "workbuddy"]))
+            setExpanded((prev) => ({ ...prev, workbuddy: true }))
+          }}
+          onAllAccountsRemoved={async () => {
+            // 删掉最后一个账号：卡片置灰但保留模型列表 —— 用户重新登录时勾选不会丢，
+            // 而模型选择器会立刻认为「当前没有可用模型」。
+            const expected = providerConfigs.workbuddy
+            if (!expected) return
+            await saveUiTestProvider("workbuddy", disableWorkbuddyCard(expected), expected).catch(() => undefined)
+          }}
+        />
         {uiTestSource === "presets" && <div className="model-add-panel">
           <div className="model-provider-grid">{presets.map((preset) => <button type="button" key={preset.id} data-guide={`model.preset.${preset.id}`} className={preset.id === selectedPresetId ? "is-selected" : ""} onClick={() => selectPreset(preset.id)}><span className="model-provider-grid-name"><ProviderBrandIcon presetId={preset.id} /><strong>{preset.label}</strong></span><small>{UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint}</small></button>)}</div>
         </div>}
@@ -243,7 +278,9 @@ function PresetRow({
     preset.provider !== "claude-code" &&
     preset.provider !== "codex-cli" &&
     preset.provider !== "cursor-cli" &&
-    preset.provider !== "antigravity-cli"
+    preset.provider !== "antigravity-cli" &&
+    // 账号登录类：令牌由本地网关于运行时注入，界面上不该出现 Key 输入框。
+    preset.provider !== "workbuddy"
 
   const resolvedConfig = useMemo(
     () => resolveConfig(preset, ov, useWikiStore.getState().llmConfig),

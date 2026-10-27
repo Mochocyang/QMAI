@@ -21,7 +21,9 @@ beforeEach(async () => {
 })
 afterEach(async () => { await unmount(); vi.restoreAllMocks() })
 it("已有提供方直接出现在我的模型配置中", async () => {
-  expect(host.textContent).toContain("我的模型配置")
+  // 标题文案随三栏入口一起改为「我的模型设置」（与「添加账号」并列的入口区需要一个
+  // 涵盖账号 / 提供方 / 自定义模型的标题）。
+  expect(host.textContent).toContain("我的模型设置")
   expect(host.textContent).toContain("OpenAI")
   expect(host.textContent).toContain("官方 OpenAI API")
   const card = host.querySelector<HTMLElement>("[data-model-provider='openai']")!
