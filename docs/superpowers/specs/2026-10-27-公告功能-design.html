@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>公告功能 · 设计</title>
+<style>
+  :root {
+    --ink: #1d2129;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --paper: #ffffff;
+    --bg: #f7f7f8;
+    --accent: #2f6f4f;
+    --accent-soft: #eef5f0;
+    --warn: #8a4b00;
+    --warn-soft: #fdf3e6;
+    --code: #f2f3f5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 48px 24px 80px;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.75 -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  }
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 48px 56px 56px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.03), 0 12px 32px rgba(0,0,0,.04);
+  }
+  h1 { font-size: 27px; line-height: 1.3; margin: 0 0 8px; letter-spacing: .2px; }
+  h2 {
+    font-size: 19px; margin: 44px 0 14px; padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  h3 { font-size: 15.5px; margin: 26px 0 8px; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 10px 0; padding-left: 22px; }
+  li { margin: 5px 0; }
+  code {
+    background: var(--code); border-radius: 5px; padding: 1px 5px;
+    font: 13px/1.6 ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  pre {
+    background: var(--code); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; overflow-x: auto; margin: 12px 0;
+  }
+  pre code { background: none; padding: 0; font-size: 12.5px; line-height: 1.7; }
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: #fafafa; font-weight: 600; }
+  .meta { color: var(--muted); font-size: 13.5px; margin: 0 0 4px; }
+  .lead {
+    margin: 18px 0 0; padding: 14px 18px; border-radius: 10px;
+    background: var(--accent-soft); border: 1px solid #d7e7dd;
+  }
+  .note {
+    margin: 16px 0; padding: 12px 16px; border-radius: 10px;
+    background: var(--warn-soft); border: 1px solid #f0dcc0; color: #5c3b12;
+  }
+  .note strong { color: var(--warn); }
+  .muted { color: var(--muted); }
+  figure { margin: 18px 0; }
+  figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 40px 0; }
+  .tag {
+    display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px;
+    background: var(--accent-soft); color: var(--accent); border: 1px solid #d7e7dd;
+    margin-left: 8px; vertical-align: 2px;
+  }
+</style>
+</head>
+<body>
+<main>
+
+<h1>公告功能 · 设计</h1>
+<p class="meta">2026-10-27 · 分支 <code>feature/announcement-system</code> · 涉及仓库：QMAI（客户端）、QMAIWEB（官网）</p>
+
+<p class="lead">
+  官网放一份 <code>announcements.json</code> 作为唯一事实源；软件启动与打开公告弹窗时拉取，本地缓存、本地记已读；侧栏底部加一个铃铛，未读用数字角标提示；弹窗里逐条展开即自动已读，另有「全部已读」。不做发布后台、不做轮询、不做清空。
+</p>
+
+<h2>1. 目标与范围</h2>
+
+<h3>要做的</h3>
+<ul>
+  <li>在官网（www.qmai.pro）发布公告，软件能同步看到新公告。</li>
+  <li>侧栏底部「设置」「外观」去掉汉字、只留图标；「设置」右侧新增铃铛入口。</li>
+  <li>点铃铛打开弹窗；公告逐条可读；支持「全部已读」。</li>
+</ul>
+
+<h3>不做的（本期明确排除）</h3>
+<ul>
+  <li><strong>清空公告</strong>：已读只是去掉未读标记，公告始终保留在列表里。</li>
+  <li><strong>发布后台 / 管理页</strong>：官网侧只新增一个静态 JSON，不新增页面、不加导航入口。</li>
+  <li><strong>公告与账号关联</strong>：已读状态是本机状态，不跨设备同步。</li>
+  <li><strong>版本定向、生效时间窗、类型分级</strong>：本期字段精简；过期公告直接从 JSON 删掉。</li>
+  <li><strong>系统通知 / 启动自动弹窗</strong>：只做角标，不打断写作。</li>
+</ul>
+
+<h2>2. 已确认的决定</h2>
+
+<table>
+  <tr><th>决定</th><th>选择</th><th>理由</th></tr>
+  <tr>
+    <td>公告从哪来</td>
+    <td>官网静态 JSON（随站点部署）</td>
+    <td>官网是纯静态 Pages 站，靠 wrangler 手动部署；加一个文件即可，无后端、无密钥、可整份回滚。已上线的 analytics Worker 仍只承担统计，不掺进公告。</td>
+  </tr>
+  <tr>
+    <td>字段</td>
+    <td>精简集：id、标题、正文(Markdown)、发布时间、置顶、可选链接</td>
+    <td>够表达「发什么、什么时候发、点了去哪」；缺的字段（类型、时间窗、版本区间）等真有需求再补。</td>
+  </tr>
+  <tr>
+    <td>阅读状态</td>
+    <td>逐条自动已读 + 全部已读</td>
+    <td>「点开就算读过」符合直觉，不用用户额外交互；「全部已读」一次清掉剩余未读。没有「一键阅读」这个第三动作。</td>
+  </tr>
+  <tr>
+    <td>未读提示</td>
+    <td>铃铛右上角数字角标（9+ 封顶），不自动弹窗</td>
+    <td>公告是低频信息，弹窗打断写作；角标已经能让人知道「有事」。</td>
+  </tr>
+  <tr>
+    <td>同步时机</td>
+    <td>启动拉一次 + 每次点铃铛再拉一次</td>
+    <td>轮询对低频内容没有收益，却要常驻定时器与后台请求。</td>
+  </tr>
+  <tr>
+    <td>客户端分层</td>
+    <td>前端模块 + zustand store + <code>app-state.json</code> 持久化</td>
+    <td>与 <code>analytics.ts</code> 同构（plugin-http + 静默失败），无 Rust 改动；app-state 有原子写和 <code>.bak</code> 恢复，且跨窗口共享。</td>
+  </tr>
+</table>
+
+<h2>3. 架构与数据流</h2>
+
+<figure>
+<pre><code>官网 QMAIWEB（Cloudflare Pages）           客户端 QMAI（Tauri + React）
+────────────────────────────────            ─────────────────────────────────────────
+announcements.json  ──── HTTPS ────▶  src/lib/announcements.ts
+  · 唯一事实源                          · fetch + 字段校验 + 排序 + 截断
+  · _headers: CORS / max-age=300        · 超时 8s，失败换备用域名再试一次
+  · build.mjs 白名单加进 dist                       │
+                                                   ▼
+                                     src/stores/announcement-store.ts
+                                       items / readIds / lastFetchedAt / status
+                                                   │
+                          ┌────────────────────────┴────────────────────────┐
+                          ▼                                                 ▼
+                 app-state.json                                    未读数 → 铃铛角标
+                 · announcementsCache（列表 + fetchedAt）
+                 · announcementReadIds（已读 id，≤200）
+                                                   │
+                                                   ▼
+                                     announcement-dialog.tsx（App 根部挂一次）
+                                       展开即已读 / 全部已读 / 刷新 / 重试
+</code></pre>
+  <figcaption>写入方向只有一条：官网 → 客户端。客户端不回传任何东西（已读不上报）。</figcaption>
+</figure>
+
+<h2>4. 数据契约 <code>announcements.json</code></h2>
+
+<pre><code class="language-json">{
+  "version": 1,
+  "updatedAt": "2026-10-27T09:00:00+08:00",
+  "announcements": [
+    {
+      "id": "2026-10-27-sync-fix",
+      "title": "云同步重复上传已修复",
+      "body": "## 修复内容\n- 同一文件不再被反复上传\n- 失败会重试两次\n\n详情见官网。",
+      "publishedAt": "2026-10-27T09:00:00+08:00",
+      "pinned": false,
+      "url": "https://www.qmai.pro/"
+    }
+  ]
+}
+</code></pre>
+
+<table>
+  <tr><th>字段</th><th>必填</th><th>约束</th><th>用途</th></tr>
+  <tr><td><code>version</code></td><td>否</td><td>当前 <code>1</code></td><td>结构升级预留；客户端只认 1，其它值按 1 尽力解析</td></tr>
+  <tr><td><code>updatedAt</code></td><td>否</td><td>ISO 8601</td><td>仅调试用，客户端不依赖</td></tr>
+  <tr><td><code>id</code></td><td>是</td><td>稳定唯一，永不复用，≤64 字符</td><td><strong>已读状态的唯一依据</strong></td></tr>
+  <tr><td><code>title</code></td><td>是</td><td>≤60 字，纯文本</td><td>列表行标题</td></tr>
+  <tr><td><code>body</code></td><td>是</td><td>Markdown，≤2000 字</td><td>展开后的正文</td></tr>
+  <tr><td><code>publishedAt</code></td><td>是</td><td>ISO 8601 带时区</td><td>时间显示与排序</td></tr>
+  <tr><td><code>pinned</code></td><td>否</td><td>布尔，缺省 <code>false</code></td><td>置顶（排序优先，列表带「置顶」标）</td></tr>
+  <tr><td><code>url</code></td><td>否</td><td>仅 <code>http/https</code></td><td>「查看详情」用系统浏览器打开</td></tr>
+</table>
+
+<h3>校验与容错规则</h3>
+<ul>
+  <li>缺 <code>id</code> / <code>title</code> / <code>publishedAt</code>，或 <code>publishedAt</code> 无法解析 → <strong>整条丢弃</strong>，不猜、不补默认值。</li>
+  <li>重复 <code>id</code> → 保留第一条，其余丢弃（防止手写 JSON 复制粘贴出错）。</li>
+  <li><code>body</code> 超长截断到 2000 字；条目超过 50 条只取排序后的前 50 条。</li>
+  <li>整个 JSON 解析失败 / 顶层不是对象 / <code>announcements</code> 不是数组 → 视为<strong>拉取失败</strong>，保留本地缓存，不清空。</li>
+  <li>排序不依赖文件顺序：<code>pinned</code> 降序，再按 <code>publishedAt</code> 降序。</li>
+</ul>
+
+<div class="note">
+  <strong>id 的语义要说清：</strong>改错别字、补一段说明都属于「同一条公告」，id 不动，已读状态保持；想再次提醒用户，就换一个新 id。这条规则写进站点仓库的发布说明，否则「改了内容用户却没看见红点」会被当成 bug 报上来。
+</div>
+
+<h2>5. 官网侧改动（QMAIWEB）</h2>
+
+<table>
+  <tr><th>文件</th><th>动作</th><th>说明</th></tr>
+  <tr><td><code>announcements.json</code>（仓库根）</td><td>新建</td><td>公告数据，见第 4 节</td></tr>
+  <tr><td><code>_headers</code></td><td>新建</td><td>给该文件放开跨域与 5 分钟缓存</td></tr>
+  <tr><td><code>scripts/build.mjs</code></td><td>修改</td><td><strong>把这两个文件加进复制白名单</strong>（当前是逐名拷贝 5 个文件）</td></tr>
+  <tr><td><code>scripts/test.mjs</code></td><td>修改</td><td>加一条结构校验，手写 JSON 出错时在部署前红</td></tr>
+</table>
+
+<h3>_headers</h3>
+<pre><code>/announcements.json
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=300
+</code></pre>
+<p class="muted">Pages 已按扩展名返回 <code>application/json</code>，不必覆盖 Content-Type。</p>
+
+<h3>build.mjs 的拷贝白名单</h3>
+<pre><code class="language-js">for (const name of ['index.html', 'styles.css', 'script.js', 'announcements.json', '_headers'])
+  await cp(path.join(root, name), path.join(dist, name));
+</code></pre>
+<div class="note">
+  <strong>最容易漏的一步。</strong> <code>build.mjs</code> 只拷贝点名的那几个文件，`announcements.json` 不在名单里就永远不会出现在 <code>dist</code> 里，线上 404，而本地看文件又是好的。
+</div>
+
+<h3>站点测试（scripts/test.mjs 追加）</h3>
+<ul>
+  <li>文件存在且 <code>JSON.parse</code> 通过；</li>
+  <li><code>announcements</code> 是数组且长度 ≤50；</li>
+  <li>每条都有非空 <code>id</code> / <code>title</code> / <code>body</code> / 可解析的 <code>publishedAt</code>；</li>
+  <li><code>id</code> 不重复；<code>url</code> 若存在必须是 http/https。</li>
+</ul>
+
+<h3>发布流程</h3>
+<pre><code>改 announcements.json
+npm run check &amp;&amp; npm test
+npm run build
+npx wrangler pages deploy dist --project-name qmai --branch main
+curl https://www.qmai.pro/announcements.json   # 确认线上是新内容</code></pre>
+<p class="muted">5 分钟 CDN 缓存意味着「发布后最多 5 分钟客户端才可能看到」。要更快就把 max-age 调小。</p>
+
+<h2>6. 客户端数据层</h2>
+
+<h3>src/lib/announcements.ts（新建）</h3>
+<pre><code class="language-ts">export interface Announcement {
+  id: string
+  title: string
+  body: string          // Markdown，已截断
+  publishedAt: number   // epoch ms
+  pinned: boolean
+  url?: string
+}
+
+export const ANNOUNCEMENTS_URLS = [
+  "https://www.qmai.pro/announcements.json",
+  "https://qmai.pro/announcements.json",   // 备用域名
+]
+
+/** 纯函数：坏数据一律丢弃，不抛异常。 */
+export function normalizeAnnouncements(payload: unknown): Announcement[]
+
+/** 8s 超时；主域名失败换备用域名再试一次；仍失败返回 null。 */
+export async function fetchAnnouncements():
+  Promise<{ items: Announcement[]; fetchedAt: number } | null>
+</code></pre>
+<ul>
+  <li>走 <code>getHttpFetch()</code>（Tauri plugin-http，绕开 CORS），与全项目 HTTP 约定一致。</li>
+  <li>失败<strong>不抛异常、不弹错误框</strong>，只在 <code>console.warn</code> 留一行，与 <code>analytics.ts</code> 同构。</li>
+  <li><code>normalizeAnnouncements</code> 是纯函数，所有字段规则（第 4 节）都在这里，测试直接喂坏数据。</li>
+</ul>
+
+<h3>src/stores/announcement-store.ts（新建）</h3>
+<pre><code class="language-ts">interface AnnouncementState {
+  items: Announcement[]
+  readIds: Set&lt;string&gt;
+  lastFetchedAt: number | null
+  status: "idle" | "loading" | "ready" | "error"
+  dialogOpen: boolean
+  // 派生
+  unreadCount: number
+  // 动作
+  hydrate(): Promise&lt;void&gt;          // 读 app-state 缓存与已读
+  refresh(): Promise&lt;void&gt;          // 单飞，失败保留旧数据
+  openDialog(): void                // 开弹窗 + 触发一次 refresh
+  closeDialog(): void
+  markRead(id: string): Promise&lt;void&gt;
+  markAllRead(): Promise&lt;void&gt;     // 清掉当前列表里的全部未读
+}
+</code></pre>
+
+<h3>持久化键（app-state.json）</h3>
+<table>
+  <tr><th>键</th><th>内容</th><th>大小控制</th></tr>
+  <tr><td><code>announcementsCache</code></td><td><code>{ items, fetchedAt }</code></td><td>≤50 条、正文 ≤2000 字，整体约 100KB 上限</td></tr>
+  <tr><td><code>announcementReadIds</code></td><td><code>string[]</code></td><td>只保留当前列表里仍存在的 id，上限 200</td></tr>
+</table>
+<ul>
+  <li>复用 <code>getStore()</code>：写入已有 100ms 防抖 + Rust 侧原子写与 <code>.bak</code> 恢复，不需要另做一层。</li>
+  <li><strong>不用 localStorage</strong>：项目里已有教训（皮肤存 localStorage 导致独立窗口不同步），且 localStorage 不进备份、不进迁移。</li>
+  <li>hydrate 容错：读到脏数据（不是数组、字段类型不对）就当空处理，并顺手覆盖成合法值。</li>
+</ul>
+
+<h3>触发点</h3>
+<table>
+  <tr><th>时机</th><th>行为</th></tr>
+  <tr><td>App 启动（挨着 <code>initAnalytics</code> 的 effect）</td><td><code>hydrate()</code> → 静默 <code>refresh()</code>，不阻塞渲染</td></tr>
+  <tr><td>点铃铛</td><td>立刻 <code>openDialog()</code>（先显示缓存），同时 <code>refresh()</code></td></tr>
+  <tr><td>弹窗内点「刷新」</td><td><code>refresh()</code>，失败时显示错误行</td></tr>
+</table>
+<p class="muted">不做定时轮询：低频内容不值一个常驻定时器。</p>
+
+<h2>7. 界面规范</h2>
+
+<h3>(a) 底栏去文字化 + 铃铛</h3>
+<p>改 <code>src/components/layout/sidebar-bottom-actions.tsx</code>（五个侧栏面板共用这一个组件）。</p>
+
+<figure>
+<pre><code>改前：  [⚙ 设置]                        [🌙 外观]
+改后：  [⚙] [🔔③]              [🌙]
+         ↑ 设置  ↑ 公告（设置右侧）  ↑ 外观仍靠右
+</code></pre>
+</figure>
+
+<ul>
+  <li>两个按钮删掉 <code>&lt;span&gt;</code> 文字，<strong>保留 <code>title</code> 与 <code>aria-label</code></strong> —— 纯图标没有悬停解释就等于不可辨识。</li>
+  <li>三个按钮统一为 <code>size-8</code> 图标按钮（28px 命中区，与项目其它图标按钮一致）；设置选中态继续用 <code>qm-selected</code>。</li>
+  <li>布局：设置与公告靠左（<code>gap-0.5</code>），外观用 <code>ml-auto</code> 锚在右边，用户原有位置感不变。</li>
+</ul>
+
+<h3>(b) 铃铛与角标</h3>
+<ul>
+  <li>图标 <code>Bell</code>（lucide），<code>aria-haspopup="dialog"</code>、<code>aria-expanded</code>。</li>
+  <li>未读 &gt; 0 时右上角 14px 红底数字，&gt; 9 显示 <code>9+</code>；角标 <code>aria-hidden</code>。</li>
+  <li><code>aria-label</code> 带数量：「公告」/「公告，3 条未读」。</li>
+  <li>没有未读时完全不出现角标，不做「已读也留灰点」。</li>
+</ul>
+
+<h3>(c) 公告弹窗</h3>
+<p><code>src/components/announcements/announcement-dialog.tsx</code>，挂在 <code>App.tsx</code> 根部（与 <code>PersonaSkillCompletionDialog</code> 并列）——<strong>只挂一次</strong>；若放进 <code>SidebarBottomActions</code>，五个面板各渲染一个，会出现多层遮罩。</p>
+
+<figure>
+<pre><code>┌─ 公告 ─────────────────────────────── 3 条未读 ─┐
+│ ● 云同步重复上传已修复           置顶   10-27   │  ← 未读：实心点
+│   ┌───────────────────────────────────────────┐ │
+│   │ ## 修复内容                               │ │  ← 点标题展开，同时标已读
+│   │ - 同一文件不再被反复上传                   │ │
+│   │ 查看详情 ↗                                │ │
+│   └───────────────────────────────────────────┘ │
+│ ○ 更新通道新增两条镜像                    10-26  │  ← 已读：空心点
+│ ● 关于 macOS 独立窗口的说明               10-25  │
+├─────────────────────────────────────────────────┤
+│ 上次更新：3 分钟前 · 刷新         [ 全部已读 ]  │
+└─────────────────────────────────────────────────┘
+</code></pre>
+</figure>
+
+<ul>
+  <li>宽 640px、<code>max-h-[70vh]</code>，列表区内部滚动，头部与底栏固定。</li>
+  <li>正文用 react-markdown 渲染；链接点击走 <code>openExternalUrl</code> 用系统浏览器打开（不在 webview 内跳转）。</li>
+  <li>展开即 <code>markRead(id)</code> 并保持展开；再点一次收起，<strong>已读不回退</strong>。</li>
+  <li>底栏左：上次更新时间 + 「刷新」（同时是失败后的重试入口）；右：「全部已读」，无未读时置灰不可点。</li>
+  <li>空状态：「暂无公告」；无缓存且拉取失败：「暂时无法获取公告，请检查网络后重试」+ 重试按钮。</li>
+  <li>无障碍：base-ui Dialog 自带焦点陷阱与 Esc 关闭；列表项用 <code>button</code> + <code>aria-expanded</code>。</li>
+</ul>
+
+<h3>(d) i18n</h3>
+<p><code>src/i18n/zh.json</code> 增加 <code>sidebarActions.announcements</code>（「公告」）与 <code>announcements.*</code>（弹窗标题、未读数、空状态、全部已读、上次更新、重试、查看详情），与现有 <code>sidebarActions</code> 的用法一致。</p>
+
+<h2>8. 边界与错误</h2>
+
+<table>
+  <tr><th>情况</th><th>表现</th></tr>
+  <tr><td>断网 / 超时 / 站点 404 / JSON 坏</td><td>静默使用缓存；无缓存时弹窗内给错误 + 重试；角标保持原值</td></tr>
+  <tr><td>公告被从 JSON 删除</td><td>列表消失，其已读 id 在下次写入时被修剪</td></tr>
+  <tr><td>同一份 JSON 里重复 id</td><td>保留第一条，其余丢弃</td></tr>
+  <tr><td>首次安装（无缓存）</td><td>角标 0；点开先 loading，再出列表或错误</td></tr>
+  <tr><td>独立阅读窗口（reader-*）</td><td>不渲染侧栏，不涉及；app-state 本身跨窗口共享</td></tr>
+  <tr><td>用户手改 app-state.json 写坏</td><td>hydrate 判为脏数据按空处理，不影响启动</td></tr>
+  <tr><td>发布时间在未来（时钟/时区写错）</td><td>时间显示「刚刚」，排序仍按时间戳，不隐藏</td></tr>
+</table>
+
+<h2>9. 测试计划</h2>
+
+<table>
+  <tr><th>层级</th><th>用例</th></tr>
+  <tr>
+    <td><code>src/lib/announcements.ts</code> 单测</td>
+    <td>正常解析；缺字段丢弃；坏时间丢弃；重复 id 去重；置顶排序；正文截断；条目数上限；顶层结构非法返回空；fetch 成功 / 超时 / 网络错 / 坏 JSON → null；主域名失败走备用域名</td>
+  </tr>
+  <tr>
+    <td>store 单测</td>
+    <td>hydrate 脏数据；markRead 幂等；markAllRead；unreadCount 计算；refresh 并发只发一次；refresh 失败保留旧 items；readIds 修剪</td>
+  </tr>
+  <tr>
+    <td>组件测试</td>
+    <td>有未读时角标数字与 aria-label；点铃铛开弹窗；展开后未读减一、再点收起仍为已读；全部已读后角标消失但列表仍在；无缓存 + 失败显示重试；空列表显示「暂无公告」</td>
+  </tr>
+  <tr>
+    <td>回归守卫</td>
+    <td>扩展 <code>icon-sidebar.test.tsx</code>：底栏不再渲染「设置」「外观」文字节点，但仍保留可访问名称</td>
+  </tr>
+  <tr>
+    <td>站点测试</td>
+    <td><code>scripts/test.mjs</code> 的 JSON 结构校验（见第 5 节）</td>
+  </tr>
+  <tr>
+    <td>手动验收</td>
+    <td>断网开弹窗；清空 app-state 模拟新装；重启后已读保持；真发一条公告端到端看到；角标 9+ 封顶</td>
+  </tr>
+</table>
+
+<p>命令：<code>npm run test:mocks</code>、<code>npm run typecheck</code>（客户端）；<code>npm run check</code>、<code>npm test</code>（官网）。</p>
+
+<h2>10. 实施顺序</h2>
+<ol>
+  <li><strong>站点先行</strong>：<code>announcements.json</code> + <code>_headers</code> + <code>build.mjs</code> 白名单 + 站点测试；先发一版占位公告，让客户端有东西可拉。</li>
+  <li><strong>数据层</strong>：<code>lib/announcements.ts</code> + 单测（纯函数先立住字段规则）。</li>
+  <li><strong>状态层</strong>：store + app-state 持久化 + 单测。</li>
+  <li><strong>界面</strong>：底栏去文字化 → 铃铛角标 → 弹窗 → i18n + 组件测试。</li>
+  <li><strong>接线与验收</strong>：<code>App.tsx</code> 启动拉取；手动跑第 9 节验收清单。</li>
+  <li><strong>端到端</strong>：官网发一条真公告 → 部署 → 软件里看到角标、读掉、重启后仍是已读。</li>
+</ol>
+
+<h2>11. 风险与取舍</h2>
+<ul>
+  <li><strong>发布要部署一次站点</strong>（约 5 分钟缓存 + 一条 wrangler 命令）。若之后想要「即时发布、不重新部署」，可把 JSON 换成 analytics Worker 的一个只读接口 —— 客户端契约不变，只换 URL。</li>
+  <li><strong>代理</strong>：客户端 HTTP 走 plugin-http/reqwest，沿用项目现有的 <code>HTTP_PROXY</code> 环境变量方案；若实测代理不生效，再按 updater 的做法把代理显式传入（届时才考虑加 Rust 命令）。</li>
+  <li><strong>app-state 体积</strong>：靠「50 条 + 2000 字截断」把缓存压到 100KB 以内；写入有防抖与原子落盘，不影响启动。</li>
+  <li><strong>没有「清空」</strong>：公告会一直堆在列表里。列表上限 50 条 + 官网只保留最近 20 条，实际不会难看；真觉得长，后续再加归档而不是删除。</li>
+</ul>
+
+</main>
+</body>
+</html>
