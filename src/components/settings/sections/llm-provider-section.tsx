@@ -4,7 +4,7 @@ import { useUiTestProviderBatch } from "@/components/uitest/models/provider-batc
 import { isProviderAvailable } from "@/lib/llm-model-keys"
 import { useProviderDraft } from "@/components/uitest/models/provider-draft"
 import { useModelDraftGuard } from "@/components/uitest/models/model-draft-guard"
-import { deleteUiTestProvider } from "@/components/uitest/models/provider-save"
+import { deleteUiTestProvider, saveUiTestProvider } from "@/components/uitest/models/provider-save"
 import { validateProviderDraft } from "@/components/uitest/models/provider-data"
 import { safeModelError } from "@/components/uitest/models/model-feedback"
 import "@/components/uitest/models/model-settings.css"
