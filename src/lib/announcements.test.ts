@@ -78,6 +78,13 @@ describe("normalizeAnnouncements", () => {
     expect(normalizeAnnouncements(many)).toHaveLength(50)
   })
 
+  it("缓存里的 epoch ms 时间戳也能读回（与写入形态一致）", () => {
+    const cached = { id: "c1", title: "缓存", body: "正文", publishedAt: 1_793_000_000_000, pinned: true }
+    const result = normalizeAnnouncements([cached])
+    expect(result).toHaveLength(1)
+    expect(result[0]?.publishedAt).toBe(1_793_000_000_000)
+  })
+
   it("非法 url 置空、pinned 缺省为 false", () => {
     const [withBadUrl] = normalizeAnnouncements([item({ url: "javascript:alert(1)" })])
     expect(withBadUrl?.url).toBeUndefined()

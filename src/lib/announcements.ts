@@ -60,6 +60,17 @@ export function readAnnouncementList(payload: unknown): unknown[] | null {
   return null
 }
 
+/**
+ * 发布时间既接受 ISO 字符串（官网 JSON），也接受 epoch ms（本地缓存里的形态）。
+ * 缓存直接复用同一个归一化函数，避免"写进去能读回来却全被丢掉"这种哑巴亏。
+ */
+function toEpochMs(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null
+  if (typeof value !== "string") return null
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
 export function normalizeAnnouncements(payload: unknown): Announcement[] {
   const list = readAnnouncementList(payload)
   if (!list) return []
@@ -72,9 +83,8 @@ export function normalizeAnnouncements(payload: unknown): Announcement[] {
     const id = asTrimmedString(record.id, 64)
     const title = asTrimmedString(record.title, MAX_TITLE_LENGTH)
     const body = asTrimmedString(record.body, MAX_BODY_LENGTH)
-    const publishedAt =
-      typeof record.publishedAt === "string" ? Date.parse(record.publishedAt) : Number.NaN
-    if (!id || !title || !body || Number.isNaN(publishedAt)) continue
+    const publishedAt = toEpochMs(record.publishedAt)
+    if (!id || !title || !body || publishedAt === null) continue
     // 重复 id 保留第一条：手写 JSON 复制粘贴出错时，后一条会悄悄覆盖已读状态。
     if (seen.has(id)) continue
     seen.add(id)
