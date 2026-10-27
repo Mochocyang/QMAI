@@ -37,7 +37,6 @@ use serde_json::{json, Value};
 
 use super::accounts::{now_ms, AccountStore};
 use super::chat::{self, ChatError};
-use super::endpoints::Edition;
 use super::models::ModelCache;
 use super::refresh;
 
@@ -61,11 +60,18 @@ pub struct GatewayHandle {
 
 impl GatewayHandle {
     /// 前端拿去拼 `customEndpoint` 的值（`http://127.0.0.1:<port>/v1`）。
+    ///
+    /// 命令层目前自己 `format!`（它要一次给出 `baseUrl` 与 `v1BaseUrl` 两个字段），
+    /// 这里保留同一个口径，避免将来有人手拼出 `/v1/` 这种带尾斜杠的形态。
+    #[allow(dead_code)]
     pub fn v1_base(&self) -> String {
         format!("{}/v1", self.base_url)
     }
 
-    /// 停掉网关（测试与退出时用）。
+    /// 主动停掉网关（测试里用来验证「重启后端口/令牌都变」）。
+    ///
+    /// 生产路径不用它：网关跟着进程活，`Drop` 已经覆盖。
+    #[allow(dead_code)]
     pub fn shutdown(mut self) {
         if let Some(sender) = self.shutdown.take() {
             let _ = sender.send(());
@@ -448,15 +454,11 @@ fn json_response(status: StatusCode, body: Value) -> Response {
     (status, Json(body)).into_response()
 }
 
-/// 供命令层构造一个默认版本目录（缓存为空时也要能回 list）。
-pub fn fallback_cache(edition: Edition) -> Vec<super::models::ModelInfo> {
-    super::models::builtin_for(edition)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::workbuddy::accounts::{Account, Auth};
+    use crate::workbuddy::endpoints::Edition;
     use crate::workbuddy::test_support::{temp_dir, StubServer};
 
     const SSE: &str = "data: {\"id\":\"c1\",\"model\":\"deepseek-v4.1-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"你\"}}]}\n\n\

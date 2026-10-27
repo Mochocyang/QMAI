@@ -112,21 +112,29 @@ impl Edition {
     /// 鉴权类接口的完整 URL（**带** `/plugin` 前缀）。
     ///
     /// `path` 传 `/auth/state?platform=…` 这种以斜杠开头的路径。
+    ///
+    /// 生产路径里 `login.rs` / `refresh.rs` 各自拼自己的 URL（前者还要能被测试
+    /// 替身覆盖端点），所以这里目前只有测试在用；留着是为了让「三个 URL 形态的
+    /// 差别」有一条可执行的说明（见模块头那三条）。
+    #[allow(dead_code)]
     pub fn auth_url(self, path: &str) -> String {
         format!("{}/v2{}{}", self.endpoint, self.prefix_path, path)
     }
 
     /// 对话接口 URL（**不带**前缀）。
+    #[allow(dead_code)]
     pub fn chat_url(self) -> String {
         format!("{}/v2/chat/completions", self.endpoint)
     }
 
     /// 模型目录接口 URL（不带前缀；请求必须带 [`Edition::ua`]）。
+    #[allow(dead_code)]
     pub fn config_url(self) -> String {
         format!("{}/v3/config", self.endpoint)
     }
 
     /// `Origin` / `Referer` 用（与站点根同值）。
+    #[allow(dead_code)]
     pub fn origin(self) -> &'static str {
         self.endpoint
     }
@@ -170,7 +178,12 @@ pub const CODE_QUOTA_LIMIT: i64 = 6004;
 /// 注意它是**负数**：上游把 `11-128` 当表达式算出来了，落进 JSON 就是 `-117`。
 pub const CODE_WAF_BLOCK: i64 = 11 - 128;
 
-/// 上游不支持非流式对话的业务码（本网关因此强制 `stream: true`）。
+/// 上游不支持非流式对话的业务码（网关因此一律按流式请求、需要 JSON 时自己聚合）。
+///
+/// 网关里**故意不读它**：与其先发一次非流式请求、再按业务码重发，不如直接总是
+/// 带 `stream: true`（见 `gateway::send_upstream`）。这个常量留着是因为它是协议
+/// 事实的一部分 —— 排障时看到这个码要能立刻认出「有人用了非流式」。
+#[allow(dead_code)]
 pub const CODE_NON_STREAM_UNSUPPORTED: i64 = 11101;
 
 /// 官方客户端登录态目录（Windows：`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth`）。

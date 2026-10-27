@@ -454,6 +454,11 @@ pub struct LoginTasks {
 }
 
 pub struct TaskState {
+    /// 这一轮登录的起始信息（state / authUrl / 版本）。
+    ///
+    /// 命令层只按 state 查询、不读它；留着是为了排障时能从任务表复原「这一轮
+    /// 是哪家、打开的是哪个地址」，以及将来加「登录历史」时不必再补一次结构。
+    #[allow(dead_code)]
     pub start: LoginStart,
     pub status: TaskStatus,
     pub canceled: bool,

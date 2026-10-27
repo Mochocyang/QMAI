@@ -42,6 +42,11 @@ const TAG_LEN: usize = 16;
 pub const DECRYPT_FAILED: &str = "凭证解密失败（密钥文件可能已更换），请重新登录 WorkBuddy";
 
 /// 这段文本是不是本模块产出的密文。
+///
+/// 生产路径里信封与明文的区分发生在 `AccountStore`（它按列判定整条记录的形态），
+/// 因此这里目前只有测试在用。留着是因为它把「什么算信封」这个**格式契约**留在
+/// 本模块内部 —— 将来换 `enc2:` 时只需要改这一个判断。
+#[allow(dead_code)]
 pub fn is_envelope(text: &str) -> bool {
     text.starts_with(ENVELOPE_PREFIX)
 }

@@ -33,7 +33,6 @@ use super::{import, logging, login_window, refresh};
 
 /// 命令层共享状态（`lib.rs` 的 setup 里 `manage` 进来）。
 pub struct WorkbuddyState {
-    pub dir: PathBuf,
     pub store: Arc<Mutex<AccountStore>>,
     pub cache: Arc<Mutex<ModelCache>>,
     pub tasks: Arc<LoginTasks>,
@@ -49,7 +48,6 @@ impl WorkbuddyState {
         let store = AccountStore::load(&dir)?;
         let cache = ModelCache::load(&dir, Edition::CN.provider_id());
         Ok(WorkbuddyState {
-            dir,
             store: Arc::new(Mutex::new(store)),
             cache: Arc::new(Mutex::new(cache)),
             tasks: Arc::new(LoginTasks::default()),
@@ -77,7 +75,6 @@ impl WorkbuddyState {
                     tasks: Arc::new(LoginTasks::default()),
                     gateway: Mutex::new(None),
                     gateway_error: Mutex::new(Some(error)),
-                    dir,
                 }
             }
         }
@@ -165,10 +162,6 @@ fn random_token() -> String {
     let mut bytes = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut bytes);
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn state_of<'a>(state: &'a State<'_, WorkbuddyState>) -> &'a WorkbuddyState {
-    state.inner()
 }
 
 // ─── 登录 ────────────────────────────────────────────────────

@@ -126,6 +126,11 @@ impl Account {
 pub const DEFAULT_PRIORITY: i64 = 100;
 
 /// 刷新提前量：到期前 5 分钟就换新，避免「验证通过、请求时刚好过期」。
+///
+/// 刷新决策的唯一实现点是 `refresh::should_refresh`（网关与命令层都走它）；
+/// 这里保留同名常量是为了让「到期前多久算临期」只有**一个数值**，两处不会分叉。
+/// 二期把「设置里可调提前量」做出来时，改这一处即可。
+#[allow(dead_code)]
 pub const REFRESH_MARGIN_MS: i64 = 5 * 60 * 1000;
 
 /// 落盘的账号记录（`auth` 是密文信封）。
@@ -241,10 +246,18 @@ impl AccountStore {
         self.accounts.iter().find(|account| account.id == id).cloned()
     }
 
+    /// 有没有任何账号（含已停用的）。
+    ///
+    /// 与 [`Self::has_enabled`] 的区别正是「删号 vs 停用」：设置页要用前者判断
+    /// 「要不要把卡片置灰」，用后者判断「现在能不能发请求」。本期 UI 只有删除，
+    /// 二期加停用开关时会用到 `has_enabled`。
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.accounts.is_empty()
     }
 
+    /// 有没有可用（已启用）的账号。
+    #[allow(dead_code)]
     pub fn has_enabled(&self) -> bool {
         self.accounts.iter().any(|account| account.enabled)
     }
@@ -290,6 +303,11 @@ impl AccountStore {
     }
 
     /// 启停（界面上的「停用这个账号」）。
+    ///
+    /// 本期 UI 只提供「删除」；但「保留账号、先不用它」是二期多账号的必然需求，
+    /// 且存储层已经按 `enabled` 过滤（见 [`Self::current`]），所以实现与用例都在，
+    /// 只差一个开关按钮。
+    #[allow(dead_code)]
     pub fn set_enabled(&mut self, id: &str, enabled: bool) -> Result<(), String> {
         let Some(target) = self.accounts.iter_mut().find(|item| item.id == id) else {
             return Err(format!("账号不存在：{id}"));

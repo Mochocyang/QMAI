@@ -68,6 +68,10 @@ pub struct ModelInfo {
 impl ModelInfo {
     /// 上下文窗口的有效值：上游没给时按 128K 估（QMAI 侧还会再取用户配置的
     /// `maxContextSize`，两者取小；这里给 0 会让预算算出「没有上限」）。
+    ///
+    /// 前端的卡片生成（`src/lib/workbuddy-card.ts`）里有一份同源兜底 ——
+    /// 前端拿不到这个函数，所以那条规则只能两边各写一次，改这里时同步改那边。
+    #[allow(dead_code)]
     pub fn effective_context(&self) -> i64 {
         if self.max_input > 0 {
             self.max_input
@@ -266,6 +270,10 @@ impl ModelCache {
     }
 
     /// 取一条模型。
+    ///
+    /// 网关处理对话时只用 `contains`（存在性判定）；取详情留给「命令层把某条
+    /// 模型的上下文/输出上限回填到卡片」那种场景（二期多账号时用）。
+    #[allow(dead_code)]
     pub fn get(&self, id: &str) -> Option<&ModelInfo> {
         self.models.iter().find(|model| model.id == id)
     }
@@ -295,6 +303,11 @@ impl ModelCache {
     ///
     /// 「不足 3 个就补」是为了让用户在模型下拉框里立刻有可选的东西；
     /// 超过 3 个不自动勾，避免把一个 50 项的清单全塞进选择器。
+    ///
+    /// ⚠️ 前端已有一份**同规则**的实现（`src/lib/workbuddy-card.ts` 的
+    /// `buildWorkbuddyCard`）并带单测：卡片是前端组件直接生成的，让它绕回
+    /// IPC 只为算三个模型不值得。两处规则必须一致，改这里时同步改那边。
+    #[allow(dead_code)]
     pub fn default_selection(&self) -> Vec<ModelInfo> {
         let mut picked: Vec<ModelInfo> = self
             .models
@@ -320,6 +333,11 @@ impl ModelCache {
 }
 
 /// 取一个版本的默认兜底（给「连缓存都没有」的极端情况用）。
+///
+/// 两个版本共用同一份内置清单（见模块头）：它是「远程不可用时别让用户一个模型
+/// 都没有」的兜底，按版本分叉只会让国际版先缺一半。参数保留是为了将来上游按
+/// 站点下发不同能力时不必改调用点。
+#[allow(dead_code)]
 pub fn builtin_for(_edition: Edition) -> Vec<ModelInfo> {
     builtin()
 }
