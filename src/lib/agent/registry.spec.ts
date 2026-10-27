@@ -67,18 +67,20 @@ describe("ToolRegistry.unregisterPrefix", () => {
     r.register(makeTool("read_chapter"))
     r.register(makeTool("chapter_insights__analyze"))
     r.register(makeTool("chapter_insights__report"))
-    // 近乎同名的对照：不以 `chapter_insights__` 开头，必须存活
-    r.register(makeTool("chapter_insightsx__a"))
+    // 前缀出现在名字中间：startsWith 不会动它，includes 会误删它。
+    // 这条对照是专门用来杀死「把 startsWith 写成 includes」这个变异的。
+    r.register(makeTool("bak__chapter_insights__analyze"))
 
     const removed = r.unregisterPrefix("chapter_insights__")
 
     expect(removed).toBe(2)
     expect(r.has("read_chapter")).toBe(true)
-    expect(r.has("chapter_insightsx__a")).toBe(true)
+    expect(r.has("bak__chapter_insights__analyze")).toBe(true)
     expect(r.has("chapter_insights__analyze")).toBe(false)
-    expect(r.list().map((t) => t.name).sort()).toEqual(
-      ["chapter_insightsx__a", "read_chapter"],
-    )
+    expect(r.list().map((t) => t.name).sort()).toEqual([
+      "bak__chapter_insights__analyze",
+      "read_chapter",
+    ])
   })
 
   it("前缀不存在时返回 0 且不报错", () => {
