@@ -39,6 +39,8 @@ import { registerShelfOpener } from "@/lib/mcp/bookshelf"
 import { initializeProjectContextCache } from "@/lib/context-hub/context-hub"
 import { useEnsureAiChatModel } from "@/lib/ensure-ai-chat-model"
 import { MemoryMaintenanceReminder } from "@/components/novel/memory-maintenance-reminder"
+import { AnnouncementDialog } from "@/components/announcements/announcement-dialog"
+import { useAnnouncementStore } from "@/stores/announcement-store"
 
 function App() {
   useEnsureAiChatModel()
@@ -75,6 +77,19 @@ function App() {
 
   useEffect(() => {
     runUserMemoryMaintenance()
+  }, [])
+
+  /*
+   * 公告与项目无关，启动就该读缓存、拉一次最新：角标要马上对，
+   * 而拉取失败只是保留缓存（store 内部静默处理），不影响启动流程。
+   * 回归守卫见 src/lib/announcement-wiring.test.ts —— 这段被删掉后
+   * 单测不会红，只会表现为「公告永远是 0 条」。
+   */
+  useEffect(() => {
+    void (async () => {
+      await useAnnouncementStore.getState().hydrate()
+      await useAnnouncementStore.getState().refresh()
+    })()
   }, [])
 
   useEffect(() => {
@@ -732,6 +747,7 @@ function App() {
       />
       <PersonaSkillCompletionDialog />
       <StyleEvolutionNoticeDialog />
+      <AnnouncementDialog />
       <MemoryMaintenanceReminder />
     </>
   )
