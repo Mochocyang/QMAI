@@ -2,7 +2,7 @@ pub mod antigravity_cli;
 pub mod antigravity_search;
 pub mod backup;
 pub mod claude_cli;
-mod cli_resolver;
+pub(crate) mod cli_resolver;
 pub mod cloud_sync;
 pub mod codex_cli;
 pub mod cursor_cli;
