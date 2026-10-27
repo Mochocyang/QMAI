@@ -40,6 +40,10 @@ fn default_timeout() -> u64 {
 }
 
 /// 声明式工具参数（JSON Schema 的极简子集），只用于生成给模型的工具描述。
+///
+/// 这里**故意不开** `deny_unknown_fields`：真实 MCP 工具的 inputSchema 会带
+/// `properties` / `items` / `default` / `pattern` 等合法关键字，开了会让合法清单集体装不上。
+/// （`tool_parameters_stay_open_to_json_schema_keywords` 就是这条的护栏，别顺手「统一」掉。）
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ToolParam {
     #[serde(rename = "type", default)]
@@ -565,5 +569,30 @@ mod tests {
         let err = PluginManifest::parse(&src).unwrap_err();
         assert_eq!(err.code(), "E_ENTRY_INVALID");
         assert_eq!(err.detail, "../../evil.js");
+    }
+
+    #[test]
+    fn tool_parameters_stay_open_to_json_schema_keywords() {
+        // ToolParam 故意不加 deny_unknown_fields：真实 MCP 工具的 inputSchema 会带
+        // properties / items / default / pattern 等关键字，加了会让合法清单装不上。
+        let src = MINIMAL.replace(
+            "\"runtime\"",
+            r#""contributes": {"tools": [{
+                "name": "analyze",
+                "description": "d",
+                "parameters": {
+                    "chapterPath": {
+                        "type": "string",
+                        "description": "路径",
+                        "required": true,
+                        "default": "x",
+                        "pattern": ".*"
+                    }
+                }
+            }]}, "runtime""#,
+        );
+        let m = PluginManifest::parse(&src).expect("含 JSON Schema 关键字的参数应被接受");
+        assert_eq!(m.contributes.tools.len(), 1);
+        assert_eq!(m.contributes.tools[0].parameters.len(), 1);
     }
 }
