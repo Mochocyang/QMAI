@@ -5,7 +5,8 @@
 //! 回环 HTTP 天然满足（只绑 127.0.0.1），并且每个插件一条独立 token，泄漏面被限在单个插件。
 //!
 //! 本文件分两层：
-//!   1. 纯函数（`require` / `is_inside` / `is_safe_url`）—— 安全判定的全部逻辑，可单测；
+//!   1. 纯函数（`require` / `is_inside` / `canonical_inside` / `is_safe_url`）——
+//!      安全判定的全部逻辑，可单测；
 //!   2. HTTP 层（`router` / `start`）—— 只做接线：取 token → 查权限 → 调纯函数。
 
 use std::collections::HashMap;
@@ -36,10 +37,43 @@ pub fn require(granted: &[String], permission: &str) -> Result<(), String> {
 ///
 /// 只做词法归一，不碰文件系统：`is_inside` 的调用方是 HTTP handler，
 /// 不该为了判路径去 stat 一个可能不存在的文件。
+///
+/// **这是第一道便宜闸门，不是全部**：词法上在 root 内不代表真实路径在 root 内 ——
+/// 项目里的符号链接 / NTFS junction 可以指向任意外部目录。调用方必须再走
+/// [`canonical_inside`] 做真实路径复检（设计文档 6.2「符号链接需解析后检查」）。
 pub fn is_inside(root: &Path, candidate: &str) -> bool {
     let norm = normalize_lexically(Path::new(candidate));
     let root_norm = normalize_lexically(root);
     norm.starts_with(&root_norm) && norm != root_norm
+}
+
+/// 解析真实路径后再比一次 root —— 挡住符号链接 / junction 逃逸。
+///
+/// 为什么两道闸门都做：词法闸门便宜、能拦住 `../` 这类明显越界且不碰文件系统；
+/// canonical 闸门要读文件系统（会失败、会慢），只对已经过了词法闸门的路径做。
+/// 返回的是**可安全使用的真实路径**，调用方必须用它去读文件 —— 否则「检查的对象」
+/// 和「使用的对象」不是同一个，攻击者仍可在两者之间做手脚。
+pub fn canonical_inside(root: &Path, candidate: &Path) -> Result<PathBuf, &'static str> {
+    let real_root = std::fs::canonicalize(root).map_err(|_| "E_NO_PROJECT")?;
+    // 文件可能还不存在 → 解析父目录；父也解析不了就按路径逃逸处理
+    let real_candidate = match std::fs::canonicalize(candidate) {
+        Ok(path) => path,
+        Err(_) => {
+            let parent = candidate.parent().ok_or("E_PATH_ESCAPE")?;
+            let name = candidate.file_name().ok_or("E_PATH_ESCAPE")?;
+            std::fs::canonicalize(parent)
+                .map_err(|_| "E_PATH_ESCAPE")?
+                .join(name)
+        }
+    };
+    // Windows 的 canonicalize 返回 `\\?\C:\…` 形式：两侧都 canonicalize 后再比，
+    // 前缀才不会一边带扩展前缀一边不带。`Path::starts_with` 按组件比较，
+    // 不会把 `booking` 误判成 `book` 的子路径。
+    if real_candidate.starts_with(&real_root) && real_candidate != real_root {
+        Ok(real_candidate)
+    } else {
+        Err("E_PATH_ESCAPE")
+    }
 }
 
 fn normalize_lexically(p: &Path) -> PathBuf {
@@ -56,7 +90,11 @@ fn normalize_lexically(p: &Path) -> PathBuf {
     out
 }
 
-/// 只允许 https，且拒绝回环与私有网段（防 SSRF）
+/// 只做语法判定，**不做 DNS 解析**。
+///
+/// 已知取舍：`https://evil.com` 若解析到 127.0.0.1 仍会通过 —— 不做解析**不是**规避
+/// DNS rebinding，而是保留了它。之所以接受，是因为插件本身是与宿主同权的本地进程，
+/// 它本可直接连该地址。真正实现 net/fetch 时必须 resolve-then-pin（解析后按 IP 复查并钉住）。
 pub fn is_safe_url(raw: &str) -> bool {
     let Ok(u) = url::Url::parse(raw) else {
         return false;
@@ -78,20 +116,56 @@ pub fn is_safe_url(raw: &str) -> bool {
             Some(v4) => is_public_v4(v4),
             None => !is_blocked_v6(ip),
         },
-        // 域名：不做 DNS 解析（避免额外网络依赖与 DNS 重绑定时序问题），
-        // 只挡明显的 localhost 别名；其余交给系统解析。
-        url::Host::Domain(d) => !d.eq_ignore_ascii_case("localhost"),
+        url::Host::Domain(domain) => {
+            // 先去掉尾点：`localhost.` 是合法的绝对域名写法，能绕过下面唯一那条规则。
+            let host = domain.trim_end_matches('.');
+            let lower = host.to_ascii_lowercase();
+            if lower == "localhost" || lower.ends_with(".localhost") {
+                return false;
+            }
+            // 其余域名一律放行：只做语法判定、不做 DNS 解析（已知取舍见函数文档）。
+            true
+        }
     }
 }
 
 fn is_public_v4(ip: Ipv4Addr) -> bool {
-    !(ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified())
+    let octets = ip.octets();
+    !(ip.is_loopback()
+        || ip.is_private()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_broadcast()
+        || ip.is_documentation()
+        || ip.is_multicast()
+        // 100.64.0.0/10 CGNAT：运营商级 NAT 段，宿主所在内网的常见邻居
+        || (octets[0] == 100 && (64..=127).contains(&octets[1]))
+        // 198.18.0.0/15 基准测试段
+        || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19))
+        // 240.0.0.0/4 保留段（含 255.255.255.255 广播）
+        || octets[0] >= 240)
 }
 
 fn is_blocked_v6(ip: Ipv6Addr) -> bool {
-    // `IpAddr` 上只有 is_loopback / is_unspecified，私有段（fc00::/7）与
-    // 链路本地（fe80::/10）必须走 `Ipv6Addr` 自己的判定。
-    ip.is_loopback() || ip.is_unspecified() || ip.is_unique_local() || ip.is_unicast_link_local()
+    let segments = ip.segments();
+    // `IpAddr` 上只有 is_loopback / is_unspecified，私有段（fc00::/7）、链路本地
+    // （fe80::/10）与组播必须走 `Ipv6Addr` 自己的判定。
+    if ip.is_loopback()
+        || ip.is_unspecified()
+        || ip.is_unique_local()
+        || ip.is_unicast_link_local()
+        || ip.is_multicast()
+    {
+        return true;
+    }
+    // NAT64 64:ff9b::/96：内嵌的 IPv4 会被网关送到外部（含 127.0.0.1），
+    // `to_ipv4_mapped()` 认不出它，只能显式按前缀挡。
+    segments[0] == 0x0064
+        && segments[1] == 0xff9b
+        && segments[2] == 0
+        && segments[3] == 0
+        && segments[4] == 0
+        && segments[5] == 0
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +207,43 @@ pub struct PathBody {
 
 /// 日志环上限：只留最近 N 条，防止插件刷爆内存
 const MAX_LOG_LINES: usize = 500;
+/// 单条日志上限：只按条数封顶不够 —— axum 默认 body 上限 2MB，
+/// 500 条 × 2MB ≈ 1GB 常驻内存，插件反复发大消息就能把宿主撑爆。
+const MAX_LOG_MESSAGE_BYTES: usize = 4 * 1024;
+/// 单次读取上限：`read_to_string` 会按文件大小一次性分配，
+/// 项目里一个大文件就能让 tokio worker 阻塞并吃掉 GB 级内存。
+const MAX_READ_BYTES: u64 = 8 * 1024 * 1024;
+
+/// 日志级别白名单：插件写什么都不能污染宿主的级别语义，不认识的降级成 `info`。
+fn normalize_level(raw: &str) -> &'static str {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "trace" => "trace",
+        "debug" => "debug",
+        "warn" => "warn",
+        "error" => "error",
+        _ => "info",
+    }
+}
+
+/// 抹平换行 + 截断超长消息。
+///
+/// 换行必须去掉：否则插件可以在一条日志里伪造出「宿主级」的下一行（日志注入）。
+/// 截断按 `char_boundary` 回退，避免切断 UTF-8 造成非法字符串。
+fn sanitize_message(raw: &str) -> String {
+    let flat: String = raw
+        .chars()
+        .map(|c| if c == '\r' || c == '\n' { ' ' } else { c })
+        .collect();
+    if flat.len() > MAX_LOG_MESSAGE_BYTES {
+        let mut cut = MAX_LOG_MESSAGE_BYTES;
+        while cut > 0 && !flat.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        format!("{}…(truncated)", &flat[..cut])
+    } else {
+        flat
+    }
+}
 
 impl HostApiState {
     /// 新建一个空的宿主能力面状态（会话由安装/启动流程逐步登记）。
@@ -150,7 +261,13 @@ impl HostApiState {
     /// 免得成为爆破探针的判别信号。
     pub fn session(&self, headers: &HeaderMap) -> Option<PluginSession> {
         let raw = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
-        let token = raw.strip_prefix("Bearer ")?.trim();
+        // scheme 名按 HTTP 规范大小写不敏感（`bearer` / `Bearer` 都得认），
+        // 但 token 部分逐字比较。
+        let (scheme, token) = raw.split_once(' ')?;
+        if !scheme.eq_ignore_ascii_case("bearer") {
+            return None;
+        }
+        let token = token.trim();
         if token.is_empty() {
             return None;
         }
@@ -182,10 +299,27 @@ fn forbidden(permission: &str) -> Response {
         .into_response()
 }
 
-fn path_escape() -> Response {
+/// 错误码 → HTTP 状态 + `{"error": <code>}`。
+///
+/// 统一出口，避免每个 handler 各写一套 status/JSON 组合而漂移；
+/// 依赖方（插件 SDK）只认 error 码，状态码用于快速分流。
+fn error_response(code: &str) -> Response {
+    let status = match code {
+        "E_NO_PROJECT" | "E_PATH_ESCAPE" | "E_FILE_TOO_LARGE" => StatusCode::BAD_REQUEST,
+        "E_NOT_FOUND" => StatusCode::NOT_FOUND,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (status, Json(serde_json::json!({ "error": code }))).into_response()
+}
+
+/// 读失败：只回报错误种类，**不回绝对路径**（回路径等于把宿主目录结构告诉插件）。
+fn read_failed(kind: std::io::ErrorKind) -> Response {
     (
-        StatusCode::BAD_REQUEST,
-        Json(serde_json::json!({ "error": "E_PATH_ESCAPE" })),
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({
+            "error": "E_READ_FAILED",
+            "message": format!("{:?}", kind),
+        })),
     )
         .into_response()
 }
@@ -213,8 +347,8 @@ async fn log(
     };
     let line = PluginLogLine {
         plugin_id: session.plugin_id,
-        level: body.level,
-        message: body.message,
+        level: normalize_level(&body.level).to_string(),
+        message: sanitize_message(&body.message),
     };
     // 锁中毒不该让插件日志变成 500：丢日志比丢请求好，所以这里用 `if let Ok`
     // 静默降级，仍然回 204（插件侧不该因为宿主内存状态异常而重试）。
@@ -236,33 +370,45 @@ async fn project_read(
     let Some(session) = state.session(&headers) else {
         return unauthorized();
     };
-    // 顺序固定：先token、再权限、最后路径。反过来会把「路径存在性」泄漏给无权限插件。
+    // 顺序固定：先 token、再权限、最后路径。反过来会把「路径存在性」泄漏给无权限插件。
     if let Err(permission) = require(&session.granted, "fs:project-read") {
         return forbidden(&permission);
     }
     let Some(root) = session.project_root else {
         // 没有项目就没有可读的目录；这不算逃逸，单独给个码便于插件区分。
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "E_NO_PROJECT" })),
-        )
-            .into_response();
+        return error_response("E_NO_PROJECT");
     };
+    // 第一道闸门：词法（便宜，不碰文件系统，挡 `../` 与绝对路径越界）
     if !is_inside(&root, &body.path) {
-        return path_escape();
+        return error_response("E_PATH_ESCAPE");
     }
-    // 用阻塞读而不是 tokio::fs：本 crate 的 tokio 没开 `fs` feature，
-    // 而这里读的是项目内的 Markdown 文本（KB 量级），阻塞可接受。
-    match std::fs::read_to_string(&body.path) {
-        Ok(content) => Json(serde_json::json!({ "content": content })).into_response(),
-        Err(error) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "E_READ_FAILED",
-                "message": error.to_string(),
-            })),
-        )
-            .into_response(),
+    // 第二道闸门：解析真实路径（挡符号链接 / junction）。后续读的必须是它返回的
+    // real_path，而不是 body.path —— 检查对象与使用对象必须是同一个。
+    let real_path = match canonical_inside(&root, Path::new(&body.path)) {
+        Ok(path) => path,
+        Err(code) => return error_response(code),
+    };
+    let meta = match std::fs::metadata(&real_path) {
+        Ok(meta) => meta,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return error_response("E_NOT_FOUND")
+        }
+        Err(error) => return read_failed(error.kind()),
+    };
+    if meta.len() > MAX_READ_BYTES {
+        return error_response("E_FILE_TOO_LARGE");
+    }
+    // 读放阻塞线程池：本项目 tokio 没开 `fs` feature，直接在 async 里 `read_to_string`
+    // 会把 worker 线程按文件大小阻塞住；`spawn_blocking` 不需要额外 feature。
+    let read_path = real_path.clone();
+    match tokio::task::spawn_blocking(move || std::fs::read_to_string(&read_path)).await {
+        Ok(Ok(content)) => Json(serde_json::json!({ "content": content })).into_response(),
+        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            error_response("E_NOT_FOUND")
+        }
+        Ok(Err(error)) => read_failed(error.kind()),
+        // 阻塞任务自己 panic 了：是宿主内部问题，不能伪装成「文件不存在」
+        Err(_) => read_failed(std::io::ErrorKind::Other),
     }
 }
 
@@ -276,20 +422,29 @@ pub fn router(state: HostApiState) -> Router {
 
 /// 起一个只绑回环的宿主 API，返回实际端口。
 ///
-/// 同步绑定 + `spawn_task` 起服务：调用方通常是 Tauri 的同步初始化路径，
-/// 拿不到运行时上下文时安静放弃（见 `super::spawn_task`）。
+/// 同步绑定 + `spawn_task` 起服务：调用方通常是 Tauri 的同步初始化路径。
+/// 没有运行时 / `from_std` 失败时**不静默**：前者直接返回 Err（否则调用方会拿着
+/// 一个永不应答的端口去接插件），后者打一条可诊断日志。都不 panic。
 pub fn start(state: HostApiState) -> Result<u16, String> {
     let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .map_err(|e| format!("无法监听宿主 API 端口：{e}"))?;
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    if tokio::runtime::Handle::try_current().is_err() {
+        return Err(format!(
+            "宿主 API 无法监听：当前没有 Tokio 运行时（已绑定端口 {port}，服务未启动）"
+        ));
+    }
     let app = router(state);
     super::spawn_task(async move {
         match tokio::net::TcpListener::from_std(listener) {
             Ok(l) => {
                 let _ = axum::serve(l, app).await;
             }
-            Err(_) => { /* 拿不到就放弃；端口本就为 0 分配，失败意味着运行时异常 */ }
+            Err(error) => {
+                // 拿不到监听器意味着运行时已经异常（端口本就为 0 分配）。
+                eprintln!("[plugins] 宿主 API 未能接管监听器，服务未启动：{error}");
+            }
         }
     });
     Ok(port)
@@ -353,5 +508,434 @@ mod tests {
         assert!(!is_safe_url("https://10.0.0.5/x"));
         assert!(!is_safe_url("https://localhost/x"));
         assert!(!is_safe_url("file:///etc/passwd"));
+    }
+
+    /// 审查用探针实测能通过的形态（尾点 FQDN、CGNAT、组播、NAT64 …）
+    #[test]
+    fn net_url_rejects_ssrf_edge_forms() {
+        // 尾点是「绝对域名」的合法写法，能绕过唯一的 localhost 规则
+        assert!(!is_safe_url("https://localhost./x"));
+        assert!(!is_safe_url("https://api.localhost./x"));
+        assert!(!is_safe_url("https://LOCALHOST/x"));
+        // CGNAT 100.64.0.0/10、组播、基准测试段、保留段、广播
+        assert!(!is_safe_url("https://100.64.0.1/x"));
+        assert!(!is_safe_url("https://224.0.0.1/x"));
+        assert!(!is_safe_url("https://198.18.0.1/x"));
+        assert!(!is_safe_url("https://240.0.0.1/x"));
+        assert!(!is_safe_url("https://255.255.255.255/x"));
+        assert!(!is_safe_url("https://0.0.0.0/x"));
+        assert!(!is_safe_url("https://169.254.169.254/latest/meta-data/"));
+        // IPv6：回环、未指定、唯一本地、链路本地、组播、IPv4 映射、NAT64
+        assert!(!is_safe_url("https://[::1]/x"));
+        assert!(!is_safe_url("https://[::]/x"));
+        assert!(!is_safe_url("https://[fd00::1]/x"));
+        assert!(!is_safe_url("https://[fe80::1]/x"));
+        assert!(!is_safe_url("https://[ff02::1]/x"));
+        assert!(!is_safe_url("https://[::ffff:192.168.1.1]/x"));
+        assert!(!is_safe_url("https://[64:ff9b::7f00:1]/x"));
+        // 非 https 的其它 scheme 一律拒
+        assert!(!is_safe_url("ftp://api.example.com/x"));
+        assert!(!is_safe_url("ws://api.example.com/x"));
+        assert!(!is_safe_url("wss://api.example.com/x"));
+        assert!(!is_safe_url("javascript:alert(1)"));
+        // 正常公网域名仍要放行，别把闸门做成「全拒」
+        assert!(is_safe_url("https://api.example.com/x"));
+        assert!(is_safe_url("https://8.8.8.8/x"));
+    }
+
+    #[test]
+    fn log_level_whitelist_and_message_sanitizing() {
+        assert_eq!(normalize_level("WARN"), "warn");
+        assert_eq!(normalize_level(" trace "), "trace");
+        assert_eq!(normalize_level("verbose"), "info");
+        assert_eq!(normalize_level(""), "info");
+        // 换行必须被抹平：否则插件可以伪造一行「宿主级」日志
+        assert_eq!(sanitize_message("a\r\nb\nc"), "a  b c");
+        // 超长消息按字符边界截断，且不切断 UTF-8
+        let long = "中".repeat(MAX_LOG_MESSAGE_BYTES);
+        let cut = sanitize_message(&long);
+        assert!(cut.len() <= MAX_LOG_MESSAGE_BYTES + "…(truncated)".len());
+        assert!(cut.ends_with("…(truncated)"));
+        assert!(std::str::from_utf8(cut.as_bytes()).is_ok());
+        // 不超长就原样保留
+        assert_eq!(sanitize_message("hello"), "hello");
+    }
+
+    // ------------------------------------------------------------------
+    // 文件系统闸门：符号链接 / junction 逃逸 + canonical 复检
+    // ------------------------------------------------------------------
+
+    /// 临时目录（不引入 tempfile 依赖）：进程号 + 纳秒时间戳保证唯一。
+    fn temp_dir(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let dir = std::env::temp_dir().join(format!(
+            "qmai-hostapi-{tag}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("创建临时目录");
+        dir
+    }
+
+    /// 建一个指向 `target` 的目录链接（unix symlink / Windows symlink 或 junction）。
+    ///
+    /// Windows 普通用户没有 `SeCreateSymbolicLinkPrivilege`，`symlink_dir` 会报
+    /// os error 1314；但 NTFS junction 不需要特权，所以退一步用 `mklink /J`。
+    /// junction 与 symlink 在 `canonicalize` 眼里都是重解析点，对本用例等价。
+    fn try_symlink_dir(target: &Path, link: &Path) -> std::io::Result<()> {
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(target, link)
+        }
+        #[cfg(windows)]
+        {
+            if std::os::windows::fs::symlink_dir(target, link).is_ok() {
+                return Ok(());
+            }
+            let status = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(link)
+                .arg(target)
+                .status()?;
+            if status.success() && link.exists() {
+                Ok(())
+            } else {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    format!("symlink 与 mklink /J 都失败（{status}）"),
+                ))
+            }
+        }
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (target, link);
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "本平台不支持符号链接测试",
+            ))
+        }
+    }
+
+    /// 删掉链接本身（不能跟随进目标目录）。
+    fn remove_link(link: &Path) {
+        if std::fs::remove_dir(link).is_err() {
+            let _ = std::process::Command::new("cmd")
+                .args(["/C", "rmdir"])
+                .arg(link)
+                .status();
+        }
+    }
+
+    #[test]
+    fn symlink_escape_is_rejected_by_canonical_check() {
+        // 词法上 link/secret.md 在 root 内，但真实路径在 root 外 —— 必须拒绝。
+        let root = temp_dir("sym-root");
+        let inside = root.join("wiki");
+        std::fs::create_dir_all(&inside).expect("建项目内目录");
+        std::fs::write(inside.join("01.md"), "项目内正文").expect("写项目内文件");
+
+        let outside = temp_dir("sym-outside");
+        std::fs::write(outside.join("secret.md"), "TOPSECRET").expect("写外部文件");
+
+        let link = root.join("link");
+        if let Err(error) = try_symlink_dir(&outside, &link) {
+            // 跳过时必须说清原因，且仍然验证一件真事：外部绝对路径被拒。
+            eprintln!("跳过符号链接用例：本机无法创建链接（{error}）");
+            assert!(canonical_inside(&root, &outside.join("secret.md")).is_err());
+            let _ = std::fs::remove_dir_all(&root);
+            let _ = std::fs::remove_dir_all(&outside);
+            return;
+        }
+
+        let escaped = link.join("secret.md");
+        // 词法闸门确实被绕过（这就是漏洞点，留着断言免得有人把词法闸门删掉）
+        assert!(is_inside(&root, escaped.to_str().unwrap()));
+        // canonical 复检必须拦住
+        assert_eq!(
+            canonical_inside(&root, &escaped).unwrap_err(),
+            "E_PATH_ESCAPE"
+        );
+
+        // 真正在内部的路径要放行，且返回可安全使用的真实路径
+        let ok = canonical_inside(&root, &inside.join("01.md")).expect("内部路径应放行");
+        assert_eq!(
+            std::fs::read_to_string(&ok).expect("读内部文件"),
+            "项目内正文"
+        );
+        // 根目录自身仍不算「文件」
+        assert_eq!(canonical_inside(&root, &root).unwrap_err(), "E_PATH_ESCAPE");
+
+        remove_link(&link);
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    // ------------------------------------------------------------------
+    // handler 级测试：起真实回环端口 + reqwest 发请求
+    // ------------------------------------------------------------------
+
+    /// 起一个真实的 HostApi，返回 base URL。
+    /// 服务随测试运行时一起销毁（`start` 把 serve 挂到当前 Tokio 运行时上）。
+    async fn spawn_test_api(state: HostApiState) -> String {
+        let port = super::start(state).expect("宿主 API 应能起在回环端口上");
+        format!("http://127.0.0.1:{port}")
+    }
+
+    fn session(root: Option<PathBuf>, perms: &[&str]) -> PluginSession {
+        PluginSession {
+            plugin_id: "demo.novel".to_string(),
+            granted: granted(perms),
+            project_root: root,
+            data_root: temp_dir("data-root"),
+        }
+    }
+
+    fn state_with(token: &str, session: PluginSession) -> HostApiState {
+        let state = HostApiState::new();
+        state
+            .sessions
+            .lock()
+            .expect("会话表")
+            .insert(token.to_string(), session);
+        state
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn handler_returns_401_without_valid_token() {
+        let state = state_with("tok-good", session(None, &["data:write"]));
+        let base = spawn_test_api(state).await;
+        let client = reqwest::Client::new();
+
+        // 没带 token
+        let response = client
+            .get(format!("{base}/host/status"))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 401);
+        assert_eq!(response.text().await.expect("读 body"), "invalid token");
+
+        // 带了但不存在
+        let response = client
+            .get(format!("{base}/host/status"))
+            .bearer_auth("tok-bad")
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 401);
+
+        // 前缀大小写不该影响识别
+        let response = client
+            .get(format!("{base}/host/status"))
+            .header("Authorization", "bearer tok-good")
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 200);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn handler_returns_403_json_without_permission() {
+        let root = temp_dir("perm");
+        std::fs::write(root.join("01.md"), "正文").expect("写文件");
+        let state = state_with("tok", session(Some(root.clone()), &["data:write"]));
+        let base = spawn_test_api(state).await;
+
+        let response = reqwest::Client::new()
+            .post(format!("{base}/host/project/read"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "path": root.join("01.md").to_string_lossy() }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 403);
+        let body: serde_json::Value = response.json().await.expect("403 应是 JSON");
+        assert_eq!(body["error"], "E_PERMISSION_DENIED");
+        assert_eq!(body["permission"], "fs:project-read");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn handler_rejects_path_escape_and_missing_file() {
+        let root = temp_dir("escape");
+        std::fs::create_dir_all(root.join("wiki")).expect("建目录");
+        let state = state_with("tok", session(Some(root.clone()), &["fs:project-read"]));
+        let base = spawn_test_api(state).await;
+        let client = reqwest::Client::new();
+
+        // 词法穿越
+        let escaped = format!("{}/wiki/../../../etc/passwd", root.display());
+        let response = client
+            .post(format!("{base}/host/project/read"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "path": escaped }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 400);
+        let body: serde_json::Value = response.json().await.expect("JSON");
+        assert_eq!(body["error"], "E_PATH_ESCAPE");
+
+        // 路径干净但文件不存在 → 404（不是 400，也不回绝对路径）
+        let missing = root.join("nope.md");
+        let response = client
+            .post(format!("{base}/host/project/read"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "path": missing.to_string_lossy() }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 404);
+        let body: serde_json::Value = response.json().await.expect("JSON");
+        assert_eq!(body["error"], "E_NOT_FOUND");
+        assert!(
+            !body.to_string().contains(&root.display().to_string()),
+            "错误体不该回绝对路径：{body}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn handler_reads_project_file() {
+        let root = temp_dir("read");
+        let file = root.join("chapter.md");
+        std::fs::write(&file, "# 第一章\n正文").expect("写文件");
+        let state = state_with("tok", session(Some(root.clone()), &["fs:project-read"]));
+        let base = spawn_test_api(state).await;
+
+        let response = reqwest::Client::new()
+            .post(format!("{base}/host/project/read"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "path": file.to_string_lossy() }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = response.json().await.expect("JSON");
+        assert_eq!(body["content"], "# 第一章\n正文");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn handler_rejects_file_over_size_limit() {
+        let root = temp_dir("big");
+        let file = root.join("huge.md");
+        std::fs::write(&file, vec![b'a'; MAX_READ_BYTES as usize + 1]).expect("写大文件");
+        let state = state_with("tok", session(Some(root.clone()), &["fs:project-read"]));
+        let base = spawn_test_api(state).await;
+
+        let response = reqwest::Client::new()
+            .post(format!("{base}/host/project/read"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "path": file.to_string_lossy() }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 400);
+        let body: serde_json::Value = response.json().await.expect("JSON");
+        assert_eq!(body["error"], "E_FILE_TOO_LARGE");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn handler_rejects_symlink_escape_end_to_end() {
+        let root = temp_dir("symlink-http");
+        let outside = temp_dir("symlink-outside");
+        std::fs::write(outside.join("secret.md"), "TOPSECRET").expect("写外部文件");
+        let link = root.join("link");
+        if let Err(error) = try_symlink_dir(&outside, &link) {
+            eprintln!("跳过端到端链接用例：本机无法创建链接（{error}）");
+            let _ = std::fs::remove_dir_all(&root);
+            let _ = std::fs::remove_dir_all(&outside);
+            return;
+        }
+        let state = state_with("tok", session(Some(root.clone()), &["fs:project-read"]));
+        let base = spawn_test_api(state).await;
+
+        let response = reqwest::Client::new()
+            .post(format!("{base}/host/project/read"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "path": link.join("secret.md").to_string_lossy() }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 400);
+        let body: serde_json::Value = response.json().await.expect("JSON");
+        assert_eq!(body["error"], "E_PATH_ESCAPE");
+
+        remove_link(&link);
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn handler_accepts_log_and_keeps_it_in_ring() {
+        let state = state_with("tok", session(None, &["data:write"]));
+        let sink = state.log_sink.clone();
+        let base = spawn_test_api(state).await;
+
+        let response = reqwest::Client::new()
+            .post(format!("{base}/host/log"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({
+                "level": "WARN",
+                "message": "第一行\r\n伪造宿主行",
+            }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 204);
+
+        let lines = sink.lock().expect("日志环");
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].plugin_id, "demo.novel");
+        assert_eq!(lines[0].level, "warn");
+        assert_eq!(lines[0].message, "第一行  伪造宿主行");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn handler_reports_status_fields() {
+        let root = temp_dir("status");
+        let state = state_with(
+            "tok",
+            session(Some(root.clone()), &["fs:project-read", "data:write"]),
+        );
+        let base = spawn_test_api(state).await;
+
+        let response = reqwest::Client::new()
+            .get(format!("{base}/host/status"))
+            .bearer_auth("tok")
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = response.json().await.expect("JSON");
+        assert_eq!(body["hostVersion"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(body["pluginId"], "demo.novel");
+        assert_eq!(body["grantedPermissions"][0], "fs:project-read");
+        assert!(body["projectRoot"]
+            .as_str()
+            .expect("projectRoot 应是字符串")
+            .contains("qmai-hostapi-status"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn handler_returns_no_project_code_without_root() {
+        let state = state_with("tok", session(None, &["fs:project-read"]));
+        let base = spawn_test_api(state).await;
+
+        let response = reqwest::Client::new()
+            .post(format!("{base}/host/project/read"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "path": "/etc/passwd" }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 400);
+        let body: serde_json::Value = response.json().await.expect("JSON");
+        assert_eq!(body["error"], "E_NO_PROJECT");
     }
 }
