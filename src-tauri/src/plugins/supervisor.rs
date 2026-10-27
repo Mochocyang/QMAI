@@ -81,9 +81,9 @@ impl CrashBudget {
         self.attempt = 0;
     }
 
-    pub fn exhausted(&self) -> bool {
-        self.attempt >= 3
-    }
+    // 故意**不提供** exhausted()：它在第 3 次 backoff 发出的那一瞬间（刚拿到 9s 退避）
+    // 就已经是 true，任务 12 里「拿到 backoff → 重启 → 查 exhausted()」会立刻误判停用。
+    // 唯一的耗尽信号是 next_backoff() 返回 None，不需要第二个真值来源。
 }
 
 // ── 输出缓冲 ───────────────────────────────────────────
@@ -138,7 +138,10 @@ pub fn to_host_tool_name(plugin_id: &str, tool: &str) -> String {
 
 /// 反向还原插件内的原名；不是插件工具名（不含 `__`）返回 None。
 ///
-/// 因为发给插件的 tools/call 里必须用原名，插件不认识带前缀的名字。
+/// 发给插件的 tools/call 必须用原名，插件不认识带前缀的名字。
+///
+/// **只对「确定来自插件注册」的 host 名调用**：内置工具名若自身含 `__`，
+/// 这里会把它误判成插件工具。调用方（任务 9/12）不得拿它对任意工具名做判断。
 pub fn to_plugin_tool_name(host_name: &str) -> Option<&str> {
     host_name.split_once("__").map(|(_, rest)| rest)
 }
@@ -151,6 +154,11 @@ use tokio::process::Command;
 ///
 /// 复用 commands::cli_resolver::find_cli_command 做跨平台命令发现（它已处理
 /// macOS 登录 shell 的 PATH 与 Windows 的候选可执行名 + 结果缓存）。
+///
+/// 命令行的拼装顺序是 `[解释器] <entry> <runtime.args...>`：清单里的 args **追加在
+/// 入口路径之后**，对 Node/Python 就是脚本自己的 argv。想让解释器生效的 flag
+/// （例如 `--no-warnings`、`-u`）没有单独的字段，必须自己写进 args —— 注意那样它
+/// 会落在脚本路径**之后**，需要排在最前的解释器参数目前只能靠不带 args 的包装脚本实现。
 pub async fn build_command(
     plugin_dir: &std::path::Path,
     manifest: &super::manifest::PluginManifest,
@@ -161,7 +169,12 @@ pub async fn build_command(
         RuntimeType::Node => {
             let node = crate::commands::cli_resolver::find_cli_command("node", &["node.exe", "node"])
                 .await
-                .map_err(|e| format!("找不到 Node（插件 {} 需要）：{e}", manifest.id))?;
+                .map_err(|e| {
+                    format!(
+                        "找不到 Node（插件 {} 需要）：{e}。请安装 Node.js 并确保 node 在 PATH 中",
+                        manifest.id
+                    )
+                })?;
             let mut c = Command::new(node);
             c.arg(&entry_path);
             c
@@ -172,7 +185,12 @@ pub async fn build_command(
                 &["python.exe", "python3.exe"],
             )
             .await
-            .map_err(|e| format!("找不到 Python（插件 {} 需要）：{e}", manifest.id))?;
+            .map_err(|e| {
+                format!(
+                    "找不到 Python（插件 {} 需要）：{e}。请安装 Python 3 并确保 python3/python 在 PATH 中",
+                    manifest.id
+                )
+            })?;
             let mut c = Command::new(py);
             c.arg(&entry_path);
             c
@@ -185,6 +203,8 @@ pub async fn build_command(
     cmd.stdin(std::process::Stdio::piped());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
+    // 没有它，宿主异常退出时子进程会被留成孤儿（Windows 上尤其明显）
+    cmd.kill_on_drop(true);
     // Windows：不弹控制台窗口（与 claude_cli / codex_cli 等既有实现一致）。
     // 这里用的是 tokio::process::Command 自带的 creation_flags，不需要再引入
     // std 的 CommandExt trait（引入会变成 unused import）。
@@ -201,22 +221,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn state_machine_allows_expected_transitions() {
-        let mut s = ProcessState::Stopped;
-        assert!(s.can_transition_to(ProcessState::Starting));
-        s = ProcessState::Starting;
-        assert!(s.can_transition_to(ProcessState::Running));
-        s = ProcessState::Running;
-        assert!(s.can_transition_to(ProcessState::Crashed));
-        s = ProcessState::Crashed;
-        assert!(s.can_transition_to(ProcessState::Starting));
-    }
-
-    #[test]
-    fn state_machine_rejects_illegal_transitions() {
-        assert!(!ProcessState::Stopped.can_transition_to(ProcessState::Running));
-        assert!(!ProcessState::Running.can_transition_to(ProcessState::Starting));
-        assert!(!ProcessState::DisabledByCrash.can_transition_to(ProcessState::Running));
+    fn state_machine_matches_the_documented_edges_exactly() {
+        use ProcessState::*;
+        // 规格允许的 11 条边，逐条穷举；漏一条或少一条都会红。
+        let allowed = [
+            (Stopped, Starting),
+            (Failed, Starting),
+            (Crashed, Starting),
+            (DisabledByCrash, Starting),
+            (Starting, Running),
+            (Starting, Failed),
+            (Running, Crashed),
+            (Running, Stopped),
+            (Running, DisabledByCrash),
+            (Failed, Stopped),
+            (Crashed, Stopped),
+        ];
+        let all = [Stopped, Starting, Running, Failed, Crashed, DisabledByCrash];
+        for from in all {
+            for to in all {
+                let expected = allowed.iter().any(|(f, t)| *f == from && *t == to);
+                assert_eq!(
+                    from.can_transition_to(to),
+                    expected,
+                    "转移 {} → {} 应为 {}",
+                    from.as_str(),
+                    to.as_str(),
+                    expected
+                );
+            }
+        }
     }
 
     #[test]
@@ -225,8 +259,9 @@ mod tests {
         assert_eq!(b.next_backoff(), Some(Duration::from_secs(1)));
         assert_eq!(b.next_backoff(), Some(Duration::from_secs(3)));
         assert_eq!(b.next_backoff(), Some(Duration::from_secs(9)));
+        // 耗尽信号只有这一个：None。这里不再用 exhausted() 断言，
+        // 因为 attempt==3 的那一瞬间（刚拿到 9s）它就已经是 true 了，容易被误用。
         assert_eq!(b.next_backoff(), None);
-        assert!(b.exhausted());
     }
 
     #[test]
@@ -236,7 +271,6 @@ mod tests {
         b.next_backoff();
         b.reset();
         assert_eq!(b.next_backoff(), Some(Duration::from_secs(1)));
-        assert!(!b.exhausted());
     }
 
     #[test]
@@ -245,6 +279,24 @@ mod tests {
         buf.push(b"0123456789");
         buf.push(b"abcdefghij");
         assert_eq!(buf.as_lossy(), "456789abcdefghij");
+    }
+
+    #[test]
+    fn output_buffer_handles_large_and_degenerate_chunks() {
+        // 单个 chunk 就超过上限：走快路径，只保留该 chunk 的尾部
+        let mut big = TailBuffer::new(4);
+        big.push(&[b'x'; 40]);
+        assert_eq!(big.as_lossy(), "xxxx");
+
+        // 恰好等于上限
+        let mut exact = TailBuffer::new(4);
+        exact.push(b"abcdef");
+        assert_eq!(exact.as_lossy(), "cdef");
+
+        // limit == 0 不能 panic，且不持有内容
+        let mut zero = TailBuffer::new(0);
+        zero.push(b"anything");
+        assert_eq!(zero.as_lossy(), "");
     }
 
     #[test]
@@ -259,6 +311,19 @@ mod tests {
         );
         // 不带前缀的内置工具名不应被误认成插件工具
         assert!(to_plugin_tool_name("read_chapter").is_none());
+    }
+
+    #[test]
+    fn tool_name_roundtrip_handles_underscores_inside_tool_names() {
+        // 插件 id 不允许 `_`，工具名允许，所以按第一个 `__` 切分是安全的
+        assert_eq!(
+            to_host_tool_name("chapter-insights", "analyze__deep"),
+            "chapter_insights__analyze__deep"
+        );
+        assert_eq!(
+            to_plugin_tool_name("chapter_insights__analyze__deep").unwrap(),
+            "analyze__deep"
+        );
     }
 
     #[test]
