@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WorkBuddy 账号登录 · 实施计划</title>
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('plan-theme');
+      var dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    } catch (e) {}
+  })();
+</script>
+<style>
+  :root {
+    --bg: #fbfbfa; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6b66;
+    --line: #e4e4df; --accent: #2f6f4f; --accent-soft: #eaf3ee; --code-bg: #f4f4f1;
+    --warn-bg: #fdf6e7; --warn-line: #e8d4a4;
+  }
+  html.dark {
+    --bg: #14150f; --panel: #1b1c16; --ink: #e8e8e2; --muted: #9c9c93;
+    --line: #2e2f26; --accent: #7fc39c; --accent-soft: #1f2b22; --code-bg: #22231c;
+    --warn-bg: #2b2416; --warn-line: #4a3d20;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.65 -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+  }
+  main { max-width: 980px; margin: 0 auto; padding: 40px 24px 96px; }
+  h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: .2px; }
+  h2 { font-size: 19px; margin: 40px 0 12px; padding-top: 16px; border-top: 1px solid var(--line); }
+  h3 { font-size: 16px; margin: 26px 0 8px; }
+  p, li { color: var(--ink); }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 13px;
+         font-family: "Cascadia Code", Consolas, monospace; }
+  pre { background: var(--code-bg); padding: 12px 14px; border-radius: 8px; overflow-x: auto;
+        border: 1px solid var(--line); font-size: 13px; line-height: 1.5; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0 16px; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  blockquote { margin: 18px 0; padding: 12px 16px; background: var(--accent-soft);
+               border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; }
+  blockquote p { margin: 0; }
+  .task { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+          padding: 4px 20px 16px; margin: 18px 0; }
+  .task h3 { display: flex; gap: 10px; align-items: baseline; }
+  .tag { font-size: 11px; font-weight: 600; color: var(--muted); border: 1px solid var(--line);
+         border-radius: 999px; padding: 1px 8px; letter-spacing: .4px; }
+  .step { margin: 8px 0; padding-left: 2px; }
+  .step b { color: var(--accent); font-weight: 600; }
+  ul.check { list-style: none; padding-left: 0; margin: 6px 0; }
+  ul.check li { padding: 3px 0 3px 26px; position: relative; }
+  ul.check li::before { content: "☐"; position: absolute; left: 4px; color: var(--muted); }
+  .warn { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 8px;
+          padding: 10px 14px; margin: 14px 0; font-size: 14px; }
+  #theme { position: fixed; top: 16px; right: 16px; background: var(--panel); color: var(--ink);
+           border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer;
+           font-size: 13px; }
+  footer { margin-top: 48px; color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<button id="theme" type="button">切换主题</button>
+<main>
+
+<h1>WorkBuddy 账号登录（国内版首发）· 实施计划</h1>
+<p class="sub">规格：<code>docs/superpowers/specs/2026-10-27-workbuddy-账号登录-design.md</code>　·　分支：<code>feature/model-settings</code></p>
+
+<blockquote>
+<p><strong>给执行者：</strong> 每个 Task 独立可验证、独立可提交。严格 TDD：先写失败测试 → 确认它因「未实现」而失败 → 写最小实现 → 跑绿 → 提交。不要一次写完再补测试。</p>
+</blockquote>
+
+<p><strong>Goal：</strong> 用户在「模型设置 → 添加账号」里用自己的 WorkBuddy 国内版账号登录一次，QMAI 就能直接用它名下的模型写作，不需要 API Key、不需要装 CLI。</p>
+
+<p><strong>Architecture：</strong> Rust 侧新建 <code>src-tauri/src/workbuddy/</code> 模块：<code>endpoints</code>（两版常量）→ <code>crypto</code> + <code>accounts</code>（加密落盘）→ <code>login</code> / <code>import</code> / <code>refresh</code>（三条取凭证链路）→ <code>models</code>（<code>/v3/config</code> 目录）→ <code>chat</code>（私有头 + system 注入）→ <code>gateway</code>（进程内 axum，把 WorkBuddy 伪装成普通 OpenAI 供应方）。前端只做三件事：三栏入口 + 登录对话框 + 把登录结果写成一张普通模型卡片；聊天链路一行不改。</p>
+
+<p><strong>Tech Stack：</strong> Rust（axum 0.8 / reqwest stream / aes-gcm / tokio net）+ Tauri 2 命令；前端 React 19 + Zustand + vitest。</p>
+
+<div class="warn">
+<strong>两条硬约束（违反即返工）：</strong>
+① 凭证只在 Rust 侧流转，任何 IPC 返回值、日志、错误文案里都不得出现 <code>accessToken</code> / <code>refreshToken</code> 明文；
+② 不整体复制 Agent2API 代码（许可冲突），只使用其协议事实（端点、头名、字段、握手顺序），实现自己写。
+</div>
+
+<hr>
+
+<h2>文件结构（先定边界）</h2>
+
+<table>
+<tr><th>文件</th><th>职责</th><th>约</th></tr>
+<tr><td><code>src-tauri/src/workbuddy/mod.rs</code>（新建）</td><td>模块出口与子模块声明</td><td>40</td></tr>
+<tr><td><code>…/endpoints.rs</code>（新建）</td><td>两版端点 / UA / platform / prefix，URL 拼装。<strong>纯常量 + 纯函数</strong></td><td>150</td></tr>
+<tr><td><code>…/crypto.rs</code>（新建）</td><td>AES-256-GCM、<code>enc1:</code> 信封、密钥文件加载/生成</td><td>140</td></tr>
+<tr><td><code>…/accounts.rs</code>（新建）</td><td>账号结构、读写、按 uid upsert、优先级、可用性</td><td>320</td></tr>
+<tr><td><code>…/login.rs</code>（新建）</td><td>state → 轮询 token → login/account → 落库；任务表与取消</td><td>300</td></tr>
+<tr><td><code>…/import.rs</code>（新建）</td><td>凭证文件解析（嵌套/扁平/判版本）、桌面端登录态定位</td><td>200</td></tr>
+<tr><td><code>…/refresh.rs</code>（新建）</td><td><code>token/refresh</code>，单飞</td><td>130</td></tr>
+<tr><td><code>…/models.rs</code>（新建）</td><td><code>/v3/config</code> 解析、缓存、内置兜底、OpenAI 列表形状</td><td>300</td></tr>
+<tr><td><code>…/chat.rs</code>（新建）</td><td>私有头集合、system 注入、错误分类</td><td>320</td></tr>
+<tr><td><code>…/gateway.rs</code>（新建）</td><td>axum 三路由、令牌、SSE 透传</td><td>260</td></tr>
+<tr><td><code>…/commands.rs</code>（新建）</td><td>10 个 Tauri 命令</td><td>180</td></tr>
+<tr><td><code>…/login_window.rs</code>（新建）</td><td>内嵌登录窗口、临时数据目录、导航白名单</td><td>220</td></tr>
+<tr><td><code>src-tauri/Cargo.toml</code>（修改）</td><td>加 axum / aes-gcm / rand；tokio 加 net,time；reqwest 加 stream</td><td>—</td></tr>
+<tr><td><code>src-tauri/src/lib.rs</code>（修改）</td><td><code>mod workbuddy;</code>、注册命令、setup 里起网关</td><td>—</td></tr>
+<tr><td><code>src/lib/workbuddy-accounts.ts</code>（新建）</td><td>IPC 封装 + 账号列表状态</td><td>180</td></tr>
+<tr><td><code>src/lib/workbuddy-gateway.ts</code>（新建）</td><td><code>ensureWorkbuddyGateway()</code> / <code>withWorkbuddyEndpoint()</code></td><td>90</td></tr>
+<tr><td><code>src/components/ui/segmented.tsx</code>（新建）</td><td>分段控件（三处复用）</td><td>70</td></tr>
+<tr><td><code>src/components/settings/sections/add-workbuddy-account-dialog.tsx</code>（新建）</td><td>登录对话框</td><td>320</td></tr>
+<tr><td><code>src/components/settings/sections/llm-provider-section.tsx</code>（修改）</td><td>两栏 → 三栏；挂对话框与账号卡片</td><td>—</td></tr>
+</table>
+
+<hr>
+
+<h2>执行约定</h2>
+
+<table>
+<tr><th>项</th><th>命令 / 规则</th></tr>
+<tr><td>Rust 单测</td><td><code>cd src-tauri; cargo test workbuddy -- --nocapture</code></td></tr>
+<tr><td>Rust 编译</td><td><code>cd src-tauri; cargo check --message-format=short</code></td></tr>
+<tr><td>前端测试</td><td><code>npm run test:mocks</code>（新增用例单独跑：<code>npx vitest run src/lib/workbuddy-accounts.spec.ts</code>）</td></tr>
+<tr><td>类型检查</td><td><code>npm run typecheck</code></td></tr>
+<tr><td>提交粒度</td><td>一个 Task 一次提交，提交信息前缀：<code>feat(workbuddy): …</code> / <code>test(workbuddy): …</code></td></tr>
+<tr><td>网络替身</td><td>Rust 测试用真实 <code>std::net::TcpListener</code> + 最小 HTTP 响应（照 <code>src-tauri/src/cloud_sync/providers/webdav.rs</code> 末尾写法），不引入 mock 库</td></tr>
+</table>
+
+<hr>
+
+<h2>Phase A · Rust 基础（全部可单测，不碰 UI）</h2>
+
+<div class="task">
+<h3>Task 1：依赖与模块骨架 <span class="tag">~30 min</span></h3>
+<p><strong>Files:</strong> 改 <code>src-tauri/Cargo.toml</code>、新建 <code>src-tauri/src/workbuddy/mod.rs</code>、改 <code>src-tauri/src/lib.rs</code>（只加 <code>mod workbuddy;</code>）</p>
+<ul class="check">
+<li>Step 1：Cargo.toml 增依赖：<code>axum = "0.8"</code>、<code>aes-gcm = "0.10"</code>、<code>rand = "0.8"</code>；<code>tokio</code> features 增 <code>"net","time"</code>；<code>reqwest</code> features 增 <code>"stream"</code>。</li>
+<li>Step 2：建 <code>mod.rs</code>，先声明 <code>pub mod endpoints;</code>（其余按 Task 递增加）。</li>
+<li>Step 3：跑 <code>cargo check</code>，期望 <code>Finished</code>，无 warning。</li>
+<li>Step 4：提交 <code>feat(workbuddy): 模块骨架与依赖</code>。</li>
+</ul>
+<p><strong>风险：</strong>首次编译 lancedb 约 5–15 分钟，属正常。</p>
+</div>
+
+<div class="task">
+<h3>Task 2：加密信封 <span class="tag">TDD</span></h3>
+<p><strong>Files:</strong> 新建 <code>src-tauri/src/workbuddy/crypto.rs</code></p>
+<p><strong>接口：</strong></p>
+<pre><code>pub const ENVELOPE_PREFIX: &amp;str = "enc1:";
+pub fn is_envelope(text: &amp;str) -&gt; bool;
+pub fn seal(key_path: &amp;Path, plaintext: &amp;[u8]) -&gt; Result&lt;String, String&gt;;
+pub fn open(key_path: &amp;Path, envelope: &amp;str) -&gt; Result&lt;Vec&lt;u8&gt;, String&gt;;</code></pre>
+<ul class="check">
+<li>Step 1：写失败测试
+<pre><code>#[test]
+fn roundtrip_and_prefix() {
+    let dir = tempfile_dir();
+    let env = seal(&amp;dir.join("k.key"), b"hello").unwrap();
+    assert!(env.starts_with("enc1:"));
+    assert!(is_envelope(&amp;env));
+    assert_eq!(open(&amp;dir.join("k.key"), &amp;env).unwrap(), b"hello");
+}
+
+#[test]
+fn wrong_key_fails() {
+    let (a, b) = (tempfile_dir(), tempfile_dir());
+    let env = seal(&amp;a.join("k.key"), b"x").unwrap();
+    assert!(open(&amp;b.join("k.key"), &amp;env).is_err());   // b 会自建一把新钥
+}
+
+#[test]
+fn key_file_is_created_once_and_reused() {
+    let dir = tempfile_dir();
+    let p = dir.join("k.key");
+    seal(&amp;p, b"a").unwrap();
+    let first = std::fs::read(&amp;p).unwrap();
+    seal(&amp;p, b"b").unwrap();
+    assert_eq!(first, std::fs::read(&amp;p).unwrap());
+    assert_eq!(first.len(), 32);
+}</code></pre></li>
+<li>Step 2：<code>cargo test workbuddy::crypto</code> → 失败（函数不存在）。</li>
+<li>Step 3：实现：32 字节随机钥落盘（Unix 设 0600）；nonce 12 字节；输出 <code>enc1:base64(nonce‖ct+tag)</code>；解密失败统一文案「凭证解密失败（密钥文件可能已更换），请重新登录 WorkBuddy」。</li>
+<li>Step 4：<code>cargo test workbuddy::crypto</code> → 3 passed。</li>
+<li>Step 5：提交 <code>feat(workbuddy): AES-GCM 凭证信封</code>。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 3：端点与版本常量 <span class="tag">TDD</span></h3>
+<p><strong>Files:</strong> 新建 <code>src-tauri/src/workbuddy/endpoints.rs</code></p>
+<p><strong>必须逐字一致的常量：</strong></p>
+<pre><code>CN:   endpoint https://copilot.tencent.com   prefix /plugin   platform workbuddy
+      ua "WorkBuddy/5.5.4 WorkBuddy/5.5.4 CLI/2.137.1"   ide_version "5.5.4"
+INTL: endpoint https://www.workbuddy.ai        prefix /plugin   platform workbuddy-ai
+      ua "WorkBuddy/5.8.4 workbuddy-ai/5.8.4 CLI/2.161.0"  ide_version "5.8.4"   （二期）</code></pre>
+<ul class="check">
+<li>Step 1：写失败测试
+<pre><code>#[test]
+fn auth_url_has_prefix_but_chat_url_does_not() {
+    let e = Edition::CN;
+    assert_eq!(e.auth_url("/auth/state?platform=workbuddy"),
+        "https://copilot.tencent.com/v2/plugin/auth/state?platform=workbuddy");
+    assert_eq!(e.chat_url(), "https://copilot.tencent.com/v2/chat/completions");
+    assert_eq!(e.config_url(), "https://copilot.tencent.com/v3/config");
+}
+
+#[test]
+fn edition_alias_resolution() {
+    assert_eq!(Edition::from_id(Some("intl")), Edition::INTL);
+    assert_eq!(Edition::from_id(Some("workbuddy-ai")), Edition::INTL);
+    assert_eq!(Edition::from_id(Some("cn")), Edition::CN);
+    assert_eq!(Edition::from_id(None), Edition::CN);       // 缺省国内版
+}</code></pre></li>
+<li>Step 2：跑测试 → 失败。</li>
+<li>Step 3：实现 <code>Edition</code>（<code>id/label/endpoint/prefix_path/platform/ua/ide_version</code> + <code>auth_url/chat_url/config_url/model_list_of_account</code>）。</li>
+<li>Step 4：跑绿，提交 <code>feat(workbuddy): 两版端点常量</code>。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 4：账号存储 <span class="tag">TDD</span></h3>
+<p><strong>Files:</strong> 新建 <code>src-tauri/src/workbuddy/accounts.rs</code></p>
+<p><strong>结构：</strong></p>
+<pre><code>pub struct Auth { pub access_token: String, pub refresh_token: String,
+                  pub expires_at: i64, pub refresh_expires_at: i64, pub domain: String }
+pub struct Account { pub id: String, pub provider: String, pub uid: String, pub nickname: String,
+                     pub edition: String, pub endpoint: String, pub prefix_path: String,
+                     pub platform: String, pub auth: Auth, pub added_at: i64,
+                     pub priority: i64, pub enabled: bool }
+pub struct AccountStore { path: PathBuf, key_path: PathBuf, accounts: Vec&lt;Account&gt; }</code></pre>
+<p><strong>接口：</strong><code>load(dir)</code> / <code>list()</code> / <code>public_view()</code>（剥掉 token）/ <code>upsert(account)</code> / <code>remove(id)</code> / <code>current()</code> / <code>set_enabled(id, bool)</code></p>
+<ul class="check">
+<li>Step 1：写失败测试
+<pre><code>#[test]
+fn upsert_same_uid_updates_instead_of_appending() {
+    let mut s = AccountStore::in_memory_for_test();
+    s.upsert(sample("uid-1", "old"));
+    s.upsert(sample("uid-1", "new"));
+    assert_eq!(s.list().len(), 1);
+    assert_eq!(s.list()[0].nickname, "new");
+}
+
+#[test]
+fn file_never_contains_plaintext_token() {
+    let dir = tempdir(); let mut s = AccountStore::load(&amp;dir).unwrap();
+    s.upsert(sample("uid-1", "n"));
+    let raw = std::fs::read_to_string(dir.join("workbuddy-accounts.json")).unwrap();
+    assert!(!raw.contains("ACCESS-TOKEN-X"));
+    assert!(raw.contains("enc1:"));
+}
+
+#[test]
+fn public_view_hides_secrets() {
+    let mut s = AccountStore::in_memory_for_test();
+    s.upsert(sample("uid-1", "n"));
+    let v = s.public_view();
+    assert!(v[0].get("auth").is_none());
+    assert_eq!(v[0]["uidTail"].as_str().unwrap().len(), 6);
+}</code></pre></li>
+<li>Step 2：跑测试 → 失败。</li>
+<li>Step 3：实现：json <code>{version:1, accounts:[…]}</code>；<code>auth</code> 字段整体加密；<code>id = format!("user-{uid}")</code>；<code>priority</code> 缺省 100；写盘用临时文件 + rename（照 <code>src-tauri/src/atomic_file.rs</code>）。</li>
+<li>Step 4：跑绿，提交 <code>feat(workbuddy): 账号存储与加密落盘</code>。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 5：模型目录 <span class="tag">TDD</span></h3>
+<p><strong>Files:</strong> 新建 <code>src-tauri/src/workbuddy/models.rs</code></p>
+<p><strong>接口：</strong><code>parse_config(&amp;Value) -&gt; Vec&lt;ModelInfo&gt;</code>、<code>ModelInfo { id, name, max_input, max_output, tool_call, reasoning, is_default }</code>、<code>to_openai_list(&amp;[ModelInfo]) -&gt; Value</code>、<code>ModelCache::{load, store, refresh_with(&amp;Account)}</code></p>
+<p><strong>过滤规则：</strong>丢弃前缀命中这些的模型（非对话）：<code>completion-</code>、<code>codewise-</code>、<code>hunyuan-image</code>、<code>hunyuan-3b</code>、<code>hunyuan-7b</code>、<code>deepseek-r1-0528</code>、<code>deepseek-v3-0324</code>、<code>kimi-k2-instruct</code>、<code>default-1.</code></p>
+<ul class="check">
+<li>Step 1：写失败测试（fixture 内联 JSON，不要读外部文件）
+<pre><code>#[test]
+fn maps_fields_and_drops_non_chat_models() {
+    let v: Value = serde_json::from_str(FIXTURE).unwrap();
+    let m = parse_config(&amp;v);
+    assert_eq!(m.len(), 2);
+    assert_eq!(m[0].id, "deepseek-v4.1-flash");
+    assert_eq!(m[0].max_input, 262144);
+    assert!(m[0].tool_call &amp;&amp; m[0].reasoning);
+    assert!(m.iter().all(|x| !x.id.starts_with("completion-")));
+}
+
+#[test]
+fn openai_list_shape_is_stable() {
+    let l = to_openai_list(&amp;parse_config(&amp;serde_json::from_str(FIXTURE).unwrap()));
+    assert_eq!(l["object"], "list");
+    assert_eq!(l["data"][0]["object"], "model");
+    assert_eq!(l["data"][0]["owned_by"], "workbuddy");
+    assert!(l["data"][0]["max_input_tokens"].is_number());
+}
+
+#[test]
+fn empty_remote_falls_back_to_builtin() {
+    assert!(!builtin().is_empty());
+}</code></pre></li>
+<li>Step 2：跑测试 → 失败。</li>
+<li>Step 3：实现解析 + 过滤 + 兜底清单（写 8–12 个常见模型即可）+ 缓存文件 <code>workbuddy-models.json</code>（带 <code>fetchedAt</code>）。</li>
+<li>Step 4：跑绿，提交 <code>feat(workbuddy): 模型目录解析与缓存</code>。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 6：网页登录流程 <span class="tag">TDD</span></h3>
+<p><strong>Files:</strong> 新建 <code>src-tauri/src/workbuddy/login.rs</code></p>
+<p><strong>接口：</strong><code>start(edition) -&gt; {state, auth_url}</code>、<code>poll_once(state) -&gt; Poll::{Pending, Ready(Auth), Error(String)}</code>、<code>finish(auth) -&gt; Account</code>、<code>cancel(state)</code>；任务表 <code>Mutex&lt;HashMap&lt;String, Task&gt;&gt;</code></p>
+<p><strong>要点：</strong>匿名头 <code>X-No-Authorization/X-No-User-Id/X-No-Enterprise-Id/X-No-Department-Info: true</code>；<code>auth/token</code> 返回业务码 <code>11217</code> 视为 pending；<code>login/account</code> 带 <code>X-No-User-Id</code> 等三头；uid 兜底顺序 <code>login/account</code> → <code>/accounts</code> → JWT <code>sub</code>。</p>
+<ul class="check">
+<li>Step 1：写失败测试（起本地替身上游，三次响应：state → 11217 → token+account）
+<pre><code>#[tokio::test]
+async fn polls_until_token_then_builds_account() {
+    let base = spawn_stub(vec![
+        (200, r#"{"code":0,"data":{"state":"s1","authUrl":"http://x/login"}}"#),
+        (200, r#"{"code":11217,"message":"pending"}"#),
+        (200, r#"{"code":0,"data":{"accessToken":"AT","refreshToken":"RT","expiresIn":7200,
+                                   "account":{"uid":"u1","nickname":"小明"}}}"#),
+    ]);
+    let mut flow = LoginFlow::new(base);
+    let (state, url) = flow.start().await.unwrap();
+    assert_eq!(state, "s1");
+    assert!(url.starts_with("http://x/login"));
+    assert!(matches!(flow.poll_once(&amp;state).await.unwrap(), Poll::Pending));
+    let auth = match flow.poll_once(&amp;state).await.unwrap() {
+        Poll::Ready(a) =&gt; a, _ =&gt; panic!("应为 Ready"),
+    };
+    assert_eq!(auth.access_token, "AT");
+    assert!(auth.expires_at &gt; 0);
+}</code></pre></li>
+<li>Step 2：跑测试 → 失败。</li>
+<li>Step 3：实现；<code>expires_at = now + expiresIn * 1000</code>；拿到 token 后补调 <code>login/account</code> 拿昵称，失败不影响成功（uid 从 JWT <code>sub</code> 兜底）。</li>
+<li>Step 4：跑绿，提交 <code>feat(workbuddy): 网页登录轮询</code>。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 7：两条导入链路 <span class="tag">TDD</span></h3>
+<p><strong>Files:</strong> 新建 <code>src-tauri/src/workbuddy/import.rs</code></p>
+<p><strong>接口：</strong><code>parse_credential_file(text: &amp;str) -&gt; Result&lt;Imported, String&gt;</code>、<code>locate_desktop_auth_file(root: &amp;Path) -&gt; Result&lt;PathBuf, String&gt;</code>；<code>Imported { access_token, refresh_token, uid, nickname, edition }</code></p>
+<ul class="check">
+<li>Step 1：写失败测试
+<pre><code>#[test]
+fn parses_nested_and_flat_and_rejects_incomplete() {
+    let nested = r#"{"auth":{"accessToken":"A","refreshToken":"R"},
+                     "account":{"uid":"u1","nickname":"N"}}"#;
+    let i = parse_credential_file(nested).unwrap();
+    assert_eq!((i.access_token.as_str(), i.uid.as_str()), ("A", "u1"));
+
+    let flat = r#"{"accessToken":"A","uid":"u1"}"#;
+    assert_eq!(parse_credential_file(flat).unwrap().uid, "u1");
+
+    let bad = r#"{"accessToken":"A"}"#;
+    assert!(parse_credential_file(bad).unwrap_err().contains("uid"));
+}
+
+#[test]
+fn edition_comes_from_domain() {
+    let intl = r#"{"accessToken":"A","uid":"u","auth":{"domain":"www.workbuddy.ai"}}"#;
+    assert_eq!(parse_credential_file(intl).unwrap().edition, "intl");
+    let cn = r#"{"accessToken":"A","uid":"u","auth":{"domain":"www.workbuddy.cn"}}"#;
+    assert_eq!(parse_credential_file(cn).unwrap().edition, "cn");
+}
+
+#[test]
+fn desktop_file_prefers_current_over_backup() {
+    let d = tempdir();
+    std::fs::write(d.join("workbuddy-desktop.2026-01-01T00-00-00.info"), "{}").unwrap();
+    std::fs::write(d.join("workbuddy-desktop.info"), "{}").unwrap();
+    assert!(locate_desktop_auth_file(&amp;d).unwrap().ends_with("workbuddy-desktop.info"));
+}</code></pre></li>
+<li>Step 2：跑测试 → 失败。</li>
+<li>Step 3：实现；桌面端目录用注入的 <code>root</code>（生产时传真实目录），便于测试。</li>
+<li>Step 4：跑绿，提交 <code>feat(workbuddy): 凭证文件与桌面端登录态导入</code>。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 8：token 续期 <span class="tag">TDD</span></h3>
+<p><strong>Files:</strong> 新建 <code>src-tauri/src/workbuddy/refresh.rs</code></p>
+<ul class="check">
+<li>Step 1：测试：替身返回新 AT；过期判断 <code>expires_at - now &lt; 300_000</code> 为真；并发两次只打一次上游（用 <code>AtomicUsize</code> 计数）。</li>
+<li>Step 2：跑失败 → Step 3 实现（<code>X-Refresh-Token</code> + <code>X-Auth-Refresh-Source: plugin</code>，成功后回写 store）→ Step 4 跑绿 → Step 5 提交 <code>feat(workbuddy): token 续期与单飞</code>。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 9：请求构造与错误分类 <span class="tag">TDD</span></h3>
+<p><strong>Files:</strong> 新建 <code>src-tauri/src/workbuddy/chat.rs</code></p>
+<p><strong>接口：</strong><code>build_headers(&amp;Account, trace: &amp;Trace) -&gt; Vec&lt;(String,String)&gt;</code>、<code>ensure_leading_system(&amp;mut Value) -&gt; bool</code>、<code>classify(status: u16, body: &amp;Value) -&gt; ChatError</code></p>
+<ul class="check">
+<li>Step 1：写失败测试
+<pre><code>#[test]
+fn injects_system_only_when_missing() {
+    let mut body = json!({"messages":[{"role":"user","content":"hi"}]});
+    assert!(ensure_leading_system(&amp;mut body));
+    assert_eq!(body["messages"][0]["role"], "system");
+
+    let mut ok = json!({"messages":[{"role":"system","content":"s"},{"role":"user","content":"u"}]});
+    assert!(!ensure_leading_system(&amp;mut ok));
+    assert_eq!(ok["messages"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn developer_role_is_normalized_before_check() {
+    let mut body = json!({"messages":[{"role":"developer","content":"d"}]});
+    assert!(!ensure_leading_system(&amp;mut body));   // 归一成 system 后无需再插
+    assert_eq!(body["messages"][0]["role"], "system");
+}
+
+#[test]
+fn headers_carry_identity_and_auth() {
+    let h = build_headers(&amp;sample_account(), &amp;Trace::new());
+    let get = |k: &amp;str| h.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone()).unwrap();
+    assert_eq!(get("X-IDE-Type"), "WorkBuddy");
+    assert_eq!(get("X-IDE-Version"), "5.5.4");
+    assert_eq!(get("X-Product"), "SaaS");
+    assert_eq!(get("Origin"), "https://copilot.tencent.com");
+    assert!(get("Authorization").starts_with("Bearer "));
+    assert_eq!(get("X-Domain"), "www.workbuddy.cn");
+    assert!(get("traceparent").starts_with("00-"));
+}
+
+#[test]
+fn classifies_quota_and_waf() {
+    assert!(matches!(classify(429, &amp;json!({})), ChatError::Quota(_)));
+    assert!(matches!(classify(400, &amp;json!({"code":6004})), ChatError::Quota(_)));
+    assert!(matches!(classify(400, &amp;json!({"code":"11-128"})), ChatError::Waf(_)));
+    assert!(matches!(classify(500, &amp;json!({})), ChatError::Passthrough(_)));
+}</code></pre></li>
+<li>Step 2：跑失败 → Step 3 实现（头集合逐字照规格 5.3）→ Step 4 跑绿 → Step 5 提交 <code>feat(workbuddy): 对话请求构造与错误分类</code>。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 10：本地网关 <span class="tag">TDD · 集成</span></h3>
+<p><strong>Files:</strong> 新建 <code>src-tauri/src/workbuddy/gateway.rs</code></p>
+<p><strong>接口：</strong><code>start(state) -&gt; GatewayHandle { base_url, token }</code>；路由 <code>GET /health</code>、<code>GET /v1/models</code>、<code>POST /v1/chat/completions</code>；令牌从 <code>Authorization: Bearer</code> 读。</p>
+<ul class="check">
+<li>Step 1：写失败测试（起网关 + 替身上游）
+<pre><code>#[tokio::test]
+async fn rejects_without_token_and_serves_models_with_token() {
+    let gw = start_for_test().await;             // 上游指向本地替身
+    let c = reqwest::Client::new();
+    let no = c.get(format!("{}/v1/models", gw.base_url)).send().await.unwrap();
+    assert_eq!(no.status(), 401);
+
+    let ok = c.get(format!("{}/v1/models", gw.base_url))
+        .bearer_auth(&amp;gw.token).send().await.unwrap();
+    assert_eq!(ok.status(), 200);
+    assert_eq!(ok.json::&lt;serde_json::Value&gt;().await.unwrap()["object"], "list");
+}
+
+#[tokio::test]
+async fn streams_chat_bytes_through() {
+    let gw = start_for_test().await;
+    let res = reqwest::Client::new()
+        .post(format!("{}/v1/chat/completions", gw.base_url))
+        .bearer_auth(&amp;gw.token)
+        .json(&amp;json!({"model":"deepseek-v4.1-flash","stream":true,
+                       "messages":[{"role":"user","content":"hi"}]}))
+        .send().await.unwrap();
+    assert_eq!(res.headers()["content-type"], "text/event-stream");
+    let body = res.text().await.unwrap();
+    assert!(body.contains("data: [DONE]"));
+}</code></pre></li>
+<li>Step 2：跑失败 → Step 3 实现（绑 <code>127.0.0.1:0</code>、<code>Body::from_stream</code> 透传、<code>stream:false</code> 时聚合成 JSON）→ Step 4 跑绿 → Step 5 提交 <code>feat(workbuddy): 本地 OpenAI 兼容网关</code>。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 11：Tauri 命令与启动接线 <span class="tag">集成</span></h3>
+<p><strong>Files:</strong> 新建 <code>…/commands.rs</code>；改 <code>src-tauri/src/lib.rs</code>（<code>mod workbuddy;</code> + <code>generate_handler!</code> + setup 里起网关）</p>
+<ul class="check">
+<li>Step 1：实现 10 个命令：<code>workbuddy_login_start/_wait/_cancel</code>、<code>workbuddy_accounts_list/_remove/_refresh</code>、<code>workbuddy_import_file/_import_desktop</code>、<code>workbuddy_models_refresh</code>、<code>workbuddy_gateway_ensure</code>。返回结构一律不含 token。</li>
+<li>Step 2：<code>cargo check</code> 通过；<code>cargo test workbuddy</code> 全绿。</li>
+<li>Step 3：提交 <code>feat(workbuddy): Tauri 命令与网关启动</code>。</li>
+</ul>
+</div>
+
+<hr>
+
+<h2>Phase B · 前端接线</h2>
+
+<div class="task">
+<h3>Task 12：IPC 封装 <span class="tag">TDD</span></h3>
+<p><strong>Files:</strong> 新建 <code>src/lib/workbuddy-accounts.ts</code>、<code>src/lib/workbuddy-gateway.ts</code>、<code>src/lib/workbuddy-accounts.spec.ts</code></p>
+<ul class="check">
+<li>Step 1：写失败测试（<code>vi.mock("@tauri-apps/api/core", () =&gt; ({ invoke: vi.fn() }))</code>）
+<pre><code>it("开始登录返回 state 与登录地址", async () =&gt; {
+  invoke.mockResolvedValue({ state: "s1", authUrl: "https://x/login" })
+  await expect(startWorkbuddyLogin()).resolves.toEqual({ state: "s1", authUrl: "https://x/login" })
+  expect(invoke).toHaveBeenCalledWith("workbuddy_login_start", { provider: "workbuddy" })
+})
+
+it("网关地址只在就绪时返回", async () =&gt; {
+  invoke.mockResolvedValue({ ready: false, error: "绑定失败" })
+  await expect(ensureWorkbuddyGateway()).rejects.toThrow("绑定失败")
+})</code></pre></li>
+<li>Step 2：跑失败 → Step 3 实现（薄封装，不写业务判断）→ Step 4 跑绿 → Step 5 提交 <code>feat(workbuddy): 前端 IPC 封装</code>。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 13：三栏 + 登录对话框 <span class="tag">UI</span></h3>
+<p><strong>Files:</strong> 新建 <code>src/components/ui/segmented.tsx</code>、<code>…/sections/add-workbuddy-account-dialog.tsx</code>；改 <code>…/sections/llm-provider-section.tsx:90-110</code>；新增源文本断言 <code>…/llm-provider-section.spec.ts</code> 用例</p>
+<ul class="check">
+<li>Step 1：先写断言（现有 spec 就是读源码文本的写法）
+<pre><code>it("三栏入口按 添加账号 / 添加提供方 / 添加自定义模型 排列，且在列表之前", () =&gt; {
+  const add = source.indexOf('data-guide="model.add-account"')
+  const provider = source.indexOf('data-guide="model.add-provider"')
+  const custom = source.indexOf('data-guide="model.add-custom"')
+  const list = source.indexOf("model-library-list")
+  expect(add).toBeGreaterThan(-1)
+  expect(add).toBeLessThan(provider)
+  expect(provider).toBeLessThan(custom)
+  expect(custom).toBeLessThan(list)
+})</code></pre></li>
+<li>Step 2：跑失败 → Step 3 实现：三栏 + 对话框（版本分段：国内版可用 / 国际版 disabled 且标「二期」；添加方式三段；网页登录面板含打开方式；已有账号列表带刷新/删除）。</li>
+<li>Step 4：跑绿 + <code>npm run typecheck</code>。</li>
+<li>Step 5：提交 <code>feat(workbuddy): 三栏入口与登录对话框</code>。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 14：provider 接线（最容易漏的一步） <span class="tag">TDD</span></h3>
+<p><strong>Files:</strong> 改 <code>llm-presets.ts</code>、<code>wiki-store.ts:236</code>、<code>settings-types.ts:15,42</code>、<code>preset-resolver.ts</code>、<code>llm-providers.ts:1331-1561</code>、<code>llm-client.ts:419-437</code>、<code>settings-model-list.ts</code>、<code>has-usable-llm.ts</code>；同步三个既有 spec</p>
+<ul class="check">
+<li>Step 1：先改断言：<code>has-usable-llm.test.ts</code> 加 <code>workbuddy</code> 用例；<code>llm-wiki-model-settings.spec.ts:48-74</code> 的 preset id 数组插入 <code>workbuddy</code>；<code>llm-providers.spec.ts</code> 加一条「workbuddy 走 chat_completions」。跑 → 失败。</li>
+<li>Step 2：实现八处改动。
+<pre><code>// llm-providers.ts getProviderConfig 新增分支要点
+"workbuddy" // 与 custom 同款 chat_completions 线格式：
+// url = `${customEndpoint}/chat/completions`；headers = Bearer apiKey
+// buildBody 用 buildOpenAiCompatibleBody，不额外改写</code></pre></li>
+<li>Step 3：<code>npm run test:mocks</code> 全绿；<code>npm run typecheck</code> 通过。</li>
+<li>Step 4：提交 <code>feat(workbuddy): 接入 provider 分派与模型列表</code>。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 15：登录成功后的模型卡片 <span class="tag">UI</span></h3>
+<p><strong>Files:</strong> 改 <code>add-workbuddy-account-dialog.tsx</code>、新增 <code>src/lib/workbuddy-card.ts</code> + spec</p>
+<ul class="check">
+<li>Step 1：写失败测试（纯函数，不渲染）
+<pre><code>it("按目录生成卡片：默认勾 isDefault，最多 3 个，取最小上下文", () =&gt; {
+  const card = buildWorkbuddyCard(models)
+  expect(card.enabled).toBe(true)
+  expect(card.savedModels.length).toBeLessThanOrEqual(3)
+  expect(card.savedModels.every(m =&gt; m.model)).toBe(true)
+  expect(card.maxContextSize).toBe(Math.min(...card.savedModels.map(m =&gt; ctxOf(m.model, models))))
+})
+
+it("删除最后一个账号时卡片置灰但不删除", () =&gt; {
+  const next = disableWorkbuddyCard(card)
+  expect(next.enabled).toBe(false)
+  expect(next.savedModels.length).toBe(card.savedModels.length)
+})</code></pre></li>
+<li>Step 2：跑失败 → Step 3 实现（写 <code>providerConfigs["workbuddy"]</code>，走 <code>saveProviderConfigs</code>）→ Step 4 跑绿 → Step 5 提交 <code>feat(workbuddy): 登录后自动生成模型卡片</code>。</li>
+</ul>
+</div>
+
+<hr>
+
+<h2>Phase C · 内嵌窗口与收尾</h2>
+
+<div class="task">
+<h3>Task 16：内嵌登录窗口 <span class="tag">Tauri</span></h3>
+<p><strong>Files:</strong> 新建 <code>…/login_window.rs</code>；改 <code>commands.rs</code>（<code>login_start</code> 增加 <code>mode</code> 参数）</p>
+<ul class="check">
+<li>Step 1：实现 <code>open(app, auth_url, state, title) -&gt; JoinHandle</code>：<code>WebviewWindowBuilder</code> + <code>data_directory(临时目录)</code> + <code>inner_size(1100,820)</code> + <code>on_navigation</code> 白名单 + <code>on_window_event(CloseRequested)</code> 取消登录；结束删临时目录。</li>
+<li>Step 2：手工验证：登录成功窗口自动关闭；中途关窗 → 对话框回到可再次发起状态。</li>
+<li>Step 3：提交 <code>feat(workbuddy): 内嵌登录窗口</code>。</li>
+</ul>
+</div>
+
+<div class="task">
+<h3>Task 17：端到端与文档 <span class="tag">收尾</span></h3>
+<ul class="check">
+<li>Step 1：按规格第八节 11 条验收逐条手测，结果记进 <code>docs/workbuddy-账号登录-分支说明.md</code>。</li>
+<li>Step 2：<code>npm run test:mocks</code> + <code>npm run typecheck</code> + <code>cd src-tauri; cargo test</code> 三绿。</li>
+<li>Step 3：提交 <code>docs(workbuddy): 分支说明与验收记录</code>。</li>
+</ul>
+</div>
+
+<hr>
+
+<h2>自检：规格 → 任务覆盖</h2>
+<table>
+<tr><th>规格条目</th><th>落在</th></tr>
+<tr><td>三栏布局与位置</td><td>Task 13</td></tr>
+<tr><td>登录对话框（版本 / 添加方式 / 打开方式 / 已有账号）</td><td>Task 13</td></tr>
+<tr><td>网页登录轮询</td><td>Task 6 + 16</td></tr>
+<tr><td>导入凭证文件（嵌套/扁平/判版本/报错）</td><td>Task 7</td></tr>
+<tr><td>导入桌面端登录态（固定路径/备份选择）</td><td>Task 7</td></tr>
+<tr><td>账号加密存储、IPC 不返回 token、同 uid 幂等</td><td>Task 2 + 4 + 12</td></tr>
+<tr><td>本地网关三路由、令牌、SSE 透传、stream:false 聚合</td><td>Task 10</td></tr>
+<tr><td>私有头集合、system 注入、错误分类</td><td>Task 9</td></tr>
+<tr><td>模型目录 /v3/config、缓存、兜底、OpenAI 形状</td><td>Task 5</td></tr>
+<tr><td>provider 接线八处 + 既有 spec 同步</td><td>Task 14</td></tr>
+<tr><td>卡片自动生成 / 删除置灰</td><td>Task 15</td></tr>
+<tr><td>依赖与启动接线</td><td>Task 1 + 11</td></tr>
+<tr><td>验收 11 条</td><td>Task 17</td></tr>
+</table>
+
+<footer>
+生成于 2026-10-27 · 规格与实现同源，任何一处改动先改规格再改计划。
+</footer>
+
+</main>
+<script>
+  document.getElementById('theme').addEventListener('click', function () {
+    var root = document.documentElement;
+    root.classList.toggle('dark');
+    try { localStorage.setItem('plan-theme', root.classList.contains('dark') ? 'dark' : 'light'); } catch (e) {}
+  });
+</script>
+</body>
+</html>

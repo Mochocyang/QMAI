@@ -1,0 +1,1075 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>公告功能 · 实施计划</title>
+<style>
+  :root { --ink:#1d2129; --muted:#6b7280; --line:#e5e7eb; --accent:#2f6f4f; --soft:#eef5f0; --code:#f2f3f5; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:44px 20px 80px; background:#f7f7f8; color:var(--ink);
+    font:15px/1.72 -apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif; }
+  main { max-width:880px; margin:0 auto; background:#fff; border:1px solid var(--line);
+    border-radius:14px; padding:44px 52px 56px; box-shadow:0 12px 32px rgba(0,0,0,.04); }
+  h1 { font-size:26px; margin:0 0 10px; }
+  h2 { font-size:19px; margin:40px 0 12px; padding-bottom:8px; border-bottom:1px solid var(--line); }
+  h3 { font-size:15.5px; margin:24px 0 6px; }
+  p { margin:9px 0; }
+  ul,ol { margin:9px 0; padding-left:22px; }
+  li { margin:4px 0; }
+  code { background:var(--code); border-radius:5px; padding:1px 5px;
+    font:13px/1.6 ui-monospace,"Cascadia Mono",Consolas,monospace; }
+  pre { background:var(--code); border:1px solid var(--line); border-radius:10px;
+    padding:13px 15px; overflow-x:auto; margin:11px 0; }
+  pre code { background:none; padding:0; font-size:12.5px; line-height:1.68; }
+  table { border-collapse:collapse; width:100%; margin:13px 0; font-size:14px; }
+  th,td { border:1px solid var(--line); padding:7px 10px; text-align:left; vertical-align:top; }
+  th { background:#fafafa; font-weight:600; }
+  blockquote { margin:14px 0; padding:12px 16px; border-left:3px solid var(--accent);
+    background:var(--soft); border-radius:0 8px 8px 0; }
+  .meta { color:var(--muted); font-size:13.5px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>公告功能 · 实施计划</h1>
+
+<blockquote><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox-style tracking.</blockquote>
+
+<p><strong>Goal:</strong> 官网发一份 <code>announcements.json</code>，软件启动与打开公告弹窗时拉取并本地记已读；侧栏底栏去掉「设置/外观」文字、在设置右侧加铃铛角标；弹窗内逐条展开即已读，另有「全部已读」。</p>
+
+<p><strong>Architecture:</strong> 官网静态 JSON 是唯一事实源，客户端只读不写；<code>src/lib/announcements.ts</code> 负责拉取与纯函数归一化，<code>src/stores/announcement-store.ts</code> 负责状态与 <code>app-state.json</code> 持久化，UI 由 <code>AnnouncementBell</code>（底栏）与 <code>AnnouncementDialog</code>（App 根部单例）两个组件承担。</p>
+
+<p><strong>Tech Stack:</strong> Cloudflare Pages 静态站（Node 脚本自测）、React 19 + zustand + base-ui Dialog + react-markdown、Tauri plugin-http、vitest（node 环境，组件测用 jsdom）。</p>
+
+<p class="meta">设计依据：<code>docs/superpowers/specs/2026-10-27-公告功能-design.html</code>。涉及仓库：<code>C:\QMAI_C\worktrees\QMAI-announcement</code>（客户端）、<code>C:\QMAI_C\QMAIWEB</code>（官网）。</p>
+
+<hr>
+
+<h2>文件结构（先定边界）</h2>
+
+<table>
+  <tr><th>文件</th><th>动作</th><th>职责</th></tr>
+  <tr><td><code>QMAIWEB/announcements.json</code></td><td>新建</td><td>公告数据（唯一事实源）</td></tr>
+  <tr><td><code>QMAIWEB/_headers</code></td><td>新建</td><td>该文件的 CORS 与 5 分钟缓存</td></tr>
+  <tr><td><code>QMAIWEB/scripts/build.mjs</code></td><td>改</td><td>把上面两个文件加进 dist 拷贝白名单</td></tr>
+  <tr><td><code>QMAIWEB/scripts/test.mjs</code></td><td>改</td><td>公告 JSON 结构校验</td></tr>
+  <tr><td><code>src/lib/announcements.ts</code></td><td>新建</td><td>类型、归一化（纯函数）、相对时间格式化、拉取</td></tr>
+  <tr><td><code>src/lib/announcements.test.ts</code></td><td>新建</td><td>归一化与拉取的单元测试</td></tr>
+  <tr><td><code>src/stores/announcement-store.ts</code></td><td>新建</td><td>items / readIds / status / dialogOpen + 持久化</td></tr>
+  <tr><td><code>src/stores/announcement-store.spec.ts</code></td><td>新建</td><td>状态与持久化的单元测试</td></tr>
+  <tr><td><code>src/components/layout/announcement-bell.tsx</code></td><td>新建</td><td>铃铛按钮 + 未读角标</td></tr>
+  <tr><td><code>src/components/layout/announcement-bell.spec.tsx</code></td><td>新建</td><td>角标与 aria-label</td></tr>
+  <tr><td><code>src/components/announcements/announcement-dialog.tsx</code></td><td>新建</td><td>列表、展开即已读、全部已读、刷新/重试</td></tr>
+  <tr><td><code>src/components/announcements/announcement-dialog.spec.tsx</code></td><td>新建</td><td>展开、全部已读、空/错误态</td></tr>
+  <tr><td><code>src/components/layout/sidebar-bottom-actions.tsx</code></td><td>改</td><td>去文字化 + 插入铃铛</td></tr>
+  <tr><td><code>src/components/layout/icon-sidebar.test.tsx</code></td><td>改</td><td>回归守卫：底栏不再渲染文字</td></tr>
+  <tr><td><code>src/lib/announcement-wiring.test.ts</code></td><td>新建</td><td>接线守卫：App.tsx 真的拉取并挂载弹窗</td></tr>
+  <tr><td><code>src/App.tsx</code></td><td>改</td><td>启动 hydrate + 挂载 <code>&lt;AnnouncementDialog /&gt;</code></td></tr>
+  <tr><td><code>src/i18n/zh.json</code></td><td>改</td><td>铃铛与弹窗文案</td></tr>
+</table>
+
+<hr>
+
+<h2>Task 1: 官网公告数据与部署白名单</h2>
+
+<p><strong>Files:</strong></p>
+<ul>
+  <li>Create: <code>C:\QMAI_C\QMAIWEB\announcements.json</code></li>
+  <li>Create: <code>C:\QMAI_C\QMAIWEB\_headers</code></li>
+  <li>Modify: <code>C:\QMAI_C\QMAIWEB\scripts\build.mjs</code></li>
+  <li>Modify: <code>C:\QMAI_C\QMAIWEB\scripts\test.mjs</code>（末尾追加）</li>
+</ul>
+
+<h3>Step 1: 写数据文件</h3>
+<pre><code class="language-json">{
+  "version": 1,
+  "updatedAt": "2026-10-27T09:00:00+08:00",
+  "announcements": [
+    {
+      "id": "2026-10-27-announcement-launch",
+      "title": "公告功能上线",
+      "body": "## 现在可以在软件里看公告了\n\n- 官网发布公告后，软件会自动同步\n- 未读条数显示在左下角铃铛上\n- 点开一条即视为已读，也可一键全部已读\n\n遇到问题请到 GitHub Issues 反馈。",
+      "publishedAt": "2026-10-27T09:00:00+08:00",
+      "pinned": true,
+      "url": "https://www.qmai.pro/"
+    }
+  ]
+}</code></pre>
+
+<h3>Step 2: 写 _headers</h3>
+<pre><code>/announcements.json
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=300</code></pre>
+
+<h3>Step 3: 改 build.mjs 白名单</h3>
+<p>把第 8 行的循环改成点名包含新文件（<strong>不改就等于线上 404</strong>）：</p>
+<pre><code class="language-js">for (const name of ['index.html', 'styles.css', 'script.js', 'announcements.json', '_headers'])
+  await cp(path.join(root, name), path.join(dist, name));</code></pre>
+
+<h3>Step 4: 站点结构校验（追加到 scripts/test.mjs 末尾）</h3>
+<pre><code class="language-js">const announcementsRaw = await readFile(new URL('announcements.json', root), 'utf8');
+const announcementsDoc = JSON.parse(announcementsRaw);
+assert.equal(announcementsDoc.version, 1, '公告 JSON 版本必须为 1');
+assert.ok(Array.isArray(announcementsDoc.announcements), 'announcements 必须是数组');
+assert.ok(announcementsDoc.announcements.length &lt;= 50, '公告最多 50 条');
+const ids = new Set();
+for (const item of announcementsDoc.announcements) {
+  assert.ok(item &amp;&amp; typeof item === 'object', '公告条目必须是对象');
+  assert.ok(typeof item.id === 'string' &amp;&amp; item.id.length &gt; 0 &amp;&amp; item.id.length &lt;= 64, '公告 id 必填且不超过 64 字符');
+  assert.ok(!ids.has(item.id), `公告 id 重复：${item.id}`);
+  ids.add(item.id);
+  assert.ok(typeof item.title === 'string' &amp;&amp; item.title.length &gt; 0, `公告缺少标题：${item.id}`);
+  assert.ok(typeof item.body === 'string' &amp;&amp; item.body.length &gt; 0, `公告缺少正文：${item.id}`);
+  assert.ok(!Number.isNaN(Date.parse(item.publishedAt)), `发布时间无法解析：${item.id}`);
+  if (item.url !== undefined) assert.match(item.url, /^https?:\/\//, `公告链接必须是 http/https：${item.id}`);
+}
+const headersFile = await readFile(new URL('_headers', root), 'utf8');
+assert.match(headersFile, /\/announcements\.json/, '_headers 必须覆盖 announcements.json');
+assert.match(headersFile, /Access-Control-Allow-Origin:\s*\*/, 'announcements.json 必须允许跨域');</code></pre>
+
+<h3>Step 5: 跑站点测试</h3>
+<p>Run（在 <code>C:\QMAI_C\QMAIWEB</code>）：<code>npm test</code><br>
+Expected: 无输出、退出码 0（测试是 assert 脚本）。</p>
+
+<h3>Step 6: 构建并确认产物里有文件</h3>
+<p>Run：<code>npm run build; Get-ChildItem dist</code><br>
+Expected: <code>dist</code> 里出现 <code>announcements.json</code> 与 <code>_headers</code>。</p>
+
+<h3>Step 7: 提交</h3>
+<pre><code class="language-bash">cd C:\QMAI_C\QMAIWEB
+git add announcements.json _headers scripts/build.mjs scripts/test.mjs
+git commit -m "feat(公告): 官网新增 announcements.json 数据源与部署白名单"</code></pre>
+
+<hr>
+
+<h2>Task 2: 归一化纯函数（含时间格式化）</h2>
+
+<p><strong>Files:</strong></p>
+<ul>
+  <li>Create: <code>src/lib/announcements.ts</code></li>
+  <li>Test: <code>src/lib/announcements.test.ts</code></li>
+</ul>
+
+<h3>Step 1: 先写测试</h3>
+<pre><code class="language-ts">import { describe, expect, it } from "vitest"
+
+import {
+  formatAnnouncementDate,
+  formatRelativeTime,
+  normalizeAnnouncements,
+  readAnnouncementList,
+} from "./announcements"
+
+function item(overrides: Record&lt;string, unknown&gt; = {}) {
+  return {
+    id: "a1",
+    title: "标题",
+    body: "正文",
+    publishedAt: "2026-10-27T09:00:00+08:00",
+    ...overrides,
+  }
+}
+
+describe("normalizeAnnouncements", () => {
+  it("接受整体 payload 与裸数组两种形状", () =&gt; {
+    expect(normalizeAnnouncements({ announcements: [item()] })).toHaveLength(1)
+    expect(normalizeAnnouncements([item()])).toHaveLength(1)
+  })
+
+  it("丢弃缺字段与时间不可解析的条目", () =&gt; {
+    const result = normalizeAnnouncements({
+      announcements: [
+        item({ id: "" }),
+        item({ title: "" }),
+        item({ body: "" }),
+        item({ publishedAt: "不是时间" }),
+        item({ id: "ok" }),
+      ],
+    })
+    expect(result.map((a) =&gt; a.id)).toEqual(["ok"])
+  })
+
+  it("重复 id 保留第一条", () =&gt; {
+    const result = normalizeAnnouncements([item({ title: "先" }), item({ title: "后" })])
+    expect(result).toHaveLength(1)
+    expect(result[0].title).toBe("先")
+  })
+
+  it("置顶优先，其次按发布时间倒序", () =&gt; {
+    const result = normalizeAnnouncements([
+      item({ id: "old", publishedAt: "2026-10-01T00:00:00+08:00" }),
+      item({ id: "new", publishedAt: "2026-10-20T00:00:00+08:00" }),
+      item({ id: "pin", publishedAt: "2026-09-01T00:00:00+08:00", pinned: true }),
+    ])
+    expect(result.map((a) =&gt; a.id)).toEqual(["pin", "new", "old"])
+  })
+
+  it("正文截断到 2000 字、标题截断到 60 字", () =&gt; {
+    const result = normalizeAnnouncements([item({ body: "字".repeat(3000), title: "标".repeat(100) })])
+    expect(result[0].body).toHaveLength(2000)
+    expect(result[0].title).toHaveLength(60)
+  })
+
+  it("最多保留 50 条", () =&gt; {
+    const many = Array.from({ length: 80 }, (_, i) =&gt;
+      item({ id: `a${i}`, publishedAt: new Date(2026, 0, 1, 0, i).toISOString() }))
+    expect(normalizeAnnouncements(many)).toHaveLength(50)
+  })
+
+  it("非法 url 置空、pinned 缺省为 false", () =&gt; {
+    const [withBadUrl] = normalizeAnnouncements([item({ url: "javascript:alert(1)" })])
+    expect(withBadUrl.url).toBeUndefined()
+    expect(withBadUrl.pinned).toBe(false)
+  })
+})
+
+describe("readAnnouncementList", () => {
+  it("结构合法返回数组，结构非法返回 null", () =&gt; {
+    expect(readAnnouncementList({ announcements: [] })).toEqual([])
+    expect(readAnnouncementList({})).toBeNull()
+    expect(readAnnouncementList("x")).toBeNull()
+    expect(readAnnouncementList(null)).toBeNull()
+  })
+})
+
+describe("时间格式化", () =&gt; {
+  const now = new Date("2026-10-27T12:00:00+08:00").getTime()
+
+  it("按距离给相对时间", () =&gt; {
+    expect(formatRelativeTime(now - 30_000, now)).toBe("刚刚")
+    expect(formatRelativeTime(now - 5 * 60_000, now)).toBe("5 分钟前")
+    expect(formatRelativeTime(now - 3 * 3_600_000, now)).toBe("3 小时前")
+  })
+
+  it("超过一天显示日期，跨年带年份", () =&gt; {
+    expect(formatRelativeTime(new Date("2026-10-20T09:00:00+08:00").getTime(), now)).toBe("10-20")
+    expect(formatAnnouncementDate(new Date("2025-12-31T09:00:00+08:00").getTime(), now)).toBe("2025-12-31")
+  })
+})</code></pre>
+
+<h3>Step 2: 跑测试确认失败</h3>
+<p>Run: <code>npx vitest run src/lib/announcements.test.ts</code><br>
+Expected: FAIL，提示无法解析 <code>./announcements</code>。</p>
+
+<h3>Step 3: 实现</h3>
+<pre><code class="language-ts">/**
+ * 官网公告（announcements.json）的读取与归一化。
+ *
+ * 为什么所有校验都收在这个文件里：JSON 由人手工维护，字段错、id 重复、
+ * 时间写成"2026年10月27日"都是常态。客户端的原则是**坏数据只丢那一条**，
+ * 绝不能因为一条写错就让整个公告列表消失。
+ */
+
+export interface Announcement {
+  id: string
+  title: string
+  body: string
+  /** epoch ms */
+  publishedAt: number
+  pinned: boolean
+  url?: string
+}
+
+export interface AnnouncementsResult {
+  items: Announcement[]
+  fetchedAt: number
+}
+
+const MAX_TITLE_LENGTH = 60
+const MAX_BODY_LENGTH = 2000
+const MAX_ITEMS = 50
+
+function asTrimmedString(value: unknown, limit: number): string {
+  if (typeof value !== "string") return ""
+  return value.trim().slice(0, limit)
+}
+
+/** 结构合法（是数组或带 announcements 数组的对象）才返回数组，否则 null。 */
+export function readAnnouncementList(payload: unknown): unknown[] | null {
+  if (Array.isArray(payload)) return payload
+  if (payload && typeof payload === "object") {
+    const list = (payload as { announcements?: unknown }).announcements
+    if (Array.isArray(list)) return list
+  }
+  return null
+}
+
+export function normalizeAnnouncements(payload: unknown): Announcement[] {
+  const list = readAnnouncementList(payload)
+  if (!list) return []
+
+  const seen = new Set&lt;string&gt;()
+  const items: Announcement[] = []
+  for (const raw of list) {
+    if (!raw || typeof raw !== "object") continue
+    const record = raw as Record&lt;string, unknown&gt;
+    const id = asTrimmedString(record.id, 64)
+    const title = asTrimmedString(record.title, MAX_TITLE_LENGTH)
+    const body = asTrimmedString(record.body, MAX_BODY_LENGTH)
+    const publishedAt = typeof record.publishedAt === "string" ? Date.parse(record.publishedAt) : Number.NaN
+    if (!id || !title || !body || Number.isNaN(publishedAt)) continue
+    if (seen.has(id)) continue
+    seen.add(id)
+
+    const rawUrl = asTrimmedString(record.url, 2048)
+    const url = /^https?:\/\//i.test(rawUrl) ? rawUrl : undefined
+
+    items.push({ id, title, body, publishedAt, pinned: record.pinned === true, url })
+  }
+
+  items.sort((a, b) =&gt; {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+    return b.publishedAt - a.publishedAt
+  })
+  return items.slice(0, MAX_ITEMS)
+}
+
+/** 列表里的日期：同年 "10-27"，跨年 "2025-12-31"。 */
+export function formatAnnouncementDate(timestamp: number, now = Date.now()): string {
+  const date = new Date(timestamp)
+  const pad = (value: number) =&gt; String(value).padStart(2, "0")
+  const monthDay = `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+  if (date.getFullYear() === new Date(now).getFullYear()) return monthDay
+  return `${date.getFullYear()}-${monthDay}`
+}
+
+/** 相对时间：刚刚 / N 分钟前 / N 小时前 / 日期。 */
+export function formatRelativeTime(timestamp: number, now = Date.now()): string {
+  if (!Number.isFinite(timestamp)) return ""
+  const diff = now - timestamp
+  if (diff &lt; 0) return "刚刚"
+  if (diff &lt; 60_000) return "刚刚"
+  if (diff &lt; 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
+  if (diff &lt; 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
+  return formatAnnouncementDate(timestamp, now)
+}</code></pre>
+
+<h3>Step 4: 跑测试确认通过</h3>
+<p>Run: <code>npx vitest run src/lib/announcements.test.ts</code><br>Expected: PASS（全部用例绿）。</p>
+
+<h3>Step 5: 提交</h3>
+<pre><code class="language-bash">git add src/lib/announcements.ts src/lib/announcements.test.ts
+git commit -m "feat(公告): 公告数据归一化与时间格式化"</code></pre>
+
+<hr>
+
+<h2>Task 3: 拉取（超时 + 备用域名）</h2>
+
+<p><strong>Files:</strong> Modify <code>src/lib/announcements.ts</code>；Test <code>src/lib/announcements.test.ts</code>（追加）。</p>
+
+<h3>Step 1: 追加测试</h3>
+<pre><code class="language-ts">import { afterEach, vi } from "vitest"
+
+const fetchMock = vi.fn()
+
+vi.mock("./tauri-fetch", () =&gt; ({
+  getHttpFetch: async () =&gt; fetchMock,
+}))
+
+afterEach(() =&gt; {
+  fetchMock.mockReset()
+})
+
+describe("fetchAnnouncements", () =&gt; {
+  const urls = ["https://primary.test/announcements.json", "https://backup.test/announcements.json"]
+
+  it("主域名成功时直接返回并带上 fetchedAt", async () =&gt; {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ announcements: [item()] }), { status: 200 }))
+    const result = await fetchAnnouncements({ urls })
+    expect(result?.items.map((a) =&gt; a.id)).toEqual(["a1"])
+    expect(result?.fetchedAt).toBeTypeOf("number")
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("主域名抛错时换备用域名", async () =&gt; {
+    fetchMock.mockRejectedValueOnce(new Error("Failed to fetch"))
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ announcements: [item()] }), { status: 200 }))
+    const result = await fetchAnnouncements({ urls })
+    expect(result?.items).toHaveLength(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("全部失败或 JSON 损坏返回 null（不抛异常）", async () =&gt; {
+    fetchMock.mockRejectedValue(new Error("Failed to fetch"))
+    await expect(fetchAnnouncements({ urls })).resolves.toBeNull()
+
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValue(new Response("&lt;html&gt;404&lt;/html&gt;", { status: 200 }))
+    await expect(fetchAnnouncements({ urls })).resolves.toBeNull()
+  })
+
+  it("空列表是合法结果（没有公告不等于失败）", async () =&gt; {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ announcements: [] }), { status: 200 }))
+    const result = await fetchAnnouncements({ urls })
+    expect(result?.items).toEqual([])
+  })
+})</code></pre>
+
+<h3>Step 2: 跑测试确认失败</h3>
+<p>Run: <code>npx vitest run src/lib/announcements.test.ts</code> → FAIL（<code>fetchAnnouncements</code> 未导出）。</p>
+
+<h3>Step 3: 实现</h3>
+<pre><code class="language-ts">import { getHttpFetch } from "@/lib/tauri-fetch"
+
+export const ANNOUNCEMENTS_URLS = [
+  "https://www.qmai.pro/announcements.json",
+  "https://qmai.pro/announcements.json",
+]
+
+const FETCH_TIMEOUT_MS = 8_000
+
+/**
+ * 拉一次公告。**永远不抛**：失败返回 null，调用方保留本地缓存。
+ * 备用域名是为了应对 CDN/域名单点故障，不是重试同一个地址。
+ */
+export async function fetchAnnouncements(options: {
+  urls?: string[]
+  timeoutMs?: number
+} = {}): Promise&lt;AnnouncementsResult | null&gt; {
+  const urls = options.urls ?? ANNOUNCEMENTS_URLS
+  const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS
+  const httpFetch = await getHttpFetch()
+
+  for (const url of urls) {
+    const controller = new AbortController()
+    const timer = setTimeout(() =&gt; controller.abort(), timeoutMs)
+    try {
+      const response = await httpFetch(url, {
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      })
+      if (!response.ok) continue
+      const payload: unknown = await response.json()
+      const list = readAnnouncementList(payload)
+      if (!list) continue
+      return { items: normalizeAnnouncements(list), fetchedAt: Date.now() }
+    } catch (error) {
+      console.warn(`[announcements] 拉取失败：${url}`, error)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+  return null
+}</code></pre>
+
+<h3>Step 4: 跑测试</h3>
+<p>Run: <code>npx vitest run src/lib/announcements.test.ts</code> → PASS。</p>
+
+<h3>Step 5: 提交</h3>
+<pre><code class="language-bash">git add src/lib/announcements.ts src/lib/announcements.test.ts
+git commit -m "feat(公告): 公告拉取（超时、备用域名、失败不抛）"</code></pre>
+
+<hr>
+
+<h2>Task 4: 公告 store 与 app-state 持久化</h2>
+
+<p><strong>Files:</strong> Create <code>src/stores/announcement-store.ts</code>；Test <code>src/stores/announcement-store.spec.ts</code>。</p>
+
+<h3>Step 1: 写测试</h3>
+<pre><code class="language-ts">// @vitest-environment jsdom
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+const memory = new Map&lt;string, unknown&gt;()
+const fetchAnnouncements = vi.fn()
+
+vi.mock("@/lib/web-store", () =&gt; ({
+  getStore: async () =&gt; ({
+    get: async (key: string) =&gt; memory.get(key) as never,
+    set: async (key: string, value: unknown) =&gt; { memory.set(key, value) },
+    delete: async (key: string) =&gt; memory.delete(key),
+    save: async () =&gt; {},
+  }),
+}))
+
+vi.mock("@/lib/announcements", async (importOriginal) =&gt; {
+  const actual = await importOriginal&lt;typeof import("@/lib/announcements")&gt;()
+  return { ...actual, fetchAnnouncements: (...args: unknown[]) =&gt; fetchAnnouncements(...args) }
+})
+
+import { useAnnouncementStore } from "./announcement-store"
+
+function remote(id: string, publishedAt = Date.parse("2026-10-27T09:00:00+08:00")) {
+  return { id, title: id, body: "正文", publishedAt, pinned: false }
+}
+
+beforeEach(() =&gt; {
+  memory.clear()
+  fetchAnnouncements.mockReset()
+  useAnnouncementStore.setState({
+    items: [], readIds: new Set(), lastFetchedAt: null, status: "idle", dialogOpen: false,
+  })
+})
+
+describe("announcement-store", () =&gt; {
+  it("hydrate 读回缓存与已读；脏数据按空处理", async () =&gt; {
+    memory.set("announcementsCache", { items: [remote("a1")], fetchedAt: 111 })
+    memory.set("announcementReadIds", "不是数组")
+    await useAnnouncementStore.getState().hydrate()
+    const state = useAnnouncementStore.getState()
+    expect(state.items.map((a) =&gt; a.id)).toEqual(["a1"])
+    expect(state.lastFetchedAt).toBe(111)
+    expect(state.readIds.size).toBe(0)
+  })
+
+  it("markRead 幂等且写盘", async () =&gt; {
+    fetchAnnouncements.mockResolvedValue({ items: [remote("a1"), remote("a2")], fetchedAt: 5 })
+    await useAnnouncementStore.getState().refresh()
+    await useAnnouncementStore.getState().markRead("a1")
+    await useAnnouncementStore.getState().markRead("a1")
+    expect(useAnnouncementStore.getState().readIds.size).toBe(1)
+    expect(memory.get("announcementReadIds")).toEqual(["a1"])
+  })
+
+  it("markAllRead 清掉全部未读", async () =&gt; {
+    fetchAnnouncements.mockResolvedValue({ items: [remote("a1"), remote("a2")], fetchedAt: 5 })
+    await useAnnouncementStore.getState().refresh()
+    await useAnnouncementStore.getState().markAllRead()
+    expect(useAnnouncementStore.getState().readIds.size).toBe(2)
+  })
+
+  it("refresh 失败保留旧数据并置 error", async () =&gt; {
+    fetchAnnouncements.mockResolvedValueOnce({ items: [remote("a1")], fetchedAt: 5 })
+    await useAnnouncementStore.getState().refresh()
+    fetchAnnouncements.mockResolvedValueOnce(null)
+    await useAnnouncementStore.getState().refresh()
+    const state = useAnnouncementStore.getState()
+    expect(state.items.map((a) =&gt; a.id)).toEqual(["a1"])
+    expect(state.status).toBe("error")
+  })
+
+  it("并发 refresh 只发一次请求", async () =&gt; {
+    fetchAnnouncements.mockResolvedValue({ items: [remote("a1")], fetchedAt: 5 })
+    await Promise.all([
+      useAnnouncementStore.getState().refresh(),
+      useAnnouncementStore.getState().refresh(),
+    ])
+    expect(fetchAnnouncements).toHaveBeenCalledTimes(1)
+  })
+
+  it("已读 id 只保留当前列表里存在的，且上限 200", async () =&gt; {
+    fetchAnnouncements.mockResolvedValue({ items: [remote("a1")], fetchedAt: 5 })
+    useAnnouncementStore.setState({ readIds: new Set(["old-1", "old-2", "a1"]) })
+    await useAnnouncementStore.getState().refresh()
+    expect([...useAnnouncementStore.getState().readIds]).toEqual(["a1"])
+  })
+
+  it("openDialog 打开并触发一次刷新", async () =&gt; {
+    fetchAnnouncements.mockResolvedValue({ items: [], fetchedAt: 5 })
+    useAnnouncementStore.getState().openDialog()
+    expect(useAnnouncementStore.getState().dialogOpen).toBe(true)
+    await vi.waitFor(() =&gt; expect(fetchAnnouncements).toHaveBeenCalledTimes(1))
+  })
+})</code></pre>
+
+<h3>Step 2: 跑测试确认失败</h3>
+<p>Run: <code>npx vitest run src/stores/announcement-store.spec.ts</code> → FAIL（模块不存在）。</p>
+
+<h3>Step 3: 实现</h3>
+<pre><code class="language-ts">/**
+ * 公告的客户端状态：拿到什么、读过什么、弹窗开没开。
+ *
+ * 三条硬规则：
+ * 1. 拉取失败**不清空**已有列表 —— 断网时用户仍应看到上次的公告。
+ * 2. 已读只增不减（除按当前列表修剪），收起/重开不会退回未读。
+ * 3. 持久化失败只 warn，不影响界面 —— 公告不是关键数据。
+ */
+
+import { create } from "zustand"
+
+import { fetchAnnouncements, normalizeAnnouncements, type Announcement } from "@/lib/announcements"
+import { getStore } from "@/lib/web-store"
+
+export const ANNOUNCEMENTS_CACHE_KEY = "announcementsCache"
+export const ANNOUNCEMENT_READ_IDS_KEY = "announcementReadIds"
+
+const MAX_READ_IDS = 200
+
+interface CachedAnnouncements {
+  items: Announcement[]
+  fetchedAt: number
+}
+
+export interface AnnouncementStoreState {
+  items: Announcement[]
+  readIds: Set&lt;string&gt;
+  lastFetchedAt: number | null
+  status: "idle" | "loading" | "ready" | "error"
+  dialogOpen: boolean
+  hydrate: () =&gt; Promise&lt;void&gt;
+  refresh: () =&gt; Promise&lt;void&gt;
+  openDialog: () =&gt; void
+  closeDialog: () =&gt; void
+  markRead: (id: string) =&gt; Promise&lt;void&gt;
+  markAllRead: () =&gt; Promise&lt;void&gt;
+}
+
+/** 未读数：放在模块级，保证 selector 引用稳定（否则每次 render 都可能重算）。 */
+export const selectUnreadCount = (state: AnnouncementStoreState): number =&gt;
+  state.items.reduce((count, item) =&gt; (state.readIds.has(item.id) ? count : count + 1), 0)
+
+async function persist(items: Announcement[], readIds: Set&lt;string&gt;, fetchedAt: number | null): Promise&lt;void&gt; {
+  try {
+    const store = await getStore()
+    await store.set(ANNOUNCEMENTS_CACHE_KEY, { items, fetchedAt: fetchedAt ?? Date.now() })
+    await store.set(ANNOUNCEMENT_READ_IDS_KEY, [...readIds].slice(-MAX_READ_IDS))
+  } catch (error) {
+    console.warn("[announcements] 保存公告状态失败：", error)
+  }
+}
+
+function readIdsFrom(value: unknown, items: Announcement[]): Set&lt;string&gt; {
+  if (!Array.isArray(value)) return new Set()
+  const known = new Set(items.map((item) =&gt; item.id))
+  return new Set(value.filter((id): id is string =&gt; typeof id === "string" &amp;&amp; known.has(id)).slice(-MAX_READ_IDS))
+}
+
+let inflight: Promise&lt;void&gt; | null = null
+
+export const useAnnouncementStore = create&lt;AnnouncementStoreState&gt;((set, get) =&gt; ({
+  items: [],
+  readIds: new Set(),
+  lastFetchedAt: null,
+  status: "idle",
+  dialogOpen: false,
+
+  hydrate: async () =&gt; {
+    try {
+      const store = await getStore()
+      const cache = await store.get&lt;CachedAnnouncements&gt;(ANNOUNCEMENTS_CACHE_KEY)
+      const items = normalizeAnnouncements(cache?.items)
+      const readIds = readIdsFrom(await store.get&lt;unknown&gt;(ANNOUNCEMENT_READ_IDS_KEY), items)
+      const fetchedAt = typeof cache?.fetchedAt === "number" ? cache.fetchedAt : null
+      set({ items, readIds, lastFetchedAt: fetchedAt, status: items.length &gt; 0 ? "ready" : "idle" })
+    } catch (error) {
+      console.warn("[announcements] 读取公告缓存失败：", error)
+    }
+  },
+
+  refresh: async () =&gt; {
+    if (inflight) return inflight
+    inflight = (async () =&gt; {
+      set({ status: "loading" })
+      const result = await fetchAnnouncements()
+      if (!result) {
+        set({ status: "error" })
+        return
+      }
+      const readIds = readIdsFrom([...get().readIds], result.items)
+      set({ items: result.items, readIds, lastFetchedAt: result.fetchedAt, status: "ready" })
+      await persist(result.items, readIds, result.fetchedAt)
+    })()
+    try {
+      await inflight
+    } finally {
+      inflight = null
+    }
+  },
+
+  openDialog: () =&gt; {
+    set({ dialogOpen: true })
+    void get().refresh()
+  },
+
+  closeDialog: () =&gt; set({ dialogOpen: false }),
+
+  markRead: async (id) =&gt; {
+    const { readIds, items, lastFetchedAt } = get()
+    if (readIds.has(id)) return
+    const next = new Set(readIds)
+    next.add(id)
+    set({ readIds: next })
+    await persist(items, next, lastFetchedAt)
+  },
+
+  markAllRead: async () =&gt; {
+    const { items, readIds, lastFetchedAt } = get()
+    const next = new Set(readIds)
+    for (const item of items) next.add(item.id)
+    set({ readIds: next })
+    await persist(items, next, lastFetchedAt)
+  },
+}))</code></pre>
+
+<h3>Step 4: 跑测试</h3>
+<p>Run: <code>npx vitest run src/stores/announcement-store.spec.ts</code> → PASS。</p>
+
+<h3>Step 5: 提交</h3>
+<pre><code class="language-bash">git add src/stores/announcement-store.ts src/stores/announcement-store.spec.ts
+git commit -m "feat(公告): 公告 store 与 app-state 持久化"</code></pre>
+
+<hr>
+
+<h2>Task 5: 底栏去文字化 + 铃铛角标</h2>
+
+<p><strong>Files:</strong> Create <code>src/components/layout/announcement-bell.tsx</code>、<code>announcement-bell.spec.tsx</code>；Modify <code>sidebar-bottom-actions.tsx</code>、<code>icon-sidebar.test.tsx</code>、<code>src/i18n/zh.json</code>。</p>
+
+<h3>Step 1: 加 i18n 文案</h3>
+<p>在 <code>zh.json</code> 的 <code>sidebarActions</code> 里加 <code>"announcements": "公告"</code>，并在其同级新增：</p>
+<pre><code class="language-json">"announcements": {
+  "title": "公告",
+  "bell": "公告",
+  "bellWithUnread": "公告，{{count}} 条未读",
+  "unreadSummary": "{{count}} 条未读",
+  "markAllRead": "全部已读",
+  "empty": "暂无公告",
+  "loadFailed": "暂时无法获取公告，请检查网络后重试。",
+  "retry": "重试",
+  "refresh": "刷新",
+  "lastUpdated": "上次更新：{{time}}",
+  "neverUpdated": "尚未获取到公告",
+  "openLink": "查看详情",
+  "pinned": "置顶"
+}</code></pre>
+
+<h3>Step 2: 写铃铛测试</h3>
+<pre><code class="language-tsx">// @vitest-environment jsdom
+import { act } from "react"
+import { createRoot, type Root } from "react-dom/client"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
+
+import { useAnnouncementStore } from "@/stores/announcement-store"
+import { AnnouncementBell } from "./announcement-bell"
+
+let host: HTMLDivElement
+let root: Root
+beforeEach(() =&gt; {
+  host = document.createElement("div")
+  document.body.appendChild(host)
+  root = createRoot(host)
+  useAnnouncementStore.setState({ items: [], readIds: new Set(), dialogOpen: false })
+})
+afterEach(() =&gt; {
+  act(() =&gt; root.unmount())
+  host.remove()
+})
+
+function announcement(id: string) {
+  return { id, title: id, body: "正文", publishedAt: Date.now(), pinned: false }
+}
+
+describe("AnnouncementBell", () =&gt; {
+  it("未读时显示数字角标与带数量的可访问名称", async () =&gt; {
+    useAnnouncementStore.setState({ items: [announcement("a1"), announcement("a2")], readIds: new Set(["a1"]) })
+    await act(async () =&gt; root.render(&lt;AnnouncementBell /&gt;))
+    const button = document.querySelector("button")
+    expect(button?.getAttribute("aria-label")).toContain("1 条未读")
+    expect(host.textContent).toContain("1")
+  })
+
+  it("未读超过 9 显示 9+", async () =&gt; {
+    const items = Array.from({ length: 12 }, (_, i) =&gt; announcement(`a${i}`))
+    useAnnouncementStore.setState({ items, readIds: new Set() })
+    await act(async () =&gt; root.render(&lt;AnnouncementBell /&gt;))
+    expect(host.textContent).toContain("9+")
+  })
+
+  it("全部已读时不渲染角标", async () =&gt; {
+    useAnnouncementStore.setState({ items: [announcement("a1")], readIds: new Set(["a1"]) })
+    await act(async () =&gt; root.render(&lt;AnnouncementBell /&gt;))
+    expect(host.querySelector("[data-announcement-badge]")).toBeNull()
+  })
+
+  it("点击打开弹窗并触发刷新", async () =&gt; {
+    await act(async () =&gt; root.render(&lt;AnnouncementBell /&gt;))
+    await act(async () =&gt; document.querySelector("button")?.dispatchEvent(new MouseEvent("click", { bubbles: true })))
+    expect(useAnnouncementStore.getState().dialogOpen).toBe(true)
+  })
+})</code></pre>
+
+<h3>Step 3: 实现铃铛</h3>
+<pre><code class="language-tsx">/**
+ * 底栏的公告入口：铃铛 + 未读角标。
+ *
+ * 只负责「显示数字」和「打开弹窗」，不渲染弹窗本体 ——
+ * SidebarBottomActions 被五个侧栏面板共用，弹窗必须由 App 根部挂一次。
+ */
+
+import { Bell } from "lucide-react"
+import { useTranslation } from "react-i18next"
+
+import { selectUnreadCount, useAnnouncementStore } from "@/stores/announcement-store"
+
+export function AnnouncementBell() {
+  const { t } = useTranslation()
+  const unreadCount = useAnnouncementStore(selectUnreadCount)
+  const dialogOpen = useAnnouncementStore((state) =&gt; state.dialogOpen)
+  const openDialog = useAnnouncementStore((state) =&gt; state.openDialog)
+  const label = unreadCount &gt; 0 ? t("announcements.bellWithUnread", { count: unreadCount }) : t("announcements.bell")
+
+  return (
+    &lt;button
+      type="button"
+      data-ui="announcement-bell"
+      onClick={openDialog}
+      title={label}
+      aria-label={label}
+      aria-haspopup="dialog"
+      aria-expanded={dialogOpen}
+      className="relative flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+    &gt;
+      &lt;Bell className="h-4 w-4" /&gt;
+      {unreadCount &gt; 0 &amp;&amp; (
+        &lt;span
+          data-announcement-badge
+          aria-hidden="true"
+          className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] leading-none font-medium text-destructive-foreground"
+        &gt;
+          {unreadCount &gt; 9 ? "9+" : unreadCount}
+        &lt;/span&gt;
+      )}
+    &lt;/button&gt;
+  )
+}</code></pre>
+
+<h3>Step 4: 改底栏（去文字 + 插铃铛）</h3>
+<pre><code class="language-tsx">&lt;div data-ui="sidebar-bottom-actions" className="flex shrink-0 items-center gap-0.5 border-t px-1.5 py-1.5"&gt;
+  &lt;button
+    type="button"
+    onClick={() =&gt; {
+      setSearchPanelOpen(false)
+      setActiveView("settings")
+    }}
+    title={t("sidebarActions.settings")}
+    aria-label={t("sidebarActions.settings")}
+    className={`flex size-8 shrink-0 items-center justify-center rounded-md transition-colors ${
+      activeView === "settings"
+        ? "qm-selected"
+        : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+    }`}
+  &gt;
+    &lt;Settings className="h-4 w-4" /&gt;
+  &lt;/button&gt;
+
+  &lt;AnnouncementBell /&gt;
+
+  {appearance &amp;&amp; (
+    &lt;button
+      ref={triggerRef}
+      type="button"
+      onClick={() =&gt; setMenuOpen((open) =&gt; !open)}
+      title={t("sidebarActions.appearance")}
+      aria-label={t("sidebarActions.appearance")}
+      aria-haspopup="menu"
+      aria-expanded={menuOpen}
+      className={`ml-auto flex size-8 shrink-0 items-center justify-center rounded-md transition-colors ${
+        menuOpen ? "bg-accent/60 text-accent-foreground" : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+      }`}
+    &gt;
+      &lt;Moon className="h-4 w-4" /&gt;
+    &lt;/button&gt;
+  )}
+&lt;/div&gt;</code></pre>
+<p>删掉原来的两个 <code>&lt;span className="truncate"&gt;{t(...)}&lt;/span&gt;</code>；菜单 portal 部分不动。</p>
+
+<h3>Step 5: 扩展回归守卫（icon-sidebar.test.tsx）</h3>
+<pre><code class="language-ts">it("底栏去掉设置/外观文字但保留可访问名称，并新增公告铃铛", () =&gt; {
+  const src = readFileSync(resolve(__dirname, "sidebar-bottom-actions.tsx"), "utf8")
+  expect(src).not.toContain('&lt;span className="truncate"&gt;{t("sidebarActions.settings")}')
+  expect(src).not.toContain('&lt;span className="truncate"&gt;{t("sidebarActions.appearance")}')
+  expect(src).toContain('aria-label={t("sidebarActions.settings")}')
+  expect(src).toContain('aria-label={t("sidebarActions.appearance")}')
+  expect(src).toContain("AnnouncementBell")
+})</code></pre>
+
+<h3>Step 6: 跑测试</h3>
+<p>Run: <code>npx vitest run src/components/layout/announcement-bell.spec.tsx src/components/layout/icon-sidebar.test.tsx</code> → PASS。</p>
+
+<h3>Step 7: 提交</h3>
+<pre><code class="language-bash">git add src/components/layout/announcement-bell.tsx src/components/layout/announcement-bell.spec.tsx src/components/layout/sidebar-bottom-actions.tsx src/components/layout/icon-sidebar.test.tsx src/i18n/zh.json
+git commit -m "feat(公告): 底栏去文字化并加入公告铃铛角标"</code></pre>
+
+<hr>
+
+<h2>Task 6: 公告弹窗</h2>
+
+<p><strong>Files:</strong> Create <code>src/components/announcements/announcement-dialog.tsx</code>、<code>announcement-dialog.spec.tsx</code>。</p>
+
+<h3>Step 1: 写测试</h3>
+<pre><code class="language-tsx">// @vitest-environment jsdom
+import { act } from "react"
+import { createRoot, type Root } from "react-dom/client"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
+
+import { useAnnouncementStore } from "@/stores/announcement-store"
+import { AnnouncementDialog } from "./announcement-dialog"
+
+let host: HTMLDivElement
+let root: Root
+beforeEach(() =&gt; {
+  host = document.createElement("div")
+  document.body.appendChild(host)
+  root = createRoot(host)
+})
+afterEach(() =&gt; {
+  act(() =&gt; root.unmount())
+  host.remove()
+})
+
+function announcement(id: string, title: string) {
+  return { id, title, body: "正文内容", publishedAt: Date.now(), pinned: false }
+}
+
+function findButton(text: string) {
+  return Array.from(document.body.querySelectorAll("button")).find((b) =&gt; b.textContent?.includes(text))
+}
+
+describe("AnnouncementDialog", () =&gt; {
+  it("关闭状态不渲染内容", async () =&gt; {
+    useAnnouncementStore.setState({ items: [announcement("a1", "唯一公告")], dialogOpen: false })
+    await act(async () =&gt; root.render(&lt;AnnouncementDialog /&gt;))
+    expect(document.body.textContent).not.toContain("唯一公告")
+  })
+
+  it("列表展示标题；展开后渲染正文并标记已读", async () =&gt; {
+    useAnnouncementStore.setState({
+      items: [announcement("a1", "第一条")], readIds: new Set(), dialogOpen: true, status: "ready",
+    })
+    await act(async () =&gt; root.render(&lt;AnnouncementDialog /&gt;))
+    expect(document.body.textContent).toContain("第一条")
+    await act(async () =&gt; findButton("第一条")?.dispatchEvent(new MouseEvent("click", { bubbles: true })))
+    expect(document.body.textContent).toContain("正文内容")
+    expect([...useAnnouncementStore.getState().readIds]).toEqual(["a1"])
+  })
+
+  it("全部已读清空未读（列表仍在）", async () =&gt; {
+    useAnnouncementStore.setState({
+      items: [announcement("a1", "第一条"), announcement("a2", "第二条")],
+      readIds: new Set(), dialogOpen: true, status: "ready",
+    })
+    await act(async () =&gt; root.render(&lt;AnnouncementDialog /&gt;))
+    await act(async () =&gt; findButton("全部已读")?.dispatchEvent(new MouseEvent("click", { bubbles: true })))
+    expect(useAnnouncementStore.getState().readIds.size).toBe(2)
+    expect(document.body.textContent).toContain("第一条")
+    expect(document.body.textContent).toContain("第二条")
+  })
+
+  it("无缓存且失败时显示错误与重试", async () =&gt; {
+    useAnnouncementStore.setState({ items: [], dialogOpen: true, status: "error" })
+    await act(async () =&gt; root.render(&lt;AnnouncementDialog /&gt;))
+    expect(document.body.textContent).toContain("暂时无法获取公告")
+    expect(findButton("重试")).toBeTruthy()
+  })
+
+  it("空列表显示暂无公告", async () =&gt; {
+    useAnnouncementStore.setState({ items: [], dialogOpen: true, status: "ready" })
+    await act(async () =&gt; root.render(&lt;AnnouncementDialog /&gt;))
+    expect(document.body.textContent).toContain("暂无公告")
+  })
+})</code></pre>
+
+<h3>Step 2: 跑测试确认失败</h3>
+<p>Run: <code>npx vitest run src/components/announcements/announcement-dialog.spec.tsx</code> → FAIL（模块不存在）。</p>
+
+<h3>Step 3: 实现</h3>
+<ul>
+  <li>用 <code>useAnnouncementStore</code> 取 <code>dialogOpen / items / readIds / status / lastFetchedAt</code> 与四个动作；<code>expandedId</code> 用组件本地 <code>useState</code>。</li>
+  <li><code>&lt;Dialog open={dialogOpen} onOpenChange={(next) =&gt; { if (!next) closeDialog() }}&gt;</code>，<code>DialogContent</code> 宽 <code>max-w-[640px]</code>、列表区 <code>max-h-[60vh] overflow-y-auto</code>。</li>
+  <li>每条：<code>&lt;button data-announcement-id={item.id} aria-expanded={expanded}&gt;</code>，内含未读圆点（<code>readIds.has(item.id)</code> 决定实心/空心）、标题、<code>pinned &amp;&amp; 「置顶」</code>、<code>formatAnnouncementDate(item.publishedAt)</code>。</li>
+  <li>点击：<code>setExpandedId(expanded ? null : item.id)</code> 且 <code>void markRead(item.id)</code>（已读不回退）。</li>
+  <li>展开体：<code>&lt;ReactMarkdown&gt;</code> 渲染 <code>item.body</code>；<code>components={{ a: ... }}</code> 里 <code>preventDefault()</code> + <code>openExternalUrl(href)</code>；<code>item.url</code> 存在时底部给「查看详情」按钮。</li>
+  <li>底栏：左 <code>{lastFetchedAt ? t("announcements.lastUpdated", { time: formatRelativeTime(lastFetchedAt) }) : t("announcements.neverUpdated")}</code> + 「刷新」按钮；右 <code>&lt;Button disabled={unreadCount === 0} onClick={markAllRead}&gt;全部已读&lt;/Button&gt;</code>。</li>
+  <li>状态分支：<code>status === "error" &amp;&amp; items.length === 0</code> → 失败文案 + 重试（<code>refresh</code>）；<code>items.length === 0</code> → 「暂无公告」；<code>status === "loading" &amp;&amp; items.length === 0</code> → 「正在获取…」。</li>
+  <li>顶部标题旁：<code>unreadCount &gt; 0 &amp;&amp; &lt;span&gt;{t("announcements.unreadSummary", { count: unreadCount })}&lt;/span&gt;</code>。</li>
+</ul>
+
+<h3>Step 4: 跑测试</h3>
+<p>Run: <code>npx vitest run src/components/announcements/announcement-dialog.spec.tsx</code> → PASS。</p>
+
+<h3>Step 5: 提交</h3>
+<pre><code class="language-bash">git add src/components/announcements/
+git commit -m "feat(公告): 公告弹窗（展开即已读、全部已读、刷新/重试）"</code></pre>
+
+<hr>
+
+<h2>Task 7: App 接线与接线守卫</h2>
+
+<p><strong>Files:</strong> Modify <code>src/App.tsx</code>；Create <code>src/lib/announcement-wiring.test.ts</code>。</p>
+
+<h3>Step 1: 写接线守卫（先红）</h3>
+<pre><code class="language-ts">import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { describe, expect, it } from "vitest"
+
+/**
+ * 为什么需要这条守卫：analytics 曾经因为启动调用被整块删掉、模块被 tree-shake，
+ * 后台统计静默停摆（见 analytics-wiring.test.ts）。公告完全同构 ——
+ * 没人调 hydrate 就永远只有角标 0，单测全绿也发现不了。
+ */
+
+const app = readFileSync(resolve(__dirname, "..", "App.tsx"), "utf8")
+
+describe("公告功能的接线", () =&gt; {
+  it("启动时 hydrate 公告并拉取", () =&gt; {
+    expect(app).toContain('from "@/stores/announcement-store"')
+    expect(app).toMatch(/useAnnouncementStore\.getState\(\)\.hydrate\(\)/)
+    expect(app).toMatch(/useAnnouncementStore\.getState\(\)\.refresh\(\)/)
+  })
+
+  it("弹窗在 App 根部挂载一次", () =&gt; {
+    expect(app).toContain("&lt;AnnouncementDialog /&gt;")
+  })
+})</code></pre>
+<p>Run: <code>npx vitest run src/lib/announcement-wiring.test.ts</code> → FAIL。</p>
+
+<h3>Step 2: 改 App.tsx</h3>
+<pre><code class="language-tsx">import { AnnouncementDialog } from "@/components/announcements/announcement-dialog"
+import { useAnnouncementStore } from "@/stores/announcement-store"
+
+// 启动后立刻读缓存（角标要马上对），再静默拉一次最新公告。
+useEffect(() =&gt; {
+  void (async () =&gt; {
+    await useAnnouncementStore.getState().hydrate()
+    await useAnnouncementStore.getState().refresh()
+  })()
+}, [])</code></pre>
+<p>并在返回的根节点里，紧挨 <code>&lt;PersonaSkillCompletionDialog /&gt;</code> 加 <code>&lt;AnnouncementDialog /&gt;</code>。</p>
+
+<h3>Step 3: 跑守卫</h3>
+<p>Run: <code>npx vitest run src/lib/announcement-wiring.test.ts</code> → PASS。</p>
+
+<h3>Step 4: 全量类型检查 + 相关测试</h3>
+<p>Run: <code>npm run typecheck</code><br>
+Run: <code>npm run typecheck:tests</code><br>
+Run: <code>npx vitest run src/lib/announcements.test.ts src/stores/announcement-store.spec.ts src/components/layout src/components/announcements src/lib/announcement-wiring.test.ts</code><br>
+Expected: 全部 PASS，无类型错误。</p>
+
+<h3>Step 5: 提交</h3>
+<pre><code class="language-bash">git add src/App.tsx src/lib/announcement-wiring.test.ts
+git commit -m "feat(公告): 启动拉取公告并在根部挂载弹窗"</code></pre>
+
+<hr>
+
+<h2>Task 8: 端到端验收</h2>
+
+<ul>
+  <li>[ ] 部署官网：<code>cd C:\QMAI_C\QMAIWEB</code> → <code>npm run build</code> → <code>&amp; "C:\Program Files\nodejs\node.exe" node_modules\wrangler\wrangler-dist\cli.js pages deploy dist --project-name qmai --branch main</code>（本机的 <code>node</code> 是 Electron 运行时，用 <code>npx wrangler</code> 会解析不了参数，见 <code>PUBLISH-ANNOUNCEMENTS.md</code>）。</li>
+  <li>[ ] <code>curl https://www.qmai.pro/announcements.json</code> 返回新 JSON（含占位公告）。</li>
+  <li>[ ] 客户端 <code>npm run tauri dev</code>：底栏只有三个图标、悬停分别显示「设置 / 公告 / 外观」。</li>
+  <li>[ ] 铃铛角标显示 1；点开弹窗看到「公告功能上线」；点标题展开正文，角标消失，重开弹窗仍为已读。</li>
+  <li>[ ] 改 JSON 再加一条 → 部署 → 重开弹窗看到 2 条（新的一条带角标）。</li>
+  <li>[ ] 点「全部已读」→ 角标消失、列表两条都还在。</li>
+  <li>[ ] 断网后点铃铛：仍显示上次列表，底栏时间不变；删掉 app-state 里的 <code>announcementsCache</code> 再断网：显示失败文案 + 重试。</li>
+  <li>[ ] 重启软件：已读保持，不回退。</li>
+</ul>
+
+<hr>
+
+<h2>验收标准</h2>
+<ul>
+  <li><code>npm run test:mocks</code> 全绿（新增 4 个测试文件 + 1 处回归守卫）。</li>
+  <li><code>npm run typecheck</code> 与 <code>npm run typecheck:tests</code> 无错。</li>
+  <li>官网 <code>npm test</code> 通过，<code>dist</code> 内含 <code>announcements.json</code> 与 <code>_headers</code>。</li>
+  <li>设计文档第 7 节的每条界面行为都能在 Task 8 清单里对上一项。</li>
+</ul>
+
+<h2>回滚</h2>
+<ul>
+  <li>客户端：删掉铃铛与弹窗挂载即可，<code>app-state.json</code> 里多出的两个键不影响旧版本（旧版本不读）。</li>
+  <li>官网：从 <code>dist</code> 白名单移除两个文件后重新部署；已发布的 JSON 直接留在仓库里也不会被客户端读到。</li>
+</ul>
+
+</main>
+</body>
+</html>

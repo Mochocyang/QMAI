@@ -64,4 +64,35 @@ describe("LLM provider model controls", () => {
     expect(source).toContain('{preset.provider !== "cursor-cli" && preset.provider !== "antigravity-cli" && (')
     expect(source).toContain("<ReasoningControls")
   })
+
+  // ── 「添加账号」三栏入口（WorkBuddy 账号登录）────────────────
+  // 顺序是产品叙事的一部分：先「用自己的账号登录」，再「填别人的 Key」，
+  // 最后「完全自定义」；而且必须排在「我的模型配置」列表**之前**。
+  it("puts three add entries above the config list, account first", () => {
+    const heading = source.indexOf("我的模型设置")
+    const addAccount = source.indexOf('data-guide="model.add-account"')
+    const addProvider = source.indexOf('data-guide="model.add-provider"')
+    const addCustom = source.indexOf('data-guide="model.add-custom"')
+    const list = source.indexOf("model-library-list")
+
+    expect(heading).toBeGreaterThan(-1)
+    expect(addAccount).toBeGreaterThan(heading)
+    expect(addAccount).toBeLessThan(addProvider)
+    expect(addProvider).toBeLessThan(addCustom)
+    expect(addCustom).toBeLessThan(list)
+  })
+
+  it("mounts the WorkBuddy account dialog and generates the model card on first login", () => {
+    expect(source).toContain('import { AddWorkbuddyAccountDialog } from "./add-workbuddy-account-dialog"')
+    expect(source).toContain("<AddWorkbuddyAccountDialog")
+    expect(source).toContain("buildWorkbuddyCard(models)")
+    expect(source).toContain('saveUiTestProvider("workbuddy", card, undefined)')
+    // 删掉最后一个账号：置灰而不是删卡片，用户的模型勾选不丢。
+    expect(source).toContain("disableWorkbuddyCard(expected)")
+  })
+
+  it("never asks for an API key on the account-login provider", () => {
+    expect(source).toContain('preset.provider !== "workbuddy"')
+    expect(source).toContain("workbuddy: \"用你自己的 WorkBuddy 账号登录")
+  })
 })

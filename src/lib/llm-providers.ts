@@ -1483,6 +1483,33 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
       }
     }
 
+    case "workbuddy": {
+      // 账号登录类：后端在应用进程内起了一个 OpenAI 兼容网关，`customEndpoint`
+      // 与 `apiKey` 在聊天前由 `withWorkbuddyEndpoint()` 注入（随机端口 + 一次性
+      // 令牌）。这里的线格式与自定义家的 chat_completions 完全一致——网关已经把
+      // WorkBuddy 的私有头、首条 system、token 续期都处理掉了。
+      const endpoint = (customEndpoint || "").trim()
+      if (!endpoint) {
+        throw new Error("WorkBuddy 网关地址未注入，请重新打开模型设置后再试")
+      }
+      const base = endpoint.replace(/\/+$/, "")
+      const url = /\/chat\/completions$/i.test(base) ? base : `${base}/chat/completions`
+      return {
+        url,
+        headers: {
+          "Content-Type": JSON_CONTENT_TYPE,
+          Authorization: `Bearer ${apiKey}`,
+        },
+        buildBody: (messages, overrides) => ({
+          ...buildOpenAiCompatibleBody(config, messages, overrides),
+          model,
+        }),
+        parseStream: parseOpenAiLine,
+        parseUsage: parseOpenAiUsage,
+        parseFinishReason: parseOpenAiFinishReason,
+      }
+    }
+
     case "custom": {
       // Custom endpoints can speak either OpenAI's /chat/completions
       // wire or Anthropic's /v1/messages wire. The field `apiMode` on

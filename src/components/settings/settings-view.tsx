@@ -12,6 +12,7 @@ import {
   Search,
   Plug,
   Cloud,
+  UserRound,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
@@ -44,8 +45,10 @@ import { ExportCenterSection } from "./sections/export-center-section"
 import { UserMemorySection } from "./sections/user-memory-section"
 import { ModelTutorialLink } from "./model-tutorial-link"
 import { CloudSyncSection } from "./sections/cloud-sync-section"
+import { AccountSection } from "./sections/account-section"
 
 type CategoryId =
+  | "account"
   | "model"
   | "cloudSync"
   | "network"
@@ -75,6 +78,9 @@ interface Category {
 }
 
 const CATEGORIES: Category[] = [
+  /* 账号放第一位：注册 / 登录 / 头像 / 改密码都在这里，
+   * 只是「可选」的云端身份，不影响本地写作。 */
+  { id: "account", labelKey: "settings.categories.account", icon: UserRound, defaultLabel: "账号" },
   { id: "model", labelKey: "settings.categories.model", icon: Brain },
   /* 云同步：紧跟在「模型设置」下面，与需求位置一致。 */
   { id: "cloudSync", labelKey: "settings.categories.cloudSync", icon: Cloud, defaultLabel: "云同步" },
@@ -593,6 +599,8 @@ export function SettingsView() {
 
   const body = useMemo(() => {
     switch (active) {
+      case "account":
+        return <AccountSection />
       case "model":
         return <UiTestModelSettingsSection draft={draft} setDraft={setDraft} />
       case "cloudSync":

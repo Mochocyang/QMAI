@@ -53,7 +53,8 @@ futures = "0.3"
 # Claude Code CLI subprocess transport: spawn `claude` as a child process,
 # stream stdout line-by-line back to the frontend. tokio::process gives us
 # async io and clean cancellation; `which` locates the binary on PATH.
-tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt"] }
+# `net` / `time`：WorkBuddy 本地网关要自己绑一个回环端口，登录轮询要 sleep 计时。
+tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt", "net", "time"] }
 which = "8"
 uuid = { version = "1", features = ["v4"] }
 toml = "0.9"
@@ -70,7 +71,15 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"
 sha2 = "0.10"
 # 百度 OAuth 的 token 交换/接口调用（已有传递依赖，显式声明后可直接用）
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+# `stream`：WorkBuddy 网关要把上游 SSE 逐块透传给前端（不整体缓冲）。
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }
+# WorkBuddy 账号登录（Agent 方式的第 4 种来源）：
+#   axum     —— 进程内最小网关，把 WorkBuddy 伪装成普通 OpenAI 供应方；
+#   aes-gcm  —— 账号凭证落盘加密（key `enc1:` 信封，密钥文件与数据分离）；
+#   rand     —— 上面那把密钥与每次加密的 nonce，以及网关的一次性令牌。
+axum = "0.8"
+aes-gcm = "0.10"
+rand = "0.8"
 md-5 = "0.10"
 notify = "8"
 walkdir = "2"
