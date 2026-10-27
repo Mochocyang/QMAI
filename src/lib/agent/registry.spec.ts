@@ -60,3 +60,26 @@ describe("ToolRegistry", () => {
     expect(registry.get("read_chapter")?.category).toBe("write")
   })
 })
+
+describe("ToolRegistry.unregisterPrefix", () => {
+  it("只删带前缀的工具，内置工具不动", () => {
+    const r = new ToolRegistry()
+    r.register(makeTool("read_chapter"))
+    r.register(makeTool("chapter_insights__analyze"))
+    r.register(makeTool("chapter_insights__report"))
+
+    const removed = r.unregisterPrefix("chapter_insights__")
+
+    expect(removed).toBe(2)
+    expect(r.has("read_chapter")).toBe(true)
+    expect(r.has("chapter_insights__analyze")).toBe(false)
+    expect(r.list().map((t) => t.name)).toEqual(["read_chapter"])
+  })
+
+  it("前缀不存在时返回 0 且不报错", () => {
+    const r = new ToolRegistry()
+    r.register(makeTool("read_chapter"))
+    expect(r.unregisterPrefix("nope__")).toBe(0)
+    expect(r.list()).toHaveLength(1)
+  })
+})
