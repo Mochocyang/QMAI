@@ -172,7 +172,7 @@ function AnnouncementList({
                     {item.title}
                   </span>
                   {item.pinned && (
-                    <span className="shrink-0 rounded-full bg-accent/60 px-1.5 py-0.5 text-[10px] text-accent-foreground">
+                    <span className="shrink-0 rounded-full bg-accent/60 px-1.5 py-0.5 text-[0.625rem] text-accent-foreground">
                       {t("announcements.pinned")}
                     </span>
                   )}

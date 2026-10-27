@@ -36,7 +36,7 @@ export function AnnouncementBell() {
         <span
           data-announcement-badge
           aria-hidden="true"
-          className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-[10px] leading-none font-medium text-destructive-foreground"
+          className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-[0.625rem] leading-none font-medium text-destructive-foreground"
         >
           {unreadCount > 9 ? "9+" : unreadCount}
         </span>
