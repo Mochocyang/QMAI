@@ -432,7 +432,32 @@ export async function fetchAnnouncements():
   <li><strong>端到端</strong>：官网发一条真公告 → 部署 → 软件里看到角标、读掉、重启后仍是已读。</li>
 </ol>
 
-<h2>11. 风险与取舍</h2>
+<h2>11. 实现落点（已交付）</h2>
+
+<table>
+  <tr><th>文件</th><th>职责</th></tr>
+  <tr><td><code>QMAIWEB/announcements.json</code></td><td>公告数据（含一条「公告功能上线」占位公告）</td></tr>
+  <tr><td><code>QMAIWEB/_headers</code></td><td>CORS + <code>max-age=300</code></td></tr>
+  <tr><td><code>QMAIWEB/scripts/build.mjs</code></td><td>两个新文件进 dist 拷贝白名单</td></tr>
+  <tr><td><code>QMAIWEB/scripts/test.mjs</code></td><td>公告 JSON 结构校验（字段、id 唯一、时间可解析、≤50 条）</td></tr>
+  <tr><td><code>src/lib/announcements.ts</code></td><td>归一化、（数字/ISO 两种时间的）时间格式化、拉取（8s 超时 + 备用域名）</td></tr>
+  <tr><td><code>src/lib/announcements.test.ts</code></td><td>16 条用例：坏字段、重复 id、排序、截断、失败/空列表/换域名</td></tr>
+  <tr><td><code>src/stores/announcement-store.ts</code></td><td><code>items / readIds(Set) / status / dialogOpen</code> + app-state 持久化 + 单飞刷新</td></tr>
+  <tr><td><code>src/stores/announcement-store.spec.ts</code></td><td>10 条用例：hydrate 脏数据、已读幂等、全部已读、失败保留、并发单飞、修剪</td></tr>
+  <tr><td><code>src/components/layout/announcement-bell.tsx</code></td><td>铃铛 + 角标（9+ 封顶）+ 带数量的 aria-label</td></tr>
+  <tr><td><code>src/components/announcements/announcement-dialog.tsx</code></td><td>列表、展开即已读、全部已读、刷新/重试、空态/失败态</td></tr>
+  <tr><td><code>src/components/layout/sidebar-bottom-actions.tsx</code></td><td>三个入口去文字化，设置右侧插入铃铛</td></tr>
+  <tr><td><code>src/lib/announcement-wiring.test.ts</code></td><td>接线守卫：启动拉取、弹窗单挂载、铃铛不自己渲染弹窗</td></tr>
+</table>
+
+<h3>落地时的三处小偏离（都写进代码注释了）</h3>
+<ul>
+  <li><code>normalizeAnnouncements</code> 除了 ISO 字符串，也接受 <strong>epoch ms</strong> —— 否则写进缓存的条目在下次启动时会被自己的校验全部丢掉。</li>
+  <li>角标与置顶标签的字号用 <code>text-[0.625rem]</code> 而不是 <code>text-[10px]</code>：全仓有字体单位换算守卫（<code>scripts/convert-font-units-to-rem.spec.mjs</code>），<code>text-[Npx]</code> 会直接让测试变红。</li>
+  <li>弹窗标题下多一个 <code>allReadHint</code>（「已全部读完」）：未读数归零后描述行不能空着。</li>
+</ul>
+
+<h2>12. 风险与取舍</h2>
 <ul>
   <li><strong>发布要部署一次站点</strong>（约 5 分钟缓存 + 一条 wrangler 命令）。若之后想要「即时发布、不重新部署」，可把 JSON 换成 analytics Worker 的一个只读接口 —— 客户端契约不变，只换 URL。</li>
   <li><strong>代理</strong>：客户端 HTTP 走 plugin-http/reqwest，沿用项目现有的 <code>HTTP_PROXY</code> 环境变量方案；若实测代理不生效，再按 updater 的做法把代理显式传入（届时才考虑加 Rust 命令）。</li>
