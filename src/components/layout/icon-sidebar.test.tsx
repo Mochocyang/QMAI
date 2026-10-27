@@ -119,4 +119,17 @@ describe("icon-sidebar", () => {
     expect(iconSidebarSource).not.toContain("delay: 350")
     expect(iconSidebarSource).toContain("reorderSidebarNavOrder")
   })
+
+  /*
+   * 底栏去文字化（设置 / 外观只留图标）之后，文字节点没了，可访问名称就是
+   * 唯一的辨识依据；同时公告入口必须在这里，否则用户找不到公告。
+   */
+  it("底栏去文字化但仍保留可访问名称，并新增公告铃铛", () => {
+    const bottomActions = readFileSync(resolve(__dirname, "sidebar-bottom-actions.tsx"), "utf8")
+    expect(bottomActions).not.toContain('<span className="truncate">{t("sidebarActions.settings")}')
+    expect(bottomActions).not.toContain('<span className="truncate">{t("sidebarActions.appearance")}')
+    expect(bottomActions).toContain('aria-label={t("sidebarActions.settings")}')
+    expect(bottomActions).toContain('aria-label={t("sidebarActions.appearance")}')
+    expect(bottomActions).toContain("<AnnouncementBell />")
+  })
 })
