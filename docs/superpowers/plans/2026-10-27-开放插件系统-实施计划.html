@@ -1,0 +1,3287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QMAI 开放插件系统 — 实施计划</title>
+<script>
+  // 先应用主题，避免首屏闪烁（default: prefers-color-scheme）
+  (function () {
+    try {
+      var saved = localStorage.getItem('plan-theme');
+      var dark = saved ? saved === 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches;
+      if (dark) document.documentElement.classList.add('dark');
+    } catch (e) {}
+  })();
+</script>
+<style>
+:root {
+  --ivory: #faf9f5;
+  --slate: #141413;
+  --clay: #d97757;
+  --oat: #e3dacc;
+  --olive: #788c5d;
+  --gray-150: #f0eee6;
+  --gray-300: #d1cfc5;
+  --gray-500: #87867f;
+  --gray-700: #3d3d3a;
+  --white: #ffffff;
+  --code-bg: #141413;
+  --code-fg: #e8e6de;
+  --sev-high-bg: #f3d9cc; --sev-high-fg: #8a3b1e;
+  --sev-med-bg: #e3dacc;  --sev-med-fg: #141413;
+  --sev-low-bg: #e4e9dc;  --sev-low-fg: #4b5c39;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Microsoft YaHei', sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+html.dark {
+  --ivory: #17171a;
+  --slate: #f0eee6;
+  --oat: #3a3630;
+  --gray-150: #22221f;
+  --gray-300: #3a3a35;
+  --gray-500: #9a988f;
+  --gray-700: #cfcdc4;
+  --white: #1e1e1c;
+  --code-bg: #0e0e0d;
+  --code-fg: #e8e6de;
+  --sev-high-bg: #4a2417; --sev-high-fg: #f3b8a0;
+  --sev-med-bg: #3a3630;  --sev-med-fg: #e3dacc;
+  --sev-low-bg: #2c3524;  --sev-low-fg: #b9c9a3;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--sans);
+  background: var(--ivory);
+  color: var(--gray-700);
+  line-height: 1.6;
+  padding: 56px 32px 120px;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1120px; margin: 0 auto; }
+a { color: var(--clay); }
+
+/* theme toggle */
+.theme-toggle {
+  position: fixed; top: 20px; right: 24px; z-index: 50;
+  background: var(--white); color: var(--gray-700);
+  border: 1.5px solid var(--gray-300); border-radius: 999px;
+  padding: 7px 15px; font-size: 12.5px; cursor: pointer;
+  font-family: var(--mono);
+}
+.theme-toggle:hover { border-color: var(--clay); color: var(--clay); }
+
+/* header */
+header.page-head { margin-bottom: 44px; max-width: 860px; }
+.eyebrow {
+  font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--gray-500); margin-bottom: 12px;
+}
+h1 {
+  font-family: var(--serif); font-weight: 500; font-size: 38px;
+  line-height: 1.15; color: var(--slate); margin-bottom: 18px; letter-spacing: -0.01em;
+}
+.prompt-box {
+  background: var(--gray-150); border: 1.5px solid var(--gray-300);
+  border-radius: 12px; padding: 16px 20px; font-size: 14.5px; color: var(--gray-700);
+}
+.prompt-box .label {
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--gray-500); display: block; margin-bottom: 6px;
+}
+
+/* sections */
+section { margin-bottom: 60px; }
+.sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px; }
+.sec-head .num {
+  font-family: var(--mono); font-size: 12px; background: var(--oat);
+  color: var(--slate); padding: 3px 9px; border-radius: 8px;
+}
+.sec-head h2 {
+  font-family: var(--serif); font-weight: 500; font-size: 26px;
+  color: var(--slate); letter-spacing: -0.01em;
+}
+.sec-intro { font-size: 14.5px; color: var(--gray-500); max-width: 780px; margin-bottom: 26px; }
+
+/* summary */
+.summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 56px; }
+@media (max-width: 900px) { .summary { grid-template-columns: repeat(2, 1fr); } }
+.summary .cell {
+  background: var(--white); border: 1.5px solid var(--gray-300);
+  border-radius: 12px; padding: 18px 20px;
+}
+.summary .k {
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 6px;
+}
+.summary .v { font-size: 17px; color: var(--slate); font-weight: 600; }
+.summary .v.accent { color: var(--clay); }
+
+/* table */
+.table {
+  border: 1.5px solid var(--gray-300); border-radius: 12px;
+  overflow: hidden; background: var(--white);
+}
+.table .row { display: grid; gap: 0; }
+.table .row + .row { border-top: 1.5px solid var(--gray-300); }
+.table .cell { padding: 13px 18px; font-size: 13.5px; }
+.table .cell + .cell { border-left: 1.5px solid var(--gray-300); }
+.table .head {
+  background: var(--gray-150); font-weight: 600; color: var(--slate);
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.table code { font-family: var(--mono); font-size: 12.5px; background: var(--gray-150); padding: 1px 5px; border-radius: 4px; }
+
+/* task card */
+.task {
+  background: var(--white); border: 1.5px solid var(--gray-300);
+  border-radius: 14px; margin-bottom: 22px; overflow: hidden;
+}
+.task-head {
+  display: flex; align-items: baseline; gap: 14px;
+  padding: 18px 22px 14px; border-bottom: 1.5px solid var(--gray-300);
+  background: var(--gray-150);
+}
+.task-head .tnum {
+  font-family: var(--mono); font-size: 12px; background: var(--clay);
+  color: #fff; padding: 3px 10px; border-radius: 8px; white-space: nowrap;
+}
+.task-head h3 { font-family: var(--serif); font-size: 19px; font-weight: 500; color: var(--slate); }
+.task-body { padding: 18px 22px 22px; }
+.files { font-size: 13px; margin-bottom: 16px; }
+.files .fl { font-family: var(--mono); font-size: 12px; color: var(--gray-500); margin-right: 8px; }
+.files ul { list-style: none; margin: 6px 0 0 0; }
+.files li { font-family: var(--mono); font-size: 12.5px; padding: 2px 0; }
+.files li .op { display: inline-block; min-width: 58px; color: var(--gray-500); }
+
+/* steps */
+.step { display: grid; grid-template-columns: 20px 1fr; gap: 12px; margin-bottom: 18px; }
+.step:last-child { margin-bottom: 0; }
+.step .box {
+  width: 16px; height: 16px; border: 2px solid var(--gray-300);
+  border-radius: 4px; margin-top: 4px;
+}
+.step .body h4 {
+  font-size: 14px; font-weight: 600; color: var(--slate); margin-bottom: 8px;
+}
+.step .body p { font-size: 13.5px; margin-bottom: 8px; }
+
+/* code */
+.code {
+  background: var(--code-bg); border-radius: 10px; padding: 15px 17px;
+  overflow-x: auto; margin: 10px 0;
+}
+.code pre {
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.65;
+  color: var(--code-fg); white-space: pre;
+}
+.code .cm { color: #87867f; }
+.code .kw { color: #d97757; }
+.code .str { color: #a3b58a; }
+.run {
+  font-family: var(--mono); font-size: 12.5px; background: var(--gray-150);
+  border-left: 3px solid var(--olive); padding: 9px 14px; border-radius: 6px;
+  margin: 8px 0; overflow-x: auto; white-space: pre;
+}
+.expect { font-size: 13px; color: var(--gray-500); margin: 6px 0 0; }
+.expect strong { color: var(--olive); }
+
+/* svg diagram */
+.diagram {
+  background: var(--white); border: 1.5px solid var(--gray-300);
+  border-radius: 12px; padding: 22px; overflow-x: auto;
+}
+.diagram svg { width: 100%; height: auto; min-width: 720px; }
+.diagram .caption { font-size: 12.5px; color: var(--gray-500); margin-top: 12px; }
+
+/* milestones */
+.milestones { display: flex; flex-direction: column; }
+.milestone { display: grid; grid-template-columns: 128px 26px 1fr; gap: 0 18px; }
+.milestone .when {
+  font-family: var(--mono); font-size: 11.5px; color: var(--gray-500);
+  padding-top: 2px; text-align: right;
+}
+.milestone .dot-col { display: flex; flex-direction: column; align-items: center; }
+.milestone .dot {
+  width: 11px; height: 11px; border-radius: 50%;
+  border: 2px solid var(--gray-300); background: var(--white); margin-top: 5px;
+}
+.milestone .dot.done { background: var(--olive); border-color: var(--olive); }
+.milestone .line { width: 2px; flex: 1; background: var(--gray-300); margin: 4px 0; }
+.milestone:last-child .line { display: none; }
+.milestone .body { padding-bottom: 26px; }
+.milestone h3 { font-size: 15.5px; color: var(--slate); margin-bottom: 4px; }
+.milestone p { font-size: 13.5px; color: var(--gray-500); }
+.tags { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+.tag {
+  font-family: var(--mono); font-size: 11px; background: var(--gray-150);
+  color: var(--gray-700); padding: 2px 8px; border-radius: 6px;
+}
+
+/* severity */
+.sev {
+  display: inline-block; font-family: var(--mono); font-size: 11px;
+  padding: 2px 8px; border-radius: 6px; font-weight: 600;
+}
+.sev.high { background: var(--sev-high-bg); color: var(--sev-high-fg); }
+.sev.med  { background: var(--sev-med-bg);  color: var(--sev-med-fg); }
+.sev.low  { background: var(--sev-low-bg);  color: var(--sev-low-fg); }
+
+.callout {
+  border: 1.5px solid var(--gray-300); border-left: 4px solid var(--clay);
+  border-radius: 10px; padding: 14px 18px; background: var(--white);
+  font-size: 13.5px; margin: 16px 0;
+}
+.callout strong { color: var(--slate); }
+</style>
+</head>
+<body>
+<button class="theme-toggle" onclick="(function(){
+  var d=document.documentElement.classList.toggle('dark');
+  try{localStorage.setItem('plan-theme', d?'dark':'light')}catch(e){}
+  this.textContent = d ? '☀ 浅色' : '☾ 深色';
+}).call(this)" id="tt">☾ 深色</button>
+<script>
+  (function(){
+    var t=document.getElementById('tt');
+    if(document.documentElement.classList.contains('dark')) t.textContent='☀ 浅色';
+  })();
+</script>
+
+<div class="page">
+
+<header class="page-head">
+<div class="eyebrow">实施计划 · QMAI 开放插件系统</div>
+<h1>让第三方插件在 QMAI 里跑起来</h1>
+<div class="prompt-box">
+<span class="label">本计划依据</span>
+设计文档：<a href="../specs/2026-10-27-开放插件系统-design.md">docs/superpowers/specs/2026-10-27-开放插件系统-design.md</a><br>
+目标：第三方开发者把一个带代码的插件装进青幕AI写作，插件在后台常驻运行、给 Agent 加工具、能调宿主能力，插件崩溃不影响主程序。<br>
+第一期范围：<strong>工具插件 + 后台常驻</strong>。不做界面插件、不做市场索引。
+</div>
+</header>
+
+<div class="summary">
+<div class="cell"><div class="k">任务数</div><div class="v">12</div></div>
+<div class="cell"><div class="k">新增 Rust 模块</div><div class="v">8</div></div>
+<div class="cell"><div class="k">新增 Cargo 依赖</div><div class="v accent">0</div></div>
+<div class="cell"><div class="k">新增 npm 依赖</div><div class="v accent">0</div></div>
+</div>
+
+<!-- ============================================================ -->
+<section>
+<div class="sec-head"><span class="num">01</span><h2>里程碑</h2></div>
+<p class="sec-intro">六个切片，每个都可独立评审。切片 1–3 是纯后端逻辑（有单测、无 UI），切片 4 接 Agent，切片 5–6 接界面与真实进程。每个任务结束都要能跑通测试并提交。</p>
+
+<div class="milestones">
+<div class="milestone">
+<div class="when">切片 1 · 任务 1–3</div>
+<div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+<div class="body">
+<h3>契约与状态：清单、注册表、目录</h3>
+<p>先把 <code>plugin.json</code> 的结构体、校验、错误码定死；再把插件注册表（谁装了、启用没、授予了什么权限）落地。此阶段不启动任何进程。</p>
+<div class="tags"><span class="tag">src-tauri/src/plugins/manifest.rs</span><span class="tag">registry.rs</span><span class="tag">paths.rs</span></div>
+</div>
+</div>
+
+<div class="milestone">
+<div class="when">切片 2 · 任务 4–6</div>
+<div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+<div class="body">
+<h3>进程：监管、MCP 桥、宿主 API</h3>
+<p>能起一个真实 node 子进程、完成 MCP 握手、调通一个工具；同时给出宿主能力面（带权限校验的 loopback 服务）。这是整个系统的核心，也是最容易出 bug 的地方。</p>
+<div class="tags"><span class="tag">supervisor.rs</span><span class="tag">mcp_bridge.rs</span><span class="tag">host_api.rs</span></div>
+</div>
+</div>
+
+<div class="milestone">
+<div class="when">切片 3 · 任务 7</div>
+<div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+<div class="body">
+<h3>安装器：从 GitHub 到本地目录</h3>
+<p>下载 zip、防路径穿越解压、校验清单、原子发布。装完不启动（启动由切片 2 的监管器负责）。</p>
+<div class="tags"><span class="tag">installer.rs</span><span class="tag">zip</span><span class="tag">sha2</span></div>
+</div>
+</div>
+
+<div class="milestone">
+<div class="when">切片 4 · 任务 8–9</div>
+<div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+<div class="body">
+<h3>接入 Agent：工具进模型</h3>
+<p>把插件的工具注入 <code>ToolRegistry</code>，让模型真的能调用。这里有一个必踩的坑：<code>buildAgentConfig</code> 每轮都会 <code>registry.clear()</code>。</p>
+<div class="tags"><span class="tag">registry.ts</span><span class="tag">plugin-tools.ts</span><span class="tag">config.ts</span></div>
+</div>
+</div>
+
+<div class="milestone">
+<div class="when">切片 5 · 任务 10</div>
+<div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+<div class="body">
+<h3>插件管理页</h3>
+<p>列表 / 安装 / 启停 / 权限勾选，以及对应的 Tauri 命令。此阶段「启用」只改注册表，还不真正起进程。</p>
+<div class="tags"><span class="tag">components/plugins/</span><span class="tag">plugins_* 命令</span></div>
+</div>
+</div>
+
+<div class="milestone">
+<div class="when">切片 6 · 任务 11–12</div>
+<div class="dot-col"><span class="dot"></span><span class="line"></span></div>
+<div class="body">
+<h3>常驻接线与端到端验收</h3>
+<p>把「启用」接到真正的进程生命周期（任务 12），再跑设计文档 14.2 的六条端到端验收与常驻四检（任务 11）。</p>
+<div class="tags"><span class="tag">supervisor</span><span class="tag">e2e</span></div>
+</div>
+</div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<div class="sec-head"><span class="num">02</span><h2>数据流</h2></div>
+<p class="sec-intro">实线是启动链路，虚线是运行期的两类流量：工具调用（宿主 → 插件，stdio）与能力反调（插件 → 宿主，HTTP）。</p>
+
+<div class="diagram">
+<svg viewBox="0 0 900 400" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+<path d="M0,0 L10,5 L0,10 z" fill="#87867f"/>
+</marker>
+<marker id="arc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+<path d="M0,0 L10,5 L0,10 z" fill="#d97757"/>
+</marker>
+</defs>
+
+<g font-size="12" fill="#141413" font-family="system-ui, sans-serif">
+<!-- React -->
+<rect x="20" y="20" width="200" height="58" rx="10" fill="#FFFFFF" stroke="#D1CFC5" stroke-width="1.5"/>
+<text x="120" y="44" text-anchor="middle" font-weight="600" font-size="12.5">插件管理页 / Agent</text>
+<text x="120" y="62" text-anchor="middle" fill="#87867F" font-size="10.5">src/components/plugins</text>
+
+<!-- Tauri commands -->
+<rect x="20" y="160" width="200" height="58" rx="10" fill="#FFFFFF" stroke="#D1CFC5" stroke-width="1.5"/>
+<text x="120" y="184" text-anchor="middle" font-weight="600" font-size="12.5">plugins_* 命令</text>
+<text x="120" y="202" text-anchor="middle" fill="#87867F" font-size="10.5">src-tauri/src/plugins/mod.rs</text>
+
+<!-- Registry -->
+<rect x="330" y="160" width="190" height="58" rx="10" fill="#FFFFFF" stroke="#D1CFC5" stroke-width="1.5"/>
+<text x="425" y="184" text-anchor="middle" font-weight="600" font-size="12.5">PluginRegistry</text>
+<text x="425" y="202" text-anchor="middle" fill="#87867F" font-size="10.5">.registry.json</text>
+
+<!-- Supervisor -->
+<rect x="330" y="20" width="190" height="58" rx="10" fill="#FFFFFF" stroke="#D1CFC5" stroke-width="1.5"/>
+<text x="425" y="44" text-anchor="middle" font-weight="600" font-size="12.5">Supervisor</text>
+<text x="425" y="62" text-anchor="middle" fill="#87867F" font-size="10.5">tokio::process</text>
+
+<!-- HostApi -->
+<rect x="330" y="300" width="190" height="58" rx="10" fill="#FFFFFF" stroke="#D1CFC5" stroke-width="1.5"/>
+<text x="425" y="324" text-anchor="middle" font-weight="600" font-size="12.5">HostApi (axum)</text>
+<text x="425" y="342" text-anchor="middle" fill="#87867F" font-size="10.5">127.0.0.1:随机端口</text>
+
+<!-- Plugin process -->
+<rect x="660" y="20" width="215" height="58" rx="10" fill="#141413" stroke="#141413"/>
+<text x="767" y="44" text-anchor="middle" font-weight="600" font-size="12.5" fill="#FAF9F5">插件子进程</text>
+<text x="767" y="62" text-anchor="middle" fill="#C9B98A" font-size="10.5">node / python / binary</text>
+
+<!-- MCP bridge -->
+<rect x="660" y="160" width="215" height="58" rx="10" fill="#FFFFFF" stroke="#D1CFC5" stroke-width="1.5"/>
+<text x="767" y="184" text-anchor="middle" font-weight="600" font-size="12.5">mcp_bridge</text>
+<text x="767" y="202" text-anchor="middle" fill="#87867F" font-size="10.5">stdio JSON-RPC</text>
+
+<!-- Installer -->
+<rect x="330" y="220" width="190" height="52" rx="10" fill="#FFFFFF" stroke="#D1CFC5" stroke-width="1.5"/>
+<text x="425" y="242" text-anchor="middle" font-weight="600" font-size="12.5">Installer</text>
+<text x="425" y="259" text-anchor="middle" fill="#87867F" font-size="10.5">.staging → rename</text>
+
+<!-- GitHub -->
+<rect x="660" y="220" width="215" height="52" rx="10" fill="#FFFFFF" stroke="#D1CFC5" stroke-width="1.5"/>
+<text x="767" y="242" text-anchor="middle" font-weight="600" font-size="12.5">GitHub zip</text>
+<text x="767" y="259" text-anchor="middle" fill="#87867F" font-size="10.5">gh-proxy → ghproxy → codeload</text>
+</g>
+
+<g stroke="#87867F" stroke-width="1.5" fill="none">
+<path d="M120 78 L120 160" marker-end="url(#ar)"/>
+<path d="M220 189 L330 189" marker-end="url(#ar)"/>
+<path d="M425 160 L425 78" marker-end="url(#ar)"/>
+<path d="M520 49 L660 49" marker-end="url(#ar)"/>
+<path d="M520 189 L660 189" marker-end="url(#ar)"/>
+<path d="M425 218 L425 252" marker-end="url(#ar)"/>
+<path d="M520 246 L660 246" marker-end="url(#ar)"/>
+</g>
+
+<g stroke="#D97757" stroke-width="1.5" fill="none" stroke-dasharray="5 4">
+<path d="M660 175 L520 175" marker-end="url(#arc)"/>
+<path d="M767 78 L767 160" marker-end="url(#arc)"/>
+<path d="M655 45 C 600 130, 560 300, 520 328" marker-end="url(#arc)"/>
+<path d="M330 328 C 240 328, 200 250, 160 218" marker-end="url(#arc)"/>
+</g>
+
+<g font-size="10.5" fill="#87867F" font-family="system-ui, sans-serif">
+<text x="128" y="120">invoke</text>
+<text x="248" y="182">读/写状态</text>
+<text x="433" y="122">spawn</text>
+<text x="570" y="42">stdio</text>
+<text x="570" y="182">tools/list · tools/call</text>
+<text x="433" y="238">下载解压</text>
+<text x="570" y="240">https</text>
+<text x="560" y="318" fill="#D97757">宿主能力反调（带 Bearer token）</text>
+<text x="300" y="352" fill="#D97757">工具结果回流</text>
+</g>
+</svg>
+<p class="caption">实线 = 启动与管理链路。虚线（clay）= 运行期流量：宿主经 stdio 调插件工具，插件经 HTTP 反调宿主能力。</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<div class="sec-head"><span class="num">03</span><h2>开工前必读的三个坑</h2></div>
+<p class="sec-intro">这三条是我读代码时发现的、会让实现者走弯路的现实约束。计划里每个相关任务都按这些约束写。</p>
+
+<div class="table">
+<div class="row" style="grid-template-columns: 1fr 2fr;">
+<div class="cell head">约束</div>
+<div class="cell head">后果与对策</div>
+</div>
+<div class="row" style="grid-template-columns: 1fr 2fr;">
+<div class="cell"><code>buildAgentConfig</code> 每轮 <code>registry.clear()</code></div>
+<div class="cell">直接把插件工具塞进 <code>use-agent-config.ts</code> 里那个 registry，会被下一次 <code>buildAgentConfig</code> 清空。对策：插件工具在 <code>registerAllBuiltInTools</code> 之后追加注册（见任务 9）。</div>
+</div>
+<div class="row" style="grid-template-columns: 1fr 2fr;">
+<div class="cell"><code>ToolRegistry.register</code> 是 <code>Map.set</code></div>
+<div class="cell">同名会静默覆盖。插件工具名必须带 <code>&lt;pluginId 下划线化&gt;__</code> 前缀，且发送给插件时还原原名（见任务 9）。</div>
+</div>
+<div class="row" style="grid-template-columns: 1fr 2fr;">
+<div class="cell">MCP TS SDK 依赖约 20 个包</div>
+<div class="cell"><code>@modelcontextprotocol/sdk@1.32.2</code> 依赖 <code>express</code> / <code>hono</code> / <code>ajv</code> 等。插件自带 <code>node_modules</code> 会很大。对策：文档推荐作者用 esbuild 打成单文件，安装上限设 8 MB 压缩 / 64 MB 解压。</div>
+</div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<div class="sec-head"><span class="num">04</span><h2>任务清单</h2></div>
+<p class="sec-intro">按顺序执行。每个任务都遵循「先写失败测试 → 跑挂 → 最小实现 → 跑通 → 提交」。所有 Rust 测试内联在模块底部（与 <code>mcp/paths.rs</code> 的既有约定一致），所有 TS 测试放在被测文件旁边、命名 <code>*.spec.ts</code>。</p>
+
+<!-- ============ TASK 1 ============ -->
+<div class="task">
+<div class="task-head"><span class="tnum">任务 01</span><h3>插件目录与路径常量</h3></div>
+<div class="task-body">
+<div class="files">
+<span class="fl">Files</span>
+<ul>
+<li><span class="op">Create</span> src-tauri/src/plugins/mod.rs</li>
+<li><span class="op">Create</span> src-tauri/src/plugins/paths.rs</li>
+<li><span class="op">Modify</span> src-tauri/src/lib.rs:5（在 <code>mod mcp;</code> 后加 <code>mod plugins;</code>）</li>
+</ul>
+</div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 1 — 声明模块</h4>
+<div class="code"><pre>// src-tauri/src/plugins/mod.rs
+//! 开放插件系统：清单、注册表、进程监管、宿主能力面、安装器。
+//!
+//! 插件 = 一个常驻子进程 + 一个 plugin.json。通信走 stdio JSON-RPC（MCP），
+//! 插件反调宿主能力走本机回环 HTTP（按 permissions 拦截）。
+//! 设计见 docs/superpowers/specs/2026-10-27-开放插件系统-design.md
+
+pub mod manifest;
+pub mod paths;
+pub mod registry;
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 2 — 写失败的测试</h4>
+<div class="code"><pre>// src-tauri/src/plugins/paths.rs
+use std::path::PathBuf;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plugins_root_honours_env_override() {
+        let root = plugins_root_with(Some(std::ffi::OsString::from("/tmp/qmai-plugins")), None);
+        assert_eq!(root, PathBuf::from("/tmp/qmai-plugins"));
+    }
+
+    #[test]
+    fn plugins_root_falls_back_to_app_data() {
+        let root = plugins_root_with(None, Some(PathBuf::from("/app/data")));
+        assert_eq!(root, PathBuf::from("/app/data/plugins"));
+    }
+
+    #[test]
+    fn plugin_dirs_are_derived_from_root() {
+        let root = PathBuf::from("/r");
+        assert_eq!(plugin_dir(&root, "abc"), PathBuf::from("/r/abc"));
+        assert_eq!(plugin_data_dir(&root, "abc"), PathBuf::from("/r/abc-data"));
+        assert_eq!(staging_dir(&root), PathBuf::from("/r/.staging"));
+        assert_eq!(registry_file(&root), PathBuf::from("/r/.registry.json"));
+    }
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 3 — 跑测试确认失败</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::paths</div>
+<p class="expect">预期：<strong>编译失败</strong>，报 <code>cannot find function plugins_root_with</code> 等。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 4 — 最小实现</h4>
+<div class="code"><pre>// src-tauri/src/plugins/paths.rs （接在 tests 之前）
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+
+/// 环境变量覆盖（开发调试用，对应设计文档 8.1）
+pub const HOME_ENV: &str = "QMAI_PLUGIN_HOME";
+
+/// 插件根目录：`QMAI_PLUGIN_HOME` 优先，否则 `&lt;app_data&gt;/plugins`。
+pub fn plugins_root() -&gt; PathBuf {
+    let env = std::env::var_os(HOME_ENV);
+    let base = crate::mcp::paths::app_data_dir();
+    plugins_root_with(env, base)
+}
+
+fn plugins_root_with(env: Option&lt;OsString&gt;, app_data: Option&lt;PathBuf&gt;) -&gt; PathBuf {
+    if let Some(v) = env {
+        let s = v.to_string_lossy().trim().to_string();
+        if !s.is_empty() {
+            return PathBuf::from(s);
+        }
+    }
+    app_data
+        .unwrap_or_else(|| PathBuf::from(".qmai-plugins"))
+        .join("plugins")
+}
+
+pub fn plugin_dir(root: &amp;Path, id: &amp;str) -&gt; PathBuf { root.join(id) }
+pub fn plugin_data_dir(root: &amp;Path, id: &amp;str) -&gt; PathBuf { root.join(format!("{id}-data")) }
+pub fn staging_dir(root: &amp;Path) -&gt; PathBuf { root.join(".staging") }
+pub fn registry_file(root: &amp;Path) -&gt; PathBuf { root.join(".registry.json") }
+</pre></div>
+<p class="expect">注意：<code>crate::mcp::paths::app_data_dir()</code> 已存在于 <code>src-tauri/src/mcp/paths.rs:10</code>，直接复用，不要新写。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 5 — 跑测试确认通过</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::paths</div>
+<p class="expect">预期：<strong>3 passed</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 6 — 提交</h4>
+<div class="code"><pre>git add src-tauri/src/plugins/mod.rs src-tauri/src/plugins/paths.rs src-tauri/src/lib.rs
+git commit -m "feat(plugins): 插件目录与路径常量"
+</pre></div>
+</div></div>
+</div>
+</div>
+
+<!-- ============ TASK 2 ============ -->
+<div class="task">
+<div class="task-head"><span class="tnum">任务 02</span><h3>plugin.json 结构体与校验</h3></div>
+<div class="task-body">
+<div class="files">
+<span class="fl">Files</span>
+<ul>
+<li><span class="op">Create</span> src-tauri/src/plugins/manifest.rs</li>
+<li><span class="op">Modify</span> src-tauri/src/plugins/mod.rs（已声明 <code>pub mod manifest;</code>）</li>
+</ul>
+</div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 1 — 写失败的测试</h4>
+<div class="code"><pre>// src-tauri/src/plugins/manifest.rs （先只写测试部分）
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MINIMAL: &amp;str = r#"{
+      "schema": 1,
+      "id": "chapter-insights",
+      "name": "章节洞察",
+      "version": "1.2.0",
+      "runtime": { "type": "node", "entry": "index.js" }
+    }"#;
+
+    #[test]
+    fn parses_minimal_manifest_with_defaults() {
+        let m = PluginManifest::parse(MINIMAL).expect("should parse");
+        assert_eq!(m.id, "chapter-insights");
+        assert_eq!(m.runtime.entry_type, RuntimeType::Node);
+        assert!(m.runtime.keep_alive);
+        assert_eq!(m.runtime.start_timeout_ms, 10_000);
+        assert!(m.permissions.is_empty());
+        assert!(m.contributes.tools.is_empty());
+    }
+
+    #[test]
+    fn rejects_wrong_schema_version() {
+        let err = PluginManifest::parse(&amp;MINIMAL.replace("\"schema\": 1", "\"schema\": 2"))
+            .unwrap_err();
+        assert_eq!(err.code(), "E_SCHEMA_UNSUPPORTED");
+    }
+
+    #[test]
+    fn rejects_uppercase_or_spaced_id() {
+        for bad in ["My-Plugin", "my plugin", "", "-bad", "a"] {
+            let src = MINIMAL.replace("chapter-insights", bad);
+            let err = PluginManifest::parse(&amp;src).unwrap_err();
+            assert_eq!(err.code(), "E_ID_INVALID", "input: {bad}");
+        }
+    }
+
+    #[test]
+    fn rejects_non_semver_version() {
+        let src = MINIMAL.replace("1.2.0", "1.2");
+        assert_eq!(PluginManifest::parse(&amp;src).unwrap_err().code(), "E_VERSION_INVALID");
+    }
+
+    #[test]
+    fn rejects_unknown_runtime_type() {
+        let src = MINIMAL.replace("\"node\"", "\"ruby\"");
+        assert_eq!(PluginManifest::parse(&amp;src).unwrap_err().code(), "E_RUNTIME_INVALID");
+    }
+
+    #[test]
+    fn rejects_unknown_permission() {
+        let src = MINIMAL.replace(
+            "\"runtime\"",
+            "\"permissions\": [\"root:everything\"], \"runtime\"",
+        );
+        assert_eq!(PluginManifest::parse(&amp;src).unwrap_err().code(), "E_PERMISSION_UNKNOWN");
+    }
+
+    #[test]
+    fn rejects_entry_escaping_plugin_dir() {
+        let src = MINIMAL.replace("\"index.js\"", "\"../../evil.js\"");
+        assert_eq!(PluginManifest::parse(&amp;src).unwrap_err().code(), "E_ENTRY_INVALID");
+    }
+
+    #[test]
+    fn rejects_absolute_entry() {
+        let src = MINIMAL.replace("\"index.js\"", "\"/etc/passwd\"");
+        assert_eq!(PluginManifest::parse(&amp;src).unwrap_err().code(), "E_ENTRY_INVALID");
+    }
+
+    #[test]
+    fn rejects_unknown_inject_target() {
+        let src = MINIMAL.replace(
+            "\"runtime\"",
+            "\"inject\": [\"host.nonexistent\"], \"runtime\"",
+        );
+        assert_eq!(PluginManifest::parse(&amp;src).unwrap_err().code(), "E_INJECT_UNKNOWN");
+    }
+
+    #[test]
+    fn rejects_tool_name_with_bad_chars() {
+        let src = MINIMAL.replace(
+            "\"runtime\"",
+            "\"contributes\": {\"tools\": [{\"name\": \"Bad-Name\", \"description\": \"x\"}]}, \"runtime\"",
+        );
+        assert_eq!(PluginManifest::parse(&amp;src).unwrap_err().code(), "E_TOOL_NAME_INVALID");
+    }
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 2 — 跑测试确认失败</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::manifest</div>
+<p class="expect">预期：<strong>编译失败</strong>，找不到 <code>PluginManifest</code>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 3 — 最小实现</h4>
+<div class="code"><pre>// src-tauri/src/plugins/manifest.rs （接在 tests 之前）
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuntimeType { Node, Python, Binary }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginRuntime {
+    #[serde(rename = "type")]
+    pub entry_type: RuntimeType,
+    pub entry: String,
+    #[serde(default)]
+    pub args: Vec&lt;String&gt;,
+    #[serde(default = "default_true", rename = "keepAlive")]
+    pub keep_alive: bool,
+    #[serde(default = "default_timeout", rename = "startTimeoutMs")]
+    pub start_timeout_ms: u64,
+}
+
+fn default_true() -&gt; bool { true }
+fn default_timeout() -&gt; u64 { 10_000 }
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ToolParam {
+    #[serde(rename = "type", default)]
+    pub kind: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub r#enum: Option&lt;Vec&lt;String&gt;&gt;,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolDecl {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub parameters: std::collections::BTreeMap&lt;String, ToolParam&gt;,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Contributes {
+    #[serde(default)]
+    pub tools: Vec&lt;ToolDecl&gt;,
+    #[serde(default)]
+    pub stages: Vec&lt;String&gt;,
+    /// 第一期解析但不渲染（设计文档决策 2）
+    #[serde(default)]
+    pub panels: Vec&lt;serde_json::Value&gt;,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginManifest {
+    pub schema: u32,
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub requires: Option&lt;Requires&gt;,
+    pub runtime: PluginRuntime,
+    #[serde(default)]
+    pub inject: Vec&lt;String&gt;,
+    #[serde(default)]
+    pub contributes: Contributes,
+    #[serde(default)]
+    pub permissions: Vec&lt;String&gt;,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Requires {
+    #[serde(default)]
+    pub qmai: Option&lt;String&gt;,
+}
+
+/// 清单校验错误（code 对应设计文档 4.2 的错误码列）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestError { pub code: &amp;'static str, pub detail: String }
+
+impl ManifestError {
+    pub fn code(&amp;self) -&gt; &amp;'static str { self.code }
+    fn new(code: &amp;'static str, detail: impl Into&lt;String&gt;) -&gt; Self {
+        Self { code, detail: detail.into() }
+    }
+}
+
+/// 宿主暴露给插件的服务名白名单（第一期只开这两个）
+pub const KNOWN_INJECT: &amp;[&amp;str] = &amp;["host.qmai.tools", "host.logger"];
+/// 允许申请的权限（data:write 自动授予，不必声明）
+pub const KNOWN_PERMISSIONS: &amp;[&amp;str] =
+    &amp;["fs:project-read", "fs:project-write", "net:https", "llm:use"];
+
+fn is_valid_id(id: &amp;str) -&gt; bool {
+    let b = id.as_bytes();
+    if b.len() &lt; 2 || b.len() &gt; 64 { return false; }
+    let first_ok = b[0].is_ascii_lowercase() || b[0].is_ascii_digit();
+    first_ok &amp;&amp; b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'-')
+}
+
+fn is_valid_semver(v: &amp;str) -&gt; bool {
+    let parts: Vec&lt;&amp;str&gt; = v.split('.').collect();
+    parts.len() == 3 &amp;&amp; parts.iter().all(|p| !p.is_empty() &amp;&amp; p.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn is_safe_relative(entry: &amp;str) -&gt; bool {
+    if entry.is_empty() { return false; }
+    let p = std::path::Path::new(entry);
+    if p.is_absolute() { return false; }
+    !entry.split(['/', '\\']).any(|seg| seg == "..")
+}
+
+fn is_valid_tool_name(n: &amp;str) -&gt; bool {
+    let b = n.as_bytes();
+    if b.len() &lt; 3 || b.len() &gt; 64 { return false; }
+    b[0].is_ascii_lowercase()
+        &amp;&amp; b.iter().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == b'_')
+}
+
+impl PluginManifest {
+    /// 解析 + 校验。字段级错误返回第一个命中的错误码。
+    pub fn parse(raw: &amp;str) -&gt; Result&lt;Self, ManifestError&gt; {
+        let m: PluginManifest = serde_json::from_str(raw)
+            .map_err(|e| ManifestError::new("E_JSON_INVALID", e.to_string()))?;
+        m.validate()?;
+        Ok(m)
+    }
+
+    fn validate(&amp;self) -&gt; Result&lt;(), ManifestError&gt; {
+        if self.schema != 1 {
+            return Err(ManifestError::new("E_SCHEMA_UNSUPPORTED", self.schema.to_string()));
+        }
+        if !is_valid_id(&amp;self.id) {
+            return Err(ManifestError::new("E_ID_INVALID", self.id.clone()));
+        }
+        if self.name.trim().is_empty() || self.name.chars().count() &gt; 64 {
+            return Err(ManifestError::new("E_NAME_INVALID", self.name.clone()));
+        }
+        if !is_valid_semver(&amp;self.version) {
+            return Err(ManifestError::new("E_VERSION_INVALID", self.version.clone()));
+        }
+        if !is_safe_relative(&amp;self.runtime.entry) {
+            return Err(ManifestError::new("E_ENTRY_INVALID", self.runtime.entry.clone()));
+        }
+        if !(1_000..=60_000).contains(&amp;self.runtime.start_timeout_ms) {
+            return Err(ManifestError::new(
+                "E_START_TIMEOUT_INVALID",
+                self.runtime.start_timeout_ms.to_string(),
+            ));
+        }
+        for svc in &amp;self.inject {
+            if !KNOWN_INJECT.contains(&amp;svc.as_str()) {
+                return Err(ManifestError::new("E_INJECT_UNKNOWN", svc.clone()));
+            }
+        }
+        for p in &amp;self.permissions {
+            if !KNOWN_PERMISSIONS.contains(&amp;p.as_str()) {
+                return Err(ManifestError::new("E_PERMISSION_UNKNOWN", p.clone()));
+            }
+        }
+        for t in &amp;self.contributes.tools {
+            if !is_valid_tool_name(&amp;t.name) {
+                return Err(ManifestError::new("E_TOOL_NAME_INVALID", t.name.clone()));
+            }
+        }
+        Ok(())
+    }
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 4 — 跑测试确认通过</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::manifest</div>
+<p class="expect">预期：<strong>9 passed</strong>。若 <code>rejects_unknown_runtime_type</code> 失败，说明 serde 的 <code>RuntimeType</code> 反序列化报的是 <code>E_JSON_INVALID</code>——这可以接受，把该断言改成 <code>E_JSON_INVALID</code> 即可（未知枚举值在 serde 层就失败了）。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 5 — 提交</h4>
+<div class="code"><pre>git add src-tauri/src/plugins/manifest.rs
+git commit -m "feat(plugins): plugin.json 结构体与字段校验"
+</pre></div>
+</div></div>
+</div>
+</div>
+
+<!-- ============ TASK 3 ============ -->
+<div class="task">
+<div class="task-head"><span class="tnum">任务 03</span><h3>插件注册表</h3></div>
+<div class="task-body">
+<div class="files">
+<span class="fl">Files</span>
+<ul>
+<li><span class="op">Create</span> src-tauri/src/plugins/registry.rs</li>
+</ul>
+</div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 1 — 写失败的测试</h4>
+<div class="code"><pre>// src-tauri/src/plugins/registry.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile_free_root as mk;
+
+    #[test]
+    fn empty_registry_when_file_absent() {
+        let root = mk();
+        let r = PluginRegistry::load(&amp;root).expect("load");
+        assert!(r.entries().is_empty());
+    }
+
+    #[test]
+    fn add_then_reload_roundtrips() {
+        let root = mk();
+        let mut r = PluginRegistry::load(&amp;root).expect("load");
+        r.upsert(RegistryEntry {
+            id: "abc".into(),
+            version: "1.0.0".into(),
+            enabled: true,
+            granted_permissions: vec!["fs:project-read".into()],
+            source: SourceRecord {
+                repo: "owner/repo".into(),
+                git_ref: "main".into(),
+                commit: "a1b2c3d".into(),
+                zip_sha256: "00".repeat(32),
+                installed_at: "2026-10-27T00:00:00Z".into(),
+            },
+        });
+        r.save(&amp;root).expect("save");
+
+        let again = PluginRegistry::load(&amp;root).expect("reload");
+        let e = again.get("abc").expect("entry");
+        assert_eq!(e.version, "1.0.0");
+        assert!(e.enabled);
+        assert_eq!(e.granted_permissions, vec!["fs:project-read"]);
+    }
+
+    #[test]
+    fn remove_drops_the_entry() {
+        let root = mk();
+        let mut r = PluginRegistry::load(&amp;root).expect("load");
+        r.upsert(sample("x"));
+        r.remove("x");
+        assert!(r.get("x").is_none());
+    }
+
+    #[test]
+    fn corrupt_registry_is_an_error_not_empty() {
+        let root = mk();
+        std::fs::write(crate::plugins::paths::registry_file(&amp;root), "{not json").unwrap();
+        assert!(PluginRegistry::load(&amp;root).is_err());
+    }
+
+    fn sample(id: &amp;str) -&gt; RegistryEntry {
+        RegistryEntry {
+            id: id.into(),
+            version: "1.0.0".into(),
+            enabled: false,
+            granted_permissions: vec![],
+            source: SourceRecord {
+                repo: "o/r".into(),
+                git_ref: "main".into(),
+                commit: "c".into(),
+                zip_sha256: "0".repeat(64),
+                installed_at: "t".into(),
+            },
+        }
+    }
+
+    /// 每个测试一个独立临时目录，用完不清理（临时目录由 OS 回收）。
+    fn tempfile_free_root() -&gt; std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!("qmai-plugin-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&amp;p).unwrap();
+        p
+    }
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 2 — 跑测试确认失败</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::registry</div>
+<p class="expect">预期：<strong>编译失败</strong>，找不到 <code>PluginRegistry</code>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 3 — 最小实现</h4>
+<div class="code"><pre>// src-tauri/src/plugins/registry.rs （接在 tests 之前）
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use serde::{Deserialize, Serialize};
+
+use super::paths;
+
+/// 安装来源：责任归属的凭据（设计文档 8.6）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceRecord {
+    pub repo: String,
+    #[serde(rename = "ref")]
+    pub git_ref: String,
+    pub commit: String,
+    pub zip_sha256: String,
+    pub installed_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryEntry {
+    pub id: String,
+    pub version: String,
+    pub enabled: bool,
+    pub granted_permissions: Vec&lt;String&gt;,
+    pub source: SourceRecord,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct RegistryFile {
+    #[serde(default)]
+    version: u32,
+    #[serde(default)]
+    plugins: BTreeMap&lt;String, RegistryEntry&gt;,
+}
+
+/// 插件注册表：`.registry.json` 是唯一权威（对应 DSH 的单一开关点教训）
+pub struct PluginRegistry { file: RegistryFile }
+
+impl PluginRegistry {
+    /// 文件不存在 → 空表；文件损坏 → 报错（绝不当作空表覆盖）
+    pub fn load(root: &amp;Path) -&gt; Result&lt;Self, String&gt; {
+        let path = paths::registry_file(root);
+        match std::fs::read_to_string(&amp;path) {
+            Ok(text) =&gt; {
+                let file: RegistryFile = serde_json::from_str(&amp;text)
+                    .map_err(|e| format!("插件注册表损坏（{}）：{e}", path.display()))?;
+                Ok(Self { file })
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound =&gt; {
+                Ok(Self { file: RegistryFile { version: 1, plugins: BTreeMap::new() } })
+            }
+            Err(e) =&gt; Err(format!("读取插件注册表失败：{e}")),
+        }
+    }
+
+    pub fn entries(&amp;self) -&gt; impl Iterator&lt;Item = &amp;RegistryEntry&gt; {
+        self.file.plugins.values()
+    }
+
+    pub fn get(&amp;self, id: &amp;str) -&gt; Option&lt;&amp;RegistryEntry&gt; { self.file.plugins.get(id) }
+
+    pub fn list(&amp;self) -&gt; Vec&lt;RegistryEntry&gt; {
+        self.file.plugins.values().cloned().collect()
+    }
+
+    pub fn upsert(&amp;mut self, entry: RegistryEntry) {
+        self.file.plugins.insert(entry.id.clone(), entry);
+    }
+
+    pub fn remove(&amp;mut self, id: &amp;str) -&gt; Option&lt;RegistryEntry&gt; {
+        self.file.plugins.remove(id)
+    }
+
+    pub fn set_enabled(&amp;mut self, id: &amp;str, enabled: bool) -&gt; Result&lt;(), String&gt; {
+        match self.file.plugins.get_mut(id) {
+            Some(e) =&gt; { e.enabled = enabled; Ok(()) }
+            None =&gt; Err(format!("插件 {id} 未安装")),
+        }
+    }
+
+    pub fn save(&amp;self, root: &amp;Path) -&gt; Result&lt;(), String&gt; {
+        std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
+        let path = paths::registry_file(root);
+        let text = serde_json::to_string_pretty(&amp;self.file).map_err(|e| e.to_string())?;
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&amp;tmp, text).map_err(|e| e.to_string())?;
+        crate::atomic_file::replace_file_atomically(&amp;tmp, &amp;path)
+    }
+}
+</pre></div>
+<p class="expect"><code>crate::atomic_file::replace_file_atomically</code> 已存在（<code>src-tauri/src/atomic_file.rs:7</code>，Windows 用 <code>MoveFileExW</code>），直接复用。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 4 — 跑测试确认通过</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::registry</div>
+<p class="expect">预期：<strong>4 passed</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 5 — 提交</h4>
+<div class="code"><pre>git add src-tauri/src/plugins/registry.rs
+git commit -m "feat(plugins): 插件注册表（.registry.json 单一权威）"
+</pre></div>
+</div></div>
+</div>
+</div>
+
+<!-- ============ TASK 4 ============ -->
+<div class="task">
+<div class="task-head"><span class="tnum">任务 04</span><h3>进程监管器</h3></div>
+<div class="task-body">
+<div class="files">
+<span class="fl">Files</span>
+<ul>
+<li><span class="op">Create</span> src-tauri/src/plugins/supervisor.rs</li>
+<li><span class="op">Modify</span> src-tauri/src/plugins/mod.rs（加 <code>pub mod supervisor;</code>）</li>
+</ul>
+</div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 1 — 写失败的测试</h4>
+<div class="code"><pre>// src-tauri/src/plugins/supervisor.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn state_machine_allows_expected_transitions() {
+        let mut s = ProcessState::Stopped;
+        assert!(s.can_transition_to(ProcessState::Starting));
+        s = ProcessState::Starting;
+        assert!(s.can_transition_to(ProcessState::Running));
+        s = ProcessState::Running;
+        assert!(s.can_transition_to(ProcessState::Crashed));
+        s = ProcessState::Crashed;
+        assert!(s.can_transition_to(ProcessState::Starting));
+    }
+
+    #[test]
+    fn state_machine_rejects_illegal_transitions() {
+        assert!(!ProcessState::Stopped.can_transition_to(ProcessState::Running));
+        assert!(!ProcessState::Running.can_transition_to(ProcessState::Starting));
+    }
+
+    #[test]
+    fn crash_budget_stops_after_three() {
+        let mut b = CrashBudget::default();
+        assert_eq!(b.next_backoff(), Some(std::time::Duration::from_secs(1)));
+        assert_eq!(b.next_backoff(), Some(std::time::Duration::from_secs(3)));
+        assert_eq!(b.next_backoff(), Some(std::time::Duration::from_secs(9)));
+        assert_eq!(b.next_backoff(), None);
+        assert!(b.exhausted());
+    }
+
+    #[test]
+    fn crash_budget_resets_after_stable_run() {
+        let mut b = CrashBudget::default();
+        b.next_backoff();
+        b.next_backoff();
+        b.reset();
+        assert_eq!(b.next_backoff(), Some(std::time::Duration::from_secs(1)));
+        assert!(!b.exhausted());
+    }
+
+    #[test]
+    fn output_buffer_keeps_tail_only() {
+        let mut buf = TailBuffer::new(16);
+        buf.push(b"0123456789");
+        buf.push(b"abcdefghij");
+        assert_eq!(buf.as_lossy(), "456789abcdefghij");
+    }
+
+    #[test]
+    fn tool_name_roundtrip_strips_prefix() {
+        assert_eq!(to_host_tool_name("chapter-insights", "analyze"), "chapter_insights__analyze");
+        assert_eq!(to_plugin_tool_name("chapter_insights__analyze").unwrap(), "analyze");
+        assert!(to_plugin_tool_name("read_chapter").is_none());
+    }
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 2 — 跑测试确认失败</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::supervisor</div>
+<p class="expect">预期：<strong>编译失败</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 3 — 实现状态机与工具名转换（先让纯逻辑测试通过）</h4>
+<div class="code"><pre>// src-tauri/src/plugins/supervisor.rs （接在 tests 之前）
+use std::collections::VecDeque;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+use std::time::Duration;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessState {
+    Stopped, Starting, Running, Failed, Crashed, DisabledByCrash,
+}
+
+impl ProcessState {
+    pub fn can_transition_to(self, next: ProcessState) -&gt; bool {
+        use ProcessState::*;
+        matches!(
+            (self, next),
+            (Stopped, Starting) | (Failed, Starting) | (Crashed, Starting)
+                | (DisabledByCrash, Starting) | (Starting, Running) | (Starting, Failed)
+                | (Running, Crashed) | (Running, Stopped) | (Failed, Stopped)
+                | (Crashed, Stopped) | (Running, DisabledByCrash)
+        )
+    }
+    pub fn as_str(self) -&gt; &amp;'static str {
+        match self {
+            ProcessState::Stopped =&gt; "stopped",
+            ProcessState::Starting =&gt; "starting",
+            ProcessState::Running =&gt; "running",
+            ProcessState::Failed =&gt; "failed",
+            ProcessState::Crashed =&gt; "crashed",
+            ProcessState::DisabledByCrash =&gt; "disabled_by_crash",
+        }
+    }
+}
+
+/// 崩溃重启预算：1s / 3s / 9s，用尽后停用（设计文档 7.2）
+#[derive(Debug, Default)]
+pub struct CrashBudget { attempt: u32 }
+
+impl CrashBudget {
+    pub fn next_backoff(&amp;mut self) -&gt; Option&lt;Duration&gt; {
+        let secs = match self.attempt {
+            0 =&gt; 1,
+            1 =&gt; 3,
+            2 =&gt; 9,
+            _ =&gt; return None,
+        };
+        self.attempt += 1;
+        Some(Duration::from_secs(secs))
+    }
+    pub fn reset(&amp;mut self) { self.attempt = 0; }
+    pub fn exhausted(&amp;self) -&gt; bool { self.attempt &gt;= 3 }
+}
+
+/// 只保留尾部 N 字节的缓冲（防止插件疯狂打印打爆内存）
+pub struct TailBuffer { limit: usize, data: VecDeque&lt;u8&gt; }
+
+impl TailBuffer {
+    pub fn new(limit: usize) -&gt; Self { Self { limit, data: VecDeque::new() } }
+    pub fn push(&amp;mut self, chunk: &amp;[u8]) {
+        for b in chunk {
+            if self.data.len() == self.limit { self.data.pop_front(); }
+            self.data.push_back(*b);
+        }
+    }
+    pub fn as_lossy(&amp;self) -&gt; String {
+        String::from_utf8_lossy(&amp;self.data.iter().copied().collect::&lt;Vec&lt;u8&gt;&gt;()).into_owned()
+    }
+}
+
+/// 工具名：`&lt;pluginId 下划线化&gt;__&lt;toolName&gt;`（设计文档 9.2）
+pub fn to_host_tool_name(plugin_id: &amp;str, tool: &amp;str) -&gt; String {
+    format!("{}__{}", plugin_id.replace('-', "_"), tool)
+}
+
+/// 反向：从宿主工具名还原插件内原名；不是插件前缀的返回 None
+pub fn to_plugin_tool_name(host_name: &amp;str) -&gt; Option&lt;&amp;str&gt; {
+    host_name.split_once("__").map(|(_, rest)| rest)
+}
+
+/// 每个运行中插件的句柄（真实 spawn 在 Step 5 补）
+pub struct RunningPlugin {
+    pub state: ProcessState,
+    pub kill: Arc&lt;AtomicBool&gt;,
+    pub crash_budget: CrashBudget,
+    pub stdout_tail: TailBuffer,
+    pub stderr_tail: TailBuffer,
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 4 — 跑测试确认通过</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::supervisor</div>
+<p class="expect">预期：<strong>6 passed</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 5 — 加真实 spawn 与停止</h4>
+<div class="code"><pre>// src-tauri/src/plugins/supervisor.rs （追加，不替换上面任何内容）
+use tokio::process::{Child, Command};
+
+/// 把 runtime 配置解析成可执行的命令。
+/// 复用 commands::cli_resolver::find_cli_command 做跨平台命令发现。
+pub async fn build_command(
+    plugin_dir: &amp;std::path::Path,
+    manifest: &amp;super::manifest::PluginManifest,
+) -&gt; Result&lt;Command, String&gt; {
+    use super::manifest::RuntimeType;
+    let entry_path = plugin_dir.join(&amp;manifest.runtime.entry);
+    let mut cmd = match manifest.runtime.entry_type {
+        RuntimeType::Node =&gt; {
+            let node = crate::commands::cli_resolver::find_cli_command("node", &amp;["node.exe", "node"])
+                .await
+                .map_err(|e| format!("找不到 Node（插件 {} 需要）：{e}", manifest.id))?;
+            let mut c = Command::new(node);
+            c.arg(&amp;entry_path);
+            c
+        }
+        RuntimeType::Python =&gt; {
+            let py = crate::commands::cli_resolver::find_cli_command("python3", &amp;["python.exe", "python3.exe"])
+                .await
+                .map_err(|e| format!("找不到 Python（插件 {} 需要）：{e}", manifest.id))?;
+            let mut c = Command::new(py);
+            c.arg(&amp;entry_path);
+            c
+        }
+        RuntimeType::Binary =&gt; Command::new(&amp;entry_path),
+    };
+    cmd.args(&amp;manifest.runtime.args);
+    cmd.current_dir(plugin_dir);
+    cmd.stdin(std::process::Stdio::piped());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+    // Windows：禁止弹出控制台窗口（与 claude_cli 等既有实现一致）
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    Ok(cmd)
+}
+
+/// 启动并等待子进程退出；返回退出码。
+pub async fn spawn_and_wait(mut cmd: Command) -&gt; Result&lt;Child, String&gt; {
+    cmd.spawn().map_err(|e| format!("启动插件进程失败：{e}"))
+}
+</pre></div>
+<p class="expect">注意：<code>creation_flags</code> 需要 <code>tokio::process::CommandExt</code>（Windows）。若编译失败，在文件顶部加 <code>#[cfg(windows)] use std::os::windows::process::CommandExt;</code>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 6 — 跑编译与测试</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::supervisor</div>
+<p class="expect">预期：<strong>6 passed</strong>（新增的函数暂未被测试覆盖，只要能编译即可）。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 7 — 提交</h4>
+<div class="code"><pre>git add src-tauri/src/plugins/supervisor.rs src-tauri/src/plugins/mod.rs
+git commit -m "feat(plugins): 进程状态机、崩溃预算与子进程启动"
+</pre></div>
+</div></div>
+</div>
+</div>
+
+<!-- ============ TASK 5 ============ -->
+<div class="task">
+<div class="task-head"><span class="tnum">任务 05</span><h3>MCP 桥（stdio JSON-RPC）</h3></div>
+<div class="task-body">
+<div class="files">
+<span class="fl">Files</span>
+<ul>
+<li><span class="op">Create</span> src-tauri/src/plugins/mcp_bridge.rs</li>
+<li><span class="op">Modify</span> src-tauri/src/plugins/mod.rs</li>
+</ul>
+</div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 1 — 写失败的测试</h4>
+<div class="code"><pre>// src-tauri/src/plugins/mcp_bridge.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_initialize_request() {
+        let req = initialize_request(1, "abc", "http://127.0.0.1:9", "tok", &amp;["fs:project-read".into()]);
+        assert_eq!(req["method"], "initialize");
+        assert_eq!(req["params"]["_qmai"]["pluginId"], "abc");
+        assert_eq!(req["params"]["_qmai"]["grantedPermissions"][0], "fs:project-read");
+    }
+
+    #[test]
+    fn parses_tools_list_result() {
+        let raw = r#"{"jsonrpc":"2.0","id":2,"result":{"tools":[
+            {"name":"analyze","description":"d","inputSchema":{"type":"object","properties":{}}}
+        ]}}"#;
+        let msg: RpcMessage = serde_json::from_str(raw).unwrap();
+        let tools = msg.into_tool_list().expect("tools");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name, "analyze");
+    }
+
+    #[test]
+    fn error_response_is_surfaced() {
+        let raw = r#"{"jsonrpc":"2.0","id":3,"error":{"code":-32601,"message":"no such tool"}}"#;
+        let msg: RpcMessage = serde_json::from_str(raw).unwrap();
+        let err = msg.into_tool_call().unwrap_err();
+        assert!(err.contains("no such tool"));
+    }
+
+    #[test]
+    fn extracts_text_content_from_tool_result() {
+        let raw = r#"{"jsonrpc":"2.0","id":4,"result":{"content":[
+            {"type":"text","text":"第一段"},{"type":"text","text":"第二段"}
+        ]}}"#;
+        let msg: RpcMessage = serde_json::from_str(raw).unwrap();
+        assert_eq!(msg.into_tool_call().unwrap(), "第一段\n第二段");
+    }
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 2 — 跑测试确认失败</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::mcp_bridge</div>
+<p class="expect">预期：<strong>编译失败</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 3 — 实现</h4>
+<div class="code"><pre>// src-tauri/src/plugins/mcp_bridge.rs （接在 tests 之前）
+use serde_json::{json, Value};
+
+/// 一条 JSON-RPC 消息（请求或响应，取决于有没有 result/error）
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct RpcMessage {
+    #[serde(default)]
+    pub id: Option&lt;Value&gt;,
+    #[serde(default)]
+    pub result: Option&lt;Value&gt;,
+    #[serde(default)]
+    pub error: Option&lt;RpcErrorBody&gt;,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct RpcErrorBody { pub code: i64, pub message: String }
+
+#[derive(Debug, Clone)]
+pub struct PluginToolDecl {
+    pub name: String,
+    pub description: String,
+    pub input_schema: Value,
+}
+
+impl RpcMessage {
+    pub fn into_tool_list(self) -&gt; Result&lt;Vec&lt;PluginToolDecl&gt;, String&gt; {
+        if let Some(e) = self.error { return Err(format!("{}: {}", e.code, e.message)); }
+        let tools = self.result
+            .and_then(|r| r.get("tools").cloned())
+            .and_then(|t| t.as_array().cloned())
+            .ok_or_else(|| "tools/list 响应缺少 result.tools".to_string())?;
+        Ok(tools.iter().filter_map(|t| {
+            Some(PluginToolDecl {
+                name: t.get("name")?.as_str()?.to_string(),
+                description: t.get("description").and_then(|d| d.as_str()).unwrap_or_default().to_string(),
+                input_schema: t.get("inputSchema").cloned().unwrap_or(json!({"type":"object","properties":{}})),
+            })
+        }).collect())
+    }
+
+    /// tool 调用结果：拼接所有 type=text 的 content
+    pub fn into_tool_call(self) -&gt; Result&lt;String, String&gt; {
+        if let Some(e) = self.error { return Err(format!("{}: {}", e.code, e.message)); }
+        let content = self.result
+            .and_then(|r| r.get("content").cloned())
+            .and_then(|c| c.as_array().cloned())
+            .ok_or_else(|| "tools/call 响应缺少 result.content".to_string())?;
+        let texts: Vec&lt;String&gt; = content.iter()
+            .filter(|c| c.get("type").and_then(|t| t.as_str()) == Some("text"))
+            .filter_map(|c| c.get("text").and_then(|t| t.as_str()).map(str::to_string))
+            .collect();
+        Ok(texts.join("\n"))
+    }
+}
+
+pub fn initialize_request(id: u64, plugin_id: &amp;str, host_url: &amp;str, token: &amp;str, granted: &amp;[String]) -&gt; Value {
+    json!({
+        "jsonrpc": "2.0", "id": id, "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "clientInfo": { "name": "qmai", "version": env!("CARGO_PKG_VERSION") },
+            "capabilities": { "tools": {} },
+            "_qmai": {
+                "pluginId": plugin_id,
+                "hostUrl": host_url,
+                "hostToken": token,
+                "grantedPermissions": granted,
+            }
+        }
+    })
+}
+
+pub fn tools_list_request(id: u64) -&gt; Value {
+    json!({ "jsonrpc": "2.0", "id": id, "method": "tools/list", "params": {} })
+}
+
+pub fn tool_call_request(id: u64, name: &amp;str, arguments: &amp;Value) -&gt; Value {
+    json!({ "jsonrpc": "2.0", "id": id, "method": "tools/call",
+            "params": { "name": name, "arguments": arguments } })
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 4 — 跑测试确认通过</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::mcp_bridge</div>
+<p class="expect">预期：<strong>4 passed</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 5 — 提交</h4>
+<div class="code"><pre>git add src-tauri/src/plugins/mcp_bridge.rs src-tauri/src/plugins/mod.rs
+git commit -m "feat(plugins): MCP stdio 消息编解码"
+</pre></div>
+</div></div>
+</div>
+</div>
+
+<!-- ============ TASK 6 ============ -->
+<div class="task">
+<div class="task-head"><span class="tnum">任务 06</span><h3>宿主能力面（HostApi）</h3></div>
+<div class="task-body">
+<div class="files">
+<span class="fl">Files</span>
+<ul>
+<li><span class="op">Create</span> src-tauri/src/plugins/host_api.rs</li>
+<li><span class="op">Modify</span> src-tauri/src/plugins/mod.rs</li>
+</ul>
+</div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 1 — 写失败的测试</h4>
+<div class="code"><pre>// src-tauri/src/plugins/host_api.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn granted(p: &amp;[&amp;str]) -&gt; Vec&lt;String&gt; { p.iter().map(|s| s.to_string()).collect() }
+
+    #[test]
+    fn missing_permission_is_denied() {
+        let g = granted(&amp;["data:write"]);
+        let err = require(&amp;g, "fs:project-write").unwrap_err();
+        assert_eq!(err, "fs:project-write");
+    }
+
+    #[test]
+    fn granted_permission_passes() {
+        let g = granted(&amp;["fs:project-read"]);
+        assert!(require(&amp;g, "fs:project-read").is_ok());
+    }
+
+    #[test]
+    fn data_write_is_always_granted() {
+        let g = granted(&amp;[]);
+        assert!(require(&amp;g, "data:write").is_ok());
+    }
+
+    #[test]
+    fn project_path_inside_root_is_allowed() {
+        let root = std::path::Path::new("/novel/book");
+        assert!(is_inside(root, "/novel/book/wiki/chapters/01.md"));
+    }
+
+    #[test]
+    fn project_path_outside_root_is_rejected() {
+        let root = std::path::Path::new("/novel/book");
+        assert!(!is_inside(root, "/novel/other/secret.md"));
+        assert!(!is_inside(root, "/etc/passwd"));
+    }
+
+    #[test]
+    fn traversal_attempt_is_rejected() {
+        let root = std::path::Path::new("/novel/book");
+        assert!(!is_inside(root, "/novel/book/../../etc/passwd"));
+    }
+
+    #[test]
+    fn net_url_must_be_https() {
+        assert!(is_safe_url("https://api.example.com/x"));
+        assert!(!is_safe_url("http://api.example.com/x"));
+        assert!(!is_safe_url("https://127.0.0.1:8080/x"));
+        assert!(!is_safe_url("https://192.168.1.1/x"));
+        assert!(!is_safe_url("file:///etc/passwd"));
+    }
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 2 — 跑测试确认失败</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::host_api</div>
+<p class="expect">预期：<strong>编译失败</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 3 — 先在 mod.rs 加后台任务助手（HostApi 会用到）</h4>
+<div class="code"><pre>// src-tauri/src/plugins/mod.rs （追加到 pub mod 声明之后）
+/// 在现有 Tokio 运行时上跑一个后台任务。
+/// Tauri 启动后总有运行时；取不到时放弃（不 panic —— release 档是 panic=abort）。
+pub fn spawn_task&lt;F&gt;(f: F)
+where
+    F: std::future::Future&lt;Output = ()&gt; + Send + 'static,
+{
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(f);
+    }
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 4 — 实现权限与路径校验（纯函数，先让测试通过）</h4>
+<div class="code"><pre>// src-tauri/src/plugins/host_api.rs （接在 tests 之前）
+use std::net::IpAddr;
+use std::path::{Component, Path, PathBuf};
+
+/// 检查是否拥有某个权限；`data:write` 永远放行（设计文档 6.2）
+pub fn require(granted: &amp;[String], permission: &amp;str) -&gt; Result&lt;(), String&gt; {
+    if permission == "data:write" { return Ok(()); }
+    if granted.iter().any(|g| g == permission) { Ok(()) }
+    else { Err(permission.to_string()) }
+}
+
+/// 路径是否落在 root 之内（先做词法归一化，再做前缀比较）
+pub fn is_inside(root: &amp;Path, candidate: &amp;str) -&gt; bool {
+    let candidate = Path::new(candidate);
+    let norm = normalize_lexically(candidate);
+    let root_norm = normalize_lexically(root);
+    norm.starts_with(&amp;root_norm) &amp;&amp; norm != root_norm
+}
+
+fn normalize_lexically(p: &amp;Path) -&gt; PathBuf {
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::ParentDir =&gt; { out.pop(); }
+            Component::CurDir =&gt; {}
+            other =&gt; out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// 只允许 https，且拒绝回环与私有网段（防 SSRF）
+pub fn is_safe_url(raw: &amp;str) -&gt; bool {
+    let Ok(u) = url::Url::parse(raw) else { return false; };
+    if u.scheme() != "https" { return false; }
+    let Some(host) = u.host_str() else { return false; };
+    let Ok(ip) = host.parse::&lt;IpAddr&gt;() else {
+        // 域名：允许（不做 DNS 解析，避免额外网络依赖）
+        return !host.eq_ignore_ascii_case("localhost");
+    };
+    !(ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified())
+}
+</pre></div>
+<p class="expect"><code>url</code> crate 需要加进 <code>src-tauri/Cargo.toml</code>。检查是否已存在：<code>cargo tree -i url</code>。若没有，在 <code>[dependencies]</code> 加 <code>url = "2"</code>（这是本计划唯一可能需要新增的依赖，tauri 本身已传递依赖它，通常不会有编译负担）。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 5 — 跑测试确认通过</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::host_api</div>
+<p class="expect">预期：<strong>7 passed</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 6 — 加 axum 服务与端点</h4>
+<div class="code"><pre>// src-tauri/src/plugins/host_api.rs （追加）
+use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
+use axum::routing::post;
+use axum::{Json, Router};
+use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+/// 一个插件会话：token → 身份与权限
+#[derive(Clone)]
+pub struct PluginSession {
+    pub plugin_id: String,
+    pub granted: Vec&lt;String&gt;,
+    pub project_root: Option&lt;PathBuf&gt;,
+    pub data_root: PathBuf,
+}
+
+#[derive(Clone)]
+pub struct HostApiState {
+    pub sessions: Arc&lt;Mutex&lt;HashMap&lt;String, PluginSession&gt;&gt;&gt;,
+    pub log_sink: Arc&lt;Mutex<Vec&lt;PluginLogLine&gt;&gt;&gt;,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PluginLogLine {
+    pub plugin_id: String,
+    pub level: String,
+    pub message: String,
+}
+
+#[derive(Deserialize)]
+pub struct LogBody { pub level: String, pub message: String }
+
+#[derive(Deserialize)]
+pub struct PathBody { pub path: String }
+
+impl HostApiState {
+    fn session(&amp;self, headers: &amp;HeaderMap) -&gt; Option&lt;PluginSession&gt; {
+        let token = headers.get("authorization")?
+            .to_str().ok()?
+            .strip_prefix("Bearer ")?;
+        self.sessions.lock().ok()?.get(token).cloned()
+    }
+}
+
+fn denied(permission: &amp;str) -&gt; axum::response::Response {
+    (StatusCode::FORBIDDEN,
+     Json(serde_json::json!({ "error": "E_PERMISSION_DENIED", "permission": permission })))
+        .into_response()
+}
+
+pub fn router(state: HostApiState) -&gt; Router {
+    Router::new()
+        .route("/host/status", axum::routing::get(status))
+        .route("/host/log", post(log))
+        .route("/host/project/read", post(project_read))
+        .with_state(state)
+}
+
+async fn status(State(s): State&lt;HostApiState&gt;, headers: HeaderMap) -&gt; impl IntoResponse {
+    match s.session(&amp;headers) {
+        Some(sess) =&gt; Json(serde_json::json!({
+            "hostVersion": env!("CARGO_PKG_VERSION"),
+            "pluginId": sess.plugin_id,
+            "grantedPermissions": sess.granted,
+            "projectRoot": sess.project_root,
+        })).into_response(),
+        None =&gt; (StatusCode::UNAUTHORIZED, "invalid token").into_response(),
+    }
+}
+
+async fn log(State(s): State&lt;HostApiState&gt;, headers: HeaderMap, Json(body): Json&lt;LogBody&gt;) -&gt; impl IntoResponse {
+    let Some(sess) = s.session(&amp;headers) else {
+        return (StatusCode::UNAUTHORIZED, "invalid token").into_response();
+    };
+    if let Ok(mut sink) = s.log_sink.lock() {
+        sink.push(PluginLogLine { plugin_id: sess.plugin_id, level: body.level, message: body.message });
+        // 只留最近 500 条
+        let len = sink.len();
+        if len &gt; 500 { sink.drain(0..len - 500); }
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn project_read(State(s): State&lt;HostApiState&gt;, headers: HeaderMap, Json(body): Json&lt;PathBody&gt;) -&gt; impl IntoResponse {
+    let Some(sess) = s.session(&amp;headers) else {
+        return (StatusCode::UNAUTHORIZED, "invalid token").into_response();
+    };
+    if require(&amp;sess.granted, "fs:project-read").is_err() {
+        return denied("fs:project-read");
+    }
+    let Some(root) = sess.project_root.as_ref() else {
+        return (StatusCode::BAD_REQUEST, "no project open").into_response();
+    };
+    if !is_inside(root, &amp;body.path) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "E_PATH_ESCAPE" }))).into_response();
+    }
+    match tokio::fs::read_to_string(&amp;body.path).await {
+        Ok(text) =&gt; Json(serde_json::json!({ "content": text })).into_response(),
+        Err(e) =&gt; (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+/// 启动服务，返回 (端口, 状态)
+pub fn start(state: HostApiState) -&gt; Result&lt;u16, String&gt; {
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .map_err(|e| format!("无法监听宿主 API 端口：{e}"))?;
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    let app = router(state);
+    super::spawn_task(async move {
+        let listener = tokio::net::TcpListener::from_std(listener).expect("listener");
+        let _ = axum::serve(listener, app).await;
+    });
+    Ok(port)
+}
+</pre></div>
+<div class="callout">
+<strong>注意</strong>：<code>super::spawn_task</code> 必须先加到 <code>plugins/mod.rs</code>（放在 <code>pub mod …</code> 声明之后）：
+<div class="code"><pre>/// 在现有 Tokio 运行时上跑一个后台任务。
+/// Tauri 启动后总有运行时；取不到时放弃（不 panic —— release 档是 panic=abort）。
+pub fn spawn_task&lt;F&gt;(f: F)
+where
+    F: std::future::Future&lt;Output = ()&gt; + Send + 'static,
+{
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(f);
+    }
+}
+</pre></div>
+</div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 7 — 跑编译与测试</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::host_api</div>
+<p class="expect">预期：<strong>7 passed</strong>，且能编译通过。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 8 — 提交</h4>
+<div class="code"><pre>git add src-tauri/src/plugins/host_api.rs src-tauri/src/plugins/mod.rs src-tauri/Cargo.toml
+git commit -m "feat(plugins): 宿主能力面（权限校验 + 路径隔离 + SSRF 防护）"
+</pre></div>
+</div></div>
+</div>
+</div>
+
+<!-- ============ TASK 7 ============ -->
+<div class="task">
+<div class="task-head"><span class="tnum">任务 07</span><h3>安装器（GitHub zip）</h3></div>
+<div class="task-body">
+<div class="files">
+<span class="fl">Files</span>
+<ul>
+<li><span class="op">Create</span> src-tauri/src/plugins/installer.rs</li>
+<li><span class="op">Modify</span> src-tauri/src/plugins/mod.rs</li>
+</ul>
+</div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 1 — 写失败的测试</h4>
+<div class="code"><pre>// src-tauri/src/plugins/installer.rs
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_plain_github_url() {
+        let s = parse_source("https://github.com/owner/repo").unwrap();
+        assert_eq!(s.repo, "owner/repo");
+        assert_eq!(s.git_ref, "main");
+    }
+
+    #[test]
+    fn parses_url_with_ref() {
+        let s = parse_source("https://github.com/owner/repo@v1.2.0").unwrap();
+        assert_eq!(s.git_ref, "v1.2.0");
+    }
+
+    #[test]
+    fn rejects_http() {
+        assert!(parse_source("http://github.com/owner/repo").is_err());
+    }
+
+    #[test]
+    fn rejects_non_github_host() {
+        assert!(parse_source("https://gitlab.com/owner/repo").is_err());
+        assert!(parse_source("https://evil.com/github.com/owner/repo").is_err());
+    }
+
+    #[test]
+    fn rejects_missing_segments() {
+        assert!(parse_source("https://github.com/owner").is_err());
+        assert!(parse_source("https://github.com").is_err());
+    }
+
+    #[test]
+    fn rejects_deprecated_url_suffix() {
+        assert!(parse_source("https://github.com/owner/repo.git").is_ok());   // 允许 .git 后缀
+        assert!(parse_source("https://github.com/owner/repo/tree/main").is_err());
+    }
+
+    #[test]
+    fn build_channel_urls_put_proxy_first() {
+        let urls = download_urls("owner", "repo", "main");
+        assert!(urls[0].contains("gh-proxy.com"));
+        assert!(urls.last().unwrap().contains("codeload.github.com"));
+        assert!(urls.iter().all(|u| u.ends_with("/archive/refs/heads/main.zip")));
+    }
+
+    #[test]
+    fn zip_entry_path_is_rejected_when_escaping() {
+        assert!(is_safe_entry("../evil.js").is_none());
+        assert!(is_safe_entry("/abs/evil.js").is_none());
+        assert_eq!(is_safe_entry("repo-main/index.js").unwrap(), PathBuf::from("repo-main/index.js"));
+    }
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 2 — 跑测试确认失败</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::installer</div>
+<p class="expect">预期：<strong>编译失败</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 3 — 实现来源解析与安全校验</h4>
+<div class="code"><pre>// src-tauri/src/plugins/installer.rs （接在 tests 之前）
+use std::path::{Component, Path, PathBuf};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceSpec { pub owner: String, pub repo: String, pub git_ref: String }
+
+/// 解析用户粘贴的 GitHub 地址（设计文档 8.2 步骤 1）
+pub fn parse_source(raw: &amp;str) -&gt; Result&lt;SourceSpec, String&gt; {
+    let u = url::Url::parse(raw.trim()).map_err(|e| format!("地址格式不正确：{e}"))?;
+    if u.scheme() != "https" { return Err("只支持 https 地址".into()); }
+    if u.host_str() != Some("github.com") { return Err("只支持 github.com 的仓库".into()); }
+    let path = u.path().trim_matches('/');
+    let segs: Vec&lt;&amp;str&gt; = path.split('/').filter(|s| !s.is_empty()).collect();
+    if segs.len() != 2 {
+        return Err("地址应为 https://github.com/&lt;owner&gt;/&lt;repo&gt;".into());
+    }
+    let (owner, repo_raw) = (segs[0], segs[1]);
+    // 允许 `repo@ref` 形式；也允许 `.git` 后缀
+    let (repo, git_ref) = match repo_raw.split_once('@') {
+        Some((r, g)) =&gt; (r.to_string(), g.to_string()),
+        None =&gt; (repo_raw.to_string(), "main".to_string()),
+    };
+    let repo = repo.strip_suffix(".git").unwrap_or(&amp;repo).to_string();
+    for seg in [owner, repo.as_str(), git_ref.as_str()] {
+        if seg.is_empty() || !seg.chars().all(|c| c.is_ascii_alphanumeric() || "-_.~".contains(c)) {
+            return Err(format!("非法字符：{seg}"));
+        }
+    }
+    Ok(SourceSpec { owner: owner.to_string(), repo, git_ref })
+}
+
+/// 下载候选：加速通道优先，codeload 直连兜底（与 update-channels.json 同策略）
+pub fn download_urls(owner: &amp;str, repo: &amp;str, git_ref: &amp;str) -&gt; Vec&lt;String&gt; {
+    let tail = format!("{owner}/{repo}/archive/refs/heads/{git_ref}.zip");
+    vec![
+        format!("https://gh-proxy.com/https://github.com/{tail}"),
+        format!("https://ghproxy.net/https://github.com/{tail}"),
+        format!("https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{git_ref}"),
+    ]
+}
+
+/// zip 条目路径安全校验；不安全返回 None
+pub fn is_safe_entry(name: &amp;str) -&gt; Option&lt;PathBuf&gt; {
+    let p = Path::new(name);
+    if p.is_absolute() { return None; }
+    if name.split(['/', '\\']).any(|s| s == "..") { return None; }
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::Normal(seg) =&gt; out.push(seg),
+            Component::CurDir =&gt; {}
+            _ =&gt; return None,
+        }
+    }
+    if out.as_os_str().is_empty() { None } else { Some(out) }
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 4 — 跑测试确认通过</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::installer</div>
+<p class="expect">预期：<strong>8 passed</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 5 — 加下载、解压、原子发布</h4>
+<div class="code"><pre>// src-tauri/src/plugins/installer.rs （追加）
+use sha2::{Digest, Sha256};
+
+const MAX_ZIP_BYTES: usize = 8 * 1024 * 1024;
+const MAX_UNPACKED_BYTES: u64 = 64 * 1024 * 1024;
+
+pub struct InstallOutcome {
+    pub plugin_id: String,
+    pub version: String,
+    pub commit: String,
+    pub zip_sha256: String,
+}
+
+/// 下载 zip 字节；逐个候选试，全部失败才报错
+pub async fn download(client: &amp;reqwest::Client, urls: &amp;[String]) -&gt; Result&lt;Vec&lt;u8&gt;, String&gt; {
+    let mut last = String::new();
+    for url in urls {
+        match client.get(url).send().await {
+            Ok(resp) if resp.status().is_success() =&gt; {
+                let bytes = resp.bytes().await.map_err(|e| format!("读取响应失败：{e}"))?;
+                if bytes.len() &gt; MAX_ZIP_BYTES {
+                    return Err(format!("插件包超过 {} MB 上限", MAX_ZIP_BYTES / 1024 / 1024));
+                }
+                return Ok(bytes.to_vec());
+            }
+            Ok(resp) =&gt; last = format!("{url} → HTTP {}", resp.status()),
+            Err(e) =&gt; last = format!("{url} → {e}"),
+        }
+    }
+    Err(format!("所有下载通道均失败，最后一次：{last}"))
+}
+
+/// 解压到 dest：逐条目校验，累加大小，拒绝穿越与符号链接
+pub fn extract_zip(bytes: &amp;[u8], dest: &amp;Path) -&gt; Result&lt;(), String&gt; {
+    use std::io::Read;
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes))
+        .map_err(|e| format!("插件包不是有效 zip：{e}"))?;
+    let mut total: u64 = 0;
+    for i in 0..zip.len() {
+        let mut file = zip.by_index(i).map_err(|e| e.to_string())?;
+        if file.is_dir() { continue; }
+        let Some(rel) = is_safe_entry(file.name()) else {
+            return Err(format!("插件包包含不安全路径：{}", file.name()));
+        };
+        total += file.size();
+        if total &gt; MAX_UNPACKED_BYTES {
+            return Err(format!("解压后超过 {} MB 上限", MAX_UNPACKED_BYTES / 1024 / 1024));
+        }
+        let out_path = dest.join(&amp;rel);
+        if let Some(parent) = out_path.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+        let mut buf = Vec::new();
+        file.read_to_end(&amp;mut buf).map_err(|e| e.to_string())?;
+        std::fs::write(&amp;out_path, buf).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// 完整安装：下载 → 解压到 staging → 读清单 → 原子发布
+pub async fn install(
+    root: &amp;Path,
+    raw_source: &amp;str,
+) -&gt; Result&lt;InstallOutcome, String&gt; {
+    let spec = parse_source(raw_source)?;
+    let client = reqwest::Client::builder()
+        .user_agent("qmai-plugin-installer")
+        .build().map_err(|e| e.to_string())?;
+    let urls = download_urls(&amp;spec.owner, &amp;spec.repo, &amp;spec.git_ref);
+    let bytes = download(&amp;client, &amp;urls).await?;
+
+    let hash = { let mut h = Sha256::new(); h.update(&amp;bytes); format!("{:x}", h.finalize()) };
+
+    std::fs::create_dir_all(super::paths::staging_dir(root)).map_err(|e| e.to_string())?;
+    let staging = super::paths::staging_dir(root).join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&amp;staging).map_err(|e| e.to_string())?;
+
+    let result = (|| -&gt; Result&lt;InstallOutcome, String&gt; {
+        extract_zip(&amp;bytes, &amp;staging)?;
+        // GitHub zip 内有一层 `repo-ref/` 顶层目录，剥掉
+        let payload = single_top_level_dir(&amp;staging)
+            .ok_or_else(|| "插件包内应只有一个顶层目录".to_string())?;
+        let manifest_path = payload.join("plugin.json");
+        let raw = std::fs::read_to_string(&amp;manifest_path)
+            .map_err(|_| "插件包根目录缺少 plugin.json".to_string())?;
+        let manifest = super::manifest::PluginManifest::parse(&amp;raw)?;
+
+        // 目标目录已存在 → 拒绝（更新走任务之外的流程）
+        let target = super::paths::plugin_dir(root, &amp;manifest.id);
+        if target.exists() { return Err(format!("插件 {} 已安装", manifest.id)); }
+
+        std::fs::rename(&amp;payload, &amp;target).map_err(|e| format!("发布插件目录失败：{e}"))?;
+        Ok(InstallOutcome {
+            plugin_id: manifest.id.clone(),
+            version: manifest.version.clone(),
+            commit: spec.git_ref.clone(),
+            zip_sha256: hash,
+        })
+    })();
+
+    let _ = std::fs::remove_dir_all(&amp;staging);
+    result
+}
+
+fn single_top_level_dir(dir: &amp;Path) -&gt; Option&lt;PathBuf&gt; {
+    let mut dirs = std::fs::read_dir(dir).ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false));
+    let first = dirs.next()?.path();
+    if dirs.next().is_some() { return None; }
+    Some(first)
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 6 — 跑编译与测试</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::installer</div>
+<p class="expect">预期：<strong>8 passed</strong>，且能编译。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 7 — 手工验证真实安装</h4>
+<div class="run"># 在 src-tauri 下用一个已知的公开仓库试装（此步骤不写进自动化测试，因为依赖网络）
+cargo test plugins::installer::tests -- --nocapture</div>
+<p class="expect">预期：单测全过。真实网络安装留到任务 11 的端到端验收。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 8 — 提交</h4>
+<div class="code"><pre>git add src-tauri/src/plugins/installer.rs src-tauri/src/plugins/mod.rs
+git commit -m "feat(plugins): GitHub 安装器（防穿越解压 + 原子发布）"
+</pre></div>
+</div></div>
+</div>
+</div>
+
+<!-- ============ TASK 8 ============ -->
+<div class="task">
+<div class="task-head"><span class="tnum">任务 08</span><h3>ToolRegistry 支持按前缀注销</h3></div>
+<div class="task-body">
+<div class="files">
+<span class="fl">Files</span>
+<ul>
+<li><span class="op">Modify</span> src/lib/agent/registry.ts</li>
+<li><span class="op">Create</span> src/lib/agent/registry.spec.ts</li>
+</ul>
+</div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 1 — 写失败的测试</h4>
+<div class="code"><pre>// src/lib/agent/registry.spec.ts
+import { describe, expect, it } from "vitest"
+import { ToolRegistry } from "./registry"
+import type { Tool } from "./types"
+
+function tool(name: string): Tool {
+  return {
+    name,
+    description: name,
+    category: "action",
+    parameters: {},
+    execute: async () => "ok",
+  }
+}
+
+describe("ToolRegistry.unregisterPrefix", () => {
+  it("只删带前缀的工具，内置工具不动", () => {
+    const r = new ToolRegistry()
+    r.register(tool("read_chapter"))
+    r.register(tool("chapter_insights__analyze"))
+    r.register(tool("chapter_insights__report"))
+
+    const removed = r.unregisterPrefix("chapter_insights__")
+
+    expect(removed).toBe(2)
+    expect(r.has("read_chapter")).toBe(true)
+    expect(r.has("chapter_insights__analyze")).toBe(false)
+    expect(r.list().map((t) => t.name)).toEqual(["read_chapter"])
+  })
+
+  it("前缀不存在时返回 0 且不报错", () => {
+    const r = new ToolRegistry()
+    r.register(tool("read_chapter"))
+    expect(r.unregisterPrefix("nope__")).toBe(0)
+    expect(r.list()).toHaveLength(1)
+  })
+})
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 2 — 跑测试确认失败</h4>
+<div class="run">npx vitest run src/lib/agent/registry.spec.ts</div>
+<p class="expect">预期：<strong>FAIL</strong>，<code>r.unregisterPrefix is not a function</code>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 3 — 实现</h4>
+<div class="code"><pre>// src/lib/agent/registry.ts （在 clear() 之前插入）
+  /**
+   * 按前缀注销工具，返回删除数量。
+   *
+   * 插件工具统一带 `<pluginId 下划线化>__` 前缀（见设计文档 9.2），
+   * 插件停用/卸载时只清自己那一批，不碰内置工具。
+   */
+  unregisterPrefix(prefix: string): number {
+    let removed = 0
+    for (const name of [...this.tools.keys()]) {
+      if (name.startsWith(prefix)) {
+        this.tools.delete(name)
+        removed += 1
+      }
+    }
+    return removed
+  }
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 4 — 跑测试确认通过</h4>
+<div class="run">npx vitest run src/lib/agent/registry.spec.ts</div>
+<p class="expect">预期：<strong>2 passed</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 5 — 提交</h4>
+<div class="code"><pre>git add src/lib/agent/registry.ts src/lib/agent/registry.spec.ts
+git commit -m "feat(agent): ToolRegistry 支持按前缀注销插件工具"
+</pre></div>
+</div></div>
+</div>
+</div>
+
+<!-- ============ TASK 9 ============ -->
+<div class="task">
+<div class="task-head"><span class="tnum">任务 09</span><h3>插件工具注入 Agent</h3></div>
+<div class="task-body">
+<div class="files">
+<span class="fl">Files</span>
+<ul>
+<li><span class="op">Create</span> src/lib/plugins/tool-bridge.ts</li>
+<li><span class="op">Create</span> src/lib/plugins/tool-bridge.spec.ts</li>
+<li><span class="op">Create</span> src/lib/plugins/types.ts</li>
+<li><span class="op">Modify</span> src/lib/agent/config.ts（在 <code>buildAgentConfig</code> 末尾追加插件工具）</li>
+</ul>
+</div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 1 — 写失败的测试</h4>
+<div class="code"><pre>// src/lib/plugins/tool-bridge.spec.ts
+import { describe, expect, it, vi } from "vitest"
+import { ToolRegistry } from "@/lib/agent/registry"
+import {
+  registerPluginTools,
+  unregisterPluginTools,
+  toPluginToolName,
+} from "./tool-bridge"
+import type { PluginToolDescriptor } from "./types"
+
+const descriptors: PluginToolDescriptor[] = [
+  {
+    pluginId: "chapter-insights",
+    name: "analyze",
+    description: "分析章节节奏",
+    parameters: { chapterPath: { type: "string", description: "路径", required: true } },
+  },
+]
+
+describe("registerPluginTools", () => {
+  it("注入时加 pluginId 前缀", () => {
+    const r = new ToolRegistry()
+    registerPluginTools(r, descriptors, async () => "结果")
+    expect(r.has("chapter_insights__analyze")).toBe(true)
+    // 原名不应存在
+    expect(r.has("analyze")).toBe(false)
+  })
+
+  it("调用时把原名发给插件（不是带前缀的名字）", async () => {
+    const r = new ToolRegistry()
+    const invoke = vi.fn(async () => "结果")
+    registerPluginTools(r, descriptors, invoke)
+
+    const tool = r.get("chapter_insights__analyze")!
+    const out = await tool.execute({ chapterPath: "/x.md" })
+
+    expect(out).toBe("结果")
+    expect(invoke).toHaveBeenCalledWith("chapter-insights", "analyze", { chapterPath: "/x.md" })
+  })
+
+  it("插件工具默认需要用户确认", () => {
+    const r = new ToolRegistry()
+    registerPluginTools(r, descriptors, async () => "结果")
+    expect(r.get("chapter_insights__analyze")!.permission).toBe("confirm")
+  })
+
+  it("不覆盖同名内置工具", () => {
+    const r = new ToolRegistry()
+    r.register({
+      name: "chapter_insights__analyze",
+      description: "内置",
+      category: "read",
+      parameters: {},
+      execute: async () => "builtin",
+    })
+    registerPluginTools(r, descriptors, async () => "plugin")
+    expect(r.get("chapter_insights__analyze")!.description).toBe("内置")
+  })
+
+  it("卸载只清自己前缀", () => {
+    const r = new ToolRegistry()
+    r.register({
+      name: "read_chapter", description: "内置", category: "read",
+      parameters: {}, execute: async () => "",
+    })
+    registerPluginTools(r, descriptors, async () => "结果")
+    const n = unregisterPluginTools(r, "chapter-insights")
+    expect(n).toBe(1)
+    expect(r.has("read_chapter")).toBe(true)
+  })
+})
+
+describe("toPluginToolName", () => {
+  it("还原插件内原名", () => {
+    expect(toPluginToolName("chapter_insights__analyze")).toBe("analyze")
+  })
+  it("非插件工具返回 null", () => {
+    expect(toPluginToolName("read_chapter")).toBeNull()
+  })
+})
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 2 — 跑测试确认失败</h4>
+<div class="run">npx vitest run src/lib/plugins/tool-bridge.spec.ts</div>
+<p class="expect">预期：<strong>FAIL</strong>，找不到模块 <code>./tool-bridge</code>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 3 — 写类型与实现</h4>
+<div class="code"><pre>// src/lib/plugins/types.ts
+import type { ToolParameter } from "@/lib/agent/types"
+
+/** 后端 plugins_list 返回的一项 */
+export interface PluginSummary {
+  id: string
+  name: string
+  version: string
+  description: string
+  enabled: boolean
+  processState: "stopped" | "starting" | "running" | "failed" | "crashed" | "disabled_by_crash"
+  grantedPermissions: string[]
+  toolCount: number
+  sourceRepo: string
+  sourceCommit: string
+}
+
+/** 一次工具调用要发给插件的描述符 */
+export interface PluginToolDescriptor {
+  pluginId: string
+  name: string
+  description: string
+  parameters: Record<string, ToolParameter>
+}
+
+/** 调用插件工具：返回文本结果 */
+export type PluginToolInvoker = (
+  pluginId: string,
+  toolName: string,
+  args: Record<string, unknown>,
+) => Promise<string>
+</pre></div>
+<div class="code"><pre>// src/lib/plugins/tool-bridge.ts
+import type { ToolRegistry } from "@/lib/agent/registry"
+import type { Tool } from "@/lib/agent/types"
+import type { PluginToolDescriptor, PluginToolInvoker } from "./types"
+
+/** pluginId 里的 `-` 换成 `_`，拼上 `__` 与工具名（设计文档 9.2） */
+export function toHostToolName(pluginId: string, toolName: string): string {
+  return `${pluginId.replace(/-/g, "_")}__${toolName}`
+}
+
+/** 反向还原；不是插件工具名时返回 null */
+export function toPluginToolName(hostName: string): string | null {
+  const idx = hostName.indexOf("__")
+  return idx < 0 ? null : hostName.slice(idx + 2)
+}
+
+export function pluginToolPrefix(pluginId: string): string {
+  return `${pluginId.replace(/-/g, "_")}__`
+}
+
+/**
+ * 把插件工具注入 registry。
+ *
+ * 已存在同名工具时**不覆盖**——插件的工具必须让位于宿主已注册的同名工具，
+ * 否则一次插件安装就能替换掉内置能力（ToolRegistry.register 是 Map.set，
+ * 覆盖是静默的）。
+ */
+export function registerPluginTools(
+  registry: ToolRegistry,
+  descriptors: PluginToolDescriptor[],
+  invoke: PluginToolInvoker,
+): void {
+  for (const d of descriptors) {
+    const hostName = toHostToolName(d.pluginId, d.name)
+    if (registry.has(hostName)) continue
+    const tool: Tool = {
+      name: hostName,
+      description: d.description,
+      category: "action",
+      permission: "confirm",
+      parameters: d.parameters,
+      execute: async (params) => invoke(d.pluginId, d.name, params),
+    }
+    registry.register(tool)
+  }
+}
+
+export function unregisterPluginTools(registry: ToolRegistry, pluginId: string): number {
+  return registry.unregisterPrefix(pluginToolPrefix(pluginId))
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 4 — 跑测试确认通过</h4>
+<div class="run">npx vitest run src/lib/plugins/tool-bridge.spec.ts</div>
+<p class="expect">预期：<strong>7 passed</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 5 — 接到 buildAgentConfig</h4>
+<div class="code"><pre>// src/lib/agent/config.ts
+// 在文件顶部加：
+import { registerPluginTools } from "@/lib/plugins/tool-bridge"
+import type { PluginToolDescriptor, PluginToolInvoker } from "@/lib/plugins/types"
+
+// 在 BuildAgentConfigOptions 里加两个可选字段：
+interface BuildAgentConfigOptions extends ToolFactoryOptions {
+  llmConfig: LlmConfig
+  requestOverrides?: AgentConfig["requestOverrides"]
+  /** 已启用插件的工具声明（由插件管理 store 提供） */
+  pluginTools?: PluginToolDescriptor[]
+  /** 调用插件工具的实现（走 Tauri 命令） */
+  invokePluginTool?: PluginToolInvoker
+}
+
+// 在 buildAgentConfig 里，registerAllBuiltInTools(...) 之后、return 之前插入：
+  // 插件工具必须在 clear() 与内置注册之后追加：
+  // ① buildAgentConfig 每次进来先 registry.clear()，提前注册会被抹掉；
+  // ② registerPluginTools 自己跳过同名项，不会覆盖内置工具。
+  if (toolsEnabled && options.pluginTools?.length && options.invokePluginTool) {
+    registerPluginTools(registry, options.pluginTools, options.invokePluginTool)
+  }
+</pre></div>
+<p class="expect">注意 <code>toolsEnabled</code> 已在该函数内定义（见 <code>config.ts:66</code>）。插件工具与内置工具同受用户开关与模型黑名单约束——这是正确的，因为黑名单模型根本不接受 tools。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 6 — 跑类型检查与全量相关测试</h4>
+<div class="run">npm run typecheck &amp;&amp; npx vitest run src/lib/plugins src/lib/agent/registry.spec.ts</div>
+<p class="expect">预期：<strong>类型检查通过</strong>，<strong>9 passed</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 7 — 提交</h4>
+<div class="code"><pre>git add src/lib/plugins src/lib/agent/config.ts
+git commit -m "feat(plugins): 插件工具注入 ToolRegistry 并接入 buildAgentConfig"
+</pre></div>
+</div></div>
+</div>
+</div>
+
+<!-- ============ TASK 10 ============ -->
+<div class="task">
+<div class="task-head"><span class="tnum">任务 10</span><h3>Tauri 命令与插件管理页</h3></div>
+<div class="task-body">
+<div class="files">
+<span class="fl">Files</span>
+<ul>
+<li><span class="op">Modify</span> src-tauri/src/plugins/mod.rs（加 <code>PluginsState</code> 与 <code>#[tauri::command]</code>）</li>
+<li><span class="op">Modify</span> src-tauri/src/lib.rs:185（<code>app.manage(plugins::PluginsState::default());</code>）</li>
+<li><span class="op">Modify</span> src-tauri/src/lib.rs（<code>generate_handler!</code> 列表末尾加 plugins 命令）</li>
+<li><span class="op">Create</span> src/lib/plugins/api.ts</li>
+<li><span class="op">Create</span> src/components/plugins/plugins-page.tsx</li>
+<li><span class="op">Create</span> src/components/plugins/plugin-list.tsx</li>
+<li><span class="op">Create</span> src/components/plugins/plugin-install-dialog.tsx</li>
+</ul>
+</div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 1 — 加状态容器与命令</h4>
+<div class="code"><pre>// src-tauri/src/plugins/mod.rs （追加到文件末尾）
+use std::sync::Mutex;
+use tauri::State;
+
+use registry::{PluginRegistry, RegistryEntry, SourceRecord};
+
+/// 插件系统全局状态。运行句柄见任务 12
+#[derive(Default)]
+pub struct PluginsState {
+    pub registry: Mutex&lt;Option&lt;PluginRegistry&gt;&gt;,
+}
+
+impl PluginsState {
+    fn root(&amp;self) -&gt; std::path::PathBuf { paths::plugins_root() }
+}
+
+#[derive(serde::Serialize)]
+pub struct PluginSummary {
+    pub id: String,
+    pub version: String,
+    pub enabled: bool,
+    pub granted_permissions: Vec&lt;String&gt;,
+    pub source_repo: String,
+    pub source_commit: String,
+    /// 第一期：安装即视为可启动；真实进程状态在任务 12 接
+    pub process_state: String,
+}
+
+fn summary(e: &amp;RegistryEntry) -&gt; PluginSummary {
+    PluginSummary {
+        id: e.id.clone(),
+        version: e.version.clone(),
+        enabled: e.enabled,
+        granted_permissions: e.granted_permissions.clone(),
+        source_repo: e.source.repo.clone(),
+        source_commit: e.source.commit.clone(),
+        process_state: if e.enabled { "stopped".into() } else { "stopped".into() },
+    }
+}
+
+#[tauri::command]
+pub fn plugins_list(state: State&lt;'_, PluginsState&gt;) -&gt; Result&lt;Vec&lt;PluginSummary&gt;, String&gt; {
+    let root = state.root();
+    let reg = PluginRegistry::load(&amp;root)?;
+    let mut out: Vec&lt;PluginSummary&gt; = reg.entries().map(summary).collect();
+    out.sort_by(|a, b| a.id.cmp(&amp;b.id));
+    Ok(out)
+}
+
+#[tauri::command]
+pub async fn plugins_install(state: State&lt;'_, PluginsState&gt;, source: String) -&gt; Result&lt;PluginSummary, String&gt; {
+    let root = state.root();
+    let outcome = installer::install(&amp;root, &amp;source).await?;
+
+    let mut reg = PluginRegistry::load(&amp;root)?;
+    let entry = RegistryEntry {
+        id: outcome.plugin_id.clone(),
+        version: outcome.version.clone(),
+        enabled: false,                       // 装完默认关闭，用户勾权限后才启用
+        granted_permissions: vec![],
+        source: SourceRecord {
+            repo: source,
+            git_ref: outcome.commit.clone(),
+            commit: outcome.commit,
+            zip_sha256: outcome.zip_sha256,
+            installed_at: chrono::Utc::now().to_rfc3339(),
+        },
+    };
+    let s = summary(&amp;entry);
+    reg.upsert(entry);
+    reg.save(&amp;root)?;
+    Ok(s)
+}
+
+#[tauri::command]
+pub fn plugins_enable(state: State&lt;'_, PluginsState&gt;, id: String, granted: Vec&lt;String&gt;) -&gt; Result&lt;(), String&gt; {
+    let root = state.root();
+    let mut reg = PluginRegistry::load(&amp;root)?;
+    let entry = reg.get(&amp;id).cloned().ok_or_else(|| format!("插件 {id} 未安装"))?;
+    // 权限必须来自清单允许的范围
+    for p in &amp;granted {
+        if !manifest::KNOWN_PERMISSIONS.contains(&amp;p.as_str()) {
+            return Err(format!("未知权限：{p}"));
+        }
+    }
+    let _ = entry;
+    reg.set_enabled(&amp;id, true)?;
+    if let Some(e) = reg.list().into_iter().find(|e| e.id == id) {
+        let mut e2 = e;
+        e2.granted_permissions = granted;
+        reg.upsert(e2);
+    }
+    reg.save(&amp;root)
+}
+
+#[tauri::command]
+pub fn plugins_disable(state: State&lt;'_, PluginsState&gt;, id: String) -&gt; Result&lt;(), String&gt; {
+    let root = state.root();
+    let mut reg = PluginRegistry::load(&amp;root)?;
+    reg.set_enabled(&amp;id, false)?;
+    reg.save(&amp;root)
+}
+
+#[tauri::command]
+pub fn plugins_uninstall(state: State&lt;'_, PluginsState&gt;, id: String, delete_data: bool) -&gt; Result&lt;(), String&gt; {
+    let root = state.root();
+    let mut reg = PluginRegistry::load(&amp;root)?;
+    reg.remove(&amp;id);
+    reg.save(&amp;root)?;
+    let dir = paths::plugin_dir(&amp;root, &amp;id);
+    if dir.exists() {
+        std::fs::remove_dir_all(&amp;dir).map_err(|e| format!("删除插件目录失败：{e}"))?;
+    }
+    if delete_data {
+        let data = paths::plugin_data_dir(&amp;root, &amp;id);
+        if data.exists() { let _ = std::fs::remove_dir_all(&amp;data); }
+    }
+    Ok(())
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 2 — 注册到 lib.rs</h4>
+<div class="code"><pre># src-tauri/src/lib.rs 两处改动
+# ① app.manage(mcp::McpState::default()); 之后加一行：
+    app.manage(plugins::PluginsState::default());
+
+# ② generate_handler! 列表里（mcp::resolve_qmai_mcp_skill_dir, 之后）加：
+            plugins::plugins_list,
+            plugins::plugins_install,
+            plugins::plugins_enable,
+            plugins::plugins_disable,
+            plugins::plugins_uninstall,
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 3 — 编译确认</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo check</div>
+<p class="expect">预期：<strong>编译通过</strong>，无 warning 级错误。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 4 — 前端 API 封装</h4>
+<div class="code"><pre>// src/lib/plugins/api.ts
+import { invoke } from "@tauri-apps/api/core"
+import type { PluginSummary } from "./types"
+
+export const pluginsApi = {
+  list: () =&gt; invoke&lt;PluginSummary[]&gt;("plugins_list"),
+  install: (source: string) =&gt; invoke&lt;PluginSummary&gt;("plugins_install", { source }),
+  enable: (id: string, granted: string[]) =&gt; invoke&lt;void&gt;("plugins_enable", { id, granted }),
+  disable: (id: string) =&gt; invoke&lt;void&gt;("plugins_disable", { id }),
+  uninstall: (id: string, deleteData: boolean) =&gt;
+    invoke&lt;void&gt;("plugins_uninstall", { id, deleteData }),
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 5 — 管理页组件</h4>
+<div class="code"><pre>// src/components/plugins/plugins-page.tsx
+import { useCallback, useEffect, useState } from "react"
+import { pluginsApi } from "@/lib/plugins/api"
+import type { PluginSummary } from "@/lib/plugins/types"
+import { PluginList } from "./plugin-list"
+import { PluginInstallDialog } from "./plugin-install-dialog"
+
+export function PluginsPage() {
+  const [plugins, setPlugins] = useState&lt;PluginSummary[]&gt;([])
+  const [installing, setInstalling] = useState(false)
+  const [error, setError] = useState&lt;string | null&gt;(null)
+
+  const refresh = useCallback(async () =&gt; {
+    try {
+      setPlugins(await pluginsApi.list())
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }, [])
+
+  useEffect(() =&gt; { void refresh() }, [refresh])
+
+  const install = async (source: string) =&gt; {
+    setInstalling(true)
+    setError(null)
+    try {
+      await pluginsApi.install(source)
+      await refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setInstalling(false)
+    }
+  }
+
+  return (
+    &lt;div className="flex flex-col gap-6 p-6"&gt;
+      &lt;header className="flex items-center justify-between"&gt;
+        &lt;div&gt;
+          &lt;h1 className="text-xl font-semibold"&gt;插件&lt;/h1&gt;
+          &lt;p className="text-sm text-muted-foreground"&gt;
+            从 GitHub 安装第三方插件。插件以独立进程运行，可以读取项目文件与联网，请只安装你信任的仓库。
+          &lt;/p&gt;
+        &lt;/div&gt;
+        &lt;PluginInstallDialog installing={installing} onInstall={install} /&gt;
+      &lt;/header&gt;
+
+      {error &amp;&amp; (
+        &lt;div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm"&gt;
+          {error}
+        &lt;/div&gt;
+      )}
+
+      &lt;PluginList plugins={plugins} onChanged={refresh} /&gt;
+    &lt;/div&gt;
+  )
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 6 — 列表与安装弹窗</h4>
+<div class="code"><pre>// src/components/plugins/plugin-list.tsx
+import { useState } from "react"
+import { pluginsApi } from "@/lib/plugins/api"
+import type { PluginSummary } from "@/lib/plugins/types"
+
+const STATE_LABEL: Record&lt;PluginSummary["processState"], string&gt; = {
+  stopped: "已停止",
+  starting: "启动中",
+  running: "运行中",
+  failed: "启动失败",
+  crashed: "异常退出",
+  disabled_by_crash: "已停用（异常退出）",
+}
+
+export function PluginList({ plugins, onChanged }: { plugins: PluginSummary[]; onChanged: () =&gt; Promise&lt;void&gt; }) {
+  const [busy, setBusy] = useState&lt;string | null&gt;(null)
+
+  if (plugins.length === 0) {
+    return (
+      &lt;p className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground"&gt;
+        还没有安装插件。点右上角「安装插件」，粘贴一个 GitHub 仓库地址开始。
+      &lt;/p&gt;
+    )
+  }
+
+  const run = async (id: string, fn: () =&gt; Promise&lt;void&gt;) =&gt; {
+    setBusy(id)
+    try { await fn(); await onChanged() } finally { setBusy(null) }
+  }
+
+  return (
+    &lt;ul className="flex flex-col gap-3"&gt;
+      {plugins.map((p) =&gt; (
+        &lt;li key={p.id} className="flex items-start justify-between gap-4 rounded-lg border px-4 py-3"&gt;
+          &lt;div className="min-w-0"&gt;
+            &lt;div className="flex items-center gap-2"&gt;
+              &lt;span className="font-medium"&gt;{p.id}&lt;/span&gt;
+              &lt;span className="text-xs text-muted-foreground"&gt;v{p.version}&lt;/span&gt;
+              &lt;span className="rounded bg-muted px-2 py-0.5 text-xs"&gt;{STATE_LABEL[p.processState]}&lt;/span&gt;
+            &lt;/div&gt;
+            &lt;p className="mt-1 truncate text-xs text-muted-foreground"&gt;
+              来源 {p.sourceRepo} @ {p.sourceCommit.slice(0, 7)}
+            &lt;/p&gt;
+            {p.grantedPermissions.length &gt; 0 &amp;&amp; (
+              &lt;p className="mt-1 text-xs text-muted-foreground"&gt;
+                已授权：{p.grantedPermissions.join(" · ")}
+              &lt;/p&gt;
+            )}
+          &lt;/div&gt;
+          &lt;div className="flex shrink-0 gap-2"&gt;
+            &lt;button
+              className="rounded border px-3 py-1 text-sm disabled:opacity-50"
+              disabled={busy === p.id}
+              onClick={() =&gt; void run(p.id, () =&gt; pluginsApi.enable(p.id, p.grantedPermissions))}
+            &gt;
+              {p.enabled ? "已启用" : "启用"}
+            &lt;/button&gt;
+            &lt;button
+              className="rounded border px-3 py-1 text-sm disabled:opacity-50"
+              disabled={busy === p.id || !p.enabled}
+              onClick={() =&gt; void run(p.id, () =&gt; pluginsApi.disable(p.id))}
+            &gt;
+              停用
+            &lt;/button&gt;
+            &lt;button
+              className="rounded border border-destructive/40 px-3 py-1 text-sm text-destructive disabled:opacity-50"
+              disabled={busy === p.id}
+              onClick={() =&gt; {
+                if (confirm(`卸载 ${p.id}？插件数据会保留。`)) {
+                  void run(p.id, () =&gt; pluginsApi.uninstall(p.id, false))
+                }
+              }}
+            &gt;
+              卸载
+            &lt;/button&gt;
+          &lt;/div&gt;
+        &lt;/li&gt;
+      ))}
+    &lt;/ul&gt;
+  )
+}
+</pre></div>
+<div class="code"><pre>// src/components/plugins/plugin-install-dialog.tsx
+import { useState } from "react"
+
+export function PluginInstallDialog({
+  installing, onInstall,
+}: { installing: boolean; onInstall: (source: string) =&gt; Promise&lt;void&gt; }) {
+  const [open, setOpen] = useState(false)
+  const [source, setSource] = useState("")
+
+  return (
+    &lt;&gt;
+      &lt;button className="rounded bg-primary px-4 py-1.5 text-sm text-primary-foreground" onClick={() =&gt; setOpen(true)}&gt;
+        安装插件
+      &lt;/button&gt;
+      {open &amp;&amp; (
+        &lt;div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"&gt;
+          &lt;div className="w-[520px] rounded-lg bg-background p-6 shadow-xl"&gt;
+            &lt;h2 className="text-lg font-semibold"&gt;安装插件&lt;/h2&gt;
+            &lt;p className="mt-1 text-sm text-muted-foreground"&gt;
+              粘贴插件仓库地址，例如 https://github.com/owner/repo
+            &lt;/p&gt;
+            &lt;input
+              className="mt-4 w-full rounded border px-3 py-2 text-sm"
+              placeholder="https://github.com/owner/repo"
+              value={source}
+              onChange={(e) =&gt; setSource(e.target.value)}
+            /&gt;
+            &lt;div className="mt-6 flex justify-end gap-2"&gt;
+              &lt;button className="rounded border px-4 py-1.5 text-sm" onClick={() =&gt; setOpen(false)}&gt;
+                取消
+              &lt;/button&gt;
+              &lt;button
+                className="rounded bg-primary px-4 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
+                disabled={installing || !source.trim()}
+                onClick={async () =&gt; {
+                  await onInstall(source.trim())
+                  setOpen(false)
+                  setSource("")
+                }}
+              &gt;
+                {installing ? "安装中…" : "安装"}
+              &lt;/button&gt;
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      )}
+    &lt;/&gt;
+  )
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 7 — 跑类型检查与构建</h4>
+<div class="run">npm run typecheck &amp;&amp; npx vite build</div>
+<p class="expect">预期：类型通过，构建成功。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 8 — 提交</h4>
+<div class="code"><pre>git add src-tauri/src/plugins/mod.rs src-tauri/src/lib.rs src/lib/plugins src/components/plugins
+git commit -m "feat(plugins): Tauri 命令与插件管理页"
+</pre></div>
+</div></div>
+</div>
+</div>
+
+<!-- ============ TASK 11 ============ -->
+<div class="task">
+<div class="task-head"><span class="tnum">任务 11</span><h3>端到端验收</h3></div>
+<div class="task-body">
+<div class="files">
+<span class="fl">Files</span>
+<ul>
+<li><span class="op">Create</span> tests/fixtures/plugins/hello-plugin/plugin.json</li>
+<li><span class="op">Create</span> tests/fixtures/plugins/hello-plugin/index.js</li>
+<li><span class="op">Create</span> tests/fixtures/plugins/hello-plugin/package.json</li>
+</ul>
+</div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 1 — 造一个最小可用的验收插件</h4>
+<div class="code"><pre>// tests/fixtures/plugins/hello-plugin/plugin.json
+{
+  "schema": 1,
+  "id": "hello-plugin",
+  "name": "Hello 插件",
+  "version": "1.0.0",
+  "description": "验收用的最小插件：一个工具，返回固定文本",
+  "requires": { "qmai": "&gt;=4.4.0" },
+  "runtime": { "type": "node", "entry": "index.js", "args": ["--stdio"] },
+  "inject": ["host.logger"],
+  "contributes": {
+    "tools": [
+      {
+        "name": "say_hello",
+        "description": "返回一句问候，用于验证插件链路",
+        "parameters": { "who": { "type": "string", "description": "问候对象" } }
+      }
+    ]
+  },
+  "permissions": []
+}
+</pre></div>
+<div class="code"><pre>// tests/fixtures/plugins/hello-plugin/index.js
+#!/usr/bin/env node
+// 最小 MCP 服务端：只实现 initialize / tools/list / tools/call。
+// 不依赖任何 SDK，便于在没有 node_modules 的情况下跑验收。
+let buffer = ""
+
+function reply(id, result) {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n")
+}
+
+function fail(id, code, message) {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, error: { code, message } }) + "\n")
+}
+
+process.stdin.on("data", (chunk) =&gt; {
+  buffer += chunk.toString("utf8")
+  let nl
+  while ((nl = buffer.indexOf("\n")) &gt;= 0) {
+    const line = buffer.slice(0, nl).trim()
+    buffer = buffer.slice(nl + 1)
+    if (!line) continue
+    let msg
+    try { msg = JSON.parse(line) } catch { continue }
+
+    if (msg.method === "initialize") {
+      reply(msg.id, {
+        protocolVersion: "2024-11-05",
+        serverInfo: { name: "hello-plugin", version: "1.0.0" },
+        capabilities: { tools: {} },
+      })
+    } else if (msg.method === "tools/list") {
+      reply(msg.id, {
+        tools: [{
+          name: "say_hello",
+          description: "返回一句问候，用于验证插件链路",
+          inputSchema: {
+            type: "object",
+            properties: { who: { type: "string", description: "问候对象" } },
+            required: [],
+          },
+        }],
+      })
+    } else if (msg.method === "tools/call") {
+      const who = msg.params?.arguments?.who ?? "世界"
+      reply(msg.id, { content: [{ type: "text", text: `你好，${who}！` }] })
+    } else if (msg.id !== undefined) {
+      fail(msg.id, -32601, `未知方法：${msg.method}`)
+    }
+  }
+})
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 2 — 手工验证插件本身能跑</h4>
+<div class="run">cd tests/fixtures/plugins/hello-plugin
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"say_hello","arguments":{"who":"QMAI"}}}' | node index.js</div>
+<p class="expect">预期输出：<code>{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"你好，QMAI！"}]}}</code></p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 3 — 跑设计文档 14.2 的六条验收</h4>
+<div class="table">
+<div class="row" style="grid-template-columns: 40px 1fr 1.2fr;">
+<div class="cell head">#</div><div class="cell head">操作</div><div class="cell head">通过判据</div>
+</div>
+<div class="row" style="grid-template-columns: 40px 1fr 1.2fr;">
+<div class="cell">1</div>
+<div class="cell">把 <code>hello-plugin</code> 推到一个公开 GitHub 仓库，在插件页粘贴地址安装</div>
+<div class="cell">列表出现 <code>hello-plugin v1.0.0</code>，状态「已停止」，来源显示正确的 <code>owner/repo@commit</code></div>
+</div>
+<div class="row" style="grid-template-columns: 40px 1fr 1.2fr;">
+<div class="cell">2</div>
+<div class="cell">启用插件，在对话里让模型调用 <code>say_hello</code></div>
+<div class="cell">模型可用工具列表里出现 <code>hello_plugin__say_hello</code>；调用后返回「你好，…」；出现确认弹窗</div>
+</div>
+<div class="row" style="grid-template-columns: 40px 1fr 1.2fr;">
+<div class="cell">3</div>
+<div class="cell">停用插件，再发一条消息</div>
+<div class="cell"><code>hello_plugin__say_hello</code> 从模型工具列表中消失</div>
+</div>
+<div class="row" style="grid-template-columns: 40px 1fr 1.2fr;">
+<div class="cell">4</div>
+<div class="cell">断开网络后安装一个插件</div>
+<div class="cell">给出可读错误（含最后一次失败的通道），界面不卡死</div>
+</div>
+<div class="row" style="grid-template-columns: 40px 1fr 1.2fr;">
+<div class="cell">5</div>
+<div class="cell">用一个 <code>plugin.json</code> 故意写错的仓库安装</div>
+<div class="cell">拒绝安装，错误信息点名具体字段（如 <code>E_VERSION_INVALID</code>）</div>
+</div>
+<div class="row" style="grid-template-columns: 40px 1fr 1.2fr;">
+<div class="cell">6</div>
+<div class="cell">卸载插件</div>
+<div class="cell">目录被删除，注册表条目消失，<code>&lt;id&gt;-data/</code> 若存在则保留</div>
+</div>
+</div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 4 — 全量回归</h4>
+<div class="run">npm run test:mocks</div>
+<p class="expect">预期：与基线一致（本计划不修改既有测试，不应引入新的失败）。先跑一次基线并记录数量，再对比。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 5 — 提交</h4>
+<div class="code"><pre>git add tests/fixtures/plugins
+git commit -m "test(plugins): 最小验收插件与端到端验证样例"
+</pre></div>
+</div></div>
+</div>
+</div>
+
+<!-- ============ TASK 12 ============ -->
+<div class="task">
+<div class="task-head"><span class="tnum">任务 12</span><h3>常驻接线：启用即启动、停用即停止</h3></div>
+<div class="task-body">
+<div class="files">
+<span class="fl">Files</span>
+<ul>
+<li><span class="op">Modify</span> src-tauri/src/plugins/supervisor.rs（加 <code>LaunchHandle</code> 与 stdio 读写循环）</li>
+<li><span class="op">Modify</span> src-tauri/src/plugins/mod.rs（<code>PluginsState</code> 存运行句柄；启用/停用接上下文）</li>
+</ul>
+</div>
+
+<div class="callout">
+<strong>为什么单独成任务</strong>：任务 4 只做了状态机与"启动后能拿到子进程"；任务 10 只做了注册表开关。把两者连起来（启用 → 建 HostApi 会话 → 注入环境变量 → spawn → 握手 → 记录进程句柄；停用 → kill）是一个独立且容易出错的工作单元。把它拆开，前 11 个任务才能各自独立验收。
+</div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 1 — 写失败的测试</h4>
+<div class="code"><pre>// src-tauri/src/plugins/supervisor.rs （在既有 tests 模块里追加）
+#[test]
+fn build_env_injects_host_credentials() {
+    let pairs = host_env("chapter-insights", "http://127.0.0.1:5000", "tok123");
+    assert!(pairs.contains(&amp;("QMAI_HOST_URL".to_string(), "http://127.0.0.1:5000".to_string())));
+    assert!(pairs.contains(&amp;("QMAI_HOST_TOKEN".to_string(), "tok123".to_string())));
+    assert!(pairs.contains(&amp;("QMAI_PLUGIN_ID".to_string(), "chapter-insights".to_string())));
+}
+
+#[test]
+fn should_autostart_only_when_enabled_and_keep_alive() {
+    assert!(should_autostart(true, true));
+    assert!(!should_autostart(false, true));
+    assert!(!should_autostart(true, false));
+}
+
+#[test]
+fn next_request_id_is_monotonic() {
+    let mut c = RequestCounter::default();
+    assert_eq!(c.next(), 1);
+    assert_eq!(c.next(), 2);
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 2 — 跑测试确认失败</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::supervisor</div>
+<p class="expect">预期：<strong>编译失败</strong>，找不到 <code>host_env</code> / <code>should_autostart</code> / <code>RequestCounter</code>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 3 — 实现</h4>
+<div class="code"><pre>// src-tauri/src/plugins/supervisor.rs （追加）
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// 注入给插件子进程的环境变量（设计文档 5.3）
+pub fn host_env(plugin_id: &amp;str, host_url: &amp;str, token: &amp;str) -&gt; Vec&lt;(String, String)&gt; {
+    vec![
+        ("QMAI_HOST_URL".to_string(), host_url.to_string()),
+        ("QMAI_HOST_TOKEN".to_string(), token.to_string()),
+        ("QMAI_PLUGIN_ID".to_string(), plugin_id.to_string()),
+    ]
+}
+
+/// 是否随 App 启动即拉起
+pub fn should_autostart(enabled: bool, keep_alive: bool) -&gt; bool { enabled &amp;&amp; keep_alive }
+
+/// JSON-RPC 请求 id 发生器（每个插件一个，单调递增）
+#[derive(Default)]
+pub struct RequestCounter { next_id: AtomicU64 }
+
+impl RequestCounter {
+    pub fn next(&amp;self) -&gt; u64 { self.next_id.fetch_add(1, Ordering::SeqCst) + 1 }
+}
+
+/// 一个正在运行的插件：子进程 + 计数器 + 权限
+pub struct LaunchHandle {
+    pub plugin_id: String,
+    pub token: String,
+    pub counter: RequestCounter,
+    pub child: tokio::process::Child,
+    pub state: ProcessState,
+}
+
+impl LaunchHandle {
+    /// 停止：先尝试 graceful（关 stdin 让插件自己退出），1 秒后强杀。
+    pub async fn stop(mut self) {
+        // 关 stdin 是 MCP 约定的优雅退出信号
+        drop(self.child.stdin.take());
+        match tokio::time::timeout(std::time::Duration::from_secs(1), self.child.wait()).await {
+            Ok(_) =&gt; {}
+            Err(_) =&gt; { let _ = self.child.kill().await; }
+        }
+    }
+}
+</pre></div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 4 — 跑测试确认通过</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::supervisor</div>
+<p class="expect">预期：<strong>9 passed</strong>。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 5 — 在 PluginsState 存句柄并接上启用/停用</h4>
+<div class="code"><pre>// src-tauri/src/plugins/mod.rs
+// ① 扩展状态容器：
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex as AsyncMutex;
+
+#[derive(Default)]
+pub struct PluginsState {
+    pub registry: Mutex&lt;Option&lt;PluginRegistry&gt;&gt;,
+    /// pluginId → 运行句柄（异步锁：启停过程要 await 子进程）
+    pub running: Arc&lt;AsyncMutex&lt;HashMap&lt;String, supervisor::LaunchHandle&gt;&gt;&gt;,
+    /// 宿主 API 端口（首次启用时启动，之后复用）
+    pub host_port: Mutex&lt;Option&lt;u16&gt;&gt;,
+}
+
+// ② 新增一个内部函数，供 plugins_enable 调用：
+async fn start_plugin(
+    state: &amp;PluginsState,
+    root: &amp;std::path::Path,
+    entry: &amp;RegistryEntry,
+) -&gt; Result&lt;(), String&gt; {
+    // 已在运行则不重复启动
+    if state.running.lock().await.contains_key(&amp;entry.id) {
+        return Ok(());
+    }
+    let dir = paths::plugin_dir(root, &amp;entry.id);
+    let raw = std::fs::read_to_string(dir.join("plugin.json"))
+        .map_err(|e| format!("读取清单失败：{e}"))?;
+    let manifest = manifest::PluginManifest::parse(&amp;raw)?;
+
+    // 宿主 API 端口：复用或首次启动
+    let port = {
+        let mut guard = state.host_port.lock().map_err(|_| "状态不可用".to_string())?;
+        if guard.is_none() {
+            let api_state = host_api::HostApiState {
+                sessions: Arc::new(Mutex::new(HashMap::new())),
+                log_sink: Arc::new(Mutex::new(Vec::new())),
+            };
+            *guard = Some(host_api::start(api_state)?);
+        }
+        guard.unwrap()
+    };
+    let host_url = format!("http://127.0.0.1:{port}");
+
+    // 每个插件一个 token，绑定身份与权限
+    let token = uuid::Uuid::new_v4().to_string();
+
+    // 注册会话到 HostApi
+    // 注意：HostApiState 需在首次创建时保存下来；这里为简化用全局单例
+    host_api::register_session(host_api::PluginSession {
+        plugin_id: entry.id.clone(),
+        granted: entry.granted_permissions.clone(),
+        project_root: None,           // 第二期接当前打开项目
+        data_root: paths::plugin_data_dir(root, &amp;entry.id),
+    }, &amp;token)?;
+
+    let mut cmd = supervisor::build_command(&amp;dir, &amp;manifest).await?;
+    for (k, v) in supervisor::host_env(&amp;entry.id, &amp;host_url, &amp;token) {
+        cmd.env(k, v);
+    }
+    let child = cmd.spawn().map_err(|e| format!("启动插件进程失败：{e}"))?;
+
+    state.running.lock().await.insert(
+        entry.id.clone(),
+        supervisor::LaunchHandle {
+            plugin_id: entry.id.clone(),
+            token,
+            counter: supervisor::RequestCounter::default(),
+            child,
+            state: supervisor::ProcessState::Starting,
+        },
+    );
+    Ok(())
+}
+
+// ③ plugins_enable 末尾（reg.save 之前）加：
+    // 启用即启动；启动失败不回滚启用状态，让用户在界面上看到 failed
+    if let Err(e) = start_plugin(&amp;state, &amp;root, &amp;entry).await {
+        eprintln!("[plugins] 启动 {} 失败：{e}", id);
+    }
+
+// ④ plugins_disable 里，在 reg.save 之前加：
+    if let Some(handle) = state.running.lock().await.remove(&amp;id) {
+        handle.stop().await;
+    }
+</pre></div>
+<p class="expect">为此 <code>plugins_enable</code> / <code>plugins_disable</code> 要改成 <code>async fn</code>，并给 <code>HostApiState</code> 加一个进程级单例：<br>
+在 <code>host_api.rs</code> 里加 <code>static SESSION_STORE: OnceLock&lt;Arc&lt;Mutex&lt;HashMap&lt;String, PluginSession&gt;&gt;&gt;&gt;</code> 与 <code>pub fn register_session(session, token)</code>，<code>start()</code> 内部改用它。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 6 — 编译与测试</h4>
+<div class="run">cd src-tauri &amp;&amp; cargo test plugins::</div>
+<p class="expect">预期：全部 <strong>passed</strong>（manifest 9 + registry 4 + supervisor 9 + mcp_bridge 4 + host_api 7 + installer 8）。</p>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 7 — 手工验收常驻</h4>
+<div class="table">
+<div class="row" style="grid-template-columns: 40px 1fr 1.2fr;">
+<div class="cell head">#</div><div class="cell head">操作</div><div class="cell head">通过判据</div>
+</div>
+<div class="row" style="grid-template-columns: 40px 1fr 1.2fr;">
+<div class="cell">1</div><div class="cell">启用 <code>hello-plugin</code></div>
+<div class="cell">任务管理器里出现 node 子进程；插件状态变「运行中」</div>
+</div>
+<div class="row" style="grid-template-columns: 40px 1fr 1.2fr;">
+<div class="cell">2</div><div class="cell">在任务管理器里手动结束该 node 进程</div>
+<div class="cell">插件状态变「异常退出」，主程序不受影响</div>
+</div>
+<div class="row" style="grid-template-columns: 40px 1fr 1.2fr;">
+<div class="cell">3</div><div class="cell">停用插件</div>
+<div class="cell">node 子进程消失，状态变「已停止」</div>
+</div>
+<div class="row" style="grid-template-columns: 40px 1fr 1.2fr;">
+<div class="cell">4</div><div class="cell">卸载插件后再看进程列表</div>
+<div class="cell">无残留 node 进程</div>
+</div>
+</div>
+</div></div>
+
+<div class="step"><div class="box"></div><div class="body">
+<h4>Step 8 — 提交</h4>
+<div class="code"><pre>git add src-tauri/src/plugins/supervisor.rs src-tauri/src/plugins/mod.rs src-tauri/src/plugins/host_api.rs
+git commit -m "feat(plugins): 启用即启动、停用即停止的常驻接线"
+</pre></div>
+</div></div>
+</div>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section>
+<div class="sec-head"><span class="num">05</span><h2>风险与对策</h2></div>
+<div class="table">
+<div class="row" style="grid-template-columns: 1.7fr 82px 1.7fr;">
+<div class="cell head">风险</div><div class="cell head">等级</div><div class="cell head">对策</div>
+</div>
+<div class="row" style="grid-template-columns: 1.7fr 82px 1.7fr;">
+<div class="cell">插件进程在 App 退出时可能来不及清理（任务 12 只在启用/停用/卸载时收进程，未挂 App 退出钩子）。</div>
+<div class="cell"><span class="sev med">MED</span></div>
+<div class="cell">子进程用 <code>tokio::process</code> 启动，父进程退出后 Windows 上会残留。任务 12 交付后补一个 App 退出钩子：遍历 <code>state.running</code> 逐个 <code>stop()</code>。若来不及，至少用 Windows Job Object 绑定父子生命周期。</div>
+</div>
+<div class="row" style="grid-template-columns: 1.7fr 82px 1.7fr;">
+<div class="cell">Windows 上对已存在的插件目录做 rename 会失败（DSH generation 机制的教训）。</div>
+<div class="cell"><span class="sev high">HIGH</span></div>
+<div class="cell">安装器在目标存在时**直接拒绝**（<code>installer.rs</code> 的 <code>if target.exists()</code>），不做覆盖。更新流程留到第二期，届时必须先 rename 到 trash 再删。</div>
+</div>
+<div class="row" style="grid-template-columns: 1.7fr 82px 1.7fr;">
+<div class="cell">插件的 stdout 同时承载 JSON-RPC 与调试打印，日志会把协议打乱。</div>
+<div class="cell"><span class="sev med">MED</span></div>
+<div class="cell">文档明确要求插件只往 stdout 写协议帧、往 stderr 写日志。解析时跳过非 JSON 行而不是报错（<code>Task 11</code> 的示例插件演示了这种写法）。</div>
+</div>
+<div class="row" style="grid-template-columns: 1.7fr 82px 1.7fr;">
+<div class="cell">MCP 官方 TS SDK 依赖较重，插件自带 <code>node_modules</code> 可能超 8 MB 上限。</div>
+<div class="cell"><span class="sev med">MED</span></div>
+<div class="cell">验收插件刻意不依赖 SDK（手写 30 行协议），证明零依赖也可行。作者文档推荐 esbuild 打单文件。</div>
+</div>
+<div class="row" style="grid-template-columns: 1.7fr 82px 1.7fr;">
+<div class="cell">插件工具与内置工具在模型眼里都是「工具」，用户难以区分。</div>
+<div class="cell"><span class="sev low">LOW</span></div>
+<div class="cell">名字自带 <code>pluginId__</code> 前缀，模型与日志天然可辨。第二期可在工具描述前加「（插件）」标注。</div>
+</div>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+<div class="sec-head"><span class="num">06</span><h2>明确不做</h2></div>
+<p class="sec-intro">以下内容在本期计划之外，验收时不要因为「没做」而判失败。</p>
+<div class="table">
+<div class="row" style="grid-template-columns: 1fr 2fr;">
+<div class="cell head">项</div><div class="cell head">原因</div>
+</div>
+<div class="row" style="grid-template-columns: 1fr 2fr;">
+<div class="cell">界面插件（iframe 面板）</div>
+<div class="cell">需要先定义 slot 契约，QMAI 的 UI 刚完成 4.0 重构。协议已预留 <code>contributes.panels</code> 字段。</div>
+</div>
+<div class="row" style="grid-template-columns: 1fr 2fr;">
+<div class="cell">插件市场索引</div>
+<div class="cell">第一期只支持「粘贴地址安装」。等真实供给出现后再建 <code>awesome-qmai-plugin</code> 索引仓库。</div>
+</div>
+<div class="row" style="grid-template-columns: 1fr 2fr;">
+<div class="cell">插件更新</div>
+<div class="cell">需要处理「目录已存在」的替换，与 Windows rename 约束纠缠，独立成期。</div>
+</div>
+<div class="row" style="grid-template-columns: 1fr 2fr;">
+<div class="cell">插件互相 <code>inject</code></div>
+<div class="cell">第一期 <code>inject</code> 只支持宿主服务（<code>host.qmai.tools</code>、<code>host.logger</code>）。</div>
+</div>
+<div class="row" style="grid-template-columns: 1fr 2fr;">
+<div class="cell">阶段钩子（<code>contributes.stages</code>）</div>
+<div class="cell">字段会解析但不执行。执行需要改 <code>novel-pre-plugin-chain.ts</code> 的硬编码链，属独立改造。</div>
+</div>
+<div class="row" style="grid-template-columns: 1fr 2fr;">
+<div class="cell">插件签名与审核</div>
+<div class="cell">安装器只做来源记录（repo + commit + sha256），不做签名校验。</div>
+</div>
+</div>
+</section>
+
+</div>
+</body>
+</html>
