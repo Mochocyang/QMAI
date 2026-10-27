@@ -1,6 +1,7 @@
 {
-  "version": 3,
+  "version": 4,
   "channels": [
+    { "id": "official-site", "label": "官网直链", "rewrite": "site", "base": "https://qmai.pro/download/windows", "scope": "update-only" },
     { "id": "gh-proxy-com", "label": "加速通道 A", "rewrite": "prefix", "base": "https://gh-proxy.com/", "scope": "update-only" },
     { "id": "ghproxy-net", "label": "加速通道 B", "rewrite": "prefix", "base": "https://ghproxy.net/", "scope": "update-only" },
     { "id": "jsdelivr", "label": "加速通道 C", "rewrite": "jsdelivr", "scope": "update-only" },

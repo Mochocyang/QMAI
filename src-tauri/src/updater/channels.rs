@@ -69,9 +69,20 @@ pub struct ChannelTable {
 
 impl ChannelTable {
     /// 内置默认表。远程表能覆盖它，但永远保留 `direct` 作为兜底。
+    ///
+    /// ── version 为什么是 4（而不是 1）──────────────────────────
+    /// 远程表（`update-channels.json`）与内置表**各写一份通道清单**，靠版本号
+    /// 决定用哪份：只有 `remote.version > builtin.version` 才用远程的。
+    ///
+    /// 此前内置表停在 1、远程表已经到 3，于是内置表里这条**官网直链**被整体
+    /// 覆盖掉了 —— 而官网（Azure Blob + Cloudflare）恰恰是最稳的一条源。
+    /// 现在两边都是 4 且内容一致，因此：
+    ///   * 远程表拉不到 / CDN 缓存还停在旧版（2、3）→ 用内置表（含官网通道）；
+    ///   * 远程表拉到 4 → 内容与内置表相同，用哪份都一样。
+    /// 这样官网通道不再依赖 CDN 缓存何时刷新。
     pub fn builtin() -> Self {
         Self {
-            version: 1,
+            version: 4,
             channels: vec![
                 /*
                  * **镜像在前、直连垫底**。
@@ -499,6 +510,46 @@ mod tests {
     }
 
     #[test]
+    fn checked_in_remote_table_does_not_drop_any_builtin_channel() {
+        // ── 这条钉住过一次真实事故 ────────────────────────────────
+        // 官网直链（`official-site`）先加到了内置表，但没同步到仓库里的
+        // `update-channels.json`。而远程表版本号更高时会**整体替换**内置表，
+        // 于是那条官网通道从落地起就没生效过，用户也看不出来 —— 只是"更新慢"。
+        //
+        // 契约：内置表里的每条通道，仓库里的远程表也必须有一条同 id 的。
+        // 反过来不要求（远程表可以比内置表新，那正是它存在的意义），
+        // 也不要求同序（`build_sources` 会把 `site` 类型提到第一）。
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../update-channels.json");
+        let json = std::fs::read_to_string(&path).expect("仓库里必须有 update-channels.json");
+        let remote = ChannelTable::parse(&json).expect("远程表必须能解析");
+
+        let builtin = ChannelTable::builtin();
+        for channel in &builtin.channels {
+            assert!(
+                remote.channels.iter().any(|r| r.id == channel.id),
+                "远程表缺少内置表里的通道 `{}`（{}）—— 远程表版本更高时会把内置表整体替换，\
+                 这条通道就会从用户手里消失",
+                channel.id,
+                channel.label
+            );
+        }
+
+        // 官网直链是最容易被漏掉、也最不该漏的一条：单独点出来
+        assert!(
+            remote.channels.iter().any(|r| r.rewrite == Rewrite::Site),
+            "远程表必须保留一条 `site` 类型通道（官网直链），否则用户只剩镜像可用"
+        );
+
+        // 远程表版本不能低于内置表，否则它永远不生效（等于白改）
+        assert!(
+            remote.version >= builtin.version,
+            "远程表版本 {} 低于内置表 {}，改了也不会生效",
+            remote.version,
+            builtin.version
+        );
+    }
+
+    #[test]
     fn identity_keeps_the_original_url() {
         let url = "https://github.com/Mochocyang/QMAI/releases/download/v1/latest.json";
         let channel = Channel {
@@ -774,12 +825,14 @@ mod tests {
     #[test]
     fn remote_table_with_same_version_falls_back_to_builtin() {
         // 同版本不提供任何新信息；内置表至少和这个二进制一起测过，更可信。
-        let body = r#"{"version":1,"channels":[
+        // 这里的版本号必须跟 `builtin().version` 一致，否则测的就成了"低版本回落"。
+        let body = r#"{"version":4,"channels":[
             {"id":"direct","label":"直连","rewrite":"identity","scope":"update-only"}
         ]}"#;
         let url = serve(body);
         let table = ChannelTable::load_effective_from(&test_client(), &url, None);
         assert_eq!(table, ChannelTable::builtin(), "版本相同必须回落到内置表");
+        assert_eq!(table.version, ChannelTable::builtin().version);
     }
 
     #[test]
