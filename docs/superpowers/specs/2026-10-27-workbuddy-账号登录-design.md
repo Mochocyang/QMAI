@@ -62,7 +62,7 @@ QMAI 现在有两种接法：HTTP（预制 API / 自定义）和子进程（四�
 账号版本   [ 国内版（WorkBuddy） ]  [ 国际版（WorkBuddy AI）· 二期 ]
            两版可同时保存，各自一份模型清单。
 
-添加方式   [ 网页登录 ]  [ 导入凭证文件 ]  [ 导入桌面端登录态 ]
+添加方式   [ 网页登录 ]  [ 导入凭证文件 ]
 ────────────────────────────────────────────────────────────
 网页登录
   打开方式   [ 内嵌窗口 ]  [ 系统默认浏览器 ]
@@ -214,19 +214,32 @@ sequenceDiagram
 - 文件里的版本与当前所选不一致 → 按文件为准并 toast 提示，不静默；
 - 只读文本，不解密、不联网。
 
-### 4.3 导入桌面端登录态
+### 4.3 导入桌面端登录态 —— **已删除（2026-10-27）**
 
-不弹文件选择，后端按固定路径找官方客户端最新的登录态文件：
+原设计：不弹文件选择，后端按固定路径读
+`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info`
+（macOS 为 `~/Library/Application Support/CodeBuddyExtension/…`），当前文件缺失时退回
+时间戳最大的备份。
 
-| 平台 | 目录 |
-|---|---|
-| Windows | `%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\` |
-| macOS | `~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/` |
+**删除原因（实机验证）**：新版 WorkBuddy 客户端已把 `account.nickname`、
+`auth.accessToken`、`auth.refreshToken` 全部改写成
 
-- 文件：`workbuddy-desktop.info`（国内版）；国际版是 `workbuddy-desktop-ai.info`（二期）。
-- 当前文件不存在时，取同目录下 `workbuddy-desktop.<时间戳>.<pid>.<uuid>.info` 里文件名最大的那份（ISO 时间戳字典序即时间序）。备份里的 accessToken 可能已过期，refreshToken 通常仍有效，落库后由刷新链接管。
-- 找不到时文案：「未找到官方客户端登录态，请先在 WorkBuddy 客户端登录一次」，并把期望路径显示出来。
-- 只读，不改、不删客户端文件。
+```json
+{ "$wbEncrypted": 1, "envelope": "base64({suite:1,keyId,nonce,authTag,ciphertext})" }
+```
+
+- 算法：`AES-256-GCM`；`keyId` = `sha256(sha256(atRestSecretKey))` 前 16 位十六进制
+  （见安装包 `app.asar` → `/main/dist.js` 的 `deriveAtRestKeyId` / `normalizeAtRestKeyPayload`）；
+- 密钥来源：客户端原生模块 `electron.workbuddyStorage`（`/main/credential-protection.js`），
+  `atRestSecretKey` **不落盘、不可导出**，也不在 Chromium `Local State` 的 `os_crypt` 里；
+- 结论：任何外部程序都读不出明文 —— 这条路对当前客户端**结构性不可用**。
+
+因此整条链路（定位文件 / 读文件 / 只读探测 / 两个 Tauri 命令 / 对话框分段）已删除，
+不在界面上留一个永远点不通的入口。用户想用客户端里那个账号 → 走「网页登录」。
+
+「导入凭证文件」保留：它读的是用户**手动选择**的文件，旧版客户端的明文 `.info`
+或第三方导出的 JSON 仍然可用；若选到加密的 `.info`，会明确提示改用网页登录
+（`import::ENCRYPTED_CREDENTIAL`）。
 
 ---
 
@@ -310,7 +323,7 @@ X-Enterprise-Id / X-Tenant-Id / X-Department-Info: 有才带
 | `crypto.rs` | AES-256-GCM + `enc1:` 信封 + 密钥文件 | 140 |
 | `login.rs` | state → 轮询 token → login/account → 落库，任务表与取消 | 300 |
 | `login_window.rs` | 内嵌窗口、临时数据目录、导航白名单 | 220 |
-| `import.rs` | 凭证文件解析、桌面端登录态定位 | 200 |
+| `import.rs` | 凭证文件解析（嵌套/扁平/判版本）+ 加密形态识别 | 150 |
 | `refresh.rs` | `token/refresh`，单飞 + 401 重试 | 130 |
 | `models.rs` | `/v3/config` 拉取、缓存、内置兜底、`/v1/models` 形状 | 300 |
 | `chat.rs` | 头部集合、system 注入、错误分类 | 320 |
@@ -363,13 +376,12 @@ X-Enterprise-Id / X-Tenant-Id / X-Department-Info: 有才带
 2. 选国内版 → 网页登录 → 内嵌窗口打开腾讯登录页，登录成功后 5 秒内：对话框显示新账号、列表出现「WorkBuddy 国内版」卡片、卡片里已勾选默认模型；
 3. 关掉内嵌窗口 → 对话框回到可再次发起的状态，且没有残留账号；
 4. 再登录一次同一账号 → 提示已存在，不产生重复记录；
-5. 用「导入凭证文件」导入官方 `.info` → 账号出现；导入非法 JSON / 缺 uid → 明确报错；
-6. 删掉客户端目录后点「导入桌面端登录态」→ 报错文案含期望路径；
-7. 在 AI 对话里选 WorkBuddy 模型 → 正常流式出字；中途点停止 → 立即中断、不泄漏连接；
-8. 手动把 `accessToken` 改成过期值 → 下一次请求自动刷新并成功（日志能看到一次 refresh）；
-9. 断开网络 → 错误文案可读，不出现英文堆栈；
-10. 删掉账号 → 卡片置灰、模型不出现在选择器里；重新登录后恢复；
-11. `npm run test:mocks` 与 `npm run typecheck` 全绿；Rust 侧新增单测覆盖：信封加解密、.info 解析（嵌套/扁平/缺字段）、system 注入、错误分类。
+5. 用「导入凭证文件」导入含 accessToken + uid 的 JSON → 账号出现；导入非法 JSON / 缺 uid / 加密 `.info` → 明确报错；
+6. 在 AI 对话里选 WorkBuddy 模型 → 正常流式出字；中途点停止 → 立即中断、不泄漏连接；
+7. 手动把 `accessToken` 改成过期值 → 下一次请求自动刷新并成功（日志能看到一次 refresh）；
+8. 断开网络 → 错误文案可读，不出现英文堆栈；
+9. 删掉账号 → 卡片置灰、模型不出现在选择器里；重新登录后恢复；
+10. `npm run test:mocks` 与 `npm run typecheck` 全绿；Rust 侧单测覆盖：信封加解密、凭证解析（嵌套/扁平/缺字段/加密形态）、system 注入、错误分类。
 
 ---
 
@@ -377,6 +389,6 @@ X-Enterprise-Id / X-Tenant-Id / X-Department-Info: 有才带
 
 本期代码里凡是「版本相关」的东西都收敛在 `endpoints.rs` 的 `Edition` 常量与 `accounts.rs` 的 `provider` 字段：
 
-- 二期加 `workbuddy-intl`：端点 `https://www.workbuddy.ai`、`platform: workbuddy-ai`、UA `WorkBuddy/5.8.4 workbuddy-ai/5.8.4 CLI/2.161.0`、文件名 `workbuddy-desktop-ai.info`；
+- 二期加 `workbuddy-intl`：端点 `https://www.workbuddy.ai`、`platform: workbuddy-ai`、UA `WorkBuddy/5.8.4 workbuddy-ai/5.8.4 CLI/2.161.0`；
 - 二期加「恢复 Google / GitHub 入口」：`initialization_script_for_all_frames` 持续移除 `oneid-only-login-style`，并放行 `accounts.google.com` / `github.com` 等身份域名（两个开关必须同时生效，否则白屏）；
 - 二期放开对话框里被禁用的「国际版」分段。

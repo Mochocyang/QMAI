@@ -471,6 +471,9 @@ data: [DONE]\n\n";
         _dir: std::path::PathBuf,
     }
 
+    /// 每个用例用不同的 uid：网关取「第一个可用账号」，但账号文件是各用例自己的
+    /// 临时目录；用固定 uid 只是为了便于阅读断言。真正要求唯一的是 `refresh`
+    /// 单飞占位表（那张表是进程级的），这里不触发刷新，所以固定 uid 无碍。
     async fn fixture(responses: Vec<(u16, String)>, with_account: bool) -> Fixture {
         let stub = StubServer::spawn(responses);
         let dir = temp_dir();

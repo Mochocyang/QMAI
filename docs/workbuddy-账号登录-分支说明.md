@@ -12,11 +12,20 @@
 ＋ 添加账号   ＋ 添加提供方   ＋ 添加自定义模型
 ```
 
-「添加账号」打开 WorkBuddy 登录对话框，用户可以：
+「添加账号」打开 WorkBuddy 登录对话框，用户有两条路取凭证：
 
-1. **网页登录**（内嵌窗口或系统浏览器）—— 用自己的 WorkBuddy 账号登录一次；
-2. **导入凭证文件** —— 官方客户端登录态 `.info` 或任何含 `accessToken` + `uid` 的 JSON；
-3. **导入桌面端登录态** —— 读本机官方客户端目录里最新的登录态。
+1. **网页登录**（内嵌窗口或系统浏览器）—— 用自己的 WorkBuddy 账号登录一次。**这是主路径**；
+2. **导入凭证文件** —— 任何含 `accessToken` + `uid` 的 JSON（嵌套形 `auth` + `account`，或扁平形）。
+
+> **关于「导入桌面端登录态」（已删除）**
+> 原本还有第三条：读本机 `%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info`。
+> 2026-10 实测发现新版客户端已把 `accessToken` / `refreshToken` / `nickname` 全部改成
+> `{"$wbEncrypted":1,"envelope":"…"}` 密文（它自己的 at-rest 密钥保护：`AES-256-GCM`，
+> 密钥来自客户端原生模块 `electron.workbuddyStorage`，**不落盘、不可导出**，信封里的
+> `keyId` 是 `sha256(sha256(atRestSecretKey))` 前 16 位）。
+> 任何外部程序都读不出来，因此整条链路（含只读探测）**已随本次改动删除**，不在界面上
+> 留一个永远点不通的入口。想用客户端里那个账号，就走「网页登录」—— 同一个账号登录一次即可。
+> 旧版客户端的 `.info` 若是明文，仍可用「导入凭证文件」导入。
 
 登录成功后自动出现一张「WorkBuddy 国内版」模型卡片，模型清单来自
 `GET /v3/config`，之后**聊天链路一行没改**就能用。
@@ -49,15 +58,15 @@ token 到期要自己换）。
 | `crypto.rs` | AES-256-GCM + `enc1:` 信封 + 密钥文件（0600、`create_new` 防并发） | 6 |
 | `accounts.rs` | 账号结构、加密落盘、**按 uid 幂等**、优先级、对外视图 | 8 |
 | `login.rs` | `auth/state` → 轮询 `auth/token` → `login/account` → JWT 兜底 | 8 |
-| `import.rs` | 凭证文件（嵌套/扁平/判版本）、桌面端登录态定位 | 8 |
+| `import.rs` | 凭证文件（嵌套/扁平/判版本）、加密形态识别 | 5 |
 | `refresh.rs` | `token/refresh`，单飞 + 合并口径 | 5 |
 | `models.rs` | `/v3/config` 解析、前缀黑名单、缓存、内置兜底、OpenAI 形状 | 9 |
 | `chat.rs` | 私有头集合、首条 system 注入（`developer` 先归一）、错误分类 | 8 |
 | `gateway.rs` | axum 三路由、令牌、SSE **原样透传**、`stream:false` 聚合 | 7 |
-| `commands.rs` | 11 条 Tauri 命令（返回值一律不含 token） | — |
+| `commands.rs` | 9 条 Tauri 命令（返回值一律不含 token） | — |
 | `login_window.rs` | 内嵌窗口、**每次登录新数据目录**、域名白名单、关窗即取消 | 3 |
 
-`cargo test workbuddy` → **71 passed**。
+`cargo test workbuddy` → **68 passed**。
 
 ### 前端
 
@@ -66,7 +75,7 @@ token 到期要自己换）。
 | `src/lib/workbuddy-accounts.ts`（新） | IPC 封装 + `waitForLogin`（两秒节拍、可取消、超时分离） |
 | `src/lib/workbuddy-gateway.ts`（新） | 网关句柄与配置注入 |
 | `src/lib/workbuddy-card.ts`（新） | 卡片生成规则（默认勾选 ≤3、上下文取最小、删账号置灰） |
-| `…/sections/add-workbuddy-account-dialog.tsx`（新） | 登录对话框（版本 / 添加方式 / 三条子面板 / 已有账号） |
+| `…/sections/add-workbuddy-account-dialog.tsx`（新） | 登录对话框（版本 / 添加方式两段 / 已有账号） |
 | `…/sections/llm-provider-section.tsx` | 两栏→三栏并上移；挂载对话框；首次登录生成卡片 |
 | `…/uitest/models/model-settings.css` | 对话框样式（跟随主题变量） |
 | `llm-presets.ts` / `wiki-store.ts` / `settings-types.ts` | provider `workbuddy` + 预设 |
@@ -99,7 +108,7 @@ token 到期要自己换）。
 | 模型不在清单里 | 400 `model_not_found`（与其它 provider 同口径） | `gateway::chat_completions` |
 | 没登录账号 | 409 + 「请先在模型设置里添加账号」 | `gateway::chat_completions` |
 | 密钥文件被换过 | 「凭证解密失败…请重新登录」 | `crypto::DECRYPT_FAILED` |
-| 找不到客户端登录态 | 报错里带**期望路径** | `import::locate_desktop_auth_file` |
+| 导入的是加密 `.info` | 明说「被客户端加密保护、请改用网页登录」 | `import::ENCRYPTED_CREDENTIAL` |
 | 网关起不来 | 设置页照常可用，只有对话报错并说明原因 | `commands::workbuddy_gateway_ensure` |
 
 ## 六、验收清单（手工）
@@ -111,15 +120,14 @@ token 到期要自己换）。
 | 3 | 选「网页登录 / 内嵌窗口」→ 打开网页登录 | 弹出腾讯登录页；登录成功后 5 秒内账号出现在「已有账号」，并自动生成模型卡片 |
 | 4 | 关掉内嵌窗口（不登录） | 对话框回到可再次发起状态，无残留账号 |
 | 5 | 再登录同一账号 | 覆盖更新，不产生第二条记录 |
-| 6 | 导入凭证文件（官方 `.info`） | 账号出现；非法 JSON / 缺 uid → 明确报错指出缺哪个字段 |
-| 7 | 删掉客户端目录后点「从本机导入」 | 报错文案包含期望路径 |
-| 8 | AI 对话里选 WorkBuddy 模型 | 正常流式出字；点停止立即中断 |
-| 9 | 手动把 token 改成过期值 | 下一次请求自动续期并成功（日志有一条 refresh） |
-| 10 | 删掉唯一账号 | 卡片置灰、模型从选择器消失；重新登录后恢复 |
-| 11 | 断网后发起对话 | 可读的中文错误，不出现英文堆栈 |
+| 6 | 导入凭证文件（含 accessToken + uid 的 JSON） | 账号出现；非法 JSON / 缺 uid / 加密 `.info` → 明确报错 |
+| 7 | AI 对话里选 WorkBuddy 模型 | 正常流式出字；点停止立即中断 |
+| 8 | 手动把 token 改成过期值 | 下一次请求自动续期并成功（日志有一条 refresh） |
+| 9 | 删掉唯一账号 | 卡片置灰、模型从选择器消失；重新登录后恢复 |
+| 10 | 断网后发起对话 | 可读的中文错误，不出现英文堆栈 |
 
-> 状态：**第 1–2、5–7、9–11 条已由自动化测试覆盖到逻辑层**（Rust 71 条 + 前端 4 个 spec）；
-> 第 3、4、8 条需要真实 WorkBuddy 账号与网络，**待手工验收**。
+> 状态：**第 1–2、5–6、8–10 条已由自动化测试覆盖到逻辑层**（Rust 68 条 + 前端 4 个 spec）；
+> 第 3、4、7 条需要真实 WorkBuddy 账号与网络，**待手工验收**。
 
 ## 七、许可与合规
 
@@ -127,15 +135,14 @@ token 到期要自己换）。
   本实现**只使用其协议事实**（端点、头名、字段、握手顺序），代码全部自己写，未复制其源码。
 - 以非官方客户端形态复用登录态，可能触发上游限流或风控。产品上：不默认开启、
   首次使用提示风险、错误文案如实说明。
-- 官方客户端把 token **明文**落在 `CodeBuddyExtension\…\auth\`；本实现落库前加密，
-  密钥文件与数据分离。
+- 新版官方客户端把 token 以 `$wbEncrypted` 密文落在 `CodeBuddyExtension\…\auth\`（不可导出）；
+  QMAI 自己的账号库同样加密落库，密钥文件与数据分离。
 
 ## 八、二期（国际版）预留
 
-国际版的常量、文件名、UA、`platform` 已在 `endpoints.rs` 备好（`Edition::INTL`），
+国际版的常量、UA、`platform` 已在 `endpoints.rs` 备好（`Edition::INTL`），
 `provider_id = workbuddy-intl`。二期只需：
 
 1. 放开对话框里被禁用的「国际版」分段；
 2. 加「恢复 Google / GitHub 入口」开关（注入脚本持续移除 `oneid-only-login-style`
-   样式 + 导航白名单扩到 `accounts.google.com` / `github.com`，**两者必须同时生效**）；
-3. 桌面端导入读 `workbuddy-desktop-ai.info`（已实现，只是 UI 未开放）。
+   样式 + 导航白名单扩到 `accounts.google.com` / `github.com`，**两者必须同时生效**）。

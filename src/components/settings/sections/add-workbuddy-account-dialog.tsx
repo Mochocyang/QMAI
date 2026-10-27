@@ -1,11 +1,18 @@
 /**
  * 「登录 / 添加 WorkBuddy 账号」对话框。
  *
- * 结构照 Agent2API 的同名弹窗（账号版本 → 添加方式 → 三条子面板 → 已有账号），
+ * 结构：账号版本 → 添加方式（网页登录 / 导入凭证文件）→ 子面板 → 已有账号。
  * 视觉沿用 QMAI 设置页现有的卡片与按钮样式。
  *
  * 本期只做国内版：`国际版` 分段可见但禁用，后缀「二期」。这样二期放开时只删
  * 一个 disabled，不用重排结构。
+ *
+ * ── 为什么没有「从本机客户端导入」────────────────────────────
+ * 曾有过，但 2026-10 的新版 WorkBuddy 客户端把 accessToken / refreshToken /
+ * nickname 全部改成了 `{"$wbEncrypted":1,"envelope":"…"}`（它自己的 at-rest 密钥
+ * 保护，密钥由客户端原生模块持有、不落盘、不可导出），外部程序读不出来 ——
+ * 那条路对当前客户端结构性不可用，因此整条链路已删除，不在界面上留一个永远
+ * 点不通的入口。想用客户端里的账号，就走「网页登录」：同一个账号登录一次即可。
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
@@ -13,9 +20,7 @@ import { openExternalUrl } from "@/lib/open-external-url"
 import {
   cancelWorkbuddyLogin,
   importWorkbuddyCredential,
-  importWorkbuddyDesktop,
   listWorkbuddyAccounts,
-  probeWorkbuddyDesktopAvailable,
   refreshWorkbuddyModels,
   removeWorkbuddyAccount,
   startWorkbuddyLogin,
@@ -24,7 +29,7 @@ import {
   type WorkbuddyModel,
 } from "@/lib/workbuddy-accounts"
 
-type AddMethod = "web" | "file" | "desktop"
+type AddMethod = "web" | "file"
 type LoginMode = "embedded" | "external"
 
 export interface AddWorkbuddyAccountDialogProps {
@@ -58,24 +63,14 @@ export function AddWorkbuddyAccountDialog({
   const [hint, setHint] = useState("")
   const [error, setError] = useState("")
   const [loginState, setLoginState] = useState<string | null>(null)
-  /**
-   * 「导入桌面端登录态」这条路径在本机到底可不可用。
-   *
-   * 新版 WorkBuddy 客户端把 accessToken 存成 `$wbEncrypted`（它自己的 at-rest
-   * 密钥保护，密钥不可导出），此时这条路径结构性不可用。提前探一次，能让用户
-   * 在**点之前**就知道该走「网页登录」，而不是点了之后读一段底层报错。
-   */
-  const [desktopAvailability, setDesktopAvailability] = useState<
-    { state: "unknown" } | { state: "available" } | { state: "unavailable" }
-  >({ state: "unknown" })
   const fileInput = useRef<HTMLInputElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
   /**
    * 账号集合变化后的统一收尾：刷新列表、通知设置页、必要时生成/置灰卡片。
    *
-   * 抽成一个函数是因为三条链路（网页登录 / 导入文件 / 导入桌面端）都要走它 ——
-   * 复制三份必然出现「某条链路忘了生成卡片」这种只在个别入口复现的怪现象。
+   * 抽成一个函数是因为两条链路（网页登录 / 导入凭证文件）都要走它 ——
+   * 复制两份必然出现「某条链路忘了生成卡片」这种只在个别入口复现的怪现象。
    */
   const settleAccounts = useCallback(
     async (view: { accounts: WorkbuddyAccount[] }, wasEmpty: boolean) => {
@@ -120,13 +115,6 @@ export function AddWorkbuddyAccountDialog({
       setError("")
       setHint("")
       void refreshAccounts()
-      // 顺带探一次桌面端登录态能不能读（只读探测，不落库、不联网）。
-      setDesktopAvailability({ state: "unknown" })
-      void probeWorkbuddyDesktopAvailable()
-        .then((available) =>
-          setDesktopAvailability({ state: available ? "available" : "unavailable" }),
-        )
-        .catch(() => setDesktopAvailability({ state: "unknown" }))
     } else {
       abortRef.current?.abort()
       abortRef.current = null
@@ -197,32 +185,6 @@ export function AddWorkbuddyAccountDialog({
     }
   }
 
-  async function importDesktop() {
-    setError("")
-    setBusy(true)
-    try {
-      const wasEmpty = accounts.length === 0
-      const result = await importWorkbuddyDesktop("workbuddy")
-      setHint(`✅ 已从客户端导入：${result.account.nickname || result.account.uidTail}`)
-      await settleAccounts(result.accounts, wasEmpty)
-    } catch (reason) {
-      // 新版客户端把 token 存成 `$wbEncrypted`（WorkBuddy 自己的 at-rest 密钥保护），
-      // 密钥不在数据目录里、也不可导出 —— 这条路径在那种客户端上必然失败。
-      // 不把这段底层术语原样丢给用户：翻译成「该走哪条路」。
-      const message = reason instanceof Error ? reason.message : String(reason)
-      if (message.includes("$wbEncrypted") || message.includes("envelope")) {
-        setError(
-          "本机 WorkBuddy 客户端把登录态加密保存了（新版客户端的保护机制），无法直接读取。" +
-            "请改用上面的「网页登录」—— 同样的账号，登录一次即可。",
-        )
-      } else {
-        setError(message)
-      }
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function remove(id: string) {
     setError("")
     try {
@@ -272,7 +234,6 @@ export function AddWorkbuddyAccountDialog({
             {([
               ["web", "网页登录"],
               ["file", "导入凭证文件"],
-              ["desktop", "导入桌面端登录态"],
             ] as Array<[AddMethod, string]>).map(([id, label]) => (
               <button
                 key={id}
@@ -337,13 +298,13 @@ export function AddWorkbuddyAccountDialog({
           <section className="wb-section">
             <h4>导入凭证文件</h4>
             <p className="model-note">
-              选择官方客户端的登录态文件（workbuddy-desktop.info），或任何含 accessToken 与 uid 的 JSON。
-              文件里的站点决定归属版本。
+              选择一个含 accessToken 与 uid 的 JSON（支持嵌套形：auth + account，也支持扁平形）。
+              文件里的 domain 决定归属版本。
             </p>
             <input
               ref={fileInput}
               type="file"
-              accept=".info,.json,application/json"
+              accept=".json,application/json"
               hidden
               onChange={(event) => {
                 const file = event.target.files?.[0]
@@ -359,31 +320,6 @@ export function AddWorkbuddyAccountDialog({
                 disabled={busy}
               >
                 {busy ? "导入中…" : "选择凭证文件"}
-              </button>
-            </div>
-          </section>
-        )}
-
-        {method === "desktop" && (
-          <section className="wb-section">
-            <h4>从本机导入桌面端登录态</h4>
-            <p className="model-note">
-              读官方客户端当前登录的账号（需已在本机 WorkBuddy 客户端登录过）。导入后由 QMAI 自动续期。
-            </p>
-            {desktopAvailability.state === "unavailable" && (
-              <p className="wb-error" role="status">
-                这台机器上的 WorkBuddy 客户端把登录态加密保存了（新版客户端的保护机制），
-                无法直接读取，因此这一条暂时用不了。请改用「网页登录」—— 同一个账号，登录一次即可。
-              </p>
-            )}
-            <div className="wb-actions">
-              <button
-                type="button"
-                className="model-button"
-                onClick={() => void importDesktop()}
-                disabled={busy || desktopAvailability.state === "unavailable"}
-              >
-                {busy ? "导入中…" : "从本机导入"}
               </button>
             </div>
           </section>

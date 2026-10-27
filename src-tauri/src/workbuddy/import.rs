@@ -1,14 +1,14 @@
-//! 两条「不经过网页登录」的取凭证路径：导入凭证文件、导入官方客户端登录态。
+//! 「导入凭证文件」：不经过网页登录的取凭证路径。
 //!
-//! ── 「导入凭证文件」支持两种形状 ─────────────────────────────
-//! ① 官方客户端登录态（嵌套形，也是 wb2api 之类工具的导出格式）：
+//! ── 支持两种形状 ───────────────────────────────────────────
+//! ① 嵌套形（wb2api 之类工具的导出格式，或旧版客户端 `.info`）：
 //!    `{ "auth": {"accessToken": …, "refreshToken": …, "expiresAt": …,
 //!                "domain": "www.workbuddy.cn"},
 //!       "account": {"uid": …, "nickname": …} }`
 //! ② 扁平形（手抄 / 第三方脚本）：
 //!    `{ "accessToken": …, "uid": …, "refreshToken": … }`
-//! 两种都接受是刻意的：让用户在「从客户端目录里拿到的文件」和「别人给的一段
-//! json」之间不用先转换。
+//! 两种都接受是刻意的：让用户在「别人给的一段 json」和「手上的导出文件」之间
+//! 不用先转换。
 //!
 //! ── 版本（国内 / 国际）以**文件自己的事实**为准 ──────────────
 //! `auth.domain`（或扁平形的顶层 `domain`）里出现 `workbuddy.ai` 就是国际版，
@@ -16,20 +16,13 @@
 //! 为什么不让界面说了算：拿国内版 token 打国际版端点必然 401，而那种错在界面上
 //! 看不出任何异常 —— 文件里写着 `www.workbuddy.ai` 却归到国内版，是最难查的一种。
 //!
-//! ── 「导入官方客户端登录态」读固定目录 ───────────────────────
-//! 官方客户端把会话**明文**落在：
-//!   Windows：`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\`
-//!   macOS：  `~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/`
-//! 当前文件名 [`Edition::desktop_file`]（`workbuddy-desktop.info` /
-//! `workbuddy-desktop-ai.info`）。每次重新登录，上一份会被改名成
-//! `workbuddy-desktop.<时间戳>.<pid>.<uuid>.info` 留在原地**不删**，所以
-//! 「当前文件缺失」时要退回**时间戳最大**的那份备份（ISO 时间戳零填充，
-//! 字典序即时间序）。备份里的 accessToken 多半已过期，refreshToken 通常仍有效，
-//! 落库后由续期链接管。
-//!
-//! 本模块**只读**：不改、不删、不移动客户端目录里的任何文件。
-
-use std::path::{Path, PathBuf};
+//! ── 为什么没有「从本机客户端导入」 ───────────────────────────
+//! 曾经有过：读 `%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth\workbuddy-desktop.info`。
+//! 2026-10 的新版客户端把 `accessToken` / `refreshToken` / `nickname` 全部改成
+//! `{"$wbEncrypted":1,"envelope":"…"}`（它自己的 at-rest 密钥保护，密钥由客户端
+//! 原生模块持有、不落盘、不可导出），任何外部程序都读不出来 —— 那条路径对当前
+//! 客户端**结构性不可用**，因此整条链路（含只读探测）已删除，不留在界面上误导用户。
+//! 用户想用客户端里那个账号，就走「网页登录」：同一个账号登录一次即可。
 
 use serde_json::Value;
 
@@ -158,93 +151,6 @@ pub fn edition_from_domain(domain: &str) -> String {
     String::new()
 }
 
-/// 在给定目录里定位该版本的登录态文件（当前文件优先，其次最新备份）。
-pub fn locate_desktop_auth_file(dir: &Path, edition: Edition) -> Result<PathBuf, String> {
-    let current = dir.join(edition.desktop_file);
-    if current.is_file() {
-        return Ok(current);
-    }
-
-    // 备份前缀带结尾的点：`workbuddy-desktop.` 不会匹配 `workbuddy-desktop-ai.…`
-    // （反过来也一样），两个版本共用目录也不会串。
-    let prefix = edition
-        .desktop_file
-        .strip_suffix(".info")
-        .map(|stem| format!("{stem}."))
-        .unwrap_or_else(|| edition.desktop_file.to_string());
-
-    let mut backups: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map_err(|error| format!("读取官方客户端目录失败（{}）：{error}", dir.display()))?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.is_file()
-                && path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .map(|name| name.starts_with(&prefix) && name.ends_with(".info"))
-                    .unwrap_or(false)
-        })
-        .collect();
-
-    // 文件名里的时间戳是零填充 ISO 形态，字典序即时间序；取最大那份。
-    backups.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
-    backups.into_iter().next().ok_or_else(|| {
-        format!(
-            "未找到官方客户端的登录态文件（{}）。请先在 WorkBuddy 客户端登录一次",
-            dir.display()
-        )
-    })
-}
-
-/// 读并解析官方客户端登录态（`dir` 由调用方给，便于测试）。
-pub fn read_desktop_credential(dir: &Path, edition: Edition) -> Result<Imported, String> {
-    let path = locate_desktop_auth_file(dir, edition)?;
-    let text = std::fs::read_to_string(&path)
-        .map_err(|error| format!("读取登录态文件失败（{}）：{error}", path.display()))?;
-    let mut imported = parse_credential_file(&text)
-        // 加密形态的原因已经写得很具体（见 `ENCRYPTED_CREDENTIAL`），
-        // 再包一层「内容异常（路径）」只会把可执行的建议埋到第二行。
-        .map_err(|error| {
-            if error == ENCRYPTED_CREDENTIAL {
-                error
-            } else {
-                format!("登录态文件内容异常（{}）：{error}", path.display())
-            }
-        })?;
-    // 客户端文件里可能没写 domain；用请求的版本兜底，避免落库后无法判断站点。
-    if imported.edition.is_empty() {
-        imported.edition = edition.id.to_string();
-    }
-    if imported.domain.is_empty() {
-        imported.domain = edition.authority();
-    }
-    Ok(imported)
-}
-
-/// 只读探测：这个目录里的登录态能不能读成明文凭证。
-///
-/// 返回 `Ok(())` 表示可用；`Err(原因)` 表示不可用（目录/文件缺失、或凭证是
-/// at-rest 加密）。**不落库、不联网**，只为了让界面在用户点之前就说清楚。
-pub fn probe_desktop_credential(dir: &Path, edition: Edition) -> Result<(), String> {
-    let path = locate_desktop_auth_file(dir, edition)?;
-    let text = std::fs::read_to_string(&path)
-        .map_err(|error| format!("读取登录态文件失败（{}）：{error}", path.display()))?;
-    let parsed: Value = serde_json::from_str(&text)
-        .map_err(|error| format!("登录态文件不是合法 JSON（{}）：{error}", path.display()))?;
-    let auth_object = parsed.get("auth").and_then(Value::as_object);
-    for key in ["accessToken", "access_token", "token"] {
-        let candidate = auth_object
-            .and_then(|object| object.get(key))
-            .or_else(|| parsed.get(key));
-        if candidate.map(is_encrypted_field).unwrap_or(false) {
-            return Err(ENCRYPTED_CREDENTIAL.to_string());
-        }
-    }
-    // 没加密不等于能用：还要有明文 token 与 uid 才有意义。
-    parse_credential_file(&text).map(|_| ())
-}
-
 /// 从（可能嵌套的）对象里取第一个非空字符串字段。
 fn field(body: &Value, nested: Option<&serde_json::Map<String, Value>>, keys: &[&str]) -> String {
     for key in keys {
@@ -292,7 +198,6 @@ fn number_field(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workbuddy::test_support::temp_dir;
 
     #[test]
     fn parses_nested_official_shape() {
@@ -340,57 +245,12 @@ mod tests {
         assert_eq!(edition_from_domain("example.com"), "");
     }
 
-    #[test]
-    fn desktop_file_prefers_current_over_backup() {
-        let dir = temp_dir();
-        std::fs::write(dir.join("workbuddy-desktop.2026-01-01T00-00-00.1.a.info"), "{}").unwrap();
-        std::fs::write(dir.join("workbuddy-desktop.info"), "{}").unwrap();
-        let found = locate_desktop_auth_file(&dir, Edition::CN).unwrap();
-        assert_eq!(found.file_name().unwrap(), "workbuddy-desktop.info");
-    }
-
-    #[test]
-    fn desktop_file_falls_back_to_newest_backup() {
-        let dir = temp_dir();
-        std::fs::write(dir.join("workbuddy-desktop.2026-01-01T00-00-00.info"), "old").unwrap();
-        std::fs::write(dir.join("workbuddy-desktop.2026-05-01T00-00-00.info"), "new").unwrap();
-        let found = locate_desktop_auth_file(&dir, Edition::CN).unwrap();
-        assert!(found.to_string_lossy().contains("2026-05-01"));
-    }
-
-    #[test]
-    fn desktop_import_ignores_other_editions_file() {
-        let dir = temp_dir();
-        std::fs::write(dir.join("workbuddy-desktop-ai.info"), "{}").unwrap();
-        assert!(locate_desktop_auth_file(&dir, Edition::CN).is_err());
-        assert!(locate_desktop_auth_file(&dir, Edition::INTL).is_ok());
-    }
-
-    #[test]
-    fn missing_directory_reports_the_path() {
-        let dir = temp_dir().join("no-such-subdir");
-        let error = locate_desktop_auth_file(&dir, Edition::CN).unwrap_err();
-        assert!(error.contains("no-such-subdir"), "文案要带上期望路径：{error}");
-    }
-
-    #[test]
-    fn desktop_read_fills_domain_from_edition() {
-        let dir = temp_dir();
-        std::fs::write(
-            dir.join("workbuddy-desktop.info"),
-            r#"{"auth":{"accessToken":"A"},"account":{"uid":"u1"}}"#,
-        )
-        .unwrap();
-        let imported = read_desktop_credential(&dir, Edition::CN).unwrap();
-        assert_eq!(imported.edition, "cn");
-        assert_eq!(imported.domain, "copilot.tencent.com");
-    }
-
     // ── 新版客户端的 at-rest 加密凭证（2026-10 实测形态）──────────
     // 真机上 workbuddy-desktop.info 的 auth.accessToken 是
     //   {"$wbEncrypted":1,"envelope":"base64({suite,keyId,nonce,authTag,ciphertext})"}
-    // 密钥由客户端原生模块持有，外部读不出来 —— 这条路径必须**明确说清楚**，
-    // 不能让用户对着「缺少 accessToken」猜。
+    // 密钥由客户端原生模块持有、不落盘。虽然「从本机导入」整条链路已删除，
+    // 但用户仍可能把这份 .info 拿去走「导入凭证文件」—— 此时必须给出
+    // 「改用网页登录」这个可执行结论，而不是「缺少 accessToken」。
     const ENCRYPTED_INFO: &str = r#"{
         "account": {"uid": "u1", "nickname": "小明"},
         "auth": {
@@ -416,31 +276,5 @@ mod tests {
         assert!(is_encrypted_field(&encrypted));
         assert!(!is_encrypted_field(&plain));
         assert!(!is_encrypted_field(&other));
-    }
-
-    #[test]
-    fn probe_reports_encrypted_desktop_file() {
-        let dir = temp_dir();
-        std::fs::write(dir.join("workbuddy-desktop.info"), ENCRYPTED_INFO).unwrap();
-        let error = probe_desktop_credential(&dir, Edition::CN).unwrap_err();
-        assert_eq!(error, ENCRYPTED_CREDENTIAL);
-    }
-
-    #[test]
-    fn probe_accepts_plaintext_desktop_file() {
-        let dir = temp_dir();
-        std::fs::write(
-            dir.join("workbuddy-desktop.info"),
-            r#"{"auth":{"accessToken":"A"},"account":{"uid":"u1"}}"#,
-        )
-        .unwrap();
-        assert!(probe_desktop_credential(&dir, Edition::CN).is_ok());
-    }
-
-    #[test]
-    fn probe_reports_missing_file() {
-        let dir = temp_dir();
-        let error = probe_desktop_credential(&dir, Edition::CN).unwrap_err();
-        assert!(error.contains("未找到"), "{error}");
     }
 }

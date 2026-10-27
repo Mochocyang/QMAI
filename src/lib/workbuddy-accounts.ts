@@ -191,32 +191,12 @@ export async function importWorkbuddyCredential(
   return invoke<WorkbuddyImportResult>("workbuddy_import_file", { content, provider })
 }
 
-/** 从官方客户端目录导入当前登录态。 */
-export async function importWorkbuddyDesktop(provider = "workbuddy"): Promise<WorkbuddyImportResult> {
-  requireDesktop()
-  return invoke<WorkbuddyImportResult>("workbuddy_import_desktop", { provider })
-}
-
 /**
- * 只读探测：本机官方客户端的登录态能不能被读成明文凭证。
+ * 取凭证目前只有两条路：网页登录、导入凭证文件。
  *
- * 新版客户端把 token 存成 `$wbEncrypted`（WorkBuddy 自己的 at-rest 密钥保护），
- * 那种形态结构性读不出来。探测结果用来在界面上**提前**说明，而不是等用户点了
- * 才看到一段底层报错。目录不存在 / 文件缺失同样算不可用 —— 那两种情况用户
- * 一样得走网页登录。
+ * 曾经还有第三条「从本机导入官方客户端登录态」，2026-10 随新版客户端把
+ * token 改成 `$wbEncrypted` 密文（密钥由客户端原生模块持有、不可导出）而删除。
  */
-export async function probeWorkbuddyDesktopAvailable(provider = "workbuddy"): Promise<boolean> {
-  requireDesktop()
-  try {
-    const result = await invoke<{ available: boolean; reason?: string }>(
-      "workbuddy_desktop_available",
-      { provider },
-    )
-    return result?.available === true
-  } catch {
-    return false
-  }
-}
 
 /** 重新拉一次模型目录。 */
 export async function refreshWorkbuddyModels(): Promise<{

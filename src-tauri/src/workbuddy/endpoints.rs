@@ -20,8 +20,6 @@
 //! 国际版常量先备好（[`Edition::INTL`]），二期放开 UI 后直接可用；本期的
 //! `provider` id 只有 `workbuddy`，`workbuddy-intl` 留到二期再开放。
 
-use std::path::PathBuf;
-
 /// 一个版本的完整客户端身份。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Edition {
@@ -40,8 +38,6 @@ pub struct Edition {
     pub ua: &'static str,
     /// 对话链路的 `X-IDE-Version`
     pub ide_version: &'static str,
-    /// 官方桌面端登录态文件名
-    pub desktop_file: &'static str,
 }
 
 impl Edition {
@@ -54,7 +50,6 @@ impl Edition {
         platform: "workbuddy",
         ua: "WorkBuddy/5.5.4 WorkBuddy/5.5.4 CLI/2.137.1",
         ide_version: "5.5.4",
-        desktop_file: "workbuddy-desktop.info",
     };
 
     /// 国际版：`www.workbuddy.ai` / platform `workbuddy-ai`（二期启用）。
@@ -70,7 +65,6 @@ impl Edition {
         platform: "workbuddy-ai",
         ua: "WorkBuddy/5.8.4 workbuddy-ai/5.8.4 CLI/2.161.0",
         ide_version: "5.8.4",
-        desktop_file: "workbuddy-desktop-ai.info",
     };
 
     /// 全部版本（顺序即界面顺序：国内版在前）。
@@ -185,38 +179,6 @@ pub const CODE_WAF_BLOCK: i64 = 11 - 128;
 /// 事实的一部分 —— 排障时看到这个码要能立刻认出「有人用了非流式」。
 #[allow(dead_code)]
 pub const CODE_NON_STREAM_UNSUPPORTED: i64 = 11101;
-
-/// 官方客户端登录态目录（Windows：`%LOCALAPPDATA%\CodeBuddyExtension\Data\Public\auth`）。
-///
-/// 两个版本共用同一个目录，靠文件名区分（见 [`Edition::desktop_file`]）。
-pub fn desktop_auth_dir() -> Option<PathBuf> {
-    if cfg!(windows) {
-        std::env::var("LOCALAPPDATA")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-            .map(|base| {
-                PathBuf::from(base)
-                    .join("CodeBuddyExtension")
-                    .join("Data")
-                    .join("Public")
-                    .join("auth")
-            })
-    } else {
-        let home = std::env::var("HOME")
-            .or_else(|_| std::env::var("USERPROFILE"))
-            .ok()
-            .filter(|value| !value.trim().is_empty())?;
-        Some(
-            PathBuf::from(home)
-                .join("Library")
-                .join("Application Support")
-                .join("CodeBuddyExtension")
-                .join("Data")
-                .join("Public")
-                .join("auth"),
-        )
-    }
-}
 
 #[cfg(test)]
 mod tests {
