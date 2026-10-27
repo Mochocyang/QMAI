@@ -4,4 +4,5 @@
 //! 插件反调宿主能力走本机回环 HTTP（按 permissions 拦截）。
 //! 设计见 docs/superpowers/specs/2026-10-27-开放插件系统-design.md
 
+pub mod manifest;
 pub mod paths;
