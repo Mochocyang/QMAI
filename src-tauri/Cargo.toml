@@ -57,6 +57,9 @@ futures = "0.3"
 tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt", "net", "time"] }
 which = "8"
 uuid = { version = "1", features = ["v4"] }
+# 插件宿主能力面的 SSRF 防护要解析 URL 取 scheme/host（只做语法判定，不发请求）。
+# 版本已在 lock 里（reqwest/cookie_store 传递依赖），显式声明不引入新的下载。
+url = "2"
 toml = "0.9"
 # Multimodal image extraction (Office docs):
 #   `image` decodes embedded PPTX/DOCX raster bytes so we can apply
