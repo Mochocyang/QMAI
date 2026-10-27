@@ -8,3 +8,4 @@
 // dead_code 警告是预期状态，不要用 #[allow(dead_code)] 掩盖它。
 pub mod manifest;
 pub mod paths;
+pub mod registry;

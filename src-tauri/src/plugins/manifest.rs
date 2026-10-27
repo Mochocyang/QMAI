@@ -164,7 +164,7 @@ fn is_declarable_permission(perm: &str) -> bool {
 
 /// id 会直接当目录名用（`<root>/<id>`），所以收紧到「小写字母数字连字符」，
 /// 避免大小写不敏感文件系统上的重名覆盖，也避免空格等需要转义的字符。
-fn is_valid_id(id: &str) -> bool {
+pub fn is_valid_id(id: &str) -> bool {
     let len = id.chars().count();
     if !(2..=64).contains(&len) {
         return false;
