@@ -151,6 +151,7 @@
     "bellWithUnread": "公告，{{count}} 条未读",
     "unreadSummary": "{{count}} 条未读",
     "markAllRead": "全部已读",
+    "allReadHint": "已全部读完",
     "empty": "暂无公告",
     "loading": "正在获取公告…",
     "loadFailed": "暂时无法获取公告，请检查网络后重试。",
