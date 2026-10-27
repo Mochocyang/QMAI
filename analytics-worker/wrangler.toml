@@ -2,6 +2,17 @@ name = "qmai-analytics"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
 
+# 只把后台前缀交给统计 Worker，官网其余路径仍由 Pages 承载。
+# 真实入口路径存在 Worker Secret「ADMIN_PATH」里，仓库中只有这个通用前缀，
+# 因此从公开源码看不到后台地址；前缀下非真实路径一律 404。
+routes = [
+  { pattern = "qmai.pro/qmai-ops*", zone_name = "qmai.pro" },
+]
+
+# ⚠️ 必须保留：老版本客户端把 qmai-analytics.qmai.workers.dev 写死在安装包里，
+# 关掉 workers.dev 会直接丢上报数据。加 routes 后 wrangler 默认会关，故显式开启。
+workers_dev = true
+
 [[d1_databases]]
 binding = "DB"
 database_name = "qmai-analytics-db"

@@ -6,7 +6,19 @@
  * - POST /heartbeat : 在线心跳（仅刷新会话活跃时间）
  * - POST /close     : 用户关闭软件（标记离线）
  * - GET  /stats     : 统计数据 JSON（需要密钥）
- * - GET  /dashboard : HTML 仪表盘（需要密钥）
+ *
+ * 后台（仅站长本人可看，挂在官网域名下）：
+ * - GET  <路径>          : 仪表盘；未登录时显示登录页
+ * - POST <路径>/login    : 密码登录，成功后写 HttpOnly 会话 Cookie
+ * - GET  <路径>/logout   : 退出登录
+ * - GET/POST <路径>/password : 修改密码（写 D1，改后旧会话全部失效）
+ *
+ * <路径> 不写在源码里：它来自 Worker Secret「ADMIN_PATH」，仓库中只保留
+ * 一个通用路由前缀（见 wrangler.toml），因此从公开源码里看不到真实入口。
+ * 未设置 ADMIN_PATH 时后台整体返回 404。
+ *
+ * 上报端点仍留在 qmai-analytics.qmai.workers.dev，因为老版本客户端把该地址
+ * 写死在安装包里，改动它会丢数据。
  *
  * Cron trigger（每 5 分钟）：清理超时会话 + 更新每日统计快照
  *
@@ -20,8 +32,32 @@
 
 export interface Env {
   DB: D1Database
-  STATS_SECRET: string // 在 Cloudflare Dashboard 设置的密钥，用于查看统计
+  STATS_SECRET: string // 在 Cloudflare Dashboard 设置的密钥，用于 /stats 接口
+  DASHBOARD_PASSWORD: string // 后台初始密码（wrangler secret put 设置），同时用于忘记密码时找回
+  ADMIN_PATH: string // 后台入口路径，形如 /qmai-ops-xxxxxxxx（wrangler secret put 设置）
 }
+
+/**
+ * 后台会话 Cookie：值形如 `<过期时间戳>.<HMAC 签名>`。
+ * 签名密钥由「当前生效密码的哈希」派生，因此改密码会让所有旧会话立即失效。
+ */
+const SESSION_COOKIE = "qmai_admin"
+const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60 // 30 天
+
+/**
+ * 后台入口路径只存在于 Worker Secret（ADMIN_PATH）里，源码和公开仓库都不留真实路径。
+ * 未配置时返回空串，所有后台路由直接 404 —— 避免漏配密钥时后台裸奔。
+ */
+function adminBasePath(env: Env): string {
+  const raw = (env.ADMIN_PATH ?? "").trim()
+  if (!raw) return ""
+  const withSlash = raw.startsWith("/") ? raw : `/${raw}`
+  return withSlash.replace(/\/+$/, "")
+}
+
+/** 自定义密码最短长度与 PBKDF2 迭代次数 */
+const PASSWORD_MIN_LENGTH = 12
+const PBKDF2_ITERATIONS = 100_000
 
 /**
  * 在线判定窗口。必须大于客户端心跳间隔（5 分钟），
@@ -86,6 +122,199 @@ function escapeHtml(value: unknown): string {
 
 function cleanText(value: unknown, maxLength: number): string {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : ""
+}
+
+/* ------------------------------------------------------------------ *
+ * 后台登录：密码学上只依赖 Web Crypto，不引第三方库
+ * ------------------------------------------------------------------ */
+
+function toHex(buffer: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
+  return toHex(digest)
+}
+
+async function hmacHex(key: string, message: string): Promise<string> {
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(key),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  )
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(message))
+  return toHex(signature)
+}
+
+/** 定长比较，避免用普通 === 泄漏前缀匹配长度 */
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
+}
+
+/* ------------------------------------------------------------------ *
+ * 密码存储：自定义密码写 D1（PBKDF2 哈希），Secret 里的初始密码兜底找回
+ * ------------------------------------------------------------------ */
+
+interface CredentialRecord {
+  hash: string
+  updatedAt: string
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = ""
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary)
+}
+
+function fromBase64(value: string): Uint8Array {
+  const binary = atob(value)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+async function derivePasswordHash(
+  password: string,
+  salt: Uint8Array,
+  iterations: number,
+): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(password),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  )
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", salt, iterations, hash: "SHA-256" },
+    key,
+    256,
+  )
+  return toBase64(new Uint8Array(bits))
+}
+
+/** 生成 `pbkdf2$迭代次数$salt$hash` 形式的可存储字符串 */
+async function hashPassword(password: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const digest = await derivePasswordHash(password, salt, PBKDF2_ITERATIONS)
+  return `pbkdf2$${PBKDF2_ITERATIONS}$${toBase64(salt)}$${digest}`
+}
+
+async function verifyHashedPassword(password: string, stored: string): Promise<boolean> {
+  const [scheme, iterationsRaw, saltRaw, digest] = stored.split("$")
+  if (scheme !== "pbkdf2" || !saltRaw || !digest) return false
+  const iterations = Number(iterationsRaw)
+  if (!Number.isFinite(iterations) || iterations <= 0) return false
+  const actual = await derivePasswordHash(password, fromBase64(saltRaw), iterations)
+  return constantTimeEqual(actual, digest)
+}
+
+/** 读取站长的自定义密码；表不存在或还没设置过时返回 null */
+async function loadCredential(env: Env): Promise<CredentialRecord | null> {
+  try {
+    const row = await env.DB.prepare(
+      `SELECT password_hash, updated_at FROM admin_credentials WHERE id = 1`
+    ).first<{ password_hash: string; updated_at: string }>()
+    if (!row?.password_hash) return null
+    return { hash: row.password_hash, updatedAt: row.updated_at }
+  } catch {
+    return null
+  }
+}
+
+async function saveCredential(env: Env, hash: string): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO admin_credentials (id, password_hash, updated_at) VALUES (1, ?1, ?2)
+     ON CONFLICT(id) DO UPDATE SET password_hash = ?1, updated_at = ?2`
+  ).bind(hash, new Date().toISOString()).run()
+}
+
+/**
+ * 校验登录/改密时提交的密码。
+ *
+ * 自定义密码与 Secret 里的初始密码都算通过：后者是「换电脑忘了密码」时的
+ * 找回入口，改完密码再回到后台重设即可。初始密码可用
+ * `wrangler secret put DASHBOARD_PASSWORD` 随时更换。
+ */
+async function verifyPassword(env: Env, submitted: string): Promise<boolean> {
+  if (!submitted) return false
+
+  const credential = await loadCredential(env)
+  if (credential && (await verifyHashedPassword(submitted, credential.hash))) return true
+
+  if (!env.DASHBOARD_PASSWORD) return false
+  const [expected, actual] = await Promise.all([
+    sha256Hex(env.DASHBOARD_PASSWORD),
+    sha256Hex(submitted),
+  ])
+  return constantTimeEqual(expected, actual)
+}
+
+/** 会话签名密钥随生效密码变化，因此改密码会把其他设备全部踢下线 */
+async function sessionSigningKey(env: Env): Promise<string> {
+  const credential = await loadCredential(env)
+  const seed = credential?.hash ?? env.DASHBOARD_PASSWORD ?? ""
+  return sha256Hex(`qmai-admin-session:${seed}`)
+}
+
+async function issueSessionToken(env: Env, seed?: string): Promise<string> {
+  const expiresAt = Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS
+  const key = seed ? await sha256Hex(`qmai-admin-session:${seed}`) : await sessionSigningKey(env)
+  const signature = await hmacHex(key, `session:${expiresAt}`)
+  return `${expiresAt}.${signature}`
+}
+
+function readCookie(request: Request, name: string): string {
+  const header = request.headers.get("Cookie") ?? ""
+  for (const part of header.split(";")) {
+    const index = part.indexOf("=")
+    if (index === -1) continue
+    if (part.slice(0, index).trim() === name) return part.slice(index + 1).trim()
+  }
+  return ""
+}
+
+async function hasValidSession(request: Request, env: Env): Promise<boolean> {
+  const token = readCookie(request, SESSION_COOKIE)
+  if (!token) return false
+  const [expiresRaw, signature] = token.split(".")
+  const expiresAt = Number(expiresRaw)
+  if (!signature || !Number.isFinite(expiresAt) || expiresAt <= Math.floor(Date.now() / 1000)) {
+    return false
+  }
+  const expected = await hmacHex(await sessionSigningKey(env), `session:${expiresAt}`)
+  return constantTimeEqual(expected, signature)
+}
+
+function sessionSetCookie(basePath: string, token: string): string {
+  return `${SESSION_COOKIE}=${token}; Path=${basePath}; Max-Age=${SESSION_TTL_SECONDS}; HttpOnly; Secure; SameSite=Strict`
+}
+
+function sessionClearCookie(basePath: string): string {
+  return `${SESSION_COOKIE}=; Path=${basePath}; Max-Age=0; HttpOnly; Secure; SameSite=Strict`
+}
+
+/** 所有后台响应统一带上：不进缓存、不进搜索索引、不携带 Referer */
+function secureHeaders(contentType: string): Record<string, string> {
+  return {
+    "Content-Type": contentType,
+    "Cache-Control": "no-store, max-age=0",
+    "X-Robots-Tag": "noindex, nofollow, noarchive",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 function activeCutoff(now = new Date()): string {
@@ -485,7 +714,8 @@ function renderDashboard(input: {
   platforms: Array<{ platform: string; count: number }>
   dailyRows: Array<{ date: string; new_users: number; total_users: number; peak_online: number }>
   serverTime: string
-  dashboardKey: string
+  basePath: string
+  justChangedPassword?: boolean
 }): string {
   const versionRows = input.versions.map((v) => ({ label: v.version, count: v.count }))
   const platformRows = input.platforms.map((p) => ({ label: p.platform, count: p.count }))
@@ -509,6 +739,8 @@ function renderDashboard(input: {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="referrer" content="no-referrer">
   <title>青幕AI写作 - 用户统计</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -538,12 +770,24 @@ function renderDashboard(input: {
     .bar-fill { display: block; height: 100%; background: #38bdf8; border-radius: 999px; }
     .bar-value { width: 110px; flex: none; text-align: right; color: #94a3b8; font-variant-numeric: tabular-nums; }
     .footer { margin-top: 1.5rem; color: #64748b; font-size: 0.8rem; line-height: 1.7; }
+    .topbar { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+    .topbar-actions { display: flex; gap: 1rem; }
+    .topbar a { color: #94a3b8; font-size: 0.85rem; text-decoration: none; border-bottom: 1px solid #334155; }
+    .topbar a:hover { color: #e2e8f0; }
+    .notice { margin-top: 1rem; padding: 0.7rem 1rem; border-radius: 6px; border: 1px solid #14532d; background: #052e16; color: #4ade80; font-size: 0.85rem; }
   </style>
 </head>
 <body>
   <main>
-    <h1>青幕AI写作后台</h1>
+    <div class="topbar">
+      <h1>青幕AI写作后台</h1>
+      <div class="topbar-actions">
+        <a href="${input.basePath}/password">修改密码</a>
+        <a href="${input.basePath}/logout">退出登录</a>
+      </div>
+    </div>
     <p class="subtle">用户统计概览。反馈请到设置页提交（走 Sentry）。</p>
+    ${input.justChangedPassword ? `<p class="notice">密码已更新，其他设备上的登录会话已失效。</p>` : ""}
 
     <h2>核心指标</h2>
     <div class="grid">
@@ -624,12 +868,191 @@ function renderDashboard(input: {
 </html>`
 }
 
-/** GET /dashboard - HTML 仪表盘（需要密钥） */
-async function handleDashboard(request: Request, env: Env): Promise<Response> {
-  const auth = new URL(request.url).searchParams.get("key")
-  if (auth !== env.STATS_SECRET) {
-    return new Response("需要密钥: ?key=你的密钥", { status: 401 })
+/** 登录页：深色风格与仪表盘一致，未登录时看不到任何统计数据 */
+function renderLoginPage(basePath: string, error = ""): string {
+  const errorBlock = error
+    ? `<p class="error" role="alert">${escapeHtml(error)}</p>`
+    : `<p class="hint">请输入后台密码。</p>`
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="referrer" content="no-referrer">
+  <title>青幕AI写作 - 后台登录</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+    .box { width: 100%; max-width: 360px; background: #111827; border: 1px solid #334155; border-radius: 10px; padding: 1.75rem; }
+    h1 { font-size: 1.15rem; color: #f8fafc; margin-bottom: 0.5rem; }
+    .hint, .error { font-size: 0.85rem; margin-bottom: 1.25rem; color: #94a3b8; }
+    .error { color: #f87171; }
+    input { width: 100%; padding: 0.7rem 0.8rem; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 0.95rem; }
+    input:focus { outline: none; border-color: #38bdf8; }
+    button { width: 100%; margin-top: 1rem; padding: 0.7rem; border: none; border-radius: 6px; background: #38bdf8; color: #0b1220; font-weight: 600; font-size: 0.95rem; cursor: pointer; }
+    button:hover { background: #7dd3fc; }
+  </style>
+</head>
+<body>
+  <main class="box">
+    <h1>青幕AI写作 · 后台</h1>
+    ${errorBlock}
+    <form method="POST" action="${basePath}/login">
+      <input type="password" name="password" placeholder="后台密码" autocomplete="current-password" autofocus required>
+      <button type="submit">进入</button>
+    </form>
+  </main>
+</body>
+</html>`
+}
+
+function loginResponse(basePath: string, error = "", status = 200): Response {
+  return new Response(renderLoginPage(basePath, error), {
+    status,
+    headers: secureHeaders("text/html;charset=UTF-8"),
+  })
+}
+
+/** POST <后台路径>/login - 校验密码，成功后写入 HttpOnly 会话 Cookie */
+async function handleLogin(request: Request, env: Env): Promise<Response> {
+  const basePath = adminBasePath(env)
+  const form = await request.formData().catch(() => null)
+  const submitted = String(form?.get("password") ?? "")
+
+  if (!(await verifyPassword(env, submitted))) {
+    // 失败固定延迟，避免用响应时间差反推密码
+    await sleep(700)
+    return loginResponse(basePath, "密码不正确，请重试。", 401)
   }
+
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: basePath,
+      "Set-Cookie": sessionSetCookie(basePath, await issueSessionToken(env)),
+    },
+  })
+}
+
+/** GET <后台路径>/logout - 清除会话 */
+function handleLogout(basePath: string): Response {
+  return new Response(null, {
+    status: 302,
+    headers: { Location: basePath, "Set-Cookie": sessionClearCookie(basePath) },
+  })
+}
+
+/** 修改密码页 */
+function renderPasswordPage(basePath: string, error = ""): string {
+  const errorBlock = error
+    ? `<p class="error" role="alert">${escapeHtml(error)}</p>`
+    : `<p class="hint">修改成功后，其他设备上的登录会立即失效。</p>`
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <meta name="referrer" content="no-referrer">
+  <title>青幕AI写作 - 修改密码</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
+    .box { width: 100%; max-width: 380px; background: #111827; border: 1px solid #334155; border-radius: 10px; padding: 1.75rem; }
+    h1 { font-size: 1.15rem; color: #f8fafc; margin-bottom: 0.5rem; }
+    .hint, .error { font-size: 0.85rem; margin-bottom: 1.25rem; color: #94a3b8; line-height: 1.6; }
+    .error { color: #f87171; }
+    label { display: block; font-size: 0.8rem; color: #94a3b8; margin: 0.9rem 0 0.35rem; }
+    input { width: 100%; padding: 0.7rem 0.8rem; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 0.95rem; }
+    input:focus { outline: none; border-color: #38bdf8; }
+    button { width: 100%; margin-top: 1.25rem; padding: 0.7rem; border: none; border-radius: 6px; background: #38bdf8; color: #0b1220; font-weight: 600; font-size: 0.95rem; cursor: pointer; }
+    button:hover { background: #7dd3fc; }
+    .back { display: block; margin-top: 1rem; text-align: center; color: #94a3b8; font-size: 0.8rem; text-decoration: none; border-bottom: none; }
+    .back:hover { color: #e2e8f0; }
+    .tip { margin-top: 1.25rem; font-size: 0.75rem; color: #64748b; line-height: 1.7; }
+  </style>
+</head>
+<body>
+  <main class="box">
+    <h1>修改后台密码</h1>
+    ${errorBlock}
+    <form method="POST" action="${basePath}/password">
+      <label for="current">当前密码</label>
+      <input id="current" type="password" name="current" autocomplete="current-password" required>
+      <label for="next">新密码（至少 ${PASSWORD_MIN_LENGTH} 位）</label>
+      <input id="next" type="password" name="next" autocomplete="new-password" required>
+      <label for="confirm">重复新密码</label>
+      <input id="confirm" type="password" name="confirm" autocomplete="new-password" required>
+      <button type="submit">保存新密码</button>
+    </form>
+    <a class="back" href="${basePath}">返回统计页</a>
+    <p class="tip">忘记密码时：用 Cloudflare Secret 中保存的初始密码登录，再回到本页重设即可。</p>
+  </main>
+</body>
+</html>`
+}
+
+function passwordResponse(basePath: string, error = "", status = 200): Response {
+  return new Response(renderPasswordPage(basePath, error), {
+    status,
+    headers: secureHeaders("text/html;charset=UTF-8"),
+  })
+}
+
+/** GET/POST <后台路径>/password - 修改密码 */
+async function handlePasswordPage(request: Request, env: Env): Promise<Response> {
+  const basePath = adminBasePath(env)
+  if (!(await hasValidSession(request, env))) {
+    return loginResponse(basePath)
+  }
+  if (request.method === "GET") {
+    return passwordResponse(basePath)
+  }
+
+  const form = await request.formData().catch(() => null)
+  const current = String(form?.get("current") ?? "")
+  const next = String(form?.get("next") ?? "")
+  const confirm = String(form?.get("confirm") ?? "")
+
+  if (!(await verifyPassword(env, current))) {
+    await sleep(500)
+    return passwordResponse(basePath, "当前密码不正确。", 400)
+  }
+  if (next.length < PASSWORD_MIN_LENGTH) {
+    return passwordResponse(basePath, `新密码至少需要 ${PASSWORD_MIN_LENGTH} 位。`, 400)
+  }
+  if (next !== confirm) {
+    return passwordResponse(basePath, "两次输入的新密码不一致。", 400)
+  }
+  if (next === current) {
+    return passwordResponse(basePath, "新密码不能与当前密码相同。", 400)
+  }
+
+  const hash = await hashPassword(next)
+  await saveCredential(env, hash)
+
+  // 新密码生效后会话签名密钥随之变化，旧 Cookie 全部失效；
+  // 这里直接按新哈希补发当前浏览器的会话，避免刚改完就被踢回登录页。
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: `${basePath}?pw=1`,
+      "Set-Cookie": sessionSetCookie(basePath, await issueSessionToken(env, hash)),
+    },
+  })
+}
+
+/** GET <后台路径> - HTML 仪表盘；未登录时只显示登录页 */
+async function handleDashboard(request: Request, env: Env): Promise<Response> {
+  const basePath = adminBasePath(env)
+  if (!(await hasValidSession(request, env))) {
+    return loginResponse(basePath)
+  }
+
+  const justChangedPassword = new URL(request.url).searchParams.get("pw") === "1"
 
   const metrics = await collectMetrics(env)
   const activity = await collectActivity(env)
@@ -661,11 +1084,12 @@ async function handleDashboard(request: Request, env: Env): Promise<Response> {
     platforms,
     dailyRows: daily.results ?? [],
     serverTime: new Date().toISOString(),
-    dashboardKey: auth,
+    basePath,
+    justChangedPassword,
   })
 
   return new Response(html, {
-    headers: { "Content-Type": "text/html;charset=UTF-8" },
+    headers: secureHeaders("text/html;charset=UTF-8"),
   })
 }
 
@@ -726,8 +1150,22 @@ export default {
       if (request.method === "GET" && path === "/stats") {
         return await handleStats(request, env)
       }
-      if (request.method === "GET" && path === "/dashboard") {
-        return await handleDashboard(request, env)
+      // 后台路径来自 ADMIN_PATH 密钥；源码里没有真实路径，未配置时整段不可用。
+      const adminPath = adminBasePath(env)
+      if (adminPath) {
+        if (request.method === "GET" && (path === adminPath || path === `${adminPath}/`)) {
+          return await handleDashboard(request, env)
+        }
+        if (path === `${adminPath}/login`) {
+          if (request.method === "POST") return await handleLogin(request, env)
+          return loginResponse(adminPath)
+        }
+        if (path === `${adminPath}/logout`) {
+          return handleLogout(adminPath)
+        }
+        if (path === `${adminPath}/password`) {
+          return await handlePasswordPage(request, env)
+        }
       }
 
       return jsonResponse({ error: "not found" }, 404)
