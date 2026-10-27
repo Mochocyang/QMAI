@@ -85,3 +85,14 @@ typecheck-output.txt
 # 本地临时产物：截图预览与一次性演示页，不属于源码
 /preview/
 /docs/map-demo/
+/temp/
+
+# === 密钥与本地数据（绝不能进版本库）===
+# Cloudflare 本地密钥文件：后台密码、后台路径、统计密钥只能放这里
+.dev.vars
+.dev.vars.*
+.wrangler/
+/analytics-worker/.wrangler/
+
+# Worker 本地备份与 D1 导出：含真实用户数据（uuid、IP 哈希），禁止上传
+/analytics-worker/backups/

@@ -62,7 +62,6 @@
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
-    "shadcn": "^4.21.0",
     "sigma": "^3.0.3",
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.3.3",
@@ -81,8 +80,13 @@
     "fast-check": "^4.10.2",
     "iconv-lite": "^0.7.3",
     "jsdom": "^29.1.1",
+    "shadcn": "^4.21.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.0",
     "vitest": "^5.0.1"
+  },
+  "overrides": {
+    "dompurify": "^3.4.17",
+    "source-map-js": "^1.2.2"
   }
 }
