@@ -17,6 +17,7 @@ pub enum RuntimeType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PluginRuntime {
     #[serde(rename = "type")]
     pub entry_type: RuntimeType,
@@ -52,6 +53,7 @@ pub struct ToolParam {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ToolDecl {
     pub name: String,
     #[serde(default)]
@@ -62,6 +64,7 @@ pub struct ToolDecl {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Contributes {
     #[serde(default)]
     pub tools: Vec<ToolDecl>,
@@ -73,12 +76,25 @@ pub struct Contributes {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Requires {
     #[serde(default)]
     pub qmai: Option<String>,
 }
 
+/// 作者信息。设计文档 4.1 的示例里有这一块，结构体必须接住，
+/// 否则加上 `deny_unknown_fields` 后会把文档认可的清单判成非法。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Author {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub url: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PluginManifest {
     pub schema: u32,
     pub id: String,
@@ -86,6 +102,11 @@ pub struct PluginManifest {
     pub version: String,
     #[serde(default)]
     pub description: String,
+    // 设计文档 4.1 示例里就有这三个，结构体必须接住，否则 deny_unknown_fields 会误伤文档认可的清单
+    #[serde(default)]
+    pub author: Option<Author>,
+    #[serde(default)]
+    pub license: String,
     #[serde(default)]
     pub requires: Option<Requires>,
     pub runtime: PluginRuntime,
@@ -95,6 +116,10 @@ pub struct PluginManifest {
     pub contributes: Contributes,
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// 设计文档 8.2 第 6 步：安装完成后是否随 App 启动。
+    /// 缺省 false —— 用户没点过「启用」前，不该拉起任何第三方进程。
+    #[serde(default, rename = "autoStart")]
+    pub auto_start: bool,
 }
 
 /// 校验失败：`code` 是暴露给前端的稳定错误码，`detail` 只用于日志与排障。
@@ -119,9 +144,19 @@ impl ManifestError {
 
 /// 宿主暴露给插件的服务名白名单（第一期只开这两个）
 pub const KNOWN_INJECT: &[&str] = &["host.qmai.tools", "host.logger"];
-/// 允许申请的权限（data:write 自动授予，不必声明）
+/// 需用户逐项勾选的权限（设计文档 6.2 的「需用户勾选」行）
 pub const KNOWN_PERMISSIONS: &[&str] =
     &["fs:project-read", "fs:project-write", "net:https", "llm:use"];
+
+/// 宿主自动授予的权限：允许在清单里声明（旧文档/示例就是这么写的），但声明与否都不改变
+/// 授予结果，也永远不进「需用户勾选」列表。别把它并进 KNOWN_PERMISSIONS —— 那会让
+/// 任务 10 的权限弹窗把它当成需要用户同意的权限。
+pub const AUTO_GRANTED_PERMISSIONS: &[&str] = &["data:write"];
+
+/// 「可以在清单里写」的权限 = 需勾选的 + 自动授予的。写错成别的（如 `ui:panel`）才拒。
+fn is_declarable_permission(perm: &str) -> bool {
+    KNOWN_PERMISSIONS.contains(&perm) || AUTO_GRANTED_PERMISSIONS.contains(&perm)
+}
 
 /// id 会直接当目录名用（`<root>/<id>`），所以收紧到「小写字母数字连字符」，
 /// 避免大小写不敏感文件系统上的重名覆盖，也避免空格等需要转义的字符。
@@ -155,6 +190,15 @@ fn is_safe_relative(entry: &str) -> bool {
     if entry.trim().is_empty() {
         return false;
     }
+    // 清单里的字符串最终会当路径用：NUL 会让所有 fs 调用返回 InvalidInput；
+    // 首尾空白在 Windows 上指向另一个文件名。都该在解析期拒掉。
+    if entry.chars().any(char::is_control) || entry != entry.trim() {
+        return false;
+    }
+    // 末尾带分隔符说明作者写的是目录，不是入口文件。
+    if entry.ends_with('/') || entry.ends_with('\\') {
+        return false;
+    }
     let path = std::path::Path::new(entry);
     // Windows 上 `/etc/passwd` 的 is_absolute() 为 false（只有根没有前缀），
     // 所以分隔符开头单独判一次，保证跨平台语义一致。
@@ -169,7 +213,14 @@ fn is_safe_relative(entry: &str) -> bool {
     }
     // `/` 和 `\` 都要切：清单作者可能在 Windows 上写反斜杠，只用 split('/')
     // 会把 `..\..\evil.js` 当成单个安全段放过。
-    !entry.split(['/', '\\']).any(|seg| seg == "..")
+    let segs: Vec<&str> = entry.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
+    // 最后一段必须是真文件名：`.` / `sub/` 这种目录值装上之后才在 spawn 时炸，
+    // 报错位置离作者写的字段很远。
+    match segs.last() {
+        Some(last) if *last != "." && *last != ".." => {}
+        _ => return false,
+    }
+    !segs.iter().any(|s| *s == "..")
 }
 
 /// 工具名注入宿主时会加 `<pluginId>__` 前缀，插件内部只允许下划线风格，
@@ -250,15 +301,21 @@ impl PluginManifest {
             }
         }
         for perm in &self.permissions {
-            // data:write 由宿主自动授予，不在白名单内——写了也别放过，
-            // 免得作者误以为需要申请、并在未来版本被误判成受限权限。
-            if !KNOWN_PERMISSIONS.contains(&perm.as_str()) {
+            if !is_declarable_permission(perm) {
                 return Err(ManifestError::new("E_PERMISSION_UNKNOWN", perm.clone()));
             }
         }
+        let mut seen = std::collections::HashSet::new();
         for tool in &self.contributes.tools {
             if !is_valid_tool_name(&tool.name) {
                 return Err(ManifestError::new("E_TOOL_NAME_INVALID", tool.name.clone()));
+            }
+            if !seen.insert(tool.name.as_str()) {
+                // 注入 ToolRegistry 是 Map.set：同名后写覆盖先写，作者会以为两个工具都在。
+                return Err(ManifestError::new(
+                    "E_TOOL_NAME_INVALID",
+                    format!("{} (duplicate)", tool.name),
+                ));
             }
         }
         Ok(())
@@ -374,5 +431,139 @@ mod tests {
             PluginManifest::parse(&src).unwrap_err().code(),
             "E_TOOL_NAME_INVALID"
         );
+    }
+
+    const FULL_DOC_EXAMPLE: &str = r#"{
+      "schema": 1,
+      "id": "chapter-insights",
+      "name": "章节洞察",
+      "version": "1.2.0",
+      "description": "后台分析章节，产出节奏与伏笔报告",
+      "author": { "name": "某某", "url": "https://github.com/someone" },
+      "license": "MIT",
+      "requires": { "qmai": ">=4.4.0" },
+      "runtime": { "type": "node", "entry": "index.js", "args": ["--stdio"], "keepAlive": true, "startTimeoutMs": 10000 },
+      "inject": ["host.qmai.tools", "host.logger"],
+      "contributes": {
+        "tools": [{ "name": "analyze_chapter_rhythm", "description": "分析指定章节的叙事节奏",
+          "parameters": { "chapterPath": { "type": "string", "description": "章节文件路径", "required": true } } }],
+        "stages": ["planning"],
+        "panels": []
+      },
+      "permissions": ["fs:project-read", "net:https"],
+      "autoStart": true
+    }"#;
+
+    #[test]
+    fn rejects_misspelled_field_instead_of_silently_ignoring_it() {
+        // 拼错字段若被静默忽略，作者会以为申请到了权限，实际是空集 —— 必须在解析期炸。
+        let src = MINIMAL.replace("\"version\"", "\"permissionss\": [\"fs:project-write\"], \"version\"");
+        let err = PluginManifest::parse(&src).unwrap_err();
+        assert_eq!(err.code(), "E_JSON_INVALID");
+        assert!(
+            err.detail.contains("permissionss"),
+            "detail 应指出拼错的字段: {}",
+            err.detail
+        );
+    }
+
+    #[test]
+    fn accepts_the_documented_full_manifest() {
+        // 设计文档 4.1 的示例清单必须原样通过，否则 deny_unknown_fields 就变成了误伤
+        let m = PluginManifest::parse(FULL_DOC_EXAMPLE).expect("设计文档 4.1 示例必须合法");
+        assert_eq!(m.author.as_ref().map(|a| a.name.as_str()), Some("某某"));
+        assert_eq!(m.license, "MIT");
+        assert!(m.auto_start);
+        assert_eq!(m.permissions, vec!["fs:project-read", "net:https"]);
+        assert_eq!(m.contributes.tools.len(), 1);
+    }
+
+    #[test]
+    fn accepts_declared_auto_granted_data_write() {
+        let src = MINIMAL.replace("\"version\"", "\"permissions\": [\"data:write\", \"net:https\"], \"version\"");
+        let m = PluginManifest::parse(&src).expect("data:write 声明应被接受");
+        assert_eq!(m.permissions, vec!["data:write", "net:https"]);
+    }
+
+    #[test]
+    fn rejects_ui_panel_permission_until_phase_two() {
+        // 设计 6.2：ui:panel「第二期 · 现阶段不可申请」—— 这条才该拒
+        let src = MINIMAL.replace("\"version\"", "\"permissions\": [\"ui:panel\"], \"version\"");
+        assert_eq!(
+            PluginManifest::parse(&src).unwrap_err().code(),
+            "E_PERMISSION_UNKNOWN"
+        );
+    }
+
+    #[test]
+    fn rejects_entries_that_are_not_a_file_name() {
+        for bad in [".", "sub/", "index.js/", " index.js", "index.js ", "ind\u{0}ex.js"] {
+            let src = MINIMAL.replace("\"index.js\"", &serde_json::to_string(bad).unwrap());
+            assert_eq!(
+                PluginManifest::parse(&src).unwrap_err().code(),
+                "E_ENTRY_INVALID",
+                "entry: {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_tool_names() {
+        let src = MINIMAL.replace(
+            "\"runtime\"",
+            "\"contributes\": {\"tools\": [{\"name\": \"aa_tool\"}, {\"name\": \"aa_tool\"}]}, \"runtime\"",
+        );
+        let err = PluginManifest::parse(&src).unwrap_err();
+        assert_eq!(err.code(), "E_TOOL_NAME_INVALID");
+        assert!(err.detail.contains("duplicate"), "detail: {}", err.detail);
+    }
+
+    #[test]
+    fn rejects_empty_or_too_long_name() {
+        for bad in ["   ", &"a".repeat(65)] {
+            let src = MINIMAL.replace("\"name\": \"章节洞察\"", &format!("\"name\": \"{bad}\""));
+            assert_eq!(
+                PluginManifest::parse(&src).unwrap_err().code(),
+                "E_NAME_INVALID",
+                "name: {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn start_timeout_range_is_inclusive() {
+        let with = |ms: u64| {
+            MINIMAL.replace(
+                "\"entry\": \"index.js\"",
+                &format!("\"entry\": \"index.js\", \"startTimeoutMs\": {ms}"),
+            )
+        };
+        for ok in [1_000u64, 60_000] {
+            assert!(PluginManifest::parse(&with(ok)).is_ok(), "{ok} 应被接受");
+        }
+        for bad in [999u64, 60_001] {
+            assert_eq!(
+                PluginManifest::parse(&with(bad)).unwrap_err().code(),
+                "E_START_TIMEOUT_INVALID",
+                "{bad} 应被拒绝"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_truncated_json() {
+        assert_eq!(
+            PluginManifest::parse("{\"schema\": 1, \"id\":").unwrap_err().code(),
+            "E_JSON_INVALID"
+        );
+    }
+
+    #[test]
+    fn error_detail_carries_the_offending_value() {
+        // detail 是排障唯一线索；丢了实际值等于让人对着「清单非法」猜
+        let src = MINIMAL.replace("\"index.js\"", "\"../../evil.js\"");
+        let err = PluginManifest::parse(&src).unwrap_err();
+        assert_eq!(err.code(), "E_ENTRY_INVALID");
+        assert_eq!(err.detail, "../../evil.js");
     }
 }
