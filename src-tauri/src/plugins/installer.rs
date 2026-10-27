@@ -24,6 +24,12 @@ pub struct SourceSpec {
 /// 解析用户粘贴的 GitHub 地址。
 /// 只接受 `https://github.com/<owner>/<repo>`，可用 `@<ref>` 指定分支/tag，允许 `.git` 后缀。
 pub fn parse_source(raw: &str) -> Result<SourceSpec, String> {
+    // URL 解析器会按 WHATWG 规范静默删掉制表符与换行：`@a<TAB>b` 会被解析成 `@ab`，
+    // 用户以为钉的是 a<TAB>b，实际拿到 ab，安装出来的东西和预期不符。
+    // 这类不可见字符直接拒，不做猜测。
+    if raw.chars().any(|c| c.is_control()) {
+        return Err("地址含不可见字符".to_string());
+    }
     // 用户从浏览器地址栏复制时常带首尾空白，先裁掉再解析
     let url = url::Url::parse(raw.trim()).map_err(|e| format!("地址格式不正确：{e}"))?;
     // 只允许 https：http 会被中间人换成任意 zip，而安装器拿到的 zip 会直接落盘执行
@@ -35,23 +41,41 @@ pub fn parse_source(raw: &str) -> Result<SourceSpec, String> {
     if url.host_str() != Some("github.com") {
         return Err("只支持 github.com 的仓库".to_string());
     }
-    let segments: Vec<&str> = url.path().split('/').filter(|s| !s.is_empty()).collect();
-    // 恰好两段：多余段说明用户粘的是 `/tree/main` 之类的页面地址，不是仓库地址
-    if segments.len() != 2 {
-        return Err("地址应为 https://github.com/<owner>/<repo>".to_string());
+
+    let bad_shape = || "地址应为 https://github.com/<owner>/<repo>".to_string();
+    let path = url.path().strip_prefix('/').unwrap_or(url.path());
+    // 拆成「owner」+「其余全部」：ref 允许带 `/`（`feature/x` 是很常见的分支名），
+    // 所以不能先把路径切成固定 2 段再去判断
+    let (owner, rest) = path.split_once('/').ok_or_else(bad_shape)?;
+    // 没有 @ref 时容忍尾斜杠（`…/repo/` 是浏览器里复制出来的样子）；
+    // 有 @ref 时尾斜杠属于 ref 本身，不能归一 —— 否则 `@trail/` 会被悄悄改成 `@trail`
+    let rest = if rest.contains('@') {
+        rest
+    } else {
+        rest.trim_end_matches('/')
+    };
+    if rest.is_empty() {
+        return Err(bad_shape());
     }
-    let owner = segments[0];
-    // `repo@ref`：GitHub 网址本身不允许 `@`，所以这个后缀不会与真实仓库名冲突
-    let (repo_raw, git_ref) = match segments[1].split_once('@') {
+    let (repo_raw, git_ref) = match rest.split_once('@') {
         Some((repo, git_ref)) => (repo, git_ref),
-        None => (segments[1], "main"),
+        None => {
+            // 剩余的段里还有 `/`：说明用户粘的是 `/tree/main` 之类的页面地址
+            if rest.contains('/') {
+                return Err(bad_shape());
+            }
+            (rest, "main")
+        }
     };
     let repo = repo_raw.strip_suffix(".git").unwrap_or(repo_raw);
 
-    for seg in [owner, repo, git_ref] {
+    for seg in [owner, repo] {
         if !is_valid_segment(seg) {
             return Err(format!("非法字符：{seg}"));
         }
+    }
+    if !is_valid_ref(git_ref) {
+        return Err(format!("非法字符：{git_ref}"));
     }
 
     Ok(SourceSpec {
@@ -71,16 +95,57 @@ fn is_valid_segment(seg: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~'))
 }
 
-/// 下载候选：加速通道优先，codeload 直连兜底（与 update-channels.json 同策略）
+/// ref 比 owner/repo 宽松：GitHub 的分支名本就允许 `/`（`feature/x`），这里也放行。
+/// 但仍然要挡住会改变 URL 语义或路径含义的写法：
+/// `..`（穿越）、首尾 `/`、连续 `//`（拼出空段），以及 `%`/空白等编码字符。
+fn is_valid_ref(git_ref: &str) -> bool {
+    !git_ref.is_empty()
+        && !git_ref.contains("..")
+        && !git_ref.contains("//")
+        && !git_ref.starts_with('/')
+        && !git_ref.ends_with('/')
+        && git_ref
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~' | '/'))
+}
+
+/// ref 看起来像版本 tag 吗？`v1.2.0` / `V2.0` / `1.2.3` 是；`main` / `feature-x` 不是。
+///
+/// 只是决定「先试 tag 还是先试分支」的启发式，不影响正确性：
+/// 两条路径最终都会试，判断错了只是多一次 404。
+fn looks_like_tag(git_ref: &str) -> bool {
+    let body = git_ref.trim_start_matches(['v', 'V']);
+    !body.is_empty() && body.chars().all(|c| c.is_ascii_digit() || c == '.')
+}
+
+/// 下载候选：加速通道优先，codeload 直连兜底（与 update-channels.json 同策略）。
+///
+/// GitHub 的分支在 `refs/heads` 下、tag 在 `refs/tags` 下，两者 URL 不通用，
+/// 所以每个通道都要试两条路径。顺序按 ref 形态决定：分支先试 heads，版本号先试 tags，
+/// 避免每次安装都白跑三个必然 404。
 pub fn download_urls(owner: &str, repo: &str, git_ref: &str) -> Vec<String> {
-    let archive = format!("https://github.com/{owner}/{repo}/archive/refs/heads/{git_ref}.zip");
-    vec![
-        // 国内直连 github.com 常被墙，两个公共加速通道先试
-        format!("https://gh-proxy.com/{archive}"),
-        format!("https://ghproxy.net/{archive}"),
-        // codeload 是 github.com/…/archive 的重定向目标，直连可绕开代理通道的配额与 5xx
-        format!("https://codeload.github.com/{owner}/{repo}/zip/refs/heads/{git_ref}"),
-    ]
+    const BASES: [&str; 3] = ["gh-proxy.com/", "ghproxy.net/", "codeload.github.com/"];
+    let kinds: [&str; 2] = if looks_like_tag(git_ref) {
+        ["tags", "heads"]
+    } else {
+        ["heads", "tags"]
+    };
+    let mut out = Vec::with_capacity(6);
+    for base in BASES {
+        for kind in kinds {
+            // codeload 的路径形状与 github.com 不同，单独处理
+            if base.starts_with("codeload.") {
+                out.push(format!(
+                    "https://{base}{owner}/{repo}/zip/refs/{kind}/{git_ref}"
+                ));
+            } else {
+                out.push(format!(
+                    "https://{base}https://github.com/{owner}/{repo}/archive/refs/{kind}/{git_ref}.zip"
+                ));
+            }
+        }
+    }
+    out
 }
 
 /// zip 条目路径安全校验；不安全返回 None
@@ -177,6 +242,15 @@ pub async fn download(client: &reqwest::Client, urls: &[String]) -> Result<Vec<u
         if !resp.status().is_success() {
             last = format!("{url} → HTTP {}", resp.status());
             continue;
+        }
+        // 先看声明的长度：等 bytes() 全量读进来再判，内存已经被吃掉了
+        if let Some(len) = resp.content_length() {
+            if len as usize > MAX_ZIP_BYTES {
+                return Err(format!(
+                    "插件包超过 {} MB 上限",
+                    MAX_ZIP_BYTES / 1024 / 1024
+                ));
+            }
         }
         let bytes = match resp.bytes().await {
             Ok(b) => b,
@@ -324,12 +398,47 @@ mod tests {
     }
 
     #[test]
-    fn build_channel_urls_put_proxy_first() {
+    fn accepts_trailing_slash_without_ref() {
+        // 从浏览器地址栏复制常带尾斜杠，没有 @ref 时容忍它
+        let s = parse_source("https://github.com/owner/repo/").unwrap();
+        assert_eq!(s.repo, "repo");
+    }
+
+    #[test]
+    fn ref_may_contain_slashes_but_not_traversal() {
+        let s = parse_source("https://github.com/owner/repo@feature/x").unwrap();
+        assert_eq!(s.git_ref, "feature/x");
+        for bad in ["../evil", "a//b", "/lead", "trail/", "a b", "a\tb"] {
+            let url = format!("https://github.com/owner/repo@{bad}");
+            assert!(parse_source(&url).is_err(), "ref {bad:?} 应被拒");
+        }
+    }
+
+    #[test]
+    fn build_channel_urls_cover_both_heads_and_tags() {
         let urls = download_urls("owner", "repo", "main");
-        assert_eq!(urls.len(), 3);
+        assert_eq!(urls.len(), 6);
+        // 分支名 → heads 先试
+        assert!(urls[0].contains("/refs/heads/main"));
         assert!(urls[0].contains("gh-proxy.com"));
-        assert!(urls[2].contains("codeload.github.com"));
+        assert!(urls.iter().any(|u| u.contains("/refs/tags/main")));
+        assert!(urls.iter().any(|u| u.contains("codeload.github.com")));
         assert!(urls.iter().all(|u| u.contains("/owner/repo/")));
+
+        let tag_urls = download_urls("owner", "repo", "v1.2.0");
+        // 版本号 → tags 先试，避免必然 404 的 heads 抢在最前
+        assert!(tag_urls[0].contains("/refs/tags/v1.2.0"));
+        assert!(tag_urls.iter().any(|u| u.contains("/refs/heads/v1.2.0")));
+    }
+
+    #[test]
+    fn looks_like_tag_detects_version_refs() {
+        for t in ["v1.2.0", "V2.0", "1.2.3"] {
+            assert!(looks_like_tag(t), "{t} 应判为 tag");
+        }
+        for f in ["main", "dev", "feature-x", "v", "release/1.0"] {
+            assert!(!looks_like_tag(f), "{f} 应判为分支");
+        }
     }
 
     #[test]
