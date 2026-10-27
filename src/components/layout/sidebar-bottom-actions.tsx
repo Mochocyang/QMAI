@@ -1,9 +1,12 @@
 /**
- * 侧栏底部操作栏：设置（左）+ 外观（右）。
+ * 侧栏底部操作栏：设置（左）+ 公告（设置右侧）+ 外观（右）。
  *
- * 位置说明：这两个入口原先分散在最左图标栏与顶栏；现在统一放到
+ * 位置说明：这几个入口原先分散在最左图标栏与顶栏；现在统一放到
  * 「章节列表 / 大纲列表」等**侧栏面板的底部**。为了让推演室、图谱、审阅中心、
  * 拆书、搜索历史、回收站等视图也都能进入，各侧栏面板统一渲染本组件。
+ *
+ * 三个入口都只留图标（去文字化），可访问名称交给 title / aria-label；
+ * 「公告」是铃铛 + 未读角标，弹窗本体挂在 App 根部，不在这里渲染。
  *
  * 「外观」= 皮肤切换（静水 / 纸间 / 星夜），原先在顶栏那个月亮图标；
  * 皮肤状态由外壳通过 AppearanceSkinProvider 透传下来。
@@ -17,6 +20,7 @@ import { Check, Moon, Settings } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { UI_TEST_SKINS } from "@/lib/ui-test"
 import { useAppearanceSkin } from "@/components/layout/appearance-context"
+import { AnnouncementBell } from "@/components/layout/announcement-bell"
 
 // 与 .ui-test-skin-menu 的设计宽度一致（窄了会让「名称 + 说明」换行、看着不像完整菜单）
 const MENU_WIDTH = 290
@@ -97,8 +101,12 @@ export function SidebarBottomActions() {
   return (
     <div
       data-ui="sidebar-bottom-actions"
-      className="flex shrink-0 items-center gap-1 border-t px-1.5 py-1.5"
+      className="flex shrink-0 items-center gap-0.5 border-t px-1.5 py-1.5"
     >
+      {/*
+       * 三个入口只留图标（设置 / 公告 / 外观）。文字去掉之后 title + aria-label
+       * 就是唯一的辨识依据，缺一个纯图标按钮就等于不可读，不能省。
+       */}
       <button
         type="button"
         onClick={() => {
@@ -107,15 +115,16 @@ export function SidebarBottomActions() {
         }}
         title={t("sidebarActions.settings")}
         aria-label={t("sidebarActions.settings")}
-        className={`flex min-w-0 flex-1 items-center justify-start gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors ${
+        className={`flex size-8 shrink-0 items-center justify-center rounded-md transition-colors ${
           activeView === "settings"
             ? "qm-selected"
             : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
         }`}
       >
-        <Settings className="h-4 w-4 shrink-0" />
-        <span className="truncate">{t("sidebarActions.settings")}</span>
+        <Settings className="h-4 w-4" />
       </button>
+
+      <AnnouncementBell />
 
       {appearance && (
         <button
@@ -126,14 +135,13 @@ export function SidebarBottomActions() {
           aria-label={t("sidebarActions.appearance")}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
-          className={`flex min-w-0 flex-1 items-center justify-end gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors ${
+          className={`ml-auto flex size-8 shrink-0 items-center justify-center rounded-md transition-colors ${
             menuOpen
               ? "bg-accent/60 text-accent-foreground"
               : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
           }`}
         >
-          <Moon className="h-4 w-4 shrink-0" />
-          <span className="truncate">{t("sidebarActions.appearance")}</span>
+          <Moon className="h-4 w-4" />
         </button>
       )}
 
