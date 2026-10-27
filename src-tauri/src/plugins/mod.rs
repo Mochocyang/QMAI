@@ -7,6 +7,7 @@
 // manifest::* 在任务 3+ 被 registry / mcp_bridge / installer 消费；在此之前
 // dead_code 警告是预期状态，不要用 #[allow(dead_code)] 掩盖它。
 pub mod host_api;
+pub mod installer;
 pub mod manifest;
 pub mod mcp_bridge;
 pub mod paths;
