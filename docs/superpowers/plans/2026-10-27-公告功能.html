@@ -1044,7 +1044,7 @@ git commit -m "feat(公告): 启动拉取公告并在根部挂载弹窗"</code><
 <h2>Task 8: 端到端验收</h2>
 
 <ul>
-  <li>[ ] 部署官网：<code>cd C:\QMAI_C\QMAIWEB</code> → <code>npm run build</code> → <code>npx.cmd --yes wrangler@latest pages deploy dist --project-name qmai --branch main</code>。</li>
+  <li>[ ] 部署官网：<code>cd C:\QMAI_C\QMAIWEB</code> → <code>npm run build</code> → <code>&amp; "C:\Program Files\nodejs\node.exe" node_modules\wrangler\wrangler-dist\cli.js pages deploy dist --project-name qmai --branch main</code>（本机的 <code>node</code> 是 Electron 运行时，用 <code>npx wrangler</code> 会解析不了参数，见 <code>PUBLISH-ANNOUNCEMENTS.md</code>）。</li>
   <li>[ ] <code>curl https://www.qmai.pro/announcements.json</code> 返回新 JSON（含占位公告）。</li>
   <li>[ ] 客户端 <code>npm run tauri dev</code>：底栏只有三个图标、悬停分别显示「设置 / 公告 / 外观」。</li>
   <li>[ ] 铃铛角标显示 1；点开弹窗看到「公告功能上线」；点标题展开正文，角标消失，重开弹窗仍为已读。</li>

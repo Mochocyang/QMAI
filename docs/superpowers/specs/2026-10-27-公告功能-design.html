@@ -246,9 +246,12 @@ announcements.json  ──── HTTPS ────▶  src/lib/announcements.ts
 <pre><code>改 announcements.json
 npm run check &amp;&amp; npm test
 npm run build
-npx wrangler pages deploy dist --project-name qmai --branch main
+# 本机的 node 其实是 Electron 运行时，wrangler 会解析不了参数：
+# 必须用系统 Node 直连 cli.js（详见 QMAIWEB/PUBLISH-ANNOUNCEMENTS.md）
+&amp; "C:\Program Files\nodejs\node.exe" node_modules\wrangler\wrangler-dist\cli.js `
+    pages deploy dist --project-name qmai --branch main
 curl https://www.qmai.pro/announcements.json   # 确认线上是新内容</code></pre>
-<p class="muted">5 分钟 CDN 缓存意味着「发布后最多 5 分钟客户端才可能看到」。要更快就把 max-age 调小。</p>
+<p class="muted">5 分钟 CDN 缓存意味着「发布后最多 5 分钟客户端才可能看到」。要更快就把 max-age 调小。刚部署的头一分钟可能仍命中旧的 SPA 回退缓存，加 <code>?v=2</code> 验证即可。</p>
 
 <h2>6. 客户端数据层</h2>
 
