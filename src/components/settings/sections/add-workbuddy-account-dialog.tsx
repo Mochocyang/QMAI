@@ -15,6 +15,7 @@ import {
   importWorkbuddyCredential,
   importWorkbuddyDesktop,
   listWorkbuddyAccounts,
+  probeWorkbuddyDesktopAvailable,
   refreshWorkbuddyModels,
   removeWorkbuddyAccount,
   startWorkbuddyLogin,
@@ -57,6 +58,16 @@ export function AddWorkbuddyAccountDialog({
   const [hint, setHint] = useState("")
   const [error, setError] = useState("")
   const [loginState, setLoginState] = useState<string | null>(null)
+  /**
+   * 「导入桌面端登录态」这条路径在本机到底可不可用。
+   *
+   * 新版 WorkBuddy 客户端把 accessToken 存成 `$wbEncrypted`（它自己的 at-rest
+   * 密钥保护，密钥不可导出），此时这条路径结构性不可用。提前探一次，能让用户
+   * 在**点之前**就知道该走「网页登录」，而不是点了之后读一段底层报错。
+   */
+  const [desktopAvailability, setDesktopAvailability] = useState<
+    { state: "unknown" } | { state: "available" } | { state: "unavailable" }
+  >({ state: "unknown" })
   const fileInput = useRef<HTMLInputElement | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -109,6 +120,13 @@ export function AddWorkbuddyAccountDialog({
       setError("")
       setHint("")
       void refreshAccounts()
+      // 顺带探一次桌面端登录态能不能读（只读探测，不落库、不联网）。
+      setDesktopAvailability({ state: "unknown" })
+      void probeWorkbuddyDesktopAvailable()
+        .then((available) =>
+          setDesktopAvailability({ state: available ? "available" : "unavailable" }),
+        )
+        .catch(() => setDesktopAvailability({ state: "unknown" }))
     } else {
       abortRef.current?.abort()
       abortRef.current = null
@@ -188,7 +206,18 @@ export function AddWorkbuddyAccountDialog({
       setHint(`✅ 已从客户端导入：${result.account.nickname || result.account.uidTail}`)
       await settleAccounts(result.accounts, wasEmpty)
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
+      // 新版客户端把 token 存成 `$wbEncrypted`（WorkBuddy 自己的 at-rest 密钥保护），
+      // 密钥不在数据目录里、也不可导出 —— 这条路径在那种客户端上必然失败。
+      // 不把这段底层术语原样丢给用户：翻译成「该走哪条路」。
+      const message = reason instanceof Error ? reason.message : String(reason)
+      if (message.includes("$wbEncrypted") || message.includes("envelope")) {
+        setError(
+          "本机 WorkBuddy 客户端把登录态加密保存了（新版客户端的保护机制），无法直接读取。" +
+            "请改用上面的「网页登录」—— 同样的账号，登录一次即可。",
+        )
+      } else {
+        setError(message)
+      }
     } finally {
       setBusy(false)
     }
@@ -341,8 +370,19 @@ export function AddWorkbuddyAccountDialog({
             <p className="model-note">
               读官方客户端当前登录的账号（需已在本机 WorkBuddy 客户端登录过）。导入后由 QMAI 自动续期。
             </p>
+            {desktopAvailability.state === "unavailable" && (
+              <p className="wb-error" role="status">
+                这台机器上的 WorkBuddy 客户端把登录态加密保存了（新版客户端的保护机制），
+                无法直接读取，因此这一条暂时用不了。请改用「网页登录」—— 同一个账号，登录一次即可。
+              </p>
+            )}
             <div className="wb-actions">
-              <button type="button" className="model-button" onClick={() => void importDesktop()} disabled={busy}>
+              <button
+                type="button"
+                className="model-button"
+                onClick={() => void importDesktop()}
+                disabled={busy || desktopAvailability.state === "unavailable"}
+              >
                 {busy ? "导入中…" : "从本机导入"}
               </button>
             </div>

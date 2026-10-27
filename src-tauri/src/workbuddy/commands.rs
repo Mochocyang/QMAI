@@ -384,6 +384,25 @@ pub fn workbuddy_import_file(
     }))
 }
 
+/// 只读探测：本机官方客户端的登录态能不能用（界面在用户点之前先问一次）。
+///
+/// 返回 `{available, reason}` 而不是 `Result`：探测失败是**正常结论**（例如新版
+/// 客户端把 token 加密了、或者本机根本没登录过），不该让前端把它当异常处理。
+#[tauri::command]
+pub fn workbuddy_desktop_available(provider: Option<String>) -> Result<Value, String> {
+    let edition = WorkbuddyState::require_edition(provider.as_deref())?;
+    let Some(dir) = desktop_auth_dir() else {
+        return Ok(json!({
+            "available": false,
+            "reason": "无法定位用户目录，找不到官方客户端的登录态目录",
+        }));
+    };
+    match import::probe_desktop_credential(&dir, edition) {
+        Ok(()) => Ok(json!({ "available": true })),
+        Err(reason) => Ok(json!({ "available": false, "reason": reason })),
+    }
+}
+
 /// 从官方客户端目录导入当前登录态。
 #[tauri::command]
 pub fn workbuddy_import_desktop(

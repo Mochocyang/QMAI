@@ -327,6 +327,9 @@ commands::fs::read_file,
             workbuddy::commands::workbuddy_account_refresh,
             workbuddy::commands::workbuddy_import_file,
             workbuddy::commands::workbuddy_import_desktop,
+            // 只读探测：界面在用户点「从本机导入」之前先问一次能不能用
+            // （新版客户端把 token 加密了，那条路径结构性不可用）。
+            workbuddy::commands::workbuddy_desktop_available,
             workbuddy::commands::workbuddy_models_refresh,
             workbuddy::commands::workbuddy_models_cached,
             workbuddy::commands::workbuddy_gateway_ensure,
