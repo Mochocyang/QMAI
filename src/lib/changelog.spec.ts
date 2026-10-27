@@ -6,7 +6,20 @@ describe("changelog", () => {
     const entries = allChangelog()
     const versions = entries.map((entry) => entry.version)
 
-    expect(versions.slice(0, 8)).toEqual(["4.4.0", "4.3.10", "4.3.9", "4.3.8", "4.3.7", "4.3.6", "4.3.5", "4.3.4"])
+    expect(versions.slice(0, 8)).toEqual(["4.4.1", "4.4.0", "4.3.10", "4.3.9", "4.3.8", "4.3.7", "4.3.6", "4.3.5"])
+    /*
+     * 4.4.1 只写两条实际改动 + 一句安全性说明，按发布要求不逐项罗列。
+     */
+    const release441 = currentVersionChangelog("4.4.1")[0]
+    expect(release441.version).toBe("4.4.1")
+    expect(release441.date).toBe("2026-10-27")
+    expect(release441.highlights.zh).toHaveLength(3)
+    const zh441 = release441.highlights.zh.join(String.fromCharCode(10))
+    expect(zh441).toContain("模型下拉不再重复")
+    expect(zh441).toContain("检查更新更快、更稳")
+    expect(zh441).toContain("优化了部分安全性")
+    expect(zh441).not.toContain("统计后台")
+    expect(release441.highlights.en).toEqual(release441.highlights.zh)
     /*
      * 4.4.0 是本次功能版：云同步 GitHub 支持、更新加速、历史版本、
      * 记忆清理断点续传等六项，按发布要求逐条列出。

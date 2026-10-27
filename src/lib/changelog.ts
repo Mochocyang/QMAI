@@ -39,6 +39,21 @@ const FOUR_POINT_FOUR_ZERO_ZH: string[] = [
   "统一记忆清理并开放 MCP 维护工具：从快照来源清理六类记忆，同步 JSON、Markdown、人物 Skill 和检索缓存，支持备份撤销及超量提醒。",
 ];
 
+const FOUR_POINT_FOUR_ONE_ZH: string[] = [
+  "模型下拉不再重复：以前同一个模型会上下各显示一次，现在一行一个；字号和行距也收紧了，一屏能看到的模型数量大约翻倍。章节大纲、参数库、AI 对话底栏、拆书工作台、绑定对话框全部生效。",
+  "检查更新更快、更稳：修复两个更新通道问题——官网直链通道被远程配置整体覆盖、从上线起就没生效过；以及直连被排到第一位，国内每次都要先白等一次 12 秒超时。现在镜像优先、直连兜底。",
+  "优化了部分安全性。",
+];
+
+const FOUR_POINT_FOUR_ONE_CHANGELOG: ChangelogEntry = {
+  version: "4.4.1",
+  date: "2026-10-27",
+  highlights: {
+    en: FOUR_POINT_FOUR_ONE_ZH,
+    zh: FOUR_POINT_FOUR_ONE_ZH,
+  },
+};
+
 const FOUR_POINT_FOUR_ZERO_CHANGELOG: ChangelogEntry = {
   version: "4.4.0",
   date: "2026-10-26",
@@ -2113,6 +2128,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_FOUR_ONE_CHANGELOG.version)
+    return [FOUR_POINT_FOUR_ONE_CHANGELOG];
   if (version === FOUR_POINT_FOUR_ZERO_CHANGELOG.version)
     return [FOUR_POINT_FOUR_ZERO_CHANGELOG];
   if (version === FOUR_POINT_THREE_TEN_CHANGELOG.version)
@@ -2300,6 +2317,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_FOUR_ONE_CHANGELOG,
     FOUR_POINT_FOUR_ZERO_CHANGELOG,
     FOUR_POINT_THREE_TEN_CHANGELOG,
     FOUR_POINT_THREE_NINE_CHANGELOG,
