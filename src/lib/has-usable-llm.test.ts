@@ -158,4 +158,39 @@ describe("hasUsableLlm", () => {
     const cfg: LlmConfig = { ...baseCfg, provider: "custom", apiKey: "", model: "qwen2.5-7b", customEndpoint: "http://localhost:1234/v1" }
     expect(hasUsableLlm(cfg, providers)).toBe(true)
   })
+
+  // ── 账号登录类（WorkBuddy）──────────────────────────────────
+  // 与其它 provider 的差别：**没有 apiKey**。可用性 = 卡片启用 + 有模型。
+  // 登录态本身不在这个纯函数里判（它只看配置），删掉最后一个账号时由设置页
+  // 把卡片 enabled 置 false。
+  it("accepts workbuddy with an enabled card and a model, no apiKey needed", () => {
+    const providers: ProviderConfigs = {
+      workbuddy: { enabled: true, savedModels: [{ id: "m1", name: "m1", model: "deepseek-v4.1-flash", createdAt: 1 }] },
+    }
+    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "deepseek-v4.1-flash" }
+    expect(hasUsableLlm(cfg, providers)).toBe(true)
+  })
+
+  it("accepts workbuddy when only a model field exists (legacy card without savedModels)", () => {
+    const providers: ProviderConfigs = { workbuddy: { enabled: true, model: "glm-5.3" } }
+    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "glm-5.3" }
+    expect(hasUsableLlm(cfg, providers)).toBe(true)
+  })
+
+  it("rejects workbuddy when the card is disabled (last account removed)", () => {
+    const providers: ProviderConfigs = { workbuddy: { enabled: false, model: "glm-5.3" } }
+    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "glm-5.3" }
+    expect(hasUsableLlm(cfg, providers)).toBe(false)
+  })
+
+  it("rejects workbuddy without a model even when enabled", () => {
+    const providers: ProviderConfigs = { workbuddy: { enabled: true } }
+    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "" }
+    expect(hasUsableLlm(cfg, providers)).toBe(false)
+  })
+
+  it("rejects workbuddy when there is no card at all", () => {
+    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "glm-5.3" }
+    expect(hasUsableLlm(cfg, {})).toBe(false)
+  })
 })

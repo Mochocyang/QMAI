@@ -12,6 +12,9 @@ mod platform_guard;
 mod proxy;
 mod types;
 mod updater;
+// WorkBuddy 账号登录：把「用自己的 WorkBuddy 账号登录一次」变成 QMAI 里可用的模型
+// （进程内起一个极小的 OpenAI 兼容网关，见 `workbuddy/mod.rs` 的模块头）。
+mod workbuddy;
 
 pub use platform_guard::assert_supported_platform;
 
@@ -180,6 +183,15 @@ pub fn run() {
             app.manage(commands::file_sync::FileSyncState::default());
             app.manage(commands::writing_wake_lock::WritingWakeLockManager::default());
             app.manage(mcp::McpState::default());
+            // WorkBuddy 账号存储与模型目录：读不到/读坏都退化成空仓库，
+            // 绝不让一次磁盘异常把整个应用拦在启动之前。
+            let workbuddy_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_else(|_| std::env::temp_dir());
+            app.manage(workbuddy::commands::WorkbuddyState::load_or_default(
+                workbuddy_dir,
+            ));
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
                 if let Ok(ptr) = window.ns_window() {
@@ -305,6 +317,19 @@ commands::fs::read_file,
             mcp::mcp_respond,
             mcp::mcp_stdio_executable,
             mcp::resolve_qmai_mcp_skill_dir,
+            // WorkBuddy 账号登录（国内版）：登录三条、账号三条、导入两条、
+            // 模型目录两条、网关一条。返回值一律不含 token。
+            workbuddy::commands::workbuddy_login_start,
+            workbuddy::commands::workbuddy_login_wait,
+            workbuddy::commands::workbuddy_login_cancel,
+            workbuddy::commands::workbuddy_accounts_list,
+            workbuddy::commands::workbuddy_account_remove,
+            workbuddy::commands::workbuddy_account_refresh,
+            workbuddy::commands::workbuddy_import_file,
+            workbuddy::commands::workbuddy_import_desktop,
+            workbuddy::commands::workbuddy_models_refresh,
+            workbuddy::commands::workbuddy_models_cached,
+            workbuddy::commands::workbuddy_gateway_ensure,
         ])
         .on_window_event(|window, event| {
             // 独立窗口（label 前缀 reader-）的生死要留痕：用户反馈的是

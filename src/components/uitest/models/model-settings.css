@@ -196,3 +196,32 @@ html[data-ui-test-skin] .model-editor-dialog { width: min(680px,calc(100vw - 32p
 :is(.ui-test-root,html[data-ui-test-skin]) .model-section-note { overflow-wrap: anywhere; }
 html[data-ui-test-skin] .model-editor-dialog, html[data-ui-test-skin] .model-editor-dialog * { transition-property: color, background-color, border-color, box-shadow, opacity, transform; }
 html[data-ui-test-skin] .model-editor-dialog :is(button,input,select):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+
+/* ── WorkBuddy 账号登录弹窗（三栏入口 → 对话框）──────────────────
+   沿用设置页的卡片/按钮体系，只补弹窗骨架与两处行内布局；
+   颜色全部走主题变量，深浅色主题自动跟随。 */
+.wb-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.42); display: flex;
+  align-items: center; justify-content: center; z-index: 80; padding: 24px; }
+.wb-modal { width: min(640px, 100%); max-height: 86vh; overflow: auto; background: var(--card, #fff);
+  color: inherit; border-radius: 14px; border: 1px solid rgba(127,127,127,.24);
+  box-shadow: 0 24px 64px rgba(0,0,0,.28); padding: 18px 20px 20px; }
+.wb-modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.wb-modal-head h3 { margin: 0; font-size: 15px; }
+.wb-section { margin-top: 16px; }
+.wb-section h4 { margin: 0 0 8px; font-size: 13px; opacity: .78; font-weight: 600; }
+.wb-segmented { display: inline-flex; gap: 4px; padding: 3px; border-radius: 10px;
+  background: rgba(127,127,127,.12); }
+.wb-segmented > button { border: 0; background: transparent; color: inherit; font-size: 12.5px;
+  padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+.wb-segmented > button.is-active { background: var(--card, #fff); box-shadow: 0 1px 4px rgba(0,0,0,.14); }
+.wb-segmented > button:disabled { opacity: .45; cursor: not-allowed; }
+.wb-row { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
+.wb-row-label { font-size: 12.5px; opacity: .7; white-space: nowrap; }
+.wb-actions { display: flex; gap: 8px; margin-top: 10px; }
+.wb-hint { margin: 12px 0 0; font-size: 12.5px; opacity: .82; }
+.wb-error { margin: 12px 0 0; font-size: 12.5px; color: #d14343; white-space: pre-wrap; }
+.wb-account-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.wb-account-list li { display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border: 1px solid rgba(127,127,127,.22); border-radius: 10px; font-size: 12.5px; }
+.wb-account-name { font-weight: 600; }
+.wb-account-meta { opacity: .66; flex: 1; }
