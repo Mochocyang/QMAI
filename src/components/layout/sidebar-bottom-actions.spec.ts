@@ -37,7 +37,7 @@ describe("sidebar-bottom-actions", () => {
   it("图标靠左一字排开，外观用 ml-auto 锚在右边", () => {
     // 去文字化之后不再有 justify-start / justify-end 的左右分栏，
     // 三个入口统一成 size-8 图标按钮，外观靠 ml-auto 推到最右。
-    expect(source).toContain("flex size-8 shrink-0 items-center justify-center")
+    expect(source).toContain("flex size-7 shrink-0 items-center justify-center")
     expect(source).toContain("ml-auto")
   })
 

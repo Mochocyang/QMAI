@@ -101,7 +101,7 @@ export function SidebarBottomActions() {
   return (
     <div
       data-ui="sidebar-bottom-actions"
-      className="flex shrink-0 items-center gap-0.5 border-t px-1.5 py-1.5"
+      className="flex shrink-0 items-center gap-0 border-t px-1.5 py-1.5"
     >
       {/*
        * 三个入口只留图标（设置 / 公告 / 外观）。文字去掉之后 title + aria-label
@@ -115,7 +115,7 @@ export function SidebarBottomActions() {
         }}
         title={t("sidebarActions.settings")}
         aria-label={t("sidebarActions.settings")}
-        className={`flex size-8 shrink-0 items-center justify-center rounded-md transition-colors ${
+        className={`flex size-7 shrink-0 items-center justify-center rounded-md transition-colors ${
           activeView === "settings"
             ? "qm-selected"
             : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
@@ -135,7 +135,7 @@ export function SidebarBottomActions() {
           aria-label={t("sidebarActions.appearance")}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
-          className={`ml-auto flex size-8 shrink-0 items-center justify-center rounded-md transition-colors ${
+          className={`ml-auto flex size-7 shrink-0 items-center justify-center rounded-md transition-colors ${
             menuOpen
               ? "bg-accent/60 text-accent-foreground"
               : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"

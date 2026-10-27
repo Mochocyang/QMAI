@@ -29,14 +29,14 @@ export function AnnouncementBell() {
       aria-label={label}
       aria-haspopup="dialog"
       aria-expanded={dialogOpen}
-      className="relative flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
+      className="relative flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-accent-foreground"
     >
       <Bell className="h-4 w-4" />
       {unreadCount > 0 && (
         <span
           data-announcement-badge
           aria-hidden="true"
-          className="absolute -top-0.5 -right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-[0.625rem] leading-none font-medium text-destructive-foreground"
+          className="absolute -top-0.5 -right-1 flex h-3 min-w-3 items-center justify-center rounded-full bg-destructive px-[3px] text-[0.5rem] leading-none font-medium text-destructive-foreground"
         >
           {unreadCount > 9 ? "9+" : unreadCount}
         </span>
