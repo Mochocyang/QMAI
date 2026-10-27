@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
-import { getChatModelDropdownStyle } from "./chat-model-selector"
+import { getChatModelDropdownStyle, resolveModelItemLabel } from "./chat-model-selector"
 
 const source = readFileSync(resolve(__dirname, "chat-model-selector.tsx"), "utf8")
 
@@ -11,6 +11,42 @@ describe("chat model selector sizing", () => {
     expect(source).toContain('className="max-w-32 truncate text-left"')
     expect(source).not.toContain("min-w-[160px]")
     expect(source).not.toContain("max-w-[200px]")
+  })
+})
+
+describe("resolveModelItemLabel", () => {
+  it("名字与模型 ID 相同时只保留一行", () => {
+    expect(resolveModelItemLabel({ name: "hy3", model: "hy3" })).toEqual({
+      title: "hy3",
+      showModelId: false,
+    })
+  })
+
+  it("名字与模型 ID 不同时才显示第二行", () => {
+    expect(resolveModelItemLabel({ name: "写作主力", model: "deepseek-v4.1-flash" })).toEqual({
+      title: "写作主力",
+      showModelId: true,
+    })
+  })
+
+  it("名字为空或只有空格时回落到模型 ID，且不重复显示", () => {
+    expect(resolveModelItemLabel({ name: "   ", model: "glm-5.3" })).toEqual({
+      title: "glm-5.3",
+      showModelId: false,
+    })
+    expect(resolveModelItemLabel({ name: "", model: "hy3" })).toEqual({
+      title: "hy3",
+      showModelId: false,
+    })
+  })
+})
+
+describe("chat model dropdown density", () => {
+  it("下拉项改成紧凑字号与更小的行距", () => {
+    expect(source).toContain('className="truncate text-xs leading-4"')
+    expect(source).toContain("text-[0.6875rem] leading-4")
+    expect(source).toContain("items-center gap-1 rounded-sm px-3 py-0.5 text-left")
+    expect(source).not.toContain("items-start gap-2 rounded-sm px-3 py-1.5")
   })
 })
 
