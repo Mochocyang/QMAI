@@ -503,13 +503,23 @@ mod tests {
 
     #[test]
     fn plugins_root_honours_env_override() {
-        let root = plugins_root_with(Some(std::ffi::OsString::from("/tmp/qmai-plugins")), None);
+        let root = plugins_root_with(
+            Some(std::ffi::OsString::from("/tmp/qmai-plugins")),
+            PathBuf::from("/unused"),
+        );
         assert_eq!(root, PathBuf::from("/tmp/qmai-plugins"));
     }
 
     #[test]
     fn plugins_root_falls_back_to_app_data() {
-        let root = plugins_root_with(None, Some(PathBuf::from("/app/data")));
+        let root = plugins_root_with(None, PathBuf::from("/app/data"));
+        assert_eq!(root, PathBuf::from("/app/data/plugins"));
+    }
+
+    #[test]
+    fn blank_env_falls_back_to_app_data() {
+        // 空白串应视同未设置。这是 plugins_root_with 里唯一有逻辑的分支。
+        let root = plugins_root_with(Some(std::ffi::OsString::from("   ")), PathBuf::from("/app/data"));
         assert_eq!(root, PathBuf::from("/app/data/plugins"));
     }
 
@@ -517,9 +527,16 @@ mod tests {
     fn plugin_dirs_are_derived_from_root() {
         let root = PathBuf::from("/r");
         assert_eq!(plugin_dir(&root, "abc"), PathBuf::from("/r/abc"));
-        assert_eq!(plugin_data_dir(&root, "abc"), PathBuf::from("/r/abc-data"));
+        // 用 . 分隔而不是 -data：id 允许连字符，`my-data` 这个 id 会与 `my` 的数据目录撞路径
+        assert_eq!(plugin_data_dir(&root, "abc"), PathBuf::from("/r/abc.data"));
         assert_eq!(staging_dir(&root), PathBuf::from("/r/.staging"));
         assert_eq!(registry_file(&root), PathBuf::from("/r/.registry.json"));
+    }
+
+    #[test]
+    fn data_dir_does_not_collide_with_another_plugin_dir() {
+        let root = PathBuf::from("/r");
+        assert_ne!(plugin_dir(&root, "my-data"), plugin_data_dir(&root, "my"));
     }
 }
 </pre></div>
@@ -547,30 +564,38 @@ pub fn plugins_root() -&gt; PathBuf {
     plugins_root_with(env, base)
 }
 
-fn plugins_root_with(env: Option&lt;OsString&gt;, app_data: Option&lt;PathBuf&gt;) -&gt; PathBuf {
+fn plugins_root_with(env: Option&lt;OsString&gt;, app_data: PathBuf) -&gt; PathBuf {
     if let Some(v) = env {
-        let s = v.to_string_lossy().trim().to_string();
-        if !s.is_empty() {
-            return PathBuf::from(s);
+        // 只借用 lossy 结果判空：非 UTF-8 路径若被有损转换再重建，会指向一个不存在的目录
+        if !v.to_string_lossy().trim().is_empty() {
+            return PathBuf::from(v);
         }
     }
-    app_data
-        .unwrap_or_else(|| PathBuf::from(".qmai-plugins"))
-        .join("plugins")
+    app_data.join("plugins")
 }
 
-pub fn plugin_dir(root: &amp;Path, id: &amp;str) -&gt; PathBuf { root.join(id) }
-pub fn plugin_data_dir(root: &amp;Path, id: &amp;str) -&gt; PathBuf { root.join(format!("{id}-data")) }
-pub fn staging_dir(root: &amp;Path) -&gt; PathBuf { root.join(".staging") }
-pub fn registry_file(root: &amp;Path) -&gt; PathBuf { root.join(".registry.json") }
+pub fn plugin_dir(root: &amp;Path, id: &amp;str) -&gt; PathBuf {
+    root.join(id)
+}
+// id 允许连字符，所以 `my-data` 这个 id 会与插件 `my` 的 `-data` 目录撞路径。
+// 改用 `.` 分隔：id 正则不允许 `.`，`{id}.data` 永远不会等于任何 `{id'}`
+pub fn plugin_data_dir(root: &amp;Path, id: &amp;str) -&gt; PathBuf {
+    root.join(format!("{id}.data"))
+}
+pub fn staging_dir(root: &amp;Path) -&gt; PathBuf {
+    root.join(".staging")
+}
+pub fn registry_file(root: &amp;Path) -&gt; PathBuf {
+    root.join(".registry.json")
+}
 </pre></div>
-<p class="expect">注意：<code>crate::mcp::paths::app_data_dir()</code> 已存在于 <code>src-tauri/src/mcp/paths.rs:10</code>，直接复用，不要新写。</p>
+<p class="expect">注意：<code>crate::mcp::paths::app_data_dir()</code> 已存在于 <code>src-tauri/src/mcp/paths.rs:10</code>，直接复用，不要新写。它返回 <code>PathBuf</code>，所以这里不再包 <code>Some</code>。</p>
 </div></div>
 
 <div class="step"><div class="box"></div><div class="body">
 <h4>Step 5 — 跑测试确认通过</h4>
 <div class="run">cd src-tauri &amp;&amp; cargo test plugins::paths</div>
-<p class="expect">预期：<strong>3 passed</strong>。</p>
+<p class="expect">预期：<strong>5 passed</strong>。</p>
 </div></div>
 
 <div class="step"><div class="box"></div><div class="body">
@@ -2115,19 +2140,22 @@ describe("ToolRegistry.unregisterPrefix", () => {
     r.register(makeTool("read_chapter"))
     r.register(makeTool("chapter_insights__analyze"))
     r.register(makeTool("chapter_insights__report"))
-    // 近乎同名的对照：不以 chapter_insights__ 开头，必须存活。
-    // 少了这条，实现退化成 includes(prefix) 也能通过，测试就锁不住边界。
-    r.register(makeTool("chapter_insightsx__a"))
+    // 前缀出现在名字中间：startsWith 不会动它，includes 会误删它。
+    // 这条对照专门用来杀死「把 startsWith 写成 includes」这个变异；
+    // 若对照写成 chapter_insightsx__a，它既不以该前缀开头、也不含该子串，
+    // 两种实现行为一致，变异会存活（已实测）。
+    r.register(makeTool("bak__chapter_insights__analyze"))
 
     const removed = r.unregisterPrefix("chapter_insights__")
 
     expect(removed).toBe(2)
     expect(r.has("read_chapter")).toBe(true)
-    expect(r.has("chapter_insightsx__a")).toBe(true)
+    expect(r.has("bak__chapter_insights__analyze")).toBe(true)
     expect(r.has("chapter_insights__analyze")).toBe(false)
-    expect(r.list().map((t) => t.name).sort()).toEqual(
-      ["chapter_insightsx__a", "read_chapter"],
-    )
+    expect(r.list().map((t) => t.name).sort()).toEqual([
+      "bak__chapter_insights__analyze",
+      "read_chapter",
+    ])
   })
 
   it("前缀不存在时返回 0 且不报错", () => {
@@ -2958,7 +2986,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"say_hello"
 <div class="row" style="grid-template-columns: 40px 1fr 1.2fr;">
 <div class="cell">6</div>
 <div class="cell">卸载插件</div>
-<div class="cell">目录被删除，注册表条目消失，<code>&lt;id&gt;-data/</code> 若存在则保留</div>
+<div class="cell">目录被删除，注册表条目消失，<code>&lt;id&gt;.data/</code> 若存在则保留</div>
 </div>
 </div>
 </div></div>
