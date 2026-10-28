@@ -465,6 +465,7 @@
       "embedding": "向量模型",
       "webSearch": "网页搜索",
       "mcp": "外部 Agent（MCP）",
+      "plugins": "插件",
       "network": "网络",
       "sourceWatch": "资料文件夹监控",
       "scheduledImport": "定时导入",

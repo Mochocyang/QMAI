@@ -11,6 +11,7 @@ import {
   Brain,
   Search,
   Plug,
+  Puzzle,
   Cloud,
   UserRound,
 } from "lucide-react"
@@ -36,6 +37,7 @@ import { ClassificationSection } from "./sections/classification-section"
 import { NetworkSection } from "./sections/network-section"
 import { WebSearchSection } from "./sections/web-search-section"
 import { AgentMcpSection } from "./sections/agent-mcp-section"
+import { PluginSection } from "./sections/plugin-section"
 import { ChangelogSection } from "./sections/changelog-section"
 import { FeedbackSection } from "./sections/feedback-section"
 import { UsageGuideSection } from "./sections/usage-guide-section"
@@ -54,6 +56,7 @@ type CategoryId =
   | "network"
   | "web-search"
   | "mcp"
+  | "plugins"
   | "interface"
   | "novel"
   | "user-memory"
@@ -92,6 +95,7 @@ const CATEGORIES: Category[] = [
   { id: "novel", labelKey: "settings.categories.novel", icon: BookOpen },
   { id: "network", labelKey: "settings.categories.network", icon: Network },
   { id: "mcp", labelKey: "settings.categories.mcp", icon: Plug },
+  { id: "plugins", labelKey: "settings.categories.plugins", icon: Puzzle, defaultLabel: "插件" },
   { id: "web-search", labelKey: "settings.categories.webSearch", icon: Search },
   { id: "interface", labelKey: "settings.categories.interface", icon: Palette },
   { id: "user-memory", labelKey: "settings.categories.userMemory", icon: Brain },
@@ -611,6 +615,8 @@ export function SettingsView() {
         return <WebSearchSection />
       case "mcp":
         return <AgentMcpSection />
+      case "plugins":
+        return <PluginSection />
       case "interface":
         return <InterfaceSection draft={draft} setDraft={setDraft} />
       case "novel":
