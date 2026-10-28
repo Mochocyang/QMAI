@@ -278,11 +278,37 @@ v1（WorkBuddy）的白名单是代码里写死的域名后缀。v2 必须改成
 
 ---
 
-## 6. QMAI 核心改造清单（这才是成本所在）
+## 6. QMAI 核心改造清单
 
-### 6.1 封闭 provider 联合 → 开放字符串 + 运行期注册表
+### 6.0 先纠正一个估算：**存储层已经是开放的，不需要改**
 
-现在 provider 是编译期封闭的，散在这几处：
+初稿把这里估成"6–8 文件 + 一个大 switch 的重构"。核实代码后要修正：**运行时配置存储本来就是开放的**。
+
+```ts
+// src/stores/wiki-store.ts:613
+export type ProviderConfigs = Record<string, ProviderOverride>
+```
+
+而 `ProviderOverride`（`wiki-store.ts` 内）已经正好具备插件 provider 需要的全部字段：
+`baseUrl`（端点）、`apiKey`（用来放 provider token）、`model` / `savedModels`（模型清单）、
+`maxContextSize` / `maxOutputTokens`（裁剪依据）、`label`（显示名）。
+
+**含义**：插件 provider 只要往 `providerConfigs[providerId]` 写一条记录，
+下游所有既有逻辑（模型选择、裁剪、测试、统计）就都能沿用它 —— 不需要新的存储形态。
+
+同样地，**跨 provider 的模型复合键也已经存在**（见 `src/lib/llm-model-keys.ts` 的
+`getStableAvailableModelKey` 与 `src/lib/novel/model-resolver.ts` 的 `isModelKeyRegistered`）：
+
+```
+providerId/modelId        // 例：openai/gpt-4、wb-connect/glm-5.3
+```
+
+它已经被历史数据使用（`dedup-scan-cache.spec.ts` 的 `"openai/gpt-4"`），
+解析与校验都是现成的。**所以第 11 章问题 1 的答案是"沿用既有约定"，不是新设计。**
+
+真正要改的只剩下面这些（**封闭的是"类型声明"与"请求构造分支"，不是存储**）：
+
+### 6.1 封闭 provider 联合 → 开放字符串
 
 | 文件:行 | 内容 | 改法 |
 |---|---|---|
@@ -456,6 +482,21 @@ Qoder / Trae / 小浣熊 / 以及未来任何"账号登录 + 私有头部"的 Ag
 | 版本 | 内容 |
 |---|---|
 | **v2.0（最小可用）** | `contributes.providers` + `net:listen` + OpenAI 兼容端点的 `/health`/`/v1/models`/`/v1/chat/completions` + 动态 provider 注册表 + 模型列表合并 + 高危确认。**不做登录窗口。** 用一个"无登录"的 provider 插件（例如转发到用户已有 key 的本地端点）验证全链路。 |
+
+**v2.0 的实际工作量（按 6.0 核实后重估）**：
+
+三件事，其中前两件是机械性的：
+
+1. **打开类型**：`LlmConfig.provider` / `settings-types` / `LlmProviderId` 从封闭联合改为
+   `内置字面量 | (string & {})`（保留内置的自动补全）。约 4 处。
+2. **一个通用适配器**：`llm-providers.ts` 的 `switch` 加一个 `default` 分支——
+   "OpenAI 兼容 + `providerConfigs[id].baseUrl` + `bearer providerToken`"。
+   **不是把 10 个 case 重构成查表**（我初稿估错了），内置分支原样保留。
+3. **设置页运行期注入**：`LLM_PRESETS` 是静态数组，设置页按它渲染卡片。
+   插件 provider 需要在运行时追加为一张卡片（含「登录/设置」「刷新模型」两个入口）。
+   **这是 v2.0 唯一有产品设计含量的部分。**
+
+**存储层、复合键、裁剪、统计、测试全部零改动** —— 见 6.0。
 | **v2.1** | 受控登录窗口（`browser-login` + `authDomains` 白名单）+ `paste-token` / `import-file` 中转 + `capabilities` 三个扩展端点（倍率/余额/签到展示） |
 | **v2.2** | 官方 WorkBuddy provider 插件（阶段 1 并存）+ 迁移工具 |
 | **v2.3** | 阶段 2 切换默认；阶段 3 摘除核心内置（需另写迁移方案） |
@@ -464,7 +505,7 @@ Qoder / Trae / 小浣熊 / 以及未来任何"账号登录 + 私有头部"的 Ag
 
 ---
 
-## 11. 已知风险与未决问题
+## 11. 已知风险与已定决策
 
 ### 风险
 
@@ -478,16 +519,70 @@ Qoder / Trae / 小浣熊 / 以及未来任何"账号登录 + 私有头部"的 Ag
 5. **责任归属更难划**：v1 里插件做错事影响一个工具；v2 里它决定模型回什么。
    即使做成插件，若由官方发布，责任仍在发布方（与 v1 的 内置/外部 讨论同构）。
 
-### 未决问题（需要在 v2.0 实现前定）
+### 已定决策（v2.0 实现前必须服从）
 
-1. **插件模型 id 的命名空间**：用 `providerId/modelId` 还是保留裸 `modelId` + 界面分组？
-   前者彻底无歧义但会改动 `model` 字段的形态（影响已有会话记录的兼容性）。
-2. **`/v1/models` 与清单 `models` 的优先级**：允许清单里预先声明模型（安装即可见、不用等探活），
-   还是强制以端点为准？建议端点为准、清单只作"安装前预览"，与 v1 的"工具真源是 tools/list"保持一致。
-3. **是否允许插件 provider 复用 QMAI 已存的第三方 key**（例如内置 `openai` 的 key）：
-   倾向**不允许**——插件应自带凭证，否则等于把用户的 key 交给插件。
-4. **`net:listen` 的端口范围**：只允许宿主分配的端口，还是也允许插件自选？
-   建议只允许宿主分配（避免与用户本机其它服务抢端口，QMAI 已有过 3065 被 Agent2API 抢占的教训）。
+#### D1. 模型标识：沿用既有的 `providerId/modelId`
+
+**决定**：插件模型的规范键就是 `providerId/modelId`（例：`wb-connect/glm-5.3`）。
+
+**依据（不是偏好，是既有事实）**：
+- `src/lib/llm-model-keys.ts` 的 `getStableAvailableModelKey()` 返回的正是这个形状，且已做"先按前缀精确匹配、匹配不上再按裸名扫描所有 provider"的两级回退；
+- `src/lib/novel/model-resolver.ts` 的 `isModelKeyRegistered()` 用 `indexOf("/")` 解析它；
+- 历史数据里已经在用：`src/lib/dedup-scan-cache.spec.ts` 的 `"openai/gpt-4"`、
+  `src/lib/novel/book-analysis/analysis-pipeline-types.ts:111` 明确写着"任务使用的模型 key（`providerId/modelId` 或裸模型名）"。
+
+**所以"影响历史会话兼容性"这个担心不成立**——这个形状已经是既成事实，插件 provider 是**加入**它，不是改变它。
+界面展示用 provider 名做分组前缀（`WorkBuddy · GLM-5.3`），但那只是展示，键仍是复合键。
+
+**约束**：`providerId` 必须满足 `^[a-z][a-z0-9-]{1,31}$` 且不含 `/`，否则复合键会产生歧义（解析用 `indexOf("/")`，第一个斜杠前是 provider）。
+
+#### D2. 模型的真源：`/v1/models`，清单只作安装前预览
+
+**决定**：以插件端点的 `/v1/models` 为唯一真源；`plugin.json` 里的 `models` 仅用于
+"安装前让用户知道这个插件大概能提供什么"，**永远不进入可选列表**。
+
+**依据**：与 v1 已确立的原则一致（"工具真源是运行期 `tools/list`，清单那份只用于预览"），
+避免两份真源漂移——这正是设计文档 §6.3 引用的 DSH 教训。
+
+**落地方式**：插件 `/v1/models` 的结果写入 `providerConfigs[providerId].savedModels`，
+之后模型选择器、裁剪、测试、统计**全部走既有逻辑**（见 6.0）。
+
+#### D3. 凭证：插件绝不能复用 QMAI 已存的第三方 key
+
+**决定**：插件 provider 的 `providerConfigs[providerId].apiKey` 只能放**该插件自己发放的
+provider token**（宿主为它生成的随机令牌）。**禁止**从任何内置 provider 的 `apiKey` 取值或拷贝。
+
+**依据**：内置 `providerConfigs["openai"].apiKey` 是用户自己的付费凭证。
+把它交给第三方插件代码，等于让插件可以脱离 QMAI 直接消耗用户额度、且 QMAI 无法审计——
+这与"把 provider 移出核心以降低风险"的目标完全相反。
+
+**实现约束**：宿主在生成 `providerConfigs[providerId]` 时，`apiKey` 字段**只接受**
+`provider.token`（宿主自己生成的），不接受任何外部传入值。代码评审时这一处要单独看。
+
+#### D4. 端口：只允许宿主分配，插件不得自选
+
+**决定**：`net:listen` 语义严格限定为"在宿主分配的端口上绑定 `127.0.0.1`"。
+插件自选端口、绑 `0.0.0.0`、绑非回环地址，一律拒绝启用。
+
+**依据**：`src-tauri/src/workbuddy/gateway.rs` 模块头已经踩过并写明：
+「只绑 `127.0.0.1`，端口取 `0`（内核分配），**不固定 3065** ——
+用户可能自己装着一个 Agent2API，抢端口会让两边都莫名其妙」。
+
+**附带要求**：宿主分配的端口在插件停用/卸载后必须回收；同一端口不得同时分配给两个插件；
+绑定失败（被占用）时宿主**重新分配一次**，仍失败则报 `E_PROVIDER_PORT_UNAVAILABLE` 并让插件停在未就绪态。
+
+---
+
+## 12. 修正后的一致性检查
+
+上述四条决策与正文其余部分的一致性：
+
+| 决策 | 影响的正文位置 | 是否需要改正文 |
+|---|---|---|
+| D1 复合键 | 3.4 模型目录、6.3 冲突处理 | 6.3 原文说"用 `providerId/modelId` 区分"——已一致 ✓ |
+| D2 端点真源 | 4.1 清单 `models` 字段 | 已在 4.1 标注为"可选，仅预览" ✓ |
+| D3 凭证隔离 | 5.3 凭证归属铁律 | 已一致 ✓ |
+| D4 端口分配 | 3.3 端口与令牌注入 | 已写"端口由宿主分配" ✓ |
 
 ---
 
