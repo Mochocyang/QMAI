@@ -10,6 +10,7 @@ pub mod config;
 pub mod content;
 pub mod host_api;
 pub mod installer;
+pub mod login_window;
 pub mod manifest;
 pub mod mcp_bridge;
 pub mod paths;
@@ -739,6 +740,9 @@ async fn register_provider(
         token,
         capabilities: decl.capabilities.clone(),
         settings_page: decl.settings_page_path.clone(),
+        // 登录窗口的导航白名单：只来自清单（设计 5.2）。登记时就带上，开窗时不必再读盘 ——
+        // 窗口打开时清单文件可能已被替换，「登记的那一份」才是当前正在跑的插件。
+        auth_domains: decl.auth_domains.clone(),
         auth_kind: providers::auth_kind_name(decl.auth_kind).to_string(),
         models: Vec::new(),
         ready: false,
@@ -1626,6 +1630,91 @@ pub async fn plugins_provider_refresh_models(
     refresh_provider_models(state.inner(), &provider_id, PROVIDER_REFRESH_PROBE_TIMEOUT).await
 }
 
+/// 打开某个 provider 的登录/设置窗口（设计 5.1：插件自托管页面 + 宿主受控窗口）。
+///
+/// 只对 `authKind != none` 且清单声明了 `settingsPagePath` 的 provider 有效 ——
+/// 其余情况返回可读原因，而不是开一个空白窗口。导航白名单来自该 provider 登记时
+/// 记下的 `authDomains`，**代码里不写死任何第三方域名**（设计 5.2）。
+///
+/// 关窗后会自动重新探活 + 重抓模型（见 `login_window::open_provider_window`），
+/// 用户登录完不必回设置页手动点「刷新模型」。
+#[tauri::command]
+pub async fn plugins_provider_open_login(
+    app: tauri::AppHandle,
+    state: State<'_, PluginsState>,
+    provider_id: String,
+) -> Result<(), String> {
+    // 只在锁里复制登记信息：开窗、以及后续的探活/抓模型都不该握着 providers 表锁。
+    let provider = {
+        let providers = state.providers.lock().await;
+        providers
+            .get(&provider_id)
+            .cloned()
+            .ok_or_else(|| format!("provider {provider_id} 未就绪"))?
+    };
+
+    let (url, port) = login_window::login_target(&provider)?;
+    login_window::open_provider_window(
+        &app,
+        &provider.plugin_id,
+        &provider.provider_id,
+        &url,
+        port,
+        &provider.auth_domains,
+    )
+}
+
+/// provider 能力端点（余额/签到）的单次超时。
+///
+/// 5s 而不是 client 的 60s：这是用户点了「余额/签到」按钮在等，插件在回环上、
+/// 数据多半是本地缓存，5s 已经非常宽松；真没响应就该报错让用户重试。
+const PROVIDER_CAPABILITY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// 转发 capabilities 端点（设计 4.4）。
+///
+/// `endpoint` 只允许 `/v1/_qmai/balance` 与 `/v1/_qmai/checkin` —— **白名单，不是任意 URL**：
+/// 入参来自前端，一旦允许任意路径，宿主的 provider token 就会被送到任意路径上，
+/// 这条命令也就成了「代任意本机请求」。
+#[tauri::command]
+pub async fn plugins_provider_call(
+    state: State<'_, PluginsState>,
+    provider_id: String,
+    endpoint: String,
+    body: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    provider_call(state.inner(), &provider_id, &endpoint, body).await
+}
+
+/// `plugins_provider_call` 的实际实现（命令层只做 `State` 解包）。
+async fn provider_call(
+    state: &PluginsState,
+    provider_id: &str,
+    endpoint: &str,
+    body: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    // 先判白名单、再查登记：非法端点不该因为「provider 未就绪」而得到一句误导的原因。
+    if !providers::capability_endpoint_allowed(endpoint) {
+        return Err(format!("不支持的能力端点：{endpoint}"));
+    }
+
+    // 地址与令牌取出来就放锁：网络请求可能几百毫秒，握着表锁会把启用/停用一起堵住。
+    // token 只在内存（`PluginProvider`），这里用完即弃，绝不落盘。
+    let (base_url, token) = {
+        let providers = state.providers.lock().await;
+        let provider = providers
+            .get(provider_id)
+            .ok_or_else(|| format!("provider {provider_id} 未就绪"))?;
+        (provider.base_url.clone(), provider.token.clone())
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(PROVIDER_CAPABILITY_TIMEOUT)
+        .build()
+        .map_err(|error| format!("构造 HTTP client 失败：{error}"))?;
+
+    providers::call_capability(&client, &base_url, &token, endpoint, body.as_ref()).await
+}
+
 // ── 插件配置（设计 §6.3）──────────────────────────────
 //
 // 四条命令都先过 `require_manifest`：pluginId 会拼成磁盘路径，而且「未安装的插件」
@@ -1947,6 +2036,7 @@ mod tests {
             token: "test-token".to_string(),
             capabilities: vec![],
             settings_page: None,
+            auth_domains: vec![],
             auth_kind: "none".to_string(),
             models: vec![],
             ready: true,

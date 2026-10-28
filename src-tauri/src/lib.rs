@@ -347,6 +347,10 @@ commands::fs::read_file,
             plugins::plugins_providers,
             plugins::plugins_provider_auth,
             plugins::plugins_provider_refresh_models,
+            // 受控登录窗口（设计 5.1/5.2）：白名单来自清单 authDomains，关窗后自动刷新模型。
+            plugins::plugins_provider_open_login,
+            // capabilities 端点代理（设计 4.4）：endpoint 走白名单，不开放任意 URL。
+            plugins::plugins_provider_call,
             // 插件配置（设计 §6.3）：读/写按 configSchema 校验；
             // 密钥只写内存（盘上留占位符），读接口永不返回真值。
             plugins::plugins_config_get,
