@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core"
-import type { PluginSummary, PluginToolDescriptor } from "./types"
+import type {
+  PluginProviderModel,
+  PluginProviderView,
+  PluginSummary,
+  PluginToolDescriptor,
+} from "./types"
 
 /**
  * 插件管理的 Tauri 命令封装。
@@ -17,5 +22,10 @@ export const pluginsApi = {
   tools: () => invoke<PluginToolDescriptor[]>("plugins_tools"),
   invokeTool: (pluginId: string, toolName: string, args: Record<string, unknown>) =>
     invoke<string>("plugins_invoke_tool", { pluginId, toolName, arguments: args }),
+  // provider：列表不含 token；token 只有 providerAuth 能取到（不落盘，见 v2.0 计划第 0 节）。
+  providers: () => invoke<PluginProviderView[]>("plugins_providers"),
+  providerAuth: (providerId: string) => invoke<string>("plugins_provider_auth", { providerId }),
+  refreshProviderModels: (providerId: string) =>
+    invoke<PluginProviderModel[]>("plugins_provider_refresh_models", { providerId }),
   shutdownAll: () => invoke<void>("plugins_shutdown_all"),
 }

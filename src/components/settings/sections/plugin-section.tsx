@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { pluginsApi } from "@/lib/plugins/api"
+import { clearPluginProviderAuth } from "@/lib/plugins/provider-auth"
 import type { PluginSummary } from "@/lib/plugins/types"
 import { toast } from "@/lib/toast"
 
@@ -178,6 +179,11 @@ export function PluginSection() {
     setActionError(null)
     try {
       await pluginsApi.disable(plugin.id)
+      // provider token 只活在本进程缓存里（不落盘，见 v2.0 计划第 0 节）。
+      // 插件停了就清掉：否则后续请求会带着已失效的 token 打到已经关闭的端口上。
+      // 这里清全部而不是按 providerId 清：一个插件可能声明多个 provider，而
+      // 手头只有 pluginId（providerId 可以不同名），清全部最省事且不会漏。
+      clearPluginProviderAuth()
       toast.success(`已停用「${pluginDisplayName(plugin)}」`)
       await refresh()
     } catch (cause) {
@@ -199,6 +205,8 @@ export function PluginSection() {
     setActionError(null)
     try {
       await pluginsApi.uninstall(plugin.id, false)
+      // 卸载同样要清 provider token 缓存（理由同 disablePlugin）。
+      clearPluginProviderAuth()
       toast.success(`已卸载「${name}」`)
       await refresh()
     } catch (cause) {

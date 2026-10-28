@@ -3,9 +3,9 @@ import { isAzureOpenAiEndpoint } from "@/lib/azure-openai"
 import {
   getEffectiveMaxContextSize,
   getEffectiveMaxOutputTokens,
-  getProviderConfig,
   isTruncationFinishReason,
   parseOpenAiSseError,
+  resolveProviderConfig,
   thinkingMinMaxTokens,
   type RequestOverrides,
 } from "./llm-providers"
@@ -444,7 +444,9 @@ async function streamChatHeld(
     runtimeConfig = withWorkbuddyEndpoint(runtimeConfig, gateway)
   }
 
-  const providerConfig = getProviderConfig(runtimeConfig)
+  // 插件 provider 需要先现取 token（异步），所以统一走 resolveProviderConfig：
+  // 内置 provider 与 getProviderConfig 等价，插件 provider 走 OpenAI 兼容适配器。
+  const providerConfig = await resolveProviderConfig(runtimeConfig)
 
   // Combined abort: (a) user cancel, (b) our long-horizon timeout.
   // The long timeout is a backstop for truly stuck requests; it's NOT
