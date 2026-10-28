@@ -257,9 +257,44 @@ POST /v1/chat/completions    → 支持 stream:true 的 SSE
 
 ### 3.4 凭证归你，不归 QMAI
 
-- 用户的登录态/令牌**存在插件自己的数据目录**，不要塞给宿主
-- 宿主只会把你给它的 provider token 放在内存里，**不落盘**
-- 如果要登录界面：v2.0 还**不支持**（`authKind` 会被接受，但宿主不会打开窗口）；等 v2.1
+- 用户的登录态/令牌**存在插件自己的数据目录**（`<插件根>/<id>.data/`），不要塞给宿主
+- 宿主唯一保存的凭证是**它自己发的 provider token**（内存里，不落盘）
+- 宿主中转用户凭据时**不落盘、不写日志、不放进错误信息**，也**不会回填**到界面上
+
+### 3.5 四种 `authKind`：两种要你写端点
+
+| authKind | 用户看到什么 | 你要做什么 |
+|---|---|---|
+| `none` | 无登录入口 | 什么都不用做（例如转发到本机推理端点） |
+| `browser-login` | 卡片上的「登录/设置」打开**受控窗口**加载 `settingsPagePath`；窗口**只能**去 `authDomains` 声明的域名 | 提供设置页 + 声明 `authDomains` |
+| `paste-token` | 卡片上是**密码框 + 保存** | 实现 `POST /login/credential` |
+| `import-file` | 卡片上是**「选择文件」**（按纯文本读，≤1MB） | 实现 `POST /login/credential`（同一个端点） |
+
+**凭证端点（路径固定，清单里不用声明）**：
+
+```
+POST http://127.0.0.1:<providerPort>/login/credential
+Authorization: Bearer <providerToken>
+Content-Type: application/json
+
+{ "kind": "paste-token" | "import-file", "value": "<内容>", "filename": "<原文件名，仅 import-file>" }
+```
+
+- 成功 → `200 {"ok":true,"message"?: "登录成功"}`。`message` 会原样显示在卡片上；**空 body 也接受**
+- 失败 → 任意非 2xx。QMAI 把「**状态码 + 响应体前 200 字**」原样展示给用户，
+  所以**请在响应体里写清原因**（`{"error":"令牌应为 sk- 开头"}`）。401/404/500 在用户眼里是三件不同的事
+- 超时 **15 秒**
+- `value` 全空白会在宿主侧被拒（返回「凭据内容为空」），不会送到你这里
+
+**为什么是固定路径**：`paste-token` 与 `import-file` 语义完全一致（都是"把一段文本交给插件"）。
+固定路径让宿主零配置支持两种，将来加文本型凭据（扫码结果等）也不用改清单。
+可配置路径会把契约变成 N 套私有协议——和 `/health`、`/v1/models` 固定路径是同一个取舍。
+
+**两条容易踩的**：
+
+1. **宿主不回填**——它真没存这个值。所以"用户下次打开设置页还能看到已填的令牌"是做不到的；
+   想要这个体验，请**同时**声明 `settingsPagePath`，在自己页面里展示"已登录"状态。
+2. **QMAI 重启后不会自动带着令牌来找你**。要么用户重填，要么你自己持久化并在 `/health` 里如实报"未登录"。
 
 ---
 

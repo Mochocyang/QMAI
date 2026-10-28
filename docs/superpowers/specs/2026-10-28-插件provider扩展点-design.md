@@ -297,14 +297,37 @@ v1（WorkBuddy）的白名单是代码里写死的域名后缀。v2 必须改成
 
 ### 5.3 其它 `authKind`
 
-| authKind | QMAI 侧表现 |
-|---|---|
-| `paste-token` | 卡片上给一个输入框，用户粘贴 → 经 HostApi 转交插件（`POST /host/provider/credential`），**QMAI 不落盘** |
-| `import-file` | 走现有文件选择器，把文件**内容**转交插件，同样不落盘 |
-| `none` | 无登录 UI（例如纯本地推理端点） |
+| authKind | QMAI 侧表现 | 插件要做的 |
+|---|---|---|
+| `paste-token` | 卡片上给一个**密码框 + 保存**，用户粘贴 → 提交给插件 | 实现 `POST /login/credential` |
+| `import-file` | 卡片上给**「选择文件」**，按纯文本读（≤1MB）→ 提交给插件 | 实现 `POST /login/credential`（同一个端点） |
+| `none` | 无登录 UI（例如纯本地推理端点） | 无 |
 
-**凭证归属铁律**：QMAI 只在内存里中转一次，**绝不写入任何 QMAI 自己的存储**。
-插件自己决定存哪（活该在 `<插件根>/<id>.data/`）。
+**端点（固定路径，清单里不需要声明）**：
+
+```
+POST http://127.0.0.1:<providerPort>/login/credential
+Authorization: Bearer <providerToken>
+Content-Type: application/json
+
+{ "kind": "paste-token" | "import-file", "value": "<内容>", "filename": "<原文件名，仅 import-file>" }
+```
+
+- 成功 → `200 {"ok":true,"message"?: "..."}`；**空 body 也接受**（按 `{ok:true}` 处理）
+- 失败 → 任意非 2xx。QMAI 把「状态码 + 响应体前 200 字」原样展示，**所以请在响应体里写清原因**
+- 超时 **15 秒**（比能力端点宽松：通常要拿这段文本换一次上游会话）
+- `value` 全空白在宿主侧就被拒，不会送到插件
+
+> **为什么是固定路径而不是让插件声明**：`paste-token` 与 `import-file` 的语义完全一致（都是"把一段文本交给插件"）。
+> 固定路径让宿主**零配置**支持这两种，将来再加文本型凭据（如扫码结果）也不用改清单。
+> 可配置路径会把这条契约变成 N 套私有协议——与 `/health`、`/v1/models` 固定路径是同一个取舍。
+
+> **实现后更正**：原稿写的是「经 HostApi 转交插件（`POST /host/provider/credential`）」——**方向搞反了**。
+> HostApi 是**插件 → 宿主**的面；凭据是**宿主 → 插件**，所以端点在插件侧。以本节为准。
+
+**凭证归属铁律**：QMAI 只在内存里中转一次，**绝不写入任何 QMAI 自己的存储、日志或错误信息**。
+插件自己决定存哪（应该在 `<插件根>/<id>.data/`）。因此卡片**不会回填**已提交的值——
+宿主真没这个值。也正因如此，QMAI 重启后不会自动带着令牌来找插件：要么用户重填，要么插件自己持久化。
 
 ---
 
