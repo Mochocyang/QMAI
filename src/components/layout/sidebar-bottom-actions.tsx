@@ -15,7 +15,7 @@
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
-import { Check, ChevronRight, Settings, UserRound } from "lucide-react"
+import { Check, ChevronRight, UserRound } from "lucide-react"
 
 import { useWikiStore, type SettingsCategoryId } from "@/stores/wiki-store"
 import { UI_TEST_SKINS } from "@/lib/ui-test"
@@ -30,7 +30,6 @@ const MENU_WIDTH = 290
 
 export function SidebarBottomActions() {
   const { t } = useTranslation()
-  const activeView = useWikiStore((s) => s.activeView)
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setActiveSettingsCategory = useWikiStore((s) => s.setActiveSettingsCategory)
   const setSearchPanelOpen = useWikiStore((s) => s.setSearchPanelOpen)
@@ -167,11 +166,13 @@ export function SidebarBottomActions() {
   return (
     <div
       data-ui="sidebar-bottom-actions"
-      className="flex shrink-0 items-center gap-1 border-t py-1.5 pl-2 pr-1.5"
+      className="flex shrink-0 items-center gap-1 border-t py-1 pr-1.5 pl-0"
     >
       {/*
-       * 左侧账号块：头像 + 用户名（参考图风格）。整块可点，点开账号菜单。
-       * 头像 28px 比图标栏略大，视觉上更像"用户头像"；用户名紧随其后。
+       * 左侧账号块：用户名在前、头像在后（用户明确要求「头像左边显示用户名」）。
+       *
+       * 位置：底栏本身不再加左内边距（pl-0），头像/文字贴着侧栏左边界，
+       * 只留 4px 的按钮内衬 —— 用户连续反馈「还要往左」。
        */}
       <button
         ref={triggerRef}
@@ -182,12 +183,15 @@ export function SidebarBottomActions() {
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         data-ui="sidebar-account-avatar"
-        className={`flex w-fit max-w-[calc(100%-3rem)] min-w-0 shrink items-center gap-2 rounded-md px-1 py-1 text-left transition-colors ${
+        className={`flex w-fit max-w-[calc(100%-3rem)] min-w-0 shrink items-center gap-1.5 rounded-md px-0.5 py-1 text-left transition-colors ${
           menuOpen
             ? "bg-accent/60 text-accent-foreground"
             : "hover:bg-accent/50 hover:text-accent-foreground"
         }`}
       >
+        <span className="ui-test-account-name truncate text-xs font-medium text-foreground">
+          {accountDisplayNameText}
+        </span>
         {accountUser ? (
           <span className="sidebar-account-avatar flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full">
             <AccountAvatar user={accountUser} baseUrl={accountSession?.baseUrl ?? null} />
@@ -197,28 +201,11 @@ export function SidebarBottomActions() {
             <UserRound className="h-4 w-4" />
           </span>
         )}
-        <span className="ui-test-account-name truncate text-xs font-medium text-foreground">
-          {accountDisplayNameText}
-        </span>
       </button>
 
-      {/* 右侧：公告铃铛 + 设置齿轮（参考图里齿轮在最右）。 */}
-      <div className="ml-auto flex shrink-0 items-center gap-0.5">
+      {/* 右侧只剩公告铃铛：设置入口已在账号菜单里，不再重复放齿轮。 */}
+      <div className="ml-auto flex shrink-0 items-center">
         <AnnouncementBell />
-        <button
-          type="button"
-          onClick={openGeneralSettings}
-          data-ui="sidebar-settings-gear"
-          title="设置"
-          aria-label="设置"
-          className={`flex size-7 shrink-0 items-center justify-center rounded-md transition-colors ${
-            activeView === "settings"
-              ? "bg-accent/60 text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
-          }`}
-        >
-          <Settings className="h-4 w-4" />
-        </button>
       </div>
 
       {menuOpen &&

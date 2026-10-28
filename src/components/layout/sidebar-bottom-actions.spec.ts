@@ -8,23 +8,34 @@ const source = readFileSync(
 )
 
 describe("sidebar-bottom-actions", () => {
-  it("底栏左侧是头像+用户名，右侧是公告与设置齿轮", () => {
+  it("底栏左侧是用户名+头像（名字在头像左侧），右侧是公告铃铛", () => {
     expect(source).toContain('data-ui="sidebar-bottom-actions"')
     expect(source).toContain('data-ui="sidebar-account-avatar"')
     expect(source).toContain("ui-test-account-name")
     expect(source).toContain("{accountDisplayNameText}")
+    /*
+     * 用户名必须在头像之前（用户要求「头像左边显示用户名，已经说了好几次」）。
+     * 用 JSX 渲染顺序判定：从账号块开始的 800 字符窗口里，
+     * `ui-test-account-name` 必须早于 `sidebar-account-avatar`。
+     */
+    const blockStart = source.indexOf('data-ui="sidebar-account-avatar"')
+    const window800 = source.slice(blockStart, blockStart + 800)
+    const nameAt = window800.indexOf("ui-test-account-name")
+    const avatarAt = window800.indexOf("sidebar-account-avatar", 10)
+    expect(nameAt).toBeGreaterThan(-1)
+    expect(avatarAt).toBeGreaterThan(nameAt)
     // 不能再用 flex-1（会把头像推到整条底栏的中间）
     expect(source).not.toContain("min-w-0 flex-1 items-center")
     expect(source).toContain("w-fit")
-    // 底栏左内边距，头像不贴边线
-    expect(source).toContain("pl-2")
-    // 右侧齿轮：全新的设置入口
-    expect(source).toContain('data-ui="sidebar-settings-gear"')
+    // 底栏不再加左内边距（用户要求头像继续往左）
+    expect(source).toContain("pl-0")
+    // 设置入口只在账号菜单里，不再有独立齿轮
+    expect(source).not.toContain('data-ui="sidebar-settings-gear"')
   })
 
   it("公告铃铛用 ml-auto 靠最右", () => {
     expect(source).toContain("<AnnouncementBell />")
-    expect(source).toContain('className="ml-auto flex shrink-0 items-center gap-0.5"')
+    expect(source).toContain('className="ml-auto flex shrink-0 items-center"')
   })
 
   it("外观默认折叠，点击展开三个主题且不带副标题", () => {

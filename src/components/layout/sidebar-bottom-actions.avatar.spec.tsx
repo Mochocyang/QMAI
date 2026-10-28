@@ -175,12 +175,11 @@ describe("账号菜单里的设置类入口", () => {
     expect(mocks.selectSkin).toHaveBeenCalled()
   })
 
-  it("右侧齿轮直接打开设置（参考图里的齿轮入口）", () => {
+  it("底栏不再有独立齿轮：设置入口只在账号菜单里", () => {
     render()
-    const gear = host.querySelector<HTMLButtonElement>('[data-ui="sidebar-settings-gear"]')!
-    expect(gear).toBeTruthy()
-    act(() => gear.click())
-    expect(mocks.setActiveView).toHaveBeenCalledWith("settings")
+    expect(host.querySelector('[data-ui="sidebar-settings-gear"]')).toBeNull()
+    // 底栏里应该能看到用户名
+    expect(host.textContent).toContain("青幕作者")
   })
 
   it("底栏入口同时显示用户名", () => {

@@ -563,9 +563,10 @@ html[data-ui-test-skin] .ui-test-wizard-chips button[aria-pressed="true"] { back
   height: 100%;
 }
 .ui-test-root .sidebar-account-avatar .account-avatar {
-  width: 24px;
-  height: 24px;
-  font-size: 0.6875rem;
+  /* 头像占满 28px 的容器（原先压到 24px，看起来比用户名还小，不够醒目） */
+  width: 28px;
+  height: 28px;
+  font-size: 0.75rem;
 }
 
 /*
