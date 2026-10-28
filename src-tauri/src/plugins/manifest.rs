@@ -121,10 +121,14 @@ pub struct Contributes {
     /// v3 · Tier 1 声明式动作：表单 + 提示词 + 输出映射，作者一行代码不写。
     #[serde(default)]
     pub actions: Vec<ActionDecl>,
-    /// v3 · 钩子声明。Phase 3 才执行，这里只把字段收住（见 `validate` 的 v3 段），
-    /// 让作者现在就能写清单、不必等宿主升级后再改一遍。
+    /// v3 · 钩子声明。
+    ///
+    /// 与 `panels` / 内容包的 `actions` 不同，这里**不能收成裸 `Value`**：钩子会被宿主
+    /// 按 `on` / `priority` 排序后逐个执行，字段名或类型写错（`timeoutMs: "5s"`、把
+    /// `on` 拼成 `afterLLMResponse`）在宿主侧就是一个静默不触发的钩子 —— 作者永远看不到
+    /// 报错，只会觉得「插件装了但没生效」。所以在解析期就把它收成结构体 + 白名单。
     #[serde(default)]
-    pub hooks: Vec<serde_json::Value>,
+    pub hooks: Vec<HookDecl>,
 }
 
 /// 一个灵感内容包的声明（设计 §4.1）。
@@ -186,6 +190,63 @@ pub struct ActionDecl {
     /// 在这里做成结构体，等于让「前端新增一种策略」必须先发一版 Rust。
     #[serde(default)]
     pub model: Option<serde_json::Value>,
+}
+
+/// 一个钩子的实现方式（设计 D5）。
+///
+/// - `Prompt`：**声明式**。宿主把 `template` 里的变量替换掉、再调一次模型，
+///   作者一行代码不写。80% 的钩子（去 AI 味、格式规整、提示词注入）都属于这类。
+/// - `Process`：**代码型**。宿主通过 MCP 调插件声明的 `tool`，只有真正复杂的
+///   文本处理才需要升级到这里。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HookImpl {
+    Prompt,
+    Process,
+}
+
+/// 一个钩子声明（设计 §5.1 / D5 / D6 / D7）。
+///
+/// 字段为什么这么少：钩子的全部语义就是「在哪个事件的哪个时机、用什么方式、插到
+/// 多前面、最多等多久、失败了算不算数」。多一个字段就等于多一条要跨版本兼容的契约，
+/// 而这条契约没有作者会去读第二遍。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HookDecl {
+    /// 事件名，必须在 `HOOK_EVENTS` 白名单内
+    pub on: String,
+    /// `prompt` = 声明式（宿主用模板再调一次模型）；`process` = 代码型（调插件工具）
+    #[serde(rename = "impl")]
+    pub impl_kind: HookImpl,
+    /// impl=prompt 时必需：模板，可含 `{{text}}` / `{{config.*}}` / `{{project.*}}` 等变量
+    #[serde(default)]
+    pub template: Option<String>,
+    /// impl=process 时必需：要调用的插件工具名
+    #[serde(default)]
+    pub tool: Option<String>,
+    /// 同事件多插件的执行顺序，小的先跑；默认 0
+    ///
+    /// 默认 0 而不是「按安装顺序」：安装顺序取决于用户什么时候装了哪个插件，
+    /// 同一份清单在两台机器上会得到不同的提示词改写顺序 —— 那种 bug 无法复现（D7）。
+    #[serde(default)]
+    pub priority: i32,
+    /// 本钩子的超时预算；缺省按事件类型的默认值（见 `hook_default_timeout_ms`）。
+    ///
+    /// 为什么允许覆盖：默认值是按「事件类型」定的（请求前后 8s / 工作流 15s /
+    /// 观测 2s），但同一组里也有快慢之分 —— 一个只做正则替换的 `afterLlmResponse`
+    /// 不该占用 8s 预算，一个要跑整章一致性检查的 `beforeReview` 又不够 15s。
+    #[serde(default, rename = "timeoutMs")]
+    pub timeout_ms: Option<u64>,
+    /// 仅当为 true 时，超时/报错按 **fail-closed** 处理（视为"未通过"，阻止流程）。
+    /// 默认 false（fail-open：出错就跳过这个钩子，用原值继续）。
+    ///
+    /// 为什么不一律 fail-closed（设计 D6）：QMAI 的写作流程是**用户主动触发**的，
+    /// 一个卡住或写坏的第三方插件不该让作者连章节都写不出来。超时预算再准，
+    /// 也只能保证宿主自己不等 —— 它不能保证插件在预算内给出正确答案。所以默认
+    /// fail-open，只有作者明确知道"这个钩子是门禁"时才 opt-in：
+    /// 门禁语义是**作者对用户的承诺**，不该由宿主替他做默认决定。
+    #[serde(default)]
+    pub gate: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -300,6 +361,67 @@ const V3_SCHEMA: u32 = 3;
 ///
 /// **这是 warn 的白名单，不是拒装的闸门** —— 未知值只忽略（见 `warn_unknown_kinds`）。
 const KNOWN_KINDS: &[&str] = &["declarative"];
+
+/// 钩子事件（设计 §5.1）。**受控资源**：新增需评审。
+///
+/// 为什么是白名单而不是「任意字符串 + 宿主不认识就忽略」：事件名是宿主与插件之间
+/// 唯一的触发协议，宿主**没有办法**替一个自己不认识的事件名做任何事 —— 它既不会
+/// 在那个时机被调用，也不会报错。作者写错一个字母（`afterLLMResponse` vs
+/// `afterLlmResponse`）得到的是一份「装得上、永远不触发」的插件，而这恰恰是最难
+/// 排查的一类问题。白名单把它变成安装期的一条明确报错。
+///
+/// 反过来，新增事件的成本也在这里：一个事件名发布出去就成了永远不能改的公开契约
+/// （插件清单里写死它），而且每加一个事件就多一个宿主必须真的去调用的接缝 ——
+/// 声明了却不调用的钩子比没有更糟。所以是受控资源，不是随手加。
+///
+/// 元组第二项是该事件的默认超时毫秒数（D6：请求前后 8s / 工作流 15s / 观测 2s）。
+/// 独立预算而不是一个全局值：观测类钩子只发一条通知，给它 15s 等于让一个坏插件
+/// 在每次模型调用后卡住 UI。
+pub const HOOK_EVENTS: &[(&str, u64)] = &[
+    // 请求前 / 响应后：模型增强（注入系统提示词、去 AI 味、格式规整）
+    ("beforeLlmRequest", 8_000),
+    ("afterLlmResponse", 8_000),
+    // 工作流：起草 / 审稿 / 润色 各自的进出门
+    ("beforeChapterDraft", 15_000),
+    ("afterChapterDraft", 15_000),
+    ("beforeReview", 15_000),
+    ("afterReview", 15_000),
+    ("beforePolish", 15_000),
+    ("afterPolish", 15_000),
+    // 观测：纯通知（用量、成本、章节完成）
+    ("onLlmUsage", 2_000),
+    ("onChapterCompleted", 2_000),
+];
+
+/// 单个钩子超时的上限。超过它就说明作者在用一个钩子做整章重写 ——
+/// 那该是声明式 action（有进度、可取消），而不是挂在一个必经过的接缝上。
+pub const MAX_HOOK_TIMEOUT_MS: u64 = 120_000;
+
+/// 事件是否在 `HOOK_EVENTS` 白名单内。
+fn is_known_hook_event(event: &str) -> bool {
+    HOOK_EVENTS.iter().any(|(name, _)| *name == event)
+}
+
+/// 事件对应的默认超时（毫秒）。未知事件返回 `None`：调用方（`validate_v3`）
+/// 已经在更早的一步拒过未知事件，这里只需不 panic。
+pub fn hook_default_timeout_ms(event: &str) -> Option<u64> {
+    HOOK_EVENTS
+        .iter()
+        .find(|(name, _)| *name == event)
+        .map(|(_, timeout)| *timeout)
+}
+
+/// `E_HOOK_EVENT_UNKNOWN` 的 detail 里要列出的合法事件名。
+///
+/// 从 `HOOK_EVENTS` 现算而不是另写一份字面量：手抄的清单迟早和新事件表对不上，
+/// 而这条 detail 正是作者修清单时唯一会看的东西。
+fn hook_event_names() -> String {
+    HOOK_EVENTS
+        .iter()
+        .map(|(name, _)| *name)
+        .collect::<Vec<_>>()
+        .join(" / ")
+}
 
 /// 宿主对外暴露的插槽（设计 §6.1）。**受控资源**：新增需评审并 bump 版本。
 ///
@@ -581,9 +703,11 @@ impl PluginManifest {
     fn needs_runtime(&self) -> bool {
         !self.contributes.tools.is_empty()
             || !self.contributes.providers.is_empty()
-            || self.contributes.hooks.iter().any(|hook| {
-                hook.get("impl").and_then(|value| value.as_str()) == Some("process")
-            })
+            || self
+                .contributes
+                .hooks
+                .iter()
+                .any(|hook| hook.impl_kind == HookImpl::Process)
     }
 
     /// 解析 + 校验。字段级错误返回第一个命中的错误码。
@@ -841,6 +965,68 @@ impl PluginManifest {
                     format!("{} (system / user 不能为空)", action.id),
                 ));
             }
+        }
+
+        // 钩子（设计 §5 / D5 / D6 / D7）。校验顺序沿「作者改一次只遇到一个问题」：
+        // 事件名（最基础，写错了后面全白搭）→ 实现方式的必需字段 → 超时范围 → 查重。
+        //
+        // 注意 `E_RUNTIME_REQUIRED` 不在这里，它在 `validate` 的前半段：没有进程的
+        // `impl=process` 钩子会先撞那条（更本质：这个包根本跑不起来）。
+        let mut seen_hooks: Vec<(&str, i32)> = Vec::new();
+        for hook in &self.contributes.hooks {
+            if !is_known_hook_event(&hook.on) {
+                return Err(ManifestError::new(
+                    "E_HOOK_EVENT_UNKNOWN",
+                    format!("{} (合法事件：{})", hook.on, hook_event_names()),
+                ));
+            }
+            // 两种实现各有自己的必需字段，缺了就等于一次「什么也不做」的钩子：
+            // prompt 没模板时模型收到的是一句空提示，process 没 tool 时宿主要调谁？
+            match hook.impl_kind {
+                HookImpl::Prompt => {
+                    if hook.template.as_deref().is_none_or(|t| t.trim().is_empty()) {
+                        return Err(ManifestError::new(
+                            "E_HOOK_TEMPLATE_REQUIRED",
+                            format!("{} (impl=prompt 必须提供非空 template)", hook.on),
+                        ));
+                    }
+                }
+                HookImpl::Process => {
+                    if hook.tool.as_deref().is_none_or(|t| t.trim().is_empty()) {
+                        return Err(ManifestError::new(
+                            "E_HOOK_TOOL_REQUIRED",
+                            format!("{} (impl=process 必须提供非空 tool)", hook.on),
+                        ));
+                    }
+                }
+            }
+            if let Some(ms) = hook.timeout_ms {
+                // 0 等于「立刻超时」（钩子形同虚设），超上限等于让一个必经过的接缝
+                // 把主流程拖到用户以为卡死。两者都在解析期拒，而不是运行期才发现。
+                if ms == 0 || ms > MAX_HOOK_TIMEOUT_MS {
+                    return Err(ManifestError::new(
+                        "E_HOOK_TIMEOUT_INVALID",
+                        format!("{} (timeoutMs = {ms}，合法范围 1..={MAX_HOOK_TIMEOUT_MS})", hook.on),
+                    ));
+                }
+            }
+            // D7 是「同事件串行 + priority 排序」：同事件同 priority 的两个钩子之间
+            // 没有任何确定顺序可言（排序不稳定），而钩子会改提示词/正文 —— 顺序不同
+            // 结果就不同。这种不确定性必须在安装期拒掉，而不是留成「有时好有时坏」。
+            // 允许同事件不同 priority（那正是 D7 想要的），也允许不同事件同 priority。
+            if seen_hooks
+                .iter()
+                .any(|(on, priority)| *on == hook.on.as_str() && *priority == hook.priority)
+            {
+                return Err(ManifestError::new(
+                    "E_HOOK_DUPLICATE",
+                    format!(
+                        "{} (priority {} 重复：同事件同优先级无法确定执行顺序，请给其中一个改 priority)",
+                        hook.on, hook.priority
+                    ),
+                ));
+            }
+            seen_hooks.push((hook.on.as_str(), hook.priority));
         }
 
         // 插槽：先查名字，再查版本。分开两轮是为了「名字写错」永远优先于
@@ -1414,7 +1600,9 @@ mod tests {
         let v3_fields = [
             format!("\"contributes\": {{\"contentPacks\": [{CONTENT_PACK}]}}"),
             format!("\"contributes\": {{\"actions\": [{ACTION}]}}"),
-            r#""contributes": {"hooks": [{"on": "afterLlmResponse"}]}"#.to_string(),
+            // 钩子结构化后 `impl` 是必需字段：这里要测的是「schema 闸门」，
+            // 所以给一份**合法**的钩子，免得先撞 E_JSON_INVALID（缺 impl）。
+            r#""contributes": {"hooks": [{"on": "afterLlmResponse", "impl": "prompt", "template": "去 AI 味"}]}"#.to_string(),
             r#""configSchema": {"type": "object"}"#.to_string(),
         ];
         for schema in 1..=2u32 {
@@ -1702,8 +1890,10 @@ mod tests {
     #[test]
     fn rejects_process_hook_without_runtime() {
         // `impl: "process"` 的钩子要跑插件自己的代码 —— 没有进程就永远执行不到。
+        // `tool` 写全，是为了让这条用例只测「缺 runtime」，而不是顺带撞上
+        // E_HOOK_TOOL_REQUIRED（错误码的先后顺序不该由测试来兜底）。
         let src = no_runtime_with_contributes(
-            r#"{"hooks": [{"on": "afterLlmResponse", "impl": "process"}]}"#,
+            r#"{"hooks": [{"on": "afterLlmResponse", "impl": "process", "tool": "rewrite_style"}]}"#,
         );
         let err = PluginManifest::parse(&src).expect_err("process 钩子没 runtime 必须被拒");
         assert_eq!(err.code(), "E_RUNTIME_REQUIRED");
@@ -1714,7 +1904,7 @@ mod tests {
         // 回归护栏：加了 E_RUNTIME_REQUIRED 之后，**原来能过的 Tier 2 清单必须照样过**。
         let src = v3_with_contributes(
             r#"{"tools": [{"name": "analyze_rhythm", "description": "分析节奏"}],
-                "hooks": [{"on": "afterLlmResponse", "impl": "process"}]}"#,
+                "hooks": [{"on": "afterLlmResponse", "impl": "process", "tool": "rewrite_style"}]}"#,
         );
         let m = PluginManifest::parse(&src).expect("有 runtime 的 Tier 2 清单必须通过");
         assert!(m.runtime.is_some());
@@ -1769,5 +1959,198 @@ mod tests {
             .expect("model 应被透传成 Some");
         assert_eq!(model["strategy"], "current");
         assert_eq!(model["minContextTokens"], 32000);
+    }
+
+    // ── Phase 3 · 钩子清单结构化（事件白名单 / prompt·process / gate opt-in）─────
+
+    /// 在 V3_MINIMAL 的 contributes 里放一组钩子。
+    fn v3_with_hooks(hooks: &str) -> String {
+        v3_with_contributes(&format!("{{\"hooks\": [{hooks}]}}"))
+    }
+
+    #[test]
+    fn accepts_valid_prompt_hook() {
+        // D5 的 Tier 1 形状：一条纯声明式的去 AI 味钩子，作者一行代码不写。
+        let src = v3_with_hooks(
+            r#"{"on": "afterLlmResponse", "impl": "prompt", "template": "改写得更自然：\n{{text}}"}"#,
+        );
+        let m = PluginManifest::parse(&src).expect("合法的 prompt 钩子必须通过");
+        assert_eq!(m.contributes.hooks.len(), 1);
+        let hook = &m.contributes.hooks[0];
+        assert_eq!(hook.on, "afterLlmResponse");
+        assert_eq!(hook.impl_kind, HookImpl::Prompt);
+        assert_eq!(hook.template.as_deref(), Some("改写得更自然：\n{{text}}"));
+        // 缺省值必须在结构体上真的生效（否则「同事件同 priority」查重会误判）
+        assert_eq!(hook.priority, 0);
+        assert_eq!(hook.timeout_ms, None);
+        // D6：gate 默认 true 的话，一个坏插件就能让作者写不出章节
+        assert!(!hook.gate, "gate 必须默认 false（fail-open）");
+        assert_eq!(hook.tool, None);
+    }
+
+    #[test]
+    fn accepts_valid_process_hook() {
+        // Tier 2 形状：调插件自己的工具，所以必须配 runtime。
+        let src = v3_with_hooks(
+            r#"{"on": "afterLlmResponse", "impl": "process", "tool": "rewrite_style",
+                "priority": -5, "timeoutMs": 3000}"#,
+        );
+        let m = PluginManifest::parse(&src).expect("合法的 process 钩子必须通过");
+        let hook = &m.contributes.hooks[0];
+        assert_eq!(hook.impl_kind, HookImpl::Process);
+        assert_eq!(hook.tool.as_deref(), Some("rewrite_style"));
+        // priority 允许负数：想「插到所有默认优先级(0)之前」就得用负值
+        assert_eq!(hook.priority, -5);
+        assert_eq!(hook.timeout_ms, Some(3000));
+    }
+
+    #[test]
+    fn rejects_unknown_hook_event() {
+        // 拼错大小写是最常见的写法错误：宿主不会「忽略」，而是装不上并告诉作者能写什么。
+        let src = v3_with_hooks(r#"{"on": "afterLLMResponse", "impl": "prompt", "template": "x"}"#);
+        let err = PluginManifest::parse(&src).expect_err("未知事件必须被拒绝");
+        assert_eq!(err.code(), "E_HOOK_EVENT_UNKNOWN");
+        assert!(
+            err.detail.contains("afterLLMResponse"),
+            "detail 应回显作者写的值：{}",
+            err.detail
+        );
+        // detail 必须列出合法事件，否则作者只能去翻文档
+        assert!(
+            err.detail.contains("afterLlmResponse") && err.detail.contains("beforeReview"),
+            "detail 应列出合法事件：{}",
+            err.detail
+        );
+    }
+
+    #[test]
+    fn rejects_prompt_hook_without_template() {
+        // 缺模板 / 空白模板等价：模型会收到一句空提示，作者在界面上完全看不出来。
+        for hook in [
+            r#"{"on": "afterLlmResponse", "impl": "prompt"}"#,
+            r#"{"on": "afterLlmResponse", "impl": "prompt", "template": "   "}"#,
+        ] {
+            let err = PluginManifest::parse(&v3_with_hooks(hook))
+                .expect_err(&format!("prompt 钩子缺 template 必须被拒绝：{hook}"));
+            assert_eq!(err.code(), "E_HOOK_TEMPLATE_REQUIRED", "hook: {hook}");
+        }
+    }
+
+    #[test]
+    fn rejects_process_hook_without_tool() {
+        for hook in [
+            r#"{"on": "afterLlmResponse", "impl": "process"}"#,
+            r#"{"on": "afterLlmResponse", "impl": "process", "tool": "  "}"#,
+        ] {
+            let err = PluginManifest::parse(&v3_with_hooks(hook))
+                .expect_err(&format!("process 钩子缺 tool 必须被拒绝：{hook}"));
+            assert_eq!(err.code(), "E_HOOK_TOOL_REQUIRED", "hook: {hook}");
+        }
+    }
+
+    #[test]
+    fn rejects_zero_and_huge_timeout() {
+        let with = |ms: u64| {
+            v3_with_hooks(&format!(
+                r#"{{"on": "afterLlmResponse", "impl": "prompt", "template": "x", "timeoutMs": {ms}}}"#
+            ))
+        };
+        // 0 等于「立刻超时」（钩子形同虚设）；上限之外等于让一个必经过的接缝拖死主流程
+        for bad in [0u64, MAX_HOOK_TIMEOUT_MS + 1] {
+            let err = PluginManifest::parse(&with(bad))
+                .expect_err(&format!("timeoutMs = {bad} 必须被拒绝"));
+            assert_eq!(err.code(), "E_HOOK_TIMEOUT_INVALID", "timeoutMs: {bad}");
+        }
+        // 边界必须包含在合法区间里
+        for ok in [1u64, MAX_HOOK_TIMEOUT_MS] {
+            assert!(
+                PluginManifest::parse(&with(ok)).is_ok(),
+                "timeoutMs = {ok} 应被接受"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_duplicate_hook_same_event_and_priority() {
+        // D7：同事件串行执行，顺序由 priority 决定。同事件同 priority 的两个钩子
+        // 之间没有确定顺序，而钩子会改提示词/正文 —— 顺序不同结果就不同。
+        let dup = r#"{"on": "beforeReview", "impl": "prompt", "template": "a"},
+                     {"on": "beforeReview", "impl": "process", "tool": "check_consistency"}"#;
+        let err = PluginManifest::parse(&v3_with_hooks(dup))
+            .expect_err("同事件同 priority 的重复钩子必须被拒绝");
+        assert_eq!(err.code(), "E_HOOK_DUPLICATE");
+        assert!(
+            err.detail.contains("beforeReview"),
+            "detail 应指出是哪个事件：{}",
+            err.detail
+        );
+
+        // 同事件**不同** priority 是 D7 想要的写法，必须放行
+        let ok = r#"{"on": "beforeReview", "impl": "prompt", "template": "a", "priority": 1},
+                    {"on": "beforeReview", "impl": "prompt", "template": "b", "priority": 2}"#;
+        assert!(
+            PluginManifest::parse(&v3_with_hooks(ok)).is_ok(),
+            "同事件不同 priority 必须通过"
+        );
+    }
+
+    #[test]
+    fn process_hook_still_requires_runtime() {
+        // 回归：结构化之后 `needs_runtime()` 的语义不变 —— impl=process 仍要进程。
+        let src = no_runtime_with_contributes(
+            r#"{"hooks": [{"on": "afterLlmResponse", "impl": "process", "tool": "rewrite_style"}]}"#,
+        );
+        let err = PluginManifest::parse(&src).expect_err("process 钩子没 runtime 必须被拒");
+        assert_eq!(err.code(), "E_RUNTIME_REQUIRED");
+    }
+
+    #[test]
+    fn prompt_hook_does_not_require_runtime() {
+        // 纯声明式钩子由宿主「读模板 + 再调一次模型」完成，不需要插件进程（D1）。
+        // 这条规则一旦破了，一个只有钩子的插件就会被迫拉起一个从不被调用的 Node 进程。
+        let src = no_runtime_with_contributes(
+            r#"{"hooks": [{"on": "afterLlmResponse", "impl": "prompt", "template": "去 AI 味：{{text}}"}]}"#,
+        );
+        let m = PluginManifest::parse(&src).expect("prompt 钩子没有 runtime 也必须能装");
+        assert!(m.runtime.is_none(), "声明式钩子不该被塞进一个 runtime");
+        assert_eq!(m.contributes.hooks.len(), 1);
+    }
+
+    #[test]
+    fn hook_default_timeout_matches_event_table() {
+        // D6：独立预算 —— 请求前后 8s / 工作流 15s / 观测 2s。
+        assert_eq!(hook_default_timeout_ms("beforeLlmRequest"), Some(8_000));
+        assert_eq!(hook_default_timeout_ms("afterLlmResponse"), Some(8_000));
+        for event in [
+            "beforeChapterDraft",
+            "afterChapterDraft",
+            "beforeReview",
+            "afterReview",
+            "beforePolish",
+            "afterPolish",
+        ] {
+            assert_eq!(
+                hook_default_timeout_ms(event),
+                Some(15_000),
+                "工作流事件 {event} 的默认预算应为 15s"
+            );
+        }
+        assert_eq!(hook_default_timeout_ms("onLlmUsage"), Some(2_000));
+        assert_eq!(hook_default_timeout_ms("onChapterCompleted"), Some(2_000));
+        // 未知事件返回 None（不 panic）：调用方已经先拒过未知事件
+        assert_eq!(hook_default_timeout_ms("noSuchEvent"), None);
+
+        // 事件名不能重复：重复的事件名会让「同一个事件触发两次」变成只出现在
+        // 某些调用点上的随机行为，而查表永远只命中第一个。
+        let mut names: Vec<&str> = HOOK_EVENTS.iter().map(|(name, _)| *name).collect();
+        let total = names.len();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), total, "HOOK_EVENTS 里的事件名必须唯一");
+        // 默认预算不能是 0：「按事件类型的默认值」若为 0，等于每条钩子都立刻超时。
+        assert!(
+            HOOK_EVENTS.iter().all(|(_, timeout)| *timeout > 0),
+            "每个事件的默认超时都必须 > 0"
+        );
     }
 }

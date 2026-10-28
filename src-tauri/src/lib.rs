@@ -360,6 +360,9 @@ commands::fs::read_file,
             // 声明式 action（设计 §3，Tier 1）：同样只读清单，不 spawn 进程。
             // 前端 6 个插槽靠它渲染按钮。
             plugins::plugins_actions,
+            // 钩子清单（设计 §5，Phase 3）：结构化契约 + 只读查询，同样不 spawn 进程。
+            // 前端要靠它把「这个事件上有哪些钩子在改我的内容」讲清楚。
+            plugins::plugins_hooks,
             // 项目读写地基（设计 §7）：前端在「打开/切换/关闭项目」时登记项目根，
             // 插件通过 /host/project/* 读到的是这个动态值（不是启动时固化进会话的值）。
             plugins::plugins_set_project,

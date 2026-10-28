@@ -1248,6 +1248,68 @@ pub async fn plugins_actions(state: State<'_, PluginsState>) -> Result<Vec<Actio
     collect_actions(&state.root())
 }
 
+/// 一个插件声明的一个钩子（设计 §5）。
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HookView {
+    pub plugin_id: String,
+    pub plugin_name: String,
+    /// 清单里 `contributes.hooks[]` 的**结构化**形式（camelCase 序列化）。
+    ///
+    /// 与 `ActionView.action` 原样透传 `Value` 不同：钩子在宿主侧要被执行器读，
+    /// 前端要拿它做「谁会在这个事件上改我的提示词」的解释视图，两边都必须按同一份
+    /// 结构理解它。所以真源就是 `manifest::HookDecl`，这里不再降级成 JSON。
+    pub hook: manifest::HookDecl,
+}
+
+/// 列出全部**已启用**插件声明的钩子。
+///
+/// 只读清单，**不启动插件进程**：`impl: "prompt"` 的钩子本来就不需要进程，
+/// `impl: "process"` 的钩子要求进程这件事由清单校验（`E_RUNTIME_REQUIRED`）保证，
+/// 不靠这条命令去「顺便拉起」。查一眼有哪些钩子不该让用户机器上多出几个常驻进程。
+///
+/// 与 `collect_actions` 同一条容错原则：读不到 / 坏清单一律跳过 + `eprintln`，
+/// 一个坏插件不该让整张钩子表消失（那会让所有门禁钩子静默失效）。
+fn collect_hooks(root: &Path) -> Result<Vec<HookView>, String> {
+    let registry = PluginRegistry::load(root)?;
+    let mut views = Vec::new();
+    for entry in registry.list().into_iter().filter(|entry| entry.enabled) {
+        let Some(manifest) = installed_manifest(root, &entry.id) else {
+            eprintln!(
+                "[plugins] 插件 {} 的清单缺失或损坏，跳过它的 hooks",
+                entry.id
+            );
+            continue;
+        };
+        for decl in &manifest.contributes.hooks {
+            views.push(HookView {
+                plugin_id: entry.id.clone(),
+                plugin_name: manifest.name.clone(),
+                hook: decl.clone(),
+            });
+        }
+    }
+    // 注册表是 HashMap，遍历顺序不稳定；而钩子的执行顺序**必须可复现**（D7）：
+    // 插件之间按 pluginId 固定下来，插件内部按 `(on, priority)` —— 两者都不依赖
+    // 用户什么时候装了哪个插件。
+    //
+    // 注意：这条排序只保证「每次查到的表一样」，真正的跨插件执行顺序仍要在执行器里
+    // 按 `(on, priority)` 重排一次 —— 这里按 pluginId 分组，是为了界面能按插件读。
+    views.sort_by(|a, b| {
+        a.plugin_id
+            .cmp(&b.plugin_id)
+            .then_with(|| a.hook.on.cmp(&b.hook.on))
+            .then_with(|| a.hook.priority.cmp(&b.hook.priority))
+    });
+    Ok(views)
+}
+
+/// 列出全部已启用插件声明的钩子（只读清单，不启动插件）。
+#[tauri::command]
+pub async fn plugins_hooks(state: State<'_, PluginsState>) -> Result<Vec<HookView>, String> {
+    collect_hooks(&state.root())
+}
+
 /// 从 GitHub 安装插件。装完默认关闭，用户勾选权限并点「启用」后才会拉起进程。
 #[tauri::command]
 pub async fn plugins_install(
@@ -3124,6 +3186,107 @@ rl.on("line", (line) => {
         let actions = collect_actions(root.path()).expect("坏插件不能把整条命令弄失败");
         assert_eq!(actions.len(), 1, "只剩下那个好插件的 action：{actions:?}");
         assert_eq!(actions[0].plugin_id, "idea-gen");
+    }
+
+    /// 一个带钩子的 schema 3 清单。`hooks` 是 `contributes.hooks` 里的原样 JSON 数组内容。
+    fn hook_manifest(plugin_id: &str, name: &str, hooks: &str) -> String {
+        format!(
+            r#"{{
+                "schema": 3,
+                "id": "{plugin_id}",
+                "name": "{name}",
+                "version": "1.0.0",
+                "runtime": {{ "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }},
+                "contributes": {{ "hooks": [{hooks}] }}
+            }}"#
+        )
+    }
+
+    /// Phase 3 · 钩子查询：只列**已启用**插件，且表顺序是确定的。
+    ///
+    /// 为什么顺序值得一条用例：钩子的输出会改写提示词/正文，而注册表是 HashMap。
+    /// 若这里放过一次不稳定顺序，「同一次写作两次跑出不同结果」就再也没法复现了（D7）。
+    #[test]
+    fn plugins_hooks_lists_only_enabled_and_sorts_deterministically() {
+        let root = TempRoot::new("hooks-list");
+        // pluginId 故意与写入顺序相反：写入顺序不该影响结果（注册表是 HashMap）
+        write_plugin(
+            root.path(),
+            "zeta-hooks",
+            &hook_manifest(
+                "zeta-hooks",
+                "Zeta 钩子",
+                r#"{ "on": "afterLlmResponse", "impl": "prompt", "template": "去 AI 味：{{text}}", "priority": 5 },
+                   { "on": "afterLlmResponse", "impl": "process", "tool": "rewrite_style", "priority": 1, "timeoutMs": 3000 },
+                   { "on": "beforeReview", "impl": "prompt", "template": "检查一致性", "priority": 0, "gate": true }"#,
+            ),
+            None,
+        );
+        write_plugin(
+            root.path(),
+            "alpha-hooks",
+            &hook_manifest(
+                "alpha-hooks",
+                "Alpha 钩子",
+                r#"{ "on": "onChapterCompleted", "impl": "prompt", "template": "记录完成" }"#,
+            ),
+            None,
+        );
+        write_plugin(
+            root.path(),
+            "sleeping-hooks",
+            &hook_manifest(
+                "sleeping-hooks",
+                "睡着的钩子",
+                r#"{ "on": "beforeReview", "impl": "prompt", "template": "不该出现" }"#,
+            ),
+            None,
+        );
+        let mut disabled = sample_entry("sleeping-hooks");
+        disabled.enabled = false;
+        save_registry(
+            root.path(),
+            &[
+                sample_entry("zeta-hooks"),
+                sample_entry("alpha-hooks"),
+                disabled,
+            ],
+        );
+
+        let hooks = collect_hooks(root.path()).expect("读注册表应成功");
+        assert_eq!(hooks.len(), 4, "停用插件的钩子不该出现：{hooks:?}");
+
+        // 插件之间按 pluginId 排序，插件内部按 (on, priority)
+        let order: Vec<(&str, &str, i32)> = hooks
+            .iter()
+            .map(|view| (view.plugin_id.as_str(), view.hook.on.as_str(), view.hook.priority))
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                ("alpha-hooks", "onChapterCompleted", 0),
+                // 同事件内小的先跑：priority 1 必须排在 5 之前，而不是按清单书写顺序
+                ("zeta-hooks", "afterLlmResponse", 1),
+                ("zeta-hooks", "afterLlmResponse", 5),
+                ("zeta-hooks", "beforeReview", 0),
+            ],
+            "排序必须是 (pluginId, on, priority)：{order:?}"
+        );
+        // 插件名要一路带到前端（用户看的是名字，不是 id）
+        assert_eq!(hooks[1].plugin_name, "Zeta 钩子");
+
+        // 前端 TS 按 camelCase 消费：`impl` / `timeoutMs` / `gate` 都得是契约里的形状
+        let value = serde_json::to_value(&hooks[1]).expect("HookView 可序列化");
+        assert_eq!(value["pluginId"], "zeta-hooks");
+        assert_eq!(value["pluginName"], "Zeta 钩子");
+        assert_eq!(value["hook"]["impl"], "process");
+        assert_eq!(value["hook"]["tool"], "rewrite_style");
+        assert_eq!(value["hook"]["timeoutMs"], 3000);
+        assert!(value.get("plugin_id").is_none(), "不该漏出 snake_case：{value}");
+        // 缺省值也必须出现在序列化结果里：前端据此判断「用事件默认预算 / fail-open」
+        let last = serde_json::to_value(&hooks[3]).expect("HookView 可序列化");
+        assert_eq!(last["hook"]["timeoutMs"], serde_json::Value::Null);
+        assert_eq!(last["hook"]["gate"], true);
     }
 
     /// 任务 3 · 缺陷 4：`requires.qmai` 太新必须拒绝，且 detail 要说清「要什么/现在是什么」。
