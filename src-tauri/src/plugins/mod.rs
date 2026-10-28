@@ -939,6 +939,13 @@ pub async fn plugins_provider_refresh_models(
     Ok(models)
 }
 
+// T5 的端到端验证（真 Node 进程 + 真 HTTP/SSE）。单独成文件而不并进下面的 `mod tests`：
+// 那套脚手架（临时插件根目录、真进程、真网络）与纯逻辑单测不是一回事，混在一起会让
+// 「哪条用例需要 node」变得难分辨。声明在 `#[cfg(test)]` 下，所以 `cargo test --lib`
+// 会跑到（不是 `tests/` 下的集成测试）。
+#[cfg(test)]
+mod providers_e2e;
+
 #[cfg(test)]
 mod tests {
     use super::*;

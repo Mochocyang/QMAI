@@ -1,0 +1,20 @@
+{
+  "schema": 2,
+  "id": "fake-provider",
+  "name": "假 Provider 插件",
+  "description": "T5 端到端验证用的假 provider：零依赖 Node 脚本，同时实现 MCP stdio 与 OpenAI 兼容端点。它不连接任何上游，只回固定内容。",
+  "version": "1.0.0",
+  "runtime": { "type": "node", "entry": "index.js", "keepAlive": true, "startTimeoutMs": 15000 },
+  "contributes": {
+    "tools": [],
+    "providers": [
+      {
+        "id": "fake-provider",
+        "name": "假 Provider",
+        "authKind": "none",
+        "capabilities": ["models.refresh"]
+      }
+    ]
+  },
+  "permissions": ["net:listen"]
+}
