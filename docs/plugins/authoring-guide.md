@@ -132,9 +132,9 @@ process.stdin.on("end", () => process.exit(0))
 
 ---
 
-## 2. 怎么写才"更好"：12 条硬经验
+## 2. 怎么写才"更好"：13 条硬经验
 
-下面每一条都是**踩过才知道**的。前 5 条会直接让插件不可用，后 7 条决定它是不是一个好插件。
+下面每一条都是**踩过才知道**的。前 5 条会直接让插件不可用，后 8 条决定它是不是一个好插件。
 
 ### 会让插件直接不可用的（务必看）
 
@@ -182,6 +182,22 @@ process.stdin.on("end", () => process.exit(0))
 **⑫ 你是常驻进程，别假设"一辈子只活一次"。**
 - 拿到的环境变量只在启动时有效（端口、令牌会变），**不要缓存到磁盘**
 - 退出时把自己起的子进程/端口/临时文件收干净
+
+**⑬ 小心 `"type": "module"` 的继承：`require` 可能突然不可用。**
+
+Node 会**沿目录向上**找 `package.json` 来决定 `index.js` 是 CJS 还是 ESM。这意味着同一个插件文件：
+
+- 放在你仓库里（仓库根 `package.json` 有 `"type": "module"`）→ 被当 **ESM** → 里面写 `require(...)` 直接 `ReferenceError: require is not defined`
+- 装进 QMAI 后（插件目录里没有 `package.json`）→ 被当 **CJS** → `require` 可用
+
+**所以本地跑得好、装上就炸（或反过来）是可能的。** 两条建议：
+
+1. **要么全用 CJS**（`require`），并在插件根放一个 `package.json` 显式声明 `{ "type": "commonjs" }` —— 但注意宿主**不跑** `npm install`，这个 `package.json` 纯粹是给 Node 看 `type` 的；
+2. **要么写成两边都能跑**：只用 `process` / `Buffer` / `JSON` 这类全局，不用 `require`/`import`。
+
+参照实现 `samples/plugins/chapter-metrics/index.js` 走的是第 2 条（因此也不需要 `package.json`）——它专门验证过"仓库内"与"安装后"两种上下文输出一致。
+
+> 顺带一个相关事实：宿主启动插件的命令就是 `node <entry>`（`supervisor::build_command`），**不读 `package.json`** 的 `main`、也不跑任何脚本。`plugin.json` 的 `runtime.entry` 指哪就跑哪。
 
 ---
 
