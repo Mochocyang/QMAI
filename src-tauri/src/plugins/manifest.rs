@@ -142,6 +142,13 @@ pub struct ContentPackDecl {
     /// 条数上限（设计 D4：单包 5000 条）。缺省 5000，防止作者漏写后宿主被超大包卡住。
     #[serde(default = "default_max_items", rename = "maxItems")]
     pub max_items: usize,
+    /// 该包的条目上可用动作：`insert-at-cursor` / `project-field` / `run-action`（设计 §4.1）。
+    ///
+    /// 存成裸 `Value` 而不是结构体、**不做任何内部校验**：动作的真源是前端
+    /// `declarative/api.ts` 的 `normalizeTargets` + `CONTENT_ITEM_TARGET_KINDS` 白名单。
+    /// 宿主再养一份平行 schema，只会变成「宿主放过、界面报错」的两份规则。
+    #[serde(default)]
+    pub actions: Vec<serde_json::Value>,
 }
 
 fn default_max_items() -> usize {
@@ -173,6 +180,12 @@ pub struct ActionDecl {
     pub output: serde_json::Value,
     #[serde(default)]
     pub limits: Option<serde_json::Value>,
+    /// 模型选择策略（设计 §3.1）：`{"strategy": "current"}` / `{"minContextTokens": N}`。
+    ///
+    /// 与 `form` / `output` / `limits` 同一条理由：形状归前端的声明式引擎，宿主原样透传。
+    /// 在这里做成结构体，等于让「前端新增一种策略」必须先发一版 Rust。
+    #[serde(default)]
+    pub model: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,7 +222,23 @@ pub struct PluginManifest {
     pub license: String,
     #[serde(default)]
     pub requires: Option<Requires>,
-    pub runtime: PluginRuntime,
+    /// 运行时入口。**纯声明式插件不需要**（Tier 1 不启进程，设计 D1）。
+    ///
+    /// 可选不是「宽松」而是「分层」：灵感包 / 声明式动作 / 钩子都由宿主读、宿主渲染，
+    /// 装 20 个这类插件时进程表里就该是 0 条。但只要有需要执行的贡献
+    /// （tools / providers / `impl: "process"` 的 hook），`runtime` 就必须存在 ——
+    /// 那条规则由 `validate` 以 `E_RUNTIME_REQUIRED` 强制，所以
+    /// `runtime.is_some()` 与「这个插件需要进程」是同一个判断。
+    #[serde(default)]
+    pub runtime: Option<PluginRuntime>,
+    /// 本包声明用到的层级。目前唯一有语义的值是 `"declarative"`（纯声明式，不启进程）。
+    ///
+    /// 未知值**忽略并在日志里 warn**（`eprintln!`），不报错、也不参与其它校验：
+    /// 层级名会随宿主能力增长，老宿主若因为一个自己不认识的层级名就拒装整个包，
+    /// 作者就没法用一份清单兼容多代宿主 —— 而多出来一个不认识的 `kind` 对老宿主
+    /// 本来也无害（它只是不认识，不会误执行）。
+    #[serde(default)]
+    pub kind: Vec<String>,
     #[serde(default)]
     pub inject: Vec<String>,
     #[serde(default)]
@@ -266,6 +295,11 @@ pub const CURRENT_SCHEMA: u32 = 3;
 /// v3 引入的新贡献面所需的最低清单版本。单独取名而不是到处写 `3`：
 /// 这条闸门与 `CURRENT_SCHEMA` 是两个概念（后者还会继续涨，闸门不会动）。
 const V3_SCHEMA: u32 = 3;
+
+/// 宿主认识的分层名（设计 §2.1）。目前只有 `declarative` 有语义：纯声明式，不启进程。
+///
+/// **这是 warn 的白名单，不是拒装的闸门** —— 未知值只忽略（见 `warn_unknown_kinds`）。
+const KNOWN_KINDS: &[&str] = &["declarative"];
 
 /// 宿主对外暴露的插槽（设计 §6.1）。**受控资源**：新增需评审并 bump 版本。
 ///
@@ -523,7 +557,35 @@ fn is_valid_auth_domain(domain: &str) -> bool {
     d.contains('.') && d.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
 }
 
+/// 白名单外的 `kind` 只 warn、不进 `ManifestError`（设计 §2.1）。
+///
+/// 为什么是忽略而不是报错：`kind` 表达的是「本包用到了哪一代能力」，宿主本就该
+/// **按自己认识的部分工作**。把不认识的层级名判成非法，会让今天发布的插件在明天
+/// 加了一个新层级名之后连老宿主都装不上 —— 而它多出来的那部分对老宿主完全无害。
+fn warn_unknown_kinds(kinds: &[String]) {
+    for kind in kinds {
+        if !KNOWN_KINDS.contains(&kind.as_str()) {
+            eprintln!(
+                "[plugins] 忽略未知的清单层级 kind = {kind:?}（宿主只认识 {KNOWN_KINDS:?}）"
+            );
+        }
+    }
+}
+
 impl PluginManifest {
+    /// 清单里是否声明了「宿主要真的去执行」的贡献。
+    ///
+    /// 这三类都必须有进程或钩子执行器才可能生效：工具与 provider 走 MCP stdio 子进程，
+    /// `impl: "process"` 的钩子是插件自己的代码。其余贡献面（内容包、声明式动作、
+    /// `impl: "prompt"` 的钩子）全是「宿主读数据 + 宿主渲染」，不需要插件代码。
+    fn needs_runtime(&self) -> bool {
+        !self.contributes.tools.is_empty()
+            || !self.contributes.providers.is_empty()
+            || self.contributes.hooks.iter().any(|hook| {
+                hook.get("impl").and_then(|value| value.as_str()) == Some("process")
+            })
+    }
+
     /// 解析 + 校验。字段级错误返回第一个命中的错误码。
     pub fn parse(raw: &str) -> Result<Self, ManifestError> {
         let value: serde_json::Value = serde_json::from_str(raw)
@@ -575,25 +637,39 @@ impl PluginManifest {
         if self.name.trim().is_empty() || self.name.chars().count() > 64 {
             return Err(ManifestError::new("E_NAME_INVALID", self.name.clone()));
         }
+        // `kind` 只在这里 warn、不拒：白名单外的值对老宿主无害（它只是不认识），
+        // 拒装反而让「一份清单兼容多代宿主」这条路断掉。放在最前面，是为了让
+        // 清单即使别处还有错，作者也能先看到这条提示。
+        warn_unknown_kinds(&self.kind);
         if !is_valid_semver(&self.version) {
             return Err(ManifestError::new(
                 "E_VERSION_INVALID",
                 self.version.clone(),
             ));
         }
-        if !is_safe_relative(&self.runtime.entry) {
+        // 分层规则（设计 D1）：需要宿主动手执行点东西的贡献，必须有 runtime。
+        // 反过来说，只要没这条错误，`runtime == None` 就等价于「纯 Tier 1」——
+        // `start_plugin` / `plugins_enable` / `plugins_list` 全都靠这个等价关系决策。
+        if self.runtime.is_none() && self.needs_runtime() {
             return Err(ManifestError::new(
-                "E_ENTRY_INVALID",
-                self.runtime.entry.clone(),
+                "E_RUNTIME_REQUIRED",
+                "声明了需要执行的贡献（tools / providers / impl=process 的 hook），必须提供 runtime",
             ));
         }
-        // 下限 1s 防止插件作者把超时设成 0 导致永不等待；上限 60s 防止
-        // 一个坏插件把宿主启动流程拖死。
-        if !(1_000..=60_000).contains(&self.runtime.start_timeout_ms) {
-            return Err(ManifestError::new(
-                "E_START_TIMEOUT_INVALID",
-                self.runtime.start_timeout_ms.to_string(),
-            ));
+        // 运行时字段的校验只对「确实有 runtime」的清单成立：纯声明式清单没有 entry，
+        // 也没有 startTimeoutMs，拿缺省值去判等于凭空造一个必须填的字段。
+        if let Some(runtime) = &self.runtime {
+            if !is_safe_relative(&runtime.entry) {
+                return Err(ManifestError::new("E_ENTRY_INVALID", runtime.entry.clone()));
+            }
+            // 下限 1s 防止插件作者把超时设成 0 导致永不等待；上限 60s 防止
+            // 一个坏插件把宿主启动流程拖死。
+            if !(1_000..=60_000).contains(&runtime.start_timeout_ms) {
+                return Err(ManifestError::new(
+                    "E_START_TIMEOUT_INVALID",
+                    runtime.start_timeout_ms.to_string(),
+                ));
+            }
         }
         for svc in &self.inject {
             if !KNOWN_INJECT.contains(&svc.as_str()) {
@@ -810,9 +886,12 @@ mod tests {
     fn parses_minimal_manifest_with_defaults() {
         let m = PluginManifest::parse(MINIMAL).expect("should parse");
         assert_eq!(m.id, "chapter-insights");
-        assert_eq!(m.runtime.entry_type, RuntimeType::Node);
-        assert!(m.runtime.keep_alive);
-        assert_eq!(m.runtime.start_timeout_ms, 10_000);
+        // runtime 现在是 Option（v3 起纯 Tier 1 插件没有它）：这份清单写了 runtime，
+        // 所以必须解出 Some —— 断言从 `m.runtime.x` 改成 `runtime.x`，语义不变。
+        let runtime = m.runtime.as_ref().expect("最小清单声明了 runtime");
+        assert_eq!(runtime.entry_type, RuntimeType::Node);
+        assert!(runtime.keep_alive);
+        assert_eq!(runtime.start_timeout_ms, 10_000);
         assert!(m.permissions.is_empty());
         assert!(m.contributes.tools.is_empty());
     }
@@ -1550,5 +1629,145 @@ mod tests {
             let src = MINIMAL.replace("\"schema\": 1", &format!("\"schema\": {v}"));
             assert!(PluginManifest::parse(&src).is_ok(), "schema {v} 应当被接受");
         }
+    }
+
+    // ── Tier 1 分层：可选 runtime / kind / 包级 actions / 动作 model ─────────
+
+    /// schema 3 的**纯 Tier 1**清单骨架：**故意不写 runtime**。
+    ///
+    /// 这是本组用例的基准形状 —— 任务 3 之后它必须能装上，而在那之前它会先撞
+    /// 「runtime 必填」，所以每条用例都在它上面只做一处改动。
+    const NO_RUNTIME_MINIMAL: &str = r#"{
+      "schema": 3,
+      "id": "idea-generator",
+      "name": "脑洞生成器",
+      "version": "1.0.0"
+    }"#;
+
+    /// 在 NO_RUNTIME_MINIMAL 里插一段顶层 JSON（用 `version` 作锚点）。
+    fn no_runtime_with_top(fields: &str) -> String {
+        NO_RUNTIME_MINIMAL.replace(
+            "\"version\": \"1.0.0\"",
+            &format!("\"version\": \"1.0.0\", {fields}"),
+        )
+    }
+
+    fn no_runtime_with_contributes(contributes: &str) -> String {
+        no_runtime_with_top(&format!("\"contributes\": {contributes}"))
+    }
+
+    #[test]
+    fn accepts_pure_tier1_manifest_without_runtime() {
+        // 这就是 samples/plugins/idea-generator 的真实形状：kind=declarative +
+        // 内容包（带条目动作）+ 声明式动作，一个进程都不该起，所以没有 runtime。
+        let src = no_runtime_with_top(&format!(
+            r#""kind": ["declarative"],
+               "contributes": {{
+                 "contentPacks": [{{
+                   "id": "webnovel-hooks", "title": "网文开局钩子",
+                   "file": "content/inspirations.json",
+                   "actions": [{{"kind": "insert-at-cursor", "label": "插入到正文"}}]
+                 }}],
+                 "actions": [{ACTION}]
+               }}"#
+        ));
+        let m = PluginManifest::parse(&src).expect("纯 Tier 1 清单没有 runtime 也必须能装");
+        assert!(m.runtime.is_none(), "Tier 1 不该被塞进一个 runtime");
+        assert_eq!(m.kind, vec!["declarative".to_string()]);
+        assert_eq!(m.contributes.content_packs.len(), 1);
+        assert_eq!(m.contributes.actions.len(), 1);
+    }
+
+    #[test]
+    fn rejects_tier2_contributions_without_runtime() {
+        let src = no_runtime_with_contributes(
+            r#"{"tools": [{"name": "analyze_rhythm", "description": "分析节奏"}]}"#,
+        );
+        let err = PluginManifest::parse(&src).expect_err("声明了 tools 却没 runtime 必须被拒");
+        assert_eq!(err.code(), "E_RUNTIME_REQUIRED");
+        // detail 要说清「为什么需要」，否则作者只会去翻文档猜是哪个字段
+        assert!(err.detail.contains("runtime"), "detail: {}", err.detail);
+    }
+
+    #[test]
+    fn rejects_providers_without_runtime() {
+        let src = no_runtime_with_top(&format!(
+            r#""permissions": ["net:listen"],
+               "contributes": {{"providers": [{PROVIDER}]}}"#
+        ));
+        let err = PluginManifest::parse(&src).expect_err("声明了 providers 却没 runtime 必须被拒");
+        assert_eq!(err.code(), "E_RUNTIME_REQUIRED");
+    }
+
+    #[test]
+    fn rejects_process_hook_without_runtime() {
+        // `impl: "process"` 的钩子要跑插件自己的代码 —— 没有进程就永远执行不到。
+        let src = no_runtime_with_contributes(
+            r#"{"hooks": [{"on": "afterLlmResponse", "impl": "process"}]}"#,
+        );
+        let err = PluginManifest::parse(&src).expect_err("process 钩子没 runtime 必须被拒");
+        assert_eq!(err.code(), "E_RUNTIME_REQUIRED");
+    }
+
+    #[test]
+    fn accepts_tier2_with_runtime() {
+        // 回归护栏：加了 E_RUNTIME_REQUIRED 之后，**原来能过的 Tier 2 清单必须照样过**。
+        let src = v3_with_contributes(
+            r#"{"tools": [{"name": "analyze_rhythm", "description": "分析节奏"}],
+                "hooks": [{"on": "afterLlmResponse", "impl": "process"}]}"#,
+        );
+        let m = PluginManifest::parse(&src).expect("有 runtime 的 Tier 2 清单必须通过");
+        assert!(m.runtime.is_some());
+        assert_eq!(m.contributes.tools.len(), 1);
+    }
+
+    #[test]
+    fn ignores_unknown_kind_values() {
+        // 未来新增的层级名：老宿主不认识，但它对老宿主无害，忽略 + warn 而不是拒装。
+        let src = no_runtime_with_top(r#""kind": ["declarative", "future-thing"]"#);
+        let m = PluginManifest::parse(&src).expect("未知 kind 值不能让整份清单装不上");
+        // 原样保留（只是不参与任何校验），作者排查时还能看到自己写了什么
+        assert_eq!(m.kind, vec!["declarative", "future-thing"]);
+        // 未知 kind 也不该把「没有 runtime」变成错误
+        assert!(m.runtime.is_none());
+    }
+
+    #[test]
+    fn accepts_content_pack_actions() {
+        // 包级 actions 是原样透传给前端的 JSON：宿主只负责接住，不解释内部结构。
+        let src = no_runtime_with_contributes(&format!(
+            r#"{{"contentPacks": [{{
+                "id": "scifi", "title": "科幻灵感包", "file": "content/inspirations.json",
+                "actions": [
+                    {{"kind": "insert-at-cursor", "label": "插入到正文"}},
+                    {{"kind": "project-field", "field": "bookTitle", "label": "设为书名", "confirm": true}},
+                    {{"kind": "run-action", "actionId": "generate-titles"}}
+                ]
+            }}]}}"#
+        ));
+        let m = PluginManifest::parse(&src).expect("包级 actions 必须能解析");
+        let actions = &m.contributes.content_packs[0].actions;
+        assert_eq!(actions.len(), 3);
+        assert_eq!(actions[0]["kind"], "insert-at-cursor");
+        assert_eq!(actions[1]["field"], "bookTitle");
+        assert_eq!(actions[1]["confirm"], true);
+        assert_eq!(actions[2]["actionId"], "generate-titles");
+    }
+
+    #[test]
+    fn accepts_action_model_field() {
+        // 模型选择策略原样透传（前端 `strategy: "current"` / `minContextTokens`）
+        let action = ACTION.replace(
+            "\"limits\"",
+            "\"model\": {\"strategy\": \"current\", \"minContextTokens\": 32000}, \"limits\"",
+        );
+        let src = no_runtime_with_contributes(&format!("{{\"actions\": [{action}]}}"));
+        let m = PluginManifest::parse(&src).expect("动作的 model 字段必须能解析");
+        let model = m.contributes.actions[0]
+            .model
+            .as_ref()
+            .expect("model 应被透传成 Some");
+        assert_eq!(model["strategy"], "current");
+        assert_eq!(model["minContextTokens"], 32000);
     }
 }

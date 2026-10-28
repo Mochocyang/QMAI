@@ -72,6 +72,15 @@ pub struct ContentPackMeta {
     pub title: String,
     pub description: String,
     pub count: usize,
+    /// 该包的条目上可用动作（清单里 `contentPacks[].actions` 的原样 JSON，设计 §4.1）。
+    ///
+    /// 必须沿元信息一路送到前端：灵感库要在「用户点开某个包之前」就知道这个包的条目
+    /// 能插入正文、能写项目字段、还是能触发一个声明式动作。若只放在条目接口里，
+    /// 界面得先把几千条拉进来才知道有没有按钮。
+    ///
+    /// **不校验、不归一化**：真源是前端 `declarative/api.ts` 的 `normalizeTargets` +
+    /// `CONTENT_ITEM_TARGET_KINDS` 白名单，宿主再判一遍会变成两份会分叉的规则。
+    pub actions: Vec<serde_json::Value>,
 }
 
 // ── 路径与读盘 ─────────────────────────────────────────
@@ -454,6 +463,10 @@ pub fn list_packs(root: &Path) -> Vec<ContentPackMeta> {
                     title: decl.title.clone(),
                     description: decl.description.clone(),
                     count,
+                    // 清单里写了什么就送什么（不做白名单）：前端 `normalizeTargets` 会把
+                    // 不认识的 kind 丢掉，宿主在这里再拦一次只会让「界面能认的新 kind」
+                    // 卡在 Rust 侧的旧规则上。
+                    actions: decl.actions.clone(),
                 }),
                 Err(error) => eprintln!(
                     "[content] 跳过内容包 {}/{}：{error}",
@@ -506,6 +519,8 @@ mod tests {
             description: "120 条赛博 / 末世 / 星际的设定切入点".to_string(),
             file: file.to_string(),
             max_items,
+            // 这条助手造的是「只描述文件」的声明；包级动作由 `list_packs` 的用例显式给。
+            actions: Vec::new(),
         }
     }
 
@@ -906,6 +921,63 @@ mod tests {
         assert_eq!(packs[0].count, 2);
     }
 
+    /// 包级 `actions` 必须沿元信息透传到前端（设计 §4.1）。
+    ///
+    /// 灵感库要在「拉条目之前」就知道这个包的条目能插入正文/写项目字段/触发动作，
+    /// 所以动作挂在包的元信息上，而不是等到 items 接口才给。
+    #[test]
+    fn list_packs_exposes_pack_actions() {
+        let temp = TempDir::new("pack-actions");
+        let root = temp.path();
+
+        // 同一插件两个包：一个带条目动作，一个完全不写 actions。顺便用**没有 runtime**
+        // 的纯 Tier 1 清单（D1），确认内容包索引不依赖插件有没有进程。
+        let manifest = r#"{
+            "schema": 3,
+            "id": "idea-generator",
+            "name": "脑洞生成器",
+            "version": "1.0.0",
+            "kind": ["declarative"],
+            "contributes": { "contentPacks": [
+                { "id": "scifi", "title": "科幻灵感包", "file": "content/inspirations.json",
+                  "actions": [
+                    { "kind": "insert-at-cursor", "label": "插入到正文" },
+                    { "kind": "project-field", "field": "bookTitle", "label": "设为书名", "confirm": true }
+                  ] },
+                { "id": "plain", "title": "朴素包", "file": "content/plain.json" }
+            ] }
+        }"#;
+        let plugin_dir = plugin_root(&temp, "idea-generator");
+        std::fs::write(plugin_dir.join("plugin.json"), manifest).expect("写清单");
+        write_plugin_pack(&plugin_dir, "content/inspirations.json", &valid_pack_json());
+        write_plugin_pack(&plugin_dir, "content/plain.json", &valid_pack_json());
+
+        let mut registry = PluginRegistry::load(root).expect("空注册表可加载");
+        registry.upsert(registry_entry("idea-generator", true));
+        registry.save(root).expect("保存注册表");
+
+        let packs = list_packs(root);
+        assert_eq!(packs.len(), 2, "两个包都应出现在索引里：{packs:?}");
+
+        let scifi = packs.iter().find(|p| p.id == "scifi").expect("科幻包");
+        assert_eq!(scifi.actions.len(), 2, "两个动作都要原样透传");
+        assert_eq!(scifi.actions[0]["kind"], "insert-at-cursor");
+        assert_eq!(scifi.actions[1]["kind"], "project-field");
+        assert_eq!(scifi.actions[1]["field"], "bookTitle");
+        assert_eq!(scifi.actions[1]["confirm"], true);
+
+        let plain = packs.iter().find(|p| p.id == "plain").expect("朴素包");
+        assert!(
+            plain.actions.is_empty(),
+            "没写 actions 的包不能凭空多出动作：{:?}",
+            plain.actions
+        );
+
+        // 前端按 camelCase 消费（`meta.actions`），键名不能变成别的写法
+        let value = serde_json::to_value(scifi).expect("meta 可序列化");
+        assert_eq!(value["actions"][0]["kind"], "insert-at-cursor");
+    }
+
     #[test]
     fn list_packs_returns_empty_when_the_registry_is_missing() {
         let temp = TempDir::new("list-empty");
@@ -925,6 +997,7 @@ mod tests {
             title: "科幻灵感包".to_string(),
             description: "120 条".to_string(),
             count: 120,
+            actions: Vec::new(),
         };
         let value = serde_json::to_value(&meta).expect("meta 可序列化");
         assert_eq!(value["packId"], "idea-generator/scifi");

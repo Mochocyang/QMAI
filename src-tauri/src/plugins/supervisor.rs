@@ -157,6 +157,12 @@ use tokio::process::Command;
 
 /// 把清单里的 runtime 配置解析成可执行的命令。
 ///
+/// 接收 `&PluginRuntime` 而不是整份清单：`runtime` 在 v3 起是 `Option`（纯 Tier 1 插件
+/// 没有它，设计 D1），所以「有没有 runtime」必须由**调用方**判断（`start_plugin` 已把
+/// `None` 的分支挡在前面）。写成 `manifest: &PluginManifest` 再在内部 `expect`，等于把
+/// 一个调用方本该保证的前提藏进库函数，读代码的人看不出来它凭什么能 unwrap。
+/// `plugin_id` 只是为了错误文案能指出是哪个插件缺解释器。
+///
 /// 复用 commands::cli_resolver::find_cli_command 做跨平台命令发现（它已处理
 /// macOS 登录 shell 的 PATH 与 Windows 的候选可执行名 + 结果缓存）。
 ///
@@ -166,18 +172,18 @@ use tokio::process::Command;
 /// 会落在脚本路径**之后**，需要排在最前的解释器参数目前只能靠不带 args 的包装脚本实现。
 pub async fn build_command(
     plugin_dir: &std::path::Path,
-    manifest: &super::manifest::PluginManifest,
+    plugin_id: &str,
+    runtime: &super::manifest::PluginRuntime,
 ) -> Result<Command, String> {
     use super::manifest::RuntimeType;
-    let entry_path = plugin_dir.join(&manifest.runtime.entry);
-    let mut cmd = match manifest.runtime.entry_type {
+    let entry_path = plugin_dir.join(&runtime.entry);
+    let mut cmd = match runtime.entry_type {
         RuntimeType::Node => {
             let node = crate::commands::cli_resolver::find_cli_command("node", &["node.exe", "node"])
                 .await
                 .map_err(|e| {
                     format!(
-                        "找不到 Node（插件 {} 需要）：{e}。请安装 Node.js 并确保 node 在 PATH 中",
-                        manifest.id
+                        "找不到 Node（插件 {plugin_id} 需要）：{e}。请安装 Node.js 并确保 node 在 PATH 中"
                     )
                 })?;
             let mut c = Command::new(node);
@@ -192,8 +198,7 @@ pub async fn build_command(
             .await
             .map_err(|e| {
                 format!(
-                    "找不到 Python（插件 {} 需要）：{e}。请安装 Python 3 并确保 python3/python 在 PATH 中",
-                    manifest.id
+                    "找不到 Python（插件 {plugin_id} 需要）：{e}。请安装 Python 3 并确保 python3/python 在 PATH 中"
                 )
             })?;
             let mut c = Command::new(py);
@@ -202,7 +207,7 @@ pub async fn build_command(
         }
         RuntimeType::Binary => Command::new(&entry_path),
     };
-    cmd.args(&manifest.runtime.args);
+    cmd.args(&runtime.args);
     // 入口可能是相对路径（插件自己的资源也是），不设 cwd 会让插件按宿主的工作目录找文件。
     cmd.current_dir(plugin_dir);
     cmd.stdin(std::process::Stdio::piped());

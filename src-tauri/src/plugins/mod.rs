@@ -144,6 +144,25 @@ pub struct PluginToolDescriptor {
     pub parameters: serde_json::Value,
 }
 
+/// 这个插件是否需要宿主拉起一个子进程（设计 D1 / 任务 4 的核心判据）。
+///
+/// 判据就是「清单里有没有 `runtime`」：`manifest::validate` 已经用
+/// `E_RUNTIME_REQUIRED` 保证「声明了 tools / providers / `impl: "process"` 的 hook
+/// 就一定有 runtime」，所以 `runtime == None` 与「纯 Tier 1 声明式插件」严格等价。
+///
+/// 读不到清单 / 清单损坏一律返回 **true**：让 `start_plugin` 去报那条能看懂的
+/// 「读取清单失败」，而不是在启停路径上把它当成声明式插件静默跳过 —— 用户会看到
+/// 一个「已启用却什么都不工作、也不报错」的插件，那比报错难查得多。
+fn manifest_needs_process(dir: &Path) -> bool {
+    let Ok(raw) = std::fs::read_to_string(dir.join("plugin.json")) else {
+        return true;
+    };
+    match manifest::PluginManifest::parse(&raw) {
+        Ok(parsed) => parsed.runtime.is_some(),
+        Err(_) => true,
+    }
+}
+
 /// 把注册表条目与运行期快照拼成前端契约。抽成纯函数是为了能直接测字段映射，
 /// 不必为了验证 `toolCount` 去起一个真实进程。
 fn summary_from_entry(
@@ -437,6 +456,17 @@ async fn start_plugin(
     // 日志里带 E_HOST_INCOMPATIBLE 说明「要什么/现在是什么」，用户能自己停用或重试。
     ensure_host_compatible(&manifest)?;
 
+    // 纯 Tier 1 清单（设计 D1）：没有 runtime 就没有进程可起 —— 它的内容包/动作/钩子
+    // 全是宿主读、宿主渲染。这里返回 Ok 而不是错误，是给所有入口的最后一道保险：
+    // `plugins_enable` / `autostart_all` 已经各自跳过 spawn，但「进程表里绝不该出现
+    // 一个声明式插件」这条不变量不该依赖调用方记得判断。
+    //
+    // 顺带把 `runtime` 绑成 `&PluginRuntime`：往下所有用到 entry/args/startTimeoutMs 的
+    // 地方都靠它，编译器因此能保证「有进程 == 有 runtime」。
+    let Some(runtime) = manifest.runtime.as_ref() else {
+        return Ok(());
+    };
+
     // 清单声明了 providers 才走这套；没声明就完全跳过（v1 插件零影响）。
     // 端口先 bind 0 拿号、再立刻释放交给插件去绑（设计 D4：只允许宿主分配，
     // 避免固定端口被用户本机已有的 Agent2API 之类服务抢占）。
@@ -489,7 +519,7 @@ async fn start_plugin(
         },
     );
 
-    let mut cmd = match supervisor::build_command(&dir, &manifest).await {
+    let mut cmd = match supervisor::build_command(&dir, &entry.id, runtime).await {
         Ok(command) => command,
         Err(error) => {
             host_api::unregister_session(&token);
@@ -572,7 +602,7 @@ async fn start_plugin(
     };
 
     // 握手 + 拉工具清单，整体受 startTimeoutMs 约束。
-    let timeout = std::time::Duration::from_millis(manifest.runtime.start_timeout_ms);
+    let timeout = std::time::Duration::from_millis(runtime.start_timeout_ms);
     let handshake = async {
         let initialize_id = handle.counter.next();
         let initialize = mcp_bridge::initialize_request(
@@ -625,7 +655,7 @@ async fn start_plugin(
             // 让界面灰显并给出原因（设计 6.3：失败不隐藏）。
             let provider = match (provider_decl, provider_port, provider_token) {
                 (Some(decl), Some(port), Some(token)) => {
-                    Some(register_provider(&manifest, &decl, port, token).await)
+                    Some(register_provider(&manifest, &decl, port, token, timeout).await)
                 }
                 _ => None,
             };
@@ -680,7 +710,7 @@ async fn start_plugin(
             host_api::unregister_session(&token);
             Err(format!(
                 "插件 {} 在 {} ms 内未完成握手",
-                entry.id, manifest.runtime.start_timeout_ms
+                entry.id, runtime.start_timeout_ms
             ))
         }
     }
@@ -691,11 +721,15 @@ async fn start_plugin(
 /// **任何失败都不抛出**：这里是「插件已经连握手都通过了」之后的一步，provider 只是
 /// 插件能力的一部分（它还可能提供工具）。失败写成 `ready=false` + `last_error`，
 /// 让界面灰显并给出原因，而不是把整个插件判成启动失败。
+///
+/// `probe_budget` 由调用方给（就是插件的 `startTimeoutMs`）：`runtime` 在 v3 起是
+/// `Option`，本函数不该再去清单里扒一个可能不存在的字段。
 async fn register_provider(
     manifest: &manifest::PluginManifest,
     decl: &manifest::ProviderDecl,
     port: u16,
     token: String,
+    probe_budget: std::time::Duration,
 ) -> providers::PluginProvider {
     let mut provider = providers::PluginProvider {
         plugin_id: manifest.id.clone(),
@@ -712,7 +746,7 @@ async fn register_provider(
     };
 
     // 一个 client 复用到探活与抓模型：超时策略只有一处。60s 是探活/抓取的粗上限，
-    // 真正的探活预算由下面按 startTimeoutMs 收紧。
+    // 真正的探活预算由调用方按 startTimeoutMs 收紧（见 `probe_budget`）。
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
         .build()
@@ -724,8 +758,9 @@ async fn register_provider(
         }
     };
 
-    let timeout = std::time::Duration::from_millis(manifest.runtime.start_timeout_ms);
-    if let Err(error) = providers::wait_until_healthy(&client, &provider.base_url, timeout).await {
+    if let Err(error) =
+        providers::wait_until_healthy(&client, &provider.base_url, probe_budget).await
+    {
         provider.last_error = Some(error);
         return provider;
     }
@@ -914,6 +949,12 @@ pub async fn autostart_all(state: &PluginsState, root: &Path) -> Result<(), Stri
         .filter(|entry| entry.enabled)
         .collect();
     for entry in targets {
+        // 纯 Tier 1 插件没有进程可拉（设计 D1）：直接跳过，**不打警告** ——
+        // 声明式插件正常情况下就是「已启用但没有进程」，每次启动 App 都刷一行
+        // 「自动启动失败/跳过」会让日志里真正的故障被埋掉。
+        if !manifest_needs_process(&paths::plugin_dir(root, &entry.id)) {
+            continue;
+        }
         if let Err(error) = start_plugin(root, state, &entry).await {
             eprintln!("[plugins] 自动启动 {} 失败：{error}", entry.id);
         }
@@ -1043,8 +1084,15 @@ async fn invoke_tool_with_timeout(
 /// 列出全部已安装插件。运行状态与工具数取内存句柄；磁盘上的清单只补展示字段。
 #[tauri::command]
 pub async fn plugins_list(state: State<'_, PluginsState>) -> Result<Vec<PluginSummary>, String> {
-    let root = state.root();
-    let registry = PluginRegistry::load(&root)?;
+    list_plugin_summaries(state.inner(), &state.root()).await
+}
+
+/// `plugins_list` 的真实实现（命令层只做 `State` 解包），便于测试直接驱动。
+async fn list_plugin_summaries(
+    state: &PluginsState,
+    root: &Path,
+) -> Result<Vec<PluginSummary>, String> {
+    let registry = PluginRegistry::load(root)?;
 
     // 先读磁盘（可能慢），再拿 running 锁；避免因为读清单把启停命令堵住。
     let base: Vec<(
@@ -1054,11 +1102,12 @@ pub async fn plugins_list(state: State<'_, PluginsState>) -> Result<Vec<PluginSu
         Vec<String>,
         Option<serde_json::Value>,
         Option<serde_json::Value>,
+        bool,
     )> = registry
         .list()
         .into_iter()
         .map(|entry| {
-            let dir = paths::plugin_dir(&root, &entry.id);
+            let dir = paths::plugin_dir(root, &entry.id);
             let (name, description) = manifest_display(&dir);
             // provider id 只有清单里有，前端没有别的途径知道「是不是 provider 插件」。
             let provider_ids = manifest_provider_ids(&dir);
@@ -1066,7 +1115,18 @@ pub async fn plugins_list(state: State<'_, PluginsState>) -> Result<Vec<PluginSu
             let preview = manifest_preview(&dir);
             // 配置能力也只有清单里有：前端靠 `hasConfig` + `configSchema` 渲染设置表单。
             let config_schema = manifest_config_schema(&dir);
-            (entry, name, description, provider_ids, preview, config_schema)
+            // 「需不需要进程」同样只有清单里有。它和上面几个字段一样只读一次磁盘，
+            // 放在这里顺带取出来，就不必在下面对每条 entry 再读一遍 plugin.json。
+            let needs_process = manifest_needs_process(&dir);
+            (
+                entry,
+                name,
+                description,
+                provider_ids,
+                preview,
+                config_schema,
+                needs_process,
+            )
         })
         .collect();
 
@@ -1082,9 +1142,17 @@ pub async fn plugins_list(state: State<'_, PluginsState>) -> Result<Vec<PluginSu
     Ok(base
         .into_iter()
         .map(
-            |(entry, name, description, provider_ids, preview, config_schema)| {
-                let (process_state, tool_count) =
-                    states.get(&entry.id).copied().unwrap_or(("stopped", 0));
+            |(entry, name, description, provider_ids, preview, config_schema, needs_process)| {
+                let (process_state, tool_count) = match states.get(&entry.id).copied() {
+                    Some(running) => running,
+                    // 不在进程表里，而且这个插件本来就不该有进程（清单没有 runtime）：
+                    // 它是「已启用且已生效」的纯 Tier 1 插件，报 `stopped` 会让界面显示
+                    // 「已停止」并催用户去点启用 —— 而它其实一直在工作（动作/内容包都能用）。
+                    // 单独一个 `declarative` 状态值，让前端能把「无需进程」与「该跑却没跑」
+                    // 分开表达，而不是靠前端再读一遍清单去猜。
+                    None if entry.enabled && !needs_process => ("declarative", 0),
+                    None => ("stopped", 0),
+                };
                 let mut summary =
                     summary_from_entry(&entry, name, description, process_state, tool_count);
                 summary.provider_ids = provider_ids;
@@ -1302,11 +1370,20 @@ pub async fn plugins_enable(
     id: String,
     granted: Vec<String>,
 ) -> Result<(), String> {
+    enable_plugin(state.inner(), &state.root(), &id, granted).await
+}
+
+/// `plugins_enable` 的真实实现（命令层只做 `State` 解包），便于测试直接驱动。
+async fn enable_plugin(
+    state: &PluginsState,
+    root: &Path,
+    id: &str,
+    granted: Vec<String>,
+) -> Result<(), String> {
     validate_granted_permissions(&granted)?;
-    let root = state.root();
-    let mut registry = PluginRegistry::load(&root)?;
+    let mut registry = PluginRegistry::load(root)?;
     let mut entry = registry
-        .get(&id)
+        .get(id)
         .cloned()
         .ok_or_else(|| format!("插件 {id} 未安装"))?;
 
@@ -1315,21 +1392,33 @@ pub async fn plugins_enable(
     //
     // 版本要求也在这里查：**在落盘 enabled 之前**，否则命令失败却把 enabled 写成了 true，
     // 界面会显示「已启用」而进程根本没起来（用户只能靠重启来发现）。
-    if let Some(manifest) = installed_manifest(&root, &id) {
-        ensure_provider_ids_free(&root, &id, &manifest)?;
+    if let Some(manifest) = installed_manifest(root, id) {
+        ensure_provider_ids_free(root, id, &manifest)?;
         ensure_host_compatible(&manifest)?;
     }
 
     entry.enabled = true;
     entry.granted_permissions = granted;
     registry.upsert(entry.clone());
-    registry.save(&root)?;
+    registry.save(root)?;
 
-    start_plugin(&root, state.inner(), &entry).await?;
-    Ok(())
+    // 纯 Tier 1 插件（清单没有 runtime，设计 D1）：启用就是「让它出现在界面里」，
+    // 没有进程可起。**在这里就返回**，而不是让 `start_plugin` 去 spawn 一个不存在的
+    // 入口再报「启动失败」—— 那样用户会看到一个明明该能用的插件显示启动失败。
+    // enabled 已经落盘，声明式动作/内容包在 `plugins_actions` / `plugins_content_packs`
+    // 里立刻可见（它们只读清单，从不看进程表）。
+    if !manifest_needs_process(&paths::plugin_dir(root, id)) {
+        return Ok(());
+    }
+
+    start_plugin(root, state, &entry).await
 }
 
 /// 停用插件：先杀进程（释放 stdio 与宿主 session），再把开关落盘。
+///
+/// 纯 Tier 1 插件（没有 runtime）在这里无需特判：`stop_plugin` 对「进程表里没有它」
+/// 是幂等的（没有句柄可停、只清该插件名下的 provider 登记），随后照常把
+/// enabled=false 落盘即可 —— 停用对声明式插件的效果是「不再出现在 actions/contentPacks」。
 #[tauri::command]
 pub async fn plugins_disable(
     state: State<'_, PluginsState>,
@@ -1885,7 +1974,16 @@ mod tests {
 
         let manifest = parsed_manifest(&provider_manifest("probe-fail", "probe-fail"));
         let decl = manifest.contributes.providers[0].clone();
-        let provider = register_provider(&manifest, &decl, port, "test-token".to_string()).await;
+        // 探活预算仍按清单里的 startTimeoutMs（这个 helper 写的是 1000ms）：
+        // 断言从「按清单取」改为「按值传」后语义不变。
+        let provider = register_provider(
+            &manifest,
+            &decl,
+            port,
+            "test-token".to_string(),
+            std::time::Duration::from_millis(1_000),
+        )
+        .await;
 
         assert!(!provider.ready, "探活不通过时不能标成 ready");
         let error = provider.last_error.as_deref().unwrap_or_default();
@@ -2383,6 +2481,183 @@ rl.on("line", (line) => {
             0,
             "停用后宿主 API session 必须注销"
         );
+    }
+
+    /// 一个**纯 Tier 1** 插件清单（设计 D1）：kind=declarative + 一个内容包 + 一个
+    /// 声明式动作，**故意不写 runtime** —— 它的所有贡献都是宿主读、宿主渲染。
+    fn declarative_manifest(plugin_id: &str) -> String {
+        format!(
+            r#"{{
+                "schema": 3,
+                "id": "{plugin_id}",
+                "name": "脑洞生成器",
+                "version": "1.0.0",
+                "kind": ["declarative"],
+                "contributes": {{
+                    "contentPacks": [{{
+                        "id": "webnovel-hooks", "title": "网文开局钩子",
+                        "file": "content/inspirations.json",
+                        "actions": [{{ "kind": "insert-at-cursor", "label": "插入到正文" }}]
+                    }}],
+                    "actions": [{{
+                        "id": "generate-titles", "title": "生成书名", "slot": "chapter-toolbar",
+                        "prompt": {{ "system": "你是书名策划", "user": "灵感：{{{{idea}}}}" }},
+                        "output": {{ "mode": "list" }}
+                    }}]
+                }}
+            }}"#
+        )
+    }
+
+    /// 把一个纯 Tier 1 插件装进临时注册表（enabled=false，等启用）。
+    fn install_declarative_plugin(root: &Path, plugin_id: &str) {
+        write_plugin(root, plugin_id, &declarative_manifest(plugin_id), None);
+        let mut registry = PluginRegistry::load(root).expect("空注册表可加载");
+        let mut entry = sample_entry(plugin_id);
+        entry.enabled = false;
+        registry.upsert(entry);
+        registry.save(root).expect("保存注册表");
+    }
+
+    /// D1 的核心验收：启用纯声明式插件**不能 spawn**。
+    ///
+    /// 旧行为是无条件 `start_plugin`，于是这类插件会去 spawn 一个根本不存在的入口，
+    /// 报「启动插件进程失败」—— 用户装了一个零代码插件，界面却告诉他启动失败。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn enabling_a_declarative_plugin_does_not_spawn() {
+        let root = TempRoot::new("declarative-enable");
+        let id = "idea-generator";
+        install_declarative_plugin(root.path(), id);
+
+        let state = PluginsState::default();
+        enable_plugin(&state, root.path(), id, Vec::new())
+            .await
+            .expect("纯 Tier 1 插件的启用必须成功（没有进程可起也不是错误）");
+
+        assert!(
+            state.running.lock().await.is_empty(),
+            "声明式插件不该出现在进程表里（装 20 个也应该是 0 条）"
+        );
+        let after = PluginRegistry::load(root.path()).expect("重新加载注册表");
+        assert!(
+            after.get(id).expect("条目仍在").enabled,
+            "启用意图必须照常落盘"
+        );
+        // 没有进程要起，就不该顺手把宿主 API 服务起起来（那是 spawn 路径的副作用）。
+        assert!(
+            state.host_port.lock().expect("端口状态").is_none(),
+            "声明式插件的启用不该启动宿主 API"
+        );
+        // 也不该留下任何会话：会话只服务于进程
+        assert_eq!(
+            host_api::sessions_for_plugin(id),
+            0,
+            "没有进程就不该有宿主 API session"
+        );
+    }
+
+    /// 启用之后 `plugins_list` 必须把状态报成 `declarative`，而不是 `stopped`。
+    ///
+    /// 报 `stopped` 的后果很具体：界面显示「已停止」，用户以为要再点一次启用，
+    /// 点了还是「已停止」—— 而它的动作与内容包其实全都可用。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn declarative_plugin_reports_declarative_state() {
+        let root = TempRoot::new("declarative-state");
+        let id = "idea-generator";
+        install_declarative_plugin(root.path(), id);
+
+        let state = PluginsState::default();
+        enable_plugin(&state, root.path(), id, Vec::new())
+            .await
+            .expect("启用纯 Tier 1 插件");
+
+        let summaries = list_plugin_summaries(&state, root.path())
+            .await
+            .expect("列出插件");
+        let summary = summaries
+            .iter()
+            .find(|summary| summary.id == id)
+            .expect("插件必须出现在列表里");
+        assert!(summary.enabled);
+        assert_eq!(
+            summary.process_state, "declarative",
+            "enabled 且不在进程表、清单又没有 runtime → declarative"
+        );
+        assert_eq!(summary.tool_count, 0, "没有进程就没有工具");
+
+        // 前端按 camelCase 读 `processState`，这个值要能原样过线
+        let value = serde_json::to_value(summary).expect("summary 可序列化");
+        assert_eq!(value["processState"], "declarative");
+    }
+
+    /// 回归护栏：有 runtime 的插件启用后**仍然要 spawn**。
+    ///
+    /// 任务 4 的「跳过 spawn」只对 `runtime == None` 生效；如果判据写错成
+    /// 「有 contentPacks 就跳过」之类，Tier 2 插件会静默不启动，症状是「工具全消失」。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn tier2_plugin_still_requires_spawn() {
+        if !node_available() {
+            eprintln!("跳过：本机没有可执行的 node");
+            return;
+        }
+
+        const SERVER: &str = r#"
+const readline = require("readline");
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on("line", (line) => {
+  let req;
+  try { req = JSON.parse(line); } catch { return; }
+  if (req.method === "initialize") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { protocolVersion: "2024-11-05", capabilities: { tools: {} } }
+    }));
+  } else if (req.method === "tools/list") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { tools: [{ name: "echo", description: "回声", inputSchema: { type: "object" } }] }
+    }));
+  }
+});
+"#;
+
+        let root = TempRoot::new("tier2-enable");
+        let id = "tier2-echo";
+        let manifest = format!(
+            r#"{{
+                "schema": 3,
+                "id": "{id}",
+                "name": "回声插件",
+                "version": "1.0.0",
+                "runtime": {{ "type": "node", "entry": "server.js", "startTimeoutMs": 5000 }},
+                "contributes": {{ "tools": [{{ "name": "echo", "description": "回声" }}] }}
+            }}"#
+        );
+        write_plugin(root.path(), id, &manifest, Some(("server.js", SERVER)));
+        let mut registry = PluginRegistry::load(root.path()).expect("空注册表可加载");
+        let mut entry = sample_entry(id);
+        entry.enabled = false;
+        registry.upsert(entry);
+        registry.save(root.path()).expect("保存注册表");
+
+        let state = PluginsState::default();
+        // 假端口：宿主 API 已在跑，用例不必真的起一个服务。
+        *state.host_port.lock().expect("端口状态") = Some(1);
+
+        enable_plugin(&state, root.path(), id, Vec::new())
+            .await
+            .expect("Tier 2 插件应正常启动");
+
+        {
+            let running = state.running.lock().await;
+            let plugin = running
+                .get(id)
+                .expect("有 runtime 的插件启用后必须真的在 running 表里");
+            assert_eq!(plugin.state.as_str(), "running");
+            assert_eq!(plugin.tools.len(), 1);
+        }
+
+        stop_plugin(&state, id).await;
     }
 
     /// 启动时自动拉起：注册表为空是首次启动的正常状态，必须成功返回而不是报错。
