@@ -4,7 +4,12 @@
 //! 这里只沉淀可以被独立测试的判定逻辑，避免把状态迁移规则散落到命令层里。
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
+
+use tokio::io::{BufReader, Lines};
+use tokio::process::{Child, ChildStdout};
 
 // ── 状态机 ─────────────────────────────────────────────
 
@@ -216,6 +221,57 @@ pub async fn build_command(
     Ok(cmd)
 }
 
+// ── 运行句柄 ───────────────────────────────────────────
+
+/// JSON-RPC 请求 id 发生器（每个插件一个，单调递增）。
+///
+/// 响应必须按 id 配对：插件可能先发 `notifications/...`，也可能在超时后补发
+/// 上一条请求的结果；只读「下一行」会把别的消息当成当前响应。
+#[derive(Default)]
+pub struct RequestCounter {
+    next_id: AtomicU64,
+}
+
+impl RequestCounter {
+    pub fn next(&self) -> u64 {
+        // JSON-RPC 的 id=0 在部分实现里会被当成「未设置」，从 1 开始最稳。
+        self.next_id.fetch_add(1, Ordering::SeqCst) + 1
+    }
+}
+
+/// 一个正在运行的插件：子进程 + 它的 stdio + 运行期工具清单。
+///
+/// 这里不实现 Drop：`Child` 已由 `build_command` 设了 `kill_on_drop(true)`，
+/// 句柄被丢弃时进程会被杀掉，这是忘记调用 [`LaunchHandle::stop`] 时的最后保险。
+pub struct LaunchHandle {
+    pub plugin_id: String,
+    pub token: String,
+    pub child: Child,
+    pub stdin: tokio::process::ChildStdin,
+    pub stdout: Lines<BufReader<ChildStdout>>,
+    pub counter: RequestCounter,
+    pub tools: Vec<super::mcp_bridge::PluginToolDecl>,
+    pub state: ProcessState,
+    /// 独占 stdio 的锁：tools/call 的请求与响应必须成对，两个调用并发写同一个
+    /// stdin 会让响应串台。调用方拿到它之后再碰 stdin/stdout。
+    pub io: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl LaunchHandle {
+    /// 优雅停止：先关 stdin（MCP 约定的退出信号），1 秒内没退就强杀。
+    pub async fn stop(mut self) {
+        // ChildStdin 的 Drop 会关闭管道；插件读到 EOF 后应自行退出。
+        drop(self.stdin);
+        match tokio::time::timeout(Duration::from_secs(1), self.child.wait()).await {
+            Ok(_) => {}
+            Err(_) => {
+                // kill() 自带 wait，确保返回时进程已经真的没了。
+                let _ = self.child.kill().await;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,5 +391,14 @@ mod tests {
         assert_eq!(ProcessState::Failed.as_str(), "failed");
         assert_eq!(ProcessState::Crashed.as_str(), "crashed");
         assert_eq!(ProcessState::DisabledByCrash.as_str(), "disabled_by_crash");
+    }
+
+    #[test]
+    fn request_counter_is_monotonic_from_one() {
+        let counter = RequestCounter::default();
+        // 从 1 开始而不是 0：JSON-RPC 的 0 常被某些实现当成非法/未设置 id。
+        assert_eq!(counter.next(), 1);
+        assert_eq!(counter.next(), 2);
+        assert_eq!(counter.next(), 3);
     }
 }

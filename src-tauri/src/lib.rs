@@ -184,6 +184,7 @@ pub fn run() {
             app.manage(commands::file_sync::FileSyncState::default());
             app.manage(commands::writing_wake_lock::WritingWakeLockManager::default());
             app.manage(mcp::McpState::default());
+            app.manage(plugins::PluginsState::default());
             // WorkBuddy 账号存储与模型目录：读不到/读坏都退化成空仓库，
             // 绝不让一次磁盘异常把整个应用拦在启动之前。
             let workbuddy_dir = app
@@ -318,6 +319,15 @@ commands::fs::read_file,
             mcp::mcp_respond,
             mcp::mcp_stdio_executable,
             mcp::resolve_qmai_mcp_skill_dir,
+            // 插件管理：列表/安装/启停/卸载，以及运行期工具清单与调用。
+            plugins::plugins_list,
+            plugins::plugins_install,
+            plugins::plugins_enable,
+            plugins::plugins_disable,
+            plugins::plugins_uninstall,
+            plugins::plugins_tools,
+            plugins::plugins_invoke_tool,
+            plugins::plugins_shutdown_all,
             // WorkBuddy 账号登录（国内版）：登录三条、账号三条、导入两条、
             // 模型目录两条、网关一条。返回值一律不含 token。
             workbuddy::commands::workbuddy_login_start,
@@ -427,6 +437,17 @@ commands::fs::read_file,
             // macOS 红叉只 hide；真正退出（Cmd+Q）必须在这里落盘。
             if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
                 app_state::persist_app_state_before_exit(app);
+
+                // 插件是常驻子进程，必须在进程退出前显式停掉：虽然 Child 设了
+                // kill_on_drop，但 App 进程退出时析构顺序不可依赖，漏一个就是孤儿进程。
+                use tauri::Manager;
+                if let Some(state) = app.try_state::<plugins::PluginsState>() {
+                    if let Err(error) =
+                        tauri::async_runtime::block_on(plugins::shutdown_all(state.inner()))
+                    {
+                        eprintln!("[plugins] 退出清理失败：{error}");
+                    }
+                }
             }
         });
 }

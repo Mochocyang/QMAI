@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -280,6 +280,57 @@ impl Default for HostApiState {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// 进程级会话表。
+///
+/// 为什么需要单例：`start_plugin` 每条命令都会构造一次 `HostApiState`，但 HTTP
+/// handler 在另一个任务里长期运行；如果每次用 `HostApiState::new()`，注册进去的
+/// token 对正在跑的 server 不可见。会话表必须是进程级、所有 state 共享的同一份。
+static SESSIONS: OnceLock<Arc<Mutex<HashMap<String, PluginSession>>>> = OnceLock::new();
+
+fn session_store() -> &'static Arc<Mutex<HashMap<String, PluginSession>>> {
+    SESSIONS.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+}
+
+/// 注册一个插件会话（token → 身份与权限）。重复注册同一 token 会覆盖。
+pub fn register_session(token: &str, session: PluginSession) {
+    if let Ok(mut sessions) = session_store().lock() {
+        sessions.insert(token.to_string(), session);
+    }
+}
+
+/// 注销一个插件会话（停用/卸载时调用，避免 token 继续有效）。
+pub fn unregister_session(token: &str) {
+    if let Ok(mut sessions) = session_store().lock() {
+        sessions.remove(token);
+    }
+}
+
+/// 构造一个共享同一会话表的 [`HostApiState`]（`start` 时用）。
+///
+/// 日志环仍是每个 state 独立的：当前没有命令读取它，等日志查看功能落地时
+/// 再决定是否也要进程级共享。
+pub fn shared_state() -> HostApiState {
+    HostApiState {
+        sessions: session_store().clone(),
+        log_sink: Arc::new(Mutex::new(Vec::new())),
+    }
+}
+
+/// 测试辅助：统计某个插件在全局会话表里的残留数量。
+/// 失败路径测试用它断言「进程没起来时 token 也必须注销」。
+#[cfg(test)]
+pub(crate) fn sessions_for_plugin(plugin_id: &str) -> usize {
+    session_store()
+        .lock()
+        .map(|sessions| {
+            sessions
+                .values()
+                .filter(|session| session.plugin_id == plugin_id)
+                .count()
+        })
+        .unwrap_or(0)
 }
 
 /// 无 token / token 无效：纯文本，避免给出结构化线索
@@ -937,5 +988,32 @@ mod tests {
         assert_eq!(response.status(), 400);
         let body: serde_json::Value = response.json().await.expect("JSON");
         assert_eq!(body["error"], "E_NO_PROJECT");
+    }
+
+    #[test]
+    fn process_wide_session_store_is_shared_and_revocable() {
+        // 命令层每次 start_plugin 都新建一个 HostApiState，但 HTTP handler 必须看到
+        // 同一份会话表；这里直接验证 shared_state() 确实指向进程级单例。
+        let token = format!("test-{}", uuid::Uuid::new_v4());
+        let session = PluginSession {
+            plugin_id: "global-session-test".to_string(),
+            granted: granted(&["data:write"]),
+            project_root: None,
+            data_root: PathBuf::from("/tmp/qmai-plugin-data"),
+        };
+        register_session(&token, session);
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().expect("合法 header"),
+        );
+        let state = shared_state();
+        let got = state.session(&headers).expect("共享会话表应能看到注册项");
+        assert_eq!(got.plugin_id, "global-session-test");
+
+        unregister_session(&token);
+        // 注销后旧 token 必须立即失效：停用/卸载后不能继续用旧凭据反调宿主。
+        assert!(shared_state().session(&headers).is_none());
     }
 }
