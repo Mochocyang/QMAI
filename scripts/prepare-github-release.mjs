@@ -55,7 +55,15 @@ if (result.status !== 0) {
 }
 
 if (existsSync(portableExe)) {
+  // 便携版的 WebView2 在线引导安装器：缺少运行时且联网的电脑靠它静默安装。
+  // 引导器只下载不安装，必须在 exe 旁边，不能并进单文件。
+  const portableWebview2Setup = resolve(root, "release-portable/MicrosoftEdgeWebview2Setup.exe")
   cpSync(portableExe, resolve(outDir, "QMaiWrite-portable.exe"))
+  if (existsSync(portableWebview2Setup)) {
+    cpSync(portableWebview2Setup, resolve(outDir, "MicrosoftEdgeWebview2Setup.exe"))
+  } else {
+    console.warn("警告：便携版缺少 MicrosoftEdgeWebview2Setup.exe，未随发布包一同上传")
+  }
 }
 
 const signature = readFileSync(releaseSignaturePath, "utf8").trim()

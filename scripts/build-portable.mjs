@@ -122,9 +122,33 @@ if (includesFonts && !existsSync(resolve(outFontDir, "fonts-manifest.json"))) {
   console.warn(`警告：${outFontDir} 缺少 fonts-manifest.json，应用将不会安装这些字体`)
 }
 
+/*
+ * 便携版没有安装器可做 WebView2 预检，所以把**在线引导安装器**放到 exe 旁边，
+ * 供程序启动时的检测逻辑（src-tauri/src/webview2_check.rs）在同一目录取用 ——
+ * 那里优先用同目录的 MicrosoftEdgeWebview2Setup.exe，没有才现下载；本机就是这样
+ * 省掉一次 2 MB 下载。下载失败不算构建失败：程序自己会退回在线下载。
+ */
+const webview2SetupName = "MicrosoftEdgeWebview2Setup.exe"
+const webview2SetupUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+const webview2SetupPath = resolve(outDir, webview2SetupName)
+let includesWebview2Setup = false
+try {
+  const response = await fetch(webview2SetupUrl, { redirect: "follow" })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  const bytes = Buffer.from(await response.arrayBuffer())
+  // 官方引导器约 1.8 MB；明显偏小说明拿到的是错误页。
+  if (bytes.length < 512 * 1024) throw new Error(`下载内容异常（${bytes.length} 字节）`)
+  writeFileSync(webview2SetupPath, bytes)
+  includesWebview2Setup = true
+} catch (e) {
+  console.warn(
+    `警告：下载 ${webview2SetupName} 失败（${e?.message ?? e}）。` +
+      "便携版仍可使用，但缺少 WebView2 的电脑需要联网由程序自行下载。",
+  )
+}
+
 const exeStat = statSync(outExe)
-writeFileSync(manifest, JSON.stringify({
-  productName: isStorySimulationBranch ? "青幕AI写作（剧情推演版）" : "青幕AI写作",
+writeFileSync(manifest, JSON.stringify({  productName: isStorySimulationBranch ? "青幕AI写作（剧情推演版）" : "青幕AI写作",
   version: pkg.version,
   builtAt: new Date().toISOString(),
   sourceExe,
@@ -132,6 +156,7 @@ writeFileSync(manifest, JSON.stringify({
   exeBytes: exeStat.size,
   includesSkills: existsSync(outSkillDir),
   includesFonts,
+  includesWebview2Setup,
   ...(isStorySimulationBranch ? { variant: "story-simulation", branch: currentBranch } : {}),
 }, null, 2), "utf8")
 

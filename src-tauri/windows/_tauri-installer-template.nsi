@@ -615,6 +615,30 @@ Function .onInit
     Abort
   ${EndIf}
 
+  /*
+   * WebView2 运行时的安装前检测。
+   *
+   * ── 为什么必须在这里，而不是只靠下面的 `Section WebView2` ──
+   * `Section WebView2` 在这些情况下**根本不跑**：
+   *   ① `tauri.windows.conf.json` 里 `webviewInstallMode` 是 `skip`（当前配置，
+   *      离线/在线安装器都由我们自己控制，不走 Tauri 那套）；
+   *   ② `$UpdateMode == 1`（自动更新路径显式跳过）；
+   *   ③ 用户选择"仅当前用户安装"，但运行时只装在 Administrator 账户下 → 检测到
+   *      HKLM 有值就认为"已安装"，实际当前用户跑不起来。
+   * 结果就是用户在更新/重装之后依然看到「未能找到 WebView2 运行时」的白窗或闪退。
+   * 装之前就问一次、装完再校验一次，是成本最低、覆盖面最大的位置。
+   *
+   * ── 顺序要求 ──
+   * 必须放在上面的系统版本检查**之后**：Win7/8 一律拒绝，也就不会去下载一个
+   * 在 Win7 上根本装不上（110 版起已放弃 Win7）的最新版运行时。
+   *
+   * ── 静默模式 ──
+   * `/S` 或 `/P`（passive）时不弹窗：装不了就只在详情里写一行，不阻塞流程
+   * （自动更新必须在无人值守下完成，卡在一个 MessageBox 上等于更新失败）。
+   */
+  Call EnsureWebView2
+
+  ${GetOptions} $CMDLINE "/P" $PassiveMode
   ${GetOptions} $CMDLINE "/P" $PassiveMode
   ${IfNot} ${Errors}
     StrCpy $PassiveMode 1
@@ -779,6 +803,107 @@ Section WebView2
     !endif
   ${EndIf}
 SectionEnd
+
+; ═══════════════════════════════════════════════════════════════════════════════
+; 安装前 WebView2 检测与引导安装
+; ═══════════════════════════════════════════════════════════════════════════════
+;
+; ── 检测依据 ──
+; 与 Tauri 自带 `Section WebView2`、以及微软文档一致：读 EdgeUpdate\Clients 下的
+; `pv` 值。三条路径都要看 —— 系统级 64 位视图（WOW6432Node）、系统级 32 位视图、
+; 当前用户（perUser 安装）。只看 HKLM 会在"新装的当前用户版运行时"上误判为缺失，
+; 只看 HKCU 又会漏掉绝大多数正常机器。
+;
+; ── 静默安装的参数 ──
+; `/silent /install`。`/silent` 不带进度界面，安装器自己跑完就返回；这是
+; MicrosoftEdgeWebview2Setup.exe（Evergreen Bootstrapper）的官方无交互参数。
+;
+; ── 安装器从哪来 ──
+; ① 同目录（便携版解压/安装包旁）——由 `scripts/build-portable.mjs` 放置；
+; ② `$PLUGINSDIR`（在线下载到临时目录后由本脚本放进去的）。
+; 两者都没有时，才启动浏览器打开下载页 —— 这是最后的兜底，不是主路径。
+;
+; ── 为什么装完要"二次校验" ──
+; Bootstrapper 在无网、被策略拦截、被杀软拦截时可能退出码为 0 却没真正装上。
+; 少了这一步，用户会看到"安装成功"却依然打不开软件。
+
+; 返回值：$0 = 1 表示可用，$0 = 0 表示缺失。$1 存放检测到的版本号（可为空）。
+!macro QMAI_READ_WEBVIEW2_VERSION
+  StrCpy $1 ""
+  ${If} ${RunningX64}
+    ReadRegStr $1 HKLM "SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\${WEBVIEW2APPGUID}" "pv"
+  ${EndIf}
+  ${If} $1 == ""
+    ReadRegStr $1 HKLM "SOFTWARE\Microsoft\EdgeUpdate\Clients\${WEBVIEW2APPGUID}" "pv"
+  ${EndIf}
+  ${If} $1 == ""
+    ReadRegStr $1 HKCU "SOFTWARE\Microsoft\EdgeUpdate\Clients\${WEBVIEW2APPGUID}" "pv"
+  ${EndIf}
+  ${If} $1 == ""
+    StrCpy $0 0
+  ${Else}
+    StrCpy $0 1
+  ${EndIf}
+!macroend
+
+Function EnsureWebView2
+  !insertmacro QMAI_READ_WEBVIEW2_VERSION
+  ${If} $0 = 1
+    Return
+  ${EndIf}
+
+  ; 静默模式（自动更新、/S、/P）不弹窗，交给后面的 Section WebView2 尽力而为。
+  ${If} ${Silent}
+    DetailPrint "未检测到 WebView2 运行时，将在安装阶段尝试自动安装。"
+    Return
+  ${EndIf}
+  ${If} $PassiveMode == 1
+    DetailPrint "未检测到 WebView2 运行时，将在安装阶段尝试自动安装。"
+    Return
+  ${EndIf}
+
+  MessageBox MB_YESNO|MB_ICONQUESTION "青幕AI写作需要「Microsoft Edge WebView2 运行时」才能显示界面，但本机还没有安装。$\r$\n$\r$\n是否现在自动安装？$\r$\n（约 2 MB，需要联网，通常 1 分钟内完成；不安装将无法打开软件。）" /SD IDYES IDNO qmai_wv2_declined
+
+  ; ① 同目录（便携版 / 用户手动放置）
+  ${GetParent} "$EXEPATH" $0
+  StrCpy $2 "$0\MicrosoftEdgeWebview2Setup.exe"
+  ${IfNot} ${FileExists} "$2"
+    StrCpy $2 "$PLUGINSDIR\MicrosoftEdgeWebview2Setup.exe"
+    DetailPrint "正在下载 WebView2 运行时安装程序……"
+    NSISdl::download /TIMEOUT=30000 "https://go.microsoft.com/fwlink/p/?LinkId=2124703" "$2"
+    Pop $0
+    ${If} $0 != "success"
+      Delete "$2"
+      StrCpy $2 ""
+    ${EndIf}
+  ${EndIf}
+
+  ${If} $2 == ""
+    MessageBox MB_YESNO|MB_ICONEXCLAMATION "下载 WebView2 安装程序失败（可能是网络问题）。$\r$\n$\r$\n是否打开官方下载页面手动下载并安装？" /SD IDYES IDNO qmai_wv2_continue
+    ExecShell "open" "https://developer.microsoft.com/zh-cn/microsoft-edge/webview2/"
+    Goto qmai_wv2_continue
+  ${EndIf}
+
+  DetailPrint "正在安装 WebView2 运行时……"
+  ExecWait '"$2" /silent /install' $3
+  DetailPrint "WebView2 安装程序退出码：$3"
+
+  !insertmacro QMAI_READ_WEBVIEW2_VERSION
+  ${If} $0 = 1
+    DetailPrint "WebView2 运行时已就绪：$1"
+    Return
+  ${EndIf}
+
+  MessageBox MB_YESNO|MB_ICONEXCLAMATION "WebView2 运行时仍未安装成功。$\r$\n$\r$\n可以继续安装青幕AI写作，但软件将无法打开。是否继续？" /SD IDNO IDYES qmai_wv2_continue
+  Abort "用户中止安装：缺少 WebView2 运行时。"
+
+  qmai_wv2_continue:
+    Return
+
+  qmai_wv2_declined:
+    MessageBox MB_YESNO|MB_ICONEXCLAMATION "跳过 WebView2 运行时安装后，青幕AI写作将无法打开。$\r$\n$\r$\n确定继续安装吗？" /SD IDNO IDYES qmai_wv2_continue
+    Abort "用户中止安装：缺少 WebView2 运行时。"
+FunctionEnd
 
 Function WaitForMainBinaryRelease
   StrCpy $0 0

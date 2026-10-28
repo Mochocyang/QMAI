@@ -13,11 +13,16 @@ mod proxy;
 mod secret_store;
 mod types;
 mod updater;
+// 启动前确认系统 WebView2 运行时可用（缺失时中文提示并引导安装）。
+// 必须由 `main` 在 `run()` 之前调用：进入 `tauri::Builder` 之后缺失只会变成
+// wry 内部一条日志，用户看到的是「双击没反应」。
+mod webview2_check;
 // WorkBuddy 账号登录：把「用自己的 WorkBuddy 账号登录一次」变成 QMAI 里可用的模型
 // （进程内起一个极小的 OpenAI 兼容网关，见 `workbuddy/mod.rs` 的模块头）。
 mod workbuddy;
 
 pub use platform_guard::assert_supported_platform;
+pub use webview2_check::ensure_webview2_or_guide;
 
 /// 阶段 3：列出本机**实际安装**的中文字体。
 ///
