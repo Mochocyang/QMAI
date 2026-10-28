@@ -736,6 +736,59 @@ pub async fn plugins_install(
     Ok(summary)
 }
 
+/// 从本地目录安装插件：插件作者的开发闭环，也是验收时的手工测试入口。
+///
+/// 与 `plugins_install` 同一套编排（读注册表 → 装目录 → provider id 冲突检查 →
+/// 写注册表 → 失败回滚已发布目录），区别只在「来源」：本地路径不做下载，
+/// 注册表里记 `local:<绝对路径>` 以便日后追查这个插件是从哪台机器的哪个目录装来的。
+#[tauri::command]
+pub async fn plugins_install_local(
+    state: State<'_, PluginsState>,
+    path: String,
+) -> Result<PluginSummary, String> {
+    let root = state.root();
+    // 与 plugins_install 同理：先读注册表再发布目录，读不出来就直接失败，
+    // 不留一个装了但注册表里没有的孤儿目录
+    let mut registry = PluginRegistry::load(&root)?;
+    let outcome = installer::install_local(&root, std::path::Path::new(&path))?;
+
+    // provider id 必须全局唯一（模型复合键是 providerId/modelId），清单校验看不到
+    // 别的插件，所以装完必须按注册表再查一次；冲突就回滚目录，别留一个抢不到 id 的插件。
+    if let Some(manifest) = installed_manifest(&root, &outcome.plugin_id) {
+        if let Err(error) = ensure_provider_ids_free(&root, &outcome.plugin_id, &manifest) {
+            let _ = std::fs::remove_dir_all(&outcome.target);
+            return Err(error);
+        }
+    }
+
+    let (name, description) = manifest_display(&paths::plugin_dir(&root, &outcome.plugin_id));
+
+    let entry = RegistryEntry {
+        id: outcome.plugin_id.clone(),
+        version: outcome.version.clone(),
+        enabled: false,
+        granted_permissions: vec![],
+        source: SourceRecord {
+            repo: format!("local:{path}"),
+            git_ref: outcome.git_ref.clone(),
+            // 本地目录没有 commit 可记，与 GitHub 安装一样先填 git_ref（"local"），
+            // 溯源依赖 repo 里的绝对路径 + 目录内容的实际形态。
+            commit: outcome.git_ref,
+            zip_sha256: outcome.zip_sha256,
+            installed_at: chrono::Utc::now().to_rfc3339(),
+        },
+    };
+    let summary = summary_from_entry(&entry, name, description, "stopped", 0);
+
+    registry.upsert(entry);
+    if let Err(e) = registry.save(&root) {
+        // 注册表写失败 → 回滚目录，否则用户既看不见、也卸不掉这个插件
+        let _ = std::fs::remove_dir_all(&outcome.target);
+        return Err(format!("写入插件注册表失败，已回滚安装：{e}"));
+    }
+    Ok(summary)
+}
+
 /// 启用插件：先落盘（enabled + 权限），再拉起进程。
 ///
 /// 启动失败**不回滚** enabled：磁盘上保留用户的启用意图，命令把错误返回给界面。

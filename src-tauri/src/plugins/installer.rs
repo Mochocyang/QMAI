@@ -364,6 +364,181 @@ pub async fn install(root: &Path, raw_source: &str) -> Result<InstallOutcome, St
     result
 }
 
+/// 从本地目录安装插件（插件作者的开发闭环，也是验收时的测试入口）。
+///
+/// 与 GitHub 安装共用同一套校验与发布语义，只把「下载+解压」换成「复制目录」：
+///   - 清单必须合法（同一个 PluginManifest::parse）
+///   - 顶层必须有 plugin.json（不剥顶层目录 —— 本地目录本身就是插件根）
+///   - 目标已存在则拒绝，不覆盖
+///   - 失败绝不留半成品
+pub fn install_local(root: &Path, source_dir: &Path) -> Result<InstallOutcome, String> {
+    // 目录选择器给的路径理论上是存在的，但用户可能刚删掉/改名，或手输了一个不存在的路径。
+    // 不先判这一下，后面只会报「缺少 plugin.json」，把「目录都不对」误导成「目录结构不对」。
+    if !source_dir.is_dir() {
+        return Err(format!("插件目录不存在：{}", source_dir.display()));
+    }
+    // 先读源清单再复制：清单错了立刻返回，不必把一个带 node_modules 的几百 MB 目录
+    // 整个拷一遍才发现装不上。校验语义与 GitHub 安装完全一致（同一个 parse + 错误码）。
+    let source_raw = std::fs::read_to_string(source_dir.join("plugin.json"))
+        .map_err(|_| "插件目录根下缺少 plugin.json".to_string())?;
+    let source_manifest = super::manifest::PluginManifest::parse(&source_raw)
+        .map_err(|e| format!("清单校验失败 {}：{}", e.code(), e.detail))?;
+
+    // 目标已存在就拒绝：与 GitHub 安装同一语义，不覆盖用户正在用的版本。
+    // 这里先查一次是为了少拷一遍大目录；发布前还会再查一次（复制可能要好几秒）。
+    let target = super::paths::plugin_dir(root, &source_manifest.id);
+    ensure_target_free(&target, &source_manifest.id)?;
+
+    std::fs::create_dir_all(super::paths::staging_dir(root)).map_err(|e| e.to_string())?;
+    let staging = super::paths::staging_dir(root).join(uuid::Uuid::new_v4().to_string());
+    std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
+
+    let result = (|| -> Result<InstallOutcome, String> {
+        // 源目录若是插件根（或它的父目录），staging 就落在源目录内部：复制会把自己
+        // 正在写入的内容再复制一遍，无限递归到磁盘满。canonicalize 两侧取真实路径，
+        // Windows 上的大小写差异、短路径（RUNNER~1）都能正确归一。
+        let source_abs =
+            std::fs::canonicalize(source_dir).map_err(|e| format!("读取插件目录失败：{e}"))?;
+        let staging_abs =
+            std::fs::canonicalize(&staging).map_err(|e| format!("读取插件暂存目录失败：{e}"))?;
+        if staging_abs.starts_with(&source_abs) {
+            return Err(format!(
+                "插件目录不能是插件根目录或其父目录：{}",
+                source_dir.display()
+            ));
+        }
+
+        copy_local_dir(source_dir, &staging)?;
+
+        // 校验复制结果：plugin.json 必须落在 staging 根上。发布出去的插件目录
+        // 必须「plugin.json 直接在根」（supervisor/registry 都这么假设），而复制
+        // 是逐条目展开的，这一步同时兜住「源目录里有同名但错位的 plugin.json」。
+        // 重新读一遍 staging 里的清单：发布的必须是这份校验过的字节，id/version
+        // 也以它为准（复制耗时期间作者可能改过源目录）。
+        let staged_raw = std::fs::read_to_string(staging.join("plugin.json"))
+            .map_err(|_| "插件目录结构异常：plugin.json 不在目录根下".to_string())?;
+        let manifest = super::manifest::PluginManifest::parse(&staged_raw)
+            .map_err(|e| format!("清单校验失败 {}：{}", e.code(), e.detail))?;
+        // 前面那次检查只是省一次大目录复制；这里才是发布前的最终闸：复制期间
+        // 目标目录可能被另一个安装占住，直接 rename 会把对方的内容半途换掉。
+        let target = super::paths::plugin_dir(root, &manifest.id);
+        ensure_target_free(&target, &manifest.id)?;
+
+        std::fs::rename(&staging, &target).map_err(|e| format!("发布插件目录失败：{e}"))?;
+        Ok(InstallOutcome {
+            plugin_id: manifest.id.clone(),
+            version: manifest.version.clone(),
+            // 本地安装没有分支/tag，也没有下载包可算哈希：git_ref 固定 "local"、
+            // zip_sha256 留空（不伪造一个看起来可信的值）。溯源靠注册表里的
+            // `source.repo = "local:<绝对路径>"`，能回答「这个插件从哪来」。
+            git_ref: "local".to_string(),
+            zip_sha256: String::new(),
+            target,
+        })
+    })();
+
+    // 无论成败都清掉暂存目录，不留半成品。成功时 rename 已经把整个 staging 搬走，
+    // 这里的 NotFound 是预期结果，不算清理失败；其余错误要留痕 —— Windows 上杀毒软件
+    // 可能短暂占用刚写入的文件，静默失败会让 staging 越堆越多。
+    match std::fs::remove_dir_all(&staging) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => eprintln!("清理插件暂存目录失败 {}：{e}", staging.display()),
+    }
+    result
+}
+
+/// 目标目录已存在就拒绝。抽出来是因为安装前与发布前各要查一次（见 install_local）。
+fn ensure_target_free(target: &Path, plugin_id: &str) -> Result<(), String> {
+    // Windows 上对已存在目录做 rename 会失败，而且覆盖会把用户正在用的版本半途换掉。
+    // 更新走独立流程，本地安装也只做「装一个新的」。
+    if target.exists() {
+        return Err(format!("插件 {plugin_id} 已安装，请先卸载"));
+    }
+    Ok(())
+}
+
+/// 本地安装要跳过的目录。只跳「显然可重建/与运行无关」的，宁可多拷也不误删：
+/// 插件运行时找不到依赖，比装慢几秒糟得多。
+fn should_skip_copy_dir(name: &std::ffi::OsStr, parent: &Path) -> bool {
+    // `.git` 是版本库元数据，插件运行用不到；带上它会让每次安装多拷一份历史，
+    // 还可能把作者的远端地址等配置带进插件目录。
+    if name == std::ffi::OsStr::new(".git") {
+        return true;
+    }
+    // Python 解释器会按需重建 `__pycache__`，来源机器上的 .pyc 换台机器还可能失效。
+    if name == std::ffi::OsStr::new("__pycache__") {
+        return true;
+    }
+    // npm 的构建缓存可重建；但 `node_modules` 本身必须保留 —— 插件可能依赖它，
+    // 少了它插件装上就跑不起来。所以只跳过它下面这一层 `.cache`。
+    name == std::ffi::OsStr::new(".cache")
+        && parent.file_name() == Some(std::ffi::OsStr::new("node_modules"))
+}
+
+/// 是否「链接类」条目：符号链接，或 Windows 上的目录联接（junction）。
+///
+/// 本地安装不跟随链接复制：跟着链接会把链接目标（可能是整个盘、也可能是作者本机
+/// 另一份工作副本）搬进插件目录，既可能撑爆磁盘，也会让插件里的文件与作者正在改的
+/// 那份脱钩 —— 作者改了代码却看不到效果，比直接报错更难查。
+fn is_link_like(path: &Path, file_type: &std::fs::FileType) -> bool {
+    if file_type.is_symlink() {
+        return true;
+    }
+    // pnpm 的 `node_modules` 里大量用 junction；它不是 symlink，但同样是重解析点。
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        if let Ok(meta) = std::fs::symlink_metadata(path) {
+            if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                return true;
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = path;
+    false
+}
+
+/// 递归复制插件目录。目录结构原样展开（不保留源目录这一层），
+/// 这样 staging 根就是插件根，与 GitHub 安装剥掉 zip 顶层目录后的形态一致。
+fn copy_local_dir(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(to).map_err(|e| format!("创建目录 {} 失败：{e}", to.display()))?;
+    let entries = std::fs::read_dir(from)
+        .map_err(|e| format!("读取插件目录 {} 失败：{e}", from.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("读取插件目录 {} 条目失败：{e}", from.display()))?;
+        let src = entry.path();
+        // file_type() 是链接本身的信息（不跟随链接），以下判断都基于它
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("读取 {} 的类型失败：{e}", src.display()))?;
+        if is_link_like(&src, &file_type) {
+            eprintln!(
+                "跳过插件目录中的符号链接/目录联接 {}：本地安装不跟随链接，避免把链接目标的内容复制进插件",
+                src.display()
+            );
+            continue;
+        }
+        let dst = to.join(entry.file_name());
+        if file_type.is_dir() {
+            if should_skip_copy_dir(&entry.file_name(), from) {
+                continue;
+            }
+            copy_local_dir(&src, &dst)?;
+        } else if file_type.is_file() {
+            // 用 copy 而不是「读出来再写」：大文件不会整块进内存，
+            // 也能保留修改时间（部分插件按 mtime 判断缓存是否失效）。
+            std::fs::copy(&src, &dst).map_err(|e| format!("复制 {} 失败：{e}", src.display()))?;
+        } else {
+            // 管道/设备等特殊文件：复制过去也没有意义，跳过并留痕
+            eprintln!("跳过无法复制的特殊文件 {}", src.display());
+        }
+    }
+    Ok(())
+}
+
 /// 恰好一个子目录才返回它。GitHub archive zip 的固定形状是 `repo-ref/…`；
 /// 多于一个或零个说明不是 GitHub archive（或是被人为拼装的包），不猜，直接失败。
 /// IO 错误如实上报，不与「形状不对」混为一谈。
@@ -671,5 +846,170 @@ mod tests {
         let err = extract_zip(&bytes, &dest).unwrap_err();
         assert!(err.contains("符号链接"), "应报符号链接，实际：{err}");
         let _ = std::fs::remove_dir_all(&dest);
+    }
+
+    // ------------------------------------------------------------------
+    // 本地目录安装：插件作者的开发闭环
+    // ------------------------------------------------------------------
+
+    /// 造一个「源目录」形态的本地插件：根下 plugin.json + 一个入口文件。
+    /// 源目录放在插件根之外 —— 插件根（或它的父目录）本身就是被拒绝的源形态。
+    fn local_plugin_dir(tag: &str, manifest: &str) -> PathBuf {
+        let dir = temp_dir(tag);
+        std::fs::write(dir.join("plugin.json"), manifest).expect("写源 plugin.json");
+        std::fs::write(dir.join("index.js"), "// local plugin\n").expect("写源入口");
+        dir
+    }
+
+    /// 最小合法清单。version 留参数化，用来制造 E_VERSION_INVALID 之类的失败。
+    fn local_manifest(id: &str, version: &str) -> String {
+        format!(
+            r#"{{"schema":2,"id":"{id}","name":"本地插件","version":"{version}","runtime":{{"type":"node","entry":"index.js"}}}}"#
+        )
+    }
+
+    /// `<root>/.staging` 下的残留条目。目录不存在视作「没有残留」。
+    fn staging_residue(root: &Path) -> Vec<PathBuf> {
+        let dir = crate::plugins::paths::staging_dir(root);
+        if !dir.exists() {
+            return Vec::new();
+        }
+        std::fs::read_dir(&dir)
+            .expect("读取 staging")
+            .map(|entry| entry.expect("staging 条目").path())
+            .collect()
+    }
+
+    #[test]
+    fn install_local_copies_a_valid_plugin() {
+        let root = temp_dir("local-ok-root");
+        let manifest = local_manifest("local-demo", "1.2.0");
+        let source = local_plugin_dir("local-ok-src", &manifest);
+
+        let outcome = install_local(&root, &source).expect("本地安装应成功");
+
+        let target = crate::plugins::paths::plugin_dir(&root, "local-demo");
+        assert_eq!(outcome.plugin_id, "local-demo");
+        assert_eq!(outcome.version, "1.2.0");
+        assert_eq!(
+            outcome.git_ref, "local",
+            "本地安装没有分支/tag，固定标记 local"
+        );
+        assert_eq!(outcome.zip_sha256, "", "本地安装没有下载包，不应伪造哈希");
+        assert_eq!(outcome.target, target);
+        assert!(target.is_dir(), "插件目录应已发布");
+        assert_eq!(
+            std::fs::read_to_string(target.join("plugin.json")).expect("读已装清单"),
+            manifest,
+            "发布出去的清单必须与源目录逐字节一致"
+        );
+        assert!(target.join("index.js").is_file(), "入口文件应一并复制");
+        // 复制不是移动：作者的源目录必须原样保留，否则本地开发闭环就断了
+        assert!(source.join("plugin.json").is_file(), "源目录不能被搬走");
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&source);
+    }
+
+    #[test]
+    fn install_local_rejects_missing_plugin_json() {
+        let root = temp_dir("local-missing-root");
+        let source = temp_dir("local-missing-src");
+
+        let err = install_local(&root, &source).unwrap_err();
+
+        assert!(
+            err.contains("plugin.json"),
+            "错误应指明缺 plugin.json，实际：{err}"
+        );
+        assert!(
+            !crate::plugins::paths::plugin_dir(&root, "local-demo").exists(),
+            "被拒的安装不能在插件根留下目录"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&source);
+    }
+
+    #[test]
+    fn install_local_rejects_invalid_manifest() {
+        let root = temp_dir("local-bad-version-root");
+        // 两段式版本号是插件作者最常犯的清单错误：必须复用 GitHub 安装那条
+        // 校验链，错误里带稳定错误码，作者才知道是清单而不是目录结构的问题。
+        let source = local_plugin_dir(
+            "local-bad-version-src",
+            &local_manifest("local-bad-version", "1.2"),
+        );
+
+        let err = install_local(&root, &source).unwrap_err();
+
+        assert!(
+            err.contains("E_VERSION_INVALID"),
+            "错误信息应带清单错误码，实际：{err}"
+        );
+        assert!(
+            !crate::plugins::paths::plugin_dir(&root, "local-bad-version").exists(),
+            "校验失败不能发布目录"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&source);
+    }
+
+    #[test]
+    fn install_local_refuses_to_overwrite() {
+        let root = temp_dir("local-twice-root");
+        let source = local_plugin_dir("local-twice-src", &local_manifest("local-twice", "1.0.0"));
+        install_local(&root, &source).expect("第一次安装应成功");
+
+        let err = install_local(&root, &source).unwrap_err();
+
+        assert!(err.contains("已安装"), "应拒绝重复安装，实际：{err}");
+        assert!(
+            crate::plugins::paths::plugin_dir(&root, "local-twice")
+                .join("plugin.json")
+                .is_file(),
+            "被拒的第二次安装不能破坏已装好的目录"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&source);
+    }
+
+    #[test]
+    fn install_local_leaves_no_staging_residue() {
+        let root = temp_dir("local-staging-root");
+        let source = local_plugin_dir(
+            "local-staging-src",
+            &local_manifest("local-staging", "1.0.0"),
+        );
+
+        install_local(&root, &source).expect("成功路径应可安装");
+        assert!(
+            staging_residue(&root).is_empty(),
+            "成功安装后 staging 不应残留：{:?}",
+            staging_residue(&root)
+        );
+
+        // 失败路径挑一条「staging 已经建好之后才失败」的：把插件根本身当源目录。
+        // 既验证了「源目录不能是插件根/其父目录」的护栏，也验证失败后 staging 被清掉。
+        std::fs::write(
+            root.join("plugin.json"),
+            local_manifest("local-ancestor", "1.0.0"),
+        )
+        .expect("写插件根上的清单");
+        let err = install_local(&root, &root).unwrap_err();
+        assert!(
+            err.contains("插件根目录"),
+            "源目录是插件根时应被拒绝，实际：{err}"
+        );
+        assert!(
+            staging_residue(&root).is_empty(),
+            "失败安装后 staging 不应残留：{:?}",
+            staging_residue(&root)
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&source);
     }
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react"
-import { AlertTriangle, Loader2, Puzzle, ShieldAlert } from "lucide-react"
+import { AlertTriangle, FolderOpen, Loader2, Puzzle, ShieldAlert } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -15,6 +15,7 @@ import { pluginsApi } from "@/lib/plugins/api"
 import { clearPluginProviderAuth } from "@/lib/plugins/provider-auth"
 import { syncPluginProviders } from "@/lib/plugins/provider-sync"
 import type { PluginSummary } from "@/lib/plugins/types"
+import { isTauri } from "@/lib/platform"
 import { toast } from "@/lib/toast"
 
 type ProcessState = PluginSummary["processState"]
@@ -85,6 +86,7 @@ export function PluginSection() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [source, setSource] = useState("")
   const [installing, setInstalling] = useState(false)
+  const [installingLocal, setInstallingLocal] = useState(false)
   const [busy, setBusy] = useState<{ id: string; kind: "disable" | "uninstall" } | null>(null)
   const [enableTarget, setEnableTarget] = useState<PluginSummary | null>(null)
   const [enabling, setEnabling] = useState(false)
@@ -141,6 +143,50 @@ export function PluginSection() {
       setActionError(describeError(cause))
     } finally {
       setInstalling(false)
+    }
+  }
+
+  /**
+   * 从本地目录安装插件。
+   *
+   * 目录选择沿用项目已有的 `@tauri-apps/plugin-dialog`（和 cloud-sync-section 同款），
+   * 不引入拖拽：拖拽要接管 webview 的 drag-drop 事件，会干扰编辑器里的文件拖放。
+   * 浏览器预览里拿不到真实绝对路径（`showDirectoryPicker` 只给目录名），
+   * 所以这里只支持桌面端，并明确告诉用户原因。
+   */
+  async function installLocalPlugin() {
+    if (installing || installingLocal) return
+    if (!isTauri()) {
+      setActionError("需要在桌面应用里选择插件目录。")
+      return
+    }
+    // 先弹目录选择器：用户取消不是错误，不该留下错误条或让按钮一直转圈
+    let picked: unknown = null
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog")
+      picked = await open({
+        directory: true,
+        multiple: false,
+        title: "选择插件目录（根目录下需有 plugin.json）",
+      })
+    } catch (cause) {
+      setActionError(describeError(cause))
+      return
+    }
+    if (typeof picked !== "string") return
+
+    setInstallingLocal(true)
+    setActionError(null)
+    try {
+      const installed = await pluginsApi.installLocal(picked)
+      toast.success(`已安装「${pluginDisplayName(installed)}」`)
+      await refresh()
+    } catch (cause) {
+      // Rust 侧的中文文案原样展示（缺 plugin.json、清单错误码、已安装等），
+      // 不再包一层「安装失败」，否则作者看不出该改哪里。
+      setActionError(describeError(cause))
+    } finally {
+      setInstallingLocal(false)
     }
   }
 
@@ -272,14 +318,31 @@ export function PluginSection() {
             value={source}
             onChange={(event) => setSource(event.target.value)}
             placeholder="https://github.com/owner/repo"
-            disabled={installing}
+            disabled={installing || installingLocal}
             className="min-w-0 flex-1"
           />
-          <Button type="submit" disabled={installing || source.trim() === ""}>
+          <Button type="submit" disabled={installing || installingLocal || source.trim() === ""}>
             {installing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {installing ? "安装中…" : "安装"}
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={installing || installingLocal}
+            onClick={() => void installLocalPlugin()}
+            title="用于安装你本机正在开发的插件目录。目录根下需要有 plugin.json。"
+          >
+            {installingLocal ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FolderOpen className="mr-2 h-4 w-4" />
+            )}
+            {installingLocal ? "安装中…" : "从本地目录安装"}
+          </Button>
         </form>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          用于安装你本机正在开发的插件目录。目录根下需要有 plugin.json。
+        </p>
         {actionError ? (
           <div
             className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
@@ -341,7 +404,7 @@ export function PluginSection() {
               const disabling = pluginBusy && busy?.kind === "disable"
               const uninstalling = pluginBusy && busy?.kind === "uninstall"
               // 同一时间只允许一个启停/卸载请求，避免两个命令同时改注册表。
-              const actionsLocked = Boolean(busy) || installing
+              const actionsLocked = Boolean(busy) || installing || installingLocal
               return (
                 <div
                   key={plugin.id}

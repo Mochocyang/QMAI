@@ -335,6 +335,8 @@ commands::fs::read_file,
             // 插件管理：列表/安装/启停/卸载，以及运行期工具清单与调用。
             plugins::plugins_list,
             plugins::plugins_install,
+            // 从本地目录安装：插件作者在本机迭代、验收时手工装测试插件都走这条。
+            plugins::plugins_install_local,
             plugins::plugins_enable,
             plugins::plugins_disable,
             plugins::plugins_uninstall,

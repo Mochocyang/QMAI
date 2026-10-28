@@ -15,6 +15,8 @@ import type {
 export const pluginsApi = {
   list: () => invoke<PluginSummary[]>("plugins_list"),
   install: (source: string) => invoke<PluginSummary>("plugins_install", { source }),
+  // 本地目录安装：插件作者不推 GitHub 也能在本机迭代，验收时也用它装测试插件。
+  installLocal: (path: string) => invoke<PluginSummary>("plugins_install_local", { path }),
   enable: (id: string, granted: string[]) => invoke<void>("plugins_enable", { id, granted }),
   disable: (id: string) => invoke<void>("plugins_disable", { id }),
   uninstall: (id: string, deleteData: boolean) =>
