@@ -1397,24 +1397,42 @@ mod tests {
         assert_eq!(path, "/");
     }
 
+    /// 两条意图（「8765 空闲时优先用它」与「8765 被占时回落到其它端口」）合并成**一条串行**
+    /// 用例。原本拆成两条，但它们并行跑时后者先 `port_available(8765)` 判空、前者紧接着
+    /// `bind(8765)` 当 `_hold`，中间这个窗口让后者的断言必然偶发失败
+    /// （实测只跑这两条、618 filtered out，18 次挂 6 次）。合并后同一线程内先占后放，
+    /// 两个意图一个不丢，又没有竞争窗口。
+    ///
+    /// 8765 本来就被其它进程占着（例如用户真装了 Agent2API）时**跳过**而不是失败：
+    /// 那是环境不满足，不是被测代码的问题（与本仓其它用例同一约定）。
     #[test]
-    fn allocate_prefers_8765_when_free() {
-        if port_available(PREFERRED_PROXY_PORT) {
-            assert_eq!(allocate_proxy_port().unwrap(), PREFERRED_PROXY_PORT);
-        }
-    }
+    fn allocate_prefers_8765_when_free_and_falls_back_when_taken() {
+        let held = match std::net::TcpListener::bind(("127.0.0.1", PREFERRED_PROXY_PORT)) {
+            Ok(listener) => listener,
+            Err(error) => {
+                eprintln!(
+                    "跳过：本机 127.0.0.1:{PREFERRED_PROXY_PORT} 已被其它进程占用（{error}），无法验证端口优选/回落"
+                );
+                return;
+            }
+        };
 
-    #[test]
-    fn allocate_returns_nonzero_when_preferred_taken() {
-        let _hold = std::net::TcpListener::bind(("127.0.0.1", PREFERRED_PROXY_PORT));
-        if _hold.is_err() {
-            let port = allocate_proxy_port().unwrap();
-            assert!(port > 0);
-            return;
-        }
-        let port = allocate_proxy_port().unwrap();
-        assert_ne!(port, PREFERRED_PROXY_PORT);
-        assert!(port > 0);
+        // 第一半：8765 被占 → 必须回落到内核分配的其它端口。
+        let taken = allocate_proxy_port().expect("分配端口应成功");
+        assert_ne!(
+            taken, PREFERRED_PROXY_PORT,
+            "8765 被占用时不应返回它（自己占着却返回了，说明根本没 bind 试过）"
+        );
+        assert!(taken > 0, "回落的端口必须是个真端口：{taken}");
+
+        // 第二半：释放 8765 → 必须优先返回它。
+        // 纯监听套接字没有建立过连接，drop 之后不会进 TIME_WAIT，可以立刻重新 bind。
+        drop(held);
+        let preferred = allocate_proxy_port().expect("分配端口应成功");
+        assert_eq!(
+            preferred, PREFERRED_PROXY_PORT,
+            "8765 空闲时应当优先返回它"
+        );
     }
 
     #[test]
