@@ -191,6 +191,24 @@
   box-shadow: none;
 }
 
+/*
+ * 账号同步的**折叠态**：整行高度压到 60px，和模型卡片一行（真机实测 60）对齐
+ * （用户 2026-10-28：这两块的高度也要一致）。
+ *
+ * 上面那条通用规则会把 .space-y-3.rounded-lg.border 的内边距强制成 20px，
+ * 所以这里必须把 padding 归零、改用 min-height + 垂直居中，才能得到准确的高度。
+ */
+.ui-test-root [data-ui="settings-section"] .space-y-3.rounded-lg.border[data-ui="model-sync-panel"][data-open="false"] {
+  display: flex;
+  align-items: center;
+  min-height: 60px;
+  padding-block: 0;
+  padding-inline: 20px;
+}
+.ui-test-root [data-ui="settings-section"] .space-y-3.rounded-lg.border[data-ui="model-sync-panel"][data-open="false"] > div:first-child {
+  width: 100%;
+}
+
 .ui-test-root [data-ui="settings-model-panel"] .rounded-lg.border > .border-t {
   background: transparent;
 }

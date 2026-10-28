@@ -4,9 +4,40 @@
 :is(.ui-test-root,html[data-ui-test-skin]) .model-library-heading { margin-bottom: 16px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-library-item,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel { border:1px solid var(--ui-line); border-radius:12px; padding:12px; background:var(--ui-panel); }
 /* 入口卡片与下面的配置列表之间要留出呼吸空间：此前两者贴在一起，视觉上糊成一块。 */
-:is(.ui-test-root,html[data-ui-test-skin]) .model-add-row { margin-bottom: 16px; }
-/* 虚线描边收细：1.5px 在浅色底上显得过重，1px 与右侧卡片描边一致。 */
-:is(.ui-test-root,html[data-ui-test-skin]) .model-add-card { flex:1; min-height:68px; border:1px dashed var(--ui-line); border-radius:12px; background:transparent; color:var(--ui-muted); }
+/*
+ * 「＋ 添加提供方 / ＋ 添加自定义模型」：做成**和模型卡片同款的一张卡**。
+ *
+ * 用户 2026-10-28 三次反馈后的定稿：不要两块半宽的虚线块（看着像半宽），
+ * 也不要上下两块 —— 一张和模型卡片同底色 / 同圆角 / 同高度的卡片，
+ * 卡片内左右两等份，中间一条细分隔线。宽度与模型卡片、账号同步面板一致。
+ */
+:is(.ui-test-root,html[data-ui-test-skin]) .model-add-row {
+  margin-bottom: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0;
+  border: 0;
+  border-radius: 12px;
+  background: var(--ui-panel);
+  overflow: hidden;
+}
+:is(.ui-test-root,html[data-ui-test-skin]) .model-add-card {
+  width: 100%;
+  min-width: 0;
+  /* 与模型卡片一行同高（真机实测 60px），用户 2026-10-28 明确要求「高度一致」 */
+  min-height: 60px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-ink);
+}
+:is(.ui-test-root,html[data-ui-test-skin]) .model-add-card:hover {
+  background: var(--ui-soft);
+}
+/* 两个选项之间只留一条细分隔线，不用虚线框 */
+:is(.ui-test-root,html[data-ui-test-skin]) .model-add-card + .model-add-card {
+  box-shadow: inset 1px 0 0 var(--ui-line);
+}
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid button { display:grid; align-content:center; width:100%; min-height:76px; border:1px solid var(--ui-line); border-radius:10px; padding:10px; background:transparent; text-align:left; gap:2px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid-name { display:flex; align-items:center; gap:8px; min-width:0; }

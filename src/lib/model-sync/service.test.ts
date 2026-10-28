@@ -2,15 +2,17 @@ import { describe, expect, it, vi } from "vitest"
 
 import type { ModelConfigFetchResult } from "@/lib/account/api"
 
-import { encryptModelConfig } from "./crypto"
+import { decryptModelConfig, encryptModelConfig } from "./crypto"
 import { canonicalJson, fingerprint } from "./canonical"
 import {
   buildLocalEntries,
   buildPayload,
   emptySyncState,
+  hasPendingDeletion,
   parsePayload,
   pullAndMerge,
   pushLocal,
+  restoreFromCloud,
   type ModelSyncIo,
   type ModelSyncState,
 } from "./service"
@@ -19,10 +21,12 @@ const PASSWORD = "sync-password"
 
 function fakeIo(initial: {
   configs?: Record<string, unknown>
+  settings?: Record<string, unknown>
   state?: Partial<ModelSyncState>
   cloud?: { payload: string; version: number; updatedAt: number } | null
 }) {
   let configs = initial.configs ?? {}
+  let settings = initial.settings ?? {}
   let state: ModelSyncState = { ...emptySyncState(), ...initial.state }
   let cloud = initial.cloud ?? null
   let version = cloud?.version ?? 0
@@ -30,6 +34,7 @@ function fakeIo(initial: {
   const io: ModelSyncIo & {
     putCalls: Array<{ payload: string; baseVersion: number | null }>
     savedConfigs: () => Record<string, unknown>
+    savedSettings: () => Record<string, unknown>
     currentState: () => ModelSyncState
   } = {
     putCalls: [],
@@ -37,6 +42,10 @@ function fakeIo(initial: {
     loadConfigs: async () => configs,
     saveConfigs: async (next) => {
       configs = next
+    },
+    loadSettings: async () => settings,
+    saveSettings: async (next) => {
+      settings = next
     },
     loadState: async () => state,
     saveState: async (next) => {
@@ -57,17 +66,24 @@ function fakeIo(initial: {
       return { version, updatedAt: 1_000_000 }
     },
     savedConfigs: () => configs,
+    savedSettings: () => settings,
     currentState: () => state,
   }
   return io
 }
 
-async function encryptedCloud(providers: Record<string, { value: unknown; updatedAt: number }>) {
-  const entries = Object.fromEntries(
-    Object.entries(providers).map(([key, item]) => [key, { key, value: item.value, updatedAt: item.updatedAt }]),
-  )
+async function encryptedCloud(
+  providers: Record<string, { value: unknown; updatedAt: number }>,
+  settings: Record<string, { value: unknown; updatedAt: number }> = {},
+) {
+  const wrap = (source: Record<string, { value: unknown; updatedAt: number }>) =>
+    Object.fromEntries(
+      Object.entries(source).map(([key, item]) => [key, { key, value: item.value, updatedAt: item.updatedAt }]),
+    )
   return {
-    payload: await encryptModelConfig(buildPayload(entries), PASSWORD, { iterations: 1_000 }),
+    payload: await encryptModelConfig(buildPayload(wrap(providers), wrap(settings)), PASSWORD, {
+      iterations: 1_000,
+    }),
     version: 3,
     updatedAt: 900_000,
   }
@@ -93,9 +109,21 @@ describe("buildLocalEntries / payload", () => {
     expect(JSON.stringify(io.currentState())).not.toContain("sk-must-not-leak")
   })
 
-  it("payload 往返后条目不变", () => {
+  it("payload 往返后条目不变（provider 与 settings 分开存）", () => {
     const entries = { a: { key: "a", value: { x: 1 }, updatedAt: 7 } }
-    expect(parsePayload(buildPayload(entries))).toEqual(entries)
+    expect(parsePayload(buildPayload(entries)).providers).toEqual(entries)
+
+    const settings = { rerank: { key: "rerank", value: { model: "bge" }, updatedAt: 9 } }
+    const roundTrip = parsePayload(buildPayload(entries, settings))
+    expect(roundTrip.providers).toEqual(entries)
+    expect(roundTrip.settings).toEqual(settings)
+  })
+
+  it("schema 1 的老载荷没有 settings：按空处理，不报错", () => {
+    const legacy = JSON.stringify({ schema: 1, providers: { a: { value: { x: 1 }, updatedAt: 1 } } })
+    const parsed = parsePayload(legacy)
+    expect(Object.keys(parsed.providers)).toEqual(["a"])
+    expect(parsed.settings).toEqual({})
   })
 
   it("结构不对的 payload 抛错", () => {
@@ -191,5 +219,107 @@ describe("pushLocal", () => {
     const result = await pushLocal(io, PASSWORD)
     expect(result.status).toBe("conflict")
     expect(io.currentState().version).toBe(5)
+  })
+})
+
+describe("重排 / 向量配置一起同步（settings）", () => {
+  it("推送时把 settings 加密带上云", async () => {
+    const io = fakeIo({
+      settings: {
+        rerank: { provider: "siliconflow", model: "bge-reranker-v2-m3" },
+        embedding: { provider: "siliconflow", model: "bge-m3" },
+      },
+    })
+    const result = await pushLocal(io, PASSWORD)
+    expect(result.status).toBe("pushed")
+
+    const plain = parsePayload(await decryptModelConfig(io.putCalls[0].payload, PASSWORD))
+    expect(Object.keys(plain.settings).sort()).toEqual(["embedding", "rerank"])
+    expect(Object.keys(plain.providers)).toEqual([])
+  })
+
+  it("云端有重排/向量、本地没有：拉进本地（键名不带内部前缀）", async () => {
+    const cloud = await encryptedCloud({}, { rerank: { value: { model: "bge-rerank" }, updatedAt: 10 } })
+    const io = fakeIo({ cloud })
+
+    const result = await pullAndMerge(io, PASSWORD)
+    expect(result.status).toBe("merged")
+    expect(result.settingsChanged).toBe(true)
+    expect(io.savedSettings()).toEqual({ rerank: { model: "bge-rerank" } })
+  })
+
+  it("settings 也进快照，且键带前缀不与会同名的 provider 打架", async () => {
+    const cloud = await encryptedCloud(
+      { rerank: { value: { providerId: "real-provider" }, updatedAt: 10 } },
+      { rerank: { value: { model: "bge-rerank" }, updatedAt: 10 } },
+    )
+    const io = fakeIo({ cloud })
+    await pullAndMerge(io, PASSWORD)
+
+    const state = io.currentState()
+    expect(Object.keys(state.snapshot).sort()).toEqual(["rerank", "settings:rerank"])
+    expect(io.savedConfigs()).toEqual({ rerank: { providerId: "real-provider" } })
+    expect(io.savedSettings()).toEqual({ rerank: { model: "bge-rerank" } })
+  })
+})
+
+describe("restoreFromCloud（从云端下载）", () => {
+  it("云端同名项覆盖本地，本地独有的保留", async () => {
+    const cloud = await encryptedCloud(
+      { p: { value: { m: "cloud" }, updatedAt: 10 } },
+      { embedding: { value: { model: "cloud-embed" }, updatedAt: 10 } },
+    )
+    const io = fakeIo({ configs: { p: { m: "local" }, onlyLocal: { m: "keep" } }, cloud })
+
+    const result = await restoreFromCloud(io, PASSWORD)
+
+    expect(result.status).toBe("restored")
+    expect(result.providers).toBe(1)
+    expect(result.settings).toBe(1)
+    expect(io.savedConfigs()).toEqual({ p: { m: "cloud" }, onlyLocal: { m: "keep" } })
+    expect(io.savedSettings()).toEqual({ embedding: { model: "cloud-embed" } })
+  })
+
+  it("恢复后把版本与快照对齐云端（下一拍不会把本机旧值又推上去）", async () => {
+    const cloud = await encryptedCloud({ p: { value: { m: "cloud" }, updatedAt: 10 } })
+    const io = fakeIo({ configs: { p: { m: "local" } }, cloud, state: { version: 7 } })
+
+    const result = await restoreFromCloud(io, PASSWORD)
+    expect(result.version).toBe(3)
+    expect(io.currentState().version).toBe(3)
+    expect(io.currentState().snapshot.p).toBe(fingerprint(canonicalJson({ m: "cloud" })))
+  })
+
+  it("云端没有配置：返回 none，本地不动", async () => {
+    const io = fakeIo({ configs: { p: { m: "local" } } })
+    const result = await restoreFromCloud(io, PASSWORD)
+    expect(result.status).toBe("none")
+    expect(io.savedConfigs()).toEqual({ p: { m: "local" } })
+  })
+})
+
+describe("hasPendingDeletion（本机删过同步项）", () => {
+  it("快照里有、本机已经没有的键 → true", async () => {
+    const io = fakeIo({
+      configs: { keep: { m: 1 } },
+      state: { snapshot: { keep: fingerprint(canonicalJson({ m: 1 })), gone: "deadbeefdeadbeef" } },
+    })
+    expect(await hasPendingDeletion(io)).toBe(true)
+  })
+
+  it("重排/向量被删也算（前缀键要比对得上）", async () => {
+    const io = fakeIo({
+      settings: {},
+      state: { snapshot: { "settings:rerank": fingerprint(canonicalJson({ m: 1 })) } },
+    })
+    expect(await hasPendingDeletion(io)).toBe(true)
+  })
+
+  it("没有删除 → false", async () => {
+    const io = fakeIo({
+      configs: { a: { m: 1 } },
+      state: { snapshot: { a: fingerprint(canonicalJson({ m: 1 })) } },
+    })
+    expect(await hasPendingDeletion(io)).toBe(false)
   })
 })

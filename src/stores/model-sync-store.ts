@@ -13,15 +13,24 @@ import { isTauri } from "@/lib/platform"
 import { getStore } from "@/lib/web-store"
 import { deleteModelConfig, fetchModelConfig, putModelConfig } from "@/lib/account/api"
 import { isAccessTokenFresh } from "@/lib/account/session"
-import { loadProviderConfigs, saveProviderConfigs } from "@/lib/project-store"
+import {
+  loadEmbeddingConfig,
+  loadProviderConfigs,
+  loadRerankConfig,
+  saveEmbeddingConfig,
+  saveProviderConfigs,
+  saveRerankConfig,
+} from "@/lib/project-store"
 import type { ProviderConfigs } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useAccountStore } from "@/stores/account-store"
 
 import {
   emptySyncState,
+  hasPendingDeletion,
   pullAndMerge,
   pushLocal,
+  restoreFromCloud as restoreFromCloudPayload,
   type ModelSyncIo,
   type ModelSyncState,
 } from "@/lib/model-sync/service"
@@ -37,6 +46,14 @@ export const MIN_SYNC_PASSWORD_LENGTH = 8
 const PASSWORD_SECRET = "model-sync-password"
 /** 同步状态（版本号 / 时间戳 / 快照）落在 Tauri store 的键名。 */
 const STATE_STORE_KEY = "model-sync-state"
+/**
+ * 「同步开关」自己的持久化键。
+ *
+ * 为什么不能只靠「有没有密码」推导：开关关闭时**不再清掉密码**（用户要求
+ * 「关掉后再点一下就重新打开，不用再做别的操作」），所以必须单独记住开关状态，
+ * 否则重启后会把「关掉的」误判成「开着的」。
+ */
+const ENABLED_STORE_KEY = "model-sync-enabled"
 
 export type ModelSyncStatus = "idle" | "pulling" | "pushing" | "error"
 
@@ -58,10 +75,17 @@ interface ModelSyncStore {
   init: () => Promise<void>
   /** 开启同步：保存密码、先合并云端、再上传。 */
   enable: (password: string) => Promise<void>
+  /**
+   * 开关本身：开 = 继续用已存的同步密码同步一次；关 = 停止同步但保留密码与云端配置。
+   * 与 `disable({ clearCloud: true })`（销毁式关闭）区别就在这里。
+   */
+  setEnabled: (next: boolean) => Promise<void>
   /** 关闭同步；`clearCloud` 为真时同时删除云端配置。 */
   disable: (options?: { clearCloud?: boolean }) => Promise<void>
   /** 手动同步：先拉取合并，再推送本地改动。 */
   syncNow: () => Promise<void>
+  /** 从云端下载：把云端配置填回本机（覆盖同名项，本地独有的保留）。 */
+  restoreFromCloud: () => Promise<void>
   /** 自动同步的一次心跳（App 级每 60 秒调一次；内部按节流规则决定是否联网）。 */
   autoSyncTick: () => Promise<void>
   /** 修改同步密码：用旧密码解锁后，用新密码重加密并覆盖上传。 */
@@ -114,6 +138,30 @@ async function saveSyncState(state: ModelSyncState): Promise<void> {
   await store.save()
 }
 
+/**
+ * 读「同步开关」。缺省视为开启：老版本没有这个开关，那时「有密码 = 在同步」，
+ * 不能因为升级而把正在同步的用户悄悄关掉。
+ */
+async function loadEnabledFlag(): Promise<boolean> {
+  try {
+    const store = await getStore()
+    const raw = await store.get<unknown>(ENABLED_STORE_KEY)
+    return raw !== false
+  } catch {
+    return true
+  }
+}
+
+async function saveEnabledFlag(value: boolean): Promise<void> {
+  try {
+    const store = await getStore()
+    await store.set(ENABLED_STORE_KEY, value)
+    await store.save()
+  } catch {
+    // 记不住开关不影响本次操作，下次 init 会按「有密码即开启」兜底。
+  }
+}
+
 /** 取当前账号的可用 token；过期就先续期，未登录则报错。 */
 async function requireSession(): Promise<{ baseUrl: string; accessToken: string }> {
   const account = useAccountStore.getState()
@@ -133,6 +181,33 @@ function createIo(session: { baseUrl: string; accessToken: string }): ModelSyncI
       const typed = configs as ProviderConfigs
       await saveProviderConfigs(typed)
       useWikiStore.getState().setProviderConfigs(typed)
+    },
+    /*
+     * 重排 / 向量模型不属于 provider 列表，各自是「整份配置」，
+     * 所以单独一组 IO：读进来按 rerank / embedding 放进 settings，
+     * 写回时同时更新 wiki-store，设置页不用重进就能看到。
+     */
+    loadSettings: async () => {
+      const [rerank, embedding] = await Promise.all([
+        loadRerankConfig().catch(() => null),
+        loadEmbeddingConfig().catch(() => null),
+      ])
+      const settings: Record<string, unknown> = {}
+      if (rerank) settings.rerank = rerank
+      if (embedding) settings.embedding = embedding
+      return settings
+    },
+    saveSettings: async (settings) => {
+      const rerank = settings.rerank
+      if (rerank && typeof rerank === "object") {
+        await saveRerankConfig(rerank as never)
+        useWikiStore.getState().setRerankConfig(rerank as never)
+      }
+      const embedding = settings.embedding
+      if (embedding && typeof embedding === "object") {
+        await saveEmbeddingConfig(embedding as never)
+        useWikiStore.getState().setEmbeddingConfig(embedding as never)
+      }
     },
     loadState: loadSyncState,
     saveState: saveSyncState,
@@ -198,6 +273,7 @@ export const useModelSyncStore = create<ModelSyncStore>((set, get) => ({
 
   init: async () => {
     const password = await readSecret(PASSWORD_SECRET).catch(() => null)
+    const enabledFlag = await loadEnabledFlag()
     const state = await loadSyncState()
     // 早期版本把整份配置 JSON 存进了快照（等于把 API Key 明文写回磁盘），
     // 这里清洗成指纹；结构不符就整体重算，最多让下一次同步多重推一遍。
@@ -207,7 +283,7 @@ export const useModelSyncStore = create<ModelSyncStore>((set, get) => ({
       state.snapshot = {}
     }
     set({
-      enabled: password !== null,
+      enabled: password !== null && enabledFlag,
       passwordReady: password !== null,
       version: state.version,
       lastSyncAt: state.lastPushAt ?? state.lastPullAt ?? null,
@@ -226,6 +302,7 @@ export const useModelSyncStore = create<ModelSyncStore>((set, get) => ({
       // 云端可能已经被别的设备写过（baseVersion 为空会撞 409）：先合并再推，别直接覆盖。
       const pulled = await withNetworkRetry(() => pullAndMerge(io, password))
       const result = await withNetworkRetry(() => pushLocal(io, password))
+      await saveEnabledFlag(true)
       set({
         enabled: true,
         passwordReady: true,
@@ -248,6 +325,30 @@ export const useModelSyncStore = create<ModelSyncStore>((set, get) => ({
     }
   },
 
+  setEnabled: async (next) => {
+    if (next) {
+      /*
+       * 打开：密码早就存在（关闭时没清），直接恢复同步即可，不需要用户再输入一遍。
+       * 只有「本机没存过密码」（首次开启 / 清空过云端配置）才让调用方去弹设置表单。
+       */
+      const password = await readSecret(PASSWORD_SECRET).catch(() => null)
+      if (!password) {
+        set({ status: "error", message: "本机没有保存同步密码，请先设置同步密码再开启同步。" })
+        return
+      }
+      await saveEnabledFlag(true)
+      set({ enabled: true, passwordReady: true, status: "idle", message: "正在同步…" })
+      await get().syncNow()
+      return
+    }
+    await saveEnabledFlag(false)
+    set({
+      enabled: false,
+      status: "idle",
+      message: "已关闭同步（云端配置和同步密码都保留，再打开即可继续同步）。",
+    })
+  },
+
   disable: async (options = {}) => {
     set({ busy: true, status: "idle", message: "" })
     try {
@@ -258,6 +359,7 @@ export const useModelSyncStore = create<ModelSyncStore>((set, get) => ({
         )
       }
       await clearSecret(PASSWORD_SECRET)
+      await saveEnabledFlag(false)
       await saveSyncState(emptySyncState())
       set({
         enabled: false,
@@ -316,6 +418,46 @@ export const useModelSyncStore = create<ModelSyncStore>((set, get) => ({
   },
 
   /**
+   * 从云端下载（用户 2026-10-28 提的需求：不能只有同步、没有下载）。
+   *
+   * 典型场景：本机把某个模型删了，或者换了台机器/重装，需要把云端那份
+   * 原样填回设置页。这里用「云端优先覆盖同名项 + 保留本地独有项」的规则，
+   * 覆盖前由界面弹确认框。
+   */
+  restoreFromCloud: async () => {
+    const password = await readSecret(PASSWORD_SECRET).catch(() => null)
+    if (!password) {
+      set({ status: "error", message: "本机没有保存同步密码，请先设置同步密码再下载。" })
+      return
+    }
+    set({ busy: true, status: "pulling", message: "" })
+    try {
+      const session = await requireSession()
+      const result = await withNetworkRetry(() => restoreFromCloudPayload(createIo(session), password))
+      if (result.status === "none") {
+        set({ busy: false, status: "idle", message: "云端还没有配置，没有可以下载的内容。" })
+        return
+      }
+      set({
+        busy: false,
+        status: "idle",
+        version: result.version,
+        lastSyncAt: Date.now(),
+        conflicts: [],
+        pendingConflicts: [],
+        message:
+          result.settings > 0
+            ? `已从云端下载：${result.providers} 个模型配置，重排 / 向量配置各 1 组。`
+            : `已从云端下载：${result.providers} 个模型配置。`,
+      })
+    } catch (error) {
+      void logDiagnostic(`[model-sync] restore failed: ${String(error)}`)
+      set({ busy: false, status: "error", message: describeError(error) })
+      throw error
+    }
+  },
+
+  /**
    * 自动同步心跳（App 级每 60 秒调一次）。
    *
    * 这里只是「该不该联网」的判定：距上次拉取超过 5 分钟才拉一次，
@@ -335,8 +477,18 @@ export const useModelSyncStore = create<ModelSyncStore>((set, get) => ({
     if (!password) return
     const session = await requireSession().catch(() => null)
     if (!session) return
+    const io = createIo(session)
     try {
-      const pushed = await pushLocal(createIo(session), password)
+      /*
+       * 本机有「同步过、后来被删掉」的条目时不能直接推：载荷只带本机现有的条目，
+       * 一推就把云端那份也抹掉了（服务端只留最新一份），之后再也下载不回来。
+       * 这种情况改走完整同步（先拉后推），并集策略会先把它补回本地。
+       */
+      if (await hasPendingDeletion(io).catch(() => false)) {
+        await get().syncNow()
+        return
+      }
+      const pushed = await pushLocal(io, password)
       if (pushed.status === "pushed") set({ version: pushed.version, lastSyncAt: Date.now() })
     } catch {
       // 自动同步失败保持安静：下一拍或用户手动「立即同步」再试。

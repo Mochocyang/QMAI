@@ -1,5 +1,4 @@
 import { confirmModelAction } from "@/components/uitest/models/model-confirm"
-import { ModelSyncPanel } from "./model-sync-panel"
 import { ModelSecretInput } from "@/components/uitest/models/model-secret-input"
 import { useUiTestProviderBatch } from "@/components/uitest/models/provider-batch"
 import { isProviderAvailable } from "@/lib/llm-model-keys"
@@ -111,7 +110,6 @@ export function LlmProviderSection() {
           <button type="button" className="model-add-card" data-guide="model.add-custom" onClick={() => { const id = `custom-${crypto.randomUUID()}`; setCustomDraftIds((ids) => [...ids, id]); setExpanded({ [id]: true }); setUiTestSource("library") }}>＋ 添加自定义模型</button>
         </div>
         {/* 账号同步：把模型配置（含 API Key）用同步密码加密后存到账号云端，换设备可恢复。 */}
-        <div className="my-4"><ModelSyncPanel /></div>
         <div className="model-library-list">
           {configured.map((id) => {
             const config = providerConfigs[id] ?? {}

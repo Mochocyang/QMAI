@@ -27,6 +27,7 @@ import type { SettingsDraft, DraftSetter } from "./settings-types"
 import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
 import type { BodyFontFamily, UiFontFamily } from "@/lib/font-settings"
 import { LlmProviderSection } from "./sections/llm-provider-section"
+import { ModelSyncPanel } from "./sections/model-sync-panel"
 import { DefaultModelSettingsPanel } from "./sections/default-model-settings-panel"
 import { UiTestEmbeddingModels, UiTestRerankModels } from "@/components/uitest/models/retrieval-models"
 import { confirmModelDraftLeave } from "@/components/uitest/models/model-draft-guard"
@@ -171,6 +172,14 @@ export function UiTestModelSettingsSection({ draft, setDraft }: { draft: Setting
         </div>
         {/* 三个要自己填密钥/地址的页签才挂教程；「默认模型」不涉及，不摆链接。 */}
         {active !== "default" && <ModelTutorialLink />}
+      </div>
+      {/*
+       * 「账号同步」放在页签条**下方、页签面板之外**（用户 2026-10-28 定）：
+       * 它同步的是整份模型配置，不属于某一个页签；之前塞在「大语言模型」里，
+       * 一切页签就消失，还被夹在添加框和模型卡片中间。
+       */}
+      <div className="my-4">
+        <ModelSyncPanel />
       </div>
       {UI_TEST_MODEL_TABS.map((tab) => (
         <div key={tab.id} id={`${id}-${tab.id}-panel`} role="tabpanel" aria-labelledby={`${id}-${tab.id}`} hidden={active !== tab.id} data-ui="settings-model-panel" data-ui-model={tab.id}>
