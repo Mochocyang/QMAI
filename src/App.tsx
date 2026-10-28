@@ -44,6 +44,7 @@ import { AnnouncementDialog } from "@/components/announcements/announcement-dial
 import { useAnnouncementStore } from "@/stores/announcement-store"
 import { syncPluginProviders } from "@/lib/plugins/provider-sync"
 import { syncPluginTools } from "@/lib/plugins/tool-sync"
+import { syncPluginHooks } from "@/lib/plugins/hooks/runtime"
 
 function App() {
   useEnsureAiChatModel()
@@ -523,6 +524,9 @@ function App() {
           // 所以即使 provider 同步失败，工具也不会被跳过。
           await syncPluginTools()
           await syncPluginProviders()
+          // 钩子清单也在这里拉一次：它只是模块级缓存（消费点同步读），失败会保留
+          // 上次结果、也不会抛 —— 与工具/provider 同一容错口径，不阻断启动。
+          await syncPluginHooks()
         } catch (error) {
           console.warn("[plugins] 同步插件 provider 失败：", error)
         }

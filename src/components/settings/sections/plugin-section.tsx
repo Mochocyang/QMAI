@@ -21,6 +21,7 @@ import { pluginsApi } from "@/lib/plugins/api"
 import { clearPluginProviderAuth } from "@/lib/plugins/provider-auth"
 import { syncPluginProviders } from "@/lib/plugins/provider-sync"
 import { syncPluginTools } from "@/lib/plugins/tool-sync"
+import { syncPluginHooks } from "@/lib/plugins/hooks/runtime"
 import type { PluginSummary } from "@/lib/plugins/types"
 import { isTauri } from "@/lib/platform"
 import { toast } from "@/lib/toast"
@@ -307,6 +308,16 @@ export function PluginSection() {
       await syncPluginTools()
     } catch (cause) {
       console.warn(`[plugins] 插件${action}后同步工具失败：`, cause)
+    }
+    /*
+     * 钩子清单也要跟着启停刷新：它是模块级缓存，启停/卸载后不刷新就等于
+     * "插件停了，钩子还在拦每一次请求"（或者反过来，装了却不生效）。
+     * `syncPluginHooks` 内部自己吞错并保留旧缓存，所以这里不必再包一层。
+     */
+    try {
+      await syncPluginHooks()
+    } catch (cause) {
+      console.warn(`[plugins] 插件${action}后同步钩子失败：`, cause)
     }
   }
 

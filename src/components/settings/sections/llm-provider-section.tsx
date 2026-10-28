@@ -38,6 +38,7 @@ import { AddWorkbuddyAccountDialog } from "./add-workbuddy-account-dialog"
 import { buildWorkbuddyCard, disableWorkbuddyCard } from "@/lib/workbuddy-card"
 import { getPluginProviderViews, subscribePluginProviderViews, syncPluginProviders } from "@/lib/plugins/provider-sync"
 import { syncPluginTools } from "@/lib/plugins/tool-sync"
+import { syncPluginHooks } from "@/lib/plugins/hooks/runtime"
 import { PluginProviderCard, toPluginProviderPreset } from "./plugin-provider-card"
 
 const UI_TEST_PROVIDER_HINTS: Record<string, string> = {
@@ -125,6 +126,10 @@ export function LlmProviderSection() {
     // 抢输了聊天页就拿着空快照构建 config，模型看不到插件工具。
     void syncPluginTools().catch((cause: unknown) => {
       console.warn("[plugins] 模型设置页同步工具失败：", cause)
+    })
+    // 钩子清单同理由：它和插件进程一起启动/停止，启动那次同步容易抢跑。
+    void syncPluginHooks().catch((cause: unknown) => {
+      console.warn("[plugins] 模型设置页同步钩子失败：", cause)
     })
   }, [])
 
