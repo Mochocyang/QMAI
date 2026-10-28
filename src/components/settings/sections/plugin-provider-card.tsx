@@ -19,6 +19,8 @@
  *     「我实现了这个端点」的声明，**没声明就说明端点不存在**。所以缺 capability 时
  *     连按钮都不渲染 —— 渲染一个灰色占位会骗用户去点，点完只能得到一个
  *     「插件不支持该端点」的 404，那是把插件的诚实宣言变成宿主的假承诺。
+ *   - 但 `刷新模型` **例外**：`/v1/models` 是 provider 契约里的必需端点（设计 §3.1），
+ *     刷新是宿主自己的能力，所以它不受任何能力位门控（理由见按钮处的注释）。
  */
 import { useState } from "react"
 import { AlertTriangle, CalendarCheck, Image as ImageIcon, Loader2, RefreshCw, Wallet } from "lucide-react"
@@ -41,9 +43,10 @@ export interface PluginProviderPreset extends LlmPreset {
   ready: boolean
   lastError?: string
   /**
-   * 插件声明的能力位（设计 §4.3）。**只决定界面按钮是否出现**，不改变协议。
+   * 插件声明的能力位（设计 §4.3）。**只决定余额/签到按钮是否出现**，不改变协议。
    *
    * 缺省按「没有能力」处理：插件没写就等于没实现端点，宿主不能替它假设。
+   * `models.refresh` 虽然在这一栏里，但不驱动 UI（见文件头与按钮处注释）。
    */
   capabilities: string[]
   /** 插件的登录/设置页路径（清单里的 `settingsPagePath`）。空 = 没声明页面。 */
@@ -52,10 +55,25 @@ export interface PluginProviderPreset extends LlmPreset {
   models: PluginProviderModel[]
 }
 
-/** 卡片认得的三个能力位（设计 §4.2 白名单）。 */
-const CAP_MODELS_REFRESH = "models.refresh"
+/**
+ * 卡片认得的能力位（设计 §4.2 白名单里只有这三个）。
+ *
+ * **没有 `models.refresh` 常量**：它虽然仍被清单接受（写着不报错，向后兼容），
+ * 但不驱动任何 UI，理由见「刷新模型」按钮处的注释 —— 留一个没人读的常量只会
+ * 让人以为它还有语义。
+ */
 const CAP_BALANCE = "balance.query"
 const CAP_CHECKIN = "checkin"
+
+/**
+ * 登录命令「快速返回」的判定阈值。
+ *
+ * 为什么要判时长：`plugins_provider_open_login` 目前约定「窗口打开即 resolve」，
+ * 但 Rust 侧也可能实现成「等用户关窗才 resolve」。两种实现下「窗口已打开」这句话
+ * 只有前者成立，后者要等到关窗才说得通。用耗时把两种情况区分开，**兼容两种实现**；
+ * 等 Rust 侧时机定型后这个分支可以删掉，只留一句话。
+ */
+const LOGIN_QUICK_RESOLVE_MS = 3000
 
 /** 插件没声明设置页时的说明（同时用作按钮 tooltip 与 aria 描述）。 */
 const NO_SETTINGS_PAGE_HINT = "该插件没有声明设置页（settingsPagePath），宿主无法打开登录窗口"
@@ -200,8 +218,9 @@ export function PluginProviderCard({
   const [status, setStatus] = useState<{ error: boolean; text: string } | null>(null)
   const [balance, setBalance] = useState<BalanceState | null>(null)
 
+  // 「刷新模型」不受 capabilities 门控：/v1/models 是 provider 契约的必需端点（设计 §3.1），
+  // 刷新是宿主自己的能力。models.refresh 这个 capability 因此没有 UI 语义，仅为向后兼容保留。
   const capabilities = preset.capabilities
-  const canRefreshModels = capabilities.includes(CAP_MODELS_REFRESH)
   const canQueryBalance = capabilities.includes(CAP_BALANCE)
   const canCheckin = capabilities.includes(CAP_CHECKIN)
 
@@ -238,10 +257,21 @@ export function PluginProviderCard({
     if (!settingsPage || pending) return
     setPending("login")
     setStatus(null)
+    // 计时是为了兼容 Rust 的两种返回时机，见 LOGIN_QUICK_RESOLVE_MS 的注释。
+    const startedAt = Date.now()
     try {
       // 受控窗口由 Rust 打开；关窗后 Rust 会自己重探活 + 重抓模型。
       await pluginsApi.providerOpenLogin(preset.id)
-      setStatus({ error: false, text: "登录窗口已打开，完成后模型会自动刷新。" })
+      const elapsed = Date.now() - startedAt
+      setStatus({
+        error: false,
+        text:
+          elapsed >= LOGIN_QUICK_RESOLVE_MS
+            ? // 耗时过长 → 命令很可能是在「等关窗才 resolve」，此时窗口早就不在了，
+              // 再说「窗口已打开」会误导用户去找一个已经关闭的窗口。
+              "登录流程已结束，模型会自动刷新。"
+            : "登录窗口已打开，完成后模型会自动刷新。",
+      })
       // 再同步一次快照：Rust 重抓完模型后，卡片的就绪状态/模型数要立刻跟上。
       // 失败只 warn —— 它不该把上面那句成功提示改写成错误。
       void syncPluginProviders().catch((cause: unknown) => {
@@ -320,7 +350,7 @@ export function PluginProviderCard({
           </small>
         </button>
         <div className="flex shrink-0 flex-wrap gap-2">
-          {/* 三个按钮各自绑一个能力位：没有该能力就整块不渲染（见文件头）。 */}
+          {/* 余额/签到各绑自己的能力位：没有该能力就整块不渲染（见文件头）。 */}
           {canQueryBalance ? (
             <Button
               type="button"
@@ -355,23 +385,27 @@ export function PluginProviderCard({
               {pending === "checkin" ? "签到中…" : "每日签到"}
             </Button>
           ) : null}
-          {canRefreshModels ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              data-plugin-action="refresh"
-              disabled={pending !== null}
-              onClick={() => void refreshModels()}
-            >
-              {pending === "refresh" ? (
-                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="mr-1 h-3.5 w-3.5" />
-              )}
-              {pending === "refresh" ? "刷新中…" : "刷新模型"}
-            </Button>
-          ) : null}
+          {/*
+            「刷新模型」**不带任何能力位判断**，始终显示。
+            刷新是宿主自己的能力：/v1/models 是 provider 契约的必需端点（设计 §3.1），
+            宿主随时可以打它。把它藏在 `models.refresh` 后面，等于对没写这个字段的
+            插件说「你的模型列表更新不了」——既不是事实，也纯属摩擦。
+          */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-plugin-action="refresh"
+            disabled={pending !== null}
+            onClick={() => void refreshModels()}
+          >
+            {pending === "refresh" ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="mr-1 h-3.5 w-3.5" />
+            )}
+            {pending === "refresh" ? "刷新中…" : "刷新模型"}
+          </Button>
           {/*
             「登录/设置」始终出现（它是用户找登录入口的地方，点掉比藏起来好），
             但只有「需要登录 + 声明了设置页」时才真的能打开窗口。
@@ -427,9 +461,7 @@ export function PluginProviderCard({
         <div className="model-preset-body space-y-2 border-t bg-background/50 p-3">
           {preset.models.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              {canRefreshModels
-                ? "插件还没有报告任何模型。先点「刷新模型」；仍为空的话，这个插件可能还没准备好。"
-                : "插件还没有报告任何模型。它没有声明「刷新模型」能力，所以这里不能手动触发，可能还没准备好。"}
+              插件还没有报告任何模型。先点「刷新模型」；仍为空的话，这个插件可能还没准备好。
             </p>
           ) : (
             <div className="flex flex-wrap gap-1.5">

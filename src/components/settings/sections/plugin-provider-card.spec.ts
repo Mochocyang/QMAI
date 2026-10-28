@@ -227,6 +227,39 @@ describe("PluginProviderCard", () => {
     expect(host.textContent).toContain("插件未声明 authDomains，已拒绝打开登录窗口")
   })
 
+  /*
+   * 兼容 Rust 的两种返回时机：命令「窗口打开即 resolve」→ 说「窗口已打开」；
+   * 「等关窗才 resolve」→ 那句就不成立了（窗口早关掉了），改说「登录流程已结束」。
+   * 只 fake 定时器与 Date，不 fake queueMicrotask —— React 的 act 依赖真微任务。
+   */
+  it("命令超过 3 秒才 resolve：改报中性文案，不谎称窗口还开着", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "Date"] })
+    try {
+      providerOpenLogin.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            setTimeout(resolve, 4000)
+          }),
+      )
+      renderCard({ authKind: "browser-login", settingsPage: "/setup" })
+
+      const button = find('[data-plugin-action="login"]')!
+      await act(async () => {
+        button.click()
+      })
+      expect(button.textContent).toContain("打开中")
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4000)
+      })
+
+      expect(host.textContent).toContain("登录流程已结束")
+      expect(host.textContent).not.toContain("登录窗口已打开")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   /* ---- 3) 登录：没有设置页 → 禁用 + tooltip ---- */
   it("authKind 需要登录但没声明 settingsPage：按钮禁用并给出原因", async () => {
     renderCard({ authKind: "browser-login" })
@@ -238,21 +271,41 @@ describe("PluginProviderCard", () => {
     expect(providerOpenLogin).not.toHaveBeenCalled()
   })
 
-  /* ---- 4) 能力位缺了就整块不渲染 ---- */
+  /* ---- 4) 能力位缺了就整块不渲染（「刷新模型」是例外） ---- */
   it("没有 balance.query / checkin：不渲染对应按钮（不用灰色占位骗人）", () => {
     renderCard({ capabilities: ["models.refresh"] })
 
     expect(find('[data-plugin-action="balance"]')).toBeNull()
     expect(find('[data-plugin-action="checkin"]')).toBeNull()
-    // 刷新模型按钮照旧：它自己那条能力位在。
+    // 刷新模型按钮照旧在：它本来就不受能力位门控。
     expect(find('[data-plugin-action="refresh"]')).toBeTruthy()
   })
 
-  it("没有 models.refresh：连「刷新模型」也不渲染，空模型提示不再让人去点它", () => {
+  it("一个能力位都没有：余额/签到不渲染，但「刷新模型」仍然显示（宿主自己的能力）", () => {
     renderCard({ capabilities: [], models: [] })
 
-    expect(find('[data-plugin-action="refresh"]')).toBeNull()
-    expect(host.textContent).not.toContain("先点「刷新模型」")
+    expect(find('[data-plugin-action="balance"]')).toBeNull()
+    expect(find('[data-plugin-action="checkin"]')).toBeNull()
+    // /v1/models 是 provider 契约的必需端点（设计 §3.1）：刷新不需要插件声明任何东西。
+    expect(find('[data-plugin-action="refresh"]')).toBeTruthy()
+    expect(host.textContent).toContain("先点「刷新模型」")
+  })
+
+  it("models.refresh 只剩向后兼容语义：写着不报错，但不再驱动任何按钮", () => {
+    // 有它和没它渲染出的按钮集合必须完全一致；不一致就说明 UI 又在读这个能力位了。
+    renderCard({ capabilities: [] })
+    const without = [...host.querySelectorAll("[data-plugin-action]")].map((el) =>
+      el.getAttribute("data-plugin-action"),
+    )
+
+    act(() => root.unmount())
+    root = createRoot(host)
+    renderCard({ capabilities: ["models.refresh"] })
+    const withCapability = [...host.querySelectorAll("[data-plugin-action]")].map((el) =>
+      el.getAttribute("data-plugin-action"),
+    )
+
+    expect(withCapability).toEqual(without)
   })
 
   /* ---- 5) 余额：点了调哪个端点 ---- */
