@@ -429,6 +429,14 @@ async fn start_plugin(
     let manifest = manifest::PluginManifest::parse(&raw)
         .map_err(|e| format!("清单校验失败 {}：{}", e.code(), e.detail))?;
 
+    // 宿主版本闸门（缺陷 4 的收口）：安装/启用时都查过 `requires.qmai`，但**已经 enabled
+    // 的老插件**会在用户升级宿主之后被 `autostart_all` 直接拉起 —— 那两条命令一次都不走。
+    // 所以闸门必须落在 spawn 之前、紧贴清单解析：任何进入 start_plugin 的路径都躲不过。
+    //
+    // 失败只返回 Err、不写 running 表：列表里它会显示「已停止」（enabled 仍为 true），
+    // 日志里带 E_HOST_INCOMPATIBLE 说明「要什么/现在是什么」，用户能自己停用或重试。
+    ensure_host_compatible(&manifest)?;
+
     // 清单声明了 providers 才走这套；没声明就完全跳过（v1 插件零影响）。
     // 端口先 bind 0 拿号、再立刻释放交给插件去绑（设计 D4：只允许宿主分配，
     // 避免固定端口被用户本机已有的 Agent2API 之类服务抢占）。
@@ -2180,6 +2188,55 @@ rl.on("line", (line) => {
         );
     }
 
+    /// `requires.qmai` 的闸门也必须落在 `start_plugin` 自己身上。
+    ///
+    /// 缺口的场景：安装/启用两道闸查过之后，用户在**升级宿主**之前装好并启用的老插件，
+    /// 下次启动会在 `autostart_all` 里被直接拉起 —— 那两条路径一次都不走。
+    /// 所以「宿主版本不满足」必须在 spawn 之前就表现为启动失败（稳定错误码）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn start_plugin_rejects_incompatible_requires() {
+        let root = TempRoot::new("requires-too-new");
+        let id = "too-new";
+        let manifest = format!(
+            r#"{{
+                "schema": 1,
+                "id": "{id}",
+                "name": "要求新宿主的插件",
+                "version": "1.0.0",
+                "requires": {{ "qmai": ">=999.0.0" }},
+                "runtime": {{ "type": "binary", "entry": "missing-entry.exe", "startTimeoutMs": 1000 }}
+            }}"#
+        );
+        write_plugin(root.path(), id, &manifest, None);
+        let entry = sample_entry(id);
+
+        let state = PluginsState::default();
+        // 假端口：本用例在 spawn 之前就该失败，不该真的起一个宿主 API 服务。
+        *state.host_port.lock().expect("端口状态") = Some(1);
+
+        let error = start_plugin(root.path(), &state, &entry)
+            .await
+            .expect_err("宿主版本不满足 requires.qmai 时必须拒绝启动");
+        assert!(
+            error.starts_with("E_HOST_INCOMPATIBLE"),
+            "要带稳定错误码：{error}"
+        );
+        assert!(
+            error.contains("999"),
+            "错误要说清插件要求什么版本：{error}"
+        );
+        assert!(
+            state.running.lock().await.is_empty(),
+            "版本不兼容的插件不能留在 running 表里"
+        );
+        // 拒绝发生在建 session 之前，确认没留下任何宿主侧痕迹。
+        assert_eq!(
+            host_api::sessions_for_plugin(id),
+            0,
+            "版本不兼容时不该注册宿主 API session"
+        );
+    }
+
     /// Node 立刻退出：验证「进程起来了但握手前关闭 stdout」也能清干净。
     /// 机器没有 Node 时降级为跳过（仓库其它 node 相关用例也遵循这个约定）。
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2381,6 +2438,108 @@ rl.on("line", (line) => {
             0,
             "启动失败的插件不能留下宿主 API session"
         );
+    }
+
+    /// 两个都 enabled，一个 `requires.qmai` 不兼容、一个正常：兼容的那个必须照常起来。
+    ///
+    /// 这条用例盯的是**连坐**：不兼容插件的 id 故意排在前面（注册表是 BTreeMap，按 id
+    /// 有序遍历），只要 `autostart_all` 会因为一条失败而提前返回，正常插件就永远起不来，
+    /// 表现成「升级宿主后一半插件集体消失」。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn autostart_continues_when_one_plugin_is_incompatible() {
+        if !node_available() {
+            eprintln!("跳过：本机没有可执行的 node");
+            return;
+        }
+
+        const SERVER: &str = r#"
+const readline = require("readline");
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on("line", (line) => {
+  let req;
+  try { req = JSON.parse(line); } catch { return; }
+  if (req.method === "initialize") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { protocolVersion: "2024-11-05", capabilities: { tools: {} } }
+    }));
+  } else if (req.method === "tools/list") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { tools: [] } }));
+  }
+});
+"#;
+
+        let root = TempRoot::new("autostart-incompatible");
+
+        // 不兼容的那个：**运行时本身是好的**（同一份能正常握手的脚本），这样它没起来
+        // 就只能是因为版本闸门拦住了它 —— 否则这条用例会被「反正它也会失败」蒙过去。
+        let bad_id = "a-incompatible";
+        let bad_manifest = format!(
+            r#"{{
+                "schema": 1,
+                "id": "{bad_id}",
+                "name": "要求新宿主的插件",
+                "version": "1.0.0",
+                "requires": {{ "qmai": ">=999.0.0" }},
+                "runtime": {{ "type": "node", "entry": "index.js", "startTimeoutMs": 5000 }}
+            }}"#
+        );
+        write_plugin(root.path(), bad_id, &bad_manifest, Some(("index.js", SERVER)));
+
+        // 正常的那个：真 Node 进程，能完成握手。
+        let good_id = "b-working";
+        let good_manifest = format!(
+            r#"{{
+                "schema": 1,
+                "id": "{good_id}",
+                "name": "正常插件",
+                "version": "1.0.0",
+                "runtime": {{ "type": "node", "entry": "server.js", "startTimeoutMs": 5000 }}
+            }}"#
+        );
+        write_plugin(root.path(), good_id, &good_manifest, Some(("server.js", SERVER)));
+
+        let mut registry = PluginRegistry::load(root.path()).expect("空注册表可加载");
+        registry.upsert(sample_entry(bad_id));
+        registry.upsert(sample_entry(good_id));
+        registry.save(root.path()).expect("保存注册表");
+
+        let state = PluginsState::default();
+        // 假端口：让 start_plugin 复用这个值，不必真的起宿主 API 服务。
+        *state.host_port.lock().expect("端口状态") = Some(1);
+
+        // 整体不失败：一个插件不兼容是「这个插件的问题」，不是启动过程的问题。
+        autostart_all(&state, root.path())
+            .await
+            .expect("单个插件版本不兼容不能阻断启动");
+
+        {
+            let running = state.running.lock().await;
+            assert!(
+                running.contains_key(good_id),
+                "兼容的插件必须照常被拉起（不能让不兼容的那个连坐）：{:?}",
+                running.keys().collect::<Vec<_>>()
+            );
+            assert!(
+                !running.contains_key(bad_id),
+                "版本不兼容的插件不能进入 running 表"
+            );
+        }
+
+        // 可诊断状态：enabled 仍为 true、进程状态是 stopped（列表里显示「已停止」），
+        // 用户能自己停用/重试，日志里有 E_HOST_INCOMPATIBLE 说明原因。
+        let after = PluginRegistry::load(root.path()).expect("重新加载注册表");
+        assert!(
+            after.get(bad_id).expect("条目仍在").enabled,
+            "版本不兼容不能悄悄把 enabled 改成 false"
+        );
+        assert_eq!(
+            host_api::sessions_for_plugin(bad_id),
+            0,
+            "版本不兼容的插件不能留下宿主 API session"
+        );
+
+        stop_plugin(&state, good_id).await;
     }
 
     /// stderr 必须被持续排空：否则管道写满后插件会阻塞在写日志上，握手永远等不到。

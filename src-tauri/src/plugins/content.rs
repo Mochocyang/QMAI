@@ -166,12 +166,19 @@ fn is_version_one(value: Option<&serde_json::Value>) -> bool {
 /// 条数上限。`maxItems: 0`（或漏写后 serde 给出的 0）按默认 5000 处理：
 /// 与前端 `resolveItemLimit`（`<= 0` → 默认值）一致，否则一个漏写字段的清单
 /// 会让整包 5000 条全变成"超限"。
+///
+/// 结果再夹到设计 D4 的 5000 硬顶。
+///
+/// 5000 条是设计 D4 的硬上限：作者在清单里写更大的 maxItems 也不生效。
+/// 为什么不报错而是夹住：清单校验层（manifest.rs）已定稿，且"作者想放宽上限"
+/// 是善意误用而非攻击；夹住后表现可预测（超出部分被拒），报错会让老包莫名装不上。
 fn resolve_item_limit(declared: usize) -> usize {
-    if declared == 0 {
+    let limit = if declared == 0 {
         DEFAULT_MAX_ITEMS
     } else {
         declared
-    }
+    };
+    limit.min(DEFAULT_MAX_ITEMS)
 }
 
 /// 非空字符串（空白算空）—— 前端 `isNonEmptyString` 的镜像。
@@ -190,7 +197,11 @@ fn pack_error(decl: &ContentPackDecl, detail: impl std::fmt::Display) -> String 
     format!("内容包 {}：{detail}", decl.id)
 }
 
-/// 校验一份已解析的包，返回条目。规则与前端 `parseContentPack` 逐条对齐：
+/// 校验一份已解析的包，返回条目。`limit` 是调用方算好的**生效**上限
+/// （[`resolve_item_limit`] 已把 0 归到默认值、并夹到 5000 硬顶），
+/// 从入口传进来是为了让加载与计数两条路径用同一个数。
+///
+/// 规则与前端 `parseContentPack` 逐条对齐：
 ///
 /// | 规则 | 前端 | 这里 |
 /// |---|---|---|
@@ -205,6 +216,7 @@ fn pack_error(decl: &ContentPackDecl, detail: impl std::fmt::Display) -> String 
 fn parse_pack(
     raw: &serde_json::Value,
     decl: &ContentPackDecl,
+    limit: usize,
 ) -> Result<Vec<ContentPackItem>, String> {
     let Some(source) = raw.as_object() else {
         return Err(pack_error(decl, "必须是 JSON 对象"));
@@ -220,7 +232,6 @@ fn parse_pack(
         return Err(pack_error(decl, "items 必须是数组"));
     };
 
-    let limit = resolve_item_limit(decl.max_items);
     if raw_items.len() > limit {
         errors.push(format!("条目数 {} 超过上限 {limit}", raw_items.len()));
     }
@@ -315,7 +326,8 @@ pub fn load_pack_items(
     decl: &ContentPackDecl,
 ) -> Result<Vec<ContentPackItem>, String> {
     let raw = read_pack_json(plugin_root, decl)?;
-    parse_pack(&raw, decl)
+    let limit = resolve_item_limit(decl.max_items);
+    parse_pack(&raw, decl, limit)
 }
 
 /// 只算条数（给列表卡片用）。
@@ -326,7 +338,10 @@ pub fn load_pack_items(
 /// 而且它只在用户打开插件中心/灵感库时才发生。
 pub fn count_pack_items(plugin_root: &Path, decl: &ContentPackDecl) -> Result<usize, String> {
     let raw = read_pack_json(plugin_root, decl)?;
-    Ok(parse_pack(&raw, decl)?.len())
+    // 与 load_pack_items 用同一个生效上限：两处各算一遍会让「列表显示 N 条、
+    // 点开却报超限」重新出现，所以规则只能有一个来源。
+    let limit = resolve_item_limit(decl.max_items);
+    Ok(parse_pack(&raw, decl, limit)?.len())
 }
 
 /// 缓存 key：`<pluginId>/<packId>`。插件 id 的字符集不含 `/`，所以这个 key 无歧义。
@@ -674,6 +689,45 @@ mod tests {
         let error = load_pack_items(&root, &decl("scifi", "pack.json", 2))
             .expect_err("超过 maxItems 必须报错");
         assert!(error.contains("超过上限 2"), "错误应带上上限：{error}");
+    }
+
+    /// 设计 D4：5000 条是硬上限，清单里写更大的 `maxItems` 也不生效。
+    ///
+    /// 造 5001 条（比硬顶多 1 条）：夹住生效时必须报错，且报错里要出现 5000 而不是
+    /// 作者写的 20000 —— 否则作者会以为自己的声明被采纳了，实际被悄悄夹小。
+    #[test]
+    fn max_items_is_capped_at_5000() {
+        let temp = TempDir::new("cap-5000");
+        let root = plugin_root(&temp, "cap-pack");
+        let items: Vec<serde_json::Value> = (1..=5001)
+            .map(|index| json!({ "id": format!("i{index:05}"), "title": "标题", "body": "正文" }))
+            .collect();
+        write_plugin_pack(
+            &root,
+            "pack.json",
+            &json!({ "version": 1, "items": items }).to_string(),
+        );
+
+        let capped = decl("scifi", "pack.json", 20_000);
+        // 不用 expect_err：失败时它会 Debug 打印整个 5001 条 Vec，把测试输出淹掉。
+        let error = match load_pack_items(&root, &capped) {
+            Ok(items) => panic!("超过 5000 硬顶必须报错，实际读到了 {} 条", items.len()),
+            Err(error) => error,
+        };
+        assert!(
+            error.contains("上限 5000"),
+            "生效上限必须是 5000 而不是清单里的 20000：{error}"
+        );
+
+        // 计数路径必须与加载路径同一条规则，否则列表会显示一个点开就报错的包。
+        let error = match count_pack_items(&root, &capped) {
+            Ok(count) => panic!("计数路径同样要夹到 5000，实际数出 {count} 条"),
+            Err(error) => error,
+        };
+        assert!(
+            error.contains("上限 5000"),
+            "计数路径的生效上限也必须是 5000：{error}"
+        );
     }
 
     #[test]
