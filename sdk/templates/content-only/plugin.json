@@ -1,0 +1,94 @@
+{
+  "schema": 3,
+  "id": "my-plugin",
+  "name": "我的内容插件",
+  "version": "1.0.0",
+  "description": "一句话说清这个插件做什么（用户第一眼看到的就是这句）",
+  "author": { "name": "你的名字", "url": "https://example.com" },
+  "license": "MIT",
+  "requires": { "qmai": ">=4.5.0" },
+  "kind": ["declarative"],
+  "slots": ["chapter-toolbar", "inspiration-browser"],
+  "requiresSlot": { "chapter-toolbar": 1, "inspiration-browser": 1 },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "style": {
+        "type": "string",
+        "title": "书名风格",
+        "description": "生成时会把风格写进提示词",
+        "enum": ["简洁", "爆点", "文艺"],
+        "default": "简洁"
+      }
+    }
+  },
+  "preview": {
+    "actions": [{ "id": "make-title", "title": "生成书名" }],
+    "contentPacks": [{ "id": "starters", "title": "开局灵感", "count": 2 }]
+  },
+  "contributes": {
+    "contentPacks": [
+      {
+        "id": "starters",
+        "title": "开局灵感",
+        "description": "两条可直接用的开篇切入点",
+        "file": "content/items.json",
+        "maxItems": 5000,
+        "actions": [
+          { "kind": "insert-at-cursor", "label": "插入正文" },
+          { "kind": "clipboard", "label": "复制" },
+          { "kind": "run-action", "actionId": "make-title", "label": "据此生成书名" }
+        ]
+      }
+    ],
+    "actions": [
+      {
+        "id": "make-title",
+        "title": "生成书名",
+        "description": "根据一句话灵感生成书名备选，可直接设为书名",
+        "slot": "chapter-toolbar",
+        "form": {
+          "fields": [
+            {
+              "key": "idea",
+              "type": "textarea",
+              "label": "你的灵感",
+              "description": "一句话说清核心设定，越具体越好",
+              "placeholder": "例：末班地铁上的乘客全都没有影子",
+              "required": true,
+              "rows": 3,
+              "maxLength": 500
+            },
+            {
+              "key": "count",
+              "type": "number",
+              "label": "备选数量",
+              "default": 5,
+              "min": 1,
+              "max": 10,
+              "step": 1
+            }
+          ]
+        },
+        "prompt": {
+          "system": "你是中文网文的书名策划，只产出书名本身：不解释、不寒暄、不加编号。",
+          "user": "风格：{{config.style}}\n灵感：{{idea}}\n请给出 {{count}} 个书名。\n1. 每行一个，不要编号、不要书名号、不要解释\n2. 同一批之间差异要明显，不要只换一两个字"
+        },
+        "output": {
+          "mode": "list",
+          "presentation": "chips",
+          "maxItems": 10,
+          "targets": [
+            { "kind": "project-field", "field": "bookTitle", "label": "设为书名", "confirm": true },
+            { "kind": "clipboard", "label": "复制" },
+            { "kind": "insert-at-cursor", "label": "插入到正文" }
+          ]
+        },
+        "model": { "strategy": "current", "minContextTokens": 8192 },
+        "limits": { "timeoutMs": 60000, "maxOutputTokens": 800 }
+      }
+    ]
+  },
+  "permissions": []
+}

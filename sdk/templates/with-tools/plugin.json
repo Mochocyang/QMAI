@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "my-plugin",
+  "name": "我的工具插件",
+  "version": "1.0.0",
+  "description": "给 AI 加一个工具：一句话说清什么时候该用它",
+  "author": { "name": "你的名字", "url": "https://example.com" },
+  "license": "MIT",
+  "requires": { "qmai": ">=4.4.0" },
+  "runtime": { "type": "node", "entry": "index.js", "keepAlive": true, "startTimeoutMs": 10000 },
+  "contributes": {
+    "tools": [
+      {
+        "name": "my_tool",
+        "description": "给模型看的说明：什么时候该用它、传什么进来",
+        "parameters": {
+          "text": { "type": "string", "description": "要处理的文本", "required": true }
+        }
+      }
+    ]
+  },
+  "permissions": []
+}
