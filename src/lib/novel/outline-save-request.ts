@@ -1,4 +1,5 @@
 import { normalizePath } from "@/lib/path-utils"
+import { sanitizeAiHtml } from "./ai-html-safety"
 import type { CharacterSaveDraft } from "./character-save-extractor"
 import { cleanNextStepArtifacts } from "./outline-next-step"
 import { isLikelyChapterOutline } from "./outline-quality-check"
@@ -250,7 +251,10 @@ export function attachOutlineHtml<
   }
   if (next.htmlContent?.trim()) return next
   const html = extractHtmlBlocks(text).find(isCompleteHtmlDocument)
-  return html ? ({ ...next, htmlContent: html } as T) : next
+  if (!html) return next
+  // 模型输出不可信：落盘前先去掉脚本/外链，并打码本机路径与疑似密钥
+  const { html: safeHtml } = sanitizeAiHtml(html)
+  return { ...next, htmlContent: safeHtml } as T
 }
 
 /** 只接受完整网页（有 doctype 或 <html>），避免把代码片段当成整页存下去。 */

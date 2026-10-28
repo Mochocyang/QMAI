@@ -125,13 +125,20 @@ AI 回复中必须包含一个 `outlineSaveRequest` 代码块。八类设定一�
 3. **多份文档**：一次保存 N 个文件，就按保存请求顺序给 N 个 ```html 围栏，一一对应。
 4. **必须好看**（这也是本次改动的核心）：
    - 配色：定义 CSS 变量（1 个主色 + 1–2 个辅助色 + 中性灰阶），不要默认白底黑字；
-   - 层级：`h1` 页头（标题 + 一句话副标题）→ 分区卡片 → 小节，字号/行高/间距成体系（4 或 8 的倍数），正文 `line-height ≥ 1.7`；
-   - 版式：内容用卡片与网格承载（`repeat(auto-fit, minmax(280px, 1fr))`），避免大段纯文字；
-   - 细节：圆角 10–14px、柔和阴影、分区标题带序号或色条；表格有表头底色与斑马纹；关键数值/状态用徽章；
-   - 字体：`font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif`，正文 15–16px，`letter-spacing: .01em`；
-   - 布局：`max-width: 1080px` 居中，窄屏自动单列；页头下方留 32–48px，卡片内边距 20–28px。
+   - 页头：`h1` 标题 + 一句话副标题 + 2–4 个概览徽章（如「47 个分区 · 九境九重 · 十二州」）；
+   - 版式：内容用**分区卡片**承载（`display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr))`），
+     每个分区一张卡（`section`），卡内是段落 / 列表 / 少量对照表；
+   - **禁止「整页只有一张表格」**：表格只能用于真正的对照数据（境界↔标志、区域↔势力），
+     且一张表不超过页面篇幅的一半；其余内容必须用卡片、要点、时间线、徽章来表达；
+   - 细节：圆角 10–14px、柔和阴影（`box-shadow: 0 8px 24px rgba(0,0,0,.06)`）、
+     分区标题带序号或左侧色条；关键状态用彩色徽章；
+   - 字体：`font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif`，正文 15–16px，`line-height: 1.8`，`letter-spacing: .01em`；
+   - 布局：`max-width: 1080px` 居中，窄屏自动单列；页头下方留 32–48px，卡片内边距 20–28px；
+   - 写完后自检：**有没有页头？有没有 ≥3 个分区卡片？是不是变成一张大表？** 不满足就重写。
 5. **内容一致**：网页必须与同批 `.md` 正文是同一份内容（可以重排版式，不得新增未经确认的设定，也不得漏掉关键条目）。
-6. 系统不再为**任何**类型渲染 HTML：没有 ```html 围栏就没有 `.html`，保存框里的「HTML 形式」会置灰。
+6. **不要写入敏感信息**：页面里不得出现项目绝对路径（如 `C:\…`）、记忆库原文、邮箱、任何 API Key / 令牌 / 口令。
+   记忆与设定只作为创作依据，不得逐字搬到页面上。
+7. 系统不再为**任何**类型渲染 HTML：没有 ```html 围栏就没有 `.html`，保存框里的「HTML 形式」会置灰。
 
 结构化数据（`volumeOutlineData` / `chapterOutlineData` / `characterProfileData` / `factionProfileData` / `powerProfileData` / `foreshadowingProfileData` / `goldenFingerProfileData` / `geographyProfileData` / `locationProfileData` / `backgroundProfileData` / `settingOutlineData`）仍照常输出在 ```json 围栏里：后续「从大纲生成章纲/正文」等功能依赖它。它与 HTML 是两件事，两者都要给。
 

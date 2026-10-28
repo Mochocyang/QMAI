@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog"
 import type { CharacterSaveDraft } from "@/lib/novel/character-save-extractor"
 import type { OutlineSaveRequest } from "@/lib/novel/outline-save-request"
+import { auditAiHtml } from "@/lib/novel/ai-html-safety"
 
 const OUTLINE_SAVE_FOLDER_OPTIONS = [
   "大纲",
@@ -60,11 +61,21 @@ export function OutlineSaveConfirmDialog({
     [drafts],
   )
   const hasHtmlContent = useMemo(
+    () => normalRequests.some((request) => Boolean(request.htmlContent?.trim())),
+    [normalRequests],
+  )
+
+  /**
+   * 美观体检：AI 有时会把网页写成「一张表格」，用户明确说这样不行。
+   * 这里不拦保存，只提示建议重新生成（重试要花 token，交给人决定）。
+   */
+  const thinHtmlFiles = useMemo(
     () =>
-      // 人物小传多 Agent 路径的 HTML 由软件侧在保存时生成，这里直接放行 HTML 选项
-      mode === "character" ||
-      normalRequests.some((request) => Boolean(request.htmlContent?.trim())),
-    [mode, normalRequests],
+      normalRequests
+        .filter((request) => request.htmlContent?.trim())
+        .filter((request) => !auditAiHtml(request.htmlContent ?? "").ok)
+        .map((request) => request.fileName),
+    [normalRequests],
   )
   const folderOptions = useMemo(
     () => Array.from(new Set([...OUTLINE_SAVE_FOLDER_OPTIONS, ...normalRequests.map((request) => request.targetFolder)])),
@@ -241,6 +252,13 @@ export function OutlineSaveConfirmDialog({
               </label>
               {!hasHtmlContent ? (
                 <span className="text-xs text-muted-foreground">本轮未生成 HTML 版本，无法保存 HTML。</span>
+              ) : null}
+              {thinHtmlFiles.length > 0 ? (
+                <p className="mt-1 w-full text-xs text-amber-600 dark:text-amber-500" data-ui="outline-html-thin-warning">
+                  这些页面偏简略（缺少分区卡片，或几乎只有一张表格），看起来会比较朴素：
+                  <span className="ml-1 break-all">{thinHtmlFiles.join("、")}</span>
+                  。想要更好看，可以让 AI 重新生成这一份。
+                </p>
               ) : null}
             </div>
           </div>
