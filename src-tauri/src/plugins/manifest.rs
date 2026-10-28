@@ -115,6 +115,64 @@ pub struct Contributes {
     /// 插件充当模型供应商（schema 2 起）
     #[serde(default)]
     pub providers: Vec<ProviderDecl>,
+    /// v3 · Tier 1 灵感素材包（schema 3 起）。内容由宿主读、宿主渲染，不跑插件代码。
+    #[serde(default, rename = "contentPacks")]
+    pub content_packs: Vec<ContentPackDecl>,
+    /// v3 · Tier 1 声明式动作：表单 + 提示词 + 输出映射，作者一行代码不写。
+    #[serde(default)]
+    pub actions: Vec<ActionDecl>,
+    /// v3 · 钩子声明。Phase 3 才执行，这里只把字段收住（见 `validate` 的 v3 段），
+    /// 让作者现在就能写清单、不必等宿主升级后再改一遍。
+    #[serde(default)]
+    pub hooks: Vec<serde_json::Value>,
+}
+
+/// 一个灵感内容包的声明（设计 §4.1）。
+///
+/// `file` 是相对插件根的路径，内容会被宿主读进界面 —— 路径必须能在解析期就判定安全，
+/// 否则一份清单就能让宿主去读插件目录之外的任意 JSON。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContentPackDecl {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    pub file: String,
+    /// 条数上限（设计 D4：单包 5000 条）。缺省 5000，防止作者漏写后宿主被超大包卡住。
+    #[serde(default = "default_max_items", rename = "maxItems")]
+    pub max_items: usize,
+}
+
+fn default_max_items() -> usize {
+    5000
+}
+
+/// 声明式动作的提示词模板（`{{变量}}` 由前端插值，宿主只校验非空）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PromptDecl {
+    pub system: String,
+    pub user: String,
+}
+
+/// 一个声明式动作（设计 §3.1）。`form` / `output` / `limits` 原样透传给前端：
+/// 它们的形状由声明式引擎（TS 侧）负责，Rust 侧不该为它再养一份平行 schema。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActionDecl {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub slot: Option<String>,
+    #[serde(default)]
+    pub form: Option<serde_json::Value>,
+    pub prompt: PromptDecl,
+    pub output: serde_json::Value,
+    #[serde(default)]
+    pub limits: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,6 +220,20 @@ pub struct PluginManifest {
     /// 缺省 false —— 用户没点过「启用」前，不该拉起任何第三方进程。
     #[serde(default, rename = "autoStart")]
     pub auto_start: bool,
+    /// v3 · 配置的 JSON Schema 子集（设计 §6.3）。存成裸 `Value` 而不是结构体：
+    /// 关键字集合会随宿主能力增长，用结构体接会把「我们还没实现的关键字」判成非法。
+    #[serde(default, rename = "configSchema")]
+    pub config_schema: Option<serde_json::Value>,
+    /// v3 · 免执行发现（设计 §8）：**只用于展示**，调用真源仍是运行期。
+    #[serde(default)]
+    pub preview: Option<serde_json::Value>,
+    /// v3 · 本插件要占用的插槽（设计 §6.1）。
+    #[serde(default)]
+    pub slots: Vec<String>,
+    /// v3 · 插槽 → 依赖的插槽 API 版本（设计 D8）。
+    /// 用 HashMap 是因为它是查表用的；无序不影响契约（校验只看 key/值，不做有序输出）。
+    #[serde(default, rename = "requiresSlot")]
+    pub requires_slot: std::collections::HashMap<String, u32>,
 }
 
 /// 校验失败：`code` 是暴露给前端的稳定错误码，`detail` 只用于日志与排障。
@@ -185,7 +257,49 @@ impl ManifestError {
 }
 
 /// 当前支持的最高清单版本。新增字段必须 bump 它（见设计文档 4.2 的封闭契约规则）。
-pub const CURRENT_SCHEMA: u32 = 2;
+///
+/// v3 起：`contentPacks` / `actions` / `hooks` / `configSchema` / `slots` / `requiresSlot`
+/// / `preview` 才允许出现（v3 字段出现在 schema 1/2 上由 `validate` 拒掉，
+/// 因为老宿主会静默丢掉它们，作者却以为已经生效）。schema 1/2 的清单仍然全部接受。
+pub const CURRENT_SCHEMA: u32 = 3;
+
+/// v3 引入的新贡献面所需的最低清单版本。单独取名而不是到处写 `3`：
+/// 这条闸门与 `CURRENT_SCHEMA` 是两个概念（后者还会继续涨，闸门不会动）。
+const V3_SCHEMA: u32 = 3;
+
+/// 宿主对外暴露的插槽（设计 §6.1）。**受控资源**：新增需评审并 bump 版本。
+///
+/// 插槽是宿主与插件之间最脆弱的耦合面：名字改一个字符，线上插件的按钮就静默消失。
+/// 所以这里是白名单而不是「任意字符串 + 前端自己忽略」。
+pub const SLOT_IDS: &[&str] = &[
+    "chapter-toolbar",
+    "inspiration-browser",
+    "editor-context-menu",
+    "outline-toolbar",
+    "analysis-toolbar",
+    "plugin-center",
+];
+
+/// 每个插槽当前的 API 版本（设计 D8）。插槽语义变了就 bump 这里的值，
+/// 老插件按 `requiresSlot` 里声明的版本继续渲染或提示升级。
+pub const SLOT_API_VERSIONS: &[(&str, u32)] = &[
+    ("chapter-toolbar", 1),
+    ("inspiration-browser", 1),
+    ("editor-context-menu", 1),
+    ("outline-toolbar", 1),
+    ("analysis-toolbar", 1),
+    ("plugin-center", 1),
+];
+
+/// 插槽当前支持的 API 版本。未知插槽返回 0：调用方（`validate`）已经在
+/// key 校验阶段拒过未知插槽，这里只需不 panic。
+fn slot_api_version(slot: &str) -> u32 {
+    SLOT_API_VERSIONS
+        .iter()
+        .find(|(id, _)| *id == slot)
+        .map(|(_, version)| *version)
+        .unwrap_or(0)
+}
 
 /// 宿主暴露给插件的服务名白名单（第一期只开这两个）
 pub const KNOWN_INJECT: &[&str] = &["host.qmai.tools", "host.logger"];
@@ -332,6 +446,53 @@ fn is_valid_provider_id(id: &str) -> bool {
         _ => return false,
     }
     chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// 内容包 / 动作的 id 规则（设计 §4.1 / §3.1）：`^[a-z][a-z0-9-]{0,31}$`。
+///
+/// 它们会被前端拿去当 DOM key、按钮 id、URL 查询参数用。放开成任意字符串
+/// 会让「两个作者各写一个 `API Key`」在同一个插槽里撞成同一个 key。
+fn is_valid_content_pack_id(id: &str) -> bool {
+    let len = id.chars().count();
+    if !(1..=32).contains(&len) {
+        return false;
+    }
+    let mut chars = id.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_lowercase() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// 内容包文件路径（相对插件根，允许 `content/x.json` 这种子路径）。
+///
+/// 与 `is_safe_relative`（入口文件）分开写，因为这里更严：反斜杠也拒。
+/// 内容包随包分发，zip 里统一用 `/`，允许反斜杠只会让 Windows 上的作者写出
+/// 只有自己机器能读的清单。
+fn is_safe_content_file(file: &str) -> bool {
+    if file.trim().is_empty() || file != file.trim() {
+        return false;
+    }
+    if file.chars().any(char::is_control) {
+        return false;
+    }
+    // 白名单字符：字母数字 + `-` `_` `.` `/`。这同时排掉了绝对路径（`/x` 与 `C:/x`）、
+    // 反斜杠、冒号、`~`、空格与通配符，比逐条黑名单更难漏。
+    if !file
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/'))
+    {
+        return false;
+    }
+    if file.starts_with('/') {
+        return false;
+    }
+    let segments: Vec<&str> = file.split('/').collect();
+    // 空段（`a//b`、`a/`）与 `.`/`..` 段一律拒：前者是拼写错误，后者能跳目录。
+    !segments
+        .iter()
+        .any(|segment| segment.is_empty() || *segment == "." || *segment == "..")
 }
 
 /// 设置页由插件自己托管在 `127.0.0.1:<port>` 上，所以只接受站内绝对路径。
@@ -531,6 +692,104 @@ impl PluginManifest {
                 }
             }
         }
+
+        self.validate_v3()?;
+        Ok(())
+    }
+
+    /// schema 3 新增的声明面校验（设计 §2.1 / §3.1 / §4.1 / §6）。
+    ///
+    /// 单独成函数而不是继续往 `validate` 里堆：v3 的规则有 6 条错误码，
+    /// 与 v2 的 provider 规则完全无关，混在一个函数里会让「错误优先级」越来越难读。
+    fn validate_v3(&self) -> Result<(), ManifestError> {
+        // 老清单（schema 1/2）声明 v3 字段：老宿主会静默丢掉，作者却以为生效了。
+        // 空数组不算「声明」—— 模板生成器吐一个 `"contentPacks": []` 是常见写法。
+        let v3_declared = !self.contributes.content_packs.is_empty()
+            || !self.contributes.actions.is_empty()
+            || !self.contributes.hooks.is_empty()
+            || self.config_schema.is_some();
+        if self.schema < V3_SCHEMA && v3_declared {
+            return Err(ManifestError::new(
+                "E_V3_REQUIRES_SCHEMA_3",
+                "contentPacks / actions / hooks / configSchema 需要 schema 3",
+            ));
+        }
+
+        // 内容包：先看路径（最危险），再看 id（会进前端 key），最后查重。
+        let mut seen_packs = std::collections::HashSet::new();
+        for pack in &self.contributes.content_packs {
+            if !is_safe_content_file(&pack.file) {
+                return Err(ManifestError::new(
+                    "E_CONTENT_FILE_INVALID",
+                    pack.file.clone(),
+                ));
+            }
+            if !is_valid_content_pack_id(&pack.id) {
+                return Err(ManifestError::new(
+                    "E_CONTENT_PACK_ID_INVALID",
+                    pack.id.clone(),
+                ));
+            }
+            if !seen_packs.insert(pack.id.as_str()) {
+                // 前端按 pack id 建索引：重复时后者覆盖前者，用户会少一个包却查不出原因。
+                return Err(ManifestError::new(
+                    "E_CONTENT_PACK_ID_INVALID",
+                    format!("{} (duplicate)", pack.id),
+                ));
+            }
+        }
+
+        let mut seen_actions = std::collections::HashSet::new();
+        for action in &self.contributes.actions {
+            if !is_valid_content_pack_id(&action.id) {
+                return Err(ManifestError::new("E_ACTION_ID_INVALID", action.id.clone()));
+            }
+            if !seen_actions.insert(action.id.as_str()) {
+                // 动作 id 是「点击哪个按钮」的唯一标识，重复会让一个按钮永远点不到。
+                return Err(ManifestError::new(
+                    "E_ACTION_ID_INVALID",
+                    format!("{} (duplicate)", action.id),
+                ));
+            }
+            if let Some(slot) = action.slot.as_deref() {
+                // 空串等于「不挂插槽」（模板里常见 `"slot": ""`），只有非空才当声明。
+                if !slot.trim().is_empty() && !SLOT_IDS.contains(&slot) {
+                    return Err(ManifestError::new("E_SLOT_UNKNOWN", slot.to_string()));
+                }
+            }
+            // 提示词是声明式动作的全部业务逻辑：空的 system/user 会得到一份
+            // 「模型不知道要干什么」的请求，且作者在界面上完全看不出来。
+            if action.prompt.system.trim().is_empty() || action.prompt.user.trim().is_empty() {
+                return Err(ManifestError::new(
+                    "E_PROMPT_EMPTY",
+                    format!("{} (system / user 不能为空)", action.id),
+                ));
+            }
+        }
+
+        // 插槽：先查名字，再查版本。分开两轮是为了「名字写错」永远优先于
+        // 「版本超前」报出来 —— 前者是笔误，后者才是真要升级宿主。
+        for slot in &self.slots {
+            if !SLOT_IDS.contains(&slot.as_str()) {
+                return Err(ManifestError::new("E_SLOT_UNKNOWN", slot.clone()));
+            }
+        }
+        for slot in self.requires_slot.keys() {
+            if !SLOT_IDS.contains(&slot.as_str()) {
+                return Err(ManifestError::new("E_SLOT_UNKNOWN", slot.clone()));
+            }
+        }
+        for (slot, required) in &self.requires_slot {
+            let current = slot_api_version(slot);
+            if *required > current {
+                // detail 必须带名字与当前版本：只说「版本不支持」，作者不知道该改谁。
+                return Err(ManifestError::new(
+                    "E_SLOT_VERSION_UNSUPPORTED",
+                    format!("{slot} 需要插槽 API 版本 {required}，宿主当前支持 {current}"),
+                ));
+            }
+        }
+
         Ok(())
     }
 }
@@ -560,9 +819,9 @@ mod tests {
 
     #[test]
     fn rejects_unsupported_schema_version() {
-        // CURRENT_SCHEMA = 2：1 与 2 都合法，3 起才是"不支持"。
+        // CURRENT_SCHEMA = 3：1/2/3 都合法，4 起才是"不支持"。
         // 每次 bump CURRENT_SCHEMA 时，这里的数字要跟着 +1 —— 它是一条版本护栏。
-        let err = PluginManifest::parse(&MINIMAL.replace("\"schema\": 1", "\"schema\": 3"))
+        let err = PluginManifest::parse(&MINIMAL.replace("\"schema\": 1", "\"schema\": 4"))
             .unwrap_err();
         assert_eq!(err.code(), "E_SCHEMA_UNSUPPORTED");
     }
@@ -976,5 +1235,320 @@ mod tests {
         let full = PluginManifest::parse(FULL_DOC_EXAMPLE).expect("schema 1 完整示例必须继续通过");
         assert_eq!(full.schema, 1);
         assert!(full.contributes.providers.is_empty());
+    }
+
+    // ── schema 3 · contentPacks / actions / hooks / configSchema ─────────
+
+    /// schema 3 的最小清单。各用例只在它上面做最小替换，
+    /// 这样失败时能确定是被目标规则拒的，而不是别的字段先炸。
+    const V3_MINIMAL: &str = r#"{
+      "schema": 3,
+      "id": "idea-generator",
+      "name": "脑洞生成器",
+      "version": "1.0.0",
+      "runtime": { "type": "node", "entry": "index.js" }
+    }"#;
+
+    /// 一个合法的内容包声明（设计 §4.1）
+    const CONTENT_PACK: &str = r#"{
+      "id": "scifi-inspiration",
+      "title": "科幻灵感包",
+      "description": "120 条赛博 / 末世 / 星际的设定切入点",
+      "file": "content/inspirations.json",
+      "maxItems": 120
+    }"#;
+
+    /// 一个合法的声明式动作（设计 §3.1）
+    const ACTION: &str = r#"{
+      "id": "generate-titles",
+      "title": "生成书名",
+      "description": "根据题材生成书名备选",
+      "slot": "chapter-toolbar",
+      "form": { "fields": [] },
+      "prompt": { "system": "你是中文网文书名策划。", "user": "题材：{{genre}}" },
+      "output": { "mode": "list" },
+      "limits": { "timeoutMs": 60000 }
+    }"#;
+
+    /// 在 V3_MINIMAL 的 `runtime` 之前插入一段顶层 JSON。
+    fn v3_with_top(fields: &str) -> String {
+        V3_MINIMAL.replace("\"runtime\"", &format!("{fields}, \"runtime\""))
+    }
+
+    fn v3_with_contributes(contributes: &str) -> String {
+        v3_with_top(&format!("\"contributes\": {contributes}"))
+    }
+
+    /// 一条只有 id/title/file 的内容包声明（不写 maxItems，用来验证默认值）。
+    fn pack_with_file(file: &str) -> String {
+        format!(
+            r#"{{"id": "scifi", "title": "科幻灵感包", "file": {}}}"#,
+            serde_json::to_string(file).expect("字符串可序列化")
+        )
+    }
+
+    #[test]
+    fn accepts_schema_3_with_content_packs_and_actions() {
+        let src = v3_with_top(&format!(
+            r#""configSchema": {{"type": "object", "properties": {{"style": {{"type": "string"}}}}}},
+               "slots": ["chapter-toolbar", "inspiration-browser"],
+               "requiresSlot": {{"chapter-toolbar": 1}},
+               "preview": {{"actions": [{{"id": "generate-titles", "title": "生成书名"}}]}},
+               "contributes": {{"contentPacks": [{CONTENT_PACK}], "actions": [{ACTION}],
+                                 "hooks": [{{"on": "afterLlmResponse", "impl": "prompt", "template": "去 AI 味"}}]}}"#
+        ));
+        let m = PluginManifest::parse(&src).expect("schema 3 的完整声明必须通过");
+        assert_eq!(m.schema, 3);
+        assert_eq!(m.contributes.content_packs.len(), 1);
+        assert_eq!(m.contributes.content_packs[0].id, "scifi-inspiration");
+        assert_eq!(
+            m.contributes.content_packs[0].file,
+            "content/inspirations.json"
+        );
+        assert_eq!(m.contributes.content_packs[0].max_items, 120);
+        assert_eq!(m.contributes.actions.len(), 1);
+        assert_eq!(m.contributes.actions[0].id, "generate-titles");
+        assert_eq!(m.contributes.actions[0].slot.as_deref(), Some("chapter-toolbar"));
+        assert_eq!(m.contributes.actions[0].prompt.user, "题材：{{genre}}");
+        assert_eq!(m.contributes.hooks.len(), 1);
+        assert!(m.config_schema.is_some());
+        assert_eq!(m.slots, vec!["chapter-toolbar", "inspiration-browser"]);
+        assert_eq!(m.requires_slot.get("chapter-toolbar"), Some(&1));
+        assert!(m.preview.is_some());
+        // v3 清单不再声明 provider/tools，两个老贡献面必须仍是空 vec
+        assert!(m.contributes.providers.is_empty());
+        assert!(m.contributes.tools.is_empty());
+    }
+
+    #[test]
+    fn content_pack_max_items_defaults_to_5000() {
+        let src = v3_with_contributes(&format!(
+            "{{\"contentPacks\": [{}]}}",
+            pack_with_file("content/inspirations.json")
+        ));
+        let m = PluginManifest::parse(&src).expect("省略 maxItems 必须通过");
+        assert_eq!(m.contributes.content_packs[0].max_items, 5000);
+    }
+
+    #[test]
+    fn rejects_v3_fields_on_schema_1_or_2() {
+        let v3_fields = [
+            format!("\"contributes\": {{\"contentPacks\": [{CONTENT_PACK}]}}"),
+            format!("\"contributes\": {{\"actions\": [{ACTION}]}}"),
+            r#""contributes": {"hooks": [{"on": "afterLlmResponse"}]}"#.to_string(),
+            r#""configSchema": {"type": "object"}"#.to_string(),
+        ];
+        for schema in 1..=2u32 {
+            for field in &v3_fields {
+                let src = MINIMAL
+                    .replace("\"schema\": 1", &format!("\"schema\": {schema}"))
+                    .replace("\"runtime\"", &format!("{field}, \"runtime\""));
+                let err = PluginManifest::parse(&src)
+                    .expect_err(&format!("schema {schema} 声明 v3 字段必须被拒绝"));
+                assert_eq!(err.code(), "E_V3_REQUIRES_SCHEMA_3", "schema {schema} / {field}");
+            }
+        }
+        // 空数组不算「声明」：模板生成器吐 `"contentPacks": []` 是常见写法，
+        // 在 schema 1/2 上不该因此装不上。
+        for schema in 1..=2u32 {
+            let src = MINIMAL
+                .replace("\"schema\": 1", &format!("\"schema\": {schema}"))
+                .replace(
+                    "\"runtime\"",
+                    "\"contributes\": {\"contentPacks\": [], \"actions\": [], \"hooks\": []}, \"runtime\"",
+                );
+            assert!(PluginManifest::parse(&src).is_ok(), "schema {schema} 空声明必须通过");
+        }
+    }
+
+    #[test]
+    fn rejects_content_pack_file_with_traversal() {
+        // 内容包文件由宿主读进界面：绝对路径 / `..` / 反斜杠 / 空路径 / 可疑字符
+        // 都等于让一份清单把读取范围挪出插件目录。
+        for bad in [
+            "../x.json",
+            "content/../../x.json",
+            "/abs/x.json",
+            "..\\x.json",
+            "C:/x.json",
+            "",
+            "content//x.json",
+            "content/",
+            "content/x json",
+            " content/x.json",
+        ] {
+            let src = v3_with_contributes(&format!(
+                "{{\"contentPacks\": [{}]}}",
+                pack_with_file(bad)
+            ));
+            let err = PluginManifest::parse(&src)
+                .expect_err(&format!("内容包路径 {bad:?} 必须被拒绝"));
+            assert_eq!(err.code(), "E_CONTENT_FILE_INVALID", "file: {bad:?}");
+        }
+
+        // 合法的子路径必须放行（设计 §2.2 的目录结构就是这个形状）
+        let ok = v3_with_contributes(&format!(
+            "{{\"contentPacks\": [{}]}}",
+            pack_with_file("content/inspirations.json")
+        ));
+        assert!(PluginManifest::parse(&ok).is_ok());
+    }
+
+    #[test]
+    fn rejects_duplicate_content_pack_ids() {
+        let src = v3_with_contributes(&format!(
+            "{{\"contentPacks\": [{CONTENT_PACK}, {CONTENT_PACK}]}}"
+        ));
+        let err = PluginManifest::parse(&src).expect_err("重复的内容包 id 必须被拒绝");
+        assert_eq!(err.code(), "E_CONTENT_PACK_ID_INVALID");
+        assert!(err.detail.contains("duplicate"), "detail: {}", err.detail);
+    }
+
+    #[test]
+    fn rejects_content_pack_id_outside_the_documented_pattern() {
+        for bad in ["Scifi", "1scifi", "", "-scifi", "scifi inspiration", "scifi_1"] {
+            let pack = format!(
+                r#"{{"id": {}, "title": "科幻", "file": "content/x.json"}}"#,
+                serde_json::to_string(bad).expect("字符串可序列化")
+            );
+            let src = v3_with_contributes(&format!("{{\"contentPacks\": [{pack}]}}"));
+            let err = PluginManifest::parse(&src)
+                .expect_err(&format!("内容包 id {bad:?} 必须被拒绝"));
+            assert_eq!(err.code(), "E_CONTENT_PACK_ID_INVALID", "id: {bad:?}");
+        }
+        // 长度上限 32：33 个字符要拒
+        let too_long = "a".repeat(33);
+        let pack = format!(
+            r#"{{"id": "{too_long}", "title": "科幻", "file": "content/x.json"}}"#
+        );
+        let src = v3_with_contributes(&format!("{{\"contentPacks\": [{pack}]}}"));
+        assert_eq!(
+            PluginManifest::parse(&src).unwrap_err().code(),
+            "E_CONTENT_PACK_ID_INVALID"
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_slot_in_action() {
+        let action = ACTION.replace("\"chapter-toolbar\"", "\"chapter-toolbar-v2\"");
+        let src = v3_with_contributes(&format!("{{\"actions\": [{action}]}}"));
+        let err = PluginManifest::parse(&src).expect_err("未知插槽必须被拒绝");
+        assert_eq!(err.code(), "E_SLOT_UNKNOWN");
+        assert!(
+            err.detail.contains("chapter-toolbar-v2"),
+            "detail 应指出插槽名：{}",
+            err.detail
+        );
+
+        // 空 slot 等于「不挂插槽」，是模板里的常见写法，必须放行
+        let no_slot = ACTION.replace("\"slot\": \"chapter-toolbar\"", "\"slot\": \"\"");
+        assert!(PluginManifest::parse(&v3_with_contributes(&format!(
+            "{{\"actions\": [{no_slot}]}}"
+        )))
+        .is_ok());
+    }
+
+    #[test]
+    fn rejects_unknown_slot_in_slots_and_requires_slot() {
+        for src in [
+            v3_with_top(r#""slots": ["no-such-slot"]"#),
+            v3_with_top(r#""requiresSlot": {"no-such-slot": 1}"#),
+        ] {
+            let err = PluginManifest::parse(&src).expect_err("未知插槽必须被拒绝");
+            assert_eq!(err.code(), "E_SLOT_UNKNOWN", "src: {src}");
+            assert!(
+                err.detail.contains("no-such-slot"),
+                "detail 应指出插槽名：{}",
+                err.detail
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_empty_prompt() {
+        for (system, user) in [("   ", "给点灵感"), ("你是策划", "")] {
+            let action = format!(
+                r#"{{"id": "a1", "title": "生成", "prompt": {{"system": {}, "user": {}}}, "output": {{"mode": "text"}}}}"#,
+                serde_json::to_string(system).expect("字符串可序列化"),
+                serde_json::to_string(user).expect("字符串可序列化")
+            );
+            let src = v3_with_contributes(&format!("{{\"actions\": [{action}]}}"));
+            let err = PluginManifest::parse(&src)
+                .expect_err(&format!("空提示词必须被拒绝（{system:?}/{user:?}）"));
+            assert_eq!(err.code(), "E_PROMPT_EMPTY", "system: {system:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_bad_or_duplicate_action_ids() {
+        for bad in ["Generate-Titles", "1generate", "", "-generate"] {
+            let action = format!(
+                r#"{{"id": {}, "title": "生成", "prompt": {{"system": "s", "user": "u"}}, "output": {{"mode": "text"}}}}"#,
+                serde_json::to_string(bad).expect("字符串可序列化")
+            );
+            let src = v3_with_contributes(&format!("{{\"actions\": [{action}]}}"));
+            let err = PluginManifest::parse(&src)
+                .expect_err(&format!("动作 id {bad:?} 必须被拒绝"));
+            assert_eq!(err.code(), "E_ACTION_ID_INVALID", "id: {bad:?}");
+        }
+        let src = v3_with_contributes(&format!("{{\"actions\": [{ACTION}, {ACTION}]}}"));
+        let err = PluginManifest::parse(&src).expect_err("重复的动作 id 必须被拒绝");
+        assert_eq!(err.code(), "E_ACTION_ID_INVALID");
+        assert!(err.detail.contains("duplicate"), "detail: {}", err.detail);
+    }
+
+    #[test]
+    fn rejects_slot_version_from_the_future() {
+        let src = v3_with_top(r#""requiresSlot": {"chapter-toolbar": 2}"#);
+        let err = PluginManifest::parse(&src).expect_err("超前声明的插槽版本必须被拒绝");
+        assert_eq!(err.code(), "E_SLOT_VERSION_UNSUPPORTED");
+        // detail 必须带插槽名与宿主当前版本，否则作者不知道该改谁、改到多少
+        assert!(
+            err.detail.contains("chapter-toolbar"),
+            "detail 应指出插槽名：{}",
+            err.detail
+        );
+        assert!(
+            err.detail.contains('1'),
+            "detail 应指出宿主当前版本：{}",
+            err.detail
+        );
+
+        // 声明当前版本必须通过
+        assert!(PluginManifest::parse(&v3_with_top(
+            r#""requiresSlot": {"chapter-toolbar": 1}"#
+        ))
+        .is_ok());
+    }
+
+    #[test]
+    fn schema_1_and_2_still_parse() {
+        // 回归护栏：v1/v2 清单在 v3 宿主下必须继续可用（设计 §12）
+        for schema in 1..=2u32 {
+            let src = MINIMAL.replace("\"schema\": 1", &format!("\"schema\": {schema}"));
+            let m = PluginManifest::parse(&src).expect("老清单必须继续通过");
+            assert_eq!(m.schema, schema);
+            assert!(m.contributes.content_packs.is_empty());
+            assert!(m.contributes.actions.is_empty());
+            assert!(m.contributes.hooks.is_empty());
+            assert!(m.config_schema.is_none());
+            assert!(m.preview.is_none());
+            assert!(m.slots.is_empty());
+            assert!(m.requires_slot.is_empty());
+        }
+        // 老的完整示例（含 tools/stages/panels）同样不受影响
+        assert!(PluginManifest::parse(FULL_DOC_EXAMPLE).is_ok());
+    }
+
+    #[test]
+    fn accepts_every_supported_schema_version_up_to_3() {
+        // `accepts_every_supported_schema_version` 是按 CURRENT_SCHEMA 遍历的，
+        // 这条用例额外钉住「当前上限确实是 3」，防止有人把上限改了却没意识到
+        // 老测试的循环范围跟着一起漂。
+        assert_eq!(CURRENT_SCHEMA, 3);
+        for v in 1..=3u32 {
+            let src = MINIMAL.replace("\"schema\": 1", &format!("\"schema\": {v}"));
+            assert!(PluginManifest::parse(&src).is_ok(), "schema {v} 应当被接受");
+        }
     }
 }

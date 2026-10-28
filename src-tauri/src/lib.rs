@@ -347,6 +347,12 @@ commands::fs::read_file,
             plugins::plugins_providers,
             plugins::plugins_provider_auth,
             plugins::plugins_provider_refresh_models,
+            // 插件配置（设计 §6.3）：读/写按 configSchema 校验；
+            // 密钥只写内存（盘上留占位符），读接口永不返回真值。
+            plugins::plugins_config_get,
+            plugins::plugins_config_set,
+            plugins::plugins_config_secret_set,
+            plugins::plugins_config_secret_has,
             // WorkBuddy 账号登录（国内版）：登录三条、账号三条、导入两条、
             // 模型目录两条、网关一条。返回值一律不含 token。
             workbuddy::commands::workbuddy_login_start,

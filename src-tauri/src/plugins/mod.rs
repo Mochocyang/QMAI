@@ -6,6 +6,7 @@
 
 // manifest::* 在任务 3+ 被 registry / mcp_bridge / installer 消费；在此之前
 // dead_code 警告是预期状态，不要用 #[allow(dead_code)] 掩盖它。
+pub mod config;
 pub mod host_api;
 pub mod installer;
 pub mod manifest;
@@ -75,6 +76,11 @@ pub struct PluginSummary {
     /// 设计 §7 那段高危提示（它会看到用户与模型的完整对话）。
     /// 读不到清单就是空 vec —— 管理页仍要能列出并操作损坏的插件。
     pub provider_ids: Vec<String>,
+    /// 清单里的静态声明面（`preview`，设计 §8）。
+    ///
+    /// 只用于**展示**：让插件中心/插槽在不启动插件进程的前提下就有东西可渲染。
+    /// 调用真源仍是运行期（`tools/list`、`/v1/models`），两边不一致时以运行期为准。
+    pub preview: Option<serde_json::Value>,
 }
 
 #[derive(serde::Serialize)]
@@ -111,6 +117,8 @@ fn summary_from_entry(
         // 由 `plugins_list` 单独补齐（它才知道插件目录在哪）；这里给空 vec 保证
         // 结构体没有「未初始化」的分支。
         provider_ids: Vec::new(),
+        // 同上：静态声明面只有 `plugins_list` 读得到清单，装/启停路径给 None。
+        preview: None,
     }
 }
 
@@ -166,6 +174,15 @@ fn manifest_provider_ids(dir: &Path) -> Vec<String> {
             .collect(),
         Err(_) => Vec::new(),
     }
+}
+
+/// 读清单里的静态声明面（`preview`，设计 §8）。
+///
+/// 用途仅限展示：插件中心要在**不启动进程**的前提下画出「这个插件提供哪些动作/灵感包」。
+/// 读不到/清单损坏一律 `None` —— 管理页仍要能列出并操作损坏的插件。
+fn manifest_preview(dir: &Path) -> Option<serde_json::Value> {
+    let raw = std::fs::read_to_string(dir.join("plugin.json")).ok()?;
+    manifest::PluginManifest::parse(&raw).ok()?.preview
 }
 
 /// 读一个**已安装**插件目录里的清单。目录缺失、清单损坏都返回 `None`。
@@ -290,6 +307,13 @@ async fn start_plugin(
         .as_ref()
         .map(|_| uuid::Uuid::new_v4().to_string());
 
+    // 配置注入（设计 §6.3）：QMAI_CONFIG 与 QMAI_HOST_* 同一批 env —— 插件在 initialize
+    // 之前就能读到自己的配置，不用在协议里多传一份可能被日志记下来的字段。
+    // 必须在这里现取而不是缓存：密钥真值只在内存里，盘上只有占位符。
+    // 配置读不出来就拒绝启动（与清单损坏同样处理）：带着「默认配置」静默跑起来，
+    // 用户会以为自己的设置生效了，实际全是另一套参数。
+    let config_json = config::config_env_json(root, &entry.id)?;
+
     // 宿主 API：首次启动，之后复用同一个端口。std 锁只包住启动动作，不跨 await。
     let port = {
         let mut guard = host_port.lock().map_err(|_| "状态不可用".to_string())?;
@@ -325,6 +349,7 @@ async fn start_plugin(
         ("QMAI_HOST_URL", host_url.as_str()),
         ("QMAI_HOST_TOKEN", token.as_str()),
         ("QMAI_PLUGIN_ID", entry.id.as_str()),
+        ("QMAI_CONFIG", config_json.as_str()),
     ] {
         cmd.env(key, value);
     }
@@ -654,7 +679,13 @@ pub async fn plugins_list(state: State<'_, PluginsState>) -> Result<Vec<PluginSu
     let registry = PluginRegistry::load(&root)?;
 
     // 先读磁盘（可能慢），再拿 running 锁；避免因为读清单把启停命令堵住。
-    let base: Vec<(RegistryEntry, String, String, Vec<String>)> = registry
+    let base: Vec<(
+        RegistryEntry,
+        String,
+        String,
+        Vec<String>,
+        Option<serde_json::Value>,
+    )> = registry
         .list()
         .into_iter()
         .map(|entry| {
@@ -662,7 +693,9 @@ pub async fn plugins_list(state: State<'_, PluginsState>) -> Result<Vec<PluginSu
             let (name, description) = manifest_display(&dir);
             // provider id 只有清单里有，前端没有别的途径知道「是不是 provider 插件」。
             let provider_ids = manifest_provider_ids(&dir);
-            (entry, name, description, provider_ids)
+            // 静态声明面（设计 §8）：只读清单，不启动插件就能渲染插件中心与插槽。
+            let preview = manifest_preview(&dir);
+            (entry, name, description, provider_ids, preview)
         })
         .collect();
 
@@ -676,12 +709,13 @@ pub async fn plugins_list(state: State<'_, PluginsState>) -> Result<Vec<PluginSu
 
     Ok(base
         .into_iter()
-        .map(|(entry, name, description, provider_ids)| {
+        .map(|(entry, name, description, provider_ids, preview)| {
             let (process_state, tool_count) =
                 states.get(&entry.id).copied().unwrap_or(("stopped", 0));
             let mut summary =
                 summary_from_entry(&entry, name, description, process_state, tool_count);
             summary.provider_ids = provider_ids;
+            summary.preview = preview;
             summary
         })
         .collect())
@@ -975,6 +1009,105 @@ pub async fn plugins_provider_refresh_models(
     provider_id: String,
 ) -> Result<Vec<providers::ProviderModel>, String> {
     refresh_provider_models(state.inner(), &provider_id, PROVIDER_REFRESH_PROBE_TIMEOUT).await
+}
+
+// ── 插件配置（设计 §6.3）──────────────────────────────
+//
+// 四条命令都先过 `require_manifest`：pluginId 会拼成磁盘路径，而且「未安装的插件」
+// 不该能读出/写入任何配置（否则一个笔误的 id 就悄悄建出一条配置记录）。
+//
+// 写命令的落盘失败语义：`set` / `set_secret` 先改内存再 `save`，落盘失败会把错误
+// 抛给界面，但内存里已是新值（下一次成功的 save 会补写）。这里刻意不做内存回滚 ——
+// 密钥真值本来就不落盘，回滚反而会让用户刚设好的密钥凭空消失。
+
+/// 配置类命令的入口闸门：id 必须合法、插件必须真的装着。
+fn require_manifest(root: &Path, plugin_id: &str) -> Result<manifest::PluginManifest, String> {
+    if !manifest::is_valid_id(plugin_id) {
+        return Err(format!("非法插件 id：{plugin_id}"));
+    }
+    installed_manifest(root, plugin_id).ok_or_else(|| format!("插件 {plugin_id} 未安装或清单损坏"))
+}
+
+/// 读一个插件的配置。
+///
+/// 密钥字段一律回 `""`：真值只注入插件进程（`QMAI_CONFIG`），不经界面回传 ——
+/// 前端渲染时也不需要真值，只要知道「这个字段存在、要按密码框渲染」。
+#[tauri::command]
+pub async fn plugins_config_get(
+    state: State<'_, PluginsState>,
+    plugin_id: String,
+) -> Result<serde_json::Value, String> {
+    let root = state.root();
+    let manifest = require_manifest(&root, &plugin_id)?;
+    let schema = manifest
+        .config_schema
+        .unwrap_or_else(|| serde_json::json!({}));
+    let store = config::shared(&root)?;
+    let guard = store.lock().map_err(|_| "插件配置状态不可用".to_string())?;
+    Ok(guard.get_for_client(&plugin_id, &schema))
+}
+
+/// 保存一个插件的配置（按清单里的 `configSchema` 校验后落盘）。
+///
+/// 没有 `configSchema` 的插件只接受空对象：既不放行任意键（插件读不懂自己没声明的
+/// 配置），也不拒绝空表单保存（用户「清空」这个操作必须能成功）。
+#[tauri::command]
+pub async fn plugins_config_set(
+    state: State<'_, PluginsState>,
+    plugin_id: String,
+    value: serde_json::Value,
+) -> Result<(), String> {
+    let root = state.root();
+    let manifest = require_manifest(&root, &plugin_id)?;
+    let declared = manifest.config_schema;
+    if declared.is_none()
+        && !value
+            .as_object()
+            .map(|map| map.is_empty())
+            .unwrap_or(false)
+    {
+        return Err("该插件未声明 configSchema，配置只能是空对象 {}".to_string());
+    }
+    let schema = declared.unwrap_or_else(|| serde_json::json!({}));
+    let store = config::shared(&root)?;
+    let mut guard = store.lock().map_err(|_| "插件配置状态不可用".to_string())?;
+    guard.set(&plugin_id, value, &schema)?;
+    guard.save(&root)
+}
+
+/// 单独设一个密钥字段。真值只写内存，盘上留占位符（设计 §6.3）。
+#[tauri::command]
+pub async fn plugins_config_secret_set(
+    state: State<'_, PluginsState>,
+    plugin_id: String,
+    field: String,
+    value: String,
+) -> Result<(), String> {
+    let root = state.root();
+    let manifest = require_manifest(&root, &plugin_id)?;
+    let schema = manifest
+        .config_schema
+        .unwrap_or_else(|| serde_json::json!({}));
+    let store = config::shared(&root)?;
+    let mut guard = store.lock().map_err(|_| "插件配置状态不可用".to_string())?;
+    guard.set_secret(&plugin_id, &field, &value, &schema)?;
+    guard.save(&root)
+}
+
+/// 某个密钥字段是否已在本进程内存里设过。
+///
+/// 重启后一定是 `false`：密钥不落盘，这条回答的正是「要不要提示用户重填」。
+#[tauri::command]
+pub async fn plugins_config_secret_has(
+    state: State<'_, PluginsState>,
+    plugin_id: String,
+    field: String,
+) -> Result<bool, String> {
+    let root = state.root();
+    require_manifest(&root, &plugin_id)?;
+    let store = config::shared(&root)?;
+    let guard = store.lock().map_err(|_| "插件配置状态不可用".to_string())?;
+    Ok(guard.has_secret(&plugin_id, &field))
 }
 
 /// 刷新模型的真实实现（命令层只做 `State` 解包），便于测试直接驱动。
