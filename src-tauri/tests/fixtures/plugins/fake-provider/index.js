@@ -17,8 +17,11 @@
 // - SSE 必须原样以 `data: [DONE]` 结尾，并且带一个 `usage` 分片：没有 usage，
 //   QMAI 的用量统计会全是 0（设计 3.2）。
 //
-// 环境变量开关（仅供测试注入，见 `provider_probe_failure_marks_not_ready_without_killing_the_plugin`）：
-//   QMAI_FAKE_HEALTH_FAIL=1 → `/health` 恒返 500，用来验证「探活失败只标 ready=false」。
+// 探活开关（仅供测试，**不属于** provider 契约）：
+//   - 启动值：`QMAI_FAKE_HEALTH_FAIL=1` → `/health` 恒返 500；
+//   - 运行中切换：`POST /__fixture/health-fail`（要 Bearer）`{"fail": true|false}`
+//     —— 让用例能在**同一个实例**上把 /health 切坏再切好，见
+//     `refresh_models_does_not_flip_ready_when_health_is_failing`。
 
 "use strict";
 
@@ -27,7 +30,8 @@ const readline = require("node:readline");
 
 const PORT = Number(process.env.QMAI_PROVIDER_PORT || "");
 const TOKEN = process.env.QMAI_PROVIDER_TOKEN || "";
-const HEALTH_FAIL = process.env.QMAI_FAKE_HEALTH_FAIL === "1";
+// 运行期可切换（见下面的控制端点）：启动值来自环境变量，之后测试可以改成 true/false。
+let healthFail = process.env.QMAI_FAKE_HEALTH_FAIL === "1";
 
 // 零依赖、无 node_modules：所有行为都写在这个文件里，装上即可跑。
 
@@ -183,12 +187,42 @@ async function handleChatCompletions(req, res) {
   res.end();
 }
 
+// ── 仅测试用：运行中切换 /health ─────────────────────────────────────────
+//
+// 这个端点**不属于** provider 契约（设计 3.1 的路径固定为 /health、/v1/models、
+// /v1/chat/completions），它只为 T5 能证明「同一个实例在运行中从健康变成不健康」而存在：
+// 只靠启动时的环境变量，测试只能拿到「一开始就不健康」的实例，而那里根本没有已缓存的
+// 模型可断言「刷新失败不清缓存」。
+//
+// 和 /v1/* 一样要求 Bearer：即使是 fixture，也不留一个不鉴权的写入口。
+const CONTROL_HEALTH_PATH = "/__fixture/health-fail";
+
+async function handleControlHealth(req, res) {
+  if (req.method !== "POST") {
+    sendJson(res, 404, { error: "not found" });
+    return;
+  }
+  const raw = await readBody(req);
+  let body = {};
+  if (raw.trim()) {
+    try {
+      body = JSON.parse(raw);
+    } catch {
+      sendJson(res, 400, { error: "invalid json body" });
+      return;
+    }
+  }
+  healthFail = body.fail === true;
+  process.stderr.write(`[fake-provider] 测试开关：healthFail=${healthFail ? "1" : "0"}\n`);
+  sendJson(res, 200, { ok: true, healthFail });
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url || "/", "http://127.0.0.1");
 
   // /health 在鉴权之前：宿主探活只发一个裸 GET，不带 provider 令牌。
   if (req.method === "GET" && url.pathname === "/health") {
-    if (HEALTH_FAIL) {
+    if (healthFail) {
       sendJson(res, 500, { ok: false, error: "health check disabled by fixture" });
       return;
     }
@@ -196,8 +230,10 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // 除 /health 外只提供 /v1/*；其余一律 404（别把 /login 之类做成半成品让人误会）。
-  if (!url.pathname.startsWith("/v1/")) {
+  // 除 /health 外只提供 /v1/* 与那个测试控制端点；其余一律 404
+  // （别把 /login 之类做成半成品让人误会）。
+  const isControl = url.pathname === CONTROL_HEALTH_PATH;
+  if (!isControl && !url.pathname.startsWith("/v1/")) {
     sendJson(res, 404, { error: "not found" });
     return;
   }
@@ -206,6 +242,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (isControl) {
+    handleControlHealth(req, res).catch((error) => {
+      if (res.writableEnded) return;
+      sendJson(res, 500, { error: `fixture internal error: ${error && error.message}` });
+    });
+    return;
+  }
   if (req.method === "GET" && url.pathname === "/v1/models") {
     sendJson(res, 200, { object: "list", data: MODELS });
     return;
@@ -227,7 +270,7 @@ server.on("error", (error) => {
 
 server.listen(PORT, "127.0.0.1", () => {
   process.stderr.write(
-    `[fake-provider] provider 端点在 http://127.0.0.1:${PORT}（healthFail=${HEALTH_FAIL ? "1" : "0"}）\n`,
+    `[fake-provider] provider 端点在 http://127.0.0.1:${PORT}（healthFail=${healthFail ? "1" : "0"}）\n`,
   );
 });
 

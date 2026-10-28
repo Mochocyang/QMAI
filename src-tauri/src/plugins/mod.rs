@@ -908,18 +908,41 @@ pub async fn plugins_provider_auth(
         .ok_or_else(|| format!("provider {provider_id} 未就绪"))
 }
 
+/// 「刷新模型」按钮触发的探活预算。
+///
+/// 不能用 `startTimeoutMs`：那是启动时给插件的宽限（默认 10s，provider 插件常配 15s），
+/// 而这里是用户点了一下按钮在等 —— 一个已经死掉的插件不该把按钮按住十几秒。
+/// 5s 对「本机回环 + 插件自己早就起来了」已经足够宽松。
+const PROVIDER_REFRESH_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// 重新抓一次模型列表（界面的「刷新模型」按钮）。
 #[tauri::command]
 pub async fn plugins_provider_refresh_models(
     state: State<'_, PluginsState>,
     provider_id: String,
 ) -> Result<Vec<providers::ProviderModel>, String> {
+    refresh_provider_models(state.inner(), &provider_id, PROVIDER_REFRESH_PROBE_TIMEOUT).await
+}
+
+/// 刷新模型的真实实现（命令层只做 `State` 解包），便于测试直接驱动。
+///
+/// **先探活、再抓模型**，顺序不能反：`ready` 只表示「`/health` 通过」。反过来先抓模型
+/// 的话，一个 `/health` 恒失败的插件只要 `/v1/models` 能返回，就会把 `ready` 翻成 true ——
+/// 同一个字段表达两件事，界面灰显与「要不要重试」的判据都会跟着歪。
+///
+/// `probe_timeout` 由调用方给：生产用 [`PROVIDER_REFRESH_PROBE_TIMEOUT`]，测试可以压短
+/// （探活失败一定要等满这一轮，压缩它只影响用例耗时，不影响被测行为）。
+async fn refresh_provider_models(
+    state: &PluginsState,
+    provider_id: &str,
+    probe_timeout: std::time::Duration,
+) -> Result<Vec<providers::ProviderModel>, String> {
     // 先把地址与令牌取出来再放锁：网络请求可能几百毫秒，握着 providers 表锁等它会把
     // 启用/停用（要登记/清理 provider）一起堵住。
     let (base_url, token) = {
         let providers = state.providers.lock().await;
         let provider = providers
-            .get(&provider_id)
+            .get(provider_id)
             .ok_or_else(|| format!("provider {provider_id} 未就绪"))?;
         (provider.base_url.clone(), provider.token.clone())
     };
@@ -928,15 +951,42 @@ pub async fn plugins_provider_refresh_models(
         .timeout(std::time::Duration::from_secs(60))
         .build()
         .map_err(|e| format!("构造 HTTP client 失败：{e}"))?;
-    let models = providers::fetch_models(&client, &base_url, &token).await?;
 
-    // 成功才更新缓存：一次网络抖动不该清掉用户已经看到的模型列表。
-    if let Some(provider) = state.providers.lock().await.get_mut(&provider_id) {
-        provider.models = models.clone();
-        provider.ready = true;
-        provider.last_error = None;
+    // 第一步：探活。失败就把登记改成 `ready=false` 再返回 Err —— 只返回 Err 而不落登记
+    // 的话，界面上的 `ready` 还是上一次的值，用户会看到「刷新失败，但卡片仍显示就绪」。
+    // **不动 `models`**：用户只是点了下刷新，一次探活失败不该把已经看到的模型清掉。
+    if let Err(error) = providers::wait_until_healthy(&client, &base_url, probe_timeout).await {
+        if let Some(provider) = state.providers.lock().await.get_mut(provider_id) {
+            provider.ready = false;
+            provider.last_error = Some(error.clone());
+        }
+        return Err(error);
     }
-    Ok(models)
+
+    // 探活通过了：`ready` 与「/health 通过」是同一件事，先把这条定下来。
+    // 后面抓模型失败只影响模型列表，不推翻「插件是健康的」这个结论。
+    if let Some(provider) = state.providers.lock().await.get_mut(provider_id) {
+        provider.ready = true;
+    }
+
+    // 第二步：抓模型。失败也返回 Err（界面要能提示），但原因只写进 `last_error`，
+    // 不清缓存、不回退 `ready`。
+    match providers::fetch_models(&client, &base_url, &token).await {
+        Ok(models) => {
+            if let Some(provider) = state.providers.lock().await.get_mut(provider_id) {
+                provider.models = models.clone();
+                provider.last_error = None;
+            }
+            Ok(models)
+        }
+        Err(error) => {
+            let message = format!("抓取模型列表失败：{error}");
+            if let Some(provider) = state.providers.lock().await.get_mut(provider_id) {
+                provider.last_error = Some(message.clone());
+            }
+            Err(message)
+        }
+    }
 }
 
 // T5 的端到端验证（真 Node 进程 + 真 HTTP/SSE）。单独成文件而不并进下面的 `mod tests`：

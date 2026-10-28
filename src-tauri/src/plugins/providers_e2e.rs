@@ -146,7 +146,12 @@ fn install_health_failing_variant(dir: &Path) {
         "process.env.QMAI_FAKE_HEALTH_FAIL = \"1\";\nrequire(\"./provider.js\");\n",
     )
     .expect("写探活失败变体入口");
-    shrink_start_timeout(dir, 1_500);
+    // `startTimeoutMs` **同时**是握手预算和探活预算，所以这里不能压太狠：
+    // 全量并行跑（600+ 用例）时 node 起来 + 握手的耗时能到 1 秒以上，压到 1.5s 会把
+    // 「探活失败」的用例变成「握手超时」的假红（实跑复现过一次）。
+    // 5s 给握手留够余量，同时探活失败最多只等 5s —— 与前一条用例并跑时，这点等待基本
+    // 被其它用例盖掉，不会让整个套件慢多少。
+    shrink_start_timeout(dir, 5_000);
 }
 
 /// 落一份「已启用」的注册表 —— `autostart_all` 只拉起 `enabled: true` 的条目。
@@ -189,14 +194,28 @@ impl TempRoot {
 
 impl Drop for TempRoot {
     fn drop(&mut self) {
+        // 删不掉不算测试失败，但**要重试**：Windows 上子进程的 cwd 会锁住插件目录，
+        // 而 panic 展开时子进程是被 `kill_on_drop` 异步杀掉的 —— 删除可能抢在进程真正
+        // 退出之前，于是留下垃圾目录（实跑里留下过 4 个）。
+        for _ in 0..20 {
+            match std::fs::remove_dir_all(&self.0) {
+                Ok(()) => return,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return,
+                Err(_) => std::thread::sleep(std::time::Duration::from_millis(25)),
+            }
+        }
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 
 /// 起好的一份 fixture：临时根目录 + 运行状态。
+///
+/// **字段顺序有意义**：`state` 必须在 `root` 前面。用例 panic 时（没走到 `stop()`）
+/// Rust 按声明顺序 drop 字段，先 drop `state` 才会把子进程杀掉，之后 `TempRoot` 才能删掉
+/// 目录；反过来会先删目录、再杀进程，留下一个删不掉的临时目录。
 struct FakeProvider {
-    root: TempRoot,
     state: PluginsState,
+    root: TempRoot,
 }
 
 impl FakeProvider {
@@ -228,11 +247,9 @@ impl FakeProvider {
         // fixture 从不反调宿主，`register_session` 也不需要服务在线。
         *state.host_port.lock().expect("宿主端口状态") = Some(1);
 
-        autostart_all(&state, root.path())
-            .await
-            .expect("autostart_all 本身不该报错（单个插件失败只记日志）");
-
         let fake = Self { root, state };
+        fake.start_expecting(health_failing).await;
+
         // 插件都没起来的话，后面每条断言都会在「没有 provider」上失败，报错位置离真正
         // 的原因很远。这里先卡住一次，并指向上面 `[plugins] ... 自动启动失败` 的日志。
         assert!(
@@ -240,6 +257,80 @@ impl FakeProvider {
             "插件已自动启动，但 provider 没有登记（插件进程可能没起来：看上方 [plugins] 日志）"
         );
         Some(fake)
+    }
+
+    /// 启动到「provider 进入预期状态」，允许**一次**重试。
+    ///
+    /// 预期状态：正常变体 `ready == true`；探活失败变体 `ready == false` 且原因是插件自己
+    /// 返 500（否则这条用例会因为别的原因「恰好」通过，什么也没证明）。
+    ///
+    /// 重试的原因只有一个，而且是环境/实现层面的，不是插件作者写错了：宿主
+    /// `providers::allocate_port()` 是「bind 0 拿到号 → 立刻关闭 → 把号交给插件」，
+    /// 从释放到插件真正 `listen()` 之间隔着一整个 spawn + MCP 握手（几百毫秒）。
+    /// 这条窗口里别的进程（包括本测试套件里并行跑的其它用例）完全可能拿走同一个端口，
+    /// 于是插件 bind 失败、连接层面根本没人在监听。
+    ///
+    /// 设计 D4（v2.0 定稿，`382bc275`）明确：宿主只分配一次端口、**不做**重分配，也不引入
+    /// 专用错误码 —— 端口冲突只靠随后的 `/health` 兜底（插件进程不会因此崩，只是
+    /// `ready=false` + 可读的 `last_error`）。这是有意的产品取舍，不是遗漏。
+    ///
+    /// 但它对测试套件意味着偶发假红：端口窗口是真实存在的（已在一次 620 条全量跑里复现）。
+    /// 所以**测试这边**替它重试一次 —— 被测行为（真进程、真 HTTP、ready 语义）一点没变，
+    /// 只是别让环境噪声冒充回归。重试仍然只允许一次，第二次失败照旧报错。
+    ///
+    /// 只对**纯传输层**失败重试：错误里出现了 HTTP 状态码（例如 `/health` 返 500）
+    /// 说明插件起来了但作者写错了，那不是端口抢占，重试只会把真 bug 掩盖成偶发。
+    async fn start_expecting(&self, health_failing: bool) {
+        for attempt in 1..=2u8 {
+            autostart_all(&self.state, self.root.path())
+                .await
+                .expect("autostart_all 本身不该报错（单个插件失败只记日志）");
+
+            let provider = self.provider().await;
+            let plugin_missing = provider.is_none();
+            let (ready, last_error) = match provider {
+                Some(provider) => (provider.ready, provider.last_error.unwrap_or_default()),
+                None => (false, String::new()),
+            };
+            let as_expected = if health_failing {
+                // 探活失败变体：必须是「/health 返回 500」这种失败，而不是连不上。
+                !ready && last_error.contains("返回 500")
+            } else {
+                ready
+            };
+            if as_expected {
+                return;
+            }
+
+            // 两种「不是插件作者的错」的失败，允许重试一次：
+            // - 插件压根没登记：spawn / 握手在满负载下超时（本机 620 条并行跑时出现过一次
+            //   「1500ms 内未完成握手」）；
+            // - 连接层面没人监听：探活原因里只有传输层失败（`请求 … 失败`）、没有任何 HTTP
+            //   状态码（`返回 <code>`）—— 也就是上面说的端口抢占。不依赖 reqwest 的报错原文。
+            let port_race_only = last_error.contains("未通过 /health 探活")
+                && last_error.contains("请求 ")
+                && !last_error.contains("返回 ");
+            assert!(
+                plugin_missing || port_race_only,
+                "provider 没有进入预期状态（health_failing={health_failing}），且不是端口抢占/启动超时：{last_error}（插件进程可能没起来：看上方 [plugins] 日志）"
+            );
+            assert!(
+                attempt == 1,
+                "重试后仍未进入预期状态（不是一次性的环境问题，别把它当偶发）：{last_error}"
+            );
+            eprintln!(
+                "[e2e] 第 1 次启动的 provider 未进入预期状态（{}），重试一次",
+                if plugin_missing {
+                    "插件没起来：spawn/握手在满负载下超时".to_string()
+                } else {
+                    format!("端口在宿主释放与插件 bind 之间被抢走（D4 定稿：宿主不重分配，只靠 /health 兜底）：{last_error}")
+                }
+            );
+            // 清进程与登记；下一次 autostart_all 会重新分配一个新端口。
+            super::shutdown_all(&self.state)
+                .await
+                .expect("停掉本次启动的插件");
+        }
     }
 
     /// 当前登记（克隆一份，避免测试里持锁跨 await）。
@@ -287,6 +378,26 @@ fn port_of(base_url: &str) -> u16 {
         .next()
         .and_then(|port| port.parse().ok())
         .unwrap_or_else(|| panic!("baseUrl 里应当有端口：{base_url}"))
+}
+
+/// 发一次 HTTP 请求，**只对传输层失败**重试一次。
+///
+/// 全量并行跑（600+ 用例 + 8 个 node 子进程）时，本机偶发把 `127.0.0.1` 解析失败报成
+/// `dns error (11001)` —— 一次全量跑里真的复现过。那是环境噪声，不是插件行为，不该让用例假红。
+/// **HTTP 状态码不重试**：401 / 500 / 200 正是断言的目标，重试等于掩盖被测行为。
+///
+/// 用 `try_clone` 而不是重跑构造逻辑：json body 是字节，可克隆；真克隆不了就直接报错，
+/// 不静默退化成「只试一次」。
+async fn send_request(builder: reqwest::RequestBuilder) -> reqwest::Response {
+    let retry = builder
+        .try_clone()
+        .expect("请求体应可克隆（重试用），否则这条用例无法抗偶发连接失败");
+    match builder.send().await {
+        Ok(response) => response,
+        Err(first_error) => retry.send().await.unwrap_or_else(|retry_error| {
+            panic!("插件端点连不上（已重试一次）：{retry_error}（第一次：{first_error}）")
+        }),
+    }
 }
 
 fn collect_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -385,7 +496,7 @@ async fn provider_endpoint_rejects_requests_without_the_token() {
     let url = format!("{}/v1/models", provider.base_url);
     let client = http_client(Duration::from_secs(5));
 
-    let anonymous = client.get(&url).send().await.expect("请求应到达端点");
+        let anonymous = send_request(client.get(&url)).await;
     assert_eq!(
         anonymous.status().as_u16(),
         401,
@@ -398,24 +509,14 @@ async fn provider_endpoint_rejects_requests_without_the_token() {
     );
 
     // 有 Authorization 但令牌不对：也必须 401。只判「有没有这个头」等于没鉴权。
-    let wrong_token = client
-        .get(&url)
-        .bearer_auth("definitely-not-the-token")
-        .send()
-        .await
-        .expect("请求应到达端点");
+    let wrong_token = send_request(client.get(&url).bearer_auth("definitely-not-the-token")).await;
     assert_eq!(
         wrong_token.status().as_u16(),
         401,
         "错的令牌也必须 401，不能只判 Authorization 头存在"
     );
 
-    let authorized = client
-        .get(&url)
-        .bearer_auth(&token)
-        .send()
-        .await
-        .expect("请求应到达端点");
+    let authorized = send_request(client.get(&url).bearer_auth(&token)).await;
     assert_eq!(
         authorized.status().as_u16(),
         200,
@@ -680,17 +781,17 @@ async fn provider_sse_stream_delivers_multiple_chunks_and_usage() {
     let url = format!("{}/v1/chat/completions", provider.base_url);
     let client = http_client(Duration::from_secs(10));
 
-    let response = client
-        .post(&url)
-        .bearer_auth(&provider.token)
-        .json(&serde_json::json!({
-            "model": "good-model",
-            "stream": true,
-            "messages": [{ "role": "user", "content": "写一句测试" }],
-        }))
-        .send()
-        .await
-        .expect("SSE 请求应到达端点");
+    let response = send_request(
+        client
+            .post(&url)
+            .bearer_auth(&provider.token)
+            .json(&serde_json::json!({
+                "model": "good-model",
+                "stream": true,
+                "messages": [{ "role": "user", "content": "写一句测试" }],
+            })),
+    )
+    .await;
     assert_eq!(response.status().as_u16(), 200, "SSE 请求应 200");
 
     let content_type = response
@@ -798,17 +899,17 @@ async fn provider_sse_stream_delivers_multiple_chunks_and_usage() {
 
     // 同一 fixture 的非流式分支顺手验证（不加新用例，省一次进程启动）：
     // `stream: false` 必须回普通 JSON，且同样带 usage。
-    let json_response = client
-        .post(&url)
-        .bearer_auth(&provider.token)
-        .json(&serde_json::json!({
-            "model": "good-model",
-            "stream": false,
-            "messages": [{ "role": "user", "content": "写一句测试" }],
-        }))
-        .send()
-        .await
-        .expect("非流式请求应到达端点");
+    let json_response = send_request(
+        client
+            .post(&url)
+            .bearer_auth(&provider.token)
+            .json(&serde_json::json!({
+                "model": "good-model",
+                "stream": false,
+                "messages": [{ "role": "user", "content": "写一句测试" }],
+            })),
+    )
+    .await;
     assert_eq!(json_response.status().as_u16(), 200);
     let json_content_type = json_response
         .headers()
@@ -828,6 +929,109 @@ async fn provider_sse_stream_delivers_multiple_chunks_and_usage() {
             .map(|content| !content.is_empty())
             .unwrap_or(false),
         "非流式响应应有正文：{payload}"
+    );
+
+    fake.stop().await;
+}
+
+// ── `ready` 只有一种语义（`/health` 通过）─────────────────────────────────
+
+/// `/health` 恒失败时刷新模型：必须返回 Err、`ready` 保持 false、**已缓存的模型不被清空**。
+///
+/// 用**运行中切换**（fixture 的 `POST /__fixture/health-fail`）而不是「起一个探活失败的
+/// 新实例」：新实例在启动时就没抓到过模型，「缓存没被清空」会退化成「空列表还是空的」，
+/// 几乎证明不了任何事。同一个实例上先健康（已有缓存）再切坏，断言才有真内容；
+/// 再切回健康还能顺带证明 `ready` 会随探活恢复。
+///
+/// 这条防的是一个具体的错法：刷新时先抓模型、抓成功就 `ready = true` —— 于是一个
+/// `/health` 恒 500 的插件，只要 `/v1/models` 能返回，就会被界面判成「就绪」，
+/// 「要不要重试」的判据也跟着失真。
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn refresh_models_does_not_flip_ready_when_health_is_failing() {
+    let Some(fake) = FakeProvider::boot("refresh-ready").await else {
+        eprintln!("跳过：本机没有可执行的 node");
+        return;
+    };
+
+    // 前置：正常启动 → ready=true 且已缓存模型（下面「不清缓存」才有对象可断言）。
+    let provider = fake.expect_ready_provider().await;
+    let cached: Vec<String> = provider.models.iter().map(|model| model.id.clone()).collect();
+    assert_eq!(
+        cached.len(),
+        2,
+        "前置：正常启动应已抓到 2 个模型（缺窗口那个被丢弃），实际 {cached:?}"
+    );
+
+    let client = http_client(Duration::from_secs(10));
+    let control = format!("{}/__fixture/health-fail", provider.base_url);
+    let health = format!("{}/health", provider.base_url);
+
+    // 1) 运行中把 /health 切坏，并确认开关真的生效（否则这条用例可能在测一个空开关）。
+    let toggled = send_request(
+        client
+            .post(&control)
+            .bearer_auth(&provider.token)
+            .json(&serde_json::json!({ "fail": true })),
+    )
+    .await;
+    assert_eq!(toggled.status().as_u16(), 200, "控制端点应接受切换");
+    let probe = send_request(client.get(&health)).await;
+    assert_eq!(probe.status().as_u16(), 500, "开关必须真的让 /health 返 500");
+
+    // 2) 刷新：探活失败 → Err + ready=false + 原因落库 + **缓存不清**。
+    //    探活预算压到 800ms：被测行为与超时长度无关，只是别让用例干等 5 秒
+    //   （与启动用例压缩 startTimeoutMs 同一取舍）。
+    let error = super::refresh_provider_models(&fake.state, PROVIDER_ID, Duration::from_millis(800))
+        .await
+        .expect_err("探活失败时刷新必须返回 Err（界面才能提示）");
+    assert!(error.contains("/health"), "错误应说明是探活失败：{error}");
+
+    let after = fake.provider().await.expect("provider 仍在登记表里");
+    assert!(
+        !after.ready,
+        "ready 只表示 /health 通过：/health 返 500 时绝不能是 true（本用例要防的就是这个）"
+    );
+    let last_error = after.last_error.clone().unwrap_or_default();
+    assert!(
+        last_error.contains("/health"),
+        "探活失败原因必须落进登记里（界面要显示）：{last_error:?}"
+    );
+    assert!(
+        last_error.contains("500"),
+        "原因里要能看到插件的状态码，否则分不清「没监听」和「起了但 500」：{last_error:?}"
+    );
+    let ids_after: Vec<String> = after.models.iter().map(|model| model.id.clone()).collect();
+    assert_eq!(
+        ids_after, cached,
+        "刷新失败不能清掉已缓存的模型（用户只是点了下刷新，不是要清空列表）"
+    );
+
+    // 3) 切回健康：刷新应成功，ready 回到 true、上一次的失败原因被清掉、模型仍是那两个。
+    let restored = send_request(
+        client
+            .post(&control)
+            .bearer_auth(&provider.token)
+            .json(&serde_json::json!({ "fail": false })),
+    )
+    .await;
+    assert_eq!(restored.status().as_u16(), 200);
+    let probe = send_request(client.get(&health)).await;
+    assert_eq!(probe.status().as_u16(), 200, "切回后 /health 必须恢复 200");
+
+    let models = super::refresh_provider_models(&fake.state, PROVIDER_ID, Duration::from_millis(800))
+        .await
+        .expect("健康恢复后刷新应成功");
+    assert_eq!(models.len(), 2, "刷新应重新抓到 2 个模型");
+    let recovered = fake.provider().await.expect("provider 仍在登记表里");
+    assert!(recovered.ready, "健康恢复后 ready 必须回到 true");
+    assert_eq!(recovered.last_error, None, "成功刷新应清掉上一次的失败原因");
+    assert_eq!(
+        recovered
+            .models
+            .iter()
+            .map(|model| model.id.clone())
+            .collect::<Vec<_>>(),
+        cached
     );
 
     fake.stop().await;
