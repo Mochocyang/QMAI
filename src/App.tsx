@@ -43,6 +43,11 @@ import { MemoryMaintenanceReminder } from "@/components/novel/memory-maintenance
 import { AnnouncementDialog } from "@/components/announcements/announcement-dialog"
 import { useAnnouncementStore } from "@/stores/announcement-store"
 import { syncPluginProviders } from "@/lib/plugins/provider-sync"
+import {
+  describeNavigationBlocked,
+  subscribeProviderModelsRefreshed,
+  subscribeProviderNavigationBlocked,
+} from "@/lib/plugins/provider-events"
 import { syncPluginTools } from "@/lib/plugins/tool-sync"
 import { syncPluginHooks } from "@/lib/plugins/hooks/runtime"
 
@@ -609,6 +614,62 @@ function App() {
       }
     }
     init()
+  }, [])
+
+  /*
+   * 受控登录窗口的两个后端事件（与上面那次一次性初始化同属「启动时接线」）。
+   *
+   * 事件一 `plugin-provider-models-refreshed`：窗口关闭后，后端会自动重探活 + 重抓模型。
+   * 必须监听：否则界面手里还是关窗前的快照，用户会觉得「登录完模型没变」。
+   *
+   * 事件二 `plugin-provider-navigation-blocked`：窗口拦下白名单外的跳转时，
+   * WebView 什么都不加载，用户只看到「点了链接没反应」——没有这条提示，
+   * 他们无法知道那是安全拦截而不是坏了。
+   *
+   * 为什么单独一个 effect、而不是塞进上面那个初始化 effect：上面那个是长串 `await`
+   * 且没有返回值（拿不到 cleanup 时机），而 `listen()` 的 unlisten **必须**被调用 ——
+   * 不调用的话，热更新 / React 严格模式的二次挂载会累积多个监听器，
+   * 一次登录就要触发 N 次刷新。
+   */
+  useEffect(() => {
+    let disposed = false
+    const unlisteners: Array<() => void> = []
+    const track = (unlisten: () => void) => {
+      // 注册是异步的：如果它在 cleanup 之后才 resolve，就地退订，别留下孤儿监听。
+      if (disposed) unlisten()
+      else unlisteners.push(unlisten)
+    }
+    void (async () => {
+      track(
+        await subscribeProviderModelsRefreshed((payload) => {
+          if (!payload.ok) {
+            // 失败也要 sync：可能只是部分失败（比如重探活过了、模型接口短暂 500），
+            // 前端快照在任何情况下都该以 Rust 为准，不能沿用关窗前的旧数据。
+            console.warn(
+              `[plugins] provider「${payload.providerId}」关窗后自动刷新模型失败：${payload.error?.trim() || "原因未知"}`,
+            )
+          } else if (payload.modelCount === 0) {
+            console.warn(`[plugins] provider「${payload.providerId}」关窗后自动刷新没有拿到任何模型，请检查插件 /v1/models`)
+          }
+          void syncPluginProviders().catch((cause: unknown) => {
+            console.warn("[plugins] 登录后同步 provider 失败：", cause)
+          })
+        }),
+      )
+      track(
+        await subscribeProviderNavigationBlocked((payload) => {
+          // 全局 toast（portal 渲染在 body 上）：事件可能发生在设置页没打开的时候，
+          // 卡片里的小字行用户根本看不到，这里必须是全局可见的。
+          toast.info(describeNavigationBlocked(payload), {
+            dedupeKey: `plugin-nav-blocked:${payload.providerId}:${payload.host}`,
+          })
+        }),
+      )
+    })()
+    return () => {
+      disposed = true
+      for (const unlisten of unlisteners.splice(0)) unlisten()
+    }
   }, [])
 
   // 监听系统主题变化，当设置为跟随系统时自动切换
