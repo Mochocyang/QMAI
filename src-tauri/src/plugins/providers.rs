@@ -32,7 +32,10 @@ pub struct ProviderModel {
 }
 
 /// 一个已就绪（或探测中/失败）的插件 provider。token 只活在内存。
-#[derive(Debug, Clone)]
+// 手写 Debug 而不是 derive：token 是插件凭证（能凭它白嫖用户账号额度），
+// 绝不能出现在任何日志里。将来有人 `tracing::debug!("{:?}", provider)` 时，
+// derive 会把 token 一起带出去，而这条路径没人会去 review。
+#[derive(Clone)]
 pub struct PluginProvider {
     pub plugin_id: String,
     pub provider_id: String,
@@ -48,6 +51,27 @@ pub struct PluginProvider {
     pub models: Vec<ProviderModel>,
     pub ready: bool,
     pub last_error: Option<String>,
+}
+
+impl std::fmt::Debug for PluginProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // token 是插件凭证（能凭它白嫖用户账号额度），绝不能出现在任何日志里。
+        // 手写 Debug 而不是 derive：将来有人 tracing::debug!("{:?}", provider) 时，
+        // derive 会把 token 一起带出去，而这条路径没人会去 review。
+        f.debug_struct("PluginProvider")
+            .field("plugin_id", &self.plugin_id)
+            .field("provider_id", &self.provider_id)
+            .field("name", &self.name)
+            .field("base_url", &self.base_url)
+            .field("token", &"<redacted>")
+            .field("capabilities", &self.capabilities)
+            .field("settings_page", &self.settings_page)
+            .field("auth_kind", &self.auth_kind)
+            .field("models", &self.models)
+            .field("ready", &self.ready)
+            .field("last_error", &self.last_error)
+            .finish()
+    }
 }
 
 /// 给前端看的视图：**没有 token**。
@@ -418,6 +442,36 @@ mod tests {
         assert_eq!(value["baseUrl"], "http://127.0.0.1:51235");
         assert_eq!(value["models"][0]["maxInputTokens"], 200_000);
         assert_eq!(value["ready"], true);
+    }
+
+    #[test]
+    fn provider_debug_output_redacts_the_token() {
+        // 防的是「将来把 provider 打进日志」这条路径：`derive(Debug)` 会把 token
+        // 原样带出去，而这条路径不会有人专门 review。token 是插件凭证，
+        // 能凭它白嫖用户账号额度，任何日志里都不该出现。
+        let provider = PluginProvider {
+            token: "super-secret-token-xyz".to_string(),
+            ..sample_provider()
+        };
+
+        let rendered = format!("{provider:?}");
+        assert!(
+            !rendered.contains("super-secret-token-xyz"),
+            "Debug 输出不得包含 token：{rendered}"
+        );
+        assert!(
+            rendered.contains("<redacted>"),
+            "应当明确标注已打码，否则排障时分不清「没有 token」还是「打了码」：{rendered}"
+        );
+        // 其余字段要照常可读：打码 token 不等于把整个结构变成黑盒
+        assert!(
+            rendered.contains("wb-connect"),
+            "其余字段应保留：{rendered}"
+        );
+        assert!(
+            rendered.contains("http://127.0.0.1:51235"),
+            "baseUrl 应保留：{rendered}"
+        );
     }
 
     #[test]
