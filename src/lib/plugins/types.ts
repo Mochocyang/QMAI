@@ -94,6 +94,26 @@ export interface PluginProviderModel {
   supportsVision: boolean
   /** 只用于界面显示上游倍率，QMAI 不参与计费。 */
   creditMultiplier?: number
+  /**
+   * 模型成本，**单位是「每百万 token」**（与插件 `/v1/models` 声明一致）。
+   *
+   * 为什么不在字段里写货币：价格由插件申报，**货币单位由插件自己定义**，宿主不解释、
+   * 也不做汇率换算。界面只按「输入/输出」把数字摆出来（见 `formatModelCost`），
+   * 加个 `¥` 反而会在美元计价的上游上撒谎。
+   */
+  cost?: {
+    input?: number
+    output?: number
+    cacheRead?: number
+    cacheWrite?: number
+  }
+  /**
+   * 该模型接受的输入模态：`"text"` / `"image"` / `"audio"`。
+   *
+   * 缺省**不当作「什么都不能」**，而是「插件没申报」——界面只在明确含 `image`
+   * 时加一个小标记，其余一律不显示（见卡片里的注释）。
+   */
+  inputModalities?: string[]
 }
 
 /**
@@ -116,3 +136,12 @@ export interface PluginProviderView {
   ready: boolean
   lastError?: string
 }
+
+/**
+ * `plugins_provider_call` 允许的扩展端点（设计 §4.4）。
+ *
+ * 为什么收窄成字面量联合而不是 `string`：白名单本来就在 Rust 侧强制，前端再写一遍
+ * 不是「重复校验」，而是让拼错端点在**编译期**就暴露 —— 否则用户看到的是一句
+ * 「插件不支持该端点」，排查起来还以为是插件没实现。
+ */
+export type PluginProviderEndpoint = "/v1/_qmai/balance" | "/v1/_qmai/checkin"

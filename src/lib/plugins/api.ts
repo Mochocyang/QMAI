@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core"
 import type {
+  PluginProviderEndpoint,
   PluginProviderModel,
   PluginProviderView,
   PluginSummary,
@@ -30,5 +31,26 @@ export const pluginsApi = {
   providerAuth: (providerId: string) => invoke<string>("plugins_provider_auth", { providerId }),
   refreshProviderModels: (providerId: string) =>
     invoke<PluginProviderModel[]>("plugins_provider_refresh_models", { providerId }),
+  /**
+   * 打开插件的受控登录窗口（设计 §5：插件自托管页面 + 宿主受控窗口）。
+   *
+   * 为什么前端只传 `providerId` 而不传 URL：`settingsPagePath` 的拼接、导航白名单
+   * （`authDomains`）、临时数据目录都在 Rust 侧做。URL 一旦由前端拼，白名单就退化成
+   * 「前端说了算」，插件能借一次参数注入把窗口变成任意浏览器（设计 §5.2）。
+   *
+   * 返回 `void`：窗口关闭后 Rust 会自己重探活 + 重抓模型。
+   */
+  providerOpenLogin: (providerId: string) =>
+    invoke<void>("plugins_provider_open_login", { providerId }),
+  /**
+   * 打插件的可选扩展端点（`capabilities` 驱动，设计 §4.4）。
+   *
+   * 返回值**故意是 `unknown`**：结构由各插件决定，宿主只负责渲染，归一化放在
+   * 卡片里做（`parseBalance` / `parseCheckin`），脏数据在入口处收住。
+   */
+  providerCall: (providerId: string, endpoint: PluginProviderEndpoint, body?: unknown) =>
+    body === undefined
+      ? invoke<unknown>("plugins_provider_call", { providerId, endpoint })
+      : invoke<unknown>("plugins_provider_call", { providerId, endpoint, body }),
   shutdownAll: () => invoke<void>("plugins_shutdown_all"),
 }
