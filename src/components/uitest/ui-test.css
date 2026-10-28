@@ -577,19 +577,12 @@ html[data-ui-test-skin] .ui-test-wizard-chips button[aria-pressed="true"] { back
   position: relative;
 }
 .ui-test-root .ui-avatar-appearance-group .ui-avatar-appearance-sub {
-  position: absolute;
-  left: calc(100% - 4px);
-  top: 0;
-  z-index: 5;
+  /* 折叠子菜单：默认收起，点「外观」后由 data-open 展开（不再靠 hover） */
   display: none;
-  min-width: 150px;
-  padding: 4px;
-  border: 1px solid var(--ui-line);
-  border-radius: 8px;
-  background: var(--ui-paper);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+  margin-left: 12px;
+  border-left: 1px solid var(--ui-line);
+  padding-left: 4px;
 }
-.ui-test-root .ui-avatar-appearance-group:hover .ui-avatar-appearance-sub,
-.ui-test-root .ui-avatar-appearance-group:focus-within .ui-avatar-appearance-sub {
+.ui-test-root .ui-avatar-appearance-group .ui-avatar-appearance-sub[data-open="true"] {
   display: block;
 }

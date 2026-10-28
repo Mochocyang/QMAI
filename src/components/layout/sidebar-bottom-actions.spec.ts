@@ -8,7 +8,7 @@ const source = readFileSync(
 )
 
 describe("sidebar-bottom-actions", () => {
-  it("账号入口按内容宽度左对齐，同时显示头像与用户名", () => {
+  it("底栏左侧是头像+用户名，右侧是公告与设置齿轮", () => {
     expect(source).toContain('data-ui="sidebar-bottom-actions"')
     expect(source).toContain('data-ui="sidebar-account-avatar"')
     expect(source).toContain("ui-test-account-name")
@@ -18,18 +18,23 @@ describe("sidebar-bottom-actions", () => {
     expect(source).toContain("w-fit")
     // 底栏左内边距，头像不贴边线
     expect(source).toContain("pl-2")
+    // 右侧齿轮：全新的设置入口
+    expect(source).toContain('data-ui="sidebar-settings-gear"')
   })
 
   it("公告铃铛用 ml-auto 靠最右", () => {
     expect(source).toContain("<AnnouncementBell />")
-    expect(source).toContain('className="ml-auto flex shrink-0 items-center"')
+    expect(source).toContain('className="ml-auto flex shrink-0 items-center gap-0.5"')
   })
 
-  it("外观默认只显示一行，悬停才展开三个主题且不带副标题", () => {
+  it("外观默认折叠，点击展开三个主题且不带副标题", () => {
     expect(source).toContain('data-ui="sidebar-appearance-entry"')
     expect(source).toContain("ui-avatar-appearance-group")
     expect(source).toContain("ui-avatar-appearance-sub")
     expect(source).toContain("UI_TEST_SKINS.map")
+    // 折叠：受控状态 + data-open，不再是 hover
+    expect(source).toContain("appearanceOpen")
+    expect(source).toContain("data-open={appearanceOpen")
     // 子项只有主题名，不带 hint 副标题
     expect(source).not.toContain("{item.hint}")
   })
@@ -39,6 +44,7 @@ describe("sidebar-bottom-actions", () => {
     expect(source).toContain("onClick={openGeneralSettings}")
     expect(source).toContain("onClick={openMaintenance}")
     expect(source).toContain("onClick={() => selectSkin(item.id)}")
+    expect(source).toContain("onClick={() => setAppearanceOpen((open) => !open)}")
   })
 
   it("外部点击放行整个账号菜单（否则菜单里点任何一项都会被先关掉）", () => {

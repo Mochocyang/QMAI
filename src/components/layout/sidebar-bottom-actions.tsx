@@ -15,7 +15,7 @@
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
-import { Check, UserRound } from "lucide-react"
+import { Check, ChevronRight, Settings, UserRound } from "lucide-react"
 
 import { useWikiStore, type SettingsCategoryId } from "@/stores/wiki-store"
 import { UI_TEST_SKINS } from "@/lib/ui-test"
@@ -44,6 +44,8 @@ export function SidebarBottomActions() {
   const accountTitle = accountUser ? `${accountDisplayNameText} · ${accountUser.email}` : "账号与外观"
 
   const [menuOpen, setMenuOpen] = useState(false)
+  /** 外观子菜单是否展开（默认折叠，点「外观」才展开三个主题）。 */
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const [menuStyle, setMenuStyle] = useState<{
     left: number
@@ -149,23 +151,27 @@ export function SidebarBottomActions() {
     setActiveView("settings")
   }
 
-  /** 选皮肤：切换后立刻收起菜单（悬停展开的子列表点一下就该生效）。 */
+  /** 选皮肤：切换后立刻收起菜单（折叠的子列表点一下就该生效）。 */
   const selectSkin = (skin: (typeof UI_TEST_SKINS)[number]["id"]) => {
     appearance?.selectSkin(skin)
     setMenuOpen(false)
   }
 
+  /**
+   * 底栏：头像 + 用户名在**左边**，齿轮在**最右**（参考用户给的参考图）。
+   *
+   * 与上一版的区别：整条底栏不再是「一个大按钮」——
+   * 左半是可点的账号块（头像+名字），右侧是独立的设置齿轮（直接打开设置页）。
+   * 中间留白把两者分开，头像因此稳定贴左，不会再被拉宽推到中间。
+   */
   return (
     <div
       data-ui="sidebar-bottom-actions"
       className="flex shrink-0 items-center gap-1 border-t py-1.5 pl-2 pr-1.5"
     >
       {/*
-       * 左下角账号入口：头像 + 用户名一起显示，整块可点。
-       *
-       * 布局要点（用户 2026-10-28 反馈「头像跑到最中间」）：
-       * 之前这里写了 `flex-1`，按钮被拉满整条底栏，头像就被 gap 推到了中间。
-       * 现在改成按内容宽度（`w-fit`），头像自然贴左；给一点左内边距保证不贴边线。
+       * 左侧账号块：头像 + 用户名（参考图风格）。整块可点，点开账号菜单。
+       * 头像 28px 比图标栏略大，视觉上更像"用户头像"；用户名紧随其后。
        */}
       <button
         ref={triggerRef}
@@ -176,27 +182,43 @@ export function SidebarBottomActions() {
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         data-ui="sidebar-account-avatar"
-        className={`flex w-fit max-w-[calc(100%-2rem)] min-w-0 shrink items-center gap-2 rounded-md px-1 py-1 text-left transition-colors ${
-          menuOpen || activeView === "settings"
+        className={`flex w-fit max-w-[calc(100%-3rem)] min-w-0 shrink items-center gap-2 rounded-md px-1 py-1 text-left transition-colors ${
+          menuOpen
             ? "bg-accent/60 text-accent-foreground"
-            : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+            : "hover:bg-accent/50 hover:text-accent-foreground"
         }`}
       >
         {accountUser ? (
-          <span className="sidebar-account-avatar flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full">
+          <span className="sidebar-account-avatar flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full">
             <AccountAvatar user={accountUser} baseUrl={accountSession?.baseUrl ?? null} />
           </span>
         ) : (
-          <span className="sidebar-account-avatar flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full">
+          <span className="sidebar-account-avatar flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-muted-foreground">
             <UserRound className="h-4 w-4" />
           </span>
         )}
-        <span className="ui-test-account-name truncate text-xs font-medium">{accountDisplayNameText}</span>
+        <span className="ui-test-account-name truncate text-xs font-medium text-foreground">
+          {accountDisplayNameText}
+        </span>
       </button>
 
-      {/* 公告铃铛靠最右：用 ml-auto 把剩余空间全吃掉（按钮本身不再 flex-1）。 */}
-      <div className="ml-auto flex shrink-0 items-center">
+      {/* 右侧：公告铃铛 + 设置齿轮（参考图里齿轮在最右）。 */}
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <AnnouncementBell />
+        <button
+          type="button"
+          onClick={openGeneralSettings}
+          data-ui="sidebar-settings-gear"
+          title="设置"
+          aria-label="设置"
+          className={`flex size-7 shrink-0 items-center justify-center rounded-md transition-colors ${
+            activeView === "settings"
+              ? "bg-accent/60 text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
+          }`}
+        >
+          <Settings className="h-4 w-4" />
+        </button>
       </div>
 
       {menuOpen &&
@@ -240,8 +262,8 @@ export function SidebarBottomActions() {
             </button>
 
             {/*
-             * 外观：**悬停展开**三个皮肤主题，菜单里不显示副标题（用户要求）。
-             * 纯文字一行，鼠标移上去再列出主题，点具体主题直接切换。
+             * 外观：**点击折叠展开**三个皮肤主题（参考图的折叠样式），不带副标题。
+             * 之前是纯 CSS 悬停展开，用户要求改成"折叠起来"，所以改成受控状态。
              */}
             <div className="ui-avatar-appearance-group">
               <button
@@ -250,13 +272,22 @@ export function SidebarBottomActions() {
                 data-ui="sidebar-appearance-entry"
                 className="ui-test-menu-item"
                 aria-haspopup="menu"
-                title="悬停选择主题皮肤"
+                aria-expanded={appearanceOpen}
+                onClick={() => setAppearanceOpen((open) => !open)}
               >
                 <span className="ui-test-skin-copy">
                   <span>{t("sidebarActions.appearance")}</span>
                 </span>
+                <ChevronRight
+                  className={`ml-auto h-3.5 w-3.5 shrink-0 transition-transform ${appearanceOpen ? "rotate-90" : ""}`}
+                />
               </button>
-              <div className="ui-avatar-appearance-sub" role="menu" aria-label={t("sidebarActions.appearance")}>
+              <div
+                className="ui-avatar-appearance-sub"
+                role="menu"
+                aria-label={t("sidebarActions.appearance")}
+                data-open={appearanceOpen ? "true" : "false"}
+              >
                 {UI_TEST_SKINS.map((item) => (
                   <button
                     type="button"

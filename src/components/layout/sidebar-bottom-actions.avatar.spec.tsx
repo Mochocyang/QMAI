@@ -157,15 +157,30 @@ describe("账号菜单里的设置类入口", () => {
     expect(menu()).toBeNull()
   })
 
-  it("外观是悬停展开的子菜单，列出三个主题且可点击切换", () => {
+  it("外观默认折叠，点开后列出三个主题并可切换", () => {
     render()
     act(() => trigger().click())
     const panel = menu()!
-    // 子菜单默认收起（CSS 控制 display），DOM 里已有三个主题
+    const sub = panel.querySelector<HTMLElement>(".ui-avatar-appearance-sub")!
+    // 默认折叠
+    expect(sub.getAttribute("data-open")).toBe("false")
+
+    const entry = panel.querySelector<HTMLButtonElement>('[data-ui="sidebar-appearance-entry"]')!
+    act(() => entry.click())
+    expect(panel.querySelector<HTMLElement>(".ui-avatar-appearance-sub")!.getAttribute("data-open")).toBe("true")
+
     const skins = panel.querySelectorAll('[role="menuitemradio"]')
     expect(skins.length).toBeGreaterThanOrEqual(3)
     act(() => (skins[0] as HTMLButtonElement).click())
     expect(mocks.selectSkin).toHaveBeenCalled()
+  })
+
+  it("右侧齿轮直接打开设置（参考图里的齿轮入口）", () => {
+    render()
+    const gear = host.querySelector<HTMLButtonElement>('[data-ui="sidebar-settings-gear"]')!
+    expect(gear).toBeTruthy()
+    act(() => gear.click())
+    expect(mocks.setActiveView).toHaveBeenCalledWith("settings")
   })
 
   it("底栏入口同时显示用户名", () => {
