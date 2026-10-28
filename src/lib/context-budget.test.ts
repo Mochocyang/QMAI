@@ -131,13 +131,16 @@ describe("outline request budget", () => {
     }).outputTokens).toBe(65_536)
   })
 
-  it("silently raises a legacy 128K window to 204800", () => {
+  it("trusts a legacy 128K window instead of raising it to the floor", () => {
+    // 128000 是合法窗口（例如插件 provider 声明的 128K 模型）。
+    // 预算层只兜非法值；「用户手填下限」已在 config 边界做过，不能在这里重复抬高。
     const plan = planOutlineRequestBudget({
       maxContextSize: 128_000,
       stage: "generation",
     })
-    expect(plan.windowTokens).toBe(184_320)
-    expect(plan.outputTokens).toBe(30_720)
+    // window = floor(128000 × 0.9) = 115200；output = floor(128000 × 0.15) = 19200
+    expect(plan.windowTokens).toBe(115_200)
+    expect(plan.outputTokens).toBe(19_200)
   })
 })
 
@@ -188,6 +191,37 @@ describe("chapter request budget", () => {
     expect(planChapterRequestBudget({
       stage: "analysis",
     }).outputTokens).toBe(8_192)
+  })
+})
+
+describe("budget planners trust the declared window", () => {
+  it("budget_planner_preserves_a_small_declared_window", () => {
+    /*
+     * 插件 provider 按上游目录声明 32k 窗口（设计 3.4）时，预算必须按 32k 规划。
+     * 以前这里会二次套 MIN_USER_LLM_CONTEXT_SIZE(204800)，把 32k 的请求
+     * 规划成 200k 尺寸 → 上游必然 400，且报错看不出根因。
+     */
+    const small = planChapterRequestBudget({ maxContextSize: 32_768, stage: "generation" })
+    const floorPlan = planChapterRequestBudget({ maxContextSize: 204_800, stage: "generation" })
+
+    // window = floor(32768 × 0.9) = 29491
+    // output = max(15360, floor(32768 × 0.15) = 4915) = 15360
+    // input  = 29491 - 15360 = 14131
+    expect(small.windowTokens).toBe(29_491)
+    expect(small.inputTokenBudget).toBe(14_131)
+    // 关键断言：不能等于按 204800 规划的结果（184320 - 30720 = 153600）。
+    expect(small.inputTokenBudget).not.toBe(floorPlan.inputTokenBudget)
+    expect(small.inputTokenBudget).toBeLessThan(floorPlan.inputTokenBudget)
+  })
+
+  it("budget_planner_falls_back_for_absurd_window", () => {
+    // 兜底仍然保留：0 / 负数 / NaN / 荒谬小值都按 MIN_USER_LLM_CONTEXT_SIZE 规划。
+    const floorPlan = planChapterRequestBudget({ maxContextSize: 204_800, stage: "generation" })
+    for (const absurd of [0, -1, Number.NaN, 512]) {
+      const plan = planChapterRequestBudget({ maxContextSize: absurd, stage: "generation" })
+      expect(plan.windowTokens).toBe(floorPlan.windowTokens)
+      expect(plan.inputTokenBudget).toBe(floorPlan.inputTokenBudget)
+    }
   })
 })
 

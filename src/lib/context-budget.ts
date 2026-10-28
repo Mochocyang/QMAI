@@ -19,7 +19,7 @@
  */
 
 import i18n from "@/i18n"
-import { normalizeUserLlmContextSize } from "@/lib/llm-context-size"
+import { normalizeUserLlmContextSize, trustDeclaredContextWindow } from "@/lib/llm-context-size"
 
 /** Result of `computeContextBudget`. All values are character counts. */
 interface ContextBudget {
@@ -273,22 +273,25 @@ interface PlanChapterRequestBudgetInput {
 export function planChapterRequestBudget(
   input: PlanChapterRequestBudgetInput,
 ): LlmRequestBudgetPlan {
-  const normalizedWindow = normalizeUserLlmContextSize(input.maxContextSize)
+  // 预算层只兜非法值，不再套「用户输入下限」：那个下限的单一真源在 config 规范化
+  // （normalizeProviderConfigs / normalizeUserLlmConfig）。再套一次会把插件声明的
+  // 真实小窗口（设计 3.4）抬到 204800，规划出必然 400 的请求。
+  const windowTokens = trustDeclaredContextWindow(input.maxContextSize)
   const genericContextCap = computeNovelContextTokenBudget(
-    normalizedWindow,
+    windowTokens,
     input.contextTokenBudget,
   )
   // Analysis and generation both scale with the window. Generation also keeps
   // a 15_360-token floor so a short target-char setting cannot starve the
   // draft; the user's maxOutputTokens cap still wins when it is lower.
   const desiredOutputTokens = input.stage === "analysis"
-    ? Math.floor(normalizedWindow * ANALYSIS_OUTPUT_FRAC)
+    ? Math.floor(windowTokens * ANALYSIS_OUTPUT_FRAC)
     : Math.max(
       CHAPTER_GENERATION_OUTPUT_FLOOR,
-      Math.floor(normalizedWindow * RESPONSE_RESERVE_FRAC),
+      Math.floor(windowTokens * RESPONSE_RESERVE_FRAC),
     )
   return planLlmRequestBudget({
-    maxContextSize: normalizedWindow,
+    maxContextSize: windowTokens,
     desiredOutputTokens,
     requestedContextTokens: genericContextCap,
     scaffoldReserveTokens: 8_000,
@@ -311,18 +314,19 @@ interface PlanOutlineRequestBudgetInput {
 export function planOutlineRequestBudget(
   input: PlanOutlineRequestBudgetInput,
 ): LlmRequestBudgetPlan {
-  const normalizedWindow = normalizeUserLlmContextSize(input.maxContextSize)
+  // 同 planChapterRequestBudget：只兜非法值，信任 config 边界规范化后的窗口。
+  const windowTokens = trustDeclaredContextWindow(input.maxContextSize)
   // Scales with the window instead of stepping through fixed tiers, and is
   // then bounded by the user's declared output cap inside the kernel.
-  const desiredOutputTokens = Math.floor(normalizedWindow * (input.stage === "analysis"
+  const desiredOutputTokens = Math.floor(windowTokens * (input.stage === "analysis"
     ? ANALYSIS_OUTPUT_FRAC
     : RESPONSE_RESERVE_FRAC))
   const genericContextCap = computeNovelContextTokenBudget(
-    normalizedWindow,
+    windowTokens,
     input.contextTokenBudget,
   )
   return planLlmRequestBudget({
-    maxContextSize: normalizedWindow,
+    maxContextSize: windowTokens,
     desiredOutputTokens,
     requestedContextTokens: genericContextCap,
     scaffoldReserveTokens: 8_192,

@@ -45,6 +45,27 @@ export function normalizeDeclaredContextSize(value: number | undefined): number 
 }
 
 /**
+ * 预算规划层用的窗口：**信任调用方传入的声明值，只兜非法/荒谬值**。
+ *
+ * 为什么这里不再套 `MIN_USER_LLM_CONTEXT_SIZE`：
+ * 「用户手填不许低于 204800」是**输入护栏**，已经在 config 边界做过
+ * （`normalizeProviderConfigs` / `normalizeUserLlmConfig`）。到预算层再套一遍
+ * 不会多出任何安全性，却会把插件按上游目录声明的真实窗口（设计 3.4）抬歪 ——
+ * 32k 的模型会被规划成 200k 的请求尺寸，上游必然 400，而报错看起来像
+ * 「上下文超出」，完全看不出是我们的下限造成的。
+ *
+ * 留下的兜底只针对「不可能是真实窗口」的值：0 / 负数 / NaN / 小于 1024 的荒谬值。
+ * 这样「窗口是否合法」只有一个真源（config 边界），预算层只负责消费。
+ */
+const ABSURD_CONTEXT_WINDOW = 1_024
+
+export function trustDeclaredContextWindow(value: number | undefined): number {
+  return Number.isFinite(value) && (value as number) >= ABSURD_CONTEXT_WINDOW
+    ? Math.floor(value as number)
+    : MIN_USER_LLM_CONTEXT_SIZE
+}
+
+/**
  * Unlike the context window this has no floor, only a default: a user must be
  * able to declare a small ceiling for a model that really does cap out low.
  */

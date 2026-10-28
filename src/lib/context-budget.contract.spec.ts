@@ -33,12 +33,17 @@ describe("context pack budget contracts", () => {
     }
   })
 
-  it("writing adapter migrates a legacy small window before allocating", () => {
+  it("writing adapter trusts a small declared window instead of migrating it", () => {
+    // 32k 是合法的声明窗口（插件 provider 的常见尺寸），预算按 32k 规划：
+    //   window  = floor(32000 × 0.9) = 28800
+    //   output  = max(15360, floor(32000 × 0.15) = 4800) = 15360
+    //   available = 28800 - 8000 = 20800
+    //   context = min(floor(32000 × 0.65) = 20800, 20800 - 15360 = 5440) = 5440
     const writing = computeWritingContextPackTokenBudget({
       maxContextSize: 32_000,
       chapterTargetChars: 3_000,
     })
-    expect(writing).toBe(133_120)
+    expect(writing).toBe(5_440)
   })
 
   it("writing pack leaves room for output-token reserve plus scaffold", () => {
