@@ -353,6 +353,10 @@ commands::fs::read_file,
             plugins::plugins_config_set,
             plugins::plugins_config_secret_set,
             plugins::plugins_config_secret_has,
+            // 内容包（设计 §4，Tier 1）：纯磁盘数据，宿主自己读、自己校验，
+            // 两条命令都不 spawn 插件进程。
+            plugins::plugins_content_packs,
+            plugins::plugins_content_pack_items,
             // WorkBuddy 账号登录（国内版）：登录三条、账号三条、导入两条、
             // 模型目录两条、网关一条。返回值一律不含 token。
             workbuddy::commands::workbuddy_login_start,

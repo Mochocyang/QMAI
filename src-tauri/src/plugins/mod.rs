@@ -7,6 +7,7 @@
 // manifest::* 在任务 3+ 被 registry / mcp_bridge / installer 消费；在此之前
 // dead_code 警告是预期状态，不要用 #[allow(dead_code)] 掩盖它。
 pub mod config;
+pub mod content;
 pub mod host_api;
 pub mod installer;
 pub mod manifest;
@@ -596,6 +597,10 @@ async fn stop_plugin(state: &PluginsState, id: &str) {
         host_api::unregister_session(&token);
     }
     drop_plugin_providers(&state.providers, id).await;
+    // 内容包缓存与插件同生共死（设计 §4 / D4）：内容随包分发、安装后不变，所以只在
+    // 「不再信任这份内容」时清 —— 停用与卸载都走这里（卸载先调 stop_plugin 再删目录）。
+    // 不清的话，已被删除的灵感库还能从内存里被读出来。
+    content::invalidate(id);
 }
 
 /// App 启动后拉起所有已启用的插件。
@@ -1108,6 +1113,63 @@ pub async fn plugins_config_secret_has(
     let store = config::shared(&root)?;
     let guard = store.lock().map_err(|_| "插件配置状态不可用".to_string())?;
     Ok(guard.has_secret(&plugin_id, &field))
+}
+
+// ── 内容包（设计 §4，Tier 1：不启动插件进程）──────────────
+//
+// 两条命令都**不 spawn 任何进程**（D1）：内容包是磁盘上的 JSON，宿主自己读、自己
+// 校验、自己渲染。装 20 个纯灵感包，进程表里应当仍然是 0 条。
+
+/// 列出**已启用**插件的内容包元信息：够画一张卡片与一个筛选项，不含正文。
+///
+/// 不返回 items 是刻意的：插件中心的列表动辄涉及几十万条素材，一次搬进前端内存
+/// 只会让"打开插件中心"变成几百毫秒的卡顿；用户点开哪个包，才去取哪个包的条目。
+#[tauri::command]
+pub async fn plugins_content_packs(
+    state: State<'_, PluginsState>,
+) -> Result<Vec<content::ContentPackMeta>, String> {
+    Ok(content::list_packs(&state.root()))
+}
+
+/// 读一个内容包的全部条目，返回 **JSON 文本**。
+///
+/// 为什么返回文本而不是已验证的结构体：前端拿到后会用 `parseContentPack` 再校验一次。
+/// 两道闸门是刻意的双保险 —— 宿主这道拦住"坏数据进 IPC"，前端那道拦住"界面拿到
+/// 不可用的数据"（比如未来的 webview 直接读本地文件）。少了任何一道，另一道就得
+/// 独自承担全部规则的演化，最终两边规则分叉、出现"宿主放过、界面报错"的割裂。
+#[tauri::command]
+pub async fn plugins_content_pack_items(
+    state: State<'_, PluginsState>,
+    pack_id: String,
+) -> Result<String, String> {
+    let root = state.root();
+    // packId 形如 `<pluginId>/<packId>`（与 `ContentPackMeta.packId` 一致），
+    // 拼成一体是为了让前端不必自己拼 key —— 拼错就是一句"找不到内容包"。
+    let (plugin_id, inner_id) = match pack_id.split_once('/') {
+        Some(parts) => parts,
+        None => return Err(format!("内容包 {pack_id} 不存在")),
+    };
+    // 未安装的插件、或清单里没声明这个包：一律同一句话。
+    // 区分两者会把「磁盘上有哪些目录」透给调用方，而调用方的 packId 可能来自任意
+    // 输入（例如未来从链接带进来的参数）。
+    let decl = if manifest::is_valid_id(plugin_id) {
+        installed_manifest(&root, plugin_id).and_then(|manifest| {
+            manifest
+                .contributes
+                .content_packs
+                .into_iter()
+                .find(|pack| pack.id == inner_id)
+        })
+    } else {
+        None
+    };
+    let Some(decl) = decl else {
+        return Err(format!("内容包 {pack_id} 不存在"));
+    };
+
+    let items =
+        content::cached_pack_items(&paths::plugin_dir(&root, plugin_id), plugin_id, &decl)?;
+    serde_json::to_string(&items).map_err(|error| format!("序列化内容包 {pack_id} 失败：{error}"))
 }
 
 /// 刷新模型的真实实现（命令层只做 `State` 解包），便于测试直接驱动。
@@ -1911,5 +1973,116 @@ rl.on("line", (line) => {
             assert!(handle.tools.is_empty());
         }
         stop_plugin(&state, id).await;
+    }
+
+    /// `QMAI_CONFIG` 必须真的到达子进程（设计 §6.3：配置以环境变量注入）。
+    ///
+    /// A1 只用临时脚本验证过这件事，随后把脚本删了 —— 于是「配置注入」这条契约
+    /// 在正式测试里没有任何护栏。这里用假 Node 插件（MCP stdio + 一个 `echo_env`
+    /// 工具）把 `process.env.QMAI_CONFIG` 经 tools/call 回吐，断言宿主注入的配置
+    /// 能被插件读到。
+    ///
+    /// 为什么断言的是「配置值」而不是「有 QMAI_CONFIG 这个变量」：注入一条
+    /// 空对象 `{}` 也能让变量存在，但那对插件毫无意义；只有值传到才算契约成立。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn start_plugin_injects_qmai_config_into_the_plugin_process() {
+        if !node_available() {
+            eprintln!("跳过：本机没有可执行的 node");
+            return;
+        }
+
+        const SERVER: &str = r#"
+const readline = require("readline");
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on("line", (line) => {
+  let req;
+  try { req = JSON.parse(line); } catch { return; }
+  if (req.method === "initialize") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { protocolVersion: "2024-11-05", capabilities: { tools: {} } }
+    }));
+  } else if (req.method === "tools/list") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { tools: [{
+        name: "echo_env", description: "回吐宿主注入的配置",
+        inputSchema: { type: "object" }
+      }] }
+    }));
+  } else if (req.method === "tools/call") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { content: [{ type: "text", text: String(process.env.QMAI_CONFIG) }] }
+    }));
+  }
+});
+"#;
+
+        let root = TempRoot::new("qmai-config");
+        // 插件 id 唯一：`config::shared` 是进程级单例，多个用例共用一张表，
+        // 用不同 id 才不会互相看到对方的配置。
+        let id = "config-echo";
+        let manifest = format!(
+            r#"{{
+                "schema": 3,
+                "id": "{id}",
+                "name": "配置回声",
+                "version": "1.0.0",
+                "runtime": {{ "type": "node", "entry": "server.js", "startTimeoutMs": 5000 }},
+                "configSchema": {{
+                    "type": "object",
+                    "properties": {{ "defaultCount": {{ "type": "number" }} }}
+                }}
+            }}"#
+        );
+        write_plugin(root.path(), id, &manifest, Some(("server.js", SERVER)));
+
+        // 走生产同一条路径写配置：`start_plugin` 注入时读的就是这份进程级表，
+        // 而密钥真值只活在内存里（盘上只有占位符），所以这里不能靠落盘来准备数据。
+        let store = config::shared(root.path()).expect("取进程级配置表");
+        store
+            .lock()
+            .expect("配置表可用")
+            .set(
+                id,
+                json!({ "defaultCount": 7 }),
+                &json!({ "type": "object", "properties": { "defaultCount": { "type": "number" } } }),
+            )
+            .expect("写入测试配置");
+
+        let entry = sample_entry(id);
+        let state = PluginsState::default();
+        // 假端口：本用例不碰宿主 API，别为此真的起一个回环服务。
+        *state.host_port.lock().expect("端口状态") = Some(1);
+
+        start_plugin(root.path(), &state, &entry)
+            .await
+            .expect("插件应完成握手");
+
+        {
+            let mut running = state.running.lock().await;
+            let handle = running.get_mut(id).expect("启动后应有运行句柄");
+            let io = handle.io.clone();
+            let _guard = io.lock().await;
+            let text = invoke_tool_on(handle, "echo_env", &json!({}))
+                .await
+                .expect("tools/call 应回吐 QMAI_CONFIG");
+            // 注入的是 JSON 文本（设计 §6.3）：解析成功才说明插件拿到的是可用的配置。
+            let injected: serde_json::Value =
+                serde_json::from_str(&text).unwrap_or_else(|error| {
+                    panic!("QMAI_CONFIG 必须是 JSON 文本（实际 {text:?}）：{error}")
+                });
+            assert_eq!(
+                injected["defaultCount"], 7,
+                "宿主注入的配置必须真的到达子进程：{text}"
+            );
+        }
+
+        stop_plugin(&state, id).await;
+        assert!(
+            state.running.lock().await.is_empty(),
+            "停用后 running 表必须为空"
+        );
     }
 }
