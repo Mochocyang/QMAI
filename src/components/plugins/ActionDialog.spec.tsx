@@ -9,13 +9,21 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+
+const { renameProject } = vi.hoisted(() => ({ renameProject: vi.fn() }))
+vi.mock("@/commands/fs", () => ({ renameProject }))
+const { syncPluginsProject } = vi.hoisted(() => ({ syncPluginsProject: vi.fn() }))
+vi.mock("@/lib/plugins/project-sync", () => ({ syncPluginsProject }))
+
 import type { ParsedOutput } from "@/lib/plugins/declarative/output"
 import type { LlmCaller, RunActionDeps } from "@/lib/plugins/declarative/run"
 import type { DeclarativeAction } from "@/lib/plugins/declarative/types"
 import type { SlotActionEntry } from "@/lib/plugins/slots"
+import { useWikiStore } from "@/stores/wiki-store"
 import {
   ActionDialog,
   ResultPanel,
+  defaultTargetApplier,
   describeRunError,
   resultToText,
   targetBlockedReason,
@@ -220,7 +228,7 @@ describe("工具函数", () => {
     expect(targetBlockedReason({ kind: "insert-at-cursor", label: "插入到光标处" })).toContain("章节编辑器")
     expect(
       targetBlockedReason({ kind: "insert-at-cursor", label: "插入到光标处" }, { editorAvailable: true }),
-    ).toBeUndefined()
+    ).toContain("插入通道")
     expect(targetBlockedReason({ kind: "clipboard", label: "复制" })).toBeUndefined()
   })
 
@@ -228,5 +236,140 @@ describe("工具函数", () => {
     expect(describeRunError("模型额度不足")).toBe("模型额度不足")
     expect(describeRunError(new Error("网络错误"))).toBe("网络错误")
     expect(describeRunError(undefined)).toBe("生成失败，请重试。")
+  })
+})
+
+describe("defaultTargetApplier：bookTitle 真的写回项目", () => {
+  beforeEach(() => {
+    renameProject.mockReset()
+    syncPluginsProject.mockReset()
+    useWikiStore.setState({
+      project: { id: "p1", name: "旧名", path: "D:/QM-BOOK/旧名" },
+      selectedFile: "D:/QM-BOOK/旧名/wiki/chapters/001.md",
+      fileContent: "# 第一章\n\n正文",
+    })
+  })
+
+  it("调 rename_project(projectPath, 清洗后的书名) 并更新 store", async () => {
+    renameProject.mockResolvedValue({ id: "p1", name: "长夜", path: "D:/QM-BOOK/长夜" })
+
+    await defaultTargetApplier(
+      { kind: "project-field", field: "bookTitle", label: "设为书名" },
+      { kind: "text", text: "《长夜》\n（备选：归途）" },
+    )
+
+    expect(renameProject).toHaveBeenCalledWith("D:/QM-BOOK/旧名", "长夜")
+    // store 必须用 rename_project 返回的新 WikiProject 更新（路径也变了）
+    expect(useWikiStore.getState().project).toEqual({ id: "p1", name: "长夜", path: "D:/QM-BOOK/长夜" })
+    // 项目根目录变了 → 插件宿主要跟着换
+    expect(syncPluginsProject).toHaveBeenCalledWith("D:/QM-BOOK/长夜")
+    // 已打开的文档路径失效：必须关掉，避免往旧路径自动保存
+    expect(useWikiStore.getState().selectedFile).toBeNull()
+  })
+
+  it("Rust 报错原样抛给 UI（不吞错、不假装成功）", async () => {
+    renameProject.mockRejectedValue("目标目录已存在：D:/QM-BOOK/长夜")
+
+    await expect(
+      defaultTargetApplier({ kind: "project-field", field: "bookTitle", label: "设为书名" }, { kind: "text", text: "长夜" }),
+    ).rejects.toBe("目标目录已存在：D:/QM-BOOK/长夜")
+    // 失败时 store 不动
+    expect(useWikiStore.getState().project?.name).toBe("旧名")
+  })
+
+  it("其它 project-field 明确拒绝，不写 wiki 页面", async () => {
+    await expect(
+      defaultTargetApplier({ kind: "project-field", field: "bookIntro", label: "设为简介" }, { kind: "text", text: "简介" }),
+    ).rejects.toThrow("宿主还没有该字段的写入通道")
+    expect(renameProject).not.toHaveBeenCalled()
+  })
+
+  it("没有项目 / 空结果都给出可读原因", async () => {
+    useWikiStore.setState({ project: null })
+    await expect(
+      defaultTargetApplier({ kind: "project-field", field: "bookTitle", label: "设为书名" }, { kind: "text", text: "长夜" }),
+    ).rejects.toThrow("还没有打开项目")
+
+    useWikiStore.setState({ project: { id: "p1", name: "旧名", path: "D:/QM-BOOK/旧名" } })
+    await expect(
+      defaultTargetApplier({ kind: "project-field", field: "bookTitle", label: "设为书名" }, { kind: "text", text: "   " }),
+    ).rejects.toThrow("没有可用的书名")
+    expect(renameProject).not.toHaveBeenCalled()
+  })
+
+  it("chapter-note / insert-at-cursor 明确拒绝（宿主没有存储/插入通道）", async () => {
+    await expect(
+      defaultTargetApplier({ kind: "chapter-note", label: "追加到章节备注" }, { kind: "text", text: "备注" }),
+    ).rejects.toThrow("章节备注")
+    await expect(
+      defaultTargetApplier({ kind: "insert-at-cursor", label: "插入到光标处" }, { kind: "text", text: "正文" }),
+    ).rejects.toThrow("章节编辑器")
+  })
+})
+
+describe("ActionDialog：targets 按 targetAvailability 禁用", () => {
+  async function renderDoneDialog(props: { projectAvailable?: boolean; editorAvailable?: boolean } = {}) {
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const localRoot = createRoot(container)
+
+    await act(async () => {
+      localRoot.render(
+        <ActionDialog
+          open
+          entry={entry({
+            output: {
+              mode: "text",
+              targets: [
+                { kind: "project-field", field: "bookTitle", label: "设为书名" },
+                { kind: "project-field", field: "bookIntro", label: "设为简介" },
+                { kind: "chapter-note", label: "追加到章节备注" },
+                { kind: "clipboard", label: "复制" },
+              ],
+            },
+          })}
+          onClose={() => {}}
+          deps={depsWith(fixedLlm("《长夜》"))}
+          onApplyTarget={async () => {}}
+          {...props}
+        />
+      )
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    const buttons = [...document.body.querySelectorAll<HTMLButtonElement>("button")].filter((button) =>
+      ["设为书名", "设为简介", "追加到章节备注", "复制"].includes(button.textContent ?? ""),
+    )
+    return { localRoot, container, buttons }
+  }
+
+  it("有项目：书名可点；无写入通道的字段禁用且 tooltip 说明原因", async () => {
+    const { localRoot, container, buttons } = await renderDoneDialog({ projectAvailable: true })
+    const byLabel = new Map(buttons.map((button) => [button.textContent, button]))
+
+    expect(byLabel.get("设为书名")?.disabled).toBe(false)
+    expect(byLabel.get("复制")?.disabled).toBe(false)
+
+    const intro = byLabel.get("设为简介")
+    expect(intro?.disabled).toBe(true)
+    expect(intro?.title).toContain("宿主还没有该字段的写入通道")
+
+    const note = byLabel.get("追加到章节备注")
+    expect(note?.disabled).toBe(true)
+    expect(note?.title).toContain("章节备注")
+
+    await act(async () => localRoot.unmount())
+    container.remove()
+  })
+
+  it("没项目：书名禁用并说明「还没有打开项目」", async () => {
+    const { localRoot, container, buttons } = await renderDoneDialog({ projectAvailable: false })
+    const title = buttons.find((button) => button.textContent === "设为书名")
+    expect(title?.disabled).toBe(true)
+    expect(title?.title).toContain("还没有打开项目")
+
+    await act(async () => localRoot.unmount())
+    container.remove()
   })
 })

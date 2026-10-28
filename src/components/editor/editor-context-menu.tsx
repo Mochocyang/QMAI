@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, type ReactNode } from "react"
 
 export type EditorContextAction = "continue" | "undo" | "redo" | "copy" | "cut" | "paste" | "selectAll" | "find" | "replace"
 
@@ -34,12 +34,22 @@ const DEFAULT_ITEMS: readonly EditorContextAction[] = [
   "replace",
 ]
 
-export function EditorContextMenu({ position, disabled, onAction, onClose, actions }: {
+/**
+ * 编辑器右键菜单。
+ *
+ * `pluginMenu` 是**插件插槽 `editor-context-menu` 的挂载位**：宿主只给一格位置，
+ * 里面放什么由宿主组件（`SlotActions variant="menu"`）决定 —— 菜单本身不认识插件，
+ * 也不渲染任何插件自带的标记（XSS 面，见 `lib/plugins/slots.ts` 文件头）。
+ * 不传时 DOM 与之前逐字节相同。
+ */
+export function EditorContextMenu({ position, disabled, onAction, onClose, actions, pluginMenu }: {
   position: { x: number; y: number } | null
   actions?: readonly EditorContextAction[]
   disabled?: Partial<Record<EditorContextAction, boolean>>
   onAction: (action: EditorContextAction) => void
   onClose: () => void
+  /** 插件动作的挂载位（渲染在菜单项之后，带一条分隔线）。 */
+  pluginMenu?: ReactNode
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
   const items = (actions ?? DEFAULT_ITEMS).map((action) => ({ action, label: ITEM_LABELS[action] }))
@@ -67,14 +77,17 @@ export function EditorContextMenu({ position, disabled, onAction, onClose, actio
   }, [position, onClose, actions])
   if (!position) return null
   const left = Math.max(8, Math.min(position.x, window.innerWidth - 148))
-  const top = Math.max(8, Math.min(position.y, window.innerHeight - (actions ? items.length * 32 + 16 : 280)))
+  // 插件项是后来加进来的：估算高度时给它们留几行，否则菜单底部会被窗口边缘切掉。
+  const estimatedRows = items.length + (pluginMenu ? 3 : 0)
+  const top = Math.max(8, Math.min(position.y, window.innerHeight - (actions ? estimatedRows * 32 + 16 : 280)))
   return (
-    <div ref={menuRef} data-editor-context-menu="true" role="menu" className="fixed z-50 grid w-32 rounded-md border bg-background p-1 shadow-lg" style={{ left, top }}>
+    <div ref={menuRef} data-editor-context-menu="true" role="menu" className="fixed z-50 grid max-h-[70vh] w-32 overflow-y-auto rounded-md border bg-background p-1 shadow-lg" style={{ left, top }}>
       {items.map((item) => (
         <button key={item.action} type="button" role="menuitem" disabled={disabled?.[item.action]} className="rounded px-2 py-1 text-left text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40" onMouseDown={actions ? event => event.preventDefault() : undefined} onClick={() => { onAction(item.action); onClose() }}>
           {item.label}
         </button>
       ))}
+      {pluginMenu ? <div className="mt-1 border-t pt-1" data-plugin-slot="editor-context-menu">{pluginMenu}</div> : null}
     </div>
   )
 }

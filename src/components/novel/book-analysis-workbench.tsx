@@ -24,6 +24,8 @@ import { resolveTaskLlmConfig } from "@/lib/novel/book-analysis/analysis-model-r
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { toast } from "@/lib/toast"
 import { ChatModelSelector } from "@/components/chat/chat-model-selector"
+import { SlotActions } from "@/components/plugins/SlotActions"
+import { usePluginSlotIndex } from "@/lib/plugins/declarative/api"
 import { BookAnalysisInputDialog } from "./book-analysis-input-dialog"
 import { WorkbenchChapterSelector } from "./workbench-chapter-selector"
 import { WorkbenchStyleDetails } from "./workbench-style-details"
@@ -176,6 +178,11 @@ function WorkbenchEmptyState({ disabled, onPick }: { disabled: boolean; onPick: 
 
 export function BookAnalysisWorkbench() {
   const project = useWikiStore((s) => s.project)
+  /*
+   * 插件插槽 `analysis-toolbar`：拆书库顶部工具栏的插件按钮。
+   * 命令未注册时 `usePluginSlotIndex` 降级成空索引，工具栏行为不变。
+   */
+  const pluginSlots = usePluginSlotIndex()
   const selectedBookId = useBookAnalysisStore((s) => s.selectedLibraryBookId)
   // 侧边栏刷新旧版由 LegacyBookAnalysisView 承担，它不再挂载后必须由工作台接管：计数器一变就重读作品库。
   const sidebarRefreshCounter = useBookAnalysisStore((s) => s.sidebarRefreshCounter)
@@ -280,6 +287,8 @@ export function BookAnalysisWorkbench() {
       <div className="wb-actions">
         <button className="wb-icon" aria-label="刷新作品" title="刷新作品" onClick={() => setRefresh((v) => v + 1)}><RefreshCw /></button>
         <button onClick={() => { setPendingDefaultSkills(NO_DEFAULT_SKILLS); setInputOpen(true) }} disabled={!project}><Upload />导入作品</button>
+        {/* 插件插槽 analysis-toolbar：空插槽时 SlotActions 自己返回 null，不占位。 */}
+        <SlotActions entries={pluginSlots.index["analysis-toolbar"].actions} projectAvailable={Boolean(project)} />
       </div>
     </header>
     {error && <p role="alert">{error}</p>}

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core"
 import type { FileNode, WikiProject } from "@/types/wiki"
 import { ensureProjectId, upsertProjectInfo } from "@/lib/project-identity"
+import { syncPluginsProject } from "@/lib/plugins/project-sync"
 
 interface RawProject {
   name: string
@@ -159,6 +160,9 @@ export async function createProject(
   const raw = await invoke<RawProject>("create_project", { name, path })
   const id = await ensureProjectId(raw.path)
   await upsertProjectInfo(id, raw.path, raw.name)
+  // 新建完成后这个项目就是"当前项目"，插件宿主必须知道它的根目录，
+  // 否则新书里第一次点插件按钮会打不开 /host/project/*（原因见 project-sync.ts）。
+  await syncPluginsProject(raw.path)
   return { id, name: raw.name, path: raw.path }
 }
 

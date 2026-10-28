@@ -26,6 +26,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AlertTriangle, Copy, Loader2, RotateCcw, Square } from "lucide-react"
+import { renameProject } from "@/commands/fs"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -38,9 +39,17 @@ import {
 import { initialFormValues, validateFormValues } from "@/lib/plugins/declarative/form"
 import type { ParsedOutput } from "@/lib/plugins/declarative/output"
 import { isRunActionAborted, runDeclarativeAction, type RunActionDeps } from "@/lib/plugins/declarative/run"
+import {
+  isWritableProjectField,
+  sanitizeBookTitle,
+  targetAvailability,
+  type TargetAvailability,
+} from "@/lib/plugins/declarative/targets"
 import type { ActionForm, ActionOutput, OutputTarget } from "@/lib/plugins/declarative/types"
+import { syncPluginsProject } from "@/lib/plugins/project-sync"
 import type { SlotActionEntry } from "@/lib/plugins/slots"
 import { toast } from "@/lib/toast"
+import { useWikiStore } from "@/stores/wiki-store"
 import { SchemaForm } from "./SchemaForm"
 
 /** 把解析结果写到某个目标（项目字段 / 光标处 / 剪贴板 / 章节备注）。 */
@@ -63,17 +72,17 @@ export function describeRunError(cause: unknown): string {
 /**
  * 目标是否被阻塞，返回原因（可用时返回 `undefined`）。
  *
- * `insert-at-cursor` 需要活跃编辑器：没有编辑器时按钮必须**禁用并说明**，
- * 而不是点了之后弹一句"插入失败"—— 用户会以为软件坏了。
+ * 这里只是 `targetAvailability`（纯函数，见 `declarative/targets.ts`）的**薄适配**，
+ * 保留旧签名是为了既有调用点与守卫；判定规则只有一份，不允许在这个文件里另写一套。
  */
 export function targetBlockedReason(
   target: OutputTarget,
-  options: { editorAvailable?: boolean } = {},
+  options: { editorAvailable?: boolean; projectAvailable?: boolean } = {},
 ): string | undefined {
-  if (target.kind === "insert-at-cursor" && !options.editorAvailable) {
-    return "需要先打开一个章节编辑器：这里没有可插入的光标位置。"
-  }
-  return undefined
+  return targetAvailability(target, {
+    hasEditor: Boolean(options.editorAvailable),
+    hasProject: options.projectAvailable ?? true,
+  }).reason
 }
 
 /** 结果文本：list 按行、text/degraded 原文。目标是"复制什么都说得清"。 */
@@ -93,11 +102,56 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 /**
- * 默认的目标执行器：**只实现剪贴板**，其余三种明确报"未接线"。
+ * 写项目字段：**目前只实现"书名"**（`rename_project`：项目目录名就是书名真源）。
  *
- * 写项目字段/插入正文需要宿主真实上下文（当前章节、活跃编辑器、项目字段枚举），
- * 那是接线任务的范围。这里宁可报一句可读的原因，也不假装写入成功 ——
- * 静默丢弃用户刚生成的内容是最不能接受的失败方式。
+ * 其余字段（简介/标签/主角/设定）在宿主里**没有单一存储**，也没有写入命令。
+ * 这里必须明确报错而不是"看起来成功了"：写失败被吞掉，用户会以为名字已经改了，
+ * 直到某天发现目录名还是旧的。
+ */
+async function applyProjectField(target: OutputTarget, parsed: ParsedOutput): Promise<void> {
+  if (!isWritableProjectField(target.field)) {
+    throw new Error("宿主还没有该字段的写入通道：当前只能写入书名（bookTitle）。可以先用「复制」。")
+  }
+
+  const project = useWikiStore.getState().project
+  if (!project) throw new Error("还没有打开项目：书名要写到项目目录上，先打开一本书。")
+
+  const title = sanitizeBookTitle(resultToText(parsed))
+  if (title === "") {
+    throw new Error("生成结果里没有可用的书名（为空或只含非法字符），没有写入。")
+  }
+
+  // renameProject 失败时会把 Rust 的中文原文抛上来（重名、权限、非法字符…），
+  // 由 ActionDialog 原样展示 —— 那是唯一准确的诊断信息。
+  const renamed = await renameProject(project.path, title)
+  useWikiStore.getState().setProject(renamed)
+
+  /*
+   * 改名会**移动整个项目目录**，于是所有已打开的文档路径都失效了。
+   * 这里把当前文档关掉（清 selectedFile / fileContent）而不是让它继续指着旧路径：
+   * 否则下一次自动保存会往一个已经不存在的位置写，用户看到的是"保存失败"甚至丢稿。
+   * 用户重新从目录打开章节即可。
+   */
+  const wiki = useWikiStore.getState()
+  wiki.setSelectedFile(null)
+  wiki.setFileContent("")
+  wiki.bumpDataVersion()
+
+  // 项目根目录变了，插件宿主的"当前项目"必须跟着换（否则 /host/project/* 指向旧路径）。
+  void syncPluginsProject(renamed.path)
+
+  toast.success(`已把书名设为《${renamed.name}》，项目目录已改名，请重新打开章节。`)
+}
+
+/**
+ * 默认的目标执行器。
+ *
+ * 已接通的通道：`clipboard`（一直有）、`project-field` + `bookTitle`（`rename_project`）。
+ * 其余仍然明确报"宿主还没有这道通道"：
+ *   - **不静默丢弃**用户刚生成的内容（那是最不能接受的失败方式）；
+ *   - **也不假装成功**（写项目字段失败却弹"已保存"，用户要等几天后才发现）。
+ * 界面上这些 target 会由 `targetAvailability` 判成禁用并给出 tooltip，
+ * 所以正常使用根本点不到这里；这里的报错是兜底（例如插件在 `confirm` 流程里硬闯）。
  */
 export const defaultTargetApplier: TargetApplier = async (target, parsed) => {
   if (target.kind === "clipboard") {
@@ -106,9 +160,19 @@ export const defaultTargetApplier: TargetApplier = async (target, parsed) => {
     else toast.error("复制失败：当前环境不允许访问剪贴板。")
     return
   }
-  throw new Error(
-    `「${target.label}」还没有接入：写入项目/插入正文需要宿主上下文，等接线任务完成后可用。可以先用「复制」。`,
-  )
+
+  if (target.kind === "project-field") {
+    await applyProjectField(target, parsed)
+    return
+  }
+
+  // 注意：`hasProject/editorCanInsert` 这里不参与判定 —— 走到这一步说明 UI 已经放行，
+  // 只可能是我方漏接。原因文案统一从 `targetAvailability` 取，避免两处口径漂移。
+  const { reason } = targetAvailability(target, {
+    hasEditor: false,
+    hasProject: Boolean(useWikiStore.getState().project),
+  })
+  throw new Error(reason ?? `「${target.label}」还没有接入宿主写入通道，暂时不能用。可以先用「复制」。`)
 }
 
 /** 结果面板：按 `parsed.kind` 分成三种完全不同的呈现（见文件头注释）。 */
@@ -222,6 +286,16 @@ export interface ActionDialogProps {
   onApplyTarget: TargetApplier
   /** 是否有活跃编辑器（决定 `insert-at-cursor` 是否可用）。 */
   editorAvailable?: boolean
+  /**
+   * 是否已打开项目（决定 `project-field` + `bookTitle` 是否可用）。
+   *
+   * 缺省 `true`：老调用方（插件中心、灵感库）都是在有项目的界面里挂的，
+   * 缺省禁用会让本来可用的按钮突然变灰。真没项目时写入会给出可读错误，
+   * 不会静默成功。
+   */
+  projectAvailable?: boolean
+  /** 编辑器是否提供"插入"API（宿主当前还没有，见 `targetAvailability`）。 */
+  editorCanInsert?: boolean
 }
 
 export function ActionDialog({
@@ -231,6 +305,8 @@ export function ActionDialog({
   deps,
   onApplyTarget,
   editorAvailable = false,
+  projectAvailable = true,
+  editorCanInsert = false,
 }: ActionDialogProps) {
   const action = entry.action
   const form: ActionForm = useMemo(() => action.form ?? { fields: [] }, [action])
@@ -475,15 +551,24 @@ export function ActionDialog({
 
           {phase === "done" && parsed
             ? targets.map((target) => {
-                const blocked = targetBlockedReason(target, { editorAvailable })
+                /*
+                 * 不可用的 target **渲染成禁用按钮 + tooltip**，而不是不渲染：
+                 * 用户至少能看到"这个插件想做什么"，作者也能看到宿主还缺哪道通道
+                 * （理由详见 `declarative/targets.ts` 文件头）。
+                 */
+                const availability: TargetAvailability = targetAvailability(target, {
+                  hasEditor: editorAvailable,
+                  hasProject: projectAvailable,
+                  editorCanInsert,
+                })
                 return (
                   <Button
                     key={`${target.kind}-${target.field ?? target.label}`}
                     type="button"
                     variant={target.kind === "clipboard" ? "outline" : "default"}
                     size="sm"
-                    disabled={Boolean(blocked) || applying}
-                    title={blocked ?? target.label}
+                    disabled={!availability.enabled || applying}
+                    title={availability.enabled ? target.label : availability.reason ?? target.label}
                     onClick={() => requestApply(target)}
                   >
                     {target.label}

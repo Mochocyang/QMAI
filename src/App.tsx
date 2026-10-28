@@ -6,6 +6,7 @@ import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { openProject, fileExists } from "@/commands/fs"
+import { openProjectWithPluginSync, syncPluginsProject } from "@/lib/plugins/project-sync"
 import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAiWorkflowMode, loadAiWorkflowModeBeforeDiscuss, loadDefaultLlmModel, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadUiBodyFontFamily, loadUiBodyFontPx, loadUiBodyLineHeight, loadUiBodyLetterSpacing, loadUiBodyMarginX, loadUiBodySafeBottom, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadSearchApiConfig, loadOutlineWorkflowMode, loadAiChatReasoningDepth, loadAiOutlineReasoningDepth } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
@@ -570,7 +571,8 @@ function App() {
         const lastProject = await getLastProject()
         if (lastProject) {
           try {
-            const proj = await openProject(lastProject.path)
+            // 走 `openProjectWithPluginSync`：打开成功才通知插件宿主（顺序见该函数注释）。
+            const proj = await openProjectWithPluginSync(() => openProject(lastProject.path))
             await handleProjectOpened(proj)
           } catch (err) {
             console.error("打开上次项目失败:", err)
@@ -722,7 +724,8 @@ function App() {
 
   async function handleSelectRecent(proj: WikiProject) {
     try {
-      const validated = await openProject(proj.path)
+      // 切换项目 = 打开另一本：插件宿主的"当前项目"必须跟着换（见 project-sync.ts）。
+      const validated = await openProjectWithPluginSync(() => openProject(proj.path))
       await handleProjectOpened(validated)
     } catch (err) {
       window.alert(`打开项目失败：${err}`)
@@ -733,7 +736,7 @@ function App() {
     const path = await pickDirectory()
     if (!path) return
     try {
-      const proj = await openProject(path)
+      const proj = await openProjectWithPluginSync(() => openProject(path))
       await handleProjectOpened(proj)
     } catch (err) {
       window.alert(`打开项目失败：${err}`)
@@ -748,6 +751,10 @@ function App() {
     setFileTree([])
     setSelectedFile(null)
     useWikiStore.getState().setFileContent("")
+    // 关闭项目必须显式通知插件宿主"没有当前项目"：不通知的话 Rust 侧会继续持有
+    // 上一个项目的根目录，下一次 action 就会往一本已经关掉的书里写东西。
+    // 失败只 warn —— 插件系统不该拦着用户回到书架。
+    void syncPluginsProject(null)
   }
 
   if (loading) {

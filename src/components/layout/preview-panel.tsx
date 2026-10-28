@@ -2,6 +2,8 @@ import { type CSSProperties, Suspense, lazy, useEffect, useCallback, useRef, use
 import { useTranslation } from "react-i18next"
 import { BookOpen, Brain, Eraser, Lightbulb, MoreHorizontal, Type, WandSparkles, X } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
+import { SlotActions } from "@/components/plugins/SlotActions"
+import { usePluginSlotIndex } from "@/lib/plugins/declarative/api"
 import { resolveDefaultModel, resolveNovelModel, formatResolvedModelLabel } from "@/lib/novel/model-resolver"
 import type { FinalChapterSavePhase } from "@/stores/wiki-store"
 import { deleteFile, fileExists, readFile, writeFileAtomic, writeFileIfAbsent, listDirectory } from "@/commands/fs"
@@ -345,6 +347,12 @@ export function PreviewPanel() {
   const [chapterToolbarMoreOpen, setChapterToolbarMoreOpen] = useState(false)
   const [loadedFilePath, setLoadedFilePath] = useState<string | null>(null)
   const [uiTestSaveState, setUiTestSaveState] = useState<UiTestEditorSaveState | null>(null)
+  /*
+   * 插件插槽 `chapter-toolbar`：章节编辑页顶部工具栏里那一排插件按钮。
+   * 只取数据、不渲染在这里（`SlotActions` 一条 line 挂在下面 actions 里），
+   * 命令没注册时内部降级成空索引，工具栏不受影响。
+   */
+  const pluginSlots = usePluginSlotIndex()
   const [draftHintVisible, setDraftHintVisible] = useState(false)
   const draftHintSessionRef = useRef({
     path: null as string | null,
@@ -2594,6 +2602,8 @@ export function PreviewPanel() {
           <button type="button" className="ui-test-editor-action is-icon-only" data-guide="chapter.event-outline" data-event-outline-target="" aria-label="生成章节细纲" title="生成章节细纲" onClick={handleOpenEventOutlineWizard}>
             <Lightbulb aria-hidden="true" />
           </button>
+          {/* 插件插槽 chapter-toolbar：空插槽时 SlotActions 自己返回 null，不占位。 */}
+          <SlotActions entries={pluginSlots.index["chapter-toolbar"].actions} projectAvailable={Boolean(project?.path)} />
         </>
       ) : (
         <>

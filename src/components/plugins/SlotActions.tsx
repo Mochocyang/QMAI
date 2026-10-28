@@ -19,11 +19,13 @@ import { ActionDialog, defaultTargetApplier, type TargetApplier } from "./Action
 export interface SlotActionsProps {
   entries: SlotActionEntry[]
   variant?: "toolbar" | "menu"
-  /** 执行依赖（模型调用器、项目读取…）；不传则用"未接线"的默认实现。 */
+  /** 执行依赖（模型调用器、项目读取…）；不传则用默认实现（真实模型 + 宿主上下文）。 */
   deps?: RunActionDeps
-  /** 目标执行器；不传则只支持剪贴板（见 `defaultTargetApplier`）。 */
+  /** 目标执行器；不传则用 `defaultTargetApplier`（剪贴板 + 书名列）。 */
   onApplyTarget?: TargetApplier
   editorAvailable?: boolean
+  /** 是否已打开项目（决定「设为书名」是否可用，见 `targetAvailability`）。 */
+  projectAvailable?: boolean
   className?: string
 }
 
@@ -33,6 +35,7 @@ export function SlotActions({
   deps,
   onApplyTarget,
   editorAvailable = false,
+  projectAvailable = true,
   className,
 }: SlotActionsProps) {
   const [active, setActive] = useState<SlotActionEntry | null>(null)
@@ -74,6 +77,7 @@ export function SlotActions({
           deps={resolvedDeps}
           onApplyTarget={onApplyTarget ?? defaultTargetApplier}
           editorAvailable={editorAvailable}
+          projectAvailable={projectAvailable}
         />
       ) : null}
     </>

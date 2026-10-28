@@ -95,6 +95,97 @@ export function createUnavailableLlmCaller(message: string): LlmCaller {
   }
 }
 
+/**
+ * `run-action` 允许的最大链式层数（设计 §4.1「让 AI 扩写」只到"一次再加工"）。
+ *
+ * 3 层是**上限而不是配额**：链越长，用户越难预期要花多少 token、失败时也越难
+ * 指出是哪一步坏了；而每一层都要弹一次模型调用，深度失控就等于把一次点击变成
+ * 一串计费请求。
+ */
+export const MAX_RUN_ACTION_CHAIN_DEPTH = 3
+
+/** 链式调用被拒绝时抛出的错误（可识别，便于 UI 与作者排查区分）。 */
+export class RunActionChainError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "RunActionChainError"
+  }
+}
+
+/** 调用栈里的一帧统一写成 `<pluginId>:<actionId>`；也接受裸 `actionId`（视为同一插件）。 */
+export function formatChainFrame(pluginId: string, actionId: string): string {
+  return `${pluginId}:${actionId}`
+}
+
+/** 解析一帧；格式不认识时返回 `null`（由调用方报可读错误，不静默通过）。 */
+export function parseChainFrame(frame: string): { pluginId: string; actionId: string } | null {
+  if (typeof frame !== "string") return null
+  const trimmed = frame.trim()
+  if (trimmed === "") return null
+  const index = trimmed.indexOf(":")
+  if (index === -1) return { pluginId: "", actionId: trimmed }
+  const pluginId = trimmed.slice(0, index).trim()
+  const actionId = trimmed.slice(index + 1).trim()
+  if (actionId === "") return null
+  return { pluginId, actionId }
+}
+
+/**
+ * 校验"这一次 `run-action` 还能不能跑"。
+ *
+ * 三条拒绝理由，缺一条就会真出事故：
+ *   1. **跨插件**：`run-action` 只能指向同一插件内的 action。跨插件链是隐式依赖 ——
+ *      卸载其中一个，另一个就静默失效，而安装期查不出来（那时两边可能都还没装齐）。
+ *   2. **环**：A→B→A 会让一次点击无限地互相调用，用户只能靠杀进程停下来。
+ *   3. **深度 > 3**：见 `MAX_RUN_ACTION_CHAIN_DEPTH`。
+ *
+ * 做成纯函数并**在唯一的执行入口**（`runDeclarativeAction`）里调用：判定写在每个
+ * 调用点，就一定会漏掉某个调用点。
+ *
+ * @param pluginId 目标 action 所属插件
+ * @param actionId 目标 action id
+ * @param stack    本次调用栈（已经跑过的帧），最后一帧是"当前正在跑的那个"
+ * @throws RunActionChainError 中文原因，可直接展示
+ */
+export function assertRunnableChain(
+  pluginId: string,
+  actionId: string,
+  stack: readonly string[],
+): void {
+  const plugin = typeof pluginId === "string" ? pluginId.trim() : ""
+  const action = typeof actionId === "string" ? actionId.trim() : ""
+  if (plugin === "" || action === "") {
+    throw new RunActionChainError("链式调用缺少插件或动作标识，已拒绝执行。")
+  }
+
+  const frames = Array.isArray(stack) ? stack : []
+  const depth = frames.length + 1
+  if (depth > MAX_RUN_ACTION_CHAIN_DEPTH) {
+    throw new RunActionChainError(
+      `链式调用层数过深（第 ${depth} 层，最多 ${MAX_RUN_ACTION_CHAIN_DEPTH} 层），已拒绝执行。`,
+    )
+  }
+
+  for (const raw of frames) {
+    const frame = parseChainFrame(raw)
+    if (!frame) {
+      throw new RunActionChainError(`调用栈里有一帧无法识别（${String(raw)}），已拒绝执行。`)
+    }
+    // 裸 actionId 视为同一插件（见 formatChainFrame 的注释）
+    const framePlugin = frame.pluginId === "" ? plugin : frame.pluginId
+    if (framePlugin !== plugin) {
+      throw new RunActionChainError(
+        `「运行动作」只能指向同一插件内的动作：当前插件是 ${plugin}，调用栈里出现了 ${framePlugin}。`,
+      )
+    }
+    if (frame.actionId === action) {
+      throw new RunActionChainError(
+        `链式调用出现环：${formatChainFrame(plugin, action)} 已经在本次调用栈里（${frames.join(" → ")}）。`,
+      )
+    }
+  }
+}
+
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw new RunActionAbortedError()
 }
@@ -131,6 +222,10 @@ async function readSafely<T>(label: string, reader?: () => Promise<T | null>): P
  * @param values  已通过 `validateFormValues` 的表单值（这里不再校验一遍）
  * @param onDelta 流式增量回调
  * @param signal  中止信号（用户点「停止」）
+ * @param chain   本次链式调用栈（`run-action` 用）。默认空数组 = 顶层直接调用。
+ *
+ * 链式保护放在这个入口而不是每个调用点：只要将来有任何一处跑第二条 action，
+ * 它必然经过这里，`assertRunnableChain` 就一定被校验到（判定漏一处就是线上事故）。
  */
 export async function runDeclarativeAction(
   action: DeclarativeAction,
@@ -139,7 +234,9 @@ export async function runDeclarativeAction(
   deps: RunActionDeps,
   onDelta: (text: string) => void,
   signal: AbortSignal,
+  chain: readonly string[] = [],
 ): Promise<RunActionResult> {
+  assertRunnableChain(pluginId, action?.id ?? "", chain)
   throwIfAborted(signal)
 
   const systemTemplate = action?.prompt?.system ?? ""

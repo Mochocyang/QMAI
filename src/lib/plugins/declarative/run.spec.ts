@@ -8,7 +8,10 @@
  */
 import { describe, expect, it, vi } from "vitest"
 import {
+  MAX_RUN_ACTION_CHAIN_DEPTH,
   RunActionAbortedError,
+  RunActionChainError,
+  assertRunnableChain,
   createUnavailableLlmCaller,
   isRunActionAborted,
   runDeclarativeAction,
@@ -225,3 +228,58 @@ describe("runDeclarativeAction", () => {
     ).rejects.toThrow("插件生成尚未接入模型")
   })
 })
+
+describe("assertRunnableChain：链式调用的三道闸", () => {
+  it("正常链（栈里都是同一插件的别的 action）通过", () => {
+    expect(() => assertRunnableChain("p1", "c", [])).not.toThrow()
+    expect(() => assertRunnableChain("p1", "c", ["p1:a", "p1:b"])).not.toThrow()
+  })
+
+  it("跨插件拒绝：run-action 只能指向同一插件内的 action", () => {
+    const error = catchError(() => assertRunnableChain("p1", "expand", ["p2:expand"]))
+    expect(error).toBeInstanceOf(RunActionChainError)
+    expect((error as Error).message).toContain("只能指向同一插件内的动作")
+    expect((error as Error).message).toContain("p2")
+  })
+
+  it("成环拒绝：A → B → A", () => {
+    const error = catchError(() => assertRunnableChain("p1", "a", ["p1:a", "p1:b"]))
+    expect(error).toBeInstanceOf(RunActionChainError)
+    expect((error as Error).message).toContain("环")
+  })
+
+  it("深度 4 拒绝（最多 3 层）", () => {
+    expect(MAX_RUN_ACTION_CHAIN_DEPTH).toBe(3)
+    const error = catchError(() => assertRunnableChain("p1", "d", ["p1:a", "p1:b", "p1:c"]))
+    expect(error).toBeInstanceOf(RunActionChainError)
+    expect((error as Error).message).toContain("层数过深")
+    // 第 3 层仍然合法
+    expect(() => assertRunnableChain("p1", "c", ["p1:a", "p1:b"])).not.toThrow()
+  })
+
+  it("裸 actionId 视为同一插件；缺标识或栈里有垃圾帧都拒绝", () => {
+    // 裸 actionId = 同一插件内的另一个动作 → 合法
+    expect(() => assertRunnableChain("p1", "a", ["b"])).not.toThrow()
+    // 裸 actionId 与目标同名 → 成环
+    expect(catchError(() => assertRunnableChain("p1", "a", ["a"]))).toBeInstanceOf(RunActionChainError)
+    expect(catchError(() => assertRunnableChain("", "a", []))).toBeInstanceOf(RunActionChainError)
+    expect(catchError(() => assertRunnableChain("p1", "a", ["   "]))).toBeInstanceOf(RunActionChainError)
+  })
+
+  it("runDeclarativeAction 在入口就拦下跨插件的栈（不必等模型调用）", async () => {
+    const llm = fakeLlm(["《第一》"])
+    await expect(
+      runDeclarativeAction(titleAction(), "p1", {}, deps({ llm }), () => {}, signal(), ["p2:other"]),
+    ).rejects.toBeInstanceOf(RunActionChainError)
+    expect(llm.calls).toHaveLength(0)
+  })
+})
+
+function catchError(fn: () => void): unknown {
+  try {
+    fn()
+  } catch (cause) {
+    return cause
+  }
+  return undefined
+}

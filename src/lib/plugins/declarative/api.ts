@@ -20,7 +20,9 @@ import { useCallback, useEffect, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { parseContentPack } from "./content-pack"
 import { normalizeForm } from "./form"
-import { createUnavailableLlmCaller, type LlmCaller, type RunActionDeps } from "./run"
+import { readChapterContext, readProjectContext, readSelectionContext } from "./host-context"
+import { createStreamChatLlmCaller } from "./llm-bridge"
+import type { LlmCaller, RunActionDeps } from "./run"
 import type {
   ActionOutput,
   ActionPrompt,
@@ -32,15 +34,6 @@ import type {
   OutputTargetKind,
 } from "./types"
 import { buildSlotIndex, type SlotIndex, type SlotActionEntry, type SlotPackEntry } from "../slots"
-
-/**
- * 接线未完成时用的模型调用器文案。
- *
- * 写得具体到"哪一步没接"，因为这句话会显示在生成对话框的错误态里：
- * 用户据此知道这是版本状态而不是自己填错了东西，作者也不会去改提示词。
- */
-export const UNWIRED_LLM_MESSAGE =
-  "插件生成还没有接入模型调用：当前版本只交付界面与执行编排，模型接入在接线任务里完成。"
 
 /**
  * 读命令失败时的统一提示（`console.warn` 用，不直接展示给用户）。
@@ -550,17 +543,22 @@ export function usePluginSlotIndex(): PluginSlotIndexState {
  * 组装执行依赖的默认实现。
  *
  * 组件（`SlotActions` / `ContentPackBrowser`）在没人显式传 `deps` 时用它：
- * 配置读取走真实命令，模型调用明确报"未接线"。接线任务只需传入覆盖项即可，
- * 不必改组件。
+ * 配置读取走真实命令、模型调用走**用户当前选中的那个模型**（与平常聊天同一条
+ * 链路）、项目/章节上下文读宿主 store。任何一项都允许被覆盖 —— 测试与将来的
+ * "指定模型"策略都从这里注入，不必改组件。
+ *
+ * 为什么不去掉这个"默认实现"、让每个挂载点自己拼：六个插槽 + 插件中心 + 灵感库
+ * 都会挂 action，各拼一份必然出现"某处用了别的模型/没读项目"的静默差异，
+ * 而这类差异只有用户能发现（"为什么同样一个按钮，在大纲页能用、章节页不能用"）。
  */
 export function createDefaultRunDeps(
   options: Partial<Omit<RunActionDeps, "llm">> & { llm?: LlmCaller } = {},
 ): RunActionDeps {
   return {
-    llm: options.llm ?? createUnavailableLlmCaller(UNWIRED_LLM_MESSAGE),
-    readProject: options.readProject,
-    readChapter: options.readChapter,
-    getSelection: options.getSelection,
+    llm: options.llm ?? createStreamChatLlmCaller(),
+    readProject: options.readProject ?? readProjectContext,
+    readChapter: options.readChapter ?? readChapterContext,
+    getSelection: options.getSelection ?? readSelectionContext,
     getConfig: options.getConfig ?? ((pluginId: string) => declarativePluginsApi.configGet(pluginId)),
   }
 }

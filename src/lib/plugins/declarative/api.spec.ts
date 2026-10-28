@@ -11,7 +11,6 @@ const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }))
 vi.mock("@tauri-apps/api/core", () => ({ invoke }))
 
 import {
-  UNWIRED_LLM_MESSAGE,
   createDefaultRunDeps,
   declarativePluginsApi,
   loadSlotIndex,
@@ -186,21 +185,32 @@ describe("loadSlotIndex", () => {
 })
 
 describe("createDefaultRunDeps", () => {
-  it("没接线时模型调用给出可读原因，配置读取走真实命令", async () => {
+  it("默认依赖：模型调用、项目/章节读取、配置读取全部接好（不再有「未接线」占位）", async () => {
     const deps = createDefaultRunDeps()
+
+    // 四项都是可调用的真实实现
+    expect(typeof deps.llm.call).toBe("function")
+    expect(typeof deps.readProject).toBe("function")
+    expect(typeof deps.readChapter).toBe("function")
+    expect(typeof deps.getSelection).toBe("function")
+
+    // 默认 store 里没选模型 → 可读中文原因（不会静默失败，也不会假装成功）
     await expect(
       deps.llm.call({ system: "", user: "" }, () => {}, new AbortController().signal),
-    ).rejects.toThrow(UNWIRED_LLM_MESSAGE)
+    ).rejects.toThrow("当前模型不可用")
 
     invoke.mockResolvedValue({ style: "爆点" })
     await expect(deps.getConfig("p1")).resolves.toEqual({ style: "爆点" })
   })
 
-  it("覆盖项优先（接线任务只需传 llm）", async () => {
+  it("覆盖项优先（测试与将来的「指定模型」策略都从这里注入）", async () => {
     const llm = { call: vi.fn(async () => ({ text: "ok" })) }
     const deps = createDefaultRunDeps({ llm })
     await expect(deps.llm.call({ system: "", user: "" }, () => {}, new AbortController().signal)).resolves.toEqual({
       text: "ok",
     })
+
+    const readProject = vi.fn(async () => ({ bookTitle: "长夜" }))
+    await expect(createDefaultRunDeps({ llm, readProject }).readProject?.()).resolves.toEqual({ bookTitle: "长夜" })
   })
 })
