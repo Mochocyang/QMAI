@@ -203,6 +203,69 @@ test("内容包：version 必须是数字 1、条目缺字段、超条数上限�
   }
 });
 
+// 内容包的 slot：设计 §4.1 的示例就写了 `"slot": "inspiration-browser"`，宿主 `6734280b` 早已接受。
+// 校验器拒它是最糟的一种不一致 —— 作者照文档写、用官方工具校验，却被判非法。
+function makePackPlugin(slot) {
+  const pack = { id: "webnovel-hooks", title: "网文开局钩子", file: "content/inspirations.json" };
+  if (slot !== undefined) pack.slot = slot;
+  return makePluginDir(
+    {
+      schema: 3,
+      id: "pack-slot",
+      name: "内容包插槽",
+      version: "1.0.0",
+      kind: ["declarative"],
+      contributes: { contentPacks: [pack] },
+      permissions: [],
+    },
+    { "content/inspirations.json": { version: 1, items: [{ id: "x1", title: "钩子", body: "正文" }] } },
+  );
+}
+
+test("内容包：白名单内的 slot 必须放行（不再报未知字段）", () => {
+  const dir = makePackPlugin("inspiration-browser");
+  try {
+    const result = validateDirectory(dir);
+    const messages = result.errors.join("\n");
+    assert.equal(result.ok, true, messages);
+    assert.equal(result.errors.length, 0, messages);
+    assert.doesNotMatch(messages, /未知字段 "slot"/, "slot 是已知字段，不能被 deny_unknown_fields 式的检查挡下");
+
+    const cli = runCli(dir);
+    assert.equal(cli.code, 0, cli.output);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("内容包：不存在的 slot 报错且列出合法插槽（退出码 1）", () => {
+  const dir = makePackPlugin("foo");
+  try {
+    const result = validateDirectory(dir);
+    assert.equal(result.ok, false);
+    assert.match(
+      result.errors.join("\n"),
+      /contributes\.contentPacks\[0\]\.slot = "foo" 不存在（合法插槽：chapter-toolbar \/ inspiration-browser \/ /,
+    );
+
+    const cli = runCli(dir);
+    assert.equal(cli.code, 1, "有 error 必须退出码 1");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("内容包：slot 空串按非法处理（内容包没有「不挂插槽」这个状态）", () => {
+  const dir = makePackPlugin("");
+  try {
+    const result = validateDirectory(dir);
+    assert.equal(result.ok, false, "宿主 6734280b 对内容包空 slot 直接判错，校验器必须一致");
+    assert.match(result.errors.join("\n"), /contributes\.contentPacks\[0\]\.slot = "" 不存在（合法插槽：/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("提示词引用了不存在的变量 → 报错（运行时会被静默替换成空串）", () => {
   const dir = makePluginDir({
     schema: 3,

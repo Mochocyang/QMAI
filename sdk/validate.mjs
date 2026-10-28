@@ -155,7 +155,7 @@ const PROVIDER_KEYS = [
   "authDomains",
   "capabilities",
 ];
-const CONTENT_PACK_KEYS = ["id", "title", "description", "file", "maxItems", "actions"];
+const CONTENT_PACK_KEYS = ["id", "title", "description", "file", "maxItems", "actions", "slot"];
 const ACTION_KEYS = ["id", "title", "description", "slot", "form", "prompt", "output", "limits", "model"];
 const PROMPT_KEYS = ["system", "user"];
 const HOOK_KEYS = ["on", "impl", "template", "tool", "priority", "timeoutMs", "gate"];
@@ -655,6 +655,23 @@ function checkContentPacks(dir, packs, actions, result) {
     }
     if (!isNonEmptyString(pack.title)) {
       fail(result, `${where}.title 不能为空（它显示在灵感库入口上）`);
+    }
+    // 插槽（设计 §4.1：决定这个包在界面哪里出现）。与上面 actions[].slot 同款白名单校验，
+    // 但**空串不放行**：动作的空串等于「不挂插槽」（是个有语义的状态），而内容包没有那个状态 ——
+    // 不写就默认落灵感库（宿主 `6734280b`：`ContentPackDecl.slot` 缺省回填 inspiration-browser），
+    // 所以内容包的 slot: "" 只可能是笔误，按非法处理，别让它静默变成一个奇怪的空插槽。
+    if (pack.slot !== undefined) {
+      const slot = pack.slot;
+      if (typeof slot !== "string") {
+        fail(result, `${where}.slot 必须是字符串`);
+      } else if (!SLOT_IDS.includes(slot)) {
+        fail(
+          result,
+          `${where}.slot = ${JSON.stringify(slot)} 不存在（合法插槽：${SLOT_IDS.join(" / ")}；不写则默认挂到 inspiration-browser）`,
+        );
+      }
+    } else {
+      hint(result, `${where} 未声明 slot，将默认挂到 inspiration-browser`);
     }
     if (pack.maxItems !== undefined && (!Number.isInteger(pack.maxItems) || pack.maxItems < 0)) {
       fail(result, `${where}.maxItems 必须是非负整数`);
