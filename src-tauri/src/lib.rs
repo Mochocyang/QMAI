@@ -351,6 +351,9 @@ commands::fs::read_file,
             plugins::plugins_provider_open_login,
             // capabilities 端点代理（设计 4.4）：endpoint 走白名单，不开放任意 URL。
             plugins::plugins_provider_call,
+            // 凭据中转（设计 5.3）：paste-token / import-file 都走这里，
+            // 插件侧端点固定为 POST /login/credential；QMAI 不落盘、不缓存、不写日志。
+            plugins::plugins_provider_submit_credential,
             // 插件配置（设计 §6.3）：读/写按 configSchema 校验；
             // 密钥只写内存（盘上留占位符），读接口永不返回真值。
             plugins::plugins_config_get,

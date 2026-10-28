@@ -24,14 +24,26 @@ vi.mock("@/lib/plugins/api", () => ({
     refreshProviderModels: vi.fn(async () => []),
     providerOpenLogin: vi.fn(async () => undefined),
     providerCall: vi.fn(async () => ({})),
+    submitProviderCredential: vi.fn(async () => ({ ok: true })),
   },
 }))
 vi.mock("@/lib/plugins/provider-sync", () => ({
   syncPluginProviders: vi.fn(async () => ({ added: [], removed: [] })),
 }))
+// `import-file` 的两个真实依赖（文件对话框 + 读文件）：在 jsdom 里都没有，必须打桩。
+// 打桩的位置就是卡片的两个动态 import —— 用例因此可以走完「选文件 → 量大小 → 读内容
+// → 提交」的整条真实路径，而不是只验证"按钮存在"。
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }))
+vi.mock("@/commands/fs", () => ({
+  getFileSize: vi.fn(async () => 0),
+  readFile: vi.fn(async () => ""),
+}))
 
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog"
+import { getFileSize, readFile } from "@/commands/fs"
 import { pluginsApi } from "@/lib/plugins/api"
 import {
+  MAX_CREDENTIAL_FILE_BYTES,
   PluginProviderCard,
   formatModelCost,
   parseBalance,
@@ -45,6 +57,10 @@ import type { PluginProviderModel, PluginProviderView } from "@/lib/plugins/type
 
 const providerOpenLogin = vi.mocked(pluginsApi.providerOpenLogin)
 const providerCall = vi.mocked(pluginsApi.providerCall)
+const submitProviderCredential = vi.mocked(pluginsApi.submitProviderCredential)
+const openDialog = vi.mocked(openFileDialog)
+const mockGetFileSize = vi.mocked(getFileSize)
+const mockReadFile = vi.mocked(readFile)
 
 function model(overrides: Partial<PluginProviderModel> = {}): PluginProviderModel {
   return {
@@ -159,6 +175,21 @@ describe("PluginProviderCard", () => {
   async function click(element: HTMLElement) {
     await act(async () => {
       element.click()
+    })
+  }
+
+  /**
+   * 给受控 input 赋值。
+   *
+   * 必须走**原生 setter + 派发 `input` 事件**：直接 `input.value = "x"` 只改了 DOM 属性，
+   * React 的 value tracker 会认为"值没变"而吞掉 onChange，`useState` 永远是空的 ——
+   * 那样的用例会以"按钮一直禁用"的形式假通过（或假失败），根本测不到提交路径。
+   */
+  async function typeInto(input: HTMLInputElement, value: string) {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set
+    await act(async () => {
+      setter?.call(input, value)
+      input.dispatchEvent(new Event("input", { bubbles: true }))
     })
   }
 
@@ -380,5 +411,134 @@ describe("PluginProviderCard", () => {
     renderCard({ models: [model({ inputModalities: ["text", "image"] })] })
 
     expect(host.querySelector("[data-model-input-modality]")?.textContent).toContain("支持图片")
+  })
+
+  /* ---- 8) paste-token：输入框 + 保存 ---- */
+  it('authKind=paste-token：渲染密码框与「保存」，提交时 kind 是 "paste-token"', async () => {
+    renderCard({ authKind: "paste-token" })
+
+    const input = host.querySelector<HTMLInputElement>('[data-plugin-credential-input="paste-token"]')
+    expect(input, "paste-token 必须有输入框，否则用户根本没法填令牌").toBeTruthy()
+    // 密码框：令牌不该以明文停在设置页上。
+    expect(input!.type).toBe("password")
+    // 不回填：宿主手里没有这个值，空框就是真实状态（没有"已保存的令牌"可显示）。
+    expect(input!.value).toBe("")
+
+    const button = find('[data-plugin-action="submit-credential"]')
+    expect(button?.textContent).toContain("保存")
+    // 凭据型 authKind 且没声明设置页：不再摆一个永远禁用的「登录/设置」。
+    expect(find('[data-plugin-action="login"]')).toBeNull()
+
+    submitProviderCredential.mockResolvedValueOnce({ ok: true, message: "登录成功" })
+    await typeInto(input!, "sk-pasted-token")
+    await click(button!)
+
+    expect(submitProviderCredential).toHaveBeenCalledTimes(1)
+    expect(submitProviderCredential).toHaveBeenCalledWith(
+      "wb-connect",
+      "paste-token",
+      "sk-pasted-token",
+      undefined,
+    )
+    // 插件给的 message 原样展示。
+    expect(host.textContent).toContain("登录成功")
+  })
+
+  /* ---- 9) 提交后必须清空输入框 ---- */
+  it("提交成功后输入框被清空，且没有 message 时兜底「已保存」", async () => {
+    renderCard({ authKind: "paste-token" })
+
+    const input = host.querySelector<HTMLInputElement>('[data-plugin-credential-input="paste-token"]')!
+    await typeInto(input, "sk-should-not-stay")
+    submitProviderCredential.mockResolvedValueOnce({ ok: true })
+    await click(find('[data-plugin-action="submit-credential"]')!)
+
+    // 凭证不该留在界面上（也不该被任何地方缓存下来）。
+    expect(input.value).toBe("")
+    expect(host.textContent).toContain("已保存")
+  })
+
+  /* ---- 10) 空输入不能发出请求 ---- */
+  it("输入为空/全空白：保存按钮禁用，点了也不发请求", async () => {
+    renderCard({ authKind: "paste-token" })
+
+    const input = host.querySelector<HTMLInputElement>('[data-plugin-credential-input="paste-token"]')!
+    const button = find('[data-plugin-action="submit-credential"]')!
+    // 初始（空）就禁用：不给插件送一条空凭据。
+    expect(button.disabled).toBe(true)
+    await click(button)
+    expect(submitProviderCredential).not.toHaveBeenCalled()
+
+    // 只敲空格也算空 —— "有个字符"不该成为绕过校验的办法。
+    await typeInto(input, "    ")
+    expect(button.disabled).toBe(true)
+    await click(button)
+    expect(submitProviderCredential).not.toHaveBeenCalled()
+  })
+
+  /* ---- 11) import-file：选文件 → 读文本 → 提交 ---- */
+  it('authKind=import-file：渲染「选择文件」，读到的内容与文件名以 kind="import-file" 提交', async () => {
+    renderCard({ authKind: "import-file" })
+
+    const button = find('[data-plugin-action="pick-credential-file"]')
+    expect(button?.textContent).toContain("选择文件")
+    // 这一档没有粘贴框：文件内容才是凭据。
+    expect(host.querySelector("[data-plugin-credential-input]")).toBeNull()
+
+    openDialog.mockResolvedValueOnce("C:\\keys\\token.txt")
+    mockGetFileSize.mockResolvedValueOnce(64)
+    mockReadFile.mockResolvedValueOnce("sk-from-file")
+    submitProviderCredential.mockResolvedValueOnce({ ok: true, message: "登录成功" })
+
+    await click(button!)
+
+    // 先量大小、再读内容（两个都只打一次）。
+    expect(mockGetFileSize).toHaveBeenCalledWith("C:\\keys\\token.txt")
+    expect(mockReadFile).toHaveBeenCalledWith("C:\\keys\\token.txt")
+    // filename 传的是**文件名**而不是完整路径：插件不需要知道用户的磁盘结构。
+    expect(submitProviderCredential).toHaveBeenCalledWith(
+      "wb-connect",
+      "import-file",
+      "sk-from-file",
+      "token.txt",
+    )
+    expect(host.textContent).toContain("登录成功")
+  })
+
+  it("超过 1MB 的凭据文件：不读内容就直接报错（避免把大文件读进内存）", async () => {
+    renderCard({ authKind: "import-file" })
+
+    openDialog.mockResolvedValueOnce("D:\\big\\huge.txt")
+    mockGetFileSize.mockResolvedValueOnce(MAX_CREDENTIAL_FILE_BYTES + 1)
+
+    await click(find('[data-plugin-action="pick-credential-file"]')!)
+
+    expect(mockReadFile).not.toHaveBeenCalled()
+    expect(submitProviderCredential).not.toHaveBeenCalled()
+    expect(host.textContent).toContain("超过")
+  })
+
+  it("用户取消选择文件：安静退出，不显示假错误", async () => {
+    renderCard({ authKind: "import-file" })
+
+    openDialog.mockResolvedValueOnce(null)
+    await click(find('[data-plugin-action="pick-credential-file"]')!)
+
+    expect(mockGetFileSize).not.toHaveBeenCalled()
+    expect(submitProviderCredential).not.toHaveBeenCalled()
+    expect(host.textContent).not.toContain("失败")
+  })
+
+  it("提交失败：Rust 的中文原文原样展示（不吞成「操作失败」）", async () => {
+    renderCard({ authKind: "paste-token" })
+
+    const input = host.querySelector<HTMLInputElement>('[data-plugin-credential-input="paste-token"]')!
+    await typeInto(input, "bad-token")
+    submitProviderCredential.mockRejectedValueOnce(
+      'http://127.0.0.1:43210/login/credential 返回 401：token expired',
+    )
+    await click(find('[data-plugin-action="submit-credential"]')!)
+
+    expect(host.textContent).toContain("token expired")
   })
 })

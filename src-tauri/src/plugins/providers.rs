@@ -409,6 +409,110 @@ pub async fn call_capability(
         .map_err(|e| format!("解析 {url} 响应失败：{e}"))
 }
 
+// ── 凭据转交（设计 5.3 的 `paste-token` / `import-file`）──────────────
+//
+// 三种 authKind 里 `none` 与 `browser-login` 都不需要额外入口（前者不需要登录，
+// 后者走受控窗口里的插件页面）。剩下两种的语义完全一致：**把一段文本交给插件**。
+// 于是它们共用同一个端点、同一条命令，宿主零配置就能支持，作者也只需实现一次。
+
+/// 允许的凭据类型。**白名单，不是任意字符串**。
+///
+/// 这个值会被原样转发进插件：放开就等于给前端（以及可能影响前端的插件页面/内容包）
+/// 开了一个"往插件里塞任意类型字段"的口子，而作者会据此以为自己实现了某种新协议。
+pub const CREDENTIAL_KINDS: &[&str] = &["paste-token", "import-file"];
+
+/// 凭据转交的**固定端点**。
+///
+/// 为什么固定路径而不是让插件在清单里声明：`paste-token` / `import-file` 的语义
+/// 完全一致（都是"把一段文本交给插件"），固定成 `/login/credential` 之后，宿主不必
+/// 新增任何清单字段就能支持，作者只要实现一个端点；将来再加第四种"文本型凭据"
+/// （例如扫码结果）也是零配置。反过来，可配置路径会把一条契约变成 N 套私有协议 ——
+/// 与 `/health`、`/v1/models` 固定路径是同一个取舍（设计 3.1 / 4.1）。
+pub const CREDENTIAL_ENDPOINT: &str = "/login/credential";
+
+/// `kind` 是否在白名单内（纯函数，便于不起进程就覆盖）。
+pub fn credential_kind_allowed(kind: &str) -> bool {
+    CREDENTIAL_KINDS.contains(&kind)
+}
+
+/// 凭据入参校验（命令层先调、转发前再调一次：顺序要对，纵深防御也要有）。
+///
+/// 放在转发函数之外是刻意的：命令层必须先分辨"类型不合法"与"provider 未就绪"，
+/// 否则一个前端拼错 kind 的 BUG 会被报成"插件没起来"，排查方向直接跑偏。
+pub fn validate_credential(kind: &str, value: &str) -> Result<(), String> {
+    if !credential_kind_allowed(kind) {
+        return Err(format!("不支持的凭据类型：{kind}"));
+    }
+    if value.trim().is_empty() {
+        return Err("凭据内容为空".to_string());
+    }
+    Ok(())
+}
+
+/// 把用户输入的凭据 POST 给插件的 `/login/credential`。
+///
+/// **这一段文本只是在内存里过一次**：不落盘、不缓存、不进日志、不进任何错误信息
+/// （设计 5.3 的"凭证归属铁律"——凭证归插件，宿主只做一次中转）。所以这里：
+///
+/// - 没有 `eprintln!` / `println!`；
+/// - 错误信息只拼 URL、状态码与**插件自己返回的**响应体前 200 字，
+///   绝不拼 `value`（否则用户一截图报错，令牌就跟着泄出去了）；
+/// - 没有把 `value` 克隆进任何长期存活的结构体。
+///
+/// `filename` 只对 `import-file` 有意义（插件可能按扩展名判断该怎么解析）。
+/// 它只是**文件名**，不是路径 —— 宿主不把用户的磁盘路径告诉插件。
+pub async fn submit_credential(
+    client: &reqwest::Client,
+    base_url: &str,
+    token: &str,
+    kind: &str,
+    value: &str,
+    filename: Option<&str>,
+) -> Result<serde_json::Value, String> {
+    // 纵向再校验一次：这个函数是唯一真的会"把文本发出去"的地方，
+    // 不能依赖调用方永远记得先校验（将来多一个调用点就是多一个漏洞）。
+    validate_credential(kind, value)?;
+
+    let url = format!(
+        "{}{CREDENTIAL_ENDPOINT}",
+        base_url.trim_end_matches('/')
+    );
+    let mut body = serde_json::json!({ "kind": kind, "value": value });
+    if let Some(name) = filename.map(str::trim).filter(|name| !name.is_empty()) {
+        if let Some(fields) = body.as_object_mut() {
+            fields.insert("filename".to_string(), serde_json::Value::from(name));
+        }
+    }
+
+    let response = client
+        .post(&url)
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await
+        // `reqwest` 的 Display 只带方法与 URL，不会带请求体；这里也不用 `{:?}`
+        // （Debug 形式在部分错误变体里会把 body 一起打出来）。
+        .map_err(|error| format!("请求 {url} 失败：{error}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        // 带状态码 + 响应体前 200 字，与 `call_capability` 同一口径：
+        // 401 是"令牌不对"、404 是"没实现这个端点"、500 是"实现崩了"，
+        // 这三种在作者那边要改的地方完全不同。
+        let text = response.text().await.unwrap_or_default();
+        let preview: String = text.chars().take(200).collect();
+        return Err(format!("{url} 返回 {}：{preview}", status.as_u16()));
+    }
+
+    // 成功时插件回 `{"ok":true,"message":"登录成功"}`；也允许 200 + 空 body
+    // （作者只关心副作用、不想多写一行 JSON 是合理的），按 `{ok:true}` 处理。
+    let text = response.text().await.unwrap_or_default();
+    if text.trim().is_empty() {
+        return Ok(serde_json::json!({ "ok": true }));
+    }
+    serde_json::from_str(&text).map_err(|error| format!("解析 {url} 响应失败：{error}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -428,6 +532,46 @@ mod tests {
         handle: Option<std::thread::JoinHandle<()>>,
     }
 
+    /// 请求头结束位置（`\r\n\r\n`）。
+    fn header_end(buffer: &[u8]) -> Option<usize> {
+        buffer.windows(4).position(|window| window == b"\r\n\r\n")
+    }
+
+    /// 从已小写化的请求头里读 `Content-Length`（没有就按 0）。
+    fn content_length(headers: &str) -> usize {
+        headers
+            .lines()
+            .find_map(|line| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .unwrap_or(0)
+    }
+
+    /// 把**一整个**请求读出来（头 + 按 Content-Length 指定的 body）。
+    ///
+    /// 为什么不能只 `read` 一次：头与 body 是两次写入，很可能落在两个 TCP 段里。
+    /// 只读第一段时 body 里的凭据根本不在缓冲区里，于是"断言 body 含 value"这条
+    /// 用例会随机通过/失败 —— 那样的测试比没有更糟（它给人一种已经验证过的错觉）。
+    fn read_full_request(stream: &mut std::net::TcpStream) -> String {
+        // 读超时兜底：客户端若把连接挂着不发完，桩不能永远阻塞（会把用例拖成超时）。
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(2_000)));
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(read) => buffer.extend_from_slice(&chunk[..read]),
+                Err(_) => break,
+            }
+            if let Some(end) = header_end(&buffer) {
+                let headers = String::from_utf8_lossy(&buffer[..end]).to_ascii_lowercase();
+                if buffer.len() >= end + 4 + content_length(&headers) {
+                    break;
+                }
+            }
+        }
+        String::from_utf8_lossy(&buffer).to_string()
+    }
+
     impl StubHttp {
         fn spawn(status: u16, body: &str) -> Self {
             let listener = TcpListener::bind("127.0.0.1:0").expect("绑定桩端口失败");
@@ -439,12 +583,8 @@ mod tests {
                 // 一直服务：探活会反复请求同一个端点，桩不能只回一次。
                 for stream in listener.incoming() {
                     let Ok(mut stream) = stream else { return };
-                    let mut buffer = [0u8; 8192];
-                    let read = stream.read(&mut buffer).unwrap_or(0);
-                    captured
-                        .lock()
-                        .expect("请求记录锁")
-                        .push(String::from_utf8_lossy(&buffer[..read]).to_string());
+                    let request = read_full_request(&mut stream);
+                    captured.lock().expect("请求记录锁").push(request);
                     let response = format!(
                         "HTTP/1.1 {status} Stub\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                         body.as_bytes().len()
@@ -476,6 +616,11 @@ mod tests {
     fn http_client() -> reqwest::Client {
         reqwest::Client::builder()
             .timeout(Duration::from_secs(5))
+            // 与生产路径（`plugins::provider_http_client`）同口径：桩在回环上，
+            // 走代理必错。更要紧的是进程级 `HTTP_PROXY`/`ALL_PROXY` 会被
+            // `proxy.rs` 的用例临时改掉（那组用例只在自己的 mutex 内串行），
+            // 不关掉代理检测，这里的请求会随机被送进一个不存在的代理 —— 用例变成 flaky。
+            .no_proxy()
             .build()
             .expect("构造 reqwest client")
     }
@@ -768,6 +913,134 @@ mod tests {
             rendered.contains("http://127.0.0.1:51235"),
             "baseUrl 应保留：{rendered}"
         );
+    }
+
+    #[tokio::test]
+    async fn submit_credential_rejects_unknown_kind() {
+        // 白名单之外的 kind 必须**在发出去之前**就被拒：这条命令会把宿主的 provider
+        // token 带上，放了就等于给前端一个"带 token 打任意路径"的通用请求器
+        // （与 capability 端点的白名单同一理由）。
+        let stub = StubHttp::spawn(200, r#"{"ok":true}"#);
+        let error = submit_credential(
+            &http_client(),
+            &stub.base,
+            "stub-token-123",
+            "password",
+            "user-secret",
+            None,
+        )
+        .await
+        .expect_err("未知的 kind 必须被拒绝");
+
+        assert!(
+            error.contains("不支持的凭据类型"),
+            "错误要说明是凭据类型的问题：{error}"
+        );
+        assert!(
+            stub.requests().is_empty(),
+            "非法类型不该被转发出去（一个请求都不该发生）"
+        );
+        assert!(
+            credential_kind_allowed("paste-token") && credential_kind_allowed("import-file"),
+            "白名单两个类型都必须保留"
+        );
+    }
+
+    #[tokio::test]
+    async fn submit_credential_rejects_empty_value() {
+        // 空内容转发过去只会让插件白忙一趟，还可能在自己的日志里留一条空记录。
+        let stub = StubHttp::spawn(200, r#"{"ok":true}"#);
+        for value in ["", "   ", "\n\t \r\n"] {
+            let error = submit_credential(
+                &http_client(),
+                &stub.base,
+                "stub-token-123",
+                "paste-token",
+                value,
+                None,
+            )
+            .await
+            .expect_err("空凭据必须被拒绝");
+            assert_eq!(
+                error, "凭据内容为空",
+                "全空白也算空（用户按了几个空格不该被当成令牌）"
+            );
+        }
+        assert!(
+            stub.requests().is_empty(),
+            "空凭据不该被转发出去"
+        );
+    }
+
+    #[tokio::test]
+    async fn submit_credential_forwards_with_bearer_and_does_not_log_value() {
+        // 反面用例（桩回 401）：一次真实往返里要同时验证四件事 ——
+        // 固定路径、Bearer、body 里的凭据原文、以及**错误信息里不含凭据**。
+        let secret = "sk-user-secret-9f2c";
+        let stub = StubHttp::spawn(401, r#"{"error":"token expired"}"#);
+        let error = submit_credential(
+            &http_client(),
+            &stub.base,
+            "stub-token-123",
+            "paste-token",
+            secret,
+            Some("my-token.txt"),
+        )
+        .await
+        .expect_err("非 2xx 必须报错");
+
+        // 设计：错误信息只带状态码与响应体，绝不带 value ——
+        // 用户一截图报错、或作者把错误贴到 issue 里，令牌就跟着泄出去了。
+        assert!(error.contains("401"), "错误里必须有状态码：{error}");
+        assert!(
+            error.contains("token expired"),
+            "错误里要带响应体片段，否则排查全靠猜：{error}"
+        );
+        assert!(
+            !error.contains(secret),
+            "凭据原文绝不能出现在错误信息里：{error}"
+        );
+
+        let request = stub.requests()[0].clone();
+        let head = request.to_ascii_lowercase();
+        assert!(
+            head.starts_with("post /login/credential "),
+            "凭据必须 POST 到固定端点 /login/credential：{head}"
+        );
+        assert!(
+            head.contains("authorization: bearer stub-token-123"),
+            "转发时必须带 provider token：{head}"
+        );
+        // body：kind + value + filename 三件都要到插件那边
+        assert!(
+            request.contains(secret),
+            "凭据原文要以 value 字段转发给插件：{request}"
+        );
+        assert!(
+            request.contains("\"kind\":\"paste-token\""),
+            "kind 必须原样带过去：{request}"
+        );
+        assert!(
+            request.contains("my-token.txt"),
+            "import-file 的原文件名要一并带过去（插件可能按扩展名解析）：{request}"
+        );
+    }
+
+    #[tokio::test]
+    async fn submit_credential_accepts_success_without_message() {
+        // 作者只关心副作用、回 200 + 空 body 也要算成功：界面会说「已保存」。
+        let stub = StubHttp::spawn(201, "");
+        let payload = submit_credential(
+            &http_client(),
+            &stub.base,
+            "stub-token-123",
+            "import-file",
+            "user-content",
+            Some("credential.json"),
+        )
+        .await
+        .expect("200 空 body 也算成功");
+        assert_eq!(payload["ok"], json!(true));
     }
 
     #[test]

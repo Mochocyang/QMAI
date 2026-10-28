@@ -21,11 +21,17 @@
  *     「插件不支持该端点」的 404，那是把插件的诚实宣言变成宿主的假承诺。
  *   - 但 `刷新模型` **例外**：`/v1/models` 是 provider 契约里的必需端点（设计 §3.1），
  *     刷新是宿主自己的能力，所以它不受任何能力位门控（理由见按钮处的注释）。
+ *   - `paste-token` / `import-file` 有自己的输入入口（设计 §5.3）：`paste-token` 是
+ *     一个密码框 + 「保存」，`import-file` 是「选择文件」→ 读文本。两者都走同一条
+ *     命令（`plugins_provider_submit_credential`），插件侧端点是固定的
+ *     `POST /login/credential`。**已提交的值不回填、不缓存** —— 宿主手里没有这个值
+ *     （它只在一次内存中转里经过），所以这里既没有"读取已保存令牌"的调用，也不把
+ *     `value` 放进任何 React 之外的地方。
  */
 import { useState } from "react"
 import { AlertTriangle, CalendarCheck, Image as ImageIcon, Loader2, RefreshCw, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { pluginsApi } from "@/lib/plugins/api"
+import { pluginsApi, type PluginCredentialKind } from "@/lib/plugins/api"
 import { syncPluginProviders } from "@/lib/plugins/provider-sync"
 import type { PluginProviderModel, PluginProviderView } from "@/lib/plugins/types"
 import type { LlmPreset } from "../llm-presets"
@@ -193,11 +199,88 @@ export function formatModelCost(cost: PluginProviderModel["cost"]): string | und
 }
 
 /* ------------------------------------------------------------------ *
+ * 凭据输入（`paste-token` / `import-file`，设计 §5.3）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 凭据文件的大小上限：1 MB。
+ *
+ * 为什么要有上限：这类文件是令牌/凭证串（几 KB 就顶天了）。一个误选的 200MB 日志
+ * 或视频文件若先读进内存再判断，设置页会当场卡死 —— 那是"顺手支持一下导入文件"
+ * 最容易砸到用户的地方。所以**先量大小、再读内容**（见 `readCredentialFile`）。
+ */
+export const MAX_CREDENTIAL_FILE_BYTES = 1024 * 1024
+
+/**
+ * 常见凭据文本文件的扩展名（**宽松白名单**）。
+ *
+ * 只用来决定「要不要给一句提醒」，**不用来决定拒收**：插件的凭据格式是插件自己的事
+ * （可能是 `.key`、`.pem`、无扩展名，甚至插件让用户自己起个名字）。用扩展名拒收会把
+ * 「宿主不认识这个后缀」变成「这个插件用不了」，而真正该说话的是插件自己 ——
+ * 它收到内容后可以回 400 并说明原因，宿主把那段错误原样展示。
+ */
+export const TEXT_CREDENTIAL_EXTENSIONS = [".txt", ".json", ".toml", ".yaml", ".yml", ".conf", ".ini"] as const
+
+/** 文件名是否属于常见的凭据文本类型（决定要不要提醒，见上面的常量）。 */
+export function isKnownTextCredentialFile(filename: string): boolean {
+  const lower = filename.trim().toLowerCase()
+  return TEXT_CREDENTIAL_EXTENSIONS.some((extension) => lower.endsWith(extension))
+}
+
+/** 从路径里取文件名：插件只需要知道"这原来是哪个文件"，不需要（也不该拿到）完整路径。 */
+export function credentialFilename(path: string): string {
+  const normalized = path.trim()
+  const cut = Math.max(normalized.lastIndexOf("/"), normalized.lastIndexOf("\\"))
+  return cut >= 0 ? normalized.slice(cut + 1) : normalized
+}
+
+/** 人类可读的字节数（只用于错误文案，不参与任何判断）。 */
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${bytes} B`
+}
+
+/** 读文件得到的东西：原文件名 + 文本内容 + 可能的一句提醒。 */
+export interface CredentialFile {
+  filename: string
+  text: string
+  /** 扩展名不在常见文本类型里时的提醒；**仍然允许提交**（见 TEXT_CREDENTIAL_EXTENSIONS）。 */
+  warning?: string
+}
+
+/**
+ * 读一个凭据文件（先量大小，再读文本）。
+ *
+ * 用的是项目既有的能力（`@tauri-apps/plugin-dialog` 选路径 + `@/commands/fs` 的量大小/
+ * 读文本），没有引入新依赖。两个都**动态导入**：这张卡片会被设置页的第一个渲染路径
+ * 加载，把文件对话框塞进模块顶层会让所有渲染这个卡片的测试都要跟着打桩。
+ */
+export async function readCredentialFile(path: string): Promise<CredentialFile> {
+  const target = path.trim()
+  if (!target) throw new Error("没有选中任何文件")
+  const filename = credentialFilename(target)
+  const { getFileSize, readFile } = await import("@/commands/fs")
+  // 顺序不能反：先量大小，再读内容。
+  const size = await getFileSize(target)
+  if (size > MAX_CREDENTIAL_FILE_BYTES) {
+    throw new Error(`文件 ${filename} 有 ${formatBytes(size)}，超过 ${formatBytes(MAX_CREDENTIAL_FILE_BYTES)} 上限`)
+  }
+  const text = await readFile(target)
+  const warning = isKnownTextCredentialFile(filename)
+    ? undefined
+    : `${filename} 的后缀不常见，已按纯文本读取；如果插件不认这个格式，它会返回自己的错误原因`
+  return { filename, text, warning }
+}
+
+
+
+/* ------------------------------------------------------------------ *
  * 卡片
  * ------------------------------------------------------------------ */
 
 /** 同一时刻只做一件事：避免用户把「刷新模型」「签到」连点成一堆并发命令。 */
-type PendingAction = "refresh" | "login" | "balance" | "checkin"
+type PendingAction = "refresh" | "login" | "balance" | "checkin" | "credential"
 
 type BalanceState =
   | { kind: "loading" }
@@ -217,6 +300,9 @@ export function PluginProviderCard({
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [status, setStatus] = useState<{ error: boolean; text: string } | null>(null)
   const [balance, setBalance] = useState<BalanceState | null>(null)
+  // 粘贴框的内容。**只活在这一次输入里**：提交后立刻清空，不写 store、不进 providerConfigs
+  // （宿主手里也没有"已保存的令牌"可以回填，见文件头的说明）。
+  const [credentialText, setCredentialText] = useState("")
 
   // 「刷新模型」不受 capabilities 门控：/v1/models 是 provider 契约的必需端点（设计 §3.1），
   // 刷新是宿主自己的能力。models.refresh 这个 capability 因此没有 UI 语义，仅为向后兼容保留。
@@ -229,6 +315,24 @@ export function PluginProviderCard({
   // 有登录需求但没声明页面 → 宿主无窗口可开。按钮禁用而不是「点了才报错」：
   // 用户一眼就知道这条能力缺在哪（tooltip 里写着缺的是 settingsPagePath）。
   const loginBlocked = needsLogin && settingsPage === ""
+
+  /**
+   * 需要用户"交一段文本"的 authKind（设计 §5.3）。
+   *
+   * 只有这两种走凭据入口；`none` 不需要，`browser-login` 走受控窗口里的插件页面。
+   */
+  const credentialKind: PluginCredentialKind | null =
+    preset.authKind === "paste-token" || preset.authKind === "import-file" ? preset.authKind : null
+
+  /**
+   * 是否渲染「登录/设置」按钮。
+   *
+   * 凭据型 authKind 且没声明设置页时**不渲染**：这类 provider 的登录入口就是下面的
+   * 输入框/选择文件按钮，再摆一个永远禁用的「登录/设置」只会让用户以为插件坏了一半
+   * （"为什么这个按钮点不动？"）。声明了 `settingsPagePath` 的仍然照常给按钮 ——
+   * 有的插件既收令牌、又需要一个说明页。
+   */
+  const showLoginButton = credentialKind === null || settingsPage !== ""
 
   async function refreshModels() {
     if (pending) return
@@ -280,6 +384,95 @@ export function PluginProviderCard({
     } catch (cause) {
       // 原文展示：Rust 的中文原因（白名单拒绝、settingsPage 非法…）比「操作失败」有用得多。
       setStatus({ error: true, text: `打开登录窗口失败：${describeError(cause)}` })
+    } finally {
+      setPending(null)
+    }
+  }
+
+  /**
+   * 真正把凭据发出去（两种 kind 共用），并把结果写进 `status`。
+   *
+   * 调用方只负责 `pending`：这样"读文件失败"与"提交失败"的文案不会串味
+   * （前者是本地问题，后者是插件的问题，用户看到的第一句话必须能区分开）。
+   */
+  async function deliverCredential(
+    kind: PluginCredentialKind,
+    value: string,
+    filename?: string,
+    warning?: string,
+  ) {
+    try {
+      const result = await pluginsApi.submitProviderCredential(preset.id, kind, value, filename)
+      // 凭证不留在界面上：**无论成败都清空**输入框。
+      // 失败时清空的代价是用户要重新粘贴一次，但"令牌停在设置页上等着被截图/被旁观"
+      // 是更糟的一类问题，而失败原因（Rust 的中文原文或插件的响应体）已经说明了一切。
+      setCredentialText("")
+      // 插件没给 message 时兜底「已保存」：点了保存却什么都不显示，用户会以为没生效。
+      const message = result?.message?.trim() || "已保存"
+      setStatus({ error: false, text: warning ? `${message}。${warning}` : message })
+      // 提交成功后 Rust 已经重探活 + 重抓模型（并 emit 了事件），这里再同步一次快照，
+      // 让卡片上的模型数立刻跟上。失败只 warn —— 不该把成功提示改写成错误。
+      void syncPluginProviders().catch((cause: unknown) => {
+        console.warn("[plugins] 凭据提交后同步 provider 失败：", cause)
+      })
+    } catch (cause) {
+      setCredentialText("")
+      // 原文展示 Rust 的中文原因（"不支持的凭据类型"、401 与插件响应体…）：
+      // 吞成「操作失败」等于把唯一可排查的信息扔掉。
+      setStatus({ error: true, text: `提交失败：${describeError(cause)}` })
+    }
+  }
+
+  /** `paste-token`：把输入框里的文本交给插件。 */
+  async function savePastedCredential() {
+    const value = credentialText
+    // 空输入直接不做事（按钮本身也是禁用的，这里是第二道闸）：宁可什么都不发，
+    // 也不给插件送一条空凭据、让它自己报一个含糊的错。
+    if (pending || value.trim() === "") return
+    setPending("credential")
+    setStatus(null)
+    try {
+      await deliverCredential("paste-token", value)
+    } finally {
+      setPending(null)
+    }
+  }
+
+  /** `import-file`：选文件 → 读文本 → 交给插件（原文件名一并带过去）。 */
+  async function importCredentialFile() {
+    if (pending) return
+    setStatus(null)
+    let picked: string | string[] | null = null
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog")
+      picked = await open({
+        multiple: false,
+        directory: false,
+        title: "选择凭据文件",
+        // 过滤器只是**便利**，不是白名单：第二个「全部文件」让作者那些非常规后缀
+        // （.key / .pem / 无后缀）仍然可选 —— 收不收由插件决定，不由宿主猜。
+        filters: [
+          { name: "凭据文本", extensions: [...TEXT_CREDENTIAL_EXTENSIONS].map((ext) => ext.replace(/^\./, "")) },
+          { name: "全部文件", extensions: ["*"] },
+        ],
+      })
+    } catch (cause) {
+      setStatus({ error: true, text: `打开文件选择器失败：${describeError(cause)}` })
+      return
+    }
+    // 用户取消（返回 null）：安静退出，不要留一句"操作失败"的假错误。
+    if (typeof picked !== "string") return
+
+    setPending("credential")
+    try {
+      const file = await readCredentialFile(picked)
+      if (file.text.trim() === "") {
+        setStatus({ error: true, text: `${file.filename} 里没有可提交的内容。` })
+        return
+      }
+      await deliverCredential("import-file", file.text, file.filename, file.warning)
+    } catch (cause) {
+      setStatus({ error: true, text: `读取凭据文件失败：${describeError(cause)}` })
     } finally {
       setPending(null)
     }
@@ -407,25 +600,100 @@ export function PluginProviderCard({
             {pending === "refresh" ? "刷新中…" : "刷新模型"}
           </Button>
           {/*
-            「登录/设置」始终出现（它是用户找登录入口的地方，点掉比藏起来好），
+            「登录/设置」通常都显示（它是用户找登录入口的地方，点掉比藏起来好），
             但只有「需要登录 + 声明了设置页」时才真的能打开窗口。
+            唯一的例外是凭据型 authKind 且没声明设置页：那种 provider 的入口是下面的
+            输入框/选择文件按钮，留一个永远禁用的按钮只会被读成「插件坏了一半」。
             tooltip 用原生 `title`：按钮 disabled 后指针事件被吞，包一层 Tooltip
             反而点不出内容，原生 title 在禁用态仍然会显示。
           */}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            data-plugin-action="login"
-            disabled={loginBlocked || pending === "login"}
-            title={loginBlocked ? NO_SETTINGS_PAGE_HINT : undefined}
-            onClick={() => void openSettings()}
-          >
-            {pending === "login" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-            {pending === "login" ? "打开中…" : "登录/设置"}
-          </Button>
+          {showLoginButton ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-plugin-action="login"
+              disabled={loginBlocked || pending === "login"}
+              title={loginBlocked ? NO_SETTINGS_PAGE_HINT : undefined}
+              onClick={() => void openSettings()}
+            >
+              {pending === "login" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+              {pending === "login" ? "打开中…" : "登录/设置"}
+            </Button>
+          ) : null}
         </div>
       </div>
+
+      {/*
+        凭据入口（设计 §5.3）。两种 authKind 都渲染自己的那一行：
+        - `paste-token`：密码框 + 「保存」。**不回填已保存的值** —— 宿主根本没存，
+          所以也就没有任何"显示成 ****"的假象；空框就是真实状态。
+        - `import-file`：「选择文件」→ 读文本（≤1MB）→ 交给插件，原文件名一并带过去。
+        两个都放进 `pending === "credential"` 的禁用条件，避免连点发出两个请求。
+      */}
+      {credentialKind ? (
+        <div className="space-y-2 px-1 pb-2" data-plugin-credential={credentialKind}>
+          {credentialKind === "paste-token" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <label
+                className="text-xs text-muted-foreground"
+                htmlFor={`plugin-credential-${preset.id}`}
+              >
+                把插件要求的令牌粘贴到这里
+              </label>
+              <input
+                id={`plugin-credential-${preset.id}`}
+                type="password"
+                className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-xs"
+                data-plugin-credential-input="paste-token"
+                // 关掉密码管理器与拼写检查：这不是登录表单，自动填充弹层会盖住卡片。
+                autoComplete="off"
+                spellCheck={false}
+                value={credentialText}
+                disabled={pending !== null}
+                onChange={(event) => setCredentialText(event.target.value)}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-plugin-action="submit-credential"
+                // 空输入时禁用：不给插件送空凭据（第二道闸在 savePastedCredential 里）。
+                disabled={pending !== null || credentialText.trim() === ""}
+                onClick={() => void savePastedCredential()}
+              >
+                {pending === "credential" ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                {pending === "credential" ? "提交中…" : "保存"}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-plugin-action="pick-credential-file"
+                disabled={pending !== null}
+                onClick={() => void importCredentialFile()}
+              >
+                {pending === "credential" ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : null}
+                {pending === "credential" ? "提交中…" : "选择文件"}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                选择一个文本文件（上限 1MB），内容会原样交给插件
+              </span>
+            </div>
+          )}
+          <p className="text-[0.6875rem] leading-relaxed text-muted-foreground">
+            这段内容只经过一次内存中转交给插件：QMAI 不保存、不缓存、不写日志，
+            也不会把已提交的值回填到这里。
+          </p>
+        </div>
+      ) : null}
 
       {/* 余额是「一张小字」而不是一块面板：它是一眼确认，不该抢走模型列表的位置。 */}
       {balance ? (

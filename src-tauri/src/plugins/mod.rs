@@ -35,7 +35,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use tauri::State;
+// 凭据转交成功后要 emit 事件（`plugin-provider-models-refreshed`），
+// 与 `login_window` 用同一个 trait；漏了它 `app.emit` 会编译不过。
+use tauri::{Emitter, State};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt};
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -751,13 +753,11 @@ async fn register_provider(
 
     // 一个 client 复用到探活与抓模型：超时策略只有一处。60s 是探活/抓取的粗上限，
     // 真正的探活预算由调用方按 startTimeoutMs 收紧（见 `probe_budget`）。
-    let client = match reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-    {
+    // client 带 `no_proxy()`：插件在回环上，见 `provider_http_client` 的注释。
+    let client = match provider_http_client(std::time::Duration::from_secs(60)) {
         Ok(client) => client,
         Err(error) => {
-            provider.last_error = Some(format!("构造 HTTP client 失败：{error}"));
+            provider.last_error = Some(error);
             return provider;
         }
     };
@@ -1685,6 +1685,25 @@ pub async fn plugins_provider_call(
     provider_call(state.inner(), &provider_id, &endpoint, body).await
 }
 
+/// 构造一个访问**本机插件**的 HTTP client。
+///
+/// 两件事写死在这里，免得四个调用点各写一份、又各自漂移：
+///
+/// - **`no_proxy()`**：插件 provider 永远在 `127.0.0.1:<宿主分配的端口>` 上，走代理必错
+///   （代理那头到不了用户的回环地址）。而 QMAI 自己会把用户设置的代理写进进程级
+///   `HTTP_PROXY` / `ALL_PROXY`（见 `crate::proxy`），其中 `bypassLocal=false` 那一档
+///   连 127.0.0.1 也不绕过 —— 那会让**所有**插件 provider 静默失效（探活永远失败、
+///   余额/签到永远报错，而用户只是勾了个代理）。在 client 上一次性关掉代理检测，
+///   这条链路就与用户的代理设置彻底解耦。
+/// - **超时由调用方给**：探活预算、按钮点击、凭据中转的耐心完全不同（见各常量）。
+fn provider_http_client(timeout: std::time::Duration) -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(timeout)
+        .no_proxy()
+        .build()
+        .map_err(|error| format!("构造 HTTP client 失败：{error}"))
+}
+
 /// `plugins_provider_call` 的实际实现（命令层只做 `State` 解包）。
 async fn provider_call(
     state: &PluginsState,
@@ -1707,12 +1726,136 @@ async fn provider_call(
         (provider.base_url.clone(), provider.token.clone())
     };
 
-    let client = reqwest::Client::builder()
-        .timeout(PROVIDER_CAPABILITY_TIMEOUT)
-        .build()
-        .map_err(|error| format!("构造 HTTP client 失败：{error}"))?;
+    let client = provider_http_client(PROVIDER_CAPABILITY_TIMEOUT)?;
 
     providers::call_capability(&client, &base_url, &token, endpoint, body.as_ref()).await
+}
+
+// ── 凭据转交（设计 5.3：`paste-token` / `import-file`）──────────────
+//
+// 为什么宿主只做「一次内存中转」而不存下这段文本（设计 5.3 的凭证归属铁律）：
+//
+// 1. **存哪儿都是错**。QMAI 自己的存储（`providerConfigs` / plugin store / 配置 JSON）
+//    一旦写下这段令牌，就等于它成了"凭据的保管人"：备份会带走它、日志可能打印它、
+//    多账号切换时还得决定"用哪一份"。插件才是真正要拿它去换上游会话的一方，
+//    它自己知道该存在 `<插件根>/<id>.data/` 还是内存里。
+// 2. **存了就得擦**。内存里留一份"只是缓存"的副本，就要回答"什么时候擦、擦干净了吗"，
+//    而任何一版都可能漏擦（panic 路径、热重载、窗口切换）。不做这份缓存就没有这个问题。
+// 3. **前端没有回填义务**。因为宿主根本没有这个值，卡片上也就无法"回填已保存的令牌"，
+//    不需要设计"显示成 ****"之类的假象 —— 那是把不可回填的东西伪装成可回填。
+//
+// 所以这条链路上没有任何 `eprintln!`、没有任何落盘、错误信息里也没有 `value`
+// （见 `providers::submit_credential`）。
+
+/// 凭据转交的单次超时。
+///
+/// 15s，比能力端点的 5s 宽得多：插件收到这段令牌后**很可能要拿它去换上游会话**
+/// （一次真实的外部 HTTP 往返），换完才敢回 200。按 5s 卡，用户会在"登录其实马上
+/// 就成功"的情况下先看到一次失败；失败提示又会让他重试，而重试更容易触发上游风控。
+const PROVIDER_CREDENTIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// 把用户在界面上输入的凭据转交给插件。
+///
+/// **QMAI 不落盘、不缓存、不写日志**：这段文本只在这一次请求里经过宿主内存。
+/// 成功后的刷新与事件上报**照 `login_window` 的做法**：重探活 + 重抓模型 +
+/// emit `plugin-provider-models-refreshed`，用户不必再手动点一次「刷新模型」。
+///
+/// 为什么这个命令要 `AppHandle`：`refresh_provider_models` 的结果必须通知前端
+/// （刷新发生在后端，界面手里还是提交前的快照），而 emit 需要 AppHandle。
+/// 它由 Tauri 注入，前端 invoke 时不需要传。
+#[tauri::command]
+pub async fn plugins_provider_submit_credential(
+    app: tauri::AppHandle,
+    state: State<'_, PluginsState>,
+    provider_id: String,
+    kind: String,
+    value: String,
+    filename: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (plugin_id, payload, outcome) = submit_provider_credential(
+        state.inner(),
+        &provider_id,
+        &kind,
+        &value,
+        filename.as_deref(),
+    )
+    .await?;
+
+    if let Err(error) = &outcome {
+        // 与 login_window 同一口径：凭据提交成功但刷新失败是常见情况（插件正在落盘、
+        // /health 短暂不响应），只记日志不打扰用户 —— 卡片的 `last_error` 已写明原因，
+        // 用户还能手动点「刷新模型」。
+        //
+        // 注意 `error` 只可能来自探活/抓模型（含 URL 与状态码），**不含凭据原文**。
+        eprintln!("[plugins] provider {provider_id} 凭据提交后自动刷新失败：{error}");
+    }
+    // 必须通知前端：界面拿不到后端这次 `ready` / 模型数的变化，
+    // 没有这个事件，用户会以为"提交完了模型还是没出来"。
+    // 事件只上报结果，不夹带 token、更不夹带凭据。
+    let _ = app.emit(
+        "plugin-provider-models-refreshed",
+        serde_json::json!({
+            "pluginId": plugin_id,
+            "providerId": provider_id,
+            "ok": outcome.is_ok(),
+            "modelCount": outcome.as_ref().map(|models| models.len()).unwrap_or(0),
+            "error": outcome.as_ref().err().cloned().unwrap_or_default(),
+        }),
+    );
+
+    Ok(payload)
+}
+
+/// `plugins_provider_submit_credential` 的实际实现（命令层只做 `State` 解包 + emit）。
+///
+/// 返回 `(pluginId, 插件的响应, 刷新结果)`：
+/// - `pluginId` 只为 emit 的 payload 与 `login_window` 对齐（前端按 pluginId 认来源）；
+/// - 刷新结果是第三项而不是并进 `Err`：凭据**已经交给插件了**，
+///   此时再因为刷新失败返回 `Err`，用户会以为"令牌没交上去"而去重填一遍。
+async fn submit_provider_credential(
+    state: &PluginsState,
+    provider_id: &str,
+    kind: &str,
+    value: &str,
+    filename: Option<&str>,
+) -> Result<
+    (
+        String,
+        serde_json::Value,
+        Result<Vec<providers::ProviderModel>, String>,
+    ),
+    String,
+> {
+    // 先校验入参、再查登记（与 `provider_call` 先判白名单同一顺序）：
+    // 前端拼错 kind 时必须得到"不支持的凭据类型"，而不是被一句"provider 未就绪"
+    // 带去查插件进程。
+    providers::validate_credential(kind, value)?;
+
+    // 地址与令牌取出来就放锁：转发 + 刷新可能几百毫秒，握着 providers 表锁会把
+    // 启用/停用一起堵住。token 只在内存，用完即弃。
+    let (plugin_id, base_url, token) = {
+        let providers = state.providers.lock().await;
+        let provider = providers
+            .get(provider_id)
+            .ok_or_else(|| format!("provider {provider_id} 未就绪"))?;
+        (
+            provider.plugin_id.clone(),
+            provider.base_url.clone(),
+            provider.token.clone(),
+        )
+    };
+
+    let client = provider_http_client(PROVIDER_CREDENTIAL_TIMEOUT)?;
+
+    let payload =
+        providers::submit_credential(&client, &base_url, &token, kind, value, filename).await?;
+
+    // 成功后立刻重探活 + 重抓模型：插件往往是"收到令牌后才知道有哪些模型"，
+    // 不刷这一次，用户填完令牌看到的还是空模型列表。
+    // 失败不覆盖上一步的成功 —— 见本函数 doc。
+    let outcome = refresh_provider_models(state, provider_id, PROVIDER_REFRESH_PROBE_TIMEOUT).await;
+
+    Ok((plugin_id, payload, outcome))
 }
 
 // ── 插件配置（设计 §6.3）──────────────────────────────
@@ -1894,10 +2037,7 @@ async fn refresh_provider_models(
         (provider.base_url.clone(), provider.token.clone())
     };
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
-        .build()
-        .map_err(|e| format!("构造 HTTP client 失败：{e}"))?;
+    let client = provider_http_client(std::time::Duration::from_secs(60))?;
 
     // 第一步：探活。失败就把登记改成 `ready=false` 再返回 Err —— 只返回 Err 而不落登记
     // 的话，界面上的 `ready` 还是上一次的值，用户会看到「刷新失败，但卡片仍显示就绪」。
@@ -1950,6 +2090,8 @@ mod tests {
     use crate::plugins::registry::{RegistryEntry, SourceRecord};
     use serde_json::json;
     use std::path::{Path, PathBuf};
+    // 桩服务器的请求记录（凭据用例要断言"真的刷新了"）。
+    use std::sync::{Arc, Mutex};
 
     fn sample_entry(id: &str) -> RegistryEntry {
         RegistryEntry {
@@ -2042,6 +2184,184 @@ mod tests {
             ready: true,
             last_error: None,
         }
+    }
+
+    /// 按路径分派的极小 HTTP 桩：`/login/credential`、`/health`、`/v1/models` 各回各的。
+    ///
+    /// 为什么一个桩要同时扮演三个端点：凭据提交成功后宿主会**立刻**重探活 + 重抓模型，
+    /// 三件事打的是同一台服务器。拆成三个桩就没法验证"真的刷新了"——
+    /// 那正是这条命令最容易漏掉的一半行为。
+    struct CredentialStub {
+        base: String,
+        hits: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl CredentialStub {
+        fn spawn(credential_status: u16) -> Self {
+            use std::io::{Read, Write};
+
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("绑定桩端口");
+            let port = listener.local_addr().expect("读取桩端口").port();
+            let hits = Arc::new(Mutex::new(Vec::new()));
+            let captured = Arc::clone(&hits);
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut stream) = stream else { return };
+                    let mut buffer = [0u8; 8192];
+                    let read = stream.read(&mut buffer).unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                    let first_line = request.lines().next().unwrap_or("").to_string();
+                    captured
+                        .lock()
+                        .expect("请求记录锁")
+                        .push(first_line.clone());
+                    let (status, body) = if first_line.starts_with("GET /health") {
+                        (200u16, String::from("{}"))
+                    } else if first_line.starts_with("GET /v1/models") {
+                        (
+                            200,
+                            String::from(
+                                r#"{"data":[{"id":"glm-5.3","_qmai":{"maxInputTokens":1024,"maxOutputTokens":256}}]}"#,
+                            ),
+                        )
+                    } else if first_line.starts_with("POST /login/credential") {
+                        (credential_status, String::from(r#"{"ok":true,"message":"登录成功"}"#))
+                    } else {
+                        (404, String::from("{}"))
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status} Stub\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.as_bytes().len()
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                    let _ = stream.flush();
+                }
+            });
+            Self {
+                base: format!("http://127.0.0.1:{port}"),
+                hits,
+            }
+        }
+
+        fn hits(&self) -> Vec<String> {
+            self.hits.lock().expect("请求记录锁").clone()
+        }
+    }
+
+    /// 登记一个指向桩服务器的 provider。
+    async fn register_stub_provider(
+        state: &PluginsState,
+        provider_id: &str,
+        base_url: &str,
+        auth_kind: &str,
+    ) {
+        let mut provider = provider_registration("cred-plugin", provider_id);
+        provider.base_url = base_url.to_string();
+        provider.auth_kind = auth_kind.to_string();
+        state
+            .providers
+            .lock()
+            .await
+            .insert(provider_id.to_string(), provider);
+    }
+
+    /// 成功提交凭据后必须**自动重探活 + 重抓模型**（照 `login_window` 的套路）。
+    ///
+    /// 不能只断言"命令返回了 Ok"：用户填完令牌最想看到的是模型出来了，
+    /// 只转发不刷新的话界面会一直是空列表，等于把这个入口做成半成品。
+    #[tokio::test]
+    async fn submit_credential_refreshes_models_after_success() {
+        let stub = CredentialStub::spawn(200);
+        let state = PluginsState::default();
+        register_stub_provider(&state, "token-provider", &stub.base, "paste-token").await;
+
+        let (plugin_id, payload, outcome) =
+            submit_provider_credential(&state, "token-provider", "paste-token", "user-token-xyz", None)
+                .await
+                .expect("提交应成功");
+
+        assert_eq!(plugin_id, "cred-plugin", "emit 的 payload 要能指出是哪个插件");
+        assert_eq!(
+            payload["message"],
+            json!("登录成功"),
+            "插件给的 message 要原样交给界面"
+        );
+
+        let models = outcome.expect("成功后必须重抓模型");
+        assert_eq!(models.len(), 1);
+        let providers = state.providers.lock().await;
+        let provider = providers.get("token-provider").expect("登记应还在");
+        assert!(provider.ready, "刷新成功后 ready 必须翻成 true");
+        assert_eq!(provider.models.len(), 1, "模型列表要真的被更新进登记");
+        assert!(provider.last_error.is_none());
+        drop(providers);
+
+        let hits = stub.hits();
+        assert!(
+            hits.iter()
+                .any(|line| line.starts_with("POST /login/credential")),
+            "凭据必须打到固定端点：{hits:?}"
+        );
+        assert!(
+            hits.iter().any(|line| line.starts_with("GET /health")),
+            "成功后要重探活：{hits:?}"
+        );
+        assert!(
+            hits.iter().any(|line| line.starts_with("GET /v1/models")),
+            "成功后要重抓模型：{hits:?}"
+        );
+    }
+
+    /// 提交失败时**不发**刷新请求：插件连凭据都没收下，探活/抓模型只会失败，
+    /// 白白给用户一条会把真正原因（401/400）盖住的错误。
+    #[tokio::test]
+    async fn submit_credential_failure_does_not_refresh_models() {
+        let stub = CredentialStub::spawn(401);
+        let state = PluginsState::default();
+        register_stub_provider(&state, "token-provider", &stub.base, "paste-token").await;
+
+        let error = submit_provider_credential(
+            &state,
+            "token-provider",
+            "paste-token",
+            "wrong-token-abc",
+            None,
+        )
+        .await
+        .expect_err("401 必须报错");
+
+        assert!(error.contains("401"), "错误里要有状态码：{error}");
+        assert!(
+            !error.contains("wrong-token-abc"),
+            "错误信息里绝不能出现凭据原文：{error}"
+        );
+        let hits = stub.hits();
+        assert!(
+            !hits.iter().any(|line| line.starts_with("GET /v1/models")),
+            "提交失败后不该去抓模型：{hits:?}"
+        );
+    }
+
+    /// 参数校验先于登记查询：前端拼错 kind 时要得到"不支持的类型"，
+    /// 而不是被一句"provider 未就绪"引去查插件进程。
+    #[tokio::test]
+    async fn submit_credential_validates_before_looking_up_the_provider() {
+        let state = PluginsState::default();
+
+        let error = submit_provider_credential(&state, "ghost", "password", "x", None)
+            .await
+            .expect_err("未知 kind 必须拒绝");
+        assert!(error.contains("不支持的凭据类型"), "{error}");
+
+        let error = submit_provider_credential(&state, "ghost", "paste-token", "   ", None)
+            .await
+            .expect_err("空凭据必须拒绝");
+        assert_eq!(error, "凭据内容为空");
+
+        let error = submit_provider_credential(&state, "ghost", "paste-token", "x", None)
+            .await
+            .expect_err("未登记的 provider 必须报未就绪");
+        assert!(error.contains("未就绪"), "{error}");
     }
 
     #[test]
