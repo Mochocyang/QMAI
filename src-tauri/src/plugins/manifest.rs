@@ -67,6 +67,41 @@ pub struct ToolDecl {
     pub parameters: std::collections::BTreeMap<String, ToolParam>,
 }
 
+/// 插件如何取得上游凭证。v2.0 只接受并校验，只有 `none` 是本期真正可用的分支。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthKind {
+    /// 不需要登录（例如转发到用户本机的推理端点）
+    None,
+    /// 插件自托管登录页，由宿主用受控窗口打开（v2.1）
+    BrowserLogin,
+    /// 用户粘贴令牌（v2.1）
+    PasteToken,
+    /// 从文件导入凭证（v2.1）
+    ImportFile,
+}
+
+/// 插件充当模型供应商的声明（v2 / schema 2）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderDecl {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(rename = "authKind")]
+    pub auth_kind: AuthKind,
+    /// 插件自托管的登录/设置页路径（如 "/login"）。v2.0 只校验不打开。
+    #[serde(default, rename = "settingsPagePath")]
+    pub settings_page_path: Option<String>,
+    /// 受控登录窗口的导航白名单（主机后缀）。v2.1 才真正使用。
+    #[serde(default, rename = "authDomains")]
+    pub auth_domains: Vec<String>,
+    /// 可选能力位：models.refresh / balance.query / checkin
+    #[serde(default)]
+    pub capabilities: Vec<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Contributes {
@@ -77,6 +112,9 @@ pub struct Contributes {
     /// 第一期解析但不渲染（界面插件不在范围内，先接受字段以免未来清单改版）
     #[serde(default)]
     pub panels: Vec<serde_json::Value>,
+    /// 插件充当模型供应商（schema 2 起）
+    #[serde(default)]
+    pub providers: Vec<ProviderDecl>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,16 +184,51 @@ impl ManifestError {
     }
 }
 
+/// 当前支持的最高清单版本。新增字段必须 bump 它（见设计文档 4.2 的封闭契约规则）。
+pub const CURRENT_SCHEMA: u32 = 2;
+
 /// 宿主暴露给插件的服务名白名单（第一期只开这两个）
 pub const KNOWN_INJECT: &[&str] = &["host.qmai.tools", "host.logger"];
-/// 需用户逐项勾选的权限（设计文档 6.2 的「需用户勾选」行）
-pub const KNOWN_PERMISSIONS: &[&str] =
-    &["fs:project-read", "fs:project-write", "net:https", "llm:use"];
+/// 需用户逐项勾选的权限（设计文档 6.2 的「需用户勾选」行）。
+///
+/// `net:listen` 专门放在这里：它会请求宿主为插件开一个本机端口，属于用户必须
+/// 知情并显式同意的能力，不能走自动授予。
+pub const KNOWN_PERMISSIONS: &[&str] = &[
+    "fs:project-read",
+    "fs:project-write",
+    "net:https",
+    "llm:use",
+    "net:listen",
+];
 
 /// 宿主自动授予的权限：允许在清单里声明（旧文档/示例就是这么写的），但声明与否都不改变
 /// 授予结果，也永远不进「需用户勾选」列表。别把它并进 KNOWN_PERMISSIONS —— 那会让
 /// 任务 10 的权限弹窗把它当成需要用户同意的权限。
+///
+/// `net:listen` **故意不在这里**：它会让宿主在 `127.0.0.1` 上给插件开端口，
+/// 属于必须由用户逐项勾选的能力（见 `KNOWN_PERMISSIONS`），自动授予等于绕过知情同意。
 pub const AUTO_GRANTED_PERMISSIONS: &[&str] = &["data:write"];
+
+/// 内置 provider id（来自 src/components/settings/llm-presets.ts 的 LlmProviderId 联合）。
+/// 插件 provider 不得与之冲突：模型复合键是 `providerId/modelId`，
+/// 同名会让用户在选择器里无法分辨数据流向了谁。
+pub const BUILTIN_PROVIDER_IDS: &[&str] = &[
+    "openai",
+    "anthropic",
+    "google",
+    "azure",
+    "ollama",
+    "custom",
+    "minimax",
+    "claude-code",
+    "codex-cli",
+    "cursor-cli",
+    "antigravity-cli",
+    "workbuddy",
+];
+
+/// 允许声明的 provider 能力位
+pub const KNOWN_PROVIDER_CAPABILITIES: &[&str] = &["models.refresh", "balance.query", "checkin"];
 
 /// 「可以在清单里写」的权限 = 需勾选的 + 自动授予的。写错成别的（如 `ui:panel`）才拒。
 fn is_declarable_permission(perm: &str) -> bool {
@@ -242,6 +315,53 @@ fn is_valid_tool_name(name: &str) -> bool {
     chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
+/// providerId 会拼进模型复合键 `providerId/modelId`，前端用第一个 `/` 切分。
+/// 字符集本身已排除 `/`，这里仍单独判一次：D1 把「不含斜杠」列为硬约束，
+/// 将来放宽字符集时不能把这条一起丢掉。
+fn is_valid_provider_id(id: &str) -> bool {
+    if id.contains('/') {
+        return false;
+    }
+    let len = id.chars().count();
+    if !(2..=32).contains(&len) {
+        return false;
+    }
+    let mut chars = id.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_lowercase() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// 设置页由插件自己托管在 `127.0.0.1:<port>` 上，所以只接受站内绝对路径。
+/// 绝对 URL 会把受控窗口带到外部站点；`..` 能跳出插件端点根。
+fn is_valid_settings_page_path(path: &str) -> bool {
+    path.starts_with('/') && !path.contains("..") && !path.contains("://")
+}
+
+/// `authDomains` 是受控登录窗口的导航白名单（设计 5.2），一旦有洞，
+/// 插件就能把窗口变成任意浏览器看到用户的输入，所以这里宁严勿宽。
+fn is_valid_auth_domain(domain: &str) -> bool {
+    let d = domain.trim();
+    if d.is_empty() || d.contains('*') || d.contains("://") || d.contains('/') {
+        return false;
+    }
+    // 裸后缀（".qoder.com"）会让匹配逻辑含糊，必须写成完整后缀
+    if d.starts_with('.') || d.ends_with('.') {
+        return false;
+    }
+    if d.eq_ignore_ascii_case("localhost") {
+        return false;
+    }
+    // IP 一律拒：登录窗口只应该去域名
+    if d.parse::<std::net::IpAddr>().is_ok() {
+        return false;
+    }
+    // 至少一个点，允许字母/数字/连字符/点
+    d.contains('.') && d.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+}
+
 impl PluginManifest {
     /// 解析 + 校验。字段级错误返回第一个命中的错误码。
     pub fn parse(raw: &str) -> Result<Self, ManifestError> {
@@ -258,6 +378,21 @@ impl PluginManifest {
                 return Err(ManifestError::new("E_RUNTIME_INVALID", t.to_string()));
             }
         }
+        // 与 runtime.type 同理：provider 的 authKind 有自己的错误码，
+        // 直接反序列化会被折叠成 E_JSON_INVALID，作者看不出是哪一项写错了。
+        if let Some(providers) = value
+            .get("contributes")
+            .and_then(|c| c.get("providers"))
+            .and_then(|p| p.as_array())
+        {
+            for provider in providers {
+                if let Some(kind) = provider.get("authKind").and_then(|k| k.as_str()) {
+                    if !matches!(kind, "none" | "browser-login" | "paste-token" | "import-file") {
+                        return Err(ManifestError::new("E_AUTH_KIND_INVALID", kind.to_string()));
+                    }
+                }
+            }
+        }
         let m: PluginManifest = serde_json::from_value(value)
             .map_err(|e| ManifestError::new("E_JSON_INVALID", e.to_string()))?;
         m.validate()?;
@@ -267,10 +402,10 @@ impl PluginManifest {
     /// 字段级校验。顺序即优先级：越基础、越容易一次修对的错误越先报，
     /// 这样作者改清单时一次只看到一个问题，而不是级联报错。
     fn validate(&self) -> Result<(), ManifestError> {
-        if self.schema != 1 {
+        if !(1..=CURRENT_SCHEMA).contains(&self.schema) {
             return Err(ManifestError::new(
                 "E_SCHEMA_UNSUPPORTED",
-                format!("schema = {}", self.schema),
+                self.schema.to_string(),
             ));
         }
         if !is_valid_id(&self.id) {
@@ -322,6 +457,80 @@ impl PluginManifest {
                 ));
             }
         }
+
+        // provider 声明：先校验身份字段，再校验跨条规则，最后才看可选能力/登录配置。
+        // 这样作者一次只看到一个需要修的问题（与文件顶部注释的顺序原则一致）。
+        let providers = &self.contributes.providers;
+        if self.schema == 1 && !providers.is_empty() {
+            // v1 宿主会拒绝 schema 2；反过来 schema 1 清单声明 providers 只会得到
+            // 一个永远不出现在模型列表里的插件，必须在安装期就拒。
+            return Err(ManifestError::new(
+                "E_PROVIDER_REQUIRES_SCHEMA_2",
+                providers[0].id.clone(),
+            ));
+        }
+        let mut seen_providers = std::collections::HashSet::new();
+        for provider in providers {
+            if !is_valid_provider_id(&provider.id) {
+                return Err(ManifestError::new(
+                    "E_PROVIDER_ID_INVALID",
+                    provider.id.clone(),
+                ));
+            }
+            if BUILTIN_PROVIDER_IDS.contains(&provider.id.as_str()) {
+                return Err(ManifestError::new(
+                    "E_PROVIDER_ID_CONFLICT",
+                    provider.id.clone(),
+                ));
+            }
+            if !seen_providers.insert(provider.id.as_str()) {
+                // 与内置冲突同理：同一个 providerId 出现两次，前端按 id 建索引时后者覆盖前者。
+                return Err(ManifestError::new(
+                    "E_PROVIDER_ID_CONFLICT",
+                    format!("{} (duplicate)", provider.id),
+                ));
+            }
+            if provider.name.trim().is_empty() || provider.name.chars().count() > 64 {
+                return Err(ManifestError::new(
+                    "E_PROVIDER_NAME_INVALID",
+                    provider.name.clone(),
+                ));
+            }
+        }
+        if !providers.is_empty() && !self.permissions.iter().any(|p| p == "net:listen") {
+            // D4：端口由宿主分配、插件只绑 127.0.0.1。没有 net:listen 就声明 providers，
+            // 会得到「声明了却绑不了端口」的诡异状态。
+            return Err(ManifestError::new(
+                "E_PROVIDER_REQUIRES_NET_LISTEN",
+                "providers 声明了但没有 net:listen 权限",
+            ));
+        }
+        for provider in providers {
+            for capability in &provider.capabilities {
+                if !KNOWN_PROVIDER_CAPABILITIES.contains(&capability.as_str()) {
+                    return Err(ManifestError::new(
+                        "E_PROVIDER_CAPABILITY_UNKNOWN",
+                        capability.clone(),
+                    ));
+                }
+            }
+            if let Some(path) = provider.settings_page_path.as_deref() {
+                if !path.is_empty() && !is_valid_settings_page_path(path) {
+                    return Err(ManifestError::new("E_SETTINGS_PAGE_INVALID", path));
+                }
+            }
+            if provider.auth_kind == AuthKind::BrowserLogin && provider.auth_domains.is_empty() {
+                return Err(ManifestError::new(
+                    "E_AUTH_DOMAIN_INVALID",
+                    "authKind = browser-login 时必须声明 authDomains",
+                ));
+            }
+            for domain in &provider.auth_domains {
+                if !is_valid_auth_domain(domain) {
+                    return Err(ManifestError::new("E_AUTH_DOMAIN_INVALID", domain.clone()));
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -350,10 +559,20 @@ mod tests {
     }
 
     #[test]
-    fn rejects_wrong_schema_version() {
-        let err = PluginManifest::parse(&MINIMAL.replace("\"schema\": 1", "\"schema\": 2"))
+    fn rejects_unsupported_schema_version() {
+        // CURRENT_SCHEMA = 2：1 与 2 都合法，3 起才是"不支持"。
+        // 每次 bump CURRENT_SCHEMA 时，这里的数字要跟着 +1 —— 它是一条版本护栏。
+        let err = PluginManifest::parse(&MINIMAL.replace("\"schema\": 1", "\"schema\": 3"))
             .unwrap_err();
         assert_eq!(err.code(), "E_SCHEMA_UNSUPPORTED");
+    }
+
+    #[test]
+    fn accepts_every_supported_schema_version() {
+        for v in 1..=CURRENT_SCHEMA {
+            let src = MINIMAL.replace("\"schema\": 1", &format!("\"schema\": {v}"));
+            assert!(PluginManifest::parse(&src).is_ok(), "schema {v} 应当被接受");
+        }
     }
 
     #[test]
@@ -594,5 +813,168 @@ mod tests {
         let m = PluginManifest::parse(&src).expect("含 JSON Schema 关键字的参数应被接受");
         assert_eq!(m.contributes.tools.len(), 1);
         assert_eq!(m.contributes.tools[0].parameters.len(), 1);
+    }
+
+    // ── schema 2 / provider 声明 ─────────────────────────
+
+    /// 一个合法的 schema 2 provider。各用例只在它上面做最小替换，
+    /// 这样失败时能确定是被目标规则拒的，而不是别的字段先炸。
+    const PROVIDER: &str = r#"{
+      "id": "wb-connect",
+      "name": "WorkBuddy 插件",
+      "description": "本机已登录的 WorkBuddy 账号",
+      "authKind": "none",
+      "settingsPagePath": "/login",
+      "authDomains": ["workbuddy.cn"],
+      "capabilities": ["models.refresh"]
+    }"#;
+
+    const BROWSER_LOGIN_PROVIDER: &str = r#"{
+      "id": "qoder-connect",
+      "name": "Qoder 插件",
+      "authKind": "browser-login",
+      "authDomains": ["qoder.com"]
+    }"#;
+
+    /// 在 MINIMAL 上插入 `permissions: ["net:listen"]` 与给定 provider，
+    /// 并把 schema 提到 2。
+    fn manifest_with_providers(providers: &str) -> String {
+        MINIMAL
+            .replace("\"schema\": 1", "\"schema\": 2")
+            .replace(
+                "\"runtime\"",
+                &format!(
+                    "\"permissions\": [\"net:listen\"], \"contributes\": {{\"providers\": [{providers}]}}, \"runtime\""
+                ),
+            )
+    }
+
+    #[test]
+    fn accepts_schema_2_with_provider() {
+        let m = PluginManifest::parse(&manifest_with_providers(PROVIDER))
+            .expect("合法的 schema 2 provider 清单必须通过");
+        assert_eq!(m.schema, 2);
+        assert_eq!(m.contributes.providers.len(), 1);
+        let provider = &m.contributes.providers[0];
+        assert_eq!(provider.id, "wb-connect");
+        assert_eq!(provider.name, "WorkBuddy 插件");
+        assert_eq!(provider.auth_kind, AuthKind::None);
+        assert_eq!(provider.settings_page_path.as_deref(), Some("/login"));
+        assert_eq!(provider.auth_domains, vec!["workbuddy.cn"]);
+        assert_eq!(provider.capabilities, vec!["models.refresh"]);
+    }
+
+    #[test]
+    fn rejects_provider_on_schema_1() {
+        let src = manifest_with_providers(PROVIDER).replace("\"schema\": 2", "\"schema\": 1");
+        let err = PluginManifest::parse(&src).unwrap_err();
+        assert_eq!(err.code(), "E_PROVIDER_REQUIRES_SCHEMA_2");
+    }
+
+    #[test]
+    fn rejects_provider_id_matching_builtin() {
+        let provider = PROVIDER.replace("\"id\": \"wb-connect\"", "\"id\": \"openai\"");
+        let err = PluginManifest::parse(&manifest_with_providers(&provider)).unwrap_err();
+        assert_eq!(err.code(), "E_PROVIDER_ID_CONFLICT");
+        assert!(err.detail.contains("openai"), "detail: {}", err.detail);
+    }
+
+    #[test]
+    fn rejects_duplicate_provider_ids_in_same_manifest() {
+        let err = PluginManifest::parse(&manifest_with_providers(&format!("{PROVIDER}, {PROVIDER}")))
+            .unwrap_err();
+        assert_eq!(err.code(), "E_PROVIDER_ID_CONFLICT");
+        assert!(err.detail.contains("duplicate"), "detail: {}", err.detail);
+    }
+
+    #[test]
+    fn rejects_bad_provider_name() {
+        for bad in ["   ", &"a".repeat(65)] {
+            let provider =
+                PROVIDER.replace("\"name\": \"WorkBuddy 插件\"", &format!("\"name\": \"{bad}\""));
+            let err = PluginManifest::parse(&manifest_with_providers(&provider)).unwrap_err();
+            assert_eq!(err.code(), "E_PROVIDER_NAME_INVALID", "name: {bad:?}");
+        }
+    }
+
+    #[test]
+    fn rejects_provider_without_net_listen_permission() {
+        let src = manifest_with_providers(PROVIDER).replace("\"net:listen\"", "\"net:https\"");
+        let err = PluginManifest::parse(&src).unwrap_err();
+        assert_eq!(err.code(), "E_PROVIDER_REQUIRES_NET_LISTEN");
+    }
+
+    #[test]
+    fn accepts_provider_with_net_listen_permission() {
+        let provider = r#"{"id": "local-llm", "name": "本地推理", "authKind": "none"}"#;
+        let m = PluginManifest::parse(&manifest_with_providers(provider))
+            .expect("申请了 net:listen 的 provider 清单必须通过");
+        assert_eq!(m.permissions, vec!["net:listen"]);
+        assert!(m.contributes.providers[0].settings_page_path.is_none());
+        assert!(m.contributes.providers[0].capabilities.is_empty());
+    }
+
+    #[test]
+    fn rejects_provider_id_with_slash() {
+        // D1：复合键用 indexOf("/") 解析，providerId 含斜杠会产生歧义。
+        let provider = PROVIDER.replace("\"id\": \"wb-connect\"", "\"id\": \"a/b\"");
+        let err = PluginManifest::parse(&manifest_with_providers(&provider)).unwrap_err();
+        assert_eq!(err.code(), "E_PROVIDER_ID_INVALID");
+        assert!(err.detail.contains("a/b"), "detail: {}", err.detail);
+    }
+
+    #[test]
+    fn rejects_unknown_provider_capability() {
+        let provider =
+            PROVIDER.replace("\"models.refresh\"", "\"models.refresh\", \"teleport\"");
+        let err = PluginManifest::parse(&manifest_with_providers(&provider)).unwrap_err();
+        assert_eq!(err.code(), "E_PROVIDER_CAPABILITY_UNKNOWN");
+        assert!(err.detail.contains("teleport"), "detail: {}", err.detail);
+    }
+
+    #[test]
+    fn rejects_bad_settings_page_path() {
+        for bad in ["login", "/../x", "http://x"] {
+            let provider = PROVIDER.replace("\"/login\"", &format!("\"{bad}\""));
+            let err = PluginManifest::parse(&manifest_with_providers(&provider)).unwrap_err();
+            assert_eq!(err.code(), "E_SETTINGS_PAGE_INVALID", "path: {bad}");
+        }
+    }
+
+    #[test]
+    fn rejects_browser_login_without_auth_domains() {
+        let provider = BROWSER_LOGIN_PROVIDER
+            .replace("\"authDomains\": [\"qoder.com\"]", "\"authDomains\": []");
+        let err = PluginManifest::parse(&manifest_with_providers(&provider)).unwrap_err();
+        assert_eq!(err.code(), "E_AUTH_DOMAIN_INVALID");
+    }
+
+    #[test]
+    fn rejects_wildcard_or_ip_auth_domain() {
+        for bad in ["*.qoder.com", "127.0.0.1", "localhost", ".qoder.com"] {
+            let provider =
+                BROWSER_LOGIN_PROVIDER.replace("\"qoder.com\"", &format!("\"{bad}\""));
+            let err = PluginManifest::parse(&manifest_with_providers(&provider)).unwrap_err();
+            assert_eq!(err.code(), "E_AUTH_DOMAIN_INVALID", "domain: {bad}");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_auth_kind() {
+        let provider = PROVIDER.replace("\"authKind\": \"none\"", "\"authKind\": \"oauth\"");
+        let err = PluginManifest::parse(&manifest_with_providers(&provider)).unwrap_err();
+        assert_eq!(err.code(), "E_AUTH_KIND_INVALID");
+    }
+
+    #[test]
+    fn schema_1_manifest_still_parses() {
+        let m = PluginManifest::parse(MINIMAL).expect("schema 1 清单必须继续通过");
+        assert_eq!(m.schema, 1);
+        assert!(m.contributes.providers.is_empty());
+
+        // 老的整段示例（含 tools/stages/panels）也不能被新字段影响。
+        let full = PluginManifest::parse(FULL_DOC_EXAMPLE).expect("schema 1 完整示例必须继续通过");
+        assert_eq!(full.schema, 1);
+        assert!(full.contributes.providers.is_empty());
     }
 }
