@@ -423,7 +423,7 @@ export function PluginSection() {
       <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm leading-relaxed text-amber-900 dark:text-amber-200">
         <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
         <p>
-          插件是第三方作者写的程序，装进来后以独立进程运行，可以读取项目文件、访问网络。请只安装你信任的仓库。内置随软件更新的能力不属于插件。
+          插件是第三方作者写的程序。带工具或模型能力的插件装进来后会以独立进程运行，可以读取项目文件、访问网络；只提供声明（生成器、灵感包）的插件不执行任何代码、也不启动进程。请只安装你信任的仓库。内置随软件更新的能力不属于插件。
         </p>
       </div>
 
