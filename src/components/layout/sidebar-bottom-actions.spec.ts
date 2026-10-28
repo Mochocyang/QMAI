@@ -8,22 +8,21 @@ const source = readFileSync(
 )
 
 describe("sidebar-bottom-actions", () => {
-  it("底栏左侧是用户名+头像（名字在头像左侧），右侧是公告铃铛", () => {
+  it("底栏左侧是头像+用户名（名字在头像右侧），右侧是公告铃铛", () => {
     expect(source).toContain('data-ui="sidebar-bottom-actions"')
     expect(source).toContain('data-ui="sidebar-account-avatar"')
     expect(source).toContain("ui-test-account-name")
     expect(source).toContain("{accountDisplayNameText}")
     /*
-     * 用户名必须在头像之前（用户要求「头像左边显示用户名，已经说了好几次」）。
-     * 用 JSX 渲染顺序判定：从账号块开始的 800 字符窗口里，
-     * `ui-test-account-name` 必须早于 `sidebar-account-avatar`。
+     * 顺序（用户 2026-10-28 最终确认）：**头像在最左，用户名在头像右侧**。
+     * 在账号块 800 字符窗口内，`sidebar-account-avatar` 必须早于 `ui-test-account-name`。
      */
     const blockStart = source.indexOf('data-ui="sidebar-account-avatar"')
-    const window800 = source.slice(blockStart, blockStart + 800)
-    const nameAt = window800.indexOf("ui-test-account-name")
-    const avatarAt = window800.indexOf("sidebar-account-avatar", 10)
-    expect(nameAt).toBeGreaterThan(-1)
-    expect(avatarAt).toBeGreaterThan(nameAt)
+    const blockWindow = source.slice(blockStart, blockStart + 1400)
+    const avatarAt = blockWindow.indexOf("sidebar-account-avatar", 10)
+    const nameAt = blockWindow.indexOf("ui-test-account-name")
+    expect(avatarAt).toBeGreaterThan(-1)
+    expect(nameAt).toBeGreaterThan(avatarAt)
     // 不能再用 flex-1（会把头像推到整条底栏的中间）
     expect(source).not.toContain("min-w-0 flex-1 items-center")
     expect(source).toContain("w-fit")

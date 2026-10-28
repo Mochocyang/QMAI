@@ -169,10 +169,9 @@ export function SidebarBottomActions() {
       className="flex shrink-0 items-center gap-1 border-t py-1 pr-1.5 pl-0"
     >
       {/*
-       * 左侧账号块：用户名在前、头像在后（用户明确要求「头像左边显示用户名」）。
+       * 左侧账号块：**头像在最左，用户名在头像右侧**（用户 2026-10-28 最终确认的顺序）。
        *
-       * 位置：底栏本身不再加左内边距（pl-0），头像/文字贴着侧栏左边界，
-       * 只留 4px 的按钮内衬 —— 用户连续反馈「还要往左」。
+       * 位置：底栏本身不加左内边距（pl-0），只留 2px 按钮内衬，头像贴向侧栏左边界。
        */}
       <button
         ref={triggerRef}
@@ -189,9 +188,6 @@ export function SidebarBottomActions() {
             : "hover:bg-accent/50 hover:text-accent-foreground"
         }`}
       >
-        <span className="ui-test-account-name truncate text-xs font-medium text-foreground">
-          {accountDisplayNameText}
-        </span>
         {accountUser ? (
           <span className="sidebar-account-avatar flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full">
             <AccountAvatar user={accountUser} baseUrl={accountSession?.baseUrl ?? null} />
@@ -201,6 +197,9 @@ export function SidebarBottomActions() {
             <UserRound className="h-4 w-4" />
           </span>
         )}
+        <span className="ui-test-account-name truncate text-xs font-medium text-foreground">
+          {accountDisplayNameText}
+        </span>
       </button>
 
       {/* 右侧只剩公告铃铛：设置入口已在账号菜单里，不再重复放齿轮。 */}
