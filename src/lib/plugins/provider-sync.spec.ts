@@ -169,4 +169,43 @@ describe("syncPluginProviders", () => {
     expect(resolved.maxContextSize).toBe(1_000_000)
     expect(resolved.apiKey).toBe("")
   })
+
+  it("plugin_provider_keeps_its_declared_small_context_window", async () => {
+    /*
+     * 32k 是上游目录声明的客观事实（设计 3.4），不是「用户手填」的数字。
+     * MIN_USER_LLM_CONTEXT_SIZE=204800 是用户输入护栏；套到插件模型上会把窗口抬高 6 倍，
+     * 剪裁于是按 204800 塞上下文 → 上游 400，而报错看起来像「上下文超出」，
+     * 用户根本想不到是我们的下限造成的。
+     */
+    apiMocks.providers.mockResolvedValue([
+      readyProvider({
+        providerId: "small-window",
+        pluginId: "small-window-plugin",
+        models: [
+          {
+            id: "tiny-32k",
+            name: "Tiny 32K",
+            maxInputTokens: 32_768,
+            maxOutputTokens: 4_096,
+            supportsToolCall: false,
+            supportsVision: false,
+          },
+        ],
+      }),
+    ])
+
+    await syncPluginProviders()
+
+    // 1) 落库值不能被抬（normalizeProviderConfigs 曾经把它抬到 204800）。
+    expect(useWikiStore.getState().providerConfigs["small-window"].maxContextSize).toBe(32_768)
+
+    // 2) 解析到请求层的值也不能被抬（withEffectiveContextSize / resolveConfig 会再抬一次）。
+    const resolved = resolveModelConfig(
+      "small-window/tiny-32k",
+      baseLlmConfig,
+      useWikiStore.getState().providerConfigs,
+    )
+    expect(resolved.maxContextSize).toBe(32_768)
+    expect(resolved.maxOutputTokens).toBe(4_096)
+  })
 })

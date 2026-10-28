@@ -18,16 +18,20 @@
 import { useWikiStore, type ProviderConfigs, type ProviderOverride, type SavedModel } from "@/stores/wiki-store"
 import { pluginsApi } from "./api"
 import { clearPluginProviderAuth } from "./provider-auth"
+import {
+  listInjectedPluginProviderIds,
+  markPluginProviderInjected,
+  unmarkPluginProviderInjected,
+} from "./provider-registry"
 import type { PluginProviderModel, PluginProviderView } from "./types"
 
 /**
- * 本进程注入过的 provider id。
- *
- * 用模块级 Set 而不是从 `providerConfigs` 反推：配置里存在条目 ≠ 这是我们注入的。
- * 只有这里登记过的 id 才允许被同步删除，也才被 `has-usable-llm` 认定为
- * 「运行期可用的插件 provider」（它们按设计没有 apiKey）。
+ * 「本进程注入过谁」的登记表在 `provider-registry`：那个文件没有任何 import，
+ * 好让 store 的规范化层（`llm-context-size`）也能直接判断，而不绕出
+ * `wiki-store → llm-context-size → provider-sync → wiki-store` 的循环。
+ * 这里 re-export，调用方 API 不变。
  */
-const injectedProviderIds = new Set<string>()
+export { isPluginProviderInjected } from "./provider-registry"
 
 /** 最近一次 `plugins_providers()` 的快照，供设置页渲染运行期卡片（含未就绪的）。 */
 let providerViews: PluginProviderView[] = []
@@ -50,16 +54,6 @@ export function subscribePluginProviderViews(listener: () => void): () => void {
   return () => {
     viewListeners.delete(listener)
   }
-}
-
-/**
- * 该 id 是否是本进程注入的插件 provider。
- *
- * `has-usable-llm` / `model-resolver` 用它区分「插件 provider」与「内置 provider」：
- * 前者的可用性看 baseUrl + 模型，后者的既有判定一律不动。
- */
-export function isPluginProviderInjected(providerId: string): boolean {
-  return injectedProviderIds.has(providerId)
 }
 
 function maxOf(values: number[]): number | undefined {
@@ -142,17 +136,16 @@ export async function syncPluginProviders(): Promise<{ added: string[]; removed:
       clearPluginProviderAuth(provider.providerId)
     }
 
-    if (!injectedProviderIds.has(provider.providerId)) {
-      injectedProviderIds.add(provider.providerId)
+    if (markPluginProviderInjected(provider.providerId)) {
       added.push(provider.providerId)
     }
     next[provider.providerId] = config
   }
 
-  for (const id of [...injectedProviderIds]) {
+  for (const id of listInjectedPluginProviderIds()) {
     if (readyIds.has(id)) continue
     // 从登记表里摘掉，同时清 token：插件停了，旧 token 立刻失效（设计 §7 第 4 条）。
-    injectedProviderIds.delete(id)
+    unmarkPluginProviderInjected(id)
     if (Object.prototype.hasOwnProperty.call(next, id)) {
       delete next[id]
       removed.push(id)

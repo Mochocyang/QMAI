@@ -5,7 +5,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { getEffectiveMaxContextSize, getEffectiveMaxOutputTokens } from "@/lib/llm-providers"
 import { getStableAvailableModelKey, getEffectiveSavedModels } from "@/lib/llm-model-keys"
 import { isPluginProviderInjected } from "@/lib/plugins/provider-sync"
-import { normalizeUserLlmConfig } from "@/lib/llm-context-size"
+import { normalizeDeclaredContextSize, normalizeUserLlmConfig, normalizeUserLlmMaxOutputTokens } from "@/lib/llm-context-size"
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 
 export type NovelTaskType = "writing" | "review" | "summary" | "extract" | "lint" | "deAi"
@@ -21,6 +21,22 @@ function isConfigUsable(cfg: LlmConfig, providerConfigs: Record<string, Provider
 }
 
 function withEffectiveContextSize(config: LlmConfig): LlmConfig {
+  /*
+   * 插件 provider 的窗口是插件按上游目录声明的**客观事实**（设计 3.4），
+   * 而 `MIN_USER_LLM_CONTEXT_SIZE` 是「用户手填」的护栏。把下限套到插件模型上，
+   * 32k 窗口的模型会被抬到 204800：剪裁按 204800 塞上下文 → 上游 400，
+   * 报错看起来像「上下文超出」，用户完全看不出是我们的下限造成的。
+   * 所以这里（以及 `normalizeProviderConfigs`）对插件 provider 跳过下限。
+   */
+  if (isPluginProviderInjected(config.provider)) {
+    return {
+      ...config,
+      maxContextSize: normalizeDeclaredContextSize(config.maxContextSize),
+      ...(config.maxOutputTokens === undefined
+        ? {}
+        : { maxOutputTokens: normalizeUserLlmMaxOutputTokens(config.maxOutputTokens) }),
+    }
+  }
   const normalized = normalizeUserLlmConfig(config)
   return {
     ...normalized,
@@ -108,6 +124,10 @@ function resolveOverrideConfig(
       customEndpoint: override.baseUrl ?? config.customEndpoint,
       // 插件端点契约固定 OpenAI 兼容（设计 3.1），不允许被旧配置带到 Responses/Anthropic。
       apiMode: "chat_completions",
+      // `resolveConfig` 会按「用户手填」下限把声明窗口抬到 204800；
+      // 插件声明值必须原样还原：32k 就是 32k（见 `withEffectiveContextSize` 的注释）。
+      maxContextSize: override.maxContextSize ?? config.maxContextSize,
+      maxOutputTokens: override.maxOutputTokens ?? config.maxOutputTokens,
     })
   }
 
