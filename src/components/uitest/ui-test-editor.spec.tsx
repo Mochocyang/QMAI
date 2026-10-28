@@ -1650,6 +1650,29 @@ describe("测试版正文样式边界", () => {
   })
 
   /*
+   * 大纲沿用章节的排布：标题在左、工具栏贴右（用户原话：「将提取记忆、查看记忆
+   * 以及字体设置放在标题的右侧，类似于章节的设计」），同时把标题字号降一档。
+   */
+  it("大纲标题与工具栏同排、图标靠右，标题字号小于章节", () => {
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="outline"\]\s+\.ui-test-editor-header\s*\{[^}]*display:\s*grid/,
+    )
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="outline"\]\s+\.ui-test-editor-header\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/,
+    )
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="outline"\]\s+\.ui-test-editor-toolbar\s*\{[^}]*grid-column:\s*2/,
+    )
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="outline"\]\s+\.ui-test-editor-title-row\s*\{[^}]*grid-column:\s*1/,
+    )
+    // 字号：1.0625rem（17px）< 章节的 1.25rem（20px）
+    expect(cssCode).toMatch(
+      /\.ui-test-editor\[data-kind="outline"\]\s+\.ui-test-editor-title[\s\S]{0,200}?font:\s*500\s+1\.0625rem\/1\.5rem\s+var\(--serif\)/,
+    )
+  })
+
+  /*
    * 标题**不伸展**，图标盒收到 30px。
    *
    * 这两条都是用户看出来的问题，且都容易被"顺手统一"改回去：

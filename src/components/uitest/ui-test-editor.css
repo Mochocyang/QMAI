@@ -113,6 +113,32 @@
   gap: 2px;
 }
 
+/*
+ * 大纲：标题与工具栏排成同一行、工具栏贴右（与章节一致的排布）。
+ *
+ * 用户反馈（2026-10-28）：「把提取记忆、查看记忆、字体设置放在标题右侧，
+ * 类似章节的设计」。此前只有 `[data-kind="chapter"]` 有这套 grid，大纲走默认
+ * 块级流 → 标题独占一行、三枚图标掉到下一行，看起来像"标题下面挂着一排图标"。
+ *
+ * 同时把大纲标题字号降下来：大纲标题常常是"卷一 残灯有火"这种短句，
+ * 沿用 1.25rem/1.75rem 的章节标题尺寸会显得过大、把工具栏挤走。
+ */
+.ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  padding-bottom: 12px;
+}
+.ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-title-row { grid-column: 1; min-width: 0; }
+.ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-toolbar { grid-column: 2; margin: 0; gap: 2px; }
+.ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-auxiliary,
+.ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-details { grid-column: 1 / -1; }
+.ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-title,
+.ui-test-root .ui-test-editor[data-kind="outline"] .ui-test-editor-title-input {
+  font: 500 1.0625rem/1.5rem var(--serif);
+}
+
 .ui-test-root .ui-test-editor-scroll {
   flex: 1;
   min-height: 0;
