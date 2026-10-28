@@ -183,6 +183,9 @@ describe("beforeLlmRequest", () => {
 })
 
 describe("afterLlmResponse", () => {
+  /* 只有显式开启（主聊天路径）的调用才会跑 after 钩子，见 StreamChatOptions。 */
+  const withAfterHooks = { applyAfterLlmResponseHooks: true }
+
   it("改写结果通过 onDone 交付，流式增量仍然是原文（不重放）", async () => {
     mocks.fetch.mockResolvedValue(textStream("AI味很重的原文"))
     __setPluginHooksForTests([view("afterLlmResponse")])
@@ -196,10 +199,32 @@ describe("afterLlmResponse", () => {
       onToken: (token) => tokens.push(token),
       onDone,
       onError: vi.fn(),
-    })
+    }, undefined, undefined, withAfterHooks)
 
     expect(tokens.join("")).toBe("AI味很重的原文")
     expect(onDone.mock.calls[0][0]).toBe("更自然的改写后正文")
+  })
+
+  it("未开启改写的调用不会白跑一次钩子（钩子是一次真实模型调用）", async () => {
+    mocks.fetch.mockResolvedValue(textStream("原文"))
+    let hookRuns = 0
+    __setPluginHooksForTests([view("afterLlmResponse")])
+    setHookDepsFactory(() => createHookDeps({
+      runHookImpl: async () => {
+        hookRuns += 1
+        return { patch: { response: { text: "不该出现" } } }
+      },
+    }))
+
+    const onDone = vi.fn()
+    await streamChat(config, [{ role: "user", content: "写一段" }], {
+      onToken: vi.fn(),
+      onDone,
+      onError: vi.fn(),
+    })
+
+    expect(hookRuns).toBe(0)
+    expect(onDone.mock.calls[0][0]).toBeUndefined()
   })
 
   it("钩子返回空文本时按「不改」处理（空正文会清空内容）", async () => {
@@ -214,7 +239,7 @@ describe("afterLlmResponse", () => {
       onToken: vi.fn(),
       onDone,
       onError: vi.fn(),
-    })
+    }, undefined, undefined, withAfterHooks)
 
     expect(onDone.mock.calls[0][0]).toBeUndefined()
   })

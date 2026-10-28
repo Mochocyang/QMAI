@@ -343,6 +343,8 @@ export class AgentRunner {
           streamCallbacks,
           signal,
           requestOverrides,
+          // 只有这条路径能安全替换正文（整轮文本在流结束后一次性交付，见 roundHookText）。
+          { applyAfterLlmResponseHooks: true },
         )
       }
       const retryWithoutTools = async () => {

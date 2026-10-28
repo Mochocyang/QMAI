@@ -402,12 +402,30 @@ function notifyLlmUsageHooks(usage: LlmUsage | undefined, config: LlmConfig): vo
   })
 }
 
+/**
+ * `streamChat` 的宿主级开关（**不进请求体**：放在第 6 个参数里而不是 `RequestOverrides`，
+ * 因为 `stripWireAgnosticOverrides` 会把不认识的字段原样塞进请求体，那会让上游 400）。
+ */
+export interface StreamChatOptions {
+  /**
+   * 是否允许 `afterLlmResponse` 插件钩子改写本次回复的最终文本（经 `onDone(finalText)` 交付）。
+   *
+   * 默认**关闭**，只有"整段文本在流结束后才落地、且能安全替换"的调用方才开启
+   * （目前是 agent runner，即主聊天路径）。理由：
+   *   1. 多数内部调用只想要一段结构化结果（审稿 JSON、计划合规、记忆抽取），
+   *      界面/下游并不会用改写后的文本；
+   *   2. 钩子是一次**真实模型调用**。为一份没人使用的改写付费，比"钩子不生效"糟得多。
+   */
+  applyAfterLlmResponseHooks?: boolean
+}
+
 export async function streamChat(
   config: LlmConfig,
   messages: import("./llm-providers").ChatMessage[],
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
   requestOverrides?: RequestOverrides,
+  options?: StreamChatOptions,
 ): Promise<void> {
   return withWritingWakeLock(true, () => streamChatHeld(
     config,
@@ -415,6 +433,7 @@ export async function streamChat(
     callbacks,
     signal,
     requestOverrides,
+    options,
   ))
 }
 
@@ -432,6 +451,7 @@ async function streamChatHeld(
    * with "Unknown name 'temperature': Cannot find field." HTTP 400.
    */
   requestOverrides?: RequestOverrides,
+  options?: StreamChatOptions,
 ): Promise<void> {
   /*
    * ── 插件钩子 · 请求前（设计 §5.1） ──────────────────────────────────
@@ -467,10 +487,16 @@ async function streamChatHeld(
   }
 
   /*
-   * `afterLlmResponse` 需要完整正文，所以只有真的装了这类钩子时才顺手累积一份
-   * `collectedText`（`null` = 不累积，零开销）。
+   * `afterLlmResponse` 需要完整正文，所以只有"本次回复会作为最终文本落地"且真的装了
+   * 这类钩子时才顺手累积一份 `collectedText`（`null` = 不累积，零开销）。
+   *
+   * 为什么默认不跑（见 `StreamChatOptions.applyAfterLlmResponseHooks`）：钩子是一次
+   * 真实模型调用，而绝大多数内部调用根本不会用改写后的文本 —— 为一份被丢弃的结果
+   * 付钱，比"钩子在这些调用上不生效"糟得多。
    */
-  const afterLlmHooks = takeHooksFor("afterLlmResponse")
+  const afterLlmHooks = options?.applyAfterLlmResponseHooks
+    ? takeHooksFor("afterLlmResponse")
+    : null
   let collectedText: string | null = afterLlmHooks ? "" : null
 
   let runtimeConfig = await resolveRuntimeLocalCliConfig(config)
