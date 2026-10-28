@@ -1,8 +1,11 @@
-import { fileExists, listDirectory, readFile } from "@/commands/fs"
+import { fileExists, listDirectory, readFile, writeFileAtomic } from "@/commands/fs"
+import { normalizeChapterWriting } from "@/lib/chapter-formatting"
 import { parseFrontmatter } from "@/lib/frontmatter"
+import { getOpenDocumentGuard } from "@/lib/mcp/open-document"
 import { normalizePath } from "@/lib/path-utils"
 import { useImportProgressStore } from "@/stores/import-progress-store"
 import { chapterSnapshotJsonPath, ingestChapter } from "./chapter-ingest"
+import { isFinalChapter, updateChapterStatus } from "./chapter-meta"
 import { extractChapterNumber, flattenMdFiles } from "./chapter-utils"
 
 export type BulkChapterIngestMode = "all" | "pending"
@@ -89,6 +92,33 @@ function chapterNumberOf(fileName: string, content: string): number | undefined 
 
 function emptyResult(emptyReason: BulkChapterIngestResult["emptyReason"]): BulkChapterIngestResult {
   return { total: 0, succeeded: 0, failed: 0, cancelled: false, failures: [], emptyReason }
+}
+
+/**
+ * 提取成功后把章节标成正式稿。
+ *
+ * 单章「提取记忆」会先写 `chapter_status: final` 再摄取。一键提取为了能扫草稿，
+ * 只给 `ingestChapter` 传了 `allowDraft`，成功后却不回写状态，于是快照有了、
+ * 列表里仍是草稿。失败的章节保持原状态：没有快照却标成正式，就是以前
+ * 「正式却无记忆」的来源。
+ *
+ * 当前打开的章节若有未保存修改，状态要写在编辑器那一份上。只改磁盘的话，
+ * 下一次自动保存会把 `final` 盖回 `draft`。
+ */
+async function markExtractedChapterFinal(path: string): Promise<void> {
+  const guard = getOpenDocumentGuard(path)
+  const fromEditor = Boolean(guard?.isDirty() && guard.getMarkdown)
+  const content = fromEditor ? guard!.getMarkdown!() : await readFile(path)
+  const parsed = parseFrontmatter(content)
+  if (parsed.frontmatter && isFinalChapter(parsed.frontmatter)) return
+
+  const withStatus = updateChapterStatus(content, "final")
+  if (withStatus === content) {
+    throw new Error("章节没有 frontmatter，无法写入 chapter_status")
+  }
+  const next = fromEditor ? normalizeChapterWriting(withStatus) : withStatus
+  await writeFileAtomic(path, next)
+  guard?.applyMarkdown(next)
 }
 
 /**
@@ -235,8 +265,17 @@ export async function runBulkChapterIngest(
       const result = await ingestChapter(root, chapter.path, undefined, abortController.signal, chapter.chapterNumber, {
         allowDraft: true,
       })
-      if (result.snapshot) succeeded += 1
-      else failures.push({ name: chapter.name, reason: result.error ?? result.failReason ?? "提取失败" })
+      if (!result.snapshot) {
+        failures.push({ name: chapter.name, reason: result.error ?? result.failReason ?? "提取失败" })
+        continue
+      }
+      try {
+        await markExtractedChapterFinal(chapter.path)
+        succeeded += 1
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "章节状态没有改成正式"
+        failures.push({ name: chapter.name, reason: `记忆已提取，但 chapter_status 没有改成正式：${message}` })
+      }
     } catch (error) {
       failures.push({ name: chapter.name, reason: error instanceof Error ? error.message : "提取失败" })
     }

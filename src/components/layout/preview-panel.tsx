@@ -618,10 +618,18 @@ export function PreviewPanel() {
         return persisted !== last || saveTimerRef.current != null
       },
       applyMarkdown: (markdown) => {
+        // 外部写入（一键提取改 chapter_status、排版、MCP 保存）必须作废
+        // 定时器里的旧正文，否则那次落盘会把刚写上的状态盖回去。
+        saveGenerationRef.current += 1
+        if (saveTimerRef.current) {
+          clearTimeout(saveTimerRef.current)
+          saveTimerRef.current = null
+        }
         setFileContent(markdown)
         fileContentRef.current = markdown
         rememberLoadedChapter(path, markdown)
       },
+      getMarkdown: () => wikiEditorRef.current?.getCurrentMarkdown() ?? fileContentRef.current,
     })
     return () => registerOpenDocument(null)
   }, [rememberLoadedChapter, selectedFile, setFileContent])

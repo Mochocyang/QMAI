@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useImportProgressStore } from "@/stores/import-progress-store"
 
-const io = vi.hoisted(() => ({ files: new Map<string, string>() }))
+const io = vi.hoisted(() => ({
+  files: new Map<string, string>(),
+  writes: [] as string[],
+  failWrite: false,
+}))
 
 /**
  * 让 `fileExists` 挂起的闸门：用来观察「筛选待提取章节」那段时间里
@@ -58,7 +62,11 @@ vi.mock("@/commands/fs", () => ({
     }
     return nodes
   },
-  writeFileAtomic: async () => {},
+  writeFileAtomic: async (path: string, content: string) => {
+    if (io.failWrite) throw new Error("写盘失败")
+    io.writes.push(path)
+    io.files.set(path, content)
+  },
   createDirectory: async () => {},
 }))
 
@@ -70,10 +78,17 @@ vi.mock("./chapter-ingest", () => ({
   ingestChapter: ingestMock,
 }))
 
+import { registerOpenDocument } from "@/lib/mcp/open-document"
 import {
   formatBulkChapterIngestResult,
   runBulkChapterIngest,
 } from "./chapter-bulk-ingest"
+
+beforeEach(() => {
+  io.writes = []
+  io.failWrite = false
+  registerOpenDocument(null)
+})
 
 const project = "C:/proj"
 
@@ -435,6 +450,82 @@ describe("runBulkChapterIngest：目标集合与空集", () => {
 
     expect(result.total).toBe(0)
     expect(runningTasks()).toHaveLength(0)
+  })
+})
+
+describe("runBulkChapterIngest：chapter_status", () => {
+  beforeEach(() => {
+    io.files.clear()
+    gate.blockFileExists = null
+    ingestMock.mockReset()
+    ingestMock.mockImplementation(async () => ({ snapshot: { chapterNumber: 1 } }))
+    useImportProgressStore.setState({ tasks: [] })
+  })
+
+  it("提取成功后把 chapter_status 写成 final", async () => {
+    const path = chapterFile("", "第1章", 1)
+
+    const result = await runBulkChapterIngest(project)
+
+    expect(result.succeeded).toBe(1)
+    expect(io.files.get(path)).toContain("chapter_status: final")
+    expect(io.files.get(path)).toContain("正文")
+  })
+
+  it("提取失败不改 chapter_status", async () => {
+    const path = chapterFile("", "第1章", 1)
+    const before = io.files.get(path)
+    ingestMock.mockImplementation(async () => ({ snapshot: null, error: "模型不可用" }))
+
+    const result = await runBulkChapterIngest(project)
+
+    expect(result.failed).toBe(1)
+    expect(io.files.get(path)).toBe(before)
+    expect(io.writes).toEqual([])
+  })
+
+  it("已经是 final 的章节不重写文件", async () => {
+    const path = `${project}/wiki/chapters/第1章.md`
+    const original = "---\ntype: chapter\nchapter_number: '1'\nchapter_status: final\ntitle: 第1章\n---\n\n正文\n"
+    io.files.set(path, original)
+
+    const result = await runBulkChapterIngest(project)
+
+    expect(result.succeeded).toBe(1)
+    expect(io.files.get(path)).toBe(original)
+    expect(io.writes).toEqual([])
+  })
+
+  it("状态写盘失败时记为失败，并说明记忆已经提取", async () => {
+    chapterFile("", "第1章", 1)
+    io.failWrite = true
+
+    const result = await runBulkChapterIngest(project)
+
+    expect(result.succeeded).toBe(0)
+    expect(result.failed).toBe(1)
+    expect(result.failures[0].reason).toContain("记忆已提取")
+    expect(result.failures[0].reason).toContain("写盘失败")
+  })
+
+  it("当前章节有未保存修改时，把 final 写在编辑器那一份上，不丢掉正文", async () => {
+    const path = chapterFile("", "第1章", 1)
+    const live = io.files.get(path)!.replace("正文", "未保存的正文")
+    let applied = ""
+    registerOpenDocument({
+      path,
+      isDirty: () => true,
+      getMarkdown: () => live,
+      applyMarkdown: (markdown) => { applied = markdown },
+    })
+
+    await runBulkChapterIngest(project)
+
+    const written = io.files.get(path)!
+    expect(written).toContain("chapter_status: final")
+    expect(written).toContain("未保存的正文")
+    expect(written).not.toContain("\n正文")
+    expect(applied).toBe(written)
   })
 })
 
