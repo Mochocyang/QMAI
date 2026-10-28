@@ -113,12 +113,18 @@ v2 的目标：**C 族以及对未来的 Qoder / Trae / 小浣熊，一律做成
       "hostUrl": "http://127.0.0.1:51234",
       "hostToken": "…",
       "grantedPermissions": ["net:listen", "net:https"],
-      "provider": {                                     // ← v2 新增
-        "port": 51235,
-        "token": "…",                                   // 插件必须校验此令牌
-        "baseUrl": "http://127.0.0.1:51235"
-      }
-    }
+      // provider 的端口与令牌**不走这里**，改用环境变量（实现更简单、且插件在 initialize 之前就能读到）：
+      //   QMAI_PROVIDER_PORT=51235
+      //   QMAI_PROVIDER_TOKEN=…
+      // 插件必须校验该令牌，否则本机任何进程都能白嫖它（进而白嫖用户账号额度）。
+
+**为什么用环境变量而不是 `_qmai`**：`_qmai` 要改 `mcp_bridge::initialize_request` 的签名与它的 7 条既有测试；
+而 `start_plugin` 已经在注入 `QMAI_HOST_URL` / `QMAI_HOST_TOKEN` / `QMAI_PLUGIN_ID`，
+再补两个变量是同一模式的延伸，对既有代码零改动。
+
+**端口竞争**：宿主 bind `127.0.0.1:0` 拿到空闲端口后立刻释放交给插件去绑，
+中间有个极小的窗口。所以**必须**靠随后的 `/health` 探活确认；
+探活失败就报错，不能假定插件一定绑上了（见 D4）。    }
   }
 }
 ```
