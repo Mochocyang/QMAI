@@ -33,8 +33,24 @@ type ProcessState = PluginSummary["processState"]
  * 颜色不是装饰：运行中 / 异常退出 / 被安全停用必须一眼能分开，
  * 否则用户会把「插件崩了」误认为「我还没启用」。
  */
-const PROCESS_STATE_BADGES: Record<ProcessState, { label: string; className: string }> = {
+export const PROCESS_STATE_BADGES: Record<ProcessState, { label: string; className: string }> = {
   stopped: { label: "已停止", className: "border-border bg-muted text-muted-foreground" },
+  /**
+   * 纯声明式插件：**没有进程，但已生效**。
+   *
+   * 为什么不能用停止态的灰（`bg-muted` + `text-muted-foreground`）：这套界面里灰色
+   * 固定表达"没跑起来"（未启用 / 被停用 / 崩了之后），用户看到灰徽章的第一反应是
+   * 「启用没成功」，于是去点「启用」、重装甚至卸载一个本来工作正常的插件。
+   * 这一档的真实语义是"不需要跑"，所以必须是一枚**正向**的颜色。
+   *
+   * 也刻意不用"运行中"的翠绿：它确实没有任何进程在跑，说成运行中是另一句假话，
+   * 而且用户会去找一个并不存在的进程/端口。这里取蓝靛（indigo）—— 与运行中的绿、
+   * 启动中的天蓝、异常退出的橙都能一眼分开，读作"已就绪的中性状态"。
+   */
+  declarative: {
+    label: "声明式",
+    className: "border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-300",
+  },
   starting: {
     label: "启动中",
     className: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
@@ -95,6 +111,32 @@ function previewField(plugin: Pick<PluginSummary, "preview">, key: string): unkn
   const preview = plugin.preview
   if (typeof preview !== "object" || preview === null || Array.isArray(preview)) return undefined
   return (preview as Record<string, unknown>)[key]
+}
+
+/** 启用确认弹窗的档位，见 `enableConfirmTone`。 */
+export type EnableConfirmTone = "provider" | "default" | "declarative"
+
+/**
+ * 启用确认弹窗里那段警示文案该用哪一档。
+ *
+ * 三档按"能力越强、警示越重"排：
+ *   - `provider`：会成为模型供应商，用户与模型的完整对话都经过它（设计 §7 的最高危档）；
+ *   - `declarative`：清单只有一个配置面 / 界面声明，不跑代码不起进程 —— 按"独立进程
+ *     运行、可读项目文件、可联网"去吓唬它，用户只会觉得软件在乱报警，进而对所有
+ *     警示失去反应；
+ *   - `default`：有工具等其它能力，但既不接管对话也非纯声明，用中间的琥珀档。
+ *
+ * 判据全部取自 `plugins_list` 的字段（前端不解析清单，避免双份真源）：
+ * `providerIds` 为空**且** `toolCount === 0` 才算纯声明式。缺字段（`undefined`）
+ * 一律按 0 处理 —— 保守方向的错误是"多一句普通警示"，不是"漏掉高危警示"，
+ * 因为 provider 档先判。
+ */
+export function enableConfirmTone(
+  plugin: Pick<PluginSummary, "providerIds" | "toolCount">,
+): EnableConfirmTone {
+  if ((plugin.providerIds?.length ?? 0) > 0) return "provider"
+  if (!(plugin.toolCount > 0)) return "declarative"
+  return "default"
 }
 
 /**
@@ -366,6 +408,8 @@ export function PluginSection() {
    */
   const enableProviderIds = enableTarget?.providerIds ?? []
   const enableDeclaresProvider = enableProviderIds.length > 0
+  /** 确认层档位（见 `enableConfirmTone`）；写在同一处，避免文案与判据各算一遍。 */
+  const enableTone: EnableConfirmTone | null = enableTarget ? enableConfirmTone(enableTarget) : null
 
   return (
     <div className="space-y-6">
@@ -602,6 +646,17 @@ export function PluginSection() {
                         </p>
                       ) : null}
 
+                      {/*
+                        声明式插件既没有工具数也没有 provider，卡片上会一次说明都不出现，
+                        徽章又写着「声明式」—— 用户会问"那它到底在跑什么"。
+                        这一句就是答案：它没有进程，能力由宿主直接渲染。
+                      */}
+                      {plugin.processState === "declarative" ? (
+                        <p className="text-xs text-muted-foreground">
+                          纯声明式插件：不启动任何进程、不执行代码，配置与能力由宿主直接渲染。
+                        </p>
+                      ) : null}
+
                       {plugin.grantedPermissions.length > 0 ? (
                         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                           <span>已授权权限：</span>
@@ -723,7 +778,9 @@ export function PluginSection() {
             <DialogTitle>启用插件</DialogTitle>
             <DialogDescription>
               {enableTarget
-                ? `「${pluginDisplayName(enableTarget)}」将以独立进程运行，随时可以在这里停用。`
+                ? enableTone === "declarative"
+                  ? `「${pluginDisplayName(enableTarget)}」将被启用，随时可以在这里停用。它不启动进程，只在宿主界面里出现。`
+                  : `「${pluginDisplayName(enableTarget)}」将以独立进程运行，随时可以在这里停用。`
                 : ""}
             </DialogDescription>
           </DialogHeader>
@@ -735,15 +792,30 @@ export function PluginSection() {
               全书设定、剧情、人物、已写正文。这里的文案要具体到用户能理解
               「谁在看我的稿子」，不能写成「该插件可能访问网络」这种空话。
             */}
-            {enableDeclaresProvider ? (
+            {enableTone === "provider" ? (
               <div
                 className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 leading-relaxed text-destructive"
                 data-plugin-risk="provider"
               >
                 该插件会成为你的模型供应商：你对 AI 说的每一句话、以及软件送给 AI 的全部上下文（包括你这本书的设定、剧情和已写正文）都会经过它。它还可能把这些内容发往它自己的上游服务。请只安装你信任来源的 provider 插件。
               </div>
+            ) : enableTone === "declarative" ? (
+              /*
+               * 纯声明式（没有 provider、也没有 tools）用最轻的一档：
+               * 它连代码都不执行，把「独立进程、可读文件、可联网」那套警示搬过来
+               * 属于假警报 —— 假警报多了，用户在真正高危的 provider 档上也会直接点确认。
+               */
+              <div
+                className="rounded-lg border border-border bg-muted/50 p-3 leading-relaxed text-muted-foreground"
+                data-plugin-risk="declarative"
+              >
+                该插件只提供配置与界面声明，不会执行任何代码，也不会启动进程。
+              </div>
             ) : (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 leading-relaxed text-amber-900 dark:text-amber-200">
+              <div
+                className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 leading-relaxed text-amber-900 dark:text-amber-200"
+                data-plugin-risk="default"
+              >
                 该插件将以「无额外权限」启用：不能读项目文件、不能联网。如需与其功能匹配的权限，请等待后续版本提供逐项授权界面。
               </div>
             )}

@@ -7,7 +7,25 @@ export interface PluginSummary {
   version: string
   description: string
   enabled: boolean
-  processState: "stopped" | "starting" | "running" | "failed" | "crashed" | "disabled_by_crash"
+  /**
+   * 进程状态（Rust `plugins_list` 原样透传）。
+   *
+   * `"declarative"`（Rust 侧 `1310f37a` 起）表示**纯声明式插件**：清单里没有
+   * `runtime`，也没声明 tools / providers / process-hook，宿主于是根本不启动进程，
+   * 只读清单渲染配置与能力。
+   *
+   * 它不是 `"stopped"`：`stopped` 是"该跑却没跑"（用户没启用、被停用），
+   * `declarative` 是"不需要跑"。两者混用会让用户以为插件没启用成功，
+   * 所以前端任何按状态的展示都必须把这一档单独认出来，不能靠兜底。
+   */
+  processState:
+    | "stopped"
+    | "starting"
+    | "running"
+    | "failed"
+    | "crashed"
+    | "disabled_by_crash"
+    | "declarative"
   grantedPermissions: string[]
   toolCount: number
   sourceRepo: string
