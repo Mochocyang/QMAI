@@ -1,0 +1,211 @@
+{
+  "schema": 3,
+  "id": "idea-generator",
+  "name": "脑洞生成器",
+  "version": "1.0.0",
+  "description": "根据一句话灵感生成书名、标签、简介与人设；附 30 条网文灵感切入点。纯声明式，不执行任何代码。",
+  "author": { "name": "QMAI", "url": "https://github.com/Mochocyang/QMAI" },
+  "license": "MIT",
+  "requires": { "qmai": ">=4.4.0" },
+  "runtime": { "type": "node", "entry": "noop.js", "keepAlive": true, "startTimeoutMs": 10000 },
+  "slots": ["chapter-toolbar", "outline-toolbar", "inspiration-browser"],
+  "requiresSlot": { "chapter-toolbar": 1, "outline-toolbar": 1, "inspiration-browser": 1 },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "defaultCount": {
+        "type": "number",
+        "title": "默认备选数量",
+        "description": "生成几个备选",
+        "default": 5,
+        "minimum": 1,
+        "maximum": 10
+      },
+      "titleStyle": {
+        "type": "string",
+        "title": "书名风格",
+        "enum": ["简洁", "爆点", "文艺"],
+        "default": "爆点"
+      },
+      "penName": {
+        "type": "string",
+        "title": "笔名",
+        "description": "生成人设时会带上",
+        "maxLength": 32
+      }
+    }
+  },
+  "preview": {
+    "actions": [
+      { "id": "generate-titles", "title": "生成书名" },
+      { "id": "generate-tags", "title": "生成标签" },
+      { "id": "generate-protagonist", "title": "生成人设" }
+    ],
+    "contentPacks": [
+      { "id": "webnovel-hooks", "title": "网文开局钩子 30 例", "count": 30 }
+    ]
+  },
+  "contributes": {
+    "contentPacks": [
+      {
+        "id": "webnovel-hooks",
+        "title": "网文开局钩子 30 例",
+        "description": "直接可用的开篇切入点，按题材分类",
+        "file": "content/inspirations.json",
+        "maxItems": 5000
+      }
+    ],
+    "actions": [
+      {
+        "id": "generate-titles",
+        "title": "生成书名",
+        "description": "根据一句话灵感生成多个书名备选，可直接设为书名",
+        "slot": "chapter-toolbar",
+        "form": {
+          "fields": [
+            {
+              "key": "idea",
+              "type": "textarea",
+              "label": "你的灵感",
+              "description": "一句话说清核心设定，越具体越好",
+              "placeholder": "例：末班地铁上的乘客全都没有影子",
+              "required": true,
+              "rows": 3,
+              "maxLength": 500
+            },
+            {
+              "key": "count",
+              "type": "number",
+              "label": "备选数量",
+              "description": "生成几个书名备选",
+              "default": 5,
+              "min": 1,
+              "max": 10,
+              "step": 1
+            }
+          ]
+        },
+        "prompt": {
+          "system": "你是中文网文的资深书名策划，做过十年签约书名。你只产出书名本身：不解释、不寒暄、不加编号，也不替作者挑「最好的那一个」。",
+          "user": "书名风格：{{config.titleStyle}}｜需要数量：{{count}} 个\n核心灵感：{{idea}}\n1. 每行一个书名，不要编号、不要书名号、不要引号、不要解释\n2. 每个 3-10 字；「简洁」收紧到 6 字内，「爆点」要带冲突或反常，「文艺」要留一点余味\n3. 同一批之间差异要明显，不要只换一两个字\n4. 拿不准时宁可给一个大胆的，也不要给一个正确的废话"
+        },
+        "output": {
+          "mode": "list",
+          "schema": { "type": "array" },
+          "presentation": "chips",
+          "maxItems": 10,
+          "targets": [
+            { "kind": "project-field", "field": "bookTitle", "label": "设为书名", "confirm": true },
+            { "kind": "clipboard", "label": "复制" },
+            { "kind": "insert-at-cursor", "label": "插入到正文" }
+          ]
+        },
+        "limits": { "timeoutMs": 60000, "maxOutputTokens": 800 }
+      },
+      {
+        "id": "generate-tags",
+        "title": "生成标签",
+        "description": "按题材和灵感生成平台可用的标签，可直接写进项目标签",
+        "slot": "chapter-toolbar",
+        "form": {
+          "fields": [
+            {
+              "key": "idea",
+              "type": "textarea",
+              "label": "你的灵感",
+              "description": "一句话说清核心设定，越具体越好",
+              "placeholder": "例：全城停水三天，只有我家水龙头出水",
+              "required": true,
+              "rows": 3,
+              "maxLength": 500
+            },
+            {
+              "key": "genre",
+              "type": "select",
+              "label": "题材",
+              "required": true,
+              "options": [
+                { "value": "玄幻", "label": "玄幻" },
+                { "value": "都市", "label": "都市" },
+                { "value": "科幻", "label": "科幻" },
+                { "value": "悬疑", "label": "悬疑" },
+                { "value": "言情", "label": "言情" }
+              ]
+            }
+          ]
+        },
+        "prompt": {
+          "system": "你是中文网文平台的标签运营，清楚哪些标签真的带来点击、哪些只是作者自嗨。你只输出标签本身，不解释、不排序说明。",
+          "user": "题材：{{genre}}\n核心灵感：{{idea}}\n1. 每行一个标签，共 3-8 个，不要编号、不要 #、不要解释\n2. 每个标签 2-6 字，至少覆盖三类：一个题材大类、一个卖点（如扮猪吃虎、马甲、双强）、一个氛围或设定\n3. 只写读者筛选时会真的点的词，不要「精彩」「爆款」这类没有信息量的评价词\n4. 同一行只放一个标签，不要用顿号或逗号把几个词连起来"
+        },
+        "output": {
+          "mode": "list",
+          "presentation": "chips",
+          "maxItems": 8,
+          "targets": [
+            { "kind": "project-field", "field": "bookTags", "label": "设为标签" },
+            { "kind": "clipboard", "label": "复制" }
+          ]
+        },
+        "limits": { "timeoutMs": 60000, "maxOutputTokens": 400 }
+      },
+      {
+        "id": "generate-protagonist",
+        "title": "生成人设",
+        "description": "按灵感、角色定位与颗粒度生成可直接落档的人物设定（只读当前章节标题，不读正文）",
+        "slot": "outline-toolbar",
+        "form": {
+          "fields": [
+            {
+              "key": "idea",
+              "type": "textarea",
+              "label": "你的灵感",
+              "description": "一句话说清这个角色的核心矛盾",
+              "placeholder": "例：给富家子弟当了十年替身的账房先生",
+              "required": true,
+              "rows": 3,
+              "maxLength": 500
+            },
+            {
+              "key": "role",
+              "type": "select",
+              "label": "角色定位",
+              "required": true,
+              "options": [
+                { "value": "主角", "label": "主角" },
+                { "value": "反派", "label": "反派" },
+                { "value": "配角", "label": "配角" }
+              ]
+            },
+            {
+              "key": "depth",
+              "type": "select",
+              "label": "颗粒度",
+              "options": [
+                { "value": "一句话", "label": "一句话" },
+                { "value": "三句话", "label": "三句话" },
+                { "value": "小传", "label": "小传" }
+              ]
+            }
+          ]
+        },
+        "prompt": {
+          "system": "你是中文网文的角色策划，习惯用三个具体细节立住一个人，而不是堆形容词。你的输出会直接进作者的角色档案，所以只写设定，不写剧情推进。",
+          "user": "当前章节：{{chapter.title}}\n核心灵感：{{idea}}\n角色定位：{{role}}｜颗粒度：{{depth}}｜作者笔名：{{config.penName}}\n1. 必须给出名字、身份、一个可见的外在细节（习惯、随身物或口音）\n2. 「一句话」不超过 40 字；「三句话」正好三句；「小传」150-250 字，含出身、欲望、致命缺陷\n3. 至少留一个会让他付出代价的弱点，不要写成万能角色\n4. 用 Markdown 小标题分节，不要写「以下是」之类的开场白\n5. 笔名非空时在结尾单独一行署名「——{{config.penName}} 拟」，为空则不署名"
+        },
+        "output": {
+          "mode": "text",
+          "presentation": "markdown",
+          "targets": [
+            { "kind": "project-field", "field": "protagonist", "label": "设为主角设定", "confirm": true },
+            { "kind": "insert-at-cursor", "label": "插入到正文" },
+            { "kind": "clipboard", "label": "复制" }
+          ]
+        },
+        "limits": { "timeoutMs": 90000, "maxOutputTokens": 1200 }
+      }
+    ]
+  },
+  "permissions": ["fs:project-read"]
+}
