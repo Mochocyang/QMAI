@@ -182,9 +182,8 @@ v2 的目标：**C 族以及对未来的 Qoder / Trae / 小浣熊，一律做成
         "authKind": "browser-login",       // browser-login | paste-token | import-file | none
         "settingsPagePath": "/login",      // 可选：插件自托管的登录/设置页（见第 5 章）
         "authDomains": ["workbuddy.cn", "accounts.google.com"],  // 登录窗口导航白名单
-        "modelsEndpoint": "/v1/models",    // 可选，默认 /v1/models
-        "chatEndpoint": "/v1/chat/completions",
-        "healthEndpoint": "/health",
+        // 端点路径固定为 /health、/v1/models、/v1/chat/completions（见 3.1），
+        // 不做按插件配置 —— 可配置路径会让"OpenAI 兼容"这个契约变成 N 套私有协议。
         "capabilities": ["models.refresh", "balance.query", "checkin"]  // 可选，见 4.3
       }
     ]
@@ -198,7 +197,7 @@ v2 的目标：**C 族以及对未来的 Qoder / Trae / 小浣熊，一律做成
 
 | 字段 | 必需 | 约束 | 错误码 |
 |---|---|---|---|
-| `providers[].id` | 是 | `^[a-z][a-z0-9-]{1,31}$`；不得与内置 provider（`openai`/`anthropic`/`google`/`azure`/`ollama`/`custom`/`minimax`/`claude-code`/`codex-cli`/`cursor-cli`/`antigravity-cli`）冲突，也不得与已安装插件的 provider 冲突 | `E_PROVIDER_ID_CONFLICT` |
+| `providers[].id` | 是 | `^[a-z][a-z0-9-]{1,31}$`，**不得含 `/`**（复合键用 `indexOf("/")` 解析）；不得与 12 个内置 provider 冲突（清单校验处拒绝），**也不得与其它已安装插件的 provider 冲突**（安装/启用时由 registry 侧比对，清单校验管不到） | `E_PROVIDER_ID_CONFLICT` |
 | `providers[].name` | 是 | 1–64 字符 | `E_PROVIDER_NAME_INVALID` |
 | `providers[].authKind` | 是 | 四选一 | `E_AUTH_KIND_INVALID` |
 | `providers[].settingsPagePath` | 否 | 必须以 `/` 开头、不得含 `..`、不得是绝对 URL | `E_SETTINGS_PAGE_INVALID` |
@@ -388,8 +387,11 @@ v1 的插件已经有权限体系，但 **provider 插件拿到的数据等级�
    > （包括你这本书的设定、剧情和已写正文）都会经过它。它还可能把这些内容发往它自己的上游服务。
    > 请只安装你信任来源的 provider 插件。
 
-2. **权限位**：`providers` 类插件必须同时申请 `net:listen` + `net:https`；
-   未申请则拒绝启用（`E_PROVIDER_REQUIRES_NET_LISTEN`）。
+2. **权限位**：`providers` 类插件必须申请 `net:listen`（否则拒绝）；`net:https` 按需自选。
+
+   > 原稿写的是"必须同时申请两者"，改掉了：只转发到本机端点（例如用户自己的 ollama / 本地推理服务）
+   > 的 provider 插件根本不需要出网，强制它申请 `net:https` 等于让用户**多勾一个它用不到的高危权限**。
+   > 最小权限原则在这里比"统一要求"更重要——用户勾得越少，越会认真看每一个。
 
 3. **展示来源**：模型选择器里，插件模型必须带 provider 名与插件 id，
    不能与内置模型混成一片让用户分不清谁在收他的数据。
