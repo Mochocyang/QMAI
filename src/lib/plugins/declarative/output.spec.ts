@@ -14,8 +14,8 @@ function listOutput(maxItems?: number): ActionOutput {
   return { mode: "list", presentation: "chips", maxItems, targets: [] }
 }
 
-function jsonOutput(maxItems?: number): ActionOutput {
-  return { mode: "json", maxItems, targets: [] }
+function jsonOutput(maxItems?: number, schema?: unknown): ActionOutput {
+  return { mode: "json", schema, maxItems, targets: [] }
 }
 
 const textOutput: ActionOutput = { mode: "text", targets: [] }
@@ -139,10 +139,47 @@ describe("parseOutput · json", () => {
     if (result.kind === "list") expect(result.items).toEqual(["A", "B"])
   })
 
-  it("空数组也算「没有解析出任何条目」", () => {
+  it("空数组是「解析成功但 0 条」，不是失败", () => {
+    // 与 list 模式的分水岭：这里模型明确返回了 `[]`，是"没有结果"而不是"跑偏"。
+    // UI 该显示空状态（可以重试），而不是把原文 `[]` 摊给用户。
     const result = parseOutput("[]", jsonOutput())
+    expect(result).toEqual({ kind: "list", items: [], degraded: false })
+  })
+
+  it("解析成功但元素全被清理掉时也是空列表，不降级", () => {
+    const result = parseOutput('["   "]', jsonOutput())
+    expect(result).toEqual({ kind: "list", items: [], degraded: false })
+  })
+
+  it("schema.type 为 array 且返回数组 → 正常解析", () => {
+    const result = parseOutput('["A","B"]', jsonOutput(undefined, { type: "array" }))
+    expect(result.kind).toBe("list")
+    if (result.kind === "list") expect(result.items).toEqual(["A", "B"])
+  })
+
+  it("schema.type 为 array 但模型返回对象 → 降级并说明期望与实际", () => {
+    const raw = '{"title":"A"}'
+    const result = parseOutput(raw, jsonOutput(undefined, { type: "array" }))
     expect(result.kind).toBe("degraded")
-    if (result.kind === "degraded") expect(result.reason).toBe("没有解析出任何条目")
+    if (result.kind === "degraded") {
+      expect(result.reason).toContain("数组")
+      expect(result.reason).toContain("对象")
+      expect(result.text).toBe(raw)
+    }
+  })
+
+  it("schema.type 为 string 但返回数组 → 降级；为 object 且返回对象 → 正常", () => {
+    const mismatch = parseOutput('["A"]', jsonOutput(undefined, { type: "string" }))
+    expect(mismatch.kind).toBe("degraded")
+
+    const matched = parseOutput('{"text":"正文"}', jsonOutput(undefined, { type: "object" }))
+    expect(matched).toEqual({ kind: "text", text: "正文" })
+  })
+
+  it("schema 缺失或 type 不认得时不校验顶层结构", () => {
+    expect(parseOutput('{"a":1}', jsonOutput()).kind).toBe("text")
+    expect(parseOutput('{"a":1}', jsonOutput(undefined, { type: "number" })).kind).toBe("text")
+    expect(parseOutput('["A"]', jsonOutput(undefined, "array")).kind).toBe("list")
   })
 
   it("完全不是 JSON 时降级为原文", () => {

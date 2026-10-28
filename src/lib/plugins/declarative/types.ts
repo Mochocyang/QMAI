@@ -70,6 +70,15 @@ export interface OutputTarget {
 
 export interface ActionOutput {
   mode: OutputMode
+  /**
+   * 期望的顶层结构（JSON Schema 子集）。缺失时不校验结构，只做"能 parse"判断。
+   *
+   * 这里只取 `type` 一个键（`array` / `object` / `string`）做**顶层**校验：
+   * 完整 JSON Schema 校验在 Rust 侧另有一套（`validate_against_schema`），
+   * 两处各管一段。前端若"顺手"实现完整校验，就会与后端行为漂移，
+   * 作者在安装期与运行时看到两种结论。
+   */
+  schema?: unknown
   presentation?: "chips" | "markdown" | "plain"
   maxItems?: number
   targets: OutputTarget[]

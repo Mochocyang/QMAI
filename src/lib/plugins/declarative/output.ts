@@ -113,11 +113,69 @@ function tryParseJson(raw: string): { ok: true; value: unknown } | { ok: false }
 /** 对象里优先取这几个字段：声明式输出的常见包裹形状。 */
 const PREFERRED_TEXT_KEYS = ["text", "content", "result"] as const
 
-function parseJson(raw: string, maxItems: number | undefined): ParsedOutput {
+/** `output.schema.type` 里我们认得的顶层形状；其余（或写歪）一律不校验。 */
+type TopLevelShape = "array" | "object" | "string"
+
+const TOP_LEVEL_LABELS: Record<TopLevelShape, string> = {
+  array: "数组",
+  object: "对象",
+  string: "字符串",
+}
+
+/** 只取 `schema.type`：轻量校验，完整 JSON Schema 验证归 Rust 侧（见 types.ts）。 */
+function expectedTopLevel(schema: unknown): TopLevelShape | undefined {
+  if (typeof schema !== "object" || schema === null || Array.isArray(schema)) return undefined
+  const type = (schema as Record<string, unknown>).type
+  return type === "array" || type === "object" || type === "string" ? type : undefined
+}
+
+function describeTopLevel(value: unknown): string {
+  if (value === null) return "空值"
+  if (Array.isArray(value)) return "数组"
+  switch (typeof value) {
+    case "object":
+      return "对象"
+    case "string":
+      return "字符串"
+    case "number":
+      return "数字"
+    case "boolean":
+      return "布尔值"
+    default:
+      return typeof value
+  }
+}
+
+function matchesTopLevel(value: unknown, expected: TopLevelShape): boolean {
+  switch (expected) {
+    case "array":
+      return Array.isArray(value)
+    case "object":
+      return typeof value === "object" && value !== null && !Array.isArray(value)
+    case "string":
+      return typeof value === "string"
+  }
+}
+
+function parseJson(
+  raw: string,
+  schema: unknown,
+  maxItems: number | undefined,
+): ParsedOutput {
   const parsed = tryParseJson(raw)
   if (!parsed.ok) return degrade(raw, "JSON 解析失败")
 
   const value = parsed.value
+
+  // 顶层类型不符 → 降级（D3）。这一步放在下面所有分支之前，
+  // 否则"期望数组却拿到对象"会被当成正常对象输出，作者永远发现不了提示词跑偏。
+  const expected = expectedTopLevel(schema)
+  if (expected !== undefined && !matchesTopLevel(value, expected)) {
+    return degrade(
+      raw,
+      `期望返回${TOP_LEVEL_LABELS[expected]}，实际是${describeTopLevel(value)}`,
+    )
+  }
 
   if (Array.isArray(value)) {
     const items: string[] = []
@@ -129,8 +187,9 @@ function parseJson(raw: string, maxItems: number | undefined): ParsedOutput {
       items.push(text)
       if (maxItems !== undefined && items.length >= maxItems) break
     }
-    // 解析成功但一条都没有 → 与 list 模式保持同一口径：降级展示原文
-    if (items.length === 0) return degrade(raw, "没有解析出任何条目")
+    // 「解析成功但 0 条」不是失败：模型确实返回了 `[]`，它是有意义的结果，
+    // 该由 UI 显示空状态（"没有生成结果，可以重试"），而不是把原文摊给用户看。
+    // 注意与 list 模式的区别：那边"一条都没解析出来"说明模型跑偏了，才算失败。
     return { kind: "list", items, degraded: false }
   }
 
@@ -180,7 +239,7 @@ export function parseOutput(raw: string, output: ActionOutput): ParsedOutput {
     case "list":
       return parseList(text, maxItems)
     case "json":
-      return parseJson(text, maxItems)
+      return parseJson(text, output?.schema, maxItems)
     case "text":
       return { kind: "text", text }
   }
