@@ -185,6 +185,19 @@ pub fn run() {
             app.manage(commands::writing_wake_lock::WritingWakeLockManager::default());
             app.manage(mcp::McpState::default());
             app.manage(plugins::PluginsState::default());
+            // 已启用的插件要在启动后自动拉起；放后台任务，不阻塞窗口显示。
+            {
+                let handle = app.handle().clone();
+                // 根目录在同步上下文里取好，任务里只做读注册表 + 起进程。
+                let root = plugins::paths::plugins_root();
+                tauri::async_runtime::spawn(async move {
+                    if let Some(state) = handle.try_state::<plugins::PluginsState>() {
+                        if let Err(error) = plugins::autostart_all(state.inner(), &root).await {
+                            eprintln!("[plugins] 自动启动失败：{error}");
+                        }
+                    }
+                });
+            }
             // WorkBuddy 账号存储与模型目录：读不到/读坏都退化成空仓库，
             // 绝不让一次磁盘异常把整个应用拦在启动之前。
             let workbuddy_dir = app

@@ -247,6 +247,32 @@ async fn start_plugin(
     };
     let stdout = tokio::io::BufReader::new(stdout).lines();
 
+    // stderr 是 piped 的，没人读的话管道写满后插件会阻塞在写日志上，
+    // 表现为「握手超时」或「工具调用无响应」。必须持续排空。
+    //
+    // 按字节块读而不是 `lines()`：非 UTF-8 字节会让 `Lines` 直接返回错误，
+    // 一旦 break 就停止了排空，等于又回到卡死；块读也不会被没有换行的超长行撑爆内存。
+    if let Some(mut stderr) = child.stderr.take() {
+        let plugin_id = entry.id.clone();
+        spawn_task(async move {
+            use tokio::io::AsyncReadExt;
+            let mut tail = supervisor::TailBuffer::new(64 * 1024);
+            let mut chunk = [0u8; 8 * 1024];
+            loop {
+                match stderr.read(&mut chunk).await {
+                    Ok(0) => break, // 进程退出，管道关闭
+                    Ok(n) => tail.push(&chunk[..n]),
+                    Err(_) => break,
+                }
+            }
+            let text = tail.as_lossy();
+            if !text.trim().is_empty() {
+                // 插件退出时把它最后的 stderr 尾巴打出来，便于定位崩溃原因
+                eprintln!("[plugins] {plugin_id} 的最后 stderr（尾部 64KB）：\n{text}");
+            }
+        });
+    }
+
     let mut handle = supervisor::LaunchHandle {
         plugin_id: entry.id.clone(),
         token: token.clone(),
@@ -344,6 +370,33 @@ async fn stop_plugin(
         // 进程没了，旧 token 必须立刻失效，否则残留的插件请求还能反调宿主。
         host_api::unregister_session(&token);
     }
+}
+
+/// App 启动后拉起所有已启用的插件。
+///
+/// 重启后注册表里 `enabled: true` 的插件本来只在「用户点启用」那一刻被拉起，
+/// 界面于是长期停在「已停止 + 停用按钮」，用户必须停用再启用才能恢复。
+///
+/// `root` 由调用方传入（`paths::plugins_root()`），不在函数里读环境变量：
+/// 这样测试可以注入临时目录，不必改 `QMAI_PLUGIN_HOME`（改环境变量会污染并行测试）。
+///
+/// 单个插件失败不能影响其它插件，也不能阻断启动：只记录日志。
+/// 失败时注册表里的 enabled 保持 true —— 用户看到「已停止」可以手动重试，
+/// 比悄悄把 enabled 改成 false（用户没做任何操作却丢了启用状态）更好。
+pub async fn autostart_all(state: &PluginsState, root: &Path) -> Result<(), String> {
+    let registry = PluginRegistry::load(root)?;
+    // 先把要启动的条目捞出来，避免在 await 期间还引用 registry
+    let targets: Vec<RegistryEntry> = registry
+        .list()
+        .into_iter()
+        .filter(|entry| entry.enabled)
+        .collect();
+    for entry in targets {
+        if let Err(error) = start_plugin(root, &state.running, &state.host_port, &entry).await {
+            eprintln!("[plugins] 自动启动 {} 失败：{error}", entry.id);
+        }
+    }
+    Ok(())
 }
 
 /// 停掉所有运行中的插件。App 退出清理与 `plugins_shutdown_all` 命令共用。
@@ -959,5 +1012,122 @@ rl.on("line", (line) => {
             0,
             "停用后宿主 API session 必须注销"
         );
+    }
+
+    /// 启动时自动拉起：注册表为空是首次启动的正常状态，必须成功返回而不是报错。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn autostart_all_returns_ok_for_an_empty_registry() {
+        let root = TempRoot::new("autostart-empty");
+        let state = PluginsState::default();
+
+        autostart_all(&state, root.path())
+            .await
+            .expect("空注册表不应报错");
+
+        assert!(
+            state.running.lock().await.is_empty(),
+            "没有已启用插件时不应有任何运行句柄"
+        );
+        // 没有插件要启动，就不该顺手把宿主 API 服务起起来。
+        assert!(
+            state.host_port.lock().expect("端口状态").is_none(),
+            "空注册表不应启动宿主 API"
+        );
+    }
+
+    /// 已启用但磁盘上缺清单（用户手工删过目录、拷贝不完整）：单条失败只记日志，
+    /// 不能阻断启动，也不能把注册表里的 enabled 悄悄改成 false。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn autostart_all_keeps_going_and_keeps_enabled_when_one_plugin_fails() {
+        let root = TempRoot::new("autostart-broken");
+        let mut registry = PluginRegistry::load(root.path()).expect("空注册表可加载");
+        // sample_entry 的 enabled 是 true，但这里不写插件目录 → start_plugin 读清单失败
+        registry.upsert(sample_entry("ghost-plugin"));
+        let mut off = sample_entry("off-plugin");
+        off.enabled = false;
+        registry.upsert(off);
+        registry.save(root.path()).expect("保存注册表");
+
+        let state = PluginsState::default();
+        autostart_all(&state, root.path())
+            .await
+            .expect("单个插件启动失败不能阻断启动");
+
+        assert!(
+            state.running.lock().await.is_empty(),
+            "启动失败的插件不能留在 running 表里"
+        );
+        let after = PluginRegistry::load(root.path()).expect("重新加载注册表");
+        assert!(
+            after.get("ghost-plugin").expect("条目仍在").enabled,
+            "启动失败不能悄悄把 enabled 改成 false"
+        );
+        assert_eq!(
+            host_api::sessions_for_plugin("ghost-plugin"),
+            0,
+            "启动失败的插件不能留下宿主 API session"
+        );
+    }
+
+    /// stderr 必须被持续排空：否则管道写满后插件会阻塞在写日志上，握手永远等不到。
+    /// 用真实 Node 进程先往 stderr 灌约 256KB（远超 Windows 管道缓冲区），再正常应答握手。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn start_plugin_drains_stderr_while_the_plugin_keeps_logging() {
+        if !node_available() {
+            eprintln!("跳过：本机没有可执行的 node");
+            return;
+        }
+
+        const SERVER: &str = r#"
+const fs = require("fs");
+const readline = require("readline");
+
+// 先把 stderr 灌到远超管道缓冲区：没人排空时 writeSync 会一直阻塞，
+// 下面的 readline 永远注册不上，宿主只能等到握手超时。
+const chunk = "x".repeat(8192) + "\n";
+for (let i = 0; i < 32; i++) fs.writeSync(2, chunk);
+
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on("line", (line) => {
+  let req;
+  try { req = JSON.parse(line); } catch { return; }
+  if (req.method === "initialize") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { protocolVersion: "2024-11-05", capabilities: { tools: {} } }
+    }));
+  } else if (req.method === "tools/list") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { tools: [] } }));
+  }
+});
+"#;
+
+        let root = TempRoot::new("node-stderr");
+        let id = "node-stderr";
+        let manifest = format!(
+            r#"{{
+                "schema": 1,
+                "id": "{id}",
+                "name": "话痨插件",
+                "version": "1.0.0",
+                "runtime": {{ "type": "node", "entry": "chatty.js", "startTimeoutMs": 5000 }}
+            }}"#
+        );
+        write_plugin(root.path(), id, &manifest, Some(("chatty.js", SERVER)));
+        let entry = sample_entry(id);
+
+        let state = PluginsState::default();
+        *state.host_port.lock().expect("端口状态") = Some(1);
+
+        start_plugin(root.path(), &state.running, &state.host_port, &entry)
+            .await
+            .expect("插件持续写 stderr 时握手仍应成功");
+
+        {
+            let running = state.running.lock().await;
+            let handle = running.get(id).expect("启动后应有运行句柄");
+            assert!(handle.tools.is_empty());
+        }
+        stop_plugin(&state.running, id).await;
     }
 }
