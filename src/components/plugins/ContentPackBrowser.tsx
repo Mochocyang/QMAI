@@ -16,10 +16,10 @@
 import { useEffect, useMemo, useState } from "react"
 import { Loader2, Puzzle, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { createDefaultRunDeps, type PackItemAction } from "@/lib/plugins/declarative/api"
+import { createDefaultRunDeps } from "@/lib/plugins/declarative/api"
 import { collectTags, filterContentItems } from "@/lib/plugins/declarative/content-pack"
 import type { RunActionDeps } from "@/lib/plugins/declarative/run"
-import type { ContentPack, ContentPackItem, OutputTarget } from "@/lib/plugins/declarative/types"
+import { isRunnableTarget, type ContentPack, type ContentPackItem, type OutputTarget } from "@/lib/plugins/declarative/types"
 import type { SlotActionEntry, SlotPackEntry } from "@/lib/plugins/slots"
 import { cn } from "@/lib/utils"
 import { toast } from "@/lib/toast"
@@ -28,7 +28,13 @@ import { describeRunError } from "./ActionDialog"
 
 export interface ContentPackBrowserProps {
   packs: SlotPackEntry[]
-  loadItems: (packId: string) => Promise<ContentPackItem[]>
+  /**
+   * 取某个包的条目。
+   *
+   * 入参是 `SlotPackEntry.loadKey`（形如 `<pluginId>/<packId>`），**不是**
+   * `pack.id`：宿主的取条目命令只认合成键，包内 id 会得到"内容包不存在"。
+   */
+  loadItems: (loadKey: string) => Promise<ContentPackItem[]>
   onUse: (item: ContentPackItem, target: OutputTarget) => Promise<void>
   /** 同插槽的 action 列表：`run-action` 用它找到要执行的 action。 */
   actions?: SlotActionEntry[]
@@ -43,13 +49,13 @@ export interface ContentPackBrowserProps {
  * 为什么要有兜底：一个只写了 `items` 的包如果没有任何操作，用户只能看着卡片
  * 干瞪眼（没法把内容拿走）。"插入正文 + 复制"是任何灵感文本都成立的用法。
  */
-const FALLBACK_PACK_ACTIONS: PackItemAction[] = [
+const FALLBACK_PACK_ACTIONS: OutputTarget[] = [
   { kind: "insert-at-cursor", label: "插入正文" },
   { kind: "clipboard", label: "复制" },
 ]
 
-export function resolvePackActions(pack: ContentPack): PackItemAction[] {
-  const declared = (pack.actions ?? []) as PackItemAction[]
+export function resolvePackActions(pack: ContentPack): OutputTarget[] {
+  const declared = pack.actions ?? []
   return declared.length > 0 ? declared : FALLBACK_PACK_ACTIONS
 }
 
@@ -67,7 +73,9 @@ export function ContentPackBrowser({
   onApplyTarget,
   editorAvailable = false,
 }: ContentPackBrowserProps) {
-  const [activePackId, setActivePackId] = useState<string>(() => packs[0]?.pack.id ?? "")
+  // 选中态用 `loadKey` 而不是 `pack.id`：两个插件可以有同名包 id，
+  // 而 loadKey 是全局唯一的宿主键（也正好是取条目要传的那个）。
+  const [activeKey, setActiveKey] = useState<string>(() => packs[0]?.loadKey ?? "")
   const [query, setQuery] = useState("")
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [itemsByPack, setItemsByPack] = useState<Record<string, ContentPackItem[]>>({})
@@ -80,13 +88,13 @@ export function ContentPackBrowser({
   // 包列表变化（例如刚装了一个插件）时，保证当前选中的包仍然存在。
   useEffect(() => {
     if (packs.length === 0) {
-      if (activePackId !== "") setActivePackId("")
+      if (activeKey !== "") setActiveKey("")
       return
     }
-    if (!packs.some((entry) => entry.pack.id === activePackId)) {
-      setActivePackId(packs[0].pack.id)
+    if (!packs.some((entry) => entry.loadKey === activeKey)) {
+      setActiveKey(packs[0].loadKey)
     }
-  }, [packs, activePackId])
+  }, [packs, activeKey])
 
   // 条目按需加载：内容包可达数千条，插件中心不该为"显示一个包名"把全部拉进内存。
   //
@@ -94,36 +102,36 @@ export function ContentPackBrowser({
   // 存状态就得在 effect 清理里复位，而清理恰好发生在"数据刚写入"的那次提交上
   // （依赖 `itemsByPack` 变了），于是复位被跳过、面板永远停在"正在加载"。
   useEffect(() => {
-    if (activePackId === "") return
-    if (itemsByPack[activePackId] !== undefined) return
+    if (activeKey === "") return
+    if (itemsByPack[activeKey] !== undefined) return
     let cancelled = false
-    void loadItems(activePackId)
+    void loadItems(activeKey)
       .then((items) => {
         if (cancelled) return
-        setItemsByPack((previous) => ({ ...previous, [activePackId]: items }))
+        setItemsByPack((previous) => ({ ...previous, [activeKey]: items }))
       })
       .catch((cause: unknown) => {
         // 单个包读失败不该把整个灵感库变成错误页：显示空包（原因进 console）
         if (cancelled) return
-        console.warn(`[plugins] 内容包 ${activePackId} 读取失败：`, cause)
-        setItemsByPack((previous) => ({ ...previous, [activePackId]: [] }))
+        console.warn(`[plugins] 内容包 ${activeKey} 读取失败：`, cause)
+        setItemsByPack((previous) => ({ ...previous, [activeKey]: [] }))
       })
     return () => {
       cancelled = true
     }
-  }, [activePackId, itemsByPack, loadItems])
+  }, [activeKey, itemsByPack, loadItems])
 
-  const activePack = packs.find((entry) => entry.pack.id === activePackId)
-  const allItems = activePackId === "" ? [] : itemsByPack[activePackId] ?? []
-  const isLoadingPack = activePackId !== "" && itemsByPack[activePackId] === undefined
+  const activePack = packs.find((entry) => entry.loadKey === activeKey)
+  const allItems = activeKey === "" ? [] : itemsByPack[activeKey] ?? []
+  const isLoadingPack = activeKey !== "" && itemsByPack[activeKey] === undefined
   const tagStats = useMemo(() => collectTags(allItems), [allItems])
   const visibleItems = useMemo(
     () => filterContentItems(allItems, query, selectedTags),
     [allItems, query, selectedTags],
   )
 
-  function switchPack(packId: string) {
-    setActivePackId(packId)
+  function switchPack(loadKey: string) {
+    setActiveKey(loadKey)
     // 换包时清筛选条件：上一个包的标签/关键词对下一个包几乎没有意义，
     // 留着会让用户看到"空的列表"却不知道为什么。
     setQuery("")
@@ -131,7 +139,7 @@ export function ContentPackBrowser({
     setUseError("")
   }
 
-  async function useItem(item: ContentPackItem, action: PackItemAction) {
+  async function useItem(item: ContentPackItem, action: OutputTarget) {
     setUseError("")
     try {
       await onUse(item, action)
@@ -140,12 +148,13 @@ export function ContentPackBrowser({
     }
   }
 
-  function runActionOnItem(item: ContentPackItem, action: PackItemAction) {
-    const actionId = action.actionId
-    if (!actionId) {
+  function runActionOnItem(item: ContentPackItem, action: OutputTarget) {
+    // 缺 actionId 的 run-action 是"点了没反应"的死按钮 → 明确报错而不是静默
+    if (!isRunnableTarget(action)) {
       setUseError("这条操作没有指定要执行的 action。")
       return
     }
+    const actionId = action.actionId
     // 只认同插件内的 action：跨插件调用会形成隐式依赖（设计 §4.3）
     const entry = actions?.find(
       (candidate) => candidate.pluginId === activePack?.pluginId && candidate.action.id === actionId,
@@ -173,14 +182,14 @@ export function ContentPackBrowser({
     <div className="grid gap-3 md:grid-cols-[minmax(120px,180px)_1fr]" data-content-browser="true">
       <div className="space-y-1" role="tablist" aria-label="灵感包列表">
         {packs.map((entry) => {
-          const selected = entry.pack.id === activePackId
+          const selected = entry.loadKey === activeKey
           return (
             <button
-              key={`${entry.pluginId}:${entry.pack.id}`}
+              key={entry.loadKey}
               type="button"
               role="tab"
               aria-selected={selected}
-              onClick={() => switchPack(entry.pack.id)}
+              onClick={() => switchPack(entry.loadKey)}
               title={entry.pack.description ?? entry.pack.title}
               className={cn(
                 "w-full rounded-md px-2.5 py-1.5 text-left text-xs",
@@ -293,14 +302,17 @@ export function ContentPackBrowser({
                 ) : null}
                 <div className="flex flex-wrap gap-1.5">
                   {(activePack ? resolvePackActions(activePack.pack) : []).map((action) => {
-                    const isRunAction = (action.kind as string) === "run-action"
+                    // 不可运行的 run-action（缺 actionId）也渲染出来，但点下去给一句
+                    // 可读原因：直接不渲染会让作者以为声明被吃了。
+                    const runnable = isRunnableTarget(action)
                     return (
                       <Button
-                        key={`${action.kind}-${action.label}`}
+                        key={`${action.kind}-${action.actionId ?? action.label}`}
                         type="button"
                         variant="outline"
                         size="xs"
-                        onClick={() => (isRunAction ? runActionOnItem(item, action) : void useItem(item, action))}
+                        title={runnable || action.kind !== "run-action" ? undefined : "这条操作没有指定要执行的 action"}
+                        onClick={() => (action.kind === "run-action" ? runActionOnItem(item, action) : void useItem(item, action))}
                       >
                         {action.label}
                       </Button>

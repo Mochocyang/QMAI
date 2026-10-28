@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ContentPackBrowser } from "@/components/plugins/ContentPackBrowser"
 import { defaultTargetApplier } from "@/components/plugins/ActionDialog"
+import { ConfigForm } from "@/components/plugins/ConfigForm"
 import { SlotActions } from "@/components/plugins/SlotActions"
 import { declarativePluginsApi, usePluginSlotIndex } from "@/lib/plugins/declarative/api"
 import type { ContentPackItem, OutputTarget } from "@/lib/plugins/declarative/types"
@@ -69,6 +70,34 @@ function pluginDisplayName(plugin: PluginSummary): string {
 }
 
 /**
+ * 该插件是否声明了配置项（决定要不要显示「设置」）。
+ *
+ * 判据是清单的**静态声明面** `preview.hasConfig`（设计 §8：免执行发现），
+ * 而不是"读一次配置看有没有键" —— 没配过就是空对象，那样这个入口永远不出现。
+ * 形状不认识时一律当作"没有配置"：多显示一个点了会报错的按钮，比少显示更糟。
+ */
+export function hasPluginConfig(plugin: Pick<PluginSummary, "preview">): boolean {
+  return previewField(plugin, "hasConfig") === true
+}
+
+/**
+ * 从静态声明面取 `configSchema`（设置表单的字段来源）。
+ *
+ * 与 `hasConfig` 同一处取：两者都来自清单，分别"看不看得见入口"与"里面画什么"。
+ * 缺 schema 时返回 `undefined`，由 `ConfigForm` 显示「该插件没有可配置项」。
+ */
+export function previewConfigSchema(plugin: Pick<PluginSummary, "preview">): unknown {
+  return previewField(plugin, "configSchema")
+}
+
+/** 只在 `preview` 是真对象时取字段；数组/null/字符串一律当"没有"。 */
+function previewField(plugin: Pick<PluginSummary, "preview">, key: string): unknown {
+  const preview = plugin.preview
+  if (typeof preview !== "object" || preview === null || Array.isArray(preview)) return undefined
+  return (preview as Record<string, unknown>)[key]
+}
+
+/**
  * 读取 Tauri 命令失败原因。
  *
  * Rust 命令返回的是可直接展示的中文 `String`；Tauri 也可能把它包成 Error，
@@ -107,6 +136,8 @@ export function PluginSection() {
    */
   const pluginSlots = usePluginSlotIndex()
   const [packBrowserOpen, setPackBrowserOpen] = useState(false)
+  /** 正在配置的插件（非空时打开配置对话框）。 */
+  const [configTarget, setConfigTarget] = useState<PluginSummary | null>(null)
   const centerSlot = pluginSlots.index["plugin-center"]
   const hasCenterAbilities = centerSlot.actions.length > 0 || centerSlot.packs.length > 0
 
@@ -588,6 +619,24 @@ export function PluginSection() {
                     </div>
 
                     <div className="flex shrink-0 flex-wrap gap-2">
+                      {/*
+                        「设置」只在插件声明了 configSchema 时出现。
+                        判据取清单静态声明面 `preview.hasConfig`（设计 §8：免执行发现）——
+                        不能靠"读一次 config_get 看有没有键"来猜：没配过就是空对象，
+                        那样永远显示不出这个入口。Rust 侧尚未提供时按钮不出现，
+                        是安全的降级方向。
+                      */}
+                      {hasPluginConfig(plugin) ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={actionsLocked}
+                          onClick={() => setConfigTarget(plugin)}
+                        >
+                          设置
+                        </Button>
+                      ) : null}
                       {plugin.enabled ? (
                         <Button
                           type="button"
@@ -628,6 +677,38 @@ export function PluginSection() {
           </div>
         )}
       </div>
+
+      {/* 插件配置对话框：表单本身复用 `SchemaForm`（与 action.form 同一套渲染器）。 */}
+      <Dialog
+        open={configTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfigTarget(null)
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>插件设置</DialogTitle>
+            <DialogDescription>
+              {configTarget ? `配置「${pluginDisplayName(configTarget)}」。密钥字段不会落盘保存。` : ""}
+            </DialogDescription>
+          </DialogHeader>
+
+          {configTarget ? (
+            <ConfigForm
+              pluginId={configTarget.id}
+              pluginName={pluginDisplayName(configTarget)}
+              configSchema={previewConfigSchema(configTarget)}
+              onSaved={() => setConfigTarget(null)}
+            />
+          ) : null}
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfigTarget(null)}>
+              关闭
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={enableTarget !== null}

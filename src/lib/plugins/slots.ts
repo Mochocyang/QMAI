@@ -82,6 +82,14 @@ export interface SlotPackEntry {
   pluginId: string
   pluginName: string
   pack: ContentPack
+  /**
+   * 取条目时用的宿主键，形如 `<pluginId>/<packId>`。
+   *
+   * 单独一个字段，而不是塞进 `pack.id` —— `pack.id` 是包自己在清单里声明的身份，
+   * 一旦被宿主改写成合成键，任何"按 id 反查 / 去重 / 比对声明"的逻辑都会静默错位。
+   * 而取条目这一步只认合成键，所以它必须有自己的位置。
+   */
+  loadKey: string
 }
 
 export interface SlotBucket {
@@ -132,7 +140,9 @@ function comparePackEntries(a: SlotPackEntry, b: SlotPackEntry): number {
     compareText(a.pluginName, b.pluginName) ||
     compareText(a.pack.title, b.pack.title) ||
     compareText(a.pack.id, b.pack.id) ||
-    compareText(a.pluginId, b.pluginId)
+    compareText(a.pluginId, b.pluginId) ||
+    // 最后用 loadKey 兜底：它是全局唯一的宿主键，保证排序是全序
+    compareText(a.loadKey ?? "", b.loadKey ?? "")
   )
 }
 

@@ -56,16 +56,47 @@ export interface ActionPrompt {
 export type OutputMode = "list" | "text" | "json"
 
 /**
+ * 输出/条目目标的白名单（设计 D2：**枚举**，不是路径）。
+ *
+ * `run-action` 是内容包条目专用的第五种（设计 §4.1「让 AI 扩写」）：它什么都不写，
+ * 只是**再跑同一插件内的另一个 action**。把它收进同一份白名单，而不是让前端
+ * 另开一条旁路，是因为"插件能触发什么"必须只有一处清单 —— 白名单一旦分裂，
+ * 权限审核看的就不是实际能跑的那一份。
+ */
+export type OutputTargetKind =
+  | "project-field"
+  | "insert-at-cursor"
+  | "clipboard"
+  | "chapter-note"
+  | "run-action"
+
+/**
  * 输出目标（设计 D2）：`kind` 是**枚举**，不是路径。
  *
  * 声明式插件虽然不跑代码，但它驱动宿主写项目；一旦允许任意路径，等于给了它
  * 间接的完全写权限，正好抵消 Tier 1 的安全优势。
  */
 export interface OutputTarget {
-  kind: "project-field" | "insert-at-cursor" | "clipboard" | "chapter-note"
+  kind: OutputTargetKind
   field?: string
+  /** `kind === "run-action"` 时必填：指向**同一插件内**的另一个 action */
+  actionId?: string
   label: string
   confirm?: boolean
+}
+
+/**
+ * 这个 target 是否可用于「运行另一个 action」。
+ *
+ * 只允许指向**同一插件内**的 action（调用方先按 `pluginId` 过滤再调本函数）：
+ * 跨插件链式调用会形成隐式依赖 —— 卸载其中一个就让另一个静默失效，
+ * 而宿主在安装期根本查不出来（那时两边可能都还没装齐）。
+ *
+ * 抽成类型守卫而不是各处手写 `kind === "run-action" && actionId`：缺 `actionId`
+ * 的 `run-action` 是个"点了没反应"的死按钮，这种判断漏一处就是一次线上投诉。
+ */
+export function isRunnableTarget(target: OutputTarget): target is OutputTarget & { actionId: string } {
+  return target.kind === "run-action" && typeof target.actionId === "string" && target.actionId.trim() !== ""
 }
 
 export interface ActionOutput {

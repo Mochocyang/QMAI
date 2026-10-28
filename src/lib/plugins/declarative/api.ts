@@ -29,6 +29,7 @@ import type {
   DeclarativeAction,
   OutputMode,
   OutputTarget,
+  OutputTargetKind,
 } from "./types"
 import { buildSlotIndex, type SlotIndex, type SlotActionEntry, type SlotPackEntry } from "../slots"
 
@@ -89,12 +90,21 @@ function positiveInt(value: unknown): number | undefined {
 /** 允许的输出目标（设计 D2：**枚举**，不是路径）。 */
 const OUTPUT_TARGET_KINDS = ["project-field", "insert-at-cursor", "clipboard", "chapter-note"] as const
 
+/**
+ * 内容包条目还能额外用 `run-action`（设计 §4.1「让 AI 扩写」）。
+ *
+ * 与 action 的 `output.targets` **分开**：前者是"再跑一个 action"，后者是
+ * "写点什么"。写通道的白名单多一个入口，就多一条要考虑覆盖确认的路。
+ */
+const CONTENT_ITEM_TARGET_KINDS = [...OUTPUT_TARGET_KINDS, "run-action"] as const
+
 /** 目标没写 label 时的兜底文案：按钮上不能出现空字符串。 */
-const OUTPUT_TARGET_LABELS: Record<OutputTarget["kind"], string> = {
+const OUTPUT_TARGET_LABELS: Record<OutputTargetKind, string> = {
   "project-field": "写入项目字段",
   "insert-at-cursor": "插入到光标处",
   clipboard: "复制",
   "chapter-note": "追加到章节备注",
+  "run-action": "运行动作",
 }
 
 /** 未知/缺失的 mode 一律按 `text` 处理（设计 D3 的同类原则：不因写错就整条作废）。 */
@@ -102,25 +112,41 @@ function normalizeOutputMode(value: unknown): OutputMode {
   return value === "list" || value === "json" || value === "text" ? value : "text"
 }
 
-function normalizeTargets(value: unknown): OutputTarget[] {
+/**
+ * 归一化一组 target。
+ *
+ * @param allowed 允许的 kind 白名单：action 的 `output.targets` 用写通道那份，
+ *                内容包条目的操作额外允许 `run-action`。
+ */
+function normalizeTargets(
+  value: unknown,
+  allowed: readonly OutputTargetKind[] = OUTPUT_TARGET_KINDS,
+): OutputTarget[] {
   if (!Array.isArray(value)) return []
   const targets: OutputTarget[] = []
   for (const raw of value) {
     const target = asRecord(raw)
     if (!target) continue
     const kind = target.kind
-    if (typeof kind !== "string" || !(OUTPUT_TARGET_KINDS as readonly string[]).includes(kind)) {
+    if (typeof kind !== "string" || !(allowed as readonly string[]).includes(kind)) {
       // 不认识的 kind 直接丢弃：它是写入通道的白名单，多放一个就是多一条写权限
       console.warn(`[plugins] 丢弃未知的输出目标 kind：`, kind)
       continue
     }
     const normalized: OutputTarget = {
-      kind: kind as OutputTarget["kind"],
-      label: nonEmptyString(target.label) ?? OUTPUT_TARGET_LABELS[kind as OutputTarget["kind"]],
+      kind: kind as OutputTargetKind,
+      label: nonEmptyString(target.label) ?? OUTPUT_TARGET_LABELS[kind as OutputTargetKind],
     }
     const field = nonEmptyString(target.field)
     if (field !== undefined) normalized.field = field
     if (target.confirm === true) normalized.confirm = true
+    // `actionId` 只对 `run-action` 有意义；其它 kind 带着它是写错，丢掉。
+    // 缺 actionId 的 run-action 仍然收下（label 还在），由 `isRunnableTarget`
+    // 在渲染期判定为不可运行并禁用按钮 —— 直接丢弃会让作者以为声明被吃了。
+    if (kind === "run-action") {
+      const actionId = nonEmptyString(target.actionId)
+      if (actionId !== undefined) normalized.actionId = actionId
+    }
     targets.push(normalized)
   }
   return targets
@@ -230,43 +256,9 @@ export interface ContentPackMeta {
   actions?: unknown
 }
 
-/**
- * 内容包自带的条目操作。
- *
- * `run-action` 是设计 §4.1 里的第四种操作（"让 AI 扩写"），但已定稿的
- * `OutputTarget.kind` 还没有它。这里**保留**而不是丢弃：丢一条就等于灵感库里
- * 凭空少一个按钮，用户永远不知道该能力存在。类型上宽化一层、运行时按
- * `kind === "run-action"` 分支处理，待 `types.ts` 解冻后再收窄。
- */
-export type PackItemAction = OutputTarget & { actionId?: string }
-
-const PACK_ITEM_ACTION_KINDS = [...OUTPUT_TARGET_KINDS, "run-action"] as const
-
-function normalizePackActions(value: unknown): PackItemAction[] {
-  if (!Array.isArray(value)) return []
-  const actions: PackItemAction[] = []
-  for (const raw of value) {
-    const action = asRecord(raw)
-    if (!action) continue
-    const kind = action.kind
-    if (typeof kind !== "string" || !(PACK_ITEM_ACTION_KINDS as readonly string[]).includes(kind)) {
-      console.warn("[plugins] 丢弃内容包里未知的条目操作 kind：", kind)
-      continue
-    }
-    const normalized: PackItemAction = {
-      kind: kind as OutputTarget["kind"],
-      label:
-        nonEmptyString(action.label) ??
-        (kind === "run-action" ? "让 AI 处理" : OUTPUT_TARGET_LABELS[kind as OutputTarget["kind"]]),
-    }
-    const field = nonEmptyString(action.field)
-    if (field !== undefined) normalized.field = field
-    if (action.confirm === true) normalized.confirm = true
-    const actionId = nonEmptyString(action.actionId)
-    if (actionId !== undefined) normalized.actionId = actionId
-    actions.push(normalized)
-  }
-  return actions
+/** 内容包条目的操作：写通道那四种 + `run-action`（见 `CONTENT_ITEM_TARGET_KINDS`）。 */
+function normalizePackActions(value: unknown): OutputTarget[] {
+  return normalizeTargets(value, CONTENT_ITEM_TARGET_KINDS)
 }
 
 /** wire → 插槽条目；action 本体不合法时返回 `undefined`。 */
@@ -289,19 +281,19 @@ export function toSlotActionEntry(wire: DeclarativeActionWire): SlotActionEntry 
 export function toSlotPackEntry(meta: ContentPackMeta): SlotPackEntry | undefined {
   const pluginId = nonEmptyString(meta?.pluginId) ?? "unknown"
   /*
-   * **优先用 `packId`（合成键 `<pluginId>/<packId>`）作为 `pack.id`。**
+   * `pack.id` 用**包自己声明的 id**，取条目用的宿主键放在 `loadKey`。
    *
-   * Rust 的 `plugins_content_pack_meta` 同时给 `packId`（合成键）与 `id`（包内 id），
-   * 而 `plugins_content_pack_items` 只认合成键。`ContentPackBrowser` 是拿
-   * `pack.id` 去调这个命令的，所以这里必须放合成键 —— 放包内 id 的后果是
-   * 每个包点开都报"内容包不存在"，而且看起来像后端坏了。
-   * 只有旧/简化形状（没有 packId）时才退回 `id`。
+   * 这两者必须分开：Rust 的 `plugins_content_pack_items` 只认合成键
+   * `<pluginId>/<packId>`，而 `pack.id` 是包在清单里的身份。把合成键写进
+   * `pack.id` 会让任何"按 id 反查/去重/比对包声明"的代码静默错位 ——
+   * 那是把后端的一个实现细节漏进了领域对象。
    */
-  const packId = nonEmptyString(meta?.packId) ?? nonEmptyString(meta?.id)
+  const packId = nonEmptyString(meta?.id) ?? nonEmptyString(meta?.packId)
   if (packId === undefined) {
     console.warn(`[plugins] 丢弃来源插件 ${pluginId} 的一条无 id 内容包声明`, meta)
     return undefined
   }
+  const loadKey = nonEmptyString(meta?.packId) ?? `${pluginId}/${packId}`
   const pack: ContentPack = {
     id: packId,
     title: nonEmptyString(meta?.title) ?? packId,
@@ -313,7 +305,7 @@ export function toSlotPackEntry(meta: ContentPackMeta): SlotPackEntry | undefine
   if (slot !== undefined) pack.slot = slot
   const actions = normalizePackActions(meta?.actions)
   if (actions.length > 0) pack.actions = actions
-  return { pluginId, pluginName: nonEmptyString(meta?.pluginName) ?? pluginId, pack }
+  return { pluginId, pluginName: nonEmptyString(meta?.pluginName) ?? pluginId, pack, loadKey }
 }
 
 /* ------------------------------------------------------------------ *

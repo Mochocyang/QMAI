@@ -141,10 +141,10 @@ describe("命令返回值归一化", () => {
 
     expect(entry?.pack.id).toBe("scifi")
     expect(entry?.pack.items).toEqual([])
-    expect(entry?.pack.actions?.[0]).toMatchObject({ label: "让 AI 扩写" })
+    expect(entry?.pack.actions?.[0]).toMatchObject({ kind: "run-action", actionId: "expand", label: "让 AI 扩写" })
   })
 
-  it("同时给了 packId（合成键）与 id 时，pack.id 用合成键（items 命令按它取值）", () => {
+  it("pack.id 保持包内 id，loadKey 才是合成键（取条目按 loadKey）", () => {
     const entry = toSlotPackEntry({
       pluginId: "p1",
       pluginName: "插件一",
@@ -152,6 +152,13 @@ describe("命令返回值归一化", () => {
       id: "scifi",
       title: "科幻灵感包",
     })
+    expect(entry?.pack.id).toBe("scifi")
+    expect(entry?.loadKey).toBe("p1/scifi")
+  })
+
+  it("只有 packId 时退回它当包内 id，并合成 loadKey", () => {
+    const entry = toSlotPackEntry({ pluginId: "p1", packId: "p1/scifi", title: "科幻" })
+    expect(entry?.loadKey).toBe("p1/scifi")
     expect(entry?.pack.id).toBe("p1/scifi")
   })
 })

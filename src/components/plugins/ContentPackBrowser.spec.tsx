@@ -25,11 +25,13 @@ const packs: SlotPackEntry[] = [
     pluginId: "idea-generator",
     pluginName: "灵感生成器",
     pack: { id: "scifi", title: "科幻灵感包", items: [], actions: [{ kind: "clipboard", label: "复制" }] },
+    loadKey: "idea-generator/scifi",
   },
   {
     pluginId: "idea-generator",
     pluginName: "灵感生成器",
     pack: { id: "empty", title: "空包", items: [] },
+    loadKey: "idea-generator/empty",
   },
 ]
 
@@ -49,7 +51,8 @@ afterEach(() => {
 })
 
 async function render(props: Partial<Parameters<typeof ContentPackBrowser>[0]> = {}) {
-  const loadItems = vi.fn(async (packId: string) => (packId === "empty" ? [] : items))
+  // loadItems 收到的是 loadKey（合成键），不是包内 id
+  const loadItems = vi.fn(async (loadKey: string) => (loadKey === "idea-generator/empty" ? [] : items))
   const onUse = vi.fn(async () => {})
   await act(async () => {
     root.render(<ContentPackBrowser packs={packs} loadItems={loadItems} onUse={onUse} {...props} />)
@@ -83,7 +86,7 @@ async function flush(times = 4) {
 describe("ContentPackBrowser", () => {
   it("默认展示第一个包的全部条目，并列出所有包的入口", async () => {
     const { loadItems } = await render()
-    expect(loadItems).toHaveBeenCalledWith("scifi")
+    expect(loadItems).toHaveBeenCalledWith("idea-generator/scifi")
     expect(visibleItemIds()).toEqual(["i1", "i2", "i3"])
     expect(host.textContent).toContain("科幻灵感包")
     expect(host.textContent).toContain("空包")
@@ -152,6 +155,103 @@ describe("ContentPackBrowser", () => {
     const copyButton = [...host.querySelectorAll("button")].find((node) => node.textContent === "复制")!
     await act(async () => copyButton.click())
     expect(onUse).toHaveBeenCalledWith(items[0], expect.objectContaining({ kind: "clipboard" }))
+  })
+})
+
+describe("run-action（链式调用保护）", () => {
+  const runActionPacks: SlotPackEntry[] = [
+    {
+      pluginId: "idea-generator",
+      pluginName: "灵感生成器",
+      loadKey: "idea-generator/scifi",
+      pack: {
+        id: "scifi",
+        title: "科幻灵感包",
+        items: [],
+        actions: [{ kind: "run-action", actionId: "expand", label: "让 AI 扩写" }],
+      },
+    },
+  ]
+
+  async function renderWithActions(actions: Parameters<typeof ContentPackBrowser>[0]["actions"]) {
+    await act(async () => {
+      root.render(
+        <ContentPackBrowser
+          packs={runActionPacks}
+          loadItems={async () => items}
+          onUse={async () => {}}
+          actions={actions}
+          deps={{ llm: { call: async () => ({ text: "扩写结果" }) }, getConfig: async () => ({}) }}
+          onApplyTarget={async () => {}}
+        />,
+      )
+    })
+    await flush()
+  }
+
+  it("同插件的 run-action 打开该 action 的对话框", async () => {
+    await renderWithActions([
+      {
+        pluginId: "idea-generator",
+        pluginName: "灵感生成器",
+        action: { id: "expand", title: "扩写灵感", prompt: { system: "", user: "" }, output: { mode: "text", targets: [] } },
+      },
+    ])
+
+    const runButton = [...host.querySelectorAll("button")].find((node) => node.textContent === "让 AI 扩写")!
+    await act(async () => runButton.click())
+    await flush()
+
+    expect(document.body.textContent).toContain("扩写灵感")
+  })
+
+  it("跨插件的 run-action 被拒绝并给出可读原因", async () => {
+    await renderWithActions([
+      {
+        pluginId: "other-plugin",
+        pluginName: "别的插件",
+        action: { id: "expand", title: "扩写灵感", prompt: { system: "", user: "" }, output: { mode: "text", targets: [] } },
+      },
+    ])
+
+    const runButton = [...host.querySelectorAll("button")].find((node) => node.textContent === "让 AI 扩写")!
+    await act(async () => runButton.click())
+    await flush()
+
+    expect(host.textContent).toContain("找不到动作")
+    // 跨插件时不该打开那个别的插件的对话框
+    expect(document.body.querySelector("[data-plugin-action-dialog]")).toBeNull()
+  })
+
+  it("缺 actionId 的 run-action 给出可读原因（不是静默死按钮）", async () => {
+    await act(async () => {
+      root.render(
+        <ContentPackBrowser
+          packs={[
+            {
+              pluginId: "idea-generator",
+              pluginName: "灵感生成器",
+              loadKey: "idea-generator/scifi",
+              pack: {
+                id: "scifi",
+                title: "科幻灵感包",
+                items: [],
+                actions: [{ kind: "run-action", label: "让 AI 扩写" }],
+              },
+            },
+          ]}
+          loadItems={async () => items}
+          onUse={async () => {}}
+        />,
+      )
+    })
+    await flush()
+
+    const runButton = [...host.querySelectorAll("button")].find((node) => node.textContent === "让 AI 扩写")!
+    expect(runButton.title).toContain("没有指定要执行的 action")
+    await act(async () => runButton.click())
+    await flush()
+    expect(host.textContent).toContain("没有指定要执行的 action")
   })
 })
 

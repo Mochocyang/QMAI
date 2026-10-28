@@ -42,7 +42,9 @@ function pack(overrides: Partial<ContentPack> = {}): ContentPack {
 }
 
 function packEntry(pluginId: string, pluginName: string, overrides: Partial<ContentPack> = {}): SlotPackEntry {
-  return { pluginId, pluginName, pack: pack(overrides) }
+  const entryPack = pack(overrides)
+  // loadKey 是宿主取条目用的合成键；pack.id 保持包内 id（两者刻意不同，见 slots.ts）
+  return { pluginId, pluginName, pack: entryPack, loadKey: `${pluginId}/${entryPack.id}` }
 }
 
 describe("buildSlotIndex", () => {
