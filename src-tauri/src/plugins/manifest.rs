@@ -146,6 +146,12 @@ pub struct ContentPackDecl {
     /// 条数上限（设计 D4：单包 5000 条）。缺省 5000，防止作者漏写后宿主被超大包卡住。
     #[serde(default = "default_max_items", rename = "maxItems")]
     pub max_items: usize,
+    /// 该内容包挂到哪个插槽（设计 §4.1：决定它在界面哪里出现）。
+    ///
+    /// 缺省视为 `inspiration-browser`（内容包的本职位置，回填在
+    /// `content::list_packs` 里），所以老插件不写也不受影响。
+    #[serde(default)]
+    pub slot: Option<String>,
     /// 该包的条目上可用动作：`insert-at-cursor` / `project-field` / `run-action`（设计 §4.1）。
     ///
     /// 存成裸 `Value` 而不是结构体、**不做任何内部校验**：动作的真源是前端
@@ -435,6 +441,15 @@ pub const SLOT_IDS: &[&str] = &[
     "analysis-toolbar",
     "plugin-center",
 ];
+
+/// `E_SLOT_UNKNOWN` 的 detail 里要列出的合法插槽名。
+///
+/// 与 `hook_event_names` 同一条理由：从 `SLOT_IDS` 现算，别手抄第二份清单 ——
+/// 插槽白名单是受控资源，手抄的副本迟早与它分叉，而这条 detail 正是作者修清单时
+/// 唯一会看的东西。
+fn slot_names() -> String {
+    SLOT_IDS.join(" / ")
+}
 
 /// 每个插槽当前的 API 版本（设计 D8）。插槽语义变了就 bump 这里的值，
 /// 老插件按 `requiresSlot` 里声明的版本继续渲染或提示升级。
@@ -936,6 +951,19 @@ impl PluginManifest {
                     "E_CONTENT_PACK_ID_INVALID",
                     format!("{} (duplicate)", pack.id),
                 ));
+            }
+            // 插槽同样是受控资源（设计 §4.1 / §6.1）：名字写错一个字，这个包就在界面上
+            // 静默不出现 —— 作者只会觉得「装了但没生效」。所以写了就必须在白名单内。
+            //
+            // 这里**不像 `actions[].slot` 那样放行空串**：动作的空串等于「不挂插槽」，
+            // 而内容包没有那个状态（不写就落在灵感库），空串只可能是笔误。
+            if let Some(slot) = pack.slot.as_deref() {
+                if !SLOT_IDS.contains(&slot) {
+                    return Err(ManifestError::new(
+                        "E_SLOT_UNKNOWN",
+                        format!("{slot} (合法插槽：{})", slot_names()),
+                    ));
+                }
             }
         }
 
@@ -1552,6 +1580,14 @@ mod tests {
         )
     }
 
+    /// 带 `slot` 的内容包声明 —— 设计 §4.1 的示例就是这个形状。
+    fn pack_with_slot(slot: &str) -> String {
+        format!(
+            r#"{{"id": "scifi", "title": "科幻灵感包", "file": "content/inspirations.json", "slot": {}}}"#,
+            serde_json::to_string(slot).expect("字符串可序列化")
+        )
+    }
+
     #[test]
     fn accepts_schema_3_with_content_packs_and_actions() {
         let src = v3_with_top(&format!(
@@ -1593,6 +1629,64 @@ mod tests {
         ));
         let m = PluginManifest::parse(&src).expect("省略 maxItems 必须通过");
         assert_eq!(m.contributes.content_packs[0].max_items, 5000);
+    }
+
+    /// 设计 §4.1 的内容包示例带 `"slot": "inspiration-browser"`：白名单内的插槽必须放行。
+    #[test]
+    fn accepts_content_pack_with_known_slot() {
+        let src = v3_with_contributes(&format!(
+            "{{\"contentPacks\": [{}]}}",
+            pack_with_slot("inspiration-browser")
+        ));
+        let m = PluginManifest::parse(&src).expect("内容包声明已知插槽必须通过");
+        assert_eq!(
+            m.contributes.content_packs[0].slot.as_deref(),
+            Some("inspiration-browser")
+        );
+    }
+
+    /// 插槽是受控资源：名字写错一个字，包就在界面上静默不出现 —— 必须在解析期炸。
+    #[test]
+    fn rejects_content_pack_with_unknown_slot() {
+        let src = v3_with_contributes(&format!(
+            "{{\"contentPacks\": [{}]}}",
+            pack_with_slot("inspiration-browser-v2")
+        ));
+        let err = PluginManifest::parse(&src).expect_err("未知插槽必须被拒绝");
+        assert_eq!(err.code(), "E_SLOT_UNKNOWN");
+        assert!(
+            err.detail.contains("inspiration-browser-v2"),
+            "detail 应指出插槽名：{}",
+            err.detail
+        );
+        // detail 还得列出合法值：作者改清单时唯一会看的就是这一行
+        assert!(
+            err.detail.contains("inspiration-browser"),
+            "detail 应列出合法插槽：{}",
+            err.detail
+        );
+
+        // 空串不是「不挂插槽」：内容包没有那个状态（缺省就落在灵感库），
+        // 写的空串只可能是笔误，所以按未知插槽拒掉。
+        let empty = v3_with_contributes(&format!(
+            "{{\"contentPacks\": [{}]}}",
+            pack_with_slot("")
+        ));
+        assert_eq!(
+            PluginManifest::parse(&empty).unwrap_err().code(),
+            "E_SLOT_UNKNOWN"
+        );
+    }
+
+    /// 老插件不写 `slot`：内容包的本职位置就是灵感库，缺省必须放行。
+    #[test]
+    fn content_pack_slot_is_optional() {
+        let src = v3_with_contributes(&format!(
+            "{{\"contentPacks\": [{}]}}",
+            pack_with_file("content/inspirations.json")
+        ));
+        let m = PluginManifest::parse(&src).expect("省略 slot 必须通过");
+        assert_eq!(m.contributes.content_packs[0].slot, None);
     }
 
     #[test]

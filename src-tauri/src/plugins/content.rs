@@ -72,6 +72,12 @@ pub struct ContentPackMeta {
     pub title: String,
     pub description: String,
     pub count: usize,
+    /// 生效的插槽：清单没写时填 `"inspiration-browser"`（内容包的本职位置）。
+    ///
+    /// 与清单里的 `slot: Option<String>` 不同，这里始终是字符串 —— 前端
+    /// `ContentPack.slot`（`api.ts` 的 `toSlotPackEntry`）拿它建插槽索引，
+    /// 给 `null` 只会让包静默不挂任何插槽。
+    pub slot: String,
     /// 该包的条目上可用动作（清单里 `contentPacks[].actions` 的原样 JSON，设计 §4.1）。
     ///
     /// 必须沿元信息一路送到前端：灵感库要在「用户点开某个包之前」就知道这个包的条目
@@ -463,6 +469,12 @@ pub fn list_packs(root: &Path) -> Vec<ContentPackMeta> {
                     title: decl.title.clone(),
                     description: decl.description.clone(),
                     count,
+                    // 缺省回填灵感库：设计 §4.1 里 `slot` 是可选字段，而内容包的本职
+                    // 位置就是灵感库 —— 老插件不写也必须出现在界面上。
+                    slot: decl
+                        .slot
+                        .clone()
+                        .unwrap_or_else(|| "inspiration-browser".to_string()),
                     // 清单里写了什么就送什么（不做白名单）：前端 `normalizeTargets` 会把
                     // 不认识的 kind 丢掉，宿主在这里再拦一次只会让「界面能认的新 kind」
                     // 卡在 Rust 侧的旧规则上。
@@ -519,7 +531,8 @@ mod tests {
             description: "120 条赛博 / 末世 / 星际的设定切入点".to_string(),
             file: file.to_string(),
             max_items,
-            // 这条助手造的是「只描述文件」的声明；包级动作由 `list_packs` 的用例显式给。
+            // 这条助手造的是「只描述文件」的声明；插槽与包级动作由用例显式给。
+            slot: None,
             actions: Vec::new(),
         }
     }
@@ -978,6 +991,74 @@ mod tests {
         assert_eq!(value["actions"][0]["kind"], "insert-at-cursor");
     }
 
+    /// 清单没写 `slot` 时，元信息必须回填灵感库 —— 内容包的本职位置。
+    ///
+    /// 前端 `ContentPack.slot` 是字符串（`api.ts` 的 `toSlotPackEntry` 用它建插槽索引），
+    /// 所以这里必须给默认值而不是 `null`：`null` 会让包在前端静默不挂任何插槽。
+    #[test]
+    fn list_packs_defaults_slot_to_inspiration_browser() {
+        let temp = TempDir::new("slot-default");
+        let root = temp.path();
+        let manifest = r#"{
+            "schema": 3,
+            "id": "idea-generator",
+            "name": "脑洞生成器",
+            "version": "1.0.0",
+            "kind": ["declarative"],
+            "contributes": { "contentPacks": [
+                { "id": "plain", "title": "朴素包", "file": "content/plain.json" }
+            ] }
+        }"#;
+        let plugin_dir = plugin_root(&temp, "idea-generator");
+        std::fs::write(plugin_dir.join("plugin.json"), manifest).expect("写清单");
+        write_plugin_pack(&plugin_dir, "content/plain.json", &valid_pack_json());
+
+        let mut registry = PluginRegistry::load(root).expect("空注册表可加载");
+        registry.upsert(registry_entry("idea-generator", true));
+        registry.save(root).expect("保存注册表");
+
+        let packs = list_packs(root);
+        assert_eq!(packs.len(), 1, "包应出现在索引里：{packs:?}");
+        assert_eq!(packs[0].slot, "inspiration-browser");
+
+        // 前端按 camelCase 读 `meta.slot`，且必须是字符串
+        let value = serde_json::to_value(&packs[0]).expect("meta 可序列化");
+        assert_eq!(value["slot"], "inspiration-browser");
+    }
+
+    /// 清单写了 `slot` 就原样透传（设计 §4.1 示例写的是 `inspiration-browser`，
+    /// 作者也可以把包挂到别的插槽）。
+    #[test]
+    fn list_packs_passes_declared_slot_through() {
+        let temp = TempDir::new("slot-declared");
+        let root = temp.path();
+        let manifest = r#"{
+            "schema": 3,
+            "id": "idea-generator",
+            "name": "脑洞生成器",
+            "version": "1.0.0",
+            "kind": ["declarative"],
+            "contributes": { "contentPacks": [
+                { "id": "plain", "title": "朴素包", "file": "content/plain.json",
+                  "slot": "chapter-toolbar" }
+            ] }
+        }"#;
+        let plugin_dir = plugin_root(&temp, "idea-generator");
+        std::fs::write(plugin_dir.join("plugin.json"), manifest).expect("写清单");
+        write_plugin_pack(&plugin_dir, "content/plain.json", &valid_pack_json());
+
+        let mut registry = PluginRegistry::load(root).expect("空注册表可加载");
+        registry.upsert(registry_entry("idea-generator", true));
+        registry.save(root).expect("保存注册表");
+
+        let packs = list_packs(root);
+        assert_eq!(packs.len(), 1, "包应出现在索引里：{packs:?}");
+        assert_eq!(
+            packs[0].slot, "chapter-toolbar",
+            "声明的插槽必须原样送到前端"
+        );
+    }
+
     #[test]
     fn list_packs_returns_empty_when_the_registry_is_missing() {
         let temp = TempDir::new("list-empty");
@@ -997,6 +1078,7 @@ mod tests {
             title: "科幻灵感包".to_string(),
             description: "120 条".to_string(),
             count: 120,
+            slot: "inspiration-browser".to_string(),
             actions: Vec::new(),
         };
         let value = serde_json::to_value(&meta).expect("meta 可序列化");
