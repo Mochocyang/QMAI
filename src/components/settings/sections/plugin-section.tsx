@@ -453,6 +453,28 @@ export function PluginSection() {
                         ) : null}
                       </p>
 
+                      {/*
+                        必须在这里把「工具」说清楚：工具插件不产生任何界面元素，
+                        它只在启用后进入模型的可用工具列表。少了这一句，用户装完会以为没生效。
+                      */}
+                      {plugin.toolCount > 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          提供{" "}
+                          <span className="font-medium text-foreground/80">
+                            {plugin.toolCount} 个工具
+                          </span>
+                          ：由 AI 在对话中自动调用，界面上没有单独入口；首次调用会弹确认。
+                        </p>
+                      ) : null}
+
+                      {plugin.providerIds && plugin.providerIds.length > 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          提供模型供应商：
+                          <span className="ml-1 font-mono">{plugin.providerIds.join("、")}</span>
+                          ，出现在「模型设置」里。
+                        </p>
+                      ) : null}
+
                       {plugin.grantedPermissions.length > 0 ? (
                         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                           <span>已授权权限：</span>
