@@ -54,6 +54,7 @@ import type { DedupMergeStage } from "@/lib/dedup-runner"
 import type { WikiProject } from "@/types/wiki"
 import type { DuplicateGroup } from "@/lib/dedup"
 import { MemoryCleanupTool } from "@/components/settings/sections/memory-cleanup-tool"
+import { ContextCacheMaintenance } from "@/components/settings/sections/context-cache-maintenance"
 
 function confidenceRank(confidence: DuplicateGroup["confidence"]): number {
   switch (confidence) {
@@ -673,6 +674,8 @@ export function MaintenanceSection() {
       </div>
 
       <MemoryCleanupTool />
+
+      <ContextCacheMaintenance />
 
       <div className="space-y-3 rounded-lg border border-border/60 bg-muted/20 p-4">
         <div className="flex items-center gap-2">

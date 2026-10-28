@@ -288,3 +288,43 @@ export async function deleteNovelSourceMemory(
   await deleteChapterSnapshots(projectPath, snapshotNumber)
   await cleanupDeletedSourceEntities(projectPath, [snapshotNumber])
 }
+
+/**
+ * 按快照编号直接清理记忆（维护工具「记忆体检」用）。
+ *
+ * 与 `deleteNovelSourceMemory` 的区别：那个要一个 pagePath（用户真删了文件），
+ * 这里只拿到孤儿快照编号 —— 文件早就没了，只能按编号清。
+ * 清理动作与删除文件时一致：删快照产物 → 重建派生记忆 → 清实体来源引用 → 刷新图谱缓存。
+ */
+export async function deleteOrphanMemorySnapshots(
+  projectPath: string,
+  snapshotNumbers: readonly number[],
+): Promise<number> {
+  const unique = [...new Set(snapshotNumbers)].filter((value) => Number.isInteger(value))
+  if (unique.length === 0) return 0
+
+  const { deleteChapterSnapshotArtifacts, rebuildDerivedMemoryFromSnapshots } = await import(
+    "@/lib/novel/chapter-ingest"
+  )
+
+  let removed = 0
+  await mapWithConcurrency(unique, ENTITY_CLEANUP_CONCURRENCY, async (snapshotNumber) => {
+    try {
+      const deleted = await deleteChapterSnapshotArtifacts(projectPath, snapshotNumber)
+      if (deleted) removed += 1
+    } catch (error) {
+      console.error("[delete-source-memory] 清理孤儿快照失败:", snapshotNumber, error)
+    }
+  })
+
+  try {
+    await rebuildDerivedMemoryFromSnapshots(projectPath)
+  } catch (error) {
+    console.error("[delete-source-memory] 重建派生记忆失败:", projectPath, error)
+  }
+
+  await cleanupDeletedSourceEntities(projectPath, unique)
+  clearGraphCache()
+  useWikiStore.getState().bumpDataVersion()
+  return removed
+}
