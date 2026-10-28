@@ -131,6 +131,9 @@ export function SidebarBottomActions() {
        * 左下角是头像入口（替代原来的设置齿轮，用户要求「头像功能移动到左下角」）。
        * 点它不直接弹账号信息，而是展开一个菜单：头像 + 外观设置（皮肤）+ 维护工具；
        * 菜单里点头像才去「设置 → 账号」。
+       *
+       * 尺寸要点：按钮跟着图标栏的 28px 节奏、`p-0` + `overflow-hidden`，
+       * 头像用 `.sidebar-account-avatar` 固定 24px —— 默认 30px 会被 28px 按钮裁掉一圈。
        */}
       <button
         ref={triggerRef}
@@ -141,20 +144,25 @@ export function SidebarBottomActions() {
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         data-ui="sidebar-account-avatar"
-        className={`flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-md transition-colors ${
+        className={`flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-md p-0 transition-colors ${
           menuOpen || activeView === "settings"
             ? "bg-accent/60 text-accent-foreground"
             : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
         }`}
       >
         {accountUser ? (
-          <AccountAvatar user={accountUser} baseUrl={accountSession?.baseUrl ?? null} />
+          <span className="sidebar-account-avatar">
+            <AccountAvatar user={accountUser} baseUrl={accountSession?.baseUrl ?? null} />
+          </span>
         ) : (
           <UserRound className="h-4 w-4" />
         )}
       </button>
 
-      <AnnouncementBell />
+      {/* 公告铃铛推到最右（用户要求），与图标栏其它入口同一尺寸节奏。 */}
+      <div className="ml-auto flex shrink-0 items-center">
+        <AnnouncementBell />
+      </div>
 
       {menuOpen &&
         menuStyle &&

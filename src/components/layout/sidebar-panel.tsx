@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { UiTestDirectoryHeader } from "@/components/uitest/ui-test-directory"
 import { UiTestOutlineTools } from "@/components/uitest/ui-test-outline-tools"
@@ -9,6 +9,12 @@ import { GraphSidebarPanel } from "./graph-sidebar-panel"
 import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
 import { useListFileDrop } from "@/components/novel/use-list-file-drop"
 import { SidebarBottomActions } from "@/components/layout/sidebar-bottom-actions"
+/**
+ * 头像菜单改成 portal 后会渲染到 document.body：
+ * 每点一次头像都会 setState（菜单位置），没有这层 memo 的话
+ * 四个侧栏面板会跟着重渲染 —— 知识树几千行、re-render 肉眼可见地卡。
+ */
+const MemoSidebarBottomActions = memo(SidebarBottomActions)
 
 import { useWikiStore } from "@/stores/wiki-store"
 import { useChatStore } from "@/stores/chat-store"
@@ -78,7 +84,7 @@ function SearchHistoryPanel() {
           </div>
         )}
       </div>
-      <SidebarBottomActions />
+      <MemoSidebarBottomActions />
     </div>
   )
 }
@@ -896,7 +902,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <SidebarBottomActions />
+      <MemoSidebarBottomActions />
     </div>
   )
 }

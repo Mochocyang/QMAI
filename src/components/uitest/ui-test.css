@@ -549,3 +549,21 @@ html[data-ui-test-skin] .ui-test-wizard-chips button[aria-pressed="true"] { back
   clip-path: none;
   box-shadow: none;
 }
+
+/*
+ * 侧栏底部的头像入口：按钮是 28px 的方形、p-0，而 .account-avatar 默认 30px
+ * 且 display:inline-grid，会被父级裁掉一圈（用户截图：头像下半被切平）。
+ * 这里把头像压到 24px 并显式居中，圆形完整显示。
+ */
+.ui-test-root .sidebar-account-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+.ui-test-root .sidebar-account-avatar .account-avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 0.6875rem;
+}

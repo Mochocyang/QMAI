@@ -30,8 +30,12 @@ describe("sidebar-bottom-actions", () => {
     expect(source).not.toContain("THEME_OPTIONS")
   })
 
-  it("头像与公告铃铛并排，维护工具入口在同一个面板里", () => {
-    expect(source).toContain("flex size-7 shrink-0 items-center justify-center")
+  it("头像在最左、公告铃铛靠最右，维护工具入口在同一个面板里", () => {
+    // 头像按钮：28px 方形 + p-0 + overflow-hidden；头像本体压到 24px（.sidebar-account-avatar）
+    expect(source).toContain("flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-md p-0")
+    expect(source).toContain("sidebar-account-avatar")
+    // 公告铃铛用 ml-auto 推到最右
+    expect(source).toContain('<div className="ml-auto flex shrink-0 items-center">')
     expect(source).toContain("<AnnouncementBell />")
     expect(source).toContain('data-ui="sidebar-maintenance-entry"')
     expect(source).toContain('setActiveView("maintenance")')
