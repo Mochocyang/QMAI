@@ -83,7 +83,7 @@ const BODY_MARGIN_X_KEY = "qmai-body-margin-x"
 const BODY_SAFE_BOTTOM_KEY = "qmai-body-safe-bottom"
 const SIDEBAR_NAV_CONFIG_KEY = "qmai-sidebar-nav-config"
 
-type SettingsCategoryId =
+export type SettingsCategoryId =
   | "account"
   | "model"
   | "cloudSync"

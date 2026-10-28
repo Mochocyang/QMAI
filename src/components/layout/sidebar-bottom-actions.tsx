@@ -15,12 +15,10 @@
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
-import { Check, UserRound } from "lucide-react"
+import { UserRound } from "lucide-react"
 
-import { useWikiStore } from "@/stores/wiki-store"
+import { useWikiStore, type SettingsCategoryId } from "@/stores/wiki-store"
 import { useAccountStore } from "@/stores/account-store"
-import { UI_TEST_SKINS } from "@/lib/ui-test"
-import { useAppearanceSkin } from "@/components/layout/appearance-context"
 import { AnnouncementBell } from "@/components/layout/announcement-bell"
 import { AccountAvatar } from "@/components/account/account-avatar"
 import { accountDisplayName } from "@/components/account/account-display"
@@ -34,7 +32,6 @@ export function SidebarBottomActions() {
   const setActiveView = useWikiStore((s) => s.setActiveView)
   const setActiveSettingsCategory = useWikiStore((s) => s.setActiveSettingsCategory)
   const setSearchPanelOpen = useWikiStore((s) => s.setSearchPanelOpen)
-  const appearance = useAppearanceSkin()
   const accountUser = useAccountStore((state) => state.user)
   const accountSession = useAccountStore((state) => state.session)
   const accountDisplayNameText = accountUser
@@ -50,7 +47,7 @@ export function SidebarBottomActions() {
     maxHeight: number
   } | null>(null)
 
-  const currentSkin = appearance?.skin ?? "jing"
+
 
   useEffect(() => {
     if (!menuOpen) {
@@ -102,19 +99,32 @@ export function SidebarBottomActions() {
     }
   }, [menuOpen])
 
-  const selectSkin = (skin: (typeof UI_TEST_SKINS)[number]["id"]) => {
-    appearance?.selectSkin(skin)
-    setMenuOpen(false)
-    triggerRef.current?.focus()
-  }
-
-  const openAccountSettings = () => {
+  /**
+   * 统一的「去设置」动作。
+   *
+   * 关键点：`activeSettingsCategory` 会被 SettingsView 的 effect **读走并清空**，
+   * 而那个 effect 依赖 `changeCategory`（它内部依赖 `active`）。如果目标分区恰好
+   * 就是当前分区（例如已经停在「界面」再点外观），`changeCategory` 会提前 return，
+   * 消费逻辑却照旧把请求清掉 —— 用户看到的就是「点了没反应」（用户 2026-10-28 报的）。
+   *
+   * 所以这里：同一 tick 里既下发分区、又强制刷新视图；**相同分区再点一次**时给
+   * 一个非空 → 空的二次写入，让 SettingsView 的 effect 重新跑一遍。
+   */
+  const goToSettings = (category: SettingsCategoryId) => {
     setMenuOpen(false)
     setSearchPanelOpen(false)
-    // 先定分区再切视图：SettingsView 挂载后读取并消费这个分区
-    setActiveSettingsCategory("account")
+    setActiveSettingsCategory(category)
     setActiveView("settings")
+    // 已经在该视图时，靠一次微任务重放请求，确保分区生效
+    queueMicrotask(() => {
+      const state = useWikiStore.getState()
+      if (state.activeView === "settings" && state.activeSettingsCategory === null) {
+        state.setActiveSettingsCategory(category)
+      }
+    })
   }
+
+  const openAccountSettings = () => goToSettings("account")
 
   const openMaintenance = () => {
     setMenuOpen(false)
@@ -122,18 +132,26 @@ export function SidebarBottomActions() {
     setActiveView("maintenance")
   }
 
+  /** 外观入口：不再把皮肤全部摊开，而是跳到「设置 → 界面」（那里才是完整的外观设置）。 */
+  const openAppearanceSettings = () => goToSettings("interface")
+
+  /** 通用设置入口（用户报「点头像后下面没有设置了」——这里是它回来的地方）。 */
+  const openGeneralSettings = () => {
+    setMenuOpen(false)
+    setSearchPanelOpen(false)
+    setActiveView("settings")
+  }
+
   return (
     <div
       data-ui="sidebar-bottom-actions"
-      className="flex shrink-0 items-center gap-0 border-t px-1.5 py-1.5"
+      className="flex shrink-0 items-center gap-1 border-t py-1.5 pl-3 pr-1.5"
     >
       {/*
-       * 左下角是头像入口（替代原来的设置齿轮，用户要求「头像功能移动到左下角」）。
-       * 点它不直接弹账号信息，而是展开一个菜单：头像 + 外观设置（皮肤）+ 维护工具；
-       * 菜单里点头像才去「设置 → 账号」。
+       * 左下角是账号入口：头像 + 用户名一起显示（用户要求），整块可点。
+       * 点它展开菜单（账号信息 / 外观设置 / 设置 / 维护工具），不再直接弹账号信息。
        *
-       * 尺寸要点：按钮跟着图标栏的 28px 节奏、`p-0` + `overflow-hidden`，
-       * 头像用 `.sidebar-account-avatar` 固定 24px —— 默认 30px 会被 28px 按钮裁掉一圈。
+       * 左边距 pl-3：头像原本紧贴侧栏边线，用户要求「向右再移动一部分」。
        */}
       <button
         ref={triggerRef}
@@ -144,23 +162,26 @@ export function SidebarBottomActions() {
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         data-ui="sidebar-account-avatar"
-        className={`flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-md p-0 transition-colors ${
+        className={`flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors ${
           menuOpen || activeView === "settings"
             ? "bg-accent/60 text-accent-foreground"
             : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
         }`}
       >
         {accountUser ? (
-          <span className="sidebar-account-avatar">
+          <span className="sidebar-account-avatar flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full">
             <AccountAvatar user={accountUser} baseUrl={accountSession?.baseUrl ?? null} />
           </span>
         ) : (
-          <UserRound className="h-4 w-4" />
+          <span className="sidebar-account-avatar flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full">
+            <UserRound className="h-4 w-4" />
+          </span>
         )}
+        <span className="ui-test-account-name truncate text-xs font-medium">{accountDisplayNameText}</span>
       </button>
 
       {/* 公告铃铛推到最右（用户要求），与图标栏其它入口同一尺寸节奏。 */}
-      <div className="ml-auto flex shrink-0 items-center">
+      <div className="flex shrink-0 items-center">
         <AnnouncementBell />
       </div>
 
@@ -204,30 +225,37 @@ export function SidebarBottomActions() {
               </span>
             </button>
 
-            {appearance && (
-              <>
-                <div className="ui-test-menu-title">{t("sidebarActions.appearance")}</div>
-                {UI_TEST_SKINS.map((item) => (
-                  <button
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={currentSkin === item.id}
-                    className="ui-test-menu-item"
-                    key={item.id}
-                    onClick={() => selectSkin(item.id)}
-                  >
-                    <span className={`ui-test-skin-dot ui-test-skin-dot-${item.id}`} />
-                    <span className="ui-test-skin-copy">
-                      <span>{item.name}</span>
-                      <small>{item.hint}</small>
-                    </span>
-                    {currentSkin === item.id && <Check />}
-                  </button>
-                ))}
-              </>
-            )}
+            {/*
+             * 外观不再把皮肤列表摊在菜单里（用户：「不要将外观全部展开」）：
+             * 这里只留一个入口，跳到设置里的「界面」——那里才是完整的外观设置。
+             */}
+            <button
+              type="button"
+              role="menuitem"
+              data-ui="sidebar-appearance-entry"
+              className="ui-test-menu-item"
+              onClick={openAppearanceSettings}
+            >
+              <span className="ui-test-skin-copy">
+                <span>{t("sidebarActions.appearance")}</span>
+                <small>主题皮肤与界面细节（在设置 › 界面）</small>
+              </span>
+            </button>
 
-            <div className="ui-test-menu-title">维护</div>
+            {/* 设置入口：从原左下角齿轮搬到这里，避免功能丢失。 */}
+            <button
+              type="button"
+              role="menuitem"
+              data-ui="sidebar-settings-entry"
+              className="ui-test-menu-item"
+              onClick={openGeneralSettings}
+            >
+              <span className="ui-test-skin-copy">
+                <span>{t("sidebarActions.settings")}</span>
+                <small>模型、云同步、网络等全部设置</small>
+              </span>
+            </button>
+
             <button
               type="button"
               role="menuitem"

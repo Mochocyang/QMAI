@@ -146,3 +146,30 @@ describe("左下角头像入口", () => {
     expect(menu()!.textContent).toContain("点击登录账号")
   })
 })
+
+describe("账号菜单里的设置类入口", () => {
+  it("点「设置」→ 打开设置视图（该功能曾丢失）", () => {
+    render()
+    act(() => trigger().click())
+    const entry = menu()!.querySelector<HTMLButtonElement>('[data-ui="sidebar-settings-entry"]')!
+    act(() => entry.click())
+    expect(mocks.setActiveView).toHaveBeenCalledWith("settings")
+    expect(menu()).toBeNull()
+  })
+
+  it("点「外观」→ 设置 › 界面（不再在菜单里展开皮肤列表）", () => {
+    render()
+    act(() => trigger().click())
+    // 菜单里不再有皮肤选项
+    expect(menu()!.querySelectorAll('[role="menuitemradio"]').length).toBe(0)
+    const entry = menu()!.querySelector<HTMLButtonElement>('[data-ui="sidebar-appearance-entry"]')!
+    act(() => entry.click())
+    expect(mocks.setActiveSettingsCategory).toHaveBeenCalledWith("interface")
+    expect(mocks.setActiveView).toHaveBeenCalledWith("settings")
+  })
+
+  it("底栏入口同时显示用户名", () => {
+    render()
+    expect(host.textContent).toContain("青幕作者")
+  })
+})

@@ -121,18 +121,19 @@ describe("icon-sidebar", () => {
   })
 
   /*
-   * 底栏现在是头像入口（替代原来的设置齿轮），点它展开「头像 + 外观设置 + 维护工具」。
-   * 纯图标按钮靠 aria-label 辨识，这条钉住它仍然可读。
+   * 底栏现在是账号入口：头像 + 用户名一起显示，点它展开
+   * 「账号 / 外观 / 设置 / 维护工具」。这条钉住入口仍可读、四类入口都在。
    */
-  it("底栏头像入口有可访问名称，公告铃铛与外观/维护菜单都在里面", () => {
+  it("底栏账号入口显示头像与用户名，菜单里有账号/外观/设置/维护", () => {
     const bottomActions = readFileSync(resolve(__dirname, "sidebar-bottom-actions.tsx"), "utf8")
     expect(bottomActions).toContain('data-ui="sidebar-account-avatar"')
     expect(bottomActions).toContain('aria-label="账号与外观"')
     expect(bottomActions).toContain("<AccountAvatar")
+    expect(bottomActions).toContain("ui-test-account-name")
     expect(bottomActions).toContain("<AnnouncementBell />")
-    // 外观设置（皮肤）与维护工具都在头像菜单里
-    expect(bottomActions).toContain("UI_TEST_SKINS.map")
+    expect(bottomActions).toContain('data-ui="sidebar-avatar-account-entry"')
+    expect(bottomActions).toContain('data-ui="sidebar-appearance-entry"')
+    expect(bottomActions).toContain('data-ui="sidebar-settings-entry"')
     expect(bottomActions).toContain('data-ui="sidebar-maintenance-entry"')
-    expect(bottomActions).toContain('setActiveSettingsCategory("account")')
   })
 })
