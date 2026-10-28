@@ -15,6 +15,7 @@ import { getHttpFetch } from "@/lib/tauri-fetch"
 import {
   ACCOUNT_ERROR_MESSAGES,
   AccountApiError,
+  isAccountApiError,
 } from "./errors"
 import type {
   AccountAuthPayload,
@@ -30,13 +31,23 @@ import type {
 } from "./types"
 import { normalizeEmail } from "./validation"
 
-export const DEFAULT_ACCOUNT_BASE_URL = "https://qmai-account.qmai.workers.dev"
+/**
+ * 账号服务默认地址：用自有域名，不用 `*.workers.dev`。
+ *
+ * 实测：`qmai-account.qmai.workers.dev` 在国内容易被 DNS 污染（解析到无关 IP、
+ * 直连超时），而 `account.qmai.pro` 直连 1 秒内可用。workers.dev 入口仍然保留，
+ * 只作为境外网络的兜底，不再作为默认值。
+ */
+export const DEFAULT_ACCOUNT_BASE_URL = "https://account.qmai.pro"
+
+/** 老默认域名：仅用于把历史会话迁移到新域名（同一个 Worker，令牌继续有效）。 */
+export const LEGACY_ACCOUNT_BASE_URL = "https://qmai-account.qmai.workers.dev"
 
 /** 单次账号请求（含读响应体）的上限；超时统一映射为 NETWORK。 */
 export const ACCOUNT_REQUEST_TIMEOUT_MS = 20_000
 
 type FetchImpl = typeof fetch
-type HttpMethod = "GET" | "POST" | "DELETE"
+type HttpMethod = "GET" | "POST" | "PUT" | "DELETE"
 
 /**
  * 默认请求函数。本身不发起网络请求，只把参数转交给 Tauri 提供的 fetch，
@@ -208,6 +219,8 @@ interface AccountRequestOptions {
   fetchImpl: FetchImpl
   /** void 接口（logout/reset）允许 204 或空响应体。 */
   acceptEmptySuccess?: boolean
+  /** 额外请求头（目前只用于 `If-None-Match` 条件拉取）。 */
+  extraHeaders?: Record<string, string>
 }
 
 interface AccountResponse {
@@ -222,6 +235,7 @@ async function requestAccount(
   const headers: Record<string, string> = { Accept: "application/json" }
   if (options.body) headers["Content-Type"] = "application/json"
   if (options.accessToken) headers.Authorization = `Bearer ${options.accessToken}`
+  if (options.extraHeaders) Object.assign(headers, options.extraHeaders)
 
   const controller = new AbortController()
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -549,4 +563,119 @@ export function accountAvatarUrl(
   if (avatarUpdatedAt === null) return null
   if (!Number.isInteger(userId) || userId <= 0) return null
   return `${normalizeAccountBaseUrl(baseUrl)}/v1/account/avatar/${userId}?v=${avatarUpdatedAt}`
+}
+
+// ---------------------------------------------------------------- 模型配置同步
+
+/** 云端保存的加密配置（服务端只能看到密文与版本号）。 */
+export interface CloudModelConfig {
+  payload: string
+  version: number
+  updatedAt: number
+  deviceLabel: string
+}
+
+export type ModelConfigFetchResult =
+  | { kind: "config"; record: CloudModelConfig }
+  /** 云端还没有保存过（404）。 */
+  | { kind: "none" }
+  /** `If-None-Match` 命中，内容没变（304）。 */
+  | { kind: "unchanged" }
+
+/**
+ * 拉取云端加密配置。
+ *
+ * 304 与 404 在这里被翻译成显式结果：调用方不需要认识 HTTP 细节，
+ * 也不该把「没配置」和「没变化」混成同一个 null。
+ */
+export async function fetchModelConfig(
+  baseUrl: string,
+  accessToken: string,
+  options: { ifNoneMatch?: string } = {},
+  fetchImpl: FetchImpl = lazyAccountFetch,
+): Promise<ModelConfigFetchResult> {
+  try {
+    const { data } = await requestAccount(baseUrl, {
+      method: "GET",
+      path: "/v1/model-config",
+      accessToken,
+      unauthorizedCode: "TOKEN_EXPIRED",
+      fetchImpl,
+      extraHeaders: options.ifNoneMatch ? { "If-None-Match": options.ifNoneMatch } : undefined,
+    })
+
+    const record = asRecord(data)
+    if (!record) throw invalidStructure(200)
+    const payload = record.payload
+    const version = record.version
+    const updatedAt = record.updatedAt
+    if (typeof payload !== "string" || payload.length === 0) throw invalidStructure(200)
+    if (typeof version !== "number" || !Number.isInteger(version) || version < 1) throw invalidStructure(200)
+    if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) throw invalidStructure(200)
+
+    return {
+      kind: "config",
+      record: {
+        payload,
+        version,
+        updatedAt,
+        deviceLabel: typeof record.deviceLabel === "string" ? record.deviceLabel : "",
+      },
+    }
+  } catch (error) {
+    if (isAccountApiError(error)) {
+      if (error.status === 404) return { kind: "none" }
+      if (error.status === 304) return { kind: "unchanged" }
+    }
+    throw error
+  }
+}
+
+/**
+ * 覆盖写入云端配置。
+ *
+ * `baseVersion` 是乐观锁：与服务端当前版本不一致会抛 `CONFLICT`，
+ * 此时应拉取最新版本让用户决定，而不是重试覆盖。
+ */
+export async function putModelConfig(
+  baseUrl: string,
+  accessToken: string,
+  input: { payload: string; baseVersion: number | null; deviceLabel?: string },
+  fetchImpl: FetchImpl = lazyAccountFetch,
+): Promise<{ version: number; updatedAt: number }> {
+  const { data } = await requestAccount(baseUrl, {
+    method: "PUT",
+    path: "/v1/model-config",
+    accessToken,
+    unauthorizedCode: "TOKEN_EXPIRED",
+    fetchImpl,
+    body: {
+      payload: input.payload,
+      baseVersion: input.baseVersion,
+      ...(input.deviceLabel ? { deviceLabel: input.deviceLabel } : {}),
+    },
+  })
+
+  const record = asRecord(data)
+  if (!record) throw invalidStructure(200)
+  const version = record.version
+  const updatedAt = record.updatedAt
+  if (typeof version !== "number" || !Number.isInteger(version) || version < 1) throw invalidStructure(200)
+  if (typeof updatedAt !== "number" || !Number.isFinite(updatedAt)) throw invalidStructure(200)
+  return { version, updatedAt }
+}
+
+/** 清空云端配置（用户显式操作才调用）。 */
+export async function deleteModelConfig(
+  baseUrl: string,
+  accessToken: string,
+  fetchImpl: FetchImpl = lazyAccountFetch,
+): Promise<void> {
+  await requestAccount(baseUrl, {
+    method: "DELETE",
+    path: "/v1/model-config",
+    accessToken,
+    unauthorizedCode: "TOKEN_EXPIRED",
+    fetchImpl,
+  })
 }

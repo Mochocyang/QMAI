@@ -616,10 +616,8 @@ fn build_remote<R: Runtime>(app: &AppHandle<R>, target: &CloudTarget) -> Result<
                 return Err("github.no-repo".to_string());
             };
             // 凭据在、配置没了目标字段：要求重新连接，别拿空 token 去撞 401。
-            let stored = cloud_sync_dir(app)
-                .ok()
-                .and_then(|dir| credentials::load_github(&dir));
-            let Some(stored) = stored else {
+            // 走 current_github_token：它会先处理「快过期就续期」。
+            let Some(stored) = current_github_token(app) else {
                 return Err("github.auth".to_string());
             };
             Ok(Box::new(GithubStore::new(
@@ -782,8 +780,44 @@ pub fn cloud_sync_stop<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 // ---------------------------------------------------------------- GitHub
 
 /// 取当前 GitHub token（未授权返回 `None`，绝不 panic）。
+///
+/// 会顺手处理「token 快过期」：GitHub 的 OAuth App 可以发 8 小时有效的
+/// access token，过期后每次请求都是 401（界面显示「登录已失效」）。这里在
+/// 到期前 5 分钟内用 refresh token 续一次并落盘；续期也失败（真被撤销）才
+/// 返回 `None`，让上层提示重新登录。
 fn current_github_token<R: Runtime>(app: &AppHandle<R>) -> Option<github::GithubToken> {
-    cloud_sync_dir(app).ok().and_then(|dir| credentials::load_github(&dir))
+    let dir = cloud_sync_dir(app).ok()?;
+    let stored = credentials::load_github(&dir)?;
+    if !stored.is_expiring(github::now_ms()) {
+        return Some(stored);
+    }
+    if !stored.can_refresh() {
+        // 过期且没有 refresh token：这是老版本存下来的短期凭据，只能重新登录。
+        log::warn!("[cloud-sync] GitHub token 已过期且没有 refresh token，需要重新登录");
+        return None;
+    }
+    let Some(oauth) = github::app_from_env() else {
+        return None;
+    };
+    match github::refresh_user_token(
+        &oauth,
+        stored.refresh_token.as_deref().unwrap_or_default(),
+    ) {
+        Ok(mut refreshed) => {
+            if refreshed.login.is_empty() {
+                refreshed.login = stored.login;
+            }
+            if let Err(error) = credentials::save_github(&dir, &refreshed) {
+                log::warn!("[cloud-sync] GitHub token 续期后保存失败：{error}");
+            }
+            log::warn!("[cloud-sync] GitHub token 已自动续期");
+            Some(refreshed)
+        }
+        Err(error) => {
+            log::warn!("[cloud-sync] GitHub token 续期失败：{error}");
+            None
+        }
+    }
 }
 
 fn github_repo_json(repo: &github::GithubRepo) -> Value {

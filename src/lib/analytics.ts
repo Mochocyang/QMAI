@@ -18,8 +18,10 @@
 import { getStore } from "@/lib/web-store"
 import { isTauri } from "@/lib/platform"
 
-// ⚠️ 部署 Worker 后，将此 URL 替换为你的实际 Worker 地址
-const ANALYTICS_URL = "https://qmai-analytics.qmai.workers.dev"
+// 上报入口用自有域名：`*.workers.dev` 在国内会被 DNS 污染（实测解析到无关 IP、
+// 直连必超时），换到 analytics.qmai.pro 后国内可直连。老域名仍然在 Worker 上保留，
+// 只是不再作为客户端的默认地址。
+const ANALYTICS_URL = "https://analytics.qmai.pro"
 
 const DEVICE_UUID_KEY = "analytics_device_uuid"
 const HEARTBEAT_INTERVAL_MS = 5 * 60_000

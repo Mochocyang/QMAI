@@ -24,6 +24,7 @@ export const ACCOUNT_ERROR_MESSAGES: Record<AccountErrorCode, string> = {
   UNSUPPORTED_MEDIA_TYPE: "仅支持 PNG、JPEG 或 WebP 图片。",
   SERVER_ERROR: "账号服务暂时不可用，请稍后再试。",
   NOT_FOUND: "接口不存在。",
+  CONFLICT: "云端配置已被其它设备更新，请先拉取最新版本。",
   NETWORK: "网络不可用，请检查连接后重试。",
 }
 

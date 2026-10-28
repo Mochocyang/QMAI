@@ -234,3 +234,74 @@ pub async fn updater_check<R: Runtime>(app: tauri::AppHandle<R>) -> Result<AppUp
 pub fn proxy_url_from_store_public() -> Option<String> {
     proxy_url_from_store()
 }
+
+// ---------------------------------------------------------------- 安装（我们自己的下载器 → 插件安装）
+
+/// 按 tauri-plugin-updater 的同一套 minisign 规则校验更新包。
+///
+/// 为什么必须自己校验：插件的签名校验发生在它自己的 `download()` 里，而我们为了
+/// 提速用多源分段下载把包下到了本地，绕过了那一步。插件的 `Update::install(bytes)`
+/// 只负责解包并启动安装器，**不再校验**，所以进安装器之前必须先在这里验一遍，
+/// 否则等于允许任意镜像塞给我们一个随便什么 exe。
+fn verify_update_signature(data: &[u8], signature: &str, pubkey: &str) -> Result<(), String> {
+    fn base64_to_string(value: &str) -> Result<String, String> {
+        use base64::Engine;
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(value)
+            .map_err(|error| format!("签名编码无效：{error}"))?;
+        String::from_utf8(decoded).map_err(|_| "签名内容不是合法的 UTF-8".to_string())
+    }
+
+    let public_key_text = base64_to_string(pubkey)?;
+    let public_key = minisign_verify::PublicKey::decode(&public_key_text)
+        .map_err(|error| format!("更新公钥无效：{error}"))?;
+    let signature_text = base64_to_string(signature)?;
+    let parsed_signature = minisign_verify::Signature::decode(&signature_text)
+        .map_err(|error| format!("更新签名无效：{error}"))?;
+    public_key
+        .verify(data, &parsed_signature, true)
+        .map_err(|error| format!("更新包签名校验失败：{error}"))
+}
+
+/// 安装我们自己下载好的更新包：先验签，再交给插件启动安装器。
+///
+/// 前端点「安装」时走这里，而不是 `update.install()` —— 后者的字节只可能来自
+/// 插件自己的 `download()`，我们没走那条路就会报
+/// `Update.install called before Update.download`。
+#[tauri::command]
+pub async fn updater_install_package<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    path: String,
+) -> Result<(), String> {
+    let bytes = std::fs::read(&path).map_err(|error| format!("读取更新包失败：{error}"))?;
+    if bytes.is_empty() {
+        return Err("更新包内容为空，请重新下载。".to_string());
+    }
+
+    let pubkey = app
+        .config()
+        .plugins
+        .0
+        .get("updater")
+        .and_then(|value| value.get("pubkey"))
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| "缺少更新公钥配置，无法校验更新包。".to_string())?;
+
+    let updater = app
+        .updater()
+        .map_err(|error| format!("更新器不可用：{error}"))?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|error| format!("获取更新信息失败：{error}"))?
+        .ok_or_else(|| "没有可安装的更新，请重新检查更新。".to_string())?;
+
+    verify_update_signature(&bytes, &update.signature, &pubkey)?;
+
+    // 校验通过才交给插件的安装实现（解包 + 启动安装器；Windows 下随后退出本进程）
+    update
+        .install(&bytes)
+        .map_err(|error| format!("启动安装器失败：{error}"))?;
+    Ok(())
+}

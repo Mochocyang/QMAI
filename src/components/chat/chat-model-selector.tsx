@@ -186,6 +186,23 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [open])
 
+  /**
+   * 打开时把当前选中的模型滚到视野里（尽量居中）。
+   *
+   * 以前每次都从第一个模型开始显示，模型多的时候用户得自己往下翻才能找到
+   * 正在用的那个。等 dropdownStyle 就位后再算：此时容器高度已确定。
+   */
+  useEffect(() => {
+    if (!open || !dropdownStyle) return
+    const container = dropdownRef.current
+    if (!container) return
+    const selected = container.querySelector<HTMLElement>('[data-selected="true"]')
+    if (!selected) return
+    const target = selected.offsetTop - (container.clientHeight - selected.offsetHeight) / 2
+    const max = Math.max(0, container.scrollHeight - container.clientHeight)
+    container.scrollTop = Math.min(Math.max(0, target), max)
+  }, [open, dropdownStyle, value])
+
   if (modelGroups.length === 0) {
     return null
   }
@@ -213,9 +230,10 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
             style={{ zIndex: 9998 }}
             onClick={() => setOpen(false)}
           />
+          {/* 顶部不留 padding：吸顶标题要贴到滚动区最上沿，否则上一行会从那条缝里透出来（实测见 preview/sticky-ab.html） */}
           <div
             ref={dropdownRef}
-            className="fixed rounded-md border bg-popover p-0.5 shadow-lg model-selector-dropdown"
+            className="fixed rounded-md border bg-popover px-0.5 pb-0.5 pt-0 shadow-lg model-selector-dropdown"
             style={{
               right: dropdownStyle.right,
               top: dropdownStyle.top,
@@ -226,38 +244,50 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
               zIndex: 9999,
             }}
           >
-            {modelGroups.map((group, groupIdx) => (
+            {modelGroups.map((group) => (
               <div key={group.id}>
-                {groupIdx > 0 && <div className="h-px bg-border" />}
-                <div className="px-3 py-0.5 text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                {/* 分组标题吸顶：滚动时压在最上面，下一组标题上来会把它顶走 */}
+                <div className="sticky top-0 z-10 rounded-t-md bg-popover px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-wider text-muted-foreground">
                   {group.label}
                 </div>
                 {group.models.map((model) => {
                   const modelKey = `${group.id}/${model.model}`
                   const { title, showModelId } = resolveModelItemLabel(model)
+                  const selected = value === modelKey
                   return (
                   <button
                     key={model.id}
                     type="button"
+                    data-selected={selected ? "true" : undefined}
                     onClick={() => {
                       onChange(modelKey)
                       setOpen(false)
                     }}
-                    className="flex w-full items-center gap-1 rounded-sm px-3 py-0.5 text-left hover:bg-accent"
+                    className={`relative flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-accent ${
+                      selected ? "bg-accent" : ""
+                    }`}
                   >
-                    <Check
-                      className={`h-3.5 w-3.5 shrink-0 ${
-                        value === modelKey ? "opacity-100" : "opacity-0"
+                    {/* 选中用左侧竖条表示，比整行高亮更轻 */}
+                    <span
+                      aria-hidden="true"
+                      className={`absolute left-1 top-1/2 w-1 -translate-y-1/2 rounded-full bg-primary transition-[height] ${
+                        selected ? "h-5" : "h-0"
                       }`}
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs leading-4">{title}</div>
+                      <div className="truncate text-sm leading-5">{title}</div>
                       {showModelId && (
-                        <code className="block truncate text-[0.6875rem] leading-4 text-muted-foreground">
+                        <code className="block truncate text-xs leading-4 text-muted-foreground">
                           {model.model}
                         </code>
                       )}
                     </div>
+                    {/* 勾选放右侧：左侧要留给模型名，不留图标占位，列表看起来才是齐的 */}
+                    <Check
+                      className={`h-3.5 w-3.5 shrink-0 ${
+                        selected ? "opacity-100" : "opacity-0"
+                      }`}
+                    />
                   </button>
                   )
                 })}

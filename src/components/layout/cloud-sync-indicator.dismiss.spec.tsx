@@ -122,3 +122,47 @@ describe("同步失败下拉的关闭行为", () => {
     expect(host.querySelector('[data-ui="cloud-sync-failure-list"]')).toBeNull()
   })
 })
+
+describe("同步失败下拉里的「清空」", () => {
+  let host: HTMLDivElement
+  let root: Root
+
+  function mount() {
+    act(() => {
+      root.render(<CloudSyncIndicator />)
+    })
+  }
+
+  beforeEach(() => {
+    host = document.createElement("div")
+    document.body.appendChild(host)
+    root = createRoot(host)
+    useCloudSyncStore.setState({
+      config: { ...DEFAULT_CLOUD_SYNC_CONFIG, enabled: true, provider: "github", connected: true },
+      runtime: { running: false, failureCount: 1 },
+      batches: [failedBatch("github")],
+      entries: [failedEntry("b-github")],
+      notice: null,
+    })
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    host.remove()
+    vi.clearAllMocks()
+  })
+
+  it("需要二次确认，确认后记录清空且下拉关闭", async () => {
+    mount()
+    act(() => host.querySelector<HTMLButtonElement>(".ui-test-cloud-entry")!.click())
+    const clear = host.querySelector<HTMLButtonElement>('[data-ui="cloud-sync-clear"]')!
+    expect(clear).toBeTruthy()
+    act(() => clear.click())
+    const confirm = host.querySelector<HTMLButtonElement>('[data-ui="cloud-sync-clear-confirm"]')!
+    expect(confirm).toBeTruthy()
+    await act(async () => confirm.click())
+    expect(useCloudSyncStore.getState().entries).toEqual([])
+    expect(useCloudSyncStore.getState().batches).toEqual([])
+    expect(host.querySelector('[data-ui="cloud-sync-failure-list"]')).toBeNull()
+  })
+})

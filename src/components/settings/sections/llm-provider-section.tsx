@@ -1,4 +1,5 @@
 import { confirmModelAction } from "@/components/uitest/models/model-confirm"
+import { ModelSyncPanel } from "./model-sync-panel"
 import { ModelSecretInput } from "@/components/uitest/models/model-secret-input"
 import { useUiTestProviderBatch } from "@/components/uitest/models/provider-batch"
 import { isProviderAvailable } from "@/lib/llm-model-keys"
@@ -102,11 +103,15 @@ export function LlmProviderSection() {
         <div className="model-library-heading"><h3>我的模型设置</h3><span>{configured.length} 个配置</span></div>
         {/* 三栏入口：账号 / 提供方 / 自定义模型。顺序即产品叙事 ——
             先「用自己的账号登录」（零 Key、零安装），再「填别人的 Key」，最后「完全自定义」。 */}
+        {/* 入口区：只保留「添加提供方 / 添加自定义模型」。
+            「添加账号」（WorkBuddy 账号登录）按需求隐藏入口，账号弹窗仍挂载保留，
+            登录态与已有 WorkBuddy 卡片不受影响。 */}
         <div className="model-add-row">
-          <button type="button" className="model-add-card" data-guide="model.add-account" onClick={() => setAccountDialogOpen(true)}>＋ 添加账号</button>
           <button type="button" className="model-add-card" data-guide="model.add-provider" onClick={() => setUiTestSource(uiTestSource === "presets" ? "library" : "presets")}>＋ 添加提供方</button>
           <button type="button" className="model-add-card" data-guide="model.add-custom" onClick={() => { const id = `custom-${crypto.randomUUID()}`; setCustomDraftIds((ids) => [...ids, id]); setExpanded({ [id]: true }); setUiTestSource("library") }}>＋ 添加自定义模型</button>
         </div>
+        {/* 账号同步：把模型配置（含 API Key）用同步密码加密后存到账号云端，换设备可恢复。 */}
+        <div className="my-4"><ModelSyncPanel /></div>
         <div className="model-library-list">
           {configured.map((id) => {
             const config = providerConfigs[id] ?? {}

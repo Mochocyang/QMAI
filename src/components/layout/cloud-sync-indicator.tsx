@@ -66,14 +66,19 @@ function SyncFailureList({
   labelForBatch,
   onDismiss,
   onOpenDetail,
+  onClear,
 }: {
   entries: SyncEntry[]
   /** 批次 id → 网盘名。失败要说是哪个盘失败了，否则用户不知道去哪处理。 */
   labelForBatch: (batchId: string) => string
   onDismiss: () => void
   onOpenDetail: () => void
+  /** 清空全部同步记录（成功与失败都清），不可撤销。 */
+  onClear: () => void
 }) {
   const shown = entries.slice(-8).reverse()
+  // 「清空」是不可撤销的（直接删历史文件），所以先点一次变成「确认清空？」，再点才执行。
+  const [clearArmed, setClearArmed] = useState(false)
   return (
     <div
       className="ui-test-header-hint is-right ui-test-cloud-failures"
@@ -101,6 +106,28 @@ function SyncFailureList({
         <p className="ui-test-cloud-failures-more">还有 {entries.length - shown.length} 项，在详情里看全部</p>
       ) : null}
       <div className="ui-test-header-hint-actions">
+        {clearArmed ? (
+          <button
+            type="button"
+            className="ui-test-header-hint-dismiss is-destructive"
+            data-ui="cloud-sync-clear-confirm"
+            onClick={() => {
+              setClearArmed(false)
+              onClear()
+            }}
+          >
+            确认清空？
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="ui-test-header-hint-dismiss is-destructive"
+            data-ui="cloud-sync-clear"
+            onClick={() => setClearArmed(true)}
+          >
+            清空
+          </button>
+        )}
         <button type="button" className="ui-test-header-hint-dismiss" onClick={onOpenDetail}>
           查看全部
         </button>
@@ -118,6 +145,7 @@ export function CloudSyncIndicator() {
   const notice = useCloudSyncStore((state) => state.notice)
   const openDetail = useCloudSyncStore((state) => state.openDetail)
   const markSeen = useCloudSyncStore((state) => state.markFailuresSeen)
+  const clearHistory = useCloudSyncStore((state) => state.clearHistory)
   const beginLogin = useCloudSyncStore((state) => state.beginLogin)
   const entries = useCloudSyncStore((state) => state.entries)
   const batches = useCloudSyncStore((state) => state.batches)
@@ -232,6 +260,12 @@ export function CloudSyncIndicator() {
             markSeen()
             setFailuresOpen(false)
             openDetail()
+          }}
+          onClear={() => {
+            // 「清空」= 把同步记录（成功与失败）整份删掉：列表、红点、设置页那行红字一起消失。
+            markSeen()
+            setFailuresOpen(false)
+            void clearHistory()
           }}
         />
       ) : null}

@@ -70,6 +70,9 @@ toml = "0.9"
 image = { version = "0.25", default-features = false, features = ["png"] }
 base64 = "0.22"
 sha2 = "0.10"
+# 自己下载的更新包要在进安装器之前验签。tauri-plugin-updater 的校验函数是私有的，
+# 但它用的就是 minisign，这里显式声明同一套规则（版本与其依赖保持一致）。
+minisign-verify = "0.2"
 # 百度 OAuth 的 token 交换/接口调用（已有传递依赖，显式声明后可直接用）
 # `stream`：WorkBuddy 网关要把上游 SSE 逐块透传给前端（不整体缓冲）。
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }

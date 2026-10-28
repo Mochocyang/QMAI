@@ -42,11 +42,34 @@ describe("resolveModelItemLabel", () => {
 })
 
 describe("chat model dropdown density", () => {
-  it("下拉项改成紧凑字号与更小的行距", () => {
-    expect(source).toContain('className="truncate text-xs leading-4"')
-    expect(source).toContain("text-[0.6875rem] leading-4")
-    expect(source).toContain("items-center gap-1 rounded-sm px-3 py-0.5 text-left")
+  it("下拉项用 14px 字号与舒展行距（C2）", () => {
+    expect(source).toContain('className="truncate text-sm leading-5"')
+    expect(source).toContain("text-xs leading-4 text-muted-foreground")
+    expect(source).toContain("items-center gap-2 rounded-md px-3 py-2.5 text-left")
     expect(source).not.toContain("items-start gap-2 rounded-sm px-3 py-1.5")
+  })
+
+  it("分组标题吸顶、加粗，且按需求没有搜索框与分隔线", () => {
+    expect(source).toContain("sticky top-0 z-10 rounded-t-md bg-popover")
+    // 吸顶标题用 font-bold（按用户在 A/B/C 字重对比里选的 C）。
+    expect(source).toContain("text-[0.625rem] font-bold uppercase tracking-wider")
+    // 吸顶标题要贴到滚动区最上沿：容器顶部不能留 padding，否则上一行会透出来。
+    expect(source).toContain("px-0.5 pb-0.5 pt-0")
+    expect(source).not.toContain('t("chat.searchModel")')
+    expect(source).not.toContain("<input")
+    expect(source).not.toContain("filterModelGroups")
+    expect(source).not.toContain("h-px bg-border")
+  })
+
+  it("选中项用左侧竖条而不是只靠底色", () => {
+    expect(source).toContain("absolute left-1 top-1/2 w-1 -translate-y-1/2 rounded-full bg-primary")
+  })
+
+  it("打开下拉时自动滚到当前选中的模型", () => {
+    // 打标记：只有选中项带 data-selected="true"，滚动逻辑靠它定位
+    expect(source).toContain('data-selected={selected ? "true" : undefined}')
+    expect(source).toContain('[data-selected="true"]')
+    expect(source).toContain("container.scrollTop")
   })
 })
 

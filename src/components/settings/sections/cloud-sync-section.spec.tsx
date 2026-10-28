@@ -494,3 +494,15 @@ describe("CloudSyncSection", () => {
     expect(clientMocks.setCloudSyncConfig).toHaveBeenCalledWith({ includeSnapshots: false })
   })
 })
+
+describe("同步失败提示可以关掉", () => {
+  const source = readFileSync(resolve(__dirname, "cloud-sync-section.tsx"), "utf8")
+
+  it("提示右边有「知道了」，关掉后记住被关掉的那一句", () => {
+    // 失败摘要是从历史记录算出来的，会一直挂着；必须给一个关闭入口。
+    expect(source).toContain('data-ui="cloud-sync-failure-line"')
+    expect(source).toContain("FAILURE_LINE_DISMISS_KEY")
+    expect(source).toContain("dismissedFailureLine")
+    expect(source).toContain("知道了")
+  })
+})

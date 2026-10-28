@@ -1,4 +1,5 @@
 import { getStore } from "@/lib/web-store"
+import { loadModelConfigsEncrypted, saveModelConfigsEncrypted } from "@/lib/local-secret"
 import { IS_UI_TEST_BUILD } from "@/lib/ui-test"
 import type { WikiProject } from "@/types/wiki"
 import type { LlmConfig, SearchApiConfig, EmbeddingConfig, MultimodalConfig, OutputLanguage, ProviderConfigs, ProxyConfig, SourceWatchConfig, NovelConfig, RerankConfig } from "@/stores/wiki-store"
@@ -354,14 +355,47 @@ export async function loadDefaultLlmModel(): Promise<string | null> {
   return (await store.get<string>(DEFAULT_LLM_MODEL_KEY)) ?? null
 }
 
+/**
+ * 保存 provider 配置（含 API Key）。
+ *
+ * 优先写**系统加密副本**：明文版（app-state.json 里的 providerConfigs）在加密写入
+ * 成功之后才删除，避免「先删后写」导致配置丢失。加密不可用时（浏览器预览、单测）
+ * 回退到原来的明文存储，行为与之前一致。
+ */
 export async function saveProviderConfigs(configs: ProviderConfigs): Promise<void> {
+  const normalized = normalizeProviderConfigs(configs)
   const store = await getStore()
-  await store.set(PROVIDER_CONFIGS_KEY, normalizeProviderConfigs(configs))
+  const encrypted = await saveModelConfigsEncrypted(JSON.stringify(normalized)).catch(() => false)
+  if (encrypted) {
+    await store.delete(PROVIDER_CONFIGS_KEY)
+    return
+  }
+  await store.set(PROVIDER_CONFIGS_KEY, normalized)
+}
+
+/** 读取 provider 配置：先读加密副本，读不到再读老明文并顺手迁移。 */
+async function readProviderConfigsRaw(): Promise<ProviderConfigs | null> {
+  const encrypted = await loadModelConfigsEncrypted().catch(() => null)
+  if (encrypted) {
+    try {
+      const parsed = JSON.parse(encrypted) as ProviderConfigs
+      if (parsed && typeof parsed === "object") return parsed
+    } catch {
+      // 加密副本坏掉：继续尝试老明文，绝不让启动失败。
+    }
+  }
+
+  const store = await getStore()
+  const plain = (await store.get<ProviderConfigs>(PROVIDER_CONFIGS_KEY)) ?? null
+  if (!plain) return null
+
+  // 老版本留下的明文：读出来之后立即迁移成加密存储（失败也继续用明文，不影响使用）。
+  await saveProviderConfigs(plain).catch(() => undefined)
+  return plain
 }
 
 export async function loadProviderConfigs(): Promise<ProviderConfigs | null> {
-  const store = await getStore()
-  const saved = (await store.get<ProviderConfigs>(PROVIDER_CONFIGS_KEY)) ?? null
+  const saved = await readProviderConfigsRaw()
   if (!saved) return null
   let normalized = normalizeProviderConfigs(saved)
   if (!(await hasRunDeepSeekWindowMigration("providerConfigs"))) {
@@ -406,7 +440,7 @@ export async function loadProviderConfigs(): Promise<ProviderConfigs | null> {
     }
     await markCodexModelMigrationDone("providerConfigs")
   }
-  if (normalized !== saved) await store.set(PROVIDER_CONFIGS_KEY, normalized)
+  if (normalized !== saved) await saveProviderConfigs(normalized)
   return normalized
 }
 

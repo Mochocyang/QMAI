@@ -10,6 +10,7 @@ mod macos_window;
 mod panic_guard;
 mod platform_guard;
 mod proxy;
+mod secret_store;
 mod types;
 mod updater;
 // WorkBuddy 账号登录：把「用自己的 WorkBuddy 账号登录一次」变成 QMAI 里可用的模型
@@ -304,7 +305,20 @@ commands::fs::read_file,
             // 白名单校验在命令内部完成（前端可任意调用，不能变成通用下载器）。
             commands::updater_channels::updater_download_bytes,
     commands::updater_channels::updater_check,
+    // 安装我们自己下载好的更新包：先验签再启动安装器（见命令内说明）。
+    commands::updater_channels::updater_install_package,
     commands::updater_download::updater_download_package,
+    // 本地密钥小仓库（系统加密）：目前只存模型配置同步用的同步密码。
+    secret_store::secret_set,
+    secret_store::secret_get,
+    secret_store::secret_clear,
+    // 模型配置的本地加密存储（系统凭据加密，替代明文的 app-state.json 副本）。
+    secret_store::model_configs_save,
+    secret_store::model_configs_load,
+    secret_store::model_configs_clear,
+    // app-state 里敏感配置（API Key / WebDAV 密码）的透明加密：磁盘上只留密文。
+    secret_store::state_secret_encrypt,
+    secret_store::state_secret_decrypt,
             set_proxy_env,
             log_error,
             log_diagnostic,
@@ -429,3 +443,4 @@ commands::fs::read_file,
             }
         });
 }
+

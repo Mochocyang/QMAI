@@ -5,7 +5,12 @@
  * 写入失败不阻塞本次会话。坏数据直接删除，避免每次启动都解析同一份垃圾。
  */
 
-import { normalizeAccountBaseUrl, parseAccountBaseUrl } from "./api"
+import {
+  DEFAULT_ACCOUNT_BASE_URL,
+  LEGACY_ACCOUNT_BASE_URL,
+  normalizeAccountBaseUrl,
+  parseAccountBaseUrl,
+} from "./api"
 import type {
   AccountAuthPayload,
   AccountUser,
@@ -117,6 +122,15 @@ export function loadAccountSession(): StoredAccountSession | null {
     removeStoredSession()
     return null
   }
+
+  // 老版本把 workers.dev 存成了 baseUrl：国内被 DNS 污染会一直"网络不可用"。
+  // 同一个 Worker 换域名不影响令牌有效性，这里直接原地迁移。
+  if (session.baseUrl === LEGACY_ACCOUNT_BASE_URL) {
+    const migrated: StoredAccountSession = { ...session, baseUrl: DEFAULT_ACCOUNT_BASE_URL }
+    saveAccountSession(migrated)
+    return migrated
+  }
+
   return session
 }
 

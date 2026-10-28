@@ -17,6 +17,7 @@ const ERROR_STATUS: Record<ApiErrorCode, number> = {
   UNSUPPORTED_MEDIA_TYPE: 415,
   SERVER_ERROR: 500,
   NOT_FOUND: 404,
+  CONFLICT: 409,
 }
 
 const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
@@ -36,6 +37,7 @@ const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   UNSUPPORTED_MEDIA_TYPE: "仅支持 PNG、JPEG 或 WebP 图片。",
   SERVER_ERROR: "账号服务暂时不可用，请稍后再试。",
   NOT_FOUND: "接口不存在。",
+  CONFLICT: "云端配置已被其它设备更新，请先拉取最新版本。",
 }
 
 export function errorStatus(code: ApiErrorCode): number {
@@ -129,7 +131,7 @@ export function preflightResponse(request: Request, allowedOrigins: string[]): R
   if (origin) {
     headers.set("Access-Control-Allow-Origin", origin)
     headers.set("Vary", "Origin")
-    headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+    headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
     headers.set(
       "Access-Control-Allow-Headers",
       "Authorization, Content-Type, Content-Length",
@@ -142,6 +144,12 @@ export function preflightResponse(request: Request, allowedOrigins: string[]): R
 
 const MAX_BODY_BYTES = 8 * 1024
 
+/**
+ * 加密后的模型配置比普通请求体大（AES-GCM 密文 + base64，约 12–15 KB），
+ * 所以单独给这个接口留一个更高的上限；其余接口仍按 8 KB 拒。
+ */
+export const MAX_MODEL_CONFIG_BODY_BYTES = 64 * 1024
+
 export type JsonBodyResult =
   | { ok: true; body: Record<string, unknown> }
   | { ok: false; response: Response }
@@ -149,14 +157,17 @@ export type JsonBodyResult =
 type BodyReadResult = { ok: true; text: string } | { ok: false }
 
 /**
- * 流式读取请求体，超过 8 KB 立即 cancel；不把整个 body 先读成字符串。
+ * 流式读取请求体，超过上限立即 cancel；不把整个 body 先读成字符串。
  * Content-Length 已知且超限时直接拒绝，连 body 都不碰。
  */
-async function readBodyText(request: Request): Promise<BodyReadResult> {
+async function readBodyText(
+  request: Request,
+  maxBytes: number = MAX_BODY_BYTES,
+): Promise<BodyReadResult> {
   const declaredLength = request.headers.get("Content-Length")
   if (declaredLength !== null) {
     const length = Number(declaredLength)
-    if (Number.isFinite(length) && length > MAX_BODY_BYTES) return { ok: false }
+    if (Number.isFinite(length) && length > maxBytes) return { ok: false }
   }
 
   const body = request.body
@@ -173,7 +184,7 @@ async function readBodyText(request: Request): Promise<BodyReadResult> {
       if (!value) continue
 
       total += value.byteLength
-      if (total > MAX_BODY_BYTES) {
+      if (total > maxBytes) {
         await reader.cancel().catch(() => undefined)
         return { ok: false }
       }
@@ -194,10 +205,13 @@ async function readBodyText(request: Request): Promise<BodyReadResult> {
 }
 
 /**
- * 只接受 application/json（允许 charset 参数），请求体 ≤ 8 KB，
+ * 只接受 application/json（允许 charset 参数），请求体 ≤ maxBytes（默认 8 KB），
  * 且顶层必须是 JSON 对象；任何不满足都返回统一 VALIDATION 信封。
  */
-export async function readJsonBody(request: Request): Promise<JsonBodyResult> {
+export async function readJsonBody(
+  request: Request,
+  maxBytes: number = MAX_BODY_BYTES,
+): Promise<JsonBodyResult> {
   const contentType = request.headers.get("Content-Type") ?? ""
   const mime = contentType.split(";")[0]?.trim().toLowerCase()
   if (mime !== "application/json") {
@@ -207,7 +221,7 @@ export async function readJsonBody(request: Request): Promise<JsonBodyResult> {
     }
   }
 
-  const body = await readBodyText(request)
+  const body = await readBodyText(request, maxBytes)
   if (!body.ok) {
     return { ok: false, response: failure("VALIDATION", "请求内容过大或无法读取。") }
   }

@@ -56,3 +56,16 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   window_start INTEGER NOT NULL,
   count INTEGER NOT NULL DEFAULT 0
 );
+
+-- 模型配置云端保管：只存客户端加密后的密文（服务端零知识）。
+-- 一个用户一行，只保留最新一份；version 用于乐观锁，防止旧设备覆盖新配置。
+CREATE TABLE IF NOT EXISTS model_configs (
+  user_id      INTEGER PRIMARY KEY,
+  payload      TEXT    NOT NULL,
+  version      INTEGER NOT NULL DEFAULT 1,
+  updated_at   INTEGER NOT NULL,
+  device_label TEXT,
+  FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_configs_updated_at ON model_configs(updated_at DESC);

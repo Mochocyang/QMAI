@@ -58,11 +58,46 @@ pub fn app_from_client_id(client_id: &str) -> Option<GithubApp> {
 }
 
 /// 落盘的 GitHub 凭据。`login` 只是用来在界面上显示是谁授权的。
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+///
+/// ⚠️ GitHub 的 OAuth App 可以选择「user access token 会过期」（默认 8 小时），
+/// 过期响应里同时给 `refresh_token`。早先这里只存 `token`，导致登录几小时后
+/// 每次同步都 401（界面显示「登录已失效」）。现在把刷新凭据和到期时间一起存，
+/// 由 `commands/cloud_sync.rs` 的 `fresh_github_token` 在过期前自动续期。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct GithubToken {
     pub token: String,
     pub login: String,
+    /// 用来续期的 refresh token；GitHub 没开过期时为空。
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+    /// access token 的到期时刻（毫秒时间戳）；长期 token 为空。
+    #[serde(default)]
+    pub expires_at_ms: Option<i64>,
 }
+
+impl GithubToken {
+    /// 是否已过期（留 5 分钟余量，避免请求发出途中刚好失效）。
+    pub fn is_expiring(&self, now_ms: i64) -> bool {
+        match self.expires_at_ms {
+            Some(expires_at) => expires_at - now_ms <= 5 * 60 * 1000,
+            None => false,
+        }
+    }
+
+    /// 有没有可用于续期的 refresh token。
+    pub fn can_refresh(&self) -> bool {
+        self.refresh_token.as_deref().map(str::is_empty) == Some(false)
+    }
+}
+
+/// 当前毫秒时间戳（与 `expires_in` 搭配算出到期时刻）。
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0)
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DeviceLogin {
@@ -257,6 +292,16 @@ pub fn poll_device_token(app: &GithubApp, device_code: &str) -> Result<DevicePol
             Ok(DevicePoll::Done(GithubToken {
                 token: token.to_string(),
                 login: String::new(),
+                refresh_token: value
+                    .get("refresh_token")
+                    .and_then(|refresh| refresh.as_str())
+                    .filter(|refresh| !refresh.is_empty())
+                    .map(|refresh| refresh.to_string()),
+                expires_at_ms: value
+                    .get("expires_in")
+                    .and_then(|expires| expires.as_i64())
+                    .filter(|seconds| *seconds > 0)
+                    .map(|seconds| now_ms() + seconds * 1000),
             }))
         }
         Some("authorization_pending") => Ok(DevicePoll::Pending),
@@ -267,6 +312,68 @@ pub fn poll_device_token(app: &GithubApp, device_code: &str) -> Result<DevicePol
         Some("unsupported_grant_type") => Ok(DevicePoll::Misconfigured),
         Some(other) => Err(format!("github.token:{other}")),
     }
+}
+
+/// 用 refresh_token 换一对新的 access/refresh token。
+///
+/// GitHub 的续期接口与设备流共用同一个端点，只是 `grant_type` 不同；
+/// 换回来的 refresh_token 会**轮换**（旧的立即失效），所以调用方必须落盘。
+pub fn refresh_user_token(app: &GithubApp, refresh_token: &str) -> Result<GithubToken, String> {
+    let client = client()?;
+    let response = client
+        .post(TOKEN_ENDPOINT)
+        .header(reqwest::header::USER_AGENT, USER_AGENT)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .form(&[
+            ("client_id", app.client_id.as_str()),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+        ])
+        .send()
+        .map_err(transport_error)?;
+
+    let status = response.status().as_u16();
+    let body = response.text().unwrap_or_default();
+    let value: serde_json::Value =
+        serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
+
+    if let Some(error) = value.get("error").and_then(|error| error.as_str()) {
+        return Err(match error {
+            // refresh token 也过期/被撤销：只能重新登录。
+            "bad_refresh_token" => "github.auth".to_string(),
+            "incorrect_client_credentials" => "github.misconfigured".to_string(),
+            other => format!("github.refresh:{other}"),
+        });
+    }
+    if !(200..300).contains(&status) {
+        return Err(if status == 401 {
+            "github.auth".to_string()
+        } else {
+            format!("github.refresh:http-{status}")
+        });
+    }
+
+    let token = value
+        .get("access_token")
+        .and_then(|token| token.as_str())
+        .ok_or_else(|| "github.parse:missing access_token".to_string())?;
+
+    Ok(GithubToken {
+        token: token.to_string(),
+        login: String::new(),
+        refresh_token: value
+            .get("refresh_token")
+            .and_then(|refresh| refresh.as_str())
+            .filter(|refresh| !refresh.is_empty())
+            .map(|refresh| refresh.to_string())
+            // 续期响应里没给新的 refresh token 时，继续沿用旧的那一枚。
+            .or_else(|| Some(refresh_token.to_string())),
+        expires_at_ms: value
+            .get("expires_in")
+            .and_then(|expires| expires.as_i64())
+            .filter(|seconds| *seconds > 0)
+            .map(|seconds| now_ms() + seconds * 1000),
+    })
 }
 
 /// 查当前 token 属于谁（设备流拿到的 token 不带用户名）。
@@ -412,6 +519,38 @@ pub fn validate_target(repo: &GithubRepo) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn github_token_expiry_and_refresh_flags() {
+        let now = 1_000_000_000_000i64;
+        // 长期 token（没有 expires_at）：从不过期，也不需要续期。
+        let long_lived = GithubToken {
+            token: "t".into(),
+            login: "me".into(),
+            refresh_token: None,
+            expires_at_ms: None,
+        };
+        assert!(!long_lived.is_expiring(now));
+        assert!(!long_lived.can_refresh());
+
+        // 8 小时有效：还剩 6 小时不算快过期；剩 4 分钟要提前续期。
+        let mut expiring = long_lived.clone();
+        expiring.expires_at_ms = Some(now + 6 * 60 * 60 * 1000);
+        expiring.refresh_token = Some("r".into());
+        assert!(!expiring.is_expiring(now));
+        assert!(expiring.can_refresh());
+
+        expiring.expires_at_ms = Some(now + 4 * 60 * 1000);
+        assert!(expiring.is_expiring(now));
+
+        // 已经过期的也判为需要续期。
+        expiring.expires_at_ms = Some(now - 1000);
+        assert!(expiring.is_expiring(now));
+
+        // 空 refresh token 视为没有（老版本存下来的凭据）。
+        expiring.refresh_token = Some(String::new());
+        assert!(!expiring.can_refresh());
+    }
 
     #[test]
     fn builtin_client_id_is_the_release_app() {

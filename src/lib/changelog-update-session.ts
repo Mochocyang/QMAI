@@ -189,6 +189,14 @@ interface DownloadProgressPayload {
 /** 当前下载源，供界面显示。 */
 let activeSource = ""
 
+/**
+ * 我们自己下载到本地的安装包路径。
+ *
+ * 有值时「安装」走 `updater_install_package`（先验签再交给插件启动安装器）；
+ * 为空时说明走的是插件自带下载，退回 `update.install()`。
+ */
+let downloadedPackagePath: string | null = null
+
 async function loadUpdate(): Promise<ChangelogUpdatePackage | null> {
   if (checkerOverride) return checkerOverride()
   const { invoke } = await import("@tauri-apps/api/core")
@@ -237,7 +245,7 @@ async function loadUpdate(): Promise<ChangelogUpdatePackage | null> {
         let unsubscribe: (() => void) | null = null
         try {
           unsubscribe = await subscribeDownloadProgress()
-          await invoke<string>("updater_download_package", {
+          downloadedPackagePath = await invoke<string>("updater_download_package", {
             releaseUrl,
             version: wantedVersion,
           })
@@ -246,6 +254,7 @@ async function loadUpdate(): Promise<ChangelogUpdatePackage | null> {
           onEvent?.({ event: "Finished", data: {} } as never)
           return
         } catch (error) {
+          downloadedPackagePath = null
           console.warn("[updater] 多源分段下载失败，退回插件自带下载：", error)
         } finally {
           unsubscribe?.()
@@ -254,7 +263,19 @@ async function loadUpdate(): Promise<ChangelogUpdatePackage | null> {
       // 兜底：插件自己的单连接下载（慢，但能下）。
       await update.download(onEvent)
     },
-    install: () => update.install(),
+    install: async () => {
+      /*
+       * 装我们自己下好的包必须先验签：插件的 `Update::install` 只负责解包并
+       * 启动安装器，签名校验发生在它的 `download()` 里——我们为了提速绕过了
+       * 那一步，所以由 `updater_install_package` 在进安装器前补上。
+       * 没有本地包（走的是插件下载）时，仍交给插件自己的 install。
+       */
+      if (downloadedPackagePath) {
+        await invoke("updater_install_package", { path: downloadedPackagePath })
+        return
+      }
+      await update.install()
+    },
     close: () => update.close(),
     preDownloaded: false,
   }

@@ -802,9 +802,14 @@ input[type="number"] {
     background: transparent;
 }
 
-/* Model selector dropdown scrollbar */
+/* Model selector dropdown scrollbar
+ * 与主题同色系、比全局滚动条更弱一档：下拉面积小，重色会抢注意力。
+ * Chromium 121+ 一旦设置了 `scrollbar-color` 就会忽略 `::-webkit-scrollbar`，
+ * 所以两条路都要写：标准属性负责当前运行时，伪元素兜底旧版本。 */
 .model-selector-dropdown {
     scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+    scrollbar-color: color-mix(in oklch, var(--border) 55%, transparent) transparent;
     scrollbar-gutter: stable;
 }
 
@@ -817,8 +822,13 @@ input[type="number"] {
 }
 
 .model-selector-dropdown::-webkit-scrollbar-thumb {
-    background: #8fc0a5;
+    background-color: var(--border);
+    background-color: color-mix(in oklch, var(--border) 55%, transparent);
     border-radius: 2px;
+}
+
+.model-selector-dropdown::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in oklch, var(--muted-foreground) 35%, transparent);
 }
 
 .model-selector-dropdown::-webkit-scrollbar-corner {

@@ -7,6 +7,9 @@ compatibility_date = "2024-12-01"
 # 因此从公开源码看不到后台地址；前缀下非真实路径一律 404。
 routes = [
   { pattern = "qmai.pro/qmai-ops*", zone_name = "qmai.pro" },
+  # 上报入口用自有域名：`*.workers.dev` 在国内被 DNS 污染（直连必超时），
+  # 换到自定义域后国内可直连；workers.dev 仍保留给老版本客户端。
+  { pattern = "analytics.qmai.pro", custom_domain = true },
 ]
 
 # ⚠️ 必须保留：老版本客户端把 qmai-analytics.qmai.workers.dev 写死在安装包里，
@@ -17,6 +20,12 @@ workers_dev = true
 binding = "DB"
 database_name = "qmai-analytics-db"
 database_id = "884bb0bb-c024-4cff-b062-b3b4e783a5cf"
+
+# 公告数据：与官网 Pages Function 共用同一个 KV 命名空间，
+# 后台写入的公告就是 /announcements.json 读到的那一份。
+[[kv_namespaces]]
+binding = "ANNOUNCEMENTS"
+id = "76ce48f87a704702bb83c60b5509d1f0"
 
 [triggers]
 # 每 5 分钟：清理僵尸会话 + 刷新当日统计快照。

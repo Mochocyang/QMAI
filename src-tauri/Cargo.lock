@@ -6025,6 +6025,7 @@ dependencies = [
  "lancedb",
  "log",
  "md-5",
+ "minisign-verify",
  "notify",
  "objc2",
  "objc2-foundation",

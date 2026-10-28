@@ -127,7 +127,7 @@ function toPublicUser(user: UserRow): PublicUser {
   }
 }
 
-type AuthenticatedUser =
+export type AuthenticatedUser =
   | { ok: true; user: UserRow }
   | { ok: false; response: Response }
 
@@ -166,6 +166,20 @@ async function authenticate(
   }
 
   return { ok: true, user }
+}
+
+/**
+ * 供其它业务模块（模型配置同步等）复用同一套 Bearer 校验。
+ *
+ * 只暴露这一个入口，避免各模块自己解析 Authorization 头、各自实现一遍
+ * 过期/停用判定——三套实现迟早会出现行为不一致。
+ */
+export async function requireUser(
+  request: Request,
+  env: Env,
+  now = currentSeconds(),
+): Promise<AuthenticatedUser> {
+  return authenticate(request, env, now)
 }
 
 function clientIp(request: Request, env: Env): string {

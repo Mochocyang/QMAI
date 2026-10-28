@@ -41,9 +41,12 @@ import { useEnsureAiChatModel } from "@/lib/ensure-ai-chat-model"
 import { MemoryMaintenanceReminder } from "@/components/novel/memory-maintenance-reminder"
 import { AnnouncementDialog } from "@/components/announcements/announcement-dialog"
 import { useAnnouncementStore } from "@/stores/announcement-store"
+import { useModelSyncAutoSync } from "@/hooks/use-model-sync-auto-sync"
 
 function App() {
   useEnsureAiChatModel()
+  // 模型配置云同步：常驻心跳 + 聚焦时补一次（内部按节流规则决定是否联网）。
+  useModelSyncAutoSync()
   const project = useWikiStore((s) => s.project)
   const setProject = useWikiStore((s) => s.setProject)
   const setFileTree = useWikiStore((s) => s.setFileTree)

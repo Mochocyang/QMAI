@@ -30,11 +30,16 @@
  *   100 并发在线 ≈ 2.9 万行/天，稳在免费额度内。
  */
 
+import { handleAnnouncementsApi, handleAnnouncementsPage } from "./announcements"
+import { BASE_CSS, THEME_SCRIPT, THEME_TOGGLE } from "./theme"
+
 export interface Env {
   DB: D1Database
   STATS_SECRET: string // 在 Cloudflare Dashboard 设置的密钥，用于 /stats 接口
   DASHBOARD_PASSWORD: string // 后台初始密码（wrangler secret put 设置），同时用于忘记密码时找回
   ADMIN_PATH: string // 后台入口路径，形如 /qmai-ops-xxxxxxxx（wrangler secret put 设置）
+  /** 公告文档 KV：与官网 Pages Function 的 /announcements.json 共用同一份数据。 */
+  ANNOUNCEMENTS?: KVNamespace
 }
 
 /**
@@ -311,6 +316,22 @@ function secureHeaders(contentType: string): Record<string, string> {
     "Referrer-Policy": "no-referrer",
     "X-Frame-Options": "DENY",
   }
+}
+
+/** 后台 HTML 响应（统一套安全头）。 */
+function htmlResponse(html: string, status = 200): Response {
+  return new Response(html, {
+    status,
+    headers: secureHeaders("text/html;charset=UTF-8"),
+  })
+}
+
+/** 后台 JSON 响应（统一套安全头）。 */
+function secureJsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: secureHeaders("application/json;charset=UTF-8"),
+  })
 }
 
 function sleep(ms: number): Promise<void> {
@@ -742,46 +763,16 @@ function renderDashboard(input: {
   <meta name="robots" content="noindex, nofollow, noarchive">
   <meta name="referrer" content="no-referrer">
   <title>青幕AI写作 - 用户统计</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #e2e8f0; padding: 2rem; min-height: 100vh; }
-    main { max-width: 1100px; margin: 0 auto; }
-    h1 { margin-bottom: 0.35rem; color: #f8fafc; }
-    h2 { margin: 2rem 0 1rem; color: #cbd5e1; font-size: 1.1rem; }
-    .subtle { color: #94a3b8; font-size: 0.9rem; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; margin-top: 1.25rem; }
-    .card { background: #111827; border-radius: 8px; padding: 1.25rem; border: 1px solid #334155; }
-    .card .number { font-size: 2.2rem; font-weight: 700; color: #38bdf8; }
-    .card .label { margin-top: 0.35rem; color: #94a3b8; font-size: 0.9rem; }
-    .online .number { color: #4ade80; }
-    .activity .number { color: #c084fc; }
-    .retention .number { color: #fbbf24; }
-    .adopt .number { color: #2dd4bf; }
-    .na { font-size: 1.1rem; color: #64748b; font-weight: 500; }
-    .panel { overflow: hidden; border: 1px solid #334155; border-radius: 8px; background: #111827; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 0.85rem; border-bottom: 1px solid #1f2937; text-align: left; vertical-align: top; font-size: 0.9rem; }
-    th { color: #94a3b8; background: #0f172a; font-weight: 600; }
-    .empty { color: #64748b; text-align: center; padding: 0.75rem; }
-    .bar-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.55rem 0.85rem; border-bottom: 1px solid #1f2937; font-size: 0.9rem; }
-    .bar-row:last-child { border-bottom: none; }
-    .bar-label { width: 130px; flex: none; color: #cbd5e1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .bar-track { flex: 1; height: 8px; background: #1f2937; border-radius: 999px; overflow: hidden; }
-    .bar-fill { display: block; height: 100%; background: #38bdf8; border-radius: 999px; }
-    .bar-value { width: 110px; flex: none; text-align: right; color: #94a3b8; font-variant-numeric: tabular-nums; }
-    .footer { margin-top: 1.5rem; color: #64748b; font-size: 0.8rem; line-height: 1.7; }
-    .topbar { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
-    .topbar-actions { display: flex; gap: 1rem; }
-    .topbar a { color: #94a3b8; font-size: 0.85rem; text-decoration: none; border-bottom: 1px solid #334155; }
-    .topbar a:hover { color: #e2e8f0; }
-    .notice { margin-top: 1rem; padding: 0.7rem 1rem; border-radius: 6px; border: 1px solid #14532d; background: #052e16; color: #4ade80; font-size: 0.85rem; }
-  </style>
+  <style>${BASE_CSS}</style>
+  ${THEME_SCRIPT}
 </head>
 <body>
   <main>
     <div class="topbar">
       <h1>青幕AI写作后台</h1>
       <div class="topbar-actions">
+        ${THEME_TOGGLE}
+        <a href="${input.basePath}/announcements">公告发布</a>
         <a href="${input.basePath}/password">修改密码</a>
         <a href="${input.basePath}/logout">退出登录</a>
       </div>
@@ -864,11 +855,12 @@ function renderDashboard(input: {
       <p>最新版本占比的分母只算「已知版本」设备：版本号自 v4.3.9 起才上报，此前的老用户显示为「未知」不计入。</p>
     </div>
   </main>
+  ${THEME_SCRIPT}
 </body>
 </html>`
 }
 
-/** 登录页：深色风格与仪表盘一致，未登录时看不到任何统计数据 */
+/** 登录页：与仪表盘共用同一套主题变量，未登录时看不到任何统计数据 */
 function renderLoginPage(basePath: string, error = ""): string {
   const errorBlock = error
     ? `<p class="error" role="alert">${escapeHtml(error)}</p>`
@@ -882,26 +874,16 @@ function renderLoginPage(basePath: string, error = ""): string {
   <meta name="robots" content="noindex, nofollow, noarchive">
   <meta name="referrer" content="no-referrer">
   <title>青幕AI写作 - 后台登录</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
-    .box { width: 100%; max-width: 360px; background: #111827; border: 1px solid #334155; border-radius: 10px; padding: 1.75rem; }
-    h1 { font-size: 1.15rem; color: #f8fafc; margin-bottom: 0.5rem; }
-    .hint, .error { font-size: 0.85rem; margin-bottom: 1.25rem; color: #94a3b8; }
-    .error { color: #f87171; }
-    input { width: 100%; padding: 0.7rem 0.8rem; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 0.95rem; }
-    input:focus { outline: none; border-color: #38bdf8; }
-    button { width: 100%; margin-top: 1rem; padding: 0.7rem; border: none; border-radius: 6px; background: #38bdf8; color: #0b1220; font-weight: 600; font-size: 0.95rem; cursor: pointer; }
-    button:hover { background: #7dd3fc; }
-  </style>
+  <style>${BASE_CSS}</style>
+  ${THEME_SCRIPT}
 </head>
-<body>
+<body class="centered">
   <main class="box">
     <h1>青幕AI写作 · 后台</h1>
     ${errorBlock}
     <form method="POST" action="${basePath}/login">
       <input type="password" name="password" placeholder="后台密码" autocomplete="current-password" autofocus required>
-      <button type="submit">进入</button>
+      <button class="wide" type="submit">进入</button>
     </form>
   </main>
 </body>
@@ -958,24 +940,10 @@ function renderPasswordPage(basePath: string, error = ""): string {
   <meta name="robots" content="noindex, nofollow, noarchive">
   <meta name="referrer" content="no-referrer">
   <title>青幕AI写作 - 修改密码</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem; }
-    .box { width: 100%; max-width: 380px; background: #111827; border: 1px solid #334155; border-radius: 10px; padding: 1.75rem; }
-    h1 { font-size: 1.15rem; color: #f8fafc; margin-bottom: 0.5rem; }
-    .hint, .error { font-size: 0.85rem; margin-bottom: 1.25rem; color: #94a3b8; line-height: 1.6; }
-    .error { color: #f87171; }
-    label { display: block; font-size: 0.8rem; color: #94a3b8; margin: 0.9rem 0 0.35rem; }
-    input { width: 100%; padding: 0.7rem 0.8rem; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 0.95rem; }
-    input:focus { outline: none; border-color: #38bdf8; }
-    button { width: 100%; margin-top: 1.25rem; padding: 0.7rem; border: none; border-radius: 6px; background: #38bdf8; color: #0b1220; font-weight: 600; font-size: 0.95rem; cursor: pointer; }
-    button:hover { background: #7dd3fc; }
-    .back { display: block; margin-top: 1rem; text-align: center; color: #94a3b8; font-size: 0.8rem; text-decoration: none; border-bottom: none; }
-    .back:hover { color: #e2e8f0; }
-    .tip { margin-top: 1.25rem; font-size: 0.75rem; color: #64748b; line-height: 1.7; }
-  </style>
+  <style>${BASE_CSS}</style>
+  ${THEME_SCRIPT}
 </head>
-<body>
+<body class="centered">
   <main class="box">
     <h1>修改后台密码</h1>
     ${errorBlock}
@@ -986,7 +954,7 @@ function renderPasswordPage(basePath: string, error = ""): string {
       <input id="next" type="password" name="next" autocomplete="new-password" required>
       <label for="confirm">重复新密码</label>
       <input id="confirm" type="password" name="confirm" autocomplete="new-password" required>
-      <button type="submit">保存新密码</button>
+      <button class="wide" type="submit">保存新密码</button>
     </form>
     <a class="back" href="${basePath}">返回统计页</a>
     <p class="tip">忘记密码时：用 Cloudflare Secret 中保存的初始密码登录，再回到本页重设即可。</p>
@@ -1165,6 +1133,22 @@ export default {
         }
         if (path === `${adminPath}/password`) {
           return await handlePasswordPage(request, env)
+        }
+        if (path === `${adminPath}/announcements`) {
+          const callbacks = {
+            basePath: adminPath,
+            hasSession: () => hasValidSession(request, env),
+            loginResponse: () => loginResponse(adminPath),
+            secureHtml: (html: string) => htmlResponse(html),
+            secureJson: (data: unknown, status?: number) => secureJsonResponse(data, status),
+          }
+          if (request.method === "POST") {
+            return await handleAnnouncementsApi(request, env, callbacks)
+          }
+          if (url.searchParams.get("format") === "json") {
+            return await handleAnnouncementsApi(request, env, callbacks)
+          }
+          return await handleAnnouncementsPage(request, env, callbacks)
         }
       }
 

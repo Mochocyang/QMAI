@@ -46,6 +46,25 @@ const PROVIDER_ICONS: Record<CloudProviderId, typeof Cloud> = {
   folder: FolderOpen,
 }
 
+/** 「同步失败」提示被点「知道了」时记住的那一句，换了一批失败会重新显示。 */
+const FAILURE_LINE_DISMISS_KEY = "qmai.cloudSync.failureLineDismissed"
+
+function readDismissedFailureLine(): string {
+  try {
+    return localStorage.getItem(FAILURE_LINE_DISMISS_KEY) ?? ""
+  } catch {
+    return ""
+  }
+}
+
+function writeDismissedFailureLine(summary: string): void {
+  try {
+    localStorage.setItem(FAILURE_LINE_DISMISS_KEY, summary)
+  } catch {
+    // 存不进去不影响当前界面：本次会话内 state 已经生效。
+  }
+}
+
 function ProviderCard({
   provider,
   selected,
@@ -597,6 +616,15 @@ export function CloudSyncSection() {
    */
   const failureSummary = describeFailures(groupFailuresByProvider(batches, entries))
 
+  /*
+   * 「同步失败」这行可以点「知道了」关掉。
+   *
+   * 失败摘要会一直挂在这里（它是从历史记录算出来的），换了新的一批失败又会再出现。
+   * 所以记住「被关掉的那一句」：内容没变就不再显示，出现新的失败摘要再重新显示。
+   */
+  const [dismissedFailureLine, setDismissedFailureLine] = useState(readDismissedFailureLine)
+  const showFailureLine = Boolean(failureSummary) && failureSummary !== dismissedFailureLine
+
   return (
     <div className="space-y-6">
       <div>
@@ -793,11 +821,24 @@ export function CloudSyncSection() {
                     : t("settings.sections.cloudSync.runNow", { defaultValue: "立即同步" })}
                 </Button>
               </div>
-              {failureSummary ? (
-                <p className="text-sm text-destructive" data-ui="cloud-sync-failure-line">
-                  {failureSummary}
-                  ，点击右上角云图标查看详情。
-                </p>
+              {showFailureLine ? (
+                <div className="flex items-start justify-between gap-3" data-ui="cloud-sync-failure-line">
+                  <p className="text-sm text-destructive">
+                    {failureSummary}
+                    ，点击右上角云图标查看详情。
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="shrink-0"
+                    onClick={() => {
+                      setDismissedFailureLine(failureSummary ?? "")
+                      writeDismissedFailureLine(failureSummary ?? "")
+                    }}
+                  >
+                    知道了
+                  </Button>
+                </div>
               ) : null}
             </div>
           ) : null}

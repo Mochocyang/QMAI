@@ -2,6 +2,13 @@ name = "qmai-account"
 main = "src/index.ts"
 compatibility_date = "2026-01-01"
 
+# 自定义域名：`*.workers.dev` 在国内会被 DNS 污染（实测解析到微软的 IP、直连超时），
+# 绑自有域名后国内直连可通。workers.dev 仍保留作为兜底入口（老客户端会话里存的是它）。
+workers_dev = true
+routes = [
+  { pattern = "account.qmai.pro", custom_domain = true }
+]
+
 # D1: account data kept separate from analytics-worker and New API gateway.
 [[d1_databases]]
 binding = "DB"

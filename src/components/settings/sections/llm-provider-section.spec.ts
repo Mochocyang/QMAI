@@ -65,21 +65,20 @@ describe("LLM provider model controls", () => {
     expect(source).toContain("<ReasoningControls")
   })
 
-  // ── 「添加账号」三栏入口（WorkBuddy 账号登录）────────────────
-  // 顺序是产品叙事的一部分：先「用自己的账号登录」，再「填别人的 Key」，
-  // 最后「完全自定义」；而且必须排在「我的模型配置」列表**之前**。
-  it("puts three add entries above the config list, account first", () => {
+  // ── 入口区（「添加提供方 / 添加自定义模型」）────────────────
+  // 两个入口必须排在「我的模型配置」列表**之前**；「添加账号」入口按需求隐藏。
+  it("keeps the two add entries above the config list and hides the account entry", () => {
     const heading = source.indexOf("我的模型设置")
-    const addAccount = source.indexOf('data-guide="model.add-account"')
     const addProvider = source.indexOf('data-guide="model.add-provider"')
     const addCustom = source.indexOf('data-guide="model.add-custom"')
     const list = source.indexOf("model-library-list")
 
     expect(heading).toBeGreaterThan(-1)
-    expect(addAccount).toBeGreaterThan(heading)
-    expect(addAccount).toBeLessThan(addProvider)
+    expect(addProvider).toBeGreaterThan(heading)
     expect(addProvider).toBeLessThan(addCustom)
     expect(addCustom).toBeLessThan(list)
+    // 「添加账号」入口隐藏：不再渲染按钮（弹窗仍挂载，登录态与已有卡片不受影响）。
+    expect(source).not.toContain('data-guide="model.add-account"')
   })
 
   it("mounts the WorkBuddy account dialog and generates the model card on first login", () => {

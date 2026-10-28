@@ -24,6 +24,11 @@ import {
   parseAllowedOrigins,
   preflightResponse,
 } from "./http"
+import {
+  handleDeleteModelConfig,
+  handleGetModelConfig,
+  handlePutModelConfig,
+} from "./model-config"
 import { cleanupExpiredData } from "./db"
 import { hashRefreshToken } from "./crypto"
 import type { Env } from "./types"
@@ -41,6 +46,10 @@ const ROUTES: Record<string, RouteHandler> = {
   "POST /v1/auth/password/change": handleChangePassword,
   "POST /v1/account/avatar": handleUploadAvatar,
   "DELETE /v1/account/avatar": handleDeleteAvatar,
+  // 模型配置云端保管（密文）：GET 拉取 / PUT 覆盖 / DELETE 清空。
+  "GET /v1/model-config": handleGetModelConfig,
+  "PUT /v1/model-config": handlePutModelConfig,
+  "DELETE /v1/model-config": handleDeleteModelConfig,
 }
 
 /** 头像读取是公开路径：`/v1/account/avatar/{userId}`。 */

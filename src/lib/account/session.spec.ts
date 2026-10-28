@@ -98,6 +98,21 @@ describe("account session", () => {
     }
   })
 
+  it("老的 workers.dev 会话会被迁移到自定义域名（令牌继续有效）", () => {
+    localStorage.setItem(
+      ACCOUNT_SESSION_STORAGE_KEY,
+      JSON.stringify(storedSession({ baseUrl: "https://qmai-account.qmai.workers.dev" })),
+    )
+
+    const loaded = loadAccountSession()
+
+    expect(loaded?.baseUrl).toBe("https://account.qmai.pro")
+    // 迁移结果要落盘，否则每次启动都重复迁移
+    expect(JSON.parse(localStorage.getItem(ACCOUNT_SESSION_STORAGE_KEY)!).baseUrl).toBe(
+      "https://account.qmai.pro",
+    )
+  })
+
   it("读取 localStorage 抛异常时回 null", () => {
     const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("storage disabled")

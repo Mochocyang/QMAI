@@ -3,7 +3,10 @@
 :is(.ui-test-root,html[data-ui-test-skin]) .model-library-heading,:is(.ui-test-root,html[data-ui-test-skin]) .model-library-item,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-row,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-library-heading { margin-bottom: 16px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-library-item,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel { border:1px solid var(--ui-line); border-radius:12px; padding:12px; background:var(--ui-panel); }
-:is(.ui-test-root,html[data-ui-test-skin]) .model-add-card { flex:1; min-height:68px; border:1.5px dashed var(--ui-line); border-radius:12px; background:transparent; color:var(--ui-muted); }
+/* 入口卡片与下面的配置列表之间要留出呼吸空间：此前两者贴在一起，视觉上糊成一块。 */
+:is(.ui-test-root,html[data-ui-test-skin]) .model-add-row { margin-bottom: 16px; }
+/* 虚线描边收细：1.5px 在浅色底上显得过重，1px 与右侧卡片描边一致。 */
+:is(.ui-test-root,html[data-ui-test-skin]) .model-add-card { flex:1; min-height:68px; border:1px dashed var(--ui-line); border-radius:12px; background:transparent; color:var(--ui-muted); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid button { display:grid; align-content:center; width:100%; min-height:76px; border:1px solid var(--ui-line); border-radius:10px; padding:10px; background:transparent; text-align:left; gap:2px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid-name { display:flex; align-items:center; gap:8px; min-width:0; }

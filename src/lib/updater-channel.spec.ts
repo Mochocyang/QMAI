@@ -102,4 +102,18 @@ describe("检查更新走自建多通道", () => {
     expect(text).toContain('"updater_download_package"')
     expect(text).toContain("subscribeDownloadProgress")
   })
+
+  it("装我们自己下的包走 updater_install_package，不再直接 update.install()", async () => {
+    /*
+     * 插件的 JS 侧 install() 会检查 `downloadedBytes`，没走它的 download 就抛
+     * `Update.install called before Update.download`（4.4.1 的真实线上报错）。
+     * 我们自己下载后必须调 Rust 的 updater_install_package：它先按 minisign 验签，
+     * 再交给插件启动安装器。
+     */
+    const { readFileSync } = await import("node:fs")
+    const { resolve } = await import("node:path")
+    const text = readFileSync(resolve(__dirname, "changelog-update-session.ts"), "utf8")
+    expect(text).toContain('"updater_install_package"')
+    expect(text).toContain("downloadedPackagePath")
+  })
 })

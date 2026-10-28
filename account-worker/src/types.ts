@@ -123,3 +123,4 @@ export type ApiErrorCode =
   | "UNSUPPORTED_MEDIA_TYPE"
   | "SERVER_ERROR"
   | "NOT_FOUND"
+  | "CONFLICT"

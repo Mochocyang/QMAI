@@ -24,6 +24,7 @@ export type AccountErrorCode =
   | "UNSUPPORTED_MEDIA_TYPE"
   | "SERVER_ERROR"
   | "NOT_FOUND"
+  | "CONFLICT"
   | "NETWORK"
 
 export interface AccountUser {

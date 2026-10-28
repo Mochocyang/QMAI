@@ -130,7 +130,7 @@ fn quarantine(dir: &Path, path: &Path, file_name: &str) {
 }
 
 #[cfg(windows)]
-fn protect(plain: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn protect(plain: &[u8]) -> Result<Vec<u8>, String> {
     use windows::Win32::Foundation::LocalFree;
     use windows::Win32::Security::Cryptography::{CryptProtectData, CRYPT_INTEGER_BLOB};
 
@@ -149,7 +149,7 @@ fn protect(plain: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(windows)]
-fn unprotect(payload: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn unprotect(payload: &[u8]) -> Result<Vec<u8>, String> {
     use windows::Win32::Foundation::LocalFree;
     use windows::Win32::Security::Cryptography::{CryptUnprotectData, CRYPT_INTEGER_BLOB};
 
@@ -168,23 +168,23 @@ fn unprotect(payload: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(not(windows))]
-fn protect(plain: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn protect(plain: &[u8]) -> Result<Vec<u8>, String> {
     Ok(plain.to_vec())
 }
 
 #[cfg(not(windows))]
-fn unprotect(payload: &[u8]) -> Result<Vec<u8>, String> {
+pub(crate) fn unprotect(payload: &[u8]) -> Result<Vec<u8>, String> {
     Ok(payload.to_vec())
 }
 
 #[cfg(not(windows))]
-fn restrict_permissions(path: &Path) {
+pub(crate) fn restrict_permissions(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
 }
 
 #[cfg(windows)]
-fn restrict_permissions(_path: &Path) {
+pub(crate) fn restrict_permissions(_path: &Path) {
     // Windows 侧靠 DPAPI 保护内容，不需要额外 ACL（文件已在应用数据目录内）。
 }
 
