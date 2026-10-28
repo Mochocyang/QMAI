@@ -55,23 +55,27 @@ function buildReply(storyCount = 10): string {
   ].join("\n")
 }
 
-describe("卷纲全流程（系统套模板 · 精简版）", () => {
-  it("解析后的 htmlContent 是真正的静态折叠树，不是 json/markdown", () => {
+describe("卷纲全流程（模板已下线 · 精简版）", () => {
+  it("解析后不再自带 HTML：只有 AI 写了网页才有 .html", () => {
     const parsed = parseOutlineSaveRequests(buildReply())
     expect(parsed.errors).toEqual([])
     expect(parsed.requests).toHaveLength(1)
     const request = parsed.requests[0]
 
     expect(request.fileType).toBe("volume-outline")
-    const html = request.htmlContent ?? ""
-    expect(html).toContain("<html")
-    expect(html).toContain("<style")
-    expect(html).toContain("<details")
-    // 不依赖脚本（软件预览 iframe 的 CSP 会拦截内联脚本）
-    expect(html).not.toContain("<script")
-    // 不应是误抓的 json 文本
-    expect(html.startsWith("json")).toBe(false)
-    expect(html).not.toContain('"volumeOutlineData"')
+    expect(request.htmlContent).toBeUndefined()
+  })
+
+  it("AI 给了完整网页时挂到卷纲保存请求上，且不依赖脚本", () => {
+    const page = [
+      "<!DOCTYPE html><html><head><style>body{}</style></head><body>",
+      "<h1>卷一 无我绝响</h1>",
+      "</body></html>",
+    ].join("")
+    const request = parseOutlineSaveRequests(`${buildReply()}\n\n\`\`\`html\n${page}\n\`\`\``).requests[0]
+    expect(request.htmlContent).toContain("<!DOCTYPE html>")
+    expect(request.htmlContent).toContain("卷一 无我绝响")
+    expect(request.htmlContent).not.toContain("<script")
   })
 
   it("模型不写 MD 时，正文由结构化数据生成", () => {
@@ -94,14 +98,6 @@ describe("卷纲全流程（系统套模板 · 精简版）", () => {
     expect(request.content).not.toBe("好的，卷纲已生成。")
   })
 
-  it("渲染出的 HTML 含 10 个故事 × 10 个环节，且全部展开", () => {
-    const request = parseOutlineSaveRequests(buildReply()).requests[0]
-    const html = request.htmlContent ?? ""
-    expect((html.match(/class="story-wrap"/g) ?? []).length).toBe(10)
-    expect((html.match(/<p class="txt">/g) ?? []).length).toBe(300)
-    expect((html.match(/<details class="nd" open>/g) ?? []).length).toBe(110)
-  })
-
   it("数据完整时校验通过", () => {
     const request = parseOutlineSaveRequests(buildReply()).requests[0]
     const data = extractVolumeOutlineData(buildReply())
@@ -119,7 +115,7 @@ describe("卷纲全流程（系统套模板 · 精简版）", () => {
     expect(result.problems.join("\n")).toContain("故事数量不足 10 个")
   })
 
-  it("保存时同时落盘 .md、.html 与伴生 .json（供章纲交叉校验）", async () => {
+  it("没有 AI 网页时落盘 .md 与伴生 .json（不生成 .html）", async () => {
     const written: string[] = []
     const parsed = parseOutlineSaveRequests(buildReply())
     expect(parsed.requests[0].structuredData).toBeTruthy()
@@ -135,12 +131,10 @@ describe("卷纲全流程（系统套模板 · 精简版）", () => {
 
     expect(result.saved.map((item) => item.fileName)).toEqual([
       "卷纲-第01卷.md",
-      "卷纲-第01卷.html",
       "卷纲-第01卷.json",
     ])
     expect(written).toEqual([
       "/root/卷纲/卷纲-第01卷.md",
-      "/root/卷纲/卷纲-第01卷.html",
       "/root/卷纲/卷纲-第01卷.json",
     ])
   })

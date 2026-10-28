@@ -39,7 +39,6 @@ import {
   setLastChapterDeAiSkill,
 } from "@/lib/novel/de-ai-skill-library"
 import { startOutlineIngestTask } from "@/lib/novel/outline-generation"
-import { renderOutlineHtmlForPath } from "@/lib/novel/outline-save-request"
 import { getOutlineIngestIdentity, getOutlineFileName, outlineSnapshotExists } from "@/lib/novel/outline-ingest-utils"
 import { isOutputTruncatedError, streamChat } from "@/lib/llm-client"
 import { isTruncationFinishReason } from "@/lib/llm-providers"
@@ -708,17 +707,12 @@ export function PreviewPanel() {
   }, [selectedFile, diskSyncEpoch])
 
   /**
-   * 实际用于渲染的 HTML：
-   * 1) 磁盘上有同名 `.html` 伴生文件 → 用它（新保存的文件都是这种情况）；
-   * 2) 磁盘上没有（旧版本生成 / 外部写入 / 示例或导入的文件）→ 用内置模板按正文即时渲染，
-   *    这样历史大纲也能看到 HTML 视图，而不是只有 MD。
+   * 实际用于渲染的 HTML：只认磁盘上的同名 `.html` 伴生文件。
+   *
+   * 旧版本会在这里用内置模板「即时渲染」一份，现在模板管线已删除（用户要求不再套固定格式），
+   * 没有伴生 HTML 的老文件就只显示 MD，等下次重新生成/保存时由 AI 写出真正的网页。
    */
-  const effectiveCompanionHtml = useMemo(() => {
-    if (companionHtml) return companionHtml
-    if (!selectedFile || !fileContent.trim()) return null
-    if (!selectedFile.toLowerCase().endsWith(".md") || !isOutlinePath(selectedFile)) return null
-    return renderOutlineHtmlForPath(selectedFile, fileContent)
-  }, [companionHtml, selectedFile, fileContent])
+  const effectiveCompanionHtml = useMemo(() => companionHtml, [companionHtml])
 
   /** 伴生 HTML 的磁盘路径（与上面读它、下面写它必须是同一份推导）。 */
   const companionHtmlPath = useMemo(() => {

@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest"
 import { readFileSync } from "node:fs"
 import { buildSettingProfileOutputRules, SETTING_PROFILE_SECTIONS, type SettingProfileKey } from "./setting-profile-contracts"
 import { parseOutlineSaveRequests } from "./outline-save-request"
@@ -16,12 +16,12 @@ describe("完整设定不必在保存协议里重复第三遍正文",()=>{
    for(const section of SETTING_PROFILE_SECTIONS[key]){expect(prompt).toContain(section.heading);expect(prompt).toContain(section.hint)}
   })
  }
- it("完整MD + 完整能力JSON + 空content仍得到原正文和第二版HTML",()=>{
+ it("完整MD + 完整能力JSON + 空content仍得到原正文（模板已下线，无 HTML）",()=>{
   const md='# 金手指设定：回响\n\n## 能力概述\n- 触发：接触旧物。\n\n## 边界与代价\n- 限制：读取后失去听觉九十息。'
   const profile={goldenFingerProfileData:{name:'回响',tag:'能力',sections:[{kind:'kv',heading:'能力概述',items:[{label:'触发',text:'接触旧物。'}]},{kind:'kv',heading:'边界与代价',items:[{label:'限制',text:'读取后失去听觉九十息。'}]}]}}
   const parsed=parseOutlineSaveRequests(md+'\n\n'+fence(profile)+'\n\n'+fence({outlineSaveRequest:request('金手指-回响')}))
   expect(parsed.errors).toEqual([]);expect(parsed.requests).toHaveLength(1);expect(parsed.requests[0].content).toBe(md)
-  expect(parsed.requests[0].htmlContent).toContain('data-qmai-layout="editorial-v2"');expect(parsed.requests[0].htmlContent).toContain('九十息')
+  expect(parsed.requests[0].htmlContent).toBeUndefined()
  })
  it("只收到半截协议时不能误创建保存请求",()=>{
   expect(parseOutlineSaveRequests('# 金手指\n已收到的内容\n```json\n{"outlineSaveRequest":{"content":"').requests).toEqual([])

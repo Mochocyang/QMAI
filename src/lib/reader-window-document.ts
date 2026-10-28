@@ -14,7 +14,6 @@ import { fileExists, readFile } from "@/commands/fs"
 import { normalizeChapterWriting } from "@/lib/chapter-formatting"
 import { splitChapterHeading } from "@/lib/chapter-selection"
 import { parseFrontmatter } from "@/lib/frontmatter"
-import { renderOutlineHtmlForPath } from "@/lib/novel/outline-save-request"
 import { isChapterPath, normalizePath } from "@/lib/path-utils"
 import type { ReaderWindowKind } from "@/lib/reader-window"
 
@@ -99,7 +98,8 @@ export async function loadReaderDocument(
     const raw = await readDiskDocument(htmlPath)
     if (raw?.trim()) html = raw
   }
-  if (!html) html = renderOutlineHtmlForPath(path, markdown)
+  // 只认磁盘上的伴生 HTML。模板即时渲染管线已删除（用户要求不再套固定格式），
+  // 老文件没有伴生 HTML 时就以 Markdown 呈现，等下次重新生成再拿到 AI 写的网页。
   return { markdown, html, heading: readerDocumentBaseName(path) }
 }
 

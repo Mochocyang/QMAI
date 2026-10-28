@@ -7,11 +7,9 @@ vi.mock("@/commands/fs", () => ({
 }))
 
 vi.mock("@/lib/novel/outline-save-request", () => ({
-  renderOutlineHtmlForPath: vi.fn(() => "<html><body>即时渲染</body></html>"),
 }))
 
 import { fileExists, readFile } from "@/commands/fs"
-import { renderOutlineHtmlForPath } from "@/lib/novel/outline-save-request"
 import {
   companionHtmlPath,
   documentContentMatches,
@@ -27,11 +25,9 @@ const OUTLINE = "C:/书/我的小说/wiki/settings/characters/主角.md"
 
 const mockReadFile = vi.mocked(readFile)
 const mockFileExists = vi.mocked(fileExists)
-const mockRender = vi.mocked(renderOutlineHtmlForPath)
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockRender.mockReturnValue("<html><body>即时渲染</body></html>")
 })
 
 describe("readerDocumentBaseName", () => {
@@ -110,24 +106,22 @@ describe("loadReaderDocument", () => {
       .mockResolvedValueOnce("<html><body>磁盘上的漂亮版本</body></html>") // .html
     const doc = await loadReaderDocument("outline", OUTLINE)
     expect(doc.html).toContain("磁盘上的漂亮版本")
-    expect(mockRender).not.toHaveBeenCalled()
   })
 
-  it("大纲：伴生文件为空时退回即时渲染", async () => {
+  it("大纲：伴生文件为空时没有 html（不再套模板即时渲染）", async () => {
     mockReadFile
       .mockResolvedValueOnce("# 主角\n\n- 性格：倔")
       .mockResolvedValueOnce("   ")
     const doc = await loadReaderDocument("outline", OUTLINE)
-    expect(doc.html).toContain("即时渲染")
-    expect(mockRender).toHaveBeenCalledWith(OUTLINE, expect.any(String))
+    expect(doc.html).toBeNull()
   })
 
-  it("大纲：伴生文件读不出来（编码/占用）也不报错", async () => {
+  it("大纲：伴生文件读不出来（编码/占用）也不报错，html 为空", async () => {
     mockReadFile
       .mockResolvedValueOnce("# 主角")
       .mockRejectedValueOnce(new Error("EBUSY"))
     const doc = await loadReaderDocument("outline", OUTLINE)
-    expect(doc.html).toContain("即时渲染")
+    expect(doc.html).toBeNull()
   })
 
   it("大纲：正文读失败要抛出去，由界面显示错误", async () => {

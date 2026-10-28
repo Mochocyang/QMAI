@@ -36,7 +36,7 @@ description: Use when designing protagonists, heroines, villains, supporting rol
 
 ## 只写 6 个分区（正文由软件从数据生成）
 
-人物小传**只输出结构化数据**，不要手写 MD 正文：软件会把 JSON 一个字段不落地还原成 .md 与角色卡 HTML，模型再写一遍等于让用户为同一份内容付两次钱。
+人物小传**只输出结构化数据**，不要手写 MD 正文：软件会把 JSON 一个字段不落地还原成 .md；网页请你自己写，模型再写一遍等于让用户为同一份内容付两次钱。
 
 只写这 6 个分区，顺序固定，标题一致：
 
@@ -86,7 +86,7 @@ description: Use when designing protagonists, heroines, villains, supporting rol
 
 只输出一个 JSON 围栏：单对象顶层字段 `characterProfileData`，多个对象用 `characterProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。
 
-软件套用 `character-design/profile.html` 渲染角色卡，不要自行输出 HTML/CSS。最后按既有 outlineSaveRequest 协议输出保存请求（`content=""`），只有用户确认后才落盘。
+软件**不再套模板**：请按 `AI_OUTLINE_OUTPUT_PROTOCOL.md` 第 9 节自己写一份完整、自包含、好看的网页（```html 围栏）。最后按既有 outlineSaveRequest 协议输出保存请求（`content=""`），只有用户确认后才落盘。
 
 ## 设定类单对象低重复输出
 

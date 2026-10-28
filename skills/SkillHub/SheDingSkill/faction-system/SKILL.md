@@ -108,7 +108,7 @@ description: Use when designing factions, sects, families, companies, agencies, 
 
 只输出结构化 JSON，不要写 MD 正文。单对象顶层字段 `factionProfileData`，多个对象用 `factionProfiles` 数组；每个对象为 `{name,tag,tagline,sections}`，section 使用 `{kind,heading,items}`（kv 的 items 为 label/text 对象，list 为字符串）或 `{kind:"table",heading,head,rows}`。各分区标题、顺序及内容必须完整，不得缩成摘要。
 
-软件套用 `faction-system/profile.html`，不要自行输出 HTML/CSS。最后按既有 outlineSaveRequest 协议输出保存请求，只有用户确认后才落盘。
+软件**不再套模板**：请按 `AI_OUTLINE_OUTPUT_PROTOCOL.md` 第 9 节自己写一份完整、自包含、好看的网页（```html 围栏）。最后按既有 outlineSaveRequest 协议输出保存请求，只有用户确认后才落盘。
 
 ## 交付前自检
 

@@ -114,33 +114,28 @@ AI 回复中必须包含一个 `outlineSaveRequest` 代码块。八类设定一�
 - 是否引用了题材、大纲/章纲、人物或设定 Skill。
 - 是否符合 `OUTLINE_FOLDER_STORAGE_STANDARD.md` 的目标文件夹规则。
 
-## 9. HTML 版本（系统自动渲染，AI 不要自己写 HTML）
+## 9. HTML 版本（AI 直接写网页，不再套模板）
 
-保存时每个 `.md` 都可以有一份同名 `.html` 伴生文件（自包含、无脚本）。**HTML 由系统套技能目录下的模板渲染，AI 禁止自己写 HTML/CSS/标签**，只需按类型附上结构化数据：
+保存时每个 `.md` 都可以有一份同名 `.html` 伴生文件。**HTML 由你（模型）直接写完整网页**——系统模板已下线：它把内容压成固定卡片流，样式呆板，体验很差，用户明确要求停用。
 
-| 类型 | 结构化数据（```json 围栏顶层字段） | 渲染模板 |
-|---|---|---|
-| 卷纲 | `volumeOutlineData` | `DagangSkill/juangangzhedieshu/template.html`（折叠树） |
-| 章纲 | `chapterOutlineData` / 分批用 `chapterOutlineBatch` | `ZhanggangSkill/zhanggangjiegouhua/template.html`（卡片流） |
-| 人物小传 | `characterProfileData`（多角色用 `characterProfiles`） | `JueseSkill/character-design/profile.html`（角色卡） |
-| 组织势力 | `factionProfileData`（多势力用 `factionProfiles`） | `SheDingSkill/faction-system/profile.html`（势力卡） |
-| 力量体系 | `powerProfileData`（多体系用 `powerProfiles`） | `SheDingSkill/power-system/profile.html`（体系卡：等级阶梯 / 代价矩阵） |
-| 伏笔计划 | `foreshadowingProfileData`（多台账用 `foreshadowingProfiles`） | `SheDingSkill/foreshadowing-suspense/profile.html`（伏笔台账：伏笔线 / 状态徽章） |
-| 金手指 | `goldenFingerProfileData`（多能力用 `goldenFingerProfiles`） | `SheDingSkill/power-system/golden-finger.html`（能力卡：系统面板） |
-| 地理设定 | `geographyProfileData`（多区域用 `geographyProfiles`） | `SheDingSkill/map-progression/profile.html`（地理卡：区域块） |
-| 地点设定 | `locationProfileData`（多地点用 `locationProfiles`） | `SheDingSkill/map-progression/location.html`（地点卡：空间规则 / 触发事件） |
-| 背景设定 | `backgroundProfileData`（多设定用 `backgroundProfiles`） | `SheDingSkill/world-rules/background.html`（背景卡：历史时间线 / 规则块） |
-| 其它未列类型（兜底） | `settingOutlineData` | `SheDingSkill/setting-cards/template.html`（卡片流） |
+硬性要求：
 
-`characterProfileData` / `factionProfileData` / `powerProfileData` / `foreshadowingProfileData` / `goldenFingerProfileData` / `geographyProfileData` / `locationProfileData` / `backgroundProfileData` 结构相同：`{ name, tag, tagline, sections[] }`；每个 section 为 `{ kind: "kv"|"list"|"table", heading, items?/head?+rows? }`（关系网络/出场记录/外部关系/等级阶梯/代价/伏笔状态/已解锁能力/区域划分/重要地点/势力分布/空间规则/可触发事件/历史沿革/核心设定规则用 table）。
+1. **完整文档**：在 ```html 围栏里给出从 `<!DOCTYPE html>` 到 `</html>` 的完整页面；不要只给片段，不要用 Markdown 冒充。
+2. **自包含**：样式全部写在页面内的 `<style>`；**禁止** `<script>`、`on*=` 事件属性、外部字体/图片/CDN、`@import`。离线打开必须完整可用。
+3. **多份文档**：一次保存 N 个文件，就按保存请求顺序给 N 个 ```html 围栏，一一对应。
+4. **必须好看**（这也是本次改动的核心）：
+   - 配色：定义 CSS 变量（1 个主色 + 1–2 个辅助色 + 中性灰阶），不要默认白底黑字；
+   - 层级：`h1` 页头（标题 + 一句话副标题）→ 分区卡片 → 小节，字号/行高/间距成体系（4 或 8 的倍数），正文 `line-height ≥ 1.7`；
+   - 版式：内容用卡片与网格承载（`repeat(auto-fit, minmax(280px, 1fr))`），避免大段纯文字；
+   - 细节：圆角 10–14px、柔和阴影、分区标题带序号或色条；表格有表头底色与斑马纹；关键数值/状态用徽章；
+   - 字体：`font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif`，正文 15–16px，`letter-spacing: .01em`；
+   - 布局：`max-width: 1080px` 居中，窄屏自动单列；页头下方留 32–48px，卡片内边距 20–28px。
+5. **内容一致**：网页必须与同批 `.md` 正文是同一份内容（可以重排版式，不得新增未经确认的设定，也不得漏掉关键条目）。
+6. 系统不再为**任何**类型渲染 HTML：没有 ```html 围栏就没有 `.html`，保存框里的「HTML 形式」会置灰。
 
-> 表格单元格若为常见状态枚举（未埋/已埋/推进中/已回收/已过期、高/中/低、已完成/进行中等），软件会渲染成彩色徽章——请严格使用这些取值。
+结构化数据（`volumeOutlineData` / `chapterOutlineData` / `characterProfileData` / `factionProfileData` / `powerProfileData` / `foreshadowingProfileData` / `goldenFingerProfileData` / `geographyProfileData` / `locationProfileData` / `backgroundProfileData` / `settingOutlineData`）仍照常输出在 ```json 围栏里：后续「从大纲生成章纲/正文」等功能依赖它。它与 HTML 是两件事，两者都要给。
 
-⚠️ 力量体系 / 金手指 / 地理设定 / 地点设定 / 背景设定 共用 `fileType=setting`，软件按 `title → 正文标题 → 文件名 → sourceIntent` 判定子类型后再选模板。
-
-`settingOutlineData` 结构：`{ title, intro, chips[], cards:[{ badge, title, subtitle, tags[], sections:[{ heading, items:[{ label, text }] }] }] }`；每个对象一张 card，写满该分项的分区。若系统未解析到结构化数据，会退回从 `content`（MD 正文）自动解析；八类设定的 `content` 由软件反推，无需模型填写。
-
-保存确认对话框中，勾选「HTML 形式」才会写入 `.html`；未生成 HTML 时该选项不可用。
+保存确认对话框中，勾选「HTML 形式」才会写入 `.html`；未给出网页时该选项不可用。
 
 
 ## 八类详细设定的内容等价要求

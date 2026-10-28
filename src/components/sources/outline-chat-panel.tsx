@@ -171,6 +171,8 @@ import {
   parseOutlineSaveRequests,
   saveOutlineSaveRequests,
   splitConfirmRequiredSaveRequests,
+  extractHtmlBlocks,
+  isCompleteHtmlDocument,
 } from "@/lib/novel/outline-save-request";
 import { pruneVersions, saveVersion } from "@/lib/novel/version-store";
 import {
@@ -202,7 +204,6 @@ import {
 } from "@/lib/novel/setting-outline-template";
 import {
   primeCharacterProfileTemplate,
-  buildCharacterProfileHtmlForDraft,
   extractCharacterProfiles,
 } from "@/lib/novel/character-profile-template";
 import { primeFactionProfileTemplate, extractFactionProfiles } from "@/lib/novel/faction-profile-template";
@@ -1506,23 +1507,20 @@ function buildFallbackCharacterDraftsFromRequests(
 }
 
 /**
- * 给人物草稿补上角色卡 HTML：优先匹配 AI 原文里的 characterProfileData/characterProfiles，
- * 匹配不到再从该草稿自己的 MD 正文解析（多 Agent 只出 MD 的场景）。
- * 这样「人物小传」的结构化契约才真正落到最终保存的 .html 上。
+ * 给人物草稿补上网页 HTML：直接取 AI 原文里的 ```html 围栏（第 N 个草稿配第 N 个围栏）。
+ *
+ * 不再用固定模板渲染角色卡——模板产物样式固定且被用户明确要求停用。
+ * AI 没给网页就不带 htmlContent，保存框里的 HTML 选项会置灰。
  */
 function enrichCharacterDraftsWithHtml(
   drafts: CharacterSaveDraft[],
   sourceText?: string | null,
 ): CharacterSaveDraft[] {
-  const profiles = extractCharacterProfiles(sourceText ?? "");
-  return drafts.map((draft) => {
+  const pages = extractHtmlBlocks(sourceText ?? "").filter(isCompleteHtmlDocument);
+  if (pages.length === 0) return drafts;
+  return drafts.map((draft, index) => {
     if (draft.htmlContent?.trim()) return draft;
-    const htmlContent = buildCharacterProfileHtmlForDraft({
-      name: draft.characterName,
-      content: draft.content,
-      fileName: draft.fileName,
-      profiles,
-    });
+    const htmlContent = pages[index] ?? pages[0];
     return htmlContent ? { ...draft, htmlContent } : draft;
   });
 }

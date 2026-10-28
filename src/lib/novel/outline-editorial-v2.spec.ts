@@ -118,16 +118,15 @@ describe("第二版批准方案：运行时渲染而不是硬编码样稿", () =
     for (const s of ["雾海灯书", "沈砚", "白帆港", "index.html", "http://", "https://"]) expect(html).not.toContain(s)
   })
   it("真正的地理保存链路保留数据并输出可读SVG与图例", () => {
-    const source = "```json\n" + JSON.stringify({geographyProfileData: data()}) + "\n```"
     /*
-     * attachOutlineHtml 的返回值类型跟随入参 T，所以入参必须显式声明成带 htmlContent 的请求形状，
-     * 否则 T 被收窄成字面量本身，读回 htmlContent 会被判成「属性不存在」。
+     * 直接测档案渲染器本身：attachOutlineHtml 已不再套模板（只认 AI 手写的网页），
+     * 但 renderProfileDocumentHtml 仍是档案卡片的实现，SVG / 图例 / 不虚构地图这些
+     * 约束必须继续成立。
      */
-    const request: Pick<OutlineSaveRequest, "fileType" | "fileName" | "content" | "htmlContent"> = {
-      fileType: "setting", fileName: "地理设定-星陨盆地.md", content: "# 地理设定：星陨盆地\n## 区域划分\n北部观测站与南侧营地",
-    }
-    const saved = attachOutlineHtml(request, source)
-    const doc = new JSDOM(saved.htmlContent).window.document
+    const raw = data()
+    const doc = new JSDOM(
+      renderProfileDocumentHtml(normalizeProfileDocument(raw)!, template(), "地理设定"),
+    ).window.document
     expect(doc.querySelector('svg[data-profile-diagram="map"]')).not.toBeNull()
     expect(doc.querySelector('.diagram-legend')?.textContent).toContain("冻土驮道")
     expect(doc.querySelector('.profile-diagram')?.textContent).toContain("步行两日")

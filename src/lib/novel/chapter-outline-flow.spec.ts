@@ -109,8 +109,8 @@ function buildReply(chapterCount = 12, md = CHAPTER_MD): string {
   ].join("\n")
 }
 
-describe("章纲全流程（系统套模板）", () => {
-  it("解析后的 htmlContent 是真正的静态卡片流，不是 json/markdown", () => {
+describe("章纲全流程（模板已下线）", () => {
+  it("解析后不再自带 HTML：模板已下线，只有 AI 写了网页才有 .html", () => {
     const parsed = parseOutlineSaveRequests(buildReply())
     expect(parsed.errors).toEqual([])
     expect(parsed.requests).toHaveLength(1)
@@ -119,27 +119,23 @@ describe("章纲全流程（系统套模板）", () => {
     expect(request.fileType).toBe("chapter-outline")
     /*
      * 模型在这条回复里只写了 4 行（第 1 章、三条要点），而数据有 12 章 × 17 节。
-     * 保留那 4 行等于让另外 11 章从 .md 里消失（.html 始终按数据渲染 12 章），
+     * 保留那 4 行等于让另外 11 章从 .md 里消失，
      * 所以这里以数据为准 —— 正文由 `renderChapterOutlineMarkdown` 反推。
      */
     expect(request.content).toContain("# 故事一 雨夜无我 · 章纲")
     expect(request.content).toContain("## 第 12 章")
     expect(request.content).not.toContain("chapterOutlineData")
 
-    const html = request.htmlContent ?? ""
-    expect(html).toContain("<html")
-    expect(html).toContain("<style")
-    expect(html).toContain("<details")
-    expect(html).not.toContain("<script")
-    expect(html.startsWith("json")).toBe(false)
-    expect(html).not.toContain('"chapterOutlineData"')
+    // 回复里没有 ```html 围栏 → 不生成 HTML（保存框里 HTML 选项置灰）
+    expect(request.htmlContent).toBeUndefined()
   })
 
-  it("渲染出的 HTML 含 12 张章节卡 × 17 节", () => {
-    const request = parseOutlineSaveRequests(buildReply()).requests[0]
-    const html = request.htmlContent ?? ""
-    expect((html.match(/class="cc"/g) ?? []).length).toBe(12)
-    expect((html.match(/class="csec"/g) ?? []).length).toBe(204)
+  it("AI 给了完整网页时，原样挂到章纲保存请求上", () => {
+    const page = "<!DOCTYPE html><html><head><style>body{}</style></head><body><h1>雨夜无我 · 章纲</h1></body></html>"
+    const request = parseOutlineSaveRequests(`${buildReply()}\n\n\`\`\`html\n${page}\n\`\`\``).requests[0]
+    expect(request.htmlContent).toContain("<!DOCTYPE html>")
+    expect(request.htmlContent).toContain("雨夜无我 · 章纲")
+    expect(request.htmlContent).not.toContain("<script")
   })
 
   it("模型只写了 1 节时用数据反推，不让 .md 少 11 章", () => {
@@ -175,7 +171,7 @@ describe("章纲全流程（系统套模板）", () => {
     expect(result.problems.join("\n")).toContain("章节数与故事骨架不一致")
   })
 
-  it("保存时同时落盘 .md 与 .html", async () => {
+  it("没有 AI 网页时只落盘 .md（HTML 选项不可用）", async () => {
     const written: string[] = []
     const parsed = parseOutlineSaveRequests(buildReply())
     const result = await saveOutlineSaveRequests({
@@ -188,10 +184,7 @@ describe("章纲全流程（系统套模板）", () => {
       writeFile: async (path: string) => { written.push(path) },
     })
 
-    expect(result.saved.map((item) => item.fileName)).toEqual([
-      "章纲-第01–12章.md",
-      "章纲-第01–12章.html",
-    ])
-    expect(written).toEqual(["/root/章纲/章纲-第01–12章.md", "/root/章纲/章纲-第01–12章.html"])
+    expect(result.saved.map((item) => item.fileName)).toEqual(["章纲-第01–12章.md"])
+    expect(written).toEqual(["/root/章纲/章纲-第01–12章.md"])
   })
 })

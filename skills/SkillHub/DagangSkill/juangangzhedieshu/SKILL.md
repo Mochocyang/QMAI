@@ -43,10 +43,11 @@ description: 当用户需要生成卷纲、分卷大纲、卷一大纲，或要�
 
 ## 输出规格
 
-**只产出两部分，不要写 MD 正文**（MD 与 HTML 都由软件从数据生成，重复写等于让用户多付一倍钱）：
+**产出三部分，不要写 MD 正文**（MD 由软件从数据生成，重复写等于让用户多付一倍钱）：
 
 1. 一个 ```json 围栏，顶层字段 `volumeOutlineData`；
-2. 一个 `outlineSaveRequest`（`content` 写空字符串 `""`）。
+2. 一个 ```html 围栏：**你自己写的完整网页**（含 `<!DOCTYPE html>` 与内联 `<style>`，无脚本、无外链），要求见 `AI_OUTLINE_OUTPUT_PROTOCOL.md` 第 9 节；
+3. 一个 `outlineSaveRequest`（`content` 写空字符串 `""`）。
 
 ```json
 {
@@ -93,12 +94,13 @@ description: 当用户需要生成卷纲、分卷大纲、卷一大纲，或要�
 }
 ```
 
-**不需要**提供 `htmlContent`（软件套模板渲染折叠树），也**不需要**在 `content` 里重写一遍正文。
+**必须**提供一份 ```html 围栏的完整网页（软件不再套模板渲染，没有网页就保存不了 `.html`）；`content` 仍然写空字符串，不需要重写 MD 正文。
 
 ## 输出顺序
 
 1. ```json 围栏的 `volumeOutlineData`（10 故事 × 10 环节全写满）；
-2. `outlineSaveRequest`。
+2. ```html 围栏的完整网页；
+3. `outlineSaveRequest`。
 
 ## 常见错误
 
@@ -106,4 +108,4 @@ description: 当用户需要生成卷纲、分卷大纲、卷一大纲，或要�
 - 环节不足 10 个，或每环节内容不足 3 条。
 - 每环节内容写成「铺垫 / 推进 / 收束」这类空话，而不是具体事件。
 - 又补了一大段 MD 正文或台账表格（白烧 token，软件不使用）。
-- 自己手写 HTML/CSS/标签。
+- 忘记给 ```html 网页，或网页里放 `<script>` / 外链字体。

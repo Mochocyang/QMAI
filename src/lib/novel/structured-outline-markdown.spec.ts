@@ -100,8 +100,8 @@ describe("八类设定：JSON → MD 端到端", () => {
       expect(content).not.toContain("未定")
       // 4. 空行不成串
       expect(content).not.toMatch(/\n{3,}/)
-      // 5. HTML 也渲染出来了
-      expect(result.requests[0].htmlContent ?? "").toContain("<html")
+      // 5. 模板已下线：AI 没写网页就不生成 HTML（保存在保存框里会置灰）
+      expect(result.requests[0].htmlContent).toBeUndefined()
       // 6. 反推的 MD 能被解析回来（名字/徽章/分区数不漂）
       const parsed = profileDocumentFromMarkdown(content)
       expect(parsed?.name).toBe("对象名")
@@ -447,15 +447,11 @@ describe("八类设定：HTML 走各自的专属模板", () => {
   }
 
   for (const key of Object.keys(OUTPUTS) as SettingProfileKey[]) {
-    it(`${key}：文件名只有对象名时仍是专属模板`, () => {
+    it(`${key}：文件名只有对象名时不再套专属模板（模板已下线）`, () => {
       const result = parseOutlineSaveRequests(replyWithoutKeywords(key))
       expect(result.errors, `${key} errors: ${result.errors.join(" | ")}`).toEqual([])
-      const html = result.requests[0].htmlContent ?? ""
-      expect(html).toContain(EYEBROW[key])
-      // 通用卡片流的页头眉标，出现即说明退化了
-      expect(html).not.toContain("设定 · 卡片流")
-      // 专属模板的档案版式标记
-      expect(html).toContain('class="role"')
+      // AI 回复里没有 ```html 网页，就不该凭空生成一份模板 HTML
+      expect(result.requests[0].htmlContent).toBeUndefined()
     })
   }
 
@@ -482,10 +478,9 @@ describe("八类设定：HTML 走各自的专属模板", () => {
     expect(result.errors).toEqual([])
     const power = result.requests.find((item) => item.fileName === "九转玄功.md")
     const location = result.requests.find((item) => item.fileName === "竹屋.md")
-    expect(power?.htmlContent).toContain("力量体系 · 体系卡")
-    expect(power?.htmlContent).not.toContain("地点设定")
-    expect(location?.htmlContent).toContain("地点设定 · 地点卡")
-    expect(location?.htmlContent).not.toContain("力量体系")
+    // 模板已下线：没有 AI 网页就没有 HTML；这里只保证两份数据各自归档到正确的请求上
+    expect(power?.htmlContent).toBeUndefined()
+    expect(location?.htmlContent).toBeUndefined()
     /*
      * .md 必须与 .html 同源。
      * 曾经只断言 HTML：`竹屋.md` 的正文其实被按背景反推成 `# 北境`，而 .html 是地点卡 ——
@@ -519,9 +514,7 @@ describe("八类设定：HTML 走各自的专属模板", () => {
     expect(result.errors).toEqual([])
     const background = result.requests.find((item) => item.fileName === "北境.md")
     const geography = result.requests.find((item) => item.fileName === "北境地理.md")
-    expect(background?.htmlContent).toContain("背景设定 · 背景卡")
-    expect(geography?.htmlContent).toContain("地理设定 · 地理卡")
-    expect(geography?.htmlContent).not.toContain("背景设定")
+    // 模板已下线；关键是两份内容不串档
     expect(background?.content).toContain("# 北境")
     expect(geography?.content).toContain("# 北境地理")
     expect(geography?.content, "地理正文不能拿背景的文档顶替").not.toMatch(/^# 北境（/m)
