@@ -54,30 +54,41 @@ function messageContentText(content: AgentMessage["content"]): string {
   return content.filter((block) => block.type === "text").map((block) => block.text).join("")
 }
 
+/** 内置工具的老路径：从 `ToolParameter` 映射拼 inputSchema。 */
+function inputSchemaFromToolParameters(
+  parameters: AgentConfig["tools"][number]["parameters"],
+): Record<string, unknown> {
+  const properties: Record<string, unknown> = {}
+  const required: string[] = []
+  for (const [name, parameter] of Object.entries(parameters)) {
+    properties[name] = {
+      type: parameter.type,
+      description: parameter.description,
+      ...(parameter.enum?.length ? { enum: parameter.enum } : {}),
+    }
+    if (parameter.required) required.push(name)
+  }
+  return {
+    type: "object",
+    properties,
+    required,
+    additionalProperties: false,
+  }
+}
+
 function toDynamicTools(config: AgentConfig): Array<Record<string, unknown>> {
-  return config.tools.map((tool) => {
-    const properties: Record<string, unknown> = {}
-    const required: string[] = []
-    for (const [name, parameter] of Object.entries(tool.parameters)) {
-      properties[name] = {
-        type: parameter.type,
-        description: parameter.description,
-        ...(parameter.enum?.length ? { enum: parameter.enum } : {}),
-      }
-      if (parameter.required) required.push(name)
-    }
-    return {
-      type: "function",
-      name: tool.name,
-      description: tool.description,
-      inputSchema: {
-        type: "object",
-        properties,
-        required,
-        additionalProperties: false,
-      },
-    }
-  })
+  return config.tools.map((tool) => ({
+    type: "function",
+    name: tool.name,
+    description: tool.description,
+    /*
+     * 插件工具带 `inputSchema`（插件原样透传的 JSON Schema）时原样透传：
+     * ToolParameter 表达不了嵌套结构，从 parameters 反拼会丢掉嵌套、required 等关键字，
+     * 模型拿到的契约就和插件实际校验的对不上。
+     * 内置工具没有这个字段，仍走 inputSchemaFromToolParameters，输出逐字不变。
+     */
+    inputSchema: tool.inputSchema ?? inputSchemaFromToolParameters(tool.parameters),
+  }))
 }
 
 function toLlmUsage(value: Record<string, unknown> | undefined): LlmUsage | undefined {

@@ -26,7 +26,27 @@ export interface PluginToolDescriptor {
   pluginId: string
   name: string
   description: string
-  parameters: Record<string, ToolParameter>
+  /** 宿主内部参数映射（若给了就用它；缺省时由 inputSchema 转换而来） */
+  parameters?: Record<string, ToolParameter>
+  /** 插件原样透传的 JSON Schema（优先用它做无损序列化，见 `Tool.inputSchema`） */
+  inputSchema?: unknown
+}
+
+/**
+ * `plugins_tools()` 的原始返回项。
+ *
+ * 字段名历史（重要，别「顺手统一」掉）：Rust 侧这个字段叫 `parameters`，但
+ * `describe_tool` 装进去的是 `decl.input_schema`，也就是插件 `tools/list` 报上来的
+ * **inputSchema 原文**（`{type:"object", properties, required}`），不是宿主内部的
+ * `{参数名: ToolParameter}` 映射。为了 Rust 零改动，前端在这里显式承认这个错位：
+ * 读到 `parameters` 就当成 `inputSchema`，再由 `tool-sync` 顺手算出映射形状。
+ */
+export interface PluginToolWireDescriptor {
+  pluginId: string
+  name: string
+  description: string
+  /** 实际内容是 inputSchema（JSON Schema 原文），见上面字段名历史 */
+  parameters?: unknown
 }
 
 /** 调用插件工具：返回文本结果 */

@@ -12,6 +12,7 @@ import { loadChatHistory, saveChatHistory } from "@/lib/persist"
 import { normalizePath } from "@/lib/path-utils"
 import { useChatStore, type Conversation, type DisplayMessage } from "@/stores/chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
+import { getPluginToolDescriptors, invokePluginToolViaTauri } from "@/lib/plugins/tool-sync"
 import type { ConversationRunStates } from "@/lib/conversation-run-state"
 import type { AgentActivityEvent, AgentToolEvent } from "@/lib/agent/types"
 import { isWritingStopped, STOPPED_GENERATION_TEXT, writingRunRegistry } from "./stop-writing"
@@ -96,6 +97,14 @@ async function runDefaultSession(ctx: WritingSessionContext): Promise<string> {
     getChatConversations: () => [],
     getOutlineConversations: () => [],
     disabledTools: ["write_chapter", "write_outline_node", "write_memory"],
+    /*
+     * 这条路径也在 WebView 里跑：`src/lib/mcp/host.ts` 用 Tauri 的 `listen("mcp-request")`
+     * 接外部 MCP 请求，再调 `handleMcpToolCall → runWritingConversation`，与界面同进程同
+     * store，所以插件工具一样能接。缓存读取本身不会抛（未同步过就是空数组），
+     * invoke 只在模型真的调用工具时才走 Tauri。
+     */
+    pluginTools: getPluginToolDescriptors(),
+    invokePluginTool: invokePluginToolViaTauri(),
     runDeepChapterGeneration,
   })
   const prePlugin = await runNovelPrePluginChain({

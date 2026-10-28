@@ -280,6 +280,7 @@ import {
 } from "@/lib/thought-dump";
 import { ToolRegistry } from "@/lib/agent/registry";
 import { buildAgentConfig, isFunctionCallingEnabled, modelSupportsTools } from "@/lib/agent/config";
+import { getPluginToolDescriptors, invokePluginToolViaTauri } from "@/lib/plugins/tool-sync";
 import type { AgentConfig, AgentMessage, AgentRunRecord } from "@/lib/agent/types";
 import {
   applyAgentToolEvent,
@@ -3821,6 +3822,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 contextDecision.disabledTools,
                 (skillNames?.length ?? 0) > 0 ? ["apply_skill"] : [],
               ),
+              // 运行时同步来的插件工具：不传这两个键，模型完全不知道插件工具存在。
+              // 这里读的是同步缓存（buildAgentConfig 是同步函数），点击发送时取最新值。
+              pluginTools: getPluginToolDescriptors(),
+              invokePluginTool: invokePluginToolViaTauri(),
               ...(contextHubResult
                 ? { readTextFile: contextHubResult.readFile }
                 : {}),
@@ -5505,6 +5510,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             getOutlineConversations: () => mapOutlineConversationsForModel(useOutlineChatStore.getState().conversations),
             llmConfig: effectiveLlmConfig,
             disabledTools: disableWriteTools ? OUTLINE_CHAT_DISABLED_TOOLS : [],
+            // 恢复运行也一样要接插件工具，否则「续跑」这个入口的模型看不到它们。
+            pluginTools: getPluginToolDescriptors(),
+            invokePluginTool: invokePluginToolViaTauri(),
             ...(contextHubResult
               ? { readTextFile: contextHubResult.readFile }
               : {}),
@@ -6241,6 +6249,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               OUTLINE_CHAT_DISABLED_TOOLS,
               regenerationSkillNames.length > 0 ? ["apply_skill"] : [],
             ),
+            pluginTools: getPluginToolDescriptors(),
+            invokePluginTool: invokePluginToolViaTauri(),
             ...(contextHubResult
               ? { readTextFile: contextHubResult.readFile }
               : {}),

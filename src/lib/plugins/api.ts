@@ -3,7 +3,7 @@ import type {
   PluginProviderModel,
   PluginProviderView,
   PluginSummary,
-  PluginToolDescriptor,
+  PluginToolWireDescriptor,
 } from "./types"
 
 /**
@@ -21,7 +21,8 @@ export const pluginsApi = {
   disable: (id: string) => invoke<void>("plugins_disable", { id }),
   uninstall: (id: string, deleteData: boolean) =>
     invoke<void>("plugins_uninstall", { id, deleteData }),
-  tools: () => invoke<PluginToolDescriptor[]>("plugins_tools"),
+  // 注意：Rust 的 `parameters` 字段装的是 inputSchema 原文，见 PluginToolWireDescriptor。
+  tools: () => invoke<PluginToolWireDescriptor[]>("plugins_tools"),
   invokeTool: (pluginId: string, toolName: string, args: Record<string, unknown>) =>
     invoke<string>("plugins_invoke_tool", { pluginId, toolName, arguments: args }),
   // provider：列表不含 token；token 只有 providerAuth 能取到（不落盘，见 v2.0 计划第 0 节）。

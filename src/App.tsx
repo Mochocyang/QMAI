@@ -42,6 +42,7 @@ import { MemoryMaintenanceReminder } from "@/components/novel/memory-maintenance
 import { AnnouncementDialog } from "@/components/announcements/announcement-dialog"
 import { useAnnouncementStore } from "@/stores/announcement-store"
 import { syncPluginProviders } from "@/lib/plugins/provider-sync"
+import { syncPluginTools } from "@/lib/plugins/tool-sync"
 
 function App() {
   useEnsureAiChatModel()
@@ -511,8 +512,15 @@ function App() {
          *
          * 失败只 warn，绝不阻断启动：插件系统坏了（命令缺失、Rust 侧异常）不该让
          * 用户连项目都打不开 —— 那属于「一个扩展不可用」，不是「应用起不来」。
+         *
+         * 工具与 provider 一起同步：插件工具不进 providerConfigs，而是进
+         * `tool-sync` 的模块级快照，`buildAgentConfig` 同步读它。少了这一步，
+         * 「插件装了、运行中，模型却不知道有这个工具」—— 正是用户踩到的那个 bug。
          */
         try {
+          // 工具先同步：`syncPluginTools` 内部自己吞错（失败保留旧缓存），绝不会抛，
+          // 所以即使 provider 同步失败，工具也不会被跳过。
+          await syncPluginTools()
           await syncPluginProviders()
         } catch (error) {
           console.warn("[plugins] 同步插件 provider 失败：", error)

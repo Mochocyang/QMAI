@@ -37,6 +37,7 @@ import { resolveCodexSpeedMode } from "@/lib/codex-cli-speed"
 import { AddWorkbuddyAccountDialog } from "./add-workbuddy-account-dialog"
 import { buildWorkbuddyCard, disableWorkbuddyCard } from "@/lib/workbuddy-card"
 import { getPluginProviderViews, subscribePluginProviderViews, syncPluginProviders } from "@/lib/plugins/provider-sync"
+import { syncPluginTools } from "@/lib/plugins/tool-sync"
 import { PluginProviderCard, toPluginProviderPreset } from "./plugin-provider-card"
 
 const UI_TEST_PROVIDER_HINTS: Record<string, string> = {
@@ -119,6 +120,11 @@ export function LlmProviderSection() {
     if (!isTauri()) return
     void syncPluginProviders().catch((cause: unknown) => {
       console.warn("[plugins] 模型设置页同步 provider 失败：", cause)
+    })
+    // 工具也要在这里补一次：启动那次同步同样可能和插件自动拉起抢跑，
+    // 抢输了聊天页就拿着空快照构建 config，模型看不到插件工具。
+    void syncPluginTools().catch((cause: unknown) => {
+      console.warn("[plugins] 模型设置页同步工具失败：", cause)
     })
   }, [])
 

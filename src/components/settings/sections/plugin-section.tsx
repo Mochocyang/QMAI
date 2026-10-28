@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label"
 import { pluginsApi } from "@/lib/plugins/api"
 import { clearPluginProviderAuth } from "@/lib/plugins/provider-auth"
 import { syncPluginProviders } from "@/lib/plugins/provider-sync"
+import { syncPluginTools } from "@/lib/plugins/tool-sync"
 import type { PluginSummary } from "@/lib/plugins/types"
 import { isTauri } from "@/lib/platform"
 import { toast } from "@/lib/toast"
@@ -196,17 +197,26 @@ export function PluginSection() {
   }
 
   /**
-   * 启停/卸载后把插件 provider 重新同步进 `providerConfigs`。
+   * 启停/卸载后把插件 provider 重新同步进 `providerConfigs`，并同步工具描述符。
    *
    * 为什么失败只 warn：插件确实已经启停成功，只是模型列表没刷新。把整条操作
    * 报成失败会让用户以为插件没停掉，反而去做更激进的操作（卸载/重装）。
    * 设置页模型卡片上的「刷新模型」是补救入口。
+   *
+   * 工具同步与 provider 同步并列（不是二选一）：一个纯工具插件根本不贡献 provider，
+   * 不同步工具就等于「启用成功但模型永远看不到它」。
    */
   async function resyncPluginProviders(action: string) {
     try {
       await syncPluginProviders()
     } catch (cause) {
       console.warn(`[plugins] 插件${action}后同步 provider 失败：`, cause)
+    }
+    // 独立 try：provider 同步失败不能连带跳过工具同步（反之 syncPluginTools 内部自己吞错）。
+    try {
+      await syncPluginTools()
+    } catch (cause) {
+      console.warn(`[plugins] 插件${action}后同步工具失败：`, cause)
     }
   }
 

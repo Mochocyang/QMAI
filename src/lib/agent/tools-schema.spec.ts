@@ -61,4 +61,72 @@ describe("toOpenAITools", () => {
     const modeProp = result[0].function.parameters.properties.mode as { enum?: string[] }
     expect(modeProp.enum).toEqual(["a", "b"])
   })
+
+  /*
+   * 插件工具的 parameters 是**原始 JSON Schema**（ToolParameter 表达不了嵌套结构）。
+   * 若仍按 Object.entries(tool.parameters) 拼装，模型会看到 type/properties/required
+   * 三个假参数 —— 这正是本文件新增 inputSchema 分支要避免的。
+   */
+  it("passes a plugin's inputSchema through verbatim", () => {
+    const inputSchema = {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "正文" },
+        options: {
+          type: "object",
+          properties: { mode: { type: "string" } },
+          required: ["mode"],
+        },
+      },
+      required: ["text"],
+      additionalProperties: false,
+    }
+    const tool: Tool = {
+      name: "chapter_metrics__analyze_chapter_text",
+      description: "分析",
+      category: "action",
+      parameters: { text: { type: "string", description: "正文", required: true } },
+      inputSchema,
+      execute: async () => "",
+    }
+
+    const result = toOpenAITools([tool])
+
+    expect(result[0].function.parameters).toEqual(inputSchema)
+    // 键名必须是插件自己的参数名，而不是 "type"/"properties"/"required"
+    expect(Object.keys(result[0].function.parameters.properties)).toEqual(["text", "options"])
+  })
+
+  it("keeps the legacy output for built-in tools without inputSchema", () => {
+    const tool: Tool = {
+      name: "write_chapter",
+      description: "写章节",
+      category: "write",
+      parameters: {
+        content: { type: "string", description: "正文", required: true },
+        mode: { type: "string", description: "模式", enum: ["a", "b"] },
+      },
+      execute: async () => "",
+    }
+
+    const result = toOpenAITools([tool])
+
+    expect(result).toEqual([
+      {
+        type: "function",
+        function: {
+          name: "write_chapter",
+          description: "写章节",
+          parameters: {
+            type: "object",
+            properties: {
+              content: { type: "string", description: "正文" },
+              mode: { type: "string", description: "模式", enum: ["a", "b"] },
+            },
+            required: ["content"],
+          },
+        },
+      },
+    ])
+  })
 })
