@@ -438,21 +438,145 @@ mod tests {
     }
 
     /// 一个只回固定 JSON 的假 token 端点（不联网，跑得快）。
-    fn spawn_fake_token_server(body: &'static str) -> u16 {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        std::thread::spawn(move || {
-            if let Ok((mut stream, _)) = listener.accept() {
-                let mut buffer = [0u8; 4096];
-                let _ = stream.read(&mut buffer);
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                    body.as_bytes().len()
-                );
-                let _ = stream.write_all(response.as_bytes());
+    ///
+    /// 它必须是个**合格**的 HTTP 服务器，不能「accept 一次、read 一次就回包并 drop」：
+    /// 请求的 header 与 body 常常分成两个 TCP 段，body 还没被读走就 closesocket，
+    /// Windows 会回 RST（10053），客户端在 `.json()` 处报成
+    /// "error decoding response body" —— 与业务无关，纯测试脚手架缺陷。
+    /// （实测：把请求头/体分开 40ms 发，旧实现读到 10053、0 字节；全量并行跑时
+    /// 这条用例约每十次挂一次，单跑 5/5 通过。）
+    ///
+    /// 线程靠 `stop` 信号退出：测试结束（`Drop`）置位，线程最多再睡 10ms 就返回，
+    /// 不会留下一个永远 accept 的线程把测试拖住。
+    struct FakeTokenServer {
+        port: u16,
+        stop: Arc<AtomicBool>,
+        handle: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl FakeTokenServer {
+        fn spawn(body: &'static str) -> Self {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).expect("绑定假 token 端点");
+            let port = listener.local_addr().expect("读取假 token 端点端口").port();
+            // 非阻塞只为让 accept 能定期检查 stop；单个连接内部再切回阻塞 + 读超时。
+            listener
+                .set_nonblocking(true)
+                .expect("假 token 端点设为非阻塞");
+            let stop = Arc::new(AtomicBool::new(false));
+            let signal = Arc::clone(&stop);
+            let handle = std::thread::spawn(move || {
+                while !signal.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            // Windows 上 accept 出来的 socket 会继承 listener 的非阻塞模式；
+                            // 不显式切回阻塞的话第一次 read 立刻 WouldBlock，等于没读请求。
+                            let _ = stream.set_nonblocking(false);
+                            read_request_fully(&mut stream);
+                            respond_and_close(&mut stream, body);
+                        }
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                        // listener 已不可用（理论上不会）：退出，别空转
+                        Err(_) => break,
+                    }
+                }
+            });
+            Self {
+                port,
+                stop,
+                handle: Some(handle),
             }
-        });
-        port
+        }
+
+        fn port(&self) -> u16 {
+            self.port
+        }
+    }
+
+    impl Drop for FakeTokenServer {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            if let Some(handle) = self.handle.take() {
+                // 此刻线程要么在 sleep(10ms)、要么刚处理完一个连接，join 不会久等。
+                let _ = handle.join();
+            }
+        }
+    }
+
+    /// 按 `Content-Length` 把请求读干净（没有该头时，200ms 空闲即认为读完）。
+    ///
+    /// 「读干净」是这个假服务器的核心职责：只要还有没读走的请求字节就关闭连接，
+    /// Windows 就会 RST 掉还没被客户端读完的响应。
+    fn read_request_fully(stream: &mut TcpStream) {
+        let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut chunk = [0u8; 1024];
+        let mut idle_timeouts = 0u32;
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => break, // 对端关了写方向
+                Ok(read) => {
+                    idle_timeouts = 0;
+                    buffer.extend_from_slice(&chunk[..read]);
+                    if let Some(need) = request_len(&buffer) {
+                        if buffer.len() >= need {
+                            break;
+                        }
+                    }
+                }
+                Err(error) if is_timeout(&error) => {
+                    // 已经知道还差多少 body，就多等一会儿（满载下 body 可能被拖到 200ms 之后）；
+                    // 不知道要等多少（没有 Content-Length）时，200ms 空闲就算请求结束。
+                    let waiting_for_body = request_len(&buffer)
+                        .map(|need| buffer.len() < need)
+                        .unwrap_or(false);
+                    idle_timeouts += 1;
+                    if !waiting_for_body || idle_timeouts >= 15 {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    }
+
+    /// 请求总长（header 结束位置 + 声明的 body 长度）。
+    /// header 还没读完、或没有 `Content-Length` 时返回 `None`。
+    fn request_len(buffer: &[u8]) -> Option<usize> {
+        let end = buffer
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")?
+            + 4;
+        let header = String::from_utf8_lossy(&buffer[..end]);
+        let length = header.split("\r\n").find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            if name.eq_ignore_ascii_case("content-length") {
+                value.trim().parse::<usize>().ok()
+            } else {
+                None
+            }
+        })?;
+        Some(end + length)
+    }
+
+    fn is_timeout(error: &std::io::Error) -> bool {
+        matches!(
+            error.kind(),
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+        )
+    }
+
+    /// 回包并优雅收尾：先关写方向让客户端读到干净的 EOF，再 drop —— 不靠 RST 结束连接。
+    fn respond_and_close(stream: &mut TcpStream, body: &str) {
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.as_bytes().len()
+        );
+        if stream.write_all(response.as_bytes()).is_ok() {
+            let _ = stream.flush();
+        }
+        let _ = stream.shutdown(std::net::Shutdown::Write);
     }
 
     #[test]
@@ -462,10 +586,13 @@ mod tests {
         let port = probe.local_addr().unwrap().port();
         drop(probe);
 
-        let token_port = spawn_fake_token_server(
+        let token_server = FakeTokenServer::spawn(
             r#"{"access_token":"token-from-fake","expires_in":3600,"refresh_token":"r1","scope":"basic netdisk"}"#,
         );
-        let endpoint = format!("http://127.0.0.1:{token_port}/oauth/2.0/token");
+        let endpoint = format!(
+            "http://127.0.0.1:{}/oauth/2.0/token",
+            token_server.port()
+        );
 
         let cancel = Arc::new(AtomicBool::new(false));
         let (sender, receiver) = std::sync::mpsc::channel();
@@ -513,8 +640,12 @@ mod tests {
 
     #[test]
     fn token_endpoint_errors_are_mapped_to_codes() {
-        let port = spawn_fake_token_server(r#"{"error":"invalid_grant","error_description":"expired"}"#);
-        let endpoint = format!("http://127.0.0.1:{port}/oauth/2.0/token");
+        let token_server =
+            FakeTokenServer::spawn(r#"{"error":"invalid_grant","error_description":"expired"}"#);
+        let endpoint = format!(
+            "http://127.0.0.1:{}/oauth/2.0/token",
+            token_server.port()
+        );
         let error = exchange_code_at(&app(), "code", CALLBACK_PORT, &endpoint).unwrap_err();
         assert_eq!(error, "auth.revoked");
     }
