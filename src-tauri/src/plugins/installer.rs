@@ -180,12 +180,11 @@ pub fn is_safe_entry(name: &str) -> Option<PathBuf> {
     }
 }
 
-/// 解压到 dest：逐条目校验路径、拒绝符号链接、累加大小
+/// 解压到 dest：逐条目校验路径、拒绝符号链接、读取侧硬限大小
 pub fn extract_zip(bytes: &[u8], dest: &Path) -> Result<(), String> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
         .map_err(|e| format!("插件包不是有效的 zip：{e}"))?;
-    // 按条目声明的大小累加，而不是边写边看写出去多少：
-    // 声明的大小足够判定解压炸弹，且能在真正往磁盘写之前就拒绝
+    // 累加的是「真正读出来的字节数」，而不是中央目录声明的大小（后者可被少报）
     let mut total: u64 = 0;
     for i in 0..archive.len() {
         let mut file = archive
@@ -196,31 +195,44 @@ pub fn extract_zip(bytes: &[u8], dest: &Path) -> Result<(), String> {
         if file.is_dir() {
             continue;
         }
+        // 先把名字克隆出来：下面要用可变借用去读内容，借用期间不能再调 file.name()
+        let name = file.name().to_string();
         // 符号链接必须最先拒：它的内容是一段指向包外的路径，落盘后就被当成普通文件，
         // 后续任何「路径校验」都看不见它，等于允许往任意位置写
-        if let Some(mode) = file.unix_mode() {
-            if mode & 0o170000 == 0o120000 {
-                return Err(format!("插件包含符号链接，已拒绝：{}", file.name()));
-            }
+        if file.is_symlink() {
+            return Err(format!("插件包含符号链接，已拒绝：{name}"));
         }
-        let rel = is_safe_entry(file.name())
-            .ok_or_else(|| format!("插件包包含不安全路径：{}", file.name()))?;
-        total = total.saturating_add(file.size());
-        if total > MAX_UNPACKED_BYTES {
+        let rel = is_safe_entry(&name).ok_or_else(|| format!("插件包包含不安全路径：{name}"))?;
+        let out_path = dest.join(&rel);
+
+        // 不能只信中央目录声明的 size：它可被少报，从而绕过上限把 8MB 的包膨胀到 GB 级
+        // （deflate 极限约 1032:1，而 CRC 是读完才校验的）。用 take 在读取侧硬限。
+        let remaining = MAX_UNPACKED_BYTES.saturating_sub(total);
+        let mut buf = Vec::new();
+        (&mut file)
+            .take(remaining + 1)
+            .read_to_end(&mut buf)
+            .map_err(|e| format!("解压 {name} 失败：{e}"))?;
+        let actual = buf.len() as u64;
+        if actual > remaining {
             return Err(format!(
-                "插件包解压后超过 {} MB 上限",
+                "解压后超过 {} MB 上限",
                 MAX_UNPACKED_BYTES / 1024 / 1024
             ));
         }
-        let out_path = dest.join(&rel);
+        if actual != file.size() {
+            // 声明值与实际不一致 → 包被篡改或畸形的可能性很高，直接拒
+            return Err(format!(
+                "条目 {name} 声明大小 {} 与实际 {actual} 不一致",
+                file.size()
+            ));
+        }
+        total += actual;
+
         if let Some(parent) = out_path.parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("创建目录 {} 失败：{e}", parent.display()))?;
         }
-        // 容量按声明大小预留：上面已经确认它没超过上限，所以不会成为内存放大器
-        let mut buf = Vec::with_capacity(file.size() as usize);
-        file.read_to_end(&mut buf)
-            .map_err(|e| format!("读取条目 {} 失败：{e}", file.name()))?;
         std::fs::write(&out_path, &buf)
             .map_err(|e| format!("写入 {} 失败：{e}", out_path.display()))?;
     }
@@ -267,6 +279,12 @@ pub async fn download(client: &reqwest::Client, urls: &[String]) -> Result<Vec<u
                 MAX_ZIP_BYTES / 1024 / 1024
             ));
         }
+        // 代理对私有库/限流/ref 不存在常返回 200 + HTML 错误页。
+        // 只按状态码判成功会让剩下几个候选一次都不试，用户只看到「不是有效 zip」。
+        if !bytes.starts_with(b"PK\x03\x04") {
+            last = format!("{url} → 响应不是 zip（可能被代理替换成错误页）");
+            continue;
+        }
         return Ok(bytes.to_vec());
     }
     Err(format!("所有下载通道均失败，最后一次：{last}"))
@@ -280,6 +298,8 @@ pub struct InstallOutcome {
     /// 安装时钉住的 ref（分支/tag）。注意：这不是 commit SHA —— 见 install() 的注释。
     pub git_ref: String,
     pub zip_sha256: String,
+    /// 已发布到的最终目录。注册表写失败时调用方据此回滚（remove_dir_all）。
+    pub target: PathBuf,
 }
 
 /// 完整安装：下载 → 解压到 staging → 剥掉 GitHub zip 的顶层目录 → 读清单 → 原子发布
@@ -287,6 +307,9 @@ pub async fn install(root: &Path, raw_source: &str) -> Result<InstallOutcome, St
     let spec = parse_source(raw_source)?;
     let client = reqwest::Client::builder()
         .user_agent("qmai-plugin-installer")
+        // 不设总超时的话，一条卡住的代理通道会让「安装」永久挂着，用户既没进度也没法取消
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(60))
         .build()
         .map_err(|e| e.to_string())?;
     let urls = download_urls(&spec.owner, &spec.repo, &spec.git_ref);
@@ -307,8 +330,7 @@ pub async fn install(root: &Path, raw_source: &str) -> Result<InstallOutcome, St
         extract_zip(&bytes, &staging)?;
         // GitHub 的 zip 里有一层 `repo-ref/` 顶层目录，剥掉它，
         // 发布出去的插件目录里才是 `plugin.json` 直接在根上（supervisor/registry 都这么假设）
-        let payload = single_top_level_dir(&staging)
-            .ok_or_else(|| "插件包内应只有一个顶层目录".to_string())?;
+        let payload = single_top_level_dir(&staging)?;
         let raw = std::fs::read_to_string(payload.join("plugin.json"))
             .map_err(|_| "插件包根目录缺少 plugin.json".to_string())?;
         let manifest = super::manifest::PluginManifest::parse(&raw)
@@ -330,29 +352,36 @@ pub async fn install(root: &Path, raw_source: &str) -> Result<InstallOutcome, St
             // 责任归属仍可追溯（repo + ref + zip 的 sha256）。
             git_ref: spec.git_ref.clone(),
             zip_sha256: hash,
+            target: target.clone(),
         })
     })();
 
-    // 无论成败都清掉暂存目录，不留半成品
-    let _ = std::fs::remove_dir_all(&staging);
+    // 无论成败都清掉暂存目录，不留半成品。清理失败要留痕：
+    // Windows 上杀毒软件可能短暂占用刚写入的文件，静默失败会让 staging 越堆越多。
+    if let Err(e) = std::fs::remove_dir_all(&staging) {
+        eprintln!("清理插件暂存目录失败 {}：{e}", staging.display());
+    }
     result
 }
 
 /// 恰好一个子目录才返回它。GitHub archive zip 的固定形状是 `repo-ref/…`；
 /// 多于一个或零个说明不是 GitHub archive（或是被人为拼装的包），不猜，直接失败。
-fn single_top_level_dir(dir: &Path) -> Option<PathBuf> {
+/// IO 错误如实上报，不与「形状不对」混为一谈。
+fn single_top_level_dir(dir: &Path) -> Result<PathBuf, String> {
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| format!("读取插件暂存目录 {} 失败：{e}", dir.display()))?;
     let mut found: Option<PathBuf> = None;
-    for entry in std::fs::read_dir(dir).ok()? {
-        let path = entry.ok()?.path();
-        if !path.is_dir() {
-            return None;
-        }
-        if found.is_some() {
-            return None;
+    for entry in entries {
+        let path = entry
+            .map_err(|e| format!("读取插件暂存目录 {} 条目失败：{e}", dir.display()))?
+            .path();
+        // 顶层出现普通文件，或第二个目录：都不是 GitHub archive 的形状
+        if !path.is_dir() || found.is_some() {
+            return Err("插件包内应只有一个顶层目录".to_string());
         }
         found = Some(path);
     }
-    found
+    found.ok_or_else(|| "插件包内应只有一个顶层目录".to_string())
 }
 
 #[cfg(test)]
@@ -424,6 +453,12 @@ mod tests {
         assert!(urls.iter().any(|u| u.contains("/refs/tags/main")));
         assert!(urls.iter().any(|u| u.contains("codeload.github.com")));
         assert!(urls.iter().all(|u| u.contains("/owner/repo/")));
+        // 钉死形状：codeload 是 /zip/refs/<kind>/<ref>，没有 /archive/、没有 .zip 后缀。
+        // 只靠 contains 的话，把 codeload 改成 `/archive/...zip` 仍然会绿。
+        assert_eq!(
+            urls[4],
+            "https://codeload.github.com/owner/repo/zip/refs/heads/main"
+        );
 
         let tag_urls = download_urls("owner", "repo", "v1.2.0");
         // 版本号 → tags 先试，避免必然 404 的 heads 抢在最前
@@ -485,6 +520,17 @@ mod tests {
         w.finish().expect("造包：finish").into_inner()
     }
 
+    /// 把中央目录里「解压后大小」字段改成更小的值，模拟恶意包少报大小。
+    /// 中央目录头布局固定：偏移 24..28 是 uncompressed size（小端）。
+    fn underreport_central_size(bytes: &mut [u8], declared: u32) {
+        // 中央目录在文件末尾（无注释），从后往前找第一条就是唯一的条目头
+        let cd = bytes
+            .windows(4)
+            .rposition(|w| w == b"PK\x01\x02")
+            .expect("造包：找不到中央目录头");
+        bytes[cd + 24..cd + 28].copy_from_slice(&declared.to_le_bytes());
+    }
+
     #[test]
     fn extract_rejects_path_traversal_entries() {
         let dest = temp_dir("traversal");
@@ -516,7 +562,7 @@ mod tests {
         use std::io::Write;
         let dest = temp_dir("oversize");
         // 65 MB 全零：deflate 对全零压得极狠，造出来的包只有几十 KB，既不慢也不占盘。
-        // extract_zip 在读完内容之前就按条目声明的大小累加判限，所以磁盘上不会出现 65 MB。
+        // extract_zip 在读取侧硬限大小（不信任声明值），所以磁盘上不会出现 65 MB。
         let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         let opts = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
@@ -538,6 +584,63 @@ mod tests {
             !dest.join("repo-main/big.bin").exists(),
             "超限条目不该落盘"
         );
+        let _ = std::fs::remove_dir_all(&dest);
+    }
+
+    #[test]
+    fn extract_rejects_entry_whose_declared_size_is_underreported() {
+        use std::io::Write;
+        let dest = temp_dir("underreported");
+        // 真内容 65 MB，中央目录只声明 100 字节：这正是「少报 size 绕过 64 MB 累加」的攻击形态。
+        // 旧实现按声明值累加会直接放行，解开 65 MB 落盘；新实现必须在读取侧就拒绝。
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        w.start_file("repo-main/big.bin", opts)
+            .expect("造包：start_file");
+        let chunk = vec![0u8; 1024 * 1024];
+        for _ in 0..65 {
+            w.write_all(&chunk).expect("造包：写大文件");
+        }
+        let mut bytes = w.finish().expect("造包：finish").into_inner();
+        underreport_central_size(&mut bytes, 100);
+
+        // 自检：读取侧看到的声明值确实是 100，否则这条测试测的就不是「少报」
+        {
+            let mut a = zip::ZipArchive::new(std::io::Cursor::new(bytes.clone())).expect("读包");
+            assert_eq!(
+                a.by_index(0).expect("条目 0").size(),
+                100,
+                "造包失败：声明大小没有被改小"
+            );
+        }
+
+        let err = extract_zip(&bytes, &dest).unwrap_err();
+        assert!(err.contains("64 MB"), "少报大小不应绕过上限，实际：{err}");
+        assert!(
+            !dest.join("repo-main/big.bin").exists(),
+            "被拒的条目不该落盘"
+        );
+        let _ = std::fs::remove_dir_all(&dest);
+    }
+
+    #[test]
+    fn extract_rejects_entry_whose_declared_size_mismatches_actual() {
+        let dest = temp_dir("size-mismatch");
+        // 真实内容 11 字节、声明 3 字节：不走体积上限，走「声明与实际不一致」这条拒绝分支
+        let mut bytes = zip_with(&[("repo-main/a.txt", b"hello world")]);
+        underreport_central_size(&mut bytes, 3);
+        {
+            let mut a = zip::ZipArchive::new(std::io::Cursor::new(bytes.clone())).expect("读包");
+            assert_eq!(a.by_index(0).expect("条目 0").size(), 3);
+        }
+
+        let err = extract_zip(&bytes, &dest).unwrap_err();
+        assert!(
+            err.contains("不一致"),
+            "声明大小与实际不符应被拒，实际：{err}"
+        );
+        assert!(!dest.join("repo-main/a.txt").exists(), "被拒的条目不该落盘");
         let _ = std::fs::remove_dir_all(&dest);
     }
 

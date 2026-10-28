@@ -433,6 +433,9 @@ pub async fn plugins_install(
     source: String,
 ) -> Result<PluginSummary, String> {
     let root = state.root();
+    // 先读注册表再发布目录：注册表读不出来（损坏/版本过新）时直接失败，
+    // 不会先把目录装出去、再因为读注册表失败留下一个孤儿
+    let mut registry = PluginRegistry::load(&root)?;
     let outcome = installer::install(&root, &source).await?;
     let (name, description) = manifest_display(&paths::plugin_dir(&root, &outcome.plugin_id));
 
@@ -453,9 +456,12 @@ pub async fn plugins_install(
     };
     let summary = summary_from_entry(&entry, name, description, "stopped", 0);
 
-    let mut registry = PluginRegistry::load(&root)?;
     registry.upsert(entry);
-    registry.save(&root)?;
+    if let Err(e) = registry.save(&root) {
+        // 目录已经发布但注册表没记上 → 回滚，否则留下一个用户看不见、也卸不掉的孤儿
+        let _ = std::fs::remove_dir_all(&outcome.target);
+        return Err(format!("写入插件注册表失败，已回滚安装：{e}"));
+    }
     Ok(summary)
 }
 
