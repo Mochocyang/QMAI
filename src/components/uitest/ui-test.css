@@ -567,3 +567,29 @@ html[data-ui-test-skin] .ui-test-wizard-chips button[aria-pressed="true"] { back
   height: 24px;
   font-size: 0.6875rem;
 }
+
+/*
+ * 账号菜单里的「外观」：默认只显示一行文字，鼠标移上去才列出三个主题。
+ * 用纯 CSS 悬停展开（不引入额外 state）：菜单本身就是 fixed 弹层，
+ * 子列表 absolute 定位在它右侧，不会把菜单撑高抖一下。
+ */
+.ui-test-root .ui-avatar-appearance-group {
+  position: relative;
+}
+.ui-test-root .ui-avatar-appearance-group .ui-avatar-appearance-sub {
+  position: absolute;
+  left: calc(100% - 4px);
+  top: 0;
+  z-index: 5;
+  display: none;
+  min-width: 150px;
+  padding: 4px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  background: var(--ui-paper);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+}
+.ui-test-root .ui-avatar-appearance-group:hover .ui-avatar-appearance-sub,
+.ui-test-root .ui-avatar-appearance-group:focus-within .ui-avatar-appearance-sub {
+  display: block;
+}

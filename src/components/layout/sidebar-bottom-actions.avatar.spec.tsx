@@ -50,7 +50,7 @@ vi.mock("react-i18next", () => ({
 }))
 
 vi.mock("@/components/layout/appearance-context", () => ({
-  useAppearanceSkin: () => ({ skin: "jing", setSkin: mocks.selectSkin }),
+  useAppearanceSkin: () => ({ skin: "jing", selectSkin: mocks.selectSkin }),
 }))
 
 vi.mock("@/components/layout/announcement-bell", () => ({
@@ -157,15 +157,15 @@ describe("账号菜单里的设置类入口", () => {
     expect(menu()).toBeNull()
   })
 
-  it("点「外观」→ 设置 › 界面（不再在菜单里展开皮肤列表）", () => {
+  it("外观是悬停展开的子菜单，列出三个主题且可点击切换", () => {
     render()
     act(() => trigger().click())
-    // 菜单里不再有皮肤选项
-    expect(menu()!.querySelectorAll('[role="menuitemradio"]').length).toBe(0)
-    const entry = menu()!.querySelector<HTMLButtonElement>('[data-ui="sidebar-appearance-entry"]')!
-    act(() => entry.click())
-    expect(mocks.setActiveSettingsCategory).toHaveBeenCalledWith("interface")
-    expect(mocks.setActiveView).toHaveBeenCalledWith("settings")
+    const panel = menu()!
+    // 子菜单默认收起（CSS 控制 display），DOM 里已有三个主题
+    const skins = panel.querySelectorAll('[role="menuitemradio"]')
+    expect(skins.length).toBeGreaterThanOrEqual(3)
+    act(() => (skins[0] as HTMLButtonElement).click())
+    expect(mocks.selectSkin).toHaveBeenCalled()
   })
 
   it("底栏入口同时显示用户名", () => {

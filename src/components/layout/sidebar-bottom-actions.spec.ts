@@ -8,41 +8,47 @@ const source = readFileSync(
 )
 
 describe("sidebar-bottom-actions", () => {
-  it("左下角账号入口同时显示头像与用户名，整块可点", () => {
+  it("账号入口按内容宽度左对齐，同时显示头像与用户名", () => {
     expect(source).toContain('data-ui="sidebar-bottom-actions"')
     expect(source).toContain('data-ui="sidebar-account-avatar"')
     expect(source).toContain("ui-test-account-name")
     expect(source).toContain("{accountDisplayNameText}")
-    // 头像不再紧贴侧栏边线：底栏给了左内边距
-    expect(source).toContain("pl-3")
+    // 不能再用 flex-1（会把头像推到整条底栏的中间）
+    expect(source).not.toContain("min-w-0 flex-1 items-center")
+    expect(source).toContain("w-fit")
+    // 底栏左内边距，头像不贴边线
+    expect(source).toContain("pl-2")
   })
 
-  it("公告铃铛靠最右", () => {
+  it("公告铃铛用 ml-auto 靠最右", () => {
     expect(source).toContain("<AnnouncementBell />")
-    expect(source).toContain('className="flex shrink-0 items-center"')
+    expect(source).toContain('className="ml-auto flex shrink-0 items-center"')
   })
 
-  it("外观不在菜单里全部展开，只留一个入口跳到设置", () => {
-    // 皮肤列表已从菜单移除
-    expect(source).not.toContain("UI_TEST_SKINS")
-    expect(source).not.toContain("useAppearanceSkin")
-    // 改为「外观」入口 → 设置 › 界面
+  it("外观默认只显示一行，悬停才展开三个主题且不带副标题", () => {
     expect(source).toContain('data-ui="sidebar-appearance-entry"')
-    expect(source).toContain('openAppearanceSettings')
-    expect(source).toContain('"interface"')
+    expect(source).toContain("ui-avatar-appearance-group")
+    expect(source).toContain("ui-avatar-appearance-sub")
+    expect(source).toContain("UI_TEST_SKINS.map")
+    // 子项只有主题名，不带 hint 副标题
+    expect(source).not.toContain("{item.hint}")
   })
 
-  it("头像菜单里有账号、设置、维护工具三个入口", () => {
-    expect(source).toContain('data-ui="sidebar-avatar-account-entry"')
-    expect(source).toContain('data-ui="sidebar-settings-entry"')
-    expect(source).toContain('data-ui="sidebar-maintenance-entry"')
-    expect(source).toContain('setActiveView("maintenance")')
+  it("菜单里的入口都绑了点击处理", () => {
+    expect(source).toContain("onClick={openAccountSettings}")
+    expect(source).toContain("onClick={openGeneralSettings}")
+    expect(source).toContain("onClick={openMaintenance}")
+    expect(source).toContain("onClick={() => selectSkin(item.id)}")
+  })
+
+  it("外部点击放行整个账号菜单（否则菜单里点任何一项都会被先关掉）", () => {
+    expect(source).toContain('closest?.(".ui-test-avatar-menu")')
+    expect(source).not.toContain('closest?.(".ui-test-skin-menu")')
   })
 
   it("跳设置时同时下发分区与视图，并防止分区被旧值吃掉", () => {
-    expect(source).toContain('setActiveSettingsCategory(category)')
+    expect(source).toContain("setActiveSettingsCategory(category)")
     expect(source).toContain('setActiveView("settings")')
-    // 同一分区重复点击时用微任务补一次，避免「点了没反应」
     expect(source).toContain("queueMicrotask")
   })
 
