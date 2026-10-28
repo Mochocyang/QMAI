@@ -8,7 +8,7 @@ import { deleteUiTestProvider, saveUiTestProvider } from "@/components/uitest/mo
 import { validateProviderDraft } from "@/components/uitest/models/provider-data"
 import { safeModelError } from "@/components/uitest/models/model-feedback"
 import "@/components/uitest/models/model-settings.css"
-import { useEffect, useMemo, useState, useRef } from "react"
+import { useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react"
 import { AlertCircle, CheckCircle2, Loader2, XCircle, X, Trash2 } from "lucide-react"
 import { ModelConfigTitle, ProviderBrandIcon, modelEnableLabel, modelSaveLabel } from "../provider-brand-icon"
 import { useTranslation } from "react-i18next"
@@ -36,6 +36,8 @@ import { resolveCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
 import { resolveCodexSpeedMode } from "@/lib/codex-cli-speed"
 import { AddWorkbuddyAccountDialog } from "./add-workbuddy-account-dialog"
 import { buildWorkbuddyCard, disableWorkbuddyCard } from "@/lib/workbuddy-card"
+import { getPluginProviderViews, subscribePluginProviderViews, syncPluginProviders } from "@/lib/plugins/provider-sync"
+import { PluginProviderCard, toPluginProviderPreset } from "./plugin-provider-card"
 
 const UI_TEST_PROVIDER_HINTS: Record<string, string> = {
   anthropic: "官方 Claude API",
@@ -72,6 +74,16 @@ export function withOutputRoomForReasoning(
 
 export function LlmProviderSection() {
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
+  /*
+   * 插件 provider 的运行期快照。
+   *
+   * 为什么不能只从 `providerConfigs` 反推：未就绪的 provider 按设计**不写**进配置
+   * （写了用户就能选到一个必然打不通的模型），但它们必须在设置页可见（灰显 + 原因），
+   * 否则用户只会以为「插件装了却没反应」。
+   */
+  const pluginViews = useSyncExternalStore(subscribePluginProviderViews, getPluginProviderViews, getPluginProviderViews)
+  const pluginPresets = useMemo(() => pluginViews.map(toPluginProviderPreset), [pluginViews])
+  const pluginProviderIds = useMemo(() => new Set(pluginPresets.map((preset) => preset.id)), [pluginPresets])
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [uiTestSource, setUiTestSource] = useState<"library" | "custom" | "presets">("library")
   // 「添加账号」是独立弹窗（不是卡片）：账号属于「设备级登录态」，
@@ -95,7 +107,25 @@ export function LlmProviderSection() {
     setExpanded((prev) => ({ [id]: !prev[id] }))
   }
 
+  /*
+   * 打开模型设置时补一次同步。
+   *
+   * 启动路径上的同步会和 Rust 侧的插件自动拉起抢跑（autostart 是后台任务，
+   * provider 要等进程握手 + /health 通过才登记），抢输了这一页就看不到插件模型。
+   * 在这里补一次最省事，也顺手把「未就绪」的卡片状态刷新到最新。
+   * 失败只 warn：插件系统异常不该让整页模型设置渲染不出来。
+   */
+  useEffect(() => {
+    if (!isTauri()) return
+    void syncPluginProviders().catch((cause: unknown) => {
+      console.warn("[plugins] 模型设置页同步 provider 失败：", cause)
+    })
+  }, [])
+
+  // 内置（含用户手工配置的 custom-*）在前，插件 provider 在列表末尾追加。
+  // 插件 provider 的 id 已从 configured 里剔除，避免同一张卡片渲染两遍。
   const configured = [...new Set([...Object.keys(providerConfigs), ...customDraftIds, ...presetDraftIds])]
+    .filter((id) => !pluginProviderIds.has(id))
     const presets = LLM_PRESETS.filter((preset) => preset.id !== "custom")
     return (
       <div data-ui="llm-library">
@@ -113,7 +143,22 @@ export function LlmProviderSection() {
             const preset = LLM_PRESETS.find((item) => item.id === id)
             return <div key={id}>{id.startsWith("custom-") ? <UiTestProviderCard id={id} isNew={customDraftIds.includes(id)} expanded={!!expanded[id]} onToggle={() => toggleExpand(id)} onRemoved={() => setCustomDraftIds((ids) => ids.filter((item) => item !== id))} /> : preset ? <UiTestPresetCard preset={{ ...preset, hint: UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint }} expanded={!!expanded[id]} onToggle={() => toggleExpand(id)} onRemoved={() => setPresetDraftIds(ids => ids.filter(item => item !== id))} /> : <div className="model-library-item"><div><strong>{config.label || "自定义模型"}</strong><small>{config.model || "未选择模型"}</small></div></div>}</div>
           })}
-          {!configured.length && <p>还没有模型配置。</p>}
+          {!configured.length && pluginPresets.length === 0 && <p>还没有模型配置。</p>}
+          {/* 分组顺序：内置在前，插件 provider 追加在后（设计 6.3）。
+              插件卡片用运行期 preset 形状渲染，`LLM_PRESETS` 本体一行不动。 */}
+          {pluginPresets.length > 0 && (
+            <h4 className="mt-3 text-xs font-medium text-muted-foreground" data-ui="plugin-provider-group">
+              插件提供的模型
+            </h4>
+          )}
+          {pluginPresets.map((preset) => (
+            <PluginProviderCard
+              key={preset.id}
+              preset={preset}
+              expanded={!!expanded[preset.id]}
+              onToggle={() => toggleExpand(preset.id)}
+            />
+          ))}
         </div>
         <AddWorkbuddyAccountDialog
           open={accountDialogOpen}

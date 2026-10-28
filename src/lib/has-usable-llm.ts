@@ -1,5 +1,6 @@
 import type { LlmConfig, ProviderConfigs } from "@/stores/wiki-store"
 import { isProviderAvailable } from "@/lib/llm-model-keys"
+import { isPluginProviderInjected } from "@/lib/plugins/provider-sync"
 
 type LlmProvider = LlmConfig["provider"]
 
@@ -71,6 +72,21 @@ export function hasUsableLlm(
   if (cfg.provider === "custom") {
     if (hasKey && hasModel) return true
     return hasEnabledCustomPreset(providerConfigs) && hasModel
+  }
+
+  /*
+   * 插件 provider（运行期注入，见 `plugins/provider-sync`）：
+   * token 按设计只活在 Rust 内存里（计划第 0 节），所以 `apiKey` **永远为空**。
+   * 用「apiKey 非空」判定会把插件 provider 一律判成不可用 —— 模型解析与
+   * 聊天前的守卫都会直接挡掉，整条链路等于没接通。
+   *
+   * 可用性改判：宿主分配的 `baseUrl` 已经写进配置 + 用户选了模型。
+   * 条件必须是「本进程注入过」而不是「id 不在内置清单里」：用户手工配置的
+   * 陌生 id 同样陌生，不能因此被放行。
+   */
+  if (isPluginProviderInjected(cfg.provider)) {
+    const entry = providerConfigs[cfg.provider]
+    return Boolean(entry?.baseUrl?.trim()) && hasModel
   }
 
   return hasKey && hasModel

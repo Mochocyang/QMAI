@@ -69,6 +69,12 @@ pub struct PluginSummary {
     pub tool_count: usize,
     pub source_repo: String,
     pub source_commit: String,
+    /// 清单里声明的 provider id（`contributes.providers[].id`）。
+    ///
+    /// 前端启用确认层靠它区分「工具插件」与「provider 插件」：后者的文案是
+    /// 设计 §7 那段高危提示（它会看到用户与模型的完整对话）。
+    /// 读不到清单就是空 vec —— 管理页仍要能列出并操作损坏的插件。
+    pub provider_ids: Vec<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -102,6 +108,9 @@ fn summary_from_entry(
         tool_count,
         source_repo: entry.source.repo.clone(),
         source_commit: entry.source.commit.clone(),
+        // 由 `plugins_list` 单独补齐（它才知道插件目录在哪）；这里给空 vec 保证
+        // 结构体没有「未初始化」的分支。
+        provider_ids: Vec::new(),
     }
 }
 
@@ -136,6 +145,26 @@ fn manifest_display(dir: &Path) -> (String, String) {
     match manifest::PluginManifest::parse(&raw) {
         Ok(parsed) => (parsed.name, parsed.description),
         Err(_) => (String::new(), String::new()),
+    }
+}
+
+/// 读插件清单里声明的 provider id（`contributes.providers[].id`）。
+///
+/// 前端拿不到「这个插件是不是 provider 插件」就无法在启用时给高危确认（设计 §7），
+/// 而清单只存在于 Rust 侧磁盘上，所以由这里补进 `PluginSummary`。
+/// 读不到/清单损坏一律返回空 vec：管理页仍要能列出并操作损坏的插件。
+fn manifest_provider_ids(dir: &Path) -> Vec<String> {
+    let Ok(raw) = std::fs::read_to_string(dir.join("plugin.json")) else {
+        return Vec::new();
+    };
+    match manifest::PluginManifest::parse(&raw) {
+        Ok(parsed) => parsed
+            .contributes
+            .providers
+            .into_iter()
+            .map(|provider| provider.id)
+            .collect(),
+        Err(_) => Vec::new(),
     }
 }
 
@@ -625,12 +654,15 @@ pub async fn plugins_list(state: State<'_, PluginsState>) -> Result<Vec<PluginSu
     let registry = PluginRegistry::load(&root)?;
 
     // 先读磁盘（可能慢），再拿 running 锁；避免因为读清单把启停命令堵住。
-    let base: Vec<(RegistryEntry, String, String)> = registry
+    let base: Vec<(RegistryEntry, String, String, Vec<String>)> = registry
         .list()
         .into_iter()
         .map(|entry| {
-            let (name, description) = manifest_display(&paths::plugin_dir(&root, &entry.id));
-            (entry, name, description)
+            let dir = paths::plugin_dir(&root, &entry.id);
+            let (name, description) = manifest_display(&dir);
+            // provider id 只有清单里有，前端没有别的途径知道「是不是 provider 插件」。
+            let provider_ids = manifest_provider_ids(&dir);
+            (entry, name, description, provider_ids)
         })
         .collect();
 
@@ -644,12 +676,13 @@ pub async fn plugins_list(state: State<'_, PluginsState>) -> Result<Vec<PluginSu
 
     Ok(base
         .into_iter()
-        .map(|(entry, name, description)| {
-            let (process_state, tool_count) = states
-                .get(&entry.id)
-                .copied()
-                .unwrap_or(("stopped", 0));
-            summary_from_entry(&entry, name, description, process_state, tool_count)
+        .map(|(entry, name, description, provider_ids)| {
+            let (process_state, tool_count) =
+                states.get(&entry.id).copied().unwrap_or(("stopped", 0));
+            let mut summary =
+                summary_from_entry(&entry, name, description, process_state, tool_count);
+            summary.provider_ids = provider_ids;
+            summary
         })
         .collect())
 }
@@ -1225,7 +1258,34 @@ rl.on("line", (line) => {
         assert_eq!(value["toolCount"], 3);
         assert_eq!(value["sourceRepo"], "https://github.com/owner/repo");
         assert_eq!(value["sourceCommit"], "main");
+        // T4：前端靠 providerIds 判断要不要用高危确认文案。
+        assert_eq!(value["providerIds"], serde_json::json!([]));
         assert!(value.get("process_state").is_none());
+    }
+
+    #[test]
+    fn manifest_provider_ids_reads_contributes_providers() {
+        let root = TempRoot::new("manifest-provider-ids");
+        let dir = write_plugin(
+            root.path(),
+            "wb-plugin",
+            &provider_manifest("wb-plugin", "wb-connect"),
+            None,
+        );
+        assert_eq!(manifest_provider_ids(&dir), vec!["wb-connect".to_string()]);
+
+        // 没有清单（目录被手工删了）：空 vec，管理页仍要能列出该插件。
+        assert!(manifest_provider_ids(&root.path().join("missing")).is_empty());
+
+        // 工具插件不声明 providers：同样是空 vec，不能误判成 provider 插件。
+        let tool_dir = write_plugin(
+            root.path(),
+            "tool-plugin",
+            r#"{ "schema": 1, "id": "tool-plugin", "name": "工具", "version": "1.0.0",
+                 "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 } }"#,
+            None,
+        );
+        assert!(manifest_provider_ids(&tool_dir).is_empty());
     }
 
     #[test]

@@ -4,6 +4,7 @@ import { resolveConfig } from "@/components/settings/preset-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { getEffectiveMaxContextSize, getEffectiveMaxOutputTokens } from "@/lib/llm-providers"
 import { getStableAvailableModelKey, getEffectiveSavedModels } from "@/lib/llm-model-keys"
+import { isPluginProviderInjected } from "@/lib/plugins/provider-sync"
 import { normalizeUserLlmConfig } from "@/lib/llm-context-size"
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 
@@ -67,6 +68,53 @@ function resolveRegisteredModel(
   return isConfigUsable(cfg, providerConfigs) ? cfg : null
 }
 
+/**
+ * 把一个 provider 的 override 解析成完整 `LlmConfig`。
+ *
+ * 插件 provider 没有静态 preset（`LLM_PRESETS` 只放内置），所以**不能**沿用
+ * `findLlmPresetById(id) ?? findLlmPresetById("custom")`：那条路会把 `provider`
+ * 改写成 `"custom"`，请求落到 custom 分支，用一个按设计永远为空的 `apiKey`
+ * 发出去（插件侧只会回 401），而插件 provider 的 token 本应在请求前由
+ * `ensurePluginProviderAuth` 现取。
+ *
+ * 插件的路径：借 custom preset 搬运字段（上下文窗口、推理、工具开关），
+ * 但 `provider` 保持插件 id、端点取宿主分配的 `baseUrl`（写进 `customEndpoint`，
+ * 与 workbuddy / cursor-cli 注入运行期端点同构）。
+ */
+function resolveOverrideConfig(
+  providerId: string,
+  override: ProviderOverride,
+  baseConfig: LlmConfig,
+  modelId: string,
+): LlmConfig | null {
+  const preset = findLlmPresetById(providerId)
+  if (preset) {
+    return withEffectiveContextSize({ ...resolveConfig(preset, override, baseConfig), model: modelId })
+  }
+
+  const customTemplate = findLlmPresetById("custom")
+  if (!customTemplate) return null
+
+  if (isPluginProviderInjected(providerId)) {
+    const config = resolveConfig(customTemplate, override, baseConfig)
+    return withEffectiveContextSize({
+      ...config,
+      // 请求分派必须落到插件分支（`llm-providers` 的 default case）。
+      provider: providerId,
+      // token 不落盘（计划第 0 节）：这里留空，请求前现取。
+      apiKey: "",
+      model: modelId,
+      // 宿主分配的 baseUrl（`http://127.0.0.1:<port>`，设计 D4）。
+      customEndpoint: override.baseUrl ?? config.customEndpoint,
+      // 插件端点契约固定 OpenAI 兼容（设计 3.1），不允许被旧配置带到 Responses/Anthropic。
+      apiMode: "chat_completions",
+    })
+  }
+
+  // 用户手工配置的 `custom-*` 卡片：沿用 custom preset，行为不变。
+  return withEffectiveContextSize({ ...resolveConfig(customTemplate, override, baseConfig), model: modelId })
+}
+
 export function resolveModelConfig(
   targetModel: string,
   baseConfig: LlmConfig,
@@ -79,20 +127,16 @@ export function resolveModelConfig(
     const modelId = targetModel.slice(slashIdx + 1)
     const override = providerConfigs[providerId]
     if (override && getEffectiveSavedModels(override).some((m) => m.model === modelId)) {
-      const template = findLlmPresetById(providerId) ?? findLlmPresetById("custom")
-      if (template) {
-        return withEffectiveContextSize({ ...resolveConfig(template, override, baseConfig), model: modelId })
-      }
+      const resolved = resolveOverrideConfig(providerId, override, baseConfig, modelId)
+      if (resolved) return resolved
     }
     return withEffectiveContextSize({ ...baseConfig, model: modelId })
   }
   // 回退：按纯模型名匹配（兼容旧数据）
   for (const [providerId, override] of Object.entries(providerConfigs)) {
     if (getEffectiveSavedModels(override).some((m) => m.model === targetModel)) {
-      const template = findLlmPresetById(providerId) ?? findLlmPresetById("custom")
-      if (template) {
-        return withEffectiveContextSize({ ...resolveConfig(template, override, baseConfig), model: targetModel })
-      }
+      const resolved = resolveOverrideConfig(providerId, override, baseConfig, targetModel)
+      if (resolved) return resolved
     }
   }
   return withEffectiveContextSize({ ...baseConfig, model: targetModel })

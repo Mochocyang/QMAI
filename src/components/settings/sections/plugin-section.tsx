@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { pluginsApi } from "@/lib/plugins/api"
 import { clearPluginProviderAuth } from "@/lib/plugins/provider-auth"
+import { syncPluginProviders } from "@/lib/plugins/provider-sync"
 import type { PluginSummary } from "@/lib/plugins/types"
 import { toast } from "@/lib/toast"
 
@@ -50,6 +51,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "fs:project-read": "读取项目文件",
   "fs:project-write": "写入项目文件",
   "net:https": "访问网络",
+  "net:listen": "在本机开一个端口（供 QMAI 调用它）",
   "llm:use": "调用模型",
   "data:write": "写入插件数据",
 }
@@ -147,6 +149,21 @@ export function PluginSection() {
     setEnableTarget(plugin)
   }
 
+  /**
+   * 启停/卸载后把插件 provider 重新同步进 `providerConfigs`。
+   *
+   * 为什么失败只 warn：插件确实已经启停成功，只是模型列表没刷新。把整条操作
+   * 报成失败会让用户以为插件没停掉，反而去做更激进的操作（卸载/重装）。
+   * 设置页模型卡片上的「刷新模型」是补救入口。
+   */
+  async function resyncPluginProviders(action: string) {
+    try {
+      await syncPluginProviders()
+    } catch (cause) {
+      console.warn(`[plugins] 插件${action}后同步 provider 失败：`, cause)
+    }
+  }
+
   async function confirmEnable() {
     if (!enableTarget || enabling) return
     const target = enableTarget
@@ -164,6 +181,8 @@ export function PluginSection() {
       const granted: string[] = []
       await pluginsApi.enable(target.id, granted)
       toast.success(`已启用「${pluginDisplayName(target)}」`)
+      // 启用成功后立刻同步：provider 插件刚注册进 Rust 表，模型要能被选到。
+      await resyncPluginProviders("启用")
       setEnableTarget(null)
       await refresh()
     } catch (cause) {
@@ -185,6 +204,9 @@ export function PluginSection() {
       // 手头只有 pluginId（providerId 可以不同名），清全部最省事且不会漏。
       clearPluginProviderAuth()
       toast.success(`已停用「${pluginDisplayName(plugin)}」`)
+      // 停用后该 provider 会从 providers() 消失，同步负责把配置条目也摘掉，
+      // 否则模型选择器里会留下一个指向已关闭端口的条目（设计 §7 第 4 条）。
+      await resyncPluginProviders("停用")
       await refresh()
     } catch (cause) {
       setActionError(describeError(cause))
@@ -208,6 +230,7 @@ export function PluginSection() {
       // 卸载同样要清 provider token 缓存（理由同 disablePlugin）。
       clearPluginProviderAuth()
       toast.success(`已卸载「${name}」`)
+      await resyncPluginProviders("卸载")
       await refresh()
     } catch (cause) {
       setActionError(describeError(cause))
@@ -215,6 +238,15 @@ export function PluginSection() {
       setBusy(null)
     }
   }
+
+  /*
+   * 「这个插件是否声明了 provider」由 Rust 侧的 `plugins_list` 给出（`providerIds`，
+   * 读的是插件清单的 `contributes.providers[].id`）。
+   * 前端不能靠权限位或名字猜：猜错要么把高危确认降级成普通提示，
+   * 要么反过来对纯工具插件吓唬用户。
+   */
+  const enableProviderIds = enableTarget?.providerIds ?? []
+  const enableDeclaresProvider = enableProviderIds.length > 0
 
   return (
     <div className="space-y-6">
@@ -425,9 +457,30 @@ export function PluginSection() {
           </DialogHeader>
 
           <div className="space-y-3 text-sm">
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 leading-relaxed text-amber-900 dark:text-amber-200">
-              该插件将以「无额外权限」启用：不能读项目文件、不能联网。如需与其功能匹配的权限，请等待后续版本提供逐项授权界面。
-            </div>
+            {/*
+              声明了 provider 的插件必须走单独的高危确认（设计 §7）：
+              它拿到的不是「被调用时的那一段上下文」，而是用户与模型的完整对话 ——
+              全书设定、剧情、人物、已写正文。这里的文案要具体到用户能理解
+              「谁在看我的稿子」，不能写成「该插件可能访问网络」这种空话。
+            */}
+            {enableDeclaresProvider ? (
+              <div
+                className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 leading-relaxed text-destructive"
+                data-plugin-risk="provider"
+              >
+                该插件会成为你的模型供应商：你对 AI 说的每一句话、以及软件送给 AI 的全部上下文（包括你这本书的设定、剧情和已写正文）都会经过它。它还可能把这些内容发往它自己的上游服务。请只安装你信任来源的 provider 插件。
+              </div>
+            ) : (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 leading-relaxed text-amber-900 dark:text-amber-200">
+                该插件将以「无额外权限」启用：不能读项目文件、不能联网。如需与其功能匹配的权限，请等待后续版本提供逐项授权界面。
+              </div>
+            )}
+            {enableDeclaresProvider ? (
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                它声明的供应商：{enableProviderIds.join("、")}。启用后这些模型会出现在模型选择器里，
+                由该插件进程接收你的全部请求。
+              </p>
+            ) : null}
             <p className="text-xs leading-relaxed text-muted-foreground">
               当前版本还无法列出插件清单里申请的权限，因此这里不提供权限勾选。确认启用只会授予插件写入自己数据目录的能力。
             </p>

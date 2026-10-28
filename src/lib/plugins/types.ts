@@ -12,6 +12,13 @@ export interface PluginSummary {
   toolCount: number
   sourceRepo: string
   sourceCommit: string
+  /**
+   * 清单里声明的 provider id（`contributes.providers[].id`）。
+   *
+   * 空数组/缺失 = 纯工具插件。启用确认层靠它判断要不要换成
+   * 「它将成为你的模型供应商」那段高危文案（设计 §7）。
+   */
+  providerIds?: string[]
 }
 
 /** 一次工具注入要用到的描述符（来自插件运行期 tools/list） */

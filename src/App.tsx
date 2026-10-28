@@ -41,6 +41,7 @@ import { useEnsureAiChatModel } from "@/lib/ensure-ai-chat-model"
 import { MemoryMaintenanceReminder } from "@/components/novel/memory-maintenance-reminder"
 import { AnnouncementDialog } from "@/components/announcements/announcement-dialog"
 import { useAnnouncementStore } from "@/stores/announcement-store"
+import { syncPluginProviders } from "@/lib/plugins/provider-sync"
 
 function App() {
   useEnsureAiChatModel()
@@ -501,6 +502,20 @@ function App() {
         const savedProviderConfigs = await loadProviderConfigs()
         if (savedProviderConfigs) {
           useWikiStore.getState().setProviderConfigs(savedProviderConfigs)
+        }
+        /*
+         * 插件 provider 合并进 `providerConfigs`（T4）。
+         *
+         * 位置必须在 `loadProviderConfigs` 之后：同步是往配置里**追加**运行期 provider，
+         * 放在读盘之前会被 `setProviderConfigs` 整个覆盖掉，插件模型就永远不出现。
+         *
+         * 失败只 warn，绝不阻断启动：插件系统坏了（命令缺失、Rust 侧异常）不该让
+         * 用户连项目都打不开 —— 那属于「一个扩展不可用」，不是「应用起不来」。
+         */
+        try {
+          await syncPluginProviders()
+        } catch (error) {
+          console.warn("[plugins] 同步插件 provider 失败：", error)
         }
         const savedActivePreset = await loadActivePresetId()
         if (savedActivePreset) {
