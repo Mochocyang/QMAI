@@ -12,6 +12,7 @@ import {
   normalizeDisplayName,
   normalizeEmail,
   normalizePurpose,
+  normalizeRenameDisplayName,
 } from "../src/validation"
 
 describe("normalizeEmail", () => {
@@ -179,5 +180,24 @@ describe("detectImageMime", () => {
 
   it("exposes a 200 KB ceiling", () => {
     expect(MAX_AVATAR_BYTES).toBe(204800)
+  })
+})
+
+describe("normalizeRenameDisplayName", () => {
+  it("折叠空白、去控制字符后返回昵称", () => {
+    expect(normalizeRenameDisplayName("  青  幕  ")).toBe("青 幕")
+    expect(normalizeRenameDisplayName("青\u0000幕")).toBe("青幕")
+  })
+
+  it("空串、非字符串、超长一律返回 null（不做兜底猜测）", () => {
+    expect(normalizeRenameDisplayName("   ")).toBeNull()
+    expect(normalizeRenameDisplayName(123)).toBeNull()
+    expect(normalizeRenameDisplayName(undefined)).toBeNull()
+    expect(normalizeRenameDisplayName("很".repeat(25))).toBeNull()
+  })
+
+  it("上限 24 个字（按字符数，emoji 不会被切坏）", () => {
+    expect(normalizeRenameDisplayName("很".repeat(24))).toBe("很".repeat(24))
+    expect(normalizeRenameDisplayName("🌙".repeat(24))).toBe("🌙".repeat(24))
   })
 })

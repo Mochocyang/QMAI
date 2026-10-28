@@ -15,12 +15,15 @@
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
-import { Check, Moon, Settings } from "lucide-react"
+import { Check, UserRound } from "lucide-react"
 
 import { useWikiStore } from "@/stores/wiki-store"
+import { useAccountStore } from "@/stores/account-store"
 import { UI_TEST_SKINS } from "@/lib/ui-test"
 import { useAppearanceSkin } from "@/components/layout/appearance-context"
 import { AnnouncementBell } from "@/components/layout/announcement-bell"
+import { AccountAvatar } from "@/components/account/account-avatar"
+import { accountDisplayName } from "@/components/account/account-display"
 
 // 与 .ui-test-skin-menu 的设计宽度一致（窄了会让「名称 + 说明」换行、看着不像完整菜单）
 const MENU_WIDTH = 290
@@ -29,8 +32,15 @@ export function SidebarBottomActions() {
   const { t } = useTranslation()
   const activeView = useWikiStore((s) => s.activeView)
   const setActiveView = useWikiStore((s) => s.setActiveView)
+  const setActiveSettingsCategory = useWikiStore((s) => s.setActiveSettingsCategory)
   const setSearchPanelOpen = useWikiStore((s) => s.setSearchPanelOpen)
   const appearance = useAppearanceSkin()
+  const accountUser = useAccountStore((state) => state.user)
+  const accountSession = useAccountStore((state) => state.session)
+  const accountDisplayNameText = accountUser
+    ? accountDisplayName(accountUser.displayName, accountUser.email)
+    : "未登录"
+  const accountTitle = accountUser ? `${accountDisplayNameText} · ${accountUser.email}` : "账号与外观"
 
   const [menuOpen, setMenuOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -98,59 +108,59 @@ export function SidebarBottomActions() {
     triggerRef.current?.focus()
   }
 
+  const openAccountSettings = () => {
+    setMenuOpen(false)
+    setSearchPanelOpen(false)
+    // 先定分区再切视图：SettingsView 挂载后读取并消费这个分区
+    setActiveSettingsCategory("account")
+    setActiveView("settings")
+  }
+
+  const openMaintenance = () => {
+    setMenuOpen(false)
+    setSearchPanelOpen(false)
+    setActiveView("maintenance")
+  }
+
   return (
     <div
       data-ui="sidebar-bottom-actions"
       className="flex shrink-0 items-center gap-0 border-t px-1.5 py-1.5"
     >
       {/*
-       * 三个入口只留图标（设置 / 公告 / 外观）。文字去掉之后 title + aria-label
-       * 就是唯一的辨识依据，缺一个纯图标按钮就等于不可读，不能省。
+       * 左下角是头像入口（替代原来的设置齿轮，用户要求「头像功能移动到左下角」）。
+       * 点它不直接弹账号信息，而是展开一个菜单：头像 + 外观设置（皮肤）+ 维护工具；
+       * 菜单里点头像才去「设置 → 账号」。
        */}
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => {
-          setSearchPanelOpen(false)
-          setActiveView("settings")
-        }}
-        title={t("sidebarActions.settings")}
-        aria-label={t("sidebarActions.settings")}
-        className={`flex size-7 shrink-0 items-center justify-center rounded-md transition-colors ${
-          activeView === "settings"
-            ? "qm-selected"
+        onClick={() => setMenuOpen((open) => !open)}
+        title={accountTitle}
+        aria-label="账号与外观"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        data-ui="sidebar-account-avatar"
+        className={`flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-md transition-colors ${
+          menuOpen || activeView === "settings"
+            ? "bg-accent/60 text-accent-foreground"
             : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
         }`}
       >
-        <Settings className="h-4 w-4" />
+        {accountUser ? (
+          <AccountAvatar user={accountUser} baseUrl={accountSession?.baseUrl ?? null} />
+        ) : (
+          <UserRound className="h-4 w-4" />
+        )}
       </button>
 
       <AnnouncementBell />
 
-      {appearance && (
-        <button
-          ref={triggerRef}
-          type="button"
-          onClick={() => setMenuOpen((open) => !open)}
-          title={t("sidebarActions.appearance")}
-          aria-label={t("sidebarActions.appearance")}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          className={`ml-auto flex size-7 shrink-0 items-center justify-center rounded-md transition-colors ${
-            menuOpen
-              ? "bg-accent/60 text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
-          }`}
-        >
-          <Moon className="h-4 w-4" />
-        </button>
-      )}
-
       {menuOpen &&
         menuStyle &&
-        appearance &&
         createPortal(
           <div
-            className="ui-test-menu-pop ui-test-skin-menu"
+            className="ui-test-menu-pop ui-test-avatar-menu"
             style={{
               // 覆盖 .ui-test-menu-pop 的 absolute/top/right，改为按底边锚定的 fixed 弹层
               position: "fixed",
@@ -163,29 +173,65 @@ export function SidebarBottomActions() {
               overflowY: "auto",
             }}
             role="menu"
-            aria-label={t("sidebarActions.appearance")}
+            aria-label="账号与外观"
             data-tauri-drag-region="false"
           >
-            <div className="ui-test-menu-title">
-              {t("sidebarActions.appearance")}
-            </div>
-            {UI_TEST_SKINS.map((item) => (
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={currentSkin === item.id}
-                className="ui-test-menu-item"
-                key={item.id}
-                onClick={() => selectSkin(item.id)}
-              >
-                <span className={`ui-test-skin-dot ui-test-skin-dot-${item.id}`} />
-                <span className="ui-test-skin-copy">
-                  <span>{item.name}</span>
-                  <small>{item.hint}</small>
+            <button
+              type="button"
+              role="menuitem"
+              data-ui="sidebar-avatar-account-entry"
+              className="ui-test-menu-item flex w-full items-center gap-2.5 text-left"
+              onClick={openAccountSettings}
+            >
+              {accountUser ? (
+                <AccountAvatar user={accountUser} baseUrl={accountSession?.baseUrl ?? null} size="lg" />
+              ) : (
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
+                  <UserRound className="h-4 w-4 text-muted-foreground" />
                 </span>
-                {currentSkin === item.id && <Check />}
-              </button>
-            ))}
+              )}
+              <span className="ui-test-skin-copy min-w-0">
+                <span className="truncate">{accountDisplayNameText}</span>
+                <small className="truncate">{accountUser ? accountUser.email : "点击登录账号"}</small>
+              </span>
+            </button>
+
+            {appearance && (
+              <>
+                <div className="ui-test-menu-title">{t("sidebarActions.appearance")}</div>
+                {UI_TEST_SKINS.map((item) => (
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={currentSkin === item.id}
+                    className="ui-test-menu-item"
+                    key={item.id}
+                    onClick={() => selectSkin(item.id)}
+                  >
+                    <span className={`ui-test-skin-dot ui-test-skin-dot-${item.id}`} />
+                    <span className="ui-test-skin-copy">
+                      <span>{item.name}</span>
+                      <small>{item.hint}</small>
+                    </span>
+                    {currentSkin === item.id && <Check />}
+                  </button>
+                ))}
+              </>
+            )}
+
+            <div className="ui-test-menu-title">维护</div>
+            <button
+              type="button"
+              role="menuitem"
+              data-ui="sidebar-maintenance-entry"
+              className="ui-test-menu-item"
+              onClick={openMaintenance}
+            >
+              <span className="ui-test-skin-copy">
+                <span>维护工具</span>
+                <small>清理缓存、体检孤儿记忆</small>
+              </span>
+            </button>
           </div>,
           document.body,
         )}

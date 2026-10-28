@@ -31,7 +31,6 @@ import { CloudSyncIndicator } from "@/components/layout/cloud-sync-indicator"
 import { CloudSyncDetailDialog } from "@/components/layout/cloud-sync-detail-dialog"
 import { CLOUD_SYNC_OPEN_SETTINGS_EVENT } from "@/lib/cloud-sync/client"
 import { useCloudSyncStore } from "@/stores/cloud-sync-store"
-import { AccountButton } from "@/components/account/account-button"
 import { AccountDialog } from "@/components/account/account-dialog"
 import { useAccountStore } from "@/stores/account-store"
 import { confirmModelDraftLeave } from "./models/model-draft-guard"
@@ -565,8 +564,6 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
             </div>)}
           </nav>
           <div className="ui-test-actions">
-            {/* 账号入口放最左：它是「可选」的云端身份，不抢对话/设置的常用位置。 */}
-            <AccountButton />
             {writing ? <div className="ui-test-header-hint-anchor"><Tooltip><TooltipTrigger render={<button type="button" className="ui-test-icon-btn" aria-label="AI 对话" aria-expanded={assistantOpen} onClick={() => activeView === "sources" ? setOutlineExpanded(!outlineExpanded) : setChatExpanded(!chatExpanded)}><AiChatIcon /></button>} /><TooltipContent>AI 对话</TooltipContent></Tooltip>{!aiHintDismissed && <div className="ui-test-header-hint is-right" role="status"><p>「AI 对话」改成了图标：点击它即可打开或收起对话栏。</p><div className="ui-test-header-hint-actions"><button type="button" className="ui-test-header-hint-dismiss" onClick={() => { writeUiTestAiHintDismissed(); setAiHintDismissed(true) }}>知道了</button></div></div>}</div> : <>
               <button type="button" className="ui-test-icon-btn" aria-label="剧情搜索" title={project ? "剧情搜索" : "请先打开小说"} disabled={!project} onClick={() => navigate("search")}><Search /></button>
               <button type="button" className="ui-test-icon-btn" data-guide="shell.settings" aria-label="设置" title="设置" onClick={() => navigate("settings")}><Settings /></button>

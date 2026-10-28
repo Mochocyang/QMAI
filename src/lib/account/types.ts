@@ -25,6 +25,7 @@ export type AccountErrorCode =
   | "SERVER_ERROR"
   | "NOT_FOUND"
   | "CONFLICT"
+  | "NAME_LOCKED"
   | "NETWORK"
 
 export interface AccountUser {
@@ -34,6 +35,8 @@ export interface AccountUser {
   createdAt: number
   /** 头像版本号（Unix 秒）；null 表示没有头像。 */
   avatarUpdatedAt: number | null
+  /** 上次修改昵称的时间（Unix 秒）；从未改过为 null。 */
+  displayNameUpdatedAt: number | null
 }
 
 export interface AccountAuthPayload {

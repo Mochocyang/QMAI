@@ -25,6 +25,7 @@ export const ACCOUNT_ERROR_MESSAGES: Record<AccountErrorCode, string> = {
   SERVER_ERROR: "账号服务暂时不可用，请稍后再试。",
   NOT_FOUND: "接口不存在。",
   CONFLICT: "云端配置已被其它设备更新，请先拉取最新版本。",
+  NAME_LOCKED: "昵称每个月只能修改一次。",
   NETWORK: "网络不可用，请检查连接后重试。",
 }
 

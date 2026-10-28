@@ -12,6 +12,7 @@ import {
   handleLogin,
   handleLogout,
   handleMe,
+  handleUpdateProfile,
   handleRefresh,
   handleRegister,
   handleResetPassword,
@@ -42,6 +43,8 @@ const ROUTES: Record<string, RouteHandler> = {
   "POST /v1/auth/refresh": handleRefresh,
   "POST /v1/auth/logout": handleLogout,
   "GET /v1/auth/me": handleMe,
+  // 改昵称（每月一次，服务端限流判定）
+  "POST /v1/account/profile": handleUpdateProfile,
   "POST /v1/auth/password/reset": handleResetPassword,
   "POST /v1/auth/password/change": handleChangePassword,
   "POST /v1/account/avatar": handleUploadAvatar,

@@ -373,7 +373,7 @@ describe("AccountDialog", () => {
     render()
 
     const notice = document.querySelector('[role="status"]')
-    expect(notice?.textContent).toBe("账号服务暂时不可用，已保留本地登录状态；会员与云同步稍后再试。")
+    expect(notice?.textContent).toBe("账号服务暂时不可用，已保留本地登录状态；云同步稍后再试。")
   })
 
   it("已登录时可用修改密码入口进入改密面板", async () => {

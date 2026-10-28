@@ -1,3 +1,4 @@
+import { DISPLAY_NAME_MAX_CHARS } from "./constants"
 import type { CodePurpose } from "./types"
 
 /** trim + 小写；非字符串返回空串。 */
@@ -49,6 +50,24 @@ export function normalizeDisplayName(value: unknown, email: string): string {
   const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, "").trim()
   if (!cleaned) return fallback
   return Array.from(cleaned).slice(0, 48).join("")
+}
+
+/**
+ * 用户主动改昵称时的严格校验：折叠空白、去控制字符，长度 1–24 字。
+ *
+ * 与 `normalizeDisplayName` 的区别：那个是注册时的兜底（空就回退邮箱前缀），
+ * 这里不允许"猜一个名字"——用户输入了空或超长，直接判为不合法，让前端提示。
+ */
+export function normalizeRenameDisplayName(value: unknown): string | null {
+  if (typeof value !== "string") return null
+  const cleaned = value
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+  if (!cleaned) return null
+  const chars = Array.from(cleaned)
+  if (chars.length > DISPLAY_NAME_MAX_CHARS) return null
+  return chars.join("")
 }
 
 /** 32 字节随机 refresh token 的 base64url 形态固定为 43 个字符。 */

@@ -387,13 +387,9 @@ export function AccountDialog() {
                   onChange={(event) => void handleAvatarFile(event)}
                 />
 
-                <p className="account-note">会员与云同步将在后续版本接入。</p>
-                <p className="account-note account-note-muted">
-                  会员权益筹备中。上线后会在这里显示套餐与到期时间。
-                </p>
                 {sessionUnverified ? (
                   <p className="account-note account-note-muted" role="status">
-                    账号服务暂时不可用，已保留本地登录状态；会员与云同步稍后再试。
+                    账号服务暂时不可用，已保留本地登录状态；云同步稍后再试。
                   </p>
                 ) : null}
 
@@ -424,7 +420,7 @@ export function AccountDialog() {
             <DialogHeader>
               <DialogTitle>登录青幕AI写作</DialogTitle>
               <DialogDescription>
-                登录后可继承会员权益（筹备中），不影响本地写作。
+                登录后可在多台设备间同步账号信息，不影响本地写作。
               </DialogDescription>
             </DialogHeader>
 

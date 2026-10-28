@@ -23,12 +23,14 @@ import {
   resetAccountPassword,
   resolveAccountBaseUrl,
   sendCode as requestSendCode,
+  updateAccountProfile,
   uploadAccountAvatar,
 } from "@/lib/account/api"
 import { AccountApiError, accountErrorMessage, isAccountApiError } from "@/lib/account/errors"
 import {
   clearAccountSession,
   createStoredSession,
+  isAccessTokenFresh,
   loadAccountSession,
   saveAccountSession,
 } from "@/lib/account/session"
@@ -75,6 +77,13 @@ export interface AccountStoreState {
   setAvatar: (upload: AvatarUpload) => Promise<void>
   /** 删除头像。 */
   removeAvatar: () => Promise<void>
+  /**
+   * 改昵称（服务端限制每月一次）。
+   *
+   * 成功后同时更新内存与本地会话：`displayNameUpdatedAt` 也来自服务端，
+   * 客户端据此显示「下次可修改时间」，不自己算账。
+   */
+  rename: (displayName: string) => Promise<AccountUser>
   /** 主动续期；无会话返回 null，401 清会话，网络错误保留会话并抛出。 */
   refreshSession: () => Promise<StoredAccountSession | null>
   /** 规格动作名：续期并吞掉错误，供「重试/下次打开账号页」使用。 */
@@ -393,6 +402,26 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
     }
   },
 
+  rename: async (displayName) => {
+    let session = get().session
+    if (!session) throw new AccountApiError("TOKEN_EXPIRED")
+    // token 快过期时先续期，避免"明明登录着却改不了名"
+    if (!isAccessTokenFresh(session)) {
+      session = (await get().refreshSession()) ?? session
+    }
+
+    try {
+      const user = await updateAccountProfile(session.baseUrl, session.accessToken, displayName)
+      const next: StoredAccountSession = { ...session, user }
+      saveAccountSession(next)
+      set({ user, session: next, error: null })
+      return user
+    } catch (error) {
+      set({ error: accountErrorMessage(error) })
+      throw error
+    }
+  },
+
   removeAvatar: async () => {
     const session = get().session
     if (!session) throw new AccountApiError("TOKEN_EXPIRED")
@@ -409,8 +438,7 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
     }
   },
 
-  refreshSession: async () => {
-    const epochAtStart = sessionEpoch
+  refreshSession: async () => {    const epochAtStart = sessionEpoch
     const session = get().session
     if (!session) return null
 

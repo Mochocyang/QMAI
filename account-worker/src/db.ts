@@ -5,11 +5,11 @@
  */
 
 import { peekRateLimitDecision, type RateLimitDecision, type RateLimitPeek } from "./rate-limit"
-import { MAX_CODE_ATTEMPTS } from "./constants"
+import { MAX_CODE_ATTEMPTS, NAME_CHANGE_COOLDOWN_SECONDS } from "./constants"
 import type { EmailCodeRow, SessionRow, UserRow } from "./types"
 
 const USER_COLUMNS =
-  "id, email, display_name, password_hash, status, created_at, updated_at, avatar_updated_at"
+  "id, email, display_name, password_hash, status, created_at, updated_at, avatar_updated_at, display_name_updated_at"
 const SESSION_COLUMNS =
   "id, user_id, family_id, token_hash, previous_token_hash, device_label, created_at, last_used_at, expires_at, revoked_at"
 const EMAIL_CODE_COLUMNS =
@@ -64,6 +64,28 @@ export async function updateUserPassword(
     .prepare("UPDATE users SET password_hash = ?2, updated_at = ?3 WHERE id = ?1")
     .bind(userId, passwordHash, now)
     .run()
+}
+
+/**
+ * 改昵称：同时写下 `display_name_updated_at`（每月一次的判据）。
+ *
+ * 条件里再判一次 `display_name_updated_at`：并发两个请求时，只有一个能真正写入，
+ * 否则"每月一次"在双击/双设备下会被绕过。
+ */
+export async function updateUserDisplayName(
+  db: D1Database,
+  userId: number,
+  displayName: string,
+  now: number,
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE users SET display_name = ?2, display_name_updated_at = ?3, updated_at = ?3
+       WHERE id = ?1 AND (display_name_updated_at IS NULL OR display_name_updated_at <= ?4)`,
+    )
+    .bind(userId, displayName, now, now - NAME_CHANGE_COOLDOWN_SECONDS)
+    .run()
+  return (result.meta?.changes ?? 0) > 0
 }
 
 /** 只取头像二进制，避免把整行（含密码哈希）读进来。 */

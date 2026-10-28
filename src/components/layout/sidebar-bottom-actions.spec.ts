@@ -8,16 +8,12 @@ const source = readFileSync(
 )
 
 describe("sidebar-bottom-actions", () => {
-  it("renders 设置 first (left) and 外观 second (right)", () => {
-    expect(source).toContain('t("sidebarActions.settings")')
-    expect(source).toContain('t("sidebarActions.appearance")')
+  it("左下角是头像入口，皮肤菜单挂在它展开的面板里", () => {
     expect(source).toContain('data-ui="sidebar-bottom-actions"')
-
-    const settingsIndex = source.indexOf('t("sidebarActions.settings")')
-    const appearanceIndex = source.indexOf('t("sidebarActions.appearance")')
-    expect(settingsIndex).toBeGreaterThan(-1)
-    expect(appearanceIndex).toBeGreaterThan(-1)
-    expect(settingsIndex).toBeLessThan(appearanceIndex)
+    // 头像替代了原来的设置齿轮；设置入口改为「菜单里点头像 → 设置 → 账号」
+    expect(source).toContain('data-ui="sidebar-account-avatar"')
+    expect(source).toContain('t("sidebarActions.appearance")')
+    expect(source).toContain('setActiveSettingsCategory("account")')
   })
 
   it("wires 外观 to the skin switcher (静水 / 纸间 / 星夜) from the shell context", () => {
@@ -34,11 +30,11 @@ describe("sidebar-bottom-actions", () => {
     expect(source).not.toContain("THEME_OPTIONS")
   })
 
-  it("图标靠左一字排开，外观用 ml-auto 锚在右边", () => {
-    // 去文字化之后不再有 justify-start / justify-end 的左右分栏，
-    // 三个入口统一成 size-8 图标按钮，外观靠 ml-auto 推到最右。
+  it("头像与公告铃铛并排，维护工具入口在同一个面板里", () => {
     expect(source).toContain("flex size-7 shrink-0 items-center justify-center")
-    expect(source).toContain("ml-auto")
+    expect(source).toContain("<AnnouncementBell />")
+    expect(source).toContain('data-ui="sidebar-maintenance-entry"')
+    expect(source).toContain('setActiveView("maintenance")')
   })
 
   it("opens the skin menu in a portal, anchored by its bottom above the trigger", () => {

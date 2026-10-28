@@ -50,6 +50,8 @@ export interface UserRow {
   avatar_mime: string | null
   avatar_data: ArrayBuffer | Uint8Array | null
   avatar_updated_at: number | null
+  /** 上次修改昵称的时间（Unix 秒）；NULL 表示从未改过。 */
+  display_name_updated_at: number | null
 }
 
 export interface EmailCodeRow {
@@ -87,6 +89,11 @@ export interface PublicUser {
    * 客户端据此拼 `/v1/account/avatar/{id}?v=…`，换头像后 URL 变化即可破缓存。
    */
   avatarUpdatedAt: number | null
+  /**
+   * 上次修改昵称的时间（Unix 秒）；从未改过为 null。
+   * 客户端据此显示「下次可修改时间」，服务端才是真正的每月一次限制。
+   */
+  displayNameUpdatedAt: number | null
 }
 
 export interface AuthPayload {
@@ -124,3 +131,4 @@ export type ApiErrorCode =
   | "SERVER_ERROR"
   | "NOT_FOUND"
   | "CONFLICT"
+  | "NAME_LOCKED"

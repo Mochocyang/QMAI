@@ -44,9 +44,10 @@ import {
   revokeSessionFamily,
   rotateSession,
   updateUserAvatar,
+  updateUserDisplayName,
   updateUserPassword,
 } from "./db"
-import { MAX_CODE_ATTEMPTS } from "./constants"
+import { DISPLAY_NAME_MAX_CHARS, MAX_CODE_ATTEMPTS, NAME_CHANGE_COOLDOWN_SECONDS } from "./constants"
 import { sendRegisteredNotice, sendVerificationEmail } from "./email"
 import { failure, jsonSuccess, readJsonBody } from "./http"
 import type {
@@ -70,6 +71,7 @@ import {
   normalizeDisplayName,
   normalizeEmail,
   normalizePurpose,
+  normalizeRenameDisplayName,
 } from "./validation"
 
 const EMAIL_CODE_TTL_SECONDS = 10 * 60
@@ -124,6 +126,7 @@ function toPublicUser(user: UserRow): PublicUser {
     displayName: user.display_name,
     createdAt: user.created_at,
     avatarUpdatedAt: user.avatar_updated_at,
+    displayNameUpdatedAt: user.display_name_updated_at ?? null,
   }
 }
 
@@ -657,6 +660,47 @@ export async function handleMe(
   if (!auth.ok) return auth.response
 
   return jsonSuccess({ user: toPublicUser(auth.user) })
+}
+
+/**
+ * POST /v1/account/profile
+ *
+ * 改昵称。用户要求「每个人每个月只能修改一次」，所以限制放服务端：
+ * - 首次改名（`display_name_updated_at` 为 NULL）不受限；
+ * - 之后必须间隔 `NAME_CHANGE_COOLDOWN_SECONDS`（30 天）；
+ * - 与原名完全相同视为无事发生（不消耗次数）。
+ */
+export async function handleUpdateProfile(
+  request: Request,
+  env: Env,
+  now = currentSeconds(),
+): Promise<Response> {
+  const auth = await authenticate(request, env, now)
+  if (!auth.ok) return auth.response
+
+  const parsed = await readJsonBody(request)
+  if (!parsed.ok) return parsed.response
+
+  const displayName = normalizeRenameDisplayName(parsed.body.displayName)
+  if (!displayName) {
+    return failure("VALIDATION", `昵称需要 1–${DISPLAY_NAME_MAX_CHARS} 个字符。`)
+  }
+  if (displayName === auth.user.display_name) {
+    return jsonSuccess({ user: toPublicUser(auth.user) })
+  }
+
+  const lastChangedAt = auth.user.display_name_updated_at
+  if (lastChangedAt !== null && now - lastChangedAt < NAME_CHANGE_COOLDOWN_SECONDS) {
+    return failure("NAME_LOCKED")
+  }
+
+  // 条件更新兜住并发：两个请求同时到达时只有一个能写成功
+  const updated = await updateUserDisplayName(env.DB, auth.user.id, displayName, now)
+  if (!updated) return failure("NAME_LOCKED")
+
+  const user = await findUserById(env.DB, auth.user.id)
+  logEvent("profile_updated", { userId: auth.user.id })
+  return jsonSuccess({ user: toPublicUser(user ?? auth.user) })
 }
 
 /** POST /v1/auth/password/reset */

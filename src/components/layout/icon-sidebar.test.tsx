@@ -121,15 +121,18 @@ describe("icon-sidebar", () => {
   })
 
   /*
-   * 底栏去文字化（设置 / 外观只留图标）之后，文字节点没了，可访问名称就是
-   * 唯一的辨识依据；同时公告入口必须在这里，否则用户找不到公告。
+   * 底栏现在是头像入口（替代原来的设置齿轮），点它展开「头像 + 外观设置 + 维护工具」。
+   * 纯图标按钮靠 aria-label 辨识，这条钉住它仍然可读。
    */
-  it("底栏去文字化但仍保留可访问名称，并新增公告铃铛", () => {
+  it("底栏头像入口有可访问名称，公告铃铛与外观/维护菜单都在里面", () => {
     const bottomActions = readFileSync(resolve(__dirname, "sidebar-bottom-actions.tsx"), "utf8")
-    expect(bottomActions).not.toContain('<span className="truncate">{t("sidebarActions.settings")}')
-    expect(bottomActions).not.toContain('<span className="truncate">{t("sidebarActions.appearance")}')
-    expect(bottomActions).toContain('aria-label={t("sidebarActions.settings")}')
-    expect(bottomActions).toContain('aria-label={t("sidebarActions.appearance")}')
+    expect(bottomActions).toContain('data-ui="sidebar-account-avatar"')
+    expect(bottomActions).toContain('aria-label="账号与外观"')
+    expect(bottomActions).toContain("<AccountAvatar")
     expect(bottomActions).toContain("<AnnouncementBell />")
+    // 外观设置（皮肤）与维护工具都在头像菜单里
+    expect(bottomActions).toContain("UI_TEST_SKINS.map")
+    expect(bottomActions).toContain('data-ui="sidebar-maintenance-entry"')
+    expect(bottomActions).toContain('setActiveSettingsCategory("account")')
   })
 })

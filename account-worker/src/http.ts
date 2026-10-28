@@ -18,6 +18,7 @@ const ERROR_STATUS: Record<ApiErrorCode, number> = {
   SERVER_ERROR: 500,
   NOT_FOUND: 404,
   CONFLICT: 409,
+  NAME_LOCKED: 429,
 }
 
 const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
@@ -38,6 +39,7 @@ const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   SERVER_ERROR: "账号服务暂时不可用，请稍后再试。",
   NOT_FOUND: "接口不存在。",
   CONFLICT: "云端配置已被其它设备更新，请先拉取最新版本。",
+  NAME_LOCKED: "昵称每个月只能修改一次。",
 }
 
 export function errorStatus(code: ApiErrorCode): number {

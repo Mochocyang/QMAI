@@ -170,7 +170,12 @@ function expectUser(raw: unknown, status: number): AccountUser {
   const avatarUpdatedAt =
     typeof rawAvatar === "number" && Number.isFinite(rawAvatar) ? rawAvatar : null
 
-  return { id, email, displayName, createdAt, avatarUpdatedAt }
+  // 昵称上次修改时间同理：老服务端没有这个字段时按「从未改过」处理。
+  const rawNameUpdated = record.displayNameUpdatedAt
+  const displayNameUpdatedAt =
+    typeof rawNameUpdated === "number" && Number.isFinite(rawNameUpdated) ? rawNameUpdated : null
+
+  return { id, email, displayName, createdAt, avatarUpdatedAt, displayNameUpdatedAt }
 }
 
 function expectAuthPayload(raw: unknown, status: number): AccountAuthPayload {
@@ -410,6 +415,32 @@ export async function fetchAccountMe(
     accessToken,
     unauthorizedCode: "TOKEN_EXPIRED",
     fetchImpl,
+  })
+
+  const record = asRecord(data)
+  if (!record) throw invalidStructure(status)
+  return expectUser(record.user, status)
+}
+
+/**
+ * 修改昵称（服务端限制每月一次）。
+ *
+ * 返回更新后的用户；服务端在冷却期内会返回 `NAME_LOCKED`，调用方按错误码提示，
+ * 不要自己算「这个月改没改过」——本地时钟不可信，服务端才是权威。
+ */
+export async function updateAccountProfile(
+  baseUrl: string,
+  accessToken: string,
+  displayName: string,
+  fetchImpl: FetchImpl = lazyAccountFetch,
+): Promise<AccountUser> {
+  const { status, data } = await requestAccount(baseUrl, {
+    method: "POST",
+    path: "/v1/account/profile",
+    accessToken,
+    unauthorizedCode: "TOKEN_EXPIRED",
+    fetchImpl,
+    body: { displayName },
   })
 
   const record = asRecord(data)

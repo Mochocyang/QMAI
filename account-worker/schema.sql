@@ -13,7 +13,9 @@ CREATE TABLE IF NOT EXISTS users (
   -- 头像：BLOB 存 WebP/PNG/JPEG 原字节，mime 单独记；未设置时为 NULL。
   avatar_mime TEXT,
   avatar_data BLOB,
-  avatar_updated_at INTEGER
+  avatar_updated_at INTEGER,
+  -- 昵称每月只能改一次：记录上次修改时间（Unix 秒），NULL 表示从未改过。
+  display_name_updated_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS email_codes (

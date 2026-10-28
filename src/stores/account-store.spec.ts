@@ -51,6 +51,7 @@ function accountUser(overrides: Partial<AccountUser> = {}): AccountUser {
     displayName: "作者",
     createdAt: 1793000000,
     avatarUpdatedAt: null,
+    displayNameUpdatedAt: null,
     ...overrides,
   }
 }

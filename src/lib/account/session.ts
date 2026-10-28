@@ -44,7 +44,11 @@ function toAccountUser(value: unknown): AccountUser | null {
   const avatarUpdatedAt =
     isFiniteNumber(record.avatarUpdatedAt) ? record.avatarUpdatedAt : null
 
-  return { id, email, displayName, createdAt, avatarUpdatedAt }
+  // 昵称上次修改时间同理：老会话没有就按「从未改过」处理。
+  const displayNameUpdatedAt =
+    isFiniteNumber(record.displayNameUpdatedAt) ? record.displayNameUpdatedAt : null
+
+  return { id, email, displayName, createdAt, avatarUpdatedAt, displayNameUpdatedAt }
 }
 
 function toStoredSession(value: unknown): StoredAccountSession | null {
