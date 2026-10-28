@@ -5,7 +5,7 @@ import type { ContextTrace } from "@/lib/agent/context-trace"
 import type { ContextHubSnapshotRef, SessionContextSummary } from "@/lib/context-hub/types"
 import type { ChapterRef } from "@/lib/context-hub/chapter-body-injection"
 import type { ContextUsageSnapshot } from "@/lib/context-usage"
-import { deriveConversationTitle } from "@/lib/conversation-title"
+import { deriveConversationTitle, sanitizeConversationTitle } from "@/lib/conversation-title"
 import type {
   ChapterDiscussDecision,
   ChapterDiscussPhase,
@@ -24,6 +24,8 @@ import {
 export interface Conversation {
   id: string
   title: string
+  /** 用户手动改过标题：之后不再用首条消息自动覆盖。 */
+  titleLocked?: boolean
   createdAt: number
   updatedAt: number
   deAiMode: boolean
@@ -238,11 +240,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }),
 
   renameConversation: (id, title) =>
-    set((state) => ({
-      conversations: state.conversations.map((c) =>
-        c.id === id ? { ...c, title, updatedAt: Date.now() } : c
-      ),
-    })),
+    set((state) => {
+      const next = sanitizeConversationTitle(title)
+      // 空标题直接忽略：宁可保持原名，也不要出现一个看不见的会话
+      if (!next) return state
+      return {
+        conversations: state.conversations.map((c) =>
+          c.id === id
+            // titleLocked：用户改过名之后，首条消息不再自动覆盖标题
+            ? { ...c, title: next, titleLocked: true, updatedAt: Date.now() }
+            : c
+        ),
+      }
+    }),
 
   setConversationDeAiMode: (id, deAiMode) =>
     set((state) => ({

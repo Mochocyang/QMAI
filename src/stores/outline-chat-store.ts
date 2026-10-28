@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { readFile, writeFile, createDirectory } from "@/commands/fs"
 import { normalizePath } from "@/lib/path-utils"
-import { deriveConversationTitle } from "@/lib/conversation-title"
+import { deriveConversationTitle, sanitizeConversationTitle } from "@/lib/conversation-title"
 import type { AgentRunRecord } from "@/lib/agent/types"
 import type { ReferenceToken } from "@/lib/reference/types"
 import type { ContextHubSnapshotRef, SessionContextSummary } from "@/lib/context-hub/types"
@@ -212,6 +212,8 @@ export interface OutlineChatMessage {
 export interface OutlineChatConversation {
   id: string
   title: string
+  /** 用户手动改过标题：之后不再用首条消息自动覆盖。 */
+  titleLocked?: boolean
   createdAt: number
   updatedAt: number
   messages: OutlineChatMessage[]
@@ -243,6 +245,7 @@ interface OutlineChatState {
   replaceLastAssistant: (convId: string, content: string, sources?: string[]) => void
   removeLastMessage: (convId: string) => void
   deleteConversation: (id: string) => void
+  renameConversation: (id: string, title: string) => void
   setConversationModel: (id: string, modelId: string) => void
   setConversationContextSummary: (id: string, contextSummary: SessionContextSummary) => void
   setConversationContextUsage: (id: string, lastContextUsage: ContextUsageSnapshot | undefined) => void
@@ -396,10 +399,11 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
           msgs.push({ id: crypto.randomUUID(), role: "assistant", content, sources })
         }
         const firstUser = msgs.find((m) => m.role === "user")
-        // 首条用户消息不变，派生结果也就稳定（本 store 没有重命名动作）。
+        // 用户改过名（titleLocked）就不再派生覆盖；否则首条用户消息决定标题。
         // 派生不出内容时保留原标题，不要写入空字符串。
         const derived = firstUser ? deriveConversationTitle(firstUser.content) : ""
-        return { ...c, messages: msgs, title: derived || c.title, updatedAt: now }
+        const title = c.titleLocked ? c.title : (derived || c.title)
+        return { ...c, messages: msgs, title, updatedAt: now }
       }),
     }))
     scheduleSave()
@@ -426,6 +430,19 @@ export const useOutlineChatStore = create<OutlineChatState>((set, get) => {
         runStates,
       }
     })
+    scheduleSave()
+  },
+
+  renameConversation: (id, title) => {
+    const next = sanitizeConversationTitle(title)
+    // 空标题直接忽略：宁可保持原名，也不要出现一个看不见的会话
+    if (!next) return
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        // titleLocked：用户改过名之后，首条消息不再自动覆盖标题
+        c.id === id ? { ...c, title: next, titleLocked: true, updatedAt: Date.now() } : c
+      ),
+    }))
     scheduleSave()
   },
 

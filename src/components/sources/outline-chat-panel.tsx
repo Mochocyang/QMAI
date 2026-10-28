@@ -2348,6 +2348,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   );
   const addMessage = useOutlineChatStore((s) => s.addMessage);
   const deleteConversation = useOutlineChatStore((s) => s.deleteConversation);
+  const renameConversation = useOutlineChatStore((s) => s.renameConversation);
   const setConversationModel = useOutlineChatStore(
     (s) => s.setConversationModel,
   );
@@ -6856,7 +6857,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
     >
       {/* Header with conversation tabs */}
       <div className="flex h-12 shrink-0 items-center gap-2 border-b bg-muted/20 px-2" data-ui-ai-header>
-        {<UiTestAiIdentity conversationTitle={activeConv?.title || "大纲对话"} status={<ConversationRunStatusIcon state={runStates[activeConversationId ?? ""]} />} />}
+        {<UiTestAiIdentity conversationTitle={activeConv?.title || "大纲对话"} status={<ConversationRunStatusIcon state={runStates[activeConversationId ?? ""]} />} onRename={activeConversationId ? (next) => renameConversation(activeConversationId, next) : undefined} />}
         <div className="flex min-w-0 flex-1 items-center overflow-hidden">
           {topConversations.length > 0 ? (
             <div className="flex min-w-0 flex-1 gap-1.5 overflow-hidden">

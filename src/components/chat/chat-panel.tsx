@@ -618,7 +618,11 @@ function appendAgentChatMessages(
         conversation.id === conversationId
           ? {
               ...conversation,
-              title: existingUserCount === 0 ? content.slice(0, 50) : conversation.title,
+              // 用户改过名的会话（titleLocked）不再被首条消息覆盖
+              title:
+                existingUserCount === 0 && !conversation.titleLocked
+                  ? content.slice(0, 50)
+                  : conversation.title,
               updatedAt: now,
             }
           : conversation,
@@ -677,6 +681,7 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
   const runStates = useChatStore((s) => s.runStates)
   const createConversation = useChatStore((s) => s.createConversation)
   const deleteConversation = useChatStore((s) => s.deleteConversation)
+  const renameConversation = useChatStore((s) => s.renameConversation)
   const setActiveConversation = useChatStore((s) => s.setActiveConversation)
   const stopConversationRun = useChatStore((s) => s.stopConversationRun)
   const clearStreaming = useChatStore((s) => s.clearStreaming)
@@ -839,6 +844,11 @@ function ConversationTabs({ onBeforeDelete }: { onBeforeDelete: (conversationId:
           title="写作助手"
           conversationTitle={conversations.find((conversation) => conversation.id === activeConversationId)?.title}
           status={activeConversationId ? <ConversationRunStatusIcon state={runStates[activeConversationId]} /> : undefined}
+          onRename={
+            activeConversationId
+              ? (next) => renameConversation(activeConversationId, next)
+              : undefined
+          }
         />
         <div className="qmai-header-actions ml-auto flex shrink-0 items-center">
         {/* 1. 新建写作绘画 */}

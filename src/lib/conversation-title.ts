@@ -19,6 +19,19 @@ const MIN_TITLE_CHARS = 4
 /** 短标题的默认长度上限。 */
 export const CONVERSATION_TITLE_MAX_CHARS = 12
 
+/**
+ * 用户手动改标题时的长度上限。
+ *
+ * 比派生标题（12 字）宽：派生要克制是因为它挤在头部；手动改名是用户的表达，
+ * 太短会让「第 23 章 空位 · 冲突改写」这类标题存不下。头部显示仍会截断。
+ */
+export const CONVERSATION_TITLE_INPUT_MAX_CHARS = 40
+
+/** 清洗用户输入的标题：折叠空白、去首尾空格、按上限截断；空串代表不合法。 */
+export function sanitizeConversationTitle(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim().slice(0, CONVERSATION_TITLE_INPUT_MAX_CHARS)
+}
+
 function finishTitle(value: string): string {
   return value
     .replace(/\s+/g, " ")

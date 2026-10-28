@@ -123,7 +123,26 @@ describe("chat-store", () => {
     expect(renamedConversation?.title).toBe("新的会话标题")
     expect(renamedConversation?.deAiMode).toBe(true)
     expect(renamedConversation?.updatedAt).toBe(200)
+    // 用户改过名后，首条消息不能再自动覆盖标题
+    expect(renamedConversation?.titleLocked).toBe(true)
     expect(beforeRename?.deAiMode).toBe(true)
+  })
+
+  it("重命名会折叠空白、按上限截断，空标题直接忽略", () => {
+    const id = useChatStore.getState().createConversation()
+    useChatStore.getState().renameConversation(id, "  第 23 章   空位 · 冲突改写  ")
+    expect(useChatStore.getState().conversations.find((c) => c.id === id)?.title).toBe(
+      "第 23 章 空位 · 冲突改写",
+    )
+
+    const long = "很".repeat(80)
+    useChatStore.getState().renameConversation(id, long)
+    const capped = useChatStore.getState().conversations.find((c) => c.id === id)?.title ?? ""
+    expect(Array.from(capped)).toHaveLength(40)
+
+    // 清空输入不应把标题写没
+    useChatStore.getState().renameConversation(id, "   ")
+    expect(useChatStore.getState().conversations.find((c) => c.id === id)?.title).toBe(capped)
   })
 
   it("删除其他会话不会破坏剩余会话的 deAiMode", () => {

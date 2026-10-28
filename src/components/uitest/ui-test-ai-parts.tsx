@@ -1,25 +1,94 @@
-import { cloneElement, useEffect, type ComponentProps, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react"
-import { BookOpen, Sparkles } from "lucide-react"
+import { cloneElement, useEffect, useRef, useState, type ComponentProps, type CSSProperties, type ReactElement, type ReactNode, type RefObject } from "react"
+import { BookOpen, Pencil, Sparkles } from "lucide-react"
 import type { ReferenceInput } from "@/components/reference/ReferenceInput"
 import { useWikiStore } from "@/stores/wiki-store"
 import { getEffectiveSavedModels, getStableAvailableModelKey } from "@/lib/llm-model-keys"
 import { getConversationTabTitle } from "@/lib/workspace-layout"
+import { CONVERSATION_TITLE_INPUT_MAX_CHARS, sanitizeConversationTitle } from "@/lib/conversation-title"
 
 /** 头部标题的显示上限。比派生标题的上限（12 字 + 省略号）宽，确保新标题原样显示；
  *  它只用来兜住旧数据——历史上标题是首条消息的 50 字前缀，盘上已存了不少。 */
 const IDENTITY_TITLE_MAX_CHARS = 16
 
-export function UiTestAiIdentity({ conversationTitle, status }: {
+export function UiTestAiIdentity({ conversationTitle, status, onRename }: {
   title?: string
   conversationTitle?: string
   status?: ReactNode
+  /**
+   * 提供后标题可改名：点铅笔或双击标题进入输入框，Enter 保存、Esc 取消、失焦保存。
+   * 没提供（例如没有打开任何会话）就保持只读，避免点了没反应。
+   */
+  onRename?: (next: string) => void
 }) {
-  const title = getConversationTabTitle(conversationTitle?.trim() || "标题", IDENTITY_TITLE_MAX_CHARS)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState("")
+  const inputRef = useRef<HTMLInputElement>(null)
+  const displayTitle = conversationTitle?.trim() || "标题"
+  const title = getConversationTabTitle(displayTitle, IDENTITY_TITLE_MAX_CHARS)
+
+  useEffect(() => {
+    if (!editing) return
+    setDraft(displayTitle)
+    // 等输入框挂载后再聚焦，否则 ref 还是 null
+    const frame = requestAnimationFrame(() => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [editing, displayTitle])
+
+  const commit = () => {
+    const next = sanitizeConversationTitle(draft)
+    // 空标题 / 没改动都不提交，保持原标题
+    if (next && next !== displayTitle) onRename?.(next)
+    setEditing(false)
+  }
+
   return (
-    <div className="ui-test-ai-identity">
+    <div className="ui-test-ai-identity group/identity">
       <span className="ui-test-ai-mark"><Sparkles aria-hidden="true" /></span>
       <div className="ui-test-ai-heading">
-        <div className="ui-test-ai-title" title={conversationTitle?.trim() || undefined}><strong>{title}</strong>{status}</div>
+        {editing ? (
+          <input
+            ref={inputRef}
+            className="h-6 w-40 rounded border bg-background px-1.5 text-xs font-semibold outline-none focus:ring-1 focus:ring-primary"
+            value={draft}
+            maxLength={CONVERSATION_TITLE_INPUT_MAX_CHARS}
+            aria-label="会话标题"
+            onChange={(event) => setDraft(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault()
+                commit()
+              } else if (event.key === "Escape") {
+                event.preventDefault()
+                setEditing(false)
+              }
+            }}
+            onBlur={commit}
+          />
+        ) : (
+          <div className="ui-test-ai-title" title={conversationTitle?.trim() || undefined}>
+            <strong
+              onDoubleClick={onRename ? () => setEditing(true) : undefined}
+              className={onRename ? "cursor-text" : undefined}
+            >
+              {title}
+            </strong>
+            {status}
+            {onRename ? (
+              <button
+                type="button"
+                className="ml-1 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus:opacity-100 group-hover/identity:opacity-100"
+                aria-label="重命名会话"
+                title="重命名会话"
+                onClick={() => setEditing(true)}
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            ) : null}
+          </div>
+        )}
       </div>
     </div>
   )
