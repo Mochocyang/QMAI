@@ -11,6 +11,11 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { ContentPackBrowser } from "@/components/plugins/ContentPackBrowser"
+import { defaultTargetApplier } from "@/components/plugins/ActionDialog"
+import { SlotActions } from "@/components/plugins/SlotActions"
+import { declarativePluginsApi, usePluginSlotIndex } from "@/lib/plugins/declarative/api"
+import type { ContentPackItem, OutputTarget } from "@/lib/plugins/declarative/types"
 import { pluginsApi } from "@/lib/plugins/api"
 import { clearPluginProviderAuth } from "@/lib/plugins/provider-auth"
 import { syncPluginProviders } from "@/lib/plugins/provider-sync"
@@ -92,6 +97,18 @@ export function PluginSection() {
   const [enableTarget, setEnableTarget] = useState<PluginSummary | null>(null)
   const [enabling, setEnabling] = useState(false)
   const [enableError, setEnableError] = useState<string | null>(null)
+  /**
+   * 声明式插件的界面能力（`plugin-center` 插槽）。
+   *
+   * 这一区与下面的「已安装插件」列表**数据来源不同**：列表读 `plugins_list`
+   * （进程/权限视角），能力读 `plugins_actions` / `plugins_content_packs`
+   * （声明式视角）。两者故意分开渲染：一个纯声明式插件不启动进程，
+   * 在列表里永远显示"已停止"，能力却完全可用 —— 混在一起会让用户以为它没生效。
+   */
+  const pluginSlots = usePluginSlotIndex()
+  const [packBrowserOpen, setPackBrowserOpen] = useState(false)
+  const centerSlot = pluginSlots.index["plugin-center"]
+  const hasCenterAbilities = centerSlot.actions.length > 0 || centerSlot.packs.length > 0
 
   const refresh = useCallback(async () => {
     try {
@@ -220,8 +237,23 @@ export function PluginSection() {
     }
   }
 
-  async function confirmEnable() {
-    if (!enableTarget || enabling) return
+  /**
+   * 「用这条灵感」的统一落点。
+   *
+   * 复用对话框的目标执行器：`clipboard` 已实现，写项目字段/插入正文会给出
+   * 「还没接线」的可读原因。写回语义只有一处实现，否则会出现"灵感库能复制、
+   * 生成结果不能复制"这种说不清的不一致。
+   */
+  const applyPackItem = useCallback(async (item: ContentPackItem, target: OutputTarget) => {
+    await defaultTargetApplier(target, { kind: "text", text: item.body })
+  }, [])
+
+  const loadPackItems = useCallback(
+    (packId: string) => declarativePluginsApi.contentPackItems(packId),
+    [],
+  )
+
+  async function confirmEnable() {    if (!enableTarget || enabling) return
     const target = enableTarget
     setEnabling(true)
     setEnableError(null)
@@ -362,6 +394,70 @@ export function PluginSection() {
             <p className="min-w-0 break-words">{actionError}</p>
           </div>
         ) : null}
+      </div>
+
+      {/*
+        插件能力区（`plugin-center` 插槽）。
+        这里只渲染**宿主组件**：按钮（SlotActions）与内容包浏览面板
+        （ContentPackBrowser）。插件能控制的只有标题、提示词与条目文本，
+        拿不到任何标记/脚本执行权（见 lib/plugins/slots.ts 文件头）。
+      */}
+      <div className="space-y-3" data-plugin-abilities="true">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="font-medium">插件能力</h3>
+          {pluginSlots.degraded ? (
+            <Button type="button" variant="ghost" size="sm" onClick={() => pluginSlots.reload()}>
+              重新读取
+            </Button>
+          ) : null}
+        </div>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          声明式插件不启动进程：它声明的按钮与灵感库会直接出现在界面里，由软件渲染。
+        </p>
+
+        {pluginSlots.loading ? (
+          <div
+            className="flex items-center gap-2 rounded-lg border border-border px-4 py-4 text-sm text-muted-foreground"
+            role="status"
+          >
+            <Loader2 className="h-4 w-4 animate-spin" />
+            正在读取插件能力…
+          </div>
+        ) : hasCenterAbilities ? (
+          <div className="space-y-3">
+            {centerSlot.actions.length > 0 ? <SlotActions entries={centerSlot.actions} variant="toolbar" /> : null}
+            {centerSlot.packs.length > 0 ? (
+              <div className="space-y-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPackBrowserOpen((open) => !open)}
+                  aria-expanded={packBrowserOpen}
+                >
+                  {packBrowserOpen ? "收起灵感库" : `打开灵感库（${centerSlot.packs.length}）`}
+                </Button>
+                {packBrowserOpen ? (
+                  <ContentPackBrowser
+                    packs={centerSlot.packs}
+                    loadItems={loadPackItems}
+                    onUse={applyPackItem}
+                    actions={centerSlot.actions}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div
+            className="rounded-lg border border-dashed border-border px-4 py-4 text-sm text-muted-foreground"
+            data-plugin-abilities="empty"
+          >
+            {pluginSlots.degraded
+              ? "暂时读不到插件能力清单：相关命令还没有就绪，其余插件功能不受影响。"
+              : "还没有插件声明界面能力。安装带 actions / contentPacks 的插件后会出现在这里。"}
+          </div>
+        )}
       </div>
 
       <div className="space-y-3">
