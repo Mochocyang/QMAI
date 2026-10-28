@@ -21,6 +21,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 
+use super::project_context;
+
 /// 检查是否拥有某个权限；`data:write` 永远放行（设计文档 6.2：自动授予）
 pub fn require(granted: &[String], permission: &str) -> Result<(), String> {
     if permission == "data:write" {
@@ -177,6 +179,10 @@ fn is_blocked_v6(ip: Ipv6Addr) -> bool {
 pub struct PluginSession {
     pub plugin_id: String,
     pub granted: Vec<String>,
+    /// **已不是项目根的真源**：项目根改由进程级的 [`project_context::ProjectContext`]
+    /// 提供（设计 §7.2「打开/切换项目时注册」，而不是插件启动时）。
+    /// 字段保留是为了「会话建立时确实带过一个 root」这件事仍有处可查（迁移/测试方便）；
+    /// 读取一律 `动态值.or(这个值)`，动态值优先。
     pub project_root: Option<PathBuf>,
     pub data_root: PathBuf,
 }
@@ -192,6 +198,9 @@ pub struct PluginLogLine {
 pub struct HostApiState {
     pub sessions: Arc<Mutex<HashMap<String, PluginSession>>>,
     pub log_sink: Arc<Mutex<Vec<PluginLogLine>>>,
+    /// 当前项目根。生产路径用进程级单例（[`shared_project_context`]），
+    /// 这样「前端调 `plugins_set_project`」与「早已起着的 HTTP 服务」看到的是同一份。
+    pub project: Arc<project_context::ProjectContext>,
 }
 
 #[derive(Deserialize)]
@@ -247,10 +256,14 @@ fn sanitize_message(raw: &str) -> String {
 
 impl HostApiState {
     /// 新建一个空的宿主能力面状态（会话由安装/启动流程逐步登记）。
+    ///
+    /// 项目上下文用**独立实例**而不是进程级单例：这是测试与「一次性状态」的正确语义
+    /// （多个用例并行跑时不会互相看到对方的项目）。生产路径走 [`shared_state`]。
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             log_sink: Arc::new(Mutex::new(Vec::new())),
+            project: Arc::new(project_context::ProjectContext::new()),
         }
     }
 
@@ -273,6 +286,17 @@ impl HostApiState {
         }
         let sessions = self.sessions.lock().ok()?;
         sessions.get(token).cloned()
+    }
+
+    /// 当前项目根：**以进程级动态值为准**，会话里的旧值只做兜底。
+    ///
+    /// 为什么不直接用 `session.project_root`：会话是插件**启动时**建的，而用户可以在
+    /// 插件跑着的时候切换项目（设计 §7.2）。只有动态值才能反映「现在打开的是哪个项目」。
+    /// 兜底是为了兼容「会话自带 root」的老路径与测试（v2 之前没有任何动态来源）。
+    pub fn project_root(&self, session: &PluginSession) -> Option<PathBuf> {
+        self.project
+            .get()
+            .or_else(|| session.project_root.clone())
     }
 }
 
@@ -307,6 +331,19 @@ pub fn unregister_session(token: &str) {
     }
 }
 
+/// 进程级「当前项目」。
+///
+/// 与会话表同理：`plugins_set_project` 命令与 HTTP 服务分处两个任务，
+/// 只有共享同一个实例，「打开/切换项目」才对已经在跑的插件生效（设计 §7.2）。
+static PROJECT: OnceLock<Arc<project_context::ProjectContext>> = OnceLock::new();
+
+/// 取进程级的项目上下文（首次调用时创建）。
+pub fn shared_project_context() -> Arc<project_context::ProjectContext> {
+    PROJECT
+        .get_or_init(|| Arc::new(project_context::ProjectContext::new()))
+        .clone()
+}
+
 /// 构造一个共享同一会话表的 [`HostApiState`]（`start` 时用）。
 ///
 /// 日志环仍是每个 state 独立的：当前没有命令读取它，等日志查看功能落地时
@@ -315,6 +352,7 @@ pub fn shared_state() -> HostApiState {
     HostApiState {
         sessions: session_store().clone(),
         log_sink: Arc::new(Mutex::new(Vec::new())),
+        project: shared_project_context(),
     }
 }
 
@@ -356,8 +394,14 @@ fn forbidden(permission: &str) -> Response {
 /// 依赖方（插件 SDK）只认 error 码，状态码用于快速分流。
 fn error_response(code: &str) -> Response {
     let status = match code {
-        "E_NO_PROJECT" | "E_PATH_ESCAPE" | "E_FILE_TOO_LARGE" => StatusCode::BAD_REQUEST,
+        "E_NO_PROJECT"
+        | "E_PATH_ESCAPE"
+        | "E_FILE_TOO_LARGE"
+        | "E_FIELD_NOT_ALLOWED"
+        | "E_CHAPTER_ID_INVALID" => StatusCode::BAD_REQUEST,
         "E_NOT_FOUND" => StatusCode::NOT_FOUND,
+        // 501：契约存在、宿主还没接实现。用 400 会诱导插件以为是它参数写错了而反复重试。
+        "E_FIELD_WRITE_UNSUPPORTED" | "E_NOTE_WRITE_UNSUPPORTED" => StatusCode::NOT_IMPLEMENTED,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (status, Json(serde_json::json!({ "error": code }))).into_response()
@@ -383,7 +427,8 @@ async fn status(State(state): State<HostApiState>, headers: HeaderMap) -> Respon
         "hostVersion": env!("CARGO_PKG_VERSION"),
         "pluginId": session.plugin_id,
         "grantedPermissions": session.granted,
-        "projectRoot": session.project_root.map(|p| p.to_string_lossy().to_string()),
+        // 项目根走动态值：插件在 initialize 之后才可能拿到项目，不可能更早。
+        "projectRoot": state.project_root(&session).map(|p| p.to_string_lossy().to_string()),
     }))
     .into_response()
 }
@@ -425,7 +470,7 @@ async fn project_read(
     if let Err(permission) = require(&session.granted, "fs:project-read") {
         return forbidden(&permission);
     }
-    let Some(root) = session.project_root else {
+    let Some(root) = state.project_root(&session) else {
         // 没有项目就没有可读的目录；这不算逃逸，单独给个码便于插件区分。
         return error_response("E_NO_PROJECT");
     };
@@ -463,11 +508,111 @@ async fn project_read(
     }
 }
 
+// ── 项目读写地基（设计 §7）────────────────────────────
+//
+// 三个端点的共同前置：token → 权限 → 项目存在 → 再干活。顺序固定，理由同
+// `project_read`：反过来会把「有没有打开项目」这类信息泄漏给无权限插件。
+
+/// `GET /host/project/info`：项目快照，够插件在提示词里引用书名/简介/章节数。
+async fn project_info(State(state): State<HostApiState>, headers: HeaderMap) -> Response {
+    let Some(session) = state.session(&headers) else {
+        return unauthorized();
+    };
+    if let Err(permission) = require(&session.granted, "fs:project-read") {
+        return forbidden(&permission);
+    }
+    let Some(root) = state.project_root(&session) else {
+        return error_response("E_NO_PROJECT");
+    };
+    // 读元数据 + 数章节会碰文件系统：放阻塞线程池（同 `project_read` 的理由）。
+    match tokio::task::spawn_blocking(move || project_context::read_project_info(&root)).await {
+        Ok(info) => Json(info).into_response(),
+        Err(_) => read_failed(std::io::ErrorKind::Other),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct FieldBody {
+    pub field: String,
+    #[serde(default)]
+    pub value: serde_json::Value,
+}
+
+/// `POST /host/project/field`：写一个**枚举内**的项目字段（设计 D9）。
+///
+/// 枚举外的字段名一律 `E_FIELD_NOT_ALLOWED`；枚举内但宿主还没接写入的，
+/// 回 `E_FIELD_WRITE_UNSUPPORTED`（501）。**绝不提供任意路径写入**。
+async fn project_field(
+    State(state): State<HostApiState>,
+    headers: HeaderMap,
+    Json(body): Json<FieldBody>,
+) -> Response {
+    let Some(session) = state.session(&headers) else {
+        return unauthorized();
+    };
+    // 写权限单独一条：读项目与改项目是两件性质完全不同的事（设计 §4 权限表）。
+    if let Err(permission) = require(&session.granted, "fs:project-write") {
+        return forbidden(&permission);
+    }
+    let Some(root) = state.project_root(&session) else {
+        return error_response("E_NO_PROJECT");
+    };
+    let outcome = tokio::task::spawn_blocking(move || {
+        project_context::write_project_field(&root, &body.field, &body.value)
+    })
+    .await;
+    match outcome {
+        Ok(Ok(())) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Ok(Err(code)) => error_response(code),
+        Err(_) => read_failed(std::io::ErrorKind::Other),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct ChapterNoteBody {
+    #[serde(rename = "chapterId")]
+    pub chapter_id: String,
+    #[serde(default)]
+    pub note: String,
+}
+
+/// `POST /host/project/chapter-note`：向当前章节追加备注（只追加、不改正文）。
+///
+/// 与 `project_field` 同构：**先校验再判断能力**，能力不具备就明确回
+/// `E_NOTE_WRITE_UNSUPPORTED`，而不是往正文或备份快照里塞字。
+async fn project_chapter_note(
+    State(state): State<HostApiState>,
+    headers: HeaderMap,
+    Json(body): Json<ChapterNoteBody>,
+) -> Response {
+    let Some(session) = state.session(&headers) else {
+        return unauthorized();
+    };
+    if let Err(permission) = require(&session.granted, "fs:project-write") {
+        return forbidden(&permission);
+    }
+    let Some(root) = state.project_root(&session) else {
+        return error_response("E_NO_PROJECT");
+    };
+    let outcome = tokio::task::spawn_blocking(move || {
+        project_context::append_chapter_note(&root, &body.chapter_id, &body.note)
+    })
+    .await;
+    match outcome {
+        Ok(Ok(())) => Json(serde_json::json!({ "ok": true })).into_response(),
+        Ok(Err(code)) => error_response(code),
+        Err(_) => read_failed(std::io::ErrorKind::Other),
+    }
+}
+
 pub fn router(state: HostApiState) -> Router {
     Router::new()
         .route("/host/status", get(status))
         .route("/host/log", post(log))
         .route("/host/project/read", post(project_read))
+        .route("/host/project/info", get(project_info))
+        .route("/host/project/field", post(project_field))
+        .route("/host/project/chapter-note", post(project_chapter_note))
         .with_state(state)
 }
 
@@ -988,6 +1133,268 @@ mod tests {
         assert_eq!(response.status(), 400);
         let body: serde_json::Value = response.json().await.expect("JSON");
         assert_eq!(body["error"], "E_NO_PROJECT");
+    }
+
+    // ------------------------------------------------------------------
+    // 项目读写地基（设计 §7）：info / field / chapter-note
+    // ------------------------------------------------------------------
+
+    /// 造一个最小项目结构：`QM/chapters/` 下两章 + 一份 `.novel/project-meta.json`。
+    fn make_project(tag: &str) -> PathBuf {
+        let root = temp_dir(tag);
+        let chapters = root.join("QM").join("chapters");
+        std::fs::create_dir_all(&chapters).expect("建章节目录");
+        std::fs::write(chapters.join("第1章 开局.md"), "正文一").expect("写第一章");
+        std::fs::write(chapters.join("第2章 转折.md"), "正文二").expect("写第二章");
+        std::fs::create_dir_all(root.join(".novel")).expect("建 .novel");
+        std::fs::write(
+            root.join(".novel/project-meta.json"),
+            r#"{"title":"长夜将至","description":"一句话简介"}"#,
+        )
+        .expect("写项目元数据");
+        root
+    }
+
+    /// 任务 1 · 用例 1：设了项目之后 info 能读到元数据（不再恒 E_NO_PROJECT）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn set_project_then_info_returns_metadata() {
+        let root = make_project("info");
+        // 会话里**不带** root：只有进程级动态值，这才是生产路径的样子。
+        let state = state_with("tok", session(None, &["fs:project-read"]));
+        state.project.set(Some(root.clone()));
+        let base = spawn_test_api(state).await;
+
+        let response = reqwest::Client::new()
+            .get(format!("{base}/host/project/info"))
+            .bearer_auth("tok")
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = response.json().await.expect("JSON");
+        assert_eq!(body["bookTitle"], "长夜将至");
+        assert_eq!(body["intro"], "一句话简介");
+        assert_eq!(body["chapterCount"], 2);
+        assert_eq!(body["fieldApiVersion"], 1);
+        assert!(body["tags"].as_array().expect("tags 应是数组").is_empty());
+        assert!(
+            body["root"]
+                .as_str()
+                .expect("root 应是字符串")
+                .contains("qmai-hostapi-info"),
+            "root 应是当前项目根：{body}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 任务 1 · 用例 2：枚举外的字段名必须拒绝（D9：写项目只走枚举）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn project_field_rejects_unknown_field() {
+        let root = make_project("field-unknown");
+        let state = state_with("tok", session(None, &["fs:project-read", "fs:project-write"]));
+        state.project.set(Some(root.clone()));
+        let base = spawn_test_api(state).await;
+
+        let response = reqwest::Client::new()
+            .post(format!("{base}/host/project/field"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "field": "chapterBody", "value": "随便改正文" }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 400);
+        let body: serde_json::Value = response.json().await.expect("JSON");
+        assert_eq!(body["error"], "E_FIELD_NOT_ALLOWED");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 任务 1 · 用例 3：写字段必须持 `fs:project-write`（这条权限到本次改动才真正有用）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn project_field_write_requires_fs_project_write() {
+        let root = make_project("field-perm");
+        // 只给读权限：写入必须 403，且要告诉插件缺的是哪条权限。
+        let state = state_with("tok", session(None, &["fs:project-read"]));
+        state.project.set(Some(root.clone()));
+        let base = spawn_test_api(state).await;
+
+        let response = reqwest::Client::new()
+            .post(format!("{base}/host/project/field"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "field": "bookTitle", "value": "新书名" }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 403);
+        let body: serde_json::Value = response.json().await.expect("JSON");
+        assert_eq!(body["error"], "E_PERMISSION_DENIED");
+        assert_eq!(body["permission"], "fs:project-write");
+
+        // 同一条件对 chapter-note 成立：漏一条就多一个绕过权限的写入口。
+        let response = reqwest::Client::new()
+            .post(format!("{base}/host/project/chapter-note"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "chapterId": "ch-1", "note": "备注" }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 403);
+        let body: serde_json::Value = response.json().await.expect("JSON");
+        assert_eq!(body["permission"], "fs:project-write");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 任务 1 · 用例 4：没有项目时三个新端点都必须回 `E_NO_PROJECT`（沿用既有错误码）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn no_project_returns_e_no_project() {
+        let state = state_with(
+            "tok",
+            session(None, &["fs:project-read", "fs:project-write"]),
+        );
+        // 动态值为 None、会话也没有 root → 确实是「没打开项目」
+        let base = spawn_test_api(state).await;
+        let client = reqwest::Client::new();
+
+        let info = client
+            .get(format!("{base}/host/project/info"))
+            .bearer_auth("tok")
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(info.status(), 400);
+        assert_eq!(
+            info.json::<serde_json::Value>().await.expect("JSON")["error"],
+            "E_NO_PROJECT"
+        );
+
+        let field = client
+            .post(format!("{base}/host/project/field"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "field": "bookTitle", "value": "x" }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(field.status(), 400);
+        assert_eq!(
+            field.json::<serde_json::Value>().await.expect("JSON")["error"],
+            "E_NO_PROJECT"
+        );
+
+        let note = client
+            .post(format!("{base}/host/project/chapter-note"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "chapterId": "ch-1", "note": "x" }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(note.status(), 400);
+        assert_eq!(
+            note.json::<serde_json::Value>().await.expect("JSON")["error"],
+            "E_NO_PROJECT"
+        );
+    }
+
+    /// 白名单内但宿主未接实现的字段：明确 501 + 错误码，绝不静默写一个文件。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn known_field_reports_write_unsupported_without_touching_files() {
+        let root = make_project("field-unsupported");
+        let meta_before =
+            std::fs::read_to_string(root.join(".novel/project-meta.json")).expect("读元数据");
+        let state = state_with("tok", session(None, &["fs:project-write"]));
+        state.project.set(Some(root.clone()));
+        let base = spawn_test_api(state).await;
+
+        let response = reqwest::Client::new()
+            .post(format!("{base}/host/project/field"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "field": "bookTitle", "value": "新书名" }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 501);
+        let body: serde_json::Value = response.json().await.expect("JSON");
+        assert_eq!(body["error"], "E_FIELD_WRITE_UNSUPPORTED");
+
+        // 关键断言：一个字节都没动过（宁可明确不支持，也不写坏用户的文件）
+        assert_eq!(
+            std::fs::read_to_string(root.join(".novel/project-meta.json")).expect("读元数据"),
+            meta_before
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 章节备注同理：当前没有「只追加、不改正文」的落点，明确回不支持。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn chapter_note_reports_unsupported() {
+        let root = make_project("note");
+        let chapter = root.join("QM/chapters/第1章 开局.md");
+        let before = std::fs::read_to_string(&chapter).expect("读正文");
+        let state = state_with("tok", session(None, &["fs:project-write"]));
+        state.project.set(Some(root.clone()));
+        let base = spawn_test_api(state).await;
+
+        let response = reqwest::Client::new()
+            .post(format!("{base}/host/project/chapter-note"))
+            .bearer_auth("tok")
+            .json(&serde_json::json!({ "chapterId": "ch-1", "note": "备注" }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 501);
+        let body: serde_json::Value = response.json().await.expect("JSON");
+        assert_eq!(body["error"], "E_NOTE_WRITE_UNSUPPORTED");
+        // 正文是用户最珍贵的资产：这次调用必须一个字都没改
+        assert_eq!(std::fs::read_to_string(&chapter).expect("读正文"), before);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 会话自带 root 的老路径仍要能用（动态值为空时兜底），
+    /// 但动态值一旦设过就**以动态为准** —— 否则切换项目对已在跑的插件无效。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dynamic_project_overrides_session_root() {
+        let session_root = make_project("dyn-session");
+        let dynamic_root = make_project("dyn-dynamic");
+        let state = state_with(
+            "tok",
+            session(Some(session_root.clone()), &["fs:project-read"]),
+        );
+        state.project.set(Some(dynamic_root.clone()));
+        // `spawn_test_api` 会把 state 挪走，先留住项目上下文（`Arc` 克隆，同一实例）。
+        let project = state.project.clone();
+        let base = spawn_test_api(state).await;
+
+        let body: serde_json::Value = reqwest::Client::new()
+            .get(format!("{base}/host/project/info"))
+            .bearer_auth("tok")
+            .send()
+            .await
+            .expect("请求")
+            .json()
+            .await
+            .expect("JSON");
+        let root = body["root"].as_str().expect("root 应是字符串");
+        assert!(
+            root.contains("qmai-hostapi-dyn-dynamic"),
+            "动态项目根必须压过会话里的旧值：{root}"
+        );
+
+        // 关闭项目（动态值 None）后回落到会话值：老路径不破。
+        project.set(None);
+        let body: serde_json::Value = reqwest::Client::new()
+            .get(format!("{base}/host/project/info"))
+            .bearer_auth("tok")
+            .send()
+            .await
+            .expect("请求")
+            .json()
+            .await
+            .expect("JSON");
+        assert!(body["root"]
+            .as_str()
+            .expect("root 应是字符串")
+            .contains("qmai-hostapi-dyn-session"));
+
+        let _ = std::fs::remove_dir_all(&session_root);
+        let _ = std::fs::remove_dir_all(&dynamic_root);
     }
 
     #[test]

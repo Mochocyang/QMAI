@@ -13,6 +13,7 @@ pub mod installer;
 pub mod manifest;
 pub mod mcp_bridge;
 pub mod paths;
+pub mod project_context;
 pub mod providers;
 pub mod registry;
 pub mod supervisor;
@@ -30,6 +31,7 @@ where
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::State;
@@ -42,15 +44,57 @@ use registry::{PluginRegistry, RegistryEntry, SourceRecord};
 ///
 /// `running` 用异步锁：启用/停用过程要 await 子进程，std 锁会把整个 Tauri
 /// 运行时卡死。句柄只在这个表里持有，卸载时先 remove 再 stop，避免持锁 await。
-#[derive(Default)]
 pub struct PluginsState {
-    /// pluginId → 运行中的插件句柄
-    pub running: Arc<AsyncMutex<HashMap<String, supervisor::LaunchHandle>>>,
+    /// pluginId → 运行中的插件
+    pub running: Arc<AsyncMutex<HashMap<String, RunningPlugin>>>,
     /// 宿主 API 端口（首次启用时启动，之后复用）
     pub host_port: Mutex<Option<u16>>,
     /// 插件提供的 provider（providerId → 登记）。token 只在这里，从不落盘。
     pub providers: Arc<AsyncMutex<HashMap<String, providers::PluginProvider>>>,
+    /// 当前打开的项目根（设计 §7）：由 `plugins_set_project` 写入，
+    /// `/host/project/*` 读取。与宿主 HTTP 服务共享同一个进程级实例。
+    pub project: Arc<project_context::ProjectContext>,
 }
+
+impl Default for PluginsState {
+    fn default() -> Self {
+        Self {
+            running: Arc::new(AsyncMutex::new(HashMap::new())),
+            host_port: Mutex::new(None),
+            providers: Arc::new(AsyncMutex::new(HashMap::new())),
+            // 必须是进程级单例：`start_plugin` 起 HTTP 服务时用的是
+            // `host_api::shared_state()`，两个实例不共享的话，「打开项目」对插件不可见。
+            project: host_api::shared_project_context(),
+        }
+    }
+}
+
+/// 一个运行中的插件在 `running` 表里的登记项。
+///
+/// 为什么要拆成「句柄槽 + 只读快照」，而不是把 `LaunchHandle` 直接放进表里：
+///
+/// 1. **句柄槽**（`Arc<AsyncMutex<Option<LaunchHandle>>>`）让表锁只用来取一个引用，
+///    tools/call 真正持锁的是**这一个插件**（缺陷 1：一次慢调用不能把其它插件的
+///    启停/列表一起堵住）。外层 `Arc` 负责「脱离表锁」，内层 `Option` 负责
+///    「停用能把句柄 move 出来」—— `LaunchHandle::stop(self)` 是按值消费的。
+/// 2. **只读快照**（`state` / `tools`）在启动完成后就不再变化。列表与工具查询若去
+///    锁句柄槽，遇到一次 30 秒的调用同样会被卡住 —— 那正是缺陷 1 的另一面。
+pub struct RunningPlugin {
+    pub handle: Arc<AsyncMutex<Option<supervisor::LaunchHandle>>>,
+    pub state: supervisor::ProcessState,
+    pub tools: Vec<mcp_bridge::PluginToolDecl>,
+    /// 正常停止标记：置位后退出监听任务不再报「意外退出」（缺陷 3）。
+    pub stopped: Arc<AtomicBool>,
+}
+
+impl RunningPlugin {
+    /// 把句柄从槽里取出来（正常停止用）。取走后槽里是 `None`，
+    /// 退出监听任务看到 `None` 就知道「这是正常停止，收工」。
+    async fn take_handle(&self) -> Option<supervisor::LaunchHandle> {
+        self.handle.lock().await.take()
+    }
+}
+
 
 impl PluginsState {
     fn root(&self) -> PathBuf {
@@ -82,6 +126,11 @@ pub struct PluginSummary {
     /// 只用于**展示**：让插件中心/插槽在不启动插件进程的前提下就有东西可渲染。
     /// 调用真源仍是运行期（`tools/list`、`/v1/models`），两边不一致时以运行期为准。
     pub preview: Option<serde_json::Value>,
+    /// 清单里是否声明了 `configSchema`（前端据此决定要不要显示「设置」按钮）。
+    ///
+    /// 同时会以 `hasConfig` 的形式并进 `preview`：插槽与插件中心拿到的是 `preview`，
+    /// 不该为了一个布尔值再去读一遍 `PluginSummary` 的其它字段（C1 的约定）。
+    pub has_config: bool,
 }
 
 #[derive(serde::Serialize)]
@@ -120,6 +169,8 @@ fn summary_from_entry(
         provider_ids: Vec::new(),
         // 同上：静态声明面只有 `plugins_list` 读得到清单，装/启停路径给 None。
         preview: None,
+        // 同上：`hasConfig` 也要读清单，只有 `plugins_list` 补得上。
+        has_config: false,
     }
 }
 
@@ -184,6 +235,96 @@ fn manifest_provider_ids(dir: &Path) -> Vec<String> {
 fn manifest_preview(dir: &Path) -> Option<serde_json::Value> {
     let raw = std::fs::read_to_string(dir.join("plugin.json")).ok()?;
     manifest::PluginManifest::parse(&raw).ok()?.preview
+}
+
+/// 清单里的 `configSchema` 原样（设计 §6.3）。
+///
+/// 读不到/清单损坏一律 `None`：一个坏插件不该在界面上多出一个点进去只会报错的设置按钮。
+/// 注意这里**只是 schema**（含 `"x-qmai-secret": true` 这类标记），不含任何密钥真值 ——
+/// 真值只活在 `config` 的内存表里，从不经过这条路径。
+fn manifest_config_schema(dir: &Path) -> Option<serde_json::Value> {
+    let raw = std::fs::read_to_string(dir.join("plugin.json")).ok()?;
+    manifest::PluginManifest::parse(&raw).ok()?.config_schema
+}
+
+/// 把 `hasConfig` 与 `configSchema` 并进静态声明面。
+///
+/// 为什么塞进 `preview`（C1 冻结的契约）：插槽与插件中心手上只有 `preview` 这一份
+/// JSON，前端判断「要不要显示设置按钮」用的是 `preview.hasConfig === true`，
+/// 渲染表单用的是 `preview.configSchema`。多给这两个键，比让前端多开一条数据通路便宜。
+///
+/// - `preview` 是对象 → 合并进去。**同名键以真实的 `configSchema` 为准**（作者在
+///   `preview` 里手写一份 `configSchema` 时不能压过清单里的真身）
+/// - `preview` 缺失 → 造一个只含这两个键的对象（前端不必再判空）
+/// - `preview` 是数组/字符串（作者写歪了）→ **原样保留**：把可渲染的东西换成对象
+///   会让界面从「显示得不对」变成「什么都不显示」，那是更差的结果
+///
+/// 没有 `configSchema` 时**不放 `configSchema: null`**：前端要靠「键不存在」走
+/// 「该插件无配置」的分支，`null` 会让它误判成「有配置但读不出来」。
+fn with_has_config(
+    preview: Option<serde_json::Value>,
+    config_schema: Option<serde_json::Value>,
+) -> Option<serde_json::Value> {
+    let has_config = config_schema.is_some();
+    let merge_into = |mut map: serde_json::Map<String, serde_json::Value>| {
+        map.insert("hasConfig".to_string(), serde_json::Value::Bool(has_config));
+        if let Some(schema) = config_schema.clone() {
+            map.insert("configSchema".to_string(), schema);
+        } else {
+            // 键必须真的不存在，不能留一个 null
+            map.remove("configSchema");
+        }
+        serde_json::Value::Object(map)
+    };
+    match preview {
+        Some(serde_json::Value::Object(map)) => Some(merge_into(map)),
+        Some(other) => Some(other),
+        None => Some(merge_into(serde_json::Map::new())),
+    }
+}
+
+/// 校验清单声明的宿主版本要求（`requires.qmai`，缺陷 4）。
+///
+/// 为什么必须在「装 / 启用」时查而不是运行时：版本不兼容的插件装上去之后，报错会
+/// 出现在一次莫名其妙的工具调用里 —— 用户根本猜不到是版本问题。
+///
+/// 三条规则：
+/// - `requires.qmai` **缺失 → 放行**（v1/v2 的老插件没写这个字段，不能因新规则把它们打死）
+/// - 解析失败（写歪了，如 `"hoo"` / `"">=1"`）→ 拒绝。写得模棱两可的约束不能靠猜
+/// - 不满足 → 拒绝，detail 里同时给出「要什么」与「当前是什么」
+fn ensure_host_compatible(manifest: &manifest::PluginManifest) -> Result<(), String> {
+    let Some(requirement) = manifest
+        .requires
+        .as_ref()
+        .and_then(|requires| requires.qmai.as_deref())
+    else {
+        return Ok(());
+    };
+    let requirement = requirement.trim();
+    if requirement.is_empty() {
+        // 空串等于没写：作者用 `""` 表达「我不限制」，按缺失处理最符合意图。
+        return Ok(());
+    }
+    let host = env!("CARGO_PKG_VERSION");
+    let Ok(parsed_requirement) = semver::VersionReq::parse(requirement) else {
+        return Err(format!(
+            "E_HOST_INCOMPATIBLE: 无法解析插件的版本要求 requires.qmai = {requirement:?}，当前 QMAI {host}"
+        ));
+    };
+    // 宿主版本解析失败只可能是我们自己的 Cargo.toml 写坏了：不 panic，按「不认识自己」报错，
+    // 否则一个构建配置错误会变成用户那边的进程崩溃。
+    let Ok(parsed_host) = semver::Version::parse(host) else {
+        return Err(format!(
+            "E_HOST_INCOMPATIBLE: 宿主版本 {host} 不是合法的语义化版本，无法与 requires.qmai = {requirement:?} 比较"
+        ));
+    };
+    if parsed_requirement.matches(&parsed_host) {
+        Ok(())
+    } else {
+        Err(format!(
+            "E_HOST_INCOMPATIBLE: 插件要求 QMAI {requirement}，当前 {host}"
+        ))
+    }
 }
 
 /// 读一个**已安装**插件目录里的清单。目录缺失、清单损坏都返回 `None`。
@@ -332,8 +473,9 @@ async fn start_plugin(
         host_api::PluginSession {
             plugin_id: entry.id.clone(),
             granted: entry.granted_permissions.clone(),
-            // 项目根暂不注入：宿主还不知道「当前打开项目」。
-            // 没这一步时 /host/project/read 会返回 E_NO_PROJECT，属预期（第二期再接）。
+            // 项目根**不**在这里注入：会话是插件启动时建的，项目却可能随时切换
+            // （设计 §7.2）。真源是进程级的 `PluginsState::project`，HTTP handler
+            // 每次现取（`HostApiState::project_root`），这里只留空。
             project_root: None,
             data_root: paths::plugin_data_dir(root, &entry.id),
         },
@@ -482,24 +624,42 @@ async fn start_plugin(
 
             // 初始检查与这里之间可能有另一个并发 enable。插入前再查一次：
             // 已有句柄时停掉刚起的这一个，避免两个进程抢同一个 pluginId。
-            let mut guard = running.lock().await;
-            if guard.contains_key(&entry.id) {
-                drop(guard);
-                handle.stop().await;
-                host_api::unregister_session(&token);
-                return Ok(());
+            let tools_snapshot = handle.tools.clone();
+            let stopped = Arc::new(AtomicBool::new(false));
+            let slot = Arc::new(AsyncMutex::new(Some(handle)));
+            {
+                let mut guard = running.lock().await;
+                if guard.contains_key(&entry.id) {
+                    drop(guard);
+                    if let Some(handle) = slot.lock().await.take() {
+                        handle.stop().await;
+                    }
+                    host_api::unregister_session(&token);
+                    return Ok(());
+                }
+                // 先登记 provider 再放句柄：反过来会留下「进程已在跑、前端却查不到 provider」
+                // 的窗口。两个表都是短锁，且全仓只有「先 running 后 providers」这一个嵌套顺序
+                // （stop/uninstall 都是先放 running 锁再清 providers），不会互等。
+                if let Some(provider) = provider {
+                    state
+                        .providers
+                        .lock()
+                        .await
+                        .insert(provider.provider_id.clone(), provider);
+                }
+                guard.insert(
+                    entry.id.clone(),
+                    RunningPlugin {
+                        handle: slot.clone(),
+                        state: supervisor::ProcessState::Running,
+                        tools: tools_snapshot,
+                        stopped: stopped.clone(),
+                    },
+                );
             }
-            // 先登记 provider 再放句柄：反过来会留下「进程已在跑、前端却查不到 provider」
-            // 的窗口。两个表都是短锁，且全仓只有「先 running 后 providers」这一个嵌套顺序
-            // （stop/uninstall 都是先放 running 锁再清 providers），不会互等。
-            if let Some(provider) = provider {
-                state
-                    .providers
-                    .lock()
-                    .await
-                    .insert(provider.provider_id.clone(), provider);
-            }
-            guard.insert(entry.id.clone(), handle);
+            // 登记完再起退出监听：反过来的话监听任务可能在登记前就看到「进程已退出」，
+            // 于是摘不到任何东西，而表里留着一个死句柄。
+            spawn_exit_monitor(state, &entry.id, slot, stopped);
             Ok(())
         }
         Ok(Err(error)) => {
@@ -587,20 +747,143 @@ async fn drop_plugin_providers(
         .retain(|_, provider| provider.plugin_id != plugin_id);
 }
 
-/// 停止并移除一个运行中的插件。**先 remove 再 stop**：`stop()` 里要等子进程
+/// 停止并移除一个运行中的插件。**先摘表、再停进程**：`stop()` 里要等子进程
 /// 退出（最多 1 秒），不能在持着 running 表锁时 await。
+///
+/// 注意 `if let Some(x) = map.lock().await.remove(id) { … }` 这种写法：`if let`
+/// 会把临时值活到整个语句结束，等于**持着表锁 await**。所以这里显式用块把锁关住。
 async fn stop_plugin(state: &PluginsState, id: &str) {
-    if let Some(handle) = state.running.lock().await.remove(id) {
-        let token = handle.token.clone();
-        handle.stop().await;
-        // 进程没了，旧 token 必须立刻失效，否则残留的插件请求还能反调宿主。
-        host_api::unregister_session(&token);
+    let removed = {
+        let mut running = state.running.lock().await;
+        running.remove(id)
+    };
+    if let Some(plugin) = removed {
+        // 先置「正常停止」标记：退出监听任务看到它就不再报「意外退出」（缺陷 3）。
+        plugin.stopped.store(true, Ordering::SeqCst);
+        if let Some(handle) = plugin.take_handle().await {
+            let token = handle.token.clone();
+            handle.stop().await;
+            // 进程没了，旧 token 必须立刻失效，否则残留的插件请求还能反调宿主。
+            host_api::unregister_session(&token);
+        }
     }
     drop_plugin_providers(&state.providers, id).await;
     // 内容包缓存与插件同生共死（设计 §4 / D4）：内容随包分发、安装后不变，所以只在
     // 「不再信任这份内容」时清 —— 停用与卸载都走这里（卸载先调 stop_plugin 再删目录）。
     // 不清的话，已被删除的灵感库还能从内存里被读出来。
     content::invalidate(id);
+}
+
+/// 子进程退出监测的轮询间隔。
+///
+/// 200ms 是「用户点不动按钮之前」的窗口：插件崩溃后界面最多晚 0.2 秒看到「已停止」。
+const EXIT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
+
+/// 起一个后台任务盯着一个插件的子进程退出（缺陷 3：崩溃自愈）。
+///
+/// **为什么用 `try_wait` 轮询而不是 `child.wait()`**：`supervisor::LaunchHandle` 把
+/// `child` 作为普通字段持有（不是 `Option<Child>`），`wait()` 需要 `&mut Child` 且会
+/// 一直阻塞到进程退出 —— 交给监听任务就等于把句柄永久借出去，之后 tools/call 再也
+/// 拿不到 child/stdout。`try_wait` 在同一个锁下读一次就放手，不需要改 `supervisor.rs`。
+///
+/// 进程退出后要做三件事：摘 `running`（否则界面永远显示「运行中」）、清 `providers`
+/// （否则模型列表里留着一组永远连不上的 provider）、注销会话 token（进程都没了，
+/// 旧 token 不该还能反调宿主）。
+///
+/// 正常停止（停用/卸载/整体关闭）会先把 `stopped` 置位并取走句柄，这条任务看到标记
+/// 或看到空槽就安静收工，不会误报「意外退出」。
+fn spawn_exit_monitor(
+    state: &PluginsState,
+    plugin_id: &str,
+    slot: Arc<AsyncMutex<Option<supervisor::LaunchHandle>>>,
+    stopped: Arc<AtomicBool>,
+) {
+    let running = state.running.clone();
+    let providers = state.providers.clone();
+    let plugin_id = plugin_id.to_string();
+    spawn_task(async move {
+        loop {
+            tokio::time::sleep(EXIT_POLL_INTERVAL).await;
+            if stopped.load(Ordering::SeqCst) {
+                return;
+            }
+            // 只在锁内做一次 `try_wait`，绝不跨 await 持有。
+            let exit = {
+                let mut guard = slot.lock().await;
+                let Some(handle) = guard.as_mut() else {
+                    // 句柄已被正常停止取走
+                    return;
+                };
+                match handle.child.try_wait() {
+                    Ok(Some(status)) => Some(status),
+                    Ok(None) => None,
+                    Err(error) => {
+                        eprintln!("[plugins] 读取插件 {plugin_id} 的退出状态失败：{error}");
+                        return;
+                    }
+                }
+            };
+            let Some(status) = exit else {
+                continue;
+            };
+
+            // 1) 先读 token（单独一次短锁，避免「持表锁再锁句柄」的嵌套）
+            let token = {
+                let guard = slot.lock().await;
+                guard.as_ref().map(|handle| handle.token.clone())
+            };
+            // 2) 再摘表：只有「表里这条仍是自己」才算数 —— 期间可能已被停用并重启过，
+            //    那时表里是新实例，摘掉它等于把好好的插件变成「未运行」。
+            //
+            // 这里**不能**顺手把 `plugin.stopped` 置位：那个标记表示「用户主动停止」，
+            // 置位后就分不清「崩溃」与「正常停止」了，下面那条 eprintln 永远不会打印。
+            let claimed = {
+                let mut running = running.lock().await;
+                match running.get(&plugin_id) {
+                    Some(plugin) if Arc::ptr_eq(&plugin.handle, &slot) => {
+                        running.remove(&plugin_id);
+                        true
+                    }
+                    _ => false,
+                }
+            };
+            if !claimed {
+                return;
+            }
+            if let Some(token) = token {
+                host_api::unregister_session(&token);
+            }
+            drop_plugin_providers(&providers, &plugin_id).await;
+            // 再查一次 stopped：`stop_plugin` 是先摘表、后置标记的，所以正常情况下
+            // 它摘到表就不会走到这里；这里兜的是「刚好在 claim 之后才被停用」的竞态。
+            if !stopped.load(Ordering::SeqCst) {
+                eprintln!("[plugins] 插件 {plugin_id} 意外退出：{status}");
+            }
+            return;
+        }
+    });
+}
+
+/// 停掉所有运行中的插件。App 退出清理与 `plugins_shutdown_all` 命令共用。
+pub(crate) async fn shutdown_all(state: &PluginsState) -> Result<(), String> {
+    // 先整体 drain：不在持锁状态下逐个等子进程退出。
+    let plugins: Vec<RunningPlugin> = {
+        let mut guard = state.running.lock().await;
+        guard.drain().map(|(_, plugin)| plugin).collect()
+    };
+    for plugin in plugins {
+        // 整体关闭也是「正常停止」：置位后退出监听任务不会报「意外退出」。
+        plugin.stopped.store(true, Ordering::SeqCst);
+        if let Some(handle) = plugin.take_handle().await {
+            let token = handle.token.clone();
+            handle.stop().await;
+            host_api::unregister_session(&token);
+        }
+    }
+    // 进程全停了，provider 登记也必须一起清：留着的条目会指向已经不存在的端点，
+    // 界面重启后仍能查到一组永远连不上的 provider。
+    state.providers.lock().await.clear();
+    Ok(())
 }
 
 /// App 启动后拉起所有已启用的插件。
@@ -630,33 +913,16 @@ pub async fn autostart_all(state: &PluginsState, root: &Path) -> Result<(), Stri
     Ok(())
 }
 
-/// 停掉所有运行中的插件。App 退出清理与 `plugins_shutdown_all` 命令共用。
-pub(crate) async fn shutdown_all(state: &PluginsState) -> Result<(), String> {
-    // 先整体 drain：不在持锁状态下逐个等子进程退出。
-    let handles: Vec<supervisor::LaunchHandle> = {
-        let mut guard = state.running.lock().await;
-        guard.drain().map(|(_, handle)| handle).collect()
-    };
-    for handle in handles {
-        let token = handle.token.clone();
-        handle.stop().await;
-        host_api::unregister_session(&token);
-    }
-    // 进程全停了，provider 登记也必须一起清：留着的条目会指向已经不存在的端点，
-    // 界面重启后仍能查到一组永远连不上的 provider。
-    state.providers.lock().await.clear();
-    Ok(())
-}
-
-/// 在一个已确认存活的句柄上执行一次 tools/call。
+/// 发一次 tools/call，返回请求 id（响应还没读）。
 ///
-/// 调用方必须先持有 `handle.io` 锁；这里不自己加锁，是为了把「取锁 → 调用」
-/// 的顺序留在命令层，测试也能直接复用同一段协议编排。
-async fn invoke_tool_on(
+/// 拆成「发」与「等」两半，是为了让超时分支拿到**那个请求的 id** 去发取消通知
+/// （缺陷 2 / 设计 D6：超时必须真取消）。合成一个函数的写法下，超时那一刻
+/// 请求 id 已经随 future 一起被丢掉了。
+async fn send_tool_call(
     handle: &mut supervisor::LaunchHandle,
     tool_name: &str,
     arguments: &serde_json::Value,
-) -> Result<String, String> {
+) -> Result<u64, String> {
     // tools/list 是工具的真源；不接受调用清单里不存在/尚未上报的工具。
     if !handle.tools.iter().any(|tool| tool.name == tool_name) {
         return Err(format!("插件 {} 没有工具 {tool_name}", handle.plugin_id));
@@ -671,9 +937,98 @@ async fn invoke_tool_on(
         .await
         .map_err(|e| format!("发送 tools/call 失败：{e}"))?;
     handle.stdin.flush().await.map_err(|e| e.to_string())?;
+    Ok(request_id)
+}
+
+/// 等一条与 `request_id` 配对的 tools/call 响应。
+async fn wait_tool_call(
+    handle: &mut supervisor::LaunchHandle,
+    request_id: u64,
+) -> Result<String, String> {
     let response = read_rpc_response(&mut handle.stdout, request_id, "tools/call").await?;
     response.into_tool_call()
 }
+
+/// MCP 的取消通知（`notifications/cancelled`，设计 D6）。
+///
+/// 形状照 MCP 规范：`params.requestId` 必须是**被取消的那个请求 id**，否则插件
+/// 不知道该停哪一个（它可能同时在处理别的调用）。`reason` 只是可读信息。
+pub fn cancelled_notification(request_id: u64, reason: &str) -> serde_json::Value {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/cancelled",
+        "params": { "requestId": request_id, "reason": reason },
+    })
+}
+
+/// 尽力而为地告诉插件「这条请求我不管了」。
+///
+/// 失败只记日志、不改变命令的返回值：插件可能已经把管道关了或已经死了，
+/// 这时候再让「取消失败」盖掉原本的「超时」错误，用户只会看到一个更莫名其妙的报错。
+async fn send_cancelled(
+    handle: &mut supervisor::LaunchHandle,
+    request_id: u64,
+    reason: &str,
+) -> Result<(), String> {
+    let notification = cancelled_notification(request_id, reason);
+    let line = serde_json::to_string(&notification).map_err(|e| e.to_string())?;
+    handle
+        .stdin
+        .write_all(format!("{line}\n").as_bytes())
+        .await
+        .map_err(|e| e.to_string())?;
+    handle.stdin.flush().await.map_err(|e| e.to_string())
+}
+
+/// 一次工具调用的默认预算。超时后命令返回错误并**真的通知插件取消**（缺陷 2）。
+const INVOKE_TOOL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// `plugins_invoke_tool` 的真实实现（命令层只做 `State` 解包），便于测试直接驱动。
+///
+/// 关键点（缺陷 1）：**表锁只用来取一个 `Arc`**，随后锁的是这一个插件的句柄 ——
+/// 一次 30 秒的慢调用不能把其它插件的启停、列表、工具调用一起堵住。
+async fn invoke_tool_with_timeout(
+    state: &PluginsState,
+    plugin_id: &str,
+    tool_name: &str,
+    arguments: &serde_json::Value,
+    budget: std::time::Duration,
+) -> Result<String, String> {
+    let slot = {
+        let running = state.running.lock().await;
+        running
+            .get(plugin_id)
+            .map(|plugin| plugin.handle.clone())
+            .ok_or_else(|| format!("插件 {plugin_id} 未运行"))?
+    };
+
+    // 锁单插件：同一个插件的并发调用仍然串行（stdio 的请求/响应必须成对）。
+    let mut slot_guard = slot.lock().await;
+    let handle = slot_guard
+        .as_mut()
+        .ok_or_else(|| format!("插件 {plugin_id} 已停止"))?;
+    // io 锁与句柄锁此刻是同一段临界区：保留它是因为 `invoke_tool_on` 的契约里写着
+    // 「调用方先拿 io 锁」，改动它会把协议编排的约定悄悄挪走。
+    let io = handle.io.clone();
+    let _io_guard = io.lock().await;
+
+    let request_id = send_tool_call(handle, tool_name, arguments).await?;
+    match tokio::time::timeout(budget, wait_tool_call(handle, request_id)).await {
+        Ok(result) => result,
+        Err(_) => {
+            if let Err(error) = send_cancelled(handle, request_id, "qmai: timeout").await {
+                eprintln!(
+                    "[plugins] 向插件 {plugin_id} 发送取消通知失败（请求 {request_id}）：{error}"
+                );
+            }
+            Err(format!(
+                "插件 {plugin_id} 的工具 {tool_name} 在 {} 秒内未返回结果",
+                budget.as_secs()
+            ))
+        }
+    }
+}
+
 
 // ── Tauri 命令 ─────────────────────────────────────────
 
@@ -690,6 +1045,7 @@ pub async fn plugins_list(state: State<'_, PluginsState>) -> Result<Vec<PluginSu
         String,
         Vec<String>,
         Option<serde_json::Value>,
+        Option<serde_json::Value>,
     )> = registry
         .list()
         .into_iter()
@@ -700,30 +1056,120 @@ pub async fn plugins_list(state: State<'_, PluginsState>) -> Result<Vec<PluginSu
             let provider_ids = manifest_provider_ids(&dir);
             // 静态声明面（设计 §8）：只读清单，不启动插件就能渲染插件中心与插槽。
             let preview = manifest_preview(&dir);
-            (entry, name, description, provider_ids, preview)
+            // 配置能力也只有清单里有：前端靠 `hasConfig` + `configSchema` 渲染设置表单。
+            let config_schema = manifest_config_schema(&dir);
+            (entry, name, description, provider_ids, preview, config_schema)
         })
         .collect();
 
+    // 只读快照，不碰每个插件的句柄锁：一次 30 秒的工具调用不该让整页列表卡住。
     let states: HashMap<String, (&'static str, usize)> = {
         let running = state.running.lock().await;
         running
             .iter()
-            .map(|(id, handle)| (id.clone(), (handle.state.as_str(), handle.tools.len())))
+            .map(|(id, plugin)| (id.clone(), (plugin.state.as_str(), plugin.tools.len())))
             .collect()
     };
 
     Ok(base
         .into_iter()
-        .map(|(entry, name, description, provider_ids, preview)| {
-            let (process_state, tool_count) =
-                states.get(&entry.id).copied().unwrap_or(("stopped", 0));
-            let mut summary =
-                summary_from_entry(&entry, name, description, process_state, tool_count);
-            summary.provider_ids = provider_ids;
-            summary.preview = preview;
-            summary
-        })
+        .map(
+            |(entry, name, description, provider_ids, preview, config_schema)| {
+                let (process_state, tool_count) =
+                    states.get(&entry.id).copied().unwrap_or(("stopped", 0));
+                let mut summary =
+                    summary_from_entry(&entry, name, description, process_state, tool_count);
+                summary.provider_ids = provider_ids;
+                summary.has_config = config_schema.is_some();
+                // `hasConfig` / `configSchema` 同时并进 preview：插槽只拿到 preview，
+                // 也要能判断配置能力并拿到表单 schema（C1 的通道选择）。
+                summary.preview = with_has_config(preview, config_schema);
+                summary
+            },
+        )
         .collect())
+}
+
+/// 前端在「打开/切换/关闭项目」时调用，登记当前项目根（设计 §7.2）。
+///
+/// 为什么做成命令而不是「启动插件时注入」：插件进程是常驻的，用户切换项目时插件
+/// 不会重启。把 root 固化进会话，等于让插件永远看着它启动那一刻的项目。
+///
+/// - 传路径 → canonicalize 后存（真实路径，后续前缀比较才不会一半带 `\\?\`）
+/// - 传 `None` / 空串 → 清空（关闭项目；此后 `/host/project/*` 回 `E_NO_PROJECT`）
+/// - 路径不存在/不是目录 → Err，**不猜也不创建**：一个笔误的路径会静默变成「没有项目」
+#[tauri::command]
+pub async fn plugins_set_project(
+    state: State<'_, PluginsState>,
+    root: Option<String>,
+) -> Result<(), String> {
+    let resolved = project_context::resolve_project_root(root.as_deref())?;
+    state.project.set(resolved);
+    Ok(())
+}
+
+/// 一个插件的声明式 action（设计 §3，Tier 1）。
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActionView {
+    pub plugin_id: String,
+    pub plugin_name: String,
+    /// 清单里 `contributes.actions[]` 的原样 JSON。
+    ///
+    /// 为什么原样透传而不在宿主侧归一化：前端 `declarative/*` 已经有归一化逻辑
+    /// （未知字段降级、未知 type 退化成 text），宿主再归一化一次就是两份规则，
+    /// 迟早会分叉成「宿主放过、界面报错」。
+    pub action: serde_json::Value,
+}
+
+/// 列出全部**已启用**插件的声明式 action。
+///
+/// 只读清单，**不启动插件进程**（Tier 1 / D1）：装 20 个纯声明式插件，这里跑完
+/// 进程表里仍然是 0 条。前端的 6 个插槽就靠它渲染按钮。
+///
+/// 读不到清单、清单坏的插件一律跳过 + 打警告：一个坏插件不该让整排按钮消失。
+fn collect_actions(root: &Path) -> Result<Vec<ActionView>, String> {
+    let registry = PluginRegistry::load(root)?;
+    let mut views = Vec::new();
+    for entry in registry.list().into_iter().filter(|entry| entry.enabled) {
+        let Some(manifest) = installed_manifest(root, &entry.id) else {
+            eprintln!(
+                "[plugins] 插件 {} 的清单缺失或损坏，跳过它的 actions",
+                entry.id
+            );
+            continue;
+        };
+        for decl in &manifest.contributes.actions {
+            match serde_json::to_value(decl) {
+                Ok(action) => views.push(ActionView {
+                    plugin_id: entry.id.clone(),
+                    plugin_name: manifest.name.clone(),
+                    action,
+                }),
+                // 单个 action 序列化失败不该牵连同插件的其它 action
+                Err(error) => eprintln!(
+                    "[plugins] 插件 {} 的 action {} 无法序列化，已跳过：{error}",
+                    entry.id, decl.id
+                ),
+            }
+        }
+    }
+    // HashMap 顺序不稳定；按 (pluginId, actionId) 排序，界面上按钮的顺序才稳定。
+    views.sort_by(|a, b| {
+        a.plugin_id.cmp(&b.plugin_id).then_with(|| {
+            a.action["id"]
+                .as_str()
+                .unwrap_or_default()
+                .cmp(b.action["id"].as_str().unwrap_or_default())
+        })
+    });
+    Ok(views)
+}
+
+/// 列出全部已启用插件的声明式 action（C1 的插槽靠它渲染按钮）。
+#[tauri::command]
+pub async fn plugins_actions(state: State<'_, PluginsState>) -> Result<Vec<ActionView>, String> {
+    collect_actions(&state.root())
 }
 
 /// 从 GitHub 安装插件。装完默认关闭，用户勾选权限并点「启用」后才会拉起进程。
@@ -742,6 +1188,12 @@ pub async fn plugins_install(
     // 装上一个永远抢不到 id 的插件，比装不上更糟（用户会以为它已经生效）。
     if let Some(manifest) = installed_manifest(&root, &outcome.plugin_id) {
         if let Err(error) = ensure_provider_ids_free(&root, &outcome.plugin_id, &manifest) {
+            let _ = std::fs::remove_dir_all(&outcome.target);
+            return Err(error);
+        }
+        // 宿主版本不满足 `requires.qmai` 也回滚：让用户装上一个注定跑不起来的插件，
+        // 只会在下一次点「启用」时给他一句更看不懂的报错（缺陷 4）。
+        if let Err(error) = ensure_host_compatible(&manifest) {
             let _ = std::fs::remove_dir_all(&outcome.target);
             return Err(error);
         }
@@ -798,6 +1250,11 @@ pub async fn plugins_install_local(
             let _ = std::fs::remove_dir_all(&outcome.target);
             return Err(error);
         }
+        // 与 GitHub 安装同一条闸门：版本要求不满足就别装（缺陷 4）。
+        if let Err(error) = ensure_host_compatible(&manifest) {
+            let _ = std::fs::remove_dir_all(&outcome.target);
+            return Err(error);
+        }
     }
 
     let (name, description) = manifest_display(&paths::plugin_dir(&root, &outcome.plugin_id));
@@ -847,8 +1304,12 @@ pub async fn plugins_enable(
 
     // 启用时再查一次 provider id：安装时互不知情的两个插件，可能在对方之后才被装上；
     // 真正会让两个 provider 同时出现在模型列表里的时刻是「启用」，所以这里才是最后一道闸。
+    //
+    // 版本要求也在这里查：**在落盘 enabled 之前**，否则命令失败却把 enabled 写成了 true，
+    // 界面会显示「已启用」而进程根本没起来（用户只能靠重启来发现）。
     if let Some(manifest) = installed_manifest(&root, &id) {
         ensure_provider_ids_free(&root, &id, &manifest)?;
+        ensure_host_compatible(&manifest)?;
     }
 
     entry.enabled = true;
@@ -915,9 +1376,9 @@ pub async fn plugins_tools(
     let mut tools = Vec::new();
     {
         let running = state.running.lock().await;
-        for handle in running.values() {
-            for decl in &handle.tools {
-                tools.push(describe_tool(&handle.plugin_id, decl));
+        for (plugin_id, plugin) in running.iter() {
+            for decl in &plugin.tools {
+                tools.push(describe_tool(plugin_id, decl));
             }
         }
     }
@@ -932,8 +1393,9 @@ pub async fn plugins_tools(
 
 /// 调用运行中插件的一个工具，返回拼接后的文本结果。
 ///
-/// 整个「写请求 → 读响应」周期独占该插件的 stdio（io 锁），否则并发调用会把
-/// 响应串台。超时 30 秒，避免一个卡死的插件永久占住命令。
+/// 整个「写请求 → 读响应」周期独占**该插件的** stdio（句柄锁 + io 锁），否则并发调用
+/// 会把响应串台；但表锁不参与，所以慢调用不会拖住房里其它插件（缺陷 1）。
+/// 超时 30 秒，且超时会真的向插件发 `notifications/cancelled`（缺陷 2）。
 #[tauri::command]
 pub async fn plugins_invoke_tool(
     state: State<'_, PluginsState>,
@@ -941,25 +1403,14 @@ pub async fn plugins_invoke_tool(
     tool_name: String,
     arguments: serde_json::Value,
 ) -> Result<String, String> {
-    let mut running = state.running.lock().await;
-    let handle = running
-        .get_mut(&plugin_id)
-        .ok_or_else(|| format!("插件 {plugin_id} 未运行"))?;
-
-    let io = handle.io.clone();
-    let _io_guard = io.lock().await;
-
-    match tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        invoke_tool_on(handle, &tool_name, &arguments),
+    invoke_tool_with_timeout(
+        state.inner(),
+        &plugin_id,
+        &tool_name,
+        &arguments,
+        INVOKE_TOOL_TIMEOUT,
     )
     .await
-    {
-        Ok(result) => result,
-        Err(_) => Err(format!(
-            "插件 {plugin_id} 的工具 {tool_name} 在 30 秒内未返回结果"
-        )),
-    }
 }
 
 /// 停掉所有运行中的插件。App 退出时会自动调用；这个命令是备用入口
@@ -1489,12 +1940,19 @@ rl.on("line", (line) => {
             .expect("provider 探活失败不能让插件启动失败");
 
         {
-            let mut running = state.running.lock().await;
-            let handle = running
-                .get_mut(id)
-                .expect("探活失败后插件进程必须还在 running 表里");
-            assert_eq!(handle.state.as_str(), "running");
-            assert_eq!(handle.tools.len(), 1, "工具能力不受 provider 探活失败影响");
+            // 快照（状态 + 工具数）与「进程还活着」分开读：前者不碰句柄锁，
+            // 后者才需要拿到句柄。
+            let slot = {
+                let running = state.running.lock().await;
+                let plugin = running
+                    .get(id)
+                    .expect("探活失败后插件进程必须还在 running 表里");
+                assert_eq!(plugin.state.as_str(), "running");
+                assert_eq!(plugin.tools.len(), 1, "工具能力不受 provider 探活失败影响");
+                plugin.handle.clone()
+            };
+            let mut guard = slot.lock().await;
+            let handle = guard.as_mut().expect("句柄应仍在槽里");
             assert!(
                 handle.child.try_wait().expect("查询子进程状态").is_none(),
                 "探活失败不能杀插件进程"
@@ -1833,16 +2291,28 @@ rl.on("line", (line) => {
             .expect("真实 Node 插件应完成握手");
 
         {
-            let mut running = state.running.lock().await;
-            let handle = running.get_mut(id).expect("启动后应有运行句柄");
-            assert_eq!(handle.tools.len(), 1);
-            assert_eq!(handle.tools[0].name, "echo");
+            // 工具清单来自快照（启动后不再变化），不碰句柄锁。
+            let tools = {
+                let running = state.running.lock().await;
+                running
+                    .get(id)
+                    .expect("启动后应有运行句柄")
+                    .tools
+                    .clone()
+            };
+            assert_eq!(tools.len(), 1);
+            assert_eq!(tools[0].name, "echo");
 
-            let io = handle.io.clone();
-            let _guard = io.lock().await;
-            let result = invoke_tool_on(handle, "echo", &json!({ "text": "你好" }))
-                .await
-                .expect("tools/call 应返回文本");
+            // 真正调用时才锁这一个插件。
+            let result = invoke_tool_with_timeout(
+                &state,
+                id,
+                "echo",
+                &json!({ "text": "你好" }),
+                std::time::Duration::from_secs(5),
+            )
+            .await
+            .expect("tools/call 应返回文本");
             assert_eq!(result, "你好");
         }
 
@@ -2061,13 +2531,15 @@ rl.on("line", (line) => {
             .expect("插件应完成握手");
 
         {
-            let mut running = state.running.lock().await;
-            let handle = running.get_mut(id).expect("启动后应有运行句柄");
-            let io = handle.io.clone();
-            let _guard = io.lock().await;
-            let text = invoke_tool_on(handle, "echo_env", &json!({}))
-                .await
-                .expect("tools/call 应回吐 QMAI_CONFIG");
+            let text = invoke_tool_with_timeout(
+                &state,
+                id,
+                "echo_env",
+                &json!({}),
+                std::time::Duration::from_secs(5),
+            )
+            .await
+            .expect("tools/call 应回吐 QMAI_CONFIG");
             // 注入的是 JSON 文本（设计 §6.3）：解析成功才说明插件拿到的是可用的配置。
             let injected: serde_json::Value =
                 serde_json::from_str(&text).unwrap_or_else(|error| {
@@ -2084,5 +2556,734 @@ rl.on("line", (line) => {
             state.running.lock().await.is_empty(),
             "停用后 running 表必须为空"
         );
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // 任务 1 · 项目读写（设计 §7）：`plugins_set_project` 的解析规则
+    // ══════════════════════════════════════════════════════════════════
+
+    /// 命令 `plugins_set_project` 的全部判断都在这个纯函数里（命令层只做 State 解包），
+    /// 所以直接测它。不存在的路径必须报错：静默变成「没有项目」会让用户以为是宿主坏了。
+    #[test]
+    fn set_project_rejects_nonexistent_path() {
+        let root = TempRoot::new("set-project");
+        let missing = root.path().join("no-such-project");
+        let error = project_context::resolve_project_root(Some(
+            missing.to_str().expect("临时路径应是 UTF-8"),
+        ))
+        .expect_err("不存在的项目路径必须报错");
+        assert!(
+            error.contains("不存在"),
+            "错误要能看懂（说明路径不存在）：{error}"
+        );
+
+        // 存在的目录：接受，并给出真实路径
+        let resolved = project_context::resolve_project_root(Some(
+            root.path().to_str().expect("临时路径应是 UTF-8"),
+        ))
+        .expect("存在的目录应被接受");
+        assert!(resolved.expect("应是 Some").is_dir());
+
+        // 关闭项目：None 与空串等价
+        assert!(project_context::resolve_project_root(None)
+            .expect("None 合法")
+            .is_none());
+        assert!(project_context::resolve_project_root(Some("  "))
+            .expect("空白合法")
+            .is_none());
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // 任务 2 · `plugins_actions` 与 hasConfig
+    // ══════════════════════════════════════════════════════════════════
+
+    /// 一个带 action 的 schema 3 清单（Tier 1：只有 actions，没有 tools/providers）。
+    fn action_manifest(plugin_id: &str, name: &str, action_id: &str) -> String {
+        format!(
+            r#"{{
+                "schema": 3,
+                "id": "{plugin_id}",
+                "name": "{name}",
+                "version": "1.0.0",
+                "runtime": {{ "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }},
+                "contributes": {{
+                    "actions": [{{
+                        "id": "{action_id}",
+                        "title": "生成书名",
+                        "slot": "chapter-toolbar",
+                        "prompt": {{ "system": "你是书名策划", "user": "题材：{{{{genre}}}}" }},
+                        "output": {{ "mode": "list", "targets": [] }}
+                    }}]
+                }}
+            }}"#
+        )
+    }
+
+    fn save_registry(root: &Path, entries: &[RegistryEntry]) {
+        let mut registry = PluginRegistry::load(root).expect("空注册表可加载");
+        for entry in entries {
+            registry.upsert(entry.clone());
+        }
+        registry.save(root).expect("保存注册表");
+    }
+
+    /// 任务 2 · 用例 6：只列**已启用**插件的 action，且带上插件名（前端要显示来源）。
+    #[test]
+    fn actions_lists_only_enabled_plugins() {
+        let root = TempRoot::new("actions-enabled");
+        write_plugin(
+            root.path(),
+            "idea-gen",
+            &action_manifest("idea-gen", "脑洞生成器", "generate-titles"),
+            None,
+        );
+        write_plugin(
+            root.path(),
+            "sleeping",
+            &action_manifest("sleeping", "睡着的插件", "generate-titles"),
+            None,
+        );
+        let mut disabled = sample_entry("sleeping");
+        disabled.enabled = false;
+        save_registry(root.path(), &[sample_entry("idea-gen"), disabled]);
+
+        let actions = collect_actions(root.path()).expect("读注册表应成功");
+        assert_eq!(actions.len(), 1, "停用的插件不该贡献按钮：{actions:?}");
+        assert_eq!(actions[0].plugin_id, "idea-gen");
+        assert_eq!(actions[0].plugin_name, "脑洞生成器");
+        // 原样透传：id / slot / prompt 都得在，前端才不用二次拼装
+        assert_eq!(actions[0].action["id"], "generate-titles");
+        assert_eq!(actions[0].action["slot"], "chapter-toolbar");
+        assert_eq!(actions[0].action["prompt"]["system"], "你是书名策划");
+
+        // 前端 TS 按 camelCase 消费
+        let value = serde_json::to_value(&actions[0]).expect("ActionView 可序列化");
+        assert_eq!(value["pluginId"], "idea-gen");
+        assert_eq!(value["pluginName"], "脑洞生成器");
+        assert!(value.get("plugin_id").is_none());
+    }
+
+    /// 任务 2 · 用例 7：清单坏掉的插件被跳过，但不能让整条命令失败
+    /// （否则一个坏插件会让所有插槽都空掉）。
+    #[test]
+    fn actions_skips_broken_manifest_without_failing() {
+        let root = TempRoot::new("actions-broken");
+        write_plugin(
+            root.path(),
+            "idea-gen",
+            &action_manifest("idea-gen", "脑洞生成器", "generate-titles"),
+            None,
+        );
+        // 两个坏法：清单不是 JSON、目录里根本没有清单
+        let broken = paths::plugin_dir(root.path(), "broken-json");
+        std::fs::create_dir_all(&broken).expect("建目录");
+        std::fs::write(broken.join("plugin.json"), "{not json").expect("写坏清单");
+        save_registry(
+            root.path(),
+            &[
+                sample_entry("idea-gen"),
+                sample_entry("broken-json"),
+                sample_entry("no-manifest"),
+            ],
+        );
+
+        let actions = collect_actions(root.path()).expect("坏插件不能把整条命令弄失败");
+        assert_eq!(actions.len(), 1, "只剩下那个好插件的 action：{actions:?}");
+        assert_eq!(actions[0].plugin_id, "idea-gen");
+    }
+
+    /// 任务 3 · 缺陷 4：`requires.qmai` 太新必须拒绝，且 detail 要说清「要什么/现在是什么」。
+    #[test]
+    fn requires_qmai_too_new_is_rejected() {
+        let manifest = parsed_manifest(
+            r#"{
+                "schema": 1,
+                "id": "future-plugin",
+                "name": "未来插件",
+                "version": "1.0.0",
+                "requires": { "qmai": ">=999.0.0" },
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }
+            }"#,
+        );
+        let error = ensure_host_compatible(&manifest).expect_err("宿主版本不可能满足 >=999");
+        assert!(error.starts_with("E_HOST_INCOMPATIBLE"), "要带稳定错误码：{error}");
+        assert!(error.contains(">=999.0.0"), "要说出插件的原始要求：{error}");
+        assert!(
+            error.contains(env!("CARGO_PKG_VERSION")),
+            "要说出当前宿主版本，用户才知道差多远：{error}"
+        );
+        assert!(error.contains("插件要求 QMAI"), "文案要能直接展示：{error}");
+    }
+
+    #[test]
+    fn requires_qmai_satisfied_is_accepted() {
+        let manifest = parsed_manifest(
+            r#"{
+                "schema": 1,
+                "id": "fine-plugin",
+                "name": "兼容插件",
+                "version": "1.0.0",
+                "requires": { "qmai": ">=4.0.0" },
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }
+            }"#,
+        );
+        ensure_host_compatible(&manifest).expect(">=4.0.0 应满足当前宿主（4.x）");
+    }
+
+    /// 老插件没写 `requires`：必须放行，否则新规则会把 v1/v2 插件全打死。
+    #[test]
+    fn requires_qmai_missing_is_accepted() {
+        let manifest = parsed_manifest(
+            r#"{
+                "schema": 1,
+                "id": "old-plugin",
+                "name": "老插件",
+                "version": "1.0.0",
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }
+            }"#,
+        );
+        ensure_host_compatible(&manifest).expect("没有 requires 字段的插件必须放行");
+
+        // 空串等于「不限制」：作者用 "" 表达无约束，按缺失处理
+        let blank = parsed_manifest(
+            r#"{
+                "schema": 1,
+                "id": "blank-requires",
+                "name": "空要求",
+                "version": "1.0.0",
+                "requires": { "qmai": "  " },
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }
+            }"#,
+        );
+        ensure_host_compatible(&blank).expect("空白的 requires.qmai 应当放行");
+    }
+
+    /// 写歪的版本要求不能靠猜：解析失败就明确拒绝，并在 detail 里说明「无法解析」。
+    #[test]
+    fn requires_qmai_unparseable_is_rejected() {
+        let manifest = parsed_manifest(
+            r#"{
+                "schema": 1,
+                "id": "bogus-requires",
+                "name": "写歪了",
+                "version": "1.0.0",
+                "requires": { "qmai": "hoo" },
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }
+            }"#,
+        );
+        let error = ensure_host_compatible(&manifest).expect_err("无法解析的要求必须拒绝");
+        assert!(error.starts_with("E_HOST_INCOMPATIBLE"), "{error}");
+        assert!(error.contains("无法解析"), "要说清是解析失败：{error}");
+        assert!(error.contains("hoo"), "要回显作者写的内容：{error}");
+    }
+
+    /// 任务 2 · 用例 8：`hasConfig` 两处都要有（`PluginSummary.hasConfig` 与
+    /// `preview.hasConfig`），并且 `preview.configSchema` 用清单原样。
+    #[test]
+    fn summary_exposes_has_config() {
+        let root = TempRoot::new("has-config");
+        let with_schema = write_plugin(
+            root.path(),
+            "configurable",
+            r#"{
+                "schema": 3,
+                "id": "configurable",
+                "name": "可配置",
+                "version": "1.0.0",
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 },
+                "configSchema": { "type": "object", "properties": { "style": { "type": "string" } } },
+                "preview": { "actions": [{ "id": "a1", "title": "生成" }] }
+            }"#,
+            None,
+        );
+        let without_schema = write_plugin(
+            root.path(),
+            "plain",
+            r#"{
+                "schema": 1,
+                "id": "plain",
+                "name": "无配置",
+                "version": "1.0.0",
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }
+            }"#,
+            None,
+        );
+
+        let schema = manifest_config_schema(&with_schema).expect("应读到 configSchema");
+        assert_eq!(schema["properties"]["style"]["type"], "string");
+
+        // 有配置：hasConfig=true + configSchema 原样，且原有 preview 字段不被吃掉
+        let preview = with_has_config(
+            manifest_preview(&with_schema),
+            manifest_config_schema(&with_schema),
+        )
+        .expect("preview 应存在");
+        assert_eq!(preview["hasConfig"], serde_json::json!(true));
+        assert_eq!(preview["configSchema"], schema);
+        assert_eq!(preview["actions"][0]["id"], "a1", "作者原有的 preview 内容要保留");
+
+        // 无配置：hasConfig=false，且**不能**留一个 configSchema: null
+        // （前端靠「键不存在」走无配置分支）
+        let preview = with_has_config(None, manifest_config_schema(&without_schema))
+            .expect("preview 缺失时也要造出来");
+        assert_eq!(preview["hasConfig"], serde_json::json!(false));
+        assert!(
+            preview.get("configSchema").is_none(),
+            "没有 configSchema 时不能给 null：{preview}"
+        );
+
+        // 作者自己在 preview 里手写 configSchema 时，以清单里的真身为准
+        let overridden = with_has_config(
+            Some(serde_json::json!({ "configSchema": { "fake": true } })),
+            Some(serde_json::json!({ "real": true })),
+        )
+        .expect("有 preview");
+        assert_eq!(overridden["configSchema"], serde_json::json!({ "real": true }));
+
+        // PluginSummary 上的字段也要在（序列化成 camelCase）
+        let entry = sample_entry("configurable");
+        let mut summary = summary_from_entry(&entry, "可配置".to_string(), String::new(), "stopped", 0);
+        assert!(!summary.has_config, "纯函数默认 false，由 plugins_list 补齐");
+        summary.has_config = true;
+        let value = serde_json::to_value(&summary).expect("summary 可序列化");
+        assert_eq!(value["hasConfig"], serde_json::json!(true));
+    }
+
+    /// 前端契约冻结：`preview` 的**形状**（C1 的「设置」按钮与表单都只读这一份 JSON）。
+    ///
+    /// 这条用例存在的意义：形状一变（比如把 `configSchema: null` 也塞进去、或把
+    /// `hasConfig` 写成字符串 `"true"`），前端会静默地不显示设置入口，而**没有任何报错**。
+    /// 所以这里把真实输出钉成字符串，改形状的人必须先改这条断言。
+    #[test]
+    fn preview_shape_is_frozen_for_the_frontend() {
+        let with_schema = with_has_config(
+            Some(serde_json::json!({
+                "actions": [{ "id": "generate-titles", "title": "生成书名" }],
+                "contentPacks": [{ "id": "scifi", "title": "科幻灵感包", "count": 120 }]
+            })),
+            Some(serde_json::json!({
+                "type": "object",
+                "properties": { "apiKey": { "type": "string", "x-qmai-secret": true } }
+            })),
+        )
+        .expect("preview");
+        // 键顺序不稳定，逐字段断言
+        assert_eq!(with_schema["hasConfig"], serde_json::json!(true));
+        assert_eq!(
+            with_schema["configSchema"]["properties"]["apiKey"]["x-qmai-secret"],
+            serde_json::json!(true),
+            "x-qmai-secret 只是**标记**不是值，可以原样给前端（前端据此渲染密码框）"
+        );
+        assert_eq!(with_schema["actions"][0]["id"], "generate-titles");
+        assert_eq!(with_schema["contentPacks"][0]["count"], 120);
+        println!(
+            "有配置的 preview = {}",
+            serde_json::to_string_pretty(&with_schema).expect("可序列化")
+        );
+
+        // 无配置插件：只有 hasConfig:false，**没有** configSchema 键
+        let without_schema = with_has_config(None, None).expect("preview");
+        assert_eq!(without_schema, serde_json::json!({ "hasConfig": false }));
+        println!(
+            "无配置的 preview = {}",
+            serde_json::to_string(&without_schema).expect("可序列化")
+        );
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // 任务 3 · 缺陷 1 / 2 / 3 的真实进程回归测试
+    // ══════════════════════════════════════════════════════════════════
+
+    /// 一个 MCP 插件：`initialize` / `tools/list` 正常应答，`tools/call` 收到后
+    /// 延迟 `delay_ms` 才回 `payload`（用来制造「慢调用」）。
+    fn slow_plugin_source(tool: &str, delay_ms: u32, payload: &str) -> String {
+        format!(
+            r#"
+const readline = require("readline");
+const rl = readline.createInterface({{ input: process.stdin, terminal: false }});
+rl.on("line", (line) => {{
+  let req;
+  try {{ req = JSON.parse(line); }} catch {{ return; }}
+  if (req.method === "initialize") {{
+    console.log(JSON.stringify({{
+      jsonrpc: "2.0", id: req.id,
+      result: {{ protocolVersion: "2024-11-05", capabilities: {{ tools: {{}} }} }}
+    }}));
+  }} else if (req.method === "tools/list") {{
+    console.log(JSON.stringify({{
+      jsonrpc: "2.0", id: req.id,
+      result: {{ tools: [{{ name: "{tool}", description: "慢工具", inputSchema: {{ type: "object" }} }}] }}
+    }}));
+  }} else if (req.method === "tools/call") {{
+    setTimeout(() => {{
+      console.log(JSON.stringify({{
+        jsonrpc: "2.0", id: req.id,
+        result: {{ content: [{{ type: "text", text: "{payload}" }}] }}
+      }}));
+    }}, {delay_ms});
+  }}
+}});
+"#
+        )
+    }
+
+    /// 任务 3 · 用例 9（缺陷 1 的核心回归）：**一次慢调用不能把别的插件堵住**。
+    ///
+    /// 证明方式（三条一起看才成立）：
+    /// 1. 慢调用还没结束（`is_finished()` 为 false）；
+    /// 2. 此刻 `running` 表锁能立刻拿到 —— 旧实现把表锁持到整个 `timeout(30s)`，这里会卡住；
+    /// 3. 另一个插件的工具调用在这之前就返回了。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn invoke_tool_does_not_block_other_plugins() {
+        if !node_available() {
+            eprintln!("跳过：本机没有可执行的 node");
+            return;
+        }
+
+        let root = TempRoot::new("no-blocking");
+        let slow_id = "slow-plugin";
+        let fast_id = "fast-plugin";
+        write_plugin(
+            root.path(),
+            slow_id,
+            &format!(
+                r#"{{
+                    "schema": 1,
+                    "id": "{slow_id}",
+                    "name": "慢插件",
+                    "version": "1.0.0",
+                    "runtime": {{ "type": "node", "entry": "slow.js", "startTimeoutMs": 15000 }}
+                }}"#
+            ),
+            Some(("slow.js", &slow_plugin_source("slow", 3000, "慢好了"))),
+        );
+        write_plugin(
+            root.path(),
+            fast_id,
+            &format!(
+                r#"{{
+                    "schema": 1,
+                    "id": "{fast_id}",
+                    "name": "快插件",
+                    "version": "1.0.0",
+                    "runtime": {{ "type": "node", "entry": "fast.js", "startTimeoutMs": 15000 }}
+                }}"#
+            ),
+            Some(("fast.js", &slow_plugin_source("echo", 0, "快好了"))),
+        );
+
+        let state = Arc::new(PluginsState::default());
+        *state.host_port.lock().expect("端口状态") = Some(1);
+        start_plugin(root.path(), &state, &sample_entry(slow_id))
+            .await
+            .expect("慢插件应完成握手");
+        start_plugin(root.path(), &state, &sample_entry(fast_id))
+            .await
+            .expect("快插件应完成握手");
+
+        // 先把慢调用跑起来（它要 3 秒）
+        let slow_state = state.clone();
+        let slow_task = tokio::spawn(async move {
+            invoke_tool_with_timeout(
+                &slow_state,
+                slow_id,
+                "slow",
+                &json!({}),
+                std::time::Duration::from_secs(20),
+            )
+            .await
+        });
+        // 等它真的进到「写请求、等响应」的状态
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        // (2) 表锁必须立刻可拿：旧实现这里会一直等到慢调用结束
+        {
+            let guard = tokio::time::timeout(std::time::Duration::from_secs(1), state.running.lock())
+                .await
+                .expect("running 表锁不该被工具调用持有（缺陷 1）");
+            assert_eq!(guard.len(), 2, "两个插件都应在表里");
+        }
+
+        // (3) 另一个插件必须能在这之前完成
+        let fast = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            invoke_tool_with_timeout(
+                &state,
+                fast_id,
+                "echo",
+                &json!({}),
+                std::time::Duration::from_secs(5),
+            ),
+        )
+        .await
+        .expect("慢调用期间另一个插件必须照常可调用（缺陷 1）")
+        .expect("快插件的工具应返回结果");
+        assert_eq!(fast, "快好了");
+
+        // (1) 慢调用此刻仍在跑 —— 上面两条因此不是「慢调用其实早就结束了」的假象
+        assert!(
+            !slow_task.is_finished(),
+            "此时慢调用必须仍在进行（否则本用例证明不了任何并发性）"
+        );
+        let slow = slow_task.await.expect("慢调用任务不应 panic").expect("慢调用最终应成功");
+        assert_eq!(slow, "慢好了");
+
+        shutdown_all(&state).await.expect("收尾关闭应成功");
+        assert!(state.running.lock().await.is_empty());
+    }
+
+    /// 取消通知的 JSON 形状（MCP `notifications/cancelled`）。
+    #[test]
+    fn cancelled_notification_has_mcp_shape() {
+        let notification = cancelled_notification(7, "qmai: timeout");
+        assert_eq!(notification["jsonrpc"], "2.0");
+        assert_eq!(notification["method"], "notifications/cancelled");
+        assert_eq!(notification["params"]["requestId"], serde_json::json!(7));
+        assert_eq!(notification["params"]["reason"], "qmai: timeout");
+        // 通知**不能**带 id：JSON-RPC 里带 id 就是请求，插件会去回一条响应
+        assert!(notification.get("id").is_none(), "{notification}");
+    }
+
+    /// 任务 3 · 用例 10（缺陷 2）：超时之后插件必须**真的收到**取消通知，
+    /// 且 `requestId` 指向那条超时的 tools/call。
+    ///
+    /// 用真进程验证而不是只测 JSON 形状：拆成 send/wait 两半之后，最容易犯的错是
+    /// 「取消通知发的是另一个 id」，那种 bug 只有端到端才看得见。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn timeout_sends_cancelled_notification() {
+        if !node_available() {
+            eprintln!("跳过：本机没有可执行的 node");
+            return;
+        }
+
+        // 把收到的每一行 stdin 落到插件目录下的 stdin.log（cwd 就是插件目录）
+        const SERVER: &str = r#"
+const fs = require("fs");
+const readline = require("readline");
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on("line", (line) => {
+  fs.appendFileSync("stdin.log", line + "\n");
+  let req;
+  try { req = JSON.parse(line); } catch { return; }
+  if (req.method === "initialize") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { protocolVersion: "2024-11-05", capabilities: { tools: {} } }
+    }));
+  } else if (req.method === "tools/list") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { tools: [{ name: "hang", description: "永不回复", inputSchema: { type: "object" } }] }
+    }));
+  }
+  // tools/call 故意永不回复：宿主必须超时并且发取消通知
+});
+"#;
+
+        let root = TempRoot::new("cancel");
+        let id = "hang-plugin";
+        let manifest = format!(
+            r#"{{
+                "schema": 1,
+                "id": "{id}",
+                "name": "永不回复",
+                "version": "1.0.0",
+                "runtime": {{ "type": "node", "entry": "hang.js", "startTimeoutMs": 15000 }}
+            }}"#
+        );
+        let dir = write_plugin(root.path(), id, &manifest, Some(("hang.js", SERVER)));
+
+        let state = PluginsState::default();
+        *state.host_port.lock().expect("端口状态") = Some(1);
+        start_plugin(root.path(), &state, &sample_entry(id))
+            .await
+            .expect("插件应完成握手");
+
+        let error = invoke_tool_with_timeout(
+            &state,
+            id,
+            "hang",
+            &json!({}),
+            std::time::Duration::from_millis(400),
+        )
+        .await
+        .expect_err("插件不回复时命令必须超时失败");
+        assert!(error.contains("未返回结果"), "错误应说明超时：{error}");
+
+        // 等插件把「取消通知」写进日志（写盘是异步的，给 4 秒窗口）
+        let log_path = dir.join("stdin.log");
+        let mut lines: Vec<String> = Vec::new();
+        for _ in 0..40 {
+            if let Ok(text) = std::fs::read_to_string(&log_path) {
+                lines = text.lines().map(|line| line.to_string()).collect();
+                if lines.iter().any(|line| line.contains("notifications/cancelled")) {
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        let mut call_id = None;
+        let mut cancel = None;
+        for line in &lines {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            if value["method"] == "tools/call" {
+                call_id = value["id"].as_u64();
+            }
+            if value["method"] == "notifications/cancelled" {
+                cancel = Some(value);
+            }
+        }
+        let cancel = cancel.unwrap_or_else(|| {
+            panic!("超时后必须向插件发 notifications/cancelled，实际收到的 stdin：{lines:?}")
+        });
+        assert_eq!(cancel["params"]["reason"], "qmai: timeout");
+        assert_eq!(
+            cancel["params"]["requestId"].as_u64(),
+            call_id,
+            "取消的必须是那条超时的请求，否则插件不知道该停谁：{cancel}"
+        );
+        assert!(
+            cancel.get("id").is_none(),
+            "取消通知不能带 id（那是请求不是通知）：{cancel}"
+        );
+
+        stop_plugin(&state, id).await;
+    }
+
+    /// 任务 3 · 用例 11（缺陷 3）：插件进程意外退出后，`running` 与 `providers`
+    /// 都必须自动清理干净，不能一直显示「运行中 / 就绪」。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn crashed_plugin_is_removed_from_running_and_providers() {
+        if !node_available() {
+            eprintln!("跳过：本机没有可执行的 node");
+            return;
+        }
+
+        // 应答完 tools/list 就自己退出（模拟崩溃）
+        const SERVER: &str = r#"
+const readline = require("readline");
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on("line", (line) => {
+  let req;
+  try { req = JSON.parse(line); } catch { return; }
+  if (req.method === "initialize") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { protocolVersion: "2024-11-05", capabilities: { tools: {} } }
+    }));
+  } else if (req.method === "tools/list") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { tools: [] } }));
+    setTimeout(() => process.exit(3), 50);
+  }
+});
+"#;
+
+        let root = TempRoot::new("crash");
+        let id = "crash-plugin";
+        let manifest = format!(
+            r#"{{
+                "schema": 1,
+                "id": "{id}",
+                "name": "会崩溃",
+                "version": "1.0.0",
+                "runtime": {{ "type": "node", "entry": "crash.js", "startTimeoutMs": 15000 }}
+            }}"#
+        );
+        write_plugin(root.path(), id, &manifest, Some(("crash.js", SERVER)));
+
+        let state = PluginsState::default();
+        *state.host_port.lock().expect("端口状态") = Some(1);
+        // 先手动登记一条 provider：崩溃后它必须一起消失，
+        // 否则模型列表里留着一组永远连不上的 provider（存的是已死进程的 token）。
+        state.providers.lock().await.insert(
+            "crash-provider".to_string(),
+            provider_registration(id, "crash-provider"),
+        );
+
+        start_plugin(root.path(), &state, &sample_entry(id))
+            .await
+            .expect("插件应完成握手（崩溃发生在之后）");
+        assert!(
+            state.running.lock().await.contains_key(id),
+            "刚启动时应登记为运行中"
+        );
+
+        // 监听任务的轮询间隔是 200ms，给 6 秒窗口：机器很忙时 node 退出事件也会晚到，
+        // 这条用例要测的是「会不会清」，不是「多快清」。
+        let mut cleaned = false;
+        for _ in 0..120 {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            if state.running.lock().await.is_empty() && state.providers.lock().await.is_empty() {
+                cleaned = true;
+                break;
+            }
+        }
+        assert!(cleaned, "插件退出后 running 与 providers 都必须被自动清理");
+        assert_eq!(
+            host_api::sessions_for_plugin(id),
+            0,
+            "进程都没了，旧 token 必须立即失效"
+        );
+
+        // running 表里已经没有它了：再调用必须报「未运行」而不是卡住或串台
+        let error = invoke_tool_with_timeout(
+            &state,
+            id,
+            "anything",
+            &json!({}),
+            std::time::Duration::from_secs(1),
+        )
+        .await
+        .expect_err("崩溃后调用必须立刻失败");
+        assert!(error.contains("未运行"), "{error}");
+    }
+
+    /// 正常停用**不能**被监听任务误报成「意外退出」：这里用日志行为无法断言，
+    /// 改为断言「停用后表是空的、且不再有后续清理动作」（空转即通过）。
+    /// 这条与 `crashed_plugin_is_removed_from_running_and_providers` 互为对照。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn orderly_stop_is_not_reported_as_a_crash() {
+        if !node_available() {
+            eprintln!("跳过：本机没有可执行的 node");
+            return;
+        }
+        let root = TempRoot::new("orderly-stop");
+        let id = "orderly-plugin";
+        let manifest = format!(
+            r#"{{
+                "schema": 1,
+                "id": "{id}",
+                "name": "正常停止",
+                "version": "1.0.0",
+                "runtime": {{ "type": "node", "entry": "server.js", "startTimeoutMs": 15000 }}
+            }}"#
+        );
+        write_plugin(
+            root.path(),
+            id,
+            &manifest,
+            Some(("server.js", &slow_plugin_source("echo", 0, "在的"))),
+        );
+
+        let state = PluginsState::default();
+        *state.host_port.lock().expect("端口状态") = Some(1);
+        start_plugin(root.path(), &state, &sample_entry(id))
+            .await
+            .expect("插件应完成握手");
+
+        // 记住登记项的 stopped 标记：停用后它必须是 true（监听任务靠它区分「正常停止」）
+        let stopped = {
+            let running = state.running.lock().await;
+            running.get(id).expect("应有登记项").stopped.clone()
+        };
+        stop_plugin(&state, id).await;
+        assert!(
+            stopped.load(Ordering::SeqCst),
+            "正常停止必须先置位 stopped，否则监听任务会误报「意外退出」"
+        );
+        assert!(state.running.lock().await.is_empty());
     }
 }

@@ -566,11 +566,17 @@ async fn provider_probe_failure_marks_not_ready_without_killing_the_plugin() {
 
     // 最关键的半条：进程必须还活着。provider 只是插件能力的一部分，探活失败不等于插件坏了。
     {
-        let mut running = fake.state.running.lock().await;
-        let handle = running
-            .get_mut(PLUGIN_ID)
-            .expect("探活失败后插件进程必须还在 running 表里");
-        assert_eq!(handle.state.as_str(), "running", "插件状态不该被探活失败拖成失败");
+        // 快照（状态）与句柄分开读：`running` 表里存的是登记项，句柄在它自己的锁里。
+        let slot = {
+            let running = fake.state.running.lock().await;
+            let plugin = running
+                .get(PLUGIN_ID)
+                .expect("探活失败后插件进程必须还在 running 表里");
+            assert_eq!(plugin.state.as_str(), "running", "插件状态不该被探活失败拖成失败");
+            plugin.handle.clone()
+        };
+        let mut guard = slot.lock().await;
+        let handle = guard.as_mut().expect("句柄应仍在槽里");
         assert!(
             handle
                 .child

@@ -357,6 +357,12 @@ commands::fs::read_file,
             // 两条命令都不 spawn 插件进程。
             plugins::plugins_content_packs,
             plugins::plugins_content_pack_items,
+            // 声明式 action（设计 §3，Tier 1）：同样只读清单，不 spawn 进程。
+            // 前端 6 个插槽靠它渲染按钮。
+            plugins::plugins_actions,
+            // 项目读写地基（设计 §7）：前端在「打开/切换/关闭项目」时登记项目根，
+            // 插件通过 /host/project/* 读到的是这个动态值（不是启动时固化进会话的值）。
+            plugins::plugins_set_project,
             // WorkBuddy 账号登录（国内版）：登录三条、账号三条、导入两条、
             // 模型目录两条、网关一条。返回值一律不含 token。
             workbuddy::commands::workbuddy_login_start,

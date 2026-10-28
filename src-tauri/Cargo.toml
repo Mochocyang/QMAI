@@ -94,6 +94,10 @@ keepawake = "0.6.1"
 # （由 tauri-build 以 preserve_order 启用）的 Map<K,V> = IndexMap<K,V> 编译失败。
 # 显式开启 std 会走 CARGO_FEATURE_STD 分支、绕过 autocfg 探测。
 indexmap = { version = "1", features = ["std"] }
+# 插件清单 `requires.qmai` 的校验（`plugins/mod.rs::ensure_host_compatible`）：
+# 版本要求是 `>=4.5.0` 这类语义化范围，用字符串比较会得出 `4.10 < 4.9` 这种荒谬结论。
+# 版本已在 `Cargo.lock` 里（tauri 生态的传递依赖），显式声明不引入新的下载。
+semver = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
