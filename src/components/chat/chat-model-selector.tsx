@@ -30,6 +30,22 @@ type ChatModelDropdownStyle = {
   maxHeight: number
 } & ({ top: number; bottom?: undefined } | { bottom: number; top?: undefined })
 
+/** 两套位置是否完全一致：一致就复用旧对象，避免无谓重渲染。 */
+export function sameDropdownStyle(
+  a: ChatModelDropdownStyle | null,
+  b: ChatModelDropdownStyle | null,
+): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return (
+    a.right === b.right &&
+    a.width === b.width &&
+    a.maxHeight === b.maxHeight &&
+    a.top === b.top &&
+    a.bottom === b.bottom
+  )
+}
+
 /** Pure layout helper — open below when space allows; otherwise open above. */
 export function getChatModelDropdownStyle(
   rect: Pick<DOMRect, "top" | "bottom" | "right" | "width">,
@@ -87,6 +103,8 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
+  /** 每次打开只自动定位一次，之后用户怎么滚都不再干预。 */
+  const scrolledToSelectionRef = useRef(false)
   const [dropdownStyle, setDropdownStyle] = useState<ChatModelDropdownStyle | null>(null)
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
 
@@ -147,12 +165,14 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
   const updatePosition = useCallback(() => {
     const trigger = triggerRef.current
     if (!trigger) return
-    setDropdownStyle(
-      getChatModelDropdownStyle(trigger.getBoundingClientRect(), {
-        width: window.innerWidth,
-        height: window.innerHeight,
-      }),
-    )
+    const next = getChatModelDropdownStyle(trigger.getBoundingClientRect(), {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    })
+    // 位置没变就别建新对象：每次 scroll 都 setState 会触发重渲染，
+    // 而下面的「打开时定位到当前模型」effect 依赖 dropdownStyle，
+    // 一重渲染就把用户刚滚到的位置又拉回选中项——表现为"滚不动"。
+    setDropdownStyle((prev) => (sameDropdownStyle(prev, next) ? prev : next))
   }, [])
 
   useEffect(() => {
@@ -166,14 +186,23 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
         updatePosition()
       })
     })
-    const handleReposition = () => updatePosition()
-    window.addEventListener("resize", handleReposition)
-    window.addEventListener("scroll", handleReposition, true)
+    // 只跟随"外部"滚动（页面/弹窗滚动会让锚点位移）；
+    // 下拉列表自己的滚动必须忽略，否则每滚一格就重算一次位置。
+    const handleReposition = (event?: Event) => {
+      const target = event?.target
+      const container = dropdownRef.current
+      if (container && target instanceof Node && container.contains(target)) return
+      updatePosition()
+    }
+    const onScroll = (event: Event) => handleReposition(event)
+    const onResize = () => handleReposition()
+    window.addEventListener("resize", onResize)
+    window.addEventListener("scroll", onScroll, true)
     return () => {
       cancelAnimationFrame(frame1)
       cancelAnimationFrame(frame2)
-      window.removeEventListener("resize", handleReposition)
-      window.removeEventListener("scroll", handleReposition, true)
+      window.removeEventListener("resize", onResize)
+      window.removeEventListener("scroll", onScroll, true)
     }
   }, [open, updatePosition])
 
@@ -191,17 +220,26 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
    *
    * 以前每次都从第一个模型开始显示，模型多的时候用户得自己往下翻才能找到
    * 正在用的那个。等 dropdownStyle 就位后再算：此时容器高度已确定。
+   *
+   * 只在「每次打开」执行一次：之前把 dropdownStyle 放进依赖里，位置一变化
+   * （哪怕是列表自身滚动触发的重算）就会把用户滚到的位置又拽回选中项，
+   * 表现出来就是「下拉后滚不动」。
    */
   useEffect(() => {
-    if (!open || !dropdownStyle) return
+    if (!open) {
+      scrolledToSelectionRef.current = false
+      return
+    }
+    if (!dropdownStyle || scrolledToSelectionRef.current) return
     const container = dropdownRef.current
     if (!container) return
+    scrolledToSelectionRef.current = true
     const selected = container.querySelector<HTMLElement>('[data-selected="true"]')
     if (!selected) return
     const target = selected.offsetTop - (container.clientHeight - selected.offsetHeight) / 2
     const max = Math.max(0, container.scrollHeight - container.clientHeight)
     container.scrollTop = Math.min(Math.max(0, target), max)
-  }, [open, dropdownStyle, value])
+  }, [open, dropdownStyle])
 
   if (modelGroups.length === 0) {
     return null

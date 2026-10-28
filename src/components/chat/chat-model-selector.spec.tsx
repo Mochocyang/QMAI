@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
-import { getChatModelDropdownStyle, resolveModelItemLabel } from "./chat-model-selector"
+import { getChatModelDropdownStyle, resolveModelItemLabel, sameDropdownStyle } from "./chat-model-selector"
 
 const source = readFileSync(resolve(__dirname, "chat-model-selector.tsx"), "utf8")
 
@@ -71,6 +71,17 @@ describe("chat model dropdown density", () => {
     expect(source).toContain('[data-selected="true"]')
     expect(source).toContain("container.scrollTop")
   })
+
+  it("自动定位每次打开只做一次，之后不再抢用户的滚动", () => {
+    // 依赖里不能带 value：否则任何一次重渲染都会把滚动位置拉回选中项
+    expect(source).toContain("scrolledToSelectionRef.current = true")
+    expect(source).not.toContain("[open, dropdownStyle, value]")
+  })
+
+  it("下拉列表自身滚动不会触发位置重算（否则每滚一格就跳回顶部）", () => {
+    expect(source).toContain("container.contains(target)")
+    expect(source).toContain("sameDropdownStyle(prev, next) ? prev : next")
+  })
 })
 
 describe("getChatModelDropdownStyle", () => {
@@ -113,5 +124,25 @@ describe("getChatModelDropdownStyle", () => {
     expect(style.top).toBe(116)
     // viewport below trigger: 400 - 112 = 288 → maxHeight ≤ 288 - gap - 4
     expect(style.maxHeight).toBeLessThanOrEqual(280)
+  })
+})
+
+describe("sameDropdownStyle", () => {
+  it("位置完全一致时判定相同（复用旧对象，避免无谓重渲染）", () => {
+    const a = { right: 10, width: 280, maxHeight: 360, top: 100 }
+    expect(sameDropdownStyle(a, { ...a })).toBe(true)
+  })
+
+  it("任一项不同就判定不同", () => {
+    const a = { right: 10, width: 280, maxHeight: 360, top: 100 }
+    expect(sameDropdownStyle(a, { ...a, top: 101 })).toBe(false)
+    expect(sameDropdownStyle(a, { ...a, maxHeight: 300 })).toBe(false)
+    expect(sameDropdownStyle(a, { right: 10, width: 280, maxHeight: 360, bottom: 100 })).toBe(false)
+  })
+
+  it("空值处理：两边都空算相同，单边为空算不同", () => {
+    expect(sameDropdownStyle(null, null)).toBe(true)
+    expect(sameDropdownStyle(null, { right: 1, width: 2, maxHeight: 3, top: 4 })).toBe(false)
+    expect(sameDropdownStyle({ right: 1, width: 2, maxHeight: 3, top: 4 }, null)).toBe(false)
   })
 })
