@@ -217,12 +217,17 @@ v2 的目标：**C 族以及对未来的 Qoder / Trae / 小浣熊，一律做成
 
 | capability | 界面表现 |
 |---|---|
-| `models.refresh` | 该 provider 卡片上显示「刷新模型列表」按钮 |
-| `balance.query` | 卡片上显示余额/积分区（QMAI 调插件的 `/v1/_qmai/balance`，见 4.4） |
+| `balance.query` | 卡片上显示余额/积分（QMAI 调插件的 `/v1/_qmai/balance`，见 4.4） |
 | `checkin` | 卡片上显示「每日签到」按钮（QMAI 调 `/v1/_qmai/checkin`） |
+| `models.refresh` | **不驱动任何 UI**（见下） |
 
 **为什么把这几个做成能力位而不是必需**：它们不是所有 provider 都有（API Key 类没有签到），
 硬塞会让插件被迫实现空壳端点。
+
+**`models.refresh` 为什么不驱动 UI（实现后修正）**：`/v1/models` 是 provider 契约里的**必需端点**
+（§3.1），宿主随时可以打它。所以「刷新模型」是**宿主自己的能力**，不是插件要实现的能力位。
+把它藏在能力位后面，等于对没声明这个字段的插件说「你的模型列表更新不了」——既不是事实，也纯属摩擦。
+**该值继续被接受（向后兼容），但不再门控任何按钮。**
 
 ### 4.4 可选扩展端点
 
@@ -232,6 +237,26 @@ v2 的目标：**C 族以及对未来的 Qoder / Trae / 小浣熊，一律做成
 |---|---|---|
 | POST | `/v1/_qmai/balance` | `{"items":[{"label":"积分","value":"1,234"}]}` |
 | POST | `/v1/_qmai/checkin` | `{"ok":true,"message":"已签到"}` |
+
+宿主对这两个端点**只做展示、不参与计费**；返回结构不符时界面显示「无法识别」，不崩。
+
+### 4.5 模型成本与输入模态（实现后新增）
+
+`/v1/models` 的 `_qmai` 里可选声明：
+
+```jsonc
+"_qmai": {
+  "maxInputTokens": 204800,
+  "maxOutputTokens": 8192,
+  "cost": { "input": 2, "output": 8, "cacheRead": 0.2, "cacheWrite": 0 },
+  "inputModalities": ["text", "image"]
+}
+```
+
+- `cost`：**每百万 token**，货币单位由插件自己定义，宿主**不换算、不参与计费**，只用于界面提示贵不贵
+- `inputModalities`：`text` / `image` / `audio`。含 `image` 时 `supportsVision` 视为 true
+  （两者冲突时以 `inputModalities` 为准）
+- 两者都缺省时界面**不占位**、行为与老插件完全一致
 
 QMAI 只负责渲染，不理解语义。
 
