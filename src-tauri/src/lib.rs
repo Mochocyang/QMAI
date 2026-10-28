@@ -341,6 +341,10 @@ commands::fs::read_file,
             plugins::plugins_tools,
             plugins::plugins_invoke_tool,
             plugins::plugins_shutdown_all,
+            // 插件 provider：列表不含 token，token 只在请求前由前端现取。
+            plugins::plugins_providers,
+            plugins::plugins_provider_auth,
+            plugins::plugins_provider_refresh_models,
             // WorkBuddy 账号登录（国内版）：登录三条、账号三条、导入两条、
             // 模型目录两条、网关一条。返回值一律不含 token。
             workbuddy::commands::workbuddy_login_start,

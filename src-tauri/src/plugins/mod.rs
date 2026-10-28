@@ -11,6 +11,7 @@ pub mod installer;
 pub mod manifest;
 pub mod mcp_bridge;
 pub mod paths;
+pub mod providers;
 pub mod registry;
 pub mod supervisor;
 
@@ -45,6 +46,8 @@ pub struct PluginsState {
     pub running: Arc<AsyncMutex<HashMap<String, supervisor::LaunchHandle>>>,
     /// 宿主 API 端口（首次启用时启动，之后复用）
     pub host_port: Mutex<Option<u16>>,
+    /// 插件提供的 provider（providerId → 登记）。token 只在这里，从不落盘。
+    pub providers: Arc<AsyncMutex<HashMap<String, providers::PluginProvider>>>,
 }
 
 impl PluginsState {
@@ -136,6 +139,51 @@ fn manifest_display(dir: &Path) -> (String, String) {
     }
 }
 
+/// 读一个**已安装**插件目录里的清单。目录缺失、清单损坏都返回 `None`。
+fn installed_manifest(root: &Path, plugin_id: &str) -> Option<manifest::PluginManifest> {
+    let raw =
+        std::fs::read_to_string(paths::plugin_dir(root, plugin_id).join("plugin.json")).ok()?;
+    manifest::PluginManifest::parse(&raw).ok()
+}
+
+/// 检查 provider id 是否已被别的插件占用。
+///
+/// 模型复合键是 `providerId/modelId` —— 两个插件占用同一个 `providerId` 时，
+/// 用户在选择器里无法分辨自己的数据流向了谁（设计 4.2 / D1）。
+/// 清单校验（`manifest.rs`）只能看到自己那一份，查不到「别的已安装插件」，
+/// 所以这一条只能在安装/启用时按注册表比对。
+///
+/// 别人的清单读不到（目录被手工删了、清单写坏了）就跳过那个插件：
+/// 不能因为别人坏了，让用户装不上/启用不了新的。
+fn ensure_provider_ids_free(
+    root: &Path,
+    self_id: &str,
+    manifest: &manifest::PluginManifest,
+) -> Result<(), String> {
+    let ours = &manifest.contributes.providers;
+    if ours.is_empty() {
+        return Ok(());
+    }
+    let registry = PluginRegistry::load(root)?;
+    for other in registry.list() {
+        if other.id == self_id {
+            continue;
+        }
+        let Some(other_manifest) = installed_manifest(root, &other.id) else {
+            continue;
+        };
+        for provider in &other_manifest.contributes.providers {
+            if ours.iter().any(|mine| mine.id == provider.id) {
+                return Err(format!(
+                    "provider id {} 已被插件 {} 占用",
+                    provider.id, other.id
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// 读一条与 `expected_id` 配对的 JSON-RPC 响应。
 ///
 /// 跳过空行、非 JSON 的调试输出、通知（无 id）和超时后补发的旧响应；
@@ -172,12 +220,17 @@ where
 
 /// 启动一个插件：建会话 → 拼环境变量 → spawn → 握手 → 拉工具清单 → 存句柄。
 /// 任一步失败都把已建资源清干净（杀进程、注销 session），不留半成品。
+///
+/// 清单声明了 `contributes.providers`（schema 2）时，额外在 spawn 前分配 provider 端口、
+/// 生成 provider 令牌，并在握手成功后探活 + 抓模型，登记进 `state.providers`。
+/// v1 插件（没有 providers）走的是和以前完全一样的路径。
 async fn start_plugin(
     root: &Path,
-    running: &Arc<AsyncMutex<HashMap<String, supervisor::LaunchHandle>>>,
-    host_port: &Mutex<Option<u16>>,
+    state: &PluginsState,
     entry: &RegistryEntry,
 ) -> Result<(), String> {
+    let running = &state.running;
+    let host_port = &state.host_port;
     if running.lock().await.contains_key(&entry.id) {
         return Ok(()); // 已在跑
     }
@@ -187,6 +240,26 @@ async fn start_plugin(
         .map_err(|e| format!("读取清单失败：{e}"))?;
     let manifest = manifest::PluginManifest::parse(&raw)
         .map_err(|e| format!("清单校验失败 {}：{}", e.code(), e.detail))?;
+
+    // 清单声明了 providers 才走这套；没声明就完全跳过（v1 插件零影响）。
+    // 端口先 bind 0 拿号、再立刻释放交给插件去绑（设计 D4：只允许宿主分配，
+    // 避免固定端口被用户本机已有的 Agent2API 之类服务抢占）。
+    // v2.0 只接第一条声明：一个插件的端口/令牌是一对，多 provider 端口隔离留给后续版本。
+    if manifest.contributes.providers.len() > 1 {
+        eprintln!(
+            "[plugins] {} 声明了 {} 个 provider，v2.0 只启用第一个",
+            entry.id,
+            manifest.contributes.providers.len()
+        );
+    }
+    let provider_decl = manifest.contributes.providers.first().cloned();
+    let provider_port = match &provider_decl {
+        Some(_) => Some(providers::allocate_port()?),
+        None => None,
+    };
+    let provider_token = provider_decl
+        .as_ref()
+        .map(|_| uuid::Uuid::new_v4().to_string());
 
     // 宿主 API：首次启动，之后复用同一个端口。std 锁只包住启动动作，不跨 await。
     let port = {
@@ -225,6 +298,14 @@ async fn start_plugin(
         ("QMAI_PLUGIN_ID", entry.id.as_str()),
     ] {
         cmd.env(key, value);
+    }
+    // provider 的端口与令牌走环境变量（不改 initialize 的签名）：插件在 initialize
+    // 之前就能读到，也不用在协议里多传一份可能被日志记下来的字段。
+    // 令牌与 hostToken 同构：每插件随机、只存内存；插件必须校验它，否则本机任何
+    // 进程都能白嫖它（进而白嫖用户账号额度）。
+    if let (Some(port), Some(provider_token)) = (provider_port, provider_token.as_deref()) {
+        cmd.env("QMAI_PROVIDER_PORT", port.to_string());
+        cmd.env("QMAI_PROVIDER_TOKEN", provider_token);
     }
 
     let mut child = match cmd.spawn() {
@@ -330,6 +411,20 @@ async fn start_plugin(
         Ok(Ok(tools)) => {
             handle.tools = tools;
             handle.state = supervisor::ProcessState::Running;
+
+            // provider 探活 + 抓模型。**放在这里、不握 running 锁**：探活最多等一个
+            // startTimeoutMs，握着表锁做网络 IO 会把其它插件的启停全堵住。
+            //
+            // 探活/抓模型失败**不杀进程、也不让启动失败**：插件可能同时提供工具，
+            // provider 只是它的一部分能力。失败只记进 last_error、ready=false，
+            // 让界面灰显并给出原因（设计 6.3：失败不隐藏）。
+            let provider = match (provider_decl, provider_port, provider_token) {
+                (Some(decl), Some(port), Some(token)) => {
+                    Some(register_provider(&manifest, &decl, port, token).await)
+                }
+                _ => None,
+            };
+
             // 初始检查与这里之间可能有另一个并发 enable。插入前再查一次：
             // 已有句柄时停掉刚起的这一个，避免两个进程抢同一个 pluginId。
             let mut guard = running.lock().await;
@@ -338,6 +433,16 @@ async fn start_plugin(
                 handle.stop().await;
                 host_api::unregister_session(&token);
                 return Ok(());
+            }
+            // 先登记 provider 再放句柄：反过来会留下「进程已在跑、前端却查不到 provider」
+            // 的窗口。两个表都是短锁，且全仓只有「先 running 后 providers」这一个嵌套顺序
+            // （stop/uninstall 都是先放 running 锁再清 providers），不会互等。
+            if let Some(provider) = provider {
+                state
+                    .providers
+                    .lock()
+                    .await
+                    .insert(provider.provider_id.clone(), provider);
             }
             guard.insert(entry.id.clone(), handle);
             Ok(())
@@ -358,18 +463,85 @@ async fn start_plugin(
     }
 }
 
+/// 探活 + 抓模型，组装一条 provider 登记。
+///
+/// **任何失败都不抛出**：这里是「插件已经连握手都通过了」之后的一步，provider 只是
+/// 插件能力的一部分（它还可能提供工具）。失败写成 `ready=false` + `last_error`，
+/// 让界面灰显并给出原因，而不是把整个插件判成启动失败。
+async fn register_provider(
+    manifest: &manifest::PluginManifest,
+    decl: &manifest::ProviderDecl,
+    port: u16,
+    token: String,
+) -> providers::PluginProvider {
+    let mut provider = providers::PluginProvider {
+        plugin_id: manifest.id.clone(),
+        provider_id: decl.id.clone(),
+        name: decl.name.clone(),
+        base_url: format!("http://127.0.0.1:{port}"),
+        token,
+        capabilities: decl.capabilities.clone(),
+        settings_page: decl.settings_page_path.clone(),
+        auth_kind: providers::auth_kind_name(decl.auth_kind).to_string(),
+        models: Vec::new(),
+        ready: false,
+        last_error: None,
+    };
+
+    // 一个 client 复用到探活与抓模型：超时策略只有一处。60s 是探活/抓取的粗上限，
+    // 真正的探活预算由下面按 startTimeoutMs 收紧。
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+    {
+        Ok(client) => client,
+        Err(error) => {
+            provider.last_error = Some(format!("构造 HTTP client 失败：{error}"));
+            return provider;
+        }
+    };
+
+    let timeout = std::time::Duration::from_millis(manifest.runtime.start_timeout_ms);
+    if let Err(error) = providers::wait_until_healthy(&client, &provider.base_url, timeout).await {
+        provider.last_error = Some(error);
+        return provider;
+    }
+    match providers::fetch_models(&client, &provider.base_url, &provider.token).await {
+        Ok(models) => {
+            provider.models = models;
+            provider.ready = true;
+        }
+        Err(error) => {
+            provider.last_error = Some(format!("抓取模型列表失败：{error}"));
+        }
+    }
+    provider
+}
+
+/// 从登记表里移除某个插件的全部 provider（按 `plugin_id` 匹配）。
+///
+/// 与插件进程同生共死：token 随条目一起被丢弃，否则停用后前端还能现取到一个
+/// 已经没用的令牌，模型列表也还留着这一组。
+async fn drop_plugin_providers(
+    provider_list: &Arc<AsyncMutex<HashMap<String, providers::PluginProvider>>>,
+    plugin_id: &str,
+) {
+    provider_list
+        .lock()
+        .await
+        .retain(|_, provider| provider.plugin_id != plugin_id);
+}
+
 /// 停止并移除一个运行中的插件。**先 remove 再 stop**：`stop()` 里要等子进程
 /// 退出（最多 1 秒），不能在持着 running 表锁时 await。
-async fn stop_plugin(
-    running: &Arc<AsyncMutex<HashMap<String, supervisor::LaunchHandle>>>,
-    id: &str,
-) {
-    if let Some(handle) = running.lock().await.remove(id) {
+async fn stop_plugin(state: &PluginsState, id: &str) {
+    if let Some(handle) = state.running.lock().await.remove(id) {
         let token = handle.token.clone();
         handle.stop().await;
         // 进程没了，旧 token 必须立刻失效，否则残留的插件请求还能反调宿主。
         host_api::unregister_session(&token);
     }
+    drop_plugin_providers(&state.providers, id).await;
 }
 
 /// App 启动后拉起所有已启用的插件。
@@ -392,7 +564,7 @@ pub async fn autostart_all(state: &PluginsState, root: &Path) -> Result<(), Stri
         .filter(|entry| entry.enabled)
         .collect();
     for entry in targets {
-        if let Err(error) = start_plugin(root, &state.running, &state.host_port, &entry).await {
+        if let Err(error) = start_plugin(root, state, &entry).await {
             eprintln!("[plugins] 自动启动 {} 失败：{error}", entry.id);
         }
     }
@@ -411,6 +583,9 @@ pub(crate) async fn shutdown_all(state: &PluginsState) -> Result<(), String> {
         handle.stop().await;
         host_api::unregister_session(&token);
     }
+    // 进程全停了，provider 登记也必须一起清：留着的条目会指向已经不存在的端点，
+    // 界面重启后仍能查到一组永远连不上的 provider。
+    state.providers.lock().await.clear();
     Ok(())
 }
 
@@ -490,6 +665,16 @@ pub async fn plugins_install(
     // 不会先把目录装出去、再因为读注册表失败留下一个孤儿
     let mut registry = PluginRegistry::load(&root)?;
     let outcome = installer::install(&root, &source).await?;
+
+    // provider id 必须全局唯一，而清单校验看不到别的插件。冲突就回滚已发布的目录：
+    // 装上一个永远抢不到 id 的插件，比装不上更糟（用户会以为它已经生效）。
+    if let Some(manifest) = installed_manifest(&root, &outcome.plugin_id) {
+        if let Err(error) = ensure_provider_ids_free(&root, &outcome.plugin_id, &manifest) {
+            let _ = std::fs::remove_dir_all(&outcome.target);
+            return Err(error);
+        }
+    }
+
     let (name, description) = manifest_display(&paths::plugin_dir(&root, &outcome.plugin_id));
 
     let entry = RegistryEntry {
@@ -535,12 +720,18 @@ pub async fn plugins_enable(
         .cloned()
         .ok_or_else(|| format!("插件 {id} 未安装"))?;
 
+    // 启用时再查一次 provider id：安装时互不知情的两个插件，可能在对方之后才被装上；
+    // 真正会让两个 provider 同时出现在模型列表里的时刻是「启用」，所以这里才是最后一道闸。
+    if let Some(manifest) = installed_manifest(&root, &id) {
+        ensure_provider_ids_free(&root, &id, &manifest)?;
+    }
+
     entry.enabled = true;
     entry.granted_permissions = granted;
     registry.upsert(entry.clone());
     registry.save(&root)?;
 
-    start_plugin(&root, &state.running, &state.host_port, &entry).await?;
+    start_plugin(&root, state.inner(), &entry).await?;
     Ok(())
 }
 
@@ -550,7 +741,7 @@ pub async fn plugins_disable(
     state: State<'_, PluginsState>,
     id: String,
 ) -> Result<(), String> {
-    stop_plugin(&state.running, &id).await;
+    stop_plugin(state.inner(), &id).await;
     let root = state.root();
     let mut registry = PluginRegistry::load(&root)?;
     registry.set_enabled(&id, false)?;
@@ -570,7 +761,7 @@ pub async fn plugins_uninstall(
         return Err(format!("非法插件 id：{id}"));
     }
 
-    stop_plugin(&state.running, &id).await;
+    stop_plugin(state.inner(), &id).await;
 
     let root = state.root();
     let mut registry = PluginRegistry::load(&root)?;
@@ -653,6 +844,68 @@ pub async fn plugins_shutdown_all(state: State<'_, PluginsState>) -> Result<(), 
     shutdown_all(&state).await
 }
 
+/// 列出插件提供的 provider（**不含 token**，见 `providers::ProviderView`）。
+#[tauri::command]
+pub async fn plugins_providers(
+    state: State<'_, PluginsState>,
+) -> Result<Vec<providers::ProviderView>, String> {
+    let providers = state.providers.lock().await;
+    let mut views: Vec<providers::ProviderView> = providers
+        .values()
+        .map(providers::PluginProvider::view)
+        .collect();
+    // HashMap 顺序不稳定；排序避免界面每次刷新都跳顺序（与 plugins_tools 同理）。
+    views.sort_by(|a, b| a.provider_id.cmp(&b.provider_id));
+    Ok(views)
+}
+
+/// 现取 provider token（前端发请求前调用）。
+///
+/// **只走内存、绝不落盘**：计划第 0 节要求请求前现取，而不是把它写进
+/// `providerConfigs[providerId].apiKey`（那会被 `project-store` 持久化）。
+#[tauri::command]
+pub async fn plugins_provider_auth(
+    state: State<'_, PluginsState>,
+    provider_id: String,
+) -> Result<String, String> {
+    let providers = state.providers.lock().await;
+    providers
+        .get(&provider_id)
+        .map(|provider| provider.token.clone())
+        .ok_or_else(|| format!("provider {provider_id} 未就绪"))
+}
+
+/// 重新抓一次模型列表（界面的「刷新模型」按钮）。
+#[tauri::command]
+pub async fn plugins_provider_refresh_models(
+    state: State<'_, PluginsState>,
+    provider_id: String,
+) -> Result<Vec<providers::ProviderModel>, String> {
+    // 先把地址与令牌取出来再放锁：网络请求可能几百毫秒，握着 providers 表锁等它会把
+    // 启用/停用（要登记/清理 provider）一起堵住。
+    let (base_url, token) = {
+        let providers = state.providers.lock().await;
+        let provider = providers
+            .get(&provider_id)
+            .ok_or_else(|| format!("provider {provider_id} 未就绪"))?;
+        (provider.base_url.clone(), provider.token.clone())
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("构造 HTTP client 失败：{e}"))?;
+    let models = providers::fetch_models(&client, &base_url, &token).await?;
+
+    // 成功才更新缓存：一次网络抖动不该清掉用户已经看到的模型列表。
+    if let Some(provider) = state.providers.lock().await.get_mut(&provider_id) {
+        provider.models = models.clone();
+        provider.ready = true;
+        provider.last_error = None;
+    }
+    Ok(models)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -715,6 +968,232 @@ mod tests {
             std::fs::write(dir.join(name), source).expect("写插件入口");
         }
         dir
+    }
+
+    /// 一个 schema 2 的 provider 清单（声明一条 provider，带 net:listen）。
+    /// startTimeoutMs 取 1s：有 provider 的用例会真的等一轮探活，别拖成 10s。
+    fn provider_manifest(plugin_id: &str, provider_id: &str) -> String {
+        format!(
+            r#"{{
+                "schema": 2,
+                "id": "{plugin_id}",
+                "name": "Provider 插件",
+                "version": "1.0.0",
+                "runtime": {{ "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }},
+                "permissions": ["net:listen"],
+                "contributes": {{ "providers": [{{ "id": "{provider_id}", "name": "上游", "authKind": "none" }}] }}
+            }}"#
+        )
+    }
+
+    fn parsed_manifest(raw: &str) -> manifest::PluginManifest {
+        manifest::PluginManifest::parse(raw).expect("测试清单必须合法")
+    }
+
+    fn provider_registration(plugin_id: &str, provider_id: &str) -> providers::PluginProvider {
+        providers::PluginProvider {
+            plugin_id: plugin_id.to_string(),
+            provider_id: provider_id.to_string(),
+            name: provider_id.to_string(),
+            base_url: "http://127.0.0.1:1".to_string(),
+            token: "test-token".to_string(),
+            capabilities: vec![],
+            settings_page: None,
+            auth_kind: "none".to_string(),
+            models: vec![],
+            ready: true,
+            last_error: None,
+        }
+    }
+
+    #[test]
+    fn provider_ids_must_be_free_across_plugins() {
+        let root = TempRoot::new("provider-id-conflict");
+        write_plugin(
+            root.path(),
+            "other-plugin",
+            &provider_manifest("other-plugin", "wb-connect"),
+            None,
+        );
+        let mut registry = PluginRegistry::load(root.path()).expect("空注册表可加载");
+        registry.upsert(sample_entry("other-plugin"));
+        registry.save(root.path()).expect("保存注册表");
+
+        let mine = parsed_manifest(&provider_manifest("my-plugin", "wb-connect"));
+        let error = ensure_provider_ids_free(root.path(), "my-plugin", &mine)
+            .expect_err("同一 provider id 不能被两个插件占用");
+
+        assert!(error.contains("wb-connect"), "错误应指出冲突的 id：{error}");
+        assert!(
+            error.contains("other-plugin"),
+            "错误应指出占用者，否则用户不知道该卸谁：{error}"
+        );
+    }
+
+    #[test]
+    fn provider_id_check_skips_self_and_broken_plugins() {
+        let root = TempRoot::new("provider-id-self");
+        write_plugin(
+            root.path(),
+            "my-plugin",
+            &provider_manifest("my-plugin", "my-provider"),
+            None,
+        );
+        // 清单坏掉的插件：跳过它，不能因为别人坏了让新插件装不上
+        let broken = paths::plugin_dir(root.path(), "broken-plugin");
+        std::fs::create_dir_all(&broken).expect("创建坏插件目录");
+        std::fs::write(broken.join("plugin.json"), "{not json").expect("写坏清单");
+
+        let mut registry = PluginRegistry::load(root.path()).expect("空注册表可加载");
+        registry.upsert(sample_entry("my-plugin"));
+        registry.upsert(sample_entry("broken-plugin"));
+        registry.save(root.path()).expect("保存注册表");
+
+        let mine = parsed_manifest(&provider_manifest("my-plugin", "my-provider"));
+        ensure_provider_ids_free(root.path(), "my-plugin", &mine)
+            .expect("自己的 provider id 不该和自己冲突；坏插件应被跳过");
+    }
+
+    #[tokio::test]
+    async fn stop_plugin_drops_only_that_plugins_provider_registrations() {
+        let state = PluginsState::default();
+        {
+            let mut providers = state.providers.lock().await;
+            let p_one = provider_registration("plug-a", "p-one");
+            let p_two = provider_registration("plug-b", "p-two");
+            providers.insert("p-one".to_string(), p_one);
+            providers.insert("p-two".to_string(), p_two);
+        }
+
+        stop_plugin(&state, "plug-a").await;
+
+        let providers = state.providers.lock().await;
+        assert!(
+            !providers.contains_key("p-one"),
+            "停用后该插件的 provider 必须消失（token 也随之丢弃）"
+        );
+        assert!(
+            providers.contains_key("p-two"),
+            "别的插件的 provider 不能被误删"
+        );
+    }
+
+    /// 探活失败只写 `last_error`，不 panic、不把插件判成启动失败。
+    /// 用一个「绑了端口但从不 accept」的 listener：连接能建立、永远没有响应，
+    /// 探活必须按 startTimeoutMs 超时，而不是永久挂住或误判成功。
+    #[tokio::test]
+    async fn register_provider_records_probe_failure_instead_of_failing() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("绑定测试端口");
+        let port = listener.local_addr().expect("读取端口").port();
+
+        let manifest = parsed_manifest(&provider_manifest("probe-fail", "probe-fail"));
+        let decl = manifest.contributes.providers[0].clone();
+        let provider = register_provider(&manifest, &decl, port, "test-token".to_string()).await;
+
+        assert!(!provider.ready, "探活不通过时不能标成 ready");
+        let error = provider.last_error.as_deref().unwrap_or_default();
+        assert!(
+            error.contains("/health"),
+            "失败原因必须能展示给用户（含探活目标）：{error:?}"
+        );
+        assert!(
+            provider.models.is_empty(),
+            "探活都没过就不该去抓模型（否则错误会被后一步覆盖）"
+        );
+        assert_eq!(provider.token, "test-token", "token 仍留在内存里供后续重试");
+        assert_eq!(provider.auth_kind, "none");
+    }
+
+    /// provider 探活失败**不能**让插件启动失败、更不能杀进程：插件可能同时提供工具，
+    /// provider 只是它的一部分能力（设计 6.3）。
+    ///
+    /// 用真实 Node 插件验证：它实现了 MCP（initialize / tools/list）但不实现 /health，
+    /// 于是 provider 探活必然失败 —— 此时进程要活着、工具要在、provider 要登记成
+    /// ready=false 并带原因（界面才能灰显而不是让整组消失）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn provider_probe_failure_keeps_the_plugin_running() {
+        if !node_available() {
+            eprintln!("跳过：本机没有可执行的 node");
+            return;
+        }
+
+        const SERVER: &str = r#"
+const readline = require("readline");
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on("line", (line) => {
+  let req;
+  try { req = JSON.parse(line); } catch { return; }
+  if (req.method === "initialize") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { protocolVersion: "2024-11-05", capabilities: { tools: {} } }
+    }));
+  } else if (req.method === "tools/list") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { tools: [{ name: "echo", description: "回声", inputSchema: { type: "object" } }] }
+    }));
+  }
+});
+"#;
+
+        let root = TempRoot::new("provider-no-health");
+        let id = "provider-no-health";
+        let manifest = provider_manifest(id, "no-health");
+        write_plugin(root.path(), id, &manifest, Some(("index.js", SERVER)));
+        let entry = sample_entry(id);
+
+        let state = PluginsState::default();
+        *state.host_port.lock().expect("端口状态") = Some(1);
+
+        start_plugin(root.path(), &state, &entry)
+            .await
+            .expect("provider 探活失败不能让插件启动失败");
+
+        {
+            let mut running = state.running.lock().await;
+            let handle = running
+                .get_mut(id)
+                .expect("探活失败后插件进程必须还在 running 表里");
+            assert_eq!(handle.state.as_str(), "running");
+            assert_eq!(handle.tools.len(), 1, "工具能力不受 provider 探活失败影响");
+            assert!(
+                handle.child.try_wait().expect("查询子进程状态").is_none(),
+                "探活失败不能杀插件进程"
+            );
+        }
+        {
+            let providers = state.providers.lock().await;
+            let provider = providers
+                .get("no-health")
+                .expect("探活失败的 provider 也要登记，界面才能灰显并给原因");
+            assert!(!provider.ready);
+            assert!(
+                provider
+                    .last_error
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains("/health"),
+                "失败原因要能展示：{:?}",
+                provider.last_error
+            );
+            assert_eq!(provider.plugin_id, id);
+            assert!(provider.base_url.starts_with("http://127.0.0.1:"));
+            assert!(
+                !provider.token.is_empty(),
+                "令牌已发给插件，登记要留着它供刷新/授权"
+            );
+        }
+
+        stop_plugin(&state, id).await;
+        assert!(
+            state.providers.lock().await.is_empty(),
+            "停用后 provider 登记必须一起清掉（token 也随之丢弃）"
+        );
+        assert!(
+            state.running.lock().await.is_empty(),
+            "停用后 running 表必须为空"
+        );
     }
 
     #[test]
@@ -858,7 +1337,7 @@ mod tests {
         // 用假端口避免测试真的起一个宿主 API 服务；本用例在 spawn 阶段就失败，不会访问它。
         *state.host_port.lock().expect("端口状态") = Some(1);
 
-        let error = start_plugin(root.path(), &state.running, &state.host_port, &entry)
+        let error = start_plugin(root.path(), &state, &entry)
             .await
             .expect_err("入口不存在时必须启动失败");
 
@@ -909,7 +1388,7 @@ mod tests {
         let state = PluginsState::default();
         *state.host_port.lock().expect("端口状态") = Some(1);
 
-        let error = start_plugin(root.path(), &state.running, &state.host_port, &entry)
+        let error = start_plugin(root.path(), &state, &entry)
             .await
             .expect_err("插件在握手前退出时必须报错");
 
@@ -984,7 +1463,7 @@ rl.on("line", (line) => {
         let state = PluginsState::default();
         *state.host_port.lock().expect("端口状态") = Some(1);
 
-        start_plugin(root.path(), &state.running, &state.host_port, &entry)
+        start_plugin(root.path(), &state, &entry)
             .await
             .expect("真实 Node 插件应完成握手");
 
@@ -1002,7 +1481,7 @@ rl.on("line", (line) => {
             assert_eq!(result, "你好");
         }
 
-        stop_plugin(&state.running, id).await;
+        stop_plugin(&state, id).await;
         assert!(
             state.running.lock().await.is_empty(),
             "停用后 running 表必须为空"
@@ -1119,7 +1598,7 @@ rl.on("line", (line) => {
         let state = PluginsState::default();
         *state.host_port.lock().expect("端口状态") = Some(1);
 
-        start_plugin(root.path(), &state.running, &state.host_port, &entry)
+        start_plugin(root.path(), &state, &entry)
             .await
             .expect("插件持续写 stderr 时握手仍应成功");
 
@@ -1128,6 +1607,6 @@ rl.on("line", (line) => {
             let handle = running.get(id).expect("启动后应有运行句柄");
             assert!(handle.tools.is_empty());
         }
-        stop_plugin(&state.running, id).await;
+        stop_plugin(&state, id).await;
     }
 }
