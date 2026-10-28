@@ -13,6 +13,18 @@ import { useWritingStatsStore } from "@/stores/writing-stats-store"
 
 export type TrashItemKind = "chapter" | "outline" | "page" | "file" | "history" | "skill" | "storymap"
 
+/**
+ * 伴生文件（大纲的 `.html` / `.json`）。
+ *
+ * 删除大纲只删 `.md` 会留下这两份残骸：AI 读大纲时是扫目录的，残留内容会被当成
+ * 仍然有效的大纲读到（用户 2026-10-28 报的重大缺陷）。所以它们必须跟着一起进回收站，
+ * 还原时再一起放回去 —— 只删不放会让用户在回收站里"还原"出一份缺 HTML 的大纲。
+ */
+export interface TrashCompanion {
+  originalPath: string
+  trashPath: string
+}
+
 export interface TrashItem {
   id: string
   name: string
@@ -21,7 +33,12 @@ export interface TrashItem {
   deletedAt: number
   expiresAt: number
   kind: TrashItemKind
+  /** 随主文件一起进回收站的伴生文件（老条目没有这个字段）。 */
+  companions?: TrashCompanion[]
 }
+
+/** 大纲 .md 可能带的伴生扩展名：保存时生成的 HTML，以及卷纲的结构化数据 JSON。 */
+export const OUTLINE_COMPANION_EXTENSIONS = ["html", "json"] as const
 
 interface RestoreTrashResult {
   item: TrashItem
@@ -182,6 +199,25 @@ export async function moveFileToTrash(
     : `${trashFilesDir(pp)}/${id}${getExtension(name)}`
 
   await ensureTrashDirs(pp)
+  /** 伴生文件（仅对 .md 文件）：内容先搬进回收站，随后删原文件。 */
+  const companions: TrashCompanion[] = []
+  if (!isDir && /\.md$/i.test(name)) {
+    const stem = normalizedPath.replace(/\.md$/i, "")
+    for (const extension of OUTLINE_COMPANION_EXTENSIONS) {
+      const companionPath = `${stem}.${extension}`
+      if (!(await fileExists(companionPath))) continue
+      const companionTrashPath = `${trashFilesDir(pp)}/${id}-companion.${extension}`
+      try {
+        await writeFile(companionTrashPath, await readFile(companionPath))
+        await deleteFile(companionPath)
+        companions.push({ originalPath: companionPath, trashPath: companionTrashPath })
+      } catch (error) {
+        // 伴生文件搬运失败不能拖住主文件的删除，但要留下痕迹方便排查
+        console.warn("[trash] 伴生文件移入回收站失败:", companionPath, error)
+      }
+    }
+  }
+
   if (isDir) {
     // 整目录移入回收站（copy_directory 复制目录内容到目标目录）
     try {
@@ -208,6 +244,7 @@ export async function moveFileToTrash(
     deletedAt: now,
     expiresAt: now + TRASH_RETENTION_DAYS * DAY_MS,
     kind,
+    ...(companions.length > 0 ? { companions } : {}),
   }
   const items = await readTrashItems(pp)
   await writeTrashItems(pp, [item, ...items])
@@ -265,6 +302,29 @@ export async function restoreTrashItem(
   } else {
     await writeFile(restoreTarget.path, content)
   }
+  /*
+   * 伴生文件一起还原：改名还原时（restoreTarget.renamed）用同一套新文件名，
+   * 保持 `.md` / `.html` / `.json` 三个文件的主名一致 —— 否则「大纲.md」配
+   * 「大纲-2.html」，预览会找不到伴生 HTML。
+   */
+  if (item.companions?.length) {
+    const restoredStem = restoreTarget.path.replace(/\.md$/i, "")
+    for (const companion of item.companions) {
+      const extension = getExtension(getBaseName(companion.originalPath))
+      try {
+        const target = restoreTarget.renamed
+          ? `${restoredStem}.${extension}`
+          : companion.originalPath
+        // 目标位置已有同名伴生文件时不覆盖（用户可能已经重新生成了一份）
+        if (!(await fileExists(target))) {
+          await writeFile(target, await readFile(companion.trashPath))
+        }
+        await deleteFile(companion.trashPath)
+      } catch (error) {
+        console.warn("[trash] 伴生文件还原失败:", companion.originalPath, error)
+      }
+    }
+  }
   // 还原到**改名后**的新路径时，把写作归属账本一起搬过去。
   // 不搬的话旧键成了孤儿、新路径从零打基线，用户此前手写的归属会静默消失
   // （自己敲了几百字 → 删掉 → 还原，那几百字就凭空不算了）。
@@ -290,9 +350,7 @@ export async function cleanupExpiredTrashItems(
   let deletedCount = 0
   for (const item of items) {
     if (item.expiresAt <= now) {
-      try {
-        await deleteFile(item.trashPath)
-      } catch {}
+      await deleteTrashEntryFiles(item)
       deletedCount++
     } else {
       active.push(item)
@@ -308,6 +366,14 @@ export function getTrashDaysRemaining(item: TrashItem, now = Date.now()): number
   return Math.max(0, Math.ceil((item.expiresAt - now) / DAY_MS))
 }
 
+/** 删除回收站里的实体文件（主文件 + 伴生文件），永久删除与过期清理共用。 */
+async function deleteTrashEntryFiles(item: TrashItem): Promise<void> {
+  try { await deleteFile(item.trashPath) } catch { /* 文件可能已不存在 */ }
+  for (const companion of item.companions ?? []) {
+    try { await deleteFile(companion.trashPath) } catch { /* 可能已不存在 */ }
+  }
+}
+
 export async function readTrashItemContent(item: TrashItem): Promise<string> {
   if (await isDirectory(item.trashPath)) return ""
   return await readFile(item.trashPath)
@@ -321,7 +387,7 @@ export async function permanentlyDeleteTrashItem(
   const items = await readTrashItems(pp)
   const item = items.find((candidate) => candidate.id === itemId)
   if (!item) throw new Error("回收站项目不存在")
-  try { await deleteFile(item.trashPath) } catch { /* file may already be gone */ }
+  await deleteTrashEntryFiles(item)
   await writeTrashItems(pp, items.filter((candidate) => candidate.id !== itemId))
 }
 
@@ -331,7 +397,7 @@ export async function permanentlyDeleteAllTrashItems(
   const pp = normalizePath(projectPath)
   const items = await readTrashItems(pp)
   for (const item of items) {
-    try { await deleteFile(item.trashPath) } catch { /* ignore */ }
+    await deleteTrashEntryFiles(item)
   }
   await writeTrashItems(pp, [])
   return items.length

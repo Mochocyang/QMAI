@@ -22,6 +22,7 @@ import {
 } from "@/lib/novel/chapter-utils"
 import { chapterSnapshotNumbersFrom, chapterSnapshotNumbersFromFileNames, resolveChapterMemoryDotState, type ChapterMemoryDotState } from "@/lib/novel/chapter-memory-dot"
 import { moveFileToTrash } from "@/lib/trash"
+import { moveOutlineCompanions } from "@/lib/novel/outline-companions"
 import { makeSafeFileSlug } from "@/lib/wiki-filename"
 import { allocateUniqueSiblingPath, planPageRename } from "@/lib/wiki/rename-page"
 import { useImportProgressStore, type ImportProgressTask } from "@/stores/import-progress-store"
@@ -1031,6 +1032,8 @@ export function KnowledgeTree({
           return
         }
         await copyFile(sourcePath, destPath)
+        // 伴生 .html / .json 必须跟着走，否则旧目录里会留下孤儿文件
+        await moveOutlineCompanions(sourcePath, destPath)
       }
 
       for (const file of mdFiles) {
@@ -1136,6 +1139,8 @@ export function KnowledgeTree({
         // 章节改名/换目录：把写作归属账本一起搬到新路径，
         // 否则新路径会从零打基线，用户此前手写的归属会凭空消失。
         useWritingStatsStore.getState().transferChapter(renamingPath, targetPath)
+        // 大纲改名同样要把 .html / .json 搬到新主名旁边，否则旧文件变成 AI 还能读到的孤儿
+        await moveOutlineCompanions(renamingPath, targetPath)
         await deleteFile(renamingPath)
         if (selectedFile === renamingPath) setSelectedFile(targetPath)
         onRemovePendingPage?.(renamingPath)
