@@ -15,7 +15,7 @@
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
-import { Check, ChevronRight, UserRound } from "lucide-react"
+import { Check, ChevronRight, Palette, Settings, UserRound, Wrench } from "lucide-react"
 
 import { useWikiStore, type SettingsCategoryId } from "@/stores/wiki-store"
 import { UI_TEST_SKINS } from "@/lib/ui-test"
@@ -43,13 +43,16 @@ export function SidebarBottomActions() {
   const accountTitle = accountUser ? `${accountDisplayNameText} · ${accountUser.email}` : "账号与外观"
 
   const [menuOpen, setMenuOpen] = useState(false)
-  /** 外观子菜单是否展开（默认折叠，点「外观」才展开三个主题）。 */
-  const [appearanceOpen, setAppearanceOpen] = useState(false)
+  /** 鼠标是否停在外观子菜单区域上（悬停展开/收起）。 */
+  const [appearanceHovered, setAppearanceHovered] = useState(false)
+  /** 用户用点击打开/收起的外观子菜单（鼠标移开后再定位）。 */
+  const [appearancePinned, setAppearancePinned] = useState(false)
+  /** 外观子菜单是否真的显示：默认折叠，悬停中或点击固定住。 */
+  const appearanceVisible = appearanceHovered || appearancePinned
   const triggerRef = useRef<HTMLButtonElement>(null)
   const [menuStyle, setMenuStyle] = useState<{
     left: number
     bottom: number
-    maxHeight: number
   } | null>(null)
 
 
@@ -67,15 +70,16 @@ export function SidebarBottomActions() {
         Math.max(4, window.innerWidth - MENU_WIDTH - 4),
       )
       /*
-       * 菜单**以底边锚定**在触发按钮上方，而不是按估算高度去算 top：
-       * .ui-test-menu-pop 的 max-height 是固定值，若 top 按偏小的高度估算，
-       * 菜单会向下越过窗口底边被裁掉（最后一项「星夜」只露一半）。
-       * 用 bottom 锚定后高度自适应，另给 maxHeight 兜底，超出时才内部滚动。
+       * 菜单**以底边锚定**在触发按钮上方，而不是按估算高度去算 top。
+       *
+       * 不要给弹层设 max-height / overflow:auto：菜单只有四项（头像 + 外观 + 设置 +
+       * 维护工具，约 200px），从来不需要滚；而一旦它变成滚动容器，「外观」右侧的
+       * 皮肤子菜单会被裁掉，还会给弹层撑出一条横向滚动条（用户 2026-10-28 截图）。
+       * 子菜单要溢出到菜单外面，父级必须是 overflow: visible。
        */
       setMenuStyle({
         left,
         bottom: Math.max(8, window.innerHeight - rect.top + 6),
-        maxHeight: Math.max(140, rect.top - 12),
       })
     }
     updatePosition()
@@ -166,12 +170,19 @@ export function SidebarBottomActions() {
   return (
     <div
       data-ui="sidebar-bottom-actions"
-      className="flex shrink-0 items-center gap-1 border-t py-1 pr-1.5 pl-0"
+      className="flex shrink-0 items-center gap-1 border-t py-1 pr-1.5 pl-2.5"
     >
       {/*
        * 左侧账号块：**头像在最左，用户名在头像右侧**（用户 2026-10-28 最终确认的顺序）。
        *
-       * 位置：底栏本身不加左内边距（pl-0），只留 2px 按钮内衬，头像贴向侧栏左边界。
+       * 位置：底栏留 10px 左内边距（pl-2.5），再叠按钮自身的 2px 内衬，
+       * 头像左边缘落在 12px 处 —— 与面板标题「章节列表」的文字左边对齐。
+       * 之前是 pl-0（头像直接贴侧栏边界），用户 2026-10-28 反馈「太靠左」。
+       *
+       * 宽度：账号块 `flex-1 min-w-0`、用户名 `min-w-0 flex-1`，头像 `shrink-0`。
+       * 之前的 `w-fit` 在 WebView2 里按 max-content 铺完名字后就收回成固定宽度，
+       * 用户名 `truncate` 只剩零宽并被省略号吞掉 —— 用户截图上「头像右边什么都没有」就是这个
+       * （2026-10-28 用户复报）。改成拉伸 + 让名字自己收缩，名字才会真正排在头像右侧。
        */}
       <button
         ref={triggerRef}
@@ -182,7 +193,7 @@ export function SidebarBottomActions() {
         aria-haspopup="menu"
         aria-expanded={menuOpen}
         data-ui="sidebar-account-avatar"
-        className={`flex w-fit max-w-[calc(100%-3rem)] min-w-0 shrink items-center gap-1.5 rounded-md px-0.5 py-1 text-left transition-colors ${
+        className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-0.5 py-1 text-left transition-colors ${
           menuOpen
             ? "bg-accent/60 text-accent-foreground"
             : "hover:bg-accent/50 hover:text-accent-foreground"
@@ -197,7 +208,7 @@ export function SidebarBottomActions() {
             <UserRound className="h-4 w-4" />
           </span>
         )}
-        <span className="ui-test-account-name truncate text-xs font-medium text-foreground">
+        <span className="ui-test-account-name min-w-0 flex-1 truncate text-xs font-medium text-foreground">
           {accountDisplayNameText}
         </span>
       </button>
@@ -220,8 +231,8 @@ export function SidebarBottomActions() {
               left: menuStyle.left,
               bottom: menuStyle.bottom,
               width: MENU_WIDTH,
-              maxHeight: menuStyle.maxHeight,
-              overflowY: "auto",
+              // 必须 visible：子菜单要弹到菜单右侧外面去（见 ui-test.css 的说明）
+              overflow: "visible",
             }}
             role="menu"
             aria-label="账号与外观"
@@ -248,31 +259,42 @@ export function SidebarBottomActions() {
             </button>
 
             {/*
-             * 外观：**点击折叠展开**三个皮肤主题（参考图的折叠样式），不带副标题。
-             * 之前是纯 CSS 悬停展开，用户要求改成"折叠起来"，所以改成受控状态。
+             * 外观：**鼠标移上去就在它右侧弹出**三个皮肤主题，点击也仍然可以展开/收起。
+             *
+             * 为什么不做成「下方折叠列表」：菜单是 290px 的窄弹层，皮肤放在下面会把
+             * 设置 / 维护工具顶到菜单外面（用户 2026-10-28 报「应该在右侧，不是下方」）。
+             * 子菜单定位在 `.ui-avatar-appearance-group` 右侧，由 ui-test.css 负责。
              */}
-            <div className="ui-avatar-appearance-group">
+            <div
+              className="ui-avatar-appearance-group"
+              onMouseEnter={() => setAppearanceHovered(true)}
+              onMouseLeave={() => {
+                setAppearanceHovered(false)
+                setAppearancePinned(false)
+              }}
+            >
               <button
                 type="button"
                 role="menuitem"
                 data-ui="sidebar-appearance-entry"
                 className="ui-test-menu-item"
                 aria-haspopup="menu"
-                aria-expanded={appearanceOpen}
-                onClick={() => setAppearanceOpen((open) => !open)}
+                aria-expanded={appearanceVisible}
+                onClick={() => setAppearancePinned((open) => !open)}
               >
+                <Palette />
                 <span className="ui-test-skin-copy">
                   <span>{t("sidebarActions.appearance")}</span>
                 </span>
                 <ChevronRight
-                  className={`ml-auto h-3.5 w-3.5 shrink-0 transition-transform ${appearanceOpen ? "rotate-90" : ""}`}
+                  className={`ml-auto h-3.5 w-3.5 shrink-0 transition-transform ${appearanceVisible ? "rotate-90" : ""}`}
                 />
               </button>
               <div
                 className="ui-avatar-appearance-sub"
                 role="menu"
                 aria-label={t("sidebarActions.appearance")}
-                data-open={appearanceOpen ? "true" : "false"}
+                data-open={appearanceVisible ? "true" : "false"}
               >
                 {UI_TEST_SKINS.map((item) => (
                   <button
@@ -302,6 +324,7 @@ export function SidebarBottomActions() {
               className="ui-test-menu-item"
               onClick={openGeneralSettings}
             >
+              <Settings />
               <span className="ui-test-skin-copy">
                 <span>{t("sidebarActions.settings")}</span>
               </span>
@@ -314,6 +337,7 @@ export function SidebarBottomActions() {
               className="ui-test-menu-item"
               onClick={openMaintenance}
             >
+              <Wrench />
               <span className="ui-test-skin-copy">
                 <span>维护工具</span>
               </span>

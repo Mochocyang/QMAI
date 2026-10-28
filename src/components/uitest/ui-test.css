@@ -553,14 +553,18 @@ html[data-ui-test-skin] .ui-test-wizard-chips button[aria-pressed="true"] { back
 /*
  * 侧栏底部的头像入口：按钮是 28px 的方形、p-0，而 .account-avatar 默认 30px
  * 且 display:inline-grid，会被父级裁掉一圈（用户截图：头像下半被切平）。
- * 这里把头像压到 24px 并显式居中，圆形完整显示。
+ * 这里显式居中，并把头像压到 28px。
+ *
+ * ⚠️ 千万不要在这里写 width/height: 100%：这个 span 自己就是 28px 的圆形容器
+ * （Tailwind size-7），百分比会把它撑成「按钮剩余宽度」（实测 216px）——
+ * 头像被居中到一片空白里，用户名被挤成 0 宽后彻底看不见。
+ * 用户 2026-10-28 两次报的「头像右边没有用户名」就是这个。
  */
 .ui-test-root .sidebar-account-avatar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 100%;
+  flex: 0 0 auto;
 }
 .ui-test-root .sidebar-account-avatar .account-avatar {
   /* 头像占满 28px 的容器（原先压到 24px，看起来比用户名还小，不够醒目） */
@@ -570,20 +574,56 @@ html[data-ui-test-skin] .ui-test-wizard-chips button[aria-pressed="true"] { back
 }
 
 /*
- * 账号菜单里的「外观」：默认只显示一行文字，鼠标移上去才列出三个主题。
- * 用纯 CSS 悬停展开（不引入额外 state）：菜单本身就是 fixed 弹层，
- * 子列表 absolute 定位在它右侧，不会把菜单撑高抖一下。
+ * 账号菜单里的「外观」：三个皮肤主题**弹在「外观」右侧**，不再列在它下面。
+ *
+ * 为什么改到右侧：菜单只有 290px 宽，主题放在下方会把「设置 / 维护工具」顶出菜单，
+ * 用户要的是「鼠标移上去就在右边出现」。
+ *
+ * ⚠️ 这两条规则**不能**带 `.ui-test-root` 前缀：账号菜单是 createPortal 挂到
+ * document.body 的，不在 .ui-test-root 里面 —— 带前缀就永远匹配不上，表现是
+ * 「三个皮肤一直平铺在外观下面、关都关不掉」（2026-10-28 用户实测截图）。
+ * 同一个弹层里的 .ui-test-menu-pop / .ui-test-menu-item / .ui-test-skin-dot
+ * 本来就是全局选择器，这里保持一致。皮肤变量（--ui-paper 等）在
+ * html[data-ui-test-skin] 上也有定义，portal 里照样取得到。
+ *
+ * 收起必须用 display:none：visibility/opacity 隐藏会占位，悬停收起会失灵。
+ *
+ * ⚠️ 弹层父级（.ui-test-avatar-menu）必须是 overflow: visible：它一旦是
+ * overflow:auto，子菜单既会被裁掉看不见，又会把弹层的 scrollWidth 撑到 450px
+ * 长出横向滚动条（用户 2026-10-28 截图里那两个灰条）。
+ *
+ * left 要跨过「菜单内边距 14px + 间隙 6px」：group 的右边界是菜单内容区的右边界，
+ * 不是菜单卡片的右边界。
  */
-.ui-test-root .ui-avatar-appearance-group {
+.ui-avatar-appearance-group {
   position: relative;
 }
-.ui-test-root .ui-avatar-appearance-group .ui-avatar-appearance-sub {
-  /* 折叠子菜单：默认收起，点「外观」后由 data-open 展开（不再靠 hover） */
+.ui-avatar-appearance-sub {
   display: none;
-  margin-left: 12px;
-  border-left: 1px solid var(--ui-line);
-  padding-left: 4px;
+  /* 与账号菜单同一套纸底 / 投影，看起来是同一层级的弹层，而不是缩进的一小段 */
+  position: absolute;
+  top: 0;
+  left: calc(100% + 20px);
+  width: 168px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--ui-paper);
+  box-shadow: 0 18px 55px #18241c24;
+  z-index: 1;
 }
-.ui-test-root .ui-avatar-appearance-group .ui-avatar-appearance-sub[data-open="true"] {
+/*
+ * 悬停通道：从「外观」一行横移进子菜单要跨过 20px 空档，
+ * 没有这块透明「桥」，鼠标一离开那一行就触发 mouseleave 把子菜单收掉 ——
+ * 表现是「子菜单闪一下就没了」。
+ */
+.ui-avatar-appearance-sub::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -20px;
+  width: 20px;
+}
+.ui-avatar-appearance-sub[data-open="true"] {
   display: block;
 }

@@ -161,18 +161,37 @@ describe("账号菜单里的设置类入口", () => {
     render()
     act(() => trigger().click())
     const panel = menu()!
-    const sub = panel.querySelector<HTMLElement>(".ui-avatar-appearance-sub")!
+    const sub = () => panel.querySelector<HTMLElement>(".ui-avatar-appearance-sub")!
     // 默认折叠
-    expect(sub.getAttribute("data-open")).toBe("false")
+    expect(sub().getAttribute("data-open")).toBe("false")
 
     const entry = panel.querySelector<HTMLButtonElement>('[data-ui="sidebar-appearance-entry"]')!
     act(() => entry.click())
-    expect(panel.querySelector<HTMLElement>(".ui-avatar-appearance-sub")!.getAttribute("data-open")).toBe("true")
+    expect(sub().getAttribute("data-open")).toBe("true")
 
     const skins = panel.querySelectorAll('[role="menuitemradio"]')
     expect(skins.length).toBeGreaterThanOrEqual(3)
     act(() => (skins[0] as HTMLButtonElement).click())
     expect(mocks.selectSkin).toHaveBeenCalled()
+  })
+
+  it("鼠标移到「外观」上就展开，移开就收起", () => {
+    render()
+    act(() => trigger().click())
+    const panel = menu()!
+    const group = panel.querySelector<HTMLElement>(".ui-avatar-appearance-group")!
+    const sub = () => panel.querySelector<HTMLElement>(".ui-avatar-appearance-sub")!
+
+    expect(sub().getAttribute("data-open")).toBe("false")
+    act(() => {
+      group.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }))
+    })
+    expect(sub().getAttribute("data-open")).toBe("true")
+
+    act(() => {
+      group.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body }))
+    })
+    expect(sub().getAttribute("data-open")).toBe("false")
   })
 
   it("底栏不再有独立齿轮：设置入口只在账号菜单里", () => {
