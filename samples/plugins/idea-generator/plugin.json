@@ -7,7 +7,7 @@
   "author": { "name": "QMAI", "url": "https://github.com/Mochocyang/QMAI" },
   "license": "MIT",
   "requires": { "qmai": ">=4.4.0" },
-  "runtime": { "type": "node", "entry": "noop.js", "keepAlive": true, "startTimeoutMs": 10000 },
+  "kind": ["declarative"],
   "slots": ["chapter-toolbar", "outline-toolbar", "inspiration-browser"],
   "requiresSlot": { "chapter-toolbar": 1, "outline-toolbar": 1, "inspiration-browser": 1 },
   "configSchema": {
@@ -53,7 +53,12 @@
         "title": "网文开局钩子 30 例",
         "description": "直接可用的开篇切入点，按题材分类",
         "file": "content/inspirations.json",
-        "maxItems": 5000
+        "maxItems": 5000,
+        "actions": [
+          { "kind": "insert-at-cursor", "label": "插入正文" },
+          { "kind": "project-field", "field": "bookIntro", "label": "设为简介" },
+          { "kind": "run-action", "actionId": "generate-titles", "label": "据此生成书名" }
+        ]
       }
     ],
     "actions": [
@@ -101,6 +106,7 @@
             { "kind": "insert-at-cursor", "label": "插入到正文" }
           ]
         },
+        "model": { "strategy": "current", "minContextTokens": 8192 },
         "limits": { "timeoutMs": 60000, "maxOutputTokens": 800 }
       },
       {

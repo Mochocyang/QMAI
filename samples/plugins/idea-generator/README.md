@@ -14,10 +14,11 @@
 
 这是插件平台 v3「声明式优先」的**端到端验收样例**。它刻意把下面这些契约点各踩一遍：
 
-1. **纯声明式 = 零代码**：目录里没有 `index.js`，`tools` / `providers` / `hooks` 全空 ——
-   没有任何可执行的东西。清单里那个 `runtime` 是**占位**：它指向的 `noop.js` 刻意不存在，
-   本插件真正的执行者是宿主自己（渲染表单、调模型、写回项目）。
-   （为什么还得写这个占位字段，见文末「与当前宿主实现的差异」。）
+1. **纯声明式 = 零代码、零进程**：目录里没有 `index.js`，清单里**没有 `runtime`**，
+   `tools` / `providers` / `hooks` 也全空 —— 没有任何可执行的东西。
+   宿主据此把这个插件判为 `processState == "declarative"`：**启用时不 spawn、不占端口、不占内存**，
+   真正的执行者是宿主自己（渲染表单、调模型、写回项目）。装 20 个这样的插件，进程表里仍然是 0 条。
+   清单里的 `"kind": ["declarative"]` 就是把这层意图显式说出来（设计 §2.1）。
 2. **`configSchema` + 宿主自动渲染设置表单**（设计 §6.3）：
    `defaultCount`（数字，1-10）、`titleStyle`（枚举，默认「爆点」）、`penName`（字符串，≤32 字）。
    宿主按 schema 画表单、校验、存盘；提示词里用 `{{config.titleStyle}}` 取值。
@@ -31,6 +32,9 @@
    表单字段只用了 `textarea` / `number` / `select` 三种，够说明「6 种字段类型」的用法。
 4. **`contentPacks` 随包分发、离线可用**（设计 §4.4 / D4）：30 条灵感是插件目录里的一个 JSON，
    安装时落到磁盘，之后**不发任何网络请求**，因此内容包**不需要任何网络权限**。
+   包级 `actions` 声明了条目上能做什么：**插入正文** / **设为简介**（`project-field: bookIntro`）/
+   **据此生成书名**（`run-action` → 复用本插件自己的 `generate-titles`，设计 §4.1 的链式调用；
+   跨插件 `run-action` 是禁止的，会形成隐式依赖）。
 5. **`slots` 挂到 3 个插槽**（设计 §6.1）：`chapter-toolbar`（两个按钮）、`outline-toolbar`（一个人设按钮）、
    `inspiration-browser`（灵感库面板）。`requiresSlot` 显式声明依赖插槽 API 版本 1（D8）——
    插槽是宿主与插件之间最脆弱的耦合面，没有版本号的地方不允许对外暴露。
@@ -47,14 +51,14 @@
 
 ```
 idea-generator/
-├── plugin.json                 # 全部声明：slots / configSchema / actions / contentPacks
+├── plugin.json                 # 全部声明：kind / slots / configSchema / actions / contentPacks
 ├── content/inspirations.json   # 灵感包数据（version + items）
 ├── prompts/README.md           # 提示词怎么改（提示词本体在 plugin.json 里）
 └── README.md
 ```
 
 **没有 `index.js`** —— 少了这个文件仍然功能完整，这是本样例最想说明的一件事。
-（清单里 `runtime.entry` 写的 `noop.js` 也**不存在**，它只是当前宿主强制的占位字段，见文末。）
+清单里也没有 `runtime`：没有可执行的贡献点，宿主就不会为你 spawn 任何进程。
 
 ## 安装
 
@@ -71,9 +75,8 @@ idea-generator/
 
 > 目录名必须等于清单里的 `id`（`idea-generator`），否则注册表与目录对不上。
 
-> **点「启用」时会报一次启动失败**（宿主当前把纯声明式插件也当进程插件去 spawn 占位入口 `noop.js`）。
-> 忽略即可：`enabled` 已落盘，三个 action 按钮与灵感库照常出现 —— 它们只依赖清单、与进程无关。
-> 原因与补法见文末「与当前宿主实现的差异」第 3、4 条。
+> 启用后 **不会启动任何进程**：插件卡片的进程状态是 `declarative`（设计 D1）。
+> 三个按钮与灵感库都只依赖清单，没有一行代码在跑。
 
 ### 推 GitHub
 
@@ -143,24 +146,23 @@ https://github.com/<owner>/<repo>@v1.0.0   # 指定 tag / 分支
 宿主枚举（`bookTitle` / `bookTags` / `bookIntro` / `protagonist` / `setting`），
 **不存在「写任意文件」的通道**（设计 D2/D9）。
 
-## 与当前宿主实现的差异（写样例时实测发现）
+## 本样例用到的清单能力（清单字段 → 设计条款）
 
-本样例的目标是**今天就能装上、插件中心能列出**。为此在四处让了一步，每一处都是
-**宿主侧还没跟上设计**，补齐后本目录的清单就能恢复设计形态：
+一份 `plugin.json` 就把 v3 的 Tier 1 声明面走完了。逐项对照：
 
-| # | 设计（条款） | 当前 `manifest.rs` / `mod.rs` 的实现 | 本样例的让步 | 宿主补齐后怎么恢复 |
-|---|---|---|---|---|
-| 1 | 顶层 `kind: ["declarative"]`（§2.1） | 结构体没有 `kind` 字段，`deny_unknown_fields` 直接拒 | 不写 `kind` | 加 `#[serde(default)] pub kind: Vec<String>`，再把 `"kind": ["declarative"]` 加回来 |
-| 2 | `contentPacks[].actions`（§4.1：灵感条目上的「插入正文 / 设为简介 / 据此生成书名」） | `ContentPackDecl` 只有 `id/title/description/file/maxItems`；`ContentPackMeta` 也不带 actions | 不写包级 actions —— 灵感库当前只有「浏览 / 搜索 / 标签筛选」，条目上还没有操作按钮 | `ContentPackDecl` 加 `actions` 并透传到 `ContentPackMeta`，再把那三条加回来 |
-| 3 | 纯 Tier 1 不声明 `runtime`（§2.3 / D1） | `PluginManifest.runtime` 是**必填**字段 | 留一个占位 `runtime`（`"entry": "noop.js"`，该文件不存在）—— 清单能过校验、能安装 | 改成 `Option<PluginRuntime>`，仅在 `tools` / `providers` / `impl:"process"` 的 hook 非空时要求它 |
-| 4 | 纯声明式插件 `processState == "declarative"`、永不 spawn（D1） | `plugins_enable` 无条件 `start_plugin` | 无（**这是宿主的硬缺口**）：点「启用」时宿主会去 `node noop.js` 而失败 | 无可启动贡献时直接置 `declarative` 并跳过 spawn |
-
-第 4 条的现场表现：**「启用」会报一次启动失败**，但 `enabled` 已经落盘，所以
-action 按钮、插槽按钮、灵感库照常出现 —— 因为它们只依赖清单，与进程无关。
-这正是 Tier 1 的价值所在，也是这条宿主缺口该被补上的理由。
-
-补齐这四处之后，本目录**一个字都不用改**（第 3 条把占位 `runtime` 删掉即可）。
-这也是把样例先写出来的价值：契约的缺口在样例上暴露，比在 20 个真实作者那里暴露便宜得多。
+| 字段 | 本样例的值 | 设计条款 | 宿主怎么用它 |
+|---|---|---|---|
+| `kind` | `["declarative"]` | §2.1 | 声明「我不跑代码」。未知值只 warn 不拒装（老宿主也能装新清单） |
+| `runtime` | **不写** | §2.3 / D1 | 无 `runtime` + 无可执行贡献 ⇒ `processState == "declarative"`，永不 spawn |
+| `slots` / `requiresSlot` | 3 个插槽，版本 1 | §6.1 / D8 | 决定按钮与面板挂在哪；版本号让宿主升级插槽时能提示而不是静默打断 |
+| `configSchema` | `defaultCount` / `titleStyle` / `penName` | §6.3 | 宿主自动渲染设置表单，填完的值以 `{{config.*}}` 进提示词 |
+| `contributes.actions` | 3 个 action | §3.1 | 宿主渲染表单 → 插值 → 调当前模型 → 按 `output.mode` 解析 → 按 `targets` 写回 |
+| `actions[].model` | `{strategy:"current", minContextTokens:8192}`（仅「生成书名」） | §3.1 | 用当前模型即可，但要求上下文窗口 ≥ 8192，避免长灵感被截断 |
+| `actions[].limits` | `timeoutMs` / `maxOutputTokens` | §3.1 | 超时与输出预算，按 action 分别给（人设最贵，90s / 1200 tok） |
+| `contributes.contentPacks` | 1 个包，30 条，`maxItems: 5000` | §4.1 / D4 | 宿主读盘、校验、缓存；单包上限 5MB / 5000 条，超限拒绝安装 |
+| `contentPacks[].actions` | 插入正文 / 设为简介 / 据此生成书名 | §4.1 | 沿 `ContentPackMeta.actions` 送到前端，灵感库在**打开包之前**就知道条目能干什么 |
+| `preview` | 3 个 action + 1 个包（30 条） | §8 | 免执行发现：插件中心不启动插件也能画卡片；调用真源仍是运行期 |
+| `permissions` | `["fs:project-read"]` | §3.3 | 只因为「生成人设」读了 `{{chapter.title}}`；另两个 action 不需要任何权限 |
 
 ## 它**不是**什么
 
