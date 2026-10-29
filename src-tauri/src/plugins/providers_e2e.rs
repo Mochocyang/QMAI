@@ -367,6 +367,11 @@ impl FakeProvider {
 fn http_client(timeout: Duration) -> reqwest::Client {
     reqwest::Client::builder()
         .timeout(timeout)
+        // 与生产侧 `plugins::provider_http_client` 同口径：这些请求永远打向
+        // `127.0.0.1:<宿主分配的端口>`，走代理必错（代理那头到不了本机回环）。
+        // 更要紧的是 `proxy.rs` 的用例会临时改进程级 `HTTP_PROXY`，不关掉代理检测，
+        // 这组 e2e 会随机拿到 502 —— 那是环境噪声，不是插件行为。
+        .no_proxy()
         .build()
         .expect("构造 reqwest client")
 }

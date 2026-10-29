@@ -317,8 +317,37 @@ fn session_store() -> &'static Arc<Mutex<HashMap<String, PluginSession>>> {
     SESSIONS.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
 }
 
+/// 把会话里的数据目录钉成绝对路径。
+///
+/// `paths::plugin_data_dir` 只是把插件根和 `<id>.data` 拼起来：插件根默认来自
+/// `app_data_dir()`（绝对），但 `QMAI_PLUGIN_HOME` 是开发用覆盖，可以被设成相对路径
+/// （如 `plugins`）。而插件进程的 cwd 是插件目录（`supervisor::build_command`），
+/// 同一个相对路径在宿主和插件两边会解析到**两个不同目录** —— 宿主建的目录插件写不到。
+/// 所以会话建立时就把相对值钉成绝对，两边指向同一处。
+///
+/// 用 `std::path::absolute`（不碰文件系统、不解析 `..`）：失败只可能是拿不到 cwd，
+/// 那就退回原值，让插件写入时得到真实错误，也好过宿主在这里 panic。
+fn absolute_data_root(path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        return path;
+    }
+    match std::path::absolute(&path) {
+        Ok(absolute) => absolute,
+        Err(_) => path,
+    }
+}
+
 /// 注册一个插件会话（token → 身份与权限）。重复注册同一 token 会覆盖。
-pub fn register_session(token: &str, session: PluginSession) {
+///
+/// 顺带把 `data_root` 钉成绝对路径并创建它：插件拿到 `/host/status` 的 `dataRoot`
+/// 就该能直接往里写，不该先自己 mkdir 一遍。放在这里而不是 `start_plugin` 里，
+/// 是因为「会话可见」与「目录可用」必须是同一个时刻，否则插件在启动早期拿到路径
+/// 仍可能写失败。创建失败**不阻断启动**：只读盘、配额打满这类情况下宿主的正确姿态
+/// 是让插件照常起来，由它自己写入时得到真实错误（而不是整个插件因为建不了一个
+/// 空目录就启不来）。
+pub fn register_session(token: &str, mut session: PluginSession) {
+    session.data_root = absolute_data_root(session.data_root);
+    let _ = std::fs::create_dir_all(&session.data_root);
     if let Ok(mut sessions) = session_store().lock() {
         sessions.insert(token.to_string(), session);
     }
@@ -429,6 +458,11 @@ async fn status(State(state): State<HostApiState>, headers: HeaderMap) -> Respon
         "grantedPermissions": session.granted,
         // 项目根走动态值：插件在 initialize 之后才可能拿到项目，不可能更早。
         "projectRoot": state.project_root(&session).map(|p| p.to_string_lossy().to_string()),
+        // 插件的私有数据目录（绝对路径：`register_session` 会把相对值钉成绝对并创建）。
+        // 凭证、缓存都该存这里：插件是子进程，不能假设自己知道插件根在哪，
+        // 靠 cwd 反推会随启动方式变化而断裂（`supervisor::build_command` 现在把 cwd
+        // 设成插件目录，但那是实现细节，插件侧不该依赖它去拼 `../<id>.data`）。
+        "dataRoot": session.data_root.to_string_lossy(),
     }))
     .into_response()
 }
@@ -884,7 +918,8 @@ mod tests {
             plugin_id: "demo.novel".to_string(),
             granted: granted(perms),
             project_root: root,
-            data_root: temp_dir("data-root"),
+            // 与生产同构：`<插件根>/<id>.data`，父目录（插件根，这里用临时目录代替）已存在。
+            data_root: temp_dir("data-root").join("demo.novel.data"),
         }
     }
 
@@ -930,6 +965,89 @@ mod tests {
             .await
             .expect("请求");
         assert_eq!(response.status(), 200);
+    }
+
+    /// `/host/status` 必须直接给出插件私有数据目录的**绝对路径**。
+    ///
+    /// 插件是子进程，宿主没通过环境变量告诉过它插件根在哪；文档只写了「存在
+    /// `<插件根>/<id>.data/`」。不暴露这个字段时，插件只能靠 cwd（`supervisor` 现在把
+    /// cwd 设成插件目录）拼 `../<id>.data/` —— 那是实现细节，启动方式一变就断。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn host_status_exposes_data_root() {
+        let state = state_with("tok", session(None, &["data:write"]));
+        let base = spawn_test_api(state).await;
+
+        let body: serde_json::Value = reqwest::Client::new()
+            .get(format!("{base}/host/status"))
+            .bearer_auth("tok")
+            .send()
+            .await
+            .expect("请求")
+            .json()
+            .await
+            .expect("JSON");
+
+        let data_root = body["dataRoot"].as_str().expect("dataRoot 应是字符串");
+        assert!(!data_root.is_empty(), "dataRoot 不能为空");
+        assert!(
+            Path::new(data_root).is_absolute(),
+            "dataRoot 必须是绝对路径（插件无法据此再拼相对路径）：{data_root}"
+        );
+        // 约定是 `<插件根>/<id>.data`：以 `.data` 结尾，插件才能判断「这是宿主给我的目录」
+        // 而不是顺手拿到了别的路径。
+        assert!(
+            data_root.ends_with(".data"),
+            "dataRoot 应以 .data 结尾：{data_root}"
+        );
+    }
+
+    /// 相对 `data_root` 必须被钉成绝对：宿主与插件的 cwd 不同，同一个相对值在两边
+    /// 会解析到不同目录（宿主建了目录、插件却写到别处）。
+    #[test]
+    fn relative_data_root_is_pinned_to_absolute() {
+        let pinned = absolute_data_root(PathBuf::from("qmai-relative-root/demo.novel.data"));
+        assert!(
+            pinned.is_absolute(),
+            "相对路径必须被钉成绝对：{}",
+            pinned.display()
+        );
+        assert!(pinned.ends_with("demo.novel.data"));
+
+        // 已是绝对路径就原样返回：这里不做规范化，免得与调用方手里的形态不一致。
+        let already = temp_dir("absolute").join("demo.novel.data");
+        assert_eq!(absolute_data_root(already.clone()), already);
+    }
+
+    /// 注册会话后数据目录必须真实存在，且可写：插件拿到 `dataRoot` 就该能直接落凭证。
+    #[test]
+    fn data_root_directory_exists_after_register_session() {
+        let data_root = temp_dir("register").join("demo.novel.data");
+        assert!(!data_root.exists(), "前置条件：注册前目录不该存在");
+
+        let token = format!("test-data-root-{}", uuid::Uuid::new_v4());
+        register_session(
+            &token,
+            PluginSession {
+                plugin_id: "demo.novel".to_string(),
+                granted: granted(&["data:write"]),
+                project_root: None,
+                data_root: data_root.clone(),
+            },
+        );
+
+        assert!(
+            data_root.is_dir(),
+            "注册会话后数据目录应已就绪：{}",
+            data_root.display()
+        );
+        // 「存在」不等于「能写」：验证真正被承诺的那件事。
+        let probe = data_root.join("probe.txt");
+        std::fs::write(&probe, "ok").expect("数据目录应可写");
+        assert_eq!(std::fs::read_to_string(&probe).expect("读回"), "ok");
+
+        unregister_session(&token);
+        let _ = std::fs::remove_file(&probe);
+        let _ = std::fs::remove_dir_all(&data_root);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1406,7 +1524,9 @@ mod tests {
             plugin_id: "global-session-test".to_string(),
             granted: granted(&["data:write"]),
             project_root: None,
-            data_root: PathBuf::from("/tmp/qmai-plugin-data"),
+            // 走临时目录：`register_session` 会创建它，别往磁盘根上留垃圾（Windows 上
+            // `/tmp/...` 会被解析成当前盘符根）。
+            data_root: temp_dir("global-session").join("global-session-test.data"),
         };
         register_session(&token, session);
 
