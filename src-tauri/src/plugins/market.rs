@@ -129,13 +129,17 @@ pub fn http_client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("构造插件市场客户端失败：{e}"))
 }
 
-/// 索引通道。第一个是可配置/默认的权威地址，其余是**镜像**。
+/// 索引通道。第一个是**官方通道**（qmai.pro，我们自己可控），其余是第三方容灾。
 ///
-/// 为什么需要镜像：`raw.githubusercontent.com` 在国内经常被 DNS 污染或 TLS reset。
+/// 为什么需要多通道：`raw.githubusercontent.com` 在国内经常被 DNS 污染或 TLS reset。
 /// 单一源意味着「被墙 = 市场打不开」，而市场是这个功能的主入口 —— 用户连「有哪些插件」
-/// 都看不到，更不可能去手动粘贴地址安装。所以索引和安装器一样要多通道：任一条通，
-/// 市场就打得开。顺序沿用安装器已验证过的前缀（见 `installer::download_candidates`
-/// 与 `updater::channels` 的白名单）：jsDelivr 是独立 CDN，两个 gh-proxy 是国内中转。
+/// 都看不到，更不可能去手动粘贴地址安装。
+///
+/// 为什么官方通道排第一：它是我们自己运维的 Worker（见 `installer::QMAI_CDN_PREFIX`），
+/// 可观测（能看请求日志、失败率）、可运维（白名单/缓存策略随时改），出问题能自己修；
+/// 其余通道都是第三方的，限流、换域名、被墙只能被动等。把可控的那条放首位，
+/// 常态下首屏就走它，第三方只在它失败时兜底 —— 这才叫「容灾」，而不是「主要靠运气」。
+/// 顺序里其余前缀与安装器保持一致（见 `installer::download_candidates`）。
 pub fn index_channels() -> Vec<String> {
     index_channels_with(std::env::var(INDEX_URL_ENV).ok())
 }
@@ -146,7 +150,8 @@ pub fn index_channels() -> Vec<String> {
 /// 多线程 —— 同一个进程里的其它用例会看到这里写进去的值，出现随机红/绿（本仓踩过）。
 pub fn index_channels_with(env: Option<String>) -> Vec<String> {
     // 用户显式指定了地址就**只用它**，不掺镜像：否则自建市场/离线镜像会拿到一份
-    // 不是自己维护的清单，表现为「我明明指定了地址，它却在读别处」。
+    // 不是自己维护的清单，表现为「我明明指定了地址，它却在读别处」。这条优先级
+    // 同样高于官方通道 —— 内网/自建镜像不该被内置的 qmai.pro 抢在前面。
     if let Some(value) = env {
         // 空串等于没配：否则一个手滑的 `set X=` 会让市场静默变成「永远拉不到」。
         let trimmed = value.trim();
@@ -155,6 +160,8 @@ pub fn index_channels_with(env: Option<String>) -> Vec<String> {
         }
     }
     vec![
+        // 官方通道（Cloudflare Worker）：与 zip 下载共用同一个前缀约定
+        format!("{}{DEFAULT_INDEX_URL}", installer::QMAI_CDN_PREFIX),
         DEFAULT_INDEX_URL.to_string(),
         JSDELIVR_INDEX_URL.to_string(),
         format!("{GH_PROXY_NET}{DEFAULT_INDEX_URL}"),
@@ -932,35 +939,92 @@ mod tests {
 
         assert_eq!(
             channels.len(),
-            4,
-            "默认应是 1 个权威地址 + 3 个镜像：{channels:?}"
+            5,
+            "默认应是 1 个官方通道 + 1 个权威地址 + 3 个第三方镜像：{channels:?}"
         );
-        assert!(
-            channels[0].starts_with("https://raw.githubusercontent.com/"),
-            "第一个必须是权威地址（首个通道同时决定缓存降级时回报的 sourceUrl）：{}",
-            channels[0]
+        assert_eq!(
+            channels[0],
+            format!("{}{}", installer::QMAI_CDN_PREFIX, DEFAULT_INDEX_URL),
+            "第一个必须是官方通道（qmai.pro）"
         );
-        assert!(
-            channels[1].starts_with("https://cdn.jsdelivr.net/gh/Mochocyang/QMAI@main/"),
-            "第二个应是 jsDelivr 镜像：{}",
+        assert_eq!(
+            channels[1], DEFAULT_INDEX_URL,
+            "第二个是权威地址（GitHub raw）：{}",
             channels[1]
         );
         assert!(
-            channels[2].starts_with("https://ghproxy.net/https://raw.githubusercontent.com/"),
-            "第三个应是 ghproxy.net 前缀镜像：{}",
+            channels[2].starts_with("https://cdn.jsdelivr.net/gh/Mochocyang/QMAI@main/"),
+            "第三个应是 jsDelivr 镜像：{}",
             channels[2]
         );
         assert!(
-            channels[3].starts_with("https://gh-proxy.com/https://raw.githubusercontent.com/"),
-            "第四个应是 gh-proxy.com 前缀镜像：{}",
+            channels[3].starts_with("https://ghproxy.net/https://raw.githubusercontent.com/"),
+            "第四个应是 ghproxy.net 前缀镜像：{}",
             channels[3]
+        );
+        assert!(
+            channels[4].starts_with("https://gh-proxy.com/https://raw.githubusercontent.com/"),
+            "第五个应是 gh-proxy.com 前缀镜像：{}",
+            channels[4]
         );
 
         // 空串等于没配：手滑 `set X=` 不该让市场静默变成「没有通道」
         assert_eq!(
             index_channels_with(Some("   ".to_string())).len(),
-            4,
+            5,
             "空白环境变量必须按未配置处理"
+        );
+    }
+
+    /// 官方通道必须排第一：它决定常态下市场首屏走哪条路，也决定缓存降级时报出的
+    /// `sourceUrl`（`load_index_with_channels` 用 `channels[0]` 作为 primary）。
+    #[test]
+    fn official_channel_is_the_first_index_channel() {
+        let channels = index_channels_with(None);
+
+        assert!(
+            channels[0].starts_with(installer::QMAI_CDN_PREFIX),
+            "官方通道必须第一位：{channels:?}"
+        );
+        assert_eq!(
+            channels[0],
+            format!("{}{}", installer::QMAI_CDN_PREFIX, DEFAULT_INDEX_URL),
+            "官方通道就是「前缀 + 权威地址」，不另写一份字面量"
+        );
+        // 官方前缀必须在所有第三方通道之前（顺序错了开箱首屏就绕道第三方）
+        let pos = |needle: &str| {
+            channels
+                .iter()
+                .position(|c| c.contains(needle))
+                .unwrap_or_else(|| panic!("缺少通道 {needle}：{channels:?}"))
+        };
+        assert!(pos(installer::QMAI_CDN_PREFIX) < pos("cdn.jsdelivr.net"));
+        assert!(pos(installer::QMAI_CDN_PREFIX) < pos("ghproxy.net"));
+        assert!(pos(installer::QMAI_CDN_PREFIX) < pos("gh-proxy.com"));
+    }
+
+    /// 回归：环境变量覆盖时**只有**它，官方通道也不能掺进来。
+    /// 否则「我指定了自建市场，它却在读 qmai.pro」会让用户完全没法排查。
+    #[test]
+    fn env_override_replaces_all_channels() {
+        let url = "https://intranet.example/market/index.json".to_string();
+        let channels = index_channels_with(Some(url.clone()));
+
+        assert_eq!(
+            channels,
+            vec![url],
+            "环境变量覆盖必须替换全部通道（含官方通道）：{channels:?}"
+        );
+        assert!(
+            !channels
+                .iter()
+                .any(|c| c.starts_with(installer::QMAI_CDN_PREFIX)),
+            "官方通道不该被掺进覆盖结果：{channels:?}"
+        );
+        // 首尾空白要裁掉（用户从界面/脚本里复制常带空白），不能把空白拼进 URL
+        assert_eq!(
+            index_channels_with(Some("  https://intranet.example/market/index.json\t".to_string())),
+            vec!["https://intranet.example/market/index.json".to_string()]
         );
     }
 

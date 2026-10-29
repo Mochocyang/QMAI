@@ -30,6 +30,16 @@ const MAX_UNPACKED_BYTES: u64 = 64 * 1024 * 1024;
 /// 一个环境变量就能把自建通道插到所有通道的最前面。
 pub const ZIP_PROXY_ENV: &str = "QMAI_PLUGIN_ZIP_PROXY";
 
+/// 官方内容通道（Cloudflare Worker，部署在 qmai.pro）。
+///
+/// 约定与 `gh-proxy.com` 相同：`<prefix><完整目标 URL>`，同一个前缀既能代理索引 JSON，
+/// 也能代理 GitHub 的 zip 下载。实测可用；对国内网络的稳定性优于直连与公共代理。
+///
+/// 为什么内置成默认通道：用户装完软件就能看到市场、就能装插件，不需要先配环境变量。
+/// 环境变量（`QMAI_PLUGIN_ZIP_PROXY` / `QMAI_PLUGIN_INDEX_URL`）仍然**优先级更高**，
+/// 这样自建镜像/内网代理可以覆盖它。
+pub const QMAI_CDN_PREFIX: &str = "https://qmai.pro/plugins-cdn/";
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceSpec {
     pub owner: String,
@@ -40,7 +50,7 @@ pub struct SourceSpec {
     /// 为什么不能猜 `main`：GitHub 上大量仓库（2020 年前创建的几乎都是，以及很多
     /// 中文开源项目）默认分支是 `master`，还有 `develop` / `trunk` 等。猜错的表现是
     /// 「所有下载通道均失败」——用户完全看不出真实原因。实测 `octocat/Hello-World`
-    /// 默认是 `master`，猜 `main` 时六个候选通道全部 404。
+    /// 默认是 `master`，猜 `main` 时所有候选通道全部 404。
     pub git_ref_defaulted: bool,
 }
 
@@ -151,7 +161,7 @@ const GITHUB_API_BASE: &str = "https://api.github.com";
 ///
 /// 不能猜 `main`：GitHub 上大量仓库默认分支是 `master`（2020 年前创建的几乎都是），
 /// 还有 `develop` / `trunk` 等。猜错的表现是「所有通道 404」，用户完全看不出原因。
-/// 实测：octocat/Hello-World 默认是 master，猜 main 时六个通道全 404。
+/// 实测：octocat/Hello-World 默认是 master，猜 main 时所有候选通道全 404。
 ///
 /// 任何失败（网络 / 404 / 限流 / 字段缺失 / 分支名非法）都返回 `None`，
 /// 由调用方走 `main` + `master` 的兜底候选——「查不到」不等于「装不了」。
@@ -209,6 +219,20 @@ fn kinds_for_ref(git_ref: &str) -> [&'static str; 2] {
     }
 }
 
+/// 直连通道（GitHub 自己的 codeload）的完整前缀。
+///
+/// 单列成常量是因为它同时被两处使用：生成直连候选，以及判断一个候选属于哪个 lane
+/// （见 `is_direct_candidate`）。两处必须是同一个字符串，否则判定和生成会悄悄分叉。
+const DIRECT_ZIP_ORIGIN: &str = "https://codeload.github.com/";
+
+/// codeload 的 zip 直链：`/zip/refs/<kind>/<ref>`，没有 `/archive/`、没有 `.zip` 后缀。
+///
+/// 官方通道也复用它：Worker 的白名单里 codeload 是实测返回真 zip 的路径，
+/// 而 `github.com/…/archive/…zip` 还要多依赖一次上游 302，多一跳就多一个失败面。
+fn codeload_zip_url(owner: &str, repo: &str, kind: &str, git_ref: &str) -> String {
+    format!("{DIRECT_ZIP_ORIGIN}{owner}/{repo}/zip/refs/{kind}/{git_ref}")
+}
+
 /// 单个通道的下载候选：返回 `(url, 所属 ref)`。
 ///
 /// GitHub 的分支在 `refs/heads` 下、tag 在 `refs/tags` 下，两者 URL 不通用，
@@ -228,7 +252,7 @@ fn candidates_for_base(
         for kind in kinds_for_ref(git_ref) {
             // codeload 的路径形状与 github.com 不同，单独处理
             let url = if base.starts_with("codeload.") {
-                format!("https://{base}{owner}/{repo}/zip/refs/{kind}/{git_ref}")
+                codeload_zip_url(owner, repo, kind, git_ref)
             } else {
                 format!(
                     "https://{base}https://github.com/{owner}/{repo}/archive/refs/{kind}/{git_ref}.zip"
@@ -295,11 +319,39 @@ fn candidates_for_proxy(
     out
 }
 
+/// 官方通道（`QMAI_CDN_PREFIX`）的候选：`<CDN 前缀><codeload 直链>`。
+///
+/// 路径形状与 `candidates_for_proxy` 相同（前缀 + 完整目标 URL），只是目标 URL 换成
+/// codeload 直链 —— 这是 Worker 实测通过的形态，也让「官方通道」和「直连通道」
+/// 落到同一份 zip，不会因为 github.com 与 codeload 的打包差异拿到两样东西。
+fn candidates_for_official(owner: &str, repo: &str, refs: &[&str]) -> Vec<(String, String)> {
+    let mut out = Vec::with_capacity(refs.len() * 2);
+    for git_ref in refs {
+        for kind in kinds_for_ref(git_ref) {
+            out.push((
+                format!(
+                    "{QMAI_CDN_PREFIX}{}",
+                    codeload_zip_url(owner, repo, kind, git_ref)
+                ),
+                (*git_ref).to_string(),
+            ));
+        }
+    }
+    out
+}
+
 /// 全部下载候选（通道外层、ref 次层、heads/tags 内层）。
 ///
-/// `proxy` 由调用方给：`None` 时顺序与历史行为完全一致（两个公共代理 → codeload 直连）。
-/// 配了 `QMAI_PLUGIN_ZIP_PROXY` 则把自建代理插到最前面：用户自建通道的可达性
-/// 一定优于公共代理，不该让公共代理先白等两次超时。
+/// 通道顺序（先代理 lane、后直连 lane，两 lane 由 `split_lanes` 切开）：
+///   1. 用户环境变量配置的自定义代理（`QMAI_PLUGIN_ZIP_PROXY`，若有效）
+///   2. 官方通道 `QMAI_CDN_PREFIX`（qmai.pro）
+///   3. `gh-proxy.com`
+///   4. `ghproxy.net`
+///   5. codeload 直连（`install()` 里被 `split_lanes` 划到直连 lane）
+///
+/// 为什么官方通道排第二而不是第一：用户显式配了自建通道，就说明他知道自己的网络该走哪，
+/// 让公共/官方通道先白等一次超时只是浪费。没配时官方通道自然成为代理 lane 的首选，
+/// 用户开箱即用。为什么公共代理还留着：官方 Worker 若被墙/挂掉，第三方前缀仍是纵深。
 pub fn download_candidates_with(
     owner: &str,
     repo: &str,
@@ -310,10 +362,32 @@ pub fn download_candidates_with(
     if let Some(prefix) = normalize_zip_proxy(proxy) {
         out.extend(candidates_for_proxy(&prefix, owner, repo, refs));
     }
+    out.extend(candidates_for_official(owner, repo, refs));
     out.extend(candidates_for_base("gh-proxy.com/", owner, repo, refs));
     out.extend(candidates_for_base("ghproxy.net/", owner, repo, refs));
     out.extend(candidates_for_base("codeload.github.com/", owner, repo, refs));
     out
+}
+
+/// 一个候选是否属于**直连** lane。
+///
+/// 必须按「以直连 base 开头」判定，不能用 `contains("codeload.github.com/")`：
+/// 官方通道的候选是 `<CDN 前缀>https://codeload.github.com/...`，URL 里含这个子串，
+/// 但它走的是代理（qmai.pro）。按子串判会把它划进直连 lane —— 等于绕开 CDN 直连
+/// github，官方通道带来的可达性优势当场归零，而测试若只断言「候选里有官方 URL」
+/// 完全发现不了。
+fn is_direct_candidate(url: &str) -> bool {
+    url.starts_with(DIRECT_ZIP_ORIGIN)
+}
+
+/// 把候选按 lane 切开，返回 `(proxied, direct)`。
+///
+/// 两条 lane 在 `download_racing` 里并行竞速，所以划分错了不会报错、只会静默变慢/变差，
+/// 必须有测试钉住（见 `official_channel_url_is_not_misclassified_as_direct`）。
+fn split_lanes(
+    candidates: Vec<(String, String)>,
+) -> (Vec<(String, String)>, Vec<(String, String)>) {
+    candidates.into_iter().partition(|(url, _)| !is_direct_candidate(url))
 }
 
 /// 全部下载候选（读环境变量版）。`install()` 走这条，环境变量只在这里读一次。
@@ -510,8 +584,8 @@ fn all_channels_failed_parallel(direct: &[DownloadFailure], proxied: &[DownloadF
 
 /// 按通道聚合失败原因后渲染成缩进条目，最多列 `MAX_LISTED_CHANNELS` 个通道。
 ///
-/// 为什么按通道聚合：每个通道有 heads / tags 两条候选，自定义代理加上三个内置通道
-/// 一共 8 条候选。若逐条列出再截断到 6 条，排在最后的内置通道（codeload 直连）
+/// 为什么按通道聚合：每个通道有 heads / tags 两条候选，自定义代理加上四个内置通道
+/// 一共 10 条候选。若逐条列出再截断到 6 条，排在最后的内置通道（codeload 直连）
 /// 会被整条挤掉，用户看到的仍是「不全」。同一通道的候选总是相邻出现，
 /// 所以只保留每个通道的第一条原因即可。
 fn format_failures(failures: &[DownloadFailure]) -> String {
@@ -690,7 +764,7 @@ pub async fn install(root: &Path, raw_source: &str) -> Result<InstallOutcome, St
         .build()
         .map_err(|e| e.to_string())?;
     // 用户没写 @ref 时先查真实默认分支。GitHub 上大量仓库默认是 master，
-    // 猜 main 会让六个候选通道全部 404（见 SourceSpec::git_ref_defaulted 的注释）。
+    // 猜 main 会让所有候选通道全部 404（见 SourceSpec::git_ref_defaulted 的注释）。
     let resolved_default = if spec.git_ref_defaulted {
         resolve_default_branch(&client, &spec.owner, &spec.repo).await
     } else {
@@ -705,10 +779,10 @@ pub async fn install(root: &Path, raw_source: &str) -> Result<InstallOutcome, St
     };
     // 直连与代理并行（谁先成功用谁），具体理由见 download_racing 的注释。
     // 通道顺序只在 download_candidates 里定义一次，这里按通道分成两条流。
+    // lane 划分看「是不是以直连 base 开头」，不看 URL 里含不含 codeload —— 官方通道的
+    // 目标就是 codeload 直链，用子串判会把它错划进直连 lane（见 is_direct_candidate）。
     let all_candidates = download_candidates(&spec.owner, &spec.repo, &refs);
-    let (proxied_candidates, direct_candidates): (Vec<_>, Vec<_>) = all_candidates
-        .into_iter()
-        .partition(|(url, _)| !url.contains("codeload.github.com/"));
+    let (proxied_candidates, direct_candidates) = split_lanes(all_candidates);
     let (bytes, used_ref) =
         download_racing(&client, &direct_candidates, &proxied_candidates).await?;
 
@@ -1038,17 +1112,23 @@ mod tests {
         // 用 `_with(..., None)` 而不是读环境变量的版本：本机若设了
         // QMAI_PLUGIN_ZIP_PROXY，外层断言会被自定义通道带偏（不需要 set_var 也能隔离）
         let urls = download_urls_with("owner", "repo", "main", None);
-        assert_eq!(urls.len(), 6);
+        assert_eq!(urls.len(), 8, "官方 2 条 + 公共代理 4 条 + 直连 2 条");
         // 分支名 → heads 先试
         assert!(urls[0].contains("/refs/heads/main"));
-        assert!(urls[0].contains("gh-proxy.com"));
+        // 官方通道排第一：开箱即用，不要求用户先配环境变量
+        assert!(
+            urls[0].starts_with(QMAI_CDN_PREFIX),
+            "第一个通道应是官方通道：{}",
+            urls[0]
+        );
+        assert!(urls[2].contains("gh-proxy.com"));
         assert!(urls.iter().any(|u| u.contains("/refs/tags/main")));
         assert!(urls.iter().any(|u| u.contains("codeload.github.com")));
         assert!(urls.iter().all(|u| u.contains("/owner/repo/")));
         // 钉死形状：codeload 是 /zip/refs/<kind>/<ref>，没有 /archive/、没有 .zip 后缀。
         // 只靠 contains 的话，把 codeload 改成 `/archive/...zip` 仍然会绿。
         assert_eq!(
-            urls[4],
+            urls[6],
             "https://codeload.github.com/owner/repo/zip/refs/heads/main"
         );
 
@@ -1069,7 +1149,7 @@ mod tests {
     #[test]
     fn zip_proxy_env_adds_highest_priority_channel() {
         let urls = download_urls_with("o", "r", "main", Some(CUSTOM_PROXY));
-        assert_eq!(urls.len(), 8, "自定义通道 2 条 + 原有 6 条");
+        assert_eq!(urls.len(), 10, "自定义通道 2 条 + 内置 8 条");
         assert_eq!(
             urls[0], "https://gh.example.dev/https://github.com/o/r/archive/refs/heads/main.zip",
             "分支名 → heads 先试，且自定义通道排在最前"
@@ -1112,7 +1192,7 @@ mod tests {
                 "空白代理 {blank:?} 应等价于未配置"
             );
         }
-        assert_eq!(baseline.len(), 6, "未配置/空白时代理通道不能多出来");
+        assert_eq!(baseline.len(), 8, "未配置/空白时代理通道不能多出来");
     }
 
     #[test]
@@ -1140,9 +1220,122 @@ mod tests {
                 .unwrap_or_else(|| panic!("缺少通道 {needle}：{urls:?}"))
         };
         assert!(urls[0].starts_with(CUSTOM_PROXY), "自定义通道必须在第一位");
-        assert!(pos("gh.example.dev") < pos("gh-proxy.com"));
+        assert!(pos("gh.example.dev") < pos(QMAI_CDN_PREFIX));
+        assert!(pos(QMAI_CDN_PREFIX) < pos("gh-proxy.com"));
         assert!(pos("gh-proxy.com") < pos("ghproxy.net"));
-        assert!(pos("ghproxy.net") < pos("codeload.github.com"));
+        // 直连的位置只能按 lane 判定取：官方通道的 URL 里也含 `codeload.github.com/`，
+        // 用子串找会命中第 0 条（官方通道），把这条断言变成永远假。
+        let direct_pos = urls
+            .iter()
+            .position(|u| is_direct_candidate(u))
+            .unwrap_or_else(|| panic!("缺少直连通道：{urls:?}"));
+        assert!(pos("ghproxy.net") < direct_pos, "直连通道排在代理之后");
+    }
+
+    // ------------------------------------------------------------------
+    // 官方通道（qmai.pro / QMAI_CDN_PREFIX）
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn official_channel_is_added_to_proxied_lane() {
+        let (proxied, direct) = split_lanes(download_candidates_with("o", "r", &["main"], None));
+
+        assert!(
+            proxied
+                .iter()
+                .any(|(url, _)| url.starts_with(QMAI_CDN_PREFIX)),
+            "官方通道应作为代理候选出现：{proxied:?}"
+        );
+        // 官方通道用 codeload 直链形态（Worker 白名单里实测通过的路径）。
+        assert_eq!(
+            proxied[0].0,
+            format!("{QMAI_CDN_PREFIX}https://codeload.github.com/o/r/zip/refs/heads/main"),
+            "代理 lane 的第一条应是官方通道的 heads 候选"
+        );
+        assert_eq!(
+            proxied[1].0,
+            format!("{QMAI_CDN_PREFIX}https://codeload.github.com/o/r/zip/refs/tags/main"),
+            "同一通道的 tags 候选紧随其后"
+        );
+        // 官方通道 2 + 两个公共代理 4 = 6 条代理候选；直连只有 codeload 的 2 条。
+        assert_eq!(proxied.len(), 6, "代理 lane：{proxied:?}");
+        assert_eq!(direct.len(), 2, "直连 lane：{direct:?}");
+        assert!(
+            direct.iter().all(|(url, _)| is_direct_candidate(url)),
+            "直连 lane 只应收 codeload 直链：{direct:?}"
+        );
+    }
+
+    #[test]
+    fn user_custom_proxy_still_beats_official_channel() {
+        let (proxied, _) =
+            split_lanes(download_candidates_with("o", "r", &["main"], Some(CUSTOM_PROXY)));
+
+        // 环境变量优先于官方通道：自建/内网镜像不该被官方通道抢在前面。
+        assert_eq!(
+            proxied[0].0,
+            "https://gh.example.dev/https://github.com/o/r/archive/refs/heads/main.zip"
+        );
+        assert_eq!(
+            proxied[1].0,
+            "https://gh.example.dev/https://github.com/o/r/archive/refs/tags/main.zip"
+        );
+        assert!(
+            proxied[2].0.starts_with(QMAI_CDN_PREFIX),
+            "自定义通道之后才轮到官方通道：{proxied:?}"
+        );
+    }
+
+    /// 本次核心：官方通道的目标 URL 里含 `codeload.github.com`，
+    /// 但它是代理通道 —— lane 判定必须按「以直连 base 开头」，不能按子串。
+    #[test]
+    fn official_channel_url_is_not_misclassified_as_direct() {
+        let official_codeload = format!(
+            "{QMAI_CDN_PREFIX}https://codeload.github.com/o/r/zip/refs/heads/main"
+        );
+        // 前提：URL 里确实含 codeload 子串，否则这条用例证明不了任何东西
+        assert!(official_codeload.contains("codeload.github.com/"));
+        assert!(
+            !is_direct_candidate(&official_codeload),
+            "官方通道是代理 lane，不能被划成直连：{official_codeload}"
+        );
+        assert!(
+            is_direct_candidate("https://codeload.github.com/o/r/zip/refs/heads/main"),
+            "裸 codeload 直链才是直连"
+        );
+
+        // 真实候选（而不是手拼字符串）也要落在正确的 lane 上
+        let (proxied, direct) = split_lanes(download_candidates_with("o", "r", &["main"], None));
+        assert!(
+            proxied.iter().any(|(url, _)| url == &official_codeload),
+            "官方通道候选必须在代理 lane：{proxied:?}"
+        );
+        assert!(
+            !direct.iter().any(|(url, _)| url.contains(QMAI_CDN_PREFIX)),
+            "直连 lane 里不能出现官方通道候选：{direct:?}"
+        );
+    }
+
+    #[test]
+    fn official_channel_comes_before_public_proxies() {
+        let urls: Vec<String> = download_candidates_with("o", "r", &["main"], None)
+            .into_iter()
+            .map(|(url, _)| url)
+            .collect();
+        let pos = |needle: &str| {
+            urls.iter()
+                .position(|u| u.contains(needle))
+                .unwrap_or_else(|| panic!("缺少通道 {needle}：{urls:?}"))
+        };
+
+        assert!(pos(QMAI_CDN_PREFIX) < pos("gh-proxy.com"));
+        assert!(pos("gh-proxy.com") < pos("ghproxy.net"));
+        let direct_pos = urls
+            .iter()
+            .position(|u| is_direct_candidate(u))
+            .unwrap_or_else(|| panic!("缺少直连通道：{urls:?}"));
+        assert!(pos("ghproxy.net") < direct_pos);
+        assert_eq!(urls.len(), 8, "单 ref 单通道 2 条，共 4 通道：{urls:?}");
     }
 
     #[test]
@@ -1153,10 +1346,11 @@ mod tests {
                 .into_iter()
                 .map(|url| DownloadFailure::new(&url, "连接超时"))
                 .collect();
-        assert_eq!(failures.len(), 8);
+        assert_eq!(failures.len(), 10);
         let err = all_channels_failed(&failures);
         for channel in [
             CUSTOM_PROXY,
+            "https://qmai.pro",
             "https://gh-proxy.com",
             "https://ghproxy.net",
             "https://codeload.github.com",
@@ -1169,10 +1363,10 @@ mod tests {
         assert!(err.contains("连接超时"), "每个通道的失败原因也要保留：{err}");
         assert_eq!(
             err.matches("\n  - ").count(),
-            4,
-            "四个通道各一条，不重复列 heads/tags：{err}"
+            5,
+            "五个通道各一条，不重复列 heads/tags：{err}"
         );
-        assert!(!err.contains('…'), "只有 4 个通道，不该截断：{err}");
+        assert!(!err.contains('…'), "只有 5 个通道，不该截断：{err}");
 
         // 超过 6 个通道时截断并留省略标记（错误信息要能直接贴进界面）
         let many: Vec<DownloadFailure> = (0..8)
@@ -1703,16 +1897,16 @@ mod tests {
         // API 查不到时 main + master 都要试，且同一通道内相邻（猜错的代价是同一通道
         // 多一次请求，而不是「跑完所有通道再回头」）
         let candidates = download_candidates_with("o", "r", &["main", "master"], None);
-        assert_eq!(candidates.len(), 12, "2 ref × 2 kind × 3 通道");
+        assert_eq!(candidates.len(), 16, "2 ref × 2 kind × 4 通道");
         assert_eq!(candidates[0].1, "main");
         assert_eq!(candidates[2].1, "master", "同一通道内紧跟 master");
         assert_eq!(
-            candidates[8].0,
+            candidates[12].0,
             "https://codeload.github.com/o/r/zip/refs/heads/main"
         );
-        assert_eq!(candidates[10].1, "master");
+        assert_eq!(candidates[14].1, "master");
         // 单 ref 形状不变：既有串行行为不能被这次改动带偏
-        assert_eq!(download_urls_with("o", "r", "main", None).len(), 6);
+        assert_eq!(download_urls_with("o", "r", "main", None).len(), 8);
     }
 
     #[tokio::test]
@@ -1791,7 +1985,7 @@ mod tests {
     ///
     /// 默认 `#[ignore]`：CI/离线环境打不了 GitHub。本地用
     /// `cargo test plugins::installer::tests::real_github -- --ignored --nocapture` 跑，
-    /// 它同时验证「猜 main 会六个通道全 404」和「查默认分支后能下载成功」。
+    /// 它同时验证「猜 main 会让所有候选通道 404」和「查默认分支后能下载成功」。
     #[tokio::test]
     #[ignore = "真实网络：需要能访问 api.github.com / codeload.github.com"]
     async fn real_github_resolves_master_and_downloads_without_explicit_ref() {
