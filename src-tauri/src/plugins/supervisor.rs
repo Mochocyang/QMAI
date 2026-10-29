@@ -1,7 +1,7 @@
-//! 进程监管器的纯逻辑层：状态机、崩溃预算、输出缓冲、工具名前缀映射、启动命令构造。
+//! 进程监管器的纯逻辑层：进程状态、输出缓冲、启动命令构造与运行句柄。
 //!
-//! 本模块**不持有任何运行中的进程**：真正的「启用/停用」接线留给后续任务，
-//! 这里只沉淀可以被独立测试的判定逻辑，避免把状态迁移规则散落到命令层里。
+//! 本模块**不持有任何运行中的进程**：它只沉淀可以被独立测试的判定逻辑，
+//! 真正的「启用/停用」由 `mod.rs` 接线。
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -11,85 +11,57 @@ use std::time::Duration;
 use tokio::io::{BufReader, Lines};
 use tokio::process::{Child, ChildStdout};
 
-// ── 状态机 ─────────────────────────────────────────────
+// ── 进程状态 ───────────────────────────────────────────
 
+/// 一个插件进程此刻的状态。
+///
+/// **只保留宿主真的会返回给前端的值**。`Failed` / `DisabledByCrash` 曾经在这里，
+/// 但没有任何一条路径构造过它们：宿主不自动重启（见下方「崩溃处理」），也就不存在
+/// 「因崩溃被停用」这一档；而启动失败是同步返回的 `Err`（界面走 error toast），
+/// 不是一种常驻状态。留着它们等于在枚举里承诺一条从未启用的状态机。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProcessState {
+    /// 该跑却没跑：用户没启用 / 主动停用 / 崩溃后等用户决定。
     Stopped,
+    /// 进程已 spawn，握手（initialize + tools/list）还没完成。
     Starting,
+    /// 握手通过，句柄已在 `running` 表里。
     Running,
-    Failed,
+    /// 曾经在跑，后来意外退出（崩溃）。崩溃报告见 `mod.rs` 的 `CrashReport`。
     Crashed,
-    DisabledByCrash,
 }
 
 impl ProcessState {
-    /// 白名单式转移表：只有设计文档认可的组合返回 true。
-    ///
-    /// 用「穷举合法边」而不是「穷举非法边」，是为了让新增状态时默认被拒绝，
-    /// 而不是被默认放行——状态机宽进宽出会让崩溃后的重复拉起变得不可控。
-    pub fn can_transition_to(self, next: ProcessState) -> bool {
-        use ProcessState::*;
-        matches!(
-            (self, next),
-            (Stopped, Starting)
-                | (Failed, Starting)
-                | (Crashed, Starting)
-                | (DisabledByCrash, Starting)
-                | (Starting, Running)
-                | (Starting, Failed)
-                | (Running, Crashed)
-                | (Running, Stopped)
-                | (Running, DisabledByCrash)
-                | (Failed, Stopped)
-                | (Crashed, Stopped)
-        )
-    }
-
     /// 前端 PluginSummary.processState 直接消费这些字符串，属于界面契约，不要改名。
+    ///
+    /// 前端 `types.ts` 的联合类型里还列着 `failed` / `disabled_by_crash`（多一个
+    /// 永远不会收到的分支对它是无害的），但宿主这边不再有产生它们的路径。
     pub fn as_str(self) -> &'static str {
         match self {
             ProcessState::Stopped => "stopped",
             ProcessState::Starting => "starting",
             ProcessState::Running => "running",
-            ProcessState::Failed => "failed",
             ProcessState::Crashed => "crashed",
-            ProcessState::DisabledByCrash => "disabled_by_crash",
         }
     }
 }
 
-// ── 崩溃预算 ───────────────────────────────────────────
-
-/// 崩溃重启预算：1s / 3s / 9s，用尽后停用（设计文档 7.2）
-#[derive(Debug, Default)]
-pub struct CrashBudget {
-    attempt: u32,
-}
-
-impl CrashBudget {
-    /// 下一次重启前的退避时长；预算用尽返回 None
-    pub fn next_backoff(&mut self) -> Option<Duration> {
-        // 指数退避 1s / 3s / 9s；第 4 次崩溃即预算耗尽，转为 disabled_by_crash。
-        let backoff = match self.attempt {
-            0 => Duration::from_secs(1),
-            1 => Duration::from_secs(3),
-            2 => Duration::from_secs(9),
-            _ => return None,
-        };
-        self.attempt += 1;
-        Some(backoff)
-    }
-
-    /// 稳定运行后清零（避免长期稳定 + 偶发一次崩溃就被停用）
-    pub fn reset(&mut self) {
-        self.attempt = 0;
-    }
-
-    // 故意**不提供** exhausted()：它在第 3 次 backoff 发出的那一瞬间（刚拿到 9s 退避）
-    // 就已经是 true，任务 12 里「拿到 backoff → 重启 → 查 exhausted()」会立刻误判停用。
-    // 唯一的耗尽信号是 next_backoff() 返回 None，不需要第二个真值来源。
-}
+// ── 崩溃处理：不自动重启 ───────────────────────────────
+//
+// 这里曾有一个 `CrashBudget`（1s / 3s / 9s 指数退避，用尽后转为 disabled_by_crash），
+// 并且有一张「11 条合法边」的 `can_transition_to` 状态转移表。两者从未被构造/调用，
+// 也**不打算接线**，所以整段删除：
+//
+// - 我们**不自动重启**崩溃的插件。自动重启会掩盖插件作者的 bug：带着同一个 bug 反复
+//   重启，用户和作者看到的都只是一串「已重启」，真正的原因被埋掉。
+// - 更危险的是「启动即崩」：spawn → 立刻退出 → 退避 → 再 spawn 的循环会在用户机器上
+//   形成 spawn 风暴（每次都要建进程、连回环 HTTP、拉工具清单），一条坏插件就能把本机
+//   资源拖垮。
+// - 宿主侧已有更明确的处理：崩溃即停止（摘 `running`、清 `providers`、注销 token），
+//   并在界面上如实显示「异常退出」，由用户决定是否重新启用。一次明确的用户决定，
+//   比一个自动重试的循环更容易定位问题。
+//
+// 保留 `CrashBudget` 等于给后来人一个「我们有退避保护」的错觉，所以不留空壳。
 
 // ── 输出缓冲 ───────────────────────────────────────────
 
@@ -131,25 +103,11 @@ impl TailBuffer {
     }
 }
 
-// ── 工具名前缀映射（设计文档 9.2）─────────────────────
-
-/// `<pluginId 里的 - 换成 _>` + `__` + `<toolName>`。
-///
-/// 加前缀是因为 ToolRegistry.register 是 Map.set：插件若声明一个叫 read_chapter 的工具，
-/// 不加前缀就会静默覆盖内置工具。
-pub fn to_host_tool_name(plugin_id: &str, tool: &str) -> String {
-    format!("{}__{}", plugin_id.replace('-', "_"), tool)
-}
-
-/// 反向还原插件内的原名；不是插件工具名（不含 `__`）返回 None。
-///
-/// 发给插件的 tools/call 必须用原名，插件不认识带前缀的名字。
-///
-/// **只对「确定来自插件注册」的 host 名调用**：内置工具名若自身含 `__`，
-/// 这里会把它误判成插件工具。调用方（任务 9/12）不得拿它对任意工具名做判断。
-pub fn to_plugin_tool_name(host_name: &str) -> Option<&str> {
-    host_name.split_once("__").map(|(_, rest)| rest)
-}
+// ── 工具名的前缀规则 ───────────────────────────────────
+//
+// 工具名的 `<pluginId>__<tool>` 前缀规则在前端 `src/lib/plugins/tool-bridge.ts` 唯一实现。
+// 这里曾有一份 Rust 副本（`to_host_tool_name` / `to_plugin_tool_name`），从未被调用，
+// 已删除以免两处规则漂移。
 
 // ── 子进程启动 ─────────────────────────────────────────
 
@@ -282,59 +240,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn state_machine_matches_the_documented_edges_exactly() {
-        use ProcessState::*;
-        // 规格允许的 11 条边，逐条穷举；漏一条或少一条都会红。
-        let allowed = [
-            (Stopped, Starting),
-            (Failed, Starting),
-            (Crashed, Starting),
-            (DisabledByCrash, Starting),
-            (Starting, Running),
-            (Starting, Failed),
-            (Running, Crashed),
-            (Running, Stopped),
-            (Running, DisabledByCrash),
-            (Failed, Stopped),
-            (Crashed, Stopped),
-        ];
-        let all = [Stopped, Starting, Running, Failed, Crashed, DisabledByCrash];
-        for from in all {
-            for to in all {
-                let expected = allowed.iter().any(|(f, t)| *f == from && *t == to);
-                assert_eq!(
-                    from.can_transition_to(to),
-                    expected,
-                    "转移 {} → {} 应为 {}",
-                    from.as_str(),
-                    to.as_str(),
-                    expected
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn crash_budget_stops_after_three() {
-        let mut b = CrashBudget::default();
-        assert_eq!(b.next_backoff(), Some(Duration::from_secs(1)));
-        assert_eq!(b.next_backoff(), Some(Duration::from_secs(3)));
-        assert_eq!(b.next_backoff(), Some(Duration::from_secs(9)));
-        // 耗尽信号只有这一个：None。这里不再用 exhausted() 断言，
-        // 因为 attempt==3 的那一瞬间（刚拿到 9s）它就已经是 true 了，容易被误用。
-        assert_eq!(b.next_backoff(), None);
-    }
-
-    #[test]
-    fn crash_budget_resets_after_stable_run() {
-        let mut b = CrashBudget::default();
-        b.next_backoff();
-        b.next_backoff();
-        b.reset();
-        assert_eq!(b.next_backoff(), Some(Duration::from_secs(1)));
-    }
-
-    #[test]
     fn output_buffer_keeps_tail_only() {
         let mut buf = TailBuffer::new(16);
         buf.push(b"0123456789");
@@ -361,41 +266,14 @@ mod tests {
     }
 
     #[test]
-    fn tool_name_roundtrip_strips_prefix() {
-        assert_eq!(
-            to_host_tool_name("chapter-insights", "analyze"),
-            "chapter_insights__analyze"
-        );
-        assert_eq!(
-            to_plugin_tool_name("chapter_insights__analyze").unwrap(),
-            "analyze"
-        );
-        // 不带前缀的内置工具名不应被误认成插件工具
-        assert!(to_plugin_tool_name("read_chapter").is_none());
-    }
-
-    #[test]
-    fn tool_name_roundtrip_handles_underscores_inside_tool_names() {
-        // 插件 id 不允许 `_`，工具名允许，所以按第一个 `__` 切分是安全的
-        assert_eq!(
-            to_host_tool_name("chapter-insights", "analyze__deep"),
-            "chapter_insights__analyze__deep"
-        );
-        assert_eq!(
-            to_plugin_tool_name("chapter_insights__analyze__deep").unwrap(),
-            "analyze__deep"
-        );
-    }
-
-    #[test]
     fn state_strings_are_stable_for_the_ui_contract() {
-        // 前端 PluginSummary.processState 直接消费这些字符串，改名等于破坏界面契约
+        // 前端 PluginSummary.processState 直接消费这些字符串，改名等于破坏界面契约。
+        // 这里只列宿主**真的会返回**的四档；`failed` / `disabled_by_crash` 已随
+        // 未接线的状态机一起删除（前端联合类型里多留两个分支是无害的）。
         assert_eq!(ProcessState::Stopped.as_str(), "stopped");
         assert_eq!(ProcessState::Starting.as_str(), "starting");
         assert_eq!(ProcessState::Running.as_str(), "running");
-        assert_eq!(ProcessState::Failed.as_str(), "failed");
         assert_eq!(ProcessState::Crashed.as_str(), "crashed");
-        assert_eq!(ProcessState::DisabledByCrash.as_str(), "disabled_by_crash");
     }
 
     #[test]

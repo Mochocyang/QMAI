@@ -43,6 +43,18 @@ use tokio::sync::Mutex as AsyncMutex;
 
 use registry::{PluginRegistry, RegistryEntry, SourceRecord};
 
+/// 最近一次崩溃的报告。
+///
+/// **只存内存**：跨进程重启后不再有意义 —— App 重启时 `autostart_all` 会让插件重新
+/// 尝试启动，那时一条陈旧的「上次崩了」只会让用户以为新进程也挂了。落盘反而制造
+/// 一份没人负责清理的告警。
+pub struct CrashReport {
+    /// 崩溃发生的时间（仅用于排障与展示，不参与去重或过期判断）。
+    pub at: std::time::SystemTime,
+    /// 子进程的退出状态原文（如 `exit code: 3` / `signal: 9`）。
+    pub status: String,
+}
+
 /// 插件系统全局状态。
 ///
 /// `running` 用异步锁：启用/停用过程要 await 子进程，std 锁会把整个 Tauri
@@ -57,6 +69,16 @@ pub struct PluginsState {
     /// 当前打开的项目根（设计 §7）：由 `plugins_set_project` 写入，
     /// `/host/project/*` 读取。与宿主 HTTP 服务共享同一个进程级实例。
     pub project: Arc<project_context::ProjectContext>,
+    /// pluginId → 最近一次崩溃报告。
+    ///
+    /// 为什么需要这张表：`running` 只能表达「现在有没有进程」，而「不在表里」有
+    /// 三种完全不同的原因（从没启动 / 用户停用 / 崩了）。没有它，`plugins_list`
+    /// 只能把所有「不在跑」的插件统一报成「已停止」，用户看不出插件是被自己停的，
+    /// 还是刚刚崩了 —— 那正是这次审计发现的功能缺口。
+    ///
+    /// 写入：进程意外退出（`spawn_exit_monitor`）；清除：用户主动停止（`stop_plugin`）
+    /// 与启动握手成功（`start_plugin`）。
+    pub crashes: Arc<AsyncMutex<HashMap<String, CrashReport>>>,
 }
 
 impl Default for PluginsState {
@@ -68,6 +90,7 @@ impl Default for PluginsState {
             // 必须是进程级单例：`start_plugin` 起 HTTP 服务时用的是
             // `host_api::shared_state()`，两个实例不共享的话，「打开项目」对插件不可见。
             project: host_api::shared_project_context(),
+            crashes: Arc::new(AsyncMutex::new(HashMap::new())),
         }
     }
 }
@@ -134,6 +157,12 @@ pub struct PluginSummary {
     /// 同时会以 `hasConfig` 的形式并进 `preview`：插槽与插件中心拿到的是 `preview`，
     /// 不该为了一个布尔值再去读一遍 `PluginSummary` 的其它字段（C1 的约定）。
     pub has_config: bool,
+    /// 最近一次异常的说明。**只在 `process_state == "crashed"` 时有值**。
+    ///
+    /// 为什么要单独一个字段而不是让前端拼文案：构建「退出状态 + 已停止 + 怎么办」
+    /// 这句话需要 `CrashReport.status`，它只存在于宿主内存里。前端 `crashed` 徽章
+    /// 只说「异常退出」，说不出「因为 exit code: 3」。
+    pub last_error: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -193,6 +222,8 @@ fn summary_from_entry(
         preview: None,
         // 同上：`hasConfig` 也要读清单，只有 `plugins_list` 补得上。
         has_config: false,
+        // 崩溃原因只有 `plugins_list` 读得到崩溃表；装/启停路径没有「崩溃」这件事。
+        last_error: None,
     }
 }
 
@@ -650,6 +681,11 @@ async fn start_plugin(
             handle.tools = tools;
             handle.state = supervisor::ProcessState::Running;
 
+            // 握手通过 = 这一次启动是成功的：上一次崩溃的报告到此失效（下次崩了再记）。
+            // 放在这里而不是 spawn 之前：刚 spawn 出来还不能说「恢复了」—— 一个每次
+            // initialize 都崩的插件会在这里把上一份真实原因擦掉，用户就再也看不到它了。
+            state.crashes.lock().await.remove(&entry.id);
+
             // provider 探活 + 抓模型。**放在这里、不握 running 锁**：探活最多等一个
             // startTimeoutMs，握着表锁做网络 IO 会把其它插件的启停全堵住。
             //
@@ -815,6 +851,11 @@ async fn stop_plugin(state: &PluginsState, id: &str) {
         }
     }
     drop_plugin_providers(&state.providers, id).await;
+    // 用户主动停用不是崩溃：清掉崩溃报告，否则界面会把「我停了」显示成「异常退出」。
+    // 放在这里（而不只在有句柄的分支里）是为了让「停用一个已经崩掉的插件」也能清 ——
+    // 这一条是用户对崩溃的唯一处置动作，清不掉就永远停在橙色徽章上。
+    state.crashes.lock().await.remove(id);
+
     // 内容包缓存与插件同生共死（设计 §4 / D4）：内容随包分发、安装后不变，所以只在
     // 「不再信任这份内容」时清 —— 停用与卸载都走这里（卸载先调 stop_plugin 再删目录）。
     // 不清的话，已被删除的灵感库还能从内存里被读出来。
@@ -847,6 +888,7 @@ fn spawn_exit_monitor(
 ) {
     let running = state.running.clone();
     let providers = state.providers.clone();
+    let crashes = state.crashes.clone();
     let plugin_id = plugin_id.to_string();
     spawn_task(async move {
         loop {
@@ -904,7 +946,21 @@ fn spawn_exit_monitor(
             // 再查一次 stopped：`stop_plugin` 是先摘表、后置标记的，所以正常情况下
             // 它摘到表就不会走到这里；这里兜的是「刚好在 claim 之后才被停用」的竞态。
             if !stopped.load(Ordering::SeqCst) {
-                eprintln!("[plugins] 插件 {plugin_id} 意外退出：{status}");
+                // 意外退出：留一份崩溃报告，`plugins_list` 才能把「崩了」与「用户停用」
+                // 分开报（没有它，界面只能统一显示「已停止」—— 用户不知道它崩了）。
+                let report = CrashReport {
+                    at: std::time::SystemTime::now(),
+                    status: status.to_string(),
+                };
+                // 崩溃时刻一起打进日志：排障时要能把「它什么时候没的」对到用户的操作
+                // 时间线上（报告本身只给界面用退出状态，不带时间）。
+                let crashed_at = report
+                    .at
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|elapsed| elapsed.as_secs())
+                    .unwrap_or(0);
+                crashes.lock().await.insert(plugin_id.clone(), report);
+                eprintln!("[plugins] 插件 {plugin_id} 意外退出（unix {crashed_at}）：{status}");
             }
             return;
         }
@@ -930,6 +986,10 @@ pub(crate) async fn shutdown_all(state: &PluginsState) -> Result<(), String> {
     // 进程全停了，provider 登记也必须一起清：留着的条目会指向已经不存在的端点，
     // 界面重启后仍能查到一组永远连不上的 provider。
     state.providers.lock().await.clear();
+    // 整体关闭同样是「正常停止」：崩溃报告也不该跨越一次全量停止还留着 —— 否则下次
+    // 列出插件时，一个已经随 App 正常关闭的插件会被报成「崩溃」（它有 enabled=true，
+    // 但这次还没被 `autostart_all` 拉起来）。
+    state.crashes.lock().await.clear();
     Ok(())
 }
 
@@ -1143,22 +1203,50 @@ async fn list_plugin_summaries(
             .collect()
     };
 
+    // 崩溃报告同理：内存表、短锁，只取 pluginId → 退出状态的快照。
+    let crashes: HashMap<String, String> = {
+        let guard = state.crashes.lock().await;
+        guard
+            .iter()
+            .map(|(id, report)| (id.clone(), report.status.clone()))
+            .collect()
+    };
+
     Ok(base
         .into_iter()
         .map(
             |(entry, name, description, provider_ids, preview, config_schema, needs_process)| {
                 let (process_state, tool_count) = match states.get(&entry.id).copied() {
                     Some(running) => running,
+                    // 用户停用（enabled=false）永远报 stopped，哪怕崩溃表里还留着一条：
+                    // 停用是用户的明确意图，不能被一次更早的崩溃盖过去。
+                    None if !entry.enabled => (supervisor::ProcessState::Stopped.as_str(), 0),
+                    // **崩溃优先于 declarative**：崩溃过的插件既不该显示「已停止」（用户
+                    // 会以为自己没启用、去点启用），也不该显示「声明式」。它确实崩了，
+                    // 就如实说「异常退出」，并把原因放进 `last_error`。
+                    None if crashes.contains_key(&entry.id) => {
+                        (supervisor::ProcessState::Crashed.as_str(), 0)
+                    }
                     // 不在进程表里，而且这个插件本来就不该有进程（清单没有 runtime）：
                     // 它是「已启用且已生效」的纯 Tier 1 插件，报 `stopped` 会让界面显示
                     // 「已停止」并催用户去点启用 —— 而它其实一直在工作（动作/内容包都能用）。
                     // 单独一个 `declarative` 状态值，让前端能把「无需进程」与「该跑却没跑」
                     // 分开表达，而不是靠前端再读一遍清单去猜。
-                    None if entry.enabled && !needs_process => ("declarative", 0),
-                    None => ("stopped", 0),
+                    None if !needs_process => ("declarative", 0),
+                    None => (supervisor::ProcessState::Stopped.as_str(), 0),
                 };
                 let mut summary =
                     summary_from_entry(&entry, name, description, process_state, tool_count);
+                // 只有「真的因为崩溃停在 crashed」时才给原因：进程在跑（或已正常停止）时
+                // 留一句话只会让用户以为又出事了。
+                summary.last_error = if process_state == supervisor::ProcessState::Crashed.as_str()
+                {
+                    crashes
+                        .get(&entry.id)
+                        .map(|status| format!("插件意外退出（{status}），已停止；重新启用可再试"))
+                } else {
+                    None
+                };
                 summary.provider_ids = provider_ids;
                 summary.has_config = config_schema.is_some();
                 // `hasConfig` / `configSchema` 同时并进 preview：插槽只拿到 preview，
@@ -4292,5 +4380,299 @@ rl.on("line", (line) => {
             "正常停止必须先置位 stopped，否则监听任务会误报「意外退出」"
         );
         assert!(state.running.lock().await.is_empty());
+    }
+
+    // ── 崩溃上报：界面要能区分「没启用」与「崩了」 ──────────
+
+    /// 应答完 `tools/list` 就 `exit(3)`：模拟「握手成功之后崩掉」的插件。
+    const CRASHING_SERVER: &str = r#"
+const readline = require("readline");
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on("line", (line) => {
+  let req;
+  try { req = JSON.parse(line); } catch { return; }
+  if (req.method === "initialize") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { protocolVersion: "2024-11-05", capabilities: { tools: {} } }
+    }));
+  } else if (req.method === "tools/list") {
+    console.log(JSON.stringify({ jsonrpc: "2.0", id: req.id, result: { tools: [] } }));
+    // 延迟 50ms 再退：先让 tools/list 的响应真的写到 stdout，否则 start_plugin 会
+    // 报「握手失败」，那就测不到「崩溃被监控到」这条路径了。
+    setTimeout(() => process.exit(3), 50);
+  }
+});
+"#;
+
+    /// 第一次运行在 `tools/list` 之后 `exit(3)`，第二次起正常常驻。
+    ///
+    /// 用一个标记文件区分两次启动：`build_command` 把子进程的 cwd 设成插件目录，
+    /// 所以相对路径就落在插件自己的目录里（不必依赖 `__dirname`）。
+    const CRASH_ONCE_SERVER: &str = r#"
+const fs = require("fs");
+const readline = require("readline");
+const MARKER = "crashed-once.marker";
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on("line", (line) => {
+  let req;
+  try { req = JSON.parse(line); } catch { return; }
+  if (req.method === "initialize") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { protocolVersion: "2024-11-05", capabilities: { tools: {} } }
+    }));
+  } else if (req.method === "tools/list") {
+    console.log(JSON.stringify({
+      jsonrpc: "2.0", id: req.id,
+      result: { tools: [{ name: "ping", description: "存活", inputSchema: { type: "object" } }] }
+    }));
+    if (!fs.existsSync(MARKER)) {
+      fs.writeFileSync(MARKER, "1");
+      setTimeout(() => process.exit(3), 50);
+    }
+  }
+});
+"#;
+
+    /// 装一个需要进程的插件，**并写进注册表**。
+    ///
+    /// `plugins_list` 只遍历注册表里的条目，所以「要断言列表输出」的用例不能只调
+    /// `write_plugin`（那只落盘插件目录）。
+    fn install_runtime_plugin(root: &Path, id: &str, entry_file: &str, source: &str) {
+        let manifest = format!(
+            r#"{{
+                "schema": 1,
+                "id": "{id}",
+                "name": "崩溃上报",
+                "version": "1.0.0",
+                "runtime": {{ "type": "node", "entry": "{entry_file}", "startTimeoutMs": 15000 }}
+            }}"#
+        );
+        write_plugin(root, id, &manifest, Some((entry_file, source)));
+        let mut registry = PluginRegistry::load(root).expect("注册表可加载");
+        registry.upsert(sample_entry(id));
+        registry.save(root).expect("保存注册表");
+    }
+
+    /// 等崩溃被监听任务检测到（轮询间隔 200ms，给 6 秒窗口：这条测的是「会不会记」，
+    /// 不是「多快记」）。
+    async fn wait_for_crash_report(state: &PluginsState, id: &str) {
+        for _ in 0..120 {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            if state.crashes.lock().await.contains_key(id) {
+                return;
+            }
+        }
+        panic!("6 秒内没有等到插件 {id} 的崩溃报告");
+    }
+
+    async fn summary_of(state: &PluginsState, root: &Path, id: &str) -> PluginSummary {
+        list_plugin_summaries(state, root)
+            .await
+            .expect("列出插件")
+            .into_iter()
+            .find(|summary| summary.id == id)
+            .unwrap_or_else(|| panic!("插件 {id} 必须出现在列表里"))
+    }
+
+    /// 崩溃过的插件必须被如实报成 `crashed`，并带出退出状态。
+    ///
+    /// 这就是本次审计的功能缺口本身：崩溃监控早就跑起来了（摘 `running`、清
+    /// `providers`、注销 token），但 `plugins_list` 把「不在 running 表里」统一翻译成
+    /// `stopped`，于是界面永远只显示「已停止」—— 用户不知道插件刚崩了。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn crashed_plugin_is_reported_as_crashed() {
+        if !node_available() {
+            eprintln!("跳过：本机没有可执行的 node");
+            return;
+        }
+        let root = TempRoot::new("report-crash");
+        let id = "crash-report-plugin";
+        install_runtime_plugin(root.path(), id, "crash.js", CRASHING_SERVER);
+
+        let state = PluginsState::default();
+        *state.host_port.lock().expect("端口状态") = Some(1);
+        let entry = PluginRegistry::load(root.path())
+            .expect("注册表可加载")
+            .get(id)
+            .cloned()
+            .expect("注册表里应有条目");
+        start_plugin(root.path(), &state, &entry)
+            .await
+            .expect("握手应成功（崩溃发生在其后）");
+
+        wait_for_crash_report(&state, id).await;
+        assert!(
+            state.running.lock().await.is_empty(),
+            "崩溃后进程表必须清空（这条既有行为不能回退）"
+        );
+
+        let summary = summary_of(&state, root.path(), id).await;
+        assert_eq!(
+            summary.process_state, "crashed",
+            "崩溃过的插件必须报 crashed，而不是笼统的 stopped"
+        );
+        // 退出状态文本来自 std 的 `ExitStatus` Display：Windows 是 `exit code: 3`，
+        // Unix 是 `exit status: 3`。两者都说明「真实退出码被带出来了」。
+        let expected = if cfg!(windows) {
+            "exit code: 3"
+        } else {
+            "exit status: 3"
+        };
+        let last_error = summary.last_error.clone().unwrap_or_default();
+        assert!(
+            last_error.contains(expected),
+            "last_error 必须带出退出状态（期望含 {expected}）：{last_error:?}"
+        );
+        assert!(
+            last_error.contains("重新启用"),
+            "只报「崩了」不够，还要告诉用户下一步怎么办：{last_error:?}"
+        );
+        assert!(
+            summary.enabled,
+            "崩溃不该静默改掉 enabled：用户仍可（且只能）手动重新启用"
+        );
+        // 前端按 camelCase 读 `lastError`，这个字段要能原样过线
+        let value = serde_json::to_value(&summary).expect("summary 可序列化");
+        assert_eq!(value["lastError"], serde_json::json!(last_error));
+    }
+
+    /// 用户主动停用**不能**被记成崩溃：状态是 `stopped`，且没有 `last_error`。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn orderly_stop_is_reported_as_stopped_not_crashed() {
+        if !node_available() {
+            eprintln!("跳过：本机没有可执行的 node");
+            return;
+        }
+        let root = TempRoot::new("report-orderly-stop");
+        let id = "orderly-report-plugin";
+        install_runtime_plugin(
+            root.path(),
+            id,
+            "server.js",
+            &slow_plugin_source("echo", 0, "在的"),
+        );
+
+        let state = PluginsState::default();
+        *state.host_port.lock().expect("端口状态") = Some(1);
+        let entry = PluginRegistry::load(root.path())
+            .expect("注册表可加载")
+            .get(id)
+            .cloned()
+            .expect("注册表里应有条目");
+        start_plugin(root.path(), &state, &entry)
+            .await
+            .expect("插件应完成握手");
+        assert_eq!(
+            summary_of(&state, root.path(), id).await.process_state,
+            "running",
+            "刚启动成功必须是 running"
+        );
+
+        stop_plugin(&state, id).await;
+
+        // 注册表里 enabled 仍是 true（只有 `plugins_disable` 才改它）：这里测的是
+        // 进程侧的判定 —— 「已启用、但用户刚刚停掉」必须是 stopped，不能是 crashed。
+        let summary = summary_of(&state, root.path(), id).await;
+        assert_eq!(summary.process_state, "stopped", "主动停用不是崩溃");
+        assert!(
+            summary.last_error.is_none(),
+            "正常停止不该留下任何崩溃原因：{:?}",
+            summary.last_error
+        );
+        assert!(
+            state.crashes.lock().await.get(id).is_none(),
+            "正常停止必须把崩溃报告一起清掉"
+        );
+    }
+
+    /// 崩溃之后重新启用成功 → 上一次的崩溃报告必须清空。
+    ///
+    /// 不清的话，一个本来已经恢复的插件会永远挂着橙色「异常退出」+ 上次的退出码，
+    /// 用户会以为它还在坏着。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn restarting_after_a_crash_clears_the_report() {
+        if !node_available() {
+            eprintln!("跳过：本机没有可执行的 node");
+            return;
+        }
+        let root = TempRoot::new("report-restart");
+        let id = "restart-report-plugin";
+        install_runtime_plugin(root.path(), id, "crash-once.js", CRASH_ONCE_SERVER);
+
+        let state = PluginsState::default();
+        *state.host_port.lock().expect("端口状态") = Some(1);
+        let entry = PluginRegistry::load(root.path())
+            .expect("注册表可加载")
+            .get(id)
+            .cloned()
+            .expect("注册表里应有条目");
+        start_plugin(root.path(), &state, &entry)
+            .await
+            .expect("握手应成功（崩溃发生在其后）");
+        wait_for_crash_report(&state, id).await;
+        assert_eq!(
+            summary_of(&state, root.path(), id).await.process_state,
+            "crashed",
+            "重新启用之前应仍显示 crashed"
+        );
+
+        // 第二次启动：脚本不再退出，进程应稳定停在 running。
+        start_plugin(root.path(), &state, &entry)
+            .await
+            .expect("崩溃之后重新启动应成功");
+        let summary = summary_of(&state, root.path(), id).await;
+        assert_eq!(
+            summary.process_state, "running",
+            "重新启用成功应回到 running"
+        );
+        assert!(
+            summary.last_error.is_none(),
+            "启动成功后上一次的崩溃原因必须清空：{:?}",
+            summary.last_error
+        );
+        assert!(
+            state.crashes.lock().await.get(id).is_none(),
+            "启动成功后崩溃报告必须被移除"
+        );
+
+        stop_plugin(&state, id).await;
+    }
+
+    /// 回归：新的判定顺序不能把 `declarative` 覆盖成 `crashed` / `stopped`。
+    ///
+    /// 「崩溃优先于 declarative」是按 pluginId 生效的，而声明式插件永远不会有进程，
+    /// 也就永远进不了崩溃表；真正要防的是判定顺序写错（例如把 `needs_process` 的判断
+    /// 提到崩溃/停用之前，或反过来让 `declarative` 吃掉 `stopped`）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn declarative_plugin_still_reports_declarative() {
+        let root = TempRoot::new("declarative-order");
+        let enabled_id = "idea-generator";
+        let disabled_id = "sleeping-pack";
+        install_declarative_plugin(root.path(), enabled_id);
+        install_declarative_plugin(root.path(), disabled_id);
+
+        let state = PluginsState::default();
+        enable_plugin(&state, root.path(), enabled_id, Vec::new())
+            .await
+            .expect("启用纯 Tier 1 插件");
+
+        let enabled = summary_of(&state, root.path(), enabled_id).await;
+        assert_eq!(
+            enabled.process_state, "declarative",
+            "无需进程的已启用插件不能被报成 stopped 或 crashed"
+        );
+        assert!(
+            enabled.last_error.is_none(),
+            "声明式插件没有进程，也就没有崩溃原因"
+        );
+
+        // enabled=false 优先于 declarative：用户停用了就不该显示「声明式（已生效）」。
+        let disabled = summary_of(&state, root.path(), disabled_id).await;
+        assert_eq!(
+            disabled.process_state, "stopped",
+            "停用（enabled=false）必须优先于 declarative"
+        );
     }
 }
