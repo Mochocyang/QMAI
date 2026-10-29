@@ -21,12 +21,50 @@
 import { bytesToBase64Url, base64UrlToBytes, sha256Hex } from "./crypto"
 import type { Env } from "./types"
 
-/** 授权链接（目录级授权专用域名，与通用授权的 openapi 不是同一个）。 */
-export const BAIDU_AUTHORIZE_URL = "https://pan.baidu.com/union/oauth/authorize"
-/** 目录级授权换 token 端点。 */
-export const BAIDU_TOKEN_URL = "https://pan.baidu.com/xpan/oauth/get"
-/** 目录级授权的 scope：只有读与写，不含分享/管理，符合最小必要。 */
-export const BAIDU_SCOPE = "nd_open_read,nd_open_write"
+/**
+ * 两种授权模式。
+ *
+ * 它们的**端点、scope、换 token 方式全都不同**，参数不能混用 ——
+ * 用错组合时百度只回一句「无法打开授权页面，操作失败，请重试」，没有更多信息。
+ *
+ * - `general`（通用授权，默认）
+ *   `openapi.baidu.com/oauth/2.0/authorize` + `response_type=code`
+ *   + `scope=basic,netdisk` → 用 `oauth/2.0/token` 换 token
+ *   访问范围由平台强制限制在 `/apps/{应用名}`（对 2026-06-03 之后创建的应用），
+ *   所以隔离性同样有保障，且**不需要用户选目录**，换机恢复路径固定。
+ *
+ * - `dir`（目录级授权）
+ *   `pan.baidu.com/union/oauth/authorize` + `scope=nd_open_read,nd_open_write`
+ *   → 用 `pan.baidu.com/xpan/oauth/get?method=token` 换 token
+ *   用户在授权页自己选目录；返回 authorized_paths，客户端每次读写前校验。
+ *   需要应用先获得这两个 scope 的权限，否则授权页打不开。
+ *
+ * 通过 `BAIDU_AUTH_MODE` 环境变量切换，不用改代码重发。
+ */
+export type BaiduAuthMode = "general" | "dir"
+
+/** 目录级授权端点。 */
+export const BAIDU_DIR_AUTHORIZE_URL = "https://pan.baidu.com/union/oauth/authorize"
+export const BAIDU_DIR_TOKEN_URL = "https://pan.baidu.com/xpan/oauth/get"
+export const BAIDU_DIR_SCOPE = "nd_open_read,nd_open_write"
+
+/** 通用授权端点（与目录级完全不同）。 */
+export const BAIDU_GENERAL_AUTHORIZE_URL = "https://openapi.baidu.com/oauth/2.0/authorize"
+export const BAIDU_GENERAL_TOKEN_URL = "https://openapi.baidu.com/oauth/2.0/token"
+export const BAIDU_GENERAL_SCOPE = "basic,netdisk"
+
+/** 兼容旧导出名：目录级 scope。 */
+export const BAIDU_SCOPE = BAIDU_DIR_SCOPE
+
+/** 当前生效的授权模式。未设置或非法值一律回落 `general`（已开通权限的那个）。 */
+export function resolveAuthMode(env: Env): BaiduAuthMode {
+  return env.BAIDU_AUTH_MODE === "dir" ? "dir" : "general"
+}
+
+/** 某种模式对应的 scope。 */
+export function scopeForMode(mode: BaiduAuthMode): string {
+  return mode === "dir" ? BAIDU_DIR_SCOPE : BAIDU_GENERAL_SCOPE
+}
 
 /** 会话存活时间：用户从点「连接」到在浏览器里完成授权，10 分钟够用。 */
 const SESSION_TTL_SECONDS = 600
@@ -205,20 +243,30 @@ export async function handleBaiduBegin(request: Request, env: Env): Promise<Resp
     return json({ ok: false, errorCode: "server.error" }, 500)
   }
 
-  const url = new URL(BAIDU_AUTHORIZE_URL)
+  const mode = resolveAuthMode(env)
+  const url =
+    mode === "dir"
+      ? new URL(BAIDU_DIR_AUTHORIZE_URL)
+      : new URL(BAIDU_GENERAL_AUTHORIZE_URL)
   url.searchParams.set("client_id", env.BAIDU_APP_KEY!)
   url.searchParams.set("redirect_uri", callbackUri(env))
   url.searchParams.set("state", state)
-  url.searchParams.set("scope", BAIDU_SCOPE)
+  url.searchParams.set("scope", scopeForMode(mode))
+  if (mode === "general") {
+    // 通用授权必须显式声明授权码模式；目录级端点不需要这个参数。
+    url.searchParams.set("response_type", "code")
+    url.searchParams.set("display", "page")
+  }
 
   return json({
     ok: true,
     sessionId,
     authorizeUrl: url.toString(),
     expiresIn: SESSION_TTL_SECONDS,
-    // 客户端据此提示用户「请保持勾选『创建并保存应用文件』」，
-    // 否则换机恢复读不到 books.index.json。
-    requireAppFolder: true,
+    authMode: mode,
+    // 目录级授权下要提示用户「保持勾选『创建并保存应用文件』」；
+    // 通用授权没有这个选项，路径固定为 /apps/{应用名}。
+    requireAppFolder: mode === "dir",
   })
 }
 
@@ -306,9 +354,20 @@ export async function handleBaiduCallback(request: Request, env: Env): Promise<R
     return html(failurePage(`授权没有完成（${errmsg || codeText}）。请回到软件重试。`))
   }
 
-  // 用 code 换 token。redirect_uri 必须与发起授权时完全一致，否则百度会拒绝。
-  const tokenUrl = new URL(BAIDU_TOKEN_URL)
-  tokenUrl.searchParams.set("method", "token")
+  /*
+   * 用 code 换 token。两种模式的端点和参数都不同：
+   *   通用 → oauth/2.0/token?grant_type=authorization_code
+   *   目录级 → xpan/oauth/get?method=token
+   * redirect_uri 必须与发起授权时完全一致，否则百度会拒绝。
+   */
+  const mode = resolveAuthMode(env)
+  const tokenUrl =
+    mode === "dir" ? new URL(BAIDU_DIR_TOKEN_URL) : new URL(BAIDU_GENERAL_TOKEN_URL)
+  if (mode === "dir") {
+    tokenUrl.searchParams.set("method", "token")
+  } else {
+    tokenUrl.searchParams.set("grant_type", "authorization_code")
+  }
   tokenUrl.searchParams.set("client_id", env.BAIDU_APP_KEY!)
   tokenUrl.searchParams.set("client_secret", env.BAIDU_APP_SECRET!)
   tokenUrl.searchParams.set("code", code)
@@ -346,6 +405,8 @@ export async function handleBaiduCallback(request: Request, env: Env): Promise<R
     accessToken,
     refreshToken: typeof payload.refresh_token === "string" ? payload.refresh_token : null,
     expiresIn: typeof payload.expires_in === "number" ? payload.expires_in : null,
+    // 模式随令牌一起交给客户端：它要据此决定要不要做 authorized_paths 校验。
+    authMode: mode,
   })
   const encrypted = await encryptToken(env, tokens)
   if (!encrypted) {
@@ -370,7 +431,7 @@ export async function handleBaiduCallback(request: Request, env: Env): Promise<R
       .bind(
         encrypted.cipher,
         encrypted.iv,
-        typeof payload.scope === "string" ? payload.scope : BAIDU_SCOPE,
+        typeof payload.scope === "string" ? payload.scope : scopeForMode(mode),
         JSON.stringify(paths),
         // 授权成功后给客户端 60 秒来取，不需要再等 10 分钟。
         nowSeconds() + 60,
@@ -468,8 +529,9 @@ export async function handleBaiduPoll(request: Request, env: Env): Promise<Respo
     ok: true,
     status: "authorized",
     tokens,
-    scope: session.scope ?? BAIDU_SCOPE,
+    scope: session.scope ?? BAIDU_DIR_SCOPE,
     authorizedPaths,
+    authMode: resolveAuthMode(env),
   })
 }
 
@@ -529,8 +591,14 @@ export async function handleBaiduRefresh(request: Request, env: Env): Promise<Re
     return json({ ok: false, errorCode: "refresh_token_missing" }, 400)
   }
 
-  const url = new URL(BAIDU_TOKEN_URL)
-  url.searchParams.set("method", "refresh_token")
+  const mode = resolveAuthMode(env)
+  const url =
+    mode === "dir" ? new URL(BAIDU_DIR_TOKEN_URL) : new URL(BAIDU_GENERAL_TOKEN_URL)
+  if (mode === "dir") {
+    url.searchParams.set("method", "refresh_token")
+  } else {
+    url.searchParams.set("grant_type", "refresh_token")
+  }
   url.searchParams.set("client_id", env.BAIDU_APP_KEY!)
   url.searchParams.set("client_secret", env.BAIDU_APP_SECRET!)
   url.searchParams.set("refresh_token", refreshToken)
@@ -566,7 +634,7 @@ export async function handleBaiduRefresh(request: Request, env: Env): Promise<Re
         typeof payload.refresh_token === "string" ? payload.refresh_token : null,
       expiresIn: typeof payload.expires_in === "number" ? payload.expires_in : null,
     },
-    scope: typeof payload.scope === "string" ? payload.scope : BAIDU_SCOPE,
+    scope: typeof payload.scope === "string" ? payload.scope : scopeForMode(mode),
     authorizedPaths: normalizeAuthorizedPaths(payload.authorized_paths),
   })
 }

@@ -42,6 +42,10 @@ ALLOW_DEV_CODE = "false"
 BAIDU_APP_KEY = "DF39UZkTVpx8M0C9kgsi7Xzlm4M3nntO"
 # 回调地址必须与百度后台【安全设置】里登记的**完全一致**（含路径与结尾）。
 BAIDU_REDIRECT_URI = "https://qmai.pro/oauth/baidu/callback"
+# 授权模式：general = 通用授权（basic,netdisk，已开通）；
+# dir = 目录级授权（nd_open_read,nd_open_write，需应用先获得该权限）。
+# 目录级授权申请下来后，把这里改成 "dir" 并重新部署即可，不用改代码。
+BAIDU_AUTH_MODE = "general"
 # SecretKey 绝不写在这里 —— 用 `wrangler secret put BAIDU_APP_SECRET` 注入。
 
 # Daily cleanup: rate limit buckets older than 24h, codes older than 7d, sessions 30d past expiry.

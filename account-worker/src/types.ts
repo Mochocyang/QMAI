@@ -38,6 +38,14 @@ export interface Env {
    * 抽成变量是因为本地调试要走 ngrok/自定义域名，硬编码会让两处漂移。
    */
   BAIDU_REDIRECT_URI?: string
+  /**
+   * 授权模式：`general`（默认，通用授权 basic,netdisk）
+   * 或 `dir`（目录级授权 nd_open_read,nd_open_write）。
+   *
+   * 两种模式的端点/scope/换 token 方式都不同，参数不能混用。
+   * 目录级授权需要应用先获得 nd_* 权限，否则授权页打不开。
+   */
+  BAIDU_AUTH_MODE?: string
 }
 
 export type CodePurpose = "register" | "reset"

@@ -163,22 +163,26 @@ describe("handleBaiduBegin", () => {
     expect(body.ok).toBe(true)
     expect(typeof body.sessionId).toBe("string")
     expect(body.expiresIn).toBe(600)
-    // 换机恢复依赖应用专属文件夹，客户端要据此提示用户保持勾选。
-    expect(body.requireAppFolder).toBe(true)
+    // 通用授权没有「创建并保存应用文件」选项，路径固定 /apps/{应用名}。
+    expect(body.requireAppFolder).toBe(false)
 
     const url = new URL(String(body.authorizeUrl))
-    // 目录级授权走 pan.baidu.com/union/oauth，不是 openapi 的通用授权端点。
-    expect(url.host).toBe("pan.baidu.com")
-    expect(url.pathname).toBe("/union/oauth/authorize")
+    /*
+     * 默认走通用授权：scope 是已开通的 basic,netdisk，端点是 openapi 的 oauth/2.0。
+     * 目录级授权（pan.baidu.com/union/oauth + nd_*）要应用先拿到那两个 scope，
+     * 否则百度授权页会直接报「无法打开授权页面」。
+     */
+    expect(body.authMode).toBe("general")
+    expect(url.host).toBe("openapi.baidu.com")
+    expect(url.pathname).toBe("/oauth/2.0/authorize")
     expect(url.searchParams.get("client_id")).toBe("TEST_APP_KEY")
-    expect(url.searchParams.get("scope")).toBe(BAIDU_SCOPE)
-    expect(url.searchParams.get("scope")).toBe("nd_open_read,nd_open_write")
+    expect(url.searchParams.get("scope")).toBe("basic,netdisk")
+    // 通用授权必须显式声明授权码模式。
+    expect(url.searchParams.get("response_type")).toBe("code")
     expect(url.searchParams.get("redirect_uri")).toBe(
       "https://qmai.pro/oauth/baidu/callback",
     )
     expect(url.searchParams.get("state")).toBeTruthy()
-    // 通用授权才有的参数不该出现在目录级授权里。
-    expect(url.searchParams.get("response_type")).toBeNull()
 
     expect(db.rows.size).toBe(1)
     const row = [...db.rows.values()][0]
@@ -273,8 +277,9 @@ describe("handleBaiduCallback", () => {
 
       // 换 token 的请求必须带 secret，且 redirect_uri 与发起授权一致。
       const called = new URL(String(fetchMock.mock.calls[0][0]))
-      expect(called.host).toBe("pan.baidu.com")
-      expect(called.searchParams.get("method")).toBe("token")
+      expect(called.host).toBe("openapi.baidu.com")
+      expect(called.pathname).toBe("/oauth/2.0/token")
+      expect(called.searchParams.get("grant_type")).toBe("authorization_code")
       expect(called.searchParams.get("client_secret")).toBe("TEST_APP_SECRET")
       expect(called.searchParams.get("redirect_uri")).toBe(
         "https://qmai.pro/oauth/baidu/callback",
@@ -408,7 +413,7 @@ describe("handleBaiduRefresh", () => {
       expect(tokens.refreshToken).toBe("RT-NEW")
 
       const called = new URL(String(fetchMock.mock.calls[0][0]))
-      expect(called.searchParams.get("method")).toBe("refresh_token")
+      expect(called.searchParams.get("grant_type")).toBe("refresh_token")
       expect(called.searchParams.get("client_secret")).toBe("TEST_APP_SECRET")
       expect(called.searchParams.get("refresh_token")).toBe("RT-OLD")
     } finally {
@@ -455,5 +460,37 @@ describe("handleBaiduRefresh", () => {
     } finally {
       vi.unstubAllGlobals()
     }
+  })
+})
+
+
+describe("授权模式切换", () => {
+  it("dir 模式改用目录级端点与 nd_* scope", async () => {
+    const { env } = makeEnv({ BAIDU_AUTH_MODE: "dir" } as Partial<Env>)
+    const response = await handleBaiduBegin(
+      new Request("https://qmai.pro/v1/oauth/baidu/begin", { method: "POST" }),
+      env,
+    )
+    const body = (await response.json()) as Record<string, unknown>
+    expect(body.authMode).toBe("dir")
+    // 目录级授权才有这个提示：不勾「创建并保存应用文件」换机恢复会失败。
+    expect(body.requireAppFolder).toBe(true)
+
+    const url = new URL(String(body.authorizeUrl))
+    expect(url.host).toBe("pan.baidu.com")
+    expect(url.pathname).toBe("/union/oauth/authorize")
+    expect(url.searchParams.get("scope")).toBe("nd_open_read,nd_open_write")
+    // 目录级端不认 response_type，带上可能反而报错。
+    expect(url.searchParams.get("response_type")).toBeNull()
+  })
+
+  it("非法模式值回落 general，不让配置写错把功能打挂", async () => {
+    const { env } = makeEnv({ BAIDU_AUTH_MODE: "whatever" } as Partial<Env>)
+    const response = await handleBaiduBegin(
+      new Request("https://qmai.pro/v1/oauth/baidu/begin", { method: "POST" }),
+      env,
+    )
+    const body = (await response.json()) as Record<string, unknown>
+    expect(body.authMode).toBe("general")
   })
 })
