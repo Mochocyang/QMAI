@@ -906,6 +906,18 @@ mod tests {
     // handler 级测试：起真实回环端口 + reqwest 发请求
     // ------------------------------------------------------------------
 
+    /// 测试用的回环 client。
+    ///
+    /// 必须 `.no_proxy()`：这些桩全部打 `127.0.0.1`，而 `proxy.rs` 的用例会临时设置
+    /// 进程级 `HTTP_PROXY/ALL_PROXY`（`bypassLocal=false` 那一档连回环也走代理），
+    /// 不绕过代理会让本组用例随机 502。生产侧同样处理见 `provider_http_client`。
+    fn test_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("构造测试用 reqwest client")
+    }
+
     /// 起一个真实的 HostApi，返回 base URL。
     /// 服务随测试运行时一起销毁（`start` 把 serve 挂到当前 Tokio 运行时上）。
     async fn spawn_test_api(state: HostApiState) -> String {
@@ -937,7 +949,7 @@ mod tests {
     async fn handler_returns_401_without_valid_token() {
         let state = state_with("tok-good", session(None, &["data:write"]));
         let base = spawn_test_api(state).await;
-        let client = reqwest::Client::new();
+        let client = test_client();
 
         // 没带 token
         let response = client
@@ -977,7 +989,7 @@ mod tests {
         let state = state_with("tok", session(None, &["data:write"]));
         let base = spawn_test_api(state).await;
 
-        let body: serde_json::Value = reqwest::Client::new()
+        let body: serde_json::Value = test_client()
             .get(format!("{base}/host/status"))
             .bearer_auth("tok")
             .send()
@@ -1057,7 +1069,7 @@ mod tests {
         let state = state_with("tok", session(Some(root.clone()), &["data:write"]));
         let base = spawn_test_api(state).await;
 
-        let response = reqwest::Client::new()
+        let response = test_client()
             .post(format!("{base}/host/project/read"))
             .bearer_auth("tok")
             .json(&serde_json::json!({ "path": root.join("01.md").to_string_lossy() }))
@@ -1077,7 +1089,7 @@ mod tests {
         std::fs::create_dir_all(root.join("wiki")).expect("建目录");
         let state = state_with("tok", session(Some(root.clone()), &["fs:project-read"]));
         let base = spawn_test_api(state).await;
-        let client = reqwest::Client::new();
+        let client = test_client();
 
         // 词法穿越
         let escaped = format!("{}/wiki/../../../etc/passwd", root.display());
@@ -1119,7 +1131,7 @@ mod tests {
         let state = state_with("tok", session(Some(root.clone()), &["fs:project-read"]));
         let base = spawn_test_api(state).await;
 
-        let response = reqwest::Client::new()
+        let response = test_client()
             .post(format!("{base}/host/project/read"))
             .bearer_auth("tok")
             .json(&serde_json::json!({ "path": file.to_string_lossy() }))
@@ -1140,7 +1152,7 @@ mod tests {
         let state = state_with("tok", session(Some(root.clone()), &["fs:project-read"]));
         let base = spawn_test_api(state).await;
 
-        let response = reqwest::Client::new()
+        let response = test_client()
             .post(format!("{base}/host/project/read"))
             .bearer_auth("tok")
             .json(&serde_json::json!({ "path": file.to_string_lossy() }))
@@ -1168,7 +1180,7 @@ mod tests {
         let state = state_with("tok", session(Some(root.clone()), &["fs:project-read"]));
         let base = spawn_test_api(state).await;
 
-        let response = reqwest::Client::new()
+        let response = test_client()
             .post(format!("{base}/host/project/read"))
             .bearer_auth("tok")
             .json(&serde_json::json!({ "path": link.join("secret.md").to_string_lossy() }))
@@ -1190,7 +1202,7 @@ mod tests {
         let sink = state.log_sink.clone();
         let base = spawn_test_api(state).await;
 
-        let response = reqwest::Client::new()
+        let response = test_client()
             .post(format!("{base}/host/log"))
             .bearer_auth("tok")
             .json(&serde_json::json!({
@@ -1218,7 +1230,7 @@ mod tests {
         );
         let base = spawn_test_api(state).await;
 
-        let response = reqwest::Client::new()
+        let response = test_client()
             .get(format!("{base}/host/status"))
             .bearer_auth("tok")
             .send()
@@ -1241,7 +1253,7 @@ mod tests {
         let state = state_with("tok", session(None, &["fs:project-read"]));
         let base = spawn_test_api(state).await;
 
-        let response = reqwest::Client::new()
+        let response = test_client()
             .post(format!("{base}/host/project/read"))
             .bearer_auth("tok")
             .json(&serde_json::json!({ "path": "/etc/passwd" }))
@@ -1282,7 +1294,7 @@ mod tests {
         state.project.set(Some(root.clone()));
         let base = spawn_test_api(state).await;
 
-        let response = reqwest::Client::new()
+        let response = test_client()
             .get(format!("{base}/host/project/info"))
             .bearer_auth("tok")
             .send()
@@ -1313,7 +1325,7 @@ mod tests {
         state.project.set(Some(root.clone()));
         let base = spawn_test_api(state).await;
 
-        let response = reqwest::Client::new()
+        let response = test_client()
             .post(format!("{base}/host/project/field"))
             .bearer_auth("tok")
             .json(&serde_json::json!({ "field": "chapterBody", "value": "随便改正文" }))
@@ -1335,7 +1347,7 @@ mod tests {
         state.project.set(Some(root.clone()));
         let base = spawn_test_api(state).await;
 
-        let response = reqwest::Client::new()
+        let response = test_client()
             .post(format!("{base}/host/project/field"))
             .bearer_auth("tok")
             .json(&serde_json::json!({ "field": "bookTitle", "value": "新书名" }))
@@ -1348,7 +1360,7 @@ mod tests {
         assert_eq!(body["permission"], "fs:project-write");
 
         // 同一条件对 chapter-note 成立：漏一条就多一个绕过权限的写入口。
-        let response = reqwest::Client::new()
+        let response = test_client()
             .post(format!("{base}/host/project/chapter-note"))
             .bearer_auth("tok")
             .json(&serde_json::json!({ "chapterId": "ch-1", "note": "备注" }))
@@ -1370,7 +1382,7 @@ mod tests {
         );
         // 动态值为 None、会话也没有 root → 确实是「没打开项目」
         let base = spawn_test_api(state).await;
-        let client = reqwest::Client::new();
+        let client = test_client();
 
         let info = client
             .get(format!("{base}/host/project/info"))
@@ -1421,7 +1433,7 @@ mod tests {
         state.project.set(Some(root.clone()));
         let base = spawn_test_api(state).await;
 
-        let response = reqwest::Client::new()
+        let response = test_client()
             .post(format!("{base}/host/project/field"))
             .bearer_auth("tok")
             .json(&serde_json::json!({ "field": "bookTitle", "value": "新书名" }))
@@ -1450,7 +1462,7 @@ mod tests {
         state.project.set(Some(root.clone()));
         let base = spawn_test_api(state).await;
 
-        let response = reqwest::Client::new()
+        let response = test_client()
             .post(format!("{base}/host/project/chapter-note"))
             .bearer_auth("tok")
             .json(&serde_json::json!({ "chapterId": "ch-1", "note": "备注" }))
@@ -1480,7 +1492,7 @@ mod tests {
         let project = state.project.clone();
         let base = spawn_test_api(state).await;
 
-        let body: serde_json::Value = reqwest::Client::new()
+        let body: serde_json::Value = test_client()
             .get(format!("{base}/host/project/info"))
             .bearer_auth("tok")
             .send()
@@ -1497,7 +1509,7 @@ mod tests {
 
         // 关闭项目（动态值 None）后回落到会话值：老路径不破。
         project.set(None);
-        let body: serde_json::Value = reqwest::Client::new()
+        let body: serde_json::Value = test_client()
             .get(format!("{base}/host/project/info"))
             .bearer_auth("tok")
             .send()
