@@ -118,6 +118,28 @@
   客户端对重复 `id` 只保留第一条，后来那条会被静默忽略（并写一条警告日志）。
 - 插件停止维护了，请把这一条**删掉**，别留着让人装上一个死仓库。
 
+## 镜像与可达性
+
+`plugins/index.json` 在 GitHub 上，而 `raw.githubusercontent.com` 在国内经常被 DNS 污染或
+TLS 重置。市场是「插件」功能的入口，单一源被墙就等于整个市场打不开 —— 所以客户端把索引
+也做成了多通道：**打开市场时同时请求下面 4 条，谁先成功用谁，其余请求立刻取消**。
+
+1. `https://raw.githubusercontent.com/Mochocyang/QMAI/main/plugins/index.json`（权威地址）
+2. `https://cdn.jsdelivr.net/gh/Mochocyang/QMAI@main/plugins/index.json`（jsDelivr CDN）
+3. `https://ghproxy.net/https://raw.githubusercontent.com/Mochocyang/QMAI/main/plugins/index.json`
+4. `https://gh-proxy.com/https://raw.githubusercontent.com/Mochocyang/QMAI/main/plugins/index.json`
+
+- 某条通道返回的不是合法索引（HTTP 非 2xx、超过 1 MB、`version` 不对、`plugins` 不是数组）
+  时，只算**这条**失败，客户端会继续等其它通道 —— 那通常说明镜像把响应换成了错误页。
+- 环境变量 `QMAI_PLUGIN_INDEX_URL` 可覆盖上述全部通道（自建市场/本地调试）：**一旦设置，
+  就只请求你给的那一个地址**，不会再掺镜像，避免「我明明指定了地址，它却在读别处」。
+- 四条通道**全部**失败才叫「真的拉不到」，此时用本地缓存（`.market.json`，6 小时）兜底。
+  如果连缓存都没有、四个地址也都不通，说明当前网络环境阻断了 GitHub 及其镜像：可以先用
+  「插件管理 → 从 GitHub 安装」直接粘贴 `https://github.com/<owner>/<repo>` 安装，安装器
+  自己有一套代理通道，不依赖索引。
+- 已知代价：jsDelivr 的 CDN 有缓存（约 12 小时），清单刚更新时从它那里可能仍读到旧版本；
+  并行竞速下这不会影响「能打开市场」，只是偶发看到旧列表，点「刷新」或等 CDN 回源即可。
+
 ## 索引本身的容错规则（维护者须知）
 
 - `version` / `plugins` 结构不对 → 整份索引作废，客户端报「索引格式不支持」。

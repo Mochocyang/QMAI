@@ -17,6 +17,21 @@ pub const DEFAULT_INDEX_URL: &str =
     "https://raw.githubusercontent.com/Mochocyang/QMAI/main/plugins/index.json";
 pub const INDEX_URL_ENV: &str = "QMAI_PLUGIN_INDEX_URL";
 
+/// jsDelivr 镜像：把同一个仓库文件映射到它自己的 CDN（`@main` 是分支名）。
+///
+/// 它和 GitHub 的 CDN 是两套独立基础设施，`raw.githubusercontent.com` 被 DNS 污染/
+/// TLS reset 时它通常仍可达。代价见 README「镜像与可达性」：CDN 有缓存，清单更新后
+/// 可能要先等它回源。
+const JSDELIVR_INDEX_URL: &str =
+    "https://cdn.jsdelivr.net/gh/Mochocyang/QMAI@main/plugins/index.json";
+
+/// 国内可用的 GitHub 中转前缀（与安装器 `download_candidates` 里验证过的一致）。
+///
+/// 它们的用法是「前缀 + 原始 GitHub 地址」，所以镜像地址由 `DEFAULT_INDEX_URL` 拼出来，
+/// 而不是各写一份字面量 —— 换仓库/换分支时只需要改一处。
+const GH_PROXY_NET: &str = "https://ghproxy.net/";
+const GH_PROXY_COM: &str = "https://gh-proxy.com/";
+
 /// 缓存有效期：6 小时。过期才自动重拉；手动刷新总是重拉。
 ///
 /// 索引由多人 PR 维护，变化是以「天」计的；把 TTL 设小了只是让首屏多等几次网络，
@@ -78,6 +93,12 @@ pub struct MarketIndex {
     /// 缓存写入时间（unix 秒）
     pub fetched_at: Option<i64>,
     pub source_url: String,
+    /// 实际命中的通道地址（排查用）。
+    ///
+    /// 与 `source_url` 同义：`source_url` 是前端已经在读的老字段，含义不动；
+    /// `via` 是给日志/排查看的「这次是哪条通道给的」。**降级到缓存时是 `None`** ——
+    /// 缓存不来自任何一次请求，`source_url` 退化为配置里的首个通道（与旧行为一致）。
+    pub via: Option<String>,
 }
 
 /// 磁盘缓存的内容（`<插件根>/.market.json`）。
@@ -108,13 +129,48 @@ pub fn http_client() -> Result<reqwest::Client, String> {
         .map_err(|e| format!("构造插件市场客户端失败：{e}"))
 }
 
-/// 本次要用的索引地址：环境变量优先（自建市场/本地调试），否则随软件发布的默认地址。
-pub fn index_url() -> String {
-    match std::env::var(INDEX_URL_ENV) {
-        // 空串等于没配：否则一个手滑的 `set X=` 会让市场静默变成「永远拉不到」
-        Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
-        _ => DEFAULT_INDEX_URL.to_string(),
+/// 索引通道。第一个是可配置/默认的权威地址，其余是**镜像**。
+///
+/// 为什么需要镜像：`raw.githubusercontent.com` 在国内经常被 DNS 污染或 TLS reset。
+/// 单一源意味着「被墙 = 市场打不开」，而市场是这个功能的主入口 —— 用户连「有哪些插件」
+/// 都看不到，更不可能去手动粘贴地址安装。所以索引和安装器一样要多通道：任一条通，
+/// 市场就打得开。顺序沿用安装器已验证过的前缀（见 `installer::download_candidates`
+/// 与 `updater::channels` 的白名单）：jsDelivr 是独立 CDN，两个 gh-proxy 是国内中转。
+pub fn index_channels() -> Vec<String> {
+    index_channels_with(std::env::var(INDEX_URL_ENV).ok())
+}
+
+/// `index_channels` 的纯函数版本：把「读环境变量」抽出来，测试可以直接喂值。
+///
+/// 为什么不抽到测试里 `set_var`：环境变量是**进程级**全局状态，而 `cargo test` 默认
+/// 多线程 —— 同一个进程里的其它用例会看到这里写进去的值，出现随机红/绿（本仓踩过）。
+pub fn index_channels_with(env: Option<String>) -> Vec<String> {
+    // 用户显式指定了地址就**只用它**，不掺镜像：否则自建市场/离线镜像会拿到一份
+    // 不是自己维护的清单，表现为「我明明指定了地址，它却在读别处」。
+    if let Some(value) = env {
+        // 空串等于没配：否则一个手滑的 `set X=` 会让市场静默变成「永远拉不到」。
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return vec![trimmed.to_string()];
+        }
     }
+    vec![
+        DEFAULT_INDEX_URL.to_string(),
+        JSDELIVR_INDEX_URL.to_string(),
+        format!("{GH_PROXY_NET}{DEFAULT_INDEX_URL}"),
+        format!("{GH_PROXY_COM}{DEFAULT_INDEX_URL}"),
+    ]
+}
+
+/// 本次的首选索引地址（通道列表里的第一个）。
+///
+/// 保留这个函数是因为命令层/测试都按「单一地址」理解市场来源；实际请求走
+/// `index_channels()` 的多通道竞速。
+pub fn index_url() -> String {
+    index_channels()
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| DEFAULT_INDEX_URL.to_string())
 }
 
 /// 拉取索引；`refresh=false` 且缓存新鲜时直接返回缓存。
@@ -126,20 +182,38 @@ pub async fn load_index(
     root: &Path,
     refresh: bool,
 ) -> Result<MarketIndex, String> {
-    let url = index_url();
+    let channels = index_channels();
+    load_index_with_channels(client, root, refresh, &channels).await
+}
+
+/// `load_index` 的实现体，通道列表由调用方给（测试用它注入本机桩地址）。
+///
+/// 单列出来是为了让「多通道容灾」的行为可以被测到：环境变量只会给一个地址，
+/// 光靠 `load_index` 测不出竞速/跳过坏通道/汇总报错。
+async fn load_index_with_channels(
+    client: &reqwest::Client,
+    root: &Path,
+    refresh: bool,
+    channels: &[String],
+) -> Result<MarketIndex, String> {
+    // 缓存命中/降级时没有「实际请求过的地址」，只有配置里的首选地址可用。
+    let primary = channels
+        .first()
+        .cloned()
+        .unwrap_or_else(|| DEFAULT_INDEX_URL.to_string());
     let cache_file = cache_path(root);
     let cached = read_cache(&cache_file);
 
     if !refresh {
         if let Some(cache) = &cached {
             if is_fresh(cache.fetched_at, now_unix()) {
-                return Ok(cached_index(cache, &url, false));
+                return Ok(cached_index(cache, &primary, false));
             }
         }
     }
 
-    match fetch_index(client, &url).await {
-        Ok(plugins) => {
+    match fetch_index_racing(client, channels).await {
+        Ok((via, plugins)) => {
             let fetched_at = now_unix();
             let cache = MarketCache {
                 version: INDEX_VERSION,
@@ -155,7 +229,8 @@ pub async fn load_index(
                 plugins,
                 from_cache: false,
                 fetched_at: Some(fetched_at),
-                source_url: url,
+                source_url: via.clone(),
+                via: Some(via),
             })
         }
         Err(error) => {
@@ -168,7 +243,7 @@ pub async fn load_index(
                         "插件市场索引拉取失败（{error}），降级到本地缓存（fetchedAt={}）",
                         cache.fetched_at
                     );
-                    Ok(cached_index(&cache, &url, true))
+                    Ok(cached_index(&cache, &primary, true))
                 }
                 None => Err(format!("插件市场索引拉取失败，且本地没有可用缓存：{error}")),
             }
@@ -252,7 +327,81 @@ async fn fetch_index(client: &reqwest::Client, url: &str) -> Result<Vec<MarketEn
             MAX_INDEX_BYTES / 1024
         ));
     }
-    parse_index(&bytes)
+    // 解析错误也带上地址：多通道竞速时每条失败原因都要能唯一定位到通道，
+    // 否则用户看到「索引不是有效 JSON」却不知道是哪个镜像给的。
+    parse_index(&bytes).map_err(|e| format!("{url}：{e}"))
+}
+
+/// 一个通道的竞速结果：(通道序号, 通道地址, 结果)。
+///
+/// 序号是给汇总报错排序用的：`select_all` 按「谁先完成」返回，而错误信息应该按
+/// 通道优先级排列，读起来才和 `index_channels()` 的顺序对得上。
+type ChannelOutcome = (usize, String, Result<Vec<MarketEntry>, String>);
+
+/// 多通道并行竞速：所有通道同时发请求，**先成功的那条赢**。
+///
+/// 为什么并行而不是串行「先默认地址、失败再镜像」：被墙的典型表现不是立刻报错，
+/// 而是连接挂着直到超时（本仓客户端总超时 20s）。串行意味着国内用户每次打开市场
+/// 都要先白等一次超时。并行只多几个在途请求，换来「最坏等 1 个超时」。
+///
+/// 镜像返回「合法 JSON 但 version 不对 / plugins 不是数组」时按该通道失败处理
+/// （`parse_index` 已经硬失败），继续等别的通道 —— 那通常说明镜像把响应换成了
+/// 错误页或缓存了一份过期格式，换一条通道还有救。
+///
+/// 成功时其余 future 随 `remaining` 一起被 drop，请求随之取消。
+async fn fetch_index_racing(
+    client: &reqwest::Client,
+    channels: &[String],
+) -> Result<(String, Vec<MarketEntry>), String> {
+    if channels.is_empty() {
+        return Err("没有可用的索引通道".to_string());
+    }
+
+    let mut pending: Vec<futures::future::BoxFuture<'_, ChannelOutcome>> = channels
+        .iter()
+        .enumerate()
+        .map(|(index, url)| {
+            Box::pin(async move {
+                let result = fetch_index(client, url).await;
+                (index, url.clone(), result)
+            }) as futures::future::BoxFuture<'_, ChannelOutcome>
+        })
+        .collect();
+
+    let mut failures: Vec<(usize, String)> = Vec::new();
+    while !pending.is_empty() {
+        // `select_all` 就是 N 路版的 `select`：只等最先完成的那条，其余原样还回来，
+        // 所以一条失败不会连带丢掉还没跑完的通道。
+        let (outcome, _completed, remaining) = futures::future::select_all(pending).await;
+        let (index, url, result) = outcome;
+        match result {
+            Ok(plugins) => return Ok((url, plugins)),
+            Err(reason) => {
+                failures.push((index, reason));
+                pending = remaining;
+            }
+        }
+    }
+
+    failures.sort_by_key(|(index, _)| *index);
+    Err(all_channels_failed(&failures))
+}
+
+/// 所有通道都失败时的报错：逐条列出每个通道的原因。
+///
+/// 只说「都失败了」对排查没有价值 —— 用户/我们需要知道是「全被 TLS reset」、
+/// 「镜像返回了错误页」还是「只有 jsDelivr 的缓存格式过期」。
+fn all_channels_failed(failures: &[(usize, String)]) -> String {
+    let mut message = String::from("所有索引通道均失败：");
+    for (_, reason) in failures {
+        message.push_str("\n  - ");
+        message.push_str(reason);
+    }
+    message.push_str(
+        "\n可以先用环境变量 QMAI_PLUGIN_INDEX_URL 指向一个可访问的索引地址，\
+         或在「插件管理 → 从 GitHub 安装」里手动粘贴仓库地址安装。",
+    );
+    message
 }
 
 fn read_cache(path: &Path) -> Option<MarketCache> {
@@ -292,6 +441,8 @@ fn cached_index(cache: &MarketCache, url: &str, degraded: bool) -> MarketIndex {
         from_cache: degraded,
         fetched_at: Some(cache.fetched_at),
         source_url: url.to_string(),
+        // 缓存不是任何一条通道「这次」给的，所以没有命中通道可报。
+        via: None,
     }
 }
 
@@ -749,6 +900,11 @@ mod tests {
             .expect("自建市场地址必须可用");
 
         assert_eq!(index.source_url, url);
+        assert_eq!(
+            index.via.as_deref(),
+            Some(url.as_str()),
+            "指定了唯一通道时，命中通道就是它"
+        );
         assert!(
             index.plugins.is_empty(),
             "空索引是合法索引（首版市场就是空的）"
@@ -763,9 +919,129 @@ mod tests {
         );
         assert!(
             first.contains(
-                &format!("user-agent: qmai/{}", env!("CARGO_PKG_VERSION")).to_ascii_lowercase()
+                &format!("user-agent: qmai/{}", env!("CARGO_PKG_VERSION")).to_lowercase()
             ),
             "请求必须带可辨识的 UA：{first}"
         );
+    }
+
+    #[test]
+    fn index_channels_returns_default_plus_mirrors() {
+        // 只测纯函数：环境变量是进程级全局状态，多线程测试里读它会被别的用例污染。
+        let channels = index_channels_with(None);
+
+        assert_eq!(
+            channels.len(),
+            4,
+            "默认应是 1 个权威地址 + 3 个镜像：{channels:?}"
+        );
+        assert!(
+            channels[0].starts_with("https://raw.githubusercontent.com/"),
+            "第一个必须是权威地址（首个通道同时决定缓存降级时回报的 sourceUrl）：{}",
+            channels[0]
+        );
+        assert!(
+            channels[1].starts_with("https://cdn.jsdelivr.net/gh/Mochocyang/QMAI@main/"),
+            "第二个应是 jsDelivr 镜像：{}",
+            channels[1]
+        );
+        assert!(
+            channels[2].starts_with("https://ghproxy.net/https://raw.githubusercontent.com/"),
+            "第三个应是 ghproxy.net 前缀镜像：{}",
+            channels[2]
+        );
+        assert!(
+            channels[3].starts_with("https://gh-proxy.com/https://raw.githubusercontent.com/"),
+            "第四个应是 gh-proxy.com 前缀镜像：{}",
+            channels[3]
+        );
+
+        // 空串等于没配：手滑 `set X=` 不该让市场静默变成「没有通道」
+        assert_eq!(
+            index_channels_with(Some("   ".to_string())).len(),
+            4,
+            "空白环境变量必须按未配置处理"
+        );
+    }
+
+    #[test]
+    fn index_channels_env_override_returns_only_that() {
+        let url = "http://127.0.0.1:8123/self-hosted/index.json".to_string();
+        let channels = index_channels_with(Some(url.clone()));
+
+        assert_eq!(
+            channels,
+            vec![url],
+            "用户显式指定地址时不能掺镜像（否则会出现「我指定了 A 却在读 B」）"
+        );
+    }
+
+    #[tokio::test]
+    async fn load_index_wins_with_first_successful_channel() {
+        let root = TempRoot::new("race-win");
+        // 通道 1 明确失败（500），通道 2 正常：竞速必须用通道 2 的结果。
+        let broken = StubHttp::spawn(500, "boom");
+        let good = StubHttp::spawn(200, &index_json(&[GOOD_ENTRY]));
+        let channels = vec![broken.base.clone(), good.base.clone()];
+
+        let index = load_index_with_channels(&client(), root.path(), false, &channels)
+            .await
+            .expect("有任一通道成功就必须拿到清单");
+
+        assert_eq!(index.plugins.len(), 1);
+        assert_eq!(index.plugins[0].id, "chapter-metrics");
+        assert!(!index.from_cache, "真的拉到了清单，不是降级");
+        assert_eq!(
+            index.via.as_deref(),
+            Some(good.base.as_str()),
+            "via 必须回报真正命中的通道"
+        );
+        assert_eq!(index.source_url, good.base, "sourceUrl 与 via 同义");
+    }
+
+    #[tokio::test]
+    async fn load_index_skips_channel_returning_wrong_version() {
+        let root = TempRoot::new("race-wrong-version");
+        // 合法 JSON、但 version 不对：说明这条通道返的是过期格式/错误页，判该通道失败。
+        let outdated = StubHttp::spawn(200, r#"{"version":2,"plugins":[]}"#);
+        let good = StubHttp::spawn(200, &index_json(&[GOOD_ENTRY]));
+        let channels = vec![outdated.base.clone(), good.base.clone()];
+
+        let index = load_index_with_channels(&client(), root.path(), false, &channels)
+            .await
+            .expect("版本不对只该让该通道失败，不该让整个市场失败");
+
+        assert_eq!(
+            index.via.as_deref(),
+            Some(good.base.as_str()),
+            "必须继续等其它通道，并用通道 2 的结果"
+        );
+        assert_eq!(index.plugins.len(), 1);
+        assert!(!index.from_cache);
+    }
+
+    #[tokio::test]
+    async fn load_index_reports_all_channel_failures() {
+        let root = TempRoot::new("race-all-fail");
+        let broken = StubHttp::spawn(503, "down");
+        let outdated = StubHttp::spawn(200, r#"{"version":2,"plugins":[]}"#);
+        let channels = vec![broken.base.clone(), outdated.base.clone()];
+
+        let error = load_index_with_channels(&client(), root.path(), false, &channels)
+            .await
+            .expect_err("全部通道失败且无缓存时必须报错");
+
+        for channel in &channels {
+            assert!(
+                error.contains(channel),
+                "报错要逐条列出每个通道的地址，缺了 {channel}：{error}"
+            );
+        }
+        assert!(error.contains("503"), "状态码要带出来：{error}");
+        assert!(
+            error.contains("版本"),
+            "版本不匹配的原因也要带出来：{error}"
+        );
+        assert!(!cache_path(root.path()).exists(), "全失败不该留下缓存");
     }
 }
