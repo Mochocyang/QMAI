@@ -24,6 +24,20 @@ export interface Env {
   ENVIRONMENT?: string
   PASSWORD_ITERATIONS?: string
   ALLOW_DEV_CODE?: string
+  /**
+   * 百度网盘开放平台的 AppKey（即 OAuth 的 client_id）。
+   *
+   * AppKey 是公开标识，放在 vars 里没问题；真正敏感的 AppSecret 必须走
+   * `wrangler secret put BAIDU_APP_SECRET`，绝不出现在仓库与 wrangler.toml。
+   */
+  BAIDU_APP_KEY?: string
+  /** 百度网盘开放平台的 SecretKey（client_secret）。只能存在于 Worker secret。 */
+  BAIDU_APP_SECRET?: string
+  /**
+   * 授权回调地址，必须与百度开放平台【安全设置】里配置的完全一致。
+   * 抽成变量是因为本地调试要走 ngrok/自定义域名，硬编码会让两处漂移。
+   */
+  BAIDU_REDIRECT_URI?: string
 }
 
 export type CodePurpose = "register" | "reset"

@@ -31,6 +31,13 @@ import {
   handlePutModelConfig,
 } from "./model-config"
 import { cleanupExpiredData } from "./db"
+import {
+  cleanupBaiduSessions,
+  handleBaiduBegin,
+  handleBaiduCallback,
+  handleBaiduPoll,
+  handleBaiduRefresh,
+} from "./baidu-oauth"
 import { hashRefreshToken } from "./crypto"
 import type { Env } from "./types"
 
@@ -53,6 +60,12 @@ const ROUTES: Record<string, RouteHandler> = {
   "GET /v1/model-config": handleGetModelConfig,
   "PUT /v1/model-config": handlePutModelConfig,
   "DELETE /v1/model-config": handleDeleteModelConfig,
+  // 百度网盘授权中转：begin 取授权链接、poll 取 token（取走即删）。
+  // callback 不在 /v1 下（百度直接把浏览器重定向过来），单独处理。
+  "POST /v1/oauth/baidu/begin": handleBaiduBegin,
+  "GET /v1/oauth/baidu/poll": handleBaiduPoll,
+  // 刷新 access_token：同样要 secret，因此也只能在服务端做。
+  "POST /v1/oauth/baidu/refresh": handleBaiduRefresh,
 }
 
 /** 头像读取是公开路径：`/v1/account/avatar/{userId}`。 */
@@ -104,6 +117,18 @@ export default {
     }
 
     const path = new URL(request.url).pathname
+
+    /*
+     * 百度 OAuth 回调：浏览器被 302 过来，不是 XHR。
+     * 两点要注意：
+     *   1. 不能套 CORS 头（没必要，而且会让人误以为是 API）；
+     *   2. 不需要 JWT —— 它靠 state 与数据库里的会话行做校验。
+     * 放在最前面，避免被后面的配置检查与路由表挡住。
+     */
+    if (path === "/oauth/baidu/callback" && request.method === "GET") {
+      return handleBaiduCallback(request, env)
+    }
+
     const handler = ROUTES[`${request.method} ${path}`]
 
     // 头像读取走路径参数，单独匹配。
@@ -145,7 +170,9 @@ export default {
     const now = Math.floor(Date.now() / 1000)
     try {
       const counts = await cleanupExpiredData(env.DB, now)
-      console.log("[account] cleanup_done", counts)
+      // 百度授权中转会话也要扫：过期未取走的 token 不能留在库里。
+      const baiduSessions = await cleanupBaiduSessions(env)
+      console.log("[account] cleanup_done", { ...counts, baiduSessions })
     } catch (error) {
       console.error("[account] cleanup_failed", {
         name: error instanceof Error ? error.name : "UnknownError",

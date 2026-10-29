@@ -6,7 +6,11 @@ compatibility_date = "2026-01-01"
 # 绑自有域名后国内直连可通。workers.dev 仍保留作为兜底入口（老客户端会话里存的是它）。
 workers_dev = true
 routes = [
-  { pattern = "account.qmai.pro", custom_domain = true }
+  { pattern = "account.qmai.pro", custom_domain = true },
+  # 百度网盘 OAuth 回调。百度开放平台【安全设置】里登记的是
+  # https://qmai.pro/oauth/baidu/callback，所以这个子路径必须由本 Worker 接管。
+  # 只精确匹配 /oauth/baidu/*，不碰 qmai.pro 的其它路径（那里是 Pages 站点）。
+  { pattern = "qmai.pro/oauth/baidu/*", zone_name = "qmai.pro" }
 ]
 
 # D1: account data kept separate from analytics-worker and New API gateway.
@@ -27,6 +31,14 @@ ENVIRONMENT = "production"
 PASSWORD_ITERATIONS = "100000"
 # Keep "false" in production; only local debugging may set "true".
 ALLOW_DEV_CODE = "false"
+
+# --- 百度网盘开放平台 ---
+# AppKey 是公开标识（等同 OAuth 的 client_id），放 vars 没问题。
+# 对应应用：青幕AI写作 / AppID 124537589 / 软件·公开发布。
+BAIDU_APP_KEY = "DF39UZkTVpx8M0C9kgsi7Xzlm4M3nntO"
+# 回调地址必须与百度后台【安全设置】里登记的**完全一致**（含路径与结尾）。
+BAIDU_REDIRECT_URI = "https://qmai.pro/oauth/baidu/callback"
+# SecretKey 绝不写在这里 —— 用 `wrangler secret put BAIDU_APP_SECRET` 注入。
 
 # Daily cleanup: rate limit buckets older than 24h, codes older than 7d, sessions 30d past expiry.
 [triggers]
