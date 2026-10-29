@@ -7,6 +7,7 @@ import {
   handleBaiduPoll,
   handleBaiduRefresh,
   normalizeAuthorizedPaths,
+  normalizeTokenPayload,
 } from "../src/baidu-oauth"
 import type { Env } from "../src/types"
 
@@ -492,5 +493,113 @@ describe("授权模式切换", () => {
     )
     const body = (await response.json()) as Record<string, unknown>
     expect(body.authMode).toBe("general")
+  })
+})
+
+
+describe("normalizeTokenPayload", () => {
+  it("reads the flat shape from the general endpoint", () => {
+    const payload = normalizeTokenPayload({
+      access_token: "AT",
+      refresh_token: "RT",
+      expires_in: 2592000,
+      scope: "basic netdisk",
+    })
+    expect(payload.access_token).toBe("AT")
+    expect(payload.refresh_token).toBe("RT")
+    expect(payload.expires_in).toBe(2592000)
+  })
+
+  it("unwraps the data envelope from the directory endpoint", () => {
+    /*
+     * 目录级授权的响应是 { errno, data: {...} }，不是平铺。
+     * 只按平铺解析会让 token 永远是 undefined，
+     * 表现成「百度没有返回访问凭证」——HTTP 200 却失败，很难查。
+     */
+    const payload = normalizeTokenPayload({
+      errno: 0,
+      newno: "",
+      show_msg: "",
+      request_id: 743402410528110592,
+      data: {
+        access_token: "xpan-encrypted",
+        refresh_token: "RT",
+        expires_in: 2592000,
+        scope: "nd_open_read,nd_open_write",
+        authorized_paths: ["/apps/青幕AI写作"],
+      },
+    })
+    expect(payload.access_token).toBe("xpan-encrypted")
+    expect(payload.refresh_token).toBe("RT")
+    expect(payload.scope).toBe("nd_open_read,nd_open_write")
+    expect(payload.authorized_paths).toEqual(["/apps/青幕AI写作"])
+  })
+
+  it("turns a non-zero errno into an error instead of a fake success", () => {
+    const payload = normalizeTokenPayload({ errno: 110, show_msg: "授权码已失效" })
+    expect(payload.access_token).toBeUndefined()
+    expect(payload.error).toBe("errno_110")
+    expect(payload.error_description).toBe("授权码已失效")
+  })
+
+  it("survives garbage input without throwing", () => {
+    expect(normalizeTokenPayload(null).access_token).toBeUndefined()
+    expect(normalizeTokenPayload("nonsense").access_token).toBeUndefined()
+  })
+})
+
+describe("目录级授权回调", () => {
+  it("accepts the nested data shape end to end", async () => {
+    const { env, db } = makeEnv({ BAIDU_AUTH_MODE: "dir" } as Partial<Env>)
+    const begin = (await (
+      await handleBaiduBegin(
+        new Request("https://qmai.pro/v1/oauth/baidu/begin", { method: "POST" }),
+        env,
+      )
+    ).json()) as Record<string, unknown>
+    const sessionId = String(begin.sessionId)
+    const state = new URL(String(begin.authorizeUrl)).searchParams.get("state")!
+
+    vi.stubGlobal("fetch", async () =>
+      new Response(
+        JSON.stringify({
+          errno: 0,
+          request_id: 1,
+          data: {
+            access_token: "xpan-AT",
+            refresh_token: "xpan-RT",
+            expires_in: 2592000,
+            scope: "nd_open_read,nd_open_write",
+            authorized_paths: ["/apps/青幕AI写作"],
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    )
+    try {
+      const res = await handleBaiduCallback(
+        new Request(`https://qmai.pro/oauth/baidu/callback?code=C&state=${state}`),
+        env,
+      )
+      expect(res.status).toBe(200)
+      expect(await res.text()).toContain("授权成功")
+
+      const poll = (await (
+        await handleBaiduPoll(
+          new Request(`https://qmai.pro/v1/oauth/baidu/poll?sessionId=${sessionId}`),
+          env,
+        )
+      ).json()) as Record<string, unknown>
+      expect(poll.status).toBe("authorized")
+      expect(poll.authMode).toBe("dir")
+      expect(poll.authorizedPaths).toEqual(["/apps/青幕AI写作"])
+      const tokens = poll.tokens as Record<string, unknown>
+      expect(tokens.accessToken).toBe("xpan-AT")
+      // 模式要跟着令牌一起给客户端，它据此决定是否做路径校验。
+      expect(tokens.authMode).toBe("dir")
+      expect(db.rows.size).toBe(0)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

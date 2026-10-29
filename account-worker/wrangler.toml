@@ -45,7 +45,7 @@ BAIDU_REDIRECT_URI = "https://qmai.pro/oauth/baidu/callback"
 # 授权模式：general = 通用授权（basic,netdisk，已开通）；
 # dir = 目录级授权（nd_open_read,nd_open_write，需应用先获得该权限）。
 # 目录级授权申请下来后，把这里改成 "dir" 并重新部署即可，不用改代码。
-BAIDU_AUTH_MODE = "general"
+BAIDU_AUTH_MODE = "dir"
 # SecretKey 绝不写在这里 —— 用 `wrangler secret put BAIDU_APP_SECRET` 注入。
 
 # Daily cleanup: rate limit buckets older than 24h, codes older than 7d, sessions 30d past expiry.

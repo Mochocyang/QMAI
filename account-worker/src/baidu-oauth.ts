@@ -282,6 +282,59 @@ interface BaiduTokenPayload {
   error_description?: unknown
 }
 
+/**
+ * 百度的两种授权端点返回结构**不一样**，必须归一化后再用。
+ *
+ * - 通用授权（openapi/oauth/2.0/token）：**平铺**
+ *   `{ access_token, refresh_token, expires_in, scope }`
+ * - 目录级授权（pan.baidu.com/xpan/oauth/get）：**包在 data 里**
+ *   `{ errno: 0, newo: "", request_id, data: { access_token, refresh_token, ... } }`
+ *
+ * 只按平铺解析会让目录级授权永远拿到空 token，表现为「百度没有返回访问凭证」——
+ * 这个坑很隐蔽，因为 HTTP 200 且响应体看起来"正常"。
+ */
+export function normalizeTokenPayload(raw: unknown): BaiduTokenPayload {
+  const root = (raw ?? {}) as Record<string, unknown>
+
+  /*
+   * 目录级响应带 `errno`。**先判 errno 再看 data**：
+   * 失败时通常没有 data，若先判 `data` 存在就会把错误当成"平铺成功"，
+   * 最后报一句含糊的「没有返回访问凭证」，掩盖真正的失败原因。
+   */
+  const errno = typeof root.errno === "number" ? root.errno : null
+  if (errno !== null && errno !== 0) {
+    return {
+      error: `errno_${errno}`,
+      error_description: typeof root.show_msg === "string" ? root.show_msg : undefined,
+    }
+  }
+
+  const data = root.data
+  if (data && typeof data === "object") {
+    const inner = data as Record<string, unknown>
+    return {
+      access_token: inner.access_token,
+      refresh_token: inner.refresh_token,
+      expires_in: inner.expires_in,
+      scope: inner.scope,
+      authorized_paths: inner.authorized_paths,
+      error: typeof root.error === "string" ? root.error : undefined,
+    }
+  }
+
+  // 通用授权：平铺，原样返回。
+  return {
+    access_token: root.access_token,
+    refresh_token: root.refresh_token,
+    expires_in: root.expires_in,
+    scope: root.scope,
+    authorized_paths: root.authorized_paths,
+    error: typeof root.error === "string" ? root.error : undefined,
+    error_description:
+      typeof root.error_description === "string" ? root.error_description : undefined,
+  }
+}
+
 /** 把百度返回的 authorized_paths 归一化成字符串数组。 */
 export function normalizeAuthorizedPaths(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -350,7 +403,7 @@ export async function handleBaiduCallback(request: Request, env: Env): Promise<R
   if (errno || !code) {
     const codeText = errno ?? "missing_code"
     await failSession(env, session.session_id, codeText)
-    console.error("[baidu-oauth] callback_provider_error", { errno: codeText })
+    console.error("[baidu-oauth] callback_provider_error", { errno: codeText, errmsg })
     return html(failurePage(`授权没有完成（${errmsg || codeText}）。请回到软件重试。`))
   }
 
@@ -379,7 +432,8 @@ export async function handleBaiduCallback(request: Request, env: Env): Promise<R
       method: "GET",
       headers: { "User-Agent": "pan.baidu.com" },
     })
-    payload = (await response.json()) as BaiduTokenPayload
+    // 两种端点的返回结构不同，统一成一种再往下走。
+    payload = normalizeTokenPayload(await response.json())
   } catch (error) {
     console.error("[baidu-oauth] token_exchange_network_error", {
       name: error instanceof Error ? error.name : "UnknownError",
@@ -398,7 +452,13 @@ export async function handleBaiduCallback(request: Request, env: Env): Promise<R
           : "no_access_token"
     console.error("[baidu-oauth] token_exchange_rejected", { reason })
     await failSession(env, session.session_id, reason)
-    return html(failurePage("百度没有返回访问凭证，请回到软件重试。"))
+    /*
+     * 把百度给的原因一并显示：授权失败最常见的三种是 scope 未开通、
+     * 回调地址不一致、授权码过期，只说"没有返回凭证"用户与开发者都无法定位。
+     */
+    return html(
+      failurePage(`百度没有返回访问凭证（${reason}）。请回到软件重试。`),
+    )
   }
 
   const tokens = JSON.stringify({
@@ -609,7 +669,7 @@ export async function handleBaiduRefresh(request: Request, env: Env): Promise<Re
       method: "GET",
       headers: { "User-Agent": "pan.baidu.com" },
     })
-    payload = (await response.json()) as BaiduTokenPayload
+    payload = normalizeTokenPayload(await response.json())
   } catch (error) {
     console.error("[baidu-oauth] refresh_network_error", {
       name: error instanceof Error ? error.name : "UnknownError",
