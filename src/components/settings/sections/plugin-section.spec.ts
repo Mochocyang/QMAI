@@ -1,14 +1,59 @@
 // @vitest-environment jsdom
 /**
- * 插件卡片上「设置」入口的判据（纯函数层，不挂载整页）。
+ * 插件卡片的判据与渲染。
  *
- * 这条判据的三个方向都必须挡住：
- *   - 只有 `preview.hasConfig === true` 才显示按钮（否则用户点进去看到空表单）；
- *   - `preview` 缺失/形状不认识时**不显示**（Rust 侧还没补字段时的安全降级）；
- *   - `hasConfig: "true"`（字符串）不算 —— 第三方清单里的脏数据不该换来一个假入口。
+ * 前半段是纯函数（「设置」入口、状态徽章、启用确认档位），不必挂载整页；
+ * 后半段挂载真实的 `PluginSection`，守的是「崩溃原因能不能被用户看到」：
+ *   - `crashed` + 有 `lastError` → 徽章下方必须出现那段红色小字；
+ *   - `crashed` + 没有 `lastError` → 只显示徽章，不许留一个空段落；
+ *   - 其它状态没有 `lastError` 时同样不许渲染（后端将来为别的状态填了原因，
+ *     这一条通用渲染也要自动生效）。
  */
-import { describe, expect, it } from "vitest"
-import { PROCESS_STATE_BADGES, enableConfirmTone, hasPluginConfig, previewConfigSchema } from "./plugin-section"
+import { act, createElement } from "react"
+import { createRoot, type Root } from "react-dom/client"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import type { PluginSummary } from "@/lib/plugins/types"
+import {
+  PROCESS_STATE_BADGES,
+  PluginSection,
+  enableConfirmTone,
+  hasPluginConfig,
+  previewConfigSchema,
+} from "./plugin-section"
+
+// React 19 需要这个标记，act(...) 才不报警告（与仓库里其它组件 spec 一致）。
+;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+const listMock = vi.hoisted(() => vi.fn())
+
+// 卡片挂载时只调 `pluginsApi.list`；启停/卸载等命令这些用例不点，给了桩只是为了
+// 误触时显式失败，而不是掉进真实的 Tauri invoke。
+vi.mock("@/lib/plugins/api", () => ({
+  pluginsApi: {
+    list: listMock,
+    enable: vi.fn(),
+    disable: vi.fn(),
+    uninstall: vi.fn(),
+    install: vi.fn(),
+    installLocal: vi.fn(),
+  },
+}))
+
+// 插槽索引走真实实现会去打 Tauri 命令（jsdom 里没有宿主）：这里给一个空索引，
+// 让测试只关心插件列表卡片本身，不被「插件能力」区的加载状态干扰。
+vi.mock("@/lib/plugins/declarative/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/plugins/declarative/api")>()
+  const { emptySlotIndex } = await import("@/lib/plugins/slots")
+  return {
+    ...actual,
+    usePluginSlotIndex: () => ({
+      index: emptySlotIndex(),
+      loading: false,
+      degraded: false,
+      reload: () => {},
+    }),
+  }
+})
 
 describe("hasPluginConfig", () => {
   it("preview.hasConfig === true 才显示设置入口", () => {
@@ -94,3 +139,127 @@ describe("enableConfirmTone", () => {
     )
   })
 })
+
+/* ------------------------------------------------------------------ *
+ * 崩溃原因（`lastError`）在卡片上的呈现
+ * ------------------------------------------------------------------ */
+
+/** 一条最小的 `plugins_list` 返回项；各用例只覆盖自己关心的字段。 */
+function pluginSummary(overrides: Partial<PluginSummary> = {}): PluginSummary {
+  return {
+    id: "crashy",
+    name: "崩溃插件",
+    version: "1.0.0",
+    description: "",
+    enabled: true,
+    processState: "stopped",
+    grantedPermissions: [],
+    toolCount: 0,
+    sourceRepo: "https://github.com/owner/repo",
+    sourceCommit: "main",
+    ...overrides,
+  }
+}
+
+describe("插件卡片的 lastError", () => {
+  let host: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    host = document.createElement("div")
+    document.body.appendChild(host)
+    root = createRoot(host)
+  })
+
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount()
+    })
+    host.remove()
+    listMock.mockReset()
+  })
+
+  /** 挂载整页（只给一个插件），等异步 `plugins_list` 把卡片渲染出来。 */
+  async function renderCard(plugin: PluginSummary): Promise<HTMLElement> {
+    listMock.mockResolvedValue([plugin])
+    await act(async () => {
+      root.render(createElement(PluginSection))
+    })
+    // `list()` 是异步的：effect 里的 promise 链跑完卡片才会出现，多放几轮微任务。
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const card = host.querySelector<HTMLElement>(`[data-plugin-id="${plugin.id}"]`)
+      if (card) return card
+      await act(async () => {
+        await Promise.resolve()
+      })
+    }
+    throw new Error("插件卡片没有渲染出来（plugins_list 的 mock 没被消费？）")
+  }
+
+  function findButton(card: HTMLElement, label: string): HTMLButtonElement {
+    const button = [...card.querySelectorAll("button")].find(
+      (item) => item.textContent?.trim() === label,
+    )
+    expect(button, `卡片上应有「${label}」按钮`).toBeTruthy()
+    return button!
+  }
+
+  it("crashed 且有 lastError：徽章下方渲染退出原因", async () => {
+    const reason = "插件意外退出（exit code: 3），已停止；重新启用可再试"
+    // 真实后端行为：崩溃后 enabled 仍是 true（Rust 有意不改），所以卡片显示「停用」。
+    const card = await renderCard(
+      pluginSummary({ processState: "crashed", enabled: true, lastError: reason }),
+    )
+
+    expect(card.textContent).toContain("异常退出")
+    const reasonNode = card.querySelector<HTMLElement>("[data-plugin-crash-reason]")
+    expect(reasonNode, "crashed 时必须渲染 data-plugin-crash-reason").toBeTruthy()
+    expect(reasonNode!.textContent).toBe(reason)
+    // 红色小字：与「运行中」的正向颜色区分开
+    expect(reasonNode!.className).toContain("text-destructive")
+  })
+
+  it("crashed 但没有 lastError：只显示徽章，不渲染空段落", async () => {
+    const card = await renderCard(
+      pluginSummary({ processState: "crashed", enabled: true, lastError: null }),
+    )
+
+    expect(card.textContent).toContain("异常退出")
+    expect(card.querySelector("[data-plugin-crash-reason]")).toBeNull()
+    // 「没有值」不能退化成一个空 <p>：卡片上会多出一段无意义的留白。
+    const paragraphs = [...card.querySelectorAll("p")]
+    expect(paragraphs.every((p) => (p.textContent ?? "").trim() !== "")).toBe(true)
+  })
+
+  it("running 且没有 lastError：不渲染原因", async () => {
+    const card = await renderCard(
+      pluginSummary({ processState: "running", enabled: true, lastError: undefined }),
+    )
+
+    expect(card.textContent).toContain("运行中")
+    expect(card.querySelector("[data-plugin-crash-reason]")).toBeNull()
+  })
+
+  it("非 crashed 状态只要后端给了 lastError 也照样显示（通用渲染）", async () => {
+    // 后端目前只在 crashed 时填这个字段，但界面不该把渲染锁死在崩溃分支：
+    // 将来为 failed 等状态补原因时，这条卡片不用再改一次。
+    const card = await renderCard(
+      pluginSummary({
+        processState: "failed",
+        enabled: false,
+        lastError: "启动失败：缺少 runtime.entry 指向的文件",
+      }),
+    )
+
+    expect(card.querySelector("[data-plugin-crash-reason]")?.textContent).toBe(
+      "启动失败：缺少 runtime.entry 指向的文件",
+    )
+  })
+
+  it("「启用」按钮带重试提示（崩溃后先停再启用时也看得到）", async () => {
+    const card = await renderCard(pluginSummary({ processState: "stopped", enabled: false }))
+    // 崩溃后 `lastError` 会被下一次停用清掉，因此这句提示不能绑在 lastError 上。
+    expect(findButton(card, "启用").title).toContain("重新启用会再试一次")
+  })
+})
+

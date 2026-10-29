@@ -2238,7 +2238,11 @@ mod tests {
     }
 
     /// 一个 schema 2 的 provider 清单（声明一条 provider，带 net:listen）。
-    /// startTimeoutMs 取 1s：有 provider 的用例会真的等一轮探活，别拖成 10s。
+    ///
+    /// `startTimeoutMs` 取 **5s** 而不是 1s：它同时是握手预算和探活预算，而本文件
+    /// 有 10+ 条 Node e2e 会并行拉起进程。1s 在满载机器上偶发「未完成握手」的假红
+    /// （本次改动期间就撞到过一次）。放宽只是给并行负载留余量，**不是被测行为** ——
+    /// 真正要验的是「探活失败不让插件死、也不杀进程」，与预算大小无关。
     fn provider_manifest(plugin_id: &str, provider_id: &str) -> String {
         format!(
             r#"{{
@@ -2246,7 +2250,7 @@ mod tests {
                 "id": "{plugin_id}",
                 "name": "Provider 插件",
                 "version": "1.0.0",
-                "runtime": {{ "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }},
+                "runtime": {{ "type": "node", "entry": "index.js", "startTimeoutMs": 5000 }},
                 "permissions": ["net:listen"],
                 "contributes": {{ "providers": [{{ "id": "{provider_id}", "name": "上游", "authKind": "none" }}] }}
             }}"#
@@ -2534,8 +2538,9 @@ mod tests {
 
         let manifest = parsed_manifest(&provider_manifest("probe-fail", "probe-fail"));
         let decl = manifest.contributes.providers[0].clone();
-        // 探活预算仍按清单里的 startTimeoutMs（这个 helper 写的是 1000ms）：
-        // 断言从「按清单取」改为「按值传」后语义不变。
+        // 探活预算**故意保持 1s**：本用例被测的是「探活必须超时，而不是永久挂住或
+        // 误判成功」，清单 helper 里放宽到 5s 是给并行 Node 负载留握手余量，与这里
+        // 无关；跟着放宽只会让这条用例白等 5 秒（没有进程要握手，也没有并行收益）。
         let provider = register_provider(
             &manifest,
             &decl,
@@ -2711,7 +2716,7 @@ rl.on("line", (line) => {
             root.path(),
             "tool-plugin",
             r#"{ "schema": 1, "id": "tool-plugin", "name": "工具", "version": "1.0.0",
-                 "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 } }"#,
+                 "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 5000 } }"#,
             None,
         );
         assert!(manifest_provider_ids(&tool_dir).is_empty());
@@ -2816,7 +2821,7 @@ rl.on("line", (line) => {
                 "id": "{id}",
                 "name": "失败插件",
                 "version": "1.0.0",
-                "runtime": {{ "type": "binary", "entry": "missing-entry.exe", "startTimeoutMs": 1000 }}
+                "runtime": {{ "type": "binary", "entry": "missing-entry.exe", "startTimeoutMs": 5000 }}
             }}"#
         );
         write_plugin(root.path(), id, &manifest, None);
@@ -2862,7 +2867,7 @@ rl.on("line", (line) => {
                 "name": "要求新宿主的插件",
                 "version": "1.0.0",
                 "requires": {{ "qmai": ">=999.0.0" }},
-                "runtime": {{ "type": "binary", "entry": "missing-entry.exe", "startTimeoutMs": 1000 }}
+                "runtime": {{ "type": "binary", "entry": "missing-entry.exe", "startTimeoutMs": 5000 }}
             }}"#
         );
         write_plugin(root.path(), id, &manifest, None);
@@ -3599,7 +3604,7 @@ rl.on("line", (line) => {
                 "id": "{plugin_id}",
                 "name": "{name}",
                 "version": "1.0.0",
-                "runtime": {{ "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }},
+                "runtime": {{ "type": "node", "entry": "index.js", "startTimeoutMs": 5000 }},
                 "contributes": {{
                     "actions": [{{
                         "id": "{action_id}",
@@ -3694,7 +3699,7 @@ rl.on("line", (line) => {
                 "id": "{plugin_id}",
                 "name": "{name}",
                 "version": "1.0.0",
-                "runtime": {{ "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }},
+                "runtime": {{ "type": "node", "entry": "index.js", "startTimeoutMs": 5000 }},
                 "contributes": {{ "hooks": [{hooks}] }}
             }}"#
         )
@@ -3797,7 +3802,7 @@ rl.on("line", (line) => {
                 "name": "未来插件",
                 "version": "1.0.0",
                 "requires": { "qmai": ">=999.0.0" },
-                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 5000 }
             }"#,
         );
         let error = ensure_host_compatible(&manifest).expect_err("宿主版本不可能满足 >=999");
@@ -3819,7 +3824,7 @@ rl.on("line", (line) => {
                 "name": "兼容插件",
                 "version": "1.0.0",
                 "requires": { "qmai": ">=4.0.0" },
-                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 5000 }
             }"#,
         );
         ensure_host_compatible(&manifest).expect(">=4.0.0 应满足当前宿主（4.x）");
@@ -3834,7 +3839,7 @@ rl.on("line", (line) => {
                 "id": "old-plugin",
                 "name": "老插件",
                 "version": "1.0.0",
-                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 5000 }
             }"#,
         );
         ensure_host_compatible(&manifest).expect("没有 requires 字段的插件必须放行");
@@ -3847,7 +3852,7 @@ rl.on("line", (line) => {
                 "name": "空要求",
                 "version": "1.0.0",
                 "requires": { "qmai": "  " },
-                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 5000 }
             }"#,
         );
         ensure_host_compatible(&blank).expect("空白的 requires.qmai 应当放行");
@@ -3863,7 +3868,7 @@ rl.on("line", (line) => {
                 "name": "写歪了",
                 "version": "1.0.0",
                 "requires": { "qmai": "hoo" },
-                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 5000 }
             }"#,
         );
         let error = ensure_host_compatible(&manifest).expect_err("无法解析的要求必须拒绝");
@@ -3885,7 +3890,7 @@ rl.on("line", (line) => {
                 "id": "configurable",
                 "name": "可配置",
                 "version": "1.0.0",
-                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 },
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 5000 },
                 "configSchema": { "type": "object", "properties": { "style": { "type": "string" } } },
                 "preview": { "actions": [{ "id": "a1", "title": "生成" }] }
             }"#,
@@ -3899,7 +3904,7 @@ rl.on("line", (line) => {
                 "id": "plain",
                 "name": "无配置",
                 "version": "1.0.0",
-                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 1000 }
+                "runtime": { "type": "node", "entry": "index.js", "startTimeoutMs": 5000 }
             }"#,
             None,
         );

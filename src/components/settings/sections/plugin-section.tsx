@@ -620,6 +620,29 @@ export function PluginSection() {
                         </span>
                       </div>
 
+                      {/*
+                        进程异常原因（Rust `lastError`）。徽章只说「异常退出」，说不出
+                        「因为 exit code: 3」，用户就分不清是插件自己的 bug、配置写错，
+                        还是宿主把它杀了。红色小字紧贴徽章下方，和「运行中」的绿色正向
+                        状态形成对比。
+
+                        **一条通用渲染，不锁 crashed 分支**：后端将来为别的状态（比如
+                        `failed`）填了原因，这里也能原样显示，不必再改一遍界面。
+                        没有值时不渲染空 `<p>`，避免卡片上多出一段无意义的留白。
+
+                        注意别和 provider 卡片的 `lastError` 混淆：那个是**模型供应商**
+                        （`PluginProviderView`）的探活/抓模型失败，这里是**插件进程**的
+                        退出原因，两者数据源不同，也各自渲染在各自的卡片上。
+                      */}
+                      {plugin.lastError ? (
+                        <p
+                          className="break-words text-xs text-destructive"
+                          data-plugin-crash-reason="true"
+                        >
+                          {plugin.lastError}
+                        </p>
+                      ) : null}
+
                       {plugin.description ? (
                         <p className="break-words text-sm text-muted-foreground">
                           {plugin.description}
@@ -720,6 +743,14 @@ export function PluginSection() {
                           size="sm"
                           disabled={actionsLocked}
                           onClick={() => openEnableDialog(plugin)}
+                          /*
+                            「启用」不只是翻一个开关：它会让宿主真的 spawn 插件进程，
+                            崩过之后再点就是一次重试。这句话**不能只挂在 crashed 上** ——
+                            崩溃后 `enabled` 仍是 true（Rust 侧有意不改），卡片显示的是
+                            「停用」，用户要先停再启用；那一刻 `lastError` 已被清掉，
+                            所以提示必须常驻在「启用」按钮上才真的能被看到。
+                          */
+                          title="重新启用会再试一次：宿主会重新启动这个插件的进程。"
                         >
                           启用
                         </Button>

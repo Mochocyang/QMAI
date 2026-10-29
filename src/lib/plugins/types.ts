@@ -26,6 +26,16 @@ export interface PluginSummary {
     | "crashed"
     | "disabled_by_crash"
     | "declarative"
+  /**
+   * 最近一次异常的说明（Rust `PluginSummary.last_error`，serde camelCase → `lastError`）。
+   *
+   * 目前只有 `processState === "crashed"` 时后端会填（形如
+   * 「插件意外退出（exit code: 3），已停止；重新启用可再试」）—— 光有「异常退出」
+   * 徽章说不出**为什么**崩，用户没法判断是插件 bug 还是自己的配置问题。
+   *
+   * 类型里不按状态收窄：后端将来为别的状态填原因时，界面不需要再改一次。
+   */
+  lastError?: string | null
   grantedPermissions: string[]
   toolCount: number
   sourceRepo: string
