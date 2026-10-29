@@ -5,12 +5,11 @@
 //! 回环 HTTP 天然满足（只绑 127.0.0.1），并且每个插件一条独立 token，泄漏面被限在单个插件。
 //!
 //! 本文件分两层：
-//!   1. 纯函数（`require` / `is_inside` / `canonical_inside` / `is_safe_url`）——
+//!   1. 纯函数（`require` / `is_inside` / `canonical_inside`）——
 //!      安全判定的全部逻辑，可单测；
 //!   2. HTTP 层（`router` / `start`）—— 只做接线：取 token → 查权限 → 调纯函数。
 
 use std::collections::HashMap;
-use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -92,83 +91,22 @@ fn normalize_lexically(p: &Path) -> PathBuf {
     out
 }
 
-/// 只做语法判定，**不做 DNS 解析**。
-///
-/// 已知取舍：`https://evil.com` 若解析到 127.0.0.1 仍会通过 —— 不做解析**不是**规避
-/// DNS rebinding，而是保留了它。之所以接受，是因为插件本身是与宿主同权的本地进程，
-/// 它本可直接连该地址。真正实现 net/fetch 时必须 resolve-then-pin（解析后按 IP 复查并钉住）。
-pub fn is_safe_url(raw: &str) -> bool {
-    let Ok(u) = url::Url::parse(raw) else {
-        return false;
-    };
-    if u.scheme() != "https" {
-        return false;
-    }
-    // 用 `host()` 而不是 `host_str()` + 字符串解析：`host_str()` 对 IPv6 带方括号
-    // （`[::1]`），`parse::<IpAddr>()` 会失败，于是回环地址被当成「域名」放过去。
-    // `host()` 已经替我们做完归一化（数字型 host 一律解析成 Ipv4/Ipv6 变体）。
-    let Some(host) = u.host() else {
-        return false;
-    };
-    match host {
-        url::Host::Ipv4(ip) => is_public_v4(ip),
-        url::Host::Ipv6(ip) => match ip.to_ipv4_mapped() {
-            // `::ffff:192.168.1.1` 这类映射地址按内嵌的 IPv4 判，
-            // 否则它们会绕过私有网段检查（经典 SSRF 绕过手法）。
-            Some(v4) => is_public_v4(v4),
-            None => !is_blocked_v6(ip),
-        },
-        url::Host::Domain(domain) => {
-            // 先去掉尾点：`localhost.` 是合法的绝对域名写法，能绕过下面唯一那条规则。
-            let host = domain.trim_end_matches('.');
-            let lower = host.to_ascii_lowercase();
-            if lower == "localhost" || lower.ends_with(".localhost") {
-                return false;
-            }
-            // 其余域名一律放行：只做语法判定、不做 DNS 解析（已知取舍见函数文档）。
-            true
-        }
-    }
-}
-
-fn is_public_v4(ip: Ipv4Addr) -> bool {
-    let octets = ip.octets();
-    !(ip.is_loopback()
-        || ip.is_private()
-        || ip.is_link_local()
-        || ip.is_unspecified()
-        || ip.is_broadcast()
-        || ip.is_documentation()
-        || ip.is_multicast()
-        // 100.64.0.0/10 CGNAT：运营商级 NAT 段，宿主所在内网的常见邻居
-        || (octets[0] == 100 && (64..=127).contains(&octets[1]))
-        // 198.18.0.0/15 基准测试段
-        || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19))
-        // 240.0.0.0/4 保留段（含 255.255.255.255 广播）
-        || octets[0] >= 240)
-}
-
-fn is_blocked_v6(ip: Ipv6Addr) -> bool {
-    let segments = ip.segments();
-    // `IpAddr` 上只有 is_loopback / is_unspecified，私有段（fc00::/7）、链路本地
-    // （fe80::/10）与组播必须走 `Ipv6Addr` 自己的判定。
-    if ip.is_loopback()
-        || ip.is_unspecified()
-        || ip.is_unique_local()
-        || ip.is_unicast_link_local()
-        || ip.is_multicast()
-    {
-        return true;
-    }
-    // NAT64 64:ff9b::/96：内嵌的 IPv4 会被网关送到外部（含 127.0.0.1），
-    // `to_ipv4_mapped()` 认不出它，只能显式按前缀挡。
-    segments[0] == 0x0064
-        && segments[1] == 0xff9b
-        && segments[2] == 0
-        && segments[3] == 0
-        && segments[4] == 0
-        && segments[5] == 0
-}
+// ── 关于 net/fetch（尚未实现）──────────────────────────────
+//
+// 这里曾有三个从未被调用的守卫：is_safe_url / is_public_v4 / is_blocked_v6，
+// 是为「插件让宿主去抓某个 URL」这个能力预留的。该能力至今未实现（没有任何端点），
+// 所以它们是纯死代码，已删除 —— 保留"从未接线的安全代码"比没有更危险：
+// 它会让后来人以为防护已经存在。
+//
+// 将来真要实现 net/fetch，必须带走的经验（原注释要点）：
+//  1. 只做语法判定是不够的，**必须 resolve-then-pin**：解析域名拿到 IP，按 IP 复查，
+//     并钉住该 IP 去连接（否则 DNS rebinding 可以绕过）。
+//  2. IPv6 字面量要用 `url::Url::host()` 判断，不要用 `host_str()` + `parse::<IpAddr>()`：
+//     `host_str()` 对 IPv6 返回带方括号的 `[::1]`，`parse` 会失败，于是**回环地址被当成域名放过去**。
+//  3. 要拦的是：非 https、回环（127/8、::1）、私网（10/8、172.16/12、192.168/16、fc00::/7）、
+//     链路本地（169.254/16、fe80::/10）、以及 0.0.0.0 与广播地址。
+//  4. 插件与宿主同权、本可直接连任何地址，所以这道守卫防的**不是**恶意插件，
+//     而是"插件把用户凭据发到我们没审计过的地方"这类间接风险。
 
 // ---------------------------------------------------------------------------
 // HTTP 层
@@ -727,50 +665,6 @@ mod tests {
         let root = Path::new("/novel/book");
         assert!(!is_inside(root, "/novel/book/../../etc/passwd"));
         assert!(!is_inside(root, "/novel/book/wiki/../../../etc/passwd"));
-    }
-
-    #[test]
-    fn net_url_must_be_https_and_public() {
-        assert!(is_safe_url("https://api.example.com/x"));
-        assert!(!is_safe_url("http://api.example.com/x"));
-        assert!(!is_safe_url("https://127.0.0.1:8080/x"));
-        assert!(!is_safe_url("https://192.168.1.1/x"));
-        assert!(!is_safe_url("https://10.0.0.5/x"));
-        assert!(!is_safe_url("https://localhost/x"));
-        assert!(!is_safe_url("file:///etc/passwd"));
-    }
-
-    /// 审查用探针实测能通过的形态（尾点 FQDN、CGNAT、组播、NAT64 …）
-    #[test]
-    fn net_url_rejects_ssrf_edge_forms() {
-        // 尾点是「绝对域名」的合法写法，能绕过唯一的 localhost 规则
-        assert!(!is_safe_url("https://localhost./x"));
-        assert!(!is_safe_url("https://api.localhost./x"));
-        assert!(!is_safe_url("https://LOCALHOST/x"));
-        // CGNAT 100.64.0.0/10、组播、基准测试段、保留段、广播
-        assert!(!is_safe_url("https://100.64.0.1/x"));
-        assert!(!is_safe_url("https://224.0.0.1/x"));
-        assert!(!is_safe_url("https://198.18.0.1/x"));
-        assert!(!is_safe_url("https://240.0.0.1/x"));
-        assert!(!is_safe_url("https://255.255.255.255/x"));
-        assert!(!is_safe_url("https://0.0.0.0/x"));
-        assert!(!is_safe_url("https://169.254.169.254/latest/meta-data/"));
-        // IPv6：回环、未指定、唯一本地、链路本地、组播、IPv4 映射、NAT64
-        assert!(!is_safe_url("https://[::1]/x"));
-        assert!(!is_safe_url("https://[::]/x"));
-        assert!(!is_safe_url("https://[fd00::1]/x"));
-        assert!(!is_safe_url("https://[fe80::1]/x"));
-        assert!(!is_safe_url("https://[ff02::1]/x"));
-        assert!(!is_safe_url("https://[::ffff:192.168.1.1]/x"));
-        assert!(!is_safe_url("https://[64:ff9b::7f00:1]/x"));
-        // 非 https 的其它 scheme 一律拒
-        assert!(!is_safe_url("ftp://api.example.com/x"));
-        assert!(!is_safe_url("ws://api.example.com/x"));
-        assert!(!is_safe_url("wss://api.example.com/x"));
-        assert!(!is_safe_url("javascript:alert(1)"));
-        // 正常公网域名仍要放行，别把闸门做成「全拒」
-        assert!(is_safe_url("https://api.example.com/x"));
-        assert!(is_safe_url("https://8.8.8.8/x"));
     }
 
     #[test]

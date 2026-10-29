@@ -236,7 +236,8 @@ pub struct HookDecl {
     /// 同一份清单在两台机器上会得到不同的提示词改写顺序 —— 那种 bug 无法复现（D7）。
     #[serde(default)]
     pub priority: i32,
-    /// 本钩子的超时预算；缺省按事件类型的默认值（见 `hook_default_timeout_ms`）。
+    /// 本钩子的超时预算；缺省按事件类型的默认值（唯一真源是前端
+    /// `HOOK_DEFAULT_TIMEOUT_MS`，Rust 侧只校验上界）。
     ///
     /// 为什么允许覆盖：默认值是按「事件类型」定的（请求前后 8s / 工作流 15s /
     /// 观测 2s），但同一组里也有快慢之分 —— 一个只做正则替换的 `afterLlmResponse`
@@ -368,7 +369,7 @@ const V3_SCHEMA: u32 = 3;
 /// **这是 warn 的白名单，不是拒装的闸门** —— 未知值只忽略（见 `warn_unknown_kinds`）。
 const KNOWN_KINDS: &[&str] = &["declarative"];
 
-/// 钩子事件（设计 §5.1）。**受控资源**：新增需评审。
+/// 钩子事件白名单（**受控资源**，新增需评审）。设计 §5.1。
 ///
 /// 为什么是白名单而不是「任意字符串 + 宿主不认识就忽略」：事件名是宿主与插件之间
 /// 唯一的触发协议，宿主**没有办法**替一个自己不认识的事件名做任何事 —— 它既不会
@@ -380,23 +381,23 @@ const KNOWN_KINDS: &[&str] = &["declarative"];
 /// （插件清单里写死它），而且每加一个事件就多一个宿主必须真的去调用的接缝 ——
 /// 声明了却不调用的钩子比没有更糟。所以是受控资源，不是随手加。
 ///
-/// 元组第二项是该事件的默认超时毫秒数（D6：请求前后 8s / 工作流 15s / 观测 2s）。
-/// 独立预算而不是一个全局值：观测类钩子只发一条通知，给它 15s 等于让一个坏插件
-/// 在每次模型调用后卡住 UI。
-pub const HOOK_EVENTS: &[(&str, u64)] = &[
+/// 默认超时不在这里：它由前端 dispatcher 持有（`HOOK_DEFAULT_TIMEOUT_MS`，唯一真源）。
+/// 宿主只负责校验上界 `MAX_HOOK_TIMEOUT_MS`。早先 Rust 侧也有
+/// 一份 per-event 毫秒表，但从未被生产代码消费，已删以免两处漂移。
+pub const HOOK_EVENTS: &[&str] = &[
     // 请求前 / 响应后：模型增强（注入系统提示词、去 AI 味、格式规整）
-    ("beforeLlmRequest", 8_000),
-    ("afterLlmResponse", 8_000),
+    "beforeLlmRequest",
+    "afterLlmResponse",
     // 工作流：起草 / 审稿 / 润色 各自的进出门
-    ("beforeChapterDraft", 15_000),
-    ("afterChapterDraft", 15_000),
-    ("beforeReview", 15_000),
-    ("afterReview", 15_000),
-    ("beforePolish", 15_000),
-    ("afterPolish", 15_000),
+    "beforeChapterDraft",
+    "afterChapterDraft",
+    "beforeReview",
+    "afterReview",
+    "beforePolish",
+    "afterPolish",
     // 观测：纯通知（用量、成本、章节完成）
-    ("onLlmUsage", 2_000),
-    ("onChapterCompleted", 2_000),
+    "onLlmUsage",
+    "onChapterCompleted",
 ];
 
 /// 单个钩子超时的上限。超过它就说明作者在用一个钩子做整章重写 ——
@@ -405,16 +406,7 @@ pub const MAX_HOOK_TIMEOUT_MS: u64 = 120_000;
 
 /// 事件是否在 `HOOK_EVENTS` 白名单内。
 fn is_known_hook_event(event: &str) -> bool {
-    HOOK_EVENTS.iter().any(|(name, _)| *name == event)
-}
-
-/// 事件对应的默认超时（毫秒）。未知事件返回 `None`：调用方（`validate_v3`）
-/// 已经在更早的一步拒过未知事件，这里只需不 panic。
-pub fn hook_default_timeout_ms(event: &str) -> Option<u64> {
-    HOOK_EVENTS
-        .iter()
-        .find(|(name, _)| *name == event)
-        .map(|(_, timeout)| *timeout)
+    HOOK_EVENTS.contains(&event)
 }
 
 /// `E_HOOK_EVENT_UNKNOWN` 的 detail 里要列出的合法事件名。
@@ -422,11 +414,7 @@ pub fn hook_default_timeout_ms(event: &str) -> Option<u64> {
 /// 从 `HOOK_EVENTS` 现算而不是另写一份字面量：手抄的清单迟早和新事件表对不上，
 /// 而这条 detail 正是作者修清单时唯一会看的东西。
 fn hook_event_names() -> String {
-    HOOK_EVENTS
-        .iter()
-        .map(|(name, _)| *name)
-        .collect::<Vec<_>>()
-        .join(" / ")
+    HOOK_EVENTS.join(" / ")
 }
 
 /// 宿主对外暴露的插槽（设计 §6.1）。**受控资源**：新增需评审并 bump 版本。
@@ -2211,40 +2199,16 @@ mod tests {
     }
 
     #[test]
-    fn hook_default_timeout_matches_event_table() {
-        // D6：独立预算 —— 请求前后 8s / 工作流 15s / 观测 2s。
-        assert_eq!(hook_default_timeout_ms("beforeLlmRequest"), Some(8_000));
-        assert_eq!(hook_default_timeout_ms("afterLlmResponse"), Some(8_000));
-        for event in [
-            "beforeChapterDraft",
-            "afterChapterDraft",
-            "beforeReview",
-            "afterReview",
-            "beforePolish",
-            "afterPolish",
-        ] {
-            assert_eq!(
-                hook_default_timeout_ms(event),
-                Some(15_000),
-                "工作流事件 {event} 的默认预算应为 15s"
-            );
-        }
-        assert_eq!(hook_default_timeout_ms("onLlmUsage"), Some(2_000));
-        assert_eq!(hook_default_timeout_ms("onChapterCompleted"), Some(2_000));
-        // 未知事件返回 None（不 panic）：调用方已经先拒过未知事件
-        assert_eq!(hook_default_timeout_ms("noSuchEvent"), None);
-
+    fn hook_event_names_are_unique() {
         // 事件名不能重复：重复的事件名会让「同一个事件触发两次」变成只出现在
         // 某些调用点上的随机行为，而查表永远只命中第一个。
-        let mut names: Vec<&str> = HOOK_EVENTS.iter().map(|(name, _)| *name).collect();
+        //
+        // 各事件的默认超时不在这里断言：唯一真源在前端
+        // `HOOK_DEFAULT_TIMEOUT_MS`，由 `types.spec.ts` 守着那些数字。
+        let mut names: Vec<&str> = HOOK_EVENTS.to_vec();
         let total = names.len();
         names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), total, "HOOK_EVENTS 里的事件名必须唯一");
-        // 默认预算不能是 0：「按事件类型的默认值」若为 0，等于每条钩子都立刻超时。
-        assert!(
-            HOOK_EVENTS.iter().all(|(_, timeout)| *timeout > 0),
-            "每个事件的默认超时都必须 > 0"
-        );
     }
 }

@@ -45,7 +45,13 @@ export const HOOK_EVENTS: readonly HookEvent[] = [
   "onChapterCompleted",
 ]
 
-/** 事件默认超时（毫秒）。与 Rust 侧 `HOOK_EVENTS` 表保持一致（设计 §5.3 独立预算）。 */
+/**
+ * 事件默认超时（毫秒，设计 §5.3 独立预算）。
+ *
+ * **唯一真源**：Rust 侧不再有副本 —— 那边的 `HOOK_EVENTS` 只存事件名，宿主只校验
+ * 上界 `MAX_HOOK_TIMEOUT_MS`。改这里的数值无需同步任何 Rust 代码；也请不要再在
+ * Rust 里加一张 per-event 表：两处各存一份，迟早会漂移。
+ */
 export const HOOK_DEFAULT_TIMEOUT_MS: Record<HookEvent, number> = {
   beforeLlmRequest: 8_000,
   afterLlmResponse: 8_000,

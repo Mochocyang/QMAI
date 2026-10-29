@@ -98,7 +98,6 @@ impl PluginRegistry {
         Ok(Self { file })
     }
 
-    pub fn entries(&self) -> impl Iterator<Item = &RegistryEntry> { self.file.plugins.values() }
     pub fn get(&self, id: &str) -> Option<&RegistryEntry> { self.file.plugins.get(id) }
     pub fn list(&self) -> Vec<RegistryEntry> { self.file.plugins.values().cloned().collect() }
     pub fn upsert(&mut self, entry: RegistryEntry) { self.file.plugins.insert(entry.id.clone(), entry); }
@@ -188,7 +187,7 @@ mod tests {
     fn empty_registry_when_file_absent() {
         let root = temp_root();
         let reg = PluginRegistry::load(&root).unwrap();
-        assert_eq!(reg.entries().count(), 0);
+        assert!(reg.list().is_empty());
         assert_eq!(reg.file.version, 1);
     }
 
