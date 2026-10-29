@@ -19,6 +19,13 @@ pub struct SourceSpec {
     pub owner: String,
     pub repo: String,
     pub git_ref: String,
+    /// true = 用户没写 `@ref`，`git_ref` 只是占位；安装时应先查仓库的默认分支。
+    ///
+    /// 为什么不能猜 `main`：GitHub 上大量仓库（2020 年前创建的几乎都是，以及很多
+    /// 中文开源项目）默认分支是 `master`，还有 `develop` / `trunk` 等。猜错的表现是
+    /// 「所有下载通道均失败」——用户完全看不出真实原因。实测 `octocat/Hello-World`
+    /// 默认是 `master`，猜 `main` 时六个候选通道全部 404。
+    pub git_ref_defaulted: bool,
 }
 
 /// 解析用户粘贴的 GitHub 地址。
@@ -57,14 +64,16 @@ pub fn parse_source(raw: &str) -> Result<SourceSpec, String> {
     if rest.is_empty() {
         return Err(bad_shape());
     }
-    let (repo_raw, git_ref) = match rest.split_once('@') {
-        Some((repo, git_ref)) => (repo, git_ref),
+    let (repo_raw, git_ref, git_ref_defaulted) = match rest.split_once('@') {
+        Some((repo, git_ref)) => (repo, git_ref, false),
         None => {
             // 剩余的段里还有 `/`：说明用户粘的是 `/tree/main` 之类的页面地址
             if rest.contains('/') {
                 return Err(bad_shape());
             }
-            (rest, "main")
+            // 占位值仍固定 `main`（保持既有语义、下游无需处理 Option），
+            // 但标记它只是占位：install() 必须先查仓库的真实默认分支。
+            (rest, "main", true)
         }
     };
     let repo = repo_raw.strip_suffix(".git").unwrap_or(repo_raw);
@@ -82,6 +91,7 @@ pub fn parse_source(raw: &str) -> Result<SourceSpec, String> {
         owner: owner.to_string(),
         repo: repo.to_string(),
         git_ref: git_ref.to_string(),
+        git_ref_defaulted,
     })
 }
 
@@ -118,34 +128,113 @@ fn looks_like_tag(git_ref: &str) -> bool {
     !body.is_empty() && body.chars().all(|c| c.is_ascii_digit() || c == '.')
 }
 
-/// 下载候选：加速通道优先，codeload 直连兜底（与 update-channels.json 同策略）。
+/// GitHub API 根地址。抽成参数只为了测试能把它指向本机 TCP 桩。
+const GITHUB_API_BASE: &str = "https://api.github.com";
+
+/// 查仓库的默认分支。
+///
+/// 不能猜 `main`：GitHub 上大量仓库默认分支是 `master`（2020 年前创建的几乎都是），
+/// 还有 `develop` / `trunk` 等。猜错的表现是「所有通道 404」，用户完全看不出原因。
+/// 实测：octocat/Hello-World 默认是 master，猜 main 时六个通道全 404。
+///
+/// 任何失败（网络 / 404 / 限流 / 字段缺失 / 分支名非法）都返回 `None`，
+/// 由调用方走 `main` + `master` 的兜底候选——「查不到」不等于「装不了」。
+pub async fn resolve_default_branch(
+    client: &reqwest::Client,
+    owner: &str,
+    repo: &str,
+) -> Option<String> {
+    resolve_default_branch_at(client, GITHUB_API_BASE, owner, repo).await
+}
+
+/// `resolve_default_branch` 的可注入版本：`api_base` 在测试里指向本机桩。
+async fn resolve_default_branch_at(
+    client: &reqwest::Client,
+    api_base: &str,
+    owner: &str,
+    repo: &str,
+) -> Option<String> {
+    let url = format!("{api_base}/repos/{owner}/{repo}");
+    let resp = client
+        .get(&url)
+        // GitHub API 对没有 User-Agent 的请求直接 403（archive 下载不需要 UA，但 API 需要）。
+        // 用 `qmai/<版本>` 让 GitHub 能识别调用方，也方便出问题时对账。
+        .header(
+            reqwest::header::USER_AGENT,
+            format!("qmai/{}", env!("CARGO_PKG_VERSION")),
+        )
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        // 5 秒：查默认分支只是让下载更准的辅助步骤，不能把「安装」拖成几十秒。
+        // 单请求超时而不是改 client 的总超时，避免影响真正下载 zip 的那条路径。
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = resp.json().await.ok()?;
+    let branch = body.get("default_branch")?.as_str()?.trim();
+    // 分支名会直接拼进下载 URL。API 正常时不会是怪字符，但这里是外部输入，
+    // 仍按 ref 的白名单过一遍；不合格就当作「没查到」，走兜底而不是拼出畸形 URL。
+    if branch.is_empty() || !is_valid_ref(branch) {
+        return None;
+    }
+    Some(branch.to_string())
+}
+
+/// 单个通道的下载候选：返回 `(url, 所属 ref)`。
 ///
 /// GitHub 的分支在 `refs/heads` 下、tag 在 `refs/tags` 下，两者 URL 不通用，
-/// 所以每个通道都要试两条路径。顺序按 ref 形态决定：分支先试 heads，版本号先试 tags，
-/// 避免每次安装都白跑三个必然 404。
-pub fn download_urls(owner: &str, repo: &str, git_ref: &str) -> Vec<String> {
-    const BASES: [&str; 3] = ["gh-proxy.com/", "ghproxy.net/", "codeload.github.com/"];
-    let kinds: [&str; 2] = if looks_like_tag(git_ref) {
-        ["tags", "heads"]
-    } else {
-        ["heads", "tags"]
-    };
-    let mut out = Vec::with_capacity(6);
-    for base in BASES {
+/// 所以每个 ref 都要试两条路径。顺序按 ref 形态决定：分支先试 heads，版本号先试 tags，
+/// 避免每次安装都白跑必然 404 的那条。
+///
+/// 多 ref 时按 ref 相邻展开：同一个通道里先试完 main 再试 master，
+/// 使「默认分支猜错」的代价从「跑完所有通道再回头」降到「同一通道内多一次请求」。
+fn candidates_for_base(
+    base: &str,
+    owner: &str,
+    repo: &str,
+    refs: &[&str],
+) -> Vec<(String, String)> {
+    let mut out = Vec::with_capacity(refs.len() * 2);
+    for git_ref in refs {
+        let kinds: [&str; 2] = if looks_like_tag(git_ref) {
+            ["tags", "heads"]
+        } else {
+            ["heads", "tags"]
+        };
         for kind in kinds {
             // codeload 的路径形状与 github.com 不同，单独处理
-            if base.starts_with("codeload.") {
-                out.push(format!(
-                    "https://{base}{owner}/{repo}/zip/refs/{kind}/{git_ref}"
-                ));
+            let url = if base.starts_with("codeload.") {
+                format!("https://{base}{owner}/{repo}/zip/refs/{kind}/{git_ref}")
             } else {
-                out.push(format!(
+                format!(
                     "https://{base}https://github.com/{owner}/{repo}/archive/refs/{kind}/{git_ref}.zip"
-                ));
-            }
+                )
+            };
+            out.push((url, (*git_ref).to_string()));
         }
     }
     out
+}
+
+/// 全部下载候选（通道外层、ref 次层、heads/tags 内层），顺序与历史行为一致：
+/// 代理优先（国内网络），codeload 直连兜底。
+pub fn download_candidates(owner: &str, repo: &str, refs: &[&str]) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    out.extend(candidates_for_base("gh-proxy.com/", owner, repo, refs));
+    out.extend(candidates_for_base("ghproxy.net/", owner, repo, refs));
+    out.extend(candidates_for_base("codeload.github.com/", owner, repo, refs));
+    out
+}
+
+/// 单 ref 的候选 URL 列表（串行下载用；保留既有签名与顺序）。
+pub fn download_urls(owner: &str, repo: &str, git_ref: &str) -> Vec<String> {
+    download_candidates(owner, repo, &[git_ref])
+        .into_iter()
+        .map(|(url, _)| url)
+        .collect()
 }
 
 /// zip 条目路径安全校验；不安全返回 None
@@ -239,11 +328,30 @@ pub fn extract_zip(bytes: &[u8], dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// 下载 zip 字节；按顺序试每个候选，全部失败才报错（错误里带最后一次尝试）
-pub async fn download(client: &reqwest::Client, urls: &[String]) -> Result<Vec<u8>, String> {
-    // 全失败时要说清「最后一次」怎么失败的，否则用户只看到「都失败了」无从下手
+/// 所有通道都失败时追加的排查提示。把「怎么自救」直接写在错误里：
+/// 旧报错只说「都失败了」，用户看完仍然不知道下一步该做什么。
+const DOWNLOAD_FAILURE_HINT: &str = "请检查：① 仓库地址是否正确 ② 仓库是否公开 ③ 分支/标签名是否写对（可用 `仓库地址@分支名` 指定）";
+
+/// 串行版的失败信息：保留最后一次尝试的 URL 与原因。
+fn all_channels_failed(last: &str) -> String {
+    format!("所有下载通道均失败（最后一次：{last}）。\n{DOWNLOAD_FAILURE_HINT}")
+}
+
+/// 直连与代理同时失败时的信息：两边的最后一次原因都留着，便于判断是哪类网络问题。
+fn all_channels_failed_parallel(direct: &str, proxied: &str) -> String {
+    format!(
+        "所有下载通道均失败（直连：{direct}；代理：{proxied}）。\n{DOWNLOAD_FAILURE_HINT}"
+    )
+}
+
+/// 顺序试一组候选，返回 `(字节, 在候选里的下标)`。
+/// 下标用来回溯「最后是哪个 ref 成功」，安装结果里的 git_ref 才是真的而不是占位。
+async fn download_first_indexed(
+    client: &reqwest::Client,
+    candidates: &[(String, usize)],
+) -> Result<(Vec<u8>, usize), String> {
     let mut last = "未尝试任何通道".to_string();
-    for url in urls {
+    for (url, index) in candidates {
         let resp = match client.get(url).send().await {
             Ok(resp) => resp,
             Err(e) => {
@@ -285,9 +393,75 @@ pub async fn download(client: &reqwest::Client, urls: &[String]) -> Result<Vec<u
             last = format!("{url} → 响应不是 zip（可能被代理替换成错误页）");
             continue;
         }
-        return Ok(bytes.to_vec());
+        return Ok((bytes.to_vec(), *index));
     }
-    Err(format!("所有下载通道均失败，最后一次：{last}"))
+    Err(last)
+}
+
+/// 下载 zip 字节；按顺序试每个候选，全部失败才报错（错误里带最后一次尝试）。
+pub async fn download(client: &reqwest::Client, urls: &[String]) -> Result<Vec<u8>, String> {
+    let candidates: Vec<(String, usize)> = urls
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(index, url)| (url, index))
+        .collect();
+    download_first_indexed(client, &candidates)
+        .await
+        .map(|(bytes, _)| bytes)
+        .map_err(|last| all_channels_failed(&last))
+}
+
+/// 直连与代理并行：两条流各自按顺序试自己的候选，谁先拿到真 zip 用谁。
+///
+/// 为什么不是纯串行「代理优先」：本环境实测两个代理都失败、直连成功，串行会先白等
+/// 两次连接超时（每次 5 秒）。为什么也不改成直连优先：那会让国内用户每次安装都先
+/// 撞一次被墙的 codeload。并行的代价是多一个在途请求，换来最坏情况「等 1 次」而不是
+/// 「等 2 次」。两条流都失败时把两边各自最后一次的原因都报出来。
+async fn download_racing(
+    client: &reqwest::Client,
+    direct_candidates: &[(String, String)],
+    proxied_candidates: &[(String, String)],
+) -> Result<(Vec<u8>, String), String> {
+    // 下标是全局的：先直连后代理拼成一张表，成功时用它回溯真正命中的 ref。
+    let indexed = |candidates: &[(String, String)], offset: usize| -> Vec<(String, usize)> {
+        candidates
+            .iter()
+            .enumerate()
+            .map(|(i, (url, _))| (url.clone(), offset + i))
+            .collect()
+    };
+    let direct_items = indexed(direct_candidates, 0);
+    let proxied_items = indexed(proxied_candidates, direct_candidates.len());
+    let all: Vec<&(String, String)> = direct_candidates
+        .iter()
+        .chain(proxied_candidates.iter())
+        .collect();
+
+    // `select` 只等「先完成」的那一条；若它失败，另一条仍可继续等（future 被还回来）。
+    // 两条流都必须存在：候选生成至少会给出一个通道。
+    let direct_fut = Box::pin(download_first_indexed(client, &direct_items));
+    let proxied_fut = Box::pin(download_first_indexed(client, &proxied_items));
+    // 先绑到局部变量再返回：直接 `match ... .await { }` 作为块尾表达式时，
+    // match 的临时值活到块尾，会把 `*_items` 的借用拉到 drop 之后（E0597）。
+    let outcome = match futures::future::select(direct_fut, proxied_fut).await {
+        futures::future::Either::Left((Ok((bytes, index)), _)) => {
+            Ok((bytes, all[index].1.clone()))
+        }
+        futures::future::Either::Right((Ok((bytes, index)), _)) => {
+            Ok((bytes, all[index].1.clone()))
+        }
+        // 先完成的一条失败了：继续等另一条，只有两条都失败才算真失败
+        futures::future::Either::Left((Err(direct_err), remaining)) => match remaining.await {
+            Ok((bytes, index)) => Ok((bytes, all[index].1.clone())),
+            Err(proxied_err) => Err(all_channels_failed_parallel(&direct_err, &proxied_err)),
+        },
+        futures::future::Either::Right((Err(proxied_err), remaining)) => match remaining.await {
+            Ok((bytes, index)) => Ok((bytes, all[index].1.clone())),
+            Err(direct_err) => Err(all_channels_failed_parallel(&direct_err, &proxied_err)),
+        },
+    };
+    outcome
 }
 
 /// 安装结果。字段足够在日志/前端里追溯「这个插件是哪来的哪一版」。
@@ -312,8 +486,28 @@ pub async fn install(root: &Path, raw_source: &str) -> Result<InstallOutcome, St
         .timeout(std::time::Duration::from_secs(60))
         .build()
         .map_err(|e| e.to_string())?;
-    let urls = download_urls(&spec.owner, &spec.repo, &spec.git_ref);
-    let bytes = download(&client, &urls).await?;
+    // 用户没写 @ref 时先查真实默认分支。GitHub 上大量仓库默认是 master，
+    // 猜 main 会让六个候选通道全部 404（见 SourceSpec::git_ref_defaulted 的注释）。
+    let resolved_default = if spec.git_ref_defaulted {
+        resolve_default_branch(&client, &spec.owner, &spec.repo).await
+    } else {
+        None
+    };
+    // 查不到（离线 / 限流 / 私有库 / 空库）时用 main + master 双保险：
+    // 这两个覆盖 99% 的仓库，其余分支名只能靠用户显式 `@ref` 指定。
+    let refs: Vec<&str> = match (&resolved_default, spec.git_ref_defaulted) {
+        (Some(branch), _) => vec![branch.as_str()],
+        (None, true) => vec!["main", "master"],
+        (None, false) => vec![spec.git_ref.as_str()],
+    };
+    // 直连与代理并行（谁先成功用谁），具体理由见 download_racing 的注释。
+    // 通道顺序只在 download_candidates 里定义一次，这里按通道分成两条流。
+    let all_candidates = download_candidates(&spec.owner, &spec.repo, &refs);
+    let (proxied_candidates, direct_candidates): (Vec<_>, Vec<_>) = all_candidates
+        .into_iter()
+        .partition(|(url, _)| !url.contains("codeload.github.com/"));
+    let (bytes, used_ref) =
+        download_racing(&client, &direct_candidates, &proxied_candidates).await?;
 
     let hash = {
         let mut h = Sha256::new();
@@ -347,10 +541,12 @@ pub async fn install(root: &Path, raw_source: &str) -> Result<InstallOutcome, St
         Ok(InstallOutcome {
             plugin_id: manifest.id.clone(),
             version: manifest.version.clone(),
+            // 钉的是「实际命中的」ref，而不是 spec.git_ref：用户没写 @ref 时后者只是
+            // 占位（main），真实分支可能是 API 查到的 master 或兜底命中的那个。
             // 说明：这里钉的是 ref 而不是 commit SHA。GitHub 的 archive zip 顶层目录名是
             // `repo-ref`，不含 commit。要拿到真 SHA 得再打一次 API，第一期不做；
             // 责任归属仍可追溯（repo + ref + zip 的 sha256）。
-            git_ref: spec.git_ref.clone(),
+            git_ref: used_ref,
             zip_sha256: hash,
             target: target.clone(),
         })
@@ -568,7 +764,23 @@ mod tests {
         let s = parse_source("https://github.com/owner/repo").unwrap();
         assert_eq!(s.owner, "owner");
         assert_eq!(s.repo, "repo");
+        // 占位值仍是 main，但标记为「默认」——安装时必须先查真实默认分支
         assert_eq!(s.git_ref, "main");
+        assert!(s.git_ref_defaulted);
+    }
+
+    #[test]
+    fn plain_url_marks_the_ref_as_defaulted() {
+        let s = parse_source("https://github.com/a/b").unwrap();
+        assert!(s.git_ref_defaulted, "没写 @ref 时必须标记为默认");
+        assert_eq!(s.git_ref, "main", "占位值保持 main，避免下游大改");
+    }
+
+    #[test]
+    fn explicit_ref_is_not_defaulted() {
+        let s = parse_source("https://github.com/a/b@master").unwrap();
+        assert!(!s.git_ref_defaulted, "用户显式写了 @master 就不是默认");
+        assert_eq!(s.git_ref, "master");
     }
 
     #[test]
@@ -1011,5 +1223,294 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&root);
         let _ = std::fs::remove_dir_all(&source);
+    }
+
+    // ------------------------------------------------------------------
+    // 默认分支：不能猜 main（真实网络实测见 real_github_* 的 #[ignore] 用例）
+    // ------------------------------------------------------------------
+
+    use std::io::Write;
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    /// 极简本机 HTTP 桩：固定状态码 + 固定 body，并记录收到的完整请求头。
+    ///
+    /// 用真实 TCP 而不是 mock client：这里要验证的正是 reqwest 真实发出的请求
+    /// （尤其 `User-Agent` —— GitHub API 对无 UA 的请求回 403）。
+    struct StubHttp {
+        base: String,
+        requests: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl StubHttp {
+        fn spawn(status: u16, body: &[u8]) -> Self {
+            Self::spawn_delayed(status, body, Duration::ZERO)
+        }
+
+        fn spawn_delayed(status: u16, body: &[u8], delay: Duration) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").expect("绑定桩端口失败");
+            let port = listener.local_addr().expect("读取桩端口").port();
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let captured = Arc::clone(&requests);
+            let body = body.to_vec();
+            // 线程随测试进程退出，不 join：桩阻塞在 accept() 上，join 会把用例拖成超时
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut stream) = stream else { return };
+                    let request = read_http_request(&mut stream);
+                    captured.lock().expect("请求记录锁").push(request);
+                    if !delay.is_zero() {
+                        std::thread::sleep(delay);
+                    }
+                    let response = format!(
+                        "HTTP/1.1 {status} Stub\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                    let _ = stream.write_all(&body);
+                    let _ = stream.flush();
+                }
+            });
+            Self {
+                base: format!("http://127.0.0.1:{port}"),
+                requests,
+            }
+        }
+
+        fn last_request(&self) -> String {
+            self.requests
+                .lock()
+                .expect("请求记录锁")
+                .last()
+                .cloned()
+                .unwrap_or_default()
+        }
+    }
+
+    /// 读一个请求（GET 没有 body，读到 `\r\n\r\n` 即可）。
+    fn read_http_request(stream: &mut TcpStream) -> String {
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+        let mut buffer = Vec::new();
+        let mut chunk = [0u8; 1024];
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+                Err(_) => break,
+            }
+            if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        String::from_utf8_lossy(&buffer).to_string()
+    }
+
+    fn stub_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            // 与 providers.rs 的桩同理：测试进程可能带代理环境变量，回环地址不能走代理
+            .no_proxy()
+            .build()
+            .expect("构造 reqwest client")
+    }
+
+    #[tokio::test]
+    async fn resolve_default_branch_parses_github_api_response() {
+        let stub = StubHttp::spawn(200, br#"{"default_branch":"master"}"#);
+        let got =
+            resolve_default_branch_at(&stub_client(), &stub.base, "octocat", "Hello-World").await;
+        assert_eq!(got.as_deref(), Some("master"));
+    }
+
+    #[tokio::test]
+    async fn resolve_default_branch_returns_none_on_404() {
+        // 私有库 / 不存在的库都是 404：这里必须返回 None，交给 main+master 兜底，
+        // 而不是把「查不到」升级成「装不了」
+        let stub = StubHttp::spawn(404, br#"{"message":"Not Found"}"#);
+        let got = resolve_default_branch_at(&stub_client(), &stub.base, "a", "b").await;
+        assert_eq!(got, None);
+    }
+
+    #[tokio::test]
+    async fn resolve_default_branch_returns_none_on_malformed_json() {
+        // 限流页 / 网关错误页会是 200 + HTML：解析失败只能是 None，不能 panic
+        let stub = StubHttp::spawn(200, b"<html>rate limited</html>");
+        let got = resolve_default_branch_at(&stub_client(), &stub.base, "a", "b").await;
+        assert_eq!(got, None);
+    }
+
+    #[tokio::test]
+    async fn resolve_default_branch_sends_a_user_agent() {
+        let stub = StubHttp::spawn(200, br#"{"default_branch":"main"}"#);
+        let _ = resolve_default_branch_at(&stub_client(), &stub.base, "a", "b").await;
+        let request = stub.last_request().to_ascii_lowercase();
+        // GitHub API 对无 UA 的请求直接 403，这条断言是「默认分支能被查到」的前提
+        assert!(
+            request.contains("user-agent:"),
+            "查默认分支的请求必须带 User-Agent，实际请求头：{request}"
+        );
+        assert!(
+            request.contains("qmai/"),
+            "UA 应是 qmai/<version>，实际请求头：{request}"
+        );
+        // 路径也要钉死：`/repos/<owner>/<repo>`，错了 API 只会回 404
+        assert!(
+            request.starts_with("get /repos/a/b"),
+            "请求路径不对：{request}"
+        );
+    }
+
+    #[test]
+    fn fallback_refs_are_tried_within_each_channel() {
+        // API 查不到时 main + master 都要试，且同一通道内相邻（猜错的代价是同一通道
+        // 多一次请求，而不是「跑完所有通道再回头」）
+        let candidates = download_candidates("o", "r", &["main", "master"]);
+        assert_eq!(candidates.len(), 12, "2 ref × 2 kind × 3 通道");
+        assert_eq!(candidates[0].1, "main");
+        assert_eq!(candidates[2].1, "master", "同一通道内紧跟 master");
+        assert_eq!(
+            candidates[8].0,
+            "https://codeload.github.com/o/r/zip/refs/heads/main"
+        );
+        assert_eq!(candidates[10].1, "master");
+        // 单 ref 形状不变：既有串行行为不能被这次改动带偏
+        assert_eq!(download_urls("o", "r", "main").len(), 6);
+    }
+
+    #[tokio::test]
+    async fn install_failure_message_mentions_actionable_hints() {
+        // install() 会把 download 的错误原样透出，所以这里直接压 download 的失败分支
+        let stub = StubHttp::spawn(404, b"nope");
+        let err = download(
+            &stub_client(),
+            &[format!("{}/archive/refs/heads/main.zip", stub.base)],
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            err.contains("分支") || err.contains('@'),
+            "错误信息要给可操作提示（分支/tag 写法），实际：{err}"
+        );
+        // 原始失败原因仍要保留，否则排查时又变成「只说了都失败」
+        assert!(
+            err.contains("404"),
+            "错误信息应保留最后一次失败原因，实际：{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn racing_uses_the_proxied_channel_when_direct_fails_first() {
+        let zip = zip_with(&[("repo-master/plugin.json", b"{}")]);
+        let dead = StubHttp::spawn(404, b"gone");
+        // 代理慢一点但最终成功：直连先失败，不能因此提前判死
+        let slow_ok = StubHttp::spawn_delayed(200, &zip, Duration::from_millis(150));
+        let direct = vec![(format!("{}/direct.zip", dead.base), "main".to_string())];
+        let proxied = vec![(format!("{}/proxy.zip", slow_ok.base), "master".to_string())];
+
+        let (bytes, used_ref) = download_racing(&stub_client(), &direct, &proxied)
+            .await
+            .expect("一条通道成功即应成功");
+        assert_eq!(bytes, zip);
+        assert_eq!(used_ref, "master", "安装结果要记录真正命中的 ref");
+    }
+
+    #[tokio::test]
+    async fn racing_uses_the_direct_channel_when_it_wins() {
+        let zip = zip_with(&[("repo-main/plugin.json", b"{}")]);
+        let slow_fail = StubHttp::spawn_delayed(500, b"server error", Duration::from_millis(150));
+        let direct_stub = StubHttp::spawn(200, &zip);
+        let direct = vec![(format!("{}/direct.zip", direct_stub.base), "main".to_string())];
+        let proxied = vec![(format!("{}/proxy.zip", slow_fail.base), "master".to_string())];
+
+        let (bytes, used_ref) = download_racing(&stub_client(), &direct, &proxied)
+            .await
+            .expect("直连成功即应成功");
+        assert_eq!(bytes, zip);
+        assert_eq!(used_ref, "main");
+    }
+
+    #[tokio::test]
+    async fn racing_reports_both_channels_when_all_fail() {
+        let direct_stub = StubHttp::spawn(404, b"direct");
+        let proxy_stub = StubHttp::spawn(500, b"proxy");
+        let direct = vec![(format!("{}/d.zip", direct_stub.base), "main".to_string())];
+        let proxied = vec![(format!("{}/p.zip", proxy_stub.base), "main".to_string())];
+
+        let err = download_racing(&stub_client(), &direct, &proxied)
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains("直连") && err.contains("代理"),
+            "两条流都失败时两边的原因都要报，实际：{err}"
+        );
+        assert!(
+            err.contains("分支") || err.contains('@'),
+            "错误信息要给可操作提示，实际：{err}"
+        );
+    }
+
+    /// 真实网络验收：不带 @ref 安装 octocat/Hello-World（默认分支是 master）。
+    ///
+    /// 默认 `#[ignore]`：CI/离线环境打不了 GitHub。本地用
+    /// `cargo test plugins::installer::tests::real_github -- --ignored --nocapture` 跑，
+    /// 它同时验证「猜 main 会六个通道全 404」和「查默认分支后能下载成功」。
+    #[tokio::test]
+    #[ignore = "真实网络：需要能访问 api.github.com / codeload.github.com"]
+    async fn real_github_resolves_master_and_downloads_without_explicit_ref() {
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(120))
+            .build()
+            .expect("构造 reqwest client");
+        let spec = parse_source("https://github.com/octocat/Hello-World").unwrap();
+        assert!(spec.git_ref_defaulted, "没写 @ref 应标记为默认");
+
+        // 旧行为复现：猜 main 的候选全部 404。只走 codeload（不走代理），
+        // 免得这条演示为了两个必然连不上的代理白等 10 秒。
+        let main_urls: Vec<String> =
+            candidates_for_base("codeload.github.com/", &spec.owner, &spec.repo, &["main"])
+                .into_iter()
+                .map(|(url, _)| url)
+                .collect();
+        let main_err = download(&client, &main_urls).await.unwrap_err();
+        println!("猜 main 的旧行为（应有明确失败提示）：\n{main_err}");
+
+        let resolved = resolve_default_branch(&client, &spec.owner, &spec.repo).await;
+        println!("API 解析出的默认分支：{resolved:?}");
+        match resolved.as_deref() {
+            // 有 API 额度时必须拿到 master：这证明「查」而不是「猜」
+            Some(branch) => assert_eq!(
+                branch, "master",
+                "octocat/Hello-World 的默认分支实测是 master"
+            ),
+            // API 会限流（未认证 60 次/小时，按出口 IP 共用）、也可能被网络挡住。
+            // 这时必须靠 main + master 兜底把安装走通 —— 这正是生产会遇到的形态。
+            None => println!("API 不可用（限流/网络），走 main + master 兜底"),
+        }
+
+        let refs: Vec<&str> = match resolved.as_deref() {
+            Some(branch) => vec![branch],
+            None => vec!["main", "master"],
+        };
+        let direct = candidates_for_base("codeload.github.com/", &spec.owner, &spec.repo, &refs);
+        let mut proxied = candidates_for_base("gh-proxy.com/", &spec.owner, &spec.repo, &refs);
+        proxied.extend(candidates_for_base(
+            "ghproxy.net/",
+            &spec.owner,
+            &spec.repo,
+            &refs,
+        ));
+        let (bytes, used_ref) = download_racing(&client, &direct, &proxied)
+            .await
+            .expect("查默认分支后应能下载成功");
+        println!(
+            "实际使用 ref：{used_ref}，下载 {} 字节，zip 魔数：{:?}",
+            bytes.len(),
+            &bytes[..4]
+        );
+        assert_eq!(used_ref, "master");
+        assert!(bytes.starts_with(b"PK\x03\x04"), "下载结果应是真 zip");
+        assert!(bytes.len() > 100, "不应是空包或错误页");
     }
 }
