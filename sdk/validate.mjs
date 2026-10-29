@@ -599,12 +599,36 @@ function checkProviders(providers, permissions, schema, result) {
     }
     const authKind = provider.authKind;
     if (authKind === undefined) {
-      fail(result, `${where}.authKind 必须声明（本期只有 none 真正可用：browser-login / paste-token / import-file 是 v2.1）`);
+      fail(result, `${where}.authKind 必须声明（none / browser-login / paste-token / import-file）`);
     } else if (!["none", "browser-login", "paste-token", "import-file"].includes(authKind)) {
       fail(result, `${where}.authKind = ${JSON.stringify(authKind)} 不合法（合法：none / browser-login / paste-token / import-file）`);
-    }
-    if (authKind === "browser-login" && asArray(provider.authDomains).length === 0) {
-      fail(result, `${where} 的 authKind = browser-login 时必须声明 authDomains（受控登录窗口的导航白名单）`);
+    } else if (authKind === "browser-login") {
+      if (asArray(provider.authDomains).length === 0) {
+        fail(result, `${where} 的 authKind = browser-login 时必须声明 authDomains（受控登录窗口的导航白名单）`);
+      }
+      // 只 warn 不 error：缺 settingsPagePath 时宿主**不拒装**，只是把卡片上的
+      // 「登录/设置」按钮禁用（没有页面可加载）。校验器把"宿主会静默禁用一个功能"
+      // 升级成可见的提示，但仍按宿主的口径放行 —— 作者可能就想先装上、后补页面。
+      if (!isNonEmptyString(provider.settingsPagePath)) {
+        warn(
+          result,
+          `${where} 的 authKind = browser-login 但没声明 settingsPagePath：受控窗口没有页面可加载，卡片上的「登录/设置」按钮会一直禁用`,
+        );
+      }
+    } else if (authKind === "paste-token" || authKind === "import-file") {
+      // 这两种形态下宿主会把用户的输入 POST 给插件的固定端点；不实现它，用户点「保存」/「选择文件」
+      // 只会拿到 404。校验器无法看运行时代码，所以这里只能提示（info），不能判 error。
+      hint(
+        result,
+        `${where} 的 authKind = ${authKind}：需要在你的 provider 里实现 POST /login/credential（宿主把用户输入交给它；用 sdk/runtime/qmai-provider.mjs 的 serveProvider({ onCredential }) 就自动有了）`,
+      );
+    } else if (authKind === "none" && isNonEmptyString(provider.settingsPagePath)) {
+      // 没有任何登录入口会打开这个页面 → 它是死配置。宿主不会因此拒装，但作者会以为
+      // "我配了设置页，用户应该能进去"，实际界面上没有任何按钮。
+      warn(
+        result,
+        `${where} 的 authKind = none 却声明了 settingsPagePath：没有任何入口会打开这个页面（要么删掉，要么把 authKind 改成 browser-login）`,
+      );
     }
     for (const domain of asArray(provider.authDomains)) {
       if (!isValidAuthDomain(domain)) {

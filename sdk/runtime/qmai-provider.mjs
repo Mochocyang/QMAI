@@ -13,13 +13,24 @@
 //   4. SSE 必须带 usage 帧、必须以 `data: [DONE]` 收尾
 //   5. 客户端断开 → 通过 `AbortSignal` 通知作者真的停手（不烧用户额度）
 //   6. 只绑 `127.0.0.1`（不写 `0.0.0.0`：那会把用户的模型额度暴露给整个局域网）
+//   7. `POST /login/credential` 的固定形状（鉴权 / 404 / 405 / 400）与"绝不打印 value"
 //
-// 作者只需要写两件事：`models()` 和 `chat()`。
+// 作者只需要写三件事：`models()`、`chat()`，以及（authKind 是 paste-token /
+// import-file 时的）`onCredential()`。
 
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 
 const BIND_HOST = "127.0.0.1";
+
+/**
+ * 凭据入口的**固定路径**（与宿主 `providers.rs::CREDENTIAL_ENDPOINT` 一字不差）。
+ *
+ * 为什么不放进清单让作者配置：`paste-token` / `import-file` 的语义完全一致
+ * （都是"把一段文本交给插件"），固定路径让宿主零配置支持两种，将来加文本型凭据
+ * 也不用改清单；可配置路径等于把一条契约拆成 N 套私有协议。
+ */
+const CREDENTIAL_PATH = "/login/credential";
 
 /** SSE 分片的 id 前缀；同一进程内用递增序号，便于作者在日志里对齐。 */
 let requestSequence = 0;
@@ -171,6 +182,11 @@ function toWireUsage(usage) {
  * @param {() => Promise<Array<object>> | Array<object>} provider.models 模型目录（真源）
  * @param {(request: object, ctx: { onDelta: (text: string) => void,
  *          signal: AbortSignal }) => Promise<{ usage?: object, text?: string } | void>} provider.chat
+ * @param {(credential: { kind: string, value: string, filename?: string }) =>
+ *          Promise<{ ok?: boolean, message?: string } | void> | { ok?: boolean, message?: string } | void} [provider.onCredential]
+ *        用户在 QMAI 卡片上粘贴令牌 / 选了文件后调用的回调。返回值原样回给宿主；
+ *        抛错 → 400 + 错误信息；返回 `undefined` → `{ ok: true }`。
+ *        没提供它时 `POST /login/credential` 回 404（作者没实现这个端点）。
  * @param {string} [provider.id] 仅用于日志与 /health
  * @param {object} [options] 仅供测试/自测覆盖端口与令牌（生产环境走环境变量）
  * @returns {{ server: import("node:http").Server, ready: Promise<number>,
@@ -232,13 +248,14 @@ export function serveProvider(provider, options = {}) {
       return;
     }
 
-    if (!url.pathname.startsWith("/v1/")) {
+    if (!url.pathname.startsWith("/v1/") && url.pathname !== CREDENTIAL_PATH) {
       // 不认识的路径一律 404，别留一个半成品端点让人误会。
       sendJson(res, 404, { error: { message: "not found" } });
       return;
     }
 
-    // 全部 `/v1/*` 必须带 `Authorization: Bearer <token>`（设计 §3.2）。
+    // 全部 `/v1/*` 与 `/login/credential` 必须带 `Authorization: Bearer <token>`（设计 §3.2）。
+    // 凭据端点走**同一条**校验：它接的是用户令牌，比模型端点更值钱，绝不能是一条裸 HTTP 口子。
     const authorization = req.headers.authorization;
     const presented =
       typeof authorization === "string" && /^Bearer\s+/i.test(authorization)
@@ -246,6 +263,11 @@ export function serveProvider(provider, options = {}) {
         : "";
     if (!tokensMatch(presented, token)) {
       sendJson(res, 401, { error: { message: "unauthorized" } });
+      return;
+    }
+
+    if (url.pathname === CREDENTIAL_PATH) {
+      await handleCredential(req, res);
       return;
     }
 
@@ -274,6 +296,104 @@ export function serveProvider(provider, options = {}) {
     }
 
     sendJson(res, 404, { error: { message: "not found" } });
+  }
+
+  /**
+   * `POST /login/credential` —— 宿主把用户在卡片上输入的凭据交过来（设计 §3.5 / 5.3）。
+   *
+   * 这一段的每一条状态码都是给作者看的，所以要精确：
+   *   404 = 你没实现这个端点（去写 `onCredential`）
+   *   405 = 方法不对（这个端点固定是 POST）
+   *   400 = 你实现里的 `onCredential` 拒了这次输入（宿主会把 400 + 响应体原样展示给用户）
+   *   401 = 令牌不对（宿主配错了，不是用户的问题）
+   *
+   * **绝不打印 `value`**：它是用户的令牌 / 密钥文件内容。落日志 = 用户一贴反馈就把
+   * 凭证泄进日志与截图；所以本函数（含错误分支）只拼状态码、`kind` 与错误信息，
+   * 连 `JSON.parse` 的原始报错都不回显 —— Node 的解析错误会带输入片段。
+   */
+  async function handleCredential(req, res) {
+    if (typeof provider.onCredential !== "function") {
+      // 404 而不是 500：作者**确实没实现**这个端点，不是"实现了但崩了"。
+      // 500 会让宿主界面与作者都往"插件内部异常、去翻日志"的方向查，
+      // 而真正要做的事只是加一个回调 —— 400/404/500 在用户眼里是三件不同的事，
+      // 中间这条契约（宿主原样展示状态码）只有在状态码准确时才值钱。
+      sendJson(res, 404, { error: `该插件未实现 ${CREDENTIAL_PATH}` });
+      return;
+    }
+
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "只支持 POST" });
+      return;
+    }
+
+    let raw;
+    try {
+      raw = await readBody(req);
+    } catch (error) {
+      // `readBody` 的错误只描述大小，不含内容，可以直接透出（超限时作者要知道是 413 类问题）。
+      sendJson(res, 400, { error: errorMessage(error) });
+      return;
+    }
+
+    let body;
+    try {
+      body = raw.trim() ? JSON.parse(raw) : {};
+    } catch {
+      // 刻意**不**带 `error.message`：Node 的 JSON 解析错误形如
+      // `Unexpected token 's', "sk-abc..." is not valid JSON` —— 把输入片段一起带出来。
+      // 而这里的输入就是用户的令牌，这段文案会进界面、进日志、被截图。
+      sendJson(res, 400, {
+        error: "请求体不是合法 JSON（为避免把用户凭据回显到日志里，这里不展示解析细节）",
+      });
+      return;
+    }
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      sendJson(res, 400, { error: "请求体必须是 JSON 对象" });
+      return;
+    }
+
+    // `kind` 不在这里做白名单：宿主的 `CREDENTIAL_KINDS` 才是权威，将来加第四种
+    // 文本型凭据（扫码结果等）时，写死白名单的 SDK 会把新值当非法 —— 而按本设计的
+    // 取舍，加新 kind 应当**零配置**。只要求它是个非空字符串。
+    const kind = typeof body.kind === "string" ? body.kind.trim() : "";
+    if (kind === "") {
+      sendJson(res, 400, { error: "请求体缺少 kind（应为 paste-token / import-file）" });
+      return;
+    }
+    if (typeof body.value !== "string") {
+      sendJson(res, 400, { error: "请求体缺少 value（用户输入的凭据内容，必须是字符串）" });
+      return;
+    }
+    // `filename` 只对 import-file 有意义，且**只是文件名**（宿主不把用户的磁盘路径给我们）。
+    const filename =
+      typeof body.filename === "string" && body.filename.trim() !== "" ? body.filename : undefined;
+
+    let result;
+    try {
+      result = await provider.onCredential({ kind, value: body.value, filename });
+    } catch (error) {
+      // 400 而不是 500：这类失败几乎都是"用户给的东西我不认"（令牌格式不对、文件不是
+      // 预期的格式），是**可预期的业务失败**。宿主把「状态码 + 响应体前 200 字」直接
+      // 展示给用户，所以错误信息要写成用户能读懂的一句话。
+      //
+      // 注意：`errorMessage()` 只取 `error.message`，不会带上请求体；作者也不要在
+      // 自己的错误信息里拼 `value`，否则用户一贴报错截图，令牌就跟着泄出去了。
+      sendJson(res, 400, { error: errorMessage(error) });
+      return;
+    }
+
+    // 返回 `undefined` 按 `{ ok: true }`：允许作者只做副作用（写进自己的数据目录）
+    // 而不返回任何东西，否则他得为了"什么都不说"多写一行 JSON。
+    // 空 body 宿主也按 `{ok:true}` 收（`providers.rs::submit_credential`），这里统一成
+    // 显式 JSON，省得两类作者的行为在不同宿主版本上表现不一致。
+    const payload = result === undefined || result === null ? { ok: true } : result;
+    if (payload !== null && typeof payload === "object" && payload.ok === false) {
+      // 200 才是"成功"，宿主不看 `ok` 字段：它拿到 2xx 就显示 `message`（没有则「已保存」）。
+      // 所以 `{ ok: false }` + 200 在用户眼里是"保存成功"，这是个作者一定会踩一次的坑 ——
+      // 留一条不含 value 的 stderr 提示，比让他在界面上对着"已保存"发呆好。
+      warn(`onCredential 返回了 { ok: false } 但响应是 200：宿主会当成成功（显示「已保存」）。要表达失败请抛错，SDK 会回 400`);
+    }
+    sendJson(res, 200, payload);
   }
 
   async function handleChat(req, res) {

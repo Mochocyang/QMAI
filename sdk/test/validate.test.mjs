@@ -336,3 +336,87 @@ test("目录不存在 / 缺 plugin.json → 退出码 1 且说清缺什么", () 
     rmSync(emptyDir, { recursive: true, force: true });
   }
 });
+
+// ── provider 的 authKind（四种形态全部可用）──────────────────────────────
+//
+// 这一组守的是**校验器与宿主的一致性**：authKind 的四种形态现在都真的可用，
+// 校验器再说"本期只有 none 可用"就是在骗作者（他会据此不写 /login/credential，
+// 然后用户在卡片上点保存时永远收到 404）。
+
+/** 一个最小可用的 provider 插件（Tier 2：需要 runtime + net:listen）。 */
+function makeProviderPlugin(provider) {
+  return makePluginDir({
+    schema: 2,
+    id: "cred-plugin",
+    name: "凭据插件",
+    version: "1.0.0",
+    runtime: { type: "node", entry: "index.js" },
+    permissions: ["net:listen"],
+    contributes: { providers: [{ id: "my-provider", name: "我的来源", ...provider }] },
+  });
+}
+
+test("authKind = browser-login 缺 settingsPagePath → 只 warn、退出码 0", () => {
+  const dir = makeProviderPlugin({ authKind: "browser-login", authDomains: ["example.com"] });
+  try {
+    const result = validateDirectory(dir);
+    assert.equal(result.ok, true, result.errors.join("\n"));
+    assert.match(
+      result.warnings.join("\n"),
+      /browser-login 但没声明 settingsPagePath：.*「登录\/设置」按钮会一直禁用/,
+      "宿主只是禁用按钮、不拒装，所以是 warn 而不是 error —— 但作者必须看得见",
+    );
+
+    const cli = runCli(dir);
+    assert.equal(cli.code, 0, cli.output);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("authKind = paste-token / import-file → info 提示要实现 /login/credential", () => {
+  for (const authKind of ["paste-token", "import-file"]) {
+    const dir = makeProviderPlugin({ authKind });
+    try {
+      const result = validateDirectory(dir);
+      assert.equal(result.ok, true, result.errors.join("\n"));
+      assert.match(
+        result.infos.join("\n"),
+        /需要在你的 provider 里实现 POST \/login\/credential/,
+        `${authKind} 必须提示作者实现固定端点，否则用户点保存只会拿到 404`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("authKind = none 却声明了 settingsPagePath → warn（死配置）", () => {
+  const dir = makeProviderPlugin({ authKind: "none", settingsPagePath: "/settings" });
+  try {
+    const result = validateDirectory(dir);
+    assert.equal(result.ok, true, result.errors.join("\n"));
+    assert.match(result.warnings.join("\n"), /authKind = none 却声明了 settingsPagePath/);
+    assert.equal(runCli(dir).code, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("authKind 缺失的报错文案不再说「本期只有 none 可用」（防回归）", () => {
+  const dir = makeProviderPlugin({});
+  try {
+    const result = validateDirectory(dir);
+    assert.equal(result.ok, false);
+    const messages = result.errors.join("\n");
+    assert.match(messages, /authKind 必须声明（none \/ browser-login \/ paste-token \/ import-file）/);
+    assert.doesNotMatch(
+      messages,
+      /v2\.1/,
+      "四种 authKind 都已实现：旧文案会让作者以为只有 none 可用，从而不写 /login/credential",
+    );
+    assert.equal(runCli(dir).code, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

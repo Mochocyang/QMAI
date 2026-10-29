@@ -48,11 +48,37 @@ export interface ProviderChatResult {
   text?: string;
 }
 
+/** 宿主交给 `onCredential` 的一次用户输入。 */
+export interface ProviderCredential {
+  /** `"paste-token"`（卡片上贴令牌）或 `"import-file"`（选了一个文本文件）。 */
+  kind: string;
+  /** 用户输入的原文 / 文件内容。**不要写进日志、不要拼进错误信息。** */
+  value: string;
+  /** 仅 `import-file` 有：原文件名（只是名字，不是路径）。 */
+  filename?: string;
+}
+
+/** `onCredential` 的返回值：原样回给宿主，`message` 会显示在卡片上。 */
+export interface ProviderCredentialResult {
+  ok?: boolean;
+  message?: string;
+  [key: string]: unknown;
+}
+
 export interface ProviderDefinition {
   /** 仅用于日志与 `/health` 的 `provider` 字段。 */
   id?: string;
   models: () => ProviderModel[] | Promise<ProviderModel[]>;
   chat: (request: ProviderChatRequest, context: ProviderChatContext) => Promise<ProviderChatResult | void>;
+  /**
+   * `POST /login/credential` 的实现：`authKind` 是 `paste-token` / `import-file` 时必须提供。
+   *
+   * - 返回值原样回给宿主（`message` 显示在卡片上）；返回 `undefined` 按 `{ ok: true }`。
+   * - **抛错 → 400 + `error.message`**：这是表达"这次输入不合法"的唯一正确方式
+   *   （返回 `{ ok: false }` 仍然是 200，宿主会当成成功）。
+   * - 不提供这个回调 → 端点回 404（明确告诉作者"你还没实现"）。
+   */
+  onCredential?: (credential: ProviderCredential) => Promise<ProviderCredentialResult | void> | ProviderCredentialResult | void;
 }
 
 /** 仅供测试/自测覆盖端口与令牌；生产环境走 `QMAI_PROVIDER_PORT` / `QMAI_PROVIDER_TOKEN`。 */

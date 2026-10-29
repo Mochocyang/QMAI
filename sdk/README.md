@@ -147,8 +147,11 @@ definePlugin({
 ## 4. provider 插件（给软件加一个模型来源）
 
 `qmai-provider.mjs` 替你做掉 `/health` 免鉴权、`/v1/*` 常量时间 Bearer 校验、
-`/v1/models` 的 `_qmai` 包装、SSE 的 usage 帧与 `data: [DONE]`、以及**客户端断开即停上游**。
-你只写两个函数：
+`/v1/models` 的 `_qmai` 包装、SSE 的 usage 帧与 `data: [DONE]`、以及**客户端断开即停上游**，
+登录入口（`/login/credential`）也一并收走。你只写 `models()`、`chat()`，
+以及需要用户登录时的 `onCredential()`。
+
+### 4.1 `models()` 与 `chat()`
 
 ```js
 import { serveProvider } from "./qmai-provider.mjs"
@@ -178,6 +181,85 @@ serveProvider({
 
 宿主用环境变量 `QMAI_PROVIDER_PORT` / `QMAI_PROVIDER_TOKEN` 注入端口与令牌（**必须**两者都有
 才能启动，缺一个就 `exit(1)`）；只能绑 `127.0.0.1`。
+
+### 4.2 登录入口：四种 `authKind`
+
+`plugin.json` 里 `contributes.providers[].authKind` 决定**用户在模型卡片上看到什么**，
+也决定你要不要写一个端点：
+
+| `authKind` | 用户看到什么 | 你要做什么 |
+|---|---|---|
+| `none` | 没有登录入口 | 什么都不用做（例如转发到本机推理端点） |
+| `browser-login` | 卡片上的「登录/设置」打开**受控窗口**加载 `settingsPagePath`；窗口**只能**去 `authDomains` 声明过的域名 | 提供设置页 + 声明 `authDomains`。缺 `settingsPagePath` 时按钮会一直禁用（`validate.mjs` 会 warn） |
+| `paste-token` | 卡片上是**密码框 + 保存** | 实现 `POST /login/credential` |
+| `import-file` | 卡片上是**「选择文件」**（按纯文本读，≤1MB） | 实现 `POST /login/credential`（同一个端点） |
+
+四种现在**全部可用**（`authKind` 必填，不写会被校验器判 error）。
+
+**凭证端点（路径固定，清单里不用声明）**：
+
+```
+POST http://127.0.0.1:<providerPort>/login/credential
+Authorization: Bearer <providerToken>
+Content-Type: application/json
+
+{ "kind": "paste-token" | "import-file", "value": "<内容>", "filename": "<原文件名，仅 import-file>" }
+```
+
+- 成功 → `200 {"ok":true,"message"?: "登录成功"}`。`message` 原样显示在卡片上；**空 body 也接受**（按 `{ok:true}`）
+- 失败 → **任意非 2xx**。QMAI 把「状态码 + 响应体前 200 字」原样展示给用户，
+  所以请在响应体里写清原因（`{"error":"令牌应为 sk- 开头"}`）。401 / 404 / 500 在用户眼里是三件事
+- 超时 **15 秒**
+- `value` 全空白会在宿主侧被拒（「凭据内容为空」），不会送到你这里
+
+**在 SDK 里实现它 = 给 `serveProvider` 加一个 `onCredential` 回调。** 端点路径、Bearer 校验
+（与 `/v1/*` 同一条常量时间比较）、404 / 405 / 400 都由 SDK 处理，你只写业务：
+
+```js
+serveProvider({
+  async models() { /* … */ },
+  async chat(req, ctx) { /* … */ },
+
+  /**
+   * 用户在卡片上粘贴了令牌 / 选了文件。
+   * 返回值会原样回给宿主：{ ok?: boolean, message?: string }；抛错则回 400 + 错误信息。
+   */
+  async onCredential({ kind, value, filename }) {
+    // 校验、持久化到你自己的数据目录（<插件根>/<id>.data/），返回可读结果
+    if (!value.startsWith("sk-")) {
+      // 抛错 → SDK 回 400 {"error": <你的 message>}，宿主把这句话显示给用户
+      throw new Error("令牌应以 sk- 开头")
+    }
+    await saveToOwnDataDir(value)
+    return { ok: true, message: "登录成功" }
+  },
+})
+```
+
+SDK 已经固定好的那半边：
+
+| 你的行为 | SDK 的响应 |
+|---|---|
+| 没写 `onCredential` | `404 {"error":"该插件未实现 /login/credential"}` —— 作者一看就知道少了什么，不会去日志里找"500 崩在哪" |
+| 返回 `{ ok: true, message }` | `200` + 原样透传（`message` 显示在卡片上） |
+| 返回 `undefined` | `200 {"ok":true}`（允许你只做副作用、不想多说一句话） |
+| **抛错** | `400 {"error": <error.message>}` —— 这是表达"这次输入不合法"的**唯一**正确方式 |
+| 返回 `{ ok: false }` | 仍是 `200`：宿主只看状态码，会当成成功并显示「已保存」。要表达失败请**抛错** |
+| 令牌不对 / 非 POST | `401` / `405`（与 `/v1/*` 同一条 Bearer 校验） |
+
+**SDK 绝不把你的 `value` 写进日志或错误信息**（连非法 JSON 的解析报错都换掉了 —— Node 原生的
+`JSON.parse` 错误会带上输入片段，而这里的输入就是用户令牌）。同理，你自己的 `onCredential` 里
+也不要把 `value` 拼进 `throw` 的文案或 `stderr`：用户一截图报错，令牌就跟着泄出去了。
+
+**两条容易踩的**：
+
+1. **宿主不回填** —— 它真没存这个值。所以"用户下次打开设置页还能看到已填的令牌"是做不到的；
+   想要这个体验，请**同时**声明 `settingsPagePath`，在自己页面里展示"已登录"状态。
+2. **QMAI 重启后不会自动带着令牌来找你**。要么用户重填，要么你自己持久化并在 `/health` 里
+   如实报"未登录"（别假装已登录：模型列表会 401，看起来像是你坏了）。
+
+> 与指南的关系：本节是 [`docs/plugins/authoring-guide.md`](../docs/plugins/authoring-guide.md)
+> §3.5 的 SDK 视角版本，两处冲突时以指南为准（它跟着宿主代码走）。
 
 ---
 
@@ -212,7 +294,7 @@ sdk/
 ├── runtime/
 │   ├── qmai-plugin.mjs              ← Tier 2 运行时助手（MCP stdio 分发）
 │   ├── qmai-plugin.d.ts
-│   ├── qmai-provider.mjs            ← provider 端点助手（health / Bearer / SSE / 断开即停）
+│   ├── qmai-provider.mjs            ← provider 端点助手（health / Bearer / SSE / 断开即停 / login-credential）
 │   └── qmai-provider.d.ts
 ├── templates/
 │   ├── content-only/                ← 纯声明式模板

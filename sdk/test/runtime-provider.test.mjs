@@ -45,8 +45,9 @@ async function startServer(provider, { token = "test-token" } = {}) {
   return { handle, port, logs };
 }
 
-function request(port, path, { method = "GET", token, body, headers = {} } = {}) {
+function request(port, path, { method = "GET", token, body, raw, headers = {} } = {}) {
   return new Promise((resolve, reject) => {
+    const hasBody = body !== undefined || raw !== undefined;
     const req = http.request(
       {
         host: "127.0.0.1",
@@ -55,7 +56,7 @@ function request(port, path, { method = "GET", token, body, headers = {} } = {})
         method,
         headers: {
           ...(token === undefined ? {} : { Authorization: `Bearer ${token}` }),
-          ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+          ...(hasBody ? { "Content-Type": "application/json" } : {}),
           ...headers,
         },
       },
@@ -69,7 +70,8 @@ function request(port, path, { method = "GET", token, body, headers = {} } = {})
       },
     );
     req.on("error", reject);
-    req.end(body === undefined ? undefined : JSON.stringify(body));
+    // `raw` 走原始字符串：测"请求体不是合法 JSON"必须绕过 JSON.stringify。
+    req.end(raw !== undefined ? raw : body === undefined ? undefined : JSON.stringify(body));
   });
 }
 
@@ -313,6 +315,189 @@ test("chat() 抛错：进流后给 error 帧，但仍以 [DONE] 收尾（客户�
       .find((frame) => frame.error !== undefined);
     assert.match(errorFrame.error.message, /429/);
     assert.ok(logs.some((line) => line.includes("chat() 抛错")));
+  } finally {
+    await handle.close();
+  }
+});
+
+// ── `POST /login/credential`（paste-token / import-file 的入口）──────────
+//
+// 这个端点接的是**用户令牌**，所以除了功能，还要盯两件事：
+//   1. 状态码要精确（404 = 没实现、400 = 输入不合法、401 = 令牌不对、405 = 方法不对）
+//      —— 宿主把「状态码 + 响应体前 200 字」原样展示给用户，码错了用户就被指错方向；
+//   2. 凭证内容绝不出现在日志/错误信息里（用户一贴反馈截图就泄了）。
+
+/** 一眼能认出来的假令牌：任何断言里出现它都说明泄漏了。 */
+const SECRET = "sk-live-QMAI-should-never-be-logged";
+
+test("/login/credential：没实现 onCredential → 404（而不是 500）", async () => {
+  const { handle, port, logs } = await startServer(makeProvider());
+  try {
+    const response = await request(port, "/login/credential", {
+      method: "POST",
+      token: "test-token",
+      body: { kind: "paste-token", value: SECRET },
+    });
+    assert.equal(response.status, 404, "作者没实现这个端点：404 让他一眼知道要加 onCredential，500 会让他去翻日志");
+    const body = JSON.parse(response.text);
+    assert.match(String(body.error), /\/login\/credential/, "错误信息要指名是哪个端点没实现");
+    assert.equal(body.error.includes(SECRET), false, "错误信息里不能出现用户凭据");
+    assert.equal(logs.join("").includes(SECRET), false);
+  } finally {
+    await handle.close();
+  }
+});
+
+test("/login/credential：鉴权与 /v1/* 一致（缺 / 错令牌 → 401）", async () => {
+  const seen = [];
+  const provider = makeProvider({
+    async onCredential(credential) {
+      seen.push(credential);
+      return { ok: true };
+    },
+  });
+  const { handle, port } = await startServer(provider);
+  try {
+    const body = { kind: "paste-token", value: SECRET };
+    const missing = await request(port, "/login/credential", { method: "POST", body });
+    assert.equal(missing.status, 401, "没有 Bearer 必须 401");
+    const wrong = await request(port, "/login/credential", { method: "POST", token: "wrong", body });
+    assert.equal(wrong.status, 401, "错令牌必须 401（常量时间比较，见 qmai-provider.mjs 注释）");
+    assert.equal(seen.length, 0, "鉴权失败绝不能把凭据交给 onCredential");
+    assert.equal(wrong.text.includes(SECRET), false);
+  } finally {
+    await handle.close();
+  }
+});
+
+test("/login/credential：回调收到 {kind,value,filename}，返回值原样回给宿主", async () => {
+  const seen = [];
+  const provider = makeProvider({
+    async onCredential(credential) {
+      seen.push(credential);
+      return { ok: true, message: "登录成功" };
+    },
+  });
+  const { handle, port } = await startServer(provider);
+  try {
+    const imported = await request(port, "/login/credential", {
+      method: "POST",
+      token: "test-token",
+      body: { kind: "import-file", value: SECRET, filename: "auth.txt" },
+    });
+    assert.equal(imported.status, 200);
+    assert.deepEqual(JSON.parse(imported.text), { ok: true, message: "登录成功" }, "message 要透传给卡片");
+
+    const pasted = await request(port, "/login/credential", {
+      method: "POST",
+      token: "test-token",
+      body: { kind: "paste-token", value: SECRET },
+    });
+    assert.equal(pasted.status, 200);
+
+    assert.deepEqual(seen[0], { kind: "import-file", value: SECRET, filename: "auth.txt" });
+    assert.deepEqual(seen[1], {
+      kind: "paste-token",
+      value: SECRET,
+      filename: undefined,
+    }, "paste-token 没有 filename，应当是 undefined 而不是空串");
+  } finally {
+    await handle.close();
+  }
+});
+
+test("/login/credential：返回 undefined → {ok:true}（允许只做副作用）", async () => {
+  let called = 0;
+  const provider = makeProvider({
+    async onCredential() {
+      called += 1;
+      // 什么都不返回：作者可能只把凭据写进自己的数据目录，不想多说一句。
+    },
+  });
+  const { handle, port } = await startServer(provider);
+  try {
+    const response = await request(port, "/login/credential", {
+      method: "POST",
+      token: "test-token",
+      body: { kind: "paste-token", value: SECRET },
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(JSON.parse(response.text), { ok: true });
+    assert.equal(called, 1);
+  } finally {
+    await handle.close();
+  }
+});
+
+test("/login/credential：onCredential 抛错 → 400 且 body 含错误信息", async () => {
+  const provider = makeProvider({
+    async onCredential() {
+      throw new Error("令牌应以 sk- 开头");
+    },
+  });
+  const { handle, port } = await startServer(provider);
+  try {
+    const response = await request(port, "/login/credential", {
+      method: "POST",
+      token: "test-token",
+      body: { kind: "paste-token", value: SECRET },
+    });
+    assert.equal(response.status, 400, "可预期的业务失败用 400（500 会让作者以为插件崩了）");
+    const body = JSON.parse(response.text);
+    assert.match(body.error, /sk- 开头/, "宿主把响应体原样展示给用户，原因必须写清");
+    assert.equal(response.text.includes(SECRET), false);
+  } finally {
+    await handle.close();
+  }
+});
+
+test("/login/credential：GET → 405（固定是 POST）", async () => {
+  const provider = makeProvider({ async onCredential() { return { ok: true }; } });
+  const { handle, port } = await startServer(provider);
+  try {
+    const response = await request(port, "/login/credential", { token: "test-token" });
+    assert.equal(response.status, 405);
+    assert.match(JSON.parse(response.text).error, /POST/);
+  } finally {
+    await handle.close();
+  }
+});
+
+test("/login/credential：凭证不进日志、不进 400 文案（含非法 JSON 的解析报错）", async () => {
+  const provider = makeProvider({
+    async onCredential() {
+      return { ok: true };
+    },
+  });
+  const { handle, port, logs } = await startServer(provider);
+  try {
+    // 1) 正常收下：日志里只有路径，不该有 body。
+    await request(port, "/login/credential", {
+      method: "POST",
+      token: "test-token",
+      body: { kind: "paste-token", value: SECRET },
+    });
+
+    // 2) 非法 JSON：Node 的 JSON.parse 报错会带上输入片段（`"sk-..." is not valid JSON`），
+    //    所以 SDK 必须换掉那条文案 —— 否则用户凭据会出现在界面与日志里。
+    const broken = await request(port, "/login/credential", {
+      method: "POST",
+      token: "test-token",
+      raw: `{"kind":"paste-token","value":"${SECRET}"`,
+    });
+    assert.equal(broken.status, 400);
+    assert.equal(broken.text.includes(SECRET), false, "400 文案里不能回显请求体");
+
+    // 3) 缺字段的 400 同样不该把已有内容回显出来。
+    const noKind = await request(port, "/login/credential", {
+      method: "POST",
+      token: "test-token",
+      body: { value: SECRET },
+    });
+    assert.equal(noKind.status, 400);
+    assert.equal(noKind.text.includes(SECRET), false);
+
+    assert.equal(logs.join("").includes(SECRET), false, "用户凭据绝对不能进 stderr");
   } finally {
     await handle.close();
   }
