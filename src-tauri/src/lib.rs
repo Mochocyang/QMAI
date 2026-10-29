@@ -335,6 +335,10 @@ commands::fs::read_file,
             // 插件管理：列表/安装/启停/卸载，以及运行期工具清单与调用。
             plugins::plugins_list,
             plugins::plugins_install,
+            // 插件市场：远端索引（本地缓存 + 离线降级）与「从市场安装」。
+            // 市场安装复用上面同一条安装编排，前端只需把 entry.repo 原样交回来。
+            plugins::plugins_market_index,
+            plugins::plugins_market_install,
             // 从本地目录安装：插件作者在本机迭代、验收时手工装测试插件都走这条。
             plugins::plugins_install_local,
             plugins::plugins_enable,

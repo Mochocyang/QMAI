@@ -12,6 +12,8 @@ pub mod host_api;
 pub mod installer;
 pub mod login_window;
 pub mod manifest;
+/// 市场只提供「可浏览的清单」；下载/校验/发布仍走 installer，安全边界只有一份。
+pub mod market;
 pub mod mcp_bridge;
 pub mod paths;
 pub mod project_context;
@@ -1448,17 +1450,18 @@ pub async fn plugins_hooks(state: State<'_, PluginsState>) -> Result<Vec<HookVie
     collect_hooks(&state.root())
 }
 
-/// 从 GitHub 安装插件。装完默认关闭，用户勾选权限并点「启用」后才会拉起进程。
-#[tauri::command]
-pub async fn plugins_install(
-    state: State<'_, PluginsState>,
-    source: String,
-) -> Result<PluginSummary, String> {
+/// 从 GitHub 安装插件的编排：读注册表 → 下载发布 → provider id/宿主版本闸门 →
+/// 写注册表 → 失败回滚。
+///
+/// 抽成独立函数是为了让 `plugins_install`（用户粘贴地址）与 `plugins_market_install`
+/// （市场条目里的 repo）共用**同一条**路径：回滚条件、闸门顺序、注册表字段都只有
+/// 一份实现。两条命令若各写一遍，某天补一条回滚条件时只会补在其中一条上。
+async fn install_from_github(state: &PluginsState, source: &str) -> Result<PluginSummary, String> {
     let root = state.root();
     // 先读注册表再发布目录：注册表读不出来（损坏/版本过新）时直接失败，
     // 不会先把目录装出去、再因为读注册表失败留下一个孤儿
     let mut registry = PluginRegistry::load(&root)?;
-    let outcome = installer::install(&root, &source).await?;
+    let outcome = installer::install(&root, source).await?;
 
     // provider id 必须全局唯一，而清单校验看不到别的插件。冲突就回滚已发布的目录：
     // 装上一个永远抢不到 id 的插件，比装不上更糟（用户会以为它已经生效）。
@@ -1483,7 +1486,7 @@ pub async fn plugins_install(
         enabled: false,
         granted_permissions: vec![],
         source: SourceRecord {
-            repo: source,
+            repo: source.to_string(),
             git_ref: outcome.git_ref.clone(),
             // GitHub archive zip 不含 commit SHA；commit 暂时填 ref，追溯仍可依赖
             // repo + ref + zip_sha256。要真 SHA 得再打一次 GitHub API，第一期不做。
@@ -1501,6 +1504,42 @@ pub async fn plugins_install(
         return Err(format!("写入插件注册表失败，已回滚安装：{e}"));
     }
     Ok(summary)
+}
+
+/// 从 GitHub 安装插件。装完默认关闭，用户勾选权限并点「启用」后才会拉起进程。
+#[tauri::command]
+pub async fn plugins_install(
+    state: State<'_, PluginsState>,
+    source: String,
+) -> Result<PluginSummary, String> {
+    install_from_github(state.inner(), &source).await
+}
+
+/// 拉取插件市场索引。`refresh=true` 强制重拉。
+///
+/// 网络失败**不直接报错**（离线/被墙是常态）：有缓存就返回缓存并标 `fromCache=true`，
+/// 连缓存都没有才报错。索引地址见 `market::index_url`（环境变量可覆盖自建市场）。
+#[tauri::command]
+pub async fn plugins_market_index(
+    state: State<'_, PluginsState>,
+    refresh: bool,
+) -> Result<market::MarketIndex, String> {
+    let client = market::http_client()?;
+    market::load_index(&client, &state.root(), refresh).await
+}
+
+/// 从市场安装：等价于用 `entry.repo` 调 `plugins_install`。
+/// 单独一条命令是为了让前端不必关心「市场条目怎么转成安装地址」。
+#[tauri::command]
+pub async fn plugins_market_install(
+    state: State<'_, PluginsState>,
+    repo: String,
+) -> Result<PluginSummary, String> {
+    // 先按安装器的规则判一遍地址：索引是第三方 PR 写的，一条手滑的 repo 应该在
+    // 下载之前就变成一句能看懂的报错，而不是让用户先等一轮失败的网络请求。
+    // 判定**复用** `installer::parse_source`，与 `plugins_install` 同一套规则。
+    installer::parse_source(&repo)?;
+    install_from_github(state.inner(), &repo).await
 }
 
 /// 从本地目录安装插件：插件作者的开发闭环，也是验收时的手工测试入口。
