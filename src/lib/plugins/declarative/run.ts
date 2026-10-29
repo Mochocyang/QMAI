@@ -3,7 +3,11 @@
  *
  * 一段 action 的执行只有四步，但每一步都必须能被单一测试覆盖住：
  *
- *   插值（interpolate）→ 调模型（deps.llm.call）→ 解析（parseOutput）→ 返回
+ *   权限闸门 → 插值（interpolate）→ 调模型（deps.llm.call）→ 解析（parseOutput）
+ *
+ * 闸门之所以单独成一步、并排在插值之前：插值就是"把项目正文读进来"的那一步，
+ * 权限判定一旦晚于它，隐私与计费上的损失都已经发生（详见 `runDeclarativeAction`
+ * 里的注释）。
  *
  * **为什么 LLM 调用器是注入的**：这个仓的模型客户端（`src/lib/llm-client.ts`）
  * 依赖 store、provider 配置、用量计费与网络。若本文件直接 import 它，
@@ -15,7 +19,7 @@
  * 本文件同样**不抛解析错误**：`parseOutput` 永不抛错（设计 D3），降级结果原样返回，
  * 由 UI 决定怎么展示（空列表与降级必须渲染不同，见 ActionDialog 的注释）。
  */
-import { interpolate, collectVariables } from "./interpolate"
+import { interpolate, collectVariables, requiresProjectAccess } from "./interpolate"
 import { parseOutput, type ParsedOutput } from "./output"
 import type { DeclarativeAction } from "./types"
 
@@ -79,6 +83,23 @@ export function isRunActionAborted(error: unknown): boolean {
   if (error instanceof RunActionAbortedError) return true
   if (error instanceof Error && error.name === "AbortError") return true
   return false
+}
+
+/** 读项目内容所必需的能力（设计 §3.3）。 */
+export const PROJECT_READ_PERMISSION = "fs:project-read"
+
+/**
+ * 缺 `fs:project-read` 却又引用了项目上下文时抛出的错误（可识别，便于 UI 区分）。
+ *
+ * 为什么单独一个类而不是普通 `Error`：这不是"生成失败"——模型没被调用、一个字都没
+ * 发出去，用户该做的是去插件中心重新授权，而不是重试或调表单。UI 靠 `instanceof`
+ * 决定显示哪套文案（见 `ActionDialog`）。
+ */
+export class MissingProjectPermissionError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "MissingProjectPermissionError"
+  }
 }
 
 /**
@@ -219,6 +240,9 @@ async function readSafely<T>(label: string, reader?: () => Promise<T | null>): P
 /**
  * 执行一个声明式 action。
  *
+ * @param grantedPermissions 该插件**已被用户授予**的权限（`PluginSummary.grantedPermissions`）。
+ *        必传且**故意没有默认值**：给 `[]` 默认值会让"忘了传权限"的调用点静默变成
+ *        "没有权限"，反过来默认放行又等于拆掉闸门。调用方必须显式面对这件事。
  * @param values  已通过 `validateFormValues` 的表单值（这里不再校验一遍）
  * @param onDelta 流式增量回调
  * @param signal  中止信号（用户点「停止」）
@@ -230,6 +254,7 @@ async function readSafely<T>(label: string, reader?: () => Promise<T | null>): P
 export async function runDeclarativeAction(
   action: DeclarativeAction,
   pluginId: string,
+  grantedPermissions: readonly string[],
   values: Record<string, unknown>,
   deps: RunActionDeps,
   onDelta: (text: string) => void,
@@ -241,6 +266,33 @@ export async function runDeclarativeAction(
 
   const systemTemplate = action?.prompt?.system ?? ""
   const userTemplate = action?.prompt?.user ?? ""
+
+  /*
+   * 权限闸门（设计 §3.3）：引用了 `{{project.*}}` / `{{chapter.*}}` / `{{selection}}`
+   * 的 action，其插件必须获批 `fs:project-read`，否则拒绝执行。
+   *
+   * **为什么必须在模型调用之前**：过了这一步的代码会先把项目/章节真读出来、插进
+   * 提示词，再交给模型。闸门晚一步，损失就是三重且不可撤回的：
+   *   1. 用户的正文已经出了本机（隐私）；
+   *   2. 一次模型请求已经计费（钱）；
+   *   3. 插件已经拿到了它没有被授权的数据，事后报错也追不回来。
+   * 所以顺序是"先判定资格，再读上下文，最后才发请求"——拒绝路径上不产生任何 I/O。
+   *
+   * 为什么闸门放在执行入口而不是校验器：校验器（SDK）看的是清单声明，管不到
+   * "老清单 / 手改注册表 / 用户只批准了一部分权限"这三种真实情况。这里查的是
+   * **用户实际授予**的那份权限，是最后一道、也是唯一一道能兜住的闸门。
+   */
+  const needsProjectAccess =
+    requiresProjectAccess(systemTemplate) || requiresProjectAccess(userTemplate)
+  // 运行时兜底：拿不到清单就当"什么都没授予"。失败方向只能是拒绝，绝不能放行。
+  const granted = Array.isArray(grantedPermissions) ? grantedPermissions : []
+  if (needsProjectAccess && !granted.includes(PROJECT_READ_PERMISSION)) {
+    throw new MissingProjectPermissionError(
+      `「${action?.title ?? action?.id ?? "该动作"}」需要读取你的项目内容（章节/设定），但该插件尚未获批 fs:project-read 权限。` +
+        `请在插件中心停用后重新启用它，并在确认框里批准这项权限。`,
+    )
+  }
+
   const variables = collectTemplateVariables(systemTemplate, userTemplate)
 
   /*

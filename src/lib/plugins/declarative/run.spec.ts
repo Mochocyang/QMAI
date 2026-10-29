@@ -9,6 +9,7 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   MAX_RUN_ACTION_CHAIN_DEPTH,
+  MissingProjectPermissionError,
   RunActionAbortedError,
   RunActionChainError,
   assertRunnableChain,
@@ -64,6 +65,7 @@ describe("runDeclarativeAction", () => {
     const result = await runDeclarativeAction(
       titleAction(),
       "p1",
+      [], // 纯表单模板：不读项目，也就不需要 fs:project-read
       { genre: "科幻", idea: "末日列车", count: 5 },
       deps({ llm }),
       () => {},
@@ -83,6 +85,7 @@ describe("runDeclarativeAction", () => {
     await runDeclarativeAction(
       titleAction({ limits: { maxOutputTokens: 2000 } }),
       "p1",
+      [],
       { genre: "科幻", idea: "x", count: 1 },
       deps({ llm }),
       () => {},
@@ -103,7 +106,7 @@ describe("runDeclarativeAction", () => {
       },
     })
 
-    await runDeclarativeAction(action, "p1", {}, deps({ readProject, readChapter, getSelection }), () => {}, signal())
+    await runDeclarativeAction(action, "p1", ["fs:project-read"], {}, deps({ readProject, readChapter, getSelection }), () => {}, signal())
 
     expect(readProject).toHaveBeenCalledTimes(1)
     expect(readChapter).toHaveBeenCalledTimes(1)
@@ -118,6 +121,7 @@ describe("runDeclarativeAction", () => {
     await runDeclarativeAction(
       titleAction(),
       "p1",
+      [],
       { genre: "科幻", idea: "x", count: 1 },
       deps({ readProject, readChapter, getConfig }),
       () => {},
@@ -134,7 +138,7 @@ describe("runDeclarativeAction", () => {
     const getConfig = vi.fn(async () => ({ style: "爆点" }))
     const action = titleAction({ prompt: { system: "策划", user: "风格：{{config.style}}" } })
 
-    await runDeclarativeAction(action, "p1", {}, deps({ llm, getConfig }), () => {}, signal())
+    await runDeclarativeAction(action, "p1", [], {}, deps({ llm, getConfig }), () => {}, signal())
 
     expect(getConfig).toHaveBeenCalledWith("p1")
     expect(llm.calls[0].user).toBe("风格：爆点")
@@ -151,6 +155,7 @@ describe("runDeclarativeAction", () => {
     const result = await runDeclarativeAction(
       action,
       "p1",
+      ["fs:project-read"],
       {},
       deps({ llm, readProject }),
       () => {},
@@ -166,7 +171,7 @@ describe("runDeclarativeAction", () => {
   it("流式 onDelta 按序调用", async () => {
     const seen: string[] = []
     const llm = fakeLlm(["一、", "二、", "三、"])
-    await runDeclarativeAction(titleAction(), "p1", {}, deps({ llm }), (delta) => seen.push(delta), signal())
+    await runDeclarativeAction(titleAction(), "p1", [], {}, deps({ llm }), (delta) => seen.push(delta), signal())
     expect(seen).toEqual(["一、", "二、", "三、"])
   })
 
@@ -176,7 +181,7 @@ describe("runDeclarativeAction", () => {
     controller.abort()
 
     await expect(
-      runDeclarativeAction(titleAction(), "p1", {}, deps({ llm }), () => {}, controller.signal),
+      runDeclarativeAction(titleAction(), "p1", [], {}, deps({ llm }), () => {}, controller.signal),
     ).rejects.toBeInstanceOf(RunActionAbortedError)
     expect(llm.calls).toHaveLength(0)
   })
@@ -190,7 +195,7 @@ describe("runDeclarativeAction", () => {
       },
     }
 
-    const error = await runDeclarativeAction(titleAction(), "p1", {}, deps({ llm }), () => {}, controller.signal).catch(
+    const error = await runDeclarativeAction(titleAction(), "p1", [], {}, deps({ llm }), () => {}, controller.signal).catch(
       (cause: unknown) => cause,
     )
     expect(isRunActionAborted(error)).toBe(true)
@@ -199,7 +204,7 @@ describe("runDeclarativeAction", () => {
 
   it("模型没返回内容时返回 degraded，而不是抛错", async () => {
     const llm = fakeLlm([], "")
-    const result = await runDeclarativeAction(titleAction(), "p1", {}, deps({ llm }), () => {}, signal())
+    const result = await runDeclarativeAction(titleAction(), "p1", [], {}, deps({ llm }), () => {}, signal())
 
     expect(result.parsed.kind).toBe("degraded")
     if (result.parsed.kind === "degraded") {
@@ -209,14 +214,14 @@ describe("runDeclarativeAction", () => {
 
   it("list 模式解析不出条目时仍然返回 degraded 结果", async () => {
     const llm = fakeLlm(["好的，我无法完成。"], "好的，我无法完成。")
-    const result = await runDeclarativeAction(titleAction(), "p1", {}, deps({ llm }), () => {}, signal())
+    const result = await runDeclarativeAction(titleAction(), "p1", [], {}, deps({ llm }), () => {}, signal())
     // 「好的，我无法完成。」是一行有效文本 —— 但这里验证的是"不抛错、一定有 parsed"
     expect(result.parsed.kind === "degraded" || result.parsed.kind === "list").toBe(true)
   })
 
   it("正常文本按行解析成列表", async () => {
     const llm = fakeLlm(["1. 《长夜》\n2. 《归途》"], "1. 《长夜》\n2. 《归途》")
-    const result = await runDeclarativeAction(titleAction(), "p1", {}, deps({ llm }), () => {}, signal())
+    const result = await runDeclarativeAction(titleAction(), "p1", [], {}, deps({ llm }), () => {}, signal())
 
     expect(result.parsed).toEqual({ kind: "list", items: ["《长夜》", "《归途》"], degraded: false })
   })
@@ -224,8 +229,135 @@ describe("runDeclarativeAction", () => {
   it("createUnavailableLlmCaller 给出可读的中文原因", async () => {
     const llm = createUnavailableLlmCaller("插件生成尚未接入模型")
     await expect(
-      runDeclarativeAction(titleAction(), "p1", {}, deps({ llm }), () => {}, signal()),
+      runDeclarativeAction(titleAction(), "p1", [], {}, deps({ llm }), () => {}, signal()),
     ).rejects.toThrow("插件生成尚未接入模型")
+  })
+})
+
+describe("fs:project-read 闸门（设计 §3.3）", () => {
+  /** 一个引用了项目上下文的 action（`titleAction` 的表单字段保持可用）。 */
+  function projectAction(user: string, system = "策划"): DeclarativeAction {
+    return titleAction({ prompt: { system, user } })
+  }
+
+  it("有权限：读章节、正文进提示词，正常生成", async () => {
+    const llm = fakeLlm(["《长夜》"])
+    const readChapter = vi.fn(async () => ({ title: "第一章", text: "列车在雨里停了很久。" }))
+
+    const result = await runDeclarativeAction(
+      projectAction("章节正文：{{chapter.text}}"),
+      "p1",
+      ["fs:project-read"],
+      {},
+      deps({ llm, readChapter }),
+      () => {},
+      signal(),
+    )
+
+    expect(readChapter).toHaveBeenCalledTimes(1)
+    expect(llm.calls[0].user).toContain("列车在雨里停了很久。")
+    expect(result.missing).toEqual([])
+  })
+
+  it("没权限 + {{chapter.text}}：拒绝执行，且一次模型请求都没发、正文没被读", async () => {
+    const llm = fakeLlm(["不该出现"])
+    const readChapter = vi.fn(async () => ({ title: "第一章", text: "列车在雨里停了很久。" }))
+
+    const error = await runDeclarativeAction(
+      projectAction("章节正文：{{chapter.text}}"),
+      "p1",
+      [],
+      {},
+      deps({ llm, readChapter }),
+      () => {},
+      signal(),
+    ).catch((cause: unknown) => cause)
+
+    expect(error).toBeInstanceOf(MissingProjectPermissionError)
+    expect((error as Error).message).toContain("需要读取你的项目内容")
+    expect((error as Error).message).toContain("fs:project-read")
+    // 关键：闸门在 llm.call 之前 —— 省下一次真实计费请求，正文也不会出本机
+    expect(llm.calls).toHaveLength(0)
+    // 连"读"都不该发生：拒绝之后才读上下文，等于已经泄露给插件
+    expect(readChapter).not.toHaveBeenCalled()
+  })
+
+  it("没权限 + {{project.bookTitle}}：同样拒绝", async () => {
+    const llm = fakeLlm(["不该出现"])
+
+    await expect(
+      runDeclarativeAction(
+        projectAction("书名：{{project.bookTitle}}"),
+        "p1",
+        [],
+        {},
+        deps({ llm }),
+        () => {},
+        signal(),
+      ),
+    ).rejects.toBeInstanceOf(MissingProjectPermissionError)
+    expect(llm.calls).toHaveLength(0)
+  })
+
+  it("system 提示词里的项目变量也计入（不能只查 user）", async () => {
+    const llm = fakeLlm(["不该出现"])
+
+    await expect(
+      runDeclarativeAction(
+        projectAction("题材：{{genre}}", "你在为《{{project.bookTitle}}》策划"),
+        "p1",
+        [],
+        {},
+        deps({ llm }),
+        () => {},
+        signal(),
+      ),
+    ).rejects.toBeInstanceOf(MissingProjectPermissionError)
+    expect(llm.calls).toHaveLength(0)
+  })
+
+  it("{{selection}} 也计入项目上下文：没权限一样拒绝", async () => {
+    const llm = fakeLlm(["不该出现"])
+    const getSelection = vi.fn(() => "选中的句子")
+
+    await expect(
+      runDeclarativeAction(
+        projectAction("请改写：{{selection}}"),
+        "p1",
+        [],
+        {},
+        deps({ llm, getSelection }),
+        () => {},
+        signal(),
+      ),
+    ).rejects.toBeInstanceOf(MissingProjectPermissionError)
+    expect(llm.calls).toHaveLength(0)
+    expect(getSelection).not.toHaveBeenCalled()
+  })
+
+  it("纯表单模板 + 没权限：照常执行（不能误伤）", async () => {
+    const llm = fakeLlm(["《长夜》"])
+    const readProject = vi.fn(async () => ({ bookTitle: "长夜" }))
+
+    const result = await runDeclarativeAction(
+      projectAction("题材：{{genre}}"),
+      "p1",
+      [],
+      { genre: "悬疑" },
+      deps({ llm, readProject }),
+      () => {},
+      signal(),
+    )
+
+    expect(llm.calls).toHaveLength(1)
+    expect(readProject).not.toHaveBeenCalled()
+    expect(result.parsed).toEqual({ kind: "list", items: ["《长夜》"], degraded: false })
+  })
+
+  it("只认精确的权限名：其它权限不能顺带放行", async () => {
+    await expect(
+      runDeclarativeAction(projectAction("{{chapter.text}}"), "p1", ["net:https"], {}, deps({}), () => {}, signal()),
+    ).rejects.toBeInstanceOf(MissingProjectPermissionError)
   })
 })
 
@@ -269,7 +401,7 @@ describe("assertRunnableChain：链式调用的三道闸", () => {
   it("runDeclarativeAction 在入口就拦下跨插件的栈（不必等模型调用）", async () => {
     const llm = fakeLlm(["《第一》"])
     await expect(
-      runDeclarativeAction(titleAction(), "p1", {}, deps({ llm }), () => {}, signal(), ["p2:other"]),
+      runDeclarativeAction(titleAction(), "p1", [], {}, deps({ llm }), () => {}, signal(), ["p2:other"]),
     ).rejects.toBeInstanceOf(RunActionChainError)
     expect(llm.calls).toHaveLength(0)
   })

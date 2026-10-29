@@ -124,7 +124,15 @@ describe("接到 runDeclarativeAction 上", () => {
       output: { mode: "list", targets: [] },
     }
 
-    const result = await runDeclarativeAction(action, "p1", { genre: "悬疑" }, deps, () => {}, new AbortController().signal)
+    const result = await runDeclarativeAction(
+      action,
+      "p1",
+      [], // 纯表单提示词（只有 {{genre}}）：不需要 fs:project-read
+      { genre: "悬疑" },
+      deps,
+      () => {},
+      new AbortController().signal,
+    )
 
     expect(calls[0].messages[1]).toEqual({ role: "user", content: "题材：悬疑" })
     expect(result.parsed).toEqual({ kind: "list", items: ["《长夜》", "《归途》"], degraded: false })

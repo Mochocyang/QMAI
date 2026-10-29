@@ -46,10 +46,12 @@ afterEach(() => {
   document.body.innerHTML = ""
 })
 
-function entry(overrides: Partial<DeclarativeAction> = {}): SlotActionEntry {
+function entry(overrides: Partial<DeclarativeAction> = {}, grantedPermissions: string[] = []): SlotActionEntry {
   return {
     pluginId: "idea-generator",
     pluginName: "灵感生成器",
+    // 缺省按"什么都没授予"：多数用例只关心对话框状态机，不需要项目权限
+    grantedPermissions,
     action: {
       id: "generate-titles",
       title: "生成书名",
@@ -220,6 +222,79 @@ describe("ActionDialog：状态机与流式", () => {
 
     await act(async () => localRoot.unmount())
     container.remove()
+  })
+})
+
+describe("ActionDialog：读项目前的 fs:project-read 闸门（设计 §3.3）", () => {
+  function projectAction(overrides: Partial<DeclarativeAction> = {}): DeclarativeAction {
+    return {
+      id: "expand",
+      title: "扩写本章",
+      prompt: { system: "你在扩写网文", user: "续写：{{chapter.text}}" },
+      output: { mode: "text", targets: [] },
+      ...overrides,
+    }
+  }
+
+  async function renderDialog(entryValue: SlotActionEntry, deps: RunActionDeps) {
+    const container = document.createElement("div")
+    document.body.appendChild(container)
+    const localRoot = createRoot(container)
+
+    await act(async () => {
+      localRoot.render(
+        <ActionDialog open entry={entryValue} onClose={() => {}} deps={deps} onApplyTarget={async () => {}} />,
+      )
+    })
+    for (let index = 0; index < 4; index += 1) {
+      await act(async () => {
+        await Promise.resolve()
+      })
+    }
+    return localRoot
+  }
+
+  it("没获批：显示「需要读取你的项目内容」，不是「生成失败」，且一次模型请求都没发", async () => {
+    const llm = { call: vi.fn(async () => ({ text: "不该出现" })) }
+    const readChapter = vi.fn(async () => ({ title: "第一章", text: "列车在雨里停了很久。" }))
+
+    const localRoot = await renderDialog(entry(projectAction(), []), {
+      llm,
+      readChapter,
+      getConfig: async () => ({}),
+    })
+
+    const text = document.body.textContent ?? ""
+    expect(text).toContain("需要读取你的项目内容")
+    expect(text).toContain("fs:project-read")
+    // 不能降级成"生成失败"：模型根本没跑，重试也不会好，得去插件中心授权
+    expect(text).not.toContain("生成失败")
+    expect(llm.call).not.toHaveBeenCalled()
+    expect(readChapter).not.toHaveBeenCalled()
+
+    // 只有「重试」是合理的下一步；「停止」意味着仍在生成，是误导
+    const labels = [...document.body.querySelectorAll("button")].map((button) => (button.textContent ?? "").trim())
+    expect(labels).not.toContain("停止")
+    expect(labels).toContain("重试")
+
+    await act(async () => localRoot.unmount())
+  })
+
+  it("已获批：照常读章节并展示生成结果（闸门不能误伤正常插件）", async () => {
+    const llm = { call: vi.fn(async () => ({ text: "扩写后的正文" })) }
+    const readChapter = vi.fn(async () => ({ title: "第一章", text: "列车在雨里停了很久。" }))
+
+    const localRoot = await renderDialog(entry(projectAction(), ["fs:project-read"]), {
+      llm,
+      readChapter,
+      getConfig: async () => ({}),
+    })
+
+    expect(readChapter).toHaveBeenCalledTimes(1)
+    expect(llm.call).toHaveBeenCalledTimes(1)
+    expect(document.body.textContent).toContain("扩写后的正文")
+
+    await act(async () => localRoot.unmount())
   })
 })
 

@@ -33,18 +33,24 @@ function actionEntry(
   pluginId: string,
   pluginName: string,
   overrides: Partial<DeclarativeAction> = {},
+  grantedPermissions: string[] = [],
 ): SlotActionEntry {
-  return { pluginId, pluginName, action: action(overrides) }
+  return { pluginId, pluginName, action: action(overrides), grantedPermissions }
 }
 
 function pack(overrides: Partial<ContentPack> = {}): ContentPack {
   return { id: "scifi", title: "科幻灵感包", items: [], ...overrides }
 }
 
-function packEntry(pluginId: string, pluginName: string, overrides: Partial<ContentPack> = {}): SlotPackEntry {
+function packEntry(
+  pluginId: string,
+  pluginName: string,
+  overrides: Partial<ContentPack> = {},
+  grantedPermissions: string[] = [],
+): SlotPackEntry {
   const entryPack = pack(overrides)
   // loadKey 是宿主取条目用的合成键；pack.id 保持包内 id（两者刻意不同，见 slots.ts）
-  return { pluginId, pluginName, pack: entryPack, loadKey: `${pluginId}/${entryPack.id}` }
+  return { pluginId, pluginName, pack: entryPack, loadKey: `${pluginId}/${entryPack.id}`, grantedPermissions }
 }
 
 describe("buildSlotIndex", () => {
@@ -129,6 +135,26 @@ describe("buildSlotIndex", () => {
       ],
     )
     expect(index["plugin-center"].packs.map((entry) => entry.pack.title)).toEqual(["甲包", "乙包"])
+  })
+
+  it("grantedPermissions 原样透传进桶里的 entry（执行器靠它判 fs:project-read）", () => {
+    const index = buildSlotIndex(
+      [actionEntry("p1", "插件一", { slot: "chapter-toolbar" }, ["fs:project-read"])],
+      [packEntry("p1", "插件一", { slot: "inspiration-browser" }, ["fs:project-read", "net:https"])],
+    )
+
+    expect(index["chapter-toolbar"].actions[0].grantedPermissions).toEqual(["fs:project-read"])
+    expect(index["inspiration-browser"].packs[0].grantedPermissions).toEqual([
+      "fs:project-read",
+      "net:https",
+    ])
+  })
+
+  it("没有权限的 entry 保持空数组（注册表不替它编造权限）", () => {
+    const index = buildSlotIndex([actionEntry("p1", "插件一")], [packEntry("p1", "插件一")])
+
+    expect(index["plugin-center"].actions[0].grantedPermissions).toEqual([])
+    expect(index["plugin-center"].packs[0].grantedPermissions).toEqual([])
   })
 })
 

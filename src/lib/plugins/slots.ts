@@ -75,6 +75,17 @@ export interface SlotActionEntry {
   pluginId: string
   pluginName: string
   action: DeclarativeAction
+  /**
+   * 该插件**已被用户授予**的权限（来自 `PluginSummary.grantedPermissions`）。
+   *
+   * 声明式动作读项目上下文前必须查它：设计 §3.3 要求缺 `fs:project-read`
+   * 时拒绝执行。权限必须跟着 entry 一起走到执行器 —— 否则 `runDeclarativeAction`
+   * 只拿得到 `pluginId`，要么再查一次插件注册表（多一份可能与真实授予状态漂移的
+   * 真源），要么就只能放行（等于没有闸门）。
+   *
+   * 缺失一律按 `[]`：读不到 = 什么都没授予，拒绝比放行安全。
+   */
+  grantedPermissions: string[]
 }
 
 /** 插槽里的一项内容包。`pack.items` 可能是空的（懒加载），由浏览器面板按需取。 */
@@ -82,6 +93,15 @@ export interface SlotPackEntry {
   pluginId: string
   pluginName: string
   pack: ContentPack
+  /**
+   * 该插件已授予的权限（含义同 `SlotActionEntry.grantedPermissions`）。
+   *
+   * 内容包的 `run-action` 也会读项目（条目正文 + 动作提示词里的 `{{chapter.*}}`），
+   * 所以这一条路径同样需要权限信息。真正的判定只有一处（`runDeclarativeAction`）：
+   * 这里保留一份是为了"包与动作同源"——将来若有界面要在开跑前提示权限，
+   * 不必再为内容包单独查一次注册表。
+   */
+  grantedPermissions: string[]
   /**
    * 取条目时用的宿主键，形如 `<pluginId>/<packId>`。
    *
@@ -173,6 +193,10 @@ function resolveSlotId(declared: unknown, describe: string): SlotId | undefined 
  *
  * 入参已经是"归一化后的领域对象"（由 `declarative/api.ts` 把命令返回的原始
  * JSON 转好）：注册表不解析第三方 JSON，也不做降级 —— 那些都是加载层的责任。
+ *
+ * entry 里的 `grantedPermissions` **原样透传**（这里既不合并也不补默认值）：
+ * 权限是插件级事实，排序/分桶都不该改它；在注册表里再补一次默认值，
+ * 就等于给执行器一个"看起来授予过"的假象。
  */
 export function buildSlotIndex(
   actions: readonly SlotActionEntry[],

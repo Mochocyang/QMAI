@@ -38,7 +38,12 @@ import {
 } from "@/components/ui/dialog"
 import { initialFormValues, validateFormValues } from "@/lib/plugins/declarative/form"
 import type { ParsedOutput } from "@/lib/plugins/declarative/output"
-import { isRunActionAborted, runDeclarativeAction, type RunActionDeps } from "@/lib/plugins/declarative/run"
+import {
+  MissingProjectPermissionError,
+  isRunActionAborted,
+  runDeclarativeAction,
+  type RunActionDeps,
+} from "@/lib/plugins/declarative/run"
 import {
   isWritableProjectField,
   sanitizeBookTitle,
@@ -56,6 +61,16 @@ import { SchemaForm } from "./SchemaForm"
 export type TargetApplier = (target: OutputTarget, parsed: ParsedOutput) => Promise<void>
 
 export type ActionDialogPhase = "form" | "running" | "done" | "error"
+
+/**
+ * 失败的两条完全不同的路径（决定 UI 文案与"下一步该做什么"）。
+ *
+ * - `failed`：模型/网络/解析层面的失败 → 用户能做的是重试或改表单；
+ * - `permission`：插件没获批 `fs:project-read` 却要读项目 → 模型**一次都没被调用**，
+ *   重试没有意义，必须去插件中心重新启用并批准权限。
+ * 两者混成一句「生成失败」，用户会一直在对话框里重试一个永远不可能成功的动作。
+ */
+export type ActionErrorKind = "failed" | "permission"
 
 /** 读错误原因：Rust 与模型侧都倾向直接给中文原文，字符串优先。 */
 export function describeRunError(cause: unknown): string {
@@ -319,6 +334,7 @@ export function ActionDialog({
   const [parsed, setParsed] = useState<ParsedOutput | null>(null)
   const [missing, setMissing] = useState<string[]>([])
   const [errorText, setErrorText] = useState("")
+  const [errorKind, setErrorKind] = useState<ActionErrorKind>("failed")
   const [applyError, setApplyError] = useState("")
   const [confirming, setConfirming] = useState<OutputTarget | null>(null)
   const [applying, setApplying] = useState(false)
@@ -337,6 +353,7 @@ export function ActionDialog({
       setParsed(null)
       setMissing([])
       setErrorText("")
+      setErrorKind("failed")
       setApplyError("")
       setConfirming(null)
 
@@ -344,6 +361,8 @@ export function ActionDialog({
         const result = await runDeclarativeAction(
           action,
           entry.pluginId,
+          // 权限跟着 entry 走：插槽索引从 plugins_list join 出来（见 declarative/api.ts）。
+          entry.grantedPermissions,
           input,
           deps,
           (delta) => setStreamText((previous) => previous + delta),
@@ -355,8 +374,18 @@ export function ActionDialog({
         setPhase("done")
       } catch (cause) {
         if (isRunActionAborted(cause) || controller.signal.aborted) {
+          setErrorKind("failed")
           setErrorText("已停止生成。上面保留了停止前收到的内容，可以重试。")
+        } else if (cause instanceof MissingProjectPermissionError) {
+          /*
+           * 权限问题不是"生成失败"：这一次一个模型请求都没发出去，重试也只会
+           * 得到同一句话。文案（含"去插件中心停用后重新启用"的指引）来自
+           * `run.ts`，这里只负责不让它被降级成笼统的失败提示。
+           */
+          setErrorKind("permission")
+          setErrorText(describeRunError(cause))
         } else {
+          setErrorKind("failed")
           setErrorText(describeRunError(cause))
         }
         setPhase("error")
@@ -379,6 +408,7 @@ export function ActionDialog({
     setParsed(null)
     setMissing([])
     setErrorText("")
+    setErrorKind("failed")
     setApplyError("")
     setConfirming(null)
     if (hasForm) {
@@ -474,9 +504,15 @@ export function ActionDialog({
             <div
               className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
               role="alert"
+              data-action-error={errorKind}
             >
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <p className="min-w-0 break-words">{errorText}</p>
+              <div className="min-w-0 space-y-1">
+                <p className="min-w-0 break-words">{errorText}</p>
+                {errorKind === "permission" ? (
+                  <p className="text-xs">授权后关掉这个对话框，再重新点一次这个动作即可。</p>
+                ) : null}
+              </div>
             </div>
           ) : null}
 

@@ -255,14 +255,24 @@ function normalizePackActions(value: unknown): OutputTarget[] {
 }
 
 /** wire → 插槽条目；action 本体不合法时返回 `undefined`。 */
-export function toSlotActionEntry(wire: DeclarativeActionWire): SlotActionEntry | undefined {
+export function toSlotActionEntry(
+  wire: DeclarativeActionWire,
+  grantedPermissions: readonly string[] = [],
+): SlotActionEntry | undefined {
   const pluginId = nonEmptyString(wire?.pluginId) ?? "unknown"
   const action = normalizeActionDeclaration(wire?.action !== undefined ? wire.action : wire)
   if (!action) {
     console.warn(`[plugins] 丢弃来源插件 ${pluginId} 的一条无效 action 声明`, wire)
     return undefined
   }
-  return { pluginId, pluginName: nonEmptyString(wire?.pluginName) ?? pluginId, action }
+  return {
+    pluginId,
+    pluginName: nonEmptyString(wire?.pluginName) ?? pluginId,
+    action,
+    // 缺权限读清单时按"什么都没授予"：执行器据此拒绝读项目（设计 §3.3），
+    // 而不是靠"没传就是有权限"的默认值把闸门绕过去。
+    grantedPermissions: [...grantedPermissions],
+  }
 }
 
 /**
@@ -271,7 +281,10 @@ export function toSlotActionEntry(wire: DeclarativeActionWire): SlotActionEntry 
  * `items` 一律置空：内容包可能有几千条，插件中心不该为了显示一个包名就把全部条目
  * 拉进内存（真正要看的条目由 `ContentPackBrowser` 按需 `plugins_content_pack_items` 取）。
  */
-export function toSlotPackEntry(meta: ContentPackMeta): SlotPackEntry | undefined {
+export function toSlotPackEntry(
+  meta: ContentPackMeta,
+  grantedPermissions: readonly string[] = [],
+): SlotPackEntry | undefined {
   const pluginId = nonEmptyString(meta?.pluginId) ?? "unknown"
   /*
    * `pack.id` 用**包自己声明的 id**，取条目用的宿主键放在 `loadKey`。
@@ -298,7 +311,13 @@ export function toSlotPackEntry(meta: ContentPackMeta): SlotPackEntry | undefine
   if (slot !== undefined) pack.slot = slot
   const actions = normalizePackActions(meta?.actions)
   if (actions.length > 0) pack.actions = actions
-  return { pluginId, pluginName: nonEmptyString(meta?.pluginName) ?? pluginId, pack, loadKey }
+  return {
+    pluginId,
+    pluginName: nonEmptyString(meta?.pluginName) ?? pluginId,
+    pack,
+    loadKey,
+    grantedPermissions: [...grantedPermissions],
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -368,6 +387,34 @@ function normalizePackMetaList(raw: unknown): ContentPackMeta[] {
 }
 
 /**
+ * `plugins_list` → 「插件 id → 已授予权限」。
+ *
+ * **为什么权限要单独读 `plugins_list`**：`plugins_actions` / `plugins_content_packs`
+ * 只透传清单原文，**不含用户批准过的那份权限**（`grantedPermissions` 是注册表条目，
+ * 只有 `plugins_list` 返回它）。而声明式动作由宿主前端直接读 store 执行，走的不是
+ * `/host/project/*`，Rust 侧那道 `require("fs:project-read")` 闸门（host_api.rs）
+ * 根本不在路径上 —— 权限只能由前端自己 join 出来再交给执行器（设计 §3.3）。
+ *
+ * 形状不认识/权限缺失一律按 `[]`：读不到权限时**必须按没有权限处理**，
+ * 否则闸门会安静地失效（那正是本次要修的那个漏洞）。
+ */
+function normalizeGrantedPermissions(raw: unknown): Record<string, string[]> {
+  const result: Record<string, string[]> = {}
+  if (!Array.isArray(raw)) return result
+  for (const item of raw) {
+    const plugin = asRecord(item)
+    const id = nonEmptyString(plugin?.id)
+    if (id === undefined) continue
+    // 只收字符串：权限名是白名单 token，非字符串（数字/对象）不能变成"已授予"
+    const granted = Array.isArray(plugin?.grantedPermissions)
+      ? plugin.grantedPermissions.filter((permission): permission is string => typeof permission === "string")
+      : []
+    result[id] = granted
+  }
+  return result
+}
+
+/**
  * 解析内容包条目。
  *
  * Rust 命令约定返回**字符串**（文件原文），因此这里要自己 `JSON.parse`；
@@ -399,6 +446,14 @@ const readers = {
     readCommand<DeclarativeActionWire[]>("plugins_actions", undefined, normalizeWireList, []),
   contentPacks: () =>
     readCommand<ContentPackMeta[]>("plugins_content_packs", undefined, normalizePackMetaList, []),
+  // 权限只能从 `plugins_list` 拿到（见 `normalizeGrantedPermissions` 的注释）。
+  permissions: () =>
+    readCommand<Record<string, string[]>>(
+      "plugins_list",
+      undefined,
+      normalizeGrantedPermissions,
+      {},
+    ),
 }
 
 /**
@@ -469,14 +524,26 @@ export interface PluginSlotIndexState {
  *
  * 同一插件可能在多个包里重复声明同一个 action（`packId` 不同），这里按
  * `插件id:action id` 去重：插槽里出现两个一模一样的按钮，用户会以为可以点两次。
+ *
+ * 权限（`grantedPermissions`）在这里按 `pluginId` **从 `plugins_list` join 进来**：
+ * 声明式 action 的执行完全在前端（直接读 store），没有 `/host/project/*` 那道
+ * Rust 闸门，所以"用户到底批准了什么"必须随 entry 一起交给执行器（设计 §3.3）。
+ * 读不到权限时 entry 带 `[]`，执行器据此拒绝读项目 —— 失败方向是拒绝而不是放行。
  */
 export async function loadSlotIndex(): Promise<{ index: SlotIndex; degraded: boolean }> {
-  const [actionsRead, packsRead] = await Promise.all([readers.actions(), readers.contentPacks()])
+  const [actionsRead, packsRead, permissionsRead] = await Promise.all([
+    readers.actions(),
+    readers.contentPacks(),
+    readers.permissions(),
+  ])
+
+  const grantedFor = (pluginId: unknown): string[] =>
+    permissionsRead.value[nonEmptyString(pluginId) ?? "unknown"] ?? []
 
   const seenActions = new Set<string>()
   const actionEntries: SlotActionEntry[] = []
   for (const wire of actionsRead.value) {
-    const entry = toSlotActionEntry(wire)
+    const entry = toSlotActionEntry(wire, grantedFor(wire?.pluginId))
     if (!entry) continue
     const key = `${entry.pluginId}:${entry.action.id}`
     if (seenActions.has(key)) continue
@@ -486,14 +553,16 @@ export async function loadSlotIndex(): Promise<{ index: SlotIndex; degraded: boo
 
   const packEntries: SlotPackEntry[] = []
   for (const meta of packsRead.value) {
-    const entry = toSlotPackEntry(meta)
+    const entry = toSlotPackEntry(meta, grantedFor(meta?.pluginId))
     if (!entry) continue
     packEntries.push(entry)
   }
 
   return {
     index: buildSlotIndex(actionEntries, packEntries),
-    degraded: actionsRead.degraded || packsRead.degraded,
+    // 权限清单读不到也算降级：否则用户只会看到"动作被拒绝"，却没有任何
+    // "能力清单没读全"的提示（插件中心据此显示「重新读取」）。
+    degraded: actionsRead.degraded || packsRead.degraded || permissionsRead.degraded,
   }
 }
 

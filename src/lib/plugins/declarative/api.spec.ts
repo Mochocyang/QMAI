@@ -118,6 +118,19 @@ describe("命令返回值归一化", () => {
     expect(toSlotActionEntry({ pluginId: "p1", title: "无 id" })).toBeUndefined()
   })
 
+  it("toSlotActionEntry 带上传入的已授予权限；不传时是空数组", () => {
+    const wire = { pluginId: "p1", id: "a", title: "A", prompt: {}, output: {} }
+    expect(toSlotActionEntry(wire, ["fs:project-read"])?.grantedPermissions).toEqual(["fs:project-read"])
+    // 缺省 = 什么都没授予（执行器据此拒绝读项目，而不是当成有权限）
+    expect(toSlotActionEntry(wire)?.grantedPermissions).toEqual([])
+  })
+
+  it("toSlotPackEntry 同样带上已授予权限（内容包的 run-action 也会读项目）", () => {
+    const meta = { pluginId: "p1", packId: "scifi", title: "科幻" }
+    expect(toSlotPackEntry(meta, ["fs:project-read"])?.grantedPermissions).toEqual(["fs:project-read"])
+    expect(toSlotPackEntry(meta)?.grantedPermissions).toEqual([])
+  })
+
   it("未知的输出目标 kind 被丢弃（写通道白名单）", () => {
     const action = normalizeActionDeclaration({
       id: "a",
@@ -163,24 +176,66 @@ describe("命令返回值归一化", () => {
 })
 
 describe("loadSlotIndex", () => {
-  it("把 action 与内容包分发到各自插槽，并按 id 去重", async () => {
+  /** `plugins === null` 表示 `plugins_list` 这个命令不可用（未注册/失败）。 */
+  function mockSlotCommands(actions: unknown[], packs: unknown[], plugins: unknown[] | null) {
     invoke.mockImplementation((command: string) => {
-      if (command === "plugins_actions") {
-        return Promise.resolve([
-          { pluginId: "p1", pluginName: "插件一", id: "a", title: "A", slot: "outline-toolbar", prompt: {}, output: {} },
-          { pluginId: "p1", pluginName: "插件一", id: "a", title: "A", slot: "outline-toolbar", prompt: {}, output: {} },
-        ])
-      }
-      if (command === "plugins_content_packs") {
-        return Promise.resolve([{ pluginId: "p1", pluginName: "插件一", packId: "scifi", title: "科幻" }])
+      if (command === "plugins_actions") return Promise.resolve(actions)
+      if (command === "plugins_content_packs") return Promise.resolve(packs)
+      if (command === "plugins_list") {
+        return plugins === null ? Promise.reject("命令 plugins_list 未注册") : Promise.resolve(plugins)
       }
       return Promise.reject("未注册")
     })
+  }
+
+  it("把 action 与内容包分发到各自插槽，并按 id 去重", async () => {
+    mockSlotCommands(
+      [
+        { pluginId: "p1", pluginName: "插件一", id: "a", title: "A", slot: "outline-toolbar", prompt: {}, output: {} },
+        { pluginId: "p1", pluginName: "插件一", id: "a", title: "A", slot: "outline-toolbar", prompt: {}, output: {} },
+      ],
+      [{ pluginId: "p1", pluginName: "插件一", packId: "scifi", title: "科幻" }],
+      [],
+    )
 
     const { index, degraded } = await loadSlotIndex()
     expect(degraded).toBe(false)
     expect(index["outline-toolbar"].actions).toHaveLength(1)
     expect(index["plugin-center"].packs).toHaveLength(1)
+  })
+
+  it("从 plugins_list 按 pluginId join 出已授予权限（声明式动作的执行闸门靠它）", async () => {
+    mockSlotCommands(
+      [
+        { pluginId: "p1", pluginName: "插件一", id: "a", title: "A", prompt: {}, output: {} },
+        { pluginId: "p2", pluginName: "插件二", id: "b", title: "B", prompt: {}, output: {} },
+      ],
+      [{ pluginId: "p1", pluginName: "插件一", packId: "scifi", title: "科幻" }],
+      [
+        { id: "p1", grantedPermissions: ["fs:project-read", "net:https"] },
+        // p2 没有授权；p3 根本不在清单里 —— 两者都必须落成 `[]`（失败方向是拒绝）
+        { id: "p2", grantedPermissions: [] },
+      ],
+    )
+
+    const { index } = await loadSlotIndex()
+    // 按 pluginId 断言（桶内顺序由中文排序决定，与本用例无关）
+    const byPlugin = new Map(index["plugin-center"].actions.map((entry) => [entry.pluginId, entry.grantedPermissions]))
+    expect(byPlugin.get("p1")).toEqual(["fs:project-read", "net:https"])
+    expect(byPlugin.get("p2")).toEqual([])
+    expect(index["plugin-center"].packs[0].grantedPermissions).toEqual(["fs:project-read", "net:https"])
+  })
+
+  it("plugins_list 不可用 → 权限一律为空且标降级（宁可拒绝，也不放行）", async () => {
+    mockSlotCommands(
+      [{ pluginId: "p1", pluginName: "插件一", id: "a", title: "A", prompt: {}, output: {} }],
+      [],
+      null,
+    )
+
+    const { index, degraded } = await loadSlotIndex()
+    expect(degraded).toBe(true)
+    expect(index["plugin-center"].actions[0].grantedPermissions).toEqual([])
   })
 })
 

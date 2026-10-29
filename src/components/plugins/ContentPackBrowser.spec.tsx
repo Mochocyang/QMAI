@@ -26,12 +26,14 @@ const packs: SlotPackEntry[] = [
     pluginName: "灵感生成器",
     pack: { id: "scifi", title: "科幻灵感包", items: [], actions: [{ kind: "clipboard", label: "复制" }] },
     loadKey: "idea-generator/scifi",
+    grantedPermissions: ["fs:project-read"],
   },
   {
     pluginId: "idea-generator",
     pluginName: "灵感生成器",
     pack: { id: "empty", title: "空包", items: [] },
     loadKey: "idea-generator/empty",
+    grantedPermissions: ["fs:project-read"],
   },
 ]
 
@@ -164,6 +166,7 @@ describe("run-action（链式调用保护）", () => {
       pluginId: "idea-generator",
       pluginName: "灵感生成器",
       loadKey: "idea-generator/scifi",
+      grantedPermissions: [],
       pack: {
         id: "scifi",
         title: "科幻灵感包",
@@ -194,6 +197,7 @@ describe("run-action（链式调用保护）", () => {
       {
         pluginId: "idea-generator",
         pluginName: "灵感生成器",
+        grantedPermissions: [],
         action: { id: "expand", title: "扩写灵感", prompt: { system: "", user: "" }, output: { mode: "text", targets: [] } },
       },
     ])
@@ -205,11 +209,35 @@ describe("run-action（链式调用保护）", () => {
     expect(document.body.textContent).toContain("扩写灵感")
   })
 
+  it("run-action 要读项目而插件没获批 → 对话框说明缺 fs:project-read（不静默放行）", async () => {
+    await renderWithActions([
+      {
+        pluginId: "idea-generator",
+        pluginName: "灵感生成器",
+        grantedPermissions: [],
+        action: {
+          id: "expand",
+          title: "扩写灵感",
+          prompt: { system: "", user: "续写：{{chapter.text}}" },
+          output: { mode: "text", targets: [] },
+        },
+      },
+    ])
+
+    const runButton = [...host.querySelectorAll("button")].find((node) => node.textContent === "让 AI 扩写")!
+    await act(async () => runButton.click())
+    await flush()
+
+    // 内容包里的 run-action 走同一个执行器，所以同样被闸门拦住
+    expect(document.body.textContent).toContain("需要读取你的项目内容")
+  })
+
   it("跨插件的 run-action 被拒绝并给出可读原因", async () => {
     await renderWithActions([
       {
         pluginId: "other-plugin",
         pluginName: "别的插件",
+        grantedPermissions: [],
         action: { id: "expand", title: "扩写灵感", prompt: { system: "", user: "" }, output: { mode: "text", targets: [] } },
       },
     ])
@@ -232,6 +260,7 @@ describe("run-action（链式调用保护）", () => {
               pluginId: "idea-generator",
               pluginName: "灵感生成器",
               loadKey: "idea-generator/scifi",
+              grantedPermissions: [],
               pack: {
                 id: "scifi",
                 title: "科幻灵感包",

@@ -35,6 +35,7 @@ function entry(pluginName: string, overrides: Partial<DeclarativeAction> = {}): 
   return {
     pluginId: `plugin-${pluginName}`,
     pluginName,
+    grantedPermissions: [],
     action: {
       id: `action-${pluginName}-${overrides.id ?? "generate"}`,
       title: overrides.title ?? "生成书名",
