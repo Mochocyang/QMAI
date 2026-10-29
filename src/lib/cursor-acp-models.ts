@@ -213,6 +213,14 @@ export function toCursorHttpModel(model: string): string {
 export interface CursorAcpCatalogModel {
   name?: string
   modelId: string
+  /** Present for parameterized families; absent for legacy fixed variants. */
+  configOptions?: CursorAcpConfigOption[]
+}
+
+export interface CursorAcpConfigOption {
+  id: string
+  currentValue?: string
+  options: Array<{ value: string }>
 }
 
 export interface ParsedCursorAcpModel {
@@ -286,9 +294,28 @@ function scoreCliAgainstAcp(cliId: string, acp: ParsedCursorAcpModel): number {
   return score
 }
 
+function cliIdMatchesAcpOptions(cliId: string, model: CursorAcpCatalogModel): boolean {
+  if (toCursorAcpModelId(cliId) !== toCursorAcpModelId(model.modelId)) return false
+
+  const options = model.configOptions ?? []
+  const effort = inferCursorEffortFromModel(cliId)
+  if (effort && !options.some((option) =>
+    ["effort", "reasoning", "reasoning_effort"].includes(option.id) &&
+    option.options.some(({ value }) => normalizeEffortToken(value) === effort),
+  )) return false
+
+  const base = cliId.replace(/\[.*$/, "").replace(FAST_SUFFIX, "").replace(EFFORT_SUFFIX, "")
+  const booleans = { fast: cliDeclaresFast(cliId), thinking: THINKING_SUFFIX.test(base) }
+  for (const [id, enabled] of Object.entries(booleans)) {
+    const option = options.find((option) => option.id === id)
+    if (option ? !option.options.some(({ value }) => value === String(enabled)) : enabled) return false
+  }
+  return true
+}
+
 /**
- * Keep at most one CLI catalog id per ACP `modelId`.
- * Drops CLI variants that cannot realize the ACP params (e.g. gemini medium).
+ * Keep CLI variants allowed by each family's advertised parameter ranges.
+ * Legacy ACP rows describe fixed variants, so retain their exact matching.
  */
 export function filterCursorCliByAcp(
   cliIds: readonly string[],
@@ -307,6 +334,14 @@ export function filterCursorCliByAcp(
     if (!modelId) continue
     const parsed = parseCursorAcpModelId(modelId)
     if (!parsed.name) continue
+    if (model.configOptions !== undefined) {
+      for (const id of catalog.filter((id) => cliIdMatchesAcpOptions(id, model))) {
+        if (seen.has(id)) continue
+        seen.add(id)
+        picked.push(id)
+      }
+      continue
+    }
     const matches = catalog.filter((id) => cliIdMatchesAcp(id, parsed))
     if (matches.length === 0) continue
     const best = matches.slice().sort((left, right) => {

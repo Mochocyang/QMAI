@@ -286,4 +286,52 @@ describe("filterCursorCliByAcp", () => {
   it("throws when the ACP catalog is empty", () => {
     expect(() => filterCursorCliByAcp(CLI_WITH_PHANTOMS, [])).toThrow("ACP catalog 为空")
   })
+
+  it("keeps all eight Grok 4.7 effort/speed variants advertised by parameter options", () => {
+    const variants = ["low", "medium", "high", "xhigh"].flatMap((effort) => [
+      `grok-4.7-${effort}`,
+      `grok-4.7-${effort}-fast`,
+    ])
+    const filtered = filterCursorCliByAcp([
+      ...variants, variants[0]!, "grok-4.7-minimal", "grok-4.7-thinking-high", "unavailable-low",
+    ], [{
+      name: "Grok 4.7",
+      modelId: "grok-4.7",
+      configOptions: [
+        { id: "reasoning_effort", currentValue: "high", options: ["low", "medium", "high", "xhigh"].map((value) => ({ value })) },
+        { id: "fast", currentValue: "true", options: [{ value: "false" }, { value: "true" }] },
+      ],
+    }])
+    expect(filtered).toEqual(variants)
+  })
+
+  it("honors restricted effort and speed options instead of assuming every combination exists", () => {
+    expect(filterCursorCliByAcp([
+      "grok-4.7-low", "grok-4.7-medium", "grok-4.7-medium-fast", "grok-4.7-high-fast",
+    ], [{
+      modelId: "grok-4.7",
+      configOptions: [
+        { id: "reasoning_effort", options: [{ value: "medium" }] },
+        { id: "fast", options: [{ value: "false" }] },
+      ],
+    }])).toEqual(["grok-4.7-medium"])
+  })
+
+  it("supports legacy effort names and thinking parameters in parameterized catalogs", () => {
+    expect(filterCursorCliByAcp([
+      "claude-opus-4-7-thinking-max", "claude-opus-4-7-xhigh", "claude-opus-4-7-thinking-low",
+    ], [{
+      modelId: "claude-opus-4-7",
+      configOptions: [
+        { id: "effort", options: [{ value: "xhigh" }] },
+        { id: "thinking", options: [{ value: "true" }] },
+      ],
+    }])).toEqual(["claude-opus-4-7-thinking-max"])
+  })
+
+  it("does not invent effort or speed support for a family without parameters", () => {
+    expect(filterCursorCliByAcp(["gemini-3.1-pro", "gemini-3.1-pro-high", "gemini-3.1-pro-fast"], [
+      { modelId: "gemini-3.1-pro", configOptions: [] },
+    ])).toEqual(["gemini-3.1-pro"])
+  })
 })
