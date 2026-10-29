@@ -10,7 +10,11 @@ routes = [
   # 百度网盘 OAuth 回调。百度开放平台【安全设置】里登记的是
   # https://qmai.pro/oauth/baidu/callback，所以这个子路径必须由本 Worker 接管。
   # 只精确匹配 /oauth/baidu/*，不碰 qmai.pro 的其它路径（那里是 Pages 站点）。
-  { pattern = "qmai.pro/oauth/baidu/*", zone_name = "qmai.pro" }
+  { pattern = "qmai.pro/oauth/baidu/*", zone_name = "qmai.pro" },
+  # 隐私政策与服务条款：开放平台公开发布要求可访问的正式链接。
+  # 只精确匹配这两条路径，站点其它页面仍由 Pages 提供。
+  { pattern = "qmai.pro/privacy", zone_name = "qmai.pro" },
+  { pattern = "qmai.pro/terms", zone_name = "qmai.pro" }
 ]
 
 # D1: account data kept separate from analytics-worker and New API gateway.

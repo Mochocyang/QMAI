@@ -25,6 +25,7 @@ import {
   parseAllowedOrigins,
   preflightResponse,
 } from "./http"
+import { privacyPage, termsPage } from "./legal"
 import {
   handleDeleteModelConfig,
   handleGetModelConfig,
@@ -127,6 +128,15 @@ export default {
      */
     if (path === "/oauth/baidu/callback" && request.method === "GET") {
       return handleBaiduCallback(request, env)
+    }
+
+    /*
+     * 隐私政策与服务条款：开放平台公开发布要求「正式可访问的链接」。
+     * 官网是 Pages 纯静态站，本地无其源码，所以这两页由本 Worker 提供。
+     */
+    if (request.method === "GET") {
+      if (path === "/privacy" || path === "/privacy/") return privacyPage()
+      if (path === "/terms" || path === "/terms/") return termsPage()
     }
 
     const handler = ROUTES[`${request.method} ${path}`]
