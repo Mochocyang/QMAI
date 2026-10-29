@@ -165,7 +165,25 @@ export function PluginSection() {
   const [source, setSource] = useState("")
   const [installing, setInstalling] = useState(false)
   const [installingLocal, setInstallingLocal] = useState(false)
-  const [busy, setBusy] = useState<{ id: string; kind: "disable" | "uninstall" } | null>(null)
+  /**
+   * 单卡片进行中的启停/卸载/重试。`kind` 决定按钮上的转圈文案。
+   *
+   * `"enable"` 是崩溃卡片的「重新启用」：它和普通「启用」走同一个 Rust 命令，
+   * 但入口不同（不动 `enabled` 语义，见 `retryPlugin`），所以单列一档。
+   */
+  const [busy, setBusy] = useState<{
+    id: string
+    kind: "disable" | "uninstall" | "enable"
+  } | null>(null)
+  /**
+   * 「重新启用」失败的原因，按插件 id 就地展示。
+   *
+   * 为什么不复用页面顶部的 `actionError`：那个错误条在安装表单下方，用户在列表
+   * 中段点「重新启用」失败时根本看不到它，会以为按钮没反应。而且这里的错误必须
+   * 和崩溃原因（`lastError`）同时可见 —— 一个是"上次为什么崩"，一个是"这次为什么
+   * 还是起不来"，分开放反而要用户自己拼。
+   */
+  const [retryError, setRetryError] = useState<{ id: string; message: string } | null>(null)
   const [enableTarget, setEnableTarget] = useState<PluginSummary | null>(null)
   const [enabling, setEnabling] = useState(false)
   const [enableError, setEnableError] = useState<string | null>(null)
@@ -337,20 +355,24 @@ export function PluginSection() {
     [],
   )
 
-  async function confirmEnable() {    if (!enableTarget || enabling) return
+  async function confirmEnable() {
+    if (!enableTarget || enabling) return
     const target = enableTarget
     setEnabling(true)
     setEnableError(null)
     try {
       /*
-       * 第一期有意只授予空权限，不做「逐项勾选」。
+       * 本期是「整包授予 + 明确展示」，不做逐项开关。
        *
-       * 原因：PluginSummary 只有 grantedPermissions（已授予的），没有插件清单里
-       * 申请的权限列表，前端无法知道该给用户勾哪些项。凭 id 猜一份列表等于伪造
-       * 授权界面，反而会让人误以为自己批准过某项权限。空数组是后端支持的
-       * 最小授权（仅能写插件自己的数据目录），权限界面等后端补上申请列表后再做。
+       * 为什么不逐项勾选：勾选界面要回答「拒绝某一项之后这个插件还能怎么跑」，
+       * 而权限之间是耦合的（拒了 `fs:project-read`，用 `{{chapter.*}}` 的动作就
+       * 只剩半条命）。与其给一个看起来更精细、实际导出「半坏插件」的界面，
+       * 不如把「申请了什么」摆清楚、一次给足。
+       *
+       * 但**必须让用户先看见**：`declaredPermissions` 就是清单 `permissions` 的原文，
+       * 也正是在确认层里列出的那一份 —— 授予的内容与展示的内容同源，不靠猜。
        */
-      const granted: string[] = []
+      const granted = target.declaredPermissions ?? []
       await pluginsApi.enable(target.id, granted)
       toast.success(`已启用「${pluginDisplayName(target)}」`)
       // 启用成功后立刻同步：provider 插件刚注册进 Rust 表，模型要能被选到。
@@ -364,10 +386,50 @@ export function PluginSection() {
     }
   }
 
+  /**
+   * 崩溃后的「重新启用」：卡片上的独立入口。
+   *
+   * 为什么不能复用「启用」按钮：插件崩溃时 Rust **有意保留 `enabled = true`**
+   * （只清运行态并记崩溃报告），所以卡片显示的是「停用」。用户想重试就得先停用
+   * 再启用 —— 而停用会清掉 `lastError`，等于"想看原因就得先把它擦掉"。
+   * 这里直接调 `plugins_enable`（它天然幂等：覆盖 enabled/permissions 后再启动），
+   * 后端语义一行不改。
+   *
+   * 权限必须原样带上已授予的那份：`plugins_enable` 把 `granted` **整体覆盖**进
+   * 注册表，传 `[]` 等于「重试一次就把权限抹了」，插件会从"崩了"变成"崩了且没权限"。
+   * 兜底：老数据里 `grantedPermissions` 可能是空的（本次修复之前启用的插件），
+   * 此时退回清单里申请的 `declaredPermissions` —— 它本来就是要生效的那份。
+   */
+  async function retryPlugin(plugin: PluginSummary) {
+    if (busy) return
+    const granted =
+      plugin.grantedPermissions.length > 0
+        ? plugin.grantedPermissions
+        : (plugin.declaredPermissions ?? [])
+    setBusy({ id: plugin.id, kind: "enable" })
+    setRetryError(null)
+    try {
+      await pluginsApi.enable(plugin.id, granted)
+      toast.success(`已重新启用「${pluginDisplayName(plugin)}」`)
+      // 与普通启用同一套副作用：provider/工具/钩子清单都要跟着刷新。
+      await resyncPluginProviders("重新启用")
+      await refresh()
+    } catch (cause) {
+      // 不清 `lastError`：崩溃原因由后端给，只有重启成功（refresh 拿到新状态）
+      // 之后才会消失。失败时两条信息要并排可见。
+      setRetryError({ id: plugin.id, message: describeError(cause) })
+    } finally {
+      setBusy(null)
+    }
+  }
+
   async function disablePlugin(plugin: PluginSummary) {
     if (busy) return
     setBusy({ id: plugin.id, kind: "disable" })
     setActionError(null)
+    // 「重新启用」失败的那段说明跟着卡片状态一起作废：插件已经停了，
+    // 把它留在「已停止」下面只会让人以为停用也失败了。
+    setRetryError(null)
     try {
       await pluginsApi.disable(plugin.id)
       // provider token 只活在本进程缓存里（不落盘，见 v2.0 计划第 0 节）。
@@ -397,6 +459,7 @@ export function PluginSection() {
     if (!window.confirm(`确定卸载「${name}」吗？插件自己的数据会保留。`)) return
     setBusy({ id: plugin.id, kind: "uninstall" })
     setActionError(null)
+    setRetryError(null)
     try {
       await pluginsApi.uninstall(plugin.id, false)
       // 卸载同样要清 provider token 缓存（理由同 disablePlugin）。
@@ -419,6 +482,13 @@ export function PluginSection() {
    */
   const enableProviderIds = enableTarget?.providerIds ?? []
   const enableDeclaresProvider = enableProviderIds.length > 0
+  /**
+   * 该插件申请的权限（清单 `permissions` 原文）。
+   *
+   * 确认层展示的就是这份，`confirmEnable` 授予的也是这份 —— 同源，不另算一遍，
+   * 否则「看到的」和「给出去的」迟早会漂移。
+   */
+  const enableDeclaredPermissions = enableTarget?.declaredPermissions ?? []
   /** 确认层档位（见 `enableConfirmTone`）；写在同一处，避免文案与判据各算一遍。 */
   const enableTone: EnableConfirmTone | null = enableTarget ? enableConfirmTone(enableTarget) : null
 
@@ -595,6 +665,7 @@ export function PluginSection() {
               const pluginBusy = busy?.id === plugin.id
               const disabling = pluginBusy && busy?.kind === "disable"
               const uninstalling = pluginBusy && busy?.kind === "uninstall"
+              const retrying = pluginBusy && busy?.kind === "enable"
               // 同一时间只允许一个启停/卸载请求，避免两个命令同时改注册表。
               const actionsLocked = Boolean(busy) || installing || installingLocal
               return (
@@ -641,6 +712,22 @@ export function PluginSection() {
                         >
                           {plugin.lastError}
                         </p>
+                      ) : null}
+
+                      {/*
+                        「重新启用」失败的原因。就地显示在崩溃原因下面而不是页面顶部：
+                        两条信息要一起看（上次为什么崩 / 这次为什么仍起不来），
+                        而且用户是在这张卡片上点的按钮，错误离开卡片就等于消失。
+                      */}
+                      {retryError?.id === plugin.id ? (
+                        <div
+                          className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive"
+                          role="alert"
+                          data-plugin-retry-error="true"
+                        >
+                          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <p className="min-w-0 break-words">{retryError.message}</p>
+                        </div>
                       ) : null}
 
                       {plugin.description ? (
@@ -726,6 +813,27 @@ export function PluginSection() {
                           设置
                         </Button>
                       ) : null}
+                      {/*
+                        「重新启用」只在崩溃态出现。
+                        必要性：崩溃后 Rust 保留 `enabled = true`，卡片显示「停用」，
+                        用户想重试必须先停用 —— 而停用会清掉 `lastError`，等于
+                        "想看崩溃原因就得先把它擦掉"。这个按钮直接再启动一次，
+                        不改后端语义，也不经过「停用」那一步。
+                        「停用」仍然保留在右边：用户可能就是想让它别再来。
+                      */}
+                      {plugin.processState === "crashed" ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={actionsLocked}
+                          onClick={() => void retryPlugin(plugin)}
+                          title="再试一次：宿主会重新启动这个插件的进程，已授予的权限保持不变。"
+                        >
+                          {retrying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          {retrying ? "重新启用中…" : "重新启用"}
+                        </Button>
+                      ) : null}
                       {plugin.enabled ? (
                         <Button
                           type="button"
@@ -746,9 +854,9 @@ export function PluginSection() {
                           /*
                             「启用」不只是翻一个开关：它会让宿主真的 spawn 插件进程，
                             崩过之后再点就是一次重试。这句话**不能只挂在 crashed 上** ——
-                            崩溃后 `enabled` 仍是 true（Rust 侧有意不改），卡片显示的是
-                            「停用」，用户要先停再启用；那一刻 `lastError` 已被清掉，
-                            所以提示必须常驻在「启用」按钮上才真的能被看到。
+                            崩溃卡片另有独立的「重新启用」（见上），但用户一旦先停用，
+                            按钮就变回「启用」，而那时 `lastError` 已被清掉，
+                            提示必须自己带在身上才真的能被看到。
                           */
                           title="重新启用会再试一次：宿主会重新启动这个插件的进程。"
                         >
@@ -858,7 +966,7 @@ export function PluginSection() {
                 className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 leading-relaxed text-amber-900 dark:text-amber-200"
                 data-plugin-risk="default"
               >
-                该插件将以「无额外权限」启用：不能读项目文件、不能联网。如需与其功能匹配的权限，请等待后续版本提供逐项授权界面。
+                该插件会以独立进程运行。它拿到的权限就是下面列出的这些；写入它自己的数据目录始终允许。
               </div>
             )}
             {enableDeclaresProvider ? (
@@ -867,9 +975,37 @@ export function PluginSection() {
                 由该插件进程接收你的全部请求。
               </p>
             ) : null}
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              当前版本还无法列出插件清单里申请的权限，因此这里不提供权限勾选。确认启用只会授予插件写入自己数据目录的能力。
-            </p>
+            {/*
+              权限的展示与授予同源：这里列出的就是 `confirmEnable` 会交给
+              `plugins_enable` 的那一份（清单 `permissions` 原文）。
+              本期是「整包授予 + 明确展示」，不做逐项开关 —— 勾选需要先定义
+              「拒掉某项后插件还能怎么跑」，那会把一个完整插件变成半坏的，
+              但**不能因此让用户盲授**：申请了什么，必须在点确认之前看得见。
+            */}
+            <div className="space-y-1.5" data-plugin-declared-permissions="true">
+              {enableDeclaredPermissions.length > 0 ? (
+                <>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    该插件申请以下权限：
+                  </p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {enableDeclaredPermissions.map((permission) => (
+                      <span
+                        key={permission}
+                        title={permission}
+                        className="rounded border border-border bg-muted px-1.5 py-0.5 text-[0.6875rem] text-foreground/80"
+                      >
+                        {PERMISSION_LABELS[permission] ?? permission}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  该插件不申请任何权限
+                </p>
+              )}
+            </div>
             {enableError ? (
               <div
                 className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"

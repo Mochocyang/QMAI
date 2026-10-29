@@ -137,6 +137,15 @@ pub struct PluginSummary {
     pub description: String,
     pub enabled: bool,
     pub process_state: String,
+    /// 清单里申请的权限（未经用户授予的原始列表）。
+    ///
+    /// 与 `granted_permissions` 不同：那个是用户实际批准的。前端要靠它渲染
+    /// 「该插件申请以下权限」—— 没有它就只能盲授（把清单里的一切悄悄给掉）
+    /// 或永远不授（`fs:project-read` 永不生效，所有 `/host/project/*` 都是死的）。
+    ///
+    /// 读不到清单/清单损坏一律空 vec：管理页仍要能列出并操作损坏的插件。
+    pub declared_permissions: Vec<String>,
+    /// 用户实际批准的权限（`plugins_enable` 的 `granted` 参数原样落盘）。
     pub granted_permissions: Vec<String>,
     pub tool_count: usize,
     pub source_repo: String,
@@ -211,6 +220,9 @@ fn summary_from_entry(
         description,
         enabled: entry.enabled,
         process_state: process_state.to_string(),
+        // 由 `plugins_list` 单独补齐（只有它读得到清单）；装/启停路径没有「申请列表」
+        // 这件事，给空 vec 与 `provider_ids` 同一处置：结构体不留未初始化分支。
+        declared_permissions: Vec::new(),
         granted_permissions: entry.granted_permissions.clone(),
         tool_count,
         source_repo: entry.source.repo.clone(),
@@ -277,6 +289,25 @@ fn manifest_provider_ids(dir: &Path) -> Vec<String> {
             .into_iter()
             .map(|provider| provider.id)
             .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// 读清单里**申请的**权限（`permissions` 原文，未经用户授予）。
+///
+/// 为什么必须把它单独送给前端：`plugins_enable` 的 `granted` 是**整体覆盖**进
+/// 注册表的，而「批准了什么」只能由界面先展示出来。只给 `granted_permissions`
+/// 时前端只有两条坏路 —— 盲授（把清单里的权限全悄悄给掉）或永远授空
+/// （`fs:project-read` 永不生效，任何 `/host/project/*` 与 `{{chapter.*}}`
+/// 声明式动作都是死的）。
+///
+/// 读不到/清单损坏一律返回空 vec：管理页仍要能列出并操作损坏的插件。
+fn manifest_declared_permissions(dir: &Path) -> Vec<String> {
+    let Ok(raw) = std::fs::read_to_string(dir.join("plugin.json")) else {
+        return Vec::new();
+    };
+    match manifest::PluginManifest::parse(&raw) {
+        Ok(parsed) => parsed.permissions,
         Err(_) => Vec::new(),
     }
 }
@@ -1167,6 +1198,7 @@ async fn list_plugin_summaries(
         Option<serde_json::Value>,
         Option<serde_json::Value>,
         bool,
+        Vec<String>,
     )> = registry
         .list()
         .into_iter()
@@ -1182,6 +1214,9 @@ async fn list_plugin_summaries(
             // 「需不需要进程」同样只有清单里有。它和上面几个字段一样只读一次磁盘，
             // 放在这里顺带取出来，就不必在下面对每条 entry 再读一遍 plugin.json。
             let needs_process = manifest_needs_process(&dir);
+            // 清单里**申请**的权限：前端要靠它渲染授权确认层，并原样作为 `granted`
+            // 传给 `plugins_enable`（同一次遍历里取，不单开一趟读盘）。
+            let declared_permissions = manifest_declared_permissions(&dir);
             (
                 entry,
                 name,
@@ -1190,6 +1225,7 @@ async fn list_plugin_summaries(
                 preview,
                 config_schema,
                 needs_process,
+                declared_permissions,
             )
         })
         .collect();
@@ -1215,7 +1251,16 @@ async fn list_plugin_summaries(
     Ok(base
         .into_iter()
         .map(
-            |(entry, name, description, provider_ids, preview, config_schema, needs_process)| {
+            |(
+                entry,
+                name,
+                description,
+                provider_ids,
+                preview,
+                config_schema,
+                needs_process,
+                declared_permissions,
+            )| {
                 let (process_state, tool_count) = match states.get(&entry.id).copied() {
                     Some(running) => running,
                     // 用户停用（enabled=false）永远报 stopped，哪怕崩溃表里还留着一条：
@@ -1248,6 +1293,7 @@ async fn list_plugin_summaries(
                     None
                 };
                 summary.provider_ids = provider_ids;
+                summary.declared_permissions = declared_permissions;
                 summary.has_config = config_schema.is_some();
                 // `hasConfig` / `configSchema` 同时并进 preview：插槽只拿到 preview，
                 // 也要能判断配置能力并拿到表单 schema（C1 的通道选择）。
@@ -3153,6 +3199,71 @@ rl.on("line", (line) => {
         // 前端按 camelCase 读 `processState`，这个值要能原样过线
         let value = serde_json::to_value(summary).expect("summary 可序列化");
         assert_eq!(value["processState"], "declarative");
+    }
+
+    /// 前端要在授权确认层里**展示**插件申请的权限，所以 `plugins_list` 必须把清单
+    /// `permissions` 原文送出去；`granted_permissions` 仍是「用户实际批准」的那份，
+    /// 没授予过就必须为空。
+    ///
+    /// 缺了 `declared_permissions` 的后果不是「界面少一行」：前端只能盲授（把申请
+    /// 全给掉）或授空。后者正是修复前的 bug —— `fs:project-read` 永不生效，所有
+    /// `/host/project/*` 与引用 `{{chapter.*}}` 的声明式动作全哑。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn summary_exposes_declared_permissions() {
+        let root = TempRoot::new("declared-permissions");
+        let id = "idea-generator";
+        // 在纯声明式清单上加一条申请：它不起进程，但动作要用项目数据，
+        // 所以正是「申请了 fs:project-read 却拿不到」的那个样例形态。
+        let manifest = r#"{
+            "schema": 3,
+            "id": "idea-generator",
+            "name": "脑洞生成器",
+            "version": "1.0.0",
+            "kind": ["declarative"],
+            "permissions": ["fs:project-read"],
+            "contributes": {
+                "actions": [{
+                    "id": "generate-character", "title": "生成人设", "slot": "chapter-toolbar",
+                    "prompt": { "system": "你是人设策划", "user": "章节：{{chapter.title}}" },
+                    "output": { "mode": "list" }
+                }]
+            }
+        }"#;
+        write_plugin(root.path(), id, manifest, None);
+
+        let mut registry = PluginRegistry::load(root.path()).expect("空注册表可加载");
+        let mut entry = sample_entry(id);
+        entry.enabled = false;
+        // sample_entry 自带一条已授予权限，这里必须清掉：本用例要验的是
+        // 「申请列表」与「已授予」是两个字段，不能靠注册表里的旧值凑出来。
+        entry.granted_permissions = Vec::new();
+        registry.upsert(entry);
+        registry.save(root.path()).expect("保存注册表");
+
+        let state = PluginsState::default();
+        let summaries = list_plugin_summaries(&state, root.path())
+            .await
+            .expect("列出插件");
+        let summary = summaries
+            .iter()
+            .find(|summary| summary.id == id)
+            .expect("插件必须出现在列表里");
+
+        assert_eq!(
+            summary.declared_permissions,
+            vec!["fs:project-read".to_string()],
+            "清单里申请的权限要原样送到前端，界面才能展示"
+        );
+        assert!(
+            summary.granted_permissions.is_empty(),
+            "没人授予过，不能凭空出现已授权权限：{:?}",
+            summary.granted_permissions
+        );
+
+        // 前端按 camelCase 读；漏 rename_all 时这里会变成 declared_permissions。
+        let value = serde_json::to_value(summary).expect("summary 可序列化");
+        assert_eq!(value["declaredPermissions"][0], "fs:project-read");
+        assert_eq!(value["grantedPermissions"], serde_json::json!([]));
     }
 
     /// 回归护栏：有 runtime 的插件启用后**仍然要 spawn**。

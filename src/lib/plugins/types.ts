@@ -36,6 +36,16 @@ export interface PluginSummary {
    * 类型里不按状态收窄：后端将来为别的状态填原因时，界面不需要再改一次。
    */
   lastError?: string | null
+  /**
+   * 清单里**申请的**权限（清单 `permissions` 原文，未经用户授予）。
+   *
+   * 与 `grantedPermissions` 是两个概念：那个是用户实际批准、写进注册表的那份。
+   * 启用确认层必须把这一份展示出来 —— 否则用户要么在看不见的情况下被"整包授予"，
+   * 要么（修复前的 bug）永远授空，`fs:project-read` 永不生效。
+   *
+   * 可选：老后端不认识这个字段时按"没申请任何权限"处理，界面只是少一行说明。
+   */
+  declaredPermissions?: string[]
   grantedPermissions: string[]
   toolCount: number
   sourceRepo: string
