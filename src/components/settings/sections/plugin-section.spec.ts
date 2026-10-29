@@ -19,7 +19,16 @@ import {
   enableConfirmTone,
   hasPluginConfig,
   previewConfigSchema,
+  type PluginSectionProps,
 } from "./plugin-section"
+/*
+ * 「插件」页（`plugin-center-view.tsx`）在**本文件**里挂载真实的 `PluginSection`：
+ * 这一条验的不是某个组件单独的行为，而是「那一页有没有把重复的安装入口关掉」。
+ * 放在这里而不是 `plugin-center-view.spec.tsx`，是因为本文件已经备好了插件管理区
+ * 需要的全套桩（同步管道、插槽索引），那边只把 `PluginSection` 换成了空桩 ——
+ * 再复制四份 mock 过来只为了一处集成断言，不划算。
+ */
+import { PluginCenterView } from "@/components/plugins/plugin-center-view"
 
 // React 19 需要这个标记，act(...) 才不报警告（与仓库里其它组件 spec 一致）。
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -28,6 +37,11 @@ const listMock = vi.hoisted(() => vi.fn())
 // 启用命令的 spy：本期两个 bug 的验收点都在「传了哪些权限给 Rust」，
 // 所以要能直接断言调用参数，而不是只看界面变化。
 const enableMock = vi.hoisted(() => vi.fn())
+// 卸载命令的 spy：用来验证「隐藏安装入口时，卸载失败的提示条仍然看得见」。
+const uninstallMock = vi.hoisted(() => vi.fn())
+// 市场命令的桩：「插件」页（集成用例）一挂载就会去读索引。
+const marketIndexMock = vi.hoisted(() => vi.fn())
+const marketInstallMock = vi.hoisted(() => vi.fn())
 
 // 卡片挂载时只调 `pluginsApi.list`；启停/卸载等命令这些用例不点，给了桩只是为了
 // 误触时显式失败，而不是掉进真实的 Tauri invoke。
@@ -36,9 +50,11 @@ vi.mock("@/lib/plugins/api", () => ({
     list: listMock,
     enable: enableMock,
     disable: vi.fn(),
-    uninstall: vi.fn(),
+    uninstall: uninstallMock,
     install: vi.fn(),
     installLocal: vi.fn(),
+    marketIndex: marketIndexMock,
+    marketInstall: marketInstallMock,
   },
 }))
 
@@ -463,6 +479,228 @@ describe("启用确认层的权限", () => {
     expect(enableMock.mock.calls[0][1]).toEqual(["fs:project-read"])
     // 显式钉住 bug 本身：修复前这里恒为 []。
     expect(enableMock.mock.calls[0][1]).not.toEqual([])
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * 安装入口的开关（`hideInstallForm`）
+ *
+ * 背景：「插件」页的「已安装」tab 直接复用本组件，而那一页右上角**已经有**
+ * 「手动安装」——它与本组件自带的「从 GitHub 安装 / 从本地目录安装」是同一件事。
+ * 两个入口并排出现在同一块屏幕上，用户会以为是两件不同的事，所以给了一个
+ * 可选的 `hideInstallForm` 把自带的收起来。
+ *
+ * 这里守四件事：
+ *   1. 默认（不传 prop）时安装区块必须**还在** —— 设置 → 插件 的行为一字不变；
+ *   2. 关掉时只关安装入口，列表 / 启用停用 / 设置 / 卸载一个都不能跟着消失；
+ *   3. 失败提示条**不**跟着关（停用、卸载失败也走那条，藏了就等于静默失败）；
+ *   4. 空状态文案不能还指着已经不在屏上的输入框。
+ * ------------------------------------------------------------------ */
+
+/** 面板上一个"什么都有"的插件：声明了配置，所以「设置」按钮也该出现。 */
+function panelPlugin(overrides: Partial<PluginSummary> = {}): PluginSummary {
+  return pluginSummary({
+    id: "panel-plugin",
+    name: "面板插件",
+    enabled: true,
+    processState: "running",
+    preview: { hasConfig: true },
+    ...overrides,
+  })
+}
+
+/**
+ * 面板级用例的挂载骨架。
+ *
+ * 与 `cardTestBed` 的区别：那个只给"一张卡片"，并固定以默认参数挂载；这里要
+ * 比较**传 / 不传 `hideInstallForm`** 两种挂载，还要挂整个「插件」页，
+ * 所以单独一份（避免给既有骨架加参数，把几十条已绿用例的挂载方式一起动到）。
+ */
+function panelTestBed() {
+  let host: HTMLDivElement
+  let root: Root
+
+  beforeEach(() => {
+    host = document.createElement("div")
+    document.body.appendChild(host)
+    root = createRoot(host)
+    listMock.mockReset()
+    uninstallMock.mockReset()
+    marketIndexMock.mockReset()
+    marketInstallMock.mockReset()
+    // 市场索引给空：本组用例不验市场，只要它别把页面卡在加载态。
+    marketIndexMock.mockResolvedValue({
+      plugins: [],
+      fromCache: false,
+      fetchedAt: null,
+      sourceUrl: "",
+    })
+  })
+
+  afterEach(async () => {
+    await act(async () => {
+      root.unmount()
+    })
+    host.remove()
+    vi.unstubAllGlobals()
+  })
+
+  /** 等某个选择器出现（异步 `plugins_list` 要跑几轮微任务）。 */
+  async function waitForSelector(selector: string): Promise<HTMLElement> {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const node = host.querySelector<HTMLElement>(selector)
+      if (node) return node
+      await act(async () => {
+        await Promise.resolve()
+      })
+    }
+    throw new Error(`没等到 ${selector}（plugins_list 的 mock 没被消费？）`)
+  }
+
+  /** 等某段文案出现。 */
+  async function waitForText(fragment: string): Promise<void> {
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      if ((host.textContent ?? "").includes(fragment)) return
+      await act(async () => {
+        await Promise.resolve()
+      })
+    }
+    throw new Error(`没等到文案「${fragment}」`)
+  }
+
+  /** 渲染设置页里的插件管理区；`hideInstallForm === undefined` 表示**不传**这个 prop。 */
+  async function renderSection(hideInstallForm?: boolean): Promise<void> {
+    listMock.mockResolvedValue([panelPlugin()])
+    const props: PluginSectionProps = {}
+    if (hideInstallForm !== undefined) props.hideInstallForm = hideInstallForm
+    await act(async () => {
+      /*
+       * 显式给 `createElement` 一个类型参数：`PluginSection` 的签名带默认值
+       * （`props = {}`，见组件注释），props 类型推不出来，省略时 tsc 会落到
+       * 最后一个重载上并报「`hideInstallForm` 不属于 Attributes」。
+       */
+      root.render(createElement<PluginSectionProps>(PluginSection, props))
+    })
+  }
+
+  /** 渲染完整的「插件」页（市场 + 已安装），默认停在市场 tab。 */
+  async function renderPluginCenter(): Promise<void> {
+    listMock.mockResolvedValue([panelPlugin()])
+    await act(async () => {
+      root.render(createElement(PluginCenterView))
+    })
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      await act(async () => {
+        await Promise.resolve()
+      })
+    }
+  }
+
+  return { host: () => host, root: () => root, renderSection, renderPluginCenter, waitForSelector, waitForText }
+}
+
+describe("hideInstallForm：自带的安装入口可以关掉", () => {
+  const { host, root, renderSection, waitForSelector } = panelTestBed()
+
+  it("默认（不传 prop）：安装区块照旧在（设置 → 插件 行为不变）", async () => {
+    await renderSection()
+    const card = await waitForSelector('[data-plugin-id="panel-plugin"]')
+    expect(card, "插件卡片应正常渲染").toBeTruthy()
+
+    // 输入框、两个按钮、说明文字，一样都不能少
+    expect(host().querySelector("#plugin-install-source"), "默认必须保留 GitHub 地址输入框").not.toBeNull()
+    expect(buttonLabels(host())).toContain("从本地目录安装")
+    expect(host().textContent).toContain(
+      "用于安装你本机正在开发的插件目录。目录根下需要有 plugin.json。",
+    )
+  })
+
+  it("hideInstallForm：安装区块整块消失，列表与启停/设置/卸载一个不少", async () => {
+    await renderSection(true)
+    const card = await waitForSelector('[data-plugin-id="panel-plugin"]')
+
+    // ① 安装入口整块不在：输入框、两个按钮、说明文字
+    expect(host().querySelector("#plugin-install-source")).toBeNull()
+    expect(buttonLabels(host())).not.toContain("从本地目录安装")
+    expect(host().textContent).not.toContain("从 GitHub 安装")
+    expect(host().textContent).not.toContain("用于安装你本机正在开发的插件目录")
+
+    // ② 管理功能一个都不能跟着消失（藏的是入口，不是能力）
+    expect(buttonLabels(card)).toContain("设置")
+    expect(buttonLabels(card)).toContain("停用")
+    expect(buttonLabels(card)).toContain("卸载")
+  })
+
+  it("hideInstallForm 也不隐藏失败提示条：卸载失败的原因仍然看得见", async () => {
+    // `actionError` 不只承载安装失败 —— 停用/卸载失败也写在这条上。
+    // 把它跟安装表单一起藏掉，用户点了「卸载」失败后会面对一片安静。
+    const message = "E_IO: 无法删除插件目录（权限不足）"
+    uninstallMock.mockRejectedValueOnce(message)
+    vi.stubGlobal("confirm", () => true)
+    await renderSection(true)
+    const card = await waitForSelector('[data-plugin-id="panel-plugin"]')
+
+    await clickButton(findButton(card, "卸载"))
+
+    const alert = host().querySelector<HTMLElement>('[role="alert"]')
+    expect(alert, "卸载失败必须留下一条可读的错误条").toBeTruthy()
+    expect(alert!.textContent).toContain(message)
+  })
+
+  it("hideInstallForm 且一个插件都没有：空状态指向页面上的「手动安装」", async () => {
+    listMock.mockResolvedValue([])
+    await act(async () => {
+      root().render(createElement<PluginSectionProps>(PluginSection, { hideInstallForm: true }))
+    })
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      if ((host().textContent ?? "").includes("还没有安装插件")) break
+      await act(async () => {
+        await Promise.resolve()
+      })
+    }
+
+    expect(host().textContent).toContain(
+      "还没有安装插件。用页面上的「手动安装」粘贴 GitHub 地址，或选一个本地目录。",
+    )
+    // 不能还让人"粘贴一个 GitHub 仓库地址开始"：那个输入框已经不在这一屏上了。
+    expect(host().textContent).not.toContain("粘贴一个 GitHub 仓库地址开始")
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * 集成：「插件」页的「已安装」tab 不能同时出现两个安装入口
+ *
+ * 这就是本任务要修的那个缺陷本身 —— 上面几条验的是组件**自己**的开关，
+ * 这一条验的是那一页**真的把开关拨了**（且没有把管理功能一起拨掉）。
+ *
+ * 为什么用真实的 `PluginSection`：如果这里也用桩，"tab 渲染了 PluginSection"
+ * 和"PluginSection 会藏表单"两件事各自为真，合起来却可能没生效（比如
+ * 忘了传 prop）。只有把两者接起来挂一次，才能覆盖缺陷的真实形状。
+ * ------------------------------------------------------------------ */
+
+describe("「插件」页的「已安装」tab：真实 PluginSection，只有一个安装入口", () => {
+  const { host, renderPluginCenter, waitForSelector } = panelTestBed()
+
+  it("渲染插件列表，但不含它自带的安装输入框；安装入口只剩页头的「手动安装」", async () => {
+    await renderPluginCenter()
+
+    const tab = host().querySelector<HTMLButtonElement>('[data-plugin-tab="installed"]')
+    expect(tab, "插件页应有「已安装」tab").toBeTruthy()
+    await act(async () => {
+      tab!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    })
+
+    // 管理能力在：插件卡片照常渲染
+    const card = await waitForSelector('[data-plugin-id="panel-plugin"]')
+    expect(buttonLabels(card)).toContain("停用")
+
+    // 缺陷面：那一页不该再有 `PluginSection` 自带的安装表单
+    expect(host().querySelector("#plugin-install-source")).toBeNull()
+    expect(buttonLabels(host())).not.toContain("从本地目录安装")
+    expect(host().textContent).not.toContain("从 GitHub 安装")
+
+    // 唯一的安装入口：页头的「手动安装」
+    expect(host().querySelector('[data-plugins-manual="true"]')).not.toBeNull()
   })
 })
 

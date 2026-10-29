@@ -45,6 +45,17 @@ describe("fullWindowViews（整窗视图清单）", () => {
     expect(isFullWindowView("storySimulation")).toBe(true)
   })
 
+  /*
+   * 「插件」页（市场 / 已安装两个 tab）同样是顶层整窗页：左侧章节树对它没有意义。
+   *
+   * 判别力：从 `FULL_WINDOW_VIEWS` 删掉它 ⇒ 本条红（UI 测试壳里会重新长出目录栏）。
+   * 影响面仅限于 UI 测试壳（清单唯一消费方），不影响生产界面 —— 但壳子被当成
+   * 「插件页长什么样」的参照，多一条不存在的侧栏会把走查和截图带偏。
+   */
+  it("「插件」页是整窗视图（测试壳里不该再多一条目录栏）", () => {
+    expect(isFullWindowView("plugins")).toBe(true)
+  })
+
   it("lint 不在清单里：它还要按 novelMode 分流，不能无条件整窗", () => {
     // 记忆中心由 `activeView === "lint" && novelMode` 另行判定；
     // 若把 lint 混进这张无条件清单，LintView 的章节树会被一起藏掉。
@@ -73,7 +84,12 @@ describe("fullWindowViews（整窗视图清单）", () => {
     const admitted = [
       "skillLibrary", "writingSkillLibrary", "writingStyleLibrary", "characterSoulLibrary", "personaSkillLibrary", "skillFavorites",
       "soul", "bookAnalysis", "lint", "wiki", "sources", "graph", "search",
-      "reviewCenter", "storySimulation", "settings", "trash", "maintenance",
+      /*
+       * `plugins` 是新入清单的一项：它的用例在上面（「插件」页是整窗视图）。
+       * 这份候选清单必须跟着加 —— 漏加的话，"没有漏项"那条就会因为
+       * 候选里根本没有它而恒绿，等于自己给自己开了一张免检单。
+       */
+      "reviewCenter", "storySimulation", "plugins", "settings", "trash", "maintenance",
     ].filter(isFullWindowView)
     expect([...admitted].sort()).toEqual([...FULL_WINDOW_VIEWS].sort())
   })

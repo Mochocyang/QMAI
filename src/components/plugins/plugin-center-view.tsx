@@ -30,7 +30,8 @@ import { toast } from "@/lib/toast"
  *
  * 两个 tab：
  *   - 市场：浏览 `plugins/index.json` 里登记的第三方插件，一键安装；
- *   - 已安装：**直接渲染既有的 `<PluginSection />`**（见文件末尾那段注释）。
+ *   - 已安装：**直接渲染既有的 `<PluginSection />`**（见文件末尾那段注释），
+ *     但带 `hideInstallForm`：本页已有「手动安装」，同一个功能不该出现两个入口。
  *
  * 右上角的「手动安装」在**两个 tab 下都在**：市场索引是随仓库维护的静态清单，
  * 它没收录的插件（作者没提交、或者是用户自己正在写的）不能因此就没法装。
@@ -541,8 +542,13 @@ export function PluginCenterView() {
             {/*
               只在切到这个 tab 时才挂载：`PluginSection` 挂载即读 `plugins_list`，
               常驻渲染会让每个进过插件页的用户都多付一次列表请求 —— 而他可能只想看看市场。
+
+              `hideInstallForm`：本页右上角的「手动安装」与 `PluginSection` 自带的
+              安装表单是**同一件事**（粘贴 GitHub 地址 / 选本地目录）。两个入口并排
+              摆在同一块屏幕上，用户会以为是两件不同的事，所以这里把自带的收起来；
+              设置 → 插件 里不传这个 prop，那块表单照旧在（默认值保证行为不变）。
             */}
-            <PluginSection />
+            <PluginSection hideInstallForm />
           </section>
         )}
       </div>

@@ -157,7 +157,29 @@ function describeError(cause: unknown): string {
   }
 }
 
-export function PluginSection() {
+/**
+ * 插件管理区的 props。
+ *
+ * 单独抽成具名类型（而不是内联在参数上）是为了让 `.ts` 里的测试能写
+ * `createElement<PluginSectionProps>(PluginSection, ...)`：组件的参数带默认值
+ * `= {}`，不显式给类型参数时 `createElement` 推不出 props，tsc 会落到最后一个重载上报错。
+ */
+export type PluginSectionProps = { hideInstallForm?: boolean }
+
+/**
+ * 插件管理区：设置 → 插件 与「插件」页的「已安装」tab 共用这一份实现。
+ *
+ * `hideInstallForm`：关掉本组件自带的「从 GitHub 安装 / 从本地目录安装」区块。
+ *
+ * 为什么需要它：「插件」页右上角已经有「手动安装」弹窗，做的是**同一件事**
+ * （粘贴 GitHub 地址 / 选本地目录）。两个入口并排出现在同一块屏幕上，
+ * 用户会以为是两件不同的事（"一个装市场外的、一个装本机的？"），于是要么两边
+ * 各点一遍，要么干脆都不敢点。所以那一页把自带的这份收起来，只留页头的入口。
+ *
+ * 默认 `false`：设置 → 插件 里该区块照旧渲染，行为与加这个 prop 之前逐字一致
+ * （既有的挂载用例、以及设置页的其它用例都不该因为这个参数而变）。
+ */
+export function PluginSection({ hideInstallForm = false }: PluginSectionProps = {}) {
   const [plugins, setPlugins] = useState<PluginSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -508,49 +530,72 @@ export function PluginSection() {
         </p>
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="plugin-install-source">从 GitHub 安装</Label>
-        <form onSubmit={(event) => void installPlugin(event)} className="flex gap-2">
-          <Input
-            id="plugin-install-source"
-            value={source}
-            onChange={(event) => setSource(event.target.value)}
-            placeholder="https://github.com/owner/repo"
-            disabled={installing || installingLocal}
-            className="min-w-0 flex-1"
-          />
-          <Button type="submit" disabled={installing || installingLocal || source.trim() === ""}>
-            {installing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-            {installing ? "安装中…" : "安装"}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={installing || installingLocal}
-            onClick={() => void installLocalPlugin()}
-            title="用于安装你本机正在开发的插件目录。目录根下需要有 plugin.json。"
-          >
-            {installingLocal ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <FolderOpen className="mr-2 h-4 w-4" />
-            )}
-            {installingLocal ? "安装中…" : "从本地目录安装"}
-          </Button>
-        </form>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          用于安装你本机正在开发的插件目录。目录根下需要有 plugin.json。
-        </p>
-        {actionError ? (
-          <div
-            className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
-            role="alert"
-          >
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p className="min-w-0 break-words">{actionError}</p>
-          </div>
-        ) : null}
-      </div>
+      {/*
+        安装区块（GitHub 地址输入 + 两个按钮 + 说明）。`hideInstallForm` 时整块不渲染。
+
+        为什么"不渲染"而不是 display:none：留着空壳会让 `#plugin-install-source`
+        这类可聚焦的输入框仍然在 DOM 里（无障碍树、自动化脚本、截图都能碰到），
+        等于把"两个入口"的问题从视觉藏到了别处。
+
+        ⚠️ 外层的 `&& !actionError`：隐藏时若没有任何错误，整个 `<div>` 也不该留下 ——
+        父级 `space-y-6` 会给一个空块也加上 24px 间距，安全提示与「插件能力」之间
+        会凭空多出一段空白。默认（不传 prop）时这段结构**逐字不变**。
+      */}
+      {hideInstallForm && !actionError ? null : (
+        <div className="space-y-2">
+          {hideInstallForm ? null : (
+            <>
+              <Label htmlFor="plugin-install-source">从 GitHub 安装</Label>
+              <form onSubmit={(event) => void installPlugin(event)} className="flex gap-2">
+                <Input
+                  id="plugin-install-source"
+                  value={source}
+                  onChange={(event) => setSource(event.target.value)}
+                  placeholder="https://github.com/owner/repo"
+                  disabled={installing || installingLocal}
+                  className="min-w-0 flex-1"
+                />
+                <Button type="submit" disabled={installing || installingLocal || source.trim() === ""}>
+                  {installing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {installing ? "安装中…" : "安装"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={installing || installingLocal}
+                  onClick={() => void installLocalPlugin()}
+                  title="用于安装你本机正在开发的插件目录。目录根下需要有 plugin.json。"
+                >
+                  {installingLocal ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FolderOpen className="mr-2 h-4 w-4" />
+                  )}
+                  {installingLocal ? "安装中…" : "从本地目录安装"}
+                </Button>
+              </form>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                用于安装你本机正在开发的插件目录。目录根下需要有 plugin.json。
+              </p>
+            </>
+          )}
+          {/*
+            失败提示条**不**跟着 `hideInstallForm` 一起隐藏：`actionError` 不只承载安装
+            失败，停用 / 卸载失败也写在这条上。入口藏起来的同时把它一并藏掉，用户点了
+            「卸载」失败后屏幕上一片安静 —— 那比多一个重复入口糟得多。
+            此刻它不可能来自安装（表单没渲染，装不了），剩下的正好是启停 / 卸载这一类。
+          */}
+          {actionError ? (
+            <div
+              className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+              role="alert"
+            >
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <p className="min-w-0 break-words">{actionError}</p>
+            </div>
+          ) : null}
+        </div>
+      )}
 
       {/*
         插件能力区（`plugin-center` 插槽）。
@@ -655,7 +700,14 @@ export function PluginSection() {
           <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border px-4 py-8 text-center">
             <Puzzle className="h-5 w-5 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
-              还没有安装插件。粘贴一个 GitHub 仓库地址开始。
+              {/*
+                隐藏了自带的安装表单时不能再让用户"粘贴地址开始" —— 那句话指向的输入框
+                已经不在这一屏上，而入口在页头的「手动安装」里。空状态是最可能被照着
+                字面执行的文案，指错方向就是一次白找。
+              */}
+              {hideInstallForm
+                ? "还没有安装插件。用页面上的「手动安装」粘贴 GitHub 地址，或选一个本地目录。"
+                : "还没有安装插件。粘贴一个 GitHub 仓库地址开始。"}
             </p>
           </div>
         ) : (

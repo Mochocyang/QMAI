@@ -79,7 +79,14 @@ describe("「插件」视图的导航接线", () => {
     expect(source).toContain(
       'import { PluginSection } from "@/components/settings/sections/plugin-section"',
     )
-    expect(source).toContain("<PluginSection />")
+    /*
+     * 必须带 `hideInstallForm`：本页右上角已有「手动安装」，与 `PluginSection`
+     * 自带的「从 GitHub 安装 / 从本地目录安装」是**同一件事**；两个入口并排
+     * 出现，用户会以为是两件不同的事。这里断言的是钉住那个 prop 本身
+     * （行为由 `plugin-section.spec.ts` 的 hideInstallForm 用例守），
+     * 而不是 `<PluginSection />` 这个字面量 —— 那会在加 prop 之后误红。
+     */
+    expect(source).toContain("<PluginSection hideInstallForm />")
     // 反向：这里不得自己再调启停/卸载命令（那是 PluginSection 的职责，重复实现必然漂移）
     expect(source).not.toContain("pluginsApi.uninstall(")
     expect(source).not.toContain("pluginsApi.enable(")
