@@ -1,0 +1,3 @@
+# wrangler 的本地构建/缓存产物，不入库
+.wrangler/
+node_modules/
