@@ -7,6 +7,15 @@ export const DEFAULT_SIDEBAR_NAV_ORDER = [
   "lint",
   "soul",
   "skillLibrary",
+  /*
+   * 「插件」放在技能库之后、拆书库之前。
+   *
+   * 为什么不是塞在末尾：末尾那两位（搜索 / 回收站）是**工具型**入口，
+   * 而插件与技能库同属「给软件装扩展能力」这一类，摆在一起用户才容易形成
+   * 「能力都在这附近」的印象。位置本身可拖拽调整（见 icon-sidebar），
+   * 这里只决定新装用户的初始顺序。
+   */
+  "plugins",
   "bookAnalysis",
   "reviewCenter",
   "storySimulation",

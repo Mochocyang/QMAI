@@ -10,6 +10,13 @@ import {
 
 describe("sidebar nav preferences", () => {
   it("keeps the supported feature entries in the default order", () => {
+    /*
+     * ⚠️ 这条是**精确相等**，不是 toContain：默认顺序本身就是产品决定，
+     * 多一项/少一项/挪了位置都该有人过一眼再改。
+     * 本次 +"plugins"：插件成了与技能库同级的顶层页面（市场 + 已安装），
+     * 位置放在技能库之后、拆书库之前（详细理由见 sidebar-nav-preferences.ts 的注释）。
+     * 判别力：把 "plugins" 从 DEFAULT_SIDEBAR_NAV_ORDER 删掉 ⇒ 本条红。
+     */
     expect(DEFAULT_SIDEBAR_NAV_ORDER).toEqual([
       "wiki",
       "sources",
@@ -17,6 +24,7 @@ describe("sidebar nav preferences", () => {
       "lint",
       "soul",
       "skillLibrary",
+      "plugins",
       "bookAnalysis",
       "reviewCenter",
       "storySimulation",
@@ -40,6 +48,8 @@ describe("sidebar nav preferences", () => {
       "lint",
       "soul",
       "skillLibrary",
+      // 追加项按 DEFAULT_SIDEBAR_NAV_ORDER 的顺序补齐（"plugins" 同理）
+      "plugins",
       "bookAnalysis",
       "reviewCenter",
       "storySimulation",

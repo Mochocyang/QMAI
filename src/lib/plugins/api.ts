@@ -32,6 +32,50 @@ export interface PluginProviderCredentialResult {
 }
 
 /**
+ * 插件市场索引里的一条（`plugins_market_index` 的 `plugins[]`）。
+ *
+ * 这些字段**全部由索引文件（仓库里的 `plugins/index.json`）提供**，不是从插件清单读出来的：
+ * 市场页要在「还没安装、也就读不到 manifest」的前提下把卡片画出来，只能依赖索引自述。
+ * 所以每个字段都按「可能缺失」对待 —— 索引是随仓库维护的 JSON，手写的东西必然有缺项。
+ */
+export interface PluginMarketEntry {
+  id: string
+  name: string
+  /** GitHub 仓库（`owner/repo` 或完整 URL），安装时就把它交给 `plugins_market_install`。 */
+  repo: string
+  description: string
+  author: string
+  categories: string[]
+  /** 索引里的标签，与 categories 分开：分类是筛选项，标签是检索关键词。 */
+  tags: string[]
+  /**
+   * 能力种类，取值 `"declarative"` / `"tools"` / `"providers"`。
+   *
+   * 故意留成 `string[]` 而不是字面量联合：索引由第三方提交，后端将来加一类能力
+   * （比如 hooks）时，界面应当把新值原样显示出来，而不是编译失败或者静默吞掉。
+   */
+  kind: string[]
+  /** 插件声明的权限（与清单 `permissions` 同义，安装前就能看到）。 */
+  permissions: string[]
+  version?: string | null
+}
+
+/**
+ * `plugins_market_index` 的返回。
+ *
+ * `fromCache` / `fetchedAt` / `sourceUrl` 三个元数据是**诚实性**的一部分：
+ * 网络不可用时后端会退回本地缓存，界面必须让用户知道「现在看的不一定是最新」，
+ * 否则用户会对着三天前的索引以为「市场就这些东西」。
+ */
+export interface PluginMarketIndex {
+  plugins: PluginMarketEntry[]
+  fromCache: boolean
+  /** 抓取时间（unix 秒）；从未抓到过时为 null。 */
+  fetchedAt: number | null
+  sourceUrl: string
+}
+
+/**
  * 插件管理的 Tauri 命令封装。
  *
  * 全部命令都直接返回 Rust 侧的错误字符串（中文文案），调用方原样展示即可；
@@ -100,4 +144,27 @@ export const pluginsApi = {
       filename,
     }),
   shutdownAll: () => invoke<void>("plugins_shutdown_all"),
+  /**
+   * 拉取插件市场索引（`plugins/index.json`）。
+   *
+   * `refresh = false` 时后端优先用本地缓存、必要时才联网；`true` 表示「用户点了刷新」，
+   * 强制重新抓取。为什么不让前端自己判缓存：磁盘上那份缓存的路径与新鲜度都在 Rust 侧，
+   * 前端多存一份只会两边打架。
+   */
+  marketIndex: (refresh = false) =>
+    invoke<PluginMarketIndex>("plugins_market_index", { refresh }),
+  /**
+   * 从市场条目安装插件（索引里的 `repo` 原样交给既有的仓库安装器）。
+   *
+   * 与 `install(source)` 走的是**同一条** Rust 编排（`install_from_github`：下载、
+   * provider id 与宿主版本闸门、写注册表、失败回滚），区别只有两点：
+   *   1. 它先按安装器规则校验一次 `repo` —— 索引是第三方 PR 写的，一个手滑的地址
+   *      应该在下载之前就变成一句能看懂的报错，而不是让用户先等一轮失败的网络请求；
+   *   2. 语义上明确「这是市场条目带来的地址」，前端因此不必自己把 entry 摊成安装源。
+   *
+   * ⚠️ 它**不**校验这个仓库是否真的在索引里（后端没有这层名单比对）：
+   * 真正拦住陌生地址的是启用确认层的权限展示，不是这条命令。
+   */
+  marketInstall: (repo: string) =>
+    invoke<PluginSummary>("plugins_market_install", { repo }),
 }
