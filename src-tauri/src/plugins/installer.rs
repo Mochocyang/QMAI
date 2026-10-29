@@ -14,6 +14,22 @@ const MAX_ZIP_BYTES: usize = 8 * 1024 * 1024;
 /// 几 KB 的包解开能塞满磁盘，进而把宿主所在盘的剩余空间吃光。
 const MAX_UNPACKED_BYTES: u64 = 64 * 1024 * 1024;
 
+/// 自定义下载代理前缀的环境变量名。
+///
+/// URL 约定与 `gh-proxy.com` 完全一致：`<proxy>/https://github.com/<owner>/<repo>/...`
+/// —— 代理把「原始 GitHub 地址」当成自己的路径来收。所以配置值只需要一个前缀，
+/// 例如 `https://gh.example.dev`，拼出来就是
+/// `https://gh.example.dev/https://github.com/o/r/archive/refs/heads/main.zip`。
+///
+/// 同一个前缀既可以下 zip，也可以代理索引：把 `QMAI_PLUGIN_INDEX_URL` 写成
+/// `<proxy>/https://raw.githubusercontent.com/<owner>/<repo>/main/plugins.json`
+/// 就复用同一个 Worker / 对象存储 / 内网镜像，不用再配第二套（索引侧无需改代码）。
+///
+/// 为什么需要它：硬编码的两个公共代理在国内时好时坏（限流、被墙、换域名）。
+/// 用户自建 Cloudflare Worker、国内对象存储或公司内网镜像时，不该要求改代码重编译 ——
+/// 一个环境变量就能把自建通道插到所有通道的最前面。
+pub const ZIP_PROXY_ENV: &str = "QMAI_PLUGIN_ZIP_PROXY";
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceSpec {
     pub owner: String,
@@ -183,6 +199,16 @@ async fn resolve_default_branch_at(
     Some(branch.to_string())
 }
 
+/// 每个 ref 要试的两条 GitHub 路径，顺序按 ref 形态决定（分支先 heads、版本号先 tags），
+/// 避免每次安装都白跑必然 404 的那条。
+fn kinds_for_ref(git_ref: &str) -> [&'static str; 2] {
+    if looks_like_tag(git_ref) {
+        ["tags", "heads"]
+    } else {
+        ["heads", "tags"]
+    }
+}
+
 /// 单个通道的下载候选：返回 `(url, 所属 ref)`。
 ///
 /// GitHub 的分支在 `refs/heads` 下、tag 在 `refs/tags` 下，两者 URL 不通用，
@@ -199,12 +225,7 @@ fn candidates_for_base(
 ) -> Vec<(String, String)> {
     let mut out = Vec::with_capacity(refs.len() * 2);
     for git_ref in refs {
-        let kinds: [&str; 2] = if looks_like_tag(git_ref) {
-            ["tags", "heads"]
-        } else {
-            ["heads", "tags"]
-        };
-        for kind in kinds {
+        for kind in kinds_for_ref(git_ref) {
             // codeload 的路径形状与 github.com 不同，单独处理
             let url = if base.starts_with("codeload.") {
                 format!("https://{base}{owner}/{repo}/zip/refs/{kind}/{git_ref}")
@@ -219,19 +240,105 @@ fn candidates_for_base(
     out
 }
 
-/// 全部下载候选（通道外层、ref 次层、heads/tags 内层），顺序与历史行为一致：
-/// 代理优先（国内网络），codeload 直连兜底。
-pub fn download_candidates(owner: &str, repo: &str, refs: &[&str]) -> Vec<(String, String)> {
+/// 归一化 `QMAI_PLUGIN_ZIP_PROXY` 的取值，返回可直接拼接的前缀（无尾斜杠）。
+///
+/// 返回 `None` 表示「这个值不可用，按未配置处理」：
+///   - 空白（含全部是空白）：用户清空了变量，等价于没配；
+///   - 不以 `http://` / `https://` 开头：`x.dev` 会拼成 `x.dev/https://…`（没有 scheme，
+///     请求直接失败），`proxy/` 这类相对值甚至会指到本机。与其静默拼出一个必然连不上的
+///     通道，不如明确忽略并告警，让用户改配置。
+fn normalize_zip_proxy(raw: Option<&str>) -> Option<String> {
+    let raw = raw?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if !(trimmed.starts_with("http://") || trimmed.starts_with("https://")) {
+        eprintln!(
+            "忽略环境变量 {ZIP_PROXY_ENV}={trimmed:?}：代理前缀必须以 http:// 或 https:// 开头"
+        );
+        return None;
+    }
+    // `https://x.dev/` 与 `https://x.dev` 都要拼出一模一样的地址：
+    // 多出来的 `/` 会变成 `https://x.dev//https://github.com/...`，部分代理会 404。
+    let prefix = trimmed.trim_end_matches('/');
+    // 只有 scheme 没有 host（`https://`）：trim 掉尾斜杠后连 `://` 都没了，视为不可用
+    let host = prefix.split_once("://").map(|(_, rest)| rest).unwrap_or("");
+    if host.is_empty() {
+        eprintln!("忽略环境变量 {ZIP_PROXY_ENV}={trimmed:?}：缺少代理主机名");
+        return None;
+    }
+    Some(prefix.to_string())
+}
+
+/// 自定义代理通道的候选：`<prefix>/https://github.com/<owner>/<repo>/archive/...`。
+///
+/// 与 `candidates_for_base` 的区别只在「前缀是完整 URL」而不是裸 host，所以单独拼；
+/// 路径形状仍必须与 gh-proxy 一致，否则同一个 Worker 只能服务其中一半。
+fn candidates_for_proxy(
+    prefix: &str,
+    owner: &str,
+    repo: &str,
+    refs: &[&str],
+) -> Vec<(String, String)> {
+    let mut out = Vec::with_capacity(refs.len() * 2);
+    for git_ref in refs {
+        for kind in kinds_for_ref(git_ref) {
+            out.push((
+                format!(
+                    "{prefix}/https://github.com/{owner}/{repo}/archive/refs/{kind}/{git_ref}.zip"
+                ),
+                (*git_ref).to_string(),
+            ));
+        }
+    }
+    out
+}
+
+/// 全部下载候选（通道外层、ref 次层、heads/tags 内层）。
+///
+/// `proxy` 由调用方给：`None` 时顺序与历史行为完全一致（两个公共代理 → codeload 直连）。
+/// 配了 `QMAI_PLUGIN_ZIP_PROXY` 则把自建代理插到最前面：用户自建通道的可达性
+/// 一定优于公共代理，不该让公共代理先白等两次超时。
+pub fn download_candidates_with(
+    owner: &str,
+    repo: &str,
+    refs: &[&str],
+    proxy: Option<&str>,
+) -> Vec<(String, String)> {
     let mut out = Vec::new();
+    if let Some(prefix) = normalize_zip_proxy(proxy) {
+        out.extend(candidates_for_proxy(&prefix, owner, repo, refs));
+    }
     out.extend(candidates_for_base("gh-proxy.com/", owner, repo, refs));
     out.extend(candidates_for_base("ghproxy.net/", owner, repo, refs));
     out.extend(candidates_for_base("codeload.github.com/", owner, repo, refs));
     out
 }
 
+/// 全部下载候选（读环境变量版）。`install()` 走这条，环境变量只在这里读一次。
+pub fn download_candidates(owner: &str, repo: &str, refs: &[&str]) -> Vec<(String, String)> {
+    let proxy = std::env::var(ZIP_PROXY_ENV).ok();
+    download_candidates_with(owner, repo, refs, proxy.as_deref())
+}
+
 /// 单 ref 的候选 URL 列表（串行下载用；保留既有签名与顺序）。
 pub fn download_urls(owner: &str, repo: &str, git_ref: &str) -> Vec<String> {
-    download_candidates(owner, repo, &[git_ref])
+    let proxy = std::env::var(ZIP_PROXY_ENV).ok();
+    download_urls_with(owner, repo, git_ref, proxy.as_deref())
+}
+
+/// `download_urls` 的纯函数版本：代理值由调用方直接给，不读环境变量。
+///
+/// 为什么拆出来：本仓库有过「测试里 set_var 并发污染」的历史（见 market.rs 的环境变量锁），
+/// 所以代理相关的用例一律喂参数，不碰进程环境。
+pub fn download_urls_with(
+    owner: &str,
+    repo: &str,
+    git_ref: &str,
+    proxy: Option<&str>,
+) -> Vec<String> {
+    download_candidates_with(owner, repo, &[git_ref], proxy)
         .into_iter()
         .map(|(url, _)| url)
         .collect()
@@ -332,73 +439,169 @@ pub fn extract_zip(bytes: &[u8], dest: &Path) -> Result<(), String> {
 /// 旧报错只说「都失败了」，用户看完仍然不知道下一步该做什么。
 const DOWNLOAD_FAILURE_HINT: &str = "请检查：① 仓库地址是否正确 ② 仓库是否公开 ③ 分支/标签名是否写对（可用 `仓库地址@分支名` 指定）";
 
-/// 串行版的失败信息：保留最后一次尝试的 URL 与原因。
-fn all_channels_failed(last: &str) -> String {
-    format!("所有下载通道均失败（最后一次：{last}）。\n{DOWNLOAD_FAILURE_HINT}")
+/// 失败列表最多列几个通道。错误信息要能直接贴进界面，列太多反而把真正有用的
+/// 「你配的代理在哪、报了什么」淹掉；超出用 `…` 标注剩余条数。
+const MAX_LISTED_CHANNELS: usize = 6;
+
+/// 一条通道的失败：完整下载地址 + 原因。
+///
+/// 不直接存成 `"URL → 原因"` 字符串，是为了还能按通道聚合（见 `format_failures`）：
+/// 拼成字符串后想判断「这条属于哪个通道」就只能反过来解析 URL 了。
+#[derive(Debug, Clone)]
+struct DownloadFailure {
+    url: String,
+    reason: String,
 }
 
-/// 直连与代理同时失败时的信息：两边的最后一次原因都留着，便于判断是哪类网络问题。
-fn all_channels_failed_parallel(direct: &str, proxied: &str) -> String {
+impl DownloadFailure {
+    fn new(url: &str, reason: impl Into<String>) -> Self {
+        Self {
+            url: url.to_string(),
+            reason: reason.into(),
+        }
+    }
+
+    /// 通道标识：代理通道取「内嵌 GitHub 地址之前的前缀」，直连取 `scheme://host`。
+    /// 只用于分组去重，不参与下载。
+    fn channel(&self) -> &str {
+        if let Some(idx) = self.url.find("https://github.com") {
+            if idx > 0 {
+                return &self.url[..idx];
+            }
+        }
+        let scheme_end = self.url.find("://").map(|i| i + 3).unwrap_or(0);
+        match self.url[scheme_end..].find('/') {
+            Some(slash) => &self.url[..scheme_end + slash],
+            None => &self.url,
+        }
+    }
+}
+
+impl std::fmt::Display for DownloadFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} → {}", self.url, self.reason)
+    }
+}
+
+/// 串行版的失败信息：逐条列出每个失败通道的地址与原因。
+///
+/// 为什么不再只报「最后一次」：用户配了自定义代理却打不开时，必须一眼看到
+/// 「我的代理地址在不在列表里、它报了什么」。只报最后一次尝试，会让排在前面
+/// 的自定义通道失败完全不可见（它恰恰是用户最想确认的那条）。
+fn all_channels_failed(failures: &[DownloadFailure]) -> String {
     format!(
-        "所有下载通道均失败（直连：{direct}；代理：{proxied}）。\n{DOWNLOAD_FAILURE_HINT}"
+        "所有下载通道均失败：{}\n{DOWNLOAD_FAILURE_HINT}",
+        format_failures(failures)
     )
+}
+
+/// 直连与代理两条流都失败时的信息：合并成一张列表（直连在前），并标出两侧尝试条数。
+fn all_channels_failed_parallel(direct: &[DownloadFailure], proxied: &[DownloadFailure]) -> String {
+    let mut failures = Vec::with_capacity(direct.len() + proxied.len());
+    failures.extend(direct.iter().cloned());
+    failures.extend(proxied.iter().cloned());
+    format!(
+        "所有下载通道均失败（直连 {} 条、代理 {} 条）：{}\n{DOWNLOAD_FAILURE_HINT}",
+        direct.len(),
+        proxied.len(),
+        format_failures(&failures)
+    )
+}
+
+/// 按通道聚合失败原因后渲染成缩进条目，最多列 `MAX_LISTED_CHANNELS` 个通道。
+///
+/// 为什么按通道聚合：每个通道有 heads / tags 两条候选，自定义代理加上三个内置通道
+/// 一共 8 条候选。若逐条列出再截断到 6 条，排在最后的内置通道（codeload 直连）
+/// 会被整条挤掉，用户看到的仍是「不全」。同一通道的候选总是相邻出现，
+/// 所以只保留每个通道的第一条原因即可。
+fn format_failures(failures: &[DownloadFailure]) -> String {
+    if failures.is_empty() {
+        return "\n  - 未尝试任何通道".to_string();
+    }
+    let mut seen: Vec<&str> = Vec::new();
+    let mut message = String::new();
+    let mut channels = 0usize;
+    for failure in failures {
+        let channel = failure.channel();
+        if seen.contains(&channel) {
+            continue;
+        }
+        seen.push(channel);
+        channels += 1;
+        if channels > MAX_LISTED_CHANNELS {
+            continue;
+        }
+        message.push_str("\n  - ");
+        message.push_str(&failure.to_string());
+    }
+    if channels > MAX_LISTED_CHANNELS {
+        message.push_str(&format!(
+            "\n  … 另有 {} 个通道失败未列出（共 {channels} 个）",
+            channels - MAX_LISTED_CHANNELS
+        ));
+    }
+    message
 }
 
 /// 顺序试一组候选，返回 `(字节, 在候选里的下标)`。
 /// 下标用来回溯「最后是哪个 ref 成功」，安装结果里的 git_ref 才是真的而不是占位。
+/// 全部失败时返回每条通道的失败明细（顺序与尝试顺序一致），由调用方统一格式化。
 async fn download_first_indexed(
     client: &reqwest::Client,
     candidates: &[(String, usize)],
-) -> Result<(Vec<u8>, usize), String> {
-    let mut last = "未尝试任何通道".to_string();
+) -> Result<(Vec<u8>, usize), Vec<DownloadFailure>> {
+    let mut failures: Vec<DownloadFailure> = Vec::with_capacity(candidates.len());
     for (url, index) in candidates {
         let resp = match client.get(url).send().await {
             Ok(resp) => resp,
             Err(e) => {
-                last = format!("{url} → {e}");
+                failures.push(DownloadFailure::new(url, e.to_string()));
                 continue;
             }
         };
         if !resp.status().is_success() {
-            last = format!("{url} → HTTP {}", resp.status());
+            failures.push(DownloadFailure::new(url, format!("HTTP {}", resp.status())));
             continue;
         }
         // 先看声明的长度：等 bytes() 全量读进来再判，内存已经被吃掉了
         if let Some(len) = resp.content_length() {
             if len as usize > MAX_ZIP_BYTES {
-                return Err(format!(
-                    "插件包超过 {} MB 上限",
-                    MAX_ZIP_BYTES / 1024 / 1024
-                ));
+                return Err(vec![DownloadFailure::new(
+                    url,
+                    format!("插件包超过 {} MB 上限", MAX_ZIP_BYTES / 1024 / 1024),
+                )]);
             }
         }
         let bytes = match resp.bytes().await {
             Ok(b) => b,
             Err(e) => {
-                last = format!("{url} → 读取响应失败：{e}");
+                failures.push(DownloadFailure::new(url, format!("读取响应失败：{e}")));
                 continue;
             }
         };
         // 超限不再试下一个通道：这是「这个包本身太大」，
         // 换通道只会把同一份大包再下一遍，白等用户
         if bytes.len() > MAX_ZIP_BYTES {
-            return Err(format!(
-                "插件包超过 {} MB 上限",
-                MAX_ZIP_BYTES / 1024 / 1024
-            ));
+            return Err(vec![DownloadFailure::new(
+                url,
+                format!("插件包超过 {} MB 上限", MAX_ZIP_BYTES / 1024 / 1024),
+            )]);
         }
         // 代理对私有库/限流/ref 不存在常返回 200 + HTML 错误页。
         // 只按状态码判成功会让剩下几个候选一次都不试，用户只看到「不是有效 zip」。
         if !bytes.starts_with(b"PK\x03\x04") {
-            last = format!("{url} → 响应不是 zip（可能被代理替换成错误页）");
+            failures.push(DownloadFailure::new(
+                url,
+                "响应不是 zip（可能被代理替换成错误页）",
+            ));
             continue;
         }
         return Ok((bytes.to_vec(), *index));
     }
-    Err(last)
+    Err(failures)
 }
 
-/// 下载 zip 字节；按顺序试每个候选，全部失败才报错（错误里带最后一次尝试）。
+/// 下载 zip 字节；按顺序试每个候选，全部失败才报错（错误里列出所有失败通道）。
 pub async fn download(client: &reqwest::Client, urls: &[String]) -> Result<Vec<u8>, String> {
     let candidates: Vec<(String, usize)> = urls
         .iter()
@@ -409,7 +612,7 @@ pub async fn download(client: &reqwest::Client, urls: &[String]) -> Result<Vec<u
     download_first_indexed(client, &candidates)
         .await
         .map(|(bytes, _)| bytes)
-        .map_err(|last| all_channels_failed(&last))
+        .map_err(|failures| all_channels_failed(&failures))
 }
 
 /// 直连与代理并行：两条流各自按顺序试自己的候选，谁先拿到真 zip 用谁。
@@ -417,7 +620,7 @@ pub async fn download(client: &reqwest::Client, urls: &[String]) -> Result<Vec<u
 /// 为什么不是纯串行「代理优先」：本环境实测两个代理都失败、直连成功，串行会先白等
 /// 两次连接超时（每次 5 秒）。为什么也不改成直连优先：那会让国内用户每次安装都先
 /// 撞一次被墙的 codeload。并行的代价是多一个在途请求，换来最坏情况「等 1 次」而不是
-/// 「等 2 次」。两条流都失败时把两边各自最后一次的原因都报出来。
+/// 「等 2 次」。两条流都失败时把两边每个通道的失败原因都列出来（见 format_failures）。
 async fn download_racing(
     client: &reqwest::Client,
     direct_candidates: &[(String, String)],
@@ -832,7 +1035,9 @@ mod tests {
 
     #[test]
     fn build_channel_urls_cover_both_heads_and_tags() {
-        let urls = download_urls("owner", "repo", "main");
+        // 用 `_with(..., None)` 而不是读环境变量的版本：本机若设了
+        // QMAI_PLUGIN_ZIP_PROXY，外层断言会被自定义通道带偏（不需要 set_var 也能隔离）
+        let urls = download_urls_with("owner", "repo", "main", None);
         assert_eq!(urls.len(), 6);
         // 分支名 → heads 先试
         assert!(urls[0].contains("/refs/heads/main"));
@@ -847,10 +1052,142 @@ mod tests {
             "https://codeload.github.com/owner/repo/zip/refs/heads/main"
         );
 
-        let tag_urls = download_urls("owner", "repo", "v1.2.0");
+        let tag_urls = download_urls_with("owner", "repo", "v1.2.0", None);
         // 版本号 → tags 先试，避免必然 404 的 heads 抢在最前
         assert!(tag_urls[0].contains("/refs/tags/v1.2.0"));
         assert!(tag_urls.iter().any(|u| u.contains("/refs/heads/v1.2.0")));
+    }
+
+    // ------------------------------------------------------------------
+    // 可配置 zip 代理（QMAI_PLUGIN_ZIP_PROXY）
+    // 全部走 `_with(..., proxy)` 纯函数：不在测试里 std::env::set_var，
+    // 本仓库有过环境变量并发污染的历史（见 market.rs 的锁）。
+    // ------------------------------------------------------------------
+
+    const CUSTOM_PROXY: &str = "https://gh.example.dev";
+
+    #[test]
+    fn zip_proxy_env_adds_highest_priority_channel() {
+        let urls = download_urls_with("o", "r", "main", Some(CUSTOM_PROXY));
+        assert_eq!(urls.len(), 8, "自定义通道 2 条 + 原有 6 条");
+        assert_eq!(
+            urls[0], "https://gh.example.dev/https://github.com/o/r/archive/refs/heads/main.zip",
+            "分支名 → heads 先试，且自定义通道排在最前"
+        );
+        assert_eq!(
+            urls[1], "https://gh.example.dev/https://github.com/o/r/archive/refs/tags/main.zip",
+            "同一通道的 tags 候选紧随其后，仍在内置通道之前"
+        );
+    }
+
+    #[test]
+    fn zip_proxy_trailing_slash_is_normalized() {
+        let without = download_urls_with("o", "r", "main", Some("https://x.dev"));
+        for with_slash in ["https://x.dev/", "https://x.dev///"] {
+            assert_eq!(
+                download_urls_with("o", "r", "main", Some(with_slash)),
+                without,
+                "{with_slash:?} 应与无尾斜杠等价"
+            );
+        }
+        assert_eq!(
+            without[0],
+            "https://x.dev/https://github.com/o/r/archive/refs/heads/main.zip"
+        );
+        // 前缀与内嵌 GitHub 地址之间只能有一个斜杠：多出来的会被代理当空段，常见表现是 404
+        assert!(
+            !without[0].contains("dev//"),
+            "不能拼出双斜杠：{}",
+            without[0]
+        );
+    }
+
+    #[test]
+    fn empty_or_blank_proxy_is_ignored() {
+        let baseline = download_urls_with("o", "r", "main", None);
+        for blank in ["", "   ", "\t\n ", "/"] {
+            assert_eq!(
+                download_urls_with("o", "r", "main", Some(blank)),
+                baseline,
+                "空白代理 {blank:?} 应等价于未配置"
+            );
+        }
+        assert_eq!(baseline.len(), 6, "未配置/空白时代理通道不能多出来");
+    }
+
+    #[test]
+    fn proxy_without_scheme_is_ignored() {
+        let baseline = download_urls_with("o", "r", "main", None);
+        for bad in ["x.dev/proxy", "//x.dev", "ftp://x.dev", "https://"] {
+            let urls = download_urls_with("o", "r", "main", Some(bad));
+            assert_eq!(
+                urls, baseline,
+                "非法代理 {bad:?} 必须被忽略，其它通道一条都不能少"
+            );
+            assert!(
+                !urls.iter().any(|u| u.contains("x.dev")),
+                "非法代理 {bad:?} 不应进入通道列表：{urls:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn custom_proxy_comes_before_builtin_proxies_and_direct() {
+        let urls = download_urls_with("o", "r", "main", Some(CUSTOM_PROXY));
+        let pos = |needle: &str| {
+            urls.iter()
+                .position(|u| u.contains(needle))
+                .unwrap_or_else(|| panic!("缺少通道 {needle}：{urls:?}"))
+        };
+        assert!(urls[0].starts_with(CUSTOM_PROXY), "自定义通道必须在第一位");
+        assert!(pos("gh.example.dev") < pos("gh-proxy.com"));
+        assert!(pos("gh-proxy.com") < pos("ghproxy.net"));
+        assert!(pos("ghproxy.net") < pos("codeload.github.com"));
+    }
+
+    #[test]
+    fn all_channels_failed_lists_every_channel() {
+        // 用真实候选造失败：每个通道有 heads / tags 两条候选，错误里应聚合为「每通道一条」
+        let failures: Vec<DownloadFailure> =
+            download_urls_with("o", "r", "main", Some(CUSTOM_PROXY))
+                .into_iter()
+                .map(|url| DownloadFailure::new(&url, "连接超时"))
+                .collect();
+        assert_eq!(failures.len(), 8);
+        let err = all_channels_failed(&failures);
+        for channel in [
+            CUSTOM_PROXY,
+            "https://gh-proxy.com",
+            "https://ghproxy.net",
+            "https://codeload.github.com",
+        ] {
+            assert!(
+                err.contains(channel),
+                "错误信息应包含通道 {channel}，实际：{err}"
+            );
+        }
+        assert!(err.contains("连接超时"), "每个通道的失败原因也要保留：{err}");
+        assert_eq!(
+            err.matches("\n  - ").count(),
+            4,
+            "四个通道各一条，不重复列 heads/tags：{err}"
+        );
+        assert!(!err.contains('…'), "只有 4 个通道，不该截断：{err}");
+
+        // 超过 6 个通道时截断并留省略标记（错误信息要能直接贴进界面）
+        let many: Vec<DownloadFailure> = (0..8)
+            .map(|i| {
+                DownloadFailure::new(
+                    &format!("https://p{i}.dev/https://github.com/o/r/x.zip"),
+                    "boom",
+                )
+            })
+            .collect();
+        let err = all_channels_failed(&many);
+        assert_eq!(err.matches("\n  - ").count(), MAX_LISTED_CHANNELS);
+        assert!(err.contains('…'), "超出上限要有省略标记：{err}");
+        assert!(!err.contains("p7.dev"), "超出上限的通道不再列出：{err}");
+        assert!(all_channels_failed(&[]).contains("未尝试任何通道"));
     }
 
     #[test]
@@ -1365,7 +1702,7 @@ mod tests {
     fn fallback_refs_are_tried_within_each_channel() {
         // API 查不到时 main + master 都要试，且同一通道内相邻（猜错的代价是同一通道
         // 多一次请求，而不是「跑完所有通道再回头」）
-        let candidates = download_candidates("o", "r", &["main", "master"]);
+        let candidates = download_candidates_with("o", "r", &["main", "master"], None);
         assert_eq!(candidates.len(), 12, "2 ref × 2 kind × 3 通道");
         assert_eq!(candidates[0].1, "main");
         assert_eq!(candidates[2].1, "master", "同一通道内紧跟 master");
@@ -1375,7 +1712,7 @@ mod tests {
         );
         assert_eq!(candidates[10].1, "master");
         // 单 ref 形状不变：既有串行行为不能被这次改动带偏
-        assert_eq!(download_urls("o", "r", "main").len(), 6);
+        assert_eq!(download_urls_with("o", "r", "main", None).len(), 6);
     }
 
     #[tokio::test]
