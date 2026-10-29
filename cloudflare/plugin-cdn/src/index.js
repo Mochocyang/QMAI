@@ -9,10 +9,16 @@
  *   GET https://qmai.pro/plugins-cdn/https://github.com/owner/repo/archive/refs/heads/main.zip
  *
  * ── 为什么必须有白名单 ──────────────────────────────────
- * 这是一个挂在**生产域名**上的转发器。如果允许任意目标，它会立刻变成一个
- * 开放代理：别人可以拿 qmai.pro 转发钓鱼站、绕过地区限制、刷流量，
- * 结果是我们的域名被浏览器/安全厂商标记，反噬所有正常用户。
- * 所以只放行插件市场真正需要的那几个主机，且只允许 GET/HEAD。
+ * 这是一个挂在**生产域名**上的转发器。若允许任意目标，它会立刻变成开放代理：
+ * 别人可以拿 qmai.pro 转发钓鱼站、绕地区限制、刷流量，结果是我们的域名被
+ * 浏览器与安全厂商标记，反噬所有正常用户。所以只放行市场真正需要的主机，且只允许 GET/HEAD。
+ *
+ * ── 为什么必须流式转发 ──────────────────────────────────
+ * Workers 免费档的 CPU 配额是 **10ms/请求**（等待网络不计入）。早先的实现是
+ * `await upstream.arrayBuffer()` 再 `new Response(buf)` —— 对 2MB 的 zip 要整段
+ * 读进内存并复制一遍，几毫秒 CPU 就没了，8MB 的包有撞上限的风险（撞上返回 Error 1102）。
+ * 改成把 `upstream.body` 直接交给 Response 之后，字节不经过 JS 堆，
+ * CPU 只花在请求分发上（微秒级），内存占用也从"整个包"降到几 KB。
  */
 
 const PREFIX = "/plugins-cdn/";
@@ -26,12 +32,13 @@ const ALLOWED_HOSTS = new Set([
   "cdn.jsdelivr.net",
 ]);
 
-/** 单个响应上限：插件包上限 8MB，留余量。超限直接拒绝，避免被当作大文件中转。 */
+/** 单个响应上限：插件包上限 8MB，留余量。 */
 const MAX_BYTES = 16 * 1024 * 1024;
 
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,HEAD,OPTIONS",
+  "access-control-expose-headers": "x-qmai-via,content-length",
 };
 
 function json(body, status = 200) {
@@ -55,6 +62,39 @@ function targetOf(url) {
   raw = raw.replace(/^(https?):\/?(\/)?/i, (m, scheme) => scheme + "://");
   return raw;
 }
+
+/**
+ * 给流加一个「总量上限」护栏：content-length 缺失时也能拦住超大响应。
+ * 只做计数，不缓存字节 —— 所以对 CPU 与内存几乎无成本。
+ */
+function cappedStream(body, limit) {
+  let seen = 0;
+  return body.pipeThrough(
+    new TransformStream({
+      transform(chunk, controller) {
+        seen += chunk.byteLength;
+        if (seen > limit) {
+          controller.error(new Error(`响应超过 ${limit} 字节上限`));
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+}
+
+const baseHeaders = (upstream, extra = {}) => ({
+  ...CORS,
+  "content-type": upstream.headers.get("content-type") || "application/octet-stream",
+  "cache-control": upstream.headers.get("cache-control") || "public, max-age=300",
+  // 排查时能看出这是经 Worker 转发的
+  "x-qmai-via": "plugin-cdn",
+  // 让宿主的 zip 校验、以及浏览器预检都能读到真实长度
+  ...(upstream.headers.get("content-length")
+    ? { "content-length": upstream.headers.get("content-length") }
+    : {}),
+  ...extra,
+});
 
 export default {
   async fetch(request) {
@@ -98,10 +138,11 @@ export default {
         redirect: "follow",
         headers: {
           // GitHub 对无 UA 的请求可能 403/限流
-          "user-agent": "qmai-plugin-cdn/1.0",
+          "user-agent": "qmai-plugin-cdn/1.1",
           accept: request.headers.get("accept") || "*/*",
         },
-        // 只在命中缓存时复用；上游 404 不缓存
+        // 上游重复拉取（同一个插件包被多人下载）交给 Cloudflare 边缘缓存，
+        // 少打扰 GitHub，也顺带降低被限流的概率。
         cf: { cacheTtl: 300, cacheEverything: false },
       });
     } catch (error) {
@@ -109,29 +150,29 @@ export default {
     }
 
     if (request.method === "HEAD") {
-      return new Response(null, {
-        status: upstream.status,
-        headers: {
-          ...CORS,
-          "content-type": upstream.headers.get("content-type") || "application/octet-stream",
-        },
-      });
+      return new Response(null, { status: upstream.status, headers: baseHeaders(upstream) });
     }
 
-    const buf = await upstream.arrayBuffer();
-    if (buf.byteLength > MAX_BYTES) {
+    // 有 content-length 就按它判；没读到长度才退回流式计数护栏。
+    //
+    // ⚠️ 这里必须显式区分「缺失」与「0」：`Number(null || "")` 得到的是 0（不是 NaN），
+    // 写成 `Number.isFinite(declared)` 会在 codeload 走 `Transfer-Encoding: chunked`
+    // （没有 content-length）时**把护栏整个跳过** —— 实测曾放行一个 67MB 的 zip。
+    // 用 null 判断才是正确的"缺失"信号。
+    const rawLength = upstream.headers.get("content-length");
+    const declared = rawLength === null ? Number.NaN : Number(rawLength);
+    if (Number.isFinite(declared) && declared > MAX_BYTES) {
+      try {
+        upstream.body?.cancel();
+      } catch {}
       return json({ error: `响应超过 ${MAX_BYTES} 字节上限` }, 413);
     }
 
-    return new Response(buf, {
-      status: upstream.status,
-      headers: {
-        ...CORS,
-        "content-type": upstream.headers.get("content-type") || "application/octet-stream",
-        "cache-control": upstream.headers.get("cache-control") || "public, max-age=300",
-        // 让排查时能看出这是经 Worker 转发的
-        "x-qmai-via": "plugin-cdn",
-      },
-    });
+    if (!upstream.body) {
+      return new Response(null, { status: upstream.status, headers: baseHeaders(upstream) });
+    }
+
+    const body = Number.isFinite(declared) ? upstream.body : cappedStream(upstream.body, MAX_BYTES);
+    return new Response(body, { status: upstream.status, headers: baseHeaders(upstream) });
   },
 };
