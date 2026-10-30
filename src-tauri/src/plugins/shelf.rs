@@ -132,8 +132,31 @@ fn read_description(root: &Path) -> String {
         .to_string()
 }
 
+/// 章节目录的候选位置（按优先级）。
+///
+/// **为什么是列表而不是一个常量**：这个路径曾被写死成 `wiki/chapters`，
+/// 而真实数据在 `QM/chapters` —— 4 本书里 3 本因此读不到正文，且没有任何报错
+/// （读到 0 章看起来和"这本书还没写"一模一样）。多给几个候选，比再赌一次强。
+const CHAPTER_DIR_CANDIDATES: &[&[&str]] = &[&["QM", "chapters"], &["wiki", "chapters"]];
+
+/// 找到这本书的章节目录。
+fn chapters_dir(root: &Path) -> Option<std::path::PathBuf> {
+    for parts in CHAPTER_DIR_CANDIDATES {
+        let mut dir = root.to_path_buf();
+        for part in *parts {
+            dir.push(part);
+        }
+        if dir.is_dir() {
+            return Some(dir);
+        }
+    }
+    None
+}
+
 fn count_chapters(root: &Path) -> usize {
-    let chapters = root.join("wiki").join("chapters");
+    let Some(chapters) = chapters_dir(root) else {
+        return 0;
+    };
     let Ok(entries) = std::fs::read_dir(chapters) else {
         return 0;
     };
@@ -157,7 +180,9 @@ pub fn sample_text(root: &Path, limit: usize) -> String {
     if limit == 0 {
         return String::new();
     }
-    let chapters = root.join("wiki").join("chapters");
+    let Some(chapters) = chapters_dir(root) else {
+        return String::new();
+    };
     let Ok(entries) = std::fs::read_dir(chapters) else {
         return String::new();
     };
@@ -294,6 +319,51 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// 章节在 `QM/chapters`（真实布局），不是 `wiki/chapters`。
+    ///
+    /// 这条是回归测试：曾经写死 `wiki/chapters`，导致用户 4 本书里 3 本
+    /// 读到 0 章、取不到任何正文，而且**不报错** —— 界面上看起来就像书还没写。
+    #[test]
+    fn reads_chapters_from_qm_dir() {
+        let dir = temp_dir("qmchapters");
+        let chapters = dir.join("QM").join("chapters");
+        std::fs::create_dir_all(&chapters).unwrap();
+        std::fs::write(chapters.join("001.md"), "第一章正文").unwrap();
+        std::fs::write(chapters.join("002.md"), "第二章正文").unwrap();
+
+        assert_eq!(count_chapters(&dir), 2);
+        assert!(sample_text(&dir, 100).contains("第一章正文"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 老布局（wiki/chapters）仍然要能读 —— 两种都支持。
+    #[test]
+    fn still_reads_legacy_wiki_chapters() {
+        let dir = temp_dir("wikichapters");
+        let chapters = dir.join("wiki").join("chapters");
+        std::fs::create_dir_all(&chapters).unwrap();
+        std::fs::write(chapters.join("001.md"), "旧布局正文").unwrap();
+
+        assert_eq!(count_chapters(&dir), 1);
+        assert!(sample_text(&dir, 100).contains("旧布局正文"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 两种布局同时存在时，以 `QM/chapters` 为准（它才是当前主线）。
+    #[test]
+    fn qm_chapters_wins_over_wiki_chapters() {
+        let dir = temp_dir("bothchapters");
+        for (sub, text) in [("QM", "新的正文"), ("wiki", "旧的正文")] {
+            let chapters = dir.join(sub).join("chapters");
+            std::fs::create_dir_all(&chapters).unwrap();
+            std::fs::write(chapters.join("001.md"), text).unwrap();
+        }
+
+        let sample = sample_text(&dir, 100);
+        assert!(sample.contains("新的正文"));
+        assert!(!sample.contains("旧的正文"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
     #[test]
     fn sample_respects_char_limit_and_skips_empty_files() {
         let dir = temp_dir("sample");
@@ -319,6 +389,28 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// 用本机真实的 app-state.json 与真实书目录跑一遍（没有就跳过）。
+    ///
+    /// 这不是常规单测，而是一次性核对：路径假设错了的时候，单元测试里的假目录
+    /// 永远是对的，只有真实数据能暴露 wiki/chapters 与 QM/chapters 这类错误。
+    #[test]
+    fn real_user_shelf_is_readable() {
+        let Ok(appdata) = std::env::var("APPDATA") else { return };
+        let data_dir = std::path::PathBuf::from(appdata).join("com.qingmuai.writer");
+        if !data_dir.join("app-state.json").is_file() { return }
+
+        let books = read_registry(&data_dir);
+        if books.is_empty() { return }
+
+        let mut with_text = 0;
+        for mut book in books {
+            enrich(&mut book);
+            let sample = sample_text(std::path::Path::new(&book.path), 800);
+            println!("BOOK {} ch={} len={}", book.title, book.chapter_count, sample.chars().count());
+            if !sample.trim().is_empty() { with_text += 1; }
+        }
+        assert!(with_text > 0, "no book text readable - chapter path may be wrong again");
+    }
     #[test]
     fn limits_are_sane_and_bounded() {
         // 这些上限是保护模型上下文的硬闸门，改动必须有意识地放宽
