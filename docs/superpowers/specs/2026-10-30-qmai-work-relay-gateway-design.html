@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>qmai.work 内置模型中转站 · 设计规格</title>
+<style>
+  :root { --ink:#1a1c20; --muted:#5c6270; --line:#e3e6ea; --bg:#fbfbfc; --accent:#1f6feb; --warn:#b42318; --ok:#067647; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:48px 24px 80px; background:var(--bg); color:var(--ink);
+         font:16px/1.75 -apple-system,"Segoe UI","Microsoft YaHei",system-ui,sans-serif; }
+  main { max-width:960px; margin:0 auto; }
+  h1 { font-size:30px; line-height:1.3; margin:0 0 6px; letter-spacing:-.4px; }
+  h2 { font-size:21px; margin:44px 0 12px; padding-bottom:8px; border-bottom:1px solid var(--line); }
+  h3 { font-size:17px; margin:26px 0 8px; }
+  .meta { color:var(--muted); font-size:14px; margin-bottom:28px; }
+  .lede { background:#fff; border:1px solid var(--line); border-left:3px solid var(--accent);
+          padding:14px 18px; border-radius:6px; margin:24px 0; }
+  table { width:100%; border-collapse:collapse; margin:14px 0; font-size:14.5px; background:#fff; }
+  th,td { border:1px solid var(--line); padding:9px 12px; text-align:left; vertical-align:top; }
+  th { background:#f4f6f8; font-weight:600; white-space:nowrap; }
+  code { background:#eef1f4; padding:1px 5px; border-radius:4px; font-size:13.5px;
+         font-family:"Cascadia Mono",Consolas,monospace; }
+  pre { background:#1e2229; color:#e6e9ee; padding:16px 18px; border-radius:8px; overflow:auto;
+        font:13px/1.65 "Cascadia Mono",Consolas,monospace; }
+  pre code { background:none; color:inherit; padding:0; }
+  ul,ol { padding-left:22px; } li { margin:5px 0; }
+  .tag { display:inline-block; font-size:12px; padding:1px 8px; border-radius:10px; border:1px solid var(--line);
+         background:#fff; color:var(--muted); margin-right:6px; }
+  .ok { color:var(--ok); font-weight:600; }
+  .no { color:var(--warn); font-weight:600; }
+  blockquote { margin:14px 0; padding:10px 16px; border-left:3px solid var(--line); color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>qmai.work 内置模型中转站 · 设计规格</h1>
+<div class="meta">日期 2026-10-30 · 状态 待评审 · 目标域名 <code>relay.qmai.work</code> · 代码仓库 新建私有仓库 <code>qmai-gateway</code></div>
+
+<div class="lede">
+<b>一句话：</b>在 Cloudflare 免费额度上搭一层只认票据的 OpenAI 兼容网关，把「Agent2API 的免费账号额度 + 硅基流动 + 现有 New API 站」合并成一组对外统一的模型名，只有登录过 QMai 账号且在白名单里的人能拉清单、能调用。
+</div>
+
+<h2>1. 目标</h2>
+<table>
+<tr><th>#</th><th>目标</th><th>验收信号</th></tr>
+<tr><td>G1</td><td>客户端登录后，无需填任何 API Key 即可列出并使用内置模型</td><td>登录态 → 票据 → <code>GET /v1/models</code> 返回清单</td></tr>
+<tr><td>G2</td><td>模型来源可叠加：Agent2API（免费额度）、硅基流动、New API 站，对外名字统一</td><td>换上游不需发客户端版本</td></tr>
+<tr><td>G3</td><td>某个上游失效/429/超时，自动换下一个来源，用户无感</td><td>注入故障后请求仍成功</td></tr>
+<tr><td>G4</td><td>除白名单内账号外，任何人都拿不到模型清单也调不动</td><td>无票 401、非白名单 403、白名单为空则全拒</td></tr>
+<tr><td>G5</td><td>全链路零新增服务器成本</td><td>Cloudflare 免费额度内 + 自有 NAS 常开</td></tr>
+<tr><td>G6</td><td>每次调用留一行用量，可查成本与重度用户</td><td>D1 <code>usage_logs</code> 有数据</td></tr>
+</table>
+
+<h2>2. 非目标（明确不做，避免范围膨胀）</h2>
+<ul>
+<li>不做注册、支付、卡密兑换、套餐、推广返利——这些是 New API 类模板的价值所在，本场景用不到。</li>
+<li>不做 Web 管理后台。模型表、路由链、白名单全部用 <code>wrangler d1 execute</code> 与 <code>vars</code> 维护。</li>
+<li>不做多租户计费与扣费。只有"能不能用"，没有"还剩多少"。</li>
+<li>不改上游（Agent2API）源码；它按原样跑在 NAS 上。</li>
+</ul>
+
+<h2>3. 约束与既有事实</h2>
+<table>
+<tr><th>约束</th><th>事实</th><th>对设计的影响</th></tr>
+<tr><td>没有服务器</td><td>只有 Cloudflare + GitHub + 一台可常开的 NAS</td><td>常驻进程（Agent2API）放 NAS；CF 只做前台网关</td></tr>
+<tr><td>GitHub 不是运行时</td><td>Actions runner 临时、无持久盘</td><td>GitHub 只做代码源 + Workers Builds 自动部署</td></tr>
+<tr><td>Agent2API 有状态</td><td>Node 服务 + SQLite（<code>/data</code> 卷）+ 明文凭证</td><td>不能上 Workers；Cloudflare Containers 是备选但需 $5/月</td></tr>
+<tr><td>上游不稳定</td><td>登录态会过期、会触发风控、签到会断</td><td>降级必须是一等公民，不是补丁</td></tr>
+<tr><td>Agent2API 许可证</td><td>MIT + 附加声明：禁止商用、禁止二次分发牟利、禁止批量账号运营</td><td>仅内部自用；不得把免费额度包成对外商品</td></tr>
+<tr><td>Workers 免费额度</td><td>约 10 万请求/天、单次 CPU 10ms；D1 约 10 万行写/天</td><td>自用够；上量到千级活跃用户需升 Paid（$5/月，含 1000 万请求/月）</td></tr>
+</table>
+
+<h2>4. 部署拓扑</h2>
+<pre><code>                     ┌── 新 Cloudflare 账号（区域 qmai.work）──────────────┐
+ QMai 桌面端 ──票据─▶ │ relay.qmai.work     Workers（GitHub 私有仓库自动部署）
+ (Tauri)             │                     D1: model_routes / usage_logs
+                     └───────┬───────────────┬────────────────┬────────────┘
+                             │               │                │
+                ┌────────────▼───────┐  ┌────▼─────────┐  ┌───▼──────────────┐
+                │ a2a.qmai.work      │  │ 硅基流动      │  │ 你的 New API 站   │
+                │ 自定义头鉴权 + 隧道 │  │ 官方 key      │  │ 中转 key          │
+                │ ↓ 你的 NAS         │  └──────────────┘  └──────────────────┘
+                │ Agent2API :3065    │
+                └────────────────────┘</code></pre>
+<p>票据签发在<b>已有</b>的 <code>account-worker</code>（你的旧 CF 账号，<code>account.qmai.pro</code>）。新账号只承载网关，两边通过一对 Ed25519 密钥关联：私钥在旧账号的 secret 里签，公钥写进新网关的 <code>vars</code> 里验。</p>
+
+<h2>5. 组件与职责</h2>
+<table>
+<tr><th>组件</th><th>位置</th><th>只做</th><th>明确不做</th></tr>
+<tr><td><code>qmai-gateway</code></td><td>Cloudflare Workers（新私有仓库）</td><td>验票、白名单、清单聚合、路由降级、SSE 透传、记账</td><td>不注册用户、不计费、不存上游凭证</td></tr>
+<tr><td><code>account-worker</code></td><td>旧 CF 账号（已有）</td><td><code>POST /v1/relay/token</code> 签 30 分钟票据</td><td>不判断能否使用中转（名单在网关侧）</td></tr>
+<tr><td><code>agent2api</code></td><td>你的 NAS（容器）</td><td>把 17 家客户端登录态变成 OpenAI 兼容 API</td><td>不感知你的终端用户</td></tr>
+<tr><td><code>cloudflared</code></td><td>你的 NAS（容器）</td><td>把 3065 暴露成 <code>a2a.qmai.work</code></td><td>不做鉴权</td></tr>
+</table>
+
+<h2>6. 数据模型</h2>
+<pre><code>-- 一张表决定"对外叫什么、背后是谁、谁先谁后"
+CREATE TABLE model_routes (
+  public_name     TEXT    NOT NULL,   -- 对外名，如 qmai-standard
+  upstream        TEXT    NOT NULL,   -- a2a | siliconflow | newapi
+  upstream_model  TEXT    NOT NULL,   -- 上游真实模型 ID
+  priority        INTEGER NOT NULL,   -- 越小越先用
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (public_name, upstream, upstream_model)
+);
+CREATE INDEX idx_routes_public ON model_routes (public_name, priority);
+
+-- 一次上游调用写一行；按调用而非按 chunk，避免长文把写入额度吃光
+CREATE TABLE usage_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id         INTEGER NOT NULL,
+  public_name     TEXT    NOT NULL,
+  upstream        TEXT    NOT NULL,
+  status          INTEGER NOT NULL,
+  prompt_tokens   INTEGER,
+  completion_tokens INTEGER,
+  created_at      INTEGER NOT NULL
+);
+CREATE INDEX idx_usage_created ON usage_logs (created_at DESC);
+CREATE INDEX idx_usage_user    ON usage_logs (user_id, created_at DESC);</code></pre>
+<p>路由示例（一条对外名挂三跳，按优先级降级）：</p>
+<pre><code>INSERT INTO model_routes (public_name, upstream, upstream_model, priority) VALUES
+  ('qmai-standard','a2a','deepseek-v4.1-flash',1),
+  ('qmai-standard','newapi','deepseek-chat',2),
+  ('qmai-standard','siliconflow','deepseek-ai/DeepSeek-V3',3),
+  ('qmai-long','a2a','kimi-k2',1),
+  ('qmai-long','siliconflow','moonshotai/Kimi-K2-Instruct',2);</code></pre>
+
+<h2>7. 接口契约</h2>
+<table>
+<tr><th>方法 路径</th><th>鉴权</th><th>行为</th></tr>
+<tr><td><code>GET /health</code></td><td>无</td><td><code>{"ok":true}</code>，仅探活，不泄露版本与配置</td></tr>
+<tr><td><code>GET /v1/models</code></td><td>票据 + 白名单</td><td>只返回 <code>model_routes</code> 里 <code>enabled=1</code> 的去重 <code>public_name</code>，OpenAI 列表结构；<b>不暴露上游名与真实模型 ID</b></td></tr>
+<tr><td><code>POST /v1/chat/completions</code></td><td>票据 + 白名单</td><td>按 <code>priority</code> 依次尝试上游；<code>stream:true</code> 原样透传 SSE；成功后异步写一行 <code>usage_logs</code></td></tr>
+<tr><td><code>POST /v1/embeddings</code></td><td>票据 + 白名单</td><td>同转发逻辑，不做降级（向量模型不在免费额度里）</td></tr>
+<tr><td>其它路径</td><td>—</td><td>404 <code>接口不存在。</code></td></tr>
+</table>
+<p>响应体一律 OpenAI 错误结构，中文文案，便于客户端直接展示：</p>
+<pre><code>{ "error": { "message": "登录状态已失效，请重新登录后再试。", "type": "invalid_request_error" } }</code></pre>
+
+<h3>7.1 状态码约定</h3>
+<table>
+<tr><th>码</th><th>含义</th><th>客户端处理</th></tr>
+<tr><td>401</td><td>无票据 / 验签失败 / 已过期</td><td>重新登录换票后重试一次</td></tr>
+<tr><td>403</td><td>账号不在白名单（含白名单为空）</td><td>提示"当前账号无内置模型权限"</td></tr>
+<tr><td>404</td><td>模型不在路由表 / 路径不存在</td><td>提示刷新模型列表</td></tr>
+<tr><td>413</td><td>请求体超上限（默认 8 MiB）</td><td>提示内容过长，拒绝发送</td></tr>
+<tr><td>429</td><td>全部上游都限流</td><td>提示稍后再试</td></tr>
+<tr><td>502</td><td>全部上游不可用</td><td>提示"内置模型暂时不可用"</td></tr>
+</table>
+
+<h2>8. 安全模型</h2>
+<table>
+<tr><th>层</th><th>机制</th><th>失败时</th></tr>
+<tr><td>票据</td><td>Ed25519 验签，算法白名单只收 <code>EdDSA</code>（防 <code>none</code>/<code>HS256</code> 混淆）</td><td>401</td></tr>
+<tr><td>时效</td><td><code>exp</code> 30 分钟，客户端提前 120 秒续签</td><td>401</td></tr>
+<tr><td>名单</td><td><code>ALLOWED_USER_IDS</code> 逗号分隔；<b>留空 = 全拒</b>（失败关闭）</td><td>403</td></tr>
+<tr><td>上游凭证</td><td>每个上游一条 Worker secret，永不进仓库、不进客户端</td><td>该上游被判不可用，走下一跳</td></tr>
+<tr><td>NAS 门</td><td><code>a2a.qmai.work</code> 只认 <code>X-Relay-Secret</code>（随机 32 字节，存 Worker secret）；<b>不用 Cloudflare Access</b>，避免席位概念与浏览器拦截</td><td>403</td></tr>
+<tr><td>CORS</td><td>仅放行 <code>tauri://localhost</code>、<code>https://tauri.localhost</code></td><td>浏览器侧读不到响应</td></tr>
+</table>
+<blockquote>说明：Cloudflare Access 免费版 50 席位限制的是"能登录 Zero Trust 的人数"，与终端用户数无关。本方案不使用 Access，3000 用户也不受影响。</blockquote>
+
+<h2>9. 路由与降级（伪码）</h2>
+<pre><code>async function handleChat(request, env) {
+  const auth = await authenticate(request, env)          // 票据 + 白名单
+  if (!auth.ok) return auth.response
+
+  const body = await readJsonCapped(request, 8 << 20)    // 超限 413
+  const publicName = body?.model
+  const chain = await routesFor(env, publicName)         // 按 priority 升序，60s 内存缓存
+  if (chain.length === 0) return err404()
+
+  for (const hop of chain) {
+    const upstream = upstreams[hop.upstream]             // 各自 baseUrl + secret
+    const res = await upstream.forward(body, hop.upstream_model)
+    if (res.ok) { ctx.waitUntil(recordUsage(...)); return withCors(res) }
+    if (!retryable(res.status)) return withCors(res)     // 400/401/403/404 原样回传，换源无意义
+    // 429 / 5xx / 超时 → 试下一跳
+  }
+  return err502()
+}</code></pre>
+<p><b>只对 429、5xx、网络超时降级</b>；参数错误类 4xx 直接回传，避免把用户错误放大成多次计费调用。</p>
+
+<h2>10. 实施分期</h2>
+<h3>阶段 0 · 密钥（不可回退，一次做对）</h3>
+<ol>
+<li>本地生成 Ed25519 密钥对：私钥 PKCS#8 base64 只进旧账号 secret <code>RELAY_JWT_PRIVATE_KEY</code>；公钥 base64url raw32 只进新网关 <code>vars.RELAY_JWT_PUBLIC_KEY</code>。</li>
+<li>私钥落一份离线备份（密码管理器），丢失则所有存量票据作废（可重建，但需重签两端）。</li>
+<li>给 <code>account-worker</code> 补 relay token 单测（签发 → 验签闭环），当前覆盖为零。</li>
+</ol>
+
+<h3>阶段 1 · 网关上线（纯 HTTP 上游，先不碰 NAS）</h3>
+<ol>
+<li>新建私有仓库 <code>qmai-gateway</code>，把 <code>qmai-relay/</code> 的 <code>auth.ts</code>/<code>forward.ts</code>（20 个测试已验证）迁入并扩展为多上游。</li>
+<li><code>qmai.work</code> NS 指向新 Cloudflare 账号 → Workers &amp; Pages → Connect to Git → 选该私有仓库。</li>
+<li>建 D1 <code>qmai-gateway-db</code>，执行 <code>0001_init.sql</code>，写入前两条路由（硅基流动 + New API）。</li>
+<li>配 secret：<code>UPSTREAM_SILICONFLOW_KEY</code>、<code>UPSTREAM_NEWAPI_BASE_URL</code>、<code>UPSTREAM_NEWAPI_KEY</code>；配 vars：<code>RELAY_JWT_PUBLIC_KEY</code>、<code>ALLOWED_USER_IDS</code>、<code>APP_ALLOWED_ORIGINS</code>。</li>
+<li><code>workers_dev=false</code>，只走 <code>relay.qmai.work</code>；验收：<code>/health</code> 200、无票 401、真票流式成功。</li>
+</ol>
+
+<h3>阶段 2 · NAS 接入 Agent2API</h3>
+<ol>
+<li>NAS 上 <code>docker run</code> Agent2API（<code>/data</code> 卷持久化），面板注册管理员，建一把网关 Key。</li>
+<li><code>cloudflared</code> 隧道 → <code>a2a.qmai.work</code>；NAS 侧用 <code>X-Relay-Secret</code> 校验（由隧道前置或面板反代实现）。</li>
+<li>网关加 <code>UPSTREAM_A2A_BASE_URL</code> + <code>UPSTREAM_A2A_KEY</code> + <code>UPSTREAM_A2A_SECRET</code>，插入 <code>a2a</code> 路由并把 priority 设成 1。</li>
+<li>验收：断开 NAS → 同一模型自动落到第二跳；恢复后回到第一跳。</li>
+</ol>
+
+<h3>阶段 3 · 客户端接线</h3>
+<ol>
+<li><code>src/components/settings/llm-presets.ts</code> 增 <code>qmai-relay</code> 预设（显示"内置模型"）。</li>
+<li>把 <code>src/lib/relay-gateway.ts</code> 接入聊天链路（当前零调用点），模型清单走 relay 的 <code>/v1/models</code>。</li>
+<li><code>src/lib/has-usable-llm.ts</code> 增加"已登录即可用"分支；未登录时给出登录引导。</li>
+<li>验收：新装客户端 → 登录 → 直接写出一章 3000 字，全程不填 Key。</li>
+</ol>
+
+<h2>11. 配置清单</h2>
+<table>
+<tr><th>名称</th><th>类型</th><th>放哪</th><th>示例/说明</th></tr>
+<tr><td><code>RELAY_JWT_PRIVATE_KEY</code></td><td>secret</td><td>account-worker（旧账号）</td><td>PKCS#8 base64，仅签发用</td></tr>
+<tr><td><code>RELAY_JWT_PUBLIC_KEY</code></td><td>var</td><td>qmai-gateway（新账号）</td><td>base64url raw 32 字节</td></tr>
+<tr><td><code>ALLOWED_USER_IDS</code></td><td>var</td><td>qmai-gateway</td><td>逗号分隔；<b>留空全拒</b></td></tr>
+<tr><td><code>APP_ALLOWED_ORIGINS</code></td><td>var</td><td>qmai-gateway</td><td><code>tauri://localhost,https://tauri.localhost</code></td></tr>
+<tr><td><code>UPSTREAM_SILICONFLOW_KEY</code></td><td>secret</td><td>qmai-gateway</td><td>硅基流动 API Key</td></tr>
+<tr><td><code>UPSTREAM_NEWAPI_BASE_URL</code> / <code>_KEY</code></td><td>var / secret</td><td>qmai-gateway</td><td>New API 站地址（不带 <code>/v1</code>）+ 令牌</td></tr>
+<tr><td><code>UPSTREAM_A2A_BASE_URL</code> / <code>_KEY</code> / <code>_SECRET</code></td><td>var / secret / secret</td><td>qmai-gateway</td><td><code>https://a2a.qmai.work</code> + Agent2API 网关 Key + 隧道共享密钥</td></tr>
+</table>
+
+<h2>12. 测试与验收</h2>
+<table>
+<tr><th>层</th><th>用例</th><th>通过标准</th></tr>
+<tr><td>单测</td><td>无票 / 过期 / 篡改签名 / 非白名单 / 白名单为空 / 未知模型 / 上游 429 降级 / 上游 5xx 降级 / 4xx 不降级 / SSE 不缓冲 / 记账字段</td><td>vitest 全绿，上游用 fetch mock</td></tr>
+<tr><td>联调</td><td><code>/health</code>、无票 <code>/v1/models</code>、真票流式一次</td><td>200 / 401 / 正常增量输出</td></tr>
+<tr><td>端到端</td><td>客户端登录 → 拉清单 → 生成 3000 字章节</td><td>不断流、<code>usage_logs</code> 有新行</td></tr>
+<tr><td>额度</td><td>连续 10 次长文流式</td><td>无 1102；若出现则记录并评估升 Paid</td></tr>
+</table>
+
+<h2>13. 风险与对策</h2>
+<table>
+<tr><th>风险</th><th>后果</th><th>对策</th></tr>
+<tr><td>Agent2API 免费额度失效/封号</td><td>第一跳不可用</td><td>降级链 + 健康探测；免费额度只当省钱层，不作唯一来源</td></tr>
+<tr><td>违反 Agent2API 附加声明</td><td>法律与社区风险</td><td>严格内部自用；不对外分发、不售卖、不批量养号</td></tr>
+<tr><td>Workers 免费 10ms CPU</td><td>长文流式被 1102 掐断</td><td>先实测；必要时升 Paid（$5/月）</td></tr>
+<tr><td>请求量超免费额度</td><td>限流/超额</td><td>千级活跃用户前升 Paid；D1 只写汇总行</td></tr>
+<tr><td>NAS 掉线</td><td>第一跳消失</td><td>隧道自动重连 + 降级链 + <code>/health</code> 探活</td></tr>
+<tr><td>凭证泄露</td><td>上游被封</td><td>凭证只在 secret；NAS 只暴露带共享密钥的网关端口，面板端口绑回环</td></tr>
+</table>
+
+<h2>14. 前置核查结论（2026-10-30 实测）</h2>
+<table>
+<tr><th>项</th><th>现状</th></tr>
+<tr><td><code>/v1/relay/token</code> 路由</td><td class="ok">已写入 <code>account-worker/src/index.ts</code> 路由表（未提交，属工作区改动）</td></tr>
+<tr><td><code>RELAY_JWT_PRIVATE_KEY</code></td><td class="no">仓库只声明了类型；本机无 <code>.dev.vars</code>，线上是否注入未知；密钥对<b>从未生成</b></td></tr>
+<tr><td>relay 验签实现</td><td class="ok">算法白名单 + exp + 白名单失败关闭均正确；<code>qmai-relay</code> 20 个测试全绿</td></tr>
+<tr><td>Ed25519 WebCrypto</td><td class="ok">本机 Node 24 可签可验（签名 64 字节，公钥 raw 32 字节），本地可完整联调</td></tr>
+<tr><td>客户端接入</td><td class="no"><code>relay-gateway.ts</code> 零调用点；<code>llm-presets.ts</code> 无 <code>qmai-relay</code> 预设</td></tr>
+<tr><td>relay token 测试</td><td class="no">account-worker 无任何 relay token 用例</td></tr>
+<tr><td><code>qmai-relay/</code> 目录</td><td class="no">未纳入 git；<code>database_id</code> 仍是占位符，需整体迁入新仓库后重填</td></tr>
+</table>
+
+</main>
+</body>
+</html>
