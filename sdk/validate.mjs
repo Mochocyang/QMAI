@@ -848,7 +848,8 @@ function checkActions(actions, manifest, permissions, result) {
           if (field.type !== undefined && !FIELD_TYPES.includes(field.type)) {
             warn(result, `${fieldWhere}.type = ${JSON.stringify(field.type)} 不认识，宿主会按 text 渲染（本期支持：${FIELD_TYPES.join(" / ")}）`);
           }
-          if ((field.type === "select" || field.type === "multiselect") && asArray(field.options).length === 0) {
+    const hasDynamicOptions = field.optionsFrom && typeof field.optionsFrom === "object" && typeof field.optionsFrom.tool === "string";
+    if ((field.type === "select" || field.type === "multiselect") && asArray(field.options).length === 0 && !hasDynamicOptions) {
             warn(result, `${fieldWhere} 是 ${field.type}，但没有 options：下拉里会一个选项都没有`);
           }
         });

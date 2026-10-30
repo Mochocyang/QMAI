@@ -66,6 +66,24 @@ function normalizeOptions(value: unknown): Array<{ value: string; label: string 
  * 拿了值也无处安放 —— 既不能回填、也不能插值、更不能校验。留着它只会渲染出一个
  * 填什么都没用的输入框，属于"看起来能用实则坏了"的最差形态。
  */
+/** 解析 optionsFrom：缺 tool 或形状不对就当没写（宁可退回静态选项）。 */
+function normalizeOptionsFrom(raw: unknown): FormField["optionsFrom"] {
+  if (!raw || typeof raw !== "object") return undefined
+  const source = raw as Record<string, unknown>
+  const tool = typeof source.tool === "string" ? source.tool.trim() : ""
+  if (!tool) return undefined
+  const result: NonNullable<FormField["optionsFrom"]> = { tool }
+  if (typeof source.valueField === "string" && source.valueField.trim()) {
+    result.valueField = source.valueField.trim()
+  }
+  if (typeof source.labelField === "string" && source.labelField.trim()) {
+    result.labelField = source.labelField.trim()
+  }
+  if (source.args && typeof source.args === "object") {
+    result.args = source.args as Record<string, unknown>
+  }
+  return result
+}
 function normalizeField(raw: unknown): FormField | undefined {
   const source = asRecord(raw)
   if (!source) return undefined
@@ -82,6 +100,8 @@ function normalizeField(raw: unknown): FormField | undefined {
     type,
     label: nonEmptyString(source.label) ?? key,
   }
+  const optionsFrom = normalizeOptionsFrom(source.optionsFrom)
+  if (optionsFrom) field.optionsFrom = optionsFrom
 
   const description = nonEmptyString(source.description)
   if (description !== undefined) field.description = description
@@ -99,6 +119,11 @@ function normalizeField(raw: unknown): FormField | undefined {
   const step = finiteNumber(source.step)
   if (step !== undefined && step > 0) field.step = step
   const maxSelected = positiveInt(source.maxSelected)
+  /*
+   * optionsFrom 必须显式保留：这个函数是白名单式的，没写的字段会被丢掉，
+   * 而不是原样透传。漏了这一步，插件的动态选项就静默退化成空下拉 ——
+   * 界面上看起来像这本书没有可选项，而真相是宿主把声明吃了。
+   */
   if (maxSelected !== undefined) field.maxSelected = maxSelected
 
   // number 的上下界：写反了就交换，而不是报错。作者意图明确（"1 到 10"写成

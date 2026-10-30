@@ -23,6 +23,7 @@
  * 「停止」时，如果只是本地忽略后续 delta、请求本身还在跑，就等于**边停止边计费**，
  * 而且长输出会把 webview 的连接占住。
  */
+import { resolveModelConfig } from "@/lib/novel/model-resolver"
 import { streamChat, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage, RequestOverrides } from "@/lib/llm-providers"
 import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
@@ -76,7 +77,27 @@ function hasUsableModel(config: LlmConfig | null | undefined): boolean {
  */
 export function createStreamChatLlmCaller(options: StreamChatLlmCallerOptions = {}): LlmCaller {
   const stream = options.streamChat ?? (streamChat as StreamChatFn)
-  const getConfig = options.getConfig ?? (() => useWikiStore.getState().llmConfig)
+/**
+ * 插件动作用哪个模型。
+ *
+ * **这里曾经读 `llmConfig`，但那是错的**：用户在软件里选模型选的是 `aiChatModel`
+ * （`providerId/modelId` 复合键），而 `llmConfig` 往往只有 provider 级默认值、
+ * `provider`/`model` 甚至为空 —— 于是插件一律报「当前模型不可用」，
+ * 而用户明明在设置里配好了一堆自定义渠道。
+ *
+ * 正确做法与 AI 对话一致：先取 `aiChatModel`，再用 `resolveModelConfig` 把它
+ * 解析成完整配置（带 provider 的 apiKey / baseUrl 等）。没选时才退回 `llmConfig`。
+ */
+function defaultModelConfig(): LlmConfig {
+  const state = useWikiStore.getState()
+  const target = typeof state.aiChatModel === "string" ? state.aiChatModel.trim() : ""
+  if (target) {
+    return resolveModelConfig(target, state.llmConfig, state.providerConfigs ?? {})
+  }
+  return state.llmConfig
+}
+
+  const getConfig = options.getConfig ?? defaultModelConfig
 
   return {
     async call(input, onDelta, signal) {

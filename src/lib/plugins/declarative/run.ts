@@ -309,11 +309,25 @@ async function runPrepareSteps(
     // args 里可以带 {{变量}}，让用户勾选的书单能传进去
     const interpolatedArgs: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(step.args ?? {})) {
-      if (typeof value === "string") {
-        interpolatedArgs[key] = interpolate(value, scope).text
-      } else {
+      if (typeof value !== "string") {
         interpolatedArgs[key] = value
+        continue
       }
+      /*
+       * 整个值就是 `{{var}}` 时**保留原类型**，不做字符串化。
+       *
+       * 否则多选字段（如勾选的书 id）会被拼成 "a、b" 字符串传给工具，
+       * 而工具要的是数组 —— 于是它收到一个字符串，要么报错要么静默当成一个 id。
+       */
+      const whole = value.trim().match(/^\{\{\s*([\w.$]+)\s*\}\}$/)
+      if (whole) {
+        const resolved = readScopePath(scope, whole[1]!.trim())
+        if (resolved !== undefined) {
+          interpolatedArgs[key] = resolved
+          continue
+        }
+      }
+      interpolatedArgs[key] = interpolate(value, scope).text
     }
 
     let raw: string
@@ -339,6 +353,16 @@ async function runPrepareSteps(
  * 读到一堆字段名和转义符。这里优先取约定字段 `material` / `text` / `content`，
  * 都取不到才退回原文 —— 于是「作者按约定返回」和「作者返回了别的形状」都能用。
  */
+/** 读 `a.b.c` 形式的路径（用于 prepare 的 args 取值，整值透传用）。 */
+function readScopePath(root: unknown, path: string): unknown {
+  let current: unknown = root
+  for (const part of path.split(".")) {
+    if (current === null || current === undefined) return undefined
+    if (typeof current !== "object") return undefined
+    current = (current as Record<string, unknown>)[part]
+  }
+  return current
+}
 function extractMaterial(raw: string): string {
   if (typeof raw !== "string") return ""
   const trimmed = raw.trim()

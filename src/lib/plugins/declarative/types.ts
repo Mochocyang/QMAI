@@ -42,6 +42,16 @@ export interface FormField {
   step?: number
   maxSelected?: number
   options?: Array<{ value: string; label: string }>
+  /**
+   * 选项来自插件工具而不是清单里的静态列表。
+   *
+   * 为什么需要它：「书名生成」要让用户勾选书架上的书，而那些书只有运行时才知道。
+   * 静态 `options` 写不出这种东西，插件也不能自己画界面（那会打破「宿主渲染」的边界）。
+   *
+   * 形状：`{ tool: "list_shelf_books", valueField: "id", labelField: "title" }`
+   * 宿主渲染表单前先调这个工具，把返回的数组映射成选项。
+   */
+  optionsFrom?: { tool: string; valueField?: string; labelField?: string; args?: Record<string, unknown> }
 }
 
 export interface ActionForm {

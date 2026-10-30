@@ -51,7 +51,7 @@ import {
   targetAvailability,
   type TargetAvailability,
 } from "@/lib/plugins/declarative/targets"
-import type { ActionForm, ActionOutput, OutputTarget } from "@/lib/plugins/declarative/types"
+import type { ActionForm, ActionOutput, OutputTarget, FormField } from "@/lib/plugins/declarative/types"
 import { syncPluginsProject } from "@/lib/plugins/project-sync"
 import type { SlotActionEntry } from "@/lib/plugins/slots"
 import { toast } from "@/lib/toast"
@@ -169,6 +169,51 @@ async function applyProjectField(target: OutputTarget, parsed: ParsedOutput): Pr
  * 界面上这些 target 会由 `targetAvailability` 判成禁用并给出 tooltip，
  * 所以正常使用根本点不到这里；这里的报错是兜底（例如插件在 `confirm` 流程里硬闯）。
  */
+/**
+ * 把插件工具返回的 JSON 变成下拉选项。
+ *
+ * 工具普遍返回 `{ status, books: [{id,title,...}] }` 这种带包裹的形状，
+ * 所以这里会往常见的列表字段里探一层（books / items / options / list / data）。
+ * 探测失败就返回空数组，让界面显示"正在读取可选项"或"读取失败"，
+ * 而不是抛错 —— 选项取不到不该让整个对话框打不开。
+ */
+export function parseToolOptions(
+  raw: string,
+  valueField: string,
+  labelField: string,
+): Array<{ value: string; label: string }> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(typeof raw === "string" ? raw : String(raw))
+  } catch {
+    return []
+  }
+  const list = findList(parsed)
+  if (!list) return []
+  const options: Array<{ value: string; label: string }> = []
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue
+    const record = item as Record<string, unknown>
+    const value = record[valueField]
+    if (value === undefined || value === null) continue
+    const label = record[labelField]
+    options.push({
+      value: String(value),
+      label: typeof label === "string" && label.trim() ? label : String(value),
+    })
+  }
+  return options
+}
+
+function findList(parsed: unknown): unknown[] | null {
+  if (Array.isArray(parsed)) return parsed
+  if (!parsed || typeof parsed !== "object") return null
+  const record = parsed as Record<string, unknown>
+  for (const key of ["books", "items", "options", "list", "data", "results"]) {
+    if (Array.isArray(record[key])) return record[key] as unknown[]
+  }
+  return null
+}
 export const defaultTargetApplier: TargetApplier = async (target, parsed) => {
   if (target.kind === "clipboard") {
     const ok = await copyToClipboard(resultToText(parsed))
@@ -340,6 +385,24 @@ export function ActionDialog({
     [deps, pluginIdForDeps],
   )
 
+  /*
+   * 动态选项：字段声明了 `optionsFrom` 时，用插件工具取选项（如书架上的书）。
+   *
+   * 工具返回的是插件自定义的 JSON，这里只认 `valueField` / `labelField`（默认 id / title），
+   * 取不到就退回整个对象的第一层字段 —— 插件作者不必为了配合宿主改返回结构。
+   */
+  const loadFieldOptions = useCallback(
+    async (field: FormField): Promise<Array<{ value: string; label: string }>> => {
+      const source = field.optionsFrom
+      if (!source) return field.options ?? []
+      const pluginId = entry.pluginId
+      if (!pluginId) throw new Error("无法确定插件：这条动作没有 pluginId")
+      const raw = await pluginsApi.invokeTool(pluginId, source.tool, source.args ?? {})
+      return parseToolOptions(raw, source.valueField ?? "id", source.labelField ?? "title")
+    },
+    [entry.pluginId],
+  )
+
   const form: ActionForm = useMemo(() => action.form ?? { fields: [] }, [action])
   const hasForm = form.fields.length > 0
 
@@ -497,7 +560,13 @@ export function ActionDialog({
 
         <div className="space-y-3">
           {phase === "form" ? (
-            <SchemaForm form={form} values={values} errors={errors} onChange={setValues} />
+            <SchemaForm
+              form={form}
+              values={values}
+              errors={errors}
+              onChange={setValues}
+              loadFieldOptions={loadFieldOptions}
+            />
           ) : null}
 
           {phase === "running" || (phase === "error" && streamText !== "") ? (

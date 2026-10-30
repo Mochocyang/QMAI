@@ -10,6 +10,7 @@
  * 因为同一套规则还要被将来的 `qmai-plugin validate` CLI 复用。这里若再校验一遍，
  * 就是个必然漂移的第二实现。
  */
+import { useEffect, useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -30,6 +31,13 @@ export interface SchemaFormProps {
    * 所以输入框永远是空的，占位文案要说清"留空表示不修改"。
    */
   passwordKeys?: readonly string[]
+  /**
+   * 取某个字段的动态选项（`field.optionsFrom`）。
+   *
+   * 不传就只用静态 `options`：插件中心的通用表单不需要这个能力，
+   * 强迫每个调用方都提供反而增加负担。
+   */
+  loadFieldOptions?: (field: FormField) => Promise<Array<{ value: string; label: string }>>
 }
 
 /** 输入框 id 与 `<label htmlFor>` 的唯一关联点：用字段 key 而不是随机 id，测试也好写。 */
@@ -87,6 +95,7 @@ function fieldControl(
   disabled: boolean,
   password: boolean,
   update: (value: unknown) => void,
+  dynamicOptions: Record<string, Array<{ value: string; label: string }>>,
 ) {
   const id = fieldInputId(field.key)
   const value = values[field.key]
@@ -121,7 +130,7 @@ function fieldControl(
       )
 
     case "select": {
-      const options = field.options ?? []
+      const options = dynamicOptions[field.key] ?? field.options ?? []
       // 没有选项的下拉框必须**禁用**并说明原因：可点却什么都选不了，
       // 用户只会反复点它。选项为空是插件作者的问题，但不能让用户去猜。
       const empty = options.length === 0
@@ -221,8 +230,53 @@ export function SchemaForm({
   onChange,
   disabled = false,
   passwordKeys,
+  loadFieldOptions,
 }: SchemaFormProps) {
   const fields = form?.fields ?? []
+
+  /*
+   * 动态选项：`field.optionsFrom` 声明了"选项来自插件工具"（如书架上的书）。
+   *
+   * 结果缓存在组件内、按字段 key 存：表单打开期间工具只调一次，
+   * 用户在其它输入框里打字不会反复触发取选项。
+   */
+  const [dynamicOptions, setDynamicOptions] = useState<
+    Record<string, Array<{ value: string; label: string }>>
+  >({})
+  const [loadingOptions, setLoadingOptions] = useState<Record<string, boolean>>({})
+  const [optionErrors, setOptionErrors] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (!loadFieldOptions) return
+    let cancelled = false
+    const pending = (form?.fields ?? []).filter((field) => field.optionsFrom)
+    if (pending.length === 0) return
+
+    for (const field of pending) {
+      setLoadingOptions((prev) => ({ ...prev, [field.key]: true }))
+      void loadFieldOptions(field)
+        .then((options) => {
+          if (cancelled) return
+          setDynamicOptions((prev) => ({ ...prev, [field.key]: options }))
+        })
+        .catch((cause: unknown) => {
+          if (cancelled) return
+          // 取不到选项时**说清楚原因**：空下拉最容易被误读成"没有可选项"
+          setOptionErrors((prev) => ({
+            ...prev,
+            [field.key]: cause instanceof Error ? cause.message : String(cause),
+          }))
+        })
+        .finally(() => {
+          if (cancelled) return
+          setLoadingOptions((prev) => ({ ...prev, [field.key]: false }))
+        })
+    }
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, loadFieldOptions])
   if (fields.length === 0) return null
 
   const update = (key: string, value: unknown) => {
@@ -250,14 +304,25 @@ export function SchemaForm({
                 ) : null}
               </Label>
               {field.type === "toggle" ? (
-                fieldControl(field, values, disabled, password, (value) => update(field.key, value))
+                fieldControl(field, values, disabled, password, (value) => update(field.key, value), dynamicOptions)
               ) : null}
             </div>
 
-            {field.type === "toggle" ? null : fieldControl(field, values, disabled, password, (value) =>
-              update(field.key, value),
-            )}
+            {field.type === "toggle" ? null : fieldControl(field, values, disabled, password, (value) => update(field.key, value), dynamicOptions)}
 
+            {/*
+             * 动态选项的三态必须说清楚。
+             *
+             * 空下拉最容易被误读成"这本书没有可选项"，而真相可能是插件工具失败了 ——
+             * 用户会以为是数据问题，去翻书架、改设置，永远找不到真正的原因。
+             */}
+            {loadingOptions[field.key] ? (
+              <p className="text-xs text-muted-foreground">正在读取可选项…</p>
+            ) : optionErrors[field.key] ? (
+              <p className="text-xs text-destructive">
+                可选项读取失败：{optionErrors[field.key]}
+              </p>
+            ) : null}
             {field.description ? (
               <p className="text-xs leading-relaxed text-muted-foreground">{field.description}</p>
             ) : null}

@@ -71,6 +71,18 @@
         "form": {
           "fields": [
             {
+              "key": "books",
+              "type": "multiselect",
+              "label": "选择要分析的书",
+              "required": false,
+              "description": "勾选后插件会读取这些书的简介与正文片段。不勾表示分析书架上的全部书。",
+              "optionsFrom": {
+                "tool": "list_shelf_books",
+                "valueField": "id",
+                "labelField": "title"
+              }
+            },
+            {
               "key": "material",
               "label": "小说内容摘录（可选）",
               "type": "textarea",
@@ -151,6 +163,7 @@
             "var": "material",
             "tool": "collect_writing_material",
             "args": {
+              "ids": "{{books}}",
               "maxCharsPerBook": 800
             }
           }
