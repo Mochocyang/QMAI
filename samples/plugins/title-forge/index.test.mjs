@@ -444,3 +444,86 @@ describe("分析范围（默认只读当前书）", () => {
     }
   })
 })
+
+describe("scope 三档（current / named / all）", () => {
+  /*
+   * 与表单上的「分析范围」一一对应。核心承诺：
+   *   · current（默认）→ **只**取样当前打开的那本，绝不偷偷带上别的书；
+   *   · named         → 只取样点名的；
+   *   · all           → 整架。
+   * 另外两条边界：选了 named 却没填书名（退回 current，而不是退回 all）、
+   * 以及旧参数 onlyBooks="全部" 仍然等价于 all。
+   */
+  const shelf = {
+    books: [
+      { id: "id-cur", title: "黑雨之下", description: "", chapterCount: 12 },
+      { id: "id-a", title: "楚白", description: "", chapterCount: 2 },
+      { id: "id-b", title: "楚白-身残志坚", description: "", chapterCount: 1 },
+    ],
+  };
+
+  async function runScope(args, currentTitle = "黑雨之下") {
+    const { createServer } = await import("node:http");
+    const sampled = [];
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (d) => (body += d));
+      req.on("end", () => {
+        res.writeHead(200, { "content-type": "application/json" });
+        if (req.url.includes("/host/project/info")) {
+          res.end(JSON.stringify({ bookTitle: currentTitle }));
+        } else if (req.url.includes("/host/shelf/list")) {
+          res.end(JSON.stringify(shelf));
+        } else {
+          const a = JSON.parse(body || "{}");
+          sampled.push(...(a.ids ?? []));
+          res.end(JSON.stringify({ books: [], totalSampleChars: 0 }));
+        }
+      });
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address();
+    const client = await startPlugin({
+      QMAI_HOST_URL: `http://127.0.0.1:${port}`,
+      QMAI_HOST_TOKEN: "t",
+    });
+    try {
+      await callTool(client, "collect_writing_material", args);
+    } finally {
+      client.stop();
+      await new Promise((resolve) => server.close(resolve));
+    }
+    return sampled;
+  }
+
+  it("scope=current 只取样当前这一本（核心回归）", async () => {
+    const sampled = await runScope({ scope: "current" });
+    assert.deepEqual(sampled, ["id-cur"]);
+  })
+
+  it("不传 scope 时默认就是 current", async () => {
+    const sampled = await runScope({});
+    assert.deepEqual(sampled, ["id-cur"]);
+  })
+
+  it("scope=all 时取样整架（不传 ids，由宿主返回全部）", async () => {
+    const sampled = await runScope({ scope: "all" });
+    assert.deepEqual(sampled, []);
+  })
+
+  it("scope=named + 书名，只取样命中的那几本", async () => {
+    const sampled = await runScope({ scope: "named", bookNames: "楚白" });
+    // 「楚白」是「楚白-身残志坚」的子串，两本都算命中 —— 这是有意的模糊匹配
+    assert.deepEqual(sampled.sort(), ["id-a", "id-b"]);
+  })
+
+  it("scope=named 但没填书名 → 退回 current，**不是**退回 all", async () => {
+    const sampled = await runScope({ scope: "named", bookNames: "" });
+    assert.deepEqual(sampled, ["id-cur"]);
+  })
+
+  it("旧参数 onlyBooks=\"全部\" 仍然等价于 all", async () => {
+    const sampled = await runScope({ onlyBooks: "全部" });
+    assert.deepEqual(sampled, []);
+  })
+})

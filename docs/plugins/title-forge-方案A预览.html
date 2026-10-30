@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>书名生成 · 方案 A 效果预览</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #e8e6e1;
+    padding: 32px;
+    color: #2c2a26;
+    line-height: 1.6;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+  .sub { font-size: 13px; color: #6b6862; margin-bottom: 28px; }
+
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+
+  .col-title {
+    font-size: 13px; font-weight: 600; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .tag {
+    font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px;
+  }
+  .tag-bad { background: #fdd; color: #a11; }
+  .tag-good { background: #d7f0dd; color: #1a6b32; }
+
+  /* 对话框 */
+  .dialog {
+    background: #f7f6f3; border: 1px solid #d8d5cf; border-radius: 14px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.10);
+    padding: 24px; max-width: 520px;
+  }
+  .dlg-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+  .dlg-title { font-size: 19px; font-weight: 600; }
+  .dlg-x { color: #999; font-size: 18px; cursor: default; }
+  .dlg-desc { font-size: 13px; color: #6b6862; margin-bottom: 18px; }
+
+  .field { margin-bottom: 16px; }
+  .label { font-size: 13px; font-weight: 500; margin-bottom: 6px; display: flex; align-items: center; gap: 5px; }
+  .req { color: #c0392b; }
+  .opt { font-size: 11px; color: #8a867f; font-weight: 400; }
+
+  .input, .select, .textarea {
+    width: 100%; border: 1px solid #cfccc5; border-radius: 8px;
+    padding: 9px 11px; font-size: 13px; background: #fff;
+    font-family: inherit; color: #2c2a26;
+  }
+  .textarea { min-height: 74px; resize: none; }
+  .input-empty::placeholder { color: #b5b1a9; }
+
+  .hint { font-size: 11.5px; color: #8a867f; margin-top: 5px; line-height: 1.5; }
+
+  /* 模型选择行 */
+  .model-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .model-status { font-size: 11.5px; color: #8a867f; }
+  .model-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid #cfccc5; border-radius: 8px; padding: 7px 10px;
+    background: #fff; font-size: 13px; max-width: 240px;
+  }
+  .model-pill .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px; }
+  .caret { color: #999; font-size: 10px; }
+
+  .footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #e5e2dc; }
+  .btn { padding: 8px 18px; border-radius: 8px; font-size: 13.5px; border: 1px solid #cfccc5; background: #fff; cursor: default; }
+  .btn-primary { background: #3a3a34; color: #fff; border-color: #3a3a34; font-weight: 500; }
+
+  /* 空框示意 */
+  .empty-box {
+    border: 1.5px dashed #d9a0a0; background: #fdf7f7; border-radius: 8px;
+    padding: 14px; font-size: 12.5px; color: #a33; min-height: 62px;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* 结果区 */
+  .result-block {
+    background: #fff; border: 1px solid #e5e2dc; border-radius: 10px;
+    padding: 14px; font-size: 13.5px; line-height: 2;
+  }
+  .result-block .title-line { font-weight: 500; }
+  .result-block .reason { color: #8a867f; font-size: 12px; }
+
+  .meta-bar {
+    display: flex; align-items: center; gap: 8px;
+    background: #eef3ec; border: 1px solid #cfe0ca; border-radius: 8px;
+    padding: 9px 12px; font-size: 12.5px; color: #3d5c35; margin-bottom: 14px;
+  }
+  .meta-bar .dot { width: 6px; height: 6px; border-radius: 50%; background: #5a9a4a; flex: none; }
+
+  .arrow-note {
+    text-align: center; font-size: 12px; color: #6b6862;
+    margin: 22px 0 10px;
+  }
+  .note {
+    margin-top: 26px; padding: 14px 16px; background: #fff8e6;
+    border: 1px solid #e8d9a8; border-radius: 10px; font-size: 12.5px;
+    color: #6b5a20; line-height: 1.7;
+  }
+  .note b { color: #4a3d10; }
+  code { background: #efece6; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>方案 A 效果预览</h1>
+<div class="sub">把「当前书与书架」「小说内容摘录」两个框从表单里去掉 —— 素材由插件内部取，用户只需选风格</div>
+
+<div class="row">
+
+  <!-- 左：现在 -->
+  <div>
+    <div class="col-title">
+      <span>现在（有问题）</span>
+      <span class="tag tag-bad">两个空框让人以为坏了</span>
+    </div>
+
+    <div class="dialog">
+      <div class="dlg-head">
+        <div>
+          <div class="dlg-title">生成书名</div>
+        </div>
+        <div class="dlg-x">✕</div>
+      </div>
+      <div class="dlg-desc">分析书架上的书，按选定风格生成书名候选</div>
+
+      <div class="model-row">
+        <div class="label" style="margin:0">使用的模型</div>
+        <div class="model-status">跟随当前模型 ▲</div>
+      </div>
+      <div class="model-pill" style="margin-bottom:16px">
+        <span>🤖</span><span class="mono">custom-01723dde-...</span><span class="caret">▼</span>
+      </div>
+
+      <div class="field">
+        <div class="label">当前书与书架</div>
+        <div class="empty-box">（空白 —— 看起来像读取失败）</div>
+        <div class="hint">由插件自动填入，供你确认分析范围。若这里是空的，说明书架读取失败…</div>
+      </div>
+
+      <div class="field">
+        <div class="label">只分析这几本 <span class="opt">可选</span></div>
+        <input class="input input-empty" placeholder="留空 / 书名1,书名2 / 全部">
+      </div>
+
+      <div class="field">
+        <div class="label">小说内容摘录 <span class="opt">可选</span></div>
+        <textarea class="textarea"></textarea>
+        <div class="hint">留空即可：插件会自动读取书架上的书作为素材…</div>
+      </div>
+
+      <div class="footer">
+        <button class="btn">取消</button>
+        <button class="btn btn-primary">生成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右：方案 A -->
+  <div>
+    <div class="col-title">
+      <span>方案 A（干净）</span>
+      <span class="tag tag-good">只留用户真正要选的</span>
+    </div>
+
+    <div class="dialog">
+      <div class="dlg-head">
+        <div>
+          <div class="dlg-title">生成书名</div>
+        </div>
+        <div class="dlg-x">✕</div>
+      </div>
+      <div class="dlg-desc">分析当前作品，按选定风格生成书名候选</div>
+
+      <div class="model-row">
+        <div class="label" style="margin:0">使用的模型</div>
+        <div class="model-status">跟随当前模型 ▲</div>
+      </div>
+      <div class="model-pill" style="margin-bottom:16px">
+        <span>🤖</span><span class="mono">custom-01723dde-...</span><span class="caret">▼</span>
+      </div>
+
+      <div class="field">
+        <div class="label">分析范围</div>
+
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:7px 0">
+          <input type="radio" name="scope" checked>
+          <span><b>当前作品</b> <span class="opt">《黑雨之下》· 12 章</span></span>
+        </label>
+
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:7px 0">
+          <input type="radio" name="scope">
+          <span>指定书架上的书</span>
+        </label>
+        <input class="input input-empty" placeholder="书名，逗号分隔：楚白,黑雨之下" style="margin-left:24px;width:calc(100% - 24px)" disabled>
+
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:7px 0">
+          <input type="radio" name="scope">
+          <span>整个书架 <span class="opt">4 本</span></span>
+        </label>
+      </div>
+
+      <div class="field">
+        <div class="label">书名风格 <span class="req">*</span></div>
+        <select class="select">
+          <option>番茄式事件反转（《开局跳楼，沙瑞金被撤，空降汉东》）</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <div class="label">生成几个 <span class="req">*</span></div>
+        <select class="select"><option>6 个</option></select>
+      </div>
+
+      <div class="field">
+        <div class="label">必含关键词 <span class="opt">可选</span></div>
+        <input class="input input-empty" placeholder="主角名、地名、金手指，留空则自由发挥">
+      </div>
+
+      <div class="footer">
+        <button class="btn">取消</button>
+        <button class="btn btn-primary">生成</button>
+      </div>
+    </div>
+
+    <div class="arrow-note">↓ 点「生成」后的结果 ↓</div>
+
+    <div class="dialog">
+      <div class="dlg-head" style="margin-bottom:14px">
+        <div class="dlg-title" style="font-size:16px">生成结果</div>
+        <div class="dlg-x">✕</div>
+      </div>
+
+      <div class="meta-bar">
+        <span class="dot"></span>
+        <span>本次分析：<b>《黑雨之下》</b>（12 章）· 番茄式事件反转 · 6 个候选</span>
+      </div>
+
+      <div class="result-block">
+        <div class="title-line">《黑雨整夜，我把自己交给了雨水》 <span class="reason">（极端情境＋反转，短句节奏）</span></div>
+        <div class="title-line">《雨没停，第三个人也没回家》 <span class="reason">（悬疑感，具体数字制造真实感）</span></div>
+        <div class="title-line">《整座城在下雨，只有我的伞是干的》 <span class="reason">（落差强，画面感）</span></div>
+        <div class="title-line">《连下七天雨，死的那位是我债主》 <span class="reason">（荒诞开局＋身份反转）</span></div>
+        <div class="title-line">《雨里捞起一具尸，我认得那件外套》 <span class="reason">（动作开场，线索钩子）</span></div>
+        <div class="title-line">《雨停之前，我必须把真相还给他》 <span class="reason">（时限＋动机，收尾感）</span></div>
+      </div>
+
+      <div class="footer">
+        <button class="btn">停止</button>
+        <button class="btn">复制书名</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <b>方案 A 改了什么</b><br>
+  ① 删掉「当前书与书架」框 —— <code>prepare</code> 取回的清单原本只在点「生成」后才写进去，用户永远看不到，留着只会误导。<br>
+  ② 删掉「小说内容摘录」框 —— 素材由插件自动取，用户手填反而会覆盖它。<br>
+  ③ 「只分析这几本」升级成三个单选：「当前作品 / 指定书名 / 整个书架」，默认当前作品。<br>
+  ④ 结果区顶部加一行<b>「本次分析：哪本书、多少章」</b> —— 这是唯一能让用户确认「它真的读了这本书」的地方。<br><br>
+  <b>实现代价</b>：只改插件清单（<code>plugin.json</code>）和 <code>index.js</code>，<b>不动软件源码</b>。约 10 分钟。
+</div>
+
+</body>
+</html>

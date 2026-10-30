@@ -128,35 +128,74 @@ async function getCurrentBook() {
  * 他根本没在写的书 —— 界面上看不出任何提示，属于"安静地做错事"。
  */
 function resolveScope(args) {
-  const raw = typeof args.onlyBooks === "string" ? args.onlyBooks.trim() : "";
+  /*
+   * 三种范围，与表单里的「分析范围」一一对应：
+   *   current —— 只分析当前打开的书（默认）。用户在写《黑雨之下》，起名当然该基于它。
+   *   named   —— 只分析用户点名的几本。
+   *   all     —— 整个书架。适合"我想要跨作品共有的那种味道"。
+   *
+   * 兼容旧参数 onlyBooks：老清单里只有它，值可能是书名列表或「全部」。
+   */
+  const rawScope = typeof args.scope === "string" ? args.scope.trim() : "";
+  const rawNames =
+    typeof args.bookNames === "string"
+      ? args.bookNames.trim()
+      : typeof args.onlyBooks === "string"
+        ? args.onlyBooks.trim()
+        : "";
+
+  // 旧参数兼容：onlyBooks 里写「全部」等价于 scope=all
+  if (!rawScope && (rawNames === "全部" || rawNames === "*" || rawNames === "all")) {
+    return { kind: "all", ids: [], names: [], needsResolve: false, label: "整个书架" };
+  }
+
   const explicitIds = Array.isArray(args.ids)
     ? args.ids.filter((id) => typeof id === "string" && id.trim())
     : [];
-
   if (explicitIds.length > 0) {
-    return { kind: "ids", ids: explicitIds, names: [], needsResolve: false, label: `${explicitIds.length} 本（指定 id）` };
-  }
-
-  if (!raw) {
     return {
-      kind: "current",
-      ids: [],
+      kind: "ids",
+      ids: explicitIds,
       names: [],
       needsResolve: false,
-      currentTitle: args.currentTitle ?? "",
-      label: "当前打开的书",
+      label: `指定 ${explicitIds.length} 本（id）`,
     };
   }
 
-  if (raw === "全部" || raw === "*" || raw === "all") {
-    return { kind: "all", ids: [], names: [], needsResolve: false, label: "书架全部" };
+  const scope = rawScope || (rawNames ? "named" : "current");
+
+  if (scope === "all") {
+    return { kind: "all", ids: [], names: [], needsResolve: false, label: "整个书架" };
   }
 
-  const names = raw
-    .split(/[,，、\s]+/)
-    .map((name) => name.trim())
-    .filter(Boolean);
-  return { kind: "names", ids: [], names, needsResolve: true, label: names.join("、") };
+  if (scope === "named") {
+    const names = rawNames
+      .split(/[,，、\s]+/)
+      .map((name) => name.trim())
+      .filter(Boolean);
+    if (names.length === 0) {
+      // 选了「指定」却没写书名：退回当前作品，而不是分析全部。
+      // 退回全部是最糟的选择 —— 用户没要求，却会拿到一堆无关内容。
+      return {
+        kind: "current",
+        ids: [],
+        names: [],
+        needsResolve: false,
+        currentTitle: args.currentTitle ?? "",
+        label: "当前作品（未填书名，已自动退回）",
+      };
+    }
+    return { kind: "names", ids: [], names, needsResolve: true, label: names.join("、") };
+  }
+
+  return {
+    kind: "current",
+    ids: [],
+    names: [],
+    needsResolve: false,
+    currentTitle: args.currentTitle ?? "",
+    label: "当前作品",
+  };
 }
 definePlugin({
   info: {
@@ -240,7 +279,16 @@ definePlugin({
           },
           onlyBooks: {
             type: "string",
-            description: "只看这几本：书名用逗号分隔。留空表示全部。",
+            description: "（旧参数）只看这几本：书名用逗号分隔。",
+          },
+          scope: {
+            type: "string",
+            enum: ["current", "named", "all"],
+            description: "分析范围：current=当前作品（默认），named=指定几本，all=整个书架。",
+          },
+          bookNames: {
+            type: "string",
+            description: "当 scope=named 时要分析的书名，逗号分隔。",
           },
         },
         additionalProperties: false,
@@ -313,6 +361,9 @@ definePlugin({
         }
 
         // 拼素材时给每本书一个小标题，让模型能分清"这是哪一本"。
+        const header =
+          `【本次分析】范围：${scope.label}` +
+          (books.length === 1 ? `；书：《${books[0].title}》` : `；共 ${books.length} 本`);
         const material = books
           .map((book, index) => {
             const parts = [`【第 ${index + 1} 本】《${book.title}》`];
@@ -327,9 +378,12 @@ definePlugin({
 
         return JSON.stringify({
           status: "ok",
+          scope: scope.kind,
+          scopeLabel: scope.label,
+          books: books.map((book) => book.title),
           bookCount: books.length,
           totalSampleChars: payload.totalSampleChars ?? 0,
-          material,
+          material: `${header}\n\n${material}`,
         });
       },
     },

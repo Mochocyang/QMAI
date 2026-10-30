@@ -856,6 +856,26 @@ function checkActions(actions, manifest, permissions, result) {
       }
     }
 
+    /*
+     * `prepare` 产出的变量也是合法的提示词变量。
+     *
+     * `prepare` 是「调模型前先跑工具取素材」，它的结果按 `var` 名进模板作用域 ——
+     * 所以 `{{material}}` 这类名字虽然没有对应的表单字段，却能真的取到值。
+     * 不把这一步算进来，作者会被提示"这个变量无法解析"，而它明明能解析。
+     */
+    if (Array.isArray(action.prepare)) {
+      action.prepare.forEach((step, stepIndex) => {
+        if (!isPlainObject(step)) {
+          warn(result, `${where}.prepare[${stepIndex}] 不是对象，会被忽略`);
+          return;
+        }
+        if (!isNonEmptyString(step.tool)) {
+          warn(result, `${where}.prepare[${stepIndex}] 没有 tool：这一步不会执行`);
+        }
+        if (isNonEmptyString(step.var)) fieldKeys.add(step.var);
+      });
+    }
+
     // 提示词：必填、非空，且变量必须都能解析出来。
     const prompt = action.prompt;
     if (!isPlainObject(prompt)) {
