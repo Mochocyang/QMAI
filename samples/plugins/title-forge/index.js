@@ -99,6 +99,65 @@ function clip(text, n) {
   return `${value.slice(0, n)}…`;
 }
 
+/**
+ * 取当前打开的书（书名）。读不到就返回空串。
+ *
+ * 走 `/host/project/info`（需要 `fs:project-read`）：它永不失败，读不到字段就降级为空，
+ * 所以这里不做异常分支 —— 拿不到书名本身不是错误，只是退回"让用户自己填"。
+ */
+async function getCurrentBook() {
+  try {
+    const info = await hostFetch("/host/project/info");
+    return typeof info.bookTitle === "string" ? info.bookTitle.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * 决定「分析哪些书」。
+ *
+ * 三种范围（设计约定，写在这里是为了让调用方和作者都看得见）：
+ *   1. 留空      → **只分析当前打开的书**。这是默认，也是最符合直觉的一条：
+ *                  用户在写《黑雨之下》，起名当然该基于《黑雨之下》，
+ *                  而不是把书架上另外三本也一起喂给模型。
+ *   2. 填书名    → 只分析这几本（逗号分隔）。
+ *   3. 填「全部」→ 分析书架上的全部书。用于"我想要跨作品的调性"这种情形。
+ *
+ * 为什么默认不是「全部」：早先就是这么实现的，结果用户点生成，输出里混进了
+ * 他根本没在写的书 —— 界面上看不出任何提示，属于"安静地做错事"。
+ */
+function resolveScope(args) {
+  const raw = typeof args.onlyBooks === "string" ? args.onlyBooks.trim() : "";
+  const explicitIds = Array.isArray(args.ids)
+    ? args.ids.filter((id) => typeof id === "string" && id.trim())
+    : [];
+
+  if (explicitIds.length > 0) {
+    return { kind: "ids", ids: explicitIds, names: [], needsResolve: false, label: `${explicitIds.length} 本（指定 id）` };
+  }
+
+  if (!raw) {
+    return {
+      kind: "current",
+      ids: [],
+      names: [],
+      needsResolve: false,
+      currentTitle: args.currentTitle ?? "",
+      label: "当前打开的书",
+    };
+  }
+
+  if (raw === "全部" || raw === "*" || raw === "all") {
+    return { kind: "all", ids: [], names: [], needsResolve: false, label: "书架全部" };
+  }
+
+  const names = raw
+    .split(/[,，、\s]+/)
+    .map((name) => name.trim())
+    .filter(Boolean);
+  return { kind: "names", ids: [], names, needsResolve: true, label: names.join("、") };
+}
 definePlugin({
   info: {
     id: "title-forge",
@@ -194,34 +253,54 @@ definePlugin({
          *     宿主的动态选项在部分环境里取不到，手填是唯一总是可用的办法。
          * 两者都空 = 分析全部（受宿主上限约束）。
          */
-        let ids = Array.isArray(args.ids) ? args.ids.filter((id) => typeof id === "string") : [];
-        const onlyBooks =
-          typeof args.onlyBooks === "string" ? args.onlyBooks.trim() : "";
+        const perBook = Number.isInteger(args.maxCharsPerBook) ? args.maxCharsPerBook : 800;
+        // 打开期间切了书，缓存反而会给出过期的书名。
+        const currentTitle = await getCurrentBook();
+        const scope = resolveScope({ ...args, currentTitle });
+        ctx.log(`分析范围：${scope.label}`);
 
-        if (ids.length === 0 && onlyBooks) {
-          // 先拿到书架清单，把书名翻译成 id（宿主只认 id）。
+        let ids = scope.ids;
+        if (scope.needsResolve) {
+          // 按书名筛选：先拿书架清单把书名翻译成 id（宿主只认 id）。
           const shelf = await hostFetch("/host/shelf/list");
           const all = Array.isArray(shelf.books) ? shelf.books : [];
-          const wanted = onlyBooks
-            .split(/[,，、\s]+/)
-            .map((name) => name.trim())
-            .filter(Boolean);
           ids = all
-            .filter((book) => wanted.some((name) => String(book.title ?? "").includes(name)))
+            .filter((book) => scope.names.some((name) => String(book.title ?? "").includes(name)))
             .map((book) => book.id);
-          ctx.log(`按书名筛选：${wanted.join("/")} → 命中 ${ids.length} 本`);
           if (ids.length === 0) {
             return JSON.stringify({
               status: "empty",
               material: "",
-              message: `没有找到匹配的书：${wanted.join("、")}。书架上有：${all
+              message: `没有找到匹配的书：${scope.names.join("、")}。书架上有：${all
                 .map((book) => book.title)
                 .join("、")}`,
             });
           }
         }
 
-        const perBook = Number.isInteger(args.maxCharsPerBook) ? args.maxCharsPerBook : 800;
+        if (scope.kind === "current") {
+          /*
+           * 只分析当前打开的书。
+           *
+           * 先按书名在书架上找 id（宿主只认 id）。找不到有两种可能：这本书还没进
+           * 书架索引，或当前没打开任何项目。两种都**不**退回"全部书" —— 那正是
+           * 这次要修掉的错误行为（用户在写 A，输出里混进了 B、C、D）。
+           */
+          const shelf = await hostFetch("/host/shelf/list");
+          const all = Array.isArray(shelf.books) ? shelf.books : [];
+          const hit = all.find((book) => String(book.title ?? "") === currentTitle);
+          if (hit) {
+            ids = [hit.id];
+          } else {
+            return JSON.stringify({
+              status: "empty",
+              material: "",
+              message: currentTitle
+                ? `没能在书架上找到当前这本书（《${currentTitle}》）。如果它刚新建，可以在「只分析这几本」里填书名，或填「全部」。`
+                : "现在没有打开任何一本书。请先打开一本，或在「只分析这几本」里填书名，或填「全部」。",
+            });
+          }
+        }
 
         const payload = await hostFetch("/host/shelf/sample", { ids, maxCharsPerBook: perBook });
         const books = Array.isArray(payload.books) ? payload.books : [];

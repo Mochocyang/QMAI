@@ -353,3 +353,94 @@ describe("按书名筛选（onlyBooks）", () => {
     );
   });
 });
+
+describe("分析范围（默认只读当前书）", () => {
+  /*
+   * 真实故障：用户在写《黑雨之下》，点生成，输出里混进了书架上另外三本书的内容 ——
+   * 因为早先的实现"留空 = 分析全部"。界面上没有任何提示，属于安静地做错事。
+   *
+   * 现在的约定：留空 = 当前书；填书名 = 这几本；填「全部」= 整架。
+   */
+  const shelf = {
+    books: [
+      { id: "id-current", title: "黑雨之下", description: "", chapterCount: 12 },
+      { id: "id-other", title: "楚白", description: "", chapterCount: 2 },
+    ],
+  };
+
+  async function runCase({ currentTitle, onlyBooks }) {
+    const { createServer } = await import("node:http");
+    const sampled = [];
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (d) => (body += d));
+      req.on("end", () => {
+        res.writeHead(200, { "content-type": "application/json" });
+        if (req.url.includes("/host/project/info")) {
+          res.end(JSON.stringify({ bookTitle: currentTitle }));
+        } else if (req.url.includes("/host/shelf/list")) {
+          res.end(JSON.stringify(shelf));
+        } else {
+          const args = JSON.parse(body || "{}");
+          sampled.push(...(args.ids ?? []));
+          res.end(JSON.stringify({ books: [], totalSampleChars: 0 }));
+        }
+      });
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address();
+    const client = await startPlugin({
+      QMAI_HOST_URL: `http://127.0.0.1:${port}`,
+      QMAI_HOST_TOKEN: "t",
+    });
+    try {
+      await callTool(client, "collect_writing_material", { onlyBooks });
+    } finally {
+      client.stop();
+      await new Promise((resolve) => server.close(resolve));
+    }
+    return sampled;
+  }
+
+  it("留空时只取样当前打开的那一本", async () => {
+    const sampled = await runCase({ currentTitle: "黑雨之下", onlyBooks: "" });
+    // 关键：不能把 id-other 也带上
+    assert.deepEqual(sampled, ["id-current"]);
+  });
+
+  it("填「全部」时取样整个书架（不传 ids，由宿主返回全部）", async () => {
+    const sampled = await runCase({ currentTitle: "黑雨之下", onlyBooks: "全部" });
+    assert.deepEqual(sampled, []);
+  });
+
+  it("填书名时只取样这几本", async () => {
+    const sampled = await runCase({ currentTitle: "黑雨之下", onlyBooks: "楚白" });
+    assert.deepEqual(sampled, ["id-other"]);
+  })
+
+  it("没有打开项目且留空时，明确报错而不是偷偷读全部", async () => {
+    const { createServer } = await import("node:http");
+    const server = createServer((req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      if (req.url.includes("/host/project/info")) {
+        res.end(JSON.stringify({ bookTitle: "" }));
+      } else {
+        res.end(JSON.stringify(shelf));
+      }
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address();
+    const client = await startPlugin({
+      QMAI_HOST_URL: `http://127.0.0.1:${port}`,
+      QMAI_HOST_TOKEN: "t",
+    });
+    try {
+      const { payload } = await callTool(client, "collect_writing_material", { onlyBooks: "" });
+      assert.equal(payload.status, "empty");
+      assert.match(payload.message, /没有打开任何一本书/);
+    } finally {
+      client.stop();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  })
+})
