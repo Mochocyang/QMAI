@@ -25,6 +25,7 @@ vi.mock("@/components/settings/sections/plugin-section", () => ({
   PluginSection: () => <div data-testid="stub-plugin-section" />,
 }))
 // 市场命令在 jsdom 里没有宿主，直接给一个空索引；渲染路径与真实命令一致。
+// 启停/卸载也要给桩：新版页面自己渲染「已安装」列表并调这些命令（不再委托 PluginSection）。
 vi.mock("@/lib/plugins/api", () => ({
   pluginsApi: {
     marketIndex: vi.fn().mockResolvedValue({
@@ -37,6 +38,9 @@ vi.mock("@/lib/plugins/api", () => ({
     list: vi.fn().mockResolvedValue([]),
     install: vi.fn(),
     installLocal: vi.fn(),
+    enable: vi.fn(),
+    disable: vi.fn(),
+    uninstall: vi.fn(),
   },
 }))
 
@@ -65,15 +69,14 @@ describe("ContentArea → 插件页面", () => {
     })
     /*
      * lazy() 的 dynamic import 要跨若干段微任务/宏任务才落地；这里轮询到页面出现为止
-     * （最多 32 个宏任务，超时就让下面的断言如实失败，而不是挂住）。
+     * （最多 120 个宏任务 —— 页面依赖变多后 32 个在冷启动时会停在「加载中…」；超时仍让断言如实失败，而不是挂住）。
      */
-    for (let index = 0; index < 32; index += 1) {
+    for (let index = 0; index < 120; index += 1) {
       if (host.querySelector('[data-ui-page="plugins"]')) break
       await act(async () => {
         await new Promise<void>((resolve) => setTimeout(resolve, 0))
       })
     }
-
     expect(host.querySelector('[data-ui-page="plugins"]')).not.toBeNull()
     expect(host.querySelector('[data-testid="stub-ai-chat-tab"]')).toBeNull()
     // 空索引下会走到诚实空状态（这条同时证明市场 tab 默认打开）

@@ -74,22 +74,26 @@ describe("「插件」视图的导航接线", () => {
     expect(zh.novel.nav.plugins).toBe("插件")
   })
 
-  it("「已安装」tab 复用的是设置页的 PluginSection，没有另写一套管理界面", () => {
+  it("已安装列表由本页自己渲染，且启停权限走「清单申请的权限」而不是空数组", () => {
     const source = stripComments(read("src/components/plugins/plugin-center-view.tsx"))
-    expect(source).toContain(
-      'import { PluginSection } from "@/components/settings/sections/plugin-section"',
-    )
+
     /*
-     * 必须带 `hideInstallForm`：本页右上角已有「手动安装」，与 `PluginSection`
-     * 自带的「从 GitHub 安装 / 从本地目录安装」是**同一件事**；两个入口并排
-     * 出现，用户会以为是两件不同的事。这里断言的是钉住那个 prop 本身
-     * （行为由 `plugin-section.spec.ts` 的 hideInstallForm 用例守），
-     * 而不是 `<PluginSection />` 这个字面量 —— 那会在加 prop 之后误红。
+     * 2026-10 的版面重做把「已安装」从 tab + PluginSection 改成页内行式卡片 + 开关
+     * （用户要求：界面全是字、想要一步开关）。所以**不再**断言复用 PluginSection ——
+     * 那条断言的是旧版面，不是行为。这里改钉重做后真正会坏的三件事：
      */
-    expect(source).toContain("<PluginSection hideInstallForm />")
-    // 反向：这里不得自己再调启停/卸载命令（那是 PluginSection 的职责，重复实现必然漂移）
-    expect(source).not.toContain("pluginsApi.uninstall(")
-    expect(source).not.toContain("pluginsApi.enable(")
-    expect(source).not.toContain("pluginsApi.disable(")
+
+    // 1) 行式列表必须由 InstalledRow 渲染（漏了它 = 已安装列表整个消失）
+    expect(source).toContain('from "@/components/plugins/installed-row"')
+    expect(source).toContain("<InstalledRow")
+
+    // 2) 启用时必须传「清单里申请的权限」。传空数组会让插件拿不到读项目的资格，
+    //    后端照实拒绝，而用户看到的是「启用了但用不了」—— 这是曾经真发生过的 bug。
+    expect(source).toContain("declaredPermissions ?? []")
+    expect(source).not.toContain("pluginsApi.enable(plugin.id, [])")
+
+    // 3) 停用/卸载的职责从 PluginSection 转移到本页，但卸载必须先确认（不可逆动作）
+    expect(source).toContain("pluginsApi.disable(")
+    expect(source).toContain("window.confirm")
   })
 })
