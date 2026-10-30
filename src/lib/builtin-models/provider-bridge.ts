@@ -1,13 +1,13 @@
 /**
- * 把「内置模型」的网关登录态接进 QMAI 现有的模型体系。
+ * 把「内置模型」的凭证接进 QMAI 现有的模型体系。
  *
  * 现有链路只认 providerConfigs[id]（预设 id → 覆盖字段），模型键是
- * `${providerId}/${modelId}`。所以我们把网关登记成一个 provider：
+ * `${providerId}/${modelId}`。所以我们把中转站登记成一个 provider：
  *
  *   qmai-builtin  →  provider: "custom"（OpenAI 兼容）
- *                    baseUrl: <gateway>/v1
- *                    apiKey:  用户专属 sk- 令牌
- *                    savedModels: 网关目录里勾选的模型
+ *                    baseUrl: https://relay.qmai.work/v1
+ *                    apiKey:  30 分钟中转票据（由 token-fresh 层保鲜）
+ *                    savedModels: 中转站清单里勾选的对外模型名
  *
  * 这样写作、大纲、审稿、摘要都不需要改代码，现有 resolver 自动认识它。
  */
@@ -23,7 +23,7 @@ import {
 } from "@/lib/project-store"
 import { describeBuiltinModel } from "./catalog"
 import type { BuiltinSession } from "./session"
-import { DEFAULT_BUILTIN_SERVER_URL } from "./gateway-api"
+import { DEFAULT_RELAY_URL } from "./gateway-api"
 
 export const BUILTIN_PROVIDER_ID = "qmai-builtin"
 export const BUILTIN_PROVIDER_LABEL = "青幕内置模型"
@@ -69,7 +69,7 @@ export function buildBuiltinProviderOverride(
     ...existing,
     label: BUILTIN_PROVIDER_LABEL,
     apiKey: session.tokenKey,
-    baseUrl: `${(session.serverUrl || DEFAULT_BUILTIN_SERVER_URL).replace(/\/+$/, "")}/v1`,
+    baseUrl: `${(session.serverUrl || DEFAULT_RELAY_URL).replace(/\/+$/, "")}/v1`,
     apiMode: "chat_completions",
     model: first,
     savedModels: toSavedModels(models),

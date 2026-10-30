@@ -1,68 +1,43 @@
 /**
- * 「内置模型」的本地登录态。
+ * 内置模型的本地会话。
+ *
+ * 与上一版（New API）相比，这里只保留**一件东西**：一张会过期的票据。
+ * 没有用户名密码、没有额度快照、没有 sk- 令牌 —— 身份来自 QMAI 账号登录态。
  *
  * 存 localStorage 而不是 app-state.json 的原因：
- *  - 它只属于这台机器的登录会话，不参与「数据导出/导入」；
- *  - 令牌泄漏风险面更小（导出包里不会带 sk- 令牌）。
- * 写作本身只用 tokenKey，accessToken 过期不影响正文；账号相关操作会提示重登。
+ *  - 它只属于这台机器的会话，不参与「数据导出/导入」；
+ *  - 票据泄漏面更小（导出包里不会带它）。
  */
 
-import { DEFAULT_BUILTIN_SERVER_URL } from "./gateway-api"
+import { DEFAULT_RELAY_URL } from "./gateway-api"
 
-export const BUILTIN_SESSION_STORAGE_KEY = "qmai.builtin.session.v1"
+export const BUILTIN_SESSION_STORAGE_KEY = "qmai.builtin.session.v2"
 
 export interface BuiltinSession {
+  /** 中转站地址，例如 https://relay.qmai.work */
   serverUrl: string
-  /** 账号接口令牌，New API 默认 15 分钟过期；只用于看余额/开通/充值。 */
-  accessToken: string
-  accessExpiresAt: number
-  userId: number
-  username: string
-  displayName: string
-  group: string
-  quota: number
-  usedQuota: number
-  /** 网关的 quota→美元换算基数（默认 500000）。 */
-  quotaPerUnit: number
-  /** 展示汇率：1 美元 = 多少本地货币（New API 的 usd_exchange_rate）。 */
-  usdExchangeRate: number
-  tokenId: number
-  /** 写作用的 sk- 令牌，长期有效。 */
+  /** 30 分钟票据，直接当 Bearer 用。 */
   tokenKey: string
+  /** epoch 秒；过期前要重新换。 */
+  expiresAt: number
+  /** 票据对应的账号 userId，用于换账号时判定"这张票不能用了"。 */
+  userId: number
   updatedAt: number
 }
 
 export interface BuiltinSessionDraft {
-  serverUrl: string
-  accessToken: string
-  accessExpiresAt: number
-  userId: number
-  username: string
-  displayName: string
-  group: string
-  quota: number
-  usedQuota: number
-  quotaPerUnit?: number
-  usdExchangeRate?: number
-  tokenId: number
+  serverUrl?: string
   tokenKey: string
+  expiresAt: number
+  userId: number
 }
 
 export function createBuiltinSession(draft: BuiltinSessionDraft): BuiltinSession {
   return {
-    serverUrl: draft.serverUrl || DEFAULT_BUILTIN_SERVER_URL,
-    accessToken: draft.accessToken,
-    accessExpiresAt: draft.accessExpiresAt,
-    userId: draft.userId,
-    username: draft.username,
-    displayName: draft.displayName || draft.username,
-    group: draft.group,
-    quota: draft.quota,
-    usedQuota: draft.usedQuota,
-    quotaPerUnit: draft.quotaPerUnit ?? 500000,
-    usdExchangeRate: draft.usdExchangeRate ?? 0,
-    tokenId: draft.tokenId,
+    serverUrl: draft.serverUrl || DEFAULT_RELAY_URL,
     tokenKey: draft.tokenKey,
+    expiresAt: draft.expiresAt,
+    userId: draft.userId,
     updatedAt: Date.now(),
   }
 }
@@ -73,6 +48,8 @@ function isValidSession(value: unknown): value is BuiltinSession {
   return typeof record.serverUrl === "string"
     && typeof record.tokenKey === "string"
     && record.tokenKey.length > 0
+    && typeof record.expiresAt === "number"
+    && typeof record.userId === "number"
 }
 
 export function loadBuiltinSession(): BuiltinSession | null {
@@ -92,7 +69,7 @@ export function saveBuiltinSession(session: BuiltinSession): void {
   try {
     localStorage.setItem(BUILTIN_SESSION_STORAGE_KEY, JSON.stringify(session))
   } catch {
-    // 存储满了/被禁用：本次会话仍可用，只是重启后要重新登录。
+    // 存储满了/被禁用：本次会话仍可用，只是重启后要重新启用。
   }
 }
 
@@ -105,7 +82,7 @@ export function clearBuiltinSession(): void {
   }
 }
 
-/** 只露头尾，避免在界面上把完整令牌亮出来。 */
+/** 只露头尾，避免在界面上把完整票据亮出来。 */
 export function maskSecret(secret: string): string {
   const value = (secret ?? "").trim()
   if (value.length <= 12) return value ? "****" : ""

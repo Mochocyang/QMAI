@@ -1,33 +1,31 @@
 /**
- * 「内置模型」设置页。
+ * 「内置模型」设置页（自建 qmai.work 中转站版）。
  *
- * 目标：作者不用去各家平台申请密钥，登录青幕账号、买额度，就能选
- * DeepSeek / GLM / Kimi / Grok 这些模型直接写小说。
+ * 作者不用去各家平台申请密钥，也不用在这里再注册一个账号 ——
+ * **只要已经在 QMAI 里登录**，点一下「启用内置模型」就能用：
  *
- * 这一页只做三件事：
- *  1. 账号：注册 / 登录 / 看余额 / 兑换额度；
- *  2. 开通：自动领一枚 sk- 令牌，并把网关登记成 provider（qmai-builtin）；
- *  3. 目录：从网关拉模型，勾选后写进现有模型配置，写作链路零改动。
+ *   1. 用当前登录态向账号服务换一张 30 分钟票据（POST /v1/relay/token）
+ *   2. 拿票据去中转站拉模型清单（GET /v1/models）
+ *   3. 勾选后写进现有模型配置（provider-bridge），写作链路零改动
+ *
+ * 票据会过期，所以这里同时显示剩余时间并提供「重新获取」；写作请求本身由
+ * token-fresh 层负责续签，不依赖本页是否打开。
+ *
+ * 安全：票据只存 localStorage 的 qmai.builtin.session.v2，不进导出包，也不显示完整值。
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Check, ExternalLink, KeyRound, LogOut, RefreshCw, Server, Sparkles, UserRound } from "lucide-react"
+import { Check, ExternalLink, KeyRound, RefreshCw, Server, Sparkles, UserRound } from "lucide-react"
 import { useWikiStore } from "@/stores/wiki-store"
+import { useAccountStore } from "@/stores/account-store"
 import { openExternalUrl } from "@/lib/open-external-url"
+import { resolveAccountBaseUrl } from "@/lib/account/api"
 import { safeModelError } from "@/components/uitest/models/model-feedback"
 import {
-  BUILTIN_TOKEN_NAME,
-  DEFAULT_BUILTIN_SERVER_URL,
-  ensureBuiltinToken,
-  formatQuotaUsd,
-  gatewayFetchSelf,
+  DEFAULT_RELAY_URL,
+  fetchRelayTicket,
   gatewayListModels,
-  gatewayLogin,
   gatewayProbeChat,
-  gatewayPublicStatus,
-  gatewayRedeem,
-  gatewayRefreshSession,
-  gatewayRegister,
   isAccessTokenExpired,
   normalizeGatewayBaseUrl,
 } from "@/lib/builtin-models/gateway-api"
@@ -36,32 +34,22 @@ import {
   loadBuiltinSession,
   maskSecret,
   saveBuiltinSession,
-  clearBuiltinSession,
   type BuiltinSession,
 } from "@/lib/builtin-models/session"
-import {
-  BUILTIN_PROVIDER_ID,
-  applyBuiltinModels,
-} from "@/lib/builtin-models/provider-bridge"
-import {
-  defaultSelectedModelIds,
-  describeBuiltinModel,
-  sortBuiltinModelIds,
-} from "@/lib/builtin-models/catalog"
+import { BUILTIN_PROVIDER_ID, applyBuiltinModels } from "@/lib/builtin-models/provider-bridge"
+import { defaultSelectedModelIds, describeBuiltinModel, sortBuiltinModelIds } from "@/lib/builtin-models/catalog"
 import "./builtin-model-section.css"
-
-type AuthMode = "login" | "register"
 
 interface StatusLine {
   error?: boolean
   text: string
 }
 
-const SERVER_URL_STORAGE_KEY = "qmai.builtin.serverUrl.v1"
+const SERVER_URL_STORAGE_KEY = "qmai.builtin.serverUrl.v2"
 
 function readStoredServerUrl(): string {
-  if (typeof localStorage === "undefined") return DEFAULT_BUILTIN_SERVER_URL
-  return localStorage.getItem(SERVER_URL_STORAGE_KEY)?.trim() || DEFAULT_BUILTIN_SERVER_URL
+  if (typeof localStorage === "undefined") return DEFAULT_RELAY_URL
+  return localStorage.getItem(SERVER_URL_STORAGE_KEY)?.trim() || DEFAULT_RELAY_URL
 }
 
 function writeStoredServerUrl(value: string): void {
@@ -77,41 +65,56 @@ function errorText(error: unknown, secrets: string[] = []): string {
   return safeModelError(error, secrets)
 }
 
+/** 把剩余秒数说成人话：只剩几分钟时提示重新获取。 */
+function describeRemaining(expiresAt: number): { text: string; urgent: boolean } {
+  const left = Math.max(0, Math.round(expiresAt - Date.now() / 1000))
+  if (left <= 0) return { text: "已过期", urgent: true }
+  const minutes = Math.floor(left / 60)
+  const seconds = left % 60
+  if (minutes >= 1) return { text: `剩余 ${minutes} 分钟`, urgent: minutes < 5 }
+  return { text: `剩余 ${seconds} 秒`, urgent: true }
+}
+
 export function BuiltinModelSection() {
   const providerOverride = useWikiStore((s) => s.providerConfigs[BUILTIN_PROVIDER_ID])
+  const accountStatus = useAccountStore((s) => s.status)
+  const accountSession = useAccountStore((s) => s.session)
+
   const [session, setSession] = useState<BuiltinSession | null>(() => loadBuiltinSession())
   const [serverUrl, setServerUrl] = useState(() => loadBuiltinSession()?.serverUrl ?? readStoredServerUrl())
-  const [authMode, setAuthMode] = useState<AuthMode>("login")
-  const [username, setUsername] = useState("")
-  const [password, setPassword] = useState("")
-  const [manualKey, setManualKey] = useState("")
   const [models, setModels] = useState<string[]>([])
   const [selected, setSelected] = useState<string[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [status, setStatus] = useState<StatusLine | null>(null)
   const [makeDefault, setMakeDefault] = useState(true)
-  const [redeemCode, setRedeemCode] = useState("")
   const [probeModel, setProbeModel] = useState("")
   const [probeResult, setProbeResult] = useState<StatusLine | null>(null)
+  // 每分钟重渲染一次，让"剩余 N 分钟"自己走。
+  const [, setTick] = useState(0)
   const mounted = useRef(true)
 
   useEffect(() => {
     mounted.current = true
+    const timer = setInterval(() => {
+      if (mounted.current) setTick((value) => value + 1)
+    }, 30_000)
     return () => {
       mounted.current = false
+      clearInterval(timer)
     }
   }, [])
 
-  const activeKey = session?.tokenKey ?? manualKey
-  // 已登录时以登录时确认的网关为准：作者改地址栏不应把令牌指向另一台网关。
-  const activeBase = session ? session.serverUrl : normalizeGatewayBaseUrl(serverUrl)
-  const expired = session ? isAccessTokenExpired(session.accessExpiresAt) : false
+  const loggedIn = accountStatus === "authenticated" && Boolean(accountSession)
+  const activeBase = (session?.serverUrl || normalizeGatewayBaseUrl(serverUrl) || DEFAULT_RELAY_URL)
+  const expired = session ? isAccessTokenExpired(session.expiresAt) : false
   const sortedModels = useMemo(() => sortBuiltinModelIds(models), [models])
   const enabledCount = providerOverride?.savedModels?.length ?? 0
+  const sessionBelongsToOther = Boolean(
+    session && accountSession && session.userId !== accountSession.user.id,
+  )
 
-  const loadModels = useCallback(async (key: string) => {
-    const base = normalizeGatewayBaseUrl(serverUrl)
-    const ids = await gatewayListModels(base, key)
+  const loadModels = useCallback(async (relayUrl: string, ticket: string) => {
+    const ids = await gatewayListModels(relayUrl, ticket)
     if (!mounted.current) return ids
     const sorted = sortBuiltinModelIds(ids)
     setModels(ids)
@@ -119,559 +122,278 @@ export function BuiltinModelSection() {
       const kept = previous.filter((id) => sorted.includes(id))
       return kept.length > 0 ? kept : defaultSelectedModelIds(sorted)
     })
-    setProbeModel((previous) => (previous && sorted.includes(previous) ? previous : sorted[0] ?? ""))
     return ids
-  }, [serverUrl])
+  }, [])
 
-  // 已有登录态：进页面先刷新余额、再拉一次目录。失败只提示，不影响既有写作配置。
-  useEffect(() => {
-    if (!session) return
-    let cancelled = false
-    void (async () => {
-      try {
-        await loadModels(session.tokenKey)
-      } catch (error) {
-        if (!cancelled && mounted.current) {
-          setStatus({ error: true, text: `拉取模型目录失败：${errorText(error, [session.tokenKey])}` })
-        }
+  /** 用账号登录态换票（必要时）并把清单拉下来。 */
+  const refreshTicket = useCallback(
+    async (options: { silent?: boolean } = {}) => {
+      if (!accountSession) {
+        setStatus({ error: true, text: "请先登录青幕账号，再使用内置模型。" })
+        return
       }
-      if (cancelled || !mounted.current) return
-      let active = session
-      if (isAccessTokenExpired(session.accessExpiresAt)) {
-        // 账号令牌 15 分钟；同一运行周期里 plugin-http 的内存 cookie jar
-        // 还能带上 refresh cookie，静默续期，作者不用重登。
-        try {
-          const refreshed = await gatewayRefreshSession(normalizeGatewayBaseUrl(session.serverUrl))
-          if (cancelled || !mounted.current) return
-          active = {
-            ...session,
-            accessToken: refreshed.accessToken,
-            accessExpiresAt: refreshed.accessExpiresAt,
-            quota: refreshed.user.quota,
-            usedQuota: refreshed.user.usedQuota,
-          }
-          setSession(active)
-          saveBuiltinSession(active)
-        } catch {
-          return
-        }
-      }
+      setBusy("refresh")
+      if (!options.silent) setStatus({ text: "正在获取内置模型凭证…" })
       try {
-        const user = await gatewayFetchSelf(normalizeGatewayBaseUrl(session.serverUrl), active.accessToken)
-        if (cancelled || !mounted.current) return
-        setSession((previous) => {
-          if (!previous) return previous
-          const next = { ...previous, quota: user.quota, usedQuota: user.usedQuota, displayName: user.displayName || previous.displayName }
-          saveBuiltinSession(next)
-          return next
+        const relayUrl = normalizeGatewayBaseUrl(serverUrl) || DEFAULT_RELAY_URL
+        const ticket = await fetchRelayTicket(resolveAccountBaseUrl(), accountSession.accessToken)
+        const next = createBuiltinSession({
+          serverUrl: relayUrl,
+          tokenKey: ticket.token,
+          expiresAt: ticket.expiresAt,
+          userId: accountSession.user.id,
         })
-      } catch {
-        // 余额刷新失败不打扰作者：页面上仍显示最后一次已知数值。
+        saveBuiltinSession(next)
+        writeStoredServerUrl(relayUrl)
+        if (!mounted.current) return
+        setSession(next)
+        const ids = await loadModels(relayUrl, ticket.token)
+        if (!mounted.current) return
+        setStatus({ text: `已获取凭证，可选模型 ${ids.length} 个。` })
+      } catch (error) {
+        if (!mounted.current) return
+        setStatus({ error: true, text: errorText(error) })
+      } finally {
+        if (mounted.current) setBusy(null)
       }
-    })()
-    return () => {
-      cancelled = true
-    }
-    // 只在登录身份变化时跑一次；serverUrl 改动由“登录/开通”重新触发。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.tokenKey])
+    },
+    [accountSession, loadModels, serverUrl],
+  )
 
-  /** 账号操作前先保证 access token 可用：过期就续期，续不上就提示重登。 */
-  async function freshSession(): Promise<BuiltinSession> {
-    if (!session) throw new Error("请先登录。")
-    if (!isAccessTokenExpired(session.accessExpiresAt)) return session
-    const refreshed = await gatewayRefreshSession(normalizeGatewayBaseUrl(session.serverUrl))
-    const next: BuiltinSession = {
-      ...session,
-      accessToken: refreshed.accessToken,
-      accessExpiresAt: refreshed.accessExpiresAt,
-      quota: refreshed.user.quota,
-      usedQuota: refreshed.user.usedQuota,
+  // 已登录且还没有可用票据时，自动换一次（用户不用手动点）。
+  useEffect(() => {
+    if (!loggedIn) return
+    if (session && !expired && !sessionBelongsToOther) {
+      // 已有有效票：只补拉一次清单（页面刷新后模型列表是空的）。
+      if (models.length === 0 && !busy) {
+        void loadModels(session.serverUrl, session.tokenKey)
+          .then(() => setStatus({ text: "已加载模型清单。" }))
+          .catch((error) => setStatus({ error: true, text: errorText(error) }))
+      }
+      return
     }
-    setSession(next)
-    saveBuiltinSession(next)
-    return next
+    void refreshTicket({ silent: true })
+    // 只在登录态/会话身份变化时触发，避免每次渲染都换票。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loggedIn, accountSession?.user.id])
+
+  const toggleModel = (id: string) => {
+    setSelected((previous) => (previous.includes(id) ? previous.filter((item) => item !== id) : [...previous, id]))
   }
 
-  async function withBusy(name: string, action: () => Promise<void>) {
-    if (busy) return
-    setBusy(name)
-    setStatus({ text: name === "login" ? "正在登录…" : name === "register" ? "正在注册…" : "处理中…" })
-    setProbeResult(null)
+  const handleEnable = async () => {
+    if (!session) {
+      setStatus({ error: true, text: "凭证尚未就绪，请先点「重新获取」。" })
+      return
+    }
+    if (selected.length === 0) {
+      setStatus({ error: true, text: "请至少勾选一个模型。" })
+      return
+    }
+    setBusy("enable")
+    setStatus({ text: "正在写入模型配置…" })
     try {
-      await action()
+      const result = await applyBuiltinModels({ session, modelIds: selected, makeDefault })
+      if (!mounted.current) return
+      setStatus({
+        text: makeDefault
+          ? `已启用 ${result.modelCount} 个内置模型，并设为默认模型。`
+          : `已启用 ${result.modelCount} 个内置模型（未改动默认模型）。`,
+      })
     } catch (error) {
-      if (mounted.current) setStatus({ error: true, text: errorText(error, [password, manualKey, session?.tokenKey ?? ""]) })
+      if (!mounted.current) return
+      setStatus({ error: true, text: errorText(error, [session.tokenKey]) })
     } finally {
       if (mounted.current) setBusy(null)
     }
   }
 
-  async function finishProvision(
-    base: string,
-    accessToken: string,
-    accessExpiresAt: number,
-    user: { id: number; username: string; displayName: string; group: string; quota: number; usedQuota: number },
-    tokenId: number,
-    tokenKey: string,
-    created: boolean,
-    modelsHint: string[],
-  ) {
-    const publicStatus = await gatewayPublicStatus(base).catch(() => null)
-    const nextSession = createBuiltinSession({
-      serverUrl: base,
-      accessToken,
-      accessExpiresAt,
-      userId: user.id,
-      username: user.username,
-      displayName: user.displayName,
-      group: user.group,
-      quota: user.quota,
-      usedQuota: user.usedQuota,
-      quotaPerUnit: publicStatus?.quotaPerUnit,
-      usdExchangeRate: publicStatus?.usdExchangeRate,
-      tokenId,
-      tokenKey,
-    })
-    setSession(nextSession)
-    saveBuiltinSession(nextSession)
-    writeStoredServerUrl(base)
-    setManualKey("")
-
-    const sorted = sortBuiltinModelIds(modelsHint)
-    setModels(modelsHint)
-    const picks = defaultSelectedModelIds(sorted)
-    setSelected(picks)
-    setProbeModel((previous) => (previous && sorted.includes(previous) ? previous : sorted[0] ?? ""))
-
-    const result = await applyBuiltinModels({ session: nextSession, modelIds: picks, makeDefault })
-    const quotaText = formatQuotaUsd(user.quota, publicStatus?.quotaPerUnit ?? 500000)
-    const lowQuota = user.quota <= 0
-    setStatus({
-      text: [
-        created ? `已为账号开通「${BUILTIN_TOKEN_NAME}」令牌。` : "已复用账号里已有的内置模型令牌。",
-        `启用 ${result.modelCount} 个模型${result.modelKey ? `，默认写作模型：${result.modelKey}` : ""}。`,
-        lowQuota
-          ? `当前余额 ${quotaText}，额度为 0 时请求会提示“额度不足”，请先在下方充值。`
-          : `当前余额 ${quotaText}。`,
-      ].join(""),
-    })
+  const handleProbe = async () => {
+    if (!session) return
+    const model = probeModel || selected[0] || models[0]
+    if (!model) {
+      setProbeResult({ error: true, text: "没有可测试的模型。" })
+      return
+    }
+    setBusy("probe")
+    setProbeResult({ text: `正在测试 ${model}…` })
+    try {
+      const result = await gatewayProbeChat(activeBase, session.tokenKey, model)
+      if (!mounted.current) return
+      setProbeResult({ text: `${model} 返回：「${result.content}」（${result.latencyMs} ms）` })
+    } catch (error) {
+      if (!mounted.current) return
+      setProbeResult({ error: true, text: errorText(error, [session.tokenKey]) })
+    } finally {
+      if (mounted.current) setBusy(null)
+    }
   }
 
-  function login() {
-    void withBusy("login", async () => {
-      const base = normalizeGatewayBaseUrl(serverUrl)
-      if (!base) throw new Error("请先填写网关地址，例如 http://localhost:3000")
-      if (!username.trim() || !password) throw new Error("请填写账号和密码。")
-      const result = await gatewayLogin(base, username.trim(), password)
-      const token = await ensureBuiltinToken(base, result.accessToken)
-      const ids = await gatewayListModels(base, token.key)
-      if (ids.length === 0) throw new Error("登录成功，但网关没有给这个账号返回任何模型。请联系管理员确认会员分组/渠道。")
-      await finishProvision(
-        base,
-        result.accessToken,
-        result.accessExpiresAt,
-        result.user,
-        token.tokenId,
-        token.key,
-        token.created,
-        ids,
-      )
-    })
-  }
-
-  function register() {
-    void withBusy("register", async () => {
-      const base = normalizeGatewayBaseUrl(serverUrl)
-      if (!base) throw new Error("请先填写网关地址，例如 http://localhost:3000")
-      if (!username.trim() || !password) throw new Error("请填写要注册的账号和密码。")
-      if (password.length < 8) throw new Error("密码至少 8 位（网关要求 8–128 位）。")
-      if (username.trim().length > 20) throw new Error("账号最多 20 个字符。")
-      await gatewayRegister(base, username.trim(), password)
-      const result = await gatewayLogin(base, username.trim(), password)
-      const token = await ensureBuiltinToken(base, result.accessToken)
-      const ids = await gatewayListModels(base, token.key)
-      await finishProvision(
-        base,
-        result.accessToken,
-        result.accessExpiresAt,
-        result.user,
-        token.tokenId,
-        token.key,
-        token.created,
-        ids,
-      )
-    })
-  }
-
-  function useManualKey() {
-    void withBusy("key", async () => {
-      const key = manualKey.trim()
-      if (!key) throw new Error("请填写以 sk- 开头的密钥。")
-      const base = normalizeGatewayBaseUrl(serverUrl)
-      const ids = await gatewayListModels(base, key)
-      if (ids.length === 0) throw new Error("这个密钥没有可用的模型。请确认密钥所属账号已开通。")
-      setModels(ids)
-      const picks = defaultSelectedModelIds(sortBuiltinModelIds(ids))
-      setSelected(picks)
-      setProbeModel((previous) => (previous && ids.includes(previous) ? previous : picks[0] ?? ids[0]))
-      const result = await applyBuiltinModels({
-        session: { serverUrl: base, tokenKey: key.startsWith("sk-") ? key : `sk-${key}` },
-        modelIds: picks,
-        makeDefault,
-      })
-      writeStoredServerUrl(base)
-      setStatus({
-        text: `已用测试密钥启用 ${result.modelCount} 个内置模型${result.modelKey ? `，默认写作模型：${result.modelKey}` : ""}。这套配置不依赖账号登录，可直接写作。`,
-      })
-    })
-  }
-
-  function applySelection() {
-    void withBusy("apply", async () => {
-      if (!activeKey) throw new Error("还没有可用的令牌，请先登录或在下方填写密钥。")
-      if (selected.length === 0) throw new Error("请至少勾选一个模型。")
-      const ordered = sortBuiltinModelIds(selected)
-      const result = await applyBuiltinModels({
-        session: { serverUrl: activeBase, tokenKey: activeKey },
-        modelIds: ordered,
-        makeDefault,
-      })
-      setStatus({
-        text: `已启用 ${result.modelCount} 个内置模型${result.modelKey ? `，默认写作模型：${result.modelKey}` : ""}。到「章节」即可开始写作。`,
-      })
-    })
-  }
-
-  function refreshAccount() {
-    void withBusy("refresh", async () => {
-      const active = await freshSession()
-      const user = await gatewayFetchSelf(normalizeGatewayBaseUrl(active.serverUrl), active.accessToken)
-      const next = { ...active, quota: user.quota, usedQuota: user.usedQuota, displayName: user.displayName || active.displayName }
-      setSession(next)
-      saveBuiltinSession(next)
-      setStatus({ text: `余额已更新：${formatQuotaUsd(user.quota, active.quotaPerUnit)}。` })
-    })
-  }
-
-  function redeem() {
-    void withBusy("redeem", async () => {
-      if (!redeemCode.trim()) throw new Error("请填写兑换码。")
-      const active = await freshSession()
-      const message = await gatewayRedeem(normalizeGatewayBaseUrl(active.serverUrl), active.accessToken, redeemCode.trim())
-      const user = await gatewayFetchSelf(normalizeGatewayBaseUrl(active.serverUrl), active.accessToken)
-      const next = { ...active, quota: user.quota, usedQuota: user.usedQuota }
-      setSession(next)
-      saveBuiltinSession(next)
-      setRedeemCode("")
-      setStatus({ text: `${message || "兑换成功"}。当前余额 ${formatQuotaUsd(user.quota, active.quotaPerUnit)}。` })
-    })
-  }
-
-  function probe() {
-    void withBusy("probe", async () => {
-      if (!activeKey) throw new Error("还没有可用的令牌。")
-      if (!probeModel) throw new Error("请先选择要测试的模型。")
-      const result = await gatewayProbeChat(normalizeGatewayBaseUrl(activeBase), activeKey, probeModel)
-      setProbeResult({ text: `测试通过：${probeModel} · ${(result.latencyMs / 1000).toFixed(1)} 秒 · 回复「${result.content.slice(0, 40)}」` })
-    })
-  }
-
-  function logout() {
-    clearBuiltinSession()
-    setSession(null)
-    setManualKey("")
-    setModels([])
-    setSelected([])
-    setProbeResult(null)
-    setStatus({ text: "已退出内置模型账号。已写入的模型配置仍保留，写作不会中断；令牌可在网关后台删除。" })
-  }
-
-  const base = normalizeGatewayBaseUrl(session?.serverUrl ?? serverUrl)
-  const topupUrl = `${base}/console/topup`
-  const quotaText = session ? formatQuotaUsd(session.quota, session.quotaPerUnit) : ""
-  const usedText = session ? formatQuotaUsd(session.usedQuota, session.quotaPerUnit) : ""
-  const cnyText = session && session.usdExchangeRate > 0
-    ? `¥${((session.quota / (session.quotaPerUnit || 500000)) * session.usdExchangeRate).toFixed(2)}`
-    : ""
+  const remaining = session ? describeRemaining(session.expiresAt) : null
 
   return (
-    <section data-ui="builtin-models" aria-label="内置模型">
-      <div className="model-section-heading">
+    <section className="builtin-model-section">
+      <header className="builtin-model-head">
         <div>
-          <h2>青幕内置模型</h2>
-          <p>不用自己申请各家密钥：登录账号、开通额度，直接选 DeepSeek / GLM / Kimi / Grok 写小说。</p>
+          <h3>
+            <Sparkles size={16} aria-hidden /> 内置模型
+          </h3>
+          <p className="builtin-model-sub">
+            登录青幕账号即可直接使用，无需自己申请各家密钥。模型由青幕中转站统一提供，
+            换供应商、调参都不需要更新客户端。
+          </p>
         </div>
-        <span className={enabledCount > 0 ? "builtin-badge is-on" : "builtin-badge"}>
-          {enabledCount > 0 ? `已启用 ${enabledCount} 个模型` : "尚未启用"}
-        </span>
-      </div>
+        {enabledCount > 0 && (
+          <span className="builtin-model-badge">
+            <Check size={13} aria-hidden /> 已启用 {enabledCount} 个
+          </span>
+        )}
+      </header>
 
-      {!session && (
-        <div className="builtin-card">
-          <div className="builtin-auth-head">
-            <div role="tablist" aria-label="账号方式" className="builtin-tabs">
-              <button type="button" role="tab" aria-selected={authMode === "login"} onClick={() => { setAuthMode("login"); setStatus(null) }}>
-                <UserRound aria-hidden /> 登录
-              </button>
-              <button type="button" role="tab" aria-selected={authMode === "register"} onClick={() => { setAuthMode("register"); setStatus(null) }}>
-                <Sparkles aria-hidden /> 注册新账号
-              </button>
-            </div>
-            <span className="builtin-server-chip">
-              <Server aria-hidden /> {base.replace(/^https?:\/\//, "") || DEFAULT_BUILTIN_SERVER_URL.replace(/^https?:\/\//, "")}
-            </span>
+      {!loggedIn ? (
+        <div className="builtin-model-card builtin-model-empty">
+          <UserRound size={18} aria-hidden />
+          <div>
+            <strong>请先登录青幕账号</strong>
+            <p>内置模型与你的账号绑定，登录后即可一键启用；未登录时仍可使用「自定义模型」自己填密钥。</p>
           </div>
-
-          <div className="model-fields">
-            <label className="model-field">
-              <span>网关地址</span>
+        </div>
+      ) : (
+        <>
+          <div className="builtin-model-card">
+            <div className="builtin-model-row">
+              <span className="builtin-model-label">
+                <UserRound size={14} aria-hidden /> 账号
+              </span>
+              <span className="builtin-model-value">
+                {accountSession?.user.displayName || accountSession?.user.email}
+              </span>
+            </div>
+            <div className="builtin-model-row">
+              <span className="builtin-model-label">
+                <Server size={14} aria-hidden /> 中转站
+              </span>
               <input
-                aria-label="内置模型网关地址"
+                className="builtin-model-input"
                 value={serverUrl}
-                spellCheck={false}
                 onChange={(event) => setServerUrl(event.target.value)}
-                placeholder={DEFAULT_BUILTIN_SERVER_URL}
-              />
-              <small>当前测试版指向本机 New API 网关；正式版换成官方 HTTPS 域名。</small>
-            </label>
-            <label className="model-field">
-              <span>{authMode === "login" ? "账号" : "设置账号"}</span>
-              <input
-                aria-label="内置模型账号"
-                value={username}
-                autoComplete="username"
+                onBlur={() => writeStoredServerUrl(normalizeGatewayBaseUrl(serverUrl) || DEFAULT_RELAY_URL)}
+                placeholder={DEFAULT_RELAY_URL}
                 spellCheck={false}
-                onChange={(event) => setUsername(event.target.value)}
-                placeholder="用户名"
+                aria-label="中转站地址"
               />
-            </label>
-            <label className="model-field">
-              <span>{authMode === "login" ? "密码" : "设置密码"}</span>
-              <input
-                aria-label="内置模型密码"
-                type="password"
-                value={password}
-                autoComplete={authMode === "login" ? "current-password" : "new-password"}
-                onChange={(event) => setPassword(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-                    event.preventDefault()
-                    if (authMode === "login") login()
-                    else register()
-                  }
-                }}
-                placeholder={authMode === "login" ? "密码" : "至少 8 位"}
-              />
-            </label>
-          </div>
-
-          <div className="builtin-actions">
-            <button
-              type="button"
-              className="model-button primary"
-              data-guide="builtin.login"
-              disabled={!!busy}
-              onClick={() => (authMode === "login" ? login() : register())}
-            >
-              {busy === "login" || busy === "register" ? "正在连接…" : authMode === "login" ? "登录并开通内置模型" : "注册并开通内置模型"}
-            </button>
-            <p className="model-note">
-              开通时会自动创建一枚「{BUILTIN_TOKEN_NAME}」令牌并写进模型配置；余额为 0 时能选模型，但请求会提示额度不足。
-            </p>
-          </div>
-
-          <div className="builtin-divider"><span>或者，先用测试密钥跑通</span></div>
-          <div className="builtin-key-row">
-            <label className="model-field">
-              <span>API 密钥</span>
-              <input
-                aria-label="内置模型测试密钥"
-                value={manualKey}
-                spellCheck={false}
-                onChange={(event) => setManualKey(event.target.value)}
-                placeholder="sk-..."
-              />
-              <small>仅用于本机验证。填了密钥就会拉取该账号可见的模型并直接启用。</small>
-            </label>
-            <button type="button" className="model-button" disabled={!!busy || !manualKey.trim()} onClick={useManualKey}>
-              <KeyRound aria-hidden /> 用这个密钥启用
-            </button>
-          </div>
-        </div>
-      )}
-
-      {session && (
-        <div className="builtin-card builtin-account">
-          <div className="builtin-account-main">
-            <div className="builtin-identity">
-              <span className="builtin-avatar" aria-hidden><UserRound /></span>
-              <div>
-                <strong>{session.displayName || session.username}</strong>
-                <small>
-                  账号 {session.username}
-                  {session.group ? ` · 分组 ${session.group}` : ""}
-                  {expired ? " · 登录已过期" : ""}
-                </small>
-              </div>
             </div>
-            <div className="builtin-balance">
-              <div>
-                <span>余额</span>
-                <strong>{quotaText}</strong>
-                {cnyText && <small>{cnyText}</small>}
-              </div>
-              <div>
-                <span>已用</span>
-                <strong>{usedText}</strong>
-              </div>
-              <div>
-                <span>写作令牌</span>
-                <strong className="builtin-token">{maskSecret(session.tokenKey)}</strong>
-              </div>
+            <div className="builtin-model-row">
+              <span className="builtin-model-label">
+                <KeyRound size={14} aria-hidden /> 凭证
+              </span>
+              <span className="builtin-model-value">
+                {session ? maskSecret(session.tokenKey) : "尚未获取"}
+                {remaining && (
+                  <em className={remaining.urgent ? "builtin-model-warn" : "builtin-model-muted"}>
+                    （{remaining.text}
+                    {expired ? "，请重新获取" : ""}）
+                  </em>
+                )}
+                {sessionBelongsToOther && (
+                  <em className="builtin-model-warn">（属于其他账号，点「重新获取」）</em>
+                )}
+              </span>
             </div>
-          </div>
-          <div className="builtin-account-actions">
-            <button type="button" className="model-button ghost" disabled={!!busy} onClick={refreshAccount}>
-              <RefreshCw aria-hidden /> 刷新余额
-            </button>
-            <button type="button" className="model-button ghost" disabled={!!busy} onClick={logout}>
-              <LogOut aria-hidden /> 退出登录
-            </button>
-            <p className="model-note">
-              网关地址：{session.serverUrl}
-              {expired ? "。账号令牌 15 分钟过期，重新登录即可继续看余额/充值；写作令牌不受影响。" : "。"}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {sortedModels.length > 0 && (
-        <div className="builtin-card">
-          <div className="builtin-card-head">
-            <div>
-              <h3>模型目录</h3>
-              <p>勾选要用于写作的模型。上下文与输出上限按保守值预置，可在「大语言模型」里逐项调整。</p>
-            </div>
-            <div className="model-actions">
+            <div className="builtin-model-actions">
               <button
                 type="button"
-                className="model-button ghost"
-                disabled={!!busy}
-                onClick={() => setSelected(defaultSelectedModelIds(sortedModels))}
+                className="builtin-model-button"
+                onClick={() => void refreshTicket()}
+                disabled={busy !== null}
               >
-                选推荐
+                <RefreshCw size={14} aria-hidden className={busy === "refresh" ? "spin" : ""} />
+                重新获取凭证
               </button>
-              <button type="button" className="model-button ghost" disabled={!!busy} onClick={() => setSelected([])}>
-                清空
+              <button
+                type="button"
+                className="builtin-model-button primary"
+                onClick={() => void handleEnable()}
+                disabled={busy !== null || !session || selected.length === 0}
+              >
+                启用内置模型
+              </button>
+              <label className="builtin-model-check">
+                <input
+                  type="checkbox"
+                  checked={makeDefault}
+                  onChange={(event) => setMakeDefault(event.target.checked)}
+                />
+                同时设为默认模型
+              </label>
+            </div>
+            {status && (
+              <p className={`builtin-model-status${status.error ? " error" : ""}`}>{status.text}</p>
+            )}
+          </div>
+
+          <div className="builtin-model-card">
+            <div className="builtin-model-card-head">
+              <strong>可用模型（{sortedModels.length}）</strong>
+              <span className="builtin-model-muted">勾选后点上方「启用内置模型」写入配置</span>
+            </div>
+            {sortedModels.length === 0 ? (
+              <p className="builtin-model-muted">还没有拿到模型清单，点「重新获取凭证」试试。</p>
+            ) : (
+              <ul className="builtin-model-list">
+                {sortedModels.map((id) => {
+                  const meta = describeBuiltinModel(id)
+                  const checked = selected.includes(id)
+                  return (
+                    <li key={id}>
+                      <label className="builtin-model-check">
+                        <input type="checkbox" checked={checked} onChange={() => toggleModel(id)} />
+                        <span>
+                          <strong>{meta.label}</strong>
+                          {meta.recommended && <em className="builtin-model-rec">推荐</em>}
+                          <span className="builtin-model-muted"> — {meta.note}</span>
+                        </span>
+                      </label>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+            <div className="builtin-model-actions">
+              <select
+                className="builtin-model-input"
+                value={probeModel || selected[0] || ""}
+                onChange={(event) => setProbeModel(event.target.value)}
+                aria-label="选择要测试的模型"
+              >
+                {sortedModels.map((id) => (
+                  <option key={id} value={id}>
+                    {describeBuiltinModel(id).label}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="builtin-model-button" onClick={() => void handleProbe()} disabled={busy !== null || !session}>
+                测试连接
               </button>
             </div>
+            {probeResult && (
+              <p className={`builtin-model-status${probeResult.error ? " error" : ""}`}>{probeResult.text}</p>
+            )}
           </div>
-          <div className="builtin-model-grid">
-            {sortedModels.map((id) => {
-              const meta = describeBuiltinModel(id)
-              const checked = selected.includes(id)
-              return (
-                <button
-                  type="button"
-                  key={id}
-                  aria-pressed={checked}
-                  className={checked ? "builtin-model-card is-selected" : "builtin-model-card"}
-                  onClick={() => setSelected((previous) => (previous.includes(id) ? previous.filter((item) => item !== id) : [...previous, id]))}
-                >
-                  <span className="builtin-model-card-top">
-                    <strong>{meta.label}</strong>
-                    {checked && <Check aria-hidden />}
-                  </span>
-                  <code>{id}</code>
-                  <small>{meta.note}</small>
-                  <span className="builtin-model-card-meta">
-                    上下文 {Math.round(meta.contextSize / 1000)}k · 输出 {Math.round(meta.maxOutputTokens / 1000)}k
-                    {meta.recommended ? " · 推荐" : ""}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-          <div className="builtin-apply-row">
-            <label className="builtin-switch">
-              <input type="checkbox" checked={makeDefault} onChange={(event) => setMakeDefault(event.target.checked)} />
-              <span>同时设为默认写作模型</span>
-            </label>
-            <button
-              type="button"
-              className="model-button primary"
-              data-guide="builtin.apply"
-              disabled={!!busy || selected.length === 0}
-              onClick={applySelection}
-            >
-              {busy === "apply" ? "正在写入…" : `启用选中的 ${selected.length} 个模型`}
-            </button>
-          </div>
-        </div>
+        </>
       )}
 
-      {activeKey && sortedModels.length > 0 && (
-        <div className="builtin-card">
-          <div className="builtin-card-head">
-            <div>
-              <h3>测试连接</h3>
-              <p>发一条最小请求，确认令牌、模型和额度都能用。</p>
-            </div>
-          </div>
-          <div className="builtin-probe-row">
-            <select aria-label="测试模型" value={probeModel} onChange={(event) => setProbeModel(event.target.value)} disabled={!!busy}>
-              {sortedModels.map((id) => <option key={id} value={id}>{describeBuiltinModel(id).label}（{id}）</option>)}
-            </select>
-            <button type="button" className="model-button" disabled={!!busy || !probeModel} onClick={probe}>
-              {busy === "probe" ? "正在测试…" : "测试连接"}
-            </button>
-          </div>
-          {probeResult && <p className={probeResult.error ? "model-feedback error" : "model-feedback"} role="status">{probeResult.text}</p>}
-        </div>
-      )}
-
-      {session && (
-        <div className="builtin-card">
-          <div className="builtin-card-head">
-            <div>
-              <h3>充值 / 兑换额度</h3>
-              <p>会员套餐在网关侧购买。已有兑换码可直接在这里兑换，额度立刻到账。</p>
-            </div>
-            <button type="button" className="model-button ghost" onClick={() => void openExternalUrl(topupUrl)}>
-              <ExternalLink aria-hidden /> 打开充值页面
-            </button>
-          </div>
-          <div className="builtin-redeem-row">
-            <label className="model-field">
-              <span>兑换码</span>
-              <input
-                aria-label="充值兑换码"
-                value={redeemCode}
-                spellCheck={false}
-                onChange={(event) => setRedeemCode(event.target.value)}
-                placeholder="粘贴兑换码"
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.nativeEvent.isComposing) {
-                    event.preventDefault()
-                    redeem()
-                  }
-                }}
-              />
-            </label>
-            <button type="button" className="model-button" disabled={!!busy || !redeemCode.trim()} onClick={redeem}>
-              {busy === "redeem" ? "正在兑换…" : "兑换额度"}
-            </button>
-          </div>
-          <p className="model-note">测试版网关未接在线支付，额度由管理员发放兑换码；正式版可接支付宝/微信或 Stripe。</p>
-        </div>
-      )}
-
-      {status && (
-        <p className={status.error ? "builtin-status error" : "builtin-status"} role="status" aria-live="polite">
-          {status.text}
-        </p>
-      )}
+      <p className="builtin-model-foot">
+        想用自己的密钥？到
+        <button
+          type="button"
+          className="builtin-model-link"
+          onClick={() => openExternalUrl("https://qmai.pro")}
+        >
+          大语言模型 <ExternalLink size={12} aria-hidden />
+        </button>
+        里选「自定义模型」，内置模型与它互不影响。
+      </p>
     </section>
   )
 }

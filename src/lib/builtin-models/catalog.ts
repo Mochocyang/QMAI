@@ -1,13 +1,15 @@
 /**
  * 内置模型的展示元数据。
  *
- * 网关 `GET /v1/models` 只给模型 id，没有中文名、上下文长度、擅不擅长写小说。
- * 这一层负责把 id 翻译成作者看得懂的信息，并给一个**保守**的上下文默认值。
+ * 中转站 `GET /v1/models` 只给对外名（qmai-standard 等），没有中文名、上下文长度、
+ * 擅不擅长写小说。这一层负责把对外名翻译成作者看得懂的信息，并给一个**保守**的上下文默认值。
  *
  * 注意：QMAI 的上下文下限是 204800（长篇小说写作的硬要求），
  * `normalizeUserLlmContextSize` 会把更小的值抬回 204800。所以这里直接按
  * ≥204800 声明，避免界面显示 131k、实际却按 200k 发请求的错位。
- * 用户仍可在「大语言模型」里逐项改小/改大。
+ *
+ * 为什么对外名固定：上游真实模型（DeepSeek / Qwen / Kimi / GLM）由网关的路由表决定，
+ * 换供应商、调价格、加降级都不用发客户端版本。客户端只需要认识这几个名字。
  */
 
 export interface BuiltinModelMeta {
@@ -27,103 +29,45 @@ export interface BuiltinModelMeta {
 const DEFAULT_CONTEXT_SIZE = 204800
 const DEFAULT_MAX_OUTPUT_TOKENS = 32768
 
-/** 显式列出的常见模型；没列到的走下面的前缀推断。 */
+/** 与网关 model_routes 里的 public_name 一一对应。 */
 const KNOWN_MODELS: Record<string, Omit<BuiltinModelMeta, "id">> = {
-  auto: {
-    label: "自动路由",
-    note: "由网关自动挑模型，速度与费用不可控，不建议用来写正文",
-    contextSize: DEFAULT_CONTEXT_SIZE,
-    maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
-    recommended: false,
-  },
-  "glm-5.3": {
-    label: "GLM 5.3",
-    note: "中文长文稳定，适合正文续写",
+  "qmai-standard": {
+    label: "青幕标准版",
+    note: "日常正文续写，速度与质量平衡",
     contextSize: 204800,
     maxOutputTokens: 32768,
     recommended: true,
   },
-  "glm-4.7": {
-    label: "GLM 4.7",
-    note: "性价比高的中文写作模型",
+  "qmai-long": {
+    label: "青幕长文版",
+    note: "整卷回顾、连贯性检查，适合长上下文任务",
     contextSize: 204800,
     maxOutputTokens: 32768,
     recommended: true,
   },
-  "glm-4.7-flash": {
-    label: "GLM 4.7 Flash",
-    note: "便宜、快，适合摘要与提取",
+  "qmai-fast": {
+    label: "青幕轻量版",
+    note: "便宜、快，适合摘要、提取与批量改写",
     contextSize: 204800,
     maxOutputTokens: 16384,
-    recommended: true,
-  },
-  "glm-4.6": {
-    label: "GLM 4.6",
-    note: "上一代中文写作模型",
-    contextSize: 204800,
-    maxOutputTokens: 16384,
-    recommended: false,
-  },
-  "deepseek-v4-pro": {
-    label: "DeepSeek V4 Pro",
-    note: "推理强，适合大纲与审稿",
-    contextSize: 204800,
-    maxOutputTokens: 32768,
-    recommended: true,
-  },
-  "deepseek-flash": {
-    label: "DeepSeek Flash",
-    note: "便宜、快，适合摘要与批量提取",
-    contextSize: 204800,
-    maxOutputTokens: 16384,
-    recommended: false,
-  },
-  "kimi-k3": {
-    label: "Kimi K3",
-    note: "超长上下文，适合整卷回顾与连贯性检查",
-    contextSize: 262144,
-    maxOutputTokens: 32768,
-    recommended: true,
-  },
-  "kimi-k2.5": {
-    label: "Kimi K2.5",
-    note: "长上下文，适合大纲梳理",
-    contextSize: 262144,
-    maxOutputTokens: 16384,
-    recommended: false,
-  },
-  "grok-4.7": {
-    label: "Grok 4.7",
-    note: "推理强，适合剧情推演与设定校验",
-    contextSize: 204800,
-    maxOutputTokens: 32768,
-    recommended: true,
-  },
-  "grok-chat-fast": {
-    label: "Grok Chat Fast",
-    note: "响应快，适合对话与快速改写",
-    contextSize: 204800,
-    maxOutputTokens: 16384,
-    recommended: true,
-  },
-  "grok-composer-2.5-fast": {
-    label: "Grok Composer 2.5 Fast",
-    note: "快速草稿",
-    contextSize: 204800,
-    maxOutputTokens: 16384,
-    recommended: false,
-  },
-  "gemini-3.8-flash-high": {
-    label: "Gemini 3.8 Flash High",
-    note: "长上下文、快，适合资料检索与摘要",
-    contextSize: 262144,
-    maxOutputTokens: 32768,
     recommended: true,
   },
 }
 
+/** 旧网关可能残留的名字，兼容一下，避免老用户配置显示成裸 id。 */
+const LEGACY_ALIASES: Record<string, keyof typeof KNOWN_MODELS> = {
+  auto: "qmai-standard",
+  "glm-5.3": "qmai-standard",
+  "deepseek-v4-pro": "qmai-standard",
+  "kimi-k3": "qmai-long",
+  "glm-4.7-flash": "qmai-fast",
+}
+
 function familyDefaults(id: string): Omit<BuiltinModelMeta, "id"> | null {
   const lower = id.toLowerCase()
+  if (lower.startsWith("qmai-")) {
+    return { label: id, note: "青幕内置模型", contextSize: DEFAULT_CONTEXT_SIZE, maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS, recommended: false }
+  }
   if (lower.startsWith("claude")) {
     return { label: id, note: "Claude 系列，长文与对话质量稳", contextSize: 204800, maxOutputTokens: 32768, recommended: false }
   }
@@ -142,23 +86,15 @@ function familyDefaults(id: string): Omit<BuiltinModelMeta, "id"> | null {
   if (lower.startsWith("kimi") || lower.startsWith("moonshot")) {
     return { label: id, note: "月之暗面 Kimi 系列", contextSize: 262144, maxOutputTokens: 16384, recommended: false }
   }
-  if (lower.startsWith("grok")) {
-    return { label: id, note: "Grok 系列", contextSize: 204800, maxOutputTokens: 32768, recommended: false }
-  }
   if (lower.startsWith("qwen")) {
     return { label: id, note: "通义千问系列", contextSize: 204800, maxOutputTokens: 16384, recommended: false }
-  }
-  if (lower.startsWith("doubao") || lower.startsWith("seed")) {
-    return { label: id, note: "豆包系列", contextSize: 204800, maxOutputTokens: 16384, recommended: false }
-  }
-  if (lower.startsWith("minimax")) {
-    return { label: id, note: "MiniMax 系列", contextSize: 204800, maxOutputTokens: 16384, recommended: false }
   }
   return null
 }
 
 export function describeBuiltinModel(id: string): BuiltinModelMeta {
-  const known = KNOWN_MODELS[id]
+  const alias = LEGACY_ALIASES[id]
+  const known = KNOWN_MODELS[id] ?? (alias ? KNOWN_MODELS[alias] : undefined)
   const meta = known ?? familyDefaults(id) ?? {
     label: id,
     note: "网关提供的模型",
@@ -166,6 +102,7 @@ export function describeBuiltinModel(id: string): BuiltinModelMeta {
     maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
     recommended: false,
   }
+  // 无论新旧名字，展示时都以 id 为准（调用方可能拿旧 id 来问元数据）。
   return { id, ...meta }
 }
 
