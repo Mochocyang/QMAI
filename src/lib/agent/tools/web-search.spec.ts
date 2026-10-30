@@ -3,6 +3,8 @@ import type { SearchApiConfig } from "@/stores/wiki-store"
 import { createWebSearchTool } from "./web-search"
 
 const webSearchMock = vi.fn()
+/** 内置插件「网页搜索」是否开启；默认 true，个别用例会临时关掉。 */
+let webSearchEnabledFlag = true
 
 vi.mock("@/lib/web-search", () => ({
   resolveSearchConfig: (config: SearchApiConfig) => config,
@@ -13,6 +15,10 @@ vi.mock("@/lib/web-search", () => ({
     provider === "tavily" ||
     provider === "serpapi" ||
     provider === "gemini",
+  // 工具层要读内置插件开关；本文件整体 mock 了 @/lib/web-search，
+  // 所以这两个新导出也必须给出，否则执行时会报 "No export defined on the mock"。
+  isWebSearchEnabled: () => webSearchEnabledFlag,
+  WEB_SEARCH_DISABLED_MESSAGE: "网页搜索已在「插件」中关闭，本次未联网搜索",
   webSearch: (...args: unknown[]) => webSearchMock(...args),
   webSearchDetailed: async (...args: unknown[]) => {
     const value = await webSearchMock(...args)
@@ -40,7 +46,9 @@ const configured: SearchApiConfig = {
 
 describe("createWebSearchTool", () => {
   beforeEach(() => {
-    webSearchMock.mockReset()
+  webSearchMock.mockReset()
+  // 每个用例从"开启"开始，避免某条关掉后污染后面的用例
+  webSearchEnabledFlag = true
   })
 
   it("未配置外部搜索时返回中文降级结果，且不假装已经搜索", async () => {
@@ -123,3 +131,40 @@ describe("web_search 工具超时随反重力设置变化", () => {
     expect(createWebSearchTool().executeTimeoutMs).toBe(210_000)
   })
 })
+
+  describe("内置插件「网页搜索」关闭后", () => {
+    const configured: SearchApiConfig = {
+      provider: "bocha",
+      apiKey: "k",
+      serpApiEngine: "google",
+      searXngUrl: "",
+      searXngCategories: ["general"],
+      providerConfigs: {},
+    }
+
+    it("工具仍在清单里，执行时返回 disabled 并指向插件页", async () => {
+      webSearchEnabledFlag = false
+      const tool = createWebSearchTool(() => configured)
+
+      const raw = await tool.execute({ query: "测试" })
+      const result = JSON.parse(String(raw))
+
+      expect(result.status).toBe("disabled")
+      expect(result.resultCount).toBe(0)
+      expect(result.message).toContain("插件")
+      // 关键：不能悄悄去搜
+      expect(webSearchMock).not.toHaveBeenCalled()
+    })
+
+    it("开启后照常搜索（关闭不是永久态）", async () => {
+      webSearchEnabledFlag = true
+      webSearchMock.mockResolvedValue([{ title: "t", url: "u", snippet: "s", source: "bocha" }])
+      const tool = createWebSearchTool(() => configured)
+
+      const raw = await tool.execute({ query: "测试" })
+      const result = JSON.parse(String(raw))
+
+      expect(result.status).toBe("ok")
+      expect(webSearchMock).toHaveBeenCalled()
+    })
+  })
