@@ -146,7 +146,19 @@ export function resolveModelConfig(
     const providerId = targetModel.slice(0, slashIdx)
     const modelId = targetModel.slice(slashIdx + 1)
     const override = providerConfigs[providerId]
-    if (override && getEffectiveSavedModels(override).some((m) => m.model === modelId)) {
+    /*
+     * 只要 providerId 存在就用这个渠道的配置，**不再要求模型在 savedModels 里**。
+     *
+     * 原条件 `savedModels.some(m => m.model === modelId)` 造成过一次真实故障：
+     * aiChatModel 是 `custom-x/gemini-3.8-flash-high`，而该渠道保存的模型列表里只有
+     * `gemini-3.8-flash`（旧数据/手改/服务商加了新名）。条件不成立就掉到最后那行
+     * fallback —— 它只改了 model，却把 provider 留成 baseConfig 里的 `openai`，
+     * 于是请求被发到 api.openai.com，用户看到「HTTP 401，你需要提供 API key」。
+     *
+     * 模型名对不对是服务商的判断，不是宿主该替用户做的。宿主只该保证
+     * 「用哪个渠道、哪个 key、哪个 baseUrl」不丢 —— 那才是用户配置的本意。
+     */
+    if (override) {
       const resolved = resolveOverrideConfig(providerId, override, baseConfig, modelId)
       if (resolved) return resolved
     }

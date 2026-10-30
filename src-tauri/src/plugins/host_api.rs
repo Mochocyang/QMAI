@@ -700,6 +700,10 @@ pub fn router(state: HostApiState) -> Router {
         .route("/host/project/info", get(project_info))
         .route("/host/project/field", post(project_field))
         .route("/host/project/chapter-note", post(project_chapter_note))
+        // 书架只读能力（fs:shelf-read）。handler 在下方，此处是唯一的注册点 ——
+        // 漏掉这两行就会 404，而插件只能看到"宿主接口返回 404"，无从判断是没装好还是没权限。
+        .route("/host/shelf/list", get(shelf_list))
+        .route("/host/shelf/sample", post(shelf_sample))
         .with_state(state)
 }
 
@@ -954,6 +958,38 @@ mod tests {
         state
     }
 
+    /// 书架两条路由必须真的挂在 router 上。
+    ///
+    /// 这条测试来自一次真实故障：handler 写好了、权限也加了，但 `.route(...)` 注册漏了 ——
+    /// 插件只看到 `/host/shelf/list 返回 404`，无从判断是"功能没做"还是"没权限"。
+    /// 404 与 403 在这里是两件完全不同的事，必须分得清。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn shelf_routes_are_registered() {
+        // 给足权限：这样若返回 403 就说明是权限问题（不是本测试要验的），
+        // 而 404 才是"路由没注册"这个真缺陷。
+        let state = state_with("tok-shelf", session(None, &["data:write", "fs:shelf-read"]));
+        let base = spawn_test_api(state).await;
+        let client = test_client();
+
+        let response = client
+            .get(format!("{base}/host/shelf/list"))
+            .bearer_auth("tok-shelf")
+            .send()
+            .await
+            .expect("请求");
+        assert_ne!(response.status(), 404, "/host/shelf/list 没注册到 router 上");
+        assert_eq!(response.status(), 200);
+
+        let response = client
+            .post(format!("{base}/host/shelf/sample"))
+            .bearer_auth("tok-shelf")
+            .json(&serde_json::json!({ "ids": [] }))
+            .send()
+            .await
+            .expect("请求");
+        assert_ne!(response.status(), 404, "/host/shelf/sample 没注册到 router 上");
+        assert_eq!(response.status(), 200);
+    }
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn handler_returns_401_without_valid_token() {
         let state = state_with("tok-good", session(None, &["data:write"]));
