@@ -11,6 +11,7 @@ import { saveProjectDocument } from "./save-document"
 import { runWritingConversation } from "./writing-conversation"
 import { stopProjectWriting } from "./stop-writing"
 import { writingProgressStore } from "./writing-progress"
+import { dispatchMaintenanceTool, MAINTENANCE_TOOL_NAMES } from "./maintenance"
 
 function textArg(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
@@ -60,6 +61,7 @@ export async function dispatchMcpTool(name: string, args: Record<string, unknown
     })
   }
   if (name === "get_current") return getCurrentOpen()
+  if ((MAINTENANCE_TOOL_NAMES as readonly string[]).includes(name)) return dispatchMaintenanceTool(name, args)
   const projectPath = requireProjectPath(args)
   if (name === "get_writing_progress") {
     const runId = textArg(args.runId)

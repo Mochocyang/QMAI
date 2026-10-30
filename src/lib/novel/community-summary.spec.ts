@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { readFile, writeFile, createDirectory, listDirectory } from "@/commands/fs"
+import { readFile, writeFile, createDirectory, listDirectory, fileExists } from "@/commands/fs"
 import type { CommunityInfo, GraphEdge, GraphNode } from "@/lib/wiki-graph"
 import { buildWikiGraph } from "@/lib/wiki-graph"
 import { streamChat } from "@/lib/llm-client"
@@ -20,6 +20,8 @@ vi.mock("@/commands/fs", () => ({
   writeFile: vi.fn(),
   createDirectory: vi.fn(),
   listDirectory: vi.fn(),
+  fileExists: vi.fn(async () => false),
+  deleteFile: vi.fn(),
 }))
 vi.mock("@/lib/wiki-graph", () => ({ buildWikiGraph: vi.fn() }))
 vi.mock("@/lib/llm-client", () => ({
@@ -138,6 +140,7 @@ describe("shouldRebuildCommunitySummaries", () => {
 describe("community summary incremental rebuild", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(fileExists).mockResolvedValue(false)
     __resetCommunitySummaryLocksForTesting()
     mockCreateDirectory.mockResolvedValue(undefined)
     mockWriteFile.mockResolvedValue(undefined)
@@ -161,6 +164,19 @@ describe("community summary incremental rebuild", () => {
 
   it("locks the minimum community size at 5", () => {
     expect(MIN_COMMUNITY_SUMMARY_NODE_COUNT).toBe(5)
+  })
+
+  it("后台摘要生成期间发生清理时，不发布基于旧记忆的结果", async () => {
+    mockBuildWikiGraph.mockResolvedValue(graphWithCommunity(1, ["a", "b", "c", "d", "e"]))
+    mockStreamChat.mockImplementation(async (_config, _messages, cb) => {
+      vi.mocked(fileExists).mockImplementation(async (path) => path.endsWith("memory-cleanup.json"))
+      mockReadFile.mockImplementation(async (path) => path.endsWith("memory-cleanup.json")
+        ? JSON.stringify({ version: 1, removed: [{ chapterNumber: 1, field: "knowledgeChanges", text: "旧噪声" }], kept: [] }) : "正文")
+      cb.onToken("依据旧噪声生成的摘要"); cb.onDone()
+    })
+    await generateCommunitySummaries("/project", llmConfig, novelConfig)
+    expect(mockWriteFile).not.toHaveBeenCalled()
+    expect(mockEmbedPage).not.toHaveBeenCalled()
   })
 
   it("skips communities smaller than the minimum size", async () => {
@@ -291,6 +307,7 @@ describe("community summary incremental rebuild", () => {
 describe("community summary vector noise control", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked(fileExists).mockResolvedValue(false)
     useWikiStore.setState({
       embeddingConfig: {
         enabled: true,

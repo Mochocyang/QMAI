@@ -11,6 +11,7 @@ mod panic_guard;
 mod platform_guard;
 mod proxy;
 mod types;
+mod updater;
 
 pub use platform_guard::assert_supported_platform;
 
@@ -197,6 +198,11 @@ pub fn run() {
             commands::cloud_sync::cloud_sync_cancel_login,
             commands::cloud_sync::cloud_sync_connect_webdav,
             commands::cloud_sync::cloud_sync_connect_folder,
+    commands::cloud_sync::cloud_sync_connect_github,
+    commands::cloud_sync::cloud_sync_github_auth_state,
+    commands::cloud_sync::cloud_sync_github_repos,
+    commands::cloud_sync::cloud_sync_github_create_repo,
+    commands::cloud_sync::cloud_sync_github_make_private,
             commands::cloud_sync::cloud_sync_stop,
             commands::cloud_sync::cloud_sync_logout,
             commands::cloud_sync::cloud_sync_run_now,
@@ -204,6 +210,7 @@ pub fn run() {
         commands::cloud_sync::cloud_sync_resolve_conflict,
             commands::cloud_sync::cloud_sync_clear_history,
             commands::cloud_sync::cloud_sync_reveal_remote,
+    commands::cloud_sync::cloud_sync_reveal_target_remote,
 commands::fs::read_file,
             commands::fs::write_file,
             commands::fs::write_file_if_absent,
@@ -280,6 +287,12 @@ commands::fs::read_file,
             app_state::write_app_state_atomic,
             commands::writing_wake_lock::acquire_writing_wake_lock,
             commands::writing_wake_lock::release_writing_wake_lock,
+            commands::updater_channels::updater_channel_plan,
+            // 按通道下载更新包：供前端把「检查更新」接到我们选出的通道上。
+            // 白名单校验在命令内部完成（前端可任意调用，不能变成通用下载器）。
+            commands::updater_channels::updater_download_bytes,
+    commands::updater_channels::updater_check,
+    commands::updater_download::updater_download_package,
             set_proxy_env,
             log_error,
             log_diagnostic,

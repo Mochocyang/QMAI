@@ -76,6 +76,16 @@ const NEEDS_USER_CODES = new Set([
   "auth.expired",
   "auth.revoked",
   "auth.invalid-app",
+  /*
+   * GitHub 授权失效（401 Bad credentials）。
+   *
+   * 这个错误重试一百次也不会好 —— token 已经被 GitHub 吊销了。
+   * 曾经没把它列进来，于是自动同步每两分钟撞一次，历史里堆出 162 条
+   * 一模一样的失败，用户看着红点永远消不掉（真实投诉）。
+   * 停手，把决定权交回用户：面板会提示「登录失效，请重新登录」。
+   */
+  "github.auth",
+  "github.no-repo",
 ])
 
 export function baseIntervalFor(trigger: AutoTrigger): number {

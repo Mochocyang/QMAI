@@ -210,7 +210,7 @@ describe("settings model list", () => {
       customEndpoint: "http://127.0.0.1:8765/v1",
     }))
 
-    expect(invoke).toHaveBeenCalledWith("cursor_cli_acp_models")
+    expect(invoke).toHaveBeenCalledWith("cursor_cli_acp_models", { forceRefresh: true })
     expect(invoke).toHaveBeenCalledWith("cursor_cli_apply_acp_model", {
       model: "grok-4.6",
       cliModel: "cursor-grok-4.6-medium-fast",
@@ -225,6 +225,32 @@ describe("settings model list", () => {
       "cursor-grok-4.6-high-fast",
       "composer-2-fast",
     ])
+  })
+
+  it("returns every supported Grok 4.7 variant through the settings fetch path", async () => {
+    const variants = ["low", "medium", "high", "xhigh"].flatMap((effort) => [
+      `grok-4.7-${effort}`, `grok-4.7-${effort}-fast`,
+    ])
+    vi.mocked(invoke).mockImplementation(async (command: string) => {
+      if (command === "cursor_proxy_ensure") return { healthy: true, base_url: "http://127.0.0.1:8765", managed: true }
+      if (command === "cursor_cli_apply_acp_model") return undefined
+      if (command === "cursor_cli_acp_models") return [{
+        modelId: "grok-4.7",
+        configOptions: [
+          { id: "reasoning_effort", currentValue: "high", options: ["low", "medium", "high", "xhigh"].map((value) => ({ value })) },
+          { id: "fast", currentValue: "true", options: [{ value: "false" }, { value: "true" }] },
+        ],
+      }]
+      throw new Error(`unexpected invoke ${command}`)
+    })
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ data: variants.map((id) => ({ id })) }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    }))
+    const { fetchLlmModelList } = await import("./settings-model-list")
+    const result = await fetchLlmModelList(customConfig({ provider: "cursor-cli", model: "grok-4.7-low" }))
+    expect(result.models).toEqual(variants.slice().sort((a, b) => a.localeCompare(b)))
+    expect(getCursorCliCatalog()).toEqual(result.models)
+    expect(invoke).toHaveBeenCalledWith("cursor_cli_acp_models", { forceRefresh: true })
   })
 
   it("fails closed when the ACP catalog is empty", async () => {

@@ -16,8 +16,10 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_opener::OpenerExt;
 
-use crate::cloud_sync::providers::{baidu_netdisk, BaiduStore, FolderStore, RemoteStore, WebdavStore};
-use crate::cloud_sync::{baidu, credentials, engine, history, resolve, CloudSyncState};
+use crate::cloud_sync::providers::{
+    baidu_netdisk, BaiduStore, FolderStore, GithubStore, RemoteStore, WebdavStore,
+};
+use crate::cloud_sync::{baidu, credentials, engine, github, history, resolve, CloudSyncState};
 
 const CLOUD_SYNC_DIR: &str = "cloud-sync";
 const CONFIG_FILE: &str = "config.json";
@@ -44,6 +46,13 @@ pub struct CloudTarget {
     pub webdav_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webdav_user: Option<String>,
+    /// GitHub 目标：仓库所有者（个人或组织）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_repo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_branch: Option<String>,
 }
 
 impl CloudTarget {
@@ -111,9 +120,29 @@ impl CloudSyncConfig {
             .or_else(|| self.targets.first())
     }
 
-    /// 已连接的目标：真正要跑同步的那些。
+    /// 真正要跑同步的目标：**已勾选（在 targets 里）且已登录（connected）**。
+    ///
+    /// `targets` 就是"勾了哪些盘"——取消勾选会把它从列表里拿掉。
+    /// `connected` 是"这个盘的账号/目录是否可用"。两者都要满足才同步。
+    /// 曾经的 bug：取消勾选只把目标从 targets 拿掉，但凭据还在、`connected` 仍为真，
+    /// 而筛选只看 `connected` —— 于是"没勾选的盘照样同步"。
     pub fn connected_targets(&self) -> Vec<CloudTarget> {
         self.targets.iter().filter(|target| target.connected).cloned().collect()
+    }
+
+    /// 只放这一个目标（测试与「单网盘」语义还用得到；生产路径都走 `target_mut` 的 upsert）。
+    #[allow(dead_code)]
+    pub fn set_single_target(&mut self, target: CloudTarget) {
+        self.targets = vec![target];
+    }
+
+    /// 只把 `provider` 标成「正在配置的那个」，**不改 targets**。
+    ///
+    /// 这是给「点卡片主体看一眼」用的。绝不能走 `target_mut`：那是 upsert，
+    /// 会把一个没勾选的网盘硬塞回 targets —— 用户取消勾选后点一下卡片
+    /// 就又变回勾选状态（真实投诉）。
+    pub fn focus_provider(&mut self, provider: &str) {
+        self.provider = Some(provider.to_string());
     }
 
     pub fn target_mut(&mut self, provider: &str) -> &mut CloudTarget {
@@ -127,9 +156,6 @@ impl CloudSyncConfig {
 
     /// 单目标语义（P2 阶段）：连一个网盘就把目标列表替换成它。
     /// 多选界面落地后改成 upsert，这里留了统一的入口。
-    pub fn set_single_target(&mut self, target: CloudTarget) {
-        self.targets = vec![target];
-    }
 
     /// 把 `targets` 投影回兼容字段。任何读写之后都要调一次：
     /// 前端只认扁平字段，投影不刷新就会出现「已连接 WebDAV 却显示百度」。
@@ -257,9 +283,11 @@ fn merge_patch(config: &mut CloudSyncConfig, patch: &Value) {
         match value.as_str() {
             // 切换目标只换「激活项」，不动连接态：后端会按已保存的凭据重算。
             Some(provider) => {
+                // 只换「正在配置的那个」，不动 targets。
+                // 曾经这里用 target_mut（upsert），于是"点一下卡片主体"
+                // 等于"勾选它" —— 用户取消勾选后点一下就又勾上了。
                 let provider = provider.to_string();
-                config.target_mut(&provider);
-                config.provider = Some(provider);
+                config.focus_provider(&provider);
             }
             None => {
                 config.targets.clear();
@@ -434,6 +462,9 @@ pub fn cloud_sync_status<R: Runtime>(app: AppHandle<R>) -> Result<Value, String>
 /// 前端靠 `connected=true` 关闭登录弹窗。
 #[tauri::command]
 pub fn cloud_sync_begin_login<R: Runtime>(app: AppHandle<R>, provider: String) -> Result<Value, String> {
+    if provider == "github" {
+        return begin_github_login(app);
+    }
     if provider != "baidu" {
         return Ok(json!({ "authUrl": "", "errorCode": NOT_IMPLEMENTED }));
     }
@@ -485,7 +516,8 @@ fn finish_login<R: Runtime>(app: &AppHandle<R>, result: Result<baidu::BaiduToken
             let mut config = read_config(app);
             let mut target = CloudTarget::new("baidu").connected_as("百度网盘".to_string());
             target.folder_path = None;
-            config.set_single_target(target);
+            // upsert：登录一个网盘不该把别的网盘的目标冲掉。
+            *config.target_mut("baidu") = target;
             config.enabled = true;
             config.project_active();
             let _ = write_config(app, &config);
@@ -545,7 +577,9 @@ pub fn cloud_sync_connect_webdav<R: Runtime>(
     target.webdav_url = Some(url.clone());
     target.webdav_user = Some(user.clone());
     target.folder_path = None;
-    config.set_single_target(target);
+    // upsert：连一个新网盘不该把别的网盘的目标冲掉（多目标之前这里是 set_single_target，
+    // 结果连 WebDAV 会把已经连好的「网盘本地文件夹」一起清掉）。
+    *config.target_mut("webdav") = target;
     config.enabled = true;
     config.project_active();
     write_config(&app, &config)?;
@@ -575,6 +609,25 @@ fn build_remote<R: Runtime>(app: &AppHandle<R>, target: &CloudTarget) -> Result<
                 }
             };
             Ok(Box::new(WebdavStore::new(&url, &user, &password)?))
+        }
+        "github" => {
+            let (Some(owner), Some(repo)) = (target.github_owner.clone(), target.github_repo.clone())
+            else {
+                return Err("github.no-repo".to_string());
+            };
+            // 凭据在、配置没了目标字段：要求重新连接，别拿空 token 去撞 401。
+            let stored = cloud_sync_dir(app)
+                .ok()
+                .and_then(|dir| credentials::load_github(&dir));
+            let Some(stored) = stored else {
+                return Err("github.auth".to_string());
+            };
+            Ok(Box::new(GithubStore::new(
+                &owner,
+                &repo,
+                target.github_branch.as_deref().unwrap_or("main"),
+                &stored.token,
+            )?))
         }
         "baidu" => {
             if baidu_auth_expired(app) {
@@ -609,7 +662,8 @@ pub fn cloud_sync_connect_folder<R: Runtime>(app: AppHandle<R>, path: String) ->
     let mut config = read_config(&app);
     let mut target = CloudTarget::new("folder").connected_as(folder_label(&root));
     target.folder_path = Some(root.to_string_lossy().to_string());
-    config.set_single_target(target);
+    // upsert：选一个新目录不该把别的网盘的目标冲掉。
+    *config.target_mut("folder") = target;
     config.enabled = true;
     config.project_active();
     write_config(&app, &config)?;
@@ -662,6 +716,23 @@ fn reconcile_connection<R: Runtime>(app: &AppHandle<R>, config: &mut CloudSyncCo
                     target.account_label = None;
                 }
             },
+            "github" => match (
+                credentials::load_github(&dir),
+                target.github_owner.clone(),
+                target.github_repo.clone(),
+            ) {
+                (Some(_stored), Some(owner), Some(repo)) => {
+                    target.connected = true;
+                    target.account_label = Some(format!("{owner}/{repo}"));
+                    if target.github_branch.as_deref().unwrap_or("").trim().is_empty() {
+                        target.github_branch = Some("main".to_string());
+                    }
+                }
+                _ => {
+                    target.connected = false;
+                    target.account_label = None;
+                }
+            },
             "folder" => match target.folder_path.as_deref() {
                 Some(path) if Path::new(path).is_dir() => {
                     target.connected = true;
@@ -708,6 +779,345 @@ pub fn cloud_sync_stop<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     Ok(())
 }
 
+// ---------------------------------------------------------------- GitHub
+
+/// 取当前 GitHub token（未授权返回 `None`，绝不 panic）。
+fn current_github_token<R: Runtime>(app: &AppHandle<R>) -> Option<github::GithubToken> {
+    cloud_sync_dir(app).ok().and_then(|dir| credentials::load_github(&dir))
+}
+
+fn github_repo_json(repo: &github::GithubRepo) -> Value {
+    json!({
+        "owner": repo.owner,
+        "name": repo.name,
+        "private": repo.private,
+        "defaultBranch": repo.default_branch,
+        "canPush": repo.can_push,
+        "updatedAt": repo.updated_at,
+    })
+}
+
+/// 设备流登录：先申请 8 位码，再在后台轮询直到用户确认。
+///
+/// 前端拿到 `userCode` 后打开 `verificationUri` 并显示码；随后轮询
+/// `cloud_sync_github_auth_state` 判断是否已授权（不依赖事件，窗口关了也不丢）。
+fn begin_github_login<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
+    // 已经授权过：不必再走一遍设备流（用户可能只是重新选仓库）。
+    if let Some(stored) = current_github_token(&app) {
+        return Ok(json!({
+            "alreadyAuthorized": true,
+            "accountLabel": stored.login,
+        }));
+    }
+
+    let Some(oauth) = github::app_from_env() else {
+        // 发布包里会内置 client_id；开发/自测时用环境变量注入。
+        return Ok(json!({ "errorCode": "github.not-configured" }));
+    };
+
+    let state = app.state::<CloudSyncState>();
+    if !state.try_begin_login() {
+        return Ok(json!({ "errorCode": "auth.in-progress" }));
+    }
+
+    let login = match github::request_device_code(&oauth) {
+        Ok(login) => login,
+        Err(code) => {
+            state.finish_login();
+            return Ok(json!({ "errorCode": code }));
+        }
+    };
+
+    let cancel = state.login_cancel_flag();
+    let app_for_task = app.clone();
+    // 线程要接管 `login`（可能被换码替换），所以先把首次要展示的字段留下来。
+    let first_payload = json!({
+        "userCode": login.user_code,
+        "verificationUri": login.verification_uri,
+        "expiresIn": login.expires_in,
+        "interval": login.interval,
+    });
+    std::thread::spawn(move || {
+        /*
+         * 设备码有 15 分钟有效期。**过期后必须换一张新的**，
+         * 并且要把新码推给前端 —— 否则界面上一直显示一个已经作废的码，
+         * 用户照着输永远授权不成功，还以为是自己输错了（真实投诉）。
+         */
+        let mut current = login;
+        let mut offline_rounds = 0u32;
+        loop {
+            if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+
+            let interval = current.interval.max(5);
+            let expires_in = current.expires_in;
+            let started = std::time::Instant::now();
+            let mut wait = interval;
+            let mut network_failures = 0u32;
+            let mut need_new_code = false;
+
+            while started.elapsed().as_secs() < expires_in {
+                if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+                std::thread::sleep(std::time::Duration::from_secs(wait));
+                if cancel.load(std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+                match github::poll_device_token(&oauth, &current.device_code) {
+                    Ok(github::DevicePoll::Done(mut token)) => {
+                        token.login = github::fetch_viewer(&token.token).unwrap_or_default();
+                        finish_github_login(&app_for_task, Ok(token));
+                        return;
+                    }
+                    Ok(github::DevicePoll::Pending) => {
+                        network_failures = 0;
+                    }
+                    Ok(github::DevicePoll::SlowDown) => {
+                        wait = (wait + 5).min(30);
+                    }
+                    Ok(github::DevicePoll::Denied) => {
+                        finish_github_login(&app_for_task, Err("auth.denied".to_string()));
+                        return;
+                    }
+                    Ok(github::DevicePoll::Expired) => {
+                        // 码过期：换新的重来，不要直接判失败。
+                        need_new_code = true;
+                        break;
+                    }
+                    Ok(github::DevicePoll::Misconfigured) => {
+                        finish_github_login(&app_for_task, Err("github.misconfigured".to_string()));
+                        return;
+                    }
+                    Err(code) => {
+                        // 网络抖动不该一次就放弃（GitHub 在部分网络下会间歇性连不上）。
+                        network_failures += 1;
+                        if network_failures >= 3 {
+                            finish_github_login(&app_for_task, Err(code));
+                            return;
+                        }
+                        wait = (wait + 3).min(20);
+                    }
+                }
+            }
+
+            // 走完一轮：要么码到期、要么显式要求换码。
+            if !need_new_code && started.elapsed().as_secs() < expires_in {
+                // 被 cancel 打断的路径已经在上面 return。
+                return;
+            }
+
+            match github::request_device_code(&oauth) {
+                Ok(fresh) => {
+                    offline_rounds = 0;
+                    let payload = json!({
+                        "userCode": fresh.user_code,
+                        "verificationUri": fresh.verification_uri,
+                        "expiresIn": fresh.expires_in,
+                        "interval": fresh.interval,
+                        // 让前端知道这是**换码**而不是首次出码，好做提示。
+                        "refreshed": true,
+                    });
+                    let _ = app_for_task.emit("cloud-sync://github-device-code", payload);
+                    current = fresh;
+                }
+                Err(code) => {
+                    /*
+                     * 换码本身失败（通常是网络）：给 3 次机会再放弃，
+                     * 不要因为一次抖动就把用户踢回"重新连接"。
+                     */
+                    offline_rounds += 1;
+                    if offline_rounds >= 3 {
+                        finish_github_login(&app_for_task, Err(code));
+                        return;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                }
+            }
+        }
+    });
+
+    Ok(first_payload)
+}
+
+fn finish_github_login<R: Runtime>(app: &AppHandle<R>, result: Result<github::GithubToken, String>) {
+    let state = app.state::<CloudSyncState>();
+    state.finish_login();
+
+    match result {
+        Ok(token) => {
+            let dir = match cloud_sync_dir(app) {
+                Ok(dir) => dir,
+                Err(error) => {
+                    log::warn!("[cloud-sync] 定位云同步目录失败：{error}");
+                    return;
+                }
+            };
+            if let Err(error) = credentials::save_github(&dir, &token) {
+                log::warn!("[cloud-sync] 保存 GitHub 凭据失败：{error}");
+                let _ = app.emit(
+                    "cloud-sync://notice",
+                    json!({ "kind": "failure", "errorCode": "auth.store-failed" }),
+                );
+                return;
+            }
+            // 授权成功只是「能访问 GitHub」，还没选仓库：不建 target。
+            let _ = app.emit(
+                "cloud-sync://notice",
+                json!({ "kind": "github-authorized", "accountLabel": token.login }),
+            );
+            let config = read_config(app);
+            emit_status(app, &config);
+        }
+        Err(error_code) => {
+            // 用户主动取消不弹失败气泡（那会显得像出错了）；其余失败要说清原因。
+            if error_code != "auth.denied" {
+                let _ = app.emit(
+                    "cloud-sync://notice",
+                    json!({ "kind": "failure", "errorCode": error_code }),
+                );
+            }
+            let config = read_config(app);
+            emit_status(app, &config);
+        }
+    }
+}
+
+/// 授权状态：前端在显示 8 位码期间轮询它。
+#[tauri::command]
+pub fn cloud_sync_github_auth_state<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
+    let token = current_github_token(&app);
+    let config = read_config(&app);
+    Ok(json!({
+        "authorized": token.is_some(),
+        "accountLabel": token.map(|stored| stored.login).unwrap_or_default(),
+        "loginPending": app.state::<CloudSyncState>().login_active(),
+        "target": config.targets.iter().find(|target| target.provider == "github"),
+    }))
+}
+
+/// 列当前账号的私有仓库（供选仓库界面用）。
+#[tauri::command]
+pub async fn cloud_sync_github_repos<R: Runtime>(app: AppHandle<R>) -> Result<Value, String> {
+    let Some(stored) = current_github_token(&app) else {
+        return Ok(json!({ "ok": false, "errorCode": "github.auth" }));
+    };
+    let app_for_task = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || github::list_private_repos(&stored.token))
+        .await
+        .map_err(|error| format!("任务失败：{error}"))?;
+    let _ = app_for_task;
+    match result {
+        Ok(repos) => Ok(json!({
+            "ok": true,
+            "repos": repos.iter().map(github_repo_json).collect::<Vec<_>>(),
+        })),
+        Err(error_code) => Ok(json!({ "ok": false, "errorCode": error_code })),
+    }
+}
+
+/// 新建专用私有仓库（private 写死，用户没有建成公开的机会）。
+#[tauri::command]
+pub async fn cloud_sync_github_create_repo<R: Runtime>(app: AppHandle<R>, name: String) -> Result<Value, String> {
+    let Some(stored) = current_github_token(&app) else {
+        return Ok(json!({ "ok": false, "errorCode": "github.auth" }));
+    };
+    let wanted = if name.trim().is_empty() {
+        github::DEFAULT_REPO.to_string()
+    } else {
+        name.trim().to_string()
+    };
+    let result = tauri::async_runtime::spawn_blocking(move || github::create_private_repo(&stored.token, &wanted))
+        .await
+        .map_err(|error| format!("任务失败：{error}"))?;
+    match result {
+        Ok(repo) => Ok(json!({ "ok": true, "repo": github_repo_json(&repo) })),
+        Err(error_code) => Ok(json!({ "ok": false, "errorCode": error_code })),
+    }
+}
+
+/// 把公开仓库改成私有（用户选了公开仓库时的补救动作，需要界面二次确认）。
+#[tauri::command]
+pub async fn cloud_sync_github_make_private<R: Runtime>(
+    app: AppHandle<R>,
+    owner: String,
+    repo: String,
+) -> Result<Value, String> {
+    let Some(stored) = current_github_token(&app) else {
+        return Ok(json!({ "ok": false, "errorCode": "github.auth" }));
+    };
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        github::make_private(&stored.token, &owner, &repo)
+    })
+    .await
+    .map_err(|error| format!("任务失败：{error}"))?;
+    match result {
+        Ok(repo) => Ok(json!({ "ok": true, "repo": github_repo_json(&repo) })),
+        Err(error_code) => Ok(json!({ "ok": false, "errorCode": error_code })),
+    }
+}
+
+/// 连接 GitHub 仓库：强校验私有 + 写探针，通过才落配置。
+#[tauri::command]
+pub async fn cloud_sync_connect_github<R: Runtime>(
+    app: AppHandle<R>,
+    owner: String,
+    repo: String,
+    branch: Option<String>,
+) -> Result<Value, String> {
+    let Some(stored) = current_github_token(&app) else {
+        return Ok(json!({ "ok": false, "errorCode": "github.auth" }));
+    };
+    let token = stored.token.clone();
+    let (owner_clone, repo_clone, branch_clone) = (owner.clone(), repo.clone(), branch.clone());
+    let checked = tauri::async_runtime::spawn_blocking(move || -> Result<github::GithubRepo, String> {
+        let info = github::fetch_repo(&token, &owner_clone, &repo_clone)?;
+        github::validate_target(&info)?;
+        let branch = branch_clone
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| {
+                if info.default_branch.trim().is_empty() {
+                    "main".to_string()
+                } else {
+                    info.default_branch.clone()
+                }
+            });
+        GithubStore::validate(&info.owner, &info.name, &branch, &token)?;
+        Ok(info)
+    })
+    .await
+    .map_err(|error| format!("任务失败：{error}"))?;
+
+    let info = match checked {
+        Ok(info) => info,
+        Err(error_code) => return Ok(json!({ "ok": false, "errorCode": error_code })),
+    };
+
+    let branch = branch
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| {
+            if info.default_branch.trim().is_empty() {
+                "main".to_string()
+            } else {
+                info.default_branch.clone()
+            }
+        });
+
+    let mut config = read_config(&app);
+    let mut target = CloudTarget::new("github").connected_as(info.full_name());
+    target.github_owner = Some(info.owner.clone());
+    target.github_repo = Some(info.name.clone());
+    target.github_branch = Some(branch);
+    // upsert：连一个新网盘不该把别的网盘的目标冲掉。
+    *config.target_mut("github") = target;
+    config.enabled = true;
+    config.project_active();
+    write_config(&app, &config)?;
+    emit_status(&app, &config);
+    Ok(json!({ "ok": true, "config": config }))
+}
+
 #[tauri::command]
 pub fn cloud_sync_logout<R: Runtime>(
     app: AppHandle<R>,
@@ -738,8 +1148,18 @@ pub fn cloud_sync_logout<R: Runtime>(
                 target.account_label = None;
             }
         }
+        Some("github") => {
+            if let Ok(dir) = cloud_sync_dir(&app) {
+                let _ = credentials::clear_github(&dir);
+            }
+            // 只断开 GitHub：owner/repo 留在配置里，重新授权后不用再选一次仓库。
+            if let Some(target) = config.targets.iter_mut().find(|target| target.provider == "github") {
+                target.connected = false;
+                target.account_label = None;
+            }
+        }
         Some("folder") => {
-            // 「本地文件夹」没有账号，退出就是不再同步到它：把目标整条移掉。
+            // 「网盘本地文件夹」没有账号，退出就是不再同步到它：把目标整条移掉。
             // 只移它自己，别连带清掉别的网盘。
             config.targets.retain(|target| target.provider != "folder");
         }
@@ -924,8 +1344,9 @@ pub async fn cloud_sync_run_now<R: Runtime>(
             }
         }
 
+        // 先把本轮的失败数交给前端（emit_status 读的就是这个值），再 finish。
+        // 顺序不能反：finish() 会把失败数归零，反过来写前端永远看到 0 失败。
         state.set_failure_count(failed_total);
-        state.finish();
 
         let mut config = read_config(&app_for_task);
         if last_finished.is_some() {
@@ -943,6 +1364,9 @@ pub async fn cloud_sync_run_now<R: Runtime>(
                 }),
             );
         }
+        // 先让前端拿到本轮的失败数，再把这一轮的运行态整体收尾。
+        emit_status(&app_for_task, &config);
+        state.finish();
         emit_status(&app_for_task, &config);
     });
 
@@ -1057,27 +1481,59 @@ pub fn cloud_sync_clear_history<R: Runtime>(app: AppHandle<R>) -> Result<(), Str
 }
 
 #[tauri::command]
-pub fn cloud_sync_reveal_remote<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+/// 打开远端内容（详情面板与设置页的「打开远端内容」都走这里）。
+///
+/// `provider` 不传时按当前激活目标处理（旧前端兼容）。
+pub fn cloud_sync_reveal_remote_for<R: Runtime>(
+    app: AppHandle<R>,
+    provider: Option<String>,
+) -> Result<(), String> {
     let config = read_config(&app);
-    let active = config.active().cloned();
-    if active.as_ref().map(|target| target.provider.as_str()) == Some("webdav")
-        && active.as_ref().map(|target| target.connected) == Some(true)
-    {
-        // WebDAV 根目录不接受浏览器 GET（坚果云回 OperationNotAllowed，用户看到的
-        // 是一页错误 XML）。这里明确告诉前端「没有网页可开」，让它把地址复制给用户。
-        return Err("remote.webdav-no-browser".to_string());
-    }
-    if active.as_ref().map(|target| target.provider.as_str()) == Some("baidu")
-        && active.as_ref().map(|target| target.connected) == Some(true)
-    {
-        let url = format!(
-            "https://pan.baidu.com/disk/main#/index?category=all&path={}",
-            baidu_path(&baidu::app_name())
-        );
-        return app
-            .opener()
-            .open_url(url, None::<&str>)
-            .map_err(|error| format!("无法打开网盘页面：{error}"));
+    let active = match provider {
+        Some(provider) => config
+            .targets
+            .iter()
+            .find(|target| target.provider == provider && target.connected)
+            .cloned(),
+        None => config.active().cloned(),
+    };
+    match active.as_ref().map(|target| target.provider.as_str()) {
+        Some("github") => {
+            // GitHub 私有仓库必须在**已登录的浏览器**里才看得到。
+            // 我们不做任何绕过身份验证的事：把用户送到仓库页面，
+            // 没登录 GitHub 会先落到登录页，登录后浏览器会自己走回这个地址。
+            let Some(owner) = active.as_ref().and_then(|target| target.github_owner.clone()) else {
+                return Err("github.no-repo".to_string());
+            };
+            let Some(repo) = active.as_ref().and_then(|target| target.github_repo.clone()) else {
+                return Err("github.no-repo".to_string());
+            };
+            let branch = active
+                .as_ref()
+                .and_then(|target| target.github_branch.clone())
+                .unwrap_or_else(|| "main".to_string());
+            let url = format!("https://github.com/{owner}/{repo}/tree/{branch}");
+            return app
+                .opener()
+                .open_url(url, None::<&str>)
+                .map_err(|error| format!("无法打开仓库页面：{error}"));
+        }
+        Some("webdav") if active.as_ref().map(|target| target.connected) == Some(true) => {
+            // WebDAV 根目录不接受浏览器 GET（坚果云回 OperationNotAllowed，用户看到的
+            // 是一页错误 XML）。这里明确告诉前端「没有网页可开」，让它把地址复制给用户。
+            return Err("remote.webdav-no-browser".to_string());
+        }
+        Some("baidu") if active.as_ref().map(|target| target.connected) == Some(true) => {
+            let url = format!(
+                "https://pan.baidu.com/disk/main#/index?category=all&path={}",
+                baidu_path(&baidu::app_name())
+            );
+            return app
+                .opener()
+                .open_url(url, None::<&str>)
+                .map_err(|error| format!("无法打开网盘页面：{error}"));
+        }
+        _ => {}
     }
     if let Some(path) = active.as_ref().and_then(|target| target.folder_path.clone()) {
         if !Path::new(&path).is_dir() {
@@ -1090,6 +1546,20 @@ pub fn cloud_sync_reveal_remote<R: Runtime>(app: AppHandle<R>) -> Result<(), Str
     }
     Err("还没有连接网盘".to_string())
 }
+
+#[tauri::command]
+pub fn cloud_sync_reveal_remote<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    cloud_sync_reveal_remote_for(app, None)
+}
+
+#[tauri::command]
+pub fn cloud_sync_reveal_target_remote<R: Runtime>(
+    app: AppHandle<R>,
+    provider: String,
+) -> Result<(), String> {
+    cloud_sync_reveal_remote_for(app, Some(provider))
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -1287,6 +1757,46 @@ mod tests {
         assert_eq!(config.targets[0].provider, "folder");
         assert_eq!(config.targets[0].folder_path.as_deref(), Some("O:\\BaiduSyncdisk"));
         assert!(config.targets[0].connected);
+    }
+
+    #[test]
+    fn focusing_a_provider_does_not_re_enable_a_deselected_target() {
+        // 用户取消勾选坚果云后，点一下它的卡片「看一眼」，
+        // 绝不能因为 focus 就把它塞回 targets（那等于又勾上了）。
+        let mut config = CloudSyncConfig::default();
+        config.targets = vec![CloudTarget::new("github").connected_as("me/repo".into())];
+        config.provider = Some("github".into());
+        config.project_active();
+
+        config.focus_provider("webdav");
+
+        assert_eq!(config.provider.as_deref(), Some("webdav"), "焦点切过去了");
+        assert_eq!(config.targets.len(), 1, "但 targets 不该多出一条");
+        assert_eq!(config.targets[0].provider, "github");
+    }
+
+    #[test]
+    fn deselecting_a_target_stops_it_from_being_scheduled() {
+        // 取消勾选 = 从 targets 拿掉，哪怕账号还登着（connected 仍为真）。
+        let mut config = CloudSyncConfig::default();
+        let mut webdav = CloudTarget::new("webdav").connected_as("me@example.com".into());
+        webdav.webdav_url = Some("https://dav.jianguoyun.com/dav/".into());
+        config.targets = vec![webdav, CloudTarget::new("github").connected_as("me/repo".into())];
+        config.provider = Some("github".into());
+        config.project_active();
+
+        // 取消勾选坚果云
+        let keep: Vec<CloudTarget> = config
+            .targets
+            .iter()
+            .filter(|target| target.provider != "webdav")
+            .cloned()
+            .collect();
+        config.targets = keep;
+
+        let scheduled = config.connected_targets();
+        assert_eq!(scheduled.len(), 1);
+        assert_eq!(scheduled[0].provider, "github");
     }
 
     #[test]

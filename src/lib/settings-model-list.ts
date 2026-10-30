@@ -175,6 +175,7 @@ async function fetchModelList(url: string, headers: Record<string, string>, _cur
 async function fetchCursorCliAcpCatalog(): Promise<CursorAcpCatalogModel[]> {
   const raw = await invoke<CursorAcpCatalogModel[] | { models?: CursorAcpCatalogModel[] }>(
     "cursor_cli_acp_models",
+    { forceRefresh: true },
   )
   const models = Array.isArray(raw) ? raw : raw?.models ?? []
   return models.filter((model) => typeof model?.modelId === "string" && model.modelId.trim())

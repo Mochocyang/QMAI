@@ -709,6 +709,56 @@ function appendChapterInfo(existing: string, sectionMd: string, today: string): 
   return updated
 }
 
+/** Only strip the generated chapter blocks, leaving authored sections intact. */
+export function stripGeneratedChapterInfo(markdown: string): string {
+  let generated = false
+  return markdown.split(/\r?\n/).filter((line) => {
+    const heading = line.match(/^## (.+)$/)?.[1]?.trim()
+    if (heading === "章节信息") generated = true
+    else if (heading) generated = false
+    return !generated
+  }).join("\n").trimEnd() + "\n"
+}
+
+export function memoryProjectionPaths(projectPath: string, patches: WikiUpdatePatch[]): string[] {
+  return [...new Set(patches.flatMap((p) => p.entries.filter(shouldPersistPatchEntry).map((entry) =>
+    `${normalizePath(projectPath)}/wiki/entities/${nodeIdToSlug(entry.entryId)}.md`,
+  )))].filter((path) => !/[\\]/.test(path) && !path.includes("/../"))
+}
+
+/** Rebuild generated facts for affected entities instead of appending stale copies. */
+export async function rebuildMemoryEntityProjections(projectPath: string, patches: WikiUpdatePatch[], paths: string[], previous: ChapterSnapshot[] = [], current: ChapterSnapshot[] = []): Promise<void> {
+  const wanted = new Set(paths)
+  const today = new Date().toISOString().split("T")[0]
+  const entries = new Map<string, WikiUpdateEntry[]>()
+  const currentEdges = new Set(current.flatMap(snapshotToGraphEdges).map((edge) => JSON.stringify(edge)))
+  const removedEdges = previous.flatMap(snapshotToGraphEdges).filter((edge) => !currentEdges.has(JSON.stringify(edge)))
+  for (const patch of patches) for (const entry of patch.entries.filter(shouldPersistPatchEntry)) {
+    const path = `${normalizePath(projectPath)}/wiki/entities/${nodeIdToSlug(entry.entryId)}.md`
+    if (wanted.has(path)) entries.set(path, [...(entries.get(path) ?? []), entry])
+  }
+  for (const path of paths) {
+    if (!await fileExists(path)) continue
+    let content = stripGeneratedChapterInfo(await readFile(path))
+    const obsoleteLines = new Set<string>()
+    for (const edge of removedEdges) {
+      for (const [self, other] of [[edge.source, edge.target], [edge.target, edge.source]]) {
+        if (path === `${normalizePath(projectPath)}/wiki/entities/${nodeIdToSlug(self)}.md`) {
+          obsoleteLines.add(`- [[${nodeIdToSlug(other)}]] — ${NOVEL_RELATION_LABELS[edge.relation] ?? edge.relation}`)
+        }
+      }
+    }
+    content = content.split("\n").filter((line) => !obsoleteLines.has(line)).join("\n")
+    for (const entry of entries.get(path) ?? []) {
+      // Identity/profile headings may contain authored prose; preserve them and
+      // rebuild only the generated fact bullets preceding those headings.
+      const facts = buildChapterInfoSection(entry).split(/\n(?=## )/)[0]
+      content = appendChapterInfo(content, facts, today)
+    }
+    await writeFileAtomic(path, content)
+  }
+}
+
 export async function writePatchFieldsToWiki(
   projectPath: string,
   patch: WikiUpdatePatch,

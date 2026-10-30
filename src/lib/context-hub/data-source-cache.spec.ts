@@ -269,7 +269,7 @@ describe("DataSourceCacheAdapter", () => {
     }
   })
 
-  it("excludes all four task sources from both counters on a repeated twelve-source request", async () => {
+  it("excludes all five task sources from both counters on a repeated twelve-source request", async () => {
     const harness = createHarness()
     const sources = [
       "canonRules", "writingStyle", "soulDoc", "storyFrameworkBinding",
@@ -279,7 +279,7 @@ describe("DataSourceCacheAdapter", () => {
     const coldRegistry = new DataSourceRegistry({ loadAdapter: harness.adapter })
     coldRegistry.registerAll(sources)
     const cold = await coldRegistry.loadAll(context)
-    expect(harness.adapter.getStats()).toMatchObject({ cacheableLoaded: 8, cacheableHits: 0 })
+    expect(harness.adapter.getStats()).toMatchObject({ cacheableLoaded: 7, cacheableHits: 0 })
 
     const warmAdapter = new DataSourceCacheAdapter({ registry: harness.registry, storage: harness.cacheStorage })
     const warmRegistry = new DataSourceRegistry({ loadAdapter: warmAdapter })
@@ -289,9 +289,9 @@ describe("DataSourceCacheAdapter", () => {
     expect(warm).toEqual(cold)
     expect(warmAdapter.getStats()).toMatchObject({
       cacheHits: 12,
-      taskScopedLoaded: 4,
-      cacheableLoaded: 8,
-      cacheableHits: 8,
+      taskScopedLoaded: 5,
+      cacheableLoaded: 7,
+      cacheableHits: 7,
     })
     for (const source of sources) expect(source.load).toHaveBeenCalledOnce()
   })

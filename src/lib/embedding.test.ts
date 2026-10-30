@@ -48,11 +48,13 @@ import {
   fetchEmbedding,
   embedPage,
   embedAllPages,
+  getEmbeddingSkipSummary,
   getLastEmbeddingError,
   legacyVectorRowCount,
   dropLegacyVectorTable,
   getEmbeddingCount,
   removePageEmbedding,
+  removePageEmbeddingStrict,
   type PageSearchResult,
 } from "./embedding"
 
@@ -1186,11 +1188,59 @@ describe("embedAllPages", () => {
     expect(upserts).toHaveLength(1)
     expect((upserts[0][1] as { pageId: string }).pageId).toBe("b")
   })
+
+  it("skips a page id Lance would reject and still commits the other pages", async () => {
+    listDirectoryMock.mockResolvedValueOnce([
+      { name: "ok.md", path: "/proj/wiki/ok.md", is_dir: false },
+      { name: "第157章-Let's clear the air.md", path: "/proj/wiki/bad.md", is_dir: false },
+    ])
+    readFileMock.mockResolvedValue("# Title\n\nBody text.")
+    mockHttpFetch.mockImplementation(async (_url: string, opts?: RequestInit) => batchOkResponse(opts))
+
+    await embedAllPages("/proj", cfg)
+
+    const commands = mockInvoke.mock.calls.map((call) => call[0])
+    expect(commands).toContain("vector_rebuild_commit")
+    expect(commands).not.toContain("vector_rebuild_abort")
+    const staged = mockInvoke.mock.calls
+      .filter((call) => call[0] === "vector_rebuild_append")
+      .flatMap((call) => (call[1] as { chunks: Array<{ page_id: string }> }).chunks)
+    expect([...new Set(staged.map((row) => row.page_id))]).toEqual(["ok"])
+    expect(getEmbeddingSkipSummary()).toContain("第157章-Let's clear the air")
+  })
+
+  it("commits a rebuild after a staging write fails instead of dropping it", async () => {
+    listDirectoryMock.mockResolvedValueOnce([
+      { name: "a.md", path: "/proj/wiki/a.md", is_dir: false },
+      { name: "b.md", path: "/proj/wiki/b.md", is_dir: false },
+    ])
+    readFileMock.mockResolvedValue("body.")
+    mockHttpFetch.mockImplementation(async () => okResponse([0.5]))
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === "vector_rebuild_append") throw new Error("disk full")
+    })
+
+    await expect(embedAllPages("/proj", cfg)).resolves.toBe(2)
+
+    const commands = mockInvoke.mock.calls.map((call) => call[0])
+    expect(commands).toContain("vector_rebuild_commit")
+    expect(commands).not.toContain("vector_rebuild_abort")
+    expect(getEmbeddingSkipSummary()).toContain("已跳过")
+  })
 })
 
 // ── Legacy & misc helpers ───────────────────────────────────────────
 
 describe("legacyVectorRowCount / dropLegacyVectorTable / getEmbeddingCount / removePageEmbedding", () => {
+  it("maintenance deletion clears the cached page hash and surfaces vector write failures", async () => {
+    const fs = await import("@/commands/fs")
+    vi.mocked(fs.readFile).mockResolvedValueOnce(JSON.stringify({ configHash: "same", pages: { rope: "old", kept: "unchanged" } }))
+    mockInvoke.mockResolvedValueOnce(undefined)
+    await removePageEmbeddingStrict("/proj", "rope")
+    expect(fs.writeFileAtomic).toHaveBeenCalledWith("/proj/.qmai/embedding-index.json", JSON.stringify({ configHash: "same", pages: { kept: "unchanged" } }))
+    mockInvoke.mockRejectedValueOnce(new Error("index read-only"))
+    await expect(removePageEmbeddingStrict("/proj", "rope")).rejects.toThrow("index read-only")
+  })
   it("legacyVectorRowCount: returns the Rust row count on success, 0 on error", async () => {
     mockInvoke.mockResolvedValueOnce(42)
     const n = await legacyVectorRowCount("/proj")

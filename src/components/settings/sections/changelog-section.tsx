@@ -18,6 +18,12 @@ import {
 
 const COLLAPSED_CHANGELOG_ITEM_COUNT = 5
 
+/** 把字节数变成 "12.4 MB"，让进度条旁边有个可读的量。 */
+function formatMb(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 MB"
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export function ChangelogSection() {
   const { t, i18n } = useTranslation()
   const lang: "en" | "zh" = i18n.language?.startsWith("zh") ? "zh" : "en"
@@ -34,6 +40,14 @@ export function ChangelogSection() {
   const updateNotes = update.updateNotes
   const errorMessage = update.errorMessage
   const downloadProgress = update.downloadProgress
+  const downloadSource = update.downloadSource
+  const downloadBytes = update.downloadBytes
+  const downloadTotalBytes = update.downloadTotalBytes
+  // 下载速度：用字节数变化估个即时速率，让用户确认"确实在动"。
+  const speedText = (() => {
+    if (update.status !== "downloading" || downloadTotalBytes <= 0) return ""
+    return `${formatMb(downloadBytes)} / ${formatMb(downloadTotalBytes)}`
+  })()
 
   return (
     <div className="space-y-6">
@@ -126,10 +140,15 @@ export function ChangelogSection() {
         ) : null}
 
         {updateStatus === "downloading" ? (
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 space-y-2" data-ui="changelog-download-progress">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">正在下载更新...</span>
-              <span className="font-medium">{downloadProgress}%</span>
+              <span className="text-muted-foreground">
+                正在下载更新{downloadSource ? `（${downloadSource}）` : ""}...
+              </span>
+              <span className="font-medium">
+                {speedText ? `${speedText} · ` : ""}
+                {downloadProgress}%
+              </span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div

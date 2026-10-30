@@ -1,70 +1,63 @@
 import { readFileSync, readdirSync, statSync } from "node:fs"
-import { join, resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 /**
- * 使用统计上报的「接线」回归测试。
+ * 用户统计上报的"接线"回归测试。
  *
- * 事故背景（与 app-updater-wiring.test.ts 同源）：
+ * 为什么需要它 —— 与 app-updater-wiring.test.ts 是同一场事故：
  *
- * 2026-09-25 的提交 26f80ee（"fix(ui): 调整对话输入框与界面资源"）从 App.tsx
- * 删掉了两行 —— `import { initAnalytics }` 与 `void initAnalytics()`，同时也删了
- * 更新检查那一对。更新检查后来在 471a0dcf 单独修复，**统计上报被漏掉了**：
- * `initAnalytics` 在整仓只剩自己的定义，没有任何调用者，`analytics.ts` 被
- * bundler 整体 tree-shake 掉，那段代码根本没进安装包。
+ * 提交 26f80ee6（"fix(ui): 调整对话输入框与界面资源"）从 App.tsx 删掉了
+ * `if (!IS_UI_TEST_BUILD) { checkForAppUpdate(); initAnalytics() }` 整块。
+ * 更新检查那次修复已经补了守卫，但 initAnalytics 一直没有归队 ——
+ * src/lib/analytics.ts 只剩自己的定义、没有任何调用者，于是被 bundler
+ * 整体 tree-shake 掉，后台仪表盘的「下载用户数 / 独立 IP / 当前在线 /
+ * 今日新增」四项从此不再更新。
  *
- * 后果：数据从 2026-09-25 起停止增长（后台库里 3417 个用户、1589 个独立 IP
- * 全是此前的历史数据），用户在设置里看到的统计看板一直显示陈旧数字。
- *
- * analytics.ts 单测无法发现这个故障 —— 只要函数本身逻辑没改、导出还在，
- * 单测全绿。只有「有没有人调用它」这一层断言能守住。
+ * 这类故障单元测试抓不到：analytics.ts 内部逻辑完全没变，任何只测
+ * sendAnalytics / initAnalytics 内部行为的用例都会一路绿着。
+ * 所以这里断言的是**接线本身**。
  */
 
 const SRC = resolve(__dirname, "..")
 const DEFINITION_MODULE = "lib/analytics.ts"
-const MODULE_SPECIFIER = "@/lib/analytics"
 
-/** 本仓库约定：.test.* / .spec.* 是测试文件。 */
 function isTestFile(rel: string): boolean {
   return /\.(test|spec)\.[tj]sx?$/.test(rel)
 }
 
-/** 剥掉注释，避免说明性文字触发断言（历史教训见 app-updater-wiring.test.ts）。 */
+/**
+ * 剥掉注释再断言。必须这么做：App.tsx 修复处写了大段解释性注释，
+ * 里面**写到了** initAnalytics 这个名字，不剥注释会被自己的说明文字触发。
+ * 行注释用 [^:] 前缀排除，避免把 https:// 的 // 当成注释起始。
+ */
 function stripComments(text: string): string {
   return text
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/(^|[^:])\/\/.*$/gm, "$1")
 }
 
-function collectSourceFiles(root: string, dir: string = root, out: Array<{ full: string; rel: string }> = []) {
+function collectSourceFiles(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry)
     const stat = statSync(full)
     if (stat.isDirectory()) {
       if (entry === "node_modules") continue
-      collectSourceFiles(root, full, out)
+      collectSourceFiles(full, out)
       continue
     }
-    if (/\.(ts|tsx)$/.test(entry)) {
-      // rel 始终相对 src 根，递归深度不影响路径形状。
-      out.push({ full, rel: full.slice(root.length + 1).replace(/\\/g, "/") })
-    }
+    if (/\.(ts|tsx)$/.test(entry)) out.push(full)
   }
   return out
 }
 
-const sourceFiles = collectSourceFiles(SRC)
+const sourceFiles = collectSourceFiles(SRC).map((full) => ({
+  full,
+  rel: relative(SRC, full).replace(/\\/g, "/"),
+}))
 
-describe("使用统计上报的接线", () => {
-  it("analytics.ts 仍然导出 initAnalytics", () => {
-    const definition = sourceFiles.find((f) => f.rel === DEFINITION_MODULE)
-    expect(definition, "找不到 src/lib/analytics.ts").toBeDefined()
-
-    const text = readFileSync(definition!.full, "utf8")
-    expect(text).toMatch(/export\s+async\s+function\s+initAnalytics\s*\(/)
-  })
-
-  it("有非测试代码真正调用 initAnalytics（否则整个模块会被 tree-shake）", () => {
+describe("用户统计上报的接线", () => {
+  it("有非测试代码真正调用 initAnalytics（而不是只剩一个无人调用的导出）", () => {
     const callers = sourceFiles
       .filter((f) => !isTestFile(f.rel))
       .filter((f) => f.rel !== DEFINITION_MODULE)
@@ -72,48 +65,43 @@ describe("使用统计上报的接线", () => {
 
     expect(
       callers.map((f) => f.rel),
-      "initAnalytics 没有任何调用者 —— 模块会被 tree-shake，"
-        + "统计上报不会进入安装包，后台数据停止增长。"
-        + "请确认 App.tsx 里保留了 import 与 void initAnalytics()。",
+      "initAnalytics 没有任何调用者 —— 它会被再次 tree-shake，"
+        + "后台统计（下载数/独立 IP/在线人数/今日新增）将不再更新。"
+        + "请确认启动流程里仍然调用它。",
     ).not.toHaveLength(0)
   })
 
-  it("调用点在 App.tsx 的启动流程里，import 与实际调用缺一不可", () => {
+  it("调用点是应用启动入口 App.tsx（而不是某个永远走不到的分支）", () => {
     const app = sourceFiles.find((f) => f.rel === "App.tsx")
     expect(app, "找不到 src/App.tsx").toBeDefined()
 
-    const text = readFileSync(app!.full, "utf8")
-    const code = stripComments(text)
-
-    expect(code, `App.tsx 缺少对 ${MODULE_SPECIFIER} 的 import`).toContain(
-      `import { initAnalytics } from "${MODULE_SPECIFIER}"`,
+    const code = stripComments(readFileSync(app!.full, "utf8"))
+    // 既要有 import，也要有实际调用，缺一不可
+    expect(code, "App.tsx 未导入 initAnalytics").toContain(
+      'import { initAnalytics } from "@/lib/analytics"',
     )
-    expect(code, "App.tsx 引入了 initAnalytics 但没有调用").toMatch(
+    expect(code, "App.tsx 导入了但没有调用 initAnalytics").toMatch(
       /void\s+initAnalytics\s*\(\s*\)/,
     )
   })
 
-  it("统计上报不依赖恒假的编译期开关", () => {
-    // 与更新检查同样的坑：IS_UI_TEST_BUILD 在 src/lib/ui-test.ts 里硬编码为 true，
-    // vite.config.ts 也没有对应 define。若把调用套在 `if (!IS_UI_TEST_BUILD)` 里，
-    // 等于没写，而 tsc 与单测都不会报错。
+  it("调用没有被恒假的编译期常量挡住（IS_UI_TEST_BUILD 现为常量 true）", () => {
     const app = sourceFiles.find((f) => f.rel === "App.tsx")
-    expect(app).toBeDefined()
-
-    const uiTestText = readFileSync(join(SRC, "lib/ui-test.ts"), "utf8")
-    const hardcodedTrue = /export const IS_UI_TEST_BUILD = true/.test(uiTestText)
-    if (!hardcodedTrue) return
-
     const code = stripComments(readFileSync(app!.full, "utf8"))
-    const callIndex = code.search(/void\s+initAnalytics\s*\(\s*\)/)
-    expect(callIndex, "App.tsx 没有调用 initAnalytics").toBeGreaterThan(-1)
 
-    // 调用点所在行不能同时出现那个恒真开关。
-    const line = code.slice(0, callIndex).split("\n").pop() ?? ""
-    const after = code.slice(callIndex, callIndex + 120)
-    expect(
-      line.includes("IS_UI_TEST_BUILD") || after.includes("IS_UI_TEST_BUILD"),
-      "initAnalytics 被套在恒假的 IS_UI_TEST_BUILD 守卫里，实际不会执行。",
-    ).toBe(false)
+    // 原来的写法是 `if (!IS_UI_TEST_BUILD) { ... }`，但该常量已硬编码为 true、
+    // vite.config.ts 也没有构建期替换 —— 条件恒假，调用写了也等于没写，
+    // 而且 tsc 和测试都不会报错。这是最容易踩空的地方。
+    const uiTestModule = join(SRC, "lib/ui-test.ts")
+    const hardcodedTrue = /export const IS_UI_TEST_BUILD = true/.test(
+      readFileSync(uiTestModule, "utf8"),
+    )
+
+    if (hardcodedTrue && code.includes("IS_UI_TEST_BUILD")) {
+      throw new Error(
+        "App.tsx 用了 IS_UI_TEST_BUILD 做守卫，但该常量硬编码为 true、"
+          + "且没有构建期替换，守卫恒为假，统计上报永远不会执行。",
+      )
+    }
   })
 })

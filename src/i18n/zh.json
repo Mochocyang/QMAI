@@ -703,8 +703,8 @@
         "reindexDone": "已索引 {{count}} 个页面。",
         "legacyPromptTitle": "检测到旧版（按页）索引",
         "legacyPromptBody": "当前项目在旧版按页向量存储里有 {{count}} 条记录。新版按 chunk 索引检索质量更高,但需要一次性重新 embed。点击\"重新索引全部页面\"完成升级。",
-        "dropLegacy": "删除旧版索引",
-        "dropLegacyDone": "旧版索引已删除。",
+        "dropLegacy": "删除升级前的按页向量表",
+        "dropLegacyDone": "升级前的按页向量表已删除。",
         "testSuccessWithDimensions": "嵌入模型测试成功：{{model}}（{{dimensions}}维）"
       },
       "rerank": {
@@ -875,7 +875,7 @@
       },
       "maintenance": {
         "title": "维护工具",
-        "description": "用于清理资料库的工具：检测并合并重复实体/概念，以及清理伏笔追踪器中的重复、噪声与失效条目。",
+        "description": "用于维护写作记忆与资料库：从来源清理重复、噪声记忆，同步派生文档，并检测和合并重复实体/概念。",
         "noProject": "请先打开一个项目。",
         "noLlm": "请先配置大模型提供方。",
         "foreshadowing": {

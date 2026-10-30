@@ -27,7 +27,7 @@ describe("chapter ingest draft boundary", () => {
       source.indexOf("function createRetrievalStore"),
     )
     const saveBeforeSync = ingestFn.indexOf("await saveSnapshot(")
-    const syncCall = ingestFn.indexOf("await syncSnapshotToMemory(")
+    const syncCall = ingestFn.indexOf("await syncSnapshotToMemoryUnlocked(")
     expect(syncCall).toBeGreaterThan(0)
     expect(saveBeforeSync).toBe(-1)
   })

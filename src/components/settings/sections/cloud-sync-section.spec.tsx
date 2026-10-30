@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -78,6 +81,9 @@ beforeEach(() => {
     ...patch,
   }))
   clientMocks.beginCloudSyncLogin.mockResolvedValue({ authUrl: "" })
+  // 退出登录会拿返回值当新的 config；不设默认值的话 store 会 set 成 undefined，
+  // 下一次渲染就 "Cannot read properties of undefined (reading 'targets')"。
+  clientMocks.logoutCloudSync.mockImplementation(async () => useCloudSyncStore.getState().config)
   clientMocks.readCloudSyncHistory.mockResolvedValue({ batches: [], entries: [] })
   clientMocks.getCloudSyncStatus.mockResolvedValue({
     config: { ...DEFAULT_CLOUD_SYNC_CONFIG },
@@ -127,43 +133,228 @@ describe("CloudSyncSection", () => {
   it("打开后进入登录门：给出提示，且不触发同步", async () => {
     render()
     await act(async () => switchButton("云同步").click())
+    // 现在是三张：坚果云（WebDAV）、GitHub、网盘本地文件夹。百度这一版隐藏了。
     expect(host.querySelectorAll('[data-ui="cloud-sync-provider"]').length).toBe(3)
     // 还没勾选任何网盘：提示先去勾一个，而不是笼统说「需要登录」。
     expect(host.textContent).toContain("先勾选一个网盘")
     expect(clientMocks.runCloudSyncNow).not.toHaveBeenCalled()
   })
 
-  it("百度网盘不开登录入口：这一版只在卡片上说明后续开放", async () => {
+  it("百度网盘这一版不出卡片", async () => {
     render()
     await act(async () => switchButton("云同步").click())
-    // 卡片主体 disabled，点不动也就不存在「登录百度账号」按钮。
-    const body = host.querySelector<HTMLButtonElement>('[data-provider="baidu"]')!
-    expect(body.disabled).toBe(true)
-    await act(async () => body.click())
-    expect(host.textContent).not.toContain("登录百度账号")
-    expect(clientMocks.beginCloudSyncLogin).not.toHaveBeenCalled()
+    // 列表里没有百度：卡片、勾选框都不存在，界面上也不提它。
+    expect(host.querySelector('[data-provider-card="baidu"]')).toBeNull()
+    expect(host.querySelector('[data-provider="baidu"]')).toBeNull()
+    expect(host.querySelector('[data-target-toggle="baidu"]')).toBeNull()
+    expect(host.textContent).not.toContain("百度")
+    expect(host.textContent).not.toContain("后续版本开放")
   })
 
-  it("百度网盘这一版点不动，卡片上写明后续版本开放", async () => {
+  it("WebDAV 卡片文案是「坚果云」", async () => {
     useCloudSyncStore.setState({
       config: { ...DEFAULT_CLOUD_SYNC_CONFIG, enabled: true, provider: null, connected: false },
     })
     render()
+    const webdavCard = host.querySelector<HTMLElement>('[data-provider-card="webdav"]')!
+    expect(webdavCard.textContent).toContain("坚果云")
+  })
 
-    const card = host.querySelector<HTMLElement>('[data-provider-card="baidu"]')!
-    expect(card.getAttribute("data-provider-available")).toBe("false")
-    expect(card.textContent).toContain("后续版本开放")
-
-    // 主体与勾选框都是 disabled：点了不会有任何命令发出去。
-    const body = card.querySelector<HTMLButtonElement>('[data-ui="cloud-sync-provider"]')!
-    const toggle = card.querySelector<HTMLButtonElement>('[data-target-toggle="baidu"]')!
-    expect(body.disabled).toBe(true)
-    expect(toggle.disabled).toBe(true)
-    await act(async () => {
-      body.click()
-      toggle.click()
+  it("退出登录只退自己那一行，不连坐别的网盘", async () => {
+    /*
+     * 真实投诉：在坚果云那行点退出登录，退掉的却是 GitHub。
+     * 根因是 logout() 读的是"当前激活的网盘"，而用户上一个点过的卡片是 GitHub。
+     * 修好后按钮会把**自己那一行**的 provider 传下去。
+     */
+    useCloudSyncStore.setState({
+      config: {
+        ...DEFAULT_CLOUD_SYNC_CONFIG,
+        enabled: true,
+        provider: "github",
+        connected: true,
+        accountLabel: "me/repo",
+        targets: [
+          {
+            provider: "webdav",
+            connected: true,
+            accountLabel: "me@example.com",
+            webdavUrl: "https://dav.jianguoyun.com/dav/",
+          },
+          { provider: "github", connected: true, accountLabel: "me/repo" },
+        ],
+      },
     })
+    render()
+    await act(async () => {})
+
+    // 界面上只有焦点那一行显示账号操作区，所以只会有一个退出登录按钮；
+    // 关键是它携带的 provider 必须是**它自己那一行**的，而不是"上一个点过的那个"。
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>('[data-ui="cloud-sync-logout"]')]
+    expect(buttons.length).toBeGreaterThan(0)
+    for (const button of buttons) {
+      expect(button.getAttribute("data-provider")).toBe("github")
+    }
+    await act(async () => buttons[0].click())
+    expect(clientMocks.logoutCloudSync).toHaveBeenCalledWith("github")
+    // 绝不能出现"点了这一行、退的却是别的盘"
+    expect(clientMocks.logoutCloudSync).not.toHaveBeenCalledWith("webdav")
+  })
+
+  it("点网盘卡片主体只是切焦点，不改变它的勾选状态", async () => {
+    // 真实投诉：取消勾选坚果云后，点一下它的卡片看一眼，又变回勾选。
+    // 根因是卡片主体走 setProvider → 后端 target_mut 是 upsert。
+    useCloudSyncStore.setState({
+      config: {
+        ...DEFAULT_CLOUD_SYNC_CONFIG,
+        enabled: true,
+        provider: "github",
+        connected: true,
+        targets: [{ provider: "github", connected: true, accountLabel: "me/repo" }],
+      },
+    })
+    render()
+    await act(async () => {})
+
+    const webdavCard = host.querySelector<HTMLElement>('[data-provider-card="webdav"]')!
+    expect(webdavCard.getAttribute("data-target-enabled")).toBe("false")
+
+    const body = webdavCard.querySelector<HTMLButtonElement>('[data-ui="cloud-sync-provider"]')!
+    await act(async () => body.click())
+
+    // focusProvider 是纯本地的：一个 IPC 都不该发，更不该碰 targets。
     expect(clientMocks.setCloudSyncConfig).not.toHaveBeenCalled()
+    expect(useCloudSyncStore.getState().config.targets).toHaveLength(1)
+    expect(useCloudSyncStore.getState().config.targets?.[0].provider).toBe("github")
+  })
+
+  it("勾了但没登录的网盘要说清「已勾选，还需登录」", async () => {
+    // 用户会以为"登录了就在同步"。勾了但还没登录时必须能看出来。
+    useCloudSyncStore.setState({
+      config: {
+        ...DEFAULT_CLOUD_SYNC_CONFIG,
+        enabled: true,
+        provider: "webdav",
+        connected: false,
+        targets: [{ provider: "webdav", connected: false }],
+      },
+    })
+    render()
+    await act(async () => {})
+
+    const card = host.querySelector<HTMLElement>('[data-provider-card="webdav"]')!
+    expect(card.getAttribute("data-target-enabled")).toBe("true")
+    expect(card.getAttribute("data-target-connected")).toBe("false")
+    expect(card.textContent).toContain("已勾选，还需登录")
+  })
+
+  it("点哪个网盘，下方就显示那个网盘自己的信息", async () => {
+    /*
+     * 真实投诉：点「网盘本地文件夹」，下面还显示"已连接：GitHub"；
+     * 点坚果云也看不到坚果云的信息，于是想重新登录都点不到表单。
+     * 根因是信息区用的是 config.connected/config.accountLabel（激活目标的投影），
+     * 而不是"刚点开的那个网盘"。
+     */
+    useCloudSyncStore.setState({
+      config: {
+        ...DEFAULT_CLOUD_SYNC_CONFIG,
+        enabled: true,
+        provider: "github",
+        connected: true,
+        accountLabel: "Mochocyang/qmai-write-backup",
+        targets: [
+          { provider: "github", connected: true, accountLabel: "Mochocyang/qmai-write-backup" },
+          {
+            provider: "webdav",
+            connected: true,
+            accountLabel: "pairy0@sina.com",
+            webdavUrl: "https://dav.jianguoyun.com/dav/",
+          },
+          { provider: "folder", connected: true, accountLabel: "BaiduSyncdisk", folderPath: "O:/BaiduSyncdisk" },
+        ],
+      },
+    })
+    render()
+    await act(async () => {})
+
+    // 一开始焦点在 GitHub
+    expect(host.textContent).toContain("Mochocyang/qmai-write-backup")
+
+    // 点坚果云 → 下方必须变成坚果云的账号
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[data-provider="webdav"]')!.click(),
+    )
+    expect(host.textContent).toContain("pairy0@sina.com")
+    expect(host.textContent).not.toContain("已连接：Mochocyang/qmai-write-backup")
+
+    // 点网盘本地文件夹 → 下方变成它自己的账号
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[data-provider="folder"]')!.click(),
+    )
+    expect(host.textContent).toContain("BaiduSyncdisk")
+  })
+
+  it("未勾选的网盘也能点开看到登录表单（只是不参与同步）", async () => {
+    useCloudSyncStore.setState({
+      config: {
+        ...DEFAULT_CLOUD_SYNC_CONFIG,
+        enabled: true,
+        provider: "github",
+        connected: true,
+        targets: [{ provider: "github", connected: true, accountLabel: "me/repo" }],
+      },
+    })
+    render()
+    await act(async () => {})
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[data-provider="webdav"]')!.click(),
+    )
+    // 表单在（能重新登录），同时明确告诉用户"还没勾选"
+    expect(host.textContent).toContain("还没勾选")
+    expect(host.textContent).toContain("登录")
+  })
+
+  it("勾选框未选中时也要看得见（不能浅到找不到）", () => {
+    const source = readFileSync(resolve(__dirname, "cloud-sync-section.tsx"), "utf8")
+    // 未勾选态不能再用 border-input 这种浅灰，必须是带透明度的前景色描边
+    expect(source).toContain("border-foreground/45")
+    expect(source).toContain("border-2")
+  })
+
+  it("「打开远端内容」和「退出登录」挨在一起，中间不夹别的元素", async () => {
+    useCloudSyncStore.setState({
+      config: {
+        ...DEFAULT_CLOUD_SYNC_CONFIG,
+        enabled: true,
+        provider: "github",
+        connected: true,
+        accountLabel: "someone/repo",
+        targets: [
+          {
+            provider: "github",
+            connected: true,
+            accountLabel: "someone/repo",
+            githubOwner: "someone",
+            githubRepo: "repo",
+            githubBranch: "main",
+          },
+        ],
+      },
+    })
+    render()
+
+    const reveal = host.querySelector<HTMLButtonElement>('[data-ui="cloud-sync-reveal-remote"]')!
+    expect(reveal).toBeTruthy()
+    const logout = [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+      button.textContent?.includes("退出登录"),
+    )!
+    expect(logout).toBeTruthy()
+
+    // 两个按钮必须是同一个容器的直接子级 —— 否则 justify-between 会把它们分开。
+    expect(reveal.parentElement).toBe(logout.parentElement)
+    const group = reveal.parentElement!
+    expect(group.className).toContain("gap-2")
+    // 小组里只有这两个按钮，不许夹别的东西。
+    expect([...group.children].filter((child) => child.tagName === "BUTTON")).toHaveLength(2)
   })
 
   it("「本地文件夹」改名为「网盘本地文件夹」", async () => {
@@ -239,15 +430,29 @@ describe("CloudSyncSection", () => {
     await vi.waitFor(() => expect(clientMocks.runCloudSyncNow).toHaveBeenCalledWith(projects, "manual"))
   })
 
-  it("切换网盘只换 provider，连接态交给后端按已存凭据重算", async () => {
-    // 曾经这里会把 connected 一起清成 false，后果是「切到百度再切回 WebDAV 就得重输密码」，
-    // 而凭据一直躺在磁盘上。现在只发 provider，后端 set_config 会自己恢复。
+  it("点网盘卡片主体只切「正在看哪个」，不落盘、也不动它的连接态", async () => {
+    /*
+     * 曾经点卡片 = 发 patchConfig({ provider })，后端 merge_patch 会 upsert target，
+     * 于是"点一下没勾选的网盘"等于"把它勾上"（用户投诉）。
+     * 现在这是纯本地的界面状态：不发 IPC、不改 targets、也不碰 connected。
+     */
     useCloudSyncStore.setState({
-      config: { ...DEFAULT_CLOUD_SYNC_CONFIG, enabled: true, provider: "webdav", connected: true, accountLabel: "me@example.com" },
+      config: {
+        ...DEFAULT_CLOUD_SYNC_CONFIG,
+        enabled: true,
+        provider: "webdav",
+        connected: true,
+        accountLabel: "me@example.com",
+        targets: [{ provider: "webdav", connected: true, accountLabel: "me@example.com" }],
+      },
     })
     render()
     await act(async () => host.querySelector<HTMLElement>('[data-provider="folder"]')!.click())
-    expect(clientMocks.setCloudSyncConfig).toHaveBeenCalledWith({ provider: "folder" })
+    expect(clientMocks.setCloudSyncConfig).not.toHaveBeenCalled()
+    expect(useCloudSyncStore.getState().config.provider).toBe("folder")
+    // 勾选状态完全没变：还是只有 webdav 一个目标。
+    expect(useCloudSyncStore.getState().config.targets).toHaveLength(1)
+    expect(useCloudSyncStore.getState().config.targets?.[0].provider).toBe("webdav")
   })
 
   it("已连接时展示账号与「立即同步」，点它按范围取书单", async () => {

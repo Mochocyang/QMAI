@@ -9,6 +9,7 @@ import {
   dropLegacyVectorTable,
   embedAllPages,
   getEmbeddingCount,
+  getEmbeddingSkipSummary,
   getLastEmbeddingError,
   legacyVectorRowCount,
 } from "@/lib/embedding"
@@ -28,7 +29,7 @@ interface Props {
 type ReindexState =
   | { kind: "idle" }
   | { kind: "running"; done: number; total: number }
-  | { kind: "done"; count: number }
+  | { kind: "done"; count: number; note?: string }
 
 function parsePositiveInteger(value: string): number | undefined {
   const trimmed = value.trim()
@@ -93,7 +94,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
       const count = await embedAllPages(project.path, embeddingConfig, (done, total) => {
         setReindex({ kind: "running", done, total })
       })
-      setReindex({ kind: "done", count })
+      setReindex({ kind: "done", count, note: getEmbeddingSkipSummary() ?? undefined })
       await refreshStats()
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -452,6 +453,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
               {reindex.kind === "done" && (
                 <p className="text-xs text-muted-foreground">
                   {t("settings.sections.embedding.reindexDone", { count: reindex.count })}
+                  {reindex.note ? ` ${reindex.note}` : ""}
                 </p>
               )}
 

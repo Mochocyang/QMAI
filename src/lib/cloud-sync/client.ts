@@ -14,6 +14,7 @@ import {
   normalizeCloudSyncConfig,
   type CloudProviderId,
   type CloudSyncConfig,
+  type CloudTarget,
   type CloudSyncNotice,
   type SyncBatch,
   type SyncEntry,
@@ -118,14 +119,92 @@ export async function getCloudSyncStatus(): Promise<CloudSyncStatus> {
   }
 }
 
-export async function beginCloudSyncLogin(
-  provider: string,
-): Promise<{ authUrl: string; errorCode?: string }> {
+export interface BeginLoginResult {
+  authUrl: string
+  errorCode?: string
+  /** GitHub 设备流：给用户看的 8 位码。 */
+  userCode?: string
+  verificationUri?: string
+  expiresIn?: number
+  /** 之前已经授权过，不用再走一遍设备流。 */
+  alreadyAuthorized?: boolean
+  accountLabel?: string
+}
+
+export async function beginCloudSyncLogin(provider: string): Promise<BeginLoginResult> {
   if (!isTauri()) return { authUrl: "" }
-  const raw = await invoke<{ authUrl?: string; errorCode?: string }>("cloud_sync_begin_login", {
-    provider,
-  })
-  return { authUrl: raw?.authUrl ?? "", errorCode: raw?.errorCode }
+  const raw = await invoke<{
+    authUrl?: string
+    errorCode?: string
+    userCode?: string
+    verificationUri?: string
+    expiresIn?: number
+    alreadyAuthorized?: boolean
+    accountLabel?: string
+  }>("cloud_sync_begin_login", { provider })
+  return {
+    authUrl: raw?.authUrl ?? "",
+    errorCode: raw?.errorCode,
+    userCode: raw?.userCode,
+    verificationUri: raw?.verificationUri,
+    expiresIn: raw?.expiresIn,
+    alreadyAuthorized: raw?.alreadyAuthorized,
+    accountLabel: raw?.accountLabel,
+  }
+}
+
+export interface GithubRepoChoice {
+  owner: string
+  name: string
+  private: boolean
+  defaultBranch: string
+  canPush: boolean
+  updatedAt?: string
+}
+
+export async function getGithubAuthState(): Promise<{
+  authorized: boolean
+  accountLabel: string
+  loginPending: boolean
+  target?: CloudTarget
+}> {
+  if (!isTauri()) return { authorized: false, accountLabel: "", loginPending: false }
+  return invoke("cloud_sync_github_auth_state")
+}
+
+export async function listGithubRepos(): Promise<{
+  ok: boolean
+  repos?: GithubRepoChoice[]
+  errorCode?: string
+}> {
+  if (!isTauri()) return { ok: false, errorCode: "net.offline" }
+  return invoke("cloud_sync_github_repos")
+}
+
+export async function createGithubRepo(name: string): Promise<{
+  ok: boolean
+  repo?: GithubRepoChoice
+  errorCode?: string
+}> {
+  if (!isTauri()) return { ok: false, errorCode: "net.offline" }
+  return invoke("cloud_sync_github_create_repo", { name })
+}
+
+export async function makeGithubRepoPrivate(
+  owner: string,
+  repo: string,
+): Promise<{ ok: boolean; repo?: GithubRepoChoice; errorCode?: string }> {
+  if (!isTauri()) return { ok: false, errorCode: "net.offline" }
+  return invoke("cloud_sync_github_make_private", { owner, repo })
+}
+
+export async function connectCloudSyncGithub(input: {
+  owner: string
+  repo: string
+  branch?: string
+}): Promise<ConnectResult> {
+  if (!isTauri()) return { ok: false, errorCode: "net.offline" }
+  return invoke<ConnectResult>("cloud_sync_connect_github", input)
 }
 
 export async function cancelCloudSyncLogin(): Promise<void> {
@@ -219,8 +298,13 @@ export async function clearCloudSyncHistory(): Promise<void> {
   await invoke("cloud_sync_clear_history")
 }
 
-export async function revealCloudSyncRemote(): Promise<void> {
+export async function revealCloudSyncRemote(provider?: CloudProviderId | null): Promise<void> {
   if (!isTauri()) return
+  // 带 provider：多网盘时「打开远端内容」要打开的是**这一个**盘，不是当前激活的那个。
+  if (provider) {
+    await invoke("cloud_sync_reveal_target_remote", { provider })
+    return
+  }
   await invoke("cloud_sync_reveal_remote")
 }
 

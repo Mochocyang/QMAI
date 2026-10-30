@@ -15,7 +15,7 @@ vi.mock("@/lib/project-store", () => ({ saveEmbeddingConfig: vi.fn(), saveRerank
 vi.mock("@/lib/web-store", () => ({ flushAppState: vi.fn() }))
 vi.mock("@/lib/settings-model-list", () => ({ fetchEmbeddingModelList: vi.fn(), fetchRerankModelList: vi.fn() }))
 vi.mock("@/lib/settings-model-test", () => ({ testSettingsEmbeddingModel: vi.fn(), testSettingsRerankModel: vi.fn() }))
-vi.mock("@/lib/embedding", () => ({ getEmbeddingCount: vi.fn().mockResolvedValue(4), legacyVectorRowCount: vi.fn().mockResolvedValue(0), getLastEmbeddingError: vi.fn().mockReturnValue(null), embedAllPages: vi.fn(), dropLegacyVectorTable: vi.fn() }))
+vi.mock("@/lib/embedding", () => ({ getEmbeddingCount: vi.fn().mockResolvedValue(4), legacyVectorRowCount: vi.fn().mockResolvedValue(0), getLastEmbeddingError: vi.fn().mockReturnValue(null), getEmbeddingSkipSummary: vi.fn().mockReturnValue(null), embedAllPages: vi.fn(), dropLegacyVectorTable: vi.fn() }))
 const initial = useWikiStore.getState()
 let host: HTMLDivElement, unmount: () => Promise<void>
 async function render(rerank = false) { ({ host, unmount } = await mountModel(rerank ? <UiTestRerankModels /> : <UiTestEmbeddingModels />)) }

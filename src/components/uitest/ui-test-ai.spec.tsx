@@ -9,6 +9,7 @@ import { OutlineChatPanel } from "@/components/sources/outline-chat-panel"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
+import { writeFile } from "@/commands/fs"
 import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
 import type { ConversationRunStates } from "@/lib/conversation-run-state"
 import { getUiTestAiMenuStyle } from "./ui-test-ai-parts"
@@ -291,6 +292,117 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     expect(assistant?.querySelector(`[aria-label='${kind === "chapter" ? "保存到章节库" : "保存为大纲"}']`)).not.toBeNull()
     expect(assistant?.querySelector("[aria-label='重新生成']")).not.toBeNull()
     expect(container.textContent).not.toMatch(/黑雨之下|雨停之前|28%/)
+  })
+
+  it("章节生成内容的保存与复制按钮不随「生成下一章」消失", async () => {
+    if (kind !== "chapter") return
+    // 2026-10-25 用户反馈：生成一章后忘了点「保存到章节库」，接着去生成下一章，
+    // 回来时那枚按钮已经没有了，内容等于白生成。现在按消息自身判定，与是不是
+    // 最后一条无关 —— 这条用例就是守那个回归的。
+    const id = "chapter-multi-answer"
+    const chapterBody = [
+      "焦枣底下压着的东西，杨寒是一根手指一根手指抠出来的。",
+      "",
+      "灰色的纸，烧出来的却是黑。混凝土被火焙透后会泛出一层碱味，混着化纤织物的酸焦臭，像有人把塑料袋和头发一块塞进炉膛。",
+      "",
+      "他先抠出来的是第一具。",
+    ].join("\n")
+    const messages = [
+      { id: "u-1", role: "user" as const, content: "生成第20章", timestamp: now, conversationId: id },
+      { id: "a-1", role: "assistant" as const, content: chapterBody, timestamp: now, conversationId: id },
+      { id: "u-2", role: "user" as const, content: "生成第21章", timestamp: now, conversationId: id },
+      { id: "a-2", role: "assistant" as const, content: "然后他往门边挪。脚步声又响了一下。这一次更近，隔着一层薄铁皮。", timestamp: now, conversationId: id },
+    ]
+    const conversations = [{ id, title, createdAt: now, updatedAt: now, deAiMode: false, messages, inputDraft: "" }]
+    useChatStore.setState({ conversations, activeConversationId: id, messages, streamingContents: {}, runStates: {}, pendingReferenceTokens: [] })
+
+    const container = await mount(kind)
+    const rows = container.querySelectorAll('[data-ui-ai-message="assistant"]')
+    expect(rows).toHaveLength(2)
+    // 第一条（早已不是最后一条）保存与复制都还在
+    expect(rows[0].querySelector("[aria-label='保存到章节库']")).not.toBeNull()
+    expect(rows[0].querySelector("[aria-label='复制']")).not.toBeNull()
+    // 最后一条照旧
+    expect(rows[1].querySelector("[aria-label='保存到章节库']")).not.toBeNull()
+    expect(rows[1].querySelector("[aria-label='复制']")).not.toBeNull()
+    // 耗时显示（用量 / 用时）两条都还在，不随按钮一起消失
+    for (const row of rows) {
+      const stats = row.querySelector(".ui-test-context-stats")
+      expect(stats?.querySelector("[aria-label^='用时']")).not.toBeNull()
+      expect(stats?.querySelector("[aria-label='查看本轮用量']")).not.toBeNull()
+    }
+  })
+
+  it("保存到章节库时先做一键排版，写进章节的是整理过的正文", async () => {
+    if (kind !== "chapter") return
+    // 用户反馈：AI 对话生成的内容点「保存到章节库」后排版很乱，还得回编辑器
+    // 再点一次一键排版。现在保存前先用同一个整理函数（formatChapterWriting）
+    // 规整好，这条用例守住「写盘内容已是排版后的」。
+    const id = "chapter-format-on-save"
+    const messy = [
+      "杨寒把尸体压到檐下，找了块破油布盖住。   ",
+      "雨还在下，顺着瓦沟往他脖子里灌。",
+      "",
+      "",
+      "他抬手抹了一把，指缝里带着泥。",
+    ].join("\n")
+    const messages = [
+      { id: "u-1", role: "user" as const, content: "生成第20章", timestamp: now, conversationId: id },
+      { id: "a-1", role: "assistant" as const, content: messy, timestamp: now, conversationId: id },
+    ]
+    const conversations = [{ id, title, createdAt: now, updatedAt: now, deAiMode: false, messages, inputDraft: "" }]
+    useChatStore.setState({ conversations, activeConversationId: id, messages, streamingContents: {}, runStates: {}, pendingReferenceTokens: [] })
+
+    const container = await mount(kind)
+    const saveButton = container.querySelector<HTMLButtonElement>("[aria-label='保存到章节库']")
+    expect(saveButton).not.toBeNull()
+    await act(async () => { saveButton!.click() })
+    await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 0)) })
+
+    const chapterWrites = vi.mocked(writeFile).mock.calls
+      .map(([, content]) => String(content))
+      .filter((content) => content.includes("type: chapter"))
+    expect(chapterWrites).toHaveLength(1)
+    const written = chapterWrites[0]
+    // 正文行带全角缩进
+    expect(written).toContain("　　杨寒把尸体压到檐下")
+    expect(written).toContain("　　他抬手抹了一把")
+    // 行尾空格被去掉、连续空行收敛成一个
+    expect(written).not.toMatch(/[ \t]+\n/)
+    expect(written).not.toMatch(/\n\n\n/)
+  })
+
+  it("已保存过的章节回复：按钮保留但禁用，并在该条下方显示保存结果", async () => {
+    if (kind !== "chapter") return
+    const id = "chapter-saved-ref"
+    const chapterBody = "杨寒把尸体压到檐下，找了块破油布盖住。雨还在下，顺着瓦沟往他脖子里灌。他抬手抹了一把，指缝里带着泥。"
+    const messages = [
+      { id: "u-1", role: "user" as const, content: "生成第20章", timestamp: now, conversationId: id },
+      {
+        id: "a-1",
+        role: "assistant" as const,
+        content: chapterBody,
+        timestamp: now,
+        conversationId: id,
+        chapterRef: { chapterNumber: 20, path: "wiki/chapters/chapter-020.md", savedAt: now },
+      },
+      { id: "u-2", role: "user" as const, content: "生成第21章", timestamp: now, conversationId: id },
+      { id: "a-2", role: "assistant" as const, content: "然后他往门边挪。", timestamp: now, conversationId: id },
+    ]
+    const conversations = [{ id, title, createdAt: now, updatedAt: now, deAiMode: false, messages, inputDraft: "" }]
+    useChatStore.setState({ conversations, activeConversationId: id, messages, streamingContents: {}, runStates: {}, pendingReferenceTokens: [] })
+
+    const container = await mount(kind)
+    const rows = container.querySelectorAll('[data-ui-ai-message="assistant"]')
+    expect(rows).toHaveLength(2)
+    const savedButton = rows[0].querySelector<HTMLButtonElement>("[aria-label='已保存为第 20 章']")
+    expect(savedButton).not.toBeNull()
+    // 禁用而不是消失：同一条内容不该被再存一次变成两章
+    expect(savedButton?.disabled).toBe(true)
+    expect(rows[0].textContent).toContain("已保存为第 20 章")
+    // 没保存过的那条照旧可点
+    const pendingButton = rows[1].querySelector<HTMLButtonElement>("[aria-label='保存到章节库']")
+    expect(pendingButton?.disabled).toBe(false)
   })
 
   it("大纲输入区上方不再有说明文字与重复入口，共创与上下文统计回到 @ 左侧", async () => {

@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 #[cfg(test)]
-pub const TOOL_NAMES: [&str; 10] = [
+pub const TOOL_NAMES: [&str; 19] = [
     "list_bookshelf",
     "open_bookshelf",
     "get_current",
@@ -12,6 +12,15 @@ pub const TOOL_NAMES: [&str; 10] = [
     "update_document_title",
     "extract_memory",
     "format_chapter",
+    "get_maintenance_status",
+    "scan_memory_cleanup",
+    "get_memory_cleanup_result",
+    "apply_memory_cleanup",
+    "keep_memory_cleanup_issues",
+    "undo_memory_cleanup",
+    "get_maintenance_progress",
+    "stop_maintenance_task",
+    "update_maintenance_settings",
 ];
 
 pub fn jsonrpc_error(id: Value, message: &str) -> Value {
@@ -144,7 +153,48 @@ pub fn tools_list_result() -> Value {
                     "path": prop("章节文件的绝对路径")
                 }),
                 vec!["path"]
-            )
+            ),
+            tool("get_maintenance_status", "查询当前项目的记忆数量、超量提醒阈值、可用检测模型、扫描摘要及最近清理标识。", json!({
+                "projectPath": prop("项目目录，必须是当前打开的项目")
+            }), vec![]),
+            tool("scan_memory_cleanup", "后台扫描六类来源记忆，只生成候选，不删除内容。返回 runId，用 get_maintenance_progress 查询，完成后分页读取候选。", json!({
+                "projectPath": prop("项目目录，必须是当前打开的项目"),
+                "model": prop("检测模型完整 ID，来自 get_maintenance_status.availableModels；不修改界面模型"),
+                "fields": {"type":"array", "minItems":1, "uniqueItems":true, "items":{"type":"string", "enum":["knowledgeChanges","characterStateChanges","foreshadowingChanges","timelineEvents","newCanonFacts","conflicts"]}},
+                "fromChapter": {"type":"integer", "minimum":1, "maximum":1000000, "description":"起始章，含本章；指定范围时只扫描正文章节快照"},
+                "toChapter": {"type":"integer", "minimum":1, "maximum":1000000, "description":"结束章，含本章"}
+            }), vec![]),
+            tool("get_memory_cleanup_result", "分页查询有效扫描候选及删除、保留依据。返回 scanId，清理时必须原样提供。", json!({
+                "projectPath": prop("项目目录，必须是当前打开的项目"), "scanId":prop("可选，指定扫描标识，过期会拒绝"),
+                "offset":{"type":"integer", "minimum":0, "default":0}, "limit":{"type":"integer", "minimum":1, "maximum":100, "default":20}
+            }), vec![]),
+            tool("apply_memory_cleanup", "后台执行已审查候选：先备份，再从快照来源删除并同步 JSON、Markdown、人物 Skill 和检索索引。必须提供当前 scanId 和明确 issueIds；正文、大纲不变。完成后可撤销。", json!({
+                "projectPath":prop("项目目录，必须是当前打开的项目"), "scanId":prop("有效扫描标识"),
+                "issueIds":{"type":"array", "minItems":1, "maxItems":100, "items":{"type":"string", "minLength":1}}
+            }), vec!["scanId","issueIds"]),
+            tool("keep_memory_cleanup_issues", "保留指定候选，加入项目白名单，之后扫描不再重复建议删除同组记忆。", json!({
+                "projectPath":prop("项目目录，必须是当前打开的项目"), "scanId":prop("有效扫描标识"),
+                "issueIds":{"type":"array", "minItems":1, "maxItems":100, "items":{"type":"string", "minLength":1}}
+            }), vec!["scanId","issueIds"]),
+            tool("undo_memory_cleanup", "后台撤销最近一次清理，恢复来源和派生文档并同步索引。清理后的相关文件若有新修改则拒绝覆盖。", json!({
+                "projectPath":prop("项目目录，必须是当前打开的项目"), "cleanupId":prop("可选，指定最近清理标识以防撤销错任务")
+            }), vec![]),
+            tool("get_maintenance_progress", "查询维护任务实际阶段、批次、日志及完成结果。断开客户端不取消任务，应用重启后的运行记录会标为 interrupted。", json!({
+                "projectPath":prop("任务启动时返回的项目目录，切书后也可查询"), "runId":prop("维护工具返回的 runId"),
+                "afterRevision":{"type":"integer", "minimum":0}, "waitMs":{"type":"integer", "minimum":0, "maximum":30000, "default":0}
+            }), vec!["runId"]),
+            tool("stop_maintenance_task", "只取消仍在运行的扫描。清理或撤销同步期间不能中断，清理完成后可用 undo_memory_cleanup 撤销。", json!({
+                "projectPath":prop("任务启动时返回的项目目录"), "runId":prop("扫描任务 runId")
+            }), vec!["runId"]),
+            tool("update_maintenance_settings", "调整项目超量提醒开关、阈值和默认检测模型。超过阈值只提醒，不自动删除；同项目最多每七天提醒一次。", json!({
+                "projectPath":prop("项目目录，必须是当前打开的项目"), "enabled":{"type":"boolean"}, "model":prop("可用检测模型完整 ID"),
+                "cognitionChars":{"type":"integer", "minimum":100, "maximum":100000000},
+                "limits":{"type":"object", "additionalProperties":false, "properties":{
+                    "cognition":{"type":"integer", "minimum":1, "maximum":1000000}, "characters":{"type":"integer", "minimum":1, "maximum":1000000},
+                    "foreshadowing":{"type":"integer", "minimum":1, "maximum":1000000}, "timeline":{"type":"integer", "minimum":1, "maximum":1000000}
+                }}
+            }), vec![])
+
         ]
     })
 }
@@ -212,6 +262,19 @@ mod tests {
             &mut |_| Ok(json!({})),
         );
         assert!(response.is_none());
+    }
+
+    #[test]
+    fn maintenance_tools_require_explicit_candidates_and_bound_progress_waits() {
+        let listed = tools_list_result();
+        let tools = listed["tools"].as_array().unwrap();
+        let schema = |name: &str| tools.iter().find(|tool| tool["name"] == name).unwrap()["inputSchema"].clone();
+        assert_eq!(schema("apply_memory_cleanup")["required"], json!(["scanId", "issueIds"]));
+        assert_eq!(schema("keep_memory_cleanup_issues")["required"], json!(["scanId", "issueIds"]));
+        assert_eq!(schema("get_maintenance_progress")["properties"]["waitMs"]["maximum"], 30000);
+        assert_eq!(schema("scan_memory_cleanup")["properties"]["fields"]["items"]["enum"].as_array().unwrap().len(), 6);
+        assert_eq!(schema("update_maintenance_settings")["properties"]["limits"]["additionalProperties"], false);
+        for name in &TOOL_NAMES[10..] { assert_eq!(schema(name)["additionalProperties"], false); }
     }
 
     #[test]

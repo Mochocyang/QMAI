@@ -1,8 +1,24 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+
+/*
+ * `runAppUpdateFlow` 现在先调 Rust 的 `updater_check`（多通道择优），
+ * 再拿插件句柄去安装。测试必须替身化 `invoke`，否则第一步就抛。
+ * 每个用例通过 `invokeMock` 决定"有没有新版本"。
+ */
+const invokeMock = vi.hoisted(() => vi.fn())
+vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
+
 import { runAppUpdateFlow } from "./app-updater"
+
+beforeEach(() => {
+  invokeMock.mockReset()
+  // 默认"有新版本"；"没有新版本"的用例会自己覆盖。
+  invokeMock.mockResolvedValue({ version: "0.4.11", notes: "修复自动更新", downloadUrl: null })
+})
 
 describe("runAppUpdateFlow", () => {
   it("没有新版本时不弹窗也不安装", async () => {
+    invokeMock.mockResolvedValue({ version: null, notes: null, downloadUrl: null })
     const check = vi.fn().mockResolvedValue(null)
     const confirm = vi.fn()
     const message = vi.fn()
@@ -14,7 +30,14 @@ describe("runAppUpdateFlow", () => {
       message,
     })
 
-    expect(check).toHaveBeenCalledTimes(1)
+    /*
+     * 关键断言：没有新版本时**不该**再调插件的 check()。
+     *
+     * 曾经这里断言"调了一次"——那正是 bug：插件命令层吃的是编译期 endpoints
+     * （只有 GitHub 直连），国内每次都要白等一次超时，用户看到的就是"检查更新失败"。
+     * 现在检查这一步完全由 updater_check（镜像优先）负责，没新版就直接返回。
+     */
+    expect(check).not.toHaveBeenCalled()
     expect(confirm).not.toHaveBeenCalled()
     expect(message).not.toHaveBeenCalled()
   })

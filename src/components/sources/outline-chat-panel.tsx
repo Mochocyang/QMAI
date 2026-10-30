@@ -172,6 +172,7 @@ import {
   saveOutlineSaveRequests,
   splitConfirmRequiredSaveRequests,
 } from "@/lib/novel/outline-save-request";
+import { pruneVersions, saveVersion } from "@/lib/novel/version-store";
 import {
   extractVolumeOutlineData,
   getVolumeSkeletonReference,
@@ -2868,6 +2869,14 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           confirmed: true,
           requests,
           formats: payload.formats ?? { md: true, html: true },
+          // 覆盖前把旧的大纲 md 留成历史版本。失败绝不影响保存：
+          // 钩子内部已吞异常，这里再兜一层 .catch 以保证不会出现未处理的 rejection。
+          projectPath,
+          beforeOverwrite: ({ projectPath: root, name, previousContent }) => {
+            void saveVersion({ projectPath: root, kind: "outline", key: name, content: previousContent })
+              .then(() => pruneVersions(root, "outline", name))
+              .catch((error) => console.warn("[history] 保存大纲历史版本失败：", name, error));
+          },
           createDirectory,
           fileExists,
           readFile,

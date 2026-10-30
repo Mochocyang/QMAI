@@ -1,4 +1,4 @@
-import { readFile, writeFile, createDirectory, listDirectory } from "@/commands/fs"
+import { readFile, writeFile, createDirectory, listDirectory, fileExists, deleteFile } from "@/commands/fs"
 import { buildWikiGraph, type GraphNode, type CommunityInfo } from "@/lib/wiki-graph"
 import { streamChat, DEFAULT_LLM_REQUEST_TIMEOUT_MS, type StreamCallbacks } from "@/lib/llm-client"
 import type { ChatMessage } from "@/lib/llm-providers"
@@ -7,6 +7,7 @@ import { embedPage, searchByEmbedding } from "@/lib/embedding"
 import { useWikiStore, type NovelConfig, type LlmConfig } from "@/stores/wiki-store"
 import { normalizePath } from "@/lib/path-utils"
 import { fingerprintText } from "@/lib/novel/book-analysis/content-fingerprint"
+import { loadMemoryCleanupPolicy, memoryRemovalKey } from "./memory-cleanup-policy"
 import {
   buildNovelVectorSnippet,
   selectRelevantNovelVectorResults,
@@ -17,6 +18,7 @@ export const MIN_COMMUNITY_SUMMARY_NODE_COUNT = 5
 
 /** 社区摘要持久化结构 */
 interface CommunitySummaryRecord {
+  memoryCleanupFingerprint?: string
   communityId: number
   memberFingerprint: string
   memberIds: string[]
@@ -65,6 +67,7 @@ function parseStoredRecord(raw: unknown): CommunitySummaryRecord | null {
     ? rec.memberIds.filter((id): id is string => typeof id === "string")
     : []
   return {
+    memoryCleanupFingerprint: typeof rec.memoryCleanupFingerprint === "string" ? rec.memoryCleanupFingerprint : undefined,
     communityId: typeof rec.communityId === "number" ? rec.communityId : -1,
     memberFingerprint: rec.memberFingerprint,
     memberIds,
@@ -75,6 +78,11 @@ function parseStoredRecord(raw: unknown): CommunitySummaryRecord | null {
       : [],
     generatedAt: typeof rec.generatedAt === "string" ? rec.generatedAt : "",
   }
+}
+
+async function cleanupFingerprint(projectPath: string): Promise<{ value: string; hasRemovals: boolean }> {
+  const policy = await loadMemoryCleanupPolicy(projectPath)
+  return { value: fingerprintText(JSON.stringify(policy.removed.map(memoryRemovalKey).sort())), hasRemovals: policy.removed.length > 0 }
 }
 
 async function loadExistingByFingerprint(
@@ -131,6 +139,7 @@ async function generateCommunitySummariesUnlocked(
   const summaryDir = `${pp}/.novel/community-summaries`
   await createDirectory(summaryDir)
   const existing = await loadExistingByFingerprint(summaryDir)
+  const cleanup = await cleanupFingerprint(pp)
 
   const summaryLlmConfig = resolveNovelModel(llmConfig, novelConfig, "summary")
   const embCfg = useWikiStore.getState().embeddingConfig
@@ -143,7 +152,8 @@ async function generateCommunitySummariesUnlocked(
 
     const memberIds = members.map((member) => member.id)
     const fingerprint = communityMemberFingerprint(memberIds)
-    if (existing.get(fingerprint)?.summary.trim()) continue
+    const cached = existing.get(fingerprint)
+    if (cached?.summary.trim() && (cached.memoryCleanupFingerprint === cleanup.value || (!cleanup.hasRemovals && !cached.memoryCleanupFingerprint))) continue
 
     try {
       const summary = await generateSingleCommunitySummary(
@@ -152,7 +162,9 @@ async function generateCommunitySummariesUnlocked(
         summaryLlmConfig,
         signal,
       )
+      if ((await cleanupFingerprint(pp)).value !== cleanup.value) return
       const record: CommunitySummaryRecord = {
+        memoryCleanupFingerprint: cleanup.value,
         communityId: community.id,
         memberFingerprint: fingerprint,
         memberIds,
@@ -175,6 +187,13 @@ async function generateCommunitySummariesUnlocked(
             err instanceof Error ? err.message : err,
           )
         }
+      }
+      if ((await cleanupFingerprint(pp)).value !== cleanup.value) {
+        const path = `${summaryDir}/${fingerprint}.json`
+        if (await fileExists(path)) await deleteFile(path)
+        const { removePageEmbeddingStrict } = await import("@/lib/embedding")
+        await removePageEmbeddingStrict(pp, `community:${fingerprint}`)
+        return
       }
     } catch (err) {
       if (signal?.aborted) throw err
@@ -289,7 +308,17 @@ export async function searchCommunitySummaries(
     )
     if (communityResults.length === 0) return ""
 
-    return communityResults.map(r => {
+    const cleanup = await cleanupFingerprint(pp)
+    const validResults = cleanup.hasRemovals ? (await Promise.all(communityResults.map(async (result) => {
+      const id = result.id.slice("community:".length)
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) return null
+      try {
+        const record = parseStoredRecord(JSON.parse(await readFile(`${pp}/.novel/community-summaries/${id}.json`)))
+        return record?.memoryCleanupFingerprint === cleanup.value ? result : null
+      } catch { return null }
+    }))).filter((r): r is typeof communityResults[number] => r !== null) : communityResults
+
+    return validResults.map(r => {
       const heading = r.matchedChunks?.[0]?.headingPath
       const snippet = buildNovelVectorSnippet(r, 400)
       return `- 【社区摘要${heading ? `·${heading}` : ""}】: ${snippet}`

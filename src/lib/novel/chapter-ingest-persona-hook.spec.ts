@@ -24,7 +24,7 @@ describe("章节摄取里的人物 Skill 挂钩", () => {
 
   it("挂钩在 syncSnapshotToMemory 之后（人物状态已经同步完）", () => {
     expect(ingest.indexOf("void learnPersonaSkillsFromChapter(")).toBeGreaterThan(
-      ingest.indexOf("const syncResult = await syncSnapshotToMemory("),
+      ingest.indexOf("const syncResult = await syncSnapshotToMemoryUnlocked("),
     )
   })
 

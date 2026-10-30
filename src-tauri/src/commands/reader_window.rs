@@ -338,8 +338,52 @@ fn main_window_browser_args(app: &AppHandle) -> Option<String> {
 }
 
 /// 允许用环境变量覆盖浏览器参数，方便现场试不同组合而不必重新编译。
+///
+/// ⚠️ **只在 debug 构建生效**：这些参数能传 `--remote-debugging-port`、
+/// `--disable-web-security` 之类的开关，等于把一个可被本机进程接管的 WebView
+/// 敞开。正式包一律使用编译期常量，环境变量里设置了也只记一条日志。
+#[cfg(debug_assertions)]
 fn reader_browser_args() -> String {
     std::env::var("QMAI_READER_ARGS").unwrap_or_else(|_| READER_BROWSER_ARGS.to_string())
+}
+
+#[cfg(not(debug_assertions))]
+fn reader_browser_args() -> String {
+    if std::env::var_os("QMAI_READER_ARGS").is_some() {
+        log_line("ignored QMAI_READER_ARGS: browser args override is debug-build only");
+    }
+    READER_BROWSER_ARGS.to_string()
+}
+
+/// 读取「自检用外部 URL」覆盖，**只在 debug 构建生效**。
+///
+/// 这个入口原本用于验证独立窗口能否加载外部页面。但 reader-* 窗口与主窗口
+/// 共用同一份 capability（store / http / updater 都在里面），把外部页面装进
+/// 来等于把 IPC 交给外部内容。因此 release 构建里即使设置了该环境变量也
+/// 一律忽略，并留一条日志方便排查「为什么自检没生效」。
+#[cfg(debug_assertions)]
+fn reader_selftest_url() -> Option<tauri::Url> {
+    let target = std::env::var("QMAI_READER_SELFTEST_URL").ok()?;
+    match target.parse::<tauri::Url>() {
+        Ok(parsed) => {
+            log_line(&format!("external url override (debug build only): {target}"));
+            Some(parsed)
+        }
+        Err(_) => {
+            log_line(&format!("external url override ignored, invalid url: {target}"));
+            None
+        }
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn reader_selftest_url() -> Option<tauri::Url> {
+    if std::env::var_os("QMAI_READER_SELFTEST_URL").is_some() {
+        log_line(
+            "ignored QMAI_READER_SELFTEST_URL: external url override is debug-build only",
+        );
+    }
+    None
 }
 
 /// 真正建窗的那段逻辑，命令与自检共用。
@@ -357,15 +401,9 @@ fn build_reader_window(
         }
     };
 
-    let url = match std::env::var("QMAI_READER_SELFTEST_URL") {
-        Ok(target) => match target.parse() {
-            Ok(parsed) => {
-                log_line(&format!("external url override: {target}"));
-                WebviewUrl::External(parsed)
-            }
-            Err(_) => WebviewUrl::App("index.html".into()),
-        },
-        Err(_) => WebviewUrl::App("index.html".into()),
+    let url = match reader_selftest_url() {
+        Some(parsed) => WebviewUrl::External(parsed),
+        None => WebviewUrl::App("index.html".into()),
     };
 
     // 页面加载的两端也记一笔：能区分「窗口建出来了但页面没进来」

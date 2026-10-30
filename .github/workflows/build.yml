@@ -181,6 +181,17 @@ jobs:
           Copy-Item $signaturePath $assetSignaturePath -Force
           $notesPath = Join-Path $releaseDir "release-notes.txt"
           $notes = Get-Content -Path $notesPath -Raw -Encoding utf8
+          # 安装包的下载地址也指到加速镜像。
+          #
+          # 为什么：latest.json 里的 url 原先是 github.com 直连，国内实测
+          #   HEAD 直连 exe    → 12 秒超时
+          #   HEAD 镜像 exe    → 1.6 秒 200，143MB
+          # 也就是说清单能加速、安装包照样卡死 —— 用户体感仍是"更新超慢"。
+          # 镜像只转发公开的 release 资产，且**签名校验仍在**（pubkey 不变，
+          # 镜像改过的包会被直接拒绝安装），所以这条加速是安全的。
+          $assetMirrorBase = "https://gh-proxy.com/"
+          $assetUrlDirect = "https://github.com/Mochocyang/QMAI/releases/latest/download/$assetName"
+
           $latest = [ordered]@{
             version = $version
             notes = "QMAI $version 发布版本"
@@ -188,7 +199,7 @@ jobs:
             platforms = [ordered]@{
               "windows-x86_64" = [ordered]@{
                 signature = $signature
-                url = "https://github.com/Mochocyang/QMAI/releases/latest/download/$assetName"
+                url = "$assetMirrorBase$assetUrlDirect"
               }
             }
           }

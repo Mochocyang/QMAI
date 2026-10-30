@@ -76,7 +76,19 @@
 [data-ui-ai-panel] .ui-test-ai-author { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; color: var(--ui-muted); font-size: 0.75rem; line-height: 1.6; }
 [data-ui-ai-panel] .ui-test-ai-author svg { width: 14px; height: 14px; flex-shrink: 0; }
 [data-ui-ai-message] .chat-markdown { font: 0.875rem/1.85 var(--ui); color: var(--ui-ink); overflow-wrap: anywhere; }
-[data-ui-ai-message] .chat-markdown p { margin: 0 0 12px; line-height: 1.85; }
+/*
+ * 中文段首缩进交给 CSS `text-indent`，不在正文里留空格。
+ *
+ * 为什么必须这样：Markdown 把「行首 4 空格」当成缩进代码块，
+ * 曾经把两个全角空格转成 4 个半角空格，结果每段正文都渲染成
+ * <pre><code> —— 等宽字体 + 灰色背景（真实 bug）。
+ * 现在文本里不留缩进，只在这里用 2em 表达，任何 Markdown 规则都不会被触发。
+ */
+[data-ui-ai-message] .chat-markdown p {
+  margin: 0 0 12px;
+  line-height: 1.85;
+  text-indent: 2em;
+}
 [data-ui-ai-message] .chat-markdown :is(h1, h2, h3, h4) { margin: 14px 0 10px; padding: 0; border: 0; font: 500 0.9375rem/1.65 var(--ui); color: var(--ui-ink); }
 [data-ui-ai-message] .chat-markdown :is(pre, table) { max-width: 100%; overflow-x: auto; }
 [data-ui-ai-message] .chat-markdown pre { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -87,6 +87,23 @@ export function embeddingConfigFingerprint(config: {
 }
 
 /**
+ * Same rejection as the Lance page_id filter: `'`, `\`, control characters,
+ * or an empty / over-long id. A blocked id must be left out of a batch;
+ * one bad id would otherwise fail the whole write.
+ */
+export function pageIdIndexBlock(pageId: string): string | null {
+  const bytes = new TextEncoder().encode(pageId).length
+  if (pageId.length === 0 || bytes > 256) return "empty or too long"
+  for (const char of pageId) {
+    const code = char.codePointAt(0) ?? 0
+    if (char === "'" || char === "\\" || code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
+      return "disallowed characters"
+    }
+  }
+  return null
+}
+
+/**
  * Decide whether a reindex can patch a few pages or must rebuild.
  * Matching hashes produce an incremental plan with empty dirty/removed lists.
  */

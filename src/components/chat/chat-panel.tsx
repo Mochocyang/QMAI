@@ -91,6 +91,7 @@ import {
   cleanGeneratedChapterContentForDisplay,
   cleanGeneratedChapterContentWithTitle,
 } from "@/lib/novel/chapter-content-cleanup"
+import { formatChapterWriting } from "@/lib/chapter-formatting"
 import { normalizePath } from "@/lib/path-utils"
 import { refreshProjectState } from "@/lib/project-refresh"
 import {
@@ -1500,6 +1501,11 @@ export function ChatPanel() {
         return
       }
 
+      // 保存即一键排版：用与编辑器「一键排版」完全相同的整理函数（formatChapterWriting）
+      // 先把段落、缩进、中英文间距规整好，再落进章节库。此前是原样写入，
+      // 用户存完还得自己回编辑器点一次一键排版（2026-10-25 用户反馈）。
+      const formattedContent = formatChapterWriting(cleanedContent)
+
       const selectedChapterNumber = await readSelectedChapterNumberForFile(selectedFile)
       const generatedTargetChapterNumber = detectGeneratedTargetChapterNumber(extractedTitle ?? cleanedContent)
       const explicitTargetPath = generatedTargetChapterNumber ? await findChapterFileByNumber(pp, generatedTargetChapterNumber) : null
@@ -1537,7 +1543,7 @@ export function ChatPanel() {
       const chapterDir = `${pp}/wiki/chapters`
       await createDirectory(chapterDir)
       const chapterPath = `${chapterDir}/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
-      const chapterMarkdown = buildDraftContent(targetChapterNumber, chapterTitle, cleanedContent)
+      const chapterMarkdown = buildDraftContent(targetChapterNumber, chapterTitle, formattedContent)
       // 目标路径通常还是空的（新章），但也可能撞上一份已存在的同号文件；
       // 有旧正文就交给记账层差分，否则整份覆盖会被算成今天 AI 新写的。
       const previousMarkdown = await readFile(chapterPath).catch(() => undefined)

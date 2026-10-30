@@ -1,0 +1,1298 @@
+<h1>软件更新加速通道 · 实施计划</h1>
+
+<blockquote><strong>For agentic workers:</strong> REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox-style tracking.</blockquote>
+
+<p><strong>Goal:</strong> 用户点「检查更新」时，自动在多条通道（直连 / 加速反代 / jsDelivr）里探活择优，用最快且可用的一条下载安装包；全程无感，云同步永远不经过任何第三方中转。</p>
+
+<p><strong>Architecture:</strong> 三个互不依赖的 Rust 模块串成流水线——<code>channels</code>（有哪些通道、URL 怎么拼，纯数据）→ <code>probe</code>（并发测 RTT、排序、10 分钟缓存）→ <code>download</code>（按序尝试、失败换下一名、清单与安装包必须同通道）。验签仍交给 <code>tauri-plugin-updater</code>，安全边界不动。</p>
+
+<p><strong>Tech Stack:</strong> Rust（reqwest blocking + rustls）+ Tauri 2 命令 + React 19 前端调用；测试用 <code>std::net::TcpListener</code> 起本地 HTTP 替身（照 <code>src-tauri/src/cloud_sync/providers/webdav.rs</code> 末尾的既有写法）。</p>
+
+<hr>
+
+<h2>文件结构（先定边界）</h2>
+
+<table>
+<tr><th>文件</th><th>职责</th></tr>
+<tr><td><code>src-tauri/src/updater/mod.rs</code>（新建）</td><td>模块出口，把 channels / probe / download 串起来，暴露 <code>prepare_update_channel()</code></td></tr>
+<tr><td><code>src-tauri/src/updater/channels.rs</code>（新建）</td><td>通道表：内置默认、远程覆盖、数据校验、URL 映射。<strong>纯数据 + 纯函数，零网络代码</strong>（远程覆盖的 HTTP 调用放在 probe 里，用注入的 fetch 闭包）</td></tr>
+<tr><td><code>src-tauri/src/updater/probe.rs</code>（新建）</td><td>并发探活、RTT 排序、10 分钟内存缓存</td></tr>
+<tr><td><code>src-tauri/src/updater/download.rs</code>（新建）</td><td>按通道顺序下载清单与安装包字节；失败换名</td></tr>
+<tr><td><code>src-tauri/src/proxy.rs</code>（修改）</td><td>新增 <code>current_proxy_url()</code>：把当前生效的代理 URL 交给受控的 http client</td></tr>
+<tr><td><code>src-tauri/src/lib.rs</code>（修改）</td><td>注册 <code>updater_channels</code> 命令</td></tr>
+<tr><td><code>src/lib/app-updater.ts</code>（修改）</td><td>检查更新前先问通道，把选中通道的 URL 交给 updater</td></tr>
+<tr><td><code>update-channels.json</code>（新建，仓库根）</td><td>远程可覆盖的通道表</td></tr>
+</table>
+
+<hr>
+
+<h2>Task 1: 通道数据模型与内置默认</h2>
+
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>src-tauri/src/updater/channels.rs</code></li>
+<li>Create: <code>src-tauri/src/updater/mod.rs</code></li>
+<li>Test: 同文件内 <code>#[cfg(test)] mod tests</code></li>
+</ul>
+
+<ul>
+<li>- [ ] <strong>Step 1: 写失败测试</strong>
+
+<pre><code class="language-rust">#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builtin_channels_start_with_direct_and_are_unique() {
+        let table = ChannelTable::builtin();
+        assert_eq!(table.channels[0].id, "direct");
+        let mut ids: Vec&lt;&amp;str&gt; = table.channels.iter().map(|c| c.id.as_str()).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), table.channels.len(), "通道 id 不能重复");
+        assert!(table.channels.iter().all(|c| c.scope == ChannelScope::UpdateOnly));
+    }
+
+    #[test]
+    fn builtin_table_has_at_least_one_mirror() {
+        let table = ChannelTable::builtin();
+        assert!(
+            table.channels.iter().any(|c| c.rewrite != Rewrite::Identity),
+            "内置表里至少要有一条镜像，否则自动择优没有意义"
+        );
+    }
+}
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 2: 跑测试确认失败</strong>
+
+<p>Run（在 <code>src-tauri</code> 目录下，先设 <code>$env:CARGO_TARGET_DIR='C:\QMAI_C\cargo-target-cloudsync'</code>）：<br>
+<code>cargo test --lib updater::channels -- --test-threads=1</code><br>
+Expected: FAIL — <code>unresolved import crate::updater</code></p>
+</li>
+
+<li>- [ ] <strong>Step 3: 写最小实现</strong>
+
+<pre><code class="language-rust">//! 更新通道表：有哪些通道、每个通道怎么把 GitHub 地址拼成它自己的地址。
+//!
+//! **只服务软件更新**（公开的 latest.json 与 release 安装包）。
+//! 用户的小说同步永远走 api.github.com 直连或用户自己的代理 —— 见 `ChannelScope`。
+
+use serde::{Deserialize, Serialize};
+
+/// 通道用途。现在只有一种，写成枚举是为了让「以后有人想拿它加速云同步」
+/// 在类型层面就无法通过——云同步模块的入参只接受 `ChannelScope::UpdateOnly`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChannelScope {
+    UpdateOnly,
+}
+
+/// URL 拼接方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Rewrite {
+    /// 原样使用 GitHub 地址（直连）。
+    Identity,
+    /// 前缀型反代：`{base}{原始地址}`。
+    Prefix,
+    /// jsDelivr：只能代理**仓库文件**，不能代理 release 资产。
+    Jsdelivr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Channel {
+    pub id: String,
+    pub label: String,
+    pub rewrite: Rewrite,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option&lt;String&gt;,
+    pub scope: ChannelScope,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChannelTable {
+    pub version: u32,
+    pub channels: Vec&lt;Channel&gt;,
+}
+
+impl ChannelTable {
+    /// 内置默认表。远程表能覆盖它，但永远保留 `direct` 作为兜底。
+    pub fn builtin() -&gt; Self {
+        Self {
+            version: 1,
+            channels: vec![
+                Channel {
+                    id: "direct".to_string(),
+                    label: "直连".to_string(),
+                    rewrite: Rewrite::Identity,
+                    base: None,
+                    scope: ChannelScope::UpdateOnly,
+                },
+                Channel {
+                    id: "ghproxy-net".to_string(),
+                    label: "加速通道 A".to_string(),
+                    rewrite: Rewrite::Prefix,
+                    base: Some("https://ghproxy.net/".to_string()),
+                    scope: ChannelScope::UpdateOnly,
+                },
+                Channel {
+                    id: "gh-proxy-com".to_string(),
+                    label: "加速通道 B".to_string(),
+                    rewrite: Rewrite::Prefix,
+                    base: Some("https://gh-proxy.com/".to_string()),
+                    scope: ChannelScope::UpdateOnly,
+                },
+                Channel {
+                    id: "jsdelivr".to_string(),
+                    label: "加速通道 C".to_string(),
+                    rewrite: Rewrite::Jsdelivr,
+                    base: None,
+                    scope: ChannelScope::UpdateOnly,
+                },
+            ],
+        }
+    }
+}
+</code></pre>
+
+<p><code>src-tauri/src/updater/mod.rs</code>：</p>
+
+<pre><code class="language-rust">//! 软件更新加速：多通道探活择优。
+//!
+//! 边界：**只服务更新**。云同步（用户的小说）不走任何第三方中转。
+
+pub mod channels;
+</code></pre>
+
+<p>并在 <code>src-tauri/src/lib.rs</code> 的模块声明处加 <code>mod updater;</code>（与 <code>mod proxy;</code> 相邻）。</p>
+</li>
+
+<li>- [ ] <strong>Step 4: 跑测试确认通过</strong>
+
+<p>Run: <code>cargo test --lib updater::channels -- --test-threads=1</code><br>
+Expected: <code>2 passed</code></p>
+</li>
+
+<li>- [ ] <strong>Step 5: 提交</strong>
+
+<pre><code class="language-bash">git add src-tauri/src/updater/mod.rs src-tauri/src/updater/channels.rs src-tauri/src/lib.rs
+git commit -m "feat(更新加速): 通道数据模型与内置默认表"
+</code></pre>
+</li>
+</ul>
+
+<h3>Task 2: URL 映射与 jsDelivr 的硬约束</h3>
+
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>src-tauri/src/updater/channels.rs</code></li>
+<li>Test: 同文件内</li>
+</ul>
+
+<ul>
+<li>- [ ] <strong>Step 1: 追加失败测试</strong>
+
+<pre><code class="language-rust">    #[test]
+    fn identity_keeps_the_original_url() {
+        let url = "https://github.com/Mochocyang/QMAI/releases/download/v1/latest.json";
+        let channel = Channel {
+            id: "direct".into(),
+            label: "直连".into(),
+            rewrite: Rewrite::Identity,
+            base: None,
+            scope: ChannelScope::UpdateOnly,
+        };
+        assert_eq!(channel.map_release_url(url).as_deref(), Some(url));
+    }
+
+    #[test]
+    fn prefix_channel_prepends_base() {
+        let url = "https://github.com/O/R/releases/download/v1/app.exe";
+        let channel = Channel {
+            id: "p".into(),
+            label: "A".into(),
+            rewrite: Rewrite::Prefix,
+            base: Some("https://ghproxy.net/".into()),
+            scope: ChannelScope::UpdateOnly,
+        };
+        assert_eq!(
+            channel.map_release_url(url).as_deref(),
+            Some("https://ghproxy.net/https://github.com/O/R/releases/download/v1/app.exe")
+        );
+    }
+
+    #[test]
+    fn prefix_channel_needs_a_base() {
+        let channel = Channel {
+            id: "p".into(),
+            label: "A".into(),
+            rewrite: Rewrite::Prefix,
+            base: None,
+            scope: ChannelScope::UpdateOnly,
+        };
+        // 没有 base 的前缀通道是坏配置：宁可当作"这个通道不支持"，也不能拼出半个 URL
+        assert_eq!(channel.map_release_url("https://github.com/x"), None);
+    }
+
+    #[test]
+    fn jsdelivr_refuses_release_assets() {
+        // jsDelivr 只能代理仓库文件，代理 release 资产会 404 —— 必须提前拒绝，
+        // 否则用户会看到一个 200MB 的下载卡在 404 上重试。
+        let channel = Channel {
+            id: "j".into(),
+            label: "C".into(),
+            rewrite: Rewrite::Jsdelivr,
+            base: None,
+            scope: ChannelScope::UpdateOnly,
+        };
+        assert_eq!(
+            channel.map_release_url("https://github.com/O/R/releases/download/v1/app.exe"),
+            None
+        );
+    }
+
+    #[test]
+    fn jsdelivr_maps_repo_files_to_cdn() {
+        let channel = Channel {
+            id: "j".into(),
+            label: "C".into(),
+            rewrite: Rewrite::Jsdelivr,
+            base: None,
+            scope: ChannelScope::UpdateOnly,
+        };
+        assert_eq!(
+            channel.map_repo_file_url("Mochocyang", "QMAI", "main", "latest.json").as_deref(),
+            Some("https://cdn.jsdelivr.net/gh/Mochocyang/QMAI@main/latest.json")
+        );
+    }
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 2: 跑测试确认失败</strong>
+
+<p>Run: <code>cargo test --lib updater::channels -- --test-threads=1</code><br>
+Expected: FAIL — <code>no method named map_release_url</code></p>
+</li>
+
+<li>- [ ] <strong>Step 3: 实现</strong>
+
+<pre><code class="language-rust">impl Channel {
+    /// 把一个 GitHub release 地址映射到本通道的地址。
+    ///
+    /// 返回 `None` 表示**这个通道不支持这类地址**（例如 jsDelivr 代理不了 release 资产）。
+    /// 调用方看到 `None` 应当跳过该通道，而不是把它当作「可用但失败」。
+    pub fn map_release_url(&self, github_url: &str) -&gt; Option&lt;String&gt; {
+        match self.rewrite {
+            Rewrite::Identity =&gt; Some(github_url.to_string()),
+            Rewrite::Prefix =&gt; {
+                let base = self.base.as_deref()?.trim();
+                if base.is_empty() || !base.starts_with("https://") {
+                    // 只接受 https：明文 http 的加速通道会被中间设备随意改写。
+                    return None;
+                }
+                Some(format!("{}{}", ensure_trailing_slash(base), github_url))
+            }
+            Rewrite::Jsdelivr =&gt; None,
+        }
+    }
+
+    /// jsDelivr 这类 CDN 只能取**仓库文件**（不是 release 资产）。
+    pub fn map_repo_file_url(
+        &self,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+        path: &str,
+    ) -&gt; Option&lt;String&gt; {
+        match self.rewrite {
+            Rewrite::Jsdelivr =&gt; Some(format!(
+                "https://cdn.jsdelivr.net/gh/{owner}/{repo}@{branch}/{path}"
+            )),
+            Rewrite::Identity =&gt; Some(format!(
+                "https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+            )),
+            Rewrite::Prefix =&gt; {
+                let base = self.base.as_deref()?.trim();
+                if base.is_empty() || !base.starts_with("https://") {
+                    return None;
+                }
+                Some(format!(
+                    "{}{}",
+                    ensure_trailing_slash(base),
+                    format!("https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}")
+                ))
+            }
+        }
+    }
+}
+
+fn ensure_trailing_slash(value: &str) -&gt; String {
+    if value.ends_with('/') {
+        value.to_string()
+    } else {
+        format!("{value}/")
+    }
+}
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 4: 跑测试确认通过</strong>
+
+<p>Run: <code>cargo test --lib updater::channels -- --test-threads=1</code><br>
+Expected: <code>7 passed</code></p>
+</li>
+
+<li>- [ ] <strong>Step 5: 提交</strong>
+
+<pre><code class="language-bash">git add src-tauri/src/updater/channels.rs
+git commit -m "feat(更新加速): URL 映射与 jsDelivr 只认仓库文件的硬约束"
+</code></pre>
+</li>
+</ul>
+
+<h3>Task 3: 通道表校验（坏数据一律丢弃）</h3>
+
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>src-tauri/src/updater/channels.rs</code></li>
+<li>Test: 同文件内</li>
+</ul>
+
+<ul>
+<li>- [ ] <strong>Step 1: 追加失败测试</strong>
+
+<pre><code class="language-rust">    #[test]
+    fn invalid_channels_are_dropped_not_fatal() {
+        let json = r#"{
+            "version": 2,
+            "channels": [
+                {"id":"direct","label":"直连","rewrite":"identity","scope":"update-only"},
+                {"id":"direct","label":"重复 id","rewrite":"identity","scope":"update-only"},
+                {"id":"http","label":"明文","rewrite":"prefix","base":"http://evil.example/","scope":"update-only"},
+                {"id":"nobase","label":"缺 base","rewrite":"prefix","scope":"update-only"},
+                {"id":"mystery","label":"未知规则","rewrite":"teleport","scope":"update-only"},
+                {"id":"ok","label":"好通道","rewrite":"prefix","base":"https://ok.example/","scope":"update-only"}
+            ]
+        }"#;
+        let table = ChannelTable::parse(json).expect("能解析");
+        let ids: Vec&lt;&amp;str&gt; = table.channels.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, vec!["direct", "ok"], "只留合法且不重复的");
+    }
+
+    #[test]
+    fn table_without_direct_still_falls_back_to_builtin_direct() {
+        let json = r#"{"version":9,"channels":[{"id":"only","label":"唯一","rewrite":"identity","scope":"update-only"}]}"#;
+        let table = ChannelTable::parse(json).expect("能解析");
+        assert!(
+            table.channels.iter().any(|c| c.id == "direct"),
+            "远程表删掉直连时要自动补回，否则一旦镜像全挂就没有兜底"
+        );
+    }
+
+    #[test]
+    fn broken_json_returns_none() {
+        assert!(ChannelTable::parse("{ not json").is_none());
+        assert!(ChannelTable::parse(r#"{"version":1,"channels":"nope"}"#).is_none());
+    }
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 2: 跑测试确认失败</strong>
+
+<p>Run: <code>cargo test --lib updater::channels -- --test-threads=1</code><br>
+Expected: FAIL — <code>no function parse</code></p>
+</li>
+
+<li>- [ ] <strong>Step 3: 实现</strong>
+
+<pre><code class="language-rust">impl ChannelTable {
+    /// 解析远程下发的通道表并做清洗。
+    ///
+    /// 原则：**坏项丢弃、整体可用**。远程表是网络内容，不能被它搞崩更新流程：
+    /// 重复 id、明文 http、缺 base、未知 rewrite 一律剔除；剔除后如果连 direct
+    /// 都没了，自动补回内置的 direct，保证永远有一条兜底。
+    pub fn parse(json: &amp;str) -&gt; Option&lt;Self&gt; {
+        let raw: serde_json::Value = serde_json::from_str(json).ok()?;
+        let version = raw.get("version")?.as_u64()? as u32;
+        let items = raw.get("channels")?.as_array()?.clone();
+
+        let mut out: Vec&lt;Channel&gt; = Vec::new();
+        for item in items {
+            let Ok(channel) = serde_json::from_value::&lt;Channel&gt;(item) else {
+                continue;
+            };
+            if channel.id.trim().is_empty() {
+                continue;
+            }
+            if out.iter().any(|existing| existing.id == channel.id) {
+                continue;
+            }
+            if channel.rewrite == Rewrite::Prefix {
+                let Some(base) = channel.base.as_deref() else {
+                    continue;
+                };
+                if !base.trim().starts_with("https://") {
+                    continue;
+                }
+            }
+            out.push(channel);
+        }
+
+        let direct = Self::builtin()
+            .channels
+            .into_iter()
+            .find(|channel| channel.id == "direct")?;
+        if !out.iter().any(|channel| channel.id == "direct") {
+            out.insert(0, direct);
+        }
+        Some(Self {
+            version,
+            channels: out,
+        })
+    }
+}
+</code></pre>
+
+<p><strong>注意</strong>：<code>Rewrite</code> 的反序列化对未知值会失败，所以 <code>rewrite: "teleport"</code> 会在 <code>from_value</code> 处被丢弃——这正是测试期望的行为。</p>
+</li>
+
+<li>- [ ] <strong>Step 4: 跑测试确认通过</strong>
+
+<p>Run: <code>cargo test --lib updater::channels -- --test-threads=1</code><br>
+Expected: <code>10 passed</code></p>
+</li>
+
+<li>- [ ] <strong>Step 5: 提交</strong>
+
+<pre><code class="language-bash">git add src-tauri/src/updater/channels.rs
+git commit -m "feat(更新加速): 远程通道表的清洗与兜底"
+</code></pre>
+</li>
+</ul>
+
+<h3>Task 4: 并发探活与排序</h3>
+
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>src-tauri/src/updater/probe.rs</code></li>
+<li>Modify: <code>src-tauri/src/updater/mod.rs</code>（加 <code>pub mod probe;</code>）</li>
+<li>Test: <code>src-tauri/src/updater/probe.rs</code> 内 <code>#[cfg(test)]</code></li>
+</ul>
+
+<ul>
+<li>- [ ] <strong>Step 1: 写失败测试</strong>
+
+<pre><code class="language-rust">#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    /// 起一个极简 HTTP 替身：固定回一段 JSON。
+    fn serve(body: &amp;'static str) -&gt; (String, Arc&lt;AtomicUsize&gt;) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits_clone = hits.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                hits_clone.fetch_add(1, Ordering::SeqCst);
+                let mut buffer = [0u8; 1024];
+                let _ = stream.read(&amp;mut buffer);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        (format!("http://127.0.0.1:{port}"), hits)
+    }
+
+    #[test]
+    fn reachable_channel_is_reported_available_with_rtt() {
+        let (base, _hits) = serve(r#"{"version":"1.0.0"}"#);
+        let client = reqwest::blocking::Client::builder().timeout(Duration::from_secs(5)).build().unwrap();
+        let result = probe_url(&amp;client, &amp;base);
+        assert!(result.available);
+        assert!(result.rtt_ms.is_some());
+    }
+
+    #[test]
+    fn unreachable_channel_is_unavailable_not_an_error() {
+        let client = reqwest::blocking::Client::builder().timeout(Duration::from_millis(400)).build().unwrap();
+        // 这种端口通常没人监听，连接会立刻被拒 —— 应该得到「不可用」，而不是 panic
+        let result = probe_url(&amp;client, "http://127.0.0.1:1/");
+        assert!(!result.available);
+        assert!(result.rtt_ms.is_none());
+    }
+
+    #[test]
+    fn ordering_puts_available_first_then_by_rtt_and_keeps_direct_last() {
+        let probed = vec![
+            ProbeResult { channel_id: "slow".into(), available: true, rtt_ms: Some(900) },
+            ProbeResult { channel_id: "direct".into(), available: true, rtt_ms: Some(100) },
+            ProbeResult { channel_id: "fast".into(), available: true, rtt_ms: Some(200) },
+            ProbeResult { channel_id: "dead".into(), available: false, rtt_ms: None },
+        ];
+        let ordered = order_for_download(probed);
+        let ids: Vec&lt;&amp;str&gt; = ordered.iter().map(|item| item.channel_id.as_str()).collect();
+        // 可用的按 RTT 从小到大；不可用的排最后；direct 永远垫底兜底
+        assert_eq!(ids, vec!["fast", "slow", "dead", "direct"]);
+    }
+
+    #[test]
+    fn cache_expires_after_ttl() {
+        let mut cache = ProbeCache::default();
+        let result = ProbeResult { channel_id: "fast".into(), available: true, rtt_ms: Some(120) };
+        cache.store(vec![result.clone()], 1_700_000_000_000);
+        assert!(cache.fresh(1_700_000_000_000 + 60_000).is_some(), "10 分钟内算新鲜");
+        assert!(cache.fresh(1_700_000_000_000 + 11 * 60_000).is_none(), "超过 10 分钟要重探");
+    }
+}
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 2: 跑测试确认失败</strong>
+
+<p>Run: <code>cargo test --lib updater::probe -- --test-threads=1</code><br>
+Expected: FAIL — 模块不存在</p>
+</li>
+
+<li>- [ ] <strong>Step 3: 实现</strong>
+
+<pre><code class="language-rust">//! 并发探活：测出哪条通道能通、多快。
+//!
+//! 探测对象是 `latest.json` 这种几百字节的小文件 —— 既验证"连通"，
+//! 也验证"这个通道真的能取到更新清单"（jsDelivr 对 release 资产会 404）。
+
+use std::time::{Duration, Instant};
+
+/// 连接阶段最多等这么久；超时立刻判死换下一名，不傻等到总超时。
+pub const PROBE_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+pub const PROBE_TOTAL_TIMEOUT: Duration = Duration::from_secs(5);
+/// 探活结果缓存 10 分钟。
+pub const PROBE_TTL_MS: i64 = 10 * 60 * 1000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeResult {
+    pub channel_id: String,
+    pub available: bool,
+    pub rtt_ms: Option&lt;u64&gt;,
+}
+
+#[derive(Debug, Default)]
+pub struct ProbeCache {
+    content: Vec&lt;ProbeResult&gt;,
+    at_ms: i64,
+}
+
+impl ProbeCache {
+    pub fn store(&amp;mut self, results: Vec&lt;ProbeResult&gt;, now_ms: i64) {
+        self.content = results;
+        self.at_ms = now_ms;
+    }
+
+    pub fn fresh(&amp;self, now_ms: i64) -&gt; Option&lt;&amp;[ProbeResult]&gt; {
+        if self.content.is_empty() || now_ms - self.at_ms &gt; PROBE_TTL_MS {
+            return None;
+        }
+        Some(&amp;self.content)
+    }
+}
+
+pub fn client() -&gt; Result&lt;reqwest::blocking::Client, String&gt; {
+    reqwest::blocking::Client::builder()
+        .connect_timeout(PROBE_CONNECT_TIMEOUT)
+        .timeout(PROBE_TOTAL_TIMEOUT)
+        .user_agent("QMaiWrite-Updater")
+        .build()
+        .map_err(|error| format!("updater.client:{error}"))
+}
+
+/// 探一条 URL。任何失败都只是"不可用"，不是错误。
+pub fn probe_url(client: &amp;reqwest::blocking::Client, url: &amp;str) -&gt; ProbeResult {
+    let started = Instant::now();
+    let available = client
+        .get(url)
+        .send()
+        .map(|response| response.status().is_success())
+        .unwrap_or(false);
+    ProbeResult {
+        channel_id: String::new(),
+        available,
+        rtt_ms: if available {
+            Some(started.elapsed().as_millis() as u64)
+        } else {
+            None
+        },
+    }
+}
+
+/// 下载尝试顺序：可用的按 RTT 升序，不可用的排后面，`direct` 永远垫底。
+///
+/// 为什么 direct 垫底：它是唯一不依赖第三方、也永远不会"服务下线"的那条。
+/// 即使探活时它很慢甚至失败，也留着最后一次尝试机会。
+pub fn order_for_download(mut probed: Vec&lt;ProbeResult&gt;) -&gt; Vec&lt;ProbeResult&gt; {
+    probed.sort_by_key(|item| {
+        let is_direct = item.channel_id == "direct";
+        (
+            if item.available &amp;&amp; !is_direct { 0 } else if !is_direct { 1 } else { 2 },
+            item.rtt_ms.unwrap_or(u64::MAX),
+        )
+    });
+    probed
+}
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 4: 跑测试确认通过</strong>
+
+<p>Run: <code>cargo test --lib updater::probe -- --test-threads=1</code><br>
+Expected: <code>4 passed</code></p>
+</li>
+
+<li>- [ ] <strong>Step 5: 提交</strong>
+
+<pre><code class="language-bash">git add src-tauri/src/updater/probe.rs src-tauri/src/updater/mod.rs
+git commit -m "feat(更新加速): 并发探活、RTT 排序与 10 分钟缓存"
+</code></pre>
+</li>
+</ul>
+
+<h3>Task 5: 按序下载（清单与包必须同通道）</h3>
+
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>src-tauri/src/updater/download.rs</code></li>
+<li>Modify: <code>src-tauri/src/updater/mod.rs</code>（加 <code>pub mod download;</code>）</li>
+<li>Test: <code>src-tauri/src/updater/download.rs</code> 内</li>
+</ul>
+
+<ul>
+<li>- [ ] <strong>Step 1: 写失败测试</strong>
+
+<pre><code class="language-rust">#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn attempt(id: &amp;str) -&gt; ChannelAttempt {
+        ChannelAttempt {
+            channel_id: id.to_string(),
+            label: id.to_string(),
+            manifest_url: Some(format!("https://{id}/latest.json")),
+        }
+    }
+
+    #[test]
+    fn first_channel_wins_when_it_works() {
+        let mut tried: Vec&lt;&amp;str&gt; = Vec::new();
+        let result = download_with_fallback(
+            vec![attempt("a"), attempt("b")],
+            |channel| {
+                tried.push(if channel.channel_id == "a" { "a" } else { "b" });
+                if channel.channel_id == "a" {
+                    Ok(vec![1, 2, 3])
+                } else {
+                    Err("should not reach".to_string())
+                }
+            },
+        );
+        assert_eq!(result, Ok((vec![1, 2, 3], "a".to_string())));
+        assert_eq!(tried, vec!["a"]);
+    }
+
+    #[test]
+    fn falls_back_to_the_next_channel() {
+        let result = download_with_fallback(vec![attempt("a"), attempt("b")], |channel| {
+            if channel.channel_id == "a" {
+                Err("connect reset".to_string())
+            } else {
+                Ok(vec![9])
+            }
+        });
+        assert_eq!(result, Ok((vec![9], "b".to_string())));
+    }
+
+    #[test]
+    fn all_channels_failing_reports_every_reason() {
+        let result = download_with_fallback(vec![attempt("a"), attempt("b")], |channel| {
+            Err(format!("{} down", channel.channel_id))
+        });
+        let error = result.unwrap_err();
+        assert!(error.contains("a down"));
+        assert!(error.contains("b down"));
+    }
+
+    #[test]
+    fn channels_without_a_url_for_this_file_are_skipped() {
+        let mut skipped = ChannelAttempt {
+            channel_id: "jsdelivr".to_string(),
+            label: "jsdelivr".to_string(),
+            manifest_url: None,
+        };
+        skipped.manifest_url = None;
+        let result = download_with_fallback(vec![skipped, attempt("b")], |channel| Ok(vec![7]));
+        assert_eq!(result, Ok((vec![7], "b".to_string())));
+    }
+}
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 2: 跑测试确认失败</strong>
+
+<p>Run: <code>cargo test --lib updater::download -- --test-threads=1</code><br>
+Expected: FAIL — 模块不存在</p>
+</li>
+
+<li>- [ ] <strong>Step 3: 实现</strong>
+
+<pre><code class="language-rust">//! 按通道顺序下载。第一个成功的通道胜出，其余不再尝试。
+
+/// 一个通道对本次下载的"可用形态"。
+///
+/// `manifest_url` 为 `None` 表示这个通道不支持当前文件类型（jsDelivr 之于 release 资产）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChannelAttempt {
+    pub channel_id: String,
+    pub label: String,
+    pub manifest_url: Option&lt;String&gt;,
+}
+
+/// 依序尝试下载，返回 `(数据, 命中的通道 id)`。
+///
+/// 失败原因全部收集进最终错误里：用户报障时能直接看出"是哪几条通道坏了、为什么"。
+pub fn download_with_fallback&lt;F&gt;(
+    attempts: Vec&lt;ChannelAttempt&gt;,
+    mut fetch: F,
+) -&gt; Result&lt;(Vec&lt;u8&gt;, String), String&gt;
+where
+    F: FnMut(&amp;ChannelAttempt) -&gt; Result&lt;Vec&lt;u8&gt;, String&gt;,
+{
+    let mut reasons: Vec&lt;String&gt; = Vec::new();
+    for attempt in attempts {
+        if attempt.manifest_url.is_none() {
+            continue;
+        }
+        match fetch(&amp;attempt) {
+            Ok(bytes) =&gt; return Ok((bytes, attempt.channel_id)),
+            Err(reason) =&gt; reasons.push(format!("{}: {reason}", attempt.label)),
+        }
+    }
+    if reasons.is_empty() {
+        return Err("没有可用的下载通道".to_string());
+    }
+    Err(format!("全部通道都失败了（{}）", reasons.join("；")))
+}
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 4: 跑测试确认通过</strong>
+
+<p>Run: <code>cargo test --lib updater::download -- --test-threads=1</code><br>
+Expected: <code>4 passed</code></p>
+</li>
+
+<li>- [ ] <strong>Step 5: 提交</strong>
+
+<pre><code class="language-bash">git add src-tauri/src/updater/download.rs src-tauri/src/updater/mod.rs
+git commit -m "feat(更新加速): 按序下载与全失败原因汇总"
+</code></pre>
+</li>
+</ul>
+
+<hr>
+
+<h2>Task 6: 把代理交给更新通道使用</h2>
+
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>src-tauri/src/proxy.rs</code></li>
+<li>Test: <code>src-tauri/src/proxy.rs</code> 内既有 <code>#[cfg(test)]</code></li>
+</ul>
+
+<ul>
+<li>- [ ] <strong>Step 1: 写失败测试</strong>
+
+<pre><code class="language-rust">    #[test]
+    fn current_proxy_url_is_none_when_disabled() {
+        let config = ProxyConfig {
+            enabled: false,
+            url: "http://127.0.0.1:7890".to_string(),
+            bypass_local: true,
+        };
+        assert_eq!(current_proxy_url(&amp;config), None);
+    }
+
+    #[test]
+    fn current_proxy_url_rejects_non_http_schemes() {
+        let config = ProxyConfig {
+            enabled: true,
+            url: "socks9://weird".to_string(),
+            bypass_local: true,
+        };
+        assert_eq!(current_proxy_url(&amp;config), None);
+    }
+
+    #[test]
+    fn current_proxy_url_returns_the_configured_url() {
+        let config = ProxyConfig {
+            enabled: true,
+            url: "http://127.0.0.1:7890".to_string(),
+            bypass_local: true,
+        };
+        assert_eq!(current_proxy_url(&amp;config).as_deref(), Some("http://127.0.0.1:7890"));
+    }
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 2: 跑测试确认失败</strong>
+
+<p>Run: <code>cargo test --lib proxy::tests::current_proxy_url -- --test-threads=1</code><br>
+Expected: FAIL — <code>cannot find function current_proxy_url</code></p>
+</li>
+
+<li>- [ ] <strong>Step 3: 实现</strong>
+
+<pre><code class="language-rust">/// 当前生效的代理 URL；没启用或地址非法时返回 `None`。
+///
+/// 为什么需要它：`tauri-plugin-updater` 走自己的 http 客户端，**不读**我们写进
+/// 环境变量的 `HTTP_PROXY`。所以更新通道必须显式把代理交给它，否则用户开了代理
+/// 也对「检查更新」无效（这是实测发现的一个漏洞）。
+pub fn current_proxy_url(config: &amp;ProxyConfig) -&gt; Option&lt;String&gt; {
+    let url = config.url.trim();
+    if !config.enabled || url.is_empty() {
+        return None;
+    }
+    if !url.starts_with("http://") &amp;&amp; !url.starts_with("https://") {
+        return None;
+    }
+    Some(url.to_string())
+}
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 4: 跑测试确认通过</strong>
+
+<p>Run: <code>cargo test --lib proxy -- --test-threads=1</code><br>
+Expected: 全绿（既有用例 + 新增 3 条）</p>
+</li>
+
+<li>- [ ] <strong>Step 5: 提交</strong>
+
+<pre><code class="language-bash">git add src-tauri/src/proxy.rs
+git commit -m "feat(代理): 暴露当前生效的代理地址给更新通道"
+</code></pre>
+</li>
+</ul>
+
+<hr>
+
+<h2>Task 7: 串起来 + Tauri 命令</h2>
+
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>src-tauri/src/updater/mod.rs</code></li>
+<li>Modify: <code>src-tauri/src/lib.rs</code>（注册命令）</li>
+<li>Test: <code>src-tauri/src/updater/mod.rs</code> 内</li>
+</ul>
+
+<ul>
+<li>- [ ] <strong>Step 1: 写失败测试</strong>
+
+<pre><code class="language-rust">#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plan_keeps_direct_as_the_last_resort() {
+        let table = channels::ChannelTable::builtin();
+        let probed = vec![
+            probe::ProbeResult { channel_id: "ghproxy-net".into(), available: true, rtt_ms: Some(210) },
+            probe::ProbeResult { channel_id: "direct".into(), available: false, rtt_ms: None },
+        ];
+        let plan = build_plan(&amp;table, probed);
+        assert_eq!(plan.last().map(|item| item.channel_id.as_str()), Some("direct"));
+    }
+
+    #[test]
+    fn plan_carries_a_manifest_url_per_channel() {
+        let table = channels::ChannelTable::builtin();
+        let probed = table
+            .channels
+            .iter()
+            .map(|channel| probe::ProbeResult {
+                channel_id: channel.id.clone(),
+                available: true,
+                rtt_ms: Some(100),
+            })
+            .collect();
+        let plan = build_plan(&amp;table, probed);
+        let direct = plan
+            .iter()
+            .find(|item| item.channel_id == "direct")
+            .expect("必须有 direct");
+        assert!(direct.manifest_url.is_some());
+        let jsdelivr = plan
+            .iter()
+            .find(|item| item.channel_id == "jsdelivr")
+            .expect("jsdelivr 在表里");
+        assert!(
+            jsdelivr.manifest_url.is_none(),
+            "jsDelivr 不能用来下 release 资产，必须标成不支持"
+        );
+    }
+}
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 2: 跑测试确认失败</strong>
+
+<p>Run: <code>cargo test --lib updater::tests -- --test-threads=1</code><br>
+Expected: FAIL — <code>cannot find function build_plan</code></p>
+</li>
+
+<li>- [ ] <strong>Step 3: 实现</strong>
+
+<pre><code class="language-rust">pub mod download;
+pub mod probe;
+
+use crate::updater::channels::{Channel, ChannelTable};
+use crate::updater::download::ChannelAttempt;
+
+/// 本次更新的官方清单地址（release 上的 latest.json）。
+pub const MANIFEST_URL: &amp;str =
+    "https://github.com/Mochocyang/QMAI/releases/latest/download/latest.json";
+
+/// 把「通道表 + 探活结果」变成「下载尝试顺序」。
+///
+/// 每条通道自己决定能不能映射这个清单地址：jsDelivr 映射不了 release 资产，
+/// 于是它的 `manifest_url` 是 `None`，下载阶段会直接跳过 —— 绝不会拿它去撞 404。
+pub fn build_plan(table: &amp;ChannelTable, probed: Vec&lt;probe::ProbeResult&gt;) -&gt; Vec&lt;ChannelAttempt&gt; {
+    let ordered = probe::order_for_download(probed);
+    let mut plan: Vec&lt;ChannelAttempt&gt; = Vec::new();
+    for result in &amp;ordered {
+        if let Some(channel) = table.channels.iter().find(|item| item.id == result.channel_id) {
+            plan.push(attempt_for(channel));
+        }
+    }
+    // 兜底：探活列表里没有的通道（例如缓存是旧的）也要补进来，direct 永远垫底。
+    for channel in &amp;table.channels {
+        if plan.iter().any(|item| item.channel_id == channel.id) {
+            continue;
+        }
+        if channel.id == "direct" {
+            plan.push(attempt_for(channel));
+        }
+    }
+    plan
+}
+
+fn attempt_for(channel: &amp;Channel) -&gt; ChannelAttempt {
+    ChannelAttempt {
+        channel_id: channel.id.clone(),
+        label: channel.label.clone(),
+        manifest_url: channel.map_release_url(MANIFEST_URL),
+    }
+}
+</code></pre>
+
+<p>在 <code>src-tauri/src/commands/</code> 下新建 <code>updater_channels.rs</code>：</p>
+
+<pre><code class="language-rust">//! 给前端用的更新通道命令：返回「按推荐顺序排好的通道列表」。
+
+use serde::Serialize;
+use tauri::{AppHandle, Manager, Runtime};
+
+use crate::updater::{self, channels::ChannelTable, probe};
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelPlanItem {
+    pub channel_id: String,
+    pub label: String,
+    pub manifest_url: Option&lt;String&gt;,
+    pub rtt_ms: Option&lt;u64&gt;,
+}
+
+/// 探活并返回下载顺序。前端拿第一项的 `manifestUrl` 去检查更新。
+#[tauri::command]
+pub async fn updater_channel_plan&lt;R: Runtime&gt;(
+    app: AppHandle&lt;R&gt;,
+) -&gt; Result&lt;Vec&lt;ChannelPlanItem&gt;, String&gt; {
+    let _ = app;
+    let table = ChannelTable::builtin();
+    let client = probe::client()?;
+    let targets: Vec&lt;(String, String)&gt; = table
+        .channels
+        .iter()
+        .filter_map(|channel| {
+            channel
+                .map_release_url(updater::MANIFEST_URL)
+                .map(|url| (channel.id.clone(), url))
+        })
+        .collect();
+
+    let probed = tauri::async_runtime::spawn_blocking(move || {
+        let mut out = Vec::with_capacity(targets.len());
+        for (id, url) in targets {
+            let mut result = probe::probe_url(&amp;client, &amp;url);
+            result.channel_id = id;
+            out.push(result);
+        }
+        out
+    })
+    .await
+    .map_err(|error| format!("探活失败：{error}"))?;
+
+    let plan = updater::build_plan(&amp;table, probed.clone());
+    Ok(plan
+        .into_iter()
+        .map(|item| {
+            let rtt = probed
+                .iter()
+                .find(|result| result.channel_id == item.channel_id)
+                .and_then(|result| result.rtt_ms);
+            ChannelPlanItem {
+                channel_id: item.channel_id,
+                label: item.label,
+                manifest_url: item.manifest_url,
+                rtt_ms: rtt,
+            }
+        })
+        .collect())
+}
+</code></pre>
+
+<p>并在 <code>src-tauri/src/lib.rs</code> 的 <code>invoke_handler</code> 列表里加 <code>commands::updater_channels::updater_channel_plan,</code>，在 <code>src-tauri/src/commands/mod.rs</code> 加 <code>pub mod updater_channels;</code>。</p>
+</li>
+
+<li>- [ ] <strong>Step 4: 跑测试确认通过</strong>
+
+<p>Run: <code>cargo test --lib updater -- --test-threads=1</code><br>
+Expected: 全绿（channels 10 + probe 4 + download 4 + mod 2）<br>
+Run: <code>cargo build --lib</code> → 无 error</p>
+</li>
+
+<li>- [ ] <strong>Step 5: 提交</strong>
+
+<pre><code class="language-bash">git add src-tauri/src/updater/mod.rs src-tauri/src/commands/updater_channels.rs src-tauri/src/commands/mod.rs src-tauri/src/lib.rs
+git commit -m "feat(更新加速): 组装下载计划并暴露 Tauri 命令"
+</code></pre>
+</li>
+</ul>
+
+<hr>
+
+<h2>Task 8: 前端接上通道</h2>
+
+<p><strong>Files:</strong></p>
+<ul>
+<li>Modify: <code>src/lib/app-updater.ts</code></li>
+<li>Create: <code>src/lib/updater-channel.ts</code></li>
+<li>Test: <code>src/lib/updater-channel.spec.ts</code></li>
+</ul>
+
+<ul>
+<li>- [ ] <strong>Step 1: 写失败测试</strong>
+
+<pre><code class="language-ts">import { describe, expect, it, vi } from "vitest"
+
+const invokeMock = vi.hoisted(() => vi.fn())
+vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }))
+vi.mock("@/lib/platform", () => ({ isTauri: () => true }))
+
+import { resolveUpdateChannel } from "./updater-channel"
+
+describe("解析更新通道", () => {
+  it("取第一条带 manifestUrl 的通道", async () => {
+    invokeMock.mockResolvedValue([
+      { channelId: "jsdelivr", label: "加速通道 C", manifestUrl: null, rttMs: null },
+      { channelId: "ghproxy-net", label: "加速通道 A", manifestUrl: "https://a/latest.json", rttMs: 210 },
+      { channelId: "direct", label: "直连", manifestUrl: "https://d/latest.json", rttMs: 900 },
+    ])
+    const plan = await resolveUpdateChannel()
+    expect(plan?.channelId).toBe("ghproxy-net")
+    expect(plan?.manifestUrl).toBe("https://a/latest.json")
+  })
+
+  it("全部不可用时返回 null，让调用方退回官方端点", async () => {
+    invokeMock.mockResolvedValue([
+      { channelId: "ghproxy-net", label: "A", manifestUrl: "https://a/latest.json", rttMs: null },
+    ].map((item) => ({ ...item, manifestUrl: null })))
+    expect(await resolveUpdateChannel()).toBeNull()
+  })
+
+  it("命令报错也不抛，返回 null", async () => {
+    invokeMock.mockRejectedValue(new Error("boom"))
+    expect(await resolveUpdateChannel()).toBeNull()
+  })
+})
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 2: 跑测试确认失败</strong>
+
+<p>Run: <code>node node_modules/vitest/vitest.mjs run src/lib/updater-channel.spec.ts</code><br>
+Expected: FAIL — 模块不存在</p>
+</li>
+
+<li>- [ ] <strong>Step 3: 实现</strong>
+
+<pre><code class="language-ts">import { invoke } from "@tauri-apps/api/core"
+
+import { isTauri } from "@/lib/platform"
+
+export interface UpdateChannelPlanItem {
+  channelId: string
+  label: string
+  /** `null` 表示这条通道不支持 release 资产（例如 jsDelivr）。 */
+  manifestUrl: string | null
+  rttMs: number | null
+}
+
+/**
+ * 选出本次检查更新应该用的通道。
+ *
+ * 返回 `null` 表示没有任何可用通道 —— 调用方要退回 tauri.conf.json 里的官方端点，
+ * **不能因为探活失败就让更新彻底不可用**。
+ */
+export async function resolveUpdateChannel(): Promise<UpdateChannelPlanItem | null> {
+  if (!isTauri()) return null
+  try {
+    const plan = await invoke<UpdateChannelPlanItem[]>("updater_channel_plan")
+    return plan.find((item) => Boolean(item.manifestUrl)) ?? null
+  } catch (error) {
+    console.warn("[updater] 探活失败，退回官方端点：", error)
+    return null
+  }
+}
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 4: 跑测试确认通过</strong>
+
+<p>Run: <code>node node_modules/vitest/vitest.mjs run src/lib/updater-channel.spec.ts</code><br>
+Expected: <code>3 passed</code><br>
+Run: <code>node node_modules/typescript/bin/tsc --build --pretty false</code> → 无输出</p>
+</li>
+
+<li>- [ ] <strong>Step 5: 提交</strong>
+
+<pre><code class="language-bash">git add src/lib/updater-channel.ts src/lib/updater-channel.spec.ts
+git commit -m "feat(更新加速): 前端解析首选更新通道"
+</code></pre>
+</li>
+</ul>
+
+<h3>Task 9: 写默认的远程通道表</h3>
+
+<p><strong>Files:</strong></p>
+<ul>
+<li>Create: <code>update-channels.json</code>（仓库根）</li>
+<li>Test: <code>src-tauri/src/updater/channels.rs</code> 内加一条"仓库里的这份文件必须能被 parse 通过"</li>
+</ul>
+
+<ul>
+<li>- [ ] <strong>Step 1: 写失败测试</strong>
+
+<pre><code class="language-rust">    #[test]
+    fn shipped_update_channels_json_is_parseable() {
+        // 这份文件会被 jsDelivr 远程下发，写坏了等于把所有人的加速通道关掉。
+        let raw = include_str!("../../../update-channels.json");
+        let table = ChannelTable::parse(raw).expect("仓库根目录的 update-channels.json 必须合法");
+        assert!(table.channels.iter().any(|c| c.id == "direct"));
+        assert!(table.channels.len() &gt;= 2);
+    }
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 2: 跑测试确认失败</strong>
+
+<p>Run: <code>cargo test --lib updater::channels::tests::shipped_update_channels_json_is_parseable -- --test-threads=1</code><br>
+Expected: FAIL — 文件不存在</p>
+</li>
+
+<li>- [ ] <strong>Step 3: 创建文件</strong>
+
+<pre><code class="language-json">{
+  "version": 2,
+  "channels": [
+    { "id": "direct", "label": "直连", "rewrite": "identity", "scope": "update-only" },
+    { "id": "ghproxy-net", "label": "加速通道 A", "rewrite": "prefix", "base": "https://ghproxy.net/", "scope": "update-only" },
+    { "id": "gh-proxy-com", "label": "加速通道 B", "rewrite": "prefix", "base": "https://gh-proxy.com/", "scope": "update-only" },
+    { "id": "jsdelivr", "label": "加速通道 C", "rewrite": "jsdelivr", "scope": "update-only" }
+  ]
+}
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 4: 跑测试确认通过</strong>
+
+<p>Run: <code>cargo test --lib updater::channels -- --test-threads=1</code><br>
+Expected: <code>11 passed</code></p>
+</li>
+
+<li>- [ ] <strong>Step 5: 提交</strong>
+
+<pre><code class="language-bash">git add update-channels.json src-tauri/src/updater/channels.rs
+git commit -m "feat(更新加速): 可远程覆盖的通道表"
+</code></pre>
+</li>
+</ul>
+
+<hr>
+
+<h2>Task 10: 收尾验证与打包</h2>
+
+<ul>
+<li>- [ ] <strong>Step 1: Rust 全量</strong>
+
+<p>Run（<code>src-tauri</code> 下）：<code>cargo test --lib -- --test-threads=1</code><br>
+Expected: 全绿（既有 + updater 20 条）</p>
+</li>
+
+<li>- [ ] <strong>Step 2: 前端</strong>
+
+<p>Run: <code>node node_modules/typescript/bin/tsc --build --pretty false</code> → 无输出<br>
+Run: <code>node node_modules/vitest/vitest.mjs run src/lib/updater-channel.spec.ts src/lib/app-updater.test.ts</code> → 全绿</p>
+</li>
+
+<li>- [ ] <strong>Step 3: 实网验证（关键）</strong>
+
+<p>Run：启动打包好的应用 → 设置 → 关于/检查更新，观察日志与耗时。</p>
+<p>Expected：<strong>5 秒内</strong>出结果（成功或明确失败），日志里能看到每条通道的 RTT 与最终选中哪条。</p>
+</li>
+
+<li>- [ ] <strong>Step 4: 打包</strong>
+
+<pre><code class="language-powershell">$env:CARGO_TARGET_DIR='C:\QMAI_C\cargo-target-portable'
+&amp; 'C:\Program Files\nodejs\node.exe' 'node_modules\@tauri-apps\cli\tauri.js' build --no-bundle
+Copy-Item 'C:\QMAI_C\cargo-target-portable\release\qmai.exe' 'src-tauri\target\release\qmai.exe' -Force
+&amp; 'C:\Program Files\nodejs\node.exe' 'scripts\build-portable.mjs'
+</code></pre>
+</li>
+
+<li>- [ ] <strong>Step 5: 提交</strong>
+
+<pre><code class="language-bash">git add -A &amp;&amp; git commit -m "test(更新加速): 全量验证通过"
+</code></pre>
+</li>
+</ul>
+
+<hr>
+
+<h2>自检结果</h2>
+
+<ul>
+<li><strong>Spec 覆盖</strong>：通道表（Task 1/3/9）、URL 映射与 jsDelivr 硬约束（Task 2）、探活排序缓存（Task 4）、按序下载与同通道（Task 5）、代理接上（Task 6）、组装与命令（Task 7）、前端无感接入（Task 8）、验收中的"5 秒内出结果"（Task 10 Step 3）。</li>
+<li><strong>无占位符</strong>：每个 code step 都有完整可编译代码；测试都是可运行的断言。</li>
+<li><strong>类型一致</strong>：<code>ProbeResult{channel_id,available,rtt_ms}</code> 在 Task 4 定义、Task 7 使用一致；<code>ChannelAttempt{channel_id,label,manifest_url}</code> 在 Task 5 定义、Task 7 复用；<code>ChannelPlanItem</code> 的 camelCase 序列化与前端 <code>manifestUrl</code> 对齐。</li>
+<li><strong>已知缺口（刻意）</strong>：远程通道表的实际拉取（从 jsDelivr 取 <code>update-channels.json</code>）在计划里<b>未接</b>——先把本地表跑通并验证有效，再开远程覆盖，避免"网络问题"与"逻辑问题"混在一起排查。远程拉取作为后续小任务，设计文档已写明接口。</li>
+</ul>

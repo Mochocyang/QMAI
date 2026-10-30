@@ -331,6 +331,9 @@ pub fn run(
     let started_at = now_ms();
     let batch_id = uuid::Uuid::new_v4().to_string();
     let store: &dyn RemoteStore = options.remote.as_ref();
+    // 攒批型远端（GitHub）先把上一轮没提交成功的残留清掉：
+    // 未提交意味着远端什么都没变，留着只会把旧内容混进这一轮。
+    store.begin()?;
 
     let manifest = Manifest::load(store);
     let mut index = BooksIndex::load(store);
@@ -574,19 +577,6 @@ pub fn run(
         }
         index.touch(project, dir, started_at);
     }
-    // 清单落盘前再列一次远端：这一轮写过的文件只有最新 list 里有正确 ETag，
-    // 不补的话下一轮全部退化成「下载全文算哈希」，限流又会找上门。
-    // 一次遍历（按目录数计请求）远便宜于每个文件一次 GET。
-    if let Ok(fresh) = store.list() {
-        for book in updated_manifest.books.values_mut() {
-            for (rel, record) in book.files.iter_mut() {
-                let remote_rel = format!("{}/{}", book.dir, rel);
-                if let Some(file) = fresh.iter().find(|file| file.rel == remote_rel) {
-                    record.etag = file.etag.clone();
-                }
-            }
-        }
-    }
     // 这两个文件是「元数据」，不是同步内容本身：
     // - 内容没变就完全不碰（见 save_if_changed）；
     // - 真写不进去（网盘客户端占用）也只记日志 —— 本轮的动作都已完成，
@@ -598,6 +588,41 @@ pub fn run(
     }
     if let Err(error) = index.save_if_changed(store) {
         log::warn!("[cloud-sync] books.index.json 没能写回：{error}");
+    }
+
+    // 攒批型远端（GitHub）到这里才真正落地：一轮同步 = 一个 commit。
+    // 本地文件夹 / WebDAV 的 commit 是空操作，所以这里不用分 provider。
+    // 提交失败说明这一轮什么都还没传上去 —— 必须当整轮失败，
+    // 绝不能先把历史写成「成功」（那会让用户以为稿子已经进仓库了）。
+    if let Err(error) = store.commit(&format!("QMaiWrite：同步（{}）", options.trigger)) {
+        return Err(error);
+    }
+
+    // 提交之后再列一次远端：这一轮写过的文件只有这时才有正确的版本标识
+    // （GitHub 是新 blob sha，WebDAV 是新 ETag）。不补的话下一轮全部退化成
+    // 「下载全文算哈希」，限流又会找上门。
+    if let Ok(fresh) = store.list() {
+        let mut etag_changed = false;
+        for book in updated_manifest.books.values_mut() {
+            for (rel, record) in book.files.iter_mut() {
+                let remote_rel = format!("{}/{}", book.dir, rel);
+                if let Some(file) = fresh.iter().find(|file| file.rel == remote_rel) {
+                    if record.etag != file.etag {
+                        record.etag = file.etag.clone();
+                        etag_changed = true;
+                    }
+                }
+            }
+        }
+        // 只补 ETag 也要落盘：它决定下一轮是「比版本号」还是「读全文」。
+        // 对 GitHub 这是第二个 commit，通常只在首轮发生（之后版本号就稳定了）。
+        if etag_changed {
+            if let Err(error) = updated_manifest.save_if_changed(store) {
+                log::warn!("[cloud-sync] 清单 ETag 没能写回：{error}");
+            } else if let Err(error) = store.commit("QMaiWrite：同步（补版本号）") {
+                log::warn!("[cloud-sync] 补版本号的提交失败，下一轮会重算：{error}");
+            }
+        }
     }
 
     let failed = counts.failed;

@@ -3,6 +3,7 @@ import {
   EMBED_REBUILD_DIRTY_LIMIT,
   collectEmbeddingBatch,
   embeddingConfigFingerprint,
+  pageIdIndexBlock,
   parseDashScopeEmbeddingBatch,
   parseGoogleEmbeddingBatch,
   parseOpenAiEmbeddingBatch,
@@ -109,6 +110,16 @@ describe("collectEmbeddingBatch", () => {
       ["gamma"],
       ["delta"],
     ])
+  })
+})
+
+describe("pageIdIndexBlock", () => {
+  it("rejects the characters Lance interpolates into a filter", () => {
+    expect(pageIdIndexBlock("第157章-Let's clear the air")).toBe("disallowed characters")
+    expect(pageIdIndexBlock("a\\b")).toBe("disallowed characters")
+    expect(pageIdIndexBlock("line\nbreak")).toBe("disallowed characters")
+    expect(pageIdIndexBlock("")).toBe("empty or too long")
+    expect(pageIdIndexBlock("第157章-Lets clear the air")).toBeNull()
   })
 })
 

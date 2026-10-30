@@ -6,7 +6,7 @@ import { saveEmbeddingConfig, saveRerankConfig } from "@/lib/project-store"
 import { persistModelChange } from "./model-persistence"
 import { testSettingsEmbeddingModel, testSettingsRerankModel } from "@/lib/settings-model-test"
 import { fetchEmbeddingModelList, fetchRerankModelList } from "@/lib/settings-model-list"
-import { dropLegacyVectorTable, embedAllPages, getEmbeddingCount, getLastEmbeddingError, legacyVectorRowCount } from "@/lib/embedding"
+import { dropLegacyVectorTable, embedAllPages, getEmbeddingCount, getEmbeddingSkipSummary, legacyVectorRowCount } from "@/lib/embedding"
 import { ModelSelectInput } from "@/components/settings/model-select-input"
 import { ModelSecretInput } from "./model-secret-input"
 import { useModelConfigForm } from "./model-config-form"
@@ -63,14 +63,14 @@ export function UiTestEmbeddingModels() {
   }
   async function index(kind: "rebuild" | "legacy") {
     if (!project || indexBusy.current || dirty || saving) return
-    if (!(await confirmModelAction(kind === "rebuild" ? `将为“${project.name}”重建向量索引，调用已保存的向量模型并可能产生费用；不会删除正文。是否继续？` : `将删除“${project.name}”的旧版向量索引，不删除正文或新索引。是否继续？`))) return
+    if (!(await confirmModelAction(kind === "rebuild" ? `将为“${project.name}”重建向量索引，调用已保存的向量模型并可能产生费用；不会删除正文。是否继续？` : `将删除“${project.name}”升级前留下的按页向量表。当前文本块索引和正文都不会改。是否继续？`))) return
     indexBusy.current = true; setIndexAction({ running: true, text: "正在处理索引…" })
     try {
-      if (kind === "legacy") { await dropLegacyVectorTable(project.path); if (alive.current && scopeRef.current === scope) { setIndexAction({ text: "旧版索引已删除，正文未改变。" }); await refresh() } }
+      if (kind === "legacy") { await dropLegacyVectorTable(project.path); if (alive.current && scopeRef.current === scope) { setIndexAction({ text: "升级前的按页向量表已删除，当前索引和正文未改变。" }); await refresh() } }
       else {
         const count = await embedAllPages(project.path, saved, (done, total) => { if (alive.current && scopeRef.current === scope) setIndexAction({ running: true, text: `索引进度：${done}/${total}` }) })
-        const error = getLastEmbeddingError()
-        if (alive.current && scopeRef.current === scope) { setIndexAction(error ? { error: true, text: safeModelError(error, [saved.apiKey]) } : { text: `索引处理完成，${count} 个文本块。` }); if (!error) setIndexStale(false); await refresh() }
+        const skip = getEmbeddingSkipSummary()
+        if (alive.current && scopeRef.current === scope) { setIndexAction({ text: skip ? `索引已写入。${skip}` : `索引处理完成，${count} 个文本块。` }); setIndexStale(false); await refresh() }
       }
     } catch (error) { if (alive.current && scopeRef.current === scope) setIndexAction({ error: true, text: safeModelError(error, [saved.apiKey]) }) }
     finally { indexBusy.current = false }
@@ -99,12 +99,13 @@ export function UiTestEmbeddingModels() {
     </fieldset>
     <section className="model-section-note">
       <h3>当前小说索引</h3>
-      <p>{project ? `${project.name} · ${stats.count === null ? "尚未读取索引数量" : `${stats.count} 个文本块`} · 旧版索引 ${stats.legacy} 条` : "请先打开小说，再查看或重建索引。"}</p>
+      <p>{project ? `${project.name} · ${stats.count === null ? "尚未读取索引数量" : `${stats.count} 个文本块`}` : "请先打开小说，再查看或重建索引。"}</p>
+      {project && stats.legacy > 0 && <p>另有升级前留下的按页向量表 {stats.legacy} 条。检索用的是上面的文本块，不用这份旧表。</p>}
       <p>{indexStale ? "模型配置已改变，请重建索引后再使用新向量。" : "索引数量不代表与当前模型兼容；更改模型、维度或分块后请重建。"}</p>
       <div className="model-index-actions">
         <button type="button" className="model-button ghost" disabled={!project || indexAction?.running} onClick={() => void refresh()}>刷新状态</button>
         <button type="button" className="model-button" disabled={!project || !saved.enabled || dirty || saving || indexAction?.running} onClick={() => void index("rebuild")}>重建索引</button>
-        {stats.legacy > 0 && <button type="button" className="model-button ghost" disabled={!project || dirty || saving || indexAction?.running} onClick={() => void index("legacy")}>删除旧版索引</button>}
+        {stats.legacy > 0 && <button type="button" className="model-button ghost" disabled={!project || dirty || saving || indexAction?.running} onClick={() => void index("legacy")}>删除升级前的按页向量表</button>}
       </div>
       {dirty && <p>先保存配置，再执行索引维护。</p>}
       {indexAction && <p role="status" className={indexAction.error ? "model-feedback error" : "model-feedback"}>{indexAction.text}</p>}

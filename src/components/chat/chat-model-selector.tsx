@@ -69,6 +69,19 @@ export function getChatModelDropdownStyle(
   }
 }
 
+/**
+ * 下拉项要显示什么。
+ *
+ * 保存模型时如果没有单独起名，`name` 会等于模型 ID，直接两行一起渲染就会
+ * 出现「同一个模型上下各显示一次」的错觉。这里把这种情况收敛成一行。
+ */
+export function resolveModelItemLabel(
+  model: Pick<SavedModel, "name" | "model">,
+): { title: string; showModelId: boolean } {
+  const title = model.name?.trim() || model.model
+  return { title, showModelId: Boolean(model.model) && title !== model.model }
+}
+
 export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelectorProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -202,7 +215,7 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
           />
           <div
             ref={dropdownRef}
-            className="fixed rounded-md border bg-popover p-1 shadow-lg model-selector-dropdown"
+            className="fixed rounded-md border bg-popover p-0.5 shadow-lg model-selector-dropdown"
             style={{
               right: dropdownStyle.right,
               top: dropdownStyle.top,
@@ -215,12 +228,13 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
           >
             {modelGroups.map((group, groupIdx) => (
               <div key={group.id}>
-                {groupIdx > 0 && <div className="my-1 h-px bg-border" />}
-                <div className="px-3 py-1.5 text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
+                {groupIdx > 0 && <div className="h-px bg-border" />}
+                <div className="px-3 py-0.5 text-[0.625rem] font-medium uppercase tracking-wider text-muted-foreground">
                   {group.label}
                 </div>
                 {group.models.map((model) => {
                   const modelKey = `${group.id}/${model.model}`
+                  const { title, showModelId } = resolveModelItemLabel(model)
                   return (
                   <button
                     key={model.id}
@@ -229,18 +243,20 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
                       onChange(modelKey)
                       setOpen(false)
                     }}
-                    className="flex w-full items-start gap-2 rounded-sm px-3 py-1.5 text-left text-sm hover:bg-accent"
+                    className="flex w-full items-center gap-1 rounded-sm px-3 py-0.5 text-left hover:bg-accent"
                   >
                     <Check
-                      className={`mt-0.5 h-4 w-4 shrink-0 ${
+                      className={`h-3.5 w-3.5 shrink-0 ${
                         value === modelKey ? "opacity-100" : "opacity-0"
                       }`}
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">{model.name}</div>
-                      <code className="mt-0.5 block truncate text-xs text-muted-foreground">
-                        {model.model}
-                      </code>
+                      <div className="truncate text-xs leading-4">{title}</div>
+                      {showModelId && (
+                        <code className="block truncate text-[0.6875rem] leading-4 text-muted-foreground">
+                          {model.model}
+                        </code>
+                      )}
                     </div>
                   </button>
                   )

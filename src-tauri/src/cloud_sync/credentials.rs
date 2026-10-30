@@ -21,6 +21,7 @@ use super::baidu::BaiduToken;
 
 pub const CREDENTIALS_FILE: &str = "credentials.bin";
 pub const WEBDAV_CREDENTIALS_FILE: &str = "webdav-credentials.bin";
+pub const GITHUB_CREDENTIALS_FILE: &str = "github-credentials.bin";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -63,6 +64,18 @@ pub fn load_webdav(dir: &Path) -> Option<WebdavCredentials> {
 
 pub fn clear_webdav(dir: &Path) -> Result<(), String> {
     clear_file(dir, WEBDAV_CREDENTIALS_FILE)
+}
+
+pub fn save_github(dir: &Path, token: &super::github::GithubToken) -> Result<(), String> {
+    save_typed(dir, GITHUB_CREDENTIALS_FILE, token)
+}
+
+pub fn load_github(dir: &Path) -> Option<super::github::GithubToken> {
+    load_typed(dir, GITHUB_CREDENTIALS_FILE)
+}
+
+pub fn clear_github(dir: &Path) -> Result<(), String> {
+    clear_file(dir, GITHUB_CREDENTIALS_FILE)
 }
 
 /// 清掉所有网盘的凭据（登出时调用）。

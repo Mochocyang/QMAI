@@ -1,7 +1,7 @@
 import { filterUiTestDirectory } from "@/lib/ui-test-layout"
 import { MoreHorizontal } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, AppWindow, Loader2, MessageCircle, Pencil, Plus, Search, Trash2, Check, X } from "lucide-react"
+import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, AppWindow, History, Loader2, MessageCircle, Pencil, Plus, Search, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -15,6 +15,7 @@ import { countChapterBodyWords } from "@/lib/chapter-word-count"
 import { scrollChapterDirectory } from "@/lib/chapter-directory-scroll"
 import { normalizeChapterStatus, type ChapterStatus } from "@/lib/novel/chapter-meta"
 import {
+  extractChapterNumber,
   extractPageOrderFromTitle,
   resolveChapterDotNumbers,
   resolveChapterPageTitle,
@@ -33,6 +34,8 @@ import { saveLastReadChapter } from "@/lib/project-store"
 import { mapWithConcurrency } from "@/lib/async-pool"
 import type { ReferenceToken } from "@/lib/reference/types"
 import type { BulkChapterIngestMode } from "@/lib/novel/chapter-bulk-ingest"
+import { listVersions, saveVersion, type VersionEntry } from "@/lib/novel/version-store"
+import { VersionHistoryDialog } from "./version-history-dialog"
 
 /**
  * 章节行最前面那一格圆点的尺寸 class。真点与占位点**共用**这一份，
@@ -343,6 +346,15 @@ export function KnowledgeTree({
   const [chapterExtractDialogOpen, setChapterExtractDialogOpen] = useState(false)
   const [findDraft, setFindDraft] = useState("")
   const [pageMenu, setPageMenu] = useState<{ path: string; x: number; y: number } | null>(null)
+  /** 历史版本弹窗的目标页；null 表示弹窗关闭。 */
+  const [historyTarget, setHistoryTarget] = useState<{
+    path: string
+    title: string
+    kind: "chapter" | "outline"
+    key: number | string | null
+  } | null>(null)
+  const [historyVersions, setHistoryVersions] = useState<VersionEntry[]>([])
+  const [historyCurrent, setHistoryCurrent] = useState("")
   const [renamingPath, setRenamingPath] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState("")
   const [renamingBusy, setRenamingBusy] = useState(false)
@@ -1356,6 +1368,71 @@ export function KnowledgeTree({
     setPageMenu(null)
   }, [])
 
+  /*
+   * 历史版本：右键菜单只做「打开弹窗」，读写版本库的逻辑都在这里。
+   *
+   * `project` 来自 wiki store，未打开项目时为 null。这里刻意不在 hook 依赖里判空就返回，
+   * 而是在 async 里读 `project?.path`：菜单是同步点击入口，拿不到项目时直接静默返回，
+   * 免得 null 项目下的版本目录被拼成 "undefined/.qmai/versions"。
+   */
+  const openHistory = useCallback(async (pagePath: string) => {
+    const projectPath = project?.path
+    if (!projectPath) return
+    const page = pageInfoByPath.get(pagePath)
+    const title = page?.title ?? pagePath.split(/[\\/]/).pop()?.replace(/\.md$/i, "") ?? "文档"
+    const kind = filterType === "chapter" ? "chapter" : "outline"
+    /*
+     * key 必须与**写入侧严格同源**，否则会去查一个空目录、用户看到「还没有历史版本」：
+     *   · 章节：chapter-save-version.ts 与 write-chapter.ts 都按
+     *     `extractChapterNumber(文件名去扩展名)` 取号。这里必须同样从文件名取，
+     *     不能用 frontmatter/标题来的 page.chapterNumber —— 「frontmatter 有号、
+     *     文件名无号」时两者不一致：版本落在 chapters/unnumbered/，
+     *     却跑去 chapters/003/ 找，列表永远是空的。
+     *   · 大纲：写入侧传给 beforeOverwrite 的 name 是**文件名去 .md**，
+     *     不是标题（标题可能是「故事总纲」而文件叫「总纲-v2.md」）。
+     */
+    const stem = pagePath.split(/[\\/]/).pop()?.replace(/\.md$/i, "") ?? ""
+    const key = kind === "chapter"
+      ? extractChapterNumber(stem) ?? page?.chapterNumber ?? page?.fileChapterNumber ?? null
+      : stem || title
+    // 先把弹窗开出来（空白），再异步填内容：大文件读取不该让点击看起来没反应。
+    setHistoryTarget({ path: pagePath, title, kind, key })
+    setHistoryCurrent("")
+    setHistoryVersions([])
+    try {
+      const [versions, current] = await Promise.all([
+        listVersions(projectPath, kind, key),
+        readFile(pagePath).catch(() => ""),
+      ])
+      setHistoryVersions(versions)
+      setHistoryCurrent(current)
+    } catch (error) {
+      console.warn("[history] 读取历史版本失败：", error)
+    }
+  }, [filterType, pageInfoByPath, project?.path])
+
+  const restoreVersion = useCallback(async (version: VersionEntry) => {
+    if (!historyTarget) return
+    const projectPath = project?.path
+    if (!projectPath) return
+    try {
+      // 顺序不能换：先把「当前正文」本身留成一条历史，恢复才是可撤销的；
+      // 若先 writeFile 再 save，存下来的会是被恢复的那一版，等于没留后路。
+      await saveVersion({
+        projectPath,
+        kind: historyTarget.kind,
+        key: historyTarget.key,
+        content: historyCurrent,
+      })
+      await writeFile(historyTarget.path, version.content)
+      bumpDataVersion()
+      setSelectedFile(historyTarget.path)
+      setHistoryTarget(null)
+    } catch (error) {
+      console.error("[history] 恢复版本失败：", error)
+    }
+  }, [historyTarget, historyCurrent, project?.path, bumpDataVersion, setSelectedFile])
+
   const openPageMenu = useCallback((event: React.MouseEvent, pagePath: string) => {
     event.preventDefault()
     event.stopPropagation()
@@ -1508,7 +1585,15 @@ export function KnowledgeTree({
       const isChapterChecked = filterType === "chapter" && selectedChapterPaths.has(normalizedPath)
       const isArmed = armedPath === normalizedPath
       const isDeleting = deletingPath === normalizedPath
+      /*
+       * 行尾的删除转圈图标随行内删除按钮一起删掉了，所以这个"是否显示删除 loading"
+       * 不再有渲染消费者；保留常量是为了让 knowledge-tree.spec.tsx 那条
+       * 「章节删除走乐观移除、不显示章节 loading」的断言继续成立（意图仍要守住：
+       * 只有大纲行曾经有 loading，章节永不显示）。
+       * 显式声明后给一个 no-op 读取，满足 TS noUnusedLocals，同时不让上面的 lint 语义变化。
+       */
       const showDeleteLoading = filterType === "outline" && isDeleting
+      void showDeleteLoading
       const isDragSource = dragSource === normalizedPath
       const chapterIndex = chapterIndexMap.get(normalizedPath)
       const isInsertTarget = isDragging && dragInsertIndex !== null && chapterIndex !== undefined && chapterIndex === dragInsertIndex && !isDragSource
@@ -1653,13 +1738,32 @@ export function KnowledgeTree({
            * 单条大纲的提取入口仍保留在编辑器工具栏（preview-panel 的「提取记忆」）。
            */}
           {renamingPath !== normalizedPath ? <button type="button" className="ui-test-tree-more" aria-label={`${page.title}的更多操作`} title="更多操作" onClick={(event) => { event.stopPropagation(); openPageMenu(event, normalizedPath) }}><MoreHorizontal /></button> : null}
-          <DeleteButton
-            armed={isArmed}
-            deleting={showDeleteLoading}
-            className={`mr-1 transition-opacity ui-test-tree-delete${isArmed ? " is-armed" : ""} ${isArmed || showDeleteLoading ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
-            onClick={() => void handleDeleteClick(normalizedPath)}
-            name={page.title}
-          />
+          {/*
+           * 删除入口只在右键菜单里（用户原话：「鼠标放上去就可以删除，所以单独的删除按钮完全不需要了」），
+           * 行尾不再常驻任何删除图标；但两步确认的语义保留：菜单点「删除」只是 arm，
+           * 这里会就地在行尾长出这条红色确认条，再点一次才真正移入回收站。
+           *
+           * 颜色必须写成 bg-destructive + text-white 这对 Tailwind 类，把底色和字色**同时**钉死。
+           * 不能退回去用 variant="destructive"：button.tsx 里它只是 bg-destructive/10 + text-destructive
+           * （10% 透明浅底 + 深红字），叠在行背景上就是用户投诉的「白底看不清」。
+           * 反过来说，只要底色和字色由这里显式给全，就不再依赖 ui-test.css 里原先给行内删除按钮
+           * 写的那几条 background / color 规则（随行内按钮一起删掉了，避免两条规则互相打架）。
+           */}
+          {isArmed ? (
+            <button
+              type="button"
+              data-ui="tree-delete-confirm"
+              className="mr-1 inline-flex shrink-0 items-center gap-1 rounded-md bg-destructive px-2 py-0.5 text-[0.625rem] font-semibold text-white"
+              title={`再次点击确认移入回收站：${page.title}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                void handleDeleteClick(normalizedPath)
+              }}
+            >
+              <Trash2 className="h-3 w-3" />
+              确认删除
+            </button>
+          ) : null}
         </div>,
       ]
     })
@@ -1929,6 +2033,36 @@ export function KnowledgeTree({
               <Pencil className="h-3.5 w-3.5" />
               {t("knowledgeTree.rename")}
             </button>
+            <button
+              type="button"
+              data-ui="tree-version-history"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+              onClick={() => {
+                setPageMenu(null)
+                void openHistory(pageMenu.path)
+              }}
+            >
+              <History className="h-3.5 w-3.5" />
+              历史版本
+            </button>
+            {/*
+             * 删除是行内删除按钮的唯一替代入口，所以放在「历史版本」之后、靠近菜单末尾，
+             * 并用 text-destructive 标成危险色，让用户意识到「可能点错了」。
+             * onClick 里先关菜单再走 handleDeleteClick：它第一次调用只 setArmedPath，
+             * 行尾会长出红色确认条（见上面的 tree-delete-confirm），第二次才真删。
+             */}
+            <button
+              type="button"
+              data-ui="tree-delete"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-destructive hover:bg-accent"
+              onClick={() => {
+                setPageMenu(null)
+                void handleDeleteClick(pageMenu.path)
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              删除
+            </button>
             {filterType === "chapter" && volumeFolders.length > 0 && (
               <div>
                 <button
@@ -2159,6 +2293,16 @@ export function KnowledgeTree({
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {historyTarget ? (
+          <VersionHistoryDialog
+            title={historyTarget.title}
+            currentContent={historyCurrent}
+            versions={historyVersions}
+            onClose={() => setHistoryTarget(null)}
+            onRestore={(version) => { void restoreVersion(version) }}
+          />
+        ) : null}
       </div>
     </ScrollArea>
   )
@@ -2328,68 +2472,5 @@ export function RawSourcesSection({ onCancelExtraction, uiTestActivityView = fal
         </div>
       )}
     </div>
-  )
-}
-
-function DeleteButton({
-  armed,
-  deleting,
-  onClick,
-  name,
-  className = "",
-}: {
-  armed: boolean
-  deleting: boolean
-  onClick: () => void
-  name: string
-  className?: string
-}) {
-  const { t } = useTranslation()
-
-  if (deleting) {
-    return (
-      <Button
-        variant="ghost"
-        size="icon"
-        className={`h-6 w-6 shrink-0 cursor-default ${className}`}
-        disabled
-        title={t("knowledgeTree.deletingTitle", { name })}
-      >
-        <Trash2 className="h-3 w-3 animate-pulse text-destructive" />
-      </Button>
-    )
-  }
-
-  if (armed) {
-    return (
-      <Button
-        variant="destructive"
-        size="sm"
-        className={`h-6 shrink-0 px-1.5 text-[0.625rem] font-semibold animate-pulse ${className}`}
-        onClick={(event) => {
-          event.stopPropagation()
-          onClick()
-        }}
-        title={t("knowledgeTree.confirmDeleteTitle", { name })}
-      >
-        <Trash2 className="mr-0.5 h-3 w-3" />
-        {t("knowledgeTree.confirmDelete")}
-      </Button>
-    )
-  }
-
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className={`h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive ${className}`}
-      onClick={(event) => {
-        event.stopPropagation()
-        onClick()
-      }}
-      title={t("knowledgeTree.deleteTitle", { name })}
-    >
-      <Trash2 className="h-3 w-3" />
-    </Button>
   )
 }

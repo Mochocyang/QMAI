@@ -30,6 +30,7 @@ const AGENT_UPDATE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const AGENT_TRUST_TIMEOUT: Duration = Duration::from_secs(45);
 const ACP_MODELS_TIMEOUT: Duration = Duration::from_secs(30);
 const ACP_MODELS_CACHE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const ACP_MODELS_CACHE_VERSION: u32 = 2;
 const QMAI_WORKSPACE_TRUST_MARKER: &str = ".qmai-workspace-trusted";
 const QMAI_ACP_MODEL_FILE: &str = "qmai-acp-model";
 const QMAI_ACP_MODELS_CACHE: &str = "qmai-acp-models.json";
@@ -97,15 +98,32 @@ pub struct AcpCatalogModel {
     pub name: String,
     #[serde(rename = "modelId")]
     pub model_id: String,
+    #[serde(rename = "configOptions", default, skip_serializing_if = "Option::is_none")]
+    pub config_options: Option<Vec<AcpModelConfigOption>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AcpModelConfigOption {
+    pub id: String,
+    #[serde(rename = "currentValue", default, skip_serializing_if = "Option::is_none")]
+    pub current_value: Option<String>,
+    pub options: Vec<AcpModelConfigValue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AcpModelConfigValue {
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AcpModelsCacheFile {
+    #[serde(default)]
+    schema_version: u32,
     fetched_at_ms: u64,
     models: Vec<AcpCatalogModel>,
 }
 
-static ACP_MODELS_MEMORY: std::sync::Mutex<Option<Vec<AcpCatalogModel>>> =
+static ACP_MODELS_MEMORY: std::sync::Mutex<Option<AcpModelsCacheFile>> =
     std::sync::Mutex::new(None);
 
 fn suppress_windows_console(_cmd: &mut Command) {
@@ -342,9 +360,51 @@ fn parse_acp_available_models(value: &serde_json::Value) -> Vec<AcpCatalogModel>
             Some(AcpCatalogModel {
                 name: name.to_string(),
                 model_id: model_id.to_string(),
+                config_options: None,
             })
         })
         .collect()
+}
+
+fn parse_acp_parameterized_models(value: &serde_json::Value) -> Vec<AcpCatalogModel> {
+    let result = value.get("result").unwrap_or(value);
+    let Some(models) = result.get("models").and_then(|value| value.as_array()) else {
+        return Vec::new();
+    };
+    models
+        .iter()
+        .filter_map(|item| {
+            let model_id = item.get("value")?.as_str()?.trim();
+            if model_id.is_empty() {
+                return None;
+            }
+            let config_options: Vec<AcpModelConfigOption> =
+                serde_json::from_value(item.get("configOptions")?.clone()).ok()?;
+            let name = item
+                .get("name")
+                .and_then(|value| value.as_str())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or(model_id);
+            Some(AcpCatalogModel {
+                name: name.to_string(),
+                model_id: model_id.to_string(),
+                config_options: Some(config_options),
+            })
+        })
+        .collect()
+}
+
+fn acp_initialize_params() -> serde_json::Value {
+    serde_json::json!({
+        "protocolVersion": 1,
+        "clientCapabilities": {
+            "fs": { "readTextFile": false, "writeTextFile": false },
+            "terminal": false,
+            "_meta": { "parameterizedModelPicker": true }
+        },
+        "clientInfo": { "name": "qmai", "version": "0" }
+    })
 }
 
 fn unix_now_ms() -> u64 {
@@ -354,13 +414,35 @@ fn unix_now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn memory_acp_models() -> Option<Vec<AcpCatalogModel>> {
-    ACP_MODELS_MEMORY.lock().ok()?.clone()
+impl AcpModelsCacheFile {
+    fn new(models: Vec<AcpCatalogModel>) -> Self {
+        Self {
+            schema_version: ACP_MODELS_CACHE_VERSION,
+            fetched_at_ms: unix_now_ms(),
+            models,
+        }
+    }
+
+    fn is_fresh_at(&self, now: u64) -> bool {
+        self.schema_version == ACP_MODELS_CACHE_VERSION
+            && !self.models.is_empty()
+            && now.saturating_sub(self.fetched_at_ms) <= ACP_MODELS_CACHE_TTL.as_millis() as u64
+    }
 }
 
-fn remember_acp_models(models: &[AcpCatalogModel]) {
+fn memory_acp_models() -> Option<Vec<AcpCatalogModel>> {
+    let mut guard = ACP_MODELS_MEMORY.lock().ok()?;
+    let cache = guard.as_ref()?;
+    if !cache.is_fresh_at(unix_now_ms()) {
+        *guard = None;
+        return None;
+    }
+    Some(cache.models.clone())
+}
+
+fn remember_acp_models(cache: AcpModelsCacheFile) {
     if let Ok(mut guard) = ACP_MODELS_MEMORY.lock() {
-        *guard = Some(models.to_vec());
+        *guard = Some(cache);
     }
 }
 
@@ -398,29 +480,18 @@ fn is_acp_auth_error(message: &str) -> bool {
         || lower.contains("please run 'agent login'")
 }
 
-fn read_cached_acp_models(config_dir: &Path) -> Option<Vec<AcpCatalogModel>> {
+fn read_cached_acp_models(config_dir: &Path) -> Option<AcpModelsCacheFile> {
     let path = config_dir.join(QMAI_ACP_MODELS_CACHE);
     let raw = std::fs::read_to_string(path).ok()?;
     let cache: AcpModelsCacheFile = serde_json::from_str(&raw).ok()?;
-    if cache.models.is_empty() {
-        return None;
-    }
-    let now = unix_now_ms();
-    if now.saturating_sub(cache.fetched_at_ms) > ACP_MODELS_CACHE_TTL.as_millis() as u64 {
-        return None;
-    }
-    Some(cache.models)
+    cache.is_fresh_at(unix_now_ms()).then_some(cache)
 }
 
-fn write_cached_acp_models(config_dir: &Path, models: &[AcpCatalogModel]) {
-    if models.is_empty() {
+fn write_cached_acp_models(config_dir: &Path, cache: &AcpModelsCacheFile) {
+    if cache.models.is_empty() {
         return;
     }
-    let payload = AcpModelsCacheFile {
-        fetched_at_ms: unix_now_ms(),
-        models: models.to_vec(),
-    };
-    if let Ok(raw) = serde_json::to_string_pretty(&payload) {
+    if let Ok(raw) = serde_json::to_string_pretty(cache) {
         let _ = std::fs::write(config_dir.join(QMAI_ACP_MODELS_CACHE), raw);
     }
 }
@@ -532,14 +603,45 @@ where
     Ok(models)
 }
 
-async fn list_cursor_acp_models() -> Result<Vec<AcpCatalogModel>, String> {
-    if let Some(cached) = memory_acp_models() {
-        return Ok(cached);
+async fn acp_catalog_models<W, R>(
+    stdin: &mut W,
+    reader: &mut R,
+    id: u64,
+    cwd: &str,
+) -> Result<Vec<AcpCatalogModel>, String>
+where
+    W: AsyncWriteExt + Unpin,
+    R: AsyncBufReadExt + Unpin,
+{
+    // Unlike session/new's legacy rows, this extension advertises all allowed
+    // parameter values rather than one default combination per family.
+    send_acp_request(stdin, id, "cursor/list_available_models", serde_json::json!({})).await?;
+    match wait_acp_response(reader, id).await {
+        Ok(response) => {
+            let models = parse_acp_parameterized_models(&response);
+            if !models.is_empty() {
+                return Ok(models);
+            }
+        }
+        Err(error) if error.to_ascii_lowercase().contains("method not found") => {}
+        Err(error) => return Err(error),
+    }
+    acp_session_models(stdin, reader, id + 1, cwd).await
+}
+
+async fn list_cursor_acp_models(force_refresh: bool) -> Result<Vec<AcpCatalogModel>, String> {
+    if !force_refresh {
+        if let Some(cached) = memory_acp_models() {
+            return Ok(cached);
+        }
     }
     let (config_dir, workspace) = qmai_proxy_home_dirs()?;
-    if let Some(cached) = read_cached_acp_models(&config_dir) {
-        remember_acp_models(&cached);
-        return Ok(cached);
+    if !force_refresh {
+        if let Some(cached) = read_cached_acp_models(&config_dir) {
+            let models = cached.models.clone();
+            remember_acp_models(cached);
+            return Ok(models);
+        }
     }
     ensure_qmai_cli_config(&config_dir)?;
     ensure_qmai_workspace_trusted(&workspace, &config_dir).await;
@@ -581,14 +683,7 @@ async fn list_cursor_acp_models() -> Result<Vec<AcpCatalogModel>, String> {
             &mut stdin,
             1,
             "initialize",
-            serde_json::json!({
-                "protocolVersion": 1,
-                "clientCapabilities": {
-                    "fs": { "readTextFile": false, "writeTextFile": false },
-                    "terminal": false
-                },
-                "clientInfo": { "name": "qmai", "version": "0" }
-            }),
+            acp_initialize_params(),
         )
         .await?;
         wait_acp_response(&mut reader, 1).await?;
@@ -597,13 +692,13 @@ async fn list_cursor_acp_models() -> Result<Vec<AcpCatalogModel>, String> {
             acp_authenticate(&mut stdin, &mut reader, next_id).await?;
             next_id += 1;
         }
-        match acp_session_models(&mut stdin, &mut reader, next_id, &cwd).await {
+        match acp_catalog_models(&mut stdin, &mut reader, next_id, &cwd).await {
             Ok(models) => Ok(models),
             Err(error) if skip_authenticate && is_acp_auth_error(&error) => {
-                next_id += 1;
+                next_id += 2;
                 acp_authenticate(&mut stdin, &mut reader, next_id).await?;
                 next_id += 1;
-                acp_session_models(&mut stdin, &mut reader, next_id, &cwd).await
+                acp_catalog_models(&mut stdin, &mut reader, next_id, &cwd).await
             }
             Err(error) => Err(error),
         }
@@ -614,16 +709,17 @@ async fn list_cursor_acp_models() -> Result<Vec<AcpCatalogModel>, String> {
     let _ = child.wait().await;
     let models = match result {
         Ok(inner) => inner?,
-        Err(_) => return Err("cursor-agent acp session/new timed out".to_string()),
+        Err(_) => return Err("cursor-agent acp model catalog timed out".to_string()),
     };
-    remember_acp_models(&models);
-    write_cached_acp_models(&config_dir, &models);
+    let cache = AcpModelsCacheFile::new(models.clone());
+    write_cached_acp_models(&config_dir, &cache);
+    remember_acp_models(cache);
     Ok(models)
 }
 
 #[tauri::command]
-pub async fn cursor_cli_acp_models() -> Result<Vec<AcpCatalogModel>, String> {
-    list_cursor_acp_models().await
+pub async fn cursor_cli_acp_models(force_refresh: Option<bool>) -> Result<Vec<AcpCatalogModel>, String> {
+    list_cursor_acp_models(force_refresh.unwrap_or(false)).await
 }
 
 fn ensure_qmai_agent_wrapper(
@@ -1628,14 +1724,18 @@ tail"#,
         let models = vec![AcpCatalogModel {
             name: "gemini-3.7-flash".into(),
             model_id: "gemini-3.7-flash[effort=high]".into(),
+            config_options: None,
         }];
-        write_cached_acp_models(&dir, &models);
-        assert_eq!(read_cached_acp_models(&dir), Some(models));
+        let cache = AcpModelsCacheFile::new(models.clone());
+        write_cached_acp_models(&dir, &cache);
+        assert_eq!(read_cached_acp_models(&dir).unwrap().models, models);
         let stale = AcpModelsCacheFile {
+            schema_version: ACP_MODELS_CACHE_VERSION,
             fetched_at_ms: 1,
             models: vec![AcpCatalogModel {
                 name: "old".into(),
                 model_id: "old[]".into(),
+                config_options: None,
             }],
         };
         std::fs::write(
@@ -1644,6 +1744,114 @@ tail"#,
         )
         .unwrap();
         assert!(read_cached_acp_models(&dir).is_none());
+        // A fresh legacy cache still contains fixed default variants and must
+        // be invalidated when upgrading to the parameterized catalog.
+        std::fs::write(
+            dir.join(QMAI_ACP_MODELS_CACHE),
+            serde_json::json!({ "fetched_at_ms": unix_now_ms(), "models": models }).to_string(),
+        )
+        .unwrap();
+        assert!(read_cached_acp_models(&dir).is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parses_parameterized_model_options() {
+        let models = parse_acp_parameterized_models(&serde_json::json!({
+            "result": { "models": [
+                { "value": "grok-4.7", "name": "Grok 4.7", "configOptions": [
+                    { "id": "reasoning_effort", "currentValue": "high", "options": [
+                        { "value": "low", "name": "Low" }, { "value": "high", "name": "High" }
+                    ] },
+                    { "id": "fast", "currentValue": "true", "options": [
+                        { "value": "false" }, { "value": "true" }
+                    ] }
+                ] },
+                { "value": "default", "configOptions": [] },
+                { "value": "", "configOptions": [] },
+                { "value": "malformed", "configOptions": null }
+            ] }
+        }));
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].model_id, "grok-4.7");
+        let options = models[0].config_options.as_ref().unwrap();
+        assert_eq!(options[0].id, "reasoning_effort");
+        assert_eq!(options[0].options[0].value, "low");
+        assert_eq!(options[1].options[0].value, "false");
+        assert_eq!(models[1].config_options, Some(vec![]));
+        assert_eq!(acp_initialize_params()["clientCapabilities"]["_meta"]["parameterizedModelPicker"], true);
+    }
+
+    #[tokio::test]
+    async fn acp_catalog_reads_parameter_ranges_without_creating_a_session() {
+        let (client, server) = tokio::io::duplex(16 * 1024);
+        let (client_read, mut client_write) = tokio::io::split(client);
+        let mut client_read = BufReader::new(client_read);
+        let server_task = tokio::spawn(async move {
+            let (read, mut write) = tokio::io::split(server);
+            let mut reader = BufReader::new(read);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["method"], "cursor/list_available_models");
+            let response = serde_json::json!({
+                "jsonrpc": "2.0", "id": 2,
+                "result": { "models": [{ "value": "grok-4.7", "configOptions": [{
+                    "id": "reasoning_effort", "options": [{ "value": "low" }, { "value": "high" }]
+                }] }] }
+            });
+            write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
+        });
+        let models = acp_catalog_models(&mut client_write, &mut client_read, 2, "/tmp/ws").await.unwrap();
+        assert_eq!(models[0].model_id, "grok-4.7");
+        assert_eq!(models[0].config_options.as_ref().unwrap()[0].options.len(), 2);
+        server_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn acp_catalog_falls_back_for_older_cli() {
+        let (client, server) = tokio::io::duplex(16 * 1024);
+        let (client_read, mut client_write) = tokio::io::split(client);
+        let mut client_read = BufReader::new(client_read);
+        let server_task = tokio::spawn(async move {
+            let (read, mut write) = tokio::io::split(server);
+            let mut reader = BufReader::new(read);
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            let response = serde_json::json!({
+                "jsonrpc": "2.0", "id": 2,
+                "error": { "code": -32601, "message": "Method not found" }
+            });
+            write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
+            line.clear();
+            reader.read_line(&mut line).await.unwrap();
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["id"], 3);
+            assert_eq!(request["method"], "session/new");
+            assert_eq!(request["params"]["cwd"], "/tmp/ws");
+            let response = serde_json::json!({
+                "jsonrpc": "2.0", "id": 3,
+                "result": { "models": { "availableModels": [{ "modelId": "grok-4.6[effort=high,fast=true]" }] } }
+            });
+            write.write_all(format!("{response}\n").as_bytes()).await.unwrap();
+        });
+        let models = acp_catalog_models(&mut client_write, &mut client_read, 2, "/tmp/ws").await.unwrap();
+        assert_eq!(models[0].model_id, "grok-4.6[effort=high,fast=true]");
+        assert_eq!(models[0].config_options, None);
+        server_task.await.unwrap();
+    }
+
+    #[test]
+    fn acp_cache_expires_without_refreshing_its_original_timestamp() {
+        let mut cache = AcpModelsCacheFile::new(vec![AcpCatalogModel {
+            name: "grok-4.7".into(),
+            model_id: "grok-4.7".into(),
+            config_options: Some(vec![]),
+        }]);
+        let expires_at = cache.fetched_at_ms + ACP_MODELS_CACHE_TTL.as_millis() as u64;
+        assert!(cache.is_fresh_at(expires_at));
+        assert!(!cache.is_fresh_at(expires_at + 1));
+        cache.schema_version = 0;
+        assert!(!cache.is_fresh_at(cache.fetched_at_ms));
     }
 }

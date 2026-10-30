@@ -287,6 +287,32 @@ describe("独立UI测试版外壳", () => {
     expect(host.querySelector('[aria-label="关闭窗口"]')).not.toBeNull()
     expect([...host.querySelectorAll('[aria-label]')].some(n => /\?{2,}/.test(n.getAttribute('aria-label') ?? ''))).toBe(false)
   })
+  it("目录收起后左上角按钮显示「收起目录」图标而不是品牌 logo", async () => {
+    useWikiStore.setState({ activeView: "wiki" })
+    await render()
+    const btn = host.querySelector(".ui-test-brand-logo-btn") as HTMLButtonElement
+    expect(btn).not.toBeNull()
+
+    // 目录展开时：按钮回到「收起目录」语义，且不带已收起标记（显示 logo）
+    expect(btn.getAttribute("aria-label")).toBe("收起目录")
+    expect(btn.classList.contains("is-directory-collapsed")).toBe(false)
+
+    // 点一下收起目录
+    btn.click()
+    await act(async () => {})
+    const collapsed = host.querySelector(".ui-test-brand-logo-btn") as HTMLButtonElement
+    expect(collapsed.getAttribute("aria-label")).toBe("展开目录")
+    // 关键：带上标记类，CSS 才能常驻显示收起图标而不是 logo。
+    // 否则用户看不出列表是被收起了，也不知道再点一次能打开。
+    expect(collapsed.classList.contains("is-directory-collapsed")).toBe(true)
+
+    // 再点一次展开，标记要撤掉，恢复显示 logo
+    collapsed.click()
+    await act(async () => {})
+    const expanded = host.querySelector(".ui-test-brand-logo-btn") as HTMLButtonElement
+    expect(expanded.getAttribute("aria-label")).toBe("收起目录")
+    expect(expanded.classList.contains("is-directory-collapsed")).toBe(false)
+  })
   it("无书时主工作区入口禁用，不留下看似有效却无效的按钮", async () => {
     await render(false)
     for (const name of ["大纲", "章节", "灵魂"]) {

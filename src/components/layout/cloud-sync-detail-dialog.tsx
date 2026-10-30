@@ -160,6 +160,8 @@ function ConflictRow({
 export function CloudSyncDetailDialog() {
   const open = useCloudSyncStore((state) => state.detailOpen)
   const closeDetail = useCloudSyncStore((state) => state.closeDetail)
+  const clearHistory = useCloudSyncStore((state) => state.clearHistory)
+  const markFailuresSeen = useCloudSyncStore((state) => state.markFailuresSeen)
   const config = useCloudSyncStore((state) => state.config)
   const batches = useCloudSyncStore((state) => state.batches)
   const entries = useCloudSyncStore((state) => state.entries)
@@ -167,9 +169,21 @@ export function CloudSyncDetailDialog() {
   const retry = useCloudSyncStore((state) => state.retry)
 
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  /*
+   * 「同步失败」筛选：只保留失败条目。
+   *
+   * 用户投诉过「提示有失败，点进来却看不到失败内容」——以前失败条目和几百条
+   * 成功记录混在一起，还得自己翻。现在底部有一个直达按钮，点一下只剩失败项。
+   */
+  const [onlyFailed, setOnlyFailed] = useState(false)
+  /*
+   * 「清空同步记录」是**不可撤销**的（历史文件直接删掉），
+   * 所以要点两次：第一次进入待确认态，第二次才真删。
+   * 与章节删除用同一套交互，避免"顺手点一下就没了"。
+   */
+  const [clearArmed, setClearArmed] = useState(false)
   // 「这一轮没有任何变更」的批次默认收起来不显示：自动同步会每两分钟跑一轮，
   // 全留在列表里会把真正有内容的轮次挤到看不见的地方。
-  const [showEmptyBatches, setShowEmptyBatches] = useState(false)
   const [projectPaths, setProjectPaths] = useState<Record<string, string>>({})
 
   /*
@@ -235,19 +249,23 @@ export function CloudSyncDetailDialog() {
     return [...batches]
       .sort((left, right) => right.startedAt - left.startedAt)
       .map((batch) => ({ batch, items: byBatch.get(batch.batchId) ?? [] }))
-      // 先筛掉没有内容的轮次再取最近 20 个，否则真正的变更会被挤出去。
-      .filter(({ items }) => showEmptyBatches || items.length > 0)
+      /*
+       * 只保留**真的有动作**的轮次。
+       *
+       * 以前留了个「另有 N 轮没有文件变更（点这里一并显示）」的开关，用户明确说
+       * 没有意义：一轮什么都没传，展示出来只会让人以为同步出了问题。
+       * 现在彻底不显示，连「另有 N 轮」的交代都不要。
+       */
+      .map(({ batch, items }) => ({
+        batch,
+        items: onlyFailed ? items.filter((entry) => !entry.ok) : items,
+      }))
+      .filter(({ items }) => items.length > 0)
       .slice(0, 20)
-  }, [batches, entries, showEmptyBatches])
+  }, [batches, entries, onlyFailed])
 
-  /** 被隐藏掉的「无变更」轮次数量：给用户一个「其实跑过 N 轮」的交代。 */
-  const hiddenEmptyCount = useMemo(() => {
-    if (showEmptyBatches) return 0
-    const withEntries = new Set(entries.map((entry) => entry.batchId))
-    return batches.filter((batch) => !withEntries.has(batch.batchId)).length
-  }, [batches, entries, showEmptyBatches])
-
-  const failedIds = entries.filter((entry) => !entry.ok).map((entry) => entry.id)
+  const failedEntries = entries.filter((entry) => !entry.ok)
+  const failedIds = failedEntries.map((entry) => entry.id)
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? undefined : closeDetail())}>
@@ -288,30 +306,15 @@ export function CloudSyncDetailDialog() {
         {!config.connected ? (
           <p className="ui-test-sync-empty">打开云同步并登录网盘后，这里会显示每次上传、下载和删除的文件。</p>
         ) : grouped.length === 0 ? (
-          <p className="ui-test-sync-empty">还没有同步记录。点「立即同步」开始第一次同步。</p>
+          onlyFailed ? (
+            <p className="ui-test-sync-empty">没有同步失败的记录。</p>
+          ) : (
+            <p className="ui-test-sync-empty">
+              还没有同步记录。点「立即同步」开始第一次同步。
+            </p>
+          )
         ) : (
           <div className="ui-test-sync-batches">
-            {hiddenEmptyCount > 0 ? (
-              <button
-                type="button"
-                className="ui-test-sync-show-empty"
-                data-ui="cloud-sync-show-empty"
-                onClick={() => setShowEmptyBatches(true)}
-              >
-                另有 {hiddenEmptyCount} 轮没有文件变更（点这里一并显示）
-              </button>
-            ) : null}
-            {showEmptyBatches && hiddenEmptyCount === 0 ? (
-              <button
-                type="button"
-                className="ui-test-sync-show-empty"
-                aria-pressed={true}
-                data-ui="cloud-sync-show-empty"
-                onClick={() => setShowEmptyBatches(false)}
-              >
-                已显示没有文件变更的轮次（点这里收起）
-              </button>
-            ) : null}
             {grouped.map(({ batch, items }) => {
               const isCollapsed = collapsed[batch.batchId] === true
               return (
@@ -360,10 +363,47 @@ export function CloudSyncDetailDialog() {
             {config.provider === "webdav" ? "复制远端地址" : "打开远端目录"}
           </Button>
           {failedIds.length > 0 ? (
+            <Button
+              variant={onlyFailed ? "default" : "outline"}
+              size="sm"
+              data-ui="cloud-sync-only-failed"
+              aria-pressed={onlyFailed}
+              onClick={() => setOnlyFailed((previous) => !previous)}
+            >
+              同步失败（{failedIds.length}）
+            </Button>
+          ) : null}
+          {failedIds.length > 0 ? (
             <Button variant="outline" size="sm" onClick={() => void retry(failedIds)}>
               重试失败项
             </Button>
           ) : null}
+          {/* 清空记录放在最左：它是破坏性操作，不该挨着「立即同步」。 */}
+          {clearArmed ? (
+            <Button
+              variant="destructive"
+              size="sm"
+              data-ui="cloud-sync-clear-history-confirm"
+              onClick={() => {
+                setClearArmed(false)
+                markFailuresSeen()
+                void clearHistory()
+              }}
+            >
+              确认清空？
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive"
+              data-ui="cloud-sync-clear-history"
+              disabled={batches.length === 0 && entries.length === 0}
+              onClick={() => setClearArmed(true)}
+            >
+              清空同步记录
+            </Button>
+          )}
           <Button
             size="sm"
             disabled={!config.connected}

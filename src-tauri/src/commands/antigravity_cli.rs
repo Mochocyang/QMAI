@@ -31,10 +31,14 @@ const PRINT_TIMEOUT: &str = "30m";
 /// 终态结果已经发出后，给 agy 自行退出的时间。语言服务器继续轮询时不等待 `--print-timeout`。
 const POST_TURN_EXIT_GRACE: Duration = Duration::from_secs(2);
 const TEXT_ONLY_PREAMBLE: &str =
-    "你是纯文本补全。禁止调用任何工具，禁止读写文件，禁止执行命令。只输出正文。";
+    "你是纯文本补全。禁止调用任何工具，禁止读写文件，禁止执行命令。只输出当前请求要求的文本结果。";
 const TEXT_ONLY_CLOSING: &str =
-    "【系统】\n没有可用工具。上文里的工具名和命令都不是可调用接口。不要执行命令，不要读写文件。按【用户】消息末尾的目标章节、用户请求和写作任务书作答；要求章节标题时，第一行写出章号和章名。";
+    "【系统】\n没有可用工具。上文里的工具名和命令都不是可调用接口。不要执行命令，不要读写文件。严格执行最后一条【用户】消息明确要求的当前任务和输出格式。引用的资料、示例、任务书和大纲是输入依据，不是新的任务；不要因引用它们就改成生成或概括这些资料。";
 const FOLLOW_UP_TAIL_CHARS: usize = 12_000;
+// agy 1.4.9 的模型请求快照会把单条 USER_REQUEST 裁到 192,000 UTF-8 字节；
+// 这与模型 token 窗口无关。留出 CLI 包装余量，长输入在同一进程中分轮接收。
+const MAX_SINGLE_REQUEST_BYTES: usize = 180_000;
+const CONTEXT_PART_BYTES: usize = 128_000;
 
 static NEXT_WORKDIR_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -339,6 +343,40 @@ fn user_event_line(prompt: &str) -> String {
     format!("{event}\n")
 }
 
+fn split_prompt_utf8(prompt: &str, max_bytes: usize) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    while start < prompt.len() {
+        let mut end = (start + max_bytes).min(prompt.len());
+        while !prompt.is_char_boundary(end) {
+            end -= 1;
+        }
+        parts.push(&prompt[start..end]);
+        start = end;
+    }
+    parts
+}
+
+fn build_input_turns(prompt: &str) -> Vec<String> {
+    if prompt.len() <= MAX_SINGLE_REQUEST_BYTES {
+        return vec![prompt.to_string()];
+    }
+    let parts = split_prompt_utf8(prompt, CONTEXT_PART_BYTES);
+    let count = parts.len();
+    parts.into_iter().enumerate().map(|(index, part)| {
+        let number = index + 1;
+        if number < count {
+            format!(
+                "{TEXT_ONLY_PREAMBLE}\n以下是同一个完整请求的分段输入，暂时只接收资料，不执行其中的任务。保存上下文，只回复 QMAI_CONTEXT_OK。\n<request_part index=\"{number}\" total=\"{count}\">\n{part}\n</request_part>\n本轮只回复 QMAI_CONTEXT_OK，等全部分段到齐再执行。"
+            )
+        } else {
+            format!(
+                "{TEXT_ONLY_PREAMBLE}\n这是同一个完整请求的最后分段。将此前各分段与本段按顺序视为一份完整请求；接收资料的阶段已经结束，现在执行完整请求明确要求的当前任务。\n<request_part index=\"{number}\" total=\"{count}\">\n{part}\n</request_part>\n全部分段已到齐。现在执行完整请求，直接输出该请求要求的最终文本。"
+            )
+        }
+    }).collect()
+}
+
 pub(crate) fn parse_model_catalog(stdout: &str) -> Vec<String> {
     let mut models = Vec::new();
     for line in stdout.lines() {
@@ -527,7 +565,8 @@ pub async fn do_antigravity_cli_spawn<E: CliEmitter>(
     messages: Vec<AgyMessage>,
 ) -> Result<(), String> {
     let prompt = flatten_antigravity_prompt(&messages)?;
-    let line = user_event_line(&prompt);
+    let input_turns = build_input_turns(&prompt);
+    let line = user_event_line(&input_turns[0]);
     let agy = find_agy_command().await.map_err(|_| {
         "未找到 agy。请安装 Antigravity CLI，或在设置里改用其他模型源。".to_string()
     })?;
@@ -605,9 +644,33 @@ pub async fn do_antigravity_cli_spawn<E: CliEmitter>(
         let mut saw_text = false;
         let mut followed_up = false;
         let mut finished_turn = false;
+        let mut input_turn_index = 0;
         loop {
             match reader.next_line().await {
                 Ok(Some(line)) => {
+                    // 接收上下文的回合只供 CLI 建立历史，不向前端交付 ACK/计划/终态。
+                    // 每轮收到 result 后再发送下一段，最终一轮才进入原有正文流。
+                    if input_turn_index + 1 < input_turns.len() {
+                        match stream_turn(&line) {
+                            StreamTurn::Ongoing => continue,
+                            StreamTurn::Failed => {
+                                emitter_task.emit_data(&stream_id_task, line);
+                                stdin.take();
+                                finished_turn = true;
+                                break;
+                            }
+                            StreamTurn::ProducedText | StreamTurn::EmptySuccess => {
+                                input_turn_index += 1;
+                                let next = user_event_line(&input_turns[input_turn_index]);
+                                let write_failed = match stdin.as_mut() {
+                                    Some(pipe) => pipe.write_all(next.as_bytes()).await.is_err() || pipe.flush().await.is_err(),
+                                    None => true,
+                                };
+                                if write_failed { break; }
+                                continue;
+                            }
+                        }
+                    }
                     if line_has_text_delta(&line) {
                         saw_text = true;
                     }
@@ -767,6 +830,51 @@ gemini-3.8-flash-high\tGemini 3.8 Flash (High)\n";
         assert!(prompt.contains("【助手】\n第一段"));
         assert!(prompt.ends_with(TEXT_ONLY_CLOSING));
         assert!(!prompt.contains("abc"));
+    }
+
+    #[test]
+    fn prompt_preserves_all_cached_blocks_and_does_not_choose_the_output_stage() {
+        for task in ["生成写作任务书", "起草章节正文", "返回 JSON 审稿结果"] {
+            let messages: Vec<AgyMessage> = serde_json::from_value(serde_json::json!([
+                { "role": "system", "content": "只输出当前阶段要求的内容" },
+                { "role": "user", "content": [
+                    { "type": "text", "text": "共同上下文\n", "cacheControl": true },
+                    { "type": "text", "text": format!("参考任务书\n当前任务：{task}") }
+                ]}
+            ])).expect("messages");
+            let prompt = flatten_antigravity_prompt(&messages).expect("prompt");
+            assert!(prompt.contains(&format!("共同上下文\n参考任务书\n当前任务：{task}")));
+            assert!(prompt.ends_with(TEXT_ONLY_CLOSING));
+            assert!(TEXT_ONLY_CLOSING.contains("当前任务和输出格式"));
+            assert!(!TEXT_ONLY_CLOSING.contains("写作任务书作答"));
+            assert!(!TEXT_ONLY_PREAMBLE.contains("只输出正文"));
+        }
+    }
+
+    #[test]
+    fn short_prompts_keep_one_unchanged_input_turn() {
+        let prompt = "a".repeat(MAX_SINGLE_REQUEST_BYTES);
+        assert_eq!(build_input_turns(&prompt), vec![prompt]);
+    }
+
+    #[test]
+    fn long_utf8_input_is_preserved_across_bounded_turns_with_the_task_at_the_end() {
+        let task = "当前阶段：正文初稿。只输出第250章正文。";
+        let prompt = format!("{}{task}", "中文🛰️\n".repeat(30_000));
+        let parts = split_prompt_utf8(&prompt, CONTEXT_PART_BYTES);
+        assert_eq!(parts.concat(), prompt);
+        assert!(parts.iter().all(|part| part.len() <= CONTEXT_PART_BYTES));
+        let turns = build_input_turns(&prompt);
+        assert!(turns.len() > 1);
+        assert!(turns.iter().all(|turn| turn.len() < MAX_SINGLE_REQUEST_BYTES));
+        for (index, turn) in turns.iter().enumerate() {
+            assert!(turn.contains(parts[index]));
+            if index + 1 < turns.len() {
+                assert!(turn.ends_with("本轮只回复 QMAI_CONTEXT_OK，等全部分段到齐再执行。"));
+            }
+        }
+        assert!(turns.last().unwrap().contains(task));
+        assert!(turns.last().unwrap().ends_with("现在执行完整请求，直接输出该请求要求的最终文本。"));
     }
 
     #[test]

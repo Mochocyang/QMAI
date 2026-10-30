@@ -157,6 +157,15 @@ html[data-ui-test-skin], html[data-ui-test-skin] body, html[data-ui-test-skin] #
 .ui-test-brand-logo-btn .ui-test-brand-logo-icon { width: 16px; height: 16px; color: var(--ui-muted); display: none; }
 .ui-test-brand-logo-btn:hover .ui-test-brand-logo { display: none; }
 .ui-test-brand-logo-btn:hover .ui-test-brand-logo-icon { display: block; }
+/*
+ * 目录已收起时，按钮常驻显示「收起目录」图标而不是品牌 logo。
+ *
+ * 光靠 :hover 不够：目录隐藏后按钮恢复成 logo，用户看不出列表是被收起了，
+ * 也不知道再点一下就能打开。这里让「已收起」这个状态自己可见。
+ * 放在 :hover 规则之后，确保与悬停同时命中时不会被盖回 logo。
+ */
+.ui-test-brand-logo-btn.is-directory-collapsed .ui-test-brand-logo { display: none; }
+.ui-test-brand-logo-btn.is-directory-collapsed .ui-test-brand-logo-icon { display: block; }
 .ui-test-header-hint-anchor { position: relative; display: inline-flex; flex-shrink: 0; }
 .ui-test-header-hint { position: absolute; top: calc(100% + 10px); left: 0; z-index: 30; width: min(280px, calc(100vw - 40px)); padding: 12px 14px; border: 1px solid var(--ui-line); border-radius: 12px; background: var(--ui-paper); color: var(--ui-ink); font: 400 0.8125rem/1.6 var(--ui); box-shadow: 0 12px 40px color-mix(in srgb, var(--ui-ink) 16%, transparent); }
 .ui-test-header-hint.is-right { left: auto; right: 0; }
@@ -456,11 +465,6 @@ html[data-ui-test-skin] .ui-test-contact-dialog { width: min(920px, calc(100vw -
 .ui-test-root .ui-test-tree-extract { width: 24px; height: 28px; position: absolute; right: 3px; opacity: .7; }
 .ui-test-root [data-ui-tree-row]:has(.ui-test-tree-extract) > button:first-of-type { padding-right: 30px; }
 .ui-test-root .ui-test-tree-extract:focus-visible { z-index: 3; opacity: 1; }
-.ui-test-root .ui-test-tree-delete { position: absolute; top: 5px; right: 0; visibility: hidden; border: 0; box-shadow: none; }
-.ui-test-root .ui-test-tree-delete:not(.is-armed) { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border-radius: 6px; line-height: 0; }
-.ui-test-root .ui-test-tree-delete:not(.is-armed) svg { display: block; width: 15px; height: 15px; margin: 0; }
-.ui-test-root .ui-test-tree-delete:not(.is-armed):hover, .ui-test-root .ui-test-tree-delete:not(.is-armed):active, .ui-test-root .ui-test-tree-delete:not(.is-armed):focus-visible { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; box-shadow: none; transform: none; }
-.ui-test-root .ui-test-tree-delete:focus-visible { visibility: visible; z-index: 4; opacity: 1; background: var(--ui-panel); }
 .ui-test-root .ui-test-tree-root-label { margin: 20px 8px 6px; padding: 0; font-size: 0.75rem; font-weight: 400; }
 .ui-test-root .ui-test-outline-tools { background: var(--ui-paper); border-radius: 10px; padding: 14px; color: var(--ui-ink); font: 0.875rem/1.6 var(--ui); }
 .ui-test-root .ui-test-outline-confirm p { margin: 0 0 12px; }
@@ -499,9 +503,7 @@ html[data-ui-test-skin] .ui-test-contact-dialog { width: min(920px, calc(100vw -
 .ui-test-root .ui-test-soul-aura small, .ui-test-root .ui-test-soul-empty { font-size: 0.75rem; color: var(--ui-muted); }
 .ui-test-root .ui-test-soul-section .is-collapsed { transform: rotate(-90deg); }
 
-.ui-test-root [data-ui-tree-row]:hover .ui-test-tree-delete, .ui-test-root [data-ui-tree-row]:focus-within .ui-test-tree-delete, .ui-test-root .ui-test-tree-delete.is-armed { visibility: visible; right: 30px; opacity: 1; z-index: 3; background: var(--ui-panel); }
 .ui-test-root [data-ui-tree-row]:focus-within .ui-test-tree-more { opacity: 1; }
-.ui-test-root .ui-test-tree-delete.is-armed { top: 5px; width: auto; height: 28px; padding: 0 8px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; background: var(--ui-danger); color: #fff; transform: none; }
 .ui-test-root [aria-label="文档更多操作"] { border: 0; background: var(--ui-paper); color: var(--ui-ink); border-radius: 12px; padding: 8px; width: 216px; box-shadow: 0 16px 40px #14231b24; }
 .ui-test-root [aria-label="文档更多操作"] button { font-size: 0.8125rem; padding-block: 9px; border-radius: 6px; }
 

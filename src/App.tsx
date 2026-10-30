@@ -38,6 +38,7 @@ import { bootMcp } from "@/lib/mcp/startup"
 import { registerShelfOpener } from "@/lib/mcp/bookshelf"
 import { initializeProjectContextCache } from "@/lib/context-hub/context-hub"
 import { useEnsureAiChatModel } from "@/lib/ensure-ai-chat-model"
+import { MemoryMaintenanceReminder } from "@/components/novel/memory-maintenance-reminder"
 
 function App() {
   useEnsureAiChatModel()
@@ -79,6 +80,7 @@ function App() {
   useEffect(() => {
     let stop = () => {}
     let cancelled = false
+    // Rebind the native MCP listener when the application effect is refreshed.
     void bootMcp().then((dispose) => {
       if (cancelled) dispose()
       else stop = dispose
@@ -553,13 +555,12 @@ function App() {
         // 非 Tauri 环境与非 Windows 平台由 checkForAppUpdate 内部自行返回。
         void checkForAppUpdate()
 
-        // 启动后静默上报使用统计（下载数 / 独立 IP / 在线数 / 今日新增）。
-        //
-        // 与上面的更新检查同源：26f80ee 把这两个调用一起删掉了，更新检查后来
-        // 在 471a0dcf 单独修复，统计上报至今没有调用者 —— analytics.ts 被
-        // tree-shake 掉，后台数据从 2026-09-25 起就停止增长。
-        // 内部已 try/catch 且失败静默，不会影响启动。回归守卫见
-        // src/lib/analytics-wiring.test.ts。
+        // 启动静默上报（/open + 心跳 + 关窗 /close），无 UI，失败不影响使用。
+        // 与上面的 checkForAppUpdate 是同一场事故的两个受害者：26f80ee6 删掉了
+        // 那个"UI 测试版常量取反"的守卫块，连同块内的两个调用一起 ——
+        // initAnalytics 从此没有任何调用者，analytics.ts 被 tree-shake，
+        // 后台的下载数/独立 IP/在线人数/今日新增从那时起就不再更新。
+        // 回归守卫见 analytics-wiring.test.ts。
         void initAnalytics()
       }
     }
@@ -731,6 +732,7 @@ function App() {
       />
       <PersonaSkillCompletionDialog />
       <StyleEvolutionNoticeDialog />
+      <MemoryMaintenanceReminder />
     </>
   )
 }

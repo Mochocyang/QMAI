@@ -8,10 +8,12 @@
 
 pub mod baidu_netdisk;
 pub mod folder;
+pub mod github;
 pub mod webdav;
 
 pub use baidu_netdisk::BaiduStore;
 pub use folder::FolderStore;
+pub use github::GithubStore;
 pub use webdav::WebdavStore;
 
 use std::path::Path;
@@ -40,6 +42,21 @@ pub trait RemoteStore: Send {
     fn remove(&self, rel: &str) -> Result<(), String>;
 
     fn rename(&self, from: &str, to: &str) -> Result<(), String>;
+
+    /// 一轮同步开始。远端如果是「攒批提交」型（GitHub），这里清掉上一轮残留。
+    ///
+    /// 默认空实现：像本地文件夹、WebDAV 这种写完就落盘的远端不需要它。
+    fn begin(&self) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// 一轮同步结束：把攒下的变更真正落盘。
+    ///
+    /// GitHub 用它把几十上百个文件合成**一个 commit**；其它远端是空操作，
+    /// 所以引擎可以无条件调用，不用按 provider 分支。
+    fn commit(&self, _message: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 /// 把相对路径解析成根目录下的真实路径，并确保没有越界。

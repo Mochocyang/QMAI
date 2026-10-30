@@ -1,5 +1,6 @@
 import { readFile, writeFileAtomic } from "@/commands/fs"
 import { normalizeChapterWriting } from "@/lib/chapter-formatting"
+import { refreshProjectState } from "@/lib/project-refresh"
 import { getOpenDocumentGuard } from "./open-document"
 import { requireProjectDocument } from "./paths"
 
@@ -15,5 +16,6 @@ export async function formatProjectChapter(input: {
   const formatted = normalizeChapterWriting(await io.readFile(input.path))
   await io.writeFile(input.path, formatted)
   getOpenDocumentGuard(input.path)?.applyMarkdown(formatted)
+  await refreshProjectState(input.projectPath)
   return "章节已排版"
 }
