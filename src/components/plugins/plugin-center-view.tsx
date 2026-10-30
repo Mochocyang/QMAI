@@ -141,6 +141,7 @@ export function PluginCenterView() {
     }
   }, [])
 
+
   const loadMarket = useCallback(async (refresh: boolean) => {
     setLoadingMarket(true)
     setMarketError(null)
@@ -183,7 +184,7 @@ export function PluginCenterView() {
     try {
       await pluginsApi.marketInstall(entry.repo)
       toast.success(`已安装「${entry.name}」`)
-      await refreshInstalled()
+      await refreshPluginState()
     } catch (cause) {
       toast.error(describeError(cause))
     } finally {
@@ -200,7 +201,7 @@ export function PluginCenterView() {
       } else {
         await pluginsApi.disable(plugin.id)
       }
-      await refreshInstalled()
+      await refreshPluginState()
     } catch (cause) {
       toast.error(describeError(cause))
     } finally {
@@ -214,7 +215,7 @@ export function PluginCenterView() {
     try {
       await pluginsApi.uninstall(plugin.id, false)
       toast.success("已卸载")
-      await refreshInstalled()
+      await refreshPluginState()
     } catch (cause) {
       toast.error(describeError(cause))
     } finally {
@@ -245,6 +246,21 @@ export function PluginCenterView() {
   const pluginSlots = usePluginSlotIndex()
   const centerSlot = pluginSlots.index["plugin-center"]
   const hasCenterAbilities = centerSlot.actions.length > 0 || centerSlot.packs.length > 0
+
+  /*
+   * 插件状态变化后，**能力区必须跟着刷新**。
+   *
+   * 之前卸载插件只刷新了「已安装」列表（`plugins_list`），没有刷新插槽索引
+   * （`plugins_actions`）—— 于是插件已经卸载、目录都删了，「插件能力」里那个
+   * 按钮还在，点它只会报错。用户看到的是"卸载了却还在"，而界面没有任何自愈迹象。
+   *
+   * 卸载、启用、停用、安装，四种状态变化都会影响"有哪些能力可用"，
+   * 所以统一走这一个函数，避免以后新增一种操作又漏刷。
+   */
+  const refreshPluginState = useCallback(async () => {
+    await refreshInstalled()
+    pluginSlots.reload()
+  }, [refreshInstalled, pluginSlots])
 
   /*
    * 内容包浏览器的两个依赖。
@@ -641,7 +657,7 @@ export function PluginCenterView() {
         onModeChange={setAddMode}
         onOpenChange={setAddOpen}
         onInstalled={async () => {
-          await refreshInstalled()
+          await refreshPluginState()
         }}
       />
 

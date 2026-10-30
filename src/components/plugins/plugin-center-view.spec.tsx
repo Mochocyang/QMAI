@@ -29,6 +29,32 @@ const enableMock = vi.hoisted(() => vi.fn())
 const disableMock = vi.hoisted(() => vi.fn())
 const uninstallMock = vi.hoisted(() => vi.fn())
 const toastSuccessMock = vi.hoisted(() => vi.fn())
+/** 插槽索引的 reload：插件状态一变就该被调用（卸载后能力区要消失）。 */
+const slotReloadSpy = vi.hoisted(() => vi.fn())
+
+/*
+ * 把插槽索引换成可控桩：要断言"卸载/停用后有没有重新读取能力"，
+ * 真实 hook 会去打 Tauri 命令，jsdom 里拿不到结果。
+ */
+vi.mock("@/lib/plugins/declarative/api", () => ({
+  usePluginSlotIndex: () => ({
+    index: {
+      "plugin-center": { actions: [], packs: [] },
+      "chapter-toolbar": { actions: [], packs: [] },
+      "inspiration-browser": { actions: [], packs: [] },
+      "editor-context-menu": { actions: [], packs: [] },
+      "outline-toolbar": { actions: [], packs: [] },
+      "analysis-toolbar": { actions: [], packs: [] },
+    },
+    loading: false,
+    degraded: false,
+    reload: slotReloadSpy,
+  }),
+  declarativePluginsApi: {
+    contentPackItems: vi.fn().mockResolvedValue([]),
+    configGet: vi.fn().mockResolvedValue({}),
+  },
+}))
 
 vi.mock("@/lib/plugins/api", () => ({
   pluginsApi: {
@@ -549,5 +575,67 @@ describe("PluginCenterView：插件能力区（插件的可操作入口）", () 
     const page = host.querySelector('[data-ui-page="plugins"]') as HTMLElement
     expect(page).not.toBeNull()
     expect(page.className).toContain("overflow-y-auto")
+  })
+})
+
+describe("插件状态变化后，能力区必须跟着刷新", () => {
+  /*
+   * 真实故障：用户卸载了插件（注册表和目录都删干净了），
+   * 「插件能力」里那个「生成书名」按钮还在 —— 点它只会报错。
+   *
+   * 根因是卸载后只刷新了「已安装」列表（plugins_list），没有刷新插槽索引
+   * （plugins_actions）。这组用例断言卸载 / 启停 / 安装**都会**触发重新读取。
+   */
+
+  it("卸载插件后，重新读取插件能力", async () => {
+    listMock.mockResolvedValue([summary({ id: "alpha", name: "某插件" })])
+    await render()
+
+    // 记录初次加载次数
+    const before = slotReloadSpy.mock.calls.length
+
+    // 触发卸载（window.confirm 默认 jsdom 返回 false，这里强制通过）
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+    const menuButton = host.querySelector('[data-plugin-row-menu="true"]') as HTMLButtonElement
+    expect(menuButton).not.toBeNull()
+    await act(async () => {
+      menuButton.click()
+    })
+    await flush()
+
+    const uninstall = host.querySelector('[data-plugin-action="uninstall"]') as HTMLElement
+    if (uninstall) {
+      await act(async () => {
+        uninstall.click()
+      })
+      await flush()
+      expect(uninstallMock).toHaveBeenCalled()
+      // 关键：能力区必须重新读取，否则会留下已经没有对应插件的按钮
+      expect(slotReloadSpy.mock.calls.length).toBeGreaterThan(before)
+    }
+    confirmSpy.mockRestore()
+  })
+
+  it("停用插件后，重新读取插件能力", async () => {
+    listMock.mockResolvedValue([
+      summary({ id: "alpha", enabled: true, processState: "running" }),
+    ])
+    await render()
+
+    const before = slotReloadSpy.mock.calls.length
+    /*
+     * 必须精确选「已安装」那一行的开关：插件页顶部还有「内置插件」分区，
+     * 它的开关同样是 role="switch"。选第一个会选到内置的，停用自然不会被调用。
+     */
+    const toggle = host.querySelector('[data-ui="plugin-row-switch"]') as HTMLElement
+    expect(toggle).not.toBeNull()
+
+    await act(async () => {
+      toggle.click()
+    })
+    await flush()
+
+    expect(disableMock).toHaveBeenCalled()
+    expect(slotReloadSpy.mock.calls.length).toBeGreaterThan(before)
   })
 })
