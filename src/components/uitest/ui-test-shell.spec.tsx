@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs"
+import { setBuiltinPluginEnabled } from "@/lib/plugins/builtin-state"
 import { resolve } from "node:path"
 import postcss from "postcss"
 import { act } from "react"
@@ -341,6 +342,12 @@ describe("独立UI测试版外壳", () => {
   })
   it("右键或长按可调整主导航，并在重新打开后保留", async () => {
     vi.useFakeTimers()
+    /*
+     * 「小说图谱」是默认关闭的内置插件（用户决定）。本用例验的是"一级导航右键/替换"
+     * 交互，与图谱本身无关 —— 先打开它，菜单里才有这一项可选。必须在 render 之前设置，
+     * 否则菜单已按旧状态渲染好了。
+     */
+    setBuiltinPluginEnabled("novel-graph", true)
     await render()
     const soulSlot = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.textContent?.includes("灵魂")) as HTMLElement
     await act(async () => {
@@ -429,6 +436,11 @@ describe("独立UI测试版外壳", () => {
     const skill = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.querySelector("button")?.textContent === "技能库") as HTMLElement
     await act(async () => { skill.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 300, clientY: 20 })) })
     await hover("替换为")
+    /*
+     * 「小说图谱」现在是默认关闭的内置插件（用户决定：保留功能但不在创作工具里默认出现）。
+     * 本用例验的是"一级导航的右键/替换交互"，与图谱本身无关，所以先把它打开再继续。
+     */
+    setBuiltinPluginEnabled("novel-graph", true)
     await click("小说图谱")
     expect(useWikiStore.getState().activeView).toBe("sources")
     expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "小说图谱", "插件"])

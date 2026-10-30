@@ -158,10 +158,9 @@ describe("builtin-state：存储容错", () => {
 })
 
 describe("内置插件：覆盖范围", () => {
-  it("记忆中心 / 小说图谱 / 灵魂 / 技能库 / 拆书库 都能独立关闭", () => {
+  it("记忆中心 / 灵魂 / 技能库 / 拆书库 默认开启，且都能独立开关", () => {
     const cases: Array<[Parameters<typeof setBuiltinPluginEnabled>[0], string]> = [
       ["memory-center", "lint"],
-      ["novel-graph", "graph"],
       ["soul", "soul"],
       ["skill-library", "skillLibrary"],
       ["book-analysis", "bookAnalysis"],
@@ -177,10 +176,23 @@ describe("内置插件：覆盖范围", () => {
     }
   })
 
-  it("关掉记忆中心不会牵连小说图谱（各自独立）", () => {
+  it("小说图谱默认关闭（创作工具里一开始不显示），但可以被打开", () => {
+    /*
+     * 用户决定：图谱作为「内置插件」保留，但**默认不在创作工具里出现**。
+     * 想要的人到插件页打开；数据不会因为默认关闭而被删。
+     */
+    expect(isBuiltinPluginEnabled("novel-graph")).toBe(false)
+    expect(isBuiltinViewEnabled("graph")).toBe(false)
+
+    setBuiltinPluginEnabled("novel-graph", true)
+    expect(isBuiltinViewEnabled("graph")).toBe(true)
+  })
+
+  it("关掉记忆中心不会牵连别的视图（各自独立）", () => {
     setBuiltinPluginEnabled("memory-center", false)
     expect(isBuiltinViewEnabled("lint")).toBe(false)
-    expect(isBuiltinViewEnabled("graph")).toBe(true)
+    // 灵魂默认开着，不该被牵连
+    expect(isBuiltinViewEnabled("soul")).toBe(true)
   })
 
   it("「剧本/回收站」这类不属于内置插件的视图永远可用", () => {
