@@ -71,16 +71,19 @@
         "form": {
           "fields": [
             {
-              "key": "books",
-              "type": "multiselect",
-              "label": "选择要分析的书",
+              "key": "shelfOverview",
+              "type": "textarea",
+              "label": "书架上的书",
               "required": false,
-              "description": "勾选后插件会读取这些书的简介与正文片段。不勾表示分析书架上的全部书。",
-              "optionsFrom": {
-                "tool": "list_shelf_books",
-                "valueField": "id",
-                "labelField": "title"
-              }
+              "rows": 3,
+              "description": "由插件自动填入，供你照抄书名。若这里是空的，说明书架读取失败，可手工填写要看的内容。"
+            },
+            {
+              "key": "onlyBooks",
+              "type": "text",
+              "label": "只分析这几本（可选）",
+              "required": false,
+              "description": "填书名，用逗号分隔，如：楚白,黑雨之下。留空表示分析书架上的全部书。"
             },
             {
               "key": "material",
@@ -160,10 +163,15 @@
         },
         "prepare": [
           {
+            "var": "shelfOverview",
+            "tool": "list_shelf_books",
+            "args": {}
+          },
+          {
             "var": "material",
             "tool": "collect_writing_material",
             "args": {
-              "ids": "{{books}}",
+              "onlyBooks": "{{onlyBooks}}",
               "maxCharsPerBook": 800
             }
           }

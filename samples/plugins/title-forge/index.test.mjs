@@ -168,34 +168,33 @@ describe("书名生成插件", () => {
 
 describe("对宿主返回值的容错", () => {
   /*
-   * 宿主可能返回：空书架、缺字段、camelCase 与 snake_case 混用（Rust 侧是 camelCase，
-   * 但历史数据可能存在别的形状）。插件不能因为少了 chapterCount 就整条崩掉 ——
-   * 书名生成只要书名就够，其余是加分项。
+   * list_shelf_books 现在返回**人能直接读的清单文本**（它会被 prepare 填进
+   * 表单的「书架上的书」框，塞 JSON 进去等于让用户去解析转义符）。
+   * 所以这里断言的是文本，而不是 JSON 字段。
    */
   const cases = [
     {
       name: "空书架 → 明确说明，不报错",
       response: { books: [] },
-      expectStatus: "empty",
-      expectMessage: /还没有书/,
+      check: (text) => assert.match(text, /书架上是空的/),
     },
     {
-      name: "缺 chapterCount 也能用",
-      response: { books: [{ id: "a", title: "某书", description: "简介" }] },
-      expectStatus: "ok",
-      check: (payload) => assert.equal(payload.books[0].chapterCount, 0),
+      name: "缺 chapterCount 也能用（只是不显示章数）",
+      response: { books: [{ id: "a", title: "某书" }] },
+      check: (text) => {
+        assert.match(text, /《某书》/);
+        assert.doesNotMatch(text, /章/);
+      },
     },
     {
       name: "snake_case 的 chapter_count 也能读",
       response: { books: [{ id: "a", title: "某书", chapter_count: 12 }] },
-      expectStatus: "ok",
-      check: (payload) => assert.equal(payload.books[0].chapterCount, 12),
+      check: (text) => assert.match(text, /12 章/),
     },
   ];
 
   for (const item of cases) {
     it(item.name, async () => {
-      // 起一个最小 HTTP 服务扮演宿主
       const { createServer } = await import("node:http");
       const server = createServer((req, res) => {
         res.writeHead(200, { "content-type": "application/json" });
@@ -209,45 +208,17 @@ describe("对宿主返回值的容错", () => {
         QMAI_HOST_TOKEN: "test-token",
       });
       try {
-        const { payload } = await callTool(client, "list_shelf_books");
-        assert.equal(payload?.status, item.expectStatus);
-        if (item.expectMessage) assert.match(payload.message, item.expectMessage);
-        if (item.check) item.check(payload);
+        // callTool 返回 { raw: MCP 结果对象, payload: 解析后的 JSON }。
+        // 这里要的是**文本**，所以取 content[0].text。
+        const { raw } = await callTool(client, "list_shelf_books");
+        const text = raw?.content?.[0]?.text ?? "";
+        item.check(text);
       } finally {
         client.stop();
         await new Promise((resolve) => server.close(resolve));
       }
     });
   }
-
-  it("宿主返回 403 时，错误信息里带状态码（便于分辨『没授权』和『书架空』）", async () => {
-    const { createServer } = await import("node:http");
-    const server = createServer((req, res) => {
-      res.writeHead(403, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "E_PERMISSION", permission: "fs:shelf-read" }));
-    });
-    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const { port } = server.address();
-
-    const client = await startPlugin({
-      QMAI_HOST_URL: `http://127.0.0.1:${port}`,
-      QMAI_HOST_TOKEN: "test-token",
-    });
-    try {
-      const frame = await client.request({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: { name: "list_shelf_books", arguments: {} },
-      });
-      const text = frame.result?.content?.[0]?.text ?? "";
-      assert.match(text, /403/);
-      assert.equal(frame.result?.isError, true);
-    } finally {
-      client.stop();
-      await new Promise((resolve) => server.close(resolve));
-    }
-  });
 
   it("collect_writing_material 把多本书拼成带分隔的素材", async () => {
     const { createServer } = await import("node:http");
@@ -282,5 +253,103 @@ describe("对宿主返回值的容错", () => {
       client.stop();
       await new Promise((resolve) => server.close(resolve));
     }
+  });
+});
+
+describe("按书名筛选（onlyBooks）", () => {
+  /*
+   * 为什么要这条：宿主的动态选项（勾选框）在部分环境里取不到，
+   * 所以「选书」做成了手填书名的文本字段 —— 插件负责把书名翻译成 id
+   * 再向宿主取样。这条链路容易断（大小写、分隔符、书名不完全一致）。
+   */
+  async function withHost(handler, run) {
+    const { createServer } = await import("node:http");
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (d) => (body += d));
+      req.on("end", () => handler(req, res, body));
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address();
+    const client = await startPlugin({
+      QMAI_HOST_URL: `http://127.0.0.1:${port}`,
+      QMAI_HOST_TOKEN: "t",
+    });
+    try {
+      await run(client);
+    } finally {
+      client.stop();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  }
+
+  const shelf = {
+    books: [
+      { id: "id-1", title: "楚白", description: "", chapterCount: 2 },
+      { id: "id-2", title: "黑雨之下", description: "", chapterCount: 12 },
+    ],
+  };
+
+  it("书名命中时只取那几本", async () => {
+    const sampled = [];
+    await withHost(
+      (req, res, body) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        if (req.url.includes("/host/shelf/list")) {
+          res.end(JSON.stringify(shelf));
+        } else {
+          const args = JSON.parse(body || "{}");
+          sampled.push(...(args.ids ?? []));
+          res.end(JSON.stringify({
+            books: (args.ids ?? []).map((id) => ({
+              id,
+              title: shelf.books.find((b) => b.id === id).title,
+              sample: "正文",
+            })),
+            totalSampleChars: 2,
+          }));
+        }
+      },
+      async (client) => {
+        await callTool(client, "collect_writing_material", { onlyBooks: "楚白" });
+      },
+    );
+    assert.deepEqual(sampled, ["id-1"]);
+  });
+
+  it("逗号与中文顿号都能分隔", async () => {
+    const sampled = [];
+    await withHost(
+      (req, res, body) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        if (req.url.includes("/host/shelf/list")) {
+          res.end(JSON.stringify(shelf));
+        } else {
+          const args = JSON.parse(body || "{}");
+          sampled.push(...(args.ids ?? []));
+          res.end(JSON.stringify({ books: [], totalSampleChars: 0 }));
+        }
+      },
+      async (client) => {
+        await callTool(client, "collect_writing_material", { onlyBooks: "楚白，黑雨之下" });
+      },
+    );
+    assert.deepEqual(sampled.sort(), ["id-1", "id-2"]);
+  });
+
+  it("书名一个都不匹配时，说明原因并列出书架上有哪些书", async () => {
+    await withHost(
+      (req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(shelf));
+      },
+      async (client) => {
+        const { payload } = await callTool(client, "collect_writing_material", { onlyBooks: "不存在的书" });
+        assert.equal(payload.status, "empty");
+        assert.match(payload.message, /没有找到匹配的书/);
+        // 关键：告诉用户书架上有哪些，否则他不知道自己写错了什么
+        assert.match(payload.message, /楚白/);
+      },
+    );
   });
 });

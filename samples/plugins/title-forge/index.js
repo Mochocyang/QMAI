@@ -135,20 +135,24 @@ definePlugin({
         const picked = books.slice(0, limit);
 
         ctx.log(`书架返回 ${books.length} 本，取 ${picked.length} 本`);
-        return JSON.stringify({
-          status: picked.length > 0 ? "ok" : "empty",
-          total: books.length,
-          books: picked.map((book) => ({
-            id: book.id,
-            title: book.title,
-            description: clip(book.description, 120),
-            chapterCount: book.chapterCount ?? book.chapter_count ?? 0,
-          })),
-          message:
-            picked.length > 0
-              ? undefined
-              : "书架上还没有书。可以先建一本，或直接在表单里填关键词生成书名。",
+
+        if (picked.length === 0) {
+          return "书架上是空的。可以先建一本，或直接在「小说内容摘录」里写下题材与金手指。";
+        }
+
+        /*
+         * 返回**人能直接读的清单**，而不是 JSON。
+         *
+         * 因为它会被 prepare 填进表单的「书架上的书」文本框里 —— 那个框是给用户看的，
+         * 塞一段 JSON 进去等于让用户去解析转义符。列表形式可以直接照抄书名到
+         * 「只分析这几本」里。
+         */
+        const lines = picked.map((book, index) => {
+          const count = book.chapterCount ?? book.chapter_count ?? 0;
+          const desc = clip(book.description, 40);
+          return `${index + 1}. 《${book.title}》${count ? ` · ${count} 章` : ""}${desc ? ` · ${desc}` : ""}`;
         });
+        return `共 ${picked.length} 本：\n${lines.join("\n")}`;
       },
     },
 
@@ -175,11 +179,48 @@ definePlugin({
             minimum: 100,
             maximum: 1200,
           },
+          onlyBooks: {
+            type: "string",
+            description: "只看这几本：书名用逗号分隔。留空表示全部。",
+          },
         },
         additionalProperties: false,
       },
       handler: async (args, ctx) => {
-        const ids = Array.isArray(args.ids) ? args.ids.filter((id) => typeof id === "string") : [];
+        /*
+         * 选书有两条路：
+         *   · `ids`：id 列表（宿主表单能直接给 id 时用）；
+         *   · `onlyBooks`：书名文本，逗号分隔。这条是给"用户手填书名"准备的 ——
+         *     宿主的动态选项在部分环境里取不到，手填是唯一总是可用的办法。
+         * 两者都空 = 分析全部（受宿主上限约束）。
+         */
+        let ids = Array.isArray(args.ids) ? args.ids.filter((id) => typeof id === "string") : [];
+        const onlyBooks =
+          typeof args.onlyBooks === "string" ? args.onlyBooks.trim() : "";
+
+        if (ids.length === 0 && onlyBooks) {
+          // 先拿到书架清单，把书名翻译成 id（宿主只认 id）。
+          const shelf = await hostFetch("/host/shelf/list");
+          const all = Array.isArray(shelf.books) ? shelf.books : [];
+          const wanted = onlyBooks
+            .split(/[,，、\s]+/)
+            .map((name) => name.trim())
+            .filter(Boolean);
+          ids = all
+            .filter((book) => wanted.some((name) => String(book.title ?? "").includes(name)))
+            .map((book) => book.id);
+          ctx.log(`按书名筛选：${wanted.join("/")} → 命中 ${ids.length} 本`);
+          if (ids.length === 0) {
+            return JSON.stringify({
+              status: "empty",
+              material: "",
+              message: `没有找到匹配的书：${wanted.join("、")}。书架上有：${all
+                .map((book) => book.title)
+                .join("、")}`,
+            });
+          }
+        }
+
         const perBook = Number.isInteger(args.maxCharsPerBook) ? args.maxCharsPerBook : 800;
 
         const payload = await hostFetch("/host/shelf/sample", { ids, maxCharsPerBook: perBook });
