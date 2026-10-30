@@ -48,6 +48,7 @@ vi.mock("@/lib/toast", () => ({
   toast: { success: toastSuccessMock, error: vi.fn(), info: vi.fn() },
 }))
 
+import { BUILTIN_PLUGINS } from "@/lib/plugins/builtin"
 import { marketRepoKey, matchesMarketSearch, PluginCenterView } from "./plugin-center-view"
 
 function entry(overrides: Partial<PluginMarketEntry> & { id: string }): PluginMarketEntry {
@@ -426,5 +427,89 @@ describe("PluginCenterView：添加入口", () => {
     })
     await flush()
     expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  })
+})
+
+describe("PluginCenterView：内置插件的两种显示方式", () => {
+  it("默认是列表，并且每条都带开关", async () => {
+    await render()
+    // 默认列表视图：能读到"关闭后会发生什么"这句完整说明
+    expect(host.querySelector('[data-builtin-layout="list"]')).not.toBeNull()
+    expect(host.querySelector('[data-builtin-layout="grid"]')).toBeNull()
+    expect(host.querySelectorAll('[data-ui="builtin-plugin-switch"]').length).toBe(
+      BUILTIN_PLUGINS.length,
+    )
+  })
+
+  it("点九宫格按钮切到网格，卡片仍在且开关可用", async () => {
+    await render()
+    const gridBtn = host.querySelector('[data-builtin-view="grid"]') as HTMLButtonElement
+    expect(gridBtn).not.toBeNull()
+
+    await act(async () => {
+      gridBtn.click()
+    })
+    await flush()
+
+    expect(host.querySelector('[data-builtin-layout="grid"]')).not.toBeNull()
+    expect(host.querySelector('[data-builtin-layout="list"]')).toBeNull()
+    // 卡片形态换成 data-builtin-plugin-card
+    expect(host.querySelector('[data-builtin-plugin-card="memory-center"]')).not.toBeNull()
+    // 开关不能因为换视图就消失
+    expect(host.querySelectorAll('[data-ui="builtin-plugin-switch"]').length).toBe(
+      BUILTIN_PLUGINS.length,
+    )
+  })
+
+  it("切回列表能还原", async () => {
+    await render()
+    await act(async () => {
+      ;(host.querySelector('[data-builtin-view="grid"]') as HTMLButtonElement).click()
+    })
+    await flush()
+    await act(async () => {
+      ;(host.querySelector('[data-builtin-view="list"]') as HTMLButtonElement).click()
+    })
+    await flush()
+
+    expect(host.querySelector('[data-builtin-layout="list"]')).not.toBeNull()
+    expect(host.querySelector('[data-builtin-plugin-row="memory-center"]')).not.toBeNull()
+  })
+
+  it("选择被记住：重新挂载后仍是网格", async () => {
+    await render()
+    await act(async () => {
+      ;(host.querySelector('[data-builtin-view="grid"]') as HTMLButtonElement).click()
+    })
+    await flush()
+
+    // 卸载重挂，模拟下次进入插件页
+    act(() => root.unmount())
+    host.innerHTML = ""
+    root = createRoot(host)
+    await render()
+
+    expect(host.querySelector('[data-builtin-layout="grid"]')).not.toBeNull()
+  })
+
+  it("网格里点开关仍然调用切换（视图不影响行为）", async () => {
+    await render()
+    await act(async () => {
+      ;(host.querySelector('[data-builtin-view="grid"]') as HTMLButtonElement).click()
+    })
+    await flush()
+
+    const before = localStorage.getItem("qmai-builtin-plugins-v1")
+    const toggle = host.querySelector(
+      '[data-builtin-plugin-card="memory-center"] [role="switch"]',
+    ) as HTMLElement
+    expect(toggle).not.toBeNull()
+    await act(async () => {
+      toggle.click()
+    })
+    await flush()
+
+    const after = localStorage.getItem("qmai-builtin-plugins-v1")
+    expect(after).not.toBe(before)
   })
 })

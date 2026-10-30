@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Plus, Puzzle, RefreshCw, Search, X } from "lucide-react"
+import { LayoutGrid, List, Plus, Puzzle, RefreshCw, Search, X } from "lucide-react"
 
 import { AddPluginDialog, type AddPluginMode } from "@/components/plugins/add-plugin-dialog"
+import { BuiltinPluginCard } from "@/components/plugins/builtin-plugin-card"
 import { BuiltinPluginRow } from "@/components/plugins/builtin-plugin-row"
 import { ConfigForm } from "@/components/plugins/ConfigForm"
 import { InstalledRow } from "@/components/plugins/installed-row"
@@ -29,6 +30,35 @@ import { toast } from "@/lib/toast"
  *     下拉里的两种安装方式）做同一件事，而对话框本身就有 GitHub/本地目录切换 ——
  *     用户点三个不同的东西看到同一个框，本身就是缺陷，已按用户要求删除重复项。
  */
+
+/**
+ * 内置插件的显示方式。
+ *
+ * 两种视图各有各的用处（见 `builtin-plugin-card.tsx` 顶部注释），所以做成可切换，
+ * 而不是替用户做主选一个。选择存 localStorage：这是纯粹的显示偏好，
+ * 不跟项目走 —— 换一本书不该让插件页突然变个样子。
+ */
+export type BuiltinLayout = "grid" | "list"
+
+const BUILTIN_LAYOUT_KEY = "qmai-builtin-plugins-layout-v1"
+
+function readBuiltinLayout(): BuiltinLayout {
+  try {
+    const raw = localStorage.getItem(BUILTIN_LAYOUT_KEY)
+    return raw === "grid" ? "grid" : "list"
+  } catch {
+    // 存储不可用（隐私模式 / 测试环境）时退回列表：信息更完整，是更安全的默认。
+    return "list"
+  }
+}
+
+function writeBuiltinLayout(layout: BuiltinLayout): void {
+  try {
+    localStorage.setItem(BUILTIN_LAYOUT_KEY, layout)
+  } catch {
+    // 存不进去不影响本次会话（state 已更新），也不值得弹一个用户无法处理的提示。
+  }
+}
 
 export function describeError(cause: unknown): string {
   if (cause instanceof Error) return cause.message
@@ -199,6 +229,11 @@ export function PluginCenterView() {
    * 一次订阅整张表，避免 4 行各自订阅一次；`builtinOn` 用来算分区标题右侧的计数。
    */
   const builtinState = useBuiltinPluginsState()
+  const [builtinView, setBuiltinView] = useState<BuiltinLayout>(() => readBuiltinLayout())
+  const setBuiltinViewMode = useCallback((next: BuiltinLayout) => {
+    setBuiltinView(next)
+    writeBuiltinLayout(next)
+  }, [])
   const builtinOn = BUILTIN_PLUGINS.filter((plugin) => builtinState[plugin.id]).length
 
   return (
@@ -256,13 +291,53 @@ export function PluginCenterView() {
         已安装（第三方）与市场仍然在下面，三者自上而下是"自带 → 装过 → 可装"。
       */}
       <section aria-labelledby="plugins-builtin" className="px-6">
-        <div className="mb-2 flex items-baseline justify-between">
-          <h2 id="plugins-builtin" className="text-sm font-medium">
-            内置插件
-          </h2>
-          <span data-builtin-summary="true" className="text-xs text-muted-foreground">
-            共 {BUILTIN_PLUGINS.length} 个 · 已开启 {builtinOn} 个
-          </span>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="flex items-baseline gap-2">
+            <h2 id="plugins-builtin" className="text-sm font-medium">
+              内置插件
+            </h2>
+            <span data-builtin-summary="true" className="text-xs text-muted-foreground">
+              共 {BUILTIN_PLUGINS.length} 个 · 已开启 {builtinOn} 个
+            </span>
+          </div>
+          {/*
+            视图切换。两种视图不是谁替代谁：
+              · 列表 — 描述与"关闭后会发生什么"完整可读，适合"我要关掉某个功能"；
+              · 网格 — 图标与名字一屏扫完，适合"我有哪些、哪些开着"。
+            选择记在 localStorage，用户下次进来还是同一个视图。
+          */}
+          <div
+            className="flex shrink-0 items-center gap-0.5 rounded-lg border p-0.5"
+            role="group"
+            aria-label="内置插件显示方式"
+          >
+            <Button
+              type="button"
+              size="sm"
+              variant={builtinView === "grid" ? "secondary" : "ghost"}
+              className="h-7 px-2"
+              aria-pressed={builtinView === "grid"}
+              data-builtin-view="grid"
+              title="九宫格显示"
+              onClick={() => setBuiltinViewMode("grid")}
+            >
+              <LayoutGrid className="h-4 w-4" />
+              <span className="sr-only">九宫格显示</span>
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={builtinView === "list" ? "secondary" : "ghost"}
+              className="h-7 px-2"
+              aria-pressed={builtinView === "list"}
+              data-builtin-view="list"
+              title="列表显示"
+              onClick={() => setBuiltinViewMode("list")}
+            >
+              <List className="h-4 w-4" />
+              <span className="sr-only">列表显示</span>
+            </Button>
+          </div>
         </div>
 
         {/*
@@ -278,16 +353,32 @@ export function PluginCenterView() {
           内置插件随软件提供，可以关闭但不占用额外空间，也不能卸载。
         </p>
 
-        <ul className="space-y-2">
-          {BUILTIN_PLUGINS.map((plugin) => (
-            <BuiltinPluginRow
-              key={plugin.id}
-              plugin={plugin}
-              enabled={builtinState[plugin.id]}
-              onToggle={(next) => setBuiltinPluginEnabled(plugin.id, next)}
-            />
-          ))}
-        </ul>
+        {builtinView === "grid" ? (
+          <ul
+            data-builtin-layout="grid"
+            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4"
+          >
+            {BUILTIN_PLUGINS.map((plugin) => (
+              <BuiltinPluginCard
+                key={plugin.id}
+                plugin={plugin}
+                enabled={builtinState[plugin.id]}
+                onToggle={(next) => setBuiltinPluginEnabled(plugin.id, next)}
+              />
+            ))}
+          </ul>
+        ) : (
+          <ul data-builtin-layout="list" className="space-y-2">
+            {BUILTIN_PLUGINS.map((plugin) => (
+              <BuiltinPluginRow
+                key={plugin.id}
+                plugin={plugin}
+                enabled={builtinState[plugin.id]}
+                onToggle={(next) => setBuiltinPluginEnabled(plugin.id, next)}
+              />
+            ))}
+          </ul>
+        )}
       </section>
 
       <section aria-labelledby="plugins-installed" className="mt-6 px-6">
