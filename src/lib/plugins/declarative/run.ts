@@ -32,7 +32,18 @@ import type { DeclarativeAction } from "./types"
 export interface LlmCaller {
   /** 流式生成；onDelta 每来一段文本调用一次；返回完整文本 */
   call(
-    input: { system: string; user: string; maxOutputTokens?: number },
+    input: {
+      system: string
+      user: string
+      maxOutputTokens?: number
+      /**
+       * 本次调用用哪个模型（`providerId/modelId`）。
+       *
+       * 来自 action 的 `model.target`；为空表示用当前模型。由 llm 实现负责
+       * 解析成完整配置 —— 引擎只转达，不关心 provider 细节。
+       */
+      modelOverride?: string
+    },
     onDelta: (text: string) => void,
     signal: AbortSignal,
   ): Promise<{ text: string }>
@@ -481,6 +492,16 @@ export async function runDeclarativeAction(
     }
   }
 
+  /*
+   * `model.target` 允许插件指定模型；缺省为空串，走「当前模型」。
+   *
+   * 它**不做**模板插值：模型必须在发请求前就定下来，而模板插值在它之后。
+   * 更重要的理由是产品性的 —— 让模型依赖用户输入会诱导作者写
+   * 「根据输入自动换模型」这种在别人机器上无法复现的东西。
+   */
+  const rawModelTarget = (action?.model as { target?: unknown } | undefined)?.target
+  const modelTarget = typeof rawModelTarget === "string" ? rawModelTarget.trim() : ""
+
   const system = interpolate(systemTemplate, scope)
   const user = interpolate(userTemplate, scope)
   const missing = [...system.missing]
@@ -497,6 +518,8 @@ export async function runDeclarativeAction(
         ...(action?.limits?.maxOutputTokens !== undefined
           ? { maxOutputTokens: action.limits.maxOutputTokens }
           : {}),
+        // 插件指定了模型就带上；为空则保持「用当前模型」
+        ...(modelTarget ? { modelOverride: modelTarget } : {}),
       },
       onDelta,
       signal,

@@ -534,3 +534,72 @@ describe("action 的准备步骤（prepare）", () => {
     expect(llm.at(-1)?.user).not.toContain("工具素材")
   })
 })
+
+describe("action 指定模型（model.target）", () => {
+  /*
+   * 这条链路解决的是「同一个插件，用户切了模型，产出就变了」的问题：
+   * 作者想固定用某个模型（起名要风格一致），而不是碰运气跟当前模型走。
+   */
+  function captureLlm(): LlmCaller & { calls: Array<{ system: string; user: string; modelOverride?: string }> } {
+    const calls: Array<{ system: string; user: string; modelOverride?: string }> = []
+    return {
+      calls,
+      async call(input) {
+        calls.push(input as { system: string; user: string; modelOverride?: string })
+        return { text: "ok" }
+      },
+    } as never
+  }
+
+  const baseDeps = (llm: LlmCaller) =>
+    ({ llm, getConfig: async () => ({}) }) as RunActionDeps
+
+  it("声明了 model.target 时，把它传给 llm 调用", async () => {
+    const llm = captureLlm()
+    const action = titleAction({
+      model: { target: "custom-abc/gemini-3.8-flash" },
+    })
+
+    await runDeclarativeAction(
+      action,
+      "p",
+      [],
+      { genre: "玄幻", idea: "挖矿", count: "3" },
+      baseDeps(llm),
+      () => {},
+      new AbortController().signal,
+    )
+
+    expect(llm.calls.at(-1)?.modelOverride).toBe("custom-abc/gemini-3.8-flash")
+  })
+
+  it("没声明 model.target 时不传（保持用当前模型）", async () => {
+    const llm = captureLlm()
+    await runDeclarativeAction(
+      titleAction(),
+      "p",
+      [],
+      { genre: "玄幻", idea: "挖矿", count: "3" },
+      baseDeps(llm),
+      () => {},
+      new AbortController().signal,
+    )
+
+    expect(llm.calls.at(-1)?.modelOverride).toBeUndefined()
+  })
+
+  it("model.target 为空串时也不传（等价于用当前模型）", async () => {
+    const llm = captureLlm()
+    await runDeclarativeAction(
+      titleAction({ model: { target: "   " } }),
+      "p",
+      [],
+      { genre: "玄幻", idea: "挖矿", count: "3" },
+      baseDeps(llm),
+      () => {},
+      new AbortController().signal,
+    )
+
+    expect(llm.calls.at(-1)?.modelOverride).toBeUndefined()
+  })
+})

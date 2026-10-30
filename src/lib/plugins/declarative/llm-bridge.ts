@@ -68,16 +68,6 @@ function hasUsableModel(config: LlmConfig | null | undefined): boolean {
 }
 
 /**
- * 造一个"用当前选中模型流式生成"的 `LlmCaller`。
- *
- * 错误口径（会显示在 `ActionDialog` 的错误态里，必须是中文人话）：
- *   - 没选模型 → 「当前模型不可用：……」（用户去设置里选模型就好了）
- *   - 请求失败 → 「请求失败：<provider 原文>」（原文往往就是最准确的诊断）
- *   - 用户点停止 → `RunActionAbortedError`（UI 显示"已停止"而不是"生成失败"）
- */
-export function createStreamChatLlmCaller(options: StreamChatLlmCallerOptions = {}): LlmCaller {
-  const stream = options.streamChat ?? (streamChat as StreamChatFn)
-/**
  * 插件动作用哪个模型。
  *
  * **这里曾经读 `llmConfig`，但那是错的**：用户在软件里选模型选的是 `aiChatModel`
@@ -97,13 +87,52 @@ function defaultModelConfig(): LlmConfig {
   return state.llmConfig
 }
 
+/**
+ * 把 `providerId/modelId` 复合键解析成完整配置。
+ *
+ * 与 `defaultModelConfig` 同源（都走 `resolveModelConfig`），但目标模型由调用方给定 ——
+ * 这是插件「自己选模型」的基础：action 声明了 `model.target` 时，用它替代当前模型。
+ */
+export function resolveConfigForModelKey(target: string): LlmConfig {
+  const state = useWikiStore.getState()
+  const key = typeof target === "string" ? target.trim() : ""
+  if (!key) return defaultModelConfig()
+  return resolveModelConfig(key, state.llmConfig, state.providerConfigs ?? {})
+}
+
+/**
+ * 造一个"用当前选中模型流式生成"的 `LlmCaller`。
+ *
+ * 错误口径（会显示在 `ActionDialog` 的错误态里，必须是中文人话）：
+ *   - 没选模型 → 「当前模型不可用：……」（用户去设置里选模型就好了）
+ *   - 请求失败 → 「请求失败：<provider 原文>」（原文往往就是最准确的诊断）
+ *   - 用户点停止 → `RunActionAbortedError`（UI 显示"已停止"而不是"生成失败"）
+ */
+export function createStreamChatLlmCaller(options: StreamChatLlmCallerOptions = {}): LlmCaller {
+  const stream = options.streamChat ?? (streamChat as StreamChatFn)
+
+
   const getConfig = options.getConfig ?? defaultModelConfig
 
   return {
     async call(input, onDelta, signal) {
       if (signal.aborted) throw new RunActionAbortedError()
 
-      const config = getConfig()
+      /*
+       * 插件指定了模型就解析它，否则用当前模型。
+       *
+       * 为什么要支持指定：`strategy: "current"` 意味着跟随用户在聊天里选的模型，
+       * 而用户随时会切换 —— 同一个插件昨天生成的书名和今天不是一个味道，
+       * 作者无法复现问题，用户也会觉得\"这插件时好时坏\"。
+       */
+      const config = input.modelOverride
+        ? resolveConfigForModelKey(input.modelOverride)
+        : getConfig()
+      if (input.modelOverride && !hasUsableModel(config)) {
+        throw new Error(
+          `插件指定的模型不可用：${input.modelOverride}。请确认这个模型在你的渠道里存在，或在插件设置里改用当前模型。`,
+        )
+      }
       if (!hasUsableModel(config)) {
         throw new Error("当前模型不可用：还没有选择可用的模型。请在设置里选好模型后重试。")
       }

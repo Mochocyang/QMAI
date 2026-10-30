@@ -24,6 +24,7 @@
  * 那里同时躺着项目正文、模型密钥与用户凭据。所以 `markdown` 呈现方式也在
  * 这里退化成"纯文本 + 保留换行"，只为了可读，不引入渲染管线。
  */
+import { ChatModelSelector } from "@/components/chat/chat-model-selector"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AlertTriangle, Copy, Loader2, RotateCcw, Square } from "lucide-react"
 import { renameProject } from "@/commands/fs"
@@ -370,6 +371,8 @@ export function ActionDialog({
   editorCanInsert = false,
 }: ActionDialogProps) {
   const action = entry.action
+  // 模型选择器的默认值：跟随 AI 对话当前选中的模型
+  const aiChatModel = useWikiStore((s) => s.aiChatModel)
   /*
    * 把 `invokeTool` 绑到**当前这个插件的 id** 上：action 的 `prepare` 步骤
    * 只能调自己的工具（插件间隔离），所以 id 在这里闭包进去，不作为参数暴露。
@@ -436,9 +439,21 @@ export function ActionDialog({
       setApplyError("")
       setConfirming(null)
 
+        /*
+         * 表单里的 `modelKey` 字段 = 用户这次想用哪个模型。
+         *
+         * 为什么在这里合并而不是让 runDeclarativeAction 自己去 `fields` 里找：
+         * 引擎不该知道"哪个字段名代表模型"（那是表单约定，不是执行语义）。
+         * 表单到执行之间的这层映射归 UI 负责。
+         */
+        const pickedModel = typeof input.modelKey === "string" ? input.modelKey.trim() : ""
+        const actionForRun = pickedModel
+          ? { ...action, model: { ...(action.model ?? {}), target: pickedModel } }
+          : action
+
       try {
         const result = await runDeclarativeAction(
-          action,
+          actionForRun,
           entry.pluginId,
           // 权限跟着 entry 走：插槽索引从 plugins_list join 出来（见 declarative/api.ts）。
           entry.grantedPermissions,
@@ -559,6 +574,46 @@ export function ActionDialog({
         </DialogHeader>
 
         <div className="space-y-3">
+          {/*
+            模型选择。
+            
+            为什么放在插件对话框里、而不是让插件在清单里声明一个 select 字段：
+            模型清单是**宿主**的知识（渠道、密钥、可用性），插件进程看不到它。
+            之前试过 optionsFrom 指向插件工具，但插件根本拿不到宿主模型列表 ——
+            那个下拉永远是空的。这里直接复用 AI 对话用的 ChatModelSelector，
+            它已经处理了自定义渠道、可用性过滤、分组显示。
+            
+            留空 = 跟随当前模型（与 AI 对话同一个）。
+          */}
+          {phase === "form" ? (
+            <div className="space-y-1.5" data-action-model-picker="true">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-medium">使用的模型</span>
+                <span className="text-xs text-muted-foreground">
+                  {typeof values.modelKey === "string" && values.modelKey
+                    ? "本次使用所选模型"
+                    : "跟随当前模型"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <ChatModelSelector
+                  value={typeof values.modelKey === "string" ? values.modelKey : aiChatModel}
+                  onChange={(next) => setValues((prev) => ({ ...prev, modelKey: next }))}
+                />
+                {typeof values.modelKey === "string" && values.modelKey ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setValues((prev) => { const copy = { ...prev }; delete copy.modelKey; return copy })}
+                  >
+                    用当前模型
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           {phase === "form" ? (
             <SchemaForm
               form={form}

@@ -133,7 +133,20 @@ export interface DeclarativeAction {
   form?: ActionForm
   prompt: ActionPrompt
   output: ActionOutput
-  model?: { strategy?: "current"; minContextTokens?: number }
+  model?: {
+  strategy?: "current"
+  /**
+   * 指定用哪个模型（`providerId/modelId`）。
+   *
+   * 为什么需要它：`strategy: "current"` 意味着"跟用户在聊天里选的那个走"，
+   * 而插件常常需要更稳定的模型（起名要风格一致性，不想被用户临时切模型影响）。
+   * 没有这个字段时，插件只能碰运气用当前模型 —— 用户换了模型，插件产出就变了。
+   *
+   * 为空则退回 `current` 行为。
+   */
+  target?: string
+  minContextTokens?: number
+}
   limits?: { timeoutMs?: number; maxOutputTokens?: number }
   /**
    * 调模型**之前**要跑的插件工具，用来取宿主上下文里没有的素材。
