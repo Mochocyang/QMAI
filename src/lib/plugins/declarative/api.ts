@@ -174,6 +174,29 @@ function normalizePrompt(value: unknown): ActionPrompt {
  * 只硬性要求 `id`：`title` 缺了用 id 兜底，`prompt` 缺了给空串（模型会拿到空消息，
  * 由 Rust 侧/校验器去拒绝这种清单）。前端不做第二套校验，否则两处结论会漂移。
  */
+/**
+ * 解析 `prepare`：一串「调模型前先跑哪个工具」的声明。
+ *
+ * 形状不对的步骤直接丢弃而不是整条报错：一条坏步骤不该让整个 action 从插槽里消失
+ * （那会让用户觉得"按钮不见了"，比"少取一样素材"严重得多）。
+ */
+function normalizePrepareSteps(raw: unknown): NonNullable<DeclarativeAction["prepare"]> {
+  if (!Array.isArray(raw)) return []
+  const steps: NonNullable<DeclarativeAction["prepare"]> = []
+  for (const item of raw) {
+    const record = asRecord(item)
+    if (!record) continue
+    const tool = nonEmptyString(record.tool)
+    if (tool === undefined) continue
+    const step: NonNullable<DeclarativeAction["prepare"]>[number] = { tool }
+    const name = nonEmptyString(record.var)
+    if (name !== undefined) step.var = name
+    const args = asRecord(record.args)
+    if (args) step.args = args
+    steps.push(step)
+  }
+  return steps
+}
 export function normalizeActionDeclaration(raw: unknown): DeclarativeAction | undefined {
   const source = asRecord(raw)
   if (!source) return undefined
@@ -207,6 +230,29 @@ export function normalizeActionDeclaration(raw: unknown): DeclarativeAction | un
     if (maxOutputTokens !== undefined) normalized.maxOutputTokens = maxOutputTokens
     if (Object.keys(normalized).length > 0) action.limits = normalized
   }
+
+  /*
+   * `model` 与 `prepare` 必须一起保留。
+   *
+   * 这个函数是**白名单式**的：没显式搬过来的字段会被丢掉。之前漏了这两个，
+   * 后果是 —— action 声明了 `prepare`（要先调工具取素材）却静默不执行，
+   * 声明了 `model.target`（指定模型）也静默不生效。两者都不会报错，
+   * 用户只看到"素材是空的""模型还是原来那个"，完全无从排查。
+   */
+  const model = asRecord(source.model)
+  if (model) {
+    const normalized: NonNullable<DeclarativeAction["model"]> = {}
+    const strategy = nonEmptyString(model.strategy)
+    if (strategy === "current") normalized.strategy = "current"
+    const target = nonEmptyString(model.target)
+    if (target !== undefined) normalized.target = target
+    const minContextTokens = positiveInt(model.minContextTokens)
+    if (minContextTokens !== undefined) normalized.minContextTokens = minContextTokens
+    if (Object.keys(normalized).length > 0) action.model = normalized
+  }
+
+  const prepare = normalizePrepareSteps(source.prepare)
+  if (prepare.length > 0) action.prepare = prepare
 
   return action
 }

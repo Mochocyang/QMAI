@@ -269,3 +269,66 @@ describe("createDefaultRunDeps", () => {
     await expect(createDefaultRunDeps({ llm, readProject }).readProject?.()).resolves.toEqual({ bookTitle: "长夜" })
   })
 })
+
+describe("normalizeActionDeclaration：不许静默丢字段", () => {
+  /*
+   * 这个函数是**白名单式**的：没显式搬过来的字段会被丢掉，而且不报错。
+   * 之前漏了 `model` 与 `prepare`，后果是：
+   *   · action 声明了 prepare（先调工具取素材）→ 静默不执行，用户看到"素材是空的"
+   *   · 声明了 model.target（指定模型）→ 静默不生效，还是用当前模型
+   * 两者都不报错，作者和用户都无从排查。这组用例把这两个字段钉死。
+   */
+  it("保留 prepare 的每一步", () => {
+    const action = normalizeActionDeclaration({
+      id: "a",
+      title: "A",
+      prompt: { system: "s", user: "u" },
+      prepare: [
+        { var: "material", tool: "collect_writing_material", args: { n: 1 } },
+        { tool: "list_shelf_books" },
+      ],
+    })
+
+    expect(action?.prepare).toHaveLength(2)
+    expect(action?.prepare?.[0]).toMatchObject({
+      var: "material",
+      tool: "collect_writing_material",
+      args: { n: 1 },
+    })
+    // 没有 var 的步骤也要留下（var 缺省时由执行器用 tool 名兜底）
+    expect(action?.prepare?.[1]?.tool).toBe("list_shelf_books")
+  })
+
+  it("丢弃没有 tool 的坏步骤，但不让整个 action 消失", () => {
+    const action = normalizeActionDeclaration({
+      id: "a",
+      prompt: { system: "s", user: "u" },
+      prepare: [{ var: "x" }, { tool: "ok" }],
+    })
+
+    expect(action).toBeTruthy()
+    expect(action?.prepare).toHaveLength(1)
+    expect(action?.prepare?.[0]?.tool).toBe("ok")
+  })
+
+  it("保留 model.target（指定模型）", () => {
+    const action = normalizeActionDeclaration({
+      id: "a",
+      prompt: { system: "s", user: "u" },
+      model: { strategy: "current", target: "custom-x/gemini-3.8-flash" },
+    })
+
+    expect(action?.model?.target).toBe("custom-x/gemini-3.8-flash")
+    expect(action?.model?.strategy).toBe("current")
+  })
+
+  it("没有 prepare / model 时不凭空造空对象", () => {
+    const action = normalizeActionDeclaration({
+      id: "a",
+      prompt: { system: "s", user: "u" },
+    })
+
+    expect(action?.prepare).toBeUndefined()
+    expect(action?.model).toBeUndefined()
+  })
+})
