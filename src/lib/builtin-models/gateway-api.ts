@@ -1,28 +1,23 @@
-/**
- * 内置模型网关的接入层（自建 qmai.work 中转站版）。
+﻿/**
+ * 内置模型网关的接入层（网关卡版）。
  *
- * 与上一版（接 New API）的差别，本质上是**身份来源不同**：
+ * ## 与上一版的区别
  *
- *   上一版：用户在本应用里再注册一个网关账号 → 网关发一枚长期 sk- 令牌
- *   本  版：用户已经登录了 QMAI 账号 → 用登录态向账号服务换一张 30 分钟票据
+ * 上一版这里有一个 `fetchRelayTicket`：用登录态换 30 分钟票据。现在没有了 ——
+ * 网关卡在**登录时就已经随登录态下发**，与账号同生共死，不需要换、不会过期。
  *
- * 于是这里只剩三个动作：
- *   1. 换票：`POST <account>/v1/relay/token`  ← Bearer <登录态>
- *   2. 拉清单：`GET <relay>/v1/models`        ← Bearer <票据>
- *   3. 探活：`POST <relay>/v1/chat/completions`（验收用，可选）
+ * 所以这个文件只剩两个动作，都需要调用方把卡传进来：
+ *   1. 拉清单：`GET <relay>/v1/models`            ← Bearer <网关卡>
+ *   2. 探活：  `POST <relay>/v1/chat/completions`  ← Bearer <网关卡>
  *
- * 没有注册、没有余额、没有兑换码 —— 那些属于"对外卖额度"，本场景不需要。
- *
- * 本文件只做纯 HTTP 编排，不碰 React、不碰 store，方便单测与替换后端。
+ * 卡从哪来由上层决定（`netcard.ts` 从登录态读、`auth-hook.ts` 在请求时注入），
+ * 这样这一层可以纯粹做 HTTP 编排，不依赖任何状态。
  */
 
 import { getHttpFetch } from "@/lib/tauri-fetch"
 
 /** 中转站地址：独立域名，与账号服务分开部署。 */
 export const DEFAULT_RELAY_URL = "https://relay.qmai.work"
-
-/** 换票接口挂在账号服务下。 */
-export const RELAY_TOKEN_PATH = "/v1/relay/token"
 
 type FetchLike = (url: string, init: RequestInit) => Promise<Response>
 
@@ -49,12 +44,6 @@ export function normalizeGatewayBaseUrl(raw: string): string {
   value = value.replace(/\/v1\/chat\/completions$/i, "").replace(/\/v1$/i, "")
   value = value.replace(/\/(api|v1)$/i, "")
   return value.replace(/\/+$/, "")
-}
-
-/** 票据是否已经（或即将）过期。提前 skewSeconds 秒就算过期，避免卡在请求途中。 */
-export function isAccessTokenExpired(expiresAt: number, skewSeconds = 120): boolean {
-  if (!expiresAt) return false
-  return Date.now() / 1000 >= expiresAt - skewSeconds
 }
 
 /**
@@ -138,63 +127,17 @@ function jsonHeaders(extra?: Record<string, string>): Record<string, string> {
   return { "Content-Type": "application/json", ...extra }
 }
 
-export interface RelayTicket {
-  /** 30 分钟 Ed25519 票据，直接当 Bearer 用。 */
-  token: string
-  /** epoch 秒。 */
-  expiresAt: number
-}
-
-/**
- * 用账号登录态换一张中转票据。
- *
- * `accountBaseUrl` 是账号服务地址（account.qmai.pro）；`relayBaseUrl` 只用于判定
- * 返回的票据是否为空，不参与请求 —— 换票永远打在账号服务上。
- */
-export async function fetchRelayTicket(
-  accountBaseUrl: string,
-  accessToken: string,
-  fetchImpl?: FetchLike,
-): Promise<RelayTicket> {
-  const base = normalizeGatewayBaseUrl(accountBaseUrl)
-  if (!base) throw new GatewayError("账号服务地址为空，无法换取内置模型凭证。", "bad_account_url")
-  if (!accessToken) throw new GatewayError("请先登录账号，再使用内置模型。", "unauthorized")
-
-  const { payload } = await httpJson(
-    `${base}${RELAY_TOKEN_PATH}`,
-    {
-      method: "POST",
-      headers: jsonHeaders({ Authorization: `Bearer ${accessToken}` }),
-      body: "{}",
-    },
-    fetchImpl,
-    20_000,
-  )
-
-  const record = (payload ?? {}) as Record<string, unknown>
-  const data = (record.data ?? {}) as Record<string, unknown>
-  const token = typeof data.token === "string" ? data.token : ""
-  const expiresAt = Number(data.expiresAt ?? 0)
-  if (!token) {
-    throw new GatewayError("中转服务尚未配置，请联系管理员。", "bad_relay_token")
-  }
-  if (!Number.isFinite(expiresAt) || expiresAt <= 0) {
-    // 票据没有有效期就等于无法判断何时续签，宁可报错也不要存一个"永不过期"的假票。
-    throw new GatewayError("中转服务返回的凭证缺少有效期，请稍后重试。", "bad_relay_token")
-  }
-  return { token, expiresAt }
-}
-
-/** 拉取当前票据能用的模型清单（对外名，不含上游信息）。 */
+/** 拉取当前网关卡能用的模型清单（对外名，不含上游信息）。 */
 export async function gatewayListModels(
   relayBaseUrl: string,
-  ticket: string,
+  netcard: string,
   fetchImpl?: FetchLike,
 ): Promise<string[]> {
   const base = normalizeGatewayBaseUrl(relayBaseUrl)
+  if (!netcard) throw new GatewayError("请先登录账号，再使用内置模型。", "unauthorized")
   const { payload } = await httpJson(
     `${base}/v1/models`,
-    { method: "GET", headers: jsonHeaders({ Authorization: `Bearer ${ticket}` }) },
+    { method: "GET", headers: jsonHeaders({ Authorization: `Bearer ${netcard}` }) },
     fetchImpl,
     20_000,
   )
@@ -212,22 +155,23 @@ export interface GatewayProbeResult {
 }
 
 /**
- * 发一条最小请求验证票据 + 模型是否真的能出字。
+ * 发一条最小请求验证网关卡 + 模型是否真的能出字。
  * 走非流式，避免把流式解析链路也拖进来；只用于「测试连接」。
  */
 export async function gatewayProbeChat(
   relayBaseUrl: string,
-  ticket: string,
+  netcard: string,
   model: string,
   fetchImpl?: FetchLike,
 ): Promise<GatewayProbeResult> {
   const base = normalizeGatewayBaseUrl(relayBaseUrl)
+  if (!netcard) throw new GatewayError("请先登录账号，再使用内置模型。", "unauthorized")
   const startedAt = Date.now()
   const { payload } = await httpJson(
     `${base}/v1/chat/completions`,
     {
       method: "POST",
-      headers: jsonHeaders({ Authorization: `Bearer ${ticket}` }),
+      headers: jsonHeaders({ Authorization: `Bearer ${netcard}` }),
       body: JSON.stringify({
         model,
         messages: [{ role: "user", content: "请只回复两个字：你好" }],

@@ -26,7 +26,6 @@ import {
 } from "./http"
 import { cleanupExpiredData } from "./db"
 import { hashRefreshToken } from "./crypto"
-import { handleRelayToken } from "./relay-token"
 import { handleIssueNetCard, handleVerifyNetCard } from "./netcard-handler"
 import type { Env } from "./types"
 
@@ -47,8 +46,6 @@ const ROUTES: Record<string, RouteHandler> = {
   "POST /v1/netcard": handleIssueNetCardRoute,
   // 吊销回源：中转站需要"立刻踢人"时来问一次。
   "POST /v1/netcard/verify": handleVerifyNetCardRoute,
-  // 旧的 30 分钟票据接口，保留兼容老客户端；新客户端请用 /v1/netcard。
-  "POST /v1/relay/token": handleRelayTokenRoute,
 }
 
 /** 网关卡签发：把登录态换成与 session 绑定的长期 Ed25519 凭证。 */
@@ -59,11 +56,6 @@ async function handleIssueNetCardRoute(request: Request, env: Env): Promise<Resp
 /** 网关卡回源校验：给中转站查吊销用。 */
 async function handleVerifyNetCardRoute(request: Request, env: Env): Promise<Response> {
   return handleVerifyNetCard(request, env, Math.floor(Date.now() / 1000))
-}
-
-/** 中转票据签发：把当前登录态换成 30 分钟 Ed25519 票据（旧接口）。 */
-async function handleRelayTokenRoute(request: Request, env: Env): Promise<Response> {
-  return handleRelayToken(request, env, Math.floor(Date.now() / 1000))
 }
 
 /** 头像读取是公开路径：`/v1/account/avatar/{userId}`。 */

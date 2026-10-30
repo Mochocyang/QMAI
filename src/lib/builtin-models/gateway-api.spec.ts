@@ -1,10 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+﻿import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   GatewayError,
-  fetchRelayTicket,
   gatewayListModels,
   gatewayProbeChat,
-  isAccessTokenExpired,
   normalizeGatewayBaseUrl,
   toGatewayError,
 } from "./gateway-api"
@@ -32,6 +30,8 @@ function fakeFetch(routes: Array<[RegExp, (call: Call) => Response]>): { fetchIm
   return { fetchImpl, calls }
 }
 
+const CARD = "netcard-value"
+
 beforeEach(() => {
   vi.restoreAllMocks()
 })
@@ -41,101 +41,48 @@ describe("normalizeGatewayBaseUrl", () => {
     expect(normalizeGatewayBaseUrl("https://relay.qmai.work/v1")).toBe("https://relay.qmai.work")
     expect(normalizeGatewayBaseUrl("https://relay.qmai.work/v1/")).toBe("https://relay.qmai.work")
     expect(normalizeGatewayBaseUrl("https://relay.qmai.work/v1/chat/completions")).toBe("https://relay.qmai.work")
-    expect(normalizeGatewayBaseUrl("https://qmai-account.qmai.workers.dev/")).toBe("https://qmai-account.qmai.workers.dev")
     expect(normalizeGatewayBaseUrl("  ")).toBe("")
   })
 })
 
-describe("isAccessTokenExpired", () => {
-  it("默认提前 120 秒判定过期（票据 30 分钟，留 2 分钟余量）", () => {
-    const now = Math.floor(Date.now() / 1000)
-    // 剩 60 秒：已经进入 120 秒余量窗口，必须换票
-    expect(isAccessTokenExpired(now + 60)).toBe(true)
-    // 剩 180 秒：还在窗口外
-    expect(isAccessTokenExpired(now + 180)).toBe(false)
-    expect(isAccessTokenExpired(now + 600)).toBe(false)
-    // 0 表示"网关没说有效期"，由调用方另行处理，这里不判过期
-    expect(isAccessTokenExpired(0)).toBe(false)
-  })
-})
-
-describe("fetchRelayTicket", () => {
-  it("用登录态打账号服务的 /v1/relay/token，并取回票据与有效期", async () => {
-    const { fetchImpl, calls } = fakeFetch([
-      [/\/v1\/relay\/token$/, () => jsonResponse({ success: true, data: { token: "jwt-ticket", expiresAt: 1793000000 } })],
-    ])
-
-    const ticket = await fetchRelayTicket("https://account.qmai.work", "account-access", fetchImpl)
-
-    expect(ticket).toEqual({ token: "jwt-ticket", expiresAt: 1793000000 })
-    expect(calls[0]!.url).toBe("https://account.qmai.work/v1/relay/token")
-    expect((calls[0]!.init.headers as Record<string, string>).Authorization).toBe("Bearer account-access")
-    expect(calls[0]!.init.method).toBe("POST")
-  })
-
-  it("没登录态时直接报 unauthorized，不发请求", async () => {
-    const { fetchImpl, calls } = fakeFetch([])
-    await expect(fetchRelayTicket("https://account.qmai.work", "", fetchImpl)).rejects.toMatchObject({
-      code: "unauthorized",
-    })
-    expect(calls).toHaveLength(0)
-  })
-
-  it("账号服务返回 401 时翻译成「重新登录」", async () => {
-    const { fetchImpl } = fakeFetch([
-      [/relay\/token$/, () => jsonResponse({ success: false, code: "TOKEN_EXPIRED", message: "" }, 401)],
-    ])
-    await expect(fetchRelayTicket("https://account.qmai.work", "expired", fetchImpl)).rejects.toMatchObject({
-      code: "unauthorized",
-    })
-  })
-
-  it("票据为空时报 bad_relay_token（说明主站没配私钥）", async () => {
-    const { fetchImpl } = fakeFetch([[/relay\/token$/, () => jsonResponse({ success: true, data: {} })]])
-    await expect(fetchRelayTicket("https://account.qmai.work", "ok", fetchImpl)).rejects.toMatchObject({
-      code: "bad_relay_token",
-    })
-  })
-
-  it("有效期缺失或非法时拒绝，不存一张「永不过期」的假票", async () => {
-    const { fetchImpl } = fakeFetch([
-      [/relay\/token$/, () => jsonResponse({ success: true, data: { token: "jwt", expiresAt: 0 } })],
-    ])
-    await expect(fetchRelayTicket("https://account.qmai.work", "ok", fetchImpl)).rejects.toMatchObject({
-      code: "bad_relay_token",
-    })
-  })
-
-  it("网络失败翻译成 network_error", async () => {
-    const fetchImpl = (async () => {
-      throw new Error("ECONNREFUSED")
-    }) as unknown as typeof fetch
-    await expect(fetchRelayTicket("https://account.qmai.work", "ok", fetchImpl)).rejects.toMatchObject({
-      code: "network_error",
-    })
-  })
-})
-
 describe("gatewayListModels", () => {
-  it("带上票据请求 relay /v1/models 并去重", async () => {
+  it("带上网关卡请求 /v1/models 并去重", async () => {
     const { fetchImpl, calls } = fakeFetch([
       [/\/v1\/models$/, () => jsonResponse({ object: "list", data: [{ id: "qmai-standard" }, { id: "qmai-long" }, { id: "qmai-standard" }] })],
     ])
 
-    const ids = await gatewayListModels("https://relay.qmai.work", "jwt", fetchImpl)
+    const ids = await gatewayListModels("https://relay.qmai.work", CARD, fetchImpl)
 
     expect(ids).toEqual(["qmai-standard", "qmai-long"])
     expect(calls[0]!.url).toBe("https://relay.qmai.work/v1/models")
-    expect((calls[0]!.init.headers as Record<string, string>).Authorization).toBe("Bearer jwt")
+    expect((calls[0]!.init.headers as Record<string, string>).Authorization).toBe(`Bearer ${CARD}`)
+  })
+
+  it("没有网关卡时直接报 unauthorized，不发请求", async () => {
+    const { fetchImpl, calls } = fakeFetch([])
+    await expect(gatewayListModels("https://relay.qmai.work", "", fetchImpl)).rejects.toMatchObject({
+      code: "unauthorized",
+    })
+    expect(calls).toHaveLength(0)
   })
 
   it("403（不在白名单）翻译成 forbidden", async () => {
     const { fetchImpl } = fakeFetch([
       [/\/v1\/models$/, () => jsonResponse({ error: { message: "当前账号没有使用内置模型的权限。", type: "invalid_request_error" } }, 403)],
     ])
-    await expect(gatewayListModels("https://relay.qmai.work", "jwt", fetchImpl)).rejects.toMatchObject({
+    await expect(gatewayListModels("https://relay.qmai.work", CARD, fetchImpl)).rejects.toMatchObject({
       code: "forbidden",
     })
+  })
+
+  it("401（卡被吊销/无效）翻译成「重新登录」", async () => {
+    const { fetchImpl } = fakeFetch([
+      [/\/v1\/models$/, () => jsonResponse({ error: { message: "" } }, 401)],
+    ])
+    const error = await gatewayListModels("https://relay.qmai.work", CARD, fetchImpl).catch((e) => e)
+    expect(error).toBeInstanceOf(GatewayError)
+    expect(error.code).toBe("unauthorized")
+    expect(error.message).toContain("重新登录")
   })
 })
 
@@ -145,7 +92,7 @@ describe("gatewayProbeChat", () => {
       [/\/v1\/chat\/completions$/, () => jsonResponse({ choices: [{ message: { content: "你好" } }] })],
     ])
 
-    const result = await gatewayProbeChat("https://relay.qmai.work", "jwt", "qmai-standard", fetchImpl)
+    const result = await gatewayProbeChat("https://relay.qmai.work", CARD, "qmai-standard", fetchImpl)
 
     expect(result.content).toBe("你好")
     expect(result.latencyMs).toBeGreaterThanOrEqual(0)
