@@ -156,3 +156,37 @@ describe("builtin-state：存储容错", () => {
     expect(isBuiltinPluginEnabled("story-simulation")).toBe(true)
   })
 })
+
+describe("内置插件：覆盖范围", () => {
+  it("记忆中心 / 小说图谱 / 灵魂 / 技能库 / 拆书库 都能独立关闭", () => {
+    const cases: Array<[Parameters<typeof setBuiltinPluginEnabled>[0], string]> = [
+      ["memory-center", "lint"],
+      ["novel-graph", "graph"],
+      ["soul", "soul"],
+      ["skill-library", "skillLibrary"],
+      ["book-analysis", "bookAnalysis"],
+    ]
+
+    for (const [id, view] of cases) {
+      expect(isBuiltinViewEnabled(view)).toBe(true)
+      setBuiltinPluginEnabled(id, false)
+      expect(isBuiltinViewEnabled(view)).toBe(false)
+      // 关一个不影响其它
+      setBuiltinPluginEnabled(id, true)
+      expect(isBuiltinViewEnabled(view)).toBe(true)
+    }
+  })
+
+  it("关掉记忆中心不会牵连小说图谱（各自独立）", () => {
+    setBuiltinPluginEnabled("memory-center", false)
+    expect(isBuiltinViewEnabled("lint")).toBe(false)
+    expect(isBuiltinViewEnabled("graph")).toBe(true)
+  })
+
+  it("「剧本/回收站」这类不属于内置插件的视图永远可用", () => {
+    // 维护工具与回收站是基础操作，不该被插件开关影响
+    for (const view of ["maintenance", "trash", "wiki", "sources", "settings", "plugins"]) {
+      expect(isBuiltinViewEnabled(view)).toBe(true)
+    }
+  })
+})

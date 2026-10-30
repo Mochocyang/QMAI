@@ -19,6 +19,11 @@ import type { WikiState } from "@/stores/wiki-store"
  */
 export type BuiltinPluginId =
   | "web-search"
+  | "memory-center"
+  | "novel-graph"
+  | "soul"
+  | "skill-library"
+  | "book-analysis"
   | "story-simulation"
   | "review-center"
   | "plot-search"
@@ -62,6 +67,51 @@ export const BUILTIN_PLUGINS: readonly BuiltinPlugin[] = [
     description: "让 AI 联网查外部资料；也可供角色光环、写作实体搜索等功能使用。",
     kind: "capability",
     offEffect: "关闭后所有联网搜索都会停用：AI 对话不再调用搜索工具，相关功能会跳过联网这一步。",
+    defaultEnabled: true,
+  },
+  {
+    id: "memory-center",
+    name: "记忆中心",
+    description: "查看与整理伏笔、设定、人物关系的记忆条目。",
+    kind: "view",
+    view: "lint",
+    offEffect: "关闭后「记忆中心」入口从创作工具中消失，已记录的记忆条目不会被删除。",
+    defaultEnabled: true,
+  },
+  {
+    id: "novel-graph",
+    name: "小说图谱",
+    description: "把人物、地点、事件之间的关系画成图，便于检查设定一致性。",
+    kind: "view",
+    view: "graph",
+    offEffect: "关闭后「小说图谱」入口从创作工具中消失，图谱数据不会被删除。",
+    defaultEnabled: true,
+  },
+  {
+    id: "soul",
+    name: "灵魂",
+    description: "沉淀作品的气质与文风取向，供生成时参考。",
+    kind: "view",
+    view: "soul",
+    offEffect: "关闭后「灵魂」入口从创作工具中消失，已沉淀的内容不会被删除。",
+    defaultEnabled: true,
+  },
+  {
+    id: "skill-library",
+    name: "技能库",
+    description: "管理可复用的写作技能与提示词模板。",
+    kind: "view",
+    view: "skillLibrary",
+    offEffect: "关闭后「技能库」入口从创作工具中消失，已保存的技能不会被删除。",
+    defaultEnabled: true,
+  },
+  {
+    id: "book-analysis",
+    name: "拆书库",
+    description: "导入参考作品，拆解结构、文风与人物后复用。",
+    kind: "view",
+    view: "bookAnalysis",
+    offEffect: "关闭后「拆书库」入口从创作工具中消失，已拆解的结果不会被删除。",
     defaultEnabled: true,
   },
   {
