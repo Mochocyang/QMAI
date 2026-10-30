@@ -179,6 +179,16 @@ describe("PluginCenterView：市场三态", () => {
     expect(marketIndexMock).toHaveBeenCalledWith(true)
   })
 
+  it("内置清单兜底时给出「离线模式」提示，且不禁用安装", async () => {
+    marketIndexMock.mockResolvedValue(
+      index([entry({ id: "a" })], { fromBuiltin: true }),
+    )
+    await render()
+    expect(text()).toContain("当前离线模式")
+    // 离线清单里的仓库地址仍然可装，不能禁掉
+    expect(host.querySelector('[data-market-action="install"]')).not.toBeNull()
+  })
+
   it("索引命令失败且无缓存时是错误态，但手动安装入口仍然可用", async () => {
     marketIndexMock.mockRejectedValue(new Error("网络不可用"))
     await render()
@@ -311,16 +321,48 @@ describe("PluginCenterView：已安装行", () => {
 })
 
 describe("PluginCenterView：添加入口", () => {
-  it("「编辑插件」按钮存在，点击后打开「添加插件」对话框", async () => {
+  it("页头只有一个添加入口：没有「编辑插件」，也没有下拉里的重复安装项", async () => {
     await render()
-    const edit = buttonByText("编辑插件")
-    expect(edit).not.toBeNull()
+
+    /*
+     * 用户明确要求过：三个入口（编辑插件 / 添加插件 / 下拉里的两种安装方式）
+     * 打开的是同一个对话框，属于重复。这里把它钉死，防止有人再加回来。
+     */
+    expect(buttonByText("编辑插件")).toBeNull()
+    expect(buttonByText("安装第三方插件")).toBeNull()
+    // 下拉箭头（aria-label="更多添加方式"）也不该存在
+    expect(host.querySelector('[aria-label="更多添加方式"]')).toBeNull()
+
+    // 唯一入口仍在
+    expect(host.querySelector('[data-plugins-manual="true"]')).not.toBeNull()
+  })
+
+  it("点击唯一的「添加插件」打开对话框，对话框内可切换 GitHub / 本地目录", async () => {
+    await render()
+    const add = host.querySelector('[data-plugins-manual="true"]') as HTMLButtonElement | null
+    expect(add).not.toBeNull()
 
     await act(async () => {
-      edit?.click()
+      add?.click()
     })
     await flush()
-    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+
+    const dialog = document.querySelector('[role="dialog"]')
+    expect(dialog).not.toBeNull()
+    // 两种模式在对话框内部切换，不需要页头再给一个下拉
+    expect(dialog?.textContent).toContain("GitHub")
+    expect(dialog?.textContent).toContain("本地目录")
+  })
+
+  it("点击同一个入口只打开一个对话框（不会叠两个）", async () => {
+    await render()
+    const add = host.querySelector('[data-plugins-manual="true"]') as HTMLButtonElement | null
+    await act(async () => {
+      add?.click()
+    })
+    await flush()
+    const first = document.querySelectorAll('[role="dialog"]').length
+    expect(first).toBe(1)
   })
 
   it("「添加插件」主按钮打开同一个对话框，并保留 data-plugins-manual 标记", async () => {

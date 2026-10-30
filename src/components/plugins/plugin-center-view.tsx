@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ChevronDown, Plus, Puzzle, RefreshCw, Search, Settings2, X } from "lucide-react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { Plus, Puzzle, RefreshCw, Search, X } from "lucide-react"
 
 import { AddPluginDialog, type AddPluginMode } from "@/components/plugins/add-plugin-dialog"
 import { ConfigForm } from "@/components/plugins/ConfigForm"
@@ -20,8 +20,9 @@ import { toast } from "@/lib/toast"
  *     一屏看得完，不需要切换。
  *  2. **已安装改成行式卡片 + 开关**。开关 = 启用/停用，这是插件最高频的动作，
  *     应该一步到位，而不是让用户在一列文字按钮里找「启用」。
- *  3. 保留「编辑插件」入口（用户原文要求）：它打开的就是「添加插件」对话框 ——
- *     对用户而言「编辑插件」= 「管理/添加插件」，不必真的去编辑清单文件。
+ *  3. 页头**只保留一个**「添加插件」入口。曾经有三个（编辑插件 / 添加插件 /
+ *     下拉里的两种安装方式）做同一件事，而对话框本身就有 GitHub/本地目录切换 ——
+ *     用户点三个不同的东西看到同一个框，本身就是缺陷，已按用户要求删除重复项。
  */
 
 export function describeError(cause: unknown): string {
@@ -80,6 +81,7 @@ export function PluginCenterView() {
   const [installed, setInstalled] = useState<PluginSummary[]>([])
   const [market, setMarket] = useState<PluginMarketEntry[]>([])
   const [fromCache, setFromCache] = useState(false)
+  const [fromBuiltin, setFromBuiltin] = useState(false)
   const [marketError, setMarketError] = useState<string | null>(null)
   const [loadingMarket, setLoadingMarket] = useState(true)
   const [query, setQuery] = useState("")
@@ -88,9 +90,7 @@ export function PluginCenterView() {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
   const [addMode, setAddMode] = useState<AddPluginMode>("url")
-  const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [configFor, setConfigFor] = useState<PluginSummary | null>(null)
-  const addMenuRef = useRef<HTMLDivElement | null>(null)
 
   const refreshInstalled = useCallback(async () => {
     try {
@@ -108,6 +108,7 @@ export function PluginCenterView() {
       const data = await pluginsApi.marketIndex(refresh)
       setMarket(data.plugins)
       setFromCache(data.fromCache)
+      setFromBuiltin(Boolean(data.fromBuiltin))
     } catch (cause) {
       setMarketError(describeError(cause))
     } finally {
@@ -119,16 +120,6 @@ export function PluginCenterView() {
     void refreshInstalled()
     void loadMarket(false)
   }, [refreshInstalled, loadMarket])
-
-  // 点外面关掉「添加方式」小菜单
-  useEffect(() => {
-    if (!addMenuOpen) return
-    const onPointerDown = (event: MouseEvent) => {
-      if (!addMenuRef.current?.contains(event.target as Node)) setAddMenuOpen(false)
-    }
-    document.addEventListener("mousedown", onPointerDown)
-    return () => document.removeEventListener("mousedown", onPointerDown)
-  }, [addMenuOpen])
 
   const installedLookup = useMemo(() => buildInstalledLookup(installed), [installed])
 
@@ -194,7 +185,6 @@ export function PluginCenterView() {
   const openAddDialog = (mode: AddPluginMode) => {
     setAddMode(mode)
     setAddOpen(true)
-    setAddMenuOpen(false)
   }
 
   const hasMarket = market.length > 0
@@ -228,73 +218,23 @@ export function PluginCenterView() {
             <RefreshCw className={loadingMarket ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
           </Button>
           {/*
-            「编辑插件」是用户点名要的入口：它打开的就是「添加插件」对话框。
-            和右侧「＋ 添加插件」是同一个东西，只是措辞更贴近「管理我已有的插件」。
+            页头**只有一个**添加入口。
+            这里曾经有三个做同一件事的按钮（「编辑插件」、「＋ 添加插件」、它的下拉里
+            又有「安装第三方插件 / 从本地目录安装」），而对话框里本来就有
+            「GitHub 仓库 / 本地目录」的切换 —— 用户点了三个不同的东西，看到的是同一个框，
+            这本身就是缺陷。用户明确要求：删掉重复的，只留一个「添加插件」。
+
+            「编辑插件」也一并删除：它当时只是同一个对话框的别名，没有独立语义。
+            "管理已安装的插件"这件事由下面的行式列表承担（开关 + ⋯ 菜单）。
           */}
           <Button
             type="button"
-            variant="outline"
-            aria-label="编辑插件"
+            data-plugins-manual="true"
             onClick={() => openAddDialog("url")}
           >
-            <Settings2 className="mr-1.5 h-4 w-4" />
-            编辑插件
+            <Plus className="mr-1.5 h-4 w-4" />
+            添加插件
           </Button>
-          <div className="relative flex" ref={addMenuRef}>
-            <Button
-              type="button"
-              className="rounded-r-none"
-              data-plugins-manual="true"
-              onClick={() => openAddDialog("url")}
-            >
-              <Plus className="mr-1.5 h-4 w-4" />
-              添加插件
-            </Button>
-            <Button
-              type="button"
-              className="rounded-l-none border-l border-primary-foreground/25 px-2"
-              aria-label="更多添加方式"
-              aria-haspopup="menu"
-              aria-expanded={addMenuOpen}
-              onClick={() => setAddMenuOpen((open) => !open)}
-            >
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-            {addMenuOpen && (
-              <div
-                role="menu"
-                aria-label="添加插件方式"
-                className="absolute right-0 top-full z-40 mt-1 w-64 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
-                  onClick={() => openAddDialog("url")}
-                >
-                  <Plus className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span className="flex flex-col">
-                    <span>安装第三方插件</span>
-                    <span className="text-xs text-muted-foreground">
-                      GitHub 仓库地址或本地目录
-                    </span>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
-                  onClick={() => openAddDialog("local")}
-                >
-                  <Puzzle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span className="flex flex-col">
-                    <span>从本地目录安装</span>
-                    <span className="text-xs text-muted-foreground">用于本机正在开发的插件</span>
-                  </span>
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       </header>
 
@@ -332,6 +272,15 @@ export function PluginCenterView() {
         <h2 id="plugins-market" className="mb-2 text-sm font-medium">
           插件市场
         </h2>
+
+        {fromBuiltin && (
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
+            <span>当前离线模式：正在显示随软件内置的插件清单，可能不是最新。联网后点「刷新」获取最新列表。</span>
+            <Button type="button" variant="outline" size="sm" onClick={() => void loadMarket(true)}>
+              重试
+            </Button>
+          </div>
+        )}
 
         {fromCache && (
           <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">

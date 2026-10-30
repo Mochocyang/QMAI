@@ -70,6 +70,13 @@ export interface PluginMarketEntry {
 export interface PluginMarketIndex {
   plugins: PluginMarketEntry[]
   fromCache: boolean
+  /**
+   * true = 用的是**随包内置**的索引（所有网络通道都失败且本地无缓存）。
+   *
+   * 它可能比线上旧很多，界面必须如实标注，否则用户会把"清单过时"当成"市场就这些"。
+   * 但它仍然**可信且可用** —— 里面的仓库地址是真地址，安装照常进行，不该禁用。
+   */
+  fromBuiltin?: boolean
   /** 抓取时间（unix 秒）；从未抓到过时为 null。 */
   fetchedAt: number | null
   sourceUrl: string
