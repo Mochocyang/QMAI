@@ -26,6 +26,7 @@ import {
 } from "./http"
 import { cleanupExpiredData } from "./db"
 import { hashRefreshToken } from "./crypto"
+import { handleRelayToken } from "./relay-token"
 import type { Env } from "./types"
 
 type RouteHandler = (request: Request, env: Env) => Promise<Response>
@@ -41,6 +42,13 @@ const ROUTES: Record<string, RouteHandler> = {
   "POST /v1/auth/password/change": handleChangePassword,
   "POST /v1/account/avatar": handleUploadAvatar,
   "DELETE /v1/account/avatar": handleDeleteAvatar,
+  // 中转短期票据：登录态 → 30 分钟 Ed25519 票据，供自建中转站 relay.qmai.work 验签。
+  "POST /v1/relay/token": handleRelayTokenRoute,
+}
+
+/** 中转票据签发：把当前登录态换成 30 分钟 Ed25519 票据。 */
+async function handleRelayTokenRoute(request: Request, env: Env): Promise<Response> {
+  return handleRelayToken(request, env, Math.floor(Date.now() / 1000))
 }
 
 /** 头像读取是公开路径：`/v1/account/avatar/{userId}`。 */

@@ -24,6 +24,13 @@ export interface Env {
   ENVIRONMENT?: string
   PASSWORD_ITERATIONS?: string
   ALLOW_DEV_CODE?: string
+  /**
+   * 中转票据签发私钥（Ed25519，PKCS#8 base64）。
+   * 只存在于 Worker secret：`wrangler secret put RELAY_JWT_PRIVATE_KEY`。
+   * 对应的公钥配到自建中转站的 `RELAY_JWT_PUBLIC_KEY`，两处必须成对。
+   * 缺失时 `/v1/relay/token` 返回 503，不影响账号登录注册。
+   */
+  RELAY_JWT_PRIVATE_KEY?: string
 }
 
 export type CodePurpose = "register" | "reset"

@@ -135,7 +135,7 @@ type AuthenticatedUser =
  * 校验 Authorization Bearer 并取出当前用户。
  * `me`、改密、头像三类接口共用，避免三处各自实现一遍令牌校验。
  */
-async function authenticate(
+export async function authenticate(
   request: Request,
   env: Env,
   now: number,
