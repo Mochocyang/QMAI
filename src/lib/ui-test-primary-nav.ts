@@ -1,4 +1,5 @@
 import type { WikiState } from "@/stores/wiki-store"
+import { isBuiltinViewEnabled } from "@/lib/plugins/builtin-state"
 
 export type PrimaryNavView = WikiState["activeView"]
 export interface PrimaryNavItem { view: PrimaryNavView; label: string }
@@ -37,6 +38,16 @@ function optionFor(view: PrimaryNavView) {
   return PRIMARY_NAV_OPTIONS.find((item) => item.view === view)
 }
 
+/**
+ * 把存储值归一成一组合法的一级导航项。
+ *
+ * ⚠️ 这里**故意不过滤被内置插件关闭的视图**。
+ * 归一化处理的是"用户的配置"，而"某个内置插件暂时被关掉"是应用级开关，
+ * 两者生命周期不同：关掉「审查中心」不代表用户不想把它留在导航里。
+ * 若在这里顺手剔除，`writePrimaryNav` 下一次保存就会把用户的选择**真的删掉**
+ * （顺序也一起丢），重新开启插件时入口会以默认位置冒出来。
+ * 所以：存储值与归一化结果都保留，隐藏只发生在渲染层（见 `ui-test-shell.tsx`）。
+ */
 export function normalizePrimaryNav(value: unknown): PrimaryNavItem[] {
   const views = Array.isArray(value) ? value : DEFAULT_PRIMARY_NAV
   const unique = views.filter((view, index): view is PrimaryNavView =>
@@ -68,8 +79,17 @@ export function writePrimaryNav(items: PrimaryNavItem[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(items.map((item) => item.view)))
 }
 
+/**
+ * 「替换为 / 新增功能」的候选列表。
+ *
+ * 除了"已经在导航里的不算候选"，还要**剔除被内置插件关闭的视图**：
+ * 否则用户可以把「审查中心」加进导航，点进去却只有一页"已关闭"。
+ * 入口与功能必须同生同死 —— 这也是导航处处过滤（而不是依赖页面兜底）的原因。
+ */
 export function availablePrimaryNav(items: PrimaryNavItem[]) {
-  return PRIMARY_NAV_OPTIONS.filter((option) => !items.some((item) => item.view === option.view))
+  return PRIMARY_NAV_OPTIONS.filter(
+    (option) => !items.some((item) => item.view === option.view) && isBuiltinViewEnabled(option.view),
+  )
 }
 
 export function movePrimaryNav(items: PrimaryNavItem[], view: PrimaryNavView, direction: -1 | 1) {

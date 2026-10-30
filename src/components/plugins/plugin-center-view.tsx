@@ -2,13 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Plus, Puzzle, RefreshCw, Search, X } from "lucide-react"
 
 import { AddPluginDialog, type AddPluginMode } from "@/components/plugins/add-plugin-dialog"
+import { BuiltinPluginRow } from "@/components/plugins/builtin-plugin-row"
 import { ConfigForm } from "@/components/plugins/ConfigForm"
 import { InstalledRow } from "@/components/plugins/installed-row"
 import { MarketCard } from "@/components/plugins/market-card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { pluginsApi, type PluginMarketEntry } from "@/lib/plugins/api"
+import { BUILTIN_PLUGINS } from "@/lib/plugins/builtin"
+import { setBuiltinPluginEnabled } from "@/lib/plugins/builtin-state"
 import type { PluginSummary } from "@/lib/plugins/types"
+import { useBuiltinPluginsState } from "@/lib/plugins/use-builtin-plugins"
 import { toast } from "@/lib/toast"
 
 /**
@@ -17,7 +21,8 @@ import { toast } from "@/lib/toast"
  * 设计取舍（用户明确要求过）：
  *  1. **不再用 tab。** 旧版「插件市场 / 已安装」两个 tab 把同样的东西割成两半。
  *     用户点开插件页最想先知道「我装了什么、它们开没开」，所以已安装在上、市场在下，
- *     一屏看得完，不需要切换。
+ *     一屏看得完，不需要切换。之后又在其上加了「内置插件」分区（软件自带的先展示），
+ *     于是从上到下是：内置 → 已安装（第三方）→ 市场。
  *  2. **已安装改成行式卡片 + 开关**。开关 = 启用/停用，这是插件最高频的动作，
  *     应该一步到位，而不是让用户在一列文字按钮里找「启用」。
  *  3. 页头**只保留一个**「添加插件」入口。曾经有三个（编辑插件 / 添加插件 /
@@ -189,6 +194,13 @@ export function PluginCenterView() {
 
   const hasMarket = market.length > 0
 
+  /*
+   * 内置插件的开关状态：应用级（localStorage），不跟项目走。
+   * 一次订阅整张表，避免 4 行各自订阅一次；`builtinOn` 用来算分区标题右侧的计数。
+   */
+  const builtinState = useBuiltinPluginsState()
+  const builtinOn = BUILTIN_PLUGINS.filter((plugin) => builtinState[plugin.id]).length
+
   return (
     /*
      * `data-ui-page="plugins"` 是**路由标记**：`content-area` 的 routing 测试与
@@ -238,7 +250,47 @@ export function PluginCenterView() {
         </div>
       </header>
 
-      <section aria-labelledby="plugins-installed" className="px-6">
+      {/*
+        「内置插件」分区放在「已安装」**之上**：内置是软件自带的，用户一进插件页
+        最该先看到的是"我本来就有哪些功能、现在开了哪些"，而不是"我还没装什么"。
+        已安装（第三方）与市场仍然在下面，三者自上而下是"自带 → 装过 → 可装"。
+      */}
+      <section aria-labelledby="plugins-builtin" className="px-6">
+        <div className="mb-2 flex items-baseline justify-between">
+          <h2 id="plugins-builtin" className="text-sm font-medium">
+            内置插件
+          </h2>
+          <span data-builtin-summary="true" className="text-xs text-muted-foreground">
+            共 {BUILTIN_PLUGINS.length} 个 · 已开启 {builtinOn} 个
+          </span>
+        </div>
+
+        {/*
+          ⚠️ 诚实性说明，不能删、不能改软。
+          内置插件**不是真的卸载**：代码仍在安装包里、磁盘占用不变、也不能单独分发。
+          关掉只是让入口消失、功能不加载。不写清这句，用户会以为"关掉 = 卸掉了"，
+          然后惊讶于"卸载了怎么还占空间"。
+        */}
+        <p
+          data-builtin-notice="true"
+          className="mb-3 rounded-lg border border-dashed px-3 py-2 text-xs leading-relaxed text-muted-foreground"
+        >
+          内置插件随软件提供，可以关闭但不占用额外空间，也不能卸载。
+        </p>
+
+        <ul className="space-y-2">
+          {BUILTIN_PLUGINS.map((plugin) => (
+            <BuiltinPluginRow
+              key={plugin.id}
+              plugin={plugin}
+              enabled={builtinState[plugin.id]}
+              onToggle={(next) => setBuiltinPluginEnabled(plugin.id, next)}
+            />
+          ))}
+        </ul>
+      </section>
+
+      <section aria-labelledby="plugins-installed" className="mt-6 px-6">
         <div className="mb-2 flex items-baseline justify-between">
           <h2 id="plugins-installed" className="text-sm font-medium">
             已安装

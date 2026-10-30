@@ -9,6 +9,7 @@ import { getHttpFetch, isFetchNetworkError } from "@/lib/tauri-fetch"
 import { geminiSearchDetailed } from "@/lib/gemini-search"
 import { baizhiSearch } from "@/lib/baizhi-search"
 import { antigravitySearchDetailed } from "@/lib/antigravity-search"
+import { isBuiltinPluginEnabled } from "@/lib/plugins/builtin-state"
 
 export interface WebSearchResult {
   title: string
@@ -27,6 +28,16 @@ export interface WebSearchOutcome {
   queries?: string[]
   summary?: string
   searchSuggestionsHtml?: string
+  /**
+   * 内置插件「网页搜索」被关闭时为 `true`。
+   *
+   * 这不是"搜索失败"，而是"本次根本没有联网"：`results` 必然为空，
+   * 但没有异常、没有网络请求。调用方据此把"搜了但没结果"和"压根没搜"
+   * 在文案上区分开（前者可以提示换个词，后者只该提示去「插件」页打开）。
+   */
+  disabled?: boolean
+  /** 与 `disabled` 搭配的人类可读原因，可以直接进提示词 / 提示信息。 */
+  message?: string
 }
 
 export const SERPAPI_ENGINE_OPTIONS: { value: SerpApiEngine; label: string; hint: string }[] = [
@@ -118,11 +129,44 @@ export function providerRequiresApiKey(provider: SearchProvider): boolean {
   return API_KEY_PROVIDERS.has(provider)
 }
 
+/** 内置插件「网页搜索」被关闭时，降级结果里带的统一文案（界面 / 提示词共用一份）。 */
+export const WEB_SEARCH_DISABLED_MESSAGE = "网页搜索已在「插件」中关闭，本次未联网搜索"
+
+/**
+ * 内置插件「网页搜索」当前是否开启。
+ *
+ * 直接读 `builtin-state` 的同步快照，**不经过 React**：这里的调用方是普通函数
+ * （角色光环生成、写作实体搜索、深度研究……），拿不到 hook 上下文。
+ * 存储不可用（老环境 / 测试环境没有 localStorage）时按默认值「开启」处理，
+ * 与插件页显示的状态保持一致。
+ */
+export function isWebSearchEnabled(): boolean {
+  return isBuiltinPluginEnabled("web-search")
+}
+
+/**
+ * 插件关闭时的降级结果：**结构合法的空结果**，绝不抛异常。
+ *
+ * 为什么不抛：这个函数的上游（`character-aura.ts`、`writing-entity-web-search.ts`、
+ * `web-research.ts`）都是"搜索只是锦上添花"的路径，有几处没有为"搜索不可用"写
+ * try/catch —— 抛出去会让角色生成 / 写作补搜整条链路直接失败，用户看到的会是
+ * "生成失败"，而不是"搜索被关掉了"。关掉搜索是用户的正常操作，不该是错误。
+ */
+function disabledOutcome(): WebSearchOutcome {
+  return {
+    results: [],
+    disabled: true,
+    message: WEB_SEARCH_DISABLED_MESSAGE,
+  }
+}
+
 export async function webSearch(
   query: string,
   config: SearchApiConfig,
   maxResults: number = 10,
 ): Promise<WebSearchResult[]> {
+  // 闸门在 `webSearchDetailed` 里统一收口：关闭时它的 results 为空数组，
+  // 这里自然得到 `[]`，不会再往下走到 provider 解析与网络请求。
   return (await webSearchDetailed(query, config, maxResults)).results
 }
 
@@ -131,6 +175,19 @@ export async function webSearchDetailed(
   config: SearchApiConfig,
   maxResults: number = 10,
 ): Promise<WebSearchOutcome> {
+  /*
+   * 全局闸门：内置插件「网页搜索」被关闭时，这里直接短路。
+   *
+   * 为什么放在最底层而不是逐个调用点：联网搜索有 6+ 个调用方（角色光环、
+   * 写作实体搜索、深度研究、三个 provider 实现、AI 工具）。逐个加检查必然遗漏，
+   * 而漏掉的那一处会在用户"关掉了网页搜索"之后继续悄悄联网 —— 这是隐私/资费问题。
+   * 在唯一的底层收口，才能保证"关掉就是真的不再联网"。
+   *
+   * 位置也要最靠前：连 `resolveSearchConfig` 和 provider 的 Key 校验都不做，
+   * 关闭时任何分支（包括那个会 throw 的"未配置 Key"）都不可能被走到。
+   */
+  if (!isWebSearchEnabled()) return disabledOutcome()
+
   const resolved = resolveSearchConfig(config)
   if (resolved.provider === "gemini") {
     if (!resolved.apiKey?.trim()) {

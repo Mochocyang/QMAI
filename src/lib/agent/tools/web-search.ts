@@ -1,11 +1,17 @@
 import type { Tool } from "../types"
-import { providerRequiresApiKey, resolveSearchConfig, webSearchDetailed } from "@/lib/web-search"
+import {
+  providerRequiresApiKey,
+  resolveSearchConfig,
+  webSearchDetailed,
+  isWebSearchEnabled,
+  WEB_SEARCH_DISABLED_MESSAGE,
+} from "@/lib/web-search"
 import type { SearchApiConfig } from "@/stores/wiki-store"
 import { TOOL_UI_DISPLAY_KEY } from "@/lib/search-display"
 import { ANTIGRAVITY_SEARCH_TIMEOUT_SECS, resolveAntigravitySearchTimeoutSecs } from "@/lib/antigravity-search"
 
 interface WebSearchToolResult {
-  status: "ok" | "not_configured" | "error"
+  status: "ok" | "not_configured" | "disabled" | "error"
   query: string
   provider: string
   resultCount: number
@@ -71,6 +77,25 @@ export function createWebSearchTool(getSearchApiConfig?: () => SearchApiConfig |
           resultCount: 0,
           results: [],
           message: "搜索关键词为空，未执行联网搜索。",
+        }
+        return JSON.stringify(result)
+      }
+
+      /*
+       * 内置插件「网页搜索」被关闭时，工具**保留在清单里**、执行时如实说明。
+       *
+       * 为什么不让工具直接从清单消失：模型手里有工具列表却没有这个工具时，
+       * 会反复尝试别的路径（改写查询、假装搜索），用户看到的是模型在瞎猜。
+       * 保留工具并返回"已关闭"，模型能直接告诉用户"联网搜索被关掉了，去插件里打开"。
+       */
+      if (!isWebSearchEnabled()) {
+        const result: WebSearchToolResult = {
+          status: "disabled",
+          query,
+          provider,
+          resultCount: 0,
+          results: [],
+          message: `${WEB_SEARCH_DISABLED_MESSAGE}。请到「插件」页重新开启「网页搜索」后重试；在此之前我只能基于已有知识回答。`,
         }
         return JSON.stringify(result)
       }

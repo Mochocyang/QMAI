@@ -20,6 +20,8 @@ import { readUiTestAiHintDismissed, readUiTestDirectoryHintDismissed, readUiTest
 import { AppearanceSkinProvider } from "@/components/layout/appearance-context"
 import { readUiTestWorkspacePreference as readPreference, uiTestWorkspaceKey as preferenceKey } from "@/lib/ui-test-workspace-preferences"
 import { availablePrimaryNav, movePrimaryNav, normalizePrimaryNav, PRIMARY_NAV_LONG_PRESS_MS, readPrimaryNav, writePrimaryNav, type PrimaryNavItem, type PrimaryNavView } from "@/lib/ui-test-primary-nav"
+import { isBuiltinViewEnabled } from "@/lib/plugins/builtin-state"
+import { useBuiltinPluginsState } from "@/lib/plugins/use-builtin-plugins"
 import { normalizePath } from "@/lib/path-utils"
 import { getUiTestDocumentPath, UI_TEST_AI_DEFAULT_WIDTH } from "@/lib/ui-test-layout"
 import { isFullWindowView } from "@/lib/full-window-views"
@@ -68,6 +70,26 @@ const TOOL_GROUPS = [
   [ { view: "storySimulation", label: "剧情推演室 · 测试版", icon: BookOpen }, { view: "reviewCenter", label: "审查中心", icon: ShieldCheck }, { view: "search", label: "剧情搜索", icon: Search } ],
   [ { view: "maintenance", label: "维护工具", icon: Wrench }, { view: "trash", label: "回收站", icon: Trash2 } ],
 ] as const
+type ToolEntry = (typeof TOOL_GROUPS)[number][number]
+
+/**
+ * 「创作工具」下拉的分组，**过滤掉被关闭的内置插件视图**。
+ *
+ * 为什么在渲染处过滤、而不是把 `TOOL_GROUPS` 改成可变的：
+ *   1. `TOOL_GROUPS` 是模块级 `as const` 常量，是"我们提供了哪些工具"的**静态事实**，
+ *      被关闭的内置插件并没有让它从产品里消失（它仍在安装包、仍能重新打开），
+ *      所以常量该保持完整，只在渲染这一刻按开关视图。
+ *   2. 若改成每次渲染都改写模块常量，整个模块就成了可变全局状态 —— 谁先渲染谁写，
+ *      再没有唯一真相。
+ *
+ * 过滤后整组为空时把这一组也去掉：留一个空的 `<div class="ui-test-menu-group">`
+ * 会在菜单里显示一条突兀的分隔线。
+ */
+export function visibleToolGroups(isEnabled: (view: string) => boolean): ToolEntry[][] {
+  return TOOL_GROUPS
+    .map((group) => (group as readonly ToolEntry[]).filter((item) => isEnabled(item.view)))
+    .filter((group) => group.length > 0)
+}
 /** 文件树里是否已经有章节文件（用来区分「空书」与「用户已经在写的书」）。 */
 function fileTreeHasChapter(nodes: FileNode[]): boolean {
   return nodes.some((node) => /\/wiki\/chapters\//.test(node.path) || (node.children ? fileTreeHasChapter(node.children) : false))
@@ -128,6 +150,29 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const [libraryError, setLibraryError] = useState("")
   const [toolOpen, setToolOpen] = useState(false)
   const [primaryNav, setPrimaryNav] = useState<PrimaryNavItem[]>(() => readPrimaryNav())
+  /*
+   * 内置插件开关的订阅。
+   *
+   * ⚠️ 这一行**不是**装饰：`TOOL_GROUPS` / `primaryNav` 的过滤读的是
+   * `isBuiltinViewEnabled()`（同步读 localStorage 缓存的模块函数），
+   * 它不会自己让 React 重渲染。在插件页关掉「审查中心」后，外壳必须跟着
+   * 重画一次，下拉里的入口才会真的消失。`useSyncExternalStore` 订阅到的
+   * 就是这一次通知；`builtinState` 本身则作为下面两个 useMemo 的依赖，
+   * 让"值没变就不重算"这条规则继续成立。
+   */
+  const builtinState = useBuiltinPluginsState()
+  const visibleGroups = useMemo(() => visibleToolGroups(isBuiltinViewEnabled), [builtinState])
+  /*
+   * 一级导航只**渲染时**隐藏被关闭的视图，**不删存储值**。
+   * 为什么：`primaryNav` 的顺序是用户自己排的（长按 → 移动/替换/删除），
+   * 若关插件时顺手把这一项从 localStorage 删掉，用户重新打开插件后
+   * 入口会以默认位置冒出来 —— 他排的顺序就丢了，而这跟"暂时关一个功能"
+   * 完全无关。所以存储里永远保留完整选择，只在这里过滤显示。
+   */
+  const visiblePrimaryNav = useMemo(
+    () => primaryNav.filter((item) => isBuiltinViewEnabled(item.view)),
+    [primaryNav, builtinState],
+  )
   const [navMenu, setNavMenu] = useState<PrimaryNavView | null>(null)
   const [navMenuSection, setNavMenuSection] = useState<"move" | "replace" | "add" | null>(null)
   const navMenuCloseTimer = useRef<number | null>(null)
@@ -548,7 +593,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
               在视觉上才是一组；`BookOpen` 仍被下方创作工具菜单使用，导入保留。
             */}
             <button type="button" className={`ui-test-nav-shelf${showShelf ? " is-active" : ""}`} data-guide="shell.shelf" aria-label="返回书架" aria-current={showShelf ? "page" : undefined} title="返回书架" onClick={() => void returnToShelf()}>书架</button>
-            {primaryNav.map((item, index) => <div className="ui-test-nav-slot" key={item.view} onPointerDown={(event) => pressNav(event, item.view)} onPointerMove={moveNavPress} onPointerUp={releaseNavPress} onPointerCancel={releaseNavPress} onContextMenu={(event) => openNavMenu(event, item.view)}>
+            {visiblePrimaryNav.map((item) => <div className="ui-test-nav-slot" key={item.view} onPointerDown={(event) => pressNav(event, item.view)} onPointerMove={moveNavPress} onPointerUp={releaseNavPress} onPointerCancel={releaseNavPress} onContextMenu={(event) => openNavMenu(event, item.view)}>
               <button type="button" disabled={!project} data-guide={item.view === "wiki" ? "shell.nav.wiki" : item.view === "soul" ? "shell.tool.soul" : item.view === "skillLibrary" ? "shell.tool.skillLibrary" : undefined} aria-current={project && activeView === item.view ? "page" : undefined} aria-haspopup="menu" className={`ui-test-nav-item${project && activeView === item.view ? " is-active" : ""}`} onClick={() => navigate(item.view)}>{item.label}</button>
               {navMenu === item.view && <div ref={navMenuRef} className={`ui-test-menu-pop ui-test-nav-menu${navMenuAlign === "right" ? " is-right" : ""}`} role="menu" aria-label={`${item.label}功能菜单`} data-tauri-drag-region="false" onKeyDown={menuKeyboard} onMouseLeave={hideNavSectionSoon}>
                 <button type="button" role="menuitem" className="ui-test-menu-item" aria-expanded={navMenuSection === "move"} aria-haspopup="menu" onMouseEnter={() => showNavSection("move")} onFocus={() => showNavSection("move")}>移动</button>
@@ -556,9 +601,14 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
                 <button type="button" role="menuitem" className="ui-test-menu-item" aria-expanded={navMenuSection === "add"} aria-haspopup="menu" disabled={primaryNav.length >= 5 || availablePrimaryNav(primaryNav).length === 0} onMouseEnter={() => showNavSection("add")} onFocus={() => showNavSection("add")}>新增功能</button>
                 <button type="button" role="menuitem" className="ui-test-menu-item ui-test-nav-delete" disabled={primaryNav.length <= 1} onMouseEnter={hideNavSectionSoon} onClick={() => void removePrimaryNav(item.view)}>删除</button>
                 {navMenuSection && <div className={`ui-test-nav-submenu${navMenuAlign === "right" ? " is-left" : ""}`} role="menu" aria-label={`${item.label}二级菜单`} onMouseEnter={() => showNavSection(navMenuSection)}>
+                  {/*
+                    「左移/右移」的禁用判据按 **完整** 的 `primaryNav` 算位置，不按
+                    过滤后的可见列表：移动本身作用在完整数组上（存储里的顺序不能因为
+                    某个插件被关掉就变形）。被关闭的项只是不显示，仍然占着它的位置。
+                  */}
                   {navMenuSection === "move" && <>
-                    <button type="button" role="menuitem" className="ui-test-menu-item" disabled={index === 0} onClick={() => { updatePrimaryNav(movePrimaryNav(primaryNav, item.view, -1)); setNavMenu(null) }}>左移</button>
-                    <button type="button" role="menuitem" className="ui-test-menu-item" disabled={index === primaryNav.length - 1} onClick={() => { updatePrimaryNav(movePrimaryNav(primaryNav, item.view, 1)); setNavMenu(null) }}>右移</button>
+                    <button type="button" role="menuitem" className="ui-test-menu-item" disabled={primaryNav.findIndex((entry) => entry.view === item.view) === 0} onClick={() => { updatePrimaryNav(movePrimaryNav(primaryNav, item.view, -1)); setNavMenu(null) }}>左移</button>
+                    <button type="button" role="menuitem" className="ui-test-menu-item" disabled={primaryNav.findIndex((entry) => entry.view === item.view) === primaryNav.length - 1} onClick={() => { updatePrimaryNav(movePrimaryNav(primaryNav, item.view, 1)); setNavMenu(null) }}>右移</button>
                   </>}
                   {navMenuSection === "replace" && availablePrimaryNav(primaryNav).map((option) => <button key={option.view} type="button" role="menuitem" className="ui-test-menu-item" onClick={() => void replacePrimaryNav(item.view, option)}>{option.label}</button>)}
                   {navMenuSection === "add" && availablePrimaryNav(primaryNav).map((option) => <button key={`add-${option.view}`} type="button" role="menuitem" className="ui-test-menu-item" onClick={() => { updatePrimaryNav([...primaryNav, option]); setNavMenu(null) }}>{option.label}</button>)}
@@ -570,7 +620,13 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
             {/* 账号入口放最左：它是「可选」的云端身份，不抢对话/设置的常用位置。 */}
             <AccountButton />
             {writing ? <div className="ui-test-header-hint-anchor"><Tooltip><TooltipTrigger render={<button type="button" className="ui-test-icon-btn" aria-label="AI 对话" aria-expanded={assistantOpen} onClick={() => activeView === "sources" ? setOutlineExpanded(!outlineExpanded) : setChatExpanded(!chatExpanded)}><AiChatIcon /></button>} /><TooltipContent>AI 对话</TooltipContent></Tooltip>{!aiHintDismissed && <div className="ui-test-header-hint is-right" role="status"><p>「AI 对话」改成了图标：点击它即可打开或收起对话栏。</p><div className="ui-test-header-hint-actions"><button type="button" className="ui-test-header-hint-dismiss" onClick={() => { writeUiTestAiHintDismissed(); setAiHintDismissed(true) }}>知道了</button></div></div>}</div> : <>
-              <button type="button" className="ui-test-icon-btn" aria-label="剧情搜索" title={project ? "剧情搜索" : "请先打开小说"} disabled={!project} onClick={() => navigate("search")}><Search /></button>
+              {/*
+                「剧情搜索」这个图标按钮也是一条**导航入口**，所以和下拉、一级导航
+                用同一条判据：`剧情搜索` 内置插件被关掉时它一起消失。
+                只过滤下拉而留着这个图标，用户点进去只会看到"已关闭"页 ——
+                入口还在、功能不在，是最容易让人以为界面坏了的那种状态。
+              */}
+              {isBuiltinViewEnabled("search") && <button type="button" className="ui-test-icon-btn" aria-label="剧情搜索" title={project ? "剧情搜索" : "请先打开小说"} disabled={!project} onClick={() => navigate("search")}><Search /></button>}
               <button type="button" className="ui-test-icon-btn" data-guide="shell.settings" aria-label="设置" title="设置" onClick={() => navigate("settings")}><Settings /></button>
             </>}
             <div ref={toolsRef} className="ui-test-menu-anchor">
@@ -580,7 +636,7 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
               </Tooltip>
               {toolOpen && <div className="ui-test-menu-pop" role="menu" aria-label="创作工具" data-tauri-drag-region="false" onKeyDown={menuKeyboard}>
                 <div className="ui-test-menu-title">创作工具 · {project?.name ?? "未选择小说"}</div>
-                {TOOL_GROUPS.map((group, index) => <div className="ui-test-menu-group" key={index}>
+                {visibleGroups.map((group, index) => <div className="ui-test-menu-group" key={index}>
                   {group.map(({ view, label, icon: Icon }) => <button key={view} type="button" role="menuitem" className="ui-test-menu-item" disabled={!project} onClick={() => navigate(view)}><Icon /><span>{label}</span></button>)}
                 </div>)}
               </div>}

@@ -299,7 +299,13 @@ describe("PluginCenterView：已安装行", () => {
     ])
     await render()
 
-    const toggle = host.querySelector('[role="switch"]') as HTMLElement | null
+    /*
+     * 必须精确选「已安装」那一行的开关：现在插件页顶部还有「内置插件」分区，
+     * 它的 4 个开关同样是 role="switch"。选第一个会选到内置的，断言就会莫名其妙地失败。
+     */
+    const toggle = host.querySelector(
+      '[data-ui="plugin-row-switch"]',
+    ) as HTMLElement | null
     expect(toggle).not.toBeNull()
     await act(async () => {
       toggle?.click()
@@ -354,8 +360,14 @@ describe("PluginCenterView：已安装行", () => {
       summary({ id: "alpha", toolCount: 0, providerIds: [], grantedPermissions: [] }),
     ])
     await render()
-    expect(text()).not.toContain("提供")
-    expect(text()).not.toContain("已授权")
+    /*
+     * 只在「已安装」那一行里查。整页断言会被内置插件分区的固定说明文字误伤
+     * （"内置插件随软件提供…" 里就有"提供"两个字）。
+     */
+    const row = host.querySelector('[data-plugin-id="alpha"]') ?? host.querySelector("li")
+    const rowText = row?.textContent ?? ""
+    expect(rowText).not.toContain("提供")
+    expect(rowText).not.toContain("已授权")
   })
 })
 

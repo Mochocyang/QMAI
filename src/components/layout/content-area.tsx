@@ -1,5 +1,7 @@
 import { Suspense, lazy } from "react";
 import { useWikiStore } from "@/stores/wiki-store";
+import { isBuiltinViewEnabled } from "@/lib/plugins/builtin-state";
+import { BuiltinViewDisabledNotice } from "./builtin-view-disabled-notice";
 import { WritingWorkspace } from "./writing-workspace";
 
 const SearchView = lazy(async () => {
@@ -120,12 +122,19 @@ export function ContentArea() {
         );
         break;
       case "search":
-        content = (
+        /*
+         * 「剧情搜索」是一个内置插件（见 `lib/plugins/builtin.ts`）。被关闭时必须渲染
+         * 一个明确的"已关闭"页，而不是空壳或空白：用户可能通过上一会话恢复的
+         * activeView 直接落到这里，看到空白的直觉是"软件坏了"。
+         */
+        content = isBuiltinViewEnabled("search") ? (
           <Suspense fallback={<LoadingView />}>
             <SearchView />
           </Suspense>
+        ) : (
+          <BuiltinViewDisabledNotice view="search" />
         );
-        break;
+      break;
       case "soul":
         content = (
           <Suspense fallback={<LoadingView />}>
@@ -162,12 +171,19 @@ export function ContentArea() {
         );
         break;
       case "reviewCenter":
-        content = (
+        /*
+         * 「审查中心」是一个内置插件（见 `lib/plugins/builtin.ts`）。被关闭时必须渲染
+         * 一个明确的"已关闭"页，而不是空壳或空白：用户可能通过上一会话恢复的
+         * activeView 直接落到这里，看到空白的直觉是"软件坏了"。
+         */
+        content = isBuiltinViewEnabled("reviewCenter") ? (
           <Suspense fallback={<LoadingView />}>
             <ReviewCenterView />
           </Suspense>
+        ) : (
+          <BuiltinViewDisabledNotice view="reviewCenter" />
         );
-        break;
+      break;
       case "bookAnalysis":
         content = (
           <Suspense fallback={<LoadingView />}>
@@ -176,12 +192,19 @@ export function ContentArea() {
         );
         break;
       case "storySimulation":
-        content = (
+        /*
+         * 「剧情推演室」是一个内置插件（见 `lib/plugins/builtin.ts`）。被关闭时必须渲染
+         * 一个明确的"已关闭"页，而不是空壳或空白：用户可能通过上一会话恢复的
+         * activeView 直接落到这里，看到空白的直觉是"软件坏了"。
+         */
+        content = isBuiltinViewEnabled("storySimulation") ? (
           <Suspense fallback={<LoadingView />}>
             <StorySimulationView />
           </Suspense>
+        ) : (
+          <BuiltinViewDisabledNotice view="storySimulation" />
         );
-        break;
+      break;
       case "plugins":
         content = (
           <Suspense fallback={<LoadingView />}>
