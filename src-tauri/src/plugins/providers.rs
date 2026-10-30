@@ -608,7 +608,7 @@ mod tests {
     impl Drop for StubHttp {
         fn drop(&mut self) {
             // 不 join：桩线程阻塞在 accept() 上，join 会把「用例已跑完」变成
-            // 「测试框架超时」。线程随测试进程退出即可（与本仓 workbuddy::test_support 同理）。
+            // 「测试框架超时」。线程随测试进程退出即可。
             let _ = self.handle.take();
         }
     }
@@ -629,12 +629,12 @@ mod tests {
         PluginProvider {
             plugin_id: "wb-connect".to_string(),
             provider_id: "wb-connect".to_string(),
-            name: "WorkBuddy 插件".to_string(),
+            name: "插件样例".to_string(),
             base_url: "http://127.0.0.1:51235".to_string(),
             token: "super-secret-provider-token".to_string(),
             capabilities: vec!["models.refresh".to_string()],
             settings_page: Some("/login".to_string()),
-            auth_domains: vec!["workbuddy.cn".to_string()],
+            auth_domains: vec!["example.com".to_string()],
             auth_kind: "none".to_string(),
             models: vec![ProviderModel {
                 id: "glm-5.3".to_string(),

@@ -25,7 +25,7 @@ function pluginConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
     apiKey: "",
     model: "glm-5.3",
     ollamaUrl: "",
-    // 宿主分配的 baseUrl 由运行期解析进 customEndpoint（与 workbuddy 同构）。
+    // 宿主分配的 baseUrl 由运行期解析进 customEndpoint（与 cursor-cli 注入运行期端点同构）。
     customEndpoint: "http://127.0.0.1:43210",
     maxContextSize: 200_000,
     ...overrides,

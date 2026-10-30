@@ -32,7 +32,6 @@ export type BuiltinProviderId =
   | "codex-cli"
   | "cursor-cli"
   | "antigravity-cli"
-  | "workbuddy"
 
 /**
  * 运行期 provider id：内置 + 插件注入（形如 `wb-connect`）。
@@ -62,7 +61,6 @@ const BUILTIN_PROVIDER_IDS = [
   "codex-cli",
   "cursor-cli",
   "antigravity-cli",
-  "workbuddy",
 ] as const satisfies readonly BuiltinProviderId[]
 
 export function isBuiltinProviderId(provider: string): provider is BuiltinProviderId {
@@ -1420,7 +1418,7 @@ function openAiCompatibleRequest(
  *
  * 端点契约见设计 3.1：宿主分配 `baseUrl`（`http://127.0.0.1:<port>`，不含 /v1），
  * 插件必须在该地址提供 `POST /v1/chat/completions` 的 SSE 流。
- * baseUrl 走 `LlmConfig.customEndpoint`，与 workbuddy / cursor-cli 注入运行期端点的
+ * baseUrl 走 `LlmConfig.customEndpoint`，与 cursor-cli 注入运行期端点的
  * 方式一致（T4 会把 providerConfigs[providerId].baseUrl 解析到这里）。
  */
 function pluginProviderRequest(config: LlmConfig, token: string): ProviderConfig {
@@ -1594,33 +1592,6 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
           "Content-Type": JSON_CONTENT_TYPE,
           Authorization: `Bearer ${key}`,
         }, url),
-        buildBody: (messages, overrides) => ({
-          ...buildOpenAiCompatibleBody(config, messages, overrides),
-          model,
-        }),
-        parseStream: parseOpenAiLine,
-        parseUsage: parseOpenAiUsage,
-        parseFinishReason: parseOpenAiFinishReason,
-      }
-    }
-
-    case "workbuddy": {
-      // 账号登录类：后端在应用进程内起了一个 OpenAI 兼容网关，`customEndpoint`
-      // 与 `apiKey` 在聊天前由 `withWorkbuddyEndpoint()` 注入（随机端口 + 一次性
-      // 令牌）。这里的线格式与自定义家的 chat_completions 完全一致——网关已经把
-      // WorkBuddy 的私有头、首条 system、token 续期都处理掉了。
-      const endpoint = (customEndpoint || "").trim()
-      if (!endpoint) {
-        throw new Error("WorkBuddy 网关地址未注入，请重新打开模型设置后再试")
-      }
-      const base = endpoint.replace(/\/+$/, "")
-      const url = /\/chat\/completions$/i.test(base) ? base : `${base}/chat/completions`
-      return {
-        url,
-        headers: {
-          "Content-Type": JSON_CONTENT_TYPE,
-          Authorization: `Bearer ${apiKey}`,
-        },
         buildBody: (messages, overrides) => ({
           ...buildOpenAiCompatibleBody(config, messages, overrides),
           model,

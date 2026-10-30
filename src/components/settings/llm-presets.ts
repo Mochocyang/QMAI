@@ -143,16 +143,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
-    // 账号登录类：模型来自用户自己的 WorkBuddy 账号，地址与令牌由本地网关于
-    // 运行时注入（见 `src/lib/workbuddy-gateway.ts`），因此这里没有 baseUrl /
-    // apiKey —— 卡片上也不该让用户去填。
-    id: "workbuddy",
-    label: "WorkBuddy 国内版",
-    hint: "用你自己的 WorkBuddy 账号登录，无需 API Key（免装 CLI）",
-    provider: "workbuddy",
-    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
-  },
-  {
     id: "antigravity-cli",
     label: "Antigravity CLI (local)",
     hint: "使用 local agy 命令及其登录状态，无需 API Key",

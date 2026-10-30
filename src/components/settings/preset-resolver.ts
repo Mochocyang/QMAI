@@ -113,22 +113,6 @@ export function resolveConfig(
       localCliIsolation: false,
       functionCallingEnabled,
     }
-  } else if (preset.provider === "workbuddy") {
-    // 账号登录类：端点与密钥由本地网关在运行时注入（`withWorkbuddyEndpoint`），
-    // 落盘时两者都可能是空 —— 聊天前一定会被替换掉，所以不必在这里要求非空。
-    config = {
-      provider: "workbuddy",
-      apiKey,
-      model: ov.model?.trim() || preset.defaultModel || "",
-      ollamaUrl: fallback.ollamaUrl,
-      customEndpoint: ov.baseUrl ?? preset.baseUrl ?? "",
-      maxContextSize: rawMaxContextSize,
-      maxOutputTokens: rawMaxOutputTokens,
-      apiMode: "chat_completions",
-      reasoning,
-      localCliIsolation: false,
-      functionCallingEnabled,
-    }
   } else {
     // openai / anthropic / google / minimax — use fixed endpoint baked into the
     // provider dispatch. We still let users override baseUrl via apiKey env if

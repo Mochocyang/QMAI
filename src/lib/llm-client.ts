@@ -683,14 +683,6 @@ async function streamChatHeld(
     runtimeConfig = withCursorProxyEndpoint(runtimeConfig, endpoint)
   }
 
-  // 账号登录类：先确保进程内网关在跑，再把地址与一次性令牌套进配置。
-  // 与上面 cursor-cli 同构 —— 之后的链路把它当普通 OpenAI 供应方。
-  if (runtimeConfig.provider === "workbuddy") {
-    const { ensureWorkbuddyGateway, withWorkbuddyEndpoint } = await import("./workbuddy-gateway")
-    const gateway = await ensureWorkbuddyGateway()
-    runtimeConfig = withWorkbuddyEndpoint(runtimeConfig, gateway)
-  }
-
   // 插件 provider 需要先现取 token（异步），所以统一走 resolveProviderConfig：
   // 内置 provider 与 getProviderConfig 等价，插件 provider 走 OpenAI 兼容适配器。
   const providerConfig = await resolveProviderConfig(runtimeConfig)

@@ -167,41 +167,6 @@ describe("hasUsableLlm", () => {
     expect(hasUsableLlm(cfg, providers)).toBe(true)
   })
 
-  // ── 账号登录类（WorkBuddy）──────────────────────────────────
-  // 与其它 provider 的差别：**没有 apiKey**。可用性 = 卡片启用 + 有模型。
-  // 登录态本身不在这个纯函数里判（它只看配置），删掉最后一个账号时由设置页
-  // 把卡片 enabled 置 false。
-  it("accepts workbuddy with an enabled card and a model, no apiKey needed", () => {
-    const providers: ProviderConfigs = {
-      workbuddy: { enabled: true, savedModels: [{ id: "m1", name: "m1", model: "deepseek-v4.1-flash", createdAt: 1 }] },
-    }
-    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "deepseek-v4.1-flash" }
-    expect(hasUsableLlm(cfg, providers)).toBe(true)
-  })
-
-  it("accepts workbuddy when only a model field exists (legacy card without savedModels)", () => {
-    const providers: ProviderConfigs = { workbuddy: { enabled: true, model: "glm-5.3" } }
-    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "glm-5.3" }
-    expect(hasUsableLlm(cfg, providers)).toBe(true)
-  })
-
-  it("rejects workbuddy when the card is disabled (last account removed)", () => {
-    const providers: ProviderConfigs = { workbuddy: { enabled: false, model: "glm-5.3" } }
-    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "glm-5.3" }
-    expect(hasUsableLlm(cfg, providers)).toBe(false)
-  })
-
-  it("rejects workbuddy without a model even when enabled", () => {
-    const providers: ProviderConfigs = { workbuddy: { enabled: true } }
-    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "" }
-    expect(hasUsableLlm(cfg, providers)).toBe(false)
-  })
-
-  it("rejects workbuddy when there is no card at all", () => {
-    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "glm-5.3" }
-    expect(hasUsableLlm(cfg, {})).toBe(false)
-  })
-
   // ── 插件 provider（运行期注入）────────────────────────────────
   // 按设计 token 不落盘（计划第 0 节），所以插件 provider 的 `apiKey` **永远为空**。
   // 用「apiKey 非空」判定会把它一律判成不可用，整条链路在聊天前的守卫就被挡住。
@@ -210,7 +175,7 @@ describe("hasUsableLlm", () => {
     try {
       const providers: ProviderConfigs = {
         "wb-connect": {
-          label: "WorkBuddy 直连",
+          label: "插件样例直连",
           baseUrl: "http://127.0.0.1:43210",
           savedModels: [{ id: "glm-5.3", name: "GLM-5.3", model: "glm-5.3", createdAt: 0 }],
         },

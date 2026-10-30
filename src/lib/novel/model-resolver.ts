@@ -95,7 +95,7 @@ function resolveRegisteredModel(
  *
  * 插件的路径：借 custom preset 搬运字段（上下文窗口、推理、工具开关），
  * 但 `provider` 保持插件 id、端点取宿主分配的 `baseUrl`（写进 `customEndpoint`，
- * 与 workbuddy / cursor-cli 注入运行期端点同构）。
+ * 与 cursor-cli 注入运行期端点同构）。
  */
 function resolveOverrideConfig(
   providerId: string,

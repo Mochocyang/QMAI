@@ -238,18 +238,6 @@ async function fetchAntigravityModels(config: LlmConfig): Promise<LlmModelListRe
 }
 
 export async function fetchLlmModelList(config: LlmConfig): Promise<LlmModelListResult> {
-  if (config.provider === "workbuddy") {
-    // 账号登录类：模型清单来自本地网关（它读的是 WorkBuddy 的 /v3/config）。
-    // 走网关而不是直连上游，是因为清单请求同样需要那串私有头与登录态。
-    const { ensureWorkbuddyGateway } = await import("./workbuddy-gateway")
-    const gateway = await ensureWorkbuddyGateway()
-    return fetchModelList(
-      `${gateway.v1BaseUrl.replace(/\/+$/, "")}/models`,
-      { Authorization: `Bearer ${gateway.token}` },
-      config.model,
-    )
-  }
-
   if (config.provider === "antigravity-cli") {
     return fetchAntigravityModels(config)
   }

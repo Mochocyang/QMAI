@@ -78,7 +78,7 @@ function view(overrides: Partial<PluginProviderView> = {}): PluginProviderView {
   return {
     pluginId: "wb-plugin",
     providerId: "wb-connect",
-    name: "WorkBuddy 直连",
+    name: "插件样例直连",
     baseUrl: "http://127.0.0.1:43210",
     authKind: "none",
     capabilities: [],
@@ -94,7 +94,7 @@ describe("toPluginProviderPreset", () => {
 
     expect(preset.id).toBe("wb-connect")
     expect(preset.provider).toBe("wb-connect")
-    expect(preset.label).toBe("WorkBuddy 直连")
+    expect(preset.label).toBe("插件样例直连")
     // 卡片小字：用户必须能看出「谁在收我的数据」（设计 §7 第 3 条）。
     expect(preset.hint).toBe("来自插件 wb-plugin")
     expect(preset.pluginId).toBe("wb-plugin")

@@ -13,7 +13,6 @@ const PRESET_ID_BY_PROVIDER: Partial<Record<LlmProvider, string>> = {
   "codex-cli": "codex-cli",
   "cursor-cli": "cursor-cli",
   "antigravity-cli": "antigravity-cli",
-  "workbuddy": "workbuddy",
   "ollama": "ollama-local",
 }
 
@@ -55,14 +54,6 @@ export function hasUsableLlm(
   if (cfg.provider === "claude-code" || cfg.provider === "codex-cli" || cfg.provider === "cursor-cli" || cfg.provider === "antigravity-cli") {
     const presetId = PRESET_ID_BY_PROVIDER[cfg.provider]!
     return isPresetAvailable(providerConfigs, presetId)
-  }
-
-  // 账号登录类：没有 apiKey —— 可用性就是「卡片存在且启用，且有模型」。
-  // 登录态本身不在这个纯函数里判（它只看配置）；删掉最后一个账号时由设置页
-  // 把卡片 enabled 置 false，于是这里自然变假。
-  if (cfg.provider === "workbuddy") {
-    const presetId = PRESET_ID_BY_PROVIDER["workbuddy"]!
-    return isPresetAvailable(providerConfigs, presetId) && hasModel
   }
 
   if (cfg.provider === "ollama") {

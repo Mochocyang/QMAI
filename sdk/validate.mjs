@@ -86,7 +86,6 @@ const BUILTIN_PROVIDER_IDS = [
   "codex-cli",
   "cursor-cli",
   "antigravity-cli",
-  "workbuddy",
 ];
 /** `KNOWN_PROVIDER_CAPABILITIES`。 */
 const KNOWN_PROVIDER_CAPABILITIES = ["models.refresh", "balance.query", "checkin"];

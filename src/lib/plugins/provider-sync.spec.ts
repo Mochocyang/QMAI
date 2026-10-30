@@ -26,7 +26,7 @@ function readyProvider(overrides: Partial<PluginProviderView> = {}): PluginProvi
   return {
     pluginId: "wb-plugin",
     providerId: "wb-connect",
-    name: "WorkBuddy 直连",
+    name: "插件样例直连",
     baseUrl: "http://127.0.0.1:43210",
     authKind: "none",
     capabilities: [],
@@ -76,7 +76,7 @@ describe("syncPluginProviders", () => {
 
     const config = useWikiStore.getState().providerConfigs["wb-connect"]
     expect(config).toBeDefined()
-    expect(config.label).toBe("WorkBuddy 直连")
+    expect(config.label).toBe("插件样例直连")
     expect(config.baseUrl).toBe("http://127.0.0.1:43210")
     // 模型清单要能被 getEffectiveSavedModels 直接消费：id/name/model/createdAt。
     expect(config.savedModels).toEqual([
@@ -164,7 +164,7 @@ describe("syncPluginProviders", () => {
     // 被改写成 "custom" 就会用空 apiKey 发一个没有 Bearer 的请求（插件侧 401）。
     expect(resolved.provider).toBe("wb-connect")
     expect(resolved.model).toBe("glm-5.3")
-    // 宿主分配的 baseUrl 通过 customEndpoint 传给请求层（与 workbuddy 同构）。
+    // 宿主分配的 baseUrl 通过 customEndpoint 传给请求层（与 cursor-cli 注入运行期端点同构）。
     expect(resolved.customEndpoint).toBe("http://127.0.0.1:43210")
     expect(resolved.maxContextSize).toBe(1_000_000)
     expect(resolved.apiKey).toBe("")
