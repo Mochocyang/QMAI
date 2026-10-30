@@ -1,4 +1,4 @@
-//! 插件市场索引：远端清单 + 本地缓存 + 离线降级。
+//! 插件市场索引：远端清单 + 本地缓存 + 随包内置兜底。
 //!
 //! 市场本身**不负责安装**：索引里的 `repo` 就是一个普通的 GitHub 安装地址，
 //! `plugins_market_install` 把它原样交给 `installer::install`。这样「市场」
@@ -52,6 +52,23 @@ const INDEX_VERSION: u32 = 1;
 /// 不是索引（比如被中间层换成了错误页），早拒早省内存。
 const MAX_INDEX_BYTES: usize = 1024 * 1024;
 
+/// 随软件发布的**内置索引**。它是市场能打开的最后一道兜底。
+///
+/// 为什么需要：索引放在 GitHub 上，而国内网络对 raw.githubusercontent / gh-proxy
+/// 的可用性是时好时坏的（实测 ghproxy.net 直接超时）。用户第一次打开市场时本地
+/// 还没有任何缓存，任何通道失败就等于"市场打不开" —— 一个连空列表都显示不出来
+/// 的页面，看起来就像软件坏了。
+///
+/// 代价（必须诚实告知）：内置索引是**发布那一刻的快照**，可能比线上旧。
+/// 所以它只在"所有通道都失败且无缓存"时启用，并在返回里标 `from_builtin = true`，
+/// 前端据此提示"这是离线内置清单，可能不是最新"。
+///
+/// `include_str!` 在**编译期**把文件内容嵌进二进制：所以这里改了 JSON 必须重新编译
+/// 才生效，运行时无需依赖任何外部文件（安装包漏文件也不会出问题）。
+/// 相对路径是相对**本文件**目录（`src-tauri/src/plugins/`），`../../../plugins/index.json`
+/// 指到仓库根的 `plugins/index.json` —— 与远端通道发布的是同一份文件。
+const BUILTIN_INDEX: &str = include_str!("../../../plugins/index.json");
+
 /// 一条市场条目。字段与 `plugins/index.json` 里的一条对象一一对应。
 ///
 /// 除 `id` / `name` / `repo` 外全部带 `#[serde(default)]`：索引是多人 PR 维护的，
@@ -90,6 +107,14 @@ pub struct MarketIndex {
     /// 「降级」，不是「这次没走网络」。新鲜缓存仍在承诺的时效内，前端不该弹提示；
     /// 想显示「更新于几小时前」请用 `fetchedAt` 自己算。
     pub from_cache: bool,
+    /// true = 用的是随包内置的索引（网络全失败且无缓存）。前端应提示"可能不是最新"。
+    ///
+    /// 为什么必须单独标出来而不能和 `from_cache` 合并：两者给用户的承诺不同。
+    /// 缓存是「上一次真正从线上拉到的清单」，时效最坏也就差几个小时；内置索引是
+    /// **发布那一刻**的快照，可能落后很多天（甚至缺少新上架的插件）。如果前端把两者
+    /// 都说成「上次更新的清单」，用户会以为市场里没有某个插件 —— 而真相是他本地
+    /// 这份清单太旧了。标出来，前端才能说清「这是离线内置清单，联网后刷新」。
+    pub from_builtin: bool,
     /// 缓存写入时间（unix 秒）
     pub fetched_at: Option<i64>,
     pub source_url: String,
@@ -182,8 +207,14 @@ pub fn index_url() -> String {
 
 /// 拉取索引；`refresh=false` 且缓存新鲜时直接返回缓存。
 ///
-/// 降级策略（重要）：网络失败**不要**直接报错——用户可能离线/被墙。
-/// 有缓存就返回缓存并标 `from_cache=true`；连缓存都没有才报错。
+/// 降级链（重要）：
+/// 1. 网络成功 → `from_cache=false, from_builtin=false`
+/// 2. 网络失败、有缓存 → `from_cache=true, from_builtin=false`
+/// 3. 网络失败、无缓存 → 用 `BUILTIN_INDEX`，`from_builtin=true, from_cache=false`
+/// 4. 连内置索引都解析不了才 `Err`（软件缺陷，不是网络问题）
+///
+/// 关键取舍：网络失败**不要**直接报错——用户可能离线/被墙。一个打不开的市场和
+/// 「市场是空的」在用户眼里都是坏掉的软件，而内置索引至少能让他看到并安装插件。
 pub async fn load_index(
     client: &reqwest::Client,
     root: &Path,
@@ -235,6 +266,7 @@ async fn load_index_with_channels(
             Ok(MarketIndex {
                 plugins,
                 from_cache: false,
+                from_builtin: false,
                 fetched_at: Some(fetched_at),
                 source_url: via.clone(),
                 via: Some(via),
@@ -243,19 +275,57 @@ async fn load_index_with_channels(
         Err(error) => {
             // 网络失败不直接报错：用户可能离线、可能在墙内，而「上次拉到的清单」对
             // 浏览与安装依然完全可用（repo 地址是长期的，不随索引版本失效）。
-            // 有缓存就降级，让插件中心至少打得开。
-            match cached {
-                Some(cache) => {
-                    eprintln!(
-                        "插件市场索引拉取失败（{error}），降级到本地缓存（fetchedAt={}）",
-                        cache.fetched_at
-                    );
-                    Ok(cached_index(&cache, &primary, true))
-                }
-                None => Err(format!("插件市场索引拉取失败，且本地没有可用缓存：{error}")),
+            // 有缓存就用缓存；连缓存都没有，还有随包内置的索引垫底 —— 市场必须打得开。
+            match &cached {
+                Some(cache) => eprintln!(
+                    "插件市场索引拉取失败（{error}），降级到本地缓存（fetchedAt={}）",
+                    cache.fetched_at
+                ),
+                None => eprintln!(
+                    "插件市场索引拉取失败（{error}），本地无缓存，改用随包内置索引"
+                ),
             }
+            // 缓存的写入时间在两个分支里的含义不同：走缓存时它是「这份清单是哪次
+            // 拉到的」（前端要显示「更新于几小时前」），走内置索引时根本没有拉取时间。
+            let cached_fetched_at = cached.as_ref().map(|c| c.fetched_at);
+            let (plugins, from_cache, from_builtin) =
+                fallback_after_network_failure(cached, BUILTIN_INDEX)?;
+            Ok(MarketIndex {
+                plugins,
+                from_cache,
+                from_builtin,
+                fetched_at: cached_fetched_at,
+                // 没有通道成功，sourceUrl 退化为配置里的首选地址（与旧行为一致）。
+                source_url: primary,
+                via: None,
+            })
         }
     }
+}
+
+/// 「网络失败之后用哪份清单」的纯函数：降级决策与 IO/网络完全分开。
+///
+/// 抽出来的理由：兜底链的语义（缓存优先于内置、内置坏了必须报错而不是假装空市场）
+/// 是最容易被后人改坏的地方，而它原本埋在 async + 磁盘读 + 网络错误里没法直接测。
+/// `builtin` 由调用方传入，测试就能喂一份坏 JSON 验证报错路径。
+///
+/// 返回 `(plugins, from_cache, from_builtin)`：
+/// 1. 有缓存 → 缓存的条目，`(.., true, false)`
+/// 2. 无缓存、内置可解析 → 内置条目，`(.., false, true)`
+/// 3. 内置损坏 → `Err`（这是软件缺陷，绝不能静默返回空列表）
+fn fallback_after_network_failure(
+    cache: Option<MarketCache>,
+    builtin: &str,
+) -> Result<(Vec<MarketEntry>, bool, bool), String> {
+    if let Some(cache) = cache {
+        return Ok((cache.plugins, true, false));
+    }
+    let plugins = parse_index(builtin.as_bytes()).map_err(|reason| {
+        // 不静默返回空列表：空列表会让用户以为「市场本来就是空的」，而真相是
+        // 这份内置索引写坏了 —— 那必须让维护者立刻知道，所以报错要指明是软件缺陷。
+        format!("内置插件索引损坏（这是软件缺陷，请反馈）：{reason}")
+    })?;
+    Ok((plugins, false, true))
 }
 
 /// 解析并过滤索引。**单条坏数据只跳过，不拖垮整份索引** ——
@@ -446,6 +516,8 @@ fn cached_index(cache: &MarketCache, url: &str, degraded: bool) -> MarketIndex {
     MarketIndex {
         plugins: cache.plugins.clone(),
         from_cache: degraded,
+        // 缓存永远不是内置索引：这两条降级路径互斥。
+        from_builtin: false,
         fetched_at: Some(cache.fetched_at),
         source_url: url.to_string(),
         // 缓存不是任何一条通道「这次」给的，所以没有命中通道可报。
@@ -854,17 +926,121 @@ mod tests {
         assert_eq!(stub.requests().len(), 2, "refresh=true 必须再拉一次");
     }
 
+    /// 语义已变更（回归）：以前「无缓存 + 网络失败」必报错；现在有随包内置索引兜底，
+    /// 这条路径不再报错。真正该报错的是「内置索引本身坏了」—— 我用坏数据直接喂
+    /// `fallback_after_network_failure` 覆盖它，并断言报错指明是软件缺陷。
+    ///
+    /// 为什么不静默降级成空列表：空列表会让用户以为「市场本来就是空的」，而真相是
+    /// 这份二进制里的索引文件被改坏了 —— 必须让维护者立刻看到。
+    #[test]
+    fn fallback_errors_only_when_builtin_index_is_corrupted() {
+        let error = fallback_after_network_failure(None, r#"{"version":1}"#)
+            .expect_err("内置索引缺 plugins 数组时必须报错，不能当成空市场");
+        assert!(
+            error.contains("内置插件索引损坏"),
+            "报错要说清是内置索引坏了（软件缺陷），而不是网络问题：{error}"
+        );
+
+        let not_json = fallback_after_network_failure(None, "<<<不是 JSON>>>")
+            .expect_err("内置索引不是 JSON 也必须报错");
+        assert!(
+            not_json.contains("内置插件索引损坏"),
+            "报错要统一指向内置索引损坏：{not_json}"
+        );
+
+        // 有缓存时内置索引的好坏都不影响结果：缓存优先，坏内置不该把用户拖下水。
+        let cached = MarketCache {
+            version: INDEX_VERSION,
+            fetched_at: 1,
+            plugins: Vec::new(),
+        };
+        let (plugins, from_cache, from_builtin) =
+            fallback_after_network_failure(Some(cached), "<<<坏了>>>").expect("缓存优先");
+        assert!(plugins.is_empty());
+        assert!(from_cache, "有缓存时必须标 fromCache");
+        assert!(!from_builtin, "有缓存时不该标 fromBuiltin");
+    }
+
+    /// 内置索引必须始终能被当前客户端解析：它是最后一道兜底，坏了就等于没有兜底。
+    /// 手工编辑 `plugins/index.json` 时（尤其是改 `version`）这条会立刻红。
+    #[test]
+    fn builtin_index_is_valid_json_for_the_market_contract() {
+        let plugins = parse_index(BUILTIN_INDEX.as_bytes())
+            .expect("随包内置索引必须是合法的市场索引（检查 plugins/index.json）");
+        // 只断言「能解析」：内置清单的内容会随发布变化，用例不该绑死条目数。
+        let _ = plugins;
+        // 顺带保证 include_str! 真的嵌进来了，而不是嵌了个空文件。
+        assert!(
+            BUILTIN_INDEX.contains("\"plugins\""),
+            "内置索引内容看起来不是市场索引：{BUILTIN_INDEX:?}"
+        );
+    }
+
+    /// 全网络失败 + 无缓存 → 必须用内置索引把市场打开，而不是报错。
+    /// 这正是用户截图里的场景：首次安装、所有通道 404/超时。
     #[tokio::test]
-    async fn load_index_errors_when_no_cache_and_network_fails() {
-        let root = TempRoot::new("no-cache");
+    async fn load_index_falls_back_to_builtin_when_no_cache_and_network_fails() {
+        let root = TempRoot::new("builtin-fallback");
         let _env = EnvOverride::set(&format!("http://127.0.0.1:{}", closed_port()));
 
-        let error = load_index(&client(), root.path(), false)
+        let index = load_index(&client(), root.path(), false)
             .await
-            .expect_err("没有缓存时网络失败必须报错");
+            .expect("没有缓存、网络也挂了时，必须用随包内置索引打开市场");
 
-        assert!(error.contains("缓存"), "报错要说清是「没有缓存」：{error}");
-        assert!(!cache_path(root.path()).exists(), "失败不该留下缓存文件");
+        assert!(index.from_builtin, "必须标 fromBuiltin=true，前端据此提示可能不是最新");
+        assert!(!index.from_cache, "内置索引不是缓存");
+        assert_eq!(index.fetched_at, None, "内置索引没有「本次拉取时间」");
+        assert_eq!(index.via, None, "没有任何通道成功，不能谎报命中通道");
+        let expected = parse_index(BUILTIN_INDEX.as_bytes()).expect("内置索引合法");
+        assert_eq!(
+            index.plugins.len(),
+            expected.len(),
+            "条目必须来自内置文件"
+        );
+        assert!(
+            index.plugins.is_empty(),
+            "当前内置清单是空数组（首版市场），这里断言它被原样用上而不是被过滤没了"
+        );
+        assert!(
+            !cache_path(root.path()).exists(),
+            "内置兜底不该把内置清单写成缓存（否则下次会把它当线上清单）"
+        );
+    }
+
+    /// 有过期缓存 + 网络失败 → 用缓存，不要用内置索引：缓存比内置快照新。
+    #[tokio::test]
+    async fn load_index_prefers_cache_over_builtin() {
+        let root = TempRoot::new("cache-over-builtin");
+        let stub = StubHttp::spawn(500, "boom");
+        let _env = EnvOverride::set(&stub.base);
+        let stale = now_unix() - CACHE_TTL_SECS - 60;
+        write_cache_file(root.path(), stale, &format!("[{GOOD_ENTRY}]"));
+
+        let index = load_index(&client(), root.path(), false)
+            .await
+            .expect("有缓存时网络失败也要返回缓存");
+
+        assert!(index.from_cache, "必须标 fromCache=true");
+        assert!(!index.from_builtin, "有缓存就不该用内置索引");
+        assert_eq!(index.fetched_at, Some(stale));
+        assert_eq!(index.plugins.len(), 1, "条目必须来自缓存，而不是内置空清单");
+    }
+
+    /// 网络成功 → 两个降级标记都必须是 false，否则前端会对正常拉取弹「可能不是最新」。
+    #[tokio::test]
+    async fn load_index_marks_network_success_as_neither_cache_nor_builtin() {
+        let root = TempRoot::new("network-success-flags");
+        let stub = StubHttp::spawn(200, &index_json(&[GOOD_ENTRY]));
+        let _env = EnvOverride::set(&stub.base);
+
+        let index = load_index(&client(), root.path(), false)
+            .await
+            .expect("网络正常时必须拉取成功");
+
+        assert!(!index.from_cache, "真拉到的清单不是缓存");
+        assert!(!index.from_builtin, "真拉到的清单不是内置索引");
+        assert!(index.fetched_at.is_some(), "成功拉取要回报写入时间");
+        assert_eq!(index.via.as_deref(), Some(stub.base.as_str()));
     }
 
     #[tokio::test]
@@ -1085,27 +1261,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn load_index_reports_all_channel_failures() {
+    async fn load_index_degrades_to_builtin_when_all_channels_reported_failures() {
         let root = TempRoot::new("race-all-fail");
         let broken = StubHttp::spawn(503, "down");
         let outdated = StubHttp::spawn(200, r#"{"version":2,"plugins":[]}"#);
         let channels = vec![broken.base.clone(), outdated.base.clone()];
 
-        let error = load_index_with_channels(&client(), root.path(), false, &channels)
+        // 行为变更：全部通道失败不再向用户报错，而是用内置索引把市场打开。
+        // 「逐条列出每个通道的失败原因」改为写日志（排查用），不再出现在返回值里 ——
+        // 用户看到一堆 404/超时地址也修不了，他们需要的是能用的市场。
+        let index = load_index_with_channels(&client(), root.path(), false, &channels)
             .await
-            .expect_err("全部通道失败且无缓存时必须报错");
+            .expect("全部通道失败且无缓存时，必须降级到内置索引而不是报错");
 
-        for channel in &channels {
-            assert!(
-                error.contains(channel),
-                "报错要逐条列出每个通道的地址，缺了 {channel}：{error}"
-            );
-        }
-        assert!(error.contains("503"), "状态码要带出来：{error}");
-        assert!(
-            error.contains("版本"),
-            "版本不匹配的原因也要带出来：{error}"
-        );
+        assert!(index.from_builtin, "必须标 fromBuiltin=true");
+        assert!(!index.from_cache, "没有缓存可用");
+        assert_eq!(index.source_url, channels[0], "sourceUrl 退化为首选通道");
         assert!(!cache_path(root.path()).exists(), "全失败不该留下缓存");
     }
 }
