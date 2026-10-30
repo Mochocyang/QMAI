@@ -1079,6 +1079,20 @@ impl PluginManifest {
 #[cfg(test)]
 mod tests {
 
+    /// 端到端：仓库里那个真实插件清单必须能被解析 + 通过权限校验。
+    ///
+    /// 为什么值得单测：`samples/plugins/title-forge` 是**真实要分发的插件**，
+    /// 它声明的 `fs:shelf-read` 一旦与后端权限表脱节，用户装的时候就只会看到
+    /// `E_PERMISSION_UNKNOWN`（本次就真发生过）。
+    #[test]
+    fn title_forge_sample_manifest_is_accepted() {
+        let raw = include_str!("../../../samples/plugins/title-forge/plugin.json");
+        let manifest = crate::plugins::manifest::PluginManifest::parse(raw)
+            .expect("书名生成插件的清单必须可解析");
+        assert_eq!(manifest.id, "title-forge");
+        assert!(manifest.permissions.iter().any(|p| p == "fs:shelf-read"));
+    }
+
     /// 每个 KNOWN_PERMISSIONS 里的权限都必须真的能通过清单校验。
     ///
     /// 这条测试防的是一类真实踩过的坑：新加权限时只改了 Rust 常量，
