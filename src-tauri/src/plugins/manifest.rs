@@ -1078,6 +1078,23 @@ impl PluginManifest {
 
 #[cfg(test)]
 mod tests {
+
+    /// 每个 KNOWN_PERMISSIONS 里的权限都必须真的能通过清单校验。
+    ///
+    /// 这条测试防的是一类真实踩过的坑：新加权限时只改了 Rust 常量，
+    /// 忘了同步 SDK 校验器 / 前端文案表 / 重新打包，用户装插件时看到
+    /// `E_PERMISSION_UNKNOWN: fs:xxx`，而作者完全不知道错在哪。
+    #[test]
+    fn every_known_permission_is_declarable() {
+        for permission in KNOWN_PERMISSIONS {
+            assert!(
+                is_declarable_permission(permission),
+                "{permission} 在 KNOWN_PERMISSIONS 里，却过不了清单校验"
+            );
+        }
+        // 书架权限是有宿主 HTTP 路由支撑的一档（见 host_api 的 /host/shelf/*）
+        assert!(is_declarable_permission("fs:shelf-read"));
+    }
     use super::*;
 
     const MINIMAL: &str = r#"{

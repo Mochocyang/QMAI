@@ -57,6 +57,8 @@ export function pluginStatusView(plugin: Pick<PluginSummary, "processState">): P
 const PERMISSION_LABELS: Record<string, string> = {
   "fs:project-read": "读取项目文件",
   "fs:project-write": "写入项目文件",
+  // 读书架**概要**（书名/简介/章节数/少量正文采样），不是当前打开的这一本。
+  "fs:shelf-read": "读取书架上的书籍概要",
   "net:https": "访问网络",
   "net:listen": "在本机开一个端口",
   "llm:use": "调用模型",
