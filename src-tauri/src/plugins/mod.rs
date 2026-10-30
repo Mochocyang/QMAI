@@ -19,6 +19,8 @@ pub mod paths;
 pub mod project_context;
 pub mod providers;
 pub mod registry;
+pub mod shelf;
+
 pub mod supervisor;
 
 /// 在现有 Tokio 运行时上跑一个后台任务。

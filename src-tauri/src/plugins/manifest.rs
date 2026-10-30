@@ -468,6 +468,10 @@ pub const KNOWN_INJECT: &[&str] = &["host.qmai.tools", "host.logger"];
 /// 知情并显式同意的能力，不能走自动授予。
 pub const KNOWN_PERMISSIONS: &[&str] = &[
     "fs:project-read",
+    // 读书架**概要**（书名 / 简介 / 章节数 / 少量正文采样）。
+    // 与 project-read 分开列：它读的不是"当前项目"，而是跨书的读取面，
+    // 用户同意时应该看到一句不同的话。
+    "fs:shelf-read",
     "fs:project-write",
     "net:https",
     "llm:use",

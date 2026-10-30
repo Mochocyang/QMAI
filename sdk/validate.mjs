@@ -70,7 +70,7 @@ const SLOT_API_VERSIONS = {
 /** `KNOWN_INJECT`。 */
 const KNOWN_INJECT = ["host.qmai.tools", "host.logger"];
 /** `KNOWN_PERMISSIONS`（需用户逐项勾选）。 */
-const KNOWN_PERMISSIONS = ["fs:project-read", "fs:project-write", "net:https", "llm:use", "net:listen"];
+const KNOWN_PERMISSIONS = ["fs:project-read", "fs:shelf-read", "fs:project-write", "net:https", "llm:use", "net:listen"];
 /** `AUTO_GRANTED_PERMISSIONS`（自动授予，声明与否都一样）。 */
 const AUTO_GRANTED_PERMISSIONS = ["data:write"];
 /** `BUILTIN_PROVIDER_IDS`：模型复合键是 `providerId/modelId`，撞名用户就分不清。 */

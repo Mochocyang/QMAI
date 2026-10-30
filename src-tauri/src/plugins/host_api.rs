@@ -577,6 +577,121 @@ async fn project_chapter_note(
     }
 }
 
+
+/* ── 书架只读能力（`fs:shelf-read`）────────────────────────────────
+ *
+ * 这两条路由给插件"看看用户书架上都有什么书"的能力。它存在的原因是：
+ * 有些需求（多部作品气息提炼、题材归类、跨书命名风格）天生要跨书，
+ * 而 `/host/project/` 那一组只认当前打开的那一本。
+ *
+ * 三个刻意收紧的地方：
+ *   1. **只给概要**（书名/简介/章节数/少量采样），从不给全书；
+ *   2. 采样长度由**宿主**决定（`shelf::MAX_*`），插件传再大也会被夹住；
+ *   3. 先查权限再读盘 —— 否则无权限插件能从"报错 / 不报错"推断书架内容。
+ */
+
+/// `GET /host/shelf/list?maxBooks=N`
+async fn shelf_list(State(state): State<HostApiState>, headers: HeaderMap) -> Response {
+    let Some(session) = state.session(&headers) else {
+        return unauthorized();
+    };
+    if let Err(permission) = require(&session.granted, "fs:shelf-read") {
+        return forbidden(&permission);
+    }
+    // `app_data_dir()` 是纯路径计算（读环境变量），不会失败，所以不需要 Result。
+    let data_root = crate::mcp::paths::app_data_dir();
+    let mut books = super::shelf::read_registry(&data_root);
+    // 逐本补简介与章节数。上限由 MAX_BOOKS_PER_CALL 兜住，避免书架很大时扫盘变慢。
+    books.truncate(super::shelf::MAX_BOOKS_PER_CALL);
+    for book in &mut books {
+        super::shelf::enrich(book);
+    }
+    Json(serde_json::json!({
+        "books": books,
+        "truncated": false,
+        "limits": {
+            "maxBooks": super::shelf::MAX_BOOKS_PER_CALL,
+            "maxSampleChars": super::shelf::MAX_BOOK_SAMPLE_CHARS,
+            "maxTotalSampleChars": super::shelf::MAX_TOTAL_SAMPLE_CHARS,
+        }
+    }))
+    .into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShelfSampleBody {
+    /// 项目 id 列表；为空表示"全部（受限上限内）"。
+    #[serde(default)]
+    pub ids: Vec<String>,
+    /// 每本书采样多少字；会被宿主夹到 `MAX_BOOK_SAMPLE_CHARS`。
+    #[serde(default)]
+    pub max_chars_per_book: Option<usize>,
+}
+
+/// `POST /host/shelf/sample` —— 取若干本书的少量正文采样。
+async fn shelf_sample(
+    State(state): State<HostApiState>,
+    headers: HeaderMap,
+    Json(body): Json<ShelfSampleBody>,
+) -> Response {
+    let Some(session) = state.session(&headers) else {
+        return unauthorized();
+    };
+    if let Err(permission) = require(&session.granted, "fs:shelf-read") {
+        return forbidden(&permission);
+    }
+    // `app_data_dir()` 是纯路径计算（读环境变量），不会失败，所以不需要 Result。
+    let data_root = crate::mcp::paths::app_data_dir();
+
+    let all = super::shelf::read_registry(&data_root);
+    let picked: Vec<super::shelf::ShelfBook> = if body.ids.is_empty() {
+        all.into_iter()
+            .take(super::shelf::MAX_BOOKS_PER_CALL)
+            .collect()
+    } else {
+        // 只认书架上真实存在的 id：插件不能凭构造的 id 让宿主读任意目录。
+        let wanted: std::collections::HashSet<&str> =
+            body.ids.iter().map(|s| s.as_str()).collect();
+        all.into_iter()
+            .filter(|book| wanted.contains(book.id.as_str()))
+            .take(super::shelf::MAX_BOOKS_PER_CALL)
+            .collect()
+    };
+
+    let per_book = body
+        .max_chars_per_book
+        .unwrap_or(super::shelf::MAX_BOOK_SAMPLE_CHARS)
+        .min(super::shelf::MAX_BOOK_SAMPLE_CHARS);
+
+    let mut total = 0usize;
+    let mut out = Vec::new();
+    for book in &picked {
+        // 总预算比逐本上限更重要：30 本书 × 1200 字会直接撑爆上下文。
+        let remaining = super::shelf::MAX_TOTAL_SAMPLE_CHARS.saturating_sub(total);
+        if remaining == 0 {
+            break;
+        }
+        let budget = per_book.min(remaining);
+        let text = super::shelf::sample_text(std::path::Path::new(&book.path), budget);
+        total += text.chars().count();
+        out.push(serde_json::json!({
+            "id": book.id,
+            "title": book.title,
+            "description": book.description,
+            "chapterCount": book.chapter_count,
+            "sample": text,
+        }));
+    }
+
+    Json(serde_json::json!({
+        "books": out,
+        "totalSampleChars": total,
+        "truncated": out.len() < picked.len(),
+    }))
+    .into_response()
+}
+
 pub fn router(state: HostApiState) -> Router {
     Router::new()
         .route("/host/status", get(status))
