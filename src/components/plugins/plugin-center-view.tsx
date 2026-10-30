@@ -6,10 +6,15 @@ import { BuiltinPluginCard } from "@/components/plugins/builtin-plugin-card"
 import { BuiltinPluginRow } from "@/components/plugins/builtin-plugin-row"
 import { ConfigForm } from "@/components/plugins/ConfigForm"
 import { InstalledRow } from "@/components/plugins/installed-row"
+import { SlotActions } from "@/components/plugins/SlotActions"
+import { ContentPackBrowser } from "@/components/plugins/ContentPackBrowser"
 import { MarketCard } from "@/components/plugins/market-card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { pluginsApi, type PluginMarketEntry } from "@/lib/plugins/api"
+import { declarativePluginsApi, usePluginSlotIndex } from "@/lib/plugins/declarative/api"
+import { defaultTargetApplier } from "@/components/plugins/ActionDialog"
+import type { ContentPackItem, OutputTarget } from "@/lib/plugins/declarative/types"
 import { BUILTIN_PLUGINS } from "@/lib/plugins/builtin"
 import { setBuiltinPluginEnabled } from "@/lib/plugins/builtin-state"
 import type { PluginSummary } from "@/lib/plugins/types"
@@ -229,6 +234,30 @@ export function PluginCenterView() {
    * 一次订阅整张表，避免 4 行各自订阅一次；`builtinOn` 用来算分区标题右侧的计数。
    */
   const builtinState = useBuiltinPluginsState()
+  /*
+   * 插件的界面能力（`plugin-center` 插槽）。
+   *
+   * 这一区是**插件唯一的可操作入口**：声明式 action（如「生成书名」）会在这里
+   * 出现成按钮。它原来挂在设置页的 PluginSection 里，而那个组件在
+   * 「插件统一收进创作者中心」之后已无人渲染 —— 于是新装的插件虽然显示"运行中"，
+   * 用户却找不到任何地方点它。功能再完整，没有入口就等于没装。
+   */
+  const pluginSlots = usePluginSlotIndex()
+  const centerSlot = pluginSlots.index["plugin-center"]
+  const hasCenterAbilities = centerSlot.actions.length > 0 || centerSlot.packs.length > 0
+
+  /*
+   * 内容包浏览器的两个依赖。
+   * `loadItems` 收的是合成键（`<pluginId>/<packId>`），不是包内 id ——
+   * 宿主的取条目命令只认前者。
+   */
+  const loadPackItems = useCallback(
+    (loadKey: string) => declarativePluginsApi.contentPackItems(loadKey),
+    [],
+  )
+  const applyPackItem = useCallback(async (item: ContentPackItem, target: OutputTarget) => {
+    await defaultTargetApplier(target, { kind: "text", text: item.body })
+  }, [])
   const [builtinView, setBuiltinView] = useState<BuiltinLayout>(() => readBuiltinLayout())
   const setBuiltinViewMode = useCallback((next: BuiltinLayout) => {
     setBuiltinView(next)
@@ -378,6 +407,64 @@ export function PluginCenterView() {
               />
             ))}
           </ul>
+        )}
+      </section>
+
+      {/*
+        「插件能力」——**插件的可操作入口**。
+        声明式 action 在这里长成按钮（如「生成书名」），点开就是表单 + 调模型 + 出结果。
+        没有这一区，用户装了插件之后会看到"运行中"却找不到任何地方点它 ——
+        这正是本次修掉的问题：功能完整但没有入口，等于没装。
+      */}
+      <section aria-labelledby="plugins-abilities" className="mt-6 px-6">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="flex items-baseline gap-2">
+            <h2 id="plugins-abilities" className="text-sm font-medium">
+              插件能力
+            </h2>
+            {hasCenterAbilities ? (
+              <span className="text-xs text-muted-foreground">
+                {centerSlot.actions.length + centerSlot.packs.length} 项可用
+              </span>
+            ) : null}
+          </div>
+          {pluginSlots.degraded ? (
+            <Button type="button" variant="ghost" size="sm" onClick={() => pluginSlots.reload()}>
+              重新读取
+            </Button>
+          ) : null}
+        </div>
+
+        {pluginSlots.loading ? (
+          <div
+            role="status"
+            className="rounded-lg border border-dashed px-4 py-4 text-sm text-muted-foreground"
+          >
+            正在读取插件能力…
+          </div>
+        ) : hasCenterAbilities ? (
+          <div data-plugin-abilities="true" className="space-y-3">
+            <SlotActions entries={centerSlot.actions} variant="toolbar" />
+            {centerSlot.packs.length > 0 ? (
+              <ContentPackBrowser
+                packs={centerSlot.packs}
+                loadItems={loadPackItems}
+                onUse={applyPackItem}
+                actions={centerSlot.actions}
+              />
+            ) : null}
+          </div>
+        ) : (
+          <div
+            data-plugin-abilities="true"
+            role="status"
+            className="rounded-lg border border-dashed px-4 py-4 text-xs leading-relaxed text-muted-foreground"
+          >
+            还没有插件提供可操作的能力。装了带<strong>动作</strong>或
+            <strong>灵感包</strong>的插件后，按钮会出现在这里。
+            <br />
+            只提供「工具」的插件（由 AI 在对话里自动调用）不会出现在这里。
+          </div>
         )}
       </section>
 

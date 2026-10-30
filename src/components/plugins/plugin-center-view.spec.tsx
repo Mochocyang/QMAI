@@ -513,3 +513,41 @@ describe("PluginCenterView：内置插件的两种显示方式", () => {
     expect(after).not.toBe(before)
   })
 })
+
+describe("PluginCenterView：插件能力区（插件的可操作入口）", () => {
+  /*
+   * 这一区是本次修掉的核心缺陷：
+   * 「插件统一收进创作者中心」时，渲染 plugin-center 插槽的 PluginSection 变成了
+   * 没有人挂载的死代码 —— 于是新装的插件显示"运行中"，用户却找不到任何地方点它。
+   * 功能完整但没有入口，等于没装。下面三条把这个出口钉死。
+   */
+
+  it("没有任何能力时，给出说明而不是整块消失", async () => {
+    await render()
+    const zone = host.querySelector('[data-plugin-abilities="true"]')
+    expect(zone).not.toBeNull()
+    // 分区标题在页面上（不在 zone 内部）
+    expect(host.textContent).toContain("插件能力")
+    // 用户需要知道"这里以后会长出按钮"，而不是看到一个空白
+    expect(zone?.textContent).toContain("装了带")
+  })
+
+  it("能力区在页面上渲染，且位于「已安装」之前（插件能做什么 > 装了什么）", async () => {
+    await render()
+    const abilities = host.querySelector('[data-plugin-abilities="true"]')
+    const installed = host.querySelector('[aria-labelledby="plugins-installed"]')
+    expect(abilities).not.toBeNull()
+    expect(installed).not.toBeNull()
+
+    // compareDocumentPosition: DOCUMENT_POSITION_FOLLOWING = 4
+    const relation = abilities!.compareDocumentPosition(installed!)
+    expect(relation & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it("插件页有可滚动容器，能力区不会被挤出可视范围", async () => {
+    await render()
+    const page = host.querySelector('[data-ui-page="plugins"]') as HTMLElement
+    expect(page).not.toBeNull()
+    expect(page.className).toContain("overflow-y-auto")
+  })
+})
