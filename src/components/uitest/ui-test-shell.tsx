@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
-import { BookOpen, Brain, Grid2X2, GitBranch, HeartHandshake, History, Library, Minus, PanelLeft, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, Wrench, X } from "lucide-react"
+import { BookOpen, Brain, Grid2X2, GitBranch, HeartHandshake, History, Library, Minus, PanelLeft, Puzzle, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, Wrench, X } from "lucide-react"
 import logoImg from "@/assets/QM-LOGO.png"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore, type WikiState } from "@/stores/wiki-store"
@@ -62,7 +62,9 @@ interface UiTestShellProps {
   onProjectOpened: (project: WikiProject) => void
 }
 const TOOL_GROUPS = [
-  [ { view: "lint", label: "记忆中心", icon: Brain }, { view: "graph", label: "小说图谱", icon: GitBranch }, { view: "soul", label: "灵魂", icon: Sparkles }, { view: "skillLibrary", label: "技能库", icon: Sparkles }, { view: "bookAnalysis", label: "拆书库", icon: Library } ],
+  // 「插件」和「技能库」同组：都是「扩展能力」类工具。放第一组而不是
+  // 「维护工具」那组，是因为它是一级功能，不该埋在维护类的角落里。
+  [ { view: "lint", label: "记忆中心", icon: Brain }, { view: "graph", label: "小说图谱", icon: GitBranch }, { view: "soul", label: "灵魂", icon: Sparkles }, { view: "skillLibrary", label: "技能库", icon: Sparkles }, { view: "plugins", label: "插件", icon: Puzzle }, { view: "bookAnalysis", label: "拆书库", icon: Library } ],
   [ { view: "storySimulation", label: "剧情推演室 · 测试版", icon: BookOpen }, { view: "reviewCenter", label: "审查中心", icon: ShieldCheck }, { view: "search", label: "剧情搜索", icon: Search } ],
   [ { view: "maintenance", label: "维护工具", icon: Wrench }, { view: "trash", label: "回收站", icon: Trash2 } ],
 ] as const

@@ -350,28 +350,33 @@ describe("独立UI测试版外壳", () => {
     expect(host.querySelector('[aria-label="灵魂功能菜单"]')).not.toBeNull()
     await hover("移动")
     await click("左移")
-    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "灵魂", "章节"])
+    /*
+     * 期望里带「插件」：默认一级导航现在就是 ["sources","wiki","soul","plugins"]
+     * （「插件」升为一级功能，见 lib/ui-test-primary-nav.ts）。这是默认值变更后
+     * 应有的形态，不是放宽断言 —— 顺序仍然逐个写死。
+     */
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "灵魂", "章节", "插件"])
     vi.useRealTimers()
     await act(async () => root.unmount())
     root = createRoot(host)
     await render()
-    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "灵魂", "章节"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "灵魂", "章节", "插件"])
     const movedSoul = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.querySelector("button")?.textContent === "灵魂") as HTMLElement
     await act(async () => { movedSoul.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })) })
     await hover("替换为")
     await click("技能库")
-    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节", "插件"])
     const skill = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.querySelector("button")?.textContent === "技能库") as HTMLElement
     await act(async () => { skill.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })) })
     await hover("新增功能")
     await click("小说图谱")
-    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节", "小说图谱"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节", "插件", "小说图谱"])
     useWikiStore.setState({ activeView: "graph" })
     const graph = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.querySelector("button")?.textContent === "小说图谱") as HTMLElement
     await act(async () => { graph.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })) })
     await click("删除")
     expect(useWikiStore.getState().activeView).toBe("sources")
-    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "技能库", "章节", "插件"])
   })
   it("没有小说时仍可右键管理主导航", async () => {
     await render(false)
@@ -418,7 +423,7 @@ describe("独立UI测试版外壳", () => {
     await hover("替换为")
     await click("技能库")
     expect(useWikiStore.getState().activeView).toBe("skillLibrary")
-    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "技能库"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "技能库", "插件"])
 
     useWikiStore.setState({ activeView: "sources" })
     const skill = [...host.querySelectorAll(".ui-test-nav-slot")].find((slot) => slot.querySelector("button")?.textContent === "技能库") as HTMLElement
@@ -426,7 +431,7 @@ describe("独立UI测试版外壳", () => {
     await hover("替换为")
     await click("小说图谱")
     expect(useWikiStore.getState().activeView).toBe("sources")
-    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "小说图谱"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "小说图谱", "插件"])
   })
   it("灵魂被替换成技能库后，仍可从创作工具重新打开灵魂", async () => {
     await render()
@@ -435,7 +440,7 @@ describe("独立UI测试版外壳", () => {
     await hover("替换为")
     await click("技能库")
     expect(useWikiStore.getState().activeView).toBe("skillLibrary")
-    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "技能库"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "技能库", "插件"])
     await click("创作工具")
     expect(host.querySelector('[aria-label="创作工具"]')).not.toBeNull()
     const soulEntry = [...host.querySelectorAll('[aria-label="创作工具"] [role="menuitem"]')].find((button) => button.textContent?.trim() === "灵魂")
@@ -471,7 +476,7 @@ describe("独立UI测试版外壳", () => {
     await click("技能库")
     await answerModelDraft("关闭")
     expect(useWikiStore.getState().activeView).toBe("soul")
-    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "灵魂"])
+    expect([...host.querySelectorAll(".ui-test-nav-item")].map((button) => button.textContent)).toEqual(["大纲", "章节", "灵魂", "插件"])
     const menu = host.querySelector('[aria-label="灵魂功能菜单"]')!
     const submenu = menu.querySelector<HTMLElement>('[aria-label="灵魂二级菜单"]')!
     expect([...submenu.querySelectorAll(".ui-test-menu-item")].map((button) => button.textContent)).toEqual(["技能库", "小说图谱", "拆书库", "审查中心", "剧情搜索", "剧情推演", "记忆中心"])
