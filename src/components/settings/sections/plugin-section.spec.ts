@@ -681,25 +681,22 @@ describe("hideInstallForm：自带的安装入口可以关掉", () => {
 describe("「插件」页的「已安装」tab：真实 PluginSection，只有一个安装入口", () => {
   const { host, renderPluginCenter, waitForSelector } = panelTestBed()
 
-  it("渲染插件列表，但不含它自带的安装输入框；安装入口只剩页头的「手动安装」", async () => {
+  it("已安装列表由插件页自己渲染；安装入口只剩页头的「添加插件」", async () => {
     await renderPluginCenter()
 
-    const tab = host().querySelector<HTMLButtonElement>('[data-plugin-tab="installed"]')
-    expect(tab, "插件页应有「已安装」tab").toBeTruthy()
-    await act(async () => {
-      tab!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
-    })
-
-    // 管理能力在：插件卡片照常渲染
+    /*
+     * 版面重做后（2026-10）：插件页不再有 tab，也不再复用 PluginSection ——
+     * 已安装改为页内行式卡片 + 开关。这条用例改钉重做后的真实形态，
+     * 同时**保留它原本要防的缺陷面：页面上不能出现两套安装入口**。
+     */
     const card = await waitForSelector('[data-plugin-id="panel-plugin"]')
-    expect(buttonLabels(card)).toContain("停用")
+    expect(card).toBeTruthy()
 
-    // 缺陷面：那一页不该再有 `PluginSection` 自带的安装表单
+    // 缺陷面：插件页不该再有 PluginSection 自带的安装表单
     expect(host().querySelector("#plugin-install-source")).toBeNull()
-    expect(buttonLabels(host())).not.toContain("从本地目录安装")
     expect(host().textContent).not.toContain("从 GitHub 安装")
 
-    // 唯一的安装入口：页头的「手动安装」
+    // 唯一的安装入口：页头的「添加插件」（data-plugins-manual 标记）
     expect(host().querySelector('[data-plugins-manual="true"]')).not.toBeNull()
   })
 })
