@@ -310,6 +310,45 @@ describe("PluginCenterView：已安装行", () => {
     expect(disableMock).not.toHaveBeenCalled()
   })
 
+  it("行内开关带可见尺寸的样式类（不能是隐形按钮）", async () => {
+    listMock.mockResolvedValue([summary({ id: "alpha" })])
+    await render()
+
+    const toggle = host.querySelector('[role="switch"]') as HTMLElement | null
+    expect(toggle).not.toBeNull()
+
+    /*
+     * 回归防线：这个开关曾经只挂 `className="model-switch"`，而那套样式定义在
+     * 一个**没有全局引入**的 css 里 —— 结果它渲染出来了、能点，但零尺寸、看不见，
+     * 用户截图里那一行只有「⋯」。
+     * 现在样式写在组件里（Tailwind），这里断言它确实带了尺寸类。
+     */
+    const cls = toggle?.className ?? ""
+    expect(cls).toContain("w-9")
+    expect(cls).toContain("h-[21px]")
+    expect(cls).not.toContain("model-switch")
+  })
+
+  it("卸载项收在「⋯」菜单里，并且是危险色（不会误点在开关旁边）", async () => {
+    listMock.mockResolvedValue([summary({ id: "alpha" })])
+    await render()
+
+    // 默认不显示卸载（要先打开菜单）
+    expect(host.querySelector('[data-plugin-row-action="uninstall"]')).toBeNull()
+
+    const menuButton = host.querySelector('[data-plugin-row-menu="true"]') as HTMLButtonElement | null
+    expect(menuButton).not.toBeNull()
+    await act(async () => {
+      menuButton?.click()
+    })
+    await flush()
+
+    const uninstall = host.querySelector('[data-plugin-row-action="uninstall"]') as HTMLElement | null
+    expect(uninstall).not.toBeNull()
+    expect(uninstall?.className).toContain("text-destructive")
+    expect(uninstall?.textContent).toContain("卸载")
+  })
+
   it("没有能力摘要时不渲染那一行（不占位）", async () => {
     listMock.mockResolvedValue([
       summary({ id: "alpha", toolCount: 0, providerIds: [], grantedPermissions: [] }),
