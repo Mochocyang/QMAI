@@ -49,6 +49,7 @@ import {
 import { MAX_CODE_ATTEMPTS } from "./constants"
 import { sendRegisteredNotice, sendVerificationEmail } from "./email"
 import { failure, jsonSuccess, readJsonBody } from "./http"
+import { signNetCard } from "./netcard"
 import type {
   ApiErrorCode,
   AuthPayload,
@@ -305,12 +306,20 @@ async function issueAuthPayload(
     now,
   )
 
+  // 网关卡：与这次登录的 session 绑定，**长期有效**，供自建中转站验签。
+  // 签名失败（缺私钥）时给 null —— 不影响登录本身，客户端会提示"内置模型未开通"。
+  const netcard = await signNetCard(env, user.id, session.id, now).then(
+    (signed) => signed.token,
+    () => null,
+  )
+
   return {
     user: toPublicUser(user),
     accessToken: access.token,
     accessExpiresAt: access.expiresAt,
     refreshToken,
     refreshExpiresAt,
+    netcard,
   }
 }
 

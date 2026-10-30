@@ -41,6 +41,12 @@ export interface AccountAuthPayload {
   accessExpiresAt: number
   refreshToken: string
   refreshExpiresAt: number
+  /**
+   * 网关卡：与本次登录的 session 绑定的**长期** EdDSA 凭证，供内置模型中转站验签。
+   * 登录一次拿到，之后永久不用换；失效靠服务端吊销，不靠过期。
+   * 为 null 表示账号服务没配签名私钥（登录仍成功，内置模型不可用）。
+   */
+  netcard?: string | null
 }
 
 export type AccountPurpose = "register" | "reset"
@@ -56,6 +62,11 @@ export interface StoredAccountSession {
   user: AccountUser
   /** 本地保存时间（Unix 秒）。 */
   savedAt: number
+  /**
+   * 网关卡（内置模型凭证）。与登录态同生共死：退出登录一起清掉。
+   * 老版本存的会话没有这个字段，登录后会补上。
+   */
+  netcard?: string | null
 }
 
 export interface SendCodeResult {

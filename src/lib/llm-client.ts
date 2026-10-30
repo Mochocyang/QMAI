@@ -21,6 +21,9 @@ import {
 } from "./reasoning-replay-debug"
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 import { ensureCursorProxyRunning, withCursorProxyEndpoint } from "./cursor-cli-proxy"
+// 内置模型：网关卡在请求时注入，不写进 provider 配置。
+import { applyBuiltinAuth } from "./builtin-models/auth-hook"
+import { isBuiltinRelayEndpoint } from "./builtin-models/netcard"
 import {
   estimateChatMessagesTokens,
   estimateRequestScaffoldTokens,
@@ -434,6 +437,13 @@ async function streamChatHeld(
   if (runtimeConfig.provider === "cursor-cli") {
     const endpoint = await ensureCursorProxyRunning(runtimeConfig)
     runtimeConfig = withCursorProxyEndpoint(runtimeConfig, endpoint)
+  }
+
+  // 内置模型：网关卡不写进 provider 配置（那是"会过期的死值"的根源），
+  // 改成每次发请求前从当前登录态现取，覆盖 apiKey。
+  if (isBuiltinRelayEndpoint(runtimeConfig.customEndpoint)) {
+    const injected = applyBuiltinAuth(runtimeConfig)
+    if (injected.injected) runtimeConfig = injected.config
   }
 
   const providerConfig = getProviderConfig(runtimeConfig)

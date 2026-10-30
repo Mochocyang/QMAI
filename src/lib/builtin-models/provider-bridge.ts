@@ -6,7 +6,7 @@
  *
  *   qmai-builtin  →  provider: "custom"（OpenAI 兼容）
  *                    baseUrl: https://relay.qmai.work/v1
- *                    apiKey:  30 分钟中转票据（由 token-fresh 层保鲜）
+ *                    apiKey:  留空 —— 请求时由 auth-hook 从登录态注入网关卡
  *                    savedModels: 中转站清单里勾选的对外模型名
  *
  * 这样写作、大纲、审稿、摘要都不需要改代码，现有 resolver 自动认识它。
@@ -22,10 +22,19 @@ import {
   saveProviderConfigs,
 } from "@/lib/project-store"
 import { describeBuiltinModel } from "./catalog"
-import type { BuiltinSession } from "./session"
+/** 只需知道中转站地址：凭证在请求期注入，不在配置里。 */
+export interface BuiltinSessionRef {
+  serverUrl: string
+}
 import { DEFAULT_RELAY_URL } from "./gateway-api"
 
 export const BUILTIN_PROVIDER_ID = "qmai-builtin"
+
+/**
+ * 占位凭证：配置里需要一个非空 apiKey 才能通过 `hasUsableLlm` 等守卫。
+ * 真正的网关卡在发请求前由 auth-hook 注入，绝不落进配置/导出包。
+ */
+export const BUILTIN_PLACEHOLDER_KEY = "qmai-netcard-managed"
 export const BUILTIN_PROVIDER_LABEL = "青幕内置模型"
 
 export function builtinModelKey(modelId: string): string {
@@ -51,7 +60,7 @@ function toSavedModels(modelIds: string[]): SavedModel[] {
  * 写作请求按这个值裁剪上下文，取最大值会让小窗口模型直接被接口拒绝。
  */
 export function buildBuiltinProviderOverride(
-  session: Pick<BuiltinSession, "serverUrl" | "tokenKey">,
+  session: BuiltinSessionRef,
   modelIds: string[],
   existing?: ProviderOverride,
 ): ProviderOverride {
@@ -68,7 +77,7 @@ export function buildBuiltinProviderOverride(
   return {
     ...existing,
     label: BUILTIN_PROVIDER_LABEL,
-    apiKey: session.tokenKey,
+    apiKey: BUILTIN_PLACEHOLDER_KEY,
     baseUrl: `${(session.serverUrl || DEFAULT_RELAY_URL).replace(/\/+$/, "")}/v1`,
     apiMode: "chat_completions",
     model: first,
@@ -82,7 +91,7 @@ export function buildBuiltinProviderOverride(
 }
 
 export interface ApplyBuiltinOptions {
-  session: Pick<BuiltinSession, "serverUrl" | "tokenKey">
+  session: BuiltinSessionRef
   modelIds: string[]
   /** 同时设为默认模型（正文对话与后台任务都用它）。默认打开。 */
   makeDefault?: boolean

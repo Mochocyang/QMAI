@@ -14,6 +14,7 @@ import { flushAppState } from "@/lib/web-store"
 import { runPreCloseFlushes } from "@/lib/pre-close-flush"
 import { flushPendingChapterSave } from "@/lib/chapter-save-flush"
 import { checkForAppUpdate } from "@/lib/app-updater"
+import { wireBuiltinAuth } from "@/lib/builtin-models/wire"
 import { initAnalytics } from "@/lib/analytics"
 import { confirmAppQuit } from "@/components/uitest/models/model-draft-guard"
 import { restoreUiTestWorkspace, readUiTestWorkspacePreference } from "@/lib/ui-test-workspace-preferences"
@@ -562,6 +563,9 @@ function App() {
         // 后台的下载数/独立 IP/在线人数/今日新增从那时起就不再更新。
         // 回归守卫见 analytics-wiring.test.ts。
         void initAnalytics()
+
+        // 内置模型：把账号登录态接到请求鉴权层（网关卡不写进配置，请求时现取）。
+        wireBuiltinAuth()
       }
     }
     init()

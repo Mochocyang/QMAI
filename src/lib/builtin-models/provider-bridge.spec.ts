@@ -4,6 +4,7 @@ import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { findLlmPresetById } from "@/components/settings/llm-presets"
 import { resolveConfig } from "@/components/settings/preset-resolver"
 import {
+  BUILTIN_PLACEHOLDER_KEY,
   BUILTIN_PROVIDER_ID,
   applyBuiltinModels,
   buildBuiltinProviderOverride,
@@ -23,7 +24,7 @@ vi.mock("@/lib/project-store", () => saved)
 
 const RELAY = "https://relay.qmai.work"
 const TICKET = "relay-ticket"
-const SESSION = { serverUrl: RELAY, tokenKey: TICKET }
+const SESSION = { serverUrl: RELAY }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -53,11 +54,11 @@ describe("builtinModelKey", () => {
 })
 
 describe("buildBuiltinProviderOverride", () => {
-  it("把中转站登记成 OpenAI 兼容 provider，并写入当前票据", () => {
+  it("把中转站登记成 OpenAI 兼容 provider（凭证由请求期注入，配置里不存）", () => {
     const override = buildBuiltinProviderOverride(SESSION, ["qmai-standard", "qmai-fast"])
 
     expect(override.label).toBe("青幕内置模型")
-    expect(override.apiKey).toBe(TICKET)
+    expect(override.apiKey).toBe(BUILTIN_PLACEHOLDER_KEY)
     expect(override.baseUrl).toBe(`${RELAY}/v1`)
     expect(override.apiMode).toBe("chat_completions")
     expect(override.enabled).toBe(true)
@@ -68,7 +69,7 @@ describe("buildBuiltinProviderOverride", () => {
   })
 
   it("地址末尾的斜杠会被收敛，不会拼出 //v1", () => {
-    const override = buildBuiltinProviderOverride({ serverUrl: `${RELAY}/`, tokenKey: TICKET }, ["qmai-long"])
+    const override = buildBuiltinProviderOverride({ serverUrl: `${RELAY}/` }, ["qmai-long"])
     expect(override.baseUrl).toBe(`${RELAY}/v1`)
   })
 
@@ -120,7 +121,7 @@ describe("applyBuiltinModels", () => {
 
     // 关键：写作守卫只看 llmConfig，必须把它切到内置中转站。
     expect(state.llmConfig.provider).toBe("custom")
-    expect(state.llmConfig.apiKey).toBe(TICKET)
+    expect(state.llmConfig.apiKey).toBe(BUILTIN_PLACEHOLDER_KEY)
     expect(state.llmConfig.model).toBe("qmai-standard")
     expect(state.llmConfig.customEndpoint).toBe(`${RELAY}/v1`)
     expect(state.llmConfig.apiMode).toBe("chat_completions")
@@ -144,7 +145,7 @@ describe("applyBuiltinModels", () => {
     expect(saved.saveActivePresetId).not.toHaveBeenCalled()
   })
 
-  it("下次启动按预设 + 覆盖配置重新解析时，中转站地址与票据不会丢", () => {
+  it("下次启动按预设 + 覆盖配置重新解析时，中转站地址不会丢", () => {
     const preset = findLlmPresetById(BUILTIN_PROVIDER_ID)
     expect(preset).toBeDefined()
     expect(preset!.provider).toBe("custom")
@@ -154,7 +155,7 @@ describe("applyBuiltinModels", () => {
     const resolved = resolveConfig(preset!, override, useWikiStore.getState().llmConfig)
     expect(resolved.provider).toBe("custom")
     expect(resolved.customEndpoint).toBe(`${RELAY}/v1`)
-    expect(resolved.apiKey).toBe(TICKET)
+    expect(resolved.apiKey).toBe(BUILTIN_PLACEHOLDER_KEY)
     expect(resolved.model).toBe("qmai-standard")
     expect(resolved.apiMode).toBe("chat_completions")
   })

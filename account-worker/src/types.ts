@@ -31,6 +31,13 @@ export interface Env {
    * 缺失时 `/v1/relay/token` 返回 503，不影响账号登录注册。
    */
   RELAY_JWT_PRIVATE_KEY?: string
+  /**
+   * 网关卡签名私钥（Ed25519，PKCS#8 base64）。
+   * 只存在于 Worker secret：`wrangler secret put NETCARD_PRIVATE_KEY`。
+   * 对应公钥配到自建中转站与账号服务自身的 `NETCARD_PUBLIC_KEY`。
+   * 缺失时登录仍成功，但不下发网关卡（内置模型不可用）。
+   */
+  NETCARD_PRIVATE_KEY?: string
 }
 
 export type CodePurpose = "register" | "reset"
@@ -102,6 +109,11 @@ export interface AuthPayload {
   accessExpiresAt: number
   refreshToken: string
   refreshExpiresAt: number
+  /**
+   * 网关卡：与该 session 绑定的**长期** EdDSA 凭证，供自建中转站验签。
+   * 缺失（null）表示账号服务没配签名私钥 —— 登录本身仍然成功。
+   */
+  netcard?: string | null
 }
 
 export interface AccessTokenClaims {

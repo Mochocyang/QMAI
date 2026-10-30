@@ -1,10 +1,9 @@
-// @vitest-environment jsdom
+﻿// @vitest-environment jsdom
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const relay = vi.hoisted(() => ({
-  fetchRelayTicket: vi.fn(),
   gatewayListModels: vi.fn(),
   gatewayProbeChat: vi.fn(),
 }))
@@ -29,15 +28,22 @@ vi.mock("@/lib/open-external-url", () => ({ openExternalUrl: vi.fn() }))
 
 const account = vi.hoisted(() => ({
   status: "anonymous" as string,
-  session: null as null | { user: { id: number; email: string; displayName: string } },
+  session: null as null | { user: { id: number; email: string; displayName: string }; netcard?: string | null; accessToken?: string; refreshToken?: string },
+  replaceSession: vi.fn(),
 }))
 
 vi.mock("@/stores/account-store", () => ({
-  useAccountStore: (selector: (state: typeof account) => unknown) => selector(account),
+  useAccountStore: Object.assign(
+    (selector: (state: typeof account) => unknown) => selector(account),
+    { getState: () => account },
+  ),
 }))
 
 const { BuiltinModelSection } = await import("./builtin-model-section")
 const { useWikiStore } = await import("@/stores/wiki-store")
+const { BUILTIN_PLACEHOLDER_KEY } = await import("@/lib/builtin-models/provider-bridge")
+
+const CARD = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiI5In0.signature-abcdefghijklmnop"
 
 let container: HTMLDivElement
 let root: Root
@@ -54,6 +60,15 @@ async function flush(times = 6) {
   }
 }
 
+function loggedInSession(netcard: string | null) {
+  return {
+    user: { id: 9, email: "a@b.c", displayName: "测试作者" },
+    netcard,
+    accessToken: "access",
+    refreshToken: "refresh",
+  }
+}
+
 beforeEach(() => {
   ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   localStorage.clear()
@@ -62,7 +77,7 @@ beforeEach(() => {
   root = createRoot(container)
   account.status = "anonymous"
   account.session = null
-  relay.fetchRelayTicket.mockReset()
+  account.replaceSession.mockReset()
   relay.gatewayListModels.mockReset()
   relay.gatewayProbeChat.mockReset()
   useWikiStore.setState({ providerConfigs: {} })
@@ -73,22 +88,19 @@ afterEach(() => {
   container.remove()
 })
 
-describe("BuiltinModelSection", () => {
+describe("BuiltinModelSection（网关卡）", () => {
   it("未登录时提示先登录，不显示启用按钮", async () => {
     await act(async () => {
       root.render(<BuiltinModelSection />)
     })
-
     expect(container.textContent).toContain("请先登录青幕账号")
     expect(button("启用内置模型")).toBeUndefined()
-    // 未登录不应该去换票
-    expect(relay.fetchRelayTicket).not.toHaveBeenCalled()
+    expect(relay.gatewayListModels).not.toHaveBeenCalled()
   })
 
-  it("已登录时自动换票并拉出模型清单", async () => {
+  it("已登录且自带网关卡时，直接拉清单——不需要换票", async () => {
     account.status = "authenticated"
-    account.session = { user: { id: 7, email: "a@b.c", displayName: "测试作者" } }
-    relay.fetchRelayTicket.mockResolvedValue({ token: "ticket-abc", expiresAt: Math.floor(Date.now() / 1000) + 1800 })
+    account.session = loggedInSession(CARD)
     relay.gatewayListModels.mockResolvedValue(["qmai-standard", "qmai-long"])
 
     await act(async () => {
@@ -97,17 +109,16 @@ describe("BuiltinModelSection", () => {
     await flush()
 
     expect(container.textContent).toContain("测试作者")
-    expect(relay.fetchRelayTicket).toHaveBeenCalledTimes(1)
-    expect(relay.gatewayListModels).toHaveBeenCalledWith("https://relay.qmai.work", "ticket-abc")
+    expect(relay.gatewayListModels).toHaveBeenCalledWith("https://relay.qmai.work", CARD)
     expect(container.textContent).toContain("青幕标准版")
-    expect(container.textContent).toContain("青幕长文版")
     expect(button("启用内置模型")).toBeDefined()
+    // 关键：没有"重新获取凭证"这种过期语义的按钮
+    expect(button("重新获取凭证")).toBeUndefined()
   })
 
-  it("点「启用内置模型」把勾选结果写入 provider 配置", async () => {
+  it("点「启用内置模型」写入 provider 配置（配置里只放占位凭证，不放真卡）", async () => {
     account.status = "authenticated"
-    account.session = { user: { id: 7, email: "a@b.c", displayName: "测试作者" } }
-    relay.fetchRelayTicket.mockResolvedValue({ token: "ticket-abc", expiresAt: Math.floor(Date.now() / 1000) + 1800 })
+    account.session = loggedInSession(CARD)
     relay.gatewayListModels.mockResolvedValue(["qmai-standard", "qmai-long"])
 
     await act(async () => {
@@ -123,15 +134,30 @@ describe("BuiltinModelSection", () => {
     const override = useWikiStore.getState().providerConfigs["qmai-builtin"]
     expect(override).toBeDefined()
     expect(override?.baseUrl).toBe("https://relay.qmai.work/v1")
-    expect(override?.apiKey).toBe("ticket-abc")
+    // 真卡不进配置：请求时由 auth-hook 注入
+    expect(override?.apiKey).toBe(BUILTIN_PLACEHOLDER_KEY)
+    expect(JSON.stringify(override)).not.toContain(CARD)
     expect(container.textContent).toContain("已启用")
   })
 
-  it("换票失败时给出中文提示而不是崩掉", async () => {
+  it("已登录但没有卡时提示点「同步凭证」", async () => {
     account.status = "authenticated"
-    account.session = { user: { id: 7, email: "a@b.c", displayName: "测试作者" } }
-    // 模拟真实的网络失败：GatewayError 会带一句人话
-    relay.fetchRelayTicket.mockRejectedValue(new Error("无法连接到内置模型服务：network down"))
+    account.session = loggedInSession(null)
+
+    await act(async () => {
+      root.render(<BuiltinModelSection />)
+    })
+    await flush()
+
+    expect(container.textContent).toContain("尚未获取")
+    expect(button("同步凭证")).toBeDefined()
+    expect(relay.gatewayListModels).not.toHaveBeenCalled()
+  })
+
+  it("拉清单失败时给出中文提示而不是崩掉", async () => {
+    account.status = "authenticated"
+    account.session = loggedInSession(CARD)
+    relay.gatewayListModels.mockRejectedValue(new Error("无法连接到内置模型服务：network down"))
 
     await act(async () => {
       root.render(<BuiltinModelSection />)
@@ -139,6 +165,5 @@ describe("BuiltinModelSection", () => {
     await flush()
 
     expect(container.textContent).toContain("无法连接到内置模型服务")
-    expect(button("重新获取凭证")).toBeDefined()
   })
 })

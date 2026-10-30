@@ -68,6 +68,8 @@ function toStoredSession(value: unknown): StoredAccountSession | null {
     refreshExpiresAt: record.refreshExpiresAt,
     user,
     savedAt: record.savedAt,
+    // 老版本存的会话没有网关卡；没有就当 null，登录后会补上。
+    netcard: isNonEmptyString(record.netcard) ? record.netcard : null,
   }
 }
 
@@ -82,7 +84,12 @@ function removeStoredSession(): void {
 export function createStoredSession(
   baseUrl: string,
   payload: AccountAuthPayload,
+  /** 已有会话的网关卡。刷新时后端通常不回传它（卡跟 session 走、不会变），这里保留旧值。 */
+  previousNetcard?: string | null,
 ): StoredAccountSession {
+  const netcard = typeof payload.netcard === "string" && payload.netcard.length > 0
+    ? payload.netcard
+    : (previousNetcard ?? null)
   return {
     baseUrl: normalizeAccountBaseUrl(baseUrl),
     accessToken: payload.accessToken,
@@ -91,6 +98,7 @@ export function createStoredSession(
     refreshExpiresAt: payload.refreshExpiresAt,
     user: { ...payload.user },
     savedAt: Math.floor(Date.now() / 1000),
+    netcard,
   }
 }
 

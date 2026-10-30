@@ -77,6 +77,8 @@ export interface AccountStoreState {
   removeAvatar: () => Promise<void>
   /** 主动续期；无会话返回 null，401 清会话，网络错误保留会话并抛出。 */
   refreshSession: () => Promise<StoredAccountSession | null>
+  /** 只替换本地会话（例如补签网关卡后），不触发网络请求。 */
+  replaceSession: (session: StoredAccountSession) => void
   /** 规格动作名：续期并吞掉错误，供「重试/下次打开账号页」使用。 */
   refresh: () => Promise<void>
 
@@ -177,7 +179,7 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
           return
         }
 
-        const next = createStoredSession(stored.baseUrl, payload)
+        const next = createStoredSession(stored.baseUrl, payload, stored.netcard)
         saveAccountSession(next)
         set({
           status: "authenticated",
@@ -409,6 +411,10 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
     }
   },
 
+  replaceSession: (session) => {
+    set({ session, user: session.user })
+  },
+
   refreshSession: async () => {
     const epochAtStart = sessionEpoch
     const session = get().session
@@ -418,7 +424,7 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
       const payload = await sharedRefresh(session.baseUrl, session.refreshToken)
       if (epochAtStart !== sessionEpoch) return null
 
-      const next = createStoredSession(session.baseUrl, payload)
+      const next = createStoredSession(session.baseUrl, payload, session.netcard)
       saveAccountSession(next)
       set({
         status: "authenticated",
