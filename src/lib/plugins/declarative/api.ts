@@ -629,5 +629,13 @@ export function createDefaultRunDeps(
     readChapter: options.readChapter ?? readChapterContext,
     getSelection: options.getSelection ?? readSelectionContext,
     getConfig: options.getConfig ?? ((pluginId: string) => declarativePluginsApi.configGet(pluginId)),
+    /*
+     * action 的 `prepare` 步骤要能调**本插件**的工具（例如书架读取）。
+     *
+     * 这里刻意不给它传插件 id：`invokeTool` 的闭包由调用方绑定到具体插件
+     * （见 `SlotActions` / `ActionDialog`）。把 id 开放成参数会让某个 action
+     * 有机会去调**别的插件**的工具 —— 那等于绕过插件间的隔离。
+     */
+    invokeTool: options.invokeTool
   }
 }

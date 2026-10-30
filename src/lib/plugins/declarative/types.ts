@@ -125,6 +125,16 @@ export interface DeclarativeAction {
   output: ActionOutput
   model?: { strategy?: "current"; minContextTokens?: number }
   limits?: { timeoutMs?: number; maxOutputTokens?: number }
+  /**
+   * 调模型**之前**要跑的插件工具，用来取宿主上下文里没有的素材。
+   *
+   * 典型场景：「书名生成」要读书架上的书，而 `{{project.*}}` 只给当前打开的那一本。
+   * 没有它，那份素材只能让用户手动粘进一个空文本框 —— 那不是一个能交付的体验。
+   *
+   * 形状：`[{ var: "material", tool: "collect_writing_material", args: { ids: "{{books}}" } }]`
+   * 结果按**字符串**放进模板变量（插件负责把结构化数据拍平成可读文本）。
+   */
+  prepare?: { var?: string; tool?: string; args?: Record<string, unknown> }[]
 }
 
 export interface ContentPackItem {

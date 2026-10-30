@@ -156,7 +156,7 @@ const PROVIDER_KEYS = [
   "capabilities",
 ];
 const CONTENT_PACK_KEYS = ["id", "title", "description", "file", "maxItems", "actions", "slot"];
-const ACTION_KEYS = ["id", "title", "description", "slot", "form", "prompt", "output", "limits", "model"];
+const ACTION_KEYS = ["id", "title", "description", "slot", "form", "prompt", "output", "limits", "model", "prepare"];
 const PROMPT_KEYS = ["system", "user"];
 const HOOK_KEYS = ["on", "impl", "template", "tool", "priority", "timeoutMs", "gate"];
 

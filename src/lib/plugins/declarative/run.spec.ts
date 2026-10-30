@@ -11,6 +11,7 @@ import {
   MAX_RUN_ACTION_CHAIN_DEPTH,
   MissingProjectPermissionError,
   RunActionAbortedError,
+  RunActionPrepareError,
   RunActionChainError,
   assertRunnableChain,
   createUnavailableLlmCaller,
@@ -415,3 +416,121 @@ function catchError(fn: () => void): unknown {
   }
   return undefined
 }
+
+describe("action 的准备步骤（prepare）", () => {
+  /*
+   * 这一组守的是「书名生成」卡了两次的那个体验问题：
+   * 素材不在宿主上下文里，只能靠 prepare 现调插件工具取回来。
+   * 如果这里坏了，用户看到的是一个空的大文本框 —— 功能在、但没法用。
+   */
+
+  function baseDeps(overrides: Partial<RunActionDeps> = {}): RunActionDeps {
+    return {
+      llm: fakeLlm(["《", "某书", "》"]),
+      getConfig: async () => ({}),
+      ...overrides,
+    } as RunActionDeps
+  }
+
+  it("先跑工具，再把结果填进 {{material}} 交给模型", async () => {
+    const invokeTool = vi.fn(async () => JSON.stringify({ status: "ok", material: "书架素材：挖矿成神" }))
+    const deps = baseDeps({ invokeTool })
+
+    const action = titleAction({
+      prompt: { system: "起名", user: "素材：{{material}}" },
+      prepare: [{ var: "material", tool: "collect_writing_material", args: { n: 1 } }],
+    })
+
+    const result = await runDeclarativeAction(
+      action,
+      "title-forge",
+      [],
+      {},
+      deps,
+      () => {},
+      new AbortController().signal,
+    )
+
+    // 工具被调用一次，参数原样传下去
+    expect(invokeTool).toHaveBeenCalledTimes(1)
+    expect(invokeTool).toHaveBeenCalledWith("collect_writing_material", { n: 1 })
+    // 取回的素材真的进了提示词（不是被丢掉）
+    const llm = (deps.llm as unknown as { calls: Array<{ user: string }> }).calls
+    expect(llm.at(-1)?.user).toContain("书架素材：挖矿成神")
+    // 结果在 `parsed` 里（这个引擎不返回裸 text）
+    expect(JSON.stringify(result.parsed)).toContain("某书")
+  })
+
+  it("工具返回纯文本（不是 JSON）时也照样用", async () => {
+    const deps = baseDeps({ invokeTool: async () => "一段纯文本素材" })
+    const action = titleAction({
+      prompt: { system: "起名", user: "素材：{{material}}" },
+      prepare: [{ var: "material", tool: "any_tool" }],
+    })
+
+    await runDeclarativeAction(action, "p", [], {}, deps, () => {}, new AbortController().signal)
+
+    const llm = (deps.llm as unknown as { calls: Array<{ user: string }> }).calls
+    expect(llm.at(-1)?.user).toContain("一段纯文本素材")
+  })
+
+  it("取素材失败时**中止**，不拿空素材去骗模型", async () => {
+    const deps = baseDeps({
+      invokeTool: async () => {
+        throw new Error("书架是空的")
+      },
+    })
+    const action = titleAction({
+      prompt: { system: "起名", user: "素材：{{material}}" },
+      prepare: [{ var: "material", tool: "collect_writing_material" }],
+    })
+
+    // 与"读项目失败静默降级"刻意相反：没有素材就生成，只会得到一批编造的书名
+    await expect(
+      runDeclarativeAction(action, "p", [], {}, deps, () => {}, new AbortController().signal),
+    ).rejects.toBeInstanceOf(RunActionPrepareError)
+
+    // 模型一次都不该被调用
+    const llm = (deps.llm as unknown as { calls: unknown[] }).calls
+    expect(llm.length).toBe(0)
+  })
+
+  it("没有 prepare 时不调用任何工具（不额外打扰插件）", async () => {
+    const invokeTool = vi.fn(async () => "不该被调用")
+    const deps = baseDeps({ invokeTool })
+
+    await runDeclarativeAction(
+      titleAction(),
+      "p",
+      [],
+      { genre: "玄幻", idea: "挖矿", count: "3" },
+      deps,
+      () => {},
+      new AbortController().signal,
+    )
+
+    expect(invokeTool).not.toHaveBeenCalled()
+  })
+
+  it("用户手填的值优先于工具输出（改过的不被覆盖）", async () => {
+    const deps = baseDeps({ invokeTool: async () => "工具素材" })
+    const action = titleAction({
+      prompt: { system: "起名", user: "素材：{{material}}" },
+      prepare: [{ var: "material", tool: "t" }],
+    })
+
+    await runDeclarativeAction(
+      action,
+      "p",
+      [],
+      { material: "我自己写的素材" },
+      deps,
+      () => {},
+      new AbortController().signal,
+    )
+
+    const llm = (deps.llm as unknown as { calls: Array<{ user: string }> }).calls
+    expect(llm.at(-1)?.user).toContain("我自己写的素材")
+    expect(llm.at(-1)?.user).not.toContain("工具素材")
+  })
+})

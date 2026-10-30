@@ -37,6 +37,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { initialFormValues, validateFormValues } from "@/lib/plugins/declarative/form"
+import { pluginsApi } from "@/lib/plugins/api"
 import type { ParsedOutput } from "@/lib/plugins/declarative/output"
 import {
   MissingProjectPermissionError,
@@ -324,6 +325,21 @@ export function ActionDialog({
   editorCanInsert = false,
 }: ActionDialogProps) {
   const action = entry.action
+  /*
+   * 把 `invokeTool` 绑到**当前这个插件的 id** 上：action 的 `prepare` 步骤
+   * 只能调自己的工具（插件间隔离），所以 id 在这里闭包进去，不作为参数暴露。
+   */
+  // 当前 action 属于哪个插件 —— `prepare` 步骤只允许调它自己的工具
+  const pluginIdForDeps = entry.pluginId
+
+  const prepareDeps = useMemo(
+    () =>
+      pluginIdForDeps
+        ? { ...deps, invokeTool: (toolName: string, args: Record<string, unknown>) => pluginsApi.invokeTool(pluginIdForDeps, toolName, args) }
+        : deps,
+    [deps, pluginIdForDeps],
+  )
+
   const form: ActionForm = useMemo(() => action.form ?? { fields: [] }, [action])
   const hasForm = form.fields.length > 0
 
@@ -364,7 +380,7 @@ export function ActionDialog({
           // 权限跟着 entry 走：插槽索引从 plugins_list join 出来（见 declarative/api.ts）。
           entry.grantedPermissions,
           input,
-          deps,
+          prepareDeps,
           (delta) => setStreamText((previous) => previous + delta),
           controller.signal,
         )

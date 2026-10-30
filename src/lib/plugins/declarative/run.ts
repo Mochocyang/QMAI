@@ -40,6 +40,17 @@ export interface LlmCaller {
 
 export interface RunActionDeps {
   llm: LlmCaller
+  /**
+   * 调用**同一插件**声明的 MCP 工具。
+   *
+   * 为什么 action 需要它：有些动作的素材不在宿主上下文里 ——「书名生成」要读
+   * 书架上的书，而 `{{project.*}}` 只给当前打开的那一本。没有这个入口，
+   * 那份素材只能让用户手动粘贴，体验就是一个空的大文本框。
+   *
+   * 失败语义与读项目不同：读项目失败静默降级（少一点上下文也能生成），
+   * 而取素材失败**必须中止** —— 没有素材就生成书名，模型只能凭空编。
+   */
+  invokeTool?: (toolName: string, args: Record<string, unknown>) => Promise<string>
   /** 读项目上下文（无项目时返回 null） */
   readProject?: () => Promise<InterpolationScopeProject | null>
   readChapter?: () => Promise<InterpolationScopeChapter | null>
@@ -251,6 +262,99 @@ async function readSafely<T>(label: string, reader?: () => Promise<T | null>): P
  * 链式保护放在这个入口而不是每个调用点：只要将来有任何一处跑第二条 action，
  * 它必然经过这里，`assertRunnableChain` 就一定被校验到（判定漏一处就是线上事故）。
  */
+/**
+ * action 的「准备步骤」失败。
+ *
+ * 与 `readSafely` 的静默降级刻意相反：准备步骤是**用户明确要的数据**
+ * （如书架内容），拿不到就没有可分析的东西。此时继续生成只会得到一批
+ * 编造的书名，用户还得自己发现「AI 根本没看我的书」。宁可停下来说清楚。
+ */
+export class RunActionPrepareError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "RunActionPrepareError"
+  }
+}
+
+/**
+ * 执行 action 声明的前置工具调用，把结果并进模板变量。
+ *
+ * 声明形状（`plugin.json`）：
+ *   "prepare": [{ "var": "material", "tool": "collect_writing_material", "args": {...} }]
+ *
+ * `args` 里的事件值也走一次插值（`{{books}}`），所以勾选了哪些书能传进工具。
+ * 结果统一按**字符串**放进变量：模板只做文本替换，不做结构化访问 ——
+ * 让插件把 JSON 拍平成可读文本，比在宿主里再造一层访问器简单得多。
+ */
+async function runPrepareSteps(
+  steps: readonly { var?: string; tool?: string; args?: Record<string, unknown> }[],
+  actionTitle: string,
+  deps: RunActionDeps,
+  scope: { fields: Record<string, unknown> },
+): Promise<Record<string, string>> {
+  const collected: Record<string, string> = {}
+  if (steps.length === 0) return collected
+
+  if (!deps.invokeTool) {
+    throw new RunActionPrepareError(
+      `「${actionTitle}」需要先调用插件工具取素材，但当前环境没有提供调用能力（请确认插件已启用并在运行）。`,
+    )
+  }
+
+  for (const step of steps) {
+    const toolName = typeof step?.tool === "string" ? step.tool.trim() : ""
+    if (!toolName) {
+      throw new RunActionPrepareError(`「${actionTitle}」的准备步骤缺少 tool 声明。`)
+    }
+    // args 里可以带 {{变量}}，让用户勾选的书单能传进去
+    const interpolatedArgs: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(step.args ?? {})) {
+      if (typeof value === "string") {
+        interpolatedArgs[key] = interpolate(value, scope).text
+      } else {
+        interpolatedArgs[key] = value
+      }
+    }
+
+    let raw: string
+    try {
+      raw = await deps.invokeTool(toolName, interpolatedArgs)
+    } catch (cause) {
+      const reason = cause instanceof Error ? cause.message : String(cause)
+      throw new RunActionPrepareError(
+        `「${actionTitle}」取素材失败（${toolName}）：${reason}`,
+      )
+    }
+
+    const varName = typeof step.var === "string" && step.var.trim() ? step.var.trim() : toolName
+    collected[varName] = extractMaterial(raw)
+  }
+  return collected
+}
+
+/**
+ * 从工具返回里取出给模型看的正文。
+ *
+ * 插件工具普遍返回 JSON（`{status, material, ...}`）。直接把它塞进提示词会让模型
+ * 读到一堆字段名和转义符。这里优先取约定字段 `material` / `text` / `content`，
+ * 都取不到才退回原文 —— 于是「作者按约定返回」和「作者返回了别的形状」都能用。
+ */
+function extractMaterial(raw: string): string {
+  if (typeof raw !== "string") return ""
+  const trimmed = raw.trim()
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return trimmed
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>
+    for (const key of ["material", "text", "content", "result"]) {
+      const value = parsed?.[key]
+      if (typeof value === "string" && value.trim()) return value
+    }
+  } catch {
+    // 不是 JSON 就是纯文本，原样返回
+  }
+  return trimmed
+}
+
 export async function runDeclarativeAction(
   action: DeclarativeAction,
   pluginId: string,
@@ -320,6 +424,37 @@ export async function runDeclarativeAction(
     ...(project ? { project } : {}),
     ...(chapter ? { chapter } : {}),
     ...(selection !== undefined ? { selection } : {}),
+  }
+
+  /*
+   * 执行 action 声明的前置工具调用（`prepare`），把结果并进变量。
+   *
+   * 放在 interpolate 之前：模板里的 `{{material}}` 要能取到刚取回来的素材。
+   * 放在权限闸门之后：这一步会真的去读插件被授权的东西，资格没判完不能动手。
+   */
+  const prepareSteps = Array.isArray(action?.prepare) ? action.prepare : []
+  const prepared =
+    prepareSteps.length > 0
+      ? await runPrepareSteps(
+          prepareSteps,
+          action?.title ?? action?.id ?? "",
+          deps,
+          { fields: values ?? {} },
+        )
+      : {}
+
+  /*
+   * 只补**用户没填**的变量。
+   *
+   * 方向不能反：用 `Object.assign(scope.fields, prepared)` 会让工具输出覆盖用户
+   * 手填的内容 —— 用户改完输入框、点生成，却发现 AI 用的还是书架内容，
+   * 而他根本没机会知道。所以是"手填优先，空缺才用工具补"。
+   */
+  for (const [key, value] of Object.entries(prepared)) {
+    const existing = (scope.fields as Record<string, unknown>)[key]
+    if (existing === undefined || existing === null || existing === "") {
+      ;(scope.fields as Record<string, unknown>)[key] = value
+    }
   }
 
   const system = interpolate(systemTemplate, scope)

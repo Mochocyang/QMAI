@@ -196,6 +196,13 @@ pub struct ActionDecl {
     /// 在这里做成结构体，等于让「前端新增一种策略」必须先发一版 Rust。
     #[serde(default)]
     pub model: Option<serde_json::Value>,
+    /// 调模型**之前**要跑的插件工具（前端 `prepare` 约定，见 declarative/run.ts）。
+    ///
+    /// 与 `form` / `model` 同一条理由：形状归前端的声明式引擎，宿主只做透传与
+    /// 最基本的"是不是数组"检查。在这里建成结构体，等于让前端新增一种准备步骤
+    /// 都必须先发一版 Rust。
+    #[serde(default)]
+    pub prepare: Option<serde_json::Value>,
 }
 
 /// 一个钩子的实现方式（设计 D5）。

@@ -10,6 +10,7 @@
  */
 import { useMemo, useState } from "react"
 import { createDefaultRunDeps } from "@/lib/plugins/declarative/api"
+import { pluginsApi } from "@/lib/plugins/api"
 import type { RunActionDeps } from "@/lib/plugins/declarative/run"
 import type { SlotActionEntry } from "@/lib/plugins/slots"
 import { cn } from "@/lib/utils"
@@ -41,7 +42,25 @@ export function SlotActions({
   const [active, setActive] = useState<SlotActionEntry | null>(null)
 
   // 默认依赖只造一次：每次渲染都新建会让 ActionDialog 的 useEffect 依赖抖动。
-  const fallbackDeps = useMemo(() => createDefaultRunDeps(), [])
+  /*
+   * 默认依赖按**当前这一条 action 的插件**绑定。
+   *
+   * 不能做成一个共享的全局 deps：那样 `invokeTool` 就不知道该调谁的插件，
+   * 只能猜一个 —— 而猜错的方向是「A 插件跑到了 B 插件的工具」。
+   */
+  const fallbackDeps = useMemo(
+    () =>
+      createDefaultRunDeps({
+        invokeTool: (toolName, args) => {
+          const pluginId = entries[0]?.pluginId
+          if (!pluginId) {
+            return Promise.reject(new Error("无法确定插件：这条动作没有 pluginId"))
+          }
+          return pluginsApi.invokeTool(pluginId, toolName, args)
+        },
+      }),
+    [entries],
+  )
   const resolvedDeps = deps ?? fallbackDeps
 
   // 插槽为空时什么都不渲染：不留一格空白，也不留"暂无"之类的噪音文案
