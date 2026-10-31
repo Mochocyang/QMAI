@@ -23,6 +23,7 @@ import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 import { ensureCursorProxyRunning, withCursorProxyEndpoint } from "./cursor-cli-proxy"
 // 内置模型：网关卡在请求时注入，不写进 provider 配置。
 import { applyBuiltinAuth, deviceIdHeader } from "./builtin-models/auth-hook"
+import { signRequestHeaders } from "./account/request-sign"
 import { isBuiltinRelayEndpoint } from "./builtin-models/netcard"
 import {
   estimateChatMessagesTokens,
@@ -443,6 +444,18 @@ async function streamChatHeld(
   // 改成每次发请求前从当前登录态现取，覆盖 apiKey。
   // 同时记下"这次走的是内置中转站"，稍后要补一个设备头。
   const useBuiltinRelay = isBuiltinRelayEndpoint(runtimeConfig.customEndpoint)
+  // 签名用的路径：必须与网关收到的 pathname 完全一致，否则两边算出的签名不同。
+  const signingPath = (() => {
+    const endpoint = runtimeConfig.customEndpoint ?? ""
+    try {
+      const parsed = new URL(endpoint)
+      const path = parsed.pathname.replace(/\/+$/, "")
+      // endpoint 通常形如 https://relay.qmai.work/v1，实际请求打到 /v1/chat/completions
+      return path.endsWith("/v1") ? "/v1/chat/completions" : `${path}/chat/completions`
+    } catch {
+      return "/v1/chat/completions"
+    }
+  })()
   if (useBuiltinRelay) {
     const injected = applyBuiltinAuth(runtimeConfig)
     if (injected.injected) runtimeConfig = injected.config
@@ -508,19 +521,31 @@ async function streamChatHeld(
       }
     }
 
-    const buildRequestInit = (
-      nextMessages: import("./llm-providers").ChatMessage[],
-      overrides: RequestOverrides = effectiveRequestOverrides,
-    ): RequestInit => ({
-      method: "POST",
-      // 走内置中转站时补一个设备头：网关用它校验「这张卡是不是在这台机器上」。
-      // 卡被复制到别的机器时，指纹对不上，直接 403。
-      headers: useBuiltinRelay
-        ? { ...providerConfig.headers, ...deviceIdHeader() }
-        : providerConfig.headers,
-      body: JSON.stringify(providerConfig.buildBody(nextMessages, overrides)),
-      signal: combinedSignal,
-    })
+      const buildRequestInit = async (
+        nextMessages: import("./llm-providers").ChatMessage[],
+        overrides: RequestOverrides = effectiveRequestOverrides,
+      ): Promise<RequestInit> => {
+        const bodyText = JSON.stringify(providerConfig.buildBody(nextMessages, overrides))
+        if (!useBuiltinRelay) {
+          return { method: "POST", headers: providerConfig.headers, body: bodyText, signal: combinedSignal }
+        }
+        // 走内置中转站时带三样东西：
+        //   X-Device-Id    —— 这台机器是谁
+        //   X-Request-Ts   —— 防重放的时间戳
+        //   X-Request-Sig  —— Ed25519 签名，证明持有设备私钥
+        // 只有前两个时，攻击者读出卡里的 dev 就能冒充；加上签名才算真正绑定到设备。
+        const signature = await signRequestHeaders("POST", signingPath, bodyText)
+        return {
+          method: "POST",
+          headers: {
+            ...providerConfig.headers,
+            ...deviceIdHeader(),
+            ...(signature ?? {}),
+          },
+          body: bodyText,
+          signal: combinedSignal,
+        }
+      }
 
     const sendRequest = async (requestInit: RequestInit): Promise<Response> => {
       const httpFetch = await getHttpFetch()
@@ -557,7 +582,7 @@ async function streamChatHeld(
       })
     }
 
-    let requestInit = buildRequestInit(budgetedMessages)
+    let requestInit = await buildRequestInit(budgetedMessages)
     let response: Response
     try {
       response = await sendRequest(requestInit)
@@ -640,7 +665,7 @@ async function streamChatHeld(
           retryMessages,
           effectiveRequestOverrides,
         )
-        const retryRequestInit = buildRequestInit(retryMessages)
+        const retryRequestInit = await buildRequestInit(retryMessages)
         if (retryRequestInit.body === requestInit.body) {
           onError(new Error(inputLengthLimitMessage(inputLimit)))
           return
@@ -677,7 +702,7 @@ async function streamChatHeld(
           ...effectiveRequestOverrides,
           max_tokens: reportedMaxTokens,
         }
-        requestInit = buildRequestInit(budgetedMessages, effectiveRequestOverrides)
+        requestInit = await buildRequestInit(budgetedMessages, effectiveRequestOverrides)
         try {
           response = await sendRequest(requestInit)
         } catch (err) {
@@ -711,7 +736,7 @@ async function streamChatHeld(
           budgetedMessages,
           effectiveRequestOverrides,
         )
-        requestInit = buildRequestInit(budgetedMessages, effectiveRequestOverrides)
+        requestInit = await buildRequestInit(budgetedMessages, effectiveRequestOverrides)
         try {
           response = await sendRequest(requestInit)
         } catch (err) {

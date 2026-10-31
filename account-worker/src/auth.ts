@@ -284,6 +284,8 @@ async function issueAuthPayload(
   deviceLabel: string | null,
   /** 设备指纹摘要：写进网关卡做设备绑定，卡复制到别的机器就失效。 */
   deviceHash?: string | null,
+  /** 设备签名公钥：允许客户端对请求签名，防止设备指纹被盗用。 */
+  devicePublicKey?: string | null,
 ): Promise<AuthPayload> {
   const refreshToken = generateRefreshToken()
   const refreshTokenHash = await hashRefreshToken(refreshToken)
@@ -311,7 +313,7 @@ async function issueAuthPayload(
 
   // 网关卡：与这次登录的 session 绑定，**长期有效**，供自建中转站验签。
   // 签名失败（缺私钥）时给 null —— 不影响登录本身，客户端会提示"内置模型未开通"。
-  const netcard = await signNetCard(env, user.id, session.id, now, deviceHash).then(
+  const netcard = await signNetCard(env, user.id, session.id, now, deviceHash, devicePublicKey).then(
     (signed) => signed.token,
     () => null,
   )
@@ -470,7 +472,7 @@ export async function handleRegister(
     await bindDevice(env.DB, deviceHash, user.id, now)
   }
 
-  const payload = await issueAuthPayload(env, user, now, normalizeDeviceLabel(parsed.body.deviceLabel), isValidDeviceHash(parsed.body.deviceHash) ? parsed.body.deviceHash : null)
+  const payload = await issueAuthPayload(env, user, now, normalizeDeviceLabel(parsed.body.deviceLabel), isValidDeviceHash(parsed.body.deviceHash) ? parsed.body.deviceHash : null, typeof parsed.body.devicePublicKey === "string" ? parsed.body.devicePublicKey : null)
   logEvent("register_ok", { userId: user.id })
   return jsonSuccess(payload)
 }
@@ -574,6 +576,7 @@ export async function handleLogin(
     now,
     normalizeDeviceLabel(parsed.body.deviceLabel),
     loginDeviceHash,
+    typeof parsed.body.devicePublicKey === "string" ? parsed.body.devicePublicKey : null,
   )
   logEvent("login_ok", { userId: user.id })
   return jsonSuccess(payload)
@@ -643,7 +646,7 @@ export async function handleRefresh(
     // 签发失败（未配私钥）不影响续期本身：卡为 null，登录态照常可用。
     let netcard: string | null = null
     try {
-      const signed = await signNetCard(env, user.id, session.id, now, isValidDeviceHash(parsed.body.deviceHash) ? parsed.body.deviceHash : null)
+      const signed = await signNetCard(env, user.id, session.id, now, isValidDeviceHash(parsed.body.deviceHash) ? parsed.body.deviceHash : null, typeof parsed.body.devicePublicKey === "string" ? parsed.body.devicePublicKey : null)
       netcard = signed.token
     } catch (error) {
       console.error("[account] refresh_netcard_failed", {

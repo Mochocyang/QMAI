@@ -68,6 +68,14 @@ export interface NetCardClaims {
    * 老卡没有这个字段，网关按「首次校验时补绑」处理（见 gateway 的 auth.ts）。
    */
   dev?: string
+  /**
+   * 设备签名公钥（Ed25519 原始 32 字节 base64url）。
+   *
+   * 客户端持有对应私钥，每个请求用私钥签 method+path+ts+bodyHash；
+   * 网关用这里的公钥验签。**读到公钥没用，算不出私钥签名** ——
+   * 这才是真正的"卡离开原机器就失效"。
+   */
+  dpk?: string
   iat: number
   exp: number
 }
@@ -85,6 +93,8 @@ export async function signNetCard(
   nowSeconds: number,
   /** 设备指纹摘要；有值时写进卡里做设备绑定。 */
   deviceHash?: string | null,
+  /** 设备签名公钥（base64url，32 字节）；有值时允许客户端对请求签名。 */
+  devicePublicKey?: string | null,
 ): Promise<{ token: string; issuedAt: number }> {
   const privateKeyPkcs8 = env.NETCARD_PRIVATE_KEY
   if (!privateKeyPkcs8) throw new Error("NETCARD_PRIVATE_KEY is not configured")
@@ -106,6 +116,8 @@ export async function signNetCard(
     exp: nowSeconds + NET_CARD_EXP_SECONDS,
     // 只在格式正确时写入，避免把脏数据签进卡里（签出去就收不回）。
     ...(deviceHash && /^[0-9a-f]{32}$/.test(deviceHash) ? { dev: deviceHash } : {}),
+    // 公钥是 base64url 的 32 字节 = 43 字符（无 padding）
+    ...(devicePublicKey && /^[A-Za-z0-9_-]{43}$/.test(devicePublicKey) ? { dpk: devicePublicKey } : {}),
   }
 
   const data = `${base64UrlEncodeString(JSON.stringify(header))}.${base64UrlEncodeString(JSON.stringify(claims))}`

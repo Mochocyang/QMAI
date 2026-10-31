@@ -29,6 +29,7 @@ import type {
   SendCodeResult,
 } from "./types"
 import { getDeviceFingerprint } from "./device"
+import { ensureDeviceKey } from "./request-sign"
 import { normalizeEmail } from "./validation"
 
 export const DEFAULT_ACCOUNT_BASE_URL = "https://qmai-account.qmai.workers.dev"
@@ -328,6 +329,8 @@ export async function registerAccount(
   // 取不到时不上报（服务端会跳过设备限额），不影响注册。
   const deviceHash = await getDeviceFingerprint()
   optionalBodyField(body, "deviceHash", deviceHash ?? undefined)
+  const deviceKey = await ensureDeviceKey()
+  optionalBodyField(body, "devicePublicKey", deviceKey?.publicKey)
 
   const { status, data } = await requestAccount(baseUrl, {
     method: "POST",
@@ -349,6 +352,11 @@ export async function loginAccount(
     password: input.password,
   }
   optionalBodyField(body, "deviceLabel", input.deviceLabel)
+  // 设备指纹 + 签名公钥：卡里会签进 dev 与 dpk，之后请求可验签。
+  const deviceHash = await getDeviceFingerprint()
+  optionalBodyField(body, "deviceHash", deviceHash ?? undefined)
+  const deviceKey = await ensureDeviceKey()
+  optionalBodyField(body, "devicePublicKey", deviceKey?.publicKey)
 
   const { status, data } = await requestAccount(baseUrl, {
     method: "POST",

@@ -29,9 +29,9 @@ export async function handleIssueNetCard(
   const auth = await authenticate(request, env, now)
   if (!auth.ok) return auth.response
 
-  let body: { refreshToken?: unknown; deviceHash?: unknown } = {}
+  let body: { refreshToken?: unknown; deviceHash?: unknown; devicePublicKey?: unknown } = {}
   try {
-    body = (await request.clone().json()) as { refreshToken?: unknown; deviceHash?: unknown }
+    body = (await request.clone().json()) as { refreshToken?: unknown; deviceHash?: unknown; devicePublicKey?: unknown }
   } catch {
     body = {}
   }
@@ -47,7 +47,7 @@ export async function handleIssueNetCard(
   if (session.expires_at <= now) return failure("INVALID_REFRESH")
 
   try {
-    const signed = await signNetCard(env, auth.user.id, session.id, now, isValidDeviceHash(body.deviceHash) ? body.deviceHash : null)
+    const signed = await signNetCard(env, auth.user.id, session.id, now, isValidDeviceHash(body.deviceHash) ? body.deviceHash : null, typeof body.devicePublicKey === "string" ? body.devicePublicKey : null)
     return jsonSuccess({ netcard: signed.token })
   } catch {
     return failure("SERVER_ERROR", "网关卡尚未配置，请联系管理员。")
