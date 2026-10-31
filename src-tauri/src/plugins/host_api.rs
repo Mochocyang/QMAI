@@ -692,6 +692,75 @@ async fn shelf_sample(
     .into_response()
 }
 
+
+/* ── 插件凭证保险箱（`net:credential-vault`）────────────────────────
+ *
+ * 账号类插件登录之后需要一个跨重启的地方放 token。放插件自己目录里是明文，
+ * 而且卸载会连带删掉；放宿主这边则统一加密（`secret_box`）、密钥与数据分离。
+ *
+ * 三个细节值得说明：
+ *   1. **插件 id 取自会话**，不接受客户端传参 —— 否则 A 插件能读 B 的凭证。
+ *   2. **读不到返回 204 而不是 404**："还没登录"是正常状态，不是错误。
+ *      404 会被插件当成"端点不存在"，那会让作者在错误的地方排查。
+ *   3. 凭证内容**不进日志、不进错误信息**，与 `submit_credential` 同一铁律。
+ */
+
+#[derive(Deserialize)]
+pub struct CredentialBody {
+    pub secret: String,
+}
+
+/// `POST /host/credential` —— 写入（覆盖）本插件的凭证。
+async fn credential_put(
+    State(state): State<HostApiState>,
+    headers: HeaderMap,
+    Json(body): Json<CredentialBody>,
+) -> Response {
+    let Some(session) = state.session(&headers) else {
+        return unauthorized();
+    };
+    if let Err(permission) = require(&session.granted, "net:credential-vault") {
+        return forbidden(&permission);
+    }
+    let vault = super::credential_vault::CredentialVault::new(&crate::mcp::paths::app_data_dir());
+    match vault.put(&session.plugin_id, &body.secret) {
+        // 只回报字节数，绝不回报内容
+        Ok(bytes) => Json(serde_json::json!({ "ok": true, "bytes": bytes })).into_response(),
+        Err(error) => error_response(&error),
+    }
+}
+
+/// `GET /host/credential` —— 读回本插件的凭证；没存过 → 204。
+async fn credential_get(State(state): State<HostApiState>, headers: HeaderMap) -> Response {
+    let Some(session) = state.session(&headers) else {
+        return unauthorized();
+    };
+    if let Err(permission) = require(&session.granted, "net:credential-vault") {
+        return forbidden(&permission);
+    }
+    let vault = super::credential_vault::CredentialVault::new(&crate::mcp::paths::app_data_dir());
+    match vault.get(&session.plugin_id) {
+        Ok(Some(secret)) => Json(serde_json::json!({ "secret": secret })).into_response(),
+        Ok(None) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => error_response(&error),
+    }
+}
+
+/// `DELETE /host/credential` —— 删除本插件的凭证（登出）。
+async fn credential_delete(State(state): State<HostApiState>, headers: HeaderMap) -> Response {
+    let Some(session) = state.session(&headers) else {
+        return unauthorized();
+    };
+    if let Err(permission) = require(&session.granted, "net:credential-vault") {
+        return forbidden(&permission);
+    }
+    let vault = super::credential_vault::CredentialVault::new(&crate::mcp::paths::app_data_dir());
+    match vault.clear(&session.plugin_id) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => error_response(&error),
+    }
+}
+
 pub fn router(state: HostApiState) -> Router {
     Router::new()
         .route("/host/status", get(status))
@@ -704,6 +773,9 @@ pub fn router(state: HostApiState) -> Router {
         // 漏掉这两行就会 404，而插件只能看到"宿主接口返回 404"，无从判断是没装好还是没权限。
         .route("/host/shelf/list", get(shelf_list))
         .route("/host/shelf/sample", post(shelf_sample))
+        .route("/host/credential", get(credential_get))
+        .route("/host/credential", post(credential_put))
+        .route("/host/credential", axum::routing::delete(credential_delete))
         .with_state(state)
 }
 
@@ -963,6 +1035,177 @@ mod tests {
     /// 这条测试来自一次真实故障：handler 写好了、权限也加了，但 `.route(...)` 注册漏了 ——
     /// 插件只看到 `/host/shelf/list 返回 404`，无从判断是"功能没做"还是"没权限"。
     /// 404 与 403 在这里是两件完全不同的事，必须分得清。
+
+    /* ── 凭证保险箱端点 ──────────────────────────────────────────
+     *
+     * 这一组守的是"账号类插件能把 token 交给宿主保管"这条链路。
+     * 最要紧的一条是**隔离**：A 插件绝不能读到 B 插件的凭证 ——
+     * 凭证等价于用户的登录态，串一个就等于冒充。
+     */
+
+    fn session_for(plugin_id: &str, perms: &[&str]) -> PluginSession {
+        PluginSession {
+            plugin_id: plugin_id.to_string(),
+            granted: granted(perms),
+            project_root: None,
+            data_root: temp_dir("credential-data"),
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn credential_roundtrip_through_http() {
+        let state = HostApiState::new();
+        state
+            .sessions
+            .lock()
+            .expect("会话表")
+            .insert("tok-c".to_string(), session_for("vault-demo", &["data:write", "net:credential-vault"]));
+        let base = spawn_test_api(state).await;
+        let client = test_client();
+
+        // 没存过 → 204（"还没登录"是正常状态，不是错误）
+        let response = client
+            .get(format!("{base}/host/credential"))
+            .bearer_auth("tok-c")
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 204);
+
+        // 存
+        let response = client
+            .post(format!("{base}/host/credential"))
+            .bearer_auth("tok-c")
+            .json(&serde_json::json!({ "secret": "{\"accessToken\":\"abc\"}" }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = response.json().await.expect("读 body");
+        assert_eq!(body["ok"], true);
+        // 只回报字节数，不含内容
+        assert!(body["bytes"].as_u64().unwrap() > 0);
+        assert!(body.get("secret").is_none());
+
+        // 读回
+        let response = client
+            .get(format!("{base}/host/credential"))
+            .bearer_auth("tok-c")
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 200);
+        let body: serde_json::Value = response.json().await.expect("读 body");
+        assert_eq!(body["secret"], "{\"accessToken\":\"abc\"}");
+
+        // 删
+        let response = client
+            .delete(format!("{base}/host/credential"))
+            .bearer_auth("tok-c")
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 204);
+
+        let response = client
+            .get(format!("{base}/host/credential"))
+            .bearer_auth("tok-c")
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 204, "删掉之后应回到『没存过』");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn credential_requires_the_vault_permission() {
+        let state = HostApiState::new();
+        // 只给 data:write，没有 net:credential-vault
+        state
+            .sessions
+            .lock()
+            .expect("会话表")
+            .insert("tok-n".to_string(), session_for("no-perm", &["data:write"]));
+        let base = spawn_test_api(state).await;
+        let client = test_client();
+
+        let response = client
+            .get(format!("{base}/host/credential"))
+            .bearer_auth("tok-n")
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 403);
+
+        let response = client
+            .post(format!("{base}/host/credential"))
+            .bearer_auth("tok-n")
+            .json(&serde_json::json!({ "secret": "x" }))
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(response.status(), 403);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn one_plugin_cannot_read_anothers_credential() {
+        let state = HostApiState::new();
+        {
+            let mut sessions = state.sessions.lock().expect("会话表");
+            sessions.insert(
+                "tok-a".to_string(),
+                session_for("plugin-a", &["data:write", "net:credential-vault"]),
+            );
+            sessions.insert(
+                "tok-b".to_string(),
+                session_for("plugin-b", &["data:write", "net:credential-vault"]),
+            );
+        }
+        let base = spawn_test_api(state).await;
+        let client = test_client();
+
+        // A 存自己的
+        client
+            .post(format!("{base}/host/credential"))
+            .bearer_auth("tok-a")
+            .json(&serde_json::json!({ "secret": "token-of-a" }))
+            .send()
+            .await
+            .expect("请求");
+
+        // B 读到的必须是**自己那份**（没存过 → 204），绝不能是 A 的
+        let response = client
+            .get(format!("{base}/host/credential"))
+            .bearer_auth("tok-b")
+            .send()
+            .await
+            .expect("请求");
+        assert_eq!(
+            response.status(),
+            204,
+            "B 没有存过凭证，不能读到 A 的"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn credential_endpoints_are_registered() {
+        // 与书架那条同一条教训：handler 写了但没注册，插件只会看到 404
+        let state = HostApiState::new();
+        state.sessions.lock().expect("会话表").insert(
+            "tok-r".to_string(),
+            session_for("registered", &["data:write", "net:credential-vault"]),
+        );
+        let base = spawn_test_api(state).await;
+        let client = test_client();
+
+        let response = client
+            .get(format!("{base}/host/credential"))
+            .bearer_auth("tok-r")
+            .send()
+            .await
+            .expect("请求");
+        assert_ne!(response.status(), 404, "/host/credential 没注册到 router 上");
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn shelf_routes_are_registered() {
         // 给足权限：这样若返回 403 就说明是权限问题（不是本测试要验的），

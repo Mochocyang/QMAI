@@ -79,6 +79,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "fs:shelf-read": "读取书架上的书籍概要",
   "net:https": "访问网络",
   "net:listen": "在本机开一个端口（供 QMAI 调用它）",
+    "net:credential-vault": "保存并读取登录凭证",
   "llm:use": "调用模型",
   "data:write": "写入插件数据",
 }

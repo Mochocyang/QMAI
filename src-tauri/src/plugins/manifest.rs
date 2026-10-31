@@ -483,6 +483,9 @@ pub const KNOWN_PERMISSIONS: &[&str] = &[
     "net:https",
     "llm:use",
     "net:listen",
+    // 插件凭证保险箱：插件可以把自己登录拿到的 token 加密存进宿主，
+    // 并在后续请求前读回。必须逐项勾选 —— 能读凭证 = 能冒充用户打上游接口。
+    "net:credential-vault",
 ];
 
 /// 宿主自动授予的权限：允许在清单里声明（旧文档/示例就是这么写的），但声明与否都不改变
@@ -508,7 +511,6 @@ pub const BUILTIN_PROVIDER_IDS: &[&str] = &[
     "codex-cli",
     "cursor-cli",
     "antigravity-cli",
-    "workbuddy",
 ];
 
 /// 允许声明的 provider 能力位

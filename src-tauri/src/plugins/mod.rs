@@ -19,6 +19,8 @@ pub mod paths;
 pub mod project_context;
 pub mod providers;
 pub mod registry;
+pub mod credential_vault;
+pub mod secret_box;
 pub mod shelf;
 
 pub mod supervisor;
