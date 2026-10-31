@@ -132,7 +132,7 @@ export function preflightResponse(request: Request, allowedOrigins: string[]): R
     headers.set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
     headers.set(
       "Access-Control-Allow-Headers",
-      "Authorization, Content-Type, Content-Length",
+      "Authorization, Content-Type, Content-Length, x-admin-key",
     )
     // 头像上传直接发图片字节，前端要读响应状态与图片本体。
     headers.set("Access-Control-Max-Age", "86400")

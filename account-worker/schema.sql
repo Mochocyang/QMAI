@@ -56,3 +56,16 @@ CREATE TABLE IF NOT EXISTS rate_limits (
   window_start INTEGER NOT NULL,
   count INTEGER NOT NULL DEFAULT 0
 );
+
+-- 吊销操作留痕：谁在什么时候踢了谁、影响多少会话。
+-- 控制台「会话」面板展示最近若干条，用于事后追溯。
+CREATE TABLE IF NOT EXISTS revoke_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  scope TEXT NOT NULL,          -- user | session | all
+  target TEXT NOT NULL,         -- userId / sessionId / "ALL"
+  reason TEXT,
+  revoked INTEGER NOT NULL,     -- 影响多少行
+  at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_revoke_audit_at ON revoke_audit(at DESC);

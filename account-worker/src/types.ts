@@ -38,6 +38,11 @@ export interface Env {
    * 缺失时登录仍成功，但不下发网关卡（内置模型不可用）。
    */
   NETCARD_PRIVATE_KEY?: string
+  /**
+   * 管理接口密钥（/admin/*）。只存在于 Worker secret：`wrangler secret put ADMIN_KEY`。
+   * 未配置时所有 /admin/* 返回 503（失败关闭）—— 宁可没有管理功能，也不开一个没锁的门。
+   */
+  ADMIN_KEY?: string
 }
 
 export type CodePurpose = "register" | "reset"
