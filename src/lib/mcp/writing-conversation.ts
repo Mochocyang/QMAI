@@ -175,7 +175,13 @@ export async function runWritingConversation(input: {
   const message = input.message.trim()
   if (!message) throw new Error("写作对话内容不能为空")
   const projectPath = normalizePath(input.projectPath)
-  if (activeProjects.has(projectPath)) throw new Error("当前项目已有进行中的写作对话")
+  if (activeProjects.has(projectPath)) {
+    if (!writingRunRegistry.has(projectPath)) {
+      activeProjects.delete(projectPath)
+    } else {
+      throw new Error("当前项目已有进行中的写作对话")
+    }
+  }
   activeProjects.add(projectPath)
   const controller = new AbortController()
   writingRunRegistry.register(projectPath, controller)
@@ -195,7 +201,13 @@ export async function runWritingConversation(input: {
       ? live
       : await (deps.loadHistory ?? loadChatHistory)(projectPath)
     if (Object.values(loaded.runStates).some((state) => state.status === "running")) {
-      throw new Error("当前项目已有进行中的写作对话")
+      if (!writingRunRegistry.has(projectPath)) {
+        if (useLive) {
+          useChatStore.getState().setLoadedRunStates(loaded.runStates)
+        }
+      } else {
+        throw new Error("当前项目已有进行中的写作对话")
+      }
     }
     let conversation = input.conversationId
       ? loaded.conversations.find((item) => item.id === input.conversationId)
