@@ -37,10 +37,11 @@
  *   3. **模型只测已选的**（理由见 `runTest`），**允许手填插件没上报的模型**
  *      （理由见 `splitKnownModels`）—— 两个决定都是"替用户省时间/不夺权"。
  */
-import { useState } from "react"
+import { useState, useRef, useEffect } from "react"
 import { AlertTriangle, CalendarCheck, Image as ImageIcon, Loader2, RefreshCw, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { pluginsApi, type PluginCredentialKind } from "@/lib/plugins/api"
+import { watchProviderLogin } from "@/lib/plugins/login-watch"
 import { syncPluginProviders } from "@/lib/plugins/provider-sync"
 import { setPluginProviderOverride } from "@/lib/plugins/provider-overrides"
 import { deriveSelectedModelIds } from "@/lib/plugins/selected-models"
@@ -371,6 +372,7 @@ export function parseLimitInput(raw: string): number | undefined {
 
 /** 两个草稿是否等价（保存按钮的禁用条件）。 */
 function sameDraft(a: EditorDraft, b: EditorDraft): boolean {
+
   return (
     a.label.trim() === b.label.trim() &&
     a.contextText.trim() === b.contextText.trim() &&
@@ -418,6 +420,10 @@ export function PluginProviderCard({
   resolveModelConfig?: ModelConfigResolver
 }) {
   const [pending, setPending] = useState<PendingAction | null>(null)
+  /** 登录完成观察器（重复点登录 / 卸载时要停掉上一次）。 */
+  const stopLoginWatchRef = useRef<null | (() => void)>(null)
+  // 卸载时停掉登录观察：组件都没了还继续轮询只是白耗。
+  useEffect(() => () => stopLoginWatchRef.current?.(), [])
   const [status, setStatus] = useState<{ error: boolean; text: string } | null>(null)
   const [balance, setBalance] = useState<BalanceState | null>(null)
   // 粘贴框的内容。**只活在这一次输入里**：提交后立刻清空，不写 store、不进 providerConfigs
@@ -688,6 +694,24 @@ export function PluginProviderCard({
       // 失败只 warn —— 它不该把上面那句成功提示改写成错误。
       void syncPluginProviders().catch((cause: unknown) => {
         console.warn("[plugins] 登录后同步 provider 失败：", cause)
+      })
+      /*
+       * 开始观察登录结果。
+       *
+       * 宿主的模型刷新挂在登录窗口的关闭事件上，而账号类插件的登录是在窗口
+       * **内部**完成的 —— 用户看到"登录成功"往往就不再管那个窗口了，于是
+       * 刷新链一步都没走，QMAI 里模型列表还是空的。
+       *
+       * 这里改成看**插件状态**：一旦 provider 变成"就绪且有模型"，就认为登录成了，
+       * 立刻刷新模型。不依赖窗口有没有关。
+       */
+      stopLoginWatchRef.current?.()
+      stopLoginWatchRef.current = watchProviderLogin({
+        providerId: preset.id,
+        onReady: () => {
+          stopLoginWatchRef.current = null
+          setStatus({ error: false, text: "登录成功，模型列表已更新。" })
+        },
       })
     } catch (cause) {
       // 原文展示：Rust 的中文原因（白名单拒绝、settingsPage 非法…）比「操作失败」有用得多。

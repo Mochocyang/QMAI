@@ -216,6 +216,44 @@ fn schedule_profile_cleanup(path: PathBuf) {
     });
 }
 
+
+/// 关窗之后要做的事：重探活 + 重抓模型，然后通知前端。
+///
+/// 两条路径共用（用户手动关窗 / 插件请求关窗）。**不要各写一份**：
+/// 一份漏了事件，症状就是「登录完模型不更新」，而错误只在用户那边可见。
+fn refresh_after_close(app: &AppHandle, plugin_id: &str, provider_id: &str) {
+    let app = app.clone();
+    let plugin_id = plugin_id.to_string();
+    let provider_id = provider_id.to_string();
+    tauri::async_runtime::spawn(async move {
+        // 在任务内部现取 state：`State<'_>` 带生命周期不能移进 'static 任务，
+        // 而 `PluginsState` 没实现 Clone。AppHandle 是 'static + Clone，随便移。
+        // 取不到就安静放弃 —— 应用正在退出时不该因为后置刷新 panic（release 是 abort）。
+        let Some(state) = app.try_state::<super::PluginsState>() else {
+            return;
+        };
+        let outcome = super::refresh_provider_models(
+            state.inner(),
+            &provider_id,
+            super::PROVIDER_REFRESH_PROBE_TIMEOUT,
+        )
+        .await;
+        if let Err(error) = &outcome {
+            eprintln!("[plugins] provider {provider_id} 关窗后自动刷新失败：{error}");
+        }
+        // 必须通知前端：刷新是在后端悄悄做的，界面手里还是关窗前的快照。
+        let _ = app.emit(
+            "plugin-provider-models-refreshed",
+            serde_json::json!({
+                "pluginId": plugin_id,
+                "providerId": provider_id,
+                "ok": outcome.is_ok(),
+                "modelCount": outcome.as_ref().map(|models| models.len()).unwrap_or(0),
+                "error": outcome.as_ref().err().cloned().unwrap_or_default(),
+            }),
+        );
+    });
+}
 /// 打开某个插件 provider 的受控设置/登录窗口。
 ///
 /// 与原版（`workbuddy/login_window.rs`）同样的三条隔离做法，但**白名单来自插件清单**，
@@ -347,6 +385,40 @@ pub fn open_provider_window(
     });
 
     Ok(())
+}
+
+/// 关掉某个插件 provider 的登录窗口。
+///
+/// ── 为什么插件需要这个 ──────────────────────────────────────
+/// 宿主的模型刷新挂在窗口的 `CloseRequested` 上：关窗 → 重探活 + 重抓
+/// `/v1/models` → emit `plugin-provider-models-refreshed` → 前端刷新。
+/// 而账号类插件的登录是在**这个窗口内部**完成的（页面自己发起、自己跳转、
+/// 自己轮询结果）。如果只能等用户手动点 ×，典型场景就是：用户看到"登录成功"
+/// 就把窗口撂在那儿，然后回到 QMAI 发现模型列表还是空的 —— 因为窗口没关，
+/// 整条刷新链一步都没走。
+///
+/// 所以给插件一个"我这边登录完了"的信号，由**宿主**来关窗。插件不能自己关：
+/// 这是宿主的 webview，页面侧的 `window.close()` 对它无效。
+///
+/// 返回 `true` 表示确实关了一个窗口（调用方可据此提示用户）；没有窗口时
+/// 返回 `false` 而不是报错 —— "窗口已经关了"不是失败。
+pub fn close_provider_window(app: &AppHandle, plugin_id: &str, provider_id: &str) -> bool {
+    let label = window_label(plugin_id, provider_id);
+    let Some(window) = app.get_webview_window(&label) else {
+        return false;
+    };
+    // 用 destroy 而不是 close：close 会走用户确认流程（部分平台会问"确定关闭？"），
+    // 而这里是我们自己发起的收尾。destroy 同样会触发 CloseRequested 吗？
+    // 不会 —— 所以刷新要显式做一次，见下方。
+    let _ = window.destroy();
+    // 数据目录照常收尸（destroy 不触发 CloseRequested，得手动）。
+    if let Some(path) = take_profile(&label) {
+        schedule_profile_cleanup(path);
+    }
+    // destroy **不触发** CloseRequested，所以「关窗后刷新模型」不会自动走，
+    // 必须显式调 —— 这正是「插件自动关窗后模型不更新」的成因。
+    refresh_after_close(app, plugin_id, provider_id);
+    true
 }
 
 #[cfg(test)]

@@ -68,13 +68,18 @@ describe("ContentArea → 插件页面", () => {
       root.render(<ContentArea />)
     })
     /*
-     * lazy() 的 dynamic import 要跨若干段微任务/宏任务才落地；这里轮询到页面出现为止
-     * （最多 120 个宏任务 —— 页面依赖变多后 32 个在冷启动时会停在「加载中…」；超时仍让断言如实失败，而不是挂住）。
+     * lazy() 的 dynamic import 要跨真实的模块加载；用 `setTimeout(0)` 空转 120 次只是
+     * 让出 120 次事件循环，实际耗时可能不到 1ms —— 页面依赖变多后（插件页现在要加载
+     * 模型卡片、provider 同步、覆盖表等），冷启动时会在「加载中…」上停住。
+     *
+     * 所以改成**按时间**等：最多 10 秒，每 50ms 看一次。真实 import 完成就会立刻跳出，
+     * 不会白等满 10 秒；超时仍然让断言如实失败，而不是挂住。
      */
-    for (let index = 0; index < 120; index += 1) {
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline) {
       if (host.querySelector('[data-ui-page="plugins"]')) break
       await act(async () => {
-        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+        await new Promise<void>((resolve) => setTimeout(resolve, 50))
       })
     }
     expect(host.querySelector('[data-ui-page="plugins"]')).not.toBeNull()

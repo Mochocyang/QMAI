@@ -62,6 +62,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "net:https": "访问网络",
   "net:listen": "在本机开一个端口",
     "net:credential-vault": "保存并读取登录凭证",
+    "net:login-window": "关闭登录窗口",
   "llm:use": "调用模型",
   "data:write": "写入插件数据",
 }
