@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>WorkBuddy 插件 provider 卡片 · 设计方案</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #ece9e3; color: #2b2925; line-height: 1.65; padding: 32px 24px 60px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  h1 { font-size: 21px; font-weight: 600; margin-bottom: 6px; }
+  .sub { font-size: 13px; color: #6d6a63; margin-bottom: 30px; }
+  .step-title {
+    font-size: 14px; font-weight: 600; margin: 34px 0 12px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .num {
+    display: inline-grid; place-items: center; width: 22px; height: 22px;
+    border-radius: 50%; background: #3a3a34; color: #fff; font-size: 12px; font-weight: 600;
+  }
+  .card {
+    background: #faf9f6; border: 1px solid #d9d6cf; border-radius: 14px;
+    padding: 22px 24px; box-shadow: 0 3px 14px rgba(0,0,0,.05);
+  }
+  /* 卡片头 */
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+  .head-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .caret { color: #8a867f; font-size: 11px; }
+  .prov-name { font-size: 15px; font-weight: 600; }
+  .badge {
+    font-size: 11px; padding: 1px 7px; border-radius: 999px; font-weight: 500; white-space: nowrap;
+  }
+  .b-ok { background: #e3f2e6; color: #1d6b37; }
+  .b-saved { background: #eef0f3; color: #4b5563; }
+  .b-plugin { background: #e8e6f8; color: #4a3f9e; }
+  .b-warn { background: #fdf0d9; color: #8a5a10; }
+  .b-off { background: #f2f0ec; color: #6d6a63; }
+
+  /* 开关 */
+  .sw {
+    width: 38px; height: 22px; border-radius: 999px; background: #3a3a34;
+    position: relative; flex: none;
+  }
+  .sw::after {
+    content: ""; position: absolute; top: 3px; right: 3px;
+    width: 16px; height: 16px; border-radius: 50%; background: #fff;
+  }
+  .sw.off { background: #c9c5bd; }
+  .sw.off::after { right: auto; left: 3px; }
+
+  /* 字段 */
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .field { margin-bottom: 18px; }
+  .field:last-child { margin-bottom: 0; }
+  .label { font-size: 12.5px; color: #4a4741; margin-bottom: 6px; font-weight: 500; }
+  .label .opt { color: #99948b; font-weight: 400; font-size: 11.5px; }
+  .inp, .sel {
+    width: 100%; border: 1px solid #d3cfc7; border-radius: 8px; background: #fff;
+    padding: 9px 11px; font-size: 13px; color: #2b2925; font-family: inherit;
+  }
+  .inp.ro { background: #f4f2ee; color: #6d6a63; }
+  .hint { font-size: 11.5px; color: #8a867f; margin-top: 5px; }
+
+  /* 模型区 */
+  .models-box {
+    border: 1px solid #d3cfc7; border-radius: 8px; background: #fff;
+    padding: 8px; min-height: 46px; display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-start;
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: #f0eee9; border: 1px solid #e0ddd6; border-radius: 6px;
+    padding: 3px 7px; font-size: 12px; color: #3a3630; max-width: 100%;
+  }
+  .chip .x { color: #9a958c; font-size: 13px; cursor: default; line-height: 1; }
+  .chip .meta { color: #8a867f; font-size: 10.5px; }
+  .models-add { display: flex; gap: 8px; margin-top: 8px; }
+  .models-add .inp { flex: 1; }
+  .btn {
+    border: 1px solid #d3cfc7; background: #fff; border-radius: 8px;
+    padding: 8px 14px; font-size: 12.5px; cursor: default; white-space: nowrap;
+    font-family: inherit; color: #3a3630;
+  }
+  .btn.primary { background: #3a3a34; color: #fff; border-color: #3a3a34; font-weight: 500; }
+  .btn.ghost { background: transparent; border-color: transparent; color: #4a7c59; }
+  .btn:disabled, .btn.dim { background: #f2f0ec; color: #a9a49b; border-color: #e2dfd8; }
+
+  .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+
+  /* 下拉浮层 */
+  .dropdown {
+    border: 1px solid #d3cfc7; border-radius: 10px; background: #fff;
+    box-shadow: 0 10px 26px rgba(0,0,0,.13); margin-top: 8px; overflow: hidden;
+  }
+  .dd-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 12px; border-bottom: 1px solid #eceae5; font-size: 12px; color: #4a4741;
+  }
+  .dd-search { padding: 8px 12px; border-bottom: 1px solid #eceae5; }
+  .dd-search .inp { padding: 6px 9px; font-size: 12.5px; }
+  .dd-list { max-height: 250px; overflow-y: auto; padding: 5px; }
+  .dd-item {
+    display: flex; align-items: center; gap: 9px; padding: 6px 8px;
+    border-radius: 6px; font-size: 12.5px;
+  }
+  .dd-item:hover { background: #f6f4f0; }
+  .dd-item .box {
+    width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid #c9c5bd;
+    flex: none; display: grid; place-items: center; font-size: 10px; color: #fff;
+  }
+  .dd-item .box.on { background: #3a3a34; border-color: #3a3a34; }
+  .dd-item .ctx { margin-left: auto; color: #9a958c; font-size: 11px; }
+  .dd-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 12px; border-top: 1px solid #eceae5; background: #fbfaf7; font-size: 12px;
+  }
+
+  /* 状态条 */
+  .status {
+    border-radius: 8px; padding: 9px 12px; font-size: 12.5px; margin-top: 12px;
+  }
+  .s-ok { background: #e9f5ec; border: 1px solid #c6e3ce; color: #1d6b37; }
+  .s-run { background: #eef2fb; border: 1px solid #ccd8f0; color: #2c4b8c; }
+  .s-err { background: #fdeceb; border: 1px solid #f3cdc9; color: #a12d20; }
+  .s-info { background: #f5f3ee; border: 1px solid #e2dfd8; color: #5c584f; }
+
+  .foot {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 20px; padding-top: 16px; border-top: 1px solid #eceae5;
+  }
+  .foot .note { font-size: 11.5px; color: #8a867f; }
+  .foot .right { display: flex; gap: 10px; }
+  .trash { color: #a12d20; font-size: 16px; }
+
+  .anno {
+    font-size: 12px; color: #6d6a63; background: #fff8e6;
+    border: 1px solid #ecdcae; border-radius: 8px; padding: 10px 13px; margin-top: 12px;
+  }
+  .anno b { color: #574a18; }
+  code { background: #efece6; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+  .kv { font-size: 12.5px; color: #4a4741; }
+  .kv div { padding: 3px 0; }
+  .kv b { color: #2b2925; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>WorkBuddy 插件 provider 卡片 · 设计方案</h1>
+<div class="sub">完整编辑器 · 41 个真实模型 · 拉取 / 勾选 / 测试 / 保存 —— 请逐段确认</div>
+
+<!-- ① 默认状态 -->
+<div class="step-title"><span class="num">1</span>已登录 · 默认状态（41 个模型已就绪）</div>
+<div class="card">
+  <div class="head">
+    <div class="head-left">
+      <span class="caret">▾</span>
+      <span class="prov-name">WorkBuddy 国内版</span>
+      <span class="badge b-saved">已保存</span>
+      <span class="badge b-ok">已启用</span>
+      <span class="badge b-plugin">插件</span>
+    </div>
+    <div class="sw"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="field">
+      <div class="label">配置名称</div>
+      <input class="inp" value="WorkBuddy 国内版">
+    </div>
+    <div class="field">
+      <div class="label">账号状态</div>
+      <input class="inp ro" value="✅ 已登录 · 小明（uid-1）" readonly>
+    </div>
+  </div>
+
+  <div class="field">
+    <div class="label">模型 <span class="opt">共 41 个 · 点 × 移除 · 下面输入框可加</span></div>
+    <div class="models-box">
+      <span class="chip">DeepSeek-V4.1-Flash <span class="x">×</span></span>
+      <span class="chip">GLM-5.3-Flash <span class="x">×</span></span>
+      <span class="chip">Kimi-K3 <span class="x">×</span></span>
+      <span class="chip">MiniMax-M3.1-Flash <span class="x">×</span></span>
+      <span class="chip">Hunyuan-Turbos <span class="x">×</span></span>
+      <span class="chip" style="color:#8a867f;background:#f8f7f4">… 其余 36 个</span>
+    </div>
+    <div class="models-add">
+      <input class="inp" placeholder="输入模型名称，按回车添加">
+      <button class="btn">添加</button>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn">⟳ 拉取模型</button>
+    <button class="btn">测试连接</button>
+    <button class="btn">测试功能</button>
+  </div>
+
+  <div class="grid2" style="margin-top:18px">
+    <div class="field">
+      <div class="label">上下文窗口 <span class="opt">tokens</span></div>
+      <input class="inp ro" value="1,000,000（自动检测）" readonly>
+    </div>
+    <div class="field">
+      <div class="label">输出上限 <span class="opt">tokens</span></div>
+      <input class="inp ro" value="32,000（自动检测）" readonly>
+    </div>
+  </div>
+
+  <div class="foot">
+    <div class="note">上下文与输出上限来自插件上报，可手动改；改完点「保存配置」。</div>
+    <div class="right">
+      <span class="trash">🗑</span>
+      <button class="btn primary">保存配置</button>
+    </div>
+  </div>
+</div>
+
+<div class="anno">
+  <b>① 说明</b>：模型框里是 <b>41 个真实模型名</b>（不是"workbuddy国内版"四个字）。
+  "WorkBuddy 国内版" 是<b>配置名称</b>那一栏，可改。<br>
+  <b>API 密钥栏已移除</b> —— token 存在宿主机密箱，界面不显示、也不该显示。原位置换成「账号状态」。
+</div>
+
+<!-- ② 拉取模型 -->
+<div class="step-title"><span class="num">2</span>点「拉取模型」→ 弹出勾选框</div>
+<div class="card">
+  <div class="field">
+    <div class="label">模型 <span class="opt">从插件 /v1/models 拉了 41 个</span></div>
+    <div class="models-box">
+      <span class="chip">DeepSeek-V4.1-Flash <span class="x">×</span></span>
+      <span class="chip">GLM-5.3-Flash <span class="x">×</span></span>
+      <span class="chip">Kimi-K3 <span class="x">×</span></span>
+    </div>
+    <div class="models-add">
+      <input class="inp" placeholder="输入模型名称，按回车添加">
+      <button class="btn">添加</button>
+    </div>
+  </div>
+
+  <div class="dropdown">
+    <div class="dd-head">
+      <span>选择要启用的模型</span>
+      <span style="color:#8a867f">已选 3 / 41</span>
+    </div>
+    <div class="dd-search">
+      <input class="inp" placeholder="搜索模型名…">
+    </div>
+    <div class="dd-list">
+      <div class="dd-item"><span class="box on">✓</span>DeepSeek-V4.1-Flash<span class="ctx">256K</span></div>
+      <div class="dd-item"><span class="box on">✓</span>GLM-5.3-Flash<span class="ctx">128K</span></div>
+      <div class="dd-item"><span class="box on">✓</span>Kimi-K3<span class="ctx">256K</span></div>
+      <div class="dd-item"><span class="box"></span>DeepSeek-V4-Pro<span class="ctx">256K</span></div>
+      <div class="dd-item"><span class="box"></span>Hunyuan-Turbos<span class="ctx">128K</span></div>
+      <div class="dd-item"><span class="box"></span>MiniMax-M3.1-Flash<span class="ctx">200K</span></div>
+      <div class="dd-item"><span class="box"></span>Step-5-Preview<span class="ctx">128K</span></div>
+      <div class="dd-item" style="color:#9a958c">… 其余 34 个（可搜索）</div>
+    </div>
+    <div class="dd-foot">
+      <div style="display:flex;gap:12px">
+        <span style="color:#4a7c59">全选</span>
+        <span style="color:#4a7c59">清空</span>
+      </div>
+      <button class="btn primary">确定（3）</button>
+    </div>
+  </div>
+
+  <div class="status s-ok">✅ 模型列表已刷新，共 41 个。勾选的 3 个已加入上方模型框。</div>
+</div>
+
+<div class="anno">
+  <b>② 说明</b>：这是你说的"拉取并选择"。<br>
+  · 每个模型右侧显示<b>上下文窗口</b>，帮你判断该选哪个；<br>
+  · <b>已选状态持久化</b> —— 插件下次刷新模型时不会覆盖你的选择；<br>
+  · 搜索框支持按名字过滤（41 个不搜索会很长）。
+</div>
+
+<!-- ③ 测试 -->
+<div class="step-title"><span class="num">3</span>「测试连接 / 测试功能」的状态</div>
+<div class="card" style="padding-bottom:16px">
+  <div class="actions" style="margin-top:0">
+    <button class="btn dim">⟳ 拉取模型</button>
+    <button class="btn dim">测试连接</button>
+    <button class="btn dim">测试功能</button>
+  </div>
+
+  <div class="status s-run">⏳ 正在测试 2/3：GLM-5.3-Flash…</div>
+
+  <div style="height:14px"></div>
+
+  <div class="status s-ok">✅ 连接测试通过（3/3）。当前配置尚未保存。</div>
+
+  <div style="height:10px"></div>
+
+  <div class="status s-err">⚠️ 测试完成，2/3 通过。<br>
+    Step-5-Preview：上游返回 404 model_not_found（该模型可能已下线）</div>
+
+  <div style="height:10px"></div>
+
+  <div class="status s-info">ℹ️ <b>测试连接</b>：发一句话看模型能否正常回复。<br>
+    <b>测试功能</b>：发一个带工具调用的请求，验证模型会不会正确调用工具（决定它能不能在 AI 对话里查资料、改文件）。</div>
+
+  <div class="anno" style="margin-top:14px">
+    <b>③ 说明</b>：逐个模型测，失败的那个<b>单独标红</b>，不连累其它模型。<br>
+    测完会提示"当前配置尚未保存" —— 测试只验能不能用，不改配置。
+  </div>
+</div>
+
+<!-- ④ 未登录 -->
+<div class="step-title"><span class="num">4</span>未登录状态（首次安装）</div>
+<div class="card">
+  <div class="head">
+    <div class="head-left">
+      <span class="caret">▾</span>
+      <span class="prov-name">WorkBuddy 国内版</span>
+      <span class="badge b-warn">未登录</span>
+      <span class="badge b-plugin">插件</span>
+    </div>
+    <div class="sw off"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="field">
+      <div class="label">配置名称</div>
+      <input class="inp" value="WorkBuddy 国内版">
+    </div>
+    <div class="field">
+      <div class="label">账号状态</div>
+      <input class="inp ro" value="⚠️ 还没有登录 WorkBuddy 账号" readonly>
+    </div>
+  </div>
+
+  <div class="field">
+    <div class="label">模型</div>
+    <div class="models-box" style="align-items:center;color:#9a958c;font-size:12.5px">
+      登录后会自动拉取模型（41 个）
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="btn primary">登录 WorkBuddy</button>
+    <button class="btn">⟳ 拉取模型</button>
+  </div>
+
+  <div class="anno" style="margin-top:14px">
+    <b>④ 说明</b>：没登录时模型区是<b>说明</b>而不是空白 —— 空白会被误读成"坏了"。<br>
+    主按钮直接是「登录 WorkBuddy」，点开就是受控登录窗口。
+  </div>
+</div>
+
+<!-- ⑤ 保存后 -->
+<div class="step-title"><span class="num">5</span>点「保存配置」之后</div>
+<div class="card">
+  <div class="head">
+    <div class="head-left">
+      <span class="caret">▾</span>
+      <span class="prov-name">WorkBuddy 国内版</span>
+      <span class="badge b-saved">已保存</span>
+      <span class="badge b-ok">已启用</span>
+      <span class="badge b-plugin">插件</span>
+    </div>
+    <div class="sw"></div>
+  </div>
+
+  <div class="kv">
+    <div><b>生效内容</b>：配置名称、模型清单（3 个）、上下文窗口、输出上限、启用状态</div>
+    <div><b>存到哪里</b>：宿主 <code>app-state.json</code> 的覆盖表（与插件数据分离）</div>
+    <div><b>立刻可见</b>：AI 对话的模型下拉里出现这 3 个模型，可选、可切换</div>
+  </div>
+
+  <div class="status s-ok" style="margin-top:14px">✅ 配置已保存。3 个模型现在可以在 AI 对话里选择了。</div>
+
+  <div class="anno" style="margin-top:14px">
+    <b>⑤ 说明</b>：保存后模型出现在对话的模型选择器里，切过去就能用来写作。
+  </div>
+</div>
+
+<!-- 待确认 -->
+<div class="step-title"><span class="num">?</span>需要你确认的 4 个设计点</div>
+<div class="card">
+  <div class="kv">
+    <div><b>1. 41 个模型全勾选，还是默认只勾几个？</b><br>
+      <span style="color:#6d6a63">我建议：<b>首次登录全选</b>（用户登录就是为了用），之后按用户的勾选保存。</span></div>
+    <div style="margin-top:10px"><b>2. 「测试连接 / 测试功能」要不要逐个测 41 个？</b><br>
+      <span style="color:#6d6a63">我建议：<b>只测已勾选的</b>。41 个全测要几十秒且烧额度。</span></div>
+    <div style="margin-top:10px"><b>3. 上下文窗口/输出上限：自动检测值可改吗？</b><br>
+      <span style="color:#6d6a63">我建议：<b>可改</b>（有些模型上报值不准，用户得更正），留空则用插件上报值。</span></div>
+    <div style="margin-top:10px"><b>4. 模型框里显示多少个 chip？</b><br>
+      <span style="color:#6d6a63">我建议：<b>全部显示</b>（可横向换行，最多 4~5 行后内部滚动）。你截图里那种一行铺开的样子。</span></div>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

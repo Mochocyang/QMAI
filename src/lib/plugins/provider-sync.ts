@@ -32,6 +32,11 @@ import type { PluginProviderModel, PluginProviderView } from "./types"
  * 这里 re-export，调用方 API 不变。
  */
 export { isPluginProviderInjected } from "./provider-registry"
+import {
+  forgetPluginProviderOverrides,
+  getPluginProviderOverride,
+  mergePluginProviderConfig,
+} from "./provider-overrides"
 
 /** 最近一次 `plugins_providers()` 的快照，供设置页渲染运行期卡片（含未就绪的）。 */
 let providerViews: PluginProviderView[] = []
@@ -139,13 +144,20 @@ export async function syncPluginProviders(): Promise<{ added: string[]; removed:
     if (markPluginProviderInjected(provider.providerId)) {
       added.push(provider.providerId)
     }
-    next[provider.providerId] = config
+    /*
+     * 用户可能改过名称 / 勾选的模型 / 窗口大小。这些改动存在覆盖表里，
+     * 必须在这里合并 —— 否则每次刷新（启动、重启插件、点拉取模型）都会
+     * 把用户的设置整条冲掉，而且界面上看不出发生过什么。
+     */
+    next[provider.providerId] = mergePluginProviderConfig(config, getPluginProviderOverride(provider.providerId))
   }
 
   for (const id of listInjectedPluginProviderIds()) {
     if (readyIds.has(id)) continue
     // 从登记表里摘掉，同时清 token：插件停了，旧 token 立刻失效（设计 §7 第 4 条）。
     unmarkPluginProviderInjected(id)
+    // 插件没了，它的覆盖也不该留着（重装回来会带着上一个账号的改法）。
+    forgetPluginProviderOverrides(id)
     if (Object.prototype.hasOwnProperty.call(next, id)) {
       delete next[id]
       removed.push(id)
