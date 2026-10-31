@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>WorkBuddy 插件 v5 设计方案（额度池）</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:#ece9e3;color:#2b2925;line-height:1.65;padding:32px 24px 60px}
+.wrap{max-width:1120px;margin:0 auto}
+h1{font-size:21px;font-weight:600}.sub{font-size:13px;color:#6d6a63;margin:6px 0 28px}
+.step{font-size:14px;font-weight:600;margin:30px 0 12px;display:flex;align-items:center;gap:10px}
+.num{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#3a3a34;color:#fff;font-size:12px}
+.card{background:#faf9f6;border:1px solid #d9d6cf;border-radius:14px;padding:20px 22px;box-shadow:0 3px 14px rgba(0,0,0,.05);margin-bottom:14px}
+.label{font-size:12.5px;color:#4a4741;margin-bottom:6px;font-weight:500}
+.row{display:flex;align-items:center;gap:8px}
+.pool{border:1px solid #d3cfc7;border-radius:10px;background:#fff;padding:12px 14px}
+.arow{display:flex;align-items:center;gap:10px;border:1px solid #e6e1d8;border-radius:8px;padding:8px 10px;margin-top:8px;font-size:13px}
+.dot{width:8px;height:8px;border-radius:50%;background:#1d9d57;flex:none}
+.dot.bad{background:#d92d20}.dot.warn{background:#e6a23c}
+.bar{height:6px;border-radius:99px;background:#efece6;margin-top:6px;position:relative}
+.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:99px;background:#1d9d57}
+.bar i.w{background:#e6a23c}.bar i.b{background:#d92d20}
+.q{font-size:11.5px;color:#8a867f}
+.cur{font-size:11px;color:#fff;background:#1d6b37;border-radius:99px;padding:1px 8px}
+.seq{display:flex;align-items:center;gap:6px;margin:14px 0;font-size:13px}
+.seq .b{border:1px solid #d3cfc7;border-radius:8px;background:#fff;padding:6px 12px;font-size:12.5px}
+.seq .t{color:#9a958c;font-size:11.5px;text-align:center;line-height:1.4}
+.dead{border:1px dashed #e0a3a3;border-radius:8px;background:#fdf3f3;padding:10px 12px;margin-top:10px;font-size:12.5px;color:#a12d20}
+.note{font-size:12px;color:#6d6a63;background:#fff8e6;border:1px solid #ecdcae;border-radius:8px;padding:10px 13px;margin-top:12px}
+.note b{color:#574a18}
+.btn{border:1px solid #d3cfc7;background:#fff;border-radius:8px;padding:8px 14px;font-size:12.5px;font-family:inherit;color:#3a3630}
+.btn.primary{background:#3a3a34;color:#fff;border-color:#3a3a34}
+</style></head>
+<body><div class="wrap">
+<h1>WorkBuddy 插件 v5 设计方案（额度池自动故障转移）</h1>
+<div class="sub">多账号 = 一个额度池，无手动切换；A 用完自动切 B，顺序按加入先后</div>
+
+<div class="step"><span class="num">1</span>账号区：额度池（无切换按钮）</div>
+<div class="card">
+<div class="label">已登录账号 · 同平台额度池（按加入顺序自动故障转移）</div>
+<div class="pool">
+<div class="arow"><span class="dot"></span><span><b>Yang</b> · uid-1</span><span class="cur">当前生效</span><span class="q" style="margin-left:auto">剩余额度 62%</span></div>
+<div class="bar"><i style="width:62%"></i></div>
+<div class="arow"><span class="dot warn"></span><span><b>Ming</b> · uid-2</span><span class="q" style="margin-left:auto">剩余额度 18%</span></div>
+<div class="bar"><i class="w" style="width:18%"></i></div>
+<div class="arow"><span class="dot bad"></span><span><b>Lei</b> · uid-3</span><span class="q" style="margin-left:auto">额度已用完 · 自动跳过</span></div>
+<div class="bar"><i class="b" style="width:2%"></i></div>
+<div style="margin-top:10px"><button class="btn">＋ 登录新账号</button> <button class="btn">退出所选账号</button></div>
+</div>
+</div>
+<div class="note"><b>规则：</b>1) 无手动“切换”按钮，「当前生效」只是状态展示，不是可选项。<br>2) 新增与退出保留：＋登录新账号 / 退出（按行删）。<br>3) 额度条为示意：插件按最近请求成功率估算剩余状态，失败即降级。</div>
+
+<div class="step"><span class="num">2</span>运行时序：A 用完自动切 B（以 DeepSeek V4.1 为例）</div>
+<div class="card">
+<div class="seq"><span class="b">用户选 DeepSeek V4.1</span><span>→</span><span class="b">Yang 发起请求</span><span>→</span><span class="b" style="border-color:#d92d20;color:#a12d20">Yang 返回 429 / 余额不足</span></div>
+<div class="seq"><span class="t">插件捕获<br>可重试错误</span><span>→</span><span class="b">同模型用 Ming 重试一次</span><span>→</span><span class="b" style="border-color:#1d6b37;color:#1d6b37">Ming 成功，流式返回</span></div>
+<div class="seq"><span class="t">下一次请求<br>直接从</span><span>→</span><span class="b">Ming 开始（Yang 被临时置后）</span><span>→</span><span class="b">Yang 恢复后自动回前</span></div>
+<div class="dead">连续失败兜底：池内账号全部失败 → 返回最后一次的真实错误（如“三个账号均余额不足”），不编造、不静默降级。</div>
+</div>
+<div class="note"><b>规则：</b>1) 同一模型、同一请求内重试，用户无感知（首字延迟增加一次重试耗时）。<br>2) 跨请求记忆：失败账号临时置后，恢复后自动回前，无需手动干预。<br>3) 仅对“可重试错误”（429 / 5xx / 余额不足 / 网络抖动）换账号重试；401（token 失效）走刷新，刷新失败才换下一个。</div>
+
+<div class="step"><span class="num">3</span>与 v4 的差异</div>
+<div class="card"><div style="font-size:12.5px">1. 删除“点击切换 / 使用中”手动切换语义，改为状态展示。<br>2. 新增按账号的失败记忆与自动排序（内存 + 持久化冷却时间）。<br>3. 新增“全部失败”兜底文案。<br>4. 额度条为估算展示，不承诺精确；精确余额走“余额查询”按钮（如插件支持）。</div></div>
+
+<div class="step"><span class="num">?</span>请确认三点</div>
+<div class="card"><div style="font-size:12.5px">1. 重试顺序固定按加入先后，可以吗。<br>2. 同一请求最多重试次数 = 账号数减一（3 个账号最多重试 2 次），可以吗。<br>3. 失败账号冷却 10 分钟后自动回池，可以吗。</div></div>
+</div></body></html>

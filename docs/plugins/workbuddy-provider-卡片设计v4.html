@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>WorkBuddy 插件 v4 设计方案</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:#ece9e3;color:#2b2925;line-height:1.65;padding:32px 24px 60px}
+.wrap{max-width:1120px;margin:0 auto}
+h1{font-size:21px;font-weight:600}.sub{font-size:13px;color:#6d6a63;margin:6px 0 28px}
+.step{font-size:14px;font-weight:600;margin:30px 0 12px;display:flex;align-items:center;gap:10px}
+.num{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#3a3a34;color:#fff;font-size:12px}
+.card{background:#faf9f6;border:1px solid #d9d6cf;border-radius:14px;padding:20px 22px;box-shadow:0 3px 14px rgba(0,0,0,.05);margin-bottom:14px}
+.label{font-size:12.5px;color:#4a4741;margin-bottom:6px;font-weight:500}
+.inp{width:100%;border:1px solid #d3cfc7;border-radius:8px;background:#fff;padding:9px 11px;font-size:13px;font-family:inherit}
+.row2{display:grid;grid-template-columns:1fr 280px;gap:16px;margin-top:16px}
+.acct{border:1px solid #d3cfc7;border-radius:8px;background:#fff;padding:9px 11px;font-size:13px;display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;background:#1d9d57;flex:none}
+.slider{height:6px;border-radius:99px;background:linear-gradient(90deg,#4a3f9e 0 100%,#e5e1da 0);position:relative;margin:10px 0 4px}
+.slider i{position:absolute;right:-1px;top:50%;width:14px;height:14px;border-radius:50%;background:#3a3a34;transform:translateY(-50%)}
+.scale{display:flex;justify-content:space-between;font-size:11px;color:#9a958c}
+.bar{border:1px solid #e2dfd8;border-radius:10px;background:#fff;padding:12px 14px;display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.tag{font-size:11px;padding:1px 7px;border-radius:999px;background:#eef0f3;color:#4b5563}
+.sw{width:38px;height:22px;border-radius:999px;background:#3a3a34;position:relative;flex:none;margin-left:auto}
+.sw::after{content:"";position:absolute;top:3px;right:3px;width:16px;height:16px;border-radius:50%;background:#fff}
+.shell{border:1px solid #e8e4dc;border-radius:12px;background:#fff;min-height:420px;display:grid;place-items:center;padding:40px}
+.login{width:420px;background:#fff;border:1px solid #e5e1db;border-radius:16px;padding:32px;box-shadow:0 12px 40px rgba(0,0,0,.10);text-align:left}
+.login h2{font-size:18px;margin-bottom:10px}.login p{font-size:13px;color:#5c584f}
+.login .btn{display:block;width:100%;margin-top:16px;background:#146bff;color:#fff;border:0;border-radius:10px;padding:12px;font-size:14px}
+.acctrow{display:flex;align-items:center;gap:8px;border:1px solid #e3dfd8;border-radius:8px;padding:8px 10px;margin-top:8px;font-size:13px}
+.acctrow .cur{margin-left:auto;font-size:11px;color:#1d6b37}
+.note{font-size:12px;color:#6d6a63;background:#fff8e6;border:1px solid #ecdcae;border-radius:8px;padding:10px 13px;margin-top:12px}
+.note b{color:#574a18}
+.btn{border:1px solid #d3cfc7;background:#fff;border-radius:8px;padding:8px 14px;font-size:12.5px;font-family:inherit;color:#3a3630}
+.btn.primary{background:#3a3a34;color:#fff;border-color:#3a3a34}
+</style></head>
+<body><div class="wrap">
+<h1>WorkBuddy 插件 v4 设计方案</h1>
+<div class="sub">上下文常展、设置同构、登录外置置顶、单账号名、多账号、登录页居中</div>
+
+<div class="step"><span class="num">1</span>上下文窗口：默认展开，与内置同构</div>
+<div class="card">
+<div class="label">上下文窗口</div><div style="font-size:13px">1.0M tokens</div>
+<div class="slider"><i></i></div>
+<div class="scale"><span>200K</span><span>256K</span><span>300K</span><span>400K</span><span>512K</span><span>1M</span></div>
+<div class="label" style="margin-top:14px">输出上限</div><div style="font-size:13px">384K tokens</div>
+<div class="slider"><i></i></div>
+<div class="scale"><span>48K</span><span>64K</span><span>128K</span><span>256K</span><span>384K</span></div>
+<div style="margin-top:12px;font-size:12.5px">▸ 高级选项 · 工具调用与推理</div>
+</div>
+<div class="note"><b>改动：</b>插件卡片去掉“点击展开”，上下文与输出上限<b>默认全部展开</b>，滑杆、刻度、说明文案与你第三张截图逐项一致。</div>
+
+<div class="step"><span class="num">2</span>登录入口外置并置顶</div>
+<div class="card">
+<div class="bar"><span>＋ 添加提供方</span><span style="margin-left:12px">＋ 添加自定义模型</span></div>
+<div class="bar"><span>⛩ WorkBuddy 国内版</span><span class="tag">插件</span><span class="tag">已保存</span><span class="tag">Yang</span><span class="sw"></span></div>
+<div style="margin-top:10px"><button class="btn primary">登录 / 管理账号</button> <button class="btn">⟳ 刷新模型</button></div>
+</div>
+<div class="note"><b>改动：</b>1) 插件区从页面最底部移到<b>“添加提供方 / 添加自定义模型”正下方、第一层</b>。<br>2) “登录/设置”不再藏在折叠行里，独立成行按钮，常驻可见。</div>
+
+<div class="step"><span class="num">3</span>账号：只显示名 + 支持多账号</div>
+<div class="card">
+<div class="row2"><div><div class="label">配置名称</div><input class="inp" value="WorkBuddy 国内版" style="max-width:420px"></div>
+<div><div class="label">账号状态</div><div class="acct"><span class="dot"></span><span>Yang</span></div></div></div>
+<div class="label" style="margin-top:14px">已登录账号（可切换 / 可新增）</div>
+<div class="acctrow"><span>●</span><span><b>Yang</b> · uid-1 · 当前使用</span><span class="cur">使用中</span></div>
+<div class="acctrow"><span>○</span><span><b>Ming</b> · uid-2</span><span class="cur" style="color:#6d6a63">点击切换</span></div>
+<div style="margin-top:10px"><button class="btn">＋ 登录新账号</button> <button class="btn">退出当前账号</button></div>
+</div>
+<div class="note"><b>改动：</b>1) 折叠行与账号状态只显示昵称，如“Yang”，不显示完整 uid。<br>2) 支持多账号并存：列表可切换当前账号、可新增、可退出；token 按账号隔离存放。</div>
+
+<div class="step"><span class="num">4</span>登录页居中美化</div>
+<div class="card"><div class="shell"><div class="login">
+<h2>WorkBuddy 账号登录</h2>
+<p>1. 点下面按钮，在登录页完成登录（窗口只允许跳转腾讯 / WorkBuddy 域名）。</p>
+<p>2. 登录成功后凭证自动存入加密凭证箱，模型列表随之刷新。多账号可重复此流程追加。</p>
+<button class="btn">登录 WorkBuddy 账号</button>
+<button class="btn" style="background:#fff;color:#3a3630;border:1px solid #d3cfc7">＋ 换个账号登录</button>
+</div></div></div>
+<div class="note"><b>改动：</b>登录页整体居中卡片化：标题、两步说明、主按钮、次按钮“换个账号登录”，不再是顶对齐的裸文字。</div>
+
+<div class="step"><span class="num">?</span>请确认三点</div>
+<div class="card"><div style="font-size:12.5px">1. 多账号上限是否设为 5 个，超限需先退出一个，可以吗。<br>2. “当前使用”账号切换后是否立即刷新模型，可以吗。<br>3. 登录页次按钮文案用“换个账号登录”，可以吗。</div></div>
+</div></body></html>
