@@ -25,7 +25,7 @@ vi.mock("@/lib/plugins/api", () => ({
     providerOpenLogin: vi.fn(async () => undefined),
     providerCall: vi.fn(async () => ({})),
     submitProviderCredential: vi.fn(async () => ({ ok: true })),
-    // v3：账号状态走插件的 get_account 工具（invokeTool 通道）。
+    // 账号列表走插件的 get_account 工具（invokeTool 通道）。
     invokeTool: vi.fn(async () => ""),
   },
 }))
@@ -945,7 +945,7 @@ describe("PluginProviderCard", () => {
   /* ================================================================== *
    * v3：与自定义提供方卡片视觉同构
    *
-   * 折叠行 / chip 小开关 / 账号状态 / 上下文文字行 / 冗余删除，
+   * 折叠行 / chip（用户标注3 后只剩「名称 + ×」）/ 配置名称收窄 / 冗余删除，
    * 每条用例都对着 docs/plugins/workbuddy-provider-卡片设计v3.html 的对齐点。
    * ================================================================== */
 
@@ -977,47 +977,22 @@ describe("PluginProviderCard", () => {
     expect(host.querySelector('[data-plugin-badge="unready"]')?.textContent).toContain("未就绪")
   })
 
-  it("v3-2) chip 小开关：关掉变灰但保留（并从 selectedModels 移除），点 × 才移除", async () => {
+  it("v3-2) chip 只含「名称 + ×」：小开关整块删除，点 × 才从 selectedModels 移除", async () => {
     renderCard({ models: modelsOf(["model-a", "model-b"]) })
 
-    const toggle = host.querySelector<HTMLButtonElement>('[data-plugin-chip-toggle="model-a"]')!
-    expect(toggle.getAttribute("aria-pressed")).toBe("true")
+    /*
+     * 用户标注3：v3 的 chip 右侧小开关（CHIP_TOGGLE_STYLE / aria-pressed 那套）整块
+     * 删除，灰 chip 保留逻辑随之消失 —— chip 里唯一的按钮就是「×」。
+     */
+    const chip = host.querySelector<HTMLElement>('[data-plugin-chip="model-a"]')!
+    expect(chip.querySelector('[data-plugin-chip-toggle="model-a"]')).toBeNull()
+    expect(chip.querySelectorAll("button")).toHaveLength(1)
+    expect(chip.querySelectorAll("button")[0]!.getAttribute("data-plugin-chip-remove")).toBe("model-a")
 
-    // 关：chip 保留变灰，模型从 selectedModels 移除（聊天里不再出现）。
-    await click(toggle)
-    expect(host.querySelector('[data-plugin-chip="model-a"]')).toBeTruthy()
-    expect(
-      host.querySelector<HTMLElement>('[data-plugin-chip="model-a"]')?.getAttribute("data-plugin-chip-disabled"),
-    ).toBe("true")
-    expect(
-      host.querySelector<HTMLButtonElement>('[data-plugin-chip-toggle="model-a"]')?.getAttribute("aria-pressed"),
-    ).toBe("false")
-    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual(["model-b"])
-
-    // 再开：写回 selectedModels，chip 恢复。
-    await click(host.querySelector<HTMLButtonElement>('[data-plugin-chip-toggle="model-a"]')!)
-    expect(
-      host.querySelector<HTMLElement>('[data-plugin-chip="model-a"]')?.getAttribute("data-plugin-chip-disabled"),
-    ).toBeNull()
-    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual(["model-b", "model-a"])
-
-    // × 才是移除：chip 整个消失。
+    // × 是唯一的移除路径：模型从 selectedModels 删掉，chip 直接消失（没有变灰保留）。
     await click(host.querySelector<HTMLElement>('[data-plugin-chip-remove="model-a"]')!)
-    expect(host.querySelector('[data-plugin-chip="model-a"]')).toBeNull()
     expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual(["model-b"])
-  })
-
-  it("v3-2b) 灰 chip 在「保存配置」时被清理（不进覆盖表，重开页面无幽灵 chip）", async () => {
-    renderCard({ models: modelsOf(["model-a", "model-b"]) })
-
-    await click(host.querySelector<HTMLButtonElement>('[data-plugin-chip-toggle="model-a"]')!)
-    await typeInto(await field("label"), "改名触发保存可用")
-    await click(find('[data-plugin-action="save"]')!)
-
-    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual(["model-b"])
-    // 保存后灰 chip 清理：卡片上只剩真正选中的 model-b。
     expect(host.querySelector('[data-plugin-chip="model-a"]')).toBeNull()
-    expect(host.querySelector('[data-plugin-chip="model-b"]')).toBeTruthy()
   })
 
   it("v3-6) 配置名称输入框收窄（v3：max-width 420px）", () => {
@@ -1032,7 +1007,8 @@ describe("PluginProviderCard", () => {
    * 对着 docs/plugins/workbuddy-provider-卡片设计v4.html 与 v5.html：
    *   · v4 §1 上下文/输出选择器默认展开（8c/8d 已覆盖，无 toggle-context）；
    *   · v4 §4a 「登录/设置」外置到折叠行头部（v4-1）；
-   *   · v4 §5.1 账号状态只显示昵称（v4-4）；
+   *   · 账号区块（用户标注1/2/4 后）：列表展示最新在前（v4-4）、「账号状态」栏
+   *     已删（v4-4b 防回归）、标题只留「已登录账号」（v5-1）；
    *   · v5 §1 额度池列表：无手动切换、可退出、可追加（v5-1/2/3）。
    * ================================================================== */
 
@@ -1070,37 +1046,54 @@ describe("PluginProviderCard", () => {
     expect(providerOpenLogin).toHaveBeenCalledWith("wb-connect")
   })
 
-  it("v4-4) 账号状态：get_account 返回多账号额度池 → 只显示当前生效账号的昵称", async () => {
+  it("v4-4) 账号列表展示最新在前：最后登录的账号排第一行，「＋ 登录新账号」按钮在列表上方", async () => {
     const invokeTool = vi.mocked(pluginsApi.invokeTool)
     invokeTool.mockResolvedValueOnce(ACCOUNT_POOL_TEXT)
     renderCard({ authKind: "browser-login", settingsPage: "/login" })
     await flushAccountFetch()
 
     expect(invokeTool).toHaveBeenCalledWith("wb-plugin", "get_account", {})
-    const account = host.querySelector('[data-plugin-field="account"]')!
-    // v4：只显示昵称（「当前生效」的那个账号），不显示完整 uid。
-    expect(account.textContent).toContain("Yang")
-    expect(account.textContent).not.toContain("uid-1")
+    const list = host.querySelector('[data-plugin-field="account-list"]')!
+    expect(list).toBeTruthy()
+    const rows = [...list.querySelectorAll("[data-plugin-account]")]
+    expect(rows).toHaveLength(2)
+    /*
+     * 用户标注1：get_account 的返回顺序 = 插件 order 数组 = 加入先后（Yang 先、
+     * Ming 后 = 最新登录）。渲染时反转：最新（Ming）排第一行。**只改展示顺序**，
+     * 重试顺序仍由插件按加入先后决定。
+     */
+    expect(rows[0]!.getAttribute("data-plugin-account")).toBe("uid-2")
+    expect(rows[0]!.textContent).toContain("Ming")
+    expect(rows[1]!.getAttribute("data-plugin-account")).toBe("uid-1")
+    expect(rows[1]!.textContent).toContain("Yang")
+    // 「＋ 登录新账号」在账号区块内、列表之前（上方）：新账号从顶部插入时按钮位置不漂移。
+    const addButton = find('[data-plugin-action="add-account"]')!
+    expect(list.contains(addButton)).toBe(true)
+    expect(
+      addButton.compareDocumentPosition(list.querySelector("ul")!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
   })
 
-  it("v4-4b) 账号状态：调用失败（未登录）→「⚠️ 还没有登录」，且不渲染额度池列表；authKind=none 不调工具", async () => {
+  it("v4-4b) 没有账号信息：账号区块整块不渲染（「账号状态」栏已删，不留占位文案）；authKind=none 不调工具", async () => {
     const invokeTool = vi.mocked(pluginsApi.invokeTool)
     invokeTool.mockRejectedValueOnce("还没有登录 WorkBuddy 账号")
     renderCard({ authKind: "browser-login", settingsPage: "/login", ready: false, models: [] })
     await flushAccountFetch()
 
-    expect(host.querySelector('[data-plugin-field="account"]')?.textContent).toContain("⚠️ 还没有登录")
-    // 没有账号就不渲染额度池列表（只有占位文案，没有空列表）。
+    // 用户标注2：row2 的「账号状态」栏已删 —— 这个字段不允许再出现。
+    expect(host.querySelector('[data-plugin-field="account"]')).toBeNull()
+    // 没有账号就不渲染额度池列表（没有空列表，也不留「还没有登录」占位说明行）。
     expect(host.querySelector('[data-plugin-field="account-list"]')).toBeNull()
 
-    // authKind=none：没有账号概念，不去调 get_account。
+    // authKind=none：没有账号概念，不去调 get_account，也不渲染任何账号区块。
     invokeTool.mockClear()
     act(() => root.unmount())
     root = createRoot(host)
     renderCard({ authKind: "none" })
     await flushAccountFetch()
     expect(invokeTool).not.toHaveBeenCalled()
-    expect(host.querySelector('[data-plugin-field="account"]')?.textContent).toContain("无需登录")
+    expect(host.querySelector('[data-plugin-field="account"]')).toBeNull()
+    expect(host.querySelector('[data-plugin-field="account-list"]')).toBeNull()
   })
 
   it("v5-5) 额度池账号列表解析：逐行取昵称/uid/状态；无账号与脏数据都返回空数组", () => {
@@ -1128,22 +1121,24 @@ describe("PluginProviderCard", () => {
 
     const list = host.querySelector('[data-plugin-field="account-list"]')!
     expect(list).toBeTruthy()
-    // v5 的标题：同平台额度池（自动故障转移，无手动切换）。
-    expect(list.textContent).toContain("同平台额度池")
+    // 用户标注4：区块标题只留「已登录账号」，长说明段（同平台额度池/自动故障转移）删除。
+    expect(list.textContent).toContain("已登录账号")
+    expect(list.textContent).not.toContain("同平台额度池")
+    expect(list.textContent).not.toContain("自动故障转移")
     const rows = [...list.querySelectorAll("[data-plugin-account]")]
     expect(rows).toHaveLength(2)
-    expect(rows[0]!.textContent).toContain("Yang")
-    expect(rows[0]!.textContent).toContain("uid-1")
-    expect(rows[0]!.textContent).toContain("当前生效")
-    expect(rows[1]!.textContent).toContain("Ming")
-    expect(rows[1]!.textContent).toContain("uid-2")
-    expect(rows[1]!.textContent).toContain("就绪")
-    // v5 核心：额度池自动故障转移，列表里没有任何手动「切换 / 使用中」**按钮**
-    // （标题里的「无手动切换」是说明文字，不算按钮）。
+    // 展示最新在前（加入先后 Yang→Ming，Ming 最新 → 第一行；反转理由见 v4-4）。
+    expect(rows[0]!.textContent).toContain("Ming")
+    expect(rows[0]!.textContent).toContain("uid-2")
+    expect(rows[0]!.textContent).toContain("就绪")
+    expect(rows[1]!.textContent).toContain("Yang")
+    expect(rows[1]!.textContent).toContain("uid-1")
+    expect(rows[1]!.textContent).toContain("当前生效")
+    // v5 核心：额度池自动故障转移，列表里没有任何手动「切换 / 使用中」**按钮**。
     const listButtons = [...list.querySelectorAll("button")].map((button) => button.textContent ?? "")
     expect(listButtons.some((text) => text.includes("切换"))).toBe(false)
     expect(listButtons.some((text) => text.includes("使用中"))).toBe(false)
-    // 每行一个退出按钮（带 uid），底部有「＋ 登录新账号」。
+    // 每行一个退出按钮（带 uid），「＋ 登录新账号」在列表上方（用户标注1）。
     expect(list.querySelector('[data-plugin-action="logout-account"][data-plugin-account-uid="uid-1"]')).toBeTruthy()
     expect(list.querySelector('[data-plugin-action="logout-account"][data-plugin-account-uid="uid-2"]')).toBeTruthy()
     expect(find('[data-plugin-action="add-account"]')?.textContent).toContain("登录新账号")

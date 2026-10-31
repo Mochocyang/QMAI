@@ -47,9 +47,8 @@
  *   1. **折叠行同构**：`model-provider-card` + `ModelConfigTitle` + `model-switch`
  *      （与 provider-custom.tsx 同一结构同一 CSS），插件身份只多一个淡紫「插件」徽标；
  *      「来自插件 xxx · N 个模型」副标题删除（那是展开态信息，不该常驻头部）。
- *   2. **chip 小开关**：关 = 从 `selectedModels` 移除（聊天里立刻消失）但 chip 变灰保留，
- *      开 = 写回；× 才移除；「保存配置」时清掉灰 chip（保存即确认）。**不新增覆盖表字段**
- *      —— 用现有 `selectedModels`/`enabled` 表达（决定来自 parent：不扩 overrides）。
+ *   2. **chip 只剩「名称 + ×」**：v3 的小开关与「关掉变灰保留」逻辑已按用户标注3
+ *      整块删除 —— chip 就是 `selectedModels`，× 是唯一移除入口，不新增覆盖表字段。
  *   3. **删除冗余**：目录提示语用截图那句「点击模型加入上方输入框，再次点击可取消。」，
  *      不再写「已从插件拉到 N 个模型…」—— 目录头的「已拉取 N · 已选择 M」就是反馈。
  *
@@ -59,13 +58,25 @@
  *      selector 竖排），「用插件上报值」重置按钮照旧。
  *   2. **登录外置**（v4 §4a）：「登录/设置」从展开区移到折叠行头部（与开关同一行、
  *      开关左侧），折叠状态下也直接可见可点；逻辑不变（authKind 分支 + openSettings）。
- *   3. **账号昵称**（v4 §5.1）：「账号状态」只显示当前生效账号的昵称（不显示完整 uid）；
+ *   3. **账号昵称**（v4 §5.1）：「账号状态」栏已按用户标注2 删除（列表区块已有昵称）；
  *      多账号解析约定见 `parseAccountList`（插件 b8a34523 起 get_account 返回额度池列表）。
- *   4. **额度池列表**（v5 §1）：展开区新增「已登录账号 · 同平台额度池」区块 —— 每行
- *      「状态点 + 昵称 + uid + 状态 + 退出」，**没有手动切换按钮**（自动故障转移，
- *      「当前生效」只是状态展示）；「＋ 登录新账号」复用登录窗口（插件侧有「换个账号登录」）。
+ *   4. **额度池列表**（v5 §1）：展开区新增「已登录账号」区块 —— 每行「状态点 + 昵称 +
+ *      uid + 状态 + 退出」，**没有手动切换按钮**（自动故障转移，「当前生效」只是状态展示）；
+ *      「＋ 登录新账号」复用登录窗口（插件侧有「换个账号登录」），放在列表上方（标注1）。
  *   5. **插件区置顶**（v4 §4b）：llm-provider-section.tsx 里插件 provider 卡片从页面
  *      底部移到「添加提供方 / 添加自定义模型」按钮行的正下方（所有卡片的第一个位置）。
+ *
+ * ── v6：用户截图标注的四处调整 ──
+ *   1. **账号列表最新在前**（标注1）：渲染时反转 `get_account` 的返回顺序（= 插件
+ *      order 数组 = 加入先后），最新登录的排第一行 —— **只改展示顺序**，重试顺序
+ *      仍由插件按加入先后决定；「＋ 登录新账号」移到列表上方（新账号从顶部插入时
+ *      按钮位置不漂移）。
+ *   2. **删「账号状态」栏**（标注2）：row2 只留配置名称（420px 窄框）；昵称由
+ *      「已登录账号」列表区块展示，不再重复。
+ *   3. **删 chip 右侧小开关**（标注3）：CHIP_TOGGLE_STYLE / aria-pressed 那套与
+ *      灰 chip 保留逻辑整块删除，chip 只剩「名称 + ×」。
+ *   4. **删说明留白**（标注4）：账号区块只留「区块标题（简短）+ 账号行 + 按钮」，
+ *      长说明段删除；展开区间距与 provider-custom.tsx 一致（space-y-4 mt-5 等）。
  */
 import { useState, useRef, useEffect, type CSSProperties } from "react"
 import { AlertTriangle, CalendarCheck, Image as ImageIcon, Loader2, RefreshCw, Wallet, X } from "lucide-react"
@@ -135,10 +146,9 @@ const LOGIN_QUICK_RESOLVE_MS = 3000
 const NO_SETTINGS_PAGE_HINT = "该插件没有声明设置页（settingsPagePath），宿主无法打开登录窗口"
 
 /*
- * v3 的三处内联样式（只作用于这张卡片，不动全局 CSS 文件）：
+ * v3 的内联样式（只作用于这张卡片，不动全局 CSS 文件）：
  *   · `PLUGIN_BADGE_STYLE` —— 折叠行上「插件 / 未就绪」两个小徽标（v3 设计的淡紫/红）。
- *   · `CHIP_TOGGLE_STYLE` / `CHIP_TOGGLE_OFF_STYLE` —— chip 右侧的小开关（model-switch 的缩小版）。
- *   · `CHIP_DISABLED_STYLE` —— 被 chip 开关关掉的灰 chip。
+ *   （chip 右侧小开关的三段内联样式已随用户标注3 删除。）
  */
 const PLUGIN_BADGE_STYLE: CSSProperties = {
   display: "inline-flex",
@@ -151,20 +161,6 @@ const PLUGIN_BADGE_STYLE: CSSProperties = {
   padding: "2px 7px",
   borderRadius: "999px",
 }
-const CHIP_TOGGLE_STYLE: CSSProperties = {
-  display: "inline-flex",
-  width: "18px",
-  height: "11px",
-  flex: "0 0 18px",
-  alignItems: "center",
-  borderRadius: "999px",
-  backgroundColor: "var(--ui-accent, #3a3a34)",
-  justifyContent: "flex-end",
-  marginLeft: "3px",
-}
-const CHIP_TOGGLE_OFF_STYLE: CSSProperties = { ...CHIP_TOGGLE_STYLE, justifyContent: "flex-start", backgroundColor: "var(--ui-soft, #e5e2da)" }
-const CHIP_KNOB_STYLE: CSSProperties = { width: "8px", height: "8px", borderRadius: "50%", background: "var(--ui-paper, #fff)", margin: "0 1.5px" }
-
 function maxOf(values: number[]): number | undefined {
   if (values.length === 0) return undefined
   return values.reduce((max, value) => (value > max ? value : max), values[0])
@@ -578,15 +574,9 @@ export function PluginProviderCard({
   /*
    * v5：额度池账号列表。WorkBuddy 的昵称/uid 只在插件自己手里（Rust 的 ProviderView
    * 没有账号字段），所以走 `get_account` 工具（invokeTool 通道）问插件本人；
-   * 空数组 = 还没问到 / 没登录 / 插件没实现，界面按「⚠️ 还没有登录」显示（见 accountText）。
+   * 空数组 = 还没问到 / 没登录 / 插件没实现，账号区块整块不渲染（没有可展示的行）。
    */
   const [accounts, setAccounts] = useState<PluginProviderAccount[]>(NO_ACCOUNTS)
-  /*
-   * v3：chip 上的小开关「关掉」了的模型 id —— **会话内**的灰色 chip 集合。
-   * 关 = 从 selectedModels 移除（聊天里立刻消失），但 chip 保留变灰，给用户一个
-   * "再点一下就能开回来"的位置；「保存配置」时清掉（保存即确认），点 × 才是移除。
-   */
-  const [chipDisabled, setChipDisabled] = useState<Set<string>>(new Set())
 
   /** 已保存的草稿（保存按钮的基准）：跟随 `providerConfigs` 与插件快照变化而重算。 */
   const savedDraft = draftFromPreset(preset, savedConfig)
@@ -715,19 +705,6 @@ export function PluginProviderCard({
     }
   }, [preset.authKind, preset.pluginId, preset.ready])
 
-  /*
-   * 账号状态行的文案（v4 §5.1）：只显示**当前生效账号的昵称**，不显示完整 uid。
-   * 「当前生效」由插件标注（额度池自动故障转移）；全部冷却时插件一个都不标，
-   * 回退到列表第一行。authKind=none：没有账号概念，说「无需登录」而不是摆一个
-   * 警告符号骗人去登录。
-   */
-  const activeAccount = accounts.find((account) => account.active) ?? accounts[0]
-  const accountText = !needsLogin
-    ? "无需登录"
-    : activeAccount
-      ? activeAccount.nickname
-      : "⚠️ 还没有登录"
-
   async function refreshModels() {
     if (pending) return
     setPending("refresh")
@@ -757,15 +734,6 @@ export function PluginProviderCard({
       setPending(null)
     }
   }
-
-/*
- * 把灰 chip 集合修剪到与新选中集一致：凡重新进入 `selection` 的模型不再灰显。
- * （灰 chip 的语义是"已从选中集移除、位置保留"，重新选中就必须亮回来。）
- */
-function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly string[]): Set<string> {
-  const next = new Set([...previous].filter((id) => !selection.includes(id)))
-  return next.size === previous.size ? new Set(previous) : next
-}
 
   /**
    * 把一次选择变化写进覆盖表（模型选择的**唯一**写入路径：目录点选、全选/清空、
@@ -799,23 +767,16 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
     const current = currentSelection()
     const next = current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
     writeSelection(next)
-    // 目录点亮 = 重新启用：把这个模型从灰 chip 集合里放出来（否则 chip 显示灰、
-    // 实际却已选中 —— 两个真源各说各话）。
-    if (next.includes(id)) setChipDisabled((previous) => pruneChipDisabled(previous, next))
   }
 
   /** 「全选」= 写空：删掉 `selectedModels`，回到"没勾过 = 全选"语义。 */
   function selectAllModels() {
     writeSelection(undefined)
-    // 全选 = 全部点亮：灰 chip 一并清掉（理由同 toggleCatalogModel）。
-    setChipDisabled(new Set())
   }
 
   /** 「清空」= 写 `[]`：显式一个都不选（不是"没勾过"，两者语义不同，见 writeSelection）。 */
   function clearAllModels() {
     writeSelection([])
-    // 清空是一切归零（与内置卡片的「清空」同语义），灰 chip 不留。
-    setChipDisabled(new Set())
   }
 
   function addModel(raw: string) {
@@ -827,40 +788,11 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
     const next = currentSelection()
     for (const name of names) if (!next.includes(name)) next.push(name)
     writeSelection(next)
-    // 手填即选中：从灰 chip 集合里放出来（同 toggleCatalogModel）。
-    setChipDisabled((previous) => pruneChipDisabled(previous, next))
     setManualModel("")
   }
 
   function removeModel(model: string) {
     writeSelection(currentSelection().filter((item) => item !== model))
-    // chip 都没了，灰态自然跟着消失。
-    setChipDisabled((previous) => {
-      if (!previous.has(model)) return previous
-      const next = new Set(previous)
-      next.delete(model)
-      return next
-    })
-  }
-
-  /**
-   * chip 右侧小开关（v3）：关 = 从 `selectedModels` 移除（聊天里立刻消失），
-   * chip **保留变灰**；开 = 写回。用现有覆盖表字段表达，不新增持久层（parent 决定）。
-   */
-  function toggleChipEnabled(model: string) {
-    if (chipDisabled.has(model)) {
-      const nextSelection = currentSelection()
-      if (!nextSelection.includes(model)) nextSelection.push(model)
-      writeSelection(nextSelection)
-      setChipDisabled((previous) => {
-        const next = new Set(previous)
-        next.delete(model)
-        return next
-      })
-    } else {
-      writeSelection(currentSelection().filter((item) => item !== model))
-      setChipDisabled((previous) => new Set(previous).add(model))
-    }
   }
 
   /** 上下文窗口：选择器即点即写覆盖表（离散档位没有"半途状态"，见文件头）。 */
@@ -958,9 +890,6 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
       // 名字清空 → 删掉这条覆盖，退回插件上报的名字（而不是存一个空标题）。
       label: label === "" ? undefined : label,
     })
-    // v3：保存即确认 —— chip 上关掉的灰 chip 到此为止（不在 selectedModels 里，
-    // 不会进覆盖表），清掉灰态后重开页面不会再看到"幽灵 chip"。
-    if (chipDisabled.size > 0) setChipDisabled(new Set())
     // 保存即"已保存基准"：按钮立刻变灰，而不是等异步同步回来才变（见 baseDraft 的注释）。
     setBaseDraft(draft)
     /*
@@ -1185,13 +1114,8 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
   }
 
   // chips 按"插件清单里有没有"分两拨（known / unknown 的理由见 splitKnownModels）。
-  /*
-   * v3：被 chip 小开关关掉的模型**保留在渲染列表里**（变灰），不随 selectedModels
-   * 消失 —— 关掉只是"聊天里不出现"，位置还在，再点一下就能开回来（点 × 才移除）。
-   */
-  const grayChipModels = [...chipDisabled].filter((id) => !effectiveSelected.includes(id))
-  const chipModels = [...effectiveSelected, ...grayChipModels]
-  const { known: knownModels, unknown: unknownModels } = splitKnownModels(chipModels, preset.models)
+  // 用户标注3：灰 chip（关掉变灰保留）逻辑删除后，chip 集合就是 selectedModels 本身。
+  const { known: knownModels, unknown: unknownModels } = splitKnownModels(effectiveSelected, preset.models)
   const failedModels = new Set(testOutcome?.failures.map((failure) => failure.model) ?? [])
 
   return (
@@ -1471,7 +1395,7 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
           )}
 
           <div className="model-fields">
-          {/* ── 配置名称 / 账号状态（v4：名称收窄 420px；账号只显示当前生效昵称） ── */}
+          {/* ── 配置名称（v4：名称收窄 420px）。「账号状态」栏已按用户标注2 删除 ── */}
           <label className="model-field">
             <span>配置名称</span>
             <input
@@ -1485,30 +1409,43 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
               onChange={(event) => setDraft((previous) => ({ ...previous, label: event.target.value }))}
             />
           </label>
-          <div className="model-field" data-plugin-field="account">
-            <span>账号状态</span>
-            <div className="flex items-center gap-2">
-              {activeAccount && !disabled ? (
-                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
-              ) : null}
-              <span className="truncate" data-readonly="true">
-                {accountText}
-              </span>
-            </div>
-          </div>
 
           {/*
-            v5 §1：已登录账号 · 同平台额度池。多账号 = 一个额度池（按加入先后自动
-            故障转移），**没有手动切换按钮** ——「当前生效」只是插件报的状态展示，
-            不是可选项。退出按行删（logout 工具带 uid）；「＋ 登录新账号」复用登录
-            窗口（插件侧已有「换个账号登录」）。没有账号时整块不渲染，只留上面的
-            「⚠️ 还没有登录」占位。位置在模型区之前（v4/v5 设计 §3）。
+            v5 §1（经用户标注1/4 调整）：「已登录账号」区块。多账号 = 一个额度池（按
+            加入先后自动故障转移），**没有手动切换按钮** ——「当前生效」只是插件报的
+            状态展示。退出按行删（logout 工具带 uid）；「＋ 登录新账号」复用登录窗口
+            （插件侧已有「换个账号登录」），放在列表**上方** —— 新登录的账号从列表顶部
+            插入，按钮位置不漂移（标注1）。区块只留「标题 + 按钮 + 账号行」，说明性
+            文字行全部删除（标注4）。没有账号时整块不渲染。位置在模型区之前（v4/v5 §3）。
           */}
           {needsLogin && accounts.length > 0 ? (
             <div className="model-field full" data-plugin-field="account-list">
-              <span>已登录账号 · 同平台额度池（自动故障转移，无手动切换）</span>
+              <span>已登录账号</span>
+              <div className="model-actions">
+                {/*
+                  ＋ 登录新账号：打开同一个登录窗口（providerOpenLogin）—— 多账号
+                  就是重复登录流程追加，插件窗口里有「换个账号登录」的入口。放在列表
+                  上方（用户标注1）：新账号从列表顶部插入时按钮位置不漂移。
+                */}
+                <button
+                  type="button"
+                  className="model-button"
+                  data-plugin-action="add-account"
+                  aria-label="登录新账号"
+                  disabled={loginBlocked || pending === "login"}
+                  title={loginBlocked ? NO_SETTINGS_PAGE_HINT : undefined}
+                  onClick={() => void openSettings()}
+                >
+                  ＋ 登录新账号
+                </button>
+              </div>
+              {/*
+                展示按**最新在前**（用户标注1）：get_account 返回顺序 = 插件 order 数组
+                = 加入先后，渲染时反转，最新（最后登录的）排第一行。**只改展示顺序**：
+                插件侧 order 保持加入先后，重试（故障转移）逻辑不动。
+              */}
               <ul className="space-y-1.5">
-                {accounts.map((account) => (
+                {[...accounts].reverse().map((account) => (
                   <li
                     key={account.uid}
                     data-plugin-account={account.uid}
@@ -1536,27 +1473,10 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
                   </li>
                 ))}
               </ul>
-              <div className="model-actions">
-                {/*
-                  ＋ 登录新账号：打开同一个登录窗口（providerOpenLogin）—— 多账号
-                  就是重复登录流程追加，插件窗口里有「换个账号登录」的入口。
-                */}
-                <button
-                  type="button"
-                  className="model-button"
-                  data-plugin-action="add-account"
-                  aria-label="登录新账号"
-                  disabled={loginBlocked || pending === "login"}
-                  title={loginBlocked ? NO_SETTINGS_PAGE_HINT : undefined}
-                  onClick={() => void openSettings()}
-                >
-                  ＋ 登录新账号
-                </button>
-              </div>
             </div>
           ) : null}
 
-          {/* ── 模型 chips + 手填（v3：与内置 model-tag-input 同构，chip 带小开关） ── */}
+          {/* ── 模型 chips + 手填（与内置 model-tag-input 同构；小开关已删，chip=名称+×） ── */}
           <div className="model-field full" data-plugin-field="models">
             <span>模型</span>
             {/*
@@ -1565,7 +1485,7 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
               需要登录的插件说出来：真正缺的那一步是登录（登录按钮在上方动作行）；
               不需要登录的插件（authKind=none）喊"登录"是误导，改成引导去拉取。
             */}
-            {noModels && effectiveSelected.length === 0 && chipDisabled.size === 0 ? (
+            {noModels && effectiveSelected.length === 0 ? (
               <p className="model-note" data-plugin-models-empty="true">
                 {needsLogin
                   ? "还没有模型。登录后会自动拉取模型，就不用在这里手填了。"
@@ -1577,32 +1497,23 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
                   ...knownModels.map((model) => ({ model, unknown: false })),
                   ...unknownModels.map((model) => ({ model, unknown: true })),
                 ].map(({ model, unknown }) => {
-                  const chipOff = chipDisabled.has(model)
                   const chipStyle: CSSProperties = {}
-                  if (unknown && !chipOff) {
+                  if (unknown) {
                     // 手填的、插件清单里没有的模型：标黄而不是拒绝（理由见 splitKnownModels）。
                     chipStyle.color = "#8a5a0b"
                     chipStyle.boxShadow = "inset 0 0 0 1px #e0a010"
-                  }
-                  if (chipOff) {
-                    // v3：被小开关关掉的 chip —— 变灰但保留（点 × 才移除）。
-                    chipStyle.opacity = 0.45
-                    chipStyle.filter = "grayscale(1)"
                   }
                   return (
                     <span
                       key={model}
                       className={failedModels.has(model) ? "is-failed" : ""}
                       data-plugin-chip={model}
-                      data-plugin-chip-disabled={chipOff ? "true" : undefined}
                       data-plugin-chip-unknown={unknown ? "true" : undefined}
                       style={chipStyle}
                       title={
                         unknown
                           ? "插件未上报此模型：可以保存，但请求时可能被上游拒绝"
-                          : chipOff
-                            ? "已停用：不在聊天可选列表里，点开关可恢复，点 × 移除"
-                            : undefined
+                          : undefined
                       }
                     >
                       {model}
@@ -1634,21 +1545,7 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
                           支持图片
                         </span>
                       ) : null}
-                      {/*
-                        v3：chip 右侧小开关 —— 关 = 从 selectedModels 移除（聊天里消失），
-                        chip 保留变灰；开 = 写回。× 才是移除（理由见 toggleChipEnabled）。
-                      */}
-                      <button
-                        type="button"
-                        aria-pressed={!chipOff}
-                        aria-label={!chipOff ? `停用模型 ${model}` : `启用模型 ${model}`}
-                        data-plugin-chip-toggle={model}
-                        className="model-chip-toggle"
-                        style={chipOff ? CHIP_TOGGLE_OFF_STYLE : CHIP_TOGGLE_STYLE}
-                        onClick={() => toggleChipEnabled(model)}
-                      >
-                        <span style={CHIP_KNOB_STYLE} />
-                      </button>
+                      {/* 用户标注3：chip 右侧小开关整块删除，chip 只剩「名称 + ×」。 */}
                       <button
                         type="button"
                         aria-label={`移除模型 ${model}`}
@@ -1738,7 +1635,6 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
               测试功能
             </button>
           </div>
-
 
           {/*
             拉取后的**内联模型目录**（与内置卡片逐字同构：model-catalog /
