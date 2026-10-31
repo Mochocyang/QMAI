@@ -33,7 +33,11 @@ const OVERRIDABLE_FIELDS = ["label", "maxContextSize", "maxOutputTokens", "enabl
 export interface PluginProviderOverride {
   /** 配置名称。 */
   label?: string
-  /** 用户勾选的模型 id（顺序即展示顺序）。为空表示"还没选过" → 沿用插件全部模型。 */
+  /**
+   * 用户勾选的模型 id（顺序即展示顺序）。
+   * `undefined`（没写过）= 沿用插件全部模型；`[]` = **显式清空**（一个都不显示）。
+   * 两者必须区分：内置卡片的「清空」就是"都不选"，清完又变回全选是错的。
+   */
   selectedModels?: string[]
   /** 上下文窗口（tokens）。 */
   maxContextSize?: number
@@ -82,8 +86,8 @@ export function parseOverrides(raw: string | null): OverrideMap {
     const label = typeof record.label === "string" ? record.label.trim() : ""
     if (label) override.label = label
     if (Array.isArray(record.selectedModels)) {
-      const models = record.selectedModels.filter((item): item is string => typeof item === "string")
-      if (models.length > 0) override.selectedModels = models
+      // 空数组也是合法值（显式清空）：丢掉它会让"清空"在重启后变回全选。
+      override.selectedModels = record.selectedModels.filter((item): item is string => typeof item === "string")
     }
     for (const field of ["maxContextSize", "maxOutputTokens"] as const) {
       const number = record[field]
@@ -141,8 +145,16 @@ export function setPluginProviderOverride(id: string, patch: PluginProviderOverr
     else (merged as Record<string, unknown>)[field] = value
   }
   if (Object.prototype.hasOwnProperty.call(patch, "selectedModels")) {
+    /*
+     * 这里同样区分"没传 / 显式 undefined / 空数组"：
+     *   · 没传 → 保留已有值；
+     *   · 显式传 undefined → 删掉字段（「全选」= 回到"没勾过 = 全选"语义）；
+     *   · 传 [] → **原样保留**（「清空」= 一个都不显示）。
+     * 把 [] 当 undefined 删掉，"清空"就会在写覆盖表的那一步被吞掉，
+     * 下一次同步又回到全部模型 —— 那正是要修的 bug。
+     */
     const selected = patch.selectedModels
-    if (!selected || selected.length === 0) delete merged.selectedModels
+    if (!selected) delete merged.selectedModels
     else merged.selectedModels = [...selected]
   }
   if (Object.keys(merged).length === 0) delete next[id]
@@ -162,8 +174,10 @@ export function forgetPluginProviderOverrides(id: string): void {
 /**
  * 把插件的**全部模型**按用户勾选过滤。
  *
- * 没勾过（`selectedModels` 不存在）→ 返回全部（首次登录就是"全选"）。
- * 勾过但一个都不在插件清单里（插件下架了那些模型）→ 也返回全部，
+ * 没勾过（`selectedModels` 为 `undefined`）→ 返回全部（首次登录就是"全选"）。
+ * **空数组 = 显式清空** → 返回 `[]`：内置卡片的「清空」就是"都不显示"，
+ * 清完又变回全选是错的（旧语义正是这么错的）。
+ * 勾过但一个都不在插件清单里（插件下架了那些模型）→ 返回全部，
  * 否则用户会看到"一个模型都没有"，而原因（模型下架）界面上看不出来。
  */
 export function applySelectedModels(
@@ -171,7 +185,8 @@ export function applySelectedModels(
   override: PluginProviderOverride | undefined,
 ): SavedModel[] {
   const selected = override?.selectedModels
-  if (!selected || selected.length === 0) return [...models]
+  if (!selected) return [...models]
+  if (selected.length === 0) return []
   const wanted = new Set(selected)
   const filtered = models.filter((model) => wanted.has(model.id) || wanted.has(model.model))
   return filtered.length > 0 ? filtered : [...models]

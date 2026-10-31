@@ -50,6 +50,11 @@ vi.mock("@/lib/connection-tests", () => ({
   testLlmConnection: testLlmConnectionMock,
   testLlmFunction: testLlmFunctionMock,
 }))
+/*
+ * ContextSizeSelector / OutputTokensSelector 内部用 react-i18next；本文件不搭 i18n
+ * 实例，按仓库惯例 mock 成「key 即文案」（同 context-size-selector.spec.tsx）。
+ */
+vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }))
 
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog"
 import { getFileSize, readFile } from "@/commands/fs"
@@ -628,9 +633,9 @@ describe("PluginProviderCard", () => {
     expect(find('[data-plugin-action="test-connection"]')?.textContent).toContain("测试连接")
     expect(find('[data-plugin-action="test-function"]')?.textContent).toContain("测试功能")
     expect(find('[data-plugin-action="save"]')?.textContent).toContain("保存配置")
-    // 窗口/输出两个数字框也在（placeholder 是插件上报值）。
-    expect(host.querySelector<HTMLInputElement>('[data-plugin-field="max-context"]')?.placeholder).toBe("1000000")
-    expect(host.querySelector<HTMLInputElement>('[data-plugin-field="max-output"]')?.placeholder).toBe("8192")
+    // 窗口/输出是选择器（滑块，与内置卡片同款），不再是手写数字框。
+    expect(host.querySelector('[data-plugin-field="max-context"] input[type="range"]')).toBeTruthy()
+    expect(host.querySelector('[data-plugin-field="max-output"] input[type="range"]')).toBeTruthy()
     // 没有任何改动 → 保存禁用（点了不该有任何事情发生）。
     expect(find('[data-plugin-action="save"]')?.disabled).toBe(true)
   })
@@ -651,66 +656,84 @@ describe("PluginProviderCard", () => {
     expect(find('[data-plugin-action="save"]')?.disabled).toBe(true)
   })
 
-  /* ---- 3) 拉取模型 → 勾选浮层 → 勾 2 个 → 确定 → 覆盖表 ---- */
-  it("3) 拉取模型弹出勾选浮层（默认全选），勾 2 个确定后覆盖表就是这 2 个", async () => {
+  /* ---- 3) 拉取模型 → 内联目录（与内置卡片一致，不是弹窗） ---- */
+  it("3) 拉取模型直接展开内联目录：没有弹窗、没有搜索框，计数文案在", async () => {
     refreshProviderModels.mockResolvedValueOnce(modelsOf(["model-a", "model-b", "model-c"]))
     renderCard({ models: [] })
 
     await click(find('[data-plugin-action="pull-models"]')!)
 
     expect(refreshProviderModels).toHaveBeenCalledWith("wb-connect")
-    const dialog = host.querySelector('[data-plugin-catalog="open"]')
-    expect(dialog).toBeTruthy()
-    // 没勾过（也没有覆盖记录）→ 默认全选。
-    expect(host.querySelector<HTMLInputElement>('[data-plugin-catalog-item="model-a"]')?.checked).toBe(true)
-    expect(find('[data-plugin-action="catalog-confirm"]')?.textContent).toContain("确定（3）")
-
-    // 取消两个 → 只剩 model-c。
-    await click(host.querySelector<HTMLInputElement>('[data-plugin-catalog-item="model-a"]')!)
-    await click(host.querySelector<HTMLInputElement>('[data-plugin-catalog-item="model-b"]')!)
-    expect(find('[data-plugin-action="catalog-confirm"]')?.textContent).toContain("确定（1）")
-
-    await click(find('[data-plugin-action="catalog-confirm"]')!)
-    await click(find('[data-plugin-action="save"]')!)
-
-    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual(["model-c"])
-    // 浮层关掉了，chips 只剩那一个。
-    expect(host.querySelector('[data-plugin-catalog="open"]')).toBeNull()
-    /*
-     * 勾到的模型必须**出现在卡片上**，即使插件快照里没有它。
-     * 场景：插件刚装好 / 还没同步，`preset.models` 是空的，但「拉取模型」拿回了清单 ——
-     * 这时如果 chips 只认 `preset.models`，用户勾完什么都看不见，会以为没生效。
-     */
-    expect(host.querySelector('[data-plugin-chip="model-c"]')).toBeTruthy()
-    expect(host.querySelector('[data-plugin-chip="model-a"]')).toBeNull()
+    // 内联展开：不是居中弹窗（role=dialog 不存在），也没有搜索框（内置卡片没有）。
+    expect(host.querySelector('[role="dialog"]')).toBeNull()
+    expect(host.querySelector('[data-plugin-catalog="open"]')).toBeTruthy()
+    expect(host.querySelector('[data-plugin-field="catalog-search"]')).toBeNull()
+    // 计数文案（内置卡片同款）。
+    expect(host.textContent).toContain("已拉取 3 个模型 · 已选择 3 个")
+    // 默认全部点亮：selectedModels 没写过 = 全选语义。
+    for (const id of ["model-a", "model-b", "model-c"]) {
+      expect(
+        host.querySelector<HTMLButtonElement>(`[data-plugin-catalog-item="${id}"]`)?.getAttribute("aria-pressed"),
+      ).toBe("true")
+    }
   })
 
-  it("3b) 浮层里「清空」+「全选」都只改勾选，确定前不碰覆盖表", async () => {
+  it("3b) 点目录里的模型：aria-pressed 翻转，覆盖表立刻更新（没有「确定」这一步）", async () => {
+    refreshProviderModels.mockResolvedValueOnce(modelsOf(["model-a", "model-b", "model-c"]))
+    renderCard({ models: [] })
+    await click(find('[data-plugin-action="pull-models"]')!)
+
+    await click(host.querySelector<HTMLButtonElement>('[data-plugin-catalog-item="model-a"]')!)
+
+    expect(
+      host.querySelector('[data-plugin-catalog-item="model-a"]')?.getAttribute("aria-pressed"),
+    ).toBe("false")
+    expect(
+      host.querySelector('[data-plugin-catalog-item="model-b"]')?.getAttribute("aria-pressed"),
+    ).toBe("true")
+    expect(host.textContent).toContain("已选择 2 个")
+    // 覆盖表立刻是剩下的两个（即点即写，不等保存）。
+    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual(["model-b", "model-c"])
+    /*
+     * 取消勾选的模型必须从卡片上消失，即使插件快照（preset.models）是空的 ——
+     * 场景：插件刚装好还没同步，目录是「拉取模型」现拿回来的。
+     */
+    expect(host.querySelector('[data-plugin-chip="model-a"]')).toBeNull()
+    expect(host.querySelector('[data-plugin-chip="model-b"]')).toBeTruthy()
+
+    // 再点一次 → 取消选择，回到点亮。
+    await click(host.querySelector<HTMLButtonElement>('[data-plugin-catalog-item="model-a"]')!)
+    expect(
+      host.querySelector('[data-plugin-catalog-item="model-a"]')?.getAttribute("aria-pressed"),
+    ).toBe("true")
+    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual(["model-b", "model-c", "model-a"])
+  })
+
+  it("3c) 「清空」→ 目录全灭、模型区 0 个、覆盖表是 []；「全选」→ 恢复并回到全选语义", async () => {
     refreshProviderModels.mockResolvedValueOnce(modelsOf(["model-a", "model-b"]))
     renderCard({ models: modelsOf(["model-a", "model-b"]) })
+    expect(host.querySelectorAll("[data-plugin-chip]")).toHaveLength(2)
 
     await click(find('[data-plugin-action="pull-models"]')!)
     await click(find('[data-plugin-action="catalog-clear"]')!)
-    expect(find('[data-plugin-action="catalog-confirm"]')?.textContent).toContain("确定（0）")
-    // 还没点确定：覆盖表里什么都不该有。
-    expect(getPluginProviderOverride("wb-connect")).toBeUndefined()
+
+    // 全灭 + 计数归零 + chips 清空。
+    expect(
+      host.querySelector('[data-plugin-catalog-item="model-a"]')?.getAttribute("aria-pressed"),
+    ).toBe("false")
+    expect(host.textContent).toContain("已选择 0 个")
+    expect(host.querySelectorAll("[data-plugin-chip]")).toHaveLength(0)
+    // 覆盖表是**显式空数组**（不是"没勾过"）：这是 applySelectedModels 新语义的落点。
+    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual([])
 
     await click(find('[data-plugin-action="catalog-select-all"]')!)
-    await click(find('[data-plugin-action="catalog-confirm"]')!)
-    // 确定也只写草稿，保存才落覆盖表。
-    expect(getPluginProviderOverride("wb-connect")).toBeUndefined()
-    expect(host.querySelector('[data-plugin-chip="model-a"]')).toBeTruthy()
-  })
-
-  it("3c) 浮层搜索框按名字过滤", async () => {
-    refreshProviderModels.mockResolvedValueOnce(modelsOf(["glm-5", "step-5-preview"]))
-    renderCard({ models: modelsOf(["glm-5", "step-5-preview"]) })
-
-    await click(find('[data-plugin-action="pull-models"]')!)
-    await typeInto(await field("catalog-search"), "step")
-
-    expect(host.querySelector('[data-plugin-catalog-item="step-5-preview"]')).toBeTruthy()
-    expect(host.querySelector('[data-plugin-catalog-item="glm-5"]')).toBeNull()
+    expect(
+      host.querySelector('[data-plugin-catalog-item="model-a"]')?.getAttribute("aria-pressed"),
+    ).toBe("true")
+    expect(host.textContent).toContain("已选择 2 个")
+    expect(host.querySelectorAll("[data-plugin-chip]")).toHaveLength(2)
+    // 全选 = 写空（字段删除）→ 回到"没勾过 = 全选"。
+    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toBeUndefined()
   })
 
   /* ---- 4) chip 的 × 移除 ---- */
@@ -797,20 +820,17 @@ describe("PluginProviderCard", () => {
   })
 
   /* ---- 6) 只测已选模型 ---- */
-  it("6) 只测已选的模型：选中 3 个时 testLlmConnection 只被调 3 次（插件报了 41 个也不管）", async () => {
+  it("6) 只测已选的模型：目录里点 3 个时 testLlmConnection 只被调 3 次（插件报了 41 个也不管）", async () => {
     const many = Array.from({ length: 41 }, (_, index) => `model-${index}`)
     refreshProviderModels.mockResolvedValueOnce(modelsOf(many))
     renderCard({ models: modelsOf(many) })
 
-    // 走真实路径把选中集从 41 缩到 3：拉取 → 清空 → 勾 3 个 → 确定。
-    // （这正是用户会做的操作；直接在测试里改草稿就没有入口可测了。）
+    // 走真实路径把选中集从 41 缩到 3：拉取 → 清空 → 点 3 个（内联目录即点即生效）。
     await click(find('[data-plugin-action="pull-models"]')!)
     await click(find('[data-plugin-action="catalog-clear"]')!)
     for (const id of ["model-0", "model-1", "model-2"]) {
-      await click(host.querySelector<HTMLInputElement>(`[data-plugin-catalog-item="${id}"]`)!)
+      await click(host.querySelector<HTMLButtonElement>(`[data-plugin-catalog-item="${id}"]`)!)
     }
-    expect(find('[data-plugin-action="catalog-confirm"]')?.textContent).toContain("确定（3）")
-    await click(find('[data-plugin-action="catalog-confirm"]')!)
 
     await click(find('[data-plugin-action="test-connection"]')!)
 
@@ -863,15 +883,38 @@ describe("PluginProviderCard", () => {
     expect(find('[data-plugin-action="toggle-enabled"]')?.textContent).toContain("已停用")
   })
 
-  it("8c) 上下文窗口留空 = 用插件值；填了才写覆盖表", async () => {
+  it("8c) 上下文选择器：渲染 ContextSizeSelector，改值直接写覆盖表", async () => {
     renderCard()
 
-    await typeInto(await field("max-context"), "200000")
-    expect(find('[data-plugin-action="save"]')?.disabled).toBe(false)
-    await click(find('[data-plugin-action="save"]')!)
+    const area = host.querySelector('[data-plugin-field="max-context"]')!
+    expect(area.querySelector('input[type="range"]')).toBeTruthy()
 
-    expect(getPluginProviderOverride("wb-connect")?.maxContextSize).toBe(200000)
-    // 输出上限没填 → 不写覆盖（继续用插件上报值）。
+    // 点预设「1M」→ onChange(1000000) → 覆盖表立刻更新（不等「保存配置」）。
+    const oneMillion = Array.from(area.querySelectorAll("button")).find(
+      (button) => button.textContent === "1M",
+    )!
+    await click(oneMillion)
+    expect(getPluginProviderOverride("wb-connect")?.maxContextSize).toBe(1000000)
+
+    // 「用插件上报值」= 写 undefined（回到插件值），按钮随之消失。
+    await click(find('[data-plugin-action="reset-context"]')!)
+    expect(getPluginProviderOverride("wb-connect")?.maxContextSize).toBeUndefined()
+    expect(find('[data-plugin-action="reset-context"]')).toBeNull()
+  })
+
+  it("8d) 输出上限选择器：渲染 OutputTokensSelector，改值直接写覆盖表", async () => {
+    renderCard()
+
+    const area = host.querySelector('[data-plugin-field="max-output"]')!
+    expect(area.querySelector('input[type="range"]')).toBeTruthy()
+
+    const sixtyFourK = Array.from(area.querySelectorAll("button")).find(
+      (button) => button.textContent === "64K",
+    )!
+    await click(sixtyFourK)
+    expect(getPluginProviderOverride("wb-connect")?.maxOutputTokens).toBe(65536)
+
+    await click(find('[data-plugin-action="reset-output"]')!)
     expect(getPluginProviderOverride("wb-connect")?.maxOutputTokens).toBeUndefined()
   })
 })

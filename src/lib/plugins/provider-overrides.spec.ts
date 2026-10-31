@@ -136,6 +136,21 @@ describe("覆盖表：容错与清理", () => {
     setPluginProviderOverride("wb", { label: undefined })
     expect(getPluginProviderOverride("wb")?.label).toBeUndefined()
   })
+
+  it("清空能落盘：写 [] 后读回仍是 []（而不是被当成『没勾过』删掉）", () => {
+    setPluginProviderOverride("wb", { selectedModels: ["a"] })
+    setPluginProviderOverride("wb", { selectedModels: [] })
+    expect(getPluginProviderOverride("wb")?.selectedModels).toEqual([])
+    // 持久化后重读也在：parseOverrides 不再把空数组丢掉，否则重启后清空变回全选。
+    __resetPluginProviderOverrideCacheForTests()
+    expect(getPluginProviderOverride("wb")?.selectedModels).toEqual([])
+  })
+
+  it("全选 = 写 undefined：字段被删掉，回到『没勾过 = 全选』语义", () => {
+    setPluginProviderOverride("wb", { selectedModels: ["a"] })
+    setPluginProviderOverride("wb", { selectedModels: undefined })
+    expect(getPluginProviderOverride("wb")?.selectedModels).toBeUndefined()
+  })
 })
 
 describe("applySelectedModels", () => {
@@ -151,5 +166,16 @@ describe("applySelectedModels", () => {
   it("顺序按插件上报的顺序，不按用户勾选顺序（避免列表每次刷新都跳来跳去）", () => {
     const models = [model("a"), model("b"), model("c")]
     expect(applySelectedModels(models, { selectedModels: ["c", "a"] }).map((m) => m.id)).toEqual(["a", "c"])
+  })
+
+  it("空数组 = 显式清空：返回 []（『清空』就是清空，不能清完又变回全选）", () => {
+    const models = [model("a"), model("b")]
+    expect(applySelectedModels(models, { selectedModels: [] })).toEqual([])
+  })
+
+  it("undefined（没写过）仍返回全部（首次登录即全选）", () => {
+    const models = [model("a"), model("b")]
+    expect(applySelectedModels(models, undefined).map((m) => m.id)).toEqual(["a", "b"])
+    expect(applySelectedModels(models, {}).map((m) => m.id)).toEqual(["a", "b"])
   })
 })
