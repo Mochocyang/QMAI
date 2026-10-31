@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>WorkBuddy 插件卡片 v3 设计方案</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:#ece9e3;color:#2b2925;line-height:1.65;padding:32px 24px 60px}
+.wrap{max-width:1120px;margin:0 auto}
+h1{font-size:21px;font-weight:600}.sub{font-size:13px;color:#6d6a63;margin:6px 0 28px}
+.step{font-size:14px;font-weight:600;margin:30px 0 12px;display:flex;align-items:center;gap:10px}
+.num{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#3a3a34;color:#fff;font-size:12px}
+.card{background:#faf9f6;border:1px solid #d9d6cf;border-radius:14px;padding:20px 22px;box-shadow:0 3px 14px rgba(0,0,0,.05);margin-bottom:14px}
+.rowline{background:#f5f1ea;border:1px solid #e6e1d8;border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:8px}
+.rowline .nm{font-size:14px;font-weight:600}
+.tag{font-size:11px;padding:1px 7px;border-radius:999px;background:#eef0f3;color:#4b5563}
+.sw{width:38px;height:22px;border-radius:999px;background:#3a3a34;position:relative;flex:none;margin-left:auto}
+.sw::after{content:"";position:absolute;top:3px;right:3px;width:16px;height:16px;border-radius:50%;background:#fff}
+.head{display:flex;align-items:center;gap:8px}.head .name{font-size:15px;font-weight:600}
+.badge{font-size:11px;padding:1px 7px;border-radius:999px;font-weight:500}
+.b-saved{background:#eef0f3;color:#4b5563}.b-ok{background:#e3f2e6;color:#1d6b37}.b-plugin{background:#e8e6f8;color:#4a3f9e}
+.row2{display:grid;grid-template-columns:1fr 280px;gap:16px;margin-top:16px}
+.label{font-size:12.5px;color:#4a4741;margin-bottom:6px;font-weight:500}
+.inp{width:100%;border:1px solid #d3cfc7;border-radius:8px;background:#fff;padding:9px 11px;font-size:13px;font-family:inherit}
+.acct{border:1px solid #d3cfc7;border-radius:8px;background:#fff;padding:9px 11px;font-size:13px;display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;background:#1d9d57;flex:none}
+.mbox{border:1px solid #d3cfc7;border-radius:8px;background:#fff;padding:8px;display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;min-height:44px}
+.chip{display:inline-flex;align-items:center;gap:5px;background:#f0eee9;border:1px solid #e0ddd6;border-radius:6px;padding:3px 7px;font-size:12px}
+.chip .x{color:#9a958c;font-size:13px;line-height:1}
+.actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.btn{border:1px solid #d3cfc7;background:#fff;border-radius:8px;padding:8px 14px;font-size:12.5px;font-family:inherit;color:#3a3630}
+.btn.primary{background:#3a3a34;color:#fff;border-color:#3a3a34}
+.cat{margin-top:12px}
+.cat-head{display:flex;align-items:center;font-size:12.5px;color:#4a4741}
+.cat-head .r{margin-left:auto;display:flex;gap:16px;color:#4a4741}
+.cat-note{font-size:12px;color:#6d6a63;margin:8px 0}
+.cat-list{display:flex;flex-wrap:wrap;gap:8px}
+.mbtn{border:1px solid #e3e0d9;background:#fff;border-radius:8px;padding:6px 12px;font-size:12.5px;font-family:inherit;color:#3a3630}
+.mbtn.on{border-color:#3a3a34;background:#f4f1ea;box-shadow:inset 0 0 0 1px #3a3a34}
+.ctx{margin-top:16px;font-size:12.5px}.ctx .v{font-size:13px;margin-top:2px}
+.foot{display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding-top:14px;border-top:1px solid #eceae5}
+.note{font-size:12px;color:#6d6a63;background:#fff8e6;border:1px solid #ecdcae;border-radius:8px;padding:10px 13px;margin-top:12px}
+.note b{color:#574a18}.del{color:#b42318}
+</style></head>
+<body><div class="wrap">
+<h1>WorkBuddy 插件卡片 v3 设计方案</h1>
+<div class="sub">与自定义提供方完全同构：折叠行、拉取目录、上下文显示三处对齐</div>
+
+<div class="step"><span class="num">1</span>折叠行：与自定义提供方一致</div>
+<div class="rowline"><span style="color:#8a867f">›</span><span>⛩</span><span class="nm">WorkBuddy 国内版</span><span class="tag">已保存</span><span class="tag">已启用</span><span class="tag" style="background:#e8e6f8;color:#4a3f9e">插件</span><span class="sw"></span></div>
+<div class="note"><b>对齐点：</b>折叠行与你截图的“链基流动 / happycoding / muyuan / PM unstable Free”完全同一样式：箭头加图标加名称加“已保存 已启用”徽标，右侧同一开关。插件只多一个淡紫色“插件”徽标，其余不动。</div>
+
+<div class="step"><span class="num">2</span>展开：拉取目录与第二张截图逐项对齐</div>
+<div class="card">
+<div class="head"><span style="color:#8a867f;font-size:11px">▾</span><span class="name">WorkBuddy 国内版</span><span class="badge b-saved">已保存</span><span class="badge b-ok">已启用</span><span class="badge b-plugin">插件</span><span style="margin-left:auto"></span><span class="sw"></span></div>
+<div class="row2">
+<div><div class="label">配置名称</div><input class="inp" value="WorkBuddy 国内版" style="max-width:420px"></div>
+<div><div class="label">账号状态</div><div class="acct"><span class="dot"></span><span>小明 · uid-1</span></div></div>
+</div>
+<div class="label" style="margin-top:14px">模型</div>
+<div class="mbox"><span class="chip">DeepSeek-V4.1-Flash <span class="x">×</span></span><span class="chip">GLM-5.3-Flash <span class="x">×</span></span><span class="chip">Kimi-K3 <span class="x">×</span></span><span class="chip">Hunyuan-Turbos <span class="x">×</span></span><span class="chip">Step-5-Preview <span class="x">×</span></span></div>
+<div class="actions"><button class="btn">⟳ 拉取模型</button><button class="btn">测试连接</button><button class="btn">测试功能</button></div>
+<div class="cat">
+<div class="cat-head"><span>已拉取 41 个模型 · 已选择 5 个</span><span class="r"><span>全选</span><span>清空</span></span></div>
+<div class="cat-note">点击模型加入上方输入框，再次点击可取消。</div>
+<div class="cat-list">
+<button class="mbtn">Auto</button><button class="mbtn">快速</button><button class="mbtn">均衡</button><button class="mbtn on">moonshotai/kimi-k3</button><button class="mbtn">meta/llama-3.2-11b-vision-instruct</button><button class="mbtn">meta/muse-glimmer-30b</button><button class="mbtn">minimax-m3</button><button class="mbtn">nvidia/llama-3.1-nemotron-safety-guard-8b-v3</button><button class="mbtn">nvidia/nemotron-3-ultra-550b-a55b</button><button class="mbtn">nvidia/nemotron-3.5-content-safety</button><button class="mbtn">openai/gpt-oss-20b</button><button class="mbtn">poolside/laguna-xs-2.1</button><button class="mbtn">qwen3.8-27b</button><button class="mbtn on">z-ai/glm-5.3-flash</button><button class="mbtn">deepseek-v4.1-flash-1017</button>
+</div>
+</div>
+<div class="ctx"><div>上下文窗口</div><div class="v">1.0M tokens</div></div>
+<div class="foot"><span style="font-size:11.5px;color:#8a867f">当前配置已保存。测试和保存是两种独立操作。</span><span><span class="del">🗑</span> <button class="btn primary">保存配置</button></span></div>
+</div>
+<div class="note"><b>对齐点：</b><br>1. 目录头与你第二张截图逐字一致：“已拉取 N 个模型 · 已选择 M 个”，右侧“全选 清空”。<br>2. 提示语逐字一致：“点击模型加入上方输入框，再次点击可取消。”<br>3. 模型按钮白色圆角，选中态描边加深加米色底（截图中 kimi-k3 与 glm-5.3-flash 的选中态）。<br>4. 上下文显示与截图一致：“上下文窗口”加“1.0M tokens”；点击该行展开同样的滑杆选择器（与自定义卡片同组件），选完回填文字。<br>5. 已删除“来自插件”整行与“已从插件拉到”提示行，只留“插件”徽标。</div>
+
+<div class="step"><span class="num">?</span>请确认两点</div>
+<div class="card"><div style="font-size:12.5px">1. 目录中每个模型是否需要右侧小开关，还是沿用截图的“点击切换选中”即可，我建议用截图方式（点击切换），开关只保留在上方输入框 chip 上。<br>2. 上下文“1.0M tokens”点击展开滑杆，可以吗。</div></div>
+</div></body></html>

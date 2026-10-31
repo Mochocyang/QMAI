@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>WorkBuddy 插件卡片 v2 设计方案</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;background:#ece9e3;color:#2b2925;line-height:1.65;padding:32px 24px 60px}
+.wrap{max-width:1120px;margin:0 auto}
+h1{font-size:21px;font-weight:600} .sub{font-size:13px;color:#6d6a63;margin:6px 0 28px}
+.step{font-size:14px;font-weight:600;margin:30px 0 12px;display:flex;align-items:center;gap:10px}
+.num{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#3a3a34;color:#fff;font-size:12px}
+.card{background:#faf9f6;border:1px solid #d9d6cf;border-radius:14px;padding:20px 22px;box-shadow:0 3px 14px rgba(0,0,0,.05)}
+.head{display:flex;align-items:center;gap:8px}
+.head .name{font-size:15px;font-weight:600}
+.badge{font-size:11px;padding:1px 7px;border-radius:999px;font-weight:500}
+.b-saved{background:#eef0f3;color:#4b5563}.b-ok{background:#e3f2e6;color:#1d6b37}.b-plugin{background:#e8e6f8;color:#4a3f9e}
+.sw{width:38px;height:22px;border-radius:999px;background:#3a3a34;position:relative;flex:none}
+.sw::after{content:"";position:absolute;top:3px;right:3px;width:16px;height:16px;border-radius:50%;background:#fff}
+.row2{display:grid;grid-template-columns:1fr 280px;gap:16px;margin-top:16px}
+.label{font-size:12.5px;color:#4a4741;margin-bottom:6px;font-weight:500}
+.inp{width:100%;border:1px solid #d3cfc7;border-radius:8px;background:#fff;padding:9px 11px;font-size:13px;font-family:inherit}
+.acct{border:1px solid #d3cfc7;border-radius:8px;background:#fff;padding:9px 11px;font-size:13px;display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;background:#1d9d57;flex:none}
+.models-box{border:1px solid #d3cfc7;border-radius:8px;background:#fff;padding:8px;display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip{display:inline-flex;align-items:center;gap:5px;background:#f0eee9;border:1px solid #e0ddd6;border-radius:6px;padding:3px 7px;font-size:12px}
+.chip .x{color:#9a958c;font-size:13px;line-height:1}
+.chip .msw{width:26px;height:15px;border-radius:999px;background:#3a3a34;position:relative;flex:none}
+.chip .msw::after{content:"";position:absolute;top:2px;right:2px;width:11px;height:11px;border-radius:50%;background:#fff}
+.chip.off .msw{background:#c9c5bd}.chip.off .msw::after{right:auto;left:2px}
+.chip.off{opacity:.55}
+.actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.btn{border:1px solid #d3cfc7;background:#fff;border-radius:8px;padding:8px 14px;font-size:12.5px;font-family:inherit;color:#3a3630}
+.btn.primary{background:#3a3a34;color:#fff;border-color:#3a3a34}
+.cat{margin-top:10px;border:1px solid #e2dfd8;border-radius:10px;background:#fff;padding:10px 12px}
+.cat-head{display:flex;align-items:center;gap:10px;font-size:12.5px;margin-bottom:4px}
+.cat-head .pull{margin-left:auto;display:flex;gap:8px}
+.cat-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.note{font-size:12px;color:#6d6a63;background:#fff8e6;border:1px solid #ecdcae;border-radius:8px;padding:10px 13px;margin-top:12px}
+.note b{color:#574a18}
+.del{color:#b42318}
+.foot{display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding-top:14px;border-top:1px solid #eceae5}
+</style></head>
+<body><div class="wrap">
+<h1>WorkBuddy 插件卡片 v2 设计方案</h1>
+<div class="sub">统一显示：与自定义模型卡片同构，删冗余提示，模型带开关，账号显示真名</div>
+
+<div class="step"><span class="num">1</span>统一后的卡片（默认态）</div>
+<div class="card">
+<div class="head"><span style="color:#8a867f;font-size:11px">▾</span><span class="name">WorkBuddy 国内版</span><span class="badge b-saved">已保存</span><span class="badge b-ok">已启用</span><span class="badge b-plugin">插件</span><span style="margin-left:auto"></span><span class="sw"></span></div>
+<div class="row2">
+<div><div class="label">配置名称</div><input class="inp" value="WorkBuddy 国内版" style="max-width:420px"></div>
+<div><div class="label">账号状态</div><div class="acct"><span class="dot"></span><span>小明 · uid-1</span></div></div>
+</div>
+<div class="label" style="margin-top:14px">模型</div>
+<div class="models-box">
+<span class="chip">DeepSeek-V4.1-Flash <span class="x">×</span><span class="msw"></span></span>
+<span class="chip">GLM-5.3-Flash <span class="x">×</span><span class="msw"></span></span>
+<span class="chip">Kimi-K3 <span class="x">×</span><span class="msw"></span></span>
+<span class="chip off">Step-5-Preview <span class="x">×</span><span class="msw"></span></span>
+<span class="chip">Hunyuan-Turbos <span class="x">×</span><span class="msw"></span></span>
+</div>
+<div class="actions"><button class="btn">输入模型名称，按回车添加</button><button class="btn">添加</button><button class="btn">⟳ 拉取模型</button><button class="btn">测试连接</button><button class="btn">测试功能</button></div>
+<div class="cat"><div class="cat-head"><span>已拉取 41 个 · 已选择 4 个</span><span class="pull"><span style="color:#4a7c59">全选</span><span style="color:#4a7c59">清空</span></span></div>
+<div class="cat-list">
+<span class="chip">Auto <span class="msw"></span></span><span class="chip">快速 <span class="msw"></span></span><span class="chip">均衡 <span class="msw"></span></span><span class="chip">极致 <span class="msw"></span></span><span class="chip">Hy3 <span class="msw"></span></span><span class="chip">Hy4 preview <span class="msw"></span></span><span class="chip">MiniMax-M2.5 <span class="msw"></span></span><span class="chip">GLM-5.3 <span class="msw"></span></span><span class="chip">Kimi-K2.5 <span class="msw"></span></span>
+</div></div>
+<div class="foot"><span style="font-size:11.5px;color:#8a867f">当前配置已保存。测试和保存是两种独立操作。</span><span><span class="del">🗑</span> <button class="btn primary">保存配置</button></span></div>
+</div>
+<div class="note"><b>改动对照：</b><br>1. 删除“来自插件 workbuddy-account · 41 个模型”一行，删除“已从插件拉到 41 个模型，点击列表即可加入或取消”一行。<br>2. 模型显示与自定义模型一致：米色 chip 背景加边框加 ×，不再是纯文字。<br>3. 每个模型右侧加小开关，与卡片右上开关同样式，关掉即变灰。<br>4. 配置名称输入框收窄，不再通栏。<br>5. 账号状态显示“昵称 · uid”（如“小明 · uid-1”），不再是“已就绪 work 8”。未登录时显示“⚠️ 还没有登录”。</div>
+
+<div class="step"><span class="num">2</span>未登录态</div>
+<div class="card"><div class="head"><span style="color:#8a867f;font-size:11px">▾</span><span class="name">WorkBuddy 国内版</span><span class="badge b-saved">已保存</span><span class="badge b-plugin">插件</span><span style="margin-left:auto"></span><span class="sw" style="background:#c9c5bd"></span></div>
+<div class="row2"><div><div class="label">配置名称</div><input class="inp" value="WorkBuddy 国内版" style="max-width:420px"></div><div><div class="label">账号状态</div><div class="acct">⚠️ 还没有登录</div></div></div>
+<div class="actions"><button class="btn primary">登录 WorkBuddy</button><button class="btn">⟳ 拉取模型</button></div></div>
+
+<div class="step"><span class="num">?</span>请确认三点</div>
+<div class="card"><div style="font-size:12.5px">1. 模型开关关掉后，该模型是否保留在上方输入框（变灰）还是直接移除，我建议保留变灰，点 × 才移除。<br>2. 账号状态只显示“昵称 · uid”，是否需要加脱敏 concealed 账号 id 全文，我建议只显示昵称加短 uid。<br>3. “来自插件”标签是否保留小徽标“插件”即可，其余文字全删，我建议只留徽标。</div></div>
+</div></body></html>
