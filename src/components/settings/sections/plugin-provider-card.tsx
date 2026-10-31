@@ -47,19 +47,25 @@
  *   1. **折叠行同构**：`model-provider-card` + `ModelConfigTitle` + `model-switch`
  *      （与 provider-custom.tsx 同一结构同一 CSS），插件身份只多一个淡紫「插件」徽标；
  *      「来自插件 xxx · N 个模型」副标题删除（那是展开态信息，不该常驻头部）。
- *      动作按钮（余额/签到/登录/拉取模型）全部移进展开区 —— 内置卡片的折叠行只有
- *      信息与开关，插件卡也对齐成这样。
- *   2. **账号状态**：`get_account` 工具（`invokeTool` 通道）问插件本人拿「昵称 · uid」，
- *      解析约定见 `parseAccountInfo`；拿不到（未登录/插件没实现）显示「⚠️ 还没有登录」，
- *      authKind=none 显示「无需登录」。不走 ProviderView —— Rust 那边没有账号字段。
- *   3. **chip 小开关**：关 = 从 `selectedModels` 移除（聊天里立刻消失）但 chip 变灰保留，
+ *   2. **chip 小开关**：关 = 从 `selectedModels` 移除（聊天里立刻消失）但 chip 变灰保留，
  *      开 = 写回；× 才移除；「保存配置」时清掉灰 chip（保存即确认）。**不新增覆盖表字段**
  *      —— 用现有 `selectedModels`/`enabled` 表达（决定来自 parent：不扩 overrides）。
- *   4. **上下文窗口收成一行文字**：「上下文窗口 1.0M tokens」（`formatContextTokens`，
- *      规则与选择器档位同一套），点击展开 ContextSizeSelector + OutputTokensSelector
- *      （组件照旧，只是包了一层折叠），选完回填文字并即写覆盖表。
- *   5. **删除冗余**：目录提示语用截图那句「点击模型加入上方输入框，再次点击可取消。」，
+ *   3. **删除冗余**：目录提示语用截图那句「点击模型加入上方输入框，再次点击可取消。」，
  *      不再写「已从插件拉到 N 个模型…」—— 目录头的「已拉取 N · 已选择 M」就是反馈。
+ *
+ * ── v4/v5：上下文常展、登录外置、账号昵称、额度池（设计 …v4.html / v5.html）──
+ *   1. **上下文常展**（v4 §1）：删掉 v3 的「文字行 + 点击展开」，ContextSizeSelector
+ *      与 OutputTokensSelector 常驻渲染（与内置 provider-custom.tsx 同构：label +
+ *      selector 竖排），「用插件上报值」重置按钮照旧。
+ *   2. **登录外置**（v4 §4a）：「登录/设置」从展开区移到折叠行头部（与开关同一行、
+ *      开关左侧），折叠状态下也直接可见可点；逻辑不变（authKind 分支 + openSettings）。
+ *   3. **账号昵称**（v4 §5.1）：「账号状态」只显示当前生效账号的昵称（不显示完整 uid）；
+ *      多账号解析约定见 `parseAccountList`（插件 b8a34523 起 get_account 返回额度池列表）。
+ *   4. **额度池列表**（v5 §1）：展开区新增「已登录账号 · 同平台额度池」区块 —— 每行
+ *      「状态点 + 昵称 + uid + 状态 + 退出」，**没有手动切换按钮**（自动故障转移，
+ *      「当前生效」只是状态展示）；「＋ 登录新账号」复用登录窗口（插件侧有「换个账号登录」）。
+ *   5. **插件区置顶**（v4 §4b）：llm-provider-section.tsx 里插件 provider 卡片从页面
+ *      底部移到「添加提供方 / 添加自定义模型」按钮行的正下方（所有卡片的第一个位置）。
  */
 import { useState, useRef, useEffect, type CSSProperties } from "react"
 import { AlertTriangle, CalendarCheck, Image as ImageIcon, Loader2, RefreshCw, Wallet, X } from "lucide-react"
@@ -273,42 +279,80 @@ export function formatModelCost(cost: PluginProviderModel["cost"]): string | und
   return `${show(input)}/${show(output)} /1M tokens`
 }
 
-/**
- * 上下文窗口的文字格式（v3：卡片收成一行「上下文窗口 1.0M tokens」）。
- *
- * 规则与 `ContextSizeSelector` 的档位标签同一套（≥1M → `x.xM`、≥1024 → 取整 K），
- * 但单位写全 —— 这一行说明的是"能力上限"，不是档位选择。
- */
-export function formatContextTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M tokens`
-  if (tokens >= 1024) return `${Math.round(tokens / 1024)}K tokens`
-  return `${tokens} tokens`
-}
+/* ------------------------------------------------------------------ *
+ * 额度池账号（v5）：插件 `get_account` 工具的多行返回解析
+ * ------------------------------------------------------------------ */
 
-/** 插件 `get_account` 工具解析出的账号信息（v3 账号状态行）。 */
-export interface PluginProviderAccountInfo {
+/** 插件 `get_account` 解析出的一行账号（v5 额度池列表）。 */
+export interface PluginProviderAccount {
   nickname: string
-  uid?: string
+  uid: string
+  /** 插件报的原始状态文本（如「就绪（第 2 顺位）」）；详情放行的 title，列表只显短标签。 */
+  state: string
+  /** 是否「当前生效」—— 只是状态展示（额度池自动故障转移，无手动切换）。 */
+  active: boolean
 }
 
-/**
- * 解析 `get_account` 工具的文本返回（约定形状：「账号：小明（uid: uid-1）」）。
- *
- * 插件是第三方，脏数据在入口处收住：认不出「账号：」前缀 / 拿不到昵称就返回
- * `undefined`，界面按「还没有登录」显示，**不猜** —— 编一个账号名比空着更糟。
+/*
+ * 「没有账号」的共享空列表：初始 state、未登录、解析失败都引用同一个实例，
+ * 让 `setAccounts(NO_ACCOUNTS)` 命中 React 的 bailout（Object.is 相等 → 不重渲染）
+ * —— 否则每次空结果都换一个新数组，卡片会在无谓的重渲染上多跑一遍。
  */
-export function parseAccountInfo(raw: string): PluginProviderAccountInfo | undefined {
-  const text = raw.trim()
-  // 前缀是身份凭证：没有「账号：」开头的内容不是账号信息，不能把工具的报错
-  // 文本（例如「还没有登录 WorkBuddy 账号」）拿来当昵称显示。
-  const prefix = /^账号\s*[:：]\s*/u
-  if (!prefix.test(text)) return undefined
-  const body = text.replace(prefix, "").trim()
-  if (!body) return undefined
-  const uidMatch = body.match(/[（(]\s*uid\s*[:：]\s*([^）)]*?)\s*[）)]/iu)
-  const nickname = (uidMatch ? body.slice(0, uidMatch.index) : body).trim()
-  if (!nickname) return undefined
-  return { nickname, uid: uidMatch?.[1]?.trim() || undefined }
+const NO_ACCOUNTS: PluginProviderAccount[] = []
+
+/*
+ * 一行账号的形状（与 samples/plugins/workbuddy-account 的 get_account 逐字对应）：
+ *   `1. Yang（uid: uid-1）· 当前生效（请求从它发起） · 登录态到期：2026/10/31 20:35:00`
+ * 首行「已登录 N 个账号，构成同平台额度池…」是说明，不匹配；「还没有登录…」也不匹配。
+ */
+const ACCOUNT_LINE_RE =
+  /^\d+\.\s*(?<nickname>[^（]+)（uid:\s*(?<uid>[^）]+)）·\s*(?<state>[^·]+?)\s*·\s*登录态到期/u
+
+/**
+ * 解析 `get_account` 的多行文本返回（v5：多账号额度池）。
+ *
+ * 插件是第三方，脏数据在入口处收住：认不出的行直接跳过；一条都认不出（未登录 /
+ * 插件没实现这个工具 / 格式变了）就返回 `[]`，界面按「⚠️ 还没有登录」显示，**不猜**。
+ */
+export function parseAccountList(raw: string): PluginProviderAccount[] {
+  const accounts: PluginProviderAccount[] = []
+  for (const line of raw.split(/\r?\n/)) {
+    const match = line.trim().match(ACCOUNT_LINE_RE)
+    if (!match?.groups) continue
+    const nickname = match.groups.nickname?.trim() ?? ""
+    const uid = match.groups.uid?.trim() ?? ""
+    if (!nickname || !uid) continue
+    const state = match.groups.state?.trim() ?? ""
+    accounts.push({ nickname, uid, state, active: state.includes("当前生效") })
+  }
+  return accounts.length === 0 ? NO_ACCOUNTS : accounts
+}
+
+/** 状态的短标签：「就绪（第 2 顺位）」→「就绪」（完整状态留在行的 title 里）。 */
+function accountStateLabel(state: string): string {
+  const cut = state.indexOf("（")
+  return (cut > 0 ? state.slice(0, cut) : state).trim()
+}
+
+/** 状态点的三档（v5 设计）：当前生效=绿实心、就绪=绿空心、冷却中/额度用完=灰。 */
+type AccountDotKind = "active" | "ready" | "muted"
+
+function accountDotKind(account: PluginProviderAccount): AccountDotKind {
+  if (account.active) return "active"
+  if (account.state.includes("冷却中") || account.state.includes("额度用完")) return "muted"
+  return "ready"
+}
+
+const ACCOUNT_DOT_BASE_STYLE: CSSProperties = {
+  width: "8px",
+  height: "8px",
+  borderRadius: "50%",
+  flex: "0 0 8px",
+}
+const ACCOUNT_DOT_STYLES: Record<AccountDotKind, CSSProperties> = {
+  active: { ...ACCOUNT_DOT_BASE_STYLE, backgroundColor: "#10b981" },
+  ready: { ...ACCOUNT_DOT_BASE_STYLE, border: "2px solid #10b981" },
+  muted: { ...ACCOUNT_DOT_BASE_STYLE, backgroundColor: "#9ca3af" },
 }
 
 /* ------------------------------------------------------------------ *
@@ -392,7 +436,7 @@ export async function readCredentialFile(path: string): Promise<CredentialFile> 
  * ------------------------------------------------------------------ */
 
 /** 同一时刻只做一件事：避免用户把「刷新模型」「签到」连点成一堆并发命令。 */
-type PendingAction = "refresh" | "login" | "balance" | "checkin" | "credential" | "test"
+type PendingAction = "refresh" | "login" | "balance" | "checkin" | "credential" | "test" | "logout"
 
 type BalanceState =
   | { kind: "loading" }
@@ -532,17 +576,11 @@ export function PluginProviderCard({
   )
   const [testOutcome, setTestOutcome] = useState<TestOutcome | null>(null)
   /*
-   * v3：上下文窗口默认收成一行文字，点击该行才展开选择器（与自定义卡片"选完即收"
-   * 的信息密度对齐）。选择器本身照旧（ContextSizeSelector + OutputTokensSelector），
-   * 只是外面多一层折叠 —— 选完回填文字、即写覆盖表。
-   */
-  const [contextExpanded, setContextExpanded] = useState(false)
-  /*
-   * v3：账号状态行。WorkBuddy 的昵称/uid 只在插件自己手里（Rust 的 ProviderView
+   * v5：额度池账号列表。WorkBuddy 的昵称/uid 只在插件自己手里（Rust 的 ProviderView
    * 没有账号字段），所以走 `get_account` 工具（invokeTool 通道）问插件本人；
-   * undefined = 还没问到 / 没登录，界面按「⚠️ 还没有登录」显示（见 accountText）。
+   * 空数组 = 还没问到 / 没登录 / 插件没实现，界面按「⚠️ 还没有登录」显示（见 accountText）。
    */
-  const [accountInfo, setAccountInfo] = useState<PluginProviderAccountInfo | undefined>()
+  const [accounts, setAccounts] = useState<PluginProviderAccount[]>(NO_ACCOUNTS)
   /*
    * v3：chip 上的小开关「关掉」了的模型 id —— **会话内**的灰色 chip 集合。
    * 关 = 从 selectedModels 移除（聊天里立刻消失），但 chip 保留变灰，给用户一个
@@ -642,8 +680,22 @@ export function PluginProviderCard({
    */
   const needsModelLogin = needsLogin && noModels
 
+  /**
+   * 拉一次 `get_account` 并解析成账号列表。
+   *
+   * 失败（插件没实现 / 未登录 / 工具超时）按"没有账号信息"处理，**不算错误** ——
+   * 那只是"还没登录"，账号行显示占位即可（挂载、ready 后、退出账号后共用这条路径）。
+   */
+  async function fetchAccounts(): Promise<PluginProviderAccount[]> {
+    try {
+      return parseAccountList(await pluginsApi.invokeTool(preset.pluginId, "get_account", {}))
+    } catch {
+      return NO_ACCOUNTS
+    }
+  }
+
   /*
-   * v3：账号状态行只问**有账号概念**的插件（authKind ≠ none）。
+   * 账号列表只问**有账号概念**的插件（authKind ≠ none）。
    *
    * 依赖故意只有三个稳定值：插件 / 登录形态 / 就绪态 —— 不放 providerConfigs，
    * 否则每次保存都重新打一次工具。失败/空结果**不算错误**：那只是"还没登录"，
@@ -651,38 +703,30 @@ export function PluginProviderCard({
    */
   useEffect(() => {
     if (preset.authKind === "none") {
-      setAccountInfo(undefined)
+      setAccounts(NO_ACCOUNTS)
       return
     }
     let alive = true
-    void pluginsApi
-      .invokeTool(preset.pluginId, "get_account", {})
-      .then((raw) => {
-        if (!alive) return
-        setAccountInfo(parseAccountInfo(raw))
-      })
-      .catch(() => {
-        // 插件没实现 get_account / 还没登录 / 工具超时：都是"没有账号信息"，
-        // 不是要打断用户的错误（见上面 effect 的说明）。
-        if (alive) setAccountInfo(undefined)
-      })
+    void fetchAccounts().then((list) => {
+      if (alive) setAccounts(list)
+    })
     return () => {
       alive = false
     }
   }, [preset.authKind, preset.pluginId, preset.ready])
 
   /*
-   * 账号状态行的文案（v3：与截图的「小明 · uid-1」同构）。
-   * authKind=none：没有账号概念，说「无需登录」而不是摆一个警告符号骗人去登录。
+   * 账号状态行的文案（v4 §5.1）：只显示**当前生效账号的昵称**，不显示完整 uid。
+   * 「当前生效」由插件标注（额度池自动故障转移）；全部冷却时插件一个都不标，
+   * 回退到列表第一行。authKind=none：没有账号概念，说「无需登录」而不是摆一个
+   * 警告符号骗人去登录。
    */
-  const accountText =
-    !needsLogin
-      ? "无需登录"
-      : accountInfo
-        ? accountInfo.uid
-          ? `${accountInfo.nickname} · ${accountInfo.uid}`
-          : accountInfo.nickname
-        : "⚠️ 还没有登录"
+  const activeAccount = accounts.find((account) => account.active) ?? accounts[0]
+  const accountText = !needsLogin
+    ? "无需登录"
+    : activeAccount
+      ? activeAccount.nickname
+      : "⚠️ 还没有登录"
 
   async function refreshModels() {
     if (pending) return
@@ -1113,6 +1157,33 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
     }
   }
 
+  /**
+   * 退出一个账号（v5 §1）：调插件的 `logout` 工具（带 uid —— 只退这一个，
+   * 其余账号继续构成额度池），成功后重新拉一次 `get_account` 刷新列表。
+   */
+  async function logoutAccount(uid: string) {
+    if (pending) return
+    setPending("logout")
+    setStatus(null)
+    try {
+      const message = await pluginsApi.invokeTool(preset.pluginId, "logout", { uid })
+      // 插件给的退出结果原样展示（如「已退出 Ming（uid: uid-2）。剩余账号继续作为额度池使用。」）。
+      const text = typeof message === "string" && message.trim() ? message.trim() : "已退出该账号。"
+      setStatus({ error: false, text })
+      setAccounts(await fetchAccounts())
+      // 最后一个账号退出后 provider 可能变未就绪，快照也补一次（失败只 warn，
+      // 退出本身已经生效）。
+      void syncPluginProviders().catch((cause: unknown) => {
+        console.warn("[plugins] 退出账号后同步 provider 失败：", cause)
+      })
+    } catch (cause) {
+      // 原文展示：插件的中文原因（uid 不存在等）比「操作失败」有用得多。
+      setStatus({ error: true, text: `退出失败：${describeError(cause)}` })
+    } finally {
+      setPending(null)
+    }
+  }
+
   // chips 按"插件清单里有没有"分两拨（known / unknown 的理由见 splitKnownModels）。
   /*
    * v3：被 chip 小开关关掉的模型**保留在渲染列表里**（变灰），不随 selectedModels
@@ -1135,8 +1206,9 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
         ModelConfigTitle（箭头 + 标记 + 名称 + 「已保存 / 已启用」状态小字）+ model-switch。
         插件身份补两个徽标：淡紫「插件」（v3 设计色 #e8e6f8 / #4a3f9e）与未就绪时的
         红色「未就绪」（诚实优先：插件没过健康检查必须一眼可见，title 里带原因）。
-        v3 删掉的：展开才有的「来自插件 xxx · N 个模型」副标题与头部那排动作按钮
-        （余额/签到/登录/刷新都移进展开区，折叠行只剩信息与开关，同内置卡片）。
+        v3 删掉的：展开才有的「来自插件 xxx · N 个模型」副标题与头部那排动作按钮。
+        v4 §4a：「登录/设置」从展开区移到折叠行头部（开关左侧）—— 折叠状态下也
+        直接可见可点，余额/签到仍在展开区（它们是"查信息"，不是"找回入口"）。
       */}
       <header>
         <ModelConfigTitle
@@ -1182,6 +1254,27 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
           </span>
         )}
         {/*
+          v4 §4a：「登录/设置」外置到折叠行头部（与开关同一行、开关左侧）——
+          折叠状态下也直接可见可点，不再藏在展开区里。逻辑与 v3 相同（authKind
+          分支 + openSettings）；凭据型 authKind 且没声明设置页时不渲染（那种
+          provider 的入口就是展开区的输入框/选择文件按钮）。
+        */}
+        {showLoginButton ? (
+          <button
+            type="button"
+            className="model-button ghost"
+            data-plugin-action="login"
+            aria-label="登录或打开插件设置页"
+            disabled={loginBlocked || pending === "login"}
+            title={loginBlocked ? NO_SETTINGS_PAGE_HINT : undefined}
+            style={{ padding: "4px 10px", flexShrink: 0 }}
+            onClick={() => void openSettings()}
+          >
+            {pending === "login" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {pending === "login" ? "打开中…" : "登录/设置"}
+          </button>
+        ) : null}
+        {/*
           启停开关与内置卡片同款（model-switch，无文字）：直接写覆盖表的 `enabled`
           （即时生效，不等「保存配置」）—— 停用是"我想让它现在就从聊天里消失"。
         */}
@@ -1225,11 +1318,9 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
         <>
         <div className="model-form" data-plugin-editor="true">
           {/*
-            插件专属动作行（v3 从折叠行挪进来）：余额/签到各绑自己的能力位，
-            没有该能力就整块不渲染（见文件头）。「登录/设置」通常都显示
-            （它是用户找登录入口的地方，点掉比藏起来好），但只有「需要登录 +
-            声明了设置页」时才真的能打开窗口；凭据型 authKind 且没声明设置页时
-            不渲染（那种 provider 的入口就是下面的输入框/选择文件按钮）。
+            插件专属动作行（余额/签到）各绑自己的能力位，没有该能力就整块不渲染
+            （见文件头）。「登录/设置」v4 起外置到折叠行头部（见 header 处）；
+            「登录 WorkBuddy」是「没模型 + 需要登录」时的主按钮（让模型出现的那一步）。
           */}
           <div className="model-actions" data-plugin-row="actions">
             {canQueryBalance ? (
@@ -1280,20 +1371,6 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
               >
                 {pending === "login" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {pending === "login" ? "打开中…" : "登录 WorkBuddy"}
-              </button>
-            ) : null}
-            {showLoginButton ? (
-              <button
-                type="button"
-                className="model-button"
-                data-plugin-action="login"
-                aria-label="登录或打开插件设置页"
-                disabled={loginBlocked || pending === "login"}
-                title={loginBlocked ? NO_SETTINGS_PAGE_HINT : undefined}
-                onClick={() => void openSettings()}
-              >
-                {pending === "login" ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {pending === "login" ? "打开中…" : "登录/设置"}
               </button>
             ) : null}
           </div>
@@ -1394,7 +1471,7 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
           )}
 
           <div className="model-fields">
-          {/* ── 配置名称 / 账号状态（v3：名称收窄 420px；账号显示「昵称 · uid」） ── */}
+          {/* ── 配置名称 / 账号状态（v4：名称收窄 420px；账号只显示当前生效昵称） ── */}
           <label className="model-field">
             <span>配置名称</span>
             <input
@@ -1411,7 +1488,7 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
           <div className="model-field" data-plugin-field="account">
             <span>账号状态</span>
             <div className="flex items-center gap-2">
-              {accountInfo && !disabled ? (
+              {activeAccount && !disabled ? (
                 <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
               ) : null}
               <span className="truncate" data-readonly="true">
@@ -1419,6 +1496,65 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
               </span>
             </div>
           </div>
+
+          {/*
+            v5 §1：已登录账号 · 同平台额度池。多账号 = 一个额度池（按加入先后自动
+            故障转移），**没有手动切换按钮** ——「当前生效」只是插件报的状态展示，
+            不是可选项。退出按行删（logout 工具带 uid）；「＋ 登录新账号」复用登录
+            窗口（插件侧已有「换个账号登录」）。没有账号时整块不渲染，只留上面的
+            「⚠️ 还没有登录」占位。位置在模型区之前（v4/v5 设计 §3）。
+          */}
+          {needsLogin && accounts.length > 0 ? (
+            <div className="model-field full" data-plugin-field="account-list">
+              <span>已登录账号 · 同平台额度池（自动故障转移，无手动切换）</span>
+              <ul className="space-y-1.5">
+                {accounts.map((account) => (
+                  <li
+                    key={account.uid}
+                    data-plugin-account={account.uid}
+                    data-plugin-account-dot={accountDotKind(account)}
+                    className="flex items-center gap-2"
+                    title={account.state}
+                  >
+                    {/* 状态点：当前生效=绿实心、就绪=绿空心、冷却中/额度用完=灰（v5 设计）。 */}
+                    <span aria-hidden="true" style={ACCOUNT_DOT_STYLES[accountDotKind(account)]} />
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {account.nickname} · {account.uid} · {accountStateLabel(account.state)}
+                    </span>
+                    <button
+                      type="button"
+                      className="model-button ghost"
+                      data-plugin-action="logout-account"
+                      data-plugin-account-uid={account.uid}
+                      aria-label={`退出账号 ${account.nickname}`}
+                      disabled={pending !== null}
+                      style={{ padding: "2px 10px", flexShrink: 0 }}
+                      onClick={() => void logoutAccount(account.uid)}
+                    >
+                      退出
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="model-actions">
+                {/*
+                  ＋ 登录新账号：打开同一个登录窗口（providerOpenLogin）—— 多账号
+                  就是重复登录流程追加，插件窗口里有「换个账号登录」的入口。
+                */}
+                <button
+                  type="button"
+                  className="model-button"
+                  data-plugin-action="add-account"
+                  aria-label="登录新账号"
+                  disabled={loginBlocked || pending === "login"}
+                  title={loginBlocked ? NO_SETTINGS_PAGE_HINT : undefined}
+                  onClick={() => void openSettings()}
+                >
+                  ＋ 登录新账号
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {/* ── 模型 chips + 手填（v3：与内置 model-tag-input 同构，chip 带小开关） ── */}
           <div className="model-field full" data-plugin-field="models">
@@ -1656,82 +1792,57 @@ function pruneChipDisabled(previous: ReadonlySet<string>, selection: readonly st
             </div>
           ) : null}
 
-          {/* ── 上下文窗口 / 输出上限（v3：文字行 + 点击展开，选完回填文字并即写覆盖表） ── */}
-          <div className="model-context-row" data-plugin-field="max-context">
-            {/*
-              v3：默认收成一行文字（「上下文窗口 1.0M tokens」，与截图同构），点击展开
-              两个选择器（ContextSizeSelector + OutputTokensSelector 照旧，选完回填、即写）。
-            */}
-            <button
-              type="button"
-              className="model-context-summary"
-              data-plugin-action="toggle-context"
-              aria-expanded={contextExpanded}
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                gap: "10px",
-                border: 0,
-                background: "none",
-                padding: 0,
-                textAlign: "left",
-                fontSize: "0.8125rem",
-                color: "var(--ui-muted, #4a4741)",
-              }}
-              onClick={() => setContextExpanded((previous) => !previous)}
-            >
-              <span>上下文窗口</span>
-              <strong style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--ui-ink, #2b2925)" }}>
-                {formatContextTokens(effectiveContext)}
-              </strong>
-            </button>
-            {!contextExpanded ? null : (
-              <>
-                <div className="space-y-2" data-plugin-field="max-context-selectors">
-                  <ContextSizeSelector value={effectiveContext} onChange={writeContextOverride} />
-                  {contextOverride === undefined ? (
-                    <p className="model-note">
-                      当前使用插件上报值
-                      {reportedContext ? `（${reportedContext.toLocaleString()} tokens）` : ""}，拖动滑块即覆盖。
-                    </p>
-                  ) : (
-                    <button
-                      type="button"
-                      className="model-button ghost"
-                      data-plugin-action="reset-context"
-                      aria-label="恢复插件上报的上下文窗口"
-                      onClick={resetContextOverride}
-                    >
-                      用插件上报值
-                    </button>
-                  )}
-                </div>
-                <div className="space-y-2" data-plugin-field="max-output">
-                  <span className="text-sm font-medium">输出上限</span>
-                  <OutputTokensSelector
-                    value={effectiveOutput}
-                    contextWindow={effectiveContext}
-                    onChange={writeOutputOverride}
-                  />
-                  {outputOverride === undefined ? (
-                    <p className="model-note">
-                      当前使用插件上报值
-                      {reportedOutput ? `（${reportedOutput.toLocaleString()} tokens）` : ""}，拖动滑块即覆盖。
-                    </p>
-                  ) : (
-                    <button
-                      type="button"
-                      className="model-button ghost"
-                      data-plugin-action="reset-output"
-                      aria-label="恢复插件上报的输出上限"
-                      onClick={resetOutputOverride}
-                    >
-                      用插件上报值
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
+          {/*
+            ── 上下文窗口 / 输出上限（v4 §1：常驻展开，与内置 provider-custom.tsx
+            完全同构：label + selector 竖排） ──
+            v3 的「收起文字行 + 点击展开」（toggle-context）已删除：滑块常驻可见可拖，
+            选完即写覆盖表；「用插件上报值」重置按钮照旧（有覆盖时才出现）。
+          */}
+          <div className="space-y-4 mt-5" data-plugin-field="max-context">
+            <div className="space-y-2" data-plugin-field="max-context-selectors">
+              <span className="text-sm font-medium">上下文窗口</span>
+              <ContextSizeSelector value={effectiveContext} onChange={writeContextOverride} />
+              {contextOverride === undefined ? (
+                <p className="model-note">
+                  当前使用插件上报值
+                  {reportedContext ? `（${reportedContext.toLocaleString()} tokens）` : ""}，拖动滑块即覆盖。
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  className="model-button ghost"
+                  data-plugin-action="reset-context"
+                  aria-label="恢复插件上报的上下文窗口"
+                  onClick={resetContextOverride}
+                >
+                  用插件上报值
+                </button>
+              )}
+            </div>
+            <div className="space-y-2" data-plugin-field="max-output">
+              <span className="text-sm font-medium">输出上限</span>
+              <OutputTokensSelector
+                value={effectiveOutput}
+                contextWindow={effectiveContext}
+                onChange={writeOutputOverride}
+              />
+              {outputOverride === undefined ? (
+                <p className="model-note">
+                  当前使用插件上报值
+                  {reportedOutput ? `（${reportedOutput.toLocaleString()} tokens）` : ""}，拖动滑块即覆盖。
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  className="model-button ghost"
+                  data-plugin-action="reset-output"
+                  aria-label="恢复插件上报的输出上限"
+                  onClick={resetOutputOverride}
+                >
+                  用插件上报值
+                </button>
+              )}
+            </div>
           </div>
 
           {/* ── 底部：删除 + 保存（v3：与内置 model-save-footer 同构，含状态行） ── */}

@@ -138,7 +138,8 @@ export function LlmProviderSection() {
     })
   }, [])
 
-  // 内置（含用户手工配置的 custom-*）在前，插件 provider 在列表末尾追加。
+  // 内置（含用户手工配置的 custom-*）与插件 provider 分开渲染：插件区置顶（v4），
+  // 这份 configured 列表只负责内置与自定义卡片，渲染在插件卡片之后。
   // 插件 provider 的 id 已从 configured 里剔除，避免同一张卡片渲染两遍。
   const configured = [...new Set([...Object.keys(providerConfigs), ...customDraftIds, ...presetDraftIds])]
     .filter((id) => !pluginProviderIds.has(id))
@@ -153,16 +154,14 @@ export function LlmProviderSection() {
           <button type="button" className="model-add-card" data-guide="model.add-custom" onClick={() => { const id = `custom-${crypto.randomUUID()}`; setCustomDraftIds((ids) => [...ids, id]); setExpanded({ [id]: true }); setUiTestSource("library") }}>＋ 添加自定义模型</button>
         </div>
         <div className="model-library-list">
-          {configured.map((id) => {
-            const config = providerConfigs[id] ?? {}
-            const preset = LLM_PRESETS.find((item) => item.id === id)
-            return <div key={id}>{id.startsWith("custom-") ? <UiTestProviderCard id={id} isNew={customDraftIds.includes(id)} expanded={!!expanded[id]} onToggle={() => toggleExpand(id)} onRemoved={() => setCustomDraftIds((ids) => ids.filter((item) => item !== id))} /> : preset ? <UiTestPresetCard preset={{ ...preset, hint: UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint }} expanded={!!expanded[id]} onToggle={() => toggleExpand(id)} onRemoved={() => setPresetDraftIds(ids => ids.filter(item => item !== id))} /> : <div className="model-library-item"><div><strong>{config.label || "自定义模型"}</strong><small>{config.model || "未选择模型"}</small></div></div>}</div>
-          })}
-          {!configured.length && pluginPresets.length === 0 && <p>还没有模型配置。</p>}
-          {/* 分组顺序：内置在前，插件 provider 追加在后（设计 6.3）。
-              插件卡片用运行期 preset 形状渲染，`LLM_PRESETS` 本体一行不动。 */}
+          {/*
+            v4（设计 docs/plugins/workbuddy-provider-卡片设计v4.html §4b）：插件
+            provider 区置顶 —— 「添加提供方 / 添加自定义模型」按钮行的正下方、
+            provider 卡片列表的第一个位置（内置/自定义模型卡片之前）。
+            插件卡片用运行期 preset 形状渲染，`LLM_PRESETS` 本体一行不动。
+          */}
           {pluginPresets.length > 0 && (
-            <h4 className="mt-3 text-xs font-medium text-muted-foreground" data-ui="plugin-provider-group">
+            <h4 className="text-xs font-medium text-muted-foreground" data-ui="plugin-provider-group">
               插件提供的模型
             </h4>
           )}
@@ -175,6 +174,12 @@ export function LlmProviderSection() {
               resolveModelConfig={resolvePluginModelConfig}
             />
           ))}
+          {configured.map((id) => {
+            const config = providerConfigs[id] ?? {}
+            const preset = LLM_PRESETS.find((item) => item.id === id)
+            return <div key={id}>{id.startsWith("custom-") ? <UiTestProviderCard id={id} isNew={customDraftIds.includes(id)} expanded={!!expanded[id]} onToggle={() => toggleExpand(id)} onRemoved={() => setCustomDraftIds((ids) => ids.filter((item) => item !== id))} /> : preset ? <UiTestPresetCard preset={{ ...preset, hint: UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint }} expanded={!!expanded[id]} onToggle={() => toggleExpand(id)} onRemoved={() => setPresetDraftIds(ids => ids.filter(item => item !== id))} /> : <div className="model-library-item"><div><strong>{config.label || "自定义模型"}</strong><small>{config.model || "未选择模型"}</small></div></div>}</div>
+          })}
+          {!configured.length && pluginPresets.length === 0 && <p>还没有模型配置。</p>}
         </div>
         {uiTestSource === "presets" && <div className="model-add-panel">
           <div className="model-provider-grid">{presets.map((preset) => <button type="button" key={preset.id} data-guide={`model.preset.${preset.id}`} className={preset.id === selectedPresetId ? "is-selected" : ""} onClick={() => selectPreset(preset.id)}><span className="model-provider-grid-name"><ProviderBrandIcon presetId={preset.id} /><strong>{preset.label}</strong></span><small>{UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint}</small></button>)}</div>

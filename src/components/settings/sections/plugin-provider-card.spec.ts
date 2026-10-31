@@ -68,9 +68,8 @@ import {
 } from "@/lib/plugins/provider-overrides"
 import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
 import {
-  formatContextTokens,
   MAX_CREDENTIAL_FILE_BYTES,
-  parseAccountInfo,
+  parseAccountList,
   PluginProviderCard,
   formatModelCost,
   parseBalance,
@@ -186,13 +185,20 @@ describe("PluginProviderCard", () => {
   let host: HTMLDivElement
   let root: Root
 
-  function renderCard(overrides: Partial<PluginProviderPreset> = {}): PluginProviderPreset {
+  /**
+   * 渲染卡片。`options.expanded=false` 渲染折叠态（v4：登录按钮外置后，
+   * 折叠态也必须能找到并点它）。
+   */
+  function renderCard(
+    overrides: Partial<PluginProviderPreset> = {},
+    options: { expanded?: boolean } = {},
+  ): PluginProviderPreset {
     const preset: PluginProviderPreset = { ...toPluginProviderPreset(view()), ...overrides }
     act(() => {
       root.render(
         createElement(PluginProviderCard, {
           preset,
-          expanded: true,
+          expanded: options.expanded ?? true,
           onToggle: () => {},
           resolveModelConfig: resolveMock,
         }),
@@ -638,12 +644,13 @@ describe("PluginProviderCard", () => {
     expect(find('[data-plugin-action="test-function"]')?.textContent).toContain("测试功能")
     expect(find('[data-plugin-action="save"]')?.textContent).toContain("保存配置")
     /*
-     * v3：上下文/输出不再常驻两个滑块选择器，收成一行文字（插件上报值格式化，
-     * 如 1000000 → 1.0M tokens），点击该行才展开（展开用例见 8c/8d）。
+     * v4：上下文/输出选择器**默认全部展开**（与内置卡片同构，见
+     * provider-custom.tsx 的两个选择器区块）—— 不再有「点击展开」的文字行，
+     * 两个滑块常驻可见可拖（toggle-context 按钮已删除）。
      */
-    expect(host.querySelector('[data-plugin-field="max-context"] input[type="range"]')).toBeNull()
-    expect(host.querySelector('[data-plugin-field="max-output"] input[type="range"]')).toBeNull()
-    expect(host.querySelector('[data-plugin-field="max-context"]')?.textContent).toContain("1.0M tokens")
+    expect(host.querySelector('[data-plugin-field="max-context"] input[type="range"]')).toBeTruthy()
+    expect(host.querySelector('[data-plugin-field="max-output"] input[type="range"]')).toBeTruthy()
+    expect(find('[data-plugin-action="toggle-context"]')).toBeNull()
     // 没有任何改动 → 保存禁用（点了不该有任何事情发生）。
     expect(find('[data-plugin-action="save"]')?.disabled).toBe(true)
   })
@@ -897,18 +904,13 @@ describe("PluginProviderCard", () => {
     expect(statuses).toContain("已停用")
   })
 
-  it("8c) 上下文选择器：点击文字行展开，改值直接写覆盖表并回填文字", async () => {
+  it("8c) 上下文选择器常驻可见：点「1M」直接写覆盖表，「用插件上报值」写回 undefined", async () => {
     renderCard()
 
-    // v3：默认收成一行文字（插件上报 1000000 → 1.0M tokens），没有滑块。
+    // v4：默认就是展开的选择器（与内置卡片同构），没有 toggle-context。
     const area = host.querySelector('[data-plugin-field="max-context"]')!
-    expect(area.querySelector('input[type="range"]')).toBeNull()
-    expect(area.textContent).toContain("1.0M tokens")
-
-    // 点击该行 → 展开 ContextSizeSelector + OutputTokensSelector（与自定义卡片同组件）。
-    await click(find('[data-plugin-action="toggle-context"]')!)
     expect(area.querySelector('input[type="range"]')).toBeTruthy()
-    expect(host.querySelector('[data-plugin-field="max-output"] input[type="range"]')).toBeTruthy()
+    expect(find('[data-plugin-action="toggle-context"]')).toBeNull()
 
     // 点预设「1M」→ onChange(1000000) → 覆盖表立刻更新（不等「保存配置」）。
     const oneMillion = Array.from(area.querySelectorAll("button")).find(
@@ -923,11 +925,10 @@ describe("PluginProviderCard", () => {
     expect(find('[data-plugin-action="reset-context"]')).toBeNull()
   })
 
-  it("8d) 输出上限选择器：随上下文一起展开，改值直接写覆盖表", async () => {
+  it("8d) 输出上限选择器：与上下文一起常驻可见，改值直接写覆盖表", async () => {
     renderCard()
 
-    // 输出选择器与上下文选择器共用一个折叠区（v3：点「上下文窗口」文字行展开）。
-    await click(find('[data-plugin-action="toggle-context"]')!)
+    // v4：输出选择器与上下文选择器一起常驻（不再共用一个折叠区）。
     const area = host.querySelector('[data-plugin-field="max-output"]')!
     expect(area.querySelector('input[type="range"]')).toBeTruthy()
 
@@ -1019,58 +1020,170 @@ describe("PluginProviderCard", () => {
     expect(host.querySelector('[data-plugin-chip="model-b"]')).toBeTruthy()
   })
 
-  it("v3-3) 上下文窗口文字行的格式化（与内置选择器同一套规则）", () => {
-    expect(formatContextTokens(1_000_000)).toBe("1.0M tokens")
-    expect(formatContextTokens(128_000)).toBe("125K tokens")
-    expect(formatContextTokens(512)).toBe("512 tokens")
+  it("v3-6) 配置名称输入框收窄（v3：max-width 420px）", () => {
+    renderCard()
+
+    expect(host.querySelector<HTMLInputElement>('[data-plugin-field="label"]')?.style.maxWidth).toBe("420px")
   })
 
-  it("v3-4) 账号状态：get_account 工具返回「账号：昵称（uid: xxx）」→ 显示「昵称 · uid」", async () => {
-    const invokeTool = vi.mocked(pluginsApi.invokeTool)
-    invokeTool.mockResolvedValueOnce("账号：小明（uid: uid-1）")
-    renderCard({ authKind: "browser-login", settingsPage: "/login" })
-    // 等异步工具调用（promise 链）落进 state。
+  /* ================================================================== *
+   * v4/v5：上下文常展、登录外置、账号昵称与额度池列表
+   *
+   * 对着 docs/plugins/workbuddy-provider-卡片设计v4.html 与 v5.html：
+   *   · v4 §1 上下文/输出选择器默认展开（8c/8d 已覆盖，无 toggle-context）；
+   *   · v4 §4a 「登录/设置」外置到折叠行头部（v4-1）；
+   *   · v4 §5.1 账号状态只显示昵称（v4-4）；
+   *   · v5 §1 额度池列表：无手动切换、可退出、可追加（v5-1/2/3）。
+   * ================================================================== */
+
+  /*
+   * 插件 get_account 的多账号返回（与 samples/plugins/workbuddy-account 的
+   * index.js 逐字同构：首行是说明，其后每行「N. 昵称（uid: …）· 状态 · 登录态到期」）。
+   */
+  const ACCOUNT_POOL_TEXT = [
+    "已登录 2 个账号，构成同平台额度池（按加入先后自动故障转移，无手动切换，「当前生效」只是状态展示）：",
+    "1. Yang（uid: uid-1）· 当前生效（请求从它发起） · 登录态到期：2026/10/31 20:35:00",
+    "2. Ming（uid: uid-2）· 就绪（第 2 顺位） · 登录态到期：2026/10/31 21:00:00（已临近到期，下次请求会自动续期）",
+  ].join("\n")
+
+  /** 退出 Ming 后插件报的单账号列表（v5-2 刷新后的期望）。 */
+  const SINGLE_ACCOUNT_TEXT = [
+    "已登录 1 个账号，构成同平台额度池（按加入先后自动故障转移，无手动切换，「当前生效」只是状态展示）：",
+    "1. Yang（uid: uid-1）· 当前生效（请求从它发起） · 登录态到期：2026/10/31 20:35:00",
+  ].join("\n")
+
+  /** 等异步的 get_account（promise 链）落进 state。 */
+  async function flushAccountFetch() {
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
+  }
 
-    expect(invokeTool).toHaveBeenCalledWith("wb-plugin", "get_account", {})
-    expect(host.querySelector('[data-plugin-field="account"]')?.textContent).toContain("小明 · uid-1")
+  it("v4-1) 折叠状态下「登录/设置」按钮可见可点（外置到折叠行头部，开关左侧）", async () => {
+    renderCard({ authKind: "browser-login", settingsPage: "/setup" }, { expanded: false })
+
+    // 按钮在折叠行 header 里（不在展开区 —— 折叠态也能直接点到）。
+    const button = host.querySelector<HTMLButtonElement>('header [data-plugin-action="login"]')!
+    expect(button, "折叠行头部必须有「登录/设置」按钮").toBeTruthy()
+    await click(button)
+
+    expect(providerOpenLogin).toHaveBeenCalledWith("wb-connect")
   })
 
-  it("v3-4b) 账号状态：调用失败（未登录）→「⚠️ 还没有登录」；authKind=none 不调工具", async () => {
+  it("v4-4) 账号状态：get_account 返回多账号额度池 → 只显示当前生效账号的昵称", async () => {
+    const invokeTool = vi.mocked(pluginsApi.invokeTool)
+    invokeTool.mockResolvedValueOnce(ACCOUNT_POOL_TEXT)
+    renderCard({ authKind: "browser-login", settingsPage: "/login" })
+    await flushAccountFetch()
+
+    expect(invokeTool).toHaveBeenCalledWith("wb-plugin", "get_account", {})
+    const account = host.querySelector('[data-plugin-field="account"]')!
+    // v4：只显示昵称（「当前生效」的那个账号），不显示完整 uid。
+    expect(account.textContent).toContain("Yang")
+    expect(account.textContent).not.toContain("uid-1")
+  })
+
+  it("v4-4b) 账号状态：调用失败（未登录）→「⚠️ 还没有登录」，且不渲染额度池列表；authKind=none 不调工具", async () => {
     const invokeTool = vi.mocked(pluginsApi.invokeTool)
     invokeTool.mockRejectedValueOnce("还没有登录 WorkBuddy 账号")
     renderCard({ authKind: "browser-login", settingsPage: "/login", ready: false, models: [] })
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
+    await flushAccountFetch()
 
     expect(host.querySelector('[data-plugin-field="account"]')?.textContent).toContain("⚠️ 还没有登录")
+    // 没有账号就不渲染额度池列表（只有占位文案，没有空列表）。
+    expect(host.querySelector('[data-plugin-field="account-list"]')).toBeNull()
 
     // authKind=none：没有账号概念，不去调 get_account。
     invokeTool.mockClear()
     act(() => root.unmount())
     root = createRoot(host)
     renderCard({ authKind: "none" })
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0))
-    })
+    await flushAccountFetch()
     expect(invokeTool).not.toHaveBeenCalled()
     expect(host.querySelector('[data-plugin-field="account"]')?.textContent).toContain("无需登录")
   })
 
-  it("v3-5) 账号信息解析：容错「账号：昵称（uid: xxx）」格式", () => {
-    expect(parseAccountInfo("账号：小明（uid: uid-1）")).toEqual({ nickname: "小明", uid: "uid-1" })
-    expect(parseAccountInfo("账号：小明（uid: uid-1）")).not.toBeNull()
-    expect(parseAccountInfo("账号：小明")).toEqual({ nickname: "小明", uid: undefined })
-    expect(parseAccountInfo("")).toBeUndefined()
-    expect(parseAccountInfo("随便一段话")).toBeUndefined()
+  it("v5-5) 额度池账号列表解析：逐行取昵称/uid/状态；无账号与脏数据都返回空数组", () => {
+    expect(parseAccountList(ACCOUNT_POOL_TEXT)).toEqual([
+      { nickname: "Yang", uid: "uid-1", state: "当前生效（请求从它发起）", active: true },
+      { nickname: "Ming", uid: "uid-2", state: "就绪（第 2 顺位）", active: false },
+    ])
+    // 无账号：插件返回的是引导文案，不是账号行。
+    expect(parseAccountList("还没有登录 WorkBuddy 账号。请调用 start_login 在 QMAI 里添加账号。")).toEqual([])
+    expect(parseAccountList("")).toEqual([])
+    expect(parseAccountList("随便一段话")).toEqual([])
+    // 冷却中 / 额度用完 也是合法状态行（active=false，点灰显）。
+    expect(
+      parseAccountList("1. Lei（uid: uid-3）· 冷却中（上次失败：429，约 9 分钟后自动回池） · 登录态到期：未知"),
+    ).toEqual([
+      { nickname: "Lei", uid: "uid-3", state: "冷却中（上次失败：429，约 9 分钟后自动回池）", active: false },
+    ])
   })
 
-  it("v3-6) 配置名称输入框收窄（v3：max-width 420px）", () => {
-    renderCard()
+  it("v5-1) 额度池列表：两行昵称/uid/状态 + 逐行退出，没有手动切换按钮", async () => {
+    const invokeTool = vi.mocked(pluginsApi.invokeTool)
+    invokeTool.mockResolvedValueOnce(ACCOUNT_POOL_TEXT)
+    renderCard({ authKind: "browser-login", settingsPage: "/login" })
+    await flushAccountFetch()
 
-    expect(host.querySelector<HTMLInputElement>('[data-plugin-field="label"]')?.style.maxWidth).toBe("420px")
+    const list = host.querySelector('[data-plugin-field="account-list"]')!
+    expect(list).toBeTruthy()
+    // v5 的标题：同平台额度池（自动故障转移，无手动切换）。
+    expect(list.textContent).toContain("同平台额度池")
+    const rows = [...list.querySelectorAll("[data-plugin-account]")]
+    expect(rows).toHaveLength(2)
+    expect(rows[0]!.textContent).toContain("Yang")
+    expect(rows[0]!.textContent).toContain("uid-1")
+    expect(rows[0]!.textContent).toContain("当前生效")
+    expect(rows[1]!.textContent).toContain("Ming")
+    expect(rows[1]!.textContent).toContain("uid-2")
+    expect(rows[1]!.textContent).toContain("就绪")
+    // v5 核心：额度池自动故障转移，列表里没有任何手动「切换 / 使用中」**按钮**
+    // （标题里的「无手动切换」是说明文字，不算按钮）。
+    const listButtons = [...list.querySelectorAll("button")].map((button) => button.textContent ?? "")
+    expect(listButtons.some((text) => text.includes("切换"))).toBe(false)
+    expect(listButtons.some((text) => text.includes("使用中"))).toBe(false)
+    // 每行一个退出按钮（带 uid），底部有「＋ 登录新账号」。
+    expect(list.querySelector('[data-plugin-action="logout-account"][data-plugin-account-uid="uid-1"]')).toBeTruthy()
+    expect(list.querySelector('[data-plugin-action="logout-account"][data-plugin-account-uid="uid-2"]')).toBeTruthy()
+    expect(find('[data-plugin-action="add-account"]')?.textContent).toContain("登录新账号")
+  })
+
+  it("v5-2) 点「退出」：调 logout 工具（带 uid），成功后重新拉 get_account 刷新列表", async () => {
+    const invokeTool = vi.mocked(pluginsApi.invokeTool)
+    invokeTool.mockResolvedValueOnce(ACCOUNT_POOL_TEXT)
+    renderCard({ authKind: "browser-login", settingsPage: "/login" })
+    await flushAccountFetch()
+    expect(invokeTool).toHaveBeenCalledTimes(1)
+
+    // 退出 Ming：logout 的返回文本 → 再拉一次 get_account（单账号）。
+    invokeTool.mockResolvedValueOnce("已退出 Ming（uid: uid-2）。剩余账号继续作为额度池使用。")
+    invokeTool.mockResolvedValueOnce(SINGLE_ACCOUNT_TEXT)
+
+    await click(
+      host.querySelector<HTMLButtonElement>(
+        '[data-plugin-action="logout-account"][data-plugin-account-uid="uid-2"]',
+      )!,
+    )
+
+    expect(invokeTool).toHaveBeenCalledTimes(3)
+    expect(invokeTool).toHaveBeenNthCalledWith(2, "wb-plugin", "logout", { uid: "uid-2" })
+    expect(invokeTool).toHaveBeenNthCalledWith(3, "wb-plugin", "get_account", {})
+    // 列表刷新成单账号，退出结果文案原样展示。
+    const rows = [...host.querySelectorAll("[data-plugin-account]")]
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.textContent).toContain("Yang")
+    expect(host.textContent).toContain("已退出 Ming（uid: uid-2）")
+  })
+
+  it("v5-3) 「＋ 登录新账号」：打开登录窗口（providerOpenLogin）", async () => {
+    const invokeTool = vi.mocked(pluginsApi.invokeTool)
+    invokeTool.mockResolvedValueOnce(ACCOUNT_POOL_TEXT)
+    renderCard({ authKind: "browser-login", settingsPage: "/login" })
+    await flushAccountFetch()
+
+    await click(find('[data-plugin-action="add-account"]')!)
+
+    expect(providerOpenLogin).toHaveBeenCalledWith("wb-connect")
   })
 })

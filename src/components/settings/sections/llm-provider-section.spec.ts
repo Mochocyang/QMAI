@@ -64,4 +64,18 @@ describe("LLM provider model controls", () => {
     expect(source).toContain('{preset.provider !== "cursor-cli" && preset.provider !== "antigravity-cli" && (')
     expect(source).toContain("<ReasoningControls")
   })
+
+  it("renders plugin provider cards first, above configured/custom cards (v4 插件区置顶)", () => {
+    /*
+     * v4（docs/plugins/workbuddy-provider-卡片设计v4.html §4b）：插件 provider 区
+     * 从页面最底部移到「添加提供方 / 添加自定义模型」按钮行的正下方 ——
+     * model-library-list 的第一个位置，在 configured（自定义模型）卡片之前。
+     * 本文件是源码断言型测试，用两段代码的先后位置表达渲染顺序。
+     */
+    const pluginGroup = source.indexOf('data-ui="plugin-provider-group"')
+    const configuredMap = source.indexOf("configured.map((id)")
+    expect(pluginGroup).toBeGreaterThanOrEqual(0)
+    expect(configuredMap).toBeGreaterThanOrEqual(0)
+    expect(pluginGroup).toBeLessThan(configuredMap)
+  })
 })
