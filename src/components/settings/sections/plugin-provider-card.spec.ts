@@ -25,6 +25,8 @@ vi.mock("@/lib/plugins/api", () => ({
     providerOpenLogin: vi.fn(async () => undefined),
     providerCall: vi.fn(async () => ({})),
     submitProviderCredential: vi.fn(async () => ({ ok: true })),
+    // v3：账号状态走插件的 get_account 工具（invokeTool 通道）。
+    invokeTool: vi.fn(async () => ""),
   },
 }))
 vi.mock("@/lib/plugins/provider-sync", () => ({
@@ -66,7 +68,9 @@ import {
 } from "@/lib/plugins/provider-overrides"
 import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
 import {
+  formatContextTokens,
   MAX_CREDENTIAL_FILE_BYTES,
+  parseAccountInfo,
   PluginProviderCard,
   formatModelCost,
   parseBalance,
@@ -337,8 +341,8 @@ describe("PluginProviderCard", () => {
 
     expect(find('[data-plugin-action="balance"]')).toBeNull()
     expect(find('[data-plugin-action="checkin"]')).toBeNull()
-    // 刷新模型按钮照旧在：它本来就不受能力位门控。
-    expect(find('[data-plugin-action="refresh"]')).toBeTruthy()
+    // 拉取模型按钮照旧在：它本来就不受能力位门控（v3 起头部不再有第二个「刷新模型」入口）。
+    expect(find('[data-plugin-action="pull-models"]')).toBeTruthy()
   })
 
   it("一个能力位都没有：余额/签到不渲染，但「刷新模型」仍然显示（宿主自己的能力）", () => {
@@ -346,14 +350,14 @@ describe("PluginProviderCard", () => {
 
     expect(find('[data-plugin-action="balance"]')).toBeNull()
     expect(find('[data-plugin-action="checkin"]')).toBeNull()
-    // /v1/models 是 provider 契约的必需端点（设计 §3.1）：刷新不需要插件声明任何东西。
-    expect(find('[data-plugin-action="refresh"]')).toBeTruthy()
+    // /v1/models 是 provider 契约的必需端点（设计 §3.1）：拉取不需要插件声明任何东西。
+    expect(find('[data-plugin-action="pull-models"]')).toBeTruthy()
     /*
      * 模型区不能留白：没模型时要明说下一步。
-     * 这个默认视图是 authKind=none（不需要登录），所以引导是"去刷新"；
+     * 这个默认视图是 authKind=none（不需要登录），所以引导是"去拉取"；
      * "登录后会自动拉取模型"那句只在需要登录的插件上出现（见第 7 组用例）。
      */
-    expect(host.textContent).toContain("先点「刷新模型」")
+    expect(host.textContent).toContain("先点「拉取模型」")
   })
 
   it("models.refresh 只剩向后兼容语义：写着不报错，但不再驱动任何按钮", () => {
@@ -633,9 +637,13 @@ describe("PluginProviderCard", () => {
     expect(find('[data-plugin-action="test-connection"]')?.textContent).toContain("测试连接")
     expect(find('[data-plugin-action="test-function"]')?.textContent).toContain("测试功能")
     expect(find('[data-plugin-action="save"]')?.textContent).toContain("保存配置")
-    // 窗口/输出是选择器（滑块，与内置卡片同款），不再是手写数字框。
-    expect(host.querySelector('[data-plugin-field="max-context"] input[type="range"]')).toBeTruthy()
-    expect(host.querySelector('[data-plugin-field="max-output"] input[type="range"]')).toBeTruthy()
+    /*
+     * v3：上下文/输出不再常驻两个滑块选择器，收成一行文字（插件上报值格式化，
+     * 如 1000000 → 1.0M tokens），点击该行才展开（展开用例见 8c/8d）。
+     */
+    expect(host.querySelector('[data-plugin-field="max-context"] input[type="range"]')).toBeNull()
+    expect(host.querySelector('[data-plugin-field="max-output"] input[type="range"]')).toBeNull()
+    expect(host.querySelector('[data-plugin-field="max-context"]')?.textContent).toContain("1.0M tokens")
     // 没有任何改动 → 保存禁用（点了不该有任何事情发生）。
     expect(find('[data-plugin-action="save"]')?.disabled).toBe(true)
   })
@@ -668,6 +676,8 @@ describe("PluginProviderCard", () => {
     expect(host.querySelector('[role="dialog"]')).toBeNull()
     expect(host.querySelector('[data-plugin-catalog="open"]')).toBeTruthy()
     expect(host.querySelector('[data-plugin-field="catalog-search"]')).toBeNull()
+    // v3：删掉「已从插件拉到 N 个模型…」提示行——目录头自己就是反馈。
+    expect(host.textContent).not.toContain("已从插件拉到")
     // 计数文案（内置卡片同款）。
     expect(host.textContent).toContain("已拉取 3 个模型 · 已选择 3 个")
     // 默认全部点亮：selectedModels 没写过 = 全选语义。
@@ -789,7 +799,7 @@ describe("PluginProviderCard", () => {
     )
     expect(host.querySelector('[data-plugin-status="error"]')?.textContent).toContain("1/2 通过")
     // 失败的 chip 单独标红（用户一眼能看出是哪一条）。
-    expect(host.querySelector('[data-plugin-chip="step-5-preview"]')?.className).toContain("destructive")
+    expect(host.querySelector('[data-plugin-chip="step-5-preview"]')?.className).toContain("is-failed")
   })
 
   it("5b) 测试过程中显示「正在测试 N/M…」，并且一次只跑一个模型", async () => {
@@ -880,14 +890,25 @@ describe("PluginProviderCard", () => {
     await click(find('[data-plugin-action="toggle-enabled"]')!)
 
     expect(getPluginProviderOverride("wb-connect")?.enabled).toBe(false)
-    expect(find('[data-plugin-action="toggle-enabled"]')?.textContent).toContain("已停用")
+    // v3：开关是内置卡片同款 model-switch（无文字）；停用态看开关的 aria-checked
+    // 与标题里第二个状态小字（ModelConfigTitle：[已保存, 已启用/已停用]）。
+    expect(find('[data-plugin-action="toggle-enabled"]')?.getAttribute("aria-checked")).toBe("false")
+    const statuses = [...host.querySelectorAll(".model-provider-status")].map((el) => el.textContent)
+    expect(statuses).toContain("已停用")
   })
 
-  it("8c) 上下文选择器：渲染 ContextSizeSelector，改值直接写覆盖表", async () => {
+  it("8c) 上下文选择器：点击文字行展开，改值直接写覆盖表并回填文字", async () => {
     renderCard()
 
+    // v3：默认收成一行文字（插件上报 1000000 → 1.0M tokens），没有滑块。
     const area = host.querySelector('[data-plugin-field="max-context"]')!
+    expect(area.querySelector('input[type="range"]')).toBeNull()
+    expect(area.textContent).toContain("1.0M tokens")
+
+    // 点击该行 → 展开 ContextSizeSelector + OutputTokensSelector（与自定义卡片同组件）。
+    await click(find('[data-plugin-action="toggle-context"]')!)
     expect(area.querySelector('input[type="range"]')).toBeTruthy()
+    expect(host.querySelector('[data-plugin-field="max-output"] input[type="range"]')).toBeTruthy()
 
     // 点预设「1M」→ onChange(1000000) → 覆盖表立刻更新（不等「保存配置」）。
     const oneMillion = Array.from(area.querySelectorAll("button")).find(
@@ -902,9 +923,11 @@ describe("PluginProviderCard", () => {
     expect(find('[data-plugin-action="reset-context"]')).toBeNull()
   })
 
-  it("8d) 输出上限选择器：渲染 OutputTokensSelector，改值直接写覆盖表", async () => {
+  it("8d) 输出上限选择器：随上下文一起展开，改值直接写覆盖表", async () => {
     renderCard()
 
+    // 输出选择器与上下文选择器共用一个折叠区（v3：点「上下文窗口」文字行展开）。
+    await click(find('[data-plugin-action="toggle-context"]')!)
     const area = host.querySelector('[data-plugin-field="max-output"]')!
     expect(area.querySelector('input[type="range"]')).toBeTruthy()
 
@@ -916,5 +939,138 @@ describe("PluginProviderCard", () => {
 
     await click(find('[data-plugin-action="reset-output"]')!)
     expect(getPluginProviderOverride("wb-connect")?.maxOutputTokens).toBeUndefined()
+  })
+
+  /* ================================================================== *
+   * v3：与自定义提供方卡片视觉同构
+   *
+   * 折叠行 / chip 小开关 / 账号状态 / 上下文文字行 / 冗余删除，
+   * 每条用例都对着 docs/plugins/workbuddy-provider-卡片设计v3.html 的对齐点。
+   * ================================================================== */
+
+  it("v3-1) 折叠行与内置卡片同构：标题+状态徽标+插件淡紫徽标+同一开关，没有「来自插件」副标题", () => {
+    renderCard()
+
+    // 与 provider-custom.tsx 同一结构：model-provider-title（箭头+名称+状态）+ model-switch。
+    const title = host.querySelector<HTMLButtonElement>(".model-provider-title")
+    expect(title, "折叠行必须用内置同款 model-provider-title 结构").toBeTruthy()
+    expect(title?.getAttribute("aria-expanded")).toBe("true")
+    expect(host.querySelector(".model-provider-title .model-provider-name")?.textContent).toContain(
+      "插件样例直连",
+    )
+    expect(host.querySelector(".model-provider-title .model-provider-status")?.textContent).toContain("已保存")
+    // 插件专属淡紫徽标（v3 设计的 #e8e6f8 / #4a3f9e）。
+    const pluginBadge = host.querySelector<HTMLElement>('[data-plugin-badge="plugin"]')
+    expect(pluginBadge?.textContent).toBe("插件")
+    expect(pluginBadge?.style.backgroundColor).toBe("rgb(232, 230, 248)")
+    expect(pluginBadge?.style.color).toBe("rgb(74, 63, 158)")
+    // 开关：内置同款 model-switch（role=switch / aria-checked，不再带文字）。
+    const sw = find('[data-plugin-action="toggle-enabled"]')!
+    expect(sw.className).toContain("model-switch")
+    expect(sw.getAttribute("role")).toBe("switch")
+    // 头部不再渲染副标题与模型计数（展开区才有目录），也不放一排动作按钮。
+    expect(host.textContent).not.toContain("来自插件")
+    expect(host.textContent).not.toContain("个模型")
+    // 未就绪徽标仍在（诚实优先：未就绪的 provider 必须一眼可见）。
+    renderCard({ ready: false, lastError: "健康检查超时" })
+    expect(host.querySelector('[data-plugin-badge="unready"]')?.textContent).toContain("未就绪")
+  })
+
+  it("v3-2) chip 小开关：关掉变灰但保留（并从 selectedModels 移除），点 × 才移除", async () => {
+    renderCard({ models: modelsOf(["model-a", "model-b"]) })
+
+    const toggle = host.querySelector<HTMLButtonElement>('[data-plugin-chip-toggle="model-a"]')!
+    expect(toggle.getAttribute("aria-pressed")).toBe("true")
+
+    // 关：chip 保留变灰，模型从 selectedModels 移除（聊天里不再出现）。
+    await click(toggle)
+    expect(host.querySelector('[data-plugin-chip="model-a"]')).toBeTruthy()
+    expect(
+      host.querySelector<HTMLElement>('[data-plugin-chip="model-a"]')?.getAttribute("data-plugin-chip-disabled"),
+    ).toBe("true")
+    expect(
+      host.querySelector<HTMLButtonElement>('[data-plugin-chip-toggle="model-a"]')?.getAttribute("aria-pressed"),
+    ).toBe("false")
+    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual(["model-b"])
+
+    // 再开：写回 selectedModels，chip 恢复。
+    await click(host.querySelector<HTMLButtonElement>('[data-plugin-chip-toggle="model-a"]')!)
+    expect(
+      host.querySelector<HTMLElement>('[data-plugin-chip="model-a"]')?.getAttribute("data-plugin-chip-disabled"),
+    ).toBeNull()
+    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual(["model-b", "model-a"])
+
+    // × 才是移除：chip 整个消失。
+    await click(host.querySelector<HTMLElement>('[data-plugin-chip-remove="model-a"]')!)
+    expect(host.querySelector('[data-plugin-chip="model-a"]')).toBeNull()
+    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual(["model-b"])
+  })
+
+  it("v3-2b) 灰 chip 在「保存配置」时被清理（不进覆盖表，重开页面无幽灵 chip）", async () => {
+    renderCard({ models: modelsOf(["model-a", "model-b"]) })
+
+    await click(host.querySelector<HTMLButtonElement>('[data-plugin-chip-toggle="model-a"]')!)
+    await typeInto(await field("label"), "改名触发保存可用")
+    await click(find('[data-plugin-action="save"]')!)
+
+    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual(["model-b"])
+    // 保存后灰 chip 清理：卡片上只剩真正选中的 model-b。
+    expect(host.querySelector('[data-plugin-chip="model-a"]')).toBeNull()
+    expect(host.querySelector('[data-plugin-chip="model-b"]')).toBeTruthy()
+  })
+
+  it("v3-3) 上下文窗口文字行的格式化（与内置选择器同一套规则）", () => {
+    expect(formatContextTokens(1_000_000)).toBe("1.0M tokens")
+    expect(formatContextTokens(128_000)).toBe("125K tokens")
+    expect(formatContextTokens(512)).toBe("512 tokens")
+  })
+
+  it("v3-4) 账号状态：get_account 工具返回「账号：昵称（uid: xxx）」→ 显示「昵称 · uid」", async () => {
+    const invokeTool = vi.mocked(pluginsApi.invokeTool)
+    invokeTool.mockResolvedValueOnce("账号：小明（uid: uid-1）")
+    renderCard({ authKind: "browser-login", settingsPage: "/login" })
+    // 等异步工具调用（promise 链）落进 state。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    expect(invokeTool).toHaveBeenCalledWith("wb-plugin", "get_account", {})
+    expect(host.querySelector('[data-plugin-field="account"]')?.textContent).toContain("小明 · uid-1")
+  })
+
+  it("v3-4b) 账号状态：调用失败（未登录）→「⚠️ 还没有登录」；authKind=none 不调工具", async () => {
+    const invokeTool = vi.mocked(pluginsApi.invokeTool)
+    invokeTool.mockRejectedValueOnce("还没有登录 WorkBuddy 账号")
+    renderCard({ authKind: "browser-login", settingsPage: "/login", ready: false, models: [] })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    expect(host.querySelector('[data-plugin-field="account"]')?.textContent).toContain("⚠️ 还没有登录")
+
+    // authKind=none：没有账号概念，不去调 get_account。
+    invokeTool.mockClear()
+    act(() => root.unmount())
+    root = createRoot(host)
+    renderCard({ authKind: "none" })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+    expect(invokeTool).not.toHaveBeenCalled()
+    expect(host.querySelector('[data-plugin-field="account"]')?.textContent).toContain("无需登录")
+  })
+
+  it("v3-5) 账号信息解析：容错「账号：昵称（uid: xxx）」格式", () => {
+    expect(parseAccountInfo("账号：小明（uid: uid-1）")).toEqual({ nickname: "小明", uid: "uid-1" })
+    expect(parseAccountInfo("账号：小明（uid: uid-1）")).not.toBeNull()
+    expect(parseAccountInfo("账号：小明")).toEqual({ nickname: "小明", uid: undefined })
+    expect(parseAccountInfo("")).toBeUndefined()
+    expect(parseAccountInfo("随便一段话")).toBeUndefined()
+  })
+
+  it("v3-6) 配置名称输入框收窄（v3：max-width 420px）", () => {
+    renderCard()
+
+    expect(host.querySelector<HTMLInputElement>('[data-plugin-field="label"]')?.style.maxWidth).toBe("420px")
   })
 })
