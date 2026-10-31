@@ -27,13 +27,26 @@
  *     `POST /login/credential`。**已提交的值不回填、不缓存** —— 宿主手里没有这个值
  *     （它只在一次内存中转里经过），所以这里既没有"读取已保存令牌"的调用，也不把
  *     `value` 放进任何 React 之外的地方。
+ *
+ * ── v2.1：从「只读摘要」升级成**完整编辑器** ──
+ * 用户在这里改名、拉取/勾选模型、测连接、改窗口、保存。三条铁律：
+ *   1. **编辑先落草稿**，点「保存配置」才写覆盖表（`provider-overrides`）。
+ *      边改边写会让"勾了又取消"这类半途状态在覆盖表上留痕，而覆盖表没有撤销。
+ *   2. **覆盖表是持久价值的唯一出口**：`providerConfigs` 下一次同步会用
+ *      `mergePluginProviderConfig` 合并它（`provider-sync`），所以用户改的东西不会再被刷新冲掉。
+ *   3. **模型只测已选的**（理由见 `runTest`），**允许手填插件没上报的模型**
+ *      （理由见 `splitKnownModels`）—— 两个决定都是"替用户省时间/不夺权"。
  */
 import { useState } from "react"
 import { AlertTriangle, CalendarCheck, Image as ImageIcon, Loader2, RefreshCw, Wallet } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { pluginsApi, type PluginCredentialKind } from "@/lib/plugins/api"
 import { syncPluginProviders } from "@/lib/plugins/provider-sync"
+import { setPluginProviderOverride } from "@/lib/plugins/provider-overrides"
+import { deriveSelectedModelIds } from "@/lib/plugins/selected-models"
 import type { PluginProviderModel, PluginProviderView } from "@/lib/plugins/types"
+import { testLlmConnection, testLlmFunction, type ProviderTestResult } from "@/lib/connection-tests"
+import { useWikiStore, type LlmConfig, type ProviderOverride } from "@/stores/wiki-store"
 import type { LlmPreset } from "../llm-presets"
 
 /**
@@ -274,13 +287,12 @@ export async function readCredentialFile(path: string): Promise<CredentialFile> 
 }
 
 
-
 /* ------------------------------------------------------------------ *
  * 卡片
  * ------------------------------------------------------------------ */
 
 /** 同一时刻只做一件事：避免用户把「刷新模型」「签到」连点成一堆并发命令。 */
-type PendingAction = "refresh" | "login" | "balance" | "checkin" | "credential"
+type PendingAction = "refresh" | "login" | "balance" | "checkin" | "credential" | "test"
 
 type BalanceState =
   | { kind: "loading" }
@@ -288,14 +300,122 @@ type BalanceState =
   | { kind: "malformed" }
   | { kind: "error"; text: string }
 
+/* ------------------------------------------------------------------ *
+ * 编辑器：草稿 → 覆盖表
+ * ------------------------------------------------------------------ */
+
+/**
+ * 卡片上的**草稿**。用户改动先落在这里，「保存配置」时才一次性写覆盖表。
+ *
+ * 为什么不边改边写：拉取浮层要允许「勾了又取消」，输入框要允许「删光重打」。
+ * 边改边写会让覆盖表在半途状态上留痕（例如名字被清成空串），而覆盖表没有
+ * 「撤销」—— 它的下一次同步就会把这些半成品当成用户意图。
+ */
+interface EditorDraft {
+  label: string
+  /** 勾选/手填的模型 id，顺序即展示顺序。 */
+  models: string[]
+  /** 上下文窗口的**原始输入**：空串 = 用插件上报值（不能存成 0）。 */
+  contextText: string
+  outputText: string
+}
+
+/** 测试用的模型配置解析器：`providerId/modelId` → 完整 LlmConfig。 */
+type ModelConfigResolver = (modelKey: string) => LlmConfig
+
+/** 浮层里的一行：插件报的模型 + 上下文窗口（若有）。 */
+interface CatalogEntry {
+  id: string
+  label: string
+  contextSize?: number
+}
+
+/**
+ * 一次测试的结果。`failures` 必带模型名与原因：
+ * 「2/3 通过」对用户没有可操作价值，他要的是「哪几个挂了、为什么」。
+ */
+interface TestOutcome {
+  total: number
+  failures: { model: string; reason: string }[]
+}
+
+/**
+ * 把「插件上报值 + 当前覆盖」算成草稿的初始值。
+ *
+ * 导出是为了让测试能直接断言「打开卡片时草稿长什么样」，而不必去猜 DOM 里的 placeholder
+ * 是插件值还是兜底值 —— 这两者混在一起是这类"可空数字框"最典型的 bug。
+ */
+export function draftFromPreset(
+  preset: PluginProviderPreset,
+  config: ProviderOverride | undefined,
+): EditorDraft {
+  return {
+    // 名字优先用用户改过的：`providerConfigs` 里已经是合并后的结果（provider-sync 会 merge 覆盖）。
+    label: config?.label?.trim() || preset.label,
+    models: deriveSelectedModelIds(config, preset.models),
+    // 空串而不是上报值：placeholder 里的值一保存就成了"用户的覆盖"，
+    // 之后插件改了窗口用户也收不到更新（而且界面上看不出区别）。
+    contextText: config?.maxContextSize ? String(config.maxContextSize) : "",
+    outputText: config?.maxOutputTokens ? String(config.maxOutputTokens) : "",
+  }
+}
+
+/** 整数输入框的取值：空/非法 → `undefined`（= 用插件值），而不是 0。 */
+export function parseLimitInput(raw: string): number | undefined {
+  const trimmed = raw.trim()
+  if (!trimmed) return undefined
+  const value = Number(trimmed)
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) return undefined
+  return value
+}
+
+/** 两个草稿是否等价（保存按钮的禁用条件）。 */
+function sameDraft(a: EditorDraft, b: EditorDraft): boolean {
+  return (
+    a.label.trim() === b.label.trim() &&
+    a.contextText.trim() === b.contextText.trim() &&
+    a.outputText.trim() === b.outputText.trim() &&
+    a.models.length === b.models.length &&
+    a.models.every((model, index) => model === b.models[index])
+  )
+}
+
+/**
+ * 把模型按"插件清单里有没有"分成两拨。
+ *
+ * 为什么允许手动加清单里没有的模型：插件上报的 `/v1/models` 可能不全（有的上游只在
+ * 收到请求时才告诉你"这个模型确实存在"），也可能是用户知道自己账号能用的新模型。
+ * 宿主替用户拒绝，等于把「插件没说」当成「一定不存在」。所以照收，但**标黄提醒**
+ * 「插件未上报此模型」—— 让用户自己判断，而不是让宿主假装知道。
+ */
+function splitKnownModels(
+  models: readonly string[],
+  catalog: readonly { id: string }[],
+): { known: string[]; unknown: string[] } {
+  const ids = new Set(catalog.map((entry) => entry.id))
+  const known: string[] = []
+  const unknown: string[] = []
+  for (const model of models) (ids.has(model) ? known : unknown).push(model)
+  return { known, unknown }
+}
+
 export function PluginProviderCard({
   preset,
   expanded,
   onToggle,
+  resolveModelConfig: resolveConfigForModel,
 }: {
   preset: PluginProviderPreset
   expanded: boolean
   onToggle: () => void
+  /**
+   * 由设置页注入（`preset-resolver` 的 `resolveModelConfig`）。
+   *
+   * 为什么不在卡片里直接 import：那条链路会拖进整个 novel/模型解析层，
+   * 而卡片是设置页冷启动时就要渲染的组件。由调用方注入也让测试能精确控制
+   * 「测的是哪一份配置」，不必在 jsdom 里搭 store。
+   */
+  resolveModelConfig?: ModelConfigResolver
 }) {
   const [pending, setPending] = useState<PendingAction | null>(null)
   const [status, setStatus] = useState<{ error: boolean; text: string } | null>(null)
@@ -303,6 +423,52 @@ export function PluginProviderCard({
   // 粘贴框的内容。**只活在这一次输入里**：提交后立刻清空，不写 store、不进 providerConfigs
   // （宿主手里也没有"已保存的令牌"可以回填，见文件头的说明）。
   const [credentialText, setCredentialText] = useState("")
+
+  // model 列表：插件快照的模型 + 同步写进 providerConfigs 的合并结果（用户覆盖已经在里面）。
+  const providerConfigs = useWikiStore((state) => state.providerConfigs)
+  const savedConfig = providerConfigs?.[preset.id]
+
+  const [draft, setDraft] = useState<EditorDraft>(() => draftFromPreset(preset, savedConfig))
+  // 手动输入中的模型名（回车/「添加」才进 chips）。
+  const [manualModel, setManualModel] = useState("")
+  // 拉取回来的勾选浮层；null = 不显示。
+  const [catalog, setCatalog] = useState<CatalogEntry[] | null>(null)
+  const [checked, setChecked] = useState<string[]>([])
+  const [catalogQuery, setCatalogQuery] = useState("")
+  const [testOutcome, setTestOutcome] = useState<TestOutcome | null>(null)
+
+  /** 已保存的草稿（保存按钮的基准）：跟随 `providerConfigs` 与插件快照变化而重算。 */
+  const savedDraft = draftFromPreset(preset, savedConfig)
+
+  /*
+   * 草稿的"已保存基准"。
+   *
+   * 为什么不用「草稿初始值直接对比 `providerConfigs`」：保存会把草稿写进覆盖表，
+   * 但 `providerConfigs` 的更新要等一次异步同步；在那之前比出来的结论是"仍有改动"，
+   * 保存按钮会一直亮着（用户会以为没存上）。所以基准用 state：保存成功的**那一刻**
+   * 就换成草稿本身 —— 保存 → 亮着的按钮立刻变灰，是用户判断"到底存没存"的唯一依据。
+   * 随后 `providerConfigs` 变化（签名变了）时只更新基准，**不碰草稿**：
+   * 插件刷新不能吞掉用户正在编辑的内容。
+   */
+  const [baseDraft, setBaseDraft] = useState(savedDraft)
+  const [baseSignature, setBaseSignature] = useState(() => (savedConfig ? JSON.stringify(savedConfig) : ""))
+  const configSignature = savedConfig ? JSON.stringify(savedConfig) : ""
+  if (configSignature !== baseSignature) {
+    setBaseSignature(configSignature)
+    setBaseDraft(savedDraft)
+  }
+  const dirty = !sameDraft(draft, baseDraft)
+  /*
+   * 启停状态：本地 state，点击即时切换并写覆盖表。
+   *
+   * 为什么不用 `providerConfigs[preset.id].enabled`：那里要等一次异步同步才更新，
+   * 点完开关界面会"没反应"（用户会再点一次，结果又切回去）。初始值取已保存的配置，
+   * 之后由本地状态接管 —— 覆盖表本身已经写好了，下一次同步自然会对齐。
+   */
+  const [disabled, setDisabled] = useState(() => savedConfig?.enabled === false)
+
+  const reportedContext = maxOf(preset.models.map((model) => model.maxInputTokens))
+  const reportedOutput = maxOf(preset.models.map((model) => model.maxOutputTokens))
 
   // 「刷新模型」不受 capabilities 门控：/v1/models 是 provider 契约的必需端点（设计 §3.1），
   // 刷新是宿主自己的能力。models.refresh 这个 capability 因此没有 UI 语义，仅为向后兼容保留。
@@ -334,21 +500,163 @@ export function PluginProviderCard({
    */
   const showLoginButton = credentialKind === null || settingsPage !== ""
 
+  /**
+   * 「没东西可选」的状态：插件没就绪，或者一个模型都没报。
+   *
+   * 这时模型区不能留白 —— 空白会让用户以为宿主把模型弄丢了。右侧的主按钮换成
+   * 「登录 WorkBuddy」（它就是让模型出现的那一步）；不需要登录的插件则引导去「刷新模型」。
+   */
+  const noModels = preset.models.length === 0
+  /*
+   * 「没模型」只有一种情况算「登录卡住了」：插件需要登录 + 现在没模型。
+   * 不需要登录的插件（例如本地推理端点）没模型说明它自己没就绪，喊"登录"是误导 ——
+   * 这时提示去刷新即可，不加一个点了只会说「该插件不需要登录」的主按钮。
+   */
+  const needsModelLogin = needsLogin && noModels
+
   async function refreshModels() {
     if (pending) return
     setPending("refresh")
     setStatus(null)
     try {
       // 只走 Rust 命令：它知道怎么带着 token 打插件的 /v1/models。
-      await pluginsApi.refreshProviderModels(preset.id)
+      const models = await pluginsApi.refreshProviderModels(preset.id)
       // 抓完模型再同步一次，`providerConfigs` 与界面才会一起更新。
       await syncPluginProviders()
-      setStatus({ error: false, text: "模型列表已刷新。" })
+      /*
+       * 拿到模型后**弹勾选浮层**，而不是直接覆盖 savedModels。
+       *
+       * 原先这里只刷新就完事：用户没有"只留 3 个模型"的办法，41 个模型会原样落进
+       * 聊天选择器。现在把"刷到的新清单"作为一次**显式选择**交给用户确认：
+       * 全选是默认（与覆盖表"没勾过 = 全选"的语义一致），点确定才写覆盖表。
+       */
+      const entries: CatalogEntry[] = models.map((model) => ({
+        id: model.id,
+        label: model.name?.trim() || model.id,
+        contextSize: model.maxInputTokens,
+      }))
+      setCatalog(entries)
+      setCatalogQuery("")
+      // 默认勾上"当前已选"（含还没保存的草稿），保证浮层里勾着的 = 保存后能选到的。
+      const present = new Set(entries.map((entry) => entry.id))
+      const preselected = draft.models.filter((model) => present.has(model))
+      // 草稿为空（见过"清空"的插件，或首次装好还没同步）→ 默认全选。
+      setChecked(preselected.length > 0 ? preselected : entries.map((entry) => entry.id))
+      setStatus({
+        error: false,
+        text: entries.length > 0 ? `已从插件拉到 ${entries.length} 个模型，勾选后点「确定」。` : "插件没有返回任何模型。",
+      })
     } catch (cause) {
       setStatus({ error: true, text: `刷新失败：${describeError(cause)}` })
     } finally {
       setPending(null)
     }
+  }
+
+  /** 浮层「确定」：把勾选结果写进**草稿**，与其它编辑一起等「保存配置」。 */
+  function confirmCatalog() {
+    const present = new Set((catalog ?? []).map((entry) => entry.id))
+    // 手填的、插件清单外的模型要保留：浮层只表达"清单里那些勾了没"，
+    // 不该顺手把用户自己填的模型删掉。
+    const manualOnly = draft.models.filter((model) => !present.has(model))
+    const ordered = (catalog ?? []).map((entry) => entry.id).filter((id) => checked.includes(id))
+    setDraft((previous) => ({ ...previous, models: [...ordered, ...manualOnly] }))
+    setCatalog(null)
+  }
+
+  function addModel(raw: string) {
+    const names = raw
+      .split(/[,，\n]/)
+      .map((value) => value.trim())
+      .filter(Boolean)
+    if (names.length === 0) return
+    setDraft((previous) => {
+      const next = [...previous.models]
+      for (const name of names) if (!next.includes(name)) next.push(name)
+      return { ...previous, models: next }
+    })
+    setManualModel("")
+  }
+
+  function removeModel(model: string) {
+    setDraft((previous) => ({ ...previous, models: previous.models.filter((item) => item !== model) }))
+  }
+
+  /**
+   * 测试已勾选的模型。
+   *
+   * 为什么只测已选的：插件能报 41 个模型，逐个发一次真实请求既慢又烧额度 —— 一个
+   * "点一下测试"的按钮跑两分钟、还花掉用户的钱，没人会再用第二次。用户真正在意的是
+   * 「我现在能用哪些」，那就是已选的这几个。
+   */
+  async function runTest(kind: "connection" | "function") {
+    if (pending) return
+    const models = draft.models
+    if (models.length === 0) {
+      setTestOutcome(null)
+      setStatus({ error: true, text: "请先选择要测试的模型。" })
+      return
+    }
+    if (!resolveConfigForModel) {
+      setStatus({ error: true, text: "宿主没有提供模型解析器，无法测试。" })
+      return
+    }
+    setPending("test")
+    setTestOutcome(null)
+    setStatus({ error: false, text: `正在测试 0/${models.length}…` })
+    const probe = kind === "function" ? testLlmFunction : testLlmConnection
+    const failures: TestOutcome["failures"] = []
+    try {
+      for (const [index, model] of models.entries()) {
+        let result: ProviderTestResult
+        try {
+          result = await probe(resolveConfigForModel(`${preset.id}/${model}`))
+        } catch (cause) {
+          result = { ok: false, message: describeError(cause) }
+        }
+        if (!result.ok) failures.push({ model, reason: result.message || "没有返回原因" })
+        setStatus({ error: false, text: `正在测试 ${index + 1}/${models.length}…` })
+      }
+      const label = kind === "function" ? "功能测试" : "连接测试"
+      setTestOutcome({ total: models.length, failures })
+      setStatus({
+        error: failures.length > 0,
+        text:
+          failures.length === 0
+            ? `${label}通过（${models.length}/${models.length}）。${dirty ? "当前配置尚未保存。" : "本次测试没有修改配置。"}`
+            : `${label}完成：${models.length - failures.length}/${models.length} 通过。失败：${failures
+                .map((failure) => `${failure.model}：${failure.reason}`)
+                .join("；")}`,
+      })
+    } finally {
+      setPending(null)
+    }
+  }
+
+  /** 「保存配置」：把整份草稿一次性写覆盖表（覆盖表的唯一写入路径，见文件头）。 */
+  function saveDraft() {
+    const label = draft.label.trim()
+    setPluginProviderOverride(preset.id, {
+      // 名字清空 → 删掉这条覆盖，退回插件上报的名字（而不是存一个空标题）。
+      label: label === "" ? undefined : label,
+      selectedModels: draft.models.length > 0 ? draft.models : undefined,
+      maxContextSize: parseLimitInput(draft.contextText),
+      maxOutputTokens: parseLimitInput(draft.outputText),
+    })
+    // 保存即"已保存基准"：按钮立刻变灰，而不是等异步同步回来才变（见 baseDraft 的注释）。
+    setBaseDraft(draft)
+    /*
+     * 覆盖表已经写好了，但 `providerConfigs` 那边还是旧值 —— 模型选择器读的是后者。
+     * 这里主动同步一次，否则用户会看到「保存成功，但聊天里还是老样子」。
+     * 失败只 warn：保存本身已经生效，下次同步仍会带上覆盖。
+     */
+    void syncPluginProviders().catch((cause: unknown) => {
+      console.warn("[plugins] 保存后同步 provider 失败：", cause)
+    })
+    setStatus({
+      error: false,
+      text: `配置已保存。${draft.models.length} 个模型现在可以在 AI 对话里选择了。`,
+    })
   }
 
   async function openSettings() {
@@ -513,6 +821,14 @@ export function PluginProviderCard({
     }
   }
 
+  const { unknown } = splitKnownModels(draft.models, preset.models)
+  const failedModels = new Set(testOutcome?.failures.map((failure) => failure.model) ?? [])
+  const filteredCatalog = (catalog ?? []).filter((entry) => {
+    const query = catalogQuery.trim().toLowerCase()
+    if (!query) return true
+    return entry.id.toLowerCase().includes(query) || entry.label.toLowerCase().includes(query)
+  })
+
   return (
     <div
       className={`model-preset-card ${preset.ready ? "" : "opacity-60"}`}
@@ -529,7 +845,34 @@ export function PluginProviderCard({
           title={expanded ? "收起" : "展开"}
         >
           <span className="flex flex-wrap items-center gap-2">
-            <strong className="break-words">{preset.label}</strong>
+            <strong className="break-words">{draft.label || preset.label}</strong>
+            {dirty ? (
+              <span
+                className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[0.6875rem] text-amber-700"
+                data-plugin-badge="dirty"
+              >
+                未保存
+              </span>
+            ) : (
+              <span
+                className="rounded-full border border-emerald-600/30 bg-emerald-600/10 px-2 py-0.5 text-[0.6875rem] text-emerald-700"
+                data-plugin-badge="saved"
+              >
+                已保存
+              </span>
+            )}
+            <span
+              className="rounded-full border border-border bg-muted px-2 py-0.5 text-[0.6875rem] text-muted-foreground"
+              data-plugin-badge="enabled"
+            >
+              {disabled ? "已停用" : "已启用"}
+            </span>
+            <span
+              className="rounded-full border border-border bg-muted px-2 py-0.5 text-[0.6875rem] text-muted-foreground"
+              data-plugin-badge="plugin"
+            >
+              插件
+            </span>
             {preset.ready ? null : (
               <span className="inline-flex items-center gap-1 rounded-full border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[0.6875rem] text-destructive">
                 <AlertTriangle className="h-3 w-3" aria-hidden="true" />
@@ -578,6 +921,21 @@ export function PluginProviderCard({
               {pending === "checkin" ? "签到中…" : "每日签到"}
             </Button>
           ) : null}
+          {/* 未登录 / 没模型时，主按钮换成「登录 WorkBuddy」：它才是让模型出现的那一步。 */}
+          {needsModelLogin ? (
+            <Button
+              type="button"
+              size="sm"
+              data-plugin-action="login-workbuddy"
+              aria-label="登录 WorkBuddy"
+              disabled={loginBlocked || pending === "login"}
+              title={loginBlocked ? NO_SETTINGS_PAGE_HINT : undefined}
+              onClick={() => void openSettings()}
+            >
+              {pending === "login" ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+              {pending === "login" ? "打开中…" : "登录 WorkBuddy"}
+            </Button>
+          ) : null}
           {/*
             「刷新模型」**不带任何能力位判断**，始终显示。
             刷新是宿主自己的能力：/v1/models 是 provider 契约的必需端点（设计 §3.1），
@@ -589,6 +947,7 @@ export function PluginProviderCard({
             variant="outline"
             size="sm"
             data-plugin-action="refresh"
+            aria-label="刷新模型"
             disabled={pending !== null}
             onClick={() => void refreshModels()}
           >
@@ -598,6 +957,31 @@ export function PluginProviderCard({
               <RefreshCw className="mr-1 h-3.5 w-3.5" />
             )}
             {pending === "refresh" ? "刷新中…" : "刷新模型"}
+          </Button>
+          {/*
+            启停开关直接写覆盖表的 `enabled`（即时生效，不等「保存配置」）：
+            停用是"我想让它现在就从聊天里消失"，等一次保存才生效不符合直觉。
+            显示读的是 `!baseDraftDisabled` 这种派生值，保证保存/同步后状态一致。
+          */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-plugin-action="toggle-enabled"
+            role="switch"
+            aria-checked={!disabled}
+            aria-label="启用此插件模型"
+            onClick={() => {
+              const next = !disabled
+              setDisabled(next)
+              setPluginProviderOverride(preset.id, { enabled: next ? false : undefined })
+              setStatus({ error: false, text: next ? "已停用，聊天里不再出现这些模型。" : "已启用。" })
+              void syncPluginProviders().catch((cause: unknown) => {
+                console.warn("[plugins] 切换启停后同步 provider 失败：", cause)
+              })
+            }}
+          >
+            {disabled ? "已停用" : "已启用"}
           </Button>
           {/*
             「登录/设置」通常都显示（它是用户找登录入口的地方，点掉比藏起来好），
@@ -613,6 +997,7 @@ export function PluginProviderCard({
               variant="outline"
               size="sm"
               data-plugin-action="login"
+              aria-label="登录或打开插件设置页"
               disabled={loginBlocked || pending === "login"}
               title={loginBlocked ? NO_SETTINGS_PAGE_HINT : undefined}
               onClick={() => void openSettings()}
@@ -658,6 +1043,7 @@ export function PluginProviderCard({
                 variant="outline"
                 size="sm"
                 data-plugin-action="submit-credential"
+                aria-label="保存插件令牌"
                 // 空输入时禁用：不给插件送空凭据（第二道闸在 savePastedCredential 里）。
                 disabled={pending !== null || credentialText.trim() === ""}
                 onClick={() => void savePastedCredential()}
@@ -675,6 +1061,7 @@ export function PluginProviderCard({
                 variant="outline"
                 size="sm"
                 data-plugin-action="pick-credential-file"
+                aria-label="选择凭据文件"
                 disabled={pending !== null}
                 onClick={() => void importCredentialFile()}
               >
@@ -726,37 +1113,82 @@ export function PluginProviderCard({
       )}
 
       {expanded ? (
-        <div className="model-preset-body space-y-2 border-t bg-background/50 p-3">
-          {preset.models.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              插件还没有报告任何模型。先点「刷新模型」；仍为空的话，这个插件可能还没准备好。
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {preset.models.map((model) => {
-                const cost = formatModelCost(model.cost)
-                const supportsImage = model.inputModalities?.includes("image") === true
-                return (
+        <div className="model-preset-body space-y-3 border-t bg-background/50 p-3" data-plugin-editor="true">
+          {/* ── 配置名称 / 账号状态 ── */}
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex min-w-0 flex-1 flex-col gap-1 text-xs text-muted-foreground">
+              配置名称
+              <input
+                aria-label="配置名称"
+                data-plugin-field="label"
+                className="w-full rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
+                value={draft.label}
+                placeholder={preset.label}
+                spellCheck={false}
+                disabled={pending === "test"}
+                onChange={(event) => setDraft((previous) => ({ ...previous, label: event.target.value }))}
+              />
+            </label>
+            <div className="flex flex-col gap-1 text-xs text-muted-foreground" data-plugin-field="account">
+              账号状态
+              <span className="rounded border border-border bg-muted px-2 py-1 text-xs" data-readonly="true">
+                {preset.ready
+                  ? `✅ 已就绪 · ${preset.pluginId}`
+                  : needsLogin
+                    ? "未登录 · 登录后会自动拉取模型"
+                    : "未就绪"}
+              </span>
+            </div>
+          </div>
+
+          {/* ── 模型 chips + 手填 ── */}
+          <div className="space-y-2" data-plugin-field="models">
+            <span className="text-xs text-muted-foreground">模型</span>
+            {/*
+              没模型时**不渲染空白**（无论是不是未登录）：
+              一片空白看起来像"宿主把模型弄丢了"，用户不知道该点哪里。
+              需要登录的插件说出来：真正缺的那一步是登录（主按钮也换成了「登录 WorkBuddy」）；
+              不需要登录的插件（authKind=none）喊"登录"是误导，改成引导去刷新。
+            */}
+            {noModels && draft.models.length === 0 ? (
+              <p className="text-xs text-muted-foreground" data-plugin-models-empty="true">
+                {needsLogin
+                  ? "还没有模型。登录后会自动拉取模型，就不用在这里手填了。"
+                  : "插件还没有报告任何模型，先点「刷新模型」试试。"}
+              </p>
+            ) : null}
+            {noModels && draft.models.length === 0 ? null : (
+              <div className="flex flex-wrap gap-1.5" data-plugin-chips="true">
+                {splitKnownModels(draft.models, preset.models).known.map((model) => (
                   <span
-                    key={model.id}
-                    className="rounded border border-border bg-muted px-1.5 py-0.5 text-[0.6875rem]"
-                    title={`上下文 ${model.maxInputTokens.toLocaleString()} tokens · 输出上限 ${model.maxOutputTokens.toLocaleString()} tokens`}
+                    key={model}
+                    className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[0.6875rem] ${
+                      failedModels.has(model)
+                        ? "border-destructive/50 bg-destructive/10 text-destructive"
+                        : "border-border bg-muted"
+                    }`}
+                    data-plugin-chip={model}
                   >
-                    {model.name || model.id}
+                    {model}
                     {/*
                       成本与模态都是「有就加、没有就什么都不加」：不占位、不留「—」。
                       一个空白占位会让用户以为宿主没读到数据，而事实是插件没申报。
                     */}
-                    {cost ? (
-                      <span
-                        className="ml-1 text-muted-foreground"
-                        data-model-cost={model.id}
-                        title={`每百万 token 成本：输入 ${model.cost?.input ?? "未申报"}、输出 ${model.cost?.output ?? "未申报"}（货币单位由插件定义）`}
-                      >
-                        {cost}
-                      </span>
-                    ) : null}
-                    {supportsImage ? (
+                    {(() => {
+                      const entry = preset.models.find((item) => item.id === model)
+                      const cost = formatModelCost(entry?.cost)
+                      if (!cost) return null
+                      return (
+                        <span
+                          className="ml-1 text-muted-foreground"
+                          data-model-cost={model}
+                          title="每百万 token 成本（货币单位由插件定义）"
+                        >
+                          {cost}
+                        </span>
+                      )
+                    })()}
+                    {preset.models.find((entry) => entry.id === model)?.inputModalities?.includes("image") ? (
                       <span
                         className="ml-1 inline-flex items-center gap-0.5 text-muted-foreground"
                         data-model-input-modality="image"
@@ -766,15 +1198,273 @@ export function PluginProviderCard({
                         支持图片
                       </span>
                     ) : null}
+                    <button
+                      type="button"
+                      aria-label={`移除模型 ${model}`}
+                      data-plugin-chip-remove={model}
+                      className="opacity-70 hover:opacity-100"
+                      onClick={() => removeModel(model)}
+                    >
+                      ×
+                    </button>
                   </span>
-                )
-              })}
+                ))}
+                {unknown.map((model) => (
+                  /*
+                   * 手填的、插件清单里没有的模型：标黄而不是拒绝（理由见 splitKnownModels）。
+                   */
+                  <span
+                    key={model}
+                    className="inline-flex items-center gap-1 rounded border border-amber-500/50 bg-amber-500/10 px-1.5 py-0.5 text-[0.6875rem] text-amber-700"
+                    data-plugin-chip={model}
+                    data-plugin-chip-unknown="true"
+                    title="插件未上报此模型：可以保存，但请求时可能被上游拒绝"
+                  >
+                    {model}
+                    <button
+                      type="button"
+                      aria-label={`移除模型 ${model}`}
+                      data-plugin-chip-remove={model}
+                      className="opacity-70 hover:opacity-100"
+                      onClick={() => removeModel(model)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                aria-label="模型名称"
+                data-plugin-field="manual-model"
+                className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-xs"
+                value={manualModel}
+                placeholder="输入模型名称，按回车添加"
+                spellCheck={false}
+                onChange={(event) => setManualModel(event.target.value)}
+                onKeyDown={(event) => {
+                  // 输入法组字中的回车是"选词"，不是"提交"。
+                  if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                    event.preventDefault()
+                    addModel(manualModel)
+                  }
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-plugin-action="add-model"
+                aria-label="添加模型"
+                disabled={!manualModel.trim()}
+                onClick={() => addModel(manualModel)}
+              >
+                添加
+              </Button>
             </div>
-          )}
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            模型由插件通过 <code>/v1/models</code> 提供，不能在这里手工增删；插件的模型变了就点「刷新模型」。
-            停用或卸载插件后，这些模型会从选择器里消失。
-          </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-plugin-action="pull-models"
+                aria-label="拉取模型"
+                disabled={pending !== null}
+                onClick={() => void refreshModels()}
+              >
+                {pending === "refresh" ? (
+                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                )}
+                拉取模型
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-plugin-action="test-connection"
+                aria-label="测试连接"
+                disabled={pending !== null}
+                onClick={() => void runTest("connection")}
+              >
+                测试连接
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-plugin-action="test-function"
+                aria-label="测试功能"
+                disabled={pending !== null}
+                onClick={() => void runTest("function")}
+              >
+                测试功能
+              </Button>
+            </div>
+          </div>
+
+          {/* ── 上下文窗口 / 输出上限 ── */}
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              上下文窗口
+              <input
+                aria-label="上下文窗口"
+                data-plugin-field="max-context"
+                inputMode="numeric"
+                className="w-36 rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
+                value={draft.contextText}
+                // placeholder = 插件上报值：留空就说清楚"会用哪个值"。
+                placeholder={reportedContext ? String(reportedContext) : "用插件值"}
+                onChange={(event) => setDraft((previous) => ({ ...previous, contextText: event.target.value }))}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+              输出上限
+              <input
+                aria-label="输出上限"
+                data-plugin-field="max-output"
+                inputMode="numeric"
+                className="w-36 rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
+                value={draft.outputText}
+                placeholder={reportedOutput ? String(reportedOutput) : "用插件值"}
+                onChange={(event) => setDraft((previous) => ({ ...previous, outputText: event.target.value }))}
+              />
+            </label>
+            <span className="text-[0.6875rem] text-muted-foreground">留空 = 使用插件上报的值</span>
+          </div>
+
+          {/*
+            拉取后的勾选浮层。仓库里没有现成的 dropdown/popover 基础件（`installed-row.tsx`
+            的 RowMenu 也是手写的），这里同样手写：点外部关闭 + Esc 关闭，不引新依赖。
+          */}
+          {catalog ? (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" data-plugin-catalog="open">
+              <div
+                className="w-full max-w-lg rounded-lg border border-border bg-background p-3 shadow-lg"
+                role="dialog"
+                aria-modal="true"
+                aria-label="选择要显示的模型"
+              >
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <strong className="text-sm">选择模型</strong>
+                  <span className="text-xs text-muted-foreground">共 {catalog.length} 个</span>
+                  <div className="ml-auto flex gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      data-plugin-action="catalog-select-all"
+                      aria-label="全选模型"
+                      onClick={() => setChecked(catalog.map((entry) => entry.id))}
+                    >
+                      全选
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      data-plugin-action="catalog-clear"
+                      aria-label="清空模型选择"
+                      onClick={() => setChecked([])}
+                    >
+                      清空
+                    </Button>
+                  </div>
+                </div>
+                <input
+                  aria-label="搜索模型"
+                  data-plugin-field="catalog-search"
+                  className="mb-2 w-full rounded border border-border bg-background px-2 py-1 text-xs"
+                  value={catalogQuery}
+                  placeholder="搜索模型名称"
+                  spellCheck={false}
+                  onChange={(event) => setCatalogQuery(event.target.value)}
+                />
+                <ul className="max-h-64 space-y-1 overflow-y-auto" data-plugin-catalog-list="true">
+                  {filteredCatalog.map((entry) => (
+                    <li key={entry.id}>
+                      <label className="flex items-center gap-2 rounded px-1 py-0.5 text-xs hover:bg-muted">
+                        <input
+                          type="checkbox"
+                          aria-label={`选择模型 ${entry.id}`}
+                          data-plugin-catalog-item={entry.id}
+                          checked={checked.includes(entry.id)}
+                          onChange={(event) =>
+                            setChecked((previous) =>
+                              event.target.checked
+                                ? [...previous, entry.id]
+                                : previous.filter((id) => id !== entry.id),
+                            )
+                          }
+                        />
+                        <span className="min-w-0 flex-1 break-words">{entry.label}</span>
+                        {/* 上下文窗口是选模型时最该看的一个数：同一家族里也常常差一个数量级。 */}
+                        {entry.contextSize ? (
+                          <span className="shrink-0 text-muted-foreground">
+                            {entry.contextSize.toLocaleString()} tokens
+                          </span>
+                        ) : null}
+                      </label>
+                    </li>
+                  ))}
+                  {filteredCatalog.length === 0 ? (
+                    <li className="px-1 py-2 text-xs text-muted-foreground">没有匹配的模型。</li>
+                  ) : null}
+                </ul>
+                <div className="mt-3 flex justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    data-plugin-action="catalog-cancel"
+                    aria-label="取消选择模型"
+                    onClick={() => setCatalog(null)}
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    data-plugin-action="catalog-confirm"
+                    aria-label="确定选择模型"
+                    onClick={confirmCatalog}
+                  >
+                    确定（{checked.length}）
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {/* ── 底部：删除 + 保存 ── */}
+          <div className="flex flex-wrap items-center gap-2 border-t pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-plugin-action="delete"
+              aria-label="删除这个插件模型配置"
+              onClick={() => setStatus({ error: false, text: "插件模型由插件提供，停用或卸载插件即可移除。" })}
+            >
+              🗑
+            </Button>
+            <span className="text-[0.6875rem] text-muted-foreground">测试和保存是两种独立操作</span>
+            <Button
+              type="button"
+              size="sm"
+              className="ml-auto"
+              data-plugin-action="save"
+              aria-label="保存配置"
+              disabled={!dirty || pending === "test"}
+              /* 有未保存改动才高亮（variant 切换）；无改动时禁用，避免"点了没反应"。 */
+              variant={dirty ? "default" : "outline"}
+              onClick={saveDraft}
+            >
+              保存配置
+            </Button>
+          </div>
         </div>
       ) : null}
 
@@ -783,6 +1473,7 @@ export function PluginProviderCard({
           className={`px-1 pb-2 text-xs ${status.error ? "text-destructive" : "text-muted-foreground"}`}
           role="status"
           aria-live="polite"
+          data-plugin-status={status.error ? "error" : "info"}
         >
           {status.text}
         </p>

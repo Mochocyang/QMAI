@@ -38,10 +38,28 @@ vi.mock("@/commands/fs", () => ({
   getFileSize: vi.fn(async () => 0),
   readFile: vi.fn(async () => ""),
 }))
+/*
+ * 测试连接/测试功能必须打桩：真实实现会走 `streamChat`（网络 + 流式解析）。
+ * 这里要断言的是"调了几次、传了什么配置、结果怎么展示"，探针本身不是卡片的事。
+ */
+const { testLlmConnectionMock, testLlmFunctionMock } = vi.hoisted(() => ({
+  testLlmConnectionMock: vi.fn<(cfg: LlmConfig) => Promise<{ ok: boolean; message: string }>>(),
+  testLlmFunctionMock: vi.fn<(cfg: LlmConfig) => Promise<{ ok: boolean; message: string }>>(),
+}))
+vi.mock("@/lib/connection-tests", () => ({
+  testLlmConnection: testLlmConnectionMock,
+  testLlmFunction: testLlmFunctionMock,
+}))
 
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog"
 import { getFileSize, readFile } from "@/commands/fs"
 import { pluginsApi } from "@/lib/plugins/api"
+import {
+  getPluginProviderOverride,
+  setPluginProviderOverride,
+  __resetPluginProviderOverrideCacheForTests,
+} from "@/lib/plugins/provider-overrides"
+import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
 import {
   MAX_CREDENTIAL_FILE_BYTES,
   PluginProviderCard,
@@ -54,7 +72,6 @@ import {
 import type { PluginProviderModel, PluginProviderView } from "@/lib/plugins/types"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-
 const providerOpenLogin = vi.mocked(pluginsApi.providerOpenLogin)
 const providerCall = vi.mocked(pluginsApi.providerCall)
 const submitProviderCredential = vi.mocked(pluginsApi.submitProviderCredential)
@@ -163,7 +180,14 @@ describe("PluginProviderCard", () => {
   function renderCard(overrides: Partial<PluginProviderPreset> = {}): PluginProviderPreset {
     const preset: PluginProviderPreset = { ...toPluginProviderPreset(view()), ...overrides }
     act(() => {
-      root.render(createElement(PluginProviderCard, { preset, expanded: true, onToggle: () => {} }))
+      root.render(
+        createElement(PluginProviderCard, {
+          preset,
+          expanded: true,
+          onToggle: () => {},
+          resolveModelConfig: resolveMock,
+        }),
+      )
     })
     return preset
   }
@@ -319,6 +343,11 @@ describe("PluginProviderCard", () => {
     expect(find('[data-plugin-action="checkin"]')).toBeNull()
     // /v1/models 是 provider 契约的必需端点（设计 §3.1）：刷新不需要插件声明任何东西。
     expect(find('[data-plugin-action="refresh"]')).toBeTruthy()
+    /*
+     * 模型区不能留白：没模型时要明说下一步。
+     * 这个默认视图是 authKind=none（不需要登录），所以引导是"去刷新"；
+     * "登录后会自动拉取模型"那句只在需要登录的插件上出现（见第 7 组用例）。
+     */
     expect(host.textContent).toContain("先点「刷新模型」")
   })
 
@@ -392,9 +421,14 @@ describe("PluginProviderCard", () => {
   })
 
   /* ---- 7) 模型成本与模态 ---- */
-  it("模型有 cost：显示「输入/输出 /1M tokens」", () => {
+  it("模型有 cost：chip 上显示「输入/输出 /1M tokens」", () => {
     renderCard({ models: [model({ cost: { input: 2, output: 8 } })] })
 
+    /*
+     * v2.1 起模型区从「插件报的全部模型」变成「用户勾选的 chips」：没勾过 = 全选
+     * （覆盖表语义），所以默认那条 models 仍会出现在 chip 上，成本小字也跟着搬过来。
+     */
+    expect(host.querySelector('[data-plugin-chip="glm-5.3"]')).toBeTruthy()
     const cost = host.querySelector("[data-model-cost]")
     expect(cost?.textContent).toContain("2/8")
     expect(cost?.textContent).toContain("/1M tokens")
@@ -540,5 +574,304 @@ describe("PluginProviderCard", () => {
     await click(find('[data-plugin-action="submit-credential"]')!)
 
     expect(host.textContent).toContain("token expired")
+  })
+
+  /* ================================================================== *
+   * v2.1：完整编辑器（拉取/勾选模型、测试、改窗口、保存）
+   *
+   * 这一组的每个用例都在防一种"编辑器"特有的回归：
+   *   · 编辑直接写覆盖表（没保存就生效、半途状态留痕）
+   *   · 拉取模型直接覆盖已选（用户失去选择权）
+   *   · 测试不打已选清单（41 个全测，慢且烧额度）
+   *   · 未登录时模型区空白（用户不知道下一步该干什么）
+   * ================================================================== */
+
+  const refreshProviderModels = vi.mocked(pluginsApi.refreshProviderModels)
+
+  function resetOverrides() {
+    __resetPluginProviderOverrideCacheForTests()
+    globalThis.localStorage?.clear()
+  }
+
+  function modelsOf(ids: string[]): PluginProviderModel[] {
+    return ids.map((id) => model({ id, name: id.toUpperCase(), maxInputTokens: 128_000 }))
+  }
+
+  /** 测试注入的解析器：把 `providerId/modelId` 变成一份"看起来对"的配置。 */
+  const resolveMock = (modelKey: string) =>
+    ({ provider: modelKey.split("/")[0], model: modelKey.split("/")[1] ?? "" }) as unknown as LlmConfig
+
+  async function field(name: string) {
+    return host.querySelector<HTMLInputElement>(`[data-plugin-field="${name}"]`)!
+  }
+
+  async function pressEnter(input: HTMLInputElement) {
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    })
+  }
+
+  beforeEach(() => {
+    resetOverrides()
+    refreshProviderModels.mockResolvedValue([])
+    testLlmConnectionMock.mockResolvedValue({ ok: true, message: "Connected in 12 ms." })
+    testLlmFunctionMock.mockResolvedValue({ ok: true, message: "Functional test passed." })
+  })
+
+  /* ---- 1) 渲染出完整编辑器 ---- */
+  it("1) 渲染完整编辑器：配置名、模型区、三个按钮、保存按钮都在", () => {
+    renderCard()
+
+    expect(host.querySelector('[data-plugin-field="label"]')).toBeTruthy()
+    expect(host.querySelector('[data-plugin-field="models"]')).toBeTruthy()
+    expect(find('[data-plugin-action="pull-models"]')?.textContent).toContain("拉取模型")
+    expect(find('[data-plugin-action="test-connection"]')?.textContent).toContain("测试连接")
+    expect(find('[data-plugin-action="test-function"]')?.textContent).toContain("测试功能")
+    expect(find('[data-plugin-action="save"]')?.textContent).toContain("保存配置")
+    // 窗口/输出两个数字框也在（placeholder 是插件上报值）。
+    expect(host.querySelector<HTMLInputElement>('[data-plugin-field="max-context"]')?.placeholder).toBe("1000000")
+    expect(host.querySelector<HTMLInputElement>('[data-plugin-field="max-output"]')?.placeholder).toBe("8192")
+    // 没有任何改动 → 保存禁用（点了不该有任何事情发生）。
+    expect(find('[data-plugin-action="save"]')?.disabled).toBe(true)
+  })
+
+  /* ---- 2) 改名 → 保存 → 覆盖表有 label ---- */
+  it("2) 改配置名后保存：覆盖表里出现 label，并提示模型已可选", async () => {
+    renderCard()
+
+    await typeInto(await field("label"), "我的 WorkBuddy")
+    // 有未保存改动 → 保存按钮亮起。
+    expect(find('[data-plugin-action="save"]')?.disabled).toBe(false)
+
+    await click(find('[data-plugin-action="save"]')!)
+
+    expect(getPluginProviderOverride("wb-connect")?.label).toBe("我的 WorkBuddy")
+    expect(host.textContent).toContain("配置已保存。1 个模型现在可以在 AI 对话里选择了。")
+    // 保存后回到"无改动"状态：按钮重新禁用（否则用户会以为还有东西没存）。
+    expect(find('[data-plugin-action="save"]')?.disabled).toBe(true)
+  })
+
+  /* ---- 3) 拉取模型 → 勾选浮层 → 勾 2 个 → 确定 → 覆盖表 ---- */
+  it("3) 拉取模型弹出勾选浮层（默认全选），勾 2 个确定后覆盖表就是这 2 个", async () => {
+    refreshProviderModels.mockResolvedValueOnce(modelsOf(["model-a", "model-b", "model-c"]))
+    renderCard({ models: [] })
+
+    await click(find('[data-plugin-action="pull-models"]')!)
+
+    expect(refreshProviderModels).toHaveBeenCalledWith("wb-connect")
+    const dialog = host.querySelector('[data-plugin-catalog="open"]')
+    expect(dialog).toBeTruthy()
+    // 没勾过（也没有覆盖记录）→ 默认全选。
+    expect(host.querySelector<HTMLInputElement>('[data-plugin-catalog-item="model-a"]')?.checked).toBe(true)
+    expect(find('[data-plugin-action="catalog-confirm"]')?.textContent).toContain("确定（3）")
+
+    // 取消两个 → 只剩 model-c。
+    await click(host.querySelector<HTMLInputElement>('[data-plugin-catalog-item="model-a"]')!)
+    await click(host.querySelector<HTMLInputElement>('[data-plugin-catalog-item="model-b"]')!)
+    expect(find('[data-plugin-action="catalog-confirm"]')?.textContent).toContain("确定（1）")
+
+    await click(find('[data-plugin-action="catalog-confirm"]')!)
+    await click(find('[data-plugin-action="save"]')!)
+
+    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual(["model-c"])
+    // 浮层关掉了，chips 只剩那一个。
+    expect(host.querySelector('[data-plugin-catalog="open"]')).toBeNull()
+    /*
+     * 勾到的模型必须**出现在卡片上**，即使插件快照里没有它。
+     * 场景：插件刚装好 / 还没同步，`preset.models` 是空的，但「拉取模型」拿回了清单 ——
+     * 这时如果 chips 只认 `preset.models`，用户勾完什么都看不见，会以为没生效。
+     */
+    expect(host.querySelector('[data-plugin-chip="model-c"]')).toBeTruthy()
+    expect(host.querySelector('[data-plugin-chip="model-a"]')).toBeNull()
+  })
+
+  it("3b) 浮层里「清空」+「全选」都只改勾选，确定前不碰覆盖表", async () => {
+    refreshProviderModels.mockResolvedValueOnce(modelsOf(["model-a", "model-b"]))
+    renderCard({ models: modelsOf(["model-a", "model-b"]) })
+
+    await click(find('[data-plugin-action="pull-models"]')!)
+    await click(find('[data-plugin-action="catalog-clear"]')!)
+    expect(find('[data-plugin-action="catalog-confirm"]')?.textContent).toContain("确定（0）")
+    // 还没点确定：覆盖表里什么都不该有。
+    expect(getPluginProviderOverride("wb-connect")).toBeUndefined()
+
+    await click(find('[data-plugin-action="catalog-select-all"]')!)
+    await click(find('[data-plugin-action="catalog-confirm"]')!)
+    // 确定也只写草稿，保存才落覆盖表。
+    expect(getPluginProviderOverride("wb-connect")).toBeUndefined()
+    expect(host.querySelector('[data-plugin-chip="model-a"]')).toBeTruthy()
+  })
+
+  it("3c) 浮层搜索框按名字过滤", async () => {
+    refreshProviderModels.mockResolvedValueOnce(modelsOf(["glm-5", "step-5-preview"]))
+    renderCard({ models: modelsOf(["glm-5", "step-5-preview"]) })
+
+    await click(find('[data-plugin-action="pull-models"]')!)
+    await typeInto(await field("catalog-search"), "step")
+
+    expect(host.querySelector('[data-plugin-catalog-item="step-5-preview"]')).toBeTruthy()
+    expect(host.querySelector('[data-plugin-catalog-item="glm-5"]')).toBeNull()
+  })
+
+  /* ---- 4) chip 的 × 移除 ---- */
+  it("4) 点 chip 的 ×：该模型从 selectedModels 移除（保存后覆盖表里没有它）", async () => {
+    renderCard({ models: modelsOf(["model-a", "model-b", "model-c"]) })
+
+    expect(host.querySelectorAll("[data-plugin-chip]")).toHaveLength(3)
+    await click(host.querySelector<HTMLElement>('[data-plugin-chip-remove="model-b"]')!)
+    await click(find('[data-plugin-action="save"]')!)
+
+    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toEqual(["model-a", "model-c"])
+    expect(host.querySelector('[data-plugin-chip="model-b"]')).toBeNull()
+  })
+
+  it("4b) 手填插件没上报的模型：允许加，但标黄提示", async () => {
+    renderCard()
+
+    await typeInto(await field("manual-model"), "not-in-catalog")
+    await pressEnter(await field("manual-model"))
+
+    const chip = host.querySelector('[data-plugin-chip="not-in-catalog"]')
+    expect(chip?.getAttribute("data-plugin-chip-unknown")).toBe("true")
+    expect(chip?.getAttribute("title")).toContain("插件未上报此模型")
+
+    await click(find('[data-plugin-action="save"]')!)
+    expect(getPluginProviderOverride("wb-connect")?.selectedModels).toContain("not-in-catalog")
+  })
+
+  /* ---- 5) 测试连接：成功 / 失败 ---- */
+  it("5) 测试连接全通过：显示「通过」；有失败则列出模型名与原因", async () => {
+    renderCard()
+    await click(find('[data-plugin-action="test-connection"]')!)
+
+    expect(testLlmConnectionMock).toHaveBeenCalledTimes(1)
+    expect(host.textContent).toContain("连接测试通过（1/1）")
+    // 有未保存改动才提醒"尚未保存"；这里没改动，所以是另一句话。
+    expect(host.textContent).toContain("本次测试没有修改配置")
+
+    // 第二个模型失败：必须点名 + 说原因。
+    act(() => root.unmount())
+    root = createRoot(host)
+    testLlmConnectionMock.mockReset()
+    testLlmConnectionMock.mockImplementation(async (cfg: LlmConfig) =>
+      cfg.model === "step-5-preview"
+        ? { ok: false, message: "上游返回 404" }
+        : { ok: true, message: "ok" },
+    )
+    renderCard({ models: modelsOf(["glm-5", "step-5-preview"]) })
+    await click(find('[data-plugin-action="test-connection"]')!)
+
+    expect(host.querySelector('[data-plugin-status="error"]')?.textContent).toContain(
+      "step-5-preview：上游返回 404",
+    )
+    expect(host.querySelector('[data-plugin-status="error"]')?.textContent).toContain("1/2 通过")
+    // 失败的 chip 单独标红（用户一眼能看出是哪一条）。
+    expect(host.querySelector('[data-plugin-chip="step-5-preview"]')?.className).toContain("destructive")
+  })
+
+  it("5b) 测试过程中显示「正在测试 N/M…」，并且一次只跑一个模型", async () => {
+    const releases: ((value: { ok: boolean; message: string }) => void)[] = []
+    testLlmConnectionMock.mockImplementation(
+      () => new Promise<{ ok: boolean; message: string }>((resolve) => { releases.push(resolve) }),
+    )
+    renderCard({ models: modelsOf(["a", "b"]) })
+
+    const button = find('[data-plugin-action="test-connection"]')!
+    await act(async () => {
+      button.click()
+    })
+    // 第一个在跑：显示 0/2，按钮锁住（不能连点出第二批请求）。
+    expect(host.textContent).toContain("正在测试 0/2…")
+    expect(button.disabled).toBe(true)
+    expect(testLlmConnectionMock).toHaveBeenCalledTimes(1)
+
+    // 放行第一个 → 进度推进到 1/2，第二个还没发出去（串行，不同时打两个请求）。
+    await act(async () => releases[0]!({ ok: true, message: "ok" }))
+    expect(host.querySelector('[data-plugin-status]')?.textContent).toContain("正在测试 1/2…")
+    expect(testLlmConnectionMock).toHaveBeenCalledTimes(2)
+
+    // 全部完成 → 收尾成结论，按钮解锁。
+    await act(async () => releases[1]!({ ok: true, message: "ok" }))
+    expect(host.textContent).toContain("连接测试通过（2/2）")
+    expect(find('[data-plugin-action="test-connection"]')?.disabled).toBe(false)
+  })
+
+  /* ---- 6) 只测已选模型 ---- */
+  it("6) 只测已选的模型：选中 3 个时 testLlmConnection 只被调 3 次（插件报了 41 个也不管）", async () => {
+    const many = Array.from({ length: 41 }, (_, index) => `model-${index}`)
+    refreshProviderModels.mockResolvedValueOnce(modelsOf(many))
+    renderCard({ models: modelsOf(many) })
+
+    // 走真实路径把选中集从 41 缩到 3：拉取 → 清空 → 勾 3 个 → 确定。
+    // （这正是用户会做的操作；直接在测试里改草稿就没有入口可测了。）
+    await click(find('[data-plugin-action="pull-models"]')!)
+    await click(find('[data-plugin-action="catalog-clear"]')!)
+    for (const id of ["model-0", "model-1", "model-2"]) {
+      await click(host.querySelector<HTMLInputElement>(`[data-plugin-catalog-item="${id}"]`)!)
+    }
+    expect(find('[data-plugin-action="catalog-confirm"]')?.textContent).toContain("确定（3）")
+    await click(find('[data-plugin-action="catalog-confirm"]')!)
+
+    await click(find('[data-plugin-action="test-connection"]')!)
+
+    expect(testLlmConnectionMock).toHaveBeenCalledTimes(3)
+    const tested = testLlmConnectionMock.mock.calls.map((call) => call[0].model)
+    expect(tested).toEqual(["model-0", "model-1", "model-2"])
+    // 传进去的是**解析后**的插件配置：provider = providerId，model = 该模型 id。
+    // 这条保证"测试走的和聊天是同一条链路"，而不是另搭的探针。
+    expect(testLlmConnectionMock.mock.calls[0]![0].provider).toBe("wb-connect")
+  })
+
+  /* ---- 7) 未登录：不空白 ---- */
+  it("7) 未登录（无模型）：模型区说明「登录后会自动拉取模型」，主按钮是登录", () => {
+    renderCard({ ready: false, models: [], authKind: "browser-login", settingsPage: "/login" })
+
+    expect(host.querySelector('[data-plugin-models-empty="true"]')?.textContent).toContain(
+      "登录后会自动拉取模型",
+    )
+    const login = find('[data-plugin-action="login-workbuddy"]')
+    expect(login?.textContent).toContain("登录 WorkBuddy")
+    expect(login?.getAttribute("aria-label")).toBe("登录 WorkBuddy")
+  })
+
+  it("7b) 未登录态点主按钮：真的去开登录窗口", async () => {
+    renderCard({ ready: false, models: [], authKind: "browser-login", settingsPage: "/login" })
+
+    await click(find('[data-plugin-action="login-workbuddy"]')!)
+
+    expect(providerOpenLogin).toHaveBeenCalledWith("wb-connect")
+  })
+
+  /* ---- 8) 既有能力不丢 ---- */
+  it("8) 既有能力不丢：登录按钮、启停开关、删除都还在", () => {
+    renderCard({ authKind: "browser-login", settingsPage: "/setup", capabilities: ["balance.query", "checkin"] })
+
+    expect(find('[data-plugin-action="login"]')).toBeTruthy()
+    expect(find('[data-plugin-action="toggle-enabled"]')?.getAttribute("aria-checked")).toBe("true")
+    expect(find('[data-plugin-action="delete"]')).toBeTruthy()
+    // 余额/签到也还在（能力位在就渲染）。
+    expect(find('[data-plugin-action="balance"]')).toBeTruthy()
+    expect(find('[data-plugin-action="checkin"]')).toBeTruthy()
+  })
+
+  it("8b) 启停开关写覆盖表 enabled，并把「已停用」显示出来", async () => {
+    renderCard()
+
+    await click(find('[data-plugin-action="toggle-enabled"]')!)
+
+    expect(getPluginProviderOverride("wb-connect")?.enabled).toBe(false)
+    expect(find('[data-plugin-action="toggle-enabled"]')?.textContent).toContain("已停用")
+  })
+
+  it("8c) 上下文窗口留空 = 用插件值；填了才写覆盖表", async () => {
+    renderCard()
+
+    await typeInto(await field("max-context"), "200000")
+    expect(find('[data-plugin-action="save"]')?.disabled).toBe(false)
+    await click(find('[data-plugin-action="save"]')!)
+
+    expect(getPluginProviderOverride("wb-connect")?.maxContextSize).toBe(200000)
+    // 输出上限没填 → 不写覆盖（继续用插件上报值）。
+    expect(getPluginProviderOverride("wb-connect")?.maxOutputTokens).toBeUndefined()
   })
 })

@@ -8,7 +8,7 @@ import { deleteUiTestProvider } from "@/components/uitest/models/provider-save"
 import { validateProviderDraft } from "@/components/uitest/models/provider-data"
 import { safeModelError } from "@/components/uitest/models/model-feedback"
 import "@/components/uitest/models/model-settings.css"
-import { useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react"
+import { useCallback, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react"
 import { AlertCircle, CheckCircle2, Loader2, XCircle, X, Trash2 } from "lucide-react"
 import { ModelConfigTitle, ProviderBrandIcon, modelEnableLabel, modelSaveLabel } from "../provider-brand-icon"
 import { useTranslation } from "react-i18next"
@@ -20,6 +20,7 @@ import { LLM_PRESETS, type LlmPreset } from "../llm-presets"
 import { ContextSizeSelector } from "../context-size-selector"
 import { OutputTokensSelector } from "../output-tokens-selector"
 import { resolveConfig } from "../preset-resolver"
+import { resolveModelConfig } from "@/lib/novel/model-resolver"
 import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
 import { isTauri } from "@/lib/platform"
 import { AZURE_OPENAI_API_VERSION } from "@/lib/azure-openai"
@@ -83,6 +84,18 @@ export function LlmProviderSection() {
   const pluginViews = useSyncExternalStore(subscribePluginProviderViews, getPluginProviderViews, getPluginProviderViews)
   const pluginPresets = useMemo(() => pluginViews.map(toPluginProviderPreset), [pluginViews])
   const pluginProviderIds = useMemo(() => new Set(pluginPresets.map((preset) => preset.id)), [pluginPresets])
+  /*
+   * 插件卡片的「测试连接/测试功能」要拿一份完整的 LlmConfig。
+   *
+   * 走 `resolveModelConfig`（与聊天、后台任务同一条解析链）：插件 provider 会被解析成
+   * `provider = providerId` + `customEndpoint = 宿主分配的端口` + `apiKey = ""`（请求前现取），
+   * 所以这样测出来的结果就是真实对话链路上的结果，而不是另搭一套探针。
+   * 注入而不是在卡片里 import：那条链会拖进 novel 模型解析层，而卡片是设置页冷启动就渲染的组件。
+   */
+  const resolvePluginModelConfig = useCallback(
+    (modelKey: string) => resolveModelConfig(modelKey, useWikiStore.getState().llmConfig, providerConfigs),
+    [providerConfigs],
+  )
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [uiTestSource, setUiTestSource] = useState<"library" | "custom" | "presets">("library")
   // 目录里没有任何默认选中项：必须先由用户挑一个提供方，才生成它的配置卡。
@@ -159,6 +172,7 @@ export function LlmProviderSection() {
               preset={preset}
               expanded={!!expanded[preset.id]}
               onToggle={() => toggleExpand(preset.id)}
+              resolveModelConfig={resolvePluginModelConfig}
             />
           ))}
         </div>
