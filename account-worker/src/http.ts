@@ -3,6 +3,7 @@ import type { ApiErrorCode } from "./types"
 const ERROR_STATUS: Record<ApiErrorCode, number> = {
   VALIDATION: 400,
   EMAIL_TAKEN: 409,
+  DEVICE_LIMIT: 429,
   CODE_INVALID: 400,
   CODE_EXPIRED: 400,
   CODE_ATTEMPTS: 429,
@@ -22,6 +23,7 @@ const ERROR_STATUS: Record<ApiErrorCode, number> = {
 const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
   VALIDATION: "请检查填写的内容。",
   EMAIL_TAKEN: "这个邮箱已经注册过，直接登录即可。",
+  DEVICE_LIMIT: "这台设备已注册 3 个账号，达到上限。请直接登录已有账号。",
   CODE_INVALID: "验证码不正确，请重新输入。",
   CODE_EXPIRED: "验证码已过期，请重新获取。",
   CODE_ATTEMPTS: "验证码尝试次数过多，请重新获取。",

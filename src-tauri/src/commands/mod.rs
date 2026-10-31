@@ -6,6 +6,7 @@ mod cli_resolver;
 pub mod cloud_sync;
 pub mod codex_cli;
 pub mod cursor_cli;
+pub mod device;
 pub mod extract_images;
 pub mod file_sync;
 pub mod fs;

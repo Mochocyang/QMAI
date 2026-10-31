@@ -49,6 +49,7 @@ import {
 import { MAX_CODE_ATTEMPTS } from "./constants"
 import { sendRegisteredNotice, sendVerificationEmail } from "./email"
 import { failure, jsonSuccess, readJsonBody } from "./http"
+import { bindDevice, checkDeviceQuota, isValidDeviceHash } from "./device"
 import { signNetCard } from "./netcard"
 import type {
   ApiErrorCode,
@@ -437,6 +438,18 @@ export async function handleRegister(
   const verification = await verifyEmailCode(env, email, "register", code, now, ipHash)
   if (!verification.ok) return failure(verification.code)
 
+  // 设备额度检查：一台设备最多绑 3 个账号。
+  // 客户端上报的是 MachineGuid 的 SHA-256 摘要，服务端看不到原始机器标识。
+  // 没上报（旧版客户端）时跳过 —— 宁可少拦，不要让老用户装不上。
+  const deviceHash = parsed.body.deviceHash
+  if (isValidDeviceHash(deviceHash)) {
+    const quota = await checkDeviceQuota(env, deviceHash)
+    if (!quota.allowed) {
+      logEvent("register_device_limit", { deviceHashPrefix: deviceHash.slice(0, 8), count: quota.count })
+      return failure("DEVICE_LIMIT")
+    }
+  }
+
   const passwordHash = await hashPassword(
     password,
     resolvePasswordIterations(env.PASSWORD_ITERATIONS),
@@ -449,6 +462,10 @@ export async function handleRegister(
   } catch (error) {
     if (isUniqueConstraintError(error)) return failure("EMAIL_TAKEN")
     throw error
+  }
+
+  if (isValidDeviceHash(deviceHash)) {
+    await bindDevice(env.DB, deviceHash, user.id, now)
   }
 
   const payload = await issueAuthPayload(env, user, now, normalizeDeviceLabel(parsed.body.deviceLabel))

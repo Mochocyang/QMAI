@@ -28,6 +28,7 @@ import type {
   ResetPasswordInput,
   SendCodeResult,
 } from "./types"
+import { getDeviceFingerprint } from "./device"
 import { normalizeEmail } from "./validation"
 
 export const DEFAULT_ACCOUNT_BASE_URL = "https://qmai-account.qmai.workers.dev"
@@ -323,6 +324,10 @@ export async function registerAccount(
     password: input.password,
   }
   optionalBodyField(body, "displayName", input.displayName)
+  // 设备指纹：服务端据此限制「一台设备最多 3 个账号」。
+  // 取不到时不上报（服务端会跳过设备限额），不影响注册。
+  const deviceHash = await getDeviceFingerprint()
+  optionalBodyField(body, "deviceHash", deviceHash ?? undefined)
 
   const { status, data } = await requestAccount(baseUrl, {
     method: "POST",

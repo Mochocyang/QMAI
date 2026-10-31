@@ -69,3 +69,16 @@ CREATE TABLE IF NOT EXISTS revoke_audit (
 );
 
 CREATE INDEX IF NOT EXISTS idx_revoke_audit_at ON revoke_audit(at DESC);
+
+-- 设备与账号的绑定：用于「一台设备最多注册 N 个账号」的硬限制。
+-- 只存客户端算好的 SHA-256 摘要，服务端拿不到原始 MachineGuid。
+CREATE TABLE IF NOT EXISTS device_accounts (
+  device_hash TEXT NOT NULL,
+  user_id INTEGER NOT NULL,
+  first_seen_at INTEGER NOT NULL,
+  last_seen_at INTEGER NOT NULL,
+  PRIMARY KEY (device_hash, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_accounts_device ON device_accounts(device_hash);
+CREATE INDEX IF NOT EXISTS idx_device_accounts_user ON device_accounts(user_id);

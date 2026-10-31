@@ -4,6 +4,9 @@
  */
 
 export interface Env {
+  /** 一台设备最多绑定的账号数，默认 3。 */
+  MAX_ACCOUNTS_PER_DEVICE?: string
+
   DB: D1Database
   /** HS256 签名密钥，至少 32 字节；缺失时 Worker 失败关闭。 */
   AUTH_JWT_SECRET?: string
@@ -133,6 +136,7 @@ export interface AccessTokenClaims {
 export type ApiErrorCode =
   | "VALIDATION"
   | "EMAIL_TAKEN"
+  | "DEVICE_LIMIT"
   | "CODE_INVALID"
   | "CODE_EXPIRED"
   | "CODE_ATTEMPTS"
