@@ -1396,14 +1396,14 @@ export function PluginProviderCard({
 
           <div className="model-fields">
           {/* ── 配置名称（v4：名称收窄 420px）。「账号状态」栏已按用户标注2 删除 ── */}
-          {/* 配置名称 + 「＋ 登录新账号」（用户标注：按钮放配置名右侧）。账号区块里的重复入口已删。 */}
-          <div className="model-field full flex items-end gap-2">
-            <label className="flex-1">
+          {/* 配置名称 + 「＋ 登录新账号」：复用内置 .model-inline-field（标签与输入框同一行）。 */}
+          <div className="model-inline-fields" style={{ gridColumn: "1/-1", margin: "0" }}>
+            <label className="model-inline-field" data-plugin-field="label-row">
               <span>配置名称</span>
               <input
                 aria-label="配置名称"
                 data-plugin-field="label"
-                style={{ maxWidth: "420px" }}
+                style={{ width: "320px" }}
                 value={draft.label}
                 placeholder={preset.label}
                 spellCheck={false}

@@ -995,10 +995,13 @@ describe("PluginProviderCard", () => {
     expect(host.querySelector('[data-plugin-chip="model-a"]')).toBeNull()
   })
 
-  it("v3-6) 配置名称输入框收窄（v3：max-width 420px）", () => {
-    renderCard()
-
-    expect(host.querySelector<HTMLInputElement>('[data-plugin-field="label"]')?.style.maxWidth).toBe("420px")
+  it("v3-6) 配置名称改用内置 .model-inline-field（输入框固定宽度，不撑满整行）", () => {
+    renderCard({ authKind: "browser-login" })
+    const row = find('[data-plugin-field="label-row"]')!
+    expect(row.className).toContain("model-inline-field")
+    const input = find('[data-plugin-field="label"]') as HTMLInputElement
+    // 宽度由内联 style 固定：.model-field input 的 width:100% 不再作用于它
+    expect(input.style.width).toBe("320px")
   })
 
   /* ================================================================== *
@@ -1067,7 +1070,7 @@ describe("PluginProviderCard", () => {
     expect(rows[1]!.getAttribute("data-plugin-account")).toBe("uid-1")
     // 按钮挂在配置名称行右侧（用户标注），在账号列表之前；点它打开同一个登录窗口。
     const addButton = find('[data-plugin-action="add-account"]')!
-    expect(addButton).toBeTruthy()
+    expect(addButton.parentElement!.className).toContain("model-inline-fields")
     expect(list.contains(addButton)).toBe(false)
     // addButton 在 DOM 里先于 list（配置名称行在账号区块之前）。
     // compareDocumentPosition(B) 描述 B 相对 A：写反了会得 0。
