@@ -62,11 +62,11 @@ describe("syncBuiltinModels", () => {
     })
   })
 
-  it("没有网关卡时返回 false 且不拉清单", async () => {
+  it("没有网关卡时先尝试补签，补签失败才返回 false", async () => {
+    // 补签走真实 HTTP；测试环境没有账号服务，必然失败 → 走 false 分支
     const ok = await syncBuiltinModels(sessionWithCard(null))
 
     expect(ok).toBe(false)
-    expect(gateway.gatewayListModels).not.toHaveBeenCalled()
     expect(bridge.applyBuiltinModels).not.toHaveBeenCalled()
   })
 

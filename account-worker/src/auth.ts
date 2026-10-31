@@ -605,12 +605,27 @@ export async function handleRefresh(
       now,
     )
 
+    // 续期时**重新签发网关卡**：session.id 没变，所以新卡与旧卡等价（同一个 sid），
+    // 但客户端能借此拿到"老版本会话里没有的那个字段"。
+    // 早期版本的登录返回没有 netcard，用户一直停在无卡状态，内置模型永远不可用 —— 这里补上。
+    // 签发失败（未配私钥）不影响续期本身：卡为 null，登录态照常可用。
+    let netcard: string | null = null
+    try {
+      const signed = await signNetCard(env, user.id, session.id, now)
+      netcard = signed.token
+    } catch (error) {
+      console.error("[account] refresh_netcard_failed", {
+        name: error instanceof Error ? error.name : "UnknownError",
+      })
+    }
+
     return jsonSuccess({
       user: toPublicUser(user),
       accessToken: access.token,
       accessExpiresAt: access.expiresAt,
       refreshToken: newRefreshToken,
       refreshExpiresAt,
+      netcard,
     })
   }
 
