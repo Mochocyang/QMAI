@@ -73,8 +73,7 @@ function authPayload(overrides: Partial<AccountAuthPayload> = {}): AccountAuthPa
       email: "author@example.com",
       displayName: "作者",
       createdAt: 1793000000,
-      avatarUpdatedAt: null,
-    },
+      avatarUpdatedAt: null, displayNameUpdatedAt: null },
     accessToken: "access-token",
     accessExpiresAt: 1793000900,
     refreshToken: "refresh-token",
@@ -365,4 +364,18 @@ describe("错误映射", () => {
     expect(error.status).toBe(0)
     expect(accountErrorMessage(error)).toBe("网络不可用，请检查连接后重试。")
   })
-})
+})/*
+ * 设备指纹与设备密钥在测试里 mock 成「取不到」：
+ * 真实实现会调 Tauri 命令 / WebCrypto，Node 下会真的生成一对密钥，
+ * 让下面「请求体只有这些字段」的断言变得依赖运行环境。
+ * 设备相关的行为由 device.spec / request-sign.spec 单独覆盖。
+ */
+vi.mock("@/lib/account/device", () => ({
+  getDeviceFingerprint: async () => null,
+}))
+vi.mock("@/lib/account/request-sign", () => ({
+  ensureDeviceKey: async () => null,
+  signRequestHeaders: async () => ({}),
+}))
+
+

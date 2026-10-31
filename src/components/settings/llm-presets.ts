@@ -1,5 +1,6 @@
 import type { AzureModelFamily } from "@/stores/wiki-store"
 import { MIN_USER_LLM_CONTEXT_SIZE } from "@/lib/llm-context-size"
+import { DEFAULT_RELAY_URL } from "@/lib/builtin-models/gateway-api"
 import { CODEX_CLI_SUGGESTED_MODELS, DEFAULT_CODEX_CLI_MODEL } from "@/lib/codex-cli-model"
 
 /**
@@ -77,6 +78,23 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     hint: "任意 OpenAI、Responses 或 Anthropic 兼容接口",
     provider: "custom",
     apiMode: "chat_completions",
+  },
+  {
+    // 「内置模型」不是第三方厂商，而是 QMAI 自己运营的网关：
+    // 用户在设置页登录/开通后，客户端自动写入 apiKey（用户专属 sk- 令牌）
+    // 与 baseUrl，所以这里按 OpenAI 兼容的 custom 通道登记。
+    // 用户没开通时也能看到这张卡，但提示词会说明无需自己申请密钥。
+    id: "qmai-builtin",
+    label: "青幕内置模型",
+    hint: "登录青幕账号后自动出现在模型列表里，无需自己申请密钥",
+    provider: "custom",
+    baseUrl: `${DEFAULT_RELAY_URL}/v1`,
+    apiMode: "chat_completions",
+    // 只是占位建议；真正可用的模型由中转站按账号权限返回，
+    // 登录后自动写入 providerConfigs，模型直接出现在各个对话框的模型下拉里。
+    // 上游真实模型由中转站路由，客户端不感知。
+    suggestedModels: ["qmai-deepseek-v41", "qmai-glm-53", "qmai-kimi-k3"],
+    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {
     id: "anthropic",

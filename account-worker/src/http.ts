@@ -1,6 +1,7 @@
 import type { ApiErrorCode } from "./types"
 
 const ERROR_STATUS: Record<ApiErrorCode, number> = {
+  DEVICE_LIMIT: 429,
   VALIDATION: 400,
   EMAIL_TAKEN: 409,
   CODE_INVALID: 400,
@@ -22,6 +23,7 @@ const ERROR_STATUS: Record<ApiErrorCode, number> = {
 }
 
 const ERROR_MESSAGES: Record<ApiErrorCode, string> = {
+  DEVICE_LIMIT: "这台设备已注册 3 个账号，达到上限。请直接登录已有账号。",
   VALIDATION: "请检查填写的内容。",
   EMAIL_TAKEN: "这个邮箱已经注册过，直接登录即可。",
   CODE_INVALID: "验证码不正确，请重新输入。",
@@ -136,7 +138,7 @@ export function preflightResponse(request: Request, allowedOrigins: string[]): R
     headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
     headers.set(
       "Access-Control-Allow-Headers",
-      "Authorization, Content-Type, Content-Length",
+      "Authorization, Content-Type, Content-Length, x-admin-key",
     )
     // 头像上传直接发图片字节，前端要读响应状态与图片本体。
     headers.set("Access-Control-Max-Age", "86400")

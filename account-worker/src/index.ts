@@ -41,6 +41,13 @@ import {
 } from "./baidu-oauth"
 import { hashRefreshToken } from "./crypto"
 import type { Env } from "./types"
+import { handleIssueNetCard, handleVerifyNetCard } from "./netcard-handler"
+import {
+  handleAdminListSessions,
+  handleAdminRevoke,
+  handleAdminRevokeAll,
+  handleAdminRevokeAudit,
+} from "./admin"
 
 type RouteHandler = (request: Request, env: Env) => Promise<Response>
 
@@ -67,7 +74,34 @@ const ROUTES: Record<string, RouteHandler> = {
   "GET /v1/oauth/baidu/poll": handleBaiduPoll,
   // 刷新 access_token：同样要 secret，因此也只能在服务端做。
   "POST /v1/oauth/baidu/refresh": handleBaiduRefresh,
+  // 网关卡：与 session 绑定的**长期**凭证，供自建中转站验签（推荐路径）。
+  "POST /v1/netcard": handleIssueNetCardRoute,
+  // 吊销回源：中转站需要"立刻踢人"时来问一次。
+  "POST /v1/netcard/verify": handleVerifyNetCardRoute,
 }
+/** 网关卡签发：把登录态换成与 session 绑定的长期 Ed25519 凭证。 */
+async function handleIssueNetCardRoute(request: Request, env: Env): Promise<Response> {
+  return handleIssueNetCard(request, env, Math.floor(Date.now() / 1000))
+}
+
+/** 网关卡回源校验：给中转站查吊销用。 */
+async function handleVerifyNetCardRoute(request: Request, env: Env): Promise<Response> {
+  return handleVerifyNetCard(request, env, Math.floor(Date.now() / 1000))
+}
+
+/** /admin/* 路由分派。未匹配的 admin 路径返回 404。 */
+async function dispatchAdmin(request: Request, env: Env, url: URL): Promise<Response> {
+  const path = url.pathname
+  if (path === "/admin/sessions" && request.method === "GET") return handleAdminListSessions(request, env, url)
+  if (path === "/admin/sessions/revoke" && request.method === "POST") return handleAdminRevoke(request, env)
+  if (path === "/admin/sessions/revoke-all" && request.method === "POST") return handleAdminRevokeAll(request, env)
+  if (path === "/admin/revoke-audit" && request.method === "GET") return handleAdminRevokeAudit(request, env, url)
+  return new Response(JSON.stringify({ success: false, code: "NOT_FOUND", message: "未知管理路径。" }), {
+    status: 404,
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+  })
+}
+
 
 /** 头像读取是公开路径：`/v1/account/avatar/{userId}`。 */
 const AVATAR_PATH = /^\/v1\/account\/avatar\/([1-9][0-9]{0,17})$/
@@ -137,6 +171,21 @@ export default {
     if (request.method === "GET") {
       if (path === "/privacy" || path === "/privacy/") return privacyPage()
       if (path === "/terms" || path === "/terms/") return termsPage()
+    }
+
+    // 管理接口：/admin/* 单独走一套鉴权（x-admin-key），不经过用户登录态。
+    // 未配置 ADMIN_KEY 时处理器自己返回 401/503，这里不做额外判断。
+    if (path.startsWith("/admin/")) {
+      try {
+        const response = await dispatchAdmin(request, env, new URL(request.url))
+        return applyResponseHeaders(response, request, allowedOrigins)
+      } catch (error) {
+        console.error("[account] admin_error", {
+          path,
+          name: error instanceof Error ? error.name : "UnknownError",
+        })
+        return applyResponseHeaders(failure("SERVER_ERROR"), request, allowedOrigins)
+      }
     }
 
     const handler = ROUTES[`${request.method} ${path}`]

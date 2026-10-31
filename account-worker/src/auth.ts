@@ -50,6 +50,8 @@ import {
 import { DISPLAY_NAME_MAX_CHARS, MAX_CODE_ATTEMPTS, NAME_CHANGE_COOLDOWN_SECONDS } from "./constants"
 import { sendRegisteredNotice, sendVerificationEmail } from "./email"
 import { failure, jsonSuccess, readJsonBody } from "./http"
+import { bindDevice, checkDeviceQuota, isValidDeviceHash } from "./device"
+import { signNetCard } from "./netcard"
 import type {
   ApiErrorCode,
   AuthPayload,
@@ -138,7 +140,7 @@ export type AuthenticatedUser =
  * 校验 Authorization Bearer 并取出当前用户。
  * `me`、改密、头像三类接口共用，避免三处各自实现一遍令牌校验。
  */
-async function authenticate(
+export async function authenticate(
   request: Request,
   env: Env,
   now: number,
@@ -297,6 +299,10 @@ async function issueAuthPayload(
   user: UserRow,
   now: number,
   deviceLabel: string | null,
+  /** 设备指纹摘要：写进网关卡做设备绑定，卡复制到别的机器就失效。 */
+  deviceHash: string | null = null,
+  /** 设备签名公钥：允许客户端对请求签名，防止设备指纹被盗用。 */
+  devicePublicKey: string | null = null,
 ): Promise<AuthPayload> {
   const refreshToken = generateRefreshToken()
   const refreshTokenHash = await hashRefreshToken(refreshToken)
@@ -322,12 +328,19 @@ async function issueAuthPayload(
     now,
   )
 
+  // 网关卡：与这次登录的 session 绑定，**长期有效**，供自建中转站验签。
+  // 签名失败（缺私钥）时给 null —— 不影响登录本身。
+  const netcard = await signNetCard(env, user.id, session.id, now, deviceHash, devicePublicKey)
+    .then((signed) => signed.token)
+    .catch(() => null)
+
   return {
     user: toPublicUser(user),
     accessToken: access.token,
     accessExpiresAt: access.expiresAt,
     refreshToken,
     refreshExpiresAt,
+    netcard,
   }
 }
 
@@ -445,6 +458,18 @@ export async function handleRegister(
   const verification = await verifyEmailCode(env, email, "register", code, now, ipHash)
   if (!verification.ok) return failure(verification.code)
 
+  // 设备额度检查：一台设备最多绑 N 个账号（默认 3）。
+  // 客户端上报的是 MachineGuid 的 SHA-256 摘要，服务端看不到原始机器标识。
+  // 没上报（旧版客户端）时跳过 —— 宁可少拦，不要让老用户装不上。
+  const deviceHash = parsed.body.deviceHash
+  if (isValidDeviceHash(deviceHash)) {
+    const quota = await checkDeviceQuota(env, deviceHash)
+    if (!quota.allowed) {
+      logEvent("register_device_limit", { deviceHashPrefix: deviceHash.slice(0, 8), count: quota.count })
+      return failure("DEVICE_LIMIT")
+    }
+  }
+
   const passwordHash = await hashPassword(
     password,
     resolvePasswordIterations(env.PASSWORD_ITERATIONS),
@@ -459,7 +484,18 @@ export async function handleRegister(
     throw error
   }
 
-  const payload = await issueAuthPayload(env, user, now, normalizeDeviceLabel(parsed.body.deviceLabel))
+  if (isValidDeviceHash(deviceHash)) {
+    await bindDevice(env.DB, deviceHash, user.id, now)
+  }
+
+  const payload = await issueAuthPayload(
+    env,
+    user,
+    now,
+    normalizeDeviceLabel(parsed.body.deviceLabel),
+    isValidDeviceHash(deviceHash) ? deviceHash : null,
+    typeof parsed.body.devicePublicKey === "string" ? parsed.body.devicePublicKey : null,
+  )
   logEvent("register_ok", { userId: user.id })
   return jsonSuccess(payload)
 }
@@ -550,7 +586,21 @@ export async function handleLogin(
   if (!user) return failure("INVALID_CREDENTIALS")
   if (user.status !== "active") return failure("ACCOUNT_DISABLED")
 
-  const payload = await issueAuthPayload(env, user, now, normalizeDeviceLabel(parsed.body.deviceLabel))
+  // 登录时把设备指纹签进网关卡：卡从此只能在这台机器上用。
+  // 同时写进 device_accounts（登录也计数，防止"注册时绕过、登录时补票"）。
+  const loginDeviceHash = isValidDeviceHash(parsed.body.deviceHash) ? parsed.body.deviceHash : null
+  if (loginDeviceHash) {
+    await bindDevice(env.DB, loginDeviceHash, user.id, now)
+  }
+
+  const payload = await issueAuthPayload(
+    env,
+    user,
+    now,
+    normalizeDeviceLabel(parsed.body.deviceLabel),
+    loginDeviceHash,
+    typeof parsed.body.devicePublicKey === "string" ? parsed.body.devicePublicKey : null,
+  )
   logEvent("login_ok", { userId: user.id })
   return jsonSuccess(payload)
 }
@@ -613,12 +663,33 @@ export async function handleRefresh(
       now,
     )
 
+    // 续期时**重新签发网关卡**：session.id 没变，所以新卡与旧卡等价（同一个 sid），
+    // 但客户端能借此拿到"老版本会话里没有的那个字段"。
+    // 签发失败（未配私钥）不影响续期本身：卡为 null，登录态照常可用。
+    let netcard: string | null = null
+    try {
+      const signed = await signNetCard(
+        env,
+        user.id,
+        session.id,
+        now,
+        isValidDeviceHash(parsed.body.deviceHash) ? parsed.body.deviceHash : null,
+        typeof parsed.body.devicePublicKey === "string" ? parsed.body.devicePublicKey : null,
+      )
+      netcard = signed.token
+    } catch (error) {
+      console.error("[account] refresh_netcard_failed", {
+        name: error instanceof Error ? error.name : "UnknownError",
+      })
+    }
+
     return jsonSuccess({
       user: toPublicUser(user),
       accessToken: access.token,
       accessExpiresAt: access.expiresAt,
       refreshToken: newRefreshToken,
       refreshExpiresAt,
+      netcard,
     })
   }
 

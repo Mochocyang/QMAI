@@ -86,6 +86,8 @@ export interface AccountStoreState {
   rename: (displayName: string) => Promise<AccountUser>
   /** 主动续期；无会话返回 null，401 清会话，网络错误保留会话并抛出。 */
   refreshSession: () => Promise<StoredAccountSession | null>
+  /** 只替换本地会话（例如补签网关卡后），不触发网络请求。 */
+  replaceSession: (session: StoredAccountSession) => void
   /** 规格动作名：续期并吞掉错误，供「重试/下次打开账号页」使用。 */
   refresh: () => Promise<void>
 
@@ -186,7 +188,7 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
           return
         }
 
-        const next = createStoredSession(stored.baseUrl, payload)
+        const next = createStoredSession(stored.baseUrl, payload, stored.netcard)
         saveAccountSession(next)
         set({
           status: "authenticated",
@@ -196,6 +198,11 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
           sessionUnverified: false,
           bootstrapped: true,
         })
+
+        // 启动时若已登录，同样把内置模型登记好，用户不用进设置页。
+        void import("@/lib/builtin-models/auto-sync")
+          .then(({ syncBuiltinModels }) => syncBuiltinModels(next))
+          .catch((error) => console.error("[builtin] 动态加载失败:", error))
       } catch (error) {
         if (!stillOwnsSession()) {
           set({ bootstrapped: true })
@@ -259,6 +266,12 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
         sessionUnverified: false,
         bootstrapped: true,
       })
+
+      // 登录后自动把内置模型登记进 provider 配置：用户不打开任何设置页，
+      // 模型也会直接出现在各个对话框的下拉里。不抢默认模型，失败也不影响登录。
+      void import("@/lib/builtin-models/auto-sync")
+        .then(({ syncBuiltinModels }) => syncBuiltinModels(session))
+        .catch((error) => console.error("[builtin] 动态加载失败:", error))
     } catch (error) {
       if (epochAtStart !== sessionEpoch) throw error
       // 登录失败不能留下旧磁盘会话，否则下次启动会悄悄恢复另一个身份。
@@ -356,6 +369,12 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
       sessionUnverified: false,
     })
 
+    // 退出后内置模型不可用：把它的 provider 配置摘掉，
+    // 否则下拉框里会留着"选了就 401"的死选项。
+    void import("@/lib/builtin-models/auto-sync")
+      .then(({ syncBuiltinModels }) => syncBuiltinModels(null))
+      .catch((error) => console.error("[builtin] 动态加载失败:", error))
+
     if (session) {
       // 旧 token 可能已被在途 refresh 轮换；先尽力撤销旧 token，再等轮换结果撤销新 token。
       void logoutAccount(session.baseUrl, session.refreshToken).catch(() => undefined)
@@ -438,6 +457,10 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
     }
   },
 
+  replaceSession: (session: StoredAccountSession) => {
+    set({ session, user: session.user })
+  },
+
   refreshSession: async () => {    const epochAtStart = sessionEpoch
     const session = get().session
     if (!session) return null
@@ -446,7 +469,7 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
       const payload = await sharedRefresh(session.baseUrl, session.refreshToken)
       if (epochAtStart !== sessionEpoch) return null
 
-      const next = createStoredSession(session.baseUrl, payload)
+      const next = createStoredSession(session.baseUrl, payload, session.netcard)
       saveAccountSession(next)
       set({
         status: "authenticated",
@@ -455,6 +478,11 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
         error: null,
         sessionUnverified: false,
       })
+
+      // 续期成功顺手校验一次内置模型清单：卡被吊销或换账号时这里会同步过来。
+      void import("@/lib/builtin-models/auto-sync")
+        .then(({ syncBuiltinModels }) => syncBuiltinModels(next))
+        .catch((error) => console.error("[builtin] 动态加载失败:", error))
       return next
     } catch (error) {
       if (epochAtStart !== sessionEpoch) return null

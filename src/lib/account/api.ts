@@ -30,6 +30,8 @@ import type {
   SendCodeResult,
 } from "./types"
 import { normalizeEmail } from "./validation"
+import { getDeviceFingerprint } from "./device"
+import { ensureDeviceKey } from "./request-sign"
 
 /**
  * 账号服务默认地址：用自有域名，不用 `*.workers.dev`。
@@ -342,6 +344,12 @@ export async function registerAccount(
     password: input.password,
   }
   optionalBodyField(body, "displayName", input.displayName)
+  // 设备指纹：服务端据此限制「一台设备最多 3 个账号」。
+  // 取不到时不上报（服务端会跳过设备限额），不影响注册。
+  const deviceHash = await getDeviceFingerprint()
+  optionalBodyField(body, "deviceHash", deviceHash ?? undefined)
+  const deviceKey = await ensureDeviceKey()
+  optionalBodyField(body, "devicePublicKey", deviceKey?.publicKey)
 
   const { status, data } = await requestAccount(baseUrl, {
     method: "POST",
@@ -363,6 +371,11 @@ export async function loginAccount(
     password: input.password,
   }
   optionalBodyField(body, "deviceLabel", input.deviceLabel)
+  // 设备指纹 + 签名公钥：卡里会签进 dev 与 dpk，之后请求可验签。
+  const deviceHash = await getDeviceFingerprint()
+  optionalBodyField(body, "deviceHash", deviceHash ?? undefined)
+  const deviceKey = await ensureDeviceKey()
+  optionalBodyField(body, "devicePublicKey", deviceKey?.publicKey)
 
   const { status, data } = await requestAccount(baseUrl, {
     method: "POST",

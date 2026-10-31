@@ -296,6 +296,11 @@ export function WebSearchSection() {
   )
 }
 
+/** 容错读取字符串：草稿里可能因旧配置缺字段而是 undefined。 */
+function safeText(input: unknown): string {
+  return typeof input === "string" ? input : ""
+}
+
 function SearXngCategoryPicker({
   value,
   onChange,
@@ -418,7 +423,7 @@ function AntigravityModelPicker({ value, onChange }: { value: string; onChange: 
   const [models, setModels] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  const current = value.trim()
+  const current = safeText(value).trim()
 
   const fetchModels = async () => {
     setLoading(true)

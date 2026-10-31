@@ -16,6 +16,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useWikiStore, type ProviderOverride, type ReasoningConfig, type ReasoningMode, type SavedModel } from "@/stores/wiki-store"
+import { BUILTIN_PROVIDER_ID } from "@/lib/builtin-models/provider-bridge"
 import { LLM_PRESETS, type LlmPreset } from "../llm-presets"
 import { ContextSizeSelector } from "../context-size-selector"
 import { OutputTokensSelector } from "../output-tokens-selector"
@@ -95,8 +96,20 @@ export function LlmProviderSection() {
     setExpanded((prev) => ({ [id]: !prev[id] }))
   }
 
+  /**
+   * 「我的模型配置」列表里要展示的 id。
+   *
+   * `qmai-builtin`（青幕内置模型）**刻意不出现**：
+   * 它不是用户自己配的提供方，而是登录后自动登记的系统内置模型。
+   * 它已经出现在所有对话框的模型下拉里（「模型使用」处），
+   * 在这里再摆一张卡片只会让用户困惑「为什么我的模型里多了一个我没加的东西」。
+   */
+  const HIDDEN_IN_LIBRARY = new Set([BUILTIN_PROVIDER_ID])
+
   const configured = [...new Set([...Object.keys(providerConfigs), ...customDraftIds, ...presetDraftIds])]
-    const presets = LLM_PRESETS.filter((preset) => preset.id !== "custom")
+    .filter((id) => !HIDDEN_IN_LIBRARY.has(id))
+    // 「添加提供方」的预设网格同理：内置模型不是"可添加的提供方"
+    const presets = LLM_PRESETS.filter((preset) => preset.id !== "custom" && !HIDDEN_IN_LIBRARY.has(preset.id))
     return (
       <div data-ui="llm-library">
         <div className="model-library-heading"><h3>我的模型设置</h3><span>{configured.length} 个配置</span></div>

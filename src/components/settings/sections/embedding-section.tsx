@@ -31,6 +31,11 @@ type ReindexState =
   | { kind: "running"; done: number; total: number }
   | { kind: "done"; count: number; note?: string }
 
+/** 容错读取字符串：草稿里可能因旧配置缺字段而是 undefined。 */
+function safeText(input: unknown): string {
+  return typeof input === "string" ? input : ""
+}
+
 function parsePositiveInteger(value: string): number | undefined {
   const trimmed = value.trim()
   if (trimmed === "") return undefined
@@ -119,7 +124,7 @@ export function EmbeddingSection({ draft, setDraft }: Props) {
   }, [])
 
   const handleTestModel = useCallback(async () => {
-    const hasModel = draft.embeddingModel.trim().length > 0
+    const hasModel = safeText(draft.embeddingModel).trim().length > 0
 
     if (hasModel) {
       setTestState({

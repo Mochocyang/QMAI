@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "smoke": "node test/smoke.mjs",
@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261025.1",
+    "@types/node": "^26.6.6",
     "typescript": "^5.9.3",
     "vitest": "^5.0.5",
     "wrangler": "^4.152.0"

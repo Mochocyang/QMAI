@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>青幕AI写作 · 账号登录与注册设计规格</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --ink: #1d2430;
+    --muted: #5d6878;
+    --line: #dfe4ea;
+    --accent: #3f6f5f;
+    --accent-soft: #eaf2ee;
+    --warn: #8a5a1f;
+    --warn-soft: #fbf3e4;
+    --danger: #8c3b3b;
+    --code: #f1f4f7;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 15px/1.75 "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif;
+  }
+  a { color: var(--accent); }
+  code, pre { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 5px; font-size: 0.92em; }
+  pre {
+    background: #1f2933; color: #e8edf2; padding: 16px 18px; border-radius: 10px;
+    overflow-x: auto; font-size: 13px; line-height: 1.65;
+  }
+  pre code { background: transparent; padding: 0; color: inherit; }
+  .page { max-width: 1120px; margin: 0 auto; padding: 48px 28px 96px; }
+  header.hero {
+    background: linear-gradient(135deg, #23483c 0%, #3f6f5f 58%, #6e9587 100%);
+    color: #fff; border-radius: 20px; padding: 38px 40px; margin-bottom: 30px;
+    box-shadow: 0 18px 44px rgba(35, 72, 60, 0.18);
+  }
+  header.hero .eyebrow { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.78; }
+  header.hero h1 { margin: 10px 0 12px; font-size: 34px; line-height: 1.25; letter-spacing: 0.01em; }
+  header.hero p { margin: 0; max-width: 780px; opacity: 0.9; }
+  .meta { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 22px; font-size: 13px; opacity: 0.86; }
+  .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 28px; align-items: start; }
+  nav.toc {
+    position: sticky; top: 24px; background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 18px 16px;
+  }
+  nav.toc h2 { font-size: 12px; letter-spacing: 0.12em; color: var(--muted); margin: 0 0 10px; text-transform: uppercase; }
+  nav.toc ol { margin: 0; padding-left: 18px; font-size: 13.5px; line-height: 1.9; }
+  nav.toc a { color: var(--ink); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); }
+  main { min-width: 0; }
+  section.card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 28px 32px; margin-bottom: 22px;
+  }
+  h2.sec { margin: 0 0 6px; font-size: 22px; letter-spacing: 0.01em; }
+  h2.sec .num { color: var(--accent); font-size: 14px; margin-right: 8px; vertical-align: 2px; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  h3 { font-size: 16px; margin: 24px 0 8px; }
+  h4 { font-size: 14px; margin: 18px 0 6px; color: var(--muted); letter-spacing: 0.02em; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 6px; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 9px 11px; text-align: left; vertical-align: top; }
+  th { background: #f2f5f3; font-weight: 600; }
+  tbody tr:nth-child(even) { background: #fafbfa; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .note {
+    border-left: 3px solid var(--accent); background: var(--accent-soft);
+    padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 14px 0;
+  }
+  .warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .danger { border-left-color: var(--danger); background: #fbeeee; }
+  .pill {
+    display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px;
+    background: var(--accent-soft); color: var(--accent); border: 1px solid #cfe0d7;
+  }
+  .pill.warn { background: var(--warn-soft); color: var(--warn); border-color: #ecd6ae; }
+  .pill.off { background: #eef1f4; color: var(--muted); border-color: var(--line); }
+  .flow { display: grid; gap: 10px; margin: 14px 0; }
+  .flow-step {
+    display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start;
+    background: #f8faf9; border: 1px solid var(--line); border-radius: 10px; padding: 11px 14px;
+  }
+  .flow-step b.n {
+    display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 12px; margin-top: 2px;
+  }
+  .flow-step p { margin: 0; }
+  .arch {
+    display: grid; grid-template-columns: minmax(0, 1fr) 54px minmax(0, 1fr);
+    gap: 10px; align-items: stretch; margin: 16px 0;
+  }
+  .arch .box {
+    border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; background: #f8faf9;
+  }
+  .arch .box h4 { margin-top: 0; color: var(--accent); }
+  .arch .box ul { margin: 6px 0 0; padding-left: 18px; font-size: 13.5px; }
+  .arch .arrow { display: grid; place-items: center; color: var(--muted); font-size: 22px; }
+  .filetree { font-size: 13px; line-height: 1.8; background: #f8faf9; border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; }
+  .filetree .new { color: var(--accent); font-weight: 600; }
+  .filetree .mod { color: var(--warn); }
+  .checklist { list-style: none; padding-left: 0; }
+  .checklist li { padding-left: 26px; position: relative; }
+  .checklist li::before {
+    content: ""; position: absolute; left: 2px; top: 9px; width: 12px; height: 7px;
+    border-left: 2px solid var(--accent); border-bottom: 2px solid var(--accent);
+    transform: rotate(-45deg);
+  }
+  footer { color: var(--muted); font-size: 13px; margin-top: 26px; text-align: center; }
+  @media (max-width: 920px) {
+    .layout { grid-template-columns: 1fr; }
+    nav.toc { position: static; }
+    .grid2 { grid-template-columns: 1fr; }
+    .arch { grid-template-columns: 1fr; }
+    .arch .arrow { transform: rotate(90deg); }
+    header.hero { padding: 28px 24px; }
+    section.card { padding: 22px 20px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="hero">
+    <div class="eyebrow">QMAI Design Spec · 2026-10-25</div>
+    <h1>账号登录与注册<br />邮箱验证码注册 + 邮箱密码登录</h1>
+    <p>为青幕AI写作补上一套独立、可选、可长期登录的账号身份。首版只解决「注册、登录、保持登录、退出、找回密码」，为后续会员权益留出稳定身份，不改变现有本地写作与模型配置。</p>
+    <div class="meta">
+      <span>状态：已确认，待实现</span>
+      <span>范围：客户端 + 独立账号 Worker</span>
+      <span>依赖：Cloudflare Workers / D1 / Resend</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="toc" aria-label="目录">
+      <h2>目录</h2>
+      <ol>
+        <li><a href="#background">背景与目标</a></li>
+        <li><a href="#scope">范围</a></li>
+        <li><a href="#decisions">关键决策</a></li>
+        <li><a href="#architecture">总体架构</a></li>
+        <li><a href="#data">数据模型</a></li>
+        <li><a href="#api">接口契约</a></li>
+        <li><a href="#register">注册流程</a></li>
+        <li><a href="#login">登录与续期</a></li>
+        <li><a href="#client">客户端设计</a></li>
+        <li><a href="#security">安全与防刷</a></li>
+        <li><a href="#errors">错误码</a></li>
+        <li><a href="#testing">测试与验收</a></li>
+        <li><a href="#deploy">部署与配置</a></li>
+        <li><a href="#later">后续演进</a></li>
+        <li><a href="#risks">风险与依赖</a></li>
+      </ol>
+    </nav>
+
+    <main>
+      <section class="card" id="background">
+        <h2 class="sec"><span class="num">01</span>背景与目标</h2>
+        <p class="lead">现状：QMAI 是本地优先的写作桌面端，没有软件级账号；唯一的账号入口在「设置 → 内置模型」，那是 New API 网关的用户名/密码体系，与软件身份无关。</p>
+        <p>这次要补的是<strong>软件自己的账号</strong>，并且明确只先做登录/注册，为后续会员功能准备身份底座。模型是否可用、写作是否可用，都不由这个账号决定。</p>
+        <h3>目标</h3>
+        <ul>
+          <li>用户用邮箱完成注册，邮箱归属由验证码证明。</li>
+          <li>注册后自动登录；日常登录用邮箱 + 密码，不反复发邮件。</li>
+          <li>重启客户端仍保持登录；退出登录要能立即失效当前设备会话。</li>
+          <li>不登录、账号服务不可用时，本地写作与现有模型配置完全不受影响。</li>
+          <li>账号身份独立于模型网关，后续会员、云同步只依赖稳定的 <code>users.id</code>。</li>
+        </ul>
+        <h3>成功标准</h3>
+        <ul>
+          <li>新用户 60 秒内完成「收码 → 注册 → 自动登录」。</li>
+          <li>已登录用户重启应用后无需重新输入密码。</li>
+          <li>验证码错误、过期、频繁发送、邮箱已注册、密码错误都有明确中文提示。</li>
+          <li>账号服务宕机或断网时，书架、章节、模型设置照常打开。</li>
+        </ul>
+      </section>
+
+      <section class="card" id="scope">
+        <h2 class="sec"><span class="num">02</span>范围</h2>
+        <div class="grid2">
+          <div>
+            <h3>首版做</h3>
+            <ul class="checklist">
+              <li>邮箱验证码注册（6 位，10 分钟有效）</li>
+              <li>邮箱 + 密码登录（8–128 位）</li>
+              <li>JWT access + 轮换 refresh 的长期登录态</li>
+              <li>启动静默续期、退出登录</li>
+              <li>忘记密码 / 验证码重置密码</li>
+              <li>顶栏账号入口、设置 → 账号页、登录/注册弹窗</li>
+              <li>账号 Worker、D1 表结构、Resend 发信</li>
+              <li>频率限制、验证码尝试上限、错误码映射</li>
+            </ul>
+          </div>
+          <div>
+            <h3>首版不做</h3>
+            <ul>
+              <li>会员套餐、支付、权益判断（只留占位文案）</li>
+              <li>用登录状态限制模型或写作功能</li>
+              <li>账号与内置模型网关绑定 / 单点登录</li>
+              <li>云同步身份、多端数据合并</li>
+              <li>微信 / GitHub / 手机号登录</li>
+              <li>登录设备管理页、邮箱换绑、注销账号</li>
+              <li>用户协议 / 隐私政策页面（上线前单独补）</li>
+            </ul>
+          </div>
+        </div>
+        <div class="note warn">
+          <strong>边界提醒：</strong>「忘记密码」虽然不在最初一句话需求里，但登录一旦上线就必须有找回路径；它与注册共用验证码表和发信逻辑，增量很小，因此纳入首版。
+        </div>
+      </section>
+
+      <section class="card" id="decisions">
+        <h2 class="sec"><span class="num">03</span>关键决策</h2>
+        <table>
+          <thead><tr><th style="width:26%">决策</th><th style="width:37%">选择</th><th>理由</th></tr></thead>
+          <tbody>
+            <tr><td>账号定位</td><td>统一账号，但不强制登录</td><td>保留本地优先体验；会员功能上线后自然承接，不用改写作入口。</td></tr>
+            <tr><td>账号后端</td><td>本仓库新建 Cloudflare Worker + D1</td><td>与 analytics-worker 同一套部署方式；与 New API 网关解耦，身份可独立演进。</td></tr>
+            <tr><td>注册方式</td><td>邮箱 + 验证码 + 设置密码</td><td>验证码证明邮箱归属；密码让日常登录不依赖邮件送达。</td></tr>
+            <tr><td>登录方式</td><td>邮箱 + 密码</td><td>桌面软件高频登录，邮件成本与可达性风险都更低。</td></tr>
+            <tr><td>登录态</td><td>JWT access（15 分钟）+ 轮换 refresh（90 天）</td><td>日常请求不查库；refresh 可撤销、可检测重复使用。</td></tr>
+            <tr><td>客户入口</td><td>顶栏账号图标 + 设置 → 账号</td><td>登录可发现，但不占导航；未登录不打扰写作。</td></tr>
+            <tr><td>邮件通道</td><td>Resend HTTP API</td><td>接入最快；先适配 QQ / 163 实测，必要时换阿里云 DirectMail。</td></tr>
+            <tr><td>验证码存储</td><td>只存哈希，不存明文</td><td>数据库泄露时不能直接登录用户账号。</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card" id="architecture">
+        <h2 class="sec"><span class="num">04</span>总体架构</h2>
+        <div class="arch">
+          <div class="box">
+            <h4>QMAI 客户端（React + Tauri）</h4>
+            <ul>
+              <li><code>lib/account/api.ts</code>：纯 HTTP，不碰 UI</li>
+              <li><code>lib/account/session.ts</code>：持久化登录态</li>
+              <li><code>stores/account-store.ts</code>：全局状态与动作</li>
+              <li><code>AccountDialog</code> / <code>AccountSection</code> / 顶栏按钮</li>
+            </ul>
+          </div>
+          <div class="arrow" aria-hidden="true">→</div>
+          <div class="box">
+            <h4>Cloudflare Worker：account-worker</h4>
+            <ul>
+              <li><code>/v1/auth/*</code>：发码、注册、登录、续期、退出、重置</li>
+              <li>D1：<code>users</code> / <code>email_codes</code> / <code>sessions</code> / <code>rate_limits</code></li>
+              <li>Resend：发送验证码邮件</li>
+              <li>WebCrypto：PBKDF2 密码哈希、HS256 JWT</li>
+            </ul>
+          </div>
+        </div>
+        <p>客户端通过 Tauri 的 <code>plugin-http</code> 发起请求（Rust 侧无浏览器 CORS 限制，但 Worker 仍会处理预检，便于浏览器开发模式联调）。账号服务与 <code>qmai-builtin</code> 模型网关完全独立，互不读写对方数据。</p>
+        <h3>请求链路</h3>
+        <div class="flow">
+          <div class="flow-step"><b class="n">1</b><p>客户端读本地会话；有 refresh token 就静默续期，没有就保持匿名。</p></div>
+          <div class="flow-step"><b class="n">2</b><p>登录/注册成功后保存 access + refresh + 用户信息，顶栏与设置页同步刷新。</p></div>
+          <div class="flow-step"><b class="n">3</b><p>需要账号数据的请求带 <code>Authorization: Bearer &lt;access&gt;</code>；401 时续期一次，仍失败则清会话。</p></div>
+          <div class="flow-step"><b class="n">4</b><p>所有写入 D1 的操作使用参数化 SQL；不拼接用户输入。</p></div>
+        </div>
+      </section>
+
+      <section class="card" id="data">
+        <h2 class="sec"><span class="num">05</span>数据模型</h2>
+        <p class="lead">四张表覆盖首版全部状态。时间统一用 Unix 秒（INTEGER），邮箱统一小写存储。</p>
+
+        <h3>users</h3>
+        <table>
+          <thead><tr><th>列</th><th>类型</th><th>约束 / 说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code></td><td>INTEGER</td><td>主键自增；对外只暴露这个稳定身份。</td></tr>
+            <tr><td><code>email</code></td><td>TEXT</td><td>NOT NULL UNIQUE；写入前 trim + 小写。</td></tr>
+            <tr><td><code>display_name</code></td><td>TEXT</td><td>NOT NULL；默认取邮箱 @ 前部分。</td></tr>
+            <tr><td><code>password_hash</code></td><td>TEXT</td><td>格式 <code>pbkdf2$迭代数$盐$哈希</code>。</td></tr>
+            <tr><td><code>status</code></td><td>TEXT</td><td>默认 <code>active</code>；预留 <code>disabled</code>。</td></tr>
+            <tr><td><code>created_at</code></td><td>INTEGER</td><td>注册时间。</td></tr>
+            <tr><td><code>updated_at</code></td><td>INTEGER</td><td>资料更新时间。</td></tr>
+          </tbody>
+        </table>
+
+        <h3>email_codes</h3>
+        <table>
+          <thead><tr><th>列</th><th>类型</th><th>约束 / 说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code></td><td>INTEGER</td><td>主键自增。</td></tr>
+            <tr><td><code>email</code></td><td>TEXT</td><td>NOT NULL。</td></tr>
+            <tr><td><code>purpose</code></td><td>TEXT</td><td><code>register</code> 或 <code>reset</code>。</td></tr>
+            <tr><td><code>code_hash</code></td><td>TEXT</td><td>SHA-256(pepper + email + purpose + code)。</td></tr>
+            <tr><td><code>created_at</code> / <code>expires_at</code></td><td>INTEGER</td><td>默认 10 分钟有效。</td></tr>
+            <tr><td><code>attempts</code></td><td>INTEGER</td><td>默认 0；同发码 IP 达到 5 次作废。</td></tr>
+            <tr><td><code>consumed_at</code></td><td>INTEGER</td><td>成功使用后写入；非空即不可再用。</td></tr>
+            <tr><td><code>request_ip_hash</code></td><td>TEXT</td><td>哈希后的请求 IP，仅用于审计/限流。</td></tr>
+          </tbody>
+        </table>
+        <p>索引：<code>(email, purpose, created_at DESC)</code>，取最近一条有效码。</p>
+
+        <h3>sessions</h3>
+        <table>
+          <thead><tr><th>列</th><th>类型</th><th>约束 / 说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>id</code></td><td>TEXT</td><td>UUID 主键，代表一次设备登录。</td></tr>
+            <tr><td><code>user_id</code></td><td>INTEGER</td><td>NOT NULL，关联 users。</td></tr>
+            <tr><td><code>family_id</code></td><td>TEXT</td><td>轮换家族；检测到重复使用就整族撤销。</td></tr>
+            <tr><td><code>token_hash</code></td><td>TEXT</td><td>NOT NULL UNIQUE；当前 refresh token 的 SHA-256。</td></tr>
+            <tr><td><code>previous_token_hash</code></td><td>TEXT</td><td>上一次已轮换 token 的 SHA-256；用于识别「旧 token 被重复使用」。</td></tr>
+            <tr><td><code>device_label</code></td><td>TEXT</td><td>可选，记录登录设备描述。</td></tr>
+            <tr><td><code>created_at</code> / <code>last_used_at</code> / <code>expires_at</code></td><td>INTEGER</td><td>90 天滑动有效期，刷新时顺延。</td></tr>
+            <tr><td><code>revoked_at</code></td><td>INTEGER</td><td>非空即失效。</td></tr>
+          </tbody>
+        </table>
+        <p>索引：<code>(user_id)</code>、<code>(family_id)</code>、<code>(previous_token_hash)</code>。</p>
+        <div class="note">
+          <strong>为什么不是每轮换一次就插一行：</strong>access 15 分钟续一次，一天最多 96 次；若每次新行，一年单用户就会积累数万行。这里每个设备只保留一行：刷新时把当前 <code>token_hash</code> 挪到 <code>previous_token_hash</code>，再写入新值。这样既能识别「刚被轮换的旧 token 又出现」，又不会让会话表无限膨胀。
+        </div>
+
+        <h3>rate_limits</h3>
+        <table>
+          <thead><tr><th>列</th><th>类型</th><th>约束 / 说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>bucket</code></td><td>TEXT</td><td>主键，例如 <code>send:email:&lt;hash&gt;</code>、<code>send:ip:&lt;hash&gt;</code>、<code>login:&lt;hash&gt;</code>。</td></tr>
+            <tr><td><code>window_start</code></td><td>INTEGER</td><td>当前窗口起点。</td></tr>
+            <tr><td><code>count</code></td><td>INTEGER</td><td>窗口内计数。</td></tr>
+          </tbody>
+        </table>
+        <div class="note">
+          <strong>为什么邮箱验证码不存明文：</strong>6 位数字只有一百万种组合，若连同邮箱一起泄露，离线枚举几乎无成本。用服务端 pepper 做 SHA-256 后，攻击者还需要拿到 Worker secret 才能反查。
+        </div>
+      </section>
+
+      <section class="card" id="api">
+        <h2 class="sec"><span class="num">06</span>接口契约</h2>
+        <p class="lead">统一信封：成功 <code>{ "success": true, "data": ... }</code>；失败 <code>{ "success": false, "code": "...", "message": "..." }</code>。HTTP 状态码只用于语义分类，客户端按 <code>code</code> 映射文案。</p>
+
+        <h3>POST /v1/auth/send-code</h3>
+        <pre><code>请求：{ "email": "a@b.com", "purpose": "register" | "reset" }
+响应：{ "success": true, "data": { "cooldownSeconds": 60 } }</code></pre>
+        <ul>
+          <li>邮箱格式非法 → <code>VALIDATION</code>。</li>
+          <li>同邮箱 60 秒内重复请求 → <code>RATE_LIMITED</code>。</li>
+          <li>无论邮箱是否已注册，成功响应一致；已注册的注册请求会改为发送「你已注册，请直接登录」通知，不写入验证码。</li>
+          <li>开发模式（<code>ENVIRONMENT=development</code> 且 <code>ALLOW_DEV_CODE=true</code>）额外返回 <code>devCode</code>，生产环境绝不返回。</li>
+        </ul>
+
+        <h3>POST /v1/auth/register</h3>
+        <pre><code>请求：{ "email": "a@b.com", "code": "123456", "password": "至少8位", "displayName": "可选" }
+响应：{
+  "success": true,
+  "data": {
+    "user": { "id": 12, "email": "a@b.com", "displayName": "a", "createdAt": 1793000000 },
+    "accessToken": "eyJ...",
+    "accessExpiresAt": 1793000900,
+    "refreshToken": "base64url...",
+    "refreshExpiresAt": 1800776000
+  }
+}</code></pre>
+        <ul>
+          <li>邮箱已存在 → <code>EMAIL_TAKEN</code>（HTTP 409）。</li>
+          <li>验证码错误 / 过期 / 尝试过多 → <code>CODE_INVALID</code> / <code>CODE_EXPIRED</code> / <code>CODE_ATTEMPTS</code>。</li>
+          <li>密码长度不在 8–128 → <code>VALIDATION</code>。</li>
+          <li>成功后直接创建会话并返回登录态，客户端不再调用登录接口。</li>
+        </ul>
+
+        <h3>POST /v1/auth/login</h3>
+        <pre><code>请求：{ "email": "a@b.com", "password": "...", "deviceLabel": "Windows 桌面端" }
+响应：与 register 相同的登录态结构</code></pre>
+        <ul>
+          <li>邮箱不存在或密码错误统一 <code>INVALID_CREDENTIALS</code>，不暴露账号是否存在。</li>
+          <li>用户不存在时也执行一次等价的 PBKDF2，避免用响应时间探测账号。</li>
+          <li>账号 <code>status != active</code> → <code>ACCOUNT_DISABLED</code>。</li>
+          <li>失败按邮箱 + IP 限流，超限 <code>RATE_LIMITED</code>。</li>
+        </ul>
+
+        <h3>POST /v1/auth/refresh</h3>
+        <pre><code>请求：{ "refreshToken": "base64url..." }
+响应：新的登录态结构（access + 轮换后的 refresh）</code></pre>
+        <ul>
+          <li>refresh 不存在 / 已撤销 / 已过期 → <code>INVALID_REFRESH</code>。</li>
+          <li>提交的哈希命中某设备的 <code>previous_token_hash</code> → 判定泄露，撤销该 <code>family_id</code> 下全部会话。</li>
+          <li>每次成功刷新都生成新 refresh：当前 <code>token_hash</code> 挪到 <code>previous_token_hash</code>，再写入新哈希；同一设备仍只占一行。</li>
+        </ul>
+
+        <h3>POST /v1/auth/logout</h3>
+        <pre><code>请求：{ "refreshToken": "base64url..." }
+响应：{ "success": true, "data": null }</code></pre>
+        <p>幂等：token 不存在或已失效也返回成功，避免客户端反复重试。</p>
+
+        <h3>GET /v1/auth/me</h3>
+        <pre><code>请求头：Authorization: Bearer &lt;accessToken&gt;
+响应：{ "success": true, "data": { "user": { ... } } }</code></pre>
+        <p>仅用于确认登录态与刷新资料；不做会员权益判断。</p>
+
+        <h3>POST /v1/auth/password/reset</h3>
+        <pre><code>请求：{ "email": "a@b.com", "code": "123456", "password": "新密码" }
+响应：{ "success": true, "data": null }</code></pre>
+        <p>验证码 purpose 必须是 <code>reset</code>；成功后更新密码并撤销该用户全部会话，强制重新登录。</p>
+
+        <h3>通用约束</h3>
+        <table>
+          <thead><tr><th>项</th><th>规则</th></tr></thead>
+          <tbody>
+            <tr><td>请求体大小</td><td>≤ 8 KB；超限 <code>VALIDATION</code>。</td></tr>
+            <tr><td>Content-Type</td><td>只接受 <code>application/json</code>。</td></tr>
+            <tr><td>CORS</td><td>只允许 <code>tauri://localhost</code>、<code>https://tauri.localhost</code>、<code>http://localhost:1420</code>、<code>http://127.0.0.1:1420</code>；预检 204。</td></tr>
+            <tr><td>缓存</td><td>所有响应 <code>Cache-Control: no-store</code>。</td></tr>
+            <tr><td>日志</td><td>不记录密码、验证码、token 明文；只记事件与错误码。</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card" id="register">
+        <h2 class="sec"><span class="num">07</span>注册流程</h2>
+        <div class="flow">
+          <div class="flow-step"><b class="n">1</b><p>用户打开「注册」页签，填邮箱，点「获取验证码」。</p></div>
+          <div class="flow-step"><b class="n">2</b><p>客户端先本地校验邮箱格式，再调 <code>send-code</code>；按钮进入 60 秒倒计时。</p></div>
+          <div class="flow-step"><b class="n">3</b><p>Worker 做邮箱/IP 限流，生成 6 位码，存哈希，调用 Resend 发信。</p></div>
+          <div class="flow-step"><b class="n">4</b><p>用户填验证码和密码，点「注册并登录」。</p></div>
+          <div class="flow-step"><b class="n">5</b><p>Worker 校验码 → 检查邮箱唯一 → PBKDF2 哈希密码 → 插入用户 → 创建会话。</p></div>
+          <div class="flow-step"><b class="n">6</b><p>客户端保存登录态，关闭弹窗，顶栏头像与设置页立即变为已登录。</p></div>
+        </div>
+        <h3>验证码规则</h3>
+        <table>
+          <thead><tr><th>规则</th><th>值</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td>长度 / 字符集</td><td>6 位数字</td><td>用 <code>crypto.getRandomValues</code>，拒绝 <code>Math.random</code>。</td></tr>
+            <tr><td>有效期</td><td>10 分钟</td><td>过期后必须重新获取。</td></tr>
+            <tr><td>重发冷却</td><td>60 秒</td><td>客户端倒计时 + 服务端硬限制。</td></tr>
+            <tr><td>最多尝试</td><td>发码 IP 5 次</td><td>同发码 IP 连续错误 5 次后该码作废，需重新获取；其他 IP 不累计 attempts，由全局 per-email 20 次/10 分钟兜底。</td></tr>
+            <tr><td>同邮箱频率</td><td>5 次 / 小时</td><td>以首次请求为起点的固定窗口计数（<code>rate_limits</code> 只有三列）。</td></tr>
+            <tr><td>同 IP 频率</td><td>20 次 / 小时</td><td>IP 先加盐哈希再存。</td></tr>
+            <tr><td>新码生效</td><td>旧码立即作废</td><td>避免同时存在多个有效码。</td></tr>
+          </tbody>
+        </table>
+        <h3>密码规则</h3>
+        <ul>
+          <li>长度 8–128；不做「必须含大小写/符号」的强制规则，避免弱可用性。</li>
+          <li>PBKDF2-SHA256，随机 16 字节盐，默认 210,000 次迭代；迭代数写进哈希串，后续可升级。</li>
+          <li>密码只以哈希形式落库；接口和日志都不回显。</li>
+        </ul>
+        <div class="note warn">
+          <strong>运行环境：</strong>210,000 次 PBKDF2 需要 Workers Paid（CPU 30 秒）；免费版 10 ms CPU 可能超限。若必须用免费版，把 <code>PASSWORD_ITERATIONS</code> 降到 100,000，并在文档里注明安全权衡。
+        </div>
+      </section>
+
+      <section class="card" id="login">
+        <h2 class="sec"><span class="num">08</span>登录与续期</h2>
+        <h3>登录</h3>
+        <div class="flow">
+          <div class="flow-step"><b class="n">1</b><p>用户输入邮箱 + 密码，点「登录」。</p></div>
+          <div class="flow-step"><b class="n">2</b><p>Worker 查用户；不存在也跑一次等价 PBKDF2，再返回统一错误。</p></div>
+          <div class="flow-step"><b class="n">3</b><p>校验密码 → 检查状态 → 新建 session（新 family）→ 返回 access + refresh。</p></div>
+          <div class="flow-step"><b class="n">4</b><p>客户端保存并关闭弹窗；失败时保留输入，仅在表单内提示。</p></div>
+        </div>
+
+        <h3>续期与失效</h3>
+        <ul>
+          <li>客户端启动：读本地 refresh；剩余有效期 &gt; 0 就调 <code>refresh</code>，成功则更新，401 则清会话。</li>
+          <li>网络失败：保留缓存用户，标记「登录状态待确认」，下次启动/打开账号页再试；不弹阻塞弹窗。</li>
+          <li>业务请求 401：先续期一次，再重放原请求；仍 401 才退出登录。</li>
+          <li>access 过期前 60 秒主动续期，避免正常操作撞 401。</li>
+          <li>退出登录：调 <code>logout</code> 撤销当前 refresh，再清本地会话；接口失败也清本地，避免退不出去。</li>
+          <li>重置密码：撤销该用户全部 session，所有设备重新登录。</li>
+        </ul>
+
+        <h3>忘记密码 / 重置密码</h3>
+        <div class="flow">
+          <div class="flow-step"><b class="n">1</b><p>登录页点「忘记密码？」，切到重置视图。</p></div>
+          <div class="flow-step"><b class="n">2</b><p>填邮箱，用 <code>send-code</code>（<code>purpose=reset</code>）获取验证码；已注册与未注册邮箱的成功响应一致。</p></div>
+          <div class="flow-step"><b class="n">3</b><p>填验证码和新密码，提交 <code>password/reset</code>。</p></div>
+          <div class="flow-step"><b class="n">4</b><p>成功后服务端撤销该用户全部会话；客户端清理本地会话，回到登录页并提示用新密码登录。</p></div>
+        </div>
+
+        <h3>为什么不用「只发长期 JWT」</h3>
+        <p>长期 JWT 无法在服务端撤销，用户点了退出、密码泄露、账号被盗都无法止损；而每次请求都查 D1 的不透明 token 又会把所有接口绑在数据库上。JWT + 轮换 refresh 是这两者之间成本与安全的平衡点。</p>
+      </section>
+
+      <section class="card" id="client">
+        <h2 class="sec"><span class="num">09</span>客户端设计</h2>
+        <h3>文件布局</h3>
+        <div class="filetree">
+<span class="new">account-worker/</span>                      # 新增：独立 Worker
+  package.json / tsconfig.json / wrangler.toml
+  schema.sql
+  src/index.ts / auth.ts / crypto.ts / email.ts / db.ts / http.ts / validation.ts
+  <span class="new">test/validation.test.ts / crypto.test.ts / jwt.test.ts</span>
+<span class="new">src/lib/account/</span>                       # 新增：纯逻辑
+  types.ts / api.ts / session.ts / errors.ts / validation.ts
+<span class="new">src/stores/account-store.ts</span>              # 新增：全局登录态
+<span class="new">src/components/account/</span>                  # 新增：UI
+  account-dialog.tsx / account-form.tsx / account-button.tsx / account.css
+<span class="new">src/components/settings/sections/account-section.tsx</span>
+<span class="mod">src/components/settings/settings-view.tsx</span>  # 加「账号」分类
+<span class="mod">src/components/uitest/ui-test-shell.tsx</span>    # 顶栏入口 + 挂载弹窗
+<span class="mod">src/i18n/zh.json</span>                          # 账号分类文案
+        </div>
+
+        <h3>全局状态</h3>
+        <pre><code>type AccountStatus = "idle" | "booting" | "anonymous" | "authenticated"
+
+interface AccountState {
+  status: AccountStatus
+  user: AccountUser | null
+  session: StoredAccountSession | null
+  error: string | null
+  bootstrapped: boolean
+  bootstrap(): Promise&lt;void&gt;
+  sendCode(email: string, purpose: "register" | "reset"): Promise&lt;void&gt;
+  register(input: RegisterInput): Promise&lt;void&gt;
+  login(input: LoginInput): Promise&lt;void&gt;
+  resetPassword(input: ResetPasswordInput): Promise&lt;void&gt;
+  logout(): Promise&lt;void&gt;
+  refresh(): Promise&lt;void&gt;
+}</code></pre>
+        <p>顶栏、设置页、弹窗都只读这一份状态，避免三处各自请求导致登录态不一致。</p>
+
+        <h3>本地会话</h3>
+        <pre><code>// localStorage: qmai.account.session.v1
+{
+  "baseUrl": "https://qmai-account.qmai.workers.dev",
+  "accessToken": "eyJ...",
+  "accessExpiresAt": 1793000900,
+  "refreshToken": "base64url...",
+  "refreshExpiresAt": 1800776000,
+  "user": { "id": 12, "email": "a@b.com", "displayName": "a", "createdAt": 1793000000 },
+  "savedAt": 1793000010
+}</code></pre>
+        <p>与现有 <code>builtin-models/session.ts</code> 保持同一模式：localStorage、读取时结构校验、写入失败不阻塞本次会话。后续若接 OS keychain，只替换这一层。</p>
+
+        <h3>界面入口</h3>
+        <div class="grid2">
+          <div>
+            <h4>顶栏</h4>
+            <ul>
+              <li>未登录：<code>UserRound</code> 图标，<code>aria-label="账号"</code>，悬停「登录 / 注册」。</li>
+              <li>已登录：首字母圆形头像 + 邮箱提示。</li>
+              <li>点击打开同一个账号弹窗；不新增导航项。</li>
+            </ul>
+          </div>
+          <div>
+            <h4>设置 → 账号</h4>
+            <ul>
+              <li>分类放在第一位，图标 <code>UserRound</code>。</li>
+              <li>未登录：说明 + 「登录 / 注册」按钮。</li>
+              <li>已登录：邮箱、显示名、注册时间、会员状态「筹备中」、退出登录。</li>
+              <li>服务不可用：仅在本页显示一条灰色提示，不影响其他设置。</li>
+            </ul>
+          </div>
+        </div>
+
+        <h3>弹窗结构</h3>
+        <ul>
+          <li>标题：登录 / 注册两个页签；顶部一句「登录后可继承会员权益（筹备中），不影响本地写作」。</li>
+          <li>登录：邮箱、密码、登录按钮、「忘记密码？」。</li>
+          <li>注册：邮箱、验证码 + 获取按钮（60 秒倒计时）、密码（可切换显示）、「注册并登录」。</li>
+          <li>重置密码：从「忘记密码？」进入，字段为邮箱、验证码 + 获取按钮、新密码、「重置密码」；成功后回到登录页并提示「密码已重置，请用新密码登录」。</li>
+          <li>错误显示在提交按钮上方，使用 <code>role="alert"</code>；不用 <code>window.alert</code>。</li>
+          <li>提交中禁用按钮并显示进度文案；回车提交；输入法组合期不误触发。</li>
+          <li>成功：关闭弹窗 + toast「登录成功」/「注册成功，已自动登录」。</li>
+        </ul>
+
+        <h3>文案要点</h3>
+        <table>
+          <thead><tr><th>场景</th><th>文案</th></tr></thead>
+          <tbody>
+            <tr><td>未登录说明</td><td>登录青幕账号，会员权益与后续云服务会记在这个账号下。不登录也可以正常写作。</td></tr>
+            <tr><td>注册成功</td><td>注册成功，已自动登录。</td></tr>
+            <tr><td>登录成功</td><td>登录成功。</td></tr>
+            <tr><td>退出确认</td><td>退出后这台设备需要重新登录；本地小说和模型配置不会被删除。</td></tr>
+            <tr><td>会员占位</td><td>会员权益筹备中。上线后会在这里显示套餐与到期时间。</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card" id="security">
+        <h2 class="sec"><span class="num">10</span>安全与防刷</h2>
+        <table>
+          <thead><tr><th style="width:24%">风险</th><th>措施</th></tr></thead>
+          <tbody>
+            <tr><td>验证码被爆破</td><td>6 位码 + 发码 IP 5 次尝试上限 + 10 分钟过期 + 每邮箱/IP 频率限制；其他 IP 由全局 per-email 20 次/10 分钟兜底；错误码不区分「不存在」与「已过期」之外的细节。</td></tr>
+            <tr><td>邮件接口被刷</td><td>同邮箱 60 秒冷却、每小时 5 次；同 IP 每小时 20 次；后续可加 Turnstile。</td></tr>
+            <tr><td>账号枚举</td><td><code>send-code</code> 永远返回成功；登录失败统一文案；注册重复邮箱才明确提示。</td></tr>
+            <tr><td>密码拖库</td><td>PBKDF2-SHA256 + 随机盐；不存明文；日志脱敏。</td></tr>
+            <tr><td>refresh 被盗</td><td>只存哈希；轮换；重复使用撤销整个 family；90 天滑动过期，撤销后立即失效。首版只能检测紧邻的上一个 refresh token，更早 token 重放只失效、不撤族。</td></tr>
+            <tr><td>JWT 伪造</td><td>HS256 + 强随机 secret；校验签名、<code>exp</code>、<code>iss</code>；secret 缺失时 Worker 启动即失败关闭。</td></tr>
+            <tr><td>SQL 注入</td><td>全部使用 D1 prepared statement 参数绑定；动态 SQL 只拼固定表名/列名。</td></tr>
+            <tr><td>跨站请求</td><td>CORS allowlist；非 allowlist 来源不返回 <code>Access-Control-Allow-Origin</code>。</td></tr>
+            <tr><td>敏感日志</td><td>不打印密码、验证码、access/refresh；只打印事件名、用户 id、错误码。</td></tr>
+            <tr><td>本地 token 泄露</td><td>沿用现有 localStorage 模式，依赖 CSP 限制外链脚本；后续可迁移 OS keychain。</td></tr>
+          </tbody>
+        </table>
+        <h3>Secrets 管理</h3>
+        <ul>
+          <li><code>AUTH_JWT_SECRET</code>：至少 32 字节随机值。</li>
+          <li><code>AUTH_CODE_PEPPER</code>：至少 16 字节随机值，用于验证码哈希。</li>
+          <li><code>RESEND_API_KEY</code>：Resend 控制台生成，只放在 Worker secret。</li>
+          <li>以上均不进仓库、不进客户端构建产物。</li>
+        </ul>
+      </section>
+
+      <section class="card" id="errors">
+        <h2 class="sec"><span class="num">11</span>错误码与中文映射</h2>
+        <table>
+          <thead><tr><th>code</th><th>HTTP</th><th>客户端文案</th></tr></thead>
+          <tbody>
+            <tr><td><code>VALIDATION</code></td><td>400</td><td>请检查填写的内容。</td></tr>
+            <tr><td><code>EMAIL_TAKEN</code></td><td>409</td><td>这个邮箱已经注册过，直接登录即可。</td></tr>
+            <tr><td><code>CODE_INVALID</code></td><td>400</td><td>验证码不正确，请重新输入。</td></tr>
+            <tr><td><code>CODE_EXPIRED</code></td><td>400</td><td>验证码已过期，请重新获取。</td></tr>
+            <tr><td><code>CODE_ATTEMPTS</code></td><td>429</td><td>验证码尝试次数过多，请重新获取。</td></tr>
+            <tr><td><code>RATE_LIMITED</code></td><td>429</td><td>操作太频繁，请稍后再试。</td></tr>
+            <tr><td><code>INVALID_CREDENTIALS</code></td><td>401</td><td>邮箱或密码不正确。</td></tr>
+            <tr><td><code>ACCOUNT_DISABLED</code></td><td>403</td><td>账号已被停用，请联系支持。</td></tr>
+            <tr><td><code>TOKEN_EXPIRED</code></td><td>401</td><td>登录已过期，请重新登录。</td></tr>
+            <tr><td><code>INVALID_REFRESH</code></td><td>401</td><td>登录已失效，请重新登录。</td></tr>
+            <tr><td><code>EMAIL_SEND_FAILED</code></td><td>502</td><td>验证码邮件发送失败，请稍后重试。</td></tr>
+            <tr><td><code>SERVER_ERROR</code></td><td>500</td><td>账号服务暂时不可用，请稍后再试。</td></tr>
+            <tr><td><code>NETWORK</code></td><td>0</td><td>网络不可用，请检查连接后重试。</td></tr>
+          </tbody>
+        </table>
+        <p>服务端 <code>message</code> 只作为兜底；客户端优先按 <code>code</code> 显示上表文案，避免中英文混杂或把内部错误直接甩给作者。</p>
+      </section>
+
+      <section class="card" id="testing">
+        <h2 class="sec"><span class="num">12</span>测试与验收</h2>
+        <h3>Worker 单测</h3>
+        <ul>
+          <li>邮箱/密码/验证码格式校验；密码哈希可验证、盐不同则哈希不同。</li>
+          <li>JWT 签发/校验：过期、签名错误、<code>iss</code> 不符均拒绝。</li>
+          <li>验证码哈希：同输入稳定、不同 pepper 不匹配。</li>
+          <li>错误码映射与 CORS 预检响应。</li>
+        </ul>
+        <p>Worker 用例放在 <code>account-worker/test</code>，用该目录自己的 <code>vitest.config.ts</code>（node 环境）运行；根目录 <code>test:mocks</code> 需要排除 <code>account-worker/**</code>，避免 jsdom 环境误跑 Worker 用例。</p>
+        <h3>客户端测试</h3>
+        <ul>
+          <li><code>api.spec.ts</code>：请求路径、请求头、错误码 → 中文文案。</li>
+          <li><code>session.spec.ts</code>：读写、损坏数据回空、清除。</li>
+          <li><code>account-store.spec.ts</code>：登录成功、刷新轮换、401 清会话、退出幂等、网络失败保留缓存。</li>
+          <li><code>account-dialog.spec.tsx</code>：空表单校验、验证码倒计时、提交中禁用、错误就近显示、忘记密码切换到重置视图。</li>
+          <li><code>account-section.spec.tsx</code>：未登录/已登录两种卡片、退出确认。</li>
+        </ul>
+        <h3>人工验收</h3>
+        <ul class="checklist">
+          <li>新邮箱收码 → 注册 → 自动登录 → 重启客户端仍登录。</li>
+          <li>同一邮箱重复注册 → 提示直接登录。</li>
+          <li>错误验证码 5 次（同一发码 IP）→ 提示重新获取；过期码 → 提示已过期。</li>
+          <li>60 秒内重复点获取 → 按钮倒计时且接口拒绝。</li>
+          <li>错误密码 → 表单内提示，不清空邮箱。</li>
+          <li>退出登录 → 顶栏回到未登录；重启后仍是未登录。</li>
+          <li>断网打开应用 → 书架正常；账号页只显示离线提示。</li>
+          <li>重置密码 → 其他设备的旧会话失效。</li>
+        </ul>
+      </section>
+
+      <section class="card" id="deploy">
+        <h2 class="sec"><span class="num">13</span>部署与配置</h2>
+        <h3>一次性准备</h3>
+        <pre><code>cd account-worker
+npm install
+
+# 1. 创建 D1 数据库，把返回的 database_id 填进 wrangler.toml
+npx wrangler d1 create qmai-account-db
+
+# 2. 建表
+npx wrangler d1 execute qmai-account-db --remote --file=./schema.sql
+
+# 3. 写入 secrets（不要写进仓库）
+npx wrangler secret put AUTH_JWT_SECRET
+npx wrangler secret put AUTH_CODE_PEPPER
+npx wrangler secret put RESEND_API_KEY
+
+# 4. 部署
+npm run deploy</code></pre>
+        <h3>wrangler.toml 变量</h3>
+        <table>
+          <thead><tr><th>变量</th><th>示例</th><th>说明</th></tr></thead>
+          <tbody>
+            <tr><td><code>AUTH_EMAIL_FROM</code></td><td><code>青幕AI写作 &lt;no-reply@qmai.example&gt;</code></td><td>Resend 已验证域名下的发信人。</td></tr>
+            <tr><td><code>APP_ALLOWED_ORIGINS</code></td><td><code>tauri://localhost,https://tauri.localhost,http://localhost:1420</code></td><td>逗号分隔；生产只留 Tauri 来源。</td></tr>
+            <tr><td><code>ENVIRONMENT</code></td><td><code>production</code></td><td>非 <code>development</code> 时禁止返回 <code>devCode</code>。</td></tr>
+            <tr><td><code>PASSWORD_ITERATIONS</code></td><td><code>210000</code></td><td>免费版 Workers 可降到 100000。</td></tr>
+          </tbody>
+        </table>
+        <h3>Resend</h3>
+        <ul>
+          <li>在 Resend 添加并验证发信域名（DNS 记录），否则只能发到账号本人邮箱。</li>
+          <li>联调阶段可先用开发模式看 <code>devCode</code>，不依赖真实邮件。</li>
+          <li>上线前用 QQ 邮箱、163 邮箱、Gmail 各测一次送达与垃圾箱位置。</li>
+          <li>若国内送达差，保留 <code>email.ts</code> 的发送接口，替换成阿里云 DirectMail 适配器即可，不影响业务层。</li>
+        </ul>
+        <h3>客户端地址</h3>
+        <ul>
+          <li>默认 <code>https://qmai-account.qmai.workers.dev</code>；可用 <code>VITE_QMAI_ACCOUNT_URL</code> 在构建时覆盖。</li>
+          <li>本地联调用 <code>http://127.0.0.1:8787</code>（<code>wrangler dev</code>）。</li>
+          <li>workers.dev 在国内可能不稳定，正式发布建议绑定自定义域名。</li>
+        </ul>
+      </section>
+
+      <section class="card" id="later">
+        <h2 class="sec"><span class="num">14</span>后续演进（不在首版）</h2>
+        <ul>
+          <li><strong>会员：</strong>新增 <code>plans</code> / <code>subscriptions</code> 表，<code>/v1/membership/me</code>；客户端设置页把「筹备中」替换为真实权益。</li>
+          <li><strong>云同步：</strong>账号 id 作为同步命名空间；先做设备列表与会话管理。</li>
+          <li><strong>登录设备管理：</strong>列出 <code>sessions</code>，支持远程撤销。</li>
+          <li><strong>第三方登录：</strong>微信 / GitHub；与邮箱账号做绑定表。</li>
+          <li><strong>安全增强：</strong>Turnstile、登录通知邮件、异常 IP 提醒、OS keychain。</li>
+          <li><strong>协议：</strong>用户协议与隐私政策页面、注册勾选。</li>
+        </ul>
+      </section>
+
+      <section class="card" id="risks">
+        <h2 class="sec"><span class="num">15</span>风险与依赖</h2>
+        <table>
+          <thead><tr><th style="width:26%">风险 / 依赖</th><th>影响</th><th>应对</th></tr></thead>
+          <tbody>
+            <tr><td>Resend 未验证域名</td><td>验证码只能发到账号本人邮箱，真实用户收不到</td><td>上线前完成域名验证；联调用开发模式</td></tr>
+            <tr><td>QQ / 163 送达率</td><td>用户收不到码，注册中断</td><td>三种邮箱实测；差则切阿里云 DirectMail 适配器</td></tr>
+            <tr><td>workers.dev 国内可达性</td><td>登录接口超时</td><td>绑定自定义域名；客户端地址可覆盖</td></tr>
+            <tr><td>Workers 免费版 CPU</td><td>PBKDF2 超时 500</td><td>用 Paid，或把迭代数降到 100,000</td></tr>
+            <tr><td>localStorage token</td><td>XSS 可读取 refresh</td><td>CSP 已限制外链脚本；后续迁移 OS keychain</td></tr>
+            <tr><td>无 Turnstile</td><td>邮件接口可能被脚本刷</td><td>首版靠邮箱/IP 限流；上线后按攻击情况加</td></tr>
+            <tr><td>无用户协议</td><td>合规缺口</td><td>正式对外前补协议与注册勾选</td></tr>
+          </tbody>
+        </table>
+        <div class="note">
+          <strong>已确认的默认值：</strong>顶栏保留账号入口；忘记密码纳入首版；refresh 有效期 90 天；不强制登录；模型与账号解耦。
+        </div>
+      </section>
+
+      <footer>青幕AI写作 · 账号登录与注册设计规格 · 2026-10-25 · 待实现</footer>
+    </main>
+  </div>
+</div>
+</body>
+</html>
