@@ -1,0 +1,176 @@
+/* ===== 人物档案「整页文档」视图（N1 + 研究文件 R2） =====
+   排版对齐卷纲 / 章纲的文档观感：左对齐长文、节标题带下划线、
+   字段名加粗后接正文、整块缩进。
+   与之前不同的是：文档本体直接可编辑（contentEditable），
+   没有页签、没有「编辑原文」、没有保存按钮。 */
+
+.ui-test-root .ui-test-h2-md-doc {
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border: 0;
+  border-radius: 0;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-pdoc-doc {
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 26px 40px 44px;
+  color: var(--ui-ink);
+  font-size: 0.8125rem;
+  line-height: 1.95;
+}
+
+.ui-test-root .ui-test-pdoc-doc h1 {
+  margin: 0 0 3px;
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 1.1875rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.ui-test-root .ui-test-pdoc-meta {
+  margin: 0 0 20px;
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+}
+
+.ui-test-root .ui-test-pdoc-doc h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 24px 0 9px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--ui-line);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+
+.ui-test-root .ui-test-pdoc-count {
+  color: var(--ui-muted);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.ui-test-root .ui-test-pdoc-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  margin: 0 0 8px;
+  padding-left: 1.5em;
+  font-size: 0.8125rem;
+  line-height: 1.95;
+}
+
+.ui-test-root .ui-test-pdoc-row > b {
+  font-weight: 600;
+}
+
+/* 可编辑值：平时是纯文字，悬停浮出极淡的底，点进去才出现输入焦点环 */
+.ui-test-root .ui-test-pdoc-value {
+  min-width: 2em;
+  padding: 0 3px;
+  border-radius: 4px;
+  outline: none;
+  white-space: pre-wrap;
+  cursor: text;
+  transition: background .12s, box-shadow .12s;
+}
+
+.ui-test-root .ui-test-pdoc-value:hover {
+  background: color-mix(in srgb, var(--ui-soft) 62%, transparent);
+  box-shadow: 0 0 0 1px var(--ui-line);
+}
+
+.ui-test-root .ui-test-pdoc-value:focus {
+  background: color-mix(in srgb, var(--ui-soft) 82%, transparent);
+  box-shadow: 0 0 0 1.5px var(--ui-accent);
+}
+
+/* 空值占位：不写进 DOM —— 写了会被当成用户输入提交回字段 */
+.ui-test-root .ui-test-pdoc-value:empty::before {
+  content: attr(data-placeholder);
+  color: var(--ui-muted);
+  font-style: italic;
+  opacity: .8;
+}
+
+.ui-test-root .ui-test-pdoc-readonly {
+  color: var(--ui-muted);
+}
+
+/* ===== 研究文件：折叠块（R2） ===== */
+.ui-test-root .ui-test-pdoc-fold {
+  margin: 0 0 8px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  background: var(--ui-paper);
+  overflow: hidden;
+}
+
+.ui-test-root .ui-test-pdoc-fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ui-test-root .ui-test-pdoc-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ui-test-root .ui-test-pdoc-fold > summary > b {
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-pdoc-fold[open] > summary {
+  border-bottom: 1px solid var(--ui-line);
+  background: var(--ui-panel);
+}
+
+.ui-test-root .ui-test-pdoc-tag {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--ui-soft);
+  color: var(--ui-accent);
+  font-size: 0.625rem;
+}
+
+.ui-test-root .ui-test-pdoc-tag.is-none {
+  border: 1px dashed var(--ui-line);
+  background: transparent;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-pdoc-fold > summary .ui-test-pdoc-count {
+  margin-left: auto;
+}
+
+.ui-test-root .ui-test-pdoc-fold-body {
+  padding: 10px 14px;
+  color: var(--ui-ink);
+  font-size: 0.78rem;
+  line-height: 1.9;
+}
+
+.ui-test-root .ui-test-pdoc-fold-body p {
+  margin: 0 0 7px;
+  white-space: pre-wrap;
+}
+
+.ui-test-root .ui-test-pdoc-fold-body p:last-child {
+  margin: 0;
+}
+
+.ui-test-root .ui-test-pdoc-empty {
+  color: var(--ui-muted);
+  font-style: italic;
+  opacity: .8;
+}

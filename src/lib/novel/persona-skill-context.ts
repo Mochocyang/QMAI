@@ -1,9 +1,12 @@
 import { normalizePath } from "@/lib/path-utils"
+import { parsePersonalitySection } from "./persona-skill-profile"
 import { loadPersonaSkillIndex, readPersonaSkillDocument } from "./persona-skill-store"
 import {
   PERSONA_INJECT_CHAR_BUDGET,
   PERSONA_INJECT_FIELD_CHARS,
   PERSONA_INJECT_MAX_SKILLS,
+  PERSONA_INJECT_PERSONALITY_MAX_CHARS,
+  PERSONA_INJECT_PERSONALITY_MAX_TAGS,
   PERSONA_MAJOR_FIELDS,
   PERSONA_MINOR_FIELDS,
   PERSONA_MIN_SUBSTRING_MATCH_CHARS,
@@ -107,6 +110,24 @@ export function renderPersonaSkillBlock(meta: PersonaSkillMeta, document: string
   const sections = extractPersonaSkillSections(document)
   const order = meta.tier === "major" ? PERSONA_MAJOR_FIELDS : PERSONA_MINOR_FIELDS
   const parts: string[] = []
+  // 性格段必须排在最前：它是「演成什么样」的指令，比「怎么演」的演技字段更强。
+  // 用户拍板的口径是性格优先于灵魂基线，这个优先级只能靠**位置 + 明确措辞**表达，
+  // 不能靠后面补一句「请注意性格优先」—— 模型对靠前指令的服从度明显更高。
+  // 档位不裁剪：次要人物也带性格，否则「戏份少但性格强」的配角写不出味道。
+  const personality = parsePersonalitySection(sections.get("性格") ?? "")
+  if (personality.tags.length > 0) {
+    // 先按键数上限取，再按字数上限累加：字数超了要整条丢掉，不能把标签切一半。
+    const byChars: string[] = []
+    for (const tag of personality.tags.slice(0, PERSONA_INJECT_PERSONALITY_MAX_TAGS)) {
+      if ([...byChars, tag].join("、").length > PERSONA_INJECT_PERSONALITY_MAX_CHARS) break
+      byChars.push(tag)
+    }
+    if (byChars.length > 0) {
+      parts.push(`人物性格：${byChars.join("、")}（性格优先于灵魂基线：灵魂只决定"怎么演"，性格决定"演成什么样"）`)
+    }
+  } else if (personality.raw) {
+    parts.push(`人物性格：${truncate(personality.raw.replace(/\s*\n\s*/g, " "), PERSONA_INJECT_PERSONALITY_MAX_CHARS)}`)
+  }
   for (const field of order) {
     const value = (sections.get(field) ?? "").replace(/\s*\n\s*/g, " ").trim()
     if (!value) continue

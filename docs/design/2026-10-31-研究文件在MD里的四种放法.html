@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>研究文件在 MD 文档里的四种放法</title>
+<style>
+  :root{
+    --canvas:#edf1ec; --paper:#fcfdfb; --panel:#f2f5ef; --soft:#e4ece3;
+    --ink:#273c35; --muted:#5d6e64; --accent:#45624f; --on-accent:#fff;
+    --line:#dfe6da; --warm:#f3ebdf; --danger:#943f36;
+    --serif:"Songti SC",Georgia,"Times New Roman",serif;
+    --sh-lg:0 14px 40px rgba(23,35,29,.15);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:#e7ebe6;color:var(--ink);
+    font:13.5px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;}
+
+  .doc-head{max-width:1180px;margin:0 auto;padding:38px 32px 4px;}
+  .doc-head .eyebrow{font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:9px;}
+  .doc-head h1{font-size:25px;margin:0 0 9px;letter-spacing:-.01em;}
+  .doc-head > p{margin:0 0 10px;color:var(--muted);font-size:13.5px;max-width:940px;}
+  .doc-head > p b{color:var(--ink);}
+  .facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0 0;}
+  .fact{border:1px solid var(--line);border-radius:11px;background:var(--paper);padding:11px 13px;}
+  .fact h6{margin:0 0 4px;font-size:12px;color:var(--accent);letter-spacing:.03em;}
+  .fact p{margin:0;font-size:12px;color:var(--muted);line-height:1.7;}
+
+  .tabs{position:sticky;top:0;z-index:60;display:flex;gap:8px;flex-wrap:wrap;
+    max-width:1180px;margin:20px auto 0;padding:11px 32px;
+    background:rgba(231,235,230,.94);backdrop-filter:blur(8px);}
+  .tabs button{appearance:none;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    padding:8px 15px;border-radius:10px;font-size:13px;cursor:pointer;}
+  .tabs button.on{background:var(--accent);color:var(--on-accent);border-color:transparent;
+    box-shadow:0 2px 8px rgba(69,98,79,.26);}
+
+  .part{display:none;max-width:1180px;margin:0 auto;padding:20px 32px 70px;}
+  .part.on{display:block;}
+  .part > h2{font-size:19px;margin:0 0 5px;}
+  .part > .lead{color:var(--muted);margin:0 0 12px;max-width:900px;}
+  .tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 14px;}
+  .toggle{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);cursor:pointer;}
+  .toggle input{width:14px;height:14px;accent-color:var(--accent);}
+
+  /* 中栏 */
+  .pane{width:100%;max-width:1000px;border:1px solid var(--line);border-radius:13px;
+    overflow:hidden;background:var(--canvas);box-shadow:var(--sh-lg);}
+  .pane-bar{display:flex;align-items:center;gap:10px;padding:9px 14px;
+    border-bottom:1px solid var(--line);background:var(--paper);}
+  .pane-bar b{font-family:var(--serif);font-size:15px;}
+  .pane-bar .seg{margin-left:auto;display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;}
+  .pane-bar .seg span{padding:4px 10px;font-size:11.5px;color:var(--muted);}
+  .pane-bar .seg span.on{background:var(--accent);color:var(--on-accent);font-weight:500;}
+  .pane-body{background:var(--paper);}
+
+  .sheet{padding:24px 40px 40px;max-height:600px;overflow:auto;background:var(--paper);}
+  .paper-in{max-width:840px;}
+
+  /* 文档流排版（N1） */
+  .doc h1{font-family:var(--serif);font-size:19px;margin:0 0 3px;letter-spacing:.02em;}
+  .doc .meta{color:var(--muted);font-size:12px;margin:0 0 20px;}
+  .doc h2{font-size:13px;margin:24px 0 9px;padding-bottom:5px;
+    border-bottom:1px solid var(--line);letter-spacing:.04em;}
+  .doc h3{font-size:12.5px;margin:16px 0 6px;color:var(--muted);letter-spacing:.03em;}
+  .doc .row{margin:0 0 8px;padding-left:1.5em;font-size:13px;line-height:1.95;}
+  .doc .row b{font-weight:600;margin-right:.3em;}
+  .doc .row span{white-space:pre-wrap;}
+  .doc .prose{margin:0 0 10px;padding-left:1.5em;font-size:13px;line-height:1.95;color:var(--ink);}
+  .unfilled{color:var(--muted);opacity:.8;font-style:italic;}
+  .hide-unfilled .unfilled{display:none;}
+
+  /* 研究文件通用件 */
+  .rf-item{padding-left:1.5em;}
+  .rf-head{display:flex;align-items:baseline;gap:8px;font-size:13px;line-height:1.9;}
+  .rf-head b{font-weight:600;}
+  .rf-tag{font-size:10.5px;padding:0 6px;border-radius:4px;background:var(--soft);color:var(--accent);}
+  .rf-tag.none{background:transparent;color:var(--muted);border:1px dashed var(--line);}
+  .rf-count{color:var(--muted);font-size:11px;}
+  .rf-body{margin:4px 0 12px;padding:8px 12px;border-left:2px solid var(--line);
+    color:var(--ink);font-size:12.5px;line-height:1.9;background:color-mix(in srgb,var(--soft) 22%,transparent);}
+  .rf-body p{margin:0 0 6px;}
+  .rf-body p:last-child{margin:0;}
+
+  /* R2 折叠 */
+  .rf-fold{border:1px solid var(--line);border-radius:8px;margin:0 0 8px;overflow:hidden;background:var(--paper);}
+  .rf-fold summary{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;
+    font-size:12.5px;list-style:none;}
+  .rf-fold summary::-webkit-details-marker{display:none;}
+  .rf-fold summary .chev{margin-left:auto;color:var(--muted);font-size:11px;}
+  .rf-fold[open] summary{border-bottom:1px solid var(--line);background:var(--panel);}
+  .rf-fold .inner{padding:10px 14px;font-size:12.5px;line-height:1.9;color:var(--ink);}
+  .rf-fold .inner p{margin:0 0 7px;}
+  .rf-fold .inner p:last-child{margin:0;}
+
+  /* R3 摘要 */
+  .rf-sum{margin:0 0 12px;padding-left:1.5em;}
+  .rf-sum .txt{font-size:12.5px;line-height:1.9;color:var(--ink);
+    display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;}
+  .rf-sum .more{font-size:11.5px;color:var(--accent);}
+
+  /* R4 索引表 */
+  .rf-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;margin:2px 0 8px;}
+  .rf-table th{text-align:left;font-weight:500;font-size:11px;color:var(--muted);
+    padding:0 10px 7px;border-bottom:1px solid var(--line);}
+  .rf-table td{padding:7px 10px;border-bottom:1px solid color-mix(in srgb,var(--line) 62%,transparent);}
+  .rf-table tr:last-child td{border-bottom:0;}
+  .rf-table .num{color:var(--muted);font-variant-numeric:tabular-nums;}
+
+  .notes{margin:16px 0 0;padding:14px 16px;border:1px solid var(--line);border-radius:11px;background:var(--paper);}
+  .notes h5{margin:0 0 8px;font-size:12.5px;}
+  .notes ul{margin:0;padding-left:18px;color:var(--muted);font-size:12.5px;line-height:1.8;}
+  .notes ul b{color:var(--ink);font-weight:500;}
+  .notes .fix{margin:10px 0 0;padding:9px 11px;border-radius:8px;background:#f6f0e2;color:#6b5a35;
+    font-size:11.5px;line-height:1.72;}
+  .pick{margin:11px 0 0;padding:10px 12px;border-radius:9px;background:var(--soft);color:var(--accent);
+    font-size:12.5px;font-weight:500;}
+
+  @media (max-width:1120px){ .facts{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <div class="eyebrow">QMAI · 人物 MD · 研究文件怎么放</div>
+  <h1>研究文件在 MD 文档里的四种放法</h1>
+  <p>按你定的 <b>N1 整页文档</b>（无页签、点开即编辑）继续。研究文件是 6 份 AI 生成的参考材料，篇幅不小，所以只定「怎么放」。</p>
+  <div class="facts">
+    <div class="fact">
+      <h6>6 份固定文件</h6>
+      <p>人物小传 / 语言习惯 / 关键关系 / 动机与弧光 / 名场面 / 禁忌与误区</p>
+    </div>
+    <div class="fact">
+      <h6>只有重要角色才有</h6>
+      <p>点了绿勾（★ 重要）才会生成；普通角色这一章只有一行说明。</p>
+    </div>
+    <div class="fact">
+      <h6>篇幅参考</h6>
+      <p>每份约 200–600 字。全铺开会让文档从 1 屏变成 4–6 屏。</p>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button data-part="r1" class="on">R1 · 末尾全展开</button>
+  <button data-part="r2">R2 · 折叠块</button>
+  <button data-part="r3">R3 · 摘要素览</button>
+  <button data-part="r4">R4 · 索引表</button>
+</nav>
+
+<!-- ==================== R1 ==================== -->
+<section class="part on" data-view="r1">
+  <h2>R1 · 末尾全展开</h2>
+  <p class="lead">研究文件作为文档最后一章，<b>六份全部铺开正文</b>。信息最全，一份文档从头读到尾什么都不缺。</p>
+  <div class="tools">
+    <label class="toggle"><input type="checkbox" checked data-unfilled="r1"> 显示未填 / 未生成项</label>
+  </div>
+
+  <div class="pane">
+    <div class="pane-bar"><b>杨寒</b>
+      <div class="seg"><span>表格</span><span>并排</span><span class="on">MD</span></div></div>
+    <div class="pane-body"><div class="sheet"><div class="paper-in doc" data-body="r1">
+      <h1>杨寒 · 人物 Skill</h1>
+      <p class="meta">主角 · 男 · 二十上下 · 出场 18 次（第 1–19 章）· 活跃</p>
+
+      <h2>语言与行为</h2>
+      <p class="row"><b>怎么说话：</b><span>短句，爱反问，极少用敬语。</span></p>
+      <p class="row"><b>什么不做：</b><span class="unfilled">（未填）</span></p>
+
+      <h2>关系与状态</h2>
+      <p class="row"><b>当前状态：</b><span>左肩受伤未愈，左手不便</span></p>
+
+      <h2>研究文件</h2>
+      <h3>人物小传</h3>
+      <p class="prose">在黑雨里长大的第一批孩子。他不记得父母的样子，只记得第一场雨的颜色 —— 那天之后，所有人都学会了低头走路。回收队收他时他八岁，能分辨三种金属的敲击声。</p>
+      <h3>语言习惯</h3>
+      <p class="prose">句长极少超过十个字，反问句占比高。称呼一律省略敬语，对年纪大的人也直呼「你」。情绪上来时反而更短。</p>
+      <h3>关键关系</h3>
+      <p class="prose">沈砚：旧识，互相提防但都清楚对方不会先动手。白褂女人：相互试探，利益交换多于信任。</p>
+      <h3>动机与弧光</h3>
+      <p class="prose">从「只想带妹妹出去」到「想知道上面还有没有别的地方」—— 他的弧光是视野的扩张，而不是力量的变强。</p>
+      <h3>名场面</h3>
+      <p class="prose">第 19 章第一次说出「地下三层」四个字；此前他一律只说「下面」。</p>
+      <h3>禁忌与误区</h3>
+      <p class="unfilled">（未生成）</p>
+    </div></div></div>
+  </div>
+
+  <div class="notes">
+    <h5>R1 要点</h5>
+    <ul>
+      <li>最完整：文档里既有档案也有研究材料，导出/打印一次到位。</li>
+      <li>代价是文档很长 —— 前面四章加起来约 1 屏，研究文件能再占 4–5 屏。</li>
+      <li>研究文件由 AI 生成，和用户手写的档案混排在一起，读的时候容易分不清哪句是自己写的。</li>
+    </ul>
+    <div class="pick">适合：把 MD 当"完整资料袋"用，不常在这里逐字读。</div>
+  </div>
+</section>
+
+<!-- ==================== R2 ==================== -->
+<section class="part" data-view="r2">
+  <h2>R2 · 折叠块</h2>
+  <p class="lead">仍放在文档末尾，但<b>每份默认收起</b>，只显示标题与字数，点开才看正文。文档不会一下子变长，要看哪份点哪份。</p>
+  <div class="tools">
+    <label class="toggle"><input type="checkbox" checked data-unfilled="r2"> 显示未填 / 未生成项</label>
+    <span style="font-size:12px;color:var(--muted)">下面已展开「人物小传」演示效果</span>
+  </div>
+
+  <div class="pane">
+    <div class="pane-bar"><b>杨寒</b>
+      <div class="seg"><span>表格</span><span>并排</span><span class="on">MD</span></div></div>
+    <div class="pane-body"><div class="sheet"><div class="paper-in doc" data-body="r2">
+      <h1>杨寒 · 人物 Skill</h1>
+      <p class="meta">主角 · 男 · 二十上下 · 出场 18 次 · 活跃</p>
+
+      <h2>语言与行为</h2>
+      <p class="row"><b>怎么说话：</b><span>短句，爱反问，极少用敬语。</span></p>
+
+      <h2>关系与状态</h2>
+      <p class="row"><b>当前状态：</b><span>左肩受伤未愈，左手不便</span></p>
+
+      <h2>研究文件 <span class="rf-count">6 份 · 3 份已生成</span></h2>
+
+      <details class="rf-fold" open>
+        <summary><b>人物小传</b><span class="rf-tag">已生成</span><span class="rf-count">约 320 字</span><span class="chev">收起 ▲</span></summary>
+        <div class="inner">
+          <p>在黑雨里长大的第一批孩子。他不记得父母的样子，只记得第一场雨的颜色 —— 那天之后，所有人都学会了低头走路。</p>
+          <p>回收队收他时他八岁，能分辨三种金属的敲击声。</p>
+        </div>
+      </details>
+
+      <details class="rf-fold">
+        <summary><b>语言习惯</b><span class="rf-tag">已生成</span><span class="rf-count">约 260 字</span><span class="chev">展开 ▾</span></summary>
+        <div class="inner"><p>句长极少超过十个字，反问句占比高。</p></div>
+      </details>
+
+      <details class="rf-fold">
+        <summary><b>关键关系</b><span class="rf-tag">已生成</span><span class="rf-count">约 410 字</span><span class="chev">展开 ▾</span></summary>
+        <div class="inner"><p>沈砚：旧识，互相提防但都清楚对方不会先动手。</p></div>
+      </details>
+
+      <details class="rf-fold">
+        <summary><b>动机与弧光</b><span class="rf-tag none">未生成</span><span class="chev">展开 ▾</span></summary>
+        <div class="inner"><p class="unfilled">（未生成）</p></div>
+      </details>
+
+      <details class="rf-fold">
+        <summary><b>名场面</b><span class="rf-tag none">未生成</span><span class="chev">展开 ▾</span></summary>
+        <div class="inner"><p class="unfilled">（未生成）</p></div>
+      </details>
+
+      <details class="rf-fold">
+        <summary><b>禁忌与误区</b><span class="rf-tag none">未生成</span><span class="chev">展开 ▾</span></summary>
+        <div class="inner"><p class="unfilled">（未生成）</p></div>
+      </details>
+    </div></div></div>
+  </div>
+
+  <div class="notes">
+    <h5>R2 要点</h5>
+    <ul>
+      <li>文档长度可控：默认只占几行，需要时再展开。</li>
+      <li>每份带<b>状态标签与字数</b>，一眼知道缺哪几份。</li>
+      <li>折叠是"显示层"的选择，<b>不影响正文编辑</b>：展开后照样能直接改。</li>
+    </ul>
+    <div class="fix"><b>实现注意：</b>折叠块在 MD 源码里是 `### 文件名` + 正文；渲染时转成可折叠块。若你要求"源码也必须是纯 Markdown"，那就只能用 R1 的写法。</div>
+    <div class="pick">推荐：信息全，但不会把正文冲淡。</div>
+  </div>
+</section>
+
+<!-- ==================== R3 ==================== -->
+<section class="part" data-view="r3">
+  <h2>R3 · 摘要素览</h2>
+  <p class="lead">每份只显示<b>正文头两行</b>（省略号截断），后面跟一个「展开全文」。既能扫到内容大意，又不占篇幅。</p>
+  <div class="tools">
+    <label class="toggle"><input type="checkbox" checked data-unfilled="r3"> 显示未填 / 未生成项</label>
+  </div>
+
+  <div class="pane">
+    <div class="pane-bar"><b>杨寒</b>
+      <div class="seg"><span>表格</span><span>并排</span><span class="on">MD</span></div></div>
+    <div class="pane-body"><div class="sheet"><div class="paper-in doc" data-body="r3">
+      <h1>杨寒 · 人物 Skill</h1>
+      <p class="meta">主角 · 男 · 二十上下 · 出场 18 次 · 活跃</p>
+
+      <h2>关系与状态</h2>
+      <p class="row"><b>当前状态：</b><span>左肩受伤未愈，左手不便</span></p>
+
+      <h2>研究文件 <span class="rf-count">6 份 · 3 份已生成</span></h2>
+
+      <div class="rf-sum">
+        <p class="rf-head"><b>人物小传</b><span class="rf-tag">已生成</span></p>
+        <p class="txt">在黑雨里长大的第一批孩子。他不记得父母的样子，只记得第一场雨的颜色 —— 那天之后，所有人都学会了低头走路。回收队收他时他八岁，能分辨三种金属的敲击声……</p>
+        <p class="more">展开全文 ▾</p>
+      </div>
+
+      <div class="rf-sum">
+        <p class="rf-head"><b>语言习惯</b><span class="rf-tag">已生成</span></p>
+        <p class="txt">句长极少超过十个字，反问句占比高。称呼一律省略敬语，对年纪大的人也直呼「你」。情绪上来时反而更短……</p>
+        <p class="more">展开全文 ▾</p>
+      </div>
+
+      <div class="rf-sum">
+        <p class="rf-head"><b>关键关系</b><span class="rf-tag">已生成</span></p>
+        <p class="txt">沈砚：旧识，互相提防但都清楚对方不会先动手。白褂女人：相互试探，利益交换多于信任……</p>
+        <p class="more">展开全文 ▾</p>
+      </div>
+
+      <div class="rf-sum">
+        <p class="rf-head"><b>动机与弧光</b><span class="rf-tag none">未生成</span></p>
+        <p class="txt unfilled">（未生成）</p>
+      </div>
+
+      <div class="rf-sum">
+        <p class="rf-head"><b>名场面</b><span class="rf-tag none">未生成</span></p>
+        <p class="txt unfilled">（未生成）</p>
+      </div>
+
+      <div class="rf-sum">
+        <p class="rf-head"><b>禁忌与误区</b><span class="rf-tag none">未生成</span></p>
+        <p class="txt unfilled">（未生成）</p>
+      </div>
+    </div></div></div>
+  </div>
+
+  <div class="notes">
+    <h5>R3 要点</h5>
+    <ul>
+      <li>扫一眼就知道每份写了什么方向，不用逐份点开。</li>
+      <li>比 R2 长一些（每份固定占 3–4 行），但不需要任何交互就能读到大意。</li>
+      <li>摘要截断位置由字数决定，可能刚好切断句子 —— 需要接受这一点。</li>
+    </ul>
+    <div class="pick">适合：主要想快速判断"这份研究文件靠不靠谱"，而不是细读。</div>
+  </div>
+</section>
+
+<!-- ==================== R4 ==================== -->
+<section class="part" data-view="r4">
+  <h2>R4 · 索引表</h2>
+  <p class="lead">文档里只放一张<b>目录表</b>：文件名、状态、字数、最后更新。<b>正文不进文档</b>，要看时在「研究文件」页签里看。文档最短。</p>
+  <div class="tools">
+    <label class="toggle"><input type="checkbox" checked data-unfilled="r4"> 显示未填 / 未生成项</label>
+  </div>
+
+  <div class="pane">
+    <div class="pane-bar"><b>杨寒</b>
+      <div class="seg"><span>表格</span><span>并排</span><span class="on">MD</span></div></div>
+    <div class="pane-body"><div class="sheet"><div class="paper-in doc" data-body="r4">
+      <h1>杨寒 · 人物 Skill</h1>
+      <p class="meta">主角 · 男 · 二十上下 · 出场 18 次 · 活跃</p>
+
+      <h2>关系与状态</h2>
+      <p class="row"><b>当前状态：</b><span>左肩受伤未愈，左手不便</span></p>
+
+      <h2>研究文件 <span class="rf-count">6 份 · 3 份已生成</span></h2>
+      <table class="rf-table">
+        <thead>
+          <tr><th style="width:42%">文件</th><th>状态</th><th>字数</th><th>最后更新</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><b>人物小传</b></td><td><span class="rf-tag">已生成</span></td><td class="num">约 320 字</td><td class="num">第 12 章</td></tr>
+          <tr><td><b>语言习惯</b></td><td><span class="rf-tag">已生成</span></td><td class="num">约 260 字</td><td class="num">第 12 章</td></tr>
+          <tr><td><b>关键关系</b></td><td><span class="rf-tag">已生成</span></td><td class="num">约 410 字</td><td class="num">第 19 章</td></tr>
+          <tr><td><b>动机与弧光</b></td><td><span class="rf-tag none unfilled">未生成</span></td><td class="num">—</td><td class="num">—</td></tr>
+          <tr><td><b>名场面</b></td><td><span class="rf-tag none unfilled">未生成</span></td><td class="num">—</td><td class="num">—</td></tr>
+          <tr><td><b>禁忌与误区</b></td><td><span class="rf-tag none unfilled">未生成</span></td><td class="num">—</td><td class="num">—</td></tr>
+        </tbody>
+      </table>
+      <p class="row" style="padding-left:0"><span class="unfilled">正文内容在「研究文件」页查看</span></p>
+    </div></div></div>
+  </div>
+
+  <div class="notes">
+    <h5>R4 要点</h5>
+    <ul>
+      <li>文档最短，档案信息最突出 —— 研究文件退成"附录目录"。</li>
+      <li>知道你有哪些材料、缺哪些、什么时候更新的，但读不到内容。</li>
+      <li>与其他三套相比少了一次"在 MD 里读完"的可能。</li>
+    </ul>
+    <div class="pick">适合：你更在意档案正文的干净，研究文件只是"备查"。</div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll('.tabs').forEach(function (nav) {
+    nav.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        nav.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        var key = btn.dataset.part;
+        document.querySelectorAll('.part').forEach(function (p) {
+          p.classList.toggle('on', p.dataset.view === key);
+        });
+        window.scrollTo({ top: nav.offsetTop - 8, behavior: 'smooth' });
+      });
+    });
+  });
+
+  document.querySelectorAll('[data-unfilled]').forEach(function (input) {
+    input.addEventListener('change', function () {
+      var part = input.closest('.part');
+      part.querySelector('[data-body]').classList.toggle('hide-unfilled', !input.checked);
+    });
+  });
+</script>
+</body>
+</html>

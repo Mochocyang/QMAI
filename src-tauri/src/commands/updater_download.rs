@@ -11,7 +11,7 @@
 use std::path::PathBuf;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::updater::channels::{ChannelTable, Rewrite};
 use crate::updater::segmented::SegmentFetcher;
@@ -211,12 +211,49 @@ where
     Err(format!("所有下载源都失败了（{}）", reasons.join("；")))
 }
 
+/// 后台预下载使用的固定目录（应用本地数据目录下的 `updates`）。
+///
+/// 为什么不放临时目录：`%TEMP%` 会被系统清理，用户第二天点「安装」时包已经没了。
+pub fn pending_update_dir(app_data_dir: &std::path::Path) -> PathBuf {
+    app_data_dir.join("updates")
+}
+
+/// 预下载包在该目录里的固定文件名：同一时刻只保留一个版本。
+pub fn pending_update_file_name() -> &'static str {
+    "QMaiWrite-update.exe"
+}
+
+/// 把预下载目录清空（只删本程序命名的安装包），再把新包放进去。
+///
+/// 用户的要求是「新版本覆盖旧版本」：不攒历史包，磁盘上只留当前这一个。
+fn replace_pending_update(dir: &std::path::Path, downloaded: &std::path::Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|error| format!("创建更新缓存目录失败：{error}"))?;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("QMaiWrite-update") && name.ends_with(".exe") {
+                // 删不掉旧包不该让本次预下载失败：后面写入时会被覆盖或改名重试。
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    let target = dir.join(pending_update_file_name());
+    std::fs::copy(downloaded, &target).map_err(|error| format!("保存更新包失败：{error}"))?;
+    // 落盘的是复制件，临时文件用完就删，避免 %TEMP% 里多留一份 143 MB。
+    let _ = std::fs::remove_file(downloaded);
+    Ok(target)
+}
+
 /// 下载安装包到本地临时文件。前端拿返回的路径去调插件的 `install`。
+///
+/// `persist` 为真时（后台预下载）改存到应用本地数据目录的固定路径，
+/// 并清掉上一个版本的包；为假时保持原有临时文件行为。
 #[tauri::command]
 pub async fn updater_download_package<R: Runtime>(
     app: AppHandle<R>,
     release_url: String,
     version: String,
+    persist: Option<bool>,
 ) -> Result<String, String> {
     let app_for_task = app.clone();
     let proxy = crate::commands::updater_channels::proxy_url_from_store_public();
@@ -258,6 +295,14 @@ pub async fn updater_download_package<R: Runtime>(
     })
     .await
     .map_err(|error| format!("下载任务失败：{error}"))??;
+
+    if persist.unwrap_or(false) {
+        let dir = pending_update_dir(&app.path().app_local_data_dir().map_err(|error| {
+            format!("获取应用数据目录失败：{error}")
+        })?);
+        let saved = replace_pending_update(&dir, &result.0)?;
+        return Ok(saved.to_string_lossy().to_string());
+    }
 
     Ok(result.0.to_string_lossy().to_string())
 }
@@ -319,5 +364,33 @@ mod tests {
         let sources = build_sources(&table, release, "9.9.9", None);
         assert!(!sources.is_empty());
         assert!(sources.iter().any(|item| item.channel_id == "direct"));
+    }
+
+    #[test]
+    fn pending_update_replaces_the_previous_package() {
+        let root = std::env::temp_dir().join(format!(
+            "qmai-pending-update-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let dir = pending_update_dir(&root);
+        std::fs::create_dir_all(&dir).unwrap();
+        let old_package = dir.join("QMaiWrite-update-4.1.1.exe");
+        std::fs::write(&old_package, b"old").unwrap();
+
+        let downloaded = root.join("downloaded.exe");
+        std::fs::write(&downloaded, b"new").unwrap();
+        let saved = replace_pending_update(&dir, &downloaded).unwrap();
+
+        assert_eq!(saved, dir.join(pending_update_file_name()));
+        assert_eq!(std::fs::read(&saved).unwrap(), b"new");
+        assert!(!old_package.exists(), "上一个版本的预下载包必须被删除");
+        assert!(!downloaded.exists(), "临时下载文件用过即删");
+        let remaining: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(remaining, vec![pending_update_file_name().to_string()]);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

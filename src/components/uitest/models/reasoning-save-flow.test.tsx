@@ -49,9 +49,9 @@ it.each([false, true])("思考开启与必要输出预算一起保存，不提�
   await click(card, "保存配置")
   expect(useWikiStore.getState().providerConfigs[id]).toMatchObject({ apiKey: "draft-key", maxOutputTokens: 49152, reasoning: { mode: "high" } })
 })
-it.each([false, true])("全部思考模式按钮即时生效，关闭和自动不缩减已保存输出预算，自定义=%s", async custom => {
+it.each([false, true])("全部思考模式按钮即时生效，关闭不缩减已保存输出预算，自定义=%s", async custom => {
   const card = await renderProvider(custom), id = custom ? "custom-test" : "openai"
-  const modes: [string, ReasoningMode, number][] = [["低", "low", 4096], ["中", "medium", 8192], ["高", "high", 16384], ["最大", "max", 16384], ["关闭", "off", 16384], ["自动", "auto", 16384], ["自定义", "custom", 16384]]
+  const modes: [string, ReasoningMode, number][] = [["低", "low", 4096], ["中", "medium", 8192], ["高", "high", 16384], ["最大", "max", 16384], ["关闭", "off", 16384], ["自定义", "custom", 16384]]
   for (const [label, mode, maxOutputTokens] of modes) {
     await click(card, label)
     expect(useWikiStore.getState().providerConfigs[id]).toEqual({ ...original, reasoning: { mode }, maxOutputTokens })

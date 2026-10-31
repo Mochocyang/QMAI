@@ -12,6 +12,19 @@ interface UiTestDirectoryHeaderProps {
   busy: boolean
   onCreate: () => void
   onCreateContainer: () => void
+  /**
+   * 新建人物角色。只有大纲视图需要（章节视图没有「人物小传」这个概念）。
+   *
+   * 注意：`IS_UI_TEST_BUILD` 恒为 true，sidebar-panel 渲染的是**本组件**而不是
+   * KnowledgeTree，所以目录菜单的第三项必须加在这里，加在 KnowledgeTree 里用户看不到。
+   */
+  onCreatePersona?: () => void
+  /**
+   * 打开「人物」管理界面。
+   *
+   * 顶部那枚人物图标已删除：它与左栏「人物小传 → 活跃角色 / 候选角色」功能重叠，
+   * 用户实测认为两个入口互相干扰。人物入口现在只保留「新建」菜单与左栏区段。
+   */
   onImportFiles: () => void
   onImportFolder: () => void
   onOpenAssistant: () => void
@@ -19,7 +32,7 @@ interface UiTestDirectoryHeaderProps {
   onHelp: () => void
 }
 
-export function UiTestDirectoryHeader({ kind, totalWordCount, busy, onCreate, onCreateContainer, onImportFiles, onImportFolder, onOpenAssistant, onClose, onHelp }: UiTestDirectoryHeaderProps) {
+export function UiTestDirectoryHeader({ kind, totalWordCount, busy, onCreate, onCreateContainer, onCreatePersona, onImportFiles, onImportFolder, onOpenAssistant, onClose, onHelp }: UiTestDirectoryHeaderProps) {
   const [menu, setMenu] = useState<"create" | "import" | "more" | null>(null)
   const toolsRef = useRef<HTMLDivElement>(null)
   const importRef = useRef<HTMLButtonElement>(null)
@@ -77,6 +90,10 @@ export function UiTestDirectoryHeader({ kind, totalWordCount, busy, onCreate, on
         {menu === "create" ? <>
           <button type="button" className="ui-test-menu-item" role="menuitem" onClick={() => execute(onCreate)}>{kind === "chapter" ? "新建章节" : "新建大纲"}</button>
           <button type="button" className="ui-test-menu-item" role="menuitem" onClick={() => execute(onCreateContainer)}>{kind === "chapter" ? "新建卷" : "新建文件夹"}</button>
+          {/* 人物角色只在大纲视图出现：章节视图没有「人物小传」这个概念。 */}
+          {kind === "outline" && onCreatePersona ? (
+            <button type="button" className="ui-test-menu-item" role="menuitem" onClick={() => execute(onCreatePersona)}>新建人物角色</button>
+          ) : null}
         </> : menu === "import" ? <>
           <button type="button" className="ui-test-menu-item" role="menuitem" onClick={() => execute(onImportFiles)}>导入文件</button>
           <button type="button" className="ui-test-menu-item" role="menuitem" onClick={() => execute(onImportFolder)}>导入文件夹</button>

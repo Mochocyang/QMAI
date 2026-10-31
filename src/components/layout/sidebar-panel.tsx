@@ -1,20 +1,15 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { UiTestDirectoryHeader } from "@/components/uitest/ui-test-directory"
 import { UiTestOutlineTools } from "@/components/uitest/ui-test-outline-tools"
 import { RefreshCw } from "lucide-react"
 import { KnowledgeTree, type KnowledgeCreateRequest } from "./knowledge-tree"
+import { PersonaTreeSection } from "./persona-tree-section"
 import { TrashPanel } from "./trash-panel"
 import { GraphSidebarPanel } from "./graph-sidebar-panel"
 import { ReviewCenterSidebarPanel } from "./review-center-sidebar-panel"
 import { useListFileDrop } from "@/components/novel/use-list-file-drop"
 import { SidebarBottomActions } from "@/components/layout/sidebar-bottom-actions"
-/**
- * 头像菜单改成 portal 后会渲染到 document.body：
- * 每点一次头像都会 setState（菜单位置），没有这层 memo 的话
- * 四个侧栏面板会跟着重渲染 —— 知识树几千行、re-render 肉眼可见地卡。
- */
-const MemoSidebarBottomActions = memo(SidebarBottomActions)
 
 import { useWikiStore } from "@/stores/wiki-store"
 import { useChatStore } from "@/stores/chat-store"
@@ -84,7 +79,7 @@ function SearchHistoryPanel() {
           </div>
         )}
       </div>
-      <MemoSidebarBottomActions />
+      <SidebarBottomActions />
     </div>
   )
 }
@@ -179,6 +174,11 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
   const [pendingCreate, setPendingCreate] = useState<KnowledgeCreateRequest | null>(null)
   const [inputTitle, setInputTitle] = useState("")
   const [creating, setCreating] = useState(false)
+  /**
+   * 新建角色时的就地报错（例如重名）。
+   * 不能用 console.error：用户看不到控制台，会以为「点了创建没反应」。
+   */
+  const [createError, setCreateError] = useState("")
   const [pendingPages, setPendingPages] = useState<PendingPageInfo[]>([])
   const [outlineImporting, setOutlineImporting] = useState(false)
   const [bulkOutlineOpen, setBulkOutlineOpen] = useState(false)
@@ -208,6 +208,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
   function cancelPendingCreate() {
     setPendingCreate(null)
     setInputTitle("")
+    setCreateError("")
   }
 
   useEffect(() => {
@@ -662,9 +663,11 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
     }
   }
 
+
   async function handleCreateFromInput() {
     if (!project || !pendingCreate || !inputTitle.trim()) return
     setCreating(true)
+    setCreateError("")
     try {
       const projectPath = normalizePath(project.path)
       const title = inputTitle.trim()
@@ -693,8 +696,13 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
 
       setPendingCreate(null)
       setInputTitle("")
+      setCreateError("")
     } catch (error) {
+      // 失败要看得见：只 console.error 的话，用户看到的就是「点了创建没反应」。
       console.error("[SidebarPanel] create failed:", error)
+      setCreateError(
+        `创建失败：${error instanceof Error ? error.message : String(error)}`,
+      )
     } finally {
       setCreating(false)
     }
@@ -703,6 +711,13 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
   function beginCreate(request: KnowledgeCreateRequest) {
     if (request.kind === "chapter") {
       void handleCreateNextChapter(request.parentDir)
+      return
+    }
+    // 人物角色要开「一整块界面」（用户要求：像技能库人物 skill 那样的内容区），
+    // 不是一个只填名字的输入框。所以切到人物 Skill 整窗视图并请求它开新建模式。
+    if (request.kind === "persona") {
+      useWikiStore.getState().setActiveView("personaSkillLibrary")
+      useWikiStore.getState().setPersonaSkillCreateRequested(true)
       return
     }
     setPendingCreate(request)
@@ -793,6 +808,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
         busy={creating || outlineImporting || chapterImporting}
         onCreate={() => { setUiTestQuery(""); if (isChapter) void handleCreateNextChapter(); else beginCreate({ kind: "outline" }) }}
         onCreateContainer={() => beginCreate({ kind: isChapter ? "volume" : "folder" })}
+        onCreatePersona={isChapter ? undefined : () => useWikiStore.getState().setPersonaOutlinePane({ mode: "create" })}
         onImportFiles={() => { if (isChapter) void handleImportChapterFiles(); else void handleImportOutlineFiles() }}
         onImportFolder={() => { if (isChapter) void handleImportChapterFolder(); else void handleImportOutlineFolder() }}
         onOpenAssistant={() => { if (isChapter) setBulkChapterOpen((open) => !open); else setBulkOutlineOpen((open) => !open) }}
@@ -818,6 +834,11 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
             autoFocus
             disabled={creating}
           />
+          {createError ? (
+            <p data-testid="sidebar-create-error" className="text-xs text-destructive">
+              {createError}
+            </p>
+          ) : null}
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -843,6 +864,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
 
       {!isChapter && bulkOutlineOpen && <div className="border-b px-3 py-2"><UiTestOutlineTools /></div>}
       {isChapter && bulkChapterOpen && <div className="border-b px-3 py-2"><UiTestOutlineTools kind="chapter" /></div>}
+      {!isChapter ? <PersonaTreeSection refreshKey={refreshKey} /> : null}
       <div
         ref={dropContainerRef}
         data-ui-list-drop-target={isChapter ? "chapter" : "outline"}
@@ -902,7 +924,7 @@ export function SidebarPanel({ onUiTestCloseDirectory, onUiTestRegisterCancel }:
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <MemoSidebarBottomActions />
+      <SidebarBottomActions />
     </div>
   )
 }

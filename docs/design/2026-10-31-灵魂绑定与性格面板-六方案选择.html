@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>绑定灵魂 · 性格/语气/题材包 · 六方案选择</title>
+<style>
+  :root{
+    --canvas:#edf1ec; --paper:#fcfdfb; --panel:#f2f5ef; --soft:#e4ece3;
+    --ink:#273c35; --muted:#5d6e64; --accent:#45624f; --on-accent:#fff;
+    --line:#dfe6da; --warm:#f3ebdf; --danger:#943f36;
+    --serif:"Songti SC",Georgia,"Times New Roman",serif;
+    --sh-sm:0 1px 2px rgba(23,35,29,.04);
+    --sh-lg:0 18px 48px rgba(23,35,29,.16);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:#e7ebe6;color:var(--ink);
+    font:14px/1.6 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;}
+
+  .doc-head{max-width:1180px;margin:0 auto;padding:42px 32px 6px;}
+  .doc-head .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;}
+  .doc-head h1{font-size:25px;margin:0 0 10px;letter-spacing:-.01em;}
+  .doc-head p{margin:0 0 6px;color:var(--muted);font-size:13.5px;max-width:920px;}
+  .doc-head p b{color:var(--ink);}
+
+  .tabs{position:sticky;top:0;z-index:60;display:flex;gap:8px;flex-wrap:wrap;
+    max-width:1180px;margin:22px auto 0;padding:12px 32px;
+    background:rgba(231,235,230,.93);backdrop-filter:blur(8px);}
+  .tabs button{appearance:none;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    padding:9px 15px;border-radius:10px;font-size:13.5px;cursor:pointer;}
+  .tabs button.on{background:var(--accent);color:var(--on-accent);border-color:transparent;
+    box-shadow:0 2px 8px rgba(69,98,79,.28);}
+
+  .part{display:none;max-width:1180px;margin:0 auto;padding:22px 32px 80px;}
+  .part.on{display:block;}
+  .part > h2{font-size:20px;margin:0 0 6px;}
+  .part > .lead{color:var(--muted);margin:0 0 14px;max-width:900px;}
+
+  .subnav{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 16px;}
+  .subnav button{appearance:none;border:1px solid var(--line);background:transparent;color:var(--muted);
+    padding:7px 14px;border-radius:99px;font-size:13px;cursor:pointer;}
+  .subnav button.on{background:var(--panel);color:var(--ink);border-color:var(--soft);font-weight:500;}
+  .view{display:none;} .view.on{display:block;}
+
+  .meta-row{display:flex;gap:20px;flex-wrap:wrap;margin:0 0 14px;font-size:12.5px;color:var(--muted);}
+  .meta-row b{color:var(--ink);font-weight:600;}
+
+  .win{border:1px solid var(--line);border-radius:15px;overflow:hidden;background:var(--canvas);box-shadow:var(--sh-lg);}
+  .win-bar{display:flex;align-items:center;gap:14px;padding:8px 14px;background:#f6f8f4;border-bottom:1px solid var(--line);}
+  .win-bar .dots{display:flex;gap:6px;}
+  .win-bar .dots i{width:9px;height:9px;border-radius:50%;background:#d8ded4;display:block;}
+  .win-bar .title{font-size:12px;color:var(--muted);}
+  .win-bar .nav{margin-left:auto;display:flex;gap:2px;}
+  .win-bar .nav span{font-size:12px;color:var(--muted);padding:5px 10px;border-radius:7px;}
+  .win-bar .nav span.on{background:var(--soft);color:var(--ink);font-weight:500;}
+  .win-body{padding:18px 30px 26px;}
+
+  .btn{appearance:none;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    padding:7px 13px;border-radius:8px;font-size:12.5px;cursor:default;display:inline-flex;align-items:center;gap:6px;}
+  .btn-primary{background:var(--accent);color:var(--on-accent);border-color:transparent;font-weight:500;}
+  .btn-ghost{background:transparent;border-color:transparent;color:var(--muted);}
+  .btn-sm{padding:4px 10px;font-size:11.5px;}
+  .badge{display:inline-block;padding:2px 7px;border-radius:6px;font-size:11px;
+    background:color-mix(in srgb,var(--ink) 7%,transparent);color:var(--muted);}
+  .badge.type{background:var(--soft);color:var(--accent);font-weight:500;}
+  .badge.ok{background:#e3efe5;color:#2f6b46;}
+  .chip{border:1px solid var(--line);background:var(--paper);color:var(--muted);
+    padding:5px 11px;border-radius:99px;font-size:12px;display:inline-block;}
+  .chip.on{background:var(--accent);color:var(--on-accent);border-color:transparent;font-weight:500;}
+  .chip.ghost{border-style:dashed;}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;}
+  .avatar{display:grid;place-items:center;border-radius:9px;background:var(--soft);color:var(--accent);
+    font-weight:600;flex-shrink:0;width:34px;height:34px;font-size:13px;}
+  .tiny{font-size:11.5px;} .muted{color:var(--muted);}
+
+  /* 弹窗 */
+  .backdrop{background:rgba(23,35,29,.34);padding:24px;display:grid;place-items:center;border-radius:15px;}
+  .dlg{background:var(--paper);border-radius:13px;box-shadow:var(--sh-lg);overflow:hidden;width:100%;}
+  .dlg-head{display:flex;align-items:flex-start;gap:10px;padding:15px 18px 10px;}
+  .dlg-head h4{margin:0 0 3px;font-size:15.5px;}
+  .dlg-head .sub{margin:0;font-size:11.5px;color:var(--muted);}
+  .dlg-body{padding:0 18px 14px;}
+  .dlg-foot{display:flex;align-items:center;gap:10px;padding:11px 18px;border-top:1px solid var(--line);background:var(--panel);}
+  .s-search{display:flex;align-items:center;gap:8px;padding:8px 11px;border:1px solid var(--line);
+    border-radius:9px;background:var(--paper);color:var(--muted);font-size:12.5px;margin-bottom:12px;}
+  .s-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;}
+  .s-card{border:1px solid var(--line);border-radius:11px;padding:11px;background:var(--canvas);}
+  .s-card.on{border-color:var(--accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 16%,transparent);}
+  .s-card .nm{display:flex;align-items:center;gap:7px;margin-bottom:5px;}
+  .s-card .nm b{font-size:12.5px;font-weight:600;}
+  .s-card .desc{font-size:11px;color:var(--muted);line-height:1.7;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .s-list{display:flex;flex-direction:column;gap:2px;}
+  .s-li{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:8px;}
+  .s-li.on{background:var(--canvas);box-shadow:var(--sh-sm);}
+  .s-li .t{min-width:0;}
+  .s-li .t b{display:block;font-size:12.5px;font-weight:500;}
+  .s-li .t span{font-size:11px;color:var(--muted);}
+  .s-preview{border-left:1px solid var(--line);padding-left:16px;}
+  .s-preview h5{margin:0 0 4px;font-size:14.5px;}
+  .s-preview .kv{display:grid;gap:9px;margin-top:11px;font-size:12px;}
+  .s-preview .kv span{display:block;color:var(--muted);font-size:10.5px;margin-bottom:1px;}
+  .cmd{background:var(--paper);border-radius:11px;box-shadow:var(--sh-lg);overflow:hidden;}
+  .cmd .q{border-bottom:1px solid var(--line);padding:13px 16px;font-size:13.5px;color:var(--ink);}
+  .cmd .row{display:flex;align-items:center;gap:9px;padding:9px 16px;font-size:12.5px;}
+  .cmd .row.on{background:var(--soft);}
+  .cmd .row .kbd{margin-left:auto;font-size:10.5px;color:var(--muted);}
+
+  /* 性格面板 */
+  .t-wrap{border:1px solid var(--line);border-radius:12px;background:var(--paper);overflow:hidden;}
+  .t3col{display:grid;grid-template-columns:146px minmax(0,1fr) 252px;min-height:400px;}
+  .t-cats{border-right:1px solid var(--line);background:var(--panel);padding:11px 9px;}
+  .t-cat{padding:7px 9px;border-radius:8px;font-size:12px;color:var(--muted);margin-bottom:2px;
+    display:flex;justify-content:space-between;}
+  .t-cat.on{background:var(--paper);color:var(--ink);font-weight:500;box-shadow:var(--sh-sm);}
+  .t-cat .n{opacity:.7;font-size:10.5px;}
+  .t-tags{padding:13px 15px;}
+  .t-basket{border-left:1px solid var(--line);background:var(--canvas);padding:13px;}
+  .budget{height:5px;border-radius:99px;background:var(--line);overflow:hidden;margin:5px 0 8px;}
+  .budget i{display:block;height:100%;background:var(--accent);width:60%;}
+  .picked{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px;}
+
+  .pack-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px;}
+  .pack{border:1px solid var(--line);border-radius:11px;background:var(--canvas);padding:13px;}
+  .pack h5{margin:0 0 2px;font-size:13.5px;}
+  .pack .hint{margin:0 0 9px;font-size:11px;color:var(--muted);}
+  .pack .tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:9px;}
+  .pack .tag{font-size:10.5px;padding:2px 6px;border-radius:5px;
+    background:color-mix(in srgb,var(--ink) 7%,transparent);color:var(--muted);}
+
+  .tone{display:grid;gap:9px;}
+  .tone .line{display:grid;grid-template-columns:60px minmax(0,1fr) 60px;align-items:center;gap:10px;font-size:12px;}
+  .tone .track{height:4px;border-radius:99px;background:var(--line);position:relative;}
+  .tone .track i{position:absolute;top:-4px;width:12px;height:12px;border-radius:50%;background:var(--accent);}
+  .tone .val{color:var(--muted);text-align:right;font-size:11px;}
+
+  .finder{display:flex;flex-direction:column;gap:13px;}
+  .finder .bar{display:flex;align-items:center;gap:8px;padding:9px 11px;border:1px solid var(--line);
+    border-radius:9px;background:var(--paper);color:var(--muted);font-size:12.5px;}
+  .rec{border:1px dashed color-mix(in srgb,var(--accent) 40%,var(--line));border-radius:10px;
+    padding:11px 13px;background:color-mix(in srgb,var(--soft) 45%,var(--paper));}
+  .rec h6{margin:0 0 6px;font-size:11.5px;color:var(--accent);letter-spacing:.06em;}
+  .rec .why{font-size:11px;color:var(--muted);margin:7px 0 0;line-height:1.7;}
+
+  .notes{margin:16px 0 0;padding:15px 17px;border:1px solid var(--line);border-radius:11px;background:var(--paper);}
+  .notes h5{margin:0 0 8px;font-size:13px;}
+  .notes ul{margin:0;padding-left:18px;color:var(--muted);font-size:12.5px;line-height:1.8;}
+  .notes ul b{color:var(--ink);font-weight:500;}
+  .notes .fix{margin:11px 0 0;padding:10px 12px;border-radius:8px;background:#f6f0e2;color:#6b5a35;
+    font-size:12px;line-height:1.75;}
+  .pick{margin:12px 0 0;padding:11px 13px;border-radius:9px;background:var(--soft);color:var(--accent);
+    font-size:12.5px;font-weight:500;}
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <div class="eyebrow">QMAI · 待你挑选 · 共 6 套</div>
+  <h1>绑定灵魂 · 性格 / 语气 / 题材包</h1>
+  <p>这两块还没定，单独整理成一页方便对比。<b>每块 3 套</b>，可以各选一套组合（例如「S1 + T1」）。</p>
+  <p style="color:var(--muted)">档案页已按你选的 <b>G1</b>（紧凑顶栏 + 五个子页面 + 五列密排）落地，不在这份里重复。</p>
+</header>
+
+<nav class="tabs">
+  <button data-part="p2" class="on">A · 绑定灵魂（3 套）</button>
+  <button data-part="p3">B · 性格 / 语气 / 题材包（3 套）</button>
+</nav>
+
+<!-- ==================== 绑定灵魂 ==================== -->
+<section class="part on" data-view="p2">
+  <h2>A · 绑定灵魂</h2>
+  <p class="lead">现在点「绑定灵魂」只是一个空输入框，看不到灵魂库里有什么。三套都改成<b>从灵魂库里挑</b>，选定再写入绑定。</p>
+
+  <div class="subnav" data-subnav="p2">
+    <button data-sub="s1" class="on">S1 · 卡片网格</button>
+    <button data-sub="s2">S2 · 主从预览</button>
+    <button data-sub="s3">S3 · 命令面板</button>
+  </div>
+
+  <!-- S1 -->
+  <div class="view on" data-view="s1">
+    <div class="meta-row"><div>改动量 <b>中</b></div><div>挑得快 <b>★★★★</b></div><div>看清楚 <b>★★★</b></div></div>
+    <div class="win">
+      <div class="win-bar"><div class="dots"><i></i><i></i><i></i></div><div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div></div>
+      <div class="backdrop">
+        <div class="dlg" style="max-width:740px">
+          <div class="dlg-head">
+            <div style="min-width:0;flex:1">
+              <h4>为「杨寒」绑定角色灵魂</h4>
+              <p class="sub">灵魂只决定「怎么演」，性格决定「演成什么样」；冲突时以性格为准。</p>
+            </div>
+            <button class="btn btn-ghost btn-sm">✕</button>
+          </div>
+          <div class="dlg-body">
+            <div class="s-search">🔍 搜索灵魂名 / 分类</div>
+            <div class="chips" style="margin-bottom:11px">
+              <span class="chip on">全部 12</span><span class="chip">内置 8</span><span class="chip">自定义 4</span><span class="chip">当前已绑定 1</span>
+            </div>
+            <div class="s-grid">
+              <div class="s-card on">
+                <div class="nm"><div class="avatar" style="width:24px;height:24px;border-radius:7px;font-size:11px">严</div>
+                  <b>严肃沉稳</b><span class="badge ok" style="margin-left:auto">已绑定</span></div>
+                <div class="desc">表达特征：短句、命令式、重秩序与尺度；先定框架，再谈得失。</div>
+              </div>
+              <div class="s-card">
+                <div class="nm"><div class="avatar" style="width:24px;height:24px;border-radius:7px;font-size:11px">儒</div><b>温润儒雅</b></div>
+                <div class="desc">表达特征：语气和缓、善用比喻；先顾人情，再谈利害。</div>
+              </div>
+              <div class="s-card">
+                <div class="nm"><div class="avatar" style="width:24px;height:24px;border-radius:7px;font-size:11px">枭</div><b>枭雄狠辣</b></div>
+                <div class="desc">表达特征：短促、压迫感强；先控局面，再谈理由。</div>
+              </div>
+              <div class="s-card">
+                <div class="nm"><div class="avatar" style="width:24px;height:24px;border-radius:7px;font-size:11px">江</div><b>江湖气</b></div>
+                <div class="desc">表达特征：爱用行话与俚语；先讲义气，再谈价钱。</div>
+              </div>
+              <div class="s-card">
+                <div class="nm"><div class="avatar" style="width:24px;height:24px;border-radius:7px;font-size:11px">冷</div><b>冷面寡言</b></div>
+                <div class="desc">表达特征：极少超过十个字；能不解释就不解释。</div>
+              </div>
+              <div class="s-card">
+                <div class="nm"><div class="avatar" style="width:24px;height:24px;border-radius:7px;font-size:11px">少</div><b>少年意气</b></div>
+                <div class="desc">表达特征：语速快、爱反问；先动手，后想后果。</div>
+              </div>
+            </div>
+          </div>
+          <div class="dlg-foot">
+            <span class="tiny muted">已选：严肃沉稳</span>
+            <div style="margin-left:auto;display:flex;gap:8px">
+              <button class="btn btn-sm">取消</button>
+              <button class="btn btn-sm btn-primary">绑定这个灵魂</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h5>S1 要点</h5>
+      <ul>
+        <li>每张卡带<b>两行风格描述</b>，能判断「像不像这个人」。</li>
+        <li>当前已绑定的那张标「已绑定」，不会选错。</li>
+        <li>底部固定「绑定这个灵魂」，明确这是一次写操作。</li>
+      </ul>
+      <div class="pick">适合：大多数用户。看得见风格，又不至于太长。</div>
+    </div>
+  </div>
+
+  <!-- S2 -->
+  <div class="view" data-view="s2">
+    <div class="meta-row"><div>改动量 <b>中</b></div><div>挑得快 <b>★★★</b></div><div>看清楚 <b>★★★★★</b></div></div>
+    <div class="win">
+      <div class="win-bar"><div class="dots"><i></i><i></i><i></i></div><div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div></div>
+      <div class="backdrop">
+        <div class="dlg" style="max-width:880px">
+          <div class="dlg-head">
+            <div style="min-width:0;flex:1">
+              <h4>为「杨寒」绑定角色灵魂</h4>
+              <p class="sub">左侧挑选，右侧看完整风格与边界，确认后再绑定。</p>
+            </div>
+            <button class="btn btn-ghost btn-sm">✕</button>
+          </div>
+          <div class="dlg-body" style="display:grid;grid-template-columns:266px minmax(0,1fr);gap:18px">
+            <div>
+              <div class="s-search">🔍 搜索</div>
+              <div class="s-list">
+                <div class="s-li on"><div class="avatar" style="width:26px;height:26px;border-radius:8px;font-size:11px">严</div>
+                  <div class="t"><b>严肃沉稳</b><span>内置 · 当前已绑定</span></div></div>
+                <div class="s-li"><div class="avatar" style="width:26px;height:26px;border-radius:8px;font-size:11px">儒</div>
+                  <div class="t"><b>温润儒雅</b><span>内置</span></div></div>
+                <div class="s-li"><div class="avatar" style="width:26px;height:26px;border-radius:8px;font-size:11px">枭</div>
+                  <div class="t"><b>枭雄狠辣</b><span>内置</span></div></div>
+                <div class="s-li"><div class="avatar" style="width:26px;height:26px;border-radius:8px;font-size:11px">江</div>
+                  <div class="t"><b>江湖气</b><span>自定义</span></div></div>
+                <div class="s-li"><div class="avatar" style="width:26px;height:26px;border-radius:8px;font-size:11px">冷</div>
+                  <div class="t"><b>冷面寡言</b><span>内置</span></div></div>
+              </div>
+            </div>
+            <div class="s-preview">
+              <h5>严肃沉稳</h5>
+              <div class="chips" style="margin:5px 0 9px"><span class="badge">内置</span><span class="badge">男主角常用</span></div>
+              <p class="tiny muted" style="margin:0;line-height:1.8">
+                表达特征：短句、命令式、重秩序与尺度；先定天下框架，再谈个人得失。
+              </p>
+              <div class="kv">
+                <div><span>心智模型</span><b style="font-weight:400">把局部冲突放进统一秩序里评估。</b></div>
+                <div><span>决策启发式</span><b style="font-weight:400">先收权、再定法、后标准化。</b></div>
+                <div><span>边界</span><b style="font-weight:400">不得继承原作者职业、身份与专有名词。</b></div>
+              </div>
+            </div>
+          </div>
+          <div class="dlg-foot">
+            <button class="btn btn-sm">解绑当前灵魂</button>
+            <div style="margin-left:auto;display:flex;gap:8px">
+              <button class="btn btn-sm">取消</button>
+              <button class="btn btn-sm btn-primary">绑定「严肃沉稳」</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h5>S2 要点</h5>
+      <ul>
+        <li>右侧给出<b>完整风格 + 心智模型 + 决策启发式 + 边界</b>，适合认真挑。</li>
+        <li>底部有「解绑当前灵魂」，解绑也是显式动作。</li>
+        <li>按钮文案带名字（绑定「严肃沉稳」），防手滑。</li>
+      </ul>
+      <div class="pick">适合：灵魂库条目多、需要看清边界再绑的用户。</div>
+    </div>
+  </div>
+
+  <!-- S3 -->
+  <div class="view" data-view="s3">
+    <div class="meta-row"><div>改动量 <b>小</b></div><div>挑得快 <b>★★★★★</b></div><div>看清楚 <b>★★</b></div></div>
+    <div class="win">
+      <div class="win-bar"><div class="dots"><i></i><i></i><i></i></div><div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div></div>
+      <div class="backdrop">
+        <div class="cmd" style="max-width:540px">
+          <div class="q">严</div>
+          <div class="row on"><div class="avatar" style="width:22px;height:22px;border-radius:6px;font-size:10px">严</div>
+            <span>严肃沉稳</span><span class="badge ok">已绑定</span><span class="kbd">Enter</span></div>
+          <div class="row"><div class="avatar" style="width:22px;height:22px;border-radius:6px;font-size:10px">儒</div>
+            <span>温润儒雅</span><span class="tiny muted" style="margin-left:auto">内置</span></div>
+          <div class="row"><div class="avatar" style="width:22px;height:22px;border-radius:6px;font-size:10px">枭</div>
+            <span>枭雄狠辣</span><span class="tiny muted" style="margin-left:auto">内置</span></div>
+          <div class="row" style="border-top:1px solid var(--line)">
+            <span class="tiny muted">↑↓ 选择 · Enter 绑定 · Esc 取消</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h5>S3 要点</h5>
+      <ul>
+        <li>最轻：搜索框 + 紧凑列表，键盘 ↑↓ 选择、Enter 绑定。</li>
+        <li>没有风格预览，靠名字认。</li>
+      </ul>
+      <div class="pick">适合：已经很熟悉灵魂库的老用户。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== 性格 / 语气 / 题材包 ==================== -->
+<section class="part" data-view="p3">
+  <h2>B · 性格 / 语气 / 题材包</h2>
+  <p class="lead">
+    现在是一长串平铺标签：选过的、没选的、别的题材的挤在一起，语气和怪癖混在同一排。
+    三套都拆成 <b>分类 → 候选 → 已选</b>，并把「语气」单独当一个维度。
+  </p>
+
+  <div class="subnav" data-subnav="p3">
+    <button data-sub="t1" class="on">T1 · 三栏标签板</button>
+    <button data-sub="t2">T2 · 题材卡包</button>
+    <button data-sub="t3">T3 · 搜索优先</button>
+  </div>
+
+  <!-- T1 -->
+  <div class="view on" data-view="t1">
+    <div class="meta-row"><div>改动量 <b>中</b></div><div>找得到 <b>★★★★</b></div><div>可控性 <b>★★★★★</b></div></div>
+    <div class="win">
+      <div class="win-bar"><div class="dots"><i></i><i></i><i></i></div><div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div></div>
+      <div class="win-body">
+        <div class="t-wrap">
+          <div class="t3col">
+            <div class="t-cats">
+              <div style="font-size:10.5px;color:var(--muted);letter-spacing:.1em;padding:0 9px 7px">分类</div>
+              <div class="t-cat on">语气 <span class="n">20</span></div>
+              <div class="t-cat">怪癖 <span class="n">20</span></div>
+              <div class="t-cat">关系 <span class="n">20</span></div>
+              <div class="t-cat">反差 <span class="n">20</span></div>
+              <div class="t-cat">题材包 <span class="n">5</span></div>
+              <div class="t-cat" style="margin-top:9px">自定义 <span class="n">＋</span></div>
+            </div>
+            <div class="t-tags">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:11px">
+                <div class="s-search" style="margin:0;flex:1">🔍 在「语气」里搜索</div>
+                <span class="tiny muted">已选 2</span>
+              </div>
+              <div class="chips">
+                <span class="chip on">毒舌</span><span class="chip on">嘴硬心软</span>
+                <span class="chip">阴阳怪气</span><span class="chip">一本正经说胡话</span>
+                <span class="chip">满口网络梗</span><span class="chip">爱说歇后语</span>
+                <span class="chip">话痨</span><span class="chip">闷葫芦</span>
+              </div>
+              <div style="margin-top:16px;font-size:10.5px;color:var(--muted);letter-spacing:.08em">语气细节（可留空）</div>
+              <div class="tone" style="margin-top:9px">
+                <div class="line"><span>语速</span><div class="track"><i style="left:22%"></i></div><span class="val">偏慢</span></div>
+                <div class="line"><span>句长</span><div class="track"><i style="left:18%"></i></div><span class="val">短句</span></div>
+                <div class="line"><span>敬语</span><div class="track"><i style="left:8%"></i></div><span class="val">几乎不用</span></div>
+              </div>
+            </div>
+            <aside class="t-basket">
+              <div style="font-size:10.5px;letter-spacing:.08em;color:var(--muted)">已选性格</div>
+              <div class="picked">
+                <span class="chip on">毒舌 ×</span><span class="chip on">嘴硬心软 ×</span><span class="chip on">外表凶内心怂 ×</span>
+              </div>
+              <div class="tiny muted">字数 12 / 20</div>
+              <div class="budget"><i></i></div>
+              <div class="tiny muted" style="margin-bottom:11px">最多 4 条，超出的不进注入</div>
+              <div style="font-size:10.5px;letter-spacing:.08em;color:var(--muted);margin-bottom:5px">绑定灵魂</div>
+              <div style="display:flex;align-items:center;gap:7px;margin-bottom:9px">
+                <div class="avatar" style="width:24px;height:24px;border-radius:7px;font-size:10px">严</div>
+                <b style="font-size:12px;font-weight:500">严肃沉稳</b>
+                <button class="btn btn-sm" style="margin-left:auto">更换</button>
+              </div>
+              <div class="tiny muted" style="line-height:1.7;padding-top:9px;border-top:1px solid var(--line)">
+                注入预览：人物性格：毒舌、嘴硬心软、外表凶内心怂
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h5>T1 要点</h5>
+      <ul>
+        <li><b>左分类 / 中候选 / 右已选</b>：已选项固定右边，不会滚走。</li>
+        <li>「语气」是第一类，并提供<b>语速 / 句长 / 敬语</b>三个细滑块。</li>
+        <li>右边带<b>字数预算条</b>，和注入预算一致，选满了就选不动。</li>
+        <li>灵魂绑定与注入预览都收在右栏，性格与灵魂的关系一眼可见。</li>
+      </ul>
+      <div class="pick">适合：想一次把性格体系配完、又不想被长列表淹没。</div>
+    </div>
+  </div>
+
+  <!-- T2 -->
+  <div class="view" data-view="t2">
+    <div class="meta-row"><div>改动量 <b>中</b></div><div>找得到 <b>★★★★★</b></div><div>可控性 <b>★★★</b></div></div>
+    <div class="win">
+      <div class="win-bar"><div class="dots"><i></i><i></i><i></i></div><div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div></div>
+      <div class="win-body">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+          <span class="tiny muted">已选 3 条 · 12/20 字</span>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button class="btn btn-sm">清空</button><button class="btn btn-sm btn-primary">保存</button>
+          </div>
+        </div>
+        <div class="picked" style="margin-bottom:14px">
+          <span class="chip on">毒舌 ×</span><span class="chip on">嘴硬心软 ×</span><span class="chip on">外表凶内心怂 ×</span>
+          <span class="chip ghost">＋ 自定义</span>
+        </div>
+
+        <div style="font-size:10.5px;letter-spacing:.1em;color:var(--muted);margin-bottom:9px">题材预制包 · 点「套用」一次加一组</div>
+        <div class="pack-grid" style="margin-bottom:18px">
+          <div class="pack">
+            <h5>悬疑</h5><p class="hint">疑心重、爱观察、不轻信</p>
+            <div class="tags"><span class="tag">观察入微</span><span class="tag">疑心极重</span><span class="tag">不信任何人</span><span class="tag">强迫复盘</span></div>
+            <button class="btn btn-sm" style="width:100%">套用（会替换现有）</button>
+          </div>
+          <div class="pack">
+            <h5>仙侠</h5><p class="hint">护道、看破、口称本座</p>
+            <div class="tags"><span class="tag">看破红尘</span><span class="tag">护道不护人</span><span class="tag">口称本座</span><span class="tag">以命换道</span></div>
+            <button class="btn btn-sm" style="width:100%">套用</button>
+          </div>
+          <div class="pack">
+            <h5>都市</h5><p class="hint">网络梗、外卖、熬夜</p>
+            <div class="tags"><span class="tag">满口网络梗</span><span class="tag">职场老油条</span><span class="tag">外卖成瘾</span><span class="tag">报复性熬夜</span></div>
+            <button class="btn btn-sm" style="width:100%">套用</button>
+          </div>
+        </div>
+
+        <div style="font-size:10.5px;letter-spacing:.1em;color:var(--muted);margin-bottom:9px">按分类挑单个</div>
+        <div style="display:grid;gap:11px">
+          <div style="display:grid;grid-template-columns:64px minmax(0,1fr);gap:11px;align-items:start">
+            <div class="tiny muted" style="padding-top:5px">语气</div>
+            <div class="chips">
+              <span class="chip on">毒舌</span><span class="chip on">嘴硬心软</span><span class="chip">阴阳怪气</span>
+              <span class="chip">满口网络梗</span><span class="chip">爱说歇后语</span><span class="chip">惜字如金</span>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:64px minmax(0,1fr);gap:11px;align-items:start">
+            <div class="tiny muted" style="padding-top:5px">怪癖</div>
+            <div class="chips">
+              <span class="chip">大吃货</span><span class="chip">极度洁癖</span><span class="chip">路痴</span>
+              <span class="chip">收集癖</span><span class="chip">嗜睡</span>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:64px minmax(0,1fr);gap:11px;align-items:start">
+            <div class="tiny muted" style="padding-top:5px">反差</div>
+            <div class="chips">
+              <span class="chip on">外表凶内心怂</span><span class="chip">严肃壳里抖机灵</span>
+              <span class="chip">人前高冷人后话多</span><span class="chip">哭包但嘴硬</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h5>T2 要点</h5>
+      <ul>
+        <li>题材包做成<b>可套用的整包卡</b>：一张卡四个标签，一键加入。</li>
+        <li>套用时提示「会替换现有」，不静默覆盖。</li>
+        <li>下面按语气/怪癖/反差分行，不再混成一团。</li>
+      </ul>
+      <div class="pick">适合：新角色快速起个基调，再微调。</div>
+    </div>
+  </div>
+
+  <!-- T3 -->
+  <div class="view" data-view="t3">
+    <div class="meta-row"><div>改动量 <b>中</b></div><div>找得到 <b>★★★★</b></div><div>可控性 <b>★★★★</b></div></div>
+    <div class="win">
+      <div class="win-bar"><div class="dots"><i></i><i></i><i></i></div><div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div></div>
+      <div class="win-body">
+        <div class="finder" style="max-width:800px;margin:0 auto">
+          <div class="picked">
+            <span class="chip on">毒舌 ×</span><span class="chip on">嘴硬心软 ×</span><span class="chip on">外表凶内心怂 ×</span>
+            <span class="tiny muted" style="align-self:center;margin-left:6px">12/20 字 · 还能选 1 条</span>
+          </div>
+          <div class="bar">🔍 搜「嘴」「梗」「吃」… 也可以直接输入自己的词</div>
+          <div class="rec">
+            <h6>根据「怎么说话」推荐</h6>
+            <div class="chips">
+              <span class="chip">开口必抬杠</span><span class="chip">说话带刺</span><span class="chip">爱用反问</span>
+            </div>
+            <p class="why">依据：语言与行为里写着「短句，爱反问，极少用敬语」——这三条与它一致。</p>
+          </div>
+          <div>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:7px">
+              <div class="tiny muted" style="letter-spacing:.1em">语气</div>
+              <div class="chips" style="margin-left:auto">
+                <span class="chip on" style="padding:3px 9px;font-size:10.5px">全部</span>
+                <span class="chip" style="padding:3px 9px;font-size:10.5px">口癖</span>
+                <span class="chip" style="padding:3px 9px;font-size:10.5px">腔调</span>
+              </div>
+            </div>
+            <div class="chips">
+              <span class="chip on">毒舌</span><span class="chip on">嘴硬心软</span><span class="chip">阴阳怪气</span>
+              <span class="chip">满口网络梗</span><span class="chip">爱说歇后语</span><span class="chip">惜字如金</span>
+            </div>
+          </div>
+          <div>
+            <div class="tiny muted" style="letter-spacing:.1em;margin-bottom:7px">题材包</div>
+            <div class="chips">
+              <span class="chip">悬疑 4</span><span class="chip">仙侠 4</span><span class="chip">都市 4</span>
+              <span class="chip">言情 4</span><span class="chip">历史 4</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <h5>T3 要点</h5>
+      <ul>
+        <li><b>搜索是主入口</b>：想到什么词直接搜，不用在分类里翻。</li>
+        <li>顶部只放「已选 + 剩余名额」，永远知道还能选几条。</li>
+        <li>「根据怎么说话推荐」把 AI 反推的性格摆到明面，点一下即可采纳。</li>
+      </ul>
+      <div class="pick">适合：已经想好要什么词、只想快速加进去。</div>
+    </div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll('.tabs').forEach(function (nav) {
+    nav.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        nav.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        var key = btn.dataset.part;
+        document.querySelectorAll('.part').forEach(function (p) {
+          p.classList.toggle('on', p.dataset.view === key);
+        });
+        window.scrollTo({ top: nav.offsetTop - 8, behavior: 'smooth' });
+      });
+    });
+  });
+  document.querySelectorAll('[data-subnav]').forEach(function (nav) {
+    var scope = nav.closest('.part');
+    nav.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        nav.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        var key = btn.dataset.sub;
+        scope.querySelectorAll('.view').forEach(function (v) {
+          v.classList.toggle('on', v.dataset.view === key);
+        });
+      });
+    });
+  });
+</script>
+</body>
+</html>

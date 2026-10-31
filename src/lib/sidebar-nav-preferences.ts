@@ -103,7 +103,6 @@ type NavView = WikiState["activeView"]
 export const FOLDED_SKILL_LIBRARY_VIEWS: readonly NavView[] = [
   "writingSkillLibrary",
   "writingStyleLibrary",
-  "personaSkillLibrary",
 ]
 
 /**
@@ -116,4 +115,7 @@ export const FOLDED_SKILL_LIBRARY_VIEWS: readonly NavView[] = [
 export function isNavItemActive(itemView: NavView, activeView: NavView): boolean {
   return itemView === activeView
     || (itemView === "skillLibrary" && FOLDED_SKILL_LIBRARY_VIEWS.includes(activeView))
+    // 人物 Skill 已从技能库移到大纲侧：由「大纲」图标承载，不再点亮技能库。
+    // 不这么做的话，人在人物页、技能库图标却high亮，点进去又找不到人物 —— 比不亮更糟。
+    || (itemView === "sources" && activeView === "personaSkillLibrary")
 }

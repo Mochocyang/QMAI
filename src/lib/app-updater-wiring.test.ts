@@ -86,12 +86,14 @@ describe("启动更新检查的接线", () => {
     expect(app, "找不到 src/App.tsx").toBeDefined()
 
     const text = readFileSync(app!.full, "utf8")
-    // 既要有 import，也要有实际调用，缺一不可
+    // 既要有 import，也要有实际调用，缺一不可。
+    // 调用形式允许带参数（`checkForAppUpdate({ prompt })`）：关掉自动提醒的用户
+    // 走的是不弹窗分支，同样是真实调用。
     expect(text, "App.tsx 未导入 checkForAppUpdate").toContain(
-      'import { checkForAppUpdate } from "@/lib/app-updater"',
+      'import { checkForAppUpdate',
     )
     expect(text, "App.tsx 导入了但没有调用 checkForAppUpdate").toMatch(
-      /void\s+checkForAppUpdate\s*\(\s*\)/,
+      /\bcheckForAppUpdate\s*\(\s*\{/,
     )
   })
 

@@ -1,0 +1,72 @@
+/* 「绑定灵魂」单行：标签、当前值、说明、按钮在同一行且同高 */
+.ui-test-root .ui-test-soul-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 8px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 10px;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-soul-label {
+  flex-shrink: 0;
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  /* 与按钮同高：按钮 28px，这里用同一行高把基线拉平 */
+  line-height: 28px;
+}
+
+.ui-test-root .ui-test-soul-value {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+  font-size: 0.78rem;
+  line-height: 28px;
+}
+
+.ui-test-root .ui-test-soul-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+  line-height: 28px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-test-root .ui-test-soul-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* 同一行里的按钮固定高度，才能和左侧文字严格对齐 */
+.ui-test-root .ui-test-soul-row .ui-test-skills-action {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 11px;
+  line-height: 1;
+}
+
+.ui-test-root .ui-test-soul-row .ui-test-ptab-soul-name {
+  flex-shrink: 0;
+  line-height: 28px;
+}
+
+@media (max-width: 980px) {
+  .ui-test-root .ui-test-soul-row {
+    flex-wrap: wrap;
+  }
+  .ui-test-root .ui-test-soul-hint {
+    display: none;
+  }
+  .ui-test-root .ui-test-soul-actions {
+    margin-left: 0;
+  }
+}

@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>人物 MD · 无页签 · 直接可编辑 · 三套方案</title>
+<style>
+  :root{
+    --canvas:#edf1ec; --paper:#fcfdfb; --panel:#f2f5ef; --soft:#e4ece3;
+    --ink:#273c35; --muted:#5d6e64; --accent:#45624f; --on-accent:#fff;
+    --line:#dfe6da; --warm:#f3ebdf; --danger:#943f36;
+    --serif:"Songti SC",Georgia,"Times New Roman",serif;
+    --sh-lg:0 14px 40px rgba(23,35,29,.15);
+    --sh-card:0 6px 24px rgba(23,35,29,.09);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:#e7ebe6;color:var(--ink);
+    font:13.5px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;}
+
+  .doc-head{max-width:1180px;margin:0 auto;padding:38px 32px 4px;}
+  .doc-head .eyebrow{font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:9px;}
+  .doc-head h1{font-size:25px;margin:0 0 9px;letter-spacing:-.01em;}
+  .doc-head > p{margin:0 0 10px;color:var(--muted);font-size:13.5px;max-width:940px;}
+  .doc-head > p b{color:var(--ink);}
+  .reqs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0 0;}
+  .req{border:1px solid var(--line);border-radius:11px;background:var(--paper);padding:11px 13px;}
+  .req h6{margin:0 0 4px;font-size:12px;color:var(--accent);letter-spacing:.03em;}
+  .req p{margin:0;font-size:12px;color:var(--muted);line-height:1.7;}
+
+  .tabs{position:sticky;top:0;z-index:60;display:flex;gap:8px;flex-wrap:wrap;
+    max-width:1180px;margin:20px auto 0;padding:11px 32px;
+    background:rgba(231,235,230,.94);backdrop-filter:blur(8px);}
+  .tabs button{appearance:none;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    padding:8px 15px;border-radius:10px;font-size:13px;cursor:pointer;}
+  .tabs button.on{background:var(--accent);color:var(--on-accent);border-color:transparent;
+    box-shadow:0 2px 8px rgba(69,98,79,.26);}
+
+  .part{display:none;max-width:1180px;margin:0 auto;padding:20px 32px 70px;}
+  .part.on{display:block;}
+  .part > h2{font-size:19px;margin:0 0 5px;}
+  .part > .lead{color:var(--muted);margin:0 0 12px;max-width:900px;}
+  .tools{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 14px;}
+  .toggle{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);cursor:pointer;}
+  .toggle input{width:14px;height:14px;accent-color:var(--accent);}
+
+  /* 中栏 */
+  .pane{width:100%;max-width:1000px;border:1px solid var(--line);border-radius:13px;
+    overflow:hidden;background:var(--canvas);box-shadow:var(--sh-lg);}
+  .pane-bar{display:flex;align-items:center;gap:10px;padding:9px 14px;
+    border-bottom:1px solid var(--line);background:var(--paper);}
+  .pane-bar b{font-family:var(--serif);font-size:15px;}
+  .pane-bar .seg{margin-left:auto;display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;}
+  .pane-bar .seg span{padding:4px 10px;font-size:11.5px;color:var(--muted);}
+  .pane-bar .seg span.on{background:var(--accent);color:var(--on-accent);font-weight:500;}
+  .pane-body{background:var(--paper);}
+
+  /* 文档纸张 */
+  .sheet{padding:26px 40px 44px;max-height:620px;overflow:auto;background:var(--paper);}
+  .paper-in{max-width:840px;}
+
+  /* 直接可编辑的视觉提示 */
+  .ed{cursor:text;border-radius:4px;padding:1px 3px;margin-left:-3px;transition:background .12s,box-shadow .12s;}
+  .demo-editing .ed:hover{background:color-mix(in srgb,var(--soft) 70%,transparent);box-shadow:0 0 0 1px var(--line);}
+  .demo-editing .ed.is-focus{background:color-mix(in srgb,var(--soft) 85%,transparent);
+    box-shadow:0 0 0 1.5px var(--accent);}
+  .caret{display:inline-block;width:1.5px;height:1.05em;background:var(--accent);
+    vertical-align:-2px;margin-left:1px;animation:blink 1s steps(1) infinite;}
+  @keyframes blink{50%{opacity:0}}
+
+  .unfilled{color:var(--muted);opacity:.8;font-style:italic;}
+  .hide-unfilled .unfilled{display:none;}
+
+  /* 文档流排版（沿用 M1） */
+  .doc h1{font-family:var(--serif);font-size:19px;margin:0 0 3px;letter-spacing:.02em;}
+  .doc .meta{color:var(--muted);font-size:12px;margin:0 0 22px;}
+  .doc h2{font-size:13px;margin:26px 0 9px;padding-bottom:5px;
+    border-bottom:1px solid var(--line);letter-spacing:.04em;cursor:text;}
+  .doc .row{margin:0 0 9px;padding-left:1.5em;font-size:13px;line-height:1.95;}
+  .doc .row b{font-weight:600;margin-right:.3em;}
+  .doc .row span{white-space:pre-wrap;}
+
+  /* N2 纸卡 */
+  .n2-stage{background:var(--canvas);padding:26px 22px 34px;max-height:620px;overflow:auto;}
+  .n2-card{max-width:820px;margin:0 auto;background:var(--paper);border:1px solid var(--line);
+    border-radius:12px;box-shadow:var(--sh-card);padding:30px 42px 40px;}
+
+  /* N3 分节块 */
+  .n3-block{position:relative;padding:2px 8px 2px 26px;border-radius:8px;margin:0 0 2px;}
+  .n3-block:hover{background:color-mix(in srgb,var(--soft) 45%,transparent);}
+  .n3-handle{position:absolute;left:4px;top:6px;width:14px;color:var(--muted);opacity:0;font-size:12px;}
+  .n3-block:hover .n3-handle{opacity:.7;}
+  .n3-add{position:absolute;right:6px;top:4px;border:1px solid var(--line);border-radius:6px;
+    background:var(--paper);color:var(--muted);font-size:11px;padding:0 6px;opacity:0;}
+  .n3-block:hover .n3-add{opacity:1;}
+
+  .notes{margin:16px 0 0;padding:14px 16px;border:1px solid var(--line);border-radius:11px;background:var(--paper);}
+  .notes h5{margin:0 0 8px;font-size:12.5px;}
+  .notes ul{margin:0;padding-left:18px;color:var(--muted);font-size:12.5px;line-height:1.8;}
+  .notes ul b{color:var(--ink);font-weight:500;}
+  .notes .fix{margin:10px 0 0;padding:9px 11px;border-radius:8px;background:#f6f0e2;color:#6b5a35;
+    font-size:11.5px;line-height:1.72;}
+  .pick{margin:11px 0 0;padding:10px 12px;border-radius:9px;background:var(--soft);color:var(--accent);
+    font-size:12.5px;font-weight:500;}
+
+  @media (max-width:1120px){ .reqs{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <div class="eyebrow">QMAI · 人物 MD · 第二轮</div>
+  <h1>无页签 · 点开就能改</h1>
+  <p>按你的三条修正重做：<b>MD 模式不再有那排页签</b>、<b>不再有「编辑原文」</b>、<b>点文档本身就能直接编辑</b>。三套都保留 M1 的文档流排版。</p>
+  <div class="reqs">
+    <div class="req">
+      <h6>① 去掉页签</h6>
+      <p>MD 与并排模式下不显示「档案 / 性格与灵魂 / …」。页签只在<b>表格</b>模式保留，用来在长表单里跳转。</p>
+    </div>
+    <div class="req">
+      <h6>② 去掉「编辑原文」</h6>
+      <p>不再需要按钮切换视图。打开 MD 就是可编辑状态，点哪一句就在哪一句里改。</p>
+    </div>
+    <div class="req">
+      <h6>③ 未填项可直接填</h6>
+      <p>「（未填）」本身就是可点的占位，点进去就能输入 —— 不用回表格补。</p>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button data-part="n1" class="on">N1 · 整页文档</button>
+  <button data-part="n2">N2 · 纸卡文档</button>
+  <button data-part="n3">N3 · 分节块编辑</button>
+</nav>
+
+<!-- ==================== N1 ==================== -->
+<section class="part on" data-view="n1">
+  <h2>N1 · 整页文档</h2>
+  <p class="lead">最直接：MD 模式下整个中栏就是这份文档，顶部只留姓名与三态切换（那是视图开关，不是内容页签）。文档任何一处都能点进去改。</p>
+  <div class="tools">
+    <label class="toggle"><input type="checkbox" checked data-unfilled> 显示未填项</label>
+    <label class="toggle"><input type="checkbox" checked data-editing> 演示可编辑（悬停 / 焦点）</label>
+  </div>
+
+  <div class="pane">
+    <div class="pane-bar"><b>林小满</b>
+      <div class="seg"><span>表格</span><span>并排</span><span class="on">MD</span></div></div>
+    <div class="pane-body">
+      <div class="sheet">
+        <div class="paper-in doc" data-body>
+          <h1>林小满 · 人物 Skill</h1>
+          <p class="meta">主要人物 · 女 · 十六七 · 出场 15 次（第 2–19 章）· 活跃</p>
+
+          <h2>基本信息</h2>
+          <p class="row"><b>姓名：</b><span class="ed">林小满</span></p>
+          <p class="row"><b>性别：</b><span class="ed">女</span></p>
+          <p class="row"><b>年龄：</b><span class="ed">十六七</span></p>
+          <p class="row"><b>定位：</b><span class="ed">主要人物</span></p>
+          <p class="row"><b>势力组织：</b><span class="ed">地下回收队</span></p>
+          <p class="row"><b>外貌：</b><span class="ed unfilled">（未填）</span></p>
+
+          <h2>性格与灵魂</h2>
+          <p class="row"><b>性格标签：</b><span class="ed">嘴硬心软、怕疼但要挡刀、说反话</span></p>
+          <p class="row"><b>绑定灵魂：</b><span class="ed">严肃沉稳</span></p>
+          <p class="row"><b>注入预览：</b><span class="ed">人物性格：嘴硬心软、怕疼但要挡刀、说反话（性格优先于灵魂基线）· 14 / 20 字</span></p>
+
+          <h2>语言与行为</h2>
+          <p class="row"><b>怎么说话：</b><span class="ed">本章新增：在睡梦中无意识发出破碎音节，如小……晚……危……险……；被惊动时，用尽力气挤出几个字。</span></p>
+          <p class="row"><b>怎么想：</b><span class="ed is-focus">本章新增：在沉睡中极不安稳，额头沁汗，嘴唇翕动，像抵抗梦里无形的东西。<i class="caret"></i></span></p>
+          <p class="row"><b>怎么判断：</b><span class="ed">本章新增：判断杨寒是安全的，所以在他握住手时放松。</span></p>
+          <p class="row"><b>什么不做：</b><span class="ed unfilled">（未填）</span></p>
+          <p class="row"><b>知道局限：</b><span class="ed">本章新增：无法确定暗处的威胁是什么，只能拼出残缺信息。</span></p>
+
+          <h2>关系与状态</h2>
+          <p class="row"><b>关系网：</b><span class="ed">杨寒：血亲（相依为命）／杨妙萍：旧识（已故）</span></p>
+          <p class="row"><b>当前状态：</b><span class="ed">重伤未愈，被杨寒背着转移</span></p>
+          <p class="row"><b>出场组织：</b><span class="ed unfilled">（未填）</span></p>
+          <p class="row"><b>认知变化：</b><span class="ed unfilled">（未填）</span></p>
+          <p class="row"><b>关系变化：</b><span class="ed unfilled">（未填）</span></p>
+          <p class="row"><b>备注：</b><span class="ed unfilled">（未填）</span></p>
+
+          <h2>研究文件</h2>
+          <p class="row"><b>人物小传：</b><span class="ed">已生成 · 3 段</span></p>
+          <p class="row"><b>语言习惯：</b><span class="ed">已生成 · 2 段</span></p>
+          <p class="row"><b>关键关系：</b><span class="ed">已生成 · 4 条</span></p>
+          <p class="row"><b>动机与弧光：</b><span class="ed unfilled">（未生成）</span></p>
+          <p class="row"><b>名场面：</b><span class="ed unfilled">（未生成）</span></p>
+          <p class="row"><b>禁忌与误区：</b><span class="ed unfilled">（未生成）</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>N1 要点</h5>
+    <ul>
+      <li>整页就是文档，<b>没有页签、没有表头、没有按钮</b>；切到 MD 立刻开始读/改。</li>
+      <li>悬停某句出现浅色底与细边（提示"这里能改"），点进去出现光标与高亮环。</li>
+      <li>「（未填）」是可点占位，点进去直接输入，<b>不用回表格补</b>。</li>
+      <li>保存全自动（改动后约 0.8 秒写盘），没有任何保存按钮。</li>
+    </ul>
+    <div class="pick">推荐：最贴合「点开就能改」，也最少视觉噪音。</div>
+  </div>
+</section>
+
+<!-- ==================== N2 ==================== -->
+<section class="part" data-view="n2">
+  <h2>N2 · 纸卡文档</h2>
+  <p class="lead">文档放在一张居中的"纸"上，四周留白 —— 像在稿纸上读/改。同样无页签、无按钮、直接编辑。</p>
+  <div class="tools">
+    <label class="toggle"><input type="checkbox" checked data-unfilled> 显示未填项</label>
+    <label class="toggle"><input type="checkbox" checked data-editing> 演示可编辑</label>
+  </div>
+
+  <div class="pane">
+    <div class="pane-bar"><b>林小满</b>
+      <div class="seg"><span>表格</span><span>并排</span><span class="on">MD</span></div></div>
+    <div class="pane-body">
+      <div class="n2-stage">
+        <div class="n2-card doc" data-body>
+          <h1>林小满 · 人物 Skill</h1>
+          <p class="meta">主要人物 · 女 · 十六七 · 出场 15 次（第 2–19 章）· 活跃</p>
+
+          <h2>基本信息</h2>
+          <p class="row"><b>姓名：</b><span class="ed">林小满</span></p>
+          <p class="row"><b>性别：</b><span class="ed">女</span></p>
+          <p class="row"><b>年龄：</b><span class="ed">十六七</span></p>
+          <p class="row"><b>定位：</b><span class="ed">主要人物</span></p>
+          <p class="row"><b>势力组织：</b><span class="ed">地下回收队</span></p>
+          <p class="row"><b>外貌：</b><span class="ed unfilled">（未填）</span></p>
+
+          <h2>性格与灵魂</h2>
+          <p class="row"><b>性格标签：</b><span class="ed">嘴硬心软、怕疼但要挡刀、说反话</span></p>
+          <p class="row"><b>绑定灵魂：</b><span class="ed">严肃沉稳</span></p>
+          <p class="row"><b>注入预览：</b><span class="ed">人物性格：嘴硬心软、怕疼但要挡刀、说反话 · 14 / 20 字</span></p>
+
+          <h2>语言与行为</h2>
+          <p class="row"><b>怎么说话：</b><span class="ed">本章新增：在睡梦中无意识发出破碎音节；被惊动时，用尽力气挤出几个字。</span></p>
+          <p class="row"><b>怎么想：</b><span class="ed is-focus">本章新增：在沉睡中极不安稳，额头沁汗，嘴唇翕动。<i class="caret"></i></span></p>
+          <p class="row"><b>怎么判断：</b><span class="ed">本章新增：判断杨寒是安全的，所以在他握住手时放松。</span></p>
+          <p class="row"><b>什么不做：</b><span class="ed unfilled">（未填）</span></p>
+          <p class="row"><b>知道局限：</b><span class="ed">本章新增：无法确定暗处的威胁是什么。</span></p>
+
+          <h2>关系与状态</h2>
+          <p class="row"><b>关系网：</b><span class="ed">杨寒：血亲（相依为命）／杨妙萍：旧识（已故）</span></p>
+          <p class="row"><b>当前状态：</b><span class="ed">重伤未愈，被杨寒背着转移</span></p>
+          <p class="row"><b>出场组织：</b><span class="ed unfilled">（未填）</span></p>
+          <p class="row"><b>备注：</b><span class="ed unfilled">（未填）</span></p>
+
+          <h2>研究文件</h2>
+          <p class="row"><b>人物小传：</b><span class="ed">已生成 · 3 段</span></p>
+          <p class="row"><b>语言习惯：</b><span class="ed">已生成 · 2 段</span></p>
+          <p class="row"><b>关键关系：</b><span class="ed">已生成 · 4 条</span></p>
+          <p class="row"><b>动机与弧光：</b><span class="ed unfilled">（未生成）</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>N2 要点</h5>
+    <ul>
+      <li>纸卡居中，四周留白 —— 视线聚焦在正文上，长的角色档案读起来更松弛。</li>
+      <li>与 N1 相比多了一层容器，但**可用宽度略窄**（纸卡有内边距）。</li>
+      <li>同样零按钮、零页签、点哪改哪。</li>
+    </ul>
+    <div class="pick">适合：希望阅读时更有"稿件感"，不介意正文列更窄。</div>
+  </div>
+</section>
+
+<!-- ==================== N3 ==================== -->
+<section class="part" data-view="n3">
+  <h2>N3 · 分节块编辑</h2>
+  <p class="lead">把每个字段做成一块，悬停时左侧出现拖动点、右侧出现「＋」。像 Notion 那样一块一块改，空字段也能直接点进去填。</p>
+  <div class="tools">
+    <label class="toggle"><input type="checkbox" checked data-unfilled> 显示未填项</label>
+    <span style="font-size:12px;color:var(--muted)">悬停任意一行看块级提示</span>
+  </div>
+
+  <div class="pane">
+    <div class="pane-bar"><b>林小满</b>
+      <div class="seg"><span>表格</span><span>并排</span><span class="on">MD</span></div></div>
+    <div class="pane-body">
+      <div class="sheet">
+        <div class="paper-in doc" data-body>
+          <h1>林小满 · 人物 Skill</h1>
+          <p class="meta">主要人物 · 女 · 十六七 · 出场 15 次 · 活跃</p>
+
+          <h2>基本信息</h2>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>姓名：</b><span class="ed">林小满</span></p></div>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>性别：</b><span class="ed">女</span></p></div>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>年龄：</b><span class="ed">十六七</span></p></div>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>定位：</b><span class="ed">主要人物</span></p></div>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>势力组织：</b><span class="ed">地下回收队</span></p></div>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>外貌：</b><span class="ed unfilled">点击填写…</span></p></div>
+
+          <h2>语言与行为</h2>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>怎么说话：</b><span class="ed">在睡梦中无意识发出破碎音节；被惊动时挤出一个字。</span></p></div>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>怎么想：</b><span class="ed">在沉睡中极不安稳，额头沁汗，嘴唇翕动。</span></p></div>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>怎么判断：</b><span class="ed">判断杨寒是安全的，所以在他握住手时放松。</span></p></div>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>什么不做：</b><span class="ed unfilled">点击填写…</span></p></div>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>知道局限：</b><span class="ed">无法确定暗处的威胁是什么。</span></p></div>
+
+          <h2>关系与状态</h2>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>关系网：</b><span class="ed">杨寒：血亲（相依为命）／杨妙萍：旧识（已故）</span></p></div>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>当前状态：</b><span class="ed">重伤未愈，被杨寒背着转移</span></p></div>
+          <div class="n3-block"><span class="n3-handle">⠿</span><span class="n3-add">＋</span>
+            <p class="row" style="margin:0"><b>备注：</b><span class="ed unfilled">点击填写…</span></p></div>
+
+          <h2>研究文件</h2>
+          <div class="n3-block"><span class="n3-handle">⠿</span>
+            <p class="row" style="margin:0"><b>人物小传：</b><span class="ed">已生成 · 3 段</span></p></div>
+          <div class="n3-block"><span class="n3-handle">⠿</span>
+            <p class="row" style="margin:0"><b>语言习惯：</b><span class="ed">已生成 · 2 段</span></p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>N3 要点</h5>
+    <ul>
+      <li>每行是一个块：悬停出拖动点与「＋」，将来可以拖动排序、插入自定义字段。</li>
+      <li>空字段显示「点击填写…」，比「（未填）」更明确是"可以点的"。</li>
+      <li>视觉上块与块之间留了间距，长文档会比 N1 更长一些。</li>
+    </ul>
+    <div class="pick">适合：以后想支持「自定义字段 / 拖动排序」时，N3 是唯一能长出来的结构。</div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll('.tabs').forEach(function (nav) {
+    nav.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        nav.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        var key = btn.dataset.part;
+        document.querySelectorAll('.part').forEach(function (p) {
+          p.classList.toggle('on', p.dataset.view === key);
+        });
+        window.scrollTo({ top: nav.offsetTop - 8, behavior: 'smooth' });
+      });
+    });
+  });
+
+  document.querySelectorAll('[data-unfilled]').forEach(function (input) {
+    input.addEventListener('change', function () {
+      var part = input.closest('.part');
+      part.querySelector('[data-body]').classList.toggle('hide-unfilled', !input.checked);
+    });
+  });
+
+  document.querySelectorAll('[data-editing]').forEach(function (input) {
+    input.addEventListener('change', function () {
+      var part = input.closest('.part');
+      part.querySelector('[data-body]').classList.toggle('demo-editing', input.checked);
+    });
+  });
+
+  // 默认开启可编辑演示
+  document.querySelectorAll('[data-body]').forEach(function (b) { b.classList.add('demo-editing'); });
+</script>
+</body>
+</html>

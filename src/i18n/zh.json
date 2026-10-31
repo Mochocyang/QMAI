@@ -177,7 +177,9 @@
     "newChapterPrompt": "请输入章节标题",
     "newOutlinePrompt": "请输入大纲标题",
     "newVolumePrompt": "请输入卷名称",
-    "newFolderPrompt": "请输入文件夹名称"
+    "newFolderPrompt": "请输入文件夹名称",
+    "newPersonaRole": "新建人物角色",
+    "newPersonaRolePrompt": "请输入人物姓名"
   },
   "project": {
     "createTitle": "新建小说项目",
@@ -588,8 +590,8 @@
         "endpointPreviewWillUse": "将使用",
         "endpointPreviewAutoApply": "，失焦后自动应用",
         "functionCalling": {
-          "label": "启用 Function Calling",
-          "hint": "关闭后，使用该供应商时请求不携带 tools/tool_choice（含内置工具），用于兼容不支持工具调用的中转或本地模型。",
+          "label": "开启工具调用",
+          "hint": "工具调用：读小说资料、写入章节与大纲、联网搜索等，都是通过调用工具完成的。关闭后，发给该供应商的请求不再携带工具定义，模型只会纯聊天——用于兼容不支持工具调用的中转或本地模型。",
           "stateOn": "ON",
           "stateOff": "OFF"
         },
@@ -1088,7 +1090,9 @@
     "deletingTitle": "正在移入回收站：{{name}}…",
     "confirmDeleteTitle": "再次点击确认移入回收站：{{name}}",
     "confirmDelete": "确认",
-    "deleteTitle": "移入回收站：{{name}}"
+    "deleteTitle": "移入回收站：{{name}}",
+    "protectedFolderAlert": "「人物小传」是固定文件夹，不能删除。如需清理某个角色，请在人物小传里单独删除该角色。",
+    "personaDetachConfirm": "这份大纲关联了 {{count}} 位角色（{{names}}）。\n\n点「确定」：从人物小传中移除 {{removals}}。\n手工创建、已标绿勾、仍被其他大纲引用的角色（共 {{kept}} 位）会自动保留。\n点「取消」：一位都不移除，全部转为「潜伏」并停止随本大纲更新。"
   },
   "activity": {
     "processing": "处理中：{{title}}",
@@ -1256,7 +1260,9 @@
       "newChapterPrompt": "请输入章节标题",
       "newOutlinePrompt": "请输入大纲标题",
       "newVolumePrompt": "请输入卷名称",
-      "newFolderPrompt": "请输入文件夹名称"
+      "newFolderPrompt": "请输入文件夹名称",
+      "newPersonaRole": "新建人物角色",
+      "newPersonaRolePrompt": "请输入人物姓名"
     },
     "history": {
       "delete": "删除",

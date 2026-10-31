@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>人物档案 · 窄栏重排方案</title>
+<style>
+  :root{
+    --canvas:#edf1ec; --paper:#fcfdfb; --panel:#f2f5ef; --soft:#e4ece3;
+    --ink:#273c35; --muted:#5d6e64; --accent:#45624f; --on-accent:#fff;
+    --line:#dfe6da; --warm:#f3ebdf; --danger:#943f36;
+    --serif:"Songti SC",Georgia,"Times New Roman",serif;
+    --sh-sm:0 1px 2px rgba(23,35,29,.05);
+    --sh-lg:0 14px 40px rgba(23,35,29,.15);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:#e7ebe6;color:var(--ink);
+    font:13.5px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;}
+
+  .doc-head{max-width:1180px;margin:0 auto;padding:38px 32px 4px;}
+  .doc-head .eyebrow{font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:9px;}
+  .doc-head h1{font-size:25px;margin:0 0 9px;letter-spacing:-.01em;}
+  .doc-head > p{margin:0 0 10px;color:var(--muted);font-size:13.5px;max-width:920px;}
+  .doc-head > p b{color:var(--ink);}
+  .issues{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:14px 0 0;}
+  .issue{border:1px solid var(--line);border-radius:11px;background:var(--paper);padding:11px 13px;}
+  .issue h6{margin:0 0 4px;font-size:12px;color:var(--danger);letter-spacing:.03em;}
+  .issue p{margin:0;font-size:12px;color:var(--muted);line-height:1.7;}
+
+  .tabs{position:sticky;top:0;z-index:60;display:flex;gap:8px;flex-wrap:wrap;
+    max-width:1180px;margin:20px auto 0;padding:11px 32px;
+    background:rgba(231,235,230,.94);backdrop-filter:blur(8px);}
+  .tabs button{appearance:none;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    padding:8px 15px;border-radius:10px;font-size:13px;cursor:pointer;}
+  .tabs button.on{background:var(--accent);color:var(--on-accent);border-color:transparent;
+    box-shadow:0 2px 8px rgba(69,98,79,.26);}
+
+  .part{display:none;max-width:1180px;margin:0 auto;padding:20px 32px 60px;}
+  .part.on{display:block;}
+  .part > h2{font-size:19px;margin:0 0 5px;}
+  .part > .lead{color:var(--muted);margin:0 0 12px;max-width:900px;}
+
+  .tools{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px;}
+  .wswitch{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--paper);}
+  .wswitch button{appearance:none;border:0;background:transparent;color:var(--muted);
+    padding:6px 13px;font-size:12.5px;cursor:pointer;}
+  .wswitch button.on{background:var(--accent);color:var(--on-accent);font-weight:500;}
+  .vswitch{display:inline-flex;gap:6px;flex-wrap:wrap;}
+  .vswitch button{appearance:none;border:1px solid var(--line);background:transparent;color:var(--muted);
+    padding:5px 11px;border-radius:99px;font-size:12px;cursor:pointer;}
+  .vswitch button.on{background:var(--panel);color:var(--ink);border-color:var(--soft);font-weight:500;}
+  .hint{color:var(--muted);font-size:12px;}
+
+  /* ===== 模拟中栏 ===== */
+  .pane-wrap{display:flex;justify-content:flex-start;}
+  .pane{
+    width:520px;max-width:100%;
+    border:1px solid var(--line);border-radius:13px;overflow:hidden;
+    background:var(--canvas);box-shadow:var(--sh-lg);
+    transition:width .2s;
+  }
+  .pane.is-wide{width:900px;}
+  .pane-bar{display:flex;align-items:center;gap:10px;padding:9px 14px;
+    border-bottom:1px solid var(--line);background:var(--paper);}
+  .pane-bar b{font-family:var(--serif);font-size:15px;}
+  .pane-bar .seg{margin-left:auto;display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;flex-shrink:0;}
+  .pane-bar .seg span{padding:4px 10px;font-size:11.5px;color:var(--muted);}
+  .pane-bar .seg span.on{background:var(--accent);color:var(--on-accent);font-weight:500;}
+  .pane-tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--paper);overflow-x:auto;}
+  .pane-tabs span{padding:8px 11px;font-size:12px;color:var(--muted);border-bottom:2px solid transparent;white-space:nowrap;}
+  .pane-tabs span.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:500;}
+  .pane-body{padding:14px 16px 20px;}
+
+  /* ===== 核心：分组卡片 + 两列字段 ===== */
+  .sec{border:1px solid var(--line);border-radius:11px;background:var(--paper);
+    padding:13px 15px;margin-bottom:12px;}
+  .sec:last-child{margin-bottom:0;}
+  .sec-head{display:flex;align-items:baseline;gap:8px;margin:0 0 11px;}
+  .sec-head h5{margin:0;font-size:12.5px;font-weight:600;color:var(--ink);}
+  .sec-head .tip{margin-left:auto;font-size:11px;color:var(--muted);}
+
+  /* 字段栅格：默认两列；窄于此自动一列；长字段始终整行 */
+  .fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px 14px;}
+  .f{min-width:0;}
+  .f.is-full{grid-column:1 / -1;}
+  .f > label{display:block;font-size:11px;color:var(--muted);margin-bottom:3px;}
+  .f .box{width:100%;padding:7px 9px;border:1px solid color-mix(in srgb,var(--line) 88%,transparent);
+    border-radius:7px;background:var(--canvas);font-size:12.5px;line-height:1.5;color:var(--ink);
+    word-break:break-word;}
+  .f .box.ro{border-color:transparent;background:transparent;padding:7px 2px;color:var(--muted);}
+  .f .box.ta{min-height:66px;}
+  .f .box.ph{color:var(--muted);opacity:.62;}
+
+  /* ===== 性格区 ===== */
+  .chip{display:inline-block;padding:4px 10px;border-radius:99px;font-size:11.5px;
+    border:1px solid var(--line);background:var(--canvas);color:var(--muted);}
+  .chip.on{background:var(--accent);color:var(--on-accent);border-color:transparent;font-weight:500;}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;}
+  .budget{height:5px;border-radius:99px;background:var(--line);overflow:hidden;margin:7px 0 9px;}
+  .budget i{display:block;height:100%;background:var(--accent);width:60%;}
+  .count{margin-left:auto;font-size:11px;color:var(--muted);}
+
+  /* 绑定灵魂：单行 */
+  .soul{display:flex;align-items:center;gap:10px;min-height:40px;
+    padding:6px 11px;border:1px solid var(--line);border-radius:9px;background:var(--canvas);}
+  .soul .nm{font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .soul .sub{font-size:11px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .soul .btn{margin-left:auto;flex-shrink:0;}
+
+  .btn{appearance:none;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    padding:4px 10px;border-radius:7px;font-size:11.5px;white-space:nowrap;display:inline-flex;align-items:center;gap:5px;}
+  .btn-p{background:var(--accent);color:var(--on-accent);border-color:transparent;font-weight:500;}
+
+  /* 注入预览：三种放法 */
+  .inj-inline{display:flex;align-items:center;gap:8px;margin-top:9px;padding:7px 11px;
+    border:1px dashed var(--line);border-radius:8px;background:color-mix(in srgb,var(--soft) 32%,transparent);
+    font-size:11.5px;color:var(--muted);}
+  .inj-inline .k{flex-shrink:0;color:var(--accent);font-weight:600;}
+  .inj-inline .v{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .inj-fold{display:flex;align-items:center;gap:8px;margin-top:9px;padding:7px 11px;
+    border:1px solid var(--line);border-radius:8px;background:var(--canvas);font-size:11.5px;color:var(--muted);}
+  .inj-fold .chev{margin-left:auto;flex-shrink:0;}
+  .inj-bottom{margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;
+    background:var(--paper);font-size:11.5px;line-height:1.7;color:var(--muted);}
+  .inj-bottom b{color:var(--accent);}
+
+  /* 分类折叠行 */
+  .catrow{display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px dashed color-mix(in srgb,var(--line) 80%,transparent);}
+  .catrow:last-child{border-bottom:0;}
+  .catrow .name{flex-shrink:0;width:38px;font-size:11.5px;color:var(--muted);}
+  .catrow .sel{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-size:11.5px;color:var(--ink);}
+  .catrow .sel.ph{color:var(--muted);opacity:.6;}
+  .catrow .expand{flex-shrink:0;font-size:11px;color:var(--accent);}
+  .catexp{padding:8px 2px 10px;}
+  .catexp .chips{gap:5px;}
+  .catexp .chip{font-size:11px;padding:3px 9px;}
+
+  /* ===== 语言与行为：整行 ===== */
+  .actrow{display:grid;grid-template-columns:76px minmax(0,1fr);gap:12px;align-items:start;
+    padding:9px 0;border-bottom:1px dashed color-mix(in srgb,var(--line) 80%,transparent);}
+  .actrow:last-child{border-bottom:0;}
+  .actrow > .k{padding-top:8px;font-size:11.5px;color:var(--muted);}
+  .actrow .box{width:100%;padding:8px 10px;border:1px solid color-mix(in srgb,var(--line) 88%,transparent);
+    border-radius:7px;background:var(--canvas);font-size:12.5px;line-height:1.75;color:var(--ink);}
+
+  .notes{margin:16px 0 0;padding:14px 16px;border:1px solid var(--line);border-radius:11px;background:var(--paper);}
+  .notes h5{margin:0 0 8px;font-size:12.5px;}
+  .notes ul{margin:0;padding-left:18px;color:var(--muted);font-size:12.5px;line-height:1.8;}
+  .notes ul b{color:var(--ink);font-weight:500;}
+  .notes code{background:var(--panel);padding:1px 5px;border-radius:4px;font-size:11.5px;}
+  .notes .fix{margin:10px 0 0;padding:9px 11px;border-radius:8px;background:#f6f0e2;color:#6b5a35;
+    font-size:11.5px;line-height:1.72;}
+
+  @media (max-width:1120px){ .issues{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <div class="eyebrow">QMAI · 人物档案 · 窄栏重排</div>
+  <h1>中栏变窄后的三段重排方案</h1>
+  <p>三张截图里的问题都指向同一个根因：<b>中栏只有 520–900px，却按宽屏排版</b>。下面按「窄栏优先」重排，并提供<b>窄 / 宽切换</b>让你直接对比。</p>
+  <div class="issues">
+    <div class="issue">
+      <h6>① 档案太挤</h6>
+      <p>现在把「基本 / 归属 / 外形」塞成左右两列，每列内部又是 5 列字段 ⇒ 一格只剩 20px 宽，「最近出场」被压成三行。</p>
+    </div>
+    <div class="issue">
+      <h6>② 注入预览「双蓝」</h6>
+      <p>性格块与注入预览左右并排，两个浅色块贴在一起，视觉上像两个并列的蓝框，主次不分。</p>
+    </div>
+    <div class="issue">
+      <h6>③ 语言与行为太窄</h6>
+      <p>5 条演技字段用两列网格 ⇒ 每个框只有约 150px，长句被截断成三四行，读不下去。</p>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button data-part="a" class="on">① 档案页</button>
+  <button data-part="b">② 性格与灵魂</button>
+  <button data-part="c">③ 语言与行为</button>
+</nav>
+
+<!-- ============ ① 档案 ============ -->
+<section class="part on" data-view="a">
+  <h2>① 档案页 · 分组卡片 + 两列字段</h2>
+  <p class="lead">从「多列并排的表格」改成<b>上下堆叠的分组卡</b>：每张卡内部两列字段，长字段整行。窄栏时自动退成一列，不会再把文字压成竖排。</p>
+
+  <div class="notes" style="margin:0 0 14px">
+    <h5>本次调整：外形 · 能力 · 成长 改成一行一条</h5>
+    <p style="margin:0;color:var(--muted);font-size:12.5px;line-height:1.8">
+      这三格装的都是<b style="color:var(--ink)">整句话</b>（「体型、衣着、伤疤、习惯性的小动作」），
+      两列平分后每格只有约 210px，读起来还是被切断。
+      所以判据从「字段长短」改成 <b style="color:var(--ink)">短值两列 / 整句整行</b>：
+      这三格与「语言与行为」一样，左侧标签 + 右侧整行输入框。
+    </p>
+  </div>
+  <div class="tools">
+    <div class="wswitch" data-w="a">
+      <button data-w="narrow" class="on">窄栏 520px</button>
+      <button data-w="wide">宽栏 900px</button>
+    </div>
+    <span class="hint">切一下宽度，看同一套排版在两种宽度下是否都成立</span>
+  </div>
+
+  <div class="pane-wrap">
+    <div class="pane" data-pane="a">
+      <div class="pane-bar"><b>杨寒</b>
+        <div class="seg"><span class="on">表格</span><span>并排</span><span>MD</span></div></div>
+      <div class="pane-tabs"><span class="on">档案</span><span>性格与灵魂</span><span>语言与行为</span><span>关系与状态</span><span>研究文件</span></div>
+      <div class="pane-body">
+        <section class="sec">
+          <div class="sec-head"><h5>基本</h5></div>
+          <div class="fields">
+            <div class="f"><label>姓名</label><div class="box ro">杨寒</div></div>
+            <div class="f"><label>定位</label><div class="box">男主 ▾</div></div>
+            <div class="f"><label>性别</label><div class="box ph">留空</div></div>
+            <div class="f"><label>年龄</label><div class="box">二十出头</div></div>
+          </div>
+        </section>
+
+        <section class="sec">
+          <div class="sec-head"><h5>归属与出场</h5><span class="tip">只读项不必可填</span></div>
+          <div class="fields">
+            <div class="f"><label>势力组织</label><div class="box">地下回收队</div></div>
+            <div class="f"><label>出场次数</label><div class="box ro">18 次</div></div>
+            <div class="f"><label>首次出场</label><div class="box ro">第 3 章</div></div>
+            <div class="f"><label>最近出场</label><div class="box ro">第 19 章</div></div>
+          </div>
+        </section>
+
+        <section class="sec">
+          <div class="sec-head"><h5>外形 · 能力 · 成长</h5><span class="tip">整句描述 → 一行一条</span></div>
+          <div class="actrow"><div class="k">外貌</div>
+            <div class="box ph">体型、衣着、伤疤、习惯性的小动作</div></div>
+          <div class="actrow"><div class="k">能力</div>
+            <div class="box ph">擅长什么、弱点在哪</div></div>
+          <div class="actrow"><div class="k">成长轨迹</div>
+            <div class="box ph">从哪来、往哪去</div></div>
+        </section>
+
+        <section class="sec">
+          <div class="sec-head"><h5>背景与动机</h5><span class="tip">长文本 → 整行</span></div>
+          <div class="fields">
+            <div class="f is-full"><label>背景</label><div class="box ta ph">出身、经历、现在的处境</div></div>
+            <div class="f is-full"><label>动机</label><div class="box ta ph">他想要什么</div></div>
+          </div>
+        </section>
+
+        <section class="sec">
+          <div class="sec-head"><h5>其他</h5></div>
+          <div class="fields">
+            <div class="f is-full"><label>备注</label><div class="box ph">给自己看的</div></div>
+            <div class="f"><label>建档章节</label><div class="box ro">第 1 章</div></div>
+            <div class="f"><label>最近学习</label><div class="box ro">第 19 章</div></div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>规则</h5>
+    <ul>
+      <li>分组<b>上下堆叠</b>，每组一张卡；卡内字段 <code>grid-template-columns: repeat(2, minmax(0,1fr))</code>。</li>
+      <li><b>按内容长度分两类</b>（这是唯一的分列依据）：
+        <br>· <b>短值</b>（姓名 / 性别 / 年龄 / 定位 / 状态 / 出场次数 / 首末章 / 建档章节）→ 两列；
+        <br>· <b>整句描述</b>（外貌 / 能力 / 成长轨迹 / 背景 / 动机 / 备注 / 关系网）→ <b>一行一条，占满整行</b>。</li>
+      <li>断点：容器宽度 &lt; <b>440px</b> 时整组退成一列。判定用容器宽度（<code>@container</code>）而不是窗口宽度 —— 中栏宽度和窗口宽度不是一回事。</li>
+      <li>只读项（出场次数、章节）用无框文字，不再画成输入框：能改的和不能改的必须一眼分得开。</li>
+    </ul>
+    <div class="fix"><b>与现在的差别：</b>现在是「小节并排成两列 + 字段再分 5 列」，总共 10 列，一格只剩 20px。现在固定<b>最多 2 列</b>。</div>
+  </div>
+</section>
+
+<!-- ============ ② 性格与灵魂 ============ -->
+<section class="part" data-view="b">
+  <h2>② 性格与灵魂 · 注入预览换个位置</h2>
+  <p class="lead">问题不在预览本身，而是它和「性格」并排时形成了两个并列的浅色块。下面给三种放法，选一个。</p>
+
+  <div class="tools">
+    <div class="vswitch" data-v="b">
+      <button data-v="v1" class="on">A · 贴在灵魂下方（细条）</button>
+      <button data-v="v2">B · 折叠成一行</button>
+      <button data-v="v3">C · 挪到页尾</button>
+    </div>
+    <div class="wswitch" data-w="b">
+      <button data-w="narrow" class="on">窄栏</button>
+      <button data-w="wide">宽栏</button>
+    </div>
+  </div>
+
+  <div class="pane-wrap">
+    <div class="pane" data-pane="b">
+      <div class="pane-bar"><b>杨寒</b>
+        <div class="seg"><span class="on">表格</span><span>并排</span><span>MD</span></div></div>
+      <div class="pane-tabs"><span>档案</span><span class="on">性格与灵魂</span><span>语言与行为</span><span>关系与状态</span><span>研究文件</span></div>
+      <div class="pane-body">
+
+        <section class="sec">
+          <div class="sec-head"><h5>绑定灵魂</h5><span class="tip">先定底子，再挑性格</span></div>
+          <div class="soul">
+            <span class="nm">严肃沉稳</span>
+            <span class="sub">只决定「怎么演」</span>
+            <button class="btn">更换</button>
+          </div>
+
+          <!-- A · 细条 -->
+          <div class="inj-inline" data-inj="v1">
+            <span class="k">注入预览</span>
+            <span class="v">人物性格：毒舌、嘴硬心软、外表凶内心怂（性格优先于灵魂基线）</span>
+            <span class="count" style="margin-left:0">12 / 20 字</span>
+          </div>
+          <!-- B · 折叠 -->
+          <div class="inj-fold" data-inj="v2" style="display:none">
+            <span>注入预览</span>
+            <span class="sub" style="color:var(--muted)">人物性格：毒舌、嘴硬心软…</span>
+            <span class="chev">展开 ▾</span>
+          </div>
+        </section>
+
+        <section class="sec">
+          <div class="sec-head"><h5>性格</h5><span class="count">3 / 4 条 · 12 / 20 字</span></div>
+          <div class="budget"><i></i></div>
+          <div class="chips">
+            <span class="chip on">毒舌 ×</span><span class="chip on">嘴硬心软 ×</span><span class="chip on">外表凶内心怂 ×</span>
+            <span class="chip">＋ 添加</span>
+          </div>
+        </section>
+
+        <section class="sec">
+          <div class="sec-head"><h5>按分类挑单个</h5><span class="tip">每类折叠，只显示已选</span></div>
+          <div class="catrow"><span class="name">语气</span><span class="sel">毒舌 · 嘴硬心软</span><span class="expand">18 条 ▾</span></div>
+          <div class="catexp">
+            <div class="chips">
+              <span class="chip on">毒舌</span><span class="chip on">嘴硬心软</span><span class="chip">阴阳怪气</span>
+              <span class="chip">一本正经说胡话</span><span class="chip">满口网络梗</span><span class="chip">爱说歇后语</span>
+              <span class="chip">惜字如金</span><span class="chip">话痨</span>
+            </div>
+          </div>
+          <div class="catrow"><span class="name">怪癖</span><span class="sel ph">未选</span><span class="expand">20 条 ▸</span></div>
+          <div class="catrow"><span class="name">关系</span><span class="sel ph">未选</span><span class="expand">20 条 ▸</span></div>
+          <div class="catrow"><span class="name">反差</span><span class="sel">外表凶内心怂</span><span class="expand">20 条 ▸</span></div>
+        </section>
+
+        <!-- C · 页尾 -->
+        <div class="inj-bottom" data-inj="v3" style="display:none">
+          <b>注入预览</b>　人物性格：毒舌、嘴硬心软、外表凶内心怂
+          <br><span style="opacity:.8">（性格优先于灵魂基线：灵魂只决定「怎么演」，性格决定「演成什么样」）</span>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>三种放法</h5>
+    <ul>
+      <li><b>A 细条（推荐）</b>：贴在「绑定灵魂」卡内的最下方，一行小字 + 字数。它和灵魂是同一件事的上下游，放一起讲得通；样式用虚线细条，不再和上面的卡抢视觉。</li>
+      <li><b>B 折叠</b>：默认只显示省略后的一行，点开才看全文。最省空间，但用户不会主动点，等于藏起来。</li>
+      <li><b>C 页尾</b>：放到整个页面最下面，全宽。适合放到最后当「核对」用，但离性格太远，改完看不到即时反馈。</li>
+    </ul>
+    <div class="fix"><b>为什么原来会「双蓝」：</b>性格块与注入预览当时是<b>两个并排的卡片</b>，背景都是浅色、圆角一致，读起来像两个并列的蓝色方框。现在注入预览换成<b>虚线细条</b>，从「卡片」降级成「附注」，主次立刻分开。</div>
+  </div>
+</section>
+
+<!-- ============ ③ 语言与行为 ============ -->
+<section class="part" data-view="c">
+  <h2>③ 语言与行为 · 一行一条，占满宽度</h2>
+  <p class="lead">这 5 条内容都不短，两列并排只会把每句话切成三四行。改成一类一行，输入框吃掉整行宽度。</p>
+
+  <div class="tools">
+    <div class="wswitch" data-w="c">
+      <button data-w="narrow" class="on">窄栏 520px</button>
+      <button data-w="wide">宽栏 900px</button>
+    </div>
+    <span class="hint">窄栏下也能一行读完一句话</span>
+  </div>
+
+  <div class="pane-wrap">
+    <div class="pane" data-pane="c">
+      <div class="pane-bar"><b>杨寒</b>
+        <div class="seg"><span class="on">表格</span><span>并排</span><span>MD</span></div></div>
+      <div class="pane-tabs"><span>档案</span><span>性格与灵魂</span><span class="on">语言与行为</span><span>关系与状态</span><span>研究文件</span></div>
+      <div class="pane-body">
+        <section class="sec">
+          <div class="sec-head"><h5>写正文时真正喂给模型的 5 条</h5></div>
+
+          <div class="actrow"><div class="k">怎么说话</div>
+            <div class="box">本章新增：对林小满说话时，语气简短但带着温度，如「没事了。」；对逼近的威胁时，低声说「来吧，我陪你。」</div></div>
+          <div class="actrow"><div class="k">怎么想</div>
+            <div class="box">本章新增：看到林小满在睡梦中条件反射地喊「到」，心里烧起一股火，五脏六腑都疼；意识到姑姑的死和林小满的创伤不是孤立恶行。</div></div>
+          <div class="actrow"><div class="k">怎么判断</div>
+            <div class="box">本章新增：判断废车场虽隐蔽但绝非长久之计，必须尽快找到下一个落脚点。</div></div>
+          <div class="actrow"><div class="k">什么不做</div>
+            <div class="box">本章新增：不放鬆警惕，即使暂时安全也保持警觉；不告诉林小满自己的不安和伤势。</div></div>
+          <div class="actrow"><div class="k">知道局限</div>
+            <div class="box">本章新增：知道自己无法确定暗处的威胁是什么，只能拼出残缺信息；知道林小满的伤在骨头里。</div></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>规则</h5>
+    <ul>
+      <li>结构：<code>grid-template-columns: 76px minmax(0,1fr)</code> —— 左侧固定标签，右侧输入框吃掉剩余全部宽度。</li>
+      <li>行高与内距放大到 <b>1.75 行高 / 8px 内距</b>，一句中文约 40 字能排两行内，不用滚。</li>
+      <li>行间用虚线分隔而不是盒子堆叠，避免 5 个框显得很重。</li>
+      <li>不再随宽度变化换列 —— 这类字段永远一条一行，宽窄都成立。</li>
+    </ul>
+    <div class="fix"><b>为什么原来是两列：</b>当时想省纵向空间，但这条页只有 5 个字段，纵向根本不紧张；横向压缩导致每句被截断，反而更难读。</div>
+  </div>
+</section>
+
+<script>
+  // 顶层切换
+  document.querySelectorAll('.tabs').forEach(function (nav) {
+    nav.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        nav.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        var key = btn.dataset.part;
+        document.querySelectorAll('.part').forEach(function (p) {
+          p.classList.toggle('on', p.dataset.view === key);
+        });
+        window.scrollTo({ top: nav.offsetTop - 8, behavior: 'smooth' });
+      });
+    });
+  });
+
+  // 宽度切换
+  document.querySelectorAll('[data-w]').forEach(function (group) {
+    if (!group.classList.contains('wswitch')) return;
+    var part = group.closest('.part');
+    var pane = part.querySelector('.pane');
+    group.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        group.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        pane.classList.toggle('is-wide', btn.dataset.w === 'wide');
+      });
+    });
+  });
+
+  // 注入预览位置切换
+  var vGroup = document.querySelector('[data-v="b"]');
+  if (vGroup) {
+    vGroup.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        vGroup.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        var key = btn.dataset.v;
+        document.querySelectorAll('[data-inj]').forEach(function (el) {
+          el.style.display = el.dataset.inj === key ? '' : 'none';
+        });
+      });
+    });
+  }
+</script>
+</body>
+</html>

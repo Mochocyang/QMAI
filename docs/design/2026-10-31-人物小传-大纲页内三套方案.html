@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>人物小传 · 大纲页内三栏方案（三套）</title>
+<style>
+  :root{
+    --canvas:#edf1ec; --paper:#fcfdfb; --panel:#f2f5ef; --soft:#e4ece3;
+    --ink:#273c35; --muted:#5d6e64; --accent:#45624f; --on-accent:#fff;
+    --line:#dfe6da; --warm:#f3ebdf; --danger:#943f36;
+    --serif:"Songti SC",Georgia,"Times New Roman",serif;
+    --sh-sm:0 1px 2px rgba(23,35,29,.05);
+    --sh-lg:0 16px 44px rgba(23,35,29,.16);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:#e7ebe6;color:var(--ink);
+    font:13.5px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;}
+
+  .doc-head{max-width:1180px;margin:0 auto;padding:40px 32px 6px;}
+  .doc-head .eyebrow{font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:9px;}
+  .doc-head h1{font-size:25px;margin:0 0 9px;letter-spacing:-.01em;}
+  .doc-head > p{margin:0 0 12px;color:var(--muted);font-size:13.5px;max-width:940px;}
+  .doc-head > p b{color:var(--ink);}
+  .reqs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0 0;}
+  .req{border:1px solid var(--line);border-radius:11px;background:var(--paper);padding:11px 13px;}
+  .req h6{margin:0 0 4px;font-size:12px;color:var(--accent);letter-spacing:.04em;}
+  .req p{margin:0;font-size:12px;color:var(--muted);line-height:1.7;}
+  .req p b{color:var(--ink);}
+
+  .tabs{position:sticky;top:0;z-index:60;display:flex;gap:8px;flex-wrap:wrap;
+    max-width:1180px;margin:22px auto 0;padding:11px 32px;
+    background:rgba(231,235,230,.94);backdrop-filter:blur(8px);}
+  .tabs button{appearance:none;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    padding:8px 15px;border-radius:10px;font-size:13px;cursor:pointer;}
+  .tabs button.on{background:var(--accent);color:var(--on-accent);border-color:transparent;
+    box-shadow:0 2px 8px rgba(69,98,79,.26);}
+
+  .plan{display:none;max-width:1180px;margin:0 auto;padding:22px 32px 80px;}
+  .plan.on{display:block;}
+  .plan > h2{font-size:20px;margin:0 0 5px;}
+  .plan > .lead{color:var(--muted);margin:0 0 12px;max-width:900px;}
+  .meta-row{display:flex;gap:20px;flex-wrap:wrap;margin:0 0 13px;font-size:12.5px;color:var(--muted);}
+  .meta-row b{color:var(--ink);font-weight:600;}
+  .subnav{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 14px;}
+  .subnav button{appearance:none;border:1px solid var(--line);background:transparent;color:var(--muted);
+    padding:6px 13px;border-radius:99px;font-size:12.5px;cursor:pointer;}
+  .subnav button.on{background:var(--panel);color:var(--ink);border-color:var(--soft);font-weight:500;}
+  .view{display:none;} .view.on{display:block;}
+
+  /* ===== 窗口 ===== */
+  .win{border:1px solid var(--line);border-radius:15px;overflow:hidden;background:var(--canvas);box-shadow:var(--sh-lg);}
+  .win-bar{display:flex;align-items:center;gap:12px;padding:8px 13px;background:#f6f8f4;border-bottom:1px solid var(--line);}
+  .win-bar .dots{display:flex;gap:5px;}
+  .win-bar .dots i{width:9px;height:9px;border-radius:50%;background:#d8ded4;display:block;}
+  .win-bar .title{font-size:12px;color:var(--muted);}
+  .win-bar .nav{margin-left:auto;display:flex;gap:2px;}
+  .win-bar .nav span{font-size:12px;color:var(--muted);padding:4px 10px;border-radius:6px;}
+  .win-bar .nav span.on{background:var(--soft);color:var(--ink);font-weight:500;}
+
+  .cols{display:grid;grid-template-columns:258px minmax(0,1fr) 292px;min-height:600px;}
+
+  /* 左：大纲列表 */
+  .c-left{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;}
+  .c-left-head{display:flex;align-items:center;gap:8px;padding:11px 12px;border-bottom:1px solid var(--line);}
+  .c-left-head b{font-size:12.5px;font-weight:600;}
+  .c-left-tools{display:flex;gap:5px;margin-left:auto;}
+  .icobtn{display:grid;place-items:center;width:22px;height:22px;border-radius:6px;
+    border:1px solid var(--line);background:var(--paper);color:var(--muted);font-size:11px;}
+  .icobtn.on{background:var(--accent);color:var(--on-accent);border-color:transparent;}
+  .tree{padding:8px 8px 16px;overflow-y:auto;}
+
+  .node{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:7px;
+    font-size:12.5px;color:var(--ink);cursor:default;}
+  .node:hover{background:color-mix(in srgb,var(--soft) 60%,transparent);}
+  .node.on{background:var(--paper);box-shadow:var(--sh-sm);font-weight:500;}
+  .node .chev{color:var(--muted);font-size:10px;width:10px;flex-shrink:0;}
+  .node .ico{color:var(--muted);font-size:11px;flex-shrink:0;}
+  .node .name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .node .count{margin-left:auto;color:var(--muted);font-size:11px;flex-shrink:0;}
+  .node .lock{color:var(--muted);font-size:10px;opacity:.75;}
+  .node.lv1{padding-left:20px;}
+  .node.lv2{padding-left:34px;}
+  .node.leaf{font-weight:400;}
+  .node.leaf.on{font-weight:500;}
+  .dot{width:6px;height:6px;border-radius:50%;background:#5f9b74;flex-shrink:0;}
+  .dot.dormant{background:#c2b184;}
+  .dot.cand{background:color-mix(in srgb,var(--ink) 22%,transparent);}
+  .tree-sep{height:1px;background:var(--line);margin:8px 10px;}
+  .pinned-tag{font-size:10px;padding:0 5px;border-radius:4px;background:var(--soft);color:var(--accent);}
+
+  /* 中：内容区 */
+  .c-mid{background:var(--canvas);display:flex;flex-direction:column;min-width:0;}
+  .mid-head{display:flex;align-items:center;gap:10px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--paper);}
+  .mid-head h3{margin:0;font-size:15px;font-family:var(--serif);letter-spacing:.01em;}
+  .mid-head .right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+  .mid-body{flex:1;overflow-y:auto;padding:16px 22px 26px;}
+
+  .btn{appearance:none;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    padding:5px 11px;border-radius:7px;font-size:12px;display:inline-flex;align-items:center;gap:5px;}
+  .btn-primary{background:var(--accent);color:var(--on-accent);border-color:transparent;font-weight:500;}
+  .btn-sm{padding:3px 8px;font-size:11px;}
+  .btn-danger{color:var(--danger);border-color:color-mix(in srgb,var(--danger) 34%,var(--line));}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:var(--paper);}
+  .seg span{padding:4px 11px;font-size:11.5px;color:var(--muted);cursor:pointer;}
+  .seg span.on{background:var(--accent);color:var(--on-accent);font-weight:500;}
+  .badge{display:inline-block;padding:1px 6px;border-radius:5px;font-size:10.5px;
+    background:color-mix(in srgb,var(--ink) 7%,transparent);color:var(--muted);}
+  .badge.type{background:var(--soft);color:var(--accent);font-weight:500;}
+  .badge.ok{background:#e3efe5;color:#2f6b46;}
+  .muted{color:var(--muted);} .tiny{font-size:11px;}
+
+  /* 表单（表格形式） */
+  .fsec{margin-bottom:16px;}
+  .fsec > h5{margin:0 0 8px;font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;display:flex;align-items:center;gap:8px;}
+  .fsec > h5::after{content:"";flex:1;height:1px;background:var(--line);}
+  .fgrid{display:grid;gap:9px 14px;}
+  .g4{grid-template-columns:repeat(4,minmax(0,1fr));}
+  .g3{grid-template-columns:repeat(3,minmax(0,1fr));}
+  .g2{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .sp2{grid-column:span 2;} .spFull{grid-column:1/-1;}
+  .f{min-width:0;}
+  .f > span{display:block;font-size:10.5px;color:var(--muted);margin-bottom:2px;}
+  .inp{width:100%;padding:5px 8px;border:1px solid color-mix(in srgb,var(--line) 88%,transparent);
+    border-radius:6px;background:var(--paper);color:var(--ink);font-size:12.5px;line-height:1.5;}
+  .inp.ro{background:transparent;border-color:transparent;color:var(--muted);}
+  textarea.inp{min-height:48px;line-height:1.7;}
+
+  /* MD 渲染 */
+  .md{font-size:12.5px;line-height:1.85;color:var(--ink);}
+  .md h1{font-family:var(--serif);font-size:19px;margin:0 0 10px;letter-spacing:.01em;}
+  .md h2{font-size:12.5px;margin:16px 0 6px;color:var(--accent);letter-spacing:.06em;
+    text-transform:uppercase;border-bottom:1px solid var(--line);padding-bottom:4px;}
+  .md h3{font-size:12.5px;margin:10px 0 4px;}
+  .md p{margin:0 0 8px;}
+  .md ul{margin:0 0 8px;padding-left:18px;}
+  .md li{margin:2px 0;}
+  .md code{background:var(--panel);padding:1px 5px;border-radius:4px;font-size:11.5px;}
+  .md hr{border:0;border-top:1px solid var(--line);margin:14px 0;}
+
+  /* 总览表 */
+  .ov{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;}
+  .ov th{text-align:left;font-weight:500;font-size:10.5px;color:var(--muted);
+    padding:0 10px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  .ov td{padding:8px 10px;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent);}
+  .ov tr:hover td{background:color-mix(in srgb,var(--paper) 70%,transparent);}
+  .ov .nm{display:flex;align-items:center;gap:7px;}
+  .ov .num{font-variant-numeric:tabular-nums;color:var(--muted);}
+  .ov-head{display:flex;align-items:center;gap:9px;margin:0 0 10px;}
+  .ov-head h4{margin:0;font-size:12.5px;}
+  .ov-head .n{font-size:11px;color:var(--muted);}
+  .ov-wrap{border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:10px 13px 4px;margin-bottom:16px;}
+
+  /* 候选折叠条 */
+  .cand-bar{display:flex;align-items:center;gap:9px;padding:9px 12px;border:1px dashed var(--line);
+    border-radius:9px;background:color-mix(in srgb,var(--paper) 62%,transparent);
+    color:var(--muted);font-size:11.5px;}
+  .cand-bar b{color:var(--ink);font-weight:500;}
+
+  /* 右：AI 栏 */
+  .c-right{border-left:1px solid var(--line);background:var(--paper);display:flex;flex-direction:column;}
+  .c-right-head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px;}
+  .c-right-head b{font-weight:600;}
+  .chat{padding:12px;display:flex;flex-direction:column;gap:9px;flex:1;overflow-y:auto;}
+  .msg{border-radius:8px;padding:8px 10px;font-size:11.5px;line-height:1.7;}
+  .msg.user{background:var(--soft);margin-left:26px;}
+  .msg.ai{background:var(--canvas);border:1px solid var(--line);margin-right:26px;}
+  .chat-input{margin:0 12px 12px;border:1px solid var(--line);border-radius:9px;background:var(--canvas);
+    padding:9px 10px;font-size:11.5px;color:var(--muted);}
+
+  /* 并排双格式 */
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:0;height:100%;}
+  .split > div{min-width:0;padding:14px 16px;overflow-y:auto;}
+  .split > div + div{border-left:1px solid var(--line);background:var(--paper);}
+  .split-label{position:sticky;top:0;font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--muted);background:inherit;padding-bottom:6px;}
+
+  .notes{margin:15px 0 0;padding:14px 16px;border:1px solid var(--line);border-radius:11px;background:var(--paper);}
+  .notes h5{margin:0 0 7px;font-size:12.5px;}
+  .notes ul{margin:0;padding-left:18px;color:var(--muted);font-size:12.5px;line-height:1.8;}
+  .notes ul b{color:var(--ink);font-weight:500;}
+  .notes .fix{margin:10px 0 0;padding:9px 11px;border-radius:8px;background:#f6f0e2;color:#6b5a35;
+    font-size:11.5px;line-height:1.72;}
+
+  .qbox{margin:24px 0 0;padding:16px 18px;border:1px solid var(--line);border-radius:12px;
+    background:var(--paper);max-width:1180px;}
+  .qbox h4{margin:0 0 9px;font-size:13.5px;}
+  .qbox ol{margin:0;padding-left:20px;color:var(--muted);font-size:12.5px;line-height:1.9;}
+  .qbox ol b{color:var(--ink);}
+
+  @media (max-width:1140px){
+    .cols{grid-template-columns:222px minmax(0,1fr) 250px;}
+    .reqs{grid-template-columns:1fr;}
+    .g4{grid-template-columns:repeat(2,minmax(0,1fr));}
+  }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <div class="eyebrow">QMAI · 人物小传 · 大纲页内方案</div>
+  <h1>把「人物」搬回大纲页：三套方案</h1>
+  <p>按你的描述，人物 Skill 要从技能库搬回<b>大纲页的第一栏</b>，作为固定文件夹「人物小传」存在；新建与编辑都发生在<b>中间栏</b>，不再跳独立页面。</p>
+  <div class="reqs">
+    <div class="req">
+      <h6>① 操作流程</h6>
+      <p>用户在大纲页点「新建人物角色」→ 中间栏直接出现人物信息表格，<b>不跳页</b>。</p>
+    </div>
+    <div class="req">
+      <h6>② 页面结构</h6>
+      <p>三栏不变。第一栏大纲列表里加<b>人物图标</b>，点开后所有人物都在第一栏。<b>所有人物信息都放在大纲列表里。</b></p>
+    </div>
+    <div class="req">
+      <h6>③ 列表规则</h6>
+      <p>「人物小传」<b>固定不可删除</b>；内含 <b>活跃角色</b> 与 <b>候选角色（可折叠）</b>；来源含手建 + AI 自动抓取。</p>
+    </div>
+    <div class="req">
+      <h6>④ 双显示格式</h6>
+      <p>同一份档案要能<b>表格形式</b>（像新建人物角色那张表）与 <b>MD 文档形式</b>（性格 / 语言 / 行为 / 关系与状态全部转 MD）。</p>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button data-plan="h1" class="on">H1 · 文件夹树 + 双格式切换</button>
+  <button data-plan="h2">H2 · 并排双格式</button>
+  <button data-plan="h3">H3 · 总览表驱动</button>
+</nav>
+
+<!-- ==================================================== H1 -->
+<section class="plan on" data-view="h1">
+  <h2>H1 · 文件夹树 + 双格式切换</h2>
+  <p class="lead">改动最贴合现有结构：左栏多一个固定的「人物小传」文件夹，中间栏用应用里已有的「表格 / MD」切换器（和现在看大纲文件的双格式完全一样）。</p>
+  <div class="meta-row"><div>改动量 <b>小</b></div><div>双格式 <b>切换</b></div><div>中间栏默认 <b>总览表</b></div></div>
+
+  <div class="subnav" data-subnav="h1">
+    <button data-sub="tree" class="on">① 点人物图标 → 左栏展开</button>
+    <button data-sub="table">② 选中角色 → 表格</button>
+    <button data-sub="md">③ 同一角色 → MD</button>
+    <button data-sub="create">④ 新建人物角色</button>
+  </div>
+
+  <div class="win">
+    <div class="win-bar"><div class="dots"><i></i><i></i><i></i></div><div class="title">青幕AI写作 · 黑雨之下</div>
+      <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div></div>
+
+    <div class="cols">
+      <!-- 左栏 -->
+      <div class="c-left">
+        <div class="c-left-head">
+          <b>大纲列表</b>
+          <div class="c-left-tools">
+            <span class="icobtn" title="新建">＋</span>
+            <span class="icobtn" title="导入">↥</span>
+            <span class="icobtn on" title="人物">人</span>
+          </div>
+        </div>
+        <div class="tree">
+          <div class="node"><span class="chev">▾</span><span class="ico">📁</span><span class="name">人物小传</span><span class="lock">🔒</span><span class="count">12</span></div>
+
+          <div class="node lv1 on"><span class="chev">▾</span><span class="ico">👤</span><span class="name">活跃角色</span><span class="count">7</span></div>
+          <div class="node lv2 leaf"><i class="dot"></i><span class="name">杨寒</span><span class="pinned-tag">★</span></div>
+          <div class="node lv2 leaf"><i class="dot"></i><span class="name">林小满</span><span class="pinned-tag">★</span></div>
+          <div class="node lv2 leaf"><i class="dot"></i><span class="name">杨妙萍</span></div>
+          <div class="node lv2 leaf"><i class="dot dormant"></i><span class="name">杨津艺</span></div>
+          <div class="node lv2 leaf"><i class="dot"></i><span class="name">小晚</span></div>
+
+          <div class="node lv1"><span class="chev">▸</span><span class="ico">👥</span><span class="name">候选角色</span><span class="count">5</span></div>
+
+          <div class="tree-sep"></div>
+          <div class="node"><span class="chev">▾</span><span class="ico">📁</span><span class="name">卷纲</span><span class="count">2</span></div>
+          <div class="node"><span class="chev">▸</span><span class="ico">📁</span><span class="name">能力库</span><span class="count">1</span></div>
+          <div class="node"><span class="chev">▸</span><span class="ico">📁</span><span class="name">其他设定</span><span class="count">7</span></div>
+        </div>
+      </div>
+
+      <!-- 中栏 -->
+      <div class="c-mid">
+        <!-- ① 总览 -->
+        <div class="view on" data-page="h1-tree">
+          <div class="mid-head"><h3>人物小传</h3>
+            <div class="right"><span class="tiny muted">7 位活跃 · 5 位候选</span>
+              <button class="btn btn-primary btn-sm">＋ 新建人物角色</button></div></div>
+          <div class="mid-body">
+            <div class="cand-bar" style="margin-bottom:14px">
+              <b>说明</b>「人物小传」是固定文件夹，不能删除；里面的人来自你自己新建，也来自大纲保存时 AI 自动抓取。
+            </div>
+            <div class="ov-wrap">
+              <div class="ov-head"><h4>活跃角色</h4><span class="n">按出场次数排序</span></div>
+              <table class="ov">
+                <thead><tr><th style="width:30%">人物</th><th>定位</th><th>状态</th><th>出场</th><th>最近章节</th></tr></thead>
+                <tbody>
+                  <tr><td><div class="nm"><i class="dot"></i><b>杨寒</b><span class="badge ok">★</span></div></td>
+                    <td><span class="badge type">主角</span></td><td>活跃</td><td class="num">18</td><td class="num">第 19 章</td></tr>
+                  <tr><td><div class="nm"><i class="dot"></i><b>林小满</b><span class="badge ok">★</span></div></td>
+                    <td><span class="badge type">主要</span></td><td>活跃</td><td class="num">15</td><td class="num">第 19 章</td></tr>
+                  <tr><td><div class="nm"><i class="dot"></i><b>杨妙萍</b></div></td>
+                    <td><span class="badge type">次要</span></td><td>活跃</td><td class="num">13</td><td class="num">第 19 章</td></tr>
+                  <tr><td><div class="nm"><i class="dot dormant"></i><b>杨津艺</b></div></td>
+                    <td><span class="badge type">次要</span></td><td>潜伏</td><td class="num">1</td><td class="num">第 1 章</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="cand-bar"><b>候选角色 5 位</b> 地下铁门守卫 · 抱保温杯守卫 · 另一个守卫 · 白休 · 回收者 <span style="margin-left:auto">点左栏展开 ▸</span></div>
+          </div>
+        </div>
+
+        <!-- ② 表格 -->
+        <div class="view" data-page="h1-table">
+          <div class="mid-head"><h3>杨寒</h3>
+            <div class="right">
+              <div class="seg"><span class="on">表格</span><span>MD</span></div>
+              <span class="tiny muted">已保存</span>
+              <button class="btn btn-primary btn-sm">保存</button>
+            </div></div>
+          <div class="mid-body">
+            <div class="fsec">
+              <h5>基本</h5>
+              <div class="fgrid g4">
+                <div class="f"><span>姓名</span><div class="inp ro">杨寒</div></div>
+                <div class="f"><span>性别</span><div class="inp">男</div></div>
+                <div class="f"><span>年龄</span><div class="inp">二十上下</div></div>
+                <div class="f"><span>定位</span><div class="inp">主角</div></div>
+              </div>
+            </div>
+            <div class="fsec">
+              <h5>归属与出场</h5>
+              <div class="fgrid g4">
+                <div class="f sp2"><span>势力组织</span><div class="inp">地下回收队</div></div>
+                <div class="f"><span>出场次数</span><div class="inp ro">18 次</div></div>
+                <div class="f"><span>最近章节</span><div class="inp ro">第 19 章</div></div>
+              </div>
+            </div>
+            <div class="fsec">
+              <h5>性格与灵魂</h5>
+              <div class="fgrid g2">
+                <div class="f"><span>性格标签</span><div class="inp">毒舌 · 嘴硬心软 · 外表凶内心怂</div></div>
+                <div class="f"><span>绑定灵魂</span><div class="inp">严肃沉稳</div></div>
+              </div>
+            </div>
+            <div class="fsec">
+              <h5>语言与行为</h5>
+              <div class="fgrid g2">
+                <div class="f spFull"><span>怎么说话</span><textarea class="inp">短句，爱反问，极少用敬语。</textarea></div>
+                <div class="f spFull"><span>怎么想</span><textarea class="inp">先算退路，再决定要不要动手。</textarea></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ③ MD -->
+        <div class="view" data-page="h1-md">
+          <div class="mid-head"><h3>杨寒</h3>
+            <div class="right">
+              <div class="seg"><span>表格</span><span class="on">MD</span></div>
+              <button class="btn btn-sm">复制</button>
+              <button class="btn btn-primary btn-sm">保存</button>
+            </div></div>
+          <div class="mid-body">
+            <article class="md">
+              <h1>杨寒 · 人物 Skill</h1>
+              <h2>基本信息</h2>
+              <ul>
+                <li><b>姓名</b>：杨寒</li>
+                <li><b>性别</b>：男　<b>年龄</b>：二十上下　<b>定位</b>：主角</li>
+                <li><b>势力组织</b>：地下回收队</li>
+                <li><b>出场</b>：18 次（第 1–19 章）</li>
+              </ul>
+              <h2>性格</h2>
+              <ul>
+                <li><b>性格标签</b>：毒舌、嘴硬心软、外表凶内心怂</li>
+                <li><b>绑定灵魂</b>：严肃沉稳</li>
+              </ul>
+              <h2>语言与行为</h2>
+              <ul>
+                <li><b>怎么说话</b>：短句，爱反问，极少用敬语。</li>
+                <li><b>怎么想</b>：先算退路，再决定要不要动手。</li>
+                <li><b>怎么判断</b>：看对方的鞋——干净的鞋说明不用自己走路。</li>
+                <li><b>什么不做</b>：不碰小孩的东西。</li>
+                <li><b>知道局限</b>：不识字，看不懂任何书面登记。</li>
+              </ul>
+              <h2>关系与状态</h2>
+              <ul>
+                <li><b>关系网</b>：沈砚（旧识·互相提防）；白褂女人（相互试探·利益）</li>
+                <li><b>当前状态</b>：左肩受伤未愈，左手不便</li>
+                <li><b>认知变化</b>：开始怀疑「地下三层」不是终点</li>
+              </ul>
+              <hr>
+              <p class="tiny muted">这份 MD 由表格字段实时生成；也可以直接改 MD，保存后反向同步回表格。</p>
+            </article>
+          </div>
+        </div>
+
+        <!-- ④ 新建 -->
+        <div class="view" data-page="h1-create">
+          <div class="mid-head"><h3>新建人物角色</h3>
+            <div class="right">
+              <div class="seg"><span class="on">表格</span><span>MD</span></div>
+              <span class="tiny muted">未保存</span>
+              <button class="btn btn-primary btn-sm">创建人物</button>
+            </div></div>
+          <div class="mid-body">
+            <div class="cand-bar" style="margin-bottom:14px">只有「姓名」是必填的，其余格子留空不影响创建，之后在档案里随时能补。</div>
+            <div class="fsec">
+              <h5>基本</h5>
+              <div class="fgrid g4">
+                <div class="f"><span>姓名 *</span><div class="inp muted">例：林清越</div></div>
+                <div class="f"><span>性别</span><div class="inp"></div></div>
+                <div class="f"><span>年龄</span><div class="inp"></div></div>
+                <div class="f"><span>定位</span><div class="inp">主角 ▾</div></div>
+              </div>
+            </div>
+            <div class="fsec">
+              <h5>归属与外形</h5>
+              <div class="fgrid g2">
+                <div class="f"><span>势力组织</span><div class="inp"></div></div>
+                <div class="f"><span>外貌</span><div class="inp"></div></div>
+              </div>
+            </div>
+            <div class="fsec">
+              <h5>背景与动机</h5>
+              <div class="fgrid g2">
+                <div class="f"><span>背景</span><textarea class="inp"></textarea></div>
+                <div class="f"><span>动机</span><textarea class="inp"></textarea></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右栏 -->
+      <div class="c-right">
+        <div class="c-right-head"><b>AI 对话</b><span class="tiny muted" style="margin-left:auto">大纲助手</span></div>
+        <div class="chat">
+          <div class="msg user">把杨寒的说话方式写得更冷一点</div>
+          <div class="msg ai">已更新「怎么说话」：句长更短，反问减少，去掉所有敬语。</div>
+        </div>
+        <div class="chat-input">输入关于大纲的问题…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>H1 要点</h5>
+    <ul>
+      <li>左栏多一个 <b>📁 人物小传 🔒</b> 固定节点，里面的 <b>活跃角色 / 候选角色</b> 是两个子分组；候选默认折叠。</li>
+      <li>中间栏顶栏右侧用<b>应用已有的「表格 / MD」切换器</b>（与大纲文件的双格式完全一致），用户不用学第二套。</li>
+      <li>点文件夹本身 → 中间显示总览表；点某个名字 → 中间换成他的档案。</li>
+      <li>新建人物角色 → 中间栏直接出现空表，<b>不跳页、不离开大纲</b>。</li>
+    </ul>
+    <div class="fix"><b>取舍：</b>改动最小、最稳；但「表格」与「MD」要切来切去，不能同屏对照。</div>
+  </div>
+</section>
+
+<!-- ==================================================== H2 -->
+<section class="plan" data-view="h2">
+  <h2>H2 · 并排双格式</h2>
+  <p class="lead">把「同时具备两种显示形式」做成真的同时：中间栏左右并排，左边表格右边 MD，改一格右边立刻变。想在「表格好填」和「MD 好读」之间不来回切时最合适。</p>
+  <div class="meta-row"><div>改动量 <b>中</b></div><div>双格式 <b>并排同屏</b></div><div>中间栏默认 <b>并排</b></div></div>
+
+  <div class="subnav" data-subnav="h2">
+    <button data-sub="both" class="on">① 并排（表格 + MD）</button>
+    <button data-sub="table">② 只看表格</button>
+    <button data-sub="cand">③ 候选角色展开</button>
+    <button data-sub="create">④ 新建人物角色</button>
+  </div>
+
+  <div class="win">
+    <div class="win-bar"><div class="dots"><i></i><i></i><i></i></div><div class="title">青幕AI写作 · 黑雨之下</div>
+      <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div></div>
+
+    <div class="cols">
+      <div class="c-left">
+        <div class="c-left-head"><b>大纲列表</b>
+          <div class="c-left-tools"><span class="icobtn" title="新建">＋</span><span class="icobtn" title="导入">↥</span><span class="icobtn on" title="人物">人</span></div>
+        </div>
+        <div class="tree">
+          <div class="node"><span class="chev">▾</span><span class="ico">📁</span><span class="name">人物小传</span><span class="lock">🔒</span><span class="count">12</span></div>
+          <div class="node lv1"><span class="chev">▾</span><span class="ico">👤</span><span class="name">活跃角色</span><span class="count">7</span></div>
+          <div class="node lv2 leaf on"><i class="dot"></i><span class="name">杨寒</span><span class="pinned-tag">★</span></div>
+          <div class="node lv2 leaf"><i class="dot"></i><span class="name">林小满</span><span class="pinned-tag">★</span></div>
+          <div class="node lv2 leaf"><i class="dot"></i><span class="name">杨妙萍</span></div>
+          <div class="node lv2 leaf"><i class="dot dormant"></i><span class="name">杨津艺</span></div>
+          <div class="node lv1"><span class="chev">▸</span><span class="ico">👥</span><span class="name">候选角色</span><span class="count">5</span></div>
+          <div class="tree-sep"></div>
+          <div class="node"><span class="chev">▾</span><span class="ico">📁</span><span class="name">卷纲</span><span class="count">2</span></div>
+          <div class="node"><span class="chev">▸</span><span class="ico">📁</span><span class="name">能力库</span><span class="count">1</span></div>
+        </div>
+      </div>
+
+      <div class="c-mid">
+        <div class="mid-head"><h3>杨寒</h3>
+          <div class="right">
+            <div class="seg"><span>表格</span><span class="on">并排</span><span>MD</span></div>
+            <span class="tiny muted">已保存</span>
+            <button class="btn btn-primary btn-sm">保存</button>
+          </div></div>
+
+        <!-- 并排 -->
+        <div class="view on" data-page="h2-both" style="flex:1;min-height:0;overflow:hidden">
+          <div class="split">
+            <div>
+              <div class="split-label">表格</div>
+              <div class="fsec">
+                <h5>基本</h5>
+                <div class="fgrid g3">
+                  <div class="f"><span>姓名</span><div class="inp ro">杨寒</div></div>
+                  <div class="f"><span>性别</span><div class="inp">男</div></div>
+                  <div class="f"><span>年龄</span><div class="inp">二十上下</div></div>
+                </div>
+              </div>
+              <div class="fsec">
+                <h5>性格与灵魂</h5>
+                <div class="fgrid g2">
+                  <div class="f spFull"><span>性格标签</span><div class="inp">毒舌 · 嘴硬心软 · 外表凶内心怂</div></div>
+                  <div class="f spFull"><span>绑定灵魂</span><div class="inp">严肃沉稳</div></div>
+                </div>
+              </div>
+              <div class="fsec">
+                <h5>语言与行为</h5>
+                <div class="fgrid g2">
+                  <div class="f spFull"><span>怎么说话</span><textarea class="inp">短句，爱反问，极少用敬语。</textarea></div>
+                  <div class="f spFull"><span>怎么想</span><textarea class="inp">先算退路，再决定要不要动手。</textarea></div>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div class="split-label">MD · 实时生成</div>
+              <article class="md">
+                <h1>杨寒 · 人物 Skill</h1>
+                <h2>基本信息</h2>
+                <ul><li><b>姓名</b>：杨寒</li><li><b>性别</b>：男　<b>年龄</b>：二十上下</li></ul>
+                <h2>性格</h2>
+                <ul><li><b>标签</b>：毒舌、嘴硬心软、外表凶内心怂</li><li><b>灵魂</b>：严肃沉稳</li></ul>
+                <h2>语言与行为</h2>
+                <ul><li><b>怎么说话</b>：短句，爱反问，极少用敬语。</li><li><b>怎么想</b>：先算退路，再决定要不要动手。</li></ul>
+                <p class="tiny muted">左边改一格，这里立刻跟着变。</p>
+              </article>
+            </div>
+          </div>
+        </div>
+
+        <!-- 只看表格 -->
+        <div class="view" data-page="h2-table">
+          <div class="mid-body">
+            <div class="fsec"><h5>基本</h5>
+              <div class="fgrid g4">
+                <div class="f"><span>姓名</span><div class="inp ro">杨寒</div></div>
+                <div class="f"><span>性别</span><div class="inp">男</div></div>
+                <div class="f"><span>年龄</span><div class="inp">二十上下</div></div>
+                <div class="f"><span>定位</span><div class="inp">主角</div></div>
+              </div></div>
+            <div class="fsec"><h5>关系与状态</h5>
+              <div class="fgrid g2">
+                <div class="f spFull"><span>关系网</span><textarea class="inp">沈砚：旧识（互相提防）
+白褂女人：相互试探（利益）</textarea></div>
+                <div class="f spFull"><span>当前状态</span><textarea class="inp">左肩受伤未愈，左手不便</textarea></div>
+              </div></div>
+          </div>
+        </div>
+
+        <!-- 候选展开 -->
+        <div class="view" data-page="h2-cand">
+          <div class="mid-head"><h3>候选角色</h3><div class="right"><span class="tiny muted">5 位 · 还没建档</span></div></div>
+          <div class="mid-body">
+            <div class="ov-wrap">
+              <table class="ov">
+                <thead><tr><th style="width:32%">名字</th><th>出场</th><th>首末章</th><th style="text-align:right">操作</th></tr></thead>
+                <tbody>
+                  <tr><td><div class="nm"><i class="dot cand"></i><b>地下铁门守卫</b></div></td>
+                    <td class="num">1</td><td class="num">第 5 章</td>
+                    <td style="text-align:right"><button class="btn btn-sm">删除</button> <button class="btn btn-primary btn-sm">建档</button></td></tr>
+                  <tr><td><div class="nm"><i class="dot cand"></i><b>抱保温杯守卫</b></div></td>
+                    <td class="num">1</td><td class="num">第 5 章</td>
+                    <td style="text-align:right"><button class="btn btn-sm">删除</button> <button class="btn btn-primary btn-sm">建档</button></td></tr>
+                  <tr><td><div class="nm"><i class="dot cand"></i><b>另一个守卫</b></div></td>
+                    <td class="num">1</td><td class="num">第 5 章</td>
+                    <td style="text-align:right"><button class="btn btn-sm">删除</button> <button class="btn btn-primary btn-sm">建档</button></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="cand-bar">候选角色是 AI 从章节里数出来的名字。建档后移到「活跃角色」；删除后不会再被加回来。</div>
+          </div>
+        </div>
+
+        <!-- 新建 -->
+        <div class="view" data-page="h2-create">
+          <div class="mid-head"><h3>新建人物角色</h3>
+            <div class="right"><div class="seg"><span>表格</span><span class="on">并排</span><span>MD</span></div>
+              <span class="tiny muted">未保存</span><button class="btn btn-primary btn-sm">创建人物</button></div></div>
+          <div style="flex:1;min-height:0;overflow:hidden" class="split">
+            <div>
+              <div class="split-label">表格</div>
+              <div class="fsec"><h5>基本</h5>
+                <div class="fgrid g2">
+                  <div class="f"><span>姓名 *</span><div class="inp muted">例：林清越</div></div>
+                  <div class="f"><span>定位</span><div class="inp">主角 ▾</div></div>
+                  <div class="f"><span>性别</span><div class="inp"></div></div>
+                  <div class="f"><span>年龄</span><div class="inp"></div></div>
+                </div></div>
+              <div class="fsec"><h5>背景</h5>
+                <div class="fgrid"><div class="f"><textarea class="inp"></textarea></div></div></div>
+            </div>
+            <div>
+              <div class="split-label">MD · 边填边生成</div>
+              <article class="md">
+                <h1>（未命名）· 人物 Skill</h1>
+                <h2>基本信息</h2>
+                <ul><li><b>姓名</b>：—</li><li><b>定位</b>：主角</li><li><b>性别</b>：—　<b>年龄</b>：—</li></ul>
+                <h2>背景</h2><p class="muted">—</p>
+                <p class="tiny muted">填一格，右边就多一行。</p>
+              </article>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="c-right">
+        <div class="c-right-head"><b>AI 对话</b><span class="tiny muted" style="margin-left:auto">大纲助手</span></div>
+        <div class="chat">
+          <div class="msg user">这个人的性格和某一章的表现对不上</div>
+          <div class="msg ai">第 12 章他先算退路，但第 19 章没退。建议把「外表凶内心怂」改成「对强者先退」。</div>
+        </div>
+        <div class="chat-input">输入关于大纲的问题…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>H2 要点</h5>
+    <ul>
+      <li>三段控 <b>表格 / 并排 / MD</b>：默认并排，「同时具备两种形式」在这里是字面意义上的同时。</li>
+      <li>并排时 MD 是<b>实时生成</b>的只读镜像 —— 改左边格子，右边立刻变，用来核对「读起来对不对」。</li>
+      <li>左栏结构与 H1 相同（人物小传 🔒 → 活跃 / 候选）。</li>
+      <li>候选角色也是表格形态，行尾直接「删除 / 建档」。</li>
+    </ul>
+    <div class="fix"><b>取舍：</b>并排时每侧只有一半宽，长文本会挤；窄窗口要自动退回单栏。</div>
+  </div>
+</section>
+
+<!-- ==================================================== H3 -->
+<section class="plan" data-view="h3">
+  <h2>H3 · 总览表驱动</h2>
+  <p class="lead">把「所有人物信息都放在大纲列表」做到最彻底：点人物图标，中间先给一张<b>全员总览表</b>（活跃 + 候选分区、可排序、行内可改），要深入某个人才展开双格式。适合角色多、经常批量整理。</p>
+  <div class="meta-row"><div>改动量 <b>大</b></div><div>双格式 <b>切换</b></div><div>中间栏默认 <b>全员总览</b></div></div>
+
+  <div class="subnav" data-subnav="h3">
+    <button data-sub="overview" class="on">① 全员总览（行内可改）</button>
+    <button data-sub="detail">② 展开某人 → 双格式</button>
+    <button data-sub="create">③ 新建（表内插入新行）</button>
+  </div>
+
+  <div class="win">
+    <div class="win-bar"><div class="dots"><i></i><i></i><i></i></div><div class="title">青幕AI写作 · 黑雨之下</div>
+      <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div></div>
+
+    <div class="cols">
+      <div class="c-left">
+        <div class="c-left-head"><b>大纲列表</b>
+          <div class="c-left-tools"><span class="icobtn" title="新建">＋</span><span class="icobtn" title="导入">↥</span><span class="icobtn on" title="人物">人</span></div>
+        </div>
+        <div class="tree">
+          <div class="node on"><span class="chev">▸</span><span class="ico">📁</span><span class="name">人物小传</span><span class="lock">🔒</span><span class="count">12</span></div>
+          <div class="node lv1"><span class="chev">▾</span><span class="ico">👤</span><span class="name">活跃角色</span><span class="count">7</span></div>
+          <div class="node lv2 leaf"><i class="dot"></i><span class="name">杨寒</span><span class="pinned-tag">★</span></div>
+          <div class="node lv2 leaf"><i class="dot"></i><span class="name">林小满</span></div>
+          <div class="node lv1"><span class="chev">▸</span><span class="ico">👥</span><span class="name">候选角色</span><span class="count">5</span></div>
+          <div class="tree-sep"></div>
+          <div class="node"><span class="chev">▾</span><span class="ico">📁</span><span class="name">卷纲</span><span class="count">2</span></div>
+          <div class="node"><span class="chev">▸</span><span class="ico">📁</span><span class="name">能力库</span><span class="count">1</span></div>
+          <div class="node"><span class="chev">▸</span><span class="ico">📁</span><span class="name">其他设定</span><span class="count">7</span></div>
+        </div>
+      </div>
+
+      <div class="c-mid">
+        <!-- ① 总览 -->
+        <div class="view on" data-page="h3-overview">
+          <div class="mid-head"><h3>人物小传 · 全员</h3>
+            <div class="right"><span class="tiny muted">12 人</span><button class="btn btn-primary btn-sm">＋ 新建人物角色</button></div></div>
+          <div class="mid-body">
+            <div class="ov-head"><h4>活跃角色</h4><span class="n">7 人 · 点列头可排序</span>
+              <span class="badge" style="margin-left:auto">行内可改：双击单元格</span></div>
+            <div class="ov-wrap">
+              <table class="ov">
+                <thead><tr><th style="width:26%">姓名</th><th>定位</th><th>状态</th><th>出场</th><th>最近</th><th>自动更新</th><th style="text-align:right">操作</th></tr></thead>
+                <tbody>
+                  <tr><td><div class="nm"><i class="dot"></i><b>杨寒</b><span class="badge ok">★</span></div></td>
+                    <td><span class="badge type">主角</span></td><td>活跃</td><td class="num">18</td><td class="num">19</td>
+                    <td><span class="badge ok">开</span></td>
+                    <td style="text-align:right"><button class="btn btn-sm">打开</button> <button class="btn btn-sm btn-danger">删</button></td></tr>
+                  <tr><td><div class="nm"><i class="dot"></i><b>林小满</b><span class="badge ok">★</span></div></td>
+                    <td><span class="badge type">主要</span></td><td>活跃</td><td class="num">15</td><td class="num">19</td>
+                    <td><span class="badge ok">开</span></td>
+                    <td style="text-align:right"><button class="btn btn-sm">打开</button> <button class="btn btn-sm btn-danger">删</button></td></tr>
+                  <tr><td><div class="nm"><i class="dot"></i><b>杨妙萍</b></div></td>
+                    <td><span class="badge type">次要</span></td><td>活跃</td><td class="num">13</td><td class="num">19</td>
+                    <td><span class="badge ok">开</span></td>
+                    <td style="text-align:right"><button class="btn btn-sm">打开</button> <button class="btn btn-sm btn-danger">删</button></td></tr>
+                  <tr><td><div class="nm"><i class="dot dormant"></i><b>杨津艺</b></div></td>
+                    <td><span class="badge type">次要</span></td><td>潜伏</td><td class="num">1</td><td class="num">1</td>
+                    <td><span class="badge">关</span></td>
+                    <td style="text-align:right"><button class="btn btn-sm">打开</button> <button class="btn btn-sm btn-danger">删</button></td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="ov-head" style="margin-top:16px"><h4>候选角色</h4><span class="n">5 人 · 已折叠</span></div>
+            <div class="cand-bar"><b>5 位候选</b> 地下铁门守卫 · 抱保温杯守卫 · 另一个守卫 · 白休 · 回收者 <span style="margin-left:auto">展开 ▾</span></div>
+          </div>
+        </div>
+
+        <!-- ② 详情双格式 -->
+        <div class="view" data-page="h3-detail">
+          <div class="mid-head">
+            <button class="btn btn-sm">← 全员</button>
+            <h3>杨寒</h3>
+            <div class="right"><div class="seg"><span class="on">表格</span><span>MD</span></div>
+              <button class="btn btn-primary btn-sm">保存</button></div></div>
+          <div class="mid-body">
+            <div class="fsec"><h5>基本</h5>
+              <div class="fgrid g4">
+                <div class="f"><span>姓名</span><div class="inp ro">杨寒</div></div>
+                <div class="f"><span>性别</span><div class="inp">男</div></div>
+                <div class="f"><span>年龄</span><div class="inp">二十上下</div></div>
+                <div class="f"><span>定位</span><div class="inp">主角</div></div>
+              </div></div>
+            <div class="fsec"><h5>性格与灵魂</h5>
+              <div class="fgrid g2">
+                <div class="f"><span>性格标签</span><div class="inp">毒舌 · 嘴硬心软 · 外表凶内心怂</div></div>
+                <div class="f"><span>绑定灵魂</span><div class="inp">严肃沉稳</div></div>
+              </div></div>
+            <div class="fsec"><h5>语言与行为</h5>
+              <div class="fgrid g2">
+                <div class="f spFull"><span>怎么说话</span><textarea class="inp">短句，爱反问，极少用敬语。</textarea></div>
+              </div></div>
+            <div class="fsec"><h5>关系与状态</h5>
+              <div class="fgrid g2">
+                <div class="f spFull"><span>关系网</span><textarea class="inp">沈砚：旧识（互相提防）</textarea></div>
+                <div class="f spFull"><span>当前状态</span><textarea class="inp">左肩受伤未愈</textarea></div>
+              </div></div>
+          </div>
+        </div>
+
+        <!-- ③ 新建行内插入 -->
+        <div class="view" data-page="h3-create">
+          <div class="mid-head"><h3>人物小传 · 全员</h3>
+            <div class="right"><button class="btn btn-primary btn-sm">＋ 新建人物角色</button></div></div>
+          <div class="mid-body">
+            <div class="ov-head"><h4>活跃角色</h4><span class="n">7 → 8 人</span></div>
+            <div class="ov-wrap" style="border-color:var(--accent)">
+              <table class="ov">
+                <thead><tr><th style="width:26%">姓名</th><th>定位</th><th>性别</th><th>年龄</th><th>势力组织</th><th style="text-align:right">操作</th></tr></thead>
+                <tbody>
+                  <tr style="background:color-mix(in srgb,var(--soft) 45%,transparent)">
+                    <td><div class="nm"><i class="dot cand"></i><input class="inp" placeholder="例：林清越" style="max-width:150px"></div></td>
+                    <td><div class="inp">主角 ▾</div></td>
+                    <td><div class="inp"></div></td>
+                    <td><div class="inp"></div></td>
+                    <td><div class="inp"></div></td>
+                    <td style="text-align:right">
+                      <button class="btn btn-sm">取消</button>
+                      <button class="btn btn-primary btn-sm">创建</button></td>
+                  </tr>
+                  <tr><td><div class="nm"><i class="dot"></i><b>杨寒</b></div></td>
+                    <td><span class="badge type">主角</span></td><td>男</td><td class="num">二十上下</td><td>地下回收队</td>
+                    <td style="text-align:right"><button class="btn btn-sm">打开</button></td></tr>
+                  <tr><td><div class="nm"><i class="dot"></i><b>林小满</b></div></td>
+                    <td><span class="badge type">主要</span></td><td>女</td><td class="num">十六七</td><td>回收站</td>
+                    <td style="text-align:right"><button class="btn btn-sm">打开</button></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="cand-bar">新角色会直接插进活跃角色表第一行，填完点「创建」即建档，不用离开大纲。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="c-right">
+        <div class="c-right-head"><b>AI 对话</b><span class="tiny muted" style="margin-left:auto">大纲助手</span></div>
+        <div class="chat">
+          <div class="msg user">帮我把所有还不出场的配角归档</div>
+          <div class="msg ai">已有 1 位（杨津艺）符合「长期未出场」，需要我把它设为潜伏吗？</div>
+        </div>
+        <div class="chat-input">输入关于大纲的问题…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>H3 要点</h5>
+    <ul>
+      <li>点人物图标 → 中间先给<b>全员总览表</b>（活跃在上、候选折叠在下），一屏看完全部人。</li>
+      <li>表格支持<b>行内改</b>（双击单元格）与列排序，批量整理最快；每行带「自动更新」开关与删除。</li>
+      <li>点「打开」→ 该角色以<b>表格 / MD</b> 双格式展开，左上角「← 全员」回总览。</li>
+      <li>新建 = 在活跃角色表<b>第一行插入空行</b>，填完点创建，全程不离开列表。</li>
+    </ul>
+    <div class="fix"><b>取舍：</b>最像「管理后台」，批量效率最高；但阅读单个角色时的氛围弱于 H1/H2。</div>
+  </div>
+</section>
+
+<!-- 待确认 -->
+<div class="qbox">
+  <h4>有几个点我没法从描述里确定，麻烦你顺手答一下（不影响你先看方案）</h4>
+  <ol>
+    <li><b>「表格形式」是可编辑的表单，还是只读的展示表？</b>——新建人物角色那张是能填的；档案里的表格要不要也能直接改？</li>
+    <li><b>「同时具备两种显示形式」是切换还是同屏？</b>——H1/H3 是切换，H2 是并排。你要哪种？还是两种都留（默认切换 + 可切并排）？</li>
+    <li><b>MD 那一侧可不可编辑？</b>——现有大纲文件的 MD 模式是可编辑的；人物档案的 MD 要不要也允许直接改，改了反同步回表格？</li>
+    <li><b>候选角色的「建档」去向？</b>——建档后是移到「活跃角色」（我按这个画的），还是留在候选区只加个标记？</li>
+    <li><b>人物图标的位置？</b>——现在是「大纲列表」标题右侧的工具条按钮（我按这个画的）。还是你希望去掉按钮，树里直接常显「人物小传」文件夹？</li>
+  </ol>
+</div>
+
+<script>
+  document.querySelectorAll('.tabs').forEach(function (nav) {
+    nav.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        nav.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        var key = btn.dataset.plan;
+        document.querySelectorAll('.plan').forEach(function (p) {
+          p.classList.toggle('on', p.dataset.view === key);
+        });
+        window.scrollTo({ top: nav.offsetTop - 8, behavior: 'smooth' });
+      });
+    });
+  });
+  document.querySelectorAll('[data-subnav]').forEach(function (nav) {
+    var scope = nav.closest('.plan');
+    var plan = scope.dataset.view;
+    nav.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        nav.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        var key = plan + '-' + btn.dataset.sub;
+        scope.querySelectorAll('.view').forEach(function (v) {
+          v.classList.toggle('on', v.dataset.page === key);
+        });
+      });
+    });
+  });
+</script>
+</body>
+</html>

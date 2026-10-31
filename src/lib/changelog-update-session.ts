@@ -2,6 +2,11 @@ import {
   APP_AUTO_UPDATE_UNSUPPORTED_MESSAGE,
   isAppAutoUpdateSupported,
 } from "@/lib/app-update-support"
+import {
+  getPendingUpdatePath,
+  getPendingUpdateReadyVersion,
+  setPendingUpdateVersion,
+} from "@/lib/app-update-notice"
 import { isTauri } from "@/lib/platform"
 import { formatUpdateErrorMessage } from "@/lib/update-error-message"
 import type { DownloadEvent } from "@tauri-apps/plugin-updater"
@@ -233,10 +238,25 @@ async function loadUpdate(): Promise<ChangelogUpdatePackage | null> {
   const update = await check({ proxy, timeout: CHECK_TIMEOUT_MS })
   if (!update) return null
 
+  /*
+   * 后台已经把这个版本预下载好了：直接复用那个包，「安装」时无需再下载。
+   * 只有版本对得上才复用，避免把旧版本的包装上去。
+   */
+  const prefetchedPath =
+    getPendingUpdateReadyVersion() === wantedVersion ? getPendingUpdatePath() : null
+  if (prefetchedPath) downloadedPackagePath = prefetchedPath
+
   return {
     version: update.version,
     body: update.body,
     download: async (onEvent) => {
+      // 后台已预下载好同一个版本：不重复下载，直接算完成。
+      if (prefetchedPath) {
+        downloadedPackagePath = prefetchedPath
+        onEvent?.({ event: "Started", data: { contentLength: 1 } } as never)
+        onEvent?.({ event: "Finished", data: {} } as never)
+        return
+      }
       /*
        * 优先用我们自己的多源分段下载（官网直链 → 反代 → 直连，各源内 8 段并发）。
        * 真实进度由 `updater://download-progress` 实时推送；这里**先订阅再下载**。
@@ -393,6 +413,8 @@ export async function checkForChangelogUpdate(): Promise<void> {
         errorMessage: "",
         downloadProgress: 0,
       })
+      // 已是最新：红点也该灭掉。
+      setPendingUpdateVersion(null)
       return
     }
 
@@ -411,6 +433,8 @@ export async function checkForChangelogUpdate(): Promise<void> {
       errorMessage: "",
       downloadProgress: 0,
     })
+    // 有新版本：即使自动提醒关着，更新日志处也要能看出来。
+    setPendingUpdateVersion(update.version)
   } catch (error) {
     if (hadDownloadedPackage && previous) {
       restoreReadyPackage(previous, formatUpdateErrorMessage(error))
@@ -466,6 +490,24 @@ export async function installChangelogUpdate(): Promise<void> {
   } finally {
     busy = false
   }
+}
+
+/**
+ * 直接用后台预下载好的安装包开始安装。
+ *
+ * 为什么不在界面上先跑一次「检查更新」：用户关掉了自动提醒，
+ * 他只是想点一下就把新版本装上。没有会话里的更新包时在这里补建一次
+ * （只拿安装句柄，不下载 —— 包已经在本机了）。
+ */
+export async function prepareAndInstallPrefetchedUpdate(): Promise<void> {
+  if (busy) return
+  // 还没在本次会话里检查过：补建一次更新句柄（包已在本机，不会真的再下载）。
+  if (!currentPackage || snapshot.status !== "ready") {
+    await checkForChangelogUpdate()
+  }
+  // 预下载包在 loadUpdate 里已认出来，download 会直接算完成。
+  await downloadChangelogUpdate()
+  await installChangelogUpdate()
 }
 
 export async function redownloadChangelogUpdate(): Promise<void> {

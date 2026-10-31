@@ -1,7 +1,7 @@
 import { filterUiTestDirectory } from "@/lib/ui-test-layout"
 import { MoreHorizontal } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, AppWindow, History, Loader2, MessageCircle, Pencil, Plus, Search, Trash2, Check, X } from "lucide-react"
+import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, AppWindow, History, Loader2, MessageCircle, Pencil, Plus, Search, Trash2, Check, X, UserPlus } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -22,7 +22,6 @@ import {
 } from "@/lib/novel/chapter-utils"
 import { chapterSnapshotNumbersFrom, chapterSnapshotNumbersFromFileNames, resolveChapterMemoryDotState, type ChapterMemoryDotState } from "@/lib/novel/chapter-memory-dot"
 import { moveFileToTrash } from "@/lib/trash"
-import { moveOutlineCompanions } from "@/lib/novel/outline-companions"
 import { makeSafeFileSlug } from "@/lib/wiki-filename"
 import { allocateUniqueSiblingPath, planPageRename } from "@/lib/wiki/rename-page"
 import { useImportProgressStore, type ImportProgressTask } from "@/stores/import-progress-store"
@@ -30,6 +29,14 @@ import { selectProjectDeAiTasks, useDeAiTaskStore } from "@/stores/de-ai-task-st
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { useWritingStatsStore } from "@/stores/writing-stats-store"
 import { getOutlineFileName, outlineSnapshotExists } from "@/lib/novel/outline-ingest-utils"
+import { isProtectedOutlineFolder } from "@/lib/novel/persona-skill-types"
+import { loadPersonaSkillIndex } from "@/lib/novel/persona-skill-store"
+import {
+  detachOutlineRef,
+  keepPersonaAfterOutlineDelete,
+  planPersonaDetach,
+  removePersonaFromProject,
+} from "@/lib/novel/persona-outline-detach"
 import { openDocumentInReaderWindow } from "@/lib/reader-window-opener"
 import { saveLastReadChapter } from "@/lib/project-store"
 import { mapWithConcurrency } from "@/lib/async-pool"
@@ -89,7 +96,7 @@ interface WikiPageInfo {
 }
 
 export interface KnowledgeCreateRequest {
-  kind: "chapter" | "outline" | "volume" | "folder"
+  kind: "chapter" | "outline" | "volume" | "folder" | "persona"
   parentDir?: string
 }
 
@@ -632,7 +639,12 @@ export function KnowledgeTree({
   const sectionNodes = useMemo(() => {
     if (!sectionRootPath) return []
     const sectionNode = findNodeByPath(fileTree, sectionRootPath)
-    return sectionNode?.children ?? []
+    // 人物小传由左栏的人物区段接管，这里不再重复列一份：
+    // 那棵树下放的是投影出来的 MD 文件，和人物索引是同一批人，
+    // 两处都显示会让用户看到两份重名列表（用户实测：很乱）。
+    return (sectionNode?.children ?? []).filter(
+      (node) => !(node.is_dir && isProtectedOutlineFolder(node.name)),
+    )
   }, [fileTree, sectionRootPath])
 
   useEffect(() => {
@@ -861,6 +873,48 @@ export function KnowledgeTree({
     setDeletingPath(pagePath)
     try {
       const projectPath = normalizePath(project.path)
+      const outlineFileName = normalizePath(pagePath).split(/[\\/]/).pop() ?? ""
+
+      /*
+       * 删大纲前先问人物小传怎么办（用户拍板的口径）。
+       *
+       * 三个判断都在**删文件之前**做：
+       * 1. 先分拣（谁可移除、谁必须保留）；
+       * 2. 有关联角色才弹窗 —— 大多数大纲没有角色，不该每次都拦一下；
+       * 3. 用户选「保留」时，角色在删大纲**之前**就转 dormant，
+       *    这样即使删文件失败，角色也只是提前停了更新，不会出现「文件还在、角色却已解引用」。
+       *
+       * window.confirm 只有确定/取消两态：确定＝按规则移除（受保护角色自动跳过），
+       * 取消＝一份都不删，全部保留并转潜伏。
+       */
+      if (filterType !== "chapter") {
+        try {
+          const personaIndex = await loadPersonaSkillIndex(projectPath)
+          const plan = planPersonaDetach({ outlineFileName, skills: personaIndex.skills })
+          const related = [...plan.removals, ...plan.kept.map((item) => item.characterName)]
+          if (related.length > 0) {
+            const shouldRemove =
+              plan.removals.length > 0 &&
+              window.confirm(
+                t("knowledgeTree.personaDetachConfirm", {
+                  count: related.length,
+                  names: related.join("、"),
+                  removals: plan.removals.join("、") || "无",
+                  kept: plan.kept.length,
+                }),
+              )
+            if (shouldRemove) {
+              await removePersonaFromProject(projectPath, plan.removals)
+            } else {
+              await keepPersonaAfterOutlineDelete(projectPath, outlineFileName)
+            }
+          }
+        } catch (e) {
+          // 人物小传处理失败不能拦住「删大纲」：用户点的是删大纲，不是删人。
+          console.warn("[KnowledgeTree] 处理人物小传关联失败:", e)
+        }
+      }
+
       let sourceContent: string | undefined
       if (filterType === "chapter") {
         try {
@@ -888,6 +942,15 @@ export function KnowledgeTree({
           // 记忆清理失败不影响文件删除本身
           console.warn("[KnowledgeTree] 清理关联记忆失败:", e)
         }
+        // 大纲没了，人物档案里对它的引用也必须跟着消失：
+        // 留着会让「是否仍被别的大纲引用」这条判断长期失真，进而影响角色的增删决策。
+        // 只解引用，不删任何人 —— 删大纲不代表用户想删角色。
+        try {
+          const outlineFileName = normalizePath(pagePath).split(/[\\/]/).pop() ?? ""
+          await detachOutlineRef(projectPath, outlineFileName)
+        } catch (e) {
+          console.warn("[KnowledgeTree] 清理人物小传引用失败:", e)
+        }
       }
       const tree = await listDirectory(projectPath)
       setFileTree(tree)
@@ -905,6 +968,14 @@ export function KnowledgeTree({
     const normalizedFolderPath = normalizePath(folderPath)
     const folderNode = findNodeByPath(sectionNodes, normalizedFolderPath)
     if (!folderNode?.is_dir) return
+
+    // 「人物小传」是全项目角色的固定容器。它的真实数据在 .qmai/persona-skills/，
+    // 删掉文件夹并不会删档案 —— 那样用户会看到「文件夹没了但技能库还在」，
+    // 是最难排查的一类不一致。单个角色文件仍可删，这里只拦文件夹。
+    if (isProtectedOutlineFolder(folderNode.name)) {
+      window.alert(t("knowledgeTree.protectedFolderAlert"))
+      return
+    }
 
     const mdFiles = flattenMdFiles([folderNode]).map((file) => normalizePath(file.path))
     const folderName = folderNode.name
@@ -1032,8 +1103,6 @@ export function KnowledgeTree({
           return
         }
         await copyFile(sourcePath, destPath)
-        // 伴生 .html / .json 必须跟着走，否则旧目录里会留下孤儿文件
-        await moveOutlineCompanions(sourcePath, destPath)
       }
 
       for (const file of mdFiles) {
@@ -1139,8 +1208,6 @@ export function KnowledgeTree({
         // 章节改名/换目录：把写作归属账本一起搬到新路径，
         // 否则新路径会从零打基线，用户此前手写的归属会凭空消失。
         useWritingStatsStore.getState().transferChapter(renamingPath, targetPath)
-        // 大纲改名同样要把 .html / .json 搬到新主名旁边，否则旧文件变成 AI 还能读到的孤儿
-        await moveOutlineCompanions(renamingPath, targetPath)
         await deleteFile(renamingPath)
         if (selectedFile === renamingPath) setSelectedFile(targetPath)
         onRemovePendingPage?.(renamingPath)
@@ -1934,6 +2001,20 @@ export function KnowledgeTree({
               <Folder className="h-3.5 w-3.5" />
               {filterType === "chapter" ? t("sidebar.newVolume") : t("sidebar.newFolder")}
             </button>
+            {/* 人物角色只在大纲视图出现：章节视图里没有「人物小传」这个概念。 */}
+            {filterType === "outline" && (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+                onClick={() => {
+                  onRequestCreate?.({ kind: "persona", parentDir: createMenu.parentDir })
+                  setCreateMenu(null)
+                }}
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                {t("sidebar.newPersonaRole")}
+              </button>
+            )}
             <button
               type="button"
               className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
@@ -2027,6 +2108,21 @@ export function KnowledgeTree({
               <Folder className="h-3.5 w-3.5" />
               {filterType === "chapter" ? t("sidebar.newVolume") : t("sidebar.newFolder")}
             </button>
+            {/* 与上方 createMenu 保持同一顺序：新建大纲 → 新建文件夹 → 新建人物角色。 */}
+            {filterType === "outline" && (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+                onClick={() => {
+                  const target = pageInfoByPath.get(pageMenu.path)
+                  onRequestCreate?.({ kind: "persona", parentDir: target ? getDirName(target.path) : undefined })
+                  setPageMenu(null)
+                }}
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                {t("sidebar.newPersonaRole")}
+              </button>
+            )}
             <button
               type="button"
               className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"

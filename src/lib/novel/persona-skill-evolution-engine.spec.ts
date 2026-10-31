@@ -33,6 +33,7 @@ function meta(overrides: Partial<PersonaSkillMeta> = {}): PersonaSkillMeta {
     editedByUser: false,
     hasResearch: false,
     updatedAt: "2026-10-12T01:00:00.000Z",
+    origin: "auto", outlineRefs: [], asOfChapter: null,
     ...overrides,
   }
 }

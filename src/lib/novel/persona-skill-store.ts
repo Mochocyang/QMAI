@@ -170,6 +170,23 @@ function sanitizeMeta(raw: unknown): PersonaSkillMeta | null {
     // 宁可漏生成一轮，也不能重写掉累积的研究内容（见 commit 44c1311）。
     hasResearch: record.hasResearch !== false,
     updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : "",
+    /*
+     * 老 index.json 没有 origin / outlineRefs / asOfChapter。
+     *
+     * 为什么在这里补、而不是读一次就写回：写回会让「打开过项目」变成一次磁盘改动，
+     * 用户在版本控制里会看到凭空多出来的 diff。补默认值应该是一次纯投影，不落盘。
+     *
+     * 默认 origin 取 "auto" 而不是 "manual"：老档案全是 AI 学出来的，取 auto 才符合事实；
+     * 而这个默认值直接决定「删大纲时是否连带删角色」，
+     * 取错方向会把用户手上的老角色批量删掉。
+     */
+    origin: record.origin === "manual" ? "manual" : "auto",
+    outlineRefs: asStringArray(record.outlineRefs),
+    asOfChapter: typeof record.asOfChapter === "number" && Number.isFinite(record.asOfChapter)
+      ? record.asOfChapter
+      : null,
+    // 缺省开启：老档案没有这个字段时必须维持「照旧自动更新」。
+    autoUpdate: record.autoUpdate !== false,
   }
 }
 
@@ -255,6 +272,7 @@ export async function loadPersonaSightings(projectPath: string): Promise<Persona
     sightings: raw.sightings
       .map(sanitizeSighting)
       .filter((item): item is PersonaSkillSighting => item != null),
+    ignored: asStringArray(raw.ignored),
   }
 }
 
@@ -265,7 +283,15 @@ export async function savePersonaSightings(
   await createDirectory(personaSkillRoot(projectPath))
   await writeFileAtomic(
     personaSkillSightingsPath(projectPath),
-    JSON.stringify({ version: 1, sightings: sightings.sightings }, null, 2),
+    JSON.stringify(
+      {
+        version: 1,
+        sightings: sightings.sightings,
+        ...(sightings.ignored && sightings.ignored.length > 0 ? { ignored: sightings.ignored } : {}),
+      },
+      null,
+      2,
+    ),
   )
 }
 

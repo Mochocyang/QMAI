@@ -6,7 +6,6 @@ import { loadDeAiSkillConfig, type DeAiSkillConfig } from "@/lib/novel/de-ai-ski
 import { loadAllLinkedSkillsContent, loadUserSkillConfig, resolveEnabledWritingSkills } from "@/lib/novel/user-skill-store"
 import type { UserSkill } from "@/lib/novel/skill-library"
 import { resolveAgentSessionModel, resolveModelConfig } from "@/lib/novel/model-resolver"
-import { applyReasoningDepth } from "@/lib/reasoning-depth"
 import { runDeepChapterGeneration } from "@/lib/novel/deep-chapter-generation"
 import { normalizePath } from "@/lib/path-utils"
 import { ToolRegistry } from "@/lib/agent/registry"
@@ -36,7 +35,6 @@ export function useAgentConfig(
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
   const searchApiConfig = useWikiStore((s) => s.searchApiConfig)
   const aiWorkflowMode = useWikiStore((s) => s.aiWorkflowMode)
-  const aiChatReasoningDepth = useWikiStore((s) => s.aiChatReasoningDepth)
 
   const chatConversations = useChatStore((s) => s.conversations)
   const chatMessages = useChatStore((s) => s.messages)
@@ -110,10 +108,8 @@ export function useAgentConfig(
   )
 
   return useMemo(() => {
-    const agentLlmConfig = applyReasoningDepth(
-      resolveAgentSessionModel(baseLlmConfig, novelConfig, aiWorkflowMode),
-      aiChatReasoningDepth,
-    )
+    // 推理程度不再有会话级覆盖：档位由供应商配置（聊天框悬停弹窗写回的那一份）决定。
+    const agentLlmConfig = resolveAgentSessionModel(baseLlmConfig, novelConfig, aiWorkflowMode)
     const modelOk = modelSupportsTools(agentLlmConfig.model, agentLlmConfig.provider)
     const fcEnabled = isFunctionCallingEnabled(agentLlmConfig)
     const supportsTools = modelOk && fcEnabled
@@ -141,16 +137,8 @@ export function useAgentConfig(
       }
     }
 
-    // The thinking-depth slider is stamped here and nowhere else. This config
-    // reaches `deep-chapter-generation` as `writingConfig` (passed through
-    // verbatim) and drives the draft, expansion, revision and local-polish
-    // calls. The orchestrating `agentLlmConfig` above, and the auxiliary
-    // `workflowConfig` the workflow re-resolves from the default model, both
-    // stay on whatever reasoning their own provider config specifies.
-    const chapterWritingLlmConfig = applyReasoningDepth(
-      resolveModelConfig(aiChatModel, baseLlmConfig, providerConfigs),
-      aiChatReasoningDepth,
-    )
+    // 正文写作同样直接取该模型的供应商配置（含推理档）。
+    const chapterWritingLlmConfig = resolveModelConfig(aiChatModel, baseLlmConfig, providerConfigs)
     const registry = new ToolRegistry()
     const wikiPath = `${normalizePath(projectPath)}/wiki`
     const novelMode = useWikiStore.getState().novelMode
@@ -191,7 +179,6 @@ export function useAgentConfig(
     baseLlmConfig,
     providerConfigs,
     aiWorkflowMode,
-    aiChatReasoningDepth,
     getSearchApiConfig,
     getUserSkills,
     systemPrompt,

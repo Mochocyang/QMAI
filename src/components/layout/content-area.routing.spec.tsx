@@ -14,6 +14,9 @@ vi.mock("@/components/chat/ai-chat-tab-container", () => ({
 vi.mock("@/components/skill-library/unified-skill-library-view", () => ({
   UnifiedSkillLibraryView: () => <div data-testid="stub-unified-skill-library" />,
 }))
+vi.mock("@/components/skill-library/persona-skill-view", () => ({
+  PersonaSkillView: () => <div data-testid="stub-persona-skill-view" />,
+}));
 
 import { ContentArea } from "./content-area"
 
@@ -97,10 +100,17 @@ describe("ContentArea 技能库视图路由", () => {
     cleanup(root, container)
   })
 
-  it("renders the unified skill library for the 人物 Skill view", async () => {
+  /*
+   * 人物 Skill 已从技能库移出，必须**直接**渲染人物页。
+   * 走 UnifiedSkillLibraryView 会在它内部 resolveActiveTab 抛错
+   * （「技能库视图收到了非技能库的 activeView」）—— 这是用户实测崩过的路径，
+   * 所以这里必须盯住「不再走技能库组件」而不是只盯「渲染出了点什么」。
+   */
+  it("renders the persona view directly for the 人物 Skill view", async () => {
     const { container, root } = await renderWithView("personaSkillLibrary")
 
-    expect(container.querySelector('[data-testid="stub-unified-skill-library"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="stub-persona-skill-view"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="stub-unified-skill-library"]')).toBeNull()
     expect(container.querySelector('[data-testid="stub-ai-chat-tab"]')).toBeNull()
 
     cleanup(root, container)

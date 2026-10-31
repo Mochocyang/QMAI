@@ -1,0 +1,268 @@
+/* ===== 人物 Skill 页面：整页滚动骨架（与任何既有类名都不重名） =====
+   ContentArea 用 <div class="h-full"> 包内容，父级不是 flex，
+   所以旧的 flex:1 根节点宽度高度都退化成内容高 —— 超出窗口的部分直接被裁掉、无法滚动。
+   这里让页面根节点自己成为「定高 flex 列 + 内部滚动区」，不依赖任何祖先。 */
+.ui-test-root .ui-test-pdoc {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  /* 覆盖 .ui-test-skills-gallery 的 flex:1（那个在非 flex 父级下无效且会干扰） */
+  flex: none;
+}
+
+.ui-test-root .ui-test-pdoc-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 40px 32px;
+  scrollbar-gutter: stable;
+}
+
+.ui-test-root .ui-test-pdoc-inner {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+/* ===== E2 顶部信息带 ===== */
+.ui-test-root .ui-test-pband {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 22px;
+  margin-bottom: 18px;
+  border: 1px solid var(--ui-line);
+  border-radius: 14px;
+  background:
+    linear-gradient(120deg, color-mix(in srgb, var(--ui-soft) 62%, var(--ui-paper)), var(--ui-paper) 64%);
+  box-shadow: 0 1px 2px rgba(23, 35, 29, .04);
+}
+
+.ui-test-root .ui-test-pband-avatar {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--ui-accent) 12%, var(--ui-paper));
+  color: var(--ui-accent);
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-pband-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.ui-test-root .ui-test-pband-copy h3 {
+  margin: 0 0 4px;
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-pband-sub {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-pband-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* ===== E2 页头（返回 + 保存） ===== */
+.ui-test-root .ui-test-ptopline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.ui-test-root .ui-test-ptopline-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+/* ===== E2 卡片栅格 ===== */
+.ui-test-root .ui-test-pcards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.ui-test-root .ui-test-pcard {
+  min-width: 0;
+  padding: 15px 18px;
+  border: 1px solid var(--ui-line);
+  border-radius: 13px;
+  background: var(--ui-paper);
+  box-shadow: 0 1px 2px rgba(23, 35, 29, .03);
+}
+
+.ui-test-root .ui-test-pcard.is-wide {
+  grid-column: 1 / -1;
+}
+
+.ui-test-root .ui-test-pcard-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ui-test-root .ui-test-pcard-head .dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-pcard-head h6 {
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.ui-test-root .ui-test-pcard-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+  font-style: normal;
+  opacity: .9;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-test-root .ui-test-pcard-edit {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-pcard-edit:hover {
+  border-color: var(--ui-line);
+  background: var(--ui-soft);
+  color: var(--ui-ink);
+}
+
+/* ===== 只读值排布：标签在上、值在下，两列 ===== */
+.ui-test-root .ui-test-pcard-kv {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 22px;
+}
+
+.ui-test-root .ui-test-pcard-item {
+  min-width: 0;
+}
+
+.ui-test-root .ui-test-pcard-item.is-wide {
+  grid-column: 1 / -1;
+}
+
+.ui-test-root .ui-test-pcard-item > span {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+}
+
+.ui-test-root .ui-test-pcard-item > b {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.ui-test-root .ui-test-pcard-item > p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.9;
+  color: var(--ui-ink);
+  overflow-wrap: anywhere;
+}
+
+.ui-test-root .ui-test-pcard-empty {
+  color: var(--ui-muted);
+  font-size: 0.8125rem;
+  opacity: .65;
+}
+
+/* 语言与行为：左侧固定标签行 */
+.ui-test-root .ui-test-pcard-rows {
+  display: grid;
+  gap: 9px;
+}
+
+.ui-test-root .ui-test-pcard-rows .row {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.ui-test-root .ui-test-pcard-rows .row > span {
+  color: var(--ui-muted);
+  font-size: 0.72rem;
+}
+
+.ui-test-root .ui-test-pcard-rows .row > p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.85;
+  color: var(--ui-ink);
+}
+
+/* 编辑态：卡片内的输入框恢复常规样式，但更紧凑 */
+.ui-test-root .ui-test-pcard .ui-test-persona-grid {
+  gap: 12px 18px;
+  margin-bottom: 0;
+}
+
+.ui-test-root .ui-test-pcard .ui-test-persona-textarea {
+  min-height: 62px;
+}
+
+/* 只给读屏用的标签 */
+.ui-test-root .ui-test-psr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 980px) {
+  .ui-test-root .ui-test-pcards { grid-template-columns: minmax(0, 1fr); }
+  .ui-test-root .ui-test-pdoc-scroll { padding: 14px 18px 26px; }
+  .ui-test-root .ui-test-pband { flex-wrap: wrap; }
+}

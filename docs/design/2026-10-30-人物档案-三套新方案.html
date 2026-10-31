@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>人物档案页 · 三套新方案</title>
+<style>
+  /* 应用皮肤令牌（同前两份稿） */
+  :root{
+    --canvas:#edf1ec; --paper:#fcfdfb; --panel:#f2f5ef; --soft:#e4ece3;
+    --ink:#273c35; --muted:#5d6e64; --accent:#45624f; --on-accent:#fff;
+    --line:#dfe6da; --warm:#f3ebdf; --danger:#943f36;
+    --serif:"Songti SC",Georgia,"Times New Roman",serif;
+    --shadow-sm:0 1px 2px rgba(23,35,29,.04);
+    --shadow-md:0 6px 20px rgba(23,35,29,.07);
+    --shadow-lg:0 18px 48px rgba(23,35,29,.16);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:#e7ebe6;color:var(--ink);
+    font:14px/1.6 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* 评审外壳 */
+  .doc-head{max-width:1180px;margin:0 auto;padding:44px 32px 8px;}
+  .doc-head .eyebrow{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;}
+  .doc-head h1{font-size:26px;margin:0 0 10px;letter-spacing:-.01em;}
+  .doc-head p{margin:0;color:var(--muted);font-size:14px;max-width:900px;}
+  .doc-head p b{color:var(--ink);}
+  .plan-tabs{
+    position:sticky;top:0;z-index:50;display:flex;gap:8px;flex-wrap:wrap;
+    max-width:1180px;margin:26px auto 0;padding:12px 32px;
+    background:rgba(231,235,230,.92);backdrop-filter:blur(8px);
+  }
+  .plan-tabs button{
+    appearance:none;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    padding:9px 16px;border-radius:10px;font-size:13.5px;cursor:pointer;transition:.15s;
+  }
+  .plan-tabs button:hover{border-color:var(--accent);}
+  .plan-tabs button.on{background:var(--accent);color:var(--on-accent);border-color:transparent;box-shadow:0 2px 8px rgba(69,98,79,.28);}
+
+  .plan{display:none;max-width:1180px;margin:0 auto;padding:26px 32px 90px;}
+  .plan.on{display:block;}
+  .plan-head h2{font-size:21px;margin:0 0 8px;}
+  .plan-head .lead{color:var(--muted);margin:0 0 14px;max-width:880px;}
+  .kv{display:flex;gap:22px;flex-wrap:wrap;margin:0 0 18px;}
+  .kv div{font-size:13px;color:var(--muted);}
+  .kv b{color:var(--ink);font-weight:600;}
+
+  .view-switch{display:flex;gap:6px;margin:0 0 16px;}
+  .view-switch button{
+    appearance:none;border:1px solid var(--line);background:transparent;color:var(--muted);
+    padding:7px 14px;border-radius:99px;font-size:13px;cursor:pointer;
+  }
+  .view-switch button.on{background:var(--panel);color:var(--ink);border-color:var(--soft);font-weight:500;}
+  .sub{display:none;}
+  .sub.on{display:block;}
+
+  /* 窗口 */
+  .win{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--canvas);box-shadow:var(--shadow-lg);}
+  .win-bar{display:flex;align-items:center;gap:14px;padding:9px 14px;background:#f6f8f4;border-bottom:1px solid var(--line);}
+  .win-bar .dots{display:flex;gap:6px;}
+  .win-bar .dots i{width:10px;height:10px;border-radius:50%;background:#d8ded4;display:block;}
+  .win-bar .title{font-size:12.5px;color:var(--muted);}
+  .win-bar .nav{margin-left:auto;display:flex;gap:2px;}
+  .win-bar .nav span{font-size:12.5px;color:var(--muted);padding:5px 11px;border-radius:7px;}
+  .win-bar .nav span.on{background:var(--soft);color:var(--ink);font-weight:500;}
+
+  /* 通用小件 */
+  .btn{appearance:none;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    padding:8px 14px;border-radius:9px;font-size:13px;cursor:default;display:inline-flex;align-items:center;gap:6px;}
+  .btn-primary{background:var(--accent);color:var(--on-accent);border-color:transparent;font-weight:500;box-shadow:0 1px 3px rgba(69,98,79,.24);}
+  .btn-ghost{background:transparent;border-color:transparent;color:var(--muted);}
+  .btn-sm{padding:6px 11px;font-size:12.5px;}
+  .badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11.5px;background:color-mix(in srgb,var(--ink) 7%,transparent);color:var(--muted);}
+  .badge.type{background:var(--soft);color:var(--accent);font-weight:500;}
+  .badge.ok{background:#e3efe5;color:#2f6b46;}
+  .avatar{display:grid;place-items:center;border-radius:10px;background:var(--soft);color:var(--accent);font-weight:600;flex-shrink:0;width:36px;height:36px;font-size:14px;}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;}
+  .chip{border:1px solid var(--line);background:var(--paper);color:var(--muted);padding:6px 12px;border-radius:99px;font-size:12.5px;cursor:default;}
+  .chip.on{background:var(--accent);color:var(--on-accent);border-color:transparent;font-weight:500;}
+  .chip.ghost{border-style:dashed;}
+  .notes{margin:20px 0 0;padding:18px 20px;border:1px solid var(--line);border-radius:12px;background:var(--paper);}
+  .notes h5{margin:0 0 10px;font-size:13.5px;}
+  .notes ul{margin:0;padding-left:18px;color:var(--muted);font-size:13px;line-height:1.85;}
+  .notes ul b{color:var(--ink);font-weight:500;}
+  .notes .fix{margin:14px 0 0;padding:12px 14px;border-radius:9px;background:#f6f0e2;color:#6b5a35;font-size:12.5px;line-height:1.8;}
+  .notes .fix b{color:#4d4023;}
+  .win-body{padding:22px 40px 36px;}
+  .inner{max-width:1120px;margin:0 auto;}
+
+  /* ==========================================================
+     E1 · 人物志：杂志排版 / 阅读优先
+     ========================================================== */
+  .e1-sheet{
+    max-width:720px;margin:0 auto;padding:8px 0 0;
+  }
+  .e1-kicker{
+    font-size:11.5px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:10px;
+  }
+  .e1-name{
+    font-family:var(--serif);font-size:40px;line-height:1.1;letter-spacing:.02em;
+    margin:0 0 8px;font-weight:600;
+  }
+  .e1-role{font-size:14px;color:var(--muted);margin:0 0 14px;}
+  .e1-meta{
+    display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--muted);
+    padding-bottom:16px;border-bottom:2px solid var(--ink);
+  }
+  .e1-sec{margin-top:26px;}
+  .e1-sec > h5{
+    font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);
+    margin:0 0 10px;font-weight:600;
+  }
+  .e1-p{font-family:var(--serif);font-size:15px;line-height:2.05;margin:0;max-width:66ch;}
+  .e1-p + .e1-p{margin-top:12px;}
+  .e1-pairs{display:grid;grid-template-columns:78px 1fr;gap:9px 16px;font-size:13.5px;}
+  .e1-pairs dt{color:var(--muted);font-size:12px;padding-top:2px;}
+  .e1-pairs dd{margin:0;line-height:1.85;}
+  .e1-margin-note{
+    float:right;width:150px;margin:0 0 12px 22px;padding:10px 12px;
+    border-left:2px solid var(--warm);background:color-mix(in srgb,var(--warm) 40%,transparent);
+    font-size:11.5px;line-height:1.8;color:var(--muted);font-family:inherit;
+  }
+  .e1-chron{margin-top:28px;padding-top:18px;border-top:1px solid var(--line);}
+  .e1-chron-item{display:grid;grid-template-columns:52px 1fr;gap:16px;padding:9px 0;font-size:13.5px;}
+  .e1-chron-item .ch{font-family:var(--serif);color:var(--accent);font-size:13px;padding-top:2px;}
+  .e1-chron-item p{margin:0;line-height:1.9;}
+  .e1-edit{
+    font-size:12px;color:var(--muted);text-decoration:underline dotted;cursor:default;
+    margin-left:auto;
+  }
+  .e1-sec-head{display:flex;align-items:baseline;gap:10px;}
+
+  /* ==========================================================
+     E2 · 档案卡片墙：分区卡片 / 扫读优先
+     ========================================================== */
+  .e2-hero{
+    display:flex;align-items:center;gap:16px;padding:18px 22px;margin-bottom:18px;
+    border:1px solid var(--line);border-radius:14px;
+    background:linear-gradient(120deg,color-mix(in srgb,var(--soft) 55%,var(--paper)),var(--paper) 62%);
+    box-shadow:var(--shadow-sm);
+  }
+  .e2-hero .avatar{width:64px;height:64px;border-radius:16px;font-size:26px;}
+  .e2-hero h3{font-family:var(--serif);font-size:24px;margin:0 0 4px;letter-spacing:.01em;}
+  .e2-hero .line{font-size:12.5px;color:var(--muted);margin:0;}
+  .e2-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}
+  .e2-card{
+    border:1px solid var(--line);border-radius:13px;background:var(--paper);
+    padding:16px 18px;box-shadow:var(--shadow-sm);
+  }
+  .e2-card.wide{grid-column:1 / -1;}
+  .e2-card > header{display:flex;align-items:center;gap:8px;margin-bottom:12px;}
+  .e2-card > header h6{
+    margin:0;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600;
+  }
+  .e2-card > header .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);}
+  .e2-card > header .edit{margin-left:auto;font-size:11.5px;color:var(--muted);text-decoration:underline dotted;}
+  .e2-kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 18px;}
+  .e2-kv .item{min-width:0;}
+  .e2-kv .item span{display:block;font-size:11.5px;color:var(--muted);margin-bottom:2px;}
+  .e2-kv .item b{font-size:13.5px;font-weight:500;}
+  .e2-quote{
+    font-family:var(--serif);font-size:14px;line-height:1.95;color:var(--ink);margin:0;
+  }
+  .e2-behavior{display:grid;gap:10px;}
+  .e2-behavior .row{display:grid;grid-template-columns:74px 1fr;gap:12px;font-size:13px;}
+  .e2-behavior .row span{color:var(--muted);font-size:12px;padding-top:1px;}
+  .e2-mini-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:16px;}
+  .e2-mini{
+    border:1px solid var(--line);border-radius:12px;background:var(--panel);
+    padding:13px 15px;font-size:12.5px;
+  }
+  .e2-mini h6{margin:0 0 8px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
+  .e2-mini .line{display:flex;justify-content:space-between;padding:2px 0;color:var(--muted);}
+  .e2-mini .line b{color:var(--ink);font-weight:500;}
+
+  /* ==========================================================
+     E3 · 章节时间轴：按时间看人物
+     ========================================================== */
+  .e3-head{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
+  .e3-head .avatar{width:52px;height:52px;border-radius:14px;font-size:21px;}
+  .e3-head h3{font-family:var(--serif);font-size:22px;margin:0 0 3px;}
+  .e3-head .line{font-size:12.5px;color:var(--muted);margin:0;}
+
+  .e3-strip{
+    border:1px solid var(--line);border-radius:12px;background:var(--paper);
+    padding:14px 18px 10px;margin-bottom:18px;box-shadow:var(--shadow-sm);
+  }
+  .e3-strip .cap{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-bottom:10px;}
+  .e3-track{position:relative;display:flex;align-items:center;gap:0;height:30px;}
+  .e3-track::before{
+    content:"";position:absolute;left:6px;right:6px;top:50%;height:2px;
+    background:var(--line);
+  }
+  .e3-node{position:relative;flex:1;display:grid;place-items:center;}
+  .e3-node i{
+    width:9px;height:9px;border-radius:50%;background:var(--paper);
+    border:2px solid color-mix(in srgb,var(--ink) 24%,transparent);display:block;z-index:1;
+  }
+  .e3-node.filled i{background:var(--soft);border-color:var(--accent);}
+  .e3-node.on i{width:15px;height:15px;background:var(--accent);border-color:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 16%,transparent);}
+  .e3-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px;}
+
+  .e3-body{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;}
+  .e3-timeline{
+    border:1px solid var(--line);border-radius:13px;background:var(--paper);
+    padding:18px 22px;box-shadow:var(--shadow-sm);
+  }
+  .e3-timeline h6{margin:0 0 14px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);}
+  .e3-evt{display:grid;grid-template-columns:16px 1fr;gap:14px;padding-bottom:16px;position:relative;}
+  .e3-evt::before{
+    content:"";position:absolute;left:7px;top:16px;bottom:0;width:1px;background:var(--line);
+  }
+  .e3-evt:last-child{padding-bottom:0;}
+  .e3-evt:last-child::before{display:none;}
+  .e3-evt .pin{width:15px;height:15px;border-radius:50%;border:2px solid var(--accent);background:var(--paper);margin-top:3px;z-index:1;}
+  .e3-evt .ch{font-size:11.5px;color:var(--accent);font-family:var(--serif);margin-bottom:2px;}
+  .e3-evt p{margin:0;font-size:13px;line-height:1.9;}
+  .e3-evt .tag{margin-top:5px;display:flex;gap:6px;flex-wrap:wrap;}
+
+  .e3-snap{
+    border:1px solid var(--line);border-radius:13px;background:var(--panel);padding:16px 18px;
+  }
+  .e3-snap h6{margin:0 0 4px;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);}
+  .e3-snap .asof{font-size:11.5px;color:var(--muted);margin:0 0 14px;}
+  .e3-snap .item{padding:9px 0;border-bottom:1px dashed color-mix(in srgb,var(--line) 80%,transparent);}
+  .e3-snap .item:last-child{border-bottom:0;}
+  .e3-snap .item span{display:block;font-size:11.5px;color:var(--muted);margin-bottom:2px;}
+  .e3-snap .item b{font-size:13px;font-weight:500;line-height:1.75;display:block;}
+  .e3-arc{
+    margin-top:14px;padding-top:12px;border-top:1px solid var(--line);
+    font-size:12px;color:var(--muted);line-height:1.8;
+  }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <div class="eyebrow">QMAI · 方案 A 内页 · 第二轮</div>
+  <h1>人物档案页 · 三套新方案</h1>
+  <p>
+    上一轮三套（分组页签 / 三栏常驻 / 阅读编辑分离）判为不合格，这一轮换<b>三个不同的立论</b>，
+    不再只是「换容器」，而是回答三个不同的问题：
+    <b>E1 把它当一篇人物志来读</b>、<b>E2 把字段拆成可扫读的信息卡</b>、
+    <b>E3 按章节看这个人在故事里怎么变</b>。每套都含<b>档案</b>与<b>性格</b>两个视图。
+  </p>
+</header>
+
+<nav class="plan-tabs">
+  <button data-plan="e1" class="on">E1 · 人物志（阅读）</button>
+  <button data-plan="e2">E2 · 信息卡（扫读）</button>
+  <button data-plan="e3">E3 · 章节时间轴（演变）</button>
+</nav>
+
+<!-- ======================= E1 ======================= -->
+<section class="plan on" data-view="e1">
+  <div class="plan-head">
+    <h2>E1 · 人物志</h2>
+    <p class="lead">
+      把档案当<b>一篇人物特写</b>排版：衬线大标题、720px 单栏、行长限制、细分割线，边栏放小批注。
+      写作时想「重新认识这个人」，这一页读起来像书，而不是像表单。
+    </p>
+    <div class="kv">
+      <div>立论 <b>阅读优先</b></div>
+      <div>视觉基调 <b>纸张 / 衬线</b></div>
+      <div>最适合 <b>写作前找感觉</b></div>
+    </div>
+    <div class="view-switch" data-switch="e1">
+      <button data-sub="doc" class="on">人物志</button>
+      <button data-sub="persona">性格</button>
+    </div>
+  </div>
+
+  <div class="sub on" data-subview="e1-doc">
+    <div class="win">
+      <div class="win-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div>
+      </div>
+      <div class="win-body">
+        <div class="inner">
+          <div style="display:flex;align-items:center;gap:10px;max-width:720px;margin:0 auto 22px">
+            <button class="btn btn-ghost btn-sm">← 人物列表</button>
+            <span class="badge ok">✓ 重要人物</span>
+            <div style="margin-left:auto;display:flex;gap:8px">
+              <button class="btn btn-sm">编辑</button>
+              <button class="btn btn-sm btn-primary">保存</button>
+            </div>
+          </div>
+
+          <article class="e1-sheet">
+            <div class="e1-kicker">主要人物 · 男主</div>
+            <h2 class="e1-name">杨寒</h2>
+            <p class="e1-role">在黑雨里捡废料长大的孩子，现在替回收队跑最危险的那条线。</p>
+            <div class="e1-meta">
+              <span>出场 18 次</span><span>首次第 1 章</span><span>最近第 19 章</span>
+              <span>地下回收队</span><span>二十上下</span>
+            </div>
+
+            <div class="e1-sec">
+              <div class="e1-sec-head"><h5>他是谁</h5></div>
+              <div class="e1-margin-note">
+                第 19 章首次主动提起「地下三层」，此前一律只说「下面」。
+              </div>
+              <p class="e1-p">
+                瘦高，左眉一道旧疤，说话时习惯侧着脸看人。他不爱抬头，因为抬头就要看雨。
+                回收队里没人记得他的全名，只叫「杨家的」。
+              </p>
+            </div>
+
+            <div class="e1-sec">
+              <h5>从哪来</h5>
+              <p class="e1-p">
+                在黑雨里长大的第一批孩子，靠捡地上的东西活到现在。他记得每一场雨的颜色，
+                也记得哪一年开始，雨里开始掺别的东西。
+              </p>
+            </div>
+
+            <div class="e1-sec">
+              <h5>要什么</h5>
+              <dl class="e1-pairs">
+                <dt>动机</dt><dd>把妹妹从地下三层带出来。</dd>
+                <dt>能力</dt><dd>听声辨位，能在黑雨里走直线。</dd>
+                <dt>局限</dt><dd>不识字，看不懂任何书面登记。</dd>
+              </dl>
+            </div>
+
+            <div class="e1-sec">
+              <h5>怎么说话</h5>
+              <dl class="e1-pairs">
+                <dt>语气</dt><dd>短句，爱反问，极少用敬语。</dd>
+                <dt>判断</dt><dd>先看对方的鞋——干净的鞋说明不用自己走路。</dd>
+                <dt>不会做</dt><dd>不碰小孩的东西。</dd>
+              </dl>
+            </div>
+
+            <div class="e1-chron">
+              <div class="e1-sec-head"><h5>编年史</h5><span class="e1-edit">按章倒序</span></div>
+              <div class="e1-chron-item"><div class="ch">第 19 章</div><p>第一次说出「地下三层」这四个字。</p></div>
+              <div class="e1-chron-item"><div class="ch">第 12 章</div><p>对回收队以外的人，第一次没有先算退路。</p></div>
+              <div class="e1-chron-item"><div class="ch">第 5 章</div><p>会把食物分给更小的孩子，但不承认。</p></div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sub" data-subview="e1-persona">
+    <div class="win">
+      <div class="win-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div>
+      </div>
+      <div class="win-body">
+        <div class="inner">
+          <div style="display:flex;align-items:center;gap:10px;max-width:720px;margin:0 auto 22px">
+            <button class="btn btn-ghost btn-sm">← 人物列表</button>
+            <div style="margin-left:auto"><button class="btn btn-sm btn-primary">保存</button></div>
+          </div>
+
+          <article class="e1-sheet">
+            <div class="e1-kicker">性格</div>
+            <h2 class="e1-name" style="font-size:30px">毒舌 · 嘴硬心软 · 外表凶内心怂</h2>
+            <p class="e1-role">灵魂：严肃沉稳（只决定「怎么演」，性格决定「演成什么样」）</p>
+            <div class="e1-meta">
+              <span>3 / 4 条</span><span>合计 12 / 20 字</span><span>已进入写作注入</span>
+            </div>
+
+            <div class="e1-sec">
+              <h5>他在文里会怎么表现</h5>
+              <dl class="e1-pairs">
+                <dt>毒舌</dt><dd>开口先刺一句，再讲正事。</dd>
+                <dt>嘴硬心软</dt><dd>嘴上说不管，转身把事办了。</dd>
+                <dt>外表凶内心怂</dt><dd>对弱者凶，对强者先看退路。</dd>
+              </dl>
+            </div>
+
+            <div class="e1-sec">
+              <div class="e1-sec-head"><h5>可替换</h5><span class="e1-edit">按题材推荐</span></div>
+              <div class="chips">
+                <span class="chip on">毒舌</span><span class="chip on">嘴硬心软</span><span class="chip on">外表凶内心怂</span>
+                <span class="chip">开口必抬杠</span><span class="chip">说话带刺</span><span class="chip">惜字如金</span>
+                <span class="chip ghost">＋ 自定义</span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>E1 要点</h5>
+    <ul>
+      <li><b>唯一用衬线的方案</b>：名字 40px 衬线 + 正文 15px/2.05 行高，读感接近纸质人物志。</li>
+      <li>720px 单栏 + 左标签右内容的定义列表，<b>不出现输入框</b>；要改才点「编辑」。</li>
+      <li>右侧小批注（margin note）放「最新一条观察」，让页面有呼吸感又不打断正文。</li>
+      <li>性格页把标签<b>拼成一句标题</b>（毒舌 · 嘴硬心软 · 外表凶内心怂），而不是只列一排 chip。</li>
+    </ul>
+    <div class="fix"><b>取舍：</b>读起来最舒服，但「改一个字段」的路径最长；窄屏下 margin note 要收进正文。</div>
+  </div>
+</section>
+
+<!-- ======================= E2 ======================= -->
+<section class="plan" data-view="e2">
+  <div class="plan-head">
+    <h2>E2 · 信息卡</h2>
+    <p class="lead">
+      把 11 个字段拆成<b>六张主题卡</b>（身份 / 外形 / 背景 / 动机与能力 / 语言与行为 / 关系），
+      每张卡右上角直接「编辑」。底部三张迷你卡放研究文件、版本、出场。扫读最快，改动最具体。
+    </p>
+    <div class="kv">
+      <div>立论 <b>扫读优先</b></div>
+      <div>视觉基调 <b>卡片 / 分区</b></div>
+      <div>最适合 <b>快速定位某一格</b></div>
+    </div>
+    <div class="view-switch" data-switch="e2">
+      <button data-sub="cards" class="on">档案卡片</button>
+      <button data-sub="persona">性格</button>
+    </div>
+  </div>
+
+  <div class="sub on" data-subview="e2-cards">
+    <div class="win">
+      <div class="win-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div>
+      </div>
+      <div class="win-body">
+        <div class="inner">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <button class="btn btn-ghost btn-sm">← 人物列表</button>
+            <div style="margin-left:auto;display:flex;gap:8px">
+              <span style="font-size:12px;color:var(--muted);align-self:center">已保存</span>
+              <button class="btn btn-primary">保存角色</button>
+            </div>
+          </div>
+
+          <div class="e2-hero">
+            <div class="avatar">杨</div>
+            <div style="min-width:0;flex:1">
+              <h3>杨寒</h3>
+              <p class="line">主角 · 地下回收队 · 出场 18 次</p>
+              <div style="display:flex;gap:6px;margin-top:8px">
+                <span class="badge type">主要人物</span><span class="badge ok">✓ 重要人物</span>
+                <span class="badge">活跃</span><span class="badge">毒舌</span><span class="badge">嘴硬心软</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="e2-grid">
+            <section class="e2-card">
+              <header><i class="dot"></i><h6>身份</h6><span class="edit">编辑</span></header>
+              <div class="e2-kv">
+                <div class="item"><span>姓名</span><b>杨寒</b></div>
+                <div class="item"><span>定位</span><b>男主</b></div>
+                <div class="item"><span>性别</span><b>男</b></div>
+                <div class="item"><span>年龄</span><b>二十上下</b></div>
+              </div>
+            </section>
+
+            <section class="e2-card">
+              <header><i class="dot"></i><h6>外形</h6><span class="edit">编辑</span></header>
+              <p class="e2-quote">瘦高，左眉一道旧疤，说话时习惯侧着脸看人。</p>
+            </section>
+
+            <section class="e2-card wide">
+              <header><i class="dot"></i><h6>背景</h6><span class="edit">编辑</span></header>
+              <p class="e2-quote">
+                在黑雨里长大的第一批孩子，靠捡地上的东西活到现在。他记得每一场雨的颜色，
+                也记得哪一年开始，雨里开始掺别的东西。
+              </p>
+            </section>
+
+            <section class="e2-card">
+              <header><i class="dot"></i><h6>动机与能力</h6><span class="edit">编辑</span></header>
+              <div class="e2-kv">
+                <div class="item" style="grid-column:1/-1"><span>动机</span><b>把妹妹从地下三层带出来</b></div>
+                <div class="item"><span>能力</span><b>听声辨位</b></div>
+                <div class="item"><span>局限</span><b>不识字</b></div>
+              </div>
+            </section>
+
+            <section class="e2-card">
+              <header><i class="dot"></i><h6>关系网</h6><span class="edit">编辑</span></header>
+              <div class="e2-behavior">
+                <div class="row"><span>妹妹</span><b style="font-weight:500">杨小满 · 唯一软肋</b></div>
+                <div class="row"><span>队长</span><b style="font-weight:500">老雷 · 半师半雇主</b></div>
+                <div class="row"><span>对手</span><b style="font-weight:500">白褂女人 · 互相试探</b></div>
+              </div>
+            </section>
+
+            <section class="e2-card wide">
+              <header><i class="dot"></i><h6>语言与行为（写正文时真正喂给模型的 5 条）</h6><span class="edit">编辑</span></header>
+              <div class="e2-behavior">
+                <div class="row"><span>怎么说话</span><b style="font-weight:400">短句，爱反问，极少用敬语。</b></div>
+                <div class="row"><span>怎么想</span><b style="font-weight:400">先算退路，再决定要不要动手。</b></div>
+                <div class="row"><span>怎么判断</span><b style="font-weight:400">看对方的鞋——干净的鞋说明不用自己走路。</b></div>
+                <div class="row"><span>什么不做</span><b style="font-weight:400">不碰小孩的东西。</b></div>
+                <div class="row"><span>知道局限</span><b style="font-weight:400">不识字，看不懂任何书面登记。</b></div>
+              </div>
+            </section>
+          </div>
+
+          <div class="e2-mini-row">
+            <div class="e2-mini">
+              <h6>研究文件 · 6 份</h6>
+              <div class="line"><span>人物小传</span><b>已生成</b></div>
+              <div class="line"><span>语言习惯</span><b>已生成</b></div>
+              <div class="line"><span>关键关系</span><b>待生成</b></div>
+            </div>
+            <div class="e2-mini">
+              <h6>版本历史 · 7 版</h6>
+              <div class="line"><span>最近保存</span><b>今天 14:02</b></div>
+              <div class="line"><span>上次回退</span><b>3 天前</b></div>
+            </div>
+            <div class="e2-mini">
+              <h6>出场</h6>
+              <div class="line"><span>首次 / 最近</span><b>第 1 / 19 章</b></div>
+              <div class="line"><span>出场次数</span><b>18 次</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sub" data-subview="e2-persona">
+    <div class="win">
+      <div class="win-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div>
+      </div>
+      <div class="win-body">
+        <div class="inner">
+          <div class="e2-hero">
+            <div class="avatar">杨</div>
+            <div style="min-width:0;flex:1">
+              <h3>杨寒</h3>
+              <p class="line">性格 · 3 / 4 条 · 合计 12 / 20 字</p>
+            </div>
+            <button class="btn btn-primary">保存角色</button>
+          </div>
+
+          <div class="e2-grid">
+            <section class="e2-card wide">
+              <header><i class="dot"></i><h6>已选性格（会进入写作注入）</h6><span class="edit">编辑</span></header>
+              <div class="chips" style="margin-bottom:14px">
+                <span class="chip on">毒舌 ×</span><span class="chip on">嘴硬心软 ×</span><span class="chip on">外表凶内心怂 ×</span>
+                <span class="chip ghost">＋ 添加</span>
+              </div>
+              <div class="e2-behavior">
+                <div class="row"><span>毒舌</span><b style="font-weight:400">开口先刺一句，再讲正事。</b></div>
+                <div class="row"><span>嘴硬心软</span><b style="font-weight:400">嘴上说不管，转身把事办了。</b></div>
+                <div class="row"><span>外表凶内心怂</span><b style="font-weight:400">对弱者凶，对强者先看退路。</b></div>
+              </div>
+            </section>
+
+            <section class="e2-card">
+              <header><i class="dot"></i><h6>绑定灵魂</h6><span class="edit">更换</span></header>
+              <p class="e2-quote">严肃沉稳</p>
+              <p style="margin:8px 0 0;font-size:11.5px;color:var(--muted);line-height:1.8">
+                灵魂只决定「怎么演」，与性格冲突时以性格为准。
+              </p>
+            </section>
+
+            <section class="e2-card">
+              <header><i class="dot"></i><h6>题材推荐 · 悬疑</h6></header>
+              <div class="chips">
+                <span class="chip">观察入微</span><span class="chip">疑心极重</span><span class="chip">不信任何人</span>
+              </div>
+            </section>
+
+            <section class="e2-card wide">
+              <header><i class="dot"></i><h6>全部基底</h6><span class="edit">收起</span></header>
+              <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px">语气</div>
+              <div class="chips">
+                <span class="chip on">毒舌</span><span class="chip">阴阳怪气</span><span class="chip">满口网络梗</span>
+                <span class="chip">爱说歇后语</span><span class="chip">话痨</span><span class="chip">闷葫芦</span>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>E2 要点</h5>
+    <ul>
+      <li><b>每张卡一个主题</b>，卡头右上角就是「编辑」——想改外形就直接找到「外形」卡，不用在长表单里找。</li>
+      <li>「语言与行为」单独占一张全宽卡并标注「真正喂给模型的 5 条」，<b>把技术含义写在标题里</b>。</li>
+      <li>研究文件 / 版本 / 出场压成三张迷你卡横排，<b>不再挤占正文</b>。</li>
+      <li>性格页沿用同一套卡，已选性格卡的最大，基底折叠。</li>
+    </ul>
+    <div class="fix"><b>取舍：</b>扫读和精确定位都强，但卡片多、页面长；窄屏会退化成单列长卡。</div>
+  </div>
+</section>
+
+<!-- ======================= E3 ======================= -->
+<section class="plan" data-view="e3">
+  <div class="plan-head">
+    <h2>E3 · 章节时间轴</h2>
+    <p class="lead">
+      以「这个人在故事里怎么变」为主线：顶部一条章节轴，选一章，下方左列是到那一章为止的观察时间线，
+      右列是<b>截至该章的档案快照</b>。写作写到第 19 章时，能直接看到「第 19 章的杨寒是谁」。
+    </p>
+    <div class="kv">
+      <div>立论 <b>演变 / 取证</b></div>
+      <div>视觉基调 <b>时间轴 / 快照</b></div>
+      <div>最适合 <b>长线人物、写法一致性</b></div>
+    </div>
+    <div class="view-switch" data-switch="e3">
+      <button data-sub="arc" class="on">时间轴</button>
+      <button data-sub="persona">性格</button>
+    </div>
+  </div>
+
+  <div class="sub on" data-subview="e3-arc">
+    <div class="win">
+      <div class="win-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div>
+      </div>
+      <div class="win-body">
+        <div class="inner">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <button class="btn btn-ghost btn-sm">← 人物列表</button>
+            <div style="margin-left:auto;display:flex;gap:8px">
+              <button class="btn btn-sm">查看完整档案</button>
+              <button class="btn btn-primary">保存角色</button>
+            </div>
+          </div>
+
+          <div class="e3-head">
+            <div class="avatar">杨</div>
+            <div style="min-width:0;flex:1">
+              <h3>杨寒</h3>
+              <p class="line">主要人物 · 男主 · 出场 18 次</p>
+            </div>
+            <div style="display:flex;gap:6px">
+              <span class="badge type">主要人物</span><span class="badge ok">✓ 重要人物</span><span class="badge">活跃</span>
+            </div>
+          </div>
+
+          <div class="e3-strip">
+            <div class="cap"><span>出场章节</span><span>当前查看：第 19 章</span></div>
+            <div class="e3-track">
+              <span class="e3-node filled"><i></i></span>
+              <span class="e3-node filled"><i></i></span>
+              <span class="e3-node"><i></i></span>
+              <span class="e3-node filled"><i></i></span>
+              <span class="e3-node"><i></i></span>
+              <span class="e3-node filled"><i></i></span>
+              <span class="e3-node filled"><i></i></span>
+              <span class="e3-node"><i></i></span>
+              <span class="e3-node filled"><i></i></span>
+              <span class="e3-node"><i></i></span>
+              <span class="e3-node filled"><i></i></span>
+              <span class="e3-node filled"><i></i></span>
+              <span class="e3-node"><i></i></span>
+              <span class="e3-node filled"><i></i></span>
+              <span class="e3-node filled"><i></i></span>
+              <span class="e3-node"><i></i></span>
+              <span class="e3-node"><i></i></span>
+              <span class="e3-node filled"><i></i></span>
+              <span class="e3-node on"><i></i></span>
+            </div>
+            <div class="e3-labels"><span>第 1 章</span><span>第 10 章</span><span>第 19 章</span></div>
+          </div>
+
+          <div class="e3-body">
+            <div class="e3-timeline">
+              <h6>观察记录 · 倒序</h6>
+
+              <div class="e3-evt">
+                <div class="pin"></div>
+                <div>
+                  <div class="ch">第 19 章</div>
+                  <p>第一次主动说出「地下三层」——此前一律只说「下面」。</p>
+                  <div class="tag"><span class="badge">认知变化</span><span class="badge">关键</span></div>
+                </div>
+              </div>
+
+              <div class="e3-evt">
+                <div class="pin"></div>
+                <div>
+                  <div class="ch">第 18 章</div>
+                  <p>和白褂女人正面碰上，没有先退——与前 17 章的行为模式不同。</p>
+                  <div class="tag"><span class="badge">关系变化</span></div>
+                </div>
+              </div>
+
+              <div class="e3-evt">
+                <div class="pin"></div>
+                <div>
+                  <div class="ch">第 12 章</div>
+                  <p>对回收队以外的人，第一次没有先算退路。</p>
+                  <div class="tag"><span class="badge">性格线索</span></div>
+                </div>
+              </div>
+
+              <div class="e3-evt">
+                <div class="pin"></div>
+                <div>
+                  <div class="ch">第 5 章</div>
+                  <p>会把食物分给更小的孩子，但不承认。</p>
+                  <div class="tag"><span class="badge">性格线索</span></div>
+                </div>
+              </div>
+            </div>
+
+            <aside class="e3-snap">
+              <h6>档案快照</h6>
+              <p class="asof">截至第 19 章 · 之后仍未更新</p>
+
+              <div class="item"><span>当前状态</span><b>左肩受伤未愈，左手不便</b></div>
+              <div class="item"><span>出场组织</span><b>地下回收队（外围）</b></div>
+              <div class="item"><span>认知变化</span><b>开始怀疑「地下三层」不是终点</b></div>
+              <div class="item"><span>关系变化</span><b>与白褂女人：互相试探 → 短暂合作</b></div>
+
+              <div class="e3-arc">
+                弧光：从「只想带妹妹出去」→「想知道上面还有没有别的地方」。
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sub" data-subview="e3-persona">
+    <div class="win">
+      <div class="win-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav"><span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span></div>
+      </div>
+      <div class="win-body">
+        <div class="inner">
+          <div class="e3-head">
+            <div class="avatar">杨</div>
+            <div style="min-width:0;flex:1">
+              <h3>杨寒 · 性格</h3>
+              <p class="line">3 条已选 · 12 / 20 字 · 已进入写作注入</p>
+            </div>
+            <button class="btn btn-primary">保存</button>
+          </div>
+
+          <div class="e3-body">
+            <div class="e3-timeline">
+              <h6>性格是怎么定下来的</h6>
+
+              <div class="e3-evt">
+                <div class="pin"></div>
+                <div>
+                  <div class="ch">用户手选</div>
+                  <p><b style="font-weight:500">毒舌</b> · <b style="font-weight:500">嘴硬心软</b> —— 用户在第 1 章建档时选定。</p>
+                </div>
+              </div>
+
+              <div class="e3-evt">
+                <div class="pin"></div>
+                <div>
+                  <div class="ch">AI 补全</div>
+                  <p><b style="font-weight:500">外表凶内心怂</b> —— 由第 5、12、19 章的说话方式反推，用户已确认。</p>
+                </div>
+              </div>
+
+              <div class="e3-evt">
+                <div class="pin"></div>
+                <div>
+                  <div class="ch">可再补</div>
+                  <p>开口必抬杠 · 说话带刺 · 惜字如金（点击加入，最多还剩 1 条）</p>
+                </div>
+              </div>
+            </div>
+
+            <aside class="e3-snap">
+              <h6>注入预览</h6>
+              <p class="asof">AI 每章实际读到的内容</p>
+              <div class="item"><b>人物性格：毒舌、嘴硬心软、外表凶内心怂</b></div>
+              <div class="item"><span>优先级</span><b>性格 &gt; 灵魂基线</b></div>
+              <div class="item"><span>灵魂</span><b>严肃沉稳（只影响「怎么演」）</b></div>
+              <div class="e3-arc">字数预算 12 / 20，标签 3 / 4，均未超限。</div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>E3 要点</h5>
+    <ul>
+      <li><b>唯一把「时间」当主线的方案</b>：章节轴 + 观察倒序 + 截至该章的档案快照。</li>
+      <li>解决一个真实痛点：写到第 19 章时，档案里写的是「最新状态」，但作者常需要知道<b>第 12 章时他是什么样</b>。</li>
+      <li>右边「档案快照」用的是已有数据（当前状态 / 出场组织 / 认知变化 / 关系变化），不新增字段。</li>
+      <li>性格页把标签来源分成<b>用户手选 / AI 补全 / 可再补</b>三段，看得出哪些是人定的。</li>
+    </ul>
+    <div class="fix"><b>取舍：</b>信息价值最高，但改动最大（要引入「按章回溯」的读取逻辑）；日常「改一格」不如 E2 直接。</div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll('.plan-tabs button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.plan-tabs button').forEach(function (b) { b.classList.remove('on'); });
+      btn.classList.add('on');
+      var plan = btn.dataset.plan;
+      document.querySelectorAll('.plan').forEach(function (p) { p.classList.toggle('on', p.dataset.view === plan); });
+      var sw = document.querySelector('[data-switch="' + plan + '"]');
+      if (sw) {
+        var first = sw.querySelector('button');
+        sw.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        first.classList.add('on');
+        document.querySelectorAll('[data-subview^="' + plan + '-"]').forEach(function (v) {
+          v.classList.toggle('on', v.dataset.subview === plan + '-' + first.dataset.sub);
+        });
+      }
+      window.scrollTo({ top: document.querySelector('.plan-tabs').offsetTop - 8, behavior: 'smooth' });
+    });
+  });
+  document.querySelectorAll('[data-switch]').forEach(function (sw) {
+    var plan = sw.dataset.switch;
+    sw.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        sw.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        document.querySelectorAll('[data-subview^="' + plan + '-"]').forEach(function (v) {
+          v.classList.toggle('on', v.dataset.subview === plan + '-' + btn.dataset.sub);
+        });
+      });
+    });
+  });
+</script>
+</body>
+</html>

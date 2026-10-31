@@ -6,12 +6,13 @@ import {
   resolveNovelModel,
   resolveUsableModelKey,
 } from "@/lib/novel/model-resolver"
-import { applyReasoningDepth, normalizeReasoningDepth, REASONING_DEPTH_STEPS, type ReasoningDepth } from "@/lib/reasoning-depth"
+import { applyReasoningDepth, REASONING_DEPTH_STEPS, type ReasoningDepth } from "@/lib/reasoning-depth"
 import { useWikiStore, type LlmConfig } from "@/stores/wiki-store"
 
 export interface ResolvedWritingParameters {
   workflowMode: AiWorkflowMode
-  reasoningDepth: ReasoningDepth
+  /** 本次调用显式指定的推理档；`null` 表示没有覆盖，按供应商配置走。 */
+  reasoningDepth: ReasoningDepth | null
   agentLlm: LlmConfig
   chapterWritingLlm: LlmConfig
 }
@@ -20,7 +21,7 @@ function requireReasoningDepth(value: unknown): ReasoningDepth {
   if (typeof value === "string" && (REASONING_DEPTH_STEPS as readonly string[]).includes(value)) {
     return value as ReasoningDepth
   }
-  throw new Error("思考深度无效，只能是 auto、off、low、medium、high、max")
+  throw new Error("思考深度无效，只能是 off、low、medium、high、max")
 }
 
 export function resolveWritingParameters(input: {
@@ -36,24 +37,27 @@ export function resolveWritingParameters(input: {
   const workflowMode = input.workflowMode === undefined
     ? resolveAiWorkflowMode(state.aiWorkflowMode)
     : input.workflowMode
+  // 推理档只从供应商配置来；这里只处理调用方显式传入的覆盖。
   const reasoningDepth = input.reasoningDepth === undefined
-    ? normalizeReasoningDepth(state.aiChatReasoningDepth)
+    ? null
     : requireReasoningDepth(input.reasoningDepth)
+  const withDepth = (config: LlmConfig): LlmConfig =>
+    reasoningDepth === null ? config : applyReasoningDepth(config, reasoningDepth)
   const requestedModel = typeof input.model === "string" ? input.model.trim() : ""
   // 已选模型不可用时明确报错，不能静默改用默认模型生成正文。
   const writingModel = requestedModel || state.aiChatModel.trim()
-  const chapterWritingLlm = writingModel
+  const chapterWritingLlm = withDepth(writingModel
     ? (() => {
         const key = resolveUsableModelKey(writingModel, state.llmConfig, state.providerConfigs)
         if (!key) throw new Error(requestedModel
           ? `找不到写作模型：${requestedModel}`
           : `聊天框选中的写作模型不可用：${writingModel}，请重新选择模型`)
-        return applyReasoningDepth(resolveModelConfig(key, state.llmConfig, state.providerConfigs), reasoningDepth)
+        return resolveModelConfig(key, state.llmConfig, state.providerConfigs)
       })()
-    : applyReasoningDepth(resolveNovelModel(state.llmConfig, state.novelConfig, "writing"), reasoningDepth)
+    : resolveNovelModel(state.llmConfig, state.novelConfig, "writing"))
   const agentLlm = workflowMode === "fast"
     ? chapterWritingLlm
-    : applyReasoningDepth(resolveAgentSessionModel(state.llmConfig, state.novelConfig, workflowMode), reasoningDepth)
+    : withDepth(resolveAgentSessionModel(state.llmConfig, state.novelConfig, workflowMode))
   if (!hasUsableLlm(chapterWritingLlm, state.providerConfigs) || !hasUsableLlm(agentLlm, state.providerConfigs)) {
     throw new Error("当前没有可用的写作模型")
   }

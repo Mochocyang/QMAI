@@ -14,6 +14,8 @@ import { useGuideStore } from "@/lib/guide/guide-store"
 import { GUIDE_RESTART_EVENT } from "@/lib/guide/guide-events"
 import type { SettingsDraft, DraftSetter } from "../settings-types"
 import type { NovelConfig, RevisionFeedbackWindowConfig } from "@/stores/wiki-store"
+import { PersonaSkillEvolutionPanel } from "@/components/skill-library/persona-skill-evolution-panel"
+import { StyleEvolutionPanel } from "@/components/skill-library/style-evolution-panel"
 
 interface Props {
   draft: SettingsDraft
@@ -408,6 +410,32 @@ export function NovelSection({ draft, setDraft }: Props) {
             </>
           )}
         </SettingGroup>
+
+        {/*
+         * 自进化类开关**不做折叠分组**：一个标题 + 一个开关 + 两行说明就够了。
+         * 折叠只会多出一整条可点的标题栏和不必要的上下留白（用户实测：太宽、没必要）。
+         *
+         * 人物角色自进化与文风自进化是同一类东西（达尔文式循环：诊断 → 候选 →
+         * 三评审配对比较 → 多数通过才替换），所以并排放在一起。
+         */}
+        {project ? (
+        <div
+          className="rounded-lg border border-border/60 px-4 py-3"
+          data-novel-block="persona-evolution"
+        >
+          <PersonaSkillEvolutionPanel />
+        </div>
+        ) : null}
+
+        {/* 文风自进化：从「技能库 → 文风 skill」搬来，与人物角色自进化并列。 */}
+        {project ? (
+        <div
+          className="rounded-lg border border-border/60 px-4 py-3"
+          data-novel-block="style-evolution"
+        >
+          <StyleEvolutionPanel />
+        </div>
+        ) : null}
 
         {/* ── 性能与并发：出问题时才需要动 ── */}
         <SettingGroup id="performance" title={t("settings.sections.novel.groups.performance", { defaultValue: "性能与并发" })}>

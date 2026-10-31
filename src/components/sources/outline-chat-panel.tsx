@@ -53,7 +53,6 @@ import { UiTestAiIdentity, UiTestAiAuthor, UiTestAiEmpty, UiTestAiModel, UiTestA
 import "@/components/uitest/ui-test-ai.css";
 import {
   saveAiOutlineModel,
-  saveAiOutlineReasoningDepth,
   saveOutlineWorkflowMode,
 } from "@/lib/project-store";
 import {
@@ -175,6 +174,7 @@ import {
   isCompleteHtmlDocument,
 } from "@/lib/novel/outline-save-request";
 import { pruneVersions, saveVersion } from "@/lib/novel/version-store";
+import { runPersonaSyncSafely, syncPersonaFromOutlineSave } from "@/lib/novel/persona-outline-sync";
 import {
   extractVolumeOutlineData,
   getVolumeSkeletonReference,
@@ -235,8 +235,6 @@ import {
   thinkingMinMaxTokens,
 } from "@/lib/llm-providers";
 import { ChatModelSelector } from "@/components/chat/chat-model-selector";
-import { ReasoningDepthControl } from "@/components/chat/reasoning-depth-control";
-import { applyReasoningDepth } from "@/lib/reasoning-depth";
 import { ContextUsageRing } from "@/components/chat/context-usage-ring";
 import { highlightCode } from "@/lib/streaming-code-highlight";
 import { separateThinking } from "@/lib/separate-thinking";
@@ -2322,8 +2320,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const aiOutlineModel = useWikiStore((s) => s.aiOutlineModel);
   const defaultLlmModel = useWikiStore((s) => s.defaultLlmModel);
   const setAiOutlineModel = useWikiStore((s) => s.setAiOutlineModel);
-  const aiOutlineReasoningDepth = useWikiStore((s) => s.aiOutlineReasoningDepth);
-  const setAiOutlineReasoningDepth = useWikiStore((s) => s.setAiOutlineReasoningDepth);
   const outlineWorkflowMode = resolveOutlineWorkflowMode(
     useWikiStore((s) => s.outlineWorkflowMode),
   );
@@ -2450,15 +2446,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       );
     }
     return getEffectiveMaxContextSize(config);
-  }, [effectiveOutlineModelId, llmConfig, novelConfig, providerConfigs]);
-
-  /** The config the thinking-depth slider steers, or null to hide the slider. */
-  const reasoningDepthTargetConfig = useMemo(() => {
-    let config = resolveNovelModel(llmConfig, novelConfig, "writing");
-    if (effectiveOutlineModelId) {
-      config = resolveModelConfig(effectiveOutlineModelId, config, providerConfigs);
-    }
-    return config;
   }, [effectiveOutlineModelId, llmConfig, novelConfig, providerConfigs]);
 
   const [inputValue, setInputValue] = useState("");
@@ -2914,6 +2901,22 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             }));
           }
           drainNextSaveBatch();
+          // 保存入库 → 抓角色进人物小传（用户拍板：只在保存时抓，不保存不抓）。
+          // 放在跳转与状态更新之后、且不 await：同步要读写项目文件与索引，
+          // 让保存按钮等它会把「保存很快」这个现有体感毁掉。
+          // 失败只影响提示、不影响保存结论，所以整段走永不抛 wrapper。
+          const savedOutlineFileName =
+            normalizePath(saveResult.saved[0].path).split(/[\\/]/).pop() ?? "";
+          void runPersonaSyncSafely(
+            () =>
+              syncPersonaFromOutlineSave({
+                projectPath,
+                outlineFileName: savedOutlineFileName,
+                requests,
+                llmConfig,
+              }),
+            "保存后同步人物小传",
+          );
           return;
         }
         if (saveResult.skipped.length > 0) {
@@ -3384,9 +3387,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         || discussPhase !== undefined
         ? "analysis"
         : "generation";
-      if (outlineBudgetStage === "generation") {
-        effectiveLlmConfig = applyReasoningDepth(effectiveLlmConfig, aiOutlineReasoningDepth);
-      }
       const effectiveModelId = effectiveOutlineModelId || effectiveLlmConfig.model || "";
       if (!hasUsableLlm(effectiveLlmConfig, providerConfigs)) {
         addMessage(convId, {
@@ -3412,7 +3412,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           id: crypto.randomUUID(),
           role: "assistant",
           content:
-            "当前供应商已关闭「启用 Function Calling」，AI 大纲需要工具调用才能把结果写入大纲文件。请到设置 → 模型设置中打开该开关，或更换支持工具调用的模型。",
+            "当前供应商已关闭「开启工具调用」，AI 大纲需要工具调用才能把结果写入大纲文件。请到设置 → 模型设置中打开该开关，或更换支持工具调用的模型。",
         });
         return { started: false, sent: false };
       }
@@ -4814,7 +4814,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       novelConfig,
       providerConfigs,
       effectiveOutlineModelId,
-      aiOutlineReasoningDepth,
       activeConv,
       activeConversationId,
       createConversation,
@@ -5393,8 +5392,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       if (effectiveOutlineModelId) {
         effectiveLlmConfig = resolveModelConfig(effectiveOutlineModelId, effectiveLlmConfig, providerConfigs);
       }
-      // Resuming picks up a generation run, so it takes the footer depth.
-      effectiveLlmConfig = applyReasoningDepth(effectiveLlmConfig, aiOutlineReasoningDepth);
+      // Resuming picks up a generation run, so it uses the model's provider config.
       const effectiveModelId = effectiveOutlineModelId || effectiveLlmConfig.model || "";
       if (!hasUsableLlm(effectiveLlmConfig, providerConfigs)) {
         toast.error("请先在设置中配置并选择一个可用的 AI 模型。");
@@ -5735,7 +5733,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
         clearStreamingContent(capturedConvId);
       }
     },
-    [project, activeConversationId, llmConfig, novelConfig, effectiveOutlineModelId, aiOutlineReasoningDepth, providerConfigs, outlineWritingSkills, startConversationRun, stopConversationRun, clearStreamingContent, setConversationContextSummary],
+    [project, activeConversationId, llmConfig, novelConfig, effectiveOutlineModelId, providerConfigs, outlineWritingSkills, startConversationRun, stopConversationRun, clearStreamingContent, setConversationContextSummary],
   );
 
   const handleFocusInput = useCallback(() => {
@@ -6002,8 +6000,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           providerConfigs,
         );
       }
-      // Regenerating replays a generation turn, so it takes the footer depth.
-      effectiveLlmConfig = applyReasoningDepth(effectiveLlmConfig, aiOutlineReasoningDepth);
+      // Regenerating replays a generation turn, so it uses the model's provider config.
       const effectiveModelId = effectiveOutlineModelId || effectiveLlmConfig.model || "";
       if (!hasUsableLlm(effectiveLlmConfig, providerConfigs)) {
         addMessage(activeConversationId, {
@@ -6021,7 +6018,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           id: crypto.randomUUID(),
           role: "assistant",
           content:
-            "当前供应商已关闭「启用 Function Calling」，AI 大纲需要工具调用才能把结果写入大纲文件。请到设置 → 模型设置中打开该开关，或更换支持工具调用的模型。",
+            "当前供应商已关闭「开启工具调用」，AI 大纲需要工具调用才能把结果写入大纲文件。请到设置 → 模型设置中打开该开关，或更换支持工具调用的模型。",
         });
         return;
       }
@@ -6570,7 +6567,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
       novelConfig,
       providerConfigs,
       effectiveOutlineModelId,
-      aiOutlineReasoningDepth,
       activeConv,
       activeConversationId,
       addMessage,
@@ -7246,14 +7242,6 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             hasAvailableModels ? (
               <>
               <UiTestAiModel enabled value={localModelId}>
-                <ReasoningDepthControl
-                  value={aiOutlineReasoningDepth}
-                  onChange={(depth) => {
-                    setAiOutlineReasoningDepth(depth);
-                    void saveAiOutlineReasoningDepth(depth);
-                  }}
-                  modelConfig={reasoningDepthTargetConfig}
-                />
                 <ChatModelSelector
                   value={localModelId}
                   onChange={(value) => {

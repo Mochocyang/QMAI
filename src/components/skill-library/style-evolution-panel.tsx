@@ -25,7 +25,12 @@ import { useWikiStore } from "@/stores/wiki-store"
  * 节律状态的写入刻意不进 `bumpDataVersion()`（见 store 文件头）——
  * 那会让写作统计、技能库、文风选择器整片重读，而这里的变化只是「打开日 +1」。
  */
-export function StyleEvolutionPanel() {
+export interface StyleEvolutionPanelProps {
+  /** 放进「写作设置」分组里时传 false：分组标题已经写了「文风自进化」。 */
+  showTitle?: boolean
+}
+
+export function StyleEvolutionPanel({ showTitle = true }: StyleEvolutionPanelProps = {}) {
   const projectPath = useWikiStore((state) => state.project?.path)
   const [enabled, setEnabled] = useState(false)
 
@@ -60,14 +65,22 @@ export function StyleEvolutionPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-3 p-4 text-sm" data-testid="style-evolution-panel">
+    <div
+      className="flex flex-col gap-2 text-sm"
+      data-testid="style-evolution-panel">
       {/*
        * 标题行与说明**分行**，不放进同一个 flex 里。
        * 放同一行时（justify-between + 说明在左侧 div）说明会一路顶到右侧开关底下，
        * 长句挤成一堵墙——真机截图里看得很明显。分开后说明独占整行，读起来正常。
        */}
-      <div className="flex items-center justify-between gap-4">
-        <h3 className="text-base font-medium">文风自进化</h3>
+      <div
+        className={
+          showTitle
+            ? "flex items-center justify-between gap-4"
+            : "flex items-center justify-end gap-4"
+        }
+      >
+        {showTitle ? <h3 className="text-base font-medium">文风自进化</h3> : null}
         {/*
          * 开关形态照「大语言模型」页里那一枚（`llm-provider-section.tsx` 的
          * Function Calling 开关）：**文字在左、滑块在右**，开关状态从文字读出来。
@@ -112,7 +125,7 @@ export function StyleEvolutionPanel() {
         </button>
       </div>
 
-      <div className="flex max-w-3xl flex-col gap-1.5 text-xs leading-relaxed text-muted-foreground">
+      <div className="flex max-w-2xl flex-col gap-1 text-xs leading-relaxed text-muted-foreground">
         {/*
          * 说明文字一律用**字符串字面量**，不写成裸 JSX 文本。
          *

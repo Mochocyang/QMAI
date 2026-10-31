@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>候选角色 · 信息可见性与处理方式 · 三套方案</title>
+<style>
+  :root{
+    --canvas:#edf1ec; --paper:#fcfdfb; --panel:#f2f5ef; --soft:#e4ece3;
+    --ink:#273c35; --muted:#5d6e64; --accent:#45624f; --on-accent:#fff;
+    --line:#dfe6da; --warm:#f3ebdf; --danger:#943f36;
+    --serif:"Songti SC",Georgia,"Times New Roman",serif;
+    --sh-lg:0 14px 40px rgba(23,35,29,.15);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:#e7ebe6;color:var(--ink);
+    font:13.5px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;}
+
+  .doc-head{max-width:1180px;margin:0 auto;padding:38px 32px 4px;}
+  .doc-head .eyebrow{font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:9px;}
+  .doc-head h1{font-size:25px;margin:0 0 9px;letter-spacing:-.01em;}
+  .doc-head > p{margin:0 0 10px;color:var(--muted);font-size:13.5px;max-width:960px;}
+  .doc-head > p b{color:var(--ink);}
+
+  /* 诊断块 */
+  .diag{border:1px solid var(--line);border-radius:12px;background:var(--paper);padding:15px 17px;margin:14px 0 0;}
+  .diag h4{margin:0 0 9px;font-size:13px;}
+  .diag ol{margin:0;padding-left:20px;color:var(--muted);font-size:12.5px;line-height:1.85;}
+  .diag ol b{color:var(--ink);}
+  .diag code{background:var(--panel);padding:1px 5px;border-radius:4px;font-size:11.5px;}
+
+  .tabs{position:sticky;top:0;z-index:60;display:flex;gap:8px;flex-wrap:wrap;
+    max-width:1180px;margin:20px auto 0;padding:11px 32px;
+    background:rgba(231,235,230,.94);backdrop-filter:blur(8px);}
+  .tabs button{appearance:none;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    padding:8px 15px;border-radius:10px;font-size:13px;cursor:pointer;}
+  .tabs button.on{background:var(--accent);color:var(--on-accent);border-color:transparent;
+    box-shadow:0 2px 8px rgba(69,98,79,.26);}
+
+  .part{display:none;max-width:1180px;margin:0 auto;padding:20px 32px 70px;}
+  .part.on{display:block;}
+  .part > h2{font-size:19px;margin:0 0 5px;}
+  .part > .lead{color:var(--muted);margin:0 0 12px;max-width:920px;}
+  .stage{display:grid;grid-template-columns:300px minmax(0,1fr);gap:22px;align-items:start;}
+
+  /* 左栏模拟 */
+  .side{border:1px solid var(--line);border-radius:12px;background:var(--panel);overflow:hidden;box-shadow:var(--sh-lg);}
+  .side-head{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid var(--line);background:var(--paper);}
+  .side-head b{font-size:12.5px;}
+  .side-head .tools{margin-left:auto;display:flex;gap:5px;}
+  .icobtn{display:grid;place-items:center;width:20px;height:20px;border-radius:6px;
+    border:1px solid var(--line);background:var(--paper);color:var(--muted);font-size:10.5px;}
+  .tree{padding:7px 7px 12px;max-height:520px;overflow:auto;}
+
+  .node{display:flex;align-items:center;gap:7px;padding:5px 8px;border-radius:7px;font-size:12.5px;color:var(--ink);}
+  .node:hover{background:color-mix(in srgb,var(--soft) 60%,transparent);}
+  .node .chev{width:10px;flex-shrink:0;color:var(--muted);font-size:10px;}
+  .node .ico{flex-shrink:0;color:var(--muted);font-size:11px;}
+  .node .nm{min-width:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .node .cnt{flex-shrink:0;color:var(--muted);font-size:10.5px;}
+  .node.lv1{padding-left:20px;}
+  .node.lv2{padding-left:32px;min-height:30px;}
+  .node.on{background:var(--paper);box-shadow:0 1px 2px rgba(23,35,29,.05);}
+  .dot{width:6px;height:6px;flex-shrink:0;border-radius:50%;background:#5f9b74;}
+  .dot.idle{background:#c2b184;}
+  .dot.cand{background:color-mix(in srgb,var(--ink) 24%,transparent);}
+  .check{display:grid;place-items:center;width:14px;height:14px;border-radius:4px;background:#3f8f5a;color:#fff;font-size:9px;flex-shrink:0;}
+  .badge{flex-shrink:0;padding:0 5px;border-radius:4px;background:var(--soft);color:var(--muted);font-size:9.5px;}
+  .row2{display:flex;align-items:center;gap:6px;padding-left:32px;font-size:10.5px;color:var(--muted);margin:-2px 0 4px;}
+
+  /* 右键菜单模拟 */
+  .menu{position:relative;display:inline-block;margin:6px 0 0 32px;
+    border:1px solid var(--line);border-radius:9px;background:var(--paper);
+    box-shadow:0 8px 24px rgba(23,35,29,.16);padding:4px;min-width:160px;}
+  .menu .mi{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;font-size:12px;}
+  .menu .mi:hover{background:color-mix(in srgb,var(--soft) 70%,transparent);}
+  .menu .mi.danger{color:var(--danger);}
+
+  /* 面板模拟 */
+  .pane{border:1px solid var(--line);border-radius:12px;background:var(--paper);overflow:hidden;box-shadow:var(--sh-lg);}
+  .pane-bar{display:flex;align-items:center;gap:9px;padding:8px 13px;border-bottom:1px solid var(--line);background:var(--paper);}
+  .pane-bar b{font-family:var(--serif);font-size:14.5px;}
+  .pane-bar .seg{margin-left:auto;display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;}
+  .pane-bar .seg span{padding:3px 9px;font-size:11px;color:var(--muted);}
+  .pane-bar .seg span.on{background:var(--accent);color:var(--on-accent);font-weight:500;}
+  .pane-body{padding:16px 20px 24px;background:var(--canvas);}
+
+  .card{border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:12px 14px;margin-bottom:12px;}
+  .card h5{margin:0 0 9px;font-size:12px;font-weight:600;}
+  .kv{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px 14px;}
+  .kv .i > span{display:block;font-size:10.5px;color:var(--muted);margin-bottom:2px;}
+  .kv .i > b{font-size:12.5px;font-weight:500;}
+  .hint{color:var(--muted);font-size:11.5px;line-height:1.75;}
+
+  .ovtable{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;}
+  .ovtable th{text-align:left;font-weight:500;font-size:10.5px;color:var(--muted);
+    padding:0 8px 7px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  .ovtable td{padding:7px 8px;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent);}
+  .ovtable tr:last-child td{border-bottom:0;}
+  .ovtable .num{color:var(--muted);font-variant-numeric:tabular-nums;}
+  .ovtable .nmcell{display:flex;align-items:center;gap:6px;}
+
+  .notes{margin:16px 0 0;padding:14px 16px;border:1px solid var(--line);border-radius:11px;background:var(--paper);}
+  .notes h5{margin:0 0 8px;font-size:12.5px;}
+  .notes ul{margin:0;padding-left:18px;color:var(--muted);font-size:12.5px;line-height:1.8;}
+  .notes ul b{color:var(--ink);font-weight:500;}
+  .notes .fix{margin:10px 0 0;padding:9px 11px;border-radius:8px;background:#f6f0e2;color:#6b5a35;
+    font-size:11.5px;line-height:1.72;}
+  .pick{margin:11px 0 0;padding:10px 12px;border-radius:9px;background:var(--soft);color:var(--accent);
+    font-size:12.5px;font-weight:500;}
+
+  @media (max-width:1000px){ .stage{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <div class="eyebrow">QMAI · 候选角色 · 分析与三套方案</div>
+  <h1>候选角色为什么点不动，以及信息怎么给</h1>
+  <p>先说结论：<b>候选角色点不动不是 bug，是它本来就没有可打开的东西</b>。候选只存在于 <code>sightings.json</code>（一份出场计数），磁盘上没有任何文件，也没有档案。所以「点它」这个动作在设计上就是空的。</p>
+
+  <div class="diag">
+    <h4>诊断</h4>
+    <ol>
+      <li><b>候选 = 只有计数，没有内容。</b>它记录的是「这个名字在第 1、3、5 章出现过，共 3 次」。没有档案、没有 SKILL.md、没有可渲染的正文。</li>
+      <li><b>以前的左键是把中栏切到「人物列表」</b>，等于什么都没变 —— 所以用户感觉「点了没反应」。这一点在上一轮已修：候选左键现在直接弹右键菜单。</li>
+      <li><b>出场信息其实是有的</b>（首次第几章、共几次、最近第几章），只是一直没在界面上显示，只塞在 <code>title</code> 悬浮提示里，等于看不见。</li>
+      <li><b>真正缺的是一次「轻量预览」</b>：不建档，也能看到这个人长什么样（在哪几章出现、可能是什么定位），再决定建档还是删除。</li>
+    </ol>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button data-part="c1" class="on">C1 · 行内信息 + 菜单</button>
+  <button data-part="c2">C2 · 轻量预览卡</button>
+  <button data-part="c3">C3 · 候选表格视图</button>
+</nav>
+
+<!-- ==================== C1 ==================== -->
+<section class="part on" data-view="c1">
+  <h2>C1 · 行内信息 + 右键菜单</h2>
+  <p class="lead">改动最小：把出场信息直接印在候选行上（右侧小灰字），左键/右键都出同一个菜单。不新增任何视图。</p>
+
+  <div class="stage">
+    <div class="side">
+      <div class="side-head"><b>大纲列表</b><div class="tools"><span class="icobtn">＋</span><span class="icobtn">↥</span></div></div>
+      <div class="tree">
+        <div class="node"><span class="chev">▾</span><span class="ico">📁</span><span class="nm">人物小传</span><span class="cnt">32</span></div>
+        <div class="node lv1"><span class="chev">▾</span><span class="ico">👤</span><span class="nm">活跃角色</span><span class="cnt">5</span></div>
+        <div class="node lv2"><i class="dot"></i><span class="nm">杨寒</span><span class="check">✓</span></div>
+        <div class="node lv2"><i class="dot"></i><span class="nm">林小满</span></div>
+        <div class="node lv1"><span class="chev">▾</span><span class="ico">👥</span><span class="nm">候选角色</span><span class="cnt">27</span></div>
+        <div class="node lv2 on"><i class="dot cand"></i><span class="nm">地下铁门守卫</span><span class="badge">3 次</span></div>
+        <div class="row2">第 5–7 章 · 最近第 7 章</div>
+        <div class="node lv2"><i class="dot cand"></i><span class="nm">抱保温杯守卫</span><span class="badge">1 次</span></div>
+        <div class="row2">第 5 章</div>
+        <div class="node lv2"><i class="dot cand"></i><span class="nm">白褂女人</span><span class="badge">6 次</span></div>
+        <div class="row2">第 8–19 章 · 最近第 19 章</div>
+        <ul class="menu">
+          <li class="mi">＋ 建档</li>
+          <li class="mi danger">🗑 删除</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="pane">
+      <div class="pane-bar"><b>地下铁门守卫</b><div class="seg"><span class="on">表格</span><span>并排</span><span>MD</span></div></div>
+      <div class="pane-body">
+        <div class="card">
+          <h5>候选角色 · 还没有档案</h5>
+          <div class="kv">
+            <div class="i"><span>出场次数</span><b>3 次</b></div>
+            <div class="i"><span>首次出场</span><b>第 5 章</b></div>
+            <div class="i"><span>最近出场</span><b>第 7 章</b></div>
+            <div class="i"><span>出场章节</span><b>第 5、6、7 章</b></div>
+          </div>
+          <p class="hint" style="margin:10px 0 0">
+            候选角色只统计出场，没有可编辑内容。想让它变成能写能演的档案，点「建档」。
+          </p>
+        </div>
+        <div class="card">
+          <h5>下一步</h5>
+          <p class="hint" style="margin:0">建档后会移到「活跃角色」，并生成一份空白档案；内容由你补，或等下一次「提取记忆」自动补齐。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>C1 要点</h5>
+    <ul>
+      <li>左栏每行显示 <b>出场次数徽章</b>，下一行小灰字写「首次–最近章」；不用点就能看到关键信息。</li>
+      <li>左键 / 右键都弹同一个菜单：<b>建档 / 删除</b>。不再有「点了没反应」。</li>
+      <li>中栏给一张<b>只读信息卡</b>，说明候选是什么、下一步该做什么。</li>
+    </ul>
+    <div class="pick">推荐：改动最小，且把「看不见的信息」直接摊在一行里。</div>
+  </div>
+</section>
+
+<!-- ==================== C2 ==================== -->
+<section class="part" data-view="c2">
+  <h2>C2 · 轻量预览卡</h2>
+  <p class="lead">点候选 → 中栏出一张<b>只读预览卡</b>：出场分布、每章出现时的原文片段（截取几句）、推测定位。看完再决定建档或删除。</p>
+
+  <div class="stage">
+    <div class="side">
+      <div class="side-head"><b>大纲列表</b><div class="tools"><span class="icobtn">＋</span><span class="icobtn">↥</span></div></div>
+      <div class="tree">
+        <div class="node"><span class="chev">▾</span><span class="ico">📁</span><span class="nm">人物小传</span><span class="cnt">32</span></div>
+        <div class="node lv1"><span class="chev">▸</span><span class="ico">👤</span><span class="nm">活跃角色</span><span class="cnt">5</span></div>
+        <div class="node lv1"><span class="chev">▾</span><span class="ico">👥</span><span class="nm">候选角色</span><span class="cnt">27</span></div>
+        <div class="node lv2 on"><i class="dot cand"></i><span class="nm">地下铁门守卫</span><span class="badge">3 次</span></div>
+        <div class="node lv2"><i class="dot cand"></i><span class="nm">抱保温杯守卫</span><span class="badge">1 次</span></div>
+        <div class="node lv2"><i class="dot cand"></i><span class="nm">白褂女人</span><span class="badge">6 次</span></div>
+      </div>
+    </div>
+
+    <div class="pane">
+      <div class="pane-bar"><b>地下铁门守卫</b>
+        <div class="seg"><span class="on">预览</span></div></div>
+      <div class="pane-body">
+        <div class="card">
+          <h5>出场分布</h5>
+          <div class="kv">
+            <div class="i"><span>共出场</span><b>3 次</b></div>
+            <div class="i"><span>章节</span><b>第 5、6、7 章</b></div>
+            <div class="i"><span>首次</span><b>第 5 章</b></div>
+            <div class="i"><span>最近</span><b>第 7 章</b></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h5>每章出现时提到他的原句</h5>
+          <p class="hint" style="margin:0 0 8px"><b>第 5 章：</b>「地下铁门边上那个守卫伸手拦了一下，又缩了回去。」</p>
+          <p class="hint" style="margin:0 0 8px"><b>第 6 章：</b>「还是那个守卫，这回他手里多了根铁棍。」</p>
+          <p class="hint" style="margin:0"><b>第 7 章：</b>「铁门被撞开时，他第一个扔了棍子。」</p>
+        </div>
+
+        <div class="card">
+          <h5>推测</h5>
+          <p class="hint" style="margin:0">出场 3 次、集中在第 5–7 章、没有名字 —— 更像<b>场景人物</b>，不是贯穿角色。建档后可按「次要人物」处理。</p>
+        </div>
+
+        <div class="card" style="display:flex;gap:8px;align-items:center">
+          <button type="button" style="border:1px solid var(--line);background:var(--paper);border-radius:7px;padding:5px 12px;font-size:12px">删除候选</button>
+          <button type="button" style="border:0;background:var(--accent);color:#fff;border-radius:7px;padding:5px 12px;font-size:12px">建档</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>C2 要点</h5>
+    <ul>
+      <li>候选也有「点开能看的东西」：出场分布 + <b>原文片段</b> + 推测定位。</li>
+      <li>原句片段来自章节正文，是判断"这个人值不值得建档"最有用的依据。</li>
+      <li>底部两个按钮就是建档 / 删除，与右键菜单等价。</li>
+    </ul>
+    <div class="fix"><b>代价：</b>取原句需要在选中候选时读那几章正文（一次 1–3 个文件），略慢；且要写一个「按名字摘句」的小工具。</div>
+    <div class="pick">信息最有价值的一套 —— 它让候选从"一串名字"变成"能判断的对象"。</div>
+  </div>
+</section>
+
+<!-- ==================== C3 ==================== -->
+<section class="part" data-view="c3">
+  <h2>C3 · 候选表格视图</h2>
+  <p class="lead">候选不再是一行行名字，而是一张<b>表格</b>：姓名 / 出场次数 / 首次 / 最近 / 操作。一屏看完 27 个候选，批量建档或删除。</p>
+
+  <div class="stage">
+    <div class="side">
+      <div class="side-head"><b>大纲列表</b><div class="tools"><span class="icobtn">＋</span><span class="icobtn">↥</span></div></div>
+      <div class="tree">
+        <div class="node"><span class="chev">▾</span><span class="ico">📁</span><span class="nm">人物小传</span><span class="cnt">32</span></div>
+        <div class="node lv1"><span class="chev">▸</span><span class="ico">👤</span><span class="nm">活跃角色</span><span class="cnt">5</span></div>
+        <div class="node lv1 on"><span class="chev">▾</span><span class="ico">👥</span><span class="nm">候选角色</span><span class="cnt">27</span></div>
+        <div class="node lv2"><i class="dot cand"></i><span class="nm">地下铁门守卫</span><span class="badge">3 次</span></div>
+        <div class="node lv2"><i class="dot cand"></i><span class="nm">白褂女人</span><span class="badge">6 次</span></div>
+      </div>
+    </div>
+
+    <div class="pane">
+      <div class="pane-bar"><b>候选角色</b><span style="font-size:11px;color:var(--muted)">27 位 · 还没建档</span>
+        <div class="seg" style="margin-left:auto"><span class="on">表格</span></div></div>
+      <div class="pane-body" style="padding:14px 16px 20px">
+        <div class="card" style="margin:0">
+          <table class="ovtable">
+            <thead>
+              <tr><th style="width:34%">姓名</th><th>出场</th><th>首次</th><th>最近</th><th style="text-align:right">操作</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><div class="nmcell"><i class="dot cand"></i><b>白褂女人</b></div></td>
+                <td class="num">6</td><td class="num">第 8 章</td><td class="num">第 19 章</td>
+                <td style="text-align:right"><button style="border:1px solid var(--line);background:var(--paper);border-radius:6px;padding:2px 8px;font-size:11px">删</button>
+                  <button style="border:0;background:var(--accent);color:#fff;border-radius:6px;padding:2px 8px;font-size:11px">建档</button></td></tr>
+              <tr><td><div class="nmcell"><i class="dot cand"></i><b>回收者队长</b></div></td>
+                <td class="num">4</td><td class="num">第 9 章</td><td class="num">第 14 章</td>
+                <td style="text-align:right"><button style="border:1px solid var(--line);background:var(--paper);border-radius:6px;padding:2px 8px;font-size:11px">删</button>
+                  <button style="border:0;background:var(--accent);color:#fff;border-radius:6px;padding:2px 8px;font-size:11px">建档</button></td></tr>
+              <tr><td><div class="nmcell"><i class="dot cand"></i><b>地下铁门守卫</b></div></td>
+                <td class="num">3</td><td class="num">第 5 章</td><td class="num">第 7 章</td>
+                <td style="text-align:right"><button style="border:1px solid var(--line);background:var(--paper);border-radius:6px;padding:2px 8px;font-size:11px">删</button>
+                  <button style="border:0;background:var(--accent);color:#fff;border-radius:6px;padding:2px 8px;font-size:11px">建档</button></td></tr>
+              <tr><td><div class="nmcell"><i class="dot cand"></i><b>抱保温杯守卫</b></div></td>
+                <td class="num">1</td><td class="num">第 5 章</td><td class="num">第 5 章</td>
+                <td style="text-align:right"><button style="border:1px solid var(--line);background:var(--paper);border-radius:6px;padding:2px 8px;font-size:11px">删</button>
+                  <button style="border:0;background:var(--accent);color:#fff;border-radius:6px;padding:2px 8px;font-size:11px">建档</button></td></tr>
+              <tr><td><div class="nmcell"><i class="dot cand"></i><b>小男孩</b></div></td>
+                <td class="num">1</td><td class="num">第 12 章</td><td class="num">第 12 章</td>
+                <td style="text-align:right"><button style="border:1px solid var(--line);background:var(--paper);border-radius:6px;padding:2px 8px;font-size:11px">删</button>
+                  <button style="border:0;background:var(--accent);color:#fff;border-radius:6px;padding:2px 8px;font-size:11px">建档</button></td></tr>
+            </tbody>
+          </table>
+          <p class="hint" style="margin:10px 0 0">
+            按出场次数排序；单次出场的场景人物会在下次提取记忆时自动归档。可多选后批量处理。
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>C3 要点</h5>
+    <ul>
+      <li>候选从「一串名字」变成<b>可排序的表格</b>：出场次数 / 首次 / 最近一屏看全。</li>
+      <li>27 个候选不用一个个点，扫一眼就能挑出「出场多的那几个」先建档。</li>
+      <li>左栏仍保留逐个点击，但主入口变成中栏这张表。</li>
+    </ul>
+    <div class="fix"><b>代价：</b>候选失去了"在树里点开"的路径，与左栏结构略有重复；实现上要多一个中栏视图。</div>
+    <div class="pick">适合：候选常年几十个、需要批量筛选与清理的情况。</div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll('.tabs').forEach(function (nav) {
+    nav.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        nav.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        var key = btn.dataset.part;
+        document.querySelectorAll('.part').forEach(function (p) {
+          p.classList.toggle('on', p.dataset.view === key);
+        });
+        window.scrollTo({ top: nav.offsetTop - 8, behavior: 'smooth' });
+      });
+    });
+  });
+</script>
+</body>
+</html>

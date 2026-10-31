@@ -33,8 +33,11 @@ import {
 } from "./persona-skill-types"
 import {
   applyPersonaProfileEdits,
+  parsePersonalitySection,
   readPersonaDocumentFields,
+  renderPersonalitySection,
 } from "./persona-skill-profile"
+import { projectPersonaToOutline } from "./persona-projection-writer"
 import {
   syncPersonaSkillChapterFacts,
   type PersonaChapterFactSource,
@@ -50,6 +53,7 @@ import {
   withPersonaSkillLock,
   readPersonaSkillDocument,
   snapshotPersonaSkillRevision,
+  updatePersonaSightings,
   updatePersonaSkillIndex,
   updatePersonaSkillState,
   writePersonaSkillDocument,
@@ -282,13 +286,18 @@ export function collectChapterAppearances(
   roleTypes: Record<string, string>,
   knownCharacters: ReadonlySet<string> = new Set(),
 ): { appearances: PersonaChapterAppearance[]; sightings: PersonaSkillSightings } {
+  const ignored = new Set((sightings.ignored ?? []).map((name) => normalizePersonaName(name)))
   const nextSightings: PersonaSkillSightings = {
     version: 1,
-    sightings: sightings.sightings.map((item) => ({
-      ...item,
-      aliases: [...item.aliases],
-      chapters: [...item.chapters],
-    })),
+    // 忽略名单里的名字连「已有候选条目」都不留：用户删过的人不该继续出现在列表里。
+    sightings: sightings.sightings
+      .filter((item) => !ignored.has(normalizePersonaName(item.characterName)))
+      .map((item) => ({
+        ...item,
+        aliases: [...item.aliases],
+        chapters: [...item.chapters],
+      })),
+    ...(sightings.ignored && sightings.ignored.length > 0 ? { ignored: [...sightings.ignored] } : {}),
   }
   const appearances = new Map<string, PersonaChapterAppearance>()
   const isKnown = (name: string) => knownCharacters.has(normalizePersonaName(name))
@@ -317,6 +326,8 @@ export function collectChapterAppearances(
   for (const rawName of chapter.characters) {
     const name = rawName.trim()
     if (!name) continue
+    // 用户手动删掉的候选：不要再数回来。已建档的人不受影响（archive 走的是另一条路）。
+    if (ignored.has(normalizePersonaName(name))) continue
     const aliases = uniqueNames(chapter.characterAliases?.[name] ?? [])
     const meta = findPersonaSkillMeta(index, name, aliases)
     if (meta) {
@@ -1111,6 +1122,23 @@ export async function applyPersonaSkillDrafts(
         editedByUser,
         hasResearch,
         updatedAt,
+        // 学习建档一律是 auto：这几个字段决定「删大纲时会不会被连带删掉」，
+        // manual 只留给用户亲手点「新建人物角色」建的那一批。
+        // 已有档案沿用原来源，学习不该把用户手建的角色洗成 auto。
+        origin: existing?.origin ?? "auto",
+        outlineRefs: existing?.outlineRefs ?? [],
+        /*
+         * 冻结点：这份档案已经学到第几章。
+         *
+         * 与 lastLearnedChapter 同一口径「只增不减」：批量提取时后面的章可能先学完，
+         * 旧章晚到时把冻结点拨回去，会让「这份档案停在哪一章」跟着批次乱序倒退。
+         *
+         * 它和 lastLearnedChapter 的区别是**语义**而不是数值：
+         * lastLearnedChapter 是「学习进度」（还会继续涨），
+         * asOfChapter 是「用户放弃更新那一刻的定格」（转 dormant 后不再变）。
+         * 两者平时同步推进，只在「删大纲时选择保留」那一支分叉。
+         */
+        asOfChapter: Math.max(existing?.asOfChapter ?? 0, input.chapterNumber),
       })
       if (existing) updated.push(plan.characterName)
       else created.push(plan.characterName)
@@ -1196,12 +1224,17 @@ async function runPersonaSkillRound(pp: string, options: LearnPersonaSkillsOptio
     // applyPersonaSkillDrafts 会在自己的锁内重新读一份新鲜索引来判定
     // editedByUser / hasResearch —— 那份快照到 apply 之间隔着整轮模型调用，
     // 用它判定会把用户在调用期间保存的手改正文覆盖掉。
+    /** 关掉「随章节自动更新」的人：仍然记出场次数，但不进本轮改写计划。 */
+    let frozenNames: string[] = []
     let appearances: PersonaChapterAppearance[] = []
     let index: PersonaSkillIndex = { version: 1, skills: [] }
     let sightings: PersonaSkillSightings = { version: 1, sightings: [] }
     await updatePersonaSkillState(pp, (state) => {
       // 注意：mutate 必须是同步的，别在这里 await（会拖住候选池落盘）。
       index = state.index
+      frozenNames = state.index.skills
+        .filter((meta) => meta.autoUpdate === false)
+        .map((meta) => normalizePersonaName(meta.characterName))
       const collected = collectChapterAppearances(
         state.index,
         state.sightings,
@@ -1243,7 +1276,12 @@ async function runPersonaSkillRound(pp: string, options: LearnPersonaSkillsOptio
       return { index: { version: 1, skills }, sightings: collected.sightings }
     })
 
-    const plans = planPersonaSkillRoundForChapter(appearances, chapter.chapterNumber)
+    const plans = planPersonaSkillRoundForChapter(
+      appearances.filter(
+        (item) => !frozenNames.includes(normalizePersonaName(item.characterName)),
+      ),
+      chapter.chapterNumber,
+    )
     if (plans.length === 0) {
       // 这一支是「什么都没发生」的默认结局：没有档案、没有日志，用户只会看到
       // 技能库是空的。以前它完全静默 —— 定位查不到、门槛没到都是走这里。
@@ -1478,6 +1516,107 @@ export async function regeneratePersonaSkillResearch(options: {
  *
  * 永不抛：没有候选、定位不到章节文件或模型没给出有效内容时返回 false。
  */
+/**
+ * 用户点「建档」时**立刻**把候选人物变成档案 —— 不调模型。
+ *
+ * 旧的建档路径（`promotePersonaSighting`）要先请模型读章节、写一份完整档案，
+ * 模型没配置、超时或返回空时整件事就**什么也没发生**：用户点了「建档」，
+ * 界面上什么都没有变，只有一行容易被忽略的失败文案。用户实测过这一点。
+ *
+ * 这里的做法是把「建档」拆成两件事：
+ *   1. 建档 = 本地写一份带骨架的档案（名字、定位、出场章号），**一定成功**；
+ *   2. 补齐内容 = 交给下一次「提取记忆」，或用户自己在档案页里填。
+ * 建档是用户的明确动作，它不该被一个模型调用的成败绑架。
+ *
+ * origin 取 "manual"：这是用户亲手点的，删大纲时不能把他连带删掉。
+ */
+/**
+ * 删除一个候选人物。
+ *
+ * 两层动作缺一不可：
+ *   1. 现在就从候选池里移除（用户点完立刻看到它消失）；
+ *   2. 把名字写进 `ignored`（否则下次「提取记忆」重新数出场时会把它加回来 ——
+ *      候选池是每章重算的，没有这份名单，删除按钮等于假的）。
+ *
+ * 只动候选池，不碰已建档的档案：删「候选」和删「角色」是两件事。
+ */
+export async function deletePersonaSighting(options: {
+  projectPath: string
+  characterName: string
+}): Promise<boolean> {
+  const pp = normalizePath(options.projectPath)
+  const name = options.characterName.trim()
+  if (!name) return false
+  const key = normalizePersonaName(name)
+  let removed = false
+  await updatePersonaSightings(pp, (current) => {
+    const kept = current.sightings.filter((item) => normalizePersonaName(item.characterName) !== key)
+    removed = kept.length !== current.sightings.length
+    const ignored = uniqueNames([...(current.ignored ?? []), name])
+    return { version: 1, sightings: kept, ignored }
+  })
+  return removed
+}
+
+export async function promotePersonaSightingLocal(options: {
+  projectPath: string
+  characterName: string
+}): Promise<PersonaSkillMeta | null> {
+  const pp = normalizePath(options.projectPath)
+  const sightings = await loadPersonaSightings(pp)
+  const sighting = findSighting(sightings, options.characterName, [])
+  if (!sighting) return null
+
+  const fields: Record<string, string> = {
+    定位: sighting.roleType,
+    外貌: "",
+    背景: "",
+    动机: "",
+    能力: "",
+    关系网: "",
+    性格: "",
+    怎么说话: "",
+    怎么想: "",
+    怎么判断: "",
+    什么不做: "",
+    知道局限: "",
+  }
+
+  const meta = await createPersonaSkillByUser({
+    projectPath: pp,
+    characterName: sighting.characterName,
+    roleType: sighting.roleType,
+    fields,
+    // 建档不需要模型：内容留给「提取记忆」或用户自己补。
+    llmConfig: null,
+    origin: "manual",
+  })
+
+  // 把候选里的出场事实搬到档案上：建档后这份档案就该显示真实的出场次数与章号，
+  // 而不是 createPersonaSkillByUser 默认的「0 章 / 1 次」。
+  let next: PersonaSkillMeta = meta
+  await updatePersonaSkillIndex(pp, (current) => ({
+    version: 1,
+    skills: current.skills.map((item) => {
+      if (normalizePersonaName(item.characterName) !== normalizePersonaName(sighting.characterName)) return item
+      next = {
+        ...item,
+        aliases: [...sighting.aliases],
+        pinned: true,
+        tier: resolvePersonaTier(sighting.roleType, true),
+        appearanceCount: Math.max(1, sighting.appearanceCount),
+        firstChapter: sighting.firstChapter,
+        lastChapter: sighting.lastChapter,
+        createdChapter: sighting.lastChapter,
+        updatedAt: new Date().toISOString(),
+      }
+      return next
+    }),
+  }))
+
+  return next
+}
+
 export async function promotePersonaSighting(options: {
   projectPath: string
   characterName: string
@@ -1682,4 +1821,125 @@ export async function demotePersonaSkillToSighting(options: {
     console.warn("[Persona Skill] 退回候选池失败:", err instanceof Error ? err.message : err)
     return false
   }
+}
+
+export interface CreatePersonaSkillByUserOptions {
+  projectPath: string
+  characterName: string
+  roleType: string
+  /** 键为 SKILL.md 的 `## ` 标题，值为正文。 */
+  fields: Record<string, string>
+  /** 手工建档不需要模型；传 null 表示「只写用户给的内容」。 */
+  llmConfig: unknown
+  /** 绑定的角色灵魂名（方案 B：只写进「性格」段，不接 CharacterAuraBinding）。 */
+  boundSoul?: string
+  /**
+   * 新建档案的来源。默认 "manual"（用户点「新建人物角色」）。
+   * 大纲保存时抓到的角色必须显式传 "auto" —— 它决定「删大纲时会不会被连带删掉」，
+   * 抓来的角色如果被记成 manual，就永远删不掉了。
+   */
+  origin?: "manual" | "auto"
+}
+
+/**
+ * 用户点「新建人物角色」手建档案。
+ *
+ * 与 learnPersonaSkillsFromChapter 的根本区别：**没有模型参与**。
+ * 用户写什么就是什么，不自动补全、不让 AI 覆盖 —— 手建的角色是用户的资产。
+ *
+ * origin 固定 "manual"：它直接决定「删大纲时会不会被连带删掉」。
+ * 但**已存在的档案不改 origin** —— 老档案是 AI 学出来的就一直是 auto，
+ * 用户手补一次不该把它洗成 manual（那会从「可连带删除」变成「永不删除」）。
+ *
+ * 为什么 index 变更与正文写入分两段：updatePersonaSkillState 的 mutate 必须同步，
+ * 在里面 await 写盘会拖住候选池落盘（该函数注释已警告过）；而正文写入幂等可重入，
+ * 放锁外不会引出双写问题。
+ */
+export async function createPersonaSkillByUser(
+  options: CreatePersonaSkillByUserOptions,
+): Promise<PersonaSkillMeta> {
+  const pp = normalizePath(options.projectPath)
+  const characterName = options.characterName.trim()
+  if (!characterName) throw new Error("角色名不能为空")
+  const id = personaSkillIdFor(characterName)
+
+  let nextMeta: PersonaSkillMeta | null = null
+  await updatePersonaSkillState(pp, (state) => {
+    const existing = state.index.skills.find(
+      (item) => normalizePersonaName(item.characterName) === normalizePersonaName(characterName),
+    )
+    const now = new Date().toISOString()
+    nextMeta = existing
+      ? { ...existing, updatedAt: now }
+      : {
+          id,
+          characterName,
+          aliases: [],
+          roleType: options.roleType,
+          tier: resolvePersonaTier(options.roleType, false),
+          pinned: false,
+          status: "active",
+          firstChapter: 0,
+          lastChapter: 0,
+          appearanceCount: 1,
+          createdChapter: 0,
+          lastLearnedChapter: 0,
+          skillRevision: 1,
+          editedByUser: true,
+          hasResearch: false,
+          updatedAt: now,
+          origin: options.origin ?? "manual",
+          outlineRefs: [],
+          asOfChapter: null,
+        }
+    const skills = existing
+      ? state.index.skills.map((item) => (item.id === existing.id ? nextMeta! : item))
+      : [...state.index.skills, nextMeta!]
+    return { index: { version: 1, skills } }
+  })
+
+  await writeUserProfileDocument(pp, id, characterName, options.fields, options.boundSoul)
+  // 建档后立刻落一份投影 MD（wiki/outlines/人物小传/<名>.md）。
+  // 不做的话用户在大纲列表里看不到这个角色 —— 档案在 .qmai 下，大纲树只读 wiki/outlines。
+  await projectPersonaToOutline(pp, id)
+  return nextMeta!
+}
+
+/**
+ * 把用户填的字段合并进 SKILL.md。
+ *
+ * 只覆盖用户这次真的填了的字段：空值不覆盖已有内容
+ * （用户新建时留空的格子，不该抹掉 AI 已经学到的）。
+ *
+ * 绑定灵魂走方案 B：只写进「性格」段的 `- 绑定灵魂：` 一行，不写 CharacterAuraBinding。
+ * 原因是 bindCharacterAura 的门禁只认 wiki/entities 与 wiki/outlines，
+ * 不认 .qmai/persona-skills，纯档案角色会被拒（核验见 spec §4.5）。
+ */
+async function writeUserProfileDocument(
+  pp: string,
+  id: string,
+  characterName: string,
+  fields: Record<string, string>,
+  boundSoul?: string,
+): Promise<void> {
+  const existing = await readPersonaSkillDocument(pp, id)
+  const base = existing.trim() ? existing : `# ${characterName} · 人物 Skill\n`
+  const merged: Record<string, string> = {}
+  for (const [name, value] of Object.entries(fields)) {
+    if (!value.trim()) continue
+    merged[name] = value.trim()
+  }
+  if (boundSoul?.trim()) {
+    const current = parsePersonalitySection(readPersonaDocumentFields(base)["性格"] ?? "")
+    merged["性格"] = renderPersonalitySection({
+      tags: current.tags,
+      boundSoul: current.boundSoul || `${boundSoul.trim()}（仅档案内参考，未接入角色灵魂库）`,
+      raw: current.raw || undefined,
+    })
+  }
+  if (Object.keys(merged).length === 0) {
+    if (!existing.trim()) await writePersonaSkillDocument(pp, id, base)
+    return
+  }
+  await writePersonaSkillDocument(pp, id, applyPersonaProfileEdits(base, merged))
 }

@@ -39,7 +39,8 @@ vi.mock("@/lib/app-update-support", () => ({
   isAppAutoUpdateSupported: () => isSupportedMock(),
 }))
 
-const { checkForAppUpdate } = await import("./app-updater")
+const { checkForAppUpdate, prefetchAppUpdate } = await import("./app-updater")
+const notice = await import("./app-update-notice")
 
 function makeUpdate(version: string) {
   return {
@@ -60,6 +61,7 @@ beforeEach(() => {
   messageMock.mockReset()
   isTauriMock.mockReset().mockReturnValue(true)
   isSupportedMock.mockReset().mockReturnValue(true)
+  notice.resetAppUpdateNoticeForTests()
 })
 
 afterEach(() => {
@@ -124,6 +126,96 @@ describe("checkForAppUpdate", () => {
     expect(warn).toHaveBeenCalled()
   })
 
+  it("有新版本时记录待更新版本（更新日志的红点来源）", async () => {
+    checkMock.mockResolvedValue(makeUpdate("9.9.9"))
+    confirmMock.mockResolvedValue(false)
+
+    await checkForAppUpdate()
+
+    expect(notice.getPendingUpdateVersion()).toBe("0.4.11")
+  })
+
+  it("已是最新版本时清空待更新版本", async () => {
+    invokeMock.mockResolvedValue({ version: null, notes: null, downloadUrl: null })
+    notice.setPendingUpdateVersion("0.4.11")
+
+    await checkForAppUpdate()
+
+    expect(notice.getPendingUpdateVersion()).toBe("")
+  })
+
+  it("关闭自动提醒时（prompt: false）只记录版本，不弹窗、不下载、不安装", async () => {
+    checkMock.mockResolvedValue(makeUpdate("9.9.9"))
+
+    await checkForAppUpdate({ prompt: false })
+
+    expect(notice.getPendingUpdateVersion()).toBe("0.4.11")
+    // 连插件的 check 都不该调：它只是拿安装句柄用的
+    expect(checkMock).not.toHaveBeenCalled()
+    expect(confirmMock).not.toHaveBeenCalled()
+    expect(messageMock).not.toHaveBeenCalled()
+  })
+})
+
+describe("prefetchAppUpdate", () => {
+  it("有新版本时把安装包预下载到应用数据目录", async () => {
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "updater_check") {
+        return { version: "4.1.2", notes: null, downloadUrl: "https://example.com/a.exe" }
+      }
+      if (command === "updater_download_package") {
+        return "C:/data/updates/QMaiWrite-update.exe"
+      }
+      return null
+    })
+
+    await prefetchAppUpdate()
+
+    expect(invokeMock).toHaveBeenCalledWith("updater_download_package", {
+      releaseUrl: "https://example.com/a.exe",
+      version: "4.1.2",
+      persist: true,
+    })
+    expect(notice.getPendingUpdatePath()).toBe("C:/data/updates/QMaiWrite-update.exe")
+    expect(notice.getPendingUpdateReadyVersion()).toBe("4.1.2")
+    expect(notice.getPendingUpdateVersion()).toBe("4.1.2")
+  })
+
+  it("同版本已预下载完成时不重复下载", async () => {
+    notice.markPrefetchReady("4.1.2", "C:/data/updates/QMaiWrite-update.exe")
+    invokeMock.mockResolvedValue({ version: "4.1.2", notes: null, downloadUrl: "https://example.com/a.exe" })
+
+    await prefetchAppUpdate()
+
+    expect(invokeMock).not.toHaveBeenCalledWith("updater_download_package", expect.anything())
+  })
+
+  it("下载失败时不弹任何对话框，只记录状态", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    invokeMock.mockImplementation(async (command: string) => {
+      if (command === "updater_check") {
+        return { version: "4.1.2", notes: null, downloadUrl: "https://example.com/a.exe" }
+      }
+      throw new Error("network down")
+    })
+
+    await expect(prefetchAppUpdate()).resolves.toBeUndefined()
+
+    expect(confirmMock).not.toHaveBeenCalled()
+    expect(messageMock).not.toHaveBeenCalled()
+    expect(notice.getAppUpdateNoticeSnapshot().prefetch.status).toBe("error")
+    expect(warn).toHaveBeenCalled()
+  })
+
+  it("非 Tauri 环境不发起预下载", async () => {
+    isTauriMock.mockReturnValue(false)
+
+    await prefetchAppUpdate()
+
+    expect(invokeMock).not.toHaveBeenCalled()
+  })
+})
+
   /*
    * 这里**故意没有**"并发调用只检查一次（updateCheckStarted 守卫）"的用例。
    *
@@ -149,4 +241,3 @@ describe("checkForAppUpdate", () => {
    * 两者都超出本次修复范围，而一个假绿的用例比没有用例更糟：
    * 它提供的正是让这个 bug 潜伏 6 个版本的虚假信心。
    */
-})

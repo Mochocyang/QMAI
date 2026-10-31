@@ -1,0 +1,112 @@
+/* H2：表格 / 并排 / MD 三态 */
+.ui-test-root .ui-test-viewseg {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-viewseg button {
+  padding: 4px 11px;
+  border: 0;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-viewseg button:hover {
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-viewseg button.is-on {
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+  font-weight: 500;
+}
+
+/* 并排：左表格、右 MD */
+.ui-test-root .ui-test-h2-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+}
+
+.ui-test-root .ui-test-h2-body.is-split {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.85fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.ui-test-root .ui-test-h2-fields {
+  min-width: 0;
+}
+
+/* MD 面板 */
+.ui-test-root .ui-test-h2-md {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--ui-line);
+  border-radius: 11px;
+  background: var(--ui-paper);
+  overflow: hidden;
+}
+
+.ui-test-root .ui-test-h2-md-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ui-line);
+  background: var(--ui-panel);
+}
+
+.ui-test-root .ui-test-h2-md-head b {
+  font-size: 0.72rem;
+  letter-spacing: .08em;
+}
+
+.ui-test-root .ui-test-h2-md-head span {
+  color: var(--ui-muted);
+  font-size: 0.68rem;
+}
+
+.ui-test-root .ui-test-h2-md-editor {
+  flex: 1;
+  min-height: 420px;
+  padding: 12px 14px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ui-ink);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, "Songti SC", monospace;
+  font-size: 0.78rem;
+  line-height: 1.85;
+  resize: vertical;
+  white-space: pre-wrap;
+}
+
+.ui-test-root .ui-test-h2-md-editor:focus {
+  background: color-mix(in srgb, var(--ui-soft) 30%, transparent);
+}
+
+/* 只看 MD 时给它更宽的呼吸空间 */
+.ui-test-root .ui-test-h2-body:not(.is-split) .ui-test-h2-md-editor {
+  min-height: 560px;
+}
+
+@media (max-width: 1100px) {
+  .ui-test-root .ui-test-h2-body.is-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ui-test-root .ui-test-viewseg button {
+    padding: 4px 8px;
+  }
+}

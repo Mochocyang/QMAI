@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>人物 Skill 界面重设计 · 三方案对比</title>
+<style>
+  /* ============================================================
+     配色直接取自应用皮肤（src/components/uitest/ui-test.css）：
+       --ui-canvas #edf1ec  --ui-paper #fcfdfb  --ui-panel #f2f5ef
+       --ui-soft   #e4ece3  --ui-ink   #273c35  --ui-muted #5d6e64
+       --ui-accent #45624f  --ui-line  #dfe6da  --ui-warm  #f3ebdf
+     所以下面的稿子和真实界面是同一套色，不是另起一套。
+     ============================================================ */
+  :root{
+    --canvas:#edf1ec; --paper:#fcfdfb; --panel:#f2f5ef; --soft:#e4ece3;
+    --ink:#273c35; --muted:#5d6e64; --accent:#45624f; --on-accent:#fff;
+    --line:#dfe6da; --warm:#f3ebdf; --danger:#943f36;
+    --radius:12px;
+    --shadow-sm:0 1px 2px rgba(23,35,29,.04);
+    --shadow-md:0 6px 20px rgba(23,35,29,.07);
+    --shadow-lg:0 18px 48px rgba(23,35,29,.16);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:#e7ebe6; color:var(--ink);
+    font:14px/1.6 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---------- 页面外壳（评审用，不是产品界面） ---------- */
+  .doc-head{
+    max-width:1180px; margin:0 auto; padding:44px 32px 8px;
+  }
+  .doc-head .eyebrow{
+    font-size:12px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--muted); margin-bottom:10px;
+  }
+  .doc-head h1{ font-size:26px; margin:0 0 10px; letter-spacing:-.01em; }
+  .doc-head p{ margin:0; color:var(--muted); font-size:14px; max-width:820px; }
+
+  .plan-tabs{
+    position:sticky; top:0; z-index:50;
+    display:flex; gap:8px; flex-wrap:wrap;
+    max-width:1180px; margin:26px auto 0; padding:12px 32px;
+    background:rgba(231,235,230,.92); backdrop-filter:blur(8px);
+  }
+  .plan-tabs button{
+    appearance:none; border:1px solid var(--line); background:var(--paper);
+    color:var(--ink); padding:9px 16px; border-radius:10px; font-size:13.5px;
+    cursor:pointer; transition:.15s;
+  }
+  .plan-tabs button:hover{ border-color:var(--accent); }
+  .plan-tabs button.on{
+    background:var(--accent); color:var(--on-accent); border-color:transparent;
+    box-shadow:0 2px 8px rgba(69,98,79,.28);
+  }
+
+  .plan{ display:none; max-width:1180px; margin:0 auto; padding:26px 32px 90px; }
+  .plan.on{ display:block; }
+
+  .plan-head h2{ font-size:21px; margin:0 0 8px; }
+  .plan-head .lead{ color:var(--muted); margin:0 0 14px; max-width:860px; }
+  .kv{ display:flex; gap:22px; flex-wrap:wrap; margin:0 0 18px; }
+  .kv div{ font-size:13px; color:var(--muted); }
+  .kv b{ color:var(--ink); font-weight:600; }
+
+  .view-switch{ display:flex; gap:6px; margin:0 0 16px; }
+  .view-switch button{
+    appearance:none; border:1px solid var(--line); background:transparent;
+    color:var(--muted); padding:7px 14px; border-radius:99px; font-size:13px; cursor:pointer;
+  }
+  .view-switch button.on{ background:var(--panel); color:var(--ink); border-color:var(--soft); font-weight:500; }
+
+  .sub{ display:none; }
+  .sub.on{ display:block; }
+
+  /* ---------- 模拟窗口 ---------- */
+  .win{
+    border:1px solid var(--line); border-radius:16px; overflow:hidden;
+    background:var(--canvas); box-shadow:var(--shadow-lg);
+  }
+  .win-bar{
+    display:flex; align-items:center; gap:14px;
+    padding:9px 14px; background:#f6f8f4; border-bottom:1px solid var(--line);
+  }
+  .win-bar .dots{ display:flex; gap:6px; }
+  .win-bar .dots i{ width:10px; height:10px; border-radius:50%; background:#d8ded4; display:block; }
+  .win-bar .title{ font-size:12.5px; color:var(--muted); }
+  .win-bar .nav{ margin-left:auto; display:flex; gap:2px; }
+  .win-bar .nav span{
+    font-size:12.5px; color:var(--muted); padding:5px 11px; border-radius:7px;
+  }
+  .win-bar .nav span.on{ background:var(--soft); color:var(--ink); font-weight:500; }
+
+  /* ============================================================
+     通用组件（三方案共用）
+     ============================================================ */
+  /* ★ 关键修正：整页左右留出 40px 安全边距，并居中限宽。
+     现在线上是卡片直接顶到窗口边缘，所以看着「边框贴边」。 */
+  .page{ padding:22px 40px 34px; }
+  .page-inner{ max-width:1120px; margin:0 auto; }
+
+  .page-title{ display:flex; align-items:baseline; gap:12px; margin:0 0 4px; }
+  .page-title h3{ margin:0; font-size:18px; letter-spacing:-.01em; }
+  .page-title small{ color:var(--muted); font-size:12.5px; }
+
+  .toolbar{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:14px 0 20px; }
+  .search{
+    display:flex; align-items:center; gap:8px;
+    background:var(--paper); border:1px solid var(--line); border-radius:10px;
+    padding:8px 12px; min-width:260px; color:var(--muted); font-size:13px;
+  }
+  .search .ico{ opacity:.6; }
+  .chips{ display:flex; gap:6px; flex-wrap:wrap; }
+  .chip{
+    border:1px solid var(--line); background:var(--paper); color:var(--muted);
+    padding:7px 13px; border-radius:99px; font-size:12.5px; cursor:default;
+  }
+  .chip.on{ background:var(--accent); color:var(--on-accent); border-color:transparent; font-weight:500; }
+
+  .btn{
+    appearance:none; border:1px solid var(--line); background:var(--paper);
+    color:var(--ink); padding:8px 14px; border-radius:9px; font-size:13px;
+    cursor:default; display:inline-flex; align-items:center; gap:6px;
+  }
+  .btn-primary{
+    background:var(--accent); color:var(--on-accent);
+    border-color:transparent; font-weight:500;
+    box-shadow:0 1px 3px rgba(69,98,79,.24);
+  }
+  .btn-ghost{ background:transparent; border-color:transparent; color:var(--muted); }
+  .btn-sm{ padding:6px 11px; font-size:12.5px; }
+
+  .badge{
+    display:inline-block; padding:2px 8px; border-radius:6px; font-size:11.5px;
+    background:color-mix(in srgb,var(--ink) 7%,transparent); color:var(--muted);
+  }
+  .badge.type{ background:var(--soft); color:var(--accent); font-weight:500; }
+  .badge.ok{ background:#e3efe5; color:#2f6b46; }
+  .badge.dot::before{
+    content:""; display:inline-block; width:5px; height:5px; border-radius:50%;
+    background:currentColor; margin-right:5px; vertical-align:middle;
+  }
+
+  .sec-head{ display:flex; align-items:baseline; gap:10px; margin:30px 0 12px; }
+  .sec-head h4{ margin:0; font-size:14.5px; font-weight:600; }
+  .sec-head span{ font-size:12.5px; color:var(--muted); }
+
+  /* ---------- 模拟数据里复用的头像 ---------- */
+  .avatar{
+    display:grid; place-items:center; border-radius:10px;
+    background:var(--soft); color:var(--accent); font-weight:600; flex-shrink:0;
+    width:36px; height:36px; font-size:14px;
+  }
+  .avatar.lg{ width:60px; height:60px; border-radius:14px; font-size:24px; }
+
+  /* ============================================================
+     方案 A：留白卡片墙
+     ============================================================ */
+  .a-grid{
+    display:grid; gap:18px;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+  }
+  .a-card{
+    display:flex; flex-direction:column; gap:12px;
+    padding:16px; border:1px solid var(--line); border-radius:var(--radius);
+    background:var(--paper); box-shadow:var(--shadow-sm);
+    transition:.16s;
+  }
+  .a-card:hover{ box-shadow:var(--shadow-md); transform:translateY(-2px); border-color:color-mix(in srgb,var(--accent) 34%,var(--line)); }
+  .a-card-top{ display:flex; align-items:flex-start; gap:10px; }
+  .a-card-name{ min-width:0; }
+  .a-card-name b{ display:block; font-size:15px; font-weight:600; letter-spacing:-.01em; }
+  .a-card-name span{ font-size:12px; color:var(--muted); }
+  .a-card .pin{
+    margin-left:auto; width:20px; height:20px; border-radius:6px;
+    border:1.5px solid #3f8f5a; flex-shrink:0;
+    display:grid; place-items:center; color:#fff; font-size:11px;
+    background:#3f8f5a;
+  }
+  .a-card .pin.off{ background:transparent; border-color:color-mix(in srgb,var(--ink) 22%,transparent); }
+  .a-card-badges{ display:flex; gap:6px; flex-wrap:wrap; }
+  .a-card-foot{ display:flex; gap:8px; margin-top:auto; padding-top:2px; }
+
+  /* 候选区折叠条：把 9 个候选压成一行，减少视觉噪音 */
+  .collapse{
+    display:flex; align-items:center; gap:10px;
+    padding:12px 16px; border:1px dashed var(--line); border-radius:var(--radius);
+    background:color-mix(in srgb,var(--paper) 60%,transparent); color:var(--muted);
+    font-size:13px;
+  }
+  .collapse b{ color:var(--ink); }
+
+  /* ============================================================
+     方案 B：双栏主从
+     ============================================================ */
+  .b-wrap{ display:grid; grid-template-columns:296px minmax(0,1fr); gap:0; min-height:560px; }
+  .b-list{
+    border-right:1px solid var(--line); background:var(--panel);
+    padding:16px 12px; overflow:hidden;
+  }
+  .b-list .b-search{
+    display:flex; align-items:center; gap:8px; padding:8px 11px; margin-bottom:12px;
+    background:var(--paper); border:1px solid var(--line); border-radius:9px;
+    color:var(--muted); font-size:12.5px;
+  }
+  .b-row{
+    display:flex; align-items:center; gap:10px; padding:9px 10px; border-radius:9px;
+    cursor:default; margin-bottom:2px;
+  }
+  .b-row .avatar{ width:30px; height:30px; border-radius:9px; font-size:12.5px; }
+  .b-row-txt{ min-width:0; }
+  .b-row-txt b{ display:block; font-size:13.5px; font-weight:500; }
+  .b-row-txt span{ font-size:11.5px; color:var(--muted); }
+  .b-row.on{ background:var(--paper); box-shadow:var(--shadow-sm); }
+  .b-row.on b{ font-weight:600; }
+  .b-row .state{
+    margin-left:auto; width:7px; height:7px; border-radius:50%; background:#5f9b74; flex-shrink:0;
+  }
+  .b-row .state.dormant{ background:#c2b184; }
+  .b-main{ padding:20px 30px 26px; background:var(--canvas); }
+
+  /* ---------- 详情页（A / B 共用同一套 hero + tabs） ---------- */
+  .hero{
+    display:flex; align-items:flex-start; gap:16px;
+    padding:18px 20px; border:1px solid var(--line); border-radius:var(--radius);
+    background:var(--paper); box-shadow:var(--shadow-sm);
+  }
+  .hero-txt{ min-width:0; flex:1; }
+  .hero-txt h4{ margin:0 0 6px; font-size:19px; letter-spacing:-.01em; }
+  .hero-badges{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:6px; }
+  .hero-line{ margin:0; font-size:12.5px; color:var(--muted); }
+  .hero-actions{ display:flex; align-items:center; gap:10px; }
+  .save-state{ font-size:12px; color:var(--muted); }
+
+  .tabs{ display:flex; gap:18px; border-bottom:1px solid var(--line); margin:20px 0 18px; }
+  .tabs span{
+    padding:0 0 10px; font-size:13.5px; color:var(--muted); border-bottom:2px solid transparent;
+  }
+  .tabs span.on{ color:var(--ink); border-bottom-color:var(--accent); font-weight:500; }
+
+  .form-grid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px 22px; }
+  .field{ display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .field.wide{ grid-column:1 / -1; }
+  .field > label{ font-size:12.5px; color:var(--muted); display:flex; gap:8px; align-items:baseline; }
+  .field > label em{ font-style:normal; font-size:11.5px; opacity:.85; }
+  .input,.textarea{
+    width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px;
+    background:var(--paper); color:var(--ink); font:inherit; font-size:13px;
+  }
+  .textarea{ min-height:78px; }
+  .input.ro{ background:var(--panel); color:var(--muted); }
+  .hint-box{
+    margin:0 0 16px; padding:10px 12px; border-radius:9px;
+    background:var(--panel); color:var(--muted); font-size:12px; line-height:1.75;
+  }
+
+  /* ============================================================
+     方案 C：表格 + 抽屉
+     ============================================================ */
+  .c-table{ width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
+  .c-table th{
+    text-align:left; font-weight:500; font-size:12px; color:var(--muted);
+    padding:0 12px 10px; border-bottom:1px solid var(--line); white-space:nowrap;
+  }
+  .c-table td{ padding:11px 12px; border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent); }
+  .c-table tr:hover td{ background:color-mix(in srgb,var(--paper) 70%,transparent); }
+  .c-name{ display:flex; align-items:center; gap:10px; }
+  .c-name .avatar{ width:28px; height:28px; border-radius:8px; font-size:12px; }
+  .c-name b{ font-weight:500; }
+  .c-table .num{ font-variant-numeric:tabular-nums; color:var(--muted); }
+  .c-drawer{
+    display:grid; grid-template-columns:minmax(0,1fr) 380px; gap:0; min-height:520px;
+  }
+  .c-main{ padding:20px 28px 30px; }
+  .c-panel{
+    border-left:1px solid var(--line); background:var(--paper);
+    box-shadow:-12px 0 32px rgba(23,35,29,.08); padding:20px;
+  }
+  .c-panel h4{ margin:0 0 2px; font-size:16px; }
+  .c-panel .sub{ color:var(--muted); font-size:12px; margin:0 0 14px; }
+  .c-panel .form-grid{ grid-template-columns:minmax(0,1fr); }
+
+  /* ---------- 设计说明 ---------- */
+  .notes{
+    margin:20px 0 0; padding:18px 20px; border:1px solid var(--line);
+    border-radius:var(--radius); background:var(--paper);
+  }
+  .notes h5{ margin:0 0 10px; font-size:13.5px; }
+  .notes ul{ margin:0; padding-left:18px; color:var(--muted); font-size:13px; line-height:1.85; }
+  .notes ul b{ color:var(--ink); font-weight:500; }
+  .notes .fix{
+    margin:14px 0 0; padding:12px 14px; border-radius:9px;
+    background:#f6f0e2; color:#6b5a35; font-size:12.5px; line-height:1.8;
+  }
+  .notes .fix b{ color:#4d4023; }
+
+  .split{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  @media (max-width:1180px){
+    .a-grid{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .split{ grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <div class="eyebrow">QMAI · 人物 Skill / 人物小传</div>
+  <h1>人物 Skill 界面重设计 · 三方案对比</h1>
+  <p>
+    你指出的问题：<b>「边框太靠近两边」</b>——卡片几乎顶到窗口左右边缘，整页没有安全留白。
+    三个方案都先修这一条：整页居中限宽 + 左右 40px 安全边距；再分别用三种信息组织方式重排角色墙。
+    每个方案都包含<b>列表页</b>与<b>「打开档案」后的详情页</b>，配色取自应用现有皮肤变量，可直接对照真实界面。
+  </p>
+</header>
+
+<nav class="plan-tabs">
+  <button data-plan="a" class="on">方案 A · 留白卡片墙</button>
+  <button data-plan="b">方案 B · 双栏主从</button>
+  <button data-plan="c">方案 C · 表格 + 抽屉</button>
+</nav>
+
+<!-- =========================================================
+     方案 A
+     ========================================================= -->
+<section class="plan on" data-view="a">
+  <div class="plan-head">
+    <h2>方案 A · 留白卡片墙</h2>
+    <p class="lead">
+      保留现在的「卡片」直觉，但把卡片做小、留白做大，并把候选人物压成一条可展开的折叠条。
+      适合角色数量在 30 人以内、以「看人」为主的使用节奏。
+    </p>
+    <div class="kv">
+      <div>改动量 <b>小</b></div>
+      <div>信息密度 <b>中</b></div>
+      <div>浏览效率 <b>中</b></div>
+      <div>最适合 <b>10–30 个角色</b></div>
+    </div>
+    <div class="view-switch" data-switch="a">
+      <button data-sub="list" class="on">列表页</button>
+      <button data-sub="detail">打开档案</button>
+    </div>
+  </div>
+
+  <!-- A · 列表 -->
+  <div class="sub on" data-subview="a-list">
+    <div class="win">
+      <div class="win-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav">
+          <span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span>
+        </div>
+      </div>
+      <div class="page">
+        <div class="page-inner">
+          <div class="page-title">
+            <h3>人物</h3>
+            <small>7 位已建档 · 9 位候选</small>
+          </div>
+
+          <div class="toolbar">
+            <div class="search"><span class="ico">🔍</span>搜索人物名</div>
+            <div class="chips">
+              <span class="chip on">全部 16</span>
+              <span class="chip">已建档 7</span>
+              <span class="chip">候选 9</span>
+              <span class="chip">潜伏 1</span>
+            </div>
+            <div style="margin-left:auto"><button class="btn btn-primary">＋ 新建人物角色</button></div>
+          </div>
+
+          <div class="a-grid">
+            <article class="a-card">
+              <div class="a-card-top">
+                <div class="avatar">杨</div>
+                <div class="a-card-name"><b>杨寒</b><span>出场 18 次 · 最近第 19 章</span></div>
+                <div class="pin">✓</div>
+              </div>
+              <div class="a-card-badges">
+                <span class="badge type">主要人物</span><span class="badge">活跃</span><span class="badge">男主</span>
+              </div>
+              <div class="a-card-foot">
+                <button class="btn btn-sm btn-primary">打开档案</button>
+                <button class="btn btn-sm btn-ghost">移回候选</button>
+              </div>
+            </article>
+
+            <article class="a-card">
+              <div class="a-card-top">
+                <div class="avatar">林</div>
+                <div class="a-card-name"><b>林小满</b><span>出场 15 次 · 最近第 19 章</span></div>
+                <div class="pin">✓</div>
+              </div>
+              <div class="a-card-badges">
+                <span class="badge type">主要人物</span><span class="badge">活跃</span>
+              </div>
+              <div class="a-card-foot">
+                <button class="btn btn-sm btn-primary">打开档案</button>
+                <button class="btn btn-sm btn-ghost">移回候选</button>
+              </div>
+            </article>
+
+            <article class="a-card">
+              <div class="a-card-top">
+                <div class="avatar">杨</div>
+                <div class="a-card-name"><b>杨妙萍</b><span>出场 13 次 · 最近第 19 章</span></div>
+                <div class="pin off"></div>
+              </div>
+              <div class="a-card-badges">
+                <span class="badge type">次要人物</span><span class="badge">活跃</span>
+              </div>
+              <div class="a-card-foot">
+                <button class="btn btn-sm btn-primary">打开档案</button>
+                <button class="btn btn-sm btn-ghost">移回候选</button>
+              </div>
+            </article>
+
+            <article class="a-card">
+              <div class="a-card-top">
+                <div class="avatar">小</div>
+                <div class="a-card-name"><b>小晚</b><span>出场 6 次 · 最近第 19 章</span></div>
+                <div class="pin off"></div>
+              </div>
+              <div class="a-card-badges">
+                <span class="badge type">次要人物</span><span class="badge">活跃</span>
+              </div>
+              <div class="a-card-foot">
+                <button class="btn btn-sm btn-primary">打开档案</button>
+                <button class="btn btn-sm btn-ghost">移回候选</button>
+              </div>
+            </article>
+
+            <article class="a-card">
+              <div class="a-card-top">
+                <div class="avatar">杨</div>
+                <div class="a-card-name"><b>杨津艺</b><span>出场 1 次 · 最近第 1 章</span></div>
+                <div class="pin off"></div>
+              </div>
+              <div class="a-card-badges">
+                <span class="badge type">次要人物</span><span class="badge">潜伏</span>
+              </div>
+              <div class="a-card-foot">
+                <button class="btn btn-sm btn-primary">打开档案</button>
+                <button class="btn btn-sm btn-ghost">移回候选</button>
+              </div>
+            </article>
+
+            <article class="a-card">
+              <div class="a-card-top">
+                <div class="avatar">M</div>
+                <div class="a-card-name"><b>MINGC</b><span>出场 1 次 · 最近第 1 章</span></div>
+                <div class="pin off"></div>
+              </div>
+              <div class="a-card-badges">
+                <span class="badge type">次要人物</span><span class="badge">活跃</span><span class="badge">已手改</span>
+              </div>
+              <div class="a-card-foot">
+                <button class="btn btn-sm btn-primary">打开档案</button>
+                <button class="btn btn-sm btn-ghost">移回候选</button>
+              </div>
+            </article>
+          </div>
+
+          <div class="sec-head">
+            <h4>候选人物</h4><span>章节里出现过、还没建档的 9 个名字</span>
+          </div>
+          <div class="collapse">
+            <b>9 位候选</b> 地下铁门守卫 · 抱保温杯守卫 · 另一个守卫 · 白休 · 回收者 · 回收者甲 · 白褂女人 · 灰白制服守卫 · 小男孩
+            <span style="margin-left:auto">展开 ▾</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- A · 详情 -->
+  <div class="sub" data-subview="a-detail">
+    <div class="win">
+      <div class="win-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav">
+          <span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span>
+        </div>
+      </div>
+      <div class="page">
+        <div class="page-inner">
+          <button class="btn btn-ghost btn-sm" style="margin-bottom:14px">← 返回人物列表</button>
+
+          <div class="hero">
+            <div class="avatar lg">杨</div>
+            <div class="hero-txt">
+              <h4>杨寒</h4>
+              <div class="hero-badges">
+                <span class="badge type">主要人物</span>
+                <span class="badge ok">✓ 重要人物</span>
+                <span class="badge">活跃</span>
+                <span class="badge">男主</span>
+                <span class="badge">出场 18 次</span>
+              </div>
+              <p class="hero-line">首次第 1 章 · 最近第 19 章 · 建档于第 1 章 · 含 AI 追加观察</p>
+            </div>
+            <div class="hero-actions">
+              <span class="save-state">已保存</span>
+              <button class="btn btn-primary">保存角色</button>
+            </div>
+          </div>
+
+          <div class="tabs">
+            <span class="on">基础设定</span><span>性格</span><span>语言与行为</span>
+            <span>关系</span><span>当前状态</span><span>原始 Markdown</span>
+          </div>
+
+          <p class="hint-box">
+            档案字段回答「他是谁」；「语言与行为」里的 5 条才是写正文时真正喂给模型的演技字段。
+          </p>
+
+          <div class="form-grid">
+            <div class="field"><label>姓名</label><div class="input ro">杨寒</div></div>
+            <div class="field"><label>性别</label><div class="input">男</div></div>
+            <div class="field"><label>年龄</label><div class="input">二十上下</div></div>
+            <div class="field"><label>定位</label><div class="input">男主</div></div>
+            <div class="field"><label>势力组织</label><div class="input">地下回收队</div></div>
+            <div class="field"><label>外貌</label><div class="input">瘦高，左眉有旧疤</div></div>
+            <div class="field wide">
+              <label>背景 <em>出身、经历、现在的处境</em></label>
+              <div class="textarea">在黑雨里长大的第一批孩子，靠捡地上的东西活到现在……</div>
+            </div>
+            <div class="field wide">
+              <label>动机 <em>他想要什么</em></label>
+              <div class="textarea">想把妹妹从地下三层带出来。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>方案 A 要点</h5>
+    <ul>
+      <li><b>左右各留 40px 安全边距</b>，整页限宽 1120px 居中——直接解决「边框贴边」。</li>
+      <li>卡片从 4 列改为<b>限宽内的 4 列</b>，卡片变窄变高，行间 18px，一眼能数清。</li>
+      <li>候选人物默认<b>折叠成一条</b>，不再用 9 张卡把页面拉长一倍。</li>
+      <li>「打开档案」是<b>独立整页</b>（与现在一致），顶部 hero + 六个页签 + 两列表单。</li>
+    </ul>
+    <div class="fix"><b>与现在的差别：</b>卡片外壳不变，主要靠「留白 + 折叠候选」提升秩序感。改动最小、风险最低。</div>
+  </div>
+</section>
+
+<!-- =========================================================
+     方案 B
+     ========================================================= -->
+<section class="plan" data-view="b">
+  <div class="plan-head">
+    <h2>方案 B · 双栏主从</h2>
+    <p class="lead">
+      左边一列紧凑角色名单，右边常驻详情。「打开档案」不再是跳页，而是右栏切换——
+      连续对比几个角色时不用来回进退，适合角色多、需要反复对照的写法。
+    </p>
+    <div class="kv">
+      <div>改动量 <b>大</b></div>
+      <div>信息密度 <b>高</b></div>
+      <div>浏览效率 <b>高</b></div>
+      <div>最适合 <b>30+ 个角色</b></div>
+    </div>
+    <div class="view-switch" data-switch="b">
+      <button data-sub="list" class="on">列表页</button>
+      <button data-sub="detail">打开档案</button>
+    </div>
+  </div>
+
+  <!-- B · 列表（左选中第一人） -->
+  <div class="sub on" data-subview="b-list">
+    <div class="win">
+      <div class="win-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav">
+          <span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span>
+        </div>
+      </div>
+      <div class="b-wrap">
+        <aside class="b-list">
+          <div class="b-search">🔍 搜索人物名</div>
+          <div style="display:flex;gap:6px;margin-bottom:12px">
+            <span class="chip on" style="padding:5px 11px">全部 16</span>
+            <span class="chip" style="padding:5px 11px">已建档 7</span>
+          </div>
+
+          <div class="b-row on">
+            <div class="avatar">杨</div>
+            <div class="b-row-txt"><b>杨寒</b><span>主要人物 · 出场 18</span></div>
+            <i class="state"></i>
+          </div>
+          <div class="b-row">
+            <div class="avatar">林</div>
+            <div class="b-row-txt"><b>林小满</b><span>主要人物 · 出场 15</span></div>
+            <i class="state"></i>
+          </div>
+          <div class="b-row">
+            <div class="avatar">杨</div>
+            <div class="b-row-txt"><b>杨妙萍</b><span>次要人物 · 出场 13</span></div>
+            <i class="state"></i>
+          </div>
+          <div class="b-row">
+            <div class="avatar">小</div>
+            <div class="b-row-txt"><b>小晚</b><span>次要人物 · 出场 6</span></div>
+            <i class="state"></i>
+          </div>
+          <div class="b-row">
+            <div class="avatar">杨</div>
+            <div class="b-row-txt"><b>杨津艺</b><span>次要人物 · 出场 1</span></div>
+            <i class="state dormant"></i>
+          </div>
+          <div class="b-row">
+            <div class="avatar">M</div>
+            <div class="b-row-txt"><b>MINGC</b><span>次要人物 · 出场 1</span></div>
+            <i class="state"></i>
+          </div>
+          <div class="b-row">
+            <div class="avatar">Y</div>
+            <div class="b-row-txt"><b>YANG</b><span>次要人物 · 出场 1</span></div>
+            <i class="state"></i>
+          </div>
+
+          <div class="sec-head" style="margin:18px 0 8px"><h4 style="font-size:12.5px">候选 9</h4></div>
+          <div class="b-row">
+            <div class="avatar" style="opacity:.7">地</div>
+            <div class="b-row-txt"><b style="color:var(--muted)">地下铁门守卫</b><span>候选 · 出场 1</span></div>
+          </div>
+          <div class="b-row">
+            <div class="avatar" style="opacity:.7">抱</div>
+            <div class="b-row-txt"><b style="color:var(--muted)">抱保温杯守卫</b><span>候选 · 出场 1</span></div>
+          </div>
+        </aside>
+
+        <div class="b-main">
+          <div class="hero">
+            <div class="avatar lg">杨</div>
+            <div class="hero-txt">
+              <h4>杨寒</h4>
+              <div class="hero-badges">
+                <span class="badge type">主要人物</span>
+                <span class="badge ok">✓ 重要人物</span>
+                <span class="badge">活跃</span>
+                <span class="badge">出场 18 次</span>
+              </div>
+              <p class="hero-line">首次第 1 章 · 最近第 19 章 · 含 AI 追加观察</p>
+            </div>
+            <div class="hero-actions">
+              <span class="save-state">已保存</span>
+              <button class="btn btn-primary">保存角色</button>
+            </div>
+          </div>
+          <div class="tabs">
+            <span class="on">基础设定</span><span>性格</span><span>语言与行为</span><span>关系</span><span>当前状态</span>
+          </div>
+          <div class="form-grid">
+            <div class="field"><label>姓名</label><div class="input ro">杨寒</div></div>
+            <div class="field"><label>性别</label><div class="input">男</div></div>
+            <div class="field"><label>年龄</label><div class="input">二十上下</div></div>
+            <div class="field"><label>定位</label><div class="input">男主</div></div>
+            <div class="field wide">
+              <label>背景 <em>出身、经历、现在的处境</em></label>
+              <div class="textarea">在黑雨里长大的第一批孩子，靠捡地上的东西活到现在……</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B · 打开档案（右栏切换，注意左栏仍可见） -->
+  <div class="sub" data-subview="b-detail">
+    <div class="win">
+      <div class="win-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav">
+          <span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span>
+        </div>
+      </div>
+      <div class="b-wrap">
+        <aside class="b-list">
+          <div class="b-search">🔍 搜索人物名</div>
+          <div class="b-row">
+            <div class="avatar">杨</div>
+            <div class="b-row-txt"><b>杨寒</b><span>主要人物 · 出场 18</span></div>
+            <i class="state"></i>
+          </div>
+          <div class="b-row on">
+            <div class="avatar">林</div>
+            <div class="b-row-txt"><b>林小满</b><span>主要人物 · 出场 15</span></div>
+            <i class="state"></i>
+          </div>
+          <div class="b-row">
+            <div class="avatar">杨</div>
+            <div class="b-row-txt"><b>杨妙萍</b><span>次要人物 · 出场 13</span></div>
+            <i class="state"></i>
+          </div>
+          <div class="b-row">
+            <div class="avatar">小</div>
+            <div class="b-row-txt"><b>小晚</b><span>次要人物 · 出场 6</span></div>
+            <i class="state"></i>
+          </div>
+        </aside>
+        <div class="b-main">
+          <div class="hero">
+            <div class="avatar lg">林</div>
+            <div class="hero-txt">
+              <h4>林小满</h4>
+              <div class="hero-badges">
+                <span class="badge type">主要人物</span>
+                <span class="badge ok">✓ 重要人物</span>
+                <span class="badge">活跃</span>
+                <span class="badge">出场 15 次</span>
+              </div>
+              <p class="hero-line">首次第 2 章 · 最近第 19 章 · 含 AI 追加观察</p>
+            </div>
+            <div class="hero-actions">
+              <span class="save-state">未保存</span>
+              <button class="btn btn-primary">保存角色</button>
+            </div>
+          </div>
+          <div class="tabs">
+            <span class="on">基础设定</span><span>性格</span><span>语言与行为</span><span>关系</span><span>当前状态</span>
+          </div>
+          <div class="form-grid">
+            <div class="field"><label>姓名</label><div class="input ro">林小满</div></div>
+            <div class="field"><label>性别</label><div class="input">女</div></div>
+            <div class="field"><label>年龄</label><div class="input">十六七</div></div>
+            <div class="field"><label>定位</label><div class="input">主要人物</div></div>
+            <div class="field wide">
+              <label>背景 <em>出身、经历、现在的处境</em></label>
+              <div class="textarea">在回收站长大，认得每一块能卖钱的废料……</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>方案 B 要点</h5>
+    <ul>
+      <li>左栏 296px 固定宽，<b>列表本身就是导航</b>；右栏占满剩余空间并自带 30px 内边距。</li>
+      <li>「打开档案」＝<b>右栏切换</b>，左栏不动。对比「杨寒」与「林小满」的性格差异时无需退出。</li>
+      <li>角色多时优势明显：一屏能看到 7–9 个名字 + 一个人的完整档案。</li>
+      <li>未选中态就是「列表 + 第一位详情」，比现在的纯卡片墙少一次跳转。</li>
+    </ul>
+    <div class="fix"><b>代价：</b>窄窗口（&lt;1100px）下双栏会挤，需要退化成「列表 → 点进 → 详情」的单栏模式。</div>
+  </div>
+</section>
+
+<!-- =========================================================
+     方案 C
+     ========================================================= -->
+<section class="plan" data-view="c">
+  <div class="plan-head">
+    <h2>方案 C · 表格 + 抽屉</h2>
+    <p class="lead">
+      把角色当「数据」看：表格列出定位、状态、出场次数、最近章节，可排序、可扫读。
+      点任意一行，右侧滑出 380px 抽屉显示完整档案。适合核对出场统计、批量清理。
+    </p>
+    <div class="kv">
+      <div>改动量 <b>中</b></div>
+      <div>信息密度 <b>最高</b></div>
+      <div>浏览效率 <b>扫描快、阅读慢</b></div>
+      <div>最适合 <b>出场统计 / 批量管理</b></div>
+    </div>
+    <div class="view-switch" data-switch="c">
+      <button data-sub="list" class="on">列表页</button>
+      <button data-sub="detail">打开档案</button>
+    </div>
+  </div>
+
+  <!-- C · 列表 -->
+  <div class="sub on" data-subview="c-list">
+    <div class="win">
+      <div class="win-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav">
+          <span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span>
+        </div>
+      </div>
+      <div class="page">
+        <div class="page-inner">
+          <div class="page-title"><h3>人物</h3><small>按出场次数排序</small></div>
+          <div class="toolbar">
+            <div class="search"><span class="ico">🔍</span>搜索人物名</div>
+            <div class="chips">
+              <span class="chip on">全部 16</span><span class="chip">已建档 7</span><span class="chip">候选 9</span>
+            </div>
+            <div style="margin-left:auto"><button class="btn btn-primary">＋ 新建人物角色</button></div>
+          </div>
+
+          <table class="c-table">
+            <thead>
+              <tr>
+                <th style="width:30%">人物</th><th>定位</th><th>状态</th>
+                <th>出场</th><th>最近章节</th><th style="text-align:right">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><div class="c-name"><div class="avatar">杨</div><b>杨寒</b><span class="badge ok">✓</span></div></td>
+                <td><span class="badge type">主要人物</span></td>
+                <td><span class="badge dot" style="color:#2f6b46">活跃</span></td>
+                <td class="num">18</td><td class="num">第 19 章</td>
+                <td style="text-align:right"><button class="btn btn-sm btn-primary">打开档案</button></td>
+              </tr>
+              <tr>
+                <td><div class="c-name"><div class="avatar">林</div><b>林小满</b><span class="badge ok">✓</span></div></td>
+                <td><span class="badge type">主要人物</span></td>
+                <td><span class="badge dot" style="color:#2f6b46">活跃</span></td>
+                <td class="num">15</td><td class="num">第 19 章</td>
+                <td style="text-align:right"><button class="btn btn-sm btn-primary">打开档案</button></td>
+              </tr>
+              <tr>
+                <td><div class="c-name"><div class="avatar">杨</div><b>杨妙萍</b></div></td>
+                <td><span class="badge type">次要人物</span></td>
+                <td><span class="badge dot" style="color:#2f6b46">活跃</span></td>
+                <td class="num">13</td><td class="num">第 19 章</td>
+                <td style="text-align:right"><button class="btn btn-sm">打开档案</button></td>
+              </tr>
+              <tr>
+                <td><div class="c-name"><div class="avatar">小</div><b>小晚</b></div></td>
+                <td><span class="badge type">次要人物</span></td>
+                <td><span class="badge dot" style="color:#2f6b46">活跃</span></td>
+                <td class="num">6</td><td class="num">第 19 章</td>
+                <td style="text-align:right"><button class="btn btn-sm">打开档案</button></td>
+              </tr>
+              <tr>
+                <td><div class="c-name"><div class="avatar">杨</div><b>杨津艺</b></div></td>
+                <td><span class="badge type">次要人物</span></td>
+                <td><span class="badge dot" style="color:#c2b184">潜伏</span></td>
+                <td class="num">1</td><td class="num">第 1 章</td>
+                <td style="text-align:right"><button class="btn btn-sm">打开档案</button></td>
+              </tr>
+              <tr>
+                <td><div class="c-name"><div class="avatar">M</div><b>MINGC</b><span class="badge">已手改</span></div></td>
+                <td><span class="badge type">次要人物</span></td>
+                <td><span class="badge dot" style="color:#2f6b46">活跃</span></td>
+                <td class="num">1</td><td class="num">第 1 章</td>
+                <td style="text-align:right"><button class="btn btn-sm">打开档案</button></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="sec-head"><h4>候选人物</h4><span>点击「建档」加入上方档案区</span></div>
+          <table class="c-table">
+            <tbody>
+              <tr>
+                <td style="width:30%"><div class="c-name"><div class="avatar" style="opacity:.7">地</div><b style="color:var(--muted)">地下铁门守卫</b></div></td>
+                <td><span class="badge">候选</span></td>
+                <td><span class="badge">未建档</span></td>
+                <td class="num">1</td><td class="num">第 1–5 章</td>
+                <td style="text-align:right"><button class="btn btn-sm btn-primary">建档</button></td>
+              </tr>
+              <tr>
+                <td><div class="c-name"><div class="avatar" style="opacity:.7">抱</div><b style="color:var(--muted)">抱保温杯守卫</b></div></td>
+                <td><span class="badge">候选</span></td>
+                <td><span class="badge">未建档</span></td>
+                <td class="num">1</td><td class="num">第 1–5 章</td>
+                <td style="text-align:right"><button class="btn btn-sm btn-primary">建档</button></td>
+              </tr>
+              <tr>
+                <td><div class="c-name"><div class="avatar" style="opacity:.7">另</div><b style="color:var(--muted)">另一个守卫</b></div></td>
+                <td><span class="badge">候选</span></td>
+                <td><span class="badge">未建档</span></td>
+                <td class="num">1</td><td class="num">第 1–5 章</td>
+                <td style="text-align:right"><button class="btn btn-sm btn-primary">建档</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- C · 打开档案（抽屉） -->
+  <div class="sub" data-subview="c-detail">
+    <div class="win">
+      <div class="win-bar">
+        <div class="dots"><i></i><i></i><i></i></div>
+        <div class="title">青幕AI写作 · 黑雨之下</div>
+        <div class="nav">
+          <span>书架</span><span class="on">大纲</span><span>章节</span><span>灵魂</span><span>技能库</span><span>拆书库</span>
+        </div>
+      </div>
+      <div class="c-drawer">
+        <div class="c-main">
+          <div class="page-title"><h3>人物</h3><small>右侧抽屉显示「杨寒」档案</small></div>
+          <table class="c-table">
+            <thead>
+              <tr><th style="width:32%">人物</th><th>定位</th><th>出场</th><th>最近章节</th></tr>
+            </thead>
+            <tbody>
+              <tr style="background:color-mix(in srgb,var(--soft) 55%,transparent)">
+                <td><div class="c-name"><div class="avatar">杨</div><b>杨寒</b><span class="badge ok">✓</span></div></td>
+                <td><span class="badge type">主要人物</span></td><td class="num">18</td><td class="num">第 19 章</td>
+              </tr>
+              <tr>
+                <td><div class="c-name"><div class="avatar">林</div><b>林小满</b></div></td>
+                <td><span class="badge type">主要人物</span></td><td class="num">15</td><td class="num">第 19 章</td>
+              </tr>
+              <tr>
+                <td><div class="c-name"><div class="avatar">杨</div><b>杨妙萍</b></div></td>
+                <td><span class="badge type">次要人物</span></td><td class="num">13</td><td class="num">第 19 章</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <aside class="c-panel">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+            <div class="avatar lg">杨</div>
+            <div style="min-width:0;flex:1">
+              <h4>杨寒</h4>
+              <p class="sub">出场 18 次 · 最近第 19 章</p>
+            </div>
+            <button class="btn btn-ghost btn-sm">✕</button>
+          </div>
+          <div class="hero-badges" style="margin-bottom:14px">
+            <span class="badge type">主要人物</span><span class="badge ok">✓ 重要人物</span><span class="badge">活跃</span>
+          </div>
+
+          <div class="tabs" style="gap:14px">
+            <span class="on">档案</span><span>性格</span><span>语言</span><span>关系</span>
+          </div>
+
+          <div class="form-grid">
+            <div class="field"><label>性别</label><div class="input">男</div></div>
+            <div class="field"><label>年龄</label><div class="input">二十上下</div></div>
+            <div class="field"><label>势力组织</label><div class="input">地下回收队</div></div>
+            <div class="field"><label>外貌</label><div class="input">瘦高，左眉有旧疤</div></div>
+            <div class="field"><label>背景</label><div class="textarea">在黑雨里长大的第一批孩子……</div></div>
+            <div class="field"><label>动机</label><div class="textarea">把妹妹从地下三层带出来。</div></div>
+          </div>
+
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+            <button class="btn btn-sm">取消</button>
+            <button class="btn btn-sm btn-primary">保存角色</button>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>方案 C 要点</h5>
+    <ul>
+      <li><b>一屏装 16 个角色</b>：表格每行 44px，扫读「谁出场最多、谁该归档」最快。</li>
+      <li>点行 → 右侧 380px 抽屉，<b>不离开列表</b>；抽屉内单列表单，窄而好读。</li>
+      <li>候选人物用同构表格，视觉上自然比正式档案「弱一档」（灰名、无绿勾）。</li>
+      <li>排序、筛选、批量操作都能沿这条结构长出来。</li>
+    </ul>
+    <div class="fix"><b>代价：</b>卡片感消失，偏「管理后台」。若你更看重阅读角色时的氛围，A/B 更合适。</div>
+  </div>
+</section>
+
+<script>
+  // 方案切换
+  document.querySelectorAll('.plan-tabs button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.plan-tabs button').forEach(function (b) { b.classList.remove('on'); });
+      btn.classList.add('on');
+      var plan = btn.dataset.plan;
+      document.querySelectorAll('.plan').forEach(function (p) {
+        p.classList.toggle('on', p.dataset.view === plan);
+      });
+      // 回到该方案的「列表页」
+      var sw = document.querySelector('[data-switch="' + plan + '"]');
+      if (sw) {
+        sw.querySelectorAll('button').forEach(function (b, i) { b.classList.toggle('on', i === 0); });
+        document.querySelectorAll('[data-subview^="' + plan + '-"]').forEach(function (v) {
+          v.classList.toggle('on', v.dataset.subview === plan + '-list');
+        });
+      }
+      window.scrollTo({ top: document.querySelector('.plan-tabs').offsetTop - 8, behavior: 'smooth' });
+    });
+  });
+
+  // 「列表 / 打开档案」切换
+  document.querySelectorAll('[data-switch]').forEach(function (sw) {
+    var plan = sw.dataset.switch;
+    sw.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        sw.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        document.querySelectorAll('[data-subview^="' + plan + '-"]').forEach(function (v) {
+          v.classList.toggle('on', v.dataset.subview === plan + '-' + btn.dataset.sub);
+        });
+      });
+    });
+  });
+</script>
+</body>
+</html>

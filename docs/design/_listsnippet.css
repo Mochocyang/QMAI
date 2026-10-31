@@ -1,0 +1,53 @@
+/* 区块标题行（右侧可放操作按钮） */
+.ui-test-root .ui-test-skills-section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ui-test-root .ui-test-skills-section-head .ui-test-skills-action {
+  margin-left: auto;
+}
+
+.ui-test-root .ui-test-skills-action.is-small {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+}
+
+/* 候选人物折叠条：默认只占一行，点「展开」才铺开卡片 */
+.ui-test-root .ui-test-skills-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border: 1px dashed var(--ui-line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ui-paper) 62%, transparent);
+  color: var(--ui-muted);
+  font-size: 0.78rem;
+  line-height: 1.7;
+}
+
+.ui-test-root .ui-test-skills-collapsed b {
+  color: var(--ui-ink);
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-skills-collapsed .names {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-test-root .ui-test-skills-collapsed .more {
+  opacity: .8;
+}
+
+/* 列表页整页留白：gallery 自身给左右 40px，内部 .ui-test-skills-page 再限宽居中。
+   两处都要：gallery 是滚动容器，只靠内层限宽时宽窗口下仍会贴边。 */
+.ui-test-root .ui-test-skills-gallery {
+  box-sizing: border-box;
+}

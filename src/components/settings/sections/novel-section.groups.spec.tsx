@@ -7,6 +7,7 @@
  * 为什么渲染真实组件而不是源码文本断言：分组是**结构**，播放是**行为**。
  * 文本断言能证明字符串存在，却证明不了「点播放真的把引导启动并通知外壳退回书架」。
  */
+import { readFileSync } from "node:fs"
 import { act, useState } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -110,8 +111,10 @@ describe("写作设置：分组与新手引导播放", () => {
 
   it("按功能分成六组，默认展开，提示类单独成组", async () => {
     await mount()
-    expect(groupIds()).toEqual(["context", "generation", "hints", "community", "performance", "feedback"])
-    for (const id of ["context", "generation", "hints", "community", "performance", "feedback"]) {
+    // 自进化两个开关**不是**折叠分组：它们只是普通设置行。
+    const ids = ["context", "generation", "hints", "community", "performance", "feedback"]
+    expect(groupIds()).toEqual(ids)
+    for (const id of ids) {
       expect(group(id).open, `${id} 默认展开`).toBe(true)
     }
     // 「界面提示」组只有两个提示开关，不掺生成类参数。
@@ -119,6 +122,21 @@ describe("写作设置：分组与新手引导播放", () => {
     expect(group("context").querySelectorAll("button[aria-pressed]")).toHaveLength(0)
     expect(toggleIn(group("hints"), "novel.settings.draftMemoryHintEnabled")).not.toBeNull()
     expect(toggleIn(group("hints"), "novel.settings.inspirationHintEnabled")).not.toBeNull()
+  })
+
+  it("自进化两块是普通设置行而不是折叠分组，且没有项目时不渲染空盒子", async () => {
+    // 本用例 project 为 null：两块都不该出现（否则会留下两个空白边框）
+    await mount()
+    expect(container.querySelector('[data-novel-block="persona-evolution"]')).toBeNull()
+    expect(container.querySelector('[data-novel-block="style-evolution"]')).toBeNull()
+    // 结构守卫：这两块**不能**用 <details> 折叠（用户明确说不需要折叠）
+    const source = readFileSync("src/components/settings/sections/novel-section.tsx", "utf8")
+    for (const id of ["persona-evolution", "style-evolution"]) {
+      // 必须作为普通块存在
+      expect(source, id).toContain(`data-novel-block="${id}"`)
+      // 且**不能**是折叠分组（SettingGroup 会生成 data-novel-group + <details>）
+      expect(source, `${id} 不该是折叠分组`).not.toContain(`id="${id}"`)
+    }
   })
 
   it("分组折叠后仍只保留一组「写作设置」标题，不再有「其他写作设置」小字", async () => {

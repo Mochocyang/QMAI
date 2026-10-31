@@ -1,6 +1,9 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { BookOpen, Brain, Grid2X2, GitBranch, HeartHandshake, History, Library, Minus, PanelLeft, Search, Settings, ShieldCheck, Sparkles, Square, Trash2, Wrench, X } from "lucide-react"
 import logoImg from "@/assets/QM-LOGO.png"
+// 侧栏（人物小传区段等）也用工具样式：必须在主 chunk 引入，
+// 否则首屏会渲染出一块没有样式的裸列表（字号、图标全不对，用户实测）。
+import "@/components/uitest/ui-test-tools.css"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useWikiStore, type WikiState } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"

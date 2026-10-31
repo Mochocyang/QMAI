@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>人物 MD 文档 · 三套排版方案</title>
+<style>
+  :root{
+    --canvas:#edf1ec; --paper:#fcfdfb; --panel:#f2f5ef; --soft:#e4ece3;
+    --ink:#273c35; --muted:#5d6e64; --accent:#45624f; --on-accent:#fff;
+    --line:#dfe6da; --warm:#f3ebdf; --danger:#943f36;
+    --serif:"Songti SC",Georgia,"Times New Roman",serif;
+    --sh-lg:0 14px 40px rgba(23,35,29,.15);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{background:#e7ebe6;color:var(--ink);
+    font:13.5px/1.55 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    -webkit-font-smoothing:antialiased;}
+
+  .doc-head{max-width:1180px;margin:0 auto;padding:38px 32px 4px;}
+  .doc-head .eyebrow{font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:9px;}
+  .doc-head h1{font-size:25px;margin:0 0 9px;letter-spacing:-.01em;}
+  .doc-head > p{margin:0 0 10px;color:var(--muted);font-size:13.5px;max-width:940px;}
+  .doc-head > p b{color:var(--ink);}
+  .reqs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0 0;}
+  .req{border:1px solid var(--line);border-radius:11px;background:var(--paper);padding:11px 13px;}
+  .req h6{margin:0 0 4px;font-size:12px;color:var(--accent);letter-spacing:.03em;}
+  .req p{margin:0;font-size:12px;color:var(--muted);line-height:1.7;}
+
+  .tabs{position:sticky;top:0;z-index:60;display:flex;gap:8px;flex-wrap:wrap;
+    max-width:1180px;margin:20px auto 0;padding:11px 32px;
+    background:rgba(231,235,230,.94);backdrop-filter:blur(8px);}
+  .tabs button{appearance:none;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    padding:8px 15px;border-radius:10px;font-size:13px;cursor:pointer;}
+  .tabs button.on{background:var(--accent);color:var(--on-accent);border-color:transparent;
+    box-shadow:0 2px 8px rgba(69,98,79,.26);}
+
+  .part{display:none;max-width:1180px;margin:0 auto;padding:20px 32px 70px;}
+  .part.on{display:block;}
+  .part > h2{font-size:19px;margin:0 0 5px;}
+  .part > .lead{color:var(--muted);margin:0 0 12px;max-width:900px;}
+  .tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 14px;}
+  .toggle{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);cursor:pointer;}
+  .toggle input{width:14px;height:14px;accent-color:var(--accent);}
+
+  /* 模拟中栏 */
+  .pane{width:100%;max-width:960px;border:1px solid var(--line);border-radius:13px;
+    overflow:hidden;background:var(--canvas);box-shadow:var(--sh-lg);}
+  .pane-bar{display:flex;align-items:center;gap:10px;padding:9px 14px;
+    border-bottom:1px solid var(--line);background:var(--paper);}
+  .pane-bar b{font-family:var(--serif);font-size:15px;}
+  .pane-bar .seg{margin-left:auto;display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;}
+  .pane-bar .seg span{padding:4px 10px;font-size:11.5px;color:var(--muted);}
+  .pane-bar .seg span.on{background:var(--accent);color:var(--on-accent);font-weight:500;}
+  .pane-tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--paper);}
+  .pane-tabs span{padding:8px 11px;font-size:12px;color:var(--muted);border-bottom:2px solid transparent;}
+  .pane-tabs span.on{color:var(--ink);border-bottom-color:var(--accent);font-weight:500;}
+  .pane-body{padding:0;background:var(--paper);}
+  .md-head{display:flex;align-items:center;gap:9px;padding:8px 14px;
+    border-bottom:1px solid var(--line);background:var(--panel);}
+  .md-head b{font-size:11.5px;letter-spacing:.08em;}
+  .md-head span{font-size:11px;color:var(--muted);}
+  .md-head .btn{margin-left:auto;}
+
+  .paper{padding:26px 40px 40px;background:var(--paper);max-height:640px;overflow:auto;}
+  .paper-in{max-width:840px;}
+
+  /* 未填标注 */
+  .unfilled{color:var(--muted);opacity:.72;font-style:italic;}
+  .hide-unfilled .unfilled{display:none;}
+  .todo{display:inline-block;padding:0 6px;border-radius:4px;background:var(--warm);
+    color:#6b5a35;font-size:10.5px;font-style:normal;margin-left:6px;}
+
+  /* ===== M1 文档流 ===== */
+  .m1 h1{font-family:var(--serif);font-size:19px;margin:0 0 3px;letter-spacing:.02em;}
+  .m1 .meta{color:var(--muted);font-size:12px;margin:0 0 22px;}
+  .m1 h2{font-size:13px;margin:26px 0 9px;padding-bottom:5px;
+    border-bottom:1px solid var(--line);letter-spacing:.04em;}
+  .m1 h3{font-size:12.5px;margin:16px 0 6px;color:var(--muted);letter-spacing:.03em;}
+  .m1 .row{margin:0 0 9px;padding-left:1.5em;font-size:13px;line-height:1.95;}
+  .m1 .row b{font-weight:600;margin-right:.3em;}
+  .m1 .row span{white-space:pre-wrap;}
+
+  /* ===== M2 定义列表（字段名左列） ===== */
+  .m2 .dl{display:grid;grid-template-columns:88px minmax(0,1fr);gap:8px 14px;font-size:13px;line-height:1.9;}
+  .m2 .dl dt{color:var(--muted);font-size:12px;padding-top:2px;text-align:right;}
+  .m2 .dl dd{margin:0;}
+  .m2 h1{font-family:var(--serif);font-size:18px;margin:0 0 4px;}
+  .m2 .meta{color:var(--muted);font-size:12px;margin:0 0 20px;}
+  .m2 h2{font-size:12.5px;margin:24px 0 10px;color:var(--accent);letter-spacing:.08em;
+    text-transform:uppercase;}
+
+  /* ===== M3 纯 Markdown 列表 ===== */
+  .m3 h1{font-size:20px;margin:0 0 4px;}
+  .m3 h2{font-size:15px;margin:24px 0 8px;}
+  .m3 h3{font-size:13px;margin:16px 0 6px;}
+  .m3 ul{margin:0 0 10px;padding-left:22px;font-size:13px;line-height:1.9;}
+  .m3 li{margin:1px 0;}
+  .m3 li b{font-weight:600;}
+  .m3 hr{border:0;border-top:1px solid var(--line);margin:22px 0;}
+  .m3 .meta{color:var(--muted);font-size:12px;margin:0 0 18px;}
+
+  .notes{margin:16px 0 0;padding:14px 16px;border:1px solid var(--line);border-radius:11px;background:var(--paper);}
+  .notes h5{margin:0 0 8px;font-size:12.5px;}
+  .notes ul{margin:0;padding-left:18px;color:var(--muted);font-size:12.5px;line-height:1.8;}
+  .notes ul b{color:var(--ink);font-weight:500;}
+  .notes .fix{margin:10px 0 0;padding:9px 11px;border-radius:8px;background:#f6f0e2;color:#6b5a35;
+    font-size:11.5px;line-height:1.72;}
+  .pick{margin:11px 0 0;padding:10px 12px;border-radius:9px;background:var(--soft);color:var(--accent);
+    font-size:12.5px;font-weight:500;}
+
+  @media (max-width:1120px){ .reqs{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <div class="eyebrow">QMAI · 人物 MD 文档 · 三套方案</div>
+  <h1>一份文档装下全部信息</h1>
+  <p>你的要求：点「MD」就应该看到<b>一整份文档</b>，把「基本信息 / 性格与灵魂 / 语言与行为 / 关系与状态 / 研究文件」全部罗列在里面，<b>没填的也要标出来</b>，观感对齐卷纲那种文档。</p>
+  <div class="reqs">
+    <div class="req">
+      <h6>内容范围（固定）</h6>
+      <p>五个区块全部合并进同一份文档，不再跟着页签走。包含 <b>研究文件</b>（人物小传 / 语言习惯 / 关键关系 / 动机与弧光 / 名场面 / 禁忌与误区）。</p>
+    </div>
+    <div class="req">
+      <h6>未填标注</h6>
+      <p>空字段显示为浅灰斜体的 <b>（未填）</b>，一眼看出档案还缺什么。可以用右上开关关掉对比。</p>
+    </div>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button data-part="m1" class="on">M1 · 文档流（最像卷纲）</button>
+  <button data-part="m2">M2 · 字段左列对齐</button>
+  <button data-part="m3">M3 · 纯 Markdown 列表</button>
+</nav>
+
+<!-- ==================== M1 ==================== -->
+<section class="part on" data-view="m1">
+  <h2>M1 · 文档流</h2>
+  <p class="lead">最接近卷纲 / 章纲的观感：左对齐长文、节标题带下划线、字段名加粗后接正文、整块缩进。阅读时像在读一份设定文档。</p>
+  <div class="tools">
+    <label class="toggle"><input type="checkbox" checked data-unfilled="m1"> 显示未填项</label>
+    <span style="font-size:12px;color:var(--muted)">左边距与行距照抄卷纲文档</span>
+  </div>
+
+  <div class="pane">
+    <div class="pane-bar"><b>林小满</b>
+      <div class="seg"><span>表格</span><span>并排</span><span class="on">MD</span></div></div>
+    <div class="pane-tabs"><span>档案</span><span>性格与灵魂</span><span>语言与行为</span><span>关系与状态</span><span>研究文件</span></div>
+    <div class="pane-body">
+      <div class="md-head"><b>MD</b><span>整份档案 · 由表格实时生成</span>
+        <span class="btn" style="padding:3px 9px;border:1px solid var(--line);border-radius:6px;font-size:11px;color:var(--muted)">编辑原文</span></div>
+      <div class="paper">
+        <div class="paper-in m1" data-body="m1">
+          <h1>林小满 · 人物 Skill</h1>
+          <p class="meta">主要人物 · 女 · 十六七 · 出场 15 次（第 2–19 章）· 活跃</p>
+
+          <h2>基本信息</h2>
+          <p class="row"><b>姓名：</b><span>林小满</span></p>
+          <p class="row"><b>性别：</b><span>女</span></p>
+          <p class="row"><b>年龄：</b><span>十六七</span></p>
+          <p class="row"><b>定位：</b><span>主要人物</span></p>
+          <p class="row"><b>势力组织：</b><span>地下回收队</span></p>
+          <p class="row"><b>外貌：</b><span class="unfilled">（未填）</span></p>
+
+          <h2>性格与灵魂</h2>
+          <p class="row"><b>性格标签：</b><span>嘴硬心软、怕疼但要挡刀、说反话</span></p>
+          <p class="row"><b>绑定灵魂：</b><span>严肃沉稳</span></p>
+          <p class="row"><b>注入预览：</b><span>人物性格：嘴硬心软、怕疼但要挡刀、说反话（性格优先于灵魂基线）· 14 / 20 字</span></p>
+
+          <h2>语言与行为</h2>
+          <p class="row"><b>怎么说话：</b><span>本章新增：在睡梦中无意识发出破碎音节，如小……晚……危……险……；被惊动时，用尽力气挤出几个字。</span></p>
+          <p class="row"><b>怎么想：</b><span>本章新增：在沉睡中极不安稳，额头沁汗，嘴唇翕动，像抵抗梦里无形的东西。</span></p>
+          <p class="row"><b>怎么判断：</b><span>本章新增：判断杨寒是安全的，所以在他握住手时放松。</span></p>
+          <p class="row"><b>什么不做：</b><span class="unfilled">（未填）</span></p>
+          <p class="row"><b>知道局限：</b><span>本章新增：无法确定暗处的威胁是什么，只能拼出残缺信息。</span></p>
+
+          <h2>关系与状态</h2>
+          <p class="row"><b>关系网：</b><span>杨寒：血亲（相依为命）／杨妙萍：旧识（已故）</span></p>
+          <p class="row"><b>当前状态：</b><span>重伤未愈，被杨寒背着转移</span></p>
+          <p class="row"><b>出场组织：</b><span class="unfilled">（未填）</span></p>
+          <p class="row"><b>认知变化：</b><span class="unfilled">（未填）</span></p>
+          <p class="row"><b>关系变化：</b><span class="unfilled">（未填）</span></p>
+          <p class="row"><b>备注：</b><span class="unfilled">（未填）</span></p>
+
+          <h2>研究文件</h2>
+          <p class="row"><b>人物小传：</b><span>已生成 · 3 段</span></p>
+          <p class="row"><b>语言习惯：</b><span>已生成 · 2 段</span></p>
+          <p class="row"><b>关键关系：</b><span>已生成 · 4 条</span></p>
+          <p class="row"><b>动机与弧光：</b><span class="unfilled">（未生成）</span></p>
+          <p class="row"><b>名场面：</b><span class="unfilled">（未生成）</span></p>
+          <p class="row"><b>禁忌与误区：</b><span class="unfilled">（未生成）</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>M1 要点</h5>
+    <ul>
+      <li>节标题带下划线、字段行整块缩进 1.5em —— 与卷纲文档同一套节奏，适合通读。</li>
+      <li>整份文档从上到下就一条流，滚轮一直滚到底，不再需要点页签找内容。</li>
+      <li>未填项用浅灰斜体「（未填）」，缺什么一目了然。</li>
+    </ul>
+    <div class="pick">推荐：这是最贴近你截图里卷纲观感的一套。</div>
+  </div>
+</section>
+
+<!-- ==================== M2 ==================== -->
+<section class="part" data-view="m2">
+  <h2>M2 · 字段左列对齐</h2>
+  <p class="lead">字段名放左列、右对齐、灰色小字，值在右列。扫读时眼睛只沿着一列值往下看，比「字段名：值」的混排更快找到某一格。</p>
+  <div class="tools">
+    <label class="toggle"><input type="checkbox" checked data-unfilled="m2"> 显示未填项</label>
+    <span style="font-size:12px;color:var(--muted)">适合"查某一格"而不是通读</span>
+  </div>
+
+  <div class="pane">
+    <div class="pane-bar"><b>林小满</b>
+      <div class="seg"><span>表格</span><span>并排</span><span class="on">MD</span></div></div>
+    <div class="pane-tabs"><span>档案</span><span>性格与灵魂</span><span>语言与行为</span><span>关系与状态</span><span>研究文件</span></div>
+    <div class="pane-body">
+      <div class="md-head"><b>MD</b><span>整份档案 · 由表格实时生成</span>
+        <span class="btn" style="padding:3px 9px;border:1px solid var(--line);border-radius:6px;font-size:11px;color:var(--muted)">编辑原文</span></div>
+      <div class="paper">
+        <div class="paper-in m2" data-body="m2">
+          <h1>林小满 · 人物 Skill</h1>
+          <p class="meta">主要人物 · 女 · 十六七 · 出场 15 次 · 活跃</p>
+
+          <h2>基本信息</h2>
+          <dl class="dl">
+            <dt>姓名</dt><dd>林小满</dd>
+            <dt>性别</dt><dd>女</dd>
+            <dt>年龄</dt><dd>十六七</dd>
+            <dt>定位</dt><dd>主要人物</dd>
+            <dt>势力组织</dt><dd>地下回收队</dd>
+            <dt>外貌</dt><dd><span class="unfilled">（未填）</span></dd>
+          </dl>
+
+          <h2>性格与灵魂</h2>
+          <dl class="dl">
+            <dt>性格标签</dt><dd>嘴硬心软、怕疼但要挡刀、说反话</dd>
+            <dt>绑定灵魂</dt><dd>严肃沉稳</dd>
+            <dt>注入预览</dt><dd>人物性格：嘴硬心软、怕疼但要挡刀、说反话 · 14 / 20 字</dd>
+          </dl>
+
+          <h2>语言与行为</h2>
+          <dl class="dl">
+            <dt>怎么说话</dt><dd>在睡梦中无意识发出破碎音节，如小……晚……危……险……；被惊动时用尽力气挤出几个字。</dd>
+            <dt>怎么想</dt><dd>在沉睡中极不安稳，额头沁汗，嘴唇翕动，像抵抗梦里无形的东西。</dd>
+            <dt>怎么判断</dt><dd>判断杨寒是安全的，所以在他握住手时放松。</dd>
+            <dt>什么不做</dt><dd><span class="unfilled">（未填）</span></dd>
+            <dt>知道局限</dt><dd>无法确定暗处的威胁是什么，只能拼出残缺信息。</dd>
+          </dl>
+
+          <h2>关系与状态</h2>
+          <dl class="dl">
+            <dt>关系网</dt><dd>杨寒：血亲（相依为命）／杨妙萍：旧识（已故）</dd>
+            <dt>当前状态</dt><dd>重伤未愈，被杨寒背着转移</dd>
+            <dt>出场组织</dt><dd><span class="unfilled">（未填）</span></dd>
+            <dt>认知变化</dt><dd><span class="unfilled">（未填）</span></dd>
+            <dt>关系变化</dt><dd><span class="unfilled">（未填）</span></dd>
+            <dt>备注</dt><dd><span class="unfilled">（未填）</span></dd>
+          </dl>
+
+          <h2>研究文件</h2>
+          <dl class="dl">
+            <dt>人物小传</dt><dd>已生成 · 3 段</dd>
+            <dt>语言习惯</dt><dd>已生成 · 2 段</dd>
+            <dt>关键关系</dt><dd>已生成 · 4 条</dd>
+            <dt>动机与弧光</dt><dd><span class="unfilled">（未生成）</span></dd>
+            <dt>名场面</dt><dd><span class="unfilled">（未生成）</span></dd>
+            <dt>禁忌与误区</dt><dd><span class="unfilled">（未生成）</span></dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>M2 要点</h5>
+    <ul>
+      <li>左列字段名固定 88px、右对齐、灰色小字 —— 值永远在同一个起点，扫读最快。</li>
+      <li>长文本（怎么说话这类）会自然折行，不挤左列。</li>
+      <li>比 M1 更像「对照表」，通读时不如 M1 有文档感。</li>
+    </ul>
+    <div class="pick">适合：经常回头核对某一格，而不是从头读到尾。</div>
+  </div>
+</section>
+
+<!-- ==================== M3 ==================== -->
+<section class="part" data-view="m3">
+  <h2>M3 · 纯 Markdown 列表</h2>
+  <p class="lead">最「原生 Markdown」的一套：`## 节` + `- **字段**：值`。渲染前后一致，复制出去贴到任何地方都还能看。</p>
+  <div class="tools">
+    <label class="toggle"><input type="checkbox" checked data-unfilled="m3"> 显示未填项</label>
+    <span style="font-size:12px;color:var(--muted)">与「编辑原文」里的源码结构一一对应</span>
+  </div>
+
+  <div class="pane">
+    <div class="pane-bar"><b>林小满</b>
+      <div class="seg"><span>表格</span><span>并排</span><span class="on">MD</span></div></div>
+    <div class="pane-tabs"><span>档案</span><span>性格与灵魂</span><span>语言与行为</span><span>关系与状态</span><span>研究文件</span></div>
+    <div class="pane-body">
+      <div class="md-head"><b>MD</b><span>整份档案 · 由表格实时生成</span>
+        <span class="btn" style="padding:3px 9px;border:1px solid var(--line);border-radius:6px;font-size:11px;color:var(--muted)">编辑原文</span></div>
+      <div class="paper">
+        <div class="paper-in m3" data-body="m3">
+          <h1>林小满 · 人物 Skill</h1>
+          <p class="meta">主要人物 · 女 · 十六七 · 出场 15 次 · 活跃</p>
+
+          <h2>基本信息</h2>
+          <ul>
+            <li><b>姓名</b>：林小满</li>
+            <li><b>性别</b>：女</li>
+            <li><b>年龄</b>：十六七</li>
+            <li><b>定位</b>：主要人物</li>
+            <li><b>势力组织</b>：地下回收队</li>
+            <li><b>外貌</b>：<span class="unfilled">（未填）</span></li>
+          </ul>
+
+          <h2>性格与灵魂</h2>
+          <ul>
+            <li><b>性格标签</b>：嘴硬心软、怕疼但要挡刀、说反话</li>
+            <li><b>绑定灵魂</b>：严肃沉稳</li>
+            <li><b>注入预览</b>：人物性格：嘴硬心软、怕疼但要挡刀、说反话 · 14 / 20 字</li>
+          </ul>
+
+          <h2>语言与行为</h2>
+          <ul>
+            <li><b>怎么说话</b>：在睡梦中无意识发出破碎音节；被惊动时用尽力气挤出几个字。</li>
+            <li><b>怎么想</b>：在沉睡中极不安稳，额头沁汗，嘴唇翕动。</li>
+            <li><b>怎么判断</b>：判断杨寒是安全的，所以在他握住手时放松。</li>
+            <li><b>什么不做</b>：<span class="unfilled">（未填）</span></li>
+            <li><b>知道局限</b>：无法确定暗处的威胁是什么，只能拼出残缺信息。</li>
+          </ul>
+
+          <h2>关系与状态</h2>
+          <ul>
+            <li><b>关系网</b>：杨寒：血亲（相依为命）／杨妙萍：旧识（已故）</li>
+            <li><b>当前状态</b>：重伤未愈，被杨寒背着转移</li>
+            <li><b>出场组织</b>：<span class="unfilled">（未填）</span></li>
+            <li><b>认知变化</b>：<span class="unfilled">（未填）</span></li>
+            <li><b>关系变化</b>：<span class="unfilled">（未填）</span></li>
+            <li><b>备注</b>：<span class="unfilled">（未填）</span></li>
+          </ul>
+
+          <h2>研究文件</h2>
+          <ul>
+            <li><b>人物小传</b>：已生成</li>
+            <li><b>语言习惯</b>：已生成</li>
+            <li><b>关键关系</b>：已生成</li>
+            <li><b>动机与弧光</b>：<span class="unfilled">（未生成）</span></li>
+            <li><b>名场面</b>：<span class="unfilled">（未生成）</span></li>
+            <li><b>禁忌与误区</b>：<span class="unfilled">（未生成）</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <h5>M3 要点</h5>
+    <ul>
+      <li>结构与「编辑原文」里的 Markdown 源码**一一对应**，改源码和看文档不会错位。</li>
+      <li>复制粘贴到聊天 / 笔记里仍然是正常列表。</li>
+      <li>列表缩进让长文本折行位置规整；但字段名与值在同一行，扫读略慢于 M2。</li>
+    </ul>
+    <div class="pick">适合：要跟「编辑原文」保持严格对应、或经常导出。</div>
+  </div>
+</section>
+
+<script>
+  document.querySelectorAll('.tabs').forEach(function (nav) {
+    nav.querySelectorAll('button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        nav.querySelectorAll('button').forEach(function (b) { b.classList.remove('on'); });
+        btn.classList.add('on');
+        var key = btn.dataset.part;
+        document.querySelectorAll('.part').forEach(function (p) {
+          p.classList.toggle('on', p.dataset.view === key);
+        });
+        window.scrollTo({ top: nav.offsetTop - 8, behavior: 'smooth' });
+      });
+    });
+  });
+
+  // 未填项显示开关
+  document.querySelectorAll('[data-unfilled]').forEach(function (input) {
+    input.addEventListener('change', function () {
+      var part = input.closest('.part');
+      var body = part.querySelector('[data-body]');
+      body.classList.toggle('hide-unfilled', !input.checked);
+    });
+  });
+</script>
+</body>
+</html>

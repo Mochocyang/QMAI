@@ -1,0 +1,233 @@
+/* ===== 性格面板（T2 题材卡包）+ 灵魂选择弹窗（S1） ===== */
+
+.ui-test-root .ui-test-ptab {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ui-test-root .ui-test-ptab-block {
+  min-width: 0;
+}
+
+.ui-test-root .ui-test-ptab-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 7px;
+}
+
+.ui-test-root .ui-test-ptab-head h6 {
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-ptab-count {
+  margin-left: auto;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+}
+
+/* 字数预算条：和注入上限对齐，选满了看得出来 */
+.ui-test-root .ui-test-ptab-budget {
+  height: 5px;
+  margin-bottom: 10px;
+  border-radius: 99px;
+  background: var(--ui-line);
+  overflow: hidden;
+}
+
+.ui-test-root .ui-test-ptab-budget i {
+  display: block;
+  height: 100%;
+  background: var(--ui-accent);
+  transition: width .16s;
+}
+
+/* 绑定灵魂：名字 + 更换 / 解绑 */
+.ui-test-root .ui-test-ptab-soul {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 10px;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-ptab-soul-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ui-test-root .ui-test-ptab-soul-name i {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--ui-soft);
+  color: var(--ui-accent);
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-ptab-soul-name b {
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+/* 题材卡包：一张卡一个题材，右上角「套用」 */
+.ui-test-root .ui-test-pack-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+  gap: 10px;
+}
+
+.ui-test-root .ui-test-pack-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 13px;
+  border: 1px solid var(--ui-line);
+  border-radius: 11px;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-pack-card h6 {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-pack-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.ui-test-root .ui-test-pack-tag {
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ui-ink) 7%, transparent);
+  color: var(--ui-muted);
+  font-size: 0.66rem;
+}
+
+.ui-test-root .ui-test-pack-card .ui-test-skills-action {
+  margin-top: auto;
+}
+
+/* 分类行：左侧分类名，右侧标签 */
+.ui-test-root .ui-test-ptab-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.ui-test-root .ui-test-ptab-group {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.ui-test-root .ui-test-ptab-group-name {
+  padding-top: 5px;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+}
+
+.ui-test-root .ui-test-ptab-custom {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ===== 灵魂选择弹窗（S1） ===== */
+.ui-test-soul-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 11px;
+  background: var(--ui-canvas);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .14s, box-shadow .14s;
+}
+
+.ui-test-soul-card:hover {
+  border-color: color-mix(in srgb, var(--ui-accent) 45%, var(--ui-line));
+}
+
+.ui-test-soul-card.is-picked {
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-accent) 16%, transparent);
+  background: var(--ui-paper);
+}
+
+.ui-test-soul-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ui-test-soul-card-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--ui-soft);
+  color: var(--ui-accent);
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.ui-test-soul-card-head b {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-test-soul-card-bound {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: #e3efe5;
+  color: #2f6b46;
+  font-size: 0.62rem;
+}
+
+.ui-test-soul-card-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+  line-height: 1.7;
+}
+
+.ui-test-soul-card-meta {
+  color: var(--ui-muted);
+  font-size: 0.62rem;
+  opacity: .8;
+}

@@ -1287,6 +1287,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  margin-top: auto;
 }
 
 .ui-test-root .ui-test-skills-action {
@@ -1438,11 +1439,15 @@
 .ui-test-root .ui-test-skill-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px;
-  border: 1px solid transparent;
+  gap: 12px;
+  /* 统一最小高度：一排卡片高度不齐会显得像没做完 */
+  min-height: 150px;
+  padding: 16px 16px 14px;
+  /* 边框默认可见：透明边框会让卡片融进页面底色，一排下来只剩几行字在飘 */
+  border: 1px solid color-mix(in srgb, var(--ui-line) 80%, transparent);
   border-radius: 12px;
-  background: var(--ui-panel);
+  background: var(--ui-paper);
+  box-shadow: 0 1px 2px rgba(23, 35, 29, .03);
   cursor: pointer;
   transition: border-color .15s, background .15s, box-shadow .15s, transform .15s;
 }
@@ -1469,6 +1474,121 @@
   font-weight: 600;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+/* 卡片左侧首字头像：给每张卡一个视觉锚点，避免一排卡片只有文字在飘。 */
+.ui-test-root .ui-test-persona-card-headtext {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ui-test-root .ui-test-persona-card-avatar {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--ui-soft);
+  color: var(--ui-accent);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-persona-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ui-test-root .ui-test-persona-card-sub {
+  overflow: hidden;
+  color: var(--ui-muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 卡片主操作：填充式，与次要操作拉开层级 */
+.ui-test-root .ui-test-skills-action.is-primary {
+  border-color: transparent;
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-skills-action.is-primary:hover {
+  background: color-mix(in srgb, var(--ui-accent) 88%, #000);
+}
+
+/* 分区标题：候选人物这类分区要独立层级，不能复用卡片名 */
+.ui-test-root .ui-test-skills-section {
+  margin: 28px 0 14px;
+}
+
+.ui-test-root .ui-test-skills-section-title {
+  margin: 0 0 4px;
+  color: var(--ui-ink);
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+/* 区块标题行（右侧可放操作按钮） */
+.ui-test-root .ui-test-skills-section-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ui-test-root .ui-test-skills-section-head .ui-test-skills-action {
+  margin-left: auto;
+}
+
+.ui-test-root .ui-test-skills-action.is-small {
+  min-height: 28px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+}
+
+/* 候选人物折叠条：默认只占一行，点「展开」才铺开卡片 */
+.ui-test-root .ui-test-skills-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border: 1px dashed var(--ui-line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ui-paper) 62%, transparent);
+  color: var(--ui-muted);
+  font-size: 0.78rem;
+  line-height: 1.7;
+}
+
+.ui-test-root .ui-test-skills-collapsed b {
+  color: var(--ui-ink);
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-skills-collapsed .names {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-test-root .ui-test-skills-collapsed .more {
+  opacity: .8;
+}
+
+.ui-test-root .ui-test-skills-section-hint {
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+  line-height: 1.7;
 }
 
 .ui-test-root .ui-test-skill-card-star {
@@ -2304,6 +2424,8 @@
   font-weight: 500;
 }
 
+
+
 .ui-test-root .ui-test-persona-panel {
   padding: 16px 2px 8px;
 }
@@ -2332,6 +2454,20 @@
   gap: 8px;
   color: var(--ui-muted);
   font-size: 0.78rem;
+}
+
+.ui-test-root .ui-test-persona-field-title {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--ui-ink);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-persona-hint.is-error {
+  color: var(--ui-danger);
+  font-style: normal;
+  opacity: 1;
 }
 
 .ui-test-root .ui-test-persona-hint {
@@ -2474,4 +2610,1906 @@
   .ui-test-root .ui-test-persona-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
+
+/* ===== 人物 Skill 页面：整页滚动骨架（与任何既有类名都不重名） =====
+   ContentArea 用 <div class="h-full"> 包内容，父级不是 flex，
+   所以旧的 flex:1 根节点宽度高度都退化成内容高 —— 超出窗口的部分直接被裁掉、无法滚动。
+   这里让页面根节点自己成为「定高 flex 列 + 内部滚动区」，不依赖任何祖先。 */
+.ui-test-root .ui-test-pdoc {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  /* 覆盖 .ui-test-skills-gallery 的 flex:1（那个在非 flex 父级下无效且会干扰） */
+  flex: none;
+}
+
+.ui-test-root .ui-test-pdoc-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 40px 32px;
+  scrollbar-gutter: stable;
+}
+
+.ui-test-root .ui-test-pdoc-inner {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+/* ===== E2 顶部信息带 ===== */
+.ui-test-root .ui-test-pband {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 22px;
+  margin-bottom: 18px;
+  border: 1px solid var(--ui-line);
+  border-radius: 14px;
+  background:
+    linear-gradient(120deg, color-mix(in srgb, var(--ui-soft) 62%, var(--ui-paper)), var(--ui-paper) 64%);
+  box-shadow: 0 1px 2px rgba(23, 35, 29, .04);
+}
+
+.ui-test-root .ui-test-pband-avatar {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--ui-accent) 12%, var(--ui-paper));
+  color: var(--ui-accent);
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 26px;
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-pband-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.ui-test-root .ui-test-pband-copy h3 {
+  margin: 0 0 4px;
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-pband-sub {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-pband-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* ===== E2 页头（返回 + 保存） ===== */
+.ui-test-root .ui-test-ptopline {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.ui-test-root .ui-test-ptopline-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+/* ===== E2 卡片栅格 ===== */
+.ui-test-root .ui-test-pcards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.ui-test-root .ui-test-pcard {
+  min-width: 0;
+  padding: 15px 18px;
+  border: 1px solid var(--ui-line);
+  border-radius: 13px;
+  background: var(--ui-paper);
+  box-shadow: 0 1px 2px rgba(23, 35, 29, .03);
+}
+
+.ui-test-root .ui-test-pcard.is-wide {
+  grid-column: 1 / -1;
+}
+
+.ui-test-root .ui-test-pcard-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.ui-test-root .ui-test-pcard-head .dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-pcard-head h6 {
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.ui-test-root .ui-test-pcard-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+  font-style: normal;
+  opacity: .9;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-test-root .ui-test-pcard-edit {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-pcard-edit:hover {
+  border-color: var(--ui-line);
+  background: var(--ui-soft);
+  color: var(--ui-ink);
+}
+
+/* ===== 只读值排布：标签在上、值在下，两列 ===== */
+.ui-test-root .ui-test-pcard-kv {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 22px;
+}
+
+.ui-test-root .ui-test-pcard-item {
+  min-width: 0;
+}
+
+.ui-test-root .ui-test-pcard-item.is-wide {
+  grid-column: 1 / -1;
+}
+
+.ui-test-root .ui-test-pcard-item > span {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+}
+
+.ui-test-root .ui-test-pcard-item > b {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.ui-test-root .ui-test-pcard-item > p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.9;
+  color: var(--ui-ink);
+  overflow-wrap: anywhere;
+}
+
+.ui-test-root .ui-test-pcard-empty {
+  color: var(--ui-muted);
+  font-size: 0.8125rem;
+  opacity: .65;
+}
+
+/* 语言与行为：左侧固定标签行 */
+.ui-test-root .ui-test-pcard-rows {
+  display: grid;
+  gap: 9px;
+}
+
+.ui-test-root .ui-test-pcard-rows .row {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+
+.ui-test-root .ui-test-pcard-rows .row > span {
+  color: var(--ui-muted);
+  font-size: 0.72rem;
+}
+
+.ui-test-root .ui-test-pcard-rows .row > p {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.85;
+  color: var(--ui-ink);
+}
+
+/* 编辑态：卡片内的输入框恢复常规样式，但更紧凑 */
+.ui-test-root .ui-test-pcard .ui-test-persona-grid {
+  gap: 12px 18px;
+  margin-bottom: 0;
+}
+
+.ui-test-root .ui-test-pcard .ui-test-persona-textarea {
+  min-height: 62px;
+}
+
+/* 只给读屏用的标签 */
+.ui-test-root .ui-test-psr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 980px) {
+  .ui-test-root .ui-test-pcards { grid-template-columns: minmax(0, 1fr); }
+  .ui-test-root .ui-test-pdoc-scroll { padding: 14px 18px 26px; }
+  .ui-test-root .ui-test-pband { flex-wrap: wrap; }
+}
+
+/* ===== G1：紧凑顶栏 + 顶部页签 + 五列密排 =====
+   命名统一用 ui-test-g* 前缀，避免与既有类名冲突（上一轮 ui-test-skills-page 撞名导致整页无法滚动）。 */
+
+.ui-test-root .ui-test-gdoc {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  flex: none;
+}
+
+/* 页签 */
+.ui-test-root .ui-test-gtabs {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--ui-line);
+  background: var(--ui-paper);
+  overflow-x: auto;
+}
+
+.ui-test-root .ui-test-gtab {
+  padding: 9px 13px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-gtab:hover {
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-gtab.is-on {
+  color: var(--ui-ink);
+  border-bottom-color: var(--ui-accent);
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-gtab .n {
+  margin-left: 5px;
+  font-size: 0.66rem;
+  opacity: .7;
+}
+
+/* 滚动区：只有这里滚，顶栏与页签固定 */
+.ui-test-root .ui-test-gbody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 20px 26px;
+  scrollbar-gutter: stable;
+}
+
+.ui-test-root .ui-test-gbody-inner {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+/* ===== 密排字段 ===== */
+.ui-test-root .ui-test-fgrid {
+  display: grid;
+  gap: 9px 16px;
+}
+
+.ui-test-root .ui-test-fgrid.is-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.ui-test-root .ui-test-fgrid.is-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ui-test-root .ui-test-fgrid.is-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.ui-test-root .ui-test-fitem { min-width: 0; }
+.ui-test-root .ui-test-fitem.is-2 { grid-column: span 2; }
+.ui-test-root .ui-test-fitem.is-3 { grid-column: span 3; }
+.ui-test-root .ui-test-fitem.is-full { grid-column: 1 / -1; }
+
+.ui-test-root .ui-test-fitem > span {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ui-muted);
+  font-size: 0.66rem;
+  letter-spacing: .03em;
+}
+
+/* 零点击编辑：平时是文字，hover 浮出边框，点上去就能改 */
+/* 输入框默认就带淡线框：无边框的「隐形输入」让人看不出哪里能改、哪里是空值。 */
+.ui-test-root .ui-test-fed {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--ui-line) 88%, transparent);
+  border-radius: 7px;
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  font: inherit;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  outline: none;
+  transition: border-color .14s, box-shadow .14s;
+}
+
+.ui-test-root .ui-test-fed:hover {
+  border-color: color-mix(in srgb, var(--ui-accent) 40%, var(--ui-line));
+}
+
+.ui-test-root .ui-test-fed:focus {
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-accent) 14%, transparent);
+}
+
+
+.ui-test-root .ui-test-fed[readonly] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--ui-muted);
+  cursor: default;
+}
+
+.ui-test-root .ui-test-fed[readonly]:hover {
+  border-color: transparent;
+  background: transparent;
+}
+
+.ui-test-root textarea.ui-test-fed {
+  min-height: 52px;
+  resize: vertical;
+  line-height: 1.7;
+}
+
+/* 页内小节标题 */
+.ui-test-root .ui-test-fsec { margin-top: 16px; }
+
+.ui-test-root .ui-test-fsec:first-child { margin-top: 0; }
+
+.ui-test-root .ui-test-fsec > h5 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: var(--ui-accent);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.ui-test-root .ui-test-fsec > h5::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ui-line);
+}
+
+/* 注入预览之类的只读块 */
+.ui-test-root .ui-test-gnote {
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: var(--ui-panel);
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+  line-height: 1.85;
+}
+
+@media (max-width: 1100px) {
+  .ui-test-root .ui-test-fgrid.is-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ui-test-root .ui-test-fgrid.is-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui-test-root .ui-test-gbody { padding: 12px 14px 22px; }
+}
+
+/* ===== 性格面板（T2 题材卡包）+ 灵魂选择弹窗（S1） ===== */
+
+.ui-test-root .ui-test-ptab {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ui-test-root .ui-test-ptab-block {
+  min-width: 0;
+}
+
+.ui-test-root .ui-test-ptab-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 7px;
+}
+
+.ui-test-root .ui-test-ptab-head h6 {
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-ptab-count {
+  margin-left: auto;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+}
+
+/* 字数预算条：和注入上限对齐，选满了看得出来 */
+.ui-test-root .ui-test-ptab-budget {
+  height: 5px;
+  margin-bottom: 10px;
+  border-radius: 99px;
+  background: var(--ui-line);
+  overflow: hidden;
+}
+
+.ui-test-root .ui-test-ptab-budget i {
+  display: block;
+  height: 100%;
+  background: var(--ui-accent);
+  transition: width .16s;
+}
+
+/* 绑定灵魂：名字 + 更换 / 解绑 */
+.ui-test-root .ui-test-ptab-soul {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 10px;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-ptab-soul-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ui-test-root .ui-test-ptab-soul-name i {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--ui-soft);
+  color: var(--ui-accent);
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-ptab-soul-name b {
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+/* 题材卡包：一张卡一个题材，右上角「套用」 */
+.ui-test-root .ui-test-pack-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(178px, 1fr));
+  gap: 10px;
+}
+
+.ui-test-root .ui-test-pack-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 13px;
+  border: 1px solid var(--ui-line);
+  border-radius: 11px;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-pack-card h6 {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-pack-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.ui-test-root .ui-test-pack-tag {
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ui-ink) 7%, transparent);
+  color: var(--ui-muted);
+  font-size: 0.66rem;
+}
+
+.ui-test-root .ui-test-pack-card .ui-test-skills-action {
+  margin-top: auto;
+}
+
+/* 分类行：左侧分类名，右侧标签 */
+.ui-test-root .ui-test-ptab-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.ui-test-root .ui-test-ptab-group {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.ui-test-root .ui-test-ptab-group-name {
+  padding-top: 5px;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+}
+
+.ui-test-root .ui-test-ptab-custom {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ===== 灵魂选择弹窗（S1） ===== */
+html[data-ui-test-skin] .ui-test-soul-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 11px;
+  background: var(--ui-canvas);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .14s, box-shadow .14s;
+}
+
+html[data-ui-test-skin] .ui-test-soul-card:hover {
+  border-color: color-mix(in srgb, var(--ui-accent) 45%, var(--ui-line));
+}
+
+html[data-ui-test-skin] .ui-test-soul-card.is-picked {
+  border-color: var(--ui-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-accent) 16%, transparent);
+  background: var(--ui-paper);
+}
+
+html[data-ui-test-skin] .ui-test-soul-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+html[data-ui-test-skin] .ui-test-soul-card-avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--ui-soft);
+  color: var(--ui-accent);
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+html[data-ui-test-skin] .ui-test-soul-card-head b {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+html[data-ui-test-skin] .ui-test-soul-card-bound {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: #e3efe5;
+  color: #2f6b46;
+  font-size: 0.62rem;
+}
+
+html[data-ui-test-skin] .ui-test-soul-card-desc {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+  line-height: 1.7;
+}
+
+html[data-ui-test-skin] .ui-test-soul-card-meta {
+  color: var(--ui-muted);
+  font-size: 0.62rem;
+  opacity: .8;
+}
+
+/* 一行一条的字段（语言与行为）：标签在上、文本占满整行 */
+.ui-test-root .ui-test-frows {
+  display: grid;
+  gap: 10px;
+}
+
+.ui-test-root .ui-test-fitem.is-row textarea.ui-test-fed {
+  min-height: 58px;
+}
+
+/* 开关 */
+.ui-test-root .ui-test-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ui-test-root .ui-test-switch input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--ui-accent);
+  cursor: pointer;
+}
+
+/* 危险操作按钮 */
+.ui-test-root .ui-test-skills-action.is-danger {
+  border-color: color-mix(in srgb, var(--ui-danger) 42%, var(--ui-line));
+  color: var(--ui-danger);
+}
+
+.ui-test-root .ui-test-skills-action.is-danger:hover {
+  background: color-mix(in srgb, var(--ui-danger) 8%, transparent);
+}
+
+/* 「绑定灵魂」单行：标签、当前值、说明、按钮在同一行且同高 */
+.ui-test-root .ui-test-soul-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 8px 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 10px;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-soul-label {
+  flex-shrink: 0;
+  margin: 0;
+  color: var(--ui-ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  /* 与按钮同高：按钮 28px，这里用同一行高把基线拉平 */
+  line-height: 28px;
+}
+
+.ui-test-root .ui-test-soul-value {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+  font-size: 0.78rem;
+  line-height: 28px;
+}
+
+.ui-test-root .ui-test-soul-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+  line-height: 28px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-test-root .ui-test-soul-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* 同一行里的按钮固定高度，才能和左侧文字严格对齐 */
+.ui-test-root .ui-test-soul-row .ui-test-skills-action {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 11px;
+  line-height: 1;
+}
+
+.ui-test-root .ui-test-soul-row .ui-test-ptab-soul-name {
+  flex-shrink: 0;
+  line-height: 28px;
+}
+
+@media (max-width: 980px) {
+  .ui-test-root .ui-test-soul-row {
+    flex-wrap: wrap;
+  }
+  .ui-test-root .ui-test-soul-hint {
+    display: none;
+  }
+  .ui-test-root .ui-test-soul-actions {
+    margin-left: 0;
+  }
+}
+
+/* H2：表格 / 并排 / MD 三态 */
+.ui-test-root .ui-test-viewseg {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-left: auto;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-viewseg button {
+  padding: 4px 11px;
+  border: 0;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-viewseg button:hover {
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-viewseg button.is-on {
+  background: var(--ui-accent);
+  color: var(--ui-on-accent);
+  font-weight: 500;
+}
+
+/* 并排：左表格、右 MD */
+.ui-test-root .ui-test-h2-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  min-height: 0;
+}
+
+.ui-test-root .ui-test-h2-body.is-split {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.85fr);
+  gap: 18px;
+  align-items: start;
+}
+
+
+
+/* MD 面板 */
+.ui-test-root .ui-test-h2-md {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--ui-line);
+  border-radius: 11px;
+  background: var(--ui-paper);
+  overflow: hidden;
+}
+
+.ui-test-root .ui-test-h2-md-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--ui-line);
+  background: var(--ui-panel);
+}
+
+.ui-test-root .ui-test-h2-md-head b {
+  font-size: 0.72rem;
+  letter-spacing: .08em;
+}
+
+.ui-test-root .ui-test-h2-md-head span {
+  color: var(--ui-muted);
+  font-size: 0.68rem;
+}
+
+.ui-test-root .ui-test-h2-md-editor {
+  flex: 1;
+  min-height: 420px;
+  padding: 12px 14px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ui-ink);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, "Songti SC", monospace;
+  font-size: 0.78rem;
+  line-height: 1.85;
+  resize: vertical;
+  white-space: pre-wrap;
+}
+
+.ui-test-root .ui-test-h2-md-editor:focus {
+  background: color-mix(in srgb, var(--ui-soft) 30%, transparent);
+}
+
+/* 只看 MD 时给它更宽的呼吸空间 */
+.ui-test-root .ui-test-h2-body:not(.is-split) .ui-test-h2-md-editor {
+  min-height: 560px;
+}
+
+@media (max-width: 1100px) {
+  .ui-test-root .ui-test-h2-body.is-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ui-test-root .ui-test-viewseg button {
+    padding: 4px 8px;
+  }
+}
+
+/* 叶子节点（角色）缩进 */
+.ui-test-root .ui-test-ptree-row.is-leaf {
+  padding-left: 30px;
+}
+
+.ui-test-root .ui-test-ptree-children > .ui-test-ptree-row.is-group {
+  padding-left: 12px;
+}
+
+.ui-test-root .ui-test-ptree-toggle {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-muted);
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-toggle svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ui-test-root .ui-test-ptree-ico {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-ptree-row.is-folder .ui-test-ptree-ico {
+  color: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-ptree-name {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-name.is-static {
+  cursor: default;
+}
+
+.ui-test-root .ui-test-ptree-count {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-test-root .ui-test-ptree-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #5f9b74;
+}
+
+.ui-test-root .ui-test-ptree-dot.is-idle {
+  background: #c2b184;
+}
+
+.ui-test-root .ui-test-ptree-dot.is-candidate {
+  background: color-mix(in srgb, var(--ui-ink) 24%, transparent);
+}
+
+.ui-test-root .ui-test-ptree-star {
+  flex-shrink: 0;
+  color: var(--ui-accent);
+  font-size: 0.625rem;
+}
+
+.ui-test-root .ui-test-ptree-badge {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--ui-soft);
+  color: var(--ui-muted);
+  font-size: 0.5625rem;
+  line-height: 1.5;
+}
+
+.ui-test-root .ui-test-ptree-row.is-candidate {
+  color: var(--ui-muted);
+}
+
+/* 新建入口 */
+.ui-test-root .ui-test-ptree-create {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% - 6px);
+  margin: 4px 3px 0;
+  padding: 5px 8px 5px 30px;
+  border: 1px dashed var(--ui-line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-create:hover {
+  border-color: color-mix(in srgb, var(--ui-accent) 44%, var(--ui-line));
+  color: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-ptree-create svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* ===== 大纲第一栏：人物小传区段 =====
+   度量对齐文件树（ui-test.css 的 [data-ui-tree-row]）：
+   字号 0.875rem / 图标 15px / 行高 34px / 圆角 8px / 左右 10px / 间距 8px。
+   之前这套值偏小，渲染出来像另一个控件（用户实测：大小不一样）。 */
+.ui-test-root .ui-test-ptree {
+  /* 候选角色展开后可能有几十条：区块本身必须能滚，
+     否则它把下方的文件树顶出侧栏，滚轮也就没有可以滚的东西（用户实测）。 */
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 46vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 6px 8px 10px;
+  border-bottom: 1px solid var(--ui-line);
+}
+
+.ui-test-root .ui-test-ptree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  margin: 2px 0;
+  padding-inline: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-ink);
+  font-size: 0.875rem;
+  font-family: inherit;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-row:hover {
+  background: color-mix(in srgb, var(--ui-soft) 62%, transparent);
+}
+
+.ui-test-root .ui-test-ptree-row.is-on {
+  background: var(--ui-paper);
+  box-shadow: 0 1px 2px rgba(23, 35, 29, .06);
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-ptree-row.is-folder {
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-ptree-row.is-group,
+.ui-test-root .ui-test-ptree-row.is-candidate {
+  color: var(--ui-muted);
+}
+
+/* 层级缩进：分组 16px，叶子 30px（在 10px 基础上叠加） */
+.ui-test-root .ui-test-ptree-children > .ui-test-ptree-row.is-group {
+  padding-inline-start: 16px;
+}
+
+.ui-test-root .ui-test-ptree-row.is-leaf {
+  padding-inline-start: 30px;
+  min-height: 32px;
+}
+
+.ui-test-root .ui-test-ptree-toggle {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-muted);
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+.ui-test-root .ui-test-ptree-ico {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-ptree-row.is-folder .ui-test-ptree-ico {
+  color: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-ptree-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-name.is-static {
+  cursor: default;
+}
+
+.ui-test-root .ui-test-ptree-count {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 6px;
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-test-root .ui-test-ptree-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5f9b74;
+}
+
+.ui-test-root .ui-test-ptree-dot.is-idle {
+  background: #c2b184;
+}
+
+.ui-test-root .ui-test-ptree-dot.is-candidate {
+  background: color-mix(in srgb, var(--ui-ink) 26%, transparent);
+}
+
+.ui-test-root .ui-test-ptree-star {
+  flex-shrink: 0;
+  color: var(--ui-accent);
+  font-size: 0.6875rem;
+}
+
+.ui-test-root .ui-test-ptree-badge {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--ui-soft);
+  color: var(--ui-muted);
+  font-size: 0.625rem;
+  line-height: 1.6;
+}
+
+.ui-test-root .ui-test-ptree-create {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  margin-top: 4px;
+  padding-inline: 30px 10px;
+  border: 1px dashed var(--ui-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-create:hover {
+  border-color: color-mix(in srgb, var(--ui-accent) 46%, var(--ui-line));
+  color: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-ptree-create svg {
+  width: 15px;
+  height: 15px;
+}
+/* 中栏人物面板的关闭按钮：贴在右上角，不占布局高度 */
+
+/* ===== 人物档案顶栏：极简 =====
+   只留名字与显示形式切换。出场次数 / 定位 / 章节这些档案页里都有，
+   摆在顶栏只会把一条栏挤成一字一行（用户实测）。 */
+.ui-test-root .ui-test-gbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--ui-line);
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-gbar-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 1rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-test-root .ui-test-gbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.ui-test-root .ui-test-gbar-right > * {
+  flex-shrink: 0;
+}
+
+/* 自动保存提示：平时不占视觉重量，只有写盘那一瞬间出现 */
+.ui-test-root .ui-test-gbar-autosave {
+  min-width: 4.5em;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+  text-align: right;
+  opacity: .75;
+}
+
+/* ===== 表格态：小节两列并排 ===== */
+
+
+/* 长文本/表格类小节占满整行，避免被挤成窄条 */
+.ui-test-root .ui-test-h2-fields > .ui-test-fsec:has(> h5.is-wide) {
+  grid-column: 1 / -1;
+}
+
+/* 只有一段的小节也别撑满半屏 */
+.ui-test-root .ui-test-h2-fields > .ui-test-fsec {
+  min-width: 0;
+}
+
+/* ===== MD 态：用大纲同款文档排版，而不是等宽 textarea ===== */
+.ui-test-root .ui-test-h2-md-doc {
+  min-height: 420px;
+  border: 1px solid var(--ui-line);
+  border-radius: 11px;
+  background: var(--ui-paper);
+  overflow: auto;
+}
+
+.ui-test-root .ui-test-h2-md-doc > * {
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  
+  .ui-test-root .ui-test-gbar-autosave {
+    display: none;
+  }
+}
+
+/* ===== 档案页：分组卡片 + 最多两列 =====
+   判据是「这一格装的是几个字，还是一句话」：
+     · 短值（姓名/性别/年龄/定位/状态/出场次数/章节）→ 两列
+     · 整句描述（外貌/能力/成长轨迹/背景/动机/备注/关系网）→ 一行一条
+   之前把「小节并排 + 字段再分 5 列」叠在一起，一格只剩二十来像素，
+   「最近出场」被压成三行（用户实测）。 */
+
+/* 字段区：小节上下堆叠，不再左右并排 */
+.ui-test-root .ui-test-h2-fields {
+  display: block;
+  min-width: 0;
+}
+
+/* 每个小节是一张卡 */
+.ui-test-root .ui-test-h2-fields > .ui-test-fsec:not(.ui-test-fsec-plain) {
+  padding: 13px 15px;
+  margin-bottom: 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 11px;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-h2-fields > .ui-test-fsec:last-child {
+  margin-bottom: 0;
+}
+
+/* 小节标题：去掉原来那条横线，卡片本身已经框住了 */
+.ui-test-root .ui-test-h2-fields > .ui-test-fsec > h5::after {
+  display: none;
+}
+
+.ui-test-root .ui-test-h2-fields > .ui-test-fsec > h5 {
+  margin-bottom: 10px;
+  letter-spacing: .02em;
+  text-transform: none;
+  font-size: 0.78rem;
+  color: var(--ui-ink);
+}
+
+/* 两列字段：只在「短值」上用 */
+.ui-test-root .ui-test-fgrid.is-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 11px 14px;
+}
+
+/* 容器太窄时退成一列。用容器查询而不是窗口宽度：
+   中栏宽度和窗口宽度是两件事，窗口很宽时中栏也可能只有 400px。 */
+@container (max-width: 440px) {
+  .ui-test-root .ui-test-fgrid.is-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 整行字段：左标签 76px + 右侧吃掉剩余宽度 */
+.ui-test-root .ui-test-frows {
+  display: grid;
+  gap: 0;
+}
+
+.ui-test-root .ui-test-fitem.is-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+  /* 输入框加高后，标签要跟着垂直居中，否则贴在顶上像脱节的标题 */
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--ui-line) 78%, transparent);
+}
+
+.ui-test-root .ui-test-fitem.is-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.ui-test-root .ui-test-fitem.is-row:first-child {
+  padding-top: 0;
+}
+
+.ui-test-root .ui-test-fitem.is-row > span {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+.ui-test-root .ui-test-fitem.is-row textarea.ui-test-fed {
+  /* 「语言与行为」这 5 条动辄三四行：默认高度给到 120px，
+     看全文不用一边读一边滚（用户实测：原来 62px 每次只能看两行）。 */
+  min-height: 120px;
+  line-height: 1.8;
+}
+
+/* 只读格：无框文字，能和可编辑的输入框一眼分开 */
+.ui-test-root .ui-test-fitem > .ui-test-fed.is-readonly {
+  border-color: transparent;
+  background: transparent;
+  padding-inline: 2px;
+  color: var(--ui-muted);
+}
+
+/* ===== 注入预览：虚线细条（不再是独立卡片） ===== */
+.ui-test-root .ui-test-injline {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px dashed var(--ui-line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--ui-soft) 34%, transparent);
+  font-size: 0.72rem;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-injline .k {
+  flex-shrink: 0;
+  color: var(--ui-accent);
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-injline .v {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-test-root .ui-test-injline .n {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  opacity: .85;
+}
+/* ===== MD 面板：文档视图（与卷纲 / 章纲 HTML 预览同一种观感） ===== */
+.ui-test-root .ui-test-h2-md-doc {
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
+  border: 1px solid var(--ui-line);
+  border-radius: 11px;
+  background: var(--ui-paper);
+  overflow: hidden;
+}
+
+/* iframe 自己带完整排版（居中列 / 衬线标题 / 字段缩进），外面不再加样式 */
+.ui-test-root .ui-test-h2-md-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 420px;
+  border: 0;
+  background: var(--ui-paper);
+}
+
+/* 编辑原文：等宽字体，便于改 Markdown 结构 */
+.ui-test-root .ui-test-h2-md-source {
+  flex: 1;
+  width: 100%;
+  min-height: 420px;
+  padding: 14px 16px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ui-ink);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, "Songti SC", monospace;
+  font-size: 0.78rem;
+  line-height: 1.85;
+  resize: vertical;
+  white-space: pre-wrap;
+}
+
+/* ===== 人物档案「整页文档」视图（N1 + 研究文件 R2） =====
+   排版对齐卷纲 / 章纲的文档观感：左对齐长文、节标题带下划线、
+   字段名加粗后接正文、整块缩进。
+   与之前不同的是：文档本体直接可编辑（contentEditable），
+   没有页签、没有「编辑原文」、没有保存按钮。 */
+
+.ui-test-root .ui-test-h2-md-doc {
+  min-height: 0;
+  /* 用视口高度定上限，而不是 100%：父级是 auto 高度时 100% 解析成「无上限」，
+     文档会一路撑高、外层又没有可滚区域，滚轮就完全没反应（用户实测）。 */
+  max-height: calc(100vh - 210px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  border: 0;
+  border-radius: 0;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-pdoc-doc {
+  max-width: 840px;
+  margin: 0 auto;
+  padding: 26px 40px 44px;
+  color: var(--ui-ink);
+  font-size: 0.8125rem;
+  line-height: 1.95;
+}
+
+.ui-test-root .ui-test-pdoc-doc h1 {
+  margin: 0 0 3px;
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 1.1875rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.ui-test-root .ui-test-pdoc-meta {
+  margin: 0 0 20px;
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+}
+
+.ui-test-root .ui-test-pdoc-doc h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 24px 0 9px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--ui-line);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+
+.ui-test-root .ui-test-pdoc-count {
+  color: var(--ui-muted);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+.ui-test-root .ui-test-pdoc-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  margin: 0 0 8px;
+  padding-left: 1.5em;
+  font-size: 0.8125rem;
+  line-height: 1.95;
+}
+
+.ui-test-root .ui-test-pdoc-row > b {
+  font-weight: 600;
+}
+
+/* 可编辑值：平时是纯文字，悬停浮出极淡的底，点进去才出现输入焦点环 */
+.ui-test-root .ui-test-pdoc-value {
+  min-width: 2em;
+  padding: 0 3px;
+  border-radius: 4px;
+  outline: none;
+  white-space: pre-wrap;
+  cursor: text;
+  transition: background .12s, box-shadow .12s;
+}
+
+.ui-test-root .ui-test-pdoc-value:hover {
+  background: color-mix(in srgb, var(--ui-soft) 62%, transparent);
+  box-shadow: 0 0 0 1px var(--ui-line);
+}
+
+.ui-test-root .ui-test-pdoc-value:focus {
+  background: color-mix(in srgb, var(--ui-soft) 82%, transparent);
+  box-shadow: 0 0 0 1.5px var(--ui-accent);
+}
+
+/* 空值占位：不写进 DOM —— 写了会被当成用户输入提交回字段 */
+.ui-test-root .ui-test-pdoc-value:empty::before {
+  content: attr(data-placeholder);
+  color: var(--ui-muted);
+  font-style: italic;
+  opacity: .8;
+}
+
+.ui-test-root .ui-test-pdoc-readonly {
+  color: var(--ui-muted);
+}
+
+/* ===== 研究文件：折叠块（R2） ===== */
+.ui-test-root .ui-test-pdoc-fold {
+  margin: 0 0 8px;
+  border: 1px solid var(--ui-line);
+  border-radius: 8px;
+  background: var(--ui-paper);
+  overflow: hidden;
+}
+
+.ui-test-root .ui-test-pdoc-fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.ui-test-root .ui-test-pdoc-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ui-test-root .ui-test-pdoc-fold > summary > b {
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-pdoc-fold[open] > summary {
+  border-bottom: 1px solid var(--ui-line);
+  background: var(--ui-panel);
+}
+
+.ui-test-root .ui-test-pdoc-tag {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--ui-soft);
+  color: var(--ui-accent);
+  font-size: 0.625rem;
+}
+
+.ui-test-root .ui-test-pdoc-tag.is-none {
+  border: 1px dashed var(--ui-line);
+  background: transparent;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-pdoc-fold > summary .ui-test-pdoc-count {
+  margin-left: auto;
+}
+
+.ui-test-root .ui-test-pdoc-fold-body {
+  padding: 10px 14px;
+  color: var(--ui-ink);
+  font-size: 0.78rem;
+  line-height: 1.9;
+}
+
+.ui-test-root .ui-test-pdoc-fold-body p {
+  margin: 0 0 7px;
+  white-space: pre-wrap;
+}
+
+.ui-test-root .ui-test-pdoc-fold-body p:last-child {
+  margin: 0;
+}
+
+.ui-test-root .ui-test-pdoc-empty {
+  color: var(--ui-muted);
+  font-style: italic;
+  opacity: .8;
+}
+/* 右键菜单：固定定位浮层，贴着鼠标出现 */
+.ui-test-root .ui-test-ptree-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 150px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--ui-line);
+  border-radius: 9px;
+  background: var(--ui-paper);
+  box-shadow: 0 8px 24px rgba(23, 35, 29, .16);
+}
+
+.ui-test-root .ui-test-ptree-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ui-ink);
+  font-size: 0.78rem;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-menu button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ui-soft) 70%, transparent);
+}
+
+.ui-test-root .ui-test-ptree-menu button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.ui-test-root .ui-test-ptree-menu button.is-danger {
+  color: var(--ui-danger);
+}
+
+.ui-test-root .ui-test-ptree-menu svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* 活跃角色上的「重要人物」绿勾 */
+.ui-test-root .ui-test-ptree-check {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: #3f8f5a;
+  color: #fff;
+}
+
+.ui-test-root .ui-test-ptree-check svg {
+  width: 10px;
+  height: 10px;
+}
+/* ===== 候选预览卡（C2） ===== */
+.ui-test-root .ui-test-cand {
+  /* 跟随中栏宽度自适应：之前写死 760px，宽窗口中右侧大片留白（用户实测）。 */
+  width: 100%;
+  max-width: none;
+  padding: 20px 4px 28px;
+}
+
+.ui-test-root .ui-test-cand-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.ui-test-root .ui-test-cand-head h3 {
+  margin: 0 0 3px;
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-cand-sub {
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: 0.72rem;
+}
+
+.ui-test-root .ui-test-cand-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.ui-test-root .ui-test-cand-card {
+  margin-bottom: 12px;
+  padding: 13px 15px;
+  border: 1px solid var(--ui-line);
+  border-radius: 11px;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-cand-card h5 {
+  margin: 0 0 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-cand-kv {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 16px;
+  margin: 0;
+}
+
+.ui-test-root .ui-test-cand-kv > div > dt {
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+}
+
+.ui-test-root .ui-test-cand-kv > div > dd {
+  margin: 1px 0 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-cand-hint {
+  margin: 0;
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+  line-height: 1.8;
+}
+
+.ui-test-root .ui-test-cand-quote {
+  margin-bottom: 10px;
+}
+
+.ui-test-root .ui-test-cand-quote:last-child {
+  margin-bottom: 0;
+}
+
+.ui-test-root .ui-test-cand-quote .ch {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ui-accent);
+  font-size: 0.7rem;
+}
+
+.ui-test-root .ui-test-cand-quote p {
+  margin: 0 0 4px;
+  font-size: 0.78rem;
+  line-height: 1.85;
+}
+
+/* 左栏候选行的「首末章」副信息 */
+.ui-test-root .ui-test-ptree-spans {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--ui-muted);
+  font-size: 0.625rem;
+  opacity: .85;
+}
+/* 名字后面的「重要人物」绿勾：勾选后与左栏的对号同步 */
+.ui-test-root .ui-test-gbar-important {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ui-test-root .ui-test-gbar-important input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.ui-test-root .ui-test-gbar-important > span {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid color-mix(in srgb, var(--ui-ink) 26%, transparent);
+  border-radius: 4px;
+  color: transparent;
+  background: transparent;
+}
+
+.ui-test-root .ui-test-gbar-important > span svg {
+  width: 11px;
+  height: 11px;
+}
+
+.ui-test-root .ui-test-gbar-important input:checked + span {
+  background: #3f8f5a;
+  border-color: #3f8f5a;
+  color: #fff;
+}
+
+.ui-test-root .ui-test-gbar-important input:focus-visible + span {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ui-accent) 30%, transparent);
+}
+
+.ui-test-root .ui-test-gbar-important em {
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+  font-style: normal;
+}
+
+/* 候选预览的结果提示 */
+.ui-test-root .ui-test-cand-message {
+  flex-basis: 100%;
+  margin: 8px 0 0;
+  padding: 7px 11px;
+  border-radius: 8px;
+  background: var(--ui-panel);
+  color: var(--ui-ink);
+  font-size: 0.75rem;
+  line-height: 1.7;
+}
+/* 顶栏「移入候选角色」：与绿勾同行，样式低调，避免抢了保存/切换的视觉重量 */
+.ui-test-root .ui-test-gbar-demote {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--ui-line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-gbar-demote:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--ui-accent) 42%, var(--ui-line));
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-gbar-demote:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+/* 面板模式下没有选中对象时的空态：只给一句指引，不再显示旧列表 */
+.ui-test-root .ui-test-pdoc-empty-pane {
+  padding: 40px 8px;
+  color: var(--ui-muted);
+  font-size: 0.8125rem;
+  line-height: 1.9;
+  text-align: center;
+}
+/* 潜伏 / 归档标识：它们仍然有档案，但已经不算「活跃」 */
+.ui-test-root .ui-test-ptree-state {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ui-ink) 8%, transparent);
+  color: var(--ui-muted);
+  font-size: 0.5625rem;
+  line-height: 1.6;
 }

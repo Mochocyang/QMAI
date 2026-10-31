@@ -433,11 +433,13 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
       })
     })
     await flushLayoutFrame()
+    // 推理程度已收进模型按钮的悬停弹窗，工具条上不再有独立的思考深度按钮；
+    // 模型区只留模型选择按钮这一个入口。
     const reasoning = footer?.querySelector('[aria-label="思考深度"]')
     const model = footer?.querySelector(".ui-test-ai-model")
-    expect(reasoning).not.toBeNull()
-    expect(model?.contains(reasoning!)).toBe(true)
-    expect(reasoning && model?.lastElementChild && (reasoning.compareDocumentPosition(model.lastElementChild) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    expect(reasoning).toBeNull()
+    expect(model).not.toBeNull()
+    expect(model?.querySelectorAll("button")).toHaveLength(1)
     const trigger = footer?.querySelector<HTMLButtonElement>('[aria-label="AI 大纲执行模式"]')
     vi.spyOn(trigger!, "getBoundingClientRect").mockReturnValue({ left: 48, right: 112, top: 620, bottom: 652, width: 64, height: 32, x: 48, y: 620, toJSON: () => ({}) })
     await click(trigger ?? null)

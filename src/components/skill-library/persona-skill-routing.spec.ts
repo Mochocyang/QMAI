@@ -29,13 +29,25 @@ describe("人物 Skill 路由连线", () => {
     expect(store).toContain("personaSkillLibraryDraftDirty")
   })
 
-  it("内容区把 personaSkillLibrary 路由到统一技能库", () => {
-    const content = readFileSync(resolve(root, "src/components/layout/content-area.tsx"), "utf8")
+  it("内容区把 personaSkillLibrary 直接路由到人物页（不再经统一技能库）", () => {
+    /*
+     * 人物 Skill 已从技能库移出。若仍交给 UnifiedSkillLibraryView，
+     * 它内部的 resolveActiveTab 会因「不是技能库 tab」直接抛错，
+     * 用户看到的是整页「应用运行出错」（已实测崩过），
+     * 所以这里盯的是「人物页组件在，且它落在 personaSkillLibrary 那个 case 里」。
+     */
+    const content = stripComments(
+      readFileSync(resolve(root, "src/components/layout/content-area.tsx"), "utf8"),
+    )
     expect(content).toContain('case "personaSkillLibrary":')
-    expect(content).toContain("UnifiedSkillLibraryView")
+    expect(content).toContain("<PersonaSkillView />")
+    // 人物页绝不能和技能库那几个视图共用一个 case 组
+    const caseAt = content.indexOf('case "personaSkillLibrary":')
+    const slice = content.slice(caseAt, caseAt + 200)
+    expect(slice).not.toContain("UnifiedSkillLibraryView")
   })
 
-  it("侧栏图标在人物 Skill 页保持高亮", () => {
+  it("侧栏图标在人物 Skill 页高亮大纲、不再点亮技能库", () => {
     /*
      * ⚠️ 这条用例曾经是**假绿**，不要再改回源码文本查字面量。
      *
@@ -59,9 +71,16 @@ describe("人物 Skill 路由连线", () => {
      *       —— 纯函数对而组件不调，行为断言照样绿（这正是原写法的盲区）。
      *       (b) 先 `stripComments` 再查，注释满足不了它。
      */
-    expect(isNavItemActive("skillLibrary", "personaSkillLibrary")).toBe(true)
-    // 反向对照：折算只对技能库图标生效，别的条目不得被误折算
+    /*
+     * 人物 Skill 已从技能库移到大纲侧，所以它必须点亮**大纲**图标，
+     * 且**不再**点亮技能库图标 —— 否则人在人物页、技能库高亮着，
+     * 点进技能库却找不到人物，比不高亮更误导。
+     */
+    expect(isNavItemActive("sources", "personaSkillLibrary")).toBe(true)
+    expect(isNavItemActive("skillLibrary", "personaSkillLibrary")).toBe(false)
+    // 反向对照：折算只对大纲图标生效，别的条目不得被误折算
     expect(isNavItemActive("soul", "personaSkillLibrary")).toBe(false)
+    expect(isNavItemActive("wiki", "personaSkillLibrary")).toBe(false)
     // 反向对照：「收藏」是既有例外，不得被顺手统一进来
     expect(isNavItemActive("skillLibrary", "skillFavorites")).toBe(false)
 

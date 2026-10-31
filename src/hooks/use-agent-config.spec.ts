@@ -11,7 +11,6 @@ import type { DeAiSkillConfig } from "@/lib/novel/de-ai-skill-library"
 import type { UserSkillConfig } from "@/lib/novel/user-skill-store"
 import type { UseAgentConfigResult } from "@/hooks/use-agent-config"
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
-import type { ReasoningDepth } from "@/lib/reasoning-depth"
 
 const baseLlmConfig: LlmConfig = {
   provider: "openai",
@@ -33,7 +32,6 @@ interface StoreStates {
     novelConfig: NovelConfig
     searchApiConfig: SearchApiConfig
     aiWorkflowMode: AiWorkflowMode
-    aiChatReasoningDepth: ReasoningDepth
   }>
   chat?: Partial<{
     conversations: Conversation[]
@@ -84,7 +82,6 @@ async function renderHook(systemPrompt: string, overrides: StoreStates & {
     } as SearchApiConfig,
     novelMode: true,
     aiWorkflowMode: "standard" as AiWorkflowMode,
-    aiChatReasoningDepth: "auto" as ReasoningDepth,
     ...overrides.wiki,
   }
 
@@ -389,12 +386,12 @@ describe("useAgentConfig", () => {
     await cleanup()
   }, 15000)
 
-  it("applies the thinking depth to chapter body generation without touching the orchestration model", async () => {
+  it("推理档位只从供应商配置来：正文与编排各自按自己那家模型的配置", async () => {
     const providerConfigs: ProviderConfigs = {
       custom: {
         enabled: true,
         apiKey: "test-key",
-        reasoning: { mode: "auto" },
+        reasoning: { mode: "high" },
         savedModels: [
           { id: "writer", name: "Writer", model: "writer-model", createdAt: 1 },
           { id: "workflow", name: "Workflow", model: "workflow-model", createdAt: 2 },
@@ -408,7 +405,6 @@ describe("useAgentConfig", () => {
         novelConfig: { ...DEFAULT_NOVEL_CONFIG, defaultLlmModel: "custom/workflow-model" },
         providerConfigs,
         project: { path: "/tmp/project" } as WikiProject,
-        aiChatReasoningDepth: "high",
       },
       skillConfig: {
         version: 1,
@@ -420,8 +416,7 @@ describe("useAgentConfig", () => {
       },
     })
 
-    // The chapter session model also receives the slider depth, so fast mode
-    // and direct chapter requests honor the same selection.
+    // 会话级覆盖已取消：编排模型与正文模型都只读各自的供应商配置。
     expect(result.config?.llmConfig.model).toBe("workflow-model")
     expect(result.config?.llmConfig.reasoning).toEqual({ mode: "high" })
 
@@ -452,7 +447,7 @@ describe("useAgentConfig", () => {
     await cleanup()
   }, 15000)
 
-  it("leaves the chapter writing config untouched at the default depth", async () => {
+  it("供应商配置里的自定义 thinking 预算原样传给正文模型", async () => {
     const providerConfigs: ProviderConfigs = {
       custom: {
         enabled: true,
@@ -468,7 +463,6 @@ describe("useAgentConfig", () => {
         aiChatModel: "custom/writer-model",
         providerConfigs,
         project: { path: "/tmp/project" } as WikiProject,
-        aiChatReasoningDepth: "auto",
       },
       skillConfig: {
         version: 1,

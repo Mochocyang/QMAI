@@ -1,0 +1,173 @@
+/* ===== 大纲第一栏：人物小传区段 =====
+   度量对齐文件树（ui-test.css 的 [data-ui-tree-row]）：
+   字号 0.875rem / 图标 15px / 行高 34px / 圆角 8px / 左右 10px / 间距 8px。
+   之前这套值偏小，渲染出来像另一个控件（用户实测：大小不一样）。 */
+.ui-test-root .ui-test-ptree {
+  flex-shrink: 0;
+  padding: 6px 8px 10px;
+  border-bottom: 1px solid var(--ui-line);
+}
+
+.ui-test-root .ui-test-ptree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  margin: 2px 0;
+  padding-inline: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-ink);
+  font-size: 0.875rem;
+  font-family: inherit;
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-row:hover {
+  background: color-mix(in srgb, var(--ui-soft) 62%, transparent);
+}
+
+.ui-test-root .ui-test-ptree-row.is-on {
+  background: var(--ui-paper);
+  box-shadow: 0 1px 2px rgba(23, 35, 29, .06);
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-ptree-row.is-folder {
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-ptree-row.is-group,
+.ui-test-root .ui-test-ptree-row.is-candidate {
+  color: var(--ui-muted);
+}
+
+/* 层级缩进：分组 16px，叶子 30px（在 10px 基础上叠加） */
+.ui-test-root .ui-test-ptree-children > .ui-test-ptree-row.is-group {
+  padding-inline-start: 16px;
+}
+
+.ui-test-root .ui-test-ptree-row.is-leaf {
+  padding-inline-start: 30px;
+  min-height: 32px;
+}
+
+.ui-test-root .ui-test-ptree-toggle {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-muted);
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-toggle svg {
+  width: 15px;
+  height: 15px;
+}
+
+.ui-test-root .ui-test-ptree-ico {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-ptree-row.is-folder .ui-test-ptree-ico {
+  color: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-ptree-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-name.is-static {
+  cursor: default;
+}
+
+.ui-test-root .ui-test-ptree-count {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding-left: 6px;
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-test-root .ui-test-ptree-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #5f9b74;
+}
+
+.ui-test-root .ui-test-ptree-dot.is-idle {
+  background: #c2b184;
+}
+
+.ui-test-root .ui-test-ptree-dot.is-candidate {
+  background: color-mix(in srgb, var(--ui-ink) 26%, transparent);
+}
+
+.ui-test-root .ui-test-ptree-star {
+  flex-shrink: 0;
+  color: var(--ui-accent);
+  font-size: 0.6875rem;
+}
+
+.ui-test-root .ui-test-ptree-badge {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--ui-soft);
+  color: var(--ui-muted);
+  font-size: 0.625rem;
+  line-height: 1.6;
+}
+
+.ui-test-root .ui-test-ptree-create {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  margin-top: 4px;
+  padding-inline: 30px 10px;
+  border: 1px dashed var(--ui-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-create:hover {
+  border-color: color-mix(in srgb, var(--ui-accent) 46%, var(--ui-line));
+  color: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-ptree-create svg {
+  width: 15px;
+  height: 15px;
+}

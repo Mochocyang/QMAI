@@ -232,3 +232,42 @@ export function readPersonaSupplement(markdown: string): string {
     .filter(Boolean)
     .join("\n\n")
 }
+
+/**
+ * 「性格」段的结构化读写。
+ *
+ * 为什么不新增一个 SKILL.md 大字段：`PERSONA_PROFILE_FIELDS` 里已经有「性格」，
+ * 改名会让所有老档案整段读不出来（该表注释里明确警告过）。
+ * 所以这里只把「性格」段的正文再拆成两条子行：性格标签 / 绑定灵魂。
+ *
+ * 不是这个格式的（例如用户手写成一段散文）原样保留在 `raw`，UI 显示原文而不是丢掉。
+ */
+export const PERSONALITY_TAG_LINE_PREFIX = "- 性格标签："
+export const PERSONALITY_SOUL_LINE_PREFIX = "- 绑定灵魂："
+
+export interface ParsedPersonalitySection {
+  tags: string[]
+  /** 绑定的灵魂名（含 id 括号时保留原文）。 */
+  boundSoul: string
+  /** 不是标准两行格式时的原始正文；非空即表示「用户自己写了一整段」。 */
+  raw: string
+}
+
+export function parsePersonalitySection(sectionBody: string): ParsedPersonalitySection {
+  const lines = sectionBody.replace(/\r\n/g, "\n").split("\n").map((line) => line.trim())
+  const tagLine = lines.find((line) => line.startsWith(PERSONALITY_TAG_LINE_PREFIX))
+  const soulLine = lines.find((line) => line.startsWith(PERSONALITY_SOUL_LINE_PREFIX))
+  if (!tagLine && !soulLine) return { tags: [], boundSoul: "", raw: sectionBody.trim() }
+  const tags = tagLine
+    ? tagLine.slice(PERSONALITY_TAG_LINE_PREFIX.length).split(/[、,，]/).map((tag) => tag.trim()).filter(Boolean)
+    : []
+  return { tags, boundSoul: soulLine ? soulLine.slice(PERSONALITY_SOUL_LINE_PREFIX.length).trim() : "", raw: "" }
+}
+
+export function renderPersonalitySection(input: { tags: readonly string[]; boundSoul: string; raw?: string }): string {
+  if (input.raw) return input.raw
+  const lines: string[] = []
+  if (input.tags.length > 0) lines.push(`${PERSONALITY_TAG_LINE_PREFIX}${input.tags.join("、")}`)
+  if (input.boundSoul) lines.push(`${PERSONALITY_SOUL_LINE_PREFIX}${input.boundSoul}`)
+  return lines.join("\n")
+}

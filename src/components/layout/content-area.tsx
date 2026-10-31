@@ -11,6 +11,10 @@ const UnifiedSkillLibraryView = lazy(async () => {
   const mod = await import("@/components/skill-library/unified-skill-library-view");
   return { default: mod.UnifiedSkillLibraryView };
 });
+const PersonaSkillView = lazy(async () => {
+  const mod = await import("@/components/skill-library/persona-skill-view");
+  return { default: mod.PersonaSkillView };
+});
 
 const AIChatTabContainer = lazy(async () => {
   const mod = await import("@/components/chat/ai-chat-tab-container");
@@ -128,11 +132,19 @@ export function ContentArea() {
       // UnifiedSkillLibraryView，由组件内部按 activeView 决定显示哪个 tab。
       case "writingStyleLibrary":
       case "characterSoulLibrary":
-      case "personaSkillLibrary":
       case "skillFavorites":
         content = (
           <Suspense fallback={<LoadingView />}>
             <UnifiedSkillLibraryView />
+          </Suspense>
+        );
+        break;
+      // 人物 Skill 已从技能库移出，必须**直接**渲染人物页：
+      // 再走 UnifiedSkillLibraryView 会因「不是技能库 tab」直接抛错（用户实测崩过）。
+      case "personaSkillLibrary":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <PersonaSkillView />
           </Suspense>
         );
         break;

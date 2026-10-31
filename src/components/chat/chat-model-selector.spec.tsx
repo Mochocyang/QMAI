@@ -84,8 +84,24 @@ describe("chat model dropdown density", () => {
   })
 })
 
-describe("getChatModelDropdownStyle", () => {
-  it("opens below the trigger when there is enough space underneath", () => {
+describe("模型悬停弹窗接线", () => {
+  /*
+   * 悬停弹窗是「点开列表」之外的第二条入口：鼠标停在模型按钮上弹设置面板，
+   * 点按钮仍然是打开模型列表。两者必须互斥，否则会互相盖住。
+   */
+  it("悬停时挂出生成设置弹窗，且与下拉列表互斥", () => {
+    expect(source).toContain("<ModelSettingsPopover")
+    expect(source).toContain("schedulePanelOpen")
+    expect(source).toContain("schedulePanelClose")
+    expect(source).toContain("!open && panelOpen && panelStyle && selectedEntry")
+  })
+
+  it("工具条上不再有独立的思考深度按钮（推理程度只在弹窗里调）", () => {
+    expect(source).not.toContain("ReasoningDepthControl")
+  })
+})
+
+describe("getChatModelDropdownStyle", () => {  it("opens below the trigger when there is enough space underneath", () => {
     const style = getChatModelDropdownStyle(
       { top: 120, bottom: 152, right: 400, width: 128 },
       { width: 800, height: 900 },

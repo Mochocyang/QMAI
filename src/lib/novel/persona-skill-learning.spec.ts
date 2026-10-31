@@ -59,6 +59,7 @@ vi.mock("@/stores/wiki-store", () => ({
 
 import {
   collectChapterAppearances,
+  createPersonaSkillByUser,
   demotePersonaSkillToSighting,
   learnPersonaSkillsFromChapter,
   loadCharacterRoleTypes,
@@ -118,6 +119,7 @@ function baseMeta(overrides: Partial<PersonaSkillMeta> = {}): PersonaSkillMeta {
     editedByUser: false,
     hasResearch: false,
     updatedAt: "2026-10-10T00:00:00.000Z",
+    origin: "auto", outlineRefs: [], asOfChapter: null,
     ...overrides,
   }
 }
@@ -191,6 +193,49 @@ describe("collectChapterAppearances", () => {
       {},
     )
     expect(appearances[0].appearanceCount).toBe(1)
+  })
+
+  /*
+   * 候选池是每章重新数出来的。用户删掉一个候选之后，如果只从当下的列表里移除，
+   * 下一章提取就会把它数回来 —— 删除按钮等于假的。所以「删除」必须落成忽略名单。
+   */
+  it("忽略名单里的名字不会被数回候选池", () => {
+    const { appearances, sightings } = collectChapterAppearances(
+      { version: 1, skills: [] },
+      { version: 1, sightings: [], ignored: ["小紫"] },
+      { chapterNumber: 4, chapterBody: "", characters: ["小紫", "阿青"] },
+      {},
+    )
+    const names = appearances.map((item) => item.characterName)
+    expect(names).not.toContain("小紫")
+    expect(names).toContain("阿青")
+    expect(sightings.sightings.map((item) => item.characterName)).not.toContain("小紫")
+    // 名单本身要留着，否则下一次又会数回来
+    expect(sightings.ignored).toEqual(["小紫"])
+  })
+
+  it("忽略名单会顺手清掉候选池里已有的同名条目", () => {
+    const { sightings } = collectChapterAppearances(
+      { version: 1, skills: [] },
+      {
+        version: 1,
+        sightings: [
+          {
+            characterName: "小紫",
+            aliases: [],
+            roleType: "",
+            appearanceCount: 2,
+            firstChapter: 1,
+            lastChapter: 2,
+            chapters: [1, 2],
+          },
+        ],
+        ignored: ["小紫"],
+      },
+      { chapterNumber: 3, chapterBody: "", characters: [] },
+      {},
+    )
+    expect(sightings.sightings).toHaveLength(0)
   })
 })
 
@@ -1479,3 +1524,145 @@ describe("人物 Skill 完善：合并而不是覆盖", () => {
   })
 })
 
+
+describe("createPersonaSkillByUser", () => {
+  it("手工建档：origin=manual、outlineRefs 为空、asOfChapter 为 null", async () => {
+    await createPersonaSkillByUser({
+      projectPath: project, characterName: "林清越", roleType: "男主",
+      fields: { 性别: "男", 年龄: "二十四", 势力组织: "青云宗" }, llmConfig: null,
+    })
+    const meta = readIndex()!.skills.find((item) => item.characterName === "林清越")!
+    expect(meta.origin).toBe("manual")
+    expect(meta.outlineRefs).toEqual([])
+    expect(meta.asOfChapter).toBeNull()
+    expect(meta.tier).toBe("major")
+  })
+
+  it("手工建档不调用模型", async () => {
+    streamChatMock.mockClear()
+    await createPersonaSkillByUser({
+      projectPath: project, characterName: "沈砚", roleType: "反派", fields: { 性别: "男" }, llmConfig: null,
+    })
+    expect(streamChatMock).not.toHaveBeenCalled()
+  })
+
+  it("同名再建不产生第二条档案，改为合并字段", async () => {
+    await createPersonaSkillByUser({ projectPath: project, characterName: "林清越", roleType: "男主", fields: { 性别: "男" }, llmConfig: null })
+    await createPersonaSkillByUser({ projectPath: project, characterName: "林清越", roleType: "男主", fields: { 年龄: "二十四" }, llmConfig: null })
+    const skills = readIndex()!.skills.filter((item) => item.characterName === "林清越")
+    expect(skills).toHaveLength(1)
+    const document = io.files.get(`${project}/.qmai/persona-skills/林清越/SKILL.md`) ?? ""
+    expect(document).toContain("男")
+    expect(document).toContain("二十四")
+  })
+
+  it("已存在的 AI 档案被用户手补一次，origin 仍是 auto", async () => {
+    reply([{
+      characterName: "林清越", aliases: [], roleType: "男主", tier: "major", mode: "create",
+      fields: { 怎么说话: "短句。", 怎么想: "先看利害。", 怎么判断: "看证据。", 什么不做: "不欺弱。", 知道局限: "不知朝局。" },
+      research: {}, supplement: "", withResearch: false, pinned: false, appearanceCount: 1,
+    }])
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+    expect(readIndex()!.skills[0].origin).toBe("auto")
+
+    await createPersonaSkillByUser({ projectPath: project, characterName: "林清越", roleType: "男主", fields: { 备注: "手补" }, llmConfig: null })
+    expect(readIndex()!.skills[0].origin).toBe("auto")
+  })
+})
+
+describe("自动建档来源标记", () => {
+  it("学习建档产出 origin=auto，outlineRefs 为空", async () => {
+    reply([{
+      characterName: "林清越", aliases: [], roleType: "男主", tier: "major", mode: "create",
+      fields: { 怎么说话: "短句。", 怎么想: "先看利害。", 怎么判断: "看证据。", 什么不做: "不欺弱。", 知道局限: "不知朝局。" },
+      research: {}, supplement: "", withResearch: false, pinned: false, appearanceCount: 1,
+    }])
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 1, chapterBody: "第一章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+    const meta = readIndex()!.skills[0]
+    expect(meta.origin).toBe("auto")
+    expect(meta.outlineRefs).toEqual([])
+  })
+})
+
+describe("asOfChapter 随学习推进", () => {
+  // 与其它 describe 同一约定：io.files 是模块级 Map，不清理会把上一个用例建的角色带过来。
+  beforeEach(() => {
+    io.files.clear()
+    streamChatMock.mockReset()
+    __resetPersonaSkillRoundsForTesting()
+  })
+
+  function draft(name: string) {
+    return [{
+      characterName: name, aliases: [], roleType: "主角", tier: "major", mode: "create",
+      fields: { 怎么说话: "短句。", 怎么想: "先看利害。", 怎么判断: "看证据。", 什么不做: "不欺弱。", 知道局限: "不知朝局。" },
+      research: {}, supplement: "", withResearch: false, pinned: false, appearanceCount: 1,
+    }]
+  }
+
+  it("首次学习建档后，asOfChapter 记为本轮章节号", async () => {
+    // 必须先登记定位：未标注定位的角色要出场满 3 次才建档，这里只学一章。
+    roleFile("主角", "林清越")
+    reply(draft("林清越"))
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 3, chapterBody: "第三章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+    expect(readIndex()!.skills[0].asOfChapter).toBe(3)
+  })
+
+  it("后续学习只往后推：旧章晚到不把冻结点拨回去", async () => {
+    roleFile("主角", "林清越")
+    reply(draft("林清越"))
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 5, chapterBody: "第五章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+    expect(readIndex()!.skills[0].asOfChapter).toBe(5)
+
+    reply(draft("林清越"))
+    await learnPersonaSkillsFromChapter({
+      projectPath: project,
+      chapter: { chapterNumber: 2, chapterBody: "第二章正文", characters: ["林清越"] },
+      llmConfig,
+    })
+    // 与 lastLearnedChapter 同一口径：只增不减，否则「停在哪一章」会随批次乱序而倒退
+    expect(readIndex()!.skills[0].asOfChapter).toBe(5)
+  })
+})
+
+describe("手工建档产出投影文件", () => {
+  it("createPersonaSkillByUser 会写 wiki/outlines/人物小传/<名>.md", async () => {
+    io.files.clear()
+    await createPersonaSkillByUser({
+      projectPath: project, characterName: "林清越", roleType: "男主",
+      fields: { 性别: "男" }, llmConfig: null,
+    })
+    const target = `${project}/wiki/outlines/人物小传/林清越.md`
+    expect(io.files.has(target)).toBe(true)
+    const content = io.files.get(target)!
+    expect(content).toContain("generated-from: persona-skill")
+    expect(content).toContain("| 性别 | 男 |")
+  })
+
+  it("已有用户手写的小传文件时不被覆盖", async () => {
+    io.files.clear()
+    const target = `${project}/wiki/outlines/人物小传/沈砚.md`
+    io.files.set(target, "# 用户手写的\n")
+    await createPersonaSkillByUser({
+      projectPath: project, characterName: "沈砚", roleType: "反派",
+      fields: { 性别: "男" }, llmConfig: null,
+    })
+    expect(io.files.get(target)).toBe("# 用户手写的\n")
+  })
+})

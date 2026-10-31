@@ -47,6 +47,7 @@ function meta(overrides: Partial<PersonaSkillMeta> & { characterName: string }):
     editedByUser: false,
     hasResearch: false,
     updatedAt: "2026-10-10T00:00:00.000Z",
+    origin: "auto", outlineRefs: [], asOfChapter: null,
     ...overrides,
   }
 }
@@ -239,5 +240,38 @@ describe("buildPersonaSkillContext", () => {
     expect(text).toContain("甲一")
     expect(text).toContain("乙二")
     expect(text).not.toContain("丙三")
+  })
+})
+
+describe("性格段注入", () => {
+  const withPersonality = ["# 林清越 · 人物 Skill", "", "## 性格", "", "- 性格标签：毒舌、嘴硬心软", "", "## 怎么说话", "", "短句，爱反问。"].join("\n")
+
+  it("性格段进注入，且排在最前", () => {
+    const block = renderPersonaSkillBlock(meta({ characterName: "林清越" }), withPersonality)
+    expect(block).toContain("人物性格：毒舌、嘴硬心软")
+    expect(block.indexOf("人物性格")).toBeLessThan(block.indexOf("怎么说话"))
+  })
+
+  it("性格标签超过 4 条时截断，按用户顺序保留前面的", () => {
+    const document = ["# X · 人物 Skill", "", "## 性格", "", "- 性格标签：毒舌、嘴硬心软、阴阳怪气、满口网络梗、爱说歇后语"].join("\n")
+    const block = renderPersonaSkillBlock(meta({ characterName: "X" }), document)
+    const tags = block.split("人物性格：")[1].split("（")[0].split("、")
+    expect(tags.length).toBeLessThanOrEqual(4)
+    expect(tags[0]).toBe("毒舌")
+  })
+
+  it("没有性格段时不产生空的「人物性格：」", () => {
+    const block = renderPersonaSkillBlock(meta({ characterName: "X" }), "# X · 人物 Skill\n\n## 怎么说话\n\n短句。")
+    expect(block).not.toContain("人物性格")
+  })
+
+  it("性格标签合计超过 20 字时整条丢弃，不把标签切一半", () => {
+    // 7 + 1 + 11 + 1 + 10 = 30 字 > 20：
+    // 第一条 7 字可留；加第二条变 19 字仍可留；第三条会到 30 字，必须整条丢弃。
+    const document = ["# X · 人物 Skill", "", "## 性格", "", "- 性格标签：一本正经说胡话、嘴上说不在乎实际很在乎、见不得浪费粮食"].join("\n")
+    const block = renderPersonaSkillBlock(meta({ characterName: "X" }), document)
+    const shown = block.split("人物性格：")[1].split("（")[0]
+    // 关键：不能出现被切一半的标签（例如「见不得浪」）
+    expect(shown).toBe("一本正经说胡话、嘴上说不在乎实际很在乎")
   })
 })

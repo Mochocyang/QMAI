@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react"
 import { FileText, Sparkles } from "lucide-react"
 import { PreviewPanel } from "@/components/layout/preview-panel"
+import { PersonaPane } from "@/components/skill-library/persona-pane"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { getUiTestAiMaxWidth, getUiTestPanelLayout, resizeUiTestAiByKey, UI_TEST_AI_DEFAULT_WIDTH, UI_TEST_AI_MIN_WIDTH } from "@/lib/ui-test-layout"
@@ -23,6 +24,8 @@ export function UiTestWorkspace({ mode, requestedWidth, viewportWidth, onWidthCh
   const previousSelection = useRef("")
   const width = useUiTestWidth(containerRef)
   const chatExpanded = useWikiStore((s) => s.chatExpanded)
+  /** 人物面板开着时，编辑槽显示人物而不是文档。 */
+  const personaPane = useWikiStore((s) => s.personaOutlinePane)
   const outlineExpanded = useOutlineGenerationStore((s) => s.panelOpen)
   const setOutlineExpanded = useOutlineGenerationStore((s) => s.setPanelOpen)
   const assistantOpen = mode === "outline" ? outlineExpanded : chatExpanded
@@ -67,7 +70,7 @@ export function UiTestWorkspace({ mode, requestedWidth, viewportWidth, onWidthCh
               把 height:100% 改写成 auto，整条高度链塌掉：
               .ui-test-editor-scroll 不再溢出 → 没有滚动条、滚轮也滚不动。
               实测症状就是「加了状态栏之后正文滚不动了」。 */}
-          <div className="ui-test-editor-slot"><PreviewPanel /></div>
+          <div className="ui-test-editor-slot">{personaPane ? <PersonaPane /> : <PreviewPanel />}</div>
           {/* 写作字数状态栏只挂**章节正文**栏底部（用户要求）：
               目录栏与 AI 对话栏下面不出现，大纲视图也不出现 ——
               它统计的是章节正文字数，挂到别处会指向错误的统计对象。 */}

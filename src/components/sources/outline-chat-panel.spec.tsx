@@ -2545,7 +2545,7 @@ describe("OutlineChatPanel controls", () => {
 
   async function chooseOutlineModel(container: HTMLElement, label: string) {
     // 触发器样式于 5388348（调整大纲章节编辑与对话界面）由 .h-8.w-32 改为 h-8 w-fit max-w-40，
-    // 改用模型区容器定位：该区域内只有模型选择按钮没有 aria-label（思考深度按钮带 aria-label）。
+    // 改用模型区容器定位：该区域内只有模型选择按钮没有 aria-label（独立思考深度按钮已移除）。
     const trigger = Array.from(
       container.querySelectorAll<HTMLButtonElement>(".ui-test-ai-model button"),
     ).find((button) => !button.hasAttribute("aria-label"))

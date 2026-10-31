@@ -34,9 +34,6 @@ import { SkillLibraryView } from "./skill-library-view"
 import { WritingSkillLibraryView } from "./writing-skill-library-view"
 import { WritingStyleLibraryView } from "./writing-style-library-view"
 import { FavoriteListView } from "./favorite-list-view"
-import { PersonaSkillView } from "./persona-skill-view"
-import { PersonaSkillEvolutionPanel } from "./persona-skill-evolution-panel"
-import { StyleEvolutionPanel } from "./style-evolution-panel"
 
 /**
  * 技能库 tab 的**唯一事实来源**：视图名 + 文案。
@@ -70,8 +67,6 @@ const skillLibraryTabs = [
   { view: "skillLibrary" as const, label: "去AI味技能" },
   { view: "writingSkillLibrary" as const, label: "写作 Skill" },
   { view: "writingStyleLibrary" as const, label: "文风 skill" },
-  // 合并说明：`main`（人物 Skill）的 tab，位置沿用它在 `main` 上「收藏之前」的相对次序。
-  { view: "personaSkillLibrary" as const, label: "人物 Skill" },
   { view: "skillFavorites" as const, label: "收藏" },
 ]
 
@@ -84,7 +79,7 @@ type SkillLibraryTab = (typeof skillLibraryTabs)[number]["view"]
  * `TAB_ACTIONS` / `TAB_CATEGORY_AXIS` / `EMPTY_COPY` / `SKILL_EDITORS` /
  * `entriesByTab` 这 5 张 `Record` 就不需要为一个「不经过画廊」的 tab 编造条目。
  */
-type GalleryTab = Exclude<SkillLibraryTab, "skillFavorites" | "personaSkillLibrary">
+type GalleryTab = Exclude<SkillLibraryTab, "skillFavorites">
 type ActiveView = ReturnType<typeof useWikiStore.getState>["activeView"]
 
 /**
@@ -100,7 +95,6 @@ const ACTIVE_TAB_BY_VIEW: Record<SkillLibraryTab, SkillLibraryTab> = {
   skillLibrary: "skillLibrary",
   writingSkillLibrary: "writingSkillLibrary",
   writingStyleLibrary: "writingStyleLibrary",
-  personaSkillLibrary: "personaSkillLibrary",
   skillFavorites: "skillFavorites",
 }
 
@@ -115,7 +109,6 @@ const TAB_DRAFT_KIND: Record<SkillLibraryTab, "skill" | "writing" | "persona" | 
   writingStyleLibrary: "none",
   // 合并说明：`main` 的人物 Skill 有**自己的**脏标记
   // （`personaSkillLibraryDraftDirty`），既不与写作 Skill 共用、也不与去AI味共用。
-  personaSkillLibrary: "persona",
   skillFavorites: "none",
 }
 
@@ -1237,17 +1230,6 @@ function SkillLibraryContent({
   onBack: () => void
 }) {
   if (activeTab === "skillFavorites") return <FavoriteListView />
-  if (activeTab === "personaSkillLibrary")
-    return (
-      <>
-        {/*
-         * 人物 Skill tab 顶部的自进化开关面板，同文风 tab 的 StyleEvolutionPanel：
-         * 「一块说明 + 一个开关」，挂在列表之上、不进 SKILL_EDITORS。
-         */}
-        <PersonaSkillEvolutionPanel />
-        <PersonaSkillView />
-      </>
-    )
   const Editor = SKILL_EDITORS[activeTab]
   if (!editing) {
     /*
@@ -1262,8 +1244,7 @@ function SkillLibraryContent({
      */
     return (
       <>
-        {activeTab === "writingStyleLibrary" ? <StyleEvolutionPanel /> : null}
-        <SkillGallery activeTab={activeTab} onOpen={onOpen} />
+                <SkillGallery activeTab={activeTab} onOpen={onOpen} />
       </>
     )
   }
@@ -1286,9 +1267,7 @@ export function UnifiedSkillLibraryView() {
   const skillDraftDirty = useWikiStore((s) => s.skillLibraryDraftDirty)
   const writingDraftDirty = useWikiStore((s) => s.writingSkillLibraryDraftDirty)
   const setSkillDraftDirty = useWikiStore((s) => s.setSkillLibraryDraftDirty)
-  const setWritingDraftDirty = useWikiStore((s) => s.setWritingSkillLibraryDraftDirty)
-  const personaDraftDirty = useWikiStore((s) => s.personaSkillLibraryDraftDirty)
-  const setPersonaDraftDirty = useWikiStore((s) => s.setPersonaSkillLibraryDraftDirty)
+  const setWritingDraftDirty = useWikiStore((s) => s.setWritingSkillLibraryDraftDirty)
 
   const [editing, setEditing] = useState(false)
 
@@ -1306,13 +1285,11 @@ export function UnifiedSkillLibraryView() {
   }, [activeView])
 
   function handleBackToList() {
-    const dirty = tabDraftDirty(draftKind, skillDraftDirty, writingDraftDirty, personaDraftDirty)
+    const dirty = tabDraftDirty(draftKind, skillDraftDirty, writingDraftDirty, false)
     if (dirty) {
       if (!confirmDiscardSkillLibraryDraft()) return
       if (draftKind === "writing") setWritingDraftDirty(false)
       else if (draftKind === "skill") setSkillDraftDirty(false)
-      // 合并说明：`main` 的人物 Skill 有自己的脏标记，清的时候不能落下它。
-      else if (draftKind === "persona") setPersonaDraftDirty(false)
     }
     setEditing(false)
   }
@@ -1367,7 +1344,7 @@ export function UnifiedSkillLibraryView() {
             <h1>技能库</h1>
             <p>管理写作 Skill、去AI味技能与人物 Skill，点开卡片即可编辑。</p>
           </div>
-          {!editing && activeTab !== "skillFavorites" && activeTab !== "personaSkillLibrary" ? (
+          {!editing && activeTab !== "skillFavorites" ? (
             <SkillLibraryActions activeTab={activeTab} onAfterCreate={() => setEditing(true)} />
           ) : null}
         </div>

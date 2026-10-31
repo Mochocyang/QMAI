@@ -1,4 +1,12 @@
 import { isAppAutoUpdateSupported } from "@/lib/app-update-support"
+import {
+  getPendingUpdateVersion,
+  markPrefetchDownloading,
+  markPrefetchFailed,
+  markPrefetchReady,
+  setPendingUpdateVersion,
+  shouldPrefetch,
+} from "@/lib/app-update-notice"
 import { isTauri } from "@/lib/platform"
 import type { Update } from "@tauri-apps/plugin-updater"
 
@@ -19,6 +27,13 @@ type UpdaterBindings = {
   resolveProxy?: () => Promise<string | undefined>
   /** 后台静默检查：没新版本时不打扰用户。用户主动点「检查更新」时为 false。 */
   silent?: boolean
+  /**
+   * 发现新版本后是否弹窗询问下载安装。默认 true。
+   *
+   * 关闭「有更新时自动提醒」的用户传 false：只记录有新版本（更新日志亮红点），
+   * 不弹窗、不下载、不安装 —— 更新权完全交给用户。
+   */
+  prompt?: boolean
 }
 
 let updateCheckStarted = false
@@ -74,8 +89,22 @@ export async function runAppUpdateFlow(bindings: UpdaterBindings) {
         okLabel: "知道了",
       })
     }
+    // 已是最新：清掉上一次留下的红点。
+    setPendingUpdateVersion(null)
     return
   }
+
+  /*
+   * 记下"确实有新版本"：设置 →「更新日志」的红点靠它，
+   * 与弹不弹窗无关（关掉提醒的用户只能从这里得知有更新）。
+   */
+  setPendingUpdateVersion(hasUpdate.version)
+
+  /*
+   * 用户关掉了「有更新时自动提醒」：到此为止。
+   * 不弹窗、不下载、不安装 —— 更新权交给用户自己在更新日志里点。
+   */
+  if (bindings.prompt === false) return
 
   /*
    * 到这里 `hasUpdate` 一定有版本号了 —— 检查这一步已经由 updater_check 完成。
@@ -203,9 +232,12 @@ async function resolveProxyForUpdate(): Promise<string | undefined> {
  * `silent`（默认 true）是后台自动检查：没新版本就不打扰。
  * 用户主动点「检查更新」时传 `silent: false` —— 他主动点了就要有回应，
  * 即使"已经是最新版本"也要说一声，否则只会觉得点了没用。
+ *
+ * `prompt`（默认 true）控制发现新版本后要不要弹窗；见 `UpdaterBindings.prompt`。
  */
-export async function checkForAppUpdate(options: { silent?: boolean } = {}) {
+export async function checkForAppUpdate(options: { silent?: boolean; prompt?: boolean } = {}) {
   const silent = options.silent ?? true
+  const prompt = options.prompt ?? true
   if (!isTauri() || !isAppAutoUpdateSupported() || updateCheckStarted) return
 
   updateCheckStarted = true
@@ -221,6 +253,7 @@ export async function checkForAppUpdate(options: { silent?: boolean } = {}) {
       message,
       resolveProxy: resolveProxyForUpdate,
       silent,
+      prompt,
     })
   } catch (error) {
     console.warn("检查应用更新失败：", error)
@@ -239,3 +272,48 @@ export async function checkForAppUpdate(options: { silent?: boolean } = {}) {
     updateCheckStarted = false
   }
 }
+
+/**
+ * 后台把新版本预先下载好，用户点「安装」时不必再等下载。
+ *
+ * 触发时机：启动检查发现新版本、且用户没开自动提醒（开了就由那条弹窗流程自己处理）。
+ * 约束：
+ *   · 全程静默 —— 不弹窗、不报错，失败只打日志；
+ *   · 同版本正在下或已下好就跳过（`shouldPrefetch`）；
+ *   · 下载落在应用数据目录的固定路径，新版本会覆盖上一个版本的包。
+ *
+ * 签名校验不在这里做：真正安装前 `updater_install_package` 会再验一次，
+ * 所以预下载来的包被镜像篡改也装不上。
+ */
+export async function prefetchAppUpdate(): Promise<void> {
+  if (!isTauri() || !isAppAutoUpdateSupported()) return
+  try {
+    const { invoke } = await import("@tauri-apps/api/core")
+    const info = await invoke<{
+      version: string | null
+      notes: string | null
+      downloadUrl: string | null
+    }>("updater_check")
+    if (!info?.version) {
+      // 已经是最新版本：清掉旧红点，避免它一直挂着。
+      setPendingUpdateVersion(null)
+      return
+    }
+    const version = info.version
+    setPendingUpdateVersion(version)
+    if (!info.downloadUrl || !shouldPrefetch(version)) return
+
+    markPrefetchDownloading(version)
+    const path = await invoke<string>("updater_download_package", {
+      releaseUrl: info.downloadUrl,
+      version,
+      persist: true,
+    })
+    markPrefetchReady(version, path)
+  } catch (error) {
+    console.warn("[updater] 后台预下载新版本失败（用户仍可在更新日志手动下载）：", error)
+    const version = getPendingUpdateVersion()
+    if (version) markPrefetchFailed(version)
+  }
+}
+

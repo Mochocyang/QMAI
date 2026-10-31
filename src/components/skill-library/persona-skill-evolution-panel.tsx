@@ -8,19 +8,29 @@ import {
 import { useWikiStore } from "@/stores/wiki-store"
 
 /**
- * 「人物 Skill 自进化」开关面板。
+ * 「人物角色自进化」开关面板（对象是大纲「人物小传」里的角色）。
  *
  * 结构与「文风自进化」面板（`style-evolution-panel.tsx`）刻意一致：
  * **只有一块说明 + 一个开关**，文字在左、滑块在右，不显示进度/历史/结果 ——
  * 那些是排错日志（`.qmai/persona-skill-evolution.log`）和轮次历史的事，
  * 不在技能库里再铺一遍。
  *
- * 挂载点在 `unified-skill-library-view` 的人物 Skill tab 顶部（同文风面板挂法）。
+ * 挂载点在「设置 → 写作设置 → 人物角色自进化」分组里（`novel-section.tsx`）。
+ * 以前挂在技能库的人物 tab 顶部，人物搬回大纲后那次改动把它漏掉了 ——
+ * 于是开关在界面上完全消失，自进化变成「默认开、关不掉」。
  *
  * ⚠️ 订阅 `subscribePersonaSkillEvolution`（本 store 自己的通道），不是 `dataVersion`：
  * 节律状态写入刻意不进 `bumpDataVersion()`（store 文件头）。
  */
-export function PersonaSkillEvolutionPanel() {
+export interface PersonaSkillEvolutionPanelProps {
+  /**
+   * 是否渲染自带标题。放进「写作设置」的分组里时传 false ——
+   * 分组标题已经写了「人物角色自进化」，再来一个 h3 就是重复。
+   */
+  showTitle?: boolean
+}
+
+export function PersonaSkillEvolutionPanel({ showTitle = true }: PersonaSkillEvolutionPanelProps = {}) {
   const projectPath = useWikiStore((state) => state.project?.path)
   const [enabled, setEnabled] = useState(false)
 
@@ -54,10 +64,18 @@ export function PersonaSkillEvolutionPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-3 p-4 text-sm" data-testid="persona-skill-evolution-panel">
+    <div
+      className="flex flex-col gap-2 text-sm"
+      data-testid="persona-skill-evolution-panel">
       {/* 标题行与说明分行（同文风面板：放同一行时长说明会挤成一堵墙）。 */}
-      <div className="flex items-center justify-between gap-4">
-        <h3 className="text-base font-medium">人物 Skill 自进化</h3>
+      <div
+        className={
+          showTitle
+            ? "flex items-center justify-between gap-4"
+            : "flex items-center justify-end gap-4"
+        }
+      >
+        {showTitle ? <h3 className="text-base font-medium">人物角色自进化</h3> : null}
         {/*
          * 开关形态与文风面板同一枚：role="switch" + aria-checked，文字在左、
          * 滑块在右；视觉用 Tailwind 内联复刻（`.model-switch` 类名在技能库
@@ -67,8 +85,8 @@ export function PersonaSkillEvolutionPanel() {
           type="button"
           role="switch"
           aria-checked={enabled}
-          aria-label={enabled ? "关闭人物 Skill 自进化" : "开启人物 Skill 自进化"}
-          title={enabled ? "关闭人物 Skill 自进化" : "开启人物 Skill 自进化"}
+          aria-label={enabled ? "关闭人物角色自进化" : "开启人物角色自进化"}
+          title={enabled ? "关闭人物角色自进化" : "开启人物角色自进化"}
           data-testid="persona-skill-evolution-toggle"
           onClick={() => void toggle()}
           className="flex shrink-0 items-center gap-2"
@@ -94,14 +112,14 @@ export function PersonaSkillEvolutionPanel() {
         </button>
       </div>
 
-      <div className="flex max-w-3xl flex-col gap-1.5 text-xs leading-relaxed text-muted-foreground">
+      <div className="flex max-w-2xl flex-col gap-1 text-xs leading-relaxed text-muted-foreground">
         {/*
          * 说明文字一律用字符串字面量：JSX 会把文本中间的换行折叠成空格，
          * 中文句子里多出一个空格很难看（同文风面板踩过的坑）。
          */}
         <p>
           {
-            "人物 Skill 自进化采用达尔文式循环：每隔几个打开日，对现有档案先诊断问题、再生成改进候选，然后由三位独立评审把新旧档案与出场原文放在一起配对比较——只有多数评审认为新档案更好的时候才会替换，否则保持原样。"
+            "这里的「人物角色」指大纲「人物小传」里的那些角色。人物角色自进化采用达尔文式循环：每隔几个打开日，对现有档案先诊断问题、再生成改进候选，然后由三位独立评审把新旧档案与出场原文放在一起配对比较——只有多数评审认为新档案更好的时候才会替换，否则保持原样。"
           }
         </p>
         <p>

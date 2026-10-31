@@ -1,0 +1,128 @@
+/* ===== 档案页：分组卡片 + 最多两列 =====
+   判据是「这一格装的是几个字，还是一句话」：
+     · 短值（姓名/性别/年龄/定位/状态/出场次数/章节）→ 两列
+     · 整句描述（外貌/能力/成长轨迹/背景/动机/备注/关系网）→ 一行一条
+   之前把「小节并排 + 字段再分 5 列」叠在一起，一格只剩二十来像素，
+   「最近出场」被压成三行（用户实测）。 */
+
+/* 字段区：小节上下堆叠，不再左右并排 */
+.ui-test-root .ui-test-h2-fields {
+  display: block;
+  min-width: 0;
+}
+
+/* 每个小节是一张卡 */
+.ui-test-root .ui-test-h2-fields > .ui-test-fsec:not(.ui-test-fsec-plain) {
+  padding: 13px 15px;
+  margin-bottom: 12px;
+  border: 1px solid var(--ui-line);
+  border-radius: 11px;
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-h2-fields > .ui-test-fsec:last-child {
+  margin-bottom: 0;
+}
+
+/* 小节标题：去掉原来那条横线，卡片本身已经框住了 */
+.ui-test-root .ui-test-h2-fields > .ui-test-fsec > h5::after {
+  display: none;
+}
+
+.ui-test-root .ui-test-h2-fields > .ui-test-fsec > h5 {
+  margin-bottom: 10px;
+  letter-spacing: .02em;
+  text-transform: none;
+  font-size: 0.78rem;
+  color: var(--ui-ink);
+}
+
+/* 两列字段：只在「短值」上用 */
+.ui-test-root .ui-test-fgrid.is-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 11px 14px;
+}
+
+/* 容器太窄时退成一列。用容器查询而不是窗口宽度：
+   中栏宽度和窗口宽度是两件事，窗口很宽时中栏也可能只有 400px。 */
+@container (max-width: 440px) {
+  .ui-test-root .ui-test-fgrid.is-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 整行字段：左标签 76px + 右侧吃掉剩余宽度 */
+.ui-test-root .ui-test-frows {
+  display: grid;
+  gap: 0;
+}
+
+.ui-test-root .ui-test-fitem.is-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 8px 0;
+  border-bottom: 1px dashed color-mix(in srgb, var(--ui-line) 78%, transparent);
+}
+
+.ui-test-root .ui-test-fitem.is-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.ui-test-root .ui-test-fitem.is-row:first-child {
+  padding-top: 0;
+}
+
+.ui-test-root .ui-test-fitem.is-row > span {
+  margin: 0;
+  padding-top: 8px;
+  font-size: 0.72rem;
+}
+
+.ui-test-root .ui-test-fitem.is-row textarea.ui-test-fed {
+  min-height: 62px;
+}
+
+/* 只读格：无框文字，能和可编辑的输入框一眼分开 */
+.ui-test-root .ui-test-fitem > .ui-test-fed.is-readonly {
+  border-color: transparent;
+  background: transparent;
+  padding-inline: 2px;
+  color: var(--ui-muted);
+}
+
+/* ===== 注入预览：虚线细条（不再是独立卡片） ===== */
+.ui-test-root .ui-test-injline {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px dashed var(--ui-line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--ui-soft) 34%, transparent);
+  font-size: 0.72rem;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-injline .k {
+  flex-shrink: 0;
+  color: var(--ui-accent);
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-injline .v {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-test-root .ui-test-injline .n {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+  opacity: .85;
+}

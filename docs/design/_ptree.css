@@ -1,0 +1,165 @@
+/* ===== 大纲第一栏：人物小传区段 ===== */
+.ui-test-root .ui-test-ptree {
+  border-bottom: 1px solid var(--ui-line);
+  padding: 6px 6px 8px;
+  flex-shrink: 0;
+}
+
+.ui-test-root .ui-test-ptree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ui-ink);
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-row:hover {
+  background: color-mix(in srgb, var(--ui-soft) 55%, transparent);
+}
+
+.ui-test-root .ui-test-ptree-row.is-on {
+  background: var(--ui-paper);
+  box-shadow: 0 1px 2px rgba(23, 35, 29, .05);
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-ptree-row.is-folder {
+  font-weight: 600;
+}
+
+.ui-test-root .ui-test-ptree-row.is-group {
+  color: var(--ui-muted);
+}
+
+/* 叶子节点（角色）缩进 */
+.ui-test-root .ui-test-ptree-row.is-leaf {
+  padding-left: 30px;
+}
+
+.ui-test-root .ui-test-ptree-children > .ui-test-ptree-row.is-group {
+  padding-left: 12px;
+}
+
+.ui-test-root .ui-test-ptree-toggle {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ui-muted);
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-toggle svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ui-test-root .ui-test-ptree-ico {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-ptree-row.is-folder .ui-test-ptree-ico {
+  color: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-ptree-name {
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-name.is-static {
+  cursor: default;
+}
+
+.ui-test-root .ui-test-ptree-count {
+  flex-shrink: 0;
+  color: var(--ui-muted);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-test-root .ui-test-ptree-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #5f9b74;
+}
+
+.ui-test-root .ui-test-ptree-dot.is-idle {
+  background: #c2b184;
+}
+
+.ui-test-root .ui-test-ptree-dot.is-candidate {
+  background: color-mix(in srgb, var(--ui-ink) 24%, transparent);
+}
+
+.ui-test-root .ui-test-ptree-star {
+  flex-shrink: 0;
+  color: var(--ui-accent);
+  font-size: 0.625rem;
+}
+
+.ui-test-root .ui-test-ptree-badge {
+  flex-shrink: 0;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--ui-soft);
+  color: var(--ui-muted);
+  font-size: 0.5625rem;
+  line-height: 1.5;
+}
+
+.ui-test-root .ui-test-ptree-row.is-candidate {
+  color: var(--ui-muted);
+}
+
+/* 新建入口 */
+.ui-test-root .ui-test-ptree-create {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% - 6px);
+  margin: 4px 3px 0;
+  padding: 5px 8px 5px 30px;
+  border: 1px dashed var(--ui-line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-ptree-create:hover {
+  border-color: color-mix(in srgb, var(--ui-accent) 44%, var(--ui-line));
+  color: var(--ui-accent);
+}
+
+.ui-test-root .ui-test-ptree-create svg {
+  width: 12px;
+  height: 12px;
+}

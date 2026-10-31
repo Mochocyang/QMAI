@@ -1,16 +1,16 @@
 import type { LlmConfig, ReasoningMode } from "@/stores/wiki-store"
 
 /**
- * Slider stops for the chat-model thinking depth control, ordered left to
- * right. `auto` sits at index 0 as the "default" stop: it means *defer*, not
- * "less than off", so the UI must mark it apart from the monotonic tail.
+ * 「推理程度」的档位，从左到右由弱到强。聊天框悬停弹窗与设置页共用这一份。
  *
- * `custom` is intentionally absent. A token budget needs a number field,
- * which belongs in settings next to the provider config, not in a chat
- * footer popover.
+ * 2026-10-28 起 **不再有「自动」档**：它原先表示"不覆盖、沿用设置里该供应商的推理配置"，
+ * 而聊天框改成把选择直接写回供应商配置之后，设置本身就成了唯一的来源，
+ * 「不覆盖」这个状态没有存在意义。默认档位因此是 `medium`（中）。
+ *
+ * `custom` 同样不在这里：自定义 token 预算要一个数字输入框，
+ * 那属于设置页，不属于聊天框的悬停弹窗。
  */
 export const REASONING_DEPTH_STEPS = [
-  "auto",
   "off",
   "low",
   "medium",
@@ -20,7 +20,7 @@ export const REASONING_DEPTH_STEPS = [
 
 export type ReasoningDepth = (typeof REASONING_DEPTH_STEPS)[number]
 
-export const DEFAULT_REASONING_DEPTH: ReasoningDepth = "auto"
+export const DEFAULT_REASONING_DEPTH: ReasoningDepth = "medium"
 
 function isReasoningDepth(value: unknown): value is ReasoningDepth {
   return typeof value === "string"
@@ -28,9 +28,10 @@ function isReasoningDepth(value: unknown): value is ReasoningDepth {
 }
 
 /**
- * Coerce a persisted or user-supplied value onto a slider stop. Anything
- * unrecognised — including the `custom` mode that settings can still hold —
- * falls back to `auto`, which leaves the provider config untouched.
+ * Coerce a persisted or user-supplied value onto a slider stop.
+ *
+ * 旧数据里的 `auto`（原来的「默认」档，含义是"沿用设置"）与设置页才有的 `custom`，
+ * 都会回落到默认档 `medium`：档位现在必须明确，不能出现"什么都不发"的中间态。
  */
 export function normalizeReasoningDepth(value: unknown): ReasoningDepth {
   return isReasoningDepth(value) ? value : DEFAULT_REASONING_DEPTH
@@ -51,7 +52,7 @@ export function reasoningDepthFromIndex(index: number): ReasoningDepth {
 }
 
 /**
- * Stamp a slider depth onto the config that will actually be sent.
+ * Stamp a depth onto the config that will actually be sent.
  *
  * The value has to land on `LlmConfig.reasoning` rather than
  * `RequestOverrides.reasoning`: `streamChat` and the outline/chapter budget
@@ -60,14 +61,12 @@ export function reasoningDepthFromIndex(index: number): ReasoningDepth {
  * allowance and the model would spend the whole budget on reasoning with no
  * content left.
  *
- * The `auto` stop returns the config untouched so the provider-level setting
- * — including a `custom` budget the user configured in settings — keeps
- * applying. That is what makes the default stop non-destructive.
+ * 现在只有一处调用：MCP 显式传入 `reasoningDepth` 时对本次调用生效。
+ * 聊天框与大纲面板的会话级覆盖已移除，档位只从供应商配置来。
  */
 export function applyReasoningDepth(config: LlmConfig, depth: ReasoningDepth): LlmConfig {
   // Normalized rather than trusted: a garbled persisted value reaching the
   // wire as `mode: undefined` would silently disable every thinking branch.
   const mode = normalizeReasoningDepth(depth)
-  if (mode === "auto") return config
   return { ...config, reasoning: { ...config.reasoning, mode } }
 }

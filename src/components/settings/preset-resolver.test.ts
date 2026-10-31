@@ -17,7 +17,7 @@ function fallbackConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
 }
 
 describe("resolveConfig", () => {
-  it("defaults reasoning to auto instead of inheriting another preset's fallback", () => {
+  it("defaults reasoning to medium instead of inheriting another preset's fallback", () => {
     const preset: LlmPreset = {
       id: "deepseek",
       label: "DeepSeek",
@@ -29,7 +29,7 @@ describe("resolveConfig", () => {
 
     const resolved = resolveConfig(preset, undefined, fallbackConfig())
 
-    expect(resolved.reasoning).toEqual({ mode: "auto" })
+    expect(resolved.reasoning).toEqual({ mode: "medium" })
   })
 
   it("keeps an explicit provider-level reasoning override", () => {

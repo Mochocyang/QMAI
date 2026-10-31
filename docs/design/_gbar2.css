@@ -1,0 +1,87 @@
+/* ===== 人物档案顶栏：极简 =====
+   只留名字与显示形式切换。出场次数 / 定位 / 章节这些档案页里都有，
+   摆在顶栏只会把一条栏挤成一字一行（用户实测）。 */
+.ui-test-root .ui-test-gbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--ui-line);
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-gbar-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-ink);
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 1rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ui-test-root .ui-test-gbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.ui-test-root .ui-test-gbar-right > * {
+  flex-shrink: 0;
+}
+
+/* 自动保存提示：平时不占视觉重量，只有写盘那一瞬间出现 */
+.ui-test-root .ui-test-gbar-autosave {
+  min-width: 4.5em;
+  color: var(--ui-muted);
+  font-size: 0.7rem;
+  text-align: right;
+  opacity: .75;
+}
+
+/* ===== 表格态：小节两列并排 ===== */
+.ui-test-root .ui-test-h2-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 26px;
+  align-items: start;
+  min-width: 0;
+}
+
+/* 长文本/表格类小节占满整行，避免被挤成窄条 */
+.ui-test-root .ui-test-h2-fields > .ui-test-fsec:has(> h5.is-wide) {
+  grid-column: 1 / -1;
+}
+
+/* 只有一段的小节也别撑满半屏 */
+.ui-test-root .ui-test-h2-fields > .ui-test-fsec {
+  min-width: 0;
+}
+
+/* ===== MD 态：用大纲同款文档排版，而不是等宽 textarea ===== */
+.ui-test-root .ui-test-h2-md-doc {
+  min-height: 420px;
+  border: 1px solid var(--ui-line);
+  border-radius: 11px;
+  background: var(--ui-paper);
+  overflow: auto;
+}
+
+.ui-test-root .ui-test-h2-md-doc > * {
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .ui-test-root .ui-test-h2-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .ui-test-root .ui-test-gbar-autosave {
+    display: none;
+  }
+}

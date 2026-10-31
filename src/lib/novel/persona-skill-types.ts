@@ -70,6 +70,16 @@ export const PERSONA_SKILL_HISTORY_KEEP = 5
 export const PERSONA_INJECT_MAX_SKILLS = 12
 export const PERSONA_INJECT_CHAR_BUDGET = 4000
 export const PERSONA_INJECT_FIELD_CHARS = 260
+/**
+ * 性格标签的注入预算。
+ *
+ * 为什么单独给它一份小预算、而不是并进 PERSONA_INJECT_FIELD_CHARS：
+ * 性格是最强的表演指令（「性格优先于灵魂基线」是用户拍板的口径），
+ * 它必须**最靠前**出现；但一个人物多占 20 字，12 人同场就是 240 字，
+ * 所以条数与字数都要硬夹住，不能吃 PERSONA_INJECT_CHAR_BUDGET 的余量。
+ */
+export const PERSONA_INJECT_PERSONALITY_MAX_TAGS = 4
+export const PERSONA_INJECT_PERSONALITY_MAX_CHARS = 20
 /** 双向包含匹配的最小长度：单字称呼（如单姓「林」）会污染匹配，只允许精确相等。 */
 export const PERSONA_MIN_SUBSTRING_MATCH_CHARS = 2
 
@@ -187,6 +197,21 @@ export const PERSONA_RESEARCH_DOCUMENTS = [
   "禁忌与误区",
 ] as const
 
+/**
+ * 不允许删除的大纲文件夹。
+ *
+ * 只有「人物小传」：它是全项目角色的固定容器，删掉等于一次性丢掉所有角色入口，
+ * 而角色档案的真实文件在 `.qmai/persona-skills/`，删文件夹并不会删档案 ——
+ * 于是用户会看到「文件夹没了但技能库还在」，这是最难排查的一类不一致。
+ * 单个角色文件仍可删（那是正常的角色清理），本保护只拦**文件夹**。
+ */
+export const PROTECTED_OUTLINE_FOLDERS = ["人物小传"] as const
+
+export function isProtectedOutlineFolder(folderName: string): boolean {
+  const trimmed = folderName.trim()
+  return (PROTECTED_OUTLINE_FOLDERS as readonly string[]).includes(trimmed)
+}
+
 export const PERSONA_SKILLS_DIR = ".qmai/persona-skills"
 export const PERSONA_SKILL_INDEX_FILE = "index.json"
 export const PERSONA_SKILL_SIGHTINGS_FILE = "sightings.json"
@@ -213,6 +238,27 @@ export interface PersonaSkillMeta {
   editedByUser: boolean
   hasResearch: boolean
   updatedAt: string
+  /**
+   * 建档来源。`manual` = 用户点「新建人物角色」手建；`auto` = 大纲保存时抓取建档。
+   * 删大纲连带删角色时 `manual` 永不连带删除 —— 用户亲手建的东西不能被一次删除带走。
+   */
+  origin: "manual" | "auto"
+  /**
+   * 连接值：引用该角色的大纲文件名（不是路径）。
+   * 判「是否仍被别的大纲引用」只认这份列表，所以它必须持久化、必须去重。
+   */
+  outlineRefs: string[]
+  /**
+   * 冻结点：这份档案停在哪一章。`dormant` 时不再随大纲更新。
+   * `null` 表示还没学到任何章节（手工新建刚建档时就是 null）。
+   */
+  asOfChapter: number | null
+  /**
+   * 随章节自动更新。缺省视为开启（老档案没这个字段，行为不能变）。
+   * 关掉之后，「提取记忆」仍然会记出场次数，但**不再改写正文** ——
+   * 适合已经定稿、不希望 AI 再动的角色。
+   */
+  autoUpdate?: boolean
 }
 
 export interface PersonaSkillIndex {
@@ -237,6 +283,11 @@ export interface PersonaSkillSighting {
 export interface PersonaSkillSightings {
   version: 1
   sightings: PersonaSkillSighting[]
+  /**
+   * 用户手动删除掉的候选人物名。
+   * 必须持久化：候选池是**每章重新数出来**的，没有这份名单，删掉的人下次提取就会回来。
+   */
+  ignored?: string[]
 }
 
 export function isMajorRoleType(roleType: string): boolean {

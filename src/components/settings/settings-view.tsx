@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react"
+import { useCallback, useEffect, useId, useMemo, useState, useSyncExternalStore } from "react"
 import {
   Bot,
   BookOpen,
@@ -21,6 +21,7 @@ import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
 import { useWikiStore, type ModelSettingsTabId } from "@/stores/wiki-store"
 import "@/components/uitest/ui-test-tools.css"
 import { isTauri } from "@/lib/platform"
+import { hasPendingUpdate, subscribeAppUpdateNotice } from "@/lib/app-update-notice"
 import { useChatStore } from "@/stores/chat-store"
 import { saveLanguage, loadNovelConfig, loadRerankConfig } from "@/lib/project-store"
 import type { SettingsDraft, DraftSetter } from "./settings-types"
@@ -312,6 +313,12 @@ export function SettingsView() {
   const setSidebarNavConfig = useWikiStore((s) => s.setSidebarNavConfig)
 
   const [active, setActive] = useState<CategoryId>("model")
+  // 关掉「有更新时自动提醒」的用户，只能从这里知道有新版本。
+  const updateDotVisible = useSyncExternalStore(
+    subscribeAppUpdateNotice,
+    hasPendingUpdate,
+    hasPendingUpdate,
+  )
   const [saved, setSaved] = useState(false)
   const [draft, setDraftState] = useState<SettingsDraft>(() =>
     initialDraft(
@@ -681,7 +688,16 @@ export function SettingsView() {
                   }`}
                 />
                 <span className="flex min-w-0 flex-1 flex-col items-start">
-                  <span className="truncate">{t(c.labelKey, { defaultValue: c.defaultLabel })}</span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">{t(c.labelKey, { defaultValue: c.defaultLabel })}</span>
+                    {c.id === "changelog" && updateDotVisible ? (
+                      <span
+                        data-ui="settings-changelog-update-dot"
+                        aria-label="有新版本可更新"
+                        className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500"
+                      />
+                    ) : null}
+                  </span>
                   {c.hintKey ? (
                     <span className={`truncate text-[0.625rem] leading-tight ${
                       isActive ? "text-sidebar-accent-foreground/70" : "text-sidebar-foreground/55"

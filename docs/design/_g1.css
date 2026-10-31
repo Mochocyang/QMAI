@@ -1,0 +1,211 @@
+/* ===== G1：紧凑顶栏 + 顶部页签 + 五列密排 =====
+   命名统一用 ui-test-g* 前缀，避免与既有类名冲突（上一轮 ui-test-skills-page 撞名导致整页无法滚动）。 */
+
+.ui-test-root .ui-test-gdoc {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  flex: none;
+}
+
+/* 顶栏：一行放完头像、名字、徽章、定位/出场、保存 */
+.ui-test-root .ui-test-gbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  padding: 9px 20px;
+  border-bottom: 1px solid var(--ui-line);
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-gbar-who {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.ui-test-root .ui-test-gbar-who b {
+  font-family: var(--ui-serif, "Songti SC", Georgia, serif);
+  font-size: 1.0625rem;
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+
+.ui-test-root .ui-test-gbar-kv {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  min-width: 0;
+  font-size: 0.72rem;
+  color: var(--ui-muted);
+}
+
+.ui-test-root .ui-test-gbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* 页签 */
+.ui-test-root .ui-test-gtabs {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--ui-line);
+  background: var(--ui-paper);
+  overflow-x: auto;
+}
+
+.ui-test-root .ui-test-gtab {
+  padding: 9px 13px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-gtab:hover {
+  color: var(--ui-ink);
+}
+
+.ui-test-root .ui-test-gtab.is-on {
+  color: var(--ui-ink);
+  border-bottom-color: var(--ui-accent);
+  font-weight: 500;
+}
+
+.ui-test-root .ui-test-gtab .n {
+  margin-left: 5px;
+  font-size: 0.66rem;
+  opacity: .7;
+}
+
+/* 滚动区：只有这里滚，顶栏与页签固定 */
+.ui-test-root .ui-test-gbody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 20px 26px;
+  scrollbar-gutter: stable;
+}
+
+.ui-test-root .ui-test-gbody-inner {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+/* ===== 密排字段 ===== */
+.ui-test-root .ui-test-fgrid {
+  display: grid;
+  gap: 9px 16px;
+}
+
+.ui-test-root .ui-test-fgrid.is-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.ui-test-root .ui-test-fgrid.is-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ui-test-root .ui-test-fgrid.is-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.ui-test-root .ui-test-fitem { min-width: 0; }
+.ui-test-root .ui-test-fitem.is-2 { grid-column: span 2; }
+.ui-test-root .ui-test-fitem.is-3 { grid-column: span 3; }
+.ui-test-root .ui-test-fitem.is-full { grid-column: 1 / -1; }
+
+.ui-test-root .ui-test-fitem > span {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--ui-muted);
+  font-size: 0.66rem;
+  letter-spacing: .03em;
+}
+
+/* 零点击编辑：平时是文字，hover 浮出边框，点上去就能改 */
+.ui-test-root .ui-test-fed {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ui-ink);
+  font: inherit;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  outline: none;
+}
+
+.ui-test-root .ui-test-fed:hover {
+  border-color: var(--ui-line);
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-fed:focus {
+  border-color: var(--ui-accent);
+  background: var(--ui-paper);
+}
+
+.ui-test-root .ui-test-fed[readonly] {
+  color: var(--ui-muted);
+  cursor: default;
+}
+
+.ui-test-root .ui-test-fed[readonly]:hover {
+  border-color: transparent;
+  background: transparent;
+}
+
+.ui-test-root textarea.ui-test-fed {
+  min-height: 52px;
+  resize: vertical;
+  line-height: 1.7;
+}
+
+/* 页内小节标题 */
+.ui-test-root .ui-test-fsec { margin-top: 16px; }
+
+.ui-test-root .ui-test-fsec:first-child { margin-top: 0; }
+
+.ui-test-root .ui-test-fsec > h5 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: var(--ui-accent);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.ui-test-root .ui-test-fsec > h5::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--ui-line);
+}
+
+/* 注入预览之类的只读块 */
+.ui-test-root .ui-test-gnote {
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: var(--ui-panel);
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+  line-height: 1.85;
+}
+
+@media (max-width: 1100px) {
+  .ui-test-root .ui-test-fgrid.is-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ui-test-root .ui-test-fgrid.is-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ui-test-root .ui-test-gbody { padding: 12px 14px 22px; }
+}

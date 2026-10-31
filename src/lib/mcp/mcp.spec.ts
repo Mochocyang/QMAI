@@ -39,7 +39,6 @@ afterEach(() => {
   useWikiStore.setState({
     aiChatModel: "",
     aiWorkflowMode: "standard",
-    aiChatReasoningDepth: "auto",
     defaultLlmModel: "",
     providerConfigs: {},
     novelConfig: { ...DEFAULT_NOVEL_CONFIG },
@@ -281,7 +280,6 @@ describe("writing parameters", () => {
     useWikiStore.setState({
       aiChatModel: "custom/writer-model",
       aiWorkflowMode: "standard",
-      aiChatReasoningDepth: "low",
       defaultLlmModel: "custom/workflow-model",
       providerConfigs,
       llmConfig: baseConfig,
@@ -289,7 +287,8 @@ describe("writing parameters", () => {
     })
     const resolved = resolveWritingParameters({})
     expect(resolved.workflowMode).toBe("standard")
-    expect(resolved.reasoningDepth).toBe("low")
+    // 推理档只从供应商配置来：调用方不传就没有覆盖。
+    expect(resolved.reasoningDepth).toBeNull()
     expect(resolved.agentLlm.model).toBe("workflow-model")
     expect(resolved.chapterWritingLlm.model).toBe("writer-model")
     expect(useWikiStore.getState().aiWorkflowMode).toBe("standard")

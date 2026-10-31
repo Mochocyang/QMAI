@@ -1,7 +1,8 @@
 import { useTranslation } from "react-i18next"
 import { normalizeUserLlmContextSize } from "@/lib/llm-context-size"
 
-const CONTEXT_PRESETS = [
+/** 聊天框悬停弹窗复用同一组档位，两处不能各写一份。 */
+export const CONTEXT_PRESETS = [
   { value: 204800, label: "200K" },
   { value: 262144, label: "256K" },
   { value: 307200, label: "300K" },

@@ -6,14 +6,15 @@ import { isTauri, pickDirectory } from "@/lib/platform"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { openProject, fileExists } from "@/commands/fs"
-import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAiWorkflowMode, loadAiWorkflowModeBeforeDiscuss, loadDefaultLlmModel, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadUiBodyFontFamily, loadUiBodyFontPx, loadUiBodyLineHeight, loadUiBodyLetterSpacing, loadUiBodyMarginX, loadUiBodySafeBottom, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadSearchApiConfig, loadOutlineWorkflowMode, loadAiChatReasoningDepth, loadAiOutlineReasoningDepth } from "@/lib/project-store"
+import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAiWorkflowMode, loadAiWorkflowModeBeforeDiscuss, loadDefaultLlmModel, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadUiBodyFontFamily, loadUiBodyFontPx, loadUiBodyLineHeight, loadUiBodyLetterSpacing, loadUiBodyMarginX, loadUiBodySafeBottom, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadSearchApiConfig, loadOutlineWorkflowMode } from "@/lib/project-store"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
 import { flushAppState } from "@/lib/web-store"
 import { runPreCloseFlushes } from "@/lib/pre-close-flush"
 import { flushPendingChapterSave } from "@/lib/chapter-save-flush"
-import { checkForAppUpdate } from "@/lib/app-updater"
+import { checkForAppUpdate, prefetchAppUpdate } from "@/lib/app-updater"
+import { loadAppUpdateAutoPrompt } from "@/lib/app-update-notice"
 import { initAnalytics } from "@/lib/analytics"
 import { confirmAppQuit } from "@/components/uitest/models/model-draft-guard"
 import { restoreUiTestWorkspace, readUiTestWorkspacePreference } from "@/lib/ui-test-workspace-preferences"
@@ -495,8 +496,6 @@ function App() {
         if (savedOutlineWorkflowMode) {
           useWikiStore.getState().setOutlineWorkflowMode(savedOutlineWorkflowMode)
         }
-        useWikiStore.getState().setAiChatReasoningDepth(await loadAiChatReasoningDepth())
-        useWikiStore.getState().setAiOutlineReasoningDepth(await loadAiOutlineReasoningDepth())
         const savedDefaultLlmModel = await loadDefaultLlmModel()
         if (savedDefaultLlmModel) {
           useWikiStore.getState().setDefaultLlmModel(savedDefaultLlmModel)
@@ -571,7 +570,20 @@ function App() {
         // 已硬编码为 true，且 vite.config.ts 没有对应的构建期替换，套上就是
         // 恒假 —— 调用写了也等于没写，而 tsc 与测试都不会报错。
         // 非 Tauri 环境与非 Windows 平台由 checkForAppUpdate 内部自行返回。
-        void checkForAppUpdate()
+        //
+        // 用户在「设置 → 更新日志」关掉「有更新时自动提醒」后：不再弹窗，
+        // 只在更新日志处亮红点；同时后台把新版本预下载好，用户点安装即可装。
+        const startUpdateCheck = async () => {
+          const autoPrompt = await loadAppUpdateAutoPrompt()
+          if (autoPrompt) {
+            await checkForAppUpdate({ prompt: true })
+            return
+          }
+          // 先记录有没有新版本（红点来源），再静默预下载。
+          await checkForAppUpdate({ prompt: false })
+          void prefetchAppUpdate()
+        }
+        void startUpdateCheck()
 
         // 启动静默上报（/open + 心跳 + 关窗 /close），无 UI，失败不影响使用。
         // 与上面的 checkForAppUpdate 是同一场事故的两个受害者：26f80ee6 删掉了

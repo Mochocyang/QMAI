@@ -1,5 +1,5 @@
 import "@/components/uitest/ui-test-tools.css"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Search } from "lucide-react"
 import { resolveNovelModel } from "@/lib/novel/model-resolver"
 import {
@@ -23,12 +23,17 @@ import {
   updatePersonaSkillIndex,
 } from "@/lib/novel/persona-skill-store"
 import {
+  createPersonaSkillByUser,
   demotePersonaSkillToSighting,
-  promotePersonaSighting,
+  deletePersonaSighting,
+  promotePersonaSightingLocal,
   regeneratePersonaSkillResearch,
   savePersonaSkillProfileByUser,
 } from "@/lib/novel/persona-skill-learning"
+import { removePersonaFromProject } from "@/lib/novel/persona-outline-detach"
 import { useWikiStore } from "@/stores/wiki-store"
+import { PersonaCandidatePreview } from "./persona-candidate-preview"
+import { PersonaPersonalityCreateForm } from "./persona-personality-create-form"
 import { PersonaSkillProfilePanel } from "./persona-skill-profile-panel"
 
 const STATUS_LABELS: Record<PersonaSkillStatus, string> = {
@@ -48,9 +53,23 @@ function sortMeta(a: PersonaSkillMeta, b: PersonaSkillMeta): number {
   return a.characterName.localeCompare(b.characterName, "zh-Hans-CN")
 }
 
-export function PersonaSkillView() {
+
+export interface PersonaSkillViewProps {
+  /**
+   * 中栏面板模式。人物搬回大纲后，左栏已经有「活跃角色 / 候选角色」树，
+   * 面板里再显示旧的整页列表（搜索框 / 状态筛选 / 档案卡墙 / 候选折叠条）
+   * 就是重复且多余的信息 —— 用户明确要求删掉。
+   * 面板模式下没有选中对象时不渲染列表，只给一句空态提示。
+   */
+  paneMode?: boolean
+}
+
+export function PersonaSkillView({ paneMode = false }: PersonaSkillViewProps = {}) {
   const projectPath = useWikiStore((s) => s.project?.path)
   const setDraftDirty = useWikiStore((s) => s.setPersonaSkillLibraryDraftDirty)
+  const bumpPersonaDataVersion = useWikiStore((s) => s.bumpPersonaDataVersion)
+  const setPersonaOutlinePane = useWikiStore((s) => s.setPersonaOutlinePane)
+  const personaOutlinePane = useWikiStore((s) => s.personaOutlinePane)
 
   const [index, setIndex] = useState<PersonaSkillIndex>({ version: 1, skills: [] })
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -65,6 +84,14 @@ export function PersonaSkillView() {
   const [revisionCount, setRevisionCount] = useState(0)
   /** 每次保存成功 +1：让档案面板重置草稿态（只改定位时正文没变，靠 document 变化触发不了）。 */
   const [resetToken, setResetToken] = useState(0)
+  /** 新建角色表单是否展开。由「新建人物角色」菜单置位，也允许用户在列表里自己发起。 */
+  const [creating, setCreating] = useState(false)
+  /** 中栏「候选预览」当前要看谁（C2）。null = 不在预览态。 */
+  const [candidateFocus, setCandidateFocus] = useState<string | null>(null)
+  /** 候选预览找不到数据时的补读守卫：同一名字只重试一次，避免无限重读。 */
+  const candidateReloadTriedRef = useRef<string | null>(null)
+  /** 候选人物默认折叠：9 张候选卡会把页面拉长一倍，先压成一条。 */
+  const [candidatesOpen, setCandidatesOpen] = useState(false)
 
   const reload = useCallback(async () => {
     if (!projectPath) return
@@ -79,6 +106,64 @@ export function PersonaSkillView() {
   useEffect(() => {
     void reload()
   }, [reload])
+
+  /*
+   * 点候选进预览时，索引/候选池可能还没读完（面板刚挂载）。
+   * 找不到就补读一次；只补一次，避免数据真的缺失时反复重读。
+   */
+  useEffect(() => {
+    if (!candidateFocus) {
+      candidateReloadTriedRef.current = null
+      return
+    }
+    if (sightings.some((item) => item.characterName === candidateFocus)) return
+    if (candidateReloadTriedRef.current === candidateFocus) return
+    candidateReloadTriedRef.current = candidateFocus
+    void reload()
+  }, [candidateFocus, sightings, reload])
+
+  /*
+   * 「新建人物角色」菜单点进来时，store 里挂了一个一次性意图。
+   * 读到就立刻清掉：意图只该起一次作用，否则用户关掉表单再切回本页，
+   * 表单会莫名其妙自己又弹出来。
+   */
+  /*
+   * 中栏面板模式：`personaOutlinePane` 说「要看谁 / 要新建」。
+   * 这里只把它翻译成组件内部状态，**不清空它** ——
+   * 它同时是「中栏正在显示人物面板」的持久状态：一旦清成 null，
+   * WritingWorkspace 会立刻把中栏换回 PreviewPanel，面板刚挂载就被卸载，
+   * 用户看到的就是「点角色没有任何反应」（用户实测过）。
+   * 关闭面板由中栏右上角的「关闭」按钮负责。
+   */
+  useEffect(() => {
+    if (!personaOutlinePane) return
+    if (personaOutlinePane.mode === "create") {
+      setSelectedId(null)
+      setCreating(true)
+      setCandidateFocus(null)
+    } else if (personaOutlinePane.mode === "persona") {
+      setSelectedId(personaOutlinePane.id)
+      setCreating(false)
+      setCandidateFocus(null)
+    } else if (personaOutlinePane.mode === "candidate") {
+      // 候选没有档案，但有轻量预览：出场分布 + 章节原句。
+      setSelectedId(null)
+      setCreating(false)
+      setCandidateFocus(personaOutlinePane.name)
+    } else {
+      setSelectedId(null)
+      setCreating(false)
+      setCandidateFocus(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personaOutlinePane])
+
+  useEffect(() => {
+    if (!useWikiStore.getState().personaSkillCreateRequested) return
+    useWikiStore.getState().setPersonaSkillCreateRequested(false)
+    setSelectedId(null)
+    setCreating(true)
+  }, [])
 
   useEffect(() => {
     if (!projectPath || !selectedId) {
@@ -141,17 +226,24 @@ export function PersonaSkillView() {
     if (!projectPath) return
     setBusy(true)
     try {
-      const state = useWikiStore.getState()
-      const ok = await promotePersonaSighting({
+      /*
+       * 建档**不调模型**：用户点一下就该立刻看到结果。
+       * 旧路径要先让模型读章节生成整份档案，模型没配置/超时/返回空时界面什么都不会变，
+       * 用户点完只觉得「这个按钮没用」。内容留给下一次「提取记忆」或用户自己补。
+       */
+      const created = await promotePersonaSightingLocal({
         projectPath,
         characterName: sighting.characterName,
-        llmConfig: resolveNovelModel(state.llmConfig, state.novelConfig, "extract"),
       })
-      if (ok) {
+      if (created) {
+        // 建档成功后别再停在预览卡上：直接打开这份新档案，用户才看得到「确实生效了」。
+        setCandidateFocus(null)
+        setSelectedId(created.id)
         await reload()
-        setMessage(`已把「${sighting.characterName}」建档，并从候选区移到上方档案区。`)
+      bumpPersonaDataVersion()
+        setMessage(`已把「${sighting.characterName}」建档。档案内容会在下次「提取记忆」时自动补齐，也可以自己填。`)
       } else {
-        setMessage(`「${sighting.characterName}」建档失败：模型没有返回可用的内容，可稍后重试。`)
+        setMessage(`「${sighting.characterName}」在建档时找不到了，可能已被别处处理，请刷新后再试。`)
       }
     } catch (err) {
       setMessage(`「${sighting.characterName}」建档失败：${err instanceof Error ? err.message : String(err)}`)
@@ -184,12 +276,121 @@ export function PersonaSkillView() {
       if (ok) {
         if (selectedId === meta.id) handleBack()
         await reload()
+        // 左栏与中栏是两份副本：不 bump，左栏「活跃角色」里还会留着这个人（用户实测）。
+        bumpPersonaDataVersion()
+        // 退回候选后停在候选预览上，也不再落到那套旧列表页。
+        setPersonaOutlinePane({ mode: "candidate", name: meta.characterName })
         setMessage(`已把「${meta.characterName}」退回候选人物。`)
       } else {
         setMessage(`「${meta.characterName}」退回候选失败：没有找到对应的档案。`)
       }
     } catch (err) {
       setMessage(`「${meta.characterName}」退回候选失败：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 删除候选人物。
+   * 同时写进带忽略名单 —— 候选池是每章重新数出来的，只删当下这一条，
+   * 下次「提取记忆」就会把它加回来，删除按钮等于假的。
+   */
+  async function handleDeleteSighting(sighting: PersonaSkillSighting) {
+    if (!projectPath) return
+    const confirmed = window.confirm(
+      `确定删除候选人物「${sighting.characterName}」吗？\n\n之后提取记忆也不会再把它加回候选区（已建档的角色不受影响）。`
+    )
+    if (!confirmed) return
+    setBusy(true)
+    try {
+      const removed = await deletePersonaSighting({
+        projectPath,
+        characterName: sighting.characterName,
+      })
+      await reload()
+      bumpPersonaDataVersion()
+      setMessage(
+        removed
+          ? `已删除候选「${sighting.characterName}」，以后不会再出现在候选区。`
+          : `候选「${sighting.characterName}」已经不在了，请刷新后再试。`
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 标记 / 取消「重要人物」（绿勾）。与左栏右键菜单是同一件事。 */
+  async function handleToggleImportant(meta: PersonaSkillMeta, next: boolean) {
+    if (!projectPath) return
+    setBusy(true)
+    try {
+      await updatePersonaSkillIndex(projectPath, (current) => ({
+        version: 1,
+        skills: current.skills.map((item) =>
+          item.id === meta.id
+            ? {
+                ...item,
+                pinned: next,
+                tier: resolvePersonaTier(item.roleType, next),
+                status: next ? ("active" as const) : item.status,
+                updatedAt: new Date().toISOString(),
+              }
+            : item,
+        ),
+      }))
+      await reload()
+      bumpPersonaDataVersion()
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** 切换「随章节自动更新」。只改索引，不动正文。 */
+  async function handleToggleAutoUpdate(meta: PersonaSkillMeta, next: boolean) {
+    if (!projectPath) return
+    setBusy(true)
+    try {
+      await updatePersonaSkillIndex(projectPath, (current) => ({
+        version: 1,
+        skills: current.skills.map((item) =>
+          item.id === meta.id ? { ...item, autoUpdate: next, updatedAt: new Date().toISOString() } : item,
+        ),
+      }))
+      await reload()
+      bumpPersonaDataVersion()
+      setMessage(
+        next
+          ? `「${meta.characterName}」已开启随章节自动更新。`
+          : `「${meta.characterName}」已关闭自动更新，档案不会再被改写。`
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 删除角色 = 从人物列表移除。
+   * 只动索引，不删磁盘：`.qmai/persona-skills/<名>/` 留着，需要彻底清理时可手工删目录。
+   * 「误删目录」不可逆，所以宁可留文件，也不给一个删了找不回来的按钮。
+   */
+  async function handleDeletePersona(meta: PersonaSkillMeta) {
+    if (!projectPath) return
+    const confirmed = window.confirm(
+      `确定从人物列表删除「${meta.characterName}」吗？\n\n档案文件仍会保留在项目里，不会删盘。`
+    )
+    if (!confirmed) return
+    setBusy(true)
+    try {
+      const removed = await removePersonaFromProject(projectPath, [meta.characterName])
+      setSelectedId(null)
+      await reload()
+      bumpPersonaDataVersion()
+      setMessage(
+        removed.length > 0
+          ? `已从人物列表删除「${meta.characterName}」，档案文件仍保留在项目中。`
+          : `「${meta.characterName}」没有删掉，可能已经不在了。`
+      )
     } finally {
       setBusy(false)
     }
@@ -229,6 +430,41 @@ export function PersonaSkillView() {
       // 目的是拒绝用空索引覆盖整库。这里必须接住并告诉用户，
       // 否则点击只会变成一条无人处理的 Promise 拒绝，界面毫无反应。
       setMessage(`标记没保存成功：${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 新建人物角色。
+   *
+   * 走 createPersonaSkillByUser 而不是 savePersonaSkillProfileByUser：
+   * 后者要求 id 已存在（它是「改档案」），前者才是「建档」。
+   * origin 用默认的 manual —— 这是用户亲手建的，删大纲时不该被连带删掉。
+   */
+  async function handleCreatePersona(input: {
+    characterName: string
+    roleType: string
+    fields: Record<string, string>
+    boundSoul: string
+  }) {
+    if (!projectPath) return
+    setBusy(true)
+    try {
+      const created = await createPersonaSkillByUser({
+        projectPath,
+        characterName: input.characterName,
+        roleType: input.roleType,
+        fields: input.fields,
+        llmConfig: null,
+        boundSoul: input.boundSoul || undefined,
+      })
+      await reload()
+      setCreating(false)
+      setSelectedId(created.id)
+      setMessage(`已创建「${input.characterName}」。之后 AI 只会更新文末的「补充」段，不会覆盖你写的内容。`)
+    } catch (err) {
+      setMessage(`创建失败：${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setBusy(false)
     }
@@ -367,6 +603,56 @@ export function PersonaSkillView() {
     return <div className="ui-test-skills-empty">先打开一本书，再管理人物 Skill。</div>
   }
 
+  /*
+   * 新建模式整页渲染：**不能**和列表挤在一起。
+   * 早先把它放在列表工具栏下面，用户看到的是「搜索框 + 筛选按钮 + 一个巨大表单」
+   * 叠在同一屏，既不知道自己在列表还是在新建，也得滚很久才看到字段。
+   * 与「点开一个角色」同构：进入就是完整一页，返回即回列表。
+   */
+  if (creating) {
+    return (
+      <PersonaPersonalityCreateForm
+        busy={busy}
+        message={message}
+        hasCharacter={hasCharacter}
+        onCancel={() => {
+          setCreating(false)
+          setMessage("")
+        }}
+        onSubmit={(input) => void handleCreatePersona(input)}
+      />
+    )
+  }
+  /*
+   * 候选预览：候选没有档案，但它有出场分布与原句可看。
+   * 找不到对应候选时（例如数据还没读完）也停在面板里，
+   * 不要往下掉进「角色档案」或「整页列表」——那会让点候选看起来像点错了地方。
+   */
+  if (candidateFocus) {
+    const sighting = sightings.find((item) => item.characterName === candidateFocus)
+    return (
+      <div data-testid="persona-skill-view" className="ui-test-skills-gallery ui-test-gdoc">
+        <div className="ui-test-gbody">
+          <div className="ui-test-gbody-inner">
+            {sighting ? (
+              <PersonaCandidatePreview
+                projectPath={projectPath}
+                sighting={sighting}
+                busy={busy}
+                message={message}
+                onPromote={() => void handlePromote(sighting)}
+                onDelete={() => void handleDeleteSighting(sighting)}
+              />
+            ) : (
+              <div className="ui-test-pdoc-empty-pane" data-testid="persona-pane-empty" />
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+
   if (selected) {
     return (
       <PersonaSkillProfilePanel
@@ -385,12 +671,35 @@ export function PersonaSkillView() {
         onRegenerateResearch={() => void handleRegenerateResearch()}
         onOpenCharacter={handleOpenCharacter}
         hasCharacter={hasCharacter}
+        projectPath={projectPath}
+        onDemote={() => void handleDemote(selected)}
+        onToggleImportant={(next) => void handleToggleImportant(selected, next)}
+        onToggleAutoUpdate={(next) => void handleToggleAutoUpdate(selected, next)}
+        onDeletePersona={() => void handleDeletePersona(selected)}
       />
     )
   }
 
+  /*
+   * 面板模式下没有选中对象时不渲染旧的整页列表：左栏已经承担列表职责，
+   * 两处都显示只会让人不知道该看哪个。这里留一块空白，不写指引文案。
+   */
+  if (paneMode) {
+    return (
+      <div data-testid="persona-skill-view" className="ui-test-skills-gallery ui-test-gdoc">
+        <div className="ui-test-gbody">
+          <div className="ui-test-gbody-inner">
+            <div className="ui-test-pdoc-empty-pane" data-testid="persona-pane-empty" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div data-testid="persona-skill-view" className="ui-test-skills-gallery">
+    <div data-testid="persona-skill-view" className="ui-test-skills-gallery ui-test-pdoc">
+      <div className="ui-test-pdoc-scroll">
+        <div className="ui-test-pdoc-inner">
       <div className="ui-test-skills-toolbar">
         <label className="ui-test-skills-search">
           <Search />
@@ -401,6 +710,14 @@ export function PersonaSkillView() {
             placeholder="搜索人物名"
           />
         </label>
+        <button
+          type="button"
+          data-testid="persona-skill-create-toggle"
+          onClick={() => setCreating(true)}
+          className="ui-test-skills-action is-primary"
+        >
+          新建人物角色
+        </button>
         <div className="ui-test-skills-chips">
           {STATUS_ORDER.map((key) => (
             <button
@@ -428,9 +745,9 @@ export function PersonaSkillView() {
       {message ? <span className="ui-test-skills-message">{message}</span> : null}
 
       {analysisOpen ? (
-        <section data-testid="persona-skill-analysis" className="ui-test-skills-candidates">
-          <h4 className="ui-test-skill-card-name">出场频次分析</h4>
-          <p className="ui-test-skills-message">
+        <section data-testid="persona-skill-analysis" className="ui-test-skills-section">
+          <h4 className="ui-test-skills-section-title">出场频次分析</h4>
+          <p className="ui-test-skills-section-hint">
             连续 {PERSONA_DORMANT_GAP_CHAPTERS} 章未出场=潜伏，{PERSONA_ARCHIVED_GAP_CHAPTERS} 章=建议归档
           </p>
           {analysisRows.length === 0 ? (
@@ -450,8 +767,7 @@ export function PersonaSkillView() {
                   </header>
                   <div className="ui-test-skill-card-badges">
                     <span className="ui-test-skill-badge is-type">{TIER_LABELS[meta.tier]}</span>
-                    <span className="ui-test-skill-badge">出场 {meta.appearanceCount} 次</span>
-                    <span className="ui-test-skill-badge">首次第 {meta.firstChapter} 章</span>
+                        <span className="ui-test-skill-badge">首次第 {meta.firstChapter} 章</span>
                     <span className="ui-test-skill-badge">最近第 {meta.lastChapter} 章</span>
                     <span className="ui-test-skill-badge">{STATUS_LABELS[meta.status]}</span>
                     {meta.status === "archived" ? (
@@ -480,9 +796,19 @@ export function PersonaSkillView() {
               className="ui-test-skill-card"
             >
               <header className="ui-test-skill-card-head">
-                <h3 className="ui-test-skill-card-name" title={meta.characterName}>
-                  {meta.characterName}
-                </h3>
+                <div className="ui-test-persona-card-headtext">
+                  <span className="ui-test-persona-card-avatar" aria-hidden="true">
+                    {meta.characterName.slice(0, 1)}
+                  </span>
+                  <div className="ui-test-persona-card-meta">
+                    <h3 className="ui-test-skill-card-name" title={meta.characterName}>
+                      {meta.characterName}
+                    </h3>
+                    <span className="ui-test-persona-card-sub">
+                      出场 {meta.appearanceCount} 次 · 最近第 {meta.lastChapter} 章
+                    </span>
+                  </div>
+                </div>
                 <button
                   type="button"
                   data-testid={`persona-skill-pin-${meta.id}`}
@@ -502,7 +828,11 @@ export function PersonaSkillView() {
                 {meta.hasResearch ? <span className="ui-test-skill-badge">有研究文件</span> : null}
               </div>
               <div className="ui-test-skills-actions">
-                <button type="button" onClick={() => setSelectedId(meta.id)}>
+                <button
+                  type="button"
+                  className="ui-test-skills-action is-primary"
+                  onClick={() => setSelectedId(meta.id)}
+                >
                   打开档案
                 </button>
                 <button
@@ -521,10 +851,32 @@ export function PersonaSkillView() {
         </div>
       )}
 
-      <section data-testid="persona-skill-candidates" className="ui-test-skills-candidates">
-        <h4 className="ui-test-skill-card-name">候选人物（未建档）</h4>
+      <section data-testid="persona-skill-candidates" className="ui-test-skills-section">
+        <div className="ui-test-skills-section-head">
+          <h4 className="ui-test-skills-section-title">候选人物（未建档）</h4>
+          {sightings.length > 0 ? (
+            <button
+              type="button"
+              data-testid="persona-skill-candidates-toggle"
+              className="ui-test-skills-action is-small"
+              aria-expanded={candidatesOpen}
+              onClick={() => setCandidatesOpen((open) => !open)}
+            >
+              {candidatesOpen ? "收起" : `展开 ${sightings.length} 位`}
+            </button>
+          ) : null}
+        </div>
+        <p className="ui-test-skills-section-hint">
+          这些名字在章节里出现过但还没建档。建档后移到上方档案区，可用「移回候选」撤销。
+        </p>
         {sightings.length === 0 ? (
           <p className="ui-test-skills-empty">暂无候选人物</p>
+        ) : !candidatesOpen ? (
+          <div className="ui-test-skills-collapsed">
+            <b>{sightings.length} 位候选</b>
+            <span className="names">{sightings.slice(0, 8).map((s) => s.characterName).join(" · ")}</span>
+            {sightings.length > 8 ? <span className="more">等 {sightings.length} 位</span> : null}
+          </div>
         ) : (
           <div className="ui-test-skills-grid">
             {sightings.map((sighting) => (
@@ -534,9 +886,17 @@ export function PersonaSkillView() {
                 className="ui-test-skill-card"
               >
                 <header className="ui-test-skill-card-head">
-                  <h3 className="ui-test-skill-card-name" title={sighting.characterName}>
-                    {sighting.characterName}
-                  </h3>
+                  <div className="ui-test-persona-card-headtext">
+                    <span className="ui-test-persona-card-avatar" aria-hidden="true">
+                      {sighting.characterName.slice(0, 1)}
+                    </span>
+                    <div className="ui-test-persona-card-meta">
+                      <h3 className="ui-test-skill-card-name" title={sighting.characterName}>
+                        {sighting.characterName}
+                      </h3>
+                      <span className="ui-test-persona-card-sub">候选 · 出场 {sighting.appearanceCount} 章</span>
+                    </div>
+                  </div>
                 </header>
                 <div className="ui-test-skill-card-badges">
                   {sighting.aliases.length > 0 ? (
@@ -555,8 +915,18 @@ export function PersonaSkillView() {
                 <div className="ui-test-skills-actions">
                   <button
                     type="button"
+                    data-testid={`persona-skill-delete-sighting-${sighting.characterName}`}
+                    className="ui-test-skills-action is-danger"
+                    title="从候选区删除，且以后提取记忆不再加回"
+                    onClick={() => void handleDeleteSighting(sighting)}
+                    disabled={busy}
+                  >
+                    删除
+                  </button>
+                  <button
+                    type="button"
                     data-testid={`persona-skill-promote-${sighting.characterName}`}
-                    className="ui-test-skills-action"
+                    className="ui-test-skills-action is-primary"
                     title="建档后这个人会移到上方档案区，并标为重要角色；可用「移回候选」撤销"
                     onClick={() => void handlePromote(sighting)}
                     disabled={busy}
@@ -569,6 +939,8 @@ export function PersonaSkillView() {
           </div>
         )}
       </section>
+        </div>
+      </div>
     </div>
   )
 }

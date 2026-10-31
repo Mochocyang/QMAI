@@ -45,13 +45,15 @@ vi.mock("@/commands/fs", () => ({
 // 视图只需要「重新整理研究文件」「把候选人物建档」「把误建档的人退回候选」三个动作
 // 来自学习模块；整块 mock 掉，免得把 llm-client / Tauri 那串东西拖进 jsdom。
 const learning = vi.hoisted(() => ({
-  promote: vi.fn(async () => true),
+  promoteLocal: vi.fn(async () => ({ id: "小紫" })),
+  deleteSighting: vi.fn(async () => true),
   demote: vi.fn(async () => true),
 }))
 
 vi.mock("@/lib/novel/persona-skill-learning", () => ({
   regeneratePersonaSkillResearch: vi.fn(async () => true),
-  promotePersonaSighting: learning.promote,
+  promotePersonaSightingLocal: learning.promoteLocal,
+  deletePersonaSighting: learning.deleteSighting,
   demotePersonaSkillToSighting: learning.demote,
   /*
    * 保存路径必须**真实跑一遍**：这一组用例要验证的正是「正文与 editedByUser
@@ -140,6 +142,14 @@ function getButton(container: HTMLElement, label: string): HTMLButtonElement | u
   )
 }
 
+/** 自动保存有 800ms 去抖：等它真的写盘。 */
+async function waitForAutosave() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 950))
+  })
+  await flushEffects()
+}
+
 async function click(element: HTMLElement | null) {
   await act(async () => {
     element?.click()
@@ -151,7 +161,8 @@ describe("PersonaSkillView", () => {
   beforeEach(() => {
     io.files.clear()
     io.writes = 0
-    learning.promote.mockClear()
+    learning.promoteLocal.mockClear()
+    learning.deleteSighting.mockClear()
     learning.demote.mockClear()
     // 占锁那条用例若在断言前失败，锁链会留在模块级 locks Map 里，
     // 把后面所有用例一起挂死（报出来的是假失败）。每条都从干净锁表开始。
@@ -219,8 +230,8 @@ describe("PersonaSkillView", () => {
 
     await click(getButton(container, "打开档案") ?? null)
 
-    // 档案面板默认落在「基础设定」：这一格是结构化表单，不再是整篇 Markdown
-    const field = container.querySelector<HTMLTextAreaElement>('[data-testid="persona-field-性格"]')!
+    // E2：全部卡片同页可见，这里取一张普通文本卡验证「表单保存」
+    const field = container.querySelector<HTMLTextAreaElement>('[data-testid="persona-field-背景"]')!
     expect(field).not.toBeNull()
     expect(container.textContent).toContain("势力组织")
 
@@ -230,12 +241,12 @@ describe("PersonaSkillView", () => {
       field.dispatchEvent(new Event("input", { bubbles: true }))
     })
     await flushEffects()
-    expect(container.textContent).toContain("未保存")
+    // 自动保存：不再有「未保存」提示，800ms 后直接写盘
 
-    await click(container.querySelector('[data-testid="persona-profile-save"]'))
+    await waitForAutosave()
 
     const saved = io.files.get(`${project}/.qmai/persona-skills/林清越/SKILL.md`)!
-    expect(saved).toContain("## 性格")
+    expect(saved).toContain("## 背景")
     expect(saved).toContain("沉得住气，不轻易表态。")
     // 既有分区必须原样保留：表单保存是在旧文档上重建，不是从零拼一份
     expect(saved).toContain("## 怎么说话")
@@ -287,15 +298,15 @@ describe("PersonaSkillView", () => {
     expect(container.querySelector<HTMLInputElement>('[data-testid="persona-field-性别"]')!.value).toBe("男")
     expect(container.querySelector<HTMLInputElement>('[data-testid="persona-field-势力组织"]')!.value).toBe("青云会")
 
-    // 语言与行为：5 条演技字段 + AI 追加的「补充」段
-    await click(container.querySelector('[data-testid="persona-profile-tab-act"]'))
+    // 语言与行为卡：5 条演技字段 + AI 追加的「补充」段（E2 下同页可见，无需切页签）
+    await click(container.querySelector('[data-testid="persona-page-act"]'))
     expect(container.querySelector<HTMLTextAreaElement>('[data-testid="persona-field-怎么说话"]')!.value).toBe(
       "句子短。",
     )
     expect(container.textContent).toContain("右肩有旧伤。")
 
     // 关系：把「对象：关系（性质）」拆成一行一条
-    await click(container.querySelector('[data-testid="persona-profile-tab-relation"]'))
+    await click(container.querySelector('[data-testid="persona-page-relation"]'))
     const relations = container.querySelector(".ui-test-persona-relations")!
     expect(relations.textContent).toContain("沈砚")
     expect(relations.textContent).toContain("旧识")
@@ -304,7 +315,7 @@ describe("PersonaSkillView", () => {
     cleanup(root, container)
   })
 
-  it("「当前状态」页签展示提取记忆投影的四段动态内容", async () => {
+  it("「当前状态」卡展示提取记忆投影的四段动态内容", async () => {
     writeIndex([meta()])
     io.files.set(
       `${project}/.qmai/persona-skills/林清越/SKILL.md`,
@@ -336,8 +347,8 @@ describe("PersonaSkillView", () => {
     const { container, root } = await renderView()
 
     await click(getButton(container, "打开档案") ?? null)
-    await click(container.querySelector('[data-testid="persona-profile-tab-status"]'))
 
+    await click(container.querySelector('[data-testid="persona-page-relation"]'))
     expect(
       container.querySelector<HTMLTextAreaElement>('[data-testid="persona-live-当前状态"]')!.value,
     ).toContain("右肩受伤")
@@ -354,15 +365,15 @@ describe("PersonaSkillView", () => {
     cleanup(root, container)
   })
 
-  it("原始 Markdown 页签仍可整篇编辑", async () => {
+  it("原始 Markdown 卡仍可整篇编辑", async () => {
     writeIndex([meta()])
     const docPath = `${project}/.qmai/persona-skills/林清越/SKILL.md`
     io.files.set(docPath, "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n原始内容。\n")
     const { container, root } = await renderView()
 
     await click(getButton(container, "打开档案") ?? null)
-    await click(container.querySelector('[data-testid="persona-profile-tab-raw"]'))
 
+    await click(container.querySelector('[data-testid="persona-page-research"]'))
     const editor = container.querySelector<HTMLTextAreaElement>('[data-testid="persona-skill-editor"]')!
     expect(editor.value).toContain("原始内容。")
 
@@ -372,7 +383,7 @@ describe("PersonaSkillView", () => {
       editor.dispatchEvent(new Event("input", { bubbles: true }))
     })
 
-    await click(container.querySelector('[data-testid="persona-profile-save"]'))
+    await click(container.querySelector('[data-testid="persona-raw-save"]'))
 
     expect(io.files.get(docPath)).toContain("用户改过的内容。")
     expect(readIndex().skills[0].editedByUser).toBe(true)
@@ -421,7 +432,7 @@ describe("PersonaSkillView", () => {
 
     await click(getButton(container, "打开档案") ?? null)
 
-    const field = container.querySelector<HTMLTextAreaElement>('[data-testid="persona-field-性格"]')!
+    const field = container.querySelector<HTMLTextAreaElement>('[data-testid="persona-field-背景"]')!
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set
       setter?.call(field, "用户改过的内容。")
@@ -435,7 +446,7 @@ describe("PersonaSkillView", () => {
       () => new Promise<void>((resolve) => { release = () => resolve() }),
     )
 
-    await click(container.querySelector('[data-testid="persona-profile-save"]'))
+    await waitForAutosave()
 
     // 锁还被占着 —— 正文必须一字未动，证明「写正文」也在锁内。
     // 若实现是「先写正文、再单独取锁改标志」，这里会提前看到用户那句话。
@@ -478,7 +489,7 @@ describe("PersonaSkillView", () => {
     cleanup(root, container)
   })
 
-  it("候选人物区渲染未建档人物，点「建档」调用 promotePersonaSighting", async () => {
+  it("候选人物区渲染未建档人物，点「建档」走本地即时建档（不调模型）", async () => {
     io.files.set(
       `${project}/.qmai/persona-skills/sightings.json`,
       JSON.stringify({
@@ -498,6 +509,8 @@ describe("PersonaSkillView", () => {
     )
     const { container, root } = await renderView()
 
+    // E2 起候选区默认折叠，先展开再断言
+    await click(container.querySelector('[data-testid="persona-skill-candidates-toggle"]'))
     const candidate = container.querySelector<HTMLElement>('[data-testid="persona-skill-candidate-小紫"]')
     expect(candidate).not.toBeNull()
     expect(candidate!.textContent).toContain("小紫")
@@ -510,10 +523,94 @@ describe("PersonaSkillView", () => {
     await click(container.querySelector('[data-testid="persona-skill-promote-小紫"]'))
     await flushEffects()
 
-    expect(learning.promote).toHaveBeenCalledTimes(1)
-    expect(learning.promote).toHaveBeenCalledWith(
+    expect(learning.promoteLocal).toHaveBeenCalledTimes(1)
+    expect(learning.promoteLocal).toHaveBeenCalledWith(
       expect.objectContaining({ projectPath: project, characterName: "小紫" }),
     )
+
+    cleanup(root, container)
+  })
+
+  it("候选人物提供删除，确认后调用 deletePersonaSighting", async () => {
+    writeIndex([])
+    io.files.set(
+      `${project}/.qmai/persona-skills/sightings.json`,
+      JSON.stringify({
+        version: 1,
+        sightings: [
+          {
+            characterName: "小紫",
+            aliases: [],
+            roleType: "",
+            appearanceCount: 2,
+            firstChapter: 1,
+            lastChapter: 2,
+            chapters: [1, 2],
+          },
+        ],
+      }),
+    )
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true)
+    const { container, root } = await renderView()
+
+    // 候选区默认折叠，先展开
+    await click(container.querySelector('[data-testid="persona-skill-candidates-toggle"]'))
+    await click(container.querySelector('[data-testid="persona-skill-delete-sighting-小紫"]'))
+    await flushEffects()
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(learning.deleteSighting).toHaveBeenCalledWith({
+      projectPath: project,
+      characterName: "小紫",
+    })
+
+    confirmSpy.mockRestore()
+    cleanup(root, container)
+  })
+
+  it("H2：三态切换，并排与 MD 都能看到 MD 编辑器", async () => {
+    writeIndex([meta()])
+    io.files.set(
+      `${project}/.qmai/persona-skills/林清越/SKILL.md`,
+      "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n句子短。\n",
+    )
+    const { container, root } = await renderView()
+    await click(getButton(container, "打开档案") ?? null)
+
+    // 默认表格态：没有 MD 编辑器
+    expect(container.querySelector('[data-testid="persona-md-editor"]')).toBeNull()
+
+    await click(container.querySelector('[data-testid="persona-viewmode-split"]'))
+    // MD 现在是「整页文档」视图（无页签、点开即编辑）
+    expect(container.querySelector('[data-testid="persona-doc-view"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="persona-doc-field-怎么说话"]')).not.toBeNull()
+    // 并排时表格仍在同屏
+    expect(container.querySelector('[data-testid="persona-field-性别"]')).not.toBeNull()
+
+    await click(container.querySelector('[data-testid="persona-viewmode-md"]'))
+    expect(container.querySelector('[data-testid="persona-md-editor"]')).not.toBeNull()
+    // 只看 MD 时表格被隐藏
+    expect(container.querySelector('[data-testid="persona-field-性别"]')).toBeNull()
+
+    cleanup(root, container)
+  })
+
+  it("H2：并排时表格与 MD 同屏，且 MD 由字段实时生成", async () => {
+    writeIndex([meta()])
+    io.files.set(
+      `${project}/.qmai/persona-skills/林清越/SKILL.md`,
+      "# 林清越 · 人物 Skill\n\n## 怎么说话\n\n句子短。\n",
+    )
+    const { container, root } = await renderView()
+    await click(getButton(container, "打开档案") ?? null)
+    await click(container.querySelector('[data-testid="persona-viewmode-split"]'))
+
+    // 表格那一半与 MD 那一半同时存在
+    expect(container.querySelector('[data-testid="persona-field-性别"]')).not.toBeNull()
+    expect(container.querySelector('[data-testid="persona-md-editor"]')).not.toBeNull()
+    // 文档里能看到表格里的内容
+    expect(container.querySelector('[data-testid="persona-doc-view"]')!.textContent).toContain("怎么说话")
+    expect(container.querySelector('[data-testid="persona-doc-field-怎么说话"]')!.textContent).toContain("句子短。")
 
     cleanup(root, container)
   })

@@ -28,7 +28,8 @@ export function resolveConfig(
   const rawMaxOutputTokens = normalizeUserLlmMaxOutputTokens(
     ov.maxOutputTokens ?? preset.suggestedMaxOutputTokens ?? fallback.maxOutputTokens,
   )
-  const reasoning = ov.reasoning ?? { mode: "auto" as const }
+  // 「自动」档已取消：没显式配过的供应商一律按默认档「中」。
+  const reasoning = ov.reasoning ?? { mode: "medium" as const }
   const localCliIsolation = ov.localCliIsolation === true
   const functionCallingEnabled = ov.functionCallingEnabled !== false
   const codexCliTimeoutMinutes = resolveCodexCliTimeoutMinutes(ov.codexCliTimeoutMinutes)

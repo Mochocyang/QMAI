@@ -251,7 +251,7 @@ function PresetRow({
   const maxOutputTokens = normalizeUserLlmMaxOutputTokens(
     ov.maxOutputTokens ?? preset.suggestedMaxOutputTokens,
   )
-  const reasoning = ov.reasoning ?? { mode: "auto" as const }
+  const reasoning = ov.reasoning ?? { mode: "medium" as const }
   const localCliIsolation = ov.localCliIsolation === true
   const codexCliTimeoutMinutes = resolveCodexCliTimeoutMinutes(ov.codexCliTimeoutMinutes)
   const codexSpeedMode = resolveCodexSpeedMode(ov.codexSpeedMode)
@@ -709,12 +709,16 @@ export function FunctionCallingControls({
     >
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium">
-          {t("settings.sections.llm.functionCalling.label", "启用 Function Calling")}
+          {t("settings.sections.llm.functionCalling.label", "开启工具调用")}
         </div>
+        {/*
+          这段说明只在设置页出现：聊天框的悬停弹窗空间小，只留开关本体，
+          让用户在那里改设置时不至于被大段文字挤掉档位。
+        */}
         <div className="text-xs text-muted-foreground">
           {t(
             "settings.sections.llm.functionCalling.hint",
-            "关闭后，使用该供应商时请求不携带 tools/tool_choice（含内置工具），用于兼容不支持工具调用的中转或本地模型。",
+            "工具调用：读小说资料、写入章节与大纲、联网搜索等，都是通过调用工具完成的。关闭后，发给该供应商的请求不再携带工具定义，模型只会纯聊天——用于兼容不支持工具调用的中转或本地模型。",
           )}
         </div>
       </div>
@@ -723,7 +727,7 @@ export function FunctionCallingControls({
         onClick={() => onChange(!enabled)}
         role="switch"
         aria-checked={enabled}
-        aria-label={t("settings.sections.llm.functionCalling.label", "启用 Function Calling")}
+        aria-label={t("settings.sections.llm.functionCalling.label", "开启工具调用")}
         className="ml-3 flex shrink-0 items-center gap-2"
       >
         <span
@@ -762,7 +766,6 @@ export function ReasoningControls({
 }) {
   const { t } = useTranslation()
   const modes: { value: ReasoningMode; label: string }[] = [
-    { value: "auto", label: t("settings.sections.llm.reasoning.auto") },
     { value: "off", label: t("settings.sections.llm.reasoning.off") },
     { value: "low", label: t("settings.sections.llm.reasoning.low") },
     { value: "medium", label: t("settings.sections.llm.reasoning.medium") },

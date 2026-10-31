@@ -8,10 +8,17 @@ import {
   isAppAutoUpdateSupported,
 } from "@/lib/app-update-support"
 import {
+  getAppUpdateNoticeSnapshot,
+  setAppUpdateAutoPrompt,
+  subscribeAppUpdateNotice,
+} from "@/lib/app-update-notice"
+import { Switch } from "@/components/ui/switch"
+import {
   checkForChangelogUpdate,
   downloadChangelogUpdate,
   getChangelogUpdateSnapshot,
   installChangelogUpdate,
+  prepareAndInstallPrefetchedUpdate,
   redownloadChangelogUpdate,
   subscribeChangelogUpdateSession,
 } from "@/lib/changelog-update-session"
@@ -34,6 +41,13 @@ export function ChangelogSection() {
     getChangelogUpdateSnapshot,
     getChangelogUpdateSnapshot,
   )
+  const notice = useSyncExternalStore(
+    subscribeAppUpdateNotice,
+    getAppUpdateNoticeSnapshot,
+    getAppUpdateNoticeSnapshot,
+  )
+  const [savingAutoPrompt, setSavingAutoPrompt] = useState(false)
+  const prefetchedPath = notice.prefetch.status === "ready" ? notice.prefetch.path : ""
   const autoUpdateSupported = isAppAutoUpdateSupported()
   const updateStatus = update.status
   const latestVersion = update.latestVersion
@@ -58,6 +72,28 @@ export function ChangelogSection() {
         <p className="mt-1 text-sm text-muted-foreground">
           当前版本：v{__APP_VERSION__}
         </p>
+      </div>
+
+      {/* 有更新时自动提醒：关掉后启动不再弹窗，只在「更新日志」亮红点 */}
+      <div className="flex items-start justify-between gap-4 rounded-lg border border-border p-4">
+        <div>
+          <h3 className="text-sm font-medium">有更新时自动提醒</h3>
+          {notice.autoPrompt ? null : (
+            <p className="mt-1 text-sm text-muted-foreground">
+              不再弹窗打扰。有新版本时会在「更新日志」这里显示红点，新版本会先在后台下载好，你随时可以来安装。
+            </p>
+          )}
+        </div>
+        <Switch
+          checked={notice.autoPrompt}
+          disabled={savingAutoPrompt}
+          onChange={(next) => {
+            setSavingAutoPrompt(true)
+            void setAppUpdateAutoPrompt(next).finally(() => setSavingAutoPrompt(false))
+          }}
+          label="有更新时自动提醒"
+          data-ui="app-update-auto-prompt-switch"
+        />
       </div>
 
       {/* 检查更新区域 */}
@@ -115,6 +151,28 @@ export function ChangelogSection() {
             </a>
           </p>
         )}
+
+        {/* 后台已预下载好：用户可以立即安装，不用再等下载 */}
+        {autoUpdateSupported && prefetchedPath && ["idle", "up-to-date", "error"].includes(updateStatus) ? (
+          <div
+            data-ui="changelog-prefetched-package"
+            className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-900/60 dark:bg-emerald-950/40"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-emerald-900 dark:text-emerald-200">
+                新版本 v{notice.prefetch.version} 已在后台下载完成，现在安装无需等待下载。
+              </p>
+              <button
+                type="button"
+                onClick={() => void prepareAndInstallPrefetchedUpdate()}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+              >
+                <Download className="h-3.5 w-3.5" />
+                立即安装
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         {updateStatus === "available" ? (
           <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/60 dark:bg-amber-950/40">

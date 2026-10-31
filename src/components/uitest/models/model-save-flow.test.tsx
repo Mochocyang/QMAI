@@ -140,7 +140,7 @@ it.each(["openai", "claude-code-cli", "codex-cli"])("提供方%s内的启用类�
   const output = card.querySelector<HTMLInputElement>('input[type="number"]')
   if (output) await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(output, "240"); output.dispatchEvent(new Event("input", { bubbles: true })) })
   const key = id === "openai" ? "functionCallingEnabled" : id === "codex-cli" ? "codexSpeedMode" : "localCliIsolation"
-  const label = id === "openai" ? "启用 Function Calling" : id === "codex-cli" ? "Codex 速度" : "隔离本地 CLI 配置"
+  const label = id === "openai" ? "开启工具调用" : id === "codex-cli" ? "Codex 速度" : "隔离本地 CLI 配置"
   const toggle = [...card.querySelectorAll<HTMLButtonElement>("button")].find(item => item.getAttribute("aria-label")?.includes(label))
   expect(toggle, label).toBeDefined()
   await act(async () => toggle!.click())
@@ -198,7 +198,7 @@ it("收起的自定义配置切换失败时错误提示仍可见", async () => {
 it("自定义工具调用开关不保存密钥草稿，未保存的新配置只落盘开关", async () => {
   await render(<UiTestCustomProviders />)
   await changeInput(host, "API 密钥", "draft-key")
-  await click(host, "启用 Function Calling")
+  await click(host, "开启工具调用")
   expect(useWikiStore.getState().providerConfigs["custom-test"]).toEqual({ ...provider, functionCallingEnabled: false })
   await unmount!(); unmount = undefined
   useWikiStore.setState({ providerConfigs: {} })

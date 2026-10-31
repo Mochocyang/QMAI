@@ -107,15 +107,16 @@ describe("fullWindowViews（整窗视图清单）", () => {
     /*
      * tab 数量变了要有人过一眼：这里至少保证抽到的不是一个空数组。
      *
-     * ⚠️ 5 而不是 6：合并 `fix/character-skill-memory-extract-toast` 时，
-     * **「角色灵魂」tab 被有意删掉**（角色灵魂仍有左侧主导航「灵魂」这个入口，
-     * 技能库里那条是重复的第二条路），tab 清单从 6 条变成 5 条。
-     * 这正是上面那句「要有人过一眼」所指的情形 —— 不是漏项，是主动删项。
-     * 若将来再加回 tab，这个数要跟着加。
+     * ⚠️ 4 而不是 6：两轮**主动删项**，都不是漏项：
+     *   1. `fix/character-skill-memory-extract-toast`：「角色灵魂」tab 被有意删掉
+     *      （角色灵魂仍有左侧主导航「灵魂」入口，技能库里那条是重复的第二条路）；
+     *   2. 「人物 Skill」tab 被有意删掉：人物管理已移到大纲侧
+     *      （目录栏「人物」按钮 + 「新建人物角色」菜单），技能库里不再保留第二条路。
+     * 这正是上面那句「要有人过一眼」所指的情形。若将来再加回 tab，这个数要跟着加。
      */
-    expect(views.length).toBeGreaterThanOrEqual(5)
-    expect(views).toContain("personaSkillLibrary")
-    // 删掉的那条不该再出现在 tab 清单里（防止只改数字、没真删）
+    expect(views.length).toBeGreaterThanOrEqual(4)
+    // 两条删掉的都不该再出现在 tab 清单里（防止只改数字、没真删）
+    expect(views).not.toContain("personaSkillLibrary")
     expect(views).not.toContain("characterSoulLibrary")
 
     const missing = views.filter((view) => !isFullWindowView(view))

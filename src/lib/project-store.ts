@@ -41,7 +41,6 @@ import {
   type AiWorkflowMode,
   type OutlineWorkflowMode,
 } from "@/lib/agent/workflow-mode"
-import { normalizeReasoningDepth, type ReasoningDepth } from "@/lib/reasoning-depth"
 
 const RECENT_PROJECTS_KEY = "recentProjects"
 const LAST_PROJECT_KEY = "lastProject"
@@ -190,8 +189,6 @@ const AI_OUTLINE_MODEL_KEY = "aiOutlineModel"
 const AI_WORKFLOW_MODE_KEY = "aiWorkflowMode"
 const AI_WORKFLOW_MODE_BEFORE_DISCUSS_KEY = "aiWorkflowModeBeforeDiscuss"
 const OUTLINE_WORKFLOW_MODE_KEY = "outlineWorkflowMode"
-const AI_CHAT_REASONING_DEPTH_KEY = "aiChatReasoningDepth"
-const AI_OUTLINE_REASONING_DEPTH_KEY = "aiOutlineReasoningDepth"
 let aiOutlineModelSaveRevision = 0
 let latestAiOutlineModel = ""
 const DEFAULT_LLM_MODEL_KEY = "defaultLlmModel"
@@ -298,50 +295,6 @@ export async function loadOutlineWorkflowMode(): Promise<OutlineWorkflowMode | n
   const store = await getStore()
   const saved = await store.get<unknown>(OUTLINE_WORKFLOW_MODE_KEY)
   return isOutlineWorkflowMode(saved) ? saved : null
-}
-
-/**
- * Serialise writes to one key so a slow earlier write cannot land after a
- * newer value. Dragging the thinking-depth slider fires one save per step
- * and `store.set` is async, so last-writer-wins has to be enforced here —
- * same reason `saveAiOutlineModel` carries its own revision counter.
- */
-function createLatestWinsWriter(key: string): (value: string) => Promise<void> {
-  let revision = 0
-  let latest = ""
-  return async (value: string) => {
-    const writeRevision = ++revision
-    latest = value
-    const store = await getStore()
-    await store.set(key, value)
-
-    let persistedRevision = writeRevision
-    while (persistedRevision !== revision) {
-      persistedRevision = revision
-      await store.set(key, latest)
-    }
-  }
-}
-
-const writeAiChatReasoningDepth = createLatestWinsWriter(AI_CHAT_REASONING_DEPTH_KEY)
-const writeAiOutlineReasoningDepth = createLatestWinsWriter(AI_OUTLINE_REASONING_DEPTH_KEY)
-
-export async function saveAiChatReasoningDepth(depth: ReasoningDepth): Promise<void> {
-  await writeAiChatReasoningDepth(normalizeReasoningDepth(depth))
-}
-
-export async function loadAiChatReasoningDepth(): Promise<ReasoningDepth> {
-  const store = await getStore()
-  return normalizeReasoningDepth(await store.get<unknown>(AI_CHAT_REASONING_DEPTH_KEY))
-}
-
-export async function saveAiOutlineReasoningDepth(depth: ReasoningDepth): Promise<void> {
-  await writeAiOutlineReasoningDepth(normalizeReasoningDepth(depth))
-}
-
-export async function loadAiOutlineReasoningDepth(): Promise<ReasoningDepth> {
-  const store = await getStore()
-  return normalizeReasoningDepth(await store.get<unknown>(AI_OUTLINE_REASONING_DEPTH_KEY))
 }
 
 export async function saveDefaultLlmModel(model: string): Promise<void> {

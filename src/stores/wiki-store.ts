@@ -670,6 +670,17 @@ export function confirmDiscardSkillLibraryDraft(): boolean {
   return window.confirm(SKILL_LIBRARY_UNSAVED_CONFIRM)
 }
 
+/**
+ * 大纲页中间栏要显示哪一块「人物」内容。
+ * 人物从技能库搬回大纲后，新建与查看都发生在中栏，不再跳整页。
+ */
+export type PersonaOutlinePaneFocus =
+  | { mode: "list" }
+  | { mode: "create" }
+  | { mode: "persona"; id: string }
+  | { mode: "candidate"; name: string }
+
+
 interface WikiState {
   project: WikiProject | null
   fileTree: FileNode[]
@@ -719,6 +730,20 @@ interface WikiState {
   /** 技能库「文风 skill」当前选中的文风 id；null = 未选中。 */
   selectedWritingStyleLibraryStyleId: string | null
   personaSkillLibraryDraftDirty: boolean
+  /** 「新建人物角色」的意图标记：读一次即清，用来在大纲里开新建流程。 */
+  personaSkillCreateRequested: boolean
+  /**
+   * 大纲页中间栏当前是否在显示「人物」面板（null = 显示普通文档）。
+   * 人物从技能库搬回大纲后，新建 / 查看档案都发生在中栏，不再跳整页。
+   */
+  personaOutlinePane: PersonaOutlinePaneFocus | null
+  /**
+   * 人物数据的版本号：任何会改变「索引 / 候选池」的操作（标记重要、建档、删除、
+   * 开关自动更新）都要 +1。
+   * 左栏与档案页是两份独立的数据副本 —— 没有这个版本号，在档案里取消绿勾后
+   * 左栏的对号不会消失（用户实测）。
+   */
+  personaDataVersion: number
   selectedReviewDimension: string | null
   selectedReviewFilePath: string
   graphMode: string
@@ -833,6 +858,10 @@ interface WikiState {
   setWritingSkillLibraryDraftDirty: (dirty: boolean) => void
   setSelectedWritingStyleLibraryStyleId: (id: string | null) => void
   setPersonaSkillLibraryDraftDirty: (dirty: boolean) => void
+  setPersonaSkillCreateRequested: (requested: boolean) => void
+  setPersonaOutlinePane: (focus: PersonaOutlinePaneFocus | null) => void
+  /** 通知所有人物视图「数据变了」。 */
+  bumpPersonaDataVersion: () => void
   setSelectedReviewDimension: (dimension: string | null) => void
   setSelectedReviewFilePath: (path: string) => void
   setGraphMode: (mode: string) => void
@@ -921,6 +950,9 @@ export const useWikiStore = create<WikiState>((set) => ({
   writingSkillLibraryDraftDirty: false,
   selectedWritingStyleLibraryStyleId: null,
   personaSkillLibraryDraftDirty: false,
+  personaSkillCreateRequested: false,
+  personaOutlinePane: null,
+  personaDataVersion: 0,
   selectedReviewDimension: null,
   selectedReviewFilePath: "",
   graphMode: "overview",
@@ -1040,6 +1072,11 @@ export const useWikiStore = create<WikiState>((set) => ({
     set({ selectedWritingStyleLibraryStyleId }),
   setPersonaSkillLibraryDraftDirty: (personaSkillLibraryDraftDirty) =>
     set({ personaSkillLibraryDraftDirty }),
+  setPersonaSkillCreateRequested: (personaSkillCreateRequested) =>
+    set({ personaSkillCreateRequested }),
+  setPersonaOutlinePane: (personaOutlinePane) => set({ personaOutlinePane }),
+  bumpPersonaDataVersion: () => set((state) => ({ personaDataVersion: state.personaDataVersion + 1 })),
+
   setSelectedReviewDimension: (selectedReviewDimension) => set({ selectedReviewDimension }),
   setSelectedReviewFilePath: (selectedReviewFilePath) => set({ selectedReviewFilePath }),
   setGraphMode: (graphMode) => set({ graphMode }),

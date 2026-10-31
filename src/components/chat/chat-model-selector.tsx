@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button"
 import { useWikiStore, type SavedModel } from "@/stores/wiki-store"
 import { findLlmPresetById } from "@/components/settings/llm-presets"
 import { getEffectiveSavedModels, isProviderAvailable } from "@/lib/llm-model-keys"
+import {
+  ModelSettingsPopover,
+  getModelSettingsPanelStyle,
+  type ModelSettingsPanelStyle,
+} from "./model-settings-popover"
 
 interface ChatModelSelectorProps {
   value: string
@@ -106,6 +111,13 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
   /** 每次打开只自动定位一次，之后用户怎么滚都不再干预。 */
   const scrolledToSelectionRef = useRef(false)
   const [dropdownStyle, setDropdownStyle] = useState<ChatModelDropdownStyle | null>(null)
+  /** 悬停弹窗：与下拉列表互斥，打开列表时立刻收起。 */
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [panelStyle, setPanelStyle] = useState<ModelSettingsPanelStyle | null>(null)
+  /** 用于「点面板外面才关闭」的命中判断。 */
+  const panelRef = useRef<HTMLDivElement>(null)
+  const openTimerRef = useRef<number | null>(null)
+  const closeTimerRef = useRef<number | null>(null)
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
 
   const modelGroups = useMemo<ModelGroup[]>(() => {
@@ -162,6 +174,136 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
     return null
   }, [value, modelGroups])
 
+  /**
+   * 悬停弹窗要把改动写回哪一家：解析出 `providerId` + `modelId`。
+   * `value` 是 `providerId/modelId`，解析不出对应分组时（例如旧数据只有模型名）就不弹。
+   */
+  const selectedEntry = useMemo(() => {
+    if (!value?.trim()) return null
+    const slashIdx = value.indexOf("/")
+    if (slashIdx > 0) {
+      const providerId = value.slice(0, slashIdx)
+      const modelId = value.slice(slashIdx + 1)
+      const group = modelGroups.find((g) => g.id === providerId)
+      const model = group?.models.find((m) => m.model === modelId)
+      if (group && model) {
+        return { providerId, modelId, title: resolveModelItemLabel(model).title }
+      }
+    }
+    for (const group of modelGroups) {
+      const model = group.models.find((m) => m.model === value)
+      if (model) {
+        return { providerId: group.id, modelId: model.model, title: resolveModelItemLabel(model).title }
+      }
+    }
+    return null
+  }, [value, modelGroups])
+
+  const clearPanelTimers = useCallback(() => {
+    if (openTimerRef.current !== null) {
+      window.clearTimeout(openTimerRef.current)
+      openTimerRef.current = null
+    }
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+  }, [])
+
+  /**
+   * 用户一旦在面板里动过手（点档位、拨开关），就不再因为「鼠标离开」收起。
+   *
+   * 原来的毛病：点一下就关，想连着改「上下文窗口 + 输出上限」得反复把鼠标移回去。
+   * 现在的关闭条件只有三条：点面板外面、点模型按钮、按 Esc。
+   */
+  const panelPinnedRef = useRef(false)
+
+  const closePanel = useCallback(() => {
+    clearPanelTimers()
+    panelPinnedRef.current = false
+    setPanelOpen(false)
+  }, [clearPanelTimers])
+
+  const updatePanelStyle = useCallback(() => {
+    const trigger = triggerRef.current
+    if (!trigger) return
+    setPanelStyle(
+      getModelSettingsPanelStyle(trigger.getBoundingClientRect(), {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      }),
+    )
+  }, [])
+
+  /** 悬停有一小段延迟：鼠标只是路过时不弹，避免面板一直闪。 */
+  const schedulePanelOpen = useCallback(() => {
+    if (panelPinnedRef.current) return
+    clearPanelTimers()
+    openTimerRef.current = window.setTimeout(() => setPanelOpen(true), 140)
+  }, [clearPanelTimers])
+
+  const schedulePanelClose = useCallback(() => {
+    // 用户已经在面板里操作过：不再自动收起，改由「点外面 / 点模型 / Esc」关闭。
+    if (panelPinnedRef.current) return
+    clearPanelTimers()
+    closeTimerRef.current = window.setTimeout(() => setPanelOpen(false), 220)
+  }, [clearPanelTimers])
+
+  /** 鼠标从按钮移到面板上时取消关闭（两者之间有一小段缝）。 */
+  const cancelPanelClose = useCallback(() => {
+    if (closeTimerRef.current !== null) {
+      window.clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+  }, [])
+
+  /** 在面板里按下鼠标：钉住面板，之后可以连续调整多项。 */
+  const pinPanel = useCallback(() => {
+    panelPinnedRef.current = true
+    cancelPanelClose()
+  }, [cancelPanelClose])
+
+  useEffect(() => clearPanelTimers, [clearPanelTimers])
+
+  // 打开模型列表就不再需要悬停弹窗：两者叠在一起会互相挡。
+  useEffect(() => {
+    if (open && panelOpen) closePanel()
+  }, [open, panelOpen, closePanel])
+
+  /**
+   * 点面板外面关闭。
+   *
+   * 捕获阶段监听：即使外部控件自己 stopPropagation 也能收到。
+   * 点在模型按钮上不在这里关——那一下交给按钮自己的 onClick（它要么开列表、要么收起面板）。
+   */
+  useEffect(() => {
+    if (!panelOpen) return
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (panelRef.current?.contains(target)) return
+      if (triggerRef.current?.contains(target)) return
+      closePanel()
+    }
+    window.addEventListener("mousedown", handlePointerDown, true)
+    return () => window.removeEventListener("mousedown", handlePointerDown, true)
+  }, [panelOpen, closePanel])
+
+  useEffect(() => {
+    if (!panelOpen) {
+      setPanelStyle(null)
+      return
+    }
+    updatePanelStyle()
+    const onReposition = () => updatePanelStyle()
+    window.addEventListener("resize", onReposition)
+    window.addEventListener("scroll", onReposition, true)
+    return () => {
+      window.removeEventListener("resize", onReposition)
+      window.removeEventListener("scroll", onReposition, true)
+    }
+  }, [panelOpen, updatePanelStyle])
+
   const updatePosition = useCallback(() => {
     const trigger = triggerRef.current
     if (!trigger) return
@@ -207,13 +349,16 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
   }, [open, updatePosition])
 
   useEffect(() => {
-    if (!open) return
+    if (!open && !panelOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false)
+      if (e.key === "Escape") {
+        setOpen(false)
+        closePanel()
+      }
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [open])
+  }, [open, panelOpen, closePanel])
 
   /**
    * 打开时把当前选中的模型滚到视野里（尽量居中）。
@@ -246,12 +391,32 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
   }
 
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      /*
+        悬停弹窗的三个出口：鼠标进入/离开、键盘聚焦/失焦。
+        鼠标离开时延迟收起（鼠标要穿过按钮与弹窗之间那道缝），
+        移进弹窗由 `cancelPanelClose` 取消；弹窗本身是 portal，所以只能靠计时器接。
+      */
+      onMouseEnter={() => {
+        if (!disabled && selectedEntry && !open) schedulePanelOpen()
+      }}
+      onMouseLeave={schedulePanelClose}
+      onFocus={() => {
+        if (!disabled && selectedEntry && !open) schedulePanelOpen()
+      }}
+      onBlur={schedulePanelClose}
+    >
       <Button
         ref={triggerRef}
         type="button"
         variant="outline"
-        onClick={() => !disabled && setOpen(!open)}
+        onClick={() => {
+          if (disabled) return
+          // 点模型按钮：面板开着就收起来，顺手把列表打开——「点模型即关闭」这条语义。
+          if (panelOpen) closePanel()
+          setOpen(!open)
+        }}
         disabled={disabled}
         className="h-8 w-fit max-w-40 justify-start gap-1 px-2 text-xs"
       >
@@ -260,6 +425,28 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
         </span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
       </Button>
+
+      {/*
+        悬停面板：推理程度 / 上下文窗口 / 输出上限 / 启用 Function Calling。
+        改动即时写回该供应商的配置（与「设置 → 模型设置」同一份数据）。
+
+        关闭条件只有三条：点面板外面、点模型按钮、按 Esc。
+        在面板里点过档位之后，鼠标离开不再自动收起（`pinPanel`），
+        这样能连着改「上下文窗口 → 输出上限 → Function Calling」。
+      */}
+      {!open && panelOpen && panelStyle && selectedEntry && createPortal(
+        <ModelSettingsPopover
+          providerId={selectedEntry.providerId}
+          modelId={selectedEntry.modelId}
+          modelTitle={selectedEntry.title}
+          style={panelStyle}
+          onPointerEnter={cancelPanelClose}
+          onPointerLeave={schedulePanelClose}
+          onPointerDown={pinPanel}
+          panelRef={panelRef}
+        />,
+        document.body,
+      )}
 
       {open && dropdownStyle && createPortal(
         <>

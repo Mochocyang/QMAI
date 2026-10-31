@@ -49,13 +49,26 @@ export function normalizeProviderOverride(override: ProviderOverride): ProviderO
   const maxOutputTokens = override.maxOutputTokens === undefined
     ? undefined
     : normalizeUserLlmMaxOutputTokens(override.maxOutputTokens)
-  if (maxContextSize === override.maxContextSize && maxOutputTokens === override.maxOutputTokens) {
+  /**
+   * 「自动」（auto）档已从界面上取消，改为默认「中」。
+   * 老配置读进来就地迁移，否则它会一直以"什么都不发"的状态留在磁盘上，
+   * 用户在弹窗里根本看不到自己是哪一档。
+   */
+  const reasoning = override.reasoning?.mode === "auto"
+    ? { ...override.reasoning, mode: "medium" as const }
+    : override.reasoning
+  if (
+    maxContextSize === override.maxContextSize &&
+    maxOutputTokens === override.maxOutputTokens &&
+    reasoning === override.reasoning
+  ) {
     return override
   }
   return {
     ...override,
     ...(maxContextSize === undefined ? {} : { maxContextSize }),
     ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+    ...(reasoning === undefined ? {} : { reasoning }),
   }
 }
 

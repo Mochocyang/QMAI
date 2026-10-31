@@ -48,7 +48,7 @@ beforeEach(() => {
   vi.mocked(runNovelPrePluginChain).mockReset().mockResolvedValue({ errors: [], executedPlugins: [] })
   vi.mocked(runAiChatSession).mockReset().mockResolvedValue({ toolCalls: [], roundsUsed: 1, finalText: "完整正文" })
   useWikiStore.setState({
-    project: null, aiChatModel: "custom/writer", aiWorkflowMode: "standard", aiChatReasoningDepth: "auto",
+    project: null, aiChatModel: "custom/writer", aiWorkflowMode: "standard",
     llmConfig: { provider: "custom", model: "writer", apiKey: "test-key", customEndpoint: "https://example.test/v1", ollamaUrl: "", maxContextSize: 8192 },
     novelConfig: { ...DEFAULT_NOVEL_CONFIG, defaultLlmModel: "custom/writer" },
     providerConfigs: { custom: { enabled: true, apiKey: "test-key", savedModels: [{ id: "writer", name: "Writer", model: "writer", createdAt: 1 }] } },

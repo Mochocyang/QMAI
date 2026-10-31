@@ -98,7 +98,7 @@ describe("PersonaSkillEvolutionPanel", () => {
     expect(toggle).not.toBeNull()
     expect(toggle!.getAttribute("role")).toBe("switch")
     expect(toggle!.getAttribute("aria-checked")).toBe("true")
-    expect(host!.textContent).toContain("人物 Skill 自进化")
+    expect(host!.textContent).toContain("人物角色自进化")
     // 说明文字讲清三件事：达尔文式循环、消耗 token、历史版本可回退
     expect(host!.textContent).toContain("达尔文式循环")
     expect(host!.textContent).toContain("消耗 token")

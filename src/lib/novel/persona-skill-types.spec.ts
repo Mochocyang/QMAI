@@ -258,3 +258,24 @@ describe("normalizePersonaName", () => {
     expect(normalizePersonaName("林 清 越")).toBe("林清越")
   })
 })
+
+import {
+  PERSONA_INJECT_PERSONALITY_MAX_CHARS,
+  PERSONA_INJECT_PERSONALITY_MAX_TAGS,
+  PROTECTED_OUTLINE_FOLDERS,
+  isProtectedOutlineFolder,
+} from "./persona-skill-types"
+
+describe("性格注入预算与受保护文件夹", () => {
+  it("性格注入上限符合已拍板口径：单角色 ≤4 条、≤20 字", () => {
+    expect(PERSONA_INJECT_PERSONALITY_MAX_TAGS).toBe(4)
+    expect(PERSONA_INJECT_PERSONALITY_MAX_CHARS).toBe(20)
+  })
+
+  it("人物小传是受保护文件夹，其它默认文件夹不是", () => {
+    expect(PROTECTED_OUTLINE_FOLDERS).toEqual(["人物小传"])
+    expect(isProtectedOutlineFolder("人物小传")).toBe(true)
+    expect(isProtectedOutlineFolder("大纲")).toBe(false)
+    expect(isProtectedOutlineFolder("人物小传/主角")).toBe(false)
+  })
+})

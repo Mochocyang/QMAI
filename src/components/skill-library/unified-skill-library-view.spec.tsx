@@ -424,21 +424,6 @@ describe("UnifiedSkillLibraryView", () => {
     cleanup(root, container)
   })
 
-  it("切到「人物 Skill」tab：写 activeView 并渲染人物页", async () => {
-    const { container, root } = await renderLibrary()
-
-    await act(async () => {
-      getButton(container, "人物 Skill")?.click()
-    })
-    await flushEffects()
-
-    expect(useWikiStore.getState().activeView).toBe("personaSkillLibrary")
-    expect(container.querySelector('[data-testid="persona-skill-view"]')).not.toBeNull()
-    // 人物页没有统一技能库的搜索框，说明确实换了内容区
-    expect(container.querySelector('[data-testid="unified-skill-search-input"]')).toBeNull()
-
-    cleanup(root, container)
-  })
 
   /*
    * === 文风 tab（丁-1）===
@@ -458,7 +443,6 @@ describe("UnifiedSkillLibraryView", () => {
       ["去AI味技能", "true"],
       ["写作 Skill", "false"],
       ["文风 skill", "false"],
-      ["人物 Skill", "false"],
       ["收藏", "false"],
     ])
     // 初始在去AI味 tab
@@ -472,7 +456,6 @@ describe("UnifiedSkillLibraryView", () => {
       ["去AI味技能", "false"],
       ["写作 Skill", "false"],
       ["文风 skill", "true"],
-      ["人物 Skill", "false"],
       ["收藏", "false"],
     ])
     // (b) 列表内容：是文风条目，不是去AI味/写作 Skill 条目
@@ -484,18 +467,6 @@ describe("UnifiedSkillLibraryView", () => {
     cleanup(root, container)
   })
 
-  it("人物 Skill tab 不显示去AI味的「新建技能 / 导入」按钮", async () => {
-    const { container, root } = await renderLibrary()
-
-    await act(async () => {
-      getButton(container, "人物 Skill")?.click()
-    })
-    await flushEffects()
-
-    expect(container.querySelector('[data-testid="skill-library-header-actions"]')).toBeNull()
-
-    cleanup(root, container)
-  })
 
   it("把项目里的文风预设列成条目：类型徽章为「文风」、来源是「引用」、启用项标出「当前启用」", async () => {
     const { container, root } = await renderLibrary()
@@ -834,7 +805,6 @@ describe("UnifiedSkillLibraryView", () => {
     expect(resolveActiveTab("writingStyleLibrary")).toBe("writingStyleLibrary")
     // 合并说明：`main` 的人物 Skill 视图也必须由这张显式 Record 承载，
     // 漏掉它就会落进 `isSkillLibraryTab` 的抛错分支（点开人物 Skill 直接崩）。
-    expect(resolveActiveTab("personaSkillLibrary")).toBe("personaSkillLibrary")
     expect(resolveActiveTab("skillFavorites")).toBe("skillFavorites")
 
     expect(() => resolveActiveTab("soul")).toThrow(/非技能库的 activeView/)
@@ -903,50 +873,17 @@ describe("UnifiedSkillLibraryView", () => {
  * 改名成「文风 skill」并换成完整编辑器，面板在合并时按用户要求保留，
  * 所以断言用的是 `WRITING_STYLE_TAB`。
  */
-describe("文风 tab 的自进化入口", () => {
-  it("切到「文风 skill」tab 能看到开关，默认关闭", async () => {
+/*
+ * 「文风自进化」开关已按用户要求**搬到写作设置**（与人物角色自进化放在一起）。
+ * 技能库里不再出现它 —— 两个自进化分处两个页面时，用户得记「哪个开关在哪」。
+ */
+describe("文风自进化入口已移出技能库", () => {
+  it("「文风 skill」tab 里不再有自进化开关", async () => {
     const { container, root } = await renderLibrary()
     await switchToTab(container, WRITING_STYLE_TAB)
-
-    expect(container.querySelector('[data-testid="style-evolution-panel"]')).not.toBeNull()
-    // 默认关闭：数据文件不存在时退化成 emptyState()，而不是让整页崩掉
-    expect(
-      container.querySelector('[data-testid="style-evolution-toggle"]')?.getAttribute("aria-checked"),
-    ).toBe("false")
-    /*
-     * 进度统计 / 上一轮结论 / 候选按钮 / 轮次历史都按用户要求去掉了。
-     * 这条断言是**需求**：只留一块说明 + 一个开关。
-     */
-    for (const id of [
-      "style-evolution-remaining",
-      "style-evolution-days",
-      "style-evolution-threshold",
-      "style-evolution-baseline",
-      "style-evolution-conclusion",
-      "style-evolution-candidate",
-      "style-evolution-round-1",
-    ]) {
-      expect(container.querySelector(`[data-testid="${id}"]`), `${id} 不该出现`).toBeNull()
-    }
-
-    cleanup(root, container)
-  })
-
-  it("开关面板只属于「文风 skill」tab，别处不出现", async () => {
-    const { container, root } = await renderLibrary()
-    await switchToTab(container, "去AI味技能")
     expect(container.querySelector('[data-testid="style-evolution-panel"]')).toBeNull()
-
-    await switchToTab(container, WRITING_STYLE_TAB)
-    expect(container.querySelector('[data-testid="style-evolution-panel"]')).not.toBeNull()
-    /*
-     * 面板与画廊并存：文风预设本身照旧列在下面。
-     *
-     * ⚠️ 条目 id 的前缀是 `style:`（如 `style:preset:cool`），**不是**
-     * `writingStyle`（那是视图名/库名）。按库名去断言会恒为 false。
-     */
+    // 文风预设本身照旧列着（模块没被搬空，只搬了开关）
     expect(entryIds(container).some((id) => id.startsWith("style:"))).toBe(true)
-
     cleanup(root, container)
   })
 })

@@ -1,4 +1,5 @@
 import { PreviewPanel } from "@/components/layout/preview-panel"
+import { PersonaPane } from "@/components/skill-library/persona-pane"
 import { OutlineChatPanel } from "@/components/sources/outline-chat-panel"
 import { useOutlineGenerationStore } from "@/stores/outline-generation-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -16,6 +17,8 @@ function getInitialOutlineChatWidth(): string | number {
 export function OutlineWorkbench() {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const project = useWikiStore((s) => s.project)
+  /** 人物面板开着时，中栏显示人物而不是文档。 */
+  const personaPane = useWikiStore((s) => s.personaOutlinePane)
   const outlineChatOpen = useOutlineGenerationStore((s) => s.panelOpen)
   const setOutlineChatOpen = useOutlineGenerationStore((s) => s.setPanelOpen)
   const [outlineChatWidth, setOutlineChatWidth] = useState<string | number>(() => getInitialOutlineChatWidth())
@@ -82,7 +85,7 @@ export function OutlineWorkbench() {
       data-testid="outline-workbench"
     >
       <div className="h-full min-w-0 flex-1 overflow-hidden" data-testid="outline-editor-pane">
-        <PreviewPanel />
+        {personaPane ? <PersonaPane /> : <PreviewPanel />}
       </div>
 
       {outlineChatOpen ? (

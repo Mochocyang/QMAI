@@ -1,0 +1,119 @@
+/* ===== 人物档案顶栏：单行布局（此前会被挤成一字一行） =====
+   病根：`.ui-test-gbar` 是 flex 但没禁止换行，里面的元信息段落又没有
+   `min-width: 0` 与 `nowrap`，空间不够时每个字单独折行 ——
+   中屏下「未标注定位」「出场 18 次」会竖排成一列，整条顶栏彻底散架。 */
+.ui-test-root .ui-test-gbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  padding: 8px 14px 8px 18px;
+  border-bottom: 1px solid var(--ui-line);
+  background: var(--ui-paper);
+  overflow: hidden;
+}
+
+/* 左：头像 + 名字 + 徽章，永不被压扁 */
+.ui-test-root .ui-test-gbar-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 0;
+  max-width: 40%;
+  overflow: hidden;
+}
+
+.ui-test-root .ui-test-gbar-who b {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.ui-test-root .ui-test-gbar-who .ui-test-skill-badge {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* 中：定位 / 组织 / 出场 / 章节 —— 单行，超长省略（不换行） */
+.ui-test-root .ui-test-gbar-kv {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.75rem;
+  color: var(--ui-muted);
+  white-space: nowrap;
+}
+
+.ui-test-root .ui-test-gbar-kv > span {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* 中间那段（势力组织之类）允许被截断，其它保持完整 */
+.ui-test-root .ui-test-gbar-kv > span.is-grow {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 右：关闭 / 列表 / 状态 / 保存，永不被压扁 */
+.ui-test-root .ui-test-gbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.ui-test-root .ui-test-gbar-right > * {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.ui-test-root .ui-test-gbar-back.ui-test-skills-back {
+  white-space: nowrap;
+}
+
+/* 分段控（表格 / 并排 / MD）不被压扁 */
+.ui-test-root .ui-test-gbar .ui-test-viewseg {
+  flex-shrink: 0;
+  margin-left: 0;
+}
+
+/* 关闭按钮：普通 flex 项，不再绝对定位压住保存 */
+.ui-test-root .ui-test-gbar-close {
+  padding: 4px 10px;
+  border: 1px solid var(--ui-line);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ui-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ui-test-root .ui-test-gbar-close:hover {
+  border-color: color-mix(in srgb, var(--ui-accent) 42%, var(--ui-line));
+  color: var(--ui-ink);
+}
+
+/* 窄屏降级：先收掉元信息，再收掉徽章 —— 保证名字与操作永远在 */
+@media (max-width: 1180px) {
+  .ui-test-root .ui-test-gbar-kv {
+    display: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .ui-test-root .ui-test-gbar-who .ui-test-skill-badge {
+    display: none;
+  }
+  .ui-test-root .ui-test-gbar-back.ui-test-skills-back {
+    display: none;
+  }
+}

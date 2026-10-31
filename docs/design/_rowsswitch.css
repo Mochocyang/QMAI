@@ -1,0 +1,48 @@
+/* 一行一条的字段（语言与行为）：标签在上、文本占满整行 */
+.ui-test-root .ui-test-frows {
+  display: grid;
+  gap: 10px;
+}
+
+.ui-test-root .ui-test-fitem.is-row {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.ui-test-root .ui-test-fitem.is-row > span {
+  margin: 0;
+  padding-top: 7px;
+}
+
+.ui-test-root .ui-test-fitem.is-row textarea.ui-test-fed {
+  min-height: 58px;
+}
+
+/* 开关 */
+.ui-test-root .ui-test-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ui-test-root .ui-test-switch input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--ui-accent);
+  cursor: pointer;
+}
+
+/* 危险操作按钮 */
+.ui-test-root .ui-test-skills-action.is-danger {
+  border-color: color-mix(in srgb, var(--ui-danger) 42%, var(--ui-line));
+  color: var(--ui-danger);
+}
+
+.ui-test-root .ui-test-skills-action.is-danger:hover {
+  background: color-mix(in srgb, var(--ui-danger) 8%, transparent);
+}
