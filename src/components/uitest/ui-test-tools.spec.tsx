@@ -332,7 +332,11 @@ describe("真实模型列表的测试版分组", () => {
     await act(async () => { addProvider.click() })
     const panel = container.querySelector<HTMLElement>("[data-ui='llm-library']")!
     expect(panel?.hidden).toBe(false)
-    for (const preset of LLM_PRESETS.filter((preset) => preset.id !== "custom")) expect(panel.textContent).toContain(preset.label)
+    // 青幕内置模型不是"可添加的提供方"：它由登录态自动登记，只在对话框的模型下拉里出现，
+    // 不进「我的模型配置」也不进「添加提供方」网格。
+    const selectablePresets = LLM_PRESETS.filter((preset) => preset.id !== "custom" && preset.id !== "qmai-builtin")
+    for (const preset of selectablePresets) expect(panel.textContent).toContain(preset.label)
+    expect(panel.textContent).not.toContain("青幕内置模型")
     expect(panel.textContent).toContain("官方 Claude API")
     expect(panel.textContent).not.toContain("Uses the local")
     expect(modelIo.connection).not.toHaveBeenCalled()
