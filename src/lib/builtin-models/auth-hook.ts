@@ -61,6 +61,24 @@ export function applyBuiltinAuth(config: LlmConfig): BuiltinAuthResult {
   return withBuiltinAuth(config, sessionGetter())
 }
 
+/**
+ * 设备指纹的同步快照。
+ *
+ * 网关要求每个请求带 \`X-Device-Id\` 且与卡里的 dev 一致，否则 403。
+ * 但读指纹是异步的（要 invoke Tauri），而 header 构建是同步的 ——
+ * 所以在应用启动时预热一次，这里只读缓存值。
+ */
+let deviceIdSnapshot: string | null = null
+
+export function setDeviceIdSnapshot(value: string | null): void {
+  deviceIdSnapshot = value
+}
+
+/** 给内置中转站请求加设备头；没有指纹时返回空对象（旧环境不拦）。 */
+export function deviceIdHeader(): Record<string, string> {
+  return deviceIdSnapshot ? { "X-Device-Id": deviceIdSnapshot } : {}
+}
+
 /** 内置模型现在是否可用（已登录 + 有卡 + 已指向中转站）。 */
 export function isBuiltinReady(config: LlmConfig): boolean {
   return isBuiltinRelayEndpoint(config.customEndpoint) && netcardOf(sessionGetter()) !== null

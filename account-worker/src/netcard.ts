@@ -60,6 +60,14 @@ export interface NetCardClaims {
   sub: string
   /** sessions 表里的会话 id —— 网关用它对吊销。 */
   sid: string
+  /**
+   * 设备指纹摘要（32 位十六进制）。
+   *
+   * 网关校验时必须与请求头 X-Device-Id 一致，否则 403。
+   * 这样卡被复制到别的机器就立刻失效 —— 反代理、抄卡、扒包都挡在这一层。
+   * 老卡没有这个字段，网关按「首次校验时补绑」处理（见 gateway 的 auth.ts）。
+   */
+  dev?: string
   iat: number
   exp: number
 }
@@ -75,6 +83,8 @@ export async function signNetCard(
   userId: number,
   sessionId: string,
   nowSeconds: number,
+  /** 设备指纹摘要；有值时写进卡里做设备绑定。 */
+  deviceHash?: string | null,
 ): Promise<{ token: string; issuedAt: number }> {
   const privateKeyPkcs8 = env.NETCARD_PRIVATE_KEY
   if (!privateKeyPkcs8) throw new Error("NETCARD_PRIVATE_KEY is not configured")
@@ -94,6 +104,8 @@ export async function signNetCard(
     sid: sessionId,
     iat: nowSeconds,
     exp: nowSeconds + NET_CARD_EXP_SECONDS,
+    // 只在格式正确时写入，避免把脏数据签进卡里（签出去就收不回）。
+    ...(deviceHash && /^[0-9a-f]{32}$/.test(deviceHash) ? { dev: deviceHash } : {}),
   }
 
   const data = `${base64UrlEncodeString(JSON.stringify(header))}.${base64UrlEncodeString(JSON.stringify(claims))}`

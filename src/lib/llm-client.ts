@@ -22,7 +22,7 @@ import {
 import { resolveRuntimeLocalCliConfig } from "./local-cli-config"
 import { ensureCursorProxyRunning, withCursorProxyEndpoint } from "./cursor-cli-proxy"
 // 内置模型：网关卡在请求时注入，不写进 provider 配置。
-import { applyBuiltinAuth } from "./builtin-models/auth-hook"
+import { applyBuiltinAuth, deviceIdHeader } from "./builtin-models/auth-hook"
 import { isBuiltinRelayEndpoint } from "./builtin-models/netcard"
 import {
   estimateChatMessagesTokens,
@@ -441,7 +441,9 @@ async function streamChatHeld(
 
   // 内置模型：网关卡不写进 provider 配置（那是"会过期的死值"的根源），
   // 改成每次发请求前从当前登录态现取，覆盖 apiKey。
-  if (isBuiltinRelayEndpoint(runtimeConfig.customEndpoint)) {
+  // 同时记下"这次走的是内置中转站"，稍后要补一个设备头。
+  const useBuiltinRelay = isBuiltinRelayEndpoint(runtimeConfig.customEndpoint)
+  if (useBuiltinRelay) {
     const injected = applyBuiltinAuth(runtimeConfig)
     if (injected.injected) runtimeConfig = injected.config
   }
@@ -511,7 +513,11 @@ async function streamChatHeld(
       overrides: RequestOverrides = effectiveRequestOverrides,
     ): RequestInit => ({
       method: "POST",
-      headers: providerConfig.headers,
+      // 走内置中转站时补一个设备头：网关用它校验「这张卡是不是在这台机器上」。
+      // 卡被复制到别的机器时，指纹对不上，直接 403。
+      headers: useBuiltinRelay
+        ? { ...providerConfig.headers, ...deviceIdHeader() }
+        : providerConfig.headers,
       body: JSON.stringify(providerConfig.buildBody(nextMessages, overrides)),
       signal: combinedSignal,
     })

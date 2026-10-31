@@ -13,7 +13,8 @@
  */
 
 import { useAccountStore } from "@/stores/account-store"
-import { setBuiltinSessionGetter } from "./auth-hook"
+import { setBuiltinSessionGetter, setDeviceIdSnapshot } from "./auth-hook"
+import { getDeviceFingerprint } from "@/lib/account/device"
 
 let wired = false
 let bootSynced = false
@@ -22,6 +23,11 @@ export function wireBuiltinAuth(): void {
   if (wired) return
   wired = true
   setBuiltinSessionGetter(() => useAccountStore.getState().session)
+
+  // 预热设备指纹：请求期要同步读它给 header 用，不能每次都 await。
+  void getDeviceFingerprint()
+    .then((value) => setDeviceIdSnapshot(value))
+    .catch(() => setDeviceIdSnapshot(null))
 
   // 启动补登记：等 store 恢复完会话再跑（bootstrap 可能要几百毫秒）。
   // 用轮询而不是订阅，因为 bootstrap 结束没有明确事件；

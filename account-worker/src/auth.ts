@@ -282,6 +282,8 @@ async function issueAuthPayload(
   user: UserRow,
   now: number,
   deviceLabel: string | null,
+  /** 设备指纹摘要：写进网关卡做设备绑定，卡复制到别的机器就失效。 */
+  deviceHash?: string | null,
 ): Promise<AuthPayload> {
   const refreshToken = generateRefreshToken()
   const refreshTokenHash = await hashRefreshToken(refreshToken)
@@ -309,7 +311,7 @@ async function issueAuthPayload(
 
   // 网关卡：与这次登录的 session 绑定，**长期有效**，供自建中转站验签。
   // 签名失败（缺私钥）时给 null —— 不影响登录本身，客户端会提示"内置模型未开通"。
-  const netcard = await signNetCard(env, user.id, session.id, now).then(
+  const netcard = await signNetCard(env, user.id, session.id, now, deviceHash).then(
     (signed) => signed.token,
     () => null,
   )
@@ -468,7 +470,7 @@ export async function handleRegister(
     await bindDevice(env.DB, deviceHash, user.id, now)
   }
 
-  const payload = await issueAuthPayload(env, user, now, normalizeDeviceLabel(parsed.body.deviceLabel))
+  const payload = await issueAuthPayload(env, user, now, normalizeDeviceLabel(parsed.body.deviceLabel), isValidDeviceHash(parsed.body.deviceHash) ? parsed.body.deviceHash : null)
   logEvent("register_ok", { userId: user.id })
   return jsonSuccess(payload)
 }
@@ -559,7 +561,20 @@ export async function handleLogin(
   if (!user) return failure("INVALID_CREDENTIALS")
   if (user.status !== "active") return failure("ACCOUNT_DISABLED")
 
-  const payload = await issueAuthPayload(env, user, now, normalizeDeviceLabel(parsed.body.deviceLabel))
+  // 登录时把设备指纹签进网关卡：卡从此只能在这台机器上用。
+  // 同时把设备写进 device_accounts（登录也计数，防止"注册时绕过、登录时补票"）。
+  const loginDeviceHash = isValidDeviceHash(parsed.body.deviceHash) ? parsed.body.deviceHash : null
+  if (loginDeviceHash) {
+    await bindDevice(env.DB, loginDeviceHash, user.id, now)
+  }
+
+  const payload = await issueAuthPayload(
+    env,
+    user,
+    now,
+    normalizeDeviceLabel(parsed.body.deviceLabel),
+    loginDeviceHash,
+  )
   logEvent("login_ok", { userId: user.id })
   return jsonSuccess(payload)
 }
@@ -628,7 +643,7 @@ export async function handleRefresh(
     // 签发失败（未配私钥）不影响续期本身：卡为 null，登录态照常可用。
     let netcard: string | null = null
     try {
-      const signed = await signNetCard(env, user.id, session.id, now)
+      const signed = await signNetCard(env, user.id, session.id, now, isValidDeviceHash(parsed.body.deviceHash) ? parsed.body.deviceHash : null)
       netcard = signed.token
     } catch (error) {
       console.error("[account] refresh_netcard_failed", {

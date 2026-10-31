@@ -17,6 +17,7 @@ import { jsonSuccess, failure } from "./http"
 import { signNetCard } from "./netcard"
 import { findSessionByTokenHash } from "./db"
 import { hashRefreshToken } from "./crypto"
+import { isValidDeviceHash } from "./device"
 import type { Env } from "./types"
 
 /** POST /v1/netcard —— 用 accessToken + refreshToken 换一张长期网关卡。 */
@@ -28,9 +29,9 @@ export async function handleIssueNetCard(
   const auth = await authenticate(request, env, now)
   if (!auth.ok) return auth.response
 
-  let body: { refreshToken?: unknown } = {}
+  let body: { refreshToken?: unknown; deviceHash?: unknown } = {}
   try {
-    body = (await request.clone().json()) as { refreshToken?: unknown }
+    body = (await request.clone().json()) as { refreshToken?: unknown; deviceHash?: unknown }
   } catch {
     body = {}
   }
@@ -46,7 +47,7 @@ export async function handleIssueNetCard(
   if (session.expires_at <= now) return failure("INVALID_REFRESH")
 
   try {
-    const signed = await signNetCard(env, auth.user.id, session.id, now)
+    const signed = await signNetCard(env, auth.user.id, session.id, now, isValidDeviceHash(body.deviceHash) ? body.deviceHash : null)
     return jsonSuccess({ netcard: signed.token })
   } catch {
     return failure("SERVER_ERROR", "网关卡尚未配置，请联系管理员。")
