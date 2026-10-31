@@ -27,7 +27,6 @@ import type { SettingsDraft, DraftSetter } from "./settings-types"
 import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
 import type { BodyFontFamily, UiFontFamily } from "@/lib/font-settings"
 import { LlmProviderSection } from "./sections/llm-provider-section"
-import { BuiltinModelSection } from "./sections/builtin-model-section"
 import { DefaultModelSettingsPanel } from "./sections/default-model-settings-panel"
 import { UiTestEmbeddingModels, UiTestRerankModels } from "@/components/uitest/models/retrieval-models"
 import { confirmModelDraftLeave } from "@/components/uitest/models/model-draft-guard"
@@ -110,7 +109,6 @@ const CATEGORIES_WITH_SAVE_FOOTER: CategoryId[] = [
 ]
 
 const UI_TEST_MODEL_TABS: Array<{ id: ModelSettingsTabId; label: string }> = [
-  { id: "builtin", label: "内置模型" },
   { id: "default", label: "默认模型" },
   { id: "llm", label: "大语言模型" },
   { id: "rerank", label: "重排模型" },
@@ -170,12 +168,11 @@ export function UiTestModelSettingsSection({ draft, setDraft }: { draft: Setting
             </button>
           ))}
         </div>
-        {/* 三个要自己填密钥/地址的页签才挂教程；「默认模型」「内置模型」不涉及，不摆链接。 */}
-        {active !== "default" && active !== "builtin" && <ModelTutorialLink />}
+        {/* 三个要自己填密钥/地址的页签才挂教程；「默认模型」不涉及，不摆链接。 */}
+        {active !== "default" && <ModelTutorialLink />}
       </div>
       {UI_TEST_MODEL_TABS.map((tab) => (
         <div key={tab.id} id={`${id}-${tab.id}-panel`} role="tabpanel" aria-labelledby={`${id}-${tab.id}`} hidden={active !== tab.id} data-ui="settings-model-panel" data-ui-model={tab.id}>
-          {visited.has(tab.id) && tab.id === "builtin" && <BuiltinModelSection />}
           {visited.has(tab.id) && tab.id === "llm" && <LlmProviderSection />}
           {visited.has(tab.id) && tab.id === "default" && <DefaultModelSettingsPanel draft={draft} setDraft={setDraft} />}
           {visited.has(tab.id) && tab.id === "rerank" && <UiTestRerankModels key={project?.id ?? "global"} />}

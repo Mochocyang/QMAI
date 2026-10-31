@@ -86,13 +86,14 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
     // 用户没开通时也能看到这张卡，但提示词会说明无需自己申请密钥。
     id: "qmai-builtin",
     label: "青幕内置模型",
-    hint: "登录青幕账号后一键启用，无需自己申请密钥",
+    hint: "登录青幕账号后自动出现在模型列表里，无需自己申请密钥",
     provider: "custom",
     baseUrl: `${DEFAULT_RELAY_URL}/v1`,
     apiMode: "chat_completions",
     // 只是占位建议；真正可用的模型由中转站按账号权限返回，
-    // 登录后在「内置模型」页拉取勾选即可。上游真实模型由中转站路由，客户端不感知。
-    suggestedModels: ["qmai-standard", "qmai-long", "qmai-fast"],
+    // 登录后自动写入 providerConfigs，模型直接出现在各个对话框的模型下拉里。
+    // 上游真实模型由中转站路由，客户端不感知。
+    suggestedModels: ["qmai-deepseek-v41", "qmai-glm-53", "qmai-kimi-k3"],
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {

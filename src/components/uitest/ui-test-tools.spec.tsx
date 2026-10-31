@@ -58,7 +58,6 @@ vi.mock("@/components/settings/sections/llm-provider-section", async (importOrig
   LlmProviderSection: () => <div data-capability="llm" />,
 }))
 vi.mock("@/components/settings/sections/default-model-settings-panel", () => ({ DefaultModelSettingsPanel: () => <div data-capability="default" /> }))
-vi.mock("@/components/settings/sections/builtin-model-section", () => ({ BuiltinModelSection: () => <div data-capability="builtin" /> }))
 vi.mock("@/components/settings/sections/embedding-section", () => ({ EmbeddingSection: () => <div data-capability="embedding" /> }))
 vi.mock("@/components/settings/sections/rerank-section", () => ({ RerankSection: () => <div data-capability="rerank" /> }))
 vi.mock("./models/retrieval-models", () => ({ UiTestEmbeddingModels: () => <div data-capability="embedding" />, UiTestRerankModels: () => <div data-capability="rerank" /> }))
@@ -165,20 +164,21 @@ describe("测试版设置布局与正式版隔离", () => {
     expect(container.querySelector('[data-capability="interface"]')).not.toBeNull()
   })
 
-  it("五个模型页签保留能力入口、深链、键盘切换及选中语义", async () => {
+  it("四个模型页签保留能力入口、深链、键盘切换及选中语义", async () => {
     useWikiStore.setState({ activeModelSettingsTab: "embedding" })
     await render(<SettingsView />)
     expect(container.querySelector('[data-capability="embedding"]')).not.toBeNull()
-    expect(container.querySelectorAll('[role="tablist"] [role="tab"]')).toHaveLength(5)
-    for (const id of ["builtin", "default", "llm", "rerank", "embedding"]) {
+    // 「内置模型」页签已移除：模型登录后直接出现在各对话框的下拉里，不再需要单独配置页。
+    expect(container.querySelectorAll('[role="tablist"] [role="tab"]')).toHaveLength(4)
+    for (const id of ["default", "llm", "rerank", "embedding"]) {
       await click(`[data-ui-model-tab="${id}"]`)
       expect(container.querySelector(`[data-capability="${id}"]`)).not.toBeNull()
       expect(container.querySelectorAll('[role="tab"][aria-selected="true"]')).toHaveLength(1)
     }
     const last = container.querySelector<HTMLElement>('[data-ui-model-tab="embedding"]')!
     await act(async () => { last.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true })) })
-    expect(container.querySelector('[data-capability="builtin"]')).not.toBeNull()
-    expect(document.activeElement).toBe(container.querySelector('[data-ui-model-tab="builtin"]'))
+    expect(container.querySelector('[data-capability="default"]')).not.toBeNull()
+    expect(document.activeElement).toBe(container.querySelector('[data-ui-model-tab="default"]'))
     expect(container.querySelector('[data-ui="settings-footer"] button')).toBeNull()
   })
 
