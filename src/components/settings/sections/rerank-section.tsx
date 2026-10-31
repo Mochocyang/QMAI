@@ -15,6 +15,11 @@ import type { CustomApiMode, LlmConfig, RerankConfig } from "@/stores/wiki-store
 
 const SILICONFLOW_RESOURCE_URL = "https://cloud.siliconflow.cn/i/1lKTd7hi"
 
+/** 容错读取字符串：草稿里可能因旧配置缺字段而是 undefined。 */
+function safeText(input: unknown): string {
+  return typeof input === "string" ? input : ""
+}
+
 function normalizeRerankEndpoint(raw: string, mode: CustomApiMode) {
   const trimmed = (raw ?? "").trim()
   if (/^https?:\/\//i.test(trimmed) && /\/reranks?\/?$/i.test(trimmed)) {
@@ -85,7 +90,7 @@ export function RerankSection({ draft, setDraft }: Props) {
   }, [config.provider, config.apiKey, config.customEndpoint, config.ollamaUrl, config.apiMode])
 
   async function handleTestModel() {
-    const hasModel = config.model.trim().length > 0
+    const hasModel = safeText(config.model).trim().length > 0
 
     if (hasModel) {
       setTestState({

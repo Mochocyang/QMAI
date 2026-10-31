@@ -15,9 +15,30 @@ interface ModelSelectOption {
   label: string
 }
 
+/**
+ * 容错读取字符串。
+ *
+ * 为什么需要：`value` / `options` 类型上声明为 string / string[]，
+ * 但它们来自持久化的设置草稿。旧版本保存的配置可能缺字段，
+ * 反序列化后实际是 undefined —— 直接调 .trim() 会抛
+ * 「Cannot read properties of undefined (reading 'trim')」，整个设置页白屏。
+ *
+ * 这类数据边界不该靠调用方保证，组件自己兜住更稳。
+ */
+function safeString(input: unknown): string {
+  return typeof input === "string" ? input : ""
+}
+
 function buildModelSelectOptions(value: string, options: string[]): ModelSelectOption[] {
-  const current = value.trim()
-  const fetched = Array.from(new Set(options.map((item) => item.trim()).filter(Boolean)))
+  const current = safeString(value).trim()
+  // 过滤非字符串项：数组里混进 null/undefined 时同样会崩
+  const fetched = Array.from(
+    new Set(
+      (Array.isArray(options) ? options : [])
+        .map((item) => safeString(item).trim())
+        .filter(Boolean),
+    ),
+  )
   const hasFetchedModels = fetched.length > 0
   const hasCurrentInFetched = current ? fetched.includes(current) : false
   const ordered = current && hasCurrentInFetched
@@ -50,7 +71,7 @@ export function ModelSelectInput({
     [options, value],
   )
 
-  const hasFetchedModels = options.length > 0
+  const hasFetchedModels = Array.isArray(options) && options.length > 0
 
   return (
     <div className="flex flex-col gap-2">
@@ -72,7 +93,7 @@ export function ModelSelectInput({
           <div className="relative">
             <select
               aria-label={selectPlaceholder}
-              value={value.trim() || "__empty__"}
+              value={safeString(value).trim() || "__empty__"}
               onChange={(event) => {
                 const selected = event.target.value
                 if (selected !== "__empty__") {
