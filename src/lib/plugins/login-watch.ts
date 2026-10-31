@@ -45,8 +45,6 @@ export interface LoginWatchOptions {
   listProviders?: () => Promise<PluginProviderView[]>
   /** 测试注入：刷新模型。 */
   refresh?: (providerId: string) => Promise<unknown>
-  /** 测试注入：登录完成后关掉登录窗口（生产路径调 providerCloseLogin）。 */
-  closeWindow?: (providerId: string) => Promise<unknown>
   /** 测试注入：同步快照。 */
   sync?: () => Promise<unknown>
   /** 测试注入：setTimeout。 */
@@ -72,7 +70,6 @@ export function watchProviderLogin(options: LoginWatchOptions): () => void {
     timeoutMs = LOGIN_WATCH_TIMEOUT_MS,
     listProviders = () => pluginsApi.providers(),
     refresh = (id: string) => pluginsApi.refreshProviderModels(id),
-    closeWindow = (id: string) => pluginsApi.providerCloseLogin(id),
     sync = () => syncPluginProviders(),
     schedule = setTimeout as unknown as (fn: () => void, ms: number) => unknown,
     cancel = clearTimeout as unknown as (handle: unknown) => void,
@@ -101,26 +98,23 @@ export function watchProviderLogin(options: LoginWatchOptions): () => void {
       const view = providers.find((item) => item.providerId === providerId)
       if (view && view.ready && view.models.length > 0) {
         /*
-         * 就绪且有模型 = 登录完成了。
+         * 就绪且有模型 = **至少有一个账号可用**。
          *
-         * 两件收尾事：
-         * 1. 刷新模型（ready 可能是旧状态；刷新是幂等的）。
-         * 2. **关掉登录窗口** —— 插件自己关不了它（宿主的 webview），
-         *    而用户看到"登录成功"页就不管了。宿主关窗后还会再刷一次模型，
-         *    双保险但不冲突（都是幂等操作）。
+         * ⚠️ 额度池之后，这个判定不能再当『刚登录完成』用：
+         * 旧账号一直在池里，provider 永远就绪 —— 于是『＋登录新账号』刚打开的
+         * 窗口会在 3 秒后被判定为登录完成而自动关掉（真实故障）。
+         *
+         * 所以这一层只做刷新（幂等、无副作用）；关窗交给另外两条路径：
+         *   · 登录页在用户完成登录后调插件的 /login/close（插件转告宿主）；
+         *   · 用户自己点 ×。
+         * watch 不知道这次开窗是为了加第二个账号还是第一个，它不该猜。
          */
         try {
           await refresh(providerId)
         } catch (cause) {
           console.warn(`[plugins] 登录后刷新模型失败（可在卡片上手动刷新）：${String(cause)}`)
         }
-        try {
-          await closeWindow(providerId)
-        } catch (cause) {
-          // 关窗失败（窗口已被用户手动关掉是最常见原因）：不该掩盖"登录成功"。
-          console.warn(`[plugins] 登录完成后关窗失败（可能已被手动关闭）：${String(cause)}`)
-        }
-        try {
+                try {
           await sync()
         } catch (cause) {
           console.warn("[plugins] 登录后同步 provider 失败：", cause)
