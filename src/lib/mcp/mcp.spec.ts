@@ -463,6 +463,21 @@ describe("skill sync", () => {
 })
 
 describe("install copy text", () => {
+  it.each([
+    "/Applications/青幕 AI.app/Contents/MacOS/青幕AI写作",
+    "C:\\Program Files\\青幕AI写作\\青幕AI写作.exe",
+    '/Applications/青幕 "测试".app/Contents/MacOS/青幕AI写作',
+  ])("copies importable MCP JSON and preserves the executable path: %s", (executablePath) => {
+    expect(JSON.parse(buildMcpConfigInstallText(executablePath))).toEqual({
+      mcpServers: {
+        qmai: {
+          command: executablePath,
+          args: ["--mcp-stdio"],
+        },
+      },
+    })
+  })
+
   it("includes the absolute command path and the skill version", () => {
     const config = buildMcpConfigInstallText("C:/Program Files/青幕AI写作/青幕AI写作.exe")
     expect(config).toContain("C:/Program Files/青幕AI写作/青幕AI写作.exe")
