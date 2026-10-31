@@ -1841,6 +1841,72 @@ pub async fn plugins_provider_open_login(
     )
 }
 
+/// 关掉某个 provider 的登录/设置窗口（`plugins_provider_open_login` 的反操作）。
+///
+/// 为什么需要它：账号类插件的登录完成在**受控窗口内部**（页面自己发起、跳转、轮询结果）。
+/// 宿主的模型刷新挂在窗口的关闭事件上：关窗 → 重探活 + 重抓 /v1/models → 通知前端。
+/// 而用户看到"登录成功"往往就不再管那个窗口 —— 不关窗，刷新链一步都不走，
+/// QMAI 里模型列表还是空的。
+///
+/// 插件自己关不了那个窗口：它是宿主的 webview，页面侧 window.close() 对宿主窗口无效。
+/// 所以由插件发信号（宿主 HTTP 端点或直接调此命令的逻辑层）、**宿主来关**。
+///
+/// 用「第一个登记的 provider」定位窗口：本插件通常只登记一个。传入 `provider_id`
+/// 是为了将来多 provider 时能定向 —— 但权限检查保证只能关自己的。
+#[tauri::command]
+pub async fn plugins_provider_close_login(
+    app: tauri::AppHandle,
+    state: State<'_, PluginsState>,
+    provider_id: String,
+) -> Result<bool, String> {
+    // 只在锁里复制登记信息：开窗、后续探活/抓模型都不该握着 providers 表锁。
+    let provider = {
+        let providers = state.providers.lock().await;
+        providers
+            .get(&provider_id)
+            .cloned()
+            .ok_or_else(|| format!("provider {provider_id} 未就绪"))?
+    };
+
+    /*
+     * 关窗并刷新。
+     *
+     * 为什么不复用 `login_window::close_provider_window`：
+     * 那里面的 `refresh_after_close` 是 spawn 任务 + `try_state`，而在这里 ——
+     * 命令层**本来就有** `AppHandle` 和 `State`，直接做、直接 emit，
+     * 比经过一次"后台任务再去找 state"更可靠，也少一条隐藏路径。
+     *
+     * 之前那条路（把 AppHandle 存进 PluginsState / 进程级 static）会让
+     * **测试二进制**启动时 STATUS_ENTRYPOINT_NOT_FOUND 崩溃 ——
+     * 结论：AppHandle 只出现在命令参数里，绝不放进任何结构体或 static。
+     */
+    use tauri::Manager;
+    let closed = login_window::close_provider_window_silent(
+        &app,
+        &provider.plugin_id,
+        &provider.provider_id,
+    );
+
+    // 关窗后立刻刷新：用户登录完不等手动点「刷新模型」。
+    let outcome = refresh_provider_models(state.inner(), &provider_id, PROVIDER_REFRESH_PROBE_TIMEOUT).await;
+    if let Err(error) = &outcome {
+        eprintln!("[plugins] provider {provider_id} 登录后刷新失败：{error}");
+    }
+    let _ = app.emit(
+        "plugin-provider-models-refreshed",
+        serde_json::json!({
+            "pluginId": provider.plugin_id,
+            "providerId": provider.provider_id,
+            "ok": outcome.is_ok(),
+            "modelCount": outcome.as_ref().map(|models| models.len()).unwrap_or(0),
+            "error": outcome.as_ref().err().cloned().unwrap_or_default(),
+        }),
+    );
+
+    Ok(closed)
+}
+
+
 /// provider 能力端点（余额/签到）的单次超时。
 ///
 /// 5s 而不是 client 的 60s：这是用户点了「余额/签到」按钮在等，插件在回环上、

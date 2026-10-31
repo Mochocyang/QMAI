@@ -217,43 +217,6 @@ fn schedule_profile_cleanup(path: PathBuf) {
 }
 
 
-/// 关窗之后要做的事：重探活 + 重抓模型，然后通知前端。
-///
-/// 两条路径共用（用户手动关窗 / 插件请求关窗）。**不要各写一份**：
-/// 一份漏了事件，症状就是「登录完模型不更新」，而错误只在用户那边可见。
-fn refresh_after_close(app: &AppHandle, plugin_id: &str, provider_id: &str) {
-    let app = app.clone();
-    let plugin_id = plugin_id.to_string();
-    let provider_id = provider_id.to_string();
-    tauri::async_runtime::spawn(async move {
-        // 在任务内部现取 state：`State<'_>` 带生命周期不能移进 'static 任务，
-        // 而 `PluginsState` 没实现 Clone。AppHandle 是 'static + Clone，随便移。
-        // 取不到就安静放弃 —— 应用正在退出时不该因为后置刷新 panic（release 是 abort）。
-        let Some(state) = app.try_state::<super::PluginsState>() else {
-            return;
-        };
-        let outcome = super::refresh_provider_models(
-            state.inner(),
-            &provider_id,
-            super::PROVIDER_REFRESH_PROBE_TIMEOUT,
-        )
-        .await;
-        if let Err(error) = &outcome {
-            eprintln!("[plugins] provider {provider_id} 关窗后自动刷新失败：{error}");
-        }
-        // 必须通知前端：刷新是在后端悄悄做的，界面手里还是关窗前的快照。
-        let _ = app.emit(
-            "plugin-provider-models-refreshed",
-            serde_json::json!({
-                "pluginId": plugin_id,
-                "providerId": provider_id,
-                "ok": outcome.is_ok(),
-                "modelCount": outcome.as_ref().map(|models| models.len()).unwrap_or(0),
-                "error": outcome.as_ref().err().cloned().unwrap_or_default(),
-            }),
-        );
-    });
-}
 /// 打开某个插件 provider 的受控设置/登录窗口。
 ///
 /// 与原版（`workbuddy/login_window.rs`）同样的三条隔离做法，但**白名单来自插件清单**，
@@ -402,7 +365,7 @@ pub fn open_provider_window(
 ///
 /// 返回 `true` 表示确实关了一个窗口（调用方可据此提示用户）；没有窗口时
 /// 返回 `false` 而不是报错 —— "窗口已经关了"不是失败。
-pub fn close_provider_window(app: &AppHandle, plugin_id: &str, provider_id: &str) -> bool {
+pub fn close_provider_window_silent(app: &AppHandle, plugin_id: &str, provider_id: &str) -> bool {
     let label = window_label(plugin_id, provider_id);
     let Some(window) = app.get_webview_window(&label) else {
         return false;
@@ -417,7 +380,7 @@ pub fn close_provider_window(app: &AppHandle, plugin_id: &str, provider_id: &str
     }
     // destroy **不触发** CloseRequested，所以「关窗后刷新模型」不会自动走，
     // 必须显式调 —— 这正是「插件自动关窗后模型不更新」的成因。
-    refresh_after_close(app, plugin_id, provider_id);
+    // 刷新由命令层做，这里只关窗。
     true
 }
 

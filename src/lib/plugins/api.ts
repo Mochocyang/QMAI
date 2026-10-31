@@ -118,6 +118,16 @@ export const pluginsApi = {
   providerOpenLogin: (providerId: string) =>
     invoke<void>("plugins_provider_open_login", { providerId }),
   /**
+   * 关掉某个 provider 的登录/设置窗口（providerOpenLogin 的反操作）。
+   *
+   * 账号类插件登录完成后调：插件自己关不了那个窗口，因为它是宿主的 webview，
+   * 页面侧 window.close() 对宿主窗口无效。宿主关窗后会立刻重探活 + 重抓模型。
+   *
+   * 返回 true = 确实关了一个窗口；false = 窗口已经不在（用户手快先关了）。
+   */
+  providerCloseLogin: (providerId: string) =>
+    invoke<boolean>("plugins_provider_close_login", { providerId }),
+  /**
    * 打插件的可选扩展端点（`capabilities` 驱动，设计 §4.4）。
    *
    * 返回值**故意是 `unknown`**：结构由各插件决定，宿主只负责渲染，归一化放在

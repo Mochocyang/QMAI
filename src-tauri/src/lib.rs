@@ -341,6 +341,7 @@ commands::fs::read_file,
             plugins::plugins_provider_refresh_models,
             // 受控登录窗口（设计 5.1/5.2）：白名单来自清单 authDomains，关窗后自动刷新模型。
             plugins::plugins_provider_open_login,
+          plugins::plugins_provider_close_login, // 插件登录完成 → 关窗（触发自动刷新）
             // capabilities 端点代理（设计 4.4）：endpoint 走白名单，不开放任意 URL。
             plugins::plugins_provider_call,
             // 凭据中转（设计 5.3）：paste-token / import-file 都走这里，

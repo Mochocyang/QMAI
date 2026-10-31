@@ -45,6 +45,8 @@ export interface LoginWatchOptions {
   listProviders?: () => Promise<PluginProviderView[]>
   /** 测试注入：刷新模型。 */
   refresh?: (providerId: string) => Promise<unknown>
+  /** 测试注入：登录完成后关掉登录窗口（生产路径调 providerCloseLogin）。 */
+  closeWindow?: (providerId: string) => Promise<unknown>
   /** 测试注入：同步快照。 */
   sync?: () => Promise<unknown>
   /** 测试注入：setTimeout。 */
@@ -70,6 +72,7 @@ export function watchProviderLogin(options: LoginWatchOptions): () => void {
     timeoutMs = LOGIN_WATCH_TIMEOUT_MS,
     listProviders = () => pluginsApi.providers(),
     refresh = (id: string) => pluginsApi.refreshProviderModels(id),
+    closeWindow = (id: string) => pluginsApi.providerCloseLogin(id),
     sync = () => syncPluginProviders(),
     schedule = setTimeout as unknown as (fn: () => void, ms: number) => unknown,
     cancel = clearTimeout as unknown as (handle: unknown) => void,
@@ -100,15 +103,22 @@ export function watchProviderLogin(options: LoginWatchOptions): () => void {
         /*
          * 就绪且有模型 = 登录完成了。
          *
-         * 为什么要再 `refresh` 一次：`ready` 可能是上次启动时留下的旧状态，
-         * 而这次登录后模型清单需要一个新的 token 才拿得到。刷新是幂等的，
-         * 多调一次只多一次本机请求；少调一次用户就得手动点「刷新模型」。
+         * 两件收尾事：
+         * 1. 刷新模型（ready 可能是旧状态；刷新是幂等的）。
+         * 2. **关掉登录窗口** —— 插件自己关不了它（宿主的 webview），
+         *    而用户看到"登录成功"页就不管了。宿主关窗后还会再刷一次模型，
+         *    双保险但不冲突（都是幂等操作）。
          */
         try {
           await refresh(providerId)
         } catch (cause) {
-          // 刷新失败不该掩盖"登录成功了"这个事实 —— 让调用方照常提示用户。
           console.warn(`[plugins] 登录后刷新模型失败（可在卡片上手动刷新）：${String(cause)}`)
+        }
+        try {
+          await closeWindow(providerId)
+        } catch (cause) {
+          // 关窗失败（窗口已被用户手动关掉是最常见原因）：不该掩盖"登录成功"。
+          console.warn(`[plugins] 登录完成后关窗失败（可能已被手动关闭）：${String(cause)}`)
         }
         try {
           await sync()

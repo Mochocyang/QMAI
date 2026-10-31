@@ -67,6 +67,7 @@ describe("watchProviderLogin", () => {
   it("provider 就绪且有模型时，刷新模型并回调", async () => {
     const scheduler = makeScheduler()
     const refresh = vi.fn().mockResolvedValue([])
+    const closeWindow = vi.fn().mockResolvedValue(true)
     const sync = vi.fn().mockResolvedValue({ added: [], removed: [] })
     const onReady = vi.fn()
 
@@ -75,6 +76,7 @@ describe("watchProviderLogin", () => {
       onReady,
       listProviders: async () => [view({ ready: true, models: [model("m1")] })],
       refresh,
+      closeWindow,
       sync,
       schedule: scheduler.schedule,
       cancel: scheduler.cancel,
@@ -83,6 +85,7 @@ describe("watchProviderLogin", () => {
     await scheduler.tick()
 
     expect(refresh).toHaveBeenCalledWith("workbuddy")
+    expect(closeWindow).toHaveBeenCalledWith("workbuddy")
     expect(sync).toHaveBeenCalled()
     expect(onReady).toHaveBeenCalledTimes(1)
   })
@@ -238,5 +241,28 @@ describe("常量", () => {
   it("间隔 3 秒、超时 5 分钟（与插件侧登录超时一致）", () => {
     expect(LOGIN_WATCH_INTERVAL_MS).toBe(3000)
     expect(LOGIN_WATCH_TIMEOUT_MS).toBe(5 * 60 * 1000)
+  })
+})
+
+describe("登录完成后的关窗", () => {
+  it("关窗失败（用户已手动关掉）不影响登录成功的认定", async () => {
+    const scheduler = makeScheduler()
+    const onReady = vi.fn()
+
+    watchProviderLogin({
+      providerId: "workbuddy",
+      onReady,
+      listProviders: async () => [view({ ready: true, models: [model("m1")] })],
+      refresh: async () => [],
+      closeWindow: async () => {
+        throw new Error("窗口已不在")
+      },
+      sync: async () => undefined,
+      schedule: scheduler.schedule,
+      cancel: scheduler.cancel,
+    })
+
+    await scheduler.tick()
+    expect(onReady).toHaveBeenCalledTimes(1)
   })
 })
