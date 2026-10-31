@@ -534,14 +534,20 @@ async function streamChatHeld(
         //   X-Request-Ts   —— 防重放的时间戳
         //   X-Request-Sig  —— Ed25519 签名，证明持有设备私钥
         // 只有前两个时，攻击者读出卡里的 dev 就能冒充；加上签名才算真正绑定到设备。
-        const signature = await signRequestHeaders("POST", signingPath, bodyText)
+        //
+        // 签名是**加固措施**，不是请求能否发出的前提：
+        //   - 算不出来（环境不支持 Ed25519 / 没密钥）→ 不带签名照常发，网关观察期放行
+        //   - 绝不能让签名失败把整个写作搞崩，那是拿安全换可用性
+        const extra: Record<string, string> = { ...deviceIdHeader() }
+        try {
+          const signature = await signRequestHeaders("POST", signingPath, bodyText)
+          if (signature) Object.assign(extra, signature)
+        } catch (error) {
+          console.warn("[sign] 请求签名失败，退回不带签名发送：", error)
+        }
         return {
           method: "POST",
-          headers: {
-            ...providerConfig.headers,
-            ...deviceIdHeader(),
-            ...(signature ?? {}),
-          },
+          headers: { ...providerConfig.headers, ...extra },
           body: bodyText,
           signal: combinedSignal,
         }
