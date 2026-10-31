@@ -1046,7 +1046,7 @@ describe("PluginProviderCard", () => {
     expect(providerOpenLogin).toHaveBeenCalledWith("wb-connect")
   })
 
-  it("v4-4) 账号列表展示最新在前：最后登录的账号排第一行，「＋ 登录新账号」按钮在列表上方", async () => {
+  it("v4-4) 账号列表展示最新在前：最后登录的账号排第一行，「＋ 登录新账号」按钮在配置名称右侧", async () => {
     const invokeTool = vi.mocked(pluginsApi.invokeTool)
     invokeTool.mockResolvedValueOnce(ACCOUNT_POOL_TEXT)
     renderCard({ authKind: "browser-login", settingsPage: "/login" })
@@ -1065,13 +1065,15 @@ describe("PluginProviderCard", () => {
     expect(rows[0]!.getAttribute("data-plugin-account")).toBe("uid-2")
     expect(rows[0]!.textContent).toContain("Ming")
     expect(rows[1]!.getAttribute("data-plugin-account")).toBe("uid-1")
-    expect(rows[1]!.textContent).toContain("Yang")
-    // 「＋ 登录新账号」在账号区块内、列表之前（上方）：新账号从顶部插入时按钮位置不漂移。
+    // 按钮挂在配置名称行右侧（用户标注），在账号列表之前；点它打开同一个登录窗口。
     const addButton = find('[data-plugin-action="add-account"]')!
-    expect(list.contains(addButton)).toBe(true)
+    expect(addButton).toBeTruthy()
+    expect(list.contains(addButton)).toBe(false)
+    // addButton 在 DOM 里先于 list（配置名称行在账号区块之前）。
+    // compareDocumentPosition(B) 描述 B 相对 A：写反了会得 0。
     expect(
-      addButton.compareDocumentPosition(list.querySelector("ul")!) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+      list.compareDocumentPosition(addButton) & Node.DOCUMENT_POSITION_PRECEDING,
+    ).toBe(Node.DOCUMENT_POSITION_PRECEDING)
   })
 
   it("v4-4b) 没有账号信息：账号区块整块不渲染（「账号状态」栏已删，不留占位文案）；authKind=none 不调工具", async () => {

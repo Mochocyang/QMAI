@@ -1396,19 +1396,35 @@ export function PluginProviderCard({
 
           <div className="model-fields">
           {/* ── 配置名称（v4：名称收窄 420px）。「账号状态」栏已按用户标注2 删除 ── */}
-          <label className="model-field">
-            <span>配置名称</span>
-            <input
-              aria-label="配置名称"
-              data-plugin-field="label"
-              style={{ maxWidth: "420px" }}
-              value={draft.label}
-              placeholder={preset.label}
-              spellCheck={false}
-              disabled={pending === "test"}
-              onChange={(event) => setDraft((previous) => ({ ...previous, label: event.target.value }))}
-            />
-          </label>
+          {/* 配置名称 + 「＋ 登录新账号」（用户标注：按钮放配置名右侧）。账号区块里的重复入口已删。 */}
+          <div className="model-field full flex items-end gap-2">
+            <label className="flex-1">
+              <span>配置名称</span>
+              <input
+                aria-label="配置名称"
+                data-plugin-field="label"
+                style={{ maxWidth: "420px" }}
+                value={draft.label}
+                placeholder={preset.label}
+                spellCheck={false}
+                disabled={pending === "test"}
+                onChange={(event) => setDraft((previous) => ({ ...previous, label: event.target.value }))}
+              />
+            </label>
+            {needsLogin ? (
+              <button
+                type="button"
+                className="model-button"
+                data-plugin-action="add-account"
+                aria-label="登录新账号"
+                disabled={loginBlocked || pending === "login"}
+                title={loginBlocked ? NO_SETTINGS_PAGE_HINT : undefined}
+                onClick={() => void openSettings()}
+              >
+                ＋ 登录新账号
+              </button>
+            ) : null}
+          </div>
 
           {/*
             v5 §1（经用户标注1/4 调整）：「已登录账号」区块。多账号 = 一个额度池（按
@@ -1421,24 +1437,6 @@ export function PluginProviderCard({
           {needsLogin && accounts.length > 0 ? (
             <div className="model-field full" data-plugin-field="account-list">
               <span>已登录账号</span>
-              <div className="model-actions">
-                {/*
-                  ＋ 登录新账号：打开同一个登录窗口（providerOpenLogin）—— 多账号
-                  就是重复登录流程追加，插件窗口里有「换个账号登录」的入口。放在列表
-                  上方（用户标注1）：新账号从列表顶部插入时按钮位置不漂移。
-                */}
-                <button
-                  type="button"
-                  className="model-button"
-                  data-plugin-action="add-account"
-                  aria-label="登录新账号"
-                  disabled={loginBlocked || pending === "login"}
-                  title={loginBlocked ? NO_SETTINGS_PAGE_HINT : undefined}
-                  onClick={() => void openSettings()}
-                >
-                  ＋ 登录新账号
-                </button>
-              </div>
               {/*
                 展示按**最新在前**（用户标注1）：get_account 返回顺序 = 插件 order 数组
                 = 加入先后，渲染时反转，最新（最后登录的）排第一行。**只改展示顺序**：
