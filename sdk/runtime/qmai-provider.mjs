@@ -199,10 +199,18 @@ export function serveProvider(provider, options = {}) {
   const label = `[qmai-provider${provider && provider.id ? `:${provider.id}` : ""}]`;
   const warn = (message) => writeStderr(stderr, `${label} ${message}`);
 
+  /*
+   * `listen: false`：只构造服务、不监听，端口由调用方稍后自己绑。
+   *
+   * 这种用法下"没有 QMAI_PROVIDER_PORT"是**正常的** —— 比如插件要先在自己的
+   * 端口上加一层引导页（`/login`），或者测试要在同一进程里多次起实例。
+   * 此时跳过端口校验；监听时（`attach` 或 SDK 自己 listen）再校验不迟。
+   */
+  const deferListen = options.listen === false;
   const port = options.port !== undefined ? options.port : Number(env.QMAI_PROVIDER_PORT);
   const token = options.token !== undefined ? options.token : env.QMAI_PROVIDER_TOKEN;
 
-  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+  if (!deferListen && (!Number.isInteger(port) || port < 0 || port > 65535)) {
     // 缺端口就退出，不要退化成"随便挑一个"：宿主只会去连它分配的那个端口，
     // 挑别的端口等于插件看起来起来了、却永远连不上。
     writeStderr(stderr, `${label} 缺少或非法的 QMAI_PROVIDER_PORT（收到：${String(env.QMAI_PROVIDER_PORT)}），无法启动`);
@@ -457,12 +465,21 @@ export function serveProvider(provider, options = {}) {
       });
       if (res.writableEnded) return;
       const finalText = typeof result?.text === "string" ? result.text : text;
+      /*
+       *  reasoning（思维链）：`reasoningContent` 是插件侧的驼峰名，OpenAI 线格式是
+       * `reasoning_content`。转发型 provider（上游自己是 reasoning 模型）必须把它带出去，
+       * 否则用户在界面上看不到思考过程，而流式路径里却是有的 —— 两条路径不一致。
+       */
+      const message = { role: "assistant", content: finalText };
+      if (typeof result?.reasoningContent === "string" && result.reasoningContent !== "") {
+        message.reasoning_content = result.reasoningContent;
+      }
       sendJson(res, 200, {
         id: completionId,
         object: "chat.completion",
         created,
         model,
-        choices: [{ index: 0, message: { role: "assistant", content: finalText }, finish_reason: "stop" }],
+        choices: [{ index: 0, message, finish_reason: "stop" }],
         // 非流式也要带 usage：没有它，QMAI 的用量统计会全是 0。
         usage: toWireUsage(result?.usage),
       });
@@ -493,13 +510,64 @@ export function serveProvider(provider, options = {}) {
       choices: [{ index: 0, delta, finish_reason: finishReason }],
     });
 
-    writeFrame(chunkFrame({ role: "assistant" }));
+    /*
+     * 转发型 provider 要原样透传上游帧时用的通道。
+     *
+     * 作者在 `onDelta` 里可以两种方式之一：
+     *   · 返回/传入字符串 → SDK 包成标准 chunk（默认，适合自己生成文本的插件）；
+     *   · 调用 `ctx.passthrough(rawSseLine)` → 原样写给客户端（适合转发上游）。
+     * 两者都能用，混用时 SDK 只保证顺序，不再替上游补帧。
+     */
+    let passthroughSeen = false;
+    const writeRaw = (rawSse) => {
+      if (res.writableEnded || res.destroyed) return false;
+      // 作者可能给整段 "data: {...}\n\n"，也可能只给已序列化的 JSON 字符串。
+      // 两种都收：这里只负责确保以 "data: " 起头、以两个换行结尾。
+      const text = String(rawSse);
+      /*
+       * 三种输入都要认，不能一律硬加 "data: "：
+       *   · "data: {...}"   —— 已是完整帧
+       *   · ": keep-alive"  —— **SSE 注释帧**（保活用）。它本来就以冒号开头，
+       *                        加前缀会变成 "data: : keep-alive"，客户端当成坏帧，
+       *                        保活也就失效了。
+       *   · "{...}"         —— 只给了 JSON，由我们补 "data: "
+       */
+      const trimmed = text.trimStart();
+      const line =
+        text.startsWith("data:") || trimmed.startsWith(":")
+          ? text
+          : `data: ${text}`;
+      res.write(line.endsWith("\n\n") ? line : `${line.replace(/\n+$/, "")}\n\n`);
+      return true;
+    };
+
+    /*
+     * 首帧**推迟**写。转发型 provider 原样透传上游帧时，上游自己会带 role 帧；
+     * 这里抢先写一帧会把两条不同 id 的流混在一起（客户端看到 SDK 的 id 与
+     * 上游的 id 交替出现）。
+     */
+    let firstFrameWritten = false;
+    const ensureFirstFrame = () => {
+      if (firstFrameWritten || passthroughSeen) return;
+      firstFrameWritten = writeFrame(chunkFrame({ role: "assistant" }));
+    };
 
     let result;
     try {
       result = await provider.chat(callContext, {
         onDelta: (piece) => {
+          // 作者要求原样透传：他给的已经是完整 SSE 帧（或序列化后的 JSON）。
+          if (piece && typeof piece === "object" && piece.passthrough === true) {
+            passthroughSeen = true;
+            const ok = writeRaw(piece.raw ?? "");
+            if (!ok) {
+              abortIfDisconnected();
+              throw controller.signal.reason ?? new Error("客户端已断开");
+            }
+            return;
+          }
           if (typeof piece !== "string" || piece === "") return;
+          ensureFirstFrame();
           if (!writeFrame(chunkFrame({ content: piece }))) {
             // 写不出去说明客户端已经走了：立刻中止，别继续消耗上游额度。
             abortIfDisconnected();
@@ -524,20 +592,36 @@ export function serveProvider(provider, options = {}) {
       return;
     }
 
-    if (res.writableEnded || res.destroyed) return;
+    /*
+     * 收尾帧（stop / usage / [DONE]）只在 **SDK 自己拼帧** 的路径上补。
+     *
+     * 转发型 provider 原样透传上游帧时，上游**已经**发过这三帧。这里再补一遍，
+     * 客户端会收到两条 finish_reason、两条 usage（第二条恒为 0，把用量统计打歪）、
+     * 两个 [DONE]（严格客户端直接判错），而且它们都带 SDK 自己的 id ——
+     * 两条不同 id 的流混在一起，前端按 id 归并就会串。
+     */
+    if (!passthroughSeen) {
+      if (res.writableEnded || res.destroyed) return;
 
-    writeFrame(chunkFrame({}, "stop"));
-    // usage 分片：`choices` 为空是 `stream_options.include_usage` 的语义，
-    // 客户端按"有没有 usage 字段"取值，不会把它当成内容（指南 §3.3 第 2 条）。
-    if (result?.usage !== undefined) {
-      writeFrame({ id: completionId, object: "chat.completion.chunk", created, model, choices: [], usage: toWireUsage(result.usage) });
-    } else {
-      warn("chat() 没有返回 usage：用量统计会记为 0（请在返回里给 { usage: { promptTokens, completionTokens } }）");
-      writeFrame({ id: completionId, object: "chat.completion.chunk", created, model, choices: [], usage: toWireUsage({}) });
+      writeFrame(chunkFrame({}, "stop"));
+      // usage 分片：`choices` 为空是 `stream_options.include_usage` 的语义，
+      // 客户端按"有没有 usage 字段"取值，不会把它当成内容（指南 §3.3 第 2 条）。
+      if (result?.usage !== undefined) {
+        writeFrame({ id: completionId, object: "chat.completion.chunk", created, model, choices: [], usage: toWireUsage(result.usage) });
+      } else {
+        warn("chat() 没有返回 usage：用量统计会记为 0（请在返回里给 { usage: { promptTokens, completionTokens } }）");
+        writeFrame({ id: completionId, object: "chat.completion.chunk", created, model, choices: [], usage: toWireUsage({}) });
+      }
+      /*
+       * `data: [DONE]` 必须原样出现在最后：少这一帧客户端会一直等流结束。
+       *
+       * 但**转发型 provider 由上游自己发**这一帧（作者已在 passthrough 里原样送出）。
+       * 这里再补一条，客户端会收到两个 [DONE] —— 严格客户端直接判错。
+       * 所以只在 SDK 自己拼帧的路径上补。
+       */
+      if (!passthroughSeen) res.write("data: [DONE]\n\n");
     }
-    // `data: [DONE]` 必须原样出现在最后：少这一帧客户端会一直等流结束；
-    // 多一帧附加事件在它后面，严格客户端会把它当错误（指南 §3.3 第 1 条）。
-    res.write("data: [DONE]\n\n");
+    // 不论走哪条路径都要关连接：透传模式下上游已经发完，但 TCP 连接还开着。
     res.end();
   }
 
@@ -547,18 +631,33 @@ export function serveProvider(provider, options = {}) {
     exit(1);
   });
 
-  const ready = new Promise((resolve) => {
-    server.listen(port, BIND_HOST, () => {
-      const address = server.address();
-      const actual = typeof address === "object" && address ? address.port : port;
-      writeStderr(stderr, `${label} provider 端点在 http://${BIND_HOST}:${actual}`);
-      resolve(actual);
+  /*
+   * 监听。`deferListen` 时不自动绑端口 —— 由调用方拿 `attach(port)` 自己绑，
+   * 好处是它可以在同一个 server 上加自己的路由（插件要先挂 `/login`）。
+   */
+  const attach = (targetPort) =>
+    new Promise((resolve, reject) => {
+      const onError = (error) => {
+        writeStderr(stderr, `${label} 监听 ${BIND_HOST}:${targetPort} 失败：${errorMessage(error)}`);
+        reject(error);
+      };
+      server.once("error", onError);
+      server.listen(targetPort, BIND_HOST, () => {
+        server.off("error", onError);
+        const address = server.address();
+        const actual = typeof address === "object" && address ? address.port : targetPort;
+        writeStderr(stderr, `${label} provider 端点在 http://${BIND_HOST}:${actual}`);
+        resolve(actual);
+      });
     });
-  });
+
+  const ready = deferListen ? Promise.resolve(port) : attach(port);
 
   return {
     server,
     ready,
+    /** 由调用方在指定端口上监听（`listen: false` 时用）。 */
+    attach,
     port() {
       const address = server.address();
       return typeof address === "object" && address ? address.port : undefined;

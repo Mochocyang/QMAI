@@ -502,3 +502,62 @@ test("/login/credential：凭证不进日志、不进 400 文案（含非法 JSO
     await handle.close();
   }
 });
+
+// ── 原样透传（转发型 provider 用）──────────────────────────────
+//
+// 转发上游的插件手里已有完整 SSE 帧。SDK 默认会把它拆成文本再重新拼，
+// 于是 usage 帧、reasoning_content、空行保活帧、上游 id 全丢了。
+// 这组用例守的是「作者要求原样透传时，那些帧真的没被改造」。
+test("passthrough：上游的 usage / reasoning / id / 保活空行都不丢", async () => {
+  const upstreamFrames = [
+    'data: {"id":"up-1","choices":[{"delta":{"reasoning_content":"想"}}]}',
+    'data: {"id":"up-1","choices":[{"delta":{"content":"你好"}}]}',
+    'data: {"id":"up-1","choices":[],"usage":{"prompt_tokens":3,"completion_tokens":1}}',
+    "data: [DONE]",
+  ];
+
+  const { handle, port } = await startServer(
+    makeProvider({
+      async chat(request, { onDelta }) {
+        for (const frame of upstreamFrames) {
+          onDelta({ passthrough: true, raw: frame });
+        }
+        return {};
+      },
+    }),
+  );
+  try {
+    const response = await request(port, "/v1/chat/completions", {
+      method: "POST",
+      token: "test-token",
+      body: { model: "good-model", messages: [{ role: "user", content: "hi" }], stream: true },
+    });
+    assert.equal(response.status, 200);
+    assert.match(response.text, /reasoning_content/);
+    assert.match(response.text, /"prompt_tokens":3/);
+    assert.match(response.text, /\[DONE\]/);
+    // 上游 id 保留，不被换成本 SDK 的 chatcmpl-qmai-*
+    assert.match(response.text, /up-1/);
+    assert.doesNotMatch(response.text, /chatcmpl-qmai-/);
+  } finally {
+    await handle.close();
+  }
+});
+
+test("默认路径不受影响：字符串 onDelta 仍被包成标准 chunk", async () => {
+  const { handle, port } = await startServer(makeProvider());
+  try {
+    const response = await request(port, "/v1/chat/completions", {
+      method: "POST",
+      token: "test-token",
+      body: { model: "good-model", messages: [{ role: "user", content: "hi" }], stream: true },
+    });
+    assert.equal(response.status, 200);
+    assert.match(response.text, /"role":"assistant"/);
+    assert.match(response.text, /"content":"你"/);
+    assert.match(response.text, /chatcmpl-qmai-/);
+    assert.match(response.text, /\[DONE\]/);
+  } finally {
+    await handle.close();
+  }
+});
