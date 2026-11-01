@@ -62,11 +62,41 @@ describe("sidebar-bottom-actions", () => {
   })
 
   it("菜单里的入口都绑了点击处理", () => {
-    expect(source).toContain("onClick={openAccountSettings}")
+    expect(source).toContain("onClick={openAccount}")
     expect(source).toContain("onClick={openGeneralSettings}")
     expect(source).toContain("onClick={openMaintenance}")
     expect(source).toContain("onClick={() => selectSkin(item.id)}")
     expect(source).toContain("onClick={() => setAppearancePinned((open) => !open)}")
+  })
+
+  it("已登录时菜单里有「退出账号」，点它会调 logout", () => {
+    expect(source).toContain('data-ui="sidebar-logout-entry"')
+    expect(source).toContain("void handleLogout()")
+    // 只在已登录时出现：未登录时没有可退的会话
+    const idx = source.indexOf('data-ui="sidebar-logout-entry"')
+    const window = source.slice(Math.max(0, idx - 400), idx)
+    expect(window).toContain("{accountUser ? (")
+    // 位置在「维护工具」之后
+    expect(source.indexOf('data-ui="sidebar-maintenance-entry"')).toBeLessThan(idx)
+  })
+
+  it("退出后底栏显示「未登录」", () => {
+    // accountUser 为空时用「未登录」
+    expect(source).toContain('? accountDisplayName(accountUser.displayName, accountUser.email)')
+    expect(source).toContain(': "未登录"')
+    // 未登录时账号条目提示「点击登录账号」
+    expect(source).toContain("点击登录账号")
+  })
+
+  it("未登录时点账号条目直接弹登录窗，不跳设置页", () => {
+    // 未登录分支走 openDialog("login")
+    expect(source).toContain('useAccountStore.getState().openDialog("login")')
+    const idx = source.indexOf('const openAccount = () => {')
+    const block = source.slice(idx, idx + 600)
+    expect(block).toContain('if (accountUser)')
+    expect(block).toContain('goToSettings("account")')
+    // 登录分支必须在「未登录 → 弹窗」之前 return，否则会先跳设置
+    expect(block.indexOf('return')).toBeGreaterThan(block.indexOf('goToSettings("account")'))
   })
 
   it("外观子菜单弹在右侧，而不是列在「外观」下面", () => {

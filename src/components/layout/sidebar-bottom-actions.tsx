@@ -15,7 +15,7 @@
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useTranslation } from "react-i18next"
-import { Check, ChevronRight, Palette, Settings, UserRound, Wrench } from "lucide-react"
+import { Check, ChevronRight, LogOut, Palette, Settings, UserRound, Wrench } from "lucide-react"
 
 import { useWikiStore, type SettingsCategoryId } from "@/stores/wiki-store"
 import { UI_TEST_SKINS } from "@/lib/ui-test"
@@ -40,7 +40,7 @@ export function SidebarBottomActions() {
   const accountDisplayNameText = accountUser
     ? accountDisplayName(accountUser.displayName, accountUser.email)
     : "未登录"
-  const accountTitle = accountUser ? `${accountDisplayNameText} · ${accountUser.email}` : "账号与外观"
+  const accountTitle = accountUser ? `${accountDisplayNameText} · ${accountUser.email}` : "未登录 · 点击登录"
 
   const [menuOpen, setMenuOpen] = useState(false)
   /** 鼠标是否停在外观子菜单区域上（悬停展开/收起）。 */
@@ -139,7 +139,29 @@ export function SidebarBottomActions() {
     })
   }
 
-  const openAccountSettings = () => goToSettings("account")
+  /*
+   * 账号条目：**未登录时直接弹出登录窗**，不再跳到设置页（用户 2026-11-01 要求）。
+   * 已登录时仍进设置的「账号」分区 —— 改密码、换头像、改昵称都在那里。
+   */
+  const openAccount = () => {
+    setMenuOpen(false)
+    setSearchPanelOpen(false)
+    if (accountUser) {
+      goToSettings("account")
+      return
+    }
+    useAccountStore.getState().openDialog("login")
+  }
+
+  /** 退出账号：清掉登录态与本地会话，底栏随即显示「未登录」。 */
+  const handleLogout = async () => {
+    setMenuOpen(false)
+    try {
+      await useAccountStore.getState().logout()
+    } catch (error) {
+      console.error("[account] 退出账号失败:", error)
+    }
+  }
 
   const openMaintenance = () => {
     setMenuOpen(false)
@@ -243,7 +265,7 @@ export function SidebarBottomActions() {
               role="menuitem"
               data-ui="sidebar-avatar-account-entry"
               className="ui-test-menu-item flex w-full items-center gap-2.5 text-left"
-              onClick={openAccountSettings}
+              onClick={openAccount}
             >
               {accountUser ? (
                 <AccountAvatar user={accountUser} baseUrl={accountSession?.baseUrl ?? null} size="lg" />
@@ -342,6 +364,25 @@ export function SidebarBottomActions() {
                 <span>维护工具</span>
               </span>
             </button>
+
+            {/*
+             * 退出账号：只在已登录时出现（未登录时没有可退的会话）。
+             * 放在最后一项，与「设置 / 维护工具」这类入口之间用分隔语义隔开。
+             */}
+            {accountUser ? (
+              <button
+                type="button"
+                role="menuitem"
+                data-ui="sidebar-logout-entry"
+                className="ui-test-menu-item"
+                onClick={() => void handleLogout()}
+              >
+                <LogOut />
+                <span className="ui-test-skin-copy">
+                  <span>{t("sidebarActions.logout", { defaultValue: "退出账号" })}</span>
+                </span>
+              </button>
+            ) : null}
           </div>,
           document.body,
         )}

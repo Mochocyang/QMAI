@@ -143,7 +143,8 @@
   "sidebarActions": {
     "appearance": "外观",
     "settings": "设置",
-    "announcements": "公告"
+    "announcements": "公告",
+    "logout": "退出账号"
   },
   "announcements": {
     "title": "公告",
