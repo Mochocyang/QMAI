@@ -111,12 +111,25 @@ impl Default for CloudSyncConfig {
 
 impl CloudSyncConfig {
     /// 当前激活的目标（前端可见的那个）。
+    ///
+    /// 顺序很重要，这里踩过坑：用户点了「百度网盘」卡片 → `focus_provider("baidu")`
+    /// 把 `provider` 指过去，但百度还没登录。旧实现「先按 provider 找」会选中那个
+    /// 未连接的目标，`project_active()` 再把 `connected: false` 投影到扁平字段 ——
+    /// 于是**已登录的 GitHub 被未登录的百度顶掉**，右上角一直显示「云同步未登录」。
+    ///
+    /// 现在改为：**已连接的目标优先**；`provider` 只有在它自己也连上时才有资格
+    /// 当激活目标。全都未连接时才退回「按 provider 找」与「第一个」。
     pub fn active(&self) -> Option<&CloudTarget> {
         let provider = self.provider.as_deref();
         self.targets
             .iter()
-            .find(|target| Some(target.provider.as_str()) == provider)
+            .find(|target| Some(target.provider.as_str()) == provider && target.connected)
             .or_else(|| self.targets.iter().find(|target| target.connected))
+            .or_else(|| {
+                self.targets
+                    .iter()
+                    .find(|target| Some(target.provider.as_str()) == provider)
+            })
             .or_else(|| self.targets.first())
     }
 
@@ -1842,6 +1855,62 @@ mod tests {
         config.project_active();
         assert!(config.targets.is_empty());
         assert!(config.provider.is_none());
+        assert!(!config.connected);
+    }
+
+    /// 回归：未登录的网盘被点中后，不能把已登录的网盘顶掉。
+    ///
+    /// 用户实测：GitHub 已连上，但在设置页点了一下「百度网盘」卡片，
+    /// 之后右上角一直显示「云同步未登录」。原因是 `focus_provider("baidu")`
+    /// 把 `provider` 指到了未连接的百度，`active()` 又优先按 provider 找，
+    /// 于是 `project_active()` 把 `connected: false` 投影出去。
+    #[test]
+    fn active_prefers_connected_target_over_focused_unconnected_one() {
+        let mut config = CloudSyncConfig::default();
+        let mut baidu = CloudTarget::new("baidu");
+        baidu.connected = false;
+        let mut github = CloudTarget::new("github");
+        github.connected = true;
+        github.account_label = Some("owner/repo".to_string());
+        config.targets = vec![baidu, github];
+        // 用户点过百度卡片：provider 指向它，但它没连上。
+        config.focus_provider("baidu");
+
+        config.project_active();
+
+        assert!(config.connected, "已连接的 GitHub 必须继续作为激活目标");
+        assert_eq!(config.provider.as_deref(), Some("github"));
+        assert_eq!(config.account_label.as_deref(), Some("owner/repo"));
+    }
+
+    /// 反过来：provider 指向的目标**自己已连接**时，优先级仍然最高。
+    #[test]
+    fn active_honours_focused_provider_when_it_is_connected() {
+        let mut config = CloudSyncConfig::default();
+        let mut github = CloudTarget::new("github");
+        github.connected = true;
+        let mut webdav = CloudTarget::new("webdav");
+        webdav.connected = true;
+        webdav.account_label = Some("坚果云".to_string());
+        config.targets = vec![github, webdav];
+        config.focus_provider("webdav");
+
+        config.project_active();
+
+        assert_eq!(config.provider.as_deref(), Some("webdav"));
+        assert_eq!(config.account_label.as_deref(), Some("坚果云"));
+    }
+
+    /// 一个都没连上时，仍然按 provider 找，方便设置页定位用户刚点的那个盘。
+    #[test]
+    fn active_falls_back_to_focused_provider_when_nothing_connected() {
+        let mut config = CloudSyncConfig::default();
+        config.targets = vec![CloudTarget::new("baidu"), CloudTarget::new("github")];
+        config.focus_provider("github");
+
+        config.project_active();
+
+        assert_eq!(config.provider.as_deref(), Some("github"));
         assert!(!config.connected);
     }
 }

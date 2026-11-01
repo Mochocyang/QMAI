@@ -10,10 +10,11 @@
  * - 换网盘 = 换账号：切换 provider 会清掉 connected 与账号显示。
  */
 
-import { useCallback, useEffect, useState } from "react"
-import { Check, Cloud, ExternalLink, FolderOpen, GitBranch, Loader2, LogOut, RefreshCw, Server } from "lucide-react"
+import { useCallback, useEffect, useState, type ComponentType } from "react"
+import { Check, Cloud, ExternalLink, FolderOpen, Loader2, LogOut, RefreshCw, Server } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { GithubMark } from "@/components/ui/github-mark"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -39,10 +40,17 @@ import { useTranslation } from "react-i18next"
 
 import { CloudSyncLoginDialog } from "./cloud-sync-login-dialog"
 
-const PROVIDER_ICONS: Record<CloudProviderId, typeof Cloud> = {
+/**
+ * 网盘图标。
+ *
+ * 类型用 `ComponentType<{ className?: string }>` 而不是 lucide 的 `typeof Cloud`：
+ * GitHub 用的是自绘的官方标志（lucide 不收录品牌图标），它是普通函数组件、
+ * 没有 lucide 那套 ForwardRef 与 `$$typeof`，硬套 lucide 的类型过不了编译。
+ */
+const PROVIDER_ICONS: Record<CloudProviderId, ComponentType<{ className?: string }>> = {
   baidu: Cloud,
   webdav: Server,
-  github: GitBranch,
+  github: GithubMark,
   folder: FolderOpen,
 }
 
@@ -443,7 +451,7 @@ function GithubForm() {
       {phase === "idle" ? (
         <div className="space-y-2">
           <Button disabled={busy} onClick={() => void start()}>
-            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <GitBranch className="mr-2 h-4 w-4" />}
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <GithubMark className="mr-2 h-4 w-4" />}
             连接 GitHub
           </Button>
           <p className="text-xs text-muted-foreground">

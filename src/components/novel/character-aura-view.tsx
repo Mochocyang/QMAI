@@ -12,13 +12,13 @@ import {
   createCustomCharacterAuraSkill,
   deleteCustomCharacterAura,
   getCharacterAuraBindings,
-  listBindableNovelCharacters,
+  listBindableNovelCharactersStructured,
   listCharacterAuras,
   listEditedBuiltInAuraIds,
   loadCharacterAuraResearchDocument,
   loadCharacterAuraStore,
   loadCharacterAuraSkillDocument,
-  refineBindableCharactersWithLlm,
+
   unbindCharacterAura,
   updateBuiltInCharacterAura,
   resetBuiltInCharacterAura,
@@ -26,6 +26,7 @@ import {
   type CharacterAura,
   type CharacterAuraBinding,
   type CharacterAuraGenerationProgress,
+  type BindableNovelCharacter,
   type CharacterAuraResearchFileName,
 } from "@/lib/novel/character-aura"
 import { SoulDocEditor } from "./soul-doc-editor"
@@ -102,6 +103,7 @@ function formFromAura(aura: CharacterAura) {
     honestyBoundaries: aura.honestyBoundaries ?? aura.boundaries,
     behaviorRules: aura.behaviorRules,
     boundaries: aura.boundaries,
+    notes: aura.notes,
     signatureLinesText: (aura.signatureLines ?? []).join("\n"),
     signatureScenesText: (aura.signatureScenes ?? []).join("\n"),
     sourceUrls: aura.sourceUrls ?? "",
@@ -139,17 +141,6 @@ function buildUpdatePayload(form: AuraFormState) {
 }
 
 /** 本地/缓存名单在前、后台精修发现的新名字在后，trim 后保序去重。 */
-function mergeCharacterOptions(current: readonly string[], incoming: readonly string[]): string[] {
-  const merged: string[] = []
-  const seen = new Set<string>()
-  for (const raw of [...current, ...incoming]) {
-    const name = raw.trim()
-    if (!name || seen.has(name)) continue
-    seen.add(name)
-    merged.push(name)
-  }
-  return merged
-}
 
 export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boolean }) {
   const { t } = useTranslation()
@@ -166,7 +157,7 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   const [selectedId, setSelectedId] = useState(BUILT_IN_CHARACTER_AURAS[0]?.id ?? "")
   const [form, setForm] = useState<AuraFormState>(EMPTY_FORM)
   // 原始名单（本地/缓存 + 后台精修并集），展示前再过一遍忽略规则。
-  const [rawCharacterOptions, setRawCharacterOptions] = useState<string[]>([])
+  const [rawCharacterOptions, setRawCharacterOptions] = useState<BindableNovelCharacter[]>([])
   const [characterIgnoreList, setCharacterIgnoreList] = useState<string[]>([])
   const [characterOptionsLoading, setCharacterOptionsLoading] = useState(false)
   const [bindings, setBindings] = useState<CharacterAuraBinding[]>([])
@@ -184,8 +175,6 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   const [builtInEditing, setBuiltInEditing] = useState(false)
   const [resetCandidate, setResetCandidate] = useState<CharacterAura | null>(null)
   const [soulTab, setSoulTab] = useState<"project" | "character">("project")
-  // 同一项目同一时间只允许一条后台精修在飞，避免重复请求模型。
-  const refiningProjectsRef = useRef<Set<string>>(new Set())
   // 加载提示只跟「最新一次快线请求」对齐：旧项目的迟到请求不许提前关掉它。
   const characterOptionsRequestRef = useRef(0)
   const effectiveSection = hideSidebar ? storedSelectedSoulSection : section
@@ -210,11 +199,12 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
     () => bindings.map((binding) => binding.characterName),
     [bindings],
   )
-  const characterOptions = useMemo(
-    () => filterBindableCharacters(rawCharacterOptions, characterIgnoreList, boundCharacterNames),
-    [rawCharacterOptions, characterIgnoreList, boundCharacterNames],
-  )
-
+  // 已绑定的名字是安全阀：即使命中忽略表也绝不能从下拉框消失。
+  const characterOptions = useMemo(() => {
+    const allowed = filterBindableCharacters(rawCharacterOptions.map((item) => item.name), characterIgnoreList, boundCharacterNames)
+    const allowedSet = new Set(allowed)
+    return rawCharacterOptions.filter((item) => allowedSet.has(item.name))
+  }, [rawCharacterOptions, characterIgnoreList, boundCharacterNames])
   function updateSelectedId(nextId: string) {
     if (hideSidebar) {
       setStoredSelectedSoulId(nextId)
@@ -295,40 +285,22 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
     const requestId = characterOptionsRequestRef.current + 1
     characterOptionsRequestRef.current = requestId
     setCharacterOptionsLoading(true)
-    let localListLoaded = false
     try {
       await runAction(async () => {
-        const [names, ignoreList] = await Promise.all([
-          listBindableNovelCharacters(path),
+        // 只取「人物档案 + 人物小传页」两处确定来源，不再让模型去猜人名。
+        const [characters, ignoreList] = await Promise.all([
+          listBindableNovelCharactersStructured(path),
           readBindableIgnoreList(path),
         ])
         if (isCancelled()) return
-        setRawCharacterOptions(names)
+        setRawCharacterOptions(characters)
         setCharacterIgnoreList(ignoreList)
-        localListLoaded = true
       }, "小说人物列表读取失败，请稍后重试")
     } finally {
       if (characterOptionsRequestRef.current === requestId) setCharacterOptionsLoading(false)
     }
-    // 本地名单已经可用；精修只在后台补名字，绝不 await，也绝不拖住加载提示。
-    if (localListLoaded && !isCancelled()) {
-      void refineCharacterOptions(path, isCancelled)
-    }
   }
 
-  async function refineCharacterOptions(path: string, isCancelled: () => boolean) {
-    if (refiningProjectsRef.current.has(path)) return
-    refiningProjectsRef.current.add(path)
-    try {
-      const refined = await refineBindableCharactersWithLlm(path)
-      if (isCancelled() || refined.length === 0) return
-      setRawCharacterOptions((current) => mergeCharacterOptions(current, refined))
-    } catch {
-      // refineBindableCharactersWithLlm 约定不抛错；这里兜底，失败一律静默。
-    } finally {
-      refiningProjectsRef.current.delete(path)
-    }
-  }
 
   async function refresh(isCancelled: () => boolean = () => false) {
     if (!project) return
@@ -734,7 +706,7 @@ function AuraDetails({
   onReset?: () => void
   onDelete?: () => void
   actionsDisabled?: boolean
-  characterOptions: string[]
+  characterOptions: BindableNovelCharacter[]
   characterOptionsLoading?: boolean
   bindings: CharacterAuraBinding[]
   onBind: (characterName: string) => void
@@ -1396,7 +1368,7 @@ function CharacterBindingControl({
   onUnbind,
 }: {
   badgeLabel: string
-  options: string[]
+  options: BindableNovelCharacter[]
   optionsLoading?: boolean
   bindings: CharacterAuraBinding[]
   disabled: boolean
@@ -1406,6 +1378,11 @@ function CharacterBindingControl({
   const [pendingName, setPendingName] = useState("")
   const boundNames = bindings.map((binding) => binding.characterName)
   const pendingBound = pendingName !== "" && boundNames.includes(pendingName)
+  // 选中项的信息展示：让用户在点「绑定」之前就知道这个人物有没有档案、定位是什么。
+  const pendingOption = options.find((option) => option.name === pendingName)
+  // 按左栏层级分两组：活跃角色在前，候选角色在后。
+  const archiveOptions = options.filter((option) => option.source === "archive")
+  const sightingOptions = options.filter((option) => option.source !== "archive")
   return (
     <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
       <select
@@ -1413,19 +1390,46 @@ function CharacterBindingControl({
         value={pendingName}
         disabled={disabled || options.length === 0}
         onChange={(event) => setPendingName(event.target.value)}
-        className="min-w-40 max-w-64 rounded-md border bg-background px-2 py-1 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+        className="min-w-40 max-w-72 rounded-md border bg-background px-2 py-1 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
       >
         <option value="">
           {options.length === 0
-            ? (optionsLoading ? "正在读取小说人物…" : "请先添加小说人物")
-            : "选择小说人物"}
+            ? (optionsLoading ? "正在读取小说人物…" : "人物小传里还没有人物")
+            : "从人物小传中选择"}
         </option>
-        {options.map((option) => (
-          <option key={option} value={option}>{option}</option>
-        ))}
+        {/* 按左栏的层级分组：活跃角色在上、候选角色在下，组名就是分组标题。
+            人名后面不再追加「候选角色」这类标记 —— 组名已经说明了来源，逐条重复只会把下拉挤满。 */}
+        {archiveOptions.length > 0 && (
+          <optgroup label="活跃角色">
+            {archiveOptions.map((option) => (
+              <option key={option.name} value={option.name}>
+                {option.name}
+                {option.roleType ? `（${option.roleType}）` : ""}
+              </option>
+            ))}
+          </optgroup>
+        )}
+        {sightingOptions.length > 0 && (
+          <optgroup label="候选角色">
+            {sightingOptions.map((option) => (
+              <option key={option.name} value={option.name}>
+                {option.name}
+                {option.roleType ? `（${option.roleType}）` : ""}
+              </option>
+            ))}
+          </optgroup>
+        )}
       </select>
+      {pendingOption && (
+        <span
+          data-ui="soul-bind-source-hint"
+          className={`rounded-full px-2 py-1 text-[11px] ${pendingOption.source === "archive" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}
+          title={pendingOption.source === "archive" ? "活跃角色：已有完整档案，绑定后生成更准确" : "候选角色：尚无档案，只有名字与出场记录"}
+        >
+          {pendingOption.source === "archive" ? "信息完整" : "仅候选"}
+        </span>
+      )}
       <Button
-        type="button"
         size="sm"
         variant={pendingBound ? "outline" : "default"}
         disabled={disabled || !pendingName}

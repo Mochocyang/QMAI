@@ -18,7 +18,7 @@ const auraMocks = vi.hoisted(() => ({
   createCustomCharacterAuraSkill: vi.fn(),
   deleteCustomCharacterAura: vi.fn(),
   getCharacterAuraBindings: vi.fn(),
-  listBindableNovelCharacters: vi.fn(),
+  listBindableNovelCharactersStructured: vi.fn(),
   listCharacterAuras: vi.fn(),
   loadCharacterAuraResearchDocument: vi.fn(),
   loadCharacterAuraSkillDocument: vi.fn(),
@@ -35,7 +35,7 @@ vi.mock("@/lib/novel/character-aura", async () => {
     createCustomCharacterAuraSkill: auraMocks.createCustomCharacterAuraSkill,
     deleteCustomCharacterAura: auraMocks.deleteCustomCharacterAura,
     getCharacterAuraBindings: auraMocks.getCharacterAuraBindings,
-    listBindableNovelCharacters: auraMocks.listBindableNovelCharacters,
+    listBindableNovelCharactersStructured: auraMocks.listBindableNovelCharactersStructured,
     listCharacterAuras: auraMocks.listCharacterAuras,
     loadCharacterAuraResearchDocument: auraMocks.loadCharacterAuraResearchDocument,
     loadCharacterAuraSkillDocument: auraMocks.loadCharacterAuraSkillDocument,
@@ -184,6 +184,20 @@ describe("角色灵魂页面", () => {
     expect(source).not.toContain('Detail label="AI 搜索"')
     expect(source).not.toContain('Detail label="生成提示词"')
   })
+  it("详情页有标志性台词与标志性动作两个独立展示区", () => {
+    // 这两块是用户点开灵魂最先看的东西，必须是结构化字段，不能拿 corpus 关键词冒充。
+    expect(source).toContain('data-ui="soul-signature-quote"')
+    expect(source).toContain('data-ui="soul-signature-scenes"')
+    expect(source).toContain("标志性台词")
+    expect(source).toContain("标志性动作")
+    expect(source).toContain("aura.signatureLines")
+    expect(source).toContain("aura.signatureScenes")
+    // 编辑抽屉里也要能改，且是「每行一条」的轻量写法。
+    expect(source).toContain('label: "标志性台词"')
+    expect(source).toContain('label: "标志性动作"')
+    expect(source).toContain("splitSignatureLines")
+  })
+
   it("内置灵魂可编辑并提供恢复默认，破坏性操作走确认弹窗", () => {
     // 数据入口：修改写覆盖层，恢复只删覆盖记录。
     expect(source).toContain("updateBuiltInCharacterAura")
@@ -231,7 +245,7 @@ describe("CharacterAuraView hideSidebar selection", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-    auraMocks.listBindableNovelCharacters.mockResolvedValue([])
+    auraMocks.listBindableNovelCharactersStructured.mockResolvedValue([])
     auraMocks.getCharacterAuraBindings.mockResolvedValue([])
     auraMocks.loadCharacterAuraSkillDocument.mockResolvedValue("")
     auraMocks.loadCharacterAuraResearchDocument.mockResolvedValue("")
@@ -360,7 +374,7 @@ describe("CharacterAuraView hideSidebar selection", () => {
   it("binds a character and bumps the shared data version for the project sidebar", async () => {
     const targetAura = BUILT_IN_CHARACTER_AURAS[0]
     auraMocks.listCharacterAuras.mockResolvedValue(BUILT_IN_CHARACTER_AURAS)
-    auraMocks.listBindableNovelCharacters.mockResolvedValue(["杨墨"])
+    auraMocks.listBindableNovelCharactersStructured.mockResolvedValue([{ name: "杨墨", roleType: "主角", aliases: [], source: "archive", dormant: false }])
     auraMocks.getCharacterAuraBindings.mockResolvedValue([])
     auraMocks.bindCharacterAura.mockResolvedValue({
       customAuras: [],

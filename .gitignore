@@ -1,5 +1,9 @@
 # === 构建产物 ===
 dist/
+# 打包前自动备份的前端产物（dist-backup-<时间戳>）。
+# 只写 `dist/` 挡不住它：`dist/` 只匹配精确叫 dist 的目录，
+# 于是一次 `git add -A` 就把 330 个 hashed 资源文件整个提交进了版本库。
+dist-backup-*/
 dist-uitest/
 dist-default/
 release-portable/

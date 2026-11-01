@@ -9,7 +9,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import "@/i18n"
-import { BUILT_IN_CHARACTER_AURAS } from "@/lib/novel/character-aura"
+import { BUILT_IN_CHARACTER_AURAS, type BindableNovelCharacter } from "@/lib/novel/character-aura"
 import { useWikiStore } from "@/stores/wiki-store"
 import { CharacterAuraView } from "./character-aura-view"
 
@@ -19,7 +19,7 @@ const auraMocks = vi.hoisted(() => ({
   createCustomCharacterAuraSkill: vi.fn(),
   deleteCustomCharacterAura: vi.fn(),
   getCharacterAuraBindings: vi.fn(),
-  listBindableNovelCharacters: vi.fn(),
+  listBindableNovelCharactersStructured: vi.fn(),
   listCharacterAuras: vi.fn(),
   loadCharacterAuraResearchDocument: vi.fn(),
   loadCharacterAuraSkillDocument: vi.fn(),
@@ -36,7 +36,7 @@ vi.mock("@/lib/novel/character-aura", async () => {
     createCustomCharacterAuraSkill: auraMocks.createCustomCharacterAuraSkill,
     deleteCustomCharacterAura: auraMocks.deleteCustomCharacterAura,
     getCharacterAuraBindings: auraMocks.getCharacterAuraBindings,
-    listBindableNovelCharacters: auraMocks.listBindableNovelCharacters,
+    listBindableNovelCharactersStructured: auraMocks.listBindableNovelCharactersStructured,
     listCharacterAuras: auraMocks.listCharacterAuras,
     loadCharacterAuraResearchDocument: auraMocks.loadCharacterAuraResearchDocument,
     loadCharacterAuraSkillDocument: auraMocks.loadCharacterAuraSkillDocument,
@@ -90,7 +90,7 @@ describe("角色灵魂列表与小说人物扫描解耦", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-    auraMocks.listBindableNovelCharacters.mockResolvedValue([])
+    auraMocks.listBindableNovelCharactersStructured.mockResolvedValue([])
     auraMocks.getCharacterAuraBindings.mockResolvedValue([])
     auraMocks.loadCharacterAuraSkillDocument.mockResolvedValue("")
     auraMocks.loadCharacterAuraResearchDocument.mockResolvedValue("")
@@ -109,7 +109,7 @@ describe("角色灵魂列表与小说人物扫描解耦", () => {
 
   it("小说人物扫描永不返回时，自定义灵魂列表仍然立刻渲染", async () => {
     auraMocks.listCharacterAuras.mockResolvedValue([...BUILT_IN_CHARACTER_AURAS, customAura])
-    auraMocks.listBindableNovelCharacters.mockImplementation(() => neverResolves<string[]>())
+    auraMocks.listBindableNovelCharactersStructured.mockImplementation(() => neverResolves<BindableNovelCharacter[]>())
     useWikiStore.setState({
       project: useProject(),
       selectedSoulId: customAura.id,
@@ -129,7 +129,7 @@ describe("角色灵魂列表与小说人物扫描解耦", () => {
   it("小说人物扫描未完成时，已绑定信息仍然渲染", async () => {
     const targetAura = BUILT_IN_CHARACTER_AURAS[0]
     auraMocks.listCharacterAuras.mockResolvedValue(BUILT_IN_CHARACTER_AURAS)
-    auraMocks.listBindableNovelCharacters.mockImplementation(() => neverResolves<string[]>())
+    auraMocks.listBindableNovelCharactersStructured.mockImplementation(() => neverResolves<BindableNovelCharacter[]>())
     auraMocks.getCharacterAuraBindings.mockResolvedValue([{ characterName: "杨墨", auraId: targetAura.id }])
     useWikiStore.setState({
       project: useProject(),
@@ -149,7 +149,7 @@ describe("角色灵魂列表与小说人物扫描解耦", () => {
   it("人物列表还在读取时，绑定控件显示读取提示而不是请先添加小说人物", async () => {
     const targetAura = BUILT_IN_CHARACTER_AURAS[0]
     auraMocks.listCharacterAuras.mockResolvedValue(BUILT_IN_CHARACTER_AURAS)
-    auraMocks.listBindableNovelCharacters.mockImplementation(() => neverResolves<string[]>())
+    auraMocks.listBindableNovelCharactersStructured.mockImplementation(() => neverResolves<BindableNovelCharacter[]>())
     useWikiStore.setState({
       project: useProject(),
       selectedSoulId: targetAura.id,
@@ -168,9 +168,9 @@ describe("角色灵魂列表与小说人物扫描解耦", () => {
 
   it("人物列表返回后读取提示消失并填充可选人物", async () => {
     const targetAura = BUILT_IN_CHARACTER_AURAS[0]
-    const scan = deferred<string[]>()
+    const scan = deferred<BindableNovelCharacter[]>()
     auraMocks.listCharacterAuras.mockResolvedValue(BUILT_IN_CHARACTER_AURAS)
-    auraMocks.listBindableNovelCharacters.mockImplementation(() => scan.promise)
+    auraMocks.listBindableNovelCharactersStructured.mockImplementation(() => scan.promise)
     useWikiStore.setState({
       project: useProject(),
       selectedSoulId: targetAura.id,
@@ -185,7 +185,10 @@ describe("角色灵魂列表与小说人物扫描解耦", () => {
     expect(host.textContent).toContain(CHARACTER_OPTIONS_LOADING_TEXT)
 
     await act(async () => {
-      scan.resolve(["杨墨", "李四"])
+      scan.resolve([
+      { name: "杨墨", roleType: "", aliases: [], source: "archive", dormant: false },
+      { name: "李四", roleType: "", aliases: [], source: "outline", dormant: false },
+    ])
     })
     await flush()
 
@@ -199,7 +202,7 @@ describe("角色灵魂列表与小说人物扫描解耦", () => {
 
   it("人物扫描失败时灵魂列表照常显示并给出错误提示", async () => {
     auraMocks.listCharacterAuras.mockResolvedValue([...BUILT_IN_CHARACTER_AURAS, customAura])
-    auraMocks.listBindableNovelCharacters.mockRejectedValue(new Error("小说人物扫描失败"))
+    auraMocks.listBindableNovelCharactersStructured.mockRejectedValue(new Error("小说人物扫描失败"))
     useWikiStore.setState({
       project: useProject(),
       selectedSoulId: customAura.id,
@@ -220,9 +223,9 @@ describe("角色灵魂列表与小说人物扫描解耦", () => {
   })
 
   it("人物列表迟到返回时不会改变当前选中的灵魂", async () => {
-    const scan = deferred<string[]>()
+    const scan = deferred<BindableNovelCharacter[]>()
     auraMocks.listCharacterAuras.mockResolvedValue([...BUILT_IN_CHARACTER_AURAS, customAura])
-    auraMocks.listBindableNovelCharacters.mockImplementation(() => scan.promise)
+    auraMocks.listBindableNovelCharactersStructured.mockImplementation(() => scan.promise)
     useWikiStore.setState({
       project: useProject(),
       selectedSoulId: customAura.id,
@@ -237,7 +240,10 @@ describe("角色灵魂列表与小说人物扫描解耦", () => {
     expect(host.querySelector("h2")?.textContent).toBe(customAura.name)
 
     await act(async () => {
-      scan.resolve(["杨墨", "李四"])
+      scan.resolve([
+      { name: "杨墨", roleType: "", aliases: [], source: "archive", dormant: false },
+      { name: "李四", roleType: "", aliases: [], source: "outline", dormant: false },
+    ])
     })
     await flush()
 
