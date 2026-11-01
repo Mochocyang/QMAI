@@ -24,6 +24,7 @@ import { isTauri } from "@/lib/platform"
 const ANALYTICS_URL = "https://analytics.qmai.pro"
 
 const DEVICE_UUID_KEY = "analytics_device_uuid"
+const ANALYTICS_ENABLED_KEY = "analytics_enabled"
 const HEARTBEAT_INTERVAL_MS = 5 * 60_000
 
 /** 缓存的版本号与平台，只在启动时解析一次 */
@@ -88,6 +89,8 @@ async function sendAnalytics(
   uuid: string,
 ): Promise<void> {
   try {
+    // 纵深防御：即使调用方漏判，这里再挡一次。关闭统计后不该有任何请求发出。
+    if (!(await isAnalyticsEnabled())) return
     const payload = {
       uuid,
       ...(cachedVersion ? { version: cachedVersion } : {}),
@@ -115,6 +118,40 @@ async function sendAnalytics(
 }
 
 /** 缓存 UUID 避免重复读取 */
+/**
+ * 是否允许上报使用统计。
+ *
+ * 默认开启：统计是匿名的、用于改进产品，绝大多数用户不会去关它。
+ * 但设置里必须留一个开关 —— 隐私政策写了「你可以在设置中关闭使用统计上报」，
+ * 产品就必须真能做到，否则又是一句兑现不了的承诺（与当初的「注销账号」同类）。
+ *
+ * 读不到存储时按「开启」处理：这是产品默认状态，不能让存储故障改变默认行为。
+ */
+export async function isAnalyticsEnabled(): Promise<boolean> {
+  try {
+    const store = await getStore()
+    const value = await store.get<boolean>(ANALYTICS_ENABLED_KEY)
+    return value !== false
+  } catch {
+    return true
+  }
+}
+
+/**
+ * 设置是否上报使用统计。
+ *
+ * 关闭时不删已生成的设备 uuid：再次打开沿用同一标识，
+ * 避免把「同一个人开关一次」算成两个新用户。
+ */
+export async function setAnalyticsEnabled(enabled: boolean): Promise<void> {
+  try {
+    const store = await getStore()
+    await store.set(ANALYTICS_ENABLED_KEY, enabled)
+  } catch {
+    // 存不下就不存：下次仍按默认（开启）处理。
+  }
+}
+
 let cachedUUID: string | null = null
 let heartbeatTimer: number | null = null
 
@@ -128,6 +165,8 @@ let heartbeatTimer: number | null = null
  */
 export async function initAnalytics(): Promise<void> {
   try {
+    // 用户关掉统计时一个请求都不发：不发 /open、不装心跳、不发 /close。
+    if (!(await isAnalyticsEnabled())) return
     const meta = await resolveAppMeta()
     cachedVersion = meta.version
     cachedPlatform = meta.platform

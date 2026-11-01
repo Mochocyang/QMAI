@@ -98,7 +98,7 @@ tbody tr:hover{background:#fafcfb}
 <p>4.3 <strong>账号安全</strong>：你应妥善保管账号与密码。<strong>因你保管不善、共用账号、泄露验证码导致的账号被盗、数据泄露、财产损失，由你自行承担</strong>；因我们服务端安全措施不足导致的，依第十三条责任限制条款处理。</p>
 <p>4.4 <strong>异常处理</strong>：若发现异常登录、违规使用，我们有权采取限制功能、暂停服务、封禁账号等措施。</p>
 <p>4.5 <strong>一人一号原则</strong>：原则上每位用户仅可注册一个账号。</p>
-<p>4.6 <strong>注销</strong>：你可在软件内「账号」页面直接注销账号，也可发邮件至 privacy@qmai.pro 申请人工注销。注销需输入当前密码确认，<strong>注销后不可恢复</strong>，账号相关的全部数据将被删除。</p>
+<p>4.6 <strong>注销</strong>：你可在软件内「账号」页面<strong>直接注销账号</strong>（需输入当前密码确认，数据即时删除），也可发邮件至 privacy@qmai.pro 申请人工注销（15 个工作日内处理）。<strong>注销后不可恢复。</strong> 出于安全审计需要，撤销登录的操作流水会依法保留，但不含任何可还原为你本人的信息。</p>
 <hr />
 <h2 id="sec-5">五、用户内容与权属</h2>
 <p>5.1 <strong>你的内容归你</strong>：你通过本软件创作、输入的所有内容（小说正文、大纲、人物设定等）<strong>归你所有</strong>。我们<strong>不主张</strong>对你内容的任何所有权。</p>
@@ -168,7 +168,7 @@ tbody tr:hover{background:#fafcfb}
 <ul><li>适销性担保；</li><li>特定用途适用性担保；</li><li>不侵权担保；</li><li>无病毒、无错误、不中断担保。</li></ul>
 <p>12.3 <strong>不保证结果</strong>：使用本软件<strong>不保证</strong>你能写出满意的小说、获得读者、实现变现或达到任何特定目标。</p>
 <p>12.4 <strong>数据安全自负</strong>：我们<strong>强烈建议</strong>你定期备份本地数据。<strong>因硬盘故障、误删、病毒、系统重装、断电等导致的数据丢失，我们不承担责任。</strong></p>
-<p>因<strong>本软件自身缺陷</strong>导致本地数据损坏的，我们将积极协助排查与恢复，并在第十三条赔偿上限内承担责任，但<strong>不承担数据本身的价值损失</strong>。</p>
+<p>因<strong>本软件自身缺陷</strong>导致本地数据损坏的，我们将积极协助排查与恢复；<strong>可主张的赔偿以第十三条的累计上限为限</strong>（即最高人民币 100 元），该金额为对你全部损失的概括性上限，不额外按数据价值另行计算。</p>
 <p>12.5 <strong>第三方服务免责</strong>：云同步依赖 GitHub、百度网盘、WebDAV 等第三方服务，其故障、政策变更、停止服务导致的影响<strong>与我们无关</strong>。</p>
 <p>12.6 <strong>同步冲突</strong>：因同步冲突、文件覆盖、回滚导致的数据差异，<strong>以你本地文件为准</strong>，我们不承担恢复责任。建议你在同步前自行备份重要版本。</p>
 <p>12.7 <strong>仓库公开风险</strong>：<strong>若你自行将同步仓库设为公开</strong>，导致小说内容被第三方获取、传播，<strong>由你自行承担全部后果</strong>，我们不承担责任。我们建议你始终保持仓库为私有。</p>
@@ -237,7 +237,7 @@ tbody tr:hover{background:#fafcfb}
 <hr />
 <h2 id="sec-4">四、我们收集的个人信息清单</h2>
 <p><strong>本清单为穷尽式列举。我们不会收集本清单之外的个人信息。</strong></p>
-<div class="table-wrap"><table><thead><tr><th>#</th><th>信息类型</th><th>具体字段</th><th>收集场景</th><th>用途</th><th>是否必需</th></tr></thead><tbody><tr><td>1</td><td>账号标识</td><td>电子邮箱</td><td>注册 / 登录</td><td>账号唯一标识、找回密码</td><td><strong>必需</strong>（不提供则无法注册）</td></tr><tr><td>2</td><td>账号凭证</td><td>密码（<strong>仅存不可逆哈希</strong>，不存明文）</td><td>注册 / 修改密码</td><td>身份验证</td><td><strong>必需</strong></td></tr><tr><td>3</td><td>账号资料</td><td>昵称</td><td>注册 / 主动修改</td><td>界面展示</td><td>可选（可填写默认值）</td></tr><tr><td>4</td><td>账号资料</td><td>头像图片</td><td>主动上传</td><td>界面展示</td><td>可选</td></tr><tr><td>5</td><td>会话凭证</td><td>会话令牌（<strong>仅存哈希</strong>）、令牌家族标识、过期与撤销时间</td><td>登录后自动</td><td>保持登录状态、安全风控</td><td><strong>必需</strong></td></tr><tr><td>6</td><td>设备标识</td><td>设备指纹哈希值、设备名称</td><td>登录 / 开通云同步时</td><td>多设备管理、异常登录识别、模型配置绑定</td><td><strong>必需</strong>（仅在你使用账号功能时）</td></tr><tr><td>7</td><td>网络信息</td><td>请求 IP 的<strong>哈希值</strong>（不存明文 IP）</td><td>邮箱验证码请求</td><td>防刷、限流、滥用防护</td><td><strong>必需</strong></td></tr><tr><td>8</td><td>验证码</td><td>邮箱验证码的<strong>哈希值</strong>、验证尝试次数</td><td>注册 / 重置密码</td><td>验证邮箱归属</td><td><strong>必需</strong></td></tr><tr><td>9</td><td>模型配置</td><td>模型供应商、模型名、接口地址、温度等参数</td><td>主动开启模型配置同步</td><td>多设备同步配置</td><td>可选（需主动开启）</td></tr><tr><td>10</td><td>操作审计</td><td>撤销登录记录（范围、对象、原因、时间）</td><td>退出登录 / 强制下线</td><td>安全审计</td><td><strong>必需</strong>（安全日志）</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>#</th><th>信息类型</th><th>具体字段</th><th>收集场景</th><th>用途</th><th>是否必需</th></tr></thead><tbody><tr><td>1</td><td>账号标识</td><td>电子邮箱</td><td>注册 / 登录</td><td>账号唯一标识、找回密码</td><td><strong>必需</strong>（不提供则无法注册）</td></tr><tr><td>2</td><td>账号凭证</td><td>密码（<strong>仅存不可逆哈希</strong>，不存明文）</td><td>注册 / 修改密码</td><td>身份验证</td><td><strong>必需</strong></td></tr><tr><td>3</td><td>账号资料</td><td>昵称</td><td>注册 / 主动修改</td><td>界面展示</td><td>可选（可填写默认值）</td></tr><tr><td>4</td><td>账号资料</td><td>头像图片</td><td>主动上传</td><td>界面展示</td><td>可选</td></tr><tr><td>5</td><td>会话凭证</td><td>会话令牌（<strong>仅存哈希</strong>）、令牌家族标识、过期与撤销时间</td><td>登录后自动</td><td>保持登录状态、安全风控</td><td><strong>必需</strong></td></tr><tr><td>6</td><td>设备标识</td><td>设备指纹哈希值、设备名称</td><td>登录 / 开通云同步时</td><td>多设备管理、异常登录识别、模型配置绑定</td><td><strong>必需</strong>（仅在你使用账号功能时）</td></tr><tr><td>7</td><td>网络信息</td><td>请求 IP 的<strong>哈希值</strong>（不存明文 IP）</td><td>邮箱验证码请求</td><td>防刷、限流、滥用防护</td><td><strong>必需</strong></td></tr><tr><td>8</td><td>验证码</td><td>邮箱验证码的<strong>哈希值</strong>、验证尝试次数</td><td>注册 / 重置密码</td><td>验证邮箱归属</td><td><strong>必需</strong></td></tr><tr><td>9</td><td>模型配置</td><td>模型供应商、模型名、接口地址、温度等参数</td><td>主动开启模型配置同步</td><td>多设备同步配置</td><td>可选（需主动开启）</td></tr><tr><td>10</td><td>操作审计</td><td>撤销登录记录（范围、对象、原因、时间）</td><td>退出登录 / 强制下线</td><td>安全审计</td><td><strong>必需</strong>（安全日志）</td></tr><tr><td>11</td><td>网盘授权令牌</td><td>百度 OAuth 访问令牌（<strong>AES-GCM 加密</strong>，10 分钟过期、取走后 60 秒内清除）</td><td>开通百度网盘同步时</td><td>完成授权与同步</td><td>可选（仅在启用百度网盘同步时）</td></tr></tbody></table></div>
 <p><strong>关于你的小说正文（重要澄清）：</strong></p>
 <p>我们<strong>不在自有服务器上存储</strong>你的小说正文、大纲、人物设定，它们默认只保存在你的电脑本地。</p>
 <p>但请注意：<strong>当你使用 AI 功能时，相关文本片段会作为提示词发送至模型服务商</strong>——这是 AI 生成能够工作的前提。使用中转服务（模式 B）时，这些内容会在我们的中转服务器上<strong>停留最长 30 天</strong>以完成转发与故障排查，到期自动删除。</p>
@@ -253,7 +253,7 @@ tbody tr:hover{background:#fafcfb}
 <p>5.2 <strong>登录</strong>：使用邮箱 + 密码登录。登录成功后，我们签发会话令牌，令牌仅以哈希形式存储于服务端。</p>
 <p>5.3 <strong>密码安全</strong>：密码采用加盐哈希算法存储，<strong>我们无法查看或还原你的明文密码</strong>。若你忘记密码，只能通过邮箱验证码重置。</p>
 <p>5.4 <strong>退出登录</strong>：你可以随时退出登录，我们会在服务端撤销对应会话令牌。</p>
-<p>5.5 <strong>账号注销</strong>：你可以通过隐私邮箱申请注销账号。我们将在核验身份后 <strong>15 个工作日</strong>内删除你的账号数据（法律要求留存的除外）。</p>
+<p>5.5 <strong>账号注销</strong>：你可以在软件内「账号」页面<strong>直接注销账号</strong>（需输入当前密码确认），数据即时删除；也可发邮件至 privacy@qmai.pro 申请人工注销，我们将在 <strong>15 个工作日</strong>内处理。法律要求留存的信息除外。</p>
 <hr />
 <h2 id="sec-6">六、设备标识与软件运行信息</h2>
 <p>6.1 当你登录账号或开启云同步时，我们记录设备指纹的<strong>不可逆哈希值</strong>和系统提供的设备名称，用于：</p>
@@ -270,7 +270,8 @@ tbody tr:hover{background:#fafcfb}
 <h2 id="sec-8">八、云同步功能的数据处理</h2>
 <p>8.1 云同步为<strong>可选功能</strong>，默认关闭。开启后，你可以选择以下方式之一：</p>
 <div class="table-wrap"><table><thead><tr><th>同步方式</th><th>数据实际存储位置</th><th>我们的访问能力</th></tr></thead><tbody><tr><td>GitHub 私有仓库</td><td>你的 GitHub 账号下</td><td><strong>无法访问</strong>（凭据由你提供，我们不经手）</td></tr><tr><td>WebDAV</td><td>你指定的 WebDAV 服务器</td><td><strong>无法访问</strong></td></tr><tr><td>百度网盘</td><td>你的百度网盘账号下</td><td><strong>无法访问</strong>（通过 OAuth 授权，不获取你的密码）</td></tr><tr><td>本地文件夹</td><td>你指定的本地 / 局域网路径</td><td><strong>无法访问</strong></td></tr></tbody></table></div>
-<p>8.2 <strong>同步凭据（Token / 密码）仅保存在你的本机</strong>，不会上传至我们的服务器。</p>
+<p>8.2 <strong>同步凭据（Token / 密码）的处理，按同步方式不同而不同，请务必看清：</strong></p>
+<ul><li><strong>GitHub、WebDAV、本地文件夹</strong>：凭据仅保存在你的本机，<strong>不会上传至我们的服务器</strong>；同步请求由你的电脑直接发往对应服务商。</li><li><strong>百度网盘</strong>：采用 OAuth 网页授权。授权过程中，<strong>授权码与访问令牌（Token）会短暂经过我们的服务器</strong>（域名 <code>qmai.pro/oauth/baidu/*</code>），用于完成授权码换取 Token 的必需步骤。该 Token 以 <strong>AES-GCM 加密</strong>后存储于数据库，<strong>有效期 10 分钟、并在客户端取走后 60 秒内清除</strong>。我们不会用它读取你网盘中的其他文件，也不会长期留存。</li></ul>
 <p>8.3 使用云同步即意味着你的数据将传输至上述第三方，<strong>该传输与存储受第三方服务条款约束，我们无法控制</strong>。</p>
 <p>8.4 我们建议你启用仓库私有化，避免小说内容被公开。</p>
 <hr />
@@ -296,7 +297,7 @@ tbody tr:hover{background:#fafcfb}
 <p>12.1 使用模式 B 时，你的请求会经过我们的中转服务器转发至上游模型。</p>
 <p>12.2 中转服务处理的数据：</p>
 <ul><li>请求内容（你的提示词）；</li><li>模型返回内容；</li><li>用于计费与限流的元数据（模型名、Token 数量、时间戳、账号标识）。</li></ul>
-<p>12.3 <strong>留存期限</strong>：中转日志<strong>最长保留 30 天</strong>，仅用于故障排查、滥用防护与服务计费，到期自动删除。</p>
+<p>12.3 <strong>留存期限</strong>：中转服务<strong>不主动留存你的提示词与生成内容</strong>用于业务目的；仅在必要范围内记录<strong>计费与限流元数据</strong>（模型名、Token 数量、时间戳、账号标识），该等元数据最长保留 30 天，到期自动删除。为排障需要临时开启请求日志时，我们会在完成后及时清除。</p>
 <p>12.4 我们<strong>不会</strong>将你的提示词或生成内容用于模型训练，<strong>不会</strong>出售或向无关第三方提供。</p>
 <p>12.5 上游模型供应商的数据处理行为受其自身政策约束，我们无法保证其不留存、不用于训练。</p>
 <hr />
@@ -312,13 +313,13 @@ tbody tr:hover{background:#fafcfb}
 <hr />
 <h2 id="sec-14">十四、第三方共享清单</h2>
 <p>我们不会出售你的个人信息。仅在下列必要情形下与第三方共享：</p>
-<div class="table-wrap"><table><thead><tr><th>第三方</th><th>共享内容</th><th>目的</th><th>是否跨境</th><th>其隐私政策</th></tr></thead><tbody><tr><td>Cloudflare（账号服务器托管）</td><td>账号与会话数据</td><td>服务运行</td><td>是（可能）</td><td>cloudflare.com/privacypolicy</td></tr><tr><td>Resend, Inc.（邮件发送）</td><td>你的邮箱地址</td><td>发送验证码</td><td>是（美国）</td><td>resend.com/legal/privacy-policy</td></tr><tr><td>百度网盘</td><td>OAuth 授权信息、同步文件</td><td>云同步（你主动开启）</td><td>否</td><td>pan.baidu.com</td></tr><tr><td>GitHub</td><td>同步文件</td><td>云同步（你主动开启）</td><td>是</td><td>github.com/site/privacy</td></tr><tr><td>你选择的 WebDAV 服务商</td><td>同步文件</td><td>云同步（你主动开启）</td><td>由你决定</td><td>由你自行确认</td></tr><tr><td>上游模型供应商</td><td>提示词、生成结果</td><td>AI 生成（你主动使用）</td><td>视供应商而定</td><td>由你自行确认</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>第三方</th><th>共享内容</th><th>目的</th><th>是否跨境</th><th>其隐私政策</th></tr></thead><tbody><tr><td>Cloudflare, Inc.（账号服务器托管）</td><td>账号与会话数据</td><td>服务运行</td><td>是（美国及全球节点）</td><td>cloudflare.com/privacypolicy</td></tr><tr><td>Resend, Inc.（邮件发送）</td><td>你的邮箱地址</td><td>发送验证码</td><td>是（美国）</td><td>resend.com/legal/privacy-policy</td></tr><tr><td>百度网盘</td><td>OAuth 授权信息、同步文件</td><td>云同步（你主动开启）</td><td>否</td><td>pan.baidu.com</td></tr><tr><td>GitHub</td><td>同步文件</td><td>云同步（你主动开启）</td><td>是</td><td>github.com/site/privacy</td></tr><tr><td>你选择的 WebDAV 服务商</td><td>同步文件</td><td>云同步（你主动开启）</td><td>由你决定</td><td>由你自行确认</td></tr><tr><td>上游模型供应商</td><td>提示词、生成结果</td><td>AI 生成（你主动使用）</td><td>视供应商而定</td><td>由你自行确认</td></tr></tbody></table></div>
 <p>14.2 除上述情形外，我们仅在下列情况披露信息：</p>
 <ul><li>获得你的明确同意；</li><li>依据法律法规、司法或行政机关的强制性要求；</li><li>为保护你或他人的生命、财产等重大合法权益所必需。</li></ul>
 <hr />
 <h2 id="sec-15">十五、个人信息跨境传输</h2>
 <p>15.1 <strong>确已知悉：本软件的部分数据必然出境。</strong> 具体如下：</p>
-<div class="table-wrap"><table><thead><tr><th>数据类别</th><th>境外接收方</th><th>所在地</th><th>处理目的</th><th>留存期限</th><th>你的权利行使方式</th></tr></thead><tbody><tr><td>账号信息、会话、设备哈希</td><td>Cloudflare, Inc.</td><td>美国及全球节点</td><td>服务器托管与内容分发</td><td>至账号注销</td><td>privacy@qmai.pro</td></tr><tr><td>邮箱地址</td><td>Resend, Inc.</td><td>美国</td><td>发送验证码邮件</td><td>不进入我方留存；受托方留存依其政策</td><td>privacy@qmai.pro</td></tr><tr><td>提示词与生成结果（中转模式）</td><td>上游模型供应商</td><td>视所选模型而定（含美国等）</td><td>AI 内容生成</td><td>中转侧最长 30 天</td><td>privacy@qmai.pro</td></tr><tr><td>提示词与生成结果（自填 Key 模式）</td><td>你选定的模型供应商</td><td>由你决定</td><td>AI 内容生成</td><td>由该供应商决定</td><td>由你直接行使</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>数据类别</th><th>境外接收方</th><th>所在地</th><th>处理目的</th><th>留存期限</th><th>你的权利行使方式</th></tr></thead><tbody><tr><td>账号信息、会话、设备哈希</td><td>Cloudflare, Inc.</td><td>美国及全球节点</td><td>服务器托管与内容分发</td><td>至账号注销</td><td>privacy@qmai.pro</td></tr><tr><td>邮箱地址</td><td>Resend, Inc.</td><td>美国</td><td>发送验证码邮件</td><td>不进入我方留存；受托方留存依其政策</td><td>privacy@qmai.pro</td></tr><tr><td>提示词与生成结果（中转模式）</td><td>上游模型供应商</td><td>由你所选模型决定（含美国等）</td><td>AI 内容生成</td><td>我方仅留元数据 30 天，不留内容</td><td>privacy@qmai.pro</td></tr><tr><td>提示词与生成结果（自填 Key 模式）</td><td>你选定的模型供应商</td><td>由你决定</td><td>AI 内容生成</td><td>由该供应商决定</td><td>由你直接行使</td></tr></tbody></table></div>
 <p>15.2 上述数据出境是<strong>实现相应功能所必需</strong>：不使用账号则无账号数据出境；不使用云同步则无同步数据出境；不使用 AI 功能则无提示词出境。</p>
 <p>15.3 <strong>你享有就上述出境数据的查阅、复制、更正、删除权</strong>，行使方式见上表或联系 privacy@qmai.pro。</p>
 <p>15.4 若你不接受任何数据出境，请<strong>不要注册账号、不要开启云同步、不要使用 AI 功能</strong>。本软件的本地写作功能完全不需要出境。</p>
@@ -334,7 +335,7 @@ tbody tr:hover{background:#fafcfb}
 <p>17.3 官方网站可能使用必要的 Cookie 维持基本功能，不使用第三方广告 Cookie。</p>
 <hr />
 <h2 id="sec-18">十八、存储期限与删除机制</h2>
-<div class="table-wrap"><table><thead><tr><th>数据</th><th>存储期限</th></tr></thead><tbody><tr><td>账号信息</td><td>至账号注销</td></tr><tr><td>会话令牌</td><td>过期或主动退出后失效，最长 90 天</td></tr><tr><td>邮箱验证码</td><td>10 分钟或使用后失效</td></tr><tr><td>中转日志</td><td>最长 30 天</td></tr><tr><td>限流计数</td><td>窗口期结束后清除</td></tr><tr><td>本地数据</td><td>由你自行管理</td></tr><tr><td>同步日志</td><td>至你主动清除</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>数据</th><th>存储期限</th></tr></thead><tbody><tr><td>账号信息</td><td>至账号注销</td></tr><tr><td>会话令牌</td><td>过期或主动退出后失效，最长 90 天</td></tr><tr><td>邮箱验证码</td><td>10 分钟或使用后失效</td></tr><tr><td>中转计费元数据（不含提示词内容）</td><td>最长 30 天</td></tr><tr><td>限流计数</td><td>窗口期结束后清除</td></tr><tr><td>本地数据</td><td>由你自行管理</td></tr><tr><td>同步日志</td><td>至你主动清除</td></tr></tbody></table></div>
 <p>18.2 账号注销后，我们将在 15 个工作日内删除或匿名化你的账号相关数据；法律法规要求留存的，将在法定期限内单独保存并停止其他处理。</p>
 <hr />
 <h2 id="sec-19">十九、安全措施</h2>
@@ -349,7 +350,7 @@ tbody tr:hover{background:#fafcfb}
 <hr />
 <h2 id="sec-20">二十、你的权利</h2>
 <p>你依法享有下列权利：</p>
-<div class="table-wrap"><table><thead><tr><th>权利</th><th>行使方式</th></tr></thead><tbody><tr><td>查阅、复制</td><td>软件内"账号"页面，或邮件申请</td></tr><tr><td>更正、补充</td><td>软件内修改昵称、头像、密码</td></tr><tr><td>删除</td><td>删除本地数据 / 申请删除账号数据</td></tr><tr><td>撤回同意</td><td>关闭云同步、退出登录、注销账号</td></tr><tr><td>注销账号</td><td>邮件申请，15 个工作日内处理</td></tr><tr><td>获取副本</td><td>邮件申请</td></tr><tr><td>投诉举报</td><td>privacy@qmai.pro</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>权利</th><th>行使方式</th></tr></thead><tbody><tr><td>查阅、复制</td><td>软件内"账号"页面，或邮件申请</td></tr><tr><td>更正、补充</td><td>软件内修改昵称、头像、密码</td></tr><tr><td>删除</td><td>删除本地数据 / 申请删除账号数据</td></tr><tr><td>撤回同意</td><td>关闭云同步、退出登录、注销账号</td></tr><tr><td>注销账号</td><td>软件内「账号」页直接注销（即时），或邮件申请（15 个工作日内）</td></tr><tr><td>获取副本</td><td>邮件申请</td></tr><tr><td>投诉举报</td><td>privacy@qmai.pro</td></tr></tbody></table></div>
 <p>20.2 我们可能要求你验证身份后处理请求。我们将在 15 个工作日内答复。</p>
 <p>20.3 若你对答复不满意，可向网信、市场监管等主管部门投诉，或依法提起诉讼。</p>
 <hr />
@@ -375,9 +376,10 @@ tbody tr:hover{background:#fafcfb}
 <hr />
 <h2 id="sec-24">二十四、责任限制与免责声明</h2>
 <p>24.1 <strong>在适用法律允许的最大范围内</strong>，我们不对下列情形承担责任：</p>
-<ul><li>因你自身操作不当、设备故障、网络中断导致的数据丢失或服务中断；</li><li>因第三方服务（模型供应商、云盘、GitHub、WebDAV）故障、政策变更、停止服务导致的影响；</li><li>因 AI 生成内容引发的任何争议、索赔或损失；</li><li>因不可抗力（自然灾害、政策调整、战争、疫情、大规模网络攻击等）导致的服务不可用；</li><li>因你泄露账号密码、API Key 导致的损失。</li></ul>
-<p>24.2 <strong>赔偿上限</strong>：在适用法律允许的最大范围内，<strong>不论基于合同、侵权、不当得利或其他任何请求权基础</strong>，我们对你的累计赔偿责任合计<strong>不超过人民币 100 元（壹佰元）</strong>。</p>
-<p>24.3 <strong>不排除的责任</strong>：本条不排除法律强制规定不得排除的责任，包括因我们<strong>故意或重大过失</strong>造成的人身损害。</p>
+<ul><li>因你自身操作不当、设备故障、网络中断导致的数据丢失或服务中断；</li><li>因第三方服务（模型供应商、云盘、GitHub、WebDAV）故障、政策变更、停止服务导致的影响；</li><li>因 AI 生成内容引发的任何争议、索赔或损失；</li><li>因不可抗力（自然灾害、公共事件、政策调整、战争等）导致的服务不可用；</li><li>因你泄露账号密码、API Key 导致的损失。</li></ul>
+<p><strong>但请注意：涉及个人信息安全事件的，一律适用第十九节（安全措施）的约定，不适用本条的概括免责。</strong> 若因我们未采取必要安全措施导致你的个人信息泄露，我们仍依法承担相应责任——本条不能用来规避第十九节已经作出的承诺。</p>
+<p>24.2 <strong>赔偿上限</strong>：在适用法律允许的最大范围内，<strong>不论基于合同、侵权、不当得利或其他任何请求权基础</strong>，我们对你的累计赔偿责任合计<strong>不超过人民币 100 元（壹佰元）</strong>。<strong>但本上限不适用于因我们未采取必要安全措施导致个人信息泄露、篡改、丢失的赔偿责任</strong>——该情形依第十九节与法律规定处理。</p>
+<p>24.3 <strong>不排除的责任</strong>：<strong>因我们的故意或重大过失造成的人身损害或财产损失</strong>，以及法律强制规定不得排除的其他责任，<strong>不受本条赔偿上限的限制</strong>。</p>
 <p>24.4 <strong>服务"按现状"提供</strong>：本软件按"现状"和"可获得"状态提供，不作任何明示或默示担保，包括但不限于适销性、特定用途适用性、不侵权担保。</p>
 <p>24.5 <strong>个人开发者特别声明</strong>：我们为个人开发者，服务能力与运维资源有限，可能出现服务中断、停止运营等情形。<strong>若我们停止运营，将提前 30 天公告，并给予你导出数据的时间。</strong></p>
 <hr />

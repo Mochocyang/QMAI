@@ -13,7 +13,7 @@
  */
 
 /** 与 cloudflare/legal-site 发布的条款版本保持一致；改条款必须同时改这里。 */
-export const LEGAL_TERMS_VERSION = "v1.0"
+export const LEGAL_TERMS_VERSION = "v1.1"
 
 const STORAGE_KEY = "qmai.legalConsent"
 
@@ -66,6 +66,13 @@ export function clearLegalConsent(): void {
   }
 }
 
-/** 条款与隐私政策的在线地址。 */
-export const LEGAL_TERMS_URL = "https://qmai.pro/legal#terms"
-export const LEGAL_PRIVACY_URL = "https://qmai.pro/legal#privacy"
+/**
+ * 条款与隐私政策的在线地址。
+ *
+ * 指向已部署的 Cloudflare Pages 站点（2026-11-01 上线并验证 200 + 内容正确）。
+ * 为什么不用 qmai.pro/legal：该路径当前落到营销站首页的 SPA 回退，
+ * 用户点「同意」看到的是产品介绍而不是条款，等于没有给出可读入口。
+ * 将来给 Pages 项目绑定自定义域名后，只改这两行即可。
+ */
+export const LEGAL_TERMS_URL = "https://qmai-legal.pages.dev/#terms"
+export const LEGAL_PRIVACY_URL = "https://qmai-legal.pages.dev/#privacy"

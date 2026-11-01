@@ -24,6 +24,8 @@ import type {
   ProjectRestoreInfo,
 } from "@/lib/backup/types"
 
+import { AnalyticsPrivacyToggle } from "./analytics-privacy-toggle"
+
 export function DataManagementSection() {
   const { t } = useTranslation()
   const [isExporting, setIsExporting] = useState(false)
@@ -467,6 +469,8 @@ export function DataManagementSection() {
         onOpenChange={setShowExportSelect}
         onConfirm={(options) => void handleExport(options)}
       />
+
+      <AnalyticsPrivacyToggle />
 
       <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950 dark:text-yellow-200">
         <div className="flex items-start gap-2">

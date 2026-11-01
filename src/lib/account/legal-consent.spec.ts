@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  LEGAL_PRIVACY_URL,
+  LEGAL_TERMS_URL,
   LEGAL_TERMS_VERSION,
   clearLegalConsent,
   hasAcceptedLegalTerms,
@@ -107,5 +109,19 @@ describe("法律条款同意记录", () => {
     // 写失败也不能让读取逻辑崩掉。
     expect(() => hasAcceptedLegalTerms()).not.toThrow()
     expect(hasAcceptedLegalTerms()).toBe(false)
+  })
+})
+
+describe("条款在线地址", () => {
+  it("两个链接都指向已上线的 Pages 站点，且带正确的锚点", () => {
+    /*
+     * 回归：曾经把链接写成 https://qmai.pro/legal，而该路径在营销站上并不存在，
+     * 会落到首页的 SPA 回退 —— 用户点「同意」看到的是产品介绍而不是条款，
+     * 等于没有给出可读入口。链接必须是确定存在的那一个。
+     */
+    expect(LEGAL_TERMS_URL).toBe("https://qmai-legal.pages.dev/#terms")
+    expect(LEGAL_PRIVACY_URL).toBe("https://qmai-legal.pages.dev/#privacy")
+    expect(LEGAL_TERMS_URL).toMatch(/^https:\/\//)
+    expect(LEGAL_PRIVACY_URL).toMatch(/^https:\/\//)
   })
 })
