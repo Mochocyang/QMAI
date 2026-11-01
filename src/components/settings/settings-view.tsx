@@ -28,6 +28,7 @@ import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
 import type { BodyFontFamily, UiFontFamily } from "@/lib/font-settings"
 import { LlmProviderSection } from "./sections/llm-provider-section"
 import { DefaultModelSettingsPanel } from "./sections/default-model-settings-panel"
+import { ModelSyncPanel } from "./sections/model-sync-panel"
 import { UiTestEmbeddingModels, UiTestRerankModels } from "@/components/uitest/models/retrieval-models"
 import { confirmModelDraftLeave } from "@/components/uitest/models/model-draft-guard"
 import { InterfaceSection } from "./sections/interface-section"
@@ -172,6 +173,15 @@ export function UiTestModelSettingsSection({ draft, setDraft }: { draft: Setting
         {/* 三个要自己填密钥/地址的页签才挂教程；「默认模型」不涉及，不摆链接。 */}
         {active !== "default" && <ModelTutorialLink />}
       </div>
+      {/*
+       * 「账号同步」放在页签条**下方、页签面板之外**：
+       * 它同步的是整份模型配置，不属于某一个页签；塞进某个页签里会让
+       * 用户切页签后就找不到它。
+       */}
+      <div className="my-4">
+        <ModelSyncPanel />
+      </div>
+
       {UI_TEST_MODEL_TABS.map((tab) => (
         <div key={tab.id} id={`${id}-${tab.id}-panel`} role="tabpanel" aria-labelledby={`${id}-${tab.id}`} hidden={active !== tab.id} data-ui="settings-model-panel" data-ui-model={tab.id}>
           {visited.has(tab.id) && tab.id === "llm" && <LlmProviderSection />}
