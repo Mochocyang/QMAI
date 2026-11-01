@@ -1,1 +1,0 @@
-function e(e){let t=14695981039346656037n,n=typeof e==`string`?new TextEncoder().encode(e):e;for(let e=0;e<n.length;e++)t^=BigInt(n[e]),t=t*1099511628211n&18446744073709551615n;return t}function t(e){return e.toString(16).padStart(16,`0`)}function n(n){return t(e(n))}function r(n,r=1048576){let i=n.length;return t(e(`${i}|${n.slice(0,r)}|${i>r?n.slice(-r):``}`))}export{n,r as t};

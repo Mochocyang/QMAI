@@ -1,1 +1,0 @@
-function e(){return typeof document>`u`||document.visibilityState===`visible`}function t(){return e()?typeof window<`u`&&typeof window.requestAnimationFrame==`function`?new Promise(e=>{window.requestAnimationFrame(()=>{window.setTimeout(e,0)})}):new Promise(e=>setTimeout(e,0)):Promise.resolve()}export{t};
