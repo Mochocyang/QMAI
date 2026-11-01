@@ -1,5 +1,7 @@
 import { Suspense, lazy } from "react";
 import { useWikiStore } from "@/stores/wiki-store";
+import { isBuiltinViewEnabled } from "@/lib/plugins/builtin-state";
+import { BuiltinViewDisabledNotice } from "./builtin-view-disabled-notice";
 import { WritingWorkspace } from "./writing-workspace";
 
 const SearchView = lazy(async () => {
@@ -68,6 +70,17 @@ const StorySimulationView = lazy(async () => {
 });
 
 /**
+ * 「插件」独立页面（插件市场 + 已安装管理）。
+ *
+ * 为什么是懒加载：它把插件市场、已安装卡片、手动安装弹窗整套带进来，
+ * 而绝大多数会话根本不点这个图标 —— 让首屏为它付解析成本不划算。
+ */
+const PluginCenterView = lazy(async () => {
+  const mod = await import("@/components/plugins/plugin-center-view");
+  return { default: mod.PluginCenterView };
+});
+
+/**
  * 维护工具从设置里搬到这里（用户要求：放进「创作工具」）。
  *
  * 它是**项目级**的维护动作（重复资料合并、伏笔清理都作用于当前打开的书），
@@ -113,12 +126,19 @@ export function ContentArea() {
         );
         break;
       case "search":
-        content = (
+        /*
+         * 「剧情搜索」是一个内置插件（见 `lib/plugins/builtin.ts`）。被关闭时必须渲染
+         * 一个明确的"已关闭"页，而不是空壳或空白：用户可能通过上一会话恢复的
+         * activeView 直接落到这里，看到空白的直觉是"软件坏了"。
+         */
+        content = isBuiltinViewEnabled("search") ? (
           <Suspense fallback={<LoadingView />}>
             <SearchView />
           </Suspense>
+        ) : (
+          <BuiltinViewDisabledNotice view="search" />
         );
-        break;
+      break;
       case "soul":
         content = (
           <Suspense fallback={<LoadingView />}>
@@ -163,12 +183,19 @@ export function ContentArea() {
         );
         break;
       case "reviewCenter":
-        content = (
+        /*
+         * 「审查中心」是一个内置插件（见 `lib/plugins/builtin.ts`）。被关闭时必须渲染
+         * 一个明确的"已关闭"页，而不是空壳或空白：用户可能通过上一会话恢复的
+         * activeView 直接落到这里，看到空白的直觉是"软件坏了"。
+         */
+        content = isBuiltinViewEnabled("reviewCenter") ? (
           <Suspense fallback={<LoadingView />}>
             <ReviewCenterView />
           </Suspense>
+        ) : (
+          <BuiltinViewDisabledNotice view="reviewCenter" />
         );
-        break;
+      break;
       case "bookAnalysis":
         content = (
           <Suspense fallback={<LoadingView />}>
@@ -177,9 +204,23 @@ export function ContentArea() {
         );
         break;
       case "storySimulation":
-        content = (
+        /*
+         * 「剧情推演室」是一个内置插件（见 `lib/plugins/builtin.ts`）。被关闭时必须渲染
+         * 一个明确的"已关闭"页，而不是空壳或空白：用户可能通过上一会话恢复的
+         * activeView 直接落到这里，看到空白的直觉是"软件坏了"。
+         */
+        content = isBuiltinViewEnabled("storySimulation") ? (
           <Suspense fallback={<LoadingView />}>
             <StorySimulationView />
+          </Suspense>
+        ) : (
+          <BuiltinViewDisabledNotice view="storySimulation" />
+        );
+      break;
+      case "plugins":
+        content = (
+          <Suspense fallback={<LoadingView />}>
+            <PluginCenterView />
           </Suspense>
         );
         break;

@@ -3,6 +3,7 @@ mod atomic_file;
 mod cloud_sync;
 mod commands;
 mod mcp;
+mod plugins;
 mod font_install;
 mod fonts;
 #[cfg(target_os = "macos")]
@@ -17,9 +18,6 @@ mod updater;
 // 必须由 `main` 在 `run()` 之前调用：进入 `tauri::Builder` 之后缺失只会变成
 // wry 内部一条日志，用户看到的是「双击没反应」。
 mod webview2_check;
-// WorkBuddy 账号登录：把「用自己的 WorkBuddy 账号登录一次」变成 QMAI 里可用的模型
-// （进程内起一个极小的 OpenAI 兼容网关，见 `workbuddy/mod.rs` 的模块头）。
-mod workbuddy;
 
 pub use platform_guard::assert_supported_platform;
 pub use webview2_check::ensure_webview2_or_guide;
@@ -189,15 +187,20 @@ pub fn run() {
             app.manage(commands::file_sync::FileSyncState::default());
             app.manage(commands::writing_wake_lock::WritingWakeLockManager::default());
             app.manage(mcp::McpState::default());
-            // WorkBuddy 账号存储与模型目录：读不到/读坏都退化成空仓库，
-            // 绝不让一次磁盘异常把整个应用拦在启动之前。
-            let workbuddy_dir = app
-                .path()
-                .app_data_dir()
-                .unwrap_or_else(|_| std::env::temp_dir());
-            app.manage(workbuddy::commands::WorkbuddyState::load_or_default(
-                workbuddy_dir,
-            ));
+            app.manage(plugins::PluginsState::default());
+            // 已启用的插件要在启动后自动拉起；放后台任务，不阻塞窗口显示。
+            {
+                let handle = app.handle().clone();
+                // 根目录在同步上下文里取好，任务里只做读注册表 + 起进程。
+                let root = plugins::paths::plugins_root();
+                tauri::async_runtime::spawn(async move {
+                    if let Some(state) = handle.try_state::<plugins::PluginsState>() {
+                        if let Err(error) = plugins::autostart_all(state.inner(), &root).await {
+                            eprintln!("[plugins] 自动启动失败：{error}");
+                        }
+                    }
+                });
+            }
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
                 if let Ok(ptr) = window.ns_window() {
@@ -337,18 +340,52 @@ commands::device::device_fingerprint,
             mcp::mcp_respond,
             mcp::mcp_stdio_executable,
             mcp::resolve_qmai_mcp_skill_dir,
-            // WorkBuddy 账号登录（国内版）：登录三条、账号三条、导入两条、
-            // 模型目录两条、网关一条。返回值一律不含 token。
-            workbuddy::commands::workbuddy_login_start,
-            workbuddy::commands::workbuddy_login_wait,
-            workbuddy::commands::workbuddy_login_cancel,
-            workbuddy::commands::workbuddy_accounts_list,
-            workbuddy::commands::workbuddy_account_remove,
-            workbuddy::commands::workbuddy_account_refresh,
-            workbuddy::commands::workbuddy_import_file,
-            workbuddy::commands::workbuddy_models_refresh,
-            workbuddy::commands::workbuddy_models_cached,
-            workbuddy::commands::workbuddy_gateway_ensure,
+            // 插件管理：列表/安装/启停/卸载，以及运行期工具清单与调用。
+            plugins::plugins_list,
+            plugins::plugins_install,
+            // 插件市场：远端索引（本地缓存 + 离线降级）与「从市场安装」。
+            // 市场安装复用上面同一条安装编排，前端只需把 entry.repo 原样交回来。
+            plugins::plugins_market_index,
+            plugins::plugins_market_install,
+            // 从本地目录安装：插件作者在本机迭代、验收时手工装测试插件都走这条。
+            plugins::plugins_install_local,
+            plugins::plugins_enable,
+            plugins::plugins_disable,
+            plugins::plugins_uninstall,
+            plugins::plugins_tools,
+            plugins::plugins_invoke_tool,
+            plugins::plugins_shutdown_all,
+            // 插件 provider：列表不含 token，token 只在请求前由前端现取。
+            plugins::plugins_providers,
+            plugins::plugins_provider_auth,
+            plugins::plugins_provider_refresh_models,
+            // 受控登录窗口（设计 5.1/5.2）：白名单来自清单 authDomains，关窗后自动刷新模型。
+            plugins::plugins_provider_open_login,
+          plugins::plugins_provider_close_login, // 插件登录完成 → 关窗（触发自动刷新）
+            // capabilities 端点代理（设计 4.4）：endpoint 走白名单，不开放任意 URL。
+            plugins::plugins_provider_call,
+            // 凭据中转（设计 5.3）：paste-token / import-file 都走这里，
+            // 插件侧端点固定为 POST /login/credential；QMAI 不落盘、不缓存、不写日志。
+            plugins::plugins_provider_submit_credential,
+            // 插件配置（设计 §6.3）：读/写按 configSchema 校验；
+            // 密钥只写内存（盘上留占位符），读接口永不返回真值。
+            plugins::plugins_config_get,
+            plugins::plugins_config_set,
+            plugins::plugins_config_secret_set,
+            plugins::plugins_config_secret_has,
+            // 内容包（设计 §4，Tier 1）：纯磁盘数据，宿主自己读、自己校验，
+            // 两条命令都不 spawn 插件进程。
+            plugins::plugins_content_packs,
+            plugins::plugins_content_pack_items,
+            // 声明式 action（设计 §3，Tier 1）：同样只读清单，不 spawn 进程。
+            // 前端 6 个插槽靠它渲染按钮。
+            plugins::plugins_actions,
+            // 钩子清单（设计 §5，Phase 3）：结构化契约 + 只读查询，同样不 spawn 进程。
+            // 前端要靠它把「这个事件上有哪些钩子在改我的内容」讲清楚。
+            plugins::plugins_hooks,
+            // 项目读写地基（设计 §7）：前端在「打开/切换/关闭项目」时登记项目根，
+            // 插件通过 /host/project/* 读到的是这个动态值（不是启动时固化进会话的值）。
+            plugins::plugins_set_project,
         ])
         .on_window_event(|window, event| {
             // 独立窗口（label 前缀 reader-）的生死要留痕：用户反馈的是
@@ -446,6 +483,17 @@ commands::device::device_fingerprint,
             // macOS 红叉只 hide；真正退出（Cmd+Q）必须在这里落盘。
             if matches!(event, tauri::RunEvent::ExitRequested { .. }) {
                 app_state::persist_app_state_before_exit(app);
+
+                // 插件是常驻子进程，必须在进程退出前显式停掉：虽然 Child 设了
+                // kill_on_drop，但 App 进程退出时析构顺序不可依赖，漏一个就是孤儿进程。
+                use tauri::Manager;
+                if let Some(state) = app.try_state::<plugins::PluginsState>() {
+                    if let Err(error) =
+                        tauri::async_runtime::block_on(plugins::shutdown_all(state.inner()))
+                    {
+                        eprintln!("[plugins] 退出清理失败：{error}");
+                    }
+                }
             }
         });
 }

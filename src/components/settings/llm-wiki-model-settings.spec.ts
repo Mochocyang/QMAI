@@ -45,11 +45,6 @@ describe("QMAI model settings", () => {
   it("keeps every built-in provider and gives each one at least 204800", () => {
     expect(LLM_PRESETS[0]?.id).toBe("custom")
 
-    // workbuddy 是账号登录类（模型清单来自用户自己的账号），上下文窗口由
-    // 选中模型的 maxInputTokens 决定，因此它的预设值只是兜底下限，不参与
-    // 「每个预设都要给一个真实规格」的断言。
-    const specBackedPresets = LLM_PRESETS.filter((item) => item.id !== "workbuddy")
-
     expect(LLM_PRESETS.map((item) => item.id)).toEqual([
       "custom",
       "qmai-builtin",
@@ -57,7 +52,6 @@ describe("QMAI model settings", () => {
       "claude-code-cli",
       "codex-cli",
       "cursor-cli",
-      "workbuddy",
       "antigravity-cli",
       "openai",
       "google",
@@ -79,7 +73,7 @@ describe("QMAI model settings", () => {
       "ollama-local",
       "ollama-cloud",
     ])
-    for (const item of specBackedPresets) {
+    for (const item of LLM_PRESETS) {
       expect(item.suggestedContextSize).toBeGreaterThanOrEqual(204_800)
     }
   })

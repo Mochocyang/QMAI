@@ -1,0 +1,154 @@
+# QMAI 插件市场索引
+
+这份文件是 QMAI「插件中心 → 市场」页面的**唯一数据源**：一个 JSON 清单，告诉客户端
+「有哪些第三方插件、它们叫什么、仓库在哪」。市场没有服务器、没有数据库、没有审核后台 ——
+**发布一个插件 = 给本文件提一个 Pull Request**。
+
+客户端拿到清单后只做两件事：展示条目，以及在你点「安装」时把 `repo` 交给插件安装器。
+安装本身走的是和手动粘贴 GitHub 地址完全相同的那条路径（下载 zip → 安全解压 → 校验
+`plugin.json` → 原子发布），所以本清单里不存在任何「安装特权」。
+
+## 首版为什么是空的
+
+`plugins` 目前是空数组：现在还没有面向第三方的 QMAI 插件。
+
+我们选择让市场空着，而不是先塞几条示例数据把页面填满。理由很直接：**假数据比空页面更糟**。
+用户点进去看到「章节体检」却装不上、或者装上一个根本不是那个东西的仓库，损失的是对整个
+市场的信任 —— 而空列表只是在诚实地说明「还没有人投稿」。有第一个插件时，这个数组自然
+会有第一条。
+
+## 文件格式
+
+```json
+{
+  "version": 1,
+  "updatedAt": "2026-10-29",
+  "plugins": [
+    {
+      "id": "chapter-metrics",
+      "name": "章节体检",
+      "repo": "https://github.com/someone/qmai-plugin-chapter-metrics",
+      "description": "统计章节字数、对话占比、句长分布与重复句",
+      "author": "someone",
+      "categories": ["写作工具"],
+      "tags": ["字数", "统计"],
+      "kind": ["tools"],
+      "permissions": [],
+      "version": "1.0.0"
+    }
+  ]
+}
+```
+
+### 顶层字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `version` | 整数 | 是 | 索引格式版本，目前只能是 `1`。客户端遇到别的值会直接拒绝整份索引（而不是猜着解析）。改格式需要同时升版本号并改客户端。 |
+| `updatedAt` | 字符串 | 是 | 本文件最后一次修改的日期，`YYYY-MM-DD`。给人看的，也方便排查「线上是不是旧的」。 |
+| `plugins` | 数组 | 是 | 条目列表。可以为空数组。 |
+
+### 条目字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | 字符串 | 是 | 插件 id，必须匹配 `^[a-z0-9][a-z0-9-]{1,63}$`（小写字母/数字开头，2–64 字符，只含小写字母、数字、`-`）。**必须与插件 `plugin.json` 里的 `id` 一致**，否则安装后会出现「清单里叫 A，装出来叫 B」。 |
+| `name` | 字符串 | 是 | 展示名，中文/英文都行，不要为空。建议与 `plugin.json` 的 `name` 一致。 |
+| `repo` | 字符串 | 是 | **公开** GitHub 仓库地址，形式必须是 `https://github.com/<owner>/<repo>`。见下面的硬性要求。 |
+| `description` | 字符串 | 否 | 一句话说明（建议 40 字内），展示在卡片上。 |
+| `author` | 字符串 | 否 | 作者名或 GitHub 用户名，用于追责与联系。 |
+| `categories` | 字符串数组 | 否 | 分类，用于筛选。目前约定：`写作工具`、`效率`、`数据`、`模型服务`、`内容包`、`其他`。 |
+| `tags` | 字符串数组 | 否 | 自由标签，用于搜索。 |
+| `kind` | 字符串数组 | 否 | 插件形态，用于在卡片上标注风险等级。取值：`declarative`（纯声明式，不起进程）、`tools`（给模型加工具）、`providers`（接入模型服务）。可多选；界面认不出新值时按原文显示，所以以后加新的形态不需要改索引格式。 |
+| `permissions` | 字符串数组 | 否 | 插件申请的权限，用于安装前的提示。取值必须在 QMAI 的权限白名单内：`fs:project-read`、`fs:project-write`、`net:https`、`net:listen`、`llm:use`、`data:write`。**必须与 `plugin.json` 的 `permissions` 一致**，不要在这里少写一项来「看起来更安全」—— 界面会拿它提醒用户，少写等于骗过提示。 |
+| `version` | 字符串 | 否 | 当前版本号（建议语义化 `1.2.0`）。展示用；真正的版本以仓库里的 `plugin.json` 为准。 |
+
+## 硬性要求（会被直接拒绝）
+
+1. **`repo` 必须是公开的 GitHub 仓库。**
+   - 只接受 `https://github.com/<owner>/<repo>`，不接受 GitLab / Gitee / 自建 Git、不接受
+     `http://`（明文可被中间人替换成任意 zip，而 zip 里的代码会在用户机器上运行）、不接受
+     `github.com` 之外的域名（包括 `https://github.com.evil.com/x/y` 这类伪装）。
+   - 私有仓库装不上：安装器不带用户的 GitHub 凭据，只会拿到 404。
+2. **仓库根目录必须有 `plugin.json`。**
+   - 不是 `src/plugin.json`，也不是 `dist/plugin.json` —— 安装器会剥掉 GitHub zip 自带的
+     顶层目录后直接读根上的 `plugin.json`。
+   - 清单必须是合法 JSON 且通过 QMAI 的清单校验（`schema` 支持 1/2/3，`id`/`name`/`version`
+     必填，声明了 `tools` / `providers` / `impl: "process"` 的钩子就必须有 `runtime`，权限只能
+     用白名单里的值，`requires.qmai` 不能要求比用户当前的版本更高）。
+   - 建议在仓库根直接放可运行的入口（如 `index.js`），不要指望用户自己 `npm install`：
+     安装器只下载源码，不会执行构建。
+3. **仓库里不要塞无关的大文件。** 下载包（压缩后）上限 8 MB，解压后上限 64 MB；超了会被拒。
+
+一个能通过校验的最小 `plugin.json`：
+
+```json
+{
+  "schema": 1,
+  "id": "chapter-metrics",
+  "name": "章节体检",
+  "version": "1.0.0",
+  "runtime": { "type": "node", "entry": "index.js" }
+}
+```
+
+纯内容包 / 纯界面插槽的插件可以不写 `runtime`（Tier 1 插件，没有进程）。
+
+## 怎么提交自己的插件
+
+1. Fork 本仓库，从 `main` 开一个分支。
+2. 在 `plugins/index.json` 的 `plugins` 数组**末尾**追加一条（保持已有条目不动，避免无关 diff）。
+3. 把 `updatedAt` 改成你提交的日期。
+4. 自查清单：
+   - [ ] `id` 匹配 `^[a-z0-9][a-z0-9-]{1,63}$`，且与仓库里 `plugin.json` 的 `id` 相同；
+   - [ ] `repo` 是公开仓库的 `https://github.com/<owner>/<repo>`；
+   - [ ] 仓库根目录有 `plugin.json`，并且能通过 QMAI 的校验；
+   - [ ] `permissions` 与 `plugin.json` 一致；
+   - [ ] 用「插件管理 → 从 GitHub 安装」手动装一遍，能装上、能启用、能正常跑；
+   - [ ] JSON 合法（逗号、引号别写错）。
+5. 提 PR。PR 描述里请写一句这个插件做什么、以及你是怎么验证它能装能跑的。
+6. 合并后**不需要发版**：客户端默认 6 小时内会自己拉到新清单，也可以在插件中心点「刷新」
+   立即重拉。文件走的是 `raw.githubusercontent.com`，国内可能因网络原因延迟或失败 ——
+   那是客户端缓存要兜的事，不是你的问题。
+
+### 关于 `repo` 指向的仓库
+
+- 一次 PR 只提交一个插件；同一作者有多个插件就提多条。
+- 插件改名/换仓库时请**更新同一条**的 `name` / `repo`，不要新增一条重复 `id` 的：
+  客户端对重复 `id` 只保留第一条，后来那条会被静默忽略（并写一条警告日志）。
+- 插件停止维护了，请把这一条**删掉**，别留着让人装上一个死仓库。
+
+## 镜像与可达性
+
+`plugins/index.json` 在 GitHub 上，而 `raw.githubusercontent.com` 在国内经常被 DNS 污染或
+TLS 重置。市场是「插件」功能的入口，单一源被墙就等于整个市场打不开 —— 所以客户端把索引
+也做成了多通道：**打开市场时同时请求下面 4 条，谁先成功用谁，其余请求立刻取消**。
+
+1. `https://raw.githubusercontent.com/Mochocyang/QMAI/main/plugins/index.json`（权威地址）
+2. `https://cdn.jsdelivr.net/gh/Mochocyang/QMAI@main/plugins/index.json`（jsDelivr CDN）
+3. `https://ghproxy.net/https://raw.githubusercontent.com/Mochocyang/QMAI/main/plugins/index.json`
+4. `https://gh-proxy.com/https://raw.githubusercontent.com/Mochocyang/QMAI/main/plugins/index.json`
+
+- 某条通道返回的不是合法索引（HTTP 非 2xx、超过 1 MB、`version` 不对、`plugins` 不是数组）
+  时，只算**这条**失败，客户端会继续等其它通道 —— 那通常说明镜像把响应换成了错误页。
+- 环境变量 `QMAI_PLUGIN_INDEX_URL` 可覆盖上述全部通道（自建市场/本地调试）：**一旦设置，
+  就只请求你给的那一个地址**，不会再掺镜像，避免「我明明指定了地址，它却在读别处」。
+- 四条通道**全部**失败才叫「真的拉不到」，此时用本地缓存（`.market.json`，6 小时）兜底。
+  如果连缓存都没有、四个地址也都不通，说明当前网络环境阻断了 GitHub 及其镜像：可以先用
+  「插件管理 → 从 GitHub 安装」直接粘贴 `https://github.com/<owner>/<repo>` 安装，安装器
+  自己有一套代理通道，不依赖索引。
+- 已知代价：jsDelivr 的 CDN 有缓存（约 12 小时），清单刚更新时从它那里可能仍读到旧版本；
+  并行竞速下这不会影响「能打开市场」，只是偶发看到旧列表，点「刷新」或等 CDN 回源即可。
+
+## 索引本身的容错规则（维护者须知）
+
+- `version` / `plugins` 结构不对 → 整份索引作废，客户端报「索引格式不支持」。
+- **单条**条目有问题（id 不合法、`name` 为空、`repo` 不是 GitHub 地址、字段类型写错）→
+  只跳过这一条，其余照常显示，并在客户端 stderr 打一行带「第 N 条」的警告。
+  这是故意的：索引由很多人 PR 维护，一条手滑不该让所有用户的市场打不开。但**它会让你的
+  插件静默消失**，所以 PR 前请务必自查。
+- 同一个 `id` 出现多次 → 保留第一条，忽略后面的。
+- 客户端把最近一次成功拉到的清单缓存在本地（`<插件根>/.market.json`，有效期 6 小时）；
+  网络失败时降级到这份缓存并提示「可能不是最新」。所以**合并进 `main` 不等于立刻全网可见**。
+- 调试时可以用环境变量指到本地/自建市场，不必改代码：
+  `QMAI_PLUGIN_INDEX_URL=http://127.0.0.1:8000/plugins/index.json`。

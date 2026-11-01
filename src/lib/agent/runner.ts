@@ -237,6 +237,15 @@ export class AgentRunner {
 
       const toolCallDeltas: ToolCallDelta[] = []
       let roundText = ""
+      /**
+       * 插件 `afterLlmResponse` 钩子改写后的本轮正文（`null` = 没有钩子或没改写）。
+       *
+       * 主聊天路径之所以能安全用上它：本文件的 `onToken` **只累加、不转发**，
+       * 整轮正文是在流结束后才通过 `callbacks.onText(...)` 一次性落到界面的。
+       * 所以这里换成改写后的文本，界面上（以及落库的 assistant 消息、下一轮历史）
+       * 都只有一份，不会出现"显示 A、实际是 B"。
+       */
+      let roundHookText: string | null = null
       let roundReasoningContent = ""
       let streamError: Error | undefined
       let roundUsage: LlmUsage | undefined
@@ -284,8 +293,9 @@ export class AgentRunner {
             callbacks.onUserMemoryDecision?.(decision)
           }
         },
-        onDone: () => {
-          // stream finished
+        onDone: (hookText?: string) => {
+          // 无插件钩子时 hookText 恒为 undefined，行为与引入钩子前完全一致。
+          if (typeof hookText === "string" && hookText !== "") roundHookText = hookText
         },
         onError: (err: Error) => {
           streamError = err
@@ -333,12 +343,15 @@ export class AgentRunner {
           streamCallbacks,
           signal,
           requestOverrides,
+          // 只有这条路径能安全替换正文（整轮文本在流结束后一次性交付，见 roundHookText）。
+          { applyAfterLlmResponseHooks: true },
         )
       }
       const retryWithoutTools = async () => {
         attemptedToolsFallback = true
         openaiTools = undefined
         roundText = ""
+        roundHookText = null
         roundReasoningContent = ""
         toolCallDeltas.length = 0
         streamError = undefined
@@ -381,6 +394,7 @@ export class AgentRunner {
         !isReasoningDisabled(config.llmConfig, requestOverrides)
       ) {
         roundText = ""
+        roundHookText = null
         roundReasoningContent = ""
         toolCallDeltas.length = 0
         streamError = undefined
@@ -413,9 +427,9 @@ export class AgentRunner {
           !isReasoningOnlyResponseError(streamError) &&
           !isToolUnsupportedError(streamError)
         ) {
-          finalText = roundText
+          finalText = roundHookText ?? roundText
           record.finalText = finalText
-          callbacks.onText(roundText)
+          callbacks.onText(finalText)
         }
         callbacks.onError(streamError)
         return record
@@ -454,9 +468,10 @@ export class AgentRunner {
           continue
         }
 
-        finalText = roundText
+        // 插件 afterLlmResponse 改写后的正文优先（无钩子时 roundHookText 为 null）。
+        finalText = roundHookText ?? roundText
         record.finalText = finalText
-        if (roundText) callbacks.onText(roundText)
+        if (finalText) callbacks.onText(finalText)
         await clearPersistedBreakpoint()
         callbacks.onDone()
         return record

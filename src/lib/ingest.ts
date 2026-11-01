@@ -11,7 +11,7 @@ import {
   RESPONSE_RESERVE_FRAC,
   computeContextBudget,
 } from "@/lib/context-budget"
-import { normalizeUserLlmContextSize } from "@/lib/llm-context-size"
+import { trustDeclaredContextWindow } from "@/lib/llm-context-size"
 import { streamChat } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -1238,18 +1238,22 @@ export function computeIngestSourceBudget(
  * Output budget for wiki page generation: window × RESPONSE_RESERVE_FRAC.
  * Same formula every other long-form path uses; fitIngestOutputToWindow still
  * clamps against remaining room after the packed prompt.
+ *
+ * 窗口直接信任调用方（config 边界已规范化），只兜非法值：
+ * 套「用户输入下限」会把插件声明的小窗口（设计 3.4）抬到 204800，
+ * 规划出模型装不下的请求。
  */
 export function computeIngestGenerationMaxTokens(
   maxContextSize: number | undefined,
 ): number {
-  const windowTokens = normalizeUserLlmContextSize(maxContextSize)
+  const windowTokens = trustDeclaredContextWindow(maxContextSize)
   return Math.max(INGEST_OUTPUT_TOKEN_FLOOR, Math.floor(windowTokens * RESPONSE_RESERVE_FRAC))
 }
 
 export function computeIngestReviewMaxTokens(
   maxContextSize: number | undefined,
 ): number {
-  const windowTokens = normalizeUserLlmContextSize(maxContextSize)
+  const windowTokens = trustDeclaredContextWindow(maxContextSize)
   return Math.max(INGEST_OUTPUT_TOKEN_FLOOR, Math.floor(windowTokens * ANALYSIS_OUTPUT_FRAC))
 }
 
@@ -1260,7 +1264,7 @@ export function computeIngestReviewMaxTokens(
 export function computeIngestAnalysisMaxTokens(
   maxContextSize: number | undefined,
 ): number {
-  const windowTokens = normalizeUserLlmContextSize(maxContextSize)
+  const windowTokens = trustDeclaredContextWindow(maxContextSize)
   return Math.max(INGEST_OUTPUT_TOKEN_FLOOR, Math.floor(windowTokens * ANALYSIS_OUTPUT_FRAC))
 }
 

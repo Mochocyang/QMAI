@@ -123,10 +123,18 @@ describe("测试版设置布局与正式版隔离", () => {
     expect(container.querySelector('[data-ui-page="settings"]')).not.toBeNull()
     expect(container.querySelectorAll('aside')).toHaveLength(1)
     /*
+     * 这里的数字是**有意的变更护栏**，不是「渲染结果与数据源一致」的校验：
+     * 导航按钮和窄屏 select 都由 settings-view 的 CATEGORIES.map 直接渲染，
+     * 若改成和 CATEGORIES.length 比对就永远为真，等于删掉这条断言。
+     * 所以新增 / 删除分类时必须同步改本用例的两个数字（导航 13、select 13），
+     * 并在下面补一行变更记录，让 review 看得到「分类变了」。
+     *
      * 10 → 11：远端「把写作能力开放给本机 Agent」新增了应用级分类
      * 「外部 Agent（MCP）」（settings-view 的 CATEGORIES 里的 mcp）。
      * 11 → 12：新增「云同步」（紧跟模型设置），用于把书籍备份到用户自己的网盘。
      * 12 → 13：新增「账号」（注册 / 登录 / 头像 / 改密码），排在第一位。
+     * 14 → 13：删除「插件」分类 —— 插件统一收进创作中心的「插件」页，
+   * 设置里不再保留第二份入口（两处入口会让人以为是两套东西）。
      * 独立「新手引导」分类早已按用户要求撤掉，仍只是写作设置里的一个开关。
      * 其余被隐藏的分类（维护 / 导出 / 使用说明 / 分类规则）保持隐藏，
      * 下面几条反向断言不变。
@@ -156,6 +164,7 @@ describe("测试版设置布局与正式版隔离", () => {
     await render(<SettingsView />)
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="设置分类"]')
     expect(select).not.toBeNull()
+    // 窄屏下拉与左侧导航同源（同一份 CATEGORIES），数量护栏同上一条用例。
     expect(select?.options).toHaveLength(13)
     await act(async () => {
       select!.value = "interface"

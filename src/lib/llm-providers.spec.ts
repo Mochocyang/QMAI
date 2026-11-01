@@ -876,3 +876,53 @@ describe("modelSupportsReasoningControl", () => {
     }))).toBe(false)
   })
 })
+
+// ── OpenAI 分支回归：通用适配器抽取后必须逐字保持原行为 ──
+//
+// T3 把 `case "openai"` 的 url/headers/body 构造抽成了 `openAiCompatibleRequest()`
+// （见 llm-providers.ts），让插件 provider 复用同一份线格式。这是纯重构，
+// 所以这里用改动前就存在的字面量钉住 OpenAI 的 url / headers / body / 解析器，
+// 防止以后「顺手统一一下」把 OpenAI 的行为改掉。
+describe("OpenAI 分支回归（抽取通用请求适配器后行为不变）", () => {
+  function openAiConfig(overrides: Partial<LlmConfig> = {}): LlmConfig {
+    return {
+      provider: "openai",
+      apiKey: "sk-test",
+      model: "gpt-4o",
+      ollamaUrl: "",
+      customEndpoint: "",
+      maxContextSize: 128_000,
+      ...overrides,
+    }
+  }
+
+  it("url 仍是官方 chat/completions", () => {
+    expect(getProviderConfig(openAiConfig()).url).toBe("https://api.openai.com/v1/chat/completions")
+  })
+
+  it("headers 仍是 Content-Type + Bearer <apiKey>", () => {
+    expect(getProviderConfig(openAiConfig()).headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer sk-test",
+    })
+  })
+
+  it("body 仍是 messages + stream + stream_options + model", () => {
+    const body = getProviderConfig(openAiConfig()).buildBody([
+      { role: "user", content: "hi" },
+    ]) as Record<string, unknown>
+
+    expect(body).toEqual({
+      messages: [{ role: "user", content: "hi" }],
+      stream: true,
+      stream_options: { include_usage: true },
+      model: "gpt-4o",
+    })
+  })
+
+  it("SSE 流与结束原因的解析器仍是 OpenAI 那套", () => {
+    const cfg = getProviderConfig(openAiConfig())
+    expect(cfg.parseStream('data: {"choices":[{"delta":{"content":"你"}}]}')).toBe("你")
+    expect(cfg.parseFinishReason('data: {"choices":[{"finish_reason":"length"}]}')).toBe("length")
+  })
+})

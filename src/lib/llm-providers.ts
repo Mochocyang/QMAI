@@ -14,6 +14,58 @@ import type { LlmUsage } from "./llm-usage"
 import { isThoughtDumpText } from "./thought-dump"
 import type { UserMemorySurface } from "./user-memory/types"
 import { supportsPromptCacheRouting } from "./prompt-cache-routing"
+import { ensurePluginProviderAuth, getCachedPluginProviderAuth } from "./plugins/provider-auth"
+
+/**
+ * 内置 provider。运行期还会有插件注入的 provider（见 LlmProviderId）。
+ * 保留字面量是为了 `case "openai"` 这类分支还能拿到自动补全与穷尽性提示。
+ */
+export type BuiltinProviderId =
+  | "openai"
+  | "anthropic"
+  | "google"
+  | "azure"
+  | "ollama"
+  | "custom"
+  | "minimax"
+  | "claude-code"
+  | "codex-cli"
+  | "cursor-cli"
+  | "antigravity-cli"
+
+/**
+ * 运行期 provider id：内置 + 插件注入（形如 `wb-connect`）。
+ *
+ * `(string & {})` 这个写法让联合类型既保留字面量补全、又接受任意字符串；
+ * 直接写 `string` 会让 `case "openai"` 失去穷尽性检查。
+ *
+ * 注意：这是**类型层**的开放。请求分派仍然显式列出内置分支（见
+ * `getProviderConfig`），未列出的一律按「插件 provider」走 OpenAI 兼容适配器，
+ * 而不是静默 fallback 到某个内置厂商的端点。
+ */
+export type LlmProviderId = BuiltinProviderId | (string & {})
+
+/**
+ * 内置 provider 的运行期清单（用于区分「内置」与「插件注入」）。
+ * 与 `getProviderConfig` 的 case 列表必须同步：少一个，那个 provider 会被误判成插件。
+ */
+const BUILTIN_PROVIDER_IDS = [
+  "openai",
+  "anthropic",
+  "google",
+  "azure",
+  "ollama",
+  "custom",
+  "minimax",
+  "claude-code",
+  "codex-cli",
+  "cursor-cli",
+  "antigravity-cli",
+] as const satisfies readonly BuiltinProviderId[]
+
+export function isBuiltinProviderId(provider: string): provider is BuiltinProviderId {
+  return (BUILTIN_PROVIDER_IDS as readonly string[]).includes(provider)
+}
 
 /**
  * One piece of a multimodal message body. Text + image is the only
@@ -99,7 +151,11 @@ export interface RequestOverrides {
   promptCacheKey?: string
 }
 
-interface ProviderConfig {
+/**
+ * 一次 provider 请求的完整描述：端点、请求头，以及按 provider 线格式构造 body /
+ * 解析 SSE 的函数。由 `getProviderConfig()` / `resolveProviderConfig()` 返回。
+ */
+export interface ProviderConfig {
   url: string
   headers: Record<string, string>
   buildBody: (messages: ChatMessage[], overrides?: RequestOverrides) => unknown
@@ -1325,25 +1381,88 @@ function buildGoogleBody(
   }
 }
 
+/**
+ * 构造一条 OpenAI `/v1/chat/completions` 线格式的请求描述。
+ *
+ * 抽出来是为了让「内置 OpenAI」与「插件 provider」共用**同一份** body/解析器：
+ * 复制一份的话，OpenAI 这边将来改字段（新增参数、改 reasoning 名）插件那边不会同步，
+ * 而症状会非常隐蔽（插件端点静默忽略，或上游莫名 400）。
+ *
+ * 这里只负责线格式；url/headers 由调用方给，因为两者的鉴权与端点来源不同
+ * （OpenAI 是固定官方地址 + 用户 key；插件是宿主分配的 baseUrl + 现取的 token）。
+ */
+function openAiCompatibleRequest(
+  config: LlmConfig,
+  wire: { url: string; headers: Record<string, string> },
+  model: string,
+): ProviderConfig {
+  return {
+    url: wire.url,
+    headers: wire.headers,
+    buildBody: (messages, overrides) => ({
+      ...buildOpenAiCompatibleBody(config, messages, overrides),
+      // 与重构前的 OpenAI 分支逐字一致：buildOpenAiCompatibleBody 对 "openai"
+      // 本来就会写 stream_options（同值），这里显式写一次让**插件 provider** 也要求
+      // SSE 带 usage 帧 —— 设计 3.2 规定没有 usage 时 QMAI 的用量统计会全是 0。
+      stream_options: { include_usage: true },
+      model,
+    }),
+    parseStream: parseOpenAiLine,
+    parseUsage: parseOpenAiUsage,
+    parseFinishReason: parseOpenAiFinishReason,
+  }
+}
+
+/**
+ * 插件 provider → OpenAI 兼容请求描述。
+ *
+ * 端点契约见设计 3.1：宿主分配 `baseUrl`（`http://127.0.0.1:<port>`，不含 /v1），
+ * 插件必须在该地址提供 `POST /v1/chat/completions` 的 SSE 流。
+ * baseUrl 走 `LlmConfig.customEndpoint`，与 cursor-cli 注入运行期端点的
+ * 方式一致（T4 会把 providerConfigs[providerId].baseUrl 解析到这里）。
+ */
+function pluginProviderRequest(config: LlmConfig, token: string): ProviderConfig {
+  const baseUrl = config.customEndpoint.trim().replace(/\/+$/, "")
+  if (!baseUrl) {
+    throw new Error(
+      `插件 provider「${config.provider}」的端点未注入，无法发起请求（应先把宿主分配的 baseUrl 解析进 customEndpoint）`,
+    )
+  }
+  return openAiCompatibleRequest(config, {
+    url: `${baseUrl}/v1/chat/completions`,
+    headers: {
+      "Content-Type": JSON_CONTENT_TYPE,
+      Authorization: `Bearer ${token}`,
+    },
+  }, config.model)
+}
+
+/**
+ * 异步解析 provider 的请求描述。
+ *
+ * 内置 provider 与 `getProviderConfig()` 完全等价；插件 provider 先通过命令现取
+ * token（进程内缓存，见 provider-auth），再复用 OpenAI 兼容构造。
+ *
+ * **HTTP 请求路径必须用它**：`getProviderConfig` 是同步的，拿不到 `await` 的 token。
+ */
+export async function resolveProviderConfig(config: LlmConfig): Promise<ProviderConfig> {
+  if (isBuiltinProviderId(config.provider)) return getProviderConfig(config)
+  const auth = await ensurePluginProviderAuth(config.provider)
+  return pluginProviderRequest(config, auth)
+}
+
 export function getProviderConfig(config: LlmConfig): ProviderConfig {
   const { provider, apiKey, model, ollamaUrl, customEndpoint } = config
 
   switch (provider) {
     case "openai":
-      return {
+      return openAiCompatibleRequest(config, {
         url: "https://api.openai.com/v1/chat/completions",
         headers: {
           "Content-Type": JSON_CONTENT_TYPE,
           Authorization: `Bearer ${apiKey}`,
         },
-        buildBody: (messages, overrides) => ({
-          ...buildOpenAiCompatibleBody(config, messages, overrides),
-          model,
-        }),
-        parseStream: parseOpenAiLine,
-        parseUsage: parseOpenAiUsage,
-        parseFinishReason: parseOpenAiFinishReason,
-      }
+      }, model)
 
     case "anthropic": {
       const url = buildAnthropicUrl("https://api.anthropic.com")
@@ -1483,33 +1602,6 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
       }
     }
 
-    case "workbuddy": {
-      // 账号登录类：后端在应用进程内起了一个 OpenAI 兼容网关，`customEndpoint`
-      // 与 `apiKey` 在聊天前由 `withWorkbuddyEndpoint()` 注入（随机端口 + 一次性
-      // 令牌）。这里的线格式与自定义家的 chat_completions 完全一致——网关已经把
-      // WorkBuddy 的私有头、首条 system、token 续期都处理掉了。
-      const endpoint = (customEndpoint || "").trim()
-      if (!endpoint) {
-        throw new Error("WorkBuddy 网关地址未注入，请重新打开模型设置后再试")
-      }
-      const base = endpoint.replace(/\/+$/, "")
-      const url = /\/chat\/completions$/i.test(base) ? base : `${base}/chat/completions`
-      return {
-        url,
-        headers: {
-          "Content-Type": JSON_CONTENT_TYPE,
-          Authorization: `Bearer ${apiKey}`,
-        },
-        buildBody: (messages, overrides) => ({
-          ...buildOpenAiCompatibleBody(config, messages, overrides),
-          model,
-        }),
-        parseStream: parseOpenAiLine,
-        parseUsage: parseOpenAiUsage,
-        parseFinishReason: parseOpenAiFinishReason,
-      }
-    }
-
     case "custom": {
       // Custom endpoints can speak either OpenAI's /chat/completions
       // wire or Anthropic's /v1/messages wire. The field `apiMode` on
@@ -1582,8 +1674,20 @@ export function getProviderConfig(config: LlmConfig): ProviderConfig {
     }
 
     default: {
-      const exhaustive: never = provider
-      throw new Error(`Unknown provider: ${String(exhaustive)}`)
+      // 插件 provider（运行期注入，形如 `wb-connect`）：统一走 OpenAI 兼容 +
+      // 宿主分配的 baseUrl + 现取的 provider token。
+      //
+      // 本函数是同步的，而 token 只能异步现取（计划第 0 节：不落盘，走 IPC），
+      // 所以这里只能读已缓存的值。真正的请求路径要先 `await resolveProviderConfig()`
+      // 把 token 取到手。缓存未命中时**抛错而不是发无鉴权请求**：后者会被本机插件
+      // 401 掉，用户看到的现象和「插件没启动」几乎无法区分。
+      const token = getCachedPluginProviderAuth(provider)
+      if (!token) {
+        throw new Error(
+          `插件 provider「${provider}」的令牌尚未获取，请改用 resolveProviderConfig() 构造请求`,
+        )
+      }
+      return pluginProviderRequest(config, token)
     }
   }
 }

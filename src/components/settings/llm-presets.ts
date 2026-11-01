@@ -2,6 +2,14 @@ import type { AzureModelFamily } from "@/stores/wiki-store"
 import { MIN_USER_LLM_CONTEXT_SIZE } from "@/lib/llm-context-size"
 import { DEFAULT_RELAY_URL } from "@/lib/builtin-models/gateway-api"
 import { CODEX_CLI_SUGGESTED_MODELS, DEFAULT_CODEX_CLI_MODEL } from "@/lib/codex-cli-model"
+import type { LlmProviderId } from "@/lib/llm-providers"
+
+/**
+ * provider id 的真实定义在 `@/lib/llm-providers`（分派模块），这里只做 re-export。
+ * 放在 lib 而不是本文件，是为了让 `stores/wiki-store.ts` 也能引用它而不必
+ * 让 store 层反向依赖 components 层；类型 import 在编译期擦除，不产生循环依赖。
+ */
+export type { BuiltinProviderId, LlmProviderId } from "@/lib/llm-providers"
 
 /**
  * Curated LLM provider presets.
@@ -13,19 +21,6 @@ import { CODEX_CLI_SUGGESTED_MODELS, DEFAULT_CODEX_CLI_MODEL } from "@/lib/codex
  */
 export type CustomApiMode = "chat_completions" | "responses" | "anthropic_messages"
 
-export type Provider =
-  | "openai"
-  | "anthropic"
-  | "google"
-  | "azure"
-  | "ollama"
-  | "custom"
-  | "minimax"
-  | "claude-code"
-  | "codex-cli"
-  | "cursor-cli"
-  | "antigravity-cli" | "workbuddy"
-
 export interface LlmPreset {
   /** Stable id used as the dropdown value. */
   id: string
@@ -33,8 +28,14 @@ export interface LlmPreset {
   label: string
   /** Short subtitle shown under the label. */
   hint?: string
-  /** Underlying provider dispatch key (see llm-providers.ts). */
-  provider: Provider
+  /**
+   * Underlying provider dispatch key (see llm-providers.ts).
+   *
+   * 内置预设只会填 `BuiltinProviderId`；`LLM_PRESETS` 是静态数组（不含插件），
+   * 但 T4 会把插件 provider 在运行期转成同形状的 preset 追加到渲染列表，
+   * 所以这里用开放的 `LlmProviderId`。
+   */
+  provider: LlmProviderId
   /** Suggested base URL. `customEndpoint` for custom, `ollamaUrl` for ollama, ignored for built-ins. */
   baseUrl?: string
   /**
@@ -157,16 +158,6 @@ const RAW_LLM_PRESETS: LlmPreset[] = [
       "auto",
       "composer-2.5-fast",
     ],
-    suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
-  },
-  {
-    // 账号登录类：模型来自用户自己的 WorkBuddy 账号，地址与令牌由本地网关于
-    // 运行时注入（见 `src/lib/workbuddy-gateway.ts`），因此这里没有 baseUrl /
-    // apiKey —— 卡片上也不该让用户去填。
-    id: "workbuddy",
-    label: "WorkBuddy 国内版",
-    hint: "用你自己的 WorkBuddy 账号登录，无需 API Key（免装 CLI）",
-    provider: "workbuddy",
     suggestedContextSize: MIN_USER_LLM_CONTEXT_SIZE,
   },
   {

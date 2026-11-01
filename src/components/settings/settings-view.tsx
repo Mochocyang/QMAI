@@ -10,25 +10,23 @@ import {
   Archive,
   Brain,
   Search,
-  Plug,
-  Cloud,
+  Plug,  Cloud,
   UserRound,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n"
 import { Button } from "@/components/ui/button"
 import { PanelHeaderWithHelp } from "@/components/layout/panel-header-with-help"
+import { hasPendingUpdate, subscribeAppUpdateNotice } from "@/lib/app-update-notice"
 import { useWikiStore, type ModelSettingsTabId } from "@/stores/wiki-store"
 import "@/components/uitest/ui-test-tools.css"
 import { isTauri } from "@/lib/platform"
-import { hasPendingUpdate, subscribeAppUpdateNotice } from "@/lib/app-update-notice"
 import { useChatStore } from "@/stores/chat-store"
 import { saveLanguage, loadNovelConfig, loadRerankConfig } from "@/lib/project-store"
 import type { SettingsDraft, DraftSetter } from "./settings-types"
 import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
 import type { BodyFontFamily, UiFontFamily } from "@/lib/font-settings"
 import { LlmProviderSection } from "./sections/llm-provider-section"
-import { ModelSyncPanel } from "./sections/model-sync-panel"
 import { DefaultModelSettingsPanel } from "./sections/default-model-settings-panel"
 import { UiTestEmbeddingModels, UiTestRerankModels } from "@/components/uitest/models/retrieval-models"
 import { confirmModelDraftLeave } from "@/components/uitest/models/model-draft-guard"
@@ -174,14 +172,6 @@ export function UiTestModelSettingsSection({ draft, setDraft }: { draft: Setting
         {/* 三个要自己填密钥/地址的页签才挂教程；「默认模型」不涉及，不摆链接。 */}
         {active !== "default" && <ModelTutorialLink />}
       </div>
-      {/*
-       * 「账号同步」放在页签条**下方、页签面板之外**（用户 2026-10-28 定）：
-       * 它同步的是整份模型配置，不属于某一个页签；之前塞在「大语言模型」里，
-       * 一切页签就消失，还被夹在添加框和模型卡片中间。
-       */}
-      <div className="my-4">
-        <ModelSyncPanel />
-      </div>
       {UI_TEST_MODEL_TABS.map((tab) => (
         <div key={tab.id} id={`${id}-${tab.id}-panel`} role="tabpanel" aria-labelledby={`${id}-${tab.id}`} hidden={active !== tab.id} data-ui="settings-model-panel" data-ui-model={tab.id}>
           {visited.has(tab.id) && tab.id === "llm" && <LlmProviderSection />}
@@ -270,6 +260,13 @@ function initialDraft(
 
 export function SettingsView() {
   const { t } = useTranslation()
+
+  // 关掉「有更新时自动提醒」的用户，只能从这里知道有新版本。
+  const updateDotVisible = useSyncExternalStore(
+    subscribeAppUpdateNotice,
+    hasPendingUpdate,
+    hasPendingUpdate,
+  )
   const project = useWikiStore((s) => s.project)
   const activeSettingsCategory = useWikiStore((s) => s.activeSettingsCategory)
   const setActiveSettingsCategory = useWikiStore((s) => s.setActiveSettingsCategory)
@@ -313,12 +310,6 @@ export function SettingsView() {
   const setSidebarNavConfig = useWikiStore((s) => s.setSidebarNavConfig)
 
   const [active, setActive] = useState<CategoryId>("model")
-  // 关掉「有更新时自动提醒」的用户，只能从这里知道有新版本。
-  const updateDotVisible = useSyncExternalStore(
-    subscribeAppUpdateNotice,
-    hasPendingUpdate,
-    hasPendingUpdate,
-  )
   const [saved, setSaved] = useState(false)
   const [draft, setDraftState] = useState<SettingsDraft>(() =>
     initialDraft(
@@ -626,8 +617,7 @@ export function SettingsView() {
       case "web-search":
         return <WebSearchSection />
       case "mcp":
-        return <AgentMcpSection />
-      case "interface":
+        return <AgentMcpSection />      case "interface":
         return <InterfaceSection draft={draft} setDraft={setDraft} />
       case "novel":
         return <NovelSection draft={draft} setDraft={setDraft} />

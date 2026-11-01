@@ -4,7 +4,8 @@ import { resolveConfig } from "@/components/settings/preset-resolver"
 import { hasUsableLlm } from "@/lib/has-usable-llm"
 import { getEffectiveMaxContextSize, getEffectiveMaxOutputTokens } from "@/lib/llm-providers"
 import { getStableAvailableModelKey, getEffectiveSavedModels } from "@/lib/llm-model-keys"
-import { normalizeUserLlmConfig } from "@/lib/llm-context-size"
+import { isPluginProviderInjected } from "@/lib/plugins/provider-sync"
+import { normalizeDeclaredContextSize, normalizeUserLlmConfig, normalizeUserLlmMaxOutputTokens } from "@/lib/llm-context-size"
 import type { AiWorkflowMode } from "@/lib/agent/workflow-mode"
 
 export type NovelTaskType = "writing" | "review" | "summary" | "extract" | "lint" | "deAi"
@@ -20,6 +21,22 @@ function isConfigUsable(cfg: LlmConfig, providerConfigs: Record<string, Provider
 }
 
 function withEffectiveContextSize(config: LlmConfig): LlmConfig {
+  /*
+   * 插件 provider 的窗口是插件按上游目录声明的**客观事实**（设计 3.4），
+   * 而 `MIN_USER_LLM_CONTEXT_SIZE` 是「用户手填」的护栏。把下限套到插件模型上，
+   * 32k 窗口的模型会被抬到 204800：剪裁按 204800 塞上下文 → 上游 400，
+   * 报错看起来像「上下文超出」，用户完全看不出是我们的下限造成的。
+   * 所以这里（以及 `normalizeProviderConfigs`）对插件 provider 跳过下限。
+   */
+  if (isPluginProviderInjected(config.provider)) {
+    return {
+      ...config,
+      maxContextSize: normalizeDeclaredContextSize(config.maxContextSize),
+      ...(config.maxOutputTokens === undefined
+        ? {}
+        : { maxOutputTokens: normalizeUserLlmMaxOutputTokens(config.maxOutputTokens) }),
+    }
+  }
   const normalized = normalizeUserLlmConfig(config)
   return {
     ...normalized,
@@ -67,6 +84,57 @@ function resolveRegisteredModel(
   return isConfigUsable(cfg, providerConfigs) ? cfg : null
 }
 
+/**
+ * 把一个 provider 的 override 解析成完整 `LlmConfig`。
+ *
+ * 插件 provider 没有静态 preset（`LLM_PRESETS` 只放内置），所以**不能**沿用
+ * `findLlmPresetById(id) ?? findLlmPresetById("custom")`：那条路会把 `provider`
+ * 改写成 `"custom"`，请求落到 custom 分支，用一个按设计永远为空的 `apiKey`
+ * 发出去（插件侧只会回 401），而插件 provider 的 token 本应在请求前由
+ * `ensurePluginProviderAuth` 现取。
+ *
+ * 插件的路径：借 custom preset 搬运字段（上下文窗口、推理、工具开关），
+ * 但 `provider` 保持插件 id、端点取宿主分配的 `baseUrl`（写进 `customEndpoint`，
+ * 与 cursor-cli 注入运行期端点同构）。
+ */
+function resolveOverrideConfig(
+  providerId: string,
+  override: ProviderOverride,
+  baseConfig: LlmConfig,
+  modelId: string,
+): LlmConfig | null {
+  const preset = findLlmPresetById(providerId)
+  if (preset) {
+    return withEffectiveContextSize({ ...resolveConfig(preset, override, baseConfig), model: modelId })
+  }
+
+  const customTemplate = findLlmPresetById("custom")
+  if (!customTemplate) return null
+
+  if (isPluginProviderInjected(providerId)) {
+    const config = resolveConfig(customTemplate, override, baseConfig)
+    return withEffectiveContextSize({
+      ...config,
+      // 请求分派必须落到插件分支（`llm-providers` 的 default case）。
+      provider: providerId,
+      // token 不落盘（计划第 0 节）：这里留空，请求前现取。
+      apiKey: "",
+      model: modelId,
+      // 宿主分配的 baseUrl（`http://127.0.0.1:<port>`，设计 D4）。
+      customEndpoint: override.baseUrl ?? config.customEndpoint,
+      // 插件端点契约固定 OpenAI 兼容（设计 3.1），不允许被旧配置带到 Responses/Anthropic。
+      apiMode: "chat_completions",
+      // `resolveConfig` 会按「用户手填」下限把声明窗口抬到 204800；
+      // 插件声明值必须原样还原：32k 就是 32k（见 `withEffectiveContextSize` 的注释）。
+      maxContextSize: override.maxContextSize ?? config.maxContextSize,
+      maxOutputTokens: override.maxOutputTokens ?? config.maxOutputTokens,
+    })
+  }
+
+  // 用户手工配置的 `custom-*` 卡片：沿用 custom preset，行为不变。
+  return withEffectiveContextSize({ ...resolveConfig(customTemplate, override, baseConfig), model: modelId })
+}
+
 export function resolveModelConfig(
   targetModel: string,
   baseConfig: LlmConfig,
@@ -78,21 +146,29 @@ export function resolveModelConfig(
     const providerId = targetModel.slice(0, slashIdx)
     const modelId = targetModel.slice(slashIdx + 1)
     const override = providerConfigs[providerId]
-    if (override && getEffectiveSavedModels(override).some((m) => m.model === modelId)) {
-      const template = findLlmPresetById(providerId) ?? findLlmPresetById("custom")
-      if (template) {
-        return withEffectiveContextSize({ ...resolveConfig(template, override, baseConfig), model: modelId })
-      }
+    /*
+     * 只要 providerId 存在就用这个渠道的配置，**不再要求模型在 savedModels 里**。
+     *
+     * 原条件 `savedModels.some(m => m.model === modelId)` 造成过一次真实故障：
+     * aiChatModel 是 `custom-x/gemini-3.8-flash-high`，而该渠道保存的模型列表里只有
+     * `gemini-3.8-flash`（旧数据/手改/服务商加了新名）。条件不成立就掉到最后那行
+     * fallback —— 它只改了 model，却把 provider 留成 baseConfig 里的 `openai`，
+     * 于是请求被发到 api.openai.com，用户看到「HTTP 401，你需要提供 API key」。
+     *
+     * 模型名对不对是服务商的判断，不是宿主该替用户做的。宿主只该保证
+     * 「用哪个渠道、哪个 key、哪个 baseUrl」不丢 —— 那才是用户配置的本意。
+     */
+    if (override) {
+      const resolved = resolveOverrideConfig(providerId, override, baseConfig, modelId)
+      if (resolved) return resolved
     }
     return withEffectiveContextSize({ ...baseConfig, model: modelId })
   }
   // 回退：按纯模型名匹配（兼容旧数据）
   for (const [providerId, override] of Object.entries(providerConfigs)) {
     if (getEffectiveSavedModels(override).some((m) => m.model === targetModel)) {
-      const template = findLlmPresetById(providerId) ?? findLlmPresetById("custom")
-      if (template) {
-        return withEffectiveContextSize({ ...resolveConfig(template, override, baseConfig), model: targetModel })
-      }
+      const resolved = resolveOverrideConfig(providerId, override, baseConfig, targetModel)
+      if (resolved) return resolved
     }
   }
   return withEffectiveContextSize({ ...baseConfig, model: targetModel })

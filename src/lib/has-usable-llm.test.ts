@@ -1,4 +1,12 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
+
+// 插件 provider 的「是否已注入」来自运行期同步（provider-sync 的登记表）。
+// 这里只测本函数的判定分支，所以把那个登记表换成可控的集合。
+const pluginSeam = vi.hoisted(() => ({ injected: new Set<string>() }))
+vi.mock("@/lib/plugins/provider-sync", () => ({
+  isPluginProviderInjected: (providerId: string) => pluginSeam.injected.has(providerId),
+}))
+
 import { hasUsableLlm } from "./has-usable-llm"
 import type { LlmConfig, ProviderConfigs } from "@/stores/wiki-store"
 
@@ -159,38 +167,35 @@ describe("hasUsableLlm", () => {
     expect(hasUsableLlm(cfg, providers)).toBe(true)
   })
 
-  // ── 账号登录类（WorkBuddy）──────────────────────────────────
-  // 与其它 provider 的差别：**没有 apiKey**。可用性 = 卡片启用 + 有模型。
-  // 登录态本身不在这个纯函数里判（它只看配置），删掉最后一个账号时由设置页
-  // 把卡片 enabled 置 false。
-  it("accepts workbuddy with an enabled card and a model, no apiKey needed", () => {
-    const providers: ProviderConfigs = {
-      workbuddy: { enabled: true, savedModels: [{ id: "m1", name: "m1", model: "deepseek-v4.1-flash", createdAt: 1 }] },
+  // ── 插件 provider（运行期注入）────────────────────────────────
+  // 按设计 token 不落盘（计划第 0 节），所以插件 provider 的 `apiKey` **永远为空**。
+  // 用「apiKey 非空」判定会把它一律判成不可用，整条链路在聊天前的守卫就被挡住。
+  it("accepts an injected plugin provider by baseUrl + model without apiKey", () => {
+    pluginSeam.injected.add("wb-connect")
+    try {
+      const providers: ProviderConfigs = {
+        "wb-connect": {
+          label: "插件样例直连",
+          baseUrl: "http://127.0.0.1:43210",
+          savedModels: [{ id: "glm-5.3", name: "GLM-5.3", model: "glm-5.3", createdAt: 0 }],
+        },
+      }
+      const cfg: LlmConfig = { ...baseCfg, provider: "wb-connect", apiKey: "", model: "glm-5.3" }
+      expect(hasUsableLlm(cfg, providers)).toBe(true)
+
+      // 端点没注入（例如插件刚停用、同步还没跑）时必须判不可用，不能靠 apiKey 兜底。
+      expect(hasUsableLlm(cfg, { "wb-connect": { savedModels: providers["wb-connect"].savedModels } })).toBe(false)
+      // 模型为空同样不可用。
+      expect(hasUsableLlm({ ...cfg, model: "" }, providers)).toBe(false)
+    } finally {
+      pluginSeam.injected.delete("wb-connect")
     }
-    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "deepseek-v4.1-flash" }
-    expect(hasUsableLlm(cfg, providers)).toBe(true)
   })
 
-  it("accepts workbuddy when only a model field exists (legacy card without savedModels)", () => {
-    const providers: ProviderConfigs = { workbuddy: { enabled: true, model: "glm-5.3" } }
-    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "glm-5.3" }
-    expect(hasUsableLlm(cfg, providers)).toBe(true)
-  })
-
-  it("rejects workbuddy when the card is disabled (last account removed)", () => {
-    const providers: ProviderConfigs = { workbuddy: { enabled: false, model: "glm-5.3" } }
-    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "glm-5.3" }
-    expect(hasUsableLlm(cfg, providers)).toBe(false)
-  })
-
-  it("rejects workbuddy without a model even when enabled", () => {
-    const providers: ProviderConfigs = { workbuddy: { enabled: true } }
-    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "" }
-    expect(hasUsableLlm(cfg, providers)).toBe(false)
-  })
-
-  it("rejects workbuddy when there is no card at all", () => {
-    const cfg: LlmConfig = { ...baseCfg, provider: "workbuddy", apiKey: "", model: "glm-5.3" }
-    expect(hasUsableLlm(cfg, {})).toBe(false)
+  it("does not treat a non-injected unknown provider as a plugin provider", () => {
+    const cfg: LlmConfig = { ...baseCfg, provider: "not-a-plugin", apiKey: "", model: "x" }
+    // 没注入过就不是插件 provider：照旧走 apiKey 判定（也就是不可用），
+    // 不能因为 id 长得陌生就放行。
+    expect(hasUsableLlm(cfg, { "not-a-plugin": { baseUrl: "http://127.0.0.1:1" } })).toBe(false)
   })
 })

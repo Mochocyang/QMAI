@@ -467,6 +467,7 @@
       "embedding": "向量模型",
       "webSearch": "网页搜索",
       "mcp": "外部 Agent（MCP）",
+      "plugins": "插件",
       "network": "网络",
       "sourceWatch": "资料文件夹监控",
       "scheduledImport": "定时导入",
@@ -1243,6 +1244,7 @@
       "reviewCenter": "审查中心",
       "storySimulation": "剧情推演室",
       "dismantling": "拆文库",
+      "plugins": "插件",
       "settings": "模型与写作设置",
       "switchProject": "切换小说"
     },

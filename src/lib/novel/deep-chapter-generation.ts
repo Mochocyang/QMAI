@@ -76,6 +76,8 @@ import {
   CHAPTER_SYSTEM_PROMPT,
 } from "./deep-chapter-prompts";
 import { buildWritingStyleContext } from "./writing-style-store";
+import { runEventHooks, takeHooksFor } from "@/lib/plugins/hooks/runtime";
+import type { HookEvent, PluginHookView } from "@/lib/plugins/hooks/types";
 
 export interface DeepChapterGenerationInput {
   projectPath: string;
@@ -192,6 +194,91 @@ const defaultDeps: DeepChapterGenerationDeps = {
 const REPEAT_CHECK_MIN_CHARS = 600;
 const REPEAT_WINDOW_CHARS = 120;
 const REPEAT_HIT_LIMIT = 3;
+
+/* ------------------------------------------------------------------ *
+ * 工作流钩子（设计 §5.5）
+ *
+ * 只在**已有的阶段 gate 点**上插入，不重构管线：每个接缝都是
+ *
+ *     const hooks = takeHooksFor("某事件");
+ *     if (hooks) { ... await ... }
+ *
+ * 的形状 —— 没装插件时 `takeHooksFor` 返回 `null`，一行都不多跑、一个 Promise
+ * 都不建，管线逐字与改动前相同。
+ * ------------------------------------------------------------------ */
+
+/** 钩子上下文里的章节标题（拿不到正式标题时的统一口径）。 */
+function chapterHookTitle(chapterNumber: number | undefined): string | undefined {
+  return typeof chapterNumber === "number" && Number.isFinite(chapterNumber)
+    ? `第${chapterNumber}章`
+    : undefined;
+}
+
+/** 某个钩子事件对"这一阶段正文"的改写（`null` = 不改，用原值继续）。 */
+async function applyChapterHookText(
+  hooks: PluginHookView[],
+  event: HookEvent,
+  input: {
+    chapterText: string;
+    chapterTitle?: string;
+    /** 阶段名，只用于给用户看的可读错误。 */
+    stage: string;
+  },
+  signal?: AbortSignal,
+): Promise<string | null> {
+  // `runEventHooks` 自己吞错（fail-open）+ 只在"有钩子"时才会被调用，
+  // 所以这里不需要 try/catch：钩子机制自身出问题绝不会让章节生成失败。
+  const outcome = await runEventHooks(
+    hooks,
+    {
+      event,
+      chapter: {
+        ...(input.chapterTitle ? { title: input.chapterTitle } : {}),
+        text: input.chapterText,
+      },
+    },
+    { signal },
+  );
+  if (!outcome) return null;
+
+  if (outcome.blocked) {
+    // 门禁是**作者显式 opt-in** 的失败策略：这种情况下必须真的停下，
+    // 且原因要能直接显示给用户（"为什么这一章没写/没审"）。
+    const reason = outcome.blocked.reason?.trim() || "钩子未给出原因";
+    throw new Error(`${input.stage}被插件门禁中止：${reason}`);
+  }
+
+  const rewritten = outcome.context.response?.text;
+  if (typeof rewritten !== "string" || rewritten.trim() === "") return null;
+  return rewritten === input.chapterText ? null : rewritten;
+}
+
+/**
+ * 章节完成（观测事件）：只通知，不参与决策，**fire-and-forget**。
+ *
+ * 观测钩子卡住不能影响"正文已经生成好、要交付给界面"这件事。
+ */
+function notifyChapterCompletedHooks(input: {
+  chapterText: string;
+  chapterTitle?: string;
+}): void {
+  const hooks = takeHooksFor("onChapterCompleted");
+  if (!hooks) return;
+  void runEventHooks(
+    hooks,
+    {
+      event: "onChapterCompleted",
+      chapter: {
+        ...(input.chapterTitle ? { title: input.chapterTitle } : {}),
+        text: input.chapterText,
+      },
+    },
+    {},
+  ).catch(() => {
+    /* runEventHooks 内部已吞错；这里只是不留 unhandled rejection */
+  });
+}
+
 function hasUsableChapterExecutionContract(contract: ChapterExecutionContract | null): contract is ChapterExecutionContract {
   if (!contract) return false;
   const hasSceneChecks = contract.sceneSteps.some((step) =>
@@ -553,6 +640,9 @@ export async function runDeepChapterGeneration(
   const writingConfig = resolveWritingConfig(input.llmConfig);
   const workflowConfig = resolveDefaultModel(input.llmConfig);
   const workflowProfile = resolveChapterWorkflowProfile(input.aiWorkflowMode);
+  // 钩子上下文用的章节标题（插件里 `{{chapter.title}}` 的来源）：
+  // 这一层拿不到正式书名/章节名，统一用"第N章"，没有章节号就留空。
+  const hookChapterTitle = chapterHookTitle(input.chapterNumber);
   const lengthSpec = resolveCurrentChapterLengthSpec();
   const planBlueprint =
     input.planBlueprint?.trim() || resumeCheckpoint?.planBlueprint?.trim() || undefined;
@@ -1047,6 +1137,35 @@ export async function runDeepChapterGeneration(
   let draftContent = hasCheckpointDraft(resumeCheckpoint)
     ? resumeCheckpoint.draftContent.trim()
     : "";
+  /*
+   * 插件钩子 · 草稿生成前（设计 §5.5）。
+   *
+   * 这个接缝的语义是"提供初稿"：钩子返回正文 → 直接当草稿用，**跳过模型生成**
+   * （省一次请求，也符合"插件已经给了正文，宿主不该再花钱写一遍"的预期）。
+   * 此时上下文里的 `chapter.text` 是空串 —— 真正的"已有内容"只有续写/改写场景才有，
+   * 而当前结构在这一层拿不到（约束包里的正文并不在这里暴露），所以诚实地传空。
+   */
+  if (!draftContent) {
+    const beforeDraftHooks = takeHooksFor("beforeChapterDraft");
+    if (beforeDraftHooks) {
+      const providedDraft = await applyChapterHookText(
+        beforeDraftHooks,
+        "beforeChapterDraft",
+        { chapterText: "", chapterTitle: hookChapterTitle, stage: "章节草稿生成" },
+        signal,
+      );
+      if (providedDraft) {
+        draftContent = providedDraft;
+        emitDeepChapterActivity(callbacks, {
+          id: `deep_chapter:generate_draft:hook:${Date.now()}`,
+          stageId: "generate_draft",
+          kind: "stage_output",
+          title: "插件钩子提供草稿",
+          content: `已采用插件钩子提供的正文作为初稿，约 ${countChapterChars(providedDraft)} 字。`,
+        });
+      }
+    }
+  }
   if (!draftContent) {
     emitDeepChapterStageStarted(
       callbacks,
@@ -1188,6 +1307,32 @@ export async function runDeepChapterGeneration(
     );
   }
 
+  /*
+   * 插件钩子 · 草稿生成后（设计 §5.5）：`patch.response.text` 非空 → 替换草稿正文。
+   *
+   * 位置刻意在 checkpoint 之后、所有下游阶段（审稿/返修/润色/审计）之前：
+   * 后面的阶段必须看到**替换后的**正文，否则用户会在最终稿里看到旧内容。
+   */
+  const afterDraftHooks = takeHooksFor("afterChapterDraft");
+  if (afterDraftHooks) {
+    const rewrittenDraft = await applyChapterHookText(
+      afterDraftHooks,
+      "afterChapterDraft",
+      { chapterText: draftContent, chapterTitle: hookChapterTitle, stage: "章节草稿" },
+      signal,
+    );
+    if (rewrittenDraft) {
+      draftContent = rewrittenDraft;
+      emitDeepChapterActivity(callbacks, {
+        id: `deep_chapter:generate_draft:hook_rewrite:${Date.now()}`,
+        stageId: "generate_draft",
+        kind: "stage_output",
+        title: "插件钩子改写草稿",
+        content: `插件钩子已改写正文初稿，现约 ${countChapterChars(draftContent)} 字。`,
+      });
+    }
+  }
+
   if (!workflowProfile.runPostDraftPlanAudits) {
     const finalContent = await finishPersonality(draftContent, taskBrief);
     const isFastMode = workflowProfile.mode === "fast";
@@ -1221,6 +1366,11 @@ export async function runDeepChapterGeneration(
         revised: finalContent !== draftContent,
       },
     );
+    // 插件钩子 · 章节完成（观测，fire-and-forget）：与既有完成事件同一落点。
+    notifyChapterCompletedHooks({
+      chapterText: finalContent,
+      chapterTitle: hookChapterTitle,
+    });
     return {
       finalContent,
       taskBrief,
@@ -1277,6 +1427,20 @@ export async function runDeepChapterGeneration(
         detail: "检查正文完整性、剧情连续性、截断和阻断问题。",
         params: workflowBaseParams,
       };
+      /*
+       * 插件钩子 · 审稿前（设计 §5.5）：钩子拿到的是**待审正文**，
+       * 返回的改写会在审稿之前生效 —— 这样审稿看到的和最终交付的是同一份文本。
+       */
+      const beforeReviewHooks = takeHooksFor("beforeReview");
+      if (beforeReviewHooks) {
+        const rewrittenForReview = await applyChapterHookText(
+          beforeReviewHooks,
+          "beforeReview",
+          { chapterText: draftContent, chapterTitle: hookChapterTitle, stage: "AI 审稿" },
+          signal,
+        );
+        if (rewrittenForReview) draftContent = rewrittenForReview;
+      }
       startChapterWorkflowStep(callbacks, reviewWorkflowStep);
       callbacks.onThinking?.(
         formatStageThinking(
@@ -1340,6 +1504,24 @@ export async function runDeepChapterGeneration(
       }
       reviewResults = reviewResults || [];
       assertNotAborted(signal);
+      /*
+       * 插件钩子 · 审稿后（设计 §5.5）：钩子拿到的"产物文本"是**已审过的正文**，
+       * 返回的改写会进入后续返修/润色 —— 相当于给插件一个"根据审稿结论先动一遍手"的机会。
+       *
+       * ⚠️ 已知取舍：`reviewResults` 是按**改写前**的正文得到的，改写后不会重算。
+       * 重算就要多跑一次审稿（多一次真实模型调用），代价明显大于收益，故不重算；
+       * 因此这条接缝只适合"不改变问题清单语义"的润色型钩子。
+       */
+      const afterReviewHooks = takeHooksFor("afterReview");
+      if (afterReviewHooks && !reviewFailureMessage) {
+        const rewrittenAfterReview = await applyChapterHookText(
+          afterReviewHooks,
+          "afterReview",
+          { chapterText: draftContent, chapterTitle: hookChapterTitle, stage: "AI 审稿" },
+          signal,
+        );
+        if (rewrittenAfterReview) draftContent = rewrittenAfterReview;
+      }
       if (!reviewFailureMessage) {
         completeChapterWorkflowStep(
           callbacks,
@@ -1619,6 +1801,21 @@ export async function runDeepChapterGeneration(
       "简单审查与修改",
       "按剩余问题做局部修改。",
     );
+    /*
+     * 插件钩子 · 润色前（设计 §5.5）：钩子拿到的是**待润色正文**，
+     * 改写作为润色阶段的输入。只在这个阶段真跑的时候才有意义（跳过阶段时
+     * 没有"润色前"可言），所以放在 `shouldRunFinalFix` 分支内部。
+     */
+    const beforePolishHooks = takeHooksFor("beforePolish");
+    if (beforePolishHooks) {
+      const rewrittenBeforePolish = await applyChapterHookText(
+        beforePolishHooks,
+        "beforePolish",
+        { chapterText: currentContent, chapterTitle: hookChapterTitle, stage: "简单审查与修改" },
+        signal,
+      );
+      if (rewrittenBeforePolish) currentContent = rewrittenBeforePolish;
+    }
     try {
       finalContent = await runChapterWorkflowStep(
         callbacks,
@@ -1674,6 +1871,32 @@ export async function runDeepChapterGeneration(
         : describeSkippedFinalPolish(workflowProfile),
       { skipped: true, chars: countChapterChars(finalContent) },
     );
+  }
+
+  /*
+   * 插件钩子 · 润色后（设计 §5.5）：`patch.response.text` 非空 → 替换最终正文。
+   *
+   * 放在阶段6之后、阶段7（人格核验）之前：这两者之间是"正文已经定稿"的位置，
+   * 也正是作者说的"工作流钩子的落点"。
+   */
+  const afterPolishHooks = takeHooksFor("afterPolish");
+  if (afterPolishHooks) {
+    const rewrittenFinal = await applyChapterHookText(
+      afterPolishHooks,
+      "afterPolish",
+      { chapterText: finalContent, chapterTitle: hookChapterTitle, stage: "简单审查与修改" },
+      signal,
+    );
+    if (rewrittenFinal) {
+      finalContent = rewrittenFinal;
+      emitDeepChapterActivity(callbacks, {
+        id: `deep_chapter:final_polish:hook_rewrite:${Date.now()}`,
+        stageId: "final_polish",
+        kind: "stage_output",
+        title: "插件钩子改写正文",
+        content: `插件钩子已改写最终正文，现约 ${countChapterChars(finalContent)} 字。`,
+      });
+    }
   }
   callbacks.onThinking?.(
     formatStageThinking(
@@ -2026,6 +2249,11 @@ export async function runDeepChapterGeneration(
       revised,
     },
   );
+  // 插件钩子 · 章节完成（观测，fire-and-forget）：与既有完成事件同一落点。
+  notifyChapterCompletedHooks({
+    chapterText: finalContent,
+    chapterTitle: hookChapterTitle,
+  });
   return {
     finalContent,
     taskBrief,

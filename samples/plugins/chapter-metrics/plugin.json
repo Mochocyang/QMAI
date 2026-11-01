@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "chapter-metrics",
+  "name": "章节体检",
+  "version": "1.0.0",
+  "description": "统计章节字数、对话占比、句长分布与重复句，纯本地计算、不联网",
+  "author": { "name": "QMAI", "url": "https://github.com/Mochocyang/QMAI" },
+  "license": "MIT",
+  "requires": { "qmai": ">=4.4.0" },
+  "runtime": { "type": "node", "entry": "index.js", "keepAlive": true, "startTimeoutMs": 10000 },
+  "inject": ["host.logger"],
+  "contributes": {
+    "tools": [
+      {
+        "name": "analyze_chapter_text",
+        "description": "分析一段章节正文：字数、对话占比、句长分布、重复句。传整段文本进来，不要传文件路径。",
+        "parameters": {
+          "text": { "type": "string", "description": "章节正文全文（Markdown 也可以，会去掉标记）", "required": true }
+        }
+      }
+    ]
+  },
+  "permissions": []
+}

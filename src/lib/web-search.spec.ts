@@ -1,11 +1,37 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+
+// node 环境没有 localStorage；内置插件开关用它做持久化。给一个内存实现即可，
+// 不必把整个 spec 切到 jsdom（那会拖慢原有的纯函数测试）。
+function installLocalStorageShim() {
+  const store = new Map<string, string>()
+  ;(globalThis as unknown as { localStorage: Storage }).localStorage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, String(value)),
+    removeItem: (key: string) => void store.delete(key),
+    clear: () => store.clear(),
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size
+    },
+  } as Storage
+}
+
+beforeAll(() => {
+  installLocalStorageShim()
+})
 import type { SearchApiConfig } from "@/stores/wiki-store"
 import {
+  __resetBuiltinPluginCacheForTests,
+  setBuiltinPluginEnabled,
+} from "@/lib/plugins/builtin-state"
+import {
+  isWebSearchEnabled,
   normalizeBochaResults,
   normalizeMetasoResults,
   normalizeQiniuResults,
   providerRequiresApiKey,
   webSearch,
+  webSearchDetailed,
 } from "./web-search"
 
 const fetchMock = vi.fn()
@@ -290,5 +316,70 @@ describe("CN web search providers", () => {
     await expect(webSearch("q", config("bocha", ""))).rejects.toThrow("Settings → 网页搜索")
     await expect(webSearch("q", config("qiniu", ""))).rejects.toThrow("Settings → 网页搜索")
     await expect(webSearch("q", config("metaso", ""))).rejects.toThrow("Settings → 网页搜索")
+  })
+})
+
+describe("内置插件「网页搜索」全局闸门", () => {
+  /*
+   * 这是 B2 方案的核心承诺：关掉「网页搜索」之后，**整个软件**都不能再联网搜索，
+   * 而不只是 AI 对话里的那个工具。底下有 6 处以上的调用方（角色光环、
+   * 写作实体搜索、深度研究、三个 provider 实现），全都在这里收口。
+   */
+  const config: SearchApiConfig = {
+    provider: "bocha",
+    apiKey: "test-key",
+  } as SearchApiConfig
+
+  beforeEach(() => {
+    localStorage.clear()
+    __resetBuiltinPluginCacheForTests()
+    fetchMock.mockReset()
+  })
+
+  afterEach(() => {
+    localStorage.clear()
+    __resetBuiltinPluginCacheForTests()
+  })
+
+  it("默认开启，闸门放行", () => {
+    expect(isWebSearchEnabled()).toBe(true)
+  })
+
+  it("关闭后 webSearchDetailed 返回空结果 + 明确原因", async () => {
+    setBuiltinPluginEnabled("web-search", false)
+
+    const outcome = await webSearchDetailed("测试查询", config, 5)
+
+    expect(outcome.results).toEqual([])
+    expect(outcome.disabled).toBe(true)
+    expect(outcome.message).toContain("已在「插件」中关闭")
+  })
+
+  it("关闭后不发起任何网络请求（关键：真的不联网）", async () => {
+    setBuiltinPluginEnabled("web-search", false)
+
+    await webSearchDetailed("测试查询", config, 5)
+
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("关闭后 webSearch 返回空数组，且不抛异常", async () => {
+    setBuiltinPluginEnabled("web-search", false)
+
+    // 不抛是硬要求：character-aura 等调用方没有 try/catch，
+    // 抛出去会让"生成角色光环"整条链路失败，用户看到的是"生成失败"而非"搜索关了"。
+    await expect(webSearch("测试查询", config, 5)).resolves.toEqual([])
+  })
+
+  it("重新打开后恢复联网", async () => {
+    setBuiltinPluginEnabled("web-search", false)
+    await webSearchDetailed("查询", config, 1)
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    setBuiltinPluginEnabled("web-search", true)
+    fetchMock.mockResolvedValue(makeResponse(200, { webPages: { value: [] } }))
+    await webSearchDetailed("查询", config, 1)
+
+    expect(fetchMock).toHaveBeenCalled()
   })
 })

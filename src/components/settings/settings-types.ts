@@ -1,4 +1,4 @@
-import type { CustomApiMode } from "./llm-presets"
+import type { CustomApiMode, LlmProviderId } from "./llm-presets"
 import type { AzureModelFamily, ReasoningConfig, RevisionFeedbackWindowConfig, NovelConfig, RerankConfig, OutputLanguage } from "@/stores/wiki-store"
 import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
 import type { BodyFontFamily, UiFontFamily } from "@/lib/font-settings"
@@ -12,7 +12,8 @@ import type { VisualStyle } from "@/lib/visual-style-settings"
  */
 export interface SettingsDraft {
   // LLM provider
-  provider: "openai" | "anthropic" | "google" | "azure" | "ollama" | "custom" | "minimax" | "claude-code" | "codex-cli" | "cursor-cli" | "antigravity-cli" | "workbuddy"
+  // 开放的 provider id：内置 + 运行期插件注入（见 LlmProviderId）。
+  provider: LlmProviderId
   apiKey: string
   model: string
   ollamaUrl: string
@@ -39,7 +40,7 @@ export interface SettingsDraft {
   // Multimodal (image captioning at ingest time)
   multimodalEnabled: boolean
   multimodalUseMainLlm: boolean
-  multimodalProvider: "openai" | "anthropic" | "google" | "azure" | "ollama" | "custom" | "minimax" | "claude-code" | "codex-cli" | "cursor-cli" | "antigravity-cli" | "workbuddy"
+  multimodalProvider: LlmProviderId
   multimodalApiKey: string
   multimodalModel: string
   multimodalOllamaUrl: string

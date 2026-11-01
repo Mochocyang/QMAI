@@ -108,6 +108,11 @@ export default defineConfig({
       ignored: [
         "**/src-tauri/**",
         "**/node_modules/**",
+      // 样例插件里的自测是 `node:test` 写的（跑法见各自 README：
+      // `node --test "samples/plugins/*/*.test.mjs"`）。vitest 认不出它的
+      // `describe/it` 来自另一个框架，会报 "No test suite found"，
+      // 这条失败与代码质量无关，只是两个测试框架不该互相收集。
+      "**/samples/plugins/**",
         "**/dist/**",
         "**/.vite/**",
         "**/.novel/**",

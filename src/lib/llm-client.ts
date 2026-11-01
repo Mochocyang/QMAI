@@ -3,10 +3,11 @@ import { isAzureOpenAiEndpoint } from "@/lib/azure-openai"
 import {
   getEffectiveMaxContextSize,
   getEffectiveMaxOutputTokens,
-  getProviderConfig,
   isTruncationFinishReason,
   parseOpenAiSseError,
+  resolveProviderConfig,
   thinkingMinMaxTokens,
+  type ChatMessage,
   type RequestOverrides,
 } from "./llm-providers"
 import { getHttpFetch, isFetchNetworkError } from "./tauri-fetch"
@@ -48,6 +49,8 @@ import {
   type LlmRequestTraceStatus,
 } from "./llm-request-trace"
 import { withWritingWakeLock } from "./writing-wake-lock"
+import { runEventHooks, takeHooksFor } from "./plugins/hooks/runtime"
+import type { HookLlmPayload, PluginHookView } from "./plugins/hooks/types"
 
 export type { ChatMessage, RequestOverrides } from "./llm-providers"
 
@@ -65,7 +68,21 @@ export interface StreamCallbacks {
   onRequestTrace?: (trace: LlmRequestCacheTrace) => void
   /** Decision produced while preparing this request's messages (request-scoped). */
   onUserMemoryDecision?: (decision: UserMemoryDecision | null) => void
-  onDone: () => void
+  /**
+   * 流结束。
+   *
+   * 参数是 `afterLlmResponse` 插件钩子**改写后**的正文；没有钩子、没有改写、
+   * 或本次是取消/截断结束时一律为 `undefined`（此时行为与引入钩子前逐字相同）。
+   *
+   * 为什么用"追加一个可选参数"而不是新开回调：`() => void` 的既有实现全部
+   * 自然兼容（少写参数不会报错），不需要改几十个调用点就能上线；而愿意换用
+   * 改写结果的调用方（目前是 agent runner，即主聊天路径）显式接收即可。
+   *
+   * ⚠️ 消费方必须自己判断能否**替换**已显示文本：绝大多数调用点把 `onToken`
+   * 增量追加进自己的累加器，界面上已经是原文，拿 `finalText` 直接追加会变成
+   * "正文重复一遍"。只有"整段文本在流结束后才落地"的调用方才能安全使用它。
+   */
+  onDone: (finalText?: string) => void
   onError: (error: Error) => void
 }
 
@@ -226,12 +243,193 @@ function isLocalCliProvider(provider: LlmConfig["provider"]): boolean {
   return provider === "claude-code" || provider === "codex-cli" || provider === "cursor-cli" || provider === "antigravity-cli"
 }
 
+/* ------------------------------------------------------------------ *
+ * 插件钩子（设计 §5.1 / §5.6）
+ *
+ * 全部逻辑都写成"没有钩子就一行都不跑"的形态：入口用 `takeHooksFor()` 同步判定，
+ * 返回 `null` 时调用点直接走原路径。这里是全应用最热的函数，任何"顺手 await 一下"
+ * 都会把同步直通变成微任务，改变既有请求时序。
+ * ------------------------------------------------------------------ */
+
+/**
+ * 钩子只认 `{ role, content: string }`：把多模态消息拍平成文本。
+ *
+ * `lossy` 标记"这次拍平丢了东西"（图片块→占位符）。丢过东西的请求**不允许**钩子
+ * 改写消息：还原时图片会变成一行 `[image]` 占位符，用户的图就被插件系统悄悄删掉了。
+ * 宁可这次钩子不生效。
+ */
+function flattenMessagesForHooks(messages: ChatMessage[]): {
+  payload: HookLlmPayload["messages"]
+  lossy: boolean
+} {
+  let lossy = false
+  const payload = messages.map((message) => {
+    if (typeof message.content === "string") {
+      return { role: message.role, content: message.content }
+    }
+    lossy = true
+    const text = message.content
+      .map((block) => (block.type === "text" ? block.text : `[${block.type}]`))
+      .join("\n")
+    return { role: message.role, content: text }
+  })
+  return { payload, lossy }
+}
+
+/**
+ * 跑 `beforeLlmRequest` 钩子并算出真正要发出去的消息与采样参数。
+ *
+ * 返回 `null` = 按原请求发（无钩子/无改写/钩子机制出错，fail-open）。
+ * `gate` 钩子明确 block 时**抛**可读错误：用户必须看到"为什么这次没发出去"，
+ * 而不是界面转一圈又安静地什么都没发生。
+ */
+async function runBeforeLlmRequestHooks(
+  entries: PluginHookView[],
+  config: LlmConfig,
+  messages: ChatMessage[],
+  overrides: RequestOverrides | undefined,
+  signal: AbortSignal | undefined,
+): Promise<{ messages: ChatMessage[]; overrides: RequestOverrides | undefined } | null> {
+  const { payload, lossy } = flattenMessagesForHooks(messages)
+  const outcome = await runEventHooks(
+    entries,
+    {
+      event: "beforeLlmRequest",
+      llm: {
+        provider: typeof config.provider === "string" ? config.provider : "",
+        model: typeof config.model === "string" ? config.model : "",
+        messages: payload,
+        ...(typeof overrides?.temperature === "number" ? { temperature: overrides.temperature } : {}),
+        ...(typeof overrides?.max_tokens === "number" ? { maxTokens: overrides.max_tokens } : {}),
+      },
+    },
+    { signal },
+  )
+  if (!outcome) return null
+
+  if (outcome.blocked) {
+    const reason = outcome.blocked.reason?.trim()
+    throw new Error(
+      reason
+        ? `插件门禁未通过，本次请求已中止：${reason}`
+        : "插件门禁未通过，本次请求已中止。",
+    )
+  }
+
+  const patched = outcome.context.llm
+  if (!patched) return null
+
+  // 引用比较即"钩子到底改没改"：调度器的 `applyLlmPatch` 只在钩子给了 messages 时
+  // 才建新数组，没给就沿用同一个引用。这样不必再深比较一份大消息列表。
+  let nextMessages = messages
+  if (patched.messages !== payload) {
+    if (lossy) {
+      console.warn(
+        "[plugins] 本次请求包含非文本消息（图片等），已忽略 beforeLlmRequest 对 messages 的改写（拍平后无法还原）。",
+      )
+    } else {
+      nextMessages = patched.messages.map((message) => ({
+        role: message.role as ChatMessage["role"],
+        content: message.content,
+      }))
+    }
+  }
+
+  let nextOverrides = overrides
+  if (typeof patched.temperature === "number") {
+    nextOverrides = { ...nextOverrides, temperature: patched.temperature }
+  }
+  if (typeof patched.maxTokens === "number") {
+    // 交给原有预算链路去夹（`planLlmRequestBudget` 仍会按窗口/上限收敛），
+    // 钩子只能"要求"，不能绕过宿主对输出上限的规划。
+    nextOverrides = { ...nextOverrides, max_tokens: patched.maxTokens }
+  }
+
+  return nextMessages === messages && nextOverrides === overrides
+    ? null
+    : { messages: nextMessages, overrides: nextOverrides }
+}
+
+/**
+ * 跑 `afterLlmResponse` 钩子，返回改写后的正文（`null` = 不改）。
+ *
+ * 只在"流正常结束"时调用：取消/截断/网络中断的收尾一律不适用 —— 那些情况下
+ * 上层要的是原文，改写只会把"半截内容"包装成"看起来完整"。
+ */
+async function runAfterLlmResponseHooks(
+  entries: PluginHookView[] | null,
+  text: string,
+  signal: AbortSignal | undefined,
+): Promise<string | null> {
+  if (!entries || text.trim() === "") return null
+  const outcome = await runEventHooks(entries, { event: "afterLlmResponse", response: { text } }, { signal })
+  if (!outcome) return null
+  if (outcome.blocked) {
+    // 正文已经流给界面了，这时候"阻断"没有可撤回的东西。
+    // 把一次成功的回复变成报错，只会让用户莫名丢掉已经看到的正文。
+    console.warn(
+      `[plugins] afterLlmResponse 的门禁钩子未通过（${outcome.blocked.reason || "无原因"}），但正文已流出，已忽略本次阻断。`,
+    )
+  }
+  const rewritten = outcome.context.response?.text
+  if (typeof rewritten !== "string" || rewritten.trim() === "" || rewritten === text) return null
+  return rewritten
+}
+
+/**
+ * 上报用量给 `onLlmUsage` 观测钩子（fire-and-forget）。
+ *
+ * 三件事必须成立：
+ *   1. **不 await**：观测钩子的超时/卡顿绝不能挡住"用户看到回复"；
+ *   2. 无钩子时零成本（`takeHooksFor` 同步判定，直接 return）；
+ *   3. 钩子内部再调模型**不能**又上报一次用量（否则用量会指数级膨胀）——
+ *      由 `runEventHooks` 内部的 bypass 标记 + `createHookDeps` 的双重保护负责。
+ */
+function notifyLlmUsageHooks(usage: LlmUsage | undefined, config: LlmConfig): void {
+  if (!usage) return
+  const entries = takeHooksFor("onLlmUsage")
+  if (!entries) return
+  void runEventHooks(
+    entries,
+    {
+      event: "onLlmUsage",
+      usage: {
+        ...(typeof usage.inputTokens === "number" ? { promptTokens: usage.inputTokens } : {}),
+        ...(typeof usage.outputTokens === "number" ? { completionTokens: usage.outputTokens } : {}),
+        model: typeof config.model === "string" ? config.model : undefined,
+        provider: typeof config.provider === "string" ? config.provider : undefined,
+      },
+    },
+    {},
+  ).catch(() => {
+    /* runEventHooks 自己已经吞错；这里只是不留 unhandled rejection */
+  })
+}
+
+/**
+ * `streamChat` 的宿主级开关（**不进请求体**：放在第 6 个参数里而不是 `RequestOverrides`，
+ * 因为 `stripWireAgnosticOverrides` 会把不认识的字段原样塞进请求体，那会让上游 400）。
+ */
+export interface StreamChatOptions {
+  /**
+   * 是否允许 `afterLlmResponse` 插件钩子改写本次回复的最终文本（经 `onDone(finalText)` 交付）。
+   *
+   * 默认**关闭**，只有"整段文本在流结束后才落地、且能安全替换"的调用方才开启
+   * （目前是 agent runner，即主聊天路径）。理由：
+   *   1. 多数内部调用只想要一段结构化结果（审稿 JSON、计划合规、记忆抽取），
+   *      界面/下游并不会用改写后的文本；
+   *   2. 钩子是一次**真实模型调用**。为一份没人使用的改写付费，比"钩子不生效"糟得多。
+   */
+  applyAfterLlmResponseHooks?: boolean
+}
+
 export async function streamChat(
   config: LlmConfig,
   messages: import("./llm-providers").ChatMessage[],
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
   requestOverrides?: RequestOverrides,
+  options?: StreamChatOptions,
 ): Promise<void> {
   return withWritingWakeLock(true, () => streamChatHeld(
     config,
@@ -239,6 +437,7 @@ export async function streamChat(
     callbacks,
     signal,
     requestOverrides,
+    options,
   ))
 }
 
@@ -256,20 +455,67 @@ async function streamChatHeld(
    * with "Unknown name 'temperature': Cannot find field." HTTP 400.
    */
   requestOverrides?: RequestOverrides,
+  options?: StreamChatOptions,
 ): Promise<void> {
+  /*
+   * ── 插件钩子 · 请求前（设计 §5.1） ──────────────────────────────────
+   *
+   * 三道护栏，缺一条都会出事故：
+   *
+   *   1. **零开销直通**：`takeHooksFor()` 同步读缓存清单，没钩子就返回 `null`，
+   *      这个 if 之外一个 Promise 都不会建。绝不能写成 `await runHooks([])` ——
+   *      那会把每次请求的同步直通变成一次微任务，悄悄改变整条链路的时序。
+   *   2. **重入保护**：`impl: "prompt"` 的钩子自己会调模型 → 又回到这里。那次调用
+   *      被标记为"钩子内部"，`takeHooksFor` 直接返回 `null`，否则钩子触发钩子 → 爆栈。
+   *   3. **fail-open**：钩子机制自身出错只 warn（`runEventHooks` 内部吞错），
+   *      用原请求继续。绝不能因为插件问题让用户发不出消息。
+   *
+   * 位置刻意放在最前面：钩子改写后的消息要参与后面的上下文裁剪与预算规划，
+   * 否则"钩子塞进来的系统提示词"可能刚好把预算撑爆。
+   */
+  let requestMessages = messages
+  let baseOverrides = requestOverrides
+  const beforeLlmHooks = takeHooksFor("beforeLlmRequest")
+  if (beforeLlmHooks) {
+    const hooked = await runBeforeLlmRequestHooks(
+      beforeLlmHooks,
+      config,
+      requestMessages,
+      baseOverrides,
+      signal,
+    )
+    if (hooked) {
+      requestMessages = hooked.messages
+      baseOverrides = hooked.overrides
+    }
+  }
+
+  /*
+   * `afterLlmResponse` 需要完整正文，所以只有"本次回复会作为最终文本落地"且真的装了
+   * 这类钩子时才顺手累积一份 `collectedText`（`null` = 不累积，零开销）。
+   *
+   * 为什么默认不跑（见 `StreamChatOptions.applyAfterLlmResponseHooks`）：钩子是一次
+   * 真实模型调用，而绝大多数内部调用根本不会用改写后的文本 —— 为一份被丢弃的结果
+   * 付钱，比"钩子在这些调用上不生效"糟得多。
+   */
+  const afterLlmHooks = options?.applyAfterLlmResponseHooks
+    ? takeHooksFor("afterLlmResponse")
+    : null
+  let collectedText: string | null = afterLlmHooks ? "" : null
+
   let runtimeConfig = await resolveRuntimeLocalCliConfig(config)
   const { messages: preparedMessages, decision: userMemoryDecision } = applyGlobalUserMemoryToMessages(
-    messages,
-    requestOverrides,
+    requestMessages,
+    baseOverrides,
   )
   callbacks.onUserMemoryDecision?.(userMemoryDecision)
   const configuredWindow = getEffectiveMaxContextSize(runtimeConfig)
-  const toolScaffoldTokens = estimateRequestScaffoldTokens(requestOverrides?.tools)
+  const toolScaffoldTokens = estimateRequestScaffoldTokens(baseOverrides?.tools)
   const outputCap = getEffectiveMaxOutputTokens(runtimeConfig)
   const thinkingFloorTokens = thinkingMinMaxTokens(runtimeConfig.reasoning ?? { mode: "auto" })
   const runtimeBudget = planLlmRequestBudget({
     maxContextSize: configuredWindow,
-    desiredOutputTokens: requestOverrides?.max_tokens
+    desiredOutputTokens: baseOverrides?.max_tokens
       ?? Math.floor(configuredWindow * RESPONSE_RESERVE_FRAC),
     scaffoldReserveTokens: toolScaffoldTokens,
     minimumContextTokens: 64,
@@ -309,9 +555,9 @@ async function streamChatHeld(
     )
   }
   let effectiveRequestOverrides: RequestOverrides = shouldSendMaxTokens
-    ? { ...requestOverrides, max_tokens: effectiveOutputTokens }
+    ? { ...baseOverrides, max_tokens: effectiveOutputTokens }
     : (() => {
-      const { max_tokens: _ignored, ...rest } = requestOverrides ?? {}
+      const { max_tokens: _ignored, ...rest } = baseOverrides ?? {}
       return rest
     })()
   // thinking 开着却回传不了上一轮 tool-assistant 的思考时，空串/缺字段都会 400。
@@ -396,9 +642,10 @@ async function streamChatHeld(
         usage = mergeLlmUsageSnapshot(usage, nextUsage)
         callbacks.onUsage?.(nextUsage)
       },
-      onDone: () => {
+      onDone: (finalText?: string) => {
         finishRequestTrace(trace, signal?.aborted ? "cancelled" : "success", usage)
-        callbacks.onDone()
+        // 本地 CLI 传输目前不会产出钩子改写后的文本；透传参数只为保持契约一致。
+        callbacks.onDone(finalText)
       },
       onError: (error) => {
         finishRequestTrace(trace, signal?.aborted ? "cancelled" : "error", usage)
@@ -440,13 +687,6 @@ async function streamChatHeld(
     runtimeConfig = withCursorProxyEndpoint(runtimeConfig, endpoint)
   }
 
-  // 账号登录类：先确保进程内网关在跑，再把地址与一次性令牌套进配置。
-  // 与上面 cursor-cli 同构 —— 之后的链路把它当普通 OpenAI 供应方。
-  if (runtimeConfig.provider === "workbuddy") {
-    const { ensureWorkbuddyGateway, withWorkbuddyEndpoint } = await import("./workbuddy-gateway")
-    const gateway = await ensureWorkbuddyGateway()
-    runtimeConfig = withWorkbuddyEndpoint(runtimeConfig, gateway)
-  }
 
   // 内置模型：网关卡不写进 provider 配置（那是会过期的死值），
   // 改成每次发请求前从当前登录态现取，覆盖 apiKey。
@@ -468,7 +708,10 @@ async function streamChatHeld(
     if (injected.injected) runtimeConfig = injected.config
   }
 
-  const providerConfig = getProviderConfig(runtimeConfig)
+
+  // 插件 provider 需要先现取 token（异步），所以统一走 resolveProviderConfig：
+  // 内置 provider 与 getProviderConfig 等价，插件 provider 走 OpenAI 兼容适配器。
+  const providerConfig = await resolveProviderConfig(runtimeConfig)
 
   // Combined abort: (a) user cancel, (b) our long-horizon timeout.
   // The long timeout is a backstop for truly stuck requests; it's NOT
@@ -835,6 +1078,8 @@ async function streamChatHeld(
     let finishReason: string | null = null
     const recordToken = (text: string) => {
       contentCharsEmitted += text.length
+      // 只有装了 afterLlmResponse 钩子时才累积（`collectedText === null` 表示不累积）
+      if (collectedText !== null) collectedText += text
       onToken(text)
     }
     const recordFinishReason = (line: string) => {
@@ -920,6 +1165,8 @@ async function streamChatHeld(
       }
 
       if (streamUsage) callbacks.onUsage?.(streamUsage)
+      // 观测钩子：fire-and-forget，不 await（见 notifyLlmUsageHooks 的注释）。
+      notifyLlmUsageHooks(streamUsage, config)
 
       if (toolCallDeltaCount > 0 || reasoningCharsObserved > 0) {
         logReasoningReplay("stream.collected", {
@@ -965,8 +1212,23 @@ async function streamChatHeld(
         return
       }
 
+      /*
+       * 插件钩子 · 响应后（设计 §5.1）。
+       *
+       * 只在"干净结束"这一条路径上跑：取消/截断/网络中断的收尾一律不适用
+       * （那几种情况上层要的是原文，改写会把半截内容伪装成完整回复）。
+       *
+       * 改写结果只经 `onDone(finalText)` 交付，**不**在这里自己重放 token：
+       * 界面已经把原文流式显示过了，"再补一段改写后的"只会得到两份正文。
+       * 因此能不能真正替换，取决于调用方是否在流结束后才落地正文 —— 详见
+       * `StreamCallbacks.onDone` 的契约说明。
+       */
+      const rewrittenText = afterLlmHooks && collectedText !== null
+        ? await runAfterLlmResponseHooks(afterLlmHooks, collectedText, signal)
+        : null
+
       finishRequestTrace(activeRequestTrace, "success", streamUsage)
-      onDone()
+      onDone(rewrittenText ?? undefined)
     } catch (err) {
       if (isUserAbortError(err, signal)) {
         finishRequestTrace(activeRequestTrace, "cancelled", streamUsage)

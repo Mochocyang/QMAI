@@ -4,11 +4,11 @@ import { useUiTestProviderBatch } from "@/components/uitest/models/provider-batc
 import { isProviderAvailable } from "@/lib/llm-model-keys"
 import { useProviderDraft } from "@/components/uitest/models/provider-draft"
 import { useModelDraftGuard } from "@/components/uitest/models/model-draft-guard"
-import { deleteUiTestProvider, saveUiTestProvider } from "@/components/uitest/models/provider-save"
+import { deleteUiTestProvider } from "@/components/uitest/models/provider-save"
 import { validateProviderDraft } from "@/components/uitest/models/provider-data"
 import { safeModelError } from "@/components/uitest/models/model-feedback"
 import "@/components/uitest/models/model-settings.css"
-import { useEffect, useMemo, useState, useRef } from "react"
+import { useCallback, useEffect, useMemo, useState, useRef, useSyncExternalStore } from "react"
 import { AlertCircle, CheckCircle2, Loader2, XCircle, X, Trash2 } from "lucide-react"
 import { ModelConfigTitle, ProviderBrandIcon, modelEnableLabel, modelSaveLabel } from "../provider-brand-icon"
 import { useTranslation } from "react-i18next"
@@ -16,11 +16,11 @@ import { invoke } from "@tauri-apps/api/core"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useWikiStore, type ProviderOverride, type ReasoningConfig, type ReasoningMode, type SavedModel } from "@/stores/wiki-store"
-import { BUILTIN_PROVIDER_ID } from "@/lib/builtin-models/provider-bridge"
 import { LLM_PRESETS, type LlmPreset } from "../llm-presets"
 import { ContextSizeSelector } from "../context-size-selector"
 import { OutputTokensSelector } from "../output-tokens-selector"
 import { resolveConfig } from "../preset-resolver"
+import { resolveModelConfig } from "@/lib/novel/model-resolver"
 import { normalizeEndpoint } from "@/lib/endpoint-normalizer"
 import { isTauri } from "@/lib/platform"
 import { AZURE_OPENAI_API_VERSION } from "@/lib/azure-openai"
@@ -35,8 +35,11 @@ import {
 import { thinkingMinMaxTokens } from "@/lib/llm-providers"
 import { resolveCodexCliTimeoutMinutes } from "@/lib/codex-cli-timeout"
 import { resolveCodexSpeedMode } from "@/lib/codex-cli-speed"
-import { AddWorkbuddyAccountDialog } from "./add-workbuddy-account-dialog"
-import { buildWorkbuddyCard, disableWorkbuddyCard } from "@/lib/workbuddy-card"
+import { getPluginProviderViews, subscribePluginProviderViews, syncPluginProviders } from "@/lib/plugins/provider-sync"
+import { syncPluginTools } from "@/lib/plugins/tool-sync"
+import { syncPluginHooks } from "@/lib/plugins/hooks/runtime"
+import { PluginProviderCard, toPluginProviderPreset } from "./plugin-provider-card"
+import { BUILTIN_PROVIDER_ID } from "@/lib/builtin-models/provider-bridge"
 
 const UI_TEST_PROVIDER_HINTS: Record<string, string> = {
   anthropic: "官方 Claude API",
@@ -44,7 +47,6 @@ const UI_TEST_PROVIDER_HINTS: Record<string, string> = {
   "codex-cli": "使用本机 codex 命令及其登录状态，无需 API Key",
   "cursor-cli": "通过 cursor-api-proxy 使用本机 agent 命令，无需官方 API Key",
   "antigravity-cli": "使用 local agy 命令及其登录状态，无需 API Key",
-  workbuddy: "用你自己的 WorkBuddy 账号登录，无需 API Key（免装 CLI）",
   openai: "官方 OpenAI API",
   google: "Google 生成式语言 API",
   azure: "Azure OpenAI 资源接口；模型字段填写部署名称",
@@ -73,13 +75,30 @@ export function withOutputRoomForReasoning(
 
 export function LlmProviderSection() {
   const providerConfigs = useWikiStore((s) => s.providerConfigs)
+  /*
+   * 插件 provider 的运行期快照。
+   *
+   * 为什么不能只从 `providerConfigs` 反推：未就绪的 provider 按设计**不写**进配置
+   * （写了用户就能选到一个必然打不通的模型），但它们必须在设置页可见（灰显 + 原因），
+   * 否则用户只会以为「插件装了却没反应」。
+   */
+  const pluginViews = useSyncExternalStore(subscribePluginProviderViews, getPluginProviderViews, getPluginProviderViews)
+  const pluginPresets = useMemo(() => pluginViews.map(toPluginProviderPreset), [pluginViews])
+  const pluginProviderIds = useMemo(() => new Set(pluginPresets.map((preset) => preset.id)), [pluginPresets])
+  /*
+   * 插件卡片的「测试连接/测试功能」要拿一份完整的 LlmConfig。
+   *
+   * 走 `resolveModelConfig`（与聊天、后台任务同一条解析链）：插件 provider 会被解析成
+   * `provider = providerId` + `customEndpoint = 宿主分配的端口` + `apiKey = ""`（请求前现取），
+   * 所以这样测出来的结果就是真实对话链路上的结果，而不是另搭一套探针。
+   * 注入而不是在卡片里 import：那条链会拖进 novel 模型解析层，而卡片是设置页冷启动就渲染的组件。
+   */
+  const resolvePluginModelConfig = useCallback(
+    (modelKey: string) => resolveModelConfig(modelKey, useWikiStore.getState().llmConfig, providerConfigs),
+    [providerConfigs],
+  )
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [uiTestSource, setUiTestSource] = useState<"library" | "custom" | "presets">("library")
-  // 「添加账号」是独立弹窗（不是卡片）：账号属于「设备级登录态」，
-  // 与「某个供应方的模型配置」不是一回事。
-  const [accountDialogOpen, setAccountDialogOpen] = useState(false)
-  // 已登录账号数只用于卡片上的状态文案；账号本体在 Rust 侧。
-  const [, setWorkbuddyAccountCount] = useState(0)
   // 目录里没有任何默认选中项：必须先由用户挑一个提供方，才生成它的配置卡。
   const [selectedPresetId, setSelectedPresetId] = useState("")
   const [customDraftIds, setCustomDraftIds] = useState<string[]>([])
@@ -96,65 +115,75 @@ export function LlmProviderSection() {
     setExpanded((prev) => ({ [id]: !prev[id] }))
   }
 
-  /**
-   * 「我的模型配置」列表里要展示的 id。
+  /*
+   * 打开模型设置时补一次同步。
    *
-   * `qmai-builtin`（青幕内置模型）**刻意不出现**：
-   * 它不是用户自己配的提供方，而是登录后自动登记的系统内置模型。
-   * 它已经出现在所有对话框的模型下拉里（「模型使用」处），
-   * 在这里再摆一张卡片只会让用户困惑「为什么我的模型里多了一个我没加的东西」。
+   * 启动路径上的同步会和 Rust 侧的插件自动拉起抢跑（autostart 是后台任务，
+   * provider 要等进程握手 + /health 通过才登记），抢输了这一页就看不到插件模型。
+   * 在这里补一次最省事，也顺手把「未就绪」的卡片状态刷新到最新。
+   * 失败只 warn：插件系统异常不该让整页模型设置渲染不出来。
    */
-  const HIDDEN_IN_LIBRARY = new Set([BUILTIN_PROVIDER_ID])
+  useEffect(() => {
+    if (!isTauri()) return
+    void syncPluginProviders().catch((cause: unknown) => {
+      console.warn("[plugins] 模型设置页同步 provider 失败：", cause)
+    })
+    // 工具也要在这里补一次：启动那次同步同样可能和插件自动拉起抢跑，
+    // 抢输了聊天页就拿着空快照构建 config，模型看不到插件工具。
+    void syncPluginTools().catch((cause: unknown) => {
+      console.warn("[plugins] 模型设置页同步工具失败：", cause)
+    })
+    // 钩子清单同理由：它和插件进程一起启动/停止，启动那次同步容易抢跑。
+    void syncPluginHooks().catch((cause: unknown) => {
+      console.warn("[plugins] 模型设置页同步钩子失败：", cause)
+    })
+  }, [])
 
+  // 内置（含用户手工配置的 custom-*）与插件 provider 分开渲染：插件区置顶（v4），
+  // 这份 configured 列表只负责内置与自定义卡片，渲染在插件卡片之后。
+  // 插件 provider 的 id 已从 configured 里剔除，避免同一张卡片渲染两遍。
   const configured = [...new Set([...Object.keys(providerConfigs), ...customDraftIds, ...presetDraftIds])]
-    .filter((id) => !HIDDEN_IN_LIBRARY.has(id))
-    // 「添加提供方」的预设网格同理：内置模型不是"可添加的提供方"
-    const presets = LLM_PRESETS.filter((preset) => preset.id !== "custom" && !HIDDEN_IN_LIBRARY.has(preset.id))
+    .filter((id) => !pluginProviderIds.has(id))
+    // 内置模型（登录后自动登记）不在这里重复出现：它已在各对话框的模型下拉里。
+    .filter((id) => id !== BUILTIN_PROVIDER_ID)
+    const presets = LLM_PRESETS.filter((preset) => preset.id !== "custom" && preset.id !== BUILTIN_PROVIDER_ID)
     return (
       <div data-ui="llm-library">
         <div className="model-library-heading"><h3>我的模型设置</h3><span>{configured.length} 个配置</span></div>
-        {/* 三栏入口：账号 / 提供方 / 自定义模型。顺序即产品叙事 ——
-            先「用自己的账号登录」（零 Key、零安装），再「填别人的 Key」，最后「完全自定义」。 */}
-        {/* 入口区：只保留「添加提供方 / 添加自定义模型」。
-            「添加账号」（WorkBuddy 账号登录）按需求隐藏入口，账号弹窗仍挂载保留，
-            登录态与已有 WorkBuddy 卡片不受影响。 */}
+        {/* 两栏入口：提供方 / 自定义模型。顺序即产品叙事 ——
+            先「填别人的 Key」，最后「完全自定义」。 */}
         <div className="model-add-row">
           <button type="button" className="model-add-card" data-guide="model.add-provider" onClick={() => setUiTestSource(uiTestSource === "presets" ? "library" : "presets")}>＋ 添加提供方</button>
           <button type="button" className="model-add-card" data-guide="model.add-custom" onClick={() => { const id = `custom-${crypto.randomUUID()}`; setCustomDraftIds((ids) => [...ids, id]); setExpanded({ [id]: true }); setUiTestSource("library") }}>＋ 添加自定义模型</button>
         </div>
-        {/* 账号同步：把模型配置（含 API Key）用同步密码加密后存到账号云端，换设备可恢复。 */}
         <div className="model-library-list">
+          {/*
+            v4（设计 docs/plugins/workbuddy-provider-卡片设计v4.html §4b）：插件
+            provider 区置顶 —— 「添加提供方 / 添加自定义模型」按钮行的正下方、
+            provider 卡片列表的第一个位置（内置/自定义模型卡片之前）。
+            插件卡片用运行期 preset 形状渲染，`LLM_PRESETS` 本体一行不动。
+          */}
+          {pluginPresets.length > 0 && (
+            <h4 className="text-xs font-medium text-muted-foreground" data-ui="plugin-provider-group">
+              插件提供的模型
+            </h4>
+          )}
+          {pluginPresets.map((preset) => (
+            <PluginProviderCard
+              key={preset.id}
+              preset={preset}
+              expanded={!!expanded[preset.id]}
+              onToggle={() => toggleExpand(preset.id)}
+              resolveModelConfig={resolvePluginModelConfig}
+            />
+          ))}
           {configured.map((id) => {
             const config = providerConfigs[id] ?? {}
             const preset = LLM_PRESETS.find((item) => item.id === id)
             return <div key={id}>{id.startsWith("custom-") ? <UiTestProviderCard id={id} isNew={customDraftIds.includes(id)} expanded={!!expanded[id]} onToggle={() => toggleExpand(id)} onRemoved={() => setCustomDraftIds((ids) => ids.filter((item) => item !== id))} /> : preset ? <UiTestPresetCard preset={{ ...preset, hint: UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint }} expanded={!!expanded[id]} onToggle={() => toggleExpand(id)} onRemoved={() => setPresetDraftIds(ids => ids.filter(item => item !== id))} /> : <div className="model-library-item"><div><strong>{config.label || "自定义模型"}</strong><small>{config.model || "未选择模型"}</small></div></div>}</div>
           })}
-          {!configured.length && <p>还没有模型配置。</p>}
+          {!configured.length && pluginPresets.length === 0 && <p>还没有模型配置。</p>}
         </div>
-        <AddWorkbuddyAccountDialog
-          open={accountDialogOpen}
-          onClose={() => setAccountDialogOpen(false)}
-          onAccountsChanged={(accounts) => {
-            // 账号增删只影响「WorkBuddy 卡片是否可用」，由卡片自己的保存流程写
-            // providerConfigs；这里只把结果透出去，避免两处各写一份状态。
-            setWorkbuddyAccountCount(accounts.length)
-          }}
-          onAccountAdded={async (models) => {
-            // 首个账号登录成功：自动生成 WorkBuddy 卡片（用户不必再点「添加提供方」）。
-            if (providerConfigs.workbuddy) return
-            const card = buildWorkbuddyCard(models)
-            await saveUiTestProvider("workbuddy", card, undefined).catch(() => undefined)
-            setPresetDraftIds((ids) => (ids.includes("workbuddy") ? ids : [...ids, "workbuddy"]))
-            setExpanded((prev) => ({ ...prev, workbuddy: true }))
-          }}
-          onAllAccountsRemoved={async () => {
-            // 删掉最后一个账号：卡片置灰但保留模型列表 —— 用户重新登录时勾选不会丢，
-            // 而模型选择器会立刻认为「当前没有可用模型」。
-            const expected = providerConfigs.workbuddy
-            if (!expected) return
-            await saveUiTestProvider("workbuddy", disableWorkbuddyCard(expected), expected).catch(() => undefined)
-          }}
-        />
         {uiTestSource === "presets" && <div className="model-add-panel">
           <div className="model-provider-grid">{presets.map((preset) => <button type="button" key={preset.id} data-guide={`model.preset.${preset.id}`} className={preset.id === selectedPresetId ? "is-selected" : ""} onClick={() => selectPreset(preset.id)}><span className="model-provider-grid-name"><ProviderBrandIcon presetId={preset.id} /><strong>{preset.label}</strong></span><small>{UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint}</small></button>)}</div>
         </div>}
@@ -264,7 +293,7 @@ function PresetRow({
   const maxOutputTokens = normalizeUserLlmMaxOutputTokens(
     ov.maxOutputTokens ?? preset.suggestedMaxOutputTokens,
   )
-  const reasoning = ov.reasoning ?? { mode: "medium" as const }
+  const reasoning = ov.reasoning ?? { mode: "auto" as const }
   const localCliIsolation = ov.localCliIsolation === true
   const codexCliTimeoutMinutes = resolveCodexCliTimeoutMinutes(ov.codexCliTimeoutMinutes)
   const codexSpeedMode = resolveCodexSpeedMode(ov.codexSpeedMode)
@@ -294,9 +323,7 @@ function PresetRow({
     preset.provider !== "claude-code" &&
     preset.provider !== "codex-cli" &&
     preset.provider !== "cursor-cli" &&
-    preset.provider !== "antigravity-cli" &&
-    // 账号登录类：令牌由本地网关于运行时注入，界面上不该出现 Key 输入框。
-    preset.provider !== "workbuddy"
+    preset.provider !== "antigravity-cli"
 
   const resolvedConfig = useMemo(
     () => resolveConfig(preset, ov, useWikiStore.getState().llmConfig),
@@ -722,16 +749,12 @@ export function FunctionCallingControls({
     >
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium">
-          {t("settings.sections.llm.functionCalling.label", "开启工具调用")}
+          {t("settings.sections.llm.functionCalling.label", "启用 Function Calling")}
         </div>
-        {/*
-          这段说明只在设置页出现：聊天框的悬停弹窗空间小，只留开关本体，
-          让用户在那里改设置时不至于被大段文字挤掉档位。
-        */}
         <div className="text-xs text-muted-foreground">
           {t(
             "settings.sections.llm.functionCalling.hint",
-            "工具调用：读小说资料、写入章节与大纲、联网搜索等，都是通过调用工具完成的。关闭后，发给该供应商的请求不再携带工具定义，模型只会纯聊天——用于兼容不支持工具调用的中转或本地模型。",
+            "关闭后，使用该供应商时请求不携带 tools/tool_choice（含内置工具），用于兼容不支持工具调用的中转或本地模型。",
           )}
         </div>
       </div>
@@ -740,7 +763,7 @@ export function FunctionCallingControls({
         onClick={() => onChange(!enabled)}
         role="switch"
         aria-checked={enabled}
-        aria-label={t("settings.sections.llm.functionCalling.label", "开启工具调用")}
+        aria-label={t("settings.sections.llm.functionCalling.label", "启用 Function Calling")}
         className="ml-3 flex shrink-0 items-center gap-2"
       >
         <span
@@ -779,6 +802,7 @@ export function ReasoningControls({
 }) {
   const { t } = useTranslation()
   const modes: { value: ReasoningMode; label: string }[] = [
+    { value: "auto", label: t("settings.sections.llm.reasoning.auto") },
     { value: "off", label: t("settings.sections.llm.reasoning.off") },
     { value: "low", label: t("settings.sections.llm.reasoning.low") },
     { value: "medium", label: t("settings.sections.llm.reasoning.medium") },

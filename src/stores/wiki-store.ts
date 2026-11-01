@@ -60,6 +60,9 @@ import {
   normalizeUserLlmConfig,
 } from "@/lib/llm-context-size"
 import type { CodexSpeedMode } from "@/lib/codex-cli-speed"
+// provider id 的联合定义放在 lib 分派模块里（内置字面量 + 任意插件 id），
+// 这里只做类型引用；`import type` 编译期擦除，不会把 llm-providers 拉进 store 的运行时依赖。
+import type { LlmProviderId } from "@/lib/llm-providers"
 
 const GRAPH_LABEL_MODE_KEY = "lk-graph-label-display-mode"
 const GRAPH_EDGE_COLOR_KEY = "lk-graph-edge-color"
@@ -234,7 +237,8 @@ export interface ReasoningConfig {
 }
 
 interface LlmConfig {
-  provider: "openai" | "anthropic" | "google" | "azure" | "ollama" | "custom" | "minimax" | "claude-code" | "codex-cli" | "cursor-cli" | "antigravity-cli" | "workbuddy"
+  /** 内置 provider 或运行期插件注入的 provider（形如 `wb-connect`）。 */
+  provider: LlmProviderId
   apiKey: string
   model: string
   ollamaUrl: string
@@ -717,7 +721,7 @@ interface WikiState {
    *   main（人物 Skill）→ personaSkillLibrary
    *   scratch-20261010（文风 skill 化）→ writingStyleLibrary、characterSoulLibrary
    */
-  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "writingStyleLibrary" | "characterSoulLibrary" | "personaSkillLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation" | "maintenance"
+  activeView: "wiki" | "sources" | "search" | "graph" | "lint" | "soul" | "skillLibrary" | "writingSkillLibrary" | "writingStyleLibrary" | "characterSoulLibrary" | "personaSkillLibrary" | "skillFavorites" | "bookAnalysis" | "settings" | "trash" | "reviewCenter" | "storySimulation" | "maintenance" | "plugins"
   activeSettingsCategory: SettingsCategoryId | null
   activeModelSettingsTab: ModelSettingsTabId | null
   selectedSoulId: string | null

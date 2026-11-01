@@ -1,0 +1,10 @@
+name = "qmai-plugin-cdn"
+main = "src/index.js"
+compatibility_date = "2026-10-29"
+
+# 只暴露在自有域名的一个路径前缀下，不开 workers.dev（国内那条线路对 workers.dev 不友好）
+workers_dev = false
+
+routes = [
+  { pattern = "qmai.pro/plugins-cdn/*", zone_name = "qmai.pro" }
+]

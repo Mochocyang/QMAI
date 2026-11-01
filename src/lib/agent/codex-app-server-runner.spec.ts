@@ -199,6 +199,59 @@ describe("CodexAppServerRunner", () => {
     expect(cb.onError).not.toHaveBeenCalled()
   })
 
+  it("passes a plugin tool's inputSchema through verbatim and keeps the built-in shape", async () => {
+    /*
+     * 插件工具的参数契约是原始 JSON Schema（ToolParameter 表达不了嵌套结构）。
+     * 从 parameters 反拼会把 properties 压成一层，模型拿到的契约就和插件实际
+     * 校验的对不上；内置工具没有 inputSchema，必须仍走原来的拼装路径。
+     */
+    const inputSchema = {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "正文" },
+        options: { type: "object", properties: { mode: { type: "string" } } },
+      },
+      required: ["text"],
+      additionalProperties: false,
+    }
+    const pluginTool: Tool = {
+      name: "chapter_metrics__analyze_chapter_text",
+      description: "分析",
+      category: "action",
+      parameters: { text: { type: "string", description: "正文", required: true } },
+      inputSchema,
+      execute: vi.fn(async () => "统计结果"),
+    }
+    const builtinTool: Tool = {
+      name: "read_outline",
+      description: "读取大纲",
+      category: "read",
+      parameters: { path: { type: "string", description: "路径", required: true } },
+      execute: vi.fn(async () => "大纲内容"),
+    }
+    appServerMock.onTurn = () => {
+      envelope("item/agentMessage/delta", { threadId: "thread-1", delta: "好" })
+      envelope("turn/completed", { threadId: "thread-1", turn: { status: "completed" } })
+    }
+
+    await new CodexAppServerRunner().run(
+      config([pluginTool, builtinTool]),
+      new ToolRegistry(),
+      messages,
+      callbacks(),
+    )
+
+    const threadStart = appServerMock.call.mock.calls.find(([method]) => method === "thread/start")
+    const dynamicTools = threadStart?.[1].dynamicTools as Array<Record<string, unknown>>
+    expect(dynamicTools[0].inputSchema).toEqual(inputSchema)
+    expect(dynamicTools[1].inputSchema).toEqual({
+      type: "object",
+      properties: { path: { type: "string", description: "路径" } },
+      required: ["path"],
+      additionalProperties: false,
+    })
+  })
+
   it("passes Fast mode to every app-server turn as the priority service tier", async () => {
     appServerMock.onTurn = () => {
       envelope("item/agentMessage/delta", { threadId: "thread-1", delta: "快速结果" })

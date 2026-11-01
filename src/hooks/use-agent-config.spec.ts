@@ -149,6 +149,13 @@ async function renderHook(systemPrompt: string, overrides: StoreStates & {
       provider === "metaso" ||
       provider === "tavily" ||
       provider === "serpapi",
+    // web_search 工具现在会先读内置插件开关；本文件整体 mock 了这个模块，
+    // 新导出也必须给出，否则工具执行时报 "No export defined on the mock"。
+    isWebSearchEnabled: () => true,
+    WEB_SEARCH_DISABLED_MESSAGE: "网页搜索已在「插件」中关闭，本次未联网搜索",
+    webSearchDetailed: async (...args: unknown[]) => ({
+      results: await webSearchMock(...args),
+    }),
     webSearch: (...args: unknown[]) => webSearchMock(...args),
   }))
 

@@ -53,10 +53,13 @@ futures = "0.3"
 # Claude Code CLI subprocess transport: spawn `claude` as a child process,
 # stream stdout line-by-line back to the frontend. tokio::process gives us
 # async io and clean cancellation; `which` locates the binary on PATH.
-# `net` / `time`：WorkBuddy 本地网关要自己绑一个回环端口，登录轮询要 sleep 计时。
+# `net` / `time`：插件宿主与本地服务要自己绑回环端口，轮询要 sleep 计时。
 tokio = { version = "1", features = ["process", "io-util", "sync", "macros", "rt", "net", "time"] }
 which = "8"
 uuid = { version = "1", features = ["v4"] }
+# 插件宿主能力面的 SSRF 防护要解析 URL 取 scheme/host（只做语法判定，不发请求）。
+# 版本已在 lock 里（reqwest/cookie_store 传递依赖），显式声明不引入新的下载。
+url = "2"
 toml = "0.9"
 # Multimodal image extraction (Office docs):
 #   `image` decodes embedded PPTX/DOCX raster bytes so we can apply
@@ -74,12 +77,12 @@ sha2 = "0.10"
 # 但它用的就是 minisign，这里显式声明同一套规则（版本与其依赖保持一致）。
 minisign-verify = "0.2"
 # 百度 OAuth 的 token 交换/接口调用（已有传递依赖，显式声明后可直接用）
-# `stream`：WorkBuddy 网关要把上游 SSE 逐块透传给前端（不整体缓冲）。
+# `stream`：SSE 流式响应要逐块透传给前端（不整体缓冲）。
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }
-# WorkBuddy 账号登录（Agent 方式的第 4 种来源）：
-#   axum     —— 进程内最小网关，把 WorkBuddy 伪装成普通 OpenAI 供应方；
-#   aes-gcm  —— 账号凭证落盘加密（key `enc1:` 信封，密钥文件与数据分离）；
-#   rand     —— 上面那把密钥与每次加密的 nonce，以及网关的一次性令牌。
+# 进程内服务与凭证加密原语（插件宿主 / 通用工具用）：
+#   axum     —— 进程内的 HTTP 服务端；
+#   aes-gcm  —— 凭证落盘加密（key `enc1:` 信封，密钥文件与数据分离）；
+#   rand     —— 上面那把密钥与每次加密的 nonce。
 axum = "0.8"
 aes-gcm = "0.10"
 rand = "0.8"
@@ -94,6 +97,10 @@ keepawake = "0.6.1"
 # （由 tauri-build 以 preserve_order 启用）的 Map<K,V> = IndexMap<K,V> 编译失败。
 # 显式开启 std 会走 CARGO_FEATURE_STD 分支、绕过 autocfg 探测。
 indexmap = { version = "1", features = ["std"] }
+# 插件清单 `requires.qmai` 的校验（`plugins/mod.rs::ensure_host_compatible`）：
+# 版本要求是 `>=4.5.0` 这类语义化范围，用字符串比较会得出 `4.10 < 4.9` 这种荒谬结论。
+# 版本已在 `Cargo.lock` 里（tauri 生态的传递依赖），显式声明不引入新的下载。
+semver = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"

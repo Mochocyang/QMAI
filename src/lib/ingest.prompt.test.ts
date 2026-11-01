@@ -12,8 +12,9 @@ import {
 // 1 = CJK) so they stay deterministic regardless of the active UI language.
 describe("long-source ingest planning", () => {
   it("scales generation output tokens with the configured context window", () => {
-    // Windows below MIN_USER_LLM_CONTEXT_SIZE (204800) clamp up first.
-    expect(computeIngestGenerationMaxTokens(64_000)).toBe(30_720)
+    // 预算层信任传入窗口（只兜非法/荒谬值），所以 64k 不再被抬到 204800：
+    //   64000 × RESPONSE_RESERVE_FRAC(0.15) = 9600
+    expect(computeIngestGenerationMaxTokens(64_000)).toBe(9_600)
     expect(computeIngestGenerationMaxTokens(204_800)).toBe(30_720)
     expect(computeIngestGenerationMaxTokens(1_000_000)).toBe(150_000)
     expect(computeIngestReviewMaxTokens(1_000_000)).toBe(40_000)

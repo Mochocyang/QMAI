@@ -28,6 +28,9 @@ import {
 } from "@/lib/chapter-selection";
 import type { PendingEditorHighlight } from "@/stores/wiki-store";
 import { EditorContextMenu, type EditorContextAction } from "@/components/editor/editor-context-menu";
+import { SlotActions } from "@/components/plugins/SlotActions";
+import { usePluginSlotIndex } from "@/lib/plugins/declarative/api";
+import { useWikiStore } from "@/stores/wiki-store";
 import { TextareaFindBar } from "@/components/editor/textarea-find-bar";
 import { TextareaFindHighlights } from "@/components/editor/textarea-find-highlights";
 import { OutlineFormatToolbar } from "@/components/editor/outline-format-toolbar";
@@ -146,6 +149,20 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
       [value, findQuery],
     );
     const cssAutoHeight = supportsFieldSizingContent();
+
+    /*
+     * 插件插槽 `editor-context-menu`：右键菜单里那一组插件动作。
+     *
+     * 只有真的有动作时才把 `pluginMenu` 传下去 —— `SlotActions` 在空插槽时返回 null，
+     * 但外面那层分隔线容器会照渲染，菜单底部就会多一条莫名其妙的横线。
+     */
+    const pluginSlots = usePluginSlotIndex();
+    const pluginEntries = pluginSlots.index["editor-context-menu"].actions;
+    const hasProject = Boolean(useWikiStore((state) => state.project));
+    const pluginMenu =
+      pluginEntries.length > 0
+        ? <SlotActions variant="menu" entries={pluginEntries} projectAvailable={hasProject} />
+        : null;
 
     useImperativeHandle(
       ref,
@@ -702,7 +719,8 @@ const WritingTextarea = forwardRef<WritingTextareaHandle, WritingTextareaProps>(
             spellCheck={false}
           />
         </div>
-        <EditorContextMenu position={contextMenu} actions={CHAPTER_CONTEXT_ACTIONS} disabled={{ copy: !contextMenu?.text, cut: !contextMenu?.text }} onAction={(action) => void runTextAction(action)} onClose={() => setContextMenu(null)} />
+        {/* 插件插槽 editor-context-menu：空插槽时 SlotActions 返回 null，菜单不长多余分隔线。 */}
+        <EditorContextMenu position={contextMenu} actions={CHAPTER_CONTEXT_ACTIONS} disabled={{ copy: !contextMenu?.text, cut: !contextMenu?.text }} onAction={(action) => void runTextAction(action)} onClose={() => setContextMenu(null)} pluginMenu={pluginMenu} />
       </div>
     );
   },

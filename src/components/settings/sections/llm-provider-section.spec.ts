@@ -65,33 +65,17 @@ describe("LLM provider model controls", () => {
     expect(source).toContain("<ReasoningControls")
   })
 
-  // ── 入口区（「添加提供方 / 添加自定义模型」）────────────────
-  // 两个入口必须排在「我的模型配置」列表**之前**；「添加账号」入口按需求隐藏。
-  it("keeps the two add entries above the config list and hides the account entry", () => {
-    const heading = source.indexOf("我的模型设置")
-    const addProvider = source.indexOf('data-guide="model.add-provider"')
-    const addCustom = source.indexOf('data-guide="model.add-custom"')
-    const list = source.indexOf("model-library-list")
-
-    expect(heading).toBeGreaterThan(-1)
-    expect(addProvider).toBeGreaterThan(heading)
-    expect(addProvider).toBeLessThan(addCustom)
-    expect(addCustom).toBeLessThan(list)
-    // 「添加账号」入口隐藏：不再渲染按钮（弹窗仍挂载，登录态与已有卡片不受影响）。
-    expect(source).not.toContain('data-guide="model.add-account"')
-  })
-
-  it("mounts the WorkBuddy account dialog and generates the model card on first login", () => {
-    expect(source).toContain('import { AddWorkbuddyAccountDialog } from "./add-workbuddy-account-dialog"')
-    expect(source).toContain("<AddWorkbuddyAccountDialog")
-    expect(source).toContain("buildWorkbuddyCard(models)")
-    expect(source).toContain('saveUiTestProvider("workbuddy", card, undefined)')
-    // 删掉最后一个账号：置灰而不是删卡片，用户的模型勾选不丢。
-    expect(source).toContain("disableWorkbuddyCard(expected)")
-  })
-
-  it("never asks for an API key on the account-login provider", () => {
-    expect(source).toContain('preset.provider !== "workbuddy"')
-    expect(source).toContain("workbuddy: \"用你自己的 WorkBuddy 账号登录")
+  it("renders plugin provider cards first, above configured/custom cards (v4 插件区置顶)", () => {
+    /*
+     * v4（docs/plugins/workbuddy-provider-卡片设计v4.html §4b）：插件 provider 区
+     * 从页面最底部移到「添加提供方 / 添加自定义模型」按钮行的正下方 ——
+     * model-library-list 的第一个位置，在 configured（自定义模型）卡片之前。
+     * 本文件是源码断言型测试，用两段代码的先后位置表达渲染顺序。
+     */
+    const pluginGroup = source.indexOf('data-ui="plugin-provider-group"')
+    const configuredMap = source.indexOf("configured.map((id)")
+    expect(pluginGroup).toBeGreaterThanOrEqual(0)
+    expect(configuredMap).toBeGreaterThanOrEqual(0)
+    expect(pluginGroup).toBeLessThan(configuredMap)
   })
 })

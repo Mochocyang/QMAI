@@ -1,0 +1,191 @@
+{
+  "schema": 3,
+  "id": "title-forge",
+  "name": "书名生成",
+  "version": "0.1.0",
+  "description": "读取书架上的书，按四字格玄奇 / 玄幻爽文 / 番茄式反转三种风格生成书名候选",
+  "author": {
+    "name": "QMAI",
+    "url": "https://github.com/Mochocyang/QMAI"
+  },
+  "license": "MIT",
+  "requires": {
+    "qmai": ">=4.4.0"
+  },
+  "runtime": {
+    "type": "node",
+    "entry": "index.js",
+    "keepAlive": true,
+    "startTimeoutMs": 10000
+  },
+  "inject": [
+    "host.logger"
+  ],
+  "permissions": [
+    "fs:project-read",
+    "fs:shelf-read"
+  ],
+  "contributes": {
+    "tools": [
+      {
+        "name": "list_shelf_books",
+        "description": "列出用户书架上的书（书名、简介、章节数）。用于书名生成前让用户勾选要参考哪几本。",
+        "parameters": {
+          "maxBooks": {
+            "type": "integer",
+            "description": "最多返回几本（宿主上限 30）",
+            "required": false
+          }
+        }
+      },
+      {
+        "name": "collect_writing_material",
+        "description": "取指定书籍的简介与正文采样，拼成用于生成书名的素材。",
+        "parameters": {
+          "ids": {
+            "type": "array",
+            "description": "要分析的书籍 id 列表；留空表示全部（受宿主上限约束）",
+            "required": false
+          },
+          "maxCharsPerBook": {
+            "type": "integer",
+            "description": "每本最多取多少字正文（宿主上限 1200）",
+            "required": false
+          }
+        }
+      },
+      {
+        "name": "list_name_styles",
+        "description": "列出三种可用的书名风格及其写作要求。",
+        "parameters": {}
+      }
+    ],
+    "actions": [
+      {
+        "id": "generate-titles",
+        "title": "生成书名",
+        "description": "分析书架上的书，按选定风格生成书名候选",
+        "slot": "plugin-center",
+        "model": {
+          "strategy": "current"
+        },
+        "form": {
+          "fields": [
+            {
+              "key": "scope",
+              "type": "select",
+              "label": "分析范围",
+              "required": true,
+              "default": "current",
+              "description": "「当前作品」= 只分析你正打开的那本书；「指定」= 填书名挑几本；「整个书架」= 全部一起看。",
+              "options": [
+                {
+                  "value": "current",
+                  "label": "当前作品（推荐）"
+                },
+                {
+                  "value": "named",
+                  "label": "指定书架上的书"
+                },
+                {
+                  "value": "all",
+                  "label": "整个书架"
+                }
+              ]
+            },
+            {
+              "key": "bookNames",
+              "type": "text",
+              "label": "书名（仅在「指定」时填写）",
+              "required": false,
+              "placeholder": "楚白,黑雨之下",
+              "description": "书名用逗号分隔。选了「当前作品」或「整个书架」时这一栏会被忽略。"
+            },
+            {
+              "key": "style",
+              "label": "书名风格",
+              "type": "select",
+              "required": true,
+              "default": "fanqie",
+              "options": [
+                {
+                  "value": "literary",
+                  "label": "四字格 · 玄奇（《诸神鱼戏》）"
+                },
+                {
+                  "value": "xuanhuan",
+                  "label": "玄幻爽文长标题（《从满级悟性开始》）"
+                },
+                {
+                  "value": "fanqie",
+                  "label": "番茄式事件反转（《开局跳楼，沙瑞金被撤，空降汉东》）"
+                }
+              ]
+            },
+            {
+              "key": "count",
+              "label": "生成几个",
+              "type": "select",
+              "required": true,
+              "default": "6",
+              "options": [
+                {
+                  "value": "3",
+                  "label": "3 个"
+                },
+                {
+                  "value": "6",
+                  "label": "6 个"
+                },
+                {
+                  "value": "10",
+                  "label": "10 个"
+                }
+              ]
+            },
+            {
+              "key": "keywords",
+              "label": "必须出现的关键词（可选）",
+              "type": "text",
+              "required": false,
+              "description": "比如主角名、地名、金手指名称。留空则自由发挥。"
+            }
+          ]
+        },
+        "prompt": {
+          "system": "你是网络小说起名专家，非常熟悉番茄小说、起点中文网的书名套路。你的输出只包含书名候选与一句话理由，不做解释、不寒暄。",
+          "user": "【分析范围】{{scope}} —— {{project.bookTitle}}\n【书架概况】\n{{shelfOverview}}\n\n【小说内容】\n{{material}}\n\n【目标风格】\n{{style}}\n\n【必须出现的关键词】\n{{keywords}}\n\n【要求】\n1. 严格按所选风格的写作要求生成，不同风格之间不允许混用。\n2. 生成 {{count}} 个候选，每个一行。\n3. 每个候选后面用括号写一句不超过 15 字的理由，说明它为什么符合该风格。\n4. 书名用《》包裹。\n5. 如果有必须出现的关键词，至少一半候选要包含它。\n6. 素材可能不足以概括整本书 —— 那就据此合理发挥，不要因为\"信息不足\"而拒答或反问。\n7. 不要解释思路，直接给结果。"
+        },
+        "output": {
+          "type": "text",
+          "mode": "text",
+          "targets": [
+            {
+              "kind": "clipboard",
+              "label": "复制书名"
+            }
+          ]
+        },
+        "limits": {
+          "maxOutputTokens": 1500
+        },
+        "prepare": [
+          {
+            "var": "shelfOverview",
+            "tool": "list_shelf_books",
+            "args": {}
+          },
+          {
+            "var": "material",
+            "tool": "collect_writing_material",
+            "args": {
+              "scope": "{{scope}}",
+              "bookNames": "{{bookNames}}",
+              "maxCharsPerBook": 800
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

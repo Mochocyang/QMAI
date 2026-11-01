@@ -1,6 +1,6 @@
 import { useMemo } from "react"
 import {
-  FileText, FolderOpen, Search, Network, Brain, ArrowLeftRight, Trash2, Sparkles, LayoutDashboard, BookOpen, Drama, WandSparkles,
+  FileText, FolderOpen, Search, Network, Brain, ArrowLeftRight, Trash2, Sparkles, LayoutDashboard, BookOpen, Drama, WandSparkles, Puzzle,
 } from "lucide-react"
 import {
   DndContext,
@@ -46,6 +46,12 @@ const CONFIGURABLE_NAV_ITEMS: ConfigurableNavItem[] = [
   { id: "lint", view: "lint", icon: Brain, labelKey: "novel.nav.lint" },
   { id: "soul", view: "soul", icon: Sparkles, labelKey: "novel.nav.soul" },
   { id: "skillLibrary", view: "skillLibrary", icon: WandSparkles, labelKey: "novel.nav.skillLibrary" },
+  /*
+   * 「插件」是顶层页面（与技能库 / 拆书库同级），不是设置里的一个分区：
+   * 市场要能浏览，设置里那种「左边一列分类、右边一块表单」的骨架放不下卡片网格。
+   * 设置 → 插件 仍然在，它管的是同一份已安装数据（本页「已安装」tab 直接复用它）。
+   */
+  { id: "plugins", view: "plugins", icon: Puzzle, labelKey: "novel.nav.plugins" },
   { id: "bookAnalysis", view: "bookAnalysis", icon: BookOpen, labelKey: "novel.nav.dismantling" },
   { id: "reviewCenter", view: "reviewCenter", icon: LayoutDashboard, labelKey: "novel.nav.reviewCenter" },
   { id: "storySimulation", view: "storySimulation", icon: Drama, labelKey: "novel.nav.storySimulation" },

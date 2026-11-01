@@ -1,4 +1,5 @@
 import { openProject } from "@/commands/fs"
+import { syncPluginsProject } from "@/lib/plugins/project-sync"
 import { loadRegisteredProjects } from "@/lib/project-store"
 import { normalizePath } from "@/lib/path-utils"
 import { useWikiStore } from "@/stores/wiki-store"
@@ -65,6 +66,9 @@ export async function openBookshelf(query: ShelfQuery, deps: {
   const projects = await (deps.load ?? loadRegisteredProjects)()
   const book = findShelfBook(projects, query)
   const opened = await (deps.open ?? openProject)(book.path)
+  // 书架打开的这本书成了当前项目：插件宿主要跟着换根目录（见 project-sync.ts）。
+  // 这条路径不经过 App 的打开入口，所以在这里单独通知一次。
+  await syncPluginsProject(opened.path)
   const openInApp = deps.openInApp ?? opener
   if (!openInApp) throw new Error("应用还没准备好打开书架")
   await openInApp(opened)

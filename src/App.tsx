@@ -7,6 +7,7 @@ import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { openProject, fileExists } from "@/commands/fs"
 import { getLastProject, saveLastProject, loadLlmConfig, loadAiChatModel, loadAiWorkflowMode, loadAiWorkflowModeBeforeDiscuss, loadDefaultLlmModel, loadEmbeddingConfig, loadProviderConfigs, loadActivePresetId, loadProxyConfig, loadNovelMode, loadNovelConfig, loadRevisionFeedbackWindowConfig, loadTheme, loadMaxHistoryMessages, loadUiFontFamily, loadUiBodyFontFamily, loadUiBodyFontPx, loadUiBodyLineHeight, loadUiBodyLetterSpacing, loadUiBodyMarginX, loadUiBodySafeBottom, loadVisualStyle, saveLlmConfig, loadLastReadChapter, loadSearchApiConfig, loadOutlineWorkflowMode } from "@/lib/project-store"
+import { openProjectWithPluginSync, syncPluginsProject } from "@/lib/plugins/project-sync"
 import { loadReviewItems, loadChatHistory, saveChatHistory, saveReviewItems } from "@/lib/persist"
 import { initializeAiOutlineModelFromStorage } from "@/lib/ai-outline-model-initialization"
 import { setupAutoSave, teardownAutoSave } from "@/lib/auto-save"
@@ -44,6 +45,14 @@ import { MemoryMaintenanceReminder } from "@/components/novel/memory-maintenance
 import { AnnouncementDialog } from "@/components/announcements/announcement-dialog"
 import { useAnnouncementStore } from "@/stores/announcement-store"
 import { useModelSyncAutoSync } from "@/hooks/use-model-sync-auto-sync"
+import { syncPluginProviders } from "@/lib/plugins/provider-sync"
+import {
+  describeNavigationBlocked,
+  subscribeProviderModelsRefreshed,
+  subscribeProviderNavigationBlocked,
+} from "@/lib/plugins/provider-events"
+import { syncPluginTools } from "@/lib/plugins/tool-sync"
+import { syncPluginHooks } from "@/lib/plugins/hooks/runtime"
 
 function App() {
   useEnsureAiChatModel()
@@ -505,6 +514,30 @@ function App() {
         if (savedProviderConfigs) {
           useWikiStore.getState().setProviderConfigs(savedProviderConfigs)
         }
+        /*
+         * 插件 provider 合并进 `providerConfigs`（T4）。
+         *
+         * 位置必须在 `loadProviderConfigs` 之后：同步是往配置里**追加**运行期 provider，
+         * 放在读盘之前会被 `setProviderConfigs` 整个覆盖掉，插件模型就永远不出现。
+         *
+         * 失败只 warn，绝不阻断启动：插件系统坏了（命令缺失、Rust 侧异常）不该让
+         * 用户连项目都打不开 —— 那属于「一个扩展不可用」，不是「应用起不来」。
+         *
+         * 工具与 provider 一起同步：插件工具不进 providerConfigs，而是进
+         * `tool-sync` 的模块级快照，`buildAgentConfig` 同步读它。少了这一步，
+         * 「插件装了、运行中，模型却不知道有这个工具」—— 正是用户踩到的那个 bug。
+         */
+        try {
+          // 工具先同步：`syncPluginTools` 内部自己吞错（失败保留旧缓存），绝不会抛，
+          // 所以即使 provider 同步失败，工具也不会被跳过。
+          await syncPluginTools()
+          await syncPluginProviders()
+          // 钩子清单也在这里拉一次：它只是模块级缓存（消费点同步读），失败会保留
+          // 上次结果、也不会抛 —— 与工具/provider 同一容错口径，不阻断启动。
+          await syncPluginHooks()
+        } catch (error) {
+          console.warn("[plugins] 同步插件 provider 失败：", error)
+        }
         const savedActivePreset = await loadActivePresetId()
         if (savedActivePreset) {
           useWikiStore.getState().setActivePresetId(savedActivePreset)
@@ -550,7 +583,8 @@ function App() {
         const lastProject = await getLastProject()
         if (lastProject) {
           try {
-            const proj = await openProject(lastProject.path)
+            // 走 `openProjectWithPluginSync`：打开成功才通知插件宿主（顺序见该函数注释）。
+            const proj = await openProjectWithPluginSync(() => openProject(lastProject.path))
             await handleProjectOpened(proj)
           } catch (err) {
             console.error("打开上次项目失败:", err)
@@ -599,6 +633,62 @@ function App() {
       }
     }
     init()
+  }, [])
+
+  /*
+   * 受控登录窗口的两个后端事件（与上面那次一次性初始化同属「启动时接线」）。
+   *
+   * 事件一 `plugin-provider-models-refreshed`：窗口关闭后，后端会自动重探活 + 重抓模型。
+   * 必须监听：否则界面手里还是关窗前的快照，用户会觉得「登录完模型没变」。
+   *
+   * 事件二 `plugin-provider-navigation-blocked`：窗口拦下白名单外的跳转时，
+   * WebView 什么都不加载，用户只看到「点了链接没反应」——没有这条提示，
+   * 他们无法知道那是安全拦截而不是坏了。
+   *
+   * 为什么单独一个 effect、而不是塞进上面那个初始化 effect：上面那个是长串 `await`
+   * 且没有返回值（拿不到 cleanup 时机），而 `listen()` 的 unlisten **必须**被调用 ——
+   * 不调用的话，热更新 / React 严格模式的二次挂载会累积多个监听器，
+   * 一次登录就要触发 N 次刷新。
+   */
+  useEffect(() => {
+    let disposed = false
+    const unlisteners: Array<() => void> = []
+    const track = (unlisten: () => void) => {
+      // 注册是异步的：如果它在 cleanup 之后才 resolve，就地退订，别留下孤儿监听。
+      if (disposed) unlisten()
+      else unlisteners.push(unlisten)
+    }
+    void (async () => {
+      track(
+        await subscribeProviderModelsRefreshed((payload) => {
+          if (!payload.ok) {
+            // 失败也要 sync：可能只是部分失败（比如重探活过了、模型接口短暂 500），
+            // 前端快照在任何情况下都该以 Rust 为准，不能沿用关窗前的旧数据。
+            console.warn(
+              `[plugins] provider「${payload.providerId}」关窗后自动刷新模型失败：${payload.error?.trim() || "原因未知"}`,
+            )
+          } else if (payload.modelCount === 0) {
+            console.warn(`[plugins] provider「${payload.providerId}」关窗后自动刷新没有拿到任何模型，请检查插件 /v1/models`)
+          }
+          void syncPluginProviders().catch((cause: unknown) => {
+            console.warn("[plugins] 登录后同步 provider 失败：", cause)
+          })
+        }),
+      )
+      track(
+        await subscribeProviderNavigationBlocked((payload) => {
+          // 全局 toast（portal 渲染在 body 上）：事件可能发生在设置页没打开的时候，
+          // 卡片里的小字行用户根本看不到，这里必须是全局可见的。
+          toast.info(describeNavigationBlocked(payload), {
+            dedupeKey: `plugin-nav-blocked:${payload.providerId}:${payload.host}`,
+          })
+        }),
+      )
+    })()
+    return () => {
+      disposed = true
+      for (const unlisten of unlisteners.splice(0)) unlisten()
+    }
   }, [])
 
   // 监听系统主题变化，当设置为跟随系统时自动切换
@@ -718,7 +808,8 @@ function App() {
 
   async function handleSelectRecent(proj: WikiProject) {
     try {
-      const validated = await openProject(proj.path)
+      // 切换项目 = 打开另一本：插件宿主的"当前项目"必须跟着换（见 project-sync.ts）。
+      const validated = await openProjectWithPluginSync(() => openProject(proj.path))
       await handleProjectOpened(validated)
     } catch (err) {
       window.alert(`打开项目失败：${err}`)
@@ -729,7 +820,7 @@ function App() {
     const path = await pickDirectory()
     if (!path) return
     try {
-      const proj = await openProject(path)
+      const proj = await openProjectWithPluginSync(() => openProject(path))
       await handleProjectOpened(proj)
     } catch (err) {
       window.alert(`打开项目失败：${err}`)
@@ -744,6 +835,10 @@ function App() {
     setFileTree([])
     setSelectedFile(null)
     useWikiStore.getState().setFileContent("")
+    // 关闭项目必须显式通知插件宿主"没有当前项目"：不通知的话 Rust 侧会继续持有
+    // 上一个项目的根目录，下一次 action 就会往一本已经关掉的书里写东西。
+    // 失败只 warn —— 插件系统不该拦着用户回到书架。
+    void syncPluginsProject(null)
   }
 
   if (loading) {

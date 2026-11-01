@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
@@ -11,6 +11,11 @@ import { normalizePath } from "@/lib/path-utils"
 import { ToolRegistry } from "@/lib/agent/registry"
 import { buildAgentConfig, isFunctionCallingEnabled, modelSupportsTools } from "@/lib/agent/config"
 import type { AgentConfig } from "@/lib/agent/types"
+import {
+  getPluginToolDescriptors,
+  invokePluginToolViaTauri,
+  subscribePluginTools,
+} from "@/lib/plugins/tool-sync"
 export interface UseAgentConfigResult {
   config: AgentConfig | null
   registry: ToolRegistry
@@ -44,6 +49,17 @@ export function useAgentConfig(
   const [skillConfig, setSkillConfig] = useState<DeAiSkillConfig | null>(null)
   const [writingSkills, setWritingSkills] = useState<UserSkill[]>([])
   const [skillConfigLoaded, setSkillConfigLoaded] = useState(false)
+
+  /*
+   * 插件工具是「异步拉取 → 同步读缓存」的模块级快照（`buildAgentConfig` 是同步函数，
+   * 拿不到 await）。这里订阅一次，插件启用/停用后这个 memo 会重算：
+   * 否则 config 会一直用旧快照，模型要等到下次无关的重渲染才知道有新工具。
+   */
+  const pluginTools = useSyncExternalStore(
+    subscribePluginTools,
+    getPluginToolDescriptors,
+    getPluginToolDescriptors,
+  )
 
   useEffect(() => {
     let cancelled = false
@@ -160,6 +176,9 @@ export function useAgentConfig(
       getSelectedSkillsPrompt,
       getWritingStyleIdOverride,
       disabledTools: ["write_chapter", "write_outline_node", "write_memory"],
+      // 运行中插件贡献的工具：不传这两个，模型永远不知道插件工具存在
+      pluginTools,
+      invokePluginTool: invokePluginToolViaTauri(),
     })
 
     return {
@@ -189,5 +208,6 @@ export function useAgentConfig(
     getPlanBlueprint,
     getSelectedSkillsPrompt,
     getWritingStyleIdOverride,
+    pluginTools,
   ])
 }

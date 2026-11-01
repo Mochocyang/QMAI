@@ -279,6 +279,7 @@ import {
 } from "@/lib/thought-dump";
 import { ToolRegistry } from "@/lib/agent/registry";
 import { buildAgentConfig, isFunctionCallingEnabled, modelSupportsTools } from "@/lib/agent/config";
+import { getPluginToolDescriptors, invokePluginToolViaTauri } from "@/lib/plugins/tool-sync";
 import type { AgentConfig, AgentMessage, AgentRunRecord } from "@/lib/agent/types";
 import {
   applyAgentToolEvent,
@@ -398,6 +399,9 @@ import {
   shouldClearOutlineDraft,
   shouldClearOutlineReferences,
 } from "@/lib/novel/outline-chat-session-state";
+// 插件插槽（C1）：大纲工具栏只加渲染，不改本文件既有任何逻辑。
+import { SlotActions } from "@/components/plugins/SlotActions";
+import { usePluginSlotIndex } from "@/lib/plugins/declarative/api";
 
 type OutlineSendResult = { started: boolean; sent: boolean };
 
@@ -2298,6 +2302,9 @@ export function buildOutlineReferenceSkillEntries(
 
 export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
   const project = useWikiStore((s) => s.project);
+  // 插件插槽（C1）：只用 `outline-toolbar` 这一格，空插槽渲染为 null。
+  // 命令未注册时 `usePluginSlotIndex` 内部降级成空索引，不影响面板其余部分。
+  const pluginSlots = usePluginSlotIndex();
   // 卷纲 / 章纲 / 设定卡片流模板与卷纲真骨架：项目变化时预加载（项目目录覆盖 → 程序 skills 目录 → 内置模板）
   useEffect(() => {
     void primeVolumeOutlineTemplate(project?.path ?? null);
@@ -3820,6 +3827,10 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
                 contextDecision.disabledTools,
                 (skillNames?.length ?? 0) > 0 ? ["apply_skill"] : [],
               ),
+              // 运行时同步来的插件工具：不传这两个键，模型完全不知道插件工具存在。
+              // 这里读的是同步缓存（buildAgentConfig 是同步函数），点击发送时取最新值。
+              pluginTools: getPluginToolDescriptors(),
+              invokePluginTool: invokePluginToolViaTauri(),
               ...(contextHubResult
                 ? { readTextFile: contextHubResult.readFile }
                 : {}),
@@ -5502,6 +5513,9 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             getOutlineConversations: () => mapOutlineConversationsForModel(useOutlineChatStore.getState().conversations),
             llmConfig: effectiveLlmConfig,
             disabledTools: disableWriteTools ? OUTLINE_CHAT_DISABLED_TOOLS : [],
+            // 恢复运行也一样要接插件工具，否则「续跑」这个入口的模型看不到它们。
+            pluginTools: getPluginToolDescriptors(),
+            invokePluginTool: invokePluginToolViaTauri(),
             ...(contextHubResult
               ? { readTextFile: contextHubResult.readFile }
               : {}),
@@ -6237,6 +6251,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
               OUTLINE_CHAT_DISABLED_TOOLS,
               regenerationSkillNames.length > 0 ? ["apply_skill"] : [],
             ),
+            pluginTools: getPluginToolDescriptors(),
+            invokePluginTool: invokePluginToolViaTauri(),
             ...(contextHubResult
               ? { readTextFile: contextHubResult.readFile }
               : {}),
@@ -6912,6 +6928,8 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
           )}
         </div>
         <div className="qmai-header-actions ml-auto flex shrink-0 items-center">
+        {/* 插件插槽（C1）：大纲工具栏 = 顶部这一排动作按钮。插槽为空时整块不渲染。 */}
+        <SlotActions variant="toolbar" entries={pluginSlots.index["outline-toolbar"].actions} />
         <span
           className="inline-flex shrink-0"
           title={!canCreateConversation ? EMPTY_CONVERSATION_CREATE_REASON : undefined}

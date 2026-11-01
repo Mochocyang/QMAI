@@ -46,6 +46,11 @@ export interface Tool {
    */
   buildRequiredToolFallbackParams?: (input: { taskGoal: string }) => Record<string, unknown>
   parameters: Record<string, ToolParameter>
+  /**
+   * 原始 JSON Schema。插件工具用它做**无损**序列化（ToolParameter 表达不了嵌套结构）。
+   * 内置工具不设此字段，行为完全不变。
+   */
+  inputSchema?: Record<string, unknown>
   execute(params: Record<string, unknown>, signal?: AbortSignal, context?: ToolExecutionContext): Promise<string>
   generatePreview?: (params: Record<string, unknown>, signal?: AbortSignal, context?: ToolExecutionContext) => Promise<string>
 }

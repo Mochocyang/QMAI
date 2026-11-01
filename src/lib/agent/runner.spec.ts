@@ -100,6 +100,54 @@ describe("AgentRunner", () => {
     expect(callbacks.onError).not.toHaveBeenCalled()
   })
 
+  /*
+   * 插件 afterLlmResponse 的落点（主聊天路径）。
+   *
+   * 这条路径能安全替换正文：`onToken` 只累加、不转发，整轮正文在流结束后才通过
+   * `onText` 一次性交付 —— 所以"交给界面的"和"记录下来"的永远只有一份。
+   */
+  it("uses the plugin-rewritten text when onDone carries it", async () => {
+    mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+      cb.onToken("AI味很重的原文")
+      // 宿主把 afterLlmResponse 钩子的改写结果放在 onDone 的参数里
+      cb.onDone("改写后的自然文本")
+    })
+    const callbacks = {
+      onText: vi.fn(),
+      onToolCall: vi.fn(),
+      onToolResult: vi.fn(),
+      onToolError: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    }
+    const hookConfig: AgentConfig = { maxRounds: 3, tools: [], systemPrompt: "You are helpful", llmConfig: mockLlmConfig }
+    const result = await runner.run(hookConfig, registry, [systemMsg, userMsg], callbacks, undefined)
+
+    expect(result.finalText).toBe("改写后的自然文本")
+    expect(callbacks.onText).toHaveBeenCalledWith("改写后的自然文本")
+    expect(callbacks.onError).not.toHaveBeenCalled()
+  })
+
+  it("keeps the original text when onDone has no plugin rewrite (无钩子)", async () => {
+    mockStreamChat.mockImplementation(async (_config: unknown, _msgs: unknown[], cb: StreamCallbacks) => {
+      cb.onToken("原始正文")
+      cb.onDone(undefined)
+    })
+    const callbacks = {
+      onText: vi.fn(),
+      onToolCall: vi.fn(),
+      onToolResult: vi.fn(),
+      onToolError: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    }
+    const plainConfig: AgentConfig = { maxRounds: 3, tools: [], systemPrompt: "You are helpful", llmConfig: mockLlmConfig }
+    const result = await runner.run(plainConfig, registry, [systemMsg, userMsg], callbacks, undefined)
+
+    expect(result.finalText).toBe("原始正文")
+    expect(callbacks.onText).toHaveBeenCalledWith("原始正文")
+  })
+
   it("nudges and continues when requiredToolsOnce is missing on a no-tool final", async () => {
     const tool: Tool = {
       name: "run_chapter_workflow",
@@ -1583,6 +1631,8 @@ describe("AgentRunner", () => {
         tools: expect.any(Array),
         toolChoice: "auto",
       }),
+      // 第 6 个参数：主聊天路径显式允许插件 afterLlmResponse 改写最终正文
+      { applyAfterLlmResponseHooks: true },
     )
   })
 
@@ -1620,6 +1670,8 @@ describe("AgentRunner", () => {
       expect.any(Object),
       undefined,
       undefined,
+      // 第 6 个参数：主聊天路径显式允许插件 afterLlmResponse 改写最终正文
+      { applyAfterLlmResponseHooks: true },
     )
   })
 
