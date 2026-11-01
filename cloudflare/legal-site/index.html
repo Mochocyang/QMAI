@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>服务条款与隐私政策 · 青幕AI写作</title>
+<meta name="description" content="青幕AI写作（QMAI）服务条款与隐私政策" />
+<style>
+:root{--muted-bg:#f6f8f7;--text:#1c2320;--text-2:#4a5750;--text-3:#7c8a83;--border:#e3e8e5;--accent:#3b6e4f;--accent-soft:#eef5f0;--warn-bg:#fffbeb;--warn-border:#fde68a;--warn-text:#92400e}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;background:var(--muted-bg);color:var(--text);font-size:15px;line-height:1.85;-webkit-font-smoothing:antialiased}
+.topbar{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.92);backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--border)}
+.topbar-inner{max-width:960px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:20px;height:58px}
+.brand{display:flex;align-items:center;gap:9px;font-weight:650;font-size:15px}
+.brand .logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--accent),#5f9b76);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
+.tabs{display:flex;gap:4px;margin-left:auto}
+.tabs button{border:none;background:none;padding:7px 15px;border-radius:8px;font-size:14px;color:var(--text-3);cursor:pointer;font-family:inherit;transition:all .15s}
+.tabs button:hover{background:var(--accent-soft);color:var(--accent)}
+.tabs button.active{background:var(--accent);color:#fff;font-weight:500}
+.layout{max-width:960px;margin:0 auto;padding:28px 24px 80px;display:grid;grid-template-columns:215px 1fr;gap:34px}
+@media(max-width:880px){.layout{grid-template-columns:1fr;gap:0;padding:20px 14px 60px}.toc{display:none}}
+.toc{position:sticky;top:82px;align-self:start;max-height:calc(100vh - 110px);overflow-y:auto;font-size:13px;scrollbar-width:thin}
+.toc .toc-title{font-size:11px;font-weight:650;letter-spacing:1.4px;color:var(--text-3);margin:0 0 10px;padding-left:11px}
+.toc a{display:block;padding:5px 11px;color:var(--text-2);text-decoration:none;border-left:2px solid transparent;border-radius:0 6px 6px 0;line-height:1.5;transition:all .12s}
+.toc a:hover{background:var(--accent-soft);color:var(--accent)}
+.toc a.active{border-left-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:500}
+.doc{background:#fff;border:1px solid var(--border);border-radius:14px;padding:40px 46px 52px;box-shadow:0 1px 3px rgba(16,24,20,.04),0 12px 32px -16px rgba(16,24,20,.08)}
+@media(max-width:880px){.doc{padding:26px 20px 36px;border-radius:12px}}
+.doc h1{font-size:27px;font-weight:700;margin:0 0 6px;letter-spacing:-.3px;line-height:1.35}
+.doc h2{font-size:18.5px;font-weight:650;margin:42px 0 14px;padding-top:22px;border-top:1px solid var(--border);scroll-margin-top:78px;letter-spacing:-.2px}
+.doc h2:first-of-type{border-top:none;padding-top:0;margin-top:0}
+.doc h3{font-size:15px;font-weight:600;margin:26px 0 8px}
+.doc p{margin:0 0 12px;color:var(--text-2)}
+.doc strong{color:var(--text);font-weight:600}
+.doc ul,.doc ol{margin:0 0 14px;padding-left:22px;color:var(--text-2)}
+.doc li{margin:5px 0}
+.doc code{background:#eef2ef;border-radius:4px;padding:1px 5px;font-size:13px;font-family:ui-monospace,Menlo,Consolas,monospace;color:#2c4034}
+.doc hr{border:none;border-top:1px dashed var(--border);margin:32px 0}
+.summary{background:var(--accent-soft);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;padding:14px 18px;margin:0 0 30px;font-size:13.5px;color:#2c4034;line-height:1.8}
+.summary strong{color:var(--accent)}
+.doc blockquote{margin:16px 0;padding:12px 18px;border-left:3px solid var(--accent-soft);background:#fafcfb;border-radius:0 8px 8px 0;color:var(--text-2);font-size:14px}
+.table-wrap{overflow-x:auto;margin:16px 0 22px;border:1px solid var(--border);border-radius:10px}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:460px}
+thead th{background:var(--muted-bg);text-align:left;padding:10px 13px;font-weight:600;color:var(--text);border-bottom:1px solid var(--border);white-space:nowrap}
+tbody td{padding:10px 13px;border-bottom:1px solid #f0f3f1;color:var(--text-2);vertical-align:top}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:#fafcfb}
+.doc-footer{margin-top:46px;padding-top:20px;border-top:1px dashed var(--border);font-size:12.5px;color:var(--text-3);text-align:center}
+.site-footer{max-width:960px;margin:0 auto;padding:0 24px 50px;font-size:12.5px;color:var(--text-3);text-align:center;line-height:2}
+.site-footer a{color:var(--accent);text-decoration:none}
+.site-footer a:hover{text-decoration:underline}
+.hidden{display:none!important}
+@media print{body{background:#fff}.topbar,.toc,.site-footer{display:none}.layout{grid-template-columns:1fr;padding:0;max-width:none}.doc{border:none;box-shadow:none;padding:0}.doc h2{page-break-after:avoid}.table-wrap,.summary{page-break-inside:avoid}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="brand"><span class="logo">青</span>青幕AI写作</div>
+    <div class="tabs">
+      <button data-doc="terms" class="active">服务条款</button>
+      <button data-doc="privacy">隐私政策</button>
+    </div>
+  </div>
+</div>
+
+<div class="layout">
+  <nav class="toc" id="toc" aria-label="目录"></nav>
+
+  <article class="doc" id="doc-terms">
+<h1>青幕AI写作（QMAI）服务条款</h1>
+<p><strong>版本：v1.1</strong> <strong>生效日期：2026 年 11 月 1 日</strong> <strong>最近更新：2026 年 11 月 1 日</strong></p>
+<blockquote>摘要（不具法律效力，仅为方便阅读）： 本软件是本地运行的 AI 写作工具，免费提供。你注册账号即表示接受本条款。AI 生成的内容由模型产生，我们不保证准确，相关后果由使用者承担。完整内容以下文为准。</blockquote>
+<hr />
+<h2 id="sec-1">一、条款的接受与效力</h2>
+<p>1.1 本服务条款（以下简称"本条款"）是你与青幕AI写作开发者（以下简称"我们"）之间关于使用青幕AI写作软件（以下简称"本软件"）及相关服务的<strong>法律协议</strong>。</p>
+<p>1.2 你在注册、登录或使用本软件前，<strong>必须阅读并勾选同意本条款与《隐私政策》</strong>。你勾选同意并完成注册，即表示你已充分理解并接受全部条款。</p>
+<p>1.3 若你<strong>不同意</strong>本条款任一条款，请<strong>立即停止使用</strong>本软件，不要注册或登录。</p>
+<p>1.4 若你未满 18 周岁，应在监护人陪同下阅读本条款，并在取得监护人同意后使用。</p>
+<hr />
+<h2 id="sec-2">二、服务提供者与定义</h2>
+<p>2.1 <strong>服务提供者：青幕AI写作独立开发者（自然人）</strong>，个人开发者，非企业法人，未取得经营性互联网信息服务资质。</p>
+<p>2.2 本条款中：</p>
+<ul><li>"本软件"指青幕AI写作桌面客户端及其配套服务；</li><li>"账号"指你通过邮箱注册的登录凭证；</li><li>"内容"指你输入或生成的一切文本、图片、数据；</li><li>"生成内容"指由人工智能模型产出的内容。</li></ul>
+<hr />
+<h2 id="sec-3">三、服务内容与性质</h2>
+<p>3.1 <strong>服务内容</strong>：</p>
+<ul><li>本地小说写作、大纲管理、人物设定、章节编辑；</li><li>AI 辅助生成（正文、大纲、人物、灵魂等）；</li><li>可选的云同步（GitHub / WebDAV / 百度网盘 / 本地文件夹）；</li><li>账号服务与多设备配置同步。</li></ul>
+<p>3.2 <strong>服务性质</strong>：本软件为<strong>创作辅助工具</strong>，不提供出版、发行、法律、医疗、金融等专业服务。</p>
+<p>3.3 <strong>免费提供</strong>：本软件目前<strong>完全免费</strong>，我们不收取任何费用、不提供付费订阅。若未来推出付费服务，将另行公示并征得你的同意。</p>
+<p>3.4 <strong>保留变更权</strong>：我们有权随时增加、修改、暂停或终止部分或全部功能，无需事先征得你的同意。<strong>涉及本条款权利义务实质变更的，依第十五条（条款变更）处理</strong>，即提前 7 天公告。</p>
+<hr />
+<h2 id="sec-4">四、账号注册与使用规则</h2>
+<p>4.1 <strong>注册条件</strong>：你需使用有效邮箱注册，并保证所填信息真实、准确。</p>
+<p>4.2 <strong>账号归属</strong>：账号仅归注册人本人使用。<strong>严禁</strong>：</p>
+<ul><li>出借、出租、出售、赠与、共享账号；</li><li>使用自动化脚本批量注册；</li><li>冒用他人身份注册；</li><li>买卖、转让 API Key 或中转服务额度。</li></ul>
+<p>4.3 <strong>账号安全</strong>：你应妥善保管账号与密码。<strong>因你保管不善、共用账号、泄露验证码导致的账号被盗、数据泄露、财产损失，由你自行承担</strong>；因我们服务端安全措施不足导致的，依第十三条责任限制条款处理。</p>
+<p>4.4 <strong>异常处理</strong>：若发现异常登录、违规使用，我们有权采取限制功能、暂停服务、封禁账号等措施。</p>
+<p>4.5 <strong>一人一号原则</strong>：原则上每位用户仅可注册一个账号。</p>
+<p>4.6 <strong>注销</strong>：你可在软件内「账号」页面直接注销账号，也可发邮件至 privacy@qmai.pro 申请人工注销。注销需输入当前密码确认，<strong>注销后不可恢复</strong>，账号相关的全部数据将被删除。</p>
+<hr />
+<h2 id="sec-5">五、用户内容与权属</h2>
+<p>5.1 <strong>你的内容归你</strong>：你通过本软件创作、输入的所有内容（小说正文、大纲、人物设定等）<strong>归你所有</strong>。我们<strong>不主张</strong>对你内容的任何所有权。</p>
+<p>5.2 <strong>本地存储</strong>：你的内容默认仅存储在你本地设备，我们无法访问。</p>
+<p>5.3 <strong>你对自己内容负责</strong>：你保证所输入/上传的内容：</p>
+<ul><li>不侵犯他人著作权、商标权、肖像权、名誉权、隐私权等合法权益；</li><li>不违反法律法规；</li><li>不包含违法犯罪信息。</li></ul>
+<p>5.4 <strong>因你的内容引发的任何纠纷，由你自行承担全部责任</strong>，与我们无关。</p>
+<p>5.5 <strong>授权使用</strong>：你使用云同步或 AI 功能时，即授权我们将相应数据传输至你选择的第三方服务，仅限实现该功能所必需。</p>
+<hr />
+<h2 id="sec-6">六、AI 生成内容免责（核心条款）</h2>
+<p><strong>本节为本条款的核心，请务必仔细阅读。</strong></p>
+<p>6.1 <strong>内容来源声明</strong>：本软件输出的文本（包括但不限于小说正文、人物设定、大纲、对话、灵魂描述）<strong>均由人工智能模型自动生成</strong>，并非由我们人工撰写、编辑或审核。</p>
+<p>6.2 <strong>不代表我们的观点</strong>：生成内容不代表我们的观点、立场或专业意见。</p>
+<p>6.3 <strong>不作任何保证</strong>：我们<strong>不对生成内容</strong>的真实性、准确性、完整性、合法性、原创性、无侵权性、适用性、商业价值作<strong>任何明示或默示的保证</strong>。</p>
+<p>6.4 <strong>已知风险</strong>：生成内容可能：</p>
+<ul><li>包含事实错误或逻辑矛盾；</li><li>与他人已有作品存在相似或雷同；</li><li>包含不当、冒犯或不适合特定场景的表述；</li><li>因模型更新而与历史输出不一致。</li></ul>
+<p>6.5 <strong>责任归属（重要）</strong>：<strong>因使用、传播、发表、出版、改编、商业化 AI 生成内容所引发的任何争议、索赔、诉讼、行政处罚、平台处罚或损失，均由使用者自行承担。我们在适用法律允许的最大范围内不承担任何责任。</strong></p>
+<p>6.6 <strong>用户的核实与自担义务</strong>：在将生成内容用于任何对外场景（发表、出版、投稿、影视改编、商业用途、教学等）前，你<strong>应当</strong>：</p>
+<ul><li>自行核实内容的准确性与合法性；</li><li>自行进行原创性查重；</li><li>自行取得必要的授权；</li><li>自行承担因内容引发的全部后果。</li></ul>
+<p>6.7 <strong>模型不确定性</strong>：相同指令在不同时间可能产生不同结果，我们<strong>不保证输出可复现</strong>。</p>
+<p>6.8 <strong>不使用于高风险场景</strong>：<strong>严禁</strong>将本软件用于医疗诊断、法律意见、金融投资建议、心理咨询等需要专业资质的场景。因违规使用导致的后果由你自行承担。</p>
+<hr />
+<h2 id="sec-7">七、第三方模型服务</h2>
+<p>7.1 本软件的 AI 能力依赖<strong>第三方大模型服务商</strong>。你可以选择：</p>
+<ul><li>（A）自填 API Key，直接调用第三方；</li><li>（B）使用我们的中转服务（relay.qmai.work）。</li></ul>
+<p>7.2 <strong>服务不保证可用</strong>：第三方模型可能因政策、地域、额度、故障等原因不可用，<strong>我们不保证 AI 功能持续可用</strong>。</p>
+<p>7.3 <strong>费用自负</strong>：使用自填 Key 产生的费用由你与供应商直接结算；<strong>因使用产生的超额费用、欠费由你自行承担</strong>。</p>
+<p>7.4 <strong>你们之间的关系</strong>：你与第三方模型供应商之间形成独立的法律关系，受该供应商条款约束。<strong>我们不是该关系的当事人，不承担任何责任。</strong></p>
+<p>7.5 <strong>中转服务的责任边界</strong>：使用中转服务时，我们仅提供转发功能，不对上游模型的输出质量、可用性、合规性作任何保证。</p>
+<p>因下列<strong>中转环节</strong>情形导致请求失败、响应延迟或内容不完整，<strong>我们不承担任何责任</strong>：上游限流或排队超时；上游额度耗尽或服务下线；上游地区限制或封禁；请求已产生 Token 消耗但未返回结果；传输中断导致写作过程中断、未保存内容丢失。</p>
+<p>7.6 <strong>因封禁导致的后果</strong>：</p>
+<ul><li><strong>因你违反第八条（用户禁止行为）</strong>导致上游模型供应商限制或封禁你的 Key、账号或中转通道的，<strong>后果由你自行承担</strong>，我们不负责恢复服务；</li><li><strong>非因你的原因</strong>（如上游误判、区域性限制、线路故障）导致的服务中断，我们将<strong>尽合理努力协助排查与恢复</strong>，但不保证一定恢复，也不承担因此产生的间接损失。</li></ul>
+<hr />
+<h2 id="sec-8">八、用户禁止行为</h2>
+<p>使用本软件时，你<strong>不得</strong>：</p>
+<p>8.1 制作、复制、发布、传播违法违规信息，包括但不限于：</p>
+<ul><li>违反宪法确定的基本原则的内容；</li><li>危害国家安全、泄露国家秘密、颠覆国家政权的内容；</li><li>煽动民族仇恨、破坏民族团结的内容；</li><li>宣扬淫秽、色情、赌博、暴力、恐怖主义的内容；</li><li>侮辱、诽谤他人，侵害他人合法权益的内容；</li><li>含有虚假信息、谣言的内容。</li></ul>
+<p>8.2 使用 AI 生成上述内容的文章、小说或其他作品。</p>
+<p>8.3 侵犯他人知识产权、商业秘密。</p>
+<p>8.4 反向工程、反编译、破解本软件，或绕过授权与限制。</p>
+<p>8.5 攻击服务器、发起拒绝服务攻击、恶意爬取数据。</p>
+<p>8.6 利用本软件从事任何违法行为。</p>
+<p>8.7 <strong>违反本条导致的任何后果，由你自行承担</strong>；我们有权立即终止服务并保留追究法律责任的权利。</p>
+<hr />
+<h2 id="sec-9">九、知识产权</h2>
+<p>9.1 <strong>我们的知识产权</strong>：本软件的代码、界面设计、图标、商标、文档等，其知识产权归我们或相应权利人所有。未经许可，你不得复制、修改、传播、商用。</p>
+<p>9.2 <strong>开源组件</strong>：本软件使用了开源组件，相关权利归其各自作者，具体见软件内"关于"页面。</p>
+<p>9.3 <strong>灵魂库与模板</strong>：软件内置的角色灵魂、写作模板等内容，仅供你在本软件内使用。</p>
+<p>9.4 <strong>你的内容</strong>：见第五条。</p>
+<hr />
+<h2 id="sec-10">十、付费与退款</h2>
+<p>10.1 本软件目前<strong>完全免费</strong>，不存在付费项目、订阅或内购。</p>
+<p>10.2 若未来推出付费功能，将：</p>
+<ul><li>明码标价；</li><li>提供明确的服务内容说明；</li><li>依法律规定提供退款渠道。</li></ul>
+<p>10.3 第三方模型产生的费用处理方式见第 7.3 条。</p>
+<hr />
+<h2 id="sec-11">十一、服务变更、中止与终止</h2>
+<p>11.1 <strong>变更</strong>：我们有权随时调整功能、界面、服务范围。</p>
+<p>11.2 <strong>中止</strong>：因维护、升级、故障、不可抗力等原因，服务可能临时中断。</p>
+<p>11.3 <strong>终止</strong>：若我们决定停止运营，将<strong>提前 30 天</strong>在软件内公告，并给予你导出数据的时间。</p>
+<p>11.4 <strong>终止后</strong>：我们将在公告期满后删除服务器端账号数据；<strong>本地数据不受影响</strong>，仍在你的电脑上。</p>
+<p>11.5 <strong>我们的终止权</strong>：若你严重违反本条款，我们有权立即终止向你提供服务，且无需退款（免费服务）。</p>
+<hr />
+<h2 id="sec-12">十二、免责声明</h2>
+<p>12.1 <strong>按现状提供</strong>：本软件按"现状"（AS IS）和"可获得"（AS AVAILABLE）状态提供。</p>
+<p>12.2 <strong>不作担保</strong>：我们明确否认一切明示或默示的担保，包括但不限于：</p>
+<ul><li>适销性担保；</li><li>特定用途适用性担保；</li><li>不侵权担保；</li><li>无病毒、无错误、不中断担保。</li></ul>
+<p>12.3 <strong>不保证结果</strong>：使用本软件<strong>不保证</strong>你能写出满意的小说、获得读者、实现变现或达到任何特定目标。</p>
+<p>12.4 <strong>数据安全自负</strong>：我们<strong>强烈建议</strong>你定期备份本地数据。<strong>因硬盘故障、误删、病毒、系统重装、断电等导致的数据丢失，我们不承担责任。</strong></p>
+<p>因<strong>本软件自身缺陷</strong>导致本地数据损坏的，我们将积极协助排查与恢复，并在第十三条赔偿上限内承担责任，但<strong>不承担数据本身的价值损失</strong>。</p>
+<p>12.5 <strong>第三方服务免责</strong>：云同步依赖 GitHub、百度网盘、WebDAV 等第三方服务，其故障、政策变更、停止服务导致的影响<strong>与我们无关</strong>。</p>
+<p>12.6 <strong>同步冲突</strong>：因同步冲突、文件覆盖、回滚导致的数据差异，<strong>以你本地文件为准</strong>，我们不承担恢复责任。建议你在同步前自行备份重要版本。</p>
+<p>12.7 <strong>仓库公开风险</strong>：<strong>若你自行将同步仓库设为公开</strong>，导致小说内容被第三方获取、传播，<strong>由你自行承担全部后果</strong>，我们不承担责任。我们建议你始终保持仓库为私有。</p>
+<hr />
+<h2 id="sec-13">十三、责任限制</h2>
+<p>13.1 <strong>赔偿上限</strong>：在适用法律允许的最大范围内，<strong>不论基于合同、侵权、不当得利或其他任何请求权基础</strong>，我们对你的<strong>累计赔偿责任合计不超过人民币 100 元（壹佰元）</strong>。</p>
+<p>13.2 <strong>间接损失不包括</strong>：我们不对任何间接损失、附带损失、特殊损失、惩罚性损失、利润损失、商业机会损失、商誉损失承担责任。</p>
+<p>13.3 <strong>不排除的责任</strong>：<strong>因我们的故意或重大过失造成的人身损害或财产损失</strong>，以及法律强制规定不得排除的其他责任，<strong>不受本条赔偿上限的限制</strong>。</p>
+<p>13.4 <strong>个人开发者特别声明</strong>：我们为<strong>个人开发者</strong>，非企业，资源与运维能力有限。你理解并同意：使用本软件的风险由你自行承担。</p>
+<hr />
+<h2 id="sec-14">十四、不可抗力</h2>
+<p>14.1 因下列原因导致服务中断或损失，<strong>我们不承担责任</strong>：</p>
+<ul><li>自然灾害（地震、洪水、台风等）；</li><li>战争、动乱、恐怖袭击；</li><li>政府行为、法律法规变更、监管要求；</li><li>大规模网络攻击、病毒爆发；</li><li>电力中断、通信中断；</li><li>其他不可预见、不可避免、不可克服的客观情况。</li></ul>
+<hr />
+<h2 id="sec-15">十五、条款变更</h2>
+<p>15.1 我们可能修订本条款。</p>
+<p>15.2 <strong>重大变更</strong>（权利义务实质变化）将通过软件内弹窗或官网公告提前 <strong>7 天</strong>通知。</p>
+<p>15.3 变更生效后你继续使用，即视为接受；如不接受，请停止使用并注销账号。</p>
+<p>15.4 你可在本页面随时查阅最新版本条款。</p>
+<hr />
+<h2 id="sec-16">十六、争议解决与适用法律</h2>
+<p>16.1 本条款适用<strong>中华人民共和国法律</strong>（不含港澳台地区法律）。</p>
+<p>16.2 因本条款产生的争议，双方应首先友好协商解决。</p>
+<p>16.3 协商不成的，<strong>提交开发者所在地有管辖权的人民法院诉讼解决</strong>。</p>
+<p>16.4 若你是消费者，本条不影响你依据《消费者权益保护法》等法律享有的法定权利。</p>
+<hr />
+<h2 id="sec-17">十七、其他</h2>
+<p>17.1 <strong>完整性</strong>：本条款与《隐私政策》共同构成完整协议，取代此前的一切口头或书面约定。</p>
+<p>17.2 <strong>可分割性</strong>：若本条款某一条款被认定无效或不可执行，不影响其余条款的效力。</p>
+<p>17.3 <strong>不弃权</strong>：我们未行使或延迟行使某项权利，不构成对该权利的放弃。</p>
+<p>17.4 <strong>转让</strong>：未经我们书面同意，你不得转让本条款下的权利义务；我们可以依法转让。</p>
+<p>17.5 <strong>语言</strong>：本条款以中文版本为准。</p>
+<hr />
+<h2 id="sec-18">十八、联系方式</h2>
+<ul><li>一般咨询：<strong>support@qmai.pro</strong></li><li>隐私事务：<strong>privacy@qmai.pro</strong></li><li>法律事务：<strong>legal@qmai.pro</strong></li></ul>
+<hr />
+<h2 id="sec-19">十九、附则</h2>
+<p>19.1 本条款自 2026 年 11 月 1 日起生效。</p>
+<p>19.2 <strong>本文本为草稿，正式发布前应由执业律师复核。</strong> 本文件不构成法律意见。</p>
+<hr />
+<p>*青幕AI写作（QMAI）· 2026 年 11 月*</p>
+    <div class="doc-footer">青幕AI写作（QMAI）· 2026 年 11 月</div>
+  </article>
+
+  <article class="doc hidden" id="doc-privacy">
+<h1>青幕AI写作（QMAI）隐私政策</h1>
+<p><strong>版本：v1.1</strong> <strong>生效日期：2026 年 11 月 1 日</strong> <strong>最近更新：2026 年 11 月 1 日</strong></p>
+<blockquote>摘要（不具法律效力，仅为方便阅读）： 青幕AI写作是一款<strong>本地优先</strong>的桌面写作软件。你的小说正文、大纲、人物设定默认<strong>只保存在你自己的电脑上</strong>。我们仅在以下情形收集信息：你注册登录账号时（邮箱等）、你主动开启云同步时、以及你使用中转站模型服务时。AI 生成的内容由模型产生，我们不保证其准确性，相关责任由使用者自行承担。完整内容以下文为准。</blockquote>
+<hr />
+<h2 id="sec-1">一、引言与适用范围</h2>
+<p>1.1 本隐私政策（以下简称"本政策"）适用于青幕AI写作软件（英文名 QMAI，以下简称"本软件"）及其配套服务，包括账号服务（account.qmai.pro）、模型中转服务（relay.qmai.work）和官方网站。</p>
+<p>1.2 本政策说明我们如何收集、使用、存储、共享和保护你的个人信息，以及你享有的权利。</p>
+<p>1.3 <strong>本政策不适用于第三方独立提供的服务。</strong> 当你使用云同步连接 GitHub、WebDAV、百度网盘，或使用自填 API Key 调用第三方大模型时，该等第三方对你的数据的处理受其自身隐私政策约束，我们无法控制。</p>
+<p>1.4 本软件为<strong>桌面端本地软件</strong>，核心写作功能不联网亦可使用。</p>
+<hr />
+<h2 id="sec-2">二、个人信息处理者身份与联系方式</h2>
+<p>2.1 <strong>个人信息处理者：青幕AI写作独立开发者（自然人）。</strong></p>
+<p>2.2 <strong>我们的性质与资质声明：</strong></p>
+<ul><li>我们为<strong>个人开发者</strong>，非企业法人，未取得《增值电信业务经营许可证》等经营性资质；</li><li>本软件目前<strong>不收取任何费用</strong>，不以营利为目的提供账号与中转服务；</li><li>若未来开展经营性活动，我们将依法办理相应资质并更新本政策。</li></ul>
+<p>2.3 联系方式：</p>
+<ul><li>隐私事务专用邮箱：<strong>privacy@qmai.pro</strong></li><li>一般事务邮箱：<strong>support@qmai.pro</strong></li><li>我们将在收到你的请求后 <strong>15 个工作日</strong>内答复。</li></ul>
+<p>2.4 我们未指定个人信息保护负责人。鉴于本软件为个人开发、处理的数据种类有限，前述邮箱即为唯一有效的个人信息事务联系渠道。</p>
+<hr />
+<h2 id="sec-3">三、关键名词定义</h2>
+<div class="table-wrap"><table><thead><tr><th>术语</th><th>含义</th></tr></thead><tbody><tr><td>个人信息</td><td>以电子或其他方式记录的与已识别或可识别的自然人有关的各种信息</td></tr><tr><td>敏感个人信息</td><td>一旦泄露或非法使用，容易导致人格尊严受侵害或人身、财产安全受危害的个人信息</td></tr><tr><td>设备标识</td><td>用于区分不同安装实例的标识符，本软件使用不可逆哈希值</td></tr><tr><td>处理</td><td>包括收集、存储、使用、加工、传输、提供、公开、删除等</td></tr><tr><td>中转服务</td><td>由我们运营的模型调用转发服务（relay.qmai.work）</td></tr></tbody></table></div>
+<hr />
+<h2 id="sec-4">四、我们收集的个人信息清单</h2>
+<p><strong>本清单为穷尽式列举。我们不会收集本清单之外的个人信息。</strong></p>
+<div class="table-wrap"><table><thead><tr><th>#</th><th>信息类型</th><th>具体字段</th><th>收集场景</th><th>用途</th><th>是否必需</th></tr></thead><tbody><tr><td>1</td><td>账号标识</td><td>电子邮箱</td><td>注册 / 登录</td><td>账号唯一标识、找回密码</td><td><strong>必需</strong>（不提供则无法注册）</td></tr><tr><td>2</td><td>账号凭证</td><td>密码（<strong>仅存不可逆哈希</strong>，不存明文）</td><td>注册 / 修改密码</td><td>身份验证</td><td><strong>必需</strong></td></tr><tr><td>3</td><td>账号资料</td><td>昵称</td><td>注册 / 主动修改</td><td>界面展示</td><td>可选（可填写默认值）</td></tr><tr><td>4</td><td>账号资料</td><td>头像图片</td><td>主动上传</td><td>界面展示</td><td>可选</td></tr><tr><td>5</td><td>会话凭证</td><td>会话令牌（<strong>仅存哈希</strong>）、令牌家族标识、过期与撤销时间</td><td>登录后自动</td><td>保持登录状态、安全风控</td><td><strong>必需</strong></td></tr><tr><td>6</td><td>设备标识</td><td>设备指纹哈希值、设备名称</td><td>登录 / 开通云同步时</td><td>多设备管理、异常登录识别、模型配置绑定</td><td><strong>必需</strong>（仅在你使用账号功能时）</td></tr><tr><td>7</td><td>网络信息</td><td>请求 IP 的<strong>哈希值</strong>（不存明文 IP）</td><td>邮箱验证码请求</td><td>防刷、限流、滥用防护</td><td><strong>必需</strong></td></tr><tr><td>8</td><td>验证码</td><td>邮箱验证码的<strong>哈希值</strong>、验证尝试次数</td><td>注册 / 重置密码</td><td>验证邮箱归属</td><td><strong>必需</strong></td></tr><tr><td>9</td><td>模型配置</td><td>模型供应商、模型名、接口地址、温度等参数</td><td>主动开启模型配置同步</td><td>多设备同步配置</td><td>可选（需主动开启）</td></tr><tr><td>10</td><td>操作审计</td><td>撤销登录记录（范围、对象、原因、时间）</td><td>退出登录 / 强制下线</td><td>安全审计</td><td><strong>必需</strong>（安全日志）</td></tr></tbody></table></div>
+<p><strong>关于你的小说正文（重要澄清）：</strong></p>
+<p>我们<strong>不在自有服务器上存储</strong>你的小说正文、大纲、人物设定，它们默认只保存在你的电脑本地。</p>
+<p>但请注意：<strong>当你使用 AI 功能时，相关文本片段会作为提示词发送至模型服务商</strong>——这是 AI 生成能够工作的前提。使用中转服务（模式 B）时，这些内容会在我们的中转服务器上<strong>停留最长 30 天</strong>以完成转发与故障排查，到期自动删除。</p>
+<p><strong>客户端使用统计（匿名）</strong></p>
+<p>为统计版本分布、判断是否需要提示升级、以及发布公告，本软件会向统计服务（analytics.qmai.pro）上报以下<strong>匿名</strong>信息：</p>
+<div class="table-wrap"><table><thead><tr><th>字段</th><th>说明</th><th>是否必需</th></tr></thead><tbody><tr><td>设备随机标识（uuid）</td><td>本软件首次运行时生成的随机串，<strong>不与你的账号关联</strong>，不含硬件序列号</td><td><strong>必需</strong>（否则无法去重统计）</td></tr><tr><td>IP 的哈希值</td><td>仅存 SHA-256 哈希，不存明文 IP</td><td><strong>必需</strong>（防刷）</td></tr><tr><td>软件版本号</td><td>用于版本分布统计</td><td><strong>必需</strong></td></tr><tr><td>操作系统平台</td><td>如 Windows 版本号，用于平台适配</td><td><strong>必需</strong></td></tr></tbody></table></div>
+<p><strong>该统计不与账号绑定，无法用于识别你本人</strong>，仅用于改进软件。你可以在设置中关闭使用统计上报。</p>
+<p><strong>我们明确不收集：</strong></p>
+<ul><li>你的身份证号、真实姓名、手机号、住址；</li><li>你的键盘输入记录、屏幕内容；</li><li>通讯录、短信、相册（头像除外，且仅在你主动上传时）；</li><li>精确定位信息。</li></ul>
+<hr />
+<h2 id="sec-5">五、账号注册与登录信息的处理</h2>
+<p>5.1 <strong>注册</strong>：你需提供邮箱并设置密码。我们会向该邮箱发送验证码以确认邮箱归你所有。</p>
+<p>5.2 <strong>登录</strong>：使用邮箱 + 密码登录。登录成功后，我们签发会话令牌，令牌仅以哈希形式存储于服务端。</p>
+<p>5.3 <strong>密码安全</strong>：密码采用加盐哈希算法存储，<strong>我们无法查看或还原你的明文密码</strong>。若你忘记密码，只能通过邮箱验证码重置。</p>
+<p>5.4 <strong>退出登录</strong>：你可以随时退出登录，我们会在服务端撤销对应会话令牌。</p>
+<p>5.5 <strong>账号注销</strong>：你可以通过隐私邮箱申请注销账号。我们将在核验身份后 <strong>15 个工作日</strong>内删除你的账号数据（法律要求留存的除外）。</p>
+<hr />
+<h2 id="sec-6">六、设备标识与软件运行信息</h2>
+<p>6.1 当你登录账号或开启云同步时，我们记录设备指纹的<strong>不可逆哈希值</strong>和系统提供的设备名称，用于：</p>
+<ul><li>在"已登录设备"列表中展示，便于你发现异常登录；</li><li>将模型配置与特定设备绑定；</li><li>识别异常登录行为。</li></ul>
+<p>6.2 该哈希值<strong>无法还原</strong>为你的硬件序列号或其他原始标识。</p>
+<p>6.3 本软件在本地运行时可能产生错误日志，<strong>默认仅保存在你本机</strong>，除非你主动提交反馈。</p>
+<hr />
+<h2 id="sec-7">七、本地数据的存储与处理</h2>
+<p>7.1 <strong>你的小说内容默认完全存储在你的电脑本地</strong>，位于你选择的项目目录及其下的 <code>.qmai</code> 子目录中。</p>
+<p>7.2 本地数据包括：章节正文、大纲、人物档案、灵魂配置、写作统计、缓存与日志。</p>
+<p>7.3 <strong>我们无法访问、读取、备份你的本地数据。</strong> 本地数据的安全性取决于你的电脑与操作系统安全。</p>
+<p>7.4 <strong>数据丢失风险提示</strong>：本地数据可能因硬盘故障、系统重装、误删除、病毒等原因丢失。<strong>我们强烈建议你定期自行备份。</strong> 我们不承担因本地数据丢失导致的任何损失。</p>
+<hr />
+<h2 id="sec-8">八、云同步功能的数据处理</h2>
+<p>8.1 云同步为<strong>可选功能</strong>，默认关闭。开启后，你可以选择以下方式之一：</p>
+<div class="table-wrap"><table><thead><tr><th>同步方式</th><th>数据实际存储位置</th><th>我们的访问能力</th></tr></thead><tbody><tr><td>GitHub 私有仓库</td><td>你的 GitHub 账号下</td><td><strong>无法访问</strong>（凭据由你提供，我们不经手）</td></tr><tr><td>WebDAV</td><td>你指定的 WebDAV 服务器</td><td><strong>无法访问</strong></td></tr><tr><td>百度网盘</td><td>你的百度网盘账号下</td><td><strong>无法访问</strong>（通过 OAuth 授权，不获取你的密码）</td></tr><tr><td>本地文件夹</td><td>你指定的本地 / 局域网路径</td><td><strong>无法访问</strong></td></tr></tbody></table></div>
+<p>8.2 <strong>同步凭据（Token / 密码）仅保存在你的本机</strong>，不会上传至我们的服务器。</p>
+<p>8.3 使用云同步即意味着你的数据将传输至上述第三方，<strong>该传输与存储受第三方服务条款约束，我们无法控制</strong>。</p>
+<p>8.4 我们建议你启用仓库私有化，避免小说内容被公开。</p>
+<hr />
+<h2 id="sec-9">九、同步日志</h2>
+<p>9.1 为在界面上展示"哪些文件同步失败、为什么失败"，我们会在<strong>你的本机</strong>记录同步日志（文件路径、成功/失败状态、错误码、网盘类型、时间）。</p>
+<p>9.2 <strong>同步日志默认仅存储于本机</strong>，不会上传至我们的服务器。</p>
+<p>9.3 你可以在软件内清除同步日志。</p>
+<hr />
+<h2 id="sec-10">十、AI 功能的个人信息处理总述</h2>
+<p>10.1 本软件的 AI 能力有两种使用模式：</p>
+<p><strong>模式 A：自填 API Key</strong> —— 你自行向模型供应商申请密钥并填入本软件。</p>
+<p><strong>模式 B：中转服务</strong> —— 使用我们提供的 relay.qmai.work 转发至上游模型。</p>
+<p>10.2 两种模式下，<strong>你的提示词与生成结果都会发送至相应的大模型服务商</strong>，这是 AI 功能得以工作的必要条件。</p>
+<p>10.3 <strong>重要提示：请勿在提示词中填写身份证号、银行卡号、家庭住址、他人隐私等敏感个人信息。</strong> AI 模型不具备保密义务，我们不控制第三方模型的数据留存行为。</p>
+<hr />
+<h2 id="sec-11">十一、你自填的第三方 API Key</h2>
+<p>11.1 你填入的 API Key <strong>仅存储在你的本机配置中</strong>，采用本地加密保存。</p>
+<p>11.2 使用模式 A 时，API Key 由本软件直接发送至对应模型供应商的接口，<strong>不经过我们的服务器</strong>。</p>
+<p>11.3 <strong>你需自行妥善保管 API Key。</strong> 因 Key 泄露、被盗用、产生超额费用等情形，<strong>由你自行承担，我们不承担任何责任</strong>。</p>
+<p>11.4 你应遵守对应模型供应商的服务条款与使用政策。</p>
+<hr />
+<h2 id="sec-12">十二、中转服务（relay.qmai.work）的数据处理</h2>
+<p>12.1 使用模式 B 时，你的请求会经过我们的中转服务器转发至上游模型。</p>
+<p>12.2 中转服务处理的数据：</p>
+<ul><li>请求内容（你的提示词）；</li><li>模型返回内容；</li><li>用于计费与限流的元数据（模型名、Token 数量、时间戳、账号标识）。</li></ul>
+<p>12.3 <strong>留存期限</strong>：中转日志<strong>最长保留 30 天</strong>，仅用于故障排查、滥用防护与服务计费，到期自动删除。</p>
+<p>12.4 我们<strong>不会</strong>将你的提示词或生成内容用于模型训练，<strong>不会</strong>出售或向无关第三方提供。</p>
+<p>12.5 上游模型供应商的数据处理行为受其自身政策约束，我们无法保证其不留存、不用于训练。</p>
+<hr />
+<h2 id="sec-13">十三、AI 生成内容的处理与免责</h2>
+<p><strong>本节为隐私政策的核心条款，请仔细阅读。</strong></p>
+<p>13.1 <strong>内容来源</strong>：本软件输出的文本（包括但不限于小说正文、人物设定、大纲、对话内容）由人工智能模型依据你的指令自动生成。</p>
+<p>13.2 <strong>非人工审核</strong>：我们<strong>不会</strong>对生成内容进行事前审核、编辑或人工把关。</p>
+<p>13.3 <strong>不构成承诺</strong>：我们不保证生成内容的真实性、准确性、完整性、合法性、原创性、无侵权性或适用于特定目的。</p>
+<p>13.4 <strong>可能存在的风险</strong>：生成内容可能出现事实错误、逻辑矛盾、与他人作品相似、包含不当表述等情形。</p>
+<p>13.5 <strong>责任归属</strong>：<strong>因使用、传播、发表、商业化 AI 生成内容所引发的任何争议、索赔、投诉、行政处罚或损失，由使用者自行承担。</strong> 我们在适用法律允许的最大范围内不承担责任。</p>
+<p>13.6 <strong>你的核实义务</strong>：在将生成内容用于发表、出版、影视改编、商业用途前，你应自行核实内容的合法性、准确性与原创性，并自行获得必要授权。</p>
+<p>13.7 <strong>生成内容的权属</strong>：在你与第三方模型供应商之间，生成内容的权利归属依该供应商条款确定。我们<strong>不主张</strong>对你输入内容或生成内容的所有权。</p>
+<hr />
+<h2 id="sec-14">十四、第三方共享清单</h2>
+<p>我们不会出售你的个人信息。仅在下列必要情形下与第三方共享：</p>
+<div class="table-wrap"><table><thead><tr><th>第三方</th><th>共享内容</th><th>目的</th><th>是否跨境</th><th>其隐私政策</th></tr></thead><tbody><tr><td>Cloudflare（账号服务器托管）</td><td>账号与会话数据</td><td>服务运行</td><td>是（可能）</td><td>cloudflare.com/privacypolicy</td></tr><tr><td>Resend, Inc.（邮件发送）</td><td>你的邮箱地址</td><td>发送验证码</td><td>是（美国）</td><td>resend.com/legal/privacy-policy</td></tr><tr><td>百度网盘</td><td>OAuth 授权信息、同步文件</td><td>云同步（你主动开启）</td><td>否</td><td>pan.baidu.com</td></tr><tr><td>GitHub</td><td>同步文件</td><td>云同步（你主动开启）</td><td>是</td><td>github.com/site/privacy</td></tr><tr><td>你选择的 WebDAV 服务商</td><td>同步文件</td><td>云同步（你主动开启）</td><td>由你决定</td><td>由你自行确认</td></tr><tr><td>上游模型供应商</td><td>提示词、生成结果</td><td>AI 生成（你主动使用）</td><td>视供应商而定</td><td>由你自行确认</td></tr></tbody></table></div>
+<p>14.2 除上述情形外，我们仅在下列情况披露信息：</p>
+<ul><li>获得你的明确同意；</li><li>依据法律法规、司法或行政机关的强制性要求；</li><li>为保护你或他人的生命、财产等重大合法权益所必需。</li></ul>
+<hr />
+<h2 id="sec-15">十五、个人信息跨境传输</h2>
+<p>15.1 <strong>确已知悉：本软件的部分数据必然出境。</strong> 具体如下：</p>
+<div class="table-wrap"><table><thead><tr><th>数据类别</th><th>境外接收方</th><th>所在地</th><th>处理目的</th><th>留存期限</th><th>你的权利行使方式</th></tr></thead><tbody><tr><td>账号信息、会话、设备哈希</td><td>Cloudflare, Inc.</td><td>美国及全球节点</td><td>服务器托管与内容分发</td><td>至账号注销</td><td>privacy@qmai.pro</td></tr><tr><td>邮箱地址</td><td>Resend, Inc.</td><td>美国</td><td>发送验证码邮件</td><td>不进入我方留存；受托方留存依其政策</td><td>privacy@qmai.pro</td></tr><tr><td>提示词与生成结果（中转模式）</td><td>上游模型供应商</td><td>视所选模型而定（含美国等）</td><td>AI 内容生成</td><td>中转侧最长 30 天</td><td>privacy@qmai.pro</td></tr><tr><td>提示词与生成结果（自填 Key 模式）</td><td>你选定的模型供应商</td><td>由你决定</td><td>AI 内容生成</td><td>由该供应商决定</td><td>由你直接行使</td></tr></tbody></table></div>
+<p>15.2 上述数据出境是<strong>实现相应功能所必需</strong>：不使用账号则无账号数据出境；不使用云同步则无同步数据出境；不使用 AI 功能则无提示词出境。</p>
+<p>15.3 <strong>你享有就上述出境数据的查阅、复制、更正、删除权</strong>，行使方式见上表或联系 privacy@qmai.pro。</p>
+<p>15.4 若你不接受任何数据出境，请<strong>不要注册账号、不要开启云同步、不要使用 AI 功能</strong>。本软件的本地写作功能完全不需要出境。</p>
+<hr />
+<h2 id="sec-16">十六、委托处理</h2>
+<p>16.1 我们委托 Cloudflare 提供服务器托管与网络加速，委托 Resend 发送邮件。该等受托方仅在必要范围内处理数据。</p>
+<p>16.2 我们要求受托方采取合理安全措施，但<strong>不对其行为承担连带责任</strong>。</p>
+<hr />
+<h2 id="sec-17">十七、Cookie 与本地存储</h2>
+<p>17.1 本软件为<strong>桌面应用</strong>，不使用浏览器 Cookie 进行广告追踪。</p>
+<p>17.2 本软件使用以下本地存储：</p>
+<div class="table-wrap"><table><thead><tr><th>存储类型</th><th>内容</th><th>用途</th><th>可否清除</th></tr></thead><tbody><tr><td>本地配置文件</td><td>会话令牌、界面偏好、云同步配置</td><td>保持登录与配置</td><td>可（将退出登录）</td></tr><tr><td>localStorage</td><td>界面状态、提示已读标记</td><td>界面体验</td><td>可</td></tr><tr><td>缓存目录</td><td>预览缓存、临时文件</td><td>性能优化</td><td>可</td></tr></tbody></table></div>
+<p>17.3 官方网站可能使用必要的 Cookie 维持基本功能，不使用第三方广告 Cookie。</p>
+<hr />
+<h2 id="sec-18">十八、存储期限与删除机制</h2>
+<div class="table-wrap"><table><thead><tr><th>数据</th><th>存储期限</th></tr></thead><tbody><tr><td>账号信息</td><td>至账号注销</td></tr><tr><td>会话令牌</td><td>过期或主动退出后失效，最长 90 天</td></tr><tr><td>邮箱验证码</td><td>10 分钟或使用后失效</td></tr><tr><td>中转日志</td><td>最长 30 天</td></tr><tr><td>限流计数</td><td>窗口期结束后清除</td></tr><tr><td>本地数据</td><td>由你自行管理</td></tr><tr><td>同步日志</td><td>至你主动清除</td></tr></tbody></table></div>
+<p>18.2 账号注销后，我们将在 15 个工作日内删除或匿名化你的账号相关数据；法律法规要求留存的，将在法定期限内单独保存并停止其他处理。</p>
+<hr />
+<h2 id="sec-19">十九、安全措施</h2>
+<p>19.1 我们采取以下<strong>合理</strong>安全措施：</p>
+<ul><li>密码采用加盐哈希存储，不可逆；</li><li>会话令牌仅存哈希，支持撤销与多设备管理；</li><li>设备标识与 IP 均以哈希形式存储；</li><li>传输层采用 HTTPS 加密；</li><li>数据库访问受访问控制限制。</li></ul>
+<p>19.2 <strong>安全责任的边界</strong>：</p>
+<p>我们采取<strong>合理且必要</strong>的安全措施保护你的信息。任何信息系统都存在被攻击的可能，我们无法承诺绝对安全，但不会以本条免除自身的法定义务：</p>
+<ul><li><strong>因我们未采取必要安全措施</strong>导致个人信息泄露、篡改、丢失的，我们<strong>依法承担相应责任</strong>；</li><li>因不可抗力、第三方攻击等非我们所能控制的原因导致的安全事件，且我们<strong>已尽合理防护与及时补救义务</strong>的，我们不承担超出法律规定的责任。</li></ul>
+<p>19.3 <strong>泄露告知</strong>：若发生或可能发生个人信息泄露、篡改、丢失，我们将：</p>
+<ul><li><strong>立即</strong>启动调查与补救措施；</li><li><strong>在 72 小时内</strong>通知受影响的用户，告知内容包括：泄露的信息类别、可能造成的后果、我们已采取的措施、你可以采取的防护措施；</li><li>依法向履行个人信息保护职责的部门报告。</li></ul>
+<p>19.4 <strong>你应采取的措施</strong>：请定期更换密码、不要在多个网站复用同一密码、不要将验证码告知他人。</p>
+<hr />
+<h2 id="sec-20">二十、你的权利</h2>
+<p>你依法享有下列权利：</p>
+<div class="table-wrap"><table><thead><tr><th>权利</th><th>行使方式</th></tr></thead><tbody><tr><td>查阅、复制</td><td>软件内"账号"页面，或邮件申请</td></tr><tr><td>更正、补充</td><td>软件内修改昵称、头像、密码</td></tr><tr><td>删除</td><td>删除本地数据 / 申请删除账号数据</td></tr><tr><td>撤回同意</td><td>关闭云同步、退出登录、注销账号</td></tr><tr><td>注销账号</td><td>邮件申请，15 个工作日内处理</td></tr><tr><td>获取副本</td><td>邮件申请</td></tr><tr><td>投诉举报</td><td>privacy@qmai.pro</td></tr></tbody></table></div>
+<p>20.2 我们可能要求你验证身份后处理请求。我们将在 15 个工作日内答复。</p>
+<p>20.3 若你对答复不满意，可向网信、市场监管等主管部门投诉，或依法提起诉讼。</p>
+<hr />
+<h2 id="sec-21">二十一、账号注销与数据处理</h2>
+<p>21.1 注销后，你的邮箱将被释放，可重新注册。</p>
+<p>21.2 注销<strong>不影响</strong>你本地已保存的小说文件——它们在你的电脑上，由你自行处置。</p>
+<p>21.3 注销不可恢复，请谨慎操作。</p>
+<hr />
+<h2 id="sec-22">二十二、未成年人保护</h2>
+<p>22.1 <strong>本软件不面向未满 14 周岁的儿童。</strong> 我们不主动向儿童提供服务，也不主动收集儿童个人信息。</p>
+<p>22.2 <strong>若发现未满 14 周岁的儿童已注册使用</strong>：我们将在核实后<strong>立即删除</strong>其账号与全部个人信息。若监护人希望儿童使用，须由监护人通过 privacy@qmai.pro 提出<strong>单独同意</strong>（就该儿童的个人信息处理单独作出明确同意，不得与其他同意事项捆绑）；在收到并核实该同意之前，我们不会处理任何儿童个人信息。</p>
+<p>22.3 <strong>专门处理规则</strong>：对于经监护人同意处理的儿童个人信息，我们采取以下特别措施——</p>
+<ul><li>仅收集账号功能必需的邮箱；</li><li>不用于任何营销、画像或个性化推荐；</li><li>不向任何第三方提供（法律法规要求或监护人另行同意的除外）；</li><li>监护人要求删除的，我们将在 15 个工作日内删除。</li></ul>
+<p>22.4 <strong>监护人不同意或撤回同意</strong>：监护人不同意的，儿童应立即停止使用本软件并注销账号；监护人撤回同意的，我们将在 15 个工作日内删除相关个人信息。</p>
+<p>22.5 <strong>已满 14 周岁未满 18 周岁</strong>：应在监护人陪同下阅读本政策，并在取得监护人同意后使用。</p>
+<p>22.6 <strong>监护人行权</strong>：监护人可通过 privacy@qmai.pro 查阅、更正、删除儿童个人信息，或撤回同意。</p>
+<p>22.7 若我们发现未经监护人同意收集了不满 14 周岁儿童的个人信息，将<strong>立即删除</strong>相关数据。</p>
+<hr />
+<h2 id="sec-23">二十三、政策变更</h2>
+<p>23.1 我们可能适时修订本政策。</p>
+<p>23.2 重大变更（如收集范围扩大、共享对象变化）将通过软件内弹窗或官网公告提前 <strong>7 天</strong>通知。</p>
+<p>23.3 变更生效后你继续使用，即视为接受修订后的政策；如不接受，请停止使用并注销账号。</p>
+<hr />
+<h2 id="sec-24">二十四、责任限制与免责声明</h2>
+<p>24.1 <strong>在适用法律允许的最大范围内</strong>，我们不对下列情形承担责任：</p>
+<ul><li>因你自身操作不当、设备故障、网络中断导致的数据丢失或服务中断；</li><li>因第三方服务（模型供应商、云盘、GitHub、WebDAV）故障、政策变更、停止服务导致的影响；</li><li>因 AI 生成内容引发的任何争议、索赔或损失；</li><li>因不可抗力（自然灾害、政策调整、战争、疫情、大规模网络攻击等）导致的服务不可用；</li><li>因你泄露账号密码、API Key 导致的损失。</li></ul>
+<p>24.2 <strong>赔偿上限</strong>：在适用法律允许的最大范围内，<strong>不论基于合同、侵权、不当得利或其他任何请求权基础</strong>，我们对你的累计赔偿责任合计<strong>不超过人民币 100 元（壹佰元）</strong>。</p>
+<p>24.3 <strong>不排除的责任</strong>：本条不排除法律强制规定不得排除的责任，包括因我们<strong>故意或重大过失</strong>造成的人身损害。</p>
+<p>24.4 <strong>服务"按现状"提供</strong>：本软件按"现状"和"可获得"状态提供，不作任何明示或默示担保，包括但不限于适销性、特定用途适用性、不侵权担保。</p>
+<p>24.5 <strong>个人开发者特别声明</strong>：我们为个人开发者，服务能力与运维资源有限，可能出现服务中断、停止运营等情形。<strong>若我们停止运营，将提前 30 天公告，并给予你导出数据的时间。</strong></p>
+<hr />
+<h2 id="sec-25">二十五、争议解决与适用法律</h2>
+<p>25.1 本政策适用<strong>中华人民共和国法律</strong>（不含港澳台地区法律）。</p>
+<p>25.2 因本政策产生的争议，双方应友好协商；协商不成的，<strong>提交开发者所在地有管辖权的人民法院</strong>。</p>
+<p>25.3 若你位于中华人民共和国境外，本条不影响你依据当地强制性法律享有的权利。</p>
+<hr />
+<h2 id="sec-26">二十六、联系我们</h2>
+<ul><li>隐私事务：<strong>privacy@qmai.pro</strong></li><li>一般咨询：<strong>support@qmai.pro</strong></li><li>响应时限：15 个工作日</li></ul>
+<hr />
+<h2 id="sec-27">二十七、附则</h2>
+<p>27.1 本政策自 2026 年 11 月 1 日起生效。</p>
+<p>27.2 本政策以中文版本为准，如有其他语言译本，仅供理解参考。</p>
+<p>27.3 <strong>本文本为草稿，正式发布前应由执业律师复核。</strong> 本文件不构成法律意见。</p>
+<hr />
+<p>*青幕AI写作（QMAI）· 2026 年 11 月*</p>
+    <div class="doc-footer">青幕AI写作（QMAI）· 2026 年 11 月</div>
+  </article>
+</div>
+
+<footer class="site-footer">
+  青幕AI写作（QMAI）· 本页面内容为法律文本，不构成法律意见<br />
+  联系：<a href="mailto:support@qmai.pro">support@qmai.pro</a>　·　<a href="mailto:privacy@qmai.pro">privacy@qmai.pro</a>
+</footer>
+
+<script>
+  var TOC = {"terms":[{"id":"sec-1","text":"条款的接受与效力"},{"id":"sec-2","text":"服务提供者与定义"},{"id":"sec-3","text":"服务内容与性质"},{"id":"sec-4","text":"账号注册与使用规则"},{"id":"sec-5","text":"用户内容与权属"},{"id":"sec-6","text":"AI 生成内容免责（核心条款）"},{"id":"sec-7","text":"第三方模型服务"},{"id":"sec-8","text":"用户禁止行为"},{"id":"sec-9","text":"知识产权"},{"id":"sec-10","text":"付费与退款"},{"id":"sec-11","text":"服务变更、中止与终止"},{"id":"sec-12","text":"免责声明"},{"id":"sec-13","text":"责任限制"},{"id":"sec-14","text":"不可抗力"},{"id":"sec-15","text":"条款变更"},{"id":"sec-16","text":"争议解决与适用法律"},{"id":"sec-17","text":"其他"},{"id":"sec-18","text":"联系方式"},{"id":"sec-19","text":"附则"}],"privacy":[{"id":"sec-1","text":"引言与适用范围"},{"id":"sec-2","text":"个人信息处理者身份与联系方式"},{"id":"sec-3","text":"关键名词定义"},{"id":"sec-4","text":"我们收集的个人信息清单"},{"id":"sec-5","text":"账号注册与登录信息的处理"},{"id":"sec-6","text":"设备标识与软件运行信息"},{"id":"sec-7","text":"本地数据的存储与处理"},{"id":"sec-8","text":"云同步功能的数据处理"},{"id":"sec-9","text":"同步日志"},{"id":"sec-10","text":"AI 功能的个人信息处理总述"},{"id":"sec-11","text":"你自填的第三方 API Key"},{"id":"sec-12","text":"中转服务（relay.qmai.work）的数据处理"},{"id":"sec-13","text":"AI 生成内容的处理与免责"},{"id":"sec-14","text":"第三方共享清单"},{"id":"sec-15","text":"个人信息跨境传输"},{"id":"sec-16","text":"委托处理"},{"id":"sec-17","text":"Cookie 与本地存储"},{"id":"sec-18","text":"存储期限与删除机制"},{"id":"sec-19","text":"安全措施"},{"id":"sec-20","text":"你的权利"},{"id":"sec-21","text":"账号注销与数据处理"},{"id":"sec-22","text":"未成年人保护"},{"id":"sec-23","text":"政策变更"},{"id":"sec-24","text":"责任限制与免责声明"},{"id":"sec-25","text":"争议解决与适用法律"},{"id":"sec-26","text":"联系我们"},{"id":"sec-27","text":"附则"}]};
+  var tabs = document.querySelectorAll('.tabs button');
+  var docs = { terms: document.getElementById('doc-terms'), privacy: document.getElementById('doc-privacy') };
+  var toc = document.getElementById('toc');
+  var observer = null;
+
+  function buildToc(key) {
+    toc.innerHTML = '<div class="toc-title">目录</div>';
+    TOC[key].forEach(function (item) {
+      var a = document.createElement('a');
+      a.href = '#' + item.id;
+      a.textContent = item.text;
+      a.dataset.target = item.id;
+      toc.appendChild(a);
+    });
+    observe();
+  }
+
+  function observe() {
+    if (observer) observer.disconnect();
+    var links = Array.prototype.slice.call(toc.querySelectorAll('a'));
+    var map = {};
+    links.forEach(function (a) { map[a.dataset.target] = a; });
+    observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        links.forEach(function (a) { a.classList.remove('active'); });
+        var active = map[entry.target.id];
+        if (active) {
+          active.classList.add('active');
+          toc.scrollTo({ top: Math.max(0, active.offsetTop - toc.clientHeight / 2), behavior: 'smooth' });
+        }
+      });
+    }, { rootMargin: '-70px 0px -70% 0px', threshold: 0 });
+    document.querySelectorAll('.doc:not(.hidden) h2[id]').forEach(function (h) { observer.observe(h); });
+  }
+
+  function switchDoc(key) {
+    tabs.forEach(function (b) { b.classList.toggle('active', b.dataset.doc === key); });
+    Object.keys(docs).forEach(function (k) { docs[k].classList.toggle('hidden', k !== key); });
+    buildToc(key);
+    history.replaceState(null, '', '#' + key);
+  }
+
+  tabs.forEach(function (btn) {
+    btn.addEventListener('click', function () { switchDoc(btn.dataset.doc); window.scrollTo(0, 0); });
+  });
+
+  switchDoc(location.hash.replace('#', '') === 'privacy' ? 'privacy' : 'terms');
+</script>
+</body>
+</html>

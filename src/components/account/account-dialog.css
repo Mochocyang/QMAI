@@ -334,3 +334,106 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* 同意条款勾选框：与提交按钮同宽、居左对齐，避免长文案把按钮挤歪。 */
+.account-legal-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--muted-foreground, #6b7280);
+  cursor: pointer;
+  text-align: left;
+}
+
+.account-legal-consent input[type="checkbox"] {
+  flex-shrink: 0;
+  margin-top: 3px;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--primary, #3b6e4f);
+}
+
+.account-legal-consent input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.account-legal-consent a {
+  color: var(--primary, #3b6e4f);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.account-legal-consent a:hover {
+  text-decoration: underline;
+}
+/* 注销账号：入口刻意低调，确认区用警示色区分于普通操作。 */
+.account-delete-entry {
+  margin-top: 6px;
+  border: none;
+  background: none;
+  padding: 4px 0;
+  font-size: 12.5px;
+  color: var(--muted-foreground, #6b7280);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.account-delete-entry:hover {
+  color: #b91c1c;
+}
+
+.account-delete-entry:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.account-delete-panel {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fef2f2;
+  text-align: left;
+}
+
+.account-delete-title {
+  margin: 0 0 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #991b1b;
+}
+
+.account-delete-desc {
+  margin: 0 0 10px;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: #7f1d1d;
+}
+
+.account-delete-desc strong {
+  color: #991b1b;
+}
+
+.account-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.account-delete-confirm {
+  background: #dc2626 !important;
+  border-color: #dc2626 !important;
+  color: #fff !important;
+}
+
+.account-delete-confirm:hover {
+  background: #b91c1c !important;
+}

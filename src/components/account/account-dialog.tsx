@@ -15,6 +15,12 @@ import { processAvatarImage } from "@/lib/account/avatar"
 import { accountErrorMessage } from "@/lib/account/errors"
 import type { AccountAuthMode } from "@/lib/account/types"
 import {
+  LEGAL_PRIVACY_URL,
+  LEGAL_TERMS_URL,
+  hasAcceptedLegalTerms,
+  recordLegalConsent,
+} from "@/lib/account/legal-consent"
+import {
   isSixDigitCode,
   isValidEmail,
   validateAccountPassword,
@@ -67,6 +73,8 @@ export function AccountDialog() {
   const sendCode = useAccountStore((state) => state.sendCode)
   const resetPassword = useAccountStore((state) => state.resetPassword)
   const logout = useAccountStore((state) => state.logout)
+  /** 起个别名，避免与本地处理函数 confirmDeleteAccount 的语义混淆。 */
+  const deleteAccountUser = useAccountStore((state) => state.deleteAccount)
   const setAvatar = useAccountStore((state) => state.setAvatar)
   const removeAvatar = useAccountStore((state) => state.removeAvatar)
   const session = useAccountStore((state) => state.session)
@@ -85,6 +93,17 @@ export function AccountDialog() {
   const [cooldown, setCooldown] = useState(0)
   const [loggingOut, setLoggingOut] = useState(false)
   const [editingPassword, setEditingPassword] = useState(false)
+  /**
+   * 是否已勾选「同意服务条款与隐私政策」。
+   * 已同意过当前版本的用户默认勾上，不必每次重勾；条款改版后 readLegalConsent 会返回 null，
+   * 于是重新变回未勾选，强制用户再确认一次。
+   */
+  const [legalAccepted, setLegalAccepted] = useState(() => hasAcceptedLegalTerms())
+  /** 是否展开「注销账号」确认区。 */
+  const [deletingAccount, setDeletingAccount] = useState(false)
+  const [deletePassword, setDeletePassword] = useState("")
+  const [deleteError, setDeleteError] = useState("")
+  const [deleteBusy, setDeleteBusy] = useState(false)
   const [avatarBusy, setAvatarBusy] = useState(false)
   const composingRef = useRef(false)
   const requestEpochRef = useRef(0)
@@ -211,6 +230,25 @@ export function AccountDialog() {
       return
     }
 
+    /*
+     * 合规硬门槛：登录与注册都必须先勾选同意《服务条款》与《隐私政策》。
+     *
+     * 三个设计选择都是刻意的：
+     * · 放在字段校验之后：空表单先提示「请输入有效邮箱」比先提示「请勾选同意」更贴近
+     *   用户此刻该做的事；两者都在发请求之前，合规要求同样满足。
+     * · 放在 submit 而不是只靠按钮 disabled：回车提交、屏幕阅读器、自动化脚本都能
+     *   绕过 disabled，只有提交入口这一道拦得住。
+     * · 重置密码不拦：那是取回既有账号的通道，此时不存在新的法律关系，
+     *   强行拦截只会让人拿不回自己的账号。
+     */
+    if (authMode !== "reset" && !legalAccepted) {
+      setFieldError(null)
+      setLocalError("请先阅读并勾选同意《服务条款》与《隐私政策》")
+      return
+    }
+
+    // 真正发请求前才落盘：只勾了没通过校验，不算完成同意。
+    if (authMode !== "reset") recordLegalConsent()
     clearFeedback()
     setSubmitting(true)
     const epoch = requestEpochRef.current
@@ -274,6 +312,28 @@ export function AccountDialog() {
     await logout()
     setLoggingOut(false)
     toast.success("已退出登录")
+  }
+
+  /**
+   * 执行注销。
+   *
+   * 失败时保留面板与已输入的密码：服务端可能只是暂时不可用，
+   * 清空表单会让用户不得不重来一次；密码错误则就地提示在面板里。
+   */
+  const confirmDeleteAccount = async () => {
+    if (deleteBusy || deletePassword.length === 0) return
+    setDeleteBusy(true)
+    setDeleteError("")
+    try {
+      await deleteAccountUser(deletePassword)
+      setDeletingAccount(false)
+      setDeletePassword("")
+      toast.success("账号已注销，感谢你的使用")
+    } catch (error) {
+      setDeleteError(accountErrorMessage(error))
+    } finally {
+      setDeleteBusy(false)
+    }
   }
 
   const pickAvatar = () => {
@@ -412,6 +472,74 @@ export function AccountDialog() {
                   {loggingOut ? <Loader2 className="animate-spin" /> : null}
                   {loggingOut ? "正在退出…" : "退出登录"}
                 </Button>
+
+                {/*
+                 * 注销入口。刻意做成文字按钮而不是和上面两个并排的主按钮：
+                 * 它是不可逆操作，不该和「修改密码」享受同样的视觉权重。
+                 * 点击后要求输入密码二次确认（在 DeleteAccountForm 里）。
+                 */}
+                <button
+                  type="button"
+                  className="account-delete-entry"
+                  disabled={loggingOut}
+                  onClick={() => setDeletingAccount(true)}
+                  data-ui="account-delete-entry"
+                >
+                  注销账号
+                </button>
+
+                {deletingAccount ? (
+                  /*
+                   * 注销确认区。
+                   *
+                   * 要求输入当前密码：注销不可逆，一个可能被盗的登录态不该能直接删号。
+                   * 文案里把「删什么、不删什么、能不能恢复」讲清楚 —— 本地小说其实不受影响，
+                   * 这点必须写明，否则用户会以为注销等于删稿。
+                   */
+                  <div className="account-delete-panel" data-ui="account-delete-panel">
+                    <p className="account-delete-title">确认注销账号？</p>
+                    <p className="account-delete-desc">
+                      账号、密码、头像、云端模型配置将被<strong>永久删除，无法恢复</strong>。
+                      <br />
+                      你电脑上的小说文件<strong>不受影响</strong>，仍可继续使用本地功能。
+                    </p>
+                    <Input
+                      type="password"
+                      value={deletePassword}
+                      placeholder="输入当前密码以确认"
+                      autoComplete="current-password"
+                      disabled={deleteBusy}
+                      onChange={(event) => setDeletePassword(event.target.value)}
+                      data-ui="account-delete-password"
+                    />
+                    {deleteError ? <p className="account-error" role="alert">{deleteError}</p> : null}
+                    <div className="account-delete-actions">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={deleteBusy}
+                        onClick={() => {
+                          setDeletingAccount(false)
+                          setDeletePassword("")
+                          setDeleteError("")
+                        }}
+                      >
+                        取消
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="account-delete-confirm"
+                        disabled={deleteBusy || deletePassword.length === 0}
+                        onClick={() => void confirmDeleteAccount()}
+                      >
+                        {deleteBusy ? <Loader2 className="animate-spin" /> : null}
+                        {deleteBusy ? "正在注销…" : "永久删除我的账号"}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
               </>
             )}
           </div>
@@ -537,6 +665,30 @@ export function AccountDialog() {
 
               {displayedError ? (
                 <p className="account-error" id={ERROR_ID} role="alert">{displayedError}</p>
+              ) : null}
+
+              {authMode !== "reset" ? (
+                /*
+                 * 同意条款的勾选框。三个细节都是刻意的：
+                 * · 默认不勾：预先勾选等于替用户表达同意，条款效力会被质疑；
+                 * · 条款可点开看全文：不给可读入口的「同意」同样站不住；
+                 * · 不禁用按钮、只在 submit 里拦并说明原因：禁用会让人不知道为什么点不动。
+                 */
+                <label className="account-legal-consent">
+                  <input
+                    type="checkbox"
+                    checked={legalAccepted}
+                    disabled={busy}
+                    onChange={(event) => setLegalAccepted(event.target.checked)}
+                    data-ui="account-legal-consent"
+                  />
+                  <span>
+                    我已阅读并同意
+                    <a href={LEGAL_TERMS_URL} target="_blank" rel="noreferrer">《服务条款》</a>
+                    与
+                    <a href={LEGAL_PRIVACY_URL} target="_blank" rel="noreferrer">《隐私政策》</a>
+                  </span>
+                </label>
               ) : null}
 
               <Button

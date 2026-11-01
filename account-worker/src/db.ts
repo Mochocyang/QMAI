@@ -528,3 +528,33 @@ export async function cleanupExpiredData(
     sessionsStaleDevice: results[3]?.meta.changes ?? 0,
   }
 }
+
+/**
+ * 彻底删除一个账号及其全部关联数据。
+ *
+ * 为什么必须一次做完：`users.email` 是 UNIQUE，只要用户行还在，邮箱就永远无法重新注册；
+ * 而 sessions / model_configs / device_accounts 都有 `REFERENCES users(id)`，
+ * 残留行会指向一个不存在的用户，后续鉴权与同步会读到脏数据。
+ *
+ * 为什么 revoke_audit 不删：它是安全审计流水（谁在什么时候撤销了多少会话），
+ * 属于「删除权行使其本身的证据」，保留既是合规需要，也用于事后追责。
+ * 里面只存 userId 与时间，不含任何可还原为自然人的信息——用户删完后该 id 不会再被分配
+ * （AUTOINCREMENT 不复用），所以不会误关联到新用户。
+ *
+ * email_codes 按邮箱删而不是按 user_id：验证码表没有 user_id，
+ * 且未注册成功时也可能留下该邮箱的行，必须一并清掉才算干净。
+ */
+export async function deleteUserAccount(
+  db: D1Database,
+  userId: number,
+  email: string,
+): Promise<void> {
+  await db.batch([
+    // 先删子表，再删主表：外键约束要求引用方先消失。
+    db.prepare("DELETE FROM sessions WHERE user_id = ?1").bind(userId),
+    db.prepare("DELETE FROM model_configs WHERE user_id = ?1").bind(userId),
+    db.prepare("DELETE FROM device_accounts WHERE user_id = ?1").bind(userId),
+    db.prepare("DELETE FROM email_codes WHERE email = ?1").bind(email),
+    db.prepare("DELETE FROM users WHERE id = ?1").bind(userId),
+  ])
+}

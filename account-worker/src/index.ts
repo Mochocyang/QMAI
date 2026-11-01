@@ -7,6 +7,7 @@
 
 import {
   handleChangePassword,
+  handleDeleteAccount,
   handleDeleteAvatar,
   handleGetAvatar,
   handleLogin,
@@ -65,6 +66,7 @@ const ROUTES: Record<string, RouteHandler> = {
   "POST /v1/auth/password/change": handleChangePassword,
   "POST /v1/account/avatar": handleUploadAvatar,
   "DELETE /v1/account/avatar": handleDeleteAvatar,
+  "DELETE /v1/account": handleDeleteAccount,
   // 模型配置云端保管（密文）：GET 拉取 / PUT 覆盖 / DELETE 清空。
   "GET /v1/model-config": handleGetModelConfig,
   "PUT /v1/model-config": handlePutModelConfig,

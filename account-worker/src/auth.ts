@@ -41,6 +41,7 @@ import {
   revokeAllUserSessions,
   revokeOtherUserSessions,
   revokeSessionByTokenHash,
+  deleteUserAccount,
   revokeSessionFamily,
   rotateSession,
   updateUserAvatar,
@@ -952,7 +953,6 @@ export async function handleUploadAvatar(
   })
 }
 
-/** DELETE /v1/account/avatar */
 export async function handleDeleteAvatar(
   request: Request,
   env: Env,
@@ -992,4 +992,66 @@ export async function handleGetAvatar(
 
   // 直接给字节本身，不依赖 body 的流式封装。
   return new Response(avatar.data, { status: 200, headers })
+}
+
+/**
+ * DELETE /v1/account —— 注销账号并删除全部关联数据。
+ *
+ * 为什么要求输入当前密码：注销不可逆。仅凭一个可能被盗的 access token 就能删号，
+ * 等于把「令牌泄露」升级成「数据永久灭失」。用当前密码再确认一次，把最终控制权交回本人。
+ *
+ * 为什么先撤销令牌再删号：deleteUserAccount 会删掉 sessions 行，但本次请求持有的
+ * access token 是**无状态**的（JWT），在过期前仍然可用。所以必须先把它撤销，
+ * 否则用户会在「已注销」状态下继续被当成合法用户。
+ *
+ * 错误码沿用改密码那套（WRONG_PASSWORD + 同口径限流），
+ * 且不区分「用户不存」与「密码错误」，避免暴露某邮箱是否注册过。
+ */
+export async function handleDeleteAccount(
+  request: Request,
+  env: Env,
+  now = currentSeconds(),
+): Promise<Response> {
+  const auth = await authenticate(request, env, now)
+  if (!auth.ok) return auth.response
+
+  const parsed = await readJsonBody(request)
+  if (!parsed.ok) return parsed.response
+
+  const password = parsed.body.password
+  if (typeof password !== "string" || password.length === 0 || password.length > 128) {
+    return failure("VALIDATION")
+  }
+
+  const ipHash = await hashIp(getPepper(env), clientIp(request, env))
+  const failBucket = `delete-account:fail:ip:${ipHash}`
+  const peeked = await peekRateLimit(
+    env.DB,
+    failBucket,
+    CHANGE_PASSWORD_FAIL_IP_LIMIT,
+    CHANGE_PASSWORD_FAIL_WINDOW_SECONDS,
+    now,
+  )
+  if (!peeked.allowed) return rateLimited(peeked.retryAfterSeconds)
+
+  const passwordValid = await verifyPassword(password, auth.user.password_hash)
+  if (!passwordValid) {
+    const consumed = await consumeRateLimit(
+      env.DB,
+      failBucket,
+      CHANGE_PASSWORD_FAIL_IP_LIMIT,
+      CHANGE_PASSWORD_FAIL_WINDOW_SECONDS,
+      now,
+    )
+    if (!consumed.allowed) return rateLimited(consumed.retryAfterSeconds)
+    return failure("WRONG_PASSWORD")
+  }
+
+  // 先把该用户全部会话标记撤销，再删数据：顺序反了会留下仍可用的 refresh token。
+  await revokeAllUserSessions(env.DB, auth.user.id, now)
+  await deleteUserAccount(env.DB, auth.user.id, auth.user.email)
+
+  logEvent("account_delete_ok", { userId: auth.user.id })
+
+  return jsonSuccess({ deleted: true })
 }

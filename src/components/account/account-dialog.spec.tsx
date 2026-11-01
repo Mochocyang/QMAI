@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { resetAccountStoreForTests, useAccountStore, type AccountStoreState } from "@/stores/account-store"
+import { clearLegalConsent } from "@/lib/account/legal-consent"
 import { AccountDialog } from "./account-dialog"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -95,8 +96,30 @@ async function submitForm() {
   })
 }
 
+/**
+ * 勾选「同意服务条款与隐私政策」。
+ *
+ * 需要真正发出请求的用例必须显式调用它 —— 这正是合规门槛的意义：
+ * 未勾选时登录请求不该发出，所以不能塞进 beforeEach 里悄悄代劳。
+ */
+async function acceptLegalTerms() {
+  const checkbox = document.querySelector<HTMLInputElement>('[data-ui="account-legal-consent"]')
+  expect(checkbox, "同意条款的勾选框必须存在").not.toBeNull()
+  await act(async () => {
+    checkbox!.click()
+  })
+}
+
 beforeEach(() => {
   resetAccountStoreForTests()
+  /*
+   * 清掉「已同意条款」的本地记录。
+   *
+   * 不清会污染后续用例：同意记录写进 localStorage 后，下一个用例的勾选框初始就是
+   * 已勾选（这是真实行为——同意过一次不再重复要求），于是 acceptLegalTerms 里的
+   * click 反而变成取消勾选，测试会假失败。每个用例都从「未同意」的干净状态开始。
+   */
+  clearLegalConsent()
   login = vi.fn<AccountStoreState["login"]>(async () => undefined)
   register = vi.fn<AccountStoreState["register"]>(async () => undefined)
   sendCode = vi.fn<AccountStoreState["sendCode"]>(async () => ({ cooldownSeconds: 60, devCode: "654321" }))
@@ -198,6 +221,7 @@ describe("AccountDialog", () => {
     render()
     await setInput("account-email", "writer@example.com")
     await setInput("account-password", "password123")
+    await acceptLegalTerms()
 
     await act(async () => {
       submitButton().click()
@@ -212,6 +236,54 @@ describe("AccountDialog", () => {
     expect(submitButton().disabled).toBe(false)
     expect(submitButton().textContent?.trim()).toBe("登录")
     expect(submitButton().getAttribute("aria-busy")).toBeNull()
+  })
+
+  it("未勾选同意条款时，登录请求根本不发出，并给出中文提示", async () => {
+    render()
+    await setInput("account-email", "writer@example.com")
+    await setInput("account-password", "password123")
+
+    await act(async () => {
+      submitButton().click()
+    })
+
+    // 关键断言：不是「提示了但照样登录」，而是请求一次都没发出。
+    expect(login).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("请先阅读并勾选同意")
+  })
+
+  it("勾选同意后登录正常发出，且同意记录落盘", async () => {
+    render()
+    await setInput("account-email", "writer@example.com")
+    await setInput("account-password", "password123")
+    await acceptLegalTerms()
+
+    await act(async () => {
+      submitButton().click()
+    })
+
+    expect(login).toHaveBeenCalledWith({ email: "writer@example.com", password: "password123" })
+    // 留痕：下次打开不再要求重复同意。
+    expect(localStorage.getItem("qmai.legalConsent")).not.toBeNull()
+  })
+
+  it("重置密码不需要勾选同意：否则用户拿不回自己的账号", async () => {
+    useAccountStore.getState().setAuthMode("reset")
+    render()
+    await setInput("account-email", "writer@example.com")
+    await setInput("account-code", "123456")
+    await setInput("account-password", "newpassword123")
+
+    await submitForm()
+
+    expect(resetPassword).toHaveBeenCalled()
+  })
+
+  it("重置密码表单不渲染同意勾选框", async () => {
+    useAccountStore.getState().setAuthMode("reset")
+    render()
+
+    expect(document.querySelector('[data-ui="account-legal-consent"]')).toBeNull()
   })
 
   it("忘记密码进入 reset，返回登录回到 login，tab 始终只有两个", async () => {
@@ -268,6 +340,7 @@ describe("AccountDialog", () => {
     render()
     await setInput("account-email", "writer@example.com")
     await setInput("account-password", "password123")
+    await acceptLegalTerms()
 
     await act(async () => {
       const email = input("account-email")

@@ -15,6 +15,7 @@ import { create } from "zustand"
 
 import {
   changeAccountPassword,
+  deleteAccount,
   deleteAccountAvatar,
   loginAccount,
   logoutAccount,
@@ -71,6 +72,8 @@ export interface AccountStoreState {
   sendCode: (email: string, purpose: "register" | "reset") => Promise<SendCodeResult>
   resetPassword: (input: ResetPasswordInput) => Promise<void>
   logout: () => Promise<void>
+  /** 注销账号：服务端删除全部数据，本地同步清空。需当前密码确认。 */
+  deleteAccount: (password: string) => Promise<void>
   /** 已登录改密；成功后其它设备会话被撤销，当前设备保持登录。 */
   changePassword: (input: ChangePasswordInput) => Promise<void>
   /** 上传新头像；成功后本地用户信息与磁盘会话同步更新。 */
@@ -355,6 +358,33 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
     }
   },
 
+  /**
+   * 注销账号。
+   *
+   * 顺序：先在服务端删数据，成功后才清本地会话。
+   * 反过来的话，本地已登出、服务端却还在——用户会以为注销成功，
+   * 实际上账号仍然存在，下一页设备还能登录。
+   *
+   * 失败时不动本地状态，让用户能看到错误并重试（比如密码输错）。
+   */
+  deleteAccount: async (password) => {
+    const session = get().session
+    if (!session) throw new Error("尚未登录")
+    await deleteAccount(session.baseUrl, session.accessToken, password)
+    bumpSessionEpoch()
+    clearAccountSession()
+    set({
+      status: "anonymous",
+      user: null,
+      session: null,
+      dialogOpen: false,
+      error: null,
+      sessionUnverified: false,
+    })
+    void import("@/lib/builtin-models/auto-sync")
+      .then(({ syncBuiltinModels }) => syncBuiltinModels(null))
+      .catch((error) => console.error("[builtin] 动态加载失败:", error))
+  },
   logout: async () => {
     // 先让所有在途 refresh 失效，再同步清本地；退出不等网络。
     bumpSessionEpoch()

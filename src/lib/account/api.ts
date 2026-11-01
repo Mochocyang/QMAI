@@ -507,6 +507,28 @@ export async function changeAccountPassword(
 }
 
 /**
+ * 注销账号：服务端会删除用户及其全部关联数据。
+ *
+ * 必须带当前密码：注销不可逆，一个被盗的 access token 不能直接删号。
+ * 成功后本地会话随即失效，调用方应清理本地登录状态。
+ */
+export async function deleteAccount(
+  baseUrl: string,
+  accessToken: string,
+  password: string,
+  fetchImpl: FetchImpl = lazyAccountFetch,
+): Promise<void> {
+  await requestAccount(baseUrl, {
+    method: "DELETE",
+    path: "/v1/account",
+    body: { password },
+    accessToken,
+    unauthorizedCode: "TOKEN_EXPIRED",
+    fetchImpl,
+    acceptEmptySuccess: true,
+  })
+}
+/**
  * 上传头像：请求体是图片原始字节，Content-Type 直接用图片 MIME。
  * 不复用 requestAccount，因为那条路径固定发 JSON。
  */
