@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { useWikiStore, type SavedModel } from "@/stores/wiki-store"
 import { findLlmPresetById } from "@/components/settings/llm-presets"
 import { getEffectiveSavedModels, isProviderAvailable } from "@/lib/llm-model-keys"
+import { isObsoleteProviderId } from "@/lib/obsolete-providers"
 import {
   ModelSettingsPopover,
   getModelSettingsPanelStyle,
@@ -154,6 +155,20 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
 
     return groups
   }, [providerConfigs])
+
+  /*
+   * 选中值可能仍指向已移除的 provider（例如 aiChatModel 还是 "workbuddy/xxx"）。
+   * 那种情况下方下拉里已经没有这个分组，界面不该把 "workbuddy/xxx" 原样显示出来 ——
+   * 统一回落到「选择模型」占位文案。
+   */
+  const valueProviderId = useMemo(() => {
+    const slash = value?.indexOf("/") ?? -1
+    return slash > 0 ? value!.slice(0, slash) : ""
+  }, [value])
+  const selectorFallbackLabel = useMemo(() => {
+    if (!value || !value.trim()) return t("chat.selectModel")
+    return isObsoleteProviderId(valueProviderId) ? t("chat.selectModel") : value
+  }, [value, valueProviderId, t])
 
   const selectedModel = useMemo(() => {
     if (!value) return null
@@ -421,7 +436,7 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
         className="h-8 w-fit max-w-40 justify-start gap-1 px-2 text-xs"
       >
         <span className="max-w-32 truncate text-left">
-          {selectedModel?.name ?? (value && value.trim() ? value : t("chat.selectModel"))}
+          {selectedModel?.name ?? selectorFallbackLabel}
         </span>
         <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
       </Button>
@@ -470,7 +485,7 @@ export function ChatModelSelector({ value, onChange, disabled }: ChatModelSelect
             }}
           >
             {modelGroups.map((group) => (
-              <div key={group.id}>
+              <div key={group.id} data-model-group={group.id}>
                 {/* 分组标题吸顶：滚动时压在最上面，下一组标题上来会把它顶走 */}
                 <div className="sticky top-0 z-10 rounded-t-md bg-popover px-3 py-1.5 text-[0.625rem] font-bold uppercase tracking-wider text-muted-foreground">
                   {group.label}

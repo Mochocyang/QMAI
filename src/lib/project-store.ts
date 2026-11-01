@@ -41,6 +41,7 @@ import {
   type AiWorkflowMode,
   type OutlineWorkflowMode,
 } from "@/lib/agent/workflow-mode"
+import { clearObsoleteLlmProvider } from "@/lib/obsolete-providers"
 
 const RECENT_PROJECTS_KEY = "recentProjects"
 const LAST_PROJECT_KEY = "lastProject"
@@ -205,6 +206,11 @@ export async function loadLlmConfig(): Promise<LlmConfig | null> {
   const saved = (await store.get<LlmConfig>(LLM_CONFIG_KEY)) ?? null
   if (!saved) return null
   let normalized = normalizeUserLlmConfig(saved)
+  /*
+   * 选中的 provider 已经不在产品里了（如 WorkBuddy）：清空选择，
+   * 否则聊天会带着一个不存在的 provider 发请求，报错无从判断。
+   */
+  normalized = clearObsoleteLlmProvider(normalized).config
   if (!(await hasRunDeepSeekWindowMigration("llmConfig"))) {
     if (
       isDeepSeekOfficialEndpoint(normalized.customEndpoint)
@@ -351,6 +357,16 @@ export async function loadProviderConfigs(): Promise<ProviderConfigs | null> {
   const saved = await readProviderConfigsRaw()
   if (!saved) return null
   let normalized = normalizeProviderConfigs(saved)
+  /*
+   * 若本次归一化剔掉了已移除的 provider（WorkBuddy 等），顺手回写一次，
+   * 让磁盘上的加密配置也干净掉 —— 否则每次启动都要再剔一遍。
+   * 失败只 warn：清理不该拦住启动。
+   */
+  if (Object.keys(normalized).length !== Object.keys(saved).length) {
+    await saveProviderConfigs(normalized).catch((error: unknown) => {
+      console.warn("[providerConfigs] 清理已移除 provider 后回写失败:", error)
+    })
+  }
   if (!(await hasRunDeepSeekWindowMigration("providerConfigs"))) {
     const deepseek = normalized[DEEPSEEK_PRESET_ID]
     if (

@@ -40,6 +40,7 @@ import { syncPluginTools } from "@/lib/plugins/tool-sync"
 import { syncPluginHooks } from "@/lib/plugins/hooks/runtime"
 import { PluginProviderCard, toPluginProviderPreset } from "./plugin-provider-card"
 import { BUILTIN_PROVIDER_ID } from "@/lib/builtin-models/provider-bridge"
+import { isObsoleteProviderId } from "@/lib/obsolete-providers"
 
 const UI_TEST_PROVIDER_HINTS: Record<string, string> = {
   anthropic: "官方 Claude API",
@@ -144,6 +145,8 @@ export function LlmProviderSection() {
   // 插件 provider 的 id 已从 configured 里剔除，避免同一张卡片渲染两遍。
   const configured = [...new Set([...Object.keys(providerConfigs), ...customDraftIds, ...presetDraftIds])]
     .filter((id) => !pluginProviderIds.has(id))
+    // 已从产品移除的 provider（WorkBuddy）：配置里可能还有残留，卡片不该再出现。
+    .filter((id) => !isObsoleteProviderId(id))
     // 内置模型（登录后自动登记）不在这里重复出现：它已在各对话框的模型下拉里。
     .filter((id) => id !== BUILTIN_PROVIDER_ID)
     const presets = LLM_PRESETS.filter((preset) => preset.id !== "custom" && preset.id !== BUILTIN_PROVIDER_ID)

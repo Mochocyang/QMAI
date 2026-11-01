@@ -1,5 +1,6 @@
 import type { LlmConfig, ProviderConfigs, ProviderOverride } from "@/stores/wiki-store"
 import { isPluginProviderInjected } from "@/lib/plugins/provider-registry"
+import { pruneObsoleteProviders } from "@/lib/obsolete-providers"
 
 export const MIN_USER_LLM_CONTEXT_SIZE = 204_800
 
@@ -122,7 +123,12 @@ export function normalizeProviderOverride(
   }
 }
 
-export function normalizeProviderConfigs(configs: ProviderConfigs): ProviderConfigs {
+export function normalizeProviderConfigs(input: ProviderConfigs): ProviderConfigs {
+  /*
+   * 先剔除已移除的 provider（WorkBuddy 等）：load 与 save 都会走这个函数，
+   * 所以用户机器上残留的旧配置在加载时就消失，并在下一次保存时彻底写掉。
+   */
+  const configs = pruneObsoleteProviders(input as unknown as Record<string, unknown>).configs as unknown as ProviderConfigs
   let changed = false
   const normalized = Object.fromEntries(
     Object.entries(configs).map(([id, override]) => {

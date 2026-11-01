@@ -79,3 +79,14 @@ describe("LLM provider model controls", () => {
     expect(pluginGroup).toBeLessThan(configuredMap)
   })
 })
+
+/**
+ * 用户卸载插件后仍看到「WorkBuddy 国内版 / 未选择模型」的空卡片：
+ * 卡是持久化的 providerConfigs 残留，代码里早已没有这个预设。
+ */
+describe("已移除的 provider 不再渲染卡片", () => {
+  it("configured 列表会剔除已移除的 provider", () => {
+    expect(source).toContain('import { isObsoleteProviderId } from "@/lib/obsolete-providers"')
+    expect(source).toContain(".filter((id) => !isObsoleteProviderId(id))")
+  })
+})

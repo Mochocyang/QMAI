@@ -66,6 +66,59 @@ describe("ChatModelSelector 悬停弹窗", () => {
     return wrapper!
   }
 
+  it("已移除的 provider（WorkBuddy）不会出现在模型下拉里", () => {
+    // 用户机器上可能残留 workbuddy 配置（插件卸载后数据还在）
+    useWikiStore.setState({
+      providerConfigs: {
+        deepseek: {
+          enabled: true,
+          apiKey: "k",
+          savedModels: [{ id: "m", name: "DeepSeek-V4-Flash", model: "deepseek-v4-flash", createdAt: 1 }],
+        },
+        workbuddy: {
+          enabled: true,
+          label: "WorkBuddy 国内版",
+          savedModels: [{ id: "w", name: "DeepSeek-V4.1-Flash", model: "deepseek-v4.1-flash", createdAt: 1 }],
+        },
+      },
+    })
+    act(() => {
+      root.render(<ChatModelSelector value="deepseek/deepseek-v4-flash" onChange={() => {}} />)
+    })
+    const wrapper = container.querySelector<HTMLElement>("div.relative")!
+    // 打开下拉（定位是异步的：跑掉挂起定时器，等 dropdownStyle 就位）
+    act(() => {
+      wrapper.querySelector<HTMLButtonElement>("button")!.click()
+    })
+    // 定位用了两层 requestAnimationFrame（假定时器下要显式跑完）
+    act(() => {
+      vi.runAllTimers()
+    })
+    const groups = [...document.querySelectorAll<HTMLElement>("[data-model-group]")].map((n) => n.dataset.modelGroup)
+    expect(groups).toContain("deepseek")
+    expect(groups).not.toContain("workbuddy")
+    expect(document.body.textContent).not.toContain("WorkBuddy")
+  })
+
+  it("选中值指向已移除 provider 时，不再原样显示它的原始值", () => {
+    useWikiStore.setState({
+      providerConfigs: {
+        deepseek: {
+          enabled: true,
+          apiKey: "k",
+          savedModels: [{ id: "m", name: "DeepSeek-V4-Flash", model: "deepseek-v4-flash", createdAt: 1 }],
+        },
+      },
+    })
+    // aiChatModel 还停在已移除的 provider 上（插件卸载后的典型残留）
+    act(() => {
+      root.render(<ChatModelSelector value="workbuddy/deepseek-v4.1-flash" onChange={() => {}} />)
+    })
+    const trigger = container.querySelector<HTMLButtonElement>("button")!
+    expect(trigger.textContent).not.toContain("workbuddy")
+    expect(trigger.textContent).not.toContain("deepseek-v4.1-flash")
+  })
+
   it("鼠标进入模型按钮后弹出四项设置面板", () => {
     const wrapper = render()
     expect(document.querySelector("[data-model-settings-panel]")).toBeNull()

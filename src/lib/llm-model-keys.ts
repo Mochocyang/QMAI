@@ -1,6 +1,10 @@
 import type { ProviderConfigs, ProviderOverride, SavedModel } from "@/stores/wiki-store"
+import { isObsoleteProviderId } from "@/lib/obsolete-providers"
 
 export function isProviderAvailable(providerId: string, config: ProviderOverride): boolean {
+  // 已从产品移除的 provider（如 WorkBuddy）：配置里可能还有残留，但对界面一律不可用，
+  // 否则模型下拉里会一直挂着一个点了也没用的分组。
+  if (isObsoleteProviderId(providerId)) return false
   if (config.enabled === false) return false
   if (providerId.startsWith("custom-")) {
     return true
