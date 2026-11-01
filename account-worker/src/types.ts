@@ -110,6 +110,7 @@ export interface SessionRow {
   token_hash: string
   previous_token_hash: string | null
   device_label: string | null
+  device_id: string | null
   created_at: number
   last_used_at: number
   expires_at: number

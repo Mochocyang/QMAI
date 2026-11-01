@@ -8,14 +8,14 @@
  * - 推送防抖 3 秒：连续改配置时只推最后一次；
  * - 连续编辑要停下 30 秒才推（用户在模型页操作时不打断）；
  * - 两次推送至少间隔 60 秒（冷却），把零碎改动攒成一批；
- * - 启动/登录时拉取，距上次拉取不足 5 分钟就跳过；
+ * - 启动/登录时拉取，距上次拉取不足 15 分钟就跳过；
  * - 失败退避：30 秒 → 2 分钟 → 10 分钟，3 次后交给用户手动重试。
  */
 
 export const PUSH_DEBOUNCE_MS = 3_000
 export const EDIT_QUIET_MS = 30_000
 export const PUSH_COOLDOWN_MS = 60_000
-export const PULL_MIN_INTERVAL_MS = 5 * 60_000
+export const PULL_MIN_INTERVAL_MS = 15 * 60_000
 export const RETRY_DELAYS_MS = [30_000, 120_000, 600_000] as const
 
 /** 是否该拉取云端：从未拉过、或距上次超过最小间隔。 */

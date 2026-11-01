@@ -178,8 +178,8 @@ describe("detectImageMime", () => {
     expect(detectImageMime(new Uint8Array(4))).toBeNull()
   })
 
-  it("exposes a 200 KB ceiling", () => {
-    expect(MAX_AVATAR_BYTES).toBe(204800)
+  it("exposes a 64 KB ceiling", () => {
+    expect(MAX_AVATAR_BYTES).toBe(65536)
   })
 })
 

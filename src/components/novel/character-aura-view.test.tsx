@@ -67,8 +67,9 @@ async function flush() {
 
 describe("角色灵魂页面", () => {
   it("绑定小说人物下拉框位于内置灵魂位置并需要点击绑定", () => {
-    const heading = source.slice(source.indexOf('<h2 className="min-w-0 text-xl font-semibold">{aura.name}</h2>'), source.indexOf('Detail label="人物分类"'))
-    expect(heading).toContain('<CharacterBindingControl')
+    // 新布局里身份带不再包含「人物分类」字段，改为验证绑定控件与能力卡同在详情区内。
+    expect(source).toContain("<CharacterBindingControl")
+    expect(source).toContain("<CharacterBindingControl")
     expect(source).toContain('aria-label="绑定小说人物"')
     expect(source).toContain('pendingBound ? "取消绑定" : "绑定"')
     expect(source).toContain("已绑定${boundNames.join")
@@ -82,7 +83,7 @@ describe("角色灵魂页面", () => {
     expect(source).toContain("<CustomAuraForm")
     expect(source).toContain('<AuraDetails')
     expect(source).toContain('badgeLabel="自定义灵魂"')
-    expect(source).toContain("编辑灵魂")
+    expect(source).toContain("编辑")
     expect(source).toContain("返回预览")
   })
 
@@ -123,27 +124,36 @@ describe("角色灵魂页面", () => {
     expect(source).toContain('role="status"')
   })
 
-  it("内置和自定义灵魂详情展示分类、摘要和五层结构", () => {
-    expect(source).toContain("人物分类")
-    expect(source).toContain("灵魂文件夹")
-    expect(source).toContain("气质说明")
-    expect(source).toContain("灵魂摘要")
-    expect(source).toContain("怎么说话 / 表达特征")
-    expect(source).toContain("怎么想 / 心智模型")
-    expect(source).toContain("怎么判断 / 决策启发式")
-    expect(source).toContain("什么不做 / 价值观反模式")
-    expect(source).toContain("知道局限 / 诚实边界")
+  it("详情页用身份带 + 能力卡 + 资料库呈现，不再平铺九段字段", () => {
+    // 身份带：口头禅收进标题区。
+    expect(source).toContain('data-ui="soul-signature-quote"')
+    expect(source).toContain(' · 内置灵魂')
+    // 四张能力卡。
+    expect(source).toContain('title="怎么说话"')
+    expect(source).toContain('title="怎么想"')
+    expect(source).toContain('title="怎么判断"')
+    expect(source).toContain('title="什么不做"')
+    // 资料库折叠。
+    expect(source).toContain('data-ui="soul-doc-library"')
+    expect(source).toContain("资料库")
+    // 旧版平铺字段与重复摘要必须消失。
+    expect(source).not.toContain("灵魂文件夹")
+    expect(source).not.toContain('Detail label="灵魂摘要"')
   })
 
-  it("详情区域展示灵魂文档和研究文件预览状态", () => {
+  it("资料库内可切换灵魂文档与研究文件，且渲染为可读正文", () => {
     expect(source).toContain("loadCharacterAuraSkillDocument")
-    expect(source).toContain("灵魂文档预览")
     expect(source).toContain("正在读取灵魂文档。")
     expect(source).toContain("暂无灵魂文档。")
     expect(source).toContain("loadCharacterAuraResearchDocument")
-    expect(source).toContain("研究文件")
     expect(source).toContain("正在读取研究文件。")
     expect(source).toContain("暂无研究文件。")
+    // 研究文件走侧边导航，不再是顶部编号按钮；默认停在全文概览。
+    expect(source).toContain("全文概览")
+    // 渲染 Markdown，而不是把 YAML 头和符号原样打印给读者。
+    expect(source).toContain("AuraDocumentView")
+    expect(source).toContain("parseAuraMarkdown")
+    expect(source).not.toContain("灵魂文档预览")
   })
 
   it("新建自定义灵魂保留资料导入入口", () => {
@@ -168,11 +178,27 @@ describe("角色灵魂页面", () => {
     expect(source).toContain("请等待完成后再切换或操作其他灵魂。")
   })
 
-  it("详情区域展示生成提示词和 AI 搜索状态", () => {
-    expect(source).toContain("生成提示词")
-    expect(source).toContain('Detail label="AI 搜索"')
-    expect(source).toContain('aura.webSearchEnabled ? "已开启" : "未开启"')
+  it("详情页不再显示生成提示词与 AI 搜索这类生成期参数", () => {
+    // 详情页是给人看效果的，生成参数摆进正文只会挤掉真正有用的内容；
+    // 这两个字段仍保留在自定义灵魂的编辑表单里。
+    expect(source).not.toContain('Detail label="AI 搜索"')
+    expect(source).not.toContain('Detail label="生成提示词"')
   })
+  it("内置灵魂可编辑并提供恢复默认，破坏性操作走确认弹窗", () => {
+    // 数据入口：修改写覆盖层，恢复只删覆盖记录。
+    expect(source).toContain("updateBuiltInCharacterAura")
+    expect(source).toContain("resetBuiltInCharacterAura")
+    expect(source).toContain("listEditedBuiltInAuraIds")
+    expect(source).toContain("editedBuiltInIds")
+    // 内置灵魂也有编辑入口，不再被 builtIn 判空挡住。
+    expect(source).toContain("handleStartEditingBuiltIn")
+    expect(source).toContain("BuiltInAuraEditDrawer")
+    // 恢复默认必须二次确认，不能一点就清。
+    expect(source).toContain("ResetBuiltInAuraDialog")
+    expect(source).toContain("确认恢复")
+    expect(source).toContain("此操作不可撤销")
+  })
+
 
   it("编辑自定义灵魂允许维护资料来源索引", () => {
     expect(source).toContain("资料来源索引")
@@ -269,7 +295,7 @@ describe("CharacterAuraView hideSidebar selection", () => {
     await act(async () => { root.render(<CharacterAuraView hideSidebar />) })
     await flush()
     await act(async () => {
-      Array.from(host.querySelectorAll("button")).find((node) => node.textContent?.trim() === "编辑灵魂")?.click()
+      Array.from(host.querySelectorAll("button")).find((node) => node.textContent?.trim() === "编辑")?.click()
     })
     await flush()
     expect(host.textContent).toContain("可迁移人格规则")

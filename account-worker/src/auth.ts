@@ -79,7 +79,15 @@ import {
 const EMAIL_CODE_TTL_SECONDS = 10 * 60
 const EMAIL_SEND_COOLDOWN_SECONDS = 60
 const EMAIL_SEND_HOURLY_LIMIT = 5
-const IP_SEND_HOURLY_LIMIT = 20
+/**
+ * 同一 IP 每小时最多发 3 次验证码。
+ *
+ * 从 20 收紧到 3：发信是唯一按封计费的资源（Resend 免费档每天 100 封），
+ * 而 IP 是攻击者最容易批量轮换的维度之外最廉价的闸门。正常用户一次注册
+ * 或一次重置各只需 1 封，3 次/小时够用；同一出口 IP 下的多人共用场景
+ * 由「同邮箱 5 次/小时」这一层继续兜底。
+ */
+const IP_SEND_HOURLY_LIMIT = 3
 const VERIFY_EMAIL_HOURLY_LIMIT = 20
 const VERIFY_IP_HOURLY_LIMIT = 30
 const VERIFY_EMAIL_GLOBAL_LIMIT = 20
@@ -315,6 +323,8 @@ async function issueAuthPayload(
     token_hash: refreshTokenHash,
     previous_token_hash: null,
     device_label: deviceLabel,
+    // 设备指纹：与中转站 usage_logs.device_id 同源，用于精确关联设备名
+    device_id: deviceHash,
     created_at: now,
     last_used_at: now,
     expires_at: refreshExpiresAt,

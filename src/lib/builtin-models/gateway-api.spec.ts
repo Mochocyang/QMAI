@@ -1,6 +1,7 @@
-﻿import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import {
   GatewayError,
+  gatewayListModelCatalog,
   gatewayListModels,
   gatewayProbeChat,
   normalizeGatewayBaseUrl,
@@ -83,6 +84,77 @@ describe("gatewayListModels", () => {
     expect(error).toBeInstanceOf(GatewayError)
     expect(error.code).toBe("unauthorized")
     expect(error.message).toContain("重新登录")
+  })
+})
+
+describe("gatewayListModelCatalog", () => {
+  it("解析出倍率、展示名、等级与时段规则（下拉框要显示的就是这些）", async () => {
+    const { fetchImpl } = fakeFetch([
+      [/\/v1\/models$/, () => jsonResponse({
+        object: "list",
+        data: [{
+          id: "qmai-standard",
+          object: "model",
+          display_name: "青幕标准版",
+          note: "日常正文续写",
+          tier: "standard",
+          ratio: 0.08,
+          base_ratio: 0.1,
+          active_rule: { name: "夜间折扣" },
+          context_size: 204800,
+          max_output: 32768,
+        }],
+      })],
+    ])
+
+    const [model] = await gatewayListModelCatalog("https://relay.qmai.work", CARD, fetchImpl)
+
+    expect(model).toEqual({
+      id: "qmai-standard",
+      displayName: "青幕标准版",
+      note: "日常正文续写",
+      tier: "standard",
+      ratio: 0.08,
+      baseRatio: 0.1,
+      rule: "夜间折扣",
+      contextSize: 204800,
+      maxOutput: 32768,
+    })
+  })
+
+  it("没有时段规则时 rule 为 null", async () => {
+    const { fetchImpl } = fakeFetch([
+      [/\/v1\/models$/, () => jsonResponse({
+        object: "list",
+        data: [{ id: "qmai-long", ratio: 0.33, active_rule: null }],
+      })],
+    ])
+
+    const [model] = await gatewayListModelCatalog("https://relay.qmai.work", CARD, fetchImpl)
+    expect(model!.rule).toBeNull()
+  })
+
+  it("老网关只回字符串 id 时退化为「只有 id」，不报错", async () => {
+    const { fetchImpl } = fakeFetch([
+      [/\/v1\/models$/, () => jsonResponse({ object: "list", data: ["qmai-standard", "qmai-fast"] })],
+    ])
+
+    const models = await gatewayListModelCatalog("https://relay.qmai.work", CARD, fetchImpl)
+    expect(models.map((model) => model.id)).toEqual(["qmai-standard", "qmai-fast"])
+    expect(models[0]!.ratio).toBeUndefined()
+  })
+
+  it("按 id 去重，重复项只保留第一条", async () => {
+    const { fetchImpl } = fakeFetch([
+      [/\/v1\/models$/, () => jsonResponse({
+        object: "list",
+        data: [{ id: "qmai-standard", ratio: 0.08 }, { id: "qmai-standard", ratio: 0.99 }],
+      })],
+    ])
+
+    const models = await gatewayListModelCatalog("https://relay.qmai.work", CARD, fetchImpl)
+    expect(models).toHaveLength(1)
+    expect(models[0]!.ratio).toBe(0.08)
   })
 })
 

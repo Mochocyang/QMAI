@@ -78,6 +78,28 @@ describe("LLM provider model controls", () => {
     expect(configuredMap).toBeGreaterThanOrEqual(0)
     expect(pluginGroup).toBeLessThan(configuredMap)
   })
+
+  it("提供方目录紧贴按钮行，不再渲染在列表最底部", () => {
+    /*
+     * 用户反馈：点「＋ 添加提供方」后目录出现在整张列表下面，得滚到底才看得到，
+     * 像"点了没反应"。现在按钮行 → 目录 → 卡片列表，顺序写死在这段源码里。
+     */
+    const addRow = source.indexOf('className="model-add-row"')
+    const addPanel = source.indexOf('className="model-add-panel"')
+    const list = source.indexOf('className="model-library-list"')
+    expect(addRow).toBeGreaterThanOrEqual(0)
+    expect(addPanel).toBeGreaterThanOrEqual(0)
+    expect(list).toBeGreaterThanOrEqual(0)
+    expect(addRow).toBeLessThan(addPanel)
+    expect(addPanel).toBeLessThan(list)
+  })
+
+  it("新建但没保存的配置排在列表最前，保存后回到正常顺序", () => {
+    // 未保存 → providerConfigs 里没有这条 → 排 0；保存后 → 排 1
+    expect(source).toContain(
+      ".sort((a, b) => Number(Boolean(providerConfigs[a])) - Number(Boolean(providerConfigs[b])))",
+    )
+  })
 })
 
 /**

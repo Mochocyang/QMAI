@@ -1,18 +1,39 @@
 /**
- * 头像图片处理：把用户选中的任意图片压成 256×256 的正方形 WebP。
+ * 头像图片处理：把用户选中的任意图片压成 512×512 的正方形 WebP。
  *
- * 服务端只接受 ≤200 KB 的 PNG/JPEG/WebP，这里先用 canvas 居中裁方再压缩，
- * 正常能压到 10–30 KB，避免用户选一张几 MB 的照片就上传失败。
+ * 服务端只接受 ≤64 KB 的 PNG/JPEG/WebP，这里先用 canvas 居中裁方，
+ * 再按质量档位逐档下降，直到体积 ≤ 20 KB。头像在界面里最大只显示 44px
+ * （.account-avatar-lg），512px 已远超 2x 屏所需，因此压小尺寸比保留像素更有价值：
+ * 单张头像压到十几 KB，D1 里 BLOB 存储才不会随用户数线性膨胀。
  */
 
-/** 头像边长（像素）。UI 最大显示 64px，256px 足够 2x 屏。 */
-export const AVATAR_SIZE = 256
+/** 头像边长（像素）。UI 最大显示 44px，512px 覆盖 2x/3x 屏仍有余量。 */
+export const AVATAR_SIZE = 512
 
-/** 与服务端 MAX_AVATAR_BYTES 保持一致。 */
-export const MAX_AVATAR_BYTES = 200 * 1024
+/**
+ * 本机压缩的目标体积：压到 20 KB 以内即停止降质。
+ *
+ * 与服务端 MAX_AVATAR_BYTES（64 KB）分开：目标是「尽量小」，上限是「绝对不能超」。
+ * 分两层是为了兼容旧客户端——它们没有这段逐档逻辑，仍按 256×256/0.85 上传
+ * （通常 10–30 KB，复杂照片偶有超过 32 KB），服务端若不是 64 KB 就会让它们换头像失败。
+ */
+export const AVATAR_TARGET_BYTES = 20 * 1024
 
-/** 压缩质量；WebP 下 0.85 目视无差。 */
-const AVATAR_QUALITY = 0.85
+/**
+ * 与服务端 MAX_AVATAR_BYTES 保持一致（64 KB）。
+ *
+ * 这个值在本机只做「编码结果明显异常」的兜底判定；正常路径靠 AVATAR_TARGET_BYTES
+ * 把体积压到 20 KB 以内，根本到不了这里。
+ */
+export const MAX_AVATAR_BYTES = 64 * 1024
+
+/**
+ * 质量档位：从高到低尝试，命中 AVATAR_TARGET_BYTES 就停。
+ *
+ * 0.82 起手（人像目视无差），最差退到 0.5——头像最终只显示 44px，
+ * 0.5 在这个尺寸上依然清晰，换来的是存储体积数量级的下降。
+ */
+const AVATAR_QUALITY_STEPS = [0.82, 0.72, 0.62, 0.5] as const
 
 export class AvatarProcessError extends Error {
   constructor(message: string) {
@@ -89,7 +110,7 @@ export interface ProcessedAvatar {
 }
 
 /**
- * 把图片裁成居中的正方形并压成 WebP。
+ * 把图片裁成居中的正方形，并按质量档位压到目标体积以内。
  * 浏览器不支持 WebP 编码时回退 JPEG（canvas.toBlob 返回 null 或类型不符）。
  */
 export async function processAvatarImage(file: File): Promise<ProcessedAvatar> {
@@ -192,22 +213,65 @@ function fromDataUrl(canvas: HTMLCanvasElement, mime: string, quality: number): 
   }
 }
 
+/**
+ * 按质量档位逐档压缩，命中目标体积即停。
+ *
+ * 为什么要「逐档」而不是固定一档：头像内容差异极大（纯色图标 vs 复杂照片同体积能差 10 倍），
+ * 固定质量要么浪费存储、要么让小图被多余地压糊。从高质量往下试，第一个 ≤ 目标的档位就是
+ * 「在目标体积内能拿到的最高画质」。
+ *
+ * 两条关键取舍：
+ * 1. `toBlob` 返回 null（少数 WebView 下回调永不触发，每档要等 5 秒超时）时，
+ *    **立刻放弃整条 toBlob 通道**，不再消耗后续档位的超时——否则档位越多、
+ *    恶劣环境下用户就等得越久（4 档 × 2 种格式 = 40 秒）。
+ * 2. WebP 各档都不达标时才退 JPEG（老 WebView 可能不产 WebP）；
+ *    若连最低档仍超标，返回体积最小的那个，由调用方按 MAX_AVATAR_BYTES 兜底判定。
+ */
 async function encode(canvas: HTMLCanvasElement): Promise<Blob> {
-  // 依次尝试：WebP（体积最小）→ JPEG → 同步 toDataURL 兜底。
-  const candidates: Array<[string, number]> = [
-    ["image/webp", AVATAR_QUALITY],
-    ["image/jpeg", AVATAR_QUALITY],
-  ]
+  let smallest: Blob | null = null
 
-  for (const [mime, quality] of candidates) {
+  const remember = (blob: Blob | null): Blob | null => {
+    if (!blob || !blob.type.startsWith("image/") || blob.size === 0) return null
+    if (!smallest || blob.size < smallest.size) smallest = blob
+    return blob.size <= AVATAR_TARGET_BYTES ? blob : null
+  }
+
+  /** 某条通道是否还可信；一旦某档返回 null 就置 false，跳过剩余档位。 */
+  let toBlobUsable = true
+
+  const tryQuality = async (mime: string, quality: number): Promise<Blob | null> => {
+    if (!toBlobUsable) return null
     const blob = await toBlob(canvas, mime, quality)
-    if (blob && blob.type.startsWith("image/") && blob.size > 0) return blob
+    if (!blob) {
+      // 通道失效：后续档位同样会等到超时，直接整体降级到 toDataURL。
+      toBlobUsable = false
+      return null
+    }
+    return remember(blob)
   }
 
-  for (const [mime, quality] of candidates) {
-    const blob = fromDataUrl(canvas, mime, quality)
-    if (blob && blob.size > 0) return blob
+  // 先走 WebP（同画质体积最小），逐档降质直到进目标体积。
+  for (const quality of AVATAR_QUALITY_STEPS) {
+    const hit = await tryQuality("image/webp", quality)
+    if (hit) return hit
   }
+
+  // WebP 不可用或始终超标：退 JPEG，同样逐档尝试。
+  for (const quality of AVATAR_QUALITY_STEPS) {
+    const hit = await tryQuality("image/jpeg", quality)
+    if (hit) return hit
+  }
+
+  // toBlob 通道不可用或全部超标：用同步 toDataURL 兜底，从最低质量起试（体积优先）。
+  for (const quality of [...AVATAR_QUALITY_STEPS].reverse()) {
+    for (const mime of ["image/webp", "image/jpeg"]) {
+      const hit = remember(fromDataUrl(canvas, mime, quality))
+      if (hit) return hit
+    }
+  }
+
+  // 所有档位都超过目标体积：交出体积最小的那份，让上层按硬上限判定是否可接受。
+  if (smallest) return smallest
 
   throw new AvatarProcessError("当前环境无法压缩图片。")
 }

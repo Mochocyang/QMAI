@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>灵魂详情页 · 方案 B-2 系列（含内置编辑与恢复）</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --muted: #f6f7f8;
+    --border: #e5e7eb;
+    --text: #1f2328;
+    --text-2: #57606a;
+    --text-3: #8b949e;
+    --accent: #3b6e4f;
+    --accent-soft: #eef4f0;
+    --accent-line: #cfe1d6;
+    --warn: #b45309;
+    --warn-soft: #fffbeb;
+    --warn-line: #fde68a;
+    --edit: #1d4ed8;
+    --edit-soft: #eff6ff;
+    --edit-line: #bfdbfe;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #f0f1f3;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  .switcher {
+    position: sticky; top: 0; z-index: 50;
+    background: #fff; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 24px; flex-wrap: wrap;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .switcher .label { font-size: 13px; color: var(--text-3); margin-right: 4px; }
+  .switcher button {
+    border: 1px solid var(--border); background: #fff; color: var(--text-2);
+    padding: 7px 14px; border-radius: 8px; cursor: pointer;
+    font-size: 13px; font-family: inherit; transition: all .15s;
+  }
+  .switcher button:hover { background: var(--muted); }
+  .switcher button.active {
+    background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500;
+  }
+  .switcher .spacer { flex: 1; }
+  .switcher .hint { font-size: 12px; color: var(--text-3); }
+
+  .window {
+    max-width: 1080px; margin: 22px auto 80px;
+    background: #fff; border: 1px solid var(--border);
+    border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+    overflow: hidden;
+  }
+  .window-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    background: #fafbfc;
+  }
+  .window-bar .back {
+    display: inline-flex; align-items: center; gap: 4px;
+    border: 1px solid var(--border); background: #fff; border-radius: 7px;
+    padding: 5px 10px; font-size: 12px; color: var(--text-2); cursor: pointer;
+  }
+  .window-bar .crumb { font-size: 12px; color: var(--text-3); }
+  .body { padding: 22px 26px 30px; }
+
+  .note-bar {
+    max-width: 1080px; margin: 18px auto 0;
+    border-radius: 10px; padding: 13px 17px; font-size: 12.5px;
+    line-height: 1.7;
+  }
+  .note-bar.info { background: #f8fafc; border: 1px solid #e2e8f0; color: #475569; }
+  .note-bar.warn { background: var(--warn-soft); border: 1px solid var(--warn-line); color: #92400e; }
+  .note-bar b { font-weight: 650; display: inline; }
+  .note-bar ul { margin: 6px 0 0; padding-left: 18px; }
+
+  .badge {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    font-size: 11.5px; background: var(--accent-soft); color: var(--accent);
+    border: 1px solid var(--accent-line); white-space: nowrap;
+  }
+  .badge.plain { background: var(--muted); color: var(--text-3); border-color: var(--border); }
+  .badge.edited { background: var(--edit-soft); color: var(--edit); border-color: var(--edit-line); }
+
+  .btn {
+    border: 1px solid var(--border); background: #fff; color: var(--text-2);
+    border-radius: 7px; padding: 6px 13px; font-size: 12.5px;
+    cursor: pointer; font-family: inherit; white-space: nowrap;
+  }
+  .btn:hover { background: var(--muted); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn.ghost-edit { border-color: var(--edit-line); color: var(--edit); background: var(--edit-soft); }
+  .btn.danger { border-color: #fecaca; color: #b91c1c; background: #fef2f2; }
+
+  .quote {
+    margin: 16px 0 0; padding: 13px 18px;
+    border-left: 3px solid var(--accent);
+    background: linear-gradient(90deg, var(--accent-soft), transparent 85%);
+    border-radius: 0 8px 8px 0;
+    font-size: 16px; color: #22352a; letter-spacing: .3px;
+  }
+  .quote small {
+    display: block; font-size: 11px; color: var(--accent);
+    margin-bottom: 3px; letter-spacing: 1.2px; opacity: .85; font-weight: 500;
+  }
+
+  .sec-label {
+    font-size: 11.5px; font-weight: 600; letter-spacing: 1.2px;
+    color: var(--text-3); margin: 0 0 9px;
+  }
+
+  /* ============ 身份带 ============ */
+  .identity-band {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 15px 18px;
+    background: linear-gradient(135deg, var(--accent-soft), #fafcfb 72%);
+    border: 1px solid var(--accent-line); border-radius: 12px;
+  }
+  .identity-band .avatar {
+    width: 52px; height: 52px; border-radius: 14px;
+    background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 21px; font-weight: 600; flex-shrink: 0;
+  }
+  .identity-band .info { flex: 1; min-width: 190px; }
+  .identity-band .info .n {
+    font-size: 18px; font-weight: 650; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .identity-band .info .m { font-size: 12px; color: var(--text-3); margin-top: 3px; }
+  .identity-band .actions { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+
+  /* ============ 能力卡 ============ */
+  .card-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 13px; margin-top: 15px;
+  }
+  @media (max-width: 860px) { .card-grid { grid-template-columns: 1fr; } }
+  .cap-card {
+    border: 1px solid var(--border); border-radius: 11px;
+    padding: 14px 16px; background: #fff; cursor: pointer;
+    transition: box-shadow .15s, border-color .15s;
+  }
+  .cap-card:hover { border-color: var(--accent-line); box-shadow: 0 2px 12px rgba(59,110,79,.07); }
+  .cap-card .head {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; gap: 8px;
+  }
+  .cap-card .head .t { font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+  .cap-card .head .ico {
+    width: 22px; height: 22px; border-radius: 6px;
+    background: var(--accent-soft); color: var(--accent);
+    display: inline-flex; align-items: center; justify-content: center; font-size: 11.5px;
+  }
+  .cap-card .head .more { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+  .cap-card .txt {
+    font-size: 13px; color: var(--text-2);
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .cap-card.wide { grid-column: span 2; }
+  @media (max-width: 860px) { .cap-card.wide { grid-column: span 1; } }
+
+  .scene-mini { display: flex; gap: 9px; flex-wrap: wrap; }
+  .scene-mini div {
+    flex: 1; min-width: 165px; background: var(--muted);
+    border-radius: 8px; padding: 9px 11px; font-size: 12.5px; color: var(--text-2);
+  }
+  .scene-mini div b {
+    color: var(--accent); font-weight: 600; display: block;
+    margin-bottom: 2px; font-size: 11px; letter-spacing: .5px;
+  }
+
+  /* ============ 资料库（折叠卡片） ============ */
+  .library-card {
+    margin-top: 15px; border: 1px solid var(--border); border-radius: 11px;
+    overflow: hidden; background: #fff;
+  }
+  .library-card .lib-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 17px; cursor: pointer; background: var(--muted);
+    transition: background .15s;
+  }
+  .library-card .lib-head:hover { background: #f0f2f4; }
+  .library-card .lib-head .l { display: flex; align-items: center; gap: 10px; font-size: 13.5px; font-weight: 550; }
+  .library-card .lib-head .l .sub { font-weight: 400; color: var(--text-3); font-size: 12px; }
+  .library-card .lib-head .r { font-size: 12px; color: var(--text-3); }
+  .lib-body { display: none; }
+  .lib-body.open { display: grid; grid-template-columns: 172px 1fr; }
+  @media (max-width: 860px) { .lib-body.open { grid-template-columns: 1fr; } }
+  .lib-nav { border-right: 1px solid var(--border); background: #fbfcfc; padding: 9px 0; }
+  .lib-nav button {
+    display: block; width: 100%; text-align: left; border: none; background: none;
+    cursor: pointer; padding: 8px 15px; font-size: 12.5px; color: var(--text-2);
+    font-family: inherit; border-left: 2px solid transparent;
+  }
+  .lib-nav button:hover { background: var(--muted); }
+  .lib-nav button.active {
+    color: var(--accent); border-left-color: var(--accent);
+    background: var(--accent-soft); font-weight: 500;
+  }
+  .lib-nav .grp {
+    font-size: 10.5px; letter-spacing: 1px; color: var(--text-3);
+    padding: 10px 15px 4px;
+  }
+  .lib-pane { padding: 16px 20px; min-height: 200px; }
+  .lib-pane h3 { margin: 0 0 10px; font-size: 15px; font-weight: 600; }
+  .lib-pane h5 { margin: 14px 0 5px; font-size: 12.5px; color: var(--accent); font-weight: 600; }
+  .lib-pane p, .lib-pane li { font-size: 13px; color: var(--text-2); }
+  .lib-pane ul { padding-left: 18px; margin: 0; }
+  .lib-pane blockquote {
+    margin: 10px 0; padding: 8px 12px; border-left: 3px solid var(--accent-line);
+    background: var(--muted); color: var(--text-2); font-size: 13px; border-radius: 0 6px 6px 0;
+  }
+
+  /* ============ 修改状态提示 ============ */
+  .edit-banner {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    margin-top: 14px; padding: 11px 16px; border-radius: 9px;
+    background: var(--edit-soft); border: 1px solid var(--edit-line);
+    font-size: 12.5px; color: var(--edit); flex-wrap: wrap;
+  }
+  .edit-banner .r { display: flex; gap: 7px; }
+
+  /* ============ 方案 B-2 的差异展示 ============ */
+  .diff-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12.5px; }
+  .diff-table th, .diff-table td {
+    border: 1px solid var(--border); padding: 8px 11px; text-align: left; vertical-align: top;
+  }
+  .diff-table th { background: var(--muted); font-weight: 600; font-size: 12px; }
+  .diff-table td.old { color: #b91c1c; background: #fff5f5; }
+  .diff-table td.new { color: #166534; background: #f0fdf4; }
+
+  /* 方案 D 的编辑抽屉 */
+  .edit-drawer {
+    margin-top: 15px; border: 1px solid var(--edit-line); border-radius: 11px;
+    overflow: hidden; background: #fff;
+  }
+  .edit-drawer .ed-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 17px; background: var(--edit-soft); border-bottom: 1px solid var(--edit-line);
+  }
+  .edit-drawer .ed-head .t { font-size: 13.5px; font-weight: 600; color: var(--edit); }
+  .ed-body { padding: 4px 0; }
+  .ed-row {
+    display: grid; grid-template-columns: 132px 1fr; gap: 14px;
+    padding: 11px 17px; border-bottom: 1px solid #f1f3f5; align-items: start;
+  }
+  .ed-row:last-child { border-bottom: none; }
+  .ed-row .k { font-size: 12.5px; color: var(--text-3); padding-top: 7px; }
+  .ed-row .v input, .ed-row .v textarea {
+    width: 100%; border: 1px solid var(--border); border-radius: 7px;
+    padding: 7px 10px; font-family: inherit; font-size: 13px; color: var(--text);
+    background: #fff; resize: vertical;
+  }
+  .ed-row .v textarea { line-height: 1.6; }
+  .ed-row .v input:focus, .ed-row .v textarea:focus {
+    outline: none; border-color: var(--edit); box-shadow: 0 0 0 3px rgba(29,78,216,.08);
+  }
+  .ed-foot {
+    display: flex; gap: 8px; align-items: center;
+    padding: 12px 17px; border-top: 1px solid var(--border); background: #fbfcfc;
+  }
+  .ed-foot .tip { font-size: 11.5px; color: var(--text-3); margin-left: auto; }
+
+  /* 恢复确认弹窗 */
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(15,23,42,.35);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal-mask.open { display: flex; }
+  .modal {
+    width: 420px; max-width: calc(100vw - 40px);
+    background: #fff; border-radius: 13px; overflow: hidden;
+    box-shadow: 0 20px 50px rgba(0,0,0,.22);
+  }
+  .modal .top { padding: 20px 22px 0; }
+  .modal .top h3 { margin: 0 0 8px; font-size: 16px; }
+  .modal .top p { margin: 0; font-size: 13px; color: var(--text-2); }
+  .modal .list {
+    margin: 12px 0 0; padding: 11px 13px; background: var(--muted);
+    border-radius: 8px; font-size: 12.5px; color: var(--text-2);
+  }
+  .modal .list li { margin: 3px 0; }
+  .modal .foot { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 22px 20px; }
+  .hidden { display: none !important; }
+  .tiny { font-size: 11.5px; color: var(--text-3); }
+</style>
+</head>
+<body>
+
+<div class="switcher">
+  <span class="label">方案 B 系列</span>
+  <button data-view="b1" class="active">B-1 内嵌覆盖</button>
+  <button data-view="b2">B-2 副本模式</button>
+  <button data-view="b3">B-3 分体布局</button>
+  <button data-view="b4">B-4 编辑抽屉</button>
+  <span class="spacer"></span>
+  <span class="hint">点卡片可展开 · 点「资料库」可折叠展开</span>
+</div>
+
+<!-- ============================================================ -->
+<!-- B-1：内嵌覆盖 -->
+<!-- ============================================================ -->
+<div data-panel="b1">
+  <div class="note-bar info">
+    <b>方案 B-1 · 内嵌覆盖（推荐）。</b>用户修改内置灵魂时，把改动存进项目的覆盖层，原内置定义不动。
+    <ul>
+      <li>列表里该卡片打上<b>「已修改」</b>蓝色标签，一眼能看出哪些动过。</li>
+      <li>「恢复为默认」只需删除覆盖记录，无需重新写入原内容，零风险。</li>
+      <li>换一台设备或重装软件，覆盖记录随项目走，修改不会丢。</li>
+    </ul>
+  </div>
+
+  <div class="window">
+    <div class="window-bar">
+      <span class="back">← 返回灵魂库</span>
+      <span class="crumb">灵魂 / 妈妈·全身心付出型</span>
+    </div>
+    <div class="body">
+
+      <div class="identity-band">
+        <div class="avatar">母</div>
+        <div class="info">
+          <div class="n">
+            妈妈·全身心付出型
+            <span class="badge edited">已修改</span>
+          </div>
+          <div class="m">角色原型 · 可替换 4 个位置 · 上次修改 2 分钟前</div>
+        </div>
+        <div class="actions">
+          <button class="btn primary">选择小说人物 ▾</button>
+          <button class="btn ghost-edit">编辑</button>
+          <button class="btn">恢复默认</button>
+        </div>
+      </div>
+
+      <div class="quote">
+        <small>口头禅</small>
+        「你先吃，妈不饿。」
+      </div>
+
+      <div class="card-grid">
+        <div class="cap-card">
+          <div class="head"><span class="t"><span class="ico">说</span>怎么说话</span><span class="more">展开</span></div>
+          <div class="txt">语速中等，句子偏长，一句话绕成三小句讲完——先说天气，再说衣，再说人。同一句叮嘱会在同一场戏里反复出现，每次添一个新细节。</div>
+        </div>
+        <div class="cap-card">
+          <div class="head"><span class="t"><span class="ico">想</span>怎么想</span><span class="more">展开</span></div>
+          <div class="txt">孩子的安危高于一切，她的排序里没有「我想吃什么」，只有「谁还没吃」。付出是天生责任，不需要被感谢，被道谢时反而摆手。</div>
+        </div>
+        <div class="cap-card">
+          <div class="head"><span class="t"><span class="ico">判</span>怎么判断</span><span class="more">展开</span></div>
+          <div class="txt">先安排子女的衣食住行，再谈自己的想法。用照顾和牺牲换取话语权，不用命令。反对一件事不明说，而是反复叹气、偷偷准备替代方案。</div>
+        </div>
+        <div class="cap-card">
+          <div class="head"><span class="t"><span class="ico">避</span>什么不做</span><span class="more">展开</span></div>
+          <div class="txt">不能把付出写成单纯的感动表演，每次牺牲都要有代价。不能把控制欲写成理所应当，要让读者看见孩子喘不过气的那一面。</div>
+        </div>
+        <div class="cap-card wide">
+          <div class="head"><span class="t"><span class="ico">画</span>标志性画面</span><span class="more">4 条 · 点击查看全部</span></div>
+          <div class="scene-mini">
+            <div><b>出场</b>把最好的一口留给别人，自己总说不饿。</div>
+            <div><b>叮嘱</b>「伞在你门后那把，蓝的那把」。</div>
+            <div><b>挽留</b>嘴上帮着看房子，回家把床单洗好晒好。</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 资料库：折叠卡片 -->
+      <div class="library-card">
+        <div class="lib-head" onclick="toggleLib(this)">
+          <span class="l">资料库 <span class="sub">灵魂文档 + 6 份研究文件</span></span>
+          <span class="r">展开 ▾</span>
+        </div>
+        <div class="lib-body">
+          <div class="lib-nav">
+            <div class="grp">灵魂文档</div>
+            <button class="active">全文概览</button>
+            <div class="grp">研究文件</div>
+            <button>公开资料</button>
+            <button>对话方式</button>
+            <button>表达特征</button>
+            <button>外部评价</button>
+            <button>决策记录</button>
+            <button>时间线</button>
+          </div>
+          <div class="lib-pane">
+            <h3>妈妈·全身心付出型 · 角色灵魂</h3>
+            <blockquote>「你先吃，妈不饿。」</blockquote>
+            <h5>角色扮演规则</h5>
+            <p>此灵魂用于小说创作中的角色原型绑定，不对应任何真实人物。只能作为角色气质、行为习惯和表达风格参考。</p>
+            <h5>核心心智模型</h5>
+            <ul>
+              <li>孩子的安危高于一切，自己的感受可以往后排。</li>
+              <li>付出是母亲天生的责任，不需要被感谢。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- B-2：副本模式 -->
+<!-- ============================================================ -->
+<div data-panel="b2" class="hidden">
+  <div class="note-bar warn">
+    <b>方案 B-2 · 副本模式。</b>用户改内置灵魂时，自动复制一份成「我的妈妈（来自内置）」放进自定义列表，原内置保持只读。
+    <ul>
+      <li><b>优点：</b>不碰内置数据，用户随时能对照原版；实现最简单，复用现有「自定义灵魂」逻辑，几乎不加新机制。</li>
+      <li><b>缺点：</b>灵魂库里会多出一条副本，两个「妈妈」并存容易混淆；用户改完可能找不到自己改的是哪个。</li>
+    </ul>
+  </div>
+
+  <div class="window">
+    <div class="window-bar">
+      <span class="back">← 返回灵魂库</span>
+      <span class="crumb">灵魂 / 我的妈妈（来自内置）</span>
+    </div>
+    <div class="body">
+
+      <div class="identity-band" style="background:linear-gradient(135deg,var(--edit-soft),#fafcff 72%);border-color:var(--edit-line)">
+        <div class="avatar" style="background:var(--edit)">母</div>
+        <div class="info">
+          <div class="n">
+            我的妈妈（来自内置）
+            <span class="badge edited">自定义副本</span>
+          </div>
+          <div class="m">源自「角色原型 / 妈妈·全身心付出型」</div>
+        </div>
+        <div class="actions">
+          <button class="btn primary">选择小说人物 ▾</button>
+          <button class="btn ghost-edit">编辑</button>
+          <button class="btn danger">删除副本</button>
+        </div>
+      </div>
+
+      <div class="edit-banner">
+        <span>这是从内置灵魂复制出来的自定义版本。原内置「妈妈·全身心付出型」仍然保留在「内置灵魂」页。</span>
+        <span class="r"><button class="btn">查看原版</button></span>
+      </div>
+
+      <div class="quote">
+        <small>口头禅</small>
+        「你先吃，妈不饿。」——我改过的版本
+      </div>
+
+      <div class="card-grid">
+        <div class="cap-card">
+          <div class="head"><span class="t"><span class="ico">说</span>怎么说话</span><span class="more">展开</span></div>
+          <div class="txt">语速中等，句子偏长，一句话绕成三小句讲完。同一句叮嘱会在同一场戏里反复出现，每次添一个新细节。</div>
+        </div>
+        <div class="cap-card">
+          <div class="head"><span class="t"><span class="ico">想</span>怎么想</span><span class="more">展开</span></div>
+          <div class="txt">孩子的安危高于一切，她的排序里没有「我想吃什么」，只有「谁还没吃」。</div>
+        </div>
+        <div class="cap-card wide">
+          <div class="head"><span class="t"><span class="ico">画</span>标志性画面</span><span class="more">4 条</span></div>
+          <div class="scene-mini">
+            <div><b>出场</b>把最好的一口留给别人，自己总说不饿。</div>
+            <div><b>叮嘱</b>「伞在你门后那把，蓝的那把」。</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="library-card">
+        <div class="lib-head" onclick="toggleLib(this)">
+          <span class="l">资料库 <span class="sub">灵魂文档 + 6 份研究文件</span></span>
+          <span class="r">展开 ▾</span>
+        </div>
+        <div class="lib-body">
+          <div class="lib-nav">
+            <div class="grp">灵魂文档</div><button class="active">全文概览</button>
+            <div class="grp">研究文件</div><button>公开资料</button><button>对话方式</button>
+            <button>表达特征</button><button>外部评价</button><button>决策记录</button><button>时间线</button>
+          </div>
+          <div class="lib-pane">
+            <h3>我的妈妈（来自内置）· 角色灵魂</h3>
+            <p class="tiny">（副本的文档独立存放在项目目录下，与原版互不影响）</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- B-3：分体布局 -->
+<!-- ============================================================ -->
+<div data-panel="b3" class="hidden">
+  <div class="note-bar info">
+    <b>方案 B-3 · 分体布局。</b>把「看」和「改」彻底分成两种模式：平时是纯浏览页（信息密度最高）；点「编辑」后整页切换成编辑模式，字段平铺可改，顶部固定一条「保存 / 取消 / 恢复默认」操作条。
+    <ul>
+      <li><b>优点：</b>浏览时视觉最干净，不被输入框干扰；编辑时空间充足，长文本好改。</li>
+      <li><b>缺点：</b>两层状态切换，用户要意识到自己「进入了编辑模式」。</li>
+    </ul>
+  </div>
+
+  <div class="window">
+    <div class="window-bar">
+      <span class="back">← 返回灵魂库</span>
+      <span class="crumb">灵魂 / 妈妈·全身心付出型</span>
+    </div>
+
+    <!-- 浏览态 -->
+    <div class="body" id="b3-view">
+      <div class="identity-band">
+        <div class="avatar">母</div>
+        <div class="info">
+          <div class="n">妈妈·全身心付出型 <span class="badge edited">已修改</span></div>
+          <div class="m">角色原型 · 可替换 4 个位置</div>
+        </div>
+        <div class="actions">
+          <button class="btn primary">选择小说人物 ▾</button>
+          <button class="btn ghost-edit" onclick="switchB3('edit')">编辑</button>
+        </div>
+      </div>
+      <div class="quote"><small>口头禅</small>「你先吃，妈不饿。」</div>
+      <div class="card-grid">
+        <div class="cap-card"><div class="head"><span class="t"><span class="ico">说</span>怎么说话</span></div><div class="txt">语速中等，句子偏长，一句话绕成三小句讲完。同一句叮嘱会在同一场戏里反复出现，每次添一个新细节。</div></div>
+        <div class="cap-card"><div class="head"><span class="t"><span class="ico">想</span>怎么想</span></div><div class="txt">孩子的安危高于一切，她的排序里没有「我想吃什么」，只有「谁还没吃」。</div></div>
+        <div class="cap-card wide"><div class="head"><span class="t"><span class="ico">画</span>标志性画面</span></div>
+          <div class="scene-mini">
+            <div><b>出场</b>把最好的一口留给别人，自己总说不饿。</div>
+            <div><b>叮嘱</b>「伞在你门后那把，蓝的那把」。</div>
+            <div><b>挽留</b>嘴上帮着看房子，回家把床单洗好晒好。</div>
+          </div>
+        </div>
+      </div>
+      <div class="library-card">
+        <div class="lib-head" onclick="toggleLib(this)">
+          <span class="l">资料库 <span class="sub">灵魂文档 + 6 份研究文件</span></span><span class="r">展开 ▾</span>
+        </div>
+        <div class="lib-body">
+          <div class="lib-nav"><div class="grp">灵魂文档</div><button class="active">全文概览</button>
+            <div class="grp">研究文件</div><button>公开资料</button><button>对话方式</button><button>表达特征</button>
+            <button>外部评价</button><button>决策记录</button><button>时间线</button></div>
+          <div class="lib-pane"><h3>全文概览</h3><p>（内容同 B-1）</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 编辑态 -->
+    <div class="body hidden" id="b3-edit">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:var(--edit-soft);border:1px solid var(--edit-line);border-radius:11px;position:sticky;top:60px;z-index:10">
+        <div style="display:flex;align-items:center;gap:9px">
+          <span class="badge edited">编辑中</span>
+          <span style="font-size:13px;color:var(--edit)">妈妈·全身心付出型</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn">恢复默认</button>
+          <button class="btn" onclick="switchB3('view')">取消</button>
+          <button class="btn primary" onclick="switchB3('view')">保存</button>
+        </div>
+      </div>
+
+      <div class="sec-label" style="margin-top:20px">基础</div>
+      <div class="ed-row" style="grid-template-columns:1fr;padding-left:0"><div class="v"><input value="妈妈·全身心付出型" /></div></div>
+      <div style="display:grid;gap:11px;margin-top:11px">
+        <div><div class="tiny" style="margin-bottom:4px">口头禅</div><input style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-family:inherit;font-size:13px" value="你先吃，妈不饿。" /></div>
+        <div><div class="tiny" style="margin-bottom:4px">可替换位置</div><input style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-family:inherit;font-size:13px" value="妈妈、奶奶、外婆、养母等抚养型长辈" /></div>
+        <div><div class="tiny" style="margin-bottom:4px">怎么说话</div><textarea style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-family:inherit;font-size:13px;line-height:1.6" rows="3">语速中等，句子偏长，一句话绕成三小句讲完——先说天气，再说衣，再说人。</textarea></div>
+        <div><div class="tiny" style="margin-bottom:4px">怎么想</div><textarea style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-family:inherit;font-size:13px;line-height:1.6" rows="3">孩子的安危高于一切，她的排序里没有「我想吃什么」，只有「谁还没吃」。</textarea></div>
+        <div><div class="tiny" style="margin-bottom:4px">标志性画面</div><textarea style="width:100%;border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-family:inherit;font-size:13px;line-height:1.6" rows="4">把最好的一口留给别人，自己总说不饿。
+从「带伞了吗」变成「伞在你门后那把，蓝的那把」。
+嘴上帮着看房子，回家却把那张床的床单洗好晒好。</textarea></div>
+      </div>
+      <div class="tiny" style="margin-top:14px">恢复默认会清空你对这个内置灵魂做过的所有修改，恢复到软件出厂时的内容。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- B-4：编辑抽屉 -->
+<!-- ============================================================ -->
+<div data-panel="b4" class="hidden">
+  <div class="note-bar info">
+    <b>方案 B-4 · 编辑抽屉。</b>点「编辑」后不跳页，而是从详情页下方滑出一块可折叠的编辑区，浏览内容始终留在上方可见，方便边看边改。
+    <ul>
+      <li><b>优点：</b>改的时候能对照上面的成品效果，心理负担最小。</li>
+      <li><b>缺点：</b>页面变长，编辑区在下方要滚动才能看到。</li>
+    </ul>
+  </div>
+
+  <div class="window">
+    <div class="window-bar">
+      <span class="back">← 返回灵魂库</span>
+      <span class="crumb">灵魂 / 妈妈·全身心付出型</span>
+    </div>
+    <div class="body">
+      <div class="identity-band">
+        <div class="avatar">母</div>
+        <div class="info">
+          <div class="n">妈妈·全身心付出型 <span class="badge edited">已修改</span></div>
+          <div class="m">角色原型 · 可替换 4 个位置</div>
+        </div>
+        <div class="actions">
+          <button class="btn primary">选择小说人物 ▾</button>
+        </div>
+      </div>
+
+      <div class="quote"><small>口头禅</small>「你先吃，妈不饿。」</div>
+
+      <div class="card-grid">
+        <div class="cap-card"><div class="head"><span class="t"><span class="ico">说</span>怎么说话</span></div><div class="txt">语速中等，句子偏长，一句话绕成三小句讲完。同一句叮嘱会在同一场戏里反复出现。</div></div>
+        <div class="cap-card"><div class="head"><span class="t"><span class="ico">画</span>标志性画面</span></div><div class="txt">把最好的一口留给别人，自己总说不饿。</div></div>
+      </div>
+
+      <!-- 编辑抽屉 -->
+      <div class="edit-drawer">
+        <div class="ed-head">
+          <span class="t">修改内容</span>
+          <span style="display:flex;gap:7px">
+            <button class="btn">恢复默认</button>
+            <button class="btn">取消</button>
+            <button class="btn primary">保存</button>
+          </span>
+        </div>
+        <div class="ed-body">
+          <div class="ed-row">
+            <div class="k">口头禅</div>
+            <div class="v"><input value="你先吃，妈不饿。" /></div>
+          </div>
+          <div class="ed-row">
+            <div class="k">可替换位置</div>
+            <div class="v"><input value="妈妈、奶奶、外婆、养母等抚养型长辈" /></div>
+          </div>
+          <div class="ed-row">
+            <div class="k">怎么说话</div>
+            <div class="v"><textarea rows="2">语速中等，句子偏长，一句话绕成三小句讲完——先说天气，再说衣，再说人。</textarea></div>
+          </div>
+          <div class="ed-row">
+            <div class="k">怎么想</div>
+            <div class="v"><textarea rows="2">孩子的安危高于一切，她的排序里没有「我想吃什么」，只有「谁还没吃」。</textarea></div>
+          </div>
+          <div class="ed-row">
+            <div class="k">标志性画面</div>
+            <div class="v"><textarea rows="3">把最好的一口留给别人，自己总说不饿。
+从「带伞了吗」变成「伞在你门后那把，蓝的那把」。
+嘴上帮着看房子，回家却把那张床的床单洗好晒好。</textarea></div>
+          </div>
+        </div>
+        <div class="ed-foot">
+          <button class="btn danger" onclick="openModal()">恢复为默认状态</button>
+          <span class="tip">恢复后，这个内置灵魂会回到软件出厂时的内容</span>
+        </div>
+      </div>
+
+      <div class="library-card">
+        <div class="lib-head" onclick="toggleLib(this)">
+          <span class="l">资料库 <span class="sub">灵魂文档 + 6 份研究文件</span></span><span class="r">展开 ▾</span>
+        </div>
+        <div class="lib-body">
+          <div class="lib-nav"><div class="grp">灵魂文档</div><button class="active">全文概览</button>
+            <div class="grp">研究文件</div><button>公开资料</button><button>对话方式</button><button>表达特征</button>
+            <button>外部评价</button><button>决策记录</button><button>时间线</button></div>
+          <div class="lib-pane"><h3>全文概览</h3><p>（内容同 B-1）</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 恢复确认弹窗 -->
+<div class="modal-mask" id="modal">
+  <div class="modal">
+    <div class="top">
+      <h3>恢复为默认状态？</h3>
+      <p>你将丢失对这个内置灵魂做过的所有修改，恢复到软件出厂时的内容。此操作不可撤销。</p>
+      <div class="list">
+        <div style="font-weight:600;margin-bottom:5px;color:var(--text)">会被重置的内容：</div>
+        <ul style="margin:0;padding-left:18px">
+          <li>口头禅、可替换位置</li>
+          <li>怎么说话 / 怎么想 / 怎么判断 / 什么不做</li>
+          <li>标志性画面</li>
+        </ul>
+      </div>
+      <div class="tiny" style="margin-top:10px">你为这个灵魂建立的「人物绑定」不会被删除。</div>
+    </div>
+    <div class="foot">
+      <button class="btn" onclick="closeModal()">取消</button>
+      <button class="btn danger" onclick="closeModal()">确认恢复</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const buttons = document.querySelectorAll('.switcher button');
+  const panels = document.querySelectorAll('[data-panel]');
+  buttons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      buttons.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      const v = btn.getAttribute('data-view');
+      panels.forEach(function (p) {
+        p.classList.toggle('hidden', p.getAttribute('data-panel') !== v);
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+
+  function toggleLib(head) {
+    const body = head.nextElementSibling;
+    body.classList.toggle('open');
+    head.querySelector('.r').textContent = body.classList.contains('open') ? '收起 ▴' : '展开 ▾';
+  }
+
+  document.querySelectorAll('.lib-nav button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      b.parentElement.querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
+      b.classList.add('active');
+    });
+  });
+
+  function switchB3(mode) {
+    document.getElementById('b3-view').classList.toggle('hidden', mode !== 'view');
+    document.getElementById('b3-edit').classList.toggle('hidden', mode !== 'edit');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function openModal() { document.getElementById('modal').classList.add('open'); }
+  function closeModal() { document.getElementById('modal').classList.remove('open'); }
+  document.getElementById('modal').addEventListener('click', function (e) {
+    if (e.target === this) closeModal();
+  });
+</script>
+</body>
+</html>

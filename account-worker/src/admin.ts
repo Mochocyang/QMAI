@@ -41,6 +41,7 @@ interface SessionRow {
   email: string | null
   display_name: string | null
   device_label: string | null
+  device_id: string | null
   created_at: number
   last_used_at: number
   expires_at: number
@@ -70,7 +71,7 @@ export async function handleAdminListSessions(request: Request, env: Env, url: U
   args.push(size, (page - 1) * size)
 
   const rows = await env.DB.prepare(
-    `SELECT s.id, s.user_id, u.email, u.display_name, s.device_label,
+    `SELECT s.id, s.user_id, u.email, u.display_name, s.device_label, s.device_id,
             s.created_at, s.last_used_at, s.expires_at, s.revoked_at
        FROM sessions s
        LEFT JOIN users u ON u.id = s.user_id
@@ -96,6 +97,7 @@ export async function handleAdminListSessions(request: Request, env: Env, url: U
         email: row.email,
         displayName: row.display_name,
         deviceLabel: row.device_label,
+        deviceId: row.device_id ?? null,
         createdAt: row.created_at,
         lastUsedAt: row.last_used_at,
         expiresAt: row.expires_at,

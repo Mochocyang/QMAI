@@ -1,0 +1,1 @@
+import{_ as e,x as t}from"./fs-CFNVvTIG.js";import{u as n}from"./path-utils-CA6G028g.js";var r=`soul.md`;async function i(t){let i=n(t);try{return await e(`${i}/${r}`)}catch{return``}}async function a(e,i){let a=n(e);await t(`${a}/${r}`,i)}export{a as n,i as t};

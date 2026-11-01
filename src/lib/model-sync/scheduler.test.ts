@@ -15,13 +15,13 @@ describe("shouldPull", () => {
     expect(shouldPull(null, 1_000)).toBe(true)
   })
 
-  it("距上次不足 5 分钟 → 不拉（省请求）", () => {
+  it("距上次不足 15 分钟 → 不拉（省请求）", () => {
     const now = 10_000_000
     expect(shouldPull(now - 60_000, now)).toBe(false)
     expect(shouldPull(now - (PULL_MIN_INTERVAL_MS - 1), now)).toBe(false)
   })
 
-  it("距上次超过 5 分钟 → 拉", () => {
+  it("距上次超过 15 分钟 → 拉", () => {
     const now = 10_000_000
     expect(shouldPull(now - PULL_MIN_INTERVAL_MS, now)).toBe(true)
   })

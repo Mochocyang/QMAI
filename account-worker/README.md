@@ -92,7 +92,9 @@ AUTH_CODE_PEPPER=local-dev-pepper-16
 ENVIRONMENT=development
 ALLOW_DEV_CODE=true
 APP_ALLOWED_ORIGINS=tauri://localhost,https://tauri.localhost,http://localhost:1420,http://127.0.0.1:1420
-# 可选：没有 Resend key 时开发模式会把验证码打到终端
+# 必须显式置空：wrangler.toml 里 EMAIL_PROVIDER 写死是 resend，
+# 不覆盖的话开发模式也会真去请求 Resend，缺 key 时 send-code 直接 502。
+EMAIL_PROVIDER=
 RESEND_API_KEY=
 AUTH_EMAIL_FROM="青幕AI写作 <no-reply@example.com>"
 ```
@@ -113,7 +115,11 @@ cd account-worker
 npm run smoke
 ```
 
-`test/smoke.mjs` 只访问 `http://127.0.0.1:8787`（可用 `ACCOUNT_BASE_URL` 覆盖），覆盖发码、注册、me、refresh 轮换、旧 token 重放、登录、退出、重置密码与 CORS。脚本会等待 61 秒验证发码冷却，总耗时约 1 分钟。
+`test/smoke.mjs` 只访问 `http://127.0.0.1:8787`（可用 `ACCOUNT_BASE_URL` 覆盖），覆盖发码、注册、me、refresh 轮换、旧 token 重放、登录、退出、重置密码、CORS 与 IP 发码限额。
+
+脚本会等待 61 秒验证发码冷却，总耗时约 1 分钟。
+
+> 注意：每条用例用 `X-Forwarded-For` 显式分配独立 IP。服务端限制同一 IP 每小时 3 次发码，若新增用例复用同一个 IP 就会撞上限——新增发码用例时请给它一个没用过的 IP。
 
 ## 客户端地址
 

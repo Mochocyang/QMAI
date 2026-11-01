@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { PencilLine, Plus, Save, Sparkles, Trash2 } from "lucide-react"
+import { PencilLine, Plus, RotateCcw, Save, Sparkles, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -14,10 +14,14 @@ import {
   getCharacterAuraBindings,
   listBindableNovelCharacters,
   listCharacterAuras,
+  listEditedBuiltInAuraIds,
   loadCharacterAuraResearchDocument,
+  loadCharacterAuraStore,
   loadCharacterAuraSkillDocument,
   refineBindableCharactersWithLlm,
   unbindCharacterAura,
+  updateBuiltInCharacterAura,
+  resetBuiltInCharacterAura,
   updateCustomCharacterAura,
   type CharacterAura,
   type CharacterAuraBinding,
@@ -44,6 +48,9 @@ type AuraFormState = {
   behaviorRules: string
   boundaries: string
   notes: string
+  /** 台词与画面在表单里用「每行一条」的纯文本维护，比数组编辑器轻，也方便粘贴。 */
+  signatureLinesText: string
+  signatureScenesText: string
   sourceUrls: string
   localDocumentPaths: string
   generationPrompt: string
@@ -51,6 +58,8 @@ type AuraFormState = {
 }
 
 const EMPTY_FORM: AuraFormState = {
+  signatureLinesText: "",
+  signatureScenesText: "",
   name: "",
   category: "",
   sourceNote: "",
@@ -70,6 +79,14 @@ const EMPTY_FORM: AuraFormState = {
   enableWebSearch: false,
 }
 
+/** 把「每行一条」的文本拆成数组：去掉空行与首尾空白，顺手清掉用户可能带进来的引号。 */
+function splitSignatureLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/^[「『"]+|[」』"]+$/g, "").trim())
+    .filter((line) => line.length > 0)
+}
+
 function formFromAura(aura: CharacterAura) {
   return {
     portablePersonality: aura.portablePersonality,
@@ -85,7 +102,8 @@ function formFromAura(aura: CharacterAura) {
     honestyBoundaries: aura.honestyBoundaries ?? aura.boundaries,
     behaviorRules: aura.behaviorRules,
     boundaries: aura.boundaries,
-    notes: aura.notes,
+    signatureLinesText: (aura.signatureLines ?? []).join("\n"),
+    signatureScenesText: (aura.signatureScenes ?? []).join("\n"),
     sourceUrls: aura.sourceUrls ?? "",
     localDocumentPaths: aura.localDocumentPaths ?? "",
     generationPrompt: aura.generationPrompt ?? "",
@@ -155,6 +173,16 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
   const [isGeneratingCustomAura, setIsGeneratingCustomAura] = useState(false)
   const [generationProgress, setGenerationProgress] = useState<CharacterAuraGenerationProgress | null>(null)
   const [message, setMessage] = useState("")
+  /**
+   * 被用户改过的内置灵魂 id 集合。
+   *
+   * 为什么单独存而不从 `auras` 里推断：出厂内容与改后内容可能长得一样（用户改完又改回去），
+   * 只看内容判断不出「有没有改动记录」。「恢复默认」按钮的可用状态依赖这个集合。
+   */
+  const [editedBuiltInIds, setEditedBuiltInIds] = useState<Set<string>>(new Set())
+  const [builtInForm, setBuiltInForm] = useState<AuraFormState>(EMPTY_FORM)
+  const [builtInEditing, setBuiltInEditing] = useState(false)
+  const [resetCandidate, setResetCandidate] = useState<CharacterAura | null>(null)
   const [soulTab, setSoulTab] = useState<"project" | "character">("project")
   // 同一项目同一时间只允许一条后台精修在飞，避免重复请求模型。
   const refiningProjectsRef = useRef<Set<string>>(new Set())
@@ -235,6 +263,9 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
     await runAction(async () => {
       const loaded = await listCharacterAuras(path)
       setAuras(loaded)
+      // 覆盖层里出现过的内置 id 就是「用户改过」；恢复默认后这里会同步收窄。
+      const store = await loadCharacterAuraStore(path)
+      setEditedBuiltInIds(new Set(listEditedBuiltInAuraIds(store)))
       setSelectedId((current) => {
         const currentSelectedId = hideSidebar ? (storedSelectedSoulId ?? "") : current
         // 正在新建自定义灵魂时保留哨兵选中值，否则会被回退值覆盖，导致新建表单被立即关闭。
@@ -442,6 +473,58 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
     setMode("edit")
     setShowCustomEditor(true)
   }
+  /** 进入内置灵魂的编辑抽屉。内置灵魂不进 customAuras，所以单独一套表单状态。 */
+  function handleStartEditingBuiltIn() {
+    if (!selected || !selected.builtIn || blockWhileGenerating()) return
+    setBuiltInForm(formFromAura(selected))
+    setBuiltInEditing(true)
+  }
+
+  async function handleSaveBuiltIn() {
+    const project = useWikiStore.getState().project
+    if (!project || !selected || !selected.builtIn || blockWhileGenerating()) return
+    if (!builtInForm.name.trim()) {
+      setMessage("灵魂名称不能为空")
+      return
+    }
+    const targetId = selected.id
+    const patch = {
+      name: builtInForm.name,
+      category: builtInForm.category,
+      sourceNote: builtInForm.sourceNote,
+      styleDescription: builtInForm.styleDescription,
+      expressionDna: builtInForm.expressionDna,
+      mentalModel: builtInForm.mentalModel,
+      decisionHeuristics: builtInForm.decisionHeuristics,
+      valueAntiPatterns: builtInForm.valueAntiPatterns,
+      honestyBoundaries: builtInForm.honestyBoundaries,
+      signatureLines: splitSignatureLines(builtInForm.signatureLinesText),
+      signatureScenes: splitSignatureLines(builtInForm.signatureScenesText),
+    }
+    await runAction(async () => {
+      await updateBuiltInCharacterAura(project.path, targetId, patch)
+      setAuras(await listCharacterAuras(project.path))
+      const store = await loadCharacterAuraStore(project.path)
+      setEditedBuiltInIds(new Set(listEditedBuiltInAuraIds(store)))
+      setBuiltInEditing(false)
+      setMessage("已保存修改。内置灵魂的原始定义仍保留，可随时恢复默认。")
+    }, "保存内置灵魂修改失败，请稍后重试")
+  }
+
+  async function handleConfirmReset() {
+    const project = useWikiStore.getState().project
+    const target = resetCandidate
+    if (!project || !target) return
+    await runAction(async () => {
+      await resetBuiltInCharacterAura(project.path, target.id)
+      setAuras(await listCharacterAuras(project.path))
+      const store = await loadCharacterAuraStore(project.path)
+      setEditedBuiltInIds(new Set(listEditedBuiltInAuraIds(store)))
+      setResetCandidate(null)
+      setBuiltInEditing(false)
+      setMessage(`已把「${target.name}」恢复为默认状态。`)
+    }, "恢复默认失败，请稍后重试")
+  }
 
   return (
     <div data-ui="soul-role-content" className="flex flex-col h-full">
@@ -586,20 +669,44 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
               </div>
             )
           ) : selected && selected.builtIn ? (
-            <AuraDetails
-              aura={selected}
-              badgeLabel="内置灵魂"
-              actionsDisabled={isGeneratingCustomAura}
-              characterOptions={characterOptions}
-              characterOptionsLoading={characterOptionsLoading}
-              bindings={selectedBindings}
-              onBind={handleBindCharacter}
-              onUnbind={handleUnbind}
-            />
+            <>
+              <AuraDetails
+                aura={selected}
+                badgeLabel="内置灵魂"
+                edited={editedBuiltInIds.has(selected.id)}
+                onEdit={blockWhileGenerating() ? undefined : () => void handleStartEditingBuiltIn()}
+                onReset={editedBuiltInIds.has(selected.id) ? () => setResetCandidate(selected) : undefined}
+                actionsDisabled={isGeneratingCustomAura}
+                characterOptions={characterOptions}
+                characterOptionsLoading={characterOptionsLoading}
+                bindings={selectedBindings}
+                onBind={handleBindCharacter}
+                onUnbind={handleUnbind}
+              />
+              {builtInEditing && (
+                <BuiltInAuraEditDrawer
+                  aura={selected}
+                  form={builtInForm}
+                  setForm={setBuiltInForm}
+                  saving={isGeneratingCustomAura}
+                  onCancel={() => setBuiltInEditing(false)}
+                  onSave={() => void handleSaveBuiltIn()}
+                  onReset={() => setResetCandidate(selected)}
+                />
+              )}
+            </>
           ) : null}
         </div>
       </main>
         </div>
+      )}
+
+      {resetCandidate && (
+        <ResetBuiltInAuraDialog
+          aura={resetCandidate}
+          onCancel={() => setResetCandidate(null)}
+          onConfirm={() => void handleConfirmReset()}
+        />
       )}
     </div>
   )
@@ -608,7 +715,9 @@ export function CharacterAuraView({ hideSidebar = false }: { hideSidebar?: boole
 function AuraDetails({
   aura,
   badgeLabel,
+  edited = false,
   onEdit,
+  onReset,
   onDelete,
   actionsDisabled = false,
   characterOptions,
@@ -619,7 +728,10 @@ function AuraDetails({
 }: {
   aura: CharacterAura
   badgeLabel: string
+  /** 内置灵魂是否被用户改过（由覆盖层决定）；只有改过才允许「恢复默认」。 */
+  edited?: boolean
   onEdit?: () => void
+  onReset?: () => void
   onDelete?: () => void
   actionsDisabled?: boolean
   characterOptions: string[]
@@ -629,10 +741,26 @@ function AuraDetails({
   onUnbind: (characterName: string) => void
 }) {
   const project = useWikiStore((s) => s.project)
+  /**
+   * 台词与画面：优先用结构化字段；老数据没有这两个字段时，退回到 corpus 里的关键词，
+   * 至少不让面板空成一片（用户看到的会是提炼语而不是假台词，比编一句假对白诚实）。
+   */
+  const signatureLines = useMemo(() => {
+    const lines = (aura.signatureLines ?? []).filter((line) => line.trim().length > 0)
+    if (lines.length > 0) return lines
+    const fallback = (aura.corpus ?? "").split(/[、；;]/).map((part) => part.trim()).filter(Boolean)
+    return fallback.length > 0 ? [fallback[0]] : []
+  }, [aura.signatureLines, aura.corpus])
+  const signatureScenes = useMemo(
+    () => (aura.signatureScenes ?? []).filter((scene) => scene.trim().length > 0),
+    [aura.signatureScenes],
+  )
+
+  const [libraryOpen, setLibraryOpen] = useState(false)
   const [skillDocument, setSkillDocument] = useState("")
   const [skillLoading, setSkillLoading] = useState(false)
   const [skillError, setSkillError] = useState("")
-  const [researchFile, setResearchFile] = useState<CharacterAuraResearchFileName>("01-writings.md")
+  const [researchFile, setResearchFile] = useState<CharacterAuraResearchFileName | null>(null)
   const [researchDocument, setResearchDocument] = useState("")
   const [researchLoading, setResearchLoading] = useState(false)
   const [researchError, setResearchError] = useState("")
@@ -662,14 +790,15 @@ function AuraDetails({
     let cancelled = false
     setResearchDocument("")
     setResearchError("")
-    if (!aura.skillFolder) return
+    // 资料库收起、或停在「全文概览」时，不必去读研究文件。
+    if (!aura.skillFolder || !libraryOpen || researchFile === null) return
     setResearchLoading(true)
     loadCharacterAuraResearchDocument(aura, researchFile, project?.path)
       .then((document) => {
         if (!cancelled) setResearchDocument(document)
       })
       .catch(() => {
-        if (!cancelled) setResearchError(`研究文件读取失败：${aura.skillFolder}/references/research/${researchFile}`)
+        if (!cancelled) setResearchError(`研究文件读取失败：${researchFile}`)
       })
       .finally(() => {
         if (!cancelled) setResearchLoading(false)
@@ -677,17 +806,41 @@ function AuraDetails({
     return () => {
       cancelled = true
     }
-  }, [aura.id, aura.skillFolder, researchFile, project?.path])
+  }, [aura.id, aura.skillFolder, libraryOpen, researchFile, project?.path])
 
   return (
     <div className="rounded-lg border bg-card p-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="min-w-0 text-xl font-semibold">{aura.name}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-lg font-semibold text-primary">
+            {aura.name.slice(0, 1)}
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="min-w-0 truncate text-xl font-semibold">{aura.name}</h2>
+              {edited && (
+                <span data-ui="soul-edited-badge" className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+                  已修改
+                </span>
+              )}
+            </div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {aura.category ?? "自定义灵魂"}
+              {aura.builtIn ? " · 内置灵魂" : " · 自定义灵魂"}
+            </div>
+          </div>
+        </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {onEdit && (
             <Button variant="outline" size="sm" onClick={onEdit} disabled={actionsDisabled}>
               <PencilLine className="mr-2 h-4 w-4" />
-              编辑灵魂
+              编辑
+            </Button>
+          )}
+          {onReset && (
+            <Button variant="outline" size="sm" onClick={onReset} disabled={actionsDisabled || !edited}>
+              <RotateCcw className="mr-2 h-4 w-4" />
+              恢复默认
             </Button>
           )}
           {onDelete && (
@@ -714,53 +867,348 @@ function AuraDetails({
         </div>
       </div>
 
-      <Detail label="人物分类" value={aura.category ?? "自定义灵魂"} />
-      <Detail label="灵魂文件夹" value={aura.skillFolder ?? "未关联灵魂文件夹"} />
-      {!aura.builtIn && (
-        <>
-          <Detail label="生成提示词" value={aura.generationPrompt ?? ""} />
-          <Detail label="AI 搜索" value={aura.webSearchEnabled ? "已开启" : "未开启"} />
-        </>
-      )}
-      <Detail label="气质说明" value={aura.sourceNote} />
-      <Detail label="灵魂摘要" value={aura.styleDescription} />
-      <Detail label="怎么说话 / 表达特征" value={aura.expressionDna ?? aura.styleDescription} />
-      <Detail label="怎么想 / 心智模型" value={aura.mentalModel ?? aura.corpus} />
-      <Detail label="怎么判断 / 决策启发式" value={aura.decisionHeuristics ?? aura.behaviorRules} />
-      <Detail label="什么不做 / 价值观反模式" value={aura.valueAntiPatterns ?? aura.notes} />
-      <Detail label="知道局限 / 诚实边界" value={aura.honestyBoundaries ?? aura.boundaries} />
-
-      <div className="mt-5 rounded-md border bg-muted/20 p-4">
-        <div className="mb-2 text-sm font-medium">灵魂文档预览</div>
-        {skillLoading && <div className="text-sm text-muted-foreground">正在读取灵魂文档。</div>}
-        {skillError && <div className="text-sm text-destructive">{skillError}</div>}
-        {!skillLoading && !skillError && skillDocument && <pre className="max-h-96 overflow-auto whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{skillDocument}</pre>}
-        {!skillLoading && !skillError && !skillDocument && <div className="text-sm text-muted-foreground">暂无灵魂文档。</div>}
+      <div data-ui="soul-signature-quote" className="mt-4 rounded-r-lg border-l-[3px] border-primary bg-primary/5 px-4 py-3">
+        <div className="mb-2 text-[11px] tracking-widest text-primary/80">标志性台词</div>
+        {signatureLines.length > 0 ? (
+          <div className="space-y-1.5">
+            {signatureLines.map((line, index) => (
+              <div key={index} className="text-[15px] leading-7 text-foreground">
+                「{line}」
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-sm text-muted-foreground">尚未设置标志性台词。</div>
+        )}
       </div>
 
-      <div className="mt-5 rounded-md border bg-muted/20 p-4">
-        <div className="mb-3 text-sm font-medium">研究文件</div>
-        <div className="mb-3 flex flex-wrap gap-2">
-          {CHARACTER_AURA_RESEARCH_FILES.map((file) => (
-            <button
-              key={file.fileName}
-              type="button"
-              onClick={() => setResearchFile(file.fileName)}
-              className={`rounded-md border px-2 py-1 text-xs ${researchFile === file.fileName ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-accent"}`}
-            >
-              {file.label}
-            </button>
+      <div data-ui="soul-signature-scenes" className="mt-3 rounded-lg border bg-muted/20 px-4 py-3">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-[11px] tracking-widest text-muted-foreground">标志性动作</div>
+          {signatureScenes.length > 0 && <div className="text-[11px] text-muted-foreground">{signatureScenes.length} 条</div>}
+        </div>
+        {signatureScenes.length > 0 ? (
+          <div className="grid gap-2 md:grid-cols-2">
+            {signatureScenes.map((scene, index) => (
+              <div key={index} className="rounded-md border-l-2 border-primary/40 bg-background px-3 py-2 text-[13px] leading-6 text-muted-foreground">
+                {scene}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-sm text-muted-foreground">尚未设置标志性动作。</div>
+        )}
+      </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <AuraCapabilityCard title="怎么说话" icon="说" text={aura.expressionDna ?? aura.styleDescription} />
+          <AuraCapabilityCard title="怎么想" icon="想" text={aura.mentalModel ?? aura.corpus} />
+          <AuraCapabilityCard title="怎么判断" icon="判" text={aura.decisionHeuristics ?? aura.behaviorRules} />
+          <AuraCapabilityCard title="什么不做" icon="避" text={aura.valueAntiPatterns ?? aura.notes} />
+        </div>
+
+        <div data-ui="soul-doc-library" className="mt-4 overflow-hidden rounded-lg border">
+          <button
+            type="button"
+            onClick={() => setLibraryOpen((open) => !open)}
+            className="flex w-full items-center justify-between gap-3 bg-muted/50 px-4 py-3 text-left text-sm font-medium hover:bg-muted"
+          >
+            <span className="flex items-center gap-2">
+              资料库
+              <span className="text-xs font-normal text-muted-foreground">灵魂文档 + 6 份研究文件</span>
+            </span>
+            <span className="text-xs text-muted-foreground">{libraryOpen ? "收起 ▴" : "展开 ▾"}</span>
+          </button>
+          {libraryOpen && (
+            <div className="grid md:grid-cols-[170px_1fr]">
+              <div className="border-b bg-muted/20 py-2 md:border-b-0 md:border-r">
+                <div className="px-4 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">灵魂文档</div>
+                <button
+                  type="button"
+                  onClick={() => setResearchFile(null)}
+                  className={`block w-full border-l-2 px-4 py-2 text-left text-xs ${researchFile === null ? "border-primary bg-primary/5 font-medium text-primary" : "border-transparent text-muted-foreground hover:bg-accent"}`}
+                >
+                  全文概览
+                </button>
+                <div className="px-4 py-1 pt-3 text-[10px] uppercase tracking-wider text-muted-foreground">研究文件</div>
+                {CHARACTER_AURA_RESEARCH_FILES.map((file) => (
+                  <button
+                    key={file.fileName}
+                    type="button"
+                    onClick={() => setResearchFile(file.fileName)}
+                    className={`block w-full border-l-2 px-4 py-2 text-left text-xs ${researchFile === file.fileName ? "border-primary bg-primary/5 font-medium text-primary" : "border-transparent text-muted-foreground hover:bg-accent"}`}
+                  >
+                    {file.label}
+                  </button>
+                ))}
+              </div>
+              <div className="min-h-[210px] p-4">
+                {researchFile === null ? (
+                  <>
+                    {skillLoading && <div className="text-sm text-muted-foreground">正在读取灵魂文档。</div>}
+                    {skillError && <div className="text-sm text-destructive">{skillError}</div>}
+                    {!skillLoading && !skillError && skillDocument && <AuraDocumentView markdown={skillDocument} />}
+                    {!skillLoading && !skillError && !skillDocument && <div className="text-sm text-muted-foreground">暂无灵魂文档。</div>}
+                  </>
+                ) : (
+                  <>
+                    {researchLoading && <div className="text-sm text-muted-foreground">正在读取研究文件。</div>}
+                    {researchError && <div className="text-sm text-destructive">{researchError}</div>}
+                    {!researchLoading && !researchError && researchDocument && <AuraDocumentView markdown={researchDocument} />}
+                    {!researchLoading && !researchError && !researchDocument && <div className="text-sm text-muted-foreground">暂无研究文件。</div>}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-4 border-t border-dashed pt-3 text-xs text-muted-foreground">
+          知道局限：{aura.honestyBoundaries ?? aura.boundaries}
+        </div>
+      </div>
+    )
+  }
+
+  /** 详情页的一张能力卡。长文默认折到三行，点一下展开，避免一屏被文字淹掉。 */
+  /**
+   * 内置灵魂的编辑抽屉。
+   *
+   * 为什么是抽屉而不是另开一页：改的时候用户需要对照上面那份成品效果（口头禅、能力卡、画面），
+   * 跳页就看不到了。抽屉只暴露台词、位置与四个能力字段，其余（id、文件夹、来源）不给改。
+   */
+  function BuiltInAuraEditDrawer({
+    aura,
+    form,
+    setForm,
+    saving,
+    onCancel,
+    onSave,
+    onReset,
+  }: {
+    aura: CharacterAura
+    form: AuraFormState
+    setForm: (form: AuraFormState) => void
+    saving: boolean
+    onCancel: () => void
+    onSave: () => void
+    onReset: () => void
+  }) {
+    const setField = (key: keyof AuraFormState, value: string) => setForm({ ...form, [key]: value })
+    const fields: Array<{ key: keyof AuraFormState; label: string; rows: number; hint?: string }> = [
+      { key: "name", label: "灵魂名称", rows: 0 },
+      { key: "category", label: "人物分类", rows: 0 },
+      { key: "signatureLinesText", label: "标志性台词", rows: 3, hint: "每行一条，不用加引号" },
+      { key: "signatureScenesText", label: "标志性动作", rows: 4, hint: "每行一个画面" },
+      { key: "expressionDna", label: "怎么说话", rows: 3, hint: "语气、句长、口头禅、禁忌" },
+      { key: "mentalModel", label: "怎么想", rows: 3, hint: "这个角色判断事情的底层依据" },
+      { key: "decisionHeuristics", label: "怎么判断", rows: 3, hint: "面对局面时的具体动作" },
+      { key: "valueAntiPatterns", label: "什么不做", rows: 3, hint: "写这个角色时不能犯的错" },
+      { key: "honestyBoundaries", label: "知道局限", rows: 2 },
+    ]
+    return (
+      <div data-ui="soul-builtin-edit-drawer" className="mt-6 overflow-hidden rounded-lg border border-blue-200">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-blue-200 bg-blue-50 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-blue-800">
+            <PencilLine className="h-4 w-4" />
+            修改内容
+            <span className="text-xs font-normal text-blue-600/80">只改这个项目里的副本，原始定义不会丢</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={onReset} disabled={saving}>
+              <RotateCcw className="mr-2 h-4 w-4" />
+              恢复默认
+            </Button>
+            <Button variant="outline" size="sm" onClick={onCancel} disabled={saving}>
+              取消
+            </Button>
+            <Button size="sm" onClick={onSave} disabled={saving}>
+              <Save className="mr-2 h-4 w-4" />
+              保存
+            </Button>
+          </div>
+        </div>
+        <div className="divide-y">
+          {fields.map((field) => (
+            <div key={field.key} className="grid gap-2 px-4 py-3 md:grid-cols-[120px_1fr] md:items-start">
+              <div className="pt-1 text-xs text-muted-foreground">
+                {field.label}
+                {field.hint && <span className="mt-0.5 block text-[11px] opacity-70">{field.hint}</span>}
+              </div>
+              <div>
+                {field.rows === 0 ? (
+                  <Input
+                    value={String(form[field.key] ?? "")}
+                    onChange={(event) => setField(field.key, event.target.value)}
+                    disabled={saving}
+                  />
+                ) : (
+                  <textarea
+                    value={String(form[field.key] ?? "")}
+                    onChange={(event) => setField(field.key, event.target.value)}
+                    rows={field.rows}
+                    disabled={saving}
+                    className="w-full resize-y rounded-md border bg-background px-3 py-2 text-[13px] leading-6 outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 disabled:opacity-60"
+                  />
+                )}
+              </div>
+            </div>
           ))}
         </div>
-        <div className="mb-2 text-xs text-muted-foreground">{researchFile}</div>
-        {researchLoading && <div className="text-sm text-muted-foreground">正在读取研究文件。</div>}
-        {researchError && <div className="text-sm text-destructive">{researchError}</div>}
-        {!researchLoading && !researchError && researchDocument && <pre className="max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-5 text-muted-foreground">{researchDocument}</pre>}
-        {!researchLoading && !researchError && !researchDocument && <div className="text-sm text-muted-foreground">暂无研究文件。</div>}
+        <div className="border-t bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground">
+          恢复默认会清空你对「{aura.name}」做过的所有修改，回到软件出厂时的内容。已绑定的人物关系不受影响。
+        </div>
       </div>
-    </div>
-  )
-}
+    )
+  }
+
+  /** 恢复默认的确认弹窗。破坏性操作不弹确认，用户会误点。 */
+  function ResetBuiltInAuraDialog({ aura, onCancel, onConfirm }: { aura: CharacterAura; onCancel: () => void; onConfirm: () => void }) {
+    return (
+      <div
+        data-ui="soul-reset-dialog"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4"
+        onClick={(event) => {
+          if (event.target === event.currentTarget) onCancel()
+        }}
+      >
+        <div className="w-full max-w-md overflow-hidden rounded-xl bg-background shadow-2xl">
+          <div className="px-5 pt-5">
+            <h3 className="text-base font-semibold">恢复为默认状态？</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              你将丢失对「{aura.name}」做过的所有修改，恢复到软件出厂时的内容。此操作不可撤销。
+            </p>
+            <div className="mt-3 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+              会被重置：口头禅、人物分类、怎么说话、怎么想、怎么判断、什么不做、知道局限。
+              <div className="mt-1">你为这个灵魂建立的人物绑定不会被删除。</div>
+            </div>
+          </div>
+          <div className="mt-5 flex justify-end gap-2 border-t px-5 py-3">
+            <Button variant="outline" size="sm" onClick={onCancel}>
+              取消
+            </Button>
+            <Button size="sm" variant="destructive" onClick={onConfirm}>
+              确认恢复
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  function AuraCapabilityCard({ title, icon, text }: { title: string; icon: string; text: string }) {
+    const [expanded, setExpanded] = useState(false)
+    const content = (text || "").trim()
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="rounded-lg border bg-card p-4 text-left transition-colors hover:border-primary/40"
+      >
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2 text-sm font-medium">
+            <span className="flex h-5 w-5 items-center justify-center rounded bg-primary/10 text-[11px] text-primary">{icon}</span>
+            {title}
+          </span>
+          <span className="text-[11px] text-muted-foreground">{expanded ? "收起" : "展开"}</span>
+        </div>
+        <div className={`text-[13px] leading-6 text-muted-foreground ${expanded ? "" : "line-clamp-3"}`}>
+          {content || "暂无内容。"}
+        </div>
+      </button>
+    )
+  }
+
+  /**
+   * 把 Markdown 渲染成读者能读的正文。
+   *
+   * 为什么不再用 `<pre>` 原样打印：原来把 `---`、`name:`、`description:` 这些 YAML 头部和 `##` 符号
+   * 全显示出来，看起来像开发调试视图，不像成品。这里只认标题、列表、引用三种最常用的语法，
+   * 不引入 Markdown 依赖 —— 灵魂文档是我们自己生成的，格式可控。
+   */
+  function AuraDocumentView({ markdown }: { markdown: string }) {
+    const blocks = useMemo(() => parseAuraMarkdown(markdown), [markdown])
+    return (
+      <div data-ui="soul-doc-rendered" className="space-y-2">
+        {blocks.map((block, index) => {
+          if (block.type === "quote") {
+            return (
+              <blockquote key={index} className="border-l-2 border-primary/30 bg-muted/40 px-3 py-2 text-[13px] text-muted-foreground">
+                {block.text}
+              </blockquote>
+            )
+          }
+          if (block.type === "heading") {
+            return (
+              <div key={index} className="pt-1 text-sm font-semibold">
+                {block.text}
+              </div>
+            )
+          }
+          if (block.type === "subheading") {
+            return (
+              <div key={index} className="pt-1 text-[13px] font-medium text-primary">
+                {block.text}
+              </div>
+            )
+          }
+          if (block.type === "list") {
+            return (
+              <ul key={index} className="list-disc space-y-1 pl-5 text-[13px] leading-6 text-muted-foreground">
+                {block.items.map((item, itemIndex) => (
+                  <li key={itemIndex}>{item}</li>
+                ))}
+              </ul>
+            )
+          }
+          return (
+            <p key={index} className="text-[13px] leading-6 text-muted-foreground">
+              {block.text}
+            </p>
+          )
+        })}
+      </div>
+    )
+  }
+
+  type AuraDocBlock =
+    | { type: "heading"; text: string }
+    | { type: "subheading"; text: string }
+    | { type: "paragraph"; text: string }
+    | { type: "quote"; text: string }
+    | { type: "list"; items: string[] }
+
+  /** 极简 Markdown 解析：丢掉 frontmatter，只保留标题、列表、引用和段落。 */
+  function parseAuraMarkdown(markdown: string): AuraDocBlock[] {
+    const withoutFrontmatter = markdown.replace(/^---[\s\S]*?\n---[ \t]*\n?/, "")
+    const blocks: AuraDocBlock[] = []
+    let list: string[] = []
+    const flushList = () => {
+      if (list.length > 0) {
+        blocks.push({ type: "list", items: list })
+        list = []
+      }
+    }
+    for (const rawLine of withoutFrontmatter.split(/\r?\n/)) {
+      const line = rawLine.trim()
+      if (!line) {
+        flushList()
+        continue
+      }
+      if (line.startsWith("- ")) {
+        list.push(line.slice(2).trim())
+        continue
+      }
+      flushList()
+      if (line.startsWith("### ")) blocks.push({ type: "subheading", text: line.slice(4).trim() })
+      else if (line.startsWith("## ")) blocks.push({ type: "subheading", text: line.slice(3).trim() })
+      else if (line.startsWith("# ")) blocks.push({ type: "heading", text: line.slice(2).trim() })
+      else if (line.startsWith("> ")) blocks.push({ type: "quote", text: line.slice(2).trim() })
+      else if (line.startsWith("|")) continue
+      else blocks.push({ type: "paragraph", text: line })
+    }
+    flushList()
+    return blocks
+  }
 
 function CustomAuraForm({
   form,
@@ -991,15 +1439,6 @@ function CharacterBindingControl({
       <span className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
         {boundNames.length > 0 ? `已绑定${boundNames.join("、")}` : badgeLabel}
       </span>
-    </div>
-  )
-}
-
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="mb-4">
-      <div className="text-sm font-semibold text-foreground">{label}</div>
-      <div className="mt-1 whitespace-pre-wrap text-sm font-normal leading-6 text-muted-foreground">{value || "未填写"}</div>
     </div>
   )
 }

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 内置模型网关的接入层（网关卡版）。
  *
  * ## 与上一版的区别
@@ -133,6 +133,55 @@ export async function gatewayListModels(
   netcard: string,
   fetchImpl?: FetchLike,
 ): Promise<string[]> {
+  const catalog = await gatewayListModelCatalog(relayBaseUrl, netcard, fetchImpl)
+  return [...new Set(catalog.map((item) => item.id))]
+}
+
+/**
+ * 网关清单里的一条模型，字段与 `GET /v1/models` 对齐。
+ *
+ * 老网关只回 `{ id }`，所以除 `id` 外全部可选：缺字段时由客户端回落到本地默认值，
+ * 不能因为多了一个字段就对老网关报错。
+ */
+export interface GatewayModelInfo {
+  id: string
+  /** 下拉框展示名（控制台里配的展示名） */
+  displayName?: string
+  /** 一句话定位 */
+  note?: string
+  /** 等级：lite / standard / pro / max */
+  tier?: string
+  /** 当前生效倍率（已含时段规则） */
+  ratio?: number
+  /** 基础倍率（不含时段规则） */
+  baseRatio?: number
+  /** 当前命中的时段规则名；没有规则时为 null */
+  rule?: string | null
+  /** 上下文窗口（tokens） */
+  contextSize?: number
+  /** 单次输出上限（tokens） */
+  maxOutput?: number
+}
+
+function pickNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined
+}
+
+function pickString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined
+}
+
+/**
+ * 拉取完整模型目录：倍率、等级、展示名都在这里。
+ *
+ * 倍率是「实时」的：控制台改完倍率，网关下一次请求就回新值（网关侧不再缓存）。
+ * 客户端只要在打开下拉框时重新拉一次，用户看到的就是控制台里的最新倍率。
+ */
+export async function gatewayListModelCatalog(
+  relayBaseUrl: string,
+  netcard: string,
+  fetchImpl?: FetchLike,
+): Promise<GatewayModelInfo[]> {
   const base = normalizeGatewayBaseUrl(relayBaseUrl)
   if (!netcard) throw new GatewayError("请先登录账号，再使用内置模型。", "unauthorized")
   const { payload } = await httpJson(
@@ -143,10 +192,38 @@ export async function gatewayListModels(
   )
   const record = (payload ?? {}) as Record<string, unknown>
   const data = Array.isArray(record.data) ? record.data : []
-  const ids = data
-    .map((item) => (typeof item === "string" ? item : String((item as Record<string, unknown>)?.id ?? "")))
-    .filter((id) => id.trim().length > 0)
-  return [...new Set(ids)]
+
+  const seen = new Set<string>()
+  const catalog: GatewayModelInfo[] = []
+  for (const item of data) {
+    if (typeof item === "string") {
+      const id = item.trim()
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      catalog.push({ id })
+      continue
+    }
+    if (!item || typeof item !== "object") continue
+    const row = item as Record<string, unknown>
+    const id = pickString(row.id) ?? ""
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    const ruleName = row.active_rule && typeof row.active_rule === "object"
+      ? pickString((row.active_rule as Record<string, unknown>).name) ?? null
+      : null
+    catalog.push({
+      id,
+      displayName: pickString(row.display_name),
+      note: pickString(row.note),
+      tier: pickString(row.tier),
+      ratio: pickNumber(row.ratio),
+      baseRatio: pickNumber(row.base_ratio),
+      rule: ruleName,
+      contextSize: pickNumber(row.context_size),
+      maxOutput: pickNumber(row.max_output),
+    })
+  }
+  return catalog
 }
 
 export interface GatewayProbeResult {

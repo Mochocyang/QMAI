@@ -53,7 +53,24 @@ assert(
   "preflight allows Authorization header",
 )
 
-const send = await request("/v1/auth/send-code", "POST", { email, purpose: "register" })
+/*
+ * 每条「成功发码」用例显式分配独立 IP。
+ *
+ * 服务端对同一 IP 限制每小时 3 次发码（IP_SEND_HOURLY_LIMIT），
+ * 本脚本主线有 3 次成功发码（注册、重置、超长请求被拒前的那次），
+ * 若都走默认 IP 就会顶到上限。显式分 IP 后，各用例之间的额度互不干扰，
+ * 测试也不再依赖「同一 IP 能发多次」这个已经收紧掉的旧前提。
+ */
+const IP_MAIN = "203.0.113.1"
+const IP_RESET = "203.0.113.2"
+const IP_OVERSIZED = "203.0.113.3"
+
+const send = await request(
+  "/v1/auth/send-code",
+  "POST",
+  { email, purpose: "register" },
+  { "X-Forwarded-For": IP_MAIN },
+)
 assert(send.status === 200 && send.json?.success === true, "send-code succeeds")
 assert(send.json?.data?.cooldownSeconds === 60, "send-code returns 60s cooldown")
 assert(/^\d{6}$/.test(send.json?.data?.devCode ?? ""), "development returns devCode")
@@ -155,7 +172,12 @@ assert(
 
 // 冷却期 60 秒：等待后验证 reset 用途（同邮箱仍可发码）。
 await new Promise((resolve) => setTimeout(resolve, 61_000))
-const resetSend = await request("/v1/auth/send-code", "POST", { email, purpose: "reset" })
+const resetSend = await request(
+  "/v1/auth/send-code",
+  "POST",
+  { email, purpose: "reset" },
+  { "X-Forwarded-For": IP_RESET },
+)
 assert(
   resetSend.status === 200 && /^\d{6}$/.test(resetSend.json?.data?.devCode ?? ""),
   "reset code is sent",
@@ -184,10 +206,15 @@ assert(
   "new password works",
 )
 
-const oversized = await request("/v1/auth/send-code", "POST", {
-  email: `${"a".repeat(8200)}@example.com`,
-  purpose: "register",
-})
+const oversized = await request(
+  "/v1/auth/send-code",
+  "POST",
+  {
+    email: `${"a".repeat(8200)}@example.com`,
+    purpose: "register",
+  },
+  { "X-Forwarded-For": IP_OVERSIZED },
+)
 assert(
   oversized.status === 400 && oversized.json?.code === "VALIDATION",
   "oversized body is rejected",
@@ -199,6 +226,52 @@ const badOrigin = await fetch(`${BASE}/v1/auth/me`, {
 assert(
   badOrigin.headers.get("access-control-allow-origin") === null,
   "non-allowlisted origin gets no ACAO",
+)
+
+/*
+ * 同一 IP 每小时只能发 3 次验证码（IP_SEND_HOURLY_LIMIT）。
+ *
+ * 这是发信额度的主闸门，必须单独验证：换邮箱、换用途都不能绕过——
+ * 否则攻击者只要换收件地址就能无限消耗 Resend 每日 100 封的免费额度。
+ * 每次用不同邮箱，确保被拦是因为「IP 次数」而不是「同邮箱 5 次」。
+ */
+const ipLimitIp = "203.0.113.20"
+for (let i = 1; i <= 3; i += 1) {
+  const allowed = await request(
+    "/v1/auth/send-code",
+    "POST",
+    { email: `ip-limit-${i}-${Date.now()}@example.com`, purpose: "register" },
+    { "X-Forwarded-For": ipLimitIp },
+  )
+  assert(
+    allowed.status === 200 && allowed.json?.success === true,
+    `IP quota allows send ${i}/3`,
+  )
+}
+const ipLimitBlocked = await request(
+  "/v1/auth/send-code",
+  "POST",
+  { email: `ip-limit-4-${Date.now()}@example.com`, purpose: "register" },
+  { "X-Forwarded-For": ipLimitIp },
+)
+assert(
+  ipLimitBlocked.status === 429 && ipLimitBlocked.json?.code === "RATE_LIMITED",
+  "fourth send from the same IP is rate limited",
+)
+assert(
+  Number(ipLimitBlocked.headers.get("retry-after") ?? 0) > 0,
+  "rate limited send returns Retry-After",
+)
+// 换一个 IP 立刻恢复可用：限的是 IP，不是全局。
+const otherIpAllowed = await request(
+  "/v1/auth/send-code",
+  "POST",
+  { email: `ip-limit-other-${Date.now()}@example.com`, purpose: "register" },
+  { "X-Forwarded-For": "203.0.113.21" },
+)
+assert(
+  otherIpAllowed.status === 200 && otherIpAllowed.json?.success === true,
+  "a different IP is still allowed",
 )
 
 // 同一 IP 视为同一人：连续错误码会累计 attempts 并最终作废该码（已知假设）。

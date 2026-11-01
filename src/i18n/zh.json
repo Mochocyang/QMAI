@@ -286,6 +286,9 @@
     "clearHistoryConfirm": "确认清理",
     "typeAMessage": "输入消息...",
     "selectModel": "选择模型",
+    "customModels": "自定义模型",
+    "expandCustomModels": "展开自定义模型",
+    "collapseCustomModels": "收起自定义模型",
     "searchModel": "搜索模型...",
     "noModelFound": "未找到匹配的模型",
     "reasoningDepth": {

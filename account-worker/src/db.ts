@@ -157,9 +157,9 @@ export async function insertSession(db: D1Database, session: SessionRow): Promis
   await db
     .prepare(
       `INSERT INTO sessions
-         (id, user_id, family_id, token_hash, previous_token_hash, device_label,
+         (id, user_id, family_id, token_hash, previous_token_hash, device_label, device_id,
           created_at, last_used_at, expires_at, revoked_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
     )
     .bind(
       session.id,
@@ -168,6 +168,7 @@ export async function insertSession(db: D1Database, session: SessionRow): Promis
       session.token_hash,
       session.previous_token_hash,
       session.device_label,
+      session.device_id,
       session.created_at,
       session.last_used_at,
       session.expires_at,
@@ -449,17 +450,43 @@ export interface CleanupCounts {
   rateLimits: number
   emailCodes: number
   sessions: number
+  /** 同一设备重复登录留下的历史会话（每设备只留最新一条）。 */
+  sessionsStaleDevice: number
 }
 
 /**
- * 每日清理：24 小时前的限流桶、7 天前的验证码、过期或撤销 30 天前的会话。
+ * 每日清理：24 小时前的限流桶、7 天前的验证码、已失效的会话。
  * 由 index.ts 的 scheduled 调用，使用 D1 batch 一次提交。
+ *
+ * ## 会话为什么要清得比「过期 30 天」更积极
+ *
+ * `rotateSession` 是原地改写，冷启动并不会新建行；真正让 `sessions` 膨胀的是：
+ * 1. 每次 `POST /v1/auth/login` 都 `insertSession` 新建一行并换一个新 `family_id`
+ *    ——同一台设备反复登录/退出，会按次累积；
+ * 2. 退出登录、改密踢人只写 `revoked_at`，旧规则要等 30 天才删。
+ *
+ * 所以这里补两条规则（不新增 cron，挂在原有每日任务上）。
  */
 export async function cleanupExpiredData(
   db: D1Database,
   now: number,
 ): Promise<CleanupCounts> {
   const daySeconds = 24 * 60 * 60
+  /*
+   * 失效会话：过期或已撤销，留 7 天观察窗口后删除（原为 30 天）。
+   *
+   * 7 天足够覆盖「撤销后 refresh 复用检测」与客服排障所需的时间；
+   * 再久只是白占 D1 行数。
+   */
+  const DEAD_SESSION_GRACE_SECONDS = 7 * daySeconds
+  /*
+   * 同设备重复登录：每个 (user_id, device_label) 只保留最近一条，
+   * 更早的删除。`device_label` 为 NULL 的会话不参与——老客户端和
+   * 无法识别设备的会话不能凭标签归组，宁可保留也不误删。
+   *
+   * 保留的是「最新一条」而不是「未撤销的一条」：已撤销的最新会话仍要留，
+   * 否则 `previous_token_hash` 链断了，refresh 复用检测就失效。
+   */
   const results = await db.batch([
     db
       .prepare("DELETE FROM rate_limits WHERE window_start < ?1")
@@ -473,12 +500,31 @@ export async function cleanupExpiredData(
          WHERE expires_at < ?1
             OR (revoked_at IS NOT NULL AND revoked_at < ?1)`,
       )
-      .bind(now - 30 * daySeconds),
+      .bind(now - DEAD_SESSION_GRACE_SECONDS),
+    db
+      .prepare(
+        `DELETE FROM sessions
+         WHERE device_label IS NOT NULL
+           AND device_label <> ''
+           AND id NOT IN (
+             SELECT keep_id FROM (
+               SELECT id AS keep_id,
+                      ROW_NUMBER() OVER (
+                        PARTITION BY user_id, device_label
+                        ORDER BY last_used_at DESC, created_at DESC, id DESC
+                      ) AS rn
+               FROM sessions
+               WHERE device_label IS NOT NULL AND device_label <> ''
+             )
+             WHERE rn = 1
+           )`,
+      ),
   ])
 
   return {
     rateLimits: results[0]?.meta.changes ?? 0,
     emailCodes: results[1]?.meta.changes ?? 0,
     sessions: results[2]?.meta.changes ?? 0,
+    sessionsStaleDevice: results[3]?.meta.changes ?? 0,
   }
 }

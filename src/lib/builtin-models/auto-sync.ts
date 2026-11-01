@@ -24,7 +24,7 @@
  *    失败时清掉旧配置（避免显示过期清单），并记一条日志。
  */
 
-import { gatewayListModels, normalizeGatewayBaseUrl, DEFAULT_RELAY_URL } from "./gateway-api"
+import { gatewayListModelCatalog, normalizeGatewayBaseUrl, DEFAULT_RELAY_URL } from "./gateway-api"
 import { NETCARD_ISSUE_PATH, netcardOf } from "./netcard"
 import { BUILTIN_PROVIDER_ID, applyBuiltinModels } from "./provider-bridge"
 import type { StoredAccountSession } from "@/lib/account/types"
@@ -120,22 +120,36 @@ export async function syncBuiltinModels(session: StoredAccountSession | null): P
     try {
       const relay = normalizeGatewayBaseUrl(DEFAULT_RELAY_URL) || DEFAULT_RELAY_URL
       console.info("[builtin] 开始拉取模型清单", { relay, cardTail: usableCard.slice(-8) })
-      const models = await gatewayListModels(relay, usableCard)
-      console.info("[builtin] 清单返回", { count: models.length })
-      if (models.length === 0) {
+      const catalog = await gatewayListModelCatalog(relay, usableCard)
+      const modelIds = catalog.map((item) => item.id)
+      console.info("[builtin] 清单返回", { count: modelIds.length })
+      if (modelIds.length === 0) {
         console.warn("[builtin] 中转站返回了空模型清单，保留原有配置")
         return false
       }
 
-      // 卡没变、清单也没变 → 不重复写盘（每次启动都写一遍会无谓改动配置文件）
-      const signature = `${usableCard.slice(-24)}|${models.join(",")}`
+      /*
+       * 卡没变、清单没变、**倍率也没变** → 不重复写盘。
+       *
+       * 倍率必须进签名：控制台改了倍率、清单一个字都没变时，之前的签名会判定
+       * 「什么都没变」而跳过写盘，用户就永远看不到新倍率。
+       */
+      const ratioSignature = catalog
+        .map((item) => `${item.id}:${item.ratio ?? ""}:${item.displayName ?? ""}`)
+        .join(",")
+      const signature = `${usableCard.slice(-24)}|${ratioSignature}`
       if (signature === lastSignature) {
-        console.info("[builtin] 卡与清单都没变，跳过写盘")
+        console.info("[builtin] 卡、清单与倍率都没变，跳过写盘")
         return true
       }
 
-      console.info("[builtin] 写入 provider 配置", { modelIds: models })
-      const result = await applyBuiltinModels({ session: { serverUrl: relay }, modelIds: models, makeDefault: false })
+      console.info("[builtin] 写入 provider 配置", { modelIds })
+      const result = await applyBuiltinModels({
+        session: { serverUrl: relay },
+        modelIds,
+        catalog,
+        makeDefault: false,
+      })
       console.info("[builtin] 写入完成", result)
       lastSignature = signature
       return true
@@ -145,14 +159,49 @@ export async function syncBuiltinModels(session: StoredAccountSession | null): P
       return false
     } finally {
       inFlight = null
+      lastRefreshAt = Date.now()
     }
   })()
 
   return inFlight
 }
 
+/** 下拉框打开时的最短刷新间隔：防连点造成请求风暴。 */
+export const BUILTIN_REFRESH_MIN_INTERVAL_MS = 30_000
+
+let lastRefreshAt = 0
+
+/**
+ * 按需刷新倍率（下拉框打开时调）。
+ *
+ * 倍率必须与控制台一致且能立即生效，所以不能只靠「登录时同步一次」：
+ * 用户打开下拉框就是要挑模型，这一刻拿到的倍率必须是最新的。
+ * 但下拉框可能被反复打开，所以加一个 30 秒节流；命中节流时静默跳过，
+ * 界面上仍然显示上一次缓存的值，不会闪。
+ */
+export async function refreshBuiltinModels(
+  session?: StoredAccountSession | null,
+  minIntervalMs = BUILTIN_REFRESH_MIN_INTERVAL_MS,
+): Promise<void> {
+  if (Date.now() - lastRefreshAt < minIntervalMs) return
+  const current = session !== undefined
+    ? session
+    : (await import("@/stores/account-store")).useAccountStore.getState().session
+  /*
+   * 没有登录态时什么都不做。
+   *
+   * `syncBuiltinModels(null)` 的语义是「确认没有卡 → 清掉内置模型配置」，
+   * 那是退出登录该做的事。这里如果也走那条路，未登录用户只是打开一次下拉框，
+   * 就会把配置删掉，属于不该有的副作用。
+   */
+  if (!current) return
+  lastRefreshAt = Date.now()
+  await syncBuiltinModels(current)
+}
+
 /** 测试用：重置内部状态。 */
 export function resetBuiltinSyncState(): void {
   inFlight = null
   lastSignature = ""
+  lastRefreshAt = 0
 }

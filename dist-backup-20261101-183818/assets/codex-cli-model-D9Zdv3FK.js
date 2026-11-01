@@ -1,0 +1,1 @@
+var e=`gpt-5.6-terra`,t=[e,`gpt-5.6-sol`,`gpt-5.6-luna`];function n(t){let n=t?.trim()??``;return!n||n===`gpt-5.4-mini`?e:n}export{e as n,n as r,t};

@@ -1,0 +1,1 @@
+var e=null,t=0;function n(){t+=1,e&&=(clearInterval(e),null)}export{n as stopScheduledImport};

@@ -22,6 +22,7 @@ import {
   saveProviderConfigs,
 } from "@/lib/project-store"
 import { describeBuiltinModel } from "./catalog"
+import type { GatewayModelInfo } from "./gateway-api"
 /** 只需知道中转站地址：凭证在请求期注入，不在配置里。 */
 export interface BuiltinSessionRef {
   serverUrl: string
@@ -41,15 +42,39 @@ export function builtinModelKey(modelId: string): string {
   return `${BUILTIN_PROVIDER_ID}/${modelId}`
 }
 
-function toSavedModels(modelIds: string[]): SavedModel[] {
+/** 网关下发的元数据优先，缺字段才回落到本地展示表（兼容只回 id 的老网关）。 */
+function mergeMeta(modelId: string, catalog: GatewayModelInfo[] | undefined) {
+  const meta = describeBuiltinModel(modelId)
+  const info = catalog?.find((item) => item.id === modelId)
+  return {
+    label: info?.displayName ?? meta.label,
+    note: info?.note ?? meta.note,
+    contextSize: info?.contextSize ?? meta.contextSize,
+    maxOutputTokens: info?.maxOutput ?? meta.maxOutputTokens,
+    info,
+  }
+}
+
+function toSavedModels(modelIds: string[], catalog: GatewayModelInfo[] | undefined): SavedModel[] {
   const now = Date.now()
   return modelIds.map((modelId, index) => {
-    const meta = describeBuiltinModel(modelId)
+    const meta = mergeMeta(modelId, catalog)
+    // 倍率只来自网关：控制台改完，下一次同步就写进这里，下拉框显示的就是最新值。
+    const rating = typeof meta.info?.ratio === "number"
+      ? {
+          ratio: meta.info.ratio,
+          baseRatio: meta.info.baseRatio,
+          rule: meta.info.rule ?? null,
+          tier: meta.info.tier,
+          syncedAt: now,
+        }
+      : undefined
     return {
       id: `builtin-${modelId}`,
       name: meta.label,
       model: modelId,
       description: meta.note,
+      ...(rating ? { rating } : {}),
       createdAt: now + index,
     }
   })
@@ -63,9 +88,10 @@ export function buildBuiltinProviderOverride(
   session: BuiltinSessionRef,
   modelIds: string[],
   existing?: ProviderOverride,
+  catalog?: GatewayModelInfo[],
 ): ProviderOverride {
   const models = [...new Set(modelIds)]
-  const metas = models.map(describeBuiltinModel)
+  const metas = models.map((modelId) => mergeMeta(modelId, catalog))
   const contextSize = metas.length > 0
     ? Math.min(...metas.map((meta) => meta.contextSize))
     : 204800
@@ -81,7 +107,7 @@ export function buildBuiltinProviderOverride(
     baseUrl: `${(session.serverUrl || DEFAULT_RELAY_URL).replace(/\/+$/, "")}/v1`,
     apiMode: "chat_completions",
     model: first,
-    savedModels: toSavedModels(models),
+    savedModels: toSavedModels(models, catalog),
     maxContextSize: contextSize,
     maxOutputTokens,
     reasoning: existing?.reasoning ?? { mode: "auto" },
@@ -93,6 +119,8 @@ export function buildBuiltinProviderOverride(
 export interface ApplyBuiltinOptions {
   session: BuiltinSessionRef
   modelIds: string[]
+  /** 网关下发的完整元数据（倍率/等级/展示名）；缺省时回落到本地展示表。 */
+  catalog?: GatewayModelInfo[]
   /** 同时设为默认模型（正文对话与后台任务都用它）。默认打开。 */
   makeDefault?: boolean
 }
@@ -112,6 +140,7 @@ export async function applyBuiltinModels(options: ApplyBuiltinOptions): Promise<
     options.session,
     options.modelIds,
     state.providerConfigs[BUILTIN_PROVIDER_ID],
+    options.catalog,
   )
   const nextConfigs = { ...state.providerConfigs, [BUILTIN_PROVIDER_ID]: override }
   await saveProviderConfigs(nextConfigs)

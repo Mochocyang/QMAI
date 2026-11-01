@@ -87,8 +87,19 @@ export const ALLOWED_AVATAR_MIME_TYPES = ["image/png", "image/jpeg", "image/webp
 
 export type AvatarMimeType = (typeof ALLOWED_AVATAR_MIME_TYPES)[number]
 
-/** 头像上限 200 KB：客户端已裁剪到 256×256，正常 WebP 只有十几 KB。 */
-export const MAX_AVATAR_BYTES = 200 * 1024
+/**
+ * 头像上传硬上限 64 KB。
+ *
+ * 分两层看：
+ * - **新客户端**裁到 512×512 并按质量档位压到 20 KB 以内（`AVATAR_TARGET_BYTES`），
+ *   正常情况下离这个上限很远；
+ * - **旧客户端**仍按 256×256/0.85 上传，实测 10–30 KB，但复杂照片偶有超过 32 KB 的，
+ *   上限留到 64 KB 保证它们升级前不会因换头像失败。
+ *
+ * 相比原来的 200 KB 仍收紧了 3 倍多，而头像在界面里最大只显示 44px，
+ * 没有理由在 D1 里留 200 KB 的 BLOB。
+ */
+export const MAX_AVATAR_BYTES = 64 * 1024
 
 export function normalizeAvatarMime(value: unknown): AvatarMimeType | null {
   if (typeof value !== "string") return null

@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>灵魂详情页 · 三套设计方案</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --card: #ffffff;
+    --muted: #f6f7f8;
+    --border: #e5e7eb;
+    --text: #1f2328;
+    --text-2: #57606a;
+    --text-3: #8b949e;
+    --accent: #3b6e4f;
+    --accent-soft: #eef4f0;
+    --accent-line: #cfe1d6;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #f0f1f3;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  /* ===== 顶部方案切换器 ===== */
+  .switcher {
+    position: sticky; top: 0; z-index: 50;
+    background: #fff; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .switcher .label { font-size: 13px; color: var(--text-3); margin-right: 8px; }
+  .switcher button {
+    border: 1px solid var(--border); background: #fff; color: var(--text-2);
+    padding: 7px 16px; border-radius: 8px; cursor: pointer;
+    font-size: 13px; font-family: inherit; transition: all .15s;
+  }
+  .switcher button:hover { background: var(--muted); }
+  .switcher button.active {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+    font-weight: 500;
+  }
+  .switcher .spacer { flex: 1; }
+  .switcher .hint { font-size: 12px; color: var(--text-3); }
+
+  /* ===== 窗口容器 ===== */
+  .window {
+    max-width: 1100px; margin: 24px auto 80px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+    overflow: hidden;
+  }
+  .window-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: #fafbfc;
+  }
+  .window-bar .back {
+    display: inline-flex; align-items: center; gap: 4px;
+    border: 1px solid var(--border); background: #fff; border-radius: 7px;
+    padding: 5px 10px; font-size: 12px; color: var(--text-2); cursor: pointer;
+  }
+  .window-bar .crumb { font-size: 12px; color: var(--text-3); }
+  .body { padding: 22px 26px 28px; }
+
+  /* ===== 通用元素 ===== */
+  .badge {
+    display: inline-block; padding: 2px 9px; border-radius: 999px;
+    font-size: 11.5px; letter-spacing: .2px;
+    background: var(--accent-soft); color: var(--accent);
+    border: 1px solid var(--accent-line);
+  }
+  .badge.plain { background: var(--muted); color: var(--text-3); border-color: var(--border); }
+  .title-row {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+  }
+  .soul-name { font-size: 22px; font-weight: 650; margin: 0 0 6px; letter-spacing: .3px; }
+  .soul-name-sub { font-size: 12px; color: var(--text-3); }
+  .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btn {
+    border: 1px solid var(--border); background: #fff; color: var(--text-2);
+    border-radius: 7px; padding: 6px 13px; font-size: 12.5px;
+    cursor: pointer; font-family: inherit;
+  }
+  .btn:hover { background: var(--muted); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.06); }
+
+  .quote {
+    margin: 18px 0 0;
+    padding: 14px 18px;
+    border-left: 3px solid var(--accent);
+    background: linear-gradient(90deg, var(--accent-soft), transparent 85%);
+    border-radius: 0 8px 8px 0;
+    font-size: 16px; color: #22352a; letter-spacing: .3px;
+  }
+  .quote small {
+    display: block; font-size: 11.5px; color: var(--accent);
+    margin-bottom: 4px; letter-spacing: 1px; opacity: .8;
+  }
+
+  .sec-label {
+    font-size: 11.5px; font-weight: 600; letter-spacing: 1.2px;
+    color: var(--text-3); text-transform: uppercase;
+    margin: 0 0 8px;
+  }
+  .field { margin-top: 20px; }
+  .field h4 {
+    margin: 0 0 6px; font-size: 13.5px; font-weight: 600; color: var(--text);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .field h4 .dot {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+    display: inline-block;
+  }
+  .field p { margin: 0; color: var(--text-2); font-size: 13.5px; }
+  .field ul { margin: 0; padding-left: 18px; color: var(--text-2); font-size: 13.5px; }
+  .field li { margin: 3px 0; }
+
+  .footnote {
+    margin-top: 22px; padding-top: 12px; border-top: 1px dashed var(--border);
+    font-size: 11.5px; color: var(--text-3);
+  }
+
+  /* ================= 方案 A：分栏 + 折叠 ================= */
+  .two-col {
+    display: grid; grid-template-columns: 1.25fr 1fr; gap: 26px;
+    margin-top: 4px;
+  }
+  @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+  .col-divider { border-left: 1px solid var(--border); padding-left: 26px; }
+  @media (max-width: 860px) { .col-divider { border-left: none; padding-left: 0; } }
+
+  .scene-card {
+    border: 1px solid var(--accent-line); border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    border-radius: 0 8px 8px 0;
+    padding: 11px 14px; margin-bottom: 9px;
+    font-size: 13px; color: #2b3d32;
+  }
+  .scene-card b { color: var(--accent); font-weight: 600; }
+
+  .doc-fold {
+    margin-top: 22px; border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .doc-fold-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 11px 15px; background: var(--muted); cursor: pointer;
+    font-size: 13px; font-weight: 500;
+  }
+  .doc-fold-head .sub { font-weight: 400; color: var(--text-3); font-size: 12px; margin-left: 8px; }
+  .doc-body { display: none; padding: 0; }
+  .doc-body.open { display: grid; grid-template-columns: 168px 1fr; }
+  @media (max-width: 860px) { .doc-body.open { grid-template-columns: 1fr; } }
+  .doc-nav { border-right: 1px solid var(--border); background: #fbfcfc; padding: 10px 0; }
+  .doc-nav button {
+    display: block; width: 100%; text-align: left;
+    border: none; background: none; cursor: pointer;
+    padding: 8px 15px; font-size: 12.5px; color: var(--text-2);
+    font-family: inherit; border-left: 2px solid transparent;
+  }
+  .doc-nav button:hover { background: var(--muted); }
+  .doc-nav button.active {
+    color: var(--accent); border-left-color: var(--accent);
+    background: var(--accent-soft); font-weight: 500;
+  }
+  .doc-nav .grp {
+    font-size: 10.5px; letter-spacing: 1px; color: var(--text-3);
+    padding: 10px 15px 4px; text-transform: uppercase;
+  }
+  .doc-pane { padding: 16px 20px; min-height: 220px; }
+  .doc-pane h3 {
+    margin: 0 0 10px; font-size: 15px; font-weight: 600;
+  }
+  .doc-pane h5 {
+    margin: 15px 0 6px; font-size: 13px; color: var(--accent); font-weight: 600;
+  }
+  .doc-pane p, .doc-pane li { font-size: 13px; color: var(--text-2); }
+  .doc-pane ul { padding-left: 18px; margin: 0; }
+  .doc-pane blockquote {
+    margin: 10px 0; padding: 8px 12px; border-left: 3px solid var(--accent-line);
+    background: var(--muted); color: var(--text-2); font-size: 13px;
+    border-radius: 0 6px 6px 0;
+  }
+
+  /* ================= 方案 B：卡片仪表盘 ================= */
+  .identity-band {
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    padding: 16px 18px; margin-top: 16px;
+    background: linear-gradient(135deg, var(--accent-soft), #fafcfb 70%);
+    border: 1px solid var(--accent-line);
+    border-radius: 12px;
+  }
+  .identity-band .avatar {
+    width: 54px; height: 54px; border-radius: 14px;
+    background: var(--accent); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 600; flex-shrink: 0;
+    letter-spacing: 1px;
+  }
+  .identity-band .info { flex: 1; min-width: 200px; }
+  .identity-band .info .n { font-size: 18px; font-weight: 650; }
+  .identity-band .info .m { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+  .identity-band .stat {
+    text-align: center; padding: 0 14px; border-left: 1px solid var(--accent-line);
+  }
+  .identity-band .stat .v { font-size: 17px; font-weight: 650; color: var(--accent); }
+  .identity-band .stat .k { font-size: 11px; color: var(--text-3); }
+
+  .card-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 16px;
+  }
+  @media (max-width: 860px) { .card-grid { grid-template-columns: 1fr; } }
+  .cap-card {
+    border: 1px solid var(--border); border-radius: 11px;
+    padding: 15px 17px; background: #fff;
+    transition: box-shadow .15s, border-color .15s;
+    cursor: pointer;
+  }
+  .cap-card:hover { border-color: var(--accent-line); box-shadow: 0 2px 12px rgba(59,110,79,.07); }
+  .cap-card .head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 9px;
+  }
+  .cap-card .head .t {
+    font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 7px;
+  }
+  .cap-card .head .ico {
+    width: 22px; height: 22px; border-radius: 6px;
+    background: var(--accent-soft); color: var(--accent);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 12px;
+  }
+  .cap-card .head .more { font-size: 11px; color: var(--text-3); }
+  .cap-card .txt {
+    font-size: 13px; color: var(--text-2);
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .cap-card.wide { grid-column: span 2; }
+  @media (max-width: 860px) { .cap-card.wide { grid-column: span 1; } }
+
+  .scene-mini {
+    display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px;
+  }
+  .scene-mini div {
+    flex: 1; min-width: 190px;
+    background: var(--muted); border-radius: 8px; padding: 9px 11px;
+    font-size: 12.5px; color: var(--text-2);
+  }
+  .scene-mini div b { color: var(--accent); font-weight: 600; display: block; margin-bottom: 2px; font-size: 11.5px; }
+
+  .drawer-trigger {
+    margin-top: 16px; display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 17px; border: 1px dashed var(--border); border-radius: 11px;
+    background: var(--muted); cursor: pointer; font-size: 13px;
+  }
+  .drawer-trigger:hover { border-color: var(--accent-line); background: var(--accent-soft); }
+  .drawer-trigger .l { display: flex; align-items: center; gap: 9px; font-weight: 500; }
+  .drawer-trigger .r { font-size: 12px; color: var(--text-3); }
+
+  .tabs-line { display: flex; gap: 4px; margin-top: 18px; border-bottom: 1px solid var(--border); }
+  .tabs-line button {
+    border: none; background: none; padding: 9px 14px; font-size: 13px;
+    color: var(--text-3); cursor: pointer; font-family: inherit;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+  }
+  .tabs-line button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 500; }
+
+  /* ================= 方案 C：试演 ================= */
+  .rehearse {
+    margin-top: 18px; border: 1px solid var(--accent-line);
+    border-radius: 12px; overflow: hidden;
+    background: #fbfdfc;
+  }
+  .rehearse-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 17px; background: var(--accent-soft);
+    border-bottom: 1px solid var(--accent-line);
+  }
+  .rehearse-head .t { font-size: 13.5px; font-weight: 600; color: #22352a; }
+  .rehearse-body { padding: 16px 18px; }
+  .rehearse-scene {
+    font-size: 12px; color: var(--text-3); margin-bottom: 12px;
+    padding-bottom: 9px; border-bottom: 1px dashed var(--border);
+  }
+  .bubble-row { display: flex; gap: 10px; margin-bottom: 12px; align-items: flex-start; }
+  .bubble-row .who {
+    width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600;
+  }
+  .bubble-row.other .who { background: #e8eaed; color: var(--text-3); }
+  .bubble-row.self .who { background: var(--accent); color: #fff; }
+  .bubble {
+    background: #fff; border: 1px solid var(--border);
+    border-radius: 4px 11px 11px 11px; padding: 9px 13px;
+    font-size: 13px; color: var(--text-2); max-width: 78%;
+  }
+  .bubble-row.self .bubble {
+    background: var(--accent-soft); border-color: var(--accent-line); color: #22352a;
+    border-radius: 11px 4px 11px 11px;
+  }
+  .rehearse-foot {
+    display: flex; gap: 8px; align-items: center;
+    padding: 11px 18px; border-top: 1px solid var(--border); background: #fff;
+  }
+
+  .note-bar {
+    max-width: 1100px; margin: 0 auto 18px;
+    background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+    border-radius: 10px; padding: 12px 16px; font-size: 12.5px;
+  }
+  .note-bar b { font-weight: 600; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="switcher">
+  <span class="label">灵魂详情页原型</span>
+  <button data-view="current" class="active">当前线上版</button>
+  <button data-view="a">方案 A · 分栏折叠</button>
+  <button data-view="b">方案 B · 卡片仪表盘</button>
+  <button data-view="c">方案 C · 试演</button>
+  <span class="spacer"></span>
+  <span class="hint">← 点上方按钮切换</span>
+</div>
+
+<!-- ==================== 当前线上版 ==================== -->
+<div class="window" data-panel="current">
+  <div class="window-bar">
+    <span class="back">← 返回灵魂库</span>
+    <span class="crumb">灵魂 / 妈妈·全身心付出型</span>
+  </div>
+  <div class="body">
+    <div class="title-row">
+      <div>
+        <h1 class="soul-name">妈妈·全身心付出型</h1>
+      </div>
+      <div class="actions">
+        <button class="btn">选择小说人物 ▾</button>
+        <button class="btn">绑定</button>
+        <span class="badge plain">内置灵魂</span>
+      </div>
+    </div>
+
+    <div class="field"><h4>人物分类</h4><p>角色原型</p></div>
+    <div class="field"><h4>灵魂文件夹</h4><p style="font-family:monospace;font-size:12.5px">skills/soulskill/role-mother-devoted-perspective</p></div>
+    <div class="field"><h4>气质说明</h4><p>系统内置人物灵魂，基于公开历史或公众形象抽象为小说创作灵魂。</p></div>
+    <div class="field"><h4>灵魂摘要</h4><p>语速中等，句子偏长，喜欢把一句话绕成三小句讲完，先说天气再说衣再说人。同一句叮嘱「带伞了吗」「吃了吗」「冷不冷」会在一场戏里重复出现…</p></div>
+    <div class="field"><h4>怎么说话 / 表达特征</h4><p>语速中等，句子偏长，喜欢把一句话绕成三小句讲完，先说天气再说衣再说人。同一句叮嘱「带伞了吗」「吃了吗」「冷不冷」会在一场戏里重复出现…<br><span style="color:#b91c1c;font-size:12px">↑ 与上方「灵魂摘要」完全重复</span></p></div>
+    <div class="field"><h4>怎么想 / 心智模型</h4><p>- 孩子的安危高于一切，自己的感受可以往后排。所以她的排序里没有「我想吃什么」，只有「谁还没吃」… - 付出是母亲天生的责任，不需要被感谢…</p></div>
+    <div class="field"><h4>怎么判断 / 决策启发式</h4><p>- 先安排子女的衣食住行，再谈自己的想法…</p></div>
+    <div class="field"><h4>什么不做 / 价值观反模式</h4><p>- 不能把付出写成单纯的感动表演…</p></div>
+    <div class="field"><h4>知道局限 / 诚实边界</h4><p>诚实边界：只能作为公开形象启发的创作灵魂，不等同本人，不冒充真人，不替代人物小传；必须服从大纲、角色认知、正史规则和情节因果。<br><span style="color:#b91c1c;font-size:12px">↑ 68 个灵魂这段一字不差</span></p></div>
+
+    <div style="margin-top:22px;border:1px solid var(--border);border-radius:10px;padding:14px;background:var(--muted)">
+      <div style="font-size:13px;font-weight:500;margin-bottom:8px">灵魂文档预览</div>
+      <pre style="margin:0;font-size:11.5px;color:var(--text-3);white-space:pre-wrap;max-height:150px;overflow:auto">---
+name: role-mother-devoted-perspective
+description: |
+  妈妈·全身心付出型的角色原型灵魂。原创角色原型，提炼全身心付出、唠叨式关怀…
+  用途：绑定到小说人物后，为其提供可执行的出场画面与台词风格。
+---
+
+# 妈妈·全身心付出型 · 角色原型灵魂
+
+> 「你先吃，妈不饿。」
+
+## 角色扮演规则
+…</pre>
+      <div style="color:#b91c1c;font-size:12px;margin-top:8px">↑ 直接显示 YAML 头部与 markdown 符号，像调试视图</div>
+    </div>
+
+    <div style="margin-top:14px;border:1px solid var(--border);border-radius:10px;padding:14px;background:var(--muted)">
+      <div style="font-size:13px;font-weight:500;margin-bottom:10px">研究文件</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        <span class="btn" style="font-size:12px">01 公开资料</span>
+        <span class="btn" style="font-size:12px">02 对话方式</span>
+        <span class="btn" style="font-size:12px;background:var(--accent);border-color:var(--accent);color:#fff">03 表达特征</span>
+        <span class="btn" style="font-size:12px">04 外部评价</span>
+        <span class="btn" style="font-size:12px">05 决策记录</span>
+        <span class="btn" style="font-size:12px">06 时间线</span>
+      </div>
+      <div style="font-size:11.5px;color:var(--text-3);margin-bottom:6px">03-expression-dna.md</div>
+      <pre style="margin:0;font-size:11.5px;color:var(--text-3);white-space:pre-wrap;max-height:140px;overflow:auto"># 妈妈·全身心付出型 - 表达特征与画面感
+
+## 创作用途
+
+本文件把她的说话方式、身体动作和可复用的画面固定下来，让每一场出场都能被读者记住。
+
+## 句式习惯
+
+- 长句为主，喜欢用逗号把句子串成三截：「你这几天是不是又没好好吃饭，脸色都这样了，我给你煮点面」。
+- 叮嘱句用疑问句收尾，不用命令句：「带伞了吗」「吃了吗」「冷不冷」，问句让人不好拒绝。</pre>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 方案 A ==================== -->
+<div class="window hidden" data-panel="a">
+  <div class="note-bar">
+    <b>方案 A · 分栏 + 折叠。</b>顶部只留「身份摘要 + 口头禅大字引用」，正文改左右双栏并行阅读；删掉灵魂文件夹与重复的灵魂摘要；文档区收进折叠面板，展开后左侧竖排导航替代编号标签，内容去掉 markdown 符号。
+  </div>
+  <div class="window-bar">
+    <span class="back">← 返回灵魂库</span>
+    <span class="crumb">灵魂 / 妈妈·全身心付出型</span>
+  </div>
+  <div class="body">
+    <div class="title-row">
+      <div>
+        <h1 class="soul-name">妈妈·全身心付出型</h1>
+        <div class="soul-name-sub">可替换位置：妈妈、奶奶、外婆、养母等抚养型长辈</div>
+      </div>
+      <div class="actions">
+        <button class="btn primary">选择小说人物 ▾</button>
+        <span class="badge">角色原型</span>
+        <span class="badge plain">内置灵魂</span>
+      </div>
+    </div>
+
+    <div class="quote">
+      <small>口头禅</small>
+      「你先吃，妈不饿。」
+    </div>
+
+    <div class="two-col">
+      <!-- 左栏：能力 -->
+      <div>
+        <div class="sec-label">她会怎么演</div>
+
+        <div class="field">
+          <h4><span class="dot"></span>怎么说话</h4>
+          <p>语速中等，句子偏长，一句话绕成三小句讲完——先说天气，再说衣，再说人。同一句叮嘱会在同一场戏里反复出现，每次添一个新细节：从「带伞了吗」变成「伞在你门后那把，蓝的那把」。</p>
+        </div>
+
+        <div class="field">
+          <h4><span class="dot"></span>怎么想</h4>
+          <ul>
+            <li>孩子的安危高于一切，她的排序里没有「我想吃什么」，只有「谁还没吃」。</li>
+            <li>付出是天生责任，不需要被感谢——被道谢时反而摆手说「这算什么」。</li>
+            <li>爱要落到具体物上，早饭、炸衣、寄钱，比一句「我爱你」更算数。</li>
+            <li>最怕的不是累，是孩子不需要自己了。</li>
+          </ul>
+        </div>
+
+        <div class="field">
+          <h4><span class="dot"></span>怎么判断</h4>
+          <ul>
+            <li>先安排子女的衣食住行，再谈自己的想法。</li>
+            <li>用照顾和牺牲换取话语权，不用命令。</li>
+            <li>反对一件事不明说，而是反复叹气、偷偷准备替代方案。</li>
+            <li>发现孩子受苦时不顾一切，前提是给钱或给命。</li>
+          </ul>
+        </div>
+
+        <div class="field">
+          <h4><span class="dot"></span>什么不做</h4>
+          <ul>
+            <li>不能把付出写成单纯的感动表演，每次牺牲都要有代价。</li>
+            <li>不能把控制欲写成理所应当，要让读者看见孩子喘不过气的那一面。</li>
+            <li>不能写成只会牺牲的空壳，她必须有自己的不甘。</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- 右栏：画面 -->
+      <div class="col-divider">
+        <div class="sec-label">标志性画面</div>
+        <div style="font-size:12px;color:var(--text-3);margin-bottom:10px">这些画面每次出场都可以复用。</div>
+
+        <div class="scene-card"><b>出场</b>把最好的一口留给别人，自己总说不饿。</div>
+        <div class="scene-card"><b>叮嘱</b>从「带伞了吗」变成「伞在你门后那把，蓝的那把」。</div>
+        <div class="scene-card"><b>挽留</b>嘴上帮着看房子，回家却把那张床的床单洗好晒好。</div>
+        <div class="scene-card"><b>收场</b>夜里在手机上翻那件没买成的衣服，看着看着锁屏，第二天照常起早做饭。</div>
+
+        <div class="footnote" style="margin-top:18px">
+          诚实边界：仅作创作气质参考，不等同真人、不冒充、不替代人物小传，须服从大纲与情节因果。
+        </div>
+      </div>
+    </div>
+
+    <!-- 折叠文档区 -->
+    <div class="doc-fold">
+      <div class="doc-fold-head" onclick="toggleDoc(this)">
+        <span>资料 <span class="sub">灵魂文档 + 6 份研究文件</span></span>
+        <span style="font-size:12px;color:var(--text-3)">展开 ▾</span>
+      </div>
+      <div class="doc-body">
+        <div class="doc-nav">
+          <div class="grp">灵魂文档</div>
+          <button class="active">全文概览</button>
+          <div class="grp">研究文件</div>
+          <button>公开资料</button>
+          <button>对话方式</button>
+          <button>表达特征</button>
+          <button>外部评价</button>
+          <button>决策记录</button>
+          <button>时间线</button>
+        </div>
+        <div class="doc-pane">
+          <h3>妈妈·全身心付出型 · 角色灵魂</h3>
+          <blockquote>「你先吃，妈不饿。」</blockquote>
+          <h5>角色扮演规则</h5>
+          <p>此灵魂用于小说创作中的角色原型绑定，不对应任何真实人物。只能作为角色气质、行为习惯和表达风格参考。</p>
+          <h5>核心心智模型</h5>
+          <ul>
+            <li>孩子的安危高于一切，自己的感受可以往后排。</li>
+            <li>付出是母亲天生的责任，不需要被感谢。</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 方案 B ==================== -->
+<div class="window hidden" data-panel="b">
+  <div class="note-bar">
+    <b>方案 B · 卡片仪表盘。</b>一屏出全部关键信息：顶部身份带（头像 + 名称 + 位置数 + 绑定状态），下面四张能力卡默认显示三行、点击展开；文档区做成虚线边框的「资料抽屉」触发条，默认收起。
+  </div>
+  <div class="window-bar">
+    <span class="back">← 返回灵魂库</span>
+    <span class="crumb">灵魂 / 妈妈·全身心付出型</span>
+  </div>
+  <div class="body">
+    <div class="identity-band">
+      <div class="avatar">母</div>
+      <div class="info">
+        <div class="n">妈妈·全身心付出型</div>
+        <div class="m">角色原型 · 可替换 4 个位置</div>
+      </div>
+      <div class="stat"><div class="v">4</div><div class="k">可替换位置</div></div>
+      <div class="stat"><div class="v">4</div><div class="k">标志画面</div></div>
+      <div class="stat"><div class="v">内置</div><div class="k">来源</div></div>
+      <div class="actions">
+        <button class="btn primary">选择小说人物 ▾</button>
+      </div>
+    </div>
+
+    <div class="quote" style="margin-top:16px">
+      <small>口头禅</small>
+      「你先吃，妈不饿。」
+    </div>
+
+    <div class="card-grid">
+      <div class="cap-card">
+        <div class="head">
+          <span class="t"><span class="ico">说</span>怎么说话</span>
+          <span class="more">展开</span>
+        </div>
+        <div class="txt">语速中等，句子偏长，一句话绕成三小句讲完——先说天气，再说衣，再说人。同一句叮嘱会在同一场戏里反复出现，每次添一个新细节。</div>
+      </div>
+
+      <div class="cap-card">
+        <div class="head">
+          <span class="t"><span class="ico">想</span>怎么想</span>
+          <span class="more">展开</span>
+        </div>
+        <div class="txt">孩子的安危高于一切，她的排序里没有「我想吃什么」，只有「谁还没吃」。付出是天生责任，不需要被感谢，被道谢时反而摆手。</div>
+      </div>
+
+      <div class="cap-card">
+        <div class="head">
+          <span class="t"><span class="ico">判</span>怎么判断</span>
+          <span class="more">展开</span>
+        </div>
+        <div class="txt">先安排子女的衣食住行，再谈自己的想法。用照顾和牺牲换取话语权，不用命令。反对一件事不明说，而是反复叹气、偷偷准备替代方案。</div>
+      </div>
+
+      <div class="cap-card">
+        <div class="head">
+          <span class="t"><span class="ico">避</span>什么不做</span>
+          <span class="more">展开</span>
+        </div>
+        <div class="txt">不能把付出写成单纯的感动表演，每次牺牲都要有代价。不能把控制欲写成理所应当，要让读者看见孩子喘不过气的那一面。</div>
+      </div>
+
+      <div class="cap-card wide">
+        <div class="head">
+          <span class="t"><span class="ico">画</span>标志性画面</span>
+          <span class="more">4 条 · 点击查看全部</span>
+        </div>
+        <div class="scene-mini">
+          <div><b>出场</b>把最好的一口留给别人，自己总说不饿。</div>
+          <div><b>叮嘱</b>「伞在你门后那把，蓝的那把」。</div>
+          <div><b>挽留</b>嘴上帮着看房子，回家把床单洗好晒好。</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer-trigger">
+      <span class="l">资料库 <span style="font-weight:400;color:var(--text-3);font-size:12px">灵魂文档 + 6 份研究文件</span></span>
+      <span class="r">展开查看 ›</span>
+    </div>
+
+    <div style="margin-top:18px;font-size:11.5px;color:var(--text-3);padding-top:12px;border-top:1px dashed var(--border)">
+      诚实边界：仅作创作气质参考，不等同真人、不冒充、不替代人物小传，须服从大纲与情节因果。
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 方案 C ==================== -->
+<div class="window hidden" data-panel="c">
+  <div class="note-bar">
+    <b>方案 C · 试演。</b>在方案 A 的分栏基础上，新增一块「试演」面板：按灵魂自动生成一小段示例对白，让人直接感受到语气，而不是读参数。<b>注意：这块需要调用模型生成，有成本、延迟与失败态，需要额外设计。</b>
+  </div>
+  <div class="window-bar">
+    <span class="back">← 返回灵魂库</span>
+    <span class="crumb">灵魂 / 妈妈·全身心付出型</span>
+  </div>
+  <div class="body">
+    <div class="title-row">
+      <div>
+        <h1 class="soul-name">妈妈·全身心付出型</h1>
+        <div class="soul-name-sub">可替换位置：妈妈、奶奶、外婆、养母等抚养型长辈</div>
+      </div>
+      <div class="actions">
+        <button class="btn primary">选择小说人物 ▾</button>
+        <span class="badge">角色原型</span>
+      </div>
+    </div>
+
+    <div class="rehearse">
+      <div class="rehearse-head">
+        <span class="t">试演 · 看她说一句话</span>
+        <span style="font-size:12px;color:var(--accent);cursor:pointer">换个场景 ↻</span>
+      </div>
+      <div class="rehearse-body">
+        <div class="rehearse-scene">场景：孩子三年没回家，这次突然深夜到门口。角色原型：妈妈·全身心付出型</div>
+
+        <div class="bubble-row other">
+          <div class="who">子</div>
+          <div class="bubble">妈，我回来了。</div>
+        </div>
+        <div class="bubble-row self">
+          <div class="who">母</div>
+          <div class="bubble">怎么不早说？路上冷不冷，饭吃了没有——你先坐，屋里还有点面，我给你下。</div>
+        </div>
+        <div class="bubble-row other">
+          <div class="who">子</div>
+          <div class="bubble">不用了，我吃过了。</div>
+        </div>
+        <div class="bubble-row self">
+          <div class="who">母</div>
+          <div class="bubble">吃过了也吃点，夜里凉。你坐这儿，我去拿。</div>
+        </div>
+      </div>
+      <div class="rehearse-foot">
+        <button class="btn">换个场景</button>
+        <button class="btn">再演一次</button>
+        <span style="font-size:11.5px;color:var(--text-3);margin-left:auto">生成于 3 秒前 · 每次约消耗 1 次模型调用</span>
+      </div>
+    </div>
+
+    <div class="two-col" style="margin-top:22px">
+      <div>
+        <div class="sec-label">她会怎么演</div>
+        <div class="field">
+          <h4><span class="dot"></span>怎么说话</h4>
+          <p>语速中等，句子偏长，一句话绕成三小句讲完。叮嘱用疑问句收尾，不用命令句。</p>
+        </div>
+        <div class="field">
+          <h4><span class="dot"></span>怎么想</h4>
+          <p>孩子的安危高于一切，她的排序里没有「我想吃什么」，只有「谁还没吃」。</p>
+        </div>
+      </div>
+      <div class="col-divider">
+        <div class="sec-label">标志性画面</div>
+        <div class="scene-card"><b>出场</b>把最好的一口留给别人，自己总说不饿。</div>
+        <div class="scene-card"><b>收场</b>夜里翻那件没买成的衣服，看着看着锁屏。</div>
+      </div>
+    </div>
+
+    <div class="doc-fold">
+      <div class="doc-fold-head" onclick="toggleDoc(this)">
+        <span>资料 <span class="sub">灵魂文档 + 6 份研究文件</span></span>
+        <span style="font-size:12px;color:var(--text-3)">展开 ▾</span>
+      </div>
+      <div class="doc-body">
+        <div class="doc-nav">
+          <div class="grp">灵魂文档</div>
+          <button class="active">全文概览</button>
+          <div class="grp">研究文件</div>
+          <button>公开资料</button>
+          <button>对话方式</button>
+          <button>表达特征</button>
+          <button>外部评价</button>
+          <button>决策记录</button>
+          <button>时间线</button>
+        </div>
+        <div class="doc-pane">
+          <h3>妈妈·全身心付出型 · 角色灵魂</h3>
+          <blockquote>「你先吃，妈不饿。」</blockquote>
+          <p style="color:var(--text-3);font-size:12.5px">（内容同方案 A）</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const buttons = document.querySelectorAll('.switcher button');
+  const panels = document.querySelectorAll('[data-panel]');
+  buttons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      buttons.forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      const view = btn.getAttribute('data-view');
+      panels.forEach(function (p) {
+        p.classList.toggle('hidden', p.getAttribute('data-panel') !== view);
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+
+  function toggleDoc(head) {
+    const body = head.nextElementSibling;
+    body.classList.toggle('open');
+    head.querySelector('span:last-child').textContent = body.classList.contains('open') ? '收起 ▴' : '展开 ▾';
+  }
+
+  document.querySelectorAll('.doc-nav button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      b.parentElement.querySelectorAll('button').forEach(function (x) { x.classList.remove('active'); });
+      b.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

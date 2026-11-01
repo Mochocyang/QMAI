@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   AVATAR_SIZE,
+  AVATAR_TARGET_BYTES,
   AvatarProcessError,
   MAX_AVATAR_BYTES,
   processAvatarImage,
@@ -108,6 +109,49 @@ describe("processAvatarImage", () => {
     await expect(processAvatarImage(imageFile())).rejects.toBeInstanceOf(AvatarProcessError)
   })
 
+  it("逐档降质，命中目标体积后停止（不再继续压）", async () => {
+    stubImage(300, 300)
+    const calls: Array<{ mime: string; quality: number | undefined }> = []
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      imageSmoothingEnabled: false,
+      imageSmoothingQuality: "low",
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback, mime, quality) => {
+      calls.push({ mime: String(mime), quality })
+      // 第一档（0.82）就给一个达标体积，应当立刻返回，不再试 0.72 及以下。
+      callback(new Blob([new Uint8Array(1024)], { type: String(mime) }))
+    })
+
+    const result = await processAvatarImage(imageFile())
+
+    expect(result.bytes).toBeLessThanOrEqual(AVATAR_TARGET_BYTES)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toEqual({ mime: "image/webp", quality: 0.82 })
+  })
+
+  it("高质量档超标时继续降质，直到进入目标体积", async () => {
+    stubImage(300, 300)
+    const qualities: Array<number | undefined> = []
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      imageSmoothingEnabled: false,
+      imageSmoothingQuality: "low",
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation((callback, mime, quality) => {
+      qualities.push(quality)
+      // 0.82 与 0.72 都超标，0.62 达标。
+      const oversized = quality === 0.82 || quality === 0.72
+      const size = oversized ? AVATAR_TARGET_BYTES + 1 : 1024
+      callback(new Blob([new Uint8Array(size)], { type: String(mime) }))
+    })
+
+    const result = await processAvatarImage(imageFile())
+
+    expect(result.bytes).toBe(1024)
+    expect(qualities).toEqual([0.82, 0.72, 0.62])
+  })
+
   it("非图片文件直接拒绝，且不尝试解码", async () => {
     const readAsDataURL = vi.fn()
     class SpyReader {
@@ -148,7 +192,7 @@ describe("processAvatarImage", () => {
   })
 
   it("toBlob 回调不触发时用 toDataURL 兜底，不会永久挂起", async () => {
-    // 两次 toBlob 各自等 5s 超时，所以给足余量。
+    // 首档 toBlob 等 5s 超时即判定通道失效，直接转 toDataURL，不再熬完 8 个档位。
     stubImage(300, 300)
     const context = {
       imageSmoothingEnabled: false,

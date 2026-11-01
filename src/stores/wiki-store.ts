@@ -568,6 +568,24 @@ type OutputLanguage =
   | "Ukrainian"
 
 /**
+ * 内置模型的计费/分档信息（来自中转站 `GET /v1/models`，与控制台保持同步）。
+ *
+ * 只给内置模型用：用户自己的提供方没有倍率概念，字段留空。
+ */
+export interface SavedModelRating {
+  /** 当前生效倍率（已应用时段规则），用于下拉框展示 */
+  ratio: number
+  /** 基础倍率（不含时段规则）。与 ratio 不同时说明正在打折/加价 */
+  baseRatio?: number
+  /** 当前命中的时段规则名（如「夜间折扣」）；没有规则时为 null */
+  rule?: string | null
+  /** 等级：lite / standard / pro / max，由控制台配置 */
+  tier?: string
+  /** 元数据同步时间（毫秒），用于判断展示值的新鲜度 */
+  syncedAt: number
+}
+
+/**
  * 已保存的模型配置项
  */
 export interface SavedModel {
@@ -583,6 +601,8 @@ export interface SavedModel {
   customEndpoint?: string
   /** 备注说明 */
   description?: string
+  /** 内置模型的倍率与分档；自定义模型不写这个字段 */
+  rating?: SavedModelRating
   /** 创建时间 */
   createdAt: number
 }

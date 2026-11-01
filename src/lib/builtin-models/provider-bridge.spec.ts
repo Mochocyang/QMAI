@@ -99,6 +99,36 @@ describe("buildBuiltinProviderOverride", () => {
     expect(override.reasoning).toEqual({ mode: "high" })
     expect(override.functionCallingEnabled).toBe(false)
   })
+
+  it("把网关下发的倍率写进 savedModels.rating（下拉框就显示这个值）", () => {
+    const override = buildBuiltinProviderOverride(
+      SESSION,
+      ["qmai-standard", "qmai-long"],
+      undefined,
+      [
+        { id: "qmai-standard", displayName: "青幕标准版", ratio: 0.08, baseRatio: 0.1, rule: "夜间折扣", tier: "standard" },
+        { id: "qmai-long", displayName: "青幕长文版", ratio: 0.33 },
+      ],
+    )
+
+    expect(override.savedModels?.[0].name).toBe("青幕标准版")
+    expect(override.savedModels?.[0].rating).toMatchObject({ ratio: 0.08, baseRatio: 0.1, rule: "夜间折扣", tier: "standard" })
+    expect(override.savedModels?.[1].rating).toMatchObject({ ratio: 0.33, rule: null })
+  })
+
+  it("网关没给倍率（老网关）时不写 rating，界面也就不会画出倍率", () => {
+    const override = buildBuiltinProviderOverride(SESSION, ["qmai-standard"], undefined, [{ id: "qmai-standard" }])
+    expect(override.savedModels?.[0].rating).toBeUndefined()
+    // 展示名仍然回落到本地表，老网关不会变成裸 id
+    expect(override.savedModels?.[0].name).toBe("青幕标准版")
+  })
+
+  it("倍率变化时写入的是新值（控制台改完 → 同步 → 下拉框跟着变）", () => {
+    const before = buildBuiltinProviderOverride(SESSION, ["qmai-standard"], undefined, [{ id: "qmai-standard", ratio: 0.1 }])
+    const after = buildBuiltinProviderOverride(SESSION, ["qmai-standard"], before, [{ id: "qmai-standard", ratio: 0.08 }])
+    expect(before.savedModels?.[0].rating?.ratio).toBe(0.1)
+    expect(after.savedModels?.[0].rating?.ratio).toBe(0.08)
+  })
 })
 
 describe("applyBuiltinModels", () => {

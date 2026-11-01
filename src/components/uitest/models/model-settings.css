@@ -44,7 +44,9 @@
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid-name strong { min-width:0; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid button.is-selected { border-color:var(--ui-accent); background:var(--ui-soft); }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-provider-grid small,:is(.ui-test-root,html[data-ui-test-skin]) .model-library-item small { display:block; color:var(--ui-muted); }
-:is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel { margin-top:14px; }
+/* 提供方目录现在紧贴「添加提供方 / 添加自定义模型」按钮行，上下都要留出气口，
+   否则它和按钮、和下面的卡片会糊在一起（原来只在底部，所以只有 margin-top）。 */
+:is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel { margin-top:14px; margin-bottom:16px; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel input,:is(.ui-test-root,html[data-ui-test-skin]) .model-add-panel select { width:100%; margin-top:4px; }
 :is(.ui-test-root,html[data-ui-test-skin]) :is(.model-custom-providers,.model-defaults,.model-retrieval,.model-preset-card) { color: var(--ui-ink); font: 0.875rem/1.65 var(--ui); min-width: 0; }
 :is(.ui-test-root,html[data-ui-test-skin]) .model-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin: 18px 0; }

@@ -13,7 +13,7 @@ const ENGLISH_BASED_SLUGS = new Set([
   "elon-musk", "feynman", "munger", "charlie-munger",
   "naval", "steve-jobs", "taleb", "trump",
   "paul-graham", "andrei-kapasi", "ilya-sutskaver",
-  "mr-beast", "sun-yuchen",
+  "mr-beast",
 ])
 
 let errors = 0

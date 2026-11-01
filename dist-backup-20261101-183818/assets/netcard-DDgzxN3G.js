@@ -1,0 +1,1 @@
+var e=`/v1/netcard`;function t(e){let t=e?.netcard;return typeof t==`string`&&t.length>0?t:null}function n(e){let t=(e??``).trim();return t?t.startsWith(`https://relay.qmai.work`):!1}export{n,t as r,e as t};

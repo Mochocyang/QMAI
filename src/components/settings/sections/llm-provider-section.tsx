@@ -149,6 +149,14 @@ export function LlmProviderSection() {
     .filter((id) => !isObsoleteProviderId(id))
     // 内置模型（登录后自动登记）不在这里重复出现：它已在各对话框的模型下拉里。
     .filter((id) => id !== BUILTIN_PROVIDER_ID)
+    /*
+     * 新建但还没保存的配置排到最前（Array#sort 稳定，组内顺序不变）。
+     *
+     * 用户反馈：点「＋ 添加自定义模型 / ＋ 添加提供方」后，表单出现在整张列表的最底部，
+     * 得一路往下滚才找得到，看上去像"点了没反应"。现在它紧跟在按钮行下面，
+     * 保存之后 `providerConfigs` 里有了这条记录，它自然回到正常顺序里。
+     */
+    .sort((a, b) => Number(Boolean(providerConfigs[a])) - Number(Boolean(providerConfigs[b])))
     const presets = LLM_PRESETS.filter((preset) => preset.id !== "custom" && preset.id !== BUILTIN_PROVIDER_ID)
     return (
       <div data-ui="llm-library">
@@ -159,6 +167,10 @@ export function LlmProviderSection() {
           <button type="button" className="model-add-card" data-guide="model.add-provider" onClick={() => setUiTestSource(uiTestSource === "presets" ? "library" : "presets")}>＋ 添加提供方</button>
           <button type="button" className="model-add-card" data-guide="model.add-custom" onClick={() => { const id = `custom-${crypto.randomUUID()}`; setCustomDraftIds((ids) => [...ids, id]); setExpanded({ [id]: true }); setUiTestSource("library") }}>＋ 添加自定义模型</button>
         </div>
+        {/* 提供方目录紧贴按钮行：它原本渲染在整张列表之下，用户点了「添加提供方」还得滚到底才看到目录。 */}
+        {uiTestSource === "presets" && <div className="model-add-panel">
+          <div className="model-provider-grid">{presets.map((preset) => <button type="button" key={preset.id} data-guide={`model.preset.${preset.id}`} className={preset.id === selectedPresetId ? "is-selected" : ""} onClick={() => selectPreset(preset.id)}><span className="model-provider-grid-name"><ProviderBrandIcon presetId={preset.id} /><strong>{preset.label}</strong></span><small>{(UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint) || ""}</small></button>)}</div>
+        </div>}
         <div className="model-library-list">
           {/*
             v4（设计 docs/plugins/workbuddy-provider-卡片设计v4.html §4b）：插件
@@ -187,9 +199,6 @@ export function LlmProviderSection() {
           })}
           {!configured.length && pluginPresets.length === 0 && <p>还没有模型配置。</p>}
         </div>
-        {uiTestSource === "presets" && <div className="model-add-panel">
-          <div className="model-provider-grid">{presets.map((preset) => <button type="button" key={preset.id} data-guide={`model.preset.${preset.id}`} className={preset.id === selectedPresetId ? "is-selected" : ""} onClick={() => selectPreset(preset.id)}><span className="model-provider-grid-name"><ProviderBrandIcon presetId={preset.id} /><strong>{preset.label}</strong></span><small>{UI_TEST_PROVIDER_HINTS[preset.id] ?? preset.hint}</small></button>)}</div>
-        </div>}
       </div>
     )
 

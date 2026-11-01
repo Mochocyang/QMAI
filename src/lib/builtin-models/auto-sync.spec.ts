@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const gateway = vi.hoisted(() => ({ gatewayListModels: vi.fn() }))
+const gateway = vi.hoisted(() => ({ gatewayListModelCatalog: vi.fn() }))
 const bridge = vi.hoisted(() => ({ applyBuiltinModels: vi.fn() }))
 const projectStore = vi.hoisted(() => ({ saveProviderConfigs: vi.fn(async () => {}) }))
 
@@ -9,7 +9,7 @@ vi.mock("@/lib/builtin-models/gateway-api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/builtin-models/gateway-api")>(
     "@/lib/builtin-models/gateway-api",
   )
-  return { ...actual, gatewayListModels: gateway.gatewayListModels }
+  return { ...actual, gatewayListModelCatalog: gateway.gatewayListModelCatalog }
 })
 
 vi.mock("@/lib/builtin-models/provider-bridge", async () => {
@@ -21,11 +21,16 @@ vi.mock("@/lib/builtin-models/provider-bridge", async () => {
 
 vi.mock("@/lib/project-store", () => projectStore)
 
-const { syncBuiltinModels, resetBuiltinSyncState } = await import("@/lib/builtin-models/auto-sync")
+const { syncBuiltinModels, refreshBuiltinModels, resetBuiltinSyncState } = await import("@/lib/builtin-models/auto-sync")
 const { useWikiStore } = await import("@/stores/wiki-store")
 const { BUILTIN_PROVIDER_ID } = await import("@/lib/builtin-models/provider-bridge")
 
 const CARD = "card-abcdefghijklmnopqrstuvwx"
+
+/** 网关返回的是完整对象数组（倍率就在这里），只关心 id 的用例用这个helper 造数据。 */
+function catalog(ids: string[], ratio = 1) {
+  return ids.map((id) => ({ id, ratio }))
+}
 
 function sessionWithCard(netcard: string | null) {
   return {
@@ -39,7 +44,7 @@ function sessionWithCard(netcard: string | null) {
 
 beforeEach(() => {
   resetBuiltinSyncState()
-  gateway.gatewayListModels.mockReset()
+  gateway.gatewayListModelCatalog.mockReset()
   bridge.applyBuiltinModels.mockReset()
   bridge.applyBuiltinModels.mockResolvedValue({ modelKey: "qmai-builtin/a", modelCount: 2 })
   projectStore.saveProviderConfigs.mockClear()
@@ -48,15 +53,20 @@ beforeEach(() => {
 
 describe("syncBuiltinModels", () => {
   it("登录后把中转站清单登记进 provider 配置，且不抢默认模型", async () => {
-    gateway.gatewayListModels.mockResolvedValue(["qmai-deepseek-v41", "qmai-glm-53"])
+    gateway.gatewayListModelCatalog.mockResolvedValue(catalog(["qmai-deepseek-v41", "qmai-glm-53"]))
 
     const ok = await syncBuiltinModels(sessionWithCard(CARD))
 
     expect(ok).toBe(true)
-    expect(gateway.gatewayListModels).toHaveBeenCalledWith("https://relay.qmai.work", CARD)
+    expect(gateway.gatewayListModelCatalog).toHaveBeenCalledWith("https://relay.qmai.work", CARD)
     expect(bridge.applyBuiltinModels).toHaveBeenCalledWith({
       session: { serverUrl: "https://relay.qmai.work" },
       modelIds: ["qmai-deepseek-v41", "qmai-glm-53"],
+      // 倍率等元数据必须一起带下去，否则下拉框没有倍率可显示
+      catalog: [
+        { id: "qmai-deepseek-v41", ratio: 1 },
+        { id: "qmai-glm-53", ratio: 1 },
+      ],
       // 关键：不覆盖用户已有的默认模型
       makeDefault: false,
     })
@@ -83,7 +93,7 @@ describe("syncBuiltinModels", () => {
   })
 
   it("清单为空时保留原配置，不清空", async () => {
-    gateway.gatewayListModels.mockResolvedValue([])
+    gateway.gatewayListModelCatalog.mockResolvedValue(catalog([]))
 
     const ok = await syncBuiltinModels(sessionWithCard(CARD))
 
@@ -92,7 +102,7 @@ describe("syncBuiltinModels", () => {
   })
 
   it("拉清单失败时不抛错、不清配置（下次刷新还会再试）", async () => {
-    gateway.gatewayListModels.mockRejectedValue(new Error("network down"))
+    gateway.gatewayListModelCatalog.mockRejectedValue(new Error("network down"))
 
     const ok = await syncBuiltinModels(sessionWithCard(CARD))
 
@@ -101,7 +111,7 @@ describe("syncBuiltinModels", () => {
   })
 
   it("卡与清单都没变时不重复写盘", async () => {
-    gateway.gatewayListModels.mockResolvedValue(["qmai-deepseek-v41"])
+    gateway.gatewayListModelCatalog.mockResolvedValue(catalog(["qmai-deepseek-v41"]))
 
     await syncBuiltinModels(sessionWithCard(CARD))
     await syncBuiltinModels(sessionWithCard(CARD))
@@ -110,17 +120,17 @@ describe("syncBuiltinModels", () => {
   })
 
   it("清单变化时重新写入", async () => {
-    gateway.gatewayListModels.mockResolvedValue(["qmai-deepseek-v41"])
+    gateway.gatewayListModelCatalog.mockResolvedValue(catalog(["qmai-deepseek-v41"]))
     await syncBuiltinModels(sessionWithCard(CARD))
 
-    gateway.gatewayListModels.mockResolvedValue(["qmai-deepseek-v41", "qmai-glm-53"])
+    gateway.gatewayListModelCatalog.mockResolvedValue(catalog(["qmai-deepseek-v41", "qmai-glm-53"]))
     await syncBuiltinModels(sessionWithCard(CARD))
 
     expect(bridge.applyBuiltinModels).toHaveBeenCalledTimes(2)
   })
 
   it("并发调用只拉一次清单", async () => {
-    gateway.gatewayListModels.mockResolvedValue(["qmai-deepseek-v41"])
+    gateway.gatewayListModelCatalog.mockResolvedValue(catalog(["qmai-deepseek-v41"]))
 
     const [a, b] = await Promise.all([
       syncBuiltinModels(sessionWithCard(CARD)),
@@ -129,6 +139,47 @@ describe("syncBuiltinModels", () => {
 
     expect(a).toBe(true)
     expect(b).toBe(true)
-    expect(gateway.gatewayListModels).toHaveBeenCalledTimes(1)
+    expect(gateway.gatewayListModelCatalog).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("refreshBuiltinModels", () => {
+  it("下拉框打开时按需刷新倍率", async () => {
+    gateway.gatewayListModelCatalog.mockResolvedValue(catalog(["qmai-standard"], 0.08))
+
+    await refreshBuiltinModels(sessionWithCard(CARD), 0)
+
+    expect(gateway.gatewayListModelCatalog).toHaveBeenCalledTimes(1)
+  })
+
+  it("30 秒内重复调用只拉一次（防连点请求风暴）", async () => {
+    gateway.gatewayListModelCatalog.mockResolvedValue(catalog(["qmai-standard"], 0.08))
+
+    await refreshBuiltinModels(sessionWithCard(CARD), 30_000)
+    await refreshBuiltinModels(sessionWithCard(CARD), 30_000)
+
+    expect(gateway.gatewayListModelCatalog).toHaveBeenCalledTimes(1)
+  })
+
+  it("没有登录态时不做任何事（不能因为开了下拉框就删掉内置模型配置）", async () => {
+    useWikiStore.setState({
+      providerConfigs: { [BUILTIN_PROVIDER_ID]: { baseUrl: "https://relay.qmai.work/v1" } } as never,
+    })
+
+    await refreshBuiltinModels(null, 0)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(gateway.gatewayListModelCatalog).not.toHaveBeenCalled()
+    expect(useWikiStore.getState().providerConfigs[BUILTIN_PROVIDER_ID]).toBeDefined()
+  })
+
+  it("控制台只改了倍率时也会重新写入配置（否则用户永远看不到新倍率）", async () => {
+    gateway.gatewayListModelCatalog.mockResolvedValue(catalog(["qmai-standard"], 0.08))
+    await syncBuiltinModels(sessionWithCard(CARD))
+
+    gateway.gatewayListModelCatalog.mockResolvedValue(catalog(["qmai-standard"], 0.05))
+    await syncBuiltinModels(sessionWithCard(CARD))
+
+    expect(bridge.applyBuiltinModels).toHaveBeenCalledTimes(2)
   })
 })
