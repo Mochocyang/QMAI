@@ -336,7 +336,16 @@ export async function pullAndMerge(io: ModelSyncIo, password: string): Promise<P
     outcome.conflicts.some((key) => canonicalJson(outcome.merged[key].value) === canonicalJson(localEntries[key]?.value))
   if (needsPush) {
     const result = await io.putCloud({
-      payload: buildPayload(outcome.merged, unprefixEntries(settingsOutcome.merged)),
+      /*
+       * ⚠️ 这里过去直接推 buildPayload(...) 的**明文**：
+       *   1) 服务端拒绝（信封缺字段 → 用户看到「同步内容缺少字段」）；
+       *   2) 万一服务端放行，apiKey 就以明文躺在云端 —— 端到端加密形同虚设。
+       * 回写必须与 pushLocal 走同一条加密路径。
+       */
+      payload: await encryptModelConfig(
+        buildPayload(outcome.merged, unprefixEntries(settingsOutcome.merged)),
+        password,
+      ),
       baseVersion: remote.record.version,
     })
     version = result.version
