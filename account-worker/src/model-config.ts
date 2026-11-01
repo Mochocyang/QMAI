@@ -52,20 +52,26 @@ function currentSeconds(): number {
 }
 
 /** 校验信封形状：必须是对象且六个字段齐全、类型正确。纯函数，便于单测。 */
-export function isModelConfigEnvelope(value: unknown): value is ModelConfigEnvelope {
+export /**
+ * 信封形状校验。
+ *
+ * 只要求**服务端真正依赖**的字段：iter / salt / iv / ct（这些决定解密能否成功）。
+ * `v` 与 `kdf` 是给客户端自己用的标记，服务端从不解析内容 —— 早期客户端
+ * 也曾不写 kdf，把它们当必填只会把老客户端挡在门外。
+ */
+function isModelConfigEnvelope(value: unknown): value is ModelConfigEnvelope {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false
   const record = value as Record<string, unknown>
   return (
-    typeof record.v === "number" &&
-    Number.isInteger(record.v) &&
-    record.v > 0 &&
-    typeof record.kdf === "string" &&
     typeof record.iter === "number" &&
     Number.isFinite(record.iter) &&
     record.iter > 0 &&
     typeof record.salt === "string" &&
+    record.salt.length > 0 &&
     typeof record.iv === "string" &&
-    typeof record.ct === "string"
+    record.iv.length > 0 &&
+    typeof record.ct === "string" &&
+    record.ct.length > 0
   )
 }
 
@@ -91,10 +97,21 @@ export function parsePutBody(body: Record<string, unknown>): ParsedPutBody {
   let parsed: unknown
   try {
     parsed = JSON.parse(payload)
+    // 前端曾出现过把信封再 JSON.stringify 一次的情况：多解一层即可，不改变语义。
+    if (typeof parsed === "string") parsed = JSON.parse(parsed)
   } catch {
     return { ok: false, reason: "同步内容不是有效的加密信封（JSON 解析失败）。" }
   }
   if (!isModelConfigEnvelope(parsed)) {
+    // 诊断用：只记形状（key 列表 + 前 80 字符），不记内容 —— 不能把密文/明文写进日志。
+    const shape = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? Object.keys(parsed as Record<string, unknown>).sort()
+      : typeof parsed
+    console.warn("[model-config] envelope_invalid", {
+      keys: shape,
+      preview: payload.slice(0, 80),
+      length: payload.length,
+    })
     return { ok: false, reason: "同步内容的加密信封缺少字段（需要 v/kdf/iter/salt/iv/ct）。" }
   }
 

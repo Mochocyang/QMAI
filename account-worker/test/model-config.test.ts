@@ -20,13 +20,23 @@ describe("isModelConfigEnvelope", () => {
     expect(isModelConfigEnvelope(JSON.parse(envelope()))).toBe(true)
   })
 
+  it("接受缺 v/kdf 的早期信封（这两个字段服务端不解析）", () => {
+    const legacy = JSON.parse(envelope({ v: undefined, kdf: undefined }))
+    delete legacy.v
+    delete legacy.kdf
+    expect(isModelConfigEnvelope(legacy)).toBe(true)
+  })
+
   it("拒绝缺字段、类型不对、空对象", () => {
     expect(isModelConfigEnvelope(null)).toBe(false)
     expect(isModelConfigEnvelope([])).toBe(false)
     expect(isModelConfigEnvelope({})).toBe(false)
     expect(isModelConfigEnvelope(JSON.parse(envelope({ ct: 123 })))).toBe(false)
     expect(isModelConfigEnvelope(JSON.parse(envelope({ iter: 0 })))).toBe(false)
-    expect(isModelConfigEnvelope(JSON.parse(envelope({ v: 0 })))).toBe(false)
+    // v / kdf 现在是可选的形状标记（服务端用不到），只有服务端真正依赖的字段才必填
+    expect(isModelConfigEnvelope(JSON.parse(envelope({ salt: "" })))).toBe(false)
+    expect(isModelConfigEnvelope(JSON.parse(envelope({ ct: "" })))).toBe(false)
+    expect(isModelConfigEnvelope(JSON.parse(envelope({ iv: "" })))).toBe(false)
   })
 })
 
