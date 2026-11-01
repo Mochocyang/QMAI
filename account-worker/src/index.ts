@@ -47,6 +47,7 @@ import {
   handleAdminRevoke,
   handleAdminRevokeAll,
   handleAdminRevokeAudit,
+  handleAdminListUsers,
 } from "./admin"
 
 type RouteHandler = (request: Request, env: Env) => Promise<Response>
@@ -95,7 +96,8 @@ async function dispatchAdmin(request: Request, env: Env, url: URL): Promise<Resp
   if (path === "/admin/sessions" && request.method === "GET") return handleAdminListSessions(request, env, url)
   if (path === "/admin/sessions/revoke" && request.method === "POST") return handleAdminRevoke(request, env)
   if (path === "/admin/sessions/revoke-all" && request.method === "POST") return handleAdminRevokeAll(request, env)
-  if (path === "/admin/revoke-audit" && request.method === "GET") return handleAdminRevokeAudit(request, env, url)
+  if (path === "/admin/users" && request.method === "GET") return handleAdminListUsers(request, env, url)
+    if (path === "/admin/revoke-audit" && request.method === "GET") return handleAdminRevokeAudit(request, env, url)
   return new Response(JSON.stringify({ success: false, code: "NOT_FOUND", message: "未知管理路径。" }), {
     status: 404,
     headers: { "Content-Type": "application/json; charset=utf-8" },

@@ -213,3 +213,63 @@ export async function handleAdminRevokeAudit(request: Request, env: Env, url: UR
     .all<Record<string, unknown>>()
   return json({ success: true, data: { entries: rows.results } })
 }
+
+/**
+ * GET /admin/users —— 用户列表（供中转站同步身份用）。
+ *
+ * ## 为什么需要这个接口
+ *
+ * 中转站的 `usage_logs` 只有 user_id 数字，没法在控制台显示
+ * 「Moc <pairy0@sina.com> 用了 97.9K token」这种可读信息。
+ * 有了这个接口，中转站可以定期拉一次存到本地缓存表。
+ *
+ * ## 只返回非敏感字段
+ *
+ * 绝不返回 password_hash、avatar_data（可能几百 KB）。
+ * 头像只给一个版本号，需要时再单独取。
+ */
+export async function handleAdminListUsers(request: Request, env: Env, url: URL): Promise<Response> {
+  if (!verifyAdminKey(env, request)) {
+    return json({ success: false, code: "UNAUTHORIZED", message: "管理密钥缺失或错误。" }, 401)
+  }
+
+  const size = Math.min(500, Math.max(1, Number(url.searchParams.get("size") ?? 200)))
+  const page = Math.max(1, Number(url.searchParams.get("page") ?? 1))
+  const since = Number(url.searchParams.get("since") ?? 0)
+
+  // since 用于增量同步：只拉这个时间之后有更新的用户
+  const where = since > 0 ? "WHERE u.updated_at >= ?1" : ""
+  const args: unknown[] = since > 0 ? [since] : []
+  args.push(size, (page - 1) * size)
+
+  const rows = await env.DB.prepare(
+    `SELECT u.id, u.email, u.display_name, u.status, u.created_at,
+            u.updated_at, u.avatar_updated_at, u.display_name_updated_at
+       FROM users u
+       ${where}
+      ORDER BY u.id
+      LIMIT ?${args.length - 1} OFFSET ?${args.length}`,
+  )
+    .bind(...args)
+    .all<Record<string, unknown>>()
+
+  const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM users").first<Record<string, unknown>>()
+
+  return json({
+    success: true,
+    data: {
+      users: (rows.results ?? []).map((r) => ({
+        id: Number(r.id),
+        email: String(r.email ?? ""),
+        displayName: String(r.display_name ?? ""),
+        status: String(r.status ?? "active"),
+        createdAt: Number(r.created_at ?? 0),
+        updatedAt: Number(r.updated_at ?? 0),
+        avatarUpdatedAt: Number(r.avatar_updated_at ?? 0),
+      })),
+      total: Number(total?.n ?? 0),
+      page,
+      size,
+    },
+  })
+}
