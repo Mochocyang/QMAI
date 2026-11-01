@@ -64,6 +64,64 @@ function liveIo(baseUrl: string, accessToken: string, configs: Record<string, un
 }
 
 describe.skipIf(!BASE)("模型同步端到端（真 Worker）", () => {
+  /**
+   * 线上用户的真实处境：云端那份是**早期 v1 信封**（无 zip，约 11 KB），
+   * 本地是已装新版的客户端。这条用例验证「v1 读得出来 + 新写入会升级成 v2」。
+   */
+  it(
+    "云端已有 v1 旧信封时：能解密、合并、并以 v2+zip 回写升级",
+    async () => {
+      const baseUrl = BASE!
+      const email = uniqueEmail()
+      const sent = await sendCode(baseUrl, email, "register", fetch)
+      const auth = await registerAccount(
+        baseUrl,
+        { email, code: sent.devCode!, password: "password123" },
+        fetch,
+      )
+      const token = auth.accessToken
+
+      // 1) 模拟旧客户端：v1 信封（compress:false → 无 zip 字段）
+      const legacy = await encryptModelConfig(
+        buildPayload({
+          deepseek: { key: "deepseek", value: { enabled: true, apiKey: "sk-old", model: "vendor/a" }, updatedAt: 1 },
+        }),
+        PASSWORD,
+        { iterations: 1_000, compress: false },
+      )
+      expect(JSON.parse(legacy).zip).toBeUndefined()
+      const first = await putModelConfig(baseUrl, token, { payload: legacy, baseVersion: null }, fetch)
+      expect(first.version).toBe(1)
+
+      // 2) 新版客户端跑一次同步：本地多一个云端没有的 provider
+      const live = liveIo(baseUrl, token, {
+        deepseek: { enabled: true, apiKey: "sk-old", model: "vendor/a" },
+        "custom-new": { enabled: true, apiKey: "sk-new", model: "vendor/b" },
+      })
+      const result = await pullAndMerge(live.io, PASSWORD)
+      expect(result.status).toBe("merged")
+      expect(live.puts.length).toBeGreaterThan(0)
+
+      // 3) 回写的必须是 v2 + zip（体积更小、且仍是密文）
+      for (const payload of live.puts) {
+        const parsed = JSON.parse(payload) as Record<string, unknown>
+        expect(parsed.v).toBe(2)
+        expect(parsed.zip).toBe("deflate-raw")
+        expect(typeof parsed.ct).toBe("string")
+        expect(payload).not.toContain("sk-")
+      }
+
+      // 4) 云端记录已升级：能解出旧内容 + 新 provider
+      const after = await fetchModelConfig(baseUrl, token, {}, fetch)
+      const stored = (after as { record: { payload: string } }).record.payload
+      expect(stored).toContain('"v":2')
+      const plain = await decryptModelConfig(stored, PASSWORD)
+      expect(plain).toContain("deepseek")
+      expect(plain).toContain("custom-new")
+    },
+    30_000,
+  )
+
   it(
     "注册 → 加密上传 → 拉取解密 → 回写推送全部成功",
     async () => {
