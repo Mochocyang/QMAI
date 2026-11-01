@@ -51,7 +51,6 @@ import { makeChapterFileName } from "@/lib/wiki-filename"
 import { createDirectory, fileExists, readFile, writeFile } from "@/commands/fs"
 import { toast } from "@/lib/toast"
 import type { FileNode } from "@/types/wiki"
-import { AccountButton } from "@/components/account/account-button"
 import "./ui-test.css"
 
 const UiTestWorkspace = lazy(async () => ({ default: (await import("./ui-test-workspace")).UiTestWorkspace }))
@@ -166,10 +165,6 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
   const sidebarVisible = hasDirectory && sidebarPreference
   const showShelf = !project && !showGlobalSettings
 
-  // 启动时只跑一次，且不订阅整个 store：顶栏/设置页各自按字段订阅。
-  useEffect(() => {
-    void useAccountStore.getState().bootstrap()
-  }, [])
 
   useEffect(() => {
     hydrateGuide()
@@ -573,7 +568,6 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
             </div>)}
           </nav>
           <div className="ui-test-actions">
-            <AccountButton />
             {writing ? <div className="ui-test-header-hint-anchor"><Tooltip><TooltipTrigger render={<button type="button" className="ui-test-icon-btn" aria-label="AI 对话" aria-expanded={assistantOpen} onClick={() => activeView === "sources" ? setOutlineExpanded(!outlineExpanded) : setChatExpanded(!chatExpanded)}><AiChatIcon /></button>} /><TooltipContent>AI 对话</TooltipContent></Tooltip>{!aiHintDismissed && <div className="ui-test-header-hint is-right" role="status"><p>「AI 对话」改成了图标：点击它即可打开或收起对话栏。</p><div className="ui-test-header-hint-actions"><button type="button" className="ui-test-header-hint-dismiss" onClick={() => { writeUiTestAiHintDismissed(); setAiHintDismissed(true) }}>知道了</button></div></div>}</div> : <>
               <button type="button" className="ui-test-icon-btn" aria-label="剧情搜索" title={project ? "剧情搜索" : "请先打开小说"} disabled={!project} onClick={() => navigate("search")}><Search /></button>
               <button type="button" className="ui-test-icon-btn" data-guide="shell.settings" aria-label="设置" title="设置" onClick={() => navigate("settings")}><Settings /></button>
@@ -624,7 +618,6 @@ export function UiTestShell({ project, onOpenProject, onSelectProject, onSwitchP
       {/* 账号弹窗挂根上：侧栏面板有五套，挂在面板里会出现多层遮罩。 */}
       <AccountDialog />
       <Dialog open={showContact} onOpenChange={setShowContact}><DialogContent className="ui-test-contact-dialog" aria-label="联系与支持"><DialogTitle className="sr-only">联系与支持</DialogTitle><div className="ui-test-contact-body"><ContactSupportSection /></div><DialogFooter><button type="button" className="ui-test-btn primary" onClick={() => setShowContact(false)}>关闭</button></DialogFooter></DialogContent></Dialog>
-      <AccountDialog />
       <GuideOverlay onDirective={runGuideDirective} />
     </div>
     </AppearanceSkinProvider>
