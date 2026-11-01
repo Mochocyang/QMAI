@@ -39,7 +39,8 @@ export interface ModelConfigEnvelope {
 
 export type ParsedPutBody =
   | { ok: true; payload: string; baseVersion: number | null; deviceLabel: string }
-  | { ok: false }
+  /** reason 会原样返回给客户端：默认的「请检查填写的内容」对用户毫无指向性。 */
+  | { ok: false; reason: string }
 
 const PAYLOAD_MIN_CHARS = 32
 const PAYLOAD_MAX_CHARS = 60_000
@@ -74,24 +75,34 @@ export function isModelConfigEnvelope(value: unknown): value is ModelConfigEnvel
  */
 export function parsePutBody(body: Record<string, unknown>): ParsedPutBody {
   const payload = body.payload
-  if (typeof payload !== "string") return { ok: false }
-  if (payload.length < PAYLOAD_MIN_CHARS || payload.length > PAYLOAD_MAX_CHARS) {
-    return { ok: false }
+  if (typeof payload !== "string") {
+    return { ok: false, reason: "同步内容的 payload 字段必须是字符串。" }
+  }
+  if (payload.length < PAYLOAD_MIN_CHARS) {
+    return { ok: false, reason: "同步内容为空，没有可上传的配置。" }
+  }
+  if (payload.length > PAYLOAD_MAX_CHARS) {
+    return {
+      ok: false,
+      reason: `同步内容过大（${payload.length} 字符，上限 ${PAYLOAD_MAX_CHARS}）。请减少模型数量或精简配置后再试。`,
+    }
   }
 
   let parsed: unknown
   try {
     parsed = JSON.parse(payload)
   } catch {
-    return { ok: false }
+    return { ok: false, reason: "同步内容不是有效的加密信封（JSON 解析失败）。" }
   }
-  if (!isModelConfigEnvelope(parsed)) return { ok: false }
+  if (!isModelConfigEnvelope(parsed)) {
+    return { ok: false, reason: "同步内容的加密信封缺少字段（需要 v/kdf/iter/salt/iv/ct）。" }
+  }
 
   const rawBaseVersion = body.baseVersion
   let baseVersion: number | null = null
   if (rawBaseVersion !== undefined && rawBaseVersion !== null) {
     if (typeof rawBaseVersion !== "number" || !Number.isInteger(rawBaseVersion) || rawBaseVersion < 0) {
-      return { ok: false }
+      return { ok: false, reason: "baseVersion 必须是 >= 0 的整数或 null。" }
     }
     baseVersion = rawBaseVersion
   }
@@ -162,7 +173,11 @@ export async function handlePutModelConfig(
   if (!parsed.ok) return parsed.response
 
   const body = parsePutBody(parsed.body)
-  if (!body.ok) return failure("VALIDATION")
+  if (!body.ok) {
+    // 把具体原因返回给客户端：否则用户只看到「请检查填写的内容」无从下手。
+    console.warn("[model-config] put_rejected", { reason: body.reason })
+    return failure("VALIDATION", body.reason)
+  }
 
   // 写入限流：这是唯一会写库的接口，防住"每改一个字就推一次"的客户端。
   const limit = await consumeRateLimit(

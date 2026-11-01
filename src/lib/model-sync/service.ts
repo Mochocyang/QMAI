@@ -62,6 +62,46 @@ export function emptySyncState(): ModelSyncState {
  * 没有单独维护「谁改了配置」的回调：直接和快照比内容更可靠——任何入口
  * （设置页、批量导入、迁移脚本）改过都能被发现，不会漏标记。
  */
+/**
+ * 上传前精简 provider 配置（B 方案）。
+ *
+ * 为什么要精简：载荷里装的是整份 providerConfigs，而其中**真正需要跨设备同步的
+ * 只有连接信息**（enabled / apiKey / baseUrl / model / 少量参数）。剩下的
+ * 说明性字段（note/description/hint）与派生字段（createdAt 等）纯粹是体积负担，
+ * 前面那条「密文超过 60 000 字符」的报错就是被它们顶上去的。
+ *
+ * 取舍原则：**不删会影响功能的字段**。savedModels 保留 id/name/model/contextSize
+ * （回填后模型选择器要能用），只丢掉 createdAt 这类可用本地时间重算的元数据。
+ */
+const PROVIDER_DROP_KEYS = ["note", "notes", "description", "hint", "tags", "lastUsedAt", "updatedAt"] as const
+const MODEL_KEEP_KEYS = ["id", "name", "model", "contextSize", "maxOutputTokens"] as const
+
+function slimModelEntry(entry: unknown): unknown {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry
+  const source = entry as Record<string, unknown>
+  const slim: Record<string, unknown> = {}
+  for (const key of MODEL_KEEP_KEYS) {
+    if (source[key] !== undefined) slim[key] = source[key]
+  }
+  // 没命中任何已知字段时原样返回，避免把用户自定义结构清空
+  return Object.keys(slim).length > 0 ? slim : source
+}
+
+export function slimProviderValue(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value
+  const source = value as Record<string, unknown>
+  const slim: Record<string, unknown> = {}
+  for (const [key, item] of Object.entries(source)) {
+    if ((PROVIDER_DROP_KEYS as readonly string[]).includes(key)) continue
+    if (key === "savedModels" && Array.isArray(item)) {
+      slim[key] = item.map(slimModelEntry)
+      continue
+    }
+    slim[key] = item
+  }
+  return slim
+}
+
 export function buildLocalEntries(
   configs: Record<string, unknown>,
   state: ModelSyncState,
@@ -176,12 +216,50 @@ function unprefixEntries(entries: Record<string, SyncProviderEntry>): Record<str
   )
 }
 
-function applyMerged(merged: Record<string, SyncProviderEntry>): Record<string, unknown> {
+/**
+ * 把合并结果变成「写回本地的配置」。
+ *
+ * 因为上传的是精简值（slimProviderValue），直接整份覆盖会把本地才有的字段
+ * （note / createdAt…）冲掉。所以本地已有同名 provider 时做**浅合并**，
+ * savedModels 再按 id 合并：云端决定 id/name/model/contextSize，本地补齐其它字段。
+ */
+function applyMerged(
+  merged: Record<string, SyncProviderEntry>,
+  local: Record<string, unknown> = {},
+): Record<string, unknown> {
   const next: Record<string, unknown> = {}
   for (const [key, entry] of Object.entries(merged)) {
+    const localValue = local[key]
+    const remoteValue = entry.value
+    if (
+      localValue && typeof localValue === "object" && !Array.isArray(localValue) &&
+      remoteValue && typeof remoteValue === "object" && !Array.isArray(remoteValue)
+    ) {
+      const mergedValue: Record<string, unknown> = {
+        ...(localValue as Record<string, unknown>),
+        ...(remoteValue as Record<string, unknown>),
+      }
+      const localModels = (localValue as Record<string, unknown>).savedModels
+      const remoteModels = (remoteValue as Record<string, unknown>).savedModels
+      if (Array.isArray(localModels) && Array.isArray(remoteModels)) {
+        const localById = new Map<string, Record<string, unknown>>()
+        for (const item of localModels) {
+          const record = item as Record<string, unknown> | null
+          if (record && typeof record === "object" && typeof record.id === "string") localById.set(record.id, record)
+        }
+        mergedValue.savedModels = remoteModels.map((item) => {
+          const record = item as Record<string, unknown> | null
+          const id = record && typeof record === "object" ? (record.id as string | undefined) : undefined
+          const previous = id ? localById.get(id) : undefined
+          return previous ? { ...previous, ...record } : record
+        })
+      }
+      next[key] = mergedValue
+      continue
+    }
     // 云端有、本地删除过的 provider 会被补回本地——这是「永不删除」策略的一部分，
     // 由用户在设置页自己决定是否再删一次。
-    next[key] = entry.value
+    next[key] = remoteValue
   }
   return next
 }
@@ -242,10 +320,10 @@ export async function pullAndMerge(io: ModelSyncIo, password: string): Promise<P
   const settingsOutcome = mergeProviderConfigs(localSettings, prefixEntries(cloud.settings))
 
   if (outcome.changedLocally) {
-    await io.saveConfigs(applyMerged(outcome.merged))
+    await io.saveConfigs(applyMerged(outcome.merged, configs))
   }
   if (settingsOutcome.changedLocally) {
-    await io.saveSettings(unprefixSettingsKeys(applyMerged(settingsOutcome.merged)))
+    await io.saveSettings(unprefixSettingsKeys(applyMerged(settingsOutcome.merged, settings)))
   }
 
   const mergedAll = { ...outcome.merged, ...settingsOutcome.merged }
@@ -355,8 +433,8 @@ export async function restoreFromCloud(io: ModelSyncIo, password: string): Promi
 
   const localConfigs = await io.loadConfigs()
   const localSettings = await io.loadSettings()
-  await io.saveConfigs({ ...localConfigs, ...applyMerged(cloud.providers) })
-  await io.saveSettings({ ...localSettings, ...applyMerged(cloud.settings) })
+  await io.saveConfigs({ ...localConfigs, ...applyMerged(cloud.providers, localConfigs) })
+  await io.saveSettings({ ...localSettings, ...applyMerged(cloud.settings, localSettings) })
 
   const state = await io.loadState()
   await io.saveState(

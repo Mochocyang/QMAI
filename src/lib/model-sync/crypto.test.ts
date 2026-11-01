@@ -21,8 +21,9 @@ describe("模型配置加密", () => {
     expect(envelope).not.toContain("deepseek-v4.1")
 
     const parsed = JSON.parse(envelope)
-    expect(Object.keys(parsed).sort()).toEqual(["ct", "iter", "iv", "kdf", "salt", "v"])
-    expect(parsed.v).toBe(1)
+    expect(Object.keys(parsed).sort()).toEqual(["ct", "iter", "iv", "kdf", "salt", "v", "zip"])
+    expect(parsed.v).toBe(2)
+    expect(parsed.zip).toBe("deflate-raw")
     expect(parsed.kdf).toBe("pbkdf2-sha256")
     expect(parsed.iter).toBe(TEST_ITERATIONS)
 
@@ -36,6 +37,37 @@ describe("模型配置加密", () => {
     expect(a).not.toBe(b)
     expect(JSON.parse(a).salt).not.toBe(JSON.parse(b).salt)
     expect(JSON.parse(a).ct).not.toBe(JSON.parse(b).ct)
+  })
+
+  it("压缩确实生效：大配置的密文远小于 base64(明文)", async () => {
+    const big = JSON.stringify({
+      providers: Object.fromEntries(
+        Array.from({ length: 8 }, (_, i) => [
+          `provider-${i}`,
+          {
+            enabled: true,
+            apiKey: "sk-" + "x".repeat(48),
+            baseUrl: "https://api.example.com/v1",
+            savedModels: Array.from({ length: 30 }, (_, k) => ({ id: `m${k}`, name: `模型-${k}`, model: "vendor/model-v4.1-flash" })),
+          },
+        ]),
+      ),
+    })
+    const rawBase64 = Math.ceil((big.length * 4) / 3)
+    const envelope = JSON.parse(await encryptModelConfig(big, PASSWORD, { iterations: TEST_ITERATIONS }))
+    // deflate 之后应该明显更小（压缩比通常 6–10×，这里只要求至少小 3 倍）
+    expect(envelope.ct.length).toBeLessThan(rawBase64 / 3)
+    await expect(decryptModelConfig(JSON.stringify(envelope), PASSWORD)).resolves.toBe(big)
+  })
+
+  it("没有 zip 的旧信封（v1）仍能解出明文", async () => {
+    // compress:false 产出的信封没有 zip，与 v1 记录的读取路径一致
+    const envelope = await encryptModelConfig(PLAINTEXT, PASSWORD, {
+      iterations: TEST_ITERATIONS,
+      compress: false,
+    })
+    expect(JSON.parse(envelope).zip).toBeUndefined()
+    await expect(decryptModelConfig(envelope, PASSWORD)).resolves.toBe(PLAINTEXT)
   })
 
   it("密码错误抛出 SyncPasswordError", async () => {
