@@ -212,9 +212,30 @@ function createIo(session: { baseUrl: string; accessToken: string }): ModelSyncI
     loadState: loadSyncState,
     saveState: saveSyncState,
     fetchCloud: (ifNoneMatch) =>
-      fetchModelConfig(session.baseUrl, session.accessToken, { ifNoneMatch }),
-    putCloud: (input) => putModelConfig(session.baseUrl, session.accessToken, input),
+      fetchModelConfig(session.baseUrl, session.accessToken, { ifNoneMatch }).catch(describeSyncEndpointError),
+    putCloud: (input) => putModelConfig(session.baseUrl, session.accessToken, input).catch(describeSyncEndpointError),
   }
+}
+
+/**
+ * 把「服务端没这个接口」翻译成用户能照做的提示。
+ *
+ * 线上真实出现过：客户端已经带上了模型同步，但 account.qmai.pro 部署的 Worker
+ * 还是旧版本（没有 /v1/model-config 路由），点「立即同步」只看到一句「接口不存在。」，
+ * 用户无从判断是自己的网络问题还是服务端没更新。
+ *
+ * 只在 NOT_FOUND 时换文案；其它错误原样抛出。错误码保留，调用方仍可按 code 判断。
+ */
+function describeSyncEndpointError(error: unknown): never {
+  if ((error as { code?: string } | null)?.code === "NOT_FOUND") {
+    const friendly = new Error(
+      "账号服务还没有「模型同步」接口 —— 服务端（account.qmai.pro）仍在跑旧版本。" +
+        "在 account-worker 目录执行 wrangler deploy，并应用最新 D1 迁移后再试。",
+    ) as Error & { code?: string }
+    friendly.code = "NOT_FOUND"
+    throw friendly
+  }
+  throw error
 }
 
 /** 账号接口的传输层失败（连不上/超时），值得重试。 */
