@@ -7,6 +7,33 @@ import { resetAccountStoreForTests, useAccountStore, type AccountStoreState } fr
 import { clearLegalConsent } from "@/lib/account/legal-consent"
 import { AccountDialog } from "./account-dialog"
 
+/*
+ * 「记住密码」的凭据模块做成可控 mock。
+ *
+ * 默认返回 null（未记住），与之前测试环境非 Tauri 时的行为一致，
+ * 所以不会影响既有用例；要用例驱动"自动填充"时再改它的返回值。
+ * loadRememberedPassword 旧名已并入 loadRememberedCredential（邮箱+密码）。
+ */
+const credential = vi.hoisted(() => ({
+  stored: null as null | { email: string; password: string },
+  loaded: [] as Array<{ email: string; password: string }>,
+  cleared: 0,
+}))
+
+vi.mock("@/lib/account/remembered-credential", () => ({
+  canRememberPassword: () => true,
+  loadRememberedCredential: async () => credential.stored,
+  saveRememberedCredential: async (value: { email: string; password: string }) => {
+    credential.loaded.push(value)
+    return true
+  },
+  clearRememberedPassword: async () => {
+    credential.cleared += 1
+  },
+  REMEMBERED_PASSWORD_TTL_MS: 30 * 24 * 60 * 60 * 1000,
+  remainingDays: () => 30,
+}))
+
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const USER = {
@@ -112,6 +139,13 @@ async function acceptLegalTerms() {
 
 beforeEach(() => {
   resetAccountStoreForTests()
+  /*
+   * 凭据 mock 回到「本机没记住任何东西」的干净状态。
+   * 不重置的话，上一条测试塞进去的 stored 会污染下一条的自动填充断言。
+   */
+  credential.stored = null
+  credential.loaded.length = 0
+  credential.cleared = 0
   /*
    * 清掉「已同意条款」的本地记录。
    *
@@ -320,6 +354,48 @@ describe("AccountDialog", () => {
     // 注册模式不该有：那里没有「下次登录」这回事。
     await click(buttonByText("注册"))
     expect(document.querySelector('[data-ui="account-remember-password"]')).toBeNull()
+  })
+
+  it("打开登录框：已记住的邮箱与密码都自动填入（免输登录两格都要填）", async () => {
+    /*
+     * 上一版只填了密码，邮箱空着 —— 用户还是得手输邮箱，「免输登录」没成立。
+     * 自动填充发生在挂载 effect 里，所以要在 render() 之前把 stored 设好。
+     */
+    credential.stored = { email: "WRITER@Example.com", password: "password123" }
+    render()
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(input("account-email").value).toBe("writer@example.com")
+    expect(input("account-password").value).toBe("password123")
+    // 有凭据时勾选框同步显示为已勾选，状态与实际一致。
+    expect(document.querySelector<HTMLInputElement>('[data-ui="account-remember-password"]')?.checked).toBe(true)
+  })
+
+  it("用户已经打了字：自动填充不覆盖正在输入的内容", async () => {
+    credential.stored = { email: "writer@example.com", password: "password123" }
+    render()
+    await setInput("account-email", "typing@example.com")
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(input("account-email").value).toBe("typing@example.com")
+  })
+
+  it("登录成功且勾选记住：保存的是邮箱+密码打包凭据", async () => {
+    render()
+    await setInput("account-email", "writer@example.com")
+    await setInput("account-password", "password123")
+    await click(document.querySelector<HTMLInputElement>('[data-ui="account-remember-password"]')!)
+    await acceptLegalTerms()
+
+    await submitForm()
+
+    expect(login).toHaveBeenCalled()
+    await vi.waitFor(() => expect(credential.loaded).toHaveLength(1))
+    expect(credential.loaded[0]).toEqual({ email: "writer@example.com", password: "password123" })
   })
 
   it("未勾选同意条款时，登录请求根本不发出，并给出中文提示", async () => {

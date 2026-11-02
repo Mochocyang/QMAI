@@ -18,7 +18,7 @@ import {
   hasAcceptedLegalTerms,
   recordLegalConsent,
 } from "@/lib/account/legal-consent"
-import { clearRememberedPassword, loadRememberedPassword, saveRememberedPassword } from "@/lib/account/remembered-credential"
+import { clearRememberedPassword, loadRememberedCredential, saveRememberedCredential } from "@/lib/account/remembered-credential"
 import {
   isSixDigitCode,
   isValidEmail,
@@ -124,19 +124,26 @@ export function AccountDialog() {
   }, [cooldown])
 
   /*
-   * 打开登录弹窗时尝试填入已记住的密码。
+   * 打开登录弹窗时填入已记住的凭据（邮箱 + 密码）。
    *
-   * 只在「登录」模式、且输入框还空着时填，避免覆盖用户正在输入的密码。
+   * 邮箱必须一起填：只填密码的话用户还是得手输邮箱，「免输登录」就没成立
+   * （这正是上一版只做了一半的地方）。
+   *
+   * 只在「登录」模式、且对应输入框还空着时填，避免覆盖用户正在输入的内容。
    * 读不到（没存过 / 换了 Windows 用户 / 平台不支持）就保持原样，
    * 勾选框也不会显示为已勾选 —— 不能让用户误以为密码被记住了。
    */
   useEffect(() => {
     if (!dialogOpen || authMode !== "login") return
     let cancelled = false
-    void loadRememberedPassword().then((saved) => {
+    void loadRememberedCredential().then((saved) => {
       if (cancelled || !saved) return
       setRememberPassword(true)
-      setPassword((current) => (current.length > 0 ? current : saved))
+      if (saved.email) {
+        const savedEmail = saved.email.trim().toLowerCase()
+        setEmail((current) => (current.trim().length > 0 ? current : savedEmail))
+      }
+      setPassword((current) => (current.length > 0 ? current : saved.password))
     })
     return () => {
       cancelled = true
@@ -280,10 +287,10 @@ export function AccountDialog() {
       if (authMode === "login") {
         await login({ email: normalizedEmail, password })
         /*
-         * 登录成功后才落盘密码：失败了却把错误密码存起来，
-         * 下次自动填充一个用不了的密码，比不填更让人困惑。
+         * 登录成功后才落盘凭据（邮箱 + 密码一起）：失败了却把错误的组合存起来，
+         * 下次自动填充一个用不了的凭据，比不填更让人困惑。
          */
-        if (rememberPassword) void saveRememberedPassword(password)
+        if (rememberPassword) void saveRememberedCredential({ email: normalizedEmail, password })
         else void clearRememberedPassword()
         toast.success("登录成功")
       } else if (authMode === "register") {
