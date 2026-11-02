@@ -100,3 +100,16 @@ typecheck-output.txt
 
 # Worker 本地备份与 D1 导出：含真实用户数据（uuid、IP 哈希），禁止上传
 /analytics-worker/backups/
+
+# === 环境变量 ===
+# .env 与其变体都是本地真实配置，绝不入库；
+# 但 .env.example 是给部署者看的变量清单（不含任何真实值），必须入库。
+.env
+.env.*
+!.env.example
+
+# === 本地工作副本与 AI 工具目录 ===
+# .worktrees 是历史并行开发的副本，里面有重复旧源码（可能包含已废弃的、把
+# Secret 放客户端之类的旧实现），上传会把过期代码混进公开仓库。
+.worktrees/
+.claude/
