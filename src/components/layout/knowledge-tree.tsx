@@ -1,7 +1,7 @@
 import { filterUiTestDirectory } from "@/lib/ui-test-layout"
 import { MoreHorizontal } from "lucide-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, AppWindow, History, Loader2, MessageCircle, Pencil, Plus, Search, Trash2, Check, X } from "lucide-react"
+import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, AppWindow, History, Loader2, MessageCircle, Pencil, Plus, RefreshCw, Search, Trash2, Check, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -677,6 +677,21 @@ export function KnowledgeTree({
     setFileTree(tree)
     bumpDataVersion()
   }, [bumpDataVersion, loadPages, project, setFileTree])
+
+  const directoryRefreshLockRef = useRef(false)
+  const handleRefreshDirectory = useCallback(async () => {
+    if (directoryRefreshLockRef.current) return
+    directoryRefreshLockRef.current = true
+    setCreateMenu(null)
+    setPageMenu(null)
+    try {
+      await refreshCurrentTree()
+    } catch (error) {
+      console.error("[KnowledgeTree] 刷新目录失败:", error)
+    } finally {
+      directoryRefreshLockRef.current = false
+    }
+  }, [refreshCurrentTree])
 
   const handleMovePagesToFolder = useCallback(async (sourcePaths: string[], targetFolderPath: string) => {
     if (!project) return
@@ -1941,6 +1956,19 @@ export function KnowledgeTree({
               <Search className="h-3.5 w-3.5" />
               {findLabel}
             </button>
+            {filterType === "chapter" ? (
+              <button
+                type="button"
+                data-ui="tree-refresh-directory"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+                onClick={() => {
+                  void handleRefreshDirectory()
+                }}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                刷新目录
+              </button>
+            ) : null}
             {createMenu.targetFolderPath ? (
               <>
                 <button
@@ -2190,6 +2218,19 @@ export function KnowledgeTree({
               <FolderOpen className="h-4 w-4" />
               打开文件所在位置
             </button>
+            {filterType === "chapter" ? (
+              <button
+                type="button"
+                data-ui="tree-refresh-directory"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+                onClick={() => {
+                  void handleRefreshDirectory()
+                }}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                刷新目录
+              </button>
+            ) : null}
             {((filterType === "chapter" && (onSendToChat || onSendToOutline)) || (filterType === "outline" && onSendToOutline)) && (
               <div className="mt-1 border-t pt-1">
                 {filterType === "chapter" && onSendToChat && (
