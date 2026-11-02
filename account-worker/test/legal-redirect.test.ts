@@ -15,19 +15,19 @@ import { privacyPage, termsPage } from "../src/legal"
  * 这组用例锁住「跳转目标正确」与「不再返回内嵌正文」。
  */
 
-const LEGAL_SITE = "https://qmai-legal.pages.dev"
+const LEGAL_PATH = "/legal"
 
 describe("条款页面跳转", () => {
   it("隐私政策跳转到 Pages 站点的 #privacy", () => {
     const response = privacyPage()
-    expect(response.status).toBe(301)
-    expect(response.headers.get("Location")).toBe(`${LEGAL_SITE}/#privacy`)
+    expect(response.status).toBe(302)
+    expect(response.headers.get("Location")).toBe(`${LEGAL_PATH}#privacy`)
   })
 
   it("服务条款跳转到 Pages 站点的 #terms", () => {
     const response = termsPage()
-    expect(response.status).toBe(301)
-    expect(response.headers.get("Location")).toBe(`${LEGAL_SITE}/#terms`)
+    expect(response.status).toBe(302)
+    expect(response.headers.get("Location")).toBe(`${LEGAL_PATH}#terms`)
   })
 
   it("不再返回内嵌的条款正文：响应体只有一行提示", async () => {

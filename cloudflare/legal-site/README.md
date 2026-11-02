@@ -22,27 +22,29 @@ node scripts/build-legal-site.mjs
 
 ## 部署
 
-站点是自包含单页（无外部 CSS/JS 依赖），直接部署目录即可：
+**线上唯一地址是 `qmai.pro/legal`**（由 qmai-account Worker 直接返回）。
 
 ```bash
-wrangler pages deploy cloudflare/legal-site --project-name qmai-legal
+# 1. 生成 index.html 与 account-worker/src/legal-page.ts
+node scripts/build-legal-site.mjs
+
+# 2. 部署 Worker（qmai.pro/legal、/terms、/privacy 都挂在它上面）
+cd account-worker && wrangler deploy
 ```
 
-- 线上地址：https://qmai-legal.pages.dev/
-- 服务条款：https://qmai-legal.pages.dev/#terms
-- 隐私政策：https://qmai-legal.pages.dev/#privacy
+| 入口 | 行为 |
+|---|---|
+| https://qmai.pro/legal | 条款总页（页内切换服务条款 / 隐私政策） |
+| https://qmai.pro/terms | 302 → /legal#terms |
+| https://qmai.pro/privacy | 302 → /legal#privacy |
+
+**为什么不用 *.pages.dev**：那是 Cloudflare 默认域名，中国大陆访问不稳定；
+qmai.pro 是已在百度开放平台登记的正式域名，用户点「同意」时必须能打开。
+早期的 qmai-legal.pages.dev 项目已删除，避免同一份条款存在两个地址。
 
 客户端「登录同意」处的链接常量在 `src/lib/account/legal-consent.ts`
-（`LEGAL_TERMS_URL` / `LEGAL_PRIVACY_URL`），有单元测试锁定，改地址要同步改测试。
-
-## 绑定自定义域名（可选）
-
-`qmai.pro/legal` 目前不可用：该路径落到营销站首页的 SPA 回退，
-用户点「同意」看到的是产品介绍而不是条款。绑定方式：
-
-1. Cloudflare 控制台 → Pages → `qmai-legal` → Custom domains
-2. 添加 `legal.qmai.pro` 或把 `qmai.pro/legal` 用 Rules 重写到该 Pages 项目
-3. 绑定成功后，把 `legal-consent.ts` 里两个常量与对应测试一起改成新域名
+（`LEGAL_TERMS_URL` / `LEGAL_PRIVACY_URL`，均为 `https://qmai.pro/legal#...`），
+有单元测试锁定，改地址要同步改测试。
 
 ## 内容变更必须同步的地方
 

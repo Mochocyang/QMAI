@@ -335,4 +335,31 @@ ${privacyRendered.html}
 `
 
 writeFileSync(join(SITE, "index.html"), html, "utf8")
+
+/*
+ * 同时产出一份可内嵌进 Worker 的条款模块。
+ *
+ * 为什么需要它：条款必须挂在 qmai.pro 上。pages.dev 是 Cloudflare 默认域名，
+ * 中国大陆访问不稳定，而 qmai.pro 是已在百度开放平台登记的正式域名 ——
+ * 用户点「同意」时的可读入口必须是它。
+ *
+ * 主站是 Pages 项目 qmai（无源码在本仓库），不能直接往里塞页面；
+ * 但 qmai-account Worker 已经挂了同域的 qmai.pro/terms、qmai.pro/privacy 路由，
+ * 让它在 qmai.pro/legal 直接返回这份 HTML 即可，仍在 qmai.pro 域名之下。
+ *
+ * 内容从同一份 md 生成，所以 Pages 站点、Worker 内嵌、md 三者永远一致。
+ */
+const workerModule = `/**
+ * 条款页（qmai.pro/legal）的 HTML。
+ *
+ * ⚠️ 本文件由 scripts/build-legal-site.mjs 自动生成，请勿手改。
+ * 修改条款请改 cloudflare/legal-site/terms.md 与 privacy.md，
+ * 然后执行：node scripts/build-legal-site.mjs
+ */
+export const LEGAL_PAGE_HTML = ${JSON.stringify(html)}
+`
+
+writeFileSync(join(ROOT, "account-worker", "src", "legal-page.ts"), workerModule, "utf8")
+
 console.log(`✓ index.html 已生成：服务条款 ${termsRendered.toc.length} 章、隐私政策 ${privacyRendered.toc.length} 章`)
+console.log(`✓ account-worker/src/legal-page.ts 已同步（qmai.pro/legal 使用）`)

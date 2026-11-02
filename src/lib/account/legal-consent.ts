@@ -69,10 +69,13 @@ export function clearLegalConsent(): void {
 /**
  * 条款与隐私政策的在线地址。
  *
- * 指向已部署的 Cloudflare Pages 站点（2026-11-01 上线并验证 200 + 内容正确）。
- * 为什么不用 qmai.pro/legal：该路径当前落到营销站首页的 SPA 回退，
- * 用户点「同意」看到的是产品介绍而不是条款，等于没有给出可读入口。
- * 将来给 Pages 项目绑定自定义域名后，只改这两行即可。
+ * 必须是 **qmai.pro**：
+ *   · 它是已在百度开放平台等渠道登记的正式域名；
+ *   · Cloudflare Pages 的默认域名（*.pages.dev）在中国大陆访问不稳定，
+ *     把它当唯一入口，用户点「同意」时可能根本打不开 —— 那就等于没给可读入口。
+ *
+ * 页面由 qmai-account Worker 在 qmai.pro/legal 直接返回，内容与
+ * cloudflare/legal-site 下的 md 由同一份生成脚本产出，不会出现两套条款。
  */
-export const LEGAL_TERMS_URL = "https://qmai-legal.pages.dev/#terms"
-export const LEGAL_PRIVACY_URL = "https://qmai-legal.pages.dev/#privacy"
+export const LEGAL_TERMS_URL = "https://qmai.pro/legal#terms"
+export const LEGAL_PRIVACY_URL = "https://qmai.pro/legal#privacy"

@@ -119,9 +119,9 @@ describe("条款在线地址", () => {
      * 会落到首页的 SPA 回退 —— 用户点「同意」看到的是产品介绍而不是条款，
      * 等于没有给出可读入口。链接必须是确定存在的那一个。
      */
-    expect(LEGAL_TERMS_URL).toBe("https://qmai-legal.pages.dev/#terms")
-    expect(LEGAL_PRIVACY_URL).toBe("https://qmai-legal.pages.dev/#privacy")
-    expect(LEGAL_TERMS_URL).toMatch(/^https:\/\//)
-    expect(LEGAL_PRIVACY_URL).toMatch(/^https:\/\//)
+    expect(LEGAL_TERMS_URL).toBe("https://qmai.pro/legal#terms")
+    expect(LEGAL_PRIVACY_URL).toBe("https://qmai.pro/legal#privacy")
+    expect(LEGAL_TERMS_URL).toMatch(/^https:\/\/qmai\.pro\//)
+    expect(LEGAL_PRIVACY_URL).toMatch(/^https:\/\/qmai\.pro\//)
   })
 })

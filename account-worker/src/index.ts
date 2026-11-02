@@ -26,7 +26,7 @@ import {
   parseAllowedOrigins,
   preflightResponse,
 } from "./http"
-import { privacyPage, termsPage } from "./legal"
+import { legalPage, privacyPage, termsPage } from "./legal"
 import {
   handleDeleteModelConfig,
   handleGetModelConfig,
@@ -173,7 +173,8 @@ export default {
      * 官网是 Pages 纯静态站，本地无其源码，所以这两页由本 Worker 提供。
      */
     if (request.method === "GET") {
-      if (path === "/privacy" || path === "/privacy/") return privacyPage()
+      if (path === "/legal" || path === "/legal/") return legalPage()
+    if (path === "/privacy" || path === "/privacy/") return privacyPage()
       if (path === "/terms" || path === "/terms/") return termsPage()
     }
 

@@ -13,6 +13,7 @@ routes = [
   { pattern = "qmai.pro/oauth/baidu/*", zone_name = "qmai.pro" },
   # 隐私政策与服务条款：开放平台公开发布要求可访问的正式链接。
   # 只精确匹配这两条路径，站点其它页面仍由 Pages 提供。
+  { pattern = "qmai.pro/legal", zone_name = "qmai.pro" },
   { pattern = "qmai.pro/privacy", zone_name = "qmai.pro" },
   { pattern = "qmai.pro/terms", zone_name = "qmai.pro" }
 ]
