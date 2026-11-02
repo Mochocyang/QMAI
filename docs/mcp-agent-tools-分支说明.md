@@ -36,7 +36,7 @@
 
 ## 连接
 
-设置 → 外部 Agent（MCP）→ 启用 MCP。复制 MCP 配置说明，把服务名 `qmai` 配进 Agent，命令是程序路径加 `--mcp-stdio`。
+设置 → 外部 Agent（MCP）→ 启用 MCP。点击「复制 MCP 配置」会复制纯 JSON，可用于客户端的剪贴板 JSON 导入，或合并到现有 MCP 配置的 `mcpServers` 中。服务名为 `qmai`，`command` 是当前程序的可执行文件绝对路径，`args` 为 `["--mcp-stdio"]`。
 
 连接信息写在应用数据目录的 `mcp-endpoint.json`，只允许当前用户读取，只监听 `127.0.0.1`。应用没开或开关关闭时，stdio 返回「青幕写作未启动，或尚未打开 MCP 开关。」
 

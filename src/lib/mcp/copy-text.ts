@@ -1,12 +1,12 @@
 export function buildMcpConfigInstallText(executablePath: string): string {
-  return [
-    "请把青幕写作 MCP 加入当前 agent 的 MCP 配置（服务名 qmai，已有同名则覆盖），然后重新加载 MCP。",
-    "",
-    "启动命令：",
-    `"${executablePath}" --mcp-stdio`,
-    "",
-    "应用需保持打开，并且设置里的 MCP 开关已打开。",
-  ].join("\n")
+  return JSON.stringify({
+    mcpServers: {
+      qmai: {
+        command: executablePath,
+        args: ["--mcp-stdio"],
+      },
+    },
+  }, null, 2)
 }
 
 export function buildAgentInstallText(executablePath: string, skillDir: string, version: string): string {

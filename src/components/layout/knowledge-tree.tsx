@@ -1,7 +1,7 @@
 import { filterUiTestDirectory } from "@/lib/ui-test-layout"
 import { MoreHorizontal } from "lucide-react"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, AppWindow, History, Loader2, MessageCircle, Pencil, Plus, Search, Trash2, Check, X, UserPlus } from "lucide-react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { BookOpen, ChevronDown, ChevronRight, FileText, Folder, FolderInput, FolderOpen, AppWindow, History, Loader2, MessageCircle, Pencil, Plus, RefreshCw, Search, Trash2, Check, X, UserPlus } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -468,6 +468,22 @@ export function KnowledgeTree({
     containerRef.current?.querySelector<HTMLButtonElement>('[aria-label="文档更多操作"] button')?.focus()
   }, [pageMenu])
 
+  /*
+   * 菜单高度跟内容走，不再用 360px 把多出来的项裁进滚动条。
+   * 点在窗口下半部分时，整块菜单会超出底边；在绘制前把 top 上移，让最后一项留在视口里。
+   */
+  useLayoutEffect(() => {
+    if (!pageMenu) return
+    const menu = containerRef.current?.querySelector<HTMLElement>('[aria-label="文档更多操作"]')
+    if (!menu) return
+    const margin = 12
+    const overflowBottom = menu.getBoundingClientRect().bottom - (window.innerHeight - margin)
+    if (overflowBottom <= 1) return
+    const nextY = Math.max(margin, pageMenu.y - overflowBottom)
+    if (Math.abs(nextY - pageMenu.y) <= 1) return
+    setPageMenu((current) => current ? { ...current, y: nextY } : current)
+  }, [pageMenu, moveMenuTarget])
+
   const pageInfoByPath = useMemo(() => {
     const map = new Map<string, WikiPageInfo>()
     for (const page of pages) {
@@ -690,6 +706,21 @@ export function KnowledgeTree({
     setFileTree(tree)
     bumpDataVersion()
   }, [bumpDataVersion, loadPages, project, setFileTree])
+
+  const directoryRefreshLockRef = useRef(false)
+  const handleRefreshDirectory = useCallback(async () => {
+    if (directoryRefreshLockRef.current) return
+    directoryRefreshLockRef.current = true
+    setCreateMenu(null)
+    setPageMenu(null)
+    try {
+      await refreshCurrentTree()
+    } catch (error) {
+      console.error("[KnowledgeTree] 刷新目录失败:", error)
+    } finally {
+      directoryRefreshLockRef.current = false
+    }
+  }, [refreshCurrentTree])
 
   const handleMovePagesToFolder = useCallback(async (sourcePaths: string[], targetFolderPath: string) => {
     if (!project) return
@@ -1511,7 +1542,7 @@ export function KnowledgeTree({
     setPageMenu({
       path: pagePath,
       x: Math.max(12, Math.min(window.innerWidth - 228, event.clientX || event.currentTarget.getBoundingClientRect().left)),
-      y: Math.max(12, Math.min(window.innerHeight - 380, event.clientY || event.currentTarget.getBoundingClientRect().bottom)),
+      y: Math.max(12, event.clientY || event.currentTarget.getBoundingClientRect().bottom),
     })
     setCreateMenu(null)
   }, [])
@@ -2027,6 +2058,19 @@ export function KnowledgeTree({
               <Search className="h-3.5 w-3.5" />
               {findLabel}
             </button>
+            {filterType === "chapter" ? (
+              <button
+                type="button"
+                data-ui="tree-refresh-directory"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+                onClick={() => {
+                  void handleRefreshDirectory()
+                }}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                刷新目录
+              </button>
+            ) : null}
             {createMenu.targetFolderPath ? (
               <>
                 <button
@@ -2077,7 +2121,7 @@ export function KnowledgeTree({
               const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length
               items[next]?.focus()
             }}
-            style={{ left: pageMenu.x, top: pageMenu.y, ...({ position: "fixed", maxHeight: "min(70dvh, 360px)", maxWidth: "calc(100vw - 24px)", overflowY: "auto", zIndex: 40 } as const) }}
+            style={{ left: pageMenu.x, top: pageMenu.y, position: "fixed", maxWidth: "calc(100vw - 24px)", zIndex: 40 }}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => event.stopPropagation()}
           >
@@ -2291,6 +2335,19 @@ export function KnowledgeTree({
               <FolderOpen className="h-4 w-4" />
               打开文件所在位置
             </button>
+            {filterType === "chapter" ? (
+              <button
+                type="button"
+                data-ui="tree-refresh-directory"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-accent"
+                onClick={() => {
+                  void handleRefreshDirectory()
+                }}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                刷新目录
+              </button>
+            ) : null}
             {((filterType === "chapter" && (onSendToChat || onSendToOutline)) || (filterType === "outline" && onSendToOutline)) && (
               <div className="mt-1 border-t pt-1">
                 {filterType === "chapter" && onSendToChat && (
