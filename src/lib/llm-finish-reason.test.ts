@@ -113,7 +113,18 @@ test("streamChat surfaces finish_reason=length as a tolerable truncation error",
   expect(doneCalled).toBe(false)
   expect(error).not.toBeNull()
   expect(error!.message).toContain("输出被截断")
-  expect(error!.message).toContain("最大输出 token")
+  // 旧断言盯的是「最大输出 token」这句固定文案；诊断文案现在按卡点分支
+  // 不同（上限卡住 vs 窗口挤占），但两个分支都必然提到「输出上限」这个旋钮，
+  // 用它断言「说清了原因」，且不与具体分支耦合。
+  expect(error!.message).toContain("输出上限")
+  /*
+   * 接线守卫：模型名必须出现在消息里。
+   * 这证明 onError 真的把 context（运行期模型/发出额度/上限/窗口）传给了
+   * buildOutputTruncatedError —— 若调用点漏传参数，诊断只剩通用文案，
+   * 这条会红。纯函数单测测不到接线，全靠这里兜住。
+   */
+  expect(error!.message).toContain("test-model")
+  expect(error!.message).toContain("当前模型")
   expect(isOutputTruncatedError(error)).toBe(true)
 })
 

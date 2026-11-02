@@ -132,11 +132,62 @@ export const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 30 * 60 * 1000
  */
 export const OUTPUT_TRUNCATED_ERROR_MARKER = "输出被截断"
 
-function buildOutputTruncatedError(finishReason: string): Error {
-  return new Error(
-    `${OUTPUT_TRUNCATED_ERROR_MARKER}：模型已达到最大输出 token 上限（finish_reason=${finishReason}）。` +
-    `已生成的内容已保留，可输入"继续"让模型补全剩余部分，或提高最大输出 token 后重试。`,
-  )
+/** 生成 `diagnoseOutputTruncation` 建议所需的一次截断现场。 */
+export interface OutputTruncationContext {
+  /** 本次实际使用的模型名（来自运行期解析后的配置）。 */
+  model: string
+  provider: string
+  /** 本次真正发给模型的最大输出额度（`max_tokens`）。 */
+  sentOutputTokens: number
+  /** 用户在设置里声明的「输出上限」。 */
+  declaredOutputCap: number
+  /** 折算后的上下文窗口（token）。 */
+  windowTokens: number
+}
+
+/**
+ * 为什么这次被截断、该怎么解决 —— 对症，而不是套话。
+ *
+ * 旧文案不分青红皂白就说「提高最大输出 token 后重试」，但按
+ * `planLlmRequestBudget` 的算法，实际发出的 max_tokens =
+ *   min(本次任务所需, min(用户声明上限, 窗口 − 输入 − 脚手架))。
+ * 于是截断时卡住的**未必是用户上限**：长上下文把窗口占满时，输出会被
+ * 压到接近下限（甚至 512），此时叫用户去调「输出上限」是误导——那个旋钮
+ * 根本不是决定值，调了也不会变长。i18n 里那句「调高不会让回复变长」说的
+ * 就是这种情况。所以先判断卡在哪，再给对应解法（用户 2026-11-02 要求）。
+ */
+export function diagnoseOutputTruncation(context?: OutputTruncationContext): string {
+  const base = `${OUTPUT_TRUNCATED_ERROR_MARKER}：模型这一轮的回答触到了输出长度上限。` +
+    `已生成的内容已保留，输入「继续」可让模型接着写完。`
+  if (!context) return base
+
+  const { model, sentOutputTokens, declaredOutputCap, windowTokens } = context
+  const sent = sentOutputTokens.toLocaleString()
+  const cap = declaredOutputCap.toLocaleString()
+
+  /*
+   * 卡在哪：发出的额度是否就等于用户声明的上限。
+   * 留 5% 容差：整数换算与窗口余量会让两者差一点点，但语义仍是"上限说了算"。
+   */
+  const capIsBinding = sentOutputTokens >= declaredOutputCap * 0.95
+
+  if (capIsBinding) {
+    return `${base}\n` +
+      `当前模型：${model}。本次输出的决定值是你在设置里的「输出上限」（${cap} tokens）——` +
+      `回答正好被它截断。若内容确实没写完，可到「模型设置」把该模型的「输出上限」调高` +
+      `（不超过模型真实上限）后重试；或直接输入「继续」把剩下的补完。`
+  }
+  return `${base}\n` +
+    `当前模型：${model}。本次实际允许输出的额度只有 ${sent} tokens，明显低于你设的「输出上限」（${cap}）——` +
+    `也就是说**卡住输出的不是「输出上限」，调高输出上限不会改善**。` +
+    `真实原因是输出额度被压小了：上下文窗口（约 ${windowTokens.toLocaleString()} tokens）被输入占满，` +
+    `或供应商对单次输出的限制本来就低于你的设置。` +
+    `对症做法：调小本次注入的上下文（如「最近章节正文窗口」、检索数量、历史消息条数）、` +
+    `确认并适当调大该模型的「上下文窗口」，或改用上下文窗口/输出上限更高的模型；也可以直接输入「继续」补完。`
+}
+
+function buildOutputTruncatedError(finishReason: string, context?: OutputTruncationContext): Error {
+  return new Error(`${diagnoseOutputTruncation(context)}（finish_reason=${finishReason}）`)
 }
 
 export function isOutputTruncatedError(error: unknown): boolean {
@@ -1213,7 +1264,16 @@ async function streamChatHeld(
       const finalFinishReason: string | null = finishReason
       if (finalFinishReason && isTruncationFinishReason(finalFinishReason)) {
         finishRequestTrace(activeRequestTrace, "error", streamUsage)
-        onError(buildOutputTruncatedError(finalFinishReason))
+        onError(buildOutputTruncatedError(finalFinishReason, {
+          // 用运行期解析后的配置与真正发出的额度：诊断要说清「是哪套配置、
+          // 卡在哪个旋钮」，取错来源（如显示用户填的模型名而实际跑的别的）
+          // 会让建议指错地方。effectiveOutputTokens 已含服务端回报上限的改写。
+          model: typeof runtimeConfig.model === "string" ? runtimeConfig.model : "",
+          provider: typeof runtimeConfig.provider === "string" ? runtimeConfig.provider : "",
+          sentOutputTokens: effectiveOutputTokens,
+          declaredOutputCap: outputCap,
+          windowTokens: runtimeBudget.windowTokens,
+        }))
         return
       }
 
