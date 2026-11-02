@@ -233,27 +233,42 @@ html[data-ui-test-skin] .model-editor-dialog { width: min(680px,calc(100vw - 32p
 html[data-ui-test-skin] .model-editor-dialog, html[data-ui-test-skin] .model-editor-dialog * { transition-property: color, background-color, border-color, box-shadow, opacity, transform; }
 html[data-ui-test-skin] .model-editor-dialog :is(button,input,select):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
 
-/* 「账号模型已备份」提示条：未登录且存在加密备份时，挂在标题下方。 */
+/*
+ * 「账号模型已备份」提示条：未登录且有备份时，内联在「我的模型设置」标题行
+ * 的右侧（用户 2026-11-02 指定；之前单独占一行横幅，太占地方）。
+ *
+ * margin-left:auto 把提示条推到右端，「N 个配置」跟在它后面；
+ * 标题行补 flex-wrap：窄面板放不下时整体折到第二行，而不是挤压文字。
+ */
 .model-archive-notice {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 8px 0 4px;
-  padding: 10px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* 可收缩 + 允许换行：文案有 30 多字，硬 nowrap 在窄面板里会把容器撑破。 */
+  min-width: 0;
+  padding: 2px 10px;
   border: 1px solid var(--border, #e3e8e5);
-  border-radius: 8px;
+  border-radius: 999px;
   background: var(--muted, #f6f8f7);
-  font-size: 12.5px;
-  line-height: 1.6;
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--muted-foreground, #6b7280);
   text-align: left;
 }
 
+/* 提示条在标题行里靠右：auto 外边距吃掉剩余空间（优先于 justify-content）。 */
+.model-library-heading:has(.model-archive-notice) {
+  flex-wrap: wrap;
+}
+
+.model-library-heading > .model-archive-notice {
+  margin-left: auto;
+}
+
 .model-archive-notice-icon {
   flex-shrink: 0;
-  width: 15px;
-  height: 15px;
-  margin-top: 2px;
+  width: 13px;
+  height: 13px;
   color: var(--primary, #3b6e4f);
 }
 
@@ -264,8 +279,8 @@ html[data-ui-test-skin] .model-editor-dialog :is(button,input,select):focus-visi
 .model-archive-notice-login {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  margin-left: 8px;
+  gap: 2px;
+  margin-left: 6px;
   border: none;
   background: none;
   padding: 0;
@@ -276,6 +291,7 @@ html[data-ui-test-skin] .model-editor-dialog :is(button,input,select):focus-visi
   text-underline-offset: 2px;
   cursor: pointer;
   vertical-align: baseline;
+  flex-shrink: 0;
 }
 
 .model-archive-notice-login:hover {

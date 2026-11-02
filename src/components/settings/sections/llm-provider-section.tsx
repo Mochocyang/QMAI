@@ -161,12 +161,12 @@ export function LlmProviderSection() {
     const presets = LLM_PRESETS.filter((preset) => preset.id !== "custom" && preset.id !== BUILTIN_PROVIDER_ID)
     return (
       <div data-ui="llm-library">
-        <div className="model-library-heading"><h3>我的模型设置</h3><span>{configured.length} 个配置</span></div>
         {/*
-         * 未登录且有账号模型备份时，在这里说明它们去哪了（加密备份在本机，
-         * 登录即恢复）—— 没有这句话，用户看到的是「模型凭空消失」。
+         * 备份提示内联在标题行右侧（用户 2026-11-02 指定）：
+         * 之前它单独占一行横幅，太占地方；现在「我的模型设置 —— 右侧」一行看完。
+         * 组件自身在未登录无备份时返回 null，放这里不会有空档。
          */}
-        <ModelArchiveNotice />
+        <div className="model-library-heading"><h3>我的模型设置</h3><ModelArchiveNotice /><span>{configured.length} 个配置</span></div>
         {/* 两栏入口：提供方 / 自定义模型。顺序即产品叙事 ——
             先「填别人的 Key」，最后「完全自定义」。 */}
         <div className="model-add-row">
