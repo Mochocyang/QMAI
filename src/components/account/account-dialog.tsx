@@ -15,11 +15,10 @@ import { processAvatarImage } from "@/lib/account/avatar"
 import { accountErrorMessage } from "@/lib/account/errors"
 import type { AccountAuthMode } from "@/lib/account/types"
 import {
-  LEGAL_PRIVACY_URL,
-  LEGAL_TERMS_URL,
   hasAcceptedLegalTerms,
   recordLegalConsent,
 } from "@/lib/account/legal-consent"
+import { clearRememberedPassword, loadRememberedPassword, saveRememberedPassword } from "@/lib/account/remembered-credential"
 import {
   isSixDigitCode,
   isValidEmail,
@@ -102,6 +101,8 @@ export function AccountDialog() {
   const [legalAccepted, setLegalAccepted] = useState(() => hasAcceptedLegalTerms())
   /** 软件内条款阅读器：null = 关闭，否则是要显示的那一份。 */
   const [legalDocOpen, setLegalDocOpen] = useState<"terms" | "privacy" | null>(null)
+  /** 是否记住密码（密码存系统凭据，不存 localStorage）。 */
+  const [rememberPassword, setRememberPassword] = useState(false)
   /** 是否展开「注销账号」确认区。 */
   const [deletingAccount, setDeletingAccount] = useState(false)
   const [deletePassword, setDeletePassword] = useState("")
@@ -121,6 +122,26 @@ export function AccountDialog() {
     const timer = window.setTimeout(() => setCooldown((remaining) => Math.max(0, remaining - 1)), 1000)
     return () => window.clearTimeout(timer)
   }, [cooldown])
+
+  /*
+   * 打开登录弹窗时尝试填入已记住的密码。
+   *
+   * 只在「登录」模式、且输入框还空着时填，避免覆盖用户正在输入的密码。
+   * 读不到（没存过 / 换了 Windows 用户 / 平台不支持）就保持原样，
+   * 勾选框也不会显示为已勾选 —— 不能让用户误以为密码被记住了。
+   */
+  useEffect(() => {
+    if (!dialogOpen || authMode !== "login") return
+    let cancelled = false
+    void loadRememberedPassword().then((saved) => {
+      if (cancelled || !saved) return
+      setRememberPassword(true)
+      setPassword((current) => (current.length > 0 ? current : saved))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [dialogOpen, authMode])
 
   // 模式切换会作废在途请求，并清错误、验证码与敏感字段；邮箱保留。
   useEffect(() => {
@@ -258,6 +279,12 @@ export function AccountDialog() {
     try {
       if (authMode === "login") {
         await login({ email: normalizedEmail, password })
+        /*
+         * 登录成功后才落盘密码：失败了却把错误密码存起来，
+         * 下次自动填充一个用不了的密码，比不填更让人困惑。
+         */
+        if (rememberPassword) void saveRememberedPassword(password)
+        else void clearRememberedPassword()
         toast.success("登录成功")
       } else if (authMode === "register") {
         await register({ email: normalizedEmail, code, password })
@@ -671,6 +698,32 @@ export function AccountDialog() {
                 <p className="account-error" id={ERROR_ID} role="alert">{displayedError}</p>
               ) : null}
 
+              {/*
+               * 「记住密码」勾选框。只在登录模式显示：
+               * 注册和重置密码时没有「下次登录」这回事，放上去只会让人困惑。
+               *
+               * 勾选后密码交给系统凭据存储（Windows DPAPI），不落 localStorage。
+               * 详细取舍见 src/lib/account/remembered-credential.ts。
+               */}
+              {authMode === "login" ? (
+                <div className="account-remember-row">
+                  <input
+                    id="account-remember-password"
+                    type="checkbox"
+                    checked={rememberPassword}
+                    disabled={busy}
+                    onChange={(event) => {
+                      const next = event.target.checked
+                      setRememberPassword(next)
+                      // 取消勾选立刻清除已存凭据：用户表达「别记了」就要马上兑现。
+                      if (!next) void clearRememberedPassword()
+                    }}
+                    data-ui="account-remember-password"
+                  />
+                  <label htmlFor="account-remember-password">记住密码</label>
+                </div>
+              ) : null}
+
               {authMode !== "reset" ? (
                 /*
                  * 同意条款的勾选框。四个细节都是刻意的：
@@ -710,20 +763,6 @@ export function AccountDialog() {
                     </button>
                   </label>
                 </div>
-              ) : null}
-
-              {/*
-               * 在线版本入口。单独一行、字号更小：
-               * 它服务于「需要在线核验条款」的场景（如应用商店审核），
-               * 不是给用户点同意时看的，所以不与主链接争视觉权重。
-               */}
-              {authMode !== "reset" ? (
-                <p className="account-legal-online">
-                  在线版本：
-                  <a href={LEGAL_TERMS_URL} target="_blank" rel="noreferrer">服务条款</a>
-                  <span aria-hidden="true">·</span>
-                  <a href={LEGAL_PRIVACY_URL} target="_blank" rel="noreferrer">隐私政策</a>
-                </p>
               ) : null}
 
               <Button

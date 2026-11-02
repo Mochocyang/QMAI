@@ -270,6 +270,26 @@ describe("AccountDialog", () => {
     expect(dialog!.textContent).toContain("隐私政策")
   })
 
+  it("登录页只保留软件内入口：不再有「在线版本」那行外链", async () => {
+    render()
+
+    // 需求：删掉在线版本入口。
+    expect(document.querySelector(".account-legal-online")).toBeNull()
+    expect(document.body.textContent).not.toContain("在线版本")
+  })
+
+  it("存在「记住密码」勾选框，且只在登录模式显示", async () => {
+    render()
+
+    const remember = document.querySelector<HTMLInputElement>('[data-ui="account-remember-password"]')
+    expect(remember, "登录模式应有记住密码勾选框").not.toBeNull()
+    expect(document.body.textContent).toContain("记住密码")
+
+    // 注册模式不该有：那里没有「下次登录」这回事。
+    await click(buttonByText("注册"))
+    expect(document.querySelector('[data-ui="account-remember-password"]')).toBeNull()
+  })
+
   it("未勾选同意条款时，登录请求根本不发出，并给出中文提示", async () => {
     render()
     await setInput("account-email", "writer@example.com")

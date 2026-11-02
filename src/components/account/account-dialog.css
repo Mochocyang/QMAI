@@ -382,24 +382,6 @@
   opacity: 0.8;
 }
 
-/* 在线版本入口：更小、更淡，不抢主链接的注意力。 */
-.account-legal-online {
-  margin: 6px 0 0;
-  font-size: 11px;
-  color: var(--muted-foreground, #8b949e);
-  text-align: left;
-}
-
-.account-legal-online a {
-  color: inherit;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.account-legal-online span {
-  margin: 0 6px;
-  opacity: 0.5;
-}
 /* 注销账号：入口刻意低调，确认区用警示色区分于普通操作。 */
 .account-delete-entry {
   margin-top: 6px;
@@ -465,4 +447,57 @@
 
 .account-delete-confirm:hover {
   background: #b91c1c !important;
+}
+/*
+ * 隐藏浏览器自带的「显示密码」按钮。
+ *
+ * 为什么需要：Edge / WebView2（本软件在 Windows 上的运行环境）会在
+ * type="password" 的输入框右侧注入一个原生眼睛图标。我们自己已经有一个眼睛按钮，
+ * 于是界面上出现两个——用户截图里两个并排的眼睛就是这么来的。
+ *
+ * 那个原生图标还会「3 秒后自己消失」（Edge 的自动隐藏行为），
+ * 看起来像 bug。用浏览器专有伪元素把它彻底关掉，只保留我们自己的控件。
+ *
+ * 注意：这些伪元素选择器不被标准认可，浏览器不支持时会直接忽略，
+ * 不会造成副作用；非 Edge/WebView2 环境本就没有这个图标。
+ */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear {
+  display: none;
+}
+
+input[type="password"]::-webkit-credentials-auto-fill-button,
+input[type="password"]::-webkit-textfield-decoration-container {
+  display: none !important;
+  visibility: hidden;
+  pointer-events: none;
+  margin-right: 0;
+}
+/* 记住密码：与同意条款同一行的视觉语言，但间距更紧，避免两个勾选框割裂。 */
+.account-remember-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--muted-foreground, #6b7280);
+  text-align: left;
+}
+
+.account-remember-row input[type="checkbox"] {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--primary, #3b6e4f);
+}
+
+.account-remember-row input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.account-remember-row label {
+  cursor: pointer;
 }

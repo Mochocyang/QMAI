@@ -212,6 +212,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+                        commands::account_credential::account_credential_save,
+                        commands::account_credential::account_credential_load,
+                        commands::account_credential::account_credential_clear,
                         commands::cloud_sync::cloud_sync_get_config,
             commands::cloud_sync::cloud_sync_set_config,
             commands::cloud_sync::cloud_sync_status,
