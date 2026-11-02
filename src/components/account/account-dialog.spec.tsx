@@ -255,6 +255,38 @@ describe("AccountDialog", () => {
     expect(dialog!.textContent).toContain("人工智能模型")
   })
 
+  it("软件内条款把 ** 渲染成加粗，不露星号（真实截图里的问题）", async () => {
+    render()
+
+    const openTerms = document.querySelector<HTMLButtonElement>('[data-ui="open-legal-terms"]')
+    await act(async () => {
+      openTerms!.click()
+    })
+
+    const dialog = document.querySelector('[data-ui="legal-document-dialog"]')
+    expect(dialog).not.toBeNull()
+    // 关键：正文里不能再出现 markdown 的 ** 标记。
+    expect(dialog!.textContent).not.toContain("**")
+    // 但加粗的语义要保留（用 strong 元素承载）。
+    expect(dialog!.querySelectorAll("strong").length).toBeGreaterThan(0)
+  })
+
+  it("条款联系方式使用真实可用邮箱", async () => {
+    render()
+
+    const openTerms = document.querySelector<HTMLButtonElement>('[data-ui="open-legal-terms"]')
+    await act(async () => {
+      openTerms!.click()
+    })
+
+    const text = document.querySelector('[data-ui="legal-document-dialog"]')!.textContent ?? ""
+    expect(text).toContain("mochocyang@gmail.com")
+    // 那三个地址实际收不到信，不能留在条款里。
+    expect(text).not.toContain("support@qmai.pro")
+    expect(text).not.toContain("privacy@qmai.pro")
+    expect(text).not.toContain("legal@qmai.pro")
+  })
+
   it("隐私政策同样可在软件内打开", async () => {
     render()
 

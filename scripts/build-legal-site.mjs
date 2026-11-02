@@ -276,7 +276,7 @@ ${privacyRendered.html}
 
 <footer class="site-footer">
   青幕AI写作（QMAI）· 本页面内容为法律文本，不构成法律意见<br />
-  联系：<a href="mailto:support@qmai.pro">support@qmai.pro</a>　·　<a href="mailto:privacy@qmai.pro">privacy@qmai.pro</a>
+  联系：<a href="mailto:mochocyang@gmail.com">mochocyang@gmail.com</a>
 </footer>
 
 <script>

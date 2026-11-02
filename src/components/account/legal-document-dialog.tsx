@@ -32,33 +32,61 @@ const DOCS: Record<DocKey, { label: string; blocks: LegalBlock[] }> = {
   privacy: { label: "隐私政策", blocks: PRIVACY_BLOCKS },
 }
 
+/**
+ * 把一行文本里的 **加粗** 渲染出来。
+ *
+ * 为什么必须有：条款正文大量使用「**注销后不可恢复**」这类强调，
+ * 生成器把 markdown 原样存下来了，若这里直接输出文本，用户看到的就是
+ * 带星号的原文（真实截图里 `**mochocyang@gmail.com**` 的两个星号就是这样露出来的）。
+ * 网页版由浏览器端的转换处理过，软件内版必须自己处理，否则两边观感不一致。
+ *
+ * 只支持 **加粗**：条款里没有用到斜体、链接等其它行内语法，
+ * 为不存在的语法写解析器只会增加出错面。
+ */
+function InlineText({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean)
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.startsWith("**") && part.endsWith("**") && part.length > 4 ? (
+          <strong key={index} className="font-semibold text-foreground">
+            {part.slice(2, -2)}
+          </strong>
+        ) : (
+          <span key={index}>{part}</span>
+        ),
+      )}
+    </>
+  )
+}
+
 /** 渲染一个块。只处理生成器实际产出的 7 种类型。 */
 function Block({ block }: { block: LegalBlock }) {
   switch (block.type) {
     case "h1":
-      return <h1 className="mb-2 text-xl font-semibold">{block.text}</h1>
+      return (<h1 className="mb-2 text-xl font-semibold"><InlineText text={block.text} /></h1>)
     case "h2":
       return (
         <h2
           id={block.id}
           className="mt-7 border-t pt-5 text-[15px] font-semibold first:mt-0 first:border-t-0 first:pt-0"
         >
-          {block.text}
+          <InlineText text={block.text} />
         </h2>
       )
     case "h3":
-      return <h3 className="mt-4 text-sm font-medium">{block.text}</h3>
+      return (<h3 className="mt-4 text-sm font-medium"><InlineText text={block.text} /></h3>)
     case "quote":
       return (
         <blockquote className="my-3 border-l-2 border-primary/30 bg-muted/40 px-3 py-2 text-[13px] leading-6 text-muted-foreground">
-          {block.text}
+          <InlineText text={block.text} />
         </blockquote>
       )
     case "list":
       return (
         <ul className="my-2 list-disc space-y-1 pl-5 text-[13px] leading-6 text-muted-foreground">
           {block.items.map((item, index) => (
-            <li key={index}>{item}</li>
+            <li key={index}><InlineText text={item} /></li>
           ))}
         </ul>
       )
@@ -70,7 +98,7 @@ function Block({ block }: { block: LegalBlock }) {
               <tr>
                 {block.head.map((cell, index) => (
                   <th key={index} className="whitespace-nowrap bg-muted px-2.5 py-2 text-left font-medium">
-                    {cell}
+                    <InlineText text={cell} />
                   </th>
                 ))}
               </tr>
@@ -80,7 +108,7 @@ function Block({ block }: { block: LegalBlock }) {
                 <tr key={rowIndex}>
                   {row.map((cell, cellIndex) => (
                     <td key={cellIndex} className="border-t px-2.5 py-2 align-top text-muted-foreground">
-                      {cell}
+                      <InlineText text={cell} />
                     </td>
                   ))}
                 </tr>
@@ -91,7 +119,7 @@ function Block({ block }: { block: LegalBlock }) {
       )
     case "paragraph":
     default:
-      return <p className="my-1.5 text-[13px] leading-6 text-muted-foreground">{block.text}</p>
+      return (<p className="my-1.5 text-[13px] leading-6 text-muted-foreground"><InlineText text={block.text} /></p>)
   }
 }
 
