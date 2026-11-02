@@ -361,5 +361,68 @@ export const LEGAL_PAGE_HTML = ${JSON.stringify(html)}
 
 writeFileSync(join(ROOT, "account-worker", "src", "legal-page.ts"), workerModule, "utf8")
 
+/*
+ * 再产出一份**客户端内嵌**用的条款数据。
+ *
+ * 为什么客户端要自带一份：
+ *   · qmai.pro 走 Cloudflare 全球节点，中国大陆访问不稳定；
+ *     用户点「同意」时若打不开，等于没给可读入口 —— 法律上同意不成立。
+ *   · 客户端又无法感知「外部浏览器是否加载成功」（那是系统浏览器，不是我们的 WebView），
+ *     所以「打不开就自动回退到备用链接」这种自动方案做不到。
+ *   · 最可靠的办法是：条款直接打进安装包，软件内打开，**完全不依赖网络**。
+ *
+ * 数据只含正文结构（标题/段落/列表/表格），不含样式与脚本，由客户端组件自行渲染。
+ * 与网页版同源于同一份 md，不会出现两边内容不一致。
+ */
+/**
+ * 把解析块归一化成客户端类型（LegalBlock）。
+ *
+ * 解析器为了渲染网页方便，区分了 ul / ol / p / hr；客户端只需要
+ * 「是不是列表、有没有内容」这些粗粒度信息，所以在这里收敛：
+ * · ul 与 ol 统一成 list（有序无序对阅读条款没有实质差别）；
+ * · p 改成 paragraph（与 LegalBlock 命名对齐）；
+ * · hr 直接丢弃（只是视觉分隔，客户端用 CSS 处理）。
+ */
+function toClientBlocks(blocks) {
+  const out = []
+  for (const block of blocks) {
+    if (block.type === "h1" || block.type === "h2" || block.type === "h3") {
+      out.push(block)
+    } else if (block.type === "quote") {
+      out.push(block)
+    } else if (block.type === "table") {
+      out.push(block)
+    } else if (block.type === "ul" || block.type === "ol") {
+      // 紧挨着的两个列表合并成一个，避免客户端出现「一个项目一个 list」的碎片。
+      const last = out[out.length - 1]
+      if (last && last.type === "list") last.items.push(...block.items)
+      else out.push({ type: "list", items: [...block.items] })
+    } else if (block.type === "p") {
+      out.push({ type: "paragraph", text: block.text })
+    }
+    // hr：丢弃。
+  }
+  return out
+}
+
+const clientModule = `/**
+ * 软件内展示的条款内容（服务条款 + 隐私政策）。
+ *
+ * ⚠️ 本文件由 scripts/build-legal-site.mjs 自动生成，请勿手改。
+ * 修改条款请改 cloudflare/legal-site/terms.md 与 privacy.md，然后重新生成。
+ */
+import type { LegalBlock } from "./legal-block-types"
+
+export const LEGAL_TERMS_VERSION_BUILT = ${JSON.stringify(process.env.LEGAL_VERSION ?? "v1.1")}
+
+export const TERMS_BLOCKS: LegalBlock[] = ${JSON.stringify(toClientBlocks(terms))}
+
+export const PRIVACY_BLOCKS: LegalBlock[] = ${JSON.stringify(toClientBlocks(privacy))}
+`
+
+writeFileSync(join(ROOT, "src", "lib", "account", "legal-content.ts"), clientModule, "utf8")
+
 console.log(`✓ index.html 已生成：服务条款 ${termsRendered.toc.length} 章、隐私政策 ${privacyRendered.toc.length} 章`)
 console.log(`✓ account-worker/src/legal-page.ts 已同步（qmai.pro/legal 使用）`)
+console.log(`✓ src/lib/account/legal-content.ts 已同步（软件内展示使用）`)
+

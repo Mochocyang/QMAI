@@ -335,8 +335,8 @@
   }
 }
 
-/* 同意条款勾选框：与提交按钮同宽、居左对齐，避免长文案把按钮挤歪。 */
-.account-legal-consent {
+/* 同意条款：勾选框 + 行内链接（链接是按钮，点了在软件内打开条款）。 */
+.account-legal-row {
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -344,11 +344,10 @@
   font-size: 12.5px;
   line-height: 1.7;
   color: var(--muted-foreground, #6b7280);
-  cursor: pointer;
   text-align: left;
 }
 
-.account-legal-consent input[type="checkbox"] {
+.account-legal-row input[type="checkbox"] {
   flex-shrink: 0;
   margin-top: 3px;
   width: 14px;
@@ -357,19 +356,49 @@
   accent-color: var(--primary, #3b6e4f);
 }
 
-.account-legal-consent input[type="checkbox"]:disabled {
+.account-legal-row input[type="checkbox"]:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
 
-.account-legal-consent a {
-  color: var(--primary, #3b6e4f);
-  text-decoration: none;
-  font-weight: 500;
+.account-legal-row label {
+  cursor: pointer;
 }
 
-.account-legal-consent a:hover {
+/* 条款链接用按钮而不是 <a>：它不跳转，而是在软件内打开阅读器。 */
+.account-legal-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--primary, #3b6e4f);
+  font-weight: 500;
   text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.account-legal-link:hover {
+  opacity: 0.8;
+}
+
+/* 在线版本入口：更小、更淡，不抢主链接的注意力。 */
+.account-legal-online {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--muted-foreground, #8b949e);
+  text-align: left;
+}
+
+.account-legal-online a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.account-legal-online span {
+  margin: 0 6px;
+  opacity: 0.5;
 }
 /* 注销账号：入口刻意低调，确认区用警示色区分于普通操作。 */
 .account-delete-entry {

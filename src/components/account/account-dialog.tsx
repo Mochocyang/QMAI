@@ -34,6 +34,7 @@ import {
   accountCreatedDate,
   accountDisplayName,
 } from "./account-display"
+import { LegalDocumentDialog } from "./legal-document-dialog"
 import { AccountPasswordForm } from "./account-password-form"
 import "./account-dialog.css"
 
@@ -99,6 +100,8 @@ export function AccountDialog() {
    * 于是重新变回未勾选，强制用户再确认一次。
    */
   const [legalAccepted, setLegalAccepted] = useState(() => hasAcceptedLegalTerms())
+  /** 软件内条款阅读器：null = 关闭，否则是要显示的那一份。 */
+  const [legalDocOpen, setLegalDocOpen] = useState<"terms" | "privacy" | null>(null)
   /** 是否展开「注销账号」确认区。 */
   const [deletingAccount, setDeletingAccount] = useState(false)
   const [deletePassword, setDeletePassword] = useState("")
@@ -374,6 +377,7 @@ export function AccountDialog() {
   }
 
   return (
+    <>
     <Dialog
       open={dialogOpen}
       onOpenChange={(open) => {
@@ -669,26 +673,57 @@ export function AccountDialog() {
 
               {authMode !== "reset" ? (
                 /*
-                 * 同意条款的勾选框。三个细节都是刻意的：
+                 * 同意条款的勾选框。四个细节都是刻意的：
                  * · 默认不勾：预先勾选等于替用户表达同意，条款效力会被质疑；
-                 * · 条款可点开看全文：不给可读入口的「同意」同样站不住；
+                 * · 条款在**软件内**打开：qmai.pro 在部分网络下可能打不开，
+                 *   而「打不开的可读入口」等于没有入口，这样取得的同意站不住；
+                 * · 同时保留在线版本入口：开放平台审核等场景需要可核验的网址；
                  * · 不禁用按钮、只在 submit 里拦并说明原因：禁用会让人不知道为什么点不动。
                  */
-                <label className="account-legal-consent">
+                <div className="account-legal-row">
                   <input
+                    id="account-legal-consent"
                     type="checkbox"
                     checked={legalAccepted}
                     disabled={busy}
                     onChange={(event) => setLegalAccepted(event.target.checked)}
                     data-ui="account-legal-consent"
                   />
-                  <span>
+                  <label htmlFor="account-legal-consent">
                     我已阅读并同意
-                    <a href={LEGAL_TERMS_URL} target="_blank" rel="noreferrer">《服务条款》</a>
+                    <button
+                      type="button"
+                      className="account-legal-link"
+                      onClick={() => setLegalDocOpen("terms")}
+                      data-ui="open-legal-terms"
+                    >
+                      《服务条款》
+                    </button>
                     与
-                    <a href={LEGAL_PRIVACY_URL} target="_blank" rel="noreferrer">《隐私政策》</a>
-                  </span>
-                </label>
+                    <button
+                      type="button"
+                      className="account-legal-link"
+                      onClick={() => setLegalDocOpen("privacy")}
+                      data-ui="open-legal-privacy"
+                    >
+                      《隐私政策》
+                    </button>
+                  </label>
+                </div>
+              ) : null}
+
+              {/*
+               * 在线版本入口。单独一行、字号更小：
+               * 它服务于「需要在线核验条款」的场景（如应用商店审核），
+               * 不是给用户点同意时看的，所以不与主链接争视觉权重。
+               */}
+              {authMode !== "reset" ? (
+                <p className="account-legal-online">
+                  在线版本：
+                  <a href={LEGAL_TERMS_URL} target="_blank" rel="noreferrer">服务条款</a>
+                  <span aria-hidden="true">·</span>
+                  <a href={LEGAL_PRIVACY_URL} target="_blank" rel="noreferrer">隐私政策</a>
+                </p>
               ) : null}
 
               <Button
@@ -728,5 +763,16 @@ export function AccountDialog() {
         )}
       </DialogContent>
     </Dialog>
+
+    {/*
+     * 条款阅读器挂在与账号弹窗同级的位置，而不是塞进 DialogContent 里：
+     * 它是另一层独立弹窗，套在主弹窗内部会带来焦点管理冲突（Esc 一次关两层）。
+     */}
+    <LegalDocumentDialog
+      open={legalDocOpen !== null}
+      initialDoc={legalDocOpen ?? "terms"}
+      onClose={() => setLegalDocOpen(null)}
+    />
+    </>
   )
 }

@@ -238,6 +238,38 @@ describe("AccountDialog", () => {
     expect(submitButton().getAttribute("aria-busy")).toBeNull()
   })
 
+  it("条款在软件内可读：点击《服务条款》打开阅读器，不需要网络", async () => {
+    render()
+
+    const openTerms = document.querySelector<HTMLButtonElement>('[data-ui="open-legal-terms"]')
+    expect(openTerms, "条款链接必须是可点的按钮（在软件内打开）").not.toBeNull()
+
+    await act(async () => {
+      openTerms!.click()
+    })
+
+    const dialog = document.querySelector('[data-ui="legal-document-dialog"]')
+    expect(dialog, "应打开软件内的条款阅读器").not.toBeNull()
+    // 正文必须真的渲染出来（不是空壳），且覆盖到 AI 免责这个核心条款。
+    expect(dialog!.textContent).toContain("服务条款")
+    expect(dialog!.textContent).toContain("人工智能模型")
+  })
+
+  it("隐私政策同样可在软件内打开", async () => {
+    render()
+
+    const openPrivacy = document.querySelector<HTMLButtonElement>('[data-ui="open-legal-privacy"]')
+    expect(openPrivacy).not.toBeNull()
+
+    await act(async () => {
+      openPrivacy!.click()
+    })
+
+    const dialog = document.querySelector('[data-ui="legal-document-dialog"]')
+    expect(dialog).not.toBeNull()
+    expect(dialog!.textContent).toContain("隐私政策")
+  })
+
   it("未勾选同意条款时，登录请求根本不发出，并给出中文提示", async () => {
     render()
     await setInput("account-email", "writer@example.com")
