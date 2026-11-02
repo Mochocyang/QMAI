@@ -279,6 +279,8 @@ commands::device::device_fingerprint,
             commands::vectorstore::vector_rebuild_append,
             commands::vectorstore::vector_rebuild_commit,
             commands::vectorstore::vector_rebuild_abort,
+            commands::antigravity_agent::antigravity_agent_proxy_ensure,
+            commands::antigravity_agent::antigravity_agent_cancel,
             commands::antigravity_cli::antigravity_cli_detect,
             commands::antigravity_cli::antigravity_cli_spawn,
             commands::antigravity_cli::antigravity_cli_kill,
@@ -497,7 +499,7 @@ commands::device::device_fingerprint,
                         eprintln!("[plugins] 退出清理失败：{error}");
                     }
                 }
+                commands::antigravity_agent::shutdown_antigravity_agent_proxy();
             }
         });
 }
-

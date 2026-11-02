@@ -26,6 +26,7 @@ import { ensureCursorProxyRunning, withCursorProxyEndpoint } from "./cursor-cli-
 import { applyBuiltinAuth, deviceIdHeader } from "./builtin-models/auth-hook"
 import { signRequestHeaders } from "./account/request-sign"
 import { isBuiltinRelayEndpoint } from "./builtin-models/netcard"
+import { ensureAntigravityAgentProxy, shouldUseAntigravityAgentProxy, withAntigravityAgentProxy } from "./antigravity-agent-proxy"
 import {
   estimateChatMessagesTokens,
   estimateRequestScaffoldTokens,
@@ -678,8 +679,12 @@ async function streamChatHeld(
   }
 
   if (runtimeConfig.provider === "antigravity-cli") {
-    return streamLocalWithTrace((localCallbacks) =>
-      streamViaAntigravityCli(runtimeConfig, budgetedMessages, localCallbacks, signal, effectiveRequestOverrides))
+    if (!shouldUseAntigravityAgentProxy(runtimeConfig, effectiveRequestOverrides)) {
+      return streamLocalWithTrace((localCallbacks) =>
+        streamViaAntigravityCli(runtimeConfig, budgetedMessages, localCallbacks, signal, effectiveRequestOverrides))
+    }
+    // 带工具的主 Agent 请求：走本机 OpenAI 兼容代理，agy 通过 MCP 调 QMAI 的工具。
+    runtimeConfig = withAntigravityAgentProxy(runtimeConfig, await ensureAntigravityAgentProxy())
   }
 
   if (runtimeConfig.provider === "cursor-cli") {
