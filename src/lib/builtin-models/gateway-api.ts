@@ -124,7 +124,48 @@ async function httpJson(
 }
 
 function jsonHeaders(extra?: Record<string, string>): Record<string, string> {
+
   return { "Content-Type": "application/json", ...extra }
+}
+/**
+ * 构造访问网关的完整鉴权头。
+ *
+ * 为什么不能只带 Authorization：网关卡在签发时绑定了设备指纹（claims 里的 `dev`），
+ * 网关强制要求请求头 `X-Device-Id` 与之一致，否则 403；卡里若带 `dpk`，
+ * 还要求每个请求带 Ed25519 签名（X-Request-Ts / X-Request-Sig）。
+ *
+ * 曾经的 bug：这里只传了 `Authorization`，于是**新登录的卡必然 403**（新卡一定带 dev），
+ * 拉不到清单 → 内置模型被移除。老会话因为没有 dev 字段、网关按「首次校验补绑」放行，
+ * 反而能正常显示 —— 于是表现为「我这边有、别人那边没有」，而且对方重新登录后更糟。
+ *
+ * 设备指纹与签名都是可选的：浏览器环境取不到指纹（返回 null），
+ * 网关对无指纹的卡按补绑处理；取不到签名密钥时网关也可能放行。
+ * 拿不到的东西就不发对应头，不编造。
+ */
+async function gatewayAuthHeaders(
+  netcard: string,
+  method: string,
+  path: string,
+  /** POST 的请求体：签名必须覆盖 body，否则网关验签失败。GET 传空串。 */
+  body = "",
+): Promise<Record<string, string>> {
+  const headers = jsonHeaders({ Authorization: `Bearer ${netcard}` })
+  try {
+    const { getDeviceFingerprint } = await import("@/lib/account/device")
+    const deviceId = await getDeviceFingerprint()
+    if (deviceId) headers["X-Device-Id"] = deviceId
+  } catch {
+    // 取不到设备指纹就不发这个头：网关按「首次校验补绑」处理。
+  }
+  try {
+    const { signRequestHeaders } = await import("@/lib/account/request-sign")
+    // GET 传空串（空串的 SHA-256）；POST 必须传真实 body。
+    const signed = await signRequestHeaders(method, path, body)
+    if (signed) Object.assign(headers, signed)
+  } catch {
+    // 没有签名密钥（环境不支持 Ed25519）时也不阻断，交给网关判断。
+  }
+  return headers
 }
 
 /** 拉取当前网关卡能用的模型清单（对外名，不含上游信息）。 */
@@ -186,7 +227,7 @@ export async function gatewayListModelCatalog(
   if (!netcard) throw new GatewayError("请先登录账号，再使用内置模型。", "unauthorized")
   const { payload } = await httpJson(
     `${base}/v1/models`,
-    { method: "GET", headers: jsonHeaders({ Authorization: `Bearer ${netcard}` }) },
+    { method: "GET", headers: await gatewayAuthHeaders(netcard, "GET", "/v1/models") },
     fetchImpl,
     20_000,
   )
@@ -244,17 +285,19 @@ export async function gatewayProbeChat(
   const base = normalizeGatewayBaseUrl(relayBaseUrl)
   if (!netcard) throw new GatewayError("请先登录账号，再使用内置模型。", "unauthorized")
   const startedAt = Date.now()
+  const probeBody = JSON.stringify({
+    model,
+    messages: [{ role: "user", content: "请只回复两个字：你好" }],
+    max_tokens: 32,
+    stream: false,
+  })
   const { payload } = await httpJson(
     `${base}/v1/chat/completions`,
     {
       method: "POST",
-      headers: jsonHeaders({ Authorization: `Bearer ${netcard}` }),
-      body: JSON.stringify({
-        model,
-        messages: [{ role: "user", content: "请只回复两个字：你好" }],
-        max_tokens: 32,
-        stream: false,
-      }),
+      // 签名必须覆盖真实 body：网关验签时用的是同一份 body 的哈希。
+      headers: await gatewayAuthHeaders(netcard, "POST", "/v1/chat/completions", probeBody),
+      body: probeBody,
     },
     fetchImpl,
     120_000,
