@@ -131,11 +131,21 @@ export async function isAnalyticsEnabled(): Promise<boolean> {
   try {
     const store = await getStore()
     const value = await store.get<boolean>(ANALYTICS_ENABLED_KEY)
-    return value !== false
+    cachedEnabled = value !== false
+    return cachedEnabled
   } catch {
     return true
   }
 }
+
+/**
+ * 开关的同步镜像（null = 本进程还没读过存储）。
+ *
+ * 为什么需要：`beforeunload` 回调是同步的，读不了 store；而「关闭后不会再
+ * 发出任何统计请求」是界面对用户的原话承诺。没有这道缓存，关窗 beacon 会
+ * 绕过开关（启动时开着、中途关掉 → 关窗仍发 /close）。
+ */
+let cachedEnabled: boolean | null = null
 
 /**
  * 设置是否上报使用统计。
@@ -144,6 +154,12 @@ export async function isAnalyticsEnabled(): Promise<boolean> {
  * 避免把「同一个人开关一次」算成两个新用户。
  */
 export async function setAnalyticsEnabled(enabled: boolean): Promise<void> {
+  // 先更新同步镜像再落盘：beforeunload 是同步回调，读的是它，不能等 store 写完。
+  cachedEnabled = enabled
+  if (!enabled && typeof window !== "undefined" && heartbeatTimer !== null) {
+    window.clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
   try {
     const store = await getStore()
     await store.set(ANALYTICS_ENABLED_KEY, enabled)
@@ -154,6 +170,15 @@ export async function setAnalyticsEnabled(enabled: boolean): Promise<void> {
 
 let cachedUUID: string | null = null
 let heartbeatTimer: number | null = null
+/**
+ * 当前挂在 window 上的 beforeunload 回调。
+ *
+ * initAnalytics 理论上只在启动时调一次，但重复初始化（热更新、误改接线）会让
+ * 同一个匿名回调被挂上多份 —— 关窗时每个各发一次 beacon、重复上报。
+ * 保存引用是为了能精确 removeEventListener：回调是闭包，重建后引用不同，
+ * 不存下来就摘不掉。
+ */
+let closeListener: (() => void) | null = null
 
 /**
  * 初始化统计 - 在 App 启动时调用一次即可
@@ -184,12 +209,17 @@ export async function initAnalytics(): Promise<void> {
         if (cachedUUID) void sendAnalytics("/heartbeat", cachedUUID)
       }, HEARTBEAT_INTERVAL_MS)
 
-      window.addEventListener("beforeunload", () => {
+      // 摘掉上一次注册的回调：重复初始化时若不摘，关窗会重复发 /close。
+      if (closeListener) window.removeEventListener("beforeunload", closeListener)
+      closeListener = () => {
         if (!cachedUUID) return
         if (heartbeatTimer !== null) {
           window.clearInterval(heartbeatTimer)
           heartbeatTimer = null
         }
+        // 运行中关掉开关后，关窗的 /close 同样不能发（同步回调读不了 store，
+        // 用 cachedEnabled 判断；没读过存储时维持默认=开，与产品默认一致）。
+        if (cachedEnabled === false) return
         // 使用 sendBeacon 确保关闭时请求能发出。
         // 注意：桌面端关窗不保证触发本事件，因此服务端不能只依赖 /close
         // 判断离线，在线判定以 last_active 的滚动窗口为准。
@@ -198,7 +228,8 @@ export async function initAnalytics(): Promise<void> {
           { type: "application/json" },
         )
         navigator.sendBeacon(`${ANALYTICS_URL}/close`, blob)
-      })
+      }
+      window.addEventListener("beforeunload", closeListener)
     }
   } catch {
     // 整个统计模块失败也不影响软件运行

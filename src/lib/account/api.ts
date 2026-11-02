@@ -392,10 +392,24 @@ export async function refreshAccountSession(
   refreshToken: string,
   fetchImpl: FetchImpl = lazyAccountFetch,
 ): Promise<AccountAuthPayload> {
+  /*
+   * 续期也要上报设备指纹与签名公钥：服务端每次续期都会**重新签发网关卡**
+   * （auth.ts 的 handleRefresh 用请求体里的 deviceHash/devicePublicKey 重签），
+   * 请求体没有这两个字段时，新卡就不含 dev/dpk 绑定。
+   * 症状：用户只要正常启动过一次（bootstrap 必然续期），手里的长期卡就
+   * 退化成「无设备绑定」的卡，抄到别的机器照样能用——设备绑定形同虚设。
+   * 取不到时不上报（服务端沿用既有"缺字段则跳过"的行为），不影响续期本身。
+   */
+  const body: Record<string, unknown> = { refreshToken }
+  const deviceHash = await getDeviceFingerprint()
+  optionalBodyField(body, "deviceHash", deviceHash ?? undefined)
+  const deviceKey = await ensureDeviceKey()
+  optionalBodyField(body, "devicePublicKey", deviceKey?.publicKey)
+
   const { status, data } = await requestAccount(baseUrl, {
     method: "POST",
     path: "/v1/auth/refresh",
-    body: { refreshToken },
+    body,
     unauthorizedCode: "INVALID_REFRESH",
     fetchImpl,
   })

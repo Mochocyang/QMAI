@@ -369,13 +369,50 @@ describe("错误映射", () => {
  * 真实实现会调 Tauri 命令 / WebCrypto，Node 下会真的生成一对密钥，
  * 让下面「请求体只有这些字段」的断言变得依赖运行环境。
  * 设备相关的行为由 device.spec / request-sign.spec 单独覆盖。
+ *
+ * 用 hoisted ref 而不是写死 null：注册/登录已各自有「带 deviceLabel」的用例，
+ * 续期上报 dev/dpk 是后补的关键路径（refresh 丢字段会把网关卡的设备绑定洗掉），
+ * 需要一个能开能关的 mock。默认仍是取不到 = 旧断言不受影响。
  */
+const deviceStub = vi.hoisted(() => ({
+  fingerprint: null as string | null,
+  publicKey: null as string | null,
+}))
 vi.mock("@/lib/account/device", () => ({
-  getDeviceFingerprint: async () => null,
+  getDeviceFingerprint: async () => deviceStub.fingerprint,
 }))
 vi.mock("@/lib/account/request-sign", () => ({
-  ensureDeviceKey: async () => null,
+  ensureDeviceKey: async () => (deviceStub.publicKey ? { publicKey: deviceStub.publicKey, privateKey: {} } : null),
   signRequestHeaders: async () => ({}),
 }))
+
+describe("refresh 携带设备绑定字段", () => {
+  afterEach(() => {
+    deviceStub.fingerprint = null
+    deviceStub.publicKey = null
+  })
+
+  it("能取到设备指纹与公钥时，续期请求体带上 deviceHash / devicePublicKey", async () => {
+    deviceStub.fingerprint = "0123456789abcdef0123456789abcdef"
+    deviceStub.publicKey = "pubkey-43-chars-base64url-xxxxxxxxxxxxxxxxxxx"
+    const next = authPayload({ refreshToken: "rotated" })
+    const { fetchImpl, calls } = fakeFetch(() => success(next))
+
+    await refreshAccountSession(BASE, "old-refresh", fetchImpl)
+
+    const body = JSON.parse(String(calls[0]?.init.body))
+    expect(body.refreshToken).toBe("old-refresh")
+    expect(body.deviceHash).toBe("0123456789abcdef0123456789abcdef")
+    expect(body.devicePublicKey).toBe("pubkey-43-chars-base64url-xxxxxxxxxxxxxxxxxxx")
+  })
+
+  it("取不到时不上传空字段（服务端沿用旧行为跳过设备限额）", async () => {
+    const { fetchImpl, calls } = fakeFetch(() => success(authPayload()))
+
+    await refreshAccountSession(BASE, "old-refresh", fetchImpl)
+
+    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ refreshToken: "old-refresh" })
+  })
+})
 
 
