@@ -182,36 +182,61 @@ fn from_base64(text: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+/// 凭据读取结果。前端按 snake_case 取字段。
+#[derive(serde::Serialize)]
+pub struct CredentialPayload {
+    pub password: String,
+    /// 保存时刻（Unix 秒）。0 = 旧格式或无时间戳，前端按「已过期」处理。
+    pub saved_at: i64,
+}
+
 /// 保存「记住密码」的凭据。
 ///
 /// 入参是明文密码，函数内部立刻用 DPAPI 加密后落盘，明文不会被写出。
+///
+/// 文件内容为两行：第一行保存时刻（Unix 秒），第二行密文的 base64。
+/// 时间戳与密文一起存放，是为了让前端的「30 天有效期」能独立判断：
+/// 即便密文完好，超过有效期也不该再自动填充。
+/// 时间戳本身不加密 —— 它只说明「什么时候存的」，泄露它没有价值，
+/// 放进密文里反而让读取路径多一次失败可能。
 #[tauri::command]
-pub async fn account_credential_save(app: AppHandle, password: String) -> Result<(), String> {
+pub async fn account_credential_save(app: AppHandle, password: String, saved_at: i64) -> Result<(), String> {
     let path = credential_path(&app)?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|error| format!("无法创建凭据目录：{error}"))?;
     }
     let cipher = dpapi::protect(password.as_bytes())?;
-    fs::write(&path, to_base64(&cipher).as_bytes()).map_err(|error| format!("写入凭据失败：{error}"))
+    let content = format!("{saved_at}\n{}", to_base64(&cipher));
+    fs::write(&path, content.as_bytes()).map_err(|error| format!("写入凭据失败：{error}"))
 }
 
 /// 读取「记住密码」的凭据。
 ///
-/// 文件不存在 → 返回空字符串（正常状态：用户没勾记住密码）。
+/// 文件不存在 → 返回空密码（正常状态：用户没勾记住密码）。
 /// 解密失败 → 返回错误，前端当作「未记住」并顺手删掉坏文件。
 #[tauri::command]
-pub async fn account_credential_load(app: AppHandle) -> Result<String, String> {
+pub async fn account_credential_load(app: AppHandle) -> Result<CredentialPayload, String> {
     let path = credential_path(&app)?;
     if !path.exists() {
-        return Ok(String::new());
+        return Ok(CredentialPayload { password: String::new(), saved_at: 0 });
     }
     let text = fs::read_to_string(&path).map_err(|error| format!("读取凭据失败：{error}"))?;
-    let cipher = from_base64(&text)?;
+    // 旧版本文件只有密文单独一行，没有时间戳：按 saved_at = 0 处理，
+    // 前端会当作已过期让用户重输一次，而不是让它无限期生效。
+    let (saved_at, encoded) = match text.split_once('\n') {
+        Some((head, tail)) => (head.trim().parse::<i64>().unwrap_or(0), tail.trim()),
+        None => (0, text.trim()),
+    };
+    let cipher = from_base64(encoded)?;
     let plain = dpapi::unprotect(&cipher)?;
-    String::from_utf8(plain).map_err(|_| "凭据内容不是有效文本".into())
+    let password = String::from_utf8(plain).map_err(|_| "凭据内容不是有效文本".to_string())?;
+    Ok(CredentialPayload { password, saved_at })
 }
 
-/// 清除「记住密码」的凭据（用户取消勾选、退出登录时调用）。
+/// 清除「记住密码」的凭据（用户取消勾选时调用）。
+///
+/// 注意：**退出登录不调用它**。按产品约定，退出账号只停登录态，
+/// 30 天内的「记住密码」依然有效，下次打开仍可免输。
 #[tauri::command]
 pub async fn account_credential_clear(app: AppHandle) -> Result<(), String> {
     let path = credential_path(&app)?;
