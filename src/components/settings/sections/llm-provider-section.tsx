@@ -41,6 +41,7 @@ import { syncPluginHooks } from "@/lib/plugins/hooks/runtime"
 import { PluginProviderCard, toPluginProviderPreset } from "./plugin-provider-card"
 import { BUILTIN_PROVIDER_ID } from "@/lib/builtin-models/provider-bridge"
 import { isObsoleteProviderId } from "@/lib/obsolete-providers"
+import { ModelArchiveNotice } from "./model-archive-notice"
 
 const UI_TEST_PROVIDER_HINTS: Record<string, string> = {
   anthropic: "官方 Claude API",
@@ -161,6 +162,11 @@ export function LlmProviderSection() {
     return (
       <div data-ui="llm-library">
         <div className="model-library-heading"><h3>我的模型设置</h3><span>{configured.length} 个配置</span></div>
+        {/*
+         * 未登录且有账号模型备份时，在这里说明它们去哪了（加密备份在本机，
+         * 登录即恢复）—— 没有这句话，用户看到的是「模型凭空消失」。
+         */}
+        <ModelArchiveNotice />
         {/* 两栏入口：提供方 / 自定义模型。顺序即产品叙事 ——
             先「填别人的 Key」，最后「完全自定义」。 */}
         <div className="model-add-row">

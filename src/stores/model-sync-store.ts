@@ -173,6 +173,31 @@ async function requireSession(): Promise<{ baseUrl: string; accessToken: string 
   return { baseUrl: session.baseUrl, accessToken: session.accessToken }
 }
 
+/**
+ * 同步把云端内容写回本机后，登记「这些模型属于当前账号」。
+ *
+ * 为什么关键：退出登录/未登录兜底靠归属账本才知道该归档哪些条目。
+ * 同步拉下来的模型若不登记，账本永远为空，退出时无东西可归档，
+ * 「未登录却显示账号模型」的问题原样存在。
+ *
+ * 为什么记全部当前条目：合并是并集，本地独有条目也会被自动推上该账号
+ * 的云端（见 service 注释），它们从此就是这个账号的数据，退出时随之归档、
+ * 重新登录时恢复 —— 与「登录显示账号同步的模型」一致。未登录时自配的模型
+ * 从没同步过（同步需要会话），账本里没有它，退出后仍留在界面。
+ *
+ * 失败静默：同步已经成功，绝不能因为归属记账失败而给一个红色报错。
+ */
+export async function markSyncedOwnershipAfterWrite(): Promise<void> {
+  const email = useAccountStore.getState().user?.email
+  if (!email) return
+  try {
+    const { markSyncedOwnershipForAccount } = await import("@/lib/model-sync/account-hook")
+    await markSyncedOwnershipForAccount(email)
+  } catch (error) {
+    console.warn("[model-archive] 归属登记失败（不影响同步结果）:", error)
+  }
+}
+
 function createIo(session: { baseUrl: string; accessToken: string }): ModelSyncIo {
   return {
     now: () => Date.now(),
@@ -181,6 +206,9 @@ function createIo(session: { baseUrl: string; accessToken: string }): ModelSyncI
       const typed = configs as ProviderConfigs
       await saveProviderConfigs(typed)
       useWikiStore.getState().setProviderConfigs(typed)
+      // 唯一咽喉点：所有「把云端内容写进本机」的路径（拉取合并 / 从云端恢复）
+      // 都必经这里，归属登记挂在这里就不会有遗漏的分支。
+      await markSyncedOwnershipAfterWrite()
     },
     /*
      * 重排 / 向量模型不属于 provider 列表，各自是「整份配置」，
@@ -324,6 +352,12 @@ export const useModelSyncStore = create<ModelSyncStore>((set, get) => ({
       const pulled = await withNetworkRetry(() => pullAndMerge(io, password))
       const result = await withNetworkRetry(() => pushLocal(io, password))
       await saveEnabledFlag(true)
+      /*
+       * 首次开启同步同样要登记归属：这一轮把本机全部配置推上了该账号的云端，
+       * 它们从此就是这个账号的数据，退出登录时得跟着归档。
+       * （只在 saveConfigs 里登记会漏掉这种「内容没被云端改动、只是推上去」的情况。）
+       */
+      await markSyncedOwnershipAfterWrite()
       set({
         enabled: true,
         passwordReady: true,
@@ -417,6 +451,16 @@ export const useModelSyncStore = create<ModelSyncStore>((set, get) => ({
         await withNetworkRetry(() => pullAndMerge(io, password))
         pushed = await withNetworkRetry(() => pushLocal(io, password))
       }
+      /*
+       * 同步成功后**无条件**登记归属（不只是 saveConfigs 里那次）。
+       *
+       * 老用户升级上来时账本里什么都没有：他们早就同步过，但那次同步
+       * 早于归属机制。若只在「本地内容被云端改动」时登记（saveConfigs
+       * 只在那条路径上被调），内容恰好没变的用户永远登记不上 ——
+       * 退出登录时无条目可归档，「未登录却显示账号模型」对他们照旧。
+       * 一轮成功的同步本身就足以证明「这些内容与该账号云端一致」。
+       */
+      await markSyncedOwnershipAfterWrite()
       const conflicts = pulled.outcome?.conflicts ?? []
       set({
         busy: false,
@@ -510,7 +554,16 @@ export const useModelSyncStore = create<ModelSyncStore>((set, get) => ({
         return
       }
       const pushed = await pushLocal(io, password)
-      if (pushed.status === "pushed") set({ version: pushed.version, lastSyncAt: Date.now() })
+      if (pushed.status === "pushed") {
+        set({ version: pushed.version, lastSyncAt: Date.now() })
+        /*
+         * 推送成功也要登记归属：登录后新加的模型正是通过这一条路进云端的
+         * （没有走 saveConfigs，那次不会触发登记）。不记的后果是退出登录
+         * 时它不被归档 —— 用户看到「登录时加的模型，退出后还在」，
+         * 与「列表按账号显示」的预期不一致。
+         */
+        await markSyncedOwnershipAfterWrite()
+      }
     } catch {
       // 自动同步失败保持安静：下一拍或用户手动「立即同步」再试。
     }

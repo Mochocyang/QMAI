@@ -232,3 +232,52 @@ html[data-ui-test-skin] .model-editor-dialog { width: min(680px,calc(100vw - 32p
 :is(.ui-test-root,html[data-ui-test-skin]) .model-section-note { overflow-wrap: anywhere; }
 html[data-ui-test-skin] .model-editor-dialog, html[data-ui-test-skin] .model-editor-dialog * { transition-property: color, background-color, border-color, box-shadow, opacity, transform; }
 html[data-ui-test-skin] .model-editor-dialog :is(button,input,select):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+
+/* 「账号模型已备份」提示条：未登录且存在加密备份时，挂在标题下方。 */
+.model-archive-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e3e8e5);
+  border-radius: 8px;
+  background: var(--muted, #f6f8f7);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--muted-foreground, #6b7280);
+  text-align: left;
+}
+
+.model-archive-notice-icon {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  color: var(--primary, #3b6e4f);
+}
+
+.model-archive-notice-text {
+  min-width: 0;
+}
+
+.model-archive-notice-login {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--primary, #3b6e4f);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+
+.model-archive-notice-login:hover {
+  opacity: 0.8;
+}
