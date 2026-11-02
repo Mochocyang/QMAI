@@ -28,7 +28,6 @@ import type { SidebarNavConfig } from "@/lib/sidebar-nav-preferences"
 import type { BodyFontFamily, UiFontFamily } from "@/lib/font-settings"
 import { LlmProviderSection } from "./sections/llm-provider-section"
 import { DefaultModelSettingsPanel } from "./sections/default-model-settings-panel"
-import { ModelSyncPanel } from "./sections/model-sync-panel"
 import { UiTestEmbeddingModels, UiTestRerankModels } from "@/components/uitest/models/retrieval-models"
 import { confirmModelDraftLeave } from "@/components/uitest/models/model-draft-guard"
 import { InterfaceSection } from "./sections/interface-section"
@@ -174,14 +173,11 @@ export function UiTestModelSettingsSection({ draft, setDraft }: { draft: Setting
         {active !== "default" && <ModelTutorialLink />}
       </div>
       {/*
-       * 「模型同步」放在页签条**下方、页签面板之外**：
-       * 它同步的是整份模型配置，不属于某一个页签；塞进某个页签里会让
-       * 用户切页签后就找不到它。
-       *
-       * 未登录时面板自己返回 null，所以这里不再包一层 div：
-       * 包了会在页签条下方留下一段没有内容的空白（上下 margin 仍在）。
+       * 「模型同步」面板 2026-11-02 移到了「账号」页（account-section）：
+       * 同步的是账号的模型配置，入口放账号下更名副其实，模型页少一块干扰。
+       * 位置守卫在 settings-view.model-sync.spec.ts（盯 account-section 渲染、
+       * 并禁止本文件再引用 —— 两处都挂会出现两份面板、两份心跳订阅互相打架）。
        */}
-      <ModelSyncPanel />
 
       {UI_TEST_MODEL_TABS.map((tab) => (
         <div key={tab.id} id={`${id}-${tab.id}-panel`} role="tabpanel" aria-labelledby={`${id}-${tab.id}`} hidden={active !== tab.id} data-ui="settings-model-panel" data-ui-model={tab.id}>

@@ -8,6 +8,7 @@ import { accountErrorMessage, isAccountApiError } from "@/lib/account/errors"
 import { toast } from "@/lib/toast"
 import { useAccountStore } from "@/stores/account-store"
 import { AccountAvatar } from "@/components/account/account-avatar"
+import { ModelSyncPanel } from "./model-sync-panel"
 import {
   ACCOUNT_AVATAR_ACCEPT,
   ACCOUNT_LOGOUT_CONFIRM,
@@ -267,6 +268,14 @@ export function AccountSection() {
             </p>
           ) : null}
         </div>
+
+        {/*
+         * 「模型同步」面板（2026-11-02 从模型页移入）：同步的是账号的模型
+         * 配置，入口放在账号页与「记在这个账号下」的心智一致。
+         * 面板在账号会话缺失时自己返回 null；挂在已登录分支内，未登录的
+         * 登录引导卡这里本来也不渲染它。位置守卫见 settings-view.model-sync.spec.ts。
+         */}
+        <ModelSyncPanel />
       </div>
     )
   }

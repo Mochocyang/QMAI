@@ -3,7 +3,7 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 
 /**
- * 「账号同步」（模型云同步）入口的守卫。
+ * 「模型同步」入口的守卫。
  *
  * ## 为什么需要这条测试
  *
@@ -13,27 +13,38 @@ import { describe, expect, it } from "vitest"
  * 用户是在设置页里发现「云同步功能没了」才知道的。
  *
  * 所以这条断言盯的不是「文件存在」，而是「设置页真的渲染了它」。
+ *
+ * ## 位置（2026-11-02 迁移）
+ *
+ * 面板原来挂在模型页（settings-view 的页签条下方），用户要求移到
+ * **「账号」页**：同步的是「账号的模型配置」，入口放账号下更名副其实，
+ * 模型页也少一块干扰。现在它由 account-section 渲染（已登录分支内，
+ * 面板自身在未登录时返回 null，正好与账号页的登录门槛一致）。
+ * 守卫相应改为盯 account-section：面板丢了、或退回模型页，都在这里失败。
+ *
+ * 同时断言 settings-view **不再**引用它：两处都挂会出现两份面板、
+ * 两个 store 订阅在同一个状态上互相打架。
  */
-describe("设置页必须渲染模型云同步入口", () => {
-  const view = readFileSync(
-    resolve(process.cwd(), "src/components/settings/settings-view.tsx"),
-    "utf8",
-  )
+const view = readFileSync(
+  resolve(process.cwd(), "src/components/settings/settings-view.tsx"),
+  "utf8",
+)
+const account = readFileSync(
+  resolve(process.cwd(), "src/components/settings/sections/account-section.tsx"),
+  "utf8",
+)
 
-  it("导入了 ModelSyncPanel", () => {
-    expect(view).toMatch(/import\s*\{\s*ModelSyncPanel\s*\}\s*from\s*"\.\/sections\/model-sync-panel"/)
+describe("设置页必须渲染模型云同步入口（账号页内）", () => {
+  it("账号页导入了 ModelSyncPanel", () => {
+    expect(account).toMatch(/import\s*\{\s*ModelSyncPanel\s*\}\s*from\s*"\.\/model-sync-panel"/)
   })
 
-  it("真的渲染了 <ModelSyncPanel />（不只是 import）", () => {
-    expect(view).toContain("<ModelSyncPanel />")
+  it("账号页真的渲染了 <ModelSyncPanel />（不只是 import）", () => {
+    expect(account).toContain("<ModelSyncPanel />")
   })
 
-  it("渲染位置在页签条之外：它同步的是整份模型配置，不属于某个页签", () => {
-    const renderAt = view.indexOf("<ModelSyncPanel />")
-    const llmTabAt = view.indexOf('<LlmProviderSection />')
-    // 面板出现在页签面板之前，说明挂在页签条下方而不是被塞进某个页签里
-    expect(renderAt).toBeGreaterThan(-1)
-    expect(renderAt).toBeLessThan(llmTabAt)
+  it("模型页不再挂面板：两处都放会出现两份面板、两份心跳订阅互相打架", () => {
+    expect(view).not.toContain("ModelSyncPanel")
   })
 
   it("模型同步的核心模块仍在（服务/加密/合并/调度）", () => {
