@@ -1725,16 +1725,33 @@ mod tests {
         config.set_single_target(folder);
         config.project_active();
 
-        // 切到 webdav：前端只发 provider。
+        // 切到 webdav：patch 只发 provider。
         merge_patch(&mut config, &json!({ "provider": "webdav" }));
-        assert_eq!(config.provider.as_deref(), Some("webdav"));
-        // 未连接的新目标不冒充旧账号。
-        assert!(!config.connected);
-        assert!(config.account_label.is_none());
+        /*
+         * 新语义（`active()` 的注释记载了原因）：**已连接的目标优先**。
+         * webdav 没连上，投影留在 folder —— 未登录的目标不能把已登录的
+         * 显示顶掉（当年「已登录 GitHub 被未登录百度顶掉」就是这条规则修的）。
+         *
+         * 前端点卡片不受影响：界面上「正在看哪个盘」是 store 的本地焦点
+         * （`focusProvider`，纯本地不落盘），不依赖这里的投影结果。
+         */
+        assert_eq!(config.provider.as_deref(), Some("folder"));
+        assert!(config.connected);
+        assert_eq!(config.account_label.as_deref(), Some("同步盘"));
         // 旧目标还在数组里（多网盘的基础）。
         assert!(config.targets.iter().any(|target| target.provider == "folder"));
+        // webdav 会被后续「激活目标字段」块 upsert 成一个空目标：这是给
+        // 「正要连接」的占位，未连接、无凭据，不影响上面的投影结论。
+        let webdav = config
+            .targets
+            .iter()
+            .find(|target| target.provider == "webdav");
+        if let Some(webdav) = webdav {
+            assert!(!webdav.connected);
+            assert!(webdav.account_label.is_none());
+        }
 
-        // 切回去：仍然连着，账号没丢。
+        // 切回 folder：仍然连着，账号没丢。
         merge_patch(&mut config, &json!({ "provider": "folder" }));
         assert_eq!(config.provider.as_deref(), Some("folder"));
         assert!(config.connected);
