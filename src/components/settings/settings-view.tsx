@@ -174,13 +174,14 @@ export function UiTestModelSettingsSection({ draft, setDraft }: { draft: Setting
         {active !== "default" && <ModelTutorialLink />}
       </div>
       {/*
-       * 「账号同步」放在页签条**下方、页签面板之外**：
+       * 「模型同步」放在页签条**下方、页签面板之外**：
        * 它同步的是整份模型配置，不属于某一个页签；塞进某个页签里会让
        * 用户切页签后就找不到它。
+       *
+       * 未登录时面板自己返回 null，所以这里不再包一层 div：
+       * 包了会在页签条下方留下一段没有内容的空白（上下 margin 仍在）。
        */}
-      <div className="my-4">
-        <ModelSyncPanel />
-      </div>
+      <ModelSyncPanel />
 
       {UI_TEST_MODEL_TABS.map((tab) => (
         <div key={tab.id} id={`${id}-${tab.id}-panel`} role="tabpanel" aria-labelledby={`${id}-${tab.id}`} hidden={active !== tab.id} data-ui="settings-model-panel" data-ui-model={tab.id}>

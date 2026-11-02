@@ -1,8 +1,15 @@
 /**
- * 设置 → 模型 里的「账号同步」面板。
+ * 设置 → 模型 里的「模型同步」面板。
  *
  * 只做三件事：开关、同步密码（设置/修改）、立即同步与状态提示。
  * 加解密、合并、推送全在 `lib/model-sync` 与 `stores/model-sync-store` 里。
+ *
+ * 名称：2026-11-02 由「账号同步」改为「模型同步」。它同步的是模型配置
+ * （含 API Key），不是账号本身；旧名字会让人以为开了就能跨设备同步作品。
+ *
+ * 显示条件：2026-11-02 起**未登录整块不显示**。原来是显示但置灰 +
+ * 提示先登录，但置灰的开关仍占一行、且会让人反复去点那个点不动的按钮，
+ * 更像 bug 而不是限制。未登录本来就是开不了同步（同步要账号会话）。
  *
  * 布局（用户 2026-10-28 定）：
  * - 面板整体挂在四个模型页签**下方**（由 settings-view 渲染），可展开 / 收缩；
@@ -62,6 +69,14 @@ export function ModelSyncPanel() {
   const syncing = status === "pulling" || status === "pushing"
   const syncText = lastSyncAt ? `上次同步：${new Date(lastSyncAt).toLocaleString()}` : "还没有同步过"
 
+  /*
+   * 未登录整块不显示（2026-11-02 用户指定：同步入口放在账号登录之后）。
+   *
+   * 原来是显示但置灰、外加一句「请先登录」。改掉的理由：置灰的开关仍占一整行，
+   * 用户会反复去点那个点不动的按钮，看起来像坏了；而未登录确实开不了同步
+   * （同步需要账号会话）。自动同步的心跳在别处接线，不依赖这块是否渲染。
+   */
+  if (!loggedIn) return null
   async function submitSetup() {
     if (first !== second) {
       setFormError("两次输入的同步密码不一致。")
@@ -110,7 +125,7 @@ export function ModelSyncPanel() {
    * 只有本机还没有密码时才退回去让用户设置密码 —— 那是一次性的引导，不是每次开关都要做。
    */
   const toggle = () => {
-    if (busy || !loggedIn) return
+    if (busy) return
     if (enabled) {
       void setEnabled(false)
       return
@@ -125,7 +140,7 @@ export function ModelSyncPanel() {
 
   return (
     <section
-      className="space-y-3 rounded-lg border p-4"
+      className="my-4 space-y-3 rounded-lg border p-4"
       data-ui="model-sync-panel"
       data-open={open ? "true" : "false"}
     >
@@ -135,13 +150,13 @@ export function ModelSyncPanel() {
           className="flex min-w-0 items-start gap-1.5 text-left"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
-          title={open ? "收起账号同步" : "展开账号同步"}
+          title={open ? "收起模型同步" : "展开模型同步"}
         >
           <ChevronRight
             className={`${open ? "mt-1" : ""} h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
           />
           <span className="min-w-0">
-            <span className="block font-medium">账号同步</span>
+            <span className="block font-medium">模型同步</span>
             {open ? (
               <span className="mt-1 block text-xs text-muted-foreground">
                 模型配置（含 API Key）用你的同步密码在本机加密后再上传，云端只存密文，我们也解不开。
@@ -159,7 +174,7 @@ export function ModelSyncPanel() {
               {!open ? (
                 <span className="ui-test-sync-time text-xs text-muted-foreground">{syncText}</span>
               ) : null}
-              <Button size="sm" disabled={busy || !loggedIn} onClick={() => void syncNow()}>
+              <Button size="sm" disabled={busy} onClick={() => void syncNow()}>
                 {syncing ? "同步中…" : "立即同步"}
               </Button>
               {/*
@@ -170,7 +185,7 @@ export function ModelSyncPanel() {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={busy || !loggedIn}
+                  disabled={busy}
                   title="把云端的模型配置下载到本机（覆盖同名项，本地独有的保留）"
                   onClick={() => void download()}
                 >
@@ -196,7 +211,7 @@ export function ModelSyncPanel() {
             aria-checked={enabled}
             data-ui="model-sync-switch"
             onClick={toggle}
-            disabled={busy || !loggedIn}
+            disabled={busy}
             className="model-switch disabled:cursor-not-allowed disabled:opacity-50"
             title={enabled ? "关闭同步（保留云端配置）" : "开启同步"}
             aria-label={enabled ? "关闭同步" : "开启同步"}
@@ -207,22 +222,15 @@ export function ModelSyncPanel() {
       </div>
 
       {/*
-       * 折叠时这两条必须照常显示：开关置灰要说明原因，手动同步失败要能看见，
-       * 否则「点了立即同步没反应」会被当成 bug。
+       * 折叠时也要显示同步失败的报错：否则「点了立即同步没反应」会被当成 bug。
+       * 「请先登录」那条已删除——顶部在未登录时整块 return null，永远渲染不到它。
        */}
-      {!open && !loggedIn ? (
-        <p className="text-xs text-destructive">请先在「账号」里登录，再开启模型同步。</p>
-      ) : null}
-      {!open && loggedIn && status === "error" && message ? (
+      {!open && status === "error" && message ? (
         <p className="text-xs text-destructive">{message}</p>
       ) : null}
 
       {open ? (
         <div className="space-y-3">
-          {!loggedIn ? (
-            <p className="text-xs text-destructive">请先在「账号」里登录，再开启模型同步。</p>
-          ) : null}
-
           {/* 上次同步 + 销毁式关闭：同一行的左右两端（用户 2026-10-28 指定位置）。 */}
           {enabled ? (
             <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">

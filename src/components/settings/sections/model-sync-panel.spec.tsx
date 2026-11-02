@@ -4,11 +4,19 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 /**
- * 「账号同步」面板的渲染契约（用户 2026-10-28 定的新版）：
+ * 「模型同步」面板的渲染契约。
+ *
+ * 2026-10-28 定的新版：
  * - 默认**折叠**：只留一行 = 标题 + 上次同步时间 + 立即同步 + 开关；
  * - 「修改同步密码」只在展开后出现；
  * - 开关就是同步开关：开 = 同步、关 = 停止同步（保留密码与云端配置）；
  * - 「关闭同步并清空云端配置」是独立链接，放在展开后「上次同步」那一行的右端。
+ *
+ * 2026-11-02 用户两点改动：
+ * - 名称从「账号同步」改为「模型同步」：它同步的是模型配置，不是账号本身，
+ *   原名会让人以为开了就能跨设备同步作品；
+ * - **未登录时整块不显示**（原来是显示但置灰）：未登录根本开不了同步，
+ *   留一行点不动的开关只会让人以为是 bug。
  *
  * 这里只验渲染与交互接线，加解密/合并逻辑在 lib/model-sync 的单测里覆盖。
  */
@@ -95,12 +103,27 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-describe("账号同步面板", () => {
-  it("未登录：提示先登录，开关禁用", () => {
+describe("模型同步面板", () => {
+  it("未登录：整块不显示（未登录开不了同步，留个按不动的开关只会像 bug）", () => {
     render()
-    expect(host.textContent).toContain("账号同步")
-    expect(host.textContent).toContain("请先在「账号」里登录")
-    expect(switchButton().disabled).toBe(true)
+    expect(host.querySelector('[data-ui="model-sync-panel"]')).toBeNull()
+    expect(host.textContent).toBe("")
+  })
+
+  it("标题已从「账号同步」改为「模型同步」：它同步的是模型配置，不是账号", () => {
+    account.session = LOGGED_IN
+    render()
+    expect(host.textContent).toContain("模型同步")
+    expect(host.textContent).not.toContain("账号同步")
+    const toggle = toggleButton()
+    expect(toggle.getAttribute("title")).toContain("模型同步")
+  })
+
+  it("登录后：标题 + 开关都显示，开关可用", () => {
+    account.session = LOGGED_IN
+    render()
+    expect(host.querySelector('[data-ui="model-sync-panel"]')).toBeTruthy()
+    expect(switchButton().disabled).toBe(false)
   })
 
   it("默认折叠：只有标题 + 开关，没有「修改同步密码」", () => {
