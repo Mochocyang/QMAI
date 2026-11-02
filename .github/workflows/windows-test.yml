@@ -1,0 +1,85 @@
+name: Windows Test Package
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "ci/windows-test-*"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    name: Build Windows x64 test package
+    runs-on: windows-latest
+    env:
+      CARGO_PROFILE_RELEASE_LTO: "false"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+      CARGO_PROFILE_RELEASE_OPT_LEVEL: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install protoc (Windows)
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build Tauri NSIS installer
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri build --bundles nsis
+
+      - name: Build Windows portable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = node -p "require('./package.json').version"
+          $sha = "${{ github.sha }}".Substring(0, 7)
+          node scripts/build-portable.mjs
+          $portableExe = "release-portable/QMaiWrite.exe"
+          if (-not (Test-Path $portableExe)) {
+            throw "便携版 EXE 未生成：$portableExe"
+          }
+
+          $assetDir = "windows-test-assets"
+          New-Item -ItemType Directory -Force -Path $assetDir | Out-Null
+          Copy-Item $portableExe (Join-Path $assetDir "QMaiWrite_${version}_windows_X64_portable_${sha}.exe") -Force
+
+          $bundleDir = "src-tauri/target/release/bundle/nsis"
+          $installer = Get-ChildItem $bundleDir -File -Filter "*.exe" |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not $installer) {
+            throw "未找到 Windows 安装包"
+          }
+          Copy-Item $installer.FullName (Join-Path $assetDir "QMaiWrite_${version}_windows_X64_${sha}$($installer.Extension)") -Force
+
+          Get-ChildItem $assetDir | Format-Table Name, Length -AutoSize
+
+      - name: Upload Windows test package
+        uses: actions/upload-artifact@v6
+        with:
+          name: qmai-windows-x64-test
+          path: windows-test-assets/*
+          if-no-files-found: error
+          retention-days: 14
