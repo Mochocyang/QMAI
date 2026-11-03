@@ -75,7 +75,11 @@ describe("AccountSection", () => {
     expect(host.textContent).not.toContain("会员")
 
     await act(async () => textButton("退出登录").click())
-    expect(window.confirm).toHaveBeenCalledWith("退出后这台设备需要重新登录；本地小说和模型配置不会被删除。")
+    // 文案必须与真实行为一致：勾了「记住密码」时本机 30 天内仍可一键登录，
+    // 不能说成「需要重新登录」（见 account-display.ts 的注释）。
+    expect(window.confirm).toHaveBeenCalledWith(
+      "退出后云同步会停用；若之前勾选了「记住密码」，本机 30 天内仍可一键登录。本地小说和模型配置不会被删除。",
+    )
     expect(useAccountStore.getState().status).toBe("anonymous")
     expect(useAccountStore.getState().user).toBeNull()
     expect(host.textContent).toContain("登录青幕账号，云同步与后续服务会记在这个账号下")

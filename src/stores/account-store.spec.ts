@@ -51,6 +51,7 @@ function accountUser(overrides: Partial<AccountUser> = {}): AccountUser {
     displayName: "作者",
     createdAt: 1793000000,
     avatarUpdatedAt: null,
+    avatarToken: null,
     displayNameUpdatedAt: null,
     ...overrides,
   }
@@ -449,7 +450,13 @@ describe("account store", () => {
 
       const boot = useAccountStore.getState().bootstrap()
       const refresh = useAccountStore.getState().refreshSession()
-      expect(refreshAccountSession).toHaveBeenCalledTimes(1)
+      /*
+       * 不再是同步断言：bootstrap / refreshSession 现在都会先 await
+       * hydrateAccountSession() —— Tauri 下会话从 DPAPI 读进内存是异步的，
+       * 「已发出续期请求」这个事实要来等，而不是调用后立刻成立。
+       * 断言的契约没变：两者并发时续期请求只发一次（sharedRefresh 单飞）。
+       */
+      await vi.waitFor(() => expect(refreshAccountSession).toHaveBeenCalledTimes(1))
 
       gate.resolve(authPayload())
       await Promise.all([boot, refresh])
@@ -467,7 +474,8 @@ describe("account store", () => {
       vi.mocked(logoutAccount).mockResolvedValue(undefined)
 
       const boot = useAccountStore.getState().bootstrap()
-      expect(useAccountStore.getState().session).toEqual(stored)
+      // 会话顶上缓存值同样发生在 hydrate 之后（见上一条用例的说明）。
+      await vi.waitFor(() => expect(useAccountStore.getState().session).toEqual(stored))
 
       await useAccountStore.getState().logout()
       expect(useAccountStore.getState().status).toBe("anonymous")

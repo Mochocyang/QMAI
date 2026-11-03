@@ -7,6 +7,7 @@ import {
   REFRESH_TOKEN_TTL_SECONDS,
   JwtVerificationError,
   dummyPasswordCheck,
+  generateAvatarToken,
   generateNumericCode,
   generateRefreshToken,
   hashEmailCode,
@@ -26,10 +27,12 @@ import {
   consumeRateLimit,
   deleteEmailCode,
   deleteRateLimit,
+  ensureUserAvatarToken,
   findLatestEmailCode,
   findSessionByPreviousTokenHash,
   findSessionByTokenHash,
   findUserAvatar,
+  findUserAvatarByToken,
   findUserByEmail,
   findUserById,
   insertEmailCode,
@@ -97,6 +100,13 @@ const LOGIN_FAIL_WINDOW_SECONDS = 15 * 60
 const LOGIN_FAIL_EMAIL_LIMIT = 10
 const LOGIN_FAIL_IP_LIMIT = 30
 const HOUR_SECONDS = 60 * 60
+/**
+ * 续期每小时每 IP 的上限。
+ *
+ * 正常客户端每次启动续期一次；给 60 次是为了容纳公司/校园共用出口 IP 的
+ * 多人场景，同时让「批量试探泄露的旧 token」变得昂贵。
+ */
+const REFRESH_IP_HOURLY_LIMIT = 60
 
 type CodeVerification =
   | { ok: true }
@@ -126,6 +136,22 @@ function getPepper(env: Env): string {
   return env.AUTH_CODE_PEPPER
 }
 
+/**
+ * 取请求来源 IP。
+ *
+ * 导出的原因：admin 限流与 verify 限流都要用同一套 IP 口径（含开发模式下
+ * 优先读 X-Forwarded-For 的行为）。各模块自己解析 CF-Connecting-IP 迟早
+ * 出现「限流按 A、审计按 B」的错位。
+ */
+export function requestClientIp(request: Request, env: Env): string {
+  return clientIp(request, env)
+}
+
+/** 把 IP 哈希成限流桶名用的摘要（不落原始 IP）。 */
+export async function hashClientIp(env: Env, request: Request): Promise<string> {
+  return hashIp(getPepper(env), clientIp(request, env))
+}
+
 function isDevCodeAllowed(env: Env): boolean {
   return env.ENVIRONMENT === "development" && env.ALLOW_DEV_CODE === "true"
 }
@@ -137,6 +163,8 @@ function toPublicUser(user: UserRow): PublicUser {
     displayName: user.display_name,
     createdAt: user.created_at,
     avatarUpdatedAt: user.avatar_updated_at,
+    // 头像 URL 用随机 token 寻址，不再暴露自增 id（见 migrations/0008）。
+    avatarToken: user.avatar_token ?? null,
     displayNameUpdatedAt: user.display_name_updated_at ?? null,
   }
 }
@@ -346,7 +374,7 @@ async function issueAuthPayload(
     .catch(() => null)
 
   return {
-    user: toPublicUser(user),
+    user: await withAvatarToken(env, user),
     accessToken: access.token,
     accessExpiresAt: access.expiresAt,
     refreshToken,
@@ -622,6 +650,24 @@ export async function handleRefresh(
   env: Env,
   now = currentSeconds(),
 ): Promise<Response> {
+  /*
+   * 续期限流。
+   *
+   * refresh token 是 48 字节随机值，暴力不可行；这道闸门防的是「拿一批
+   * 泄露的旧 token 反复试探哪些还没被轮转」以及无成本的资源消耗。
+   * 60 次/小时/IP：正常客户端每次启动续期一次，单人远低于这个数；
+   * 公司/校园共用一个出口 IP 也有余量。
+   */
+  const refreshIpHash = await hashIp(getPepper(env), clientIp(request, env))
+  const refreshLimited = await consumeRateLimit(
+    env.DB,
+    `refresh:ip:${refreshIpHash}`,
+    REFRESH_IP_HOURLY_LIMIT,
+    HOUR_SECONDS,
+    now,
+  )
+  if (!refreshLimited.allowed) return rateLimited(refreshLimited.retryAfterSeconds)
+
   const parsed = await readJsonBody(request)
   if (!parsed.ok) return parsed.response
 
@@ -695,7 +741,7 @@ export async function handleRefresh(
     }
 
     return jsonSuccess({
-      user: toPublicUser(user),
+      user: await withAvatarToken(env, user),
       accessToken: access.token,
       accessExpiresAt: access.expiresAt,
       refreshToken: newRefreshToken,
@@ -732,6 +778,26 @@ export async function handleLogout(
   return jsonSuccess(null)
 }
 
+/**
+ * 生成（或在缺少时补齐）头像 token 后返回公开用户。
+ *
+ * 为什么单独做成函数：头像 token 是懒生成的，凡是把 PublicUser 交给客户端的
+ * 地方都得保证它非空，否则客户端拼不出头像 URL（用户会看到首字母色块）。
+ * 集中一处，避免九个调用点各自记得「顺手 ensure 一下」。
+ *
+ * 失败不影响主流程：返回 avatarToken: null，客户端退回首字母头像。
+ */
+async function withAvatarToken(env: Env, user: UserRow): Promise<PublicUser> {
+  const publicUser = toPublicUser(user)
+  if (publicUser.avatarToken) return publicUser
+  try {
+    const token = await ensureUserAvatarToken(env.DB, user.id, generateAvatarToken)
+    return { ...publicUser, avatarToken: token ?? null }
+  } catch {
+    return publicUser
+  }
+}
+
 /** GET /v1/auth/me */
 export async function handleMe(
   request: Request,
@@ -741,7 +807,7 @@ export async function handleMe(
   const auth = await authenticate(request, env, now)
   if (!auth.ok) return auth.response
 
-  return jsonSuccess({ user: toPublicUser(auth.user) })
+  return jsonSuccess({ user: await withAvatarToken(env, auth.user) })
 }
 
 /**
@@ -768,7 +834,7 @@ export async function handleUpdateProfile(
     return failure("VALIDATION", `昵称需要 1–${DISPLAY_NAME_MAX_CHARS} 个字符。`)
   }
   if (displayName === auth.user.display_name) {
-    return jsonSuccess({ user: toPublicUser(auth.user) })
+    return jsonSuccess({ user: await withAvatarToken(env, auth.user) })
   }
 
   const lastChangedAt = auth.user.display_name_updated_at
@@ -782,7 +848,7 @@ export async function handleUpdateProfile(
 
   const user = await findUserById(env.DB, auth.user.id)
   logEvent("profile_updated", { userId: auth.user.id })
-  return jsonSuccess({ user: toPublicUser(user ?? auth.user) })
+  return jsonSuccess({ user: await withAvatarToken(env, user ?? auth.user) })
 }
 
 /** POST /v1/auth/password/reset */
@@ -948,8 +1014,8 @@ export async function handleUploadAvatar(
 
   return jsonSuccess({
     user: user
-      ? toPublicUser(user)
-      : { ...toPublicUser(auth.user), avatarUpdatedAt },
+      ? await withAvatarToken(env, user)
+      : { ...(await withAvatarToken(env, auth.user)), avatarUpdatedAt },
   })
 }
 
@@ -965,19 +1031,25 @@ export async function handleDeleteAvatar(
   const user = await findUserById(env.DB, auth.user.id)
   logEvent("avatar_delete_ok", { userId: auth.user.id })
 
-  return jsonSuccess({ user: user ? toPublicUser(user) : null })
+  return jsonSuccess({ user: user ? await withAvatarToken(env, user) : null })
 }
 
-/** GET /v1/account/avatar/{id}：公开读取，靠 avatar_updated_at 做长缓存。 */
+/**
+ * GET /v1/account/avatar/{token}：公开读取，靠 avatar_updated_at 做长缓存。
+ *
+ * 路径参数是**随机 token**而不是自增 userId：后者无需任何凭据就能从 1 开始
+ * 批量拉取全站头像（再配合管理端用户列表就能把人脸对上邮箱）。
+ * token 只发给用户本人，猜不出来。
+ */
 export async function handleGetAvatar(
   request: Request,
   env: Env,
-  userId: number,
+  token: string,
   now = currentSeconds(),
 ): Promise<Response> {
-  if (!Number.isInteger(userId) || userId <= 0) return failure("NOT_FOUND")
+  if (!/^[A-Za-z0-9_-]{20,64}$/.test(token)) return failure("NOT_FOUND")
 
-  const avatar = await findUserAvatar(env.DB, userId)
+  const avatar = await findUserAvatarByToken(env.DB, token)
   if (!avatar) return failure("NOT_FOUND")
 
   const headers = new Headers()

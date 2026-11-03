@@ -19,7 +19,7 @@ interface AccountAvatarProps {
  * 否则一旦某次加载失败，上传成功也会一直停在首字母。
  */
 export function AccountAvatar({ user, baseUrl, size = "sm" }: AccountAvatarProps) {
-  const src = baseUrl ? accountAvatarUrl(baseUrl, user.id, user.avatarUpdatedAt) : null
+  const src = baseUrl ? accountAvatarUrl(baseUrl, user.avatarToken, user.avatarUpdatedAt) : null
   const [failedSrc, setFailedSrc] = useState<string | null>(null)
 
   // 换头像（URL 变化）时清掉上一次的失败标记。

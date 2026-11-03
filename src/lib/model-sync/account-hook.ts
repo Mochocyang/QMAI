@@ -192,7 +192,6 @@ export async function markSyncedOwnershipForAccount(account: string): Promise<vo
  * 反过来把注销报成失败；密钥清不掉时第 4 步至少已让备份不可用。
  */
 export async function purgeLocalAccountSecrets(account: string): Promise<void> {
-  const { invoke } = await import("@tauri-apps/api/core")
   const bestEffort = async (fn: () => Promise<unknown>): Promise<void> => {
     try {
       await fn()
@@ -200,8 +199,22 @@ export async function purgeLocalAccountSecrets(account: string): Promise<void> {
       // 尽力而为，见顶部注释。
     }
   }
-  await bestEffort(() => invoke("account_credential_clear"))
-  await bestEffort(() => invoke("secret_clear", { name: SYNC_PASSWORD_SECRET_NAME }))
-  await bestEffort(() => invoke("secret_clear", { name: BACKUP_KEY_SECRET_NAME }))
+  /*
+   * 非 Tauri（浏览器预览 / jsdom 测试）没有系统加密仓库：既没有
+   * account_credential_clear 命令，@tauri-apps/api/core 也可能根本不可用。
+   * 不加这道判断的话，动态 import 会在测试环境里抛「reading 'invoke'」，
+   * 而这条链挂在注销流程上，报错会淹没真正的注销结果。
+   */
+  if (isTauri()) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core")
+      await bestEffort(() => invoke("account_credential_clear"))
+      await bestEffort(() => invoke("secret_clear", { name: SYNC_PASSWORD_SECRET_NAME }))
+      await bestEffort(() => invoke("secret_clear", { name: BACKUP_KEY_SECRET_NAME }))
+    } catch {
+      // 连模块都加载不到：当作没有加密仓库，跳过这三步。
+    }
+  }
+  // 备份与账本归属在任何环境都能清（纯 JSON 存储）。
   await bestEffort(() => pruneHiddenBackup(createIo(), account))
 }

@@ -30,7 +30,36 @@ const ALLOWED_HOSTS = new Set([
   "codeload.github.com",
   "api.github.com",
   "cdn.jsdelivr.net",
+  // GitHub 的 release 下载会 302 到这里：不放进白名单会让所有 release 包失败。
+  "objects.githubusercontent.com",
 ]);
+
+/**
+ * 允许回给浏览器的 content-type（小写、不含参数）。
+ *
+ * 这个 Worker 挂在主域 `qmai.pro/plugins-cdn/*` 下，是**同源**的。
+ * 把上游的 content-type 原样透传，等于让白名单上的任意主机决定
+ * 「在 qmai.pro 这个源里渲染什么」—— 一个 `text/html` 响应就会变成
+ * 挂在官网域名下的钓鱼页。所以这里改成白名单放行，其余一律降级成
+ * 二进制下载（配合 nosniff + 附件头，浏览器不会当页面执行）。
+ */
+const ALLOWED_CONTENT_TYPES = new Set([
+  "application/json",
+  "application/zip",
+  "application/octet-stream",
+  "application/x-zip-compressed",
+  "text/plain",
+  "text/markdown",
+  "application/vnd.github+json",
+]);
+
+/** 把上游 content-type 归一成允许值。 */
+function safeContentType(upstream) {
+  const raw = (upstream.headers.get("content-type") || "").toLowerCase();
+  const base = raw.split(";")[0].trim();
+  if (base && ALLOWED_CONTENT_TYPES.has(base)) return raw;
+  return "application/octet-stream";
+}
 
 /** 单个响应上限：插件包上限 8MB，留余量。 */
 const MAX_BYTES = 16 * 1024 * 1024;
@@ -85,10 +114,14 @@ function cappedStream(body, limit) {
 
 const baseHeaders = (upstream, extra = {}) => ({
   ...CORS,
-  "content-type": upstream.headers.get("content-type") || "application/octet-stream",
+  "content-type": safeContentType(upstream),
   "cache-control": upstream.headers.get("cache-control") || "public, max-age=300",
   // 排查时能看出这是经 Worker 转发的
   "x-qmai-via": "plugin-cdn",
+  // 禁止浏览器"猜"内容类型：归一后的 octet-stream 才能真的当下载处理。
+  "x-content-type-options": "nosniff",
+  // 万一上游 contentType 被放过，也不让它加载任何子资源、执行脚本。
+  "content-security-policy": "default-src 'none'; sandbox",
   // 让宿主的 zip 校验、以及浏览器预检都能读到真实长度
   ...(upstream.headers.get("content-length")
     ? { "content-length": upstream.headers.get("content-length") }
@@ -147,6 +180,31 @@ export default {
       });
     } catch (error) {
       return json({ error: `上游请求失败：${String(error).slice(0, 200)}` }, 502);
+    }
+
+    /*
+     * 跟随重定向之后必须复核**最终**落点。
+     *
+     * 只校验入参 URL 是不够的：`github.com/...` 可以 302 到任意第三方，
+     * 那一步由 fetch 自己跟了，Worker 就成了开放代理（且挂在主域下）。
+     * Response.url 是最终 URL，据此再查一次白名单。
+     */
+    if (upstream.url) {
+      let finalHost = "";
+      try {
+        finalHost = new URL(upstream.url).hostname;
+      } catch {
+        finalHost = "";
+      }
+      if (!finalHost || !ALLOWED_HOSTS.has(finalHost)) {
+        try {
+          upstream.body?.cancel();
+        } catch {}
+        return json(
+          { error: `重定向落点不在白名单：${finalHost || "无法解析"}`, allowed: [...ALLOWED_HOSTS] },
+          403,
+        );
+      }
     }
 
     if (request.method === "HEAD") {

@@ -80,6 +80,18 @@ export function generateNumericCode(): string {
   }
 }
 
+/**
+ * 头像读取 token：32 字节随机，base64url。
+ *
+ * 用途是让公开的头像 URL「不可枚举」—— 自增 userId 可以从 1 开始遍历全站，
+ * 随机 token 猜不出来。它不是凭据，不需要哈希存储（拿到它只能看一张头像）。
+ */
+export function generateAvatarToken(): string {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  return bytesToBase64Url(bytes)
+}
+
 export function generateRefreshToken(): string {
   const bytes = new Uint8Array(32)
   crypto.getRandomValues(bytes)

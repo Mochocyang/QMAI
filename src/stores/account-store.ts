@@ -31,6 +31,7 @@ import { AccountApiError, accountErrorMessage, isAccountApiError } from "@/lib/a
 import {
   clearAccountSession,
   createStoredSession,
+  hydrateAccountSession,
   isAccessTokenFresh,
   loadAccountSession,
   saveAccountSession,
@@ -280,6 +281,12 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
 
     const epochAtStart = sessionEpoch
     bootstrapPromise = (async () => {
+      /*
+       * 先把加密存储里的会话读进内存（Tauri 走 DPAPI）。必须在这句之前
+       * 调 loadAccountSession()：Tauri 下它在未 hydrate 时返回 null，
+       * 否则会把「有登录态」误判成未登录、顺带把模型归档错。
+       */
+      await hydrateAccountSession()
       const stored = loadAccountSession()
       if (!stored) {
         set({
@@ -512,7 +519,15 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
   logout: async () => {
     // 先让所有在途 refresh 失效，再同步清本地；退出不等网络。
     const epochAtLogout = bumpSessionEpoch()
-    const session = get().session
+    /*
+     * 启动竞态兜底：bootstrap 现在要先 await hydrateAccountSession() 才能把
+     * 会话从加密存储读进内存（Tauri 下 DPAPI 是异步的），于是「启动瞬间就点
+     * 退出」存在一个 session 还没就位的窗口。以前 bootstrap 同步读 localStorage，
+     * 这个窗口不存在；不加兜底就会漏掉 `logoutAccount`（云端会话不撤销）。
+     * hydrate 幂等，bootstrap 正在等同一个 Promise。
+     */
+    if (!get().session) await hydrateAccountSession()
+    const session = get().session ?? loadAccountSession()
     // 归档键必须在清 user 之前取：set 之后 get().user 已是 null。
     const accountEmail = get().user?.email
     clearAccountSession()
@@ -624,6 +639,16 @@ export const useAccountStore = create<AccountStoreState>()((set, get) => ({
 
   refreshSession: async () => {
     const epochAtStart = sessionEpoch
+    /*
+     * 与 logout 同因的启动竞态兜底：会话可能还没被 bootstrap 从加密存储
+     * 读进内存。这里只把会话顶上（不改 status，收敛由 bootstrap 负责），
+     * 续期本身仍走 sharedRefresh 单飞，所以和 bootstrap 并发时只发一次请求。
+     */
+    if (!get().session) {
+      await hydrateAccountSession()
+      const restored = loadAccountSession()
+      if (restored && !get().session) set({ session: restored, user: restored.user })
+    }
     const session = get().session
     if (!session) return null
 

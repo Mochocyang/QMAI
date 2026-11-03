@@ -14,9 +14,13 @@ CREATE TABLE IF NOT EXISTS users (
   avatar_mime TEXT,
   avatar_data BLOB,
   avatar_updated_at INTEGER,
+  -- 头像读取用的随机 token：公开 URL 不再用自增 id（否则可被批量枚举）。
+  avatar_token TEXT,
   -- 昵称每月只能改一次：记录上次修改时间（Unix 秒），NULL 表示从未改过。
   display_name_updated_at INTEGER
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_avatar_token ON users(avatar_token);
 
 CREATE TABLE IF NOT EXISTS email_codes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

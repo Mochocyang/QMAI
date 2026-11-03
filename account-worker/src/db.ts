@@ -9,7 +9,7 @@ import { MAX_CODE_ATTEMPTS, NAME_CHANGE_COOLDOWN_SECONDS } from "./constants"
 import type { EmailCodeRow, SessionRow, UserRow } from "./types"
 
 const USER_COLUMNS =
-  "id, email, display_name, password_hash, status, created_at, updated_at, avatar_updated_at, display_name_updated_at"
+  "id, email, display_name, password_hash, status, created_at, updated_at, avatar_updated_at, avatar_token, display_name_updated_at"
 const SESSION_COLUMNS =
   "id, user_id, family_id, token_hash, previous_token_hash, device_label, created_at, last_used_at, expires_at, revoked_at"
 const EMAIL_CODE_COLUMNS =
@@ -30,6 +30,29 @@ export async function findUserById(db: D1Database, id: number): Promise<UserRow 
     .prepare(`SELECT ${USER_COLUMNS} FROM users WHERE id = ?1`)
     .bind(id)
     .first<UserRow>()
+}
+
+/**
+ * 改账号状态（active / disabled）。
+ *
+ * `users.status` 从建表起就存在、`authenticate()` 也一直按它拦人
+ * （非 active 返回 ACCOUNT_DISABLED），但**此前没有任何写入路径** ——
+ * 条款 4.4 写了「我们可封禁账号」，实际却封不了：管理员只能吊销会话，
+ * 用户重新登录立刻复活。这个函数补的就是那条缺失的写入路径。
+ *
+ * 返回是否真的改到了行（用户不存在时 false，调用方据此回 404）。
+ */
+export async function setUserStatus(
+  db: D1Database,
+  userId: number,
+  status: "active" | "disabled",
+  now: number,
+): Promise<boolean> {
+  const result = await db
+    .prepare("UPDATE users SET status = ?2, updated_at = ?3 WHERE id = ?1")
+    .bind(userId, status, now)
+    .run()
+  return Number((result as { meta?: { changes?: number } }).meta?.changes ?? 0) > 0
 }
 
 export async function insertUser(
@@ -98,6 +121,30 @@ export async function findUserAvatar(
     .bind(userId)
     .first<{ avatar_mime: string | null; avatar_data: unknown }>()
 
+  return toAvatar(row)
+}
+
+/**
+ * 按头像 token 取二进制。
+ *
+ * 公开读取路径用它取代「按自增 userId 取」：后者可被从 1 开始批量枚举
+ * 全站头像。token 是 32 字节随机值，猜不出来。
+ */
+export async function findUserAvatarByToken(
+  db: D1Database,
+  token: string,
+): Promise<{ mime: string; data: Uint8Array } | null> {
+  const row = await db
+    .prepare("SELECT avatar_mime, avatar_data FROM users WHERE avatar_token = ?1")
+    .bind(token)
+    .first<{ avatar_mime: string | null; avatar_data: unknown }>()
+
+  return toAvatar(row)
+}
+
+function toAvatar(
+  row: { avatar_mime: string | null; avatar_data: unknown } | null,
+): { mime: string; data: Uint8Array } | null {
   if (!row?.avatar_mime || row.avatar_data === null || row.avatar_data === undefined) {
     return null
   }
@@ -120,6 +167,38 @@ export async function findUserAvatar(
   if (bytes.byteLength === 0) return null
 
   return { mime: row.avatar_mime, data: bytes }
+}
+
+/**
+ * 取该用户的头像 token；没有就生成一个。
+ *
+ * 懒生成：老用户首次登录/读 me 时才写库，不用回填迁移脚本。
+ * 返回值保证非空（写入失败会让 SELECT 拿不到，循环一次就够）。
+ */
+export async function ensureUserAvatarToken(
+  db: D1Database,
+  userId: number,
+  generate: () => string,
+): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT avatar_token FROM users WHERE id = ?1")
+    .bind(userId)
+    .first<{ avatar_token: string | null }>()
+
+  if (row?.avatar_token) return row.avatar_token
+
+  const token = generate()
+  await db
+    .prepare("UPDATE users SET avatar_token = ?2 WHERE id = ?1 AND avatar_token IS NULL")
+    .bind(userId, token)
+    .run()
+
+  // 并发首次生成时以库里落下的那个为准。
+  const confirmed = await db
+    .prepare("SELECT avatar_token FROM users WHERE id = ?1")
+    .bind(userId)
+    .first<{ avatar_token: string | null }>()
+  return confirmed?.avatar_token ?? null
 }
 
 /** 写入头像并更新版本号；返回新版本号（Unix 秒）。 */

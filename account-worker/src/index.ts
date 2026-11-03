@@ -49,6 +49,7 @@ import {
   handleAdminRevokeAll,
   handleAdminRevokeAudit,
   handleAdminListUsers,
+  handleAdminSetUserStatus,
 } from "./admin"
 
 type RouteHandler = (request: Request, env: Env) => Promise<Response>
@@ -99,7 +100,8 @@ async function dispatchAdmin(request: Request, env: Env, url: URL): Promise<Resp
   if (path === "/admin/sessions/revoke" && request.method === "POST") return handleAdminRevoke(request, env)
   if (path === "/admin/sessions/revoke-all" && request.method === "POST") return handleAdminRevokeAll(request, env)
   if (path === "/admin/users" && request.method === "GET") return handleAdminListUsers(request, env, url)
-    if (path === "/admin/revoke-audit" && request.method === "GET") return handleAdminRevokeAudit(request, env, url)
+  if (path === "/admin/users/status" && request.method === "POST") return handleAdminSetUserStatus(request, env)
+  if (path === "/admin/revoke-audit" && request.method === "GET") return handleAdminRevokeAudit(request, env, url)
   return new Response(JSON.stringify({ success: false, code: "NOT_FOUND", message: "未知管理路径。" }), {
     status: 404,
     headers: { "Content-Type": "application/json; charset=utf-8" },
@@ -107,8 +109,14 @@ async function dispatchAdmin(request: Request, env: Env, url: URL): Promise<Resp
 }
 
 
-/** 头像读取是公开路径：`/v1/account/avatar/{userId}`。 */
-const AVATAR_PATH = /^\/v1\/account\/avatar\/([1-9][0-9]{0,17})$/
+/**
+ * 头像读取是公开路径：`/v1/account/avatar/{token}`。
+ *
+ * 参数是随机 token 而不是自增 userId —— 后者可被从 1 开始批量枚举全站头像。
+ * 旧的纯数字 id 格式不再匹配，一律 404：老客户端会退回首字母头像，
+ * 不影响登录与其它功能。
+ */
+const AVATAR_PATH = /^\/v1\/account\/avatar\/([A-Za-z0-9_-]{20,64})$/
 
 /**
  * 改密需要知道「当前设备」的 refresh token 哈希，才能只撤销其它设备。
@@ -211,7 +219,7 @@ export default {
 
     try {
       const response = avatarMatch
-        ? await handleGetAvatar(request, env, Number(avatarMatch[1]))
+        ? await handleGetAvatar(request, env, avatarMatch[1] ?? "")
         : await (path === "/v1/auth/password/change" && request.method === "POST"
             ? handleChangePasswordRoute(request, env)
             : handler!(request, env))

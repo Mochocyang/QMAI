@@ -19,7 +19,7 @@ function authPayload(overrides: Partial<AccountAuthPayload> = {}): AccountAuthPa
       email: "author@example.com",
       displayName: "作者",
       createdAt: 1793000000,
-      avatarUpdatedAt: null, displayNameUpdatedAt: null,
+      avatarUpdatedAt: null, avatarToken: null, displayNameUpdatedAt: null,
     },
     accessToken: "access-token",
     accessExpiresAt: 1793000900,

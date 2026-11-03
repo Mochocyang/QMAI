@@ -177,7 +177,14 @@ function expectUser(raw: unknown, status: number): AccountUser {
   const displayNameUpdatedAt =
     typeof rawNameUpdated === "number" && Number.isFinite(rawNameUpdated) ? rawNameUpdated : null
 
-  return { id, email, displayName, createdAt, avatarUpdatedAt, displayNameUpdatedAt }
+  // 头像 token 同样可选：老服务端不返回时界面退回首字母头像。
+  const rawAvatarToken = record.avatarToken
+  const avatarToken =
+    typeof rawAvatarToken === "string" && /^[A-Za-z0-9_-]{20,64}$/.test(rawAvatarToken)
+      ? rawAvatarToken
+      : null
+
+  return { id, email, displayName, createdAt, avatarUpdatedAt, avatarToken, displayNameUpdatedAt }
 }
 
 function expectAuthPayload(raw: unknown, status: number): AccountAuthPayload {
@@ -634,15 +641,21 @@ export async function deleteAccountAvatar(
   })
 }
 
-/** 头像展示地址：带版本号，换头像后自动换 URL，绕开浏览器缓存。 */
+/**
+ * 头像展示地址：带版本号，换头像后自动换 URL，绕开浏览器缓存。
+ *
+ * 路径参数是**随机 token**（`user.avatarToken`），不再是自增 userId ——
+ * 后者是公开可枚举的，任何人能从 1 开始把全站头像拉一遍。
+ * 老账号还没拿到 token 时返回 null，界面退回首字母头像。
+ */
 export function accountAvatarUrl(
   baseUrl: string,
-  userId: number,
+  avatarToken: string | null | undefined,
   avatarUpdatedAt: number | null,
 ): string | null {
   if (avatarUpdatedAt === null) return null
-  if (!Number.isInteger(userId) || userId <= 0) return null
-  return `${normalizeAccountBaseUrl(baseUrl)}/v1/account/avatar/${userId}?v=${avatarUpdatedAt}`
+  if (typeof avatarToken !== "string" || !/^[A-Za-z0-9_-]{20,64}$/.test(avatarToken)) return null
+  return `${normalizeAccountBaseUrl(baseUrl)}/v1/account/avatar/${avatarToken}?v=${avatarUpdatedAt}`
 }
 
 // ---------------------------------------------------------------- 模型配置同步

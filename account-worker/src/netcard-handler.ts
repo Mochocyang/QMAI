@@ -12,10 +12,10 @@
  *     只有需要"立刻踢人"时才回调 `/v1/netcard/verify`，或者由中转站自己缓存吊销名单。
  */
 
-import { authenticate } from "./auth"
+import { authenticate, hashClientIp } from "./auth"
 import { jsonSuccess, failure } from "./http"
 import { signNetCard } from "./netcard"
-import { findSessionByTokenHash } from "./db"
+import { consumeRateLimit, findSessionByTokenHash } from "./db"
 import { hashRefreshToken } from "./crypto"
 import { isValidDeviceHash } from "./device"
 import type { Env } from "./types"
@@ -58,16 +58,48 @@ export async function handleIssueNetCard(
  * POST /v1/netcard/verify —— 回源校验（给中转站的吊销检查用）。
  *
  * 请求：`{ sessionId }`
- * 响应：`{ valid: boolean, reason?, userId? }`
+ * 响应：`{ valid: boolean, reason? }`
  *
- * 注意：这个接口**不需要鉴权**（中转站持有的是自己的密钥，不是用户凭证），
- * 但它只回答"某个 session id 是否还有效"，不泄露任何用户信息（userId 是内部 id）。
+ * ## 为什么不再返回 userId
+ *
+ * 这个接口按设计**不需要鉴权**（中转站持自己的密钥，不是用户凭证）。
+ * 但匿名可调 + 回吐 `userId`（自增整数）意味着任何人只要拿到一个 sessionId
+ * 就能把「会话 → 账号」对上，还能顺着枚举摸出账号总量。账号身份不是
+ * 这个接口的职责，中转站要用户信息应当走 /admin/users（有 ADMIN_KEY）。
+ * 现在只回答「这面卡还能不能用」。
+ *
+ * ## 为什么要查 users.status
+ *
+ * 原来只查 sessions：封禁账号后，已签发的长期卡（10 年有效）照样通过校验，
+ * 等于「封了号还能白嫖中转额度」。现在连 users 一起读，非 active 一律拒绝。
+ *
+ * ## 限流
+ *
+ * 匿名端点必须有闸门，否则可以用来批量探测 sessionId 是否有效。
+ * 中转站侧有 60 秒缓存、调用频率很低，300 次/分钟/IP 对正常用量充裕。
  */
+const VERIFY_PER_MINUTE_LIMIT = 300
+const VERIFY_WINDOW_SECONDS = 60
+
 export async function handleVerifyNetCard(
   request: Request,
   env: Env,
   now: number,
 ): Promise<Response> {
+  const ipHash = await hashClientIp(env, request)
+  const limited = await consumeRateLimit(
+    env.DB,
+    `netcard:verify:ip:${ipHash}`,
+    VERIFY_PER_MINUTE_LIMIT,
+    VERIFY_WINDOW_SECONDS,
+    now,
+  )
+  if (!limited.allowed) {
+    return failure("RATE_LIMITED", undefined, {
+      "Retry-After": String(Math.max(1, limited.retryAfterSeconds)),
+    })
+  }
+
   let body: { sessionId?: unknown } = {}
   try {
     body = (await request.json()) as { sessionId?: unknown }
@@ -78,13 +110,19 @@ export async function handleVerifyNetCard(
   if (!sessionId) return failure("VALIDATION")
 
   const result = await env.DB.prepare(
-    "SELECT id, user_id, revoked_at, expires_at FROM sessions WHERE id = ?1 LIMIT 1",
+    `SELECT s.id, s.revoked_at, s.expires_at, u.status AS user_status
+       FROM sessions s
+       LEFT JOIN users u ON u.id = s.user_id
+      WHERE s.id = ?1
+      LIMIT 1`,
   )
     .bind(sessionId)
-    .first<{ id: string; user_id: number; revoked_at: number | null; expires_at: number }>()
+    .first<{ id: string; revoked_at: number | null; expires_at: number; user_status: string | null }>()
 
   if (!result) return jsonSuccess({ valid: false, reason: "session_not_found" })
+  // 账号已不存在（LEFT JOIN 未命中）或已被封禁：卡立即失效。
+  if (result.user_status !== "active") return jsonSuccess({ valid: false, reason: "account_disabled" })
   if (result.revoked_at !== null) return jsonSuccess({ valid: false, reason: "revoked" })
   if (result.expires_at <= now) return jsonSuccess({ valid: false, reason: "expired" })
-  return jsonSuccess({ valid: true, userId: result.user_id })
+  return jsonSuccess({ valid: true })
 }

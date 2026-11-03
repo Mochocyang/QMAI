@@ -12,6 +12,8 @@
  */
 
 import type { Env } from "./types"
+import { consumeRateLimit, findUserByEmail, peekRateLimit, setUserStatus } from "./db"
+import { hashClientIp } from "./auth"
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -35,6 +37,71 @@ export function verifyAdminKey(env: Env, request: Request): boolean {
   return safeEqual(provided, configured)
 }
 
+/**
+ * 管理密钥的失败限流。
+ *
+ * 此前 `/admin/*` 只有常数时间比较、没有任何限流：ADMIN_KEY 短的话可以
+ * 无限次试错，而它一旦泄露等于全站会话都能吊销（还能看到所有用户邮箱）。
+ * 这里只对**失败**计数（正常运维请求不该被限），15 分钟 10 次，跨端点共用一个桶：
+ * 攻击者换端点绕不过去。
+ *
+ * 先 peek 再决定：已超限就直接 429，连密钥比较都省了（避免把限流本身
+ * 变成计时探针）。
+ */
+const ADMIN_FAIL_LIMIT = 10
+const ADMIN_FAIL_WINDOW_SECONDS = 15 * 60
+
+/**
+ * 校验管理密钥；不通过时返回应当直接回给客户端的 Response。
+ *
+ * 所有 `/admin/*` 入口统一调用它，避免以后新增接口时忘记挂限流
+ * （原来的写法是每个 handler 各写一遍 verifyAdminKey，漏一个就是缺口）。
+ */
+export async function guardAdmin(
+  request: Request,
+  env: Env,
+  now = Math.floor(Date.now() / 1000),
+): Promise<Response | null> {
+  let bucket: string
+  try {
+    bucket = `admin:fail:ip:${await hashClientIp(env, request)}`
+  } catch {
+    // 取不到 pepper（配置不全）时不允许降级放行：宁可 503。
+    return json({ success: false, code: "UNAUTHORIZED", message: "管理接口暂不可用。" }, 503)
+  }
+
+  const peeked = await peekRateLimit(env.DB, bucket, ADMIN_FAIL_LIMIT, ADMIN_FAIL_WINDOW_SECONDS, now)
+  if (!peeked.allowed) {
+    return new Response(
+      JSON.stringify({ success: false, code: "RATE_LIMITED", message: "尝试次数过多，请稍后再试。" }),
+      {
+        status: 429,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Cache-Control": "no-store",
+          "Retry-After": String(Math.max(1, peeked.retryAfterSeconds)),
+        },
+      },
+    )
+  }
+
+  if (verifyAdminKey(env, request)) return null
+
+  const consumed = await consumeRateLimit(env.DB, bucket, ADMIN_FAIL_LIMIT, ADMIN_FAIL_WINDOW_SECONDS, now)
+  const retryAfter = Math.max(1, consumed.retryAfterSeconds)
+  return new Response(
+    JSON.stringify({ success: false, code: "UNAUTHORIZED", message: "管理密钥缺失或错误。" }),
+    {
+      status: 401,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-store",
+        ...(consumed.allowed ? {} : { "Retry-After": String(retryAfter) }),
+      },
+    },
+  )
+}
+
 interface SessionRow {
   id: string
   user_id: number
@@ -50,9 +117,8 @@ interface SessionRow {
 
 /** GET /admin/sessions?status=active|revoked|all&userId=&page=&size= */
 export async function handleAdminListSessions(request: Request, env: Env, url: URL): Promise<Response> {
-  if (!verifyAdminKey(env, request)) {
-    return json({ success: false, code: "UNAUTHORIZED", message: "管理密钥缺失或错误。" }, 401)
-  }
+  const denied = await guardAdmin(request, env)
+  if (denied) return denied
 
   const status = url.searchParams.get("status") ?? "active"
   const userIdParam = (url.searchParams.get("userId") ?? "").trim()
@@ -113,7 +179,7 @@ export async function handleAdminListSessions(request: Request, env: Env, url: U
 
 async function writeRevokeAudit(
   env: Env,
-  scope: "user" | "session" | "all",
+  scope: "user" | "session" | "all" | "user_status",
   target: string,
   reason: string,
   revoked: number,
@@ -133,9 +199,8 @@ async function writeRevokeAudit(
 
 /** POST /admin/sessions/revoke —— { userId } 或 { sessionId }，带 reason。 */
 export async function handleAdminRevoke(request: Request, env: Env): Promise<Response> {
-  if (!verifyAdminKey(env, request)) {
-    return json({ success: false, code: "UNAUTHORIZED", message: "管理密钥缺失或错误。" }, 401)
-  }
+  const denied = await guardAdmin(request, env)
+  if (denied) return denied
 
   let body: { userId?: unknown; sessionId?: unknown; reason?: unknown }
   try {
@@ -175,9 +240,8 @@ export async function handleAdminRevoke(request: Request, env: Env): Promise<Res
 
 /** POST /admin/sessions/revoke-all —— { confirm: "REVOKE-ALL", reason } */
 export async function handleAdminRevokeAll(request: Request, env: Env): Promise<Response> {
-  if (!verifyAdminKey(env, request)) {
-    return json({ success: false, code: "UNAUTHORIZED", message: "管理密钥缺失或错误。" }, 401)
-  }
+  const denied = await guardAdmin(request, env)
+  if (denied) return denied
 
   let body: { confirm?: unknown; reason?: unknown }
   try {
@@ -204,9 +268,8 @@ export async function handleAdminRevokeAll(request: Request, env: Env): Promise<
 
 /** GET /admin/revoke-audit —— 最近吊销记录。 */
 export async function handleAdminRevokeAudit(request: Request, env: Env, url: URL): Promise<Response> {
-  if (!verifyAdminKey(env, request)) {
-    return json({ success: false, code: "UNAUTHORIZED", message: "管理密钥缺失或错误。" }, 401)
-  }
+  const denied = await guardAdmin(request, env)
+  if (denied) return denied
   const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? 20)))
   const rows = await env.DB.prepare(
     "SELECT id, scope, target, reason, revoked, at FROM revoke_audit ORDER BY id DESC LIMIT ?1",
@@ -231,9 +294,8 @@ export async function handleAdminRevokeAudit(request: Request, env: Env, url: UR
  * 头像只给一个版本号，需要时再单独取。
  */
 export async function handleAdminListUsers(request: Request, env: Env, url: URL): Promise<Response> {
-  if (!verifyAdminKey(env, request)) {
-    return json({ success: false, code: "UNAUTHORIZED", message: "管理密钥缺失或错误。" }, 401)
-  }
+  const denied = await guardAdmin(request, env)
+  if (denied) return denied
 
   const size = Math.min(500, Math.max(1, Number(url.searchParams.get("size") ?? 200)))
   const page = Math.max(1, Number(url.searchParams.get("page") ?? 1))
@@ -274,4 +336,80 @@ export async function handleAdminListUsers(request: Request, env: Env, url: URL)
       size,
     },
   })
+}
+
+/**
+ * POST /admin/users/status —— 封禁 / 解封账号。
+ *
+ * 请求：`{ userId? | email?, status: "active" | "disabled", reason? }`
+ *
+ * ## 为什么需要它
+ *
+ * `users.status` 建表起就有、`authenticate()` 一直在按它拦人，但此前
+ * **没有任何写入路径**：条款 4.4 承诺「可封禁账号」，实际管理员只能吊销
+ * 会话，用户重新登录就复活，等于承诺了做不到的事。
+ *
+ * ## 封禁必须连带吊销会话
+ *
+ * `authenticate()` 每次读 DB 判 status，所以封禁对 accessToken 是立刻生效的；
+ * 但 sessions 行本身还活着（refresh 会被拒），留着只是脏数据，也不符合
+ * 「这个号已被处置」的运维语义。所以封禁时一并吊销该用户全部会话，
+ * 审计里记录连带吊销了几条。
+ *
+ * 解封不动会话：恢复使用应当重新登录，而不是复活旧设备上的登录态。
+ */
+export async function handleAdminSetUserStatus(request: Request, env: Env): Promise<Response> {
+  const denied = await guardAdmin(request, env)
+  if (denied) return denied
+
+  let body: { userId?: unknown; email?: unknown; status?: unknown; reason?: unknown }
+  try {
+    body = (await request.json()) as typeof body
+  } catch {
+    return json({ success: false, code: "VALIDATION", message: "请求体不是合法 JSON。" }, 400)
+  }
+
+  const status = body.status === "disabled" ? "disabled" : body.status === "active" ? "active" : null
+  if (!status) {
+    return json({ success: false, code: "VALIDATION", message: 'status 只能是 "active" 或 "disabled"。' }, 400)
+  }
+
+  const now = Math.floor(Date.now() / 1000)
+  const reason = typeof body.reason === "string" ? body.reason : ""
+
+  const requestedId = Number(body.userId)
+  let userId = Number.isInteger(requestedId) && requestedId > 0 ? requestedId : 0
+  if (!userId && typeof body.email === "string") {
+    const found = await findUserByEmail(env.DB, body.email.trim().toLowerCase())
+    if (!found) return json({ success: false, code: "NOT_FOUND", message: "该邮箱没有账号。" }, 404)
+    userId = found.id
+  }
+  if (!userId) {
+    return json({ success: false, code: "VALIDATION", message: "需要 userId 或 email。" }, 400)
+  }
+
+  const changed = await setUserStatus(env.DB, userId, status, now)
+  if (!changed) return json({ success: false, code: "NOT_FOUND", message: "账号不存在。" }, 404)
+
+  let revokedSessions = 0
+  if (status === "disabled") {
+    const result = await env.DB.prepare(
+      "UPDATE sessions SET revoked_at = ?1 WHERE user_id = ?2 AND revoked_at IS NULL",
+    )
+      .bind(now, userId)
+      .run()
+    revokedSessions = Number((result as { meta?: { changes?: number } }).meta?.changes ?? 0)
+  }
+
+  // 复用吊销审计表：scope 记 "user_status"，revoked 记连带吊销的会话数。
+  await writeRevokeAudit(
+    env,
+    "user_status",
+    String(userId),
+    `${status}${reason ? `：${reason}` : ""}`,
+    revokedSessions,
+    now,
+  )
+
+  return json({ success: true, data: { userId, status, revokedSessions } })
 }

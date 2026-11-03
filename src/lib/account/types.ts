@@ -35,6 +35,13 @@ export interface AccountUser {
   createdAt: number
   /** 头像版本号（Unix 秒）；null 表示没有头像。 */
   avatarUpdatedAt: number | null
+  /**
+   * 头像读取用的随机 token；没有头像时可能为 null。
+   *
+   * 头像 URL 用它寻址而不是自增 id：后者公开可枚举，任何人能从 1 开始
+   * 把全站头像拉一遍。老会话里没有这个字段，届时界面退回首字母头像。
+   */
+  avatarToken?: string | null
   /** 上次修改昵称的时间（Unix 秒）；从未改过为 null。 */
   displayNameUpdatedAt: number | null
 }

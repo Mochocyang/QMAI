@@ -593,7 +593,10 @@ describe("AccountDialog", () => {
 
     await click(buttonByText("退出登录"))
 
-    expect(confirm).toHaveBeenCalledWith("退出后这台设备需要重新登录；本地小说和模型配置不会被删除。")
+    // 文案必须与真实行为一致（勾了「记住密码」时 30 天内仍可一键登录）。
+    expect(confirm).toHaveBeenCalledWith(
+      "退出后云同步会停用；若之前勾选了「记住密码」，本机 30 天内仍可一键登录。本地小说和模型配置不会被删除。",
+    )
     expect(logout).not.toHaveBeenCalled()
   })
 

@@ -87,6 +87,8 @@ export interface UserRow {
   avatar_mime: string | null
   avatar_data: ArrayBuffer | Uint8Array | null
   avatar_updated_at: number | null
+  /** 头像读取用的随机 token（公开 URL 用它寻址，避免按自增 id 枚举）。 */
+  avatar_token?: string | null
   /** 上次修改昵称的时间（Unix 秒）；NULL 表示从未改过。 */
   display_name_updated_at: number | null
 }
@@ -124,9 +126,16 @@ export interface PublicUser {
   createdAt: number
   /**
    * 头像版本号（Unix 秒）；无头像为 null。
-   * 客户端据此拼 `/v1/account/avatar/{id}?v=…`，换头像后 URL 变化即可破缓存。
+   * 客户端据此拼 `/v1/account/avatar/{token}?v=…`，换头像后 URL 变化即可破缓存。
    */
   avatarUpdatedAt: number | null
+  /**
+   * 头像读取用的随机 token；无头像为 null。
+   *
+   * 公开 URL 不再用自增 id：否则任何人能从 1 开始批量拉全站头像。
+   * 这个字段只返回给用户本人（me / 登录 / 续期响应里）。
+   */
+  avatarToken?: string | null
   /**
    * 上次修改昵称的时间（Unix 秒）；从未改过为 null。
    * 客户端据此显示「下次可修改时间」，服务端才是真正的每月一次限制。
