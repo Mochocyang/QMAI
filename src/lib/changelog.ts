@@ -39,6 +39,25 @@ const FOUR_POINT_FOUR_ZERO_ZH: string[] = [
   "统一记忆清理并开放 MCP 维护工具：从快照来源清理六类记忆，同步 JSON、Markdown、人物 Skill 和检索缓存，支持备份撤销及超量提醒。",
 ];
 
+const FOUR_POINT_FOUR_TWO_ZH: string[] = [
+  "章节右键菜单新增「刷新目录」：外部改名后可重新扫描项目文件树；菜单高度按内容撑开，靠近窗口底部时会上移，不再出现滚动条。",
+  "正文删空后允许重新保存到原章：保存到章节库后若正文被清空或文件已不在，按钮不再永久禁用，也不会误存成下一章。",
+  "一键提取记忆成功后会写入章节完结状态，列表不再一直显示草稿；提取失败不改状态。",
+  "MCP 复制出来的配置改成可直接导入的 JSON。",
+  "修复 Cursor CLI 模型档位拉取不完整的问题。",
+  "反重力 CLI 长输入改为分轮传递，避免正文指令被截断。",
+  "写作对话异常中断后残留的「进行中」状态会自动清理，不再一直拦着新的对话。",
+];
+
+const FOUR_POINT_FOUR_TWO_CHANGELOG: ChangelogEntry = {
+  version: "4.4.2",
+  date: "2026-11-03",
+  highlights: {
+    en: FOUR_POINT_FOUR_TWO_ZH,
+    zh: FOUR_POINT_FOUR_TWO_ZH,
+  },
+};
+
 const FOUR_POINT_FOUR_ONE_ZH: string[] = [
   "模型下拉不再重复：以前同一个模型会上下各显示一次，现在一行一个；字号和行距也收紧了，一屏能看到的模型数量大约翻倍。章节大纲、参数库、AI 对话底栏、拆书工作台、绑定对话框全部生效。",
   "检查更新更快、更稳：修复两个更新通道问题——官网直链通道被远程配置整体覆盖、从上线起就没生效过；以及直连被排到第一位，国内每次都要先白等一次 12 秒超时。现在镜像优先、直连兜底。",
@@ -2128,6 +2147,8 @@ const CHANGELOG: ChangelogEntry[] = [
 ];
 
 export function currentVersionChangelog(version: string): ChangelogEntry[] {
+  if (version === FOUR_POINT_FOUR_TWO_CHANGELOG.version)
+    return [FOUR_POINT_FOUR_TWO_CHANGELOG];
   if (version === FOUR_POINT_FOUR_ONE_CHANGELOG.version)
     return [FOUR_POINT_FOUR_ONE_CHANGELOG];
   if (version === FOUR_POINT_FOUR_ZERO_CHANGELOG.version)
@@ -2317,6 +2338,7 @@ export function currentVersionChangelog(version: string): ChangelogEntry[] {
 
 export function allChangelog(): ChangelogEntry[] {
   return [
+    FOUR_POINT_FOUR_TWO_CHANGELOG,
     FOUR_POINT_FOUR_ONE_CHANGELOG,
     FOUR_POINT_FOUR_ZERO_CHANGELOG,
     FOUR_POINT_THREE_TEN_CHANGELOG,
