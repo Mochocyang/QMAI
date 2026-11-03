@@ -9,7 +9,7 @@ import { OutlineChatPanel } from "@/components/sources/outline-chat-panel"
 import { useChatStore } from "@/stores/chat-store"
 import { useOutlineChatStore } from "@/stores/outline-chat-store"
 import { useWikiStore } from "@/stores/wiki-store"
-import { writeFile } from "@/commands/fs"
+import { readFile, writeFile } from "@/commands/fs"
 import type { ContextHubSnapshotRef } from "@/lib/context-hub/types"
 import type { ConversationRunStates } from "@/lib/conversation-run-state"
 import { getUiTestAiMenuStyle } from "./ui-test-ai-parts"
@@ -372,10 +372,11 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     expect(written).not.toMatch(/\n\n\n/)
   })
 
-  it("已保存过的章节回复：按钮保留但禁用，并在该条下方显示保存结果", async () => {
+  it("已保存过的章节回复：章节里还有正文时按钮保留但禁用，并在该条下方显示保存结果", async () => {
     if (kind !== "chapter") return
     const id = "chapter-saved-ref"
     const chapterBody = "杨寒把尸体压到檐下，找了块破油布盖住。雨还在下，顺着瓦沟往他脖子里灌。他抬手抹了一把，指缝里带着泥。"
+    vi.mocked(readFile).mockResolvedValue(`---\ntype: chapter\nchapter_number: 20\n---\n\n${chapterBody}\n`)
     const messages = [
       { id: "u-1", role: "user" as const, content: "生成第20章", timestamp: now, conversationId: id },
       {
@@ -403,6 +404,46 @@ describe.each<Panel>(["chapter", "outline"])("独立 UI 测试版 %s 助手", (k
     // 没保存过的那条照旧可点
     const pendingButton = rows[1].querySelector<HTMLButtonElement>("[aria-label='保存到章节库']")
     expect(pendingButton?.disabled).toBe(false)
+    vi.mocked(readFile).mockResolvedValue("")
+  })
+
+  it("删掉已保存章节的正文后，可以重新保存回原来的章节", async () => {
+    if (kind !== "chapter") return
+    const id = "chapter-resave-cleared"
+    const chapterPath = "C:/__qmai_ui_test__/book/wiki/chapters/chapter-020.md"
+    const chapterBody = "杨寒把尸体压到檐下，找了块破油布盖住。雨还在下，顺着瓦沟往他脖子里灌。他抬手抹了一把，指缝里带着泥。"
+    const messages = [
+      { id: "u-1", role: "user" as const, content: "生成第20章", timestamp: now, conversationId: id },
+      {
+        id: "a-1",
+        role: "assistant" as const,
+        content: chapterBody,
+        timestamp: now,
+        conversationId: id,
+        chapterRef: { chapterNumber: 20, path: chapterPath, savedAt: now },
+      },
+    ]
+    const conversations = [{ id, title, createdAt: now, updatedAt: now, deAiMode: false, messages, inputDraft: "" }]
+    useChatStore.setState({ conversations, activeConversationId: id, messages, streamingContents: {}, runStates: {}, pendingReferenceTokens: [] })
+    // 磁盘上仍是旧正文：编辑器里的删除还没到自动保存。判断必须以编辑器为准。
+    vi.mocked(readFile).mockResolvedValue(`---\ntype: chapter\nchapter_number: 20\n---\n\n${chapterBody}\n`)
+    useWikiStore.setState({
+      selectedFile: chapterPath,
+      fileContent: "---\ntype: chapter\nchapter_number: 20\nchapter_status: draft\n---\n\n",
+    })
+
+    const container = await mount(kind)
+    const row = container.querySelector('[data-ui-ai-message="assistant"]')
+    const saveButton = row?.querySelector<HTMLButtonElement>("[aria-label='重新保存到第 20 章']")
+    expect(saveButton).not.toBeNull()
+    expect(saveButton?.disabled).toBe(false)
+    expect(row?.textContent).toContain("第 20 章正文已删除，可以重新保存。")
+    await click(saveButton ?? null)
+
+    const writtenPaths = vi.mocked(writeFile).mock.calls.map(([path]) => String(path))
+    expect(writtenPaths).toContain(chapterPath)
+    expect(writtenPaths.some((path) => path.endsWith("chapter-001.md"))).toBe(false)
+    vi.mocked(readFile).mockResolvedValue("")
   })
 
   it("大纲输入区上方不再有说明文字与重复入口，共创与上下文统计回到 @ 左侧", async () => {
