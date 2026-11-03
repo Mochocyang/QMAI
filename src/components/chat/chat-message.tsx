@@ -62,6 +62,11 @@ import { formatNovelBody } from "@/lib/novel-body-format";
 import { StreamingSpinner } from "@/components/common/streaming-spinner";
 import { canContinueUnfinishedDeepChapter } from "./chat-resume";
 import { getCopyableAssistantContent } from "@/lib/chat-copy-content";
+import {
+  chapterBodyCleared,
+  sameChapterPath,
+  savedChapterBodyWasCleared,
+} from "@/lib/novel/saved-chapter-body";
 import { StoppedGenerationActions } from "@/components/novel/stopped-generation-actions";
 import { FailedGenerationActions } from "@/components/novel/failed-generation-actions";
 import { isStoppedGenerationMessage } from "@/lib/novel/stopped-generation";
@@ -273,9 +278,42 @@ export function ChatMessage({
     message.content,
     message.agentToolCalls,
   ]);
-  /** 已存过章节的消息：按钮保留但禁用，避免同一条内容被重复存成两章。 */
+  /**
+   * 已存过、且那一章里还有正文：按钮保留但禁用，避免同一条内容再存成下一章。
+   * 用户把正文删掉，或章节文件已经不在，按钮恢复，再次保存写回原来的章节。
+   */
   const savedChapterRef = message.chapterRef;
+  const openChapterPath = useWikiStore((s) => (savedChapterRef ? s.selectedFile : null));
+  const openChapterMarkdown = useWikiStore((s) => (savedChapterRef ? s.fileContent : ""));
+  const openChapterMatchesSaved = Boolean(
+    savedChapterRef &&
+    openChapterPath &&
+    sameChapterPath(openChapterPath, savedChapterRef.path),
+  );
+  const liveChapterCleared = openChapterMatchesSaved && chapterBodyCleared(openChapterMarkdown);
+  const [diskChapterCleared, setDiskChapterCleared] = useState(false);
+  useEffect(() => {
+    if (!savedChapterRef || openChapterMatchesSaved) return;
+    let cancelled = false;
+    setDiskChapterCleared(false);
+    void savedChapterBodyWasCleared({ savedPath: savedChapterRef.path }).then((cleared) => {
+      if (!cancelled) setDiskChapterCleared(cleared);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [savedChapterRef, openChapterMatchesSaved]);
+  const canResaveClearedChapter = Boolean(savedChapterRef) && (
+    liveChapterCleared || (!openChapterMatchesSaved && diskChapterCleared)
+  );
   const canSaveAsChapter = Boolean(onSaveAsChapter && saveableChapterContent);
+  const saveChapterLabel = savedChapterRef
+    ? (canResaveClearedChapter
+      ? `重新保存到第 ${savedChapterRef.chapterNumber} 章`
+      : `已保存为第 ${savedChapterRef.chapterNumber} 章`)
+    : isSaving
+      ? "保存中"
+      : "保存到章节库";
   /**
    * 上一条回复是被用户手动停止的（正文结尾带着「已停止生成。」这类收尾提示）。
    *
@@ -509,22 +547,10 @@ export function ChatMessage({
                 onClick={() =>
                   onSaveAsChapter!(message.id, message.content, message.agentToolCalls)
                 }
-                disabled={isSaving || Boolean(savedChapterRef)}
+                disabled={isSaving || (Boolean(savedChapterRef) && !canResaveClearedChapter)}
                 className="inline-flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent disabled:opacity-50"
-                title={
-                  savedChapterRef
-                    ? `已保存为第 ${savedChapterRef.chapterNumber} 章`
-                    : isSaving
-                      ? "保存中"
-                      : "保存到章节库"
-                }
-                aria-label={
-                  savedChapterRef
-                    ? `已保存为第 ${savedChapterRef.chapterNumber} 章`
-                    : isSaving
-                      ? "保存中"
-                      : "保存到章节库"
-                }
+                title={saveChapterLabel}
+                aria-label={saveChapterLabel}
               >
                 <Save className="h-3.5 w-3.5" />
               </button>
@@ -630,12 +656,17 @@ export function ChatMessage({
           最后一条的视角一起消失了 —— 现在 chapterRef 落在哪条消息上，
           哪条消息下面就常驻这句交代。
         */}
-        {savedChapterRef ? (
+        {savedChapterRef && !canResaveClearedChapter ? (
           <p className="mt-1 text-xs text-muted-foreground">
             已保存为第 {savedChapterRef.chapterNumber} 章
           </p>
         ) : null}
-        {isLastAssistant && saveStatus && !savedChapterRef && (
+        {savedChapterRef && canResaveClearedChapter && !(isLastAssistant && saveStatus) ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            第 {savedChapterRef.chapterNumber} 章正文已删除，可以重新保存。
+          </p>
+        ) : null}
+        {isLastAssistant && saveStatus && (!savedChapterRef || canResaveClearedChapter) && (
           <p className="mt-1 text-xs text-muted-foreground">{saveStatus}</p>
         )}
       </div>

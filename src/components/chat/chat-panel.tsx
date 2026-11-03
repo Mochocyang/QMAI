@@ -139,6 +139,8 @@ import {
 } from "@/lib/chat-copy-content"
 import { validateChapterBeforeSave } from "@/lib/novel/result-save-guard"
 import { decideChapterSaveStrategy, detectGeneratedTargetChapterNumber } from "@/lib/novel/chapter-save-strategy"
+import { savedChapterBodyWasCleared } from "@/lib/novel/saved-chapter-body"
+import { getOpenDocumentGuard } from "@/lib/mcp/open-document"
 import { loadBinding } from "@/lib/novel/story-simulation/framework-binding"
 import { loadFrameworks } from "@/lib/novel/story-simulation/framework-store"
 import type { FrameworkBinding, StoryFramework } from "@/lib/novel/story-simulation/types"
@@ -1506,6 +1508,20 @@ export function ChatPanel() {
       // 用户存完还得自己回编辑器点一次一键排版（2026-10-25 用户反馈）。
       const formattedContent = formatChapterWriting(cleanedContent)
 
+      const existingRef = useChatStore.getState().messages.find((item) => item.id === messageId)?.chapterRef
+      const openDocument = useWikiStore.getState()
+      const reuseClearedChapter = existingRef
+        ? await savedChapterBodyWasCleared({
+          savedPath: existingRef.path,
+          openPath: openDocument.selectedFile,
+          openMarkdown: openDocument.fileContent,
+        })
+        : false
+      if (existingRef && !reuseClearedChapter) {
+        setChapterSaveStatus(`已保存为第${existingRef.chapterNumber}章`)
+        return
+      }
+
       const selectedChapterNumber = await readSelectedChapterNumberForFile(selectedFile)
       const generatedTargetChapterNumber = detectGeneratedTargetChapterNumber(extractedTitle ?? cleanedContent)
       const explicitTargetPath = generatedTargetChapterNumber ? await findChapterFileByNumber(pp, generatedTargetChapterNumber) : null
@@ -1516,10 +1532,15 @@ export function ChatPanel() {
         generatedTargetExists: Boolean(explicitTargetPath),
       })
 
-      // 确定目标章节号
-      const targetChapterNumber = strategy.action === "direct_explicit_target_new"
-        ? strategy.targetChapterNumber
-        : await getNextChapterNumber(pp)
+      // 正文还在的章节不复用。只有上次保存的那一章已经被删空时，才写回原路径。
+      const targetChapterNumber = reuseClearedChapter && existingRef
+        ? existingRef.chapterNumber
+        : strategy.action === "direct_explicit_target_new"
+          ? strategy.targetChapterNumber
+          : await getNextChapterNumber(pp)
+      const chapterPath = reuseClearedChapter && existingRef
+        ? existingRef.path
+        : `${pp}/wiki/chapters/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
 
       // 使用 AI 生成的标题，如果没有则回退到默认标题
       const chapterTitle = extractedTitle || `第${targetChapterNumber}章`
@@ -1540,9 +1561,8 @@ export function ChatPanel() {
         return `${frontmatter}${bodyContent}\n`
       }
 
-      const chapterDir = `${pp}/wiki/chapters`
+      const chapterDir = chapterPath.replace(/[/\\][^/\\]+$/, "")
       await createDirectory(chapterDir)
-      const chapterPath = `${chapterDir}/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
       const chapterMarkdown = buildDraftContent(targetChapterNumber, chapterTitle, formattedContent)
       // 目标路径通常还是空的（新章），但也可能撞上一份已存在的同号文件；
       // 有旧正文就交给记账层差分，否则整份覆盖会被算成今天 AI 新写的。
@@ -1556,8 +1576,12 @@ export function ChatPanel() {
         savedAt: Date.now(),
       })
       setChapterSaveStatus(`已保存为${chapterTitle}`)
+      // 编辑器里可能还挂着「刚删掉的正文」那次未落盘修改。不先作废它，
+      // 几分钟后的自动保存会把刚刚写回去的正文再盖成空的。
+      const openGuard = getOpenDocumentGuard(chapterPath)
+      if (openGuard) openGuard.applyMarkdown(chapterMarkdown)
       useWikiStore.getState().setSelectedFile(chapterPath)
-      useWikiStore.getState().setFileContent(chapterMarkdown)
+      if (!openGuard) useWikiStore.getState().setFileContent(chapterMarkdown)
 
       await refreshProjectState(pp)
       useWikiStore.getState().setActiveView("wiki")
