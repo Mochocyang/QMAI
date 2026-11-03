@@ -115,6 +115,50 @@ describe("syncBuiltinModels", () => {
     expect(useWikiStore.getState().providerConfigs[BUILTIN_PROVIDER_ID]).toBeUndefined()
   })
 
+  /*
+   * 补签卡必须带上设备指纹与签名公钥。
+   *
+   * 老会话缺卡时会走「补签」这条唯一路径。原来只发 { refreshToken }，
+   * 服务端签出来的卡不含 dev/dpk → 卡被抄走照样能用（设备绑定失效），
+   * 客户端签的 X-Request-Sig 也无处验证。这条用例锁住「补签与登录同源上报」。
+   */
+  it("补签网关卡时上报 deviceHash / devicePublicKey（否则签出的是无绑定弱卡）", async () => {
+    const calls: Array<{ url: string; body: string }> = []
+    const fakeFetch = async (url: string, init?: RequestInit) => {
+      calls.push({ url: String(url), body: String(init?.body ?? "") })
+      return new Response(JSON.stringify({ success: true, data: { netcard: CARD } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+
+    vi.doMock("@/lib/tauri-fetch", () => ({
+      getHttpFetch: async () => fakeFetch,
+      isFetchNetworkError: () => false,
+    }))
+    vi.doMock("@/lib/account/device", () => ({
+      getDeviceFingerprint: async () => "0123456789abcdef0123456789abcdef",
+    }))
+    vi.doMock("@/lib/account/request-sign", () => ({
+      ensureDeviceKey: async () => ({ publicKey: "P".repeat(43), privateKeyJwk: {} }),
+    }))
+
+    // 重新加载模块，让 doMock 生效（auto-sync 走动态 import 取这两个模块）
+    vi.resetModules()
+    const fresh = await import("@/lib/builtin-models/auto-sync")
+    await fresh.syncBuiltinModels(sessionWithCard(null))
+
+    expect(calls.length).toBeGreaterThan(0)
+    const body = JSON.parse(calls[0]!.body)
+    expect(body.refreshToken).toBe("refresh")
+    expect(body.deviceHash).toBe("0123456789abcdef0123456789abcdef")
+    expect(body.devicePublicKey).toBe("P".repeat(43))
+
+    vi.doUnmock("@/lib/tauri-fetch")
+    vi.doUnmock("@/lib/account/device")
+    vi.doUnmock("@/lib/account/request-sign")
+  })
+
   it("清单为空时保留原配置，不清空", async () => {
     gateway.gatewayListModelCatalog.mockResolvedValue(catalog([]))
 

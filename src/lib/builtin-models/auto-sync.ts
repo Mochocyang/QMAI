@@ -39,22 +39,52 @@ let lastSignature = ""
 /**
  * 老版本会话补签卡。
  *
- * 背景：网关卡字段是后加的，早期登录的用户 localStorage 里 `netcard: null`。
+ * 背景：网关卡字段是后加的，早期登录的用户会话里 `netcard: null`。
  * 虽然后端 refresh 已经会回传，但用户可能长时间不触发 refresh（现有 accessToken
  * 还没过期）。所以这里再兜一层：缺卡时主动调 `/v1/netcard` 换一张。
+ *
+ * ## 必须带上设备指纹与签名公钥（2026-11-03 修）
+ *
+ * 原来只发 `{ refreshToken }`，服务端签出来的卡就**不含 `dev`/`dpk`**：
+ *   · 网关拿不到设备指纹 → 走「首绑放行」→ 卡被抄到别的机器照样能用；
+ *   · 卡里没有公钥 → 客户端签的 `X-Request-Sig` 无处验，签名防护失效。
+ * 也就是说：走补签路径拿到的卡是「永远不绑定设备」的弱卡，而这条路径恰恰是
+ * 老用户唯一的取卡方式。现在与登录/续期一致，把两个字段一起上报。
  *
  * 换到卡后顺手写回会话，下次启动就不用再换。
  */
 async function repairMissingNetcard(session: StoredAccountSession): Promise<string | null> {
   try {
     const fetcher = await getHttpFetch()
+
+    /*
+     * 与登录/续期同源地取设备字段：签进卡里的 dev/dpk 是网关卡「离开原机器
+     * 就失效」的唯一依据，补签路径漏了它们，补出来的卡就是无绑定的弱卡。
+     * 取不到就不上报（服务端沿用「缺字段则跳过」的旧行为），不编造。
+     */
+    const body: Record<string, unknown> = { refreshToken: session.refreshToken }
+    try {
+      const { getDeviceFingerprint } = await import("@/lib/account/device")
+      const deviceHash = await getDeviceFingerprint()
+      if (deviceHash) body.deviceHash = deviceHash
+    } catch {
+      // 取不到设备指纹：不上报，服务端按缺字段处理。
+    }
+    try {
+      const { ensureDeviceKey } = await import("@/lib/account/request-sign")
+      const deviceKey = await ensureDeviceKey()
+      if (deviceKey?.publicKey) body.devicePublicKey = deviceKey.publicKey
+    } catch {
+      // 生成不了密钥对（环境不支持 Ed25519）：同上。
+    }
+
     const response = await fetcher(`${session.baseUrl.replace(/\/+$/, "")}${NETCARD_ISSUE_PATH}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session.accessToken}`,
       },
-      body: JSON.stringify({ refreshToken: session.refreshToken }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(15_000),
     })
     const payload = (await response.json().catch(() => null)) as
