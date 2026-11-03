@@ -80,13 +80,36 @@ describe("syncBuiltinModels", () => {
     expect(bridge.applyBuiltinModels).not.toHaveBeenCalled()
   })
 
-  it("没有网关卡时会移除已登记的内置模型配置（避免下拉框留死选项）", async () => {
+  /*
+   * 「有会话但没有卡」= 故障态（签发失败 / 请求抖动），**不能删配置**。
+   *
+   * 曾经的实现无条件 delete，于是用户只要遇到一次签卡失败，内置模型就被
+   * 永久从配置里删掉，表现为「内置模型突然没了」，且无法自愈（下次登录时
+   * 服务端若仍不签卡也回不来）。这条用例锁住「故障时保留配置」。
+   */
+  it("有会话但没有网关卡时：保留已登记的内置模型配置，只标记不可用", async () => {
     useWikiStore.setState({
       providerConfigs: { [BUILTIN_PROVIDER_ID]: { baseUrl: "https://relay.qmai.work/v1" } } as never,
     })
 
     await syncBuiltinModels(sessionWithCard(null))
-    // 移除是异步的（动态 import），等一轮微任务
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    // 配置必须还在：删了用户就要重新配置，而这不是他能控制的。
+    expect(useWikiStore.getState().providerConfigs[BUILTIN_PROVIDER_ID]).toBeDefined()
+  })
+
+  /*
+   * 「确认没有会话」= 用户退出登录 / 注销账号，**才该删配置**。
+   * 这两种语义必须分开，否则故障和退出无法区分。
+   */
+  it("确认没有会话（退出登录）时才移除内置模型配置", async () => {
+    useWikiStore.setState({
+      providerConfigs: { [BUILTIN_PROVIDER_ID]: { baseUrl: "https://relay.qmai.work/v1" } } as never,
+    })
+
+    // 显式 null = 确认无会话
+    await syncBuiltinModels(null)
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(useWikiStore.getState().providerConfigs[BUILTIN_PROVIDER_ID]).toBeUndefined()

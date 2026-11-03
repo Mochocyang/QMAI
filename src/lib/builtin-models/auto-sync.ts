@@ -80,6 +80,13 @@ async function repairMissingNetcard(session: StoredAccountSession): Promise<stri
   }
 }
 
+/**
+ * 移除已登记的内置模型配置。
+ *
+ * **只在「确认没有会话」时调用**（用户退出登录 / 注销账号）。
+ * 故障态（有会话但签不出卡、拉不到清单）绝不能走这里 —— 见 syncBuiltinModels
+ * 里的注释：删掉之后用户无法自愈，只能等下一次登录重新登记。
+ */
 function removeBuiltinProvider(): void {
   // 动态 import 避免 lib → store 的顶层循环依赖
   return void import("@/stores/wiki-store").then(async ({ useWikiStore }) => {
@@ -95,7 +102,18 @@ function removeBuiltinProvider(): void {
 
 /**
  * 同步内置模型清单到 provider 配置。
+ *
  * 返回 true 表示当前已登记可用清单；false 表示没有卡或拉取失败。
+ *
+ * ## 故障态 vs 确认无会话（2026-11-03 修）
+ *
+ * 入参有两种「没有卡」的语义，此前混为一谈：
+ *   - `session === null`：**确认**这台机器没有登录态（退出登录 / 注销）
+ *     → 应当移除内置模型配置，否则下拉框里留着一个永远用不了的选项。
+ *   - `session` 有值但没有网关卡：这是**故障**（服务端签发失败、网络抖动）
+ *     → **必须保留配置**。曾经的实现一律删除，导致用户遇到一次签卡失败就
+ *       永久失去内置模型，且下次登录若仍签不出卡也回不来 —— 表现为
+ *       「内置模型突然没了，且怎么都恢复不了」（这是一个真实的线上事故）。
  */
 export async function syncBuiltinModels(session: StoredAccountSession | null): Promise<boolean> {
   if (inFlight) {
@@ -103,15 +121,27 @@ export async function syncBuiltinModels(session: StoredAccountSession | null): P
     return inFlight
   }
 
+  // 确认无会话：这才是真正该清理配置的场景。
+  if (!session) {
+    console.warn("[builtin] 确认没有登录态 —— 移除内置模型配置")
+    lastSignature = ""
+    removeBuiltinProvider()
+    return false
+  }
+
   let card = netcardOf(session)
-  if (!card && session) {
+  if (!card) {
     // 老会话没有卡：先尝试补签一次，而不是直接放弃。
     card = await repairMissingNetcard(session)
   }
   if (!card) {
-    console.warn("[builtin] 会话里没有网关卡 —— 内置模型无法登记")
-    lastSignature = ""
-    removeBuiltinProvider()
+    /*
+     * 有会话但拿不到卡 = 故障态。此时**保留**已有配置并返回 false：
+     *   · 配置还在，用户至少能看到条目（只是调用会失败并给出明确报错）；
+     *   · 下次登录/刷新成功登记后即可自愈；
+     *   · 若在这里删除，用户没有任何自助恢复手段。
+     */
+    console.warn("[builtin] 会话存在但拿不到网关卡 —— 保留内置模型配置，等下次同步")
     return false
   }
 

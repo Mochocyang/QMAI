@@ -367,11 +367,25 @@ async function issueAuthPayload(
     now,
   )
 
-  // 网关卡：与这次登录的 session 绑定，**长期有效**，供自建中转站验签。
-  // 签名失败（缺私钥）时给 null —— 不影响登录本身。
+  /*
+   * 网关卡：与这次登录的 session 绑定，**长期有效**，供自建中转站验签。
+   *
+   * 签发失败时给 null —— 不影响登录本身，但**必须留下日志**。
+   * 这里曾经是 `.catch(() => null)` 静默吞掉：一旦 NETCARD_PRIVATE_KEY 没配，
+   * 所有用户登录后都拿不到卡，而服务端一声不响 —— 表现是客户端那边
+   * 「内置模型突然没了」，查起来毫无线索（2026-11-03 的真实事故）。
+   */
   const netcard = await signNetCard(env, user.id, session.id, now, deviceHash, devicePublicKey)
     .then((signed) => signed.token)
-    .catch(() => null)
+    .catch((error: unknown) => {
+      console.error("[account] netcard_sign_failed", {
+        reason: error instanceof Error ? error.name : "UnknownError",
+        // 缺私钥是最常见原因，单独标出来，便于一眼定位配置问题。
+        hint: env.NETCARD_PRIVATE_KEY ? "key_present" : "NETCARD_PRIVATE_KEY_missing",
+        userId: user.id,
+      })
+      return null
+    })
 
   return {
     user: await withAvatarToken(env, user),
