@@ -537,7 +537,8 @@ export function AccountDialog() {
                   <div className="account-delete-panel" data-ui="account-delete-panel">
                     <p className="account-delete-title">确认注销账号？</p>
                     <p className="account-delete-desc">
-                      账号、密码、头像、云端模型配置将被<strong>永久删除，无法恢复</strong>。
+                      账号、密码、头像、云端模型配置将被<strong>永久删除，无法恢复</strong>；
+                      本机上记住的密码与模型加密备份也会一并清除。
                       <br />
                       你电脑上的小说文件<strong>不受影响</strong>，仍可继续使用本地功能。
                     </p>

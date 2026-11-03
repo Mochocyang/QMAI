@@ -17,6 +17,7 @@
 
 import { getStore } from "@/lib/web-store"
 import { isTauri } from "@/lib/platform"
+import { BACKUP_KEY_SECRET_NAME, SYNC_PASSWORD_SECRET_NAME } from "@/lib/model-sync/secret-names"
 import { useWikiStore, type ProviderConfigs } from "@/stores/wiki-store"
 import { loadProviderConfigs, saveProviderConfigs } from "@/lib/project-store"
 
@@ -33,8 +34,6 @@ import type { OwnershipLedger } from "./ownership"
 
 const LEDGER_KEY = "model-ownership-ledger"
 const BACKUPS_KEY = "model-hidden-backups"
-/** 系统加密仓库里的数据密钥名（与同步密码分开：用途不同、轮换互不影响）。 */
-const BACKUP_KEY_SECRET = "model-backup-key"
 
 async function readSecret(name: string): Promise<string | null> {
   if (!isTauri()) return null
@@ -55,13 +54,13 @@ async function writeSecret(name: string, value: string): Promise<void> {
  * 直接抛错 —— 上层的登录/退出流程都会 catch 归档失败，不影响账号操作。
  */
 async function backupKey(): Promise<string> {
-  const existing = await readSecret(BACKUP_KEY_SECRET)
+  const existing = await readSecret(BACKUP_KEY_SECRET_NAME)
   if (existing) return existing
   if (!isTauri()) throw new Error("当前环境不支持加密备份模型配置。")
   const fresh = Array.from(crypto.getRandomValues(new Uint8Array(32)))
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("")
-  await writeSecret(BACKUP_KEY_SECRET, fresh)
+  await writeSecret(BACKUP_KEY_SECRET_NAME, fresh)
   return fresh
 }
 
@@ -177,11 +176,32 @@ export async function markSyncedOwnershipForAccount(account: string): Promise<vo
   }
 }
 
-/** 注销账号：清掉它留下的备份与账本记录（数据删除义务延伸）。 */
-export async function pruneHiddenBackupForAccount(account: string): Promise<void> {
-  try {
-    await pruneHiddenBackup(createIo(), account)
-  } catch {
-    // 注销的云端删除是主线；本地清理失败不改变注销结果。
+/**
+ * 注销成功后，销毁本机一切与该账号相关的秘密。
+ *
+ * 注销确认框向用户承诺「账号、密码…将被永久删除」。退出登录不清这些是
+ * 产品规则（30 天内免输）；注销不同——账号已不存在，本机继续留着能解出
+ * 密码、同步密码、模型备份的东西，既违背弹窗承诺，也是删除义务没兑现。
+ * 清四处：
+ *   1. 「记住密码」的 DPAPI 凭据（邮箱+密码）；
+ *   2. 系统仓库里的同步密码；
+ *   3. 系统仓库里的备份数据密钥（清掉后即使备份文件有残留也解不开）；
+ *   4. 该账号的模型备份 + 账本归属（pruneHiddenBackup）。
+ *
+ * 任何一步失败都吞掉：云端删除已经成功（调用方保证），本机残留不该
+ * 反过来把注销报成失败；密钥清不掉时第 4 步至少已让备份不可用。
+ */
+export async function purgeLocalAccountSecrets(account: string): Promise<void> {
+  const { invoke } = await import("@tauri-apps/api/core")
+  const bestEffort = async (fn: () => Promise<unknown>): Promise<void> => {
+    try {
+      await fn()
+    } catch {
+      // 尽力而为，见顶部注释。
+    }
   }
+  await bestEffort(() => invoke("account_credential_clear"))
+  await bestEffort(() => invoke("secret_clear", { name: SYNC_PASSWORD_SECRET_NAME }))
+  await bestEffort(() => invoke("secret_clear", { name: BACKUP_KEY_SECRET_NAME }))
+  await bestEffort(() => pruneHiddenBackup(createIo(), account))
 }

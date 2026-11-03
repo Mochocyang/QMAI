@@ -25,7 +25,7 @@ vi.mock("@/lib/model-sync/account-hook", () => ({
   archiveOnLogout: vi.fn(async () => 2),
   restoreHiddenModelsForAccount: vi.fn(async () => 1),
   archiveAllOwnedModels: vi.fn(async () => 3),
-  pruneHiddenBackupForAccount: vi.fn(async () => undefined),
+  purgeLocalAccountSecrets: vi.fn(async () => undefined),
   markSyncedOwnershipForAccount: vi.fn(async () => undefined),
 }))
 
@@ -51,7 +51,7 @@ import type { AccountAuthPayload, AccountUser } from "@/lib/account/types"
 import {
   archiveAllOwnedModels,
   archiveOnLogout,
-  pruneHiddenBackupForAccount,
+  purgeLocalAccountSecrets,
   restoreHiddenModelsForAccount,
 } from "@/lib/model-sync/account-hook"
 import { resetAccountStoreForTests, useAccountStore } from "./account-store"
@@ -59,7 +59,7 @@ import { resetAccountStoreForTests, useAccountStore } from "./account-store"
 const archiveMock = vi.mocked(archiveOnLogout)
 const restoreMock = vi.mocked(restoreHiddenModelsForAccount)
 const archiveAllMock = vi.mocked(archiveAllOwnedModels)
-const pruneMock = vi.mocked(pruneHiddenBackupForAccount)
+const purgeMock = vi.mocked(purgeLocalAccountSecrets)
 
 const ACCOUNT = "writer@example.com"
 
@@ -114,7 +114,7 @@ beforeEach(() => {
   archiveMock.mockClear()
   restoreMock.mockClear()
   archiveAllMock.mockClear()
-  pruneMock.mockClear()
+  purgeMock.mockClear()
   syncBuiltinMock.mockReset()
   syncBuiltinMock.mockImplementation(async () => undefined)
   vi.mocked(loginAccount).mockReset()
@@ -294,9 +294,9 @@ describe("注销账号彻底移除本机痕迹", () => {
 
     await useAccountStore.getState().deleteAccount("password123")
 
-    await vi.waitFor(() => expect(pruneMock).toHaveBeenCalledWith(ACCOUNT))
+    await vi.waitFor(() => expect(purgeMock).toHaveBeenCalledWith(ACCOUNT))
     expect(archiveMock).toHaveBeenCalledWith(ACCOUNT)
-    expect(archiveMock.mock.invocationCallOrder[0]).toBeLessThan(pruneMock.mock.invocationCallOrder[0])
+    expect(archiveMock.mock.invocationCallOrder[0]).toBeLessThan(purgeMock.mock.invocationCallOrder[0])
   })
 
   it("云端删除失败：本机一概不动（用户还能重试，不至于本地没了云端还在）", async () => {
@@ -307,6 +307,6 @@ describe("注销账号彻底移除本机痕迹", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(archiveMock).not.toHaveBeenCalled()
-    expect(pruneMock).not.toHaveBeenCalled()
+    expect(purgeMock).not.toHaveBeenCalled()
   })
 })

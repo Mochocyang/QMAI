@@ -16,7 +16,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/model-sync/account-hook", () => ({
   markSyncedOwnershipForAccount: vi.fn(async () => undefined),
-  pruneHiddenBackupForAccount: vi.fn(async () => undefined),
+  purgeLocalAccountSecrets: vi.fn(async () => undefined),
 }))
 
 import { markSyncedOwnershipForAccount } from "@/lib/model-sync/account-hook"

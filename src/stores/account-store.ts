@@ -119,12 +119,16 @@ async function runLoginModelSetup(session: StoredAccountSession): Promise<void> 
 }
 
 /**
- * 注销成功后的本机清理：摘内置 → 归档该账号模型 → **销毁**归档。
+ * 注销成功后的本机清理：摘内置 → 归档该账号模型 → **销毁**本机一切秘密。
  *
  * 注销 = 数据主体已删除，本机不该继续留着它的任何东西。先归档再销毁的
  * 净效果是「活动列表里的账号模型 + 本机备份」一起消失，而本机自配的
  * 条目不受影响；只做销毁不先归档的话，那些模型会以「无归属」身份继续
  * 显示，等于注销了账号却还留着它的 API Key。
+ *
+ * 最后一步 purgeLocalAccountSecrets 还负责删掉「记住密码」凭据与系统仓库里的
+ * 同步密码/数据密钥：注销确认框承诺「密码将被永久删除」，30 天免输规则只
+ * 适用于退出登录（用户 2026-11-03 确认口径：注销时连本机凭据一起清）。
  *
  * 云端删除失败时走不到这里（deleteAccount 的 await 已抛出）：
  * 本机一概不动，用户还能重试，也不至于"本地没了、云端还活着"。
@@ -134,9 +138,9 @@ function runDeleteAccountModelCleanup(epochAtDelete: number, accountEmail: strin
     .then(({ syncBuiltinModels }) => (sessionEpoch === epochAtDelete ? syncBuiltinModels(null) : undefined))
     .then(() => {
       if (sessionEpoch !== epochAtDelete || !accountEmail) return
-      return import("@/lib/model-sync/account-hook").then(async ({ archiveOnLogout, pruneHiddenBackupForAccount }) => {
+      return import("@/lib/model-sync/account-hook").then(async ({ archiveOnLogout, purgeLocalAccountSecrets }) => {
         await archiveOnLogout(accountEmail)
-        await pruneHiddenBackupForAccount(accountEmail)
+        await purgeLocalAccountSecrets(accountEmail)
       })
     })
     .catch((error) => console.warn("[model-archive] 注销后清理失败（不影响注销结果）:", error))

@@ -689,4 +689,26 @@ describe("AccountDialog", () => {
 
     expect(removeAvatar).toHaveBeenCalledTimes(1)
   })
+
+  /*
+   * 注销承诺的文案锁（2026-11-03）。
+   *
+   * 「永久删除」这句话以前只承诺了云端：本机的记住密码/同步密码/模型备份
+   * 并不会被清 —— 承诺大于实现。现在 deleteAccount 成功后会调
+   * purgeLocalAccountSecrets 把这些一并销毁，文案如实写明「本机也清」。
+   * 这条断言防的是：以后有人把清理接掉，而文案还写着删除。
+   */
+  it("注销面板如实承诺：云端永久删除 + 本机凭据与备份一并清除", async () => {
+    // 注销入口只在已登录态渲染（和「退出/改密」同级），先切到已登录。
+    useAccountStore.setState({ status: "authenticated", user: USER, session: SESSION })
+    render()
+    await click(buttonByText("注销账号"))
+
+    const panel = document.querySelector("[data-ui='account-delete-panel']")
+    expect(panel, "注销确认面板必须存在").not.toBeNull()
+    expect(panel!.textContent).toContain("永久删除，无法恢复")
+    expect(panel!.textContent).toContain("本机上记住的密码与模型加密备份也会一并清除")
+    // 反过来说明本地小说不受影响：不能让人误以为注销会删稿。
+    expect(panel!.textContent).toContain("不受影响")
+  })
 })

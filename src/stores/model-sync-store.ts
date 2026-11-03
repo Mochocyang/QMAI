@@ -38,12 +38,14 @@ import { shouldPull } from "@/lib/model-sync/scheduler"
 import { isFingerprint } from "@/lib/model-sync/canonical"
 import type { MergeConflictDetail } from "@/lib/model-sync/merge"
 import { SyncPasswordError } from "@/lib/model-sync/crypto"
+// 同步密码的仓库键名与注销清理共用同一个定义（零依赖叶子模块，见 secret-names.ts）。
+import { SYNC_PASSWORD_SECRET_NAME } from "@/lib/model-sync/secret-names"
 
 /** 同步密码最短长度：8 位是「够用又不折腾」的下限（再短挡不住暴力破解）。 */
 export const MIN_SYNC_PASSWORD_LENGTH = 8
 
 /** 同步密码在本地仓库里的键名（Windows 走 DPAPI）。 */
-const PASSWORD_SECRET = "model-sync-password"
+export const PASSWORD_SECRET = SYNC_PASSWORD_SECRET_NAME
 /** 同步状态（版本号 / 时间戳 / 快照）落在 Tauri store 的键名。 */
 const STATE_STORE_KEY = "model-sync-state"
 /**
