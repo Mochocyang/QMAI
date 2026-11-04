@@ -1,4 +1,4 @@
-import pangu from "pangu"
+import pangu from "pangu/browser"
 import { parseFrontmatter } from "@/lib/frontmatter"
 import { syncChapterFrontmatterFromBody } from "@/lib/novel/chapter-meta"
 

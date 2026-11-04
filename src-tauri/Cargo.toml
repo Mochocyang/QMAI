@@ -26,22 +26,22 @@ indexmap = { version = "1", features = ["std"] }
 # macOS 上 `transparent: true` 否则只是空操作，并在 debug 启动时打印警告。
 # `tauri dev` 会按配置改写这份 features；两边不一致时它会把多出来的删掉。
 tauri = { version = "2", features = ["protocol-asset", "macos-private-api"] }
-tauri-plugin-opener = "2.5.5"
+tauri-plugin-opener = "2.7.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 只为窗口诊断：把 wry/tauri 内部 `log::error!`（建窗失败的真实原因）写进日志文件。
 # 版本已在 lock 里（tauri 传递依赖），不引入新的下载。
 log = "0.4"
 chrono = { version = "0.4", features = ["clock"] }
-tauri-plugin-dialog = "2.7.3"
-tauri-plugin-updater = "2.11.0"
-tauri-plugin-store = "2.4.4"
-tauri-plugin-http = { version = "2.6.0", features = ["unsafe-headers"] }
+tauri-plugin-dialog = "2.8.4"
+tauri-plugin-updater = "2.14.1"
+tauri-plugin-store = "2.5.0"
+tauri-plugin-http = { version = "2.8.3", features = ["unsafe-headers"] }
 zip = "2"
 calamine = "0.36.1"
 docx-rs = "0.4.22"
 cfb = "0.7.3"
-encoding_rs = "0.8.41"
+encoding_rs = "0.8.44"
 # Local vector store only. lancedb 0.27.2 already has empty default features;
 # keep them off so aws/gcs/azure/remote/openai never sneak in. DataFusion is a
 # hard dependency of this crate and cannot be feature-gated away.
@@ -89,8 +89,8 @@ rand = "0.8"
 md-5 = "0.10"
 notify = "8"
 walkdir = "2"
-tauri-plugin-single-instance = "2.4.4"
-tauri-plugin-notification = "2.4.0"
+tauri-plugin-single-instance = "2.5.5"
+tauri-plugin-notification = "2.8.0"
 keepawake = "0.6.1"
 # 修复 E0107：indexmap 1.x 无 default 特性，其 build.rs 靠 autocfg 探测 std；
 # 某些环境探测失败会退化为 no_std 的 IndexMap<K,V,S>，使 schemars 0.8
@@ -103,7 +103,7 @@ indexmap = { version = "1", features = ["std"] }
 semver = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6.4"
+objc2 = "0.6.5"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSProcessInfo"] }
 
 # 阶段 3：枚举本机**中文字体**。
