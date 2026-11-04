@@ -16,7 +16,10 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* TS 6 的 types 默认是 []，不再自动带上 @types/node。 */
+    "types": ["node"]
   },
   "include": ["vite.config.ts"]
 }

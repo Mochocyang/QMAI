@@ -84,7 +84,7 @@
     "iconv-lite": "^0.7.3",
     "jsdom": "^29.1.1",
     "shadcn": "^4.23.0",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "vite": "^8.3.5",
     "vitest": "^5.1.0"
   },

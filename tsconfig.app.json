@@ -21,8 +21,7 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
 
-    /* Path aliases */
-    "baseUrl": ".",
+    /* Path aliases。TS 6 起 baseUrl 不再作为模块查找根，paths 相对本文件所在目录。 */
     "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src"],
@@ -30,6 +29,7 @@
     "src/**/*.spec.ts",
     "src/**/*.spec.tsx",
     "src/**/*.test.ts",
-    "src/**/*.test.tsx"
+    "src/**/*.test.tsx",
+    "src/test-helpers"
   ]
 }

@@ -999,7 +999,7 @@ describe("PluginProviderCard", () => {
     renderCard({ authKind: "browser-login" })
     const row = find('[data-plugin-field="label-row"]')!
     expect(row.className).toContain("model-inline-field")
-    const input = find('[data-plugin-field="label"]') as HTMLInputElement
+    const input = host.querySelector<HTMLInputElement>('[data-plugin-field="label"]')!
     // 宽度由内联 style 固定：.model-field input 的 width:100% 不再作用于它
     expect(input.style.width).toBe("320px")
   })
