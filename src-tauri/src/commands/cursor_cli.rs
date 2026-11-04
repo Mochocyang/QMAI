@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -34,6 +34,9 @@ const ACP_MODELS_CACHE_VERSION: u32 = 2;
 const QMAI_WORKSPACE_TRUST_MARKER: &str = ".qmai-workspace-trusted";
 const QMAI_ACP_MODEL_FILE: &str = "qmai-acp-model";
 const QMAI_ACP_MODELS_CACHE: &str = "qmai-acp-models.json";
+const ACP_SESSION_RETENTION: Duration = Duration::from_secs(30 * 24 * 60 * 60);
+const ACP_SESSION_CLEANUP_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+const ACP_SESSION_CLEANUP_MARKER: &str = ".qmai-acp-last-cleanup";
 const QMAI_CURSOR_AGENT_WRAPPER: &str = include_str!("../../scripts/qmai-cursor-agent.cjs");
 static AGENT_UPDATE_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
@@ -56,6 +59,7 @@ struct ManagedProxy {
 #[derive(Default)]
 pub struct CursorProxyState {
     managed: Arc<Mutex<ManagedProxy>>,
+    lifecycle: Mutex<()>,
 }
 
 #[derive(Serialize)]
@@ -228,6 +232,186 @@ fn qmai_proxy_home_dirs() -> Result<(PathBuf, PathBuf), String> {
     std::fs::create_dir_all(&workspace)
         .map_err(|e| format!("Failed to create {}: {e}", workspace.display()))?;
     Ok((config_dir, workspace))
+}
+
+fn real_directory(path: &Path) -> bool {
+    std::fs::symlink_metadata(path)
+        .map(|meta| meta.file_type().is_dir())
+        .unwrap_or(false)
+}
+
+fn acp_cleanup_due(config_dir: &Path, now: SystemTime) -> std::io::Result<bool> {
+    match std::fs::symlink_metadata(config_dir.join(ACP_SESSION_CLEANUP_MARKER)) {
+        Ok(meta) if meta.file_type().is_file() => Ok(now
+            .duration_since(meta.modified()?)
+            .map(|age| age >= ACP_SESSION_CLEANUP_INTERVAL)
+            .unwrap_or(false)),
+        Ok(_) => Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(error) => Err(error),
+    }
+}
+
+/// Only accept the known flat session layout. Unknown files, symlinks, recent
+/// children and unreadable timestamps all prevent deletion of the whole session.
+fn expired_acp_session(path: &Path, now: SystemTime) -> std::io::Result<bool> {
+    let meta = std::fs::symlink_metadata(path)?;
+    if !meta.file_type().is_dir() {
+        return Ok(false);
+    }
+    let mut latest = meta.modified()?;
+    let mut has_meta = false;
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            return Ok(false);
+        };
+        if !matches!(
+            name,
+            "meta.json" | "store.db" | "store.db-wal" | "store.db-shm"
+        ) {
+            return Ok(false);
+        }
+        let meta = std::fs::symlink_metadata(entry.path())?;
+        if !meta.file_type().is_file() {
+            return Ok(false);
+        }
+        has_meta |= name == "meta.json";
+        latest = latest.max(meta.modified()?);
+    }
+    Ok(has_meta
+        && now
+            .duration_since(latest)
+            .map(|age| age > ACP_SESSION_RETENTION)
+            .unwrap_or(false))
+}
+
+#[cfg(windows)]
+fn lock_acp_session_files(path: &Path) -> std::io::Result<Vec<std::fs::File>> {
+    use std::os::windows::fs::OpenOptionsExt;
+    // Deny readers/writers while allowing our own directory removal. Any handle
+    // already held by an agent causes this check to fail; keep guards until removed.
+    std::fs::read_dir(path)?
+        .map(|entry| {
+            std::fs::OpenOptions::new()
+                .read(true)
+                .share_mode(0x4)
+                .open(entry?.path())
+        })
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn lock_acp_session_files(_path: &Path) -> std::io::Result<Vec<std::fs::File>> {
+    Ok(Vec::new())
+}
+
+fn cleanup_acp_sessions(
+    config_dir: &Path,
+    now: SystemTime,
+    open_paths: &[PathBuf],
+) -> std::io::Result<usize> {
+    let root = config_dir.join("acp-sessions");
+    if !real_directory(config_dir) || !real_directory(&root) || !acp_cleanup_due(config_dir, now)? {
+        return Ok(0);
+    }
+    let mut removed = 0;
+    for entry in std::fs::read_dir(&root)? {
+        let Ok(entry) = entry else { continue };
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if !uuid::Uuid::parse_str(name)
+            .map(|id| id.hyphenated().to_string() == name)
+            .unwrap_or(false)
+        {
+            continue;
+        }
+        let path = entry.path();
+        if open_paths.iter().any(|open| open.starts_with(&path))
+            || !expired_acp_session(&path, now).unwrap_or(false)
+        {
+            continue;
+        }
+        let Ok(_guards) = lock_acp_session_files(&path) else {
+            continue;
+        };
+        // Recheck after the occupancy probe and before deleting all SQLite files together.
+        if expired_acp_session(&path, now).unwrap_or(false) {
+            match std::fs::remove_dir_all(&path) {
+                Ok(()) => removed += 1,
+                Err(error) => eprintln!("[cursor-cli] 无法清理过期 ACP 会话：{error}"),
+            }
+        }
+    }
+    std::fs::write(config_dir.join(ACP_SESSION_CLEANUP_MARKER), "")?;
+    Ok(removed)
+}
+
+async fn cleanup_qmai_acp_sessions(config_dir: &Path) {
+    let now = SystemTime::now();
+    let root = config_dir.join("acp-sessions");
+    if !real_directory(config_dir)
+        || !real_directory(&root)
+        || !acp_cleanup_due(config_dir, now).unwrap_or(false)
+    {
+        return;
+    }
+    let result = async {
+        // lsof reports canonical paths (e.g. /private/var instead of /var on macOS).
+        // Use that same representation when comparing occupied session paths.
+        let config_dir = config_dir
+            .canonicalize()
+            .map_err(|error| error.to_string())?;
+        let root = config_dir.join("acp-sessions");
+        #[cfg(unix)]
+        let open_paths = {
+            #[cfg(target_os = "macos")]
+            let mut cmd = Command::new("/usr/sbin/lsof");
+            #[cfg(not(target_os = "macos"))]
+            let mut cmd = Command::new("lsof");
+            cmd.args(["-n", "-P", "-Fn", "+D"])
+                .arg(&root)
+                .kill_on_drop(true);
+            let output = tokio::time::timeout(Duration::from_secs(15), cmd.output())
+                .await
+                .map_err(|_| "检查 ACP 会话占用超时".to_string())?
+                .map_err(|error| format!("无法检查 ACP 会话占用：{error}"))?;
+            // lsof exits 1 with empty output when nothing is open. Any diagnostic
+            // or other failure means occupancy is unknown, so skip this sweep.
+            if !output.stderr.is_empty()
+                || (!output.status.success()
+                    && !(output.status.code() == Some(1) && output.stdout.is_empty()))
+            {
+                return Err("无法确认 ACP 会话占用，已跳过清理".to_string());
+            }
+            let stdout = String::from_utf8(output.stdout)
+                .map_err(|_| "无法解析 ACP 会话占用，已跳过清理".to_string())?;
+            stdout
+                .lines()
+                .filter_map(|line| line.strip_prefix('n').map(PathBuf::from))
+                .collect::<Vec<_>>()
+        };
+        #[cfg(windows)]
+        let open_paths = Vec::new();
+        #[cfg(not(any(unix, windows)))]
+        return Err::<usize, String>("当前系统无法检查 ACP 会话占用".to_string());
+        #[cfg(any(unix, windows))]
+        {
+            tokio::task::spawn_blocking(move || cleanup_acp_sessions(&config_dir, now, &open_paths))
+                .await
+                .map_err(|error| error.to_string())?
+                .map_err(|error| error.to_string())
+        }
+    }
+    .await;
+    match result {
+        Ok(removed) if removed > 0 => {
+            eprintln!("[cursor-cli] 已清理 {removed} 个超过 30 天未更新的 ACP 会话")
+        }
+        Err(error) => eprintln!("[cursor-cli] ACP 会话自动清理已跳过：{error}"),
+        _ => {}
+    }
 }
 
 fn ensure_qmai_cli_config(config_dir: &Path) -> Result<PathBuf, String> {
@@ -1398,6 +1582,7 @@ pub async fn cursor_proxy_ensure(
     state: State<'_, CursorProxyState>,
     force_restart: Option<bool>,
 ) -> Result<ProxyStatus, String> {
+    let _lifecycle = state.lifecycle.lock().await;
     let force = force_restart.unwrap_or(false);
     let (config_dir, workspace) = qmai_proxy_home_dirs()?;
     ensure_qmai_cli_config(&config_dir)?;
@@ -1436,6 +1621,10 @@ pub async fn cursor_proxy_ensure(
 
     stop_managed_child(&state).await;
 
+    // Never sweep while our managed proxy can accept new requests. Leftover
+    // agents from an earlier proxy are protected by the platform occupancy check.
+    cleanup_qmai_acp_sessions(&config_dir).await;
+
     let port = allocate_proxy_port()?;
     let base = base_url_for_port(port);
     let child = spawn_proxy_process(port, &launcher, &extra_args, &workspace, &config_dir).await?;
@@ -1464,6 +1653,7 @@ pub async fn cursor_proxy_ensure(
 /// Stop the proxy process if this app started it.
 #[tauri::command]
 pub async fn cursor_proxy_stop(state: State<'_, CursorProxyState>) -> Result<(), String> {
+    let _lifecycle = state.lifecycle.lock().await;
     stop_managed_child(&state).await;
     Ok(())
 }
@@ -1471,6 +1661,190 @@ pub async fn cursor_proxy_stop(state: State<'_, CursorProxyState>) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn acp_cleanup_test_dir() -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("qmai-acp-cleanup-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("acp-sessions")).unwrap();
+        dir
+    }
+
+    fn set_acp_mtime(path: &Path, time: SystemTime) {
+        #[cfg(windows)]
+        let file = {
+            use std::os::windows::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new()
+                .access_mode(0x100)
+                .custom_flags(0x02000000)
+                .open(path)
+                .unwrap()
+        };
+        #[cfg(not(windows))]
+        let file = std::fs::File::open(path).unwrap();
+        file.set_times(std::fs::FileTimes::new().set_modified(time))
+            .unwrap();
+    }
+
+    fn old_acp_session(config_dir: &Path, now: SystemTime) -> PathBuf {
+        let dir = config_dir
+            .join("acp-sessions")
+            .join(uuid::Uuid::new_v4().to_string());
+        std::fs::create_dir(&dir).unwrap();
+        let old = now - ACP_SESSION_RETENTION - Duration::from_secs(60);
+        for name in ["meta.json", "store.db", "store.db-wal", "store.db-shm"] {
+            let file = dir.join(name);
+            std::fs::write(&file, "test").unwrap();
+            set_acp_mtime(&file, old);
+        }
+        set_acp_mtime(&dir, old);
+        dir
+    }
+
+    #[test]
+    fn acp_cleanup_removes_expired_sessions_but_keeps_open_and_recent_files() {
+        let config = acp_cleanup_test_dir();
+        let now = SystemTime::now();
+        let expired = old_acp_session(&config, now);
+        let open = old_acp_session(&config, now);
+        let recent_wal = old_acp_session(&config, now);
+        set_acp_mtime(&recent_wal.join("store.db-wal"), now);
+        let recent_meta = old_acp_session(&config, now);
+        set_acp_mtime(&recent_meta.join("meta.json"), now);
+        let recent_dir = old_acp_session(&config, now);
+        set_acp_mtime(&recent_dir, now);
+        let boundary = old_acp_session(&config, now);
+        for entry in std::fs::read_dir(&boundary).unwrap() {
+            set_acp_mtime(&entry.unwrap().path(), now - ACP_SESSION_RETENTION);
+        }
+        set_acp_mtime(&boundary, now - ACP_SESSION_RETENTION);
+        assert_eq!(
+            cleanup_acp_sessions(&config, now, &[open.join("store.db")]).unwrap(),
+            1
+        );
+        assert!(!expired.exists());
+        for kept in [open, recent_wal, recent_meta, recent_dir, boundary] {
+            assert!(kept.join("store.db").exists());
+            assert!(kept.join("store.db-wal").exists());
+        }
+        std::fs::remove_dir_all(config).unwrap();
+    }
+
+    #[test]
+    fn acp_cleanup_preserves_unknown_layouts_and_other_config_files() {
+        let config = acp_cleanup_test_dir();
+        let now = SystemTime::now();
+        let unknown = old_acp_session(&config, now);
+        std::fs::write(unknown.join("user-data.txt"), "keep").unwrap();
+        let old = now - ACP_SESSION_RETENTION - Duration::from_secs(60);
+        set_acp_mtime(&unknown.join("user-data.txt"), old);
+        set_acp_mtime(&unknown, old);
+        let no_meta = old_acp_session(&config, now);
+        std::fs::remove_file(no_meta.join("meta.json")).unwrap();
+        set_acp_mtime(&no_meta, old);
+        let non_uuid = config.join("acp-sessions").join("other-data");
+        std::fs::create_dir(&non_uuid).unwrap();
+        std::fs::write(non_uuid.join("meta.json"), "keep").unwrap();
+        set_acp_mtime(&non_uuid.join("meta.json"), old);
+        set_acp_mtime(&non_uuid, old);
+        std::fs::write(config.join("cli-config.json"), "keep").unwrap();
+        assert_eq!(cleanup_acp_sessions(&config, now, &[]).unwrap(), 0);
+        assert!(unknown.exists());
+        assert!(no_meta.exists());
+        assert!(non_uuid.exists());
+        assert_eq!(
+            std::fs::read_to_string(config.join("cli-config.json")).unwrap(),
+            "keep"
+        );
+        std::fs::remove_dir_all(config).unwrap();
+    }
+
+    #[test]
+    fn acp_cleanup_throttles_across_runs_and_keeps_future_timestamps() {
+        let config = acp_cleanup_test_dir();
+        let now = SystemTime::now();
+        assert_eq!(cleanup_acp_sessions(&config, now, &[]).unwrap(), 0);
+        let expired = old_acp_session(&config, now);
+        assert_eq!(cleanup_acp_sessions(&config, now, &[]).unwrap(), 0);
+        assert!(expired.exists());
+        let marker = config.join(ACP_SESSION_CLEANUP_MARKER);
+        set_acp_mtime(&marker, now - ACP_SESSION_CLEANUP_INTERVAL);
+        let future = old_acp_session(&config, now);
+        set_acp_mtime(&future.join("store.db"), now + Duration::from_secs(60));
+        assert_eq!(cleanup_acp_sessions(&config, now, &[]).unwrap(), 1);
+        assert!(future.exists());
+        set_acp_mtime(&marker, now + Duration::from_secs(60));
+        assert!(!acp_cleanup_due(&config, now).unwrap());
+        std::fs::remove_dir_all(config).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn acp_cleanup_never_follows_symlinks() {
+        use std::os::unix::fs::symlink;
+        let config = acp_cleanup_test_dir();
+        let target = acp_cleanup_test_dir();
+        let now = SystemTime::now();
+        let outside = old_acp_session(&target, now);
+        let linked = config
+            .join("acp-sessions")
+            .join(uuid::Uuid::new_v4().to_string());
+        symlink(&outside, &linked).unwrap();
+        let linked_file = old_acp_session(&config, now);
+        std::fs::remove_file(linked_file.join("store.db")).unwrap();
+        symlink(outside.join("store.db"), linked_file.join("store.db")).unwrap();
+        set_acp_mtime(
+            &linked_file,
+            now - ACP_SESSION_RETENTION - Duration::from_secs(60),
+        );
+        assert_eq!(cleanup_acp_sessions(&config, now, &[]).unwrap(), 0);
+        assert!(linked.exists());
+        assert!(linked_file.exists());
+        assert!(outside.join("store.db").exists());
+        let root_link = target.join("linked-config");
+        symlink(&config, &root_link).unwrap();
+        assert_eq!(cleanup_acp_sessions(&root_link, now, &[]).unwrap(), 0);
+        let root_config = target.join("root-config");
+        std::fs::create_dir(&root_config).unwrap();
+        symlink(
+            config.join("acp-sessions"),
+            root_config.join("acp-sessions"),
+        )
+        .unwrap();
+        assert_eq!(cleanup_acp_sessions(&root_config, now, &[]).unwrap(), 0);
+        std::fs::remove_dir_all(config).unwrap();
+        std::fs::remove_dir_all(target).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn acp_cleanup_detects_real_open_database_files() {
+        let config = acp_cleanup_test_dir();
+        let expired = old_acp_session(&config, SystemTime::now());
+        let held = std::fs::File::open(expired.join("store.db")).unwrap();
+        cleanup_qmai_acp_sessions(&config).await;
+        assert!(expired.join("store.db").exists());
+        drop(held);
+        // Remove the throttle marker so the second sweep probes again.
+        let marker = config.join(ACP_SESSION_CLEANUP_MARKER);
+        if marker.exists() {
+            std::fs::remove_file(marker).unwrap();
+        }
+        cleanup_qmai_acp_sessions(&config).await;
+        assert!(!expired.exists());
+        std::fs::remove_dir_all(config).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn acp_cleanup_keeps_windows_open_databases() {
+        let config = acp_cleanup_test_dir();
+        let now = SystemTime::now();
+        let session = old_acp_session(&config, now);
+        let held = std::fs::File::open(session.join("store.db")).unwrap();
+        assert_eq!(cleanup_acp_sessions(&config, now, &[]).unwrap(), 0);
+        assert!(session.exists());
+        drop(held);
+        std::fs::remove_dir_all(config).unwrap();
+    }
 
     #[test]
     fn normalize_strips_v1_suffix() {
