@@ -10,8 +10,21 @@ import type { ContextPack } from "./context-engine"
 export const WRITING_ENTITY_SEARCH_HEADING = "外部检索（仅补本地缺失实体）"
 const MIN_NAME_LENGTH = 2
 const MAX_EXTRACTED_ENTITIES = 20
-const MAX_SEARCH_QUERIES = 8
+/** 每章最多联网补搜的实体数（中间档默认）。 */
+export const MAX_SEARCH_QUERIES = 5
+const RESULTS_PER_QUERY = 5
 const SOURCE_TEXT_CHAR_CAP = 8000
+
+/** 启发式：search=硬信号必搜；skip=自造黑名单；gray=交给模型。 */
+export type NameSearchHint = "search" | "skip" | "gray"
+
+const PLACEHOLDER_NAME_PATTERN = /^(主角|女主|男主|反派|路人甲|路人乙|某某)(?:\d*)$/u
+/** 网文自造常见后缀；命中则默认不搜。 */
+const INVENTED_SUFFIX_PATTERN = /(?:宗|殿|阁|盟|派|诀|功|掌|式|丹|符|阵|门派)$/u
+/** 现实/公开世界硬信号：拉丁字母、型号、少数机构后缀。不用「镇/市/县」以免架空地名误搜。 */
+const HARD_SIGNAL_LATIN_PATTERN = /[A-Za-z]/
+const HARD_SIGNAL_MODEL_PATTERN = /(?:\d+[A-Za-z]|[A-Za-z]+[\s\-]?\d|\d+[\s\-][A-Za-z])/
+const HARD_SIGNAL_ORG_PATTERN = /(?:大学|医院|公司|集团|银行|博物馆|大使馆|总理衙门)$/u
 
 /**
  * 一个实体的搜索结果。`searchQueries` / `summary` / `searchSuggestionsHtml`
@@ -72,43 +85,72 @@ export function isWebSearchConfigured(
   return true
 }
 
-export function buildLocalWritingCorpus(
-  pack: Pick<
-    ContextPack,
-    | "characterStates"
-    | "characterAuras"
-    | "relatedSettings"
-    | "canonRules"
-    | "sourceCanon"
-    | "cognitionStates"
-    | "foreshadowingStates"
-    | "previousChapterEnding"
-    | "recentSummaries"
-    | "searchResults"
-    | "soulDoc"
-  >,
-  extraTexts: readonly string[] = [],
-): string {
-  // 故意不纳入 outline / chapterGoal：实体正是从本章大纲抽出的，
-  // 再拿同一份大纲当「本地已有」会把几乎所有名字短路掉。
+type KnowledgePackFields = Pick<
+  ContextPack,
+  | "characterStates"
+  | "characterAuras"
+  | "relatedSettings"
+  | "canonRules"
+  | "sourceCanon"
+  | "cognitionStates"
+  | "foreshadowingStates"
+  | "searchResults"
+  | "soulDoc"
+>
+
+/**
+ * 「有可写资料」的强语料：人设/设定/正典/已有检索等。
+ * 不含正文摘要、上章结尾、前文章节——那些只是「出现过」，不能免搜。
+ * 故意不纳入 outline / chapterGoal：实体常从本章大纲抽出，再当本地已有会短路。
+ */
+export function buildKnowledgeWritingCorpus(pack: KnowledgePackFields): string {
   return [
     pack.characterStates,
     pack.characterAuras,
     pack.relatedSettings,
     pack.canonRules,
-    // 同人项目：原作既有的人物/地点/势力属于本作已知实体，
-    // 不纳入语料会被当成「待查实体」去联网补搜，还可能搜回与正典冲突的资料。
+    // 同人项目：原作既有实体属于本作已知，不纳入会被当成待查并可能搜回冲突资料。
     pack.sourceCanon ?? "",
     pack.cognitionStates,
     pack.foreshadowingStates,
-    pack.previousChapterEnding,
     pack.searchResults,
     pack.soulDoc,
-    ...(pack.recentSummaries ?? []),
-    ...extraTexts,
   ]
     .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
     .join("\n")
+}
+
+/**
+ * 兼容旧名：现在等价于 {@link buildKnowledgeWritingCorpus}。
+ * `extraTexts`（通常是前文正文）**不再**并入免搜语料——正文一笔带过 ≠ 有资料。
+ */
+export function buildLocalWritingCorpus(
+  pack: KnowledgePackFields &
+    Partial<Pick<ContextPack, "previousChapterEnding" | "recentSummaries">>,
+  extraTexts: readonly string[] = [],
+): string {
+  void extraTexts
+  void pack.previousChapterEnding
+  void pack.recentSummaries
+  return buildKnowledgeWritingCorpus(pack)
+}
+
+/**
+ * 启发式分流：硬信号必搜、自造黑名单跳过、其余交给模型（gray）。
+ */
+export function classifyNameSearchHeuristic(name: string): NameSearchHint {
+  const trimmed = name.trim()
+  if (trimmed.length < MIN_NAME_LENGTH) return "skip"
+  if (PLACEHOLDER_NAME_PATTERN.test(trimmed)) return "skip"
+  if (INVENTED_SUFFIX_PATTERN.test(trimmed)) return "skip"
+  if (
+    HARD_SIGNAL_LATIN_PATTERN.test(trimmed)
+    || HARD_SIGNAL_MODEL_PATTERN.test(trimmed)
+    || HARD_SIGNAL_ORG_PATTERN.test(trimmed)
+  ) {
+    return "search"
+  }
+  return "gray"
 }
 
 export function buildWritingEntityExtractionSource(
@@ -177,6 +219,19 @@ export function parseNeedExternalNames(text: string, candidates: readonly string
   return parseNeedExternalQueries(text, candidates).map((item) => item.name)
 }
 
+function isSkipKnownFlag(record: Record<string, unknown>): boolean {
+  return record.skip_known === true || record.skipKnown === true
+}
+
+function normalizeDecisionLabel(value: unknown): string {
+  return String(value ?? "").trim().toLowerCase()
+}
+
+/**
+ * 解析「需要联网」的名单。
+ * 新格式 decisions：label=real 且非 skip_known 才搜；invented/unsure 不搜。
+ * 旧格式 needExternal：视为 real（兼容测试与旧模型输出）。
+ */
 export function parseNeedExternalQueries(
   text: string,
   candidates: readonly string[],
@@ -189,8 +244,24 @@ export function parseNeedExternalQueries(
   const add = (value: unknown, englishSource?: Record<string, unknown>) => {
     const name = String(value ?? "").trim()
     if (!name || !allowed.has(name) || selected.some((item) => item.name === name)) return
+    if (englishSource && isSkipKnownFlag(englishSource)) return
     const englishQuery = englishSource ? readEnglishQuery(englishSource, name) : undefined
     selected.push(englishQuery ? { name, englishQuery } : { name })
+  }
+
+  const addDecision = (entry: Record<string, unknown>) => {
+    if (isSkipKnownFlag(entry)) return
+    const label = normalizeDecisionLabel(entry.label ?? entry.decision)
+    if (label === "invented" || label === "unsure" || label === "skip") return
+    if (
+      label === "real"
+      || label === "search"
+      || entry.needExternal === true
+      || entry.search === true
+      || (!label && typeof entry.name === "string")
+    ) {
+      add(entry.name, entry)
+    }
   }
 
   if (Array.isArray(parsed)) {
@@ -199,6 +270,10 @@ export function parseNeedExternalQueries(
       else if (item && typeof item === "object") {
         const record = item as Record<string, unknown>
         if (record.needExternal === false) continue
+        if ("label" in record || "decision" in record) {
+          addDecision(record)
+          continue
+        }
         if (
           record.needExternal === true
           || record.search === true
@@ -213,6 +288,14 @@ export function parseNeedExternalQueries(
 
   if (typeof parsed !== "object") return []
   const record = parsed as Record<string, unknown>
+
+  if (Array.isArray(record.decisions)) {
+    for (const item of record.decisions) {
+      if (!item || typeof item !== "object") continue
+      addDecision(item as Record<string, unknown>)
+    }
+  }
+
   const needExternal = record.needExternal ?? record.search ?? record.names
   if (Array.isArray(needExternal)) {
     for (const item of needExternal) {
@@ -220,6 +303,10 @@ export function parseNeedExternalQueries(
       else if (item && typeof item === "object") {
         const entry = item as Record<string, unknown>
         if (entry.needExternal === false) continue
+        if ("label" in entry || "decision" in entry) {
+          addDecision(entry)
+          continue
+        }
         add(entry.name, entry)
       }
     }
@@ -228,6 +315,10 @@ export function parseNeedExternalQueries(
     for (const item of record.entities) {
       if (!item || typeof item !== "object") continue
       const entry = item as Record<string, unknown>
+      if ("label" in entry || "decision" in entry) {
+        addDecision(entry)
+        continue
+      }
       if (entry.needExternal === true || entry.search === true) add(entry.name, entry)
     }
   }
@@ -247,8 +338,12 @@ const DISPLAY_SNIPPET_MAX = 140
 export function formatWritingEntitySearchMarkdown(
   items: WritingEntitySearchItem[],
 ): string {
-  if (items.length === 0) return ""
-  const sections = items.map((item) => {
+  // 0 条结果且无摘要：不占写作上下文（时间线仍可由 notes/searchedNames 说明）。
+  const usable = items.filter(
+    (item) => Boolean(item.summary?.trim()) || item.results.length > 0,
+  )
+  if (usable.length === 0) return ""
+  const sections = usable.map((item) => {
     const summary = item.summary?.trim() ?? ""
     if (summary) {
       // Gemini：只放搜索词 + 完整摘要；来源、片段、链接只在时间线展示。
@@ -478,39 +573,74 @@ export async function collectWritingEntityWebSearch(
 
   try {
     const listEntityNames = input.listEntityNames ?? listLocalEntityNames
-    const readPreviousBodies = input.readPreviousBodies ?? readPreviousChapterBodies
     const search: (term: string) => Promise<WebSearchOutcome> = input.search
-      ? async (term) => ({ results: await input.search!(term, input.searchApiConfig!, 8) })
-      : (term) => (input.searchDetailed ?? webSearchDetailed)(term, input.searchApiConfig!, 8)
+      ? async (term) => ({
+        results: await input.search!(term, input.searchApiConfig!, RESULTS_PER_QUERY),
+      })
+      : (term) => (input.searchDetailed ?? webSearchDetailed)(
+        term,
+        input.searchApiConfig!,
+        RESULTS_PER_QUERY,
+      )
 
-    const [entityNames, previousBodies] = await Promise.all([
-      listEntityNames(input.projectPath),
-      input.chapterNumber && input.chapterNumber > 1
-        ? readPreviousBodies(input.projectPath, input.chapterNumber, 3, input.signal)
-        : Promise.resolve([]),
-    ])
+    // 前文正文不再读入免搜语料：一笔带过 ≠ 有可写资料。
+    void input.readPreviousBodies
+    void input.previousChaptersAnalysis
+    const entityNames = await listEntityNames(input.projectPath)
     throwIfAborted(input.signal)
 
-    const corpus = buildLocalWritingCorpus(input.contextPack, [
-      input.previousChaptersAnalysis ?? "",
-      ...previousBodies.map((chapter) => chapter.content),
-    ])
+    const knowledgeCorpus = buildKnowledgeWritingCorpus(input.contextPack)
 
     const extracted = await extractEntityNames(input)
-    const unresolved = selectUnresolvedEntities(extracted, corpus, entityNames)
+    const unresolved = selectUnresolvedEntities(extracted, knowledgeCorpus, entityNames)
     if (unresolved.length === 0) {
       notes.push(
         extracted.length === 0
           ? "未从任务与章纲中抽出候选实体，跳过联网补搜"
-          : `候选实体已能在前文或实体表中找到，跳过联网补搜：${extracted.join("、")}`,
+          : `候选实体已有设定/实体表资料，跳过联网补搜：${extracted.join("、")}`,
       )
       return { markdown: "", searchedNames: [], notes, items: [], skipped: true }
     }
 
-    const needExternal = await judgeNeedExternal(input, unresolved)
-    const queries = needExternal.slice(0, MAX_SEARCH_QUERIES)
+    const hardNames: string[] = []
+    const grayNames: string[] = []
+    const inventedNames: string[] = []
+    for (const name of unresolved) {
+      const hint = classifyNameSearchHeuristic(name)
+      if (hint === "search") hardNames.push(name)
+      else if (hint === "skip") inventedNames.push(name)
+      else grayNames.push(name)
+    }
+    if (inventedNames.length > 0) {
+      notes.push(`启发式判定为本书自造、跳过：${inventedNames.join("、")}`)
+    }
+
+    let llmQueries: WritingEntitySearchQuery[] = []
+    let judgeFailed = false
+    if (grayNames.length > 0) {
+      try {
+        llmQueries = await judgeNeedExternal(input, grayNames)
+      } catch (error) {
+        rethrowIfUserAbort(error, input.signal)
+        judgeFailed = true
+        notes.push(
+          `实体联网判定失败，仅保留硬信号补搜：${error instanceof Error ? error.message : String(error)}`,
+        )
+        llmQueries = []
+      }
+      // JSON 空/解析失败时 parse 返回 []：gray 全部当 unsure，不搜。
+      if (!judgeFailed && llmQueries.length === 0 && grayNames.length > 0) {
+        notes.push(`模型未选出需联网项（自造/不确定/已知充分）：${grayNames.join("、")}`)
+      }
+    }
+
+    const queries = mergeSearchQueries(hardNames, llmQueries).slice(0, MAX_SEARCH_QUERIES)
     if (queries.length === 0) {
-      notes.push(`判定为本书自造、无需联网：${unresolved.join("、")}`)
+      if (hardNames.length === 0 && inventedNames.length === unresolved.length) {
+        notes.push(`判定为本书自造、无需联网：${unresolved.join("、")}`)
+      } else if (notes.length === 0) {
+        notes.push(`无需联网补搜：${unresolved.join("、")}`)
+      }
       return { markdown: "", searchedNames: [], notes, items: [], skipped: true }
     }
 
@@ -551,8 +681,13 @@ export async function collectWritingEntityWebSearch(
       }
     }
 
+    const markdown = formatWritingEntitySearchMarkdown(items)
+    if (!markdown.trim() && searchedNames.length > 0) {
+      notes.push(`已搜索但无可用结果：${[...new Set(items.map((item) => item.name))].join("、")}`)
+    }
+
     return {
-      markdown: formatWritingEntitySearchMarkdown(items),
+      markdown,
       searchedNames,
       notes,
       items,
@@ -594,18 +729,21 @@ async function judgeNeedExternal(
   const raw = await completeText(input, [
     {
       role: "system",
-      content: "你判断这些本地找不到的名字是否需要联网查公开资料。只输出 JSON。",
+      content: "你判断这些本地没有设定资料的名字是否需要联网查公开资料。只输出 JSON。",
     },
     {
       role: "user",
       content: [
-        "下列名称在本库前文和实体表都未找到。",
-        "判断的是名称性质，不是你的知识量：这个名称是否可能对应现实世界或已公开的资料。",
-        "要搜：现实人物、地点、机构、历史事件、装备与型号、专业术语与行业流程、公开 IP 或已出版作品的设定。",
-        "不搜：一眼可认定是本书自造的人名、门派、功法、法宝、架空地名，以及「主角」这类占位词。",
-        "无法确定是真实还是自造时放入 needExternal：搜到无关结果的代价远小于把真实设定写错。",
-        "不要用「我已经知道它是什么」当排除理由，你的记忆可能过时或细节有误。",
-        '只输出 JSON：{"needExternal":[{"name":"名称","englishQuery":"English query"}]}',
+        "下列名称在本库设定/实体表中没有可写资料（正文里提过一嘴不算有资料）。",
+        "先判断名称性质，再判断是否值得联网：",
+        "label=real：较有把握对应现实人物/地点/机构/历史事件/装备型号/专业术语，或公开 IP / 已出版作品设定。",
+        "label=invented：本书自造人名、门派、功法、法宝、架空地名，或占位词。",
+        "label=unsure：无法判断真实还是自造。",
+        "规则：invented 与 unsure 一律不搜。",
+        "对 real：若你已充分了解该公开事物、写作用不上传新外链细节，设 skip_known=true（可不搜）；",
+        "若细节可能过时、易写错、或本章需要核对具体事实，则 skip_known=false 或不写该字段（要搜）。",
+        "不要用「知识不够」当唯一门槛，也不要把不确定标成 real。",
+        '只输出 JSON：{"decisions":[{"name":"名称","label":"real|invented|unsure","skip_known":false,"englishQuery":"English query"}]}',
         "englishQuery 仅在英文检索明显更好时填写（外国人名、外文机构、技术型号）；不要为自造名硬翻英文，不要把拼音当英文检索词。",
         "无合适英文检索词时省略 englishQuery。",
         "",
@@ -614,6 +752,28 @@ async function judgeNeedExternal(
     },
   ])
   return parseNeedExternalQueries(raw, unresolved)
+}
+
+/** 硬信号优先，再合并模型选出的 real；同名去重。 */
+export function mergeSearchQueries(
+  hardNames: readonly string[],
+  llmQueries: readonly WritingEntitySearchQuery[],
+): WritingEntitySearchQuery[] {
+  const merged: WritingEntitySearchQuery[] = []
+  const seen = new Set<string>()
+  for (const name of hardNames) {
+    const trimmed = name.trim()
+    if (!trimmed || seen.has(trimmed)) continue
+    seen.add(trimmed)
+    const fromLlm = llmQueries.find((item) => item.name === trimmed)
+    merged.push(fromLlm?.englishQuery ? { name: trimmed, englishQuery: fromLlm.englishQuery } : { name: trimmed })
+  }
+  for (const query of llmQueries) {
+    if (seen.has(query.name)) continue
+    seen.add(query.name)
+    merged.push(query)
+  }
+  return merged
 }
 
 async function completeText(
@@ -703,11 +863,20 @@ function readEnglishQuery(record: Record<string, unknown>, name: string): string
   return query
 }
 
+function looksLikeEnglishSearchQuery(query: string, name: string): boolean {
+  const trimmed = query.trim()
+  if (!trimmed || trimmed === name.trim()) return false
+  // 至少含拉丁字母；拒绝纯拼音无空格的短串滥翻。
+  if (!/[A-Za-z]/.test(trimmed)) return false
+  if (/^[a-z]+$/.test(trimmed) && trimmed.length <= 12 && !/\s/.test(trimmed)) return false
+  return true
+}
+
 function launchedQueriesFor(queries: readonly WritingEntitySearchQuery[]): string[] {
   const launched: string[] = []
   for (const query of queries) {
     launched.push(query.name)
-    if (query.englishQuery && query.englishQuery !== query.name) {
+    if (query.englishQuery && looksLikeEnglishSearchQuery(query.englishQuery, query.name)) {
       launched.push(query.englishQuery)
     }
   }
