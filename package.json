@@ -3,6 +3,9 @@
   "private": true,
   "version": "4.4.2",
   "license": "GPL-3.0-or-later",
+  "engines": {
+    "node": ">=24.22.1 <25"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

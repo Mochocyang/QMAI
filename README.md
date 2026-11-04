@@ -475,7 +475,7 @@ A：当前版本**仅中文界面**（英文界面已移除）。
 
 ### 前置依赖
 
-- Node.js 20+
+- Node.js 24.22.1 或更高的 24.x（2026-10-21 安全发布；20 及更早版本已停止维护，没有这次修复）
 - Rust (stable)
 - [Tauri 2 开发环境](https://v2.tauri.app/start/prerequisites/)
 
