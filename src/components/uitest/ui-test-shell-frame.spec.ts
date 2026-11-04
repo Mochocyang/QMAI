@@ -58,7 +58,7 @@ describe("新版 UI 最外侧窗口", () => {
     expect(lights).toContain("macos-traffic-lights/svg/close/hover.svg")
     expect(lights).toContain("macos-traffic-lights/svg/minimize/hover.svg")
     expect(lights).toContain("macos-traffic-lights/svg/maximize/hover.svg")
-    expect(readFileSync(resolve(__dirname, "../../../package.json"), "utf8")).toContain('"macos-traffic-lights": "^1.1.0"')
+    expect(readFileSync(resolve(__dirname, "../../../package.json"), "utf8")).toContain('"macos-traffic-lights": "^2.0.0"')
     expect(css).toMatch(/\.ui-test-traffic-btn \{[^}]*width:\s*14px/)
     expect(css).toMatch(/\.ui-test-root\[data-platform="macos"\] \.ui-test-traffic \{[^}]*left:\s*19px[^}]*gap:\s*9px/)
     expect(css).toMatch(/\.ui-test-root\[data-platform="macos"\] \.ui-test-app \{[^}]*border:\s*0;[^}]*border-radius:\s*0;[^}]*clip-path:\s*none;[^}]*box-shadow:\s*none;/)
