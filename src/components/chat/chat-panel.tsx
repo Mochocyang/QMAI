@@ -81,7 +81,6 @@ import {
   detectLastGeneratedChapterNumber,
   findChapterFileByNumber,
   getNextChapterNumber,
-  readSelectedChapterNumberForFile,
   resolveTargetChapterNumberForChat,
 } from "@/lib/novel/chapter-utils"
 import { buildDeAiSkillSystemPrompt, buildQmQuaiSystemPrompt, injectDeAiDirective } from "@/lib/novel/de-ai-adapter"
@@ -137,7 +136,6 @@ import {
 } from "@/lib/chat-copy-content"
 import { validateChapterBeforeSave } from "@/lib/novel/result-save-guard"
 import { decideChapterSaveStrategy, detectGeneratedTargetChapterNumber } from "@/lib/novel/chapter-save-strategy"
-import { savedChapterBodyWasCleared } from "@/lib/novel/saved-chapter-body"
 import { getOpenDocumentGuard } from "@/lib/mcp/open-document"
 import { loadBinding } from "@/lib/novel/story-simulation/framework-binding"
 import { loadFrameworks } from "@/lib/novel/story-simulation/framework-store"
@@ -1502,39 +1500,15 @@ export function ChatPanel() {
       // 用户存完还得自己回编辑器点一次一键排版（2026-10-25 用户反馈）。
       const formattedContent = formatChapterWriting(cleanedContent)
 
-      const existingRef = useChatStore.getState().messages.find((item) => item.id === messageId)?.chapterRef
-      const openDocument = useWikiStore.getState()
-      const reuseClearedChapter = existingRef
-        ? await savedChapterBodyWasCleared({
-          savedPath: existingRef.path,
-          openPath: openDocument.selectedFile,
-          openMarkdown: openDocument.fileContent,
-        })
-        : false
-      if (existingRef && !reuseClearedChapter) {
-        setChapterSaveStatus(`已保存为第${existingRef.chapterNumber}章`)
-        return
-      }
-
-      const selectedChapterNumber = await readSelectedChapterNumberForFile(selectedFile)
       const generatedTargetChapterNumber = detectGeneratedTargetChapterNumber(extractedTitle ?? cleanedContent)
       const explicitTargetPath = generatedTargetChapterNumber ? await findChapterFileByNumber(pp, generatedTargetChapterNumber) : null
-      const strategy = decideChapterSaveStrategy({
-        selectedChapterNumber: selectedChapterNumber ?? null,
-        selectedChapterHasBody: false,
-        generatedTargetChapterNumber,
-        generatedTargetExists: Boolean(explicitTargetPath),
-      })
-
-      // 正文还在的章节不复用。只有上次保存的那一章已经被删空时，才写回原路径。
-      const targetChapterNumber = reuseClearedChapter && existingRef
-        ? existingRef.chapterNumber
-        : strategy.action === "direct_explicit_target_new"
-          ? strategy.targetChapterNumber
-          : await getNextChapterNumber(pp)
-      const chapterPath = reuseClearedChapter && existingRef
-        ? existingRef.path
-        : `${pp}/wiki/chapters/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
+      const strategy = decideChapterSaveStrategy({ generatedTargetChapterNumber })
+      const targetChapterNumber = strategy.action === "direct_explicit_target_new"
+        ? strategy.targetChapterNumber
+        : await getNextChapterNumber(pp)
+      // 同号章节已经在库里（含改名后的文件）就写回那一份，不另存成下一章。
+      const chapterPath = explicitTargetPath
+        ?? `${pp}/wiki/chapters/chapter-${String(targetChapterNumber).padStart(3, "0")}.md`
 
       // 使用 AI 生成的标题，如果没有则回退到默认标题
       const chapterTitle = extractedTitle || `第${targetChapterNumber}章`
@@ -1585,7 +1559,7 @@ export function ChatPanel() {
     } finally {
       setIsSavingChapter(false)
     }
-  }, [project, selectedFile, t])
+  }, [project, t])
 
   // 注意：组件卸载时不 abort 流式请求，允许 AI 在后台继续生成
   // 聊天数据存在全局 Zustand store 中，切回来时仍可看到生成结果

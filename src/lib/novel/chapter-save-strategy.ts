@@ -7,22 +7,14 @@ type ChapterSaveStrategy =
     targetChapterNumber: number
   }
 
+/** 正文里写明了第 N 章就存到第 N 章；没有章号才顺延到下一章。是否已经保存过不影响这次保存。 */
 export function decideChapterSaveStrategy(input: {
-  selectedChapterNumber: number | null
-  selectedChapterHasBody: boolean
   generatedTargetChapterNumber: number | null
-  generatedTargetExists: boolean
 }): ChapterSaveStrategy {
-  if (
-    input.generatedTargetChapterNumber &&
-    input.generatedTargetChapterNumber > 0 &&
-    input.generatedTargetChapterNumber !== input.selectedChapterNumber
-  ) {
-    if (!input.generatedTargetExists) {
-      return {
-        action: "direct_explicit_target_new",
-        targetChapterNumber: input.generatedTargetChapterNumber,
-      }
+  if (input.generatedTargetChapterNumber && input.generatedTargetChapterNumber > 0) {
+    return {
+      action: "direct_explicit_target_new",
+      targetChapterNumber: input.generatedTargetChapterNumber,
     }
   }
 
