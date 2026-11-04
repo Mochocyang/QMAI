@@ -7,7 +7,7 @@
 //! 前提：服务端必须支持 `Range`（不支持时 `segmented_download` 会让调用方退回单连接）。
 //! 实测 GitHub via Cloudflare 与 gh-proxy 都返回 `Accept-Ranges: bytes`。
 
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -121,52 +121,6 @@ impl SegmentFetcher {
             return Ok((total, false));
         }
         Err(format!("下载地址返回 HTTP {status}"))
-    }
-
-    /// 拉一段。失败按 SEGMENT_RETRIES 重试，仍失败才放弃这一段。
-    fn fetch_segment(&self, segment: &Segment) -> Result<Vec<u8>, String> {
-        let range = format!(
-            "bytes={}-{}",
-            segment.start,
-            segment.start + segment.len - 1
-        );
-        let mut last_error = String::new();
-        for attempt in 0..=SEGMENT_RETRIES {
-            if attempt > 0 {
-                std::thread::sleep(Duration::from_millis(400 * attempt as u64));
-            }
-            match self
-                .client
-                .get(&self.url)
-                .header(reqwest::header::RANGE, &range)
-                .send()
-            {
-                Ok(response) => {
-                    if response.status().as_u16() != 206 {
-                        last_error = format!("第 {} 段：服务器不支持分段（HTTP {}）", segment.index, response.status().as_u16());
-                        continue;
-                    }
-                    let mut buffer = Vec::with_capacity(segment.len as usize);
-                    let mut handle = response;
-                    match handle.read_to_end(&mut buffer) {
-                        Ok(_) => {
-                            if buffer.len() as u64 == segment.len {
-                                return Ok(buffer);
-                            }
-                            last_error = format!(
-                                "第 {} 段长度不符（期望 {}，实得 {}）",
-                                segment.index,
-                                segment.len,
-                                buffer.len()
-                            );
-                        }
-                        Err(error) => last_error = format!("第 {} 段读取失败：{error}", segment.index),
-                    }
-                }
-                Err(error) => last_error = format!("第 {} 段请求失败：{error}", segment.index),
-            }
-        }
-        Err(last_error)
     }
 
     /// 分段并发下载整个文件，按段序写入 `target`。
@@ -344,15 +298,6 @@ pub fn plain_download(url: &str, proxy_url: Option<&str>, target: &Path) -> Resu
     }
     file.flush().map_err(|error| format!("落盘失败：{error}"))?;
     Ok(total)
-}
-
-/// 供测试与调用方使用：把文件按段重排（校验用）。
-pub fn read_all_at(path: &Path, offset: u64, len: u64) -> std::io::Result<Vec<u8>> {
-    let mut file = std::fs::File::open(path)?;
-    file.seek(SeekFrom::Start(offset))?;
-    let mut buffer = vec![0u8; len as usize];
-    file.read_exact(&mut buffer)?;
-    Ok(buffer)
 }
 
 #[cfg(test)]

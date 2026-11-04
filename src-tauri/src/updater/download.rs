@@ -30,6 +30,7 @@ pub struct ChannelAttempt {
 /// 依序尝试下载，返回 `(数据, 命中的通道 id)`。
 ///
 /// 失败原因全部收集进最终错误里：用户报障时能直接看出"是哪几条通道坏了、为什么"。
+#[cfg(test)]
 pub fn download_with_fallback<F>(
     attempts: Vec<ChannelAttempt>,
     mut fetch: F,

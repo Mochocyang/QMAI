@@ -133,6 +133,7 @@ impl Manifest {
         self.books.get(book_id).map(|book| book.dir.clone())
     }
 
+    #[cfg(test)]
     fn base_for(&self, book_id: &str, rel: &str) -> Option<FileFingerprint> {
         self.books
             .get(book_id)

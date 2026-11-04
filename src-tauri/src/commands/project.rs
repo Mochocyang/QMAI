@@ -303,15 +303,12 @@ pub fn rename_project(path: String, name: String) -> Result<WikiProject, String>
     })
 }
 
-fn suppress_windows_console(_cmd: &mut Command) {
-    #[cfg(windows)]
-    {
-        #[allow(unused_imports)]
-        use std::os::windows::process::CommandExt;
+#[cfg(windows)]
+fn suppress_windows_console(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
 
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        _cmd.creation_flags(CREATE_NO_WINDOW);
-    }
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    cmd.creation_flags(CREATE_NO_WINDOW);
 }
 
 /// 把整本小说移入**系统回收站**（删书）。

@@ -117,6 +117,7 @@ impl WebdavStore {
     }
 
     /// 测试与「自建 NAS」这类没有频率限制的服务端可以把间隔降到 0。
+    #[cfg(test)]
     pub fn with_min_gap(mut self, gap: Duration) -> Self {
         self.throttle = Throttle::new(gap);
         self

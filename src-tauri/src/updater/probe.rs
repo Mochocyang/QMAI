@@ -13,6 +13,7 @@ use crate::updater::channels::DIRECT_CHANNEL_ID;
 pub const PROBE_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROBE_TOTAL_TIMEOUT: Duration = Duration::from_secs(5);
 /// 探活结果缓存 10 分钟：网络状况不会一秒一变，每次都全量探活纯属浪费。
+#[cfg(test)]
 pub const PROBE_TTL_MS: i64 = 10 * 60 * 1000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,12 +23,14 @@ pub struct ProbeResult {
     pub rtt_ms: Option<u64>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Default)]
 pub struct ProbeCache {
     content: Vec<ProbeResult>,
     at_ms: i64,
 }
 
+#[cfg(test)]
 impl ProbeCache {
     pub fn store(&mut self, results: Vec<ProbeResult>, now_ms: i64) {
         self.content = results;

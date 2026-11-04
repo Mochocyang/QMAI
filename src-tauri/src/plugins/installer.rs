@@ -396,16 +396,11 @@ pub fn download_candidates(owner: &str, repo: &str, refs: &[&str]) -> Vec<(Strin
     download_candidates_with(owner, repo, refs, proxy.as_deref())
 }
 
-/// 单 ref 的候选 URL 列表（串行下载用；保留既有签名与顺序）。
-pub fn download_urls(owner: &str, repo: &str, git_ref: &str) -> Vec<String> {
-    let proxy = std::env::var(ZIP_PROXY_ENV).ok();
-    download_urls_with(owner, repo, git_ref, proxy.as_deref())
-}
-
-/// `download_urls` 的纯函数版本：代理值由调用方直接给，不读环境变量。
+/// 单 ref 的候选 URL（纯函数：代理值由调用方直接给，不读环境变量）。
 ///
 /// 为什么拆出来：本仓库有过「测试里 set_var 并发污染」的历史（见 market.rs 的环境变量锁），
-/// 所以代理相关的用例一律喂参数，不碰进程环境。
+/// 所以代理相关的用例一律喂参数，不碰进程环境。正式安装走 `download_candidates`。
+#[cfg(test)]
 pub fn download_urls_with(
     owner: &str,
     repo: &str,
@@ -562,6 +557,8 @@ impl std::fmt::Display for DownloadFailure {
 /// 为什么不再只报「最后一次」：用户配了自定义代理却打不开时，必须一眼看到
 /// 「我的代理地址在不在列表里、它报了什么」。只报最后一次尝试，会让排在前面
 /// 的自定义通道失败完全不可见（它恰恰是用户最想确认的那条）。
+/// 正式安装走并行版 `all_channels_failed_parallel`；这个串行文案只留给测试。
+#[cfg(test)]
 fn all_channels_failed(failures: &[DownloadFailure]) -> String {
     format!(
         "所有下载通道均失败：{}\n{DOWNLOAD_FAILURE_HINT}",
@@ -676,6 +673,8 @@ async fn download_first_indexed(
 }
 
 /// 下载 zip 字节；按顺序试每个候选，全部失败才报错（错误里列出所有失败通道）。
+/// 正式安装走 `download_racing`；这条串行入口只留给测试压失败文案。
+#[cfg(test)]
 pub async fn download(client: &reqwest::Client, urls: &[String]) -> Result<Vec<u8>, String> {
     let candidates: Vec<(String, usize)> = urls
         .iter()

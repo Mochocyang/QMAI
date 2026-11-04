@@ -20,6 +20,7 @@ mod updater;
 mod webview2_check;
 
 pub use platform_guard::assert_supported_platform;
+#[cfg(windows)]
 pub use webview2_check::ensure_webview2_or_guide;
 
 /// 阶段 3：列出本机**实际安装**的中文字体。

@@ -422,6 +422,7 @@ impl Channel {
     ///
     /// 用途：远程下发的通道表本身（`update-channels.json`）就存放在仓库里，
     /// 可以用 jsDelivr 拉取，这比走 release 更稳。
+    #[cfg(test)]
     pub fn map_repo_file_url(
         &self,
         owner: &str,

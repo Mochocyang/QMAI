@@ -196,8 +196,9 @@ pub fn index_channels_with(env: Option<String>) -> Vec<String> {
 
 /// 本次的首选索引地址（通道列表里的第一个）。
 ///
-/// 保留这个函数是因为命令层/测试都按「单一地址」理解市场来源；实际请求走
-/// `index_channels()` 的多通道竞速。
+/// 实际请求走 `index_channels()` 的多通道竞速。这个函数只给测试断言
+/// 「环境变量覆盖后，首选地址就是那一个」。
+#[cfg(test)]
 pub fn index_url() -> String {
     index_channels()
         .into_iter()

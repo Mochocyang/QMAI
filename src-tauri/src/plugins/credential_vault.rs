@@ -115,6 +115,7 @@ impl CredentialVault {
     }
 
     /// 这个插件有没有存过凭证（不解密，只判断文件在不在）。
+    #[cfg(test)]
     pub fn has(&self, plugin_id: &str) -> bool {
         self.credential_path(plugin_id).is_file()
     }

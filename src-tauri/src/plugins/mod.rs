@@ -1880,7 +1880,6 @@ pub async fn plugins_provider_close_login(
      * **测试二进制**启动时 STATUS_ENTRYPOINT_NOT_FOUND 崩溃 ——
      * 结论：AppHandle 只出现在命令参数里，绝不放进任何结构体或 static。
      */
-    use tauri::Manager;
     let closed = login_window::close_provider_window_silent(
         &app,
         &provider.plugin_id,
