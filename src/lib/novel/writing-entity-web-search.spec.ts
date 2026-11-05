@@ -6,14 +6,12 @@ import {
   buildKnowledgeWritingCorpus,
   buildLocalWritingCorpus,
   buildWritingEntityExtractionSource,
-  classifyNameSearchHeuristic,
   collectWritingEntityWebSearch,
   displayWritingEntitySearchWorkflowContent,
   formatWritingEntitySearchMarkdown,
   formatWritingEntitySearchWorkflowResult,
   isLocallyResolvedEntity,
   isWebSearchConfigured,
-  mergeSearchQueries,
   MAX_SEARCH_QUERIES,
   parseExtractedEntityNames,
   parseNeedExternalNames,
@@ -183,22 +181,6 @@ describe("writing entity parse helpers", () => {
   it("parses needExternal names against candidates", () => {
     expect(parseNeedExternalNames('{"needExternal":["黄蓉","原创甲"]}', ["黄蓉", "降龙十八掌"])).toEqual(["黄蓉"])
     expect(parseNeedExternalNames('{"entities":[{"name":"黄蓉","needExternal":true},{"name":"林烬","needExternal":false}]}', ["黄蓉", "林烬"])).toEqual(["黄蓉"])
-  })
-
-  it("classifies hard-signal, invented, and gray names", () => {
-    expect(classifyNameSearchHeuristic("F-22")).toBe("search")
-    expect(classifyNameSearchHeuristic("AK-47")).toBe("search")
-    expect(classifyNameSearchHeuristic("哈佛大学")).toBe("search")
-    expect(classifyNameSearchHeuristic("洛云宗")).toBe("skip")
-    expect(classifyNameSearchHeuristic("玄阴诀")).toBe("skip")
-    expect(classifyNameSearchHeuristic("主角")).toBe("skip")
-    expect(classifyNameSearchHeuristic("李鸿章")).toBe("gray")
-    expect(classifyNameSearchHeuristic("青石镇")).toBe("gray")
-    expect(MAX_SEARCH_QUERIES).toBe(5)
-    expect(mergeSearchQueries(["F-22"], [{ name: "李鸿章" }]).map((item) => item.name)).toEqual([
-      "F-22",
-      "李鸿章",
-    ])
   })
 
   it("parses decisions with skip_known and unsure", () => {
@@ -404,7 +386,7 @@ describe("collectWritingEntityWebSearch", () => {
     expect(result.markdown).toContain("公开资料摘要")
   })
 
-  it("does not search invented-suffix names even if the model asks to", async () => {
+  it("does not search names the model labels invented, including suffix-like names", async () => {
     const search = vi.fn()
     const result = await collectWritingEntityWebSearch({
       projectPath: "/project",
@@ -412,7 +394,7 @@ describe("collectWritingEntityWebSearch", () => {
       contextPack: pack,
       streamChat: streamChatReturning([
         '{"entities":["洛云宗","玄阴诀"]}',
-        '{"needExternal":["洛云宗","玄阴诀"]}',
+        '{"decisions":[{"name":"洛云宗","label":"invented"},{"name":"玄阴诀","label":"invented"}]}',
       ]),
       llmConfig,
       searchApiConfig: configuredSearch,
@@ -423,9 +405,36 @@ describe("collectWritingEntityWebSearch", () => {
     expect(search).not.toHaveBeenCalled()
     expect(result.skipped).toBe(true)
     expect(result.notes.join("\n")).toContain("洛云宗")
+    expect(result.notes.join("\n")).toContain("玄阴诀")
   })
 
-  it("searches hard-signal names even when judge JSON is empty", async () => {
+  it("searches suffix-like names when the model marks them real", async () => {
+    const search = vi.fn(async (query: string) => [{
+      title: `${query} 资料`,
+      url: `https://example.test/${encodeURIComponent(query)}`,
+      snippet: "公开资料摘要",
+      source: "example.test",
+    }])
+    const result = await collectWritingEntityWebSearch({
+      projectPath: "/project",
+      userRequest: "写一章洛云宗长老传授玄阴诀",
+      contextPack: pack,
+      streamChat: streamChatReturning([
+        '{"entities":["洛云宗","玄阴诀"]}',
+        '{"decisions":[{"name":"洛云宗","label":"real"},{"name":"玄阴诀","label":"unsure"}]}',
+      ]),
+      llmConfig,
+      searchApiConfig: configuredSearch,
+      listEntityNames: async () => [],
+      readPreviousBodies: async () => [],
+      search,
+    })
+    expect(search).toHaveBeenCalledTimes(1)
+    expect(search).toHaveBeenCalledWith("洛云宗", configuredSearch, 5)
+    expect(result.searchedNames).toEqual(["洛云宗"])
+  })
+
+  it("searches nothing when the judge response is not JSON", async () => {
     const search = vi.fn(async (query: string) => [{
       title: query,
       url: `https://example.test/${encodeURIComponent(query)}`,
@@ -446,9 +455,11 @@ describe("collectWritingEntityWebSearch", () => {
       readPreviousBodies: async () => [],
       search,
     })
-    expect(search).toHaveBeenCalledWith("F-22", configuredSearch, 5)
-    expect(search).not.toHaveBeenCalledWith("青石镇", configuredSearch, 5)
-    expect(result.searchedNames).toEqual(["F-22"])
+    expect(search).not.toHaveBeenCalled()
+    expect(result.searchedNames).toEqual([])
+    expect(result.skipped).toBe(true)
+    expect(result.notes.join("\n")).toContain("无法解析")
+    expect(result.notes.join("\n")).toContain("F-22")
   })
 
   it("skips real names the model marks skip_known", async () => {
@@ -472,7 +483,7 @@ describe("collectWritingEntityWebSearch", () => {
   })
 
   it("caps searches at MAX_SEARCH_QUERIES", async () => {
-    // 全是 gray（无人名硬信号），按模型返回顺序截断到 5
+    expect(MAX_SEARCH_QUERIES).toBe(5)
     const names = ["李鸿章", "赫德", "北洋水师", "光绪", "慈禧", "伊藤博文"]
     const search = vi.fn(async (query: string) => [{
       title: `${query} 资料`,
@@ -569,8 +580,7 @@ describe("collectWritingEntityWebSearch", () => {
     })
     expect(search).toHaveBeenCalledTimes(4)
     expect(search).toHaveBeenCalledWith("北洋水师", configuredSearch, 5)
-    // 总理衙门带机构硬信号，会排在硬信号队列最前
-    expect(result.searchedNames).toEqual(["总理衙门", "李鸿章", "赫德", "北洋水师"])
+    expect(result.searchedNames).toEqual(["李鸿章", "赫德", "总理衙门", "北洋水师"])
   })
 
   it("does not search original names the model can invent", async () => {
@@ -609,6 +619,39 @@ describe("collectWritingEntityWebSearch", () => {
     })
     expect(result.skipped).toBe(true)
     expect(result.notes.join("\n")).toMatch(/跳过联网补搜/)
+  })
+
+  it("does not search when the judge call fails", async () => {
+    const search = vi.fn()
+    const result = await collectWritingEntityWebSearch({
+      projectPath: "/project",
+      userRequest: "写一章李鸿章出场",
+      contextPack: pack,
+      streamChat: vi.fn(async (
+        _config: LlmConfig,
+        messages: ChatMessage[],
+        callbacks: StreamCallbacks,
+      ) => {
+        const user = messages.find((message) => message.role === "user")
+        const userText = user ? chatMessageText(user.content) : ""
+        if (userText.includes("下列名称")) {
+          callbacks.onError(new Error("判定模型不可用"))
+          return
+        }
+        callbacks.onToken('{"entities":["李鸿章"]}')
+        callbacks.onDone()
+      }),
+      llmConfig,
+      searchApiConfig: configuredSearch,
+      listEntityNames: async () => [],
+      readPreviousBodies: async () => [],
+      search,
+    })
+    expect(search).not.toHaveBeenCalled()
+    expect(result.searchedNames).toEqual([])
+    expect(result.skipped).toBeUndefined()
+    expect(result.notes.join("\n")).toContain("不联网补搜")
+    expect(result.notes.join("\n")).toContain("判定模型不可用")
   })
 
   it("surfaces an llm failure instead of silently reporting nothing to search", async () => {
@@ -670,6 +713,7 @@ describe("collectWritingEntityWebSearch", () => {
     expect(judgePrompt).not.toContain("无法确定是真实还是自造时放入 needExternal")
     expect(judgePrompt).not.toContain("已知则不搜")
     expect(judgePrompt).not.toContain("不确定则不搜")
+    expect(judgePrompt).not.toContain("硬信号")
   })
 
   it("searches englishQuery alongside the Chinese name and dedupes by url", async () => {

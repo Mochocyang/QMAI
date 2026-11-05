@@ -15,17 +15,6 @@ export const MAX_SEARCH_QUERIES = 5
 const RESULTS_PER_QUERY = 5
 const SOURCE_TEXT_CHAR_CAP = 8000
 
-/** 启发式：search=硬信号必搜；skip=自造黑名单；gray=交给模型。 */
-export type NameSearchHint = "search" | "skip" | "gray"
-
-const PLACEHOLDER_NAME_PATTERN = /^(主角|女主|男主|反派|路人甲|路人乙|某某)(?:\d*)$/u
-/** 网文自造常见后缀；命中则默认不搜。 */
-const INVENTED_SUFFIX_PATTERN = /(?:宗|殿|阁|盟|派|诀|功|掌|式|丹|符|阵|门派)$/u
-/** 现实/公开世界硬信号：拉丁字母、型号、少数机构后缀。不用「镇/市/县」以免架空地名误搜。 */
-const HARD_SIGNAL_LATIN_PATTERN = /[A-Za-z]/
-const HARD_SIGNAL_MODEL_PATTERN = /(?:\d+[A-Za-z]|[A-Za-z]+[\s\-]?\d|\d+[\s\-][A-Za-z])/
-const HARD_SIGNAL_ORG_PATTERN = /(?:大学|医院|公司|集团|银行|博物馆|大使馆|总理衙门)$/u
-
 /**
  * 一个实体的搜索结果。`searchQueries` / `summary` / `searchSuggestionsHtml`
  * 只有 Gemini 后端会给；其它后端与旧记录没有这些字段。
@@ -43,7 +32,7 @@ export interface WritingEntityWebSearchResult {
   searchedNames: string[]
   notes: string[]
   items?: WritingEntitySearchItem[]
-  /** 按规则主动跳过（无候选、判定无需联网、未配置搜索源），区别于检索失败。 */
+  /** 按规则主动跳过（无候选、判定无需联网或判定结果无法解析、未配置搜索源），区别于检索失败。 */
   skipped?: boolean
 }
 
@@ -133,24 +122,6 @@ export function buildLocalWritingCorpus(
   void pack.previousChapterEnding
   void pack.recentSummaries
   return buildKnowledgeWritingCorpus(pack)
-}
-
-/**
- * 启发式分流：硬信号必搜、自造黑名单跳过、其余交给模型（gray）。
- */
-export function classifyNameSearchHeuristic(name: string): NameSearchHint {
-  const trimmed = name.trim()
-  if (trimmed.length < MIN_NAME_LENGTH) return "skip"
-  if (PLACEHOLDER_NAME_PATTERN.test(trimmed)) return "skip"
-  if (INVENTED_SUFFIX_PATTERN.test(trimmed)) return "skip"
-  if (
-    HARD_SIGNAL_LATIN_PATTERN.test(trimmed)
-    || HARD_SIGNAL_MODEL_PATTERN.test(trimmed)
-    || HARD_SIGNAL_ORG_PATTERN.test(trimmed)
-  ) {
-    return "search"
-  }
-  return "gray"
 }
 
 export function buildWritingEntityExtractionSource(
@@ -602,47 +573,28 @@ export async function collectWritingEntityWebSearch(
       return { markdown: "", searchedNames: [], notes, items: [], skipped: true }
     }
 
-    const hardNames: string[] = []
-    const grayNames: string[] = []
-    const inventedNames: string[] = []
-    for (const name of unresolved) {
-      const hint = classifyNameSearchHeuristic(name)
-      if (hint === "search") hardNames.push(name)
-      else if (hint === "skip") inventedNames.push(name)
-      else grayNames.push(name)
-    }
-    if (inventedNames.length > 0) {
-      notes.push(`启发式判定为本书自造、跳过：${inventedNames.join("、")}`)
-    }
-
+    // 强本地已滤掉。其余候选全部交给模型，不用名称正则预判必搜或跳过。
     let llmQueries: WritingEntitySearchQuery[] = []
-    let judgeFailed = false
-    if (grayNames.length > 0) {
-      try {
-        llmQueries = await judgeNeedExternal(input, grayNames)
-      } catch (error) {
-        rethrowIfUserAbort(error, input.signal)
-        judgeFailed = true
-        notes.push(
-          `实体联网判定失败，仅保留硬信号补搜：${error instanceof Error ? error.message : String(error)}`,
-        )
-        llmQueries = []
-      }
-      // JSON 空/解析失败时 parse 返回 []：gray 全部当 unsure，不搜。
-      if (!judgeFailed && llmQueries.length === 0 && grayNames.length > 0) {
-        notes.push(`模型未选出需联网项（自造/不确定/已知充分）：${grayNames.join("、")}`)
-      }
+    try {
+      llmQueries = await judgeNeedExternal(input, unresolved)
+    } catch (error) {
+      rethrowIfUserAbort(error, input.signal)
+      // 判定调用失败时没有已批准名单。不搜，且不标 skipped：
+      // 章节工作流把「无结果 + 有备注 + 未跳过」记为失败，与抽取阶段模型不可用一致。
+      notes.push(
+        `实体联网判定失败，不联网补搜：${error instanceof Error ? error.message : String(error)}`,
+      )
+      return { markdown: "", searchedNames: [], notes, items: [] }
     }
 
-    const queries = mergeSearchQueries(hardNames, llmQueries).slice(0, MAX_SEARCH_QUERIES)
-    if (queries.length === 0) {
-      if (hardNames.length === 0 && inventedNames.length === unresolved.length) {
-        notes.push(`判定为本书自造、无需联网：${unresolved.join("、")}`)
-      } else if (notes.length === 0) {
-        notes.push(`无需联网补搜：${unresolved.join("、")}`)
-      }
+    // JSON 为空、解析失败，或全部是 invented / unsure / skip_known 时，parse 得到 []。
+    // 不另做正则兜底去硬搜。与「模型未批准」同一路径，标 skipped，避免工作流记成检索失败。
+    if (llmQueries.length === 0) {
+      notes.push(`模型未批准联网（自造、不确定、已知充分，或判定结果无法解析）：${unresolved.join("、")}`)
       return { markdown: "", searchedNames: [], notes, items: [], skipped: true }
     }
+
+    const queries = llmQueries.slice(0, MAX_SEARCH_QUERIES)
 
     input.onSearchStart?.(launchedQueriesFor(queries))
 
@@ -752,28 +704,6 @@ async function judgeNeedExternal(
     },
   ])
   return parseNeedExternalQueries(raw, unresolved)
-}
-
-/** 硬信号优先，再合并模型选出的 real；同名去重。 */
-export function mergeSearchQueries(
-  hardNames: readonly string[],
-  llmQueries: readonly WritingEntitySearchQuery[],
-): WritingEntitySearchQuery[] {
-  const merged: WritingEntitySearchQuery[] = []
-  const seen = new Set<string>()
-  for (const name of hardNames) {
-    const trimmed = name.trim()
-    if (!trimmed || seen.has(trimmed)) continue
-    seen.add(trimmed)
-    const fromLlm = llmQueries.find((item) => item.name === trimmed)
-    merged.push(fromLlm?.englishQuery ? { name: trimmed, englishQuery: fromLlm.englishQuery } : { name: trimmed })
-  }
-  for (const query of llmQueries) {
-    if (seen.has(query.name)) continue
-    seen.add(query.name)
-    merged.push(query)
-  }
-  return merged
 }
 
 async function completeText(
