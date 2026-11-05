@@ -1,3 +1,5 @@
+import { extractChapterNumber } from "./task-router"
+
 export type GoldenThreeChapterOutputMode = "first_chapter_with_directions" | "chapter_only"
 
 export interface GoldenThreeChapterRequest {
@@ -12,94 +14,34 @@ const disabledGoldenThreeChapterRequest: GoldenThreeChapterRequest = {
   requestedFirstThree: false,
 }
 
-const firstThreePatterns = [
-  /生成前三章/,
-  /写前三章/,
-  /黄金三章/,
-]
-
-const firstChapterPatterns = [
-  /第一章/,
-  /第\s*1\s*章/,
-  /开篇章节/,
-  /小说开头/,
-  // “开篇/开局/首章/开头”属于弱关键词：仅当紧跟写作动词时才视为
-  // “写开篇章节”，避免“开篇200字内必须制造钩子”这类写作要求误触发。
-  /(写|生成|创作|撰写|开始)(一?个)?(小说)?(开篇|开局|首章|开头)/,
-]
-
-const secondChapterPatterns = [
-  /第二章/,
-  /第\s*2\s*章/,
-]
-
-const thirdChapterPatterns = [
-  /第三章/,
-  /第\s*3\s*章/,
-]
-
+/**
+ * 黄金三章只看章号 1–3。章号来自调用方已解析的目标，否则用与任务路由相同的
+ * 第N章解析。开篇/开局/黄金三章这类词不再单独触发，避免和模型抢判。
+ */
 export function detectGoldenThreeChapterRequest(text: string, chapterNumber?: number): GoldenThreeChapterRequest {
   const normalized = text.trim()
   if (!normalized) return disabledGoldenThreeChapterRequest
 
-  const requestedFirstThree = firstThreePatterns.some((pattern) => pattern.test(normalized))
+  const resolved = typeof chapterNumber === "number" && chapterNumber > 0
+    ? chapterNumber
+    : extractChapterNumber(normalized)
 
-  // 已解析出明确目标章节号时，以章节号为准。文本中顺带出现的
-  // “开篇/第一章”字样（例如“开篇200字内必须制造钩子”这类写作要求）
-  // 不再把目标章节改写成第1章（issue #9）。
-  if (typeof chapterNumber === "number" && chapterNumber > 0) {
-    if (chapterNumber === 1) {
-      return {
-        enabled: true,
-        targetChapter: 1,
-        outputMode: "first_chapter_with_directions",
-        requestedFirstThree,
-      }
-    }
-    if (chapterNumber === 2 || chapterNumber === 3) {
-      return {
-        enabled: true,
-        targetChapter: chapterNumber,
-        outputMode: "chapter_only",
-        requestedFirstThree: false,
-      }
-    }
-    return disabledGoldenThreeChapterRequest
-  }
-
-  // “继续生成下一章”类请求：目标章节由章节库/会话状态决定，
-  // 不按文本关键词启用黄金三章。
-  if (/下一章|下1章|下章|新的?一章/.test(normalized.replace(/\s+/g, ""))) {
-    return disabledGoldenThreeChapterRequest
-  }
-
-  if (requestedFirstThree || firstChapterPatterns.some((pattern) => pattern.test(normalized))) {
+  if (resolved === 1) {
     return {
       enabled: true,
       targetChapter: 1,
       outputMode: "first_chapter_with_directions",
-      requestedFirstThree,
+      requestedFirstThree: false,
     }
   }
-
-  if (secondChapterPatterns.some((pattern) => pattern.test(normalized))) {
+  if (resolved === 2 || resolved === 3) {
     return {
       enabled: true,
-      targetChapter: 2,
+      targetChapter: resolved,
       outputMode: "chapter_only",
       requestedFirstThree: false,
     }
   }
-
-  if (thirdChapterPatterns.some((pattern) => pattern.test(normalized))) {
-    return {
-      enabled: true,
-      targetChapter: 3,
-      outputMode: "chapter_only",
-      requestedFirstThree: false,
-    }
-  }
-
   return disabledGoldenThreeChapterRequest
 }
 

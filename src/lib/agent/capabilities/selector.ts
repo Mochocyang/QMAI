@@ -55,16 +55,12 @@ const DISCUSS_READONLY_TOOLS = new Set([
   "trim_context",
 ])
 
-const ENTITY_QUERY_INTENTS = new Set<NovelTaskIntent>(["character_query", "setting_query"])
-
 interface SelectCapabilitiesInput {
   capabilities: AiCapability[]
   intent: NovelTaskIntent
   mode: AiWorkflowMode
   userMessage: string
   blockedSources?: DataSourceCategory[]
-  /** 本地实体表为空，或用户消息未命中任何本地实体名 */
-  localEntityMiss?: boolean
 }
 
 export function selectCapabilities(input: SelectCapabilitiesInput): SelectedCapabilityTrace[] {
@@ -88,18 +84,10 @@ function selectionReason(
   _blockedSources: Set<DataSourceCategory>,
 ): string | null {
   if (capability.kind === "web_search") {
-    if (isExplicitSearchRequest(input.userMessage)) {
-      return "user explicitly requested external search"
-    }
-    if (
-      input.mode !== "fast"
-      && input.localEntityMiss === true
-      && ENTITY_QUERY_INTENTS.has(input.intent)
-      && capability.intents.includes("external_search")
-    ) {
-      return "local entity miss may require external search"
-    }
-    return null
+    // 快速模式是用户手选的最小工具集。其余模式把 web_search 交给模型，
+    // 不用关键词，也不用本地文件名是否命中来开关。
+    if (input.mode === "fast") return null
+    return "non-fast mode leaves web search to the model"
   }
 
   if (capability.kind === "user_skill") {
@@ -178,7 +166,3 @@ function toTrace(capability: AiCapability, reason: string): SelectedCapabilityTr
   }
 }
 
-function isExplicitSearchRequest(message: string): boolean {
-  const normalized = message.toLowerCase()
-  return /search|web|internet|online|external|latest|联网|搜索|搜一下|查一下|查找|查资料|网页|外部|外部资料|最新/.test(normalized)
-}

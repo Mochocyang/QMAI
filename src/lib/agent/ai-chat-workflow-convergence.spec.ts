@@ -188,9 +188,9 @@ describe("AI chat workflow convergence", () => {
     expect(result.selectedCapabilities).toContainEqual(expect.objectContaining({ toolName: "write_chapter", permission: "confirm" }))
   })
 
-  it("explicit external search enables search tools without pretending search always happened", async () => {
+  it("standard mode exposes web search for the model without a keyword gate", async () => {
     const result = await runWorkflow({
-      userMessage: "搜索一下黄蓉的信息再回答",
+      userMessage: "这个世界的力量体系是什么",
       intent: "setting_query",
       mode: "standard",
     })
@@ -198,11 +198,11 @@ describe("AI chat workflow convergence", () => {
     expect(result.enabledToolNames).toEqual(expect.arrayContaining(["web_search", "read_web_page"]))
     expect(result.selectedCapabilities).toContainEqual(expect.objectContaining({
       kind: "web_search",
-      reason: expect.stringContaining("external search"),
+      reason: "non-fast mode leaves web search to the model",
     }))
   })
 
-  it("character_query enables web search when local entity table misses the name", async () => {
+  it("character_query keeps web search available when the local entity table misses the name", async () => {
     vi.mocked(listDirectory).mockResolvedValue([])
 
     const result = await runWorkflow({
@@ -212,13 +212,10 @@ describe("AI chat workflow convergence", () => {
     })
 
     expect(result.enabledToolNames).toEqual(expect.arrayContaining(["web_search", "read_web_page"]))
-    expect(result.selectedCapabilities).toContainEqual(expect.objectContaining({
-      kind: "web_search",
-      reason: expect.stringContaining("local entity miss"),
-    }))
+    expect(result.localEntityHint).toBeUndefined()
   })
 
-  it("character_query does not enable web search when local entity name is present", async () => {
+  it("a local entity filename hit is a context hint and does not turn web search off", async () => {
     vi.mocked(listDirectory).mockImplementation(async (path: string) => {
       if (path.endsWith("wiki/entities")) {
         return [{ name: "黄蓉.md", path: "/project/wiki/entities/黄蓉.md", is_dir: false }]
@@ -232,7 +229,8 @@ describe("AI chat workflow convergence", () => {
       mode: "standard",
     })
 
-    expect(result.enabledToolNames ?? []).not.toContain("web_search")
-    expect((result.selectedCapabilities ?? []).some((item) => item.kind === "web_search")).toBe(false)
+    expect(result.enabledToolNames).toEqual(expect.arrayContaining(["web_search", "read_web_page"]))
+    expect(result.localEntityHint).toContain("黄蓉")
+    expect(String(result.localEntityHint)).not.toContain("web_search")
   })
 })

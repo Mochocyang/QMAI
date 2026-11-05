@@ -1,80 +1,48 @@
 import { describe, expect, it } from "vitest"
-import { routeTask } from "./task-router"
+import { routeTask, type NovelTaskIntent } from "./task-router"
+
+function asIntent(intent: NovelTaskIntent, confidence = 0.83) {
+  return { classification: { intent, confidence } }
+}
 
 describe("routeTask story simulation intents", () => {
-  describe("story_framework_generate", () => {
-    it("识别'故事框架'关键词", () => {
-      const route = routeTask("生成故事框架")
-      expect(route.intent).toBe("story_framework_generate")
-    })
+  it("keeps the model story-framework intent instead of matching 框架 keywords", async () => {
+    const route = await routeTask("帮我搭一个悬疑故事的骨架", asIntent("story_framework_generate", 0.66))
 
-    it("识别'剧情框架'关键词", () => {
-      const route = routeTask("帮我创建剧情框架")
-      expect(route.intent).toBe("story_framework_generate")
-    })
-
-    it("识别'生成框架'关键词", () => {
-      const route = routeTask("生成框架")
-      expect(route.intent).toBe("story_framework_generate")
-    })
-
-    it("识别以'故事框架生成'开头的请求", () => {
-      const route = routeTask("故事框架生成一个悬疑小说")
-      expect(route.intent).toBe("story_framework_generate")
-    })
+    expect(route.intent).toBe("story_framework_generate")
+    expect(route.confidence).toBe(0.66)
   })
 
-  describe("multi_agent_simulate", () => {
-    it("识别'推演剧情'关键词", () => {
-      const route = routeTask("推演剧情走向")
-      expect(route.intent).toBe("multi_agent_simulate")
-    })
+  it("does not assign story_framework_generate just because the text says 故事框架", async () => {
+    const route = await routeTask("生成故事框架", { classification: null })
 
-    it("识别'多智能体推演'关键词", () => {
-      const route = routeTask("多智能体推演")
-      expect(route.intent).toBe("multi_agent_simulate")
-    })
-
-    it("识别'剧情走向'关键词", () => {
-      const route = routeTask("分析一下剧情走向")
-      expect(route.intent).toBe("multi_agent_simulate")
-    })
-
-    it("识别'推演一下'关键词", () => {
-      const route = routeTask("推演一下主角发现真相后的发展")
-      expect(route.intent).toBe("multi_agent_simulate")
-    })
-
-    it("识别'推演剧情走向'关键词", () => {
-      const route = routeTask("推演剧情走向")
-      expect(route.intent).toBe("multi_agent_simulate")
-    })
-
-    it("识别以'推演'开头的请求", () => {
-      const route = routeTask("推演第三章之后的剧情")
-      expect(route.intent).toBe("multi_agent_simulate")
-    })
+    expect(route.intent).toBe("general_chat")
   })
 
-  describe("character_interview", () => {
-    it("识别'角色采访'关键词", () => {
-      const route = routeTask("角色采访李明")
-      expect(route.intent).toBe("character_interview")
-    })
+  it("keeps a model simulation intent and still parses a structural chapter number", async () => {
+    const route = await routeTask("推演第三章之后的剧情", asIntent("multi_agent_simulate", 0.74))
 
-    it("识别'采访角色'关键词", () => {
-      const route = routeTask("采访角色主角")
-      expect(route.intent).toBe("character_interview")
-    })
+    expect(route.intent).toBe("multi_agent_simulate")
+    expect(route.chapterNumber).toBe(3)
+    expect(route.confidence).toBe(0.74)
+  })
 
-    it("识别'问角色'关键词", () => {
-      const route = routeTask("问角色一个问题")
-      expect(route.intent).toBe("character_interview")
-    })
+  it("does not assign multi_agent_simulate from 推演 wording alone", async () => {
+    const route = await routeTask("推演剧情走向", { classification: null })
 
-    it("识别以'角色采访'开头的请求", () => {
-      const route = routeTask("角色采访一下女主角")
-      expect(route.intent).toBe("character_interview")
-    })
+    expect(route.intent).toBe("general_chat")
+  })
+
+  it("keeps a model character-interview intent", async () => {
+    const route = await routeTask("我想听听李明怎么解释这件事", asIntent("character_interview"))
+
+    expect(route.intent).toBe("character_interview")
+    expect(route.confidence).toBe(0.83)
+  })
+
+  it("does not assign character_interview from 角色采访 wording alone", async () => {
+    const route = await routeTask("角色采访李明", { classification: null })
+
+    expect(route.intent).toBe("general_chat")
   })
 })

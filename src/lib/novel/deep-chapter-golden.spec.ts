@@ -11,7 +11,7 @@ import type { NovelReviewResult } from "./review-adapter"
 
 describe("deep chapter prompts with golden three chapter constraints", () => {
   it("injects golden constraints into every deep generation prompt stage", () => {
-    const golden = detectGoldenThreeChapterRequest("生成前三章")
+    const golden = detectGoldenThreeChapterRequest("生成前三章", 1)
     const reviewResults: NovelReviewResult[] = [{
       severity: "error",
       type: "plot",

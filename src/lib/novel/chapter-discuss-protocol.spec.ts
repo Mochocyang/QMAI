@@ -292,14 +292,21 @@ describe("prompt builders", () => {
     expect(blueprint).toContain("血债血偿")
   })
 
-  it("builds an execution prompt that routes to a chapter-writing intent", () => {
-    // 回归：选定方向后的执行 prompt 必须能被 routeTask 识别为章节写作，
-    // 否则生成轮不会强制调用 run_chapter_workflow，出不了正文。
+  it("builds an execution prompt whose chapter number is structural and whose intent is the model label", async () => {
+    // 选定方向后的生成轮由共创阶段钉成续写；这里确认章号仍能从「第3章」解析出来，
+    // 且不再靠「续写/写这一章」关键词给意图。
     const prompt = buildChapterDiscussExecutionPrompt({
       module: "第3章",
       direction: direction({ title: "血债血偿" }),
     })
-    expect(OUTLINE_FIND_CHAPTER_INTENTS.has(routeTask(prompt).intent)).toBe(true)
+    const routed = await routeTask(prompt, {
+      classification: { intent: "continue_chapter", confidence: 0.93 },
+    })
+    expect(OUTLINE_FIND_CHAPTER_INTENTS.has(routed.intent)).toBe(true)
+    expect(routed.chapterNumber).toBe(3)
+    const withoutModel = await routeTask(prompt, { classification: null })
+    expect(withoutModel.intent).toBe("general_chat")
+    expect(withoutModel.chapterNumber).toBe(3)
   })
 
   it("lists the previous batch when regenerating", () => {

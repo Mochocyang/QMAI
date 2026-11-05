@@ -12,6 +12,9 @@ import { runNovelPrePluginChain } from "@/lib/agent/novel-pre-plugin-chain"
 
 vi.mock("@/lib/agent/ai-chat-session", () => ({ runAiChatSession: vi.fn() }))
 vi.mock("@/lib/agent/novel-pre-plugin-chain", () => ({ runNovelPrePluginChain: vi.fn() }))
+vi.mock("@/lib/novel/task-intent-classifier", () => ({
+  classifyTaskIntent: vi.fn(async () => ({ intent: "write_chapter", confidence: 0.9 })),
+}))
 
 type History = { conversations: Conversation[]; messages: DisplayMessage[]; runStates: ConversationRunStates }
 const conversation: Conversation = { id: "conv-1", title: "既有会话", createdAt: 1, updatedAt: 1, deAiMode: false }

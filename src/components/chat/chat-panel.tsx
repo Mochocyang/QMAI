@@ -470,7 +470,7 @@ export function buildChatAgentSystemPrompt(options: {
       && toolsEnabled
       && options.aiWorkflowMode !== "fast"
     ) {
-      lines.push("会联网搜索。如果有外部搜索需求，必须使用 web_search 工具，不得声称已经搜索。未使用联网资料时，在回复末尾注明。")
+      lines.push("会联网搜索。外部公开资料才使用 web_search，不得声称已经搜索。库内剧情、伏笔、人物和设定不要发到公网。未使用联网资料时，在回复末尾注明。")
     }
     if (options.planExecuteEnabled && toolsEnabled && options.aiWorkflowMode !== "fast" && options.aiWorkflowMode !== "discuss") {
       lines.push(buildPlanExecutePolicyPrompt(options.aiWorkflowMode))
@@ -1796,7 +1796,12 @@ export function ChatPanel() {
         ))
         .slice(-maxHistoryMessages)
       const pp = normalizePath(project.path)
-      let taskRoute = novelMode ? routeTask(plainText) : null
+      // 共创里用户已经点了「写这一章」：这是产品动作，直接钉成续写，不再为同一句话打一次分类模型。
+      let taskRoute = novelMode
+        ? await routeTask(plainText, sendOptions?.chapterDiscussPhase === "generation"
+          ? { classification: { intent: "continue_chapter", confidence: 1 } }
+          : { llmConfig: agentConfig.llmConfig })
+        : null
 
       if (planExecutionFollowup && novelMode) {
         const savedRoute = lastWritingTaskRouteRef.current[capturedConvId]

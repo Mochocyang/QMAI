@@ -48,7 +48,7 @@ function isSearchConfigured(config: SearchApiConfig | null | undefined): config 
 export function createWebSearchTool(getSearchApiConfig?: () => SearchApiConfig | null | undefined): Tool {
   return {
     name: "web_search",
-    description: "联网搜索外部资料。用户明确要求搜索、联网查询、查外部资料或最新信息时使用；本地人物/设定实体查不到或信息不足时也应主动使用；未配置搜索时会返回中文降级说明。",
+    description: "联网搜索外部公开资料。仅当你判断问题属于现实原型、平台、公开事实等库外信息时使用。本书剧情、伏笔、人物、设定和时间线用本地工具，不要因为出现「搜索」「最新」「查一下」或本地没有同名文件就调用。未配置搜索时会返回中文降级说明。",
     category: "read",
     // 反重力 CLI 单次搜索约 17–30 秒，默认工具超时 30 秒会误杀；按设置里的搜索超时再留 30 秒余量（Rust 侧另有 +5 秒收尾）。
     get executeTimeoutMs() {
