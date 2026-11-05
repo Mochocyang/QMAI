@@ -24,7 +24,10 @@ export function createRouteTaskPlugin(deps: RouteTaskPluginDeps = {}): PrePlugin
           params: { userMessage: input.userMessage },
         })
       }
-      const result = routeTask(input.userMessage)
+      // 上游（对话面板、写作会话）已经分类过时直接复用，避免同一次发送打两次模型。
+      const result = input.taskRoute?.intent
+        ? input.taskRoute
+        : await routeTask(input.userMessage, { llmConfig: input.agentConfig?.llmConfig })
       if (onVirtualTool && callId) {
         onVirtualTool("end", "route_task", {
           callId,

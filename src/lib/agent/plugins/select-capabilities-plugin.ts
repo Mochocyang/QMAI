@@ -2,7 +2,7 @@ import type { PrePlugin, PrePluginInput, PrePluginOutput } from "../pipeline"
 import { buildAvailableCapabilities } from "../capabilities/registry"
 import { selectCapabilities } from "../capabilities/selector"
 import { resolveAiWorkflowMode } from "../workflow-mode"
-import { detectLocalEntityMiss } from "@/lib/novel/local-entity-names"
+import { listLocalEntityNames } from "@/lib/novel/local-entity-names"
 import { getOutlineSkillNames, getWritingSkillNames } from "@/lib/novel/skill-route-registry"
 
 const PLAN_PHASE_ALLOWED_TOOLS = new Set([
@@ -40,11 +40,10 @@ export function createSelectCapabilitiesPlugin(): PrePlugin {
       })
 
       const mode = resolveAiWorkflowMode(input.aiWorkflowMode)
-      const needsEntityMissCheck =
-        mode !== "fast" && (route.intent === "character_query" || route.intent === "setting_query")
-      const localEntityMiss = needsEntityMissCheck
-        ? await detectLocalEntityMiss(input.projectPath, input.userMessage)
-        : false
+      const localEntityHint = mode !== "fast"
+        && (route.intent === "character_query" || route.intent === "setting_query")
+        ? await buildLocalEntityHint(input.projectPath, input.userMessage)
+        : undefined
 
       const selectedCapabilities = selectCapabilities({
         capabilities: availableCapabilities,
@@ -52,7 +51,6 @@ export function createSelectCapabilitiesPlugin(): PrePlugin {
         mode,
         userMessage: input.userMessage,
         blockedSources: input.blockedSources as any,
-        localEntityMiss,
       })
 
       const isPlanPhase = Boolean(input.planExecuteEnabled)
@@ -74,7 +72,16 @@ export function createSelectCapabilitiesPlugin(): PrePlugin {
         enabledToolNames: capabilitiesWithoutDuplicateSkillTool
           .map((capability) => capability.toolName)
           .filter((name): name is string => Boolean(name)),
+        ...(localEntityHint ? { localEntityHint } : {}),
       }
     },
   }
+}
+
+/** 本地实体名命中只写进提示，不决定 web_search 开或关。未命中则不提示。 */
+async function buildLocalEntityHint(projectPath: string, userMessage: string): Promise<string | undefined> {
+  const names = await listLocalEntityNames(projectPath)
+  const hits = names.filter((name) => userMessage.includes(name)).slice(0, 8)
+  if (hits.length === 0) return undefined
+  return `本地实体名命中（只作上下文，不决定是否联网）：${hits.join("、")}`
 }

@@ -71,10 +71,7 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
         }
 
         if (input.planExecuteEnabled && input.aiWorkflowMode && input.aiWorkflowMode !== "discuss") {
-          // 放宽条件：只要用户开启了计划执行就注入计划协议，不再强制要求 isWritingTask。
-          // 原因：routeTask 基于正则匹配覆盖有限，"帮我写一段"、"继续故事" 等写作请求
-          // 会被误识别为 general_chat，导致计划协议不注入、AI 不输出计划、弹窗不出现。
-          // 让 AI 自行判断当前请求是否需要输出计划，避免漏弹窗。
+          // 计划协议跟着用户手选的计划模式走，不跟意图词表走。
           const planProtocol = buildChapterPlanProtocol(input.aiWorkflowMode)
           parts.push(planProtocol)
           rulesParts.push(planProtocol)
@@ -89,6 +86,12 @@ export function createBuildSystemPromptPlugin(deps: BuildSystemPromptPluginDeps 
             rulesParts.push(taskDirective)
             dynamicRulesParts.push(taskDirective)
           }
+        }
+
+        if (typeof input.localEntityHint === "string" && input.localEntityHint.trim()) {
+          parts.push(input.localEntityHint)
+          rulesParts.push(input.localEntityHint)
+          dynamicRulesParts.push(input.localEntityHint)
         }
 
         const finalSystemPrompt = parts.join("\n\n")

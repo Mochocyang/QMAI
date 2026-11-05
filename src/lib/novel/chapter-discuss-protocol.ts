@@ -348,7 +348,7 @@ export function buildChapterDiscussRepairMessages(input: {
   }]
 }
 
-/** 选定方向后进入正文生成的 prompt；以写作动语起手，确保命中写作意图路由。 */
+/** 选定方向后进入正文生成的 prompt。写作意图由共创「生成」阶段钉住，不靠关键词。 */
 export function buildChapterDiscussExecutionPrompt(input: {
   module: string
   direction: ChapterDiscussDirection

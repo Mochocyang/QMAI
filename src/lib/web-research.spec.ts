@@ -6,8 +6,9 @@ import {
 } from "./web-research"
 
 describe("web research helpers", () => {
-  it("detects explicit web research requests and URLs", () => {
-    expect(shouldUseWebResearch("联网搜索一下都市小说热门题材")).toBe(true)
+  it("prefetches only when the message contains a URL", () => {
+    expect(shouldUseWebResearch("联网搜索一下都市小说热门题材")).toBe(false)
+    expect(shouldUseWebResearch("查一下最新平台趋势")).toBe(false)
     expect(shouldUseWebResearch("打开 https://example.com/book/1 分析这个网页")).toBe(true)
     expect(shouldUseWebResearch("帮我生成第七章内容")).toBe(false)
   })

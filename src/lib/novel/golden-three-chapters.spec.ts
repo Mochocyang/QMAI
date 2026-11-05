@@ -5,14 +5,17 @@ import {
 } from "./golden-three-chapters"
 
 describe("golden three chapter constraints", () => {
-  it("treats first-three and opening requests as first chapter plus chapter two and three directions", () => {
-    const result = detectGoldenThreeChapterRequest("生成前三章")
+  it("enables the first-chapter template only from chapter number 1", () => {
+    const fromArgument = detectGoldenThreeChapterRequest("生成前三章", 1)
+    const fromText = detectGoldenThreeChapterRequest("写第1章")
 
-    expect(result.enabled).toBe(true)
-    expect(result.targetChapter).toBe(1)
-    expect(result.outputMode).toBe("first_chapter_with_directions")
+    expect(fromArgument.enabled).toBe(true)
+    expect(fromArgument.targetChapter).toBe(1)
+    expect(fromArgument.outputMode).toBe("first_chapter_with_directions")
+    expect(fromText.enabled).toBe(true)
+    expect(fromText.targetChapter).toBe(1)
 
-    const directive = buildGoldenThreeChapterDirective(result)
+    const directive = buildGoldenThreeChapterDirective(fromArgument)
     expect(directive).toContain("只生成第一章正文")
     expect(directive).toContain("第二章写作方向")
     expect(directive).toContain("第三章写作方向")
@@ -20,13 +23,12 @@ describe("golden three chapter constraints", () => {
     expect(directive).toContain("穿越、前世、背景、设定只一笔带过")
   })
 
-  it("treats first chapter and opening synonyms as golden opening requests", () => {
-    for (const text of ["写首章", "开篇章节", "小说开头", "写开局"]) {
+  it("does not treat ambient opening phrases as chapter 1", () => {
+    for (const text of ["写首章", "开篇章节", "小说开头", "写开局", "黄金三章", "生成前三章"]) {
       const result = detectGoldenThreeChapterRequest(text)
 
-      expect(result.enabled).toBe(true)
-      expect(result.targetChapter).toBe(1)
-      expect(result.outputMode).toBe("first_chapter_with_directions")
+      expect(result.enabled).toBe(false)
+      expect(result.targetChapter).toBeUndefined()
     }
   })
 

@@ -5,7 +5,7 @@ import {
   type ContextPack,
 } from "./context-engine"
 import { listSnapshots, loadSnapshot, type ChapterSnapshot } from "./chapter-ingest"
-import { routeTask, buildTaskDirective, type TaskRouteResult } from "./task-router"
+import { routeTask, buildTaskDirective, type NovelTaskIntent, type TaskRouteResult } from "./task-router"
 import { isFinalChapter, isChapterPage } from "./chapter-meta"
 
 vi.mock("@/commands/fs", () => ({
@@ -148,123 +148,101 @@ describe("长篇稳定性测试", () => {
 
 // ─── 任务路由测试 ───
 
+function routed(text: string, intent: NovelTaskIntent, confidence = 0.9) {
+  return routeTask(text, { classification: { intent, confidence } })
+}
+
 describe("任务路由 task-router", () => {
   describe("章节生成意图识别", () => {
-    it("识别「写第10章」", () => {
-      const result = routeTask("写第10章")
+    it("采用模型给出的写作意图，并解析「写第10章」的章号", async () => {
+      const result = await routed("写第10章", "write_chapter", 0.81)
       expect(result.intent).toBe("write_chapter")
       expect(result.chapterNumber).toBe(10)
-      expect(result.confidence).toBeGreaterThan(0.5)
+      expect(result.confidence).toBe(0.81)
     })
 
-    it("识别「生成第128章」", () => {
-      const result = routeTask("生成第128章")
+    it("解析「生成第128章」的章号", async () => {
+      const result = await routed("生成第128章", "write_chapter")
       expect(result.intent).toBe("write_chapter")
       expect(result.chapterNumber).toBe(128)
     })
 
-    it("识别「帮我写新章节」", () => {
-      const result = routeTask("帮我写新章节")
-      expect(result.intent).toBe("write_chapter")
+    it("没有模型分类时，不因「写新章节」抬成写作意图", async () => {
+      const result = await routeTask("帮我写新章节", { classification: null })
+      expect(result.intent).toBe("general_chat")
+      expect(result.confidence).toBeLessThan(0.5)
     })
   })
 
   describe("续写意图识别", () => {
-    it("识别「继续写第30章」", () => {
-      const result = routeTask("继续写第30章")
+    it("采用模型给出的续写意图，并解析「继续写第30章」", async () => {
+      const result = await routed("继续写第30章", "continue_chapter")
       expect(result.intent).toBe("continue_chapter")
       expect(result.chapterNumber).toBe(30)
     })
 
-    it("识别「续写下去」", () => {
-      const result = routeTask("续写下去")
-      expect(result.intent).toBe("continue_chapter")
-    })
-
-    it("识别「接着写」", () => {
-      const result = routeTask("接着写")
-      expect(result.intent).toBe("continue_chapter")
+    it("续写措辞本身不产生意图", async () => {
+      const vague = await routeTask("续写下去", { classification: null })
+      const follow = await routeTask("接着写", { classification: null })
+      expect(vague.intent).toBe("general_chat")
+      expect(follow.intent).toBe("general_chat")
     })
   })
 
   describe("改写/润色意图识别", () => {
-    it("识别「改写这一段」", () => {
-      const result = routeTask("改写这一段")
-      expect(result.intent).toBe("rewrite_chapter")
-    })
-
-    it("识别「润色一下」", () => {
-      const result = routeTask("润色一下")
-      expect(result.intent).toBe("polish_chapter")
-    })
-
-    it("识别「让节奏更紧」", () => {
-      const result = routeTask("让这一段节奏更紧")
-      expect(result.intent).toBe("polish_chapter")
+    it("采用模型给出的改写或润色意图", async () => {
+      expect((await routed("改写这一段", "rewrite_chapter")).intent).toBe("rewrite_chapter")
+      expect((await routed("润色一下", "polish_chapter")).intent).toBe("polish_chapter")
+      expect((await routed("让这一段节奏更紧", "polish_chapter")).intent).toBe("polish_chapter")
     })
   })
 
   describe("审稿/检查意图识别", () => {
-    it("识别「审稿第15章」", () => {
-      const result = routeTask("审稿第15章")
+    it("采用模型给出的审稿意图，并解析章号", async () => {
+      const result = await routed("审稿第15章", "review_chapter")
       expect(result.intent).toBe("review_chapter")
       expect(result.chapterNumber).toBe(15)
     })
 
-    it("识别「检查有没有人设崩坏」", () => {
-      const result = routeTask("检查有没有人设崩坏")
-      expect(result.intent).toBe("review_chapter")
-    })
-
-    it("识别「连贯性检查」", () => {
-      const result = routeTask("连贯性检查")
-      expect(result.intent).toBe("lint_chapter")
+    it("人设崩坏和连贯性检查的意图来自模型", async () => {
+      expect((await routed("检查有没有人设崩坏", "review_chapter")).intent).toBe("review_chapter")
+      expect((await routed("连贯性检查", "lint_chapter")).intent).toBe("lint_chapter")
     })
   })
 
   describe("大纲生成意图识别", () => {
-    it("识别「生成大纲」", () => {
-      const result = routeTask("生成大纲")
-      expect(result.intent).toBe("generate_outline")
-    })
-
-    it("识别「帮我写分卷大纲」", () => {
-      const result = routeTask("帮我写分卷大纲")
-      expect(result.intent).toBe("generate_outline")
+    it("采用模型给出的大纲意图", async () => {
+      expect((await routed("生成大纲", "generate_outline")).intent).toBe("generate_outline")
+      expect((await routed("帮我写分卷大纲", "generate_outline")).intent).toBe("generate_outline")
     })
   })
 
   describe("查询意图识别", () => {
-    it("识别「还有哪些伏笔没回收」", () => {
-      const result = routeTask("还有哪些伏笔没回收")
-      expect(result.intent).toBe("foreshadowing_query")
+    it("采用模型给出的库内查询意图", async () => {
+      expect((await routed("还有哪些伏笔没回收", "foreshadowing_query")).intent).toBe("foreshadowing_query")
+      expect((await routed("林烬现在在哪", "character_query")).intent).toBe("character_query")
+      expect((await routed("时间线到哪了", "timeline_query")).intent).toBe("timeline_query")
+      expect((await routed("搜索黑玉令", "search_plot")).intent).toBe("search_plot")
     })
 
-    it("识别「林烬现在在哪」", () => {
-      const result = routeTask("林烬现在在哪")
-      expect(result.intent).toBe("character_query")
-    })
-
-    it("识别「时间线到哪了」", () => {
-      const result = routeTask("时间线到哪了")
-      expect(result.intent).toBe("timeline_query")
-    })
-
-    it("识别「搜索黑玉令」", () => {
-      const result = routeTask("搜索黑玉令")
-      expect(result.intent).toBe("search_plot")
+    it("「搜索」不会把库内查询改写成写作", async () => {
+      const result = await routeTask("搜索黑玉令", { classification: null })
+      expect(result.intent).not.toBe("write_chapter")
+      expect(result.intent).toBe("general_chat")
     })
   })
 
   describe("一般对话降级", () => {
-    it("识别普通对话", () => {
-      const result = routeTask("你好，今天天气怎么样")
+    it("采用模型给出的闲聊意图", async () => {
+      const result = await routed("你好，今天天气怎么样", "general_chat", 0.55)
       expect(result.intent).toBe("general_chat")
+      expect(result.confidence).toBe(0.55)
     })
 
-    it("空输入为一般对话", () => {
-      const result = routeTask("")
+    it("空输入为一般对话", async () => {
+      const result = await routeTask("")
       expect(result.intent).toBe("general_chat")
+      expect(result.confidence).toBe(1)
     })
   })
 
@@ -410,27 +388,30 @@ describe("Phase 8 长篇吞吐量压力测试", () => {
   })
 
   describe("1000 章场景下的任务路由", () => {
-    it("识别「写第999章」", () => {
-      const result = routeTask("写第999章")
+    it("解析「写第999章」的章号，意图仍来自模型", async () => {
+      const result = await routed("写第999章", "write_chapter")
       expect(result.intent).toBe("write_chapter")
       expect(result.chapterNumber).toBe(999)
     })
 
-    it("识别「继续写第998章」需要了解前文", () => {
-      const result = routeTask("继续写第998章，前文说林烬刚逃出密牢")
+    it("解析「继续写第998章」的章号", async () => {
+      const result = await routed("继续写第998章，前文说林烬刚逃出密牢", "continue_chapter")
       expect(result.intent).toBe("continue_chapter")
       expect(result.chapterNumber).toBe(998)
     })
 
-    it("长篇后期审稿不被误判为写新章", () => {
-      const result = routeTask("审稿第800章角色弧光完整度")
+    it("模型判成审稿时，章号不会把意图改成写新章", async () => {
+      const result = await routed("审稿第800章角色弧光完整度", "review_chapter")
       expect(result.intent).toBe("review_chapter")
       expect(result.chapterNumber).toBe(800)
     })
 
-    it("长篇更新元数据类指令正确路由", () => {
-      const result = routeTask("把总章数更新到 950 章")
+    it("更新总章数不会因为出现章号就被改成写新章", async () => {
+      const result = await routeTask("把总章数更新到 950 章", {
+        classification: { intent: "general_chat", confidence: 0.7 },
+      })
       expect(result.intent).not.toBe("write_chapter")
+      expect(result.intent).toBe("general_chat")
     })
   })
 })

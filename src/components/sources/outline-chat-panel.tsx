@@ -775,6 +775,7 @@ export function buildOutlineAgentSystemPrompt(options: {
     : workflowRules;
   return [
     "你是专业小说大纲分析与创作助手。",
+    "联网边界：本书剧情、伏笔、人物、设定、时间线和章纲必须用项目读取工具，禁止把这些查询发给公网。只有需要外部市场、平台趋势或公开资料，或用户消息里带了网址时，才使用 web_search 或已附上的网页摘录。不要因为出现「搜索」「最新」「查一下」就默认联网。",
     "如果用户提供 @ 引用，必须优先按路径、标题或会话ID调用对应读取工具获取正文内容。",
     // 讨论轮不提保存请求：它的产出是「待拍板的分歧点」，提保存只会诱导模型直接交付正文。
     ...(discussTurn ? [] : [
@@ -3705,6 +3706,7 @@ export function OutlineChatPanel({ onClose }: { onClose: () => void }) {
             searchApiConfig: useWikiStore.getState().searchApiConfig,
             maxSearchResults: 5,
             maxImportedDocuments: 4,
+            allowSearch: false,
           });
           const webResearchContext = buildWebResearchContext(webResearch);
           if (webResearchContext.markdown.trim()) {

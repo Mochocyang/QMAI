@@ -78,84 +78,85 @@ describe("AI capability selector", () => {
     expect(JSON.stringify(selected)).not.toContain("private output instructions")
   })
 
-  it("selects web search only when standard writing explicitly asks for external search", () => {
+  it("exposes web search in standard mode without a keyword or filename gate", () => {
     const capabilities = buildBuiltInToolCapabilities(toolNames)
 
-    const withoutSearchRequest = selectCapabilities({
+    const plainWriting = selectCapabilities({
       capabilities,
       intent: "write_chapter",
       mode: "standard",
       userMessage: "write the next chapter",
     })
-
-    const withSearchRequest = selectCapabilities({
+    const searchWording = selectCapabilities({
       capabilities,
       intent: "write_chapter",
       mode: "standard",
       userMessage: "please search the web for Huang Rong information first",
     })
+    const fastSearchWording = selectCapabilities({
+      capabilities,
+      intent: "write_chapter",
+      mode: "fast",
+      userMessage: "please search the web for the latest tropes",
+    })
 
-    expect(withoutSearchRequest.some((item) => item.kind === "web_search")).toBe(false)
-    expect(withSearchRequest.map((item) => item.toolName)).toEqual(expect.arrayContaining([
+    expect(plainWriting.map((item) => item.toolName)).toEqual(expect.arrayContaining([
       "web_search",
       "read_web_page",
       "summarize_search_results",
     ]))
+    expect(plainWriting).toContainEqual(expect.objectContaining({
+      kind: "web_search",
+      reason: "non-fast mode leaves web search to the model",
+    }))
+    expect(searchWording.some((item) => item.kind === "web_search")).toBe(true)
+    expect(fastSearchWording.some((item) => item.kind === "web_search")).toBe(false)
   })
 
-  it("enables web search for character_query when local entity misses", () => {
+  it("does not use character wording to turn web search on or off", () => {
     const capabilities = buildBuiltInToolCapabilities(toolNames)
 
-    const withMiss = selectCapabilities({
+    const localQuestion = selectCapabilities({
       capabilities,
       intent: "character_query",
       mode: "standard",
       userMessage: "黄蓉是谁",
-      localEntityMiss: true,
-    })
-    const withHit = selectCapabilities({
-      capabilities,
-      intent: "character_query",
-      mode: "standard",
-      userMessage: "黄蓉是谁",
-      localEntityMiss: false,
     })
     const explicitLookup = selectCapabilities({
       capabilities,
       intent: "character_query",
       mode: "standard",
       userMessage: "查一下黄蓉的背景",
-      localEntityMiss: false,
     })
 
-    expect(withMiss.map((item) => item.toolName)).toEqual(expect.arrayContaining([
+    expect(localQuestion.map((item) => item.toolName)).toEqual(expect.arrayContaining([
       "web_search",
       "read_web_page",
       "summarize_search_results",
     ]))
-    expect(withMiss).toContainEqual(expect.objectContaining({
-      kind: "web_search",
-      reason: expect.stringContaining("local entity miss"),
-    }))
-    expect(withHit.some((item) => item.kind === "web_search")).toBe(false)
-    expect(explicitLookup.map((item) => item.toolName)).toEqual(expect.arrayContaining([
-      "web_search",
-      "read_web_page",
-    ]))
+    expect(localQuestion.some((item) => item.reason.includes("local entity"))).toBe(false)
+    expect(localQuestion.some((item) => item.reason.includes("explicit"))).toBe(false)
+    expect(explicitLookup.some((item) => item.kind === "web_search")).toBe(true)
   })
 
-  it("does not enable web search for setting_query without miss or explicit request", () => {
+  it("exposes web search for setting questions in standard mode and withholds it in fast mode", () => {
     const capabilities = buildBuiltInToolCapabilities(toolNames)
 
-    const selected = selectCapabilities({
+    const standard = selectCapabilities({
       capabilities,
       intent: "setting_query",
       mode: "standard",
       userMessage: "这个世界的魔法体系是什么",
-      localEntityMiss: false,
+    })
+    const fast = selectCapabilities({
+      capabilities,
+      intent: "setting_query",
+      mode: "fast",
+      userMessage: "搜索一下这个世界的魔法体系",
     })
 
-    expect(selected.some((item) => item.kind === "web_search")).toBe(false)
+    expect(standard.some((item) => item.kind === "web_search")).toBe(true)
+    expect(fast.some((item) => item.kind === "web_search")).toBe(false)
   })
 
   it("selects chapter workflow tool for standard and strict chapter writing intents", () => {

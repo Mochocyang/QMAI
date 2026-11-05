@@ -56,9 +56,12 @@ export function extractWebUrls(text: string): string[] {
   return urls
 }
 
+/**
+ * 消息里带了 URL 时才预先拉取网页。
+ * 要不要为市场、趋势、公开资料做公网搜索，由模型决定，不看「联网 / 搜索 / 最新」这类词。
+ */
 export function shouldUseWebResearch(text: string): boolean {
-  if (extractWebUrls(text).length > 0) return true
-  return /联网|网页|网址|打开|搜索|搜一下|查一下|查找|最新|热门|榜单|趋势|爆款|平台|外部资料|网络资料|资料来源/i.test(text)
+  return extractWebUrls(text).length > 0
 }
 
 function deriveWebResearchQuery(text: string): string {

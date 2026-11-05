@@ -1,90 +1,161 @@
-import { describe, expect, it } from "vitest"
-import { isChapterWritingIntent, routeTask } from "./task-router"
+import { beforeEach, describe, expect, it, vi } from "vitest"
+import { classifyTaskIntent, TASK_INTENT_CLASSIFIER_SYSTEM } from "./task-intent-classifier"
+import {
+  NOVEL_TASK_INTENT_LABELS,
+  TASK_ROUTE_FALLBACK_CONFIDENCE,
+  isChapterWritingIntent,
+  routeTask,
+  type NovelTaskIntent,
+} from "./task-router"
+
+vi.mock("./task-intent-classifier", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./task-intent-classifier")>()
+  return {
+    ...actual,
+    classifyTaskIntent: vi.fn(async () => null),
+  }
+})
+
+function model(intent: NovelTaskIntent, confidence = 0.86) {
+  return { classification: { intent, confidence } }
+}
 
 describe("routeTask chapter generation", () => {
-  it("routes continue-next-chapter requests into chapter generation flow", () => {
-    const route = routeTask("继续生成下一章")
-
-    expect(route.intent).toBe("continue_chapter")
+  beforeEach(() => {
+    vi.mocked(classifyTaskIntent).mockReset().mockResolvedValue(null)
   })
 
-  it("routes the continue-next-chapter button prompt into chapter generation flow", () => {
-    const route = routeTask("请根据当前小说上下文、记忆库、最新章节结尾、下一章推进建议和章纲，继续生成下一章正文。")
+  it("uses the model intent and confidence instead of keyword weights", async () => {
+    vi.mocked(classifyTaskIntent).mockResolvedValueOnce({ intent: "continue_chapter", confidence: 0.73 })
 
+    const route = await routeTask("继续生成下一章")
+
+    expect(classifyTaskIntent).toHaveBeenCalledOnce()
     expect(route.intent).toBe("continue_chapter")
+    expect(route.confidence).toBe(0.73)
+    expect(route.chapterNumber).toBeUndefined()
   })
 
-  it("routes outline-based chapter requests and extracts Chinese chapter numbers", () => {
-    const route = routeTask("请根据第八章章纲生成正文")
+  it("keeps a provided classification and does not call the model again", async () => {
+    const route = await routeTask(
+      "请根据当前小说上下文、记忆库、最新章节结尾、下一章推进建议和章纲，继续生成下一章正文。",
+      model("continue_chapter", 0.91),
+    )
+
+    expect(classifyTaskIntent).not.toHaveBeenCalled()
+    expect(route.intent).toBe("continue_chapter")
+    expect(route.confidence).toBe(0.91)
+  })
+
+  it("extracts Chinese chapter numbers without turning the number into an intent", async () => {
+    const route = await routeTask("请根据第八章章纲生成正文", model("write_chapter", 0.8))
 
     expect(route.intent).toBe("write_chapter")
     expect(route.chapterNumber).toBe(8)
+    expect(route.confidence).toBe(0.8)
   })
 
-  it("routes analyze-outline-then-generate-chapter requests into chapter writing", () => {
-    const route = routeTask("分析大纲内容去生成第3章")
+  it("extracts an explicit chapter number from an analyze-then-write request", async () => {
+    const route = await routeTask("分析大纲内容去生成第3章", model("write_chapter"))
 
     expect(route.intent).toBe("write_chapter")
     expect(route.chapterNumber).toBe(3)
   })
 
-  it("does not hijack a customized next-chapter prompt that mentions 开篇 writing requirements (issue #9)", () => {
-    const route = routeTask(
+  it("does not treat incidental 第一章 mentions in next-chapter requests as the target chapter (issue #9)", async () => {
+    const route = await routeTask(
       "请根据当前小说上下文、记忆库、最新章节结尾、下一章推进建议和章纲，继续生成下一章正文。只输出可直接保存到章节库的小说正文，不要解释，不要列提纲。正文必须是完整章节，内容要吸引读者，留住读者，目标约 3000 字，建议 2800-3400 字，低于 2600 字视为未完成，开篇200字内必须制造'钩子'。",
+      model("continue_chapter"),
     )
 
     expect(route.intent).toBe("continue_chapter")
     expect(route.chapterNumber).toBeUndefined()
   })
 
-  it("does not treat incidental 第一章 mentions in next-chapter requests as opening requests", () => {
-    const route = routeTask("继续生成下一章正文，不要重复第一章的内容。")
+  it("does not treat incidental 第一章 mentions as chapter 1", async () => {
+    const route = await routeTask("继续生成下一章正文，不要重复第一章的内容。", model("continue_chapter"))
 
-    expect(route.intent).toBe("continue_chapter")
     expect(route.chapterNumber).toBeUndefined()
   })
 
-  it("keeps explicit later chapter numbers even when the prompt mentions 开篇 hooks", () => {
-    const route = routeTask("写第5章，开篇要有钩子")
+  it("keeps an explicit later chapter number when the prompt also says 开篇", async () => {
+    const route = await routeTask("写第5章，开篇要有钩子", model("write_chapter"))
 
     expect(route.intent).toBe("write_chapter")
     expect(route.chapterNumber).toBe(5)
   })
 
-  it("routes Chinese-numeral chapter write requests with high confidence", () => {
+  it("parses Chinese-numeral chapter numbers and keeps the model confidence", async () => {
     for (const text of ["编写第五章", "写第五章", "生成第五章", "编写第 5 章"]) {
-      const route = routeTask(text)
+      const route = await routeTask(text, model("write_chapter", 0.64))
 
       expect(route.intent).toBe("write_chapter")
       expect(route.chapterNumber).toBe(5)
-      expect(route.confidence).toBeGreaterThanOrEqual(0.5)
+      expect(route.confidence).toBe(0.64)
     }
   })
 
-  it("routes chapter write requests without 第 with high confidence", () => {
+  it("parses bare chapter numbers above 10 and explicit 第N章", async () => {
     for (const [text, chapterNumber] of [["编写 11 章", 11], ["编写 229 章", 229], ["编写第 5 章", 5]] as const) {
-      const route = routeTask(text)
+      const route = await routeTask(text, model("write_chapter"))
+
+      expect(route.chapterNumber).toBe(chapterNumber)
+    }
+  })
+
+  it("does not treat small bare numerals as chapter sequence numbers", async () => {
+    for (const text of ["写三章", "编写 5 章", "编写 10 章"]) {
+      const route = await routeTask(text, model("write_chapter", 0.99))
 
       expect(route.intent).toBe("write_chapter")
-      expect(route.chapterNumber).toBe(chapterNumber)
-      expect(route.confidence).toBeGreaterThanOrEqual(0.5)
-    }
-  })
-
-  it("does not treat small bare numerals as chapter sequence numbers", () => {
-    for (const text of ["写三章", "编写 5 章", "编写 10 章"]) {
-      const route = routeTask(text)
-
-      expect(route.intent).toBe("general_chat")
       expect(route.chapterNumber).toBeUndefined()
     }
   })
 
-  it("keeps Chinese later chapter numbers even when the prompt mentions 开篇 hooks", () => {
-    const route = routeTask("写第五章，开篇要有钩子")
+  it("keeps Chinese later chapter numbers when the prompt mentions 开篇", async () => {
+    const route = await routeTask("写第五章，开篇要有钩子", model("write_chapter"))
 
-    expect(route.intent).toBe("write_chapter")
     expect(route.chapterNumber).toBe(5)
+  })
+
+  it("fails soft to general_chat when the model classification is unusable", async () => {
+    vi.mocked(classifyTaskIntent).mockResolvedValueOnce({ intent: "not_an_intent", confidence: 0.99 })
+
+    const route = await routeTask("续写下去")
+
+    expect(route.intent).toBe("general_chat")
+    expect(route.confidence).toBe(TASK_ROUTE_FALLBACK_CONFIDENCE)
+  })
+
+  it("does not promote 写第10章 to write_chapter when classification fails", async () => {
+    const route = await routeTask("写第10章", { classification: null })
+
+    expect(classifyTaskIntent).not.toHaveBeenCalled()
+    expect(route.intent).toBe("general_chat")
+    expect(route.confidence).toBe(TASK_ROUTE_FALLBACK_CONFIDENCE)
+    expect(route.chapterNumber).toBe(10)
+  })
+
+  it("does not call the model for empty input", async () => {
+    const route = await routeTask("  ")
+
+    expect(classifyTaskIntent).not.toHaveBeenCalled()
+    expect(route.intent).toBe("general_chat")
+    expect(route.confidence).toBe(1)
+  })
+
+  it("marks modify-family intents from the model label", async () => {
+    const route = await routeTask("把这一段改得更紧", model("polish_chapter", 0.7))
+
+    expect(route.modifyFamily).toBe(true)
+  })
+
+  it("asks the classifier for every supported intent and not for a weight formula", () => {
+    for (const intent of Object.keys(NOVEL_TASK_INTENT_LABELS)) {
+      expect(TASK_INTENT_CLASSIFIER_SYSTEM).toContain(intent)
+    }
+    expect(TASK_INTENT_CLASSIFIER_SYSTEM).not.toContain("/16")
+    expect(TASK_INTENT_CLASSIFIER_SYSTEM).toContain("不是公网搜索")
   })
 
   it("identifies chapter writing intents", () => {

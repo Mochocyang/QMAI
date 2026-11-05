@@ -82,7 +82,10 @@ async function runDefaultSession(ctx: WritingSessionContext): Promise<string> {
   ])
   const registry = new ToolRegistry()
   const novelMode = useWikiStore.getState().novelMode
-  const taskRoute = routeTask(ctx.message)
+  const taskRoute = await routeTask(ctx.message, {
+    llmConfig: ctx.agentLlm,
+    signal: ctx.signal,
+  })
   const agentConfig = buildAgentConfig(ctx.agentLlm.model, "你是青幕写作的写作对话助手。", registry, {
     wikiPath: `${normalizePath(projectPath)}/wiki`,
     projectPath: normalizePath(projectPath),

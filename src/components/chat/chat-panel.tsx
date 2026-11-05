@@ -470,7 +470,7 @@ export function buildChatAgentSystemPrompt(options: {
       && toolsEnabled
       && options.aiWorkflowMode !== "fast"
     ) {
-      lines.push("会联网搜索。如果有外部搜索需求，必须使用 web_search 工具，不得声称已经搜索。未使用联网资料时，在回复末尾注明。")
+      lines.push("会联网搜索。外部公开资料才使用 web_search，不得声称已经搜索。库内剧情、伏笔、人物和设定不要发到公网。未使用联网资料时，在回复末尾注明。")
     }
     if (options.planExecuteEnabled && toolsEnabled && options.aiWorkflowMode !== "fast" && options.aiWorkflowMode !== "discuss") {
       lines.push(buildPlanExecutePolicyPrompt(options.aiWorkflowMode))
@@ -1796,44 +1796,6 @@ export function ChatPanel() {
         ))
         .slice(-maxHistoryMessages)
       const pp = normalizePath(project.path)
-      let taskRoute = novelMode ? routeTask(plainText) : null
-
-      if (planExecutionFollowup && novelMode) {
-        const savedRoute = lastWritingTaskRouteRef.current[capturedConvId]
-        if (savedRoute && WRITING_INTENTS.has(savedRoute.intent)) {
-          taskRoute = savedRoute
-        }
-      } else if (taskRoute && WRITING_INTENTS.has(taskRoute.intent)) {
-        lastWritingTaskRouteRef.current[capturedConvId] = taskRoute
-      }
-
-      if (taskRoute && SIMULATION_INTENTS.has(taskRoute.intent)) {
-        const { assistantMessage } = appendAgentChatMessages(capturedConvId, userVisibleText || plainText, tokens, sessionWorkflowMode === "discuss" ? "decision" : undefined)
-        if (!targetConversationId) {
-          setConversationInputDraft(capturedConvId, "")
-          setFallbackReferenceText("")
-          setReferenceTokensByConversation((drafts) =>
-            setReferenceTokensForConversation(drafts, referenceDraftConversationId, []),
-          )
-        }
-
-        const hasFramework = !!activeBinding
-        useStorySimulationStore.getState().initWithPreset({
-          intent: taskRoute.intent,
-          userInput: plainText,
-          hasFramework,
-        })
-
-        setActiveView("storySimulation")
-
-        updateAgentAssistantMessage(assistantMessage.id, (message) => ({
-          ...message,
-          content: "已为你打开剧情推演室并预填配置，请在推演室中继续操作。",
-          isAgentRunning: false,
-        }))
-
-        return
-      }
 
       /*
        * ── 丁-4：本条消息的临时角色灵魂绑定 ──
@@ -1937,7 +1899,7 @@ export function ChatPanel() {
       /* === Context trace + pre-plugin chain === */
       let contextTrace = createContextTrace(assistantMessage.id)
       void contextTrace
-      let effectiveTaskRoute = taskRoute
+      let effectiveTaskRoute: TaskRouteResult | null = null
       let contextPack: ContextPack | null = null
       void contextPack
       let contextHubResult: ContextHubResult | null = null
@@ -2054,6 +2016,55 @@ export function ChatPanel() {
           delete activeStreamSessionsRef.current[capturedConvId]
           chatConversationRunRegistry.remove(capturedConvId, controller)
         })
+      }
+
+      // 用户气泡已经进列表。意图分类是网络调用，必须放在这次刷新之后，
+      // 否则发送后要等分类接口返回，对话页才会出现这句话。
+      // 计划续写沿用上一轮已经分好的写作意图，不再打第二次模型。
+      // 共创里用户已经点了「写这一章」：这是产品动作，直接钉成续写。
+      const savedWritingRoute = planExecutionFollowup
+        ? lastWritingTaskRouteRef.current[capturedConvId]
+        : undefined
+      let taskRoute = novelMode
+        ? (savedWritingRoute && WRITING_INTENTS.has(savedWritingRoute.intent)
+          ? savedWritingRoute
+          : await routeTask(plainText, sendOptions?.chapterDiscussPhase === "generation"
+            ? { classification: { intent: "continue_chapter", confidence: 1 }, signal: controller.signal }
+            : { llmConfig: agentConfig.llmConfig, signal: controller.signal }))
+        : null
+
+      if (!planExecutionFollowup && taskRoute && WRITING_INTENTS.has(taskRoute.intent)) {
+        lastWritingTaskRouteRef.current[capturedConvId] = taskRoute
+      }
+
+      if (controller.signal.aborted) {
+        finishAgentSession()
+        useChatStore.getState().stopConversationRun(capturedConvId, runId)
+        await releaseMessageSoulBinding()
+        return
+      }
+
+      if (taskRoute && SIMULATION_INTENTS.has(taskRoute.intent)) {
+        const hasFramework = !!activeBinding
+        useStorySimulationStore.getState().initWithPreset({
+          intent: taskRoute.intent,
+          userInput: plainText,
+          hasFramework,
+        })
+        setActiveView("storySimulation")
+        updateAgentAssistantMessage(assistantMessage.id, (message) => ({
+          ...message,
+          content: "已为你打开剧情推演室并预填配置，请在推演室中继续操作。",
+          isAgentRunning: false,
+        }))
+        finishAgentSession()
+        useChatStore.getState().finishConversationRun(
+          capturedConvId,
+          useChatStore.getState().activeConversationId,
+          runId,
+        )
+        await releaseMessageSoulBinding()
+        return
       }
 
       const targetChapterNumber = novelMode && taskRoute

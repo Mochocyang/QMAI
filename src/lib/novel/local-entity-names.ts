@@ -53,6 +53,7 @@ export function hasLocalEntityMention(message: string, names: readonly string[])
 
 /**
  * 人物/设定查询时：本地实体表为空，或消息未命中任何本地实体名。
+ * 这是上下文提示用的判断，不能用来开关 web_search。
  */
 export async function detectLocalEntityMiss(
   projectPath: string,

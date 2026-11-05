@@ -8,7 +8,7 @@ export function createRouteTaskTool(userMessage: string): Tool {
     category: "virtual",
     parameters: {},
     execute: async () => {
-      const route = routeTask(userMessage)
+      const route = await routeTask(userMessage)
       return JSON.stringify({
         intent: route.intent,
         confidence: route.confidence,
