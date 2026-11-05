@@ -262,10 +262,13 @@ describe("chat-panel agent reference integration", () => {
 
   it("shows the sent chat message before asynchronous chapter context building", () => {
     const appendIndex = source.indexOf("appendAgentChatMessages(capturedConvId, userVisibleText || plainText, tokens")
+    const routeIndex = source.indexOf("await routeTask(plainText")
     const prePluginIndex = source.indexOf("await runNovelPrePluginChain({")
 
     expect(appendIndex).toBeGreaterThan(-1)
+    expect(routeIndex).toBeGreaterThan(-1)
     expect(prePluginIndex).toBeGreaterThan(-1)
+    expect(appendIndex).toBeLessThan(routeIndex)
     expect(appendIndex).toBeLessThan(prePluginIndex)
   })
 
